@@ -1,0 +1,76 @@
+#include "wheelemu/Ffb.hpp"
+
+#include <gtest/gtest.h>
+
+namespace wheelemu {
+namespace {
+
+constexpr float kTolerance = 1e-5F;
+
+FfbEffect constant(const float level) {
+    FfbEffect effect;
+    effect.type = FfbEffectType::Constant;
+    effect.constantLevel = level;
+    return effect;
+}
+
+TEST(FfbSafetyLimiter, CapsConstantMagnitude) {
+    FfbSafetyLimiter limiter({1.0F, 0.5F, 1000.0F});
+    EXPECT_NEAR(limiter.apply(constant(1.0F), 1.0F).constantLevel, 0.5F, kTolerance);
+    EXPECT_NEAR(limiter.apply(constant(-1.0F), 1.0F).constantLevel, -0.5F, kTolerance);
+}
+
+TEST(FfbSafetyLimiter, AppliesMasterAndEffectGain) {
+    FfbSafetyLimiter limiter({0.5F, 1.0F, 1000.0F});
+    FfbEffect effect = constant(0.8F);
+    effect.gain = 0.5F;
+    EXPECT_NEAR(limiter.apply(effect, 1.0F).constantLevel, 0.2F, kTolerance);
+}
+
+TEST(FfbSafetyLimiter, SlewLimitsSuddenJumps) {
+    FfbSafetyLimiter limiter({1.0F, 1.0F, 10.0F});
+    // 1 ms at 10 full-scale/s allows a step of 0.01.
+    EXPECT_NEAR(limiter.apply(constant(1.0F), 0.001F).constantLevel, 0.01F, kTolerance);
+    EXPECT_NEAR(limiter.apply(constant(1.0F), 0.001F).constantLevel, 0.02F, kTolerance);
+    EXPECT_NEAR(limiter.apply(constant(-1.0F), 0.001F).constantLevel, 0.01F, kTolerance);
+}
+
+TEST(FfbSafetyLimiter, ResetClearsSlewHistory) {
+    FfbSafetyLimiter limiter({1.0F, 1.0F, 1.0F});
+    EXPECT_NEAR(limiter.apply(constant(1.0F), 0.5F).constantLevel, 0.5F, kTolerance);
+    limiter.reset();
+    // Ramps from zero again instead of continuing from 0.5.
+    EXPECT_NEAR(limiter.apply(constant(1.0F), 0.1F).constantLevel, 0.1F, kTolerance);
+}
+
+TEST(FfbSafetyLimiter, CapsConditionSaturation) {
+    FfbSafetyLimiter limiter({1.0F, 0.6F, 1000.0F});
+    FfbEffect spring;
+    spring.type = FfbEffectType::Spring;
+    spring.condition.positiveCoefficient = 1.0F;
+    spring.condition.negativeCoefficient = 1.0F;
+    const FfbEffect limited = limiter.apply(spring, 0.001F);
+    EXPECT_NEAR(limited.condition.positiveSaturation, 0.6F, kTolerance);
+    EXPECT_NEAR(limited.condition.negativeSaturation, 0.6F, kTolerance);
+    EXPECT_NEAR(limited.condition.positiveCoefficient, 1.0F, kTolerance);
+}
+
+TEST(FfbSafetyLimiter, PeriodicMagnitudePlusOffsetStaysUnderCap) {
+    FfbSafetyLimiter limiter({1.0F, 0.8F, 1000.0F});
+    FfbEffect sine;
+    sine.type = FfbEffectType::Sine;
+    sine.periodic.magnitude = 0.6F;
+    sine.periodic.offset = 0.5F;
+    const FfbEffect limited = limiter.apply(sine, 0.001F);
+    EXPECT_NEAR(limited.periodic.magnitude, 0.6F, kTolerance);
+    EXPECT_NEAR(limited.periodic.offset, 0.2F, kTolerance);
+}
+
+TEST(FfbSafetyLimiter, InvalidConfigIsClamped) {
+    FfbSafetyLimiter limiter({5.0F, 2.0F, -1.0F});
+    // Gain clamps to 1, cap to 1, slew to 0: output cannot move from zero.
+    EXPECT_NEAR(limiter.apply(constant(1.0F), 1.0F).constantLevel, 0.0F, kTolerance);
+}
+
+}  // namespace
+}  // namespace wheelemu

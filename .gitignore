@@ -1,0 +1,38 @@
+# Build output (CMake build trees, any name starting with "build", IDE-generated trees)
+build*/
+cmake-build-*/
+out/
+Testing/
+CMakeUserPresets.json
+compile_commands.json
+.cache/
+
+# Compiled binaries that end up outside a build tree
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.o
+*.a
+*.lib
+
+# Logs (service and shim write them next to themselves when run from here)
+*.log
+
+# Editors and IDEs
+.vscode/
+.vs/
+.idea/
+*.user
+*.swp
+*~
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude / tooling leftovers
+Claude outputs/
+*.bundle

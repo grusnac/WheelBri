@@ -1,0 +1,27 @@
+# Proxy dinput8.dll. Drop it next to the game's .exe (Windows), or next to the .exe inside the Proton prefix
+# with WINEDLLOVERRIDES="dinput8=n,b" (Linux). Phase 2: presents the physical wheel as the emulated one,
+# fed by wheelemu-service; every other device is passed through and logged (Phase 0 behaviour).
+add_library(wheelemu_shim SHARED
+    src/DiConvert.cpp
+    src/DiFormat.cpp
+    src/Exports.cpp
+    src/ProxyEffect.cpp
+    src/RealDInput.cpp
+    src/ShimConfig.cpp
+    src/ShimLogging.cpp
+    src/StateFeed.cpp
+    dinput8.def
+)
+
+set_target_properties(wheelemu_shim PROPERTIES
+    OUTPUT_NAME dinput8
+    PREFIX "")
+
+target_compile_definitions(wheelemu_shim PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+# dxguid provides the GUID/IID definitions as static data. Do NOT link dinput8: this DLL replaces it.
+target_link_libraries(wheelemu_shim PRIVATE wheelemu_core dxguid ole32)
+
+if(MINGW)
+    # Strip symbols from release builds; keep them for Debug/RelWithDebInfo so crash dumps stay useful.
+    target_link_options(wheelemu_shim PRIVATE $<$<CONFIG:Release,MinSizeRel>:-s>)
+endif()

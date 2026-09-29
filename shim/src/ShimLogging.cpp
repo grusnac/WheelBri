@@ -1,0 +1,90 @@
+#include "ShimLogging.hpp"
+
+#include "DiFormat.hpp"
+
+#include <windows.h>
+
+#include <mutex>
+#include <string>
+
+namespace wheelemu::shim {
+
+namespace {
+
+std::once_flag gInitOnce;
+
+std::wstring modulePath(HMODULE module) {
+    wchar_t path[MAX_PATH] = {};
+    const DWORD length = GetModuleFileNameW(module, path, MAX_PATH);
+    return std::wstring(path, length);
+}
+
+HMODULE thisModule() {
+    HMODULE self = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       reinterpret_cast<LPCWSTR>(&thisModule), &self);
+    return self;
+}
+
+}  // namespace
+
+std::wstring dllDirectory() {
+    const std::wstring path = modulePath(thisModule());
+    const auto slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? std::wstring() : path.substr(0, slash + 1);
+}
+
+namespace {
+
+std::string logFileNextToDll() {
+    const std::wstring path = dllDirectory() + L"wheelemu-shim.log";
+    return toUtf8(path.c_str());
+}
+
+}  // namespace
+
+void ensureLoggingInitialised() {
+    std::call_once(gInitOnce, [] {
+        logging::LogConfig config;
+        config.level = "debug";
+        config.console = false;
+        config.flushLevel = "trace";
+        config.periodicFlush = false;
+        config.maxFileSizeBytes = 20 * 1024 * 1024;
+        config.maxFiles = 3;
+        logging::init(config, logFileNextToDll());
+
+        const logging::Logger log = logging::get("shim");
+        WE_LOG_INFO(log, "wheelemu dinput8 proxy loaded into '{}' (pid {})", toUtf8(modulePath(nullptr).c_str()),
+                    GetCurrentProcessId());
+        WE_LOG_INFO(log, "proxy dll: '{}'", toUtf8(modulePath(thisModule()).c_str()));
+#if defined(_WIN64)
+        WE_LOG_INFO(log, "architecture: x64");
+#else
+        WE_LOG_INFO(log, "architecture: x86");
+#endif
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        if (ntdll != nullptr && GetProcAddress(ntdll, "wine_get_version") != nullptr) {
+            using WineVersionFn = const char*(__cdecl*)();
+            const auto wineVersion = reinterpret_cast<WineVersionFn>(
+                reinterpret_cast<void*>(GetProcAddress(ntdll, "wine_get_version")));
+            WE_LOG_INFO(log, "running under Wine/Proton {}", wineVersion());
+        }
+    });
+}
+
+void onDllDetach(const bool processTerminating) {
+    if (processTerminating) {
+        return;
+    }
+    const logging::Logger log = logging::get("shim");
+    WE_LOG_INFO(log, "proxy unloaded by FreeLibrary");
+    logging::shutdown();
+}
+
+logging::Logger logger(const char* component) {
+    ensureLoggingInitialised();
+    return logging::get(component);
+}
+
+}  // namespace wheelemu::shim

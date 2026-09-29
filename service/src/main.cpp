@@ -1,0 +1,317 @@
+// wheelemu-service: reads the physical wheel, maps it and publishes the emulated wheel's state
+// to the in-game shim over UDP loopback. Force feedback from the game arrives in Phase 3.
+
+#include "FfbSelfTest.hpp"
+#include "MappingView.hpp"
+#include "SdlFfbSink.hpp"
+#include "SdlInputSource.hpp"
+#include "SdlRuntime.hpp"
+#include "ServiceLogging.hpp"
+
+#include "wheelemu/EmulatorConfig.hpp"
+#include "wheelemu/Logging.hpp"
+#include "wheelemu/LoopStats.hpp"
+#include "wheelemu/Pipeline.hpp"
+
+#include <SDL3/SDL.h>
+
+#include <algorithm>
+#include <atomic>
+#include <csignal>
+#include <cstdio>
+#include <exception>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace {
+
+using wheelemu::logging::Logger;
+
+constexpr Uint64 kStatsWindowNs = 10 * SDL_NS_PER_SECOND;
+
+std::atomic<bool> gStop{false};
+
+void onSignal(int) { gStop = true; }
+
+const Logger& log() {
+    static const Logger logger = wheelemu::logging::get("service");
+    return logger;
+}
+
+struct Options {
+    std::string configPath;
+    bool list = false;
+    bool print = false;
+    bool ui = false;
+    bool ffbTest = false;
+};
+
+void printUsage() {
+    std::puts(
+        "usage: wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]\n"
+        "  --config FILE  INI configuration (see config/moza-r3-as-g920.ini)\n"
+        "  --list         list joysticks and exit\n"
+        "  --print        show live raw and mapped values\n"
+        "  --ui           open a window showing how every axis and button maps to the emulated wheel\n"
+        "  --ffb-test     play a short, gentle force feedback sequence on the wheel and exit\n"
+        "logging: [logging] section of the config; per component with SPDLOG_LEVEL, e.g.\n"
+        "  SPDLOG_LEVEL=\"info,core.pipeline=trace,service.ffb=debug\"");
+}
+
+bool parseOptions(const int argc, char** argv, Options& options) {
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--config" && i + 1 < argc) {
+            options.configPath = argv[++i];
+        } else if (arg == "--list") {
+            options.list = true;
+        } else if (arg == "--print") {
+            options.print = true;
+        } else if (arg == "--ui") {
+            options.ui = true;
+        } else if (arg == "--ffb-test") {
+            options.ffbTest = true;
+        } else {
+            printUsage();
+            return false;
+        }
+    }
+    return true;
+}
+
+struct LoadedConfig {
+    wheelemu::EmulatorConfig config;
+    std::vector<std::string> problems;
+    bool fileMissing = false;
+};
+
+// Runs before logging exists (logging is configured by this file), so problems are collected, not logged.
+LoadedConfig loadConfig(const std::string& path) {
+    LoadedConfig result;
+    if (path.empty()) {
+        return result;
+    }
+    std::ifstream file(path);
+    if (!file) {
+        result.fileMissing = true;
+        return result;
+    }
+    std::stringstream text;
+    text << file.rdbuf();
+    const auto parsed = wheelemu::IniDocument::parse(text.str());
+    auto loaded = wheelemu::loadEmulatorConfig(parsed.document);
+    result.config = std::move(loaded.config);
+    result.problems = parsed.errors;
+    result.problems.insert(result.problems.end(), loaded.errors.begin(), loaded.errors.end());
+    return result;
+}
+
+void logEffectiveConfig(const wheelemu::EmulatorConfig& config) {
+    WE_LOG_INFO(log(), "source_device='{}' target_profile='{}' state_port={} loop_hz={} ffb_invert={}",
+                config.sourceDeviceMatch, config.targetProfile, config.statePort, config.loopHz, config.ffbInvert);
+    WE_LOG_DEBUG(log(), "ffb gain={:.2f} max_magnitude={:.2f} max_slew={:.1f}/s", config.ffb.masterGain,
+                 config.ffb.maxMagnitude, config.ffb.maxSlewPerSecond);
+}
+
+void listDevices() {
+    const auto joysticks = wheelemu::service::listJoysticks();
+    if (joysticks.empty()) {
+        std::puts("no joysticks found");
+    }
+    for (const auto& joystick : joysticks) {
+        std::printf("%04x:%04x  %s\n", joystick.vendorId, joystick.productId, joystick.name.c_str());  // vid:pid  name
+        WE_LOG_INFO(log(), "joystick {:04x}:{:04x} '{}'", joystick.vendorId, joystick.productId, joystick.name);
+    }
+}
+
+// Live console view for --print (user interface, deliberately not a log line).
+void printLive(const wheelemu::Pipeline& pipeline) {
+    const auto& raw = pipeline.lastRaw();
+    const auto& state = pipeline.lastState();
+    const auto& report = pipeline.lastReport();
+    std::printf("\rraw %+.3f %+.3f %+.3f %+.3f | steer %+.3f thr %.2f brk %.2f clt %.2f btn %08x hat %2d"
+                " | target steer %5d thr %5d brk %5d   ",
+                raw.axes[0], raw.axes[1], raw.axes[2], raw.axes[3], state.steering, state.throttle, state.brake,
+                state.clutch, state.buttons, state.hat, report.steering, report.throttle, report.brake);
+    std::fflush(stdout);
+}
+
+void logLoopStats(const wheelemu::LoopStats& stats, const wheelemu::Pipeline& pipeline) {
+    const auto snapshot = stats.snapshot();
+    const double targetUs = static_cast<double>(stats.targetPeriodNs()) / 1000.0;
+    WE_LOG_INFO(log(),
+                "loop: {} ticks, period avg {:.1f} us / max {:.1f} us (target {:.0f}), work avg {:.1f} us / max "
+                "{:.1f} us, {} overruns, packet #{}, {} publish failures",
+                snapshot.ticks, snapshot.averagePeriodUs, snapshot.maxPeriodUs, targetUs, snapshot.averageWorkUs,
+                snapshot.maxWorkUs, snapshot.overruns, pipeline.sequence(), pipeline.publishFailures());
+    if (snapshot.maxWorkUs > targetUs) {
+        WE_LOG_WARN(log(), "loop: one tick took {:.1f} us, longer than the whole {:.0f} us period", snapshot.maxWorkUs,
+                    targetUs);
+    }
+}
+
+int runLoop(const wheelemu::EmulatorConfig& config, wheelemu::service::SdlInputSource& source, const bool print,
+            const bool ui) {
+    const auto profile = wheelemu::makeProfile(config.targetProfile);
+    if (profile == nullptr) {
+        WE_LOG_CRITICAL(log(), "unknown target_profile '{}' (known: {})", config.targetProfile,
+                        wheelemu::kKnownProfiles);
+        return 2;
+    }
+    const auto publisher = wheelemu::UdpLoopbackPublisher::create(config.statePort);
+    if (publisher == nullptr) {
+        WE_LOG_CRITICAL(log(), "cannot publish state, the game shim would receive nothing");
+        return 1;
+    }
+
+    const wheelemu::Mapper mapper(config.mapper);
+    wheelemu::Pipeline pipeline(source, mapper, *profile, *publisher);
+
+    std::unique_ptr<wheelemu::service::MappingView> view;
+    if (ui) {
+        SDL_Joystick* const joystick = source.joystick();
+        view = wheelemu::service::MappingView::open(source.name(), SDL_GetNumJoystickAxes(joystick),
+                                                    SDL_GetNumJoystickButtons(joystick), *profile, config.mapper);
+        if (view == nullptr) {
+            return 1;
+        }
+    }
+
+    const Uint64 periodNs = SDL_NS_PER_SECOND / static_cast<Uint64>(config.loopHz);
+    const Uint64 printEveryTicks = std::max<Uint64>(1, static_cast<Uint64>(config.loopHz) / 10);
+    const Uint64 frameEveryTicks = std::max<Uint64>(1, static_cast<Uint64>(config.loopHz) / 60);  // ~60 fps
+    wheelemu::LoopStats stats(periodNs);
+    wheelemu::logging::RateLimiter overrunLimiter(std::chrono::seconds(5));
+
+    WE_LOG_INFO(log(), "running at {} Hz; press Ctrl+C to stop", config.loopHz);
+    Uint64 nextTick = SDL_GetTicksNS();
+    Uint64 lastTickStart = nextTick;
+    Uint64 windowStart = nextTick;
+    Uint64 ticks = 0;
+
+    while (!gStop) {
+        const Uint64 tickStart = SDL_GetTicksNS();
+        SDL_UpdateJoysticks();
+        if (!pipeline.tick()) {
+            WE_LOG_ERROR(log(), "stopping: physical wheel lost after {} ticks", ticks);
+            return 1;
+        }
+        ++ticks;
+        if (print && ticks % printEveryTicks == 0) {
+            printLive(pipeline);
+        }
+        if (view != nullptr && ticks % frameEveryTicks == 0) {
+            // Drawing lands inside the tick, so the loop statistics include it; the game path is unaffected.
+            if (!view->pumpEvents()) {
+                WE_LOG_INFO(log(), "mapping window closed after {} ticks", ticks);
+                break;
+            }
+            view->render(pipeline.lastRaw(), pipeline.lastState(), pipeline.lastReport());
+        }
+
+        const Uint64 tickEnd = SDL_GetTicksNS();
+        const Uint64 period = tickStart - lastTickStart;
+        lastTickStart = tickStart;
+        if (ticks > 1 && stats.record(period, tickEnd - tickStart)) {
+            WE_LOG_WARN_LIMITED(log(), overrunLimiter, "loop: tick came {:.2f} ms late (period {:.2f} ms)",
+                                static_cast<double>(period - periodNs) / 1e6, static_cast<double>(period) / 1e6);
+        }
+        if (tickEnd - windowStart >= kStatsWindowNs) {
+            logLoopStats(stats, pipeline);
+            stats.reset();
+            windowStart = tickEnd;
+        }
+
+        // Fixed rate without drift; if we fell behind (e.g. system sleep), resynchronise instead of bursting.
+        nextTick += periodNs;
+        if (nextTick > tickEnd) {
+            SDL_DelayPrecise(nextTick - tickEnd);
+        } else {
+            if (tickEnd - nextTick > 100 * SDL_NS_PER_MS) {
+                WE_LOG_WARN(log(), "loop: {:.0f} ms behind schedule, resynchronising",
+                            static_cast<double>(tickEnd - nextTick) / 1e6);
+            }
+            nextTick = tickEnd;
+        }
+    }
+    if (print) {
+        std::puts("");
+    }
+    logLoopStats(stats, pipeline);
+    if (gStop) {
+        WE_LOG_INFO(log(), "stopped by signal after {} ticks", ticks);
+    }
+    return 0;
+}
+
+int run(const Options& options) {
+    LoadedConfig loaded = loadConfig(options.configPath);
+    wheelemu::logging::init(loaded.config.logging, wheelemu::service::defaultLogFile());
+    wheelemu::service::routeSdlLogging();
+    wheelemu::service::logStartupBanner(options.configPath);
+
+    if (loaded.fileMissing) {
+        WE_LOG_CRITICAL(log(), "cannot open config file '{}'", options.configPath);
+        return 2;
+    }
+    for (const std::string& problem : loaded.problems) {
+        WE_LOG_ERROR(log(), "config {}: {}", options.configPath, problem);
+    }
+    if (!loaded.problems.empty()) {
+        WE_LOG_CRITICAL(log(), "{} problem(s) in the config, fix them and restart", loaded.problems.size());
+        return 2;
+    }
+    const wheelemu::EmulatorConfig& config = loaded.config;
+    logEffectiveConfig(config);
+
+    const wheelemu::service::SdlRuntime sdl;
+    if (!sdl.ok()) {
+        return 1;
+    }
+    if (options.list) {
+        listDevices();
+        return 0;
+    }
+
+    const auto source = wheelemu::service::SdlInputSource::open(config.sourceDeviceMatch);
+    if (source == nullptr) {
+        std::fprintf(stderr, "no joystick matching '%s'. Connected devices:\n", config.sourceDeviceMatch.c_str());
+        listDevices();
+        return 1;
+    }
+
+    if (options.ffbTest) {
+        const auto sink = wheelemu::service::SdlFfbSink::open(source->joystick(), config.ffbInvert);
+        if (sink == nullptr) {
+            return 1;
+        }
+        return wheelemu::service::runFfbSelfTest(*sink, config.ffb) ? 0 : 1;
+    }
+
+    std::signal(SIGINT, onSignal);
+    std::signal(SIGTERM, onSignal);
+    return runLoop(config, *source, options.print, options.ui);
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    Options options;
+    if (!parseOptions(argc, argv, options)) {
+        return 2;
+    }
+
+    int exitCode = 1;
+    try {
+        exitCode = run(options);
+    } catch (const std::exception& e) {
+        WE_LOG_CRITICAL(log(), "unhandled exception: {}", e.what());
+    } catch (...) {
+        WE_LOG_CRITICAL(log(), "unhandled non-standard exception");
+    }
+    WE_LOG_INFO(log(), "exit code {}", exitCode);
+    wheelemu::logging::shutdown();
+    return exitCode;
+}
