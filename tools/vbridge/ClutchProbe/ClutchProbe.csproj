@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A test clutch for the virtual G920 while no clutch pedal is connected: drives the clutch axis through
+       the bridge and reads it back through DirectInput. See tools/vbridge/README.md, "Test clutch". -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>wheelemu-clutchprobe</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\Wire.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="SharpDX" Version="4.2.0" />
+    <PackageReference Include="SharpDX.DirectInput" Version="4.2.0" />
+  </ItemGroup>
+</Project>

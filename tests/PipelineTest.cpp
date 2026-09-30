@@ -54,6 +54,20 @@ TEST(Pipeline, MapsEncodesAndPublishesEachTick) {
     EXPECT_EQ(pipeline.lastReport(), publisher.packets[1].report);
 }
 
+TEST(Pipeline, TestClutchReplacesTheMappedClutch) {
+    FakeSource source;
+    RecordingPublisher publisher;
+    const Mapper mapper(MapperConfig{});
+    const DeviceProfile profile(g29Spec());
+    Pipeline pipeline(source, mapper, profile, publisher);
+
+    ASSERT_TRUE(pipeline.tick(1.0F));
+    EXPECT_FLOAT_EQ(pipeline.lastState().clutch, 1.0F);
+    EXPECT_EQ(pipeline.lastReport().clutch, 0);          // pressed = low end, like the other pedals
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FLOAT_EQ(pipeline.lastState().clutch, 0.0F);  // no override: the mapped (absent) clutch
+}
+
 TEST(Pipeline, StopsWhenSourceDisconnects) {
     FakeSource source;
     RecordingPublisher publisher;

@@ -53,6 +53,7 @@ bool isKnownArchiver(const std::string_view name) {
 bool isManagedFile(const std::string& fileName) {
     const std::string name = lower(fileName);
     return startsWith(name, "wheelemu-service") || startsWith(name, "wheelemu-shim") ||
+           startsWith(name, "wheelemu-bridge") ||
            startsWith(name, "wheelemu-logs-") || startsWith(name, "telemetry-") || startsWith(name, "ffb-");
 }
 

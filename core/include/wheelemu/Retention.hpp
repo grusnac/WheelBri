@@ -30,8 +30,8 @@ struct RetentionConfig {
     std::string archiver = "auto";
 };
 
-// Files the service manages in its folders: wheelemu-service*, wheelemu-shim*, telemetry-*, ffb-* and
-// the archives made from them. Anything else in the folder is never touched.
+// Files the service manages in its folders: wheelemu-service*, wheelemu-shim*, wheelemu-bridge*, telemetry-*,
+// ffb-* and the archives made from them. Anything else in the folder is never touched.
 [[nodiscard]] bool isManagedFile(const std::string& fileName);
 [[nodiscard]] bool isArchive(const std::string& fileName);
 

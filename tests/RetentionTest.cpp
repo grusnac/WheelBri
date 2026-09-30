@@ -49,6 +49,7 @@ TEST(Retention, ParsesActionsAndArchivers) {
 TEST(Retention, OnlyTouchesItsOwnFiles) {
     EXPECT_TRUE(isManagedFile("wheelemu-service-2026-09-30.log"));
     EXPECT_TRUE(isManagedFile("wheelemu-shim-2026-09-30.log"));
+    EXPECT_TRUE(isManagedFile("wheelemu-bridge-2026-09-30.log"));
     EXPECT_TRUE(isManagedFile("telemetry-2026-09-30.csv"));
     EXPECT_TRUE(isManagedFile("ffb-2026-09-30.csv.xz"));
     EXPECT_TRUE(isManagedFile("wheelemu-logs-2026-09-30.7z"));

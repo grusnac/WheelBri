@@ -54,6 +54,41 @@ public static class StatePacket
     }
 }
 
+// Test clutch, sent by ClutchProbe to wheelemu-service (UDP 127.0.0.1:41331) while no clutch pedal is
+// connected; the service uses it instead of the mapped clutch (core/include/wheelemu/TestClutch.hpp). 12 bytes, little-endian: 0 u32 magic "WECL", 4 u16 version, 6 u16 reserved,
+// 8 u16 pressed 0..10000 (0 = released, 10000 = fully pressed), 10 u16 reserved.
+public static class ClutchPacket
+{
+    public const uint Magic = 0x4C434557;   // "WECL"
+    public const ushort Version = 1;
+    public const int Size = 12;
+    public const int DefaultPort = 41331;
+
+    public static byte[] Encode(float pressed)
+    {
+        var bytes = new byte[Size];
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes, Magic);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(4), Version);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(8), (ushort)Math.Round(Math.Clamp(pressed, 0f, 1f) * 10000));
+        return bytes;
+    }
+
+    public static bool TryDecode(ReadOnlySpan<byte> bytes, out float pressed)
+    {
+        pressed = 0;
+        if (bytes.Length != Size || BinaryPrimitives.ReadUInt32LittleEndian(bytes) != Magic ||
+            BinaryPrimitives.ReadUInt16LittleEndian(bytes[4..]) != Version)
+        {
+            return false;
+        }
+        pressed = Math.Min(BinaryPrimitives.ReadUInt16LittleEndian(bytes[8..]), (ushort)10000) / 10000f;
+        return true;
+    }
+
+    // Pressed share -> the G920 pedal range (65535 = released, 0 = fully pressed).
+    public static int ToAxis(float pressed) => (int)Math.Round(65535 * (1 - Math.Clamp(pressed, 0f, 1f)));
+}
+
 // Same order as wheelemu::FfbEffectType.
 public enum FfbEffectType : byte
 {

@@ -82,6 +82,22 @@ It reports whether DirectInput offers force feedback for the G920 and whether ea
 played, on screen and in `%LOCALAPPDATA%\wheelemu\logs\ffbprobe-<time>.txt`. If the wheel moves here but not
 in a game, the game is not sending force feedback to the device; if not, Windows' path to the bridge is broken.
 
+## Test clutch
+
+No clutch pedal yet? `ClutchProbe` sends a clutch position to `wheelemu-service`, which uses it instead of
+the mapped clutch (its `--ui` window and telemetry show it too, and it reaches the game through the bridge or
+the shim), and reads the G920's clutch (Rz) back through DirectInput. The service must be running; the game may
+run too.
+
+```
+dotnet run --project tools/vbridge/ClutchProbe
+```
+
+Modes: `steps` (default: 0/25/50/75/100 %, each checked), `sweep [times]` (watch the bar in `joy.cpl`),
+`hold <percent> [seconds]` (try the clutch in a game), e.g. `dotnet run --project tools/vbridge/ClutchProbe -- hold 60 45`.
+While it runs the mapped clutch is ignored; 1.5 s after it stops the pedal's clutch is used again. Port:
+UDP 127.0.0.1:41331. Report: `%LOCALAPPDATA%\wheelemu\logs\clutchprobe-<time>.txt`.
+
 ## Undo
 
 Stop the bridge (it un-hides the R3 itself), rename `dinput8.dll.off` back. To remove

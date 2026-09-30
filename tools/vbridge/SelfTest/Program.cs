@@ -206,6 +206,12 @@ g.Handle(0x1A, Hex("030101"), false, 1701);
 Check(sent.Any(p => p.Playing && p.Type == 1 && Near(p.PosCoef, 0.6f) && Near(p.PosSat, 1f)),
       "EBI-0 condition with block nibble 0xF is the wheel's spring (0.6)");
 
+// --- test clutch (ClutchProbe -> bridge) ---
+Check(ClutchPacket.TryDecode(ClutchPacket.Encode(0.25f), out float pressed) && Near(pressed, 0.25f), "clutch packet round trip (25 %)");
+Check(!ClutchPacket.TryDecode(new byte[12], out _), "clutch packet without magic rejected");
+Check(ClutchPacket.ToAxis(0) == 65535 && ClutchPacket.ToAxis(1) == 0 && ClutchPacket.ToAxis(0.5f) == 32768,
+      "clutch released = 65535, pressed = 0, like the other pedals");
+
 // --- samples for the C++ cross-check ---
 if (args.Length == 1)
 {

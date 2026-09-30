@@ -20,13 +20,16 @@ Pipeline::Pipeline(IInputSource& source, const Mapper& mapper, const IDeviceProf
                 profile_.identity().vendorId, profile_.identity().productId);
 }
 
-bool Pipeline::tick() {
+bool Pipeline::tick(std::optional<float> clutchOverride) {
     if (!source_.poll(raw_)) {
         WE_LOG_WARN(log(), "pipeline: input source '{}' stopped delivering after {} ticks", source_.name(),
                     packet_.sequence);
         return false;
     }
     state_ = mapper_.map(raw_);
+    if (clutchOverride) {
+        state_.clutch = *clutchOverride;
+    }
     packet_.report = profile_.encode(state_);
     ++packet_.sequence;
     if (!publisher_.publish(packet_)) {

@@ -5,6 +5,8 @@
 #include "wheelemu/Mapper.hpp"
 #include "wheelemu/UdpLoopback.hpp"
 
+#include <optional>
+
 namespace wheelemu {
 
 // One tick of the input path: physical wheel -> mapping -> emulated device encoding -> shim.
@@ -12,8 +14,9 @@ class Pipeline {
 public:
     Pipeline(IInputSource& source, const Mapper& mapper, const IDeviceProfile& profile, IStatePublisher& publisher);
 
-    // Returns false once the input source is gone.
-    bool tick();
+    // Returns false once the input source is gone. `clutchOverride` (0..1 pressed), when set, replaces the
+    // mapped clutch: the test clutch while no clutch pedal is connected.
+    bool tick(std::optional<float> clutchOverride = std::nullopt);
 
     [[nodiscard]] const RawInputState& lastRaw() const { return raw_; }
     [[nodiscard]] const WheelState& lastState() const { return state_; }

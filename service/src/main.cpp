@@ -17,6 +17,8 @@
 #include "wheelemu/LoopStats.hpp"
 #include "wheelemu/Pipeline.hpp"
 #include "wheelemu/Telemetry.hpp"
+#include "wheelemu/TestClutch.hpp"
+#include "wheelemu/UdpLoopback.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -433,6 +435,14 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     const wheelemu::Mapper mapper(config.mapper);
     wheelemu::Pipeline pipeline(source, mapper, *profile, *publisher);
 
+    // Test clutch (tools/vbridge/ClutchProbe) while no clutch pedal is connected.
+    const auto clutchListener = wheelemu::UdpLoopbackListener::create(wheelemu::kTestClutchPort);
+    if (clutchListener != nullptr) {
+        WE_LOG_INFO(log(), "test clutch: listening on 127.0.0.1:{} (ClutchProbe)", wheelemu::kTestClutchPort);
+    }
+    wheelemu::TestClutch testClutch;
+    bool testClutchOn = false;
+
     std::unique_ptr<wheelemu::service::MappingView> view;
     if (ui) {
         SDL_Joystick* const joystick = source.joystick();
@@ -491,8 +501,27 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
         TickStages stages;
         Uint64 mark = tickStart;
         SDL_UpdateJoysticks();
+        std::optional<float> clutchOverride;
+        if (clutchListener != nullptr) {
+            std::array<std::uint8_t, 64> datagram{};
+            for (int i = 0; i < 64; ++i) {   // everything queued since the last tick; the newest wins
+                const auto size = clutchListener->receive(datagram);
+                if (!size) {
+                    break;
+                }
+                if (const auto pressed = wheelemu::ClutchPacket::decode(std::span(datagram).first(*size))) {
+                    testClutch.offer(*pressed, tickStart);
+                }
+            }
+            clutchOverride = testClutch.active(tickStart);
+            if (clutchOverride.has_value() != testClutchOn) {
+                testClutchOn = clutchOverride.has_value();
+                WE_LOG_INFO(log(), testClutchOn ? "test clutch: controlled by ClutchProbe, the mapped clutch is ignored"
+                                                : "test clutch: ended, the mapped clutch is used again");
+            }
+        }
         stages.lap(TickStages::Input, mark);
-        if (!pipeline.tick()) {
+        if (!pipeline.tick(clutchOverride)) {
             WE_LOG_ERROR(log(), "stopping: physical wheel lost after {} ticks", ticks);
             return 1;
         }

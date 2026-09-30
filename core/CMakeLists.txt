@@ -15,6 +15,7 @@ add_library(wheelemu_core STATIC
     src/Retention.cpp
     src/StatePacket.cpp
     src/Telemetry.cpp
+    src/TestClutch.cpp
     src/UdpLoopback.cpp
 )
 

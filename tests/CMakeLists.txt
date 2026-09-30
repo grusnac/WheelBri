@@ -20,6 +20,7 @@ add_executable(wheelemu_tests
     RetentionTest.cpp
     StatePacketTest.cpp
     TelemetryTest.cpp
+    TestClutchTest.cpp
     UdpLoopbackTest.cpp
 )
 target_link_libraries(wheelemu_tests PRIVATE wheelemu_core GTest::gtest_main)

@@ -15,6 +15,7 @@
   <ItemGroup>
     <Compile Remove="SelfTest\**" />
     <Compile Remove="FfbProbe\**" />
+    <Compile Remove="ClutchProbe\**" />
     <Reference Include="HIDMaestro.Core">
       <HintPath>$(HIDMaestroCore)</HintPath>
     </Reference>

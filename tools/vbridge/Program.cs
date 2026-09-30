@@ -88,6 +88,13 @@ internal static class Program
                 + "DirectInput name to the registry");
             return 1;
         }
+        // One bridge at a time: a second one would delete and recreate the same virtual G920 under the first.
+        using var single = new Mutex(false, @"Global\wheelemu-bridge", out bool firstInstance);
+        if (!firstInstance)
+        {
+            Log("another wheelemu-bridge is already running: use that one (or stop it first with Ctrl+C)");
+            return 1;
+        }
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; _stop = true; };
         // Closing the window (SIGHUP on Windows = CTRL_CLOSE_EVENT) or logging off: stop the same way and give
         // the cleanup (un-hiding the real wheel) the few seconds Windows allows.
