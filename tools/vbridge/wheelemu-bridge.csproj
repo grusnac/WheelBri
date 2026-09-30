@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Phase 5 step 0: virtual G920 through HIDMaestro (docs/phase5-windows-virtual-device.md).
+       Needs HIDMaestro.Core.dll: by default third_party/hidmaestro/HIDMaestro.Core.dll, or pass
+       -p:HIDMaestroCore=C:\path\to\HIDMaestro.Core.dll -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>wheelemu-bridge</AssemblyName>
+    <RootNamespace>Wheelemu.Bridge</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <HIDMaestroCore Condition="'$(HIDMaestroCore)' == ''">$(MSBuildThisFileDirectory)..\..\third_party\hidmaestro\HIDMaestro.Core.dll</HIDMaestroCore>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="SelfTest\**" />
+    <Compile Remove="FfbProbe\**" />
+    <Reference Include="HIDMaestro.Core">
+      <HintPath>$(HIDMaestroCore)</HintPath>
+    </Reference>
+  </ItemGroup>
+  <Target Name="CheckHIDMaestro" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(HIDMaestroCore)')">
+    <Error Text="HIDMaestro.Core.dll not found at $(HIDMaestroCore). Build HIDMaestro (scripts\build_all.cmd) or download it, then copy the DLL there or pass -p:HIDMaestroCore=path." />
+  </Target>
+</Project>

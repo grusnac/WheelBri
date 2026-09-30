@@ -20,6 +20,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | 2 | Shim answers as a G920 using the service's state | **working in NFS 2015**: wheel, pedals, buttons, D-pad |
 | 3 | Game FFB → service (safety limiter, watchdog) → R3 | **working in NFS 2015**: constant, spring, damper, sine, square |
 | 4 | Linux `uhid` virtual G920 (its FFB is HID++, not the classic Logitech protocol) | not started |
+| 5 | Windows virtual G920 (every game, no DLL per game) | step 0 works in NFS 2015 without `dinput8.dll` (input and force feedback as with the shim): `tools/vbridge` (HIDMaestro); design in [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
 
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
@@ -42,6 +43,7 @@ Still open:
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
 | `scripts/` | `telemetry_summary.py`: summary of a recorded session |
+| `tools/vbridge/` | Phase 5 step 0: `wheelemu-bridge`, a virtual G920 through HIDMaestro (C#, Windows) |
 
 ## Build
 
