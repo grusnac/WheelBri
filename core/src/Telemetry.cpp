@@ -1,6 +1,8 @@
 #include "wheelemu/Telemetry.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <cstdarg>
 #include <ctime>
 #include <system_error>
@@ -136,6 +138,8 @@ void TelemetryRecorder::closeFiles() {
 
 bool TelemetryRecorder::openDay(const std::string& day, const bool continued, std::string& error) {
     closeFiles();
+    forceRow_ = true;
+    lastSlots_.fill(std::nullopt);
     day_ = day;
     dayStart_ = startOfDay(day).value_or(sessionStart_);
     const std::string nextDay = addDays(day, 1).value_or(day);
@@ -241,33 +245,112 @@ void TelemetryRecorder::appendTimes(std::string& line, const WallClock::time_poi
             static_cast<double>(nowNs - *startNs_) / 1e6);
 }
 
+bool TelemetryRecorder::changed(const TelemetrySample& sample, const std::string& exact) const {
+    if (exact != lastExact_) {
+        return true;
+    }
+    const float min = std::max(config_.minChange, 1e-6F);
+    const auto moved = [min](const float a, const float b) { return std::abs(a - b) >= min; };
+    for (std::size_t i = 0; i < sample.raw.axes.size(); ++i) {
+        if (moved(sample.raw.axes[i], lastRaw_.axes[i])) {
+            return true;
+        }
+    }
+    const WheelState& s = sample.state;
+    if (moved(s.steering, lastState_.steering) || moved(s.throttle, lastState_.throttle) ||
+        moved(s.brake, lastState_.brake) || moved(s.clutch, lastState_.clutch)) {
+        return true;
+    }
+    // Emulated wheel units: the same threshold on a 16-bit range, at least one count.
+    const std::int64_t minCounts = std::max<std::int64_t>(1, static_cast<std::int64_t>(min * 32768.0F));
+    const auto movedCounts = [minCounts](const std::int32_t a, const std::int32_t b) {
+        return std::llabs(static_cast<long long>(a) - static_cast<long long>(b)) >= minCounts;
+    };
+    const TargetReport& r = sample.report;
+    return movedCounts(r.steering, lastReport_.steering) || movedCounts(r.throttle, lastReport_.throttle) ||
+           movedCounts(r.brake, lastReport_.brake) || movedCounts(r.clutch, lastReport_.clutch);
+}
+
 void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
     const WallClock::time_point wall = advance(sample.nowNs);
     // Keep the grid: the next row is due one period after this one was due, not after it was written.
     lastSampleNs_ = lastSampleNs_ && sample.nowNs - *lastSampleNs_ < 2 * periodNs_ ? *lastSampleNs_ + periodNs_
                                                                                    : sample.nowNs;
 
+    // Row values. Times, sequence numbers, the packet counter, packet age and loop timing change all the
+    // time and never make a row on their own.
+    std::string k;
+    for (const float axis : sample.raw.axes) {
+        appendf(k, ",%.4f", static_cast<double>(axis));
+    }
+    appendf(k, ",%llx,%d", static_cast<unsigned long long>(sample.raw.buttons), sample.raw.hat);
+    appendf(k, ",%.4f,%.4f,%.4f,%.4f,%x,%d", static_cast<double>(sample.state.steering),
+            static_cast<double>(sample.state.throttle), static_cast<double>(sample.state.brake),
+            static_cast<double>(sample.state.clutch), static_cast<unsigned>(sample.state.buttons), sample.state.hat);
+    appendf(k, ",%ld,%ld,%ld,%ld,%x,%d", static_cast<long>(sample.report.steering),
+            static_cast<long>(sample.report.throttle), static_cast<long>(sample.report.brake),
+            static_cast<long>(sample.report.clutch), static_cast<unsigned>(sample.report.buttons), sample.report.hat);
+    const std::size_t valuesEnd = k.size();   // ffb_* columns go in between in the row
+
+    const FfbController* const ffb = sample.ffb;
+    std::string slots;
+    if (ffb == nullptr) {
+        for (std::size_t slot = 0; slot < IFfbSink::kMaxSlots; ++slot) {
+            slots += ",,,,";
+        }
+    } else {
+        for (std::size_t slot = 0; slot < IFfbSink::kMaxSlots; ++slot) {
+            if (slot >= ffb->slotCount()) {
+                slots += ",,,,";
+                continue;
+            }
+            const auto view = ffb->slot(slot);
+            if (!view.wanted && !view.playing) {
+                slots += ",,,,";  // idle slots stay empty so active ones stand out
+                continue;
+            }
+            slots += ',';
+            slots += typeField(view.requested.type);
+            appendf(slots, ",%s%s,%.4f,", view.wanted ? "w" : "", view.playing ? "p" : "",
+                    static_cast<double>(ffbStrength(view.requested)));
+            if (view.sent) {
+                appendf(slots, "%.4f", static_cast<double>(ffbStrength(*view.sent)));
+            }
+        }
+    }
+    // Compared exactly: buttons, hats and everything force feedback (the game's forces are the output we
+    // are here to see, so every change of them counts).
+    std::string exact;
+    appendf(exact, "%llx,%d,%x,%d,%x,%d", static_cast<unsigned long long>(sample.raw.buttons), sample.raw.hat,
+            static_cast<unsigned>(sample.state.buttons), sample.state.hat, static_cast<unsigned>(sample.report.buttons),
+            sample.report.hat);
+    if (ffb != nullptr) {
+        appendf(exact, "|%d,%llu", ffb->watchdogTripped() ? 1 : 0,
+                static_cast<unsigned long long>(ffb->stats().playFailures));
+    }
+    exact += slots;
+
+    if (config_.onlyChanges && !forceRow_ && !changed(sample, exact)) {
+        const std::uint64_t heartbeatNs = static_cast<std::uint64_t>(std::max(config_.heartbeatSeconds, 0)) * kNsPerSecond;
+        if (heartbeatNs == 0 || !lastWrittenNs_ || sample.nowNs - *lastWrittenNs_ < heartbeatNs) {
+            ++skipped_;
+            return;
+        }
+    }
+    lastExact_ = exact;
+    lastRaw_ = sample.raw;
+    lastState_ = sample.state;
+    lastReport_ = sample.report;
+    lastWrittenNs_ = sample.nowNs;
+    forceRow_ = false;
+
     std::string& l = line_;
     l.clear();
     appendTimes(l, wall, sample.nowNs);
     appendf(l, ",%u", static_cast<unsigned>(sample.sequence));
-    for (const float axis : sample.raw.axes) {
-        appendf(l, ",%.4f", static_cast<double>(axis));
-    }
-    appendf(l, ",%llx,%d", static_cast<unsigned long long>(sample.raw.buttons), sample.raw.hat);
-    appendf(l, ",%.4f,%.4f,%.4f,%.4f,%x,%d", static_cast<double>(sample.state.steering),
-            static_cast<double>(sample.state.throttle), static_cast<double>(sample.state.brake),
-            static_cast<double>(sample.state.clutch), static_cast<unsigned>(sample.state.buttons), sample.state.hat);
-    appendf(l, ",%ld,%ld,%ld,%ld,%x,%d", static_cast<long>(sample.report.steering),
-            static_cast<long>(sample.report.throttle), static_cast<long>(sample.report.brake),
-            static_cast<long>(sample.report.clutch), static_cast<unsigned>(sample.report.buttons), sample.report.hat);
-
-    const FfbController* const ffb = sample.ffb;
+    l.append(k, 0, valuesEnd);
     if (ffb == nullptr) {
         l += ",,,,,";
-        for (std::size_t slot = 0; slot < IFfbSink::kMaxSlots; ++slot) {
-            l += ",,,,";
-        }
     } else {
         const auto& stats = ffb->stats();
         appendf(l, ",%llu,", static_cast<unsigned long long>(stats.packets));
@@ -276,25 +359,8 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
         }
         appendf(l, ",%d,%llu,%llu", ffb->watchdogTripped() ? 1 : 0, static_cast<unsigned long long>(stats.plays),
                 static_cast<unsigned long long>(stats.playFailures));
-        for (std::size_t slot = 0; slot < IFfbSink::kMaxSlots; ++slot) {
-            if (slot >= ffb->slotCount()) {
-                l += ",,,,";
-                continue;
-            }
-            const auto view = ffb->slot(slot);
-            if (!view.wanted && !view.playing) {
-                l += ",,,,";  // idle slots stay empty so active ones stand out
-                continue;
-            }
-            l += ',';
-            l += typeField(view.requested.type);
-            appendf(l, ",%s%s,%.4f,", view.wanted ? "w" : "", view.playing ? "p" : "",
-                    static_cast<double>(ffbStrength(view.requested)));
-            if (view.sent) {
-                appendf(l, "%.4f", static_cast<double>(ffbStrength(*view.sent)));
-            }
-        }
     }
+    l += slots;
     appendf(l, ",%.0f,%.0f\n", sample.periodUs, sample.workUs);
 
     write(samples_, l);
@@ -307,6 +373,17 @@ void TelemetryRecorder::writeFfbPacket(const std::uint64_t nowNs, const FfbPacke
     if (packet.kind == FfbPacket::Kind::KeepAlive) {
         ++keepAlives_;
         return;
+    }
+    // Only real changes: the shim re-sends every slot four times a second so a lost datagram heals.
+    if (packet.kind == FfbPacket::Kind::StopAll) {
+        lastSlots_.fill(std::nullopt);
+    } else if (packet.slot < lastSlots_.size()) {
+        auto& last = lastSlots_[packet.slot];
+        const std::pair<bool, FfbEffect> now{packet.playing, packet.effect};
+        if (last && *last == now) {
+            return;
+        }
+        last = now;
     }
     const FfbEffect& e = packet.effect;
     std::string& l = line_;

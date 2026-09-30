@@ -93,7 +93,9 @@ std::optional<std::uint8_t> FfbForwarder::allocate() {
             return static_cast<std::uint8_t>(i);
         }
     }
-    WE_LOG_WARN(log(), "all {} force feedback slots in use; the game's next effect is refused", slots_.size());
+    static logging::RateLimiter limiter(std::chrono::seconds(5));
+    WE_LOG_WARN_LIMITED(log(), limiter, "all {} force feedback slots in use; the game's next effect is refused",
+                        slots_.size());
     return std::nullopt;
 }
 

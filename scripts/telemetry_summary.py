@@ -6,6 +6,9 @@ usage: python scripts/telemetry_summary.py [FILE | FOLDER] [--all]
 FILE is a telemetry-YYYY-MM-DD.csv (also .csv.xz / .csv.gz). With a FOLDER (default: the service's log
 folder) the newest day is used. By default the last session of that day is summarised; --all summarises
 every session of the day together. The matching ffb-*.csv next to it is read too.
+
+Rows are written only when a value changes (only_changes), so each row stands for the time until the next
+one; shares of time below are weighted by that.
 """
 
 import collections
@@ -76,6 +79,16 @@ def percentile(values, p):
     return values[min(len(values) - 1, int(p / 100.0 * len(values)))]
 
 
+def weights(rows):
+    """Seconds each row's values held: until the next row of the same session (capped at 60 s)."""
+    result = []
+    for i, r in enumerate(rows):
+        now, nxt = num(r["t_ms"]), num(rows[i + 1]["t_ms"]) if i + 1 < len(rows) else None
+        held = (nxt - now) / 1000.0 if nxt is not None and nxt >= now else 0.02
+        result.append(min(held, 60.0))
+    return result
+
+
 def summarise(rows, comments):
     for c in comments:
         if c.startswith(("# session started", "# wheelemu-service", "# source:", "# target_profile:", "# config:")):
@@ -83,7 +96,10 @@ def summarise(rows, comments):
     if not rows:
         print("no rows")
         return
-    print(f"rows     {len(rows)}, {rows[0]['time']} .. {rows[-1]['time']}")
+    w = weights(rows)
+    total = sum(w) or 1.0
+    share = lambda test: sum(wi for r, wi in zip(rows, w) if test(r)) / total
+    print(f"rows     {len(rows)}, {rows[0]['time']} .. {rows[-1]['time']} ({total:.0f} s)")
     if any(c.startswith("# stopped") for c in comments):
         print("         NOTE: the file hit max_file_mb, recording stopped early")
 
@@ -107,9 +123,9 @@ def summarise(rows, comments):
     print("\nmapped pedals: share of time pressed (>5%) / max")
     for name in ("throttle", "brake", "clutch"):
         values = [num(r[name]) for r in rows]
-        pressed = sum(1 for v in values if v > 0.05) / len(values)
+        pressed = share(lambda r, n=name: num(r[n]) > 0.05)
         print(f"  {name:8s} {pressed:6.1%}  max {max(values):.3f}")
-    both = sum(1 for r in rows if num(r["throttle"]) > 0.05 and num(r["brake"]) > 0.05) / len(rows)
+    both = share(lambda r: num(r["throttle"]) > 0.05 and num(r["brake"]) > 0.05)
     print(f"  throttle and brake together: {both:.1%}")
     steer = [num(r["steer"]) for r in rows]
     print(f"  steer    {min(steer):+.3f} .. {max(steer):+.3f}")
@@ -127,21 +143,21 @@ def summarise(rows, comments):
         ages = [num(r["ffb_age_ms"]) for r in rows if r["ffb_age_ms"] != ""]
         if ages:
             print(f"  packet age: median {statistics.median(ages):.0f} ms, max {max(ages):.0f} ms")
-        watchdog = sum(1 for r in rows if r["ffb_watchdog"] == "1") / len(rows)
+        watchdog = share(lambda r: r["ffb_watchdog"] == "1")
         print(f"  watchdog tripped in {watchdog:.1%} of rows (game quiet > 500 ms: menus, pause, alt-tab)")
-        by_type = collections.defaultdict(lambda: {"rows": 0, "req": [], "out": []})
-        for r in rows:
+        by_type = collections.defaultdict(lambda: {"rows": 0.0, "req": [], "out": []})
+        for r, wi in zip(rows, w):
             for s in range(8):
                 kind = r[f"s{s}_type"]
                 if kind and "p" in r[f"s{s}_state"]:
                     entry = by_type[kind]
-                    entry["rows"] += 1
+                    entry["rows"] += wi
                     entry["req"].append(abs(num(r[f"s{s}_req"]) or 0.0))
                     if r[f"s{s}_out"] != "":
                         entry["out"].append(abs(num(r[f"s{s}_out"])))
         print("  effect      playing  |req| p95 / max   |out| p95 / max")
         for kind, e in sorted(by_type.items()):
-            print(f"  {kind:10s} {e['rows'] / len(rows):7.1%}   {percentile(e['req'], 95):.2f} / {max(e['req']):.2f}"
+            print(f"  {kind:10s} {e['rows'] / total:7.1%}   {percentile(e['req'], 95):.2f} / {max(e['req']):.2f}"
                   f"      {percentile(e['out'], 95):.2f} / {max(e['out'] or [0]):.2f}")
 
     periods = [num(r["period_us"]) for r in rows[1:]]

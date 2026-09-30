@@ -67,13 +67,16 @@ TEST(EmulatorConfig, ReadsTelemetry) {
     EXPECT_TRUE(defaults.config.telemetry.enabled);
     EXPECT_EQ(defaults.config.telemetry.rateHz, 50);
 
-    const auto result = load("[telemetry]\nenabled = false\nrate_hz = 100\nmax_file_mb = 50\n"
+    const auto result = load("[telemetry]\nenabled = false\nrate_hz = 100\nmax_file_mb = 50\nonly_changes = false\nheartbeat_s = 5\nmin_change = 0.001\n"
                              "directory = D:/telemetry\n");
     ASSERT_TRUE(result.errors.empty()) << result.errors.front();
     const TelemetryConfig& telemetry = result.config.telemetry;
     EXPECT_FALSE(telemetry.enabled);
     EXPECT_EQ(telemetry.rateHz, 100);
     EXPECT_EQ(telemetry.maxFileMb, 50);
+    EXPECT_FALSE(telemetry.onlyChanges);
+    EXPECT_EQ(telemetry.heartbeatSeconds, 5);
+    EXPECT_FLOAT_EQ(telemetry.minChange, 0.001F);
     EXPECT_EQ(telemetry.directory, "D:/telemetry");
 
     const auto bad = load("[telemetry]\nrate_hz = 0\nfolder = x\n");

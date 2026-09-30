@@ -198,6 +198,9 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         TelemetryConfig& telemetry = config.telemetry;
         reader.readBool("enabled", telemetry.enabled);
         reader.readInt("rate_hz", telemetry.rateHz, 1, 1000);
+        reader.readBool("only_changes", telemetry.onlyChanges);
+        reader.readInt("heartbeat_s", telemetry.heartbeatSeconds, 0, 3600);
+        reader.readFloat("min_change", telemetry.minChange, 0.0F, 0.1F);
         reader.readInt("max_file_mb", telemetry.maxFileMb, 1, 4096);
         reader.readString("directory", telemetry.directory);
         reader.reportUnknownKeys();

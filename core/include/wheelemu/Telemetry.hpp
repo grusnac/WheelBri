@@ -7,7 +7,9 @@
 #include "wheelemu/TelemetryConfig.hpp"
 #include "wheelemu/WheelState.hpp"
 
+#include <array>
 #include <cstdint>
+#include <utility>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
@@ -37,6 +39,11 @@ struct TelemetrySample {
 //                             slot (requested -> sent to the wheel) and loop timing.
 //  ffb-YYYY-MM-DD.csv         one row per force feedback change the game sent (every SlotState / StopAll
 //                             packet, keep-alives are only counted), with every effect parameter.
+//
+// With [telemetry] only_changes (default) a telemetry row is written only when one of the wheel, mapped,
+// game-facing or force feedback values changed (checked rate_hz times a second), plus one row every
+// heartbeat_s; a value therefore holds until the next row. ffb-*.csv only gets rows for real changes:
+// the shim's periodic re-sends of an unchanged effect are left out.
 //
 // A new file starts with '#' comment lines and the column header row. Every session then appends a
 // "# session ..." block (version, device, config) followed by its rows; a session running past midnight
@@ -69,8 +76,9 @@ public:
     [[nodiscard]] const std::filesystem::path& samplesPath() const { return samplesPath_; }
     [[nodiscard]] const std::filesystem::path& ffbPath() const { return ffbPath_; }
     [[nodiscard]] const std::string& day() const { return day_; }
-    // Rows written by this session (all days).
+    // Rows written by this session (all days), and samples not written because nothing had changed.
     [[nodiscard]] std::uint64_t rowsWritten() const { return rows_; }
+    [[nodiscard]] std::uint64_t rowsSkipped() const { return skipped_; }
     [[nodiscard]] std::uint64_t ffbRowsWritten() const { return ffbRows_; }
 
 private:
@@ -109,6 +117,17 @@ private:
     std::uint64_t rows_ = 0;
     std::uint64_t ffbRows_ = 0;
     std::uint64_t keepAlives_ = 0;
+    std::uint64_t skipped_ = 0;
+    // Change detection: the value columns of the last row written (without times, counters and loop
+    // timing), when it was written, and the last effect state written per force feedback slot.
+    [[nodiscard]] bool changed(const TelemetrySample& sample, const std::string& exact) const;
+    std::string lastExact_;            // buttons, hats and force feedback columns, compared as text
+    RawInputState lastRaw_;
+    WheelState lastState_;
+    TargetReport lastReport_;
+    std::optional<std::uint64_t> lastWrittenNs_;
+    bool forceRow_ = true;             // the first row of a session and of every new day's file
+    std::array<std::optional<std::pair<bool, FfbEffect>>, IFfbSink::kMaxSlots> lastSlots_{};
     std::string line_;                 // reused row buffer
 };
 

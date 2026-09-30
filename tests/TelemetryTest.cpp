@@ -221,9 +221,89 @@ TEST_F(TelemetryTest, FfbEventsSkipKeepAlives) {
     EXPECT_NE(data[3].find("malformed_12_bytes"), std::string::npos);
 }
 
+TEST_F(TelemetryTest, WritesRowsOnlyWhenAValueChanges) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    for (int i = 0; i < 10; ++i) {  // nothing moves: one row
+        sample.nowNs = static_cast<std::uint64_t>(i) * 20 * kMs;
+        sample.periodUs = 1000 + i;  // timing and sequence changes do not count
+        sample.sequence = static_cast<std::uint32_t>(i);
+        recorder->writeSample(sample);
+    }
+    sample.nowNs = 200 * kMs;
+    sample.raw.axes[0] = 0.25F;  // the wheel moves: a row
+    sample.state.steering = 0.25F;
+    recorder->writeSample(sample);
+    sample.nowNs = 220 * kMs;
+    recorder->writeSample(sample);  // still: skipped
+    sample.nowNs = 240 * kMs;
+    sample.raw.axes[0] = 0.2502F;   // sensor noise below min_change: skipped
+    sample.state.steering = 0.2502F;
+    sample.report.steering += 3;
+    recorder->writeSample(sample);
+    EXPECT_EQ(recorder->rowsWritten(), 2U);
+    EXPECT_EQ(recorder->rowsSkipped(), 11U);
+    recorder.reset();
+
+    const auto data = lines(dir_ / "telemetry-2026-09-30.csv");
+    ASSERT_EQ(data.size(), 3U);
+    EXPECT_EQ(data[1].rfind("10:00:00.000,0.0,", 0), 0U);
+    EXPECT_EQ(data[2].rfind("10:00:00.200,200.0,", 0), 0U);
+    EXPECT_EQ(fields(data[2]), telemetryColumns().size());
+}
+
+TEST_F(TelemetryTest, HeartbeatRowWhenNothingChanges) {
+    TelemetryConfig config;
+    config.heartbeatSeconds = 1;
+    auto recorder = open(at(10, 0, 0), config);
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    for (int i = 0; i <= 125; ++i) {  // 2.5 s without a change at 50 rows/s
+        sample.nowNs = static_cast<std::uint64_t>(i) * 20 * kMs;
+        recorder->writeSample(sample);
+    }
+    EXPECT_EQ(recorder->rowsWritten(), 3U);  // start, +1 s, +2 s
+}
+
+TEST_F(TelemetryTest, EveryRowWhenOnlyChangesIsOff) {
+    TelemetryConfig config;
+    config.onlyChanges = false;
+    auto recorder = open(at(10, 0, 0), config);
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    for (int i = 0; i < 5; ++i) {
+        sample.nowNs = static_cast<std::uint64_t>(i) * 20 * kMs;
+        recorder->writeSample(sample);
+    }
+    EXPECT_EQ(recorder->rowsWritten(), 5U);
+}
+
+TEST_F(TelemetryTest, FfbEventsOnlyForRealChanges) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::SlotState;
+    packet.slot = 0;
+    packet.playing = true;
+    packet.effect.constantLevel = 0.2F;
+    recorder->writeFfbPacket(0, packet);
+    recorder->writeFfbPacket(250 * kMs, packet);  // periodic re-send: skipped
+    packet.effect.constantLevel = 0.3F;
+    recorder->writeFfbPacket(300 * kMs, packet);
+    packet.slot = 1;
+    recorder->writeFfbPacket(310 * kMs, packet);  // same effect, other slot: a change
+    packet.kind = FfbPacket::Kind::StopAll;
+    recorder->writeFfbPacket(320 * kMs, packet);
+    packet.kind = FfbPacket::Kind::SlotState;
+    recorder->writeFfbPacket(330 * kMs, packet);  // after StopAll the slot starts again
+    EXPECT_EQ(recorder->ffbRowsWritten(), 5U);
+}
+
 TEST_F(TelemetryTest, StopsAtMaxFileSize) {
     TelemetryConfig config;
     config.maxFileMb = 1;
+    config.onlyChanges = false;
     auto recorder = open(at(10, 0, 0), config);
     ASSERT_NE(recorder, nullptr);
     TelemetrySample sample;

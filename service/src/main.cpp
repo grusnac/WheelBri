@@ -31,7 +31,9 @@
 #include <fstream>
 #include <span>
 #include <sstream>
+#include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #ifndef WHEELEMU_VERSION
@@ -165,19 +167,57 @@ void printLive(const wheelemu::Pipeline& pipeline) {
     std::fflush(stdout);
 }
 
-void logLoopStats(const wheelemu::LoopStats& stats, const wheelemu::Pipeline& pipeline) {
+void logLoopStats(const char* what, const wheelemu::LoopStats& stats, const wheelemu::Pipeline& pipeline) {
     const auto snapshot = stats.snapshot();
     const double targetUs = static_cast<double>(stats.targetPeriodNs()) / 1000.0;
     WE_LOG_INFO(log(),
-                "loop: {} ticks, period avg {:.1f} us / max {:.1f} us (target {:.0f}), work avg {:.1f} us / max "
+                "loop: {}: {} ticks, period avg {:.1f} us / max {:.1f} us (target {:.0f}), work avg {:.1f} us / max "
                 "{:.1f} us, {} overruns, packet #{}, {} publish failures",
-                snapshot.ticks, snapshot.averagePeriodUs, snapshot.maxPeriodUs, targetUs, snapshot.averageWorkUs,
+                what, snapshot.ticks, snapshot.averagePeriodUs, snapshot.maxPeriodUs, targetUs, snapshot.averageWorkUs,
                 snapshot.maxWorkUs, snapshot.overruns, pipeline.sequence(), pipeline.publishFailures());
-    if (snapshot.maxWorkUs > targetUs) {
-        WE_LOG_WARN(log(), "loop: one tick took {:.1f} us, longer than the whole {:.0f} us period", snapshot.maxWorkUs,
-                    targetUs);
-    }
 }
+
+// Loop timing is logged only when its health changes (checked every 10 s), not every window: a line
+// when ticks start running late, one when they are on time again, and a summary at exit.
+class LoopHealth {
+public:
+    explicit LoopHealth(const Uint64 periodNs) : window_(periodNs), sinceReport_(periodNs) {}
+
+    void record(const Uint64 periodNs, const Uint64 workNs) {
+        window_.record(periodNs, workNs);
+        sinceReport_.record(periodNs, workNs);
+    }
+
+    // End of a 10-second window.
+    void endWindow(const wheelemu::Pipeline& pipeline) {
+        const auto snapshot = window_.snapshot();
+        const double targetUs = static_cast<double>(window_.targetPeriodNs()) / 1000.0;
+        const bool late = snapshot.overruns > 0 || snapshot.maxWorkUs > targetUs;
+        if (!reported_ || late != late_) {
+            if (late) {
+                WE_LOG_WARN(log(), "loop: ticks running late: {} overruns in 10 s, longest period {:.0f} us, longest "
+                                   "work {:.0f} us (target {:.0f} us); next report when this changes",
+                            snapshot.overruns, snapshot.maxPeriodUs, snapshot.maxWorkUs, targetUs);
+            } else {
+                logLoopStats(reported_ ? "on time again, since the last report" : "on time", sinceReport_, pipeline);
+            }
+            reported_ = true;
+            late_ = late;
+            sinceReport_.reset();
+        }
+        window_.reset();
+    }
+
+    void logSummary(const wheelemu::Pipeline& pipeline) const {
+        logLoopStats("since the last report", sinceReport_, pipeline);
+    }
+
+private:
+    wheelemu::LoopStats window_;
+    wheelemu::LoopStats sinceReport_;
+    bool reported_ = false;
+    bool late_ = false;
+};
 
 // Phase 3: the game's force feedback, sent by the in-game shim, limited and played on the physical wheel.
 class GameFfb {
@@ -241,11 +281,21 @@ public:
 
     [[nodiscard]] const wheelemu::FfbController& controller() const { return *controller_; }
 
-    void logStats() const {
+    // Called every 10 s; logs only when something changed: effects playing, failures, watchdog stops,
+    // or the game starting / stopping to send.
+    void logStatsIfChanged() {
         const auto& stats = controller_->stats();
-        WE_LOG_INFO(log(), "ffb: {} packets from the game, {} effects playing, {} updates sent, {} failed, {} "
+        const bool receiving = stats.packets != lastPackets_;
+        lastPackets_ = stats.packets;
+        const auto key = std::make_tuple(stats.activeSlots, stats.playFailures, stats.watchdogStops, receiving);
+        if (lastLogged_ && *lastLogged_ == key) {
+            return;
+        }
+        lastLogged_ = key;
+        WE_LOG_INFO(log(), "ffb: game {}, {} effects playing, {} packets and {} updates sent so far, {} failed, {} "
                            "watchdog stops",
-                    stats.packets, stats.activeSlots, stats.plays, stats.playFailures, stats.watchdogStops);
+                    receiving ? "sending" : "quiet", stats.activeSlots, stats.packets, stats.plays, stats.playFailures,
+                    stats.watchdogStops);
     }
 
 private:
@@ -255,6 +305,8 @@ private:
     std::unique_ptr<wheelemu::UdpLoopbackListener> listener_;
     std::unique_ptr<wheelemu::FfbController> controller_;
     wheelemu::TelemetryRecorder* telemetry_ = nullptr;
+    std::uint64_t lastPackets_ = 0;
+    std::optional<std::tuple<std::size_t, std::uint64_t, std::uint64_t, bool>> lastLogged_;
     wheelemu::logging::RateLimiter malformedLimiter_{std::chrono::seconds(5)};
 };
 
@@ -375,8 +427,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     const Uint64 periodNs = SDL_NS_PER_SECOND / static_cast<Uint64>(config.loopHz);
     const Uint64 printEveryTicks = std::max<Uint64>(1, static_cast<Uint64>(config.loopHz) / 10);
     const Uint64 frameEveryTicks = std::max<Uint64>(1, static_cast<Uint64>(config.loopHz) / 60);  // ~60 fps
-    wheelemu::LoopStats stats(periodNs);
-    wheelemu::logging::RateLimiter overrunLimiter(std::chrono::seconds(5));
+    LoopHealth loopHealth(periodNs);
 
     WE_LOG_INFO(log(), "running at {} Hz; press Ctrl+C to stop", config.loopHz);
     Uint64 nextTick = SDL_GetTicksNS();
@@ -444,16 +495,14 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
         lastTickStart = tickStart;
         lastPeriodNs = period;
         lastWorkNs = tickEnd - tickStart;
-        if (ticks > 1 && stats.record(period, tickEnd - tickStart)) {
-            WE_LOG_WARN_LIMITED(log(), overrunLimiter, "loop: tick came {:.2f} ms late (period {:.2f} ms)",
-                                static_cast<double>(period - periodNs) / 1e6, static_cast<double>(period) / 1e6);
+        if (ticks > 1) {
+            loopHealth.record(period, tickEnd - tickStart);
         }
         if (tickEnd - windowStart >= kStatsWindowNs) {
-            logLoopStats(stats, pipeline);
+            loopHealth.endWindow(pipeline);
             if (gameFfb != nullptr) {
-                gameFfb->logStats();
+                gameFfb->logStatsIfChanged();
             }
-            stats.reset();
             windowStart = tickEnd;
         }
 
@@ -472,10 +521,11 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     if (print) {
         std::puts("");
     }
-    logLoopStats(stats, pipeline);
+    loopHealth.logSummary(pipeline);
     if (telemetry != nullptr) {
-        WE_LOG_INFO(log(), "telemetry: {} rows, {} force feedback changes in {}", telemetry->rowsWritten(),
-                    telemetry->ffbRowsWritten(), telemetry->samplesPath().parent_path().string());
+        WE_LOG_INFO(log(), "telemetry: {} rows written ({} unchanged samples skipped), {} force feedback changes in {}",
+                    telemetry->rowsWritten(), telemetry->rowsSkipped(), telemetry->ffbRowsWritten(),
+                    telemetry->samplesPath().parent_path().string());
     }
     if (gStop) {
         WE_LOG_INFO(log(), "stopped by signal after {} ticks", ticks);

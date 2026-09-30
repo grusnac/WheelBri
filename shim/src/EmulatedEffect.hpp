@@ -48,12 +48,17 @@ private:
     ~EmulatedEffect() = default;
 
     [[nodiscard]] FfbEffect toFfb() const;
+    // A slot for this effect ("downloaded"), taking a free one if Unload gave the last one back.
+    [[nodiscard]] bool ensureSlot();
     [[nodiscard]] std::size_t wheelAxisIndex() const;
     [[nodiscard]] float directionAlongWheel() const;
 
     GUID type_;
     FfbEffectType effectType_;
-    std::uint8_t slot_;
+    // The service slot while the effect is downloaded. Unload gives it back, Download / SetParameters /
+    // Start take one again: games such as NFS unload their effects between screens and never release the
+    // objects, so tying slots to object lifetime ran out of slots after two screens.
+    std::optional<std::uint8_t> slot_;
     std::string label_;
     DWORD wheelAxisOffset_;
     DWORD wheelAxisId_;

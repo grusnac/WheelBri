@@ -52,10 +52,23 @@ EmulatedEffect::EmulatedEffect(REFGUID type, const FfbEffectType effectType, con
     : type_(type),
       effectType_(effectType),
       slot_(slot),
-      label_(std::move(deviceLabel) + " effect " + describeGuid(type) + " slot " + std::to_string(slot)),
+      label_(std::move(deviceLabel) + " effect " + describeGuid(type)),
       wheelAxisOffset_(wheelAxisOffset),
       wheelAxisId_(wheelAxisId) {
-    WE_LOG_DEBUG(log(), "{}: created", label_);
+    WE_LOG_DEBUG(log(), "{}: created in slot {}", label_, slot);
+}
+
+bool EmulatedEffect::ensureSlot() {
+    if (slot_) {
+        return true;
+    }
+    slot_ = FfbForwarder::instance().allocate();
+    if (!slot_) {
+        return false;
+    }
+    FfbForwarder::instance().setEffect(*slot_, toFfb());
+    WE_LOG_DEBUG(log(), "{}: downloaded again, slot {}", label_, *slot_);
+    return true;
 }
 
 HRESULT EmulatedEffect::QueryInterface(REFIID riid, void** object) {
@@ -76,7 +89,9 @@ ULONG EmulatedEffect::AddRef() { return ++references_; }
 ULONG EmulatedEffect::Release() {
     const ULONG remaining = --references_;
     if (remaining == 0) {
-        FfbForwarder::instance().release(slot_);
+        if (slot_) {
+            FfbForwarder::instance().release(*slot_);
+        }
         WE_LOG_DEBUG(log(), "{}: released", label_);
         delete this;
     }
@@ -203,7 +218,13 @@ HRESULT EmulatedEffect::SetParameters(LPCDIEFFECT effect, const DWORD flags) {
     }
 
     const FfbEffect converted = toFfb();
-    FfbForwarder::instance().setEffect(slot_, converted);
+    // SetParameters downloads the effect unless told not to (DIEP_NODOWNLOAD).
+    if ((flags & DIEP_NODOWNLOAD) == 0 && !ensureSlot()) {
+        return DIERR_DEVICEFULL;
+    }
+    if (slot_) {
+        FfbForwarder::instance().setEffect(*slot_, converted);
+    }
     if (const auto call = setSampler_.next(); call != 0) {
         WE_LOG_DEBUG(log(), "{}: SetParameters #{} flags=0x{:x} -> level={:+.3f} coef={:+.3f}/{:+.3f} "
                             "sat={:.3f}/{:.3f} periodic={:.3f}@{:.0f}ms gain={:.2f}",
@@ -269,14 +290,19 @@ HRESULT EmulatedEffect::Start(const DWORD iterations, const DWORD flags) {
         duration_ == INFINITE ? std::nullopt : std::optional<std::uint64_t>(duration_);
     const std::optional<std::uint32_t> count =
         iterations == INFINITE ? std::nullopt : std::optional<std::uint32_t>(std::max<DWORD>(iterations, 1));
-    FfbForwarder::instance().start(slot_, duration, count, startDelay_, (flags & DIES_SOLO) != 0);
+    if (!ensureSlot()) {
+        return DIERR_DEVICEFULL;
+    }
+    FfbForwarder::instance().start(*slot_, duration, count, startDelay_, (flags & DIES_SOLO) != 0);
     WE_LOG_DEBUG(log(), "{}: Start(iterations={}, flags=0x{:x})", label_,
                  iterations == INFINITE ? std::string("INFINITE") : std::to_string(iterations), flags);
     return DI_OK;
 }
 
 HRESULT EmulatedEffect::Stop() {
-    FfbForwarder::instance().stop(slot_);
+    if (slot_) {
+        FfbForwarder::instance().stop(*slot_);
+    }
     WE_LOG_DEBUG(log(), "{}: Stop", label_);
     return DI_OK;
 }
@@ -285,14 +311,22 @@ HRESULT EmulatedEffect::GetEffectStatus(LPDWORD status) {
     if (status == nullptr) {
         return E_POINTER;
     }
-    *status = FfbForwarder::instance().isPlaying(slot_) ? DIEGES_PLAYING : 0;
+    *status = slot_ && FfbForwarder::instance().isPlaying(*slot_) ? DIEGES_PLAYING : 0;
     return DI_OK;
 }
 
-HRESULT EmulatedEffect::Download() { return DI_OK; }
+HRESULT EmulatedEffect::Download() {
+    return ensureSlot() ? DI_OK : DIERR_DEVICEFULL;
+}
 
 HRESULT EmulatedEffect::Unload() {
-    FfbForwarder::instance().stop(slot_);
+    // Stops the effect and frees its slot (the object stays valid and can be downloaded again).
+    if (slot_) {
+        const std::uint8_t slot = *slot_;
+        FfbForwarder::instance().release(slot);
+        slot_.reset();
+        WE_LOG_DEBUG(log(), "{}: Unload, slot {} freed", label_, slot);
+    }
     return DI_OK;
 }
 

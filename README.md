@@ -15,17 +15,22 @@ service is a native Linux process; named mappings do not cross that boundary, so
 
 | Phase | What | State |
 |---|---|---|
-| 0 | Logging `dinput8.dll` proxy: records how the game finds and drives wheels | **built, untested in a game** |
-| 1 | Core (mapping, G920 + G29 profiles, FFB limiter, config, wire format) + SDL3 service | **built, unit-tested; needs a real R3** |
-| 2 | Shim answers as a G920 using the service's state (force feedback passed to the R3 as-is) | **built, untested in a game** |
-| 3 | Game FFB → service (safety limiter, watchdog) → R3 | **built, untested in a game** |
+| 0 | Logging `dinput8.dll` proxy: records how the game finds and drives wheels | **working** (its logs found the NFS 2015 details below) |
+| 1 | Core (mapping, G920 + G29 profiles, FFB limiter, config, wire format) + SDL3 service | **working with a real R3** |
+| 2 | Shim answers as a G920 using the service's state | **working in NFS 2015**: wheel, pedals, buttons, D-pad |
+| 3 | Game FFB → service (safety limiter, watchdog) → R3 | **working in NFS 2015**: constant, spring, damper, sine, square |
 | 4 | Linux `uhid` virtual G920 (its FFB is HID++, not the classic Logitech protocol) | not started |
 
-Unverified assumptions, to be settled with Phase 0 logs and a real device:
-- how NFS 2015 detects wheels (DirectInput product GUID? Logitech SDK? raw HID?);
-- the G920's (and G29's) DirectInput product name, axis layout and button order (`g920Spec()` / `g29Spec()` in
-  `core/src/DeviceProfile.cpp`);
-- the R3's SDL axis indices (`config/moza-r3-as-g920.ini`) and FFB direction.
+Settled with NFS 2015 and an R3 on Windows:
+- NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
+  `c_dfDIJoystick2`: wheel X, throttle Slider, brake Y, clutch Rz, pedals released at the top of the range;
+- the R3's SDL axes: steering 0, throttle 2, brake 5 (see `config/moza-r3-as-g920.ini`);
+- NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
+
+Still open:
+- the G29 profile (built, not tried in a game);
+- Linux/Proton (Phase 4, and the shim under Wine);
+- effect envelopes (attack/fade) are ignored, and NFS's 20-byte Logitech `Escape` calls are not forwarded.
 
 ## Layout
 
@@ -151,8 +156,10 @@ messages; more with `SDL_LOGGING`), `core.mapper`, `core.pipeline`, `core.net`, 
   `WE_LOG_*_LIMITED`), and report how many messages were dropped.
 - Warnings and above are flushed at once; the shim flushes every line because it runs no background thread.
 - The shim never logs, loads libraries or starts threads in `DllMain`; logging starts on the first export call.
-- The service logs a startup banner (version, OS, SDL version, config), 10-second loop statistics
-  (period and work time, overruns, publish failures), and its exit code.
+- The service logs a startup banner (version, OS, SDL version, config) and its exit code. Loop timing and
+  game force feedback status are checked every 10 s but logged only when they change (ticks start or stop
+  running late; effects playing, failures, watchdog stops, the game starting or stopping to send), with a
+  loop summary at exit.
 - Known limitation: log paths are passed to spdlog as narrow strings; a non-ASCII path on Windows may fail
   to open (the program then logs to the console only and says so).
 
@@ -161,15 +168,18 @@ messages; more with `SDL_LOGGING`), `core.mapper`, `core.pipeline`, `core.net`, 
 While it runs, the service records to two CSV files per day in the log folder
 (`%LOCALAPPDATA%\wheelemu\logs` on Windows). Nothing is sent anywhere.
 
-- `telemetry-<date>.csv`: 50 rows a second with the physical wheel (raw axes, buttons, hat), the mapped
+- `telemetry-<date>.csv`: a row whenever something changes (checked 50 times a second, plus one row a minute when nothing does) with the physical wheel (raw axes, buttons, hat), the mapped
   state, the values the emulated G920 reports to the game, the game's force feedback per slot (what the game
   asked for and what reached the wheel after the limiter), and loop timing.
-- `ffb-<date>.csv`: every force feedback change the game sent, with all effect parameters.
+- `ffb-<date>.csv`: every force feedback change the game sent, with all effect parameters (the shim's periodic
+  re-sends of an unchanged effect are left out).
 
 Every session of the day is appended to that day's files, after a `# session started ...` block with the
 version, the device and a copy of the config; a session running past midnight continues in the next day's
 files. `time` is the local time of day, `t_ms` the time since the session started. Settings are in
-`[telemetry]`: `enabled`, `rate_hz`, `max_file_mb` (per file) and `directory`.
+`[telemetry]`: `enabled`, `rate_hz`, `only_changes` (default `true`; `false` writes every sample),
+`heartbeat_s`, `min_change` (smallest axis move that counts, default 0.0005 = 0.23° of steering: smaller
+moves are sensor noise), `max_file_mb` (per file) and `directory`. A value holds until the next row.
 
 The `--ui` window lists the folder, today's log files (service and game), today's telemetry files and what
 happens to old files in the **LOGS AND TELEMETRY** panel at the bottom; press **F** there to open the folder.
