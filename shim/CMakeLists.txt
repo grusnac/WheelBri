@@ -24,6 +24,9 @@ target_compile_definitions(wheelemu_shim PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UN
 target_link_libraries(wheelemu_shim PRIVATE wheelemu_core dxguid ole32)
 
 if(MINGW)
+    # The DLL sits in the game's folder, where MinGW's runtime DLLs (libstdc++, libgcc, winpthread) are not:
+    # link them in, or Windows cannot load it (error 0x7E, which EA's launcher reports as "Invalid license").
+    target_link_options(wheelemu_shim PRIVATE -static -static-libgcc -static-libstdc++)
     # Strip symbols from release builds; keep them for Debug/RelWithDebInfo so crash dumps stay useful.
     target_link_options(wheelemu_shim PRIVATE $<$<CONFIG:Release,MinSizeRel>:-s>)
 endif()

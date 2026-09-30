@@ -509,8 +509,19 @@ public:
         // Driver-specific commands meant for a Logitech driver must not reach the Moza driver. Some games
         // send these every frame (LEDs, rev lights), so the log is sampled.
         if (const auto call = escapeSampler_.next(); call != 0) {
-            WE_LOG_DEBUG(detail::emulationLog(), "{}: Escape #{} (command=0x{:x}, {} bytes in) not forwarded", label_,
-                         call, escape != nullptr ? escape->dwCommand : 0, escape != nullptr ? escape->cbInBuffer : 0);
+            // The payload shows what the game wants (e.g. rev lights or wheel range): first 32 bytes in hex.
+            std::string bytes;
+            if (escape != nullptr && escape->lpvInBuffer != nullptr) {
+                const auto* in = static_cast<const unsigned char*>(escape->lpvInBuffer);
+                for (DWORD i = 0; i < escape->cbInBuffer && i < 32; ++i) {
+                    char hex[4];
+                    std::snprintf(hex, sizeof(hex), "%02x ", in[i]);
+                    bytes += hex;
+                }
+            }
+            WE_LOG_DEBUG(detail::emulationLog(), "{}: Escape #{} (command=0x{:x}, {} bytes in: {}) not forwarded",
+                         label_, call, escape != nullptr ? escape->dwCommand : 0,
+                         escape != nullptr ? escape->cbInBuffer : 0, bytes);
         }
         return DIERR_UNSUPPORTED;
     }

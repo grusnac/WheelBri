@@ -195,6 +195,10 @@ void unipolarBar(SDL_Renderer* renderer, const float x, const float y, const flo
 void MappingView::render(const RawInputState& raw, const WheelState& state, const TargetReport& report,
                          const FfbDisplay& ffb) {
     trackLastPressed(raw.buttons);
+    // Nothing to show: drawing a hidden window can block (e.g. while a game switches display mode).
+    if ((SDL_GetWindowFlags(window_) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_OCCLUDED | SDL_WINDOW_HIDDEN)) != 0) {
+        return;
+    }
 
     setColour(renderer_, kBackground);
     SDL_RenderClear(renderer_);

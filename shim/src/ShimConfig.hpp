@@ -17,7 +17,8 @@ namespace wheelemu::shim {
 //   source_pid = any           ; or a hex product id
 //   target_profile = g920      ; g920 or g29, must match the service's target_profile
 //   state_port = 41329         ; must match the service's state_port
-//   stale_after_ms = 250       ; no packet for this long = wheel centred, pedals released
+//   stale_after_ms = 1500      ; no packet for this long = wheel centred, pedals released (the last
+//                              ; input is held until then, so a short service hiccup is not felt)
 //   force_feedback = service   ; service = game effects go to wheelemu-service (safety limiter, watchdog);
 //                              ; passthrough = straight to the wheel's driver; off = no force feedback
 //   ffb_port = 41330           ; must match ffb_port in the service config
@@ -38,7 +39,7 @@ struct ShimConfig {
     std::optional<std::uint16_t> sourceProductId;
     std::string targetProfile = "g920";
     std::uint16_t statePort = 41329;
-    int staleAfterMs = 250;
+    int staleAfterMs = 1500;
     FfbMode forceFeedback = FfbMode::Service;
     std::uint16_t ffbPort = 41330;
     std::optional<ObjectGuid> throttleAxis;     // overrides of the profile's layout

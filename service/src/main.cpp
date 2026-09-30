@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <array>
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -177,15 +178,53 @@ void logLoopStats(const char* what, const wheelemu::LoopStats& stats, const whee
                 snapshot.maxWorkUs, snapshot.overruns, pipeline.sequence(), pipeline.publishFailures());
 }
 
+// Where the time of one loop tick goes, to find the cause of a slow tick.
+struct TickStages {
+    enum Stage { Input, Pipeline, Ffb, Telemetry, Housekeeping, Ui, kCount };
+    static constexpr std::array<const char*, kCount> kNames = {"wheel input", "state to game", "force feedback",
+                                                                "telemetry", "old files", "window"};
+    std::array<Uint64, kCount> ns{};
+
+    // Adds the time since `mark` to `stage` and moves `mark` to now.
+    void lap(const Stage stage, Uint64& mark) {
+        const Uint64 now = SDL_GetTicksNS();
+        ns[stage] += now - mark;
+        mark = now;
+    }
+
+    // "window 3.70 ms, force feedback 0.05 ms" (the biggest first, only the ones that matter).
+    [[nodiscard]] std::string describe() const {
+        std::array<int, kCount> order{};
+        for (int i = 0; i < kCount; ++i) {
+            order[i] = i;
+        }
+        std::sort(order.begin(), order.end(), [this](const int a, const int b) { return ns[a] > ns[b]; });
+        std::string text;
+        for (const int i : order) {
+            if (ns[i] >= 20'000 || text.empty()) {  // 0.02 ms and up
+                char part[64];
+                std::snprintf(part, sizeof(part), "%s%s %.2f ms", text.empty() ? "" : ", ", kNames[i],
+                              static_cast<double>(ns[i]) / 1e6);
+                text += part;
+            }
+        }
+        return text;
+    }
+};
+
 // Loop timing is logged only when its health changes (checked every 10 s), not every window: a line
 // when ticks start running late, one when they are on time again, and a summary at exit.
 class LoopHealth {
 public:
     explicit LoopHealth(const Uint64 periodNs) : window_(periodNs), sinceReport_(periodNs) {}
 
-    void record(const Uint64 periodNs, const Uint64 workNs) {
+    void record(const Uint64 periodNs, const Uint64 workNs, const TickStages& stages) {
         window_.record(periodNs, workNs);
         sinceReport_.record(periodNs, workNs);
+        if (workNs > slowestWorkNs_) {
+            slowestWorkNs_ = workNs;
+            slowest_ = stages;
+        }
     }
 
     // End of a 10-second window.
@@ -196,8 +235,8 @@ public:
         if (!reported_ || late != late_) {
             if (late) {
                 WE_LOG_WARN(log(), "loop: ticks running late: {} overruns in 10 s, longest period {:.0f} us, longest "
-                                   "work {:.0f} us (target {:.0f} us); next report when this changes",
-                            snapshot.overruns, snapshot.maxPeriodUs, snapshot.maxWorkUs, targetUs);
+                                   "work {:.0f} us (target {:.0f} us; that tick: {}); next report when this changes",
+                            snapshot.overruns, snapshot.maxPeriodUs, snapshot.maxWorkUs, targetUs, slowest_.describe());
             } else {
                 logLoopStats(reported_ ? "on time again, since the last report" : "on time", sinceReport_, pipeline);
             }
@@ -206,6 +245,7 @@ public:
             sinceReport_.reset();
         }
         window_.reset();
+        slowestWorkNs_ = 0;
     }
 
     void logSummary(const wheelemu::Pipeline& pipeline) const {
@@ -217,7 +257,12 @@ private:
     wheelemu::LoopStats sinceReport_;
     bool reported_ = false;
     bool late_ = false;
+    Uint64 slowestWorkNs_ = 0;
+    TickStages slowest_;
 };
+
+// A tick this long means the game gets no fresh input; it is logged at once, with where the time went.
+constexpr Uint64 kStallNs = 50 * SDL_NS_PER_MS;
 
 // Phase 3: the game's force feedback, sent by the in-game shim, limited and played on the physical wheel.
 class GameFfb {
@@ -429,6 +474,10 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     const Uint64 frameEveryTicks = std::max<Uint64>(1, static_cast<Uint64>(config.loopHz) / 60);  // ~60 fps
     LoopHealth loopHealth(periodNs);
 
+    // Above normal, so a game that is loading (all cores busy) does not starve the input loop.
+    if (!SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_HIGH)) {
+        WE_LOG_WARN(log(), "cannot raise the loop's thread priority: {}", SDL_GetError());
+    }
     WE_LOG_INFO(log(), "running at {} Hz; press Ctrl+C to stop", config.loopHz);
     Uint64 nextTick = SDL_GetTicksNS();
     Uint64 lastTickStart = nextTick;
@@ -439,15 +488,20 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
 
     while (!gStop) {
         const Uint64 tickStart = SDL_GetTicksNS();
+        TickStages stages;
+        Uint64 mark = tickStart;
         SDL_UpdateJoysticks();
+        stages.lap(TickStages::Input, mark);
         if (!pipeline.tick()) {
             WE_LOG_ERROR(log(), "stopping: physical wheel lost after {} ticks", ticks);
             return 1;
         }
+        stages.lap(TickStages::Pipeline, mark);
         ++ticks;
         if (gameFfb != nullptr) {
             gameFfb->pump(SDL_GetTicksNS());
         }
+        stages.lap(TickStages::Ffb, mark);
         if (telemetry != nullptr) {
             const Uint64 now = SDL_GetTicksNS();
             if (telemetry->due(now)) {
@@ -463,6 +517,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 telemetry->writeSample(sample);
             }
         }
+        stages.lap(TickStages::Telemetry, mark);
         if (tickStart - lastHousekeepingNs >= 250 * SDL_NS_PER_MS) {
             lastHousekeepingNs = tickStart;
             housekeeping.pump();
@@ -473,6 +528,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 nextMidnight = wheelemu::startOfDay(wheelemu::addDays(wheelemu::localDate(now), 1).value_or(""));
             }
         }
+        stages.lap(TickStages::Housekeeping, mark);
         if (print && ticks % printEveryTicks == 0) {
             printLive(pipeline);
         }
@@ -489,6 +545,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
             ffbDisplay.nowNs = SDL_GetTicksNS();
             view->render(pipeline.lastRaw(), pipeline.lastState(), pipeline.lastReport(), ffbDisplay);
         }
+        stages.lap(TickStages::Ui, mark);
 
         const Uint64 tickEnd = SDL_GetTicksNS();
         const Uint64 period = tickStart - lastTickStart;
@@ -496,7 +553,11 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
         lastPeriodNs = period;
         lastWorkNs = tickEnd - tickStart;
         if (ticks > 1) {
-            loopHealth.record(period, tickEnd - tickStart);
+            loopHealth.record(period, tickEnd - tickStart, stages);
+        }
+        if (tickEnd - tickStart >= kStallNs) {
+            WE_LOG_WARN(log(), "loop: one tick took {:.0f} ms, the game got no fresh input meanwhile: {}",
+                        static_cast<double>(tickEnd - tickStart) / 1e6, stages.describe());
         }
         if (tickEnd - windowStart >= kStatsWindowNs) {
             loopHealth.endWindow(pipeline);
@@ -510,6 +571,13 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
         nextTick += periodNs;
         if (nextTick > tickEnd) {
             SDL_DelayPrecise(nextTick - tickEnd);
+            const Uint64 woke = SDL_GetTicksNS();
+            if (woke - nextTick >= kStallNs) {
+                // Not our work: Windows let the service sleep far longer than asked (the PC was busy).
+                WE_LOG_WARN(log(), "loop: woke {:.0f} ms late from a {:.2f} ms sleep: Windows did not schedule the "
+                                   "service (PC busy?)",
+                            static_cast<double>(woke - nextTick) / 1e6, static_cast<double>(nextTick - tickEnd) / 1e6);
+            }
         } else {
             if (tickEnd - nextTick > 100 * SDL_NS_PER_MS) {
                 WE_LOG_WARN(log(), "loop: {:.0f} ms behind schedule, resynchronising",
