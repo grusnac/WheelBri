@@ -12,5 +12,6 @@
     <Compile Include="..\Wire.cs" />
     <Compile Include="..\PidForwarder.cs" />
     <Compile Include="..\HidHide.cs" />
+    <Compile Include="..\DeviceHealth.cs" />
   </ItemGroup>
 </Project>

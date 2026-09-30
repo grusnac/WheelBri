@@ -49,19 +49,29 @@ both** (both listen on port 41329).
    ```
    Optional check of its protocol code: `dotnet run --project tools/vbridge/SelfTest`.
 
-## Test
+## Everyday use
 
-1. Take the shim out of the game: rename `dinput8.dll` in the NFS folder to `dinput8.dll.off`.
-2. Start `wheelemu-service` as usual. The bridge hides the R3 only once the service runs (the service must
-   stay allowed to read it); started first, the bridge waits up to 60 s for the service.
-3. Start `tools\vbridge\bin\Release\net10.0-windows10.0.26100.0\wheelemu-bridge.exe` (it asks for
-   Administrator; the first run installs HIDMaestro's user-mode driver with a self-made certificate).
-4. `joy.cpl` (Win+R; reopen it after starting the bridge): "Logitech G920 Driving Force Racing Wheel USB" is
-   listed, the R3 is not. *Properties*: the box moves with the wheel (left/right) and brake (up/down), the
-   bars with throttle and clutch; buttons and the hat move with the R3.
-5. NFS: controls work, then drive and feel the force feedback.
-6. Stop the bridge with Ctrl+C or by closing its window: the virtual G920 disappears and the R3 is visible
-   again.
+1. Take the shim out of the game once: rename `dinput8.dll` in the NFS folder to `dinput8.dll.off`.
+2. Double-click `tools\vbridge\start-g920.cmd` (asks for Administrator). It starts `wheelemu-service` with
+   its window if it is not running yet, then the bridge in its own window. Options of `start-g920.ps1`:
+   `-NoUi`, `-StopService` (stop the service with the bridge), `-Config path`.
+3. The bridge logs `game controller ready` once Windows lists the G920 (joy.cpl: "Logitech G920 Driving
+   Force Racing Wheel USB", not the R3).
+4. Start Steam and NFS; drive.
+5. Stop: Ctrl+C in the bridge window. Best close NFS and Steam first; if a program still has the G920
+   open, the bridge says which one and waits (`waiting: NFS16.exe has the virtual G920 open`) and finishes by
+   itself once it is closed. Ctrl+C a second time removes it anyway. Closing the bridge window instead of
+   Ctrl+C leaves a held G920 in place (no time to wait); the next start replaces it.
+6. If a G920 was still removed while held (Ctrl+C twice, an older bridge, a crash), Windows keeps it
+   half-removed until it restarts and a new G920 there gets no driver. The bridge notices at start and uses a
+   spare identity instead (`trying identity wheelemu-g920-spare-1 instead, no restart needed`); it remembers
+   the working one in `%LOCALAPPDATA%\wheelemu\bridge-identity.txt`.
+
+The manual way: start `wheelemu-service`, then
+`tools\vbridge\bin\Release\net10.0-windows10.0.26100.0\wheelemu-bridge.exe` as Administrator (the first run
+installs HIDMaestro's user-mode driver with a self-made certificate). Started first, the bridge waits up to
+60 s for the service (it hides the R3 only once the service runs, which stays allowed to read it). Only one
+bridge runs at a time.
 
 Options: `--no-hide` (leave HidHide alone), `--no-driving-type`, `--axis-names` (experimental), `--service-exe PATH`, `--hidhide-cli PATH`,
 `--wheel-vid 346E`. After a crash that left the R3 hidden: `wheelemu-bridge --unhide`.

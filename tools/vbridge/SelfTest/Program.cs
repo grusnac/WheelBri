@@ -212,6 +212,27 @@ Check(!ClutchPacket.TryDecode(new byte[12], out _), "clutch packet without magic
 Check(ClutchPacket.ToAxis(0) == 65535 && ClutchPacket.ToAxis(1) == 0 && ClutchPacket.ToAxis(0.5f) == 32768,
       "clutch released = 65535, pressed = 0, like the other pedals");
 
+// --- device health: Kernel-PnP event 225 (as wevtutil /f:text prints it, 2026-09-30) ---
+string events = """
+Event[0]:
+  Log Name: System
+  Source: Microsoft-Windows-Kernel-PnP
+  Event ID: 225
+  Description:
+The application \Device\HarddiskVolume9\Steam\steamapps\common\Need for Speed\NFS16.exe with process id 6048 stopped the removal or ejection for the device ROOT\HIDCLASS\HM_0000. Process command line: "D:\Steam\steamapps\common\Need for Speed\NFS16.exe" -Render.ResolutionScale 2.0
+
+Event[1]:
+  Description:
+The application \Device\HarddiskVolume3\Program Files (x86)\Steam\steam.exe with process id 9280 stopped the removal or ejection for the device ROOT\HIDCLASS\HM_0000. Process command line: "C:\Program Files (x86)\Steam\steam.exe" -silent
+
+Event[2]:
+  Description:
+The application \Device\HarddiskVolume3\Windows\explorer.exe with process id 1 stopped the removal or ejection for the device USBSTOR\DISK&VEN_X\123.
+""";
+var blockers = DeviceHealth.RemovalBlockers(events);
+Check(blockers.SequenceEqual(new[] { "NFS16.exe", "steam.exe" }), "removal blockers of the virtual G920 are named (other devices ignored)");
+Check(DeviceHealth.StuckAdvice(blockers).Contains("NFS16.exe, steam.exe had it open"), "stuck advice names them");
+
 // --- samples for the C++ cross-check ---
 if (args.Length == 1)
 {

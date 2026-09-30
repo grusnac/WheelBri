@@ -46,10 +46,13 @@ internal static class Program
     static readonly object LogLock = new();
     static readonly ManualResetEventSlim CleanedUp = new(false);
     static volatile bool _stop;
+    static volatile bool _force;           // Ctrl+C a second time while waiting for a program to let go
+    static volatile bool _windowClosing;
 
     static void OnWindowClosing(PosixSignalContext context)
     {
         context.Cancel = true;
+        _windowClosing = true;
         _stop = true;
         CleanedUp.Wait(TimeSpan.FromSeconds(4));
     }
@@ -95,7 +98,12 @@ internal static class Program
             Log("another wheelemu-bridge is already running: use that one (or stop it first with Ctrl+C)");
             return 1;
         }
-        Console.CancelKeyPress += (_, e) => { e.Cancel = true; _stop = true; };
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            if (_stop) _force = true;
+            _stop = true;
+        };
         // Closing the window (SIGHUP on Windows = CTRL_CLOSE_EVENT) or logging off: stop the same way and give
         // the cleanup (un-hiding the real wheel) the few seconds Windows allows.
         using var onClose = PosixSignalRegistration.Create(PosixSignal.SIGHUP, OnWindowClosing);
@@ -182,37 +190,155 @@ internal static class Program
     static int Run(Options o)
     {
         HMOemNameOverride.RecoverOrphans();          // labels left behind by a crashed earlier run
-        using var ctx = new HMContext();
-        Log("installing / checking the HIDMaestro driver...");
-        ctx.InstallDriver();
-        var profile = BuildProfile();
-        HMOemNameOverride.Set(G920Vid, G920Pid, G920Name);
-        using var ctrl = ctx.CreateController(profile);
-        Log($"virtual '{G920Name}' created (VID {G920Vid:X4} PID {G920Pid:X4}); check it in joy.cpl");
-        SetDirectInputEntries(false, false, true);   // leftovers of an earlier run first
-        SetDirectInputEntries(true, o.DrivingType, o.AxisNames);
-        RemoveForeignForceFeedbackDriver();
-        HidHide? hidHide = o.Hide ? StartHiding(o) : null;
-        using var ffbSocket = new UdpClient();
-        ffbSocket.Connect(new IPEndPoint(IPAddress.Loopback, o.FfbPort));
-        var clock = Stopwatch.StartNew();
-        var forwarder = new PidForwarder(bytes => ffbSocket.Send(bytes, bytes.Length), Log);
+        var ctx = new HMContext();
+        HMController? ctrl = null;
+        bool leaveDevice = false;                    // window closed while a program still holds the G920
         try
         {
-            RunUntilStopped(o, ctrl, clock, forwarder);
+            Log("installing / checking the HIDMaestro driver...");
+            ctx.InstallDriver();
+            var profile = BuildProfile();
+            HMOemNameOverride.Set(G920Vid, G920Pid, G920Name);
+            var live = CreateWorkingController(ctx, profile);
+            ctrl = live;
+            SetDirectInputEntries(false, false, true);   // leftovers of an earlier run first
+            SetDirectInputEntries(true, o.DrivingType, o.AxisNames);
+            RemoveForeignForceFeedbackDriver();
+            HidHide? hidHide = o.Hide ? StartHiding(o) : null;
+            using var ffbSocket = new UdpClient();
+            ffbSocket.Connect(new IPEndPoint(IPAddress.Loopback, o.FfbPort));
+            var clock = Stopwatch.StartNew();
+            var forwarder = new PidForwarder(bytes => ffbSocket.Send(bytes, bytes.Length), Log);
+            try
+            {
+                RunUntilStopped(o, live, clock, forwarder);
+            }
+            finally
+            {
+                // Always, also after an error or when the window is closed: the real wheel must not stay hidden.
+                Log($"stopping: {forwarder.ReportsHandled} force feedback reports from the game, "
+                    + $"{forwarder.PacketsSent} packets to the service");
+                try { forwarder.StopAll(clock.ElapsedMilliseconds); } catch (Exception e) { Log($"stop all: {e.Message}"); }
+                hidHide?.Restore();
+                hidHide?.LogState();
+                leaveDevice = !ReleaseDevice(live);
+                SetDirectInputEntries(false, o.DrivingType, o.AxisNames);
+                HMOemNameOverride.Clear(G920Vid, G920Pid);
+            }
         }
         finally
         {
-            // Always, also after an error or when the window is closed: the real wheel must not stay hidden.
-            Log($"stopping: {forwarder.ReportsHandled} force feedback reports from the game, "
-                + $"{forwarder.PacketsSent} packets to the service");
-            try { forwarder.StopAll(clock.ElapsedMilliseconds); } catch (Exception e) { Log($"stop all: {e.Message}"); }
-            hidHide?.Restore();
-            hidHide?.LogState();
-            SetDirectInputEntries(false, o.DrivingType, o.AxisNames);
-            HMOemNameOverride.Clear(G920Vid, G920Pid);
+            if (!leaveDevice)
+            {
+                ctrl?.Dispose();
+                ctx.Dispose();
+            }
         }
         return 0;
+    }
+
+    // Identities (device paths) the virtual G920 can take. The first is HIDMaestro's default; the spares are
+    // used when a G920 at an earlier identity is stuck (a program blocked its removal: Windows keeps it
+    // half-removed until it restarts, and a new G920 there gets no driver). A spare is a new device to
+    // Windows, so it works at once; the stuck one stays invisible until the next restart.
+    static readonly string?[] Identities = { null, "wheelemu-g920-spare-1", "wheelemu-g920-spare-2", "wheelemu-g920-spare-3" };
+
+    static string IdentityFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                               "wheelemu", "bridge-identity.txt");
+
+    static string Describe(string? identity) => identity ?? "default";
+
+    static HMController CreateWorkingController(HMContext ctx, HMProfile profile)
+    {
+        // The identity that worked last time first (a stuck one stays stuck until Windows restarts).
+        string? remembered = null;
+        try { remembered = File.Exists(IdentityFile) ? File.ReadAllText(IdentityFile).Trim() : null; } catch (IOException) { }
+        var order = new List<string?>();
+        if (!string.IsNullOrEmpty(remembered) && remembered != "default") order.Add(remembered);
+        foreach (var id in Identities) if (!order.Contains(id)) order.Add(id);
+
+        HMController? last = null;
+        for (int i = 0; i < order.Count; ++i)
+        {
+            string? identity = order[i];
+            var ctrl = ctx.CreateController(profile, identity);
+            Log($"virtual '{G920Name}' created (VID {G920Vid:X4} PID {G920Pid:X4}, identity {Describe(identity)})");
+            if (DeviceCheck.WaitForGameController(G920Vid, G920Pid, TimeSpan.FromSeconds(8), out long readyMs))
+            {
+                Log($"game controller ready after {readyMs} ms (joy.cpl and games can see it)");
+                try { File.WriteAllText(IdentityFile, Describe(identity)); } catch (IOException) { }
+                return ctrl;
+            }
+            var blockers = DeviceCheck.RecentRemovalBlockers(TimeSpan.FromHours(12));
+            if (i + 1 < order.Count)
+            {
+                Log($"identity {Describe(identity)} is stuck: Windows gave it no game-controller driver"
+                    + (blockers.Count > 0 ? $" ({string.Join(", ", blockers)} blocked the removal of an earlier G920)" : "")
+                    + $"; trying identity {Describe(order[i + 1])} instead, no restart needed");
+                ctrl.Dispose();
+            }
+            else
+            {
+                last = ctrl;
+                Log("ERROR: " + DeviceHealth.StuckAdvice(blockers));
+            }
+        }
+        return last!;
+    }
+
+    // Removes the virtual G920 only if no program objects (the removal Windows asks everyone about first; a
+    // refusal leaves the device working instead of half-removed). While a program holds it, waits: close
+    // that program and the bridge finishes by itself. Ctrl+C again removes anyway (the next start then
+    // switches to a spare identity). Returns false when the device should be left in place (window closed
+    // while held: no time to wait).
+    static bool ReleaseDevice(HMController ctrl)
+    {
+        string? instanceId = DeviceCheck.InstanceIdOf(ctrl);
+        if (instanceId == null)
+        {
+            Log("cannot find the virtual G920's device to check who holds it; removing it the usual way");
+            return true;
+        }
+        string lastReason = "";
+        var waited = Stopwatch.StartNew();
+        while (true)
+        {
+            var (result, reason) = DeviceCheck.TryRemove(instanceId);
+            switch (result)
+            {
+                case DeviceCheck.RemoveResult.Removed:
+                    Log(lastReason.Length == 0 ? "virtual G920 removed" : $"virtual G920 removed after waiting {waited.Elapsed.TotalSeconds:0} s");
+                    return true;
+                case DeviceCheck.RemoveResult.Gone:
+                    return true;
+                case DeviceCheck.RemoveResult.Failed:
+                    Log($"checked removal failed ({reason}); removing it the usual way");
+                    return true;
+            }
+            if (reason.Contains("wheelemu-bridge", StringComparison.OrdinalIgnoreCase) &&
+                !reason.Contains(','))
+            {
+                Log("only the bridge itself holds the virtual G920; removing it the usual way");
+                return true;
+            }
+            if (reason != lastReason)
+            {
+                lastReason = reason;
+                Log($"waiting: {reason} has the virtual G920 open. Close it and the bridge finishes by itself "
+                    + "(Ctrl+C again: remove anyway; the next start then uses a spare identity)");
+            }
+            if (_windowClosing)
+            {
+                Log("window closed while the G920 is held: leaving it in place; the next start replaces it");
+                return false;
+            }
+            if (_force)
+            {
+                Log("removing anyway (Ctrl+C twice)");
+                return true;
+            }
+            Thread.Sleep(1000);
+        }
     }
 
     static void RunUntilStopped(Options o, HMController ctrl, Stopwatch clock, PidForwarder forwarder)
