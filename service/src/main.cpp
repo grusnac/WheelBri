@@ -3,6 +3,7 @@
 // telemetry of both directions for later tuning.
 
 #include "FfbSelfTest.hpp"
+#include "Housekeeping.hpp"
 #include "MappingView.hpp"
 #include "SdlFfbSink.hpp"
 #include "SdlInputSource.hpp"
@@ -58,16 +59,20 @@ struct Options {
     bool print = false;
     bool ui = false;
     bool ffbTest = false;
+    std::string oldFiles;                       // --old-files: overrides [retention] old_files
 };
 
 void printUsage() {
     std::puts(
-        "usage: wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]\n"
+        "usage: wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
         "  --config FILE  INI configuration (see config/moza-r3-as-g920.ini)\n"
         "  --list         list joysticks and exit\n"
         "  --print        show live raw and mapped values\n"
         "  --ui           open a window showing how every axis and button maps to the emulated wheel\n"
         "  --ffb-test     play a short, gentle force feedback sequence on the wheel and exit\n"
+        "  --old-files delete|archive|keep\n"
+        "                 logs and telemetry older than [retention] older_than_days (7): delete them (default),\n"
+        "                 compress them (7-Zip, xz, zstd, zip or gzip, the best one found) or keep them\n"
         "logging: [logging] section of the config; per component with SPDLOG_LEVEL, e.g.\n"
         "  SPDLOG_LEVEL=\"info,core.pipeline=trace,service.ffb=debug\"");
 }
@@ -85,6 +90,12 @@ bool parseOptions(const int argc, char** argv, Options& options) {
             options.ui = true;
         } else if (arg == "--ffb-test") {
             options.ffbTest = true;
+        } else if (arg == "--old-files" && i + 1 < argc) {
+            options.oldFiles = argv[++i];
+            if (!wheelemu::parseOldFilesAction(options.oldFiles)) {
+                std::fprintf(stderr, "--old-files %s: expected delete, archive or keep\n", options.oldFiles.c_str());
+                return false;
+            }
         } else {
             printUsage();
             return false;
@@ -261,7 +272,6 @@ std::unique_ptr<wheelemu::TelemetryRecorder> openTelemetry(const wheelemu::Emula
     const std::filesystem::path directory =
         settings.directory.empty() ? std::filesystem::path(wheelemu::service::defaultLogFile()).parent_path()
                                    : std::filesystem::path(settings.directory);
-    const std::size_t pruned = wheelemu::pruneTelemetry(directory, std::max(settings.keepSessions - 1, 0));
 
     SDL_Joystick* const joystick = source.joystick();
     char device[64];
@@ -284,20 +294,33 @@ std::unique_ptr<wheelemu::TelemetryRecorder> openTelemetry(const wheelemu::Emula
     }
 
     std::string error;
-    auto recorder = wheelemu::TelemetryRecorder::open(settings, directory, wheelemu::telemetryStamp(std::time(nullptr)),
-                                                      header, error);
+    auto recorder = wheelemu::TelemetryRecorder::open(settings, directory, wheelemu::WallClock::now(), header, error);
     if (recorder == nullptr) {
         WE_LOG_ERROR(log(), "telemetry off: {}", error);
         return nullptr;
     }
-    WE_LOG_INFO(log(), "telemetry: recording {} rows/s to {} (game force feedback: {}){}", settings.rateHz,
-                recorder->samplesPath().string(), recorder->ffbPath().filename().string(),
-                pruned > 0 ? ", deleted " + std::to_string(pruned) + " old file(s)" : std::string());
+    WE_LOG_INFO(log(), "telemetry: recording {} rows/s to {} (game force feedback: {}), a new file every day",
+                settings.rateHz, recorder->samplesPath().string(), recorder->ffbPath().filename().string());
     return recorder;
 }
 
+// The folders [retention] looks after: the log folder and, if elsewhere, the telemetry folder.
+std::vector<std::filesystem::path> managedFolders(const wheelemu::EmulatorConfig& config,
+                                                  const std::filesystem::path& logFolder) {
+    std::vector<std::filesystem::path> folders = {logFolder};
+    if (!config.telemetry.directory.empty()) {
+        std::error_code ec;
+        const std::filesystem::path telemetry(config.telemetry.directory);
+        if (!std::filesystem::equivalent(telemetry, logFolder, ec)) {
+            folders.push_back(telemetry);
+        }
+    }
+    return folders;
+}
+
 int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
-            const std::string& logFile, wheelemu::service::SdlInputSource& source, const bool print, const bool ui) {
+            const std::filesystem::path& logFolder, const bool logToFile, wheelemu::service::SdlInputSource& source,
+            const bool print, const bool ui) {
     const auto profile = wheelemu::makeProfile(config.targetProfile);
     if (profile == nullptr) {
         WE_LOG_CRITICAL(log(), "unknown target_profile '{}' (known: {})", config.targetProfile,
@@ -329,10 +352,24 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     if (gameFfb != nullptr) {
         gameFfb->setTelemetry(telemetry.get());
     }
+
+    // Old logs and telemetry: now, and again after every midnight.
+    wheelemu::service::Housekeeping housekeeping(config.retention, managedFolders(config, logFolder));
+    WE_LOG_INFO(log(), "old files: {}", housekeeping.status());
+    housekeeping.run(wheelemu::WallClock::now());
+    auto nextMidnight = wheelemu::startOfDay(
+        wheelemu::addDays(wheelemu::localDate(wheelemu::WallClock::now()), 1).value_or(""));
+    Uint64 lastHousekeepingNs = 0;
+
     if (view != nullptr) {
-        view->setFiles(logFile, telemetry.get(),
-                       config.telemetry.enabled ? "off: the files could not be created (see the log)"
-                                                : "off ([telemetry] enabled = false)");
+        wheelemu::service::FilesDisplay files;
+        files.logFolder = logFolder;
+        files.logToFile = logToFile;
+        files.telemetry = telemetry.get();
+        files.telemetryStatus = config.telemetry.enabled ? "off: the files could not be created (see the log)"
+                                                         : "off ([telemetry] enabled = false)";
+        files.housekeeping = &housekeeping;
+        view->setFiles(std::move(files));
     }
 
     const Uint64 periodNs = SDL_NS_PER_SECOND / static_cast<Uint64>(config.loopHz);
@@ -373,6 +410,16 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 sample.periodUs = static_cast<double>(lastPeriodNs) / 1000.0;
                 sample.workUs = static_cast<double>(lastWorkNs) / 1000.0;
                 telemetry->writeSample(sample);
+            }
+        }
+        if (tickStart - lastHousekeepingNs >= 250 * SDL_NS_PER_MS) {
+            lastHousekeepingNs = tickStart;
+            housekeeping.pump();
+            if (nextMidnight && wheelemu::WallClock::now() >= *nextMidnight) {
+                const auto now = wheelemu::WallClock::now();
+                WE_LOG_INFO(log(), "new day {}: new log and telemetry files, checking old ones", wheelemu::localDate(now));
+                housekeeping.run(now);
+                nextMidnight = wheelemu::startOfDay(wheelemu::addDays(wheelemu::localDate(now), 1).value_or(""));
             }
         }
         if (print && ticks % printEveryTicks == 0) {
@@ -438,6 +485,9 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
 
 int run(const Options& options) {
     LoadedConfig loaded = loadConfig(options.configPath);
+    if (!options.oldFiles.empty()) {
+        loaded.config.retention.action = *wheelemu::parseOldFilesAction(options.oldFiles);
+    }
     const std::string logFile =
         loaded.config.logging.filePath.empty() ? wheelemu::service::defaultLogFile() : loaded.config.logging.filePath;
     const bool logFileOk = wheelemu::logging::init(loaded.config.logging, wheelemu::service::defaultLogFile());
@@ -484,8 +534,11 @@ int run(const Options& options) {
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
-    return runLoop(config, options.configPath, loaded.text, logFileOk ? logFile : std::string(), *source,
-                   options.print, options.ui);
+    std::filesystem::path logFolder = std::filesystem::path(logFile).parent_path();
+    if (logFolder.empty()) {
+        logFolder = std::filesystem::current_path();
+    }
+    return runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, options.print, options.ui);
 }
 
 }  // namespace

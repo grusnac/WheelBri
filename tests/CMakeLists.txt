@@ -17,6 +17,7 @@ add_executable(wheelemu_tests
     LoopStatsTest.cpp
     MapperTest.cpp
     PipelineTest.cpp
+    RetentionTest.cpp
     StatePacketTest.cpp
     TelemetryTest.cpp
     UdpLoopbackTest.cpp

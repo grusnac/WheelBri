@@ -4,12 +4,15 @@
 #include "wheelemu/FfbController.hpp"
 #include "wheelemu/MapperConfig.hpp"
 #include "wheelemu/Telemetry.hpp"
+
+#include "Housekeeping.hpp"
 #include "wheelemu/WheelState.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -27,6 +30,15 @@ struct FfbDisplay {
     std::uint64_t nowNs = 0;
 };
 
+// Where the service writes its logs and telemetry, and what happens to old files (bottom of the window).
+struct FilesDisplay {
+    std::filesystem::path logFolder;
+    bool logToFile = true;                        // false: the log file could not be opened
+    const TelemetryRecorder* telemetry = nullptr; // null: `telemetryStatus` says why
+    std::string telemetryStatus;
+    const Housekeeping* housekeeping = nullptr;
+};
+
 class MappingView {
 public:
     // Opens the window. Returns nullptr (and logs why) if SDL's video subsystem or the window cannot be created.
@@ -40,9 +52,8 @@ public:
     // Handles window events. Returns false once the user closed the window or pressed Esc.
     bool pumpEvents();
 
-    // Where the service writes its log and telemetry, shown at the bottom of the window (F opens the folder).
-    // `logFile` empty: logging to the console only. `telemetry` null: `telemetryStatus` says why.
-    void setFiles(std::string logFile, const TelemetryRecorder* telemetry, std::string telemetryStatus);
+    // Shown at the bottom of the window; F opens the folder.
+    void setFiles(FilesDisplay files) { files_ = std::move(files); }
 
     void render(const RawInputState& raw, const WheelState& state, const TargetReport& report,
                 const FfbDisplay& ffb = {});
@@ -79,9 +90,11 @@ private:
     // sourceHatDirection_[s] = D-pad direction ("up", "right", ...) source button s drives, or nullptr.
     std::array<const char*, 64> sourceHatDirection_{};
 
-    std::string logFile_;
-    const TelemetryRecorder* telemetry_ = nullptr;
-    std::string telemetryStatus_ = "off";
+    FilesDisplay files_;
+    // File names looked up at most once a second (they change at midnight).
+    std::uint64_t filesCheckedMs_ = 0;
+    std::string serviceLogName_;
+    std::string gameLogName_;
 
     std::uint64_t previousSourceButtons_ = 0;
     int lastPressedSource_ = kUnmapped;

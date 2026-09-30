@@ -1,5 +1,6 @@
 add_executable(wheelemu-service
     src/FfbSelfTest.cpp
+    src/Housekeeping.cpp
     src/MappingView.cpp
     src/SdlFfbSink.cpp
     src/SdlInputSource.cpp

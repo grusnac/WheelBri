@@ -1,10 +1,11 @@
 #include "wheelemu/Logging.hpp"
 
 #include <spdlog/cfg/env.h>
-#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <array>
+#include <cstdio>
 #include <filesystem>
 #include <mutex>
 #include <vector>
@@ -18,8 +19,19 @@ constexpr const char* kPattern = "[%Y-%m-%d %H:%M:%S.%e] [%^%-5l%$] [%-14n] [tid
 
 constexpr std::array<const char*, 7> kLevels = {"trace", "debug", "info", "warn", "error", "critical", "off"};
 
+// "wheelemu-service.log" -> "wheelemu-service-2026-09-30.log", the same date style as telemetry files.
+struct DashedDateFileName {
+    static spdlog::filename_t calc_filename(const spdlog::filename_t& filename, const tm& now) {
+        char date[40];
+        std::snprintf(date, sizeof(date), "%04d-%02d-%02d", now.tm_year + 1900, now.tm_mon + 1, now.tm_mday);
+        return datedFileName(filename, date);
+    }
+};
+using DailySink = spdlog::sinks::daily_file_sink<std::mutex, DashedDateFileName>;
+
 std::mutex gMutex;
 std::vector<spdlog::sink_ptr> gSinks;   // guarded by gMutex
+std::shared_ptr<DailySink> gFileSink;   // guarded by gMutex
 bool gInitialised = false;
 
 std::vector<spdlog::sink_ptr> fallbackSinks() {
@@ -53,14 +65,17 @@ bool init(const LogConfig& config, const std::string& defaultFilePath) {
     const std::string filePath = config.filePath.empty() ? defaultFilePath : config.filePath;
     bool fileOk = true;
     std::string fileError;
+    std::shared_ptr<DailySink> fileSink;
     if (!filePath.empty()) {
         try {
             const std::filesystem::path parent = std::filesystem::path(filePath).parent_path();
             if (!parent.empty()) {
                 std::filesystem::create_directories(parent);
             }
-            sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-                filePath, config.maxFileSizeBytes, config.maxFiles));
+            // Rotates at local midnight on the first message of the new day; old days are handled by the
+            // service's [retention] settings, so the sink itself deletes nothing.
+            fileSink = std::make_shared<DailySink>(filePath, 0, 0);
+            sinks.push_back(fileSink);
         } catch (const std::exception& e) {
             fileOk = false;
             fileError = e.what();
@@ -73,6 +88,7 @@ bool init(const LogConfig& config, const std::string& defaultFilePath) {
     {
         const std::lock_guard<std::mutex> lock(gMutex);
         gSinks = sinks;
+        gFileSink = fileSink;
         gInitialised = true;
         // Re-point loggers created before init() (e.g. by static initialisers) at the new sinks.
         spdlog::apply_all([&](const Logger& logger) {
@@ -101,8 +117,8 @@ bool init(const LogConfig& config, const std::string& defaultFilePath) {
     if (!fileOk) {
         WE_LOG_ERROR(logger, "cannot open log file '{}': {} - logging to console only", filePath, fileError);
     } else if (!filePath.empty()) {
-        WE_LOG_INFO(logger, "logging to '{}' (level {}, {} files x {} KiB)", filePath,
-                    spdlog::level::to_string_view(level), config.maxFiles + 1, config.maxFileSizeBytes / 1024);
+        WE_LOG_INFO(logger, "logging to '{}' (level {}, a new file every day)", currentLogFile(),
+                    spdlog::level::to_string_view(level));
     }
     return fileOk;
 }
@@ -112,8 +128,24 @@ void shutdown() {
         const std::lock_guard<std::mutex> lock(gMutex);
         gInitialised = false;
         gSinks.clear();
+        gFileSink.reset();
     }
     spdlog::shutdown();
+}
+
+std::string currentLogFile() {
+    std::shared_ptr<DailySink> sink;
+    {
+        const std::lock_guard<std::mutex> lock(gMutex);
+        sink = gFileSink;
+    }
+    return sink != nullptr ? sink->filename() : std::string();
+}
+
+std::string datedFileName(const std::string& filePath, const std::string& date) {
+    const std::filesystem::path path(filePath);
+    std::filesystem::path dated = path.parent_path() / (path.stem().string() + "-" + date + path.extension().string());
+    return path.parent_path().empty() ? dated.filename().string() : dated.string();
 }
 
 Logger get(const std::string& component) {

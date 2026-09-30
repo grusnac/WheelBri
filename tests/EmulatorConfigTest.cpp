@@ -67,20 +67,43 @@ TEST(EmulatorConfig, ReadsTelemetry) {
     EXPECT_TRUE(defaults.config.telemetry.enabled);
     EXPECT_EQ(defaults.config.telemetry.rateHz, 50);
 
-    const auto result = load("[telemetry]\nenabled = false\nrate_hz = 100\nmax_file_mb = 50\nkeep_sessions = 3\n"
+    const auto result = load("[telemetry]\nenabled = false\nrate_hz = 100\nmax_file_mb = 50\n"
                              "directory = D:/telemetry\n");
     ASSERT_TRUE(result.errors.empty()) << result.errors.front();
     const TelemetryConfig& telemetry = result.config.telemetry;
     EXPECT_FALSE(telemetry.enabled);
     EXPECT_EQ(telemetry.rateHz, 100);
     EXPECT_EQ(telemetry.maxFileMb, 50);
-    EXPECT_EQ(telemetry.keepSessions, 3);
     EXPECT_EQ(telemetry.directory, "D:/telemetry");
 
     const auto bad = load("[telemetry]\nrate_hz = 0\nfolder = x\n");
     EXPECT_EQ(bad.config.telemetry.rateHz, 50);
     EXPECT_TRUE(containsError(bad, "[telemetry] rate_hz = '0'"));
     EXPECT_TRUE(containsError(bad, "[telemetry] unknown key 'folder'"));
+}
+
+TEST(EmulatorConfig, ReadsRetention) {
+    const auto defaults = load("");
+    EXPECT_EQ(defaults.config.retention.action, OldFilesAction::Delete);
+    EXPECT_EQ(defaults.config.retention.olderThanDays, 7);
+    EXPECT_EQ(defaults.config.retention.archiver, "auto");
+
+    const auto result = load("[retention]\nold_files = archive\nolder_than_days = 14\narchiver = 7z\n");
+    ASSERT_TRUE(result.errors.empty()) << result.errors.front();
+    EXPECT_EQ(result.config.retention.action, OldFilesAction::Archive);
+    EXPECT_EQ(result.config.retention.olderThanDays, 14);
+    EXPECT_EQ(result.config.retention.archiver, "7z");
+
+    const auto bad = load("[retention]\nold_files = shred\nolder_than_days = 0\narchiver = rar\n");
+    EXPECT_EQ(bad.config.retention.action, OldFilesAction::Delete);
+    EXPECT_TRUE(containsError(bad, "[retention] old_files = 'shred'"));
+    EXPECT_TRUE(containsError(bad, "[retention] older_than_days = '0'"));
+    EXPECT_TRUE(containsError(bad, "[retention] archiver = 'rar'"));
+}
+
+TEST(EmulatorConfig, RemovedLoggingKeysAreReported) {
+    const auto result = load("[logging]\nmax_files = 3\n");
+    EXPECT_TRUE(containsError(result, "[logging] unknown key 'max_files'"));
 }
 
 TEST(EmulatorConfig, InvalidValuesKeepDefaultsAndAreReported) {
@@ -102,14 +125,12 @@ TEST(EmulatorConfig, UnknownKeysAndSectionsAreReported) {
 
 TEST(EmulatorConfig, ReadsLoggingSection) {
     const auto result = load(
-        "[logging]\nlevel = debug\nfile = /tmp/we.log\nmax_file_size_mb = 2\nmax_files = 3\nconsole = false\n"
+        "[logging]\nlevel = debug\nfile = /tmp/we.log\nconsole = false\n"
         "flush_level = info\n");
     ASSERT_TRUE(result.errors.empty()) << result.errors.front();
     const logging::LogConfig& log = result.config.logging;
     EXPECT_EQ(log.level, "debug");
     EXPECT_EQ(log.filePath, "/tmp/we.log");
-    EXPECT_EQ(log.maxFileSizeBytes, 2U * 1024 * 1024);
-    EXPECT_EQ(log.maxFiles, 3U);
     EXPECT_FALSE(log.console);
     EXPECT_EQ(log.flushLevel, "info");
 }

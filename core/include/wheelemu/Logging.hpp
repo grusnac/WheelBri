@@ -37,6 +37,12 @@ using Logger = std::shared_ptr<spdlog::logger>;
 // Returns false if the log file could not be opened; console logging still works in that case.
 bool init(const LogConfig& config, const std::string& defaultFilePath);
 
+// Full path of the log file being written today, or empty when logging to the console only.
+[[nodiscard]] std::string currentLogFile();
+
+// The dated file name used for `filePath` on `date` ("YYYY-MM-DD"): "dir/x.log" -> "dir/x-2026-09-30.log".
+[[nodiscard]] std::string datedFileName(const std::string& filePath, const std::string& date);
+
 // Flushes and releases all sinks. Call before the process (or the DLL) goes away.
 void shutdown();
 

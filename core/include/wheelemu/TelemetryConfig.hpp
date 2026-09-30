@@ -8,8 +8,7 @@ namespace wheelemu {
 struct TelemetryConfig {
     bool enabled = true;
     int rateHz = 50;                   // sample rows per second (the loop runs faster; rows are decimated)
-    int maxFileMb = 200;               // per file; recording stops (with a note in the file) when reached
-    int keepSessions = 20;             // older sessions in the folder are deleted when a new one starts
+    int maxFileMb = 500;               // per file (one file per day); recording stops, with a note, when reached
     std::string directory;             // empty: the service's log folder
 };
 

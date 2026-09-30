@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -563,19 +564,9 @@ std::string displayPath(const std::filesystem::path& path) {
 
 }  // namespace
 
-void MappingView::setFiles(std::string logFile, const TelemetryRecorder* telemetry, std::string telemetryStatus) {
-    logFile_ = logFile.empty() ? std::string() : displayPath(logFile);
-    telemetry_ = telemetry;
-    telemetryStatus_ = std::move(telemetryStatus);
-}
-
 void MappingView::openFilesFolder() const {
-    std::filesystem::path folder;
-    if (telemetry_ != nullptr) {
-        folder = telemetry_->samplesPath().parent_path();
-    } else if (!logFile_.empty()) {
-        folder = std::filesystem::path(logFile_).parent_path();
-    }
+    const std::filesystem::path folder = files_.telemetry != nullptr ? files_.telemetry->samplesPath().parent_path()
+                                                                     : files_.logFolder;
     if (folder.empty()) {
         WE_LOG_WARN(log(), "no log or telemetry folder to open");
         return;
@@ -593,43 +584,59 @@ void MappingView::drawFiles() {
     constexpr std::size_t kPathChars = 76;  // (720 - 4 - 12 * 8 label column) / 8, rounded down
     outline(renderer_, 0, kTop - 6, kLogicalWidth, kLogicalHeight - kTop + 6, kHeading);
     text(renderer_, 4, kTop, "LOGS AND TELEMETRY", kHeading);
-    text(renderer_, 164, kTop, "press F to open the folder", kText);
+    text(renderer_, 164, kTop, "press F to open the folder  (a new file every day)", kText);
 
-    // The folder once, then file names; a file somewhere else (custom path in the INI) gets its full path.
-    const std::filesystem::path folder = telemetry_ != nullptr ? std::filesystem::path(displayPath(telemetry_->samplesPath())).parent_path()
-                                         : !logFile_.empty()    ? std::filesystem::path(logFile_).parent_path()
-                                                                : std::filesystem::path();
-    const auto name = [&folder](const std::filesystem::path& file) {
-        const std::filesystem::path shown(displayPath(file));
-        return shown.parent_path() == folder ? shown.filename().string() : shown.string();
-    };
+    const std::uint64_t nowMs = SDL_GetTicks();
+    if (filesCheckedMs_ == 0 || nowMs - filesCheckedMs_ >= 1000) {
+        filesCheckedMs_ = nowMs;
+        serviceLogName_ = std::filesystem::path(logging::currentLogFile()).filename().string();
+        const std::string today = localDate(WallClock::now());
+        const std::string gameLog = "wheelemu-shim-" + today + ".log";
+        std::error_code ec;
+        gameLogName_ = std::filesystem::exists(files_.logFolder / gameLog, ec) ? gameLog : std::string();
+    }
 
     const float x = 4 + 12 * 8;
     float y = kTop + 14;
     text(renderer_, 4, y, "Folder", kDim);
-    text(renderer_, x, y, folder.empty() ? "-" : shortenMiddle(folder.string(), kPathChars).c_str(), kText);
+    text(renderer_, x, y, shortenMiddle(displayPath(files_.logFolder), kPathChars).c_str(), kText);
 
     y += 14;
-    text(renderer_, 4, y, "Log", kDim);
-    if (logFile_.empty()) {
+    text(renderer_, 4, y, "Logs", kDim);
+    if (!files_.logToFile || serviceLogName_.empty()) {
         text(renderer_, x, y, "console only (the log file could not be opened)", kWarning);
     } else {
-        text(renderer_, x, y, shortenMiddle(name(logFile_), kPathChars).c_str(), kText);
+        const std::string game = gameLogName_.empty() ? "not started today" : gameLogName_;
+        text(renderer_, x, y, (serviceLogName_ + "   game: " + game).c_str(), kText);
     }
 
     y += 14;
     text(renderer_, 4, y, "Telemetry", kDim);
-    text(renderer_, 4, y + 14, "FFB events", kDim);
-    if (telemetry_ == nullptr) {
-        text(renderer_, x, y, telemetryStatus_.c_str(), kDim);
-        return;
+    if (files_.telemetry == nullptr) {
+        text(renderer_, x, y, files_.telemetryStatus.c_str(), kDim);
+    } else {
+        const TelemetryRecorder& t = *files_.telemetry;
+        char line[160];
+        std::snprintf(line, sizeof(line), "%s (%llu rows)  %s (%llu changes)",
+                      t.samplesPath().filename().string().c_str(), static_cast<unsigned long long>(t.rowsWritten()),
+                      t.ffbPath().filename().string().c_str(), static_cast<unsigned long long>(t.ffbRowsWritten()));
+        text(renderer_, x, y, line, kText);
+        if (t.samplesPath().parent_path() != files_.logFolder) {
+            // Telemetry in its own folder ([telemetry] directory): say where.
+            text(renderer_, x + static_cast<float>(std::strlen(line) + 1) * 8, y,
+                 shortenMiddle("in " + displayPath(t.samplesPath().parent_path()),
+                               kPathChars > std::strlen(line) + 1 ? kPathChars - std::strlen(line) - 1 : 0)
+                     .c_str(),
+                 kDim);
+        }
     }
-    char count[48];
-    std::snprintf(count, sizeof(count), "  (%llu rows)", static_cast<unsigned long long>(telemetry_->rowsWritten()));
-    text(renderer_, x, y, (shortenMiddle(name(telemetry_->samplesPath()), kPathChars - 20) + count).c_str(), kText);
-    std::snprintf(count, sizeof(count), "  (%llu changes from the game)",
-                  static_cast<unsigned long long>(telemetry_->ffbRowsWritten()));
-    text(renderer_, x, y + 14, (shortenMiddle(name(telemetry_->ffbPath()), kPathChars - 36) + count).c_str(), kText);
+
+    y += 14;
+    text(renderer_, 4, y, "Old files", kDim);
+    if (files_.housekeeping != nullptr) {
+        const std::string status = shortenMiddle(files_.housekeeping->status(), kPathChars);
+        text(renderer_, x, y, status.c_str(), files_.housekeeping->failed() ? kWarning : kText);
+    }
 }
 
 }  // namespace wheelemu::service

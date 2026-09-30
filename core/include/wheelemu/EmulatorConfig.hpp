@@ -4,6 +4,7 @@
 #include "wheelemu/IniDocument.hpp"
 #include "wheelemu/LogConfig.hpp"
 #include "wheelemu/MapperConfig.hpp"
+#include "wheelemu/Retention.hpp"
 #include "wheelemu/TelemetryConfig.hpp"
 #include "wheelemu/WheelState.hpp"
 
@@ -29,6 +30,7 @@ struct EmulatorConfig {
     FfbSafetyConfig ffb;
     logging::LogConfig logging;
     TelemetryConfig telemetry;
+    RetentionConfig retention;
 };
 
 struct EmulatorConfigResult {

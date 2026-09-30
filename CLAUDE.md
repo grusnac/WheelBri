@@ -63,9 +63,16 @@ axis/button next to its target (G920/G29).
   - `EmulatedJoystick` is the emulated wheel as DirectInput sees it (objects, the game's data format,
     ranges, state bytes, buffered changes). It mirrors DirectInput constants without `<dinput.h>` so it is
     unit-tested on Linux; `shim/src/DiConvert.hpp` static_asserts the constants against the real macros.
-  - `TelemetryRecorder` (`Telemetry.hpp`): per-session CSVs in the log folder (`telemetry-*.csv` sampled at
-    `rate_hz`, `ffb-*.csv` one row per game FFB change). Columns come from `telemetryColumns()`; when you add
-    one, write it in `writeSample` in the same order and bump the format number if a column moves.
+  - `TelemetryRecorder` (`Telemetry.hpp`): daily CSVs in the log folder (`telemetry-YYYY-MM-DD.csv` sampled at
+    `rate_hz`, `ffb-YYYY-MM-DD.csv` one row per game FFB change), each session appended after a
+    `# session started` block, rolled over at local midnight. Columns come from `telemetryColumns()`; when you
+    add one, write it in `writeSample` in the same order and bump the format number if a column moves.
+  - Logs are daily too (`logging::init` adds the date: `wheelemu-service-YYYY-MM-DD.log`); the shim logs to
+    `%LOCALAPPDATA%\wheelemu\logs\wheelemu-shim-YYYY-MM-DD.log`. `LocalDate.hpp` has the date helpers.
+  - `Retention.hpp` decides which files are old (date in the name, else last-write day) and only ever touches
+    `wheelemu-*`, `telemetry-*`, `ffb-*`. The service's `Housekeeping` deletes them (default, after 7 days) or
+    archives them with the best compressor found (7z > xz > zstd > zip > gzip) as a background process via
+    `SDL_CreateProcess`, deleting originals only after the compressor exited 0.
     `scripts/telemetry_summary.py` reads columns by name. After a user's test drive, read these files (and
     run the script) before guessing at mapping or FFB problems.
   - Wire format (`StatePacket.hpp`): 33 bytes, little-endian, magic `WEMU`, version 1. Any layout change

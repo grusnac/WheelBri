@@ -180,12 +180,6 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         logging::LogConfig& log = config.logging;
         reader.readString("level", log.level);
         reader.readString("file", log.filePath);
-        int maxFileSizeMb = static_cast<int>(log.maxFileSizeBytes / (1024 * 1024));
-        reader.readInt("max_file_size_mb", maxFileSizeMb, 1, 1024);
-        log.maxFileSizeBytes = static_cast<std::size_t>(maxFileSizeMb) * 1024 * 1024;
-        int maxFiles = static_cast<int>(log.maxFiles);
-        reader.readInt("max_files", maxFiles, 0, 100);
-        log.maxFiles = static_cast<std::size_t>(maxFiles);
         reader.readBool("console", log.console);
         reader.readString("flush_level", log.flushLevel);
         reader.reportUnknownKeys();
@@ -205,14 +199,32 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         reader.readBool("enabled", telemetry.enabled);
         reader.readInt("rate_hz", telemetry.rateHz, 1, 1000);
         reader.readInt("max_file_mb", telemetry.maxFileMb, 1, 4096);
-        reader.readInt("keep_sessions", telemetry.keepSessions, 1, 1000);
         reader.readString("directory", telemetry.directory);
+        reader.reportUnknownKeys();
+    }
+
+    {
+        SectionReader reader(ini, "retention", errors);
+        RetentionConfig& retention = config.retention;
+        std::string action = toString(retention.action);
+        reader.readString("old_files", action);
+        if (const auto parsed = parseOldFilesAction(action)) {
+            retention.action = *parsed;
+        } else {
+            errors.push_back("[retention] old_files = '" + action + "': expected keep, delete or archive");
+        }
+        reader.readInt("older_than_days", retention.olderThanDays, 1, 3650);
+        reader.readString("archiver", retention.archiver);
+        if (!isKnownArchiver(retention.archiver)) {
+            errors.push_back("[retention] archiver = '" + retention.archiver + "': expected " + kArchivers);
+            retention.archiver = "auto";
+        }
         reader.reportUnknownKeys();
     }
 
     static const std::set<std::string> kKnownSections = {"",       "emulator", "steering", "throttle",
                                                          "brake",  "clutch",   "buttons",  "hat",
-                                                         "ffb",    "logging",  "telemetry"};
+                                                         "ffb",    "logging",  "telemetry", "retention"};
     for (const auto& [section, keys] : ini.sections()) {
         if (kKnownSections.count(section) == 0) {
             errors.push_back("unknown section [" + section + "]");

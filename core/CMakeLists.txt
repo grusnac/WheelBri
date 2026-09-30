@@ -7,10 +7,12 @@ add_library(wheelemu_core STATIC
     src/FfbController.cpp
     src/FfbPacket.cpp
     src/IniDocument.cpp
+    src/LocalDate.cpp
     src/Logging.cpp
     src/LoopStats.cpp
     src/Mapper.cpp
     src/Pipeline.cpp
+    src/Retention.cpp
     src/StatePacket.cpp
     src/Telemetry.cpp
     src/UdpLoopback.cpp

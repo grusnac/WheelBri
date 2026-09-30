@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <ctime>
 #include <system_error>
 
 namespace wheelemu {
@@ -10,7 +11,7 @@ namespace {
 
 constexpr std::uint64_t kNsPerSecond = 1'000'000'000;
 constexpr std::uint64_t kFlushEveryNs = kNsPerSecond;  // a crash loses at most about a second
-constexpr const char* kFormatVersion = "1";
+constexpr const char* kFormatVersion = "2";
 
 // Appends printf-style text to `out`.
 #if defined(__GNUC__)
@@ -25,10 +26,6 @@ void appendf(std::string& out, const char* format, ...) {
     if (n > 0) {
         out.append(buffer, static_cast<std::size_t>(std::min<int>(n, static_cast<int>(sizeof(buffer)) - 1)));
     }
-}
-
-double msSince(const std::uint64_t startNs, const std::uint64_t nowNs) {
-    return nowNs >= startNs ? static_cast<double>(nowNs - startNs) / 1e6 : 0.0;
 }
 
 const char* packetKindName(const FfbPacket::Kind kind) {
@@ -47,23 +44,36 @@ std::string typeField(const FfbEffectType type) {
     return name;
 }
 
-bool startsWith(const std::string& text, const std::string& prefix) {
-    return text.size() >= prefix.size() && text.compare(0, prefix.size(), prefix) == 0;
+std::string clockText(const WallClock::time_point time) {
+    const std::time_t t = WallClock::to_time_t(time);
+    std::tm local{};
+#if defined(_WIN32)
+    localtime_s(&local, &t);
+#else
+    localtime_r(&t, &local);
+#endif
+    char text[16];
+    std::strftime(text, sizeof(text), "%H:%M:%S", &local);
+    return text;
 }
 
-bool endsWith(const std::string& text, const std::string& suffix) {
-    return text.size() >= suffix.size() && text.compare(text.size() - suffix.size(), suffix.size(), suffix) == 0;
+std::string ffbColumns() {
+    return "time,t_ms,kind,slot,seq,playing,type,gain,level,center,deadband,k_pos,k_neg,sat_pos,sat_neg,"
+           "magnitude,offset,period_ms,phase_deg";
 }
 
-const char* ffbColumns() {
-    return "t_ms,kind,slot,seq,playing,type,gain,level,center,deadband,k_pos,k_neg,sat_pos,sat_neg,"
-           "magnitude,offset,period_ms,phase_deg\n";
+std::string joined(const std::vector<std::string>& columns) {
+    std::string line;
+    for (const std::string& column : columns) {
+        line += (line.empty() ? "" : ",") + column;
+    }
+    return line;
 }
 
 }  // namespace
 
 std::vector<std::string> telemetryColumns() {
-    std::vector<std::string> columns = {"t_ms", "seq"};
+    std::vector<std::string> columns = {"time", "t_ms", "seq"};
     for (std::size_t i = 0; i < RawInputState::kMaxAxes; ++i) {
         columns.push_back("raw_a" + std::to_string(i));
     }
@@ -83,44 +93,9 @@ std::vector<std::string> telemetryColumns() {
     return columns;
 }
 
-std::string telemetryStamp(const std::time_t time) {
-    std::tm local{};
-#if defined(_WIN32)
-    localtime_s(&local, &time);
-#else
-    localtime_r(&time, &local);
-#endif
-    char text[32];
-    std::strftime(text, sizeof(text), "%Y%m%d-%H%M%S", &local);
-    return text;
-}
-
-std::size_t pruneTelemetry(const std::filesystem::path& directory, const int keep) {
-    std::error_code ec;
-    std::vector<std::string> stamps;
-    for (const auto& entry : std::filesystem::directory_iterator(directory, ec)) {
-        const std::string name = entry.path().filename().string();
-        if (startsWith(name, "telemetry-") && endsWith(name, ".csv")) {
-            stamps.push_back(name.substr(10, name.size() - 10 - 4));
-        }
-    }
-    // Stamps sort by time; a session with only an ffb-*.csv left is ignored (it is deleted with its pair).
-    std::sort(stamps.begin(), stamps.end());
-    std::size_t deleted = 0;
-    const std::size_t keepCount = static_cast<std::size_t>(std::max(keep, 0));
-    for (std::size_t i = 0; i + keepCount < stamps.size(); ++i) {
-        for (const std::string& prefix : {std::string("telemetry-"), std::string("ffb-")}) {
-            if (std::filesystem::remove(directory / (prefix + stamps[i] + ".csv"), ec)) {
-                ++deleted;
-            }
-        }
-    }
-    return deleted;
-}
-
 std::unique_ptr<TelemetryRecorder> TelemetryRecorder::open(const TelemetryConfig& config,
                                                            const std::filesystem::path& directory,
-                                                           const std::string& stamp,
+                                                           const WallClock::time_point wallNow,
                                                            const std::vector<std::string>& header,
                                                            std::string& error) {
     std::error_code ec;
@@ -129,52 +104,86 @@ std::unique_ptr<TelemetryRecorder> TelemetryRecorder::open(const TelemetryConfig
         error = "cannot create " + directory.string() + ": " + ec.message();
         return nullptr;
     }
-    auto recorder = std::unique_ptr<TelemetryRecorder>(new TelemetryRecorder(
-        config, directory / ("telemetry-" + stamp + ".csv"), directory / ("ffb-" + stamp + ".csv")));
-    recorder->samples_.handle = std::fopen(recorder->samplesPath_.string().c_str(), "wb");
-    recorder->ffbEvents_.handle = std::fopen(recorder->ffbPath_.string().c_str(), "wb");
-    if (recorder->samples_.handle == nullptr || recorder->ffbEvents_.handle == nullptr) {
-        error = "cannot create telemetry files in " + directory.string();
+    auto recorder = std::unique_ptr<TelemetryRecorder>(new TelemetryRecorder(config, directory, wallNow, header));
+    if (!recorder->openDay(localDate(wallNow), false, error)) {
         return nullptr;
     }
-
-    std::string comments = "# wheelemu telemetry format " + std::string(kFormatVersion) + ", session " + stamp + "\n";
-    for (const std::string& line : header) {
-        comments += "# " + line + "\n";
-    }
-    std::string columns;
-    for (const std::string& column : telemetryColumns()) {
-        columns += (columns.empty() ? "" : ",") + column;
-    }
-    recorder->write(recorder->samples_,
-                    comments +
-                        "# raw_*: physical wheel as the OS reports it (axes -1..1, buttons bit n = button n). "
-                        "steer..hat: after mapping. out_*: values the emulated wheel reports to the game.\n"
-                        "# sN_state: w = game wants it playing, p = playing on the wheel. sN_req: what the game "
-                        "asked for, sN_out: what reached the wheel (signed force for constant, strength for "
-                        "the others).\n" +
-                        columns + "\n");
-    recorder->write(recorder->ffbEvents_, comments + ffbColumns());
-    std::fflush(recorder->samples_.handle);
-    std::fflush(recorder->ffbEvents_.handle);
     return recorder;
 }
 
-TelemetryRecorder::TelemetryRecorder(const TelemetryConfig& config, std::filesystem::path samplesPath,
-                                     std::filesystem::path ffbPath)
+TelemetryRecorder::TelemetryRecorder(const TelemetryConfig& config, std::filesystem::path directory,
+                                     const WallClock::time_point sessionStart, std::vector<std::string> header)
     : config_(config),
-      samplesPath_(std::move(samplesPath)),
-      ffbPath_(std::move(ffbPath)),
+      directory_(std::move(directory)),
+      header_(std::move(header)),
+      sessionStart_(sessionStart),
       periodNs_(kNsPerSecond / static_cast<std::uint64_t>(std::clamp(config.rateHz, 1, 1000))) {
     line_.reserve(1024);
 }
 
 TelemetryRecorder::~TelemetryRecorder() {
+    closeFiles();
+}
+
+void TelemetryRecorder::closeFiles() {
     for (File* file : {&samples_, &ffbEvents_}) {
         if (file->handle != nullptr) {
             std::fclose(file->handle);
         }
+        *file = File{};
     }
+}
+
+bool TelemetryRecorder::openDay(const std::string& day, const bool continued, std::string& error) {
+    closeFiles();
+    day_ = day;
+    dayStart_ = startOfDay(day).value_or(sessionStart_);
+    const std::string nextDay = addDays(day, 1).value_or(day);
+    nextDayStart_ = startOfDay(nextDay).value_or(dayStart_ + std::chrono::hours(24));
+    samplesPath_ = directory_ / ("telemetry-" + day + ".csv");
+    ffbPath_ = directory_ / ("ffb-" + day + ".csv");
+
+    std::string sessionHeader = "# session started " + localDate(sessionStart_) + " " + clockText(sessionStart_) +
+                                (continued ? ", continued after midnight" : "") + "\n";
+    for (const std::string& line : header_) {
+        sessionHeader += "# " + line + "\n";
+    }
+
+    struct Target {
+        File* file;
+        const std::filesystem::path* path;
+        std::string intro;
+    };
+    const std::string intro = "# wheelemu telemetry format " + std::string(kFormatVersion) + ", day " + day + "\n";
+    const Target targets[] = {
+        {&samples_, &samplesPath_,
+         intro +
+             "# time: local time of day, t_ms: since the session started. raw_*: physical wheel as the OS reports "
+             "it (axes -1..1, buttons bit n = button n). steer..hat: after mapping. out_*: values the emulated "
+             "wheel reports to the game.\n"
+             "# sN_state: w = game wants it playing, p = playing on the wheel. sN_req: what the game asked for, "
+             "sN_out: what reached the wheel (signed force for constant, strength for the others).\n" +
+             joined(telemetryColumns()) + "\n"},
+        {&ffbEvents_, &ffbPath_, intro + ffbColumns() + "\n"},
+    };
+    for (const Target& target : targets) {
+        // Append: every session of the day shares the file. The column row is written once, by the first.
+        target.file->handle = std::fopen(target.path->string().c_str(), "ab");
+        if (target.file->handle == nullptr) {
+            error = "cannot open " + target.path->string();
+            closeFiles();
+            return false;
+        }
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(*target.path, ec);
+        target.file->bytes = ec ? 0 : static_cast<std::uint64_t>(size);
+        if (target.file->bytes == 0) {
+            write(*target.file, target.intro);
+        }
+        write(*target.file, sessionHeader);
+        std::fflush(target.file->handle);
+    }
+    return true;
 }
 
 bool TelemetryRecorder::due(const std::uint64_t nowNs) const {
@@ -187,8 +196,7 @@ void TelemetryRecorder::write(File& file, const std::string& line) {
     }
     const std::uint64_t limit = static_cast<std::uint64_t>(std::max(config_.maxFileMb, 1)) * 1024 * 1024;
     if (file.bytes + line.size() > limit) {
-        const char* const note = "# stopped: max_file_mb reached\n";
-        std::fputs(note, file.handle);
+        std::fputs("# stopped: max_file_mb reached\n", file.handle);
         std::fflush(file.handle);
         file.full = true;
         return;
@@ -199,24 +207,50 @@ void TelemetryRecorder::write(File& file, const std::string& line) {
 
 void TelemetryRecorder::flushIfDue(const std::uint64_t nowNs) {
     if (nowNs - lastFlushNs_ >= kFlushEveryNs) {
-        std::fflush(samples_.handle);
-        std::fflush(ffbEvents_.handle);
+        for (File* file : {&samples_, &ffbEvents_}) {
+            if (file->handle != nullptr) {
+                std::fflush(file->handle);
+            }
+        }
         lastFlushNs_ = nowNs;
     }
 }
 
-void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
+WallClock::time_point TelemetryRecorder::advance(const std::uint64_t nowNs) {
     if (!startNs_) {
-        startNs_ = sample.nowNs;
-        lastFlushNs_ = sample.nowNs;
+        startNs_ = nowNs;
+        lastFlushNs_ = nowNs;
     }
+    const auto elapsed = std::chrono::nanoseconds(nowNs >= *startNs_ ? nowNs - *startNs_ : 0);
+    const WallClock::time_point wall = sessionStart_ + std::chrono::duration_cast<WallClock::duration>(elapsed);
+    while (wall >= nextDayStart_) {
+        std::string error;
+        const std::string nextDay = addDays(day_, 1).value_or(localDate(wall));
+        if (!openDay(nextDay, true, error)) {
+            break;  // files closed; rows are dropped until the service restarts
+        }
+    }
+    return wall;
+}
+
+void TelemetryRecorder::appendTimes(std::string& line, const WallClock::time_point wall,
+                                    const std::uint64_t nowNs) const {
+    const auto sinceMidnight = std::chrono::duration_cast<std::chrono::milliseconds>(wall - dayStart_).count();
+    const long long ms = std::max<long long>(sinceMidnight, 0);
+    appendf(line, "%02lld:%02lld:%02lld.%03lld,%.1f", ms / 3'600'000, ms / 60'000 % 60, ms / 1000 % 60, ms % 1000,
+            static_cast<double>(nowNs - *startNs_) / 1e6);
+}
+
+void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
+    const WallClock::time_point wall = advance(sample.nowNs);
     // Keep the grid: the next row is due one period after this one was due, not after it was written.
     lastSampleNs_ = lastSampleNs_ && sample.nowNs - *lastSampleNs_ < 2 * periodNs_ ? *lastSampleNs_ + periodNs_
                                                                                    : sample.nowNs;
 
     std::string& l = line_;
     l.clear();
-    appendf(l, "%.1f,%u", msSince(*startNs_, sample.nowNs), static_cast<unsigned>(sample.sequence));
+    appendTimes(l, wall, sample.nowNs);
+    appendf(l, ",%u", static_cast<unsigned>(sample.sequence));
     for (const float axis : sample.raw.axes) {
         appendf(l, ",%.4f", static_cast<double>(axis));
     }
@@ -238,7 +272,7 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
         const auto& stats = ffb->stats();
         appendf(l, ",%llu,", static_cast<unsigned long long>(stats.packets));
         if (const auto last = ffb->lastPacketNs()) {
-            appendf(l, "%.0f", msSince(*last, sample.nowNs));
+            appendf(l, "%.0f", sample.nowNs >= *last ? static_cast<double>(sample.nowNs - *last) / 1e6 : 0.0);
         }
         appendf(l, ",%d,%llu,%llu", ffb->watchdogTripped() ? 1 : 0, static_cast<unsigned long long>(stats.plays),
                 static_cast<unsigned long long>(stats.playFailures));
@@ -269,10 +303,7 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
 }
 
 void TelemetryRecorder::writeFfbPacket(const std::uint64_t nowNs, const FfbPacket& packet) {
-    if (!startNs_) {
-        startNs_ = nowNs;
-        lastFlushNs_ = nowNs;
-    }
+    const WallClock::time_point wall = advance(nowNs);
     if (packet.kind == FfbPacket::Kind::KeepAlive) {
         ++keepAlives_;
         return;
@@ -280,8 +311,9 @@ void TelemetryRecorder::writeFfbPacket(const std::uint64_t nowNs, const FfbPacke
     const FfbEffect& e = packet.effect;
     std::string& l = line_;
     l.clear();
-    appendf(l, "%.1f,%s,%u,%lu,%d,", msSince(*startNs_, nowNs), packetKindName(packet.kind),
-            static_cast<unsigned>(packet.slot), static_cast<unsigned long>(packet.sequence), packet.playing ? 1 : 0);
+    appendTimes(l, wall, nowNs);
+    appendf(l, ",%s,%u,%lu,%d,", packetKindName(packet.kind), static_cast<unsigned>(packet.slot),
+            static_cast<unsigned long>(packet.sequence), packet.playing ? 1 : 0);
     l += typeField(e.type);
     appendf(l, ",%.4f,%.4f", static_cast<double>(e.gain), static_cast<double>(e.constantLevel));
     appendf(l, ",%.4f,%.4f,%.4f,%.4f,%.4f,%.4f", static_cast<double>(e.condition.center),
@@ -297,13 +329,10 @@ void TelemetryRecorder::writeFfbPacket(const std::uint64_t nowNs, const FfbPacke
 }
 
 void TelemetryRecorder::noteMalformedFfb(const std::uint64_t nowNs, const std::size_t bytes) {
-    if (!startNs_) {
-        startNs_ = nowNs;
-        lastFlushNs_ = nowNs;
-    }
+    const WallClock::time_point wall = advance(nowNs);
     line_.clear();
-    appendf(line_, "%.1f,malformed_%lu_bytes,,,,,,,,,,,,,,,,\n", msSince(*startNs_, nowNs),
-            static_cast<unsigned long>(bytes));
+    appendTimes(line_, wall, nowNs);
+    appendf(line_, ",malformed_%lu_bytes,,,,,,,,,,,,,,,,\n", static_cast<unsigned long>(bytes));
     write(ffbEvents_, line_);
 }
 

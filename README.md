@@ -64,7 +64,7 @@ defaults to ON on Windows).
 1. Copy `dinput8.dll` next to the game's `.exe`.
    - Linux/Proton: same folder, and set the Steam launch option `WINEDLLOVERRIDES="dinput8=n,b" %command%`.
 2. Plug in the wheel and start the game. Open its controller settings and drive for a minute.
-3. Read `wheelemu-shim.log` next to the DLL. Things to look for:
+3. Read `wheelemu-shim-<date>.log` in `%LOCALAPPDATA%\wheelemu\logs` (see [Logging](#logging)). Things to look for:
    - `EnumDevices ... device '...' product=VID_xxxx&PID_xxxx ... -> game STOPPED here`: which device the game picked.
    - `GetProperty(DIPROP_VIDPID)` or `DIPROP_PRODUCTNAME`: the game checks the identity.
    - `CreateEffect(GUID_ConstantForce)` / `SetParameters`: the force feedback it sends.
@@ -88,7 +88,7 @@ Y / Rz / Slider instead). If a game reads the pedals from other axes, or backwar
 `throttle_axis` / `brake_axis` / `clutch_axis` / `invert_pedals` in `wheelemu-shim.ini`; no rebuild needed.
 Every read (`GetDeviceState`, `GetDeviceData`) is answered from the latest packet the service sent, in the
 data format and ranges the game asked for. If the service stops sending for 250 ms the wheel reads as centred
-with pedals released. Everything else the game does is still logged to `wheelemu-shim.log`.
+with pedals released. Everything else the game does is still logged to `wheelemu-shim-<date>.log`.
 
 Force feedback (Phase 3): the game's DirectInput effects (constant, spring, damper, friction, inertia,
 periodic; ramps as their average; no custom forces or envelopes) are kept by the shim and sent to the service
@@ -121,12 +121,14 @@ Built on spdlog. Every line carries time, level, component, thread and source lo
 
 | Program | File |
 |---|---|
-| service, Windows | `%LOCALAPPDATA%\wheelemu\logs\wheelemu-service.log` |
-| service, Linux | `$XDG_STATE_HOME/wheelemu/` or `~/.local/state/wheelemu/wheelemu-service.log` |
-| service, macOS | `~/Library/Logs/wheelemu/wheelemu-service.log` |
-| shim | `wheelemu-shim.log` next to `dinput8.dll` |
+| service, Windows | `%LOCALAPPDATA%\wheelemu\logs\wheelemu-service-<date>.log` |
+| service, Linux | `$XDG_STATE_HOME/wheelemu/` or `~/.local/state/wheelemu/wheelemu-service-<date>.log` |
+| service, macOS | `~/Library/Logs/wheelemu/wheelemu-service-<date>.log` |
+| shim (in the game) | `%LOCALAPPDATA%\wheelemu\logs\wheelemu-shim-<date>.log` (next to `dinput8.dll` if `LOCALAPPDATA` is not set) |
 
-Files rotate (service: 10 MiB × 6 by default, `[logging]` in the config; shim: 20 MiB × 4).
+One file per day (`<date>` = `2026-09-30`, local time); a program running past midnight moves to the next
+day's file. Old files are deleted after 7 days by default, see [Old files](#old-files). The `--ui` window
+shows where everything is.
 
 **Levels**: `trace` per-tick/per-call detail · `debug` decisions and state changes · `info` lifecycle ·
 `warn` recoverable problems · `error` a feature is broken · `critical` the process cannot continue.
@@ -156,25 +158,57 @@ messages; more with `SDL_LOGGING`), `core.mapper`, `core.pipeline`, `core.net`, 
 
 ## Telemetry
 
-While it runs, the service records a session to two CSV files in the log folder
+While it runs, the service records to two CSV files per day in the log folder
 (`%LOCALAPPDATA%\wheelemu\logs` on Windows). Nothing is sent anywhere.
 
-- `telemetry-<date>-<time>.csv`: 50 rows a second with the physical wheel (raw axes, buttons, hat), the mapped
+- `telemetry-<date>.csv`: 50 rows a second with the physical wheel (raw axes, buttons, hat), the mapped
   state, the values the emulated G920 reports to the game, the game's force feedback per slot (what the game
   asked for and what reached the wheel after the limiter), and loop timing.
-- `ffb-<date>-<time>.csv`: every force feedback change the game sent, with all effect parameters.
+- `ffb-<date>.csv`: every force feedback change the game sent, with all effect parameters.
 
-The `--ui` window shows the folder, the log file and the current session's files in the
-**LOGS AND TELEMETRY** panel at the bottom; press **F** there to open the folder.
+Every session of the day is appended to that day's files, after a `# session started ...` block with the
+version, the device and a copy of the config; a session running past midnight continues in the next day's
+files. `time` is the local time of day, `t_ms` the time since the session started. Settings are in
+`[telemetry]`: `enabled`, `rate_hz`, `max_file_mb` (per file) and `directory`.
 
-Both files start with `#` lines holding the version, the device and a copy of the config. Settings are in
-`[telemetry]`: `enabled`, `rate_hz`, `max_file_mb`, `keep_sessions` (older sessions are deleted at start-up)
-and `directory`. For a quick summary of the newest session (axis ranges, pedal use, force feedback per
+The `--ui` window lists the folder, today's log files (service and game), today's telemetry files and what
+happens to old files in the **LOGS AND TELEMETRY** panel at the bottom; press **F** there to open the folder.
+
+For a quick summary of the newest session (axis ranges, pedal use, force feedback per
 effect type, loop timing):
 
 ```
 python scripts/telemetry_summary.py            # or pass a telemetry-*.csv / a folder
 ```
+
+## Old files
+
+Logs (service and game) and telemetry older than 7 days are **deleted** by default. The service checks at
+start-up and again after every midnight. Only its own files are touched (`wheelemu-service*`,
+`wheelemu-shim*`, `telemetry-*`, `ffb-*` and archives made from them). `[retention]` in the config:
+
+| Key | Values |
+|---|---|
+| `old_files` | `delete` (default), `archive`, `keep` |
+| `older_than_days` | `7` (default): today and the 7 days before it are never touched |
+| `archiver` | `auto` (default), `7z`, `xz`, `zstd`, `zip`, `gzip` |
+
+`--old-files delete|archive|keep` on the command line overrides `old_files` for one run.
+
+`archive` compresses each old day and deletes the originals once the compressor has succeeded. `auto` uses the
+best compressor installed, in this order:
+
+1. **7-Zip** (`7z.exe`, found on PATH or in `Program Files\7-Zip`): one `wheelemu-logs-<date>.7z` per day,
+   LZMA2 at the highest level. The smallest files; recommended (install from 7-zip.org).
+2. **xz** (MSYS2: `pacman -S xz`): each file becomes `<file>.xz`, almost as small.
+3. **zstd** (`pacman -S mingw-w64-ucrt-x86_64-zstd`): `<file>.zst`, a little bigger, much faster to open.
+4. **zip** with Windows' built-in `tar.exe` (Windows 10 and later): `wheelemu-logs-<date>.zip`, always
+   available, the largest.
+5. **gzip**: `<file>.gz`.
+
+The compressor runs in the background on one CPU thread (7-Zip and xz at their best level use up to about
+700 MB of RAM while they work).
+If it fails (or none is found) the originals are kept, the error is logged and shown in the window.
 
 ## Licence note
 

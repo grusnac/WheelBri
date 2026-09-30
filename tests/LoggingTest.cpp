@@ -18,6 +18,12 @@ std::string readFile(const std::filesystem::path& path) {
     return text.str();
 }
 
+TEST(Logging, DatedFileNames) {
+    EXPECT_EQ(logging::datedFileName("wheelemu-service.log", "2026-09-30"), "wheelemu-service-2026-09-30.log");
+    EXPECT_EQ(std::filesystem::path(logging::datedFileName("/logs/x.log", "2026-09-30")),
+              std::filesystem::path("/logs/x-2026-09-30.log"));
+}
+
 TEST(RateLimiter, AllowsOncePerIntervalAndCountsDrops) {
     logging::RateLimiter limiter(std::chrono::milliseconds(50));
     std::uint64_t suppressed = 99;
@@ -72,9 +78,14 @@ TEST(Logging, WritesComponentLevelMessageAndSourceToFile) {
         WE_LOG_WARN_LIMITED(logger, limiter, "limited {}", "first");
         WE_LOG_WARN_LIMITED(logger, limiter, "limited {}", "second");
     }
+    const std::string dated = logging::currentLogFile();
     logging::shutdown();
 
-    const std::string text = readFile(path);
+    // One file per day: "test.log" is written as "test-YYYY-MM-DD.log".
+    EXPECT_EQ(std::filesystem::path(dated).parent_path(), path.parent_path());
+    EXPECT_EQ(std::filesystem::path(dated).filename().string().rfind("test-", 0), 0U);
+    EXPECT_EQ(dated.size(), path.string().size() + 11);
+    const std::string text = readFile(dated);
     EXPECT_NE(text.find("[test.component"), std::string::npos);
     EXPECT_NE(text.find("[debug]"), std::string::npos);
     EXPECT_NE(text.find("debug value 42"), std::string::npos);
