@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 
 namespace wheelemu {
 
@@ -52,6 +53,42 @@ public:
 private:
     struct Impl;
     explicit UdpLoopbackReceiver(std::unique_ptr<Impl> impl);
+    std::unique_ptr<Impl> impl_;
+};
+
+// Raw datagrams on 127.0.0.1, for other message types (force feedback, FfbPacket). Non-blocking.
+class UdpLoopbackSender {
+public:
+    // Returns nullptr (and logs why) if the socket cannot be created.
+    [[nodiscard]] static std::unique_ptr<UdpLoopbackSender> create(std::uint16_t port);
+    ~UdpLoopbackSender();
+
+    UdpLoopbackSender(const UdpLoopbackSender&) = delete;
+    UdpLoopbackSender& operator=(const UdpLoopbackSender&) = delete;
+
+    bool send(std::span<const std::uint8_t> bytes);
+
+private:
+    struct Impl;
+    explicit UdpLoopbackSender(std::unique_ptr<Impl> impl);
+    std::unique_ptr<Impl> impl_;
+};
+
+class UdpLoopbackListener {
+public:
+    // Returns nullptr (and logs why) if 127.0.0.1:port cannot be bound.
+    [[nodiscard]] static std::unique_ptr<UdpLoopbackListener> create(std::uint16_t port);
+    ~UdpLoopbackListener();
+
+    UdpLoopbackListener(const UdpLoopbackListener&) = delete;
+    UdpLoopbackListener& operator=(const UdpLoopbackListener&) = delete;
+
+    // One queued datagram into `buffer`; its size, or nullopt if nothing is waiting.
+    [[nodiscard]] std::optional<std::size_t> receive(std::span<std::uint8_t> buffer);
+
+private:
+    struct Impl;
+    explicit UdpLoopbackListener(std::unique_ptr<Impl> impl);
     std::unique_ptr<Impl> impl_;
 };
 

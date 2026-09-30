@@ -198,6 +198,71 @@ std::unique_ptr<UdpLoopbackReceiver> UdpLoopbackReceiver::create(const std::uint
     return std::unique_ptr<UdpLoopbackReceiver>(new UdpLoopbackReceiver(std::move(impl)));
 }
 
+struct UdpLoopbackSender::Impl {
+    UdpSocket socket;
+    sockaddr_in destination{};
+    std::uint16_t port = 0;
+};
+
+UdpLoopbackSender::UdpLoopbackSender(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+UdpLoopbackSender::~UdpLoopbackSender() = default;
+
+std::unique_ptr<UdpLoopbackSender> UdpLoopbackSender::create(const std::uint16_t port) {
+    auto impl = std::make_unique<Impl>();
+    if (!impl->socket.valid() || !makeNonBlocking(impl->socket.get())) {
+        WE_LOG_ERROR(log(), "sender: cannot create UDP socket: {}", errorText(lastError()));
+        return nullptr;
+    }
+    impl->destination = loopbackAddress(port);
+    impl->port = port;
+    WE_LOG_INFO(log(), "sender ready for 127.0.0.1:{}", port);
+    return std::unique_ptr<UdpLoopbackSender>(new UdpLoopbackSender(std::move(impl)));
+}
+
+bool UdpLoopbackSender::send(const std::span<const std::uint8_t> bytes) {
+    const auto sent = ::sendto(impl_->socket.get(), reinterpret_cast<const char*>(bytes.data()),
+                               static_cast<int>(bytes.size()), 0,
+                               reinterpret_cast<const sockaddr*>(&impl_->destination), sizeof(impl_->destination));
+    if (sent < 0 || static_cast<std::size_t>(sent) != bytes.size()) {
+        static logging::RateLimiter limiter(std::chrono::seconds(5));
+        WE_LOG_WARN_LIMITED(log(), limiter, "sender: sendto 127.0.0.1:{} failed: {}", impl_->port,
+                            errorText(lastError()));
+        return false;
+    }
+    return true;
+}
+
+struct UdpLoopbackListener::Impl {
+    UdpSocket socket;
+};
+
+UdpLoopbackListener::UdpLoopbackListener(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+UdpLoopbackListener::~UdpLoopbackListener() = default;
+
+std::unique_ptr<UdpLoopbackListener> UdpLoopbackListener::create(const std::uint16_t port) {
+    auto impl = std::make_unique<Impl>();
+    if (!impl->socket.valid() || !makeNonBlocking(impl->socket.get())) {
+        WE_LOG_ERROR(log(), "listener: cannot create UDP socket: {}", errorText(lastError()));
+        return nullptr;
+    }
+    const sockaddr_in address = loopbackAddress(port);
+    if (::bind(impl->socket.get(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
+        WE_LOG_ERROR(log(), "listener: cannot bind 127.0.0.1:{} (already in use?): {}", port, errorText(lastError()));
+        return nullptr;
+    }
+    WE_LOG_INFO(log(), "listener on 127.0.0.1:{}", port);
+    return std::unique_ptr<UdpLoopbackListener>(new UdpLoopbackListener(std::move(impl)));
+}
+
+std::optional<std::size_t> UdpLoopbackListener::receive(const std::span<std::uint8_t> buffer) {
+    const auto received =
+        ::recv(impl_->socket.get(), reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+    if (received <= 0) {
+        return std::nullopt;   // would block, or an error: nothing to read now
+    }
+    return static_cast<std::size_t>(received);
+}
+
 std::optional<StatePacket> UdpLoopbackReceiver::pollLatest() {
     std::optional<StatePacket> latest;
     std::array<std::uint8_t, 64> buffer{};

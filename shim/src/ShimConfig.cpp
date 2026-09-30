@@ -54,7 +54,26 @@ ShimConfig load(const logging::Logger& log) {
         }
     };
     readBool("emulate", config.emulate);
-    readBool("force_feedback", config.forceFeedback);
+    if (const auto v = value("force_feedback")) {
+        if (*v == "service" || *v == "true") {
+            config.forceFeedback = FfbMode::Service;
+        } else if (*v == "passthrough") {
+            config.forceFeedback = FfbMode::Passthrough;
+        } else if (*v == "off" || *v == "false") {
+            config.forceFeedback = FfbMode::Off;
+        } else {
+            problems.push_back("force_feedback = '" + *v + "': expected service, passthrough or off");
+        }
+    }
+    if (const auto v = value("ffb_port")) {
+        int port = 0;
+        const auto [end, ec] = std::from_chars(v->data(), v->data() + v->size(), port);
+        if (ec == std::errc{} && end == v->data() + v->size() && port >= 1024 && port <= 65535) {
+            config.ffbPort = static_cast<std::uint16_t>(port);
+        } else {
+            problems.push_back("ffb_port = '" + *v + "': expected 1024..65535");
+        }
+    }
     readBool("invert_pedals", config.invertPedals);
     const auto readAxis = [&](const char* key, std::optional<ObjectGuid>& out) {
         if (const auto v = value(key)) {
@@ -123,6 +142,15 @@ ShimConfig load(const logging::Logger& log) {
 
 }  // namespace
 
+const char* toString(const FfbMode mode) {
+    switch (mode) {
+        case FfbMode::Service: return "service";
+        case FfbMode::Passthrough: return "passthrough";
+        case FfbMode::Off: return "off";
+    }
+    return "?";
+}
+
 const ShimConfig& shimConfig() {
     static ShimConfig config;
     static std::once_flag once;
@@ -130,14 +158,15 @@ const ShimConfig& shimConfig() {
         const logging::Logger log = logger("shim.config");
         config = load(log);
         WE_LOG_INFO(log, "emulate={} source={:04x}:{} target_profile={} state_port={} stale_after_ms={} "
-                         "force_feedback={}",
+                         "force_feedback={} ffb_port={}",
                     config.emulate, config.sourceVendorId,
                     config.sourceProductId ? fmt::format("{:04x}", *config.sourceProductId) : std::string("any"),
-                    config.targetProfile, config.statePort, config.staleAfterMs, config.forceFeedback);
+                    config.targetProfile, config.statePort, config.staleAfterMs, toString(config.forceFeedback),
+                    config.ffbPort);
         const JoystickLayout layout = config.layout(0);
         WE_LOG_INFO(log, "axes: wheel=x throttle={} brake={} clutch={} invert_pedals={}", axisName(layout.throttle),
                     axisName(layout.brake), axisName(layout.clutch), layout.invertPedals);
-        if (config.emulate && config.forceFeedback) {
+        if (config.emulate && config.forceFeedback == FfbMode::Passthrough) {
             WE_LOG_INFO(log, "force feedback goes straight to the physical wheel: its strength is capped by the "
                              "wheel's own settings (Pit House), not by wheelemu-service");
         }

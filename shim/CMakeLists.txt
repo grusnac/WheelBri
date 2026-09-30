@@ -4,7 +4,9 @@
 add_library(wheelemu_shim SHARED
     src/DiConvert.cpp
     src/DiFormat.cpp
+    src/EmulatedEffect.cpp
     src/Exports.cpp
+    src/FfbForwarder.cpp
     src/ProxyEffect.cpp
     src/RealDInput.cpp
     src/ShimConfig.cpp

@@ -1,7 +1,9 @@
 #pragma once
 
 #include "wheelemu/DeviceProfile.hpp"
+#include "wheelemu/FfbController.hpp"
 #include "wheelemu/MapperConfig.hpp"
+#include "wheelemu/Telemetry.hpp"
 #include "wheelemu/WheelState.hpp"
 
 #include <SDL3/SDL.h>
@@ -16,6 +18,15 @@ namespace wheelemu::service {
 // Live window for `--ui`: shows every axis and button of the physical wheel next to what the emulated
 // wheel reports for it, so the mapping in the config can be checked by moving each control.
 // Read-only: the mapping itself is edited in the INI file.
+// What the window shows about game force feedback. `controller` is null when it is off or unavailable;
+// `status` then says why.
+struct FfbDisplay {
+    const FfbController* controller = nullptr;
+    std::string status;
+    bool invert = false;
+    std::uint64_t nowNs = 0;
+};
+
 class MappingView {
 public:
     // Opens the window. Returns nullptr (and logs why) if SDL's video subsystem or the window cannot be created.
@@ -29,7 +40,12 @@ public:
     // Handles window events. Returns false once the user closed the window or pressed Esc.
     bool pumpEvents();
 
-    void render(const RawInputState& raw, const WheelState& state, const TargetReport& report);
+    // Where the service writes its log and telemetry, shown at the bottom of the window (F opens the folder).
+    // `logFile` empty: logging to the console only. `telemetry` null: `telemetryStatus` says why.
+    void setFiles(std::string logFile, const TelemetryRecorder* telemetry, std::string telemetryStatus);
+
+    void render(const RawInputState& raw, const WheelState& state, const TargetReport& report,
+                const FfbDisplay& ffb = {});
 
 private:
     MappingView(SDL_Window* window, SDL_Renderer* renderer, std::string sourceName, int sourceAxes,
@@ -42,6 +58,9 @@ private:
     void drawTargetButtons(std::uint32_t targetButtons);
     void drawSourceButtons(std::uint64_t sourceButtons);
     void drawFooter();
+    void drawFfb(const FfbDisplay& ffb);
+    void drawFiles();
+    void openFilesFolder() const;
     void trackLastPressed(std::uint64_t sourceButtons);
 
     SDL_Window* window_;
@@ -59,6 +78,10 @@ private:
     std::array<int, 64> sourceTargetCount_{};
     // sourceHatDirection_[s] = D-pad direction ("up", "right", ...) source button s drives, or nullptr.
     std::array<const char*, 64> sourceHatDirection_{};
+
+    std::string logFile_;
+    const TelemetryRecorder* telemetry_ = nullptr;
+    std::string telemetryStatus_ = "off";
 
     std::uint64_t previousSourceButtons_ = 0;
     int lastPressedSource_ = kUnmapped;

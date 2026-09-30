@@ -10,6 +10,7 @@ add_executable(wheelemu_tests
     DeviceProfileTest.cpp
     EmulatedJoystickTest.cpp
     EmulatorConfigTest.cpp
+    FfbForwardingTest.cpp
     FfbSafetyLimiterTest.cpp
     IniDocumentTest.cpp
     LoggingTest.cpp
@@ -17,6 +18,7 @@ add_executable(wheelemu_tests
     MapperTest.cpp
     PipelineTest.cpp
     StatePacketTest.cpp
+    TelemetryTest.cpp
     UdpLoopbackTest.cpp
 )
 target_link_libraries(wheelemu_tests PRIVATE wheelemu_core GTest::gtest_main)

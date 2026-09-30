@@ -18,14 +18,20 @@ namespace wheelemu::shim {
 //   target_profile = g920      ; g920 or g29, must match the service's target_profile
 //   state_port = 41329         ; must match the service's state_port
 //   stale_after_ms = 250       ; no packet for this long = wheel centred, pedals released
-//   force_feedback = true      ; false = the emulated wheel reports no force feedback at all
+//   force_feedback = service   ; service = game effects go to wheelemu-service (safety limiter, watchdog);
+//                              ; passthrough = straight to the wheel's driver; off = no force feedback
+//   ffb_port = 41330           ; must match ffb_port in the service config
 //   throttle_axis = slider     ; DirectInput axis per pedal: x y z rx ry rz slider (clutch also: none).
 //   brake_axis = y             ;   Defaults come from target_profile: g920 = slider / y / rz, g29 = y / rz / slider.
 //   clutch_axis = rz
 //   invert_pedals = false      ; true = pressed and released swapped for all pedals
 //
-// Force feedback is passed straight to the physical wheel's own driver in Phase 2, so its strength is
-// limited only by the wheel's settings (Moza Pit House), not by the service's [ffb] limiter.
+// In passthrough mode force feedback is limited only by the wheel's own settings (Moza Pit House), not
+// by the service's [ffb] limiter; service mode is the default and the safe one.
+enum class FfbMode { Service, Passthrough, Off };
+
+[[nodiscard]] const char* toString(FfbMode mode);
+
 struct ShimConfig {
     bool emulate = true;
     std::uint16_t sourceVendorId = 0x346E;
@@ -33,7 +39,8 @@ struct ShimConfig {
     std::string targetProfile = "g920";
     std::uint16_t statePort = 41329;
     int staleAfterMs = 250;
-    bool forceFeedback = true;
+    FfbMode forceFeedback = FfbMode::Service;
+    std::uint16_t ffbPort = 41330;
     std::optional<ObjectGuid> throttleAxis;     // overrides of the profile's layout
     std::optional<ObjectGuid> brakeAxis;
     std::optional<ObjectGuid> clutchAxis;

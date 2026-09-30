@@ -63,6 +63,11 @@ axis/button next to its target (G920/G29).
   - `EmulatedJoystick` is the emulated wheel as DirectInput sees it (objects, the game's data format,
     ranges, state bytes, buffered changes). It mirrors DirectInput constants without `<dinput.h>` so it is
     unit-tested on Linux; `shim/src/DiConvert.hpp` static_asserts the constants against the real macros.
+  - `TelemetryRecorder` (`Telemetry.hpp`): per-session CSVs in the log folder (`telemetry-*.csv` sampled at
+    `rate_hz`, `ffb-*.csv` one row per game FFB change). Columns come from `telemetryColumns()`; when you add
+    one, write it in `writeSample` in the same order and bump the format number if a column moves.
+    `scripts/telemetry_summary.py` reads columns by name. After a user's test drive, read these files (and
+    run the script) before guessing at mapping or FFB problems.
   - Wire format (`StatePacket.hpp`): 33 bytes, little-endian, magic `WEMU`, version 1. Any layout change
     must bump `kVersion` and update the layout comment and `StatePacketTest`.
 - `service/` (`wheelemu-service`, namespace `wheelemu::service`): SDL3 input source, SDL haptic FFB sink
@@ -73,7 +78,9 @@ axis/button next to its target (G920/G29).
   DLL is loaded from the system directory on first use (`RealDInput.cpp`). Phase 2: the physical wheel
   (matched by USB VID in `EnumDevices` and again in `CreateDevice` via `GetDeviceInfo`) is presented as the
   target profile by `EmulatedDevice<T>`, which answers input calls from `StateFeed` (UDP receiver, neutral
-  state when stale) and forwards force feedback to the physical device. Other devices stay `ProxyDevice<T>`
+  state when stale). Phase 3: its effects are `EmulatedEffect`s whose parameters `FfbForwarder` sends to the
+  service (timing, keep-alives); in that mode the physical device is opened non-exclusively because the
+  service owns its force feedback. Other devices stay `ProxyDevice<T>`
   (log and forward). Settings: optional `wheelemu-shim.ini` next to the DLL (`ShimConfig`).
 - `tests/`: GoogleTest for `core/` only (`wheelemu_tests`). Use fakes of the interfaces (see
   `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.
@@ -103,8 +110,9 @@ axis/button next to its target (G920/G29).
     (aggregation, `EnumDevicesBySemantics`, `DllGetClassObject`, `EnumCreatedEffectObjects`) is logged
     with a warning on purpose.
 - FFB safety: the R3 is direct drive. Every force the service sends to hardware must go through
-  `FfbSafetyLimiter`; keep the defaults conservative (`max_magnitude` 0.8, slew limit). Known exception until
-  Phase 3: the shim passes the game's DirectInput effects straight to the R3 driver (capped only by Pit House;
-  `force_feedback = false` in `wheelemu-shim.ini` disables it). Don't widen that exception.
+  `FfbSafetyLimiter` (in `FfbController`, which also has a watchdog); keep the defaults conservative
+  (`max_magnitude` 0.8, slew limit). Game effects reach the service as `FfbPacket`s (`FfbForwarder` /
+  `EmulatedEffect` in the shim). The only way around the limiter is the opt-in `force_feedback =
+  passthrough` in `wheelemu-shim.ini`; keep it opt-in and don't add others.
 - Licence: nothing is copied from GIMX (GPLv3). If GIMX code is ever copied rather than reimplemented, the
   project must become GPLv3, so flag that before doing it.

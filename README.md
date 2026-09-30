@@ -18,7 +18,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | 0 | Logging `dinput8.dll` proxy: records how the game finds and drives wheels | **built, untested in a game** |
 | 1 | Core (mapping, G920 + G29 profiles, FFB limiter, config, wire format) + SDL3 service | **built, unit-tested; needs a real R3** |
 | 2 | Shim answers as a G920 using the service's state (force feedback passed to the R3 as-is) | **built, untested in a game** |
-| 3 | Game FFB → service → R3 | sink + self-test done; forwarding not started |
+| 3 | Game FFB → service (safety limiter, watchdog) → R3 | **built, untested in a game** |
 | 4 | Linux `uhid` virtual G920 (its FFB is HID++, not the classic Logitech protocol) | not started |
 
 Unverified assumptions, to be settled with Phase 0 logs and a real device:
@@ -31,11 +31,12 @@ Unverified assumptions, to be settled with Phase 0 logs and a real device:
 
 | Path | Contents |
 |---|---|
-| `core/` | Portable library, no OS or SDL dependencies: `Mapper`, `DeviceProfile`, `FfbSafetyLimiter`, `Pipeline`, `EmulatorConfig`/`IniDocument`, `StatePacket` + `UdpLoopback`, `LoopStats`, `Logging` |
+| `core/` | Portable library, no OS or SDL dependencies: `Mapper`, `DeviceProfile`, `FfbSafetyLimiter`, `Pipeline`, `EmulatorConfig`/`IniDocument`, `StatePacket` + `UdpLoopback`, `LoopStats`, `Logging`, `Telemetry` |
 | `service/` | `wheelemu-service`: SDL3 input source + force feedback sink, 1 kHz loop, `--list` / `--print` / `--ui` / `--ffb-test` |
 | `shim/` | `dinput8.dll` proxy (Windows / Wine): wraps `IDirectInput8A/W`, devices and effects |
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
+| `scripts/` | `telemetry_summary.py`: summary of a recorded session |
 
 ## Build
 
@@ -72,7 +73,7 @@ defaults to ON on Windows).
 4. Also check: does the game have anti-tamper that rejects a proxy DLL? (The log's first line appears
    or it does not.)
 
-## Playing (Phase 2)
+## Playing (Phases 2 and 3)
 
 1. Start the service and leave it running: `wheelemu-service --config config/moza-r3-as-g920.ini`
    (add `--ui` to watch the mapping at the same time).
@@ -87,16 +88,24 @@ Y / Rz / Slider instead). If a game reads the pedals from other axes, or backwar
 `throttle_axis` / `brake_axis` / `clutch_axis` / `invert_pedals` in `wheelemu-shim.ini`; no rebuild needed.
 Every read (`GetDeviceState`, `GetDeviceData`) is answered from the latest packet the service sent, in the
 data format and ranges the game asked for. If the service stops sending for 250 ms the wheel reads as centred
-with pedals released. Force feedback goes straight to the R3's own driver, so its strength is capped by
-Pit House, not by the service's `[ffb]` limiter (Phase 3 changes that); `force_feedback = false` in
-`wheelemu-shim.ini` turns it off. Everything else the game does is still logged to `wheelemu-shim.log`.
+with pedals released. Everything else the game does is still logged to `wheelemu-shim.log`.
+
+Force feedback (Phase 3): the game's DirectInput effects (constant, spring, damper, friction, inertia,
+periodic; ramps as their average; no custom forces or envelopes) are kept by the shim and sent to the service
+on `ffb_port` (41330) as `FfbPacket`s. The service passes every effect through `FfbSafetyLimiter`
+(`[ffb] master_gain`, `max_magnitude`, `max_slew_per_second`) and plays it with SDL on the R3; if the game
+goes quiet for 500 ms, every force stops. The service must be running before the game starts, because it
+opens the wheel's force feedback exclusively; the shim then opens the R3 non-exclusively. `force_feedback =
+passthrough` in `wheelemu-shim.ini` restores the Phase 2 behaviour (effects straight to the R3's driver,
+limited only by Pit House), `off` disables force feedback. If forces pull the wrong way, set
+`[ffb] invert = true` in the service config.
 
 ## Service
 
 ```bash
 wheelemu-service --list                                          # connected joysticks
 wheelemu-service --config config/moza-r3-as-g920.ini --print     # live raw -> mapped -> G920 values
-wheelemu-service --config config/moza-r3-as-g920.ini --ui        # window: every axis/button and its G920 mapping
+wheelemu-service --config config/moza-r3-as-g920.ini --ui        # window: every axis/button, its G920 mapping, and game force feedback
 wheelemu-service --config config/moza-r3-as-g920.ini --ffb-test  # gentle spring / left / right / damper
 ```
 
@@ -144,6 +153,28 @@ messages; more with `SDL_LOGGING`), `core.mapper`, `core.pipeline`, `core.net`, 
   (period and work time, overruns, publish failures), and its exit code.
 - Known limitation: log paths are passed to spdlog as narrow strings; a non-ASCII path on Windows may fail
   to open (the program then logs to the console only and says so).
+
+## Telemetry
+
+While it runs, the service records a session to two CSV files in the log folder
+(`%LOCALAPPDATA%\wheelemu\logs` on Windows). Nothing is sent anywhere.
+
+- `telemetry-<date>-<time>.csv`: 50 rows a second with the physical wheel (raw axes, buttons, hat), the mapped
+  state, the values the emulated G920 reports to the game, the game's force feedback per slot (what the game
+  asked for and what reached the wheel after the limiter), and loop timing.
+- `ffb-<date>-<time>.csv`: every force feedback change the game sent, with all effect parameters.
+
+The `--ui` window shows the folder, the log file and the current session's files in the
+**LOGS AND TELEMETRY** panel at the bottom; press **F** there to open the folder.
+
+Both files start with `#` lines holding the version, the device and a copy of the config. Settings are in
+`[telemetry]`: `enabled`, `rate_hz`, `max_file_mb`, `keep_sessions` (older sessions are deleted at start-up)
+and `directory`. For a quick summary of the newest session (axis ranges, pedal use, force feedback per
+effect type, loop timing):
+
+```
+python scripts/telemetry_summary.py            # or pass a telemetry-*.csv / a folder
+```
 
 ## Licence note
 

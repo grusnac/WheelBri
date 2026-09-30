@@ -16,6 +16,38 @@ const logging::Logger& log() {
 
 }  // namespace
 
+const char* ffbTypeName(const FfbEffectType type) {
+    switch (type) {
+        case FfbEffectType::Constant: return "constant";
+        case FfbEffectType::Spring: return "spring";
+        case FfbEffectType::Damper: return "damper";
+        case FfbEffectType::Friction: return "friction";
+        case FfbEffectType::Inertia: return "inertia";
+        case FfbEffectType::Sine: return "sine";
+        case FfbEffectType::Square: return "square";
+        case FfbEffectType::Triangle: return "triangle";
+        case FfbEffectType::SawtoothUp: return "saw up";
+        case FfbEffectType::SawtoothDown: return "saw down";
+    }
+    return "?";
+}
+
+bool isConditionEffect(const FfbEffectType type) {
+    return type == FfbEffectType::Spring || type == FfbEffectType::Damper || type == FfbEffectType::Friction ||
+           type == FfbEffectType::Inertia;
+}
+
+float ffbStrength(const FfbEffect& e) {
+    if (e.type == FfbEffectType::Constant) {
+        return e.constantLevel * e.gain;
+    }
+    if (isConditionEffect(e.type)) {
+        return std::max(std::abs(e.condition.positiveCoefficient), std::abs(e.condition.negativeCoefficient)) *
+               e.gain;
+    }
+    return e.periodic.magnitude * e.gain;
+}
+
 FfbSafetyLimiter::FfbSafetyLimiter(const FfbSafetyConfig& config) : config_(config) {
     config_.masterGain = std::clamp(config_.masterGain, 0.0F, 1.0F);
     config_.maxMagnitude = std::clamp(config_.maxMagnitude, 0.0F, 1.0F);

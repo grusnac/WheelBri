@@ -1,6 +1,8 @@
 #pragma once
 
 #include "DiConvert.hpp"
+#include "EmulatedEffect.hpp"
+#include "FfbForwarder.hpp"
 #include "ProxyEffect.hpp"
 #include "RealDInput.hpp"
 #include "ShimConfig.hpp"
@@ -131,7 +133,7 @@ public:
             caps->dwAxes = static_cast<DWORD>(joystick_.axisCount());
             caps->dwButtons = static_cast<DWORD>(joystick_.buttonCount());
             caps->dwPOVs = static_cast<DWORD>(joystick_.povCount());
-            if (!shimConfig().forceFeedback) {
+            if (shimConfig().forceFeedback == FfbMode::Off) {
                 caps->dwFlags &= ~static_cast<DWORD>(DIDC_FORCEFEEDBACK | DIDC_FFATTACK | DIDC_FFFADE |
                                                      DIDC_SATURATION | DIDC_POSNEGCOEFFICIENTS |
                                                      DIDC_POSNEGSATURATION | DIDC_DEADBAND | DIDC_STARTDELAY);
@@ -269,6 +271,15 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE SetCooperativeLevel(HWND window, DWORD flags) override {
+        if (serviceFfb()) {
+            // wheelemu-service owns the physical wheel's force feedback (exclusive access), so the game's
+            // handle on it must stay non-exclusive. Input comes from the service anyway.
+            const HRESULT result = real_->SetCooperativeLevel(window, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND);
+            WE_LOG_INFO(detail::emulationLog(), "{}: SetCooperativeLevel(hwnd={}, {}) -> physical wheel opened "
+                                                "NONEXCLUSIVE|BACKGROUND -> {}",
+                        label_, static_cast<void*>(window), describeCooperativeLevel(flags), describeHresult(result));
+            return DI_OK;
+        }
         const HRESULT result = real_->SetCooperativeLevel(window, flags);
         WE_LOG_INFO(detail::emulationLog(), "{}: SetCooperativeLevel(hwnd={}, {}) -> {}", label_,
                     static_cast<void*>(window), describeCooperativeLevel(flags), describeHresult(result));
@@ -301,7 +312,13 @@ public:
     // --- Acquisition and reading --------------------------------------------------------------------
 
     HRESULT STDMETHODCALLTYPE Acquire() override {
-        const HRESULT result = real_->Acquire();
+        HRESULT result = real_->Acquire();
+        if (serviceFfb() && FAILED(result)) {
+            // Not needed for input or force feedback in service mode; never let it block the game.
+            WE_LOG_DEBUG(detail::emulationLog(), "{}: physical wheel Acquire -> {} (ignored)", label_,
+                         describeHresult(result));
+            result = DI_OK;
+        }
         if (SUCCEEDED(result)) {
             const std::lock_guard<std::mutex> lock(mutex_);
             if (!acquired_) {
@@ -318,7 +335,11 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE Unacquire() override {
-        const HRESULT result = real_->Unacquire();
+        HRESULT result = real_->Unacquire();
+        if (serviceFfb()) {
+            result = DI_OK;
+            FfbForwarder::instance().stopAll();   // DirectInput stops a device's effects when it is unacquired
+        }
         const std::lock_guard<std::mutex> lock(mutex_);
         if (acquired_) {
             acquired_ = false;
@@ -328,8 +349,11 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE Poll() override {
-        const HRESULT result = real_->Poll();
+        HRESULT result = real_->Poll();
         const std::lock_guard<std::mutex> lock(mutex_);
+        if (serviceFfb()) {
+            result = acquired_ ? DI_NOEFFECT : DIERR_NOTACQUIRED;
+        }
         if (acquired_) {
             refresh();
         }
@@ -406,14 +430,17 @@ public:
         return real_->SendDeviceData(objectSize, data, inOut, flags);
     }
 
-    // --- Force feedback: forwarded to the physical wheel ---------------------------------------------
+    // --- Force feedback: to wheelemu-service (default), or passed to the physical wheel ---------------
 
     HRESULT STDMETHODCALLTYPE CreateEffect(REFGUID type, LPCDIEFFECT effect, LPDIRECTINPUTEFFECT* out,
                                            LPUNKNOWN outer) override {
-        if (!shimConfig().forceFeedback) {
-            WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) refused (force_feedback = false)", label_,
+        if (shimConfig().forceFeedback == FfbMode::Off) {
+            WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) refused (force_feedback = off)", label_,
                         describeGuid(type));
             return DIERR_UNSUPPORTED;
+        }
+        if (serviceFfb()) {
+            return createServiceEffect(type, effect, out, outer);
         }
         const HRESULT result = real_->CreateEffect(type, effect, out, outer);
         WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) {} -> {} (played by the physical wheel)", label_,
@@ -426,9 +453,10 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE EnumEffects(typename T::EnumEffectsCallback callback, LPVOID ref, DWORD type) override {
-        if (!shimConfig().forceFeedback) {
+        if (shimConfig().forceFeedback == FfbMode::Off) {
             return DI_OK;   // no effects to list
         }
+        // The physical wheel's list: the service plays through its driver, so the same types are available.
         return real_->EnumEffects(callback, ref, type);
     }
 
@@ -437,10 +465,31 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE GetForceFeedbackState(LPDWORD state) override {
+        if (serviceFfb()) {
+            if (state == nullptr) {
+                return E_POINTER;
+            }
+            *state = FfbForwarder::instance().stateFlags();
+            return DI_OK;
+        }
         return real_->GetForceFeedbackState(state);
     }
 
     HRESULT STDMETHODCALLTYPE SendForceFeedbackCommand(DWORD command) override {
+        if (serviceFfb()) {
+            FfbForwarder& forwarder = FfbForwarder::instance();
+            switch (command) {
+                case DISFFC_RESET: forwarder.reset(); break;
+                case DISFFC_STOPALL: forwarder.stopAll(); break;
+                case DISFFC_PAUSE: forwarder.setPaused(true); break;
+                case DISFFC_CONTINUE: forwarder.setPaused(false); break;
+                case DISFFC_SETACTUATORSON: forwarder.setActuators(true); break;
+                case DISFFC_SETACTUATORSOFF: forwarder.setActuators(false); break;
+                default: return DIERR_INVALIDPARAM;
+            }
+            WE_LOG_INFO(detail::emulationLog(), "{}: SendForceFeedbackCommand({})", label_, describeFfCommand(command));
+            return DI_OK;
+        }
         const HRESULT result = real_->SendForceFeedbackCommand(command);
         WE_LOG_INFO(detail::emulationLog(), "{}: SendForceFeedbackCommand(0x{:x}) -> {}", label_, command,
                     describeHresult(result));
@@ -449,6 +498,10 @@ public:
 
     HRESULT STDMETHODCALLTYPE EnumCreatedEffectObjects(LPDIENUMCREATEDEFFECTOBJECTSCALLBACK callback, LPVOID ref,
                                                        DWORD flags) override {
+        if (serviceFfb()) {
+            WE_LOG_DEBUG(detail::emulationLog(), "{}: EnumCreatedEffectObjects -> none listed", label_);
+            return DI_OK;
+        }
         return real_->EnumCreatedEffectObjects(callback, ref, flags);
     }
 
@@ -483,8 +536,66 @@ private:
         return count;
     }
 
+    [[nodiscard]] static bool serviceFfb() { return shimConfig().forceFeedback == FfbMode::Service; }
+
+    static std::string describeFfCommand(const DWORD command) {
+        switch (command) {
+            case DISFFC_RESET: return "RESET";
+            case DISFFC_STOPALL: return "STOPALL";
+            case DISFFC_PAUSE: return "PAUSE";
+            case DISFFC_CONTINUE: return "CONTINUE";
+            case DISFFC_SETACTUATORSON: return "SETACTUATORSON";
+            case DISFFC_SETACTUATORSOFF: return "SETACTUATORSOFF";
+            default: return fmt::format("0x{:x}", command);
+        }
+    }
+
+    HRESULT createServiceEffect(REFGUID type, LPCDIEFFECT effect, LPDIRECTINPUTEFFECT* out, LPUNKNOWN outer) {
+        if (out == nullptr) {
+            return E_POINTER;
+        }
+        *out = nullptr;
+        if (outer != nullptr) {
+            return CLASS_E_NOAGGREGATION;
+        }
+        const auto effectType = EmulatedEffect::typeFor(type);
+        if (!effectType) {
+            WE_LOG_WARN(detail::emulationLog(), "{}: CreateEffect({}) not supported", label_, describeGuid(type));
+            return DIERR_UNSUPPORTED;
+        }
+        const auto slot = FfbForwarder::instance().allocate();
+        if (!slot) {
+            return DIERR_DEVICEFULL;
+        }
+        DWORD wheelOffset = 0;
+        DWORD wheelId = 0;
+        {
+            const std::lock_guard<std::mutex> lock(mutex_);
+            wheelOffset = joystick_.reportedOffset(0);   // object 0 is always the wheel (X)
+            wheelId = joystick_.objects()[0].typeId;
+        }
+        auto* created = new EmulatedEffect(type, *effectType, *slot, label_, wheelOffset, wheelId);
+        HRESULT result = DI_OK;
+        if (effect != nullptr) {
+            result = created->SetParameters(effect, effect->dwSize == sizeof(DIEFFECT) ? DIEP_ALLPARAMS
+                                                                                     : DIEP_ALLPARAMS_DX5);
+        }
+        WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) {} -> slot {} for wheelemu-service -> {}", label_,
+                    describeGuid(type), describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0), *slot,
+                    describeHresult(result));
+        if (FAILED(result)) {
+            created->Release();
+            return result;
+        }
+        *out = created;
+        return DI_OK;
+    }
+
     // Pulls the newest state and, when buffered, queues what changed. Caller holds mutex_.
     void refresh() {
+        if (serviceFfb()) {
+            FfbForwarder::instance().tick();
+        }
         const TargetReport report = StateFeed::instance().current(*profile_);
         if (bufferSize_ != 0 && joystick_.hasDataFormat()) {
             const DWORD now = GetTickCount();
@@ -636,8 +747,18 @@ private:
                                                     "the physical wheel",
                             label_);
                 return real_->GetProperty(property, header);
+            case prop::kFfGain:
+                if (serviceFfb()) {
+                    return dword(static_cast<DWORD>(std::lround(FfbForwarder::instance().deviceGain() * 10000.0F)));
+                }
+                return real_->GetProperty(property, header);
+            case prop::kAutoCenter:
+                if (serviceFfb()) {
+                    return dword(DIPROPAUTOCENTER_OFF);   // the service keeps the wheel's own centring off
+                }
+                return real_->GetProperty(property, header);
             default:
-                // Device-level properties of the physical wheel: FFGAIN, AUTOCENTER, JOYSTICKID, USERNAME, ...
+                // Device-level properties of the physical wheel: JOYSTICKID, USERNAME, ...
                 if (hasObject) {
                     return DIERR_UNSUPPORTED;
                 }
@@ -708,8 +829,23 @@ private:
             case prop::kAxisMode:
             case prop::kCalibrationMode:
                 return DI_OK;   // absolute axes only; nothing to calibrate
+            case prop::kFfGain:
+                if (serviceFfb()) {
+                    if (header->dwSize != sizeof(DIPROPDWORD) || header->dwHow != DIPH_DEVICE) {
+                        return DIERR_INVALIDPARAM;
+                    }
+                    const DWORD gain = reinterpret_cast<LPCDIPROPDWORD>(header)->dwData;
+                    FfbForwarder::instance().setDeviceGain(static_cast<float>(std::min<DWORD>(gain, 10000)) / 10000.0F);
+                    return DI_OK;
+                }
+                return real_->SetProperty(property, header);
+            case prop::kAutoCenter:
+                if (serviceFfb()) {
+                    return DI_OK;   // spring effects centre the wheel; the device's own centring stays off
+                }
+                return real_->SetProperty(property, header);
             default:
-                // Force feedback and device settings belong to the physical wheel (FFGAIN, AUTOCENTER, ...).
+                // Device settings that belong to the physical wheel.
                 if (header->dwHow != DIPH_DEVICE) {
                     return DIERR_UNSUPPORTED;
                 }

@@ -2,8 +2,10 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
 #include <thread>
+#include <vector>
 
 namespace wheelemu {
 namespace {
@@ -46,6 +48,37 @@ TEST(UdpLoopback, PublishingWithoutReceiverIsHarmless) {
     const auto publisher = UdpLoopbackPublisher::create(kTestPort + 1);
     ASSERT_NE(publisher, nullptr);
     (void)publisher->publish(StatePacket{});
+}
+
+TEST(UdpLoopback, RawDatagramsArriveInOrder) {
+    constexpr std::uint16_t kPort = 41998;
+    const auto listener = UdpLoopbackListener::create(kPort);
+    const auto sender = UdpLoopbackSender::create(kPort);
+    ASSERT_NE(listener, nullptr);
+    ASSERT_NE(sender, nullptr);
+
+    const std::array<std::uint8_t, 3> first = {1, 2, 3};
+    const std::array<std::uint8_t, 2> second = {9, 8};
+    ASSERT_TRUE(sender->send(first));
+    ASSERT_TRUE(sender->send(second));
+
+    std::array<std::uint8_t, 16> buffer{};
+    std::vector<std::size_t> sizes;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (sizes.size() < 2 && std::chrono::steady_clock::now() < deadline) {
+        if (const auto size = listener->receive(buffer)) {
+            sizes.push_back(*size);
+            if (sizes.size() == 2) {
+                EXPECT_EQ(buffer[0], 9);
+            }
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    ASSERT_EQ(sizes.size(), 2U);
+    EXPECT_EQ(sizes[0], 3U);
+    EXPECT_EQ(sizes[1], 2U);
+    EXPECT_FALSE(listener->receive(buffer).has_value());
 }
 
 }  // namespace

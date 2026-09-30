@@ -27,6 +27,8 @@ struct FfbCondition {
     float negativeCoefficient = 0.0F;
     float positiveSaturation = 1.0F;
     float negativeSaturation = 1.0F;
+
+    friend bool operator==(const FfbCondition&, const FfbCondition&) = default;
 };
 
 struct FfbPeriodic {
@@ -34,6 +36,8 @@ struct FfbPeriodic {
     float offset = 0.0F;                // -1..1
     float periodMs = 0.0F;
     float phaseDeg = 0.0F;
+
+    friend bool operator==(const FfbPeriodic&, const FfbPeriodic&) = default;
 };
 
 struct FfbEffect {
@@ -42,7 +46,19 @@ struct FfbEffect {
     FfbCondition condition;
     FfbPeriodic periodic;
     float gain = 1.0F;                  // per-effect gain, 0..1
+
+    friend bool operator==(const FfbEffect&, const FfbEffect&) = default;
 };
+
+// Short lower-case name ("constant", "spring", "saw up", ...), for displays, logs and telemetry.
+[[nodiscard]] const char* ffbTypeName(FfbEffectType type);
+
+// Spring, damper, friction and inertia: forces that depend on the wheel's position or motion.
+[[nodiscard]] bool isConditionEffect(FfbEffectType type);
+
+// One number per effect, gain folded in the way the limiter does it: the signed force of a constant,
+// the larger coefficient of a condition, the magnitude of a periodic effect.
+[[nodiscard]] float ffbStrength(const FfbEffect& effect);
 
 struct FfbSafetyConfig {
     float masterGain = 1.0F;            // user strength setting, 0..1

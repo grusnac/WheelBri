@@ -123,6 +123,9 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         int port = config.statePort;
         reader.readInt("state_port", port, 1024, 65535);
         config.statePort = static_cast<std::uint16_t>(port);
+        int ffbPort = config.ffbPort;
+        reader.readInt("ffb_port", ffbPort, 1024, 65535);
+        config.ffbPort = static_cast<std::uint16_t>(ffbPort);
         reader.readInt("loop_hz", config.loopHz, 100, 2000);
         reader.reportUnknownKeys();
     }
@@ -163,7 +166,13 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         reader.readFloat("max_magnitude", config.ffb.maxMagnitude, 0.0F, 1.0F);
         reader.readFloat("max_slew_per_second", config.ffb.maxSlewPerSecond, 0.0F, 1000.0F);
         reader.readBool("invert", config.ffbInvert);
+        reader.readBool("game_effects", config.gameFfb);
         reader.reportUnknownKeys();
+    }
+
+    if (config.ffbPort == config.statePort) {
+        errors.push_back("[emulator] ffb_port must differ from state_port");
+        config.ffbPort = kDefaultFfbPort;
     }
 
     {
@@ -190,8 +199,20 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         }
     }
 
-    static const std::set<std::string> kKnownSections = {
-        "", "emulator", "steering", "throttle", "brake", "clutch", "buttons", "hat", "ffb", "logging"};
+    {
+        SectionReader reader(ini, "telemetry", errors);
+        TelemetryConfig& telemetry = config.telemetry;
+        reader.readBool("enabled", telemetry.enabled);
+        reader.readInt("rate_hz", telemetry.rateHz, 1, 1000);
+        reader.readInt("max_file_mb", telemetry.maxFileMb, 1, 4096);
+        reader.readInt("keep_sessions", telemetry.keepSessions, 1, 1000);
+        reader.readString("directory", telemetry.directory);
+        reader.reportUnknownKeys();
+    }
+
+    static const std::set<std::string> kKnownSections = {"",       "emulator", "steering", "throttle",
+                                                         "brake",  "clutch",   "buttons",  "hat",
+                                                         "ffb",    "logging",  "telemetry"};
     for (const auto& [section, keys] : ini.sections()) {
         if (kKnownSections.count(section) == 0) {
             errors.push_back("unknown section [" + section + "]");

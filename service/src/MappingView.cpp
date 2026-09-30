@@ -3,7 +3,9 @@
 #include "wheelemu/Logging.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 #include <utility>
 
@@ -19,9 +21,9 @@ const logging::Logger& log() {
 // Everything is laid out on a fixed logical canvas; SDL scales it to the window (letterboxed).
 // SDL's debug font is 8x8 logical pixels per character.
 constexpr int kLogicalWidth = 720;
-constexpr int kLogicalHeight = 540;
-constexpr int kWindowWidth = 1296;
-constexpr int kWindowHeight = 972;
+constexpr int kLogicalHeight = 752;
+constexpr int kWindowWidth = 936;   // 1.3x the canvas: fits a 1080p screen with the taskbar
+constexpr int kWindowHeight = 978;
 
 constexpr std::size_t kMaxSourceButtons = 64;
 
@@ -128,6 +130,8 @@ bool MappingView::pumpEvents() {
             case SDL_EVENT_KEY_DOWN:
                 if (event.key.key == SDLK_ESCAPE) {
                     open = false;
+                } else if (event.key.key == SDLK_F && !event.key.repeat) {
+                    openFilesFolder();
                 }
                 break;
             default:
@@ -187,7 +191,8 @@ void unipolarBar(SDL_Renderer* renderer, const float x, const float y, const flo
 
 // --- sections -------------------------------------------------------------------------------------
 
-void MappingView::render(const RawInputState& raw, const WheelState& state, const TargetReport& report) {
+void MappingView::render(const RawInputState& raw, const WheelState& state, const TargetReport& report,
+                         const FfbDisplay& ffb) {
     trackLastPressed(raw.buttons);
 
     setColour(renderer_, kBackground);
@@ -200,6 +205,8 @@ void MappingView::render(const RawInputState& raw, const WheelState& state, cons
     drawTargetButtons(report.buttons);
     drawSourceButtons(raw.buttons);
     drawFooter();
+    drawFfb(ffb);
+    drawFiles();
 
     SDL_RenderPresent(renderer_);
 }
@@ -329,7 +336,7 @@ void MappingView::drawHat(const std::int8_t sourceHat, const std::int8_t targetH
 }
 
 void MappingView::drawTargetButtons(const std::uint32_t targetButtons) {
-    constexpr float kTop = 244;
+    constexpr float kTop = 390;
     const std::string heading = target_ + " BUTTONS";
     text(renderer_, 4, kTop, heading.c_str(), kHeading);
     const float subtitleX = 4 + static_cast<float>(heading.size() + 1) * 8;
@@ -362,7 +369,7 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons) {
 }
 
 void MappingView::drawSourceButtons(const std::uint64_t sourceButtons) {
-    constexpr float kTop = 384;
+    constexpr float kTop = 530;
     text(renderer_, 4, kTop, "R3 BUTTONS", kHeading);
     const std::string legend =
         "green = " + target_ + " button or D-pad, yellow = unlabelled button, red = not mapped";
@@ -411,7 +418,7 @@ void MappingView::drawSourceButtons(const std::uint64_t sourceButtons) {
 }
 
 void MappingView::drawFooter() {
-    constexpr float kTop = 504;
+    constexpr float kTop = 644;
     char line[160];
     if (lastPressedSource_ < 0) {
         std::snprintf(line, sizeof(line), "Press any button on the wheel to see where it goes.");
@@ -441,6 +448,87 @@ void MappingView::drawFooter() {
          kDim);
 }
 
+namespace {
+
+// One line of numbers for an effect, gain folded in the way the limiter does it.
+std::string describeFfb(const FfbEffect& e) {
+    char text[64];
+    if (e.type == FfbEffectType::Constant) {
+        std::snprintf(text, sizeof(text), "level %+.2f", e.constantLevel * e.gain);
+    } else if (isConditionEffect(e.type)) {
+        std::snprintf(text, sizeof(text), "k %+.2f/%+.2f sat %.2f", e.condition.positiveCoefficient * e.gain,
+                      e.condition.negativeCoefficient * e.gain, e.condition.positiveSaturation);
+    } else {
+        std::snprintf(text, sizeof(text), "mag %.2f %3.0fms", e.periodic.magnitude * e.gain, e.periodic.periodMs);
+    }
+    return text;
+}
+
+}  // namespace
+
+void MappingView::drawFfb(const FfbDisplay& ffb) {
+    constexpr float kTop = 244;
+    text(renderer_, 4, kTop, "FORCE FEEDBACK", kHeading);
+    if (ffb.controller == nullptr) {
+        text(renderer_, 132, kTop, ffb.status.empty() ? "off" : ffb.status.c_str(), kDim);
+        return;
+    }
+    const FfbController& controller = *ffb.controller;
+    const auto& stats = controller.stats();
+    const FfbSafetyConfig& safety = controller.safety();
+
+    char line[160];
+    std::string age = "never";
+    if (const auto last = controller.lastPacketNs(); last && ffb.nowNs >= *last) {
+        age = std::to_string((ffb.nowNs - *last) / 1'000'000) + " ms ago";
+    }
+    std::snprintf(line, sizeof(line), "last packet from the game %s (%llu in total)", age.c_str(),
+                  static_cast<unsigned long long>(stats.packets));
+    text(renderer_, 132, kTop, line, kDim);
+    std::snprintf(line, sizeof(line), "limits: gain %.2f, max %.0f%% of the wheel, slew %.0f/s%s", safety.masterGain,
+                  safety.maxMagnitude * 100.0F, safety.maxSlewPerSecond, ffb.invert ? ", direction inverted" : "");
+    text(renderer_, 4, kTop + 12, line, kDim);
+    if (controller.watchdogTripped()) {
+        text(renderer_, 4, kTop + 24, "game silent for 500 ms: all forces stopped until it sends again", kWarning);
+    } else {
+        std::snprintf(line, sizeof(line), "%zu playing, %llu updates to the wheel, %llu failed, %llu watchdog stops",
+                      stats.activeSlots, static_cast<unsigned long long>(stats.plays),
+                      static_cast<unsigned long long>(stats.playFailures),
+                      static_cast<unsigned long long>(stats.watchdogStops));
+        text(renderer_, 4, kTop + 24, line, kDim);
+    }
+
+    text(renderer_, 4, kTop + 38, "slot type      game asked for           -> wheel gets (after limits)", kDim);
+    float y = kTop + 50;
+    bool anyShown = false;
+    for (std::size_t i = 0; i < controller.slotCount(); ++i) {
+        const FfbController::SlotView slot = controller.slot(i);
+        if (!slot.wanted && !slot.playing) {
+            continue;
+        }
+        anyShown = true;
+        const Colour colour = slot.playing ? kText : kDim;
+        std::snprintf(line, sizeof(line), "%zu    %-9s %-24s ->", i, ffbTypeName(slot.requested.type),
+                      describeFfb(slot.requested).c_str());
+        text(renderer_, 4, y, line, colour);
+        if (slot.sent && slot.playing) {
+            text(renderer_, 404, y, describeFfb(*slot.sent).c_str(), kText);
+            const float strength = ffbStrength(*slot.sent);
+            if (slot.sent->type == FfbEffectType::Constant) {
+                bipolarBar(renderer_, 600, y, 116, 8, strength / std::max(safety.maxMagnitude, 0.01F), kActive);
+            } else {
+                unipolarBar(renderer_, 600, y, 116, 8, strength, kActive);
+            }
+        } else {
+            text(renderer_, 404, y, "stopped", kDim);
+        }
+        y += 11;
+    }
+    if (!anyShown) {
+        text(renderer_, 4, y, "no effects from the game yet (start the game, or it has not created any)", kDim);
+    }
+}
+
 void MappingView::trackLastPressed(const std::uint64_t sourceButtons) {
     const std::uint64_t newlyPressed = sourceButtons & ~previousSourceButtons_;
     previousSourceButtons_ = sourceButtons;
@@ -451,6 +539,97 @@ void MappingView::trackLastPressed(const std::uint64_t sourceButtons) {
                          sourceToTarget_[static_cast<std::size_t>(source)]);
         }
     }
+}
+
+// --- files ----------------------------------------------------------------------------------------
+
+namespace {
+
+// Keeps both ends of a long path: "C:\Users\...\logs\telemetry-20260930-142501.csv".
+std::string shortenMiddle(const std::string& value, const std::size_t maxChars) {
+    if (value.size() <= maxChars || maxChars < 8) {
+        return value;
+    }
+    const std::size_t tail = (maxChars - 3) * 2 / 3;
+    const std::size_t head = maxChars - 3 - tail;
+    return value.substr(0, head) + "..." + value.substr(value.size() - tail);
+}
+
+std::string displayPath(const std::filesystem::path& path) {
+    std::error_code ec;
+    const std::filesystem::path absolute = std::filesystem::absolute(path, ec);
+    return (ec ? path : absolute).lexically_normal().string();
+}
+
+}  // namespace
+
+void MappingView::setFiles(std::string logFile, const TelemetryRecorder* telemetry, std::string telemetryStatus) {
+    logFile_ = logFile.empty() ? std::string() : displayPath(logFile);
+    telemetry_ = telemetry;
+    telemetryStatus_ = std::move(telemetryStatus);
+}
+
+void MappingView::openFilesFolder() const {
+    std::filesystem::path folder;
+    if (telemetry_ != nullptr) {
+        folder = telemetry_->samplesPath().parent_path();
+    } else if (!logFile_.empty()) {
+        folder = std::filesystem::path(logFile_).parent_path();
+    }
+    if (folder.empty()) {
+        WE_LOG_WARN(log(), "no log or telemetry folder to open");
+        return;
+    }
+    const std::string path = displayPath(folder);
+    if (SDL_OpenURL(path.c_str())) {
+        WE_LOG_INFO(log(), "opened folder {}", path);
+    } else {
+        WE_LOG_WARN(log(), "cannot open folder {}: {}", path, SDL_GetError());
+    }
+}
+
+void MappingView::drawFiles() {
+    constexpr float kTop = 682;
+    constexpr std::size_t kPathChars = 76;  // (720 - 4 - 12 * 8 label column) / 8, rounded down
+    outline(renderer_, 0, kTop - 6, kLogicalWidth, kLogicalHeight - kTop + 6, kHeading);
+    text(renderer_, 4, kTop, "LOGS AND TELEMETRY", kHeading);
+    text(renderer_, 164, kTop, "press F to open the folder", kText);
+
+    // The folder once, then file names; a file somewhere else (custom path in the INI) gets its full path.
+    const std::filesystem::path folder = telemetry_ != nullptr ? std::filesystem::path(displayPath(telemetry_->samplesPath())).parent_path()
+                                         : !logFile_.empty()    ? std::filesystem::path(logFile_).parent_path()
+                                                                : std::filesystem::path();
+    const auto name = [&folder](const std::filesystem::path& file) {
+        const std::filesystem::path shown(displayPath(file));
+        return shown.parent_path() == folder ? shown.filename().string() : shown.string();
+    };
+
+    const float x = 4 + 12 * 8;
+    float y = kTop + 14;
+    text(renderer_, 4, y, "Folder", kDim);
+    text(renderer_, x, y, folder.empty() ? "-" : shortenMiddle(folder.string(), kPathChars).c_str(), kText);
+
+    y += 14;
+    text(renderer_, 4, y, "Log", kDim);
+    if (logFile_.empty()) {
+        text(renderer_, x, y, "console only (the log file could not be opened)", kWarning);
+    } else {
+        text(renderer_, x, y, shortenMiddle(name(logFile_), kPathChars).c_str(), kText);
+    }
+
+    y += 14;
+    text(renderer_, 4, y, "Telemetry", kDim);
+    text(renderer_, 4, y + 14, "FFB events", kDim);
+    if (telemetry_ == nullptr) {
+        text(renderer_, x, y, telemetryStatus_.c_str(), kDim);
+        return;
+    }
+    char count[48];
+    std::snprintf(count, sizeof(count), "  (%llu rows)", static_cast<unsigned long long>(telemetry_->rowsWritten()));
+    text(renderer_, x, y, (shortenMiddle(name(telemetry_->samplesPath()), kPathChars - 20) + count).c_str(), kText);
+    std::snprintf(count, sizeof(count), "  (%llu changes from the game)",
+                  static_cast<unsigned long long>(telemetry_->ffbRowsWritten()));
+    text(renderer_, x, y + 14, (shortenMiddle(name(telemetry_->ffbPath()), kPathChars - 36) + count).c_str(), kText);
 }
 
 }  // namespace wheelemu::service

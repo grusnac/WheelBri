@@ -29,14 +29,15 @@ TEST(EmulatorConfig, EmptyFileGivesDefaults) {
 
 TEST(EmulatorConfig, ReadsEverySection) {
     const auto result = load(
-        "[emulator]\nsource_device = R3\nstate_port = 50000\nloop_hz = 500\n"
+        "[emulator]\nsource_device = R3\nstate_port = 50000\nffb_port = 50001\nloop_hz = 500\n"
         "[steering]\naxis = 0\nsource_rotation_deg = 540\ntarget_rotation_deg = 900\ndeadzone = 0.02\ninvert = yes\n"
         "[throttle]\naxis = 1\ninvert = true\n"
         "[brake]\naxis = 2\ndeadzone_low = 0.05\nsaturation_high = 0.8\ngamma = 1.8\n"
         "[clutch]\naxis = -1\n"
         "[buttons]\ntarget_0 = 7\ntarget_1 = -1\n"
         "[hat]\nup = 4\nright = 5\ndown = 6\nleft = 7\n"
-        "[ffb]\nmaster_gain = 0.6\nmax_magnitude = 0.7\nmax_slew_per_second = 40\ninvert = true\n");
+        "[ffb]\nmaster_gain = 0.6\nmax_magnitude = 0.7\nmax_slew_per_second = 40\ninvert = true\n"
+        "game_effects = false\n");
     ASSERT_TRUE(result.errors.empty()) << result.errors.front();
 
     const EmulatorConfig& config = result.config;
@@ -57,6 +58,29 @@ TEST(EmulatorConfig, ReadsEverySection) {
     EXPECT_FLOAT_EQ(config.ffb.masterGain, 0.6F);
     EXPECT_FLOAT_EQ(config.ffb.maxSlewPerSecond, 40.0F);
     EXPECT_TRUE(config.ffbInvert);
+    EXPECT_EQ(config.ffbPort, 50001);
+    EXPECT_FALSE(config.gameFfb);
+}
+
+TEST(EmulatorConfig, ReadsTelemetry) {
+    const auto defaults = load("");
+    EXPECT_TRUE(defaults.config.telemetry.enabled);
+    EXPECT_EQ(defaults.config.telemetry.rateHz, 50);
+
+    const auto result = load("[telemetry]\nenabled = false\nrate_hz = 100\nmax_file_mb = 50\nkeep_sessions = 3\n"
+                             "directory = D:/telemetry\n");
+    ASSERT_TRUE(result.errors.empty()) << result.errors.front();
+    const TelemetryConfig& telemetry = result.config.telemetry;
+    EXPECT_FALSE(telemetry.enabled);
+    EXPECT_EQ(telemetry.rateHz, 100);
+    EXPECT_EQ(telemetry.maxFileMb, 50);
+    EXPECT_EQ(telemetry.keepSessions, 3);
+    EXPECT_EQ(telemetry.directory, "D:/telemetry");
+
+    const auto bad = load("[telemetry]\nrate_hz = 0\nfolder = x\n");
+    EXPECT_EQ(bad.config.telemetry.rateHz, 50);
+    EXPECT_TRUE(containsError(bad, "[telemetry] rate_hz = '0'"));
+    EXPECT_TRUE(containsError(bad, "[telemetry] unknown key 'folder'"));
 }
 
 TEST(EmulatorConfig, InvalidValuesKeepDefaultsAndAreReported) {
@@ -70,9 +94,9 @@ TEST(EmulatorConfig, InvalidValuesKeepDefaultsAndAreReported) {
 }
 
 TEST(EmulatorConfig, UnknownKeysAndSectionsAreReported) {
-    const auto result = load("stray = 1\n[steering]\naxes = 0\n[telemetry]\nport = 1\n");
+    const auto result = load("stray = 1\n[steering]\naxes = 0\n[telemtry]\nport = 1\n");
     EXPECT_TRUE(containsError(result, "[steering] unknown key 'axes'"));
-    EXPECT_TRUE(containsError(result, "unknown section [telemetry]"));
+    EXPECT_TRUE(containsError(result, "unknown section [telemtry]"));
     EXPECT_TRUE(containsError(result, "keys found before the first [section]"));
 }
 
@@ -99,6 +123,11 @@ TEST(EmulatorConfig, InvalidLogLevelFallsBackToInfo) {
 TEST(EmulatorConfig, PedalSaturationMustExceedDeadzone) {
     const auto result = load("[brake]\ndeadzone_low = 0.6\nsaturation_high = 0.5\n");
     EXPECT_TRUE(containsError(result, "[brake] saturation_high must be greater than deadzone_low"));
+}
+
+TEST(EmulatorConfig, FfbPortMustDifferFromStatePort) {
+    const auto result = load("[emulator]\nstate_port = 41330\n");
+    EXPECT_TRUE(containsError(result, "ffb_port must differ"));
 }
 
 }  // namespace
