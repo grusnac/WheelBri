@@ -39,9 +39,11 @@ Options: `WE_BUILD_TESTS` (ON; skipped when cross-compiling), `WE_BUILD_SERVICE`
 on Windows targets). Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra -Wpedantic` elsewhere. Keep new code
 free of warnings.
 
-Service CLI: `wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]`. `--ui` opens an SDL window
-(`service/src/MappingView.cpp`, drawn with `SDL_RenderDebugText`, no font dependency) that shows every source
-axis/button next to its target (G920/G29).
+Service CLI: `wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]`. `--ui` opens a window
+(`service/src/MappingView.cpp`) that shows every source axis/button next to its target (G920/G29). It draws
+through `UiWindow.hpp` (filled/outlined rectangles and 8x8-cell monospaced text on a 720x752 logical canvas,
+letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows,
+`UiWindowX11.cpp` (Xlib, X server fixed fonts) on Linux, `UiWindowSdl.cpp` elsewhere or with `-DWE_UI_SDL=ON`.
 
 ## Layout and architecture
 

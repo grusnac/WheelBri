@@ -51,9 +51,50 @@ Administrator:
 build\service\wheelemu-service.exe --config config\moza-r3-as-g920.ini --ui --virtual-g920
 ```
 
-The service log says `virtual G920 G920_0 ready after … ms` and `hidhide: real wheel hidden from games`;
-joy.cpl lists only the G920. While it runs the service hides the R3 from games through HidHide (needed: NFS takes
-the R3 when it can see it), keeps its own access, and makes the R3 visible again when it stops. `--no-hide`
-leaves the R3 visible; after a crash, `wheelemu-service --unhide` makes it visible again. No Xbox controller for
-the game's button prompts yet (the bridge has one). Stop the service with
+The service log says `virtual G920 G920_0 ready after … ms` and `hide: real wheel hidden from games`; joy.cpl
+lists only the G920. While it runs the service hides the R3 from games (needed: NFS takes the R3 when it can see
+it), keeps its own access, and makes the R3 visible again when it stops. `--no-hide` leaves the R3 visible; after
+a crash, `wheelemu-service --unhide` makes it visible again (the next start also clears it by itself).
+
+## Hiding the R3: wheelemu-hide (`driver/hide`)
+
+Our replacement for HidHide: a UMDF 2 **upper filter** on the R3's game-controller interface
+(`HID\VID_346E&PID_0005&MI_02`; Moza Pit House uses the other interfaces). When a program opens that interface,
+the filter checks `HKLM\SOFTWARE\wheelemu\hide` `AllowedPid`: while the service runs it holds the service's
+process id and everyone else is refused (so DirectInput, SDL and games do not see the R3); 0 or missing lets
+everyone in. Everything else passes straight through. Same signing as the G920 driver; user mode, no test mode.
+
+Build and install (Developer PowerShell, then Administrator PowerShell; close Pit House and games, the R3
+restarts once):
+
+```
+msbuild driver\hide\wheelemu-hide.vcxproj /p:Configuration=Release /p:Platform=x64
+```
+
+```
+powershell -ExecutionPolicy Bypass -File driver\hide\install-hide.ps1
+```
+
+Remove: `driver\hide\uninstall-hide.ps1` (the R3 goes back to Windows' own setup). Log:
+`C:\ProgramData\wheelemu\logs\wheelemu-hide-<date>.log` (which programs were refused). The service uses it when
+it is on the R3, else HidHide if installed.  Stop the service with
 Ctrl+C (close the game and Steam first). Driver log: `C:\ProgramData\wheelemu\logs\wheelemu-driver-<date>.log`.
+
+## The Xbox controller: wheelemu-xusb (`driver/xusb`)
+
+For games that show keyboard prompts with only a wheel (NFS 2015): a virtual Xbox 360 controller next to the
+G920, for XInput only (no HID, so DirectInput does not see a second controller). The service creates it with
+`--virtual-g920` (`--xbox-pad buttons`, the default: the wheel's A/B/X/Y/Menu/View/D-pad press it in menus, with
+the bridge's rules, now in `core/XboxPad.hpp`; `idle`: there, never pressed; `off`: none) and feeds it over UDP
+41332. Its sticks and triggers never move. The XUSB replies follow HIDMaestro's companion driver (MIT).
+
+```
+msbuild driver\xusb\wheelemu-xusb.vcxproj /p:Configuration=Release /p:Platform=x64
+```
+
+```
+powershell -ExecutionPolicy Bypass -File driver\xusb\install-xusb.ps1
+```
+
+The service log says `virtual Xbox 360 controller XUSB_0 ready`; the driver logs to
+`C:\ProgramData\wheelemu\logs\wheelemu-xusb-<date>.log`. Without the driver the service runs without it.

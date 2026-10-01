@@ -1,0 +1,378 @@
+// The `--ui` window on Windows: a plain Win32 window drawn with GDI. No SDL, nothing to ship.
+//
+// Each frame is drawn into a memory bitmap the size of the window (the logical canvas scaled and centred),
+// then copied to the screen in one go, so it never flickers. The window is DPI aware: on a 150 % display it
+// is drawn at full resolution instead of being blown up blurry by Windows.
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
+#include "UiWindow.hpp"
+
+#include <windows.h>
+#include <shellapi.h>
+
+#include <cmath>
+#include <string>
+#include <vector>
+
+namespace wheelemu::service::ui {
+
+namespace {
+
+constexpr wchar_t kClassName[] = L"wheelemu-ui";
+constexpr wchar_t kFontFace[] = L"Consolas";
+
+std::wstring widen(const std::string_view text) {
+    if (text.empty()) {
+        return {};
+    }
+    const int size = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    if (size <= 0) {   // not UTF-8: take the bytes as they are (ANSI code page)
+        std::wstring out(text.size(), L'?');
+        for (std::size_t i = 0; i < text.size(); ++i) out[i] = static_cast<unsigned char>(text[i]);
+        return out;
+    }
+    std::wstring out(static_cast<std::size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), size);
+    return out;
+}
+
+std::string lastError(const char* what) {
+    return std::string(what) + " failed (error " + std::to_string(GetLastError()) + ")";
+}
+
+COLORREF rgb(const Colour c) { return RGB(c.r, c.g, c.b); }
+
+// Per-monitor DPI awareness (Windows 10 1703+), else system DPI awareness (Vista+). Looked up at run time
+// so the program still starts on older Windows.
+void becomeDpiAware() {
+    const HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32 == nullptr) {
+        return;
+    }
+    using SetContext = BOOL(WINAPI*)(HANDLE);
+    const auto setContext =
+        reinterpret_cast<SetContext>(reinterpret_cast<void*>(GetProcAddress(user32, "SetProcessDpiAwarenessContext")));
+    const auto perMonitorV2 = reinterpret_cast<HANDLE>(static_cast<INT_PTR>(-4));   // DPI_AWARENESS_CONTEXT_..._V2
+    if (setContext != nullptr && setContext(perMonitorV2) != FALSE) {
+        return;
+    }
+    SetProcessDPIAware();
+}
+
+UINT windowDpi(const HWND window) {
+    const HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    using GetDpi = UINT(WINAPI*)(HWND);
+    const auto getDpi =
+        user32 != nullptr ? reinterpret_cast<GetDpi>(reinterpret_cast<void*>(GetProcAddress(user32, "GetDpiForWindow")))
+                          : nullptr;
+    if (getDpi != nullptr && window != nullptr) {
+        return getDpi(window);
+    }
+    const HDC screen = GetDC(nullptr);
+    const int dpi = screen != nullptr ? GetDeviceCaps(screen, LOGPIXELSY) : 96;
+    if (screen != nullptr) ReleaseDC(nullptr, screen);
+    return dpi > 0 ? static_cast<UINT>(dpi) : 96U;
+}
+
+class Win32Window final : public UiWindow {
+public:
+    Win32Window(const int logicalWidth, const int logicalHeight)
+        : logicalWidth_(logicalWidth), logicalHeight_(logicalHeight) {}
+
+    ~Win32Window() override {
+        releaseBuffer();
+        if (font_ != nullptr) DeleteObject(font_);
+        if (window_ != nullptr) {
+            SetWindowLongPtrW(window_, GWLP_USERDATA, 0);
+            DestroyWindow(window_);
+        }
+    }
+
+    Win32Window(const Win32Window&) = delete;
+    Win32Window& operator=(const Win32Window&) = delete;
+
+    bool create(const std::string& title, const int windowWidth, const int windowHeight, std::string& error) {
+        const HINSTANCE instance = GetModuleHandleW(nullptr);
+        WNDCLASSEXW cls{};
+        cls.cbSize = sizeof(cls);
+        cls.style = CS_HREDRAW | CS_VREDRAW;
+        cls.lpfnWndProc = &Win32Window::procedure;
+        cls.hInstance = instance;
+        cls.hCursor = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
+        cls.hIcon = LoadIconW(nullptr, reinterpret_cast<LPCWSTR>(IDI_APPLICATION));
+        cls.lpszClassName = kClassName;
+        if (RegisterClassExW(&cls) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            error = lastError("RegisterClassEx");
+            return false;
+        }
+
+        // The size asked for at 100 %, times the display scale, made smaller (same shape) if the screen is.
+        const DWORD style = WS_OVERLAPPEDWINDOW;
+        const double scale = static_cast<double>(windowDpi(nullptr)) / 96.0;
+        RECT work{0, 0, 1920, 1040};
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+        RECT frame{0, 0, 0, 0};
+        AdjustWindowRectEx(&frame, style, FALSE, 0);
+        const int frameW = frame.right - frame.left;
+        const int frameH = frame.bottom - frame.top;
+        double clientW = windowWidth * scale;
+        double clientH = windowHeight * scale;
+        const double fit = std::min({1.0, static_cast<double>(work.right - work.left - frameW) / clientW,
+                                     static_cast<double>(work.bottom - work.top - frameH) / clientH});
+        clientW *= fit;
+        clientH *= fit;
+        const int outerW = static_cast<int>(clientW) + frameW;
+        const int outerH = static_cast<int>(clientH) + frameH;
+        const int workW = static_cast<int>(work.right - work.left);
+        const int workH = static_cast<int>(work.bottom - work.top);
+        const int x = static_cast<int>(work.left) + std::max(0, (workW - outerW) / 2);
+        const int y = static_cast<int>(work.top) + std::max(0, (workH - outerH) / 2);
+
+        window_ = CreateWindowExW(0, kClassName, widen(title).c_str(), style, x, y, outerW, outerH, nullptr, nullptr,
+                                  instance, this);
+        if (window_ == nullptr) {
+            error = lastError("CreateWindowEx");
+            return false;
+        }
+        ShowWindow(window_, SW_SHOWNORMAL);
+        UpdateWindow(window_);
+        return true;
+    }
+
+    WindowInput pump() override {
+        MSG message;
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+        WindowInput input;
+        input.close = closed_;
+        input.keys.swap(keys_);
+        return input;
+    }
+
+    [[nodiscard]] bool visible() const override {
+        return window_ != nullptr && IsWindowVisible(window_) != FALSE && IsIconic(window_) == FALSE;
+    }
+
+    void begin(const Colour background) override {
+        RECT client{};
+        GetClientRect(window_, &client);
+        const int width = std::max(1, static_cast<int>(client.right - client.left));
+        const int height = std::max(1, static_cast<int>(client.bottom - client.top));
+        if (width != bufferWidth_ || height != bufferHeight_ || buffer_ == nullptr) {
+            makeBuffer(width, height);
+        }
+        box_ = fitCanvas(width, height, logicalWidth_, logicalHeight_);
+        updateFont();
+        SetDCBrushColor(buffer_, rgb(background));
+        const RECT all{0, 0, width, height};
+        FillRect(buffer_, &all, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    }
+
+    void fill(const float x, const float y, const float w, const float h, const Colour colour) override {
+        if (w <= 0.0F || h <= 0.0F) {
+            return;
+        }
+        RECT rect{px(x), py(y), px(x + w), py(y + h)};
+        if (rect.right <= rect.left) rect.right = rect.left + 1;   // a thin line never disappears
+        if (rect.bottom <= rect.top) rect.bottom = rect.top + 1;
+        SetDCBrushColor(buffer_, rgb(colour));
+        FillRect(buffer_, &rect, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    }
+
+    void outline(const float x, const float y, const float w, const float h, const Colour colour) override {
+        const float line = 1.0F / box_.scale * static_cast<float>(std::max(1L, std::lround(box_.scale)));
+        fill(x, y, w, line, colour);
+        fill(x, y + h - line, w, line, colour);
+        fill(x, y, line, h, colour);
+        fill(x + w - line, y, line, h, colour);
+    }
+
+    void text(const float x, const float y, const std::string_view value, const Colour colour) override {
+        const std::wstring wide = widen(value);
+        if (wide.empty()) {
+            return;
+        }
+        // Every character on the 8-pixel grid, exactly where the layout put it.
+        advances_.resize(wide.size());
+        for (std::size_t i = 0; i < wide.size(); ++i) {
+            const float left = x + static_cast<float>(i) * kCharWidth;
+            advances_[i] = px(left + kCharWidth) - px(left);
+        }
+        SetTextColor(buffer_, rgb(colour));
+        // The font's cell is 12 logical pixels tall from y - 2: bigger letters than the 8-pixel line they were
+        // laid out on, centred on it (rows are 11..16 apart, so they still don't touch).
+        ExtTextOutW(buffer_, px(x), py(y - 2.0F), 0, nullptr, wide.c_str(), static_cast<UINT>(wide.size()),
+                    advances_.data());
+    }
+
+    void present() override {
+        if (buffer_ == nullptr) {
+            return;
+        }
+        const HDC screen = GetDC(window_);
+        if (screen != nullptr) {
+            BitBlt(screen, 0, 0, bufferWidth_, bufferHeight_, buffer_, 0, 0, SRCCOPY);
+            ReleaseDC(window_, screen);
+        }
+    }
+
+    bool openFolder(const std::filesystem::path& folder, std::string& error) override {
+        const std::wstring arguments = L"\"" + folder.wstring() + L"\"";
+        const auto result = reinterpret_cast<INT_PTR>(
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", arguments.c_str(), nullptr, SW_SHOWNORMAL));
+        if (result > 32) {
+            return true;
+        }
+        error = "ShellExecute error " + std::to_string(result);
+        return false;
+    }
+
+    [[nodiscard]] std::string describe() const override {
+        return "Win32 GDI, " + std::to_string(windowDpi(window_) * 100 / 96) + " % display scale";
+    }
+
+private:
+    static LRESULT CALLBACK procedure(const HWND hwnd, const UINT message, const WPARAM wParam, const LPARAM lParam) {
+        if (message == WM_NCCREATE) {
+            const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lParam);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
+        }
+        auto* self = reinterpret_cast<Win32Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (self != nullptr) {
+            LRESULT result = 0;
+            if (self->handle(hwnd, message, wParam, lParam, result)) {
+                return result;
+            }
+        }
+        return DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+
+    bool handle(const HWND hwnd, const UINT message, const WPARAM wParam, const LPARAM lParam, LRESULT& result) {
+        switch (message) {
+            case WM_CLOSE:   // the owner destroys the window; here it only says so
+                closed_ = true;
+                return true;
+            case WM_KEYDOWN:
+                if (wParam == VK_ESCAPE) {
+                    closed_ = true;
+                } else if (wParam >= 'A' && wParam <= 'Z' && (lParam & (1L << 30)) == 0) {   // not a repeat
+                    keys_ += static_cast<char>('a' + (wParam - 'A'));
+                }
+                return true;
+            case WM_ERASEBKGND:   // everything is painted from the buffer: no flicker
+                result = 1;
+                return true;
+            case WM_PAINT: {
+                PAINTSTRUCT paint;
+                const HDC dc = BeginPaint(hwnd, &paint);
+                if (buffer_ != nullptr) {
+                    BitBlt(dc, 0, 0, bufferWidth_, bufferHeight_, buffer_, 0, 0, SRCCOPY);
+                }
+                EndPaint(hwnd, &paint);
+                return true;
+            }
+            case 0x02E0: {   // WM_DPICHANGED: moved to a screen with another scale; take the size Windows suggests
+                const auto* suggested = reinterpret_cast<const RECT*>(lParam);
+                SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
+                             suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+                return true;
+            }
+            case WM_GETMINMAXINFO: {
+                auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
+                info->ptMinTrackSize.x = 240;
+                info->ptMinTrackSize.y = 200;
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    [[nodiscard]] int px(const float x) const { return static_cast<int>(std::lround(box_.offsetX + x * box_.scale)); }
+    [[nodiscard]] int py(const float y) const { return static_cast<int>(std::lround(box_.offsetY + y * box_.scale)); }
+
+    void makeBuffer(const int width, const int height) {
+        releaseBuffer();
+        const HDC screen = GetDC(window_);
+        buffer_ = CreateCompatibleDC(screen);
+        bitmap_ = CreateCompatibleBitmap(screen, width, height);
+        ReleaseDC(window_, screen);
+        previousBitmap_ = SelectObject(buffer_, bitmap_);
+        SetBkMode(buffer_, TRANSPARENT);
+        SetTextAlign(buffer_, TA_TOP | TA_LEFT | TA_NOUPDATECP);
+        bufferWidth_ = width;
+        bufferHeight_ = height;
+        fontScale_ = -1.0F;   // select the font into the new DC
+    }
+
+    void releaseBuffer() {
+        if (buffer_ != nullptr) {
+            if (previousFont_ != nullptr) SelectObject(buffer_, previousFont_);
+            SelectObject(buffer_, previousBitmap_);
+            DeleteDC(buffer_);
+            buffer_ = nullptr;
+            previousFont_ = nullptr;
+        }
+        if (bitmap_ != nullptr) {
+            DeleteObject(bitmap_);
+            bitmap_ = nullptr;
+        }
+    }
+
+    // A monospaced font whose cell matches the 8 x 12 grid at the current scale.
+    void updateFont() {
+        if (font_ != nullptr && std::abs(fontScale_ - box_.scale) < 0.001F) {
+            return;
+        }
+        const HFONT font = CreateFontW(std::max(6L, std::lround(12.0F * box_.scale)),   // cell height
+                                       std::max(3L, std::lround(7.0F * box_.scale)),    // average width
+                                       0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_TT_PRECIS,
+                                       CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, kFontFace);
+        if (font == nullptr) {
+            return;   // keep the previous font (or the system one)
+        }
+        const HGDIOBJ previous = SelectObject(buffer_, font);
+        if (previousFont_ == nullptr) previousFont_ = previous;
+        if (font_ != nullptr) DeleteObject(font_);
+        font_ = font;
+        fontScale_ = box_.scale;
+    }
+
+    int logicalWidth_;
+    int logicalHeight_;
+    HWND window_ = nullptr;
+    HDC buffer_ = nullptr;
+    HBITMAP bitmap_ = nullptr;
+    HGDIOBJ previousBitmap_ = nullptr;
+    HGDIOBJ previousFont_ = nullptr;
+    HFONT font_ = nullptr;
+    float fontScale_ = -1.0F;
+    int bufferWidth_ = 0;
+    int bufferHeight_ = 0;
+    Letterbox box_;
+    std::vector<INT> advances_;
+    bool closed_ = false;
+    std::string keys_;
+};
+
+}  // namespace
+
+std::unique_ptr<UiWindow> openWindow(const std::string& title, const int logicalWidth, const int logicalHeight,
+                                     const int windowWidth, const int windowHeight, std::string& error) {
+    becomeDpiAware();
+    auto window = std::make_unique<Win32Window>(logicalWidth, logicalHeight);
+    if (!window->create(title, windowWidth, windowHeight, error)) {
+        return nullptr;
+    }
+    return window;
+}
+
+}  // namespace wheelemu::service::ui

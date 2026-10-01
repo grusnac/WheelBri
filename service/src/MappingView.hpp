@@ -7,7 +7,7 @@
 #include "Housekeeping.hpp"
 #include "wheelemu/WheelState.hpp"
 
-#include <SDL3/SDL.h>
+#include "UiWindow.hpp"
 
 #include <array>
 #include <cstdint>
@@ -19,7 +19,8 @@ namespace wheelemu::service {
 
 // Live window for `--ui`: shows every axis and button of the physical wheel next to what the emulated
 // wheel reports for it, so the mapping in the config can be checked by moving each control.
-// Read-only: the mapping itself is edited in the INI file.
+// Read-only: the mapping itself is edited in the INI file. Drawn with the system's own window tools
+// (UiWindow.hpp: Win32 on Windows, X11 on Linux).
 // What the window shows about game force feedback. `controller` is null when it is off or unavailable;
 // `status` then says why.
 struct FfbDisplay {
@@ -49,7 +50,7 @@ struct FilesDisplay {
 
 class MappingView {
 public:
-    // Opens the window. Returns nullptr (and logs why) if SDL's video subsystem or the window cannot be created.
+    // Opens the window. Returns nullptr (and logs why) if it cannot be created (no display, ...).
     [[nodiscard]] static std::unique_ptr<MappingView> open(std::string sourceName, int sourceAxes, int sourceButtons,
                                                            const IDeviceProfile& profile, const MapperConfig& mapper);
     ~MappingView();
@@ -68,8 +69,8 @@ public:
                 const FfbDisplay& ffb = {});
 
 private:
-    MappingView(SDL_Window* window, SDL_Renderer* renderer, std::string sourceName, int sourceAxes,
-                int sourceButtons, const IDeviceProfile& profile, const MapperConfig& mapper);
+    MappingView(std::unique_ptr<ui::UiWindow> window, std::string sourceName, int sourceAxes, int sourceButtons,
+                const IDeviceProfile& profile, const MapperConfig& mapper);
 
     void drawHeader();
     void drawAxes(const RawInputState& raw, const WheelState& state, const TargetReport& report);
@@ -84,8 +85,7 @@ private:
     void openFilesFolder() const;
     void trackLastPressed(std::uint64_t sourceButtons);
 
-    SDL_Window* window_;
-    SDL_Renderer* renderer_;
+    std::unique_ptr<ui::UiWindow> window_;
     std::string sourceName_;
     int sourceAxes_;
     int sourceButtons_;

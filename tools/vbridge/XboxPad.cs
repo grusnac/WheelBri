@@ -55,6 +55,7 @@ internal sealed class XboxPad : IDisposable
     HMButton _lastButtons;
     HMHat _lastHat;
     bool _hatBlocked;
+    uint _g920Hidden;                             // G920 Menu/View bits that went to the pad, off the G920 until released
     bool _first = true;
     long _presses;
     readonly object _lock = new();
@@ -152,6 +153,12 @@ internal sealed class XboxPad : IDisposable
 
         TargetReport g920 = state;
         if (padHat != HMHat.None) g920 = g920 with { Hat = -1 };
+        // Menu and View too: NFS reads G920 Menu/View as keyboard-type input and switches its prompts back.
+        // A press that went to the pad stays off the G920 until let go, so holding it into driving is no pause.
+        if ((buttons & HMButton.Start) != 0) _g920Hidden |= 1u << 6;
+        if ((buttons & HMButton.Back) != 0) _g920Hidden |= 1u << 7;
+        _g920Hidden &= state.Buttons;
+        if (_g920Hidden != 0) g920 = g920 with { Buttons = state.Buttons & ~_g920Hidden };
         if (_inMenu) g920 = g920 with { Steering = _heldSteering };
         if (buttons == _lastButtons && padHat == _lastHat)
         {

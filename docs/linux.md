@@ -84,7 +84,8 @@ Logs: `~/.local/state/wheelemu/` (service, `wheelemu-uhid`, `wheelemu.sh`, telem
 
 ## Building from source
 
-On any x86-64 Linux with CMake, a C++20 compiler and SDL3 (on the Deck itself, in a `distrobox`):
+On any x86-64 Linux with CMake, a C++20 compiler, SDL3 and the X11 headers (`libx11-dev` / `libX11-devel`, for
+the `--ui` window; on the Deck itself, in a `distrobox`):
 
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Release

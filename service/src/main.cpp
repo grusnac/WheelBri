@@ -4,6 +4,7 @@
 
 #include "FfbSelfTest.hpp"
 #include "HidHide.hpp"
+#include "HideFilter.hpp"
 #include "Housekeeping.hpp"
 #include "MappingView.hpp"
 #include "SdlFfbSink.hpp"
@@ -11,6 +12,7 @@
 #include "SdlRuntime.hpp"
 #include "ServiceLogging.hpp"
 #include "VirtualG920.hpp"
+#include "VirtualXboxPad.hpp"
 
 #include "wheelemu/EmulatorConfig.hpp"
 #include "wheelemu/FfbController.hpp"
@@ -21,10 +23,14 @@
 #include "wheelemu/Telemetry.hpp"
 #include "wheelemu/TestClutch.hpp"
 #include "wheelemu/UdpLoopback.hpp"
+#include "wheelemu/XboxPad.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <utility>
+#include <cmath>
+#include <functional>
 #include <cctype>
 #include <array>
 #include <atomic>
@@ -74,6 +80,7 @@ struct Options {
     bool virtualG920 = false;                   // --virtual-g920: our own driver's G920 (driver/)
     bool hide = true;                           // --no-hide: leave the real wheel visible to games
     bool unhide = false;                        // --unhide: make the real wheel visible again and exit
+    wheelemu::XboxPadMode xboxPad = wheelemu::XboxPadMode::Buttons;   // --xbox-pad: with --virtual-g920
 };
 
 // The wheel's USB vendor id for HidHide: [emulator] source_device when it is one ("346e"), else Moza's.
@@ -104,7 +111,7 @@ bool stopRequested() {
 void printUsage() {
     std::puts(
         "usage: wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
-        "                        [--stop-file FILE] [--virtual-g920 [--no-hide]] [--unhide]\n"
+        "                        [--stop-file FILE] [--virtual-g920 [--no-hide] [--xbox-pad MODE]] [--unhide]\n"
         "  --config FILE  INI configuration (see config/moza-r3-as-g920.ini)\n"
         "  --list         list joysticks and exit\n"
         "  --print        show live raw and mapped values\n"
@@ -113,8 +120,13 @@ void printUsage() {
         "  --stop-file FILE  stop cleanly when FILE appears (it is deleted then; also at start)\n"
         "  --virtual-g920 while running, a virtual G920 for every game through wheelemu's own driver\n"
         "                 (driver\\install-driver.ps1 once; Administrator; not with the shim or the bridge);\n"
-        "                 the real wheel is hidden from games meanwhile (HidHide), unless --no-hide\n"
-        "  --unhide       after a crash: make the real wheel visible to games again (HidHide) and exit\n"
+        "                 the real wheel is hidden from games meanwhile (our wheelemu-hide filter,\n"
+        "                 driver\\hide; else HidHide), unless --no-hide\n"
+        "  --xbox-pad buttons|idle|off\n"
+        "                 with --virtual-g920: a virtual Xbox 360 controller too, so games show Xbox button\n"
+        "                 prompts (driver\\xusb\\install-xusb.ps1 once). buttons (default): the wheel's A/B/X/Y/\n"
+        "                 Menu/View/D-pad press it in menus; idle: there, never pressed; off: none\n"
+        "  --unhide       after a crash: make the real wheel visible to games again and exit\n"
         "  --old-files delete|archive|keep\n"
         "                 logs and telemetry older than [retention] older_than_days (7): delete them (default),\n"
         "                 compress them (7-Zip, xz, zstd, zip or gzip, the best one found) or keep them\n"
@@ -137,6 +149,13 @@ bool parseOptions(const int argc, char** argv, Options& options) {
             options.ffbTest = true;
         } else if (arg == "--virtual-g920") {
             options.virtualG920 = true;
+        } else if (arg == "--xbox-pad" && i + 1 < argc) {
+            const auto mode = wheelemu::parseXboxPadMode(argv[++i]);
+            if (!mode) {
+                std::fprintf(stderr, "--xbox-pad %s: expected buttons, idle or off\n", argv[i]);
+                return false;
+            }
+            options.xboxPad = *mode;
         } else if (arg == "--no-hide") {
             options.hide = false;
         } else if (arg == "--unhide") {
@@ -506,9 +525,66 @@ wheelemu::service::TelemetryFiles telemetryFiles(const wheelemu::TelemetryRecord
     return files;
 }
 
+// Between the pipeline and the state publisher while the virtual Xbox controller runs: every published wheel state
+// goes through XboxMirror (core/XboxPad.hpp), the G920 gets its version (D-pad and steering possibly held back in
+// menus) and the Xbox controller's driver gets the pad (UDP kXusbPort; at least every 100 ms, so it knows the
+// service is there). Runs on the loop's thread.
+class XboxPadPublisher final : public wheelemu::IStatePublisher {
+public:
+    // The strongest force the game plays now (0..1) and whether it has used force feedback at all.
+    using ForceQuery = std::function<std::pair<float, bool>()>;
+
+    XboxPadPublisher(wheelemu::IStatePublisher& inner, const wheelemu::XboxPadMode mode)
+        : inner_(inner), mirror_(mode), sender_(wheelemu::UdpLoopbackSender::create(wheelemu::kXusbPort)) {}
+
+    void setForceQuery(ForceQuery query) { force_ = std::move(query); }
+
+    bool publish(const wheelemu::StatePacket& packet) override {
+        const auto now = static_cast<std::int64_t>(SDL_GetTicks());
+        const auto [force, usesForce] = force_ ? force_() : std::pair<float, bool>{0.0F, false};
+        const auto result = mirror_.update(packet.report, now, force, usesForce);
+        if (result.menuChanged) {
+            WE_LOG_INFO(log(), *result.menuChanged
+                                   ? "xbox: in a menu (no force, no pedal): the G920's steering is held"
+                                   : "xbox: driving again: the G920's steering follows the wheel");
+        }
+        if (result.firstPress) {
+            WE_LOG_INFO(log(), "xbox: first button press passed on to the Xbox controller (0x{:04x})", result.pad.buttons);
+        }
+        if (sender_ != nullptr && (result.pad != lastPad_ || now - lastSentMs_ >= 100)) {
+            sender_->send(wheelemu::encodeXusbPacket(result.pad));
+            lastPad_ = result.pad;
+            lastSentMs_ = now;
+        }
+        wheelemu::StatePacket out = packet;
+        out.report = result.g920;
+        return inner_.publish(out);
+    }
+
+    [[nodiscard]] std::uint64_t presses() const { return mirror_.presses(); }
+
+private:
+    wheelemu::IStatePublisher& inner_;
+    wheelemu::XboxMirror mirror_;
+    std::unique_ptr<wheelemu::UdpLoopbackSender> sender_;
+    ForceQuery force_;
+    wheelemu::XusbPad lastPad_;
+    std::int64_t lastSentMs_ = 0;
+};
+
+// What XboxPadPublisher needs from the game's force feedback.
+std::pair<float, bool> gameForce(const wheelemu::FfbController& controller) {
+    float strongest = 0.0F;
+    for (std::size_t i = 0; i < controller.slotCount(); ++i) {
+        const auto slot = controller.slot(i);
+        if (slot.playing) strongest = std::max(strongest, std::abs(wheelemu::ffbStrength(slot.requested)));
+    }
+    return {strongest, controller.stats().packets > 0};
+}
+
 int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
             const std::filesystem::path& logFolder, const bool logToFile, wheelemu::service::SdlInputSource& source,
-            const bool print, const bool ui) {
+            const bool print, const bool ui, const std::optional<wheelemu::XboxPadMode> xboxPad) {
     const auto profile = wheelemu::makeProfile(config.targetProfile);
     if (profile == nullptr) {
         WE_LOG_CRITICAL(log(), "unknown target_profile '{}' (known: {})", config.targetProfile,
@@ -522,7 +598,13 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     }
 
     const wheelemu::Mapper mapper(config.mapper);
-    wheelemu::Pipeline pipeline(source, mapper, *profile, *publisher);
+    std::unique_ptr<XboxPadPublisher> xboxPublisher;
+    if (xboxPad) {
+        xboxPublisher = std::make_unique<XboxPadPublisher>(*publisher, *xboxPad);
+    }
+    wheelemu::Pipeline pipeline(source, mapper, *profile,
+                                xboxPublisher != nullptr ? static_cast<wheelemu::IStatePublisher&>(*xboxPublisher)
+                                                         : *publisher);
 
     // Test clutch (tools/vbridge/ClutchProbe) while no clutch pedal is connected.
     const auto clutchListener = wheelemu::UdpLoopbackListener::create(wheelemu::kTestClutchPort);
@@ -544,6 +626,10 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
 
     std::string ffbStatus;
     const auto gameFfb = GameFfb::open(config, source.joystick(), ffbStatus);
+    if (xboxPublisher != nullptr && gameFfb != nullptr) {
+        const GameFfb* ffb = gameFfb.get();
+        xboxPublisher->setForceQuery([ffb] { return gameForce(ffb->controller()); });
+    }
     const auto telemetry = openTelemetry(config, configPath, configText, source);
     if (gameFfb != nullptr) {
         gameFfb->setTelemetry(telemetry.get());
@@ -836,15 +922,15 @@ int run(const Options& options) {
         return 0;
     }
     if (options.unhide) {
-        const auto hidHide = wheelemu::service::HidHide::find();
-        if (hidHide == nullptr) {
-            WE_LOG_ERROR(log(), "HidHide is not installed: nothing to unhide");
-            return 1;
+        wheelemu::service::HideFilter::clear();
+        if (const auto hidHide = wheelemu::service::HidHide::find()) {
+            hidHide->unhideAll(wheelVendorId(config.sourceDeviceMatch));
+            hidHide->logState();
         }
-        hidHide->unhideAll(wheelVendorId(config.sourceDeviceMatch));
-        hidHide->logState();
         return 0;
     }
+    // A wheel still hidden for a service that crashed would be hidden from this one too.
+    wheelemu::service::HideFilter::clearStale();
 
     const auto source = wheelemu::service::SdlInputSource::open(config.sourceDeviceMatch);
     if (source == nullptr) {
@@ -883,23 +969,50 @@ int run(const Options& options) {
             return 1;
         }
     }
-    // The real wheel hidden from games meanwhile, or a game may take it instead of the G920 (NFS does).
-    // The service keeps its own access: it opened the wheel already and HidHide lists it as allowed.
+    // The real wheel hidden from games meanwhile, or a game may take it instead of the G920 (NFS does): with
+    // our wheelemu-hide filter (driver/hide) when it is on the wheel, else with HidHide if installed. Either way
+    // the service keeps its own access.
+    std::unique_ptr<wheelemu::service::HideFilter> hideFilter;
     std::unique_ptr<wheelemu::service::HidHide> hidHide;
     if (g920 != nullptr && options.hide) {
-        hidHide = wheelemu::service::HidHide::find();
-        if (hidHide == nullptr) {
-            WE_LOG_WARN(log(), "HidHide is not installed: games see the real wheel next to the G920 and may take it");
-        } else if (!hidHide->hideWheel(wheelVendorId(config.sourceDeviceMatch))) {
-            hidHide.reset();
+        const std::string vendor = wheelVendorId(config.sourceDeviceMatch);
+        hideFilter = wheelemu::service::HideFilter::find(vendor);
+        if (hideFilter != nullptr) {
+            if (!hideFilter->hide()) hideFilter.reset();
+        } else if ((hidHide = wheelemu::service::HidHide::find()) != nullptr) {
+            WE_LOG_INFO(log(), "wheelemu-hide is not installed (driver\\hide\\install-hide.ps1): using HidHide");
+            if (!hidHide->hideWheel(vendor)) hidHide.reset();
+        } else {
+            WE_LOG_WARN(log(), "nothing hides the real wheel (driver\\hide\\install-hide.ps1): games see it next to "
+                               "the G920 and may take it");
+        }
+    }
+    // The Xbox controller (driver/xusb), for games' Xbox button prompts. Without its driver the G920 still works.
+    std::unique_ptr<wheelemu::service::VirtualXboxPad> xboxDevice;
+    std::optional<wheelemu::XboxPadMode> xboxPadMode;
+    if (g920 != nullptr && options.xboxPad != wheelemu::XboxPadMode::Off) {
+        std::string error;
+        xboxDevice = wheelemu::service::VirtualXboxPad::create(error);
+        if (xboxDevice == nullptr) {
+            WE_LOG_WARN(log(), "no Xbox controller (games show keyboard prompts): {}", error);
+        } else {
+            xboxPadMode = options.xboxPad;
+            WE_LOG_INFO(log(), "Xbox controller: {}", options.xboxPad == wheelemu::XboxPadMode::Buttons
+                                                           ? "the wheel's A/B/X/Y/Menu/View/D-pad press it in menus"
+                                                           : "idle (there, never pressed)");
         }
     }
     const int result =
-        runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, options.print, options.ui);
+        runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, options.print, options.ui,
+                xboxPadMode);
+    if (hideFilter != nullptr) {
+        hideFilter->restore();
+    }
     if (hidHide != nullptr) {
         hidHide->restore();
         hidHide->logState();
     }
+    xboxDevice.reset();
     if (g920 != nullptr) {
         WE_LOG_INFO(log(), "removing the virtual G920 {}", g920->instanceId());
         g920.reset();

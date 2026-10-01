@@ -1,0 +1,68 @@
+;
+; wheelemu-xusb.inf: the virtual Xbox 360 controller (XInput) of wheel-emulator (UMDF 2, see Driver.cpp).
+;
+; A software device wheelemu-service creates while it runs with --virtual-g920 (hardware ID wheelemu\XUSB), next
+; to the virtual G920. System class with the XUSB interface, as HIDMaestro's XInput companion (MIT) does: XInput
+; finds it, DirectInput does not see a second controller. Install: driver\xusb\install-xusb.ps1 (Administrator).
+;
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%Provider%
+DriverVer=
+CatalogFile=wheelemu-xusb.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1=%DiskName%,,,
+
+[SourceDisksFiles]
+wheelemu-xusb.dll=1
+
+[Manufacturer]
+%Provider%=Wheelemu,NT$ARCH$.10.0...22000
+
+[Wheelemu.NT$ARCH$.10.0...22000]
+%DeviceDesc%=WheelemuXusb, wheelemu\XUSB
+
+[WheelemuXusb.NT]
+CopyFiles=UMDriverCopy
+Include=WUDFRD.inf
+Needs=WUDFRD.NT
+
+[WheelemuXusb.NT.HW]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT.HW
+AddReg=WheelemuXusb_AddReg
+
+[WheelemuXusb_AddReg]
+; Games run as the user: XInput opens the controller from there.
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;WD)"
+
+[WheelemuXusb.NT.Services]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT.Services
+
+[WheelemuXusb.NT.Wdf]
+UmdfService=wheelemu_xusb, WheelemuXusb_Install
+UmdfServiceOrder=wheelemu_xusb
+UmdfKernelModeClientPolicy=AllowKernelModeClients
+UmdfFileObjectPolicy=AllowNullAndUnknownFileObjects
+UmdfMethodNeitherAction=Copy
+UmdfFsContextUsePolicy=CanUseFsContext2
+
+[WheelemuXusb_Install]
+UmdfLibraryVersion=$UMDFVERSION$
+ServiceBinary="%13%\wheelemu-xusb.dll"
+
+[UMDriverCopy]
+wheelemu-xusb.dll
+
+[Strings]
+Provider="wheel-emulator"
+DiskName="wheel-emulator Xbox controller driver"
+DeviceDesc="Xbox 360 Controller (wheelemu)"

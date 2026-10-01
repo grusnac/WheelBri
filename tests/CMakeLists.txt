@@ -25,6 +25,7 @@ add_executable(wheelemu_tests
     TelemetryTest.cpp
     TestClutchTest.cpp
     UdpLoopbackTest.cpp
+    XboxPadTest.cpp
 )
 target_link_libraries(wheelemu_tests PRIVATE wheelemu_core GTest::gtest_main)
 

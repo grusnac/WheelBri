@@ -38,7 +38,7 @@ Still open:
 | Path | Contents |
 |---|---|
 | `core/` | Portable library, no OS or SDL dependencies: `Mapper`, `DeviceProfile`, `FfbSafetyLimiter`, `Pipeline`, `EmulatorConfig`/`IniDocument`, `StatePacket` + `UdpLoopback`, `LoopStats`, `Logging`, `Telemetry` |
-| `service/` | `wheelemu-service`: SDL3 input source + force feedback sink, 1 kHz loop, `--list` / `--print` / `--ui` / `--ffb-test` |
+| `service/` | `wheelemu-service`: SDL3 input source + force feedback sink, 1 kHz loop, `--list` / `--print` / `--ui` (native window: Win32 on Windows, X11 on Linux) / `--ffb-test` |
 | `shim/` | `dinput8.dll` proxy (Windows / Wine): wraps `IDirectInput8A/W`, devices and effects |
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |

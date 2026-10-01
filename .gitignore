@@ -48,3 +48,4 @@ dist/
 # Driver build output (driver/wheelemu-g920.vcxproj)
 driver/x64/
 driver/*.vcxproj.user
+driver/*/x64/

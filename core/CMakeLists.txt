@@ -21,6 +21,7 @@ add_library(wheelemu_core STATIC
     src/Telemetry.cpp
     src/TestClutch.cpp
     src/UdpLoopback.cpp
+    src/XboxPad.cpp
 )
 
 target_include_directories(wheelemu_core PUBLIC include)
