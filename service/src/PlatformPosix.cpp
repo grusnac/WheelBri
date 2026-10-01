@@ -1,0 +1,162 @@
+// Platform.hpp on Linux and macOS.
+
+#include "Platform.hpp"
+
+#include <fcntl.h>
+#include <signal.h>
+#include <spawn.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#endif
+
+#include <algorithm>
+#include <cerrno>
+#include <cstring>
+#include <thread>
+
+extern char** environ;
+
+namespace wheelemu::service::platform {
+
+void init() {}
+
+std::uint64_t nowNs() {
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return static_cast<std::uint64_t>(now.tv_sec) * kNsPerSecond + static_cast<std::uint64_t>(now.tv_nsec);
+}
+
+void sleepNs(const std::uint64_t ns) {
+    if (ns == 0) {
+        std::this_thread::yield();
+        return;
+    }
+    timespec remaining{static_cast<time_t>(ns / kNsPerSecond), static_cast<long>(ns % kNsPerSecond)};
+    while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+    }
+}
+
+void sleepPrecise(const std::uint64_t ns) {
+    std::uint64_t current = nowNs();
+    const std::uint64_t target = current + ns;
+    constexpr std::uint64_t kShortSleep = kNsPerMs;
+    std::uint64_t longestSleep = kShortSleep;
+    while (current + longestSleep < target) {
+        sleepNs(kShortSleep);
+        const std::uint64_t now = nowNs();
+        longestSleep = std::max(longestSleep, now - current);
+        current = now;
+    }
+    if (current < target && target - current > longestSleep) {
+        sleepNs(target - current - longestSleep);
+        current = nowNs();
+    }
+    while (current < target) {
+        std::this_thread::yield();
+        current = nowNs();
+    }
+}
+
+bool raiseThreadPriority(std::string& error) {
+#if defined(__linux__)
+    // A lower nice value for this thread only (Linux schedules threads separately). Needs CAP_SYS_NICE or
+    // an RLIMIT_NICE that allows it; without, the loop runs at normal priority.
+    const auto thread = static_cast<id_t>(syscall(SYS_gettid));
+    if (setpriority(PRIO_PROCESS, thread, -10) == 0) {
+        return true;
+    }
+    error = std::string("setpriority: ") + std::strerror(errno);
+    return false;
+#else
+    error = "not supported on this system";
+    return false;
+#endif
+}
+
+const char* name() {
+#if defined(__APPLE__)
+    return "macOS";
+#elif defined(__linux__)
+    return "Linux";
+#else
+    return "Unix";
+#endif
+}
+
+struct ChildProcess::Impl {
+    pid_t pid = -1;
+    bool running = true;
+    int exitCode = -1;
+};
+
+std::unique_ptr<ChildProcess> ChildProcess::start(const std::vector<std::string>& argv, std::string& error) {
+    if (argv.empty()) {
+        error = "no program";
+        return nullptr;
+    }
+    std::vector<char*> args;
+    std::vector<std::string> copies(argv);
+    for (std::string& arg : copies) {
+        args.push_back(arg.data());
+    }
+    args.push_back(nullptr);
+
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
+    auto impl = std::make_unique<Impl>();
+    const int result = posix_spawn(&impl->pid, args.front(), &actions, nullptr, args.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    if (result != 0) {
+        error = std::string("cannot start ") + argv.front() + ": " + std::strerror(result);
+        return nullptr;
+    }
+    return std::unique_ptr<ChildProcess>(new ChildProcess(std::move(impl)));
+}
+
+ChildProcess::ChildProcess(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+
+ChildProcess::~ChildProcess() {
+    if (impl_->running) {
+        kill();
+    }
+}
+
+std::optional<int> ChildProcess::poll() {
+    if (impl_->running) {
+        int status = 0;
+        const pid_t done = waitpid(impl_->pid, &status, WNOHANG);
+        if (done == 0 || (done < 0 && errno == EINTR)) {
+            return std::nullopt;
+        }
+        impl_->running = false;
+        if (done < 0) {
+            impl_->exitCode = -1;
+        } else if (WIFEXITED(status)) {
+            impl_->exitCode = WEXITSTATUS(status);
+        } else {
+            impl_->exitCode = WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1;
+        }
+    }
+    return impl_->exitCode;
+}
+
+void ChildProcess::kill() {
+    if (!impl_->running) {
+        return;
+    }
+    ::kill(impl_->pid, SIGKILL);
+    int status = 0;
+    while (waitpid(impl_->pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    impl_->running = false;
+    impl_->exitCode = 128 + SIGKILL;
+}
+
+}  // namespace wheelemu::service::platform

@@ -3,11 +3,12 @@
 #include "wheelemu/LocalDate.hpp"
 #include "wheelemu/Retention.hpp"
 
-#include <SDL3/SDL.h>
+#include "Platform.hpp"
 
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -72,7 +73,7 @@ private:
     bool archiverSearched_ = false;
     std::deque<Job> queue_;
     std::optional<Job> running_;
-    SDL_Process* process_ = nullptr;
+    std::unique_ptr<platform::ChildProcess> process_;
     std::uint64_t daysArchived_ = 0;
     std::uint64_t filesDeleted_ = 0;
     bool failed_ = false;

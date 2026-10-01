@@ -20,7 +20,7 @@ std::string envOrEmpty(const char* name) {
     return value != nullptr ? value : "";
 }
 
-// UTF-8 for SDL (which converts back on Windows), whatever the ANSI code page is.
+// UTF-8 for the process starter (which converts back on Windows), whatever the ANSI code page is.
 std::string utf8(const std::filesystem::path& path) {
     const auto text = path.u8string();
     return std::string(text.begin(), text.end());
@@ -309,13 +309,12 @@ Housekeeping::Job Housekeeping::makeJob(const std::string& day, const std::files
 
 void Housekeeping::pump() {
     if (process_ != nullptr) {
-        int exitCode = -1;
-        if (!SDL_WaitProcess(process_, false, &exitCode)) {
+        const std::optional<int> exitCode = process_->poll();
+        if (!exitCode) {
             return;  // still compressing
         }
-        SDL_DestroyProcess(process_);
-        process_ = nullptr;
-        finish(exitCode);
+        process_.reset();
+        finish(*exitCode);
     }
     if (!queue_.empty() && !failed_) {
         Job job = std::move(queue_.front());
@@ -325,22 +324,11 @@ void Housekeeping::pump() {
 }
 
 void Housekeeping::start(Job job) {
-    std::vector<const char*> argv;
-    for (const std::string& arg : job.args) {
-        argv.push_back(arg.c_str());
-    }
-    argv.push_back(nullptr);
-
-    const SDL_PropertiesID props = SDL_CreateProperties();
-    SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, argv.data());
-    SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL);
-    SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_NULL);
-    SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_NULL);
-    process_ = SDL_CreateProcessWithProperties(props);
-    SDL_DestroyProperties(props);
+    std::string error;
+    process_ = platform::ChildProcess::start(job.args, error);
     if (process_ == nullptr) {
         failed_ = true;
-        lastProblem_ = std::string("cannot start ") + archiver_->name() + ": " + SDL_GetError();
+        lastProblem_ = std::string("cannot start ") + archiver_->name() + ": " + error;
         WE_LOG_ERROR(log(), "{}; old files kept", lastProblem_);
         queue_.clear();
         return;
@@ -379,11 +367,8 @@ void Housekeeping::abortRunning() {
         return;
     }
     // Quitting mid-archive: stop the compressor and remove its partial output; the next start redoes the day.
-    SDL_KillProcess(process_, true);
-    int exitCode = 0;
-    SDL_WaitProcess(process_, true, &exitCode);
-    SDL_DestroyProcess(process_);
-    process_ = nullptr;
+    process_->kill();
+    process_.reset();
     if (running_) {
         removeAll(running_->outputs);
         WE_LOG_INFO(log(), "archiving {} interrupted; it will be redone next time", running_->day);

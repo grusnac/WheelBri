@@ -28,10 +28,10 @@ R3 itself from the game (Proton applies it to every backend), so the game finds 
    tar -xzf wheelemu-linux-x86_64.tar.gz -C ~
    ```
 
-   That gives `~/wheelemu` with `bin/`, `lib/`, `config/`, `wheelemu.sh`, `install-udev-rules.sh`, this file
+   That gives `~/wheelemu` with `bin/`, `config/`, `wheelemu.sh`, `install-udev-rules.sh`, this file
    and `dinput8.dll` (for the shim way).
 2. `sudo` needs a password; if you never set one: `passwd`.
-3. Let your user create the virtual G920 and games open it:
+3. Let your user create the virtual G920, games open it, and the service use the R3:
 
    ```
    ~/wheelemu/install-udev-rules.sh
@@ -84,8 +84,8 @@ Logs: `~/.local/state/wheelemu/` (service, `wheelemu-uhid`, `wheelemu.sh`, telem
 
 ## Building from source
 
-On any x86-64 Linux with CMake, a C++20 compiler, SDL3 and the X11 headers (`libx11-dev` / `libX11-devel`, for
-the `--ui` window; on the Deck itself, in a `distrobox`):
+On any x86-64 Linux with CMake, a C++20 compiler and the X11 headers (`libx11-dev` / `libX11-devel`, for the
+`--ui` window; on the Deck itself, in a `distrobox`). The service reads the wheel through evdev itself, no SDL:
 
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -93,5 +93,5 @@ cmake --build build
 ctest --test-dir build
 ```
 
-The bundle above comes from `scripts/linux/package.sh --sdl3 PREFIX --shim dinput8.dll` (SDL3 built with X11,
-Wayland and libudev; the C++ runtime and spdlog linked in, so it runs on SteamOS as is).
+The bundle above comes from `scripts/linux/package.sh --shim dinput8.dll` (the C++ runtime and spdlog linked
+in; it needs only libX11 and the kernel, so it runs on SteamOS as is).

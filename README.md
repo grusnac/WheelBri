@@ -4,7 +4,7 @@ Presents a DirectInput wheel (target hardware: **Moza R3**) to PC games as a whe
 (first target: **Logitech G920**, with a G29 profile as an alternative), on Windows and on Linux (Proton). First target game: *Need for Speed (2015)*.
 
 ```
-Moza R3 ──SDL3──► wheelemu-service ──UDP 127.0.0.1──► dinput8.dll shim (inside the game)
+Moza R3 ──DirectInput / evdev──► wheelemu-service ──UDP 127.0.0.1──► dinput8.dll shim (inside the game)
                    map · encode · FFB safety                reports "G920" to the game
 ```
 
@@ -16,7 +16,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | Phase | What | State |
 |---|---|---|
 | 0 | Logging `dinput8.dll` proxy: records how the game finds and drives wheels | **working** (its logs found the NFS 2015 details below) |
-| 1 | Core (mapping, G920 + G29 profiles, FFB limiter, config, wire format) + SDL3 service | **working with a real R3** |
+| 1 | Core (mapping, G920 + G29 profiles, FFB limiter, config, wire format) + service | **working with a real R3** |
 | 2 | Shim answers as a G920 using the service's state | **working in NFS 2015**: wheel, pedals, buttons, D-pad |
 | 3 | Game FFB → service (safety limiter, watchdog) → R3 | **working in NFS 2015**: constant, spring, damper, sine, square |
 | 4 | Linux virtual G920: `tools/uhid` (`wheelemu-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
@@ -25,7 +25,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
   `c_dfDIJoystick2`: wheel X, throttle Slider, brake Y, clutch Rz, pedals released at the top of the range;
-- the R3's SDL axes: steering 0, throttle 2, brake 5 (see `config/moza-r3-as-g920.ini`);
+- the R3's axes: steering 0, throttle 2, brake 5 (see `config/moza-r3-as-g920.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
 Still open:
@@ -37,8 +37,8 @@ Still open:
 
 | Path | Contents |
 |---|---|
-| `core/` | Portable library, no OS or SDL dependencies: `Mapper`, `DeviceProfile`, `FfbSafetyLimiter`, `Pipeline`, `EmulatorConfig`/`IniDocument`, `StatePacket` + `UdpLoopback`, `LoopStats`, `Logging`, `Telemetry` |
-| `service/` | `wheelemu-service`: SDL3 input source + force feedback sink, 1 kHz loop, `--list` / `--print` / `--ui` (native window: Win32 on Windows, X11 on Linux) / `--ffb-test` |
+| `core/` | Portable library, no OS dependencies: `Mapper`, `DeviceProfile`, `FfbSafetyLimiter`, `Pipeline`, `EmulatorConfig`/`IniDocument`, `StatePacket` + `UdpLoopback`, `LoopStats`, `Logging`, `Telemetry` |
+| `service/` | `wheelemu-service`: reads the wheel and plays its force feedback with the system's own API (DirectInput on Windows, evdev on Linux), 1 kHz loop, `--list` / `--print` / `--ui` (native window: Win32 on Windows, X11 on Linux) / `--ffb-test` |
 | `shim/` | `dinput8.dll` proxy (Windows / Wine): wraps `IDirectInput8A/W`, devices and effects |
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
@@ -48,7 +48,9 @@ Still open:
 
 ## Build
 
-Needs CMake ≥ 3.24, a C++20 compiler, and SDL3 for the service. spdlog and GoogleTest are fetched automatically.
+Needs CMake ≥ 3.24 and a C++20 compiler; on Linux also the X11 headers (`libx11-dev`). No other libraries: the
+service uses DirectInput / Win32 on Windows and evdev / X11 on Linux (it runs on those two only). spdlog and
+GoogleTest are fetched automatically.
 
 ```bash
 # Linux / macOS: core, service, tests
@@ -101,7 +103,7 @@ with pedals released. Everything else the game does is still logged to `wheelemu
 Force feedback (Phase 3): the game's DirectInput effects (constant, spring, damper, friction, inertia,
 periodic; ramps as their average; no custom forces or envelopes) are kept by the shim and sent to the service
 on `ffb_port` (41330) as `FfbPacket`s. The service passes every effect through `FfbSafetyLimiter`
-(`[ffb] master_gain`, `max_magnitude`, `max_slew_per_second`) and plays it with SDL on the R3; if the game
+(`[ffb] master_gain`, `max_magnitude`, `max_slew_per_second`) and plays it on the R3 (DirectInput on Windows, evdev on Linux); if the game
 goes quiet for 500 ms, every force stops. The service must be running before the game starts, because it
 opens the wheel's force feedback exclusively; the shim then opens the R3 non-exclusively. `force_feedback =
 passthrough` in `wheelemu-shim.ini` restores the Phase 2 behaviour (effects straight to the R3's driver,
@@ -148,8 +150,8 @@ The service defaults to `info`, the shim to `debug`.
 SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelemu-service --config ...
 ```
 
-Components: `service`, `service.sdl`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`, `sdl` (SDL's own
-messages; more with `SDL_LOGGING`), `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `logging`,
+Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`,
+`service.hide`, `service.xbox`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `logging`,
 `shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelemu-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelemu/Logging.hpp`)
@@ -159,7 +161,7 @@ messages; more with `SDL_LOGGING`), `core.mapper`, `core.pipeline`, `core.net`, 
   `WE_LOG_*_LIMITED`), and report how many messages were dropped.
 - Warnings and above are flushed at once; the shim flushes every line because it runs no background thread.
 - The shim never logs, loads libraries or starts threads in `DllMain`; logging starts on the first export call.
-- The service logs a startup banner (version, OS, SDL version, config) and its exit code. Loop timing and
+- The service logs a startup banner (version, OS, config) and its exit code. Loop timing and
   game force feedback status are checked every 10 s but logged only when they change (ticks start or stop
   running late; effects playing, failures, watchdog stops, the game starting or stopping to send), with a
   loop summary at exit.

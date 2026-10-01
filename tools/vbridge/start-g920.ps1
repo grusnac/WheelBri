@@ -52,7 +52,7 @@ $running = Get-Process wheelemu-service -ErrorAction SilentlyContinue
 if ($running) {
     Write-Host "wheelemu-service already running (pid $($running.Id))"
 } else {
-    # The service's DLLs (SDL3, the C++ runtime) come from MSYS2 UCRT64.
+    # The service's DLLs (the C++ runtime) come from MSYS2 UCRT64.
     $ucrt = 'C:\msys64\ucrt64\bin'
     if ((Test-Path $ucrt) -and ($env:PATH -notlike "*$ucrt*")) { $env:PATH = "$ucrt;$env:PATH" }
     $serviceArgs = @('--config', $Config)

@@ -1,4 +1,4 @@
-// The `--ui` window on Windows: a plain Win32 window drawn with GDI. No SDL, nothing to ship.
+// The `--ui` window on Windows: a plain Win32 window drawn with GDI. Nothing to ship.
 //
 // Each frame is drawn into a memory bitmap the size of the window (the logical canvas scaled and centred),
 // then copied to the screen in one go, so it never flickers. The window is DPI aware: on a 150 % display it

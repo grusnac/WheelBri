@@ -2,7 +2,7 @@
 
 #include "wheelemu/Logging.hpp"
 
-#include <SDL3/SDL.h>
+#include "Platform.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -12,8 +12,8 @@ namespace wheelemu::service {
 namespace {
 
 constexpr float kTestStrength = 0.2F;       // never more than 20% of the wheel's torque
-constexpr Uint64 kStepNs = 2 * SDL_NS_PER_SECOND;
-constexpr Uint64 kTickNs = SDL_NS_PER_MS;
+constexpr std::uint64_t kStepNs = 2 * platform::kNsPerSecond;
+constexpr std::uint64_t kTickNs = platform::kNsPerMs;
 
 const logging::Logger& log() {
     static const logging::Logger logger = logging::get("service.ffbtest");
@@ -25,14 +25,14 @@ bool hold(IFfbSink& sink, FfbSafetyLimiter& limiter, const FfbEffect& effect, co
     std::printf("  %s\n", label);   // instructions for the person at the wheel
     std::fflush(stdout);
     WE_LOG_INFO(log(), "self-test step: {}", label);
-    for (Uint64 elapsed = 0; elapsed < kStepNs; elapsed += kTickNs) {
-        const FfbEffect limited = limiter.apply(effect, static_cast<float>(kTickNs) / SDL_NS_PER_SECOND);
+    for (std::uint64_t elapsed = 0; elapsed < kStepNs; elapsed += kTickNs) {
+        const FfbEffect limited = limiter.apply(effect, static_cast<float>(kTickNs) / static_cast<float>(platform::kNsPerSecond));
         if (!sink.play(0, limited)) {
             std::printf("  -> not supported by this device\n");
-            WE_LOG_WARN(log(), "self-test step failed after {} ms: {}", elapsed / SDL_NS_PER_MS, label);
+            WE_LOG_WARN(log(), "self-test step failed after {} ms: {}", elapsed / platform::kNsPerMs, label);
             return false;
         }
-        SDL_DelayPrecise(kTickNs);
+        platform::sleepPrecise(kTickNs);
     }
     sink.stop(0);
     return true;

@@ -13,10 +13,9 @@ namespace wheelemu::service::ui {
 // The `--ui` window's drawing surface, implemented with each system's own tools:
 //   Windows: Win32 + GDI (UiWindowWin32.cpp)
 //   Linux:   Xlib, X11 or XWayland (UiWindowX11.cpp)
-//   others:  SDL3 (UiWindowSdl.cpp), the fallback
 // Everything is drawn on a fixed logical canvas that is scaled to the window, centred (letterboxed), so the
 // layout code never deals with window sizes. Text is monospaced: one character every 8 logical pixels,
-// 8 logical pixels tall (the cell SDL's debug font used, which the layout was made for).
+// 8 logical pixels tall (the cell the layout was made for).
 
 struct Colour {
     std::uint8_t r, g, b;
@@ -73,7 +72,7 @@ public:
     // Opens a folder in the system's file manager. False and `error` set if that failed.
     virtual bool openFolder(const std::filesystem::path& folder, std::string& error) = 0;
 
-    // For the log: "Win32 GDI", "X11 (font ...)", "SDL (renderer ...)".
+    // For the log: "Win32 GDI", "X11 (font ...)".
     [[nodiscard]] virtual std::string describe() const = 0;
 };
 

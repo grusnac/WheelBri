@@ -7,12 +7,11 @@
 #include "HideFilter.hpp"
 #include "Housekeeping.hpp"
 #include "MappingView.hpp"
-#include "SdlFfbSink.hpp"
-#include "SdlInputSource.hpp"
-#include "SdlRuntime.hpp"
+#include "Platform.hpp"
 #include "ServiceLogging.hpp"
 #include "VirtualG920.hpp"
 #include "VirtualXboxPad.hpp"
+#include "Wheel.hpp"
 
 #include "wheelemu/EmulatorConfig.hpp"
 #include "wheelemu/FfbController.hpp"
@@ -24,8 +23,6 @@
 #include "wheelemu/TestClutch.hpp"
 #include "wheelemu/UdpLoopback.hpp"
 #include "wheelemu/XboxPad.hpp"
-
-#include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <utility>
@@ -56,9 +53,10 @@
 namespace {
 
 using wheelemu::logging::Logger;
+namespace platform = wheelemu::service::platform;
 
-constexpr Uint64 kStatsWindowNs = 10 * SDL_NS_PER_SECOND;
-constexpr Uint64 kUsageLogNs = 10 * 60 * SDL_NS_PER_SECOND;   // force feedback usage table in the log
+constexpr std::uint64_t kStatsWindowNs = 10 * platform::kNsPerSecond;
+constexpr std::uint64_t kUsageLogNs = 10 * 60 * platform::kNsPerSecond;   // force feedback usage table in the log
 
 std::atomic<bool> gStop{false};
 
@@ -214,8 +212,8 @@ void logEffectiveConfig(const wheelemu::EmulatorConfig& config) {
                  config.ffb.maxMagnitude, config.ffb.maxSlewPerSecond);
 }
 
-void listDevices() {
-    const auto joysticks = wheelemu::service::listJoysticks();
+void listDevices(wheelemu::service::WheelBackend& backend) {
+    const auto joysticks = backend.list();
     if (joysticks.empty()) {
         std::puts("no joysticks found");
     }
@@ -252,11 +250,11 @@ struct TickStages {
     enum Stage { Input, Pipeline, Ffb, Telemetry, Ui, kCount };
     static constexpr std::array<const char*, kCount> kNames = {"wheel input", "state to game", "force feedback",
                                                                 "telemetry", "window copy"};
-    std::array<Uint64, kCount> ns{};
+    std::array<std::uint64_t, kCount> ns{};
 
     // Adds the time since `mark` to `stage` and moves `mark` to now.
-    void lap(const Stage stage, Uint64& mark) {
-        const Uint64 now = SDL_GetTicksNS();
+    void lap(const Stage stage, std::uint64_t& mark) {
+        const std::uint64_t now = platform::nowNs();
         ns[stage] += now - mark;
         mark = now;
     }
@@ -285,9 +283,9 @@ struct TickStages {
 // when ticks start running late, one when they are on time again, and a summary at exit.
 class LoopHealth {
 public:
-    explicit LoopHealth(const Uint64 periodNs) : window_(periodNs), sinceReport_(periodNs) {}
+    explicit LoopHealth(const std::uint64_t periodNs) : window_(periodNs), sinceReport_(periodNs) {}
 
-    void record(const Uint64 periodNs, const Uint64 workNs, const TickStages& stages) {
+    void record(const std::uint64_t periodNs, const std::uint64_t workNs, const TickStages& stages) {
         window_.record(periodNs, workNs);
         sinceReport_.record(periodNs, workNs);
         if (workNs > slowestWorkNs_) {
@@ -326,18 +324,18 @@ private:
     wheelemu::LoopStats sinceReport_;
     bool reported_ = false;
     bool late_ = false;
-    Uint64 slowestWorkNs_ = 0;
+    std::uint64_t slowestWorkNs_ = 0;
     TickStages slowest_;
 };
 
 // A tick this long means the game gets no fresh input; it is logged at once, with where the time went.
-constexpr Uint64 kStallNs = 50 * SDL_NS_PER_MS;
+constexpr std::uint64_t kStallNs = 50 * platform::kNsPerMs;
 
 // Phase 3: the game's force feedback, sent by the in-game shim, limited and played on the physical wheel.
 class GameFfb {
 public:
     // Returns nullptr (and says why) when game force feedback is off or cannot run; input still works.
-    static std::unique_ptr<GameFfb> open(const wheelemu::EmulatorConfig& config, SDL_Joystick* joystick,
+    static std::unique_ptr<GameFfb> open(const wheelemu::EmulatorConfig& config, wheelemu::service::Wheel& wheel,
                                          std::string& status) {
         if (!config.gameFfb) {
             status = "off ([ffb] game_effects = false)";
@@ -345,7 +343,7 @@ public:
             return nullptr;
         }
         auto ffb = std::unique_ptr<GameFfb>(new GameFfb());
-        ffb->sink_ = wheelemu::service::SdlFfbSink::open(joystick, config.ffbInvert);
+        ffb->sink_ = wheel.openForceFeedback(config.ffbInvert);
         if (ffb->sink_ == nullptr) {
             status = "unavailable: the wheel's force feedback could not be opened (see the log)";
             WE_LOG_ERROR(log(), "game force feedback unavailable: the wheel's force feedback could not be opened");
@@ -375,7 +373,7 @@ public:
     // Every packet from the game is also written here (may be null).
     void setTelemetry(wheelemu::TelemetryRecorder* telemetry) { telemetry_ = telemetry; }
 
-    void pump(const Uint64 nowNs) {
+    void pump(const std::uint64_t nowNs) {
         std::array<std::uint8_t, 256> buffer{};
         while (const auto size = listener_->receive(buffer)) {
             if (const auto packet = wheelemu::decodeFfbPacket(std::span<const std::uint8_t>(buffer.data(), *size))) {
@@ -433,7 +431,7 @@ public:
 private:
     GameFfb() = default;
 
-    std::unique_ptr<wheelemu::service::SdlFfbSink> sink_;
+    std::unique_ptr<wheelemu::IFfbSink> sink_;
     std::unique_ptr<wheelemu::UdpLoopbackListener> listener_;
     std::unique_ptr<wheelemu::FfbController> controller_;
     wheelemu::TelemetryRecorder* telemetry_ = nullptr;
@@ -448,7 +446,7 @@ private:
 std::unique_ptr<wheelemu::TelemetryRecorder> openTelemetry(const wheelemu::EmulatorConfig& config,
                                                            const std::string& configPath,
                                                            const std::string& configText,
-                                                           wheelemu::service::SdlInputSource& source) {
+                                                           wheelemu::service::Wheel& source) {
     const wheelemu::TelemetryConfig& settings = config.telemetry;
     if (!settings.enabled) {
         WE_LOG_INFO(log(), "telemetry off ([telemetry] enabled = false)");
@@ -458,13 +456,11 @@ std::unique_ptr<wheelemu::TelemetryRecorder> openTelemetry(const wheelemu::Emula
         settings.directory.empty() ? std::filesystem::path(wheelemu::service::defaultLogFile()).parent_path()
                                    : std::filesystem::path(settings.directory);
 
-    SDL_Joystick* const joystick = source.joystick();
     char device[64];
-    std::snprintf(device, sizeof(device), "%04x:%04x, %d axes, %d buttons, %d hats", SDL_GetJoystickVendor(joystick),
-                  SDL_GetJoystickProduct(joystick), SDL_GetNumJoystickAxes(joystick),
-                  SDL_GetNumJoystickButtons(joystick), SDL_GetNumJoystickHats(joystick));
+    std::snprintf(device, sizeof(device), "%04x:%04x, %d axes, %d buttons, %d hats", source.info().vendorId,
+                  source.info().productId, source.axes(), source.buttons(), source.hats());
     std::vector<std::string> header = {
-        std::string("wheelemu-service ") + WHEELEMU_VERSION + " on " + SDL_GetPlatform(),
+        std::string("wheelemu-service ") + WHEELEMU_VERSION + " on " + platform::name(),
         "source: " + source.name() + " (" + device + ")",
         "target_profile: " + config.targetProfile + ", loop_hz: " + std::to_string(config.loopHz) +
             ", rate_hz: " + std::to_string(settings.rateHz),
@@ -540,7 +536,7 @@ public:
     void setForceQuery(ForceQuery query) { force_ = std::move(query); }
 
     bool publish(const wheelemu::StatePacket& packet) override {
-        const auto now = static_cast<std::int64_t>(SDL_GetTicks());
+        const auto now = static_cast<std::int64_t>(platform::nowMs());
         const auto [force, usesForce] = force_ ? force_() : std::pair<float, bool>{0.0F, false};
         const auto result = mirror_.update(packet.report, now, force, usesForce);
         if (result.menuChanged) {
@@ -583,7 +579,7 @@ std::pair<float, bool> gameForce(const wheelemu::FfbController& controller) {
 }
 
 int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
-            const std::filesystem::path& logFolder, const bool logToFile, wheelemu::service::SdlInputSource& source,
+            const std::filesystem::path& logFolder, const bool logToFile, wheelemu::service::Wheel& source,
             const bool print, const bool ui, const std::optional<wheelemu::XboxPadMode> xboxPad) {
     const auto profile = wheelemu::makeProfile(config.targetProfile);
     if (profile == nullptr) {
@@ -616,16 +612,15 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
 
     std::unique_ptr<wheelemu::service::MappingView> view;
     if (ui) {
-        SDL_Joystick* const joystick = source.joystick();
-        view = wheelemu::service::MappingView::open(source.name(), SDL_GetNumJoystickAxes(joystick),
-                                                    SDL_GetNumJoystickButtons(joystick), *profile, config.mapper);
+        view = wheelemu::service::MappingView::open(source.name(), source.axes(), source.buttons(), *profile,
+                                                    config.mapper);
         if (view == nullptr) {
             return 1;
         }
     }
 
     std::string ffbStatus;
-    const auto gameFfb = GameFfb::open(config, source.joystick(), ffbStatus);
+    const auto gameFfb = GameFfb::open(config, source, ffbStatus);
     if (xboxPublisher != nullptr && gameFfb != nullptr) {
         const GameFfb* ffb = gameFfb.get();
         xboxPublisher->setForceQuery([ffb] { return gameForce(ffb->controller()); });
@@ -652,9 +647,9 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
         view->setFiles(std::move(files));
     }
 
-    const Uint64 periodNs = SDL_NS_PER_SECOND / static_cast<Uint64>(config.loopHz);
-    const Uint64 printEveryTicks = std::max<Uint64>(1, static_cast<Uint64>(config.loopHz) / 10);
-    const Uint64 frameEveryTicks = std::max<Uint64>(1, static_cast<Uint64>(config.loopHz) / 60);  // ~60 fps
+    const std::uint64_t periodNs = platform::kNsPerSecond / static_cast<std::uint64_t>(config.loopHz);
+    const std::uint64_t printEveryTicks = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(config.loopHz) / 10);
+    const std::uint64_t frameEveryTicks = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(config.loopHz) / 60);  // ~60 fps
 
     // The 1 kHz loop (wheel input, state to the game, force feedback, telemetry) runs on its own thread; the
     // window and old-file checks stay on this one. A window that Windows holds up (a game going full screen,
@@ -668,26 +663,23 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     const auto tickLoop = [&]() -> int {
         LoopHealth loopHealth(periodNs);
         // Above normal, so a game that is loading (all cores busy) does not starve the input loop.
-        if (!SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_HIGH)) {
-            WE_LOG_WARN(log(), "cannot raise the loop's thread priority: {}", SDL_GetError());
+        if (std::string error; !platform::raiseThreadPriority(error)) {
+            WE_LOG_WARN(log(), "cannot raise the loop's thread priority: {}", error);
         }
         WE_LOG_INFO(log(), "running at {} Hz; press Ctrl+C to stop", config.loopHz);
-        Uint64 nextTick = SDL_GetTicksNS();
-        Uint64 lastTickStart = nextTick;
-        Uint64 windowStart = nextTick;
-        Uint64 ticks = 0;
-        Uint64 lastPeriodNs = 0;
-        Uint64 lastWorkNs = 0;
-        Uint64 lastUsageLogNs = nextTick;
+        std::uint64_t nextTick = platform::nowNs();
+        std::uint64_t lastTickStart = nextTick;
+        std::uint64_t windowStart = nextTick;
+        std::uint64_t ticks = 0;
+        std::uint64_t lastPeriodNs = 0;
+        std::uint64_t lastWorkNs = 0;
+        std::uint64_t lastUsageLogNs = nextTick;
         int result = 0;
 
         while (!gStop && !stopLoop) {
-            const Uint64 tickStart = SDL_GetTicksNS();
+            const std::uint64_t tickStart = platform::nowNs();
             TickStages stages;
-            Uint64 mark = tickStart;
-            if (source.usesSdlUpdates()) {
-                SDL_UpdateJoysticks();
-            }
+            std::uint64_t mark = tickStart;
             std::optional<float> clutchOverride;
             if (clutchListener != nullptr) {
                 std::array<std::uint8_t, 64> datagram{};
@@ -717,11 +709,11 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
             stages.lap(TickStages::Pipeline, mark);
             ++ticks;
             if (gameFfb != nullptr) {
-                gameFfb->pump(SDL_GetTicksNS());
+                gameFfb->pump(platform::nowNs());
             }
             stages.lap(TickStages::Ffb, mark);
             if (telemetry != nullptr) {
-                const Uint64 now = SDL_GetTicksNS();
+                const std::uint64_t now = platform::nowNs();
                 if (telemetry->due(now)) {
                     wheelemu::TelemetrySample sample;
                     sample.nowNs = now;
@@ -756,8 +748,8 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
             }
             stages.lap(TickStages::Ui, mark);
 
-            const Uint64 tickEnd = SDL_GetTicksNS();
-            const Uint64 period = tickStart - lastTickStart;
+            const std::uint64_t tickEnd = platform::nowNs();
+            const std::uint64_t period = tickStart - lastTickStart;
             lastTickStart = tickStart;
             lastPeriodNs = period;
             lastWorkNs = tickEnd - tickStart;
@@ -783,8 +775,8 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
             // Fixed rate without drift; if we fell behind (e.g. system sleep), resynchronise instead of bursting.
             nextTick += periodNs;
             if (nextTick > tickEnd) {
-                SDL_DelayPrecise(nextTick - tickEnd);
-                const Uint64 woke = SDL_GetTicksNS();
+                platform::sleepPrecise(nextTick - tickEnd);
+                const std::uint64_t woke = platform::nowNs();
                 if (woke - nextTick >= kStallNs) {
                     // Not our work: Windows let the service sleep far longer than asked (the PC was busy).
                     WE_LOG_WARN(log(), "loop: woke {:.0f} ms late from a {:.2f} ms sleep: Windows did not schedule "
@@ -793,7 +785,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                                 static_cast<double>(nextTick - tickEnd) / 1e6);
                 }
             } else {
-                if (tickEnd - nextTick > 100 * SDL_NS_PER_MS) {
+                if (tickEnd - nextTick > 100 * platform::kNsPerMs) {
                     WE_LOG_WARN(log(), "loop: {:.0f} ms behind schedule, resynchronising",
                                 static_cast<double>(tickEnd - nextTick) / 1e6);
                 }
@@ -820,12 +812,12 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
 
     // This thread: the window (~60 fps) and old files (every 250 ms, and again after every midnight).
     try {
-        constexpr Uint64 kFrameNs = SDL_NS_PER_SECOND / 60;
-        Uint64 lastHousekeepingNs = 0;
-        Uint64 nextFrame = SDL_GetTicksNS();
+        constexpr std::uint64_t kFrameNs = platform::kNsPerSecond / 60;
+        std::uint64_t lastHousekeepingNs = 0;
+        std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
-            const Uint64 now = SDL_GetTicksNS();
-            if (now - lastHousekeepingNs >= 250 * SDL_NS_PER_MS) {
+            const std::uint64_t now = platform::nowNs();
+            if (now - lastHousekeepingNs >= 250 * platform::kNsPerMs) {
                 lastHousekeepingNs = now;
                 if (stopRequested()) {
                     WE_LOG_INFO(log(), "stop requested ({} appeared)", gStopFile.string());
@@ -841,7 +833,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 }
             }
             if (view == nullptr) {
-                SDL_Delay(50);
+                platform::sleepMs(50);
                 continue;
             }
             if (!view->pumpEvents()) {
@@ -861,13 +853,13 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 ffbDisplay.controller = frame->ffb ? &*frame->ffb : nullptr;
                 ffbDisplay.status = ffbStatus;
                 ffbDisplay.invert = config.ffbInvert;
-                ffbDisplay.nowNs = SDL_GetTicksNS();
+                ffbDisplay.nowNs = platform::nowNs();
                 view->render(frame->raw, frame->state, frame->report, ffbDisplay);
             }
             nextFrame += kFrameNs;
-            const Uint64 after = SDL_GetTicksNS();
+            const std::uint64_t after = platform::nowNs();
             if (nextFrame > after) {
-                SDL_DelayNS(nextFrame - after);
+                platform::sleepNs(nextFrame - after);
             } else {
                 nextFrame = after;   // the window was held up: carry on from now, no catching up
             }
@@ -896,7 +888,7 @@ int run(const Options& options) {
     const std::string logFile =
         loaded.config.logging.filePath.empty() ? wheelemu::service::defaultLogFile() : loaded.config.logging.filePath;
     const bool logFileOk = wheelemu::logging::init(loaded.config.logging, wheelemu::service::defaultLogFile());
-    wheelemu::service::routeSdlLogging();
+    platform::init();
     wheelemu::service::logStartupBanner(options.configPath);
 
     if (loaded.fileMissing) {
@@ -913,12 +905,13 @@ int run(const Options& options) {
     const wheelemu::EmulatorConfig& config = loaded.config;
     logEffectiveConfig(config);
 
-    const wheelemu::service::SdlRuntime sdl;
-    if (!sdl.ok()) {
+    const auto backend = wheelemu::service::startWheelBackend();
+    if (backend == nullptr) {
         return 1;
     }
+    WE_LOG_INFO(log(), "reading the wheel through {}", backend->describe());
     if (options.list) {
-        listDevices();
+        listDevices(*backend);
         return 0;
     }
     if (options.unhide) {
@@ -932,15 +925,15 @@ int run(const Options& options) {
     // A wheel still hidden for a service that crashed would be hidden from this one too.
     wheelemu::service::HideFilter::clearStale();
 
-    const auto source = wheelemu::service::SdlInputSource::open(config.sourceDeviceMatch);
+    const auto source = wheelemu::service::openWheel(*backend, config.sourceDeviceMatch);
     if (source == nullptr) {
         std::fprintf(stderr, "no joystick matching '%s'. Connected devices:\n", config.sourceDeviceMatch.c_str());
-        listDevices();
+        listDevices(*backend);
         return 1;
     }
 
     if (options.ffbTest) {
-        const auto sink = wheelemu::service::SdlFfbSink::open(source->joystick(), config.ffbInvert);
+        const auto sink = source->openForceFeedback(config.ffbInvert);
         if (sink == nullptr) {
             return 1;
         }

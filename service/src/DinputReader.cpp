@@ -4,12 +4,9 @@
 
 #ifdef _WIN32
 
-#define DIRECTINPUT_VERSION 0x0800
-#include <windows.h>
-#include <dinput.h>
+#include "DinputDevice.hpp"
 
 #include <algorithm>
-#include <cwctype>
 #include <vector>
 
 namespace wheelemu::service {
@@ -21,50 +18,12 @@ const logging::Logger& log() {
     return logger;
 }
 
-std::wstring toWide(const std::string& text) {
-    const int length = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
-    std::wstring wide(static_cast<std::size_t>(std::max(length, 1)), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, wide.data(), length);
-    wide.resize(wcslen(wide.c_str()));
-    return wide;
-}
-
-bool samePath(const std::wstring& a, const std::wstring& b) {
-    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](wchar_t x, wchar_t y) {
-               return std::towlower(x) == std::towlower(y);
-           });
-}
-
 enum class Kind { Axis, Button, Hat };
 
 struct Input {
     Kind kind;
     DWORD offset;    // field of DIJOYSTATE2, as SDL sorts them
 };
-
-struct FindContext {
-    IDirectInput8W* dinput;
-    std::wstring path;
-    IDirectInputDevice8W* found = nullptr;
-};
-
-BOOL CALLBACK findDevice(LPCDIDEVICEINSTANCEW instance, LPVOID context) {
-    auto* find = static_cast<FindContext*>(context);
-    IDirectInputDevice8W* device = nullptr;
-    if (FAILED(find->dinput->CreateDevice(instance->guidInstance, &device, nullptr))) {
-        return DIENUM_CONTINUE;
-    }
-    DIPROPGUIDANDPATH property{};
-    property.diph.dwSize = sizeof(property);
-    property.diph.dwHeaderSize = sizeof(property.diph);
-    property.diph.dwHow = DIPH_DEVICE;
-    if (SUCCEEDED(device->GetProperty(DIPROP_GUIDANDPATH, &property.diph)) && samePath(property.wszPath, find->path)) {
-        find->found = device;
-        return DIENUM_STOP;
-    }
-    device->Release();
-    return DIENUM_CONTINUE;
-}
 
 struct EnumContext {
     IDirectInputDevice8W* device = nullptr;
@@ -74,7 +33,7 @@ struct EnumContext {
     int sliders = 0;
 };
 
-// Same rules as SDL's EnumDevObjectsCallback (SDL_dinputjoystick.c).
+// Same rules as SDL3's EnumDevObjectsCallback (SDL_dinputjoystick.c), so the numbering stays what it was.
 BOOL CALLBACK collectObject(LPCDIDEVICEOBJECTINSTANCEW object, LPVOID context) {
     auto* e = static_cast<EnumContext*>(context);
     if ((object->dwType & DIDFT_BUTTON) != 0) {
@@ -179,18 +138,15 @@ std::unique_ptr<DinputReader> DinputReader::open(const std::string& hidPath, std
         error = "DirectInput8Create failed";
         return nullptr;
     }
-    FindContext find{impl->dinput, toWide(hidPath)};
-    impl->dinput->EnumDevices(DI8DEVCLASS_GAMECTRL, findDevice, &find, DIEDFL_ATTACHEDONLY);
-    if (find.found == nullptr) {
+    impl->device = dinput::createByPath(impl->dinput, hidPath);
+    if (impl->device == nullptr) {
         error = "no DirectInput game controller has the path " + hidPath;
         return nullptr;
     }
-    impl->device = find.found;
 
-    // Shared, and also while another window has the focus. SDL holds the same wheel exclusively for force
-    // feedback; exclusive access only excludes other exclusive users.
-    impl->window = CreateWindowExW(0, L"STATIC", L"wheelemu-input", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
-                                   GetModuleHandleW(nullptr), nullptr);
+    // Shared, and also while another window has the focus. The force feedback holds the same wheel
+    // exclusively (a second device object); exclusive access only excludes other exclusive users.
+    impl->window = dinput::createHelperWindow(L"wheelemu-input");
     if (impl->window == nullptr ||
         FAILED(impl->device->SetCooperativeLevel(impl->window, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND))) {
         error = "SetCooperativeLevel(non-exclusive, background) failed";
@@ -260,24 +216,4 @@ bool DinputReader::read(RawInputState& state) {
 
 }  // namespace wheelemu::service
 
-#else  // not Windows: SDL reads the wheel.
-
-namespace wheelemu::service {
-
-struct DinputReader::Impl {};
-
-std::unique_ptr<DinputReader> DinputReader::open(const std::string&, std::string& error) {
-    error = "DirectInput exists on Windows only";
-    return nullptr;
-}
-
-DinputReader::DinputReader(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
-DinputReader::~DinputReader() = default;
-int DinputReader::axes() const { return 0; }
-int DinputReader::buttons() const { return 0; }
-int DinputReader::hats() const { return 0; }
-bool DinputReader::read(RawInputState&) { return false; }
-
-}  // namespace wheelemu::service
-
-#endif
+#endif  // _WIN32

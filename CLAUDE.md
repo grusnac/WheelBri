@@ -12,14 +12,15 @@ Nothing has been run against real hardware or in a game yet, so don't treat valu
 or `config/moza-r3-as-g920.ini` as confirmed. The G920's FFB is HID++ (not the classic Logitech protocol), which
 matters for Phase 3/4.
 
-Data flow: `Moza R3 --SDL3--> wheelemu-service --UDP 127.0.0.1--> dinput8.dll shim (in the game)`.
+Data flow: `Moza R3 --DirectInput/evdev--> wheelemu-service --UDP 127.0.0.1--> dinput8.dll shim (in the game)`.
 Use UDP loopback, not shared memory: under Proton the shim runs inside Wine and the service is a native Linux
 process, and named mappings don't cross that boundary.
 
 ## Build and test
 
-CMake ≥ 3.24, C++20. spdlog 1.15.3 and GoogleTest 1.15.2 come in through FetchContent. The service needs SDL3
-and is skipped with a warning if SDL3 isn't found.
+CMake ≥ 3.24, C++20. spdlog 1.15.3 and GoogleTest 1.15.2 come in through FetchContent. The service uses only
+the system's APIs and runs on Windows (DirectInput, Win32) and Linux (evdev, Xlib; skipped with a warning without
+libx11-dev). No SDL or other third-party library: do not add one back.
 
 ```bash
 # core + service + tests (Linux/macOS, or native Windows, which also builds the shim)
@@ -43,7 +44,7 @@ Service CLI: `wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-
 (`service/src/MappingView.cpp`) that shows every source axis/button next to its target (G920/G29). It draws
 through `UiWindow.hpp` (filled/outlined rectangles and 8x8-cell monospaced text on a 720x752 logical canvas,
 letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows,
-`UiWindowX11.cpp` (Xlib, X server fixed fonts) on Linux, `UiWindowSdl.cpp` elsewhere or with `-DWE_UI_SDL=ON`.
+`UiWindowX11.cpp` (Xlib, X server fixed fonts) on Linux.
 
 ## Layout and architecture
 
@@ -74,13 +75,16 @@ letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware)
   - `Retention.hpp` decides which files are old (date in the name, else last-write day) and only ever touches
     `wheelemu-*`, `telemetry-*`, `ffb-*`. The service's `Housekeeping` deletes them (default, after 7 days) or
     archives them with the best compressor found (7z > xz > zstd > zip > gzip) as a background process via
-    `SDL_CreateProcess`, deleting originals only after the compressor exited 0.
+    `platform::ChildProcess`, deleting originals only after the compressor exited 0.
     `scripts/telemetry_summary.py` reads columns by name. After a user's test drive, read these files (and
     run the script) before guessing at mapping or FFB problems.
   - Wire format (`StatePacket.hpp`): 33 bytes, little-endian, magic `WEMU`, version 1. Any layout change
     must bump `kVersion` and update the layout comment and `StatePacketTest`.
-- `service/` (`wheelemu-service`, namespace `wheelemu::service`): SDL3 input source, SDL haptic FFB sink
-  (8 slots), FFB self-test, and a fixed-rate loop (default 1 kHz, drift-free, resynchronises when behind).
+- `service/` (`wheelemu-service`, namespace `wheelemu::service`): the wheel behind `Wheel.hpp` (`WheelDinput.cpp`
+  DirectInput + `DinputReader`, `WheelEvdev.cpp` evdev), numbering inputs as the service always has (`DinputReader`,
+  `core EvdevLayout`) and sending the same force feedback numbers as before (`core WheelOutput`, 8 slots);
+  OS helpers in `Platform.hpp` (clock, precise sleep, thread priority, child process); FFB self-test, and a
+  fixed-rate loop (default 1 kHz, drift-free, resynchronises when behind).
 - `shim/` (`dinput8.dll`, Windows/Wine only, namespace `wheelemu::shim`): proxies `IDirectInput8A/W`,
   devices and effects. It is written once as templates over `AnsiTraits`/`WideTraits` (`Traits.hpp`).
   Exports are renamed through `dinput8.def` (`Proxy_*`) so they don't clash with SDK declarations. The real

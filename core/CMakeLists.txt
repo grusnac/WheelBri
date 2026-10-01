@@ -1,8 +1,10 @@
 add_library(wheelemu_core STATIC
+    src/DeviceMatch.cpp
     src/DeviceProfile.cpp
     src/DiEffect.cpp
     src/EmulatedJoystick.cpp
     src/EmulatorConfig.cpp
+    src/EvdevLayout.cpp
     src/Ffb.cpp
     src/FfbController.cpp
     src/FfbPacket.cpp
@@ -21,6 +23,7 @@ add_library(wheelemu_core STATIC
     src/Telemetry.cpp
     src/TestClutch.cpp
     src/UdpLoopback.cpp
+    src/WheelOutput.cpp
     src/XboxPad.cpp
 )
 
