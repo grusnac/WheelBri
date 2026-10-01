@@ -133,6 +133,8 @@ bool MappingView::pumpEvents() {
                     open = false;
                 } else if (event.key.key == SDLK_F && !event.key.repeat) {
                     openFilesFolder();
+                } else if (event.key.key == SDLK_U && !event.key.repeat) {
+                    showFfbUsage_ = !showFfbUsage_;
                 }
                 break;
             default:
@@ -483,6 +485,15 @@ void MappingView::drawFfb(const FfbDisplay& ffb) {
     const FfbSafetyConfig& safety = controller.safety();
 
     char line[160];
+    text(renderer_, 588, kTop, showFfbUsage_ ? "U: live effects" : "U: usage stats", kHeading);
+    std::snprintf(line, sizeof(line), "limits: gain %.2f, max %.0f%% of the wheel, slew %.0f/s%s", safety.masterGain,
+                  safety.maxMagnitude * 100.0F, safety.maxSlewPerSecond, ffb.invert ? ", direction inverted" : "");
+    text(renderer_, 4, kTop + 12, line, kDim);
+    if (showFfbUsage_) {
+        drawFfbUsage(controller, kTop);
+        return;
+    }
+
     std::string age = "never";
     if (const auto last = controller.lastPacketNs(); last && ffb.nowNs >= *last) {
         age = std::to_string((ffb.nowNs - *last) / 1'000'000) + " ms ago";
@@ -490,9 +501,6 @@ void MappingView::drawFfb(const FfbDisplay& ffb) {
     std::snprintf(line, sizeof(line), "last packet from the game %s (%llu in total)", age.c_str(),
                   static_cast<unsigned long long>(stats.packets));
     text(renderer_, 132, kTop, line, kDim);
-    std::snprintf(line, sizeof(line), "limits: gain %.2f, max %.0f%% of the wheel, slew %.0f/s%s", safety.masterGain,
-                  safety.maxMagnitude * 100.0F, safety.maxSlewPerSecond, ffb.invert ? ", direction inverted" : "");
-    text(renderer_, 4, kTop + 12, line, kDim);
     if (controller.watchdogTripped()) {
         text(renderer_, 4, kTop + 24, "game silent for 500 ms: all forces stopped until it sends again", kWarning);
     } else {
@@ -534,6 +542,71 @@ void MappingView::drawFfb(const FfbDisplay& ffb) {
     }
 }
 
+// Usage since the service started: a row per effect type the game used, and for the constant force
+// (road and tyre feel) how much of its time was spent at each strength the game asked for.
+void MappingView::drawFfbUsage(const FfbController& controller, const float top) {
+    const FfbUsage& usage = controller.usage();
+    char line[160];
+    const auto hms = [](const std::uint64_t ns) {
+        const std::uint64_t s = ns / 1'000'000'000ULL;
+        char t[24];
+        std::snprintf(t, sizeof(t), "%llu:%02llu:%02llu", static_cast<unsigned long long>(s / 3600),
+                      static_cast<unsigned long long>(s / 60 % 60), static_cast<unsigned long long>(s % 60));
+        return std::string(t);
+    };
+    std::snprintf(line, sizeof(line), "since start: game active %s, forces on %.0f%% of it",
+                  hms(usage.gameNs()).c_str(),
+                  usage.gameNs() == 0 ? 0.0
+                                      : 100.0 * static_cast<double>(std::min(usage.anyForceNs(), usage.gameNs())) /
+                                            static_cast<double>(usage.gameNs()));
+    text(renderer_, 132, top, line, kDim);
+    text(renderer_, 4, top + 24, "share: of the game's time; capped / slew: of that effect's time cut by max / slew",
+         kDim);
+
+    if (usage.empty()) {
+        text(renderer_, 4, top + 50, "no force feedback played yet (start the game and drive)", kDim);
+        return;
+    }
+    text(renderer_, 4, top + 38, FfbUsage::tableHeader().c_str(), kDim);
+    float y = top + 50;
+    const auto used = usage.usedTypes();
+    for (std::size_t i = 0; i < used.size() && i < 8; ++i) {
+        const auto& t = usage.type(used[i]);
+        const bool limited = t.playNs > 0 && (t.cappedNs * 10 > t.playNs || t.slewNs * 10 > t.playNs);
+        text(renderer_, 4, y, usage.tableRow(used[i]).c_str(), limited ? kUnlabelled : kText);
+        y += 11;
+    }
+
+    // Histogram of the constant force: bars scaled to the tallest, which is labelled.
+    constexpr float kLeft = 560;
+    constexpr float kBarW = 14;
+    constexpr float kGap = 2;
+    const float barsTop = top + 50;
+    const float barsH = 72;
+    text(renderer_, kLeft, top + 38, "constant asked", kDim);
+    const auto& bins = usage.constantHistogramNs();
+    std::uint64_t total = 0;
+    std::uint64_t tallest = 0;
+    for (const auto ns : bins) {
+        total += ns;
+        tallest = std::max(tallest, ns);
+    }
+    for (std::size_t i = 0; i < bins.size(); ++i) {
+        const float x = kLeft + static_cast<float>(i) * (kBarW + kGap);
+        fill(renderer_, x, barsTop, kBarW, barsH, kPanel);
+        if (tallest > 0 && bins[i] > 0) {
+            const float h = std::max(1.0F, barsH * static_cast<float>(bins[i]) / static_cast<float>(tallest));
+            fill(renderer_, x, barsTop + barsH - h, kBarW, h, i >= 8 ? kUnlabelled : kActive);
+        }
+    }
+    text(renderer_, kLeft, barsTop + barsH + 4, "0%", kDim);
+    text(renderer_, kLeft + 10 * (kBarW + kGap) - kGap - 32, barsTop + barsH + 4, "100%", kDim);
+    if (tallest > 0) {
+        std::snprintf(line, sizeof(line), "top %.0f%%", 100.0 * static_cast<double>(tallest) / static_cast<double>(total));
+        text(renderer_, kLeft + 40, barsTop + barsH + 4, line, kDim);
+    }
+}
+
 void MappingView::trackLastPressed(const std::uint64_t sourceButtons) {
     const std::uint64_t newlyPressed = sourceButtons & ~previousSourceButtons_;
     previousSourceButtons_ = sourceButtons;
@@ -569,8 +642,8 @@ std::string displayPath(const std::filesystem::path& path) {
 }  // namespace
 
 void MappingView::openFilesFolder() const {
-    const std::filesystem::path folder = files_.telemetry != nullptr ? files_.telemetry->samplesPath().parent_path()
-                                                                     : files_.logFolder;
+    const std::filesystem::path folder = files_.telemetry.on ? files_.telemetry.samplesPath.parent_path()
+                                                              : files_.logFolder;
     if (folder.empty()) {
         WE_LOG_WARN(log(), "no log or telemetry folder to open");
         return;
@@ -616,19 +689,19 @@ void MappingView::drawFiles() {
 
     y += 14;
     text(renderer_, 4, y, "Telemetry", kDim);
-    if (files_.telemetry == nullptr) {
+    if (!files_.telemetry.on) {
         text(renderer_, x, y, files_.telemetryStatus.c_str(), kDim);
     } else {
-        const TelemetryRecorder& t = *files_.telemetry;
+        const TelemetryFiles& t = files_.telemetry;
         char line[160];
         std::snprintf(line, sizeof(line), "%s (%llu rows)  %s (%llu changes)",
-                      t.samplesPath().filename().string().c_str(), static_cast<unsigned long long>(t.rowsWritten()),
-                      t.ffbPath().filename().string().c_str(), static_cast<unsigned long long>(t.ffbRowsWritten()));
+                      t.samplesPath.filename().string().c_str(), static_cast<unsigned long long>(t.rows),
+                      t.ffbPath.filename().string().c_str(), static_cast<unsigned long long>(t.ffbRows));
         text(renderer_, x, y, line, kText);
-        if (t.samplesPath().parent_path() != files_.logFolder) {
+        if (t.samplesPath.parent_path() != files_.logFolder) {
             // Telemetry in its own folder ([telemetry] directory): say where.
             text(renderer_, x + static_cast<float>(std::strlen(line) + 1) * 8, y,
-                 shortenMiddle("in " + displayPath(t.samplesPath().parent_path()),
+                 shortenMiddle("in " + displayPath(t.samplesPath.parent_path()),
                                kPathChars > std::strlen(line) + 1 ? kPathChars - std::strlen(line) - 1 : 0)
                      .c_str(),
                  kDim);

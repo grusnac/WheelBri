@@ -19,8 +19,8 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | 1 | Core (mapping, G920 + G29 profiles, FFB limiter, config, wire format) + SDL3 service | **working with a real R3** |
 | 2 | Shim answers as a G920 using the service's state | **working in NFS 2015**: wheel, pedals, buttons, D-pad |
 | 3 | Game FFB → service (safety limiter, watchdog) → R3 | **working in NFS 2015**: constant, spring, damper, sine, square |
-| 4 | Linux `uhid` virtual G920 (its FFB is HID++, not the classic Logitech protocol) | not started |
-| 5 | Windows virtual G920 (every game, no DLL per game) | step 0 works in NFS 2015 without `dinput8.dll` (input and force feedback as with the shim): `tools/vbridge` (HIDMaestro); design in [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
+| 4 | Linux virtual G920: `tools/uhid` (`wheelemu-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
+| 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelemu-service --virtual-g920`): wheel, pedals, buttons, force feedback, the R3 hidden through HidHide. Step 0 (`tools/vbridge`, HIDMaestro) still there, with the Xbox controller for button prompts. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
 
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
@@ -30,7 +30,7 @@ Settled with NFS 2015 and an R3 on Windows:
 
 Still open:
 - the G29 profile (built, not tried in a game);
-- Linux/Proton (Phase 4, and the shim under Wine);
+- Linux/Proton: both ways (Phase 4 and the shim under Proton) are ready to try on a Steam Deck, [docs/linux.md](docs/linux.md);
 - effect envelopes (attack/fade) are ignored, and NFS's 20-byte Logitech `Escape` calls are not forwarded.
 
 ## Layout
@@ -42,7 +42,8 @@ Still open:
 | `shim/` | `dinput8.dll` proxy (Windows / Wine): wraps `IDirectInput8A/W`, devices and effects |
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
-| `scripts/` | `telemetry_summary.py`: summary of a recorded session |
+| `scripts/` | `telemetry_summary.py`: summary of a recorded session; `wheelemu.sh`: start and stop everything on Windows (MSYS2); `linux/`: start/stop and Steam launch wrapper, udev rules, the Linux bundle |
+| `tools/uhid/` | Phase 4: `wheelemu-uhid`, the virtual G920 for Linux (C++, kernel uhid) |
 | `tools/vbridge/` | Phase 5 step 0: `wheelemu-bridge`, a virtual G920 through HIDMaestro (C#, Windows) |
 
 ## Build
@@ -147,9 +148,9 @@ The service defaults to `info`, the shim to `debug`.
 SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelemu-service --config ...
 ```
 
-Components: `service`, `service.sdl`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `sdl` (SDL's own
+Components: `service`, `service.sdl`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`, `sdl` (SDL's own
 messages; more with `SDL_LOGGING`), `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `logging`,
-`shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`.
+`shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelemu-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelemu/Logging.hpp`)
 - Log through the `WE_LOG_*` macros, never `printf`; `--print` and `--ffb-test` instructions are user interface
@@ -224,5 +225,7 @@ If it fails (or none is found) the originals are kept, the error is logged and s
 
 ## Licence note
 
-Nothing is copied from GIMX (GPLv3). Two future pieces may borrow from it (the Logitech FFB command decoder and the
-`uhid` device code); if code is copied rather than re-implemented, this project must become GPLv3.
+Nothing is copied from GIMX (GPLv3). `tools/uhid` is written from the kernel's `linux/uhid.h` alone, and the
+virtual G920's HID descriptor comes from HIDMaestro's builder (MIT, noted in `core/src/HidG920.cpp`). The Logitech
+FFB command decoder, if it is ever needed, may borrow from GIMX; if code is copied rather than re-implemented,
+this project must become GPLv3.

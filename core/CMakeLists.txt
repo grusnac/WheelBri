@@ -6,6 +6,10 @@ add_library(wheelemu_core STATIC
     src/Ffb.cpp
     src/FfbController.cpp
     src/FfbPacket.cpp
+    src/FfbUsage.cpp
+    src/HidG920.cpp
+    src/HidHideCli.cpp
+    src/HidPid.cpp
     src/IniDocument.cpp
     src/LocalDate.cpp
     src/Logging.cpp

@@ -175,6 +175,34 @@ public sealed class PidForwarder
         get { lock (_lock) return _sent.Count(s => s is { Playing: true }); }
     }
 
+    // The strongest force the game is playing now (0..1, gain folded in): the constant force's level, a
+    // spring's or damper's coefficient, a periodic effect's magnitude. NFS keeps its effects created but at
+    // zero in its menus, and well above zero while driving (springs and dampers 0.4..0.9 even when coasting).
+    public float PlayingStrength
+    {
+        get
+        {
+            lock (_lock)
+            {
+                float strongest = 0;
+                foreach (var s in _sent)
+                {
+                    if (s is not { Playing: true } sent) continue;
+                    var e = sent.Effect;
+                    float strength = e.Type switch
+                    {
+                        FfbEffectType.Constant => Math.Abs(e.ConstantLevel),
+                        FfbEffectType.Spring or FfbEffectType.Damper or FfbEffectType.Friction or FfbEffectType.Inertia
+                            => Math.Max(Math.Abs(e.PositiveCoefficient), Math.Abs(e.NegativeCoefficient)),
+                        _ => e.Magnitude,
+                    };
+                    strongest = Math.Max(strongest, strength * e.Gain);
+                }
+                return strongest;
+            }
+        }
+    }
+
     static short I16(ReadOnlySpan<byte> d, int at) => BinaryPrimitives.ReadInt16LittleEndian(d[at..]);
     static ushort U16(ReadOnlySpan<byte> d, int at) => BinaryPrimitives.ReadUInt16LittleEndian(d[at..]);
 

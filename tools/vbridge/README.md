@@ -54,7 +54,12 @@ both** (both listen on port 41329).
 1. Take the shim out of the game once: rename `dinput8.dll` in the NFS folder to `dinput8.dll.off`.
 2. Double-click `tools\vbridge\start-g920.cmd` (asks for Administrator). It starts `wheelemu-service` with
    its window if it is not running yet, then the bridge in its own window. Options of `start-g920.ps1`:
-   `-NoUi`, `-StopService` (stop the service with the bridge), `-Config path`.
+   `-NoUi`, `-StopService` (stop the service with the bridge), `-Config path`, `-XboxPad buttons|idle`
+   (see [Xbox button prompts](#xbox-button-prompts)).
+   From an MSYS2 UCRT64 shell instead: `scripts/wheelemu.sh` starts both (service with its window, bridge
+   with the Xbox controller in `buttons` mode, in its own Administrator window) and stops both cleanly when you
+   press Enter (or Ctrl+C) there; `--build` builds both first, `--no-ui`, `--xbox-pad idle|off`,
+   `--config FILE`. Both programs take `--stop-file PATH`: they stop as with Ctrl+C when that file appears.
 3. The bridge logs `game controller ready` once Windows lists the G920 (joy.cpl: "Logitech G920 Driving
    Force Racing Wheel USB", not the R3).
 4. Start Steam and NFS; drive.
@@ -74,10 +79,31 @@ installs HIDMaestro's user-mode driver with a self-made certificate). Started fi
 bridge runs at a time.
 
 Options: `--no-hide` (leave HidHide alone), `--no-driving-type`, `--axis-names` (experimental), `--service-exe PATH`, `--hidhide-cli PATH`,
-`--wheel-vid 346E`. After a crash that left the R3 hidden: `wheelemu-bridge --unhide`.
+`--wheel-vid 346E`, `--xbox-pad [buttons|idle]`. After a crash that left the R3 hidden: `wheelemu-bridge --unhide`.
 
 Logs: `%LOCALAPPDATA%\wheelemu\logs\wheelemu-bridge-<date>.log` (the first PID report of each kind is
 written in full, to check the decoding) next to the service's log and telemetry.
+
+## Xbox button prompts
+
+With only a wheel, NFS 2015 shows keyboard keys in its menus. `--xbox-pad` (`start-g920.ps1 -XboxPad ...`)
+adds a virtual Xbox 360 controller next to the G920, so the game can show Xbox buttons. Its sticks and
+triggers never move: it cannot steer or drive.
+
+- `idle`: connected, never pressed. Try this first: enough if the game looks only at which controllers exist.
+- `buttons`: the wheel's A, B, X, Y, Menu, View, stick clicks and D-pad also press the controller's, so a game
+  that shows the prompts of the controller used last sees an Xbox controller. Only while no pedal is pressed and
+  for 2 s after (in menus the pedals rest; while driving a wheel button must not also fire the game's Xbox
+  controller binding). The paddles and the Xbox button are never passed on. In menus the D-pad goes to the
+  controller only, not to the G920: NFS also navigates with the G920's D-pad, and that put the keyboard prompts
+  back after every step. Turning the wheel did the same, so in a menu the G920's steering stays where it was.
+  For the steering "in a menu" is stricter: the game plays its force feedback effects at zero for 1.5 s (NFS
+  does that in menus; while driving its spring and damper alone are 0.4 to 0.9) AND no pedal for 2 s. Any
+  force or pedal gives the steering back at once; the bridge logs both changes. Pressing a pedal in a menu
+  still brings the keyboard prompts back (a pedal means driving).
+
+If a menu moves two steps per press in `buttons` mode, the game reads both controllers: use `idle`. The bridge logs `virtual Xbox 360 controller created` and, in
+`buttons` mode, the first button press it passed on.
 
 ## Force feedback without a game
 

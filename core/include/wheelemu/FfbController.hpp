@@ -3,6 +3,7 @@
 #include "wheelemu/Devices.hpp"
 #include "wheelemu/Ffb.hpp"
 #include "wheelemu/FfbPacket.hpp"
+#include "wheelemu/FfbUsage.hpp"
 
 #include <array>
 #include <cstdint>
@@ -64,6 +65,9 @@ public:
     [[nodiscard]] bool watchdogTripped() const { return watchdogTripped_; }
     [[nodiscard]] const FfbSafetyConfig& safety() const { return safety_; }
 
+    // Which effects the game used and how hard, since the start (updated every update() call).
+    [[nodiscard]] const FfbUsage& usage() const { return usage_; }
+
 private:
     struct Slot {
         bool wanted = false;                 // the game wants this slot playing
@@ -84,6 +88,8 @@ private:
     std::optional<std::uint64_t> lastPacketNs_;
     bool watchdogTripped_ = false;
     Stats stats_;
+    FfbUsage usage_;
+    std::optional<std::uint64_t> lastUsageNs_;
 };
 
 }  // namespace wheelemu

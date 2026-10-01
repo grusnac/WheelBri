@@ -3,7 +3,6 @@
 #include "wheelemu/DeviceProfile.hpp"
 #include "wheelemu/FfbController.hpp"
 #include "wheelemu/MapperConfig.hpp"
-#include "wheelemu/Telemetry.hpp"
 
 #include "Housekeeping.hpp"
 #include "wheelemu/WheelState.hpp"
@@ -30,13 +29,22 @@ struct FfbDisplay {
     std::uint64_t nowNs = 0;
 };
 
+// The telemetry files as last seen by the loop (a copy: the recorder belongs to the loop's thread).
+struct TelemetryFiles {
+    bool on = false;                              // false: `FilesDisplay::telemetryStatus` says why
+    std::filesystem::path samplesPath;
+    std::filesystem::path ffbPath;
+    std::uint64_t rows = 0;
+    std::uint64_t ffbRows = 0;
+};
+
 // Where the service writes its logs and telemetry, and what happens to old files (bottom of the window).
 struct FilesDisplay {
     std::filesystem::path logFolder;
     bool logToFile = true;                        // false: the log file could not be opened
-    const TelemetryRecorder* telemetry = nullptr; // null: `telemetryStatus` says why
+    TelemetryFiles telemetry;
     std::string telemetryStatus;
-    const Housekeeping* housekeeping = nullptr;
+    const Housekeeping* housekeeping = nullptr;   // owned by the window's thread
 };
 
 class MappingView {
@@ -54,6 +62,7 @@ public:
 
     // Shown at the bottom of the window; F opens the folder.
     void setFiles(FilesDisplay files) { files_ = std::move(files); }
+    void setTelemetry(TelemetryFiles telemetry) { files_.telemetry = std::move(telemetry); }
 
     void render(const RawInputState& raw, const WheelState& state, const TargetReport& report,
                 const FfbDisplay& ffb = {});
@@ -70,6 +79,7 @@ private:
     void drawSourceButtons(std::uint64_t sourceButtons);
     void drawFooter();
     void drawFfb(const FfbDisplay& ffb);
+    void drawFfbUsage(const FfbController& controller, float top);
     void drawFiles();
     void openFilesFolder() const;
     void trackLastPressed(std::uint64_t sourceButtons);
@@ -95,6 +105,8 @@ private:
     std::uint64_t filesCheckedMs_ = 0;
     std::string serviceLogName_;
     std::string gameLogName_;
+
+    bool showFfbUsage_ = false;     // U switches the force feedback panel: live effects / usage since start
 
     std::uint64_t previousSourceButtons_ = 0;
     int lastPressedSource_ = kUnmapped;

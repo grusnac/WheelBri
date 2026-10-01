@@ -5,13 +5,17 @@
 #   start-g920.ps1 -NoUi           service without window
 #   start-g920.ps1 -StopService    also stop the service when the bridge stops
 #   start-g920.ps1 -Config config\moza-r3-as-g920.ini
+#   start-g920.ps1 -XboxPad buttons  also a virtual Xbox controller, for Xbox button prompts in the game's
+#                                    menus (buttons: the wheel's buttons press it in menus; idle: never pressed)
 #
 # Asks for Administrator itself (the bridge needs it).
 
 param(
     [switch]$NoUi,
     [switch]$StopService,
-    [string]$Config = 'config\moza-r3-as-g920.ini'
+    [string]$Config = 'config\moza-r3-as-g920.ini',
+    [ValidateSet('off', 'buttons', 'idle')]
+    [string]$XboxPad = 'off'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,6 +27,7 @@ if (-not $admin) {
     $relaunch = @('-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Config', "`"$Config`"")
     if ($NoUi) { $relaunch += '-NoUi' }
     if ($StopService) { $relaunch += '-StopService' }
+    if ($XboxPad -ne 'off') { $relaunch += @('-XboxPad', $XboxPad) }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $relaunch
     return
 }
@@ -64,7 +69,9 @@ if ($running) {
 Write-Host ''
 Write-Host 'Starting the bridge. When done: close the game, then Steam, then press Ctrl+C here.' -ForegroundColor Cyan
 Write-Host ''
-& $bridge
+$bridgeArgs = @()
+if ($XboxPad -ne 'off') { $bridgeArgs += @('--xbox-pad', $XboxPad) }
+& $bridge @bridgeArgs
 $bridgeExit = $LASTEXITCODE
 
 if ($StopService) {

@@ -17,6 +17,11 @@ compile_commands.json
 *.a
 *.lib
 
+# .NET build output (tools/vbridge) and third-party binaries fetched for it
+bin/
+obj/
+third_party/
+
 # Logs (service and shim write them next to themselves when run from here)
 *.log
 
@@ -36,3 +41,10 @@ desktop.ini
 # Claude / tooling leftovers
 Claude outputs/
 *.bundle
+
+# Linux bundle (scripts/linux/package.sh)
+dist/
+
+# Driver build output (driver/wheelemu-g920.vcxproj)
+driver/x64/
+driver/*.vcxproj.user

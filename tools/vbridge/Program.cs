@@ -8,6 +8,10 @@
 // While it runs it also hides the real wheel from games (HidHide, when installed) and names the G920's axes
 // for DirectInput; both are undone on exit.
 //
+// --xbox-pad adds a virtual Xbox 360 controller next to the G920 (XInput), for games that show keyboard
+// button prompts in their menus unless an Xbox controller is there (NFS 2015 with a wheel). Its sticks and
+// triggers never move; see XboxPad.cs for what it does with the wheel's buttons.
+//
 // Run from an Administrator terminal (HIDMaestro installs its user-mode driver on first run).
 
 using System.Diagnostics;
@@ -41,6 +45,8 @@ internal static class Program
         public bool AxisNames;                              // experimental: made the device vanish from DirectInput
         public string WheelVendor = "346E";                 // Moza
         public string? ServiceExe, HidHideCli;
+        public string? StopFile;                            // stop cleanly when this file appears (scripts/wheelemu.sh)
+        public XboxPad.Mode XboxPad = Bridge.XboxPad.Mode.Off;
     }
 
     static readonly object LogLock = new();
@@ -73,13 +79,28 @@ internal static class Program
                 case "--service-exe" when i + 1 < args.Length: o.ServiceExe = args[++i]; break;
                 case "--hidhide-cli" when i + 1 < args.Length: o.HidHideCli = args[++i]; break;
                 case "--unhide": o.UnhideOnly = true; break;
+                case "--stop-file" when i + 1 < args.Length: o.StopFile = args[++i]; break;
                 case "--test-id": G920Vid = 0x1209; G920Pid = 0x0001; break;
+                case "--xbox-pad":
+                    o.XboxPad = Bridge.XboxPad.Mode.Buttons;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("--"))
+                    {
+                        string mode = args[++i].ToLowerInvariant();
+                        if (mode == "idle") o.XboxPad = Bridge.XboxPad.Mode.Idle;
+                        else if (mode != "buttons") goto default;
+                    }
+                    break;
                 default:
                     Console.WriteLine(
                         "usage: wheelemu-bridge [--state-port 41329] [--ffb-port 41330] [--no-driving-type]\n"
                         + "                       [--no-hide] [--wheel-vid 346E] [--service-exe PATH] [--hidhide-cli PATH]\n"
                         + "                       [--axis-names]   (experimental: Wheel/Brake/Clutch/Accelerator names)\n"
                         + "                       [--test-id]      (diagnostic: USB ids 1209:0001 instead of the G920's)\n"
+                        + "                       [--xbox-pad [buttons|idle]]  (also a virtual Xbox 360 controller, for the\n"
+                        + "                                        game's Xbox button prompts; buttons = the wheel's A/B/X/Y/\n"
+                        + "                                        Menu/View/D-pad reach it while no pedal is pressed;\n"
+                        + "                                        idle = connected, never pressed)\n"
+                        + "                       [--stop-file PATH]  (stop as with Ctrl+C when PATH appears)\n"
                         + "       wheelemu-bridge --unhide   (after a crash: make the real wheel visible again)");
                     return 2;
             }
@@ -192,7 +213,9 @@ internal static class Program
         HMOemNameOverride.RecoverOrphans();          // labels left behind by a crashed earlier run
         var ctx = new HMContext();
         HMController? ctrl = null;
+        XboxPad? pad = null;
         bool leaveDevice = false;                    // window closed while a program still holds the G920
+        bool leavePad = false;
         try
         {
             Log("installing / checking the HIDMaestro driver...");
@@ -209,9 +232,14 @@ internal static class Program
             ffbSocket.Connect(new IPEndPoint(IPAddress.Loopback, o.FfbPort));
             var clock = Stopwatch.StartNew();
             var forwarder = new PidForwarder(bytes => ffbSocket.Send(bytes, bytes.Length), Log);
+            if (o.XboxPad != Bridge.XboxPad.Mode.Off)
+            {
+                pad = XboxPad.Create(ctx, o.XboxPad, Log, () => forwarder.PlayingStrength,
+                                     () => forwarder.ReportsHandled > 0);
+            }
             try
             {
-                RunUntilStopped(o, live, clock, forwarder);
+                RunUntilStopped(o, live, pad, clock, forwarder);
             }
             finally
             {
@@ -221,17 +249,26 @@ internal static class Program
                 try { forwarder.StopAll(clock.ElapsedMilliseconds); } catch (Exception e) { Log($"stop all: {e.Message}"); }
                 hidHide?.Restore();
                 hidHide?.LogState();
-                leaveDevice = !ReleaseDevice(live);
+                leaveDevice = !ReleaseDevice(live, "virtual G920");
+                leavePad = pad != null && !ReleaseDevice(pad.Controller, "virtual Xbox controller");
                 SetDirectInputEntries(false, o.DrivingType, o.AxisNames);
                 HMOemNameOverride.Clear(G920Vid, G920Pid);
             }
         }
         finally
         {
-            if (!leaveDevice)
+            if (!leavePad)
+            {
+                pad?.Dispose();
+            }
+            if (!leaveDevice && !leavePad)
             {
                 ctrl?.Dispose();
                 ctx.Dispose();
+            }
+            else if (!leaveDevice)
+            {
+                ctrl?.Dispose();
             }
         }
         return 0;
@@ -291,12 +328,12 @@ internal static class Program
     // that program and the bridge finishes by itself. Ctrl+C again removes anyway (the next start then
     // switches to a spare identity). Returns false when the device should be left in place (window closed
     // while held: no time to wait).
-    static bool ReleaseDevice(HMController ctrl)
+    static bool ReleaseDevice(HMController ctrl, string what)
     {
         string? instanceId = DeviceCheck.InstanceIdOf(ctrl);
         if (instanceId == null)
         {
-            Log("cannot find the virtual G920's device to check who holds it; removing it the usual way");
+            Log($"cannot find the {what}'s device to check who holds it; removing it the usual way");
             return true;
         }
         string lastReason = "";
@@ -307,7 +344,7 @@ internal static class Program
             switch (result)
             {
                 case DeviceCheck.RemoveResult.Removed:
-                    Log(lastReason.Length == 0 ? "virtual G920 removed" : $"virtual G920 removed after waiting {waited.Elapsed.TotalSeconds:0} s");
+                    Log(lastReason.Length == 0 ? $"{what} removed" : $"{what} removed after waiting {waited.Elapsed.TotalSeconds:0} s");
                     return true;
                 case DeviceCheck.RemoveResult.Gone:
                     return true;
@@ -318,18 +355,18 @@ internal static class Program
             if (reason.Contains("wheelemu-bridge", StringComparison.OrdinalIgnoreCase) &&
                 !reason.Contains(','))
             {
-                Log("only the bridge itself holds the virtual G920; removing it the usual way");
+                Log($"only the bridge itself holds the {what}; removing it the usual way");
                 return true;
             }
             if (reason != lastReason)
             {
                 lastReason = reason;
-                Log($"waiting: {reason} has the virtual G920 open. Close it and the bridge finishes by itself "
+                Log($"waiting: {reason} has the {what} open. Close it and the bridge finishes by itself "
                     + "(Ctrl+C again: remove anyway; the next start then uses a spare identity)");
             }
             if (_windowClosing)
             {
-                Log("window closed while the G920 is held: leaving it in place; the next start replaces it");
+                Log($"window closed while the {what} is held: leaving it in place; the next start replaces it");
                 return false;
             }
             if (_force)
@@ -341,7 +378,7 @@ internal static class Program
         }
     }
 
-    static void RunUntilStopped(Options o, HMController ctrl, Stopwatch clock, PidForwarder forwarder)
+    static void RunUntilStopped(Options o, HMController ctrl, XboxPad? pad, Stopwatch clock, PidForwarder forwarder)
     {
         int statePort = o.StatePort;
 
@@ -359,16 +396,36 @@ internal static class Program
         ctrl.PublishPidState(0, PidStateFlags.ActuatorsEnabled | PidStateFlags.ActuatorPower);
 
         // Input: the service's state packets, on their own thread.
-        var input = new Thread(() => InputLoop(statePort, ctrl)) { IsBackground = true, Name = "state input" };
+        var input = new Thread(() => InputLoop(statePort, ctrl, pad)) { IsBackground = true, Name = "state input" };
         input.Start();
 
-        Log("running; Ctrl+C to stop");
+        if (o.StopFile != null)
+        {
+            try { File.Delete(o.StopFile); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            Log($"running; Ctrl+C or {o.StopFile} to stop");
+        }
+        else
+        {
+            Log("running; Ctrl+C to stop");
+        }
+        long lastStopCheck = 0;
         long lastStatus = 0, lastDriverCheck = 0;
         (int, long) lastShown = (-1, -1);
         while (!_stop)
         {
             long now = clock.ElapsedMilliseconds;
             forwarder.Tick(now);
+            if (o.StopFile != null && now - lastStopCheck >= 500)
+            {
+                lastStopCheck = now;
+                if (File.Exists(o.StopFile))
+                {
+                    try { File.Delete(o.StopFile); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                    Log($"stop requested ({o.StopFile} appeared)");
+                    _stop = true;
+                    break;
+                }
+            }
             if (now - lastDriverCheck >= 2000)
             {
                 lastDriverCheck = now;
@@ -389,7 +446,7 @@ internal static class Program
         }
     }
 
-    static void InputLoop(int statePort, HMController ctrl)
+    static void InputLoop(int statePort, HMController ctrl, XboxPad? pad)
     {
         using var socket = new UdpClient(new IPEndPoint(IPAddress.Loopback, statePort));
         socket.Client.ReceiveTimeout = 100;
@@ -419,7 +476,7 @@ internal static class Program
                 }
                 sinceLast.Restart();
                 neutralSent = false;
-                Pack(state, report);
+                Pack(pad?.Update(state) ?? state, report);   // in menus the pad may take the D-pad
                 ctrl.SubmitRawReport(report);
             }
             else if (sinceLast.ElapsedMilliseconds > StaleMs && !neutralSent)
@@ -431,7 +488,8 @@ internal static class Program
                 }
                 receiving = false;
                 neutralSent = true;
-                Pack(Neutral, report);
+                pad?.Update(Neutral);
+                Pack(Neutral, report);                       // no wheel: centred, whatever the pad holds
                 ctrl.SubmitRawReport(report);
             }
         }

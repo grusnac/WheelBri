@@ -3,12 +3,14 @@
 // telemetry of both directions for later tuning.
 
 #include "FfbSelfTest.hpp"
+#include "HidHide.hpp"
 #include "Housekeeping.hpp"
 #include "MappingView.hpp"
 #include "SdlFfbSink.hpp"
 #include "SdlInputSource.hpp"
 #include "SdlRuntime.hpp"
 #include "ServiceLogging.hpp"
+#include "VirtualG920.hpp"
 
 #include "wheelemu/EmulatorConfig.hpp"
 #include "wheelemu/FfbController.hpp"
@@ -23,7 +25,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
-#include <array>
+#include <cctype>
 #include <array>
 #include <atomic>
 #include <csignal>
@@ -32,10 +34,12 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <span>
 #include <sstream>
 #include <optional>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -48,6 +52,7 @@ namespace {
 using wheelemu::logging::Logger;
 
 constexpr Uint64 kStatsWindowNs = 10 * SDL_NS_PER_SECOND;
+constexpr Uint64 kUsageLogNs = 10 * 60 * SDL_NS_PER_SECOND;   // force feedback usage table in the log
 
 std::atomic<bool> gStop{false};
 
@@ -65,16 +70,51 @@ struct Options {
     bool ui = false;
     bool ffbTest = false;
     std::string oldFiles;                       // --old-files: overrides [retention] old_files
+    std::string stopFile;                       // --stop-file: stop when this file appears
+    bool virtualG920 = false;                   // --virtual-g920: our own driver's G920 (driver/)
+    bool hide = true;                           // --no-hide: leave the real wheel visible to games
+    bool unhide = false;                        // --unhide: make the real wheel visible again and exit
 };
+
+// The wheel's USB vendor id for HidHide: [emulator] source_device when it is one ("346e"), else Moza's.
+std::string wheelVendorId(const std::string& sourceDevice) {
+    std::string id = sourceDevice.substr(0, sourceDevice.find(':'));
+    const bool hex = id.size() == 4 && id.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos;
+    if (!hex) id = "346e";
+    for (char& c : id) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return id;
+}
+
+// --stop-file: another program (scripts/wheelemu.sh) asks the service to stop by creating this file; the
+// same clean stop as Ctrl+C or closing the window (force feedback off, logs closed).
+std::filesystem::path gStopFile;
+
+bool stopRequested() {
+    if (gStopFile.empty()) {
+        return false;
+    }
+    std::error_code ec;
+    if (!std::filesystem::exists(gStopFile, ec)) {
+        return false;
+    }
+    std::filesystem::remove(gStopFile, ec);
+    return true;
+}
 
 void printUsage() {
     std::puts(
         "usage: wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
+        "                        [--stop-file FILE] [--virtual-g920 [--no-hide]] [--unhide]\n"
         "  --config FILE  INI configuration (see config/moza-r3-as-g920.ini)\n"
         "  --list         list joysticks and exit\n"
         "  --print        show live raw and mapped values\n"
         "  --ui           open a window showing how every axis and button maps to the emulated wheel\n"
         "  --ffb-test     play a short, gentle force feedback sequence on the wheel and exit\n"
+        "  --stop-file FILE  stop cleanly when FILE appears (it is deleted then; also at start)\n"
+        "  --virtual-g920 while running, a virtual G920 for every game through wheelemu's own driver\n"
+        "                 (driver\\install-driver.ps1 once; Administrator; not with the shim or the bridge);\n"
+        "                 the real wheel is hidden from games meanwhile (HidHide), unless --no-hide\n"
+        "  --unhide       after a crash: make the real wheel visible to games again (HidHide) and exit\n"
         "  --old-files delete|archive|keep\n"
         "                 logs and telemetry older than [retention] older_than_days (7): delete them (default),\n"
         "                 compress them (7-Zip, xz, zstd, zip or gzip, the best one found) or keep them\n"
@@ -95,6 +135,14 @@ bool parseOptions(const int argc, char** argv, Options& options) {
             options.ui = true;
         } else if (arg == "--ffb-test") {
             options.ffbTest = true;
+        } else if (arg == "--virtual-g920") {
+            options.virtualG920 = true;
+        } else if (arg == "--no-hide") {
+            options.hide = false;
+        } else if (arg == "--unhide") {
+            options.unhide = true;
+        } else if (arg == "--stop-file" && i + 1 < argc) {
+            options.stopFile = argv[++i];
         } else if (arg == "--old-files" && i + 1 < argc) {
             options.oldFiles = argv[++i];
             if (!wheelemu::parseOldFilesAction(options.oldFiles)) {
@@ -182,9 +230,9 @@ void logLoopStats(const char* what, const wheelemu::LoopStats& stats, const whee
 
 // Where the time of one loop tick goes, to find the cause of a slow tick.
 struct TickStages {
-    enum Stage { Input, Pipeline, Ffb, Telemetry, Housekeeping, Ui, kCount };
+    enum Stage { Input, Pipeline, Ffb, Telemetry, Ui, kCount };
     static constexpr std::array<const char*, kCount> kNames = {"wheel input", "state to game", "force feedback",
-                                                                "telemetry", "old files", "window"};
+                                                                "telemetry", "window copy"};
     std::array<Uint64, kCount> ns{};
 
     // Adds the time since `mark` to `stage` and moves `mark` to now.
@@ -345,6 +393,24 @@ public:
                     stats.watchdogStops);
     }
 
+    // Which effects the game used and how hard (FfbUsage), since the start: a table in the log, only
+    // when forces played since the last one.
+    void logUsage() {
+        const wheelemu::FfbUsage& usage = controller_->usage();
+        if (usage.anyForceNs() == loggedUsageNs_) {
+            return;
+        }
+        loggedUsageNs_ = usage.anyForceNs();
+        WE_LOG_INFO(log(), "ffb usage since the start: game active {:.1f} min, forces on {:.1f} min "
+                           "(share: of the game's time; capped / slew: of that effect's time)",
+                    static_cast<double>(usage.gameNs()) / 60e9, static_cast<double>(usage.anyForceNs()) / 60e9);
+        WE_LOG_INFO(log(), "ffb usage:   {}", wheelemu::FfbUsage::tableHeader());
+        for (const auto type : usage.usedTypes()) {
+            WE_LOG_INFO(log(), "ffb usage:   {}", usage.tableRow(type));
+        }
+        WE_LOG_INFO(log(), "ffb usage: {}", usage.histogramLine());
+    }
+
 private:
     GameFfb() = default;
 
@@ -353,6 +419,7 @@ private:
     std::unique_ptr<wheelemu::FfbController> controller_;
     wheelemu::TelemetryRecorder* telemetry_ = nullptr;
     std::uint64_t lastPackets_ = 0;
+    std::uint64_t loggedUsageNs_ = 0;
     std::optional<std::tuple<std::size_t, std::uint64_t, std::uint64_t, bool>> lastLogged_;
     wheelemu::logging::RateLimiter malformedLimiter_{std::chrono::seconds(5)};
 };
@@ -417,6 +484,28 @@ std::vector<std::filesystem::path> managedFolders(const wheelemu::EmulatorConfig
     return folders;
 }
 
+// What the window draws, copied from the loop's thread about 60 times a second.
+struct UiFrame {
+    bool ready = false;
+    wheelemu::RawInputState raw;
+    wheelemu::WheelState state;
+    wheelemu::TargetReport report;
+    std::optional<wheelemu::FfbController> ffb;   // copy-constructed each time (it cannot be assigned)
+    wheelemu::service::TelemetryFiles telemetry;
+};
+
+wheelemu::service::TelemetryFiles telemetryFiles(const wheelemu::TelemetryRecorder* recorder) {
+    wheelemu::service::TelemetryFiles files;
+    if (recorder != nullptr) {
+        files.on = true;
+        files.samplesPath = recorder->samplesPath();
+        files.ffbPath = recorder->ffbPath();
+        files.rows = recorder->rowsWritten();
+        files.ffbRows = recorder->ffbRowsWritten();
+    }
+    return files;
+}
+
 int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
             const std::filesystem::path& logFolder, const bool logToFile, wheelemu::service::SdlInputSource& source,
             const bool print, const bool ui) {
@@ -466,13 +555,11 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     housekeeping.run(wheelemu::WallClock::now());
     auto nextMidnight = wheelemu::startOfDay(
         wheelemu::addDays(wheelemu::localDate(wheelemu::WallClock::now()), 1).value_or(""));
-    Uint64 lastHousekeepingNs = 0;
 
     if (view != nullptr) {
         wheelemu::service::FilesDisplay files;
         files.logFolder = logFolder;
         files.logToFile = logToFile;
-        files.telemetry = telemetry.get();
         files.telemetryStatus = config.telemetry.enabled ? "off: the files could not be created (see the log)"
                                                          : "off ([telemetry] enabled = false)";
         files.housekeeping = &housekeeping;
@@ -482,152 +569,237 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     const Uint64 periodNs = SDL_NS_PER_SECOND / static_cast<Uint64>(config.loopHz);
     const Uint64 printEveryTicks = std::max<Uint64>(1, static_cast<Uint64>(config.loopHz) / 10);
     const Uint64 frameEveryTicks = std::max<Uint64>(1, static_cast<Uint64>(config.loopHz) / 60);  // ~60 fps
-    LoopHealth loopHealth(periodNs);
 
-    // Above normal, so a game that is loading (all cores busy) does not starve the input loop.
-    if (!SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_HIGH)) {
-        WE_LOG_WARN(log(), "cannot raise the loop's thread priority: {}", SDL_GetError());
-    }
-    WE_LOG_INFO(log(), "running at {} Hz; press Ctrl+C to stop", config.loopHz);
-    Uint64 nextTick = SDL_GetTicksNS();
-    Uint64 lastTickStart = nextTick;
-    Uint64 windowStart = nextTick;
-    Uint64 ticks = 0;
-    Uint64 lastPeriodNs = 0;
-    Uint64 lastWorkNs = 0;
+    // The 1 kHz loop (wheel input, state to the game, force feedback, telemetry) runs on its own thread; the
+    // window and old-file checks stay on this one. A window that Windows holds up (a game going full screen,
+    // dragging it) then only freezes the window, never the wheel or its force feedback.
+    std::mutex frameMutex;
+    UiFrame sharedFrame;
+    std::atomic<bool> stopLoop{false};
+    std::atomic<bool> loopDone{false};
+    int loopResult = 0;
 
-    while (!gStop) {
-        const Uint64 tickStart = SDL_GetTicksNS();
-        TickStages stages;
-        Uint64 mark = tickStart;
-        SDL_UpdateJoysticks();
-        std::optional<float> clutchOverride;
-        if (clutchListener != nullptr) {
-            std::array<std::uint8_t, 64> datagram{};
-            for (int i = 0; i < 64; ++i) {   // everything queued since the last tick; the newest wins
-                const auto size = clutchListener->receive(datagram);
-                if (!size) {
-                    break;
+    const auto tickLoop = [&]() -> int {
+        LoopHealth loopHealth(periodNs);
+        // Above normal, so a game that is loading (all cores busy) does not starve the input loop.
+        if (!SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_HIGH)) {
+            WE_LOG_WARN(log(), "cannot raise the loop's thread priority: {}", SDL_GetError());
+        }
+        WE_LOG_INFO(log(), "running at {} Hz; press Ctrl+C to stop", config.loopHz);
+        Uint64 nextTick = SDL_GetTicksNS();
+        Uint64 lastTickStart = nextTick;
+        Uint64 windowStart = nextTick;
+        Uint64 ticks = 0;
+        Uint64 lastPeriodNs = 0;
+        Uint64 lastWorkNs = 0;
+        Uint64 lastUsageLogNs = nextTick;
+        int result = 0;
+
+        while (!gStop && !stopLoop) {
+            const Uint64 tickStart = SDL_GetTicksNS();
+            TickStages stages;
+            Uint64 mark = tickStart;
+            if (source.usesSdlUpdates()) {
+                SDL_UpdateJoysticks();
+            }
+            std::optional<float> clutchOverride;
+            if (clutchListener != nullptr) {
+                std::array<std::uint8_t, 64> datagram{};
+                for (int i = 0; i < 64; ++i) {   // everything queued since the last tick; the newest wins
+                    const auto size = clutchListener->receive(datagram);
+                    if (!size) {
+                        break;
+                    }
+                    if (const auto pressed = wheelemu::ClutchPacket::decode(std::span(datagram).first(*size))) {
+                        testClutch.offer(*pressed, tickStart);
+                    }
                 }
-                if (const auto pressed = wheelemu::ClutchPacket::decode(std::span(datagram).first(*size))) {
-                    testClutch.offer(*pressed, tickStart);
+                clutchOverride = testClutch.active(tickStart);
+                if (clutchOverride.has_value() != testClutchOn) {
+                    testClutchOn = clutchOverride.has_value();
+                    WE_LOG_INFO(log(), testClutchOn
+                                           ? "test clutch: controlled by ClutchProbe, the mapped clutch is ignored"
+                                           : "test clutch: ended, the mapped clutch is used again");
                 }
             }
-            clutchOverride = testClutch.active(tickStart);
-            if (clutchOverride.has_value() != testClutchOn) {
-                testClutchOn = clutchOverride.has_value();
-                WE_LOG_INFO(log(), testClutchOn ? "test clutch: controlled by ClutchProbe, the mapped clutch is ignored"
-                                                : "test clutch: ended, the mapped clutch is used again");
-            }
-        }
-        stages.lap(TickStages::Input, mark);
-        if (!pipeline.tick(clutchOverride)) {
-            WE_LOG_ERROR(log(), "stopping: physical wheel lost after {} ticks", ticks);
-            return 1;
-        }
-        stages.lap(TickStages::Pipeline, mark);
-        ++ticks;
-        if (gameFfb != nullptr) {
-            gameFfb->pump(SDL_GetTicksNS());
-        }
-        stages.lap(TickStages::Ffb, mark);
-        if (telemetry != nullptr) {
-            const Uint64 now = SDL_GetTicksNS();
-            if (telemetry->due(now)) {
-                wheelemu::TelemetrySample sample;
-                sample.nowNs = now;
-                sample.sequence = pipeline.sequence();
-                sample.raw = pipeline.lastRaw();
-                sample.state = pipeline.lastState();
-                sample.report = pipeline.lastReport();
-                sample.ffb = gameFfb != nullptr ? &gameFfb->controller() : nullptr;
-                sample.periodUs = static_cast<double>(lastPeriodNs) / 1000.0;
-                sample.workUs = static_cast<double>(lastWorkNs) / 1000.0;
-                telemetry->writeSample(sample);
-            }
-        }
-        stages.lap(TickStages::Telemetry, mark);
-        if (tickStart - lastHousekeepingNs >= 250 * SDL_NS_PER_MS) {
-            lastHousekeepingNs = tickStart;
-            housekeeping.pump();
-            if (nextMidnight && wheelemu::WallClock::now() >= *nextMidnight) {
-                const auto now = wheelemu::WallClock::now();
-                WE_LOG_INFO(log(), "new day {}: new log and telemetry files, checking old ones", wheelemu::localDate(now));
-                housekeeping.run(now);
-                nextMidnight = wheelemu::startOfDay(wheelemu::addDays(wheelemu::localDate(now), 1).value_or(""));
-            }
-        }
-        stages.lap(TickStages::Housekeeping, mark);
-        if (print && ticks % printEveryTicks == 0) {
-            printLive(pipeline);
-        }
-        if (view != nullptr && ticks % frameEveryTicks == 0) {
-            // Drawing lands inside the tick, so the loop statistics include it; the game path is unaffected.
-            if (!view->pumpEvents()) {
-                WE_LOG_INFO(log(), "mapping window closed after {} ticks", ticks);
+            stages.lap(TickStages::Input, mark);
+            if (!pipeline.tick(clutchOverride)) {
+                WE_LOG_ERROR(log(), "stopping: physical wheel lost after {} ticks", ticks);
+                result = 1;
                 break;
             }
-            wheelemu::service::FfbDisplay ffbDisplay;
-            ffbDisplay.controller = gameFfb != nullptr ? &gameFfb->controller() : nullptr;
-            ffbDisplay.status = ffbStatus;
-            ffbDisplay.invert = config.ffbInvert;
-            ffbDisplay.nowNs = SDL_GetTicksNS();
-            view->render(pipeline.lastRaw(), pipeline.lastState(), pipeline.lastReport(), ffbDisplay);
-        }
-        stages.lap(TickStages::Ui, mark);
-
-        const Uint64 tickEnd = SDL_GetTicksNS();
-        const Uint64 period = tickStart - lastTickStart;
-        lastTickStart = tickStart;
-        lastPeriodNs = period;
-        lastWorkNs = tickEnd - tickStart;
-        if (ticks > 1) {
-            loopHealth.record(period, tickEnd - tickStart, stages);
-        }
-        if (tickEnd - tickStart >= kStallNs) {
-            WE_LOG_WARN(log(), "loop: one tick took {:.0f} ms, the game got no fresh input meanwhile: {}",
-                        static_cast<double>(tickEnd - tickStart) / 1e6, stages.describe());
-        }
-        if (tickEnd - windowStart >= kStatsWindowNs) {
-            loopHealth.endWindow(pipeline);
+            stages.lap(TickStages::Pipeline, mark);
+            ++ticks;
             if (gameFfb != nullptr) {
-                gameFfb->logStatsIfChanged();
+                gameFfb->pump(SDL_GetTicksNS());
             }
-            windowStart = tickEnd;
-        }
+            stages.lap(TickStages::Ffb, mark);
+            if (telemetry != nullptr) {
+                const Uint64 now = SDL_GetTicksNS();
+                if (telemetry->due(now)) {
+                    wheelemu::TelemetrySample sample;
+                    sample.nowNs = now;
+                    sample.sequence = pipeline.sequence();
+                    sample.raw = pipeline.lastRaw();
+                    sample.state = pipeline.lastState();
+                    sample.report = pipeline.lastReport();
+                    sample.ffb = gameFfb != nullptr ? &gameFfb->controller() : nullptr;
+                    sample.periodUs = static_cast<double>(lastPeriodNs) / 1000.0;
+                    sample.workUs = static_cast<double>(lastWorkNs) / 1000.0;
+                    telemetry->writeSample(sample);
+                }
+            }
+            stages.lap(TickStages::Telemetry, mark);
+            if (print && ticks % printEveryTicks == 0) {
+                printLive(pipeline);
+            }
+            if (view != nullptr && ticks % frameEveryTicks == 0) {
+                // Hand the window a copy. Never wait for it: if it is copying right now, skip this frame.
+                const std::unique_lock lock(frameMutex, std::try_to_lock);
+                if (lock.owns_lock()) {
+                    sharedFrame.raw = pipeline.lastRaw();
+                    sharedFrame.state = pipeline.lastState();
+                    sharedFrame.report = pipeline.lastReport();
+                    sharedFrame.ffb.reset();
+                    if (gameFfb != nullptr) {
+                        sharedFrame.ffb.emplace(gameFfb->controller());
+                    }
+                    sharedFrame.telemetry = telemetryFiles(telemetry.get());
+                    sharedFrame.ready = true;
+                }
+            }
+            stages.lap(TickStages::Ui, mark);
 
-        // Fixed rate without drift; if we fell behind (e.g. system sleep), resynchronise instead of bursting.
-        nextTick += periodNs;
-        if (nextTick > tickEnd) {
-            SDL_DelayPrecise(nextTick - tickEnd);
-            const Uint64 woke = SDL_GetTicksNS();
-            if (woke - nextTick >= kStallNs) {
-                // Not our work: Windows let the service sleep far longer than asked (the PC was busy).
-                WE_LOG_WARN(log(), "loop: woke {:.0f} ms late from a {:.2f} ms sleep: Windows did not schedule the "
-                                   "service (PC busy?)",
-                            static_cast<double>(woke - nextTick) / 1e6, static_cast<double>(nextTick - tickEnd) / 1e6);
+            const Uint64 tickEnd = SDL_GetTicksNS();
+            const Uint64 period = tickStart - lastTickStart;
+            lastTickStart = tickStart;
+            lastPeriodNs = period;
+            lastWorkNs = tickEnd - tickStart;
+            if (ticks > 1) {
+                loopHealth.record(period, tickEnd - tickStart, stages);
             }
-        } else {
-            if (tickEnd - nextTick > 100 * SDL_NS_PER_MS) {
-                WE_LOG_WARN(log(), "loop: {:.0f} ms behind schedule, resynchronising",
-                            static_cast<double>(tickEnd - nextTick) / 1e6);
+            if (tickEnd - tickStart >= kStallNs) {
+                WE_LOG_WARN(log(), "loop: one tick took {:.0f} ms, the game got no fresh input meanwhile: {}",
+                            static_cast<double>(tickEnd - tickStart) / 1e6, stages.describe());
             }
-            nextTick = tickEnd;
+            if (tickEnd - windowStart >= kStatsWindowNs) {
+                loopHealth.endWindow(pipeline);
+                if (gameFfb != nullptr) {
+                    gameFfb->logStatsIfChanged();
+                    if (tickEnd - lastUsageLogNs >= kUsageLogNs) {
+                        gameFfb->logUsage();
+                        lastUsageLogNs = tickEnd;
+                    }
+                }
+                windowStart = tickEnd;
+            }
+
+            // Fixed rate without drift; if we fell behind (e.g. system sleep), resynchronise instead of bursting.
+            nextTick += periodNs;
+            if (nextTick > tickEnd) {
+                SDL_DelayPrecise(nextTick - tickEnd);
+                const Uint64 woke = SDL_GetTicksNS();
+                if (woke - nextTick >= kStallNs) {
+                    // Not our work: Windows let the service sleep far longer than asked (the PC was busy).
+                    WE_LOG_WARN(log(), "loop: woke {:.0f} ms late from a {:.2f} ms sleep: Windows did not schedule "
+                                       "the service (PC busy?)",
+                                static_cast<double>(woke - nextTick) / 1e6,
+                                static_cast<double>(nextTick - tickEnd) / 1e6);
+                }
+            } else {
+                if (tickEnd - nextTick > 100 * SDL_NS_PER_MS) {
+                    WE_LOG_WARN(log(), "loop: {:.0f} ms behind schedule, resynchronising",
+                                static_cast<double>(tickEnd - nextTick) / 1e6);
+                }
+                nextTick = tickEnd;
+            }
         }
+        if (print) {
+            std::puts("");
+        }
+        loopHealth.logSummary(pipeline);
+        if (gameFfb != nullptr) {
+            gameFfb->logUsage();
+        }
+        if (gStop) {
+            WE_LOG_INFO(log(), "stopped by signal after {} ticks", ticks);
+        }
+        return result;
+    };
+
+    std::thread loopThread([&] {
+        loopResult = tickLoop();
+        loopDone = true;
+    });
+
+    // This thread: the window (~60 fps) and old files (every 250 ms, and again after every midnight).
+    try {
+        constexpr Uint64 kFrameNs = SDL_NS_PER_SECOND / 60;
+        Uint64 lastHousekeepingNs = 0;
+        Uint64 nextFrame = SDL_GetTicksNS();
+        while (!loopDone) {
+            const Uint64 now = SDL_GetTicksNS();
+            if (now - lastHousekeepingNs >= 250 * SDL_NS_PER_MS) {
+                lastHousekeepingNs = now;
+                if (stopRequested()) {
+                    WE_LOG_INFO(log(), "stop requested ({} appeared)", gStopFile.string());
+                    gStop = true;
+                }
+                housekeeping.pump();
+                if (nextMidnight && wheelemu::WallClock::now() >= *nextMidnight) {
+                    const auto wall = wheelemu::WallClock::now();
+                    WE_LOG_INFO(log(), "new day {}: new log and telemetry files, checking old ones",
+                                wheelemu::localDate(wall));
+                    housekeeping.run(wall);
+                    nextMidnight = wheelemu::startOfDay(wheelemu::addDays(wheelemu::localDate(wall), 1).value_or(""));
+                }
+            }
+            if (view == nullptr) {
+                SDL_Delay(50);
+                continue;
+            }
+            if (!view->pumpEvents()) {
+                WE_LOG_INFO(log(), "mapping window closed");
+                break;
+            }
+            std::optional<UiFrame> frame;
+            {
+                const std::lock_guard lock(frameMutex);
+                if (sharedFrame.ready) {
+                    frame.emplace(sharedFrame);
+                }
+            }
+            if (frame) {
+                view->setTelemetry(frame->telemetry);
+                wheelemu::service::FfbDisplay ffbDisplay;
+                ffbDisplay.controller = frame->ffb ? &*frame->ffb : nullptr;
+                ffbDisplay.status = ffbStatus;
+                ffbDisplay.invert = config.ffbInvert;
+                ffbDisplay.nowNs = SDL_GetTicksNS();
+                view->render(frame->raw, frame->state, frame->report, ffbDisplay);
+            }
+            nextFrame += kFrameNs;
+            const Uint64 after = SDL_GetTicksNS();
+            if (nextFrame > after) {
+                SDL_DelayNS(nextFrame - after);
+            } else {
+                nextFrame = after;   // the window was held up: carry on from now, no catching up
+            }
+        }
+    } catch (...) {
+        stopLoop = true;   // never leave the loop thread running behind an error here
+        loopThread.join();
+        throw;
     }
-    if (print) {
-        std::puts("");
-    }
-    loopHealth.logSummary(pipeline);
+    stopLoop = true;
+    loopThread.join();
+
     if (telemetry != nullptr) {
         WE_LOG_INFO(log(), "telemetry: {} rows written ({} unchanged samples skipped), {} force feedback changes in {}",
                     telemetry->rowsWritten(), telemetry->rowsSkipped(), telemetry->ffbRowsWritten(),
                     telemetry->samplesPath().parent_path().string());
     }
-    if (gStop) {
-        WE_LOG_INFO(log(), "stopped by signal after {} ticks", ticks);
-    }
-    return 0;
+    return loopResult;
 }
 
 int run(const Options& options) {
@@ -663,6 +835,16 @@ int run(const Options& options) {
         listDevices();
         return 0;
     }
+    if (options.unhide) {
+        const auto hidHide = wheelemu::service::HidHide::find();
+        if (hidHide == nullptr) {
+            WE_LOG_ERROR(log(), "HidHide is not installed: nothing to unhide");
+            return 1;
+        }
+        hidHide->unhideAll(wheelVendorId(config.sourceDeviceMatch));
+        hidHide->logState();
+        return 0;
+    }
 
     const auto source = wheelemu::service::SdlInputSource::open(config.sourceDeviceMatch);
     if (source == nullptr) {
@@ -681,11 +863,48 @@ int run(const Options& options) {
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
+    if (!options.stopFile.empty()) {
+        gStopFile = options.stopFile;
+        std::error_code ec;
+        std::filesystem::remove(gStopFile, ec);   // left over from an earlier run
+        WE_LOG_INFO(log(), "stops when {} appears", gStopFile.string());
+    }
     std::filesystem::path logFolder = std::filesystem::path(logFile).parent_path();
     if (logFolder.empty()) {
         logFolder = std::filesystem::current_path();
     }
-    return runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, options.print, options.ui);
+    // Our own driver's G920 (driver/): there while the loop runs, removed when it returns or the process ends.
+    std::unique_ptr<wheelemu::service::VirtualG920> g920;
+    if (options.virtualG920) {
+        std::string error;
+        g920 = wheelemu::service::VirtualG920::create(error);
+        if (g920 == nullptr) {
+            WE_LOG_CRITICAL(log(), "--virtual-g920: {}", error);
+            return 1;
+        }
+    }
+    // The real wheel hidden from games meanwhile, or a game may take it instead of the G920 (NFS does).
+    // The service keeps its own access: it opened the wheel already and HidHide lists it as allowed.
+    std::unique_ptr<wheelemu::service::HidHide> hidHide;
+    if (g920 != nullptr && options.hide) {
+        hidHide = wheelemu::service::HidHide::find();
+        if (hidHide == nullptr) {
+            WE_LOG_WARN(log(), "HidHide is not installed: games see the real wheel next to the G920 and may take it");
+        } else if (!hidHide->hideWheel(wheelVendorId(config.sourceDeviceMatch))) {
+            hidHide.reset();
+        }
+    }
+    const int result =
+        runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, options.print, options.ui);
+    if (hidHide != nullptr) {
+        hidHide->restore();
+        hidHide->logState();
+    }
+    if (g920 != nullptr) {
+        WE_LOG_INFO(log(), "removing the virtual G920 {}", g920->instanceId());
+        g920.reset();
+    }
+    return result;
 }
 
 }  // namespace

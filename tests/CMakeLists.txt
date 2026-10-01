@@ -12,6 +12,9 @@ add_executable(wheelemu_tests
     EmulatorConfigTest.cpp
     FfbForwardingTest.cpp
     FfbSafetyLimiterTest.cpp
+    FfbUsageTest.cpp
+    HidHideCliTest.cpp
+    HidPidTest.cpp
     IniDocumentTest.cpp
     LoggingTest.cpp
     LoopStatsTest.cpp
@@ -24,6 +27,12 @@ add_executable(wheelemu_tests
     UdpLoopbackTest.cpp
 )
 target_link_libraries(wheelemu_tests PRIVATE wheelemu_core GTest::gtest_main)
+
+# The Linux virtual G920's uhid protocol (tools/uhid), tested without /dev/uhid.
+if(WE_LINUX)
+    target_sources(wheelemu_tests PRIVATE UhidG920Test.cpp ${PROJECT_SOURCE_DIR}/tools/uhid/UhidG920.cpp)
+    target_include_directories(wheelemu_tests PRIVATE ${PROJECT_SOURCE_DIR}/tools/uhid)
+endif()
 
 include(GoogleTest)
 gtest_discover_tests(wheelemu_tests)

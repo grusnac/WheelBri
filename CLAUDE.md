@@ -89,7 +89,16 @@ axis/button next to its target (G920/G29).
   service (timing, keep-alives); in that mode the physical device is opened non-exclusively because the
   service owns its force feedback. Other devices stay `ProxyDevice<T>`
   (log and forward). Settings: optional `wheelemu-shim.ini` next to the DLL (`ShimConfig`).
-- `tests/`: GoogleTest for `core/` only (`wheelemu_tests`). Use fakes of the interfaces (see
+- `tools/vbridge/` (C#, .NET 10, Windows): Phase 5 step 0 bridge. HIDMaestro virtual G920 fed from the
+  service's `StatePacket`s; decodes HID PID reports (`PidForwarder.cs`) into `FfbPacket`s. `Wire.cs` must stay
+  byte-compatible with `core/src/StatePacket.cpp` and `FfbPacket.cpp`; `SelfTest/` checks the portable parts
+  with `dotnet run` (any OS, no NuGet packages needed).
+- `tools/uhid/` (C++, Linux only, `WE_BUILD_UHID`): Phase 4, `wheelemu-uhid`. The same virtual G920 as the bridge
+  (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
+  raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. `UhidG920` holds the uhid protocol with no file descriptors so
+  `UhidG920Test` covers it; `main.cpp` is the fd/UDP loop. Start/stop and the Steam launch wrapper:
+  `scripts/linux/wheelemu.sh`; user guide: `docs/linux.md`; bundle: `scripts/linux/package.sh`.
+- `tests/`: GoogleTest for `core/` (`wheelemu_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces (see
   `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.
 
 ## Conventions

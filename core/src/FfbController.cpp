@@ -34,7 +34,7 @@ bool closeTo(const float a, const float b) { return std::abs(a - b) < 1e-3F; }
 }  // namespace
 
 FfbController::FfbController(IFfbSink& sink, const FfbSafetyConfig& safety, const Timing timing)
-    : sink_(sink), safety_(safety), timing_(timing) {
+    : sink_(sink), safety_(safety), timing_(timing), usage_(safety) {
     limiters_.reserve(slots_.size());
     for (std::size_t i = 0; i < slots_.size(); ++i) {
         limiters_.emplace_back(safety_);
@@ -136,6 +136,17 @@ void FfbController::update(const std::uint64_t nowNs) {
         }
     }
     stats_.activeSlots = active;
+
+    std::array<FfbUsage::SlotSample, IFfbSink::kMaxSlots> samples{};
+    for (std::size_t i = 0; i < slots_.size(); ++i) {
+        const Slot& slot = slots_[i];
+        if (slot.playing && slot.lastSent) {
+            samples[i] = {true, slot.requested, *slot.lastSent};
+        }
+    }
+    const std::uint64_t dt = lastUsageNs_ && nowNs > *lastUsageNs_ ? nowNs - *lastUsageNs_ : 0;
+    lastUsageNs_ = nowNs;
+    usage_.record(dt, lastPacketNs_.has_value() && !watchdogTripped_, samples);
 }
 
 void FfbController::stopAll() {

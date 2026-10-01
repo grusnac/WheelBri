@@ -1,0 +1,458 @@
+#include "wheelemu/HidPid.hpp"
+
+#include <algorithm>
+#include <bit>
+#include <cmath>
+#include <cstdio>
+#include <numbers>
+
+namespace wheelemu {
+
+namespace {
+
+std::int16_t i16(std::span<const std::uint8_t> d, std::size_t at) {
+    return static_cast<std::int16_t>(d[at] | (d[at + 1] << 8U));
+}
+
+std::uint16_t u16(std::span<const std::uint8_t> d, std::size_t at) {
+    return static_cast<std::uint16_t>(d[at] | (d[at + 1] << 8U));
+}
+
+std::uint32_t u32(std::span<const std::uint8_t> d, std::size_t at) {
+    return static_cast<std::uint32_t>(d[at]) | (static_cast<std::uint32_t>(d[at + 1]) << 8U) |
+           (static_cast<std::uint32_t>(d[at + 2]) << 16U) | (static_cast<std::uint32_t>(d[at + 3]) << 24U);
+}
+
+std::string hex(std::span<const std::uint8_t> d) {
+    std::string text;
+    char byte[4];
+    for (const std::uint8_t b : d) {
+        std::snprintf(byte, sizeof(byte), "%02X", b);
+        text += byte;
+    }
+    return text;
+}
+
+}  // namespace
+
+HidPid::HidPid(Sender send, Logger log) : send_(std::move(send)), log_(std::move(log)) {}
+
+// PID effect type (1-based, descriptor order: constant, ramp, square, sine, triangle, saw up, saw down, spring,
+// damper, inertia, friction, custom) -> the service's type. Ramp plays as a constant at its mean level.
+std::optional<FfbEffectType> HidPid::typeFor(int pidType) {
+    switch (pidType) {
+        case 1:
+        case 2: return FfbEffectType::Constant;
+        case 3: return FfbEffectType::Square;
+        case 4: return FfbEffectType::Sine;
+        case 5: return FfbEffectType::Triangle;
+        case 6: return FfbEffectType::SawtoothUp;
+        case 7: return FfbEffectType::SawtoothDown;
+        case 8: return FfbEffectType::Spring;
+        case 9: return FfbEffectType::Damper;
+        case 10: return FfbEffectType::Inertia;
+        case 11: return FfbEffectType::Friction;
+        default: return std::nullopt;
+    }
+}
+
+std::optional<HidPid::ParamKind> HidPid::kindOf(int pidType) {
+    if (pidType == 1) return ParamKind::Constant;
+    if (pidType == 2) return ParamKind::Ramp;
+    if (pidType >= 3 && pidType <= 7) return ParamKind::Periodic;
+    if (pidType >= 8 && pidType <= 11) return ParamKind::Condition;
+    return std::nullopt;
+}
+
+void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std::int64_t nowMs) {
+    std::lock_guard lock(mutex_);
+    ++reportsHandled_;
+    char kind[24];
+    std::snprintf(kind, sizeof(kind), "output 0x%02X", reportId);
+    if (seen_.insert(kind).second) {
+        log_(std::string("pid: first ") + kind + ": " + hex(d));
+    }
+    switch (reportId) {
+        case kSetEffect:
+            if (d.size() >= 13) onSetEffect(d);
+            break;
+        case kSetEnvelope: break;            // attack/fade: ignored, as by the shim
+        case kSetCondition:
+            if (d.size() >= 14) onSetCondition(d);
+            break;
+        case kSetPeriodic:
+            if (d.size() >= 11) onSetPeriodic(d);
+            break;
+        case kSetConstant:
+            if (d.size() >= 3) {
+                const float magnitude = static_cast<float>(i16(d, 1)) / 10000.0F;
+                withParams(d[0], ParamKind::Constant, [magnitude](Block& b) { b.constantMagnitude = magnitude; });
+            }
+            break;
+        case kSetRamp:
+            if (d.size() >= 5) {
+                const float start = static_cast<float>(i16(d, 1)) / 10000.0F;
+                const float end = static_cast<float>(i16(d, 3)) / 10000.0F;
+                withParams(d[0], ParamKind::Ramp, [start, end](Block& b) {
+                    b.rampStart = start;
+                    b.rampEnd = end;
+                });
+            }
+            break;
+        case kEffectOperation:
+            if (d.size() >= 3) onEffectOperation(d, nowMs);
+            break;
+        case kBlockFree:
+            if (!d.empty()) onBlockFree(d[0], nowMs);
+            break;
+        case kDeviceControl:
+            if (!d.empty()) onDeviceControl(d[0], nowMs);
+            break;
+        case kDeviceGain:
+            if (!d.empty()) deviceGain_ = static_cast<float>(d[0]) / 255.0F;
+            break;
+        default: break;
+    }
+    sendChanges(nowMs, false);
+}
+
+void HidPid::setFeature(std::uint8_t reportId, std::span<const std::uint8_t> d, std::int64_t nowMs) {
+    std::lock_guard lock(mutex_);
+    ++reportsHandled_;
+    char kind[24];
+    std::snprintf(kind, sizeof(kind), "feature 0x%02X", reportId);
+    if (seen_.insert(kind).second) {
+        log_(std::string("pid: first ") + kind + ": " + hex(d));
+    }
+    // pid.dll may send Block Free and Device Control through the feature path too.
+    if (reportId == kBlockFree && !d.empty()) {
+        onBlockFree(d[0], nowMs);
+        sendChanges(nowMs, false);
+        return;
+    }
+    if (reportId == kDeviceControl && !d.empty()) {
+        onDeviceControl(d[0], nowMs);
+        sendChanges(nowMs, false);
+        return;
+    }
+    if (reportId != kCreateNewEffect) {
+        return;
+    }
+    lastAllocated_ = 0;
+    lastLoadStatus_ = 2;   // full
+    for (std::uint8_t ebi = 1; ebi <= kMaxSlots; ++ebi) {
+        const std::uint32_t bit = 1U << (ebi - 1U);
+        if ((allocated_ & bit) == 0) {
+            allocated_ |= bit;
+            lastAllocated_ = ebi;
+            lastLoadStatus_ = 1;
+            break;
+        }
+    }
+    if (lastLoadStatus_ == 2) {
+        log_("pid: all " + std::to_string(kMaxSlots) + " effect blocks in use, the game's new effect is refused");
+    }
+}
+
+std::size_t HidPid::getFeature(std::uint8_t reportId, std::span<std::uint8_t> out) const {
+    std::lock_guard lock(mutex_);
+    switch (reportId) {
+        case kBlockLoad: {
+            if (out.size() < 5) return 0;
+            const auto used = static_cast<std::uint32_t>(std::popcount(allocated_));
+            const std::uint32_t free = (kPoolSize / kMaxSlots) * (kMaxSlots - std::min<std::uint32_t>(used, kMaxSlots));
+            out[0] = reportId;
+            out[1] = lastAllocated_;
+            out[2] = lastLoadStatus_;
+            out[3] = static_cast<std::uint8_t>(free & 0xFFU);
+            out[4] = static_cast<std::uint8_t>((free >> 8U) & 0xFFU);
+            return 5;
+        }
+        case kPool:
+            if (out.size() < 5) return 0;
+            out[0] = reportId;
+            out[1] = static_cast<std::uint8_t>(kPoolSize & 0xFFU);
+            out[2] = static_cast<std::uint8_t>(kPoolSize >> 8U);
+            out[3] = static_cast<std::uint8_t>(kMaxSlots);
+            out[4] = 0x01;   // device-managed pool, no shared parameter blocks
+            return 5;
+        case kState:
+            if (out.size() < 3) return 0;
+            out[0] = reportId;
+            out[1] = 0;
+            out[2] = static_cast<std::uint8_t>((actuatorsOn_ ? 0x02U : 0U) | 0x10U | (paused_ ? 0x01U : 0U));
+            return 3;
+        case kCreateNewEffect:
+            if (out.empty()) return 0;
+            out[0] = reportId;   // bidirectional in the descriptor; nothing to report
+            return 1;
+        default: return 0;
+    }
+}
+
+HidPid::Block* HidPid::withBlock(std::uint8_t ebi) {
+    if (ebi == 0) return nullptr;
+    Block& block = blocks_[ebi];
+    if (block.slot < 0) {
+        const auto free = std::find(slotOwner_.begin(), slotOwner_.end(), std::nullopt);
+        if (free == slotOwner_.end()) {
+            log_("pid: all " + std::to_string(kMaxSlots) + " slots in use, effect block " + std::to_string(ebi) +
+                 " is not played");
+        } else {
+            block.slot = static_cast<int>(free - slotOwner_.begin());
+            *free = ebi;
+        }
+    }
+    return &block;
+}
+
+void HidPid::withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& action) {
+    if (ebi != 0) {
+        if (Block* b = withBlock(ebi)) action(*b);
+        return;
+    }
+    if (!loggedEbiZero_) {
+        loggedEbiZero_ = true;
+        log_("pid: parameters come with effect block 0: matched to the Set Effect that follows");
+    }
+    pending_[kind] = action;
+    const auto last = lastOfKind_.find(kind);
+    if (last != lastOfKind_.end() && blocks_.contains(last->second)) {
+        if (Block* b = withBlock(last->second)) action(*b);
+    }
+}
+
+// Set Effect: 0 EBI, 1 type, 2 duration ms, 4 trigger repeat, 6 sample period, 8 start delay ms,
+// 10 gain 0..255, 11 trigger button, 12 bit0 X enable / bit1 Y enable / bit2 direction enable,
+// 13 direction 1 (0..32767 = 0..360 degrees), 15 direction 2, 17/19 type-specific block offsets.
+void HidPid::onSetEffect(std::span<const std::uint8_t> d) {
+    const std::uint8_t ebi = d[0];
+    const int type = d[1];
+    const std::uint16_t duration = u16(d, 2);
+    const std::uint16_t startDelay = u16(d, 8);
+    const float gain = static_cast<float>(d[10]) / 255.0F;
+    const std::uint8_t axes = d[12];
+    const std::uint16_t direction = d.size() >= 15 ? u16(d, 13) : 0;
+    Block* b = withBlock(ebi);
+    if (b == nullptr) return;
+    b->pidType = type;
+    b->durationMs = (duration == 0xFFFF || duration == 0) ? std::nullopt : std::optional<std::int64_t>(duration);
+    b->startDelayMs = startDelay == 0xFFFF ? 0 : startDelay;
+    b->gain = gain;
+    if (const auto kind = kindOf(type)) {
+        lastOfKind_[*kind] = ebi;
+        if (const auto pending = pending_.find(*kind); pending != pending_.end()) {
+            pending->second(*b);
+            pending_.erase(pending);
+        }
+    }
+    // With a direction, the force points that way (polar, 90 degrees = +X, as the shim reads DirectInput
+    // polar directions); without one it acts along the enabled axes: here only the wheel counts.
+    if ((axes & 0x04U) != 0) {
+        const double radians = static_cast<double>(direction) / 32767.0 * 2.0 * std::numbers::pi;
+        b->along = static_cast<float>(std::sin(radians));
+    } else {
+        b->along = (axes & 0x01U) != 0 ? 1.0F : 0.0F;
+    }
+}
+
+// Set Condition: 0 EBI, 1 low nibble = parameter block (0 = X, 1 = Y; pid.dll may write 0xF), 2 centre,
+// 4 +coef, 6 -coef (all -10000..10000), 8 +sat, 10 -sat, 12 deadband (0..10000).
+void HidPid::onSetCondition(std::span<const std::uint8_t> d) {
+    if ((d[1] & 0x0FU) == 1) return;          // only the X (wheel) block matters
+    const float center = static_cast<float>(i16(d, 2)) / 10000.0F;
+    const float pos = static_cast<float>(i16(d, 4)) / 10000.0F;
+    const float neg = static_cast<float>(i16(d, 6)) / 10000.0F;
+    const float posSat = static_cast<float>(u16(d, 8)) / 10000.0F;
+    const float negSat = static_cast<float>(u16(d, 10)) / 10000.0F;
+    const float dead = static_cast<float>(u16(d, 12)) / 10000.0F;
+    withParams(d[0], ParamKind::Condition, [=](Block& b) {
+        b.center = center;
+        b.posCoef = pos;
+        b.negCoef = neg;
+        b.posSat = posSat;
+        b.negSat = negSat;
+        b.deadband = dead;
+    });
+}
+
+// Set Periodic: 0 EBI, 1 magnitude 0..10000, 3 offset -10000..10000, 5 phase (1/100 degree), 7 period ms.
+void HidPid::onSetPeriodic(std::span<const std::uint8_t> d) {
+    const float magnitude = static_cast<float>(u16(d, 1)) / 10000.0F;
+    const float offset = static_cast<float>(i16(d, 3)) / 10000.0F;
+    const float phase = static_cast<float>(u16(d, 5)) / 100.0F;
+    const auto period = static_cast<float>(u32(d, 7));
+    withParams(d[0], ParamKind::Periodic, [=](Block& b) {
+        b.magnitude = magnitude;
+        b.offset = offset;
+        b.phaseDeg = phase;
+        b.periodMs = period;
+    });
+}
+
+// Effect Operation: 0 EBI, 1 op (1 start, 2 start solo, 3 stop), 2 loop count (255 = infinite).
+void HidPid::onEffectOperation(std::span<const std::uint8_t> d, std::int64_t nowMs) {
+    const std::uint8_t ebi = d[0];
+    const std::uint8_t op = d[1];
+    const std::uint8_t loops = d[2];
+    if (op == 2) {
+        for (auto& [other, block] : blocks_) {
+            if (other != ebi) block.started = false;
+        }
+    }
+    Block* b = withBlock(ebi);
+    if (b == nullptr) return;
+    if (op == 1 || op == 2) {
+        b->started = true;
+        b->startedAtMs = nowMs;
+        b->loops = loops == 255 ? std::nullopt : std::optional<int>(std::max(1, static_cast<int>(loops)));
+    } else if (op == 3) {
+        b->started = false;
+    }
+}
+
+void HidPid::onBlockFree(std::uint8_t ebi, std::int64_t nowMs) {
+    if (ebi >= 1 && ebi <= 32) {
+        allocated_ &= ~(1U << (ebi - 1U));
+    }
+    for (auto it = lastOfKind_.begin(); it != lastOfKind_.end();) {
+        it = it->second == ebi ? lastOfKind_.erase(it) : std::next(it);
+    }
+    const auto found = blocks_.find(ebi);
+    if (found == blocks_.end()) return;
+    const int slot = found->second.slot;
+    blocks_.erase(found);
+    if (slot < 0) return;
+    const auto s = static_cast<std::size_t>(slot);
+    slotOwner_[s].reset();
+    if (sent_[s] && sent_[s]->playing) {
+        send(FfbPacket::Kind::SlotState, static_cast<std::uint8_t>(slot), false, sent_[s]->effect, nowMs);
+    }
+    sent_[s].reset();
+}
+
+void HidPid::resetAll(std::int64_t nowMs) {
+    blocks_.clear();
+    slotOwner_.fill(std::nullopt);
+    sent_.fill(std::nullopt);
+    pending_.clear();
+    lastOfKind_.clear();
+    allocated_ = 0;
+    lastAllocated_ = 0;
+    lastLoadStatus_ = 3;
+    paused_ = false;
+    actuatorsOn_ = true;
+    send(FfbPacket::Kind::StopAll, 0, false, FfbEffect{}, nowMs);
+}
+
+// Device Control: 1 enable actuators, 2 disable, 3 stop all, 4 reset, 5 pause, 6 continue.
+void HidPid::onDeviceControl(std::uint8_t command, std::int64_t nowMs) {
+    switch (command) {
+        case 1: actuatorsOn_ = true; break;
+        case 2: actuatorsOn_ = false; break;
+        case 3:
+            for (auto& [ebi, block] : blocks_) block.started = false;
+            break;
+        case 4: resetAll(nowMs); break;
+        case 5: paused_ = true; break;
+        case 6: paused_ = false; break;
+        default: break;
+    }
+}
+
+bool HidPid::playing(const Block& b, std::int64_t nowMs) const {
+    if (!b.started || !actuatorsOn_ || paused_ || !typeFor(b.pidType)) return false;
+    const std::int64_t elapsed = nowMs - b.startedAtMs;
+    if (elapsed < b.startDelayMs) return false;
+    if (!b.durationMs || !b.loops) return true;
+    return elapsed - b.startDelayMs < *b.durationMs * *b.loops;
+}
+
+FfbEffect HidPid::toEffect(const Block& b) const {
+    FfbEffect e;
+    e.type = typeFor(b.pidType).value_or(FfbEffectType::Constant);
+    e.gain = std::clamp(b.gain * deviceGain_, 0.0F, 1.0F);
+    if (b.pidType == 1) {
+        e.constantLevel = std::clamp(b.constantMagnitude * b.along, -1.0F, 1.0F);
+    } else if (b.pidType == 2) {
+        e.constantLevel = std::clamp((b.rampStart + b.rampEnd) / 2.0F * b.along, -1.0F, 1.0F);
+    } else if (b.pidType >= 3 && b.pidType <= 7) {
+        e.periodic.magnitude = b.magnitude * std::abs(b.along);
+        e.periodic.offset = b.offset * b.along;
+        e.periodic.periodMs = b.periodMs;
+        e.periodic.phaseDeg = b.along < 0 ? std::fmod(b.phaseDeg + 180.0F, 360.0F) : b.phaseDeg;
+    } else {
+        e.condition.center = b.center;
+        e.condition.deadband = b.deadband;
+        e.condition.positiveCoefficient = b.posCoef;
+        e.condition.negativeCoefficient = b.negCoef;
+        e.condition.positiveSaturation = b.posSat;
+        e.condition.negativeSaturation = b.negSat;
+    }
+    return e;
+}
+
+void HidPid::sendChanges(std::int64_t nowMs, bool force) {
+    for (std::size_t slot = 0; slot < kMaxSlots; ++slot) {
+        if (!slotOwner_[slot]) continue;
+        const auto found = blocks_.find(*slotOwner_[slot]);
+        if (found == blocks_.end()) continue;
+        const bool isPlaying = playing(found->second, nowMs);
+        const FfbEffect effect = toEffect(found->second);
+        const auto& last = sent_[slot];
+        const bool changed = !last || last->playing != isPlaying || (isPlaying && !(last->effect == effect));
+        if (changed || (force && last && last->playing)) {
+            send(FfbPacket::Kind::SlotState, static_cast<std::uint8_t>(slot), isPlaying, effect, nowMs);
+            sent_[slot] = Sent{isPlaying, effect};
+        }
+    }
+}
+
+void HidPid::send(FfbPacket::Kind kind, std::uint8_t slot, bool isPlaying, const FfbEffect& effect, std::int64_t nowMs) {
+    FfbPacket packet;
+    packet.kind = kind;
+    packet.slot = slot;
+    packet.sequence = ++sequence_;
+    packet.playing = isPlaying;
+    packet.effect = effect;
+    send_(packet);
+    lastSendMs_ = nowMs;
+    ++packetsSent_;
+}
+
+void HidPid::tick(std::int64_t nowMs) {
+    constexpr std::int64_t kKeepAliveMs = 100;
+    constexpr std::int64_t kRefreshMs = 250;
+    std::lock_guard lock(mutex_);
+    const bool refresh = nowMs - lastRefreshMs_ >= kRefreshMs;
+    if (refresh) lastRefreshMs_ = nowMs;
+    sendChanges(nowMs, refresh);
+    // Keep-alives only once a game used force feedback: otherwise the service would report a game that is not there.
+    if (reportsHandled_ > 0 && nowMs - lastSendMs_ >= kKeepAliveMs) {
+        send(FfbPacket::Kind::KeepAlive, 0, false, FfbEffect{}, nowMs);
+    }
+}
+
+void HidPid::stopAll(std::int64_t nowMs) {
+    std::lock_guard lock(mutex_);
+    for (auto& [ebi, block] : blocks_) block.started = false;
+    sent_.fill(std::nullopt);
+    send(FfbPacket::Kind::StopAll, 0, false, FfbEffect{}, nowMs);
+}
+
+std::uint64_t HidPid::reportsHandled() const {
+    std::lock_guard lock(mutex_);
+    return reportsHandled_;
+}
+
+std::uint64_t HidPid::packetsSent() const {
+    std::lock_guard lock(mutex_);
+    return packetsSent_;
+}
+
+std::size_t HidPid::activeSlots() const {
+    std::lock_guard lock(mutex_);
+    return static_cast<std::size_t>(std::count_if(sent_.begin(), sent_.end(), [](const auto& s) { return s && s->playing; }));
+}
+
+}  // namespace wheelemu

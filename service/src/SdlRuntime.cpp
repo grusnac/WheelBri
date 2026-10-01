@@ -44,11 +44,35 @@ void waitForDeviceDiscovery() {
                  (SDL_GetTicksNS() - start) / SDL_NS_PER_MS);
 }
 
+#ifdef _WIN32
+// SDL back-ends a wheel does not need (HIDAPI opens every HID device of the PC on each device change, the
+// XInput check walks the raw-input list for each game controller): off, less work and fewer devices opened.
+// The wheel is read through DirectInput (see DinputReader.hpp). Environment variables override these
+// defaults (for example SDL_JOYSTICK_HIDAPI=1), as for any SDL hint.
+void limitJoystickBackends() {
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "0");
+    SDL_SetHint(SDL_HINT_XINPUT_ENABLED, "0");
+    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
+    SDL_SetHint(SDL_HINT_JOYSTICK_GAMEINPUT, "0");
+    // The UI's SDL_PumpEvents must not run SDL_UpdateJoysticks (and its device re-scans) inside the loop:
+    // the loop decides itself whether SDL's joystick update is needed at all.
+    SDL_SetHint(SDL_HINT_AUTO_UPDATE_JOYSTICKS, "0");
+    WE_LOG_INFO(log(), "SDL joystick back-ends: DirectInput{}{}{}{}",
+                SDL_GetHintBoolean(SDL_HINT_JOYSTICK_HIDAPI, false) ? " + HIDAPI" : "",
+                SDL_GetHintBoolean(SDL_HINT_XINPUT_ENABLED, false) ? " + XInput" : "",
+                SDL_GetHintBoolean(SDL_HINT_JOYSTICK_RAWINPUT, false) ? " + RawInput" : "",
+                SDL_GetHintBoolean(SDL_HINT_JOYSTICK_GAMEINPUT, false) ? " + GameInput" : "");
+}
+#endif
+
 }  // namespace
 
 SdlRuntime::SdlRuntime() {
     // Keep reading the wheel while the game window has focus.
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+#ifdef _WIN32
+    limitJoystickBackends();
+#endif
     ok_ = SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC);
     if (ok_) {
         WE_LOG_DEBUG(log(), "SDL joystick + haptic subsystems initialised");

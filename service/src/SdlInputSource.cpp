@@ -76,7 +76,9 @@ std::unique_ptr<SdlInputSource> SdlInputSource::open(const std::string& nameMatc
             continue;
         }
         logOpenedDevice(joystick, info);
-        return std::unique_ptr<SdlInputSource>(new SdlInputSource(joystick, info.name));
+        auto source = std::unique_ptr<SdlInputSource>(new SdlInputSource(joystick, info.name));
+        source->openDirectInput();
+        return source;
     }
     WE_LOG_ERROR(log(), "no joystick name or vid:pid contains '{}' ({} device(s) connected); check [emulator] source_device",
                  nameMatch, joysticks.size());
@@ -86,12 +88,48 @@ std::unique_ptr<SdlInputSource> SdlInputSource::open(const std::string& nameMatc
 SdlInputSource::SdlInputSource(SDL_Joystick* const joystick, std::string name)
     : joystick_(joystick), name_(std::move(name)) {}
 
+// Windows: read the wheel through DirectInput directly (see DinputReader.hpp), if it numbers the inputs
+// exactly as SDL does; otherwise keep reading through SDL.
+void SdlInputSource::openDirectInput() {
+#ifdef _WIN32
+    const char* const path = SDL_GetJoystickPath(joystick_);
+    if (path == nullptr) {
+        WE_LOG_INFO(log(), "reading '{}' through SDL (no device path for DirectInput)", name_);
+        return;
+    }
+    std::string error;
+    auto reader = DinputReader::open(path, error);
+    if (reader == nullptr) {
+        WE_LOG_WARN(log(), "reading '{}' through SDL: DirectInput: {}", name_, error);
+        return;
+    }
+    const int axes = SDL_GetNumJoystickAxes(joystick_);
+    const int buttons = SDL_GetNumJoystickButtons(joystick_);
+    const int hats = SDL_GetNumJoystickHats(joystick_);
+    if (reader->axes() != axes || reader->buttons() != buttons || reader->hats() != hats) {
+        WE_LOG_WARN(log(), "reading '{}' through SDL: DirectInput sees {} axes {} buttons {} hats, SDL {} {} {}",
+                    name_, reader->axes(), reader->buttons(), reader->hats(), axes, buttons, hats);
+        return;
+    }
+    dinput_ = std::move(reader);
+    WE_LOG_INFO(log(), "reading '{}' through DirectInput directly ({} axes, {} buttons, {} hat(s), same numbering "
+                "as SDL): devices plugged in or removed no longer pause the input", name_, axes, buttons, hats);
+#endif
+}
+
 SdlInputSource::~SdlInputSource() {
     SDL_CloseJoystick(joystick_);
     WE_LOG_DEBUG(log(), "closed '{}'", name_);
 }
 
 bool SdlInputSource::poll(RawInputState& state) {
+    if (dinput_ != nullptr) {
+        if (!dinput_->read(state)) {
+            WE_LOG_ERROR(log(), "'{}' was disconnected (DirectInput cannot read it any more)", name_);
+            return false;
+        }
+        return true;
+    }
     if (!SDL_JoystickConnected(joystick_)) {
         WE_LOG_ERROR(log(), "'{}' was disconnected: {}", name_, SDL_GetError());
         return false;
