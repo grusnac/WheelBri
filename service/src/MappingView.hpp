@@ -81,6 +81,11 @@ public:
 
     // Shown at the bottom of the panel.
     void setFiles(FilesDisplay files) { files_ = std::move(files); }
+    // The virtual devices' state, under the title (red when `warning`); empty: the usual hint.
+    void setDevices(std::string devices, const bool warning) {
+        devices_ = std::move(devices);
+        devicesWarning_ = warning;
+    }
     void setTelemetry(TelemetryFiles telemetry) { files_.telemetry = std::move(telemetry); }
     void setOldFiles(std::string status, const bool failed) {
         files_.oldFiles = std::move(status);
@@ -133,6 +138,8 @@ private:
     std::array<const char*, 64> sourceHatDirection_{};
 
     FilesDisplay files_;
+    std::string devices_;
+    bool devicesWarning_ = false;
     Tab tab_ = Tab::Mapping;
 
     // One line of the Logs tab: a part of wheel-emulator and today's log file it writes.

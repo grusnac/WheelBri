@@ -24,6 +24,10 @@ struct SessionInfo {
     FilesDisplay files;
     std::string ffbStatus;      // why there is no game force feedback, when there is none
     bool ffbInvert = false;
+    // The virtual devices with --virtual-g920 (the app): "virtual G920 on, R3 hidden (wheelemu-hide), Xbox pad on";
+    // empty without them. `devicesWarning`: something the game needs is missing (e.g. the R3 is not hidden).
+    std::string devices;
+    bool devicesWarning = false;
 };
 
 // What the window draws, copied from the loop's thread about 60 times a second.

@@ -212,7 +212,11 @@ void MappingView::drawHeader() {
     std::snprintf(line, sizeof(line), "%.40s  ->  %.40s", sourceName_.c_str(),
                   profile_.identity().productName.c_str());
     text(window_, 4, 4, line, kHeading);
-    text(window_, 4, 16, "Move every control and check where it lands.", kDim);
+    if (devices_.empty()) {
+        text(window_, 4, 16, "Move every control and check where it lands.", kDim);
+    } else {
+        text(window_, 4, 16, devices_.substr(0, 118).c_str(), devicesWarning_ ? kWarning : kDim);
+    }
 }
 
 void MappingView::drawAxes(const RawInputState& raw, const WheelState& state, const TargetReport& report,

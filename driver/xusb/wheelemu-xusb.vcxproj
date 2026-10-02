@@ -49,6 +49,11 @@
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
+    <!-- stampinf writes today's local date as DriverVer by default, but inf2cat compares it with UTC: east of UTC
+         it is "in the future" for a few hours after midnight and signing fails (22.9.7). Stamp the UTC date. -->
+    <Inf>
+      <DateStamp>$([System.DateTime]::UtcNow.ToString('MM/dd/yyyy'))</DateStamp>
+    </Inf>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Driver.cpp" />
