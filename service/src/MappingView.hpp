@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -63,11 +64,11 @@ public:
     MappingView(const MappingView&) = delete;
     MappingView& operator=(const MappingView&) = delete;
 
-    // The panel's tabs, switched with the buttons along the bottom (or M / L).
-    enum class Tab { Mapping, Logs };
+    // The panel's tabs, switched with the buttons along the bottom (or M / L / T / F).
+    enum class Tab { Mapping, Logs, Telemetry, ForceFeedback };
 
-    // A key pressed in the window: M / L switch tabs, F opens the logs folder, D the drivers' log folder,
-    // U switches the force feedback panel.
+    // A key pressed in the window: M / L / T / F switch tabs, O opens the logs (or telemetry) folder, D the drivers'
+    // log folder; on the Logs tab the arrows, PageUp / PageDown and Home / End scroll the live log.
     void onKey(char key);
     // Mouse wheel notches (> 0 = up): on the Logs tab, scrolls the live log.
     void onScroll(int notches);
@@ -93,18 +94,23 @@ public:
 private:
 
     void drawHeader();
-    void drawAxes(const RawInputState& raw, const WheelState& state, const TargetReport& report);
-    void drawRawAxes(const RawInputState& raw);
-    void drawHat(std::int8_t sourceHat, std::int8_t targetHat);
-    void drawTargetButtons(std::uint32_t targetButtons);
-    void drawSourceButtons(std::uint64_t sourceButtons);
-    void drawFooter();
-    void drawFfb(const FfbDisplay& ffb);
+    void drawAxes(const RawInputState& raw, const WheelState& state, const TargetReport& report, float top);
+    void drawRawAxes(const RawInputState& raw, float top);
+    void drawHat(std::int8_t sourceHat, std::int8_t targetHat, float top);
+    void drawTargetButtons(std::uint32_t targetButtons, float top);
+    void drawSourceButtons(std::uint64_t sourceButtons, float top);
+    void drawFooter(float top);
+    void drawFfb(const FfbDisplay& ffb, float top);
     void drawFfbUsage(const FfbController& controller, float top);
     void drawTabs();
     void drawLogs();
     void refreshLogFiles();
     void drawLiveLog(float top);
+    void drawTelemetry();
+    void drawForceFeedback(const FfbDisplay& ffb);
+    void trackEvents(const RawInputState& raw, const WheelState& state, const TargetReport& report,
+                     const FfbDisplay& ffb);
+    void addEvent(int kind, std::string text);
     void scrollLiveLog(long long lines);
     void openFolder(const std::filesystem::path& folder) const;
     void trackLastPressed(std::uint64_t sourceButtons);
@@ -149,7 +155,20 @@ private:
     std::uint64_t liveSeen_ = 0;        // liveLog_.added() when last drawn (to hold the view while scrolled up)
     std::size_t liveRows_ = 1;          // lines that fit, from the last draw
 
-    bool showFfbUsage_ = false;     // U switches the force feedback panel: live effects / usage since start
+    // The Telemetry tab's latest events (buttons, D-pad, pedals, game force feedback), newest last.
+    struct TelemetryEvent {
+        std::string time;               // "22:49:33.488"
+        int kind;                       // index into the event colours
+        std::string text;
+    };
+    std::deque<TelemetryEvent> events_;
+    bool eventsStarted_ = false;        // the first frame only sets the starting state
+    std::uint64_t eventButtons_ = 0;
+    std::int8_t eventHat_ = -1;
+    std::array<bool, 3> pedalDown_{};
+    std::array<float, 3> pedalPeak_{};
+    std::array<bool, 8> ffbPlaying_{};
+
 
     std::uint64_t previousSourceButtons_ = 0;
     int lastPressedSource_ = kUnmapped;

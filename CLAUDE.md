@@ -143,11 +143,13 @@ only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /pe
 Service CLI (`service/src/main.cpp`): `wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
 [--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide] [--xbox-pad buttons|idle|off]]
 [--unhide] [--app]`. `--app` opens the app's window (Start / Stop / Open logs) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
-(click, or M / L): **Mapping** (every source axis/button next to its target G920/G29 button, written
-`G920 <n> <name> <- R3 <n> <name>`, the R3's own buttons as `R3 <n> <name>` from `[button_labels]`, and the game's
-force feedback) and **Logs** (one line per component: emulator, game shim, G920 driver, hide filter, Xbox driver,
-bridge, each in its own colour; today's file, size, age; click opens its folder; then telemetry, FFB and old
-files; then a scrollable live log of all those files merged, wheel / PageUp / End, core `LiveLog`). It draws through
+(click, or M / L / T / F): **Mapping** (the axes R3 -> G920, every R3 axis, the D-pad, the G920 buttons written
+`G920 <n> <name> <- R3 <n> <name>` and the R3's own buttons `R3 <n> <name>` from `[button_labels]`), **Logs** (one
+line per component: emulator, game shim, G920 driver, hide filter, Xbox driver, bridge, each in its own colour,
+with today's file, size, age, click opens its folder; then a scrollable live log of all those files merged:
+wheel, arrows, PageUp / PageDown, Home / End; core `LiveLog`), **Telemetry** (the CSV files, buttons held, the
+latest button / D-pad / pedal / FFB events, not scrollable) and **Force feedback** (live effects, usage since
+start, the latest effects). O opens the logs folder, D the drivers' folder. It draws through
 `UiWindow.hpp` (filled/outlined rectangles, 8x8-cell monospaced text and clicks on a 960x748 logical canvas,
 letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp`
 (Xlib) on Linux.

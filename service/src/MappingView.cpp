@@ -27,7 +27,7 @@ constexpr int kLogicalWidth = MappingView::kWidth;
 constexpr int kLogicalHeight = MappingView::kHeight;
 
 constexpr std::size_t kMaxSourceButtons = 64;
-constexpr float kTabWidth = 120;   // the tab buttons along the bottom
+constexpr float kTabWidth = 156;   // the tab buttons along the bottom
 
 using Colour = ui::Colour;
 
@@ -107,16 +107,18 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
 }
 
 void MappingView::onKey(const char key) {
-    if (key == 'f') {
+    if (key == 'o') {
         openFilesFolder();
     } else if (key == 'd') {
         openFolder(driverLogFolder_);
-    } else if (key == 'u') {
-        showFfbUsage_ = !showFfbUsage_;
+    } else if (key == 'f') {
+        tab_ = Tab::ForceFeedback;
     } else if (key == 'm') {
         tab_ = Tab::Mapping;
     } else if (key == 'l') {
         tab_ = Tab::Logs;
+    } else if (key == 't') {
+        tab_ = Tab::Telemetry;
     } else if (tab_ == Tab::Logs) {
         const auto page = static_cast<long long>(std::max<std::size_t>(liveRows_ - 1, 1));
         if (key == ui::kPageUp) scrollLiveLog(page);
@@ -185,17 +187,22 @@ void MappingView::draw(const RawInputState& raw, const WheelState& state, const 
                        const FfbDisplay& ffb) {
     trackLastPressed(raw.buttons);
 
+    trackEvents(raw, state, report, ffb);
     drawHeader();
     if (tab_ == Tab::Mapping) {
-        drawAxes(raw, state, report);
-        drawRawAxes(raw);
-        drawHat(raw.hat, report.hat);
-        drawTargetButtons(report.buttons);
-        drawSourceButtons(raw.buttons);
-        drawFooter();
-        drawFfb(ffb);
-    } else {
+        // What is mapped to what: the axes and pedals (R3 -> G920), every R3 axis, the D-pad, the buttons.
+        drawAxes(raw, state, report, 34);
+        drawRawAxes(raw, 128);
+        drawHat(raw.hat, report.hat, 128);
+        drawTargetButtons(report.buttons, 244);
+        drawSourceButtons(raw.buttons, 401);
+        drawFooter(545);
+    } else if (tab_ == Tab::Logs) {
         drawLogs();
+    } else if (tab_ == Tab::Telemetry) {
+        drawTelemetry();
+    } else {
+        drawForceFeedback(ffb);
     }
     drawTabs();
 }
@@ -208,7 +215,8 @@ void MappingView::drawHeader() {
     text(window_, 4, 16, "Move every control and check where it lands.", kDim);
 }
 
-void MappingView::drawAxes(const RawInputState& raw, const WheelState& state, const TargetReport& report) {
+void MappingView::drawAxes(const RawInputState& raw, const WheelState& state, const TargetReport& report,
+                           const float top) {
     struct Row {
         const char* name;
         int sourceAxis;
@@ -223,7 +231,7 @@ void MappingView::drawAxes(const RawInputState& raw, const WheelState& state, co
         {"Clutch", mapper_.clutch.sourceAxis, false, state.clutch, report.clutch},
     }};
 
-    constexpr float kTop = 34;
+    const float kTop = top;
     text(window_, 4, kTop, "AXES", kHeading);
     text(window_, 76, kTop, "R3", kDim);
     text(window_, 112, kTop, "R3 raw", kDim);
@@ -266,8 +274,8 @@ void MappingView::drawAxes(const RawInputState& raw, const WheelState& state, co
     text(window_, 4, kTop + 78, pedalNote_.c_str(), kDim);
 }
 
-void MappingView::drawRawAxes(const RawInputState& raw) {
-    constexpr float kTop = 128;
+void MappingView::drawRawAxes(const RawInputState& raw, const float top) {
+    const float kTop = top;
     text(window_, 4, kTop, "ALL R3 AXES", kHeading);
 
     auto roleOf = [this](const int axis) -> const char* {
@@ -297,9 +305,9 @@ void MappingView::drawRawAxes(const RawInputState& raw) {
     }
 }
 
-void MappingView::drawHat(const std::int8_t sourceHat, const std::int8_t targetHat) {
+void MappingView::drawHat(const std::int8_t sourceHat, const std::int8_t targetHat, const float top) {
     constexpr float kLeft = 470;
-    constexpr float kTop = 128;
+    const float kTop = top;
     text(window_, kLeft, kTop, "D-PAD / HAT", kHeading);
 
     // Hat index (clockwise from up) -> grid cell.
@@ -331,8 +339,8 @@ const std::string& MappingView::sourceLabel(const int source) const {
                : kNone;
 }
 
-void MappingView::drawTargetButtons(const std::uint32_t targetButtons) {
-    constexpr float kTop = 390;
+void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const float top) {
+    const float kTop = top;
     const std::string heading = target_ + " BUTTONS";
     text(window_, 4, kTop, heading.c_str(), kHeading);
     const float subtitleX = 4 + static_cast<float>(heading.size() + 1) * 8;
@@ -371,8 +379,8 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons) {
     }
 }
 
-void MappingView::drawSourceButtons(const std::uint64_t sourceButtons) {
-    constexpr float kTop = 545;
+void MappingView::drawSourceButtons(const std::uint64_t sourceButtons, const float top) {
+    const float kTop = top;
     text(window_, 4, kTop, "R3 BUTTONS", kHeading);
     const std::string legend =
         "pressed: green = reaches a " + target_ + " button or the D-pad, red = goes nowhere";
@@ -407,8 +415,8 @@ void MappingView::drawSourceButtons(const std::uint64_t sourceButtons) {
     }
 }
 
-void MappingView::drawFooter() {
-    constexpr float kTop = 688;
+void MappingView::drawFooter(const float top) {
+    const float kTop = top;
     char line[160];
     if (lastPressedSource_ < 0) {
         std::snprintf(line, sizeof(line), "Press any button on the wheel to see where it goes.");
@@ -459,8 +467,8 @@ std::string describeFfb(const FfbEffect& e) {
 
 }  // namespace
 
-void MappingView::drawFfb(const FfbDisplay& ffb) {
-    constexpr float kTop = 244;
+void MappingView::drawFfb(const FfbDisplay& ffb, const float top) {
+    const float kTop = top;
     text(window_, 4, kTop, "FORCE FEEDBACK", kHeading);
     if (ffb.controller == nullptr) {
         text(window_, 132, kTop, ffb.status.empty() ? "off" : ffb.status.c_str(), kDim);
@@ -471,14 +479,9 @@ void MappingView::drawFfb(const FfbDisplay& ffb) {
     const FfbSafetyConfig& safety = controller.safety();
 
     char line[160];
-    text(window_, 588, kTop, showFfbUsage_ ? "U: live effects" : "U: usage stats", kHeading);
     std::snprintf(line, sizeof(line), "limits: gain %.2f, max %.0f%% of the wheel, slew %.0f/s%s", safety.masterGain,
                   safety.maxMagnitude * 100.0F, safety.maxSlewPerSecond, ffb.invert ? ", direction inverted" : "");
     text(window_, 4, kTop + 12, line, kDim);
-    if (showFfbUsage_) {
-        drawFfbUsage(controller, kTop);
-        return;
-    }
 
     std::string age = "never";
     if (const auto last = controller.lastPacketNs(); last && ffb.nowNs >= *last) {
@@ -676,6 +679,9 @@ std::string describeFile(const std::filesystem::path& path) {
 constexpr float kLogsTop = 34;
 constexpr float kLogRowHeight = 16;
 constexpr float kLogRowsTop = kLogsTop + 14 + 2 * kLogRowHeight + 22;   // after the heading and the two folders
+// Telemetry tab: the heading and folder, then the two file lines.
+constexpr float kTelemetryTop = 34;
+constexpr float kTelemetryRowsTop = kTelemetryTop + 30;
 
 }  // namespace
 
@@ -746,7 +752,7 @@ void MappingView::drawLogs() {
     float y = kLogsTop + 14;
     text(window_, 4, y, "Logs folder", kDim);
     text(window_, x, y, shortenMiddle(displayPath(files_.logFolder), kPathChars).c_str(), kText);
-    text(window_, x + (kPathChars + 2) * 8, y, "F opens", kDim);
+    text(window_, x + (kPathChars + 2) * 8, y, "O opens", kDim);
     y += kLogRowHeight;
     text(window_, 4, y, "Drivers", kDim);
     text(window_, x, y,
@@ -769,30 +775,10 @@ void MappingView::drawLogs() {
         y += kLogRowHeight;
     }
 
-    // What the emulator records besides its log.
+    // What the emulator records besides its log: the Telemetry tab.
     y += 10;
     text(window_, 4, y, "Telemetry", kText);
-    if (!files_.telemetry.on) {
-        text(window_, x, y, files_.telemetryStatus.c_str(), kDim);
-    } else {
-        const TelemetryFiles& t = files_.telemetry;
-        char line[160];
-        std::snprintf(line, sizeof(line), "%s (%llu rows)", t.samplesPath.filename().string().c_str(),
-                      static_cast<unsigned long long>(t.rows));
-        text(window_, x, y, line, kText);
-        text(window_, x + 61 * 8, y, "the wheel, the mapping, what the game sees", kDim);
-        y += kLogRowHeight;
-        text(window_, 4, y, "Force fb", kText);
-        std::snprintf(line, sizeof(line), "%s (%llu changes)", t.ffbPath.filename().string().c_str(),
-                      static_cast<unsigned long long>(t.ffbRows));
-        text(window_, x, y, line, kText);
-        text(window_, x + 61 * 8, y, "every force feedback change the game sent", kDim);
-        if (t.samplesPath.parent_path() != files_.logFolder) {
-            y += kLogRowHeight;
-            text(window_, x, y,
-                 shortenMiddle("in " + displayPath(t.samplesPath.parent_path()), kPathChars).c_str(), kDim);
-        }
-    }
+    text(window_, x, y, "the recorded CSV files and the latest events are on the Telemetry tab (T)", kDim);
     y += kLogRowHeight;
     text(window_, 4, y, "Old files", kText);
     if (!files_.oldFiles.empty()) {
@@ -876,7 +862,10 @@ void MappingView::drawLiveLog(const float top) {
 void MappingView::drawTabs() {
     constexpr float kBarTop = kLogicalHeight - 28;
     fill(window_, 0, kBarTop, kLogicalWidth, 1, kPanel);
-    const std::array<std::pair<Tab, const char*>, 2> tabs = {{{Tab::Mapping, "Mapping (M)"}, {Tab::Logs, "Logs (L)"}}};
+    const std::array<std::pair<Tab, const char*>, 4> tabs = {{{Tab::Mapping, "Mapping (M)"},
+                                                              {Tab::Logs, "Logs (L)"},
+                                                              {Tab::Telemetry, "Telemetry (T)"},
+                                                              {Tab::ForceFeedback, "Force feedback (F)"}}};
     float x = 4;
     for (const auto& [tab, label] : tabs) {
         const bool active = tab == tab_;
@@ -890,11 +879,16 @@ void MappingView::drawTabs() {
 void MappingView::onClick(const float x, const float y) {
     constexpr float kBarTop = kLogicalHeight - 28;
     if (y >= kBarTop + 4 && y < kBarTop + 24) {
-        if (x >= 4 && x < 4 + kTabWidth) {
-            tab_ = Tab::Mapping;
-        } else if (x >= 4 + kTabWidth + 6 && x < 4 + 2 * kTabWidth + 6) {
-            tab_ = Tab::Logs;
+        constexpr std::array<Tab, 4> kTabs = {Tab::Mapping, Tab::Logs, Tab::Telemetry, Tab::ForceFeedback};
+        const float offset = x - 4;
+        const auto index = static_cast<std::size_t>(std::max(0.0F, offset) / (kTabWidth + 6));
+        if (offset >= 0 && index < kTabs.size() && offset - static_cast<float>(index) * (kTabWidth + 6) < kTabWidth) {
+            tab_ = kTabs[index];
         }
+        return;
+    }
+    if (tab_ == Tab::Telemetry && y >= kTelemetryRowsTop - 2 && y < kTelemetryRowsTop - 2 + 2 * kLogRowHeight) {
+        openFilesFolder();   // the telemetry files' folder
         return;
     }
     if (tab_ == Tab::Logs && y >= kLogRowsTop - 2) {
@@ -902,6 +896,237 @@ void MappingView::onClick(const float x, const float y) {
         if (row < components_.size()) {
             openFolder(components_[row].folder);
         }
+    }
+}
+
+// --- the Telemetry tab --------------------------------------------------------------------------
+
+namespace {
+
+enum EventKind { kEventPressed, kEventReleased, kEventDpad, kEventPedal, kEventFfb, kEventKinds };
+constexpr std::array<Colour, kEventKinds> kEventColours = {{
+    {132, 214, 96},    // a button pressed: green
+    {120, 126, 136},   // released: dim
+    {80, 204, 190},    // D-pad: teal
+    {236, 152, 72},    // pedals: orange
+    {186, 140, 255},   // game force feedback: purple
+}};
+constexpr std::array<const char*, kEventKinds> kEventNames = {"button", "release", "D-pad", "pedal", "FFB"};
+constexpr std::size_t kMaxEvents = 200;
+
+// "22:49:33.488", local time.
+std::string clockNow() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
+    std::tm local{};
+#if defined(_WIN32)
+    localtime_s(&local, &seconds);
+#else
+    localtime_r(&seconds, &local);
+#endif
+    char text[16];
+    std::snprintf(text, sizeof(text), "%02d:%02d:%02d.%03d", local.tm_hour, local.tm_min, local.tm_sec,
+                  static_cast<int>(ms));
+    return text;
+}
+
+const char* hatName(const std::int8_t hat) {
+    static constexpr std::array<const char*, 8> kNames = {"up",   "up-right",  "right", "down-right",
+                                                          "down", "down-left", "left",  "up-left"};
+    return hat >= 0 && hat < 8 ? kNames[static_cast<std::size_t>(hat)] : "centred";
+}
+
+}  // namespace
+
+void MappingView::addEvent(const int kind, std::string text) {
+    events_.push_back({clockNow(), kind, std::move(text)});
+    while (events_.size() > kMaxEvents) events_.pop_front();
+}
+
+void MappingView::trackEvents(const RawInputState& raw, const WheelState& state, const TargetReport& report,
+                              const FfbDisplay& ffb) {
+    const std::array<float, 3> pedals = {state.throttle, state.brake, state.clutch};
+    if (!eventsStarted_) {
+        // What is already held when the window opens is not an event.
+        eventsStarted_ = true;
+        eventButtons_ = raw.buttons;
+        eventHat_ = report.hat;
+        for (std::size_t i = 0; i < pedals.size(); ++i) pedalDown_[i] = pedals[i] > 0.02F;
+        return;
+    }
+    const std::uint64_t changed = raw.buttons ^ eventButtons_;
+    for (int source = 0; changed != 0 && source < static_cast<int>(kMaxSourceButtons); ++source) {
+        if (((changed >> source) & 1ULL) == 0) continue;
+        const bool down = ((raw.buttons >> source) & 1ULL) != 0;
+        const std::string& name = sourceLabel(source);
+        std::string text = "R3 " + std::to_string(source) + (name.empty() ? "" : " " + name);
+        if (!down) {
+            addEvent(kEventReleased, text + " released");
+            continue;
+        }
+        const auto index = static_cast<std::size_t>(source);
+        const int target = sourceToTarget_[index];
+        if (sourceHatDirection_[index] != nullptr) {
+            text += " pressed -> " + target_ + " D-pad " + sourceHatDirection_[index];
+        } else if (target >= 0) {
+            const std::string_view targetName = profile_.buttonName(static_cast<std::size_t>(target));
+            text += " pressed -> " + target_ + " " + std::to_string(target) + " " + std::string(targetName);
+        } else {
+            text += " pressed -> nothing (not mapped)";
+        }
+        addEvent(kEventPressed, text);
+    }
+    eventButtons_ = raw.buttons;
+
+    if (report.hat != eventHat_) {
+        addEvent(kEventDpad, target_ + " D-pad " + hatName(report.hat));
+        eventHat_ = report.hat;
+    }
+
+    static constexpr std::array<const char*, 3> kPedals = {"Throttle", "Brake", "Clutch"};
+    for (std::size_t i = 0; i < pedals.size(); ++i) {
+        // Pressed past 2 %, released below 1 % (the gap stops a pedal resting at the edge from flickering).
+        if (!pedalDown_[i] && pedals[i] > 0.02F) {
+            pedalDown_[i] = true;
+            pedalPeak_[i] = pedals[i];
+            addEvent(kEventPedal, std::string(kPedals[i]) + " pressed");
+        } else if (pedalDown_[i]) {
+            pedalPeak_[i] = std::max(pedalPeak_[i], pedals[i]);
+            if (pedals[i] < 0.01F) {
+                pedalDown_[i] = false;
+                char text[64];
+                std::snprintf(text, sizeof(text), "%s released (deepest %.0f%%)", kPedals[i], pedalPeak_[i] * 100.0F);
+                addEvent(kEventPedal, text);
+            }
+        }
+    }
+
+    if (ffb.controller != nullptr) {
+        const std::size_t slots = std::min(ffb.controller->slotCount(), ffbPlaying_.size());
+        for (std::size_t i = 0; i < slots; ++i) {
+            const FfbController::SlotView slot = ffb.controller->slot(i);
+            if (slot.playing != ffbPlaying_[i]) {
+                ffbPlaying_[i] = slot.playing;
+                char text[96];
+                std::snprintf(text, sizeof(text), "slot %zu %s %s", i, ffbTypeName(slot.requested.type),
+                              slot.playing ? "starts" : "stops");
+                addEvent(kEventFfb, text);
+            }
+        }
+    }
+}
+
+void MappingView::drawTelemetry() {
+    constexpr std::size_t kPathChars = 80;
+    const float x = 4 + 14 * 8;
+    const TelemetryFiles& t = files_.telemetry;
+
+    // The files: where the service records all of this (click a line to open the folder).
+    text(window_, 4, kTelemetryTop, "TELEMETRY", kHeading);
+    text(window_, 92, kTelemetryTop, "what the service records (CSV, one file per day) and the latest events", kDim);
+    float y = kTelemetryTop + 14;
+    text(window_, 4, y, "Folder", kDim);
+    const std::filesystem::path folder = t.on ? t.samplesPath.parent_path() : files_.logFolder;
+    text(window_, x, y, shortenMiddle(displayPath(folder), kPathChars).c_str(), kText);
+    text(window_, x + (kPathChars + 2) * 8, y, t.on ? "recording   O opens" : "not recording   O opens",
+         t.on ? kDim : kUnlabelled);
+    y = kTelemetryRowsTop;
+    struct Row {
+        const char* name;
+        std::filesystem::path path;
+        std::uint64_t rows;
+        const char* unit;
+        const char* what;
+    };
+    const std::array<Row, 2> rows = {{{"Samples", t.samplesPath, t.rows, "rows", "the wheel, the mapping, what the game sees"},
+                                      {"Force fb", t.ffbPath, t.ffbRows, "changes", "every force feedback change the game sent"}}};
+    for (const Row& row : rows) {
+        fill(window_, 2, y - 2, kLogicalWidth - 4, kLogRowHeight - 2, kPanel);
+        text(window_, 4, y + 2, row.name, kText);
+        if (!t.on || row.path.empty()) {
+            text(window_, x, y + 2, t.on ? "-" : files_.telemetryStatus.c_str(), kDim);
+        } else {
+            text(window_, x, y + 2, shortenMiddle(row.path.filename().string(), 32).c_str(), kText);
+            std::error_code ec;
+            const std::string size = std::filesystem::exists(row.path, ec) ? ", " + describeFile(row.path) : "";
+            const std::string status = std::to_string(row.rows) + " " + row.unit + size;
+            text(window_, x + 33 * 8, y + 2, shortenMiddle(status, 27).c_str(), kText);
+        }
+        text(window_, x + 61 * 8, y + 2, row.what, kDim);
+        y += kLogRowHeight;
+    }
+
+    y += 10;
+
+    // Held right now.
+    text(window_, 4, y, "Held now", kText);
+    std::string held;
+    for (int source = 0; source < static_cast<int>(kMaxSourceButtons); ++source) {
+        if (((eventButtons_ >> source) & 1ULL) != 0) {
+            const std::string& name = sourceLabel(source);
+            held += (held.empty() ? "" : ",  ") + ("R3 " + std::to_string(source)) + (name.empty() ? "" : " " + name);
+        }
+    }
+    text(window_, x, y, held.empty() ? "no buttons" : shortenMiddle(held, 104).c_str(), held.empty() ? kDim : kText);
+
+    // The latest events: as many as fit, newest at the bottom (no scrolling: the CSV files have everything).
+    y += 24;
+    fill(window_, 0, y - 8, kLogicalWidth, 1, kPanel);
+    text(window_, 4, y, "LATEST EVENTS", kHeading);
+    text(window_, 116, y, "buttons, D-pad, pedals and game force feedback since this window opened, newest at the bottom",
+         kDim);
+    constexpr float kLineHeight = 11;
+    const float listTop = y + 14;
+    const float listBottom = kLogicalHeight - 34;
+    const auto fit = static_cast<std::size_t>(std::max(1.0F, (listBottom - listTop) / kLineHeight));
+    if (events_.empty()) {
+        text(window_, 4, listTop, "nothing yet: press a button or a pedal", kDim);
+        return;
+    }
+    const std::size_t first = events_.size() > fit ? events_.size() - fit : 0;
+    y = listTop;
+    for (std::size_t i = first; i < events_.size(); ++i) {
+        const TelemetryEvent& event = events_[i];
+        const auto kind = static_cast<std::size_t>(event.kind);
+        text(window_, 4, y, event.time.substr(0, 12).c_str(), kDim);
+        text(window_, 4 + 14 * 8, y, kEventNames[kind], kEventColours[kind]);
+        text(window_, 4 + 23 * 8, y, shortenMiddle(event.text, 94).c_str(), kind == kEventReleased ? kDim : kText);
+        y += kLineHeight;
+    }
+}
+
+void MappingView::drawForceFeedback(const FfbDisplay& ffb) {
+    // What the game asks for now and what reaches the wheel, then how it has been used since the start.
+    drawFfb(ffb, 34);
+    float y = 196;
+    if (ffb.controller != nullptr) {
+        fill(window_, 0, y - 8, kLogicalWidth, 1, kPanel);
+        text(window_, 4, y, "USAGE", kHeading);
+        drawFfbUsage(*ffb.controller, y);
+        y = 356;
+    }
+
+    // The latest starts and stops (the same events as the Telemetry tab, force feedback only).
+    fill(window_, 0, y - 8, kLogicalWidth, 1, kPanel);
+    text(window_, 4, y, "LATEST EFFECTS", kHeading);
+    text(window_, 124, y, "effects starting and stopping since this window opened, newest at the bottom", kDim);
+    constexpr float kLineHeight = 11;
+    const float listTop = y + 14;
+    const auto fit = static_cast<std::size_t>(std::max(1.0F, (kLogicalHeight - 34 - listTop) / kLineHeight));
+    std::vector<const TelemetryEvent*> shown;
+    for (auto it = events_.rbegin(); it != events_.rend() && shown.size() < fit; ++it) {
+        if (it->kind == kEventFfb) shown.push_back(&*it);
+    }
+    if (shown.empty()) {
+        text(window_, 4, listTop, "none yet: start the game and drive", kDim);
+        return;
+    }
+    y = listTop;
+    for (auto it = shown.rbegin(); it != shown.rend(); ++it) {
+        text(window_, 4, y, (*it)->time.substr(0, 12).c_str(), kDim);
+        text(window_, 4 + 14 * 8, y, (*it)->text.c_str(), kText);
+        y += kLineHeight;
     }
 }
 
