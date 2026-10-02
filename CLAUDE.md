@@ -6,6 +6,27 @@ This file guides Claude when working in this repository.
 
 - After every change, finish with **how to build it** and **how to test it** (what to run, what to look for,
   what a failure looks like), even when the change needs no rebuild (say so).
+- Build and test steps use the scripts in `scripts/make/` (`build.sh`, `rebuild.sh`, `test.sh`, `check.sh`,
+  `ui.sh`, `shim.sh`, `bridge.sh`, `drivers.sh`, `all.sh`; see `scripts/make/README.md`) instead of raw cmake,
+  ctest, dotnet or msbuild commands. When a new workflow keeps needing the same commands, add a script there
+  (sourcing `common.sh`) and list it in that README.
+- **Every build or test step comes in two forms**: first the **full command(s)** that will run (exactly what the
+  script does, so the user sees what happens), then the **shortcut**: the `scripts/make/` script that runs them.
+  Example:
+
+  Full command:
+
+  ```bash
+  cmake --build build
+  ```
+
+  Shortcut:
+
+  ```bash
+  scripts/make/build.sh
+  ```
+
+  When a script runs several commands, list each one in its own block, in order, before the shortcut.
 - Put **every command in its own code block**, one command per block, so each can be copied on its own.
 - The user builds and runs on Windows (`D:\cpp-projects\WheelBri`) in an MSYS2 UCRT64 shell. Give commands for
   that shell unless the step needs PowerShell (drivers, `dotnet`), and say which shell.
@@ -55,6 +76,11 @@ CMake ≥ 3.24, C++20. spdlog 1.15.3 and GoogleTest 1.15.2 come in through Fetch
 configure). The service uses only the system's APIs and runs on Windows (DirectInput, Win32) and Linux (evdev,
 Xlib; skipped with a warning without libx11-dev). No SDL or other third-party library: do not add one back.
 `service/src/WheelSdl.cpp` is dead code from before that decision and is not compiled.
+
+The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `build.sh` (incremental,
+configures the first time), `rebuild.sh` (deletes `build/`, full rebuild), `test.sh [filter]`, `check.sh` (before a
+commit), `ui.sh [config]`, `shim.sh [--off] <game folder>`, `bridge.sh`, `drivers.sh [-Install]`, `all.sh [--clean]`.
+The raw commands they run:
 
 Windows, MSYS2 UCRT64, from the repo root. Configure (first time only):
 
@@ -207,6 +233,7 @@ natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.
   (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
   raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. `UhidG920` holds the uhid protocol with no file descriptors so
   `UhidG920Test` covers it; `main.cpp` is the fd/UDP loop.
+- `scripts/make/`: the build scripts (above); `common.sh` holds the shared helpers.
 - `scripts/`: `wheelemu.sh` (Windows, MSYS2 UCRT64: starts the service with `--ui` and the bridge as
   Administrator, stops both on Enter; `--build`, `--no-ui`, `--xbox-pad`, `--config`); `telemetry_summary.py`
   (reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelemu.sh`, udev rules,
