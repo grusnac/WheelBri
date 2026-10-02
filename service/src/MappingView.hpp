@@ -52,7 +52,7 @@ class MappingView {
 public:
     // The panel's size in logical pixels; it draws from the window's current origin.
     static constexpr int kWidth = 960;
-    static constexpr int kHeight = 867;
+    static constexpr int kHeight = 796;
 
     // Draws into `window` (not owned; it must outlive the view).
     MappingView(ui::UiWindow& window, std::string sourceName, int sourceAxes, int sourceButtons,

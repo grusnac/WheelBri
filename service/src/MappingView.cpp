@@ -75,8 +75,13 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
             sourceHatDirection_[static_cast<std::size_t>(source)] = direction;
         }
     }
+    // Only the target's real buttons (the ones its profile names): the rest of the 32 slots are filled 1:1 by
+    // default but no game sees them, so they would only show up as duplicates.
     for (std::size_t target = 0; target < mapper_.buttonMap.size(); ++target) {
         const int source = mapper_.buttonMap[target];
+        if (profile_.buttonName(target).empty()) {
+            continue;
+        }
         if (source >= 0 && static_cast<std::size_t>(source) < kMaxSourceButtons) {
             const auto index = static_cast<std::size_t>(source);
             if (sourceTargetCount_[index]++ == 0) {
@@ -286,19 +291,26 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons) {
     const std::string heading = target_ + " BUTTONS";
     text(window_, 4, kTop, heading.c_str(), kHeading);
     const float subtitleX = 4 + static_cast<float>(heading.size() + 1) * 8;
-    text(window_, subtitleX, kTop, "G920 number name <- R3 number name   (INI: [buttons] target_N = R3 number)", kDim);
+    const std::string subtitle = target_ + " number name <- R3 number name   (INI: [buttons] target_N = R3 number)";
+    text(window_, subtitleX, kTop, subtitle.c_str(), kDim);
 
     // Every cell reads "G920  6 Menu     <- R3 35 Start": 39 characters fit a cell after its 3-pixel margin.
     constexpr int kColumns = 3;
     constexpr float kWidth = 316;
     constexpr float kHeight = 13;
     char cellText[64];
+    // Only the buttons the target really has (G920 11, G29 25); room is kept for 9 rows.
+    std::size_t cell = 0;
     for (std::size_t target = 0; target < mapper_.buttonMap.size(); ++target) {
-        const float x = 4 + static_cast<float>(target % kColumns) * (kWidth + 2);
-        const float y = kTop + 12 + static_cast<float>(target / kColumns) * (kHeight + 2);
+        const std::string_view name = profile_.buttonName(target);
+        if (name.empty()) {
+            continue;
+        }
+        const float x = 4 + static_cast<float>(cell % kColumns) * (kWidth + 2);
+        const float y = kTop + 12 + static_cast<float>(cell / kColumns) * (kHeight + 2);
+        ++cell;
         const bool pressed = ((targetButtons >> target) & 1U) != 0;
         const int source = mapper_.buttonMap[target];
-        const std::string_view name = profile_.buttonName(target);
 
         const std::string label(name.substr(0, 8));
         if (source < 0) {
@@ -309,22 +321,24 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons) {
         }
 
         fill(window_, x, y, kWidth, kHeight, pressed ? kActive : kPanel);
-        const Colour colour = pressed ? kDark : (source < 0 || name.empty() ? kDim : kText);
+        const Colour colour = pressed ? kDark : (source < 0 ? kDim : kText);
         text(window_, x + 3, y + 3, cellText, colour);
     }
 }
 
 void MappingView::drawSourceButtons(const std::uint64_t sourceButtons) {
-    constexpr float kTop = 575;
+    constexpr float kTop = 545;
     text(window_, 4, kTop, "R3 BUTTONS", kHeading);
     const std::string legend =
-        "green = " + target_ + " button or D-pad, yellow = unlabelled button, red = not mapped";
+        "pressed: green = reaches a " + target_ + " button or the D-pad, red = goes nowhere";
     text(window_, 92, kTop, legend.c_str(), kDim);
 
-    constexpr int kColumns = 10;
-    constexpr float kWidth = 92;     // 11 characters
-    constexpr float kHeight = 21;
-    char line[24];
+    // Every cell reads "R3 35 Start": the R3 button only (where it goes is in the panel above).
+    // 14 characters fit a cell after its margin.
+    constexpr int kColumns = 8;
+    constexpr float kWidth = 116;
+    constexpr float kHeight = 13;
+    char line[40];
     for (int source = 0; source < sourceButtons_; ++source) {
         const auto index = static_cast<std::size_t>(source);
         const float x = 4 + static_cast<float>(source % kColumns) * (kWidth + 3);
@@ -333,35 +347,15 @@ void MappingView::drawSourceButtons(const std::uint64_t sourceButtons) {
         const int target = sourceToTarget_[index];
         const char* const hatDirection = sourceHatDirection_[index];
 
-        // A target with no label is outside the buttons this wheel is known to have (e.g. G920 12+).
-        const bool labelled = target >= 0 && !profile_.buttonName(static_cast<std::size_t>(target)).empty();
         Colour background = kPanel;
         if (pressed) {
-            if (hatDirection != nullptr) {
-                background = kActive;
-            } else {
-                background = target < 0 ? kWarning : (labelled ? kActive : kUnlabelled);
-            }
+            background = hatDirection != nullptr || target >= 0 ? kActive : kWarning;
         }
         fill(window_, x, y, kWidth, kHeight, background);
         const Colour foreground = pressed ? kDark : (target >= 0 || hatDirection != nullptr ? kText : kDim);
 
-        // Top line: the number and where it goes ("R3 35 >6"); bottom line: its name from [button_labels].
-        const std::string& name = sourceLabel(source);
-        char where[12];
-        if (hatDirection != nullptr) {
-            // Short arrow so it fits the cell; a second mapping to a button is flagged with '+'.
-            std::snprintf(where, sizeof(where), ">D%c%s", hatDirection[0] - 'a' + 'A', target >= 0 ? "+" : "");
-        } else if (target >= 0) {
-            std::snprintf(where, sizeof(where), sourceTargetCount_[index] > 1 ? ">%d+" : ">%d", target);
-        } else {
-            std::snprintf(where, sizeof(where), "--");
-        }
-        std::snprintf(line, sizeof(line), "R3 %d %s", source, where);
-        text(window_, x + 2, y + 2, line, foreground);
-        if (!name.empty()) {
-            text(window_, x + 2, y + 12, name.substr(0, 11).c_str(), foreground);
-        }
+        std::snprintf(line, sizeof(line), "R3 %d %s", source, sourceLabel(source).c_str());
+        text(window_, x + 2, y + 3, std::string(line).substr(0, 14).c_str(), foreground);
     }
     if (sourceButtons_ == 0) {
         text(window_, 4, kTop + 14, "(the device reports no buttons)", kDim);
@@ -369,7 +363,7 @@ void MappingView::drawSourceButtons(const std::uint64_t sourceButtons) {
 }
 
 void MappingView::drawFooter() {
-    constexpr float kTop = 759;
+    constexpr float kTop = 688;
     char line[160];
     if (lastPressedSource_ < 0) {
         std::snprintf(line, sizeof(line), "Press any button on the wheel to see where it goes.");
@@ -605,7 +599,7 @@ void MappingView::openFilesFolder() const {
 }
 
 void MappingView::drawFiles() {
-    constexpr float kTop = 797;
+    constexpr float kTop = 726;
     constexpr std::size_t kPathChars = 107;  // (960 - 4 - 12 * 8 label column) / 8, rounded down
     outline(window_, 0, kTop - 6, kLogicalWidth, kLogicalHeight - kTop + 6, kHeading);
     text(window_, 4, kTop, "LOGS AND TELEMETRY", kHeading);
