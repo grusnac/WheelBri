@@ -208,14 +208,15 @@ EmulatedJoystick::FormatResult EmulatedJoystick::setDataFormat(const std::vector
                 return FormatResult::InvalidParam;
             }
             const bool povEntry = entry.guid == ObjectGuid::Pov || (entry.type & di::kPov) != 0;
-            if (povEntry && entry.offset % 4 == 0 && entry.offset + 4 <= dataSize) {
+            if (povEntry && entry.offset % 4 == 0 && entry.offset <= dataSize && 4 <= dataSize - entry.offset) {
                 unassignedPovs.push_back(entry.offset);
             }
             continue;
         }
         const EmulatedObject& object = objects_[*chosen];
         const std::uint32_t size = sizeOf(object);
-        if (entry.offset + size > dataSize || (size == 4 && entry.offset % 4 != 0)) {
+        // Written so a huge offset from the game cannot wrap around and pass.
+        if (entry.offset > dataSize || size > dataSize - entry.offset || (size == 4 && entry.offset % 4 != 0)) {
             return FormatResult::InvalidParam;
         }
         assigned[*chosen] = entry.offset;
@@ -272,7 +273,10 @@ void EmulatedJoystick::setRange(const std::size_t object, const LogicalRange ran
 
 std::uint32_t EmulatedJoystick::valueOf(const std::size_t index, const TargetReport& report) const {
     const EmulatedObject& object = objects_[index];
-    const auto pedal = [&](const std::int32_t raw) { return invertPedals_ ? 65535 - raw : raw; };
+    const auto pedal = [&](const std::int32_t raw) {
+        const std::int32_t clamped = std::clamp<std::int32_t>(raw, 0, 65535);
+        return invertPedals_ ? 65535 - clamped : clamped;
+    };
     const auto scaled = [&](const std::int32_t raw) {
         const LogicalRange range = ranges_[index];
         const double fraction = std::clamp(static_cast<double>(raw) / kReportSpan, 0.0, 1.0);

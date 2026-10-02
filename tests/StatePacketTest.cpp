@@ -8,7 +8,7 @@ namespace {
 StatePacket samplePacket() {
     StatePacket packet;
     packet.sequence = 0xDEADBEEF;
-    packet.report = {-12345, 65535, 0, 32768, 0x80000001U, 7};
+    packet.report = {12345, 65535, 0, 32768, 0x80000001U, 7};
     return packet;
 }
 
@@ -19,6 +19,20 @@ TEST(StatePacket, RoundTrips) {
     ASSERT_TRUE(decoded.has_value());
     EXPECT_EQ(decoded->sequence, original.sequence);
     EXPECT_EQ(decoded->report, original.report);
+}
+
+TEST(StatePacket, OutOfRangeValuesAreClampedOnDecode) {
+    StatePacket packet = samplePacket();
+    packet.report.steering = -5;
+    packet.report.throttle = 1'000'000;
+    packet.report.brake = INT32_MIN;
+    packet.report.hat = 42;
+    const auto decoded = decodeStatePacket(encode(packet));
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(decoded->report.steering, 0);
+    EXPECT_EQ(decoded->report.throttle, 65535);
+    EXPECT_EQ(decoded->report.brake, 0);
+    EXPECT_EQ(decoded->report.hat, kHatCentered);
 }
 
 TEST(StatePacket, LayoutIsLittleEndianWithMagicFirst) {

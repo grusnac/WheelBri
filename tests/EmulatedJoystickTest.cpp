@@ -122,6 +122,13 @@ TEST(EmulatedJoystick, EntryOutsideTheDataFails) {
     EXPECT_EQ(joystick.setDataFormat(entries, 6), EmulatedJoystick::FormatResult::InvalidParam);
 }
 
+TEST(EmulatedJoystick, HugeOffsetCannotWrapAround) {
+    EmulatedJoystick joystick(g29());
+    // 0xFFFFFFFC + 4 wraps to 0 in 32 bits: it must still be outside the data.
+    const std::vector<FormatEntry> entries = {{ObjectGuid::XAxis, 0xFFFFFFFCU, di::kAxis | di::kAnyInstance, 0}};
+    EXPECT_EQ(joystick.setDataFormat(entries, 80), EmulatedJoystick::FormatResult::InvalidParam);
+}
+
 TEST(EmulatedJoystick, VelocityAspectDoesNotTakeThePositionAxis) {
     EmulatedJoystick joystick(g29());
     const std::vector<FormatEntry> entries = {

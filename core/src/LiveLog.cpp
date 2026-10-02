@@ -144,6 +144,13 @@ bool LiveLog::poll() {
             const auto end = text.find('\n', start);
             if (end == std::string::npos) {
                 file.partial = text.substr(start);
+                // A "line" that never ends (a binary file, a program writing without newlines) is shown cut
+                // rather than kept and copied again on every poll.
+                if (file.partial.size() > kMaxLineBytes) {
+                    if (!skipFirst) fresh.push_back(parseLogLine(file.partial.substr(0, kMaxLineBytes), file.source));
+                    file.partial.clear();
+                    skipFirst = false;
+                }
                 break;
             }
             const std::string_view line(text.data() + start, end - start);

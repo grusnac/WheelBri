@@ -1,5 +1,7 @@
 #include "wheelemu/StatePacket.hpp"
 
+#include <algorithm>
+
 namespace wheelemu {
 
 namespace {
@@ -83,12 +85,15 @@ std::optional<StatePacket> decodeStatePacket(const std::span<const std::uint8_t>
 
     StatePacket packet;
     packet.sequence = reader.u32();
-    packet.report.steering = reader.i32();
-    packet.report.throttle = reader.i32();
-    packet.report.brake = reader.i32();
-    packet.report.clutch = reader.i32();
+    // Only values an emulated wheel can report (0..65535, hat -1..7): whatever sent this, the game gets sane input.
+    const auto axis = [&reader] { return std::clamp<std::int32_t>(reader.i32(), 0, 65535); };
+    packet.report.steering = axis();
+    packet.report.throttle = axis();
+    packet.report.brake = axis();
+    packet.report.clutch = axis();
     packet.report.buttons = reader.u32();
-    packet.report.hat = reader.i8();
+    const std::int8_t hat = reader.i8();
+    packet.report.hat = hat >= 0 && hat <= 7 ? hat : kHatCentered;
     return packet;
 }
 

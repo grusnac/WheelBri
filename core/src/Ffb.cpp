@@ -48,7 +48,26 @@ float ffbStrength(const FfbEffect& e) {
     return e.periodic.magnitude * e.gain;
 }
 
+namespace {
+
+// A force from a game (or from a bug) that is not a number becomes no force.
+float finiteOr(const float value, const float fallback) { return std::isfinite(value) ? value : fallback; }
+
+}  // namespace
+
 FfbSafetyLimiter::FfbSafetyLimiter(const FfbSafetyConfig& config) : config_(config) {
+    // NaN would pass std::clamp unchanged and switch the cap off: fall back to the safe defaults.
+    const FfbSafetyConfig defaults;
+    if (!std::isfinite(config_.masterGain) || !std::isfinite(config_.maxMagnitude) ||
+        !std::isfinite(config_.maxSlewPerSecond)) {
+        WE_LOG_ERROR(log(), "ffb limiter: config is not a number (gain={} max={} slew={}): using the defaults "
+                            "gain={:.2f} max={:.2f} slew={:.1f}/s",
+                     config_.masterGain, config_.maxMagnitude, config_.maxSlewPerSecond, defaults.masterGain,
+                     defaults.maxMagnitude, defaults.maxSlewPerSecond);
+        config_.masterGain = finiteOr(config_.masterGain, defaults.masterGain);
+        config_.maxMagnitude = finiteOr(config_.maxMagnitude, defaults.maxMagnitude);
+        config_.maxSlewPerSecond = finiteOr(config_.maxSlewPerSecond, defaults.maxSlewPerSecond);
+    }
     config_.masterGain = std::clamp(config_.masterGain, 0.0F, 1.0F);
     config_.maxMagnitude = std::clamp(config_.maxMagnitude, 0.0F, 1.0F);
     config_.maxSlewPerSecond = std::max(config_.maxSlewPerSecond, 0.0F);
@@ -61,12 +80,31 @@ FfbSafetyLimiter::FfbSafetyLimiter(const FfbSafetyConfig& config) : config_(conf
                  config_.maxMagnitude, config_.maxSlewPerSecond);
 }
 
-FfbEffect FfbSafetyLimiter::apply(const FfbEffect& requested, const float dtSeconds) {
+FfbEffect FfbSafetyLimiter::apply(const FfbEffect& input, const float dtSeconds) {
+    // Every field finite and in its range before anything else (packets come from other processes).
+    FfbEffect requested = input;
+    requested.gain = std::clamp(finiteOr(requested.gain, 0.0F), 0.0F, 1.0F);
+    requested.constantLevel = finiteOr(requested.constantLevel, 0.0F);
+    FfbCondition& c = requested.condition;
+    c.center = std::clamp(finiteOr(c.center, 0.0F), -1.0F, 1.0F);
+    c.deadband = std::clamp(finiteOr(c.deadband, 0.0F), 0.0F, 1.0F);
+    c.positiveCoefficient = finiteOr(c.positiveCoefficient, 0.0F);
+    c.negativeCoefficient = finiteOr(c.negativeCoefficient, 0.0F);
+    c.positiveSaturation = finiteOr(c.positiveSaturation, 0.0F);
+    c.negativeSaturation = finiteOr(c.negativeSaturation, 0.0F);
+    FfbPeriodic& p = requested.periodic;
+    p.magnitude = finiteOr(p.magnitude, 0.0F);
+    p.offset = finiteOr(p.offset, 0.0F);
+    p.periodMs = std::clamp(finiteOr(p.periodMs, 100.0F), 1.0F, 65535.0F);
+    p.phaseDeg = finiteOr(p.phaseDeg, 0.0F);
+    if (!std::isfinite(lastConstant_)) lastConstant_ = 0.0F;
+    const float dt = std::clamp(finiteOr(dtSeconds, 0.0F), 0.0F, 1.0F);
+
     FfbEffect limited = requested;
     limited.gain = 1.0F;  // folded into the magnitudes below
     switch (requested.type) {
         case FfbEffectType::Constant:
-            limited.constantLevel = limitConstant(requested.constantLevel * requested.gain, dtSeconds);
+            limited.constantLevel = limitConstant(requested.constantLevel * requested.gain, dt);
             break;
         case FfbEffectType::Spring:
         case FfbEffectType::Damper:

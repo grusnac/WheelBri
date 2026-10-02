@@ -75,6 +75,19 @@ TEST_F(LiveLogFiles, MergesFilesInTimeOrderThenFollowsThem) {
     EXPECT_EQ(log.added(), 4U);
 }
 
+TEST_F(LiveLogFiles, ALineThatNeverEndsIsShownCut) {
+    LiveLog log;
+    log.setFile(0, dir_ / "endless.log");
+    append("endless.log", "[2026-10-02 10:00:00.000] first\n");
+    ASSERT_TRUE(log.poll());
+    append("endless.log", std::string(LiveLog::kMaxLineBytes + 100, 'x'));
+    ASSERT_TRUE(log.poll());
+    EXPECT_EQ(log.lines().back().message.size(), LiveLog::kMaxLineBytes);
+    append("endless.log", "\n[2026-10-02 10:00:01.000] next\n");
+    ASSERT_TRUE(log.poll());
+    EXPECT_EQ(log.lines().back().message, "next");
+}
+
 TEST_F(LiveLogFiles, ReadsOnlyTheTailOfABigFile) {
     std::string text;
     for (int i = 0; i < 4000; ++i) {

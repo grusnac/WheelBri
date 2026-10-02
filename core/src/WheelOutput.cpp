@@ -53,7 +53,8 @@ WheelEffect toWheelEffect(const FfbEffect& effect, const bool invert) {
         case FfbEffectType::SawtoothUp:
         case FfbEffectType::SawtoothDown: {
             const FfbPeriodic& p = effect.periodic;
-            out.periodMs = static_cast<std::uint16_t>(std::clamp(std::lround(finite(p.periodMs)), 1L, 65535L));
+            // Clamped as a float first: lround of a huge value is undefined (it gave a 1 ms buzz).
+            out.periodMs = static_cast<std::uint16_t>(std::lround(std::clamp(finite(p.periodMs), 1.0F, 65535.0F)));
             out.magnitude = toSigned(p.magnitude);
             out.offset = toSigned(sign * p.offset);
             float phase = std::fmod(finite(p.phaseDeg), 360.0F);

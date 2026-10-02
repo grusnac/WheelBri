@@ -183,7 +183,7 @@ SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelemu-service --con
 ```
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`,
-`service.hide`, `service.xbox`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `logging`,
+`service.hide`, `service.xbox`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
 `shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelemu-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelemu/Logging.hpp`)

@@ -1,6 +1,10 @@
 #include "wheelemu/Telemetry.hpp"
 
+#include "wheelemu/Logging.hpp"
+
 #include <algorithm>
+#include <cerrno>
+#include <cstring>
 #include <cmath>
 #include <cstdlib>
 #include <cstdarg>
@@ -14,6 +18,31 @@ namespace {
 constexpr std::uint64_t kNsPerSecond = 1'000'000'000;
 constexpr std::uint64_t kFlushEveryNs = kNsPerSecond;  // a crash loses at most about a second
 constexpr const char* kFormatVersion = "2";
+constexpr auto kRetryEvery = std::chrono::minutes(1);
+
+const logging::Logger& log() {
+    static const logging::Logger logger = logging::get("core.telemetry");
+    return logger;
+}
+
+// UTF-8 text of a path, for messages (path::string() can throw on Windows for names outside the ANSI code page).
+std::string text(const std::filesystem::path& path) {
+    try {
+        const std::u8string name = path.u8string();
+        return std::string(name.begin(), name.end());
+    } catch (...) {
+        return "(unprintable path)";
+    }
+}
+
+// Opens for appending. On Windows by its wide name, so a profile folder with any letters in it works.
+std::FILE* openAppend(const std::filesystem::path& path) {
+#ifdef _WIN32
+    return _wfopen(path.c_str(), L"ab");
+#else
+    return std::fopen(path.c_str(), "ab");
+#endif
+}
 
 // Appends printf-style text to `out`.
 #if defined(__GNUC__)
@@ -103,7 +132,7 @@ std::unique_ptr<TelemetryRecorder> TelemetryRecorder::open(const TelemetryConfig
     std::error_code ec;
     std::filesystem::create_directories(directory, ec);
     if (ec) {
-        error = "cannot create " + directory.string() + ": " + ec.message();
+        error = "cannot create " + text(directory) + ": " + ec.message();
         return nullptr;
     }
     auto recorder = std::unique_ptr<TelemetryRecorder>(new TelemetryRecorder(config, directory, wallNow, header));
@@ -172,10 +201,11 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
     };
     for (const Target& target : targets) {
         // Append: every session of the day shares the file. The column row is written once, by the first.
-        target.file->handle = std::fopen(target.path->string().c_str(), "ab");
+        target.file->handle = openAppend(*target.path);
         if (target.file->handle == nullptr) {
-            error = "cannot open " + target.path->string();
+            error = "cannot open " + text(*target.path) + " (" + std::strerror(errno) + ")";
             closeFiles();
+            dayOpen_ = false;
             return false;
         }
         std::error_code ec;
@@ -185,9 +215,17 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
             write(*target.file, target.intro);
         }
         write(*target.file, sessionHeader);
-        std::fflush(target.file->handle);
+        if (std::fflush(target.file->handle) != 0) noteWriteFailure(*target.file, "writing its header");
     }
+    dayOpen_ = true;
     return true;
+}
+
+void TelemetryRecorder::noteWriteFailure(File& file, const char* what) {
+    if (file.failed) return;
+    file.failed = true;
+    WE_LOG_ERROR(log(), "telemetry: {} failed while {} ({}): nothing more is written to it today (disk full?)",
+                 text(&file == &samples_ ? samplesPath_ : ffbPath_), what, std::strerror(errno));
 }
 
 bool TelemetryRecorder::due(const std::uint64_t nowNs) const {
@@ -195,7 +233,7 @@ bool TelemetryRecorder::due(const std::uint64_t nowNs) const {
 }
 
 void TelemetryRecorder::write(File& file, const std::string& line) {
-    if (file.full || file.handle == nullptr) {
+    if (file.full || file.failed || file.handle == nullptr) {
         return;
     }
     const std::uint64_t limit = static_cast<std::uint64_t>(std::max(config_.maxFileMb, 1)) * 1024 * 1024;
@@ -205,15 +243,18 @@ void TelemetryRecorder::write(File& file, const std::string& line) {
         file.full = true;
         return;
     }
-    std::fwrite(line.data(), 1, line.size(), file.handle);
+    if (std::fwrite(line.data(), 1, line.size(), file.handle) != line.size()) {
+        noteWriteFailure(file, "writing a row");
+        return;
+    }
     file.bytes += line.size();
 }
 
 void TelemetryRecorder::flushIfDue(const std::uint64_t nowNs) {
     if (nowNs - lastFlushNs_ >= kFlushEveryNs) {
         for (File* file : {&samples_, &ffbEvents_}) {
-            if (file->handle != nullptr) {
-                std::fflush(file->handle);
+            if (file->handle != nullptr && !file->failed && std::fflush(file->handle) != 0) {
+                noteWriteFailure(*file, "flushing");
             }
         }
         lastFlushNs_ = nowNs;
@@ -231,7 +272,21 @@ WallClock::time_point TelemetryRecorder::advance(const std::uint64_t nowNs) {
         std::string error;
         const std::string nextDay = addDays(day_, 1).value_or(localDate(wall));
         if (!openDay(nextDay, true, error)) {
-            break;  // files closed; rows are dropped until the service restarts
+            // Rows are dropped meanwhile; tried again below, once a minute.
+            WE_LOG_ERROR(log(), "telemetry: the new day's files cannot be opened: {}; trying again every minute",
+                         error);
+            retryAt_ = wall + kRetryEvery;
+            break;
+        }
+    }
+    if (!dayOpen_ && wall >= retryAt_ && wall < nextDayStart_) {
+        std::string error;
+        if (openDay(day_, true, error)) {
+            WE_LOG_INFO(log(), "telemetry: writing again to {}", text(samplesPath_));
+        } else {
+            static logging::RateLimiter limiter(std::chrono::minutes(10));
+            WE_LOG_WARN_LIMITED(log(), limiter, "telemetry: still cannot open the day's files: {}", error);
+            retryAt_ = wall + kRetryEvery;
         }
     }
     return wall;
@@ -406,10 +461,18 @@ void TelemetryRecorder::writeFfbPacket(const std::uint64_t nowNs, const FfbPacke
 }
 
 void TelemetryRecorder::noteMalformedFfb(const std::uint64_t nowNs, const std::size_t bytes) {
+    // At most one row a second: a stray program flooding the port must not fill the file (or the disk).
+    if (lastMalformedNs_ != 0 && nowNs - lastMalformedNs_ < kNsPerSecond) {
+        ++malformedSkipped_;
+        return;
+    }
+    lastMalformedNs_ = nowNs;
     const WallClock::time_point wall = advance(nowNs);
     line_.clear();
     appendTimes(line_, wall, nowNs);
-    appendf(line_, ",malformed_%lu_bytes,,,,,,,,,,,,,,,,\n", static_cast<unsigned long>(bytes));
+    appendf(line_, ",malformed_%lu_bytes_%llu_more,,,,,,,,,,,,,,,,\n", static_cast<unsigned long>(bytes),
+            static_cast<unsigned long long>(malformedSkipped_));
+    malformedSkipped_ = 0;
     write(ffbEvents_, line_);
 }
 

@@ -54,6 +54,34 @@ bool makeNonBlocking(const NativeSocket socket) {
 }
 
 int lastError() { return WSAGetLastError(); }
+
+// Windows reports an ICMP "port unreachable" (a datagram sent while nobody listened) as WSAECONNRESET on the next
+// receive of the same socket. Meaningless for loopback datagrams: switch it off (SIO_UDP_CONNRESET).
+void ignoreConnectionReset(const NativeSocket socket) {
+    constexpr DWORD kSioUdpConnReset = IOC_IN | IOC_VENDOR | 12;
+    BOOL report = FALSE;
+    DWORD returned = 0;
+    WSAIoctl(socket, kSioUdpConnReset, &report, sizeof(report), nullptr, 0, &returned, nullptr, nullptr);
+}
+
+enum class ReceiveError { WouldBlock, Skip, Other };
+ReceiveError classify(const int error) {
+    if (error == WSAEWOULDBLOCK) return ReceiveError::WouldBlock;
+    // A datagram larger than the buffer (dropped), or a stale "port unreachable": the next one may be fine.
+    if (error == WSAEMSGSIZE || error == WSAECONNRESET) return ReceiveError::Skip;
+    return ReceiveError::Other;
+}
+
+std::string systemMessage(const int error) {
+    char text[256] = {};
+    const DWORD length = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr,
+                                        static_cast<DWORD>(error), 0, text, sizeof(text), nullptr);
+    std::string message(text, length);
+    while (!message.empty() && (message.back() == '\n' || message.back() == '\r' || message.back() == '.')) {
+        message.pop_back();
+    }
+    return message;
+}
 #else
 using NativeSocket = int;
 constexpr NativeSocket kInvalidSocket = -1;
@@ -71,6 +99,17 @@ bool makeNonBlocking(const NativeSocket socket) {
 }
 
 int lastError() { return errno; }
+
+void ignoreConnectionReset(const NativeSocket) {}
+
+enum class ReceiveError { WouldBlock, Skip, Other };
+ReceiveError classify(const int error) {
+    if (error == EAGAIN || error == EWOULDBLOCK) return ReceiveError::WouldBlock;
+    if (error == ECONNREFUSED || error == EINTR) return ReceiveError::Skip;
+    return ReceiveError::Other;
+}
+
+std::string systemMessage(const int error) { return std::strerror(error); }
 #endif
 
 const logging::Logger& log() {
@@ -78,7 +117,30 @@ const logging::Logger& log() {
     return logger;
 }
 
-std::string errorText(const int error) { return std::to_string(error) + " " + std::system_category().message(error); }
+std::string errorText(const int error) { return std::to_string(error) + " " + systemMessage(error); }
+
+// One datagram into `buffer`: its size, or nothing when none is waiting. Errors that only concern one datagram are
+// skipped (a few times); others are logged (rate-limited) and end this read.
+std::optional<std::size_t> receiveOne(const NativeSocket socket, const std::span<std::uint8_t> buffer) {
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        const auto received =
+            ::recv(socket, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+        if (received >= 0) {
+            return static_cast<std::size_t>(received);
+        }
+        const int error = lastError();
+        switch (classify(error)) {
+            case ReceiveError::WouldBlock: return std::nullopt;
+            case ReceiveError::Skip: continue;
+            case ReceiveError::Other: {
+                static logging::RateLimiter limiter(std::chrono::seconds(10));
+                WE_LOG_WARN_LIMITED(log(), limiter, "receive failed: {}", errorText(error));
+                return std::nullopt;
+            }
+        }
+    }
+    return std::nullopt;
+}
 
 sockaddr_in loopbackAddress(const std::uint16_t port) {
     sockaddr_in address{};
@@ -91,7 +153,9 @@ sockaddr_in loopbackAddress(const std::uint16_t port) {
 // Owns one UDP socket plus the Winsock session it needs on Windows.
 class UdpSocket {
 public:
-    UdpSocket() : socket_(session_.ok() ? ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP) : kInvalidSocket) {}
+    UdpSocket() : socket_(session_.ok() ? ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP) : kInvalidSocket) {
+        if (socket_ != kInvalidSocket) ignoreConnectionReset(socket_);
+    }
     ~UdpSocket() {
         if (socket_ != kInvalidSocket) {
             closeSocket(socket_);
@@ -255,24 +319,18 @@ std::unique_ptr<UdpLoopbackListener> UdpLoopbackListener::create(const std::uint
 }
 
 std::optional<std::size_t> UdpLoopbackListener::receive(const std::span<std::uint8_t> buffer) {
-    const auto received =
-        ::recv(impl_->socket.get(), reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
-    if (received <= 0) {
-        return std::nullopt;   // would block, or an error: nothing to read now
-    }
-    return static_cast<std::size_t>(received);
+    return receiveOne(impl_->socket.get(), buffer);
 }
 
 std::optional<StatePacket> UdpLoopbackReceiver::pollLatest() {
     std::optional<StatePacket> latest;
     std::array<std::uint8_t, 64> buffer{};
     for (;;) {
-        const auto received = ::recv(impl_->socket.get(), reinterpret_cast<char*>(buffer.data()),
-                                     static_cast<int>(buffer.size()), 0);
-        if (received <= 0) {
-            break;  // would block, or error: either way nothing more to read now
+        const auto received = receiveOne(impl_->socket.get(), buffer);
+        if (!received) {
+            break;  // nothing more to read now
         }
-        const auto size = static_cast<std::size_t>(received);
+        const auto size = *received;
         if (auto packet = decodeStatePacket(std::span<const std::uint8_t>(buffer.data(), size))) {
             impl_->track(*packet);
             latest = packet;

@@ -1,5 +1,6 @@
 #include "wheelemu/XboxPad.hpp"
 
+#include <algorithm>
 #include <array>
 #include <utility>
 
@@ -91,7 +92,8 @@ XboxMirror::Result XboxMirror::update(const TargetReport& wheel, const std::int6
         haveForceTime_ = true;
         lastForceMs_ = nowMs;
     }
-    if (65535 - wheel.throttle > kPedalPressed || 65535 - wheel.brake > kPedalPressed) {
+    const auto pressedBy = [](const std::int32_t pedal) { return 65535 - std::clamp<std::int32_t>(pedal, 0, 65535); };
+    if (pressedBy(wheel.throttle) > kPedalPressed || pressedBy(wheel.brake) > kPedalPressed) {
         lastPedalMs_ = nowMs;
     }
     const bool driving = nowMs - lastPedalMs_ < kPedalQuietMs;

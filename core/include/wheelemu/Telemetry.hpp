@@ -86,6 +86,7 @@ private:
         std::FILE* handle = nullptr;
         std::uint64_t bytes = 0;
         bool full = false;
+        bool failed = false;   // a write failed (disk full?): nothing more goes to it until the next day
     };
 
     TelemetryRecorder(const TelemetryConfig& config, std::filesystem::path directory,
@@ -118,6 +119,12 @@ private:
     std::uint64_t ffbRows_ = 0;
     std::uint64_t keepAlives_ = 0;
     std::uint64_t skipped_ = 0;
+    // The day's files could not be opened (disk full, folder gone): tried again once a minute.
+    bool dayOpen_ = false;
+    WallClock::time_point retryAt_{};
+    std::uint64_t lastMalformedNs_ = 0;
+    std::uint64_t malformedSkipped_ = 0;
+    void noteWriteFailure(File& file, const char* what);
     // Change detection: the value columns of the last row written (without times, counters and loop
     // timing), when it was written, and the last effect state written per force feedback slot.
     [[nodiscard]] bool changed(const TelemetrySample& sample, const std::string& exact) const;

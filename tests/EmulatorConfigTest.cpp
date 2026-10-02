@@ -27,6 +27,15 @@ TEST(EmulatorConfig, EmptyFileGivesDefaults) {
     EXPECT_EQ(result.config.loopHz, 1000);
 }
 
+TEST(EmulatorConfig, RejectsNotANumber) {
+    // "nan" passes a range check (every comparison is false) and would switch the force cap off.
+    const auto result = load("[ffb]\nmax_magnitude = nan\nmax_slew_per_second = inf\n[steering]\ndeadzone = -nan\n");
+    EXPECT_TRUE(containsError(result, "max_magnitude"));
+    EXPECT_TRUE(containsError(result, "max_slew_per_second"));
+    EXPECT_TRUE(containsError(result, "deadzone"));
+    EXPECT_FLOAT_EQ(result.config.ffb.maxMagnitude, FfbSafetyConfig{}.maxMagnitude);
+}
+
 TEST(EmulatorConfig, ReadsButtonLabels) {
     const auto result = load("[button_labels]\nbutton_35 = Start\nbutton_12 = L paddle\n");
     ASSERT_TRUE(result.errors.empty()) << result.errors.front();

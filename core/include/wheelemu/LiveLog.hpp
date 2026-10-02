@@ -38,6 +38,8 @@ public:
     static constexpr std::uintmax_t kInitialTailBytes = 48 * 1024;
     // Read per file per poll at most, so a huge file cannot stall the window.
     static constexpr std::uintmax_t kMaxReadBytes = 512 * 1024;
+    // A line longer than this is shown cut.
+    static constexpr std::size_t kMaxLineBytes = 16 * 1024;
 
     // Which file component `source` writes now (a new path, e.g. the next day's, starts over at its tail).
     // An empty path stops following it.

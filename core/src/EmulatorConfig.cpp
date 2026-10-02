@@ -1,6 +1,7 @@
 #include "wheelemu/EmulatorConfig.hpp"
 
 #include <charconv>
+#include <cmath>
 #include <optional>
 #include <set>
 #include <utility>
@@ -29,7 +30,9 @@ public:
         }
         float parsed = 0.0F;
         const auto [end, ec] = std::from_chars(value->data(), value->data() + value->size(), parsed);
-        if (ec != std::errc{} || end != value->data() + value->size() || parsed < min || parsed > max) {
+        // from_chars reads "nan" and "inf": NaN passes both range checks, so reject non-finite values first.
+        if (ec != std::errc{} || end != value->data() + value->size() || !std::isfinite(parsed) || parsed < min ||
+            parsed > max) {
             invalid(key, *value, "a number in [" + std::to_string(min) + ", " + std::to_string(max) + "]");
             return;
         }

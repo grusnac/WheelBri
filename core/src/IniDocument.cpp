@@ -26,6 +26,10 @@ IniDocument::ParseResult IniDocument::parse(const std::string_view text) {
     std::string section;
     std::size_t lineNumber = 0;
     std::size_t position = 0;
+    // Notepad may save the file with a UTF-8 byte order mark: not part of the first line.
+    if (text.size() >= 3 && text.substr(0, 3) == "\xEF\xBB\xBF") {
+        position = 3;
+    }
 
     while (position <= text.size()) {
         const auto end = text.find('\n', position);

@@ -63,8 +63,23 @@ bool isArchive(const std::string& fileName) {
            endsWith(name, ".gz");
 }
 
+namespace {
+
+// The file name as UTF-8. path::string() throws on Windows for a name the ANSI code page cannot show (an emoji or
+// a foreign letter in some file in the log folder), which would stop the service: never throw here.
+std::string nameOf(const std::filesystem::path& file) {
+    try {
+        const std::u8string name = file.filename().u8string();
+        return std::string(name.begin(), name.end());
+    } catch (...) {
+        return {};
+    }
+}
+
+}  // namespace
+
 std::string fileDay(const std::filesystem::path& file) {
-    if (const auto date = findDate(file.filename().string())) {
+    if (const auto date = findDate(nameOf(file))) {
         return *date;
     }
     // No date in the name (e.g. an old "wheelemu-service.log"): the day it was last written.
@@ -82,12 +97,18 @@ std::map<std::string, std::vector<std::filesystem::path>> filesBefore(const std:
                                                                         const bool includeArchives) {
     std::map<std::string, std::vector<std::filesystem::path>> days;
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(directory, ec)) {
+    // Advanced with an error code: a folder that changes or goes away during the scan ends it, never throws.
+    std::filesystem::directory_iterator it(directory, ec);
+    for (; !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        const auto& entry = *it;
         std::error_code typeError;
         if (!entry.is_regular_file(typeError)) {
             continue;
         }
-        const std::string name = entry.path().filename().string();
+        const std::string name = nameOf(entry.path());
+        if (name.empty()) {
+            continue;
+        }
         if (!isManagedFile(name) || (!includeArchives && isArchive(name))) {
             continue;
         }
