@@ -1,6 +1,7 @@
 #include "wheelemu/Logging.hpp"
 
 #include <spdlog/cfg/env.h>
+#include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
@@ -33,6 +34,22 @@ std::mutex gMutex;
 std::vector<spdlog::sink_ptr> gSinks;   // guarded by gMutex
 std::shared_ptr<DailySink> gFileSink;   // guarded by gMutex
 bool gInitialised = false;
+
+// addListener(): the message handed to a function instead of written somewhere.
+class ListenerSink final : public spdlog::sinks::base_sink<std::mutex> {
+public:
+    explicit ListenerSink(Listener listener) : listener_(std::move(listener)) {}
+
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        listener_(msg.level, std::string(msg.logger_name.data(), msg.logger_name.size()),
+                  std::string(msg.payload.data(), msg.payload.size()));
+    }
+    void flush_() override {}
+
+private:
+    Listener listener_;
+};
 
 std::vector<spdlog::sink_ptr> fallbackSinks() {
     static const spdlog::sink_ptr stderrSink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
@@ -121,6 +138,13 @@ bool init(const LogConfig& config, const std::string& defaultFilePath) {
                     spdlog::level::to_string_view(level));
     }
     return fileOk;
+}
+
+void addListener(Listener listener) {
+    const auto sink = std::make_shared<ListenerSink>(std::move(listener));
+    const std::lock_guard<std::mutex> lock(gMutex);
+    gSinks.push_back(sink);
+    spdlog::apply_all([&](const Logger& logger) { logger->sinks().push_back(sink); });
 }
 
 void shutdown() {

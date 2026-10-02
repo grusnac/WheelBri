@@ -132,7 +132,8 @@ public:
         deleteWindow_ = XInternAtom(display_, "WM_DELETE_WINDOW", False);
         XSetWMProtocols(display_, window_, &deleteWindow_, 1);
         XSelectInput(display_, window_,
-                     ExposureMask | KeyPressMask | KeyReleaseMask | StructureNotifyMask | VisibilityChangeMask);
+                     ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | StructureNotifyMask |
+                         VisibilityChangeMask);
         // Held keys repeat as presses only (no fake releases), so a repeat is recognisable.
         Bool supported = False;
         XkbSetDetectableAutoRepeat(display_, True, &supported);
@@ -161,12 +162,17 @@ public:
                     keyDown_[code] = true;
                     const KeySym sym = XLookupKeysym(&event.xkey, 0);
                     if (sym == XK_Escape) {
-                        closed_ = true;
+                        if (!repeat) keys_ += kEscape;
                     } else if (!repeat && sym >= XK_a && sym <= XK_z) {
                         keys_ += static_cast<char>('a' + (sym - XK_a));
                     }
                     break;
                 }
+                case ButtonPress:
+                    if (event.xbutton.button == Button1) {
+                        clicks_.push_back(toCanvas(event.xbutton.x, event.xbutton.y));
+                    }
+                    break;
                 case KeyRelease:
                     keyDown_[event.xkey.keycode & 0xFFU] = false;
                     break;
@@ -193,6 +199,7 @@ public:
         WindowInput input;
         input.close = closed_;
         input.keys.swap(keys_);
+        input.clicks.swap(clicks_);
         return input;
     }
 
@@ -283,8 +290,17 @@ public:
     }
 
 private:
-    [[nodiscard]] int px(const float x) const { return static_cast<int>(std::lround(box_.offsetX + x * box_.scale)); }
-    [[nodiscard]] int py(const float y) const { return static_cast<int>(std::lround(box_.offsetY + y * box_.scale)); }
+    [[nodiscard]] int px(const float x) const {
+        return static_cast<int>(std::lround(box_.offsetX + (x + originX_) * box_.scale));
+    }
+    [[nodiscard]] int py(const float y) const {
+        return static_cast<int>(std::lround(box_.offsetY + (y + originY_) * box_.scale));
+    }
+    // Window pixels -> logical canvas pixels.
+    [[nodiscard]] Click toCanvas(const int x, const int y) const {
+        const float scale = box_.scale > 0.0F ? box_.scale : 1.0F;
+        return {(static_cast<float>(x) - box_.offsetX) / scale, (static_cast<float>(y) - box_.offsetY) / scale};
+    }
 
     [[nodiscard]] unsigned long pixel(const Colour c) const {
         return place(c.r, red_) | place(c.g, green_) | place(c.b, blue_);
@@ -367,6 +383,7 @@ private:
     bool obscured_ = false;
     bool closed_ = false;
     std::string keys_;
+    std::vector<Click> clicks_;
 };
 
 }  // namespace

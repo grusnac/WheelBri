@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -34,6 +35,9 @@ bool raiseThreadPriority(std::string& error);
 
 // "Windows", "Linux", "macOS".
 [[nodiscard]] const char* name();
+
+// The running program's own file, empty if unknown.
+[[nodiscard]] std::filesystem::path executablePath();
 
 // A program run in the background with no console window and no input or output (stdin/out/err go to the
 // null device). Arguments are UTF-8; argv[0] is the program's path.

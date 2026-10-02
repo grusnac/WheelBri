@@ -58,11 +58,15 @@ a headline, why it was needed, how to use it, and where to look.
 | `shim/` | `dinput8.dll` proxy (Windows / Wine): wraps `IDirectInput8A/W`, devices and effects |
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
+| `scripts/make/` | Build scripts: build, full rebuild, tests, pre-commit check, mapping window, app, shim, bridge, drivers ([README](scripts/make/README.md)) |
 | `scripts/` | `telemetry_summary.py`: summary of a recorded session; `wheelemu.sh`: start and stop everything on Windows (MSYS2); `linux/`: start/stop and Steam launch wrapper, udev rules, the Linux bundle |
 | `tools/uhid/` | Phase 4: `wheelemu-uhid`, the virtual G920 for Linux (C++, kernel uhid) |
 | `tools/vbridge/` | Phase 5 step 0: `wheelemu-bridge`, a virtual G920 through HIDMaestro (C#, Windows) |
 
 ## Build
+
+The scripts in [`scripts/make/`](scripts/make/README.md) run all of this for you (`build.sh`, `rebuild.sh`,
+`test.sh`, `check.sh`, `ui.sh`, `app.sh`, `shim.sh`, `bridge.sh`, `drivers.sh`, `all.sh`) from an MSYS2 UCRT64 shell.
 
 Needs CMake ≥ 3.24 and a C++20 compiler; on Linux also the X11 headers (`libx11-dev`). No other libraries: the
 service uses DirectInput / Win32 on Windows and evdev / X11 on Linux (it runs on those two only). spdlog and
@@ -125,6 +129,18 @@ opens the wheel's force feedback exclusively; the shim then opens the R3 non-exc
 passthrough` in `wheelemu-shim.ini` restores the Phase 2 behaviour (effects straight to the R3's driver,
 limited only by Pit House), `off` disables force feedback. If forces pull the wrong way, set
 `[ffb] invert = true` in the service config.
+
+## The app
+
+`wheelemu.exe` (built next to `wheelemu-service.exe` in `build/service/`) is the everyday way to run it:
+double-click it, let Windows start it as Administrator, press **Start**, then start the game. The window shows
+the state (stopped, running and for how long, or why a start failed), the same live view as `--ui` (axes,
+buttons, game force feedback, files) and the latest log lines. **Stop**, or closing the window, undoes
+everything (virtual G920 and Xbox controller removed, the R3 visible again). **Open logs** opens the log folder.
+Each Start reads the config again, so edits apply without restarting the app. It uses
+`config/moza-r3-as-g920.ini` found next to the program or one or two folders up; `--config FILE` (in a
+shortcut) picks another, and the other options below work too. `wheelemu-service --app` is the same window
+from a console (and on Linux).
 
 ## Service
 

@@ -2,6 +2,7 @@
 // to the in-game shim over UDP loopback, plays the game's force feedback on the wheel, and records
 // telemetry of both directions for later tuning.
 
+#include "App.hpp"
 #include "FfbSelfTest.hpp"
 #include "HidHide.hpp"
 #include "HideFilter.hpp"
@@ -9,6 +10,7 @@
 #include "MappingView.hpp"
 #include "Platform.hpp"
 #include "ServiceLogging.hpp"
+#include "SessionUi.hpp"
 #include "VirtualG920.hpp"
 #include "VirtualXboxPad.hpp"
 #include "Wheel.hpp"
@@ -78,6 +80,8 @@ struct Options {
     bool virtualG920 = false;                   // --virtual-g920: our own driver's G920 (driver/)
     bool hide = true;                           // --no-hide: leave the real wheel visible to games
     bool unhide = false;                        // --unhide: make the real wheel visible again and exit
+    bool app = false;                           // --app: the window with Start / Stop (always in wheelemu.exe)
+    bool noVirtualG920 = false;                 // --no-virtual-g920: the app without its virtual G920
     wheelemu::XboxPadMode xboxPad = wheelemu::XboxPadMode::Buttons;   // --xbox-pad: with --virtual-g920
 };
 
@@ -125,6 +129,8 @@ void printUsage() {
         "                 prompts (driver\\xusb\\install-xusb.ps1 once). buttons (default): the wheel's A/B/X/Y/\n"
         "                 Menu/View/D-pad press it in menus; idle: there, never pressed; off: none\n"
         "  --unhide       after a crash: make the real wheel visible to games again and exit\n"
+        "  --app          a window with Start / Stop / Open logs instead of running at once (what wheelemu.exe\n"
+        "                 does); on Windows it starts with --virtual-g920 unless --no-virtual-g920\n"
         "  --old-files delete|archive|keep\n"
         "                 logs and telemetry older than [retention] older_than_days (7): delete them (default),\n"
         "                 compress them (7-Zip, xz, zstd, zip or gzip, the best one found) or keep them\n"
@@ -154,6 +160,10 @@ bool parseOptions(const int argc, char** argv, Options& options) {
                 return false;
             }
             options.xboxPad = *mode;
+        } else if (arg == "--app") {
+            options.app = true;
+        } else if (arg == "--no-virtual-g920") {
+            options.noVirtualG920 = true;
         } else if (arg == "--no-hide") {
             options.hide = false;
         } else if (arg == "--unhide") {
@@ -499,15 +509,7 @@ std::vector<std::filesystem::path> managedFolders(const wheelemu::EmulatorConfig
     return folders;
 }
 
-// What the window draws, copied from the loop's thread about 60 times a second.
-struct UiFrame {
-    bool ready = false;
-    wheelemu::RawInputState raw;
-    wheelemu::WheelState state;
-    wheelemu::TargetReport report;
-    std::optional<wheelemu::FfbController> ffb;   // copy-constructed each time (it cannot be assigned)
-    wheelemu::service::TelemetryFiles telemetry;
-};
+using wheelemu::service::UiFrame;
 
 wheelemu::service::TelemetryFiles telemetryFiles(const wheelemu::TelemetryRecorder* recorder) {
     wheelemu::service::TelemetryFiles files;
@@ -580,7 +582,8 @@ std::pair<float, bool> gameForce(const wheelemu::FfbController& controller) {
 
 int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
             const std::filesystem::path& logFolder, const bool logToFile, wheelemu::service::Wheel& source,
-            const bool print, const bool ui, const std::optional<wheelemu::XboxPadMode> xboxPad) {
+            const bool print, wheelemu::service::UiHost* const host,
+            const std::optional<wheelemu::XboxPadMode> xboxPad) {
     const auto profile = wheelemu::makeProfile(config.targetProfile);
     if (profile == nullptr) {
         WE_LOG_CRITICAL(log(), "unknown target_profile '{}' (known: {})", config.targetProfile,
@@ -610,15 +613,6 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     wheelemu::TestClutch testClutch;
     bool testClutchOn = false;
 
-    std::unique_ptr<wheelemu::service::MappingView> view;
-    if (ui) {
-        view = wheelemu::service::MappingView::open(source.name(), source.axes(), source.buttons(), *profile,
-                                                    config.mapper);
-        if (view == nullptr) {
-            return 1;
-        }
-    }
-
     std::string ffbStatus;
     const auto gameFfb = GameFfb::open(config, source, ffbStatus);
     if (xboxPublisher != nullptr && gameFfb != nullptr) {
@@ -637,14 +631,22 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     auto nextMidnight = wheelemu::startOfDay(
         wheelemu::addDays(wheelemu::localDate(wheelemu::WallClock::now()), 1).value_or(""));
 
-    if (view != nullptr) {
-        wheelemu::service::FilesDisplay files;
-        files.logFolder = logFolder;
-        files.logToFile = logToFile;
-        files.telemetryStatus = config.telemetry.enabled ? "off: the files could not be created (see the log)"
-                                                         : "off ([telemetry] enabled = false)";
-        files.housekeeping = &housekeeping;
-        view->setFiles(std::move(files));
+    if (host != nullptr) {
+        wheelemu::service::SessionInfo info;
+        info.sourceName = source.name();
+        info.axes = source.axes();
+        info.buttons = source.buttons();
+        info.targetProfile = config.targetProfile;
+        info.mapper = config.mapper;
+        info.files.logFolder = logFolder;
+        info.files.logToFile = logToFile;
+        info.files.telemetryStatus = config.telemetry.enabled ? "off: the files could not be created (see the log)"
+                                                              : "off ([telemetry] enabled = false)";
+        info.ffbStatus = ffbStatus;
+        info.ffbInvert = config.ffbInvert;
+        if (!host->sessionStarted(info)) {
+            return 1;
+        }
     }
 
     const std::uint64_t periodNs = platform::kNsPerSecond / static_cast<std::uint64_t>(config.loopHz);
@@ -731,7 +733,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
             if (print && ticks % printEveryTicks == 0) {
                 printLive(pipeline);
             }
-            if (view != nullptr && ticks % frameEveryTicks == 0) {
+            if (host != nullptr && ticks % frameEveryTicks == 0) {
                 // Hand the window a copy. Never wait for it: if it is copying right now, skip this frame.
                 const std::unique_lock lock(frameMutex, std::try_to_lock);
                 if (lock.owns_lock()) {
@@ -832,29 +834,25 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                     nextMidnight = wheelemu::startOfDay(wheelemu::addDays(wheelemu::localDate(wall), 1).value_or(""));
                 }
             }
-            if (view == nullptr) {
+            if (host == nullptr) {
                 platform::sleepMs(50);
                 continue;
             }
-            if (!view->pumpEvents()) {
-                WE_LOG_INFO(log(), "mapping window closed");
-                break;
-            }
-            std::optional<UiFrame> frame;
+            std::optional<UiFrame> frame;   // copy-constructed: its force feedback copy cannot be assigned
             {
                 const std::lock_guard lock(frameMutex);
                 if (sharedFrame.ready) {
                     frame.emplace(sharedFrame);
                 }
             }
-            if (frame) {
-                view->setTelemetry(frame->telemetry);
-                wheelemu::service::FfbDisplay ffbDisplay;
-                ffbDisplay.controller = frame->ffb ? &*frame->ffb : nullptr;
-                ffbDisplay.status = ffbStatus;
-                ffbDisplay.invert = config.ffbInvert;
-                ffbDisplay.nowNs = platform::nowNs();
-                view->render(frame->raw, frame->state, frame->report, ffbDisplay);
+            if (!frame) {
+                frame.emplace();
+            }
+            frame->oldFiles = housekeeping.status();
+            frame->oldFilesFailed = housekeeping.failed();
+            if (!host->frame(*frame)) {
+                WE_LOG_INFO(log(), "window closed: stopping");
+                break;
             }
             nextFrame += kFrameNs;
             const std::uint64_t after = platform::nowNs();
@@ -880,17 +878,35 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     return loopResult;
 }
 
-int run(const Options& options) {
+// The config, with --old-files applied.
+LoadedConfig loadForRun(const Options& options) {
     LoadedConfig loaded = loadConfig(options.configPath);
     if (!options.oldFiles.empty()) {
         loaded.config.retention.action = *wheelemu::parseOldFilesAction(options.oldFiles);
     }
-    const std::string logFile =
-        loaded.config.logging.filePath.empty() ? wheelemu::service::defaultLogFile() : loaded.config.logging.filePath;
-    const bool logFileOk = wheelemu::logging::init(loaded.config.logging, wheelemu::service::defaultLogFile());
+    return loaded;
+}
+
+// Logging (once per process), the timer resolution and the start-up banner. Returns whether the log file opened.
+bool startProcess(const Options& options, wheelemu::logging::LogConfig logConfig, const bool console) {
+    logConfig.console = logConfig.console && console;
+    const bool logFileOk = wheelemu::logging::init(logConfig, wheelemu::service::defaultLogFile());
     platform::init();
     wheelemu::service::logStartupBanner(options.configPath);
+    return logFileOk;
+}
 
+std::filesystem::path logFolderOf(const wheelemu::EmulatorConfig& config) {
+    const std::string logFile =
+        config.logging.filePath.empty() ? wheelemu::service::defaultLogFile() : config.logging.filePath;
+    std::filesystem::path folder = std::filesystem::path(logFile).parent_path();
+    return folder.empty() ? std::filesystem::current_path() : folder;
+}
+
+// One session: the wheel opened, the virtual devices created, the loop run until stopped (gStop, the stop
+// file, or the host's window), and everything undone again. Logging must be up.
+int runSession(const Options& options, const LoadedConfig& loaded, const bool logFileOk,
+               wheelemu::service::UiHost* const host) {
     if (loaded.fileMissing) {
         WE_LOG_CRITICAL(log(), "cannot open config file '{}'", options.configPath);
         return 2;
@@ -948,10 +964,7 @@ int run(const Options& options) {
         std::filesystem::remove(gStopFile, ec);   // left over from an earlier run
         WE_LOG_INFO(log(), "stops when {} appears", gStopFile.string());
     }
-    std::filesystem::path logFolder = std::filesystem::path(logFile).parent_path();
-    if (logFolder.empty()) {
-        logFolder = std::filesystem::current_path();
-    }
+    const std::filesystem::path logFolder = logFolderOf(config);
     // Our own driver's G920 (driver/): there while the loop runs, removed when it returns or the process ends.
     std::unique_ptr<wheelemu::service::VirtualG920> g920;
     if (options.virtualG920) {
@@ -996,7 +1009,7 @@ int run(const Options& options) {
         }
     }
     const int result =
-        runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, options.print, options.ui,
+        runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, options.print, host,
                 xboxPadMode);
     if (hideFilter != nullptr) {
         hideFilter->restore();
@@ -1013,6 +1026,65 @@ int run(const Options& options) {
     return result;
 }
 
+// The command line service: one session, with the --ui window when asked for.
+int run(const Options& options) {
+    const LoadedConfig loaded = loadForRun(options);
+    const bool logFileOk = startProcess(options, loaded.config.logging, true);
+    std::unique_ptr<wheelemu::service::UiHost> window;
+    if (options.ui) {
+        window = wheelemu::service::makeSessionWindow();
+    }
+    return runSession(options, loaded, logFileOk, window.get());
+}
+
+// The config the app uses when none is given: config/moza-r3-as-g920.ini next to the program, or one or two
+// folders up (build/service/ in the source tree), or under the current folder.
+std::string defaultConfigPath() {
+    const std::filesystem::path exe = platform::executablePath();
+    std::vector<std::filesystem::path> bases;
+    if (!exe.empty()) {
+        bases = {exe.parent_path(), exe.parent_path().parent_path(), exe.parent_path().parent_path().parent_path()};
+    }
+    bases.push_back(std::filesystem::current_path());
+    for (const auto& base : bases) {
+        const std::filesystem::path candidate = base / "config" / "moza-r3-as-g920.ini";
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(candidate, ec)) {
+            return candidate.lexically_normal().string();
+        }
+    }
+    return {};
+}
+
+// The app: Start / Stop instead of a command line. Each Start reads the config again, so edits apply.
+int runAppMode(Options options, const bool consoleLogging) {
+    if (options.configPath.empty()) {
+        options.configPath = defaultConfigPath();
+    }
+#ifdef _WIN32
+    options.virtualG920 = !options.noVirtualG920;
+#endif
+    options.print = false;
+    const LoadedConfig loaded = loadForRun(options);
+    const bool logFileOk = startProcess(options, loaded.config.logging, consoleLogging);
+
+    wheelemu::service::AppSettings settings;
+    settings.configPath = options.configPath.empty() ? std::string("(none found: built-in defaults)") : options.configPath;
+    settings.mode = options.virtualG920
+                        ? std::string("creates the virtual G920") +
+                              (options.xboxPad != wheelemu::XboxPadMode::Off ? " and Xbox controller" : "") +
+                              (options.hide ? " and hides the real wheel from games" : "")
+                        : std::string("sends it to the in-game shim (dinput8.dll)");
+    settings.logFolder = logFolderOf(loaded.config);
+    settings.runSession = [options, logFileOk](wheelemu::service::UiHost& host) {
+        const LoadedConfig fresh = loadForRun(options);
+        return runSession(options, fresh, logFileOk, &host);
+    };
+    settings.requestStop = [] { gStop = true; };
+    settings.clearStop = [] { gStop = false; };
+    return wheelemu::service::runApp(settings);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1020,10 +1092,15 @@ int main(int argc, char** argv) {
     if (!parseOptions(argc, argv, options)) {
         return 2;
     }
+#ifdef WHEELEMU_APP
+    constexpr bool kAppBuild = true;   // wheelemu.exe: a window program, no console
+#else
+    constexpr bool kAppBuild = false;
+#endif
 
     int exitCode = 1;
     try {
-        exitCode = run(options);
+        exitCode = kAppBuild || options.app ? runAppMode(options, !kAppBuild) : run(options);
     } catch (const std::exception& e) {
         WE_LOG_CRITICAL(log(), "unhandled exception: {}", e.what());
     } catch (...) {

@@ -87,6 +87,12 @@ const char* name() {
 #endif
 }
 
+std::filesystem::path executablePath() {
+    std::error_code ec;
+    const std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);   // Linux
+    return ec ? std::filesystem::path() : self;
+}
+
 struct ChildProcess::Impl {
     pid_t pid = -1;
     bool running = true;

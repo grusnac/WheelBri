@@ -4,7 +4,6 @@
 #include "wheelemu/FfbController.hpp"
 #include "wheelemu/MapperConfig.hpp"
 
-#include "Housekeeping.hpp"
 #include "wheelemu/WheelState.hpp"
 
 #include "UiWindow.hpp"
@@ -45,32 +44,41 @@ struct FilesDisplay {
     bool logToFile = true;                        // false: the log file could not be opened
     TelemetryFiles telemetry;
     std::string telemetryStatus;
-    const Housekeeping* housekeeping = nullptr;   // owned by the window's thread
+    std::string oldFiles;                         // Housekeeping::status()
+    bool oldFilesFailed = false;
 };
 
 class MappingView {
 public:
-    // Opens the window. Returns nullptr (and logs why) if it cannot be created (no display, ...).
-    [[nodiscard]] static std::unique_ptr<MappingView> open(std::string sourceName, int sourceAxes, int sourceButtons,
-                                                           const IDeviceProfile& profile, const MapperConfig& mapper);
-    ~MappingView();
+    // The panel's size in logical pixels; it draws from the window's current origin.
+    static constexpr int kWidth = 720;
+    static constexpr int kHeight = 752;
+
+    // Draws into `window` (not owned; it must outlive the view).
+    MappingView(ui::UiWindow& window, std::string sourceName, int sourceAxes, int sourceButtons,
+                const IDeviceProfile& profile, const MapperConfig& mapper);
 
     MappingView(const MappingView&) = delete;
     MappingView& operator=(const MappingView&) = delete;
 
-    // Handles window events. Returns false once the user closed the window or pressed Esc.
-    bool pumpEvents();
+    // A key pressed in the window: F opens the logs folder, U switches the force feedback panel.
+    void onKey(char key);
+    // Opens the folder with the logs (or the telemetry, if it has its own) in the file manager.
+    void openFilesFolder() const;
 
-    // Shown at the bottom of the window; F opens the folder.
+    // Shown at the bottom of the panel.
     void setFiles(FilesDisplay files) { files_ = std::move(files); }
     void setTelemetry(TelemetryFiles telemetry) { files_.telemetry = std::move(telemetry); }
+    void setOldFiles(std::string status, const bool failed) {
+        files_.oldFiles = std::move(status);
+        files_.oldFilesFailed = failed;
+    }
 
-    void render(const RawInputState& raw, const WheelState& state, const TargetReport& report,
-                const FfbDisplay& ffb = {});
+    // Draws the panel (between the window's begin() and present()).
+    void draw(const RawInputState& raw, const WheelState& state, const TargetReport& report,
+              const FfbDisplay& ffb = {});
 
 private:
-    MappingView(std::unique_ptr<ui::UiWindow> window, std::string sourceName, int sourceAxes, int sourceButtons,
-                const IDeviceProfile& profile, const MapperConfig& mapper);
 
     void drawHeader();
     void drawAxes(const RawInputState& raw, const WheelState& state, const TargetReport& report);
@@ -82,10 +90,9 @@ private:
     void drawFfb(const FfbDisplay& ffb);
     void drawFfbUsage(const FfbController& controller, float top);
     void drawFiles();
-    void openFilesFolder() const;
     void trackLastPressed(std::uint64_t sourceButtons);
 
-    std::unique_ptr<ui::UiWindow> window_;
+    ui::UiWindow& window_;
     std::string sourceName_;
     int sourceAxes_;
     int sourceButtons_;

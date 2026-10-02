@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace wheelemu::service::ui {
 
@@ -45,10 +46,19 @@ struct Letterbox {
     return box;
 }
 
+// A left mouse click, in logical canvas pixels (the drawing origin not applied).
+struct Click {
+    float x = 0.0F;
+    float y = 0.0F;
+};
+
+inline constexpr char kEscape = '\x1b';
+
 // What happened since the last pump().
 struct WindowInput {
-    bool close = false;     // the window was closed or Esc pressed
-    std::string keys;       // other keys pressed (not repeats), lower case: "f", "u"
+    bool close = false;         // the window's close button
+    std::string keys;           // keys pressed (not repeats): letters in lower case ("f", "u"), kEscape
+    std::vector<Click> clicks;  // left mouse button presses
 };
 
 class UiWindow {
@@ -62,6 +72,12 @@ public:
     // switches display mode).
     [[nodiscard]] virtual bool visible() const = 0;
 
+    // Where (0, 0) of the draw calls below is on the canvas, so a panel can be drawn anywhere unchanged.
+    void setOrigin(const float x, const float y) {
+        originX_ = x;
+        originY_ = y;
+    }
+
     // One frame: begin() clears the canvas, the draw calls follow, present() shows it.
     virtual void begin(Colour background) = 0;
     virtual void fill(float x, float y, float w, float h, Colour colour) = 0;
@@ -74,6 +90,10 @@ public:
 
     // For the log: "Win32 GDI", "X11 (font ...)".
     [[nodiscard]] virtual std::string describe() const = 0;
+
+protected:
+    float originX_ = 0.0F;
+    float originY_ = 0.0F;
 };
 
 // The window for this system, `windowWidth` x `windowHeight` (at 100 % display scale; made smaller if the

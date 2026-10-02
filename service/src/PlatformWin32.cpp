@@ -149,6 +149,19 @@ bool raiseThreadPriority(std::string& error) {
 
 const char* name() { return "Windows"; }
 
+std::filesystem::path executablePath() {
+    std::wstring path(MAX_PATH, L'\0');
+    while (true) {
+        const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+        if (length == 0) return {};
+        if (length < path.size()) {
+            path.resize(length);
+            return path;
+        }
+        path.resize(path.size() * 2);
+    }
+}
+
 struct ChildProcess::Impl {
     PROCESS_INFORMATION info{};
     bool running = true;

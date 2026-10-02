@@ -7,8 +7,8 @@ This file guides Claude when working in this repository.
 - After every change, finish with **how to build it** and **how to test it** (what to run, what to look for,
   what a failure looks like), even when the change needs no rebuild (say so).
 - Build and test steps use the scripts in `scripts/make/` (`build.sh`, `rebuild.sh`, `test.sh`, `check.sh`,
-  `ui.sh`, `shim.sh`, `bridge.sh`, `drivers.sh`, `all.sh`; see `scripts/make/README.md`) instead of raw cmake,
-  ctest, dotnet or msbuild commands. When a new workflow keeps needing the same commands, add a script there
+  `ui.sh`, `app.sh`, `shim.sh`, `bridge.sh`, `drivers.sh`, `all.sh`; see `scripts/make/README.md`) as the shortcut
+  next to the full commands (next rule). When a new workflow keeps needing the same commands, add a script there
   (sourcing `common.sh`) and list it in that README.
 - **Every build or test step comes in two forms**: first the **full command(s)** that will run (exactly what the
   script does, so the user sees what happens), then the **shortcut**: the `scripts/make/` script that runs them.
@@ -79,7 +79,7 @@ Xlib; skipped with a warning without libx11-dev). No SDL or other third-party li
 
 The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `build.sh` (incremental,
 configures the first time), `rebuild.sh` (deletes `build/`, full rebuild), `test.sh [filter]`, `check.sh` (before a
-commit), `ui.sh [config]`, `shim.sh [--off] <game folder>`, `bridge.sh`, `drivers.sh [-Install]`, `all.sh [--clean]`.
+commit), `ui.sh [config]`, `app.sh [--no-start]`, `shim.sh [--off] <game folder>`, `bridge.sh`, `drivers.sh [-Install]`, `all.sh [--clean]`.
 The raw commands they run:
 
 Windows, MSYS2 UCRT64, from the repo root. Configure (first time only):
@@ -112,8 +112,8 @@ Or the test binary directly:
 ./build/tests/wheelemu_tests --gtest_filter='Pipeline.*'
 ```
 
-Outputs: `build/service/wheelemu-service.exe` (needs `C:\msys64\ucrt64\bin` on PATH; not statically linked) and
-`build/shim/dinput8.dll` (static). `scripts/wheelemu.sh --build` rebuilds the service and the bridge.
+Outputs: `build/service/wheelemu-service.exe` (command line), `build/service/wheelemu.exe` (the app: window with
+Start / Stop / Open logs, asks for Administrator) and `build/shim/dinput8.dll`; all linked statically on MinGW. `scripts/wheelemu.sh --build` rebuilds the service and the bridge.
 
 Windows shim cross-compiled from Linux/macOS with MinGW-w64 (→ `build-win/shim/dinput8.dll`):
 
@@ -142,10 +142,15 @@ only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /pe
 
 Service CLI (`service/src/main.cpp`): `wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
 [--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide] [--xbox-pad buttons|idle|off]]
-[--unhide]`. `--ui` opens a window (`service/src/MappingView.cpp`) that shows every source axis/button next to its
+[--unhide] [--app]`. `--app` opens the app's window (Start / Stop / Open logs) from a console. `--ui` opens a window (`service/src/MappingView.cpp`) that shows every source axis/button next to its
 target (G920/G29), the game's force feedback and today's log/telemetry files. It draws through `UiWindow.hpp`
 (filled/outlined rectangles and 8x8-cell monospaced text on a 720x752 logical canvas, letterboxed), implemented
 natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp` (Xlib) on Linux.
+
+The app (`wheelemu`, `service/src/App.cpp`, same sources plus `WHEELEMU_APP`; on Windows a GUI-subsystem exe
+with an Administrator manifest, `service/app/`) runs sessions (`runSession` in `main.cpp`) on a thread of its
+own from Start / Stop buttons; sessions show themselves through `UiHost` (`SessionUi.hpp`): the app's window,
+or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it does not own.
 
 ## Layout and architecture
 

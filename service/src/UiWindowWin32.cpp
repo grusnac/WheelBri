@@ -154,6 +154,7 @@ public:
         WindowInput input;
         input.close = closed_;
         input.keys.swap(keys_);
+        input.clicks.swap(clicks_);
         return input;
     }
 
@@ -262,10 +263,13 @@ private:
                 return true;
             case WM_KEYDOWN:
                 if (wParam == VK_ESCAPE) {
-                    closed_ = true;
+                    keys_ += kEscape;
                 } else if (wParam >= 'A' && wParam <= 'Z' && (lParam & (1L << 30)) == 0) {   // not a repeat
                     keys_ += static_cast<char>('a' + (wParam - 'A'));
                 }
+                return true;
+            case WM_LBUTTONDOWN:
+                clicks_.push_back(toCanvas(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam))));
                 return true;
             case WM_ERASEBKGND:   // everything is painted from the buffer: no flicker
                 result = 1;
@@ -296,8 +300,17 @@ private:
         }
     }
 
-    [[nodiscard]] int px(const float x) const { return static_cast<int>(std::lround(box_.offsetX + x * box_.scale)); }
-    [[nodiscard]] int py(const float y) const { return static_cast<int>(std::lround(box_.offsetY + y * box_.scale)); }
+    [[nodiscard]] int px(const float x) const {
+        return static_cast<int>(std::lround(box_.offsetX + (x + originX_) * box_.scale));
+    }
+    [[nodiscard]] int py(const float y) const {
+        return static_cast<int>(std::lround(box_.offsetY + (y + originY_) * box_.scale));
+    }
+    // Window pixels -> logical canvas pixels.
+    [[nodiscard]] Click toCanvas(const int x, const int y) const {
+        const float scale = box_.scale > 0.0F ? box_.scale : 1.0F;
+        return {(static_cast<float>(x) - box_.offsetX) / scale, (static_cast<float>(y) - box_.offsetY) / scale};
+    }
 
     void makeBuffer(const int width, const int height) {
         releaseBuffer();
@@ -361,6 +374,7 @@ private:
     std::vector<INT> advances_;
     bool closed_ = false;
     std::string keys_;
+    std::vector<Click> clicks_;
 };
 
 }  // namespace

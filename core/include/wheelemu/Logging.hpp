@@ -26,6 +26,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -42,6 +43,13 @@ bool init(const LogConfig& config, const std::string& defaultFilePath);
 
 // The dated file name used for `filePath` on `date` ("YYYY-MM-DD"): "dir/x.log" -> "dir/x-2026-09-30.log".
 [[nodiscard]] std::string datedFileName(const std::string& filePath, const std::string& date);
+
+// Also hands every message (at the loggers' levels) to `listener`: level, component and the bare message, from
+// whatever thread logged it. For a window that shows recent log lines. Call after init(), before other threads
+// start logging.
+using Listener = std::function<void(spdlog::level::level_enum level, const std::string& component,
+                                    const std::string& message)>;
+void addListener(Listener listener);
 
 // Flushes and releases all sinks. Call before the process (or the DLL) goes away.
 void shutdown();
