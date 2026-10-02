@@ -25,13 +25,29 @@ service is a native Linux process; named mappings do not cross that boundary, so
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
   `c_dfDIJoystick2`: wheel X, throttle Slider, brake Y, clutch Rz, pedals released at the top of the range;
-- the R3's axes: steering 0, throttle 2, brake 5 (see `config/moza-r3-as-g920.ini`);
+- the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/moza-r3-as-g920.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
 Still open:
 - the G29 profile (built, not tried in a game);
 - Linux/Proton: both ways (Phase 4 and the shim under Proton) are ready to try on a Steam Deck, [docs/linux.md](docs/linux.md);
 - effect envelopes (attack/fade) are ignored, and NFS's 20-byte Logitech `Escape` calls are not forwarded.
+
+## Functionalities
+
+One entry per finished functionality (it may span several commits), added in the commit that completes it:
+a headline, why it was needed, how to use it, and where to look.
+
+### Clutch pedal
+
+- **Why:** the add-on clutch pedal was recognised but the G920's clutch never moved: the configs mapped axis 3,
+  while the pedal moves R3 axis 6 (found in `raw_a6` in the telemetry).
+- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/moza-r3-as-g920.ini` and
+  `config/moza-r3-as-g29.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
+  return to 0%, raise `deadzone_low`. The game reads it as the G920's Rz axis.
+- **Look:** `wheelemu-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
+  `out_clutch` in `telemetry-<date>.csv`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
+  `tools/vbridge/ClutchProbe` drives a test clutch (`core/include/wheelemu/TestClutch.hpp`).
 
 ## Layout
 

@@ -9,6 +9,12 @@ This file guides Claude when working in this repository.
 - Put **every command in its own code block**, one command per block, so each can be copied on its own.
 - The user builds and runs on Windows (`D:\cpp-projects\WheelBri`) in an MSYS2 UCRT64 shell. Give commands for
   that shell unless the step needs PowerShell (drivers, `dotnet`), and say which shell.
+- **Before every commit**, write down why the change was made: the commit message gets a short headline and a
+  few lines of reasons.
+- **When a functionality is finished** (it may take several commits), add one entry for it under
+  `## Functionalities` in README.md, in the commit that completes it, not before. Keep it short: a `###` headline,
+  then **Why** (the reason), **Use** (how to use it, settings) and **Look** (where to see it: UI, logs and
+  telemetry columns, code files). Ask the user whether a functionality is finished if it's unclear.
 - Before guessing at a mapping or FFB problem, read the user's logs and telemetry
   (`%LOCALAPPDATA%\wheelemu\logs`: `wheelemu-service-<date>.log`, `telemetry-<date>.csv`, `ffb-<date>.csv`) and
   run `scripts/telemetry_summary.py`. The `raw_a0`..`raw_a7` columns show which axis a control really moves.
