@@ -94,6 +94,8 @@ private:
 };
 
 constexpr int kMaxAxisIndex = static_cast<int>(RawInputState::kMaxAxes) - 1;
+// Longest [button_labels] name: it has to fit the mapping window's cells.
+constexpr std::size_t kMaxButtonLabel = 12;
 
 void readPedal(const IniDocument& ini, const std::string& section, PedalConfig& pedal,
                std::vector<std::string>& errors) {
@@ -147,6 +149,22 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         SectionReader reader(ini, "buttons", errors);
         for (std::size_t target = 0; target < config.mapper.buttonMap.size(); ++target) {
             reader.readInt("target_" + std::to_string(target), config.mapper.buttonMap[target], kUnmapped, 63);
+        }
+        reader.reportUnknownKeys();
+    }
+    {
+        // [button_labels] button_N = what source button N is called on the wheel (display only).
+        SectionReader reader(ini, "button_labels", errors);
+        for (std::size_t source = 0; source < MapperConfig::kMaxSourceButtons; ++source) {
+            const std::string key = "button_" + std::to_string(source);
+            std::string label;
+            reader.readString(key, label);
+            if (label.size() > kMaxButtonLabel) {
+                errors.push_back("[button_labels] " + key + " = '" + label + "': at most " +
+                                 std::to_string(kMaxButtonLabel) + " characters");
+                label.resize(kMaxButtonLabel);
+            }
+            config.mapper.sourceButtonLabels[source] = std::move(label);
         }
         reader.reportUnknownKeys();
     }
@@ -226,7 +244,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
     }
 
     static const std::set<std::string> kKnownSections = {"",       "emulator", "steering", "throttle",
-                                                         "brake",  "clutch",   "buttons",  "hat",
+                                                         "brake",  "clutch",   "buttons",  "button_labels", "hat",
                                                          "ffb",    "logging",  "telemetry", "retention"};
     for (const auto& [section, keys] : ini.sections()) {
         if (kKnownSections.count(section) == 0) {

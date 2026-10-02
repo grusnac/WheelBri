@@ -16,6 +16,7 @@ add_executable(wheelemu_tests
     HidHideCliTest.cpp
     HidPidTest.cpp
     IniDocumentTest.cpp
+    LiveLogTest.cpp
     LoggingTest.cpp
     LoopStatsTest.cpp
     MapperTest.cpp

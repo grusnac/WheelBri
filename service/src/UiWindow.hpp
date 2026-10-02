@@ -53,12 +53,20 @@ struct Click {
 };
 
 inline constexpr char kEscape = '\x1b';
+// Navigation keys, sent in WindowInput::keys like letters.
+inline constexpr char kPageUp = '\x01';
+inline constexpr char kPageDown = '\x02';
+inline constexpr char kHome = '\x03';
+inline constexpr char kEnd = '\x04';
+inline constexpr char kUp = '\x05';
+inline constexpr char kDown = '\x06';
 
 // What happened since the last pump().
 struct WindowInput {
     bool close = false;         // the window's close button
     std::string keys;           // keys pressed (not repeats): letters in lower case ("f", "u"), kEscape
     std::vector<Click> clicks;  // left mouse button presses
+    int wheel = 0;              // mouse wheel notches since the last pump(): > 0 away from the user (scroll up)
 };
 
 class UiWindow {

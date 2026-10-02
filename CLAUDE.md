@@ -142,10 +142,15 @@ only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /pe
 
 Service CLI (`service/src/main.cpp`): `wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
 [--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide] [--xbox-pad buttons|idle|off]]
-[--unhide] [--app]`. `--app` opens the app's window (Start / Stop / Open logs) from a console. `--ui` opens a window (`service/src/MappingView.cpp`) that shows every source axis/button next to its
-target (G920/G29), the game's force feedback and today's log/telemetry files. It draws through `UiWindow.hpp`
-(filled/outlined rectangles and 8x8-cell monospaced text on a 720x752 logical canvas, letterboxed), implemented
-natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp` (Xlib) on Linux.
+[--unhide] [--app]`. `--app` opens the app's window (Start / Stop / Open logs) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
+(click, or M / L): **Mapping** (every source axis/button next to its target G920/G29 button, written
+`G920 <n> <name> <- R3 <n> <name>`, the R3's own buttons as `R3 <n> <name>` from `[button_labels]`, and the game's
+force feedback) and **Logs** (one line per component: emulator, game shim, G920 driver, hide filter, Xbox driver,
+bridge, each in its own colour; today's file, size, age; click opens its folder; then telemetry, FFB and old
+files; then a scrollable live log of all those files merged, wheel / PageUp / End, core `LiveLog`). It draws through
+`UiWindow.hpp` (filled/outlined rectangles, 8x8-cell monospaced text and clicks on a 960x748 logical canvas,
+letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp`
+(Xlib) on Linux.
 
 The app (`wheelemu`, `service/src/App.cpp`, same sources plus `WHEELEMU_APP`; on Windows a GUI-subsystem exe
 with an Administrator manifest, `service/app/`) runs sessions (`runSession` in `main.cpp`) on a thread of its
@@ -172,6 +177,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     DirectInput/evdev units.
   - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT);
     `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests.
+  - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
+    spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
   - `XboxPad` (`XboxMirror`) mirrors the wheel onto an Xbox 360 pad for button prompts. `HidHideCli` parses
     `HidHideCLI.exe` output.
   - `TestClutch`: a test clutch for when no pedal is connected. `tools/vbridge/ClutchProbe` sends `ClutchPacket`s

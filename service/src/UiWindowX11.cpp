@@ -165,12 +165,28 @@ public:
                         if (!repeat) keys_ += kEscape;
                     } else if (!repeat && sym >= XK_a && sym <= XK_z) {
                         keys_ += static_cast<char>('a' + (sym - XK_a));
+                    } else if (sym == XK_Prior) {
+                        keys_ += kPageUp;
+                    } else if (sym == XK_Next) {
+                        keys_ += kPageDown;
+                    } else if (sym == XK_Home) {
+                        keys_ += kHome;
+                    } else if (sym == XK_End) {
+                        keys_ += kEnd;
+                    } else if (sym == XK_Up) {
+                        keys_ += kUp;
+                    } else if (sym == XK_Down) {
+                        keys_ += kDown;
                     }
                     break;
                 }
                 case ButtonPress:
                     if (event.xbutton.button == Button1) {
                         clicks_.push_back(toCanvas(event.xbutton.x, event.xbutton.y));
+                    } else if (event.xbutton.button == Button4) {   // wheel up
+                        ++wheel_;
+                    } else if (event.xbutton.button == Button5) {   // wheel down
+                        --wheel_;
                     }
                     break;
                 case KeyRelease:
@@ -200,6 +216,8 @@ public:
         input.close = closed_;
         input.keys.swap(keys_);
         input.clicks.swap(clicks_);
+        input.wheel = wheel_;
+        wheel_ = 0;
         return input;
     }
 
@@ -384,6 +402,7 @@ private:
     bool closed_ = false;
     std::string keys_;
     std::vector<Click> clicks_;
+    int wheel_ = 0;
 };
 
 }  // namespace

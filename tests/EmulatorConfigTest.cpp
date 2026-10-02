@@ -27,6 +27,21 @@ TEST(EmulatorConfig, EmptyFileGivesDefaults) {
     EXPECT_EQ(result.config.loopHz, 1000);
 }
 
+TEST(EmulatorConfig, ReadsButtonLabels) {
+    const auto result = load("[button_labels]\nbutton_35 = Start\nbutton_12 = L paddle\n");
+    ASSERT_TRUE(result.errors.empty()) << result.errors.front();
+    EXPECT_EQ(result.config.mapper.sourceButtonLabels[35], "Start");
+    EXPECT_EQ(result.config.mapper.sourceButtonLabels[12], "L paddle");
+    EXPECT_TRUE(result.config.mapper.sourceButtonLabels[0].empty());
+}
+
+TEST(EmulatorConfig, RejectsBadButtonLabels) {
+    const auto result = load("[button_labels]\nbutton_64 = Nope\nbutton_1 = Much too long a name\n");
+    EXPECT_TRUE(containsError(result, "[button_labels] unknown key 'button_64'"));
+    EXPECT_TRUE(containsError(result, "button_1 = 'Much too long a name': at most 12 characters"));
+    EXPECT_EQ(result.config.mapper.sourceButtonLabels[1], "Much too lon");
+}
+
 TEST(EmulatorConfig, ReadsEverySection) {
     const auto result = load(
         "[emulator]\nsource_device = R3\nstate_port = 50000\nffb_port = 50001\nloop_hz = 500\n"

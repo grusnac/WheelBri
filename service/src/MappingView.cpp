@@ -27,6 +27,7 @@ constexpr int kLogicalWidth = MappingView::kWidth;
 constexpr int kLogicalHeight = MappingView::kHeight;
 
 constexpr std::size_t kMaxSourceButtons = 64;
+constexpr float kTabWidth = 120;   // the tab buttons along the bottom
 
 using Colour = ui::Colour;
 
@@ -40,6 +41,16 @@ constexpr Colour kWarning{214, 72, 64};
 constexpr Colour kUnlabelled{206, 164, 58};
 constexpr Colour kDark{16, 18, 20};
 constexpr Colour kCentre{160, 164, 172};
+
+// One colour per component, the same in the file list and the live log (index = its line in the list).
+constexpr std::array<Colour, 6> kComponentColours = {{
+    {120, 190, 255},   // Emulator: blue
+    {236, 152, 72},    // Game shim: orange
+    {186, 140, 255},   // G920 driver: purple
+    {80, 204, 190},    // Hide filter: teal
+    {132, 214, 96},    // Xbox driver: green
+    {238, 120, 172},   // Bridge: pink
+}};
 
 bool isValidAxis(const int axis) {
     return axis >= 0 && static_cast<std::size_t>(axis) < RawInputState::kMaxAxes;
@@ -66,6 +77,10 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
                   target_.c_str());
     pedalNote_ = note;
 
+#if defined(_WIN32)
+    // The drivers run as LocalService and cannot write to the user's folder (driver/*/Driver.cpp).
+    driverLogFolder_ = "C:\\ProgramData\\wheelemu\\logs";
+#endif
     sourceToTarget_.fill(kUnmapped);
     const HatButtons& hat = mapper_.hatButtons;
     const std::array<std::pair<int, const char*>, 4> hatDirections = {
@@ -94,9 +109,35 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
 void MappingView::onKey(const char key) {
     if (key == 'f') {
         openFilesFolder();
+    } else if (key == 'd') {
+        openFolder(driverLogFolder_);
     } else if (key == 'u') {
         showFfbUsage_ = !showFfbUsage_;
+    } else if (key == 'm') {
+        tab_ = Tab::Mapping;
+    } else if (key == 'l') {
+        tab_ = Tab::Logs;
+    } else if (tab_ == Tab::Logs) {
+        const auto page = static_cast<long long>(std::max<std::size_t>(liveRows_ - 1, 1));
+        if (key == ui::kPageUp) scrollLiveLog(page);
+        if (key == ui::kPageDown) scrollLiveLog(-page);
+        if (key == ui::kUp) scrollLiveLog(1);
+        if (key == ui::kDown) scrollLiveLog(-1);
+        if (key == ui::kHome) scrollLiveLog(static_cast<long long>(LiveLog::kMaxLines));
+        if (key == ui::kEnd) liveScroll_ = 0;
     }
+}
+
+void MappingView::onScroll(const int notches) {
+    if (tab_ == Tab::Logs) {
+        scrollLiveLog(static_cast<long long>(notches) * 3);
+    }
+}
+
+void MappingView::scrollLiveLog(const long long lines) {
+    const auto total = static_cast<long long>(liveLog_.lines().size());
+    const long long most = std::max(0LL, total - static_cast<long long>(liveRows_));
+    liveScroll_ = static_cast<std::size_t>(std::clamp(static_cast<long long>(liveScroll_) + lines, 0LL, most));
 }
 
 // --- drawing helpers ------------------------------------------------------------------------------
@@ -145,14 +186,18 @@ void MappingView::draw(const RawInputState& raw, const WheelState& state, const 
     trackLastPressed(raw.buttons);
 
     drawHeader();
-    drawAxes(raw, state, report);
-    drawRawAxes(raw);
-    drawHat(raw.hat, report.hat);
-    drawTargetButtons(report.buttons);
-    drawSourceButtons(raw.buttons);
-    drawFooter();
-    drawFfb(ffb);
-    drawFiles();
+    if (tab_ == Tab::Mapping) {
+        drawAxes(raw, state, report);
+        drawRawAxes(raw);
+        drawHat(raw.hat, report.hat);
+        drawTargetButtons(report.buttons);
+        drawSourceButtons(raw.buttons);
+        drawFooter();
+        drawFfb(ffb);
+    } else {
+        drawLogs();
+    }
+    drawTabs();
 }
 
 void MappingView::drawHeader() {
@@ -583,10 +628,12 @@ std::string displayPath(const std::filesystem::path& path) {
 }  // namespace
 
 void MappingView::openFilesFolder() const {
-    const std::filesystem::path folder = files_.telemetry.on ? files_.telemetry.samplesPath.parent_path()
-                                                              : files_.logFolder;
+    openFolder(files_.telemetry.on ? files_.telemetry.samplesPath.parent_path() : files_.logFolder);
+}
+
+void MappingView::openFolder(const std::filesystem::path& folder) const {
     if (folder.empty()) {
-        WE_LOG_WARN(log(), "no log or telemetry folder to open");
+        WE_LOG_WARN(log(), "no folder to open");
         return;
     }
     const std::string path = displayPath(folder);
@@ -598,65 +645,263 @@ void MappingView::openFilesFolder() const {
     }
 }
 
-void MappingView::drawFiles() {
-    constexpr float kTop = 726;
-    constexpr std::size_t kPathChars = 107;  // (960 - 4 - 12 * 8 label column) / 8, rounded down
-    outline(window_, 0, kTop - 6, kLogicalWidth, kLogicalHeight - kTop + 6, kHeading);
-    text(window_, 4, kTop, "LOGS AND TELEMETRY", kHeading);
-    text(window_, 164, kTop, "press F to open the folder  (a new file every day)", kText);
+namespace {
 
+// "12 KB, written 3 min ago".
+std::string describeFile(const std::filesystem::path& path) {
+    std::error_code ec;
+    const auto bytes = std::filesystem::file_size(path, ec);
+    const auto written = std::filesystem::last_write_time(path, ec);
+    if (ec) {
+        return "cannot read it: " + ec.message();
+    }
+    const auto ageS = std::chrono::duration_cast<std::chrono::seconds>(
+                          std::filesystem::file_time_type::clock::now() - written)
+                          .count();
+    char age[32];
+    if (ageS < 60) {
+        std::snprintf(age, sizeof(age), "%llds ago", static_cast<long long>(std::max<long long>(ageS, 0)));
+    } else if (ageS < 3600) {
+        std::snprintf(age, sizeof(age), "%lld min ago", static_cast<long long>(ageS / 60));
+    } else {
+        std::snprintf(age, sizeof(age), "%lld h ago", static_cast<long long>(ageS / 3600));
+    }
+    char line[64];
+    std::snprintf(line, sizeof(line), "%llu KB, written %s", static_cast<unsigned long long>((bytes + 1023) / 1024),
+                  age);
+    return line;
+}
+
+// Logs tab layout (logical pixels): the folders, then one line per component.
+constexpr float kLogsTop = 34;
+constexpr float kLogRowHeight = 16;
+constexpr float kLogRowsTop = kLogsTop + 14 + 2 * kLogRowHeight + 22;   // after the heading and the two folders
+
+}  // namespace
+
+void MappingView::refreshLogFiles() {
     const auto nowMs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                       std::chrono::steady_clock::now().time_since_epoch())
                                                       .count());
-    if (filesCheckedMs_ == 0 || nowMs - filesCheckedMs_ >= 1000) {
-        filesCheckedMs_ = nowMs;
-        serviceLogName_ = std::filesystem::path(logging::currentLogFile()).filename().string();
-        const std::string today = localDate(WallClock::now());
-        const std::string gameLog = "wheelemu-shim-" + today + ".log";
+    if (filesCheckedMs_ != 0 && nowMs - filesCheckedMs_ < 1000) {
+        return;
+    }
+    filesCheckedMs_ = nowMs;
+    const std::string today = localDate(WallClock::now());
+
+    // Every part of wheel-emulator that writes a log, in the order they sit between the wheel and the game.
+    struct Source {
+        const char* name;
+        const char* what;
+        bool driver;            // in the drivers' folder, not the user's
+        const char* prefix;     // today's file is <prefix><date>.log
+    };
+    static constexpr Source kSources[] = {
+        {"Emulator", "service and app: reads R3, maps, plays FFB", false,
+         "wheelemu-service-"},
+        {"Game shim", "dinput8.dll next to the game (Phases 2-3)", false, "wheelemu-shim-"},
+        {"G920 driver", "the virtual G920 (wheelemu-g920)", true, "wheelemu-driver-"},
+        {"Hide filter", "hides the real R3 from games (wheelemu-hide)", true, "wheelemu-hide-"},
+        {"Xbox driver", "the virtual Xbox controller (wheelemu-xusb)", true, "wheelemu-xusb-"},
+        {"Bridge", "HIDMaestro virtual G920 (step 0)", false, "wheelemu-bridge-"},
+    };
+    components_.clear();
+    for (const Source& source : kSources) {
+        ComponentLog component{source.name, source.what, source.driver ? driverLogFolder_ : files_.logFolder, {}, {}};
+        std::filesystem::path path = component.folder / (std::string(source.prefix) + today + ".log");
+        if (std::string_view(source.prefix) == "wheelemu-service-") {
+            // The service knows its own file (it may be elsewhere through [logging] file).
+            if (!files_.logToFile || logging::currentLogFile().empty()) {
+                component.status = "console only (no log file)";
+                components_.push_back(std::move(component));
+                continue;
+            }
+            path = std::filesystem::path(logging::currentLogFile());
+            component.folder = path.parent_path();
+        }
+        // The live log follows today's file (it appears as soon as the component writes).
+        liveLog_.setFile(static_cast<int>(components_.size()), component.folder.empty() ? std::filesystem::path() : path);
         std::error_code ec;
-        gameLogName_ = std::filesystem::exists(files_.logFolder / gameLog, ec) ? gameLog : std::string();
+        if (component.folder.empty()) {
+            component.status = "Windows only";
+        } else if (std::filesystem::exists(path, ec)) {
+            component.file = path.filename().string();
+            component.status = describeFile(path);
+        } else {
+            component.status = "no log today";
+        }
+        components_.push_back(std::move(component));
     }
+}
 
-    const float x = 4 + 12 * 8;
-    float y = kTop + 14;
-    text(window_, 4, y, "Folder", kDim);
+void MappingView::drawLogs() {
+    constexpr std::size_t kPathChars = 90;
+    constexpr std::size_t kWhatChars = 44;   // to the right edge
+    refreshLogFiles();
+    text(window_, 4, kLogsTop, "LOGS AND TELEMETRY", kHeading);
+    text(window_, 164, kLogsTop, "one line per component, a new file every day; click a line to open its folder",
+         kDim);
+
+    const float x = 4 + 14 * 8;
+    float y = kLogsTop + 14;
+    text(window_, 4, y, "Logs folder", kDim);
     text(window_, x, y, shortenMiddle(displayPath(files_.logFolder), kPathChars).c_str(), kText);
+    text(window_, x + (kPathChars + 2) * 8, y, "F opens", kDim);
+    y += kLogRowHeight;
+    text(window_, 4, y, "Drivers", kDim);
+    text(window_, x, y,
+         driverLogFolder_.empty() ? "(Windows only)" : shortenMiddle(displayPath(driverLogFolder_), kPathChars).c_str(),
+         kText);
+    text(window_, x + (kPathChars + 2) * 8, y, "D opens", kDim);
 
-    y += 14;
-    text(window_, 4, y, "Logs", kDim);
-    if (!files_.logToFile || serviceLogName_.empty()) {
-        text(window_, x, y, "console only (the log file could not be opened)", kWarning);
-    } else {
-        const std::string game = gameLogName_.empty() ? "not started today" : gameLogName_;
-        text(window_, x, y, (serviceLogName_ + "   game: " + game).c_str(), kText);
+    y = kLogRowsTop - 14;
+    text(window_, 4, y, "COMPONENT", kHeading);
+    text(window_, x, y, "TODAY'S LOG", kHeading);
+    text(window_, x + 33 * 8, y, "SIZE, LAST WRITTEN", kHeading);
+    y = kLogRowsTop;
+    for (const ComponentLog& component : components_) {
+        fill(window_, 2, y - 2, kLogicalWidth - 4, kLogRowHeight - 2, kPanel);
+        text(window_, 4, y + 2, component.name, kComponentColours[static_cast<std::size_t>(&component - components_.data()) % kComponentColours.size()]);
+        text(window_, x, y + 2, component.file.empty() ? "-" : shortenMiddle(component.file, 32).c_str(),
+             component.file.empty() ? kDim : kText);
+        text(window_, x + 33 * 8, y + 2, shortenMiddle(component.status, 27).c_str(), component.file.empty() ? kDim : kText);
+        text(window_, x + 61 * 8, y + 2, shortenMiddle(component.what, kWhatChars).c_str(), kDim);
+        y += kLogRowHeight;
     }
 
-    y += 14;
-    text(window_, 4, y, "Telemetry", kDim);
+    // What the emulator records besides its log.
+    y += 10;
+    text(window_, 4, y, "Telemetry", kText);
     if (!files_.telemetry.on) {
         text(window_, x, y, files_.telemetryStatus.c_str(), kDim);
     } else {
         const TelemetryFiles& t = files_.telemetry;
         char line[160];
-        std::snprintf(line, sizeof(line), "%s (%llu rows)  %s (%llu changes)",
-                      t.samplesPath.filename().string().c_str(), static_cast<unsigned long long>(t.rows),
-                      t.ffbPath.filename().string().c_str(), static_cast<unsigned long long>(t.ffbRows));
+        std::snprintf(line, sizeof(line), "%s (%llu rows)", t.samplesPath.filename().string().c_str(),
+                      static_cast<unsigned long long>(t.rows));
         text(window_, x, y, line, kText);
+        text(window_, x + 61 * 8, y, "the wheel, the mapping, what the game sees", kDim);
+        y += kLogRowHeight;
+        text(window_, 4, y, "Force fb", kText);
+        std::snprintf(line, sizeof(line), "%s (%llu changes)", t.ffbPath.filename().string().c_str(),
+                      static_cast<unsigned long long>(t.ffbRows));
+        text(window_, x, y, line, kText);
+        text(window_, x + 61 * 8, y, "every force feedback change the game sent", kDim);
         if (t.samplesPath.parent_path() != files_.logFolder) {
-            // Telemetry in its own folder ([telemetry] directory): say where.
-            text(window_, x + static_cast<float>(std::strlen(line) + 1) * 8, y,
-                 shortenMiddle("in " + displayPath(t.samplesPath.parent_path()),
-                               kPathChars > std::strlen(line) + 1 ? kPathChars - std::strlen(line) - 1 : 0)
-                     .c_str(),
-                 kDim);
+            y += kLogRowHeight;
+            text(window_, x, y,
+                 shortenMiddle("in " + displayPath(t.samplesPath.parent_path()), kPathChars).c_str(), kDim);
         }
     }
-
-    y += 14;
-    text(window_, 4, y, "Old files", kDim);
+    y += kLogRowHeight;
+    text(window_, 4, y, "Old files", kText);
     if (!files_.oldFiles.empty()) {
-        const std::string status = shortenMiddle(files_.oldFiles, kPathChars);
-        text(window_, x, y, status.c_str(), files_.oldFilesFailed ? kWarning : kText);
+        text(window_, x, y, shortenMiddle(files_.oldFiles, kPathChars).c_str(),
+             files_.oldFilesFailed ? kWarning : kText);
+    }
+    drawLiveLog(y + 24);
+}
+
+void MappingView::drawLiveLog(const float top) {
+    constexpr float kLineHeight = 11;
+    constexpr std::size_t kMessageChars = 81;   // to the scroll bar
+    const auto nowMs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                      std::chrono::steady_clock::now().time_since_epoch())
+                                                      .count());
+    if (nowMs - livePolledMs_ >= 250) {
+        livePolledMs_ = nowMs;
+        liveLog_.poll();
+    }
+    const auto& lines = liveLog_.lines();
+    // Scrolled up: keep the same lines in view while new ones arrive below.
+    if (liveScroll_ > 0) {
+        liveScroll_ += static_cast<std::size_t>(liveLog_.added() - liveSeen_);
+    }
+    liveSeen_ = liveLog_.added();
+
+    const float listTop = top + 14;
+    const float listBottom = kLogicalHeight - 34;
+    liveRows_ = static_cast<std::size_t>(std::max(1.0F, (listBottom - listTop) / kLineHeight));
+    liveScroll_ = std::min(liveScroll_, lines.size() > liveRows_ ? lines.size() - liveRows_ : std::size_t{0});
+
+    fill(window_, 0, top - 8, kLogicalWidth, 1, kPanel);
+    text(window_, 4, top, "LIVE LOG", kHeading);
+    char status[96];
+    if (liveScroll_ == 0) {
+        std::snprintf(status, sizeof(status), "newest at the bottom; wheel / PageUp to scroll back (%zu lines)",
+                      lines.size());
+    } else {
+        std::snprintf(status, sizeof(status), "%zu lines up: End (or scroll down) to follow the newest again",
+                      liveScroll_);
+    }
+    text(window_, 76, top, status, liveScroll_ == 0 ? kDim : kUnlabelled);
+    if (lines.empty()) {
+        text(window_, 4, listTop, "no log lines today yet: start the service, the game or a driver", kDim);
+        return;
+    }
+
+    const std::size_t last = lines.size() - liveScroll_;               // one past the newest line shown
+    const std::size_t first = last > liveRows_ ? last - liveRows_ : 0;
+    float y = listTop;
+    char head[16];
+    for (std::size_t i = first; i < last; ++i) {
+        const LiveLogLine& line = lines[i];
+        const auto source = static_cast<std::size_t>(std::max(line.source, 0));
+        std::snprintf(head, sizeof(head), "%-8.8s", line.time.c_str());
+        text(window_, 4, y, head, kDim);
+        const char* name = source < components_.size() ? components_[source].name : "?";
+        text(window_, 4 + 9 * 8, y, name, kComponentColours[source % kComponentColours.size()]);
+        text(window_, 4 + 21 * 8, y, shortenMiddle(line.logger, 13).c_str(), kDim);
+        const Colour colour = line.level == LiveLogLevel::Error   ? kWarning
+                              : line.level == LiveLogLevel::Warn  ? kUnlabelled
+                              : line.level == LiveLogLevel::Debug || line.level == LiveLogLevel::Trace ? kDim
+                                                                                                      : kText;
+        const std::string message = line.message.size() > kMessageChars
+                                        ? line.message.substr(0, kMessageChars - 3) + "..."
+                                        : line.message;
+        text(window_, 4 + 35 * 8, y, message.c_str(), colour);
+        y += kLineHeight;
+    }
+
+    // Scroll bar: where the lines shown sit in all of them.
+    const float barTop = listTop;
+    const float barHeight = listBottom - listTop;
+    fill(window_, kLogicalWidth - 6, barTop, 4, barHeight, kPanel);
+    const float total = static_cast<float>(lines.size());
+    const float thumbTop = barTop + barHeight * static_cast<float>(first) / total;
+    const float thumbHeight = std::max(6.0F, barHeight * static_cast<float>(last - first) / total);
+    fill(window_, kLogicalWidth - 6, thumbTop, 4, thumbHeight, kHeading);
+}
+
+void MappingView::drawTabs() {
+    constexpr float kBarTop = kLogicalHeight - 28;
+    fill(window_, 0, kBarTop, kLogicalWidth, 1, kPanel);
+    const std::array<std::pair<Tab, const char*>, 2> tabs = {{{Tab::Mapping, "Mapping (M)"}, {Tab::Logs, "Logs (L)"}}};
+    float x = 4;
+    for (const auto& [tab, label] : tabs) {
+        const bool active = tab == tab_;
+        fill(window_, x, kBarTop + 4, kTabWidth, 20, active ? kHeading : kPanel);
+        const float labelWidth = static_cast<float>(std::strlen(label)) * 8;
+        text(window_, x + (kTabWidth - labelWidth) / 2, kBarTop + 10, label, active ? kDark : kText);
+        x += kTabWidth + 6;
+    }
+}
+
+void MappingView::onClick(const float x, const float y) {
+    constexpr float kBarTop = kLogicalHeight - 28;
+    if (y >= kBarTop + 4 && y < kBarTop + 24) {
+        if (x >= 4 && x < 4 + kTabWidth) {
+            tab_ = Tab::Mapping;
+        } else if (x >= 4 + kTabWidth + 6 && x < 4 + 2 * kTabWidth + 6) {
+            tab_ = Tab::Logs;
+        }
+        return;
+    }
+    if (tab_ == Tab::Logs && y >= kLogRowsTop - 2) {
+        const auto row = static_cast<std::size_t>((y - (kLogRowsTop - 2)) / kLogRowHeight);
+        if (row < components_.size()) {
+            openFolder(components_[row].folder);
+        }
     }
 }
 

@@ -97,6 +97,12 @@ public:
             }
             view_->onKey(key);
         }
+        for (const ui::Click& click : input.clicks) {
+            view_->onClick(click.x, click.y);
+        }
+        if (input.wheel != 0) {
+            view_->onScroll(input.wheel);
+        }
         // Nothing to show: drawing a hidden window can block (e.g. while a game switches display mode).
         if (frame.ready && window_->visible()) {
             window_->begin(kBackground);
@@ -283,10 +289,13 @@ public:
                 if (startButton().hit(click)) start();
                 if (stopButton().hit(click)) stop();
                 if (logsButton().hit(click)) openLogs();
+                // Below the toolbar: the live view's tabs and lines (in its own coordinates).
+                if (view_ != nullptr && click.y >= kViewTop) view_->onClick(click.x, click.y - kViewTop);
             }
             for (const char key : input.keys) {
                 if (view_ != nullptr && key != ui::kEscape) view_->onKey(key);
             }
+            if (view_ != nullptr && input.wheel != 0) view_->onScroll(input.wheel);
             collectSession();
             if (quit && !running()) {
                 break;

@@ -155,6 +155,8 @@ public:
         input.close = closed_;
         input.keys.swap(keys_);
         input.clicks.swap(clicks_);
+        input.wheel = wheelDelta_ / WHEEL_DELTA;
+        wheelDelta_ %= WHEEL_DELTA;   // a fine-grained wheel keeps its remainder for the next notch
         return input;
     }
 
@@ -264,9 +266,20 @@ private:
             case WM_KEYDOWN:
                 if (wParam == VK_ESCAPE) {
                     keys_ += kEscape;
+                } else if (wParam == VK_PRIOR || wParam == VK_NEXT || wParam == VK_HOME || wParam == VK_END ||
+                           wParam == VK_UP || wParam == VK_DOWN) {   // repeats too: holding scrolls on
+                    keys_ += wParam == VK_PRIOR  ? kPageUp
+                             : wParam == VK_NEXT ? kPageDown
+                             : wParam == VK_HOME ? kHome
+                             : wParam == VK_END  ? kEnd
+                             : wParam == VK_UP   ? kUp
+                                                 : kDown;
                 } else if (wParam >= 'A' && wParam <= 'Z' && (lParam & (1L << 30)) == 0) {   // not a repeat
                     keys_ += static_cast<char>('a' + (wParam - 'A'));
                 }
+                return true;
+            case WM_MOUSEWHEEL:
+                wheelDelta_ += GET_WHEEL_DELTA_WPARAM(wParam);
                 return true;
             case WM_LBUTTONDOWN:
                 clicks_.push_back(toCanvas(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam))));
@@ -374,6 +387,7 @@ private:
     std::vector<INT> advances_;
     bool closed_ = false;
     std::string keys_;
+    int wheelDelta_ = 0;
     std::vector<Click> clicks_;
 };
 

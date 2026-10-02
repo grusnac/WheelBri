@@ -2,6 +2,7 @@
 
 #include "wheelemu/DeviceProfile.hpp"
 #include "wheelemu/FfbController.hpp"
+#include "wheelemu/LiveLog.hpp"
 #include "wheelemu/MapperConfig.hpp"
 
 #include "wheelemu/WheelState.hpp"
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace wheelemu::service {
 
@@ -52,7 +54,7 @@ class MappingView {
 public:
     // The panel's size in logical pixels; it draws from the window's current origin.
     static constexpr int kWidth = 960;
-    static constexpr int kHeight = 796;
+    static constexpr int kHeight = 748;
 
     // Draws into `window` (not owned; it must outlive the view).
     MappingView(ui::UiWindow& window, std::string sourceName, int sourceAxes, int sourceButtons,
@@ -61,8 +63,18 @@ public:
     MappingView(const MappingView&) = delete;
     MappingView& operator=(const MappingView&) = delete;
 
-    // A key pressed in the window: F opens the logs folder, U switches the force feedback panel.
+    // The panel's tabs, switched with the buttons along the bottom (or M / L).
+    enum class Tab { Mapping, Logs };
+
+    // A key pressed in the window: M / L switch tabs, F opens the logs folder, D the drivers' log folder,
+    // U switches the force feedback panel.
     void onKey(char key);
+    // Mouse wheel notches (> 0 = up): on the Logs tab, scrolls the live log.
+    void onScroll(int notches);
+    // A left click, in the panel's own logical pixels (the window's origin taken off): the tab buttons, and
+    // on the Logs tab a component's line opens its folder.
+    void onClick(float x, float y);
+    [[nodiscard]] Tab tab() const { return tab_; }
     // Opens the folder with the logs (or the telemetry, if it has its own) in the file manager.
     void openFilesFolder() const;
 
@@ -89,7 +101,12 @@ private:
     void drawFooter();
     void drawFfb(const FfbDisplay& ffb);
     void drawFfbUsage(const FfbController& controller, float top);
-    void drawFiles();
+    void drawTabs();
+    void drawLogs();
+    void refreshLogFiles();
+    void drawLiveLog(float top);
+    void scrollLiveLog(long long lines);
+    void openFolder(const std::filesystem::path& folder) const;
     void trackLastPressed(std::uint64_t sourceButtons);
     // The name of source button `source` from [button_labels], or an empty string.
     [[nodiscard]] const std::string& sourceLabel(int source) const;
@@ -110,10 +127,27 @@ private:
     std::array<const char*, 64> sourceHatDirection_{};
 
     FilesDisplay files_;
-    // File names looked up at most once a second (they change at midnight).
+    Tab tab_ = Tab::Mapping;
+
+    // One line of the Logs tab: a part of wheel-emulator and today's log file it writes.
+    struct ComponentLog {
+        const char* name;               // "Emulator", "G920 driver"
+        const char* what;               // what it is
+        std::filesystem::path folder;   // where its files are
+        std::string file;               // today's file name, empty if it has written none today
+        std::string status;             // size and age, or why there is none
+    };
+    std::vector<ComponentLog> components_;
+    std::filesystem::path driverLogFolder_;   // the drivers write to C:\ProgramData\wheelemu\logs
+    // Looked up at most once a second (files appear while a session runs and change at midnight).
     std::uint64_t filesCheckedMs_ = 0;
-    std::string serviceLogName_;
-    std::string gameLogName_;
+
+    // The Logs tab's live log: every component's file followed, newest at the bottom.
+    LiveLog liveLog_;
+    std::uint64_t livePolledMs_ = 0;
+    std::size_t liveScroll_ = 0;        // lines scrolled up from the newest; 0 = follow new lines
+    std::uint64_t liveSeen_ = 0;        // liveLog_.added() when last drawn (to hold the view while scrolled up)
+    std::size_t liveRows_ = 1;          // lines that fit, from the last draw
 
     bool showFfbUsage_ = false;     // U switches the force feedback panel: live effects / usage since start
 

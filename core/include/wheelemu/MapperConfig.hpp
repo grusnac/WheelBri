@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 
 namespace wheelemu {
 
@@ -36,12 +37,17 @@ struct HatButtons {
 
 struct MapperConfig {
     static constexpr std::size_t kMaxTargetButtons = 32;
+    static constexpr std::size_t kMaxSourceButtons = 64;   // source buttons the mapping can use (0..63)
 
     SteeringConfig steering;
     PedalConfig throttle;
     PedalConfig brake;
     PedalConfig clutch;
     HatButtons hatButtons;
+
+    // What the physical wheel's buttons are called ("Start", "L paddle"), indexed by source button; empty =
+    // no name. Display only: the --ui window and the app show them next to the numbers, the mapping ignores them.
+    std::array<std::string, kMaxSourceButtons> sourceButtonLabels{};
 
     // buttonMap[target] = source button index, or kUnmapped.
     std::array<int, kMaxTargetButtons> buttonMap = identityButtonMap();

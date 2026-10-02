@@ -13,6 +13,7 @@ add_library(wheelemu_core STATIC
     src/HidHideCli.cpp
     src/HidPid.cpp
     src/IniDocument.cpp
+    src/LiveLog.cpp
     src/LocalDate.cpp
     src/Logging.cpp
     src/LoopStats.cpp
