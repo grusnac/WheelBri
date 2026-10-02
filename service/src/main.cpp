@@ -4,7 +4,6 @@
 
 #include "App.hpp"
 #include "FfbSelfTest.hpp"
-#include "HidHide.hpp"
 #include "HideFilter.hpp"
 #include "Housekeeping.hpp"
 #include "MappingView.hpp"
@@ -24,6 +23,7 @@
 #include "wheelemu/Telemetry.hpp"
 #include "wheelemu/TestClutch.hpp"
 #include "wheelemu/UdpLoopback.hpp"
+#include "wheelemu/HidXbox360.hpp"
 #include "wheelemu/XboxPad.hpp"
 
 #include <algorithm>
@@ -32,6 +32,7 @@
 #include <functional>
 #include <cctype>
 #include <array>
+#include <chrono>
 #include <atomic>
 #include <csignal>
 #include <cstdio>
@@ -42,6 +43,7 @@
 #include <mutex>
 #include <span>
 #include <sstream>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <thread>
@@ -61,8 +63,16 @@ constexpr std::uint64_t kStatsWindowNs = 10 * platform::kNsPerSecond;
 constexpr std::uint64_t kUsageLogNs = 10 * 60 * platform::kNsPerSecond;   // force feedback usage table in the log
 
 std::atomic<bool> gStop{false};
+// A session is between its start and the end of its clean-up (the console close handler waits for it).
+std::atomic<bool> gSessionActive{false};
 
 void onSignal(int) { gStop = true; }
+void requestStop() { gStop = true; }
+bool sessionActive() { return gSessionActive; }
+
+// runLoop's result when the physical wheel stopped answering (unplugged, USB reset): runSession waits for it to
+// come back and carries on, keeping the virtual G920 and Xbox controller (games keep their controller).
+constexpr int kWheelLost = 3;
 
 const Logger& log() {
     static const Logger logger = wheelemu::logging::get("service");
@@ -85,13 +95,100 @@ struct Options {
     wheelemu::XboxPadMode xboxPad = wheelemu::XboxPadMode::Buttons;   // --xbox-pad: with --virtual-g920
 };
 
-// The wheel's USB vendor id for HidHide: [emulator] source_device when it is one ("346e"), else Moza's.
+// The wheel's USB vendor id: [emulator] source_device when it is one ("346e"), else Moza's.
 std::string wheelVendorId(const std::string& sourceDevice) {
     std::string id = sourceDevice.substr(0, sourceDevice.find(':'));
     const bool hex = id.size() == 4 && id.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos;
     if (!hex) id = "346e";
     for (char& c : id) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
     return id;
+}
+
+// With --virtual-g920 (Start in the app): wheelemu's hide filter on the real wheel, installed now if it is not
+// there yet, so Start alone leaves games only the G920. It installs from the package built in this source tree
+// (driver/hide/x64/Release, scripts/make/drivers.sh -Only hide) with driver/hide/install-hide.ps1; the service
+// runs as Administrator for --virtual-g920 anyway. Done before the wheel is opened: installing restarts it.
+void ensureHideFilter(const std::string& vendor, wheelemu::service::WheelBackend& backend, const std::string& match) {
+#ifdef _WIN32
+    if (wheelemu::service::HideFilter::find(vendor) != nullptr) {
+        return;
+    }
+    // The filter is found only on a wheel that is plugged in: without one, installing proves nothing (and would
+    // run the installer on every Start).
+    if (!wheelemu::service::wheelConnected(backend, match)) {
+        WE_LOG_WARN(log(), "hide: the wheel is not connected, so wheelemu-hide cannot be checked or installed now");
+        return;
+    }
+    const std::filesystem::path exe = platform::executablePath();
+    std::filesystem::path script;
+    for (std::filesystem::path base = exe.parent_path(); !base.empty() && script.empty(); base = base.parent_path()) {
+        std::error_code ec;
+        const std::filesystem::path candidate = base / "driver" / "hide" / "install-hide.ps1";
+        const std::filesystem::path package =
+            base / "driver" / "hide" / "x64" / "Release" / "wheelemu-hide" / "wheelemu-hide.inf";
+        if (std::filesystem::is_regular_file(candidate, ec) && std::filesystem::is_regular_file(package, ec)) {
+            script = candidate;
+        }
+        if (base == base.parent_path()) break;
+    }
+    if (script.empty()) {
+        WE_LOG_ERROR(log(), "hide: wheelemu-hide is not installed and no built package was found next to the "
+                            "program (build it once: scripts/make/drivers.sh -Only hide)");
+        return;
+    }
+    const char* systemRoot = std::getenv("SystemRoot");
+    const std::filesystem::path powershell =
+        std::filesystem::path(systemRoot != nullptr ? systemRoot : "C:\\Windows") / "System32" / "WindowsPowerShell" /
+        "v1.0" / "powershell.exe";
+    WE_LOG_INFO(log(), "hide: wheelemu-hide is not on the wheel yet: installing it ({}); the wheel restarts once",
+                script.string());
+    std::string error;
+    const auto child = platform::ChildProcess::start(
+        {powershell.string(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script.string(), "-Configuration",
+         "Release"},
+        error);
+    if (child == nullptr) {
+        WE_LOG_ERROR(log(), "hide: cannot run the installer: {}", error);
+        return;
+    }
+    // Never cut the installer off: stopped halfway, it can leave the wheel with a half-switched driver. Stop
+    // waits for it (it is short), and after 2 minutes it is left to finish by itself.
+    std::optional<int> exit;
+    bool saidWaiting = false;
+    for (int waited = 0; !(exit = child->poll()) && waited < 120'000; waited += 200) {
+        if (gStop && !saidWaiting) {
+            saidWaiting = true;
+            WE_LOG_INFO(log(), "hide: stop requested; waiting for the installer to finish first (it must not be "
+                               "cut off while it changes the wheel's driver)");
+        }
+        platform::sleepMs(200);
+    }
+    if (!exit) child->release();
+    if (gStop) return;
+    if (!exit || *exit != 0) {
+        const char* why = !exit ? "took longer than 2 minutes (left to finish by itself)"
+                          : *exit == 2 ? "installed the filter, but it is not on the wheel yet: unplug the wheel and "
+                                         "plug it in again (or restart Windows)"
+                                       : "failed";
+        WE_LOG_ERROR(log(), "hide: the installer {}{} (its log: C:\\ProgramData\\wheelemu\\logs\\wheelemu-hide-install-"
+                            "<date>.log; or run {} yourself as Administrator)",
+                     why, exit ? " (exit code " + std::to_string(*exit) + ")" : std::string(), script.string());
+        return;
+    }
+    // The wheel comes back with the filter a moment later.
+    for (int waited = 0; waited < 15'000 && !gStop; waited += 250) {
+        if (wheelemu::service::HideFilter::find(vendor) != nullptr) {
+            WE_LOG_INFO(log(), "hide: wheelemu-hide installed and on the wheel");
+            return;
+        }
+        platform::sleepMs(250);
+    }
+    WE_LOG_ERROR(log(), "hide: installed, but the filter is not on the wheel yet: unplug the R3 and plug it in again");
+#else
+    (void)vendor;
+    (void)backend;
+    (void)match;
+#endif
 }
 
 // --stop-file: another program (scripts/wheelemu.sh) asks the service to stop by creating this file; the
@@ -122,8 +219,8 @@ void printUsage() {
         "  --stop-file FILE  stop cleanly when FILE appears (it is deleted then; also at start)\n"
         "  --virtual-g920 while running, a virtual G920 for every game through wheelemu's own driver\n"
         "                 (driver\\install-driver.ps1 once; Administrator; not with the shim or the bridge);\n"
-        "                 the real wheel is hidden from games meanwhile (our wheelemu-hide filter,\n"
-        "                 driver\\hide; else HidHide), unless --no-hide\n"
+        "                 the real wheel is hidden from games meanwhile by wheelemu's own filter\n"
+        "                 (driver\\hide\\install-hide.ps1 once), unless --no-hide\n"
         "  --xbox-pad buttons|idle|off\n"
         "                 with --virtual-g920: a virtual Xbox 360 controller too, so games show Xbox button\n"
         "                 prompts (driver\\xusb\\install-xusb.ps1 once). buttons (default): the wheel's A/B/X/Y/\n"
@@ -533,7 +630,10 @@ public:
     using ForceQuery = std::function<std::pair<float, bool>()>;
 
     XboxPadPublisher(wheelemu::IStatePublisher& inner, const wheelemu::XboxPadMode mode)
-        : inner_(inner), mirror_(mode), sender_(wheelemu::UdpLoopbackSender::create(wheelemu::kXusbPort)) {}
+        : inner_(inner),
+          mirror_(mode),
+          sender_(wheelemu::UdpLoopbackSender::create(wheelemu::kXusbPort)),
+          hidSender_(wheelemu::UdpLoopbackSender::create(wheelemu::kXboxHidPort)) {}
 
     void setForceQuery(ForceQuery query) { force_ = std::move(query); }
 
@@ -543,14 +643,18 @@ public:
         const auto result = mirror_.update(packet.report, now, force, usesForce);
         if (result.menuChanged) {
             WE_LOG_INFO(log(), *result.menuChanged
-                                   ? "xbox: in a menu (no force, no pedal): the G920's steering is held"
+                                   ? "xbox: in a menu (no pedal; a pad button pressed or no force): the G920's steering is held until a pedal"
                                    : "xbox: driving again: the G920's steering follows the wheel");
         }
         if (result.firstPress) {
             WE_LOG_INFO(log(), "xbox: first button press passed on to the Xbox controller (0x{:04x})", result.pad.buttons);
         }
         if (sender_ != nullptr && (result.pad != lastPad_ || now - lastSentMs_ >= 100)) {
-            sender_->send(wheelemu::encodeXusbPacket(result.pad));
+            const auto bytes = wheelemu::encodeXusbPacket(result.pad);
+            sender_->send(bytes);
+            // The HID side (joy.cpl) is only there to be listed: it never presses anything. DirectInput games
+            // would read it as one more controller and act on its buttons too.
+            if (hidSender_ != nullptr) hidSender_->send(wheelemu::encodeXusbPacket(wheelemu::XusbPad{}));
             lastPad_ = result.pad;
             lastSentMs_ = now;
         }
@@ -565,6 +669,7 @@ private:
     wheelemu::IStatePublisher& inner_;
     wheelemu::XboxMirror mirror_;
     std::unique_ptr<wheelemu::UdpLoopbackSender> sender_;
+    std::unique_ptr<wheelemu::UdpLoopbackSender> hidSender_;
     ForceQuery force_;
     wheelemu::XusbPad lastPad_;
     std::int64_t lastSentMs_ = 0;
@@ -580,10 +685,17 @@ std::pair<float, bool> gameForce(const wheelemu::FfbController& controller) {
     return {strongest, controller.stats().packets > 0};
 }
 
+// What the window says about the virtual devices (--virtual-g920), see SessionInfo::devices.
+struct DeviceSummary {
+    std::string text;
+    bool warning = false;
+};
+
 int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
             const std::filesystem::path& logFolder, const bool logToFile, wheelemu::service::Wheel& source,
             const bool print, wheelemu::service::UiHost* const host,
-            const std::optional<wheelemu::XboxPadMode> xboxPad) {
+            const std::optional<wheelemu::XboxPadMode> xboxPad, const DeviceSummary& devices,
+            std::optional<UiFrame>& lastFrame) {
     const auto profile = wheelemu::makeProfile(config.targetProfile);
     if (profile == nullptr) {
         WE_LOG_CRITICAL(log(), "unknown target_profile '{}' (known: {})", config.targetProfile,
@@ -644,6 +756,8 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                                                               : "off ([telemetry] enabled = false)";
         info.ffbStatus = ffbStatus;
         info.ffbInvert = config.ffbInvert;
+        info.devices = devices.text;
+        info.devicesWarning = devices.warning;
         if (!host->sessionStarted(info)) {
             return 1;
         }
@@ -704,8 +818,8 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
             }
             stages.lap(TickStages::Input, mark);
             if (!pipeline.tick(clutchOverride)) {
-                WE_LOG_ERROR(log(), "stopping: physical wheel lost after {} ticks", ticks);
-                result = 1;
+                WE_LOG_ERROR(log(), "physical wheel lost after {} ticks (unplugged, or a USB reset?)", ticks);
+                result = kWheelLost;
                 break;
             }
             stages.lap(TickStages::Pipeline, mark);
@@ -759,8 +873,10 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 loopHealth.record(period, tickEnd - tickStart, stages);
             }
             if (tickEnd - tickStart >= kStallNs) {
-                WE_LOG_WARN(log(), "loop: one tick took {:.0f} ms, the game got no fresh input meanwhile: {}",
-                            static_cast<double>(tickEnd - tickStart) / 1e6, stages.describe());
+                static wheelemu::logging::RateLimiter limiter(std::chrono::seconds(5));
+                WE_LOG_WARN_LIMITED(log(), limiter,
+                                    "loop: one tick took {:.0f} ms, the game got no fresh input meanwhile: {}",
+                                    static_cast<double>(tickEnd - tickStart) / 1e6, stages.describe());
             }
             if (tickEnd - windowStart >= kStatsWindowNs) {
                 loopHealth.endWindow(pipeline);
@@ -781,15 +897,18 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 const std::uint64_t woke = platform::nowNs();
                 if (woke - nextTick >= kStallNs) {
                     // Not our work: Windows let the service sleep far longer than asked (the PC was busy).
-                    WE_LOG_WARN(log(), "loop: woke {:.0f} ms late from a {:.2f} ms sleep: Windows did not schedule "
-                                       "the service (PC busy?)",
-                                static_cast<double>(woke - nextTick) / 1e6,
-                                static_cast<double>(nextTick - tickEnd) / 1e6);
+                    static wheelemu::logging::RateLimiter limiter(std::chrono::seconds(5));
+                    WE_LOG_WARN_LIMITED(log(), limiter,
+                                        "loop: woke {:.0f} ms late from a {:.2f} ms sleep: Windows did not schedule "
+                                        "the service (PC busy?)",
+                                        static_cast<double>(woke - nextTick) / 1e6,
+                                        static_cast<double>(nextTick - tickEnd) / 1e6);
                 }
             } else {
                 if (tickEnd - nextTick > 100 * platform::kNsPerMs) {
-                    WE_LOG_WARN(log(), "loop: {:.0f} ms behind schedule, resynchronising",
-                                static_cast<double>(tickEnd - nextTick) / 1e6);
+                    static wheelemu::logging::RateLimiter limiter(std::chrono::seconds(5));
+                    WE_LOG_WARN_LIMITED(log(), limiter, "loop: {:.0f} ms behind schedule, resynchronising",
+                                        static_cast<double>(tickEnd - nextTick) / 1e6);
                 }
                 nextTick = tickEnd;
             }
@@ -808,7 +927,17 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     };
 
     std::thread loopThread([&] {
-        loopResult = tickLoop();
+        // An exception must not escape this thread (std::terminate: no clean-up, the wheel left hidden and its
+        // forces playing). It ends the session instead; runSession then undoes everything.
+        try {
+            loopResult = tickLoop();
+        } catch (const std::exception& e) {
+            WE_LOG_CRITICAL(log(), "loop: stopped on an error: {}", e.what());
+            loopResult = 1;
+        } catch (...) {
+            WE_LOG_CRITICAL(log(), "loop: stopped on an unknown error");
+            loopResult = 1;
+        }
         loopDone = true;
     });
 
@@ -869,6 +998,10 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
     }
     stopLoop = true;
     loopThread.join();
+    if (sharedFrame.ready) {
+        lastFrame.reset();
+        lastFrame.emplace(sharedFrame);   // what the window keeps showing if the wheel was lost
+    }
 
     if (telemetry != nullptr) {
         WE_LOG_INFO(log(), "telemetry: {} rows written ({} unchanged samples skipped), {} force feedback changes in {}",
@@ -932,16 +1065,52 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     }
     if (options.unhide) {
         wheelemu::service::HideFilter::clear();
-        if (const auto hidHide = wheelemu::service::HidHide::find()) {
-            hidHide->unhideAll(wheelVendorId(config.sourceDeviceMatch));
-            hidHide->logState();
-        }
         return 0;
+    }
+    // One session at a time on this computer: a second would send the game a second, interleaved wheel.
+    std::string instanceError;
+    const auto instance = platform::SingleInstance::acquire("wheelemu-service", instanceError);
+    if (instance == nullptr) {
+        WE_LOG_CRITICAL(log(), "{}", instanceError);
+        return 1;
+    }
+    // Until the end of this function (its clean-up included), the console close handler waits.
+    gSessionActive = true;
+    struct SessionActive {
+        ~SessionActive() { gSessionActive = false; }
+    } sessionActiveGuard;
+    platform::installConsoleStopHandler(requestStop, sessionActive);
+
+    if (options.virtualG920 && !platform::isElevated()) {
+        WE_LOG_CRITICAL(log(), "--virtual-g920 needs Administrator (it creates devices and hides the real wheel): "
+                               "start it from an Administrator prompt, or use wheelemu.exe, which asks for it");
+        return 1;
     }
     // A wheel still hidden for a service that crashed would be hidden from this one too.
     wheelemu::service::HideFilter::clearStale();
+    if (!options.stopFile.empty()) {
+        gStopFile = options.stopFile;
+        std::error_code ec;
+        std::filesystem::remove(gStopFile, ec);   // left over from an earlier run
+        WE_LOG_INFO(log(), "stops when {} appears", gStopFile.string());
+    }
+    // Stop pressed, Ctrl+C, or the stop file: the waits below give up (and the stop file counts from now on).
+    const auto cancelled = [] {
+        if (!gStop && stopRequested()) {
+            WE_LOG_INFO(log(), "stop requested ({} appeared)", gStopFile.string());
+            gStop = true;
+        }
+        return gStop.load();
+    };
+    if (options.virtualG920 && options.hide) {
+        ensureHideFilter(wheelVendorId(config.sourceDeviceMatch), *backend, config.sourceDeviceMatch);
+    }
+    if (cancelled()) {
+        WE_LOG_INFO(log(), "stopped before the session started");
+        return 0;
+    }
 
-    const auto source = wheelemu::service::openWheel(*backend, config.sourceDeviceMatch);
+    auto source = wheelemu::service::openWheel(*backend, config.sourceDeviceMatch);
     if (source == nullptr) {
         std::fprintf(stderr, "no joystick matching '%s'. Connected devices:\n", config.sourceDeviceMatch.c_str());
         listDevices(*backend);
@@ -958,65 +1127,130 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
-    if (!options.stopFile.empty()) {
-        gStopFile = options.stopFile;
-        std::error_code ec;
-        std::filesystem::remove(gStopFile, ec);   // left over from an earlier run
-        WE_LOG_INFO(log(), "stops when {} appears", gStopFile.string());
-    }
     const std::filesystem::path logFolder = logFolderOf(config);
     // Our own driver's G920 (driver/): there while the loop runs, removed when it returns or the process ends.
     std::unique_ptr<wheelemu::service::VirtualG920> g920;
     if (options.virtualG920) {
         std::string error;
-        g920 = wheelemu::service::VirtualG920::create(error);
+        g920 = wheelemu::service::VirtualG920::create(error, cancelled);
         if (g920 == nullptr) {
+            if (cancelled()) {
+                WE_LOG_INFO(log(), "stopped while the virtual G920 was being created");
+                return 0;
+            }
             WE_LOG_CRITICAL(log(), "--virtual-g920: {}", error);
             return 1;
         }
     }
     // The real wheel hidden from games meanwhile, or a game may take it instead of the G920 (NFS does): with
-    // our wheelemu-hide filter (driver/hide) when it is on the wheel, else with HidHide if installed. Either way
-    // the service keeps its own access.
+    // wheelemu's own filter (driver/hide), which lets only this process open the wheel.
     std::unique_ptr<wheelemu::service::HideFilter> hideFilter;
-    std::unique_ptr<wheelemu::service::HidHide> hidHide;
     if (g920 != nullptr && options.hide) {
-        const std::string vendor = wheelVendorId(config.sourceDeviceMatch);
-        hideFilter = wheelemu::service::HideFilter::find(vendor);
-        if (hideFilter != nullptr) {
-            if (!hideFilter->hide()) hideFilter.reset();
-        } else if ((hidHide = wheelemu::service::HidHide::find()) != nullptr) {
-            WE_LOG_INFO(log(), "wheelemu-hide is not installed (driver\\hide\\install-hide.ps1): using HidHide");
-            if (!hidHide->hideWheel(vendor)) hidHide.reset();
-        } else {
-            WE_LOG_WARN(log(), "nothing hides the real wheel (driver\\hide\\install-hide.ps1): games see it next to "
-                               "the G920 and may take it");
+        hideFilter = wheelemu::service::HideFilter::find(wheelVendorId(config.sourceDeviceMatch));
+        if (hideFilter == nullptr) {
+            WE_LOG_ERROR(log(), "the real wheel is NOT hidden: wheelemu-hide is not on it (install it once, as "
+                                "Administrator: driver\\hide\\install-hide.ps1, or scripts/make/drivers.sh -Only "
+                                "hide -Install); games see it next to the G920 and may take it");
+        } else if (!hideFilter->hide()) {
+            hideFilter.reset();
         }
     }
     // The Xbox controller (driver/xusb), for games' Xbox button prompts. Without its driver the G920 still works.
     std::unique_ptr<wheelemu::service::VirtualXboxPad> xboxDevice;
     std::optional<wheelemu::XboxPadMode> xboxPadMode;
-    if (g920 != nullptr && options.xboxPad != wheelemu::XboxPadMode::Off) {
+    if (g920 != nullptr && options.xboxPad != wheelemu::XboxPadMode::Off && !cancelled()) {
         std::string error;
-        xboxDevice = wheelemu::service::VirtualXboxPad::create(error);
+        xboxDevice = wheelemu::service::VirtualXboxPad::create(error, cancelled);
         if (xboxDevice == nullptr) {
-            WE_LOG_WARN(log(), "no Xbox controller (games show keyboard prompts): {}", error);
+            if (!cancelled()) WE_LOG_WARN(log(), "no Xbox controller (games show keyboard prompts): {}", error);
         } else {
             xboxPadMode = options.xboxPad;
             WE_LOG_INFO(log(), "Xbox controller: {}", options.xboxPad == wheelemu::XboxPadMode::Buttons
-                                                           ? "the wheel's A/B/X/Y/Menu/View/D-pad press it in menus"
+                                                           ? "the wheel's A/B/X/Y/Menu/View/D-pad press it instead of the G920 when no pedal is pressed"
                                                            : "idle (there, never pressed)");
         }
     }
-    const int result =
-        runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, options.print, host,
-                xboxPadMode);
+    // One line for the window: what games will see besides the G920, and what is missing.
+    DeviceSummary devices;
+    if (g920 != nullptr) {
+        devices.text = "virtual G920 on";
+        if (hideFilter != nullptr) {
+            devices.text += ", R3 hidden (wheelemu-hide)";
+        } else if (options.hide) {
+            devices.text += ", R3 NOT HIDDEN: games see it (install driver\\hide\\install-hide.ps1)";
+            devices.warning = true;
+        } else {
+            devices.text += ", R3 left visible (--no-hide)";
+        }
+        if (xboxDevice != nullptr) {
+            devices.text += xboxDevice->hidSide() ? ", Xbox pad on (XInput and joy.cpl)"
+                                                  : ", Xbox pad on for XInput (not in joy.cpl: reinstall driver\\install-driver.ps1)";
+        } else if (options.xboxPad == wheelemu::XboxPadMode::Off) {
+            devices.text += ", no Xbox pad (--xbox-pad off)";
+        } else {
+            devices.text += ", NO XBOX PAD (install driver\\xusb)";
+            devices.warning = true;
+        }
+    }
+    int result = 0;
+    std::optional<UiFrame> lastFrame;
+    std::uint64_t sessionStartMs = platform::nowMs();
+    int quickLosses = 0;   // lost again soon after it came back: wait longer before the next try
+    while (!gStop) {
+        sessionStartMs = platform::nowMs();
+        result = runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, options.print, host,
+                         xboxPadMode, devices, lastFrame);
+        if (result != kWheelLost || gStop) {
+            break;
+        }
+        // The wheel is gone (unplugged, USB reset, power). Keep the virtual devices: the game keeps its G920, which
+        // reads centred with the pedals released until the wheel is back. Then the same session carries on.
+        source.reset();
+        quickLosses = platform::nowMs() - sessionStartMs < 10'000 ? quickLosses + 1 : 0;
+        const std::uint64_t retryEveryMs = quickLosses == 0 ? 1000 : std::min<std::uint64_t>(30'000, 5000ULL * static_cast<std::uint64_t>(quickLosses));
+        WE_LOG_WARN(log(), "waiting for the wheel to come back (plug it in again; Stop to give up); the virtual "
+                           "devices stay, centred and released{}",
+                    quickLosses > 0 ? "; it was lost again within 10 s of coming back (" + std::to_string(quickLosses) +
+                                          " times in a row), so it is tried every " +
+                                          std::to_string(retryEveryMs / 1000) + " s"
+                                    : std::string());
+        std::uint64_t waitedMs = 0;
+        while (!gStop && source == nullptr) {
+            if (stopRequested()) {
+                WE_LOG_INFO(log(), "stop requested ({} appeared)", gStopFile.string());
+                gStop = true;
+                break;
+            }
+            // Keeps the window answering (the last picture of the wheel stays); false: it was closed.
+            if (host != nullptr && !host->frame(lastFrame ? *lastFrame : UiFrame{})) {
+                WE_LOG_INFO(log(), "window closed: stopping");
+                gStop = true;
+                break;
+            }
+            if (waitedMs % retryEveryMs == 0 && waitedMs >= (quickLosses > 0 ? retryEveryMs : 0) &&
+                wheelemu::service::wheelConnected(*backend, config.sourceDeviceMatch)) {
+                source = wheelemu::service::openWheel(*backend, config.sourceDeviceMatch);
+                if (source == nullptr) {
+                    static wheelemu::logging::RateLimiter limiter(std::chrono::seconds(30));
+                    WE_LOG_WARN_LIMITED(log(), limiter, "the wheel is back but cannot be opened yet; trying again");
+                }
+            }
+            if (source == nullptr) {
+                platform::sleepMs(50);
+                waitedMs += 50;
+                if (waitedMs % 60'000 == 0) {
+                    WE_LOG_WARN(log(), "still waiting for the wheel ({} min)", waitedMs / 60'000);
+                }
+            }
+        }
+        if (source == nullptr) {
+            result = 0;   // stopped while waiting: a normal stop
+            break;
+        }
+        WE_LOG_INFO(log(), "the wheel is back after {:.1f} s: carrying on", static_cast<double>(waitedMs) / 1000.0);
+    }
     if (hideFilter != nullptr) {
         hideFilter->restore();
-    }
-    if (hidHide != nullptr) {
-        hidHide->restore();
-        hidHide->logState();
     }
     xboxDevice.reset();
     if (g920 != nullptr) {

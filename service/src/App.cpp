@@ -66,15 +66,19 @@ FfbDisplay ffbDisplay(const SessionInfo& info, const UiFrame& frame) {
 class SessionWindow final : public UiHost {
 public:
     bool sessionStarted(const SessionInfo& info) override {
-        std::string error;
-        window_ = ui::openWindow("wheel-emulator: mapping", MappingView::kWidth, MappingView::kHeight,
-                                 static_cast<int>(MappingView::kWidth * 1.3F),
-                                 static_cast<int>(MappingView::kHeight * 1.3F), error);
+        // Called again when the session carries on after the wheel came back: keep the window, rebuild the view.
         if (window_ == nullptr) {
-            WE_LOG_ERROR(log(), "cannot open the mapping window: {}", error);
-            return false;
+            std::string error;
+            window_ = ui::openWindow("wheel-emulator: mapping", MappingView::kWidth, MappingView::kHeight,
+                                     static_cast<int>(MappingView::kWidth * 1.3F),
+                                     static_cast<int>(MappingView::kHeight * 1.3F), error);
+            if (window_ == nullptr) {
+                WE_LOG_ERROR(log(), "cannot open the mapping window: {}", error);
+                return false;
+            }
+            WE_LOG_INFO(log(), "mapping window open ({})", window_->describe());
         }
-        WE_LOG_INFO(log(), "mapping window open ({})", window_->describe());
+        view_.reset();   // refers to the old profile
         info_ = info;
         profile_ = makeProfile(info.targetProfile);
         if (profile_ == nullptr) {
@@ -83,6 +87,7 @@ public:
         view_ = std::make_unique<MappingView>(*window_, info.sourceName, info.axes, info.buttons, *profile_,
                                               info.mapper);
         view_->setFiles(info.files);
+        view_->setDevices(info.devices, info.devicesWarning);
         return true;
     }
 
@@ -368,6 +373,7 @@ private:
                 view_ = std::make_unique<MappingView>(*window_, info->sourceName, info->axes, info->buttons, *profile_,
                                                       info->mapper);
                 view_->setFiles(info->files);
+                view_->setDevices(info->devices, info->devicesWarning);
             }
             if (state_ == State::Starting) state_ = State::Running;
             runningSince_ = platform::nowNs();
@@ -438,7 +444,9 @@ private:
         }
         window_->text(312, 10, fit(status, 50), colour);
         if (info_) {
-            window_->text(312, 22, fit(info_->sourceName, 50), kDim);
+            // A missing piece (the R3 not hidden, no Xbox pad) in red; otherwise which wheel is read.
+            window_->text(312, 22, fit(info_->devicesWarning ? info_->devices : info_->sourceName, 80),
+                          info_->devicesWarning ? kWarning : kDim);
         }
         window_->fill(0, kToolbarHeight - 1, kWidth, 1, kPanel);
     }

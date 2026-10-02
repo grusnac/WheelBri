@@ -37,6 +37,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -84,16 +85,44 @@ void logLine(const std::string& text) {
     swprintf_s(path, L"C:\\ProgramData\\wheelemu\\logs\\wheelemu-driver-%04u-%02u-%02u.log", now.wYear, now.wMonth, now.wDay);
     HANDLE file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
+    static bool reportedFailure = false;
     if (file != INVALID_HANDLE_VALUE) {
         DWORD written = 0;
         WriteFile(file, line, static_cast<DWORD>(strlen(line)), &written, nullptr);
         CloseHandle(file);
+        reportedFailure = false;
+    } else if (!reportedFailure) {
+        reportedFailure = true;   // only DebugView can show this one
+        char why[160];
+        std::snprintf(why, sizeof(why), "wheelemu-g920: cannot write its log in C:\\ProgramData\\wheelemu\\logs (error %lu)\r\n",
+                      GetLastError());
+        OutputDebugStringA(why);
     }
 }
 
 std::int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
+
+// At most one line per `periodMs` for a repeating problem; `suppressed` counts the lines skipped in between.
+class Throttle {
+public:
+    explicit Throttle(const std::int64_t periodMs) : periodMs_(periodMs) {}
+    bool allow(const std::int64_t now) {
+        if (now - last_ < periodMs_) {
+            ++suppressed_;
+            return false;
+        }
+        last_ = now;
+        return true;
+    }
+    std::uint64_t takeSuppressed() { return std::exchange(suppressed_, 0); }
+
+private:
+    std::int64_t periodMs_;
+    std::int64_t last_ = INT64_MIN / 2;
+    std::uint64_t suppressed_ = 0;
+};
 
 // ---------------------------------------------------------------------------------------------------
 
@@ -124,9 +153,12 @@ public:
     }
 
 private:
-    void run();
-    void runXbox();
+    void run(SOCKET sock);
+    void runXbox(SOCKET sock);
     void publish(Report report);
+    // false = stop the thread; a socket error other than the receive timeout is logged and slowed down.
+    bool receiveFailed(int received);
+    void closeSockets();
 
     DeviceContext* device_;
     bool xbox_;
@@ -136,6 +168,8 @@ private:
     std::atomic<bool> stop_{false};
     std::mutex reportLock_;
     Report report_;
+    Throttle recvErrors_{60'000};
+    Throttle sendErrors_{60'000};
 };
 
 }  // namespace
@@ -179,7 +213,8 @@ bool Link::start() {
     stateSocket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     ffbSocket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (stateSocket_ == INVALID_SOCKET || ffbSocket_ == INVALID_SOCKET) {
-        logLine("cannot create UDP sockets: " + std::to_string(WSAGetLastError()));
+        logLine("ERROR: cannot create UDP sockets (" + std::to_string(WSAGetLastError()) + "): the device will not start");
+        closeSockets();
         return false;
     }
     sockaddr_in local{};
@@ -190,20 +225,30 @@ bool Link::start() {
         logLine(xbox_ ? "Xbox controller (HID): cannot listen on 127.0.0.1:41333 (" + std::to_string(WSAGetLastError()) + ")"
                       : "cannot listen on 127.0.0.1:41329 (" + std::to_string(WSAGetLastError()) +
                             "): is the shim's game or wheelemu-bridge still running? Only one of them may run.");
+        closeSockets();
         return false;
     }
+    // The thread must wake regularly (stop requests, the stale-state check, force feedback timing).
     DWORD timeoutMs = 5;
-    setsockopt(stateSocket_, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
+    if (setsockopt(stateSocket_, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs)) != 0) {
+        logLine("ERROR: cannot set the receive timeout (" + std::to_string(WSAGetLastError()) + "): the device will not start");
+        closeSockets();
+        return false;
+    }
     sockaddr_in service{};
     service.sin_family = AF_INET;
     service.sin_port = htons(kFfbPort);
     service.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    connect(ffbSocket_, reinterpret_cast<sockaddr*>(&service), sizeof(service));
-    thread_ = std::thread([this] {
+    if (!xbox_ && connect(ffbSocket_, reinterpret_cast<sockaddr*>(&service), sizeof(service)) != 0) {
+        logLine("WARNING: cannot address the service's force feedback port 127.0.0.1:41330 (" +
+                std::to_string(WSAGetLastError()) + "): the game's force feedback will not reach the wheel");
+    }
+    // The thread gets its own copy of the socket: stop() closes it only after the thread has ended.
+    thread_ = std::thread([this, sock = stateSocket_] {
         if (xbox_) {
-            runXbox();
+            runXbox(sock);
         } else {
-            run();
+            run(sock);
         }
     });
     return true;
@@ -218,14 +263,15 @@ void Link::publish(Report report) {
 }
 
 // The Xbox controller's HID side: the same pad packets as driver/xusb gets, as HID input reports.
-void Link::runXbox() {
+void Link::runXbox(const SOCKET sock) {
     logLine("Xbox controller (HID): listening for wheelemu-service on 127.0.0.1:41333");
     std::array<std::uint8_t, 64> buffer{};
     std::int64_t lastPad = nowMs() - kStaleMs - 1;
     bool receiving = false;
     bool neutralSent = false;
     while (!stop_) {
-        const int received = recv(stateSocket_, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+        const int received = recv(sock, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+        if (received < 0 && !receiveFailed(received)) break;
         const std::int64_t now = nowMs();
         if (received > 0) {
             if (const auto pad = wheelemu::decodeXusbPacket(std::span(buffer.data(), static_cast<std::size_t>(received)))) {
@@ -238,6 +284,7 @@ void Link::runXbox() {
                 publish(xboxReport(*pad));
             }
         } else if (now - lastPad > kStaleMs && !neutralSent) {
+            if (receiving) logLine("Xbox controller (HID): no pad state for 1500 ms: nothing pressed until it comes back");
             receiving = false;
             neutralSent = true;
             publish(xboxReport({}));
@@ -246,20 +293,52 @@ void Link::runXbox() {
     logLine("Xbox controller (HID): stopped");
 }
 
-void Link::stop() {
-    stop_ = true;
-    if (thread_.joinable()) thread_.join();
+bool Link::receiveFailed(const int received) {
+    (void)received;
+    const int error = WSAGetLastError();
+    if (error == WSAETIMEDOUT) return true;   // nothing this time: the normal case
+    if (stop_) return false;
+    const std::int64_t now = nowMs();
+    if (recvErrors_.allow(now)) {
+        const auto skipped = recvErrors_.takeSuppressed();
+        logLine("WARNING: receiving from wheelemu-service failed (" + std::to_string(error) + ")" +
+                (skipped > 0 ? ", " + std::to_string(skipped) + " more since the last line" : std::string()));
+    }
+    if (error == WSAENOTSOCK || error == WSAEINVAL) return false;   // the socket is gone: nothing to wait for
+    Sleep(5);   // not a busy loop on a persistent error
+    return true;
+}
+
+void Link::closeSockets() {
     if (stateSocket_ != INVALID_SOCKET) closesocket(stateSocket_);
     if (ffbSocket_ != INVALID_SOCKET) closesocket(ffbSocket_);
     stateSocket_ = ffbSocket_ = INVALID_SOCKET;
 }
 
-void Link::sendFfb(const wheelemu::FfbPacket& packet) {
-    const auto bytes = wheelemu::encode(packet);
-    send(ffbSocket_, reinterpret_cast<const char*>(bytes.data()), static_cast<int>(bytes.size()), 0);
+void Link::stop() {
+    stop_ = true;
+    // The receive timeout (5 ms, checked in start()) wakes the thread, so this join is short. The sockets close only
+    // after it: the force feedback one sends the final "stop all" on the thread's way out, and a socket closed under
+    // the thread could be handed to another device's new socket in this same driver host.
+    if (thread_.joinable()) thread_.join();
+    closeSockets();
 }
 
-void Link::run() {
+void Link::sendFfb(const wheelemu::FfbPacket& packet) {
+    const auto bytes = wheelemu::encode(packet);
+    if (send(ffbSocket_, reinterpret_cast<const char*>(bytes.data()), static_cast<int>(bytes.size()), 0) < 0) {
+        // Normal while the service is not running (nothing listens on 41330): say so once a minute.
+        const int error = WSAGetLastError();
+        if (sendErrors_.allow(nowMs())) {
+            const auto skipped = sendErrors_.takeSuppressed();
+            logLine("WARNING: force feedback to wheelemu-service not sent (" + std::to_string(error) +
+                    "; is the service running?)" +
+                    (skipped > 0 ? ", " + std::to_string(skipped) + " more since the last line" : std::string()));
+        }
+    }
+}
+
+void Link::run(const SOCKET sock) {
     logLine("listening for wheelemu-service on 127.0.0.1:41329, force feedback to 127.0.0.1:41330");
     std::array<std::uint8_t, 256> buffer{};
     std::int64_t lastState = nowMs() - kStaleMs - 1;
@@ -267,7 +346,8 @@ void Link::run() {
     bool receiving = false;
     bool neutralSent = false;
     while (!stop_) {
-        const int received = recv(stateSocket_, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+        const int received = recv(sock, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+        if (received < 0 && !receiveFailed(received)) break;
         const std::int64_t now = nowMs();
         if (received > 0) {
             if (const auto packet = wheelemu::decodeStatePacket(std::span(buffer.data(), static_cast<std::size_t>(received)))) {
@@ -347,6 +427,13 @@ NTSTATUS getString(WDFREQUEST request, const bool xbox) {
 VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULONG code) {
     DeviceContext* ctx = GetDeviceContext(WdfIoQueueGetDevice(queue));
     NTSTATUS status = STATUS_NOT_IMPLEMENTED;
+    const bool needsLink = code == IOCTL_HID_WRITE_REPORT || code == IOCTL_UMDF_HID_SET_OUTPUT_REPORT ||
+                           code == IOCTL_UMDF_HID_SET_FEATURE || code == IOCTL_UMDF_HID_GET_FEATURE ||
+                           code == IOCTL_UMDF_HID_GET_INPUT_REPORT;
+    if (needsLink && ctx->link == nullptr) {   // being removed
+        WdfRequestComplete(request, STATUS_DEVICE_NOT_READY);
+        return;
+    }
     std::uint8_t reportId = 0;
     std::span<const std::uint8_t> data;
     switch (code) {
@@ -523,7 +610,10 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
 
 extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driverObject, PUNICODE_STRING registryPath) {
     WSADATA wsa;
-    WSAStartup(MAKEWORD(2, 2), &wsa);
+    if (const int error = WSAStartup(MAKEWORD(2, 2), &wsa); error != 0) {
+        logLine("ERROR: WSAStartup failed (" + std::to_string(error) + "): the driver cannot talk to wheelemu-service");
+        return STATUS_UNSUCCESSFUL;
+    }
     WDF_DRIVER_CONFIG config;
     WDF_DRIVER_CONFIG_INIT(&config, EvtDeviceAdd);
     const NTSTATUS status = WdfDriverCreate(driverObject, registryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, WDF_NO_HANDLE);

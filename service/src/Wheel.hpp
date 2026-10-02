@@ -53,4 +53,7 @@ public:
 // none (the log lists what is connected).
 [[nodiscard]] std::unique_ptr<Wheel> openWheel(WheelBackend& backend, const std::string& match);
 
+// Whether a wheel matching `match` is connected now. Logs nothing: for polling while waiting for one.
+[[nodiscard]] bool wheelConnected(WheelBackend& backend, const std::string& match);
+
 }  // namespace wheelemu::service

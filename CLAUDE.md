@@ -211,7 +211,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - The wheel behind `Wheel.hpp` (`WheelDinput.cpp` DirectInput + `DinputReader`, `WheelEvdev.cpp` evdev),
     numbering inputs as the service always has (`DinputReader`, core `EvdevLayout`) and sending the same force
     feedback numbers as before (core `WheelOutput`).
-  - OS helpers in `Platform.hpp` (clock, precise sleep, thread priority, child process); `FfbSelfTest`
+  - OS helpers in `Platform.hpp` (clock, precise sleep, thread priority, child process in a kill-on-close job,
+    `SingleInstance` lock so only one session runs per computer, console close handler, `isElevated`); `FfbSelfTest`
     (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView` (`--ui`); a fixed-rate loop
     (default 1 kHz, drift-free, resynchronises when behind).
   - Phase 5 (`--virtual-g920`, run as Administrator, no shim in the game, no bridge running): `VirtualG920`
@@ -221,6 +222,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     (our own filter only, no HidHide or other third-party tools: without it the window says "R3 NOT HIDDEN" in
     red; `--no-hide` skips it, `--unhide` clears it after a crash);
     `VirtualXboxPad` creates the `wheelemu\XUSB` device and the loop sends pad state to 41332.
+  - Failure handling (keep it when changing `runSession`): a lost wheel (`runLoop` returns `kWheelLost`) keeps the
+    virtual devices and waits for the wheel to come back, then carries on; creating devices and waiting for the
+    hide installer stop on Stop (`cancelled`), but a running installer is never killed (it may be switching the
+    R3's driver). Exceptions on the loop thread end the session instead of `std::terminate`.
 - `shim/` (`dinput8.dll`, Windows/Wine only, namespace `wheelemu::shim`): proxies `IDirectInput8A/W`,
   devices and effects. It is written once as templates over `AnsiTraits`/`WideTraits` (`Traits.hpp`).
   Exports are renamed through `dinput8.def` (`Proxy_*`) so they don't clash with SDK declarations. The real
@@ -236,7 +241,13 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
     `StatePacket`, `FfbPacket` sources. Logs to `C:\ProgramData\wheelemu\logs\wheelemu-driver-<date>.log`.
   - `hide/` (`wheelemu-hide`): upper filter on the R3's HID interface (`HID\VID_346E&PID_0005&MI_02`); only the
-    process in `AllowedPid` may open it. Replaces HidHide.
+    process in `AllowedPid` may open it. Replaces HidHide. Fails open: a missing or unreadable setting, or an
+    `AllowedPid` whose process is gone (or whose start time differs from `AllowedPidStart`: a reused id), hides
+    nothing, so a crash never leaves the R3 hidden.
+  - Install scripts share `driver/common.ps1` (admin check, pnputil exit codes 0/259/3010, finding installed
+    packages without depending on pnputil's language). Each fails with a red line and exit 1; `install-hide.ps1`
+    exits 2 when the filter is installed but not on the R3 yet. Driver threads close their sockets only after
+    joining, and repeating socket errors are logged once a minute.
   - `xusb/` (`wheelemu-xusb`): the virtual Xbox 360 controller's XInput side, fed from 41332 (games' Xbox prompts).
     Its HID side, which joy.cpl lists as "Controller (XBOX 360 For Windows)" as for a real one, is a second software
     device (`wheelemu\XBOXHID`) served by `wheelemu-g920` from 41333 (`core/HidXbox360`); `VirtualXboxPad` creates both.
@@ -289,7 +300,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     (aggregation, `EnumDevicesBySemantics`, `DllGetClassObject`, `EnumCreatedEffectObjects`) is logged
     with a warning on purpose.
 - FFB safety: the R3 is direct drive. Every force the service sends to hardware must go through
-  `FfbSafetyLimiter` (in `FfbController`, which also has a watchdog); keep the defaults conservative
+  `FfbSafetyLimiter` (in `FfbController`, which also has a watchdog); keep the defaults conservative. A game that
+  crashes while using the virtual G920 sends nothing more and the driver cannot tell: `HidPid` stops keep-alives
+  after 10 s without a report while a pushing force (constant, ramp, periodic) plays, so the service's watchdog
+  stops it (springs and dampers keep going; the next report brings everything back)
   (`max_magnitude` 0.8, slew limit). Game effects reach the service as `FfbPacket`s (shim, driver, bridge or
   uhid). The only way around the limiter is the opt-in `force_feedback = passthrough` in `wheelemu-shim.ini`;
   keep it opt-in and don't add others.

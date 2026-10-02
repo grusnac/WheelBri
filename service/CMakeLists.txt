@@ -21,7 +21,6 @@ endif()
 add_library(wheelemu_service_objects OBJECT
     src/App.cpp
     src/FfbSelfTest.cpp
-    src/HidHide.cpp
     src/HideFilter.cpp
     src/Housekeeping.cpp
     src/MappingView.cpp
@@ -40,7 +39,7 @@ if(WE_SERVICE_PLATFORM STREQUAL "Windows")
         src/PlatformWin32.cpp
         src/UiWindowWin32.cpp
         src/WheelDinput.cpp)
-    target_link_libraries(wheelemu_service_objects PUBLIC dinput8 dxguid cfgmgr32 winmm user32 gdi32 shell32)
+    target_link_libraries(wheelemu_service_objects PUBLIC dinput8 dxguid cfgmgr32 advapi32 winmm user32 gdi32 shell32)
 else()
     target_sources(wheelemu_service_objects PRIVATE
         src/PlatformPosix.cpp

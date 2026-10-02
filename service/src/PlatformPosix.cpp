@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <spawn.h>
+#include <sys/file.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -15,6 +16,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
 
@@ -93,6 +95,41 @@ std::filesystem::path executablePath() {
     return ec ? std::filesystem::path() : self;
 }
 
+struct SingleInstance::Impl {
+    int fd = -1;
+    ~Impl() {
+        if (fd >= 0) close(fd);   // also releases the lock
+    }
+};
+
+std::unique_ptr<SingleInstance> SingleInstance::acquire(const std::string& name, std::string& error) {
+    const char* runtime = std::getenv("XDG_RUNTIME_DIR");
+    const std::string folder = runtime != nullptr && runtime[0] != '\0' ? runtime : "/tmp";
+    const std::string path = folder + "/" + name + "-" + std::to_string(getuid()) + ".lock";
+    const int fd = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        error = "cannot create the single-instance lock " + path + ": " + std::strerror(errno);
+        return nullptr;
+    }
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        const int why = errno;
+        close(fd);
+        error = why == EWOULDBLOCK ? "another wheelemu-service is already running (" + path + " is locked): stop it first"
+                                   : "cannot lock " + path + ": " + std::strerror(why);
+        return nullptr;
+    }
+    auto impl = std::make_unique<Impl>();
+    impl->fd = fd;
+    return std::unique_ptr<SingleInstance>(new SingleInstance(std::move(impl)));
+}
+
+SingleInstance::SingleInstance(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+SingleInstance::~SingleInstance() = default;
+
+bool isElevated() { return true; }
+
+void installConsoleStopHandler(void (*)(), bool (*)()) {}
+
 struct ChildProcess::Impl {
     pid_t pid = -1;
     bool running = true;
@@ -152,6 +189,8 @@ std::optional<int> ChildProcess::poll() {
     }
     return impl_->exitCode;
 }
+
+void ChildProcess::release() { impl_->running = false; }
 
 void ChildProcess::kill() {
     if (!impl_->running) {

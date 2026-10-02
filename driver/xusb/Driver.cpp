@@ -22,6 +22,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -57,10 +58,18 @@ void logLine(const std::string& text) {
     swprintf_s(path, L"C:\\ProgramData\\wheelemu\\logs\\wheelemu-xusb-%04u-%02u-%02u.log", now.wYear, now.wMonth, now.wDay);
     HANDLE file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
+    static bool reportedFailure = false;
     if (file != INVALID_HANDLE_VALUE) {
         DWORD written = 0;
         WriteFile(file, line, static_cast<DWORD>(strlen(line)), &written, nullptr);
         CloseHandle(file);
+        reportedFailure = false;
+    } else if (!reportedFailure) {
+        reportedFailure = true;   // only DebugView can show this one
+        char why[160];
+        std::snprintf(why, sizeof(why), "wheelemu-xusb: cannot write its log in C:\\ProgramData\\wheelemu\\logs (error %lu)\r\n",
+                      GetLastError());
+        OutputDebugStringA(why);
     }
 }
 
@@ -78,7 +87,7 @@ public:
         stop_ = false;
         socket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (socket_ == INVALID_SOCKET) {
-            logLine("cannot create a UDP socket: " + std::to_string(WSAGetLastError()));
+            logLine("ERROR: cannot create a UDP socket (" + std::to_string(WSAGetLastError()) + "): the device will not start");
             return false;
         }
         sockaddr_in local{};
@@ -86,21 +95,27 @@ public:
         local.sin_port = htons(wheelemu::kXusbPort);
         local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         if (bind(socket_, reinterpret_cast<sockaddr*>(&local), sizeof(local)) != 0) {
-            logLine("cannot listen on 127.0.0.1:" + std::to_string(wheelemu::kXusbPort) + " (" +
-                    std::to_string(WSAGetLastError()) + ")");
+            logLine("ERROR: cannot listen on 127.0.0.1:" + std::to_string(wheelemu::kXusbPort) + " (" +
+                    std::to_string(WSAGetLastError()) + "): is another copy of the controller still there?");
+            closesocket(std::exchange(socket_, INVALID_SOCKET));
             return false;
         }
         DWORD timeoutMs = 100;
-        setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
-        thread_ = std::thread([this] { run(); });
+        if (setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs)) != 0) {
+            logLine("ERROR: cannot set the receive timeout (" + std::to_string(WSAGetLastError()) + "): the device will not start");
+            closesocket(std::exchange(socket_, INVALID_SOCKET));
+            return false;
+        }
+        thread_ = std::thread([this, sock = socket_] { run(sock); });
         return true;
     }
 
+    // The receive timeout (100 ms) wakes the thread; the socket closes only after it has ended.
     void stop() {
         stop_ = true;
         if (thread_.joinable()) thread_.join();
-        if (socket_ != INVALID_SOCKET) closesocket(socket_);
-        socket_ = INVALID_SOCKET;
+        const SOCKET sock = std::exchange(socket_, INVALID_SOCKET);
+        if (sock != INVALID_SOCKET) closesocket(sock);
     }
 
     // The current pad, and a packet number that advances when it changes (as a real controller's does).
@@ -115,12 +130,32 @@ public:
     }
 
 private:
-    void run() {
+    void run(const SOCKET sock) {
         logLine("listening for wheelemu-service on 127.0.0.1:" + std::to_string(wheelemu::kXusbPort));
         std::uint8_t buffer[64];
         bool receiving = false;
+        std::int64_t lastErrorLog = INT64_MIN / 2;
         while (!stop_) {
-            const int received = recv(socket_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
+            const int received = recv(sock, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
+            if (received < 0) {
+                const int error = WSAGetLastError();
+                if (stop_) break;
+                if (error != WSAETIMEDOUT) {
+                    if (nowMs() - lastErrorLog >= 60'000) {
+                        lastErrorLog = nowMs();
+                        logLine("WARNING: receiving from wheelemu-service failed (" + std::to_string(error) + ")");
+                    }
+                    if (error == WSAENOTSOCK || error == WSAEINVAL) break;
+                    Sleep(5);   // not a busy loop on a persistent error
+                }
+            }
+            if (receiving) {
+                std::lock_guard lock(lock_);
+                if (nowMs() - lastPacketMs_ > kStaleMs) {
+                    receiving = false;
+                    logLine("no pad state for 1500 ms: nothing pressed until it comes back");
+                }
+            }
             if (received <= 0) continue;
             const auto pad = wheelemu::decodeXusbPacket(std::span(buffer, static_cast<std::size_t>(received)));
             if (!pad) continue;
@@ -150,6 +185,7 @@ private:
 
 struct DeviceContext {
     WDFQUEUE waitQueue;   // parked IOCTL_XUSB_WAIT_FOR_INPUT (Windows.Gaming.Input), completed by the timer
+    WDFTIMER timer;       // runs only while the device is powered up (D0), so never after the Link is gone
     Link* link;
 };
 
@@ -277,11 +313,14 @@ VOID EvtTimer(WDFTIMER timer) {
 
 NTSTATUS EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE) {
     DeviceContext* ctx = GetDeviceContext(device);
-    return ctx->link != nullptr && ctx->link->start() ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
+    if (ctx->link == nullptr || !ctx->link->start()) return STATUS_UNSUCCESSFUL;
+    WdfTimerStart(ctx->timer, WDF_REL_TIMEOUT_IN_MS(8));
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE) {
     DeviceContext* ctx = GetDeviceContext(device);
+    if (ctx->timer != nullptr) WdfTimerStop(ctx->timer, TRUE);   // waits for a running callback: it reads the Link
     if (ctx->link != nullptr) ctx->link->stop();
     return STATUS_SUCCESS;
 }
@@ -310,6 +349,7 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     }
     DeviceContext* ctx = GetDeviceContext(device);
     ctx->link = nullptr;
+    ctx->timer = nullptr;
 
     WDF_IO_QUEUE_CONFIG queueConfig;
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchParallel);
@@ -331,13 +371,12 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     WDF_OBJECT_ATTRIBUTES timerAttributes;
     WDF_OBJECT_ATTRIBUTES_INIT(&timerAttributes);
     timerAttributes.ParentObject = device;
-    WDFTIMER timer;
-    status = WdfTimerCreate(&timerConfig, &timerAttributes, &timer);
+    // UMDF runs timer callbacks at passive level, so WdfTimerStop(.., TRUE) in D0Exit may wait for one.
+    status = WdfTimerCreate(&timerConfig, &timerAttributes, &ctx->timer);
     if (!NT_SUCCESS(status)) {
         logLine("timer: " + std::to_string(status));
         return status;
     }
-    WdfTimerStart(timer, WDF_REL_TIMEOUT_IN_MS(8));
 
     status = WdfDeviceCreateDeviceInterface(device, &kXusbInterface, nullptr);
     if (!NT_SUCCESS(status)) {
@@ -353,7 +392,10 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
 
 extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driverObject, PUNICODE_STRING registryPath) {
     WSADATA wsa;
-    WSAStartup(MAKEWORD(2, 2), &wsa);
+    if (const int error = WSAStartup(MAKEWORD(2, 2), &wsa); error != 0) {
+        logLine("ERROR: WSAStartup failed (" + std::to_string(error) + "): the driver cannot talk to wheelemu-service");
+        return STATUS_UNSUCCESSFUL;
+    }
     WDF_DRIVER_CONFIG config;
     WDF_DRIVER_CONFIG_INIT(&config, EvtDeviceAdd);
     const NTSTATUS status = WdfDriverCreate(driverObject, registryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, WDF_NO_HANDLE);

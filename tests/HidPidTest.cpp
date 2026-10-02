@@ -100,6 +100,39 @@ TEST(HidPid, FiniteEffectStopsByItselfAndKeepAlivesFollow) {
     EXPECT_TRUE(keepAlive);
 }
 
+// A crashed game sends nothing more: a pushing force must not be kept alive for ever.
+TEST(HidPid, GameSilentWithAPushingForceStopsKeepAlives) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x15, hex("00A00F"), 0);    // constant 0.4, infinite
+    r.pid.output(0x11, hex("0101FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    r.pid.output(0x1A, hex("010101"), 0);
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    for (std::int64_t t = 10; t < HidPid::kGameQuietMs; t += 10) r.pid.tick(t);
+    EXPECT_FALSE(r.pid.gameQuiet());
+    r.packets.clear();
+    for (std::int64_t t = HidPid::kGameQuietMs; t < HidPid::kGameQuietMs + 2000; t += 10) r.pid.tick(t);
+    EXPECT_TRUE(r.pid.gameQuiet());
+    EXPECT_TRUE(r.packets.empty());          // nothing more: the service's watchdog stops the force
+    r.pid.output(0x15, hex("00A00F"), HidPid::kGameQuietMs + 2000);   // the game again
+    EXPECT_FALSE(r.pid.gameQuiet());
+    r.pid.tick(HidPid::kGameQuietMs + 2300);
+    EXPECT_FALSE(r.packets.empty());
+}
+
+TEST(HidPid, SpringAloneIsKeptAliveWhileTheGameIsSilent) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0800"), 0);
+    r.pid.output(0x13, hex("000F000028232823041004100000"), 0);
+    r.pid.output(0x11, hex("0108FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    r.pid.output(0x1A, hex("010101"), 0);
+    for (std::int64_t t = 10; t < 3 * HidPid::kGameQuietMs; t += 10) r.pid.tick(t);
+    EXPECT_FALSE(r.pid.gameQuiet());
+    r.packets.clear();
+    r.pid.tick(3 * HidPid::kGameQuietMs + 300);
+    EXPECT_FALSE(r.packets.empty());
+}
+
 TEST(HidPid, PoolFullAndReset) {
     Recorder r;
     std::array<std::uint8_t, 8> feature{};

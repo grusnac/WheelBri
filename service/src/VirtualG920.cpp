@@ -185,7 +185,8 @@ struct VirtualG920::Impl {
     }
 };
 
-std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error) {
+std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::function<bool()>& cancelled) {
+    const auto stopNow = [&cancelled] { return cancelled && cancelled(); };
     const HMODULE cfg = LoadLibraryW(L"cfgmgr32.dll");
     const auto swCreate =
         cfg != nullptr ? reinterpret_cast<SwDeviceCreateFn>(reinterpret_cast<void*>(GetProcAddress(cfg, "SwDeviceCreate"))) : nullptr;
@@ -198,6 +199,10 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error) {
 
     // Spare identities: a new device to Windows when an earlier one is stuck half-removed.
     for (const wchar_t* instance : {L"G920_0", L"G920_1", L"G920_2", L"G920_3"}) {
+        if (stopNow()) {
+            error = "cancelled";
+            return nullptr;
+        }
         SwDeviceCreateInfo info{};
         info.cbSize = sizeof(info);
         info.pszInstanceId = instance;
@@ -214,7 +219,10 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error) {
             std::snprintf(text, sizeof(text), "SwDeviceCreate failed (0x%08lX)%s", static_cast<unsigned long>(hr),
                           hr == E_ACCESSDENIED ? ": run the service as Administrator" : "");
             error = text;
-            return nullptr;
+            if (hr == E_ACCESSDENIED) return nullptr;   // the same for every identity
+            // Often this identity is still being removed (Stop then Start at once): the next one is a new device.
+            WE_LOG_WARN(log(), "virtual G920 {}: {}; trying the next identity", narrow(instance), text);
+            continue;
         }
         bool finished = false;
         HRESULT result = E_PENDING;
@@ -242,12 +250,18 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error) {
 
         const auto start = std::chrono::steady_clock::now();
         bool ready = false;
-        while (std::chrono::steady_clock::now() - start < std::chrono::seconds(8)) {
+        while (std::chrono::steady_clock::now() - start < std::chrono::seconds(8) && !stopNow()) {
             if (hidDevicePresent(0x046D, 0xC262)) {
                 ready = true;
                 break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+        if (!ready && stopNow()) {
+            swClose(device);
+            writeDirectInputEntries(false);
+            error = "cancelled";
+            return nullptr;
         }
         if (!ready) {
             WE_LOG_WARN(log(), "virtual G920 {} has no game-controller driver (an earlier one is probably stuck "
@@ -265,16 +279,20 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error) {
         impl->instanceId = id;
         Impl* raw = impl.get();
         impl->watcher = std::thread([raw] {
-            std::unique_lock guard(raw->lock);
-            while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {
-                guard.unlock();
-                removeForeignForceFeedbackDriver();   // Logitech's software writes it back when it sees a "G920"
-                guard.lock();
+            try {
+                std::unique_lock guard(raw->lock);
+                while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {
+                    guard.unlock();
+                    removeForeignForceFeedbackDriver();   // Logitech's software writes it back when it sees a "G920"
+                    guard.lock();
+                }
+            } catch (const std::exception& e) {   // never std::terminate the service from here
+                WE_LOG_ERROR(log(), "virtual G920: the registry watcher stopped: {}", e.what());
             }
         });
         return std::unique_ptr<VirtualG920>(new VirtualG920(std::move(impl)));
     }
-    error = "every identity of the virtual G920 is stuck: restart Windows";
+    error = "every identity of the virtual G920 is stuck: restart Windows" + (error.empty() ? "" : " (last: " + error + ")");
     return nullptr;
 }
 
@@ -288,7 +306,7 @@ struct VirtualG920::Impl {
     std::string instanceId;
 };
 
-std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error) {
+std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::function<bool()>&) {
     error = "the virtual G920 exists on Windows only";
     return nullptr;
 }

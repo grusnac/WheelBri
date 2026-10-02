@@ -162,14 +162,81 @@ std::filesystem::path executablePath() {
     }
 }
 
+struct SingleInstance::Impl {
+    HANDLE mutex = nullptr;
+    ~Impl() {
+        if (mutex != nullptr) {
+            ReleaseMutex(mutex);
+            CloseHandle(mutex);
+        }
+    }
+};
+
+std::unique_ptr<SingleInstance> SingleInstance::acquire(const std::string& name, std::string& error) {
+    // Global\: one per computer, across user sessions (the app runs elevated, a console may not).
+    const std::wstring wide = L"Global\\" + widen(name);
+    HANDLE mutex = CreateMutexW(nullptr, FALSE, wide.c_str());
+    if (mutex == nullptr) {
+        // An elevated copy's lock cannot be opened by a non-elevated one: that copy is running.
+        error = GetLastError() == ERROR_ACCESS_DENIED
+                    ? "another wheelemu-service is already running on this computer (as Administrator): stop it first"
+                    : lastError("creating the single-instance lock");
+        return nullptr;
+    }
+    const DWORD waited = WaitForSingleObject(mutex, 0);
+    if (waited != WAIT_OBJECT_0 && waited != WAIT_ABANDONED) {   // abandoned: the last owner crashed, fine
+        CloseHandle(mutex);
+        error = "another wheelemu-service is already running on this computer (the app, or a console): stop it first";
+        return nullptr;
+    }
+    auto impl = std::make_unique<Impl>();
+    impl->mutex = mutex;
+    return std::unique_ptr<SingleInstance>(new SingleInstance(std::move(impl)));
+}
+
+SingleInstance::SingleInstance(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+SingleInstance::~SingleInstance() = default;
+
+namespace {
+void (*gRequestStop)() = nullptr;
+bool (*gBusy)() = nullptr;
+
+BOOL WINAPI onConsoleEvent(const DWORD event) {
+    if (gRequestStop != nullptr) gRequestStop();
+    if (event == CTRL_C_EVENT) return TRUE;   // the process goes on and stops by itself
+    // The process ends when this returns: give the session time to undo itself first.
+    for (int waited = 0; waited < 4500 && gBusy != nullptr && gBusy(); waited += 50) Sleep(50);
+    return TRUE;
+}
+}  // namespace
+
+void installConsoleStopHandler(void (*requestStop)(), bool (*busy)()) {
+    gRequestStop = requestStop;
+    gBusy = busy;
+    SetConsoleCtrlHandler(onConsoleEvent, TRUE);
+}
+
+bool isElevated() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return false;
+    TOKEN_ELEVATION elevation{};
+    DWORD size = 0;
+    const bool elevated = GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size) != FALSE &&
+                          elevation.TokenIsElevated != 0;
+    CloseHandle(token);
+    return elevated;
+}
+
 struct ChildProcess::Impl {
     PROCESS_INFORMATION info{};
+    HANDLE job = nullptr;   // kill-on-close: the child and everything it started end with it
     bool running = true;
     int exitCode = -1;
 
     ~Impl() {
         if (info.hProcess != nullptr) CloseHandle(info.hProcess);
         if (info.hThread != nullptr) CloseHandle(info.hThread);
+        if (job != nullptr) CloseHandle(job);
     }
 };
 
@@ -211,7 +278,18 @@ std::unique_ptr<ChildProcess> ChildProcess::start(const std::vector<std::string>
     startup.lpAttributeList = listOk ? attributes : nullptr;
 
     auto impl = std::make_unique<Impl>();
-    const DWORD flags = CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | (listOk ? EXTENDED_STARTUPINFO_PRESENT : 0);
+    impl->job = CreateJobObjectW(nullptr, nullptr);
+    if (impl->job != nullptr) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if (!SetInformationJobObject(impl->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
+            CloseHandle(impl->job);
+            impl->job = nullptr;
+        }
+    }
+    // Suspended until it is in the job, so nothing it starts can escape the job.
+    const DWORD flags = CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED |
+                        (listOk ? EXTENDED_STARTUPINFO_PRESENT : 0);
     const BOOL created = CreateProcessW(program.c_str(), line.data(), nullptr, nullptr, TRUE, flags, nullptr, nullptr,
                                         &startup.StartupInfo, &impl->info);
     const DWORD createError = GetLastError();
@@ -221,6 +299,11 @@ std::unique_ptr<ChildProcess> ChildProcess::start(const std::vector<std::string>
         error = "CreateProcess failed (error " + std::to_string(createError) + ")";
         return nullptr;
     }
+    if (impl->job != nullptr && !AssignProcessToJobObject(impl->job, impl->info.hProcess)) {
+        CloseHandle(impl->job);   // runs without a job: kill() then ends only the child itself
+        impl->job = nullptr;
+    }
+    ResumeThread(impl->info.hThread);
     return std::unique_ptr<ChildProcess>(new ChildProcess(std::move(impl)));
 }
 
@@ -245,11 +328,21 @@ std::optional<int> ChildProcess::poll() {
     return impl_->exitCode;
 }
 
+void ChildProcess::release() {
+    if (impl_->job != nullptr) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};   // no kill-on-close any more
+        SetInformationJobObject(impl_->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+    }
+    impl_->running = false;
+}
+
 void ChildProcess::kill() {
     if (!impl_->running) {
         return;
     }
-    TerminateProcess(impl_->info.hProcess, 1);
+    if (impl_->job == nullptr || !TerminateJobObject(impl_->job, 1)) {
+        TerminateProcess(impl_->info.hProcess, 1);
+    }
     WaitForSingleObject(impl_->info.hProcess, 5000);
     (void)poll();
     impl_->running = false;

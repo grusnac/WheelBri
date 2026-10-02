@@ -39,8 +39,37 @@ bool raiseThreadPriority(std::string& error);
 // The running program's own file, empty if unknown.
 [[nodiscard]] std::filesystem::path executablePath();
 
+// Only one wheelemu-service session at a time on this computer: two would both read the wheel, both send state to
+// the same port (the game would get both, interleaved) and both create the virtual devices. Held while it lives.
+// Windows: a named mutex (released by Windows when the process dies). Elsewhere: an flock on a file in the
+// runtime folder (released by the kernel when the process dies).
+class SingleInstance {
+public:
+    // Null with `error` set ("another wheelemu-service is running (pid N)" or why the lock could not be made).
+    [[nodiscard]] static std::unique_ptr<SingleInstance> acquire(const std::string& name, std::string& error);
+    ~SingleInstance();
+
+    SingleInstance(const SingleInstance&) = delete;
+    SingleInstance& operator=(const SingleInstance&) = delete;
+
+private:
+    struct Impl;
+    explicit SingleInstance(std::unique_ptr<Impl> impl);
+    std::unique_ptr<Impl> impl_;
+};
+
+// Windows: closing the console window, Ctrl+Break, logging off or shutting down call `requestStop` and then wait
+// (up to about 4.5 s, what Windows allows) while `busy` says the session is still undoing itself, so the real wheel
+// is shown again and the virtual devices are removed. Ctrl+C only calls `requestStop`. Elsewhere: nothing (the
+// service handles SIGINT/SIGTERM itself).
+void installConsoleStopHandler(void (*requestStop)(), bool (*busy)());
+
+// Whether this process runs as Administrator (Windows, elevated). Always true elsewhere.
+[[nodiscard]] bool isElevated();
+
 // A program run in the background with no console window and no input or output (stdin/out/err go to the
-// null device). Arguments are UTF-8; argv[0] is the program's path.
+// null device). Arguments are UTF-8; argv[0] is the program's path. On Windows it runs in a job object: ending it
+// (kill(), or this process ending) also ends everything it started (an installer's pnputil, for example).
 class ChildProcess {
 public:
     [[nodiscard]] static std::unique_ptr<ChildProcess> start(const std::vector<std::string>& argv, std::string& error);
@@ -53,6 +82,8 @@ public:
     [[nodiscard]] std::optional<int> poll();
     // Ends it now and waits for it.
     void kill();
+    // Lets it run on by itself: neither this object nor this process ending stops it any more.
+    void release();
 
 private:
     struct Impl;

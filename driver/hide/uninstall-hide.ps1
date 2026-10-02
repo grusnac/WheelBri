@@ -1,20 +1,23 @@
 # Removes wheelemu-hide: the R3's game-controller interface goes back to Windows' own setup (input.inf) and
 # nothing hides it any more. Administrator; stop wheelemu-service first.
 
-$ErrorActionPreference = 'Stop'
-
-$lines = pnputil /enum-drivers
-$published = $null
-for ($i = 0; $i -lt $lines.Count; $i++) {
-    if ($lines[$i] -match 'Published Name:\s*(oem\d+\.inf)') { $published = $Matches[1] }
-    if ($lines[$i] -match 'Original Name:\s*wheelemu-hide\.inf' -and $published) {
-        Write-Host "removing $published"
-        pnputil /delete-driver $published /uninstall /force
-    }
+# A 32-bit PowerShell (one started from a 32-bit prompt, e.g. some Developer PowerShell windows) sees SysWOW64,
+# where pnputil and the 64-bit driver tools are missing: run this again in the 64-bit PowerShell.
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+    & (Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath 
+    exit $LASTEXITCODE
 }
-# Make sure no stale "hidden" setting is left behind.
-Remove-ItemProperty -Path 'HKLM:\SOFTWARE\wheelemu\hide' -Name 'AllowedPid' -ErrorAction SilentlyContinue
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '..\common.ps1')
+Assert-Admin
+
+# No stale "hidden" setting left behind, whatever happens next.
+Remove-ItemProperty -Path 'HKLM:\SOFTWARE\wheelemu\hide' -Name 'AllowedPid', 'AllowedPidStart' -ErrorAction SilentlyContinue
+
+Remove-InstalledPackages 'wheelemu-hide' | Out-Null
+if (@(Get-InstalledPackages 'wheelemu-hide').Count -gt 0) { Stop-WithError 'wheelemu-hide is still installed.' }
 # Windows picks its own driver for the R3 again.
-pnputil /scan-devices | Out-Null
+Invoke-Pnputil @('/scan-devices') 'rescanning devices' | Out-Null
 Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like 'HID\VID_346E&PID_0005&MI_02*' } |
     ForEach-Object { Write-Host "$($_.InstanceId): $($_.Status), $($_.FriendlyName)" }
+Write-Host 'Removed.' -ForegroundColor Green

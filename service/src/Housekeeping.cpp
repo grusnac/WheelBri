@@ -256,7 +256,8 @@ Housekeeping::Job Housekeeping::makeJob(const std::string& day, const std::files
         // One archive per day and folder; never overwrite an existing one.
         const std::string extension = a.kind == Archiver::Kind::SevenZip ? ".7z" : ".zip";
         std::filesystem::path archive = folder / ("wheelemu-logs-" + day + extension);
-        for (int n = 2; std::filesystem::exists(archive); ++n) {
+        std::error_code ec;   // an unreadable folder must not throw (it would end the session)
+        for (int n = 2; std::filesystem::exists(archive, ec) && n < 1000; ++n) {
             archive = folder / ("wheelemu-logs-" + day + "-" + std::to_string(n) + extension);
         }
         job.outputs.push_back(archive);

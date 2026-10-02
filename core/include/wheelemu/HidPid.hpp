@@ -54,7 +54,13 @@ public:
     [[nodiscard]] std::size_t getFeature(std::uint8_t reportId, std::span<std::uint8_t> out) const;
 
     // Call every ~10 ms: effects that ran out, keep-alives (once a game used force feedback), refresh.
+    // A game that crashed sends nothing more, and the driver cannot tell (it never sees the game's handle close).
+    // So when no report came for kGameQuietMs while a pushing force (constant, ramp, periodic) plays, keep-alives
+    // and refreshes stop: the service's watchdog then stops every force. The game's next report brings them back.
+    // Springs and dampers alone keep going: they only resist, and games set them once and leave them.
     void tick(std::int64_t nowMs);
+    static constexpr std::int64_t kGameQuietMs = 10'000;
+    [[nodiscard]] bool gameQuiet() const;
 
     // Everything stops (device going away).
     void stopAll(std::int64_t nowMs);
@@ -132,6 +138,9 @@ private:
     bool paused_ = false;
     std::uint64_t reportsHandled_ = 0;
     std::uint64_t packetsSent_ = 0;
+    std::int64_t lastReportMs_ = 0;
+    bool quiet_ = false;                     // kGameQuietMs without a report while a pushing force plays
+    void noteReport(std::int64_t nowMs);
 };
 
 }  // namespace wheelemu

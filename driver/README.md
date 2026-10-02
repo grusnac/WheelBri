@@ -62,7 +62,14 @@ Our replacement for HidHide: a UMDF 2 **upper filter** on the R3's game-controll
 (`HID\VID_346E&PID_0005&MI_02`; Moza Pit House uses the other interfaces). When a program opens that interface,
 the filter checks `HKLM\SOFTWARE\wheelemu\hide` `AllowedPid`: while the service runs it holds the service's
 process id and everyone else is refused (so DirectInput, SDL and games do not see the R3); 0 or missing lets
-everyone in. Everything else passes straight through. Same signing as the G920 driver; user mode, no test mode.
+everyone in. It fails open: if that process is gone (the service crashed or was killed) or the id now belongs to
+another program (`AllowedPidStart`, the process's start time, differs), or the setting cannot be read, the R3 is
+not hidden. Everything else passes straight through. Same signing as the G920 driver; user mode, no test mode.
+
+The install and uninstall scripts stop at the first failed step with a red line and exit code 1; a yellow line
+says when Windows wants a restart. `install-hide.ps1` exits 2 when the filter is installed but not on the R3 yet
+(unplug and replug it). `uninstall-driver.ps1 -RemoveCertificate` refuses while wheelemu-hide or wheelemu-xusb is
+installed: they use the same certificate, and the R3 itself depends on wheelemu-hide's.
 
 Build and install (Developer PowerShell, then Administrator PowerShell; close Pit House and games, the R3
 restarts once):

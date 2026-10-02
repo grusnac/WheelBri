@@ -41,4 +41,11 @@ std::unique_ptr<Wheel> openWheel(WheelBackend& backend, const std::string& match
     return nullptr;
 }
 
+bool wheelConnected(WheelBackend& backend, const std::string& match) {
+    for (const WheelInfo& info : backend.list()) {
+        if (deviceMatches(info.name, info.vendorId, info.productId, match)) return true;
+    }
+    return false;
+}
+
 }  // namespace wheelemu::service

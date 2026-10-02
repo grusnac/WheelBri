@@ -1,23 +1,29 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 
 namespace wheelemu::service {
 
-// The virtual Xbox 360 controller (driver/xusb) next to the virtual G920: a Windows software device with
-// hardware ID wheelemu\XUSB, created while the service runs (--virtual-g920, unless --xbox-pad off) and removed
-// when it stops or crashes. The service feeds it over UDP (core/XboxPad.hpp).
+// The virtual Xbox 360 controller next to the virtual G920, created while the service runs (--virtual-g920, unless
+// --xbox-pad off) and removed when it stops or crashes. Two Windows software devices, as a real wired one has two
+// sides: wheelemu\XUSB (driver/xusb) for XInput, which games use for their Xbox prompts, and wheelemu\XBOXHID (the
+// wheelemu-g920 driver) for HID / DirectInput, which joy.cpl lists. The service feeds both over UDP
+// (core/XboxPad.hpp, core/HidXbox360.hpp).
 class VirtualXboxPad {
 public:
     // Null + `error` if it cannot be created (driver not installed, not Administrator, not Windows).
-    [[nodiscard]] static std::unique_ptr<VirtualXboxPad> create(std::string& error);
+    // `cancelled`: checked while waiting for Windows (Stop pressed): then null, "cancelled".
+    [[nodiscard]] static std::unique_ptr<VirtualXboxPad> create(std::string& error, const std::function<bool()>& cancelled = {});
     ~VirtualXboxPad();
 
     VirtualXboxPad(const VirtualXboxPad&) = delete;
     VirtualXboxPad& operator=(const VirtualXboxPad&) = delete;
 
     [[nodiscard]] const std::string& instanceId() const;
+    // The HID side is there too (joy.cpl lists the controller).
+    [[nodiscard]] bool hidSide() const;
 
 private:
     struct Impl;

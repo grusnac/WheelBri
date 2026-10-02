@@ -64,9 +64,18 @@ std::optional<HidPid::ParamKind> HidPid::kindOf(int pidType) {
     return std::nullopt;
 }
 
+void HidPid::noteReport(const std::int64_t nowMs) {
+    ++reportsHandled_;
+    lastReportMs_ = nowMs;
+    if (quiet_) {
+        quiet_ = false;
+        log_("pid: the game sends force feedback again: forces back on");
+    }
+}
+
 void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std::int64_t nowMs) {
     std::lock_guard lock(mutex_);
-    ++reportsHandled_;
+    noteReport(nowMs);
     char kind[24];
     std::snprintf(kind, sizeof(kind), "output 0x%02X", reportId);
     if (seen_.insert(kind).second) {
@@ -118,7 +127,7 @@ void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std:
 
 void HidPid::setFeature(std::uint8_t reportId, std::span<const std::uint8_t> d, std::int64_t nowMs) {
     std::lock_guard lock(mutex_);
-    ++reportsHandled_;
+    noteReport(nowMs);
     char kind[24];
     std::snprintf(kind, sizeof(kind), "feature 0x%02X", reportId);
     if (seen_.insert(kind).second) {
@@ -424,11 +433,32 @@ void HidPid::tick(std::int64_t nowMs) {
     constexpr std::int64_t kKeepAliveMs = 100;
     constexpr std::int64_t kRefreshMs = 250;
     std::lock_guard lock(mutex_);
-    const bool refresh = nowMs - lastRefreshMs_ >= kRefreshMs;
+    if (!quiet_ && reportsHandled_ > 0 && nowMs - lastReportMs_ >= kGameQuietMs) {
+        // Not Ffb.cpp's helpers: the driver compiles this file without the service's logging.
+        const auto pushes = [](const FfbEffect& e) {
+            switch (e.type) {
+                case FfbEffectType::Spring:
+                case FfbEffectType::Damper:
+                case FfbEffectType::Inertia:
+                case FfbEffectType::Friction: return false;
+                case FfbEffectType::Constant: return std::fabs(e.constantLevel * e.gain) > 0.02F;
+                default: return (std::fabs(e.periodic.magnitude) + std::fabs(e.periodic.offset)) * e.gain > 0.02F;
+            }
+        };
+        const bool pushing = std::any_of(sent_.begin(), sent_.end(),
+                                         [&](const auto& s) { return s && s->playing && pushes(s->effect); });
+        if (pushing) {
+            quiet_ = true;
+            log_("pid: WARNING: no force feedback report from the game for " + std::to_string(kGameQuietMs / 1000) +
+                 " s while a pushing force plays (did the game crash?): keep-alives stopped, so the service stops "
+                 "the forces; they come back with the game's next report");
+        }
+    }
+    const bool refresh = !quiet_ && nowMs - lastRefreshMs_ >= kRefreshMs;
     if (refresh) lastRefreshMs_ = nowMs;
     sendChanges(nowMs, refresh);
     // Keep-alives only once a game used force feedback: otherwise the service would report a game that is not there.
-    if (reportsHandled_ > 0 && nowMs - lastSendMs_ >= kKeepAliveMs) {
+    if (!quiet_ && reportsHandled_ > 0 && nowMs - lastSendMs_ >= kKeepAliveMs) {
         send(FfbPacket::Kind::KeepAlive, 0, false, FfbEffect{}, nowMs);
     }
 }
@@ -438,6 +468,11 @@ void HidPid::stopAll(std::int64_t nowMs) {
     for (auto& [ebi, block] : blocks_) block.started = false;
     sent_.fill(std::nullopt);
     send(FfbPacket::Kind::StopAll, 0, false, FfbEffect{}, nowMs);
+}
+
+bool HidPid::gameQuiet() const {
+    std::lock_guard lock(mutex_);
+    return quiet_;
 }
 
 std::uint64_t HidPid::reportsHandled() const {

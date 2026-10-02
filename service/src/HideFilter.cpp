@@ -6,6 +6,7 @@
 #ifdef _WIN32
 
 #include <windows.h>
+#include <aclapi.h>
 #include <cfgmgr32.h>
 
 #include <string_view>
@@ -44,11 +45,67 @@ std::vector<std::string> multiSz(const wchar_t* data, std::size_t chars) {
     return items;
 }
 
+// This process's creation time: with the id, it tells the filter whether the process that hid the wheel still
+// runs (an id can be reused by another program after a crash).
+ULONGLONG processStart() {
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) return 0;
+    return (static_cast<ULONGLONG>(created.dwHighDateTime) << 32U) | created.dwLowDateTime;
+}
+
+// The filter runs in the driver host as LocalService, which may not look at an elevated process: then it cannot
+// compare AllowedPidStart and must assume the process still runs. Let it query this process (name and times only:
+// PROCESS_QUERY_LIMITED_INFORMATION), so a reused process id after a crash is recognised.
+void letFilterCheckThisProcess() {
+    PACL dacl = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    DWORD status = GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr,
+                                   &dacl, nullptr, &descriptor);
+    if (status != ERROR_SUCCESS) {
+        WE_LOG_WARN(log(), "hide: cannot read this process's security (error {}): after a crash a reused process id "
+                           "may keep the wheel hidden (wheelemu-service --unhide fixes it)", status);
+        return;
+    }
+    BYTE sid[SECURITY_MAX_SID_SIZE];
+    DWORD sidSize = sizeof(sid);
+    PACL updated = nullptr;
+    if (CreateWellKnownSid(WinLocalServiceSid, nullptr, sid, &sidSize)) {
+        EXPLICIT_ACCESSW access{};
+        access.grfAccessPermissions = PROCESS_QUERY_LIMITED_INFORMATION;
+        access.grfAccessMode = GRANT_ACCESS;
+        access.grfInheritance = NO_INHERITANCE;
+        access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        access.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+        access.Trustee.ptstrName = reinterpret_cast<LPWSTR>(sid);
+        status = SetEntriesInAclW(1, &access, dacl, &updated);
+        if (status == ERROR_SUCCESS) {
+            status = SetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, nullptr,
+                                     nullptr, updated, nullptr);
+        }
+    } else {
+        status = GetLastError();
+    }
+    if (status != ERROR_SUCCESS) {
+        WE_LOG_WARN(log(), "hide: cannot let wheelemu-hide check this process (error {}): after a crash a reused "
+                           "process id may keep the wheel hidden (wheelemu-service --unhide fixes it)", status);
+    }
+    if (updated != nullptr) LocalFree(updated);
+    LocalFree(descriptor);
+}
+
 bool writeAllowedPid(const DWORD pid) {
     HKEY key = nullptr;
     LSTATUS status = RegCreateKeyExW(HKEY_LOCAL_MACHINE, kPolicyKey, 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE,
                                      nullptr, &key, nullptr);
     if (status == ERROR_SUCCESS) {
+        // The start time first: the filter reads AllowedPid, then checks it against AllowedPidStart.
+        const ULONGLONG started = pid == 0 ? 0 : processStart();
+        const LSTATUS startStatus =
+            RegSetValueExW(key, L"AllowedPidStart", 0, REG_QWORD, reinterpret_cast<const BYTE*>(&started), sizeof(started));
+        if (startStatus != ERROR_SUCCESS) {
+            WE_LOG_WARN(log(), "hide: cannot write AllowedPidStart (error {}): a reused process id may stay allowed",
+                        startStatus);
+        }
         status = RegSetValueExW(key, L"AllowedPid", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&pid), sizeof(pid));
         RegCloseKey(key);
     }
@@ -92,6 +149,7 @@ std::unique_ptr<HideFilter> HideFilter::find(const std::string& vendorId) {
 }
 
 bool HideFilter::hide() {
+    letFilterCheckThisProcess();
     hidden_ = writeAllowedPid(GetCurrentProcessId());
     if (hidden_) {
         WE_LOG_INFO(log(), "hide: real wheel hidden from games (only this process, {}, may open {})",

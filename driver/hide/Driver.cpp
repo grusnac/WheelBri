@@ -9,7 +9,11 @@
 //     and only that process may open the R3; everyone else gets "access denied", so DirectInput, SDL, raw input
 //     and the game cannot see or read it (the same effect as HidHide);
 //   - when AllowedPid is 0 or missing (the service is not running, or stopped cleanly), everyone may open it:
-//     the R3 is an ordinary wheel again.
+//     the R3 is an ordinary wheel again;
+//   - when AllowedPid names a process that is gone (the service crashed, was killed, or the PC lost power), the
+//     wheel is not hidden either: a crash must never leave the wheel hidden from everything. AllowedPidStart (the
+//     process's creation time, QWORD FILETIME) catches a later process that got the same id.
+// Fail open: if the setting cannot be read, the wheel is not hidden (and that is logged).
 // Everything else (reads, force feedback, feature reports) passes through untouched.
 
 #include <windows.h>
@@ -17,6 +21,7 @@
 
 #include <cstdio>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -42,19 +47,73 @@ void logLine(const std::string& text) {
     swprintf_s(path, L"C:\\ProgramData\\wheelemu\\logs\\wheelemu-hide-%04u-%02u-%02u.log", now.wYear, now.wMonth, now.wDay);
     HANDLE file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
+    static bool reportedFailure = false;
     if (file != INVALID_HANDLE_VALUE) {
         DWORD written = 0;
         WriteFile(file, line, static_cast<DWORD>(strlen(line)), &written, nullptr);
         CloseHandle(file);
+        reportedFailure = false;
+    } else if (!reportedFailure) {
+        reportedFailure = true;   // only DebugView can show this one
+        char why[160];
+        std::snprintf(why, sizeof(why), "wheelemu-hide: cannot write its log in C:\\ProgramData\\wheelemu\\logs (error %lu)\r\n",
+                      GetLastError());
+        OutputDebugStringA(why);
     }
+}
+
+// Logged once per distinct problem (a game opens the wheel often).
+void logOnce(std::string text) {
+    static std::mutex lock;
+    static std::string last;
+    std::lock_guard guard(lock);
+    if (text == last) return;
+    last = text;
+    logLine(text);
+}
+
+// Whether `pid` still runs and is the process that wrote the setting. Unknown (cannot look) counts as running:
+// the driver host runs as LocalService and may not open an elevated service.
+bool stillRunning(const DWORD pid, const std::optional<ULONGLONG> started) {
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (process == nullptr) {
+        const DWORD error = GetLastError();
+        if (error == ERROR_INVALID_PARAMETER) return false;   // no such process
+        return true;
+    }
+    bool running = true;
+    DWORD code = 0;
+    if (GetExitCodeProcess(process, &code) && code != STILL_ACTIVE) running = false;
+    FILETIME created{}, exited{}, kernel{}, user{};
+    if (running && started && GetProcessTimes(process, &created, &exited, &kernel, &user)) {
+        const ULONGLONG createdAt = (static_cast<ULONGLONG>(created.dwHighDateTime) << 32U) | created.dwLowDateTime;
+        if (createdAt != *started) running = false;   // the id was reused by another program
+    }
+    CloseHandle(process);
+    return running;
 }
 
 // The process allowed to open the wheel while it is hidden; 0 = not hidden.
 ULONG allowedPid() {
     DWORD value = 0;
     DWORD size = sizeof(value);
-    if (RegGetValueW(HKEY_LOCAL_MACHINE, kPolicyKey, L"AllowedPid", RRF_RT_REG_DWORD, nullptr, &value, &size) !=
-        ERROR_SUCCESS) {
+    const LSTATUS status =
+        RegGetValueW(HKEY_LOCAL_MACHINE, kPolicyKey, L"AllowedPid", RRF_RT_REG_DWORD, nullptr, &value, &size);
+    if (status != ERROR_SUCCESS) {
+        if (status != ERROR_FILE_NOT_FOUND) {
+            logOnce("WARNING: cannot read HKLM\\SOFTWARE\\wheelemu\\hide AllowedPid (error " + std::to_string(status) +
+                    "): the wheel is not hidden");
+        }
+        return 0;
+    }
+    if (value == 0) return 0;
+    ULONGLONG started = 0;
+    DWORD startedSize = sizeof(started);
+    const bool haveStart = RegGetValueW(HKEY_LOCAL_MACHINE, kPolicyKey, L"AllowedPidStart", RRF_RT_REG_QWORD, nullptr,
+                                        &started, &startedSize) == ERROR_SUCCESS;
+    if (!stillRunning(value, haveStart && started != 0 ? std::optional<ULONGLONG>(started) : std::nullopt)) {
+        logOnce("process " + std::to_string(value) +
+                " hid the wheel but is gone (crashed or killed?): not hidden, every program may open it");
         return 0;
     }
     return value;

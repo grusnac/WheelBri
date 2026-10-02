@@ -181,15 +181,24 @@ bool DinputReader::read(RawInputState& state) {
     DIJOYSTATE2 s{};
     impl_->device->Poll();
     HRESULT result = impl_->device->GetDeviceState(sizeof(s), &s);
-    if (result == DIERR_INPUTLOST || result == DIERR_NOTACQUIRED) {
-        impl_->device->Acquire();
+    // Acquire again at once, then every 50 reads at most: on an unplugged wheel it can take a while each time.
+    if ((result == DIERR_INPUTLOST || result == DIERR_NOTACQUIRED) && impl_->failures % 50 == 0) {
+        const HRESULT acquired = impl_->device->Acquire();
+        if (FAILED(acquired) && impl_->failures == 0) {
+            WE_LOG_WARN(log(), "DirectInput: the wheel cannot be acquired again (0x{:08x}{})",
+                        static_cast<unsigned>(acquired),
+                        acquired == static_cast<HRESULT>(DIERR_UNPLUGGED) ? ", unplugged" : acquired == static_cast<HRESULT>(DIERR_OTHERAPPHASPRIO)
+                                                                          ? ", another program has it exclusively"
+                                                                          : "");
+        }
         impl_->device->Poll();
         result = impl_->device->GetDeviceState(sizeof(s), &s);
     }
     if (FAILED(result)) {
         // Keep the last values; a wheel that stays unreadable for ~0.5 s (at 1 kHz) is gone.
         if (++impl_->failures == 1) {
-            WE_LOG_WARN(log(), "DirectInput read failed (0x{:08x}); keeping the last values", static_cast<unsigned>(result));
+            WE_LOG_WARN(log(), "DirectInput read failed (0x{:08x}{}); keeping the last values",
+                        static_cast<unsigned>(result), result == static_cast<HRESULT>(DIERR_UNPLUGGED) ? ", unplugged" : "");
         }
         return impl_->failures < 500;
     }

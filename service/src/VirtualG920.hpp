@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -18,7 +19,8 @@ namespace wheelemu::service {
 class VirtualG920 {
 public:
     // Null + `error` if it cannot be created (not Windows, driver not installed, not Administrator, ...).
-    [[nodiscard]] static std::unique_ptr<VirtualG920> create(std::string& error);
+    // `cancelled`: checked while waiting for Windows (Stop pressed): then null, "cancelled".
+    [[nodiscard]] static std::unique_ptr<VirtualG920> create(std::string& error, const std::function<bool()>& cancelled = {});
     ~VirtualG920();
 
     VirtualG920(const VirtualG920&) = delete;
