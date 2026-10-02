@@ -51,8 +51,8 @@ struct FilesDisplay {
 class MappingView {
 public:
     // The panel's size in logical pixels; it draws from the window's current origin.
-    static constexpr int kWidth = 720;
-    static constexpr int kHeight = 752;
+    static constexpr int kWidth = 960;
+    static constexpr int kHeight = 867;
 
     // Draws into `window` (not owned; it must outlive the view).
     MappingView(ui::UiWindow& window, std::string sourceName, int sourceAxes, int sourceButtons,
@@ -91,6 +91,8 @@ private:
     void drawFfbUsage(const FfbController& controller, float top);
     void drawFiles();
     void trackLastPressed(std::uint64_t sourceButtons);
+    // The name of source button `source` from [button_labels], or an empty string.
+    [[nodiscard]] const std::string& sourceLabel(int source) const;
 
     ui::UiWindow& window_;
     std::string sourceName_;

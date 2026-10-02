@@ -43,7 +43,7 @@ constexpr float kLogTop = kViewTop + MappingView::kHeight + 6;
 constexpr int kLogLines = 6;
 constexpr float kLogLineHeight = 11;
 constexpr float kHeight = kLogTop + 12 + kLogLines * kLogLineHeight + 4;
-constexpr int kWindowWidth = 936;   // 1.3x the canvas at 100 % display scale (made smaller to fit the screen)
+constexpr int kWindowWidth = static_cast<int>(kWidth * 1.3F);  // 1.3x the canvas at 100 % (smaller to fit the screen)
 constexpr int kWindowHeight = static_cast<int>(kHeight * 1.3F);
 
 void draw(const FfbDisplay& ffb, MappingView& view, const UiFrame& frame) {
@@ -67,7 +67,9 @@ class SessionWindow final : public UiHost {
 public:
     bool sessionStarted(const SessionInfo& info) override {
         std::string error;
-        window_ = ui::openWindow("wheel-emulator: mapping", MappingView::kWidth, MappingView::kHeight, 936, 978, error);
+        window_ = ui::openWindow("wheel-emulator: mapping", MappingView::kWidth, MappingView::kHeight,
+                                 static_cast<int>(MappingView::kWidth * 1.3F),
+                                 static_cast<int>(MappingView::kHeight * 1.3F), error);
         if (window_ == nullptr) {
             WE_LOG_ERROR(log(), "cannot open the mapping window: {}", error);
             return false;

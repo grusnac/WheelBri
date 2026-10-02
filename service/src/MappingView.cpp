@@ -274,17 +274,25 @@ void MappingView::drawHat(const std::int8_t sourceHat, const std::int8_t targetH
     text(window_, kLeft, gridTop + 3 * (kSize + 2) + 16, "-1 = centred, 0..7 clockwise", kDim);
 }
 
+const std::string& MappingView::sourceLabel(const int source) const {
+    static const std::string kNone;
+    return source >= 0 && static_cast<std::size_t>(source) < mapper_.sourceButtonLabels.size()
+               ? mapper_.sourceButtonLabels[static_cast<std::size_t>(source)]
+               : kNone;
+}
+
 void MappingView::drawTargetButtons(const std::uint32_t targetButtons) {
     constexpr float kTop = 390;
     const std::string heading = target_ + " BUTTONS";
     text(window_, 4, kTop, heading.c_str(), kHeading);
     const float subtitleX = 4 + static_cast<float>(heading.size() + 1) * 8;
-    text(window_, subtitleX, kTop, "number (= target_N in the INI), label  <- R3 button that drives it", kDim);
+    text(window_, subtitleX, kTop, "G920 number name <- R3 number name   (INI: [buttons] target_N = R3 number)", kDim);
 
-    constexpr int kColumns = 4;
-    constexpr float kWidth = 176;
+    // Every cell reads "G920  6 Menu     <- R3 35 Start": 39 characters fit a cell after its 3-pixel margin.
+    constexpr int kColumns = 3;
+    constexpr float kWidth = 316;
     constexpr float kHeight = 13;
-    char cellText[48];
+    char cellText[64];
     for (std::size_t target = 0; target < mapper_.buttonMap.size(); ++target) {
         const float x = 4 + static_cast<float>(target % kColumns) * (kWidth + 2);
         const float y = kTop + 12 + static_cast<float>(target / kColumns) * (kHeight + 2);
@@ -292,14 +300,13 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons) {
         const int source = mapper_.buttonMap[target];
         const std::string_view name = profile_.buttonName(target);
 
-        char sourceText[16];
-        if (source >= 0) {
-            std::snprintf(sourceText, sizeof(sourceText), "R3 %d", source);
+        const std::string label(name.substr(0, 8));
+        if (source < 0) {
+            std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- --", target_.c_str(), target, label.c_str());
         } else {
-            std::snprintf(sourceText, sizeof(sourceText), "--");
+            std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- R3 %2d %s", target_.c_str(), target,
+                          label.c_str(), source, sourceLabel(source).c_str());
         }
-        const std::string label = name.empty() ? std::string("(none)") : std::string(name.substr(0, 9));
-        std::snprintf(cellText, sizeof(cellText), "%2zu %-9s<- %s", target, label.c_str(), sourceText);
 
         fill(window_, x, y, kWidth, kHeight, pressed ? kActive : kPanel);
         const Colour colour = pressed ? kDark : (source < 0 || name.empty() ? kDim : kText);
@@ -308,19 +315,19 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons) {
 }
 
 void MappingView::drawSourceButtons(const std::uint64_t sourceButtons) {
-    constexpr float kTop = 530;
+    constexpr float kTop = 575;
     text(window_, 4, kTop, "R3 BUTTONS", kHeading);
     const std::string legend =
         "green = " + target_ + " button or D-pad, yellow = unlabelled button, red = not mapped";
     text(window_, 92, kTop, legend.c_str(), kDim);
 
-    constexpr int kColumns = 16;
-    constexpr float kWidth = 42;
+    constexpr int kColumns = 10;
+    constexpr float kWidth = 92;     // 11 characters
     constexpr float kHeight = 21;
-    char line[16];
+    char line[24];
     for (int source = 0; source < sourceButtons_; ++source) {
         const auto index = static_cast<std::size_t>(source);
-        const float x = 4 + static_cast<float>(source % kColumns) * (kWidth + 2.8F);
+        const float x = 4 + static_cast<float>(source % kColumns) * (kWidth + 3);
         const float y = kTop + 12 + static_cast<float>(source / kColumns) * (kHeight + 2);
         const bool pressed = ((sourceButtons >> source) & 1ULL) != 0;
         const int target = sourceToTarget_[index];
@@ -339,17 +346,22 @@ void MappingView::drawSourceButtons(const std::uint64_t sourceButtons) {
         fill(window_, x, y, kWidth, kHeight, background);
         const Colour foreground = pressed ? kDark : (target >= 0 || hatDirection != nullptr ? kText : kDim);
 
-        std::snprintf(line, sizeof(line), "R3 %d", source);
-        text(window_, x + 2, y + 2, line, foreground);
+        // Top line: the number and where it goes ("R3 35 >6"); bottom line: its name from [button_labels].
+        const std::string& name = sourceLabel(source);
+        char where[12];
         if (hatDirection != nullptr) {
             // Short arrow so it fits the cell; a second mapping to a button is flagged with '+'.
-            std::snprintf(line, sizeof(line), ">D%c%s", hatDirection[0] - 'a' + 'A', target >= 0 ? "+" : "");
+            std::snprintf(where, sizeof(where), ">D%c%s", hatDirection[0] - 'a' + 'A', target >= 0 ? "+" : "");
         } else if (target >= 0) {
-            std::snprintf(line, sizeof(line), sourceTargetCount_[index] > 1 ? ">%d+" : ">%d", target);
+            std::snprintf(where, sizeof(where), sourceTargetCount_[index] > 1 ? ">%d+" : ">%d", target);
         } else {
-            std::snprintf(line, sizeof(line), "--");
+            std::snprintf(where, sizeof(where), "--");
         }
-        text(window_, x + 2, y + 12, line, foreground);
+        std::snprintf(line, sizeof(line), "R3 %d %s", source, where);
+        text(window_, x + 2, y + 2, line, foreground);
+        if (!name.empty()) {
+            text(window_, x + 2, y + 12, name.substr(0, 11).c_str(), foreground);
+        }
     }
     if (sourceButtons_ == 0) {
         text(window_, 4, kTop + 14, "(the device reports no buttons)", kDim);
@@ -357,7 +369,7 @@ void MappingView::drawSourceButtons(const std::uint64_t sourceButtons) {
 }
 
 void MappingView::drawFooter() {
-    constexpr float kTop = 644;
+    constexpr float kTop = 759;
     char line[160];
     if (lastPressedSource_ < 0) {
         std::snprintf(line, sizeof(line), "Press any button on the wheel to see where it goes.");
@@ -366,24 +378,27 @@ void MappingView::drawFooter() {
         const auto index = static_cast<std::size_t>(lastPressedSource_);
         const int target = sourceToTarget_[index];
         const char* const hatDirection = sourceHatDirection_[index];
+        // Same pattern as the cells: "G920 6 Menu <- R3 35 Start".
+        const std::string& name = sourceLabel(lastPressedSource_);
+        char button[40];
+        std::snprintf(button, sizeof(button), name.empty() ? "R3 %d" : "R3 %d %s", lastPressedSource_, name.c_str());
         if (hatDirection != nullptr) {
-            std::snprintf(line, sizeof(line), "Last pressed: R3 button %d -> %s D-pad %s%s", lastPressedSource_,
-                          target_.c_str(), hatDirection, target >= 0 ? " (and a button: check [buttons])" : "");
+            std::snprintf(line, sizeof(line), "Last pressed: %s D-pad %s <- %s%s", target_.c_str(), hatDirection,
+                          button, target >= 0 ? "  (and a button: check [buttons])" : "");
             text(window_, 4, kTop, line, target >= 0 ? kUnlabelled : kText);
         } else if (target >= 0) {
-            const std::string_view name = profile_.buttonName(static_cast<std::size_t>(target));
-            std::snprintf(line, sizeof(line), "Last pressed: R3 button %d -> %s button %d (%.*s)%s",
-                          lastPressedSource_, target_.c_str(), target, static_cast<int>(name.size()),
-                          name.empty() ? "" : name.data(),
-                          sourceTargetCount_[index] > 1 ? " and others" : "");
+            const std::string_view targetName = profile_.buttonName(static_cast<std::size_t>(target));
+            std::snprintf(line, sizeof(line), "Last pressed: %s %d %.*s <- %s%s", target_.c_str(), target,
+                          static_cast<int>(targetName.size()), targetName.empty() ? "" : targetName.data(), button,
+                          sourceTargetCount_[index] > 1 ? "  (and others)" : "");
             text(window_, 4, kTop, line, kText);
         } else {
-            std::snprintf(line, sizeof(line), "Last pressed: R3 button %d -> not mapped to any %s button",
-                          lastPressedSource_, target_.c_str());
+            std::snprintf(line, sizeof(line), "Last pressed: %s  (not mapped to any %s button)", button,
+                          target_.c_str());
             text(window_, 4, kTop, line, kWarning);
         }
     }
-    text(window_, 4, kTop + 14, "To change: INI [buttons] target_N = R3 button, [hat] up/right/down/left = R3 button.",
+    text(window_, 4, kTop + 14, "To change: INI [buttons] target_N, [hat] up/right/down/left, [button_labels] button_N.",
          kDim);
 }
 
@@ -590,8 +605,8 @@ void MappingView::openFilesFolder() const {
 }
 
 void MappingView::drawFiles() {
-    constexpr float kTop = 682;
-    constexpr std::size_t kPathChars = 76;  // (720 - 4 - 12 * 8 label column) / 8, rounded down
+    constexpr float kTop = 797;
+    constexpr std::size_t kPathChars = 107;  // (960 - 4 - 12 * 8 label column) / 8, rounded down
     outline(window_, 0, kTop - 6, kLogicalWidth, kLogicalHeight - kTop + 6, kHeading);
     text(window_, 4, kTop, "LOGS AND TELEMETRY", kHeading);
     text(window_, 164, kTop, "press F to open the folder  (a new file every day)", kText);
