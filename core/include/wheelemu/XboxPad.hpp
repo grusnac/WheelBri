@@ -14,15 +14,15 @@ namespace wheelemu {
 // games that pick their on-screen button prompts by controller (NFS 2015) show Xbox buttons. Its sticks and
 // triggers never move: it can never steer or drive. The rules are the ones tools/vbridge/XboxPad.cs settled in NFS:
 //
-//   buttons: the wheel's A, B, X, Y, Menu (Start), View (Back), stick clicks and D-pad also press the pad's, while no
-//            pedal is pressed and for 2 s after (while driving, a wheel button must not also fire the game's Xbox
-//            binding). Paddles and the Xbox button are never passed on. A button held when driving stops must be
-//            let go first.
-//            In a menu the D-pad goes to the pad INSTEAD of the G920 (NFS navigates with the G920's D-pad too, which
-//            put the keyboard prompts back), and the G920's steering is held (turning the wheel did the same).
-//            "In a menu" for the steering is strict: the game has force feedback effects but plays them all at zero
-//            for 1.5 s (NFS does that in menus; while driving its spring and damper alone are 0.4..0.9) and no pedal
-//            for 2 s. A game that never used force feedback never gets its steering held.
+//   buttons: the wheel's A, B, X, Y, Menu (Start), View (Back) and D-pad press the pad's INSTEAD of the G920's while
+//            no pedal is pressed and for 2 s after; while driving they are the G920's. One press never reaches both
+//            (the game acted twice, and NFS reads G920 input as keyboard-type input and puts the keyboard prompts
+//            back). Paddles, stick clicks (the pad's right stick click is NFS's photo) and the Xbox button are never
+//            passed on. A button held when driving stops must be let go first.
+//            In a menu the G920's steering is held too (turning the wheel put the keyboard prompts back). "In a
+//            menu": no pedal for 2 s and either a pad button pressed since the last pedal (NFS's open-world menus
+//            keep the driving spring on) or the game playing all its effects at zero for 1.5 s (its other menus; a
+//            game that never used force feedback never gets this). The steering comes back with the next pedal.
 //   idle:    the pad is there, never pressed (games that only look at which controllers exist).
 
 // XINPUT_GAMEPAD: wButtons bits as XInput defines them, triggers 0..255, sticks -32768..32767.
@@ -79,6 +79,7 @@ private:
     std::int64_t lastForceMs_ = 0;
     bool haveForceTime_ = false;
     bool inMenu_ = false;
+    bool menuByPad_ = false;   // a pad button was pressed since the last pedal
     int heldSteering_ = 32768;
     std::uint16_t blocked_ = 0;
     bool hatBlocked_ = false;

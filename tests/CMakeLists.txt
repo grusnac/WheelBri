@@ -15,6 +15,7 @@ add_executable(wheelemu_tests
     FfbUsageTest.cpp
     HidHideCliTest.cpp
     HidPidTest.cpp
+    HidXbox360Test.cpp
     IniDocumentTest.cpp
     LiveLogTest.cpp
     LoggingTest.cpp

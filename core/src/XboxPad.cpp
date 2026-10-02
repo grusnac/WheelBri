@@ -19,10 +19,11 @@ std::uint16_t get16(std::span<const std::uint8_t> b, std::size_t at) {
     return static_cast<std::uint16_t>(b[at] | (b[at + 1] << 8U));
 }
 
-// G920 button bit -> XInput button (A, B, X, Y, paddles R/L, Menu, View, RSB, LSB, Xbox).
-constexpr std::array<std::pair<int, std::uint16_t>, 8> kButtonMap = {{
+// G920 button bit -> XInput button (A, B, X, Y, Menu, View). Not the paddles, the stick clicks (in NFS the pad's
+// right stick click takes a photo and opens the photo menu) or the Xbox button.
+constexpr std::array<std::pair<int, std::uint16_t>, 6> kButtonMap = {{
     {0, XusbPad::kA}, {1, XusbPad::kB}, {2, XusbPad::kX}, {3, XusbPad::kY},
-    {6, XusbPad::kStart}, {7, XusbPad::kBack}, {8, XusbPad::kRightThumb}, {9, XusbPad::kLeftThumb},
+    {6, XusbPad::kStart}, {7, XusbPad::kBack},
 }};
 
 // Hat 0..7 (0 = up, clockwise) -> D-pad bits; -1 = centred.
@@ -97,12 +98,7 @@ XboxMirror::Result XboxMirror::update(const TargetReport& wheel, const std::int6
     if (gameForce > kForceZero) {
         lastForceMs_ = nowMs;
     }
-    const bool inMenu = !driving && gameUsesForce && nowMs - lastForceMs_ >= kForceQuietMs;
-    if (inMenu != inMenu_) {
-        inMenu_ = inMenu;
-        heldSteering_ = wheel.steering;
-        result.menuChanged = inMenu;
-    }
+    if (driving) menuByPad_ = false;
 
     std::uint16_t buttons = 0;
     for (const auto& [bit, button] : kButtonMap) {
@@ -121,17 +117,31 @@ XboxMirror::Result XboxMirror::update(const TargetReport& wheel, const std::int6
     const std::uint16_t padButtons = driving ? 0 : static_cast<std::uint16_t>(buttons & ~blocked_);
     const std::uint16_t padHat = driving || hatBlocked_ ? 0 : hat;
 
-    if (padHat != 0) result.g920.hat = -1;                    // the D-pad goes to the pad instead
-    // Menu and View too: NFS reads G920 Menu/View as keyboard-type input and switches its prompts back.
-    // A press that went to the pad stays off the G920 until let go, so holding it into driving is no pause.
-    if ((padButtons & XusbPad::kStart) != 0) g920Hidden_ |= 1U << 6;
-    if ((padButtons & XusbPad::kBack) != 0) g920Hidden_ |= 1U << 7;
+    // A press goes to one controller only: to the pad, or (while driving) to the G920. Pressing both made the game
+    // act twice, and NFS reads G920 buttons as keyboard-type input and switches its prompts back. A press that went
+    // to the pad stays off the G920 until let go, so holding it into driving is no second press.
+    if (padHat != 0) result.g920.hat = -1;
+    for (const auto& [bit, button] : kButtonMap) {
+        if ((padButtons & button) != 0) g920Hidden_ |= 1U << bit;
+    }
     g920Hidden_ &= wheel.buttons;
     result.g920.buttons &= ~g920Hidden_;
-    if (inMenu_) result.g920.steering = heldSteering_;        // turning the wheel in a menu reaches nothing
 
     result.pad.buttons = static_cast<std::uint16_t>(padButtons | padHat);
     const std::uint16_t newlyPressed = static_cast<std::uint16_t>(result.pad.buttons & ~lastButtons_);
+
+    // "In a menu": the game plays no force (some NFS menus), or a pad button was pressed since the last pedal (the
+    // menus in the open world keep the driving spring on, so force alone missed them).
+    if (newlyPressed != 0) menuByPad_ = true;
+    const bool forceQuiet = gameUsesForce && nowMs - lastForceMs_ >= kForceQuietMs;
+    const bool inMenu = !driving && (forceQuiet || menuByPad_);
+    if (inMenu != inMenu_) {
+        inMenu_ = inMenu;
+        heldSteering_ = wheel.steering;
+        result.menuChanged = inMenu;
+    }
+    if (inMenu_) result.g920.steering = heldSteering_;        // turning the wheel in a menu reaches nothing
+
     if (newlyPressed != 0) {
         ++presses_;
         if (first_) {

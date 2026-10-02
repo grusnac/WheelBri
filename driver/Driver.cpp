@@ -11,6 +11,11 @@
 //
 // Structure follows Microsoft's vhidmini2 sample (UMDF 2): HID class requests arrive as IOCTLs on a
 // parallel queue; read requests wait on a manual queue until a state packet arrives.
+//
+// The same driver also serves the HID side of the virtual Xbox 360 controller (hardware ID wheelemu\XBOXHID,
+// core/HidXbox360.hpp): what joy.cpl and DirectInput list as "Controller (XBOX 360 For Windows)", as for a real
+// one, next to the XInput side (driver/xusb). That device gets the service's pad packets on 127.0.0.1:41333 and
+// has no force feedback.
 
 #include <winsock2.h>   // before windows.h
 #include <windows.h>
@@ -19,8 +24,10 @@
 
 #include "wheelemu/FfbPacket.hpp"
 #include "wheelemu/HidG920.hpp"
+#include "wheelemu/HidXbox360.hpp"
 #include "wheelemu/HidPid.hpp"
 #include "wheelemu/StatePacket.hpp"
+#include "wheelemu/XboxPad.hpp"
 
 #include <array>
 #include <atomic>
@@ -30,6 +37,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -39,6 +47,22 @@ constexpr std::int64_t kStaleMs = 1500;              // same as the shim: then c
 constexpr wchar_t kManufacturer[] = L"Logitech";
 constexpr wchar_t kProduct[] = L"G920 Driving Force Racing Wheel USB";
 constexpr wchar_t kSerial[] = L"WHEELEMU0001";
+// The Xbox controller's HID side: the name Windows gives a real wired one.
+constexpr wchar_t kXboxManufacturer[] = L"Microsoft";
+constexpr wchar_t kXboxProduct[] = L"Controller (XBOX 360 For Windows)";
+constexpr wchar_t kXboxSerial[] = L"WHEELEMUXBOX1";
+
+using Report = std::vector<std::uint8_t>;
+
+Report g920Report(const wheelemu::TargetReport& report) {
+    const auto packed = wheelemu::packG920Input(report);
+    return Report(packed.begin(), packed.end());
+}
+
+Report xboxReport(const wheelemu::XusbPad& pad) {
+    const auto packed = wheelemu::packXboxHidInput(pad);
+    return Report(packed.begin(), packed.end());
+}
 
 // ---------------------------------------------------------------------------------------------------
 // Log: C:\ProgramData\wheelemu\logs\wheelemu-driver-<date>.log (the driver host runs as LocalService, which
@@ -82,7 +106,9 @@ namespace {
 // The UDP side: state packets in, force feedback out, on its own thread.
 class Link {
 public:
-    explicit Link(DeviceContext* device) : device_(device) {}
+    // `xbox`: the Xbox controller's HID side (pad packets on 41333, no force feedback), else the G920.
+    Link(DeviceContext* device, const bool xbox)
+        : device_(device), xbox_(xbox), report_(xbox ? xboxReport({}) : g920Report(wheelemu::g920Neutral())) {}
     ~Link() { stop(); }
 
     bool start();
@@ -92,21 +118,24 @@ public:
     wheelemu::HidPid pid{[this](const wheelemu::FfbPacket& p) { sendFfb(p); }, [](const std::string& s) { logLine(s); }};
 
     // The latest input report (neutral until the service sends state).
-    std::array<std::uint8_t, wheelemu::kG920InputReportSize> latestReport() {
+    Report latestReport() {
         std::lock_guard lock(reportLock_);
         return report_;
     }
 
 private:
     void run();
+    void runXbox();
+    void publish(Report report);
 
     DeviceContext* device_;
+    bool xbox_;
     SOCKET stateSocket_ = INVALID_SOCKET;
     SOCKET ffbSocket_ = INVALID_SOCKET;
     std::thread thread_;
     std::atomic<bool> stop_{false};
     std::mutex reportLock_;
-    std::array<std::uint8_t, wheelemu::kG920InputReportSize> report_ = wheelemu::packG920Input(wheelemu::g920Neutral());
+    Report report_;
 };
 
 }  // namespace
@@ -116,6 +145,7 @@ struct DeviceContext {
     WDFQUEUE readQueue;              // manual: IOCTL_HID_READ_REPORT waits here for the next state
     HID_DEVICE_ATTRIBUTES attributes;
     HID_DESCRIPTOR hidDescriptor;
+    bool xbox;                       // the Xbox controller's HID side (wheelemu\XBOXHID), else the G920
     Link* link;                      // owned; deleted in the device's cleanup callback
 };
 
@@ -124,7 +154,7 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DeviceContext, GetDeviceContext)
 namespace {
 
 // Completes every waiting read with `report`.
-void completeReads(DeviceContext* ctx, const std::array<std::uint8_t, wheelemu::kG920InputReportSize>& report) {
+void completeReads(DeviceContext* ctx, const Report& report) {
     WDFREQUEST request;
     while (NT_SUCCESS(WdfIoQueueRetrieveNextRequest(ctx->readQueue, &request))) {
         WDFMEMORY memory;
@@ -154,11 +184,12 @@ bool Link::start() {
     }
     sockaddr_in local{};
     local.sin_family = AF_INET;
-    local.sin_port = htons(kStatePort);
+    local.sin_port = htons(xbox_ ? wheelemu::kXboxHidPort : kStatePort);
     local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (bind(stateSocket_, reinterpret_cast<sockaddr*>(&local), sizeof(local)) != 0) {
-        logLine("cannot listen on 127.0.0.1:41329 (" + std::to_string(WSAGetLastError()) +
-                "): is the shim's game or wheelemu-bridge still running? Only one of them may run.");
+        logLine(xbox_ ? "Xbox controller (HID): cannot listen on 127.0.0.1:41333 (" + std::to_string(WSAGetLastError()) + ")"
+                      : "cannot listen on 127.0.0.1:41329 (" + std::to_string(WSAGetLastError()) +
+                            "): is the shim's game or wheelemu-bridge still running? Only one of them may run.");
         return false;
     }
     DWORD timeoutMs = 5;
@@ -168,8 +199,51 @@ bool Link::start() {
     service.sin_port = htons(kFfbPort);
     service.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     connect(ffbSocket_, reinterpret_cast<sockaddr*>(&service), sizeof(service));
-    thread_ = std::thread([this] { run(); });
+    thread_ = std::thread([this] {
+        if (xbox_) {
+            runXbox();
+        } else {
+            run();
+        }
+    });
     return true;
+}
+
+void Link::publish(Report report) {
+    {
+        std::lock_guard lock(reportLock_);
+        report_ = report;
+    }
+    completeReads(device_, report);
+}
+
+// The Xbox controller's HID side: the same pad packets as driver/xusb gets, as HID input reports.
+void Link::runXbox() {
+    logLine("Xbox controller (HID): listening for wheelemu-service on 127.0.0.1:41333");
+    std::array<std::uint8_t, 64> buffer{};
+    std::int64_t lastPad = nowMs() - kStaleMs - 1;
+    bool receiving = false;
+    bool neutralSent = false;
+    while (!stop_) {
+        const int received = recv(stateSocket_, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+        const std::int64_t now = nowMs();
+        if (received > 0) {
+            if (const auto pad = wheelemu::decodeXusbPacket(std::span(buffer.data(), static_cast<std::size_t>(received)))) {
+                if (!receiving) {
+                    receiving = true;
+                    logLine("Xbox controller (HID): receiving the pad state from wheelemu-service");
+                }
+                lastPad = now;
+                neutralSent = false;
+                publish(xboxReport(*pad));
+            }
+        } else if (now - lastPad > kStaleMs && !neutralSent) {
+            receiving = false;
+            neutralSent = true;
+            publish(xboxReport({}));
+        }
+    }
+    logLine("Xbox controller (HID): stopped");
 }
 
 void Link::stop() {
@@ -203,12 +277,7 @@ void Link::run() {
                 }
                 lastState = now;
                 neutralSent = false;
-                const auto report = wheelemu::packG920Input(packet->report);
-                {
-                    std::lock_guard lock(reportLock_);
-                    report_ = report;
-                }
-                completeReads(device_, report);
+                publish(g920Report(packet->report));
             }
         } else if (now - lastState > kStaleMs && !neutralSent) {
             if (receiving) {
@@ -216,12 +285,7 @@ void Link::run() {
             }
             receiving = false;
             neutralSent = true;
-            const auto report = wheelemu::packG920Input(wheelemu::g920Neutral());
-            {
-                std::lock_guard lock(reportLock_);
-                report_ = report;
-            }
-            completeReads(device_, report);
+            publish(g920Report(wheelemu::g920Neutral()));
         }
         if (now - lastTick >= 10) {
             lastTick = now;
@@ -260,16 +324,22 @@ NTSTATUS readWrittenReport(WDFREQUEST request, std::uint8_t& reportId, std::span
     return STATUS_SUCCESS;
 }
 
-NTSTATUS getString(WDFREQUEST request) {
+NTSTATUS getString(WDFREQUEST request, const bool xbox) {
     PVOID buffer = nullptr;
     size_t size = 0;
     NTSTATUS status = WdfRequestRetrieveInputBuffer(request, sizeof(ULONG), &buffer, &size);
     if (!NT_SUCCESS(status)) return status;
     const ULONG id = *static_cast<const ULONG*>(buffer) & 0xFFFFU;
     switch (id) {
-        case HID_STRING_ID_IMANUFACTURER: return copyToRequest(request, kManufacturer, sizeof(kManufacturer));
-        case HID_STRING_ID_IPRODUCT: return copyToRequest(request, kProduct, sizeof(kProduct));
-        case HID_STRING_ID_ISERIALNUMBER: return copyToRequest(request, kSerial, sizeof(kSerial));
+        case HID_STRING_ID_IMANUFACTURER:
+            return xbox ? copyToRequest(request, kXboxManufacturer, sizeof(kXboxManufacturer))
+                        : copyToRequest(request, kManufacturer, sizeof(kManufacturer));
+        case HID_STRING_ID_IPRODUCT:
+            return xbox ? copyToRequest(request, kXboxProduct, sizeof(kXboxProduct))
+                        : copyToRequest(request, kProduct, sizeof(kProduct));
+        case HID_STRING_ID_ISERIALNUMBER:
+            return xbox ? copyToRequest(request, kXboxSerial, sizeof(kXboxSerial))
+                        : copyToRequest(request, kSerial, sizeof(kSerial));
         default: return STATUS_INVALID_PARAMETER;
     }
 }
@@ -287,7 +357,7 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             status = copyToRequest(request, &ctx->attributes, sizeof(HID_DEVICE_ATTRIBUTES));
             break;
         case IOCTL_HID_GET_REPORT_DESCRIPTOR: {
-            const auto descriptor = wheelemu::g920ReportDescriptor();
+            const auto descriptor = ctx->xbox ? wheelemu::xboxHidReportDescriptor() : wheelemu::g920ReportDescriptor();
             status = copyToRequest(request, descriptor.data(), descriptor.size());
             break;
         }
@@ -297,6 +367,10 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             break;
         case IOCTL_HID_WRITE_REPORT:
         case IOCTL_UMDF_HID_SET_OUTPUT_REPORT:
+            if (ctx->xbox) {   // no force feedback on the Xbox controller's HID side
+                status = STATUS_NOT_SUPPORTED;
+                break;
+            }
             status = readWrittenReport(request, reportId, data);
             if (NT_SUCCESS(status)) {
                 ctx->link->pid.output(reportId, data, nowMs());
@@ -304,6 +378,10 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             }
             break;
         case IOCTL_UMDF_HID_SET_FEATURE:
+            if (ctx->xbox) {
+                status = STATUS_NOT_SUPPORTED;
+                break;
+            }
             status = readWrittenReport(request, reportId, data);
             if (NT_SUCCESS(status)) {
                 ctx->link->pid.setFeature(reportId, data, nowMs());
@@ -311,6 +389,10 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             }
             break;
         case IOCTL_UMDF_HID_GET_FEATURE: {
+            if (ctx->xbox) {
+                status = STATUS_NOT_SUPPORTED;
+                break;
+            }
             // The requested report ID is byte 0 of the input buffer; the response goes to the output buffer.
             PVOID in = nullptr;
             size_t inSize = 0;
@@ -338,7 +420,7 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             break;
         }
         case IOCTL_HID_GET_STRING:
-            status = getString(request);
+            status = getString(request, ctx->xbox);
             break;
         default:
             status = STATUS_NOT_IMPLEMENTED;
@@ -363,10 +445,24 @@ VOID EvtDeviceCleanup(WDFOBJECT object) {
     DeviceContext* ctx = GetDeviceContext(static_cast<WDFDEVICE>(object));
     delete ctx->link;
     ctx->link = nullptr;
-    logLine("virtual G920 removed");
+    logLine(ctx->xbox ? "virtual Xbox controller (HID) removed" : "virtual G920 removed");
+}
+
+// The device's hardware ID decides what it is: wheelemu\XBOXHID is the Xbox controller's HID side, else the G920.
+bool isXboxHid(PWDFDEVICE_INIT init) {
+    wchar_t ids[512] = {};
+    ULONG length = 0;
+    if (!NT_SUCCESS(WdfFdoInitQueryProperty(init, DevicePropertyHardwareID, sizeof(ids) - sizeof(wchar_t), ids, &length))) {
+        return false;
+    }
+    for (const wchar_t* id = ids; *id != L'\0'; id += wcslen(id) + 1) {
+        if (_wcsicmp(id, L"wheelemu\\XBOXHID") == 0) return true;
+    }
+    return false;
 }
 
 NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
+    const bool xbox = isXboxHid(init);
     WdfFdoInitSetFilter(init);
     WDF_PNPPOWER_EVENT_CALLBACKS power;
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&power);
@@ -384,12 +480,13 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     }
     DeviceContext* ctx = GetDeviceContext(device);
     ctx->device = device;
+    ctx->xbox = xbox;
     ctx->link = nullptr;
 
     RtlZeroMemory(&ctx->attributes, sizeof(ctx->attributes));
     ctx->attributes.Size = sizeof(HID_DEVICE_ATTRIBUTES);
-    ctx->attributes.VendorID = wheelemu::kG920VendorId;
-    ctx->attributes.ProductID = wheelemu::kG920ProductId;
+    ctx->attributes.VendorID = xbox ? wheelemu::kXboxHidVendorId : wheelemu::kG920VendorId;
+    ctx->attributes.ProductID = xbox ? wheelemu::kXboxHidProductId : wheelemu::kG920ProductId;
     ctx->attributes.VersionNumber = 0x0100;
 
     RtlZeroMemory(&ctx->hidDescriptor, sizeof(ctx->hidDescriptor));
@@ -398,7 +495,8 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     ctx->hidDescriptor.bcdHID = 0x0100;
     ctx->hidDescriptor.bNumDescriptors = 1;
     ctx->hidDescriptor.DescriptorList[0].bReportType = 0x22;
-    ctx->hidDescriptor.DescriptorList[0].wReportLength = static_cast<USHORT>(wheelemu::g920ReportDescriptor().size());
+    ctx->hidDescriptor.DescriptorList[0].wReportLength = static_cast<USHORT>(
+        (xbox ? wheelemu::xboxHidReportDescriptor() : wheelemu::g920ReportDescriptor()).size());
 
     WDF_IO_QUEUE_CONFIG queueConfig;
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchParallel);
@@ -416,8 +514,8 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
         return status;
     }
 
-    ctx->link = new Link(ctx);
-    logLine("virtual G920 added (VID 046D PID C262)");
+    ctx->link = new Link(ctx, xbox);
+    logLine(xbox ? "virtual Xbox controller (HID) added (VID 045E PID 028E)" : "virtual G920 added (VID 046D PID C262)");
     return STATUS_SUCCESS;
 }
 

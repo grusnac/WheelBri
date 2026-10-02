@@ -39,10 +39,11 @@ TEST(XboxMirror, ButtonsGoToThePadInMenus) {
     auto out = m.update(r, 10'000, 0.0F, false);
     EXPECT_EQ(out.pad.buttons, XusbPad::kA);
     EXPECT_TRUE(out.firstPress);
-    EXPECT_EQ(out.g920.buttons, r.buttons);   // the G920 keeps its buttons
-    r.buttons = (1U << 6) | (1U << 4) | (1U << 10);   // Menu, a paddle, the Xbox button
+    EXPECT_EQ(out.g920.buttons, 0U);   // to the pad instead of the G920
+    r.buttons = (1U << 6) | (1U << 4) | (1U << 10) | (1U << 8) | (1U << 9);   // Menu, paddle, Xbox, RSB, LSB
     out = m.update(r, 10'010, 0.0F, false);
-    EXPECT_EQ(out.pad.buttons, XusbPad::kStart);      // paddles and Xbox are never passed on
+    EXPECT_EQ(out.pad.buttons, XusbPad::kStart);   // paddles, stick clicks and Xbox are never passed on
+    EXPECT_EQ(out.g920.buttons, (1U << 4) | (1U << 10) | (1U << 8) | (1U << 9));   // they stay on the G920
 }
 
 TEST(XboxMirror, NothingWhileDrivingAndHeldButtonsMustBeReleased) {
@@ -77,7 +78,7 @@ TEST(XboxMirror, MenuAndViewGoToThePadInsteadOfTheG920) {
     r.buttons = (1U << 6) | (1U << 0);   // Menu and A
     auto out = m.update(r, 10'000, 0.0F, false);
     EXPECT_EQ(out.pad.buttons, XusbPad::kStart | XusbPad::kA);
-    EXPECT_EQ(out.g920.buttons, 1U << 0);   // A stays on the G920, Menu does not
+    EXPECT_EQ(out.g920.buttons, 0U);        // neither reaches the G920
     r.buttons = 1U << 7;                    // View
     out = m.update(r, 10'010, 0.0F, false);
     EXPECT_EQ(out.pad.buttons, XusbPad::kBack);
@@ -111,6 +112,31 @@ TEST(XboxMirror, SteeringHeldOnlyInARealMenu) {
     EXPECT_EQ(out.g920.steering, 10000);
     ASSERT_TRUE(out.menuChanged.has_value());
     EXPECT_FALSE(*out.menuChanged);
+}
+
+TEST(XboxMirror, APadPressMeansAMenuEvenWithTheSpringOn) {
+    XboxMirror m(XboxPadMode::Buttons);
+    TargetReport r = released();
+    r.steering = 40000;
+    r.throttle = 0;
+    (void)m.update(r, 0, 0.6F, true);                // driving
+    r.throttle = 65535;
+    EXPECT_FALSE(m.update(r, 2500, 0.6F, true).menuChanged.has_value());   // stopped, spring on: not a menu yet
+    r.buttons = 1U << 1;                             // B: the open-world menu
+    auto out = m.update(r, 2600, 0.6F, true);
+    EXPECT_EQ(out.pad.buttons, XusbPad::kB);
+    ASSERT_TRUE(out.menuChanged.has_value());
+    EXPECT_TRUE(*out.menuChanged);
+    r.buttons = 0;
+    r.steering = 10000;
+    EXPECT_EQ(m.update(r, 2700, 0.6F, true).g920.steering, 40000);   // held, although the spring is on
+    r.throttle = 0;                                  // a pedal: driving, steering given back
+    out = m.update(r, 2800, 0.6F, true);
+    EXPECT_EQ(out.g920.steering, 10000);
+    ASSERT_TRUE(out.menuChanged.has_value());
+    EXPECT_FALSE(*out.menuChanged);
+    r.throttle = 65535;                              // stopped again, no press yet: not a menu
+    EXPECT_FALSE(m.update(r, 5000, 0.6F, true).menuChanged.has_value());
 }
 
 TEST(XboxMirror, NeverHeldWithoutForceFeedbackOrInIdleMode) {

@@ -69,6 +69,7 @@ UDP ports (all 127.0.0.1):
 | 41330 (`ffb_port`) | consumer → service | `FfbPacket` (game force feedback) |
 | 41331 | ClutchProbe → service | `ClutchPacket` test clutch (`TestClutch.hpp`) |
 | 41332 | service → `wheelemu-xusb` | Xbox pad state (`XboxPad.hpp`) |
+| 41333 | service → `wheelemu-g920` (`wheelemu\XBOXHID`) | the same pad packets for the Xbox pad's HID side (`HidXbox360.hpp`) |
 
 ## Build and test
 
@@ -181,8 +182,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests.
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
     spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
-  - `XboxPad` (`XboxMirror`) mirrors the wheel onto an Xbox 360 pad for button prompts. `HidHideCli` parses
-    `HidHideCLI.exe` output.
+  - `XboxPad` (`XboxMirror`) mirrors the wheel onto an Xbox 360 pad for button prompts. `HidHideCli` holds
+    device-id string helpers (`HideFilter` uses them; HidHide itself is no longer used).
   - `TestClutch`: a test clutch for when no pedal is connected. `tools/vbridge/ClutchProbe` sends `ClutchPacket`s
     (12 bytes, magic `WECL`, v1) to 41331; the service uses that value instead of the mapped clutch until 1.5 s
     after the last packet. `ClutchPacket` must stay byte-compatible with `ClutchPacket` in `tools/vbridge/Wire.cs`.
@@ -217,7 +218,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     creates the `wheelemu\G920` software device for the `wheelemu-g920` driver while the service runs and keeps
     the DirectInput "driving" registry entry right (and Logitech's FFB entry out); `HideFilter` sets
     `HKLM\SOFTWARE\wheelemu\hide\AllowedPid` for the `wheelemu-hide` filter so only the service sees the R3
-    (`HidHide` via `HidHideCLI.exe` is the fallback; `--no-hide` skips it, `--unhide` clears it after a crash);
+    (our own filter only, no HidHide or other third-party tools: without it the window says "R3 NOT HIDDEN" in
+    red; `--no-hide` skips it, `--unhide` clears it after a crash);
     `VirtualXboxPad` creates the `wheelemu\XUSB` device and the loop sends pad state to 41332.
 - `shim/` (`dinput8.dll`, Windows/Wine only, namespace `wheelemu::shim`): proxies `IDirectInput8A/W`,
   devices and effects. It is written once as templates over `AnsiTraits`/`WideTraits` (`Traits.hpp`).
@@ -235,7 +237,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `StatePacket`, `FfbPacket` sources. Logs to `C:\ProgramData\wheelemu\logs\wheelemu-driver-<date>.log`.
   - `hide/` (`wheelemu-hide`): upper filter on the R3's HID interface (`HID\VID_346E&PID_0005&MI_02`); only the
     process in `AllowedPid` may open it. Replaces HidHide.
-  - `xusb/` (`wheelemu-xusb`): virtual Xbox 360 controller (XInput only) fed from 41332.
+  - `xusb/` (`wheelemu-xusb`): the virtual Xbox 360 controller's XInput side, fed from 41332 (games' Xbox prompts).
+    Its HID side, which joy.cpl lists as "Controller (XBOX 360 For Windows)" as for a real one, is a second software
+    device (`wheelemu\XBOXHID`) served by `wheelemu-g920` from 41333 (`core/HidXbox360`); `VirtualXboxPad` creates both.
 - `tools/vbridge/` (C#, .NET 10, Windows): Phase 5 step 0, superseded by `driver/` but kept (mainly for the
   Xbox controller button prompts; `scripts/wheelemu.sh` still starts this path). HIDMaestro virtual G920 fed
   from the service's `StatePacket`s; decodes HID PID reports (`PidForwarder.cs`) into `FfbPacket`s. `Wire.cs`
@@ -258,6 +262,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.
 
 ## Conventions
+
+- No third-party runtime tools or drivers (HidHide, ViGEm, HIDMaestro outside the old step-0 bridge): what the
+  emulator needs on the PC is built in this repository.
 
 - Style: C++20, 4-space indent, `camelCase` functions and variables, `PascalCase` types, `trailing_` members,
   `kConstant` constants, `#pragma once`, `[[nodiscard]]` on queries, `const` parameters in definitions,

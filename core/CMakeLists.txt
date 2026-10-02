@@ -12,6 +12,7 @@ add_library(wheelemu_core STATIC
     src/HidG920.cpp
     src/HidHideCli.cpp
     src/HidPid.cpp
+    src/HidXbox360.cpp
     src/IniDocument.cpp
     src/LiveLog.cpp
     src/LocalDate.cpp
