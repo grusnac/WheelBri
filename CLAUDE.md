@@ -78,7 +78,8 @@ Xlib; skipped with a warning without libx11-dev). No SDL or other third-party li
 The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `build.sh` (incremental,
 configures the first time), `rebuild.sh` (deletes `build/`, full rebuild), `test.sh [filter]`, `check.sh` (before a
 commit), `ui.sh [config]`, `app.sh [--no-start]`, `shim.sh [--off] <game folder>`, `drivers.sh [-Install]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer), `clean-pc.sh [-KeepData]
-[-GameFolder <folder>] [-ThirdParty] [-Yes]` (removes everything WheelBri put on the PC, for a fresh install; when the
+[-GameFolder <folder>] [-KeepThirdParty] [-Yes]` (removes everything WheelBri put on the PC, HidHide and HIDMaestro
+included, for a fresh install; when the
 app, installer or drivers start leaving something new on the PC, add it to `clean-pc.ps1`).
 The raw commands they run:
 
@@ -247,13 +248,17 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - Phase 5 (`--virtual-g920`, run as Administrator, no shim in the game): `VirtualG920`
     creates the `wheelbri\G920` software device for the `wheelbri-g920` driver while the service runs and keeps
     the DirectInput "driving" registry entry right (and Logitech's FFB entry out); `HideFilter` sets
-    `HKLM\SOFTWARE\wheelbri\hide\AllowedPid` for the `wheelbri-hide` filter so only the service sees the R3
-    (our own filter only, no HidHide or other third-party tools: without it the window says "R3 NOT HIDDEN" in
-    red; `--no-hide` skips it, `--unhide` clears it after a crash).
+    `HKLM\SOFTWARE\wheelbri\hide\AllowedPid` for the `wheelbri-hide` filter so only the service sees the rig.
+    What is hidden is the active rig (Wheel setup), never a list of ids in the code: `rigHideTargets` (main.cpp)
+    reads its devices (skipping 046d:c262, `mayHide`), `ensureHideFilter` runs `install-hide.ps1 -Devices` for
+    those without the filter, `HideFilter::check` reports each (Ready / NotInstalled / NeedsRestart /
+    NotConnected) and the window shows "rig hidden (N of M devices)" or, in red, "NOT HIDDEN: <device>"; no rig
+    = nothing hidden, said in the window. Our own filter only, no HidHide or other third-party tools;
+    `--no-hide` skips it, `--unhide` clears it after a crash.
   - Failure handling (keep it when changing `runSession`): a lost wheel (`runLoop` returns `kWheelLost`) keeps the
     virtual devices and waits for the wheel to come back, then carries on; creating devices and waiting for the
-    hide installer stop on Stop (`cancelled`), but a running installer is never killed (it may be switching the
-    R3's driver). Exceptions on the loop thread end the session instead of `std::terminate`.
+    hide installer stop on Stop (`cancelled`), but a running installer is never killed (it may be switching a
+    device's driver). Exceptions on the loop thread end the session instead of `std::terminate`.
 - `shim/` (`dinput8.dll`, Windows/Wine only, namespace `wheelbri::shim`): proxies `IDirectInput8A/W`,
   devices and effects. It is written once as templates over `AnsiTraits`/`WideTraits` (`Traits.hpp`).
   Exports are renamed through `dinput8.def` (`Proxy_*`) so they don't clash with SDK declarations. The real
@@ -268,16 +273,21 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
     `StatePacket`, `FfbPacket` sources. Logs to `C:\ProgramData\wheelbri\logs\wheelbri-driver-<date>.log`.
-  - `hide/` (`wheelbri-hide`): upper filter on the R3's HID interface (`HID\VID_346E&PID_0005&MI_02`); only the
-    process in `AllowedPid` may open it. Replaces HidHide. Fails open: a missing or unreadable setting, or an
-    `AllowedPid` whose process is gone (or whose start time differs from `AllowedPidStart`: a reused id), hides
-    nothing, so a crash never leaves the R3 hidden. `HideFilter::find` counts the filter only when it is running:
-    `WUDFRd` in UpperFilters *and* no `DN_NEED_RESTART` / problem on the devnode (after a forced driver switch Windows
-    may keep the old stack until the R3 restarts; `install-hide.ps1` then runs `pnputil /restart-device`).
+  - `hide/` (`wheelbri-hide`): upper filter on the game-controller interface (compatible id
+    `HID_DEVICE_SYSTEM_GAME`) of each rig device; device-agnostic, no ids in the INF or driver. Windows never
+    picks it by itself; `install-hide.ps1 -Devices vid:pid,...` puts it on those devices with SetupAPI
+    `DiInstallDevice` (inline C#). Only the process in `AllowedPid` may open a filtered interface. Replaces
+    HidHide. Fails open: a missing or unreadable setting, or an `AllowedPid` whose process is gone (or whose start
+    time differs from `AllowedPidStart`: a reused id), hides nothing, so a crash never leaves anything hidden.
+    `HideFilter::check` counts the filter only when it is ours and running: `WUDFRd` in UpperFilters, our INF's
+    device description, *and* no `DN_NEED_RESTART` / problem on the devnode (after a forced driver switch Windows
+    may keep the old stack until the device restarts; `install-hide.ps1` then runs `pnputil /restart-device`).
   - Install scripts share `driver/common.ps1` (admin check, pnputil exit codes 0/259/3010, finding installed
     packages without depending on pnputil's language). Each fails with a red line and exit 1; `install-hide.ps1`
-    exits 2 when the filter is installed but not on the R3 yet. It forces the filter's package onto the R3 when
-    another driver ranks higher (Windows' input.inf, or Moza's own "MOZA Windows Driver"). In these scripts wrap
+    exits 2 when the filter is set on a device but runs only after a restart; without `-Devices` it only adds the
+    package (the installer). It forces the filter onto a device even though another driver ranks higher (Windows'
+    input.inf, or Moza's own "MOZA Windows Driver"). `uninstall-hide.ps1` and `clean-pc.ps1` find the devices by
+    their driver (`Get-DevicesUsing`, DriverInfPath), never by id. In these scripts wrap
     function results in `@(...)` before `.Count`: Windows PowerShell 5.1 gives no `.Count` for a single CIM object.
     Driver threads close their sockets only after joining, and repeating socket errors are logged once a minute.
 - `tools/uhid/` (C++, Linux only, `WE_BUILD_UHID`): Phase 4, `wheelbri-uhid`. The same virtual G920 as `driver/`
@@ -304,7 +314,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelbri.exe` and no `install.ps1`, i.e. never a
   package; runs from a `%TEMP%` copy; from the package it cleans up an install whose folder is gone), `Setup.cmd`
   (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), `README.txt` (for the end user). The
-  installed app runs the driver path (virtual G920, R3 hidden on every Start); the shim ships in
+  installed app runs the driver path (virtual G920, rig hidden on every Start); the shim ships in
   `shim\` as an extra only. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
   driver scripts and the app's `ensureHideFilter` look there. Only Windows' own tools: no third-party installer.
   When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.

@@ -85,6 +85,22 @@ function Remove-LegacyPackages([string]$name) {
     return $packages.Count
 }
 
+# The devices (HIDClass, present) whose driver is one of the installed copies of <name>.inf (or its old wheelemu
+# name): for wheelbri-hide, the devices that have the filter, whatever they are.
+function Get-DevicesUsing([string]$name) {
+    $legacy = $name -replace '^wheelbri-', 'wheelemu-'
+    $published = @(@(Get-InstalledPackages $name) + @(Get-InstalledPackages $legacy) | ForEach-Object { $_.ToLower() })
+    if ($published.Count -eq 0) { return @() }
+    # One property query for all of them (one per device is slow).
+    $present = @(Get-PnpDevice -PresentOnly -Class HIDClass -ErrorAction SilentlyContinue)
+    if ($present.Count -eq 0) { return @() }
+    $using = @(Get-PnpDeviceProperty -InstanceId @($present | ForEach-Object { $_.InstanceId }) `
+                   -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue |
+               Where-Object { $_.Data -and ($published -contains ([string]$_.Data).ToLower()) } |
+               ForEach-Object { $_.InstanceId })
+    return @($present | Where-Object { $using -contains $_.InstanceId })
+}
+
 # Removes every installed copy of <name>.inf. Returns how many were removed.
 function Remove-InstalledPackages([string]$name) {
     $packages = @(Get-InstalledPackages $name)

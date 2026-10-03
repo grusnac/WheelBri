@@ -6,7 +6,7 @@
 #   scripts/make/clean-pc.sh                                   list, ask, remove
 #   scripts/make/clean-pc.sh -KeepData                         keep rigs, configs, logs and telemetry
 #   scripts/make/clean-pc.sh -GameFolder "D:\Games\Need for Speed"   also take the shim out of that game folder
-#   scripts/make/clean-pc.sh -ThirdParty                       also remove HidHide and HIDMaestro (only listed otherwise)
+#   scripts/make/clean-pc.sh -KeepThirdParty                   keep HidHide and HIDMaestro (removed by default)
 #   scripts/make/clean-pc.sh -Yes                              no question
 
 source "$(dirname "$0")/common.sh"

@@ -10,8 +10,10 @@
 #                                         also take the shim out of a game folder (dinput8.dll / dinput8.dll.off when
 #                                         they are ours, wheelbri-shim.ini, wheelemu-shim.ini); several folders:
 #                                         comma-separated
-#   clean-pc.ps1 -ThirdParty              also remove HidHide and HIDMaestro (drivers and devices), which the project
-#                                         used before it had its own drivers; without it they are only listed
+#   clean-pc.ps1 -KeepThirdParty          keep HidHide and HIDMaestro (drivers and devices), which the project used
+#                                         before it had its own drivers; by default they are removed too, so the PC
+#                                         has nothing left from any earlier version (-ThirdParty, the old switch, is
+#                                         still accepted and changes nothing)
 #
 # What it removes: running WheelBri processes; the virtual devices (SWD\wheelbri\..., SWD\wheelemu\...) including
 # ones Windows keeps half-removed; the three driver packages under both names (the hide filter first, so the R3 goes
@@ -28,18 +30,20 @@
 param(
     [switch]$Yes,
     [switch]$KeepData,
-    [switch]$ThirdParty,
+    [switch]$ThirdParty,       # old switch: removing them is now the default
+    [switch]$KeepThirdParty,
     [string[]]$GameFolder = @(),
     [string]$UserLocalAppData = ''   # the user's %LOCALAPPDATA%, passed on when the script elevates itself
 )
 
 if (-not $UserLocalAppData) { $UserLocalAppData = $env:LOCALAPPDATA }
+$ThirdParty = -not $KeepThirdParty
 
 function Forwarded {
     $list = @('-UserLocalAppData', $UserLocalAppData)
     if ($Yes) { $list += '-Yes' }
     if ($KeepData) { $list += '-KeepData' }
-    if ($ThirdParty) { $list += '-ThirdParty' }
+    if ($KeepThirdParty) { $list += '-KeepThirdParty' }
     if ($GameFolder.Count -gt 0) { $list += '-GameFolder'; $list += ($GameFolder -join ',') }
     return $list
 }
@@ -216,7 +220,7 @@ if ($plan.Count -eq 0) {
 }
 if (-not $ThirdParty -and ($thirdDevices.Count + $thirdPackages.Count) -gt 0) {
     Write-Host ''
-    Write-Host 'Also found, from tools used before (kept; -ThirdParty removes them):' -ForegroundColor Yellow
+    Write-Host 'Also found, from tools used before (kept: -KeepThirdParty):' -ForegroundColor Yellow
     $thirdPackages | ForEach-Object { Write-Host "  driver $($_.Driver) = $($_.Original)" -ForegroundColor Yellow }
     $thirdDevices | ForEach-Object { Write-Host "  device $($_.InstanceId) ($($_.FriendlyName))" -ForegroundColor Yellow }
 }
@@ -266,6 +270,20 @@ try {
         $restart = $false
         $drivers = $ourPackages
         if ($ThirdParty) { $drivers += $thirdPackages }
+        # The devices our drivers are on (the rig's, whatever they are: found by their driver, not by any id), to
+        # put them back on Windows' own driver afterwards.
+        # One query for all devices: asking device by device takes minutes on a PC with hundreds of them.
+        $ourInstalled = @($ourPackages | ForEach-Object { $_.Driver.ToLower() })
+        $onOurDrivers = @()
+        if ($ourInstalled.Count -gt 0) {
+            $present = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue)
+            $ours = @(Get-PnpDeviceProperty -InstanceId @($present | ForEach-Object { $_.InstanceId }) `
+                          -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue |
+                      Where-Object { $_.Data -and ($ourInstalled -contains ([string]$_.Data).ToLower()) } |
+                      ForEach-Object { $_.InstanceId })
+            $onOurDrivers = @($present | Where-Object { $ours -contains $_.InstanceId })
+        }
+        foreach ($device in $onOurDrivers) { Write-Host "    on our driver: $($device.InstanceId) ($($device.FriendlyName))" }
         foreach ($package in $drivers) {
             pnputil /delete-driver $package.Driver /uninstall /force | Out-Null
             $code = $LASTEXITCODE
@@ -279,12 +297,12 @@ try {
         if ($drivers.Count -eq 0) { Write-Host '    none' }
         $left = @(Get-DriverPackages | Where-Object { $ourInfs -contains $_.Original })
         if ($left.Count -gt 0) { Warn "still installed: $(($left | ForEach-Object { $_.Original }) -join ', ')" }
-        # The R3 back on Windows' own driver now, not after a replug.
+        # Those devices back on Windows' own driver now, not after a replug.
         pnputil /scan-devices | Out-Null
-        foreach ($r3 in @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-                          Where-Object { $_.InstanceId -like 'HID\VID_346E&PID_0005*' })) {
-            pnputil /restart-device "$($r3.InstanceId)" | Out-Null
-            if ($LASTEXITCODE -eq 3010) { $restart = $true }
+        foreach ($device in $onOurDrivers) {
+            if (-not (Get-PnpDevice -InstanceId $device.InstanceId -ErrorAction SilentlyContinue)) { continue }
+            pnputil /restart-device "$($device.InstanceId)" | Out-Null
+            if ($LASTEXITCODE -in @(50, 3010)) { $restart = $true }
         }
         if ($restart) { Warn 'Windows wants a restart to finish removing a driver' }
 
