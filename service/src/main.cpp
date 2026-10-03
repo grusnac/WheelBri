@@ -1,4 +1,4 @@
-// wheelemu-service: reads the physical wheel, maps it and publishes the emulated wheel's state
+// wheelbri-service: reads the physical wheel, maps it and publishes the emulated wheel's state
 // to the in-game shim over UDP loopback, plays the game's force feedback on the wheel, and records
 // telemetry of both directions for later tuning.
 
@@ -14,17 +14,21 @@
 #include "VirtualXboxPad.hpp"
 #include "Wheel.hpp"
 
-#include "wheelemu/EmulatorConfig.hpp"
-#include "wheelemu/FfbController.hpp"
-#include "wheelemu/FfbPacket.hpp"
-#include "wheelemu/Logging.hpp"
-#include "wheelemu/LoopStats.hpp"
-#include "wheelemu/Pipeline.hpp"
-#include "wheelemu/Telemetry.hpp"
-#include "wheelemu/TestClutch.hpp"
-#include "wheelemu/UdpLoopback.hpp"
-#include "wheelemu/HidXbox360.hpp"
-#include "wheelemu/XboxPad.hpp"
+#include "wheelbri/ConfigLibrary.hpp"
+#include "wheelbri/EmulatorConfig.hpp"
+#include "wheelbri/FfbController.hpp"
+#include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/GameUseWatch.hpp"
+#include "wheelbri/Logging.hpp"
+#include "wheelbri/LoopStats.hpp"
+#include "wheelbri/Pipeline.hpp"
+#include "wheelbri/Telemetry.hpp"
+#include "wheelbri/TestClutch.hpp"
+#include "wheelbri/UdpLoopback.hpp"
+#include "wheelbri/DeviceLabels.hpp"
+#include "wheelbri/Rig.hpp"
+#include "wheelbri/HidXbox360.hpp"
+#include "wheelbri/XboxPad.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -50,14 +54,14 @@
 #include <tuple>
 #include <vector>
 
-#ifndef WHEELEMU_VERSION
-#define WHEELEMU_VERSION "dev"
+#ifndef WHEELBRI_VERSION
+#define WHEELBRI_VERSION "dev"
 #endif
 
 namespace {
 
-using wheelemu::logging::Logger;
-namespace platform = wheelemu::service::platform;
+using wheelbri::logging::Logger;
+namespace platform = wheelbri::service::platform;
 
 constexpr std::uint64_t kStatsWindowNs = 10 * platform::kNsPerSecond;
 constexpr std::uint64_t kUsageLogNs = 10 * 60 * platform::kNsPerSecond;   // force feedback usage table in the log
@@ -75,7 +79,7 @@ bool sessionActive() { return gSessionActive; }
 constexpr int kWheelLost = 3;
 
 const Logger& log() {
-    static const Logger logger = wheelemu::logging::get("service");
+    static const Logger logger = wheelbri::logging::get("service");
     return logger;
 }
 
@@ -90,9 +94,9 @@ struct Options {
     bool virtualG920 = false;                   // --virtual-g920: our own driver's G920 (driver/)
     bool hide = true;                           // --no-hide: leave the real wheel visible to games
     bool unhide = false;                        // --unhide: make the real wheel visible again and exit
-    bool app = false;                           // --app: the window with Start / Stop (always in wheelemu.exe)
+    bool app = false;                           // --app: the window with Start / Stop (always in wheelbri.exe)
     bool noVirtualG920 = false;                 // --no-virtual-g920: the app without its virtual G920
-    wheelemu::XboxPadMode xboxPad = wheelemu::XboxPadMode::Buttons;   // --xbox-pad: with --virtual-g920
+    wheelbri::XboxPadMode xboxPad = wheelbri::XboxPadMode::Buttons;   // --xbox-pad: with --virtual-g920
 };
 
 // The wheel's USB vendor id: [emulator] source_device when it is one ("346e"), else Moza's.
@@ -104,19 +108,27 @@ std::string wheelVendorId(const std::string& sourceDevice) {
     return id;
 }
 
-// With --virtual-g920 (Start in the app): wheelemu's hide filter on the real wheel, installed now if it is not
+// With --virtual-g920 (Start in the app): wheelbri's hide filter on the real wheel, installed now if it is not
 // there yet, so Start alone leaves games only the G920. It installs from the package built in this source tree
 // (driver/hide/x64/Release, scripts/make/drivers.sh -Only hide) with driver/hide/install-hide.ps1; the service
 // runs as Administrator for --virtual-g920 anyway. Done before the wheel is opened: installing restarts it.
-void ensureHideFilter(const std::string& vendor, wheelemu::service::WheelBackend& backend, const std::string& match) {
+void ensureHideFilter(const std::string& vendor, wheelbri::service::WheelBackend& backend, const std::string& match) {
 #ifdef _WIN32
-    if (wheelemu::service::HideFilter::find(vendor) != nullptr) {
+    if (wheelbri::service::HideFilter::find(vendor) != nullptr) {
+        return;
+    }
+    // wheelbri-hide's driver package matches the Moza R3 only (HID\VID_346E&PID_0005&MI_02): another wheel stays
+    // visible to games next to the G920 for now.
+    if (vendor != "346E") {
+        WE_LOG_WARN(log(), "hide: hiding the real wheel works for the Moza R3 only so far; this wheel (vendor {}) stays "
+                           "visible to games next to the G920",
+                    vendor);
         return;
     }
     // The filter is found only on a wheel that is plugged in: without one, installing proves nothing (and would
     // run the installer on every Start).
-    if (!wheelemu::service::wheelConnected(backend, match)) {
-        WE_LOG_WARN(log(), "hide: the wheel is not connected, so wheelemu-hide cannot be checked or installed now");
+    if (!wheelbri::service::wheelConnected(backend, match)) {
+        WE_LOG_WARN(log(), "hide: the wheel is not connected, so wheelbri-hide cannot be checked or installed now");
         return;
     }
     const std::filesystem::path exe = platform::executablePath();
@@ -125,14 +137,14 @@ void ensureHideFilter(const std::string& vendor, wheelemu::service::WheelBackend
         std::error_code ec;
         const std::filesystem::path candidate = base / "driver" / "hide" / "install-hide.ps1";
         const std::filesystem::path package =
-            base / "driver" / "hide" / "x64" / "Release" / "wheelemu-hide" / "wheelemu-hide.inf";
+            base / "driver" / "hide" / "x64" / "Release" / "wheelbri-hide" / "wheelbri-hide.inf";
         if (std::filesystem::is_regular_file(candidate, ec) && std::filesystem::is_regular_file(package, ec)) {
             script = candidate;
         }
         if (base == base.parent_path()) break;
     }
     if (script.empty()) {
-        WE_LOG_ERROR(log(), "hide: wheelemu-hide is not installed and no built package was found next to the "
+        WE_LOG_ERROR(log(), "hide: wheelbri-hide is not installed and no built package was found next to the "
                             "program (build it once: scripts/make/drivers.sh -Only hide)");
         return;
     }
@@ -140,7 +152,7 @@ void ensureHideFilter(const std::string& vendor, wheelemu::service::WheelBackend
     const std::filesystem::path powershell =
         std::filesystem::path(systemRoot != nullptr ? systemRoot : "C:\\Windows") / "System32" / "WindowsPowerShell" /
         "v1.0" / "powershell.exe";
-    WE_LOG_INFO(log(), "hide: wheelemu-hide is not running on the wheel yet: installing it ({}); the wheel restarts once",
+    WE_LOG_INFO(log(), "hide: wheelbri-hide is not running on the wheel yet: installing it ({}); the wheel restarts once",
                 script.string());
     std::string error;
     const auto child = platform::ChildProcess::start(
@@ -170,15 +182,15 @@ void ensureHideFilter(const std::string& vendor, wheelemu::service::WheelBackend
                           : *exit == 2 ? "installed the filter, but it is not on the wheel yet: unplug the wheel and "
                                          "plug it in again (or restart Windows)"
                                        : "failed";
-        WE_LOG_ERROR(log(), "hide: the installer {}{} (its log: C:\\ProgramData\\wheelemu\\logs\\wheelemu-hide-install-"
+        WE_LOG_ERROR(log(), "hide: the installer {}{} (its log: C:\\ProgramData\\wheelbri\\logs\\wheelbri-hide-install-"
                             "<date>.log; or run {} yourself as Administrator)",
                      why, exit ? " (exit code " + std::to_string(*exit) + ")" : std::string(), script.string());
         return;
     }
     // The wheel comes back with the filter a moment later.
     for (int waited = 0; waited < 15'000 && !gStop; waited += 250) {
-        if (wheelemu::service::HideFilter::find(vendor, /*quiet=*/true) != nullptr) {
-            WE_LOG_INFO(log(), "hide: wheelemu-hide installed and on the wheel");
+        if (wheelbri::service::HideFilter::find(vendor, /*quiet=*/true) != nullptr) {
+            WE_LOG_INFO(log(), "hide: wheelbri-hide installed and on the wheel");
             return;
         }
         platform::sleepMs(250);
@@ -192,7 +204,120 @@ void ensureHideFilter(const std::string& vendor, wheelemu::service::WheelBackend
 #endif
 }
 
-// --stop-file: another program (scripts/wheelemu.sh) asks the service to stop by creating this file; the
+// The device in the active rig (the Wheel setup tab's, [app] rig in the app's state file), if it is in it.
+std::optional<wheelbri::RigDevice> rigDevice(const wheelbri::DeviceId& id) {
+    const std::string name = wheelbri::readAppSetting(wheelbri::service::appStateFile(), "rig");
+    if (name.empty()) return std::nullopt;
+    std::vector<std::string> errors;
+    const auto rig = wheelbri::readRig(wheelbri::service::rigsFolder(), name, errors);
+    if (!rig) return std::nullopt;
+    if (const wheelbri::RigDevice* const device = rig->find(id)) return *device;
+    return std::nullopt;
+}
+
+// The names the Wheel setup tab gave this device (the active rig; else the older deviceLabelsFolder()/<vid>-<pid>.ini),
+// in place of the config's [button_labels] / [axis_labels]: what the live view shows next to the numbers.
+void applySavedDeviceLabels(const wheelbri::service::WheelInfo& wheel, wheelbri::MapperConfig& mapper) {
+    if (const auto device = rigDevice({wheel.vendorId, wheel.productId})) {
+        wheelbri::applyDeviceLabels(wheelbri::labelsOf(*device), mapper);
+        WE_LOG_INFO(log(), "names of '{}' ({}) from the rig", device->name, wheel.name);
+        return;
+    }
+    const std::filesystem::path path =
+        wheelbri::service::deviceLabelsFolder() / wheelbri::deviceLabelsFileName(wheel.vendorId, wheel.productId);
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return;
+    }
+    std::stringstream text;
+    text << file.rdbuf();
+    const auto parsed = wheelbri::IniDocument::parse(text.str());
+    const auto loaded = wheelbri::loadDeviceLabels(parsed.document);
+    for (const std::string& problem : parsed.errors) WE_LOG_WARN(log(), "{}: {}", path.string(), problem);
+    for (const std::string& problem : loaded.errors) WE_LOG_WARN(log(), "{}: {}", path.string(), problem);
+    wheelbri::applyDeviceLabels(loaded.labels, mapper);
+    WE_LOG_INFO(log(), "names of '{}' ({}, {}) from {}", loaded.labels.name, wheel.name,
+                wheelbri::deviceKindName(loaded.labels.kind), path.string());
+}
+
+// The device's names from the Wheel setup tab (its <vid>-<pid>.ini), or just its ids and `fallbackName`.
+wheelbri::DeviceLabels savedDeviceLabels(const wheelbri::DeviceId& id, const std::string& fallbackName) {
+    wheelbri::DeviceLabels labels;
+    if (const auto device = rigDevice(id)) {
+        labels = wheelbri::labelsOf(*device);
+        if (labels.name.empty()) labels.name = fallbackName;
+        return labels;
+    }
+    const std::filesystem::path path =
+        wheelbri::service::deviceLabelsFolder() / wheelbri::deviceLabelsFileName(id.vendorId, id.productId);
+    if (std::ifstream file(path, std::ios::binary); file) {
+        std::stringstream text;
+        text << file.rdbuf();
+        labels = wheelbri::loadDeviceLabels(wheelbri::IniDocument::parse(text.str()).document).labels;
+    }
+    if (labels.name.empty()) labels.name = fallbackName;
+    labels.vendorId = id.vendorId;
+    labels.productId = id.productId;
+    return labels;
+}
+
+// The accessories the mapping reads besides the wheel (pedals, a shifter, a button box: MapperConfig::accessories),
+// opened by their USB ids. Every one must be there: a mapping with its pedals missing would drive the game wrong.
+struct Accessories {
+    std::array<std::unique_ptr<wheelbri::service::Wheel>, wheelbri::MapperConfig::kMaxAccessories> devices;
+    std::array<wheelbri::DeviceLabels, wheelbri::MapperConfig::kMaxAccessories> labels{};
+
+    [[nodiscard]] std::array<wheelbri::IInputSource*, wheelbri::MapperConfig::kMaxAccessories> sources() const {
+        std::array<wheelbri::IInputSource*, wheelbri::MapperConfig::kMaxAccessories> result{};
+        for (std::size_t i = 0; i < devices.size(); ++i) result[i] = devices[i].get();
+        return result;
+    }
+    void close() {
+        for (auto& device : devices) device.reset();
+    }
+};
+
+// Opens every accessory of `mapper`; false (and why in the log) if one is missing, or is the wheel itself.
+bool openAccessories(wheelbri::service::WheelBackend& backend, const wheelbri::MapperConfig& mapper,
+                     const wheelbri::service::WheelInfo& wheel, Accessories& accessories, const bool quiet) {
+    accessories.close();
+    for (std::size_t i = 0; i < mapper.accessories.size(); ++i) {
+        const wheelbri::DeviceId& id = mapper.accessories[i];
+        if (id.empty()) continue;
+        const std::string ids = wheelbri::deviceId(id.vendorId, id.productId);
+        accessories.labels[i] = savedDeviceLabels(id, ids);
+        if (id.vendorId == wheel.vendorId && id.productId == wheel.productId) {
+            WE_LOG_ERROR(log(), "the mapping names the wheel's own id {} as an accessory: write its sources without "
+                                "'{}/' (or save the mapping again in the Mapping tab)",
+                         ids, ids);
+            return false;
+        }
+        if (quiet && !wheelbri::service::wheelConnected(backend, ids)) return false;
+        accessories.devices[i] = wheelbri::service::openWheel(backend, ids);
+        if (accessories.devices[i] == nullptr) {
+            WE_LOG_ERROR(log(), "accessory '{}' ({}) is not connected or cannot be read: plug it in, or map without it "
+                                "in the Mapping tab",
+                         accessories.labels[i].name, ids);
+            return false;
+        }
+        WE_LOG_INFO(log(), "accessory {} = '{}' ({}){}", i + 1, accessories.labels[i].name, ids,
+                    " (not hidden from games: only the wheel is)");
+    }
+    return true;
+}
+
+// Whether the wheel and every accessory are connected now (for waiting after one was lost). Logs nothing.
+bool allConnected(wheelbri::service::WheelBackend& backend, const wheelbri::EmulatorConfig& config) {
+    if (!wheelbri::service::wheelConnected(backend, config.sourceDeviceMatch)) return false;
+    for (const wheelbri::DeviceId& id : config.mapper.accessories) {
+        if (!id.empty() && !wheelbri::service::wheelConnected(backend, wheelbri::deviceId(id.vendorId, id.productId))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// --stop-file: another program (scripts/wheelbri.sh) asks the service to stop by creating this file; the
 // same clean stop as Ctrl+C or closing the window (force feedback off, logs closed).
 std::filesystem::path gStopFile;
 
@@ -210,7 +335,7 @@ bool stopRequested() {
 
 void printUsage() {
     std::puts(
-        "usage: wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
+        "usage: wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
         "                        [--stop-file FILE] [--virtual-g920 [--no-hide] [--xbox-pad MODE]] [--unhide]\n"
         "  --config FILE  INI configuration (see config/moza-r3-as-g920.ini)\n"
         "  --list         list joysticks and exit\n"
@@ -218,16 +343,16 @@ void printUsage() {
         "  --ui           open a window showing how every axis and button maps to the emulated wheel\n"
         "  --ffb-test     play a short, gentle force feedback sequence on the wheel and exit\n"
         "  --stop-file FILE  stop cleanly when FILE appears (it is deleted then; also at start)\n"
-        "  --virtual-g920 while running, a virtual G920 for every game through wheelemu's own driver\n"
+        "  --virtual-g920 while running, a virtual G920 for every game through wheelbri's own driver\n"
         "                 (driver\\install-driver.ps1 once; Administrator; not with the shim or the bridge);\n"
-        "                 the real wheel is hidden from games meanwhile by wheelemu's own filter\n"
+        "                 the real wheel is hidden from games meanwhile by wheelbri's own filter\n"
         "                 (driver\\hide\\install-hide.ps1 once), unless --no-hide\n"
         "  --xbox-pad buttons|idle|off\n"
         "                 with --virtual-g920: a virtual Xbox 360 controller too, so games show Xbox button\n"
         "                 prompts (driver\\xusb\\install-xusb.ps1 once). buttons (default): the wheel's A/B/X/Y/\n"
         "                 Menu/View/D-pad press it in menus; idle: there, never pressed; off: none\n"
         "  --unhide       after a crash: make the real wheel visible to games again and exit\n"
-        "  --app          a window with Start / Stop / Open logs instead of running at once (what wheelemu.exe\n"
+        "  --app          a window with Start / Stop instead of running at once (what wheelbri.exe\n"
         "                 does); on Windows it starts with --virtual-g920 unless --no-virtual-g920\n"
         "  --old-files delete|archive|keep\n"
         "                 logs and telemetry older than [retention] older_than_days (7): delete them (default),\n"
@@ -252,7 +377,7 @@ bool parseOptions(const int argc, char** argv, Options& options) {
         } else if (arg == "--virtual-g920") {
             options.virtualG920 = true;
         } else if (arg == "--xbox-pad" && i + 1 < argc) {
-            const auto mode = wheelemu::parseXboxPadMode(argv[++i]);
+            const auto mode = wheelbri::parseXboxPadMode(argv[++i]);
             if (!mode) {
                 std::fprintf(stderr, "--xbox-pad %s: expected buttons, idle or off\n", argv[i]);
                 return false;
@@ -270,7 +395,7 @@ bool parseOptions(const int argc, char** argv, Options& options) {
             options.stopFile = argv[++i];
         } else if (arg == "--old-files" && i + 1 < argc) {
             options.oldFiles = argv[++i];
-            if (!wheelemu::parseOldFilesAction(options.oldFiles)) {
+            if (!wheelbri::parseOldFilesAction(options.oldFiles)) {
                 std::fprintf(stderr, "--old-files %s: expected delete, archive or keep\n", options.oldFiles.c_str());
                 return false;
             }
@@ -283,7 +408,7 @@ bool parseOptions(const int argc, char** argv, Options& options) {
 }
 
 struct LoadedConfig {
-    wheelemu::EmulatorConfig config;
+    wheelbri::EmulatorConfig config;
     std::vector<std::string> problems;
     bool fileMissing = false;
     std::string text;                           // the file as read, copied into telemetry headers
@@ -303,15 +428,15 @@ LoadedConfig loadConfig(const std::string& path) {
     std::stringstream text;
     text << file.rdbuf();
     result.text = text.str();
-    const auto parsed = wheelemu::IniDocument::parse(result.text);
-    auto loaded = wheelemu::loadEmulatorConfig(parsed.document);
+    const auto parsed = wheelbri::IniDocument::parse(result.text);
+    auto loaded = wheelbri::loadEmulatorConfig(parsed.document);
     result.config = std::move(loaded.config);
     result.problems = parsed.errors;
     result.problems.insert(result.problems.end(), loaded.errors.begin(), loaded.errors.end());
     return result;
 }
 
-void logEffectiveConfig(const wheelemu::EmulatorConfig& config) {
+void logEffectiveConfig(const wheelbri::EmulatorConfig& config) {
     WE_LOG_INFO(log(), "source_device='{}' target_profile='{}' state_port={} ffb_port={} loop_hz={} game_effects={} "
                        "ffb_invert={}",
                 config.sourceDeviceMatch, config.targetProfile, config.statePort, config.ffbPort, config.loopHz,
@@ -320,7 +445,7 @@ void logEffectiveConfig(const wheelemu::EmulatorConfig& config) {
                  config.ffb.maxMagnitude, config.ffb.maxSlewPerSecond);
 }
 
-void listDevices(wheelemu::service::WheelBackend& backend) {
+void listDevices(wheelbri::service::WheelBackend& backend) {
     const auto joysticks = backend.list();
     if (joysticks.empty()) {
         std::puts("no joysticks found");
@@ -332,7 +457,7 @@ void listDevices(wheelemu::service::WheelBackend& backend) {
 }
 
 // Live console view for --print (user interface, deliberately not a log line).
-void printLive(const wheelemu::Pipeline& pipeline) {
+void printLive(const wheelbri::Pipeline& pipeline) {
     const auto& raw = pipeline.lastRaw();
     const auto& state = pipeline.lastState();
     const auto& report = pipeline.lastReport();
@@ -343,7 +468,7 @@ void printLive(const wheelemu::Pipeline& pipeline) {
     std::fflush(stdout);
 }
 
-void logLoopStats(const char* what, const wheelemu::LoopStats& stats, const wheelemu::Pipeline& pipeline) {
+void logLoopStats(const char* what, const wheelbri::LoopStats& stats, const wheelbri::Pipeline& pipeline) {
     const auto snapshot = stats.snapshot();
     const double targetUs = static_cast<double>(stats.targetPeriodNs()) / 1000.0;
     WE_LOG_INFO(log(),
@@ -403,7 +528,7 @@ public:
     }
 
     // End of a 10-second window.
-    void endWindow(const wheelemu::Pipeline& pipeline) {
+    void endWindow(const wheelbri::Pipeline& pipeline) {
         const auto snapshot = window_.snapshot();
         const double targetUs = static_cast<double>(window_.targetPeriodNs()) / 1000.0;
         const bool late = snapshot.overruns > 0 || snapshot.maxWorkUs > targetUs;
@@ -423,13 +548,13 @@ public:
         slowestWorkNs_ = 0;
     }
 
-    void logSummary(const wheelemu::Pipeline& pipeline) const {
+    void logSummary(const wheelbri::Pipeline& pipeline) const {
         logLoopStats("since the last report", sinceReport_, pipeline);
     }
 
 private:
-    wheelemu::LoopStats window_;
-    wheelemu::LoopStats sinceReport_;
+    wheelbri::LoopStats window_;
+    wheelbri::LoopStats sinceReport_;
     bool reported_ = false;
     bool late_ = false;
     std::uint64_t slowestWorkNs_ = 0;
@@ -443,7 +568,7 @@ constexpr std::uint64_t kStallNs = 50 * platform::kNsPerMs;
 class GameFfb {
 public:
     // Returns nullptr (and says why) when game force feedback is off or cannot run; input still works.
-    static std::unique_ptr<GameFfb> open(const wheelemu::EmulatorConfig& config, wheelemu::service::Wheel& wheel,
+    static std::unique_ptr<GameFfb> open(const wheelbri::EmulatorConfig& config, wheelbri::service::Wheel& wheel,
                                          std::string& status) {
         if (!config.gameFfb) {
             status = "off ([ffb] game_effects = false)";
@@ -457,13 +582,13 @@ public:
             WE_LOG_ERROR(log(), "game force feedback unavailable: the wheel's force feedback could not be opened");
             return nullptr;
         }
-        ffb->listener_ = wheelemu::UdpLoopbackListener::create(config.ffbPort);
+        ffb->listener_ = wheelbri::UdpLoopbackListener::create(config.ffbPort);
         if (ffb->listener_ == nullptr) {
             status = "unavailable: port " + std::to_string(config.ffbPort) + " is in use";
             WE_LOG_ERROR(log(), "game force feedback unavailable: cannot listen on port {}", config.ffbPort);
             return nullptr;
         }
-        ffb->controller_ = std::make_unique<wheelemu::FfbController>(*ffb->sink_, config.ffb);
+        ffb->controller_ = std::make_unique<wheelbri::FfbController>(*ffb->sink_, config.ffb);
         WE_LOG_INFO(log(), "game force feedback on: max {:.0f}% of the wheel's torque, gain {:.2f}",
                     config.ffb.maxMagnitude * 100.0F, config.ffb.masterGain);
         return ffb;
@@ -479,12 +604,12 @@ public:
     GameFfb& operator=(const GameFfb&) = delete;
 
     // Every packet from the game is also written here (may be null).
-    void setTelemetry(wheelemu::TelemetryRecorder* telemetry) { telemetry_ = telemetry; }
+    void setTelemetry(wheelbri::TelemetryRecorder* telemetry) { telemetry_ = telemetry; }
 
     void pump(const std::uint64_t nowNs) {
         std::array<std::uint8_t, 256> buffer{};
         while (const auto size = listener_->receive(buffer)) {
-            if (const auto packet = wheelemu::decodeFfbPacket(std::span<const std::uint8_t>(buffer.data(), *size))) {
+            if (const auto packet = wheelbri::decodeFfbPacket(std::span<const std::uint8_t>(buffer.data(), *size))) {
                 controller_->onPacket(*packet, nowNs);
                 if (telemetry_ != nullptr) {
                     telemetry_->writeFfbPacket(nowNs, *packet);
@@ -499,7 +624,7 @@ public:
         controller_->update(nowNs);
     }
 
-    [[nodiscard]] const wheelemu::FfbController& controller() const { return *controller_; }
+    [[nodiscard]] const wheelbri::FfbController& controller() const { return *controller_; }
 
     // Called every 10 s; logs only when something changed: effects playing, failures, watchdog stops,
     // or the game starting / stopping to send.
@@ -521,7 +646,7 @@ public:
     // Which effects the game used and how hard (FfbUsage), since the start: a table in the log, only
     // when forces played since the last one.
     void logUsage() {
-        const wheelemu::FfbUsage& usage = controller_->usage();
+        const wheelbri::FfbUsage& usage = controller_->usage();
         if (usage.anyForceNs() == loggedUsageNs_) {
             return;
         }
@@ -529,7 +654,7 @@ public:
         WE_LOG_INFO(log(), "ffb usage since the start: game active {:.1f} min, forces on {:.1f} min "
                            "(share: of the game's time; capped / slew: of that effect's time)",
                     static_cast<double>(usage.gameNs()) / 60e9, static_cast<double>(usage.anyForceNs()) / 60e9);
-        WE_LOG_INFO(log(), "ffb usage:   {}", wheelemu::FfbUsage::tableHeader());
+        WE_LOG_INFO(log(), "ffb usage:   {}", wheelbri::FfbUsage::tableHeader());
         for (const auto type : usage.usedTypes()) {
             WE_LOG_INFO(log(), "ffb usage:   {}", usage.tableRow(type));
         }
@@ -539,36 +664,36 @@ public:
 private:
     GameFfb() = default;
 
-    std::unique_ptr<wheelemu::IFfbSink> sink_;
-    std::unique_ptr<wheelemu::UdpLoopbackListener> listener_;
-    std::unique_ptr<wheelemu::FfbController> controller_;
-    wheelemu::TelemetryRecorder* telemetry_ = nullptr;
+    std::unique_ptr<wheelbri::IFfbSink> sink_;
+    std::unique_ptr<wheelbri::UdpLoopbackListener> listener_;
+    std::unique_ptr<wheelbri::FfbController> controller_;
+    wheelbri::TelemetryRecorder* telemetry_ = nullptr;
     std::uint64_t lastPackets_ = 0;
     std::uint64_t loggedUsageNs_ = 0;
     std::optional<std::tuple<std::size_t, std::uint64_t, std::uint64_t, bool>> lastLogged_;
-    wheelemu::logging::RateLimiter malformedLimiter_{std::chrono::seconds(5)};
+    wheelbri::logging::RateLimiter malformedLimiter_{std::chrono::seconds(5)};
 };
 
 // Local recording of the wheel, the mapping, what the game sees and the game's force feedback.
 // Returns nullptr when turned off or when the files cannot be created (the emulator runs anyway).
-std::unique_ptr<wheelemu::TelemetryRecorder> openTelemetry(const wheelemu::EmulatorConfig& config,
+std::unique_ptr<wheelbri::TelemetryRecorder> openTelemetry(const wheelbri::EmulatorConfig& config,
                                                            const std::string& configPath,
                                                            const std::string& configText,
-                                                           wheelemu::service::Wheel& source) {
-    const wheelemu::TelemetryConfig& settings = config.telemetry;
+                                                           wheelbri::service::Wheel& source) {
+    const wheelbri::TelemetryConfig& settings = config.telemetry;
     if (!settings.enabled) {
         WE_LOG_INFO(log(), "telemetry off ([telemetry] enabled = false)");
         return nullptr;
     }
     const std::filesystem::path directory =
-        settings.directory.empty() ? std::filesystem::path(wheelemu::service::defaultLogFile()).parent_path()
+        settings.directory.empty() ? std::filesystem::path(wheelbri::service::defaultLogFile()).parent_path()
                                    : std::filesystem::path(settings.directory);
 
     char device[64];
     std::snprintf(device, sizeof(device), "%04x:%04x, %d axes, %d buttons, %d hats", source.info().vendorId,
                   source.info().productId, source.axes(), source.buttons(), source.hats());
     std::vector<std::string> header = {
-        std::string("wheelemu-service ") + WHEELEMU_VERSION + " on " + platform::name(),
+        std::string("wheelbri-service ") + WHEELBRI_VERSION + " on " + platform::name(),
         "source: " + source.name() + " (" + device + ")",
         "target_profile: " + config.targetProfile + ", loop_hz: " + std::to_string(config.loopHz) +
             ", rate_hz: " + std::to_string(settings.rateHz),
@@ -583,7 +708,7 @@ std::unique_ptr<wheelemu::TelemetryRecorder> openTelemetry(const wheelemu::Emula
     }
 
     std::string error;
-    auto recorder = wheelemu::TelemetryRecorder::open(settings, directory, wheelemu::WallClock::now(), header, error);
+    auto recorder = wheelbri::TelemetryRecorder::open(settings, directory, wheelbri::WallClock::now(), header, error);
     if (recorder == nullptr) {
         WE_LOG_ERROR(log(), "telemetry off: {}", error);
         return nullptr;
@@ -594,7 +719,7 @@ std::unique_ptr<wheelemu::TelemetryRecorder> openTelemetry(const wheelemu::Emula
 }
 
 // The folders [retention] looks after: the log folder and, if elsewhere, the telemetry folder.
-std::vector<std::filesystem::path> managedFolders(const wheelemu::EmulatorConfig& config,
+std::vector<std::filesystem::path> managedFolders(const wheelbri::EmulatorConfig& config,
                                                   const std::filesystem::path& logFolder) {
     std::vector<std::filesystem::path> folders = {logFolder};
     if (!config.telemetry.directory.empty()) {
@@ -607,10 +732,10 @@ std::vector<std::filesystem::path> managedFolders(const wheelemu::EmulatorConfig
     return folders;
 }
 
-using wheelemu::service::UiFrame;
+using wheelbri::service::UiFrame;
 
-wheelemu::service::TelemetryFiles telemetryFiles(const wheelemu::TelemetryRecorder* recorder) {
-    wheelemu::service::TelemetryFiles files;
+wheelbri::service::TelemetryFiles telemetryFiles(const wheelbri::TelemetryRecorder* recorder) {
+    wheelbri::service::TelemetryFiles files;
     if (recorder != nullptr) {
         files.on = true;
         files.samplesPath = recorder->samplesPath();
@@ -625,66 +750,79 @@ wheelemu::service::TelemetryFiles telemetryFiles(const wheelemu::TelemetryRecord
 // goes through XboxMirror (core/XboxPad.hpp), the G920 gets its version (D-pad and steering possibly held back in
 // menus) and the Xbox controller's driver gets the pad (UDP kXusbPort; at least every 100 ms, so it knows the
 // service is there). Runs on the loop's thread.
-class XboxPadPublisher final : public wheelemu::IStatePublisher {
+// The Xbox controller, created only once the game has taken the G920 (its first force feedback). A game that finds an
+// XInput pad when it starts may drive from it instead of the wheel: NFS did (2026-10-03: no force feedback to the
+// G920, steering and pedals ignored, the pad's still sticks and triggers used), and drove fine without the pad. Made
+// after the game has the wheel, the pad only keeps the game's icons Xbox (XboxMirror: a tiny nudge, never a press).
+struct DeferredXboxPad {
+    wheelbri::XboxPadMode mode = wheelbri::XboxPadMode::Off;
+    std::unique_ptr<wheelbri::service::VirtualXboxPad> device;
+    bool failed = false;                // creating it failed: not tried again this session
+    std::atomic<bool> active{false};    // the pad exists: XboxPadPublisher passes buttons on
+};
+
+class XboxPadPublisher final : public wheelbri::IStatePublisher {
 public:
-    // The strongest force the game plays now (0..1) and whether it has used force feedback at all.
-    using ForceQuery = std::function<std::pair<float, bool>()>;
-
-    XboxPadPublisher(wheelemu::IStatePublisher& inner, const wheelemu::XboxPadMode mode)
+    // Until `active` turns true (the pad exists) it passes the wheel through untouched.
+    XboxPadPublisher(wheelbri::IStatePublisher& inner, const wheelbri::XboxPadMode mode, const std::atomic<bool>& active)
         : inner_(inner),
+          active_(active),
           mirror_(mode),
-          sender_(wheelemu::UdpLoopbackSender::create(wheelemu::kXusbPort)),
-          hidSender_(wheelemu::UdpLoopbackSender::create(wheelemu::kXboxHidPort)) {}
+          sender_(wheelbri::UdpLoopbackSender::create(wheelbri::kXusbPort)),
+          hidSender_(wheelbri::UdpLoopbackSender::create(wheelbri::kXboxHidPort)) {}
 
-    void setForceQuery(ForceQuery query) { force_ = std::move(query); }
-
-    bool publish(const wheelemu::StatePacket& packet) override {
-        const auto now = static_cast<std::int64_t>(platform::nowMs());
-        const auto [force, usesForce] = force_ ? force_() : std::pair<float, bool>{0.0F, false};
-        const auto result = mirror_.update(packet.report, now, force, usesForce);
-        if (result.menuChanged) {
-            WE_LOG_INFO(log(), *result.menuChanged
-                                   ? "xbox: in a menu (no pedal; a pad button pressed or no force): the G920's steering is held until a pedal"
-                                   : "xbox: driving again: the G920's steering follows the wheel");
+    bool publish(const wheelbri::StatePacket& packet) override {
+        if (!active_.load(std::memory_order_relaxed)) {
+            return inner_.publish(packet);   // no pad yet: the G920 gets everything
         }
-        if (result.firstPress) {
-            WE_LOG_INFO(log(), "xbox: first button press passed on to the Xbox controller (0x{:04x})", result.pad.buttons);
+        const auto now = static_cast<std::int64_t>(platform::nowMs());
+        const auto result = mirror_.update(packet.report, now);
+        if (result.nudged != wheelbri::XboxMirror::Cause::None) {
+            static constexpr const char* kCauses[] = {"", "a button", "the D-pad", "a pedal"};
+            const char* const cause = kCauses[static_cast<int>(result.nudged)];
+            if (mirror_.nudges() == 1) {
+                WE_LOG_INFO(log(), "xbox (experimental): first icon nudge (after {}): the pad's right stick moved by "
+                                   "{} of 32767 for {} ms, so the game shows Xbox icons; the G920 got the input",
+                            cause, wheelbri::XboxMirror::kNudge, wheelbri::XboxMirror::kNudgeMs);
+            } else {
+                WE_LOG_DEBUG(log(), "xbox: icon nudge #{} after {}", mirror_.nudges(), cause);
+            }
+            ++nudgesSinceLog_;
+        }
+        if (now - nudgeLogMs_ >= 60'000) {   // the count once a minute, when there were any
+            if (nudgesSinceLog_ > 0) {
+                WE_LOG_INFO(log(), "xbox: {} icon nudges in the last minute ({} in all)", nudgesSinceLog_,
+                            mirror_.nudges());
+            }
+            nudgesSinceLog_ = 0;
+            nudgeLogMs_ = now;
         }
         if (sender_ != nullptr && (result.pad != lastPad_ || now - lastSentMs_ >= 100)) {
-            const auto bytes = wheelemu::encodeXusbPacket(result.pad);
+            const auto bytes = wheelbri::encodeXusbPacket(result.pad);
             sender_->send(bytes);
             // The HID side (joy.cpl) is only there to be listed: it never presses anything. DirectInput games
             // would read it as one more controller and act on its buttons too.
-            if (hidSender_ != nullptr) hidSender_->send(wheelemu::encodeXusbPacket(wheelemu::XusbPad{}));
+            if (hidSender_ != nullptr) hidSender_->send(wheelbri::encodeXusbPacket(wheelbri::XusbPad{}));
             lastPad_ = result.pad;
             lastSentMs_ = now;
         }
-        wheelemu::StatePacket out = packet;
+        wheelbri::StatePacket out = packet;
         out.report = result.g920;
         return inner_.publish(out);
     }
 
-    [[nodiscard]] std::uint64_t presses() const { return mirror_.presses(); }
 
 private:
-    wheelemu::IStatePublisher& inner_;
-    wheelemu::XboxMirror mirror_;
-    std::unique_ptr<wheelemu::UdpLoopbackSender> sender_;
-    std::unique_ptr<wheelemu::UdpLoopbackSender> hidSender_;
-    ForceQuery force_;
-    wheelemu::XusbPad lastPad_;
+    wheelbri::IStatePublisher& inner_;
+    const std::atomic<bool>& active_;
+    wheelbri::XboxMirror mirror_;
+    std::unique_ptr<wheelbri::UdpLoopbackSender> sender_;
+    std::unique_ptr<wheelbri::UdpLoopbackSender> hidSender_;
+    wheelbri::XusbPad lastPad_;
+    std::uint64_t nudgesSinceLog_ = 0;
+    std::int64_t nudgeLogMs_ = 0;
     std::int64_t lastSentMs_ = 0;
 };
-
-// What XboxPadPublisher needs from the game's force feedback.
-std::pair<float, bool> gameForce(const wheelemu::FfbController& controller) {
-    float strongest = 0.0F;
-    for (std::size_t i = 0; i < controller.slotCount(); ++i) {
-        const auto slot = controller.slot(i);
-        if (slot.playing) strongest = std::max(strongest, std::abs(wheelemu::ffbStrength(slot.requested)));
-    }
-    return {strongest, controller.stats().packets > 0};
-}
 
 // What the window says about the virtual devices (--virtual-g920), see SessionInfo::devices.
 struct DeviceSummary {
@@ -692,65 +830,68 @@ struct DeviceSummary {
     bool warning = false;
 };
 
-int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
-            const std::filesystem::path& logFolder, const bool logToFile, wheelemu::service::Wheel& source,
-            const bool print, wheelemu::service::UiHost* const host,
-            const std::optional<wheelemu::XboxPadMode> xboxPad, const DeviceSummary& devices,
-            std::optional<UiFrame>& lastFrame) {
-    const auto profile = wheelemu::makeProfile(config.targetProfile);
+int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
+            const std::filesystem::path& logFolder, const bool logToFile, wheelbri::service::Wheel& source,
+            const Accessories& accessories, const bool print, wheelbri::service::UiHost* const host,
+            DeferredXboxPad* const xboxPad, const DeviceSummary& devices, std::optional<UiFrame>& lastFrame) {
+    const auto profile = wheelbri::makeProfile(config.targetProfile);
     if (profile == nullptr) {
         WE_LOG_CRITICAL(log(), "unknown target_profile '{}' (known: {})", config.targetProfile,
-                        wheelemu::kKnownProfiles);
+                        wheelbri::kKnownProfiles);
         return 2;
     }
-    const auto publisher = wheelemu::UdpLoopbackPublisher::create(config.statePort);
+    const auto publisher = wheelbri::UdpLoopbackPublisher::create(config.statePort);
     if (publisher == nullptr) {
         WE_LOG_CRITICAL(log(), "cannot publish state, the game shim would receive nothing");
         return 1;
     }
 
-    const wheelemu::Mapper mapper(config.mapper);
+    const wheelbri::Mapper mapper(config.mapper);
     std::unique_ptr<XboxPadPublisher> xboxPublisher;
-    if (xboxPad) {
-        xboxPublisher = std::make_unique<XboxPadPublisher>(*publisher, *xboxPad);
+    if (xboxPad != nullptr && xboxPad->mode != wheelbri::XboxPadMode::Off) {
+        xboxPublisher = std::make_unique<XboxPadPublisher>(*publisher, xboxPad->mode, xboxPad->active);
     }
-    wheelemu::Pipeline pipeline(source, mapper, *profile,
-                                xboxPublisher != nullptr ? static_cast<wheelemu::IStatePublisher&>(*xboxPublisher)
+    // Set on the loop's thread when the game's first force feedback arrives: the window's thread then makes the pad.
+    std::atomic<bool> gameTookWheel{false};
+    wheelbri::Pipeline pipeline(source, mapper, *profile,
+                                xboxPublisher != nullptr ? static_cast<wheelbri::IStatePublisher&>(*xboxPublisher)
                                                          : *publisher);
+    pipeline.setAccessories(accessories.sources());
 
     // Test clutch (tools/vbridge/ClutchProbe) while no clutch pedal is connected.
-    const auto clutchListener = wheelemu::UdpLoopbackListener::create(wheelemu::kTestClutchPort);
+    const auto clutchListener = wheelbri::UdpLoopbackListener::create(wheelbri::kTestClutchPort);
     if (clutchListener != nullptr) {
-        WE_LOG_INFO(log(), "test clutch: listening on 127.0.0.1:{} (ClutchProbe)", wheelemu::kTestClutchPort);
+        WE_LOG_INFO(log(), "test clutch: listening on 127.0.0.1:{} (ClutchProbe)", wheelbri::kTestClutchPort);
     }
-    wheelemu::TestClutch testClutch;
+    wheelbri::TestClutch testClutch;
+    // Pedals pressed but the game never plays force feedback on the G920: it drives from another controller.
+    wheelbri::GameUseWatch gameUse;
     bool testClutchOn = false;
 
     std::string ffbStatus;
     const auto gameFfb = GameFfb::open(config, source, ffbStatus);
-    if (xboxPublisher != nullptr && gameFfb != nullptr) {
-        const GameFfb* ffb = gameFfb.get();
-        xboxPublisher->setForceQuery([ffb] { return gameForce(ffb->controller()); });
-    }
     const auto telemetry = openTelemetry(config, configPath, configText, source);
     if (gameFfb != nullptr) {
         gameFfb->setTelemetry(telemetry.get());
     }
 
     // Old logs and telemetry: now, and again after every midnight.
-    wheelemu::service::Housekeeping housekeeping(config.retention, managedFolders(config, logFolder));
+    wheelbri::service::Housekeeping housekeeping(config.retention, managedFolders(config, logFolder));
     WE_LOG_INFO(log(), "old files: {}", housekeeping.status());
-    housekeeping.run(wheelemu::WallClock::now());
-    auto nextMidnight = wheelemu::startOfDay(
-        wheelemu::addDays(wheelemu::localDate(wheelemu::WallClock::now()), 1).value_or(""));
+    housekeeping.run(wheelbri::WallClock::now());
+    auto nextMidnight = wheelbri::startOfDay(
+        wheelbri::addDays(wheelbri::localDate(wheelbri::WallClock::now()), 1).value_or(""));
 
     if (host != nullptr) {
-        wheelemu::service::SessionInfo info;
+        wheelbri::service::SessionInfo info;
         info.sourceName = source.name();
+        info.vendorId = source.info().vendorId;
+        info.productId = source.info().productId;
         info.axes = source.axes();
         info.buttons = source.buttons();
         info.targetProfile = config.targetProfile;
         info.mapper = config.mapper;
+        info.accessories = accessories.labels;
         info.files.logFolder = logFolder;
         info.files.logToFile = logToFile;
         info.files.telemetryStatus = config.telemetry.enabled ? "off: the files could not be created (see the log)"
@@ -805,7 +946,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                     if (!size) {
                         break;
                     }
-                    if (const auto pressed = wheelemu::ClutchPacket::decode(std::span(datagram).first(*size))) {
+                    if (const auto pressed = wheelbri::ClutchPacket::decode(std::span(datagram).first(*size))) {
                         testClutch.offer(*pressed, tickStart);
                     }
                 }
@@ -819,7 +960,11 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
             }
             stages.lap(TickStages::Input, mark);
             if (!pipeline.tick(clutchOverride)) {
-                WE_LOG_ERROR(log(), "physical wheel lost after {} ticks (unplugged, or a USB reset?)", ticks);
+                const int lost = pipeline.lostDevice();
+                WE_LOG_ERROR(log(), "{} lost after {} ticks (unplugged, or a USB reset?)",
+                             lost <= 0 ? std::string("physical wheel")
+                                       : "accessory '" + accessories.labels[static_cast<std::size_t>(lost - 1)].name + "'",
+                             ticks);
                 result = kWheelLost;
                 break;
             }
@@ -828,11 +973,32 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
             if (gameFfb != nullptr) {
                 gameFfb->pump(platform::nowNs());
             }
+            if (gameFfb != nullptr) {
+                const wheelbri::WheelState& state = pipeline.lastState();
+                const bool pedal = state.throttle > 0.1F || state.brake > 0.1F;
+                const std::uint64_t packets = gameFfb->controller().stats().packets;
+                if (packets > 0 && !gameTookWheel.load(std::memory_order_relaxed)) {
+                    gameTookWheel = true;
+                }
+                if (const auto change = gameUse.update(platform::nowMs(), pedal, packets)) {
+                    if (*change) {
+                        WE_LOG_WARN(log(), "the game is NOT USING the {}: pedals pressed for {} s and it has never "
+                                           "played force feedback on it, so it drives from another controller (the "
+                                           "Xbox pad, whose triggers never move, or the keyboard). Close the game "
+                                           "with WheelBri running, start it again and pick the wheel in its controls "
+                                           "settings",
+                                    profile->identity().shortName, wheelbri::GameUseWatch::kPedalMs / 1000);
+                    } else {
+                        WE_LOG_INFO(log(), "the game uses the {} now (its force feedback arrives)",
+                                    profile->identity().shortName);
+                    }
+                }
+            }
             stages.lap(TickStages::Ffb, mark);
             if (telemetry != nullptr) {
                 const std::uint64_t now = platform::nowNs();
                 if (telemetry->due(now)) {
-                    wheelemu::TelemetrySample sample;
+                    wheelbri::TelemetrySample sample;
                     sample.nowNs = now;
                     sample.sequence = pipeline.sequence();
                     sample.raw = pipeline.lastRaw();
@@ -853,6 +1019,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 const std::unique_lock lock(frameMutex, std::try_to_lock);
                 if (lock.owns_lock()) {
                     sharedFrame.raw = pipeline.lastRaw();
+                    sharedFrame.inputs = pipeline.lastInputs();
                     sharedFrame.state = pipeline.lastState();
                     sharedFrame.report = pipeline.lastReport();
                     sharedFrame.ffb.reset();
@@ -860,6 +1027,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                         sharedFrame.ffb.emplace(gameFfb->controller());
                     }
                     sharedFrame.telemetry = telemetryFiles(telemetry.get());
+                    sharedFrame.gameIgnoresWheel = gameUse.warning();
                     sharedFrame.ready = true;
                 }
             }
@@ -874,7 +1042,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 loopHealth.record(period, tickEnd - tickStart, stages);
             }
             if (tickEnd - tickStart >= kStallNs) {
-                static wheelemu::logging::RateLimiter limiter(std::chrono::seconds(5));
+                static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(5));
                 WE_LOG_WARN_LIMITED(log(), limiter,
                                     "loop: one tick took {:.0f} ms, the game got no fresh input meanwhile: {}",
                                     static_cast<double>(tickEnd - tickStart) / 1e6, stages.describe());
@@ -898,7 +1066,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 const std::uint64_t woke = platform::nowNs();
                 if (woke - nextTick >= kStallNs) {
                     // Not our work: Windows let the service sleep far longer than asked (the PC was busy).
-                    static wheelemu::logging::RateLimiter limiter(std::chrono::seconds(5));
+                    static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(5));
                     WE_LOG_WARN_LIMITED(log(), limiter,
                                         "loop: woke {:.0f} ms late from a {:.2f} ms sleep: Windows did not schedule "
                                         "the service (PC busy?)",
@@ -907,7 +1075,7 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                 }
             } else {
                 if (tickEnd - nextTick > 100 * platform::kNsPerMs) {
-                    static wheelemu::logging::RateLimiter limiter(std::chrono::seconds(5));
+                    static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(5));
                     WE_LOG_WARN_LIMITED(log(), limiter, "loop: {:.0f} ms behind schedule, resynchronising",
                                         static_cast<double>(tickEnd - nextTick) / 1e6);
                 }
@@ -956,12 +1124,29 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
                     gStop = true;
                 }
                 housekeeping.pump();
-                if (nextMidnight && wheelemu::WallClock::now() >= *nextMidnight) {
-                    const auto wall = wheelemu::WallClock::now();
+                if (xboxPad != nullptr && xboxPad->mode != wheelbri::XboxPadMode::Off && xboxPad->device == nullptr &&
+                    !xboxPad->failed && gameTookWheel) {
+                    // Takes a fraction of a second (the window waits; the wheel's loop does not).
+                    std::string error;
+                    xboxPad->device = wheelbri::service::VirtualXboxPad::create(error, [] { return gStop.load(); });
+                    if (xboxPad->device == nullptr) {
+                        xboxPad->failed = true;
+                        if (!gStop) WE_LOG_WARN(log(), "no Xbox controller (games show keyboard prompts): {}", error);
+                    } else {
+                        xboxPad->active = true;
+                        WE_LOG_INFO(log(), "Xbox controller added now that the game uses the G920: {}",
+                                    xboxPad->mode == wheelbri::XboxPadMode::Buttons
+                                        ? "it only keeps the game's icons Xbox (a tiny stick nudge after each wheel input); "
+                                          "every button, pedal and the steering go to the G920"
+                                        : "idle (there, never pressed)");
+                    }
+                }
+                if (nextMidnight && wheelbri::WallClock::now() >= *nextMidnight) {
+                    const auto wall = wheelbri::WallClock::now();
                     WE_LOG_INFO(log(), "new day {}: new log and telemetry files, checking old ones",
-                                wheelemu::localDate(wall));
+                                wheelbri::localDate(wall));
                     housekeeping.run(wall);
-                    nextMidnight = wheelemu::startOfDay(wheelemu::addDays(wheelemu::localDate(wall), 1).value_or(""));
+                    nextMidnight = wheelbri::startOfDay(wheelbri::addDays(wheelbri::localDate(wall), 1).value_or(""));
                 }
             }
             if (host == nullptr) {
@@ -1016,23 +1201,23 @@ int runLoop(const wheelemu::EmulatorConfig& config, const std::string& configPat
 LoadedConfig loadForRun(const Options& options) {
     LoadedConfig loaded = loadConfig(options.configPath);
     if (!options.oldFiles.empty()) {
-        loaded.config.retention.action = *wheelemu::parseOldFilesAction(options.oldFiles);
+        loaded.config.retention.action = *wheelbri::parseOldFilesAction(options.oldFiles);
     }
     return loaded;
 }
 
 // Logging (once per process), the timer resolution and the start-up banner. Returns whether the log file opened.
-bool startProcess(const Options& options, wheelemu::logging::LogConfig logConfig, const bool console) {
+bool startProcess(const Options& options, wheelbri::logging::LogConfig logConfig, const bool console) {
     logConfig.console = logConfig.console && console;
-    const bool logFileOk = wheelemu::logging::init(logConfig, wheelemu::service::defaultLogFile());
+    const bool logFileOk = wheelbri::logging::init(logConfig, wheelbri::service::defaultLogFile());
     platform::init();
-    wheelemu::service::logStartupBanner(options.configPath);
+    wheelbri::service::logStartupBanner(options.configPath);
     return logFileOk;
 }
 
-std::filesystem::path logFolderOf(const wheelemu::EmulatorConfig& config) {
+std::filesystem::path logFolderOf(const wheelbri::EmulatorConfig& config) {
     const std::string logFile =
-        config.logging.filePath.empty() ? wheelemu::service::defaultLogFile() : config.logging.filePath;
+        config.logging.filePath.empty() ? wheelbri::service::defaultLogFile() : config.logging.filePath;
     std::filesystem::path folder = std::filesystem::path(logFile).parent_path();
     return folder.empty() ? std::filesystem::current_path() : folder;
 }
@@ -1040,7 +1225,7 @@ std::filesystem::path logFolderOf(const wheelemu::EmulatorConfig& config) {
 // One session: the wheel opened, the virtual devices created, the loop run until stopped (gStop, the stop
 // file, or the host's window), and everything undone again. Logging must be up.
 int runSession(const Options& options, const LoadedConfig& loaded, const bool logFileOk,
-               wheelemu::service::UiHost* const host) {
+               wheelbri::service::UiHost* const host) {
     if (loaded.fileMissing) {
         WE_LOG_CRITICAL(log(), "cannot open config file '{}'", options.configPath);
         return 2;
@@ -1052,10 +1237,11 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         WE_LOG_CRITICAL(log(), "{} problem(s) in the config, fix them and restart", loaded.problems.size());
         return 2;
     }
-    const wheelemu::EmulatorConfig& config = loaded.config;
+    // A copy: the wheel's names from the Wheel setup tab replace the config's once the wheel is open.
+    wheelbri::EmulatorConfig config = loaded.config;
     logEffectiveConfig(config);
 
-    const auto backend = wheelemu::service::startWheelBackend();
+    const auto backend = wheelbri::service::startWheelBackend();
     if (backend == nullptr) {
         return 1;
     }
@@ -1065,12 +1251,12 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         return 0;
     }
     if (options.unhide) {
-        wheelemu::service::HideFilter::clear();
+        wheelbri::service::HideFilter::clear();
         return 0;
     }
     // One session at a time on this computer: a second would send the game a second, interleaved wheel.
     std::string instanceError;
-    const auto instance = platform::SingleInstance::acquire("wheelemu-service", instanceError);
+    const auto instance = platform::SingleInstance::acquire("wheelbri-service", instanceError);
     if (instance == nullptr) {
         WE_LOG_CRITICAL(log(), "{}", instanceError);
         return 1;
@@ -1084,11 +1270,11 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
 
     if (options.virtualG920 && !platform::isElevated()) {
         WE_LOG_CRITICAL(log(), "--virtual-g920 needs Administrator (it creates devices and hides the real wheel): "
-                               "start it from an Administrator prompt, or use wheelemu.exe, which asks for it");
+                               "start it from an Administrator prompt, or use wheelbri.exe, which asks for it");
         return 1;
     }
     // A wheel still hidden for a service that crashed would be hidden from this one too.
-    wheelemu::service::HideFilter::clearStale();
+    wheelbri::service::HideFilter::clearStale();
     if (!options.stopFile.empty()) {
         gStopFile = options.stopFile;
         std::error_code ec;
@@ -1111,10 +1297,15 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         return 0;
     }
 
-    auto source = wheelemu::service::openWheel(*backend, config.sourceDeviceMatch);
+    auto source = wheelbri::service::openWheel(*backend, config.sourceDeviceMatch);
     if (source == nullptr) {
         std::fprintf(stderr, "no joystick matching '%s'. Connected devices:\n", config.sourceDeviceMatch.c_str());
         listDevices(*backend);
+        return 1;
+    }
+    applySavedDeviceLabels(source->info(), config.mapper);
+    Accessories accessories;
+    if (!options.ffbTest && !openAccessories(*backend, config.mapper, source->info(), accessories, false)) {
         return 1;
     }
 
@@ -1123,17 +1314,17 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         if (sink == nullptr) {
             return 1;
         }
-        return wheelemu::service::runFfbSelfTest(*sink, config.ffb) ? 0 : 1;
+        return wheelbri::service::runFfbSelfTest(*sink, config.ffb) ? 0 : 1;
     }
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
     const std::filesystem::path logFolder = logFolderOf(config);
     // Our own driver's G920 (driver/): there while the loop runs, removed when it returns or the process ends.
-    std::unique_ptr<wheelemu::service::VirtualG920> g920;
+    std::unique_ptr<wheelbri::service::VirtualG920> g920;
     if (options.virtualG920) {
         std::string error;
-        g920 = wheelemu::service::VirtualG920::create(error, cancelled);
+        g920 = wheelbri::service::VirtualG920::create(error, cancelled);
         if (g920 == nullptr) {
             if (cancelled()) {
                 WE_LOG_INFO(log(), "stopped while the virtual G920 was being created");
@@ -1144,52 +1335,41 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         }
     }
     // The real wheel hidden from games meanwhile, or a game may take it instead of the G920 (NFS does): with
-    // wheelemu's own filter (driver/hide), which lets only this process open the wheel.
-    std::unique_ptr<wheelemu::service::HideFilter> hideFilter;
+    // wheelbri's own filter (driver/hide), which lets only this process open the wheel.
+    std::unique_ptr<wheelbri::service::HideFilter> hideFilter;
     if (g920 != nullptr && options.hide) {
-        hideFilter = wheelemu::service::HideFilter::find(wheelVendorId(config.sourceDeviceMatch));
+        hideFilter = wheelbri::service::HideFilter::find(wheelVendorId(config.sourceDeviceMatch));
         if (hideFilter == nullptr) {
-            WE_LOG_ERROR(log(), "the real wheel is NOT hidden: wheelemu-hide is not running on it (the hide lines above "
+            WE_LOG_ERROR(log(), "the real wheel is NOT hidden: wheelbri-hide is not running on it (the hide lines above "
                                 "say why); games see it next to the G920 and may take it");
         } else if (!hideFilter->hide()) {
             hideFilter.reset();
         }
     }
-    // The Xbox controller (driver/xusb), for games' Xbox button prompts. Without its driver the G920 still works.
-    std::unique_ptr<wheelemu::service::VirtualXboxPad> xboxDevice;
-    std::optional<wheelemu::XboxPadMode> xboxPadMode;
-    if (g920 != nullptr && options.xboxPad != wheelemu::XboxPadMode::Off && !cancelled()) {
-        std::string error;
-        xboxDevice = wheelemu::service::VirtualXboxPad::create(error, cancelled);
-        if (xboxDevice == nullptr) {
-            if (!cancelled()) WE_LOG_WARN(log(), "no Xbox controller (games show keyboard prompts): {}", error);
-        } else {
-            xboxPadMode = options.xboxPad;
-            WE_LOG_INFO(log(), "Xbox controller: {}", options.xboxPad == wheelemu::XboxPadMode::Buttons
-                                                           ? "the wheel's A/B/X/Y/Menu/View/D-pad press it instead of the G920 when no pedal is pressed"
-                                                           : "idle (there, never pressed)");
-        }
+    // The Xbox controller (driver/xusb), for games' Xbox button prompts: made once the game has taken the G920
+    // (DeferredXboxPad). Without its driver the G920 still works.
+    DeferredXboxPad xboxPad;
+    if (g920 != nullptr && options.xboxPad != wheelbri::XboxPadMode::Off) {
+        xboxPad.mode = options.xboxPad;
+        WE_LOG_INFO(log(), "Xbox controller: added once the game uses the G920 (its first force feedback), so the game "
+                           "drives from the wheel; the pad only keeps its icons Xbox");
     }
     // One line for the window: what games will see besides the G920, and what is missing.
     DeviceSummary devices;
     if (g920 != nullptr) {
         devices.text = "virtual G920 on";
         if (hideFilter != nullptr) {
-            devices.text += ", R3 hidden (wheelemu-hide)";
+            devices.text += ", R3 hidden (wheelbri-hide)";
         } else if (options.hide) {
             devices.text += ", R3 NOT HIDDEN: games see it (install driver\\hide\\install-hide.ps1)";
             devices.warning = true;
         } else {
             devices.text += ", R3 left visible (--no-hide)";
         }
-        if (xboxDevice != nullptr) {
-            devices.text += xboxDevice->hidSide() ? ", Xbox pad on (XInput and joy.cpl)"
-                                                  : ", Xbox pad on for XInput (not in joy.cpl: reinstall driver\\install-driver.ps1)";
-        } else if (options.xboxPad == wheelemu::XboxPadMode::Off) {
-            devices.text += ", no Xbox pad (--xbox-pad off)";
+        if (xboxPad.mode != wheelbri::XboxPadMode::Off) {
+            devices.text += ", Xbox pad once the game uses the G920";
         } else {
-            devices.text += ", NO XBOX PAD (install driver\\xusb)";
-            devices.warning = true;
+            devices.text += ", no Xbox pad (--xbox-pad off)";
         }
     }
     int result = 0;
@@ -1198,17 +1378,18 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     int quickLosses = 0;   // lost again soon after it came back: wait longer before the next try
     while (!gStop) {
         sessionStartMs = platform::nowMs();
-        result = runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, options.print, host,
-                         xboxPadMode, devices, lastFrame);
+        result = runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, accessories,
+                         options.print, host, &xboxPad, devices, lastFrame);
         if (result != kWheelLost || gStop) {
             break;
         }
         // The wheel is gone (unplugged, USB reset, power). Keep the virtual devices: the game keeps its G920, which
         // reads centred with the pedals released until the wheel is back. Then the same session carries on.
         source.reset();
+        accessories.close();
         quickLosses = platform::nowMs() - sessionStartMs < 10'000 ? quickLosses + 1 : 0;
         const std::uint64_t retryEveryMs = quickLosses == 0 ? 1000 : std::min<std::uint64_t>(30'000, 5000ULL * static_cast<std::uint64_t>(quickLosses));
-        WE_LOG_WARN(log(), "waiting for the wheel to come back (plug it in again; Stop to give up); the virtual "
+        WE_LOG_WARN(log(), "waiting for the wheel and its accessories to come back (plug it in again; Stop to give up); the virtual "
                            "devices stay, centred and released{}",
                     quickLosses > 0 ? "; it was lost again within 10 s of coming back (" + std::to_string(quickLosses) +
                                           " times in a row), so it is tried every " +
@@ -1229,10 +1410,14 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
                 break;
             }
             if (waitedMs % retryEveryMs == 0 && waitedMs >= (quickLosses > 0 ? retryEveryMs : 0) &&
-                wheelemu::service::wheelConnected(*backend, config.sourceDeviceMatch)) {
-                source = wheelemu::service::openWheel(*backend, config.sourceDeviceMatch);
+                allConnected(*backend, config)) {
+                source = wheelbri::service::openWheel(*backend, config.sourceDeviceMatch);
+                if (source != nullptr && !openAccessories(*backend, config.mapper, source->info(), accessories, true)) {
+                    source.reset();   // an accessory is not ready yet: all again next time
+                    accessories.close();
+                }
                 if (source == nullptr) {
-                    static wheelemu::logging::RateLimiter limiter(std::chrono::seconds(30));
+                    static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(30));
                     WE_LOG_WARN_LIMITED(log(), limiter, "the wheel is back but cannot be opened yet; trying again");
                 }
             }
@@ -1253,7 +1438,8 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     if (hideFilter != nullptr) {
         hideFilter->restore();
     }
-    xboxDevice.reset();
+    xboxPad.active = false;
+    xboxPad.device.reset();
     if (g920 != nullptr) {
         WE_LOG_INFO(log(), "removing the virtual G920 {}", g920->instanceId());
         g920.reset();
@@ -1265,9 +1451,9 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
 int run(const Options& options) {
     const LoadedConfig loaded = loadForRun(options);
     const bool logFileOk = startProcess(options, loaded.config.logging, true);
-    std::unique_ptr<wheelemu::service::UiHost> window;
+    std::unique_ptr<wheelbri::service::UiHost> window;
     if (options.ui) {
-        window = wheelemu::service::makeSessionWindow();
+        window = wheelbri::service::makeSessionWindow(options.configPath);
     }
     return runSession(options, loaded, logFileOk, window.get());
 }
@@ -1293,8 +1479,17 @@ std::string defaultConfigPath() {
 
 // The app: Start / Stop instead of a command line. Each Start reads the config again, so edits apply.
 int runAppMode(Options options, const bool consoleLogging) {
+    // --config wins; then the config picked in the app last time, if it is still there; then the default.
+    std::string pickedGone;
     if (options.configPath.empty()) {
-        options.configPath = defaultConfigPath();
+        const std::string picked = wheelbri::readConfigSelection(wheelbri::service::appStateFile());
+        std::error_code ec;
+        if (!picked.empty() && std::filesystem::is_regular_file(picked, ec)) {
+            options.configPath = picked;
+        } else {
+            pickedGone = picked;
+            options.configPath = defaultConfigPath();
+        }
     }
 #ifdef _WIN32
     options.virtualG920 = !options.noVirtualG920;
@@ -1303,32 +1498,51 @@ int runAppMode(Options options, const bool consoleLogging) {
     const LoadedConfig loaded = loadForRun(options);
     const bool logFileOk = startProcess(options, loaded.config.logging, consoleLogging);
 
-    wheelemu::service::AppSettings settings;
-    settings.configPath = options.configPath.empty() ? std::string("(none found: built-in defaults)") : options.configPath;
+    if (!pickedGone.empty()) {
+        WE_LOG_WARN(log(), "the config picked last time is gone ({}): using {}", pickedGone,
+                    options.configPath.empty() ? std::string("the built-in defaults") : options.configPath);
+    }
+
+    wheelbri::service::AppSettings settings;
+    settings.configPath = options.configPath;
+    if (const std::string builtIn = defaultConfigPath(); !builtIn.empty()) {
+        settings.builtInConfigFolder = std::filesystem::path(builtIn).parent_path();
+    }
+    settings.userConfigFolder = wheelbri::service::userConfigFolder();
+    settings.stateFile = wheelbri::service::appStateFile();
     settings.mode = options.virtualG920
                         ? std::string("creates the virtual G920") +
-                              (options.xboxPad != wheelemu::XboxPadMode::Off ? " and Xbox controller" : "") +
+                              (options.xboxPad != wheelbri::XboxPadMode::Off ? " and Xbox controller" : "") +
                               (options.hide ? " and hides the real wheel from games" : "")
                         : std::string("sends it to the in-game shim (dinput8.dll)");
     settings.logFolder = logFolderOf(loaded.config);
-    settings.runSession = [options, logFileOk](wheelemu::service::UiHost& host) {
-        const LoadedConfig fresh = loadForRun(options);
-        return runSession(options, fresh, logFileOk, &host);
+    settings.devicesFolder = wheelbri::service::deviceLabelsFolder();
+    settings.runSession = [options, logFileOk](wheelbri::service::UiHost& host, const std::string& configPath,
+                                               const bool xboxButtons) {
+        Options run = options;
+        run.configPath = configPath;   // the config picked in the app
+        // The Mapping tab's toggle: --xbox-pad idle stays idle when on.
+        run.xboxPad = !xboxButtons                                     ? wheelbri::XboxPadMode::Off
+                      : options.xboxPad == wheelbri::XboxPadMode::Off ? wheelbri::XboxPadMode::Buttons
+                                                                      : options.xboxPad;
+        const LoadedConfig fresh = loadForRun(run);
+        return runSession(run, fresh, logFileOk, &host);
     };
     settings.requestStop = [] { gStop = true; };
     settings.clearStop = [] { gStop = false; };
-    return wheelemu::service::runApp(settings);
+    return wheelbri::service::runApp(settings);
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
+    wheelbri::service::moveFoldersFromOldName();   // before anything reads the user's folders
     Options options;
     if (!parseOptions(argc, argv, options)) {
         return 2;
     }
-#ifdef WHEELEMU_APP
-    constexpr bool kAppBuild = true;   // wheelemu.exe: a window program, no console
+#ifdef WHEELBRI_APP
+    constexpr bool kAppBuild = true;   // wheelbri.exe: a window program, no console
 #else
     constexpr bool kAppBuild = false;
 #endif
@@ -1342,6 +1556,6 @@ int main(int argc, char** argv) {
         WE_LOG_CRITICAL(log(), "unhandled non-standard exception");
     }
     WE_LOG_INFO(log(), "exit code {}", exitCode);
-    wheelemu::logging::shutdown();
+    wheelbri::logging::shutdown();
     return exitCode;
 }

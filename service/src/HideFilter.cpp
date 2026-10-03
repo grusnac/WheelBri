@@ -1,7 +1,7 @@
 #include "HideFilter.hpp"
 
-#include "wheelemu/HidHideCli.hpp"
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/HidHideCli.hpp"
+#include "wheelbri/Logging.hpp"
 
 #ifdef _WIN32
 
@@ -17,7 +17,7 @@
 #define DN_NEED_RESTART 0x00000100
 #endif
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -26,7 +26,7 @@ const logging::Logger& log() {
     return logger;
 }
 
-constexpr wchar_t kPolicyKey[] = L"SOFTWARE\\wheelemu\\hide";
+constexpr wchar_t kPolicyKey[] = L"SOFTWARE\\wheelbri\\hide";
 
 std::string narrow(std::wstring_view wide) {
     if (wide.empty()) return {};
@@ -68,7 +68,7 @@ void letFilterCheckThisProcess() {
                                    &dacl, nullptr, &descriptor);
     if (status != ERROR_SUCCESS) {
         WE_LOG_WARN(log(), "hide: cannot read this process's security (error {}): after a crash a reused process id "
-                           "may keep the wheel hidden (wheelemu-service --unhide fixes it)", status);
+                           "may keep the wheel hidden (wheelbri-service --unhide fixes it)", status);
         return;
     }
     BYTE sid[SECURITY_MAX_SID_SIZE];
@@ -91,8 +91,8 @@ void letFilterCheckThisProcess() {
         status = GetLastError();
     }
     if (status != ERROR_SUCCESS) {
-        WE_LOG_WARN(log(), "hide: cannot let wheelemu-hide check this process (error {}): after a crash a reused "
-                           "process id may keep the wheel hidden (wheelemu-service --unhide fixes it)", status);
+        WE_LOG_WARN(log(), "hide: cannot let wheelbri-hide check this process (error {}): after a crash a reused "
+                           "process id may keep the wheel hidden (wheelbri-service --unhide fixes it)", status);
     }
     if (updated != nullptr) LocalFree(updated);
     LocalFree(descriptor);
@@ -115,7 +115,7 @@ bool writeAllowedPid(const DWORD pid) {
         RegCloseKey(key);
     }
     if (status != ERROR_SUCCESS) {
-        WE_LOG_ERROR(log(), "hide: cannot write HKLM\\SOFTWARE\\wheelemu\\hide (error {}){}", status,
+        WE_LOG_ERROR(log(), "hide: cannot write HKLM\\SOFTWARE\\wheelbri\\hide (error {}){}", status,
                      status == ERROR_ACCESS_DENIED ? ": run the service as Administrator" : "");
         return false;
     }
@@ -155,14 +155,14 @@ std::unique_ptr<HideFilter> HideFilter::find(const std::string& vendorId, const 
         if (CM_Get_DevNode_Status(&status, &problem, node, 0) == CR_SUCCESS &&
             ((status & DN_NEED_RESTART) != 0 || (status & DN_HAS_PROBLEM) != 0)) {
             if (!quiet) {
-                WE_LOG_WARN(log(), "hide: wheelemu-hide is set on {} but not running yet ({}): Windows loads it when the "
+                WE_LOG_WARN(log(), "hide: wheelbri-hide is set on {} but not running yet ({}): Windows loads it when the "
                                    "R3 restarts (unplug it and plug it in again, or restart Windows)",
                             id, (status & DN_NEED_RESTART) != 0 ? std::string("Windows wants a restart")
                                                                  : "problem code " + std::to_string(problem));
             }
             continue;
         }
-        WE_LOG_INFO(log(), "hide: wheelemu-hide is on {}", id);
+        WE_LOG_INFO(log(), "hide: wheelbri-hide is on {}", id);
         return std::unique_ptr<HideFilter>(new HideFilter(id));
     }
     return nullptr;
@@ -187,7 +187,7 @@ void HideFilter::restore() {
 
 void HideFilter::clear() {
     if (writeAllowedPid(0)) {
-        WE_LOG_INFO(log(), "hide: wheelemu-hide lets every program open the wheel again");
+        WE_LOG_INFO(log(), "hide: wheelbri-hide lets every program open the wheel again");
     }
 }
 
@@ -203,25 +203,25 @@ void HideFilter::clearStale() {
     const bool alive = process != nullptr && WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
     if (process != nullptr) CloseHandle(process);
     if (alive) {
-        WE_LOG_WARN(log(), "hide: process {} hides the wheel (another wheelemu-service?); this one may not see it", pid);
+        WE_LOG_WARN(log(), "hide: process {} hides the wheel (another wheelbri-service?); this one may not see it", pid);
         return;
     }
     WE_LOG_WARN(log(), "hide: the wheel was still hidden for process {}, which is gone (crash?): clearing", pid);
     if (!writeAllowedPid(0)) {
-        WE_LOG_ERROR(log(), "hide: the wheel stays hidden: run wheelemu-service --unhide as Administrator");
+        WE_LOG_ERROR(log(), "hide: the wheel stays hidden: run wheelbri-service --unhide as Administrator");
     }
 }
 
 HideFilter::HideFilter(std::string instanceId) : instanceId_(std::move(instanceId)) {}
 HideFilter::~HideFilter() { restore(); }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service
 
 #else  // not Windows
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
-std::unique_ptr<HideFilter> HideFilter::find(const std::string&) { return nullptr; }
+std::unique_ptr<HideFilter> HideFilter::find(const std::string&, bool) { return nullptr; }
 bool HideFilter::hide() { return false; }
 void HideFilter::restore() {}
 void HideFilter::clear() {}
@@ -229,6 +229,6 @@ void HideFilter::clearStale() {}
 HideFilter::HideFilter(std::string instanceId) : instanceId_(std::move(instanceId)) {}
 HideFilter::~HideFilter() = default;
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service
 
 #endif
