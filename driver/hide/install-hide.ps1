@@ -9,7 +9,7 @@
 # Exit codes (wheelemu-service runs this when Start finds the filter missing, and logs the code):
 #   0 installed and on the R3 (or the R3 is unplugged: it attaches when the R3 is plugged in)
 #   1 failed (the red line says why)
-#   2 installed, but not on the R3 yet: unplug and replug the R3 (or restart Windows), then run it again
+#   2 installed, but not running on the R3 yet: unplug and replug the R3 (or restart Windows), then run it again
 
 param([string]$Configuration = 'Release')
 # A 32-bit PowerShell (one started from a 32-bit prompt, e.g. some Developer PowerShell windows) sees SysWOW64,
@@ -34,9 +34,13 @@ try {
     Invoke-Pnputil @('/add-driver', $inf.FullName, '/install') 'installing wheelemu-hide' | Out-Null
     Write-Host ''
 
-    # pnputil switches a device only to the best-ranked driver, and Windows ranks its own signed input.inf above
-    # this test-signed package: the R3 keeps input.inf without the filter. So put ours on the R3's game-controller
-    # interface explicitly, as Device Manager's "Have disk" does (UpdateDriverForPlugAndPlayDevices, INSTALLFLAG_FORCE).
+    # pnputil switches a device only to the best-ranked driver, and Windows ranks its own signed input.inf, and Moza's
+    # signed driver ("MOZA Windows Driver", which Moza's software can put on the R3), above this test-signed package:
+    # the R3 keeps that driver without our filter. So put ours on the R3's game-controller interface explicitly, as Device
+    # Manager's "Have disk" does (UpdateDriverForPlugAndPlayDevices, INSTALLFLAG_FORCE).
+    # Every list below is taken with @(...) at the call: a function returning one device hands back the device itself,
+    # and Windows PowerShell 5.1 gives no .Count for a single CIM object, so a missing filter looked like "none
+    # missing" and was never forced (the R3 stayed visible to games).
     $hardwareId = 'HID\VID_346E&PID_0005&MI_02'
     function Get-R3 { @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like "$hardwareId*" }) }
     function Test-Filter($device) {
@@ -44,39 +48,63 @@ try {
         return @($filters) -contains 'WUDFRd'
     }
     function Get-Missing { @(Get-R3 | Where-Object { -not (Test-Filter $_) }) }
+    # Listed is not running: after a driver switch Windows may keep the old stack until the interface restarts
+    # (something still has it open), and says so with DN_NEED_RESTART (0x100) in the device's status. Until then
+    # the filter is not loaded and the R3 is not hidden, even though UpperFilters names it.
+    function Test-Pending($device) {
+        $status = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DevNodeStatus' -ErrorAction SilentlyContinue).Data
+        $problem = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_ProblemCode' -ErrorAction SilentlyContinue).Data
+        return (($status -band 0x100) -ne 0) -or ($problem -eq 14)   # 14: CM_PROB_NEED_RESTART
+    }
+    function Get-Pending { @(Get-R3 | Where-Object { (Test-Filter $_) -and (Test-Pending $_) }) }
 
-    $r3 = Get-R3
-    if ($r3.Count -gt 0 -and (Get-Missing).Count -gt 0) {
+    $r3 = @(Get-R3)
+    if ($r3.Count -gt 0 -and @(Get-Missing).Count -gt 0) {
+        foreach ($device in $r3) {
+            $current = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data
+            $description = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DriverDesc' -ErrorAction SilentlyContinue).Data
+            Write-Host "the R3's game-controller interface uses $current ($description) now"
+        }
         Add-Type -Namespace Wheelemu -Name NewDev -MemberDefinition @'
 [DllImport("newdev.dll", SetLastError = true, CharSet = CharSet.Unicode)]
 public static extern bool UpdateDriverForPlugAndPlayDevices(IntPtr parent, string hardwareId, string infPath,
                                                             uint flags, out bool rebootRequired);
 '@
         $reboot = $false
-        Write-Host "putting wheelemu-hide on $hardwareId (Windows' own driver ranks higher, so it is forced)..."
+        Write-Host "putting wheelemu-hide on $hardwareId (its current driver ranks higher, so ours is forced)..."
         if (-not [Wheelemu.NewDev]::UpdateDriverForPlugAndPlayDevices([IntPtr]::Zero, $hardwareId, $inf.FullName, 1, [ref]$reboot)) {
             $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
             Stop-WithError "could not put the filter on the R3: $((New-Object ComponentModel.Win32Exception $code).Message) ($code)"
         }
-        if ($reboot) { Write-Host 'Windows asks for a restart before the filter is active.' -ForegroundColor Yellow }
+        if ($reboot) { Write-Host 'Windows wants the R3 restarted before the filter runs: restarting it below.' }
         # The R3's interface restarts with the filter: wait for it (up to 15 s) rather than a fixed pause.
-        for ($waited = 0; $waited -lt 15 -and (Get-Missing).Count -gt 0; $waited++) { Start-Sleep -Seconds 1 }
+        for ($waited = 0; $waited -lt 15 -and @(Get-Missing).Count -gt 0; $waited++) { Start-Sleep -Seconds 1 }
     }
 
+    # Installed but not loaded: restart the R3's interface ourselves (what unplugging it does), instead of asking
+    # for a restart of Windows. It fails while a program holds the R3 in a way Windows cannot interrupt.
+    foreach ($device in @(Get-Pending)) {
+        Write-Host "restarting $($device.InstanceId) so Windows loads the filter..."
+        & pnputil /restart-device "$($device.InstanceId)" | ForEach-Object { Write-Host $_ }
+        Write-Host "pnputil exit code $LASTEXITCODE"
+    }
+    for ($waited = 0; $waited -lt 15 -and @(Get-Pending).Count -gt 0; $waited++) { Start-Sleep -Seconds 1 }
+
     # Check what the R3's game-controller interface runs with now.
-    $r3 = Get-R3
+    $r3 = @(Get-R3)
     foreach ($device in $r3) {
         $filters = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_UpperFilters' -ErrorAction SilentlyContinue).Data
         $driver = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data
-        Write-Host "$($device.InstanceId): status $($device.Status), driver $driver, upper filters: $($filters -join ', ')"
+        $pending = if (Test-Pending $device) { ', waiting for a restart (filter not running yet)' } else { '' }
+        Write-Host "$($device.InstanceId): status $($device.Status), driver $driver, upper filters: $($filters -join ', ')$pending"
     }
     Write-Host ''
     if ($r3.Count -eq 0) {
         Write-Host 'The R3 is not plugged in: the filter attaches when it is.' -ForegroundColor Yellow
         $exitCode = 0
-    } elseif ((Get-Missing).Count -gt 0) {
-        Write-Host ('The filter is installed but not on the R3 yet: unplug the R3, plug it in again (or restart ' +
-                    'Windows), and run this once more.') -ForegroundColor Red
+    } elseif (@(Get-Missing).Count -gt 0 -or @(Get-Pending).Count -gt 0) {
+        Write-Host ('The filter is installed but not running on the R3 yet: unplug the R3 and plug it in again (or ' +
+                    'restart Windows); the next Start in the app then hides it.') -ForegroundColor Red
         $exitCode = 2
     } else {
         Write-Host 'Installed. wheelemu-service --virtual-g920 now hides the R3 with it.' -ForegroundColor Green

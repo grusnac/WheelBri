@@ -9,8 +9,13 @@
 #include <aclapi.h>
 #include <cfgmgr32.h>
 
+#include <string>
 #include <string_view>
 #include <vector>
+
+#ifndef DN_NEED_RESTART
+#define DN_NEED_RESTART 0x00000100
+#endif
 
 namespace wheelemu::service {
 
@@ -119,7 +124,7 @@ bool writeAllowedPid(const DWORD pid) {
 
 }  // namespace
 
-std::unique_ptr<HideFilter> HideFilter::find(const std::string& vendorId) {
+std::unique_ptr<HideFilter> HideFilter::find(const std::string& vendorId, const bool quiet) {
     ULONG size = 0;
     const ULONG flags = CM_GETIDLIST_FILTER_ENUMERATOR | CM_GETIDLIST_FILTER_PRESENT;
     if (CM_Get_Device_ID_List_SizeW(&size, L"HID", flags) != CR_SUCCESS || size == 0) return nullptr;
@@ -138,12 +143,27 @@ std::unique_ptr<HideFilter> HideFilter::find(const std::string& vendorId) {
         ULONG bytes = sizeof(filters);
         ULONG type = 0;
         if (CM_Get_DevNode_Registry_PropertyW(node, CM_DRP_UPPERFILTERS, &type, filters, &bytes, 0) != CR_SUCCESS) continue;
+        bool listed = false;
         for (const std::string& filter : multiSz(filters, bytes / sizeof(wchar_t))) {
-            if (hidhide::equalsIgnoreCase(filter, "WUDFRd")) {
-                WE_LOG_INFO(log(), "hide: wheelemu-hide is on {}", id);
-                return std::unique_ptr<HideFilter>(new HideFilter(id));
-            }
+            listed = listed || hidhide::equalsIgnoreCase(filter, "WUDFRd");
         }
+        if (!listed) continue;
+        // Listed in the registry is not running: after the driver is switched, Windows may load the new stack only
+        // when the interface restarts (something still had it open). Until then nothing is hidden.
+        ULONG status = 0;
+        ULONG problem = 0;
+        if (CM_Get_DevNode_Status(&status, &problem, node, 0) == CR_SUCCESS &&
+            ((status & DN_NEED_RESTART) != 0 || (status & DN_HAS_PROBLEM) != 0)) {
+            if (!quiet) {
+                WE_LOG_WARN(log(), "hide: wheelemu-hide is set on {} but not running yet ({}): Windows loads it when the "
+                                   "R3 restarts (unplug it and plug it in again, or restart Windows)",
+                            id, (status & DN_NEED_RESTART) != 0 ? std::string("Windows wants a restart")
+                                                                 : "problem code " + std::to_string(problem));
+            }
+            continue;
+        }
+        WE_LOG_INFO(log(), "hide: wheelemu-hide is on {}", id);
+        return std::unique_ptr<HideFilter>(new HideFilter(id));
     }
     return nullptr;
 }

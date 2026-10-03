@@ -140,7 +140,7 @@ void ensureHideFilter(const std::string& vendor, wheelemu::service::WheelBackend
     const std::filesystem::path powershell =
         std::filesystem::path(systemRoot != nullptr ? systemRoot : "C:\\Windows") / "System32" / "WindowsPowerShell" /
         "v1.0" / "powershell.exe";
-    WE_LOG_INFO(log(), "hide: wheelemu-hide is not on the wheel yet: installing it ({}); the wheel restarts once",
+    WE_LOG_INFO(log(), "hide: wheelemu-hide is not running on the wheel yet: installing it ({}); the wheel restarts once",
                 script.string());
     std::string error;
     const auto child = platform::ChildProcess::start(
@@ -177,13 +177,14 @@ void ensureHideFilter(const std::string& vendor, wheelemu::service::WheelBackend
     }
     // The wheel comes back with the filter a moment later.
     for (int waited = 0; waited < 15'000 && !gStop; waited += 250) {
-        if (wheelemu::service::HideFilter::find(vendor) != nullptr) {
+        if (wheelemu::service::HideFilter::find(vendor, /*quiet=*/true) != nullptr) {
             WE_LOG_INFO(log(), "hide: wheelemu-hide installed and on the wheel");
             return;
         }
         platform::sleepMs(250);
     }
-    WE_LOG_ERROR(log(), "hide: installed, but the filter is not on the wheel yet: unplug the R3 and plug it in again");
+    WE_LOG_ERROR(log(), "hide: installed, but the filter is not running on the wheel yet: unplug the R3 and plug it in "
+                        "again, or restart Windows");
 #else
     (void)vendor;
     (void)backend;
@@ -1148,9 +1149,8 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     if (g920 != nullptr && options.hide) {
         hideFilter = wheelemu::service::HideFilter::find(wheelVendorId(config.sourceDeviceMatch));
         if (hideFilter == nullptr) {
-            WE_LOG_ERROR(log(), "the real wheel is NOT hidden: wheelemu-hide is not on it (install it once, as "
-                                "Administrator: driver\\hide\\install-hide.ps1, or scripts/make/drivers.sh -Only "
-                                "hide -Install); games see it next to the G920 and may take it");
+            WE_LOG_ERROR(log(), "the real wheel is NOT hidden: wheelemu-hide is not running on it (the hide lines above "
+                                "say why); games see it next to the G920 and may take it");
         } else if (!hideFilter->hide()) {
             hideFilter.reset();
         }

@@ -7,7 +7,7 @@ This file guides Claude when working in this repository.
 - After every change, finish with **how to build it** and **how to test it** (what to run, what to look for,
   what a failure looks like), even when the change needs no rebuild (say so).
 - Build and test steps use the scripts in `scripts/make/` (`build.sh`, `rebuild.sh`, `test.sh`, `check.sh`,
-  `ui.sh`, `app.sh`, `shim.sh`, `bridge.sh`, `drivers.sh`, `all.sh`; see `scripts/make/README.md`) as the shortcut
+  `ui.sh`, `app.sh`, `shim.sh`, `bridge.sh`, `drivers.sh`, `all.sh`, `package.sh`; see `scripts/make/README.md`) as the shortcut
   next to the full commands (next rule). When a new workflow keeps needing the same commands, add a script there
   (sourcing `common.sh`) and list it in that README.
 - **Every build or test step comes in two forms**: first the **full command(s)** that will run (exactly what the
@@ -80,7 +80,7 @@ Xlib; skipped with a warning without libx11-dev). No SDL or other third-party li
 
 The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `build.sh` (incremental,
 configures the first time), `rebuild.sh` (deletes `build/`, full rebuild), `test.sh [filter]`, `check.sh` (before a
-commit), `ui.sh [config]`, `app.sh [--no-start]`, `shim.sh [--off] <game folder>`, `bridge.sh`, `drivers.sh [-Install]`, `all.sh [--clean]`.
+commit), `ui.sh [config]`, `app.sh [--no-start]`, `shim.sh [--off] <game folder>`, `bridge.sh`, `drivers.sh [-Install]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer).
 The raw commands they run:
 
 Windows, MSYS2 UCRT64, from the repo root. Configure (first time only):
@@ -243,11 +243,15 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `hide/` (`wheelemu-hide`): upper filter on the R3's HID interface (`HID\VID_346E&PID_0005&MI_02`); only the
     process in `AllowedPid` may open it. Replaces HidHide. Fails open: a missing or unreadable setting, or an
     `AllowedPid` whose process is gone (or whose start time differs from `AllowedPidStart`: a reused id), hides
-    nothing, so a crash never leaves the R3 hidden.
+    nothing, so a crash never leaves the R3 hidden. `HideFilter::find` counts the filter only when it is running:
+    `WUDFRd` in UpperFilters *and* no `DN_NEED_RESTART` / problem on the devnode (after a forced driver switch Windows
+    may keep the old stack until the R3 restarts; `install-hide.ps1` then runs `pnputil /restart-device`).
   - Install scripts share `driver/common.ps1` (admin check, pnputil exit codes 0/259/3010, finding installed
     packages without depending on pnputil's language). Each fails with a red line and exit 1; `install-hide.ps1`
-    exits 2 when the filter is installed but not on the R3 yet. Driver threads close their sockets only after
-    joining, and repeating socket errors are logged once a minute.
+    exits 2 when the filter is installed but not on the R3 yet. It forces the filter's package onto the R3 when
+    another driver ranks higher (Windows' input.inf, or Moza's own "MOZA Windows Driver"). In these scripts wrap
+    function results in `@(...)` before `.Count`: Windows PowerShell 5.1 gives no `.Count` for a single CIM object.
+    Driver threads close their sockets only after joining, and repeating socket errors are logged once a minute.
   - `xusb/` (`wheelemu-xusb`): the virtual Xbox 360 controller's XInput side, fed from 41332 (games' Xbox prompts).
     Its HID side, which joy.cpl lists as "Controller (XBOX 360 For Windows)" as for a real one, is a second software
     device (`wheelemu\XBOXHID`) served by `wheelemu-g920` from 41333 (`core/HidXbox360`); `VirtualXboxPad` creates both.
@@ -262,7 +266,23 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
   raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. `UhidG920` holds the uhid protocol with no file descriptors so
   `UhidG920Test` covers it; `main.cpp` is the fd/UDP loop.
-- `scripts/make/`: the build scripts (above); `common.sh` holds the shared helpers.
+- `scripts/make/`: the build scripts (above); `common.sh` holds the shared helpers. `package.ps1` assembles the
+  Windows installer package in `dist/windows/` (folder, zip, `WheelBri-<version>-setup.exe` made with IExpress,
+  which is part of Windows); the version comes from `project(VERSION)` in `CMakeLists.txt`.
+- `installer/`: what the package carries besides the build outputs. The product is called **WheelBri** (as the repo
+  folder) everywhere the user sees it: install folder, Start menu, Settings > Apps, window titles, Setup.exe; internal
+  names stay `wheelemu` (exe names, log and ProgramData folders, registry keys, drivers). `install.ps1` asks nothing
+  (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older
+  `%ProgramFiles%\wheelemu` install, runs the three driver install scripts, shortcuts, Settings > Apps entry, Start
+  menu folder with the app and "Uninstall WheelBri", closes itself 10 s after success, log in
+  `C:\ProgramData\wheelemu\logs\wheelemu-install-<date>.log`), `uninstall.ps1` + `Uninstall.cmd` (the folder from
+  Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelemu.exe` and no `install.ps1`, i.e. never a
+  package; runs from a `%TEMP%` copy; from the package it cleans up an install whose folder is gone), `Setup.cmd`
+  (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), `README.txt` (for the end user). The
+  installed app runs the driver path (virtual G920, Xbox controller, R3 hidden on every Start); the shim ships in
+  `shim\` as an extra only. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
+  driver scripts and the app's `ensureHideFilter` look there. Only Windows' own tools: no third-party installer.
+  When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.
 - `scripts/`: `wheelemu.sh` (Windows, MSYS2 UCRT64: starts the service with `--ui` and the bridge as
   Administrator, stops both on Enter; `--build`, `--no-ui`, `--xbox-pad`, `--config`); `telemetry_summary.py`
   (reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelemu.sh`, udev rules,

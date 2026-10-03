@@ -12,8 +12,10 @@ namespace wheelemu::service {
 // Windows only; elsewhere find() returns null.
 class HideFilter {
 public:
-    // Null when no wheel of `vendorId` ("346E") has the filter (not installed, or the wheel is unplugged).
-    [[nodiscard]] static std::unique_ptr<HideFilter> find(const std::string& vendorId);
+    // Null when no wheel of `vendorId` ("346E") has the filter running: not installed, the wheel unplugged, or
+    // installed but not loaded yet (Windows loads it when the wheel's interface restarts: replug or restart Windows).
+    // `quiet`: no log line for the last case (for polling).
+    [[nodiscard]] static std::unique_ptr<HideFilter> find(const std::string& vendorId, bool quiet = false);
     ~HideFilter();
 
     HideFilter(const HideFilter&) = delete;
