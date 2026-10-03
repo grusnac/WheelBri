@@ -60,12 +60,12 @@ makes them visible again when it stops. `--no-hide` leaves the rig visible; afte
 ## Hiding the rig: wheelbri-hide (`driver/hide`)
 
 Our replacement for HidHide: a UMDF 2 **upper filter** on the game-controller interfaces of each device of the
-active rig: the HID collections whose compatible ids say joystick, gamepad or multi-axis controller (usage page 1,
-usages 4, 5, 8; the Moza R3 is multi-axis and has no `HID_DEVICE_SYSTEM_GAME`) or simulation control (page 2).
-Moza Pit House uses the other interfaces. No device ids are in the driver or the scripts: the INF matches any HID
-collection (`HID_DEVICE`), which Windows never picks by itself (input.inf matches better, or as well with a newer
-date: our DriverVer is fixed at 01/01/2001; with today's date Windows once put it on the virtual G920), and
-`install-hide.ps1 -Devices vid:pid,...` puts it on exactly the devices it is given (SetupAPI `DiInstallDevice`).
+active rig: exactly the HID interfaces DirectInput lists as game controllers (what games see; Moza Pit House uses
+the other interfaces). No device ids are in the driver or the scripts: the INF's only hardware id,
+`WHEELBRI_HIDE_FILTER`, belongs to no device, so Windows never puts it on anything by itself (when it matched game
+controllers' compatible ids, Windows put it on the virtual G920), and `install-hide.ps1 -Devices` puts it on exactly
+the interfaces it is given (HID instance ids, or `vid:pid` by hand), taking it from the INF's models for the class
+like Device Manager's "Have disk" (SetupAPI `DiInstallDevice`).
 The app passes the rig's devices at Start; the virtual G920 (046d:c262) is never touched, and the filter never
 hides it even if it ends up on it. When a program opens a filtered interface, the filter checks
 `HKLM\SOFTWARE\wheelbri\hide` `AllowedPid`: while the service runs it holds the service's process id and everyone

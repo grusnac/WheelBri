@@ -1,5 +1,9 @@
 #include "HideFilter.hpp"
 
+#ifdef _WIN32
+#include "DinputDevice.hpp"
+#endif
+
 #include "wheelbri/HidHideCli.hpp"
 #include "wheelbri/Logging.hpp"
 
@@ -122,13 +126,25 @@ bool writeAllowedPid(const DWORD pid) {
     return true;
 }
 
-// HID devices' registry strings (REG_MULTI_SZ) by CM_DRP_* property; empty if not readable.
-std::vector<std::string> devNodeStrings(const DEVINST node, const ULONG property) {
+// Device properties (the same Device Manager and Get-PnpDeviceProperty show), defined here rather than through
+// <devpkey.h> and INITGUID.
+constexpr DEVPROPKEY kUpperFilters{{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 20};
+constexpr DEVPROPKEY kDriverDesc{{0xa8b865dd, 0x2e3d, 0x4094, {0xad, 0x97, 0xe5, 0x93, 0xa7, 0x0c, 0x75, 0xd6}}, 4};
+
+// A device's string or string-list property; empty if it has none.
+std::vector<std::string> devNodeStrings(const DEVINST node, const DEVPROPKEY& key) {
     wchar_t buffer[2048] = {};
-    ULONG bytes = sizeof(buffer);
-    ULONG type = 0;
-    if (CM_Get_DevNode_Registry_PropertyW(node, property, &type, buffer, &bytes, 0) != CR_SUCCESS) return {};
-    return multiSz(buffer, bytes / sizeof(wchar_t));
+    ULONG bytes = sizeof(buffer) - 2 * sizeof(wchar_t);   // room for the list's closing zeros
+    DEVPROPTYPE type = 0;
+    if (CM_Get_DevNode_PropertyW(node, &key, &type, reinterpret_cast<PBYTE>(buffer), &bytes, 0) != CR_SUCCESS) return {};
+    if (type != DEVPROP_TYPE_STRING && type != DEVPROP_TYPE_STRING_LIST) return {};
+    return multiSz(buffer, bytes / sizeof(wchar_t) + 1);
+}
+
+std::string joined(const std::vector<std::string>& items) {
+    std::string text;
+    for (const std::string& item : items) text += (text.empty() ? "" : ", ") + item;
+    return text.empty() ? "none" : text;
 }
 
 bool listsIgnoreCase(const std::vector<std::string>& items, std::string_view wanted) {
@@ -154,14 +170,11 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
     std::vector<Check> checks;
     for (const Target& target : targets) checks.push_back({target, State::NotConnected, {}, "not connected", {}});
 
-    ULONG size = 0;
-    const ULONG flags = CM_GETIDLIST_FILTER_ENUMERATOR | CM_GETIDLIST_FILTER_PRESENT;
-    std::vector<std::string> present;
-    if (CM_Get_Device_ID_List_SizeW(&size, L"HID", flags) == CR_SUCCESS && size > 0) {
-        std::vector<wchar_t> ids(size);
-        if (CM_Get_Device_ID_ListW(L"HID", ids.data(), size, flags) == CR_SUCCESS) present = multiSz(ids.data(), ids.size());
-    }
-    for (const std::string& id : present) {
+    // The game-controller interfaces are exactly what DirectInput lists (what games see), whatever HID usage the
+    // device reports: the Moza R3, a multi-axis controller, has no compatible id that says "game controller" and the
+    // registry does not give compatible ids here. A vendor tool's other interfaces are never listed.
+    for (const std::string& path : dinput::gameControllerPaths()) {
+        const std::string id = hidhide::instanceIdOfHidPath(path);
         const auto usb = hidhide::hidDeviceIdOf(id);
         if (!usb) continue;
         Check* entry = nullptr;
@@ -171,26 +184,22 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
         if (entry == nullptr) continue;
         DEVINST node = 0;
         const std::wstring wide(id.begin(), id.end());   // device instance ids are ASCII
-        if (CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) continue;
-        // Only the game-controller interfaces (what DirectInput and games open); a vendor tool keeps the others.
-        const std::vector<std::string> compatible = devNodeStrings(node, CM_DRP_COMPATIBLEIDS);
-        if (!hidhide::isGameController(compatible)) {
-            std::string ids;
-            for (const std::string& c : compatible) ids += (ids.empty() ? "" : " ") + c;
-            entry->otherInterfaces.push_back(id + " [" + ids + "]");
+        if (CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+            entry->otherInterfaces.push_back(id + " (DirectInput lists it, but Windows does not find its device)");
             continue;
         }
         entry->interfaces.push_back(id);
         State state = State::Ready;
         std::string detail;
-        // Ours: the reflector in its upper filters (any user-mode filter shows as WUDFRd) and our INF's device
+        // Ours: the reflector in its upper filters (any user-mode filter shows as WUDFRd) and our INF's driver
         // description ("... (wheelbri: hidden from games ...)"; "wheelemu" before the rename).
-        const std::vector<std::string> description = devNodeStrings(node, CM_DRP_DEVICEDESC);
+        const std::vector<std::string> description = devNodeStrings(node, kDriverDesc);
+        const std::vector<std::string> filters = devNodeStrings(node, kUpperFilters);
         const bool ourDriver = !description.empty() && (hidhide::containsIgnoreCase(description.front(), "wheelbri") ||
                                                         hidhide::containsIgnoreCase(description.front(), "wheelemu"));
-        if (!listsIgnoreCase(devNodeStrings(node, CM_DRP_UPPERFILTERS), "WUDFRd") || !ourDriver) {
+        if (!listsIgnoreCase(filters, "WUDFRd") || !ourDriver) {
             state = State::NotInstalled;
-            detail = "no wheelbri-hide on " + id;
+            detail = "no wheelbri-hide on " + id + ": driver '" + joined(description) + "', upper filters " + joined(filters);
         } else {
             // Listed in the registry is not running: after the driver is switched, Windows may load the new stack
             // only when the interface restarts (something still had it open). Until then nothing is hidden.
@@ -227,8 +236,7 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
             if (c.interfaces.empty() && !c.otherInterfaces.empty()) {
                 std::string list;
                 for (const std::string& i : c.otherInterfaces) list += (list.empty() ? "" : ", ") + i;
-                WE_LOG_WARN(log(), "hide: {} is connected, but none of its HID collections is a game controller: {}",
-                            what, list);
+                WE_LOG_WARN(log(), "hide: {}: {}", what, list);
             }
         }
     }

@@ -44,6 +44,11 @@ namespace wheelbri::hidhide {
 // (usage page 2). A vendor tool's collections (vendor-defined pages) are not.
 [[nodiscard]] bool isGameController(const std::vector<std::string>& compatibleIds);
 
+// The device instance id behind a HID interface path as DirectInput reports it (DIPROP_GUIDANDPATH):
+// "\\?\hid#vid_346e&pid_0005&mi_02#8&8052f69&0&0000#{4d1e55b2-...}" -> "HID\VID_346E&PID_0005&MI_02\8&8052F69&0&0000"
+// (upper case; Windows compares them ignoring case). Empty if it is not a HID path.
+[[nodiscard]] std::string instanceIdOfHidPath(std::string_view path);
+
 // "346e:0004" (the spelling install-hide.ps1 -Devices takes).
 [[nodiscard]] std::string deviceIdText(const DeviceId& id);
 

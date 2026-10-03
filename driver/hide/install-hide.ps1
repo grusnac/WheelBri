@@ -4,16 +4,18 @@
 # certificate made on this PC by the WDK build (WDKTestCert), which this script adds to the machine's trusted Root and
 # TrustedPublisher stores.
 #
-# Which devices: only the ones given (the app gives the active rig's, the Wheel setup tab's), by USB ids. Nothing in
-# this script or the INF names a particular wheel: the INF matches any HID collection (HID_DEVICE), and Windows never
-# picks it by itself (its own input.inf matches better, or as well with a newer date: ours is stamped 2001), so only
-# the game-controller collections of the devices given here get it, the way Device Manager's "Have disk" puts a driver
-# on one device (DiInstallDevice). Without -Devices (the installer) it replaces any older copy, which takes it off
-# every device; the app puts it back at the next Start.
+# Which devices: only the ones given. The app gives the exact interfaces: the HID instance ids of the active rig's
+# game controllers as DirectInput lists them. By hand, USB ids work too (their game-controller interfaces, by
+# compatible ids). Nothing in this script or the INF names a particular wheel: the INF's only hardware id,
+# WHEELBRI_HIDE_FILTER, belongs to no device, so Windows never picks it by itself; this script takes it from the
+# INF's models for the device's class (SPDIT_CLASSDRIVER) and puts it on each interface given, the way Device
+# Manager's "Have disk" does without "Show compatible hardware" (DiInstallDevice). Without -Devices (the installer)
+# it replaces any older copy, which takes it off every device; the app puts it back at the next Start.
 #
 #   install-hide.ps1                                     adds the package to Windows only (the installer: no rig yet)
 #   install-hide.ps1 -Devices 346e:0004,30b7:1001        ...and puts the filter on those devices' game-controller
 #                                                        interfaces (all of them: a device may have several)
+#   install-hide.ps1 -Devices "HID\VID_346E&PID_0005&MI_02\8&8052F69&0&0000"   ...on exactly that interface
 #   install-hide.ps1 -Devices 346e:0004 -Configuration Debug
 #
 # Exit codes (wheelbri-service runs this at Start when a rig device has no filter, and logs the code):
@@ -50,10 +52,19 @@ try {
     # "346e:0004,30b7:1001" (one argument from the app) or several arguments: the USB ids, checked.
     $wanted = @()
     foreach ($text in @($Devices | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
-        if ($text -notmatch '^([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})$') {
-            Stop-WithError "-Devices: '$text' is not a USB id like 346e:0004"
+        # The app gives the exact interfaces (HID instance ids of the game controllers DirectInput lists).
+        if ($text -match '^HID\\VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})') {
+            if ($Matches[1] -eq '046D' -and $Matches[2] -eq 'C262') {
+                Write-Host "skipping ${text}: that is the virtual G920 games are meant to see" -ForegroundColor Yellow
+                continue
+            }
+            $wanted += [pscustomobject]@{ Vendor = $Matches[1].ToUpper(); Product = $Matches[2].ToUpper(); Text = $text; Instance = $text }
+            continue
         }
-        $id = [pscustomobject]@{ Vendor = $Matches[1].ToUpper(); Product = $Matches[2].ToUpper(); Text = $text.ToLower() }
+        if ($text -notmatch '^([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})$') {
+            Stop-WithError "-Devices: '$text' is not a USB id like 346e:0004 or a HID instance id like HID\VID_346E&PID_0004&MI_02\..."
+        }
+        $id = [pscustomobject]@{ Vendor = $Matches[1].ToUpper(); Product = $Matches[2].ToUpper(); Text = $text.ToLower(); Instance = '' }
         if ($id.Vendor -eq '046D' -and $id.Product -eq 'C262') {
             Write-Host "skipping $($id.Text): that is the virtual G920 games are meant to see" -ForegroundColor Yellow
             continue
@@ -72,7 +83,7 @@ try {
     }
     $inf = Find-BuiltPackage $PSScriptRoot 'wheelbri-hide' $Configuration
     Add-PackageCertificate $inf 'wheelbri-hide'
-    # Added to Windows' driver store only (no /install): it never wins on any device by itself (old DriverVer date).
+    # Added to Windows' driver store only (no /install): no device has its hardware id, so it never goes on by itself.
     Invoke-Pnputil @('/add-driver', $inf.FullName) 'adding wheelbri-hide to Windows' | Out-Null
     Write-Host ''
     if ($wanted.Count -eq 0) {
@@ -93,6 +104,7 @@ try {
             return $false
         }
         function Get-Interfaces($id) {
+            if ($id.Instance) { return @(Get-PnpDevice -InstanceId $id.Instance -PresentOnly -ErrorAction SilentlyContinue) }
             @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
                 Where-Object { $_.InstanceId -like "HID\VID_$($id.Vendor)&PID_$($id.Product)*" } |
                 Where-Object {
@@ -130,7 +142,7 @@ namespace Wheelbri {
 public static class HideInstall {
     const uint DI_ENUMSINGLEINF = 0x00010000;
     const uint DI_FLAGSEX_ALLOWEXCLUDEDDRVS = 0x00000800;
-    const uint SPDIT_COMPATDRIVER = 2;
+    const uint SPDIT_CLASSDRIVER = 1;   // every model of the INF for the device's class, whatever ids it matches
 
     [StructLayout(LayoutKind.Sequential)]
     struct SP_DEVINFO_DATA { public uint cbSize; public Guid ClassGuid; public uint DevInst; public IntPtr Reserved; }
@@ -192,17 +204,17 @@ public static class HideInstall {
             parameters.Flags |= DI_ENUMSINGLEINF;
             parameters.FlagsEx |= DI_FLAGSEX_ALLOWEXCLUDEDDRVS;
             if (!SetupDiSetDeviceInstallParamsW(set, ref device, ref parameters)) return Failed("SetupDiSetDeviceInstallParams");
-            if (!SetupDiBuildDriverInfoList(set, ref device, SPDIT_COMPATDRIVER)) return Failed("SetupDiBuildDriverInfoList");
+            if (!SetupDiBuildDriverInfoList(set, ref device, SPDIT_CLASSDRIVER)) return Failed("SetupDiBuildDriverInfoList");
             try {
                 SP_DRVINFO_DATA driver = new SP_DRVINFO_DATA();
                 driver.cbSize = (uint)Marshal.SizeOf(typeof(SP_DRVINFO_DATA));
-                if (!SetupDiEnumDriverInfoW(set, ref device, SPDIT_COMPATDRIVER, 0, ref driver)) {
-                    return "the package does not fit this device (it is not a game controller?): " + Failed("SetupDiEnumDriverInfo");
+                if (!SetupDiEnumDriverInfoW(set, ref device, SPDIT_CLASSDRIVER, 0, ref driver)) {
+                    return "the package does not fit this device (not a HID device?): " + Failed("SetupDiEnumDriverInfo");
                 }
                 if (!DiInstallDevice(IntPtr.Zero, set, ref device, ref driver, 0, out reboot)) return Failed("DiInstallDevice");
                 return "";
             } finally {
-                SetupDiDestroyDriverInfoList(set, ref device, SPDIT_COMPATDRIVER);
+                SetupDiDestroyDriverInfoList(set, ref device, SPDIT_CLASSDRIVER);
             }
         } finally {
             SetupDiDestroyDeviceInfoList(set);

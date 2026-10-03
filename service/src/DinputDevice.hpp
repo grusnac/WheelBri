@@ -16,6 +16,7 @@
 #include <dinput.h>
 
 #include <string>
+#include <vector>
 
 namespace wheelbri::service::dinput {
 
@@ -27,6 +28,10 @@ namespace wheelbri::service::dinput {
 
 // A new device object for the attached game controller with this HID path (case-insensitive), or nullptr.
 [[nodiscard]] IDirectInputDevice8W* createByPath(IDirectInput8W* dinput, const std::string& path);
+
+// The HID paths of every attached game controller DirectInput lists (what games see), through a DirectInput
+// object of its own. Empty if DirectInput cannot be started.
+[[nodiscard]] std::vector<std::string> gameControllerPaths();
 
 // A hidden message-only window: DirectInput's SetCooperativeLevel needs one.
 [[nodiscard]] HWND createHelperWindow(const wchar_t* title);

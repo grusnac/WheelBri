@@ -273,12 +273,14 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
     `StatePacket`, `FfbPacket` sources. Logs to `C:\ProgramData\wheelbri\logs\wheelbri-driver-<date>.log`.
-  - `hide/` (`wheelbri-hide`): upper filter on the game-controller interfaces of each rig device
-    (`hidhide::isGameController`: compatible ids for usage page 1 usages 4, 5, 8, or page 2; the R3 is a multi-axis
-    controller without `HID_DEVICE_SYSTEM_GAME`); device-agnostic, no ids in the INF or driver. The INF matches
-    `HID_DEVICE` and its DriverVer is fixed at 01/01/2001 (the .vcxproj) so Windows never picks it by itself (with
-    today's date it went onto the virtual G920; the driver also never hides 046D:C262); `install-hide.ps1 -Devices vid:pid,...` puts it on those devices with SetupAPI
-    `DiInstallDevice` (inline C#). Only the process in `AllowedPid` may open a filtered interface. Replaces
+  - `hide/` (`wheelbri-hide`): upper filter on the game-controller interfaces of each rig device: exactly the HID
+    interfaces DirectInput lists as game controllers (`HideFilter::check` via `dinput::gameControllerPaths`,
+    `hidhide::instanceIdOfHidPath`; not compatible ids: the R3 is a multi-axis controller without
+    `HID_DEVICE_SYSTEM_GAME`, and the registry gave none). Device-agnostic, no ids in the INF or driver. The INF's
+    only hardware id, `WHEELBRI_HIDE_FILTER`, belongs to no device, so Windows never puts it on anything by itself
+    (when it matched compatible ids it went onto the virtual G920; the driver also never hides 046D:C262; DriverVer
+    is fixed at 01/01/2001). `install-hide.ps1 -Devices <instance ids or vid:pid>` puts it on those interfaces with
+    SetupAPI `DiInstallDevice`, taking it from the INF's class driver list (`SPDIT_CLASSDRIVER`, inline C#). Only the process in `AllowedPid` may open a filtered interface. Replaces
     HidHide. Fails open: a missing or unreadable setting, or an `AllowedPid` whose process is gone (or whose start
     time differs from `AllowedPidStart`: a reused id), hides nothing, so a crash never leaves anything hidden.
     `HideFilter::check` counts the filter only when it is ours and running: `WUDFRd` in UpperFilters, our INF's

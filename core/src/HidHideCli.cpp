@@ -230,6 +230,20 @@ bool isGameController(const std::vector<std::string>& compatibleIds) {
     return false;
 }
 
+std::string instanceIdOfHidPath(std::string_view path) {
+    constexpr std::string_view kPrefix = "\\\\?\\";
+    if (path.size() >= kPrefix.size() && path.substr(0, kPrefix.size()) == kPrefix) path.remove_prefix(kPrefix.size());
+    if (path.size() < 4 || !equalsIgnoreCase(path.substr(0, 4), "hid#")) return {};
+    const std::size_t guid = path.rfind("#{");
+    if (guid != std::string_view::npos) path = path.substr(0, guid);
+    std::string id;
+    id.reserve(path.size());
+    for (const char c : path) {
+        id += c == '#' ? '\\' : static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    return id;
+}
+
 bool mayHide(const DeviceId& id) {
     return !id.empty() && !(id.vendorId == 0x046D && id.productId == 0xC262);
 }

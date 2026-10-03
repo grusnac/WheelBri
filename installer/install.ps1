@@ -25,10 +25,16 @@
 # Everything is also written to C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log.
 
 param(
-    [string]$InstallDir = (Join-Path $env:ProgramFiles 'WheelBri'),
+    # Default: the 64-bit Program Files. Not $env:ProgramFiles: in a 32-bit PowerShell (MSYS2 can start one) that is
+    # "Program Files (x86)", and it was passed on to the 64-bit run below.
+    [string]$InstallDir = '',
     [switch]$NoDesktopShortcut,
     [switch]$Quiet
 )
+
+if (-not $InstallDir) {
+    $InstallDir = Join-Path $(if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }) 'WheelBri'
+}
 
 # A 32-bit PowerShell sees SysWOW64, where pnputil and the 64-bit driver tools are missing: run again in 64-bit.
 if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {

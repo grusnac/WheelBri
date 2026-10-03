@@ -74,6 +74,14 @@ TEST(HidHideCli, TellsGameControllersFromOtherCollections) {
     EXPECT_FALSE(isGameController({}));
 }
 
+TEST(HidHideCli, TurnsDirectInputPathsIntoInstanceIds) {
+    EXPECT_EQ(instanceIdOfHidPath(R"(\\?\hid#vid_346e&pid_0005&mi_02#8&8052f69&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})"),
+              R"(HID\VID_346E&PID_0005&MI_02\8&8052F69&0&0000)");
+    EXPECT_EQ(instanceIdOfHidPath(R"(\\?\HID#VID_346E&PID_0004#7&1&0&0000)"), R"(HID\VID_346E&PID_0004\7&1&0&0000)");
+    EXPECT_EQ(instanceIdOfHidPath(R"(\\?\usb#vid_346e&pid_0005#x#{a5dcbf10-6530-11d2-901f-00c04fb951ed})"), "");
+    EXPECT_EQ(instanceIdOfHidPath(""), "");
+}
+
 TEST(HidHideCli, NeverHidesTheVirtualG920) {
     EXPECT_TRUE(mayHide({0x346E, 0x0004}));
     EXPECT_FALSE(mayHide({0x046D, 0xC262}));

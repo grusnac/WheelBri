@@ -49,10 +49,9 @@
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
-    <!-- A fixed old date on purpose: the INF matches every HID collection (HID_DEVICE), and when Windows weighs it
-         against its own input.inf for a device, an equal match goes to the newer date. With 2001 (input.inf says
-         2006) Windows never puts this filter on a device by itself (it did on the virtual G920 with today's date);
-         only install-hide.ps1 -Devices does, by choosing it explicitly. Keep it older than input.inf. -->
+    <!-- A fixed old date on purpose (older than Windows' input.inf, 2006): this filter must never outrank Windows' own
+         driver for a device. The INF's hardware id matches no device anyway; only install-hide.ps1 -Devices puts it
+         on one, by choosing it explicitly. -->
     <Inf>
       <DateStamp>01/01/2001</DateStamp>
     </Inf>

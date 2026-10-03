@@ -119,9 +119,12 @@ function Get-InstallFolders {
             $folders += $recorded.TrimEnd('\')   # an install, not a package folder
         }
     }
-    foreach ($name in @('WheelBri') + $names) {   # ours by name, even when damaged
-        $path = Join-Path $env:ProgramFiles $name
-        if (Test-Path $path) { $folders += $path }
+    # Ours by name, even when damaged; also under Program Files (x86), where a 32-bit PowerShell once installed it.
+    foreach ($root in @($env:ProgramW6432, $env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ } | Sort-Object -Unique) {
+        foreach ($name in @('WheelBri') + $names) {
+            $path = Join-Path $root $name
+            if (Test-Path $path) { $folders += $path }
+        }
     }
     return @($folders | Sort-Object -Unique)
 }

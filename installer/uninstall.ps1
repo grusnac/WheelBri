@@ -28,7 +28,7 @@ Set-Location $env:TEMP
 $uninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\wheelbri'
 if (-not $InstallDir) {
     $recorded = (Get-ItemProperty -Path $uninstallKey -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
-    $InstallDir = if ($recorded) { $recorded } else { Join-Path $env:ProgramFiles 'WheelBri' }
+    $InstallDir = if ($recorded) { $recorded } else { Join-Path $(if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }) 'WheelBri' }
 }
 
 function Forwarded {

@@ -2,13 +2,12 @@
 ; wheelbri-hide.inf: hides the rig (every device the Wheel setup tab defined) from games while wheelbri-service runs
 ; (see Driver.cpp).
 ;
-; Matches any HID collection by the generic compatible ID HID_DEVICE (the last one every collection has), so it fits
-; any wheel, pedals or shifter (joystick, gamepad or multi-axis controller: the Moza R3 is the last, and has no
-; HID_DEVICE_SYSTEM_GAME) without a list of ids here. Windows never picks it by itself: Windows' own input.inf matches
-; a more specific ID, or the same one with a newer date (DriverVer is stamped 01/01/2001 on purpose, see the
-; .vcxproj; with today's date Windows put it on the virtual G920). driver\hide\install-hide.ps1 -Devices
-; "vid:pid,..." puts it on exactly the game-controller collections of the rig's devices (as Device Manager's "Have
-; disk" does); the app runs that at Start with the active rig. It gives each one
+; Its only hardware id, WHEELBRI_HIDE_FILTER, belongs to no device: Windows never puts it on anything by itself (when
+; it matched game controllers' compatible ids, Windows put it on the virtual G920). driver\hide\install-hide.ps1
+; -Devices puts it on exactly the interfaces it is given, taking it from this INF's models for the HIDClass class (as
+; Device Manager's "Have disk" does without "Show compatible hardware"); the app runs that at Start with the game
+; controllers of the active rig, so it fits any wheel, pedals or shifter without a list of ids here. DriverVer is
+; also stamped 01/01/2001 (see the .vcxproj) so it never outranks Windows' own driver. It gives each one
 ; the same setup Windows gives it (input.inf, "HID-compliant game controller"), plus our UMDF 2 filter above it.
 ; While the service is not running the filter lets everything through. Remove: driver\hide\uninstall-hide.ps1.
 ; Needs Windows 11.
@@ -35,7 +34,7 @@ wheelbri-hide.dll=1
 %Provider%=Wheelbri,NT$ARCH$.10.0...22000
 
 [Wheelbri.NT$ARCH$.10.0...22000]
-%DeviceDesc%=WheelbriHide, HID_DEVICE
+%DeviceDesc%=WheelbriHide, WHEELBRI_HIDE_FILTER
 
 ; --- Windows' own game-controller setup (input.inf), with the filter added ---------------------------------
 

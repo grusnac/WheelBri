@@ -118,7 +118,7 @@ std::vector<wheelbri::service::HideFilter::Target> rigHideTargets(std::string& r
 
 // With --virtual-g920 (Start in the app): wheelbri's hide filter on every connected device of the rig, put there now
 // if it is not yet, so Start alone leaves games only the G920. Which devices: the rig's ids, nothing else
-// (install-hide.ps1 -Devices "vid:pid,..."). It installs from the package built in this source tree or installed
+// (install-hide.ps1 -Devices with the HID instance ids of their game controllers, as DirectInput lists them). It installs from the package built in this source tree or installed
 // with the program (driver/hide/x64/Release); the service runs as Administrator for --virtual-g920 anyway. Done
 // before the wheel is opened: putting the filter on a device restarts it.
 void ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& targets) {
@@ -127,7 +127,8 @@ void ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& 
     std::string devices;
     for (const HideFilter::Check& c : HideFilter::check(targets)) {
         if (c.state == HideFilter::State::NotInstalled) {
-            devices += (devices.empty() ? "" : ",") + wheelbri::hidhide::deviceIdText(c.target.id);
+            // The exact interfaces DirectInput lists for it (the script skips those that have the filter already).
+            for (const std::string& id : c.interfaces) devices += (devices.empty() ? "" : ",") + id;
         }
     }
     if (devices.empty()) return;   // everything connected already has it (or waits for a restart, said above)

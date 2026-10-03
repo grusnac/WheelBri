@@ -69,6 +69,38 @@ IDirectInputDevice8W* createByPath(IDirectInput8W* dinput, const std::string& pa
     return find.found;
 }
 
+namespace {
+
+struct PathsContext {
+    IDirectInput8W* dinput;
+    std::vector<std::string> paths;
+};
+
+BOOL CALLBACK collectPath(LPCDIDEVICEINSTANCEW instance, LPVOID context) {
+    auto* collect = static_cast<PathsContext*>(context);
+    IDirectInputDevice8W* device = nullptr;
+    if (SUCCEEDED(collect->dinput->CreateDevice(instance->guidInstance, &device, nullptr))) {
+        const std::wstring path = hidPath(device);
+        if (!path.empty()) collect->paths.push_back(toUtf8(path.c_str()));
+        device->Release();
+    }
+    return DIENUM_CONTINUE;
+}
+
+}  // namespace
+
+std::vector<std::string> gameControllerPaths() {
+    IDirectInput8W* dinput = nullptr;
+    if (FAILED(DirectInput8Create(GetModuleHandleW(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8W,
+                                  reinterpret_cast<void**>(&dinput), nullptr))) {
+        return {};
+    }
+    PathsContext collect{dinput, {}};
+    dinput->EnumDevices(DI8DEVCLASS_GAMECTRL, collectPath, &collect, DIEDFL_ATTACHEDONLY);
+    dinput->Release();
+    return collect.paths;
+}
+
 HWND createHelperWindow(const wchar_t* title) {
     return CreateWindowExW(0, L"STATIC", title, 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr),
                            nullptr);
