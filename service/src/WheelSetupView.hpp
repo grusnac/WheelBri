@@ -19,7 +19,7 @@ namespace wheelbri::service {
 
 // The Wheel setup tab: defines the rig, i.e. which devices the user has (the wheel, pedals, a shifter, a button box)
 // and what each of their controls is called and is for (Rig.hpp: a label and a role such as steering, throttle,
-// d-pad up, shift up). Every connected device is read at once; with Detect on, touching a control (pressing a
+// d-pad up, left paddle, shift up). Every connected device is read at once; with Detect on, touching a control (pressing a
 // button, moving an axis well away from where it rested) opens its popup: type the label, pick the role, Enter.
 // A pedal's rest position also says whether it is inverted. Rigs are files in rigsFolder() (New, Rename, < >); the
 // active one is remembered in the app's state file ([app] rig) and is what the Mapping tab maps from. It maps

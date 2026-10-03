@@ -22,7 +22,7 @@
 //   kind = wheel
 //   axis_0 = Wheel | steering
 //   axis_2 = Gas | throttle | invert       ; invert: released at the top of the axis
-//   button_13 = R paddle | shift up
+//   button_13 = R paddle | right paddle
 namespace wheelbri {
 
 enum class ControlRole {
@@ -32,14 +32,18 @@ enum class ControlRole {
     // Buttons.
     Button, DpadUp, DpadRight, DpadDown, DpadLeft, ShiftUp, ShiftDown,
     Gear1, Gear2, Gear3, Gear4, Gear5, Gear6, Gear7, GearReverse,
+    // Added later, so they come last (the values above stay as they were; files store the names anyway).
+    LeftPaddle, RightPaddle,
 };
 
 inline constexpr std::array<ControlRole, 6> kAxisRoles = {ControlRole::Steering, ControlRole::Throttle,
                                                           ControlRole::Brake,    ControlRole::Clutch,
                                                           ControlRole::Handbrake, ControlRole::OtherAxis};
-inline constexpr std::array<ControlRole, 15> kButtonRoles = {
-    ControlRole::Button,  ControlRole::DpadUp,  ControlRole::DpadRight, ControlRole::DpadDown, ControlRole::DpadLeft,
-    ControlRole::ShiftUp, ControlRole::ShiftDown, ControlRole::Gear1,   ControlRole::Gear2,    ControlRole::Gear3,
+// In the order the Wheel setup tab offers them.
+inline constexpr std::array<ControlRole, 17> kButtonRoles = {
+    ControlRole::Button,     ControlRole::DpadUp,      ControlRole::DpadRight, ControlRole::DpadDown, ControlRole::DpadLeft,
+    ControlRole::LeftPaddle, ControlRole::RightPaddle, ControlRole::ShiftUp,   ControlRole::ShiftDown,
+    ControlRole::Gear1,      ControlRole::Gear2,       ControlRole::Gear3,
     ControlRole::Gear4,   ControlRole::Gear5,   ControlRole::Gear6,     ControlRole::Gear7,    ControlRole::GearReverse};
 
 [[nodiscard]] const char* roleName(ControlRole role);   // "throttle", "d-pad up", "gear 1", "" for None

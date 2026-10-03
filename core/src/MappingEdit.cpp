@@ -141,7 +141,9 @@ int autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile) 
                 case ControlRole::DpadRight: hat = 1; break;
                 case ControlRole::DpadDown: hat = 2; break;
                 case ControlRole::DpadLeft: hat = 3; break;
+                case ControlRole::RightPaddle:   // the G920's paddles; shifting up and down is what games use them for
                 case ControlRole::ShiftUp: name = "R paddle"; break;
+                case ControlRole::LeftPaddle:
                 case ControlRole::ShiftDown: name = "L paddle"; break;
                 case ControlRole::GearReverse: name = "Gear R"; break;
                 default:

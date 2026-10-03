@@ -194,7 +194,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `WECL`, v1; `ClutchPacket::encode`) to 41331; the service uses that value instead of the mapped clutch until 1.5 s
     after the last packet. (Its C# sender, ClutchProbe, went with the bridge.)
   - The rig (`Rig.hpp`): every device the user has (`[device_N]` name, id, kind) and each control's label, role
-    (`ControlRole`: steering, throttle, ..., d-pad up, shift up, gear N) and invert, written `label | role | invert`;
+    (`ControlRole`: steering, throttle, ..., d-pad up, left / right paddle, shift up, gear N; new roles go at the end
+    of the enum, since autoMap counts gears by value) and invert, written `label | role | invert`;
     one `<name>.ini` per rig in `rigsFolder()` (`%LOCALAPPDATA%\wheelbri\rigs`), the active one in the app's state
     file (`[app] rig`). The Wheel setup tab (`WheelSetupView`) writes it (Detect: a touched control opens its popup;
     the rest position taken after ~20 reads gives a pedal's invert); the Mapping tab maps from it (`autoMap` in

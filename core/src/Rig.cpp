@@ -13,7 +13,7 @@ namespace wheelbri {
 
 namespace {
 
-constexpr std::array<std::pair<ControlRole, const char*>, 21> kRoleNames = {{
+constexpr std::array<std::pair<ControlRole, const char*>, 23> kRoleNames = {{
     {ControlRole::Steering, "steering"},   {ControlRole::Throttle, "throttle"},   {ControlRole::Brake, "brake"},
     {ControlRole::Clutch, "clutch"},       {ControlRole::Handbrake, "handbrake"}, {ControlRole::OtherAxis, "axis"},
     {ControlRole::Button, "button"},       {ControlRole::DpadUp, "d-pad up"},     {ControlRole::DpadRight, "d-pad right"},
@@ -21,6 +21,7 @@ constexpr std::array<std::pair<ControlRole, const char*>, 21> kRoleNames = {{
     {ControlRole::ShiftDown, "shift down"}, {ControlRole::Gear1, "gear 1"},       {ControlRole::Gear2, "gear 2"},
     {ControlRole::Gear3, "gear 3"},        {ControlRole::Gear4, "gear 4"},        {ControlRole::Gear5, "gear 5"},
     {ControlRole::Gear6, "gear 6"},        {ControlRole::Gear7, "gear 7"},        {ControlRole::GearReverse, "reverse"},
+    {ControlRole::LeftPaddle, "left paddle"}, {ControlRole::RightPaddle, "right paddle"},
 }};
 
 std::string lower(std::string_view text) {

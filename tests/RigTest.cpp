@@ -44,6 +44,8 @@ TEST(Rig, RolesHaveNamesAndKinds) {
         EXPECT_EQ(parseRole(roleName(role)), role);
     }
     EXPECT_EQ(parseRole(" D-Pad Up "), ControlRole::DpadUp);
+    EXPECT_EQ(parseRole("Left Paddle"), ControlRole::LeftPaddle);
+    EXPECT_EQ(roleName(ControlRole::RightPaddle), std::string("right paddle"));
     EXPECT_FALSE(parseRole("joystick").has_value());
 }
 

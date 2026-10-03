@@ -117,7 +117,7 @@ TEST(MappingEdit, AutoMapsFromTheRigsRoles) {
     wheel.id = {0x346E, 0x0005};
     wheel.axes[0] = {"Wheel", ControlRole::Steering, false};
     wheel.buttons[13] = {"R paddle", ControlRole::ShiftUp, false};
-    wheel.buttons[12] = {"L paddle", ControlRole::ShiftDown, false};
+    wheel.buttons[12] = {"L paddle", ControlRole::LeftPaddle, false};
     wheel.buttons[4] = {"Up", ControlRole::DpadUp, false};
     wheel.buttons[0] = {"A", ControlRole::Button, false};
     wheel.buttons[30] = {"1st", ControlRole::Gear1, false};   // the G920 has no gears: left out
@@ -132,7 +132,8 @@ TEST(MappingEdit, AutoMapsFromTheRigsRoles) {
     EXPECT_TRUE(model.invert[MappingModel::kThrottle]);
     EXPECT_EQ(model.axes[MappingModel::kBrake], (SourceRef{{0x30B7, 0x1001}, 1}));
     EXPECT_EQ(model.axes[MappingModel::kClutch], (SourceRef{{}, 6}));   // no clutch in the rig: as it was
-    EXPECT_EQ(model.buttons[4], (SourceRef{{}, 13}));                   // G920 R paddle
+    EXPECT_EQ(model.buttons[4], (SourceRef{{}, 13}));                   // G920 R paddle <- shift up
+    EXPECT_EQ(model.buttons[5], (SourceRef{{}, 12}));                   // G920 L paddle <- left paddle
     EXPECT_EQ(model.buttons[5], (SourceRef{{}, 12}));                   // G920 L paddle
     EXPECT_EQ(model.hat[0], (SourceRef{{}, 4}));
 
