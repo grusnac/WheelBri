@@ -40,6 +40,17 @@ const RealDInput* realDInput() {
                             toUtf8(path.c_str()), GetLastError());
             return;
         }
+        // Under Wine a DLL override can hand back this very file: calling "the real one" would then call itself
+        // until the stack overflows.
+        HMODULE self = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(&realDInput), &self);
+        if (real.module == self) {
+            WE_LOG_CRITICAL(log, "'{}' is this proxy itself (a DLL override?): no real DirectInput to forward to",
+                            toUtf8(path.c_str()));
+            real.module = nullptr;
+            return;
+        }
         real.directInput8Create = resolve<RealDInput::DirectInput8CreateFn>(real.module, "DirectInput8Create", log);
         real.dllCanUnloadNow = resolve<RealDInput::DllCanUnloadNowFn>(real.module, "DllCanUnloadNow", log);
         real.dllGetClassObject = resolve<RealDInput::DllGetClassObjectFn>(real.module, "DllGetClassObject", log);

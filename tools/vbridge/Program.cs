@@ -52,7 +52,8 @@ internal static class Program
     static readonly object LogLock = new();
     static readonly ManualResetEventSlim CleanedUp = new(false);
     static volatile bool _stop;
-    static volatile bool _force;           // Ctrl+C a second time while waiting for a program to let go
+    static volatile bool _force;
+    static string? _lastForeignDriverError;           // Ctrl+C a second time while waiting for a program to let go
     static volatile bool _windowClosing;
 
     static void OnWindowClosing(PosixSignalContext context)
@@ -229,9 +230,30 @@ internal static class Program
             RemoveForeignForceFeedbackDriver();
             HidHide? hidHide = o.Hide ? StartHiding(o) : null;
             using var ffbSocket = new UdpClient();
+            // Windows reports an ICMP "port unreachable" (the service not listening) as WSAECONNRESET (10054) on the
+            // next send of a connected UDP socket, which would throw on HIDMaestro's thread and end the bridge
+            // with the real wheel still hidden. Switch that off (SIO_UDP_CONNRESET) and never let a send throw.
+            try { ffbSocket.Client.IOControl(unchecked((int)0x9800000C), new byte[4], null); }
+            catch (Exception e) { Log($"cannot switch off UDP connection resets: {e.Message}"); }
             ffbSocket.Connect(new IPEndPoint(IPAddress.Loopback, o.FfbPort));
             var clock = Stopwatch.StartNew();
-            var forwarder = new PidForwarder(bytes => ffbSocket.Send(bytes, bytes.Length), Log);
+            long lastSendError = long.MinValue / 2;
+            var forwarder = new PidForwarder(bytes =>
+            {
+                try
+                {
+                    ffbSocket.Send(bytes, bytes.Length);
+                }
+                catch (Exception e) when (e is SocketException or ObjectDisposedException)
+                {
+                    long now = clock.ElapsedMilliseconds;
+                    if (now - lastSendError >= 60_000)   // at most once a minute
+                    {
+                        lastSendError = now;
+                        Log($"force feedback to wheelemu-service not sent ({e.Message}); is the service running?");
+                    }
+                }
+            }, Log);
             if (o.XboxPad != Bridge.XboxPad.Mode.Off)
             {
                 pad = XboxPad.Create(ctx, o.XboxPad, Log, () => forwarder.PlayingStrength,
@@ -246,13 +268,15 @@ internal static class Program
                 // Always, also after an error or when the window is closed: the real wheel must not stay hidden.
                 Log($"stopping: {forwarder.ReportsHandled} force feedback reports from the game, "
                     + $"{forwarder.PacketsSent} packets to the service");
+                // Each step on its own: one that fails must not skip the others (above all, showing the wheel again).
                 try { forwarder.StopAll(clock.ElapsedMilliseconds); } catch (Exception e) { Log($"stop all: {e.Message}"); }
-                hidHide?.Restore();
-                hidHide?.LogState();
-                leaveDevice = !ReleaseDevice(live, "virtual G920");
-                leavePad = pad != null && !ReleaseDevice(pad.Controller, "virtual Xbox controller");
-                SetDirectInputEntries(false, o.DrivingType, o.AxisNames);
-                HMOemNameOverride.Clear(G920Vid, G920Pid);
+                try { hidHide?.Restore(); } catch (Exception e) { Log($"ERROR: showing the real wheel again failed: {e.Message} (run wheelemu-bridge --unhide)"); }
+                try { hidHide?.LogState(); } catch (Exception e) { Log($"HidHide state: {e.Message}"); }
+                try { leaveDevice = !ReleaseDevice(live, "virtual G920"); } catch (Exception e) { Log($"removing the G920: {e.Message}"); }
+                try { leavePad = pad != null && !ReleaseDevice(pad.Controller, "virtual Xbox controller"); }
+                catch (Exception e) { Log($"removing the Xbox controller: {e.Message}"); }
+                try { SetDirectInputEntries(false, o.DrivingType, o.AxisNames); } catch (Exception e) { Log($"DirectInput entries: {e.Message}"); }
+                try { HMOemNameOverride.Clear(G920Vid, G920Pid); } catch (Exception e) { Log($"device name: {e.Message}"); }
             }
         }
         finally
@@ -382,13 +406,28 @@ internal static class Program
     {
         int statePort = o.StatePort;
 
-        // Force feedback: the game's PID reports, on HIDMaestro's thread.
+        // The state port first, on this thread: if it is taken (the shim's game, the wheelemu-g920 driver, another
+        // bridge) this fails here, inside Run's clean-up, not later on the input thread (which would end the
+        // process with the real wheel still hidden).
+        var stateSocket = new UdpClient(new IPEndPoint(IPAddress.Loopback, statePort));
+
+        // Force feedback: the game's PID reports, on HIDMaestro's thread. `forwarding` goes false when this ends:
+        // the event may still fire until the device is gone, and must not reach the forwarder's closed socket then.
+        bool forwarding = true;
         ctrl.OutputReceived += (_, packet) =>
         {
-            if (packet.Source is HMOutputSource.HidOutput or HMOutputSource.HidFeature)
+            try
             {
-                forwarder.Handle(packet.ReportId, packet.Data.Span, packet.Source == HMOutputSource.HidFeature,
-                                 clock.ElapsedMilliseconds);
+                if (Volatile.Read(ref forwarding) &&
+                    packet.Source is HMOutputSource.HidOutput or HMOutputSource.HidFeature)
+                {
+                    forwarder.Handle(packet.ReportId, packet.Data.Span, packet.Source == HMOutputSource.HidFeature,
+                                     clock.ElapsedMilliseconds);
+                }
+            }
+            catch (Exception e)   // HIDMaestro's thread: an exception here would end the process
+            {
+                Log($"force feedback report not handled: {e.Message}");
             }
         };
         ctrl.PublishPidPool(ramPoolSize: 0xFFFF, simultaneousEffectsMax: PidForwarder.MaxSlots,
@@ -396,9 +435,34 @@ internal static class Program
         ctrl.PublishPidState(0, PidStateFlags.ActuatorsEnabled | PidStateFlags.ActuatorPower);
 
         // Input: the service's state packets, on their own thread.
-        var input = new Thread(() => InputLoop(statePort, ctrl, pad)) { IsBackground = true, Name = "state input" };
+        var input = new Thread(() =>
+        {
+            try
+            {
+                InputLoop(stateSocket, ctrl, pad);
+            }
+            catch (Exception e)   // any thread's exception ends a .NET process: stop cleanly instead
+            {
+                Log($"ERROR: the input thread stopped: {e.Message}; stopping");
+                _stop = true;
+            }
+        }) { IsBackground = true, Name = "state input" };
         input.Start();
+        try
+        {
+            RunLoop(o, clock, forwarder);
+        }
+        finally
+        {
+            Volatile.Write(ref forwarding, false);   // nothing reaches the forwarder or its socket after this
+            _stop = true;
+            if (!input.Join(500)) Log("the input thread did not stop within 0.5 s");
+            stateSocket.Dispose();
+        }
+    }
 
+    static void RunLoop(Options o, Stopwatch clock, PidForwarder forwarder)
+    {
         if (o.StopFile != null)
         {
             try { File.Delete(o.StopFile); } catch (IOException) { } catch (UnauthorizedAccessException) { }
@@ -446,9 +510,8 @@ internal static class Program
         }
     }
 
-    static void InputLoop(int statePort, HMController ctrl, XboxPad? pad)
+    static void InputLoop(UdpClient socket, HMController ctrl, XboxPad? pad)
     {
-        using var socket = new UdpClient(new IPEndPoint(IPAddress.Loopback, statePort));
         socket.Client.ReceiveTimeout = 100;
         var report = new byte[11];
         var remote = new IPEndPoint(IPAddress.Any, 0);
@@ -466,6 +529,10 @@ internal static class Program
             }
             catch (SocketException e) when (e.SocketErrorCode == SocketError.TimedOut)
             {
+            }
+            catch (SocketException e) when (e.SocketErrorCode == SocketError.ConnectionReset)
+            {
+                // A stale "port unreachable" from a send on this socket: nothing to read, carry on.
             }
             if (datagram != null && StatePacket.TryDecode(datagram, out uint sequence, out var state))
             {
@@ -513,7 +580,7 @@ internal static class Program
             try { service = running?.MainModule?.FileName; } catch (Exception) { service = null; }
             if (service != null) break;
             if (waited == 0) Log("waiting for wheelemu-service to start (up to 60 s) before hiding the real wheel");
-            if (waited >= 60) break;
+            if (waited >= 60 || _stop) break;
             Thread.Sleep(1000);
         }
         if (service == null || !File.Exists(service))
@@ -548,7 +615,13 @@ internal static class Program
             }
             catch (Exception e)
             {
-                Log($"cannot check the force feedback driver entry under {root.Name}: {e.Message}");
+                // Checked every 2 s: said again only when the problem changes.
+                string message = $"cannot check the force feedback driver entry under {root.Name}: {e.Message}";
+                if (message != _lastForeignDriverError)
+                {
+                    _lastForeignDriverError = message;
+                    Log(message);
+                }
             }
         }
     }

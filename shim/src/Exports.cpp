@@ -2,6 +2,7 @@
 // clash with the declarations in <dinput.h> and <combaseapi.h>.
 
 #include "ProxyDirectInput8.hpp"
+#include "Guard.hpp"
 #include "RealDInput.hpp"
 #include "ShimLogging.hpp"
 
@@ -25,62 +26,74 @@ const RealDInput* requireReal(const char* caller) {
 
 }  // namespace
 
+using wheelemu::shim::guarded;
+
 extern "C" {
 
 HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE instance, DWORD version, REFIID riid, LPVOID* out,
                                         LPUNKNOWN outer) {
-    WE_LOG_INFO(log(), "DirectInput8Create(version 0x{:x}, {}, outer={})", version, describeGuid(riid),
-                static_cast<void*>(outer));
-    const RealDInput* const real = requireReal("DirectInput8Create");
-    if (real == nullptr) {
-        return DIERR_NOTINITIALIZED;
-    }
-    const HRESULT result = real->directInput8Create(instance, version, riid, out, outer);
-    if (FAILED(result) || out == nullptr || *out == nullptr) {
-        WE_LOG_ERROR(log(), "real DirectInput8Create -> {}", describeHresult(result));
+    return guarded("Proxy_DirectInput8Create", [&]() -> HRESULT {
+        WE_LOG_INFO(log(), "DirectInput8Create(version 0x{:x}, {}, outer={})", version, describeGuid(riid),
+                    static_cast<void*>(outer));
+        const RealDInput* const real = requireReal("DirectInput8Create");
+        if (real == nullptr) {
+            return DIERR_NOTINITIALIZED;
+        }
+        const HRESULT result = real->directInput8Create(instance, version, riid, out, outer);
+        if (FAILED(result) || out == nullptr || *out == nullptr) {
+            WE_LOG_ERROR(log(), "real DirectInput8Create -> {}", describeHresult(result));
+            return result;
+        }
+        if (outer != nullptr) {
+            // COM aggregation: the object belongs to the caller's outer object and must not be wrapped.
+            WE_LOG_WARN(log(), "aggregated DirectInput object requested, passing it through unwrapped");
+        } else if (riid == IID_IDirectInput8W) {
+            *out = static_cast<IDirectInput8W*>(new ProxyDirectInput8<WideTraits>(static_cast<IDirectInput8W*>(*out)));
+        } else if (riid == IID_IDirectInput8A) {
+            *out = static_cast<IDirectInput8A*>(new ProxyDirectInput8<AnsiTraits>(static_cast<IDirectInput8A*>(*out)));
+        } else {
+            WE_LOG_WARN(log(), "unexpected interface {} requested, passing it through unwrapped", describeGuid(riid));
+        }
+        WE_LOG_DEBUG(log(), "DirectInput8Create -> {}", describeHresult(result));
         return result;
-    }
-    if (outer != nullptr) {
-        // COM aggregation: the object belongs to the caller's outer object and must not be wrapped.
-        WE_LOG_WARN(log(), "aggregated DirectInput object requested, passing it through unwrapped");
-    } else if (riid == IID_IDirectInput8W) {
-        *out = static_cast<IDirectInput8W*>(new ProxyDirectInput8<WideTraits>(static_cast<IDirectInput8W*>(*out)));
-    } else if (riid == IID_IDirectInput8A) {
-        *out = static_cast<IDirectInput8A*>(new ProxyDirectInput8<AnsiTraits>(static_cast<IDirectInput8A*>(*out)));
-    } else {
-        WE_LOG_WARN(log(), "unexpected interface {} requested, passing it through unwrapped", describeGuid(riid));
-    }
-    WE_LOG_DEBUG(log(), "DirectInput8Create -> {}", describeHresult(result));
-    return result;
+    });
 }
 
 HRESULT WINAPI Proxy_DllCanUnloadNow() {
-    const RealDInput* const real = requireReal("DllCanUnloadNow");
-    return real != nullptr && real->dllCanUnloadNow != nullptr ? real->dllCanUnloadNow() : S_FALSE;
+    return guarded("Proxy_DllCanUnloadNow", [&]() -> HRESULT {
+        const RealDInput* const real = requireReal("DllCanUnloadNow");
+        return real != nullptr && real->dllCanUnloadNow != nullptr ? real->dllCanUnloadNow() : S_FALSE;
+    });
 }
 
 HRESULT WINAPI Proxy_DllGetClassObject(REFCLSID clsid, REFIID riid, LPVOID* out) {
-    // COM activation (CoCreateInstance(CLSID_DirectInput8)) normally loads the registered system DLL,
-    // not this one; if a game gets here, its objects are not proxied. Worth knowing in Phase 0.
-    WE_LOG_WARN(log(), "DllGetClassObject({}, {}) - objects created this way are NOT proxied", describeGuid(clsid),
-                describeGuid(riid));
-    const RealDInput* const real = requireReal("DllGetClassObject");
-    if (real == nullptr || real->dllGetClassObject == nullptr) {
-        return CLASS_E_CLASSNOTAVAILABLE;
-    }
-    return real->dllGetClassObject(clsid, riid, out);
+    return guarded("Proxy_DllGetClassObject", [&]() -> HRESULT {
+        // COM activation (CoCreateInstance(CLSID_DirectInput8)) normally loads the registered system DLL,
+        // not this one; if a game gets here, its objects are not proxied. Worth knowing in Phase 0.
+        WE_LOG_WARN(log(), "DllGetClassObject({}, {}) - objects created this way are NOT proxied", describeGuid(clsid),
+                    describeGuid(riid));
+        const RealDInput* const real = requireReal("DllGetClassObject");
+        if (real == nullptr || real->dllGetClassObject == nullptr) {
+            return CLASS_E_CLASSNOTAVAILABLE;
+        }
+        return real->dllGetClassObject(clsid, riid, out);
+    });
 }
 
 HRESULT WINAPI Proxy_DllRegisterServer() {
-    WE_LOG_WARN(log(), "DllRegisterServer called on the proxy");
-    const RealDInput* const real = requireReal("DllRegisterServer");
-    return real != nullptr && real->dllRegisterServer != nullptr ? real->dllRegisterServer() : E_FAIL;
+    return guarded("Proxy_DllRegisterServer", [&]() -> HRESULT {
+        WE_LOG_WARN(log(), "DllRegisterServer called on the proxy");
+        const RealDInput* const real = requireReal("DllRegisterServer");
+        return real != nullptr && real->dllRegisterServer != nullptr ? real->dllRegisterServer() : E_FAIL;
+    });
 }
 
 HRESULT WINAPI Proxy_DllUnregisterServer() {
-    WE_LOG_WARN(log(), "DllUnregisterServer called on the proxy");
-    const RealDInput* const real = requireReal("DllUnregisterServer");
-    return real != nullptr && real->dllUnregisterServer != nullptr ? real->dllUnregisterServer() : E_FAIL;
+    return guarded("Proxy_DllUnregisterServer", [&]() -> HRESULT {
+        WE_LOG_WARN(log(), "DllUnregisterServer called on the proxy");
+        const RealDInput* const real = requireReal("DllUnregisterServer");
+        return real != nullptr && real->dllUnregisterServer != nullptr ? real->dllUnregisterServer() : E_FAIL;
+    });
 }
 
 LPCDIDATAFORMAT WINAPI Proxy_GetdfDIJoystick() {

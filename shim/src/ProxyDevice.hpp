@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ProxyEffect.hpp"
+#include "Guard.hpp"
 #include "ShimLogging.hpp"
 #include "Traits.hpp"
 
@@ -70,245 +71,318 @@ public:
     // --- Device description: what the game learns about the device -----------------------------
 
     HRESULT STDMETHODCALLTYPE GetCapabilities(LPDIDEVCAPS caps) override {
-        const HRESULT result = real_->GetCapabilities(caps);
-        WE_LOG_INFO(detail::deviceLog(), "{}: GetCapabilities -> {} {}", label_, describeHresult(result),
-                    SUCCEEDED(result) && caps != nullptr ? describeCaps(*caps) : std::string());
-        return result;
+        return guarded("GetCapabilities", [&]() -> HRESULT {
+            const HRESULT result = real_->GetCapabilities(caps);
+            WE_LOG_INFO(detail::deviceLog(), "{}: GetCapabilities -> {} {}", label_, describeHresult(result),
+                        SUCCEEDED(result) && caps != nullptr ? describeCaps(*caps) : std::string());
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE EnumObjects(typename T::EnumObjectsCallback callback, LPVOID ref, DWORD flags) override {
-        WE_LOG_INFO(detail::deviceLog(), "{}: EnumObjects(flags=0x{:x})", label_, flags);
-        EnumContext<typename T::EnumObjectsCallback> context{callback, ref, this};
-        const HRESULT result = real_->EnumObjects(&ProxyDevice::onObject, &context, flags);
-        WE_LOG_INFO(detail::deviceLog(), "{}: EnumObjects -> {} ({} objects)", label_, describeHresult(result),
-                    context.count);
-        return result;
+        return guarded("EnumObjects", [&]() -> HRESULT {
+            if (callback == nullptr) {   // the real DLL gets our callback, so it cannot see the game's null
+                return DIERR_INVALIDPARAM;
+            }
+            WE_LOG_INFO(detail::deviceLog(), "{}: EnumObjects(flags=0x{:x})", label_, flags);
+            EnumContext<typename T::EnumObjectsCallback> context{callback, ref, this};
+            const HRESULT result = real_->EnumObjects(&ProxyDevice::onObject, &context, flags);
+            WE_LOG_INFO(detail::deviceLog(), "{}: EnumObjects -> {} ({} objects)", label_, describeHresult(result),
+                        context.count);
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetProperty(REFGUID property, LPDIPROPHEADER header) override {
-        const HRESULT result = real_->GetProperty(property, header);
-        WE_LOG_INFO(detail::deviceLog(), "{}: GetProperty({}) -> {} {}", label_, describeProperty(property),
-                    describeHresult(result), SUCCEEDED(result) ? describePropertyValue(property, header) : std::string());
-        return result;
+        return guarded("GetProperty", [&]() -> HRESULT {
+            const HRESULT result = real_->GetProperty(property, header);
+            WE_LOG_INFO(detail::deviceLog(), "{}: GetProperty({}) -> {} {}", label_, describeProperty(property),
+                        describeHresult(result),
+                        SUCCEEDED(result) ? describePropertyValue(property, header) : std::string());
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SetProperty(REFGUID property, LPCDIPROPHEADER header) override {
-        const HRESULT result = real_->SetProperty(property, header);
-        WE_LOG_INFO(detail::deviceLog(), "{}: SetProperty({}, {}) -> {}", label_, describeProperty(property),
-                    describePropertyValue(property, header), describeHresult(result));
-        return result;
+        return guarded("SetProperty", [&]() -> HRESULT {
+            const HRESULT result = real_->SetProperty(property, header);
+            WE_LOG_INFO(detail::deviceLog(), "{}: SetProperty({}, {}) -> {}", label_, describeProperty(property),
+                        describePropertyValue(property, header), describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetObjectInfo(typename T::DeviceObjectInstance* info, DWORD object, DWORD how) override {
-        const HRESULT result = real_->GetObjectInfo(info, object, how);
-        WE_LOG_DEBUG(detail::deviceLog(), "{}: GetObjectInfo(obj=0x{:x}, how={}) -> {}{}", label_, object, how,
-                     describeHresult(result), SUCCEEDED(result) && info != nullptr ? " " + describeObject(*info) : "");
-        return result;
+        return guarded("GetObjectInfo", [&]() -> HRESULT {
+            const HRESULT result = real_->GetObjectInfo(info, object, how);
+            WE_LOG_DEBUG(detail::deviceLog(), "{}: GetObjectInfo(obj=0x{:x}, how={}) -> {}{}", label_, object, how,
+                         describeHresult(result),
+                         SUCCEEDED(result) && info != nullptr ? " " + describeObject(*info) : "");
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetDeviceInfo(typename T::DeviceInstance* info) override {
-        const HRESULT result = real_->GetDeviceInfo(info);
-        WE_LOG_INFO(detail::deviceLog(), "{}: GetDeviceInfo -> {}{}", label_, describeHresult(result),
-                    SUCCEEDED(result) && info != nullptr ? " " + describeInstance(*info) : "");
-        return result;
+        return guarded("GetDeviceInfo", [&]() -> HRESULT {
+            const HRESULT result = real_->GetDeviceInfo(info);
+            WE_LOG_INFO(detail::deviceLog(), "{}: GetDeviceInfo -> {}{}", label_, describeHresult(result),
+                        SUCCEEDED(result) && info != nullptr ? " " + describeInstance(*info) : "");
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetImageInfo(typename T::ImageInfoHeader header) override {
-        const HRESULT result = real_->GetImageInfo(header);
-        WE_LOG_DEBUG(detail::deviceLog(), "{}: GetImageInfo -> {}", label_, describeHresult(result));
-        return result;
+        return guarded("GetImageInfo", [&]() -> HRESULT {
+            const HRESULT result = real_->GetImageInfo(header);
+            WE_LOG_DEBUG(detail::deviceLog(), "{}: GetImageInfo -> {}", label_, describeHresult(result));
+            return result;
+        });
     }
 
     // --- Setup ------------------------------------------------------------------------------------
 
     HRESULT STDMETHODCALLTYPE SetDataFormat(LPCDIDATAFORMAT format) override {
-        const HRESULT result = real_->SetDataFormat(format);
-        WE_LOG_INFO(detail::deviceLog(), "{}: SetDataFormat({}) -> {}", label_, describeDataFormat(format),
-                    describeHresult(result));
-        return result;
+        return guarded("SetDataFormat", [&]() -> HRESULT {
+            const HRESULT result = real_->SetDataFormat(format);
+            WE_LOG_INFO(detail::deviceLog(), "{}: SetDataFormat({}) -> {}", label_, describeDataFormat(format),
+                        describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SetCooperativeLevel(HWND window, DWORD flags) override {
-        const HRESULT result = real_->SetCooperativeLevel(window, flags);
-        WE_LOG_INFO(detail::deviceLog(), "{}: SetCooperativeLevel(hwnd={}, {}) -> {}", label_,
-                    static_cast<void*>(window), describeCooperativeLevel(flags), describeHresult(result));
-        return result;
+        return guarded("SetCooperativeLevel", [&]() -> HRESULT {
+            const HRESULT result = real_->SetCooperativeLevel(window, flags);
+            WE_LOG_INFO(detail::deviceLog(), "{}: SetCooperativeLevel(hwnd={}, {}) -> {}", label_,
+                        static_cast<void*>(window), describeCooperativeLevel(flags), describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SetEventNotification(HANDLE event) override {
-        const HRESULT result = real_->SetEventNotification(event);
-        WE_LOG_DEBUG(detail::deviceLog(), "{}: SetEventNotification({}) -> {}", label_, static_cast<void*>(event),
-                     describeHresult(result));
-        return result;
+        return guarded("SetEventNotification", [&]() -> HRESULT {
+            const HRESULT result = real_->SetEventNotification(event);
+            WE_LOG_DEBUG(detail::deviceLog(), "{}: SetEventNotification({}) -> {}", label_, static_cast<void*>(event),
+                         describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE Initialize(HINSTANCE instance, DWORD version, REFGUID guid) override {
-        const HRESULT result = real_->Initialize(instance, version, guid);
-        WE_LOG_DEBUG(detail::deviceLog(), "{}: Initialize(version 0x{:x}, {}) -> {}", label_, version,
-                     describeGuid(guid), describeHresult(result));
-        return result;
+        return guarded("Initialize", [&]() -> HRESULT {
+            const HRESULT result = real_->Initialize(instance, version, guid);
+            WE_LOG_DEBUG(detail::deviceLog(), "{}: Initialize(version 0x{:x}, {}) -> {}", label_, version,
+                         describeGuid(guid), describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE RunControlPanel(HWND owner, DWORD flags) override {
-        const HRESULT result = real_->RunControlPanel(owner, flags);
-        WE_LOG_INFO(detail::deviceLog(), "{}: RunControlPanel -> {}", label_, describeHresult(result));
-        return result;
+        return guarded("RunControlPanel", [&]() -> HRESULT {
+            const HRESULT result = real_->RunControlPanel(owner, flags);
+            WE_LOG_INFO(detail::deviceLog(), "{}: RunControlPanel -> {}", label_, describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE BuildActionMap(typename T::ActionFormat format, typename T::String user,
                                              DWORD flags) override {
-        const HRESULT result = real_->BuildActionMap(format, user, flags);
-        WE_LOG_INFO(detail::deviceLog(), "{}: BuildActionMap(user='{}', flags=0x{:x}) -> {}", label_, toUtf8(user),
-                    flags, describeHresult(result));
-        return result;
+        return guarded("BuildActionMap", [&]() -> HRESULT {
+            const HRESULT result = real_->BuildActionMap(format, user, flags);
+            WE_LOG_INFO(detail::deviceLog(), "{}: BuildActionMap(user='{}', flags=0x{:x}) -> {}", label_, toUtf8(user),
+                        flags, describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SetActionMap(typename T::ActionFormat format, typename T::String user,
                                            DWORD flags) override {
-        const HRESULT result = real_->SetActionMap(format, user, flags);
-        WE_LOG_INFO(detail::deviceLog(), "{}: SetActionMap(user='{}', flags=0x{:x}) -> {}", label_, toUtf8(user),
-                    flags, describeHresult(result));
-        return result;
+        return guarded("SetActionMap", [&]() -> HRESULT {
+            const HRESULT result = real_->SetActionMap(format, user, flags);
+            WE_LOG_INFO(detail::deviceLog(), "{}: SetActionMap(user='{}', flags=0x{:x}) -> {}", label_, toUtf8(user),
+                        flags, describeHresult(result));
+            return result;
+        });
     }
 
     // --- Acquisition and reading: the hot path ------------------------------------------------------
 
     HRESULT STDMETHODCALLTYPE Acquire() override {
-        const HRESULT result = real_->Acquire();
-        logStateful("Acquire", result);
-        return result;
+        return guarded("Acquire", [&]() -> HRESULT {
+            const HRESULT result = real_->Acquire();
+            logStateful("Acquire", result);
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE Unacquire() override {
-        const HRESULT result = real_->Unacquire();
-        logStateful("Unacquire", result);
-        return result;
+        return guarded("Unacquire", [&]() -> HRESULT {
+            const HRESULT result = real_->Unacquire();
+            logStateful("Unacquire", result);
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetDeviceState(DWORD size, LPVOID data) override {
-        const HRESULT result = real_->GetDeviceState(size, data);
-        ++stateCalls_;
-        if (FAILED(result)) {
-            WE_LOG_WARN_LIMITED(detail::stateLog(), stateFailureLimiter_, "{}: GetDeviceState({} bytes) -> {}", label_,
-                                size, describeHresult(result));
-        } else if (const auto call = stateSampler_.next(); call != 0) {
-            WE_LOG_DEBUG(detail::stateLog(), "{}: GetDeviceState #{} ({} bytes) {}", label_, call, size,
-                         describeDeviceState(size, data));
-        }
-        return result;
+        return guarded("GetDeviceState", [&]() -> HRESULT {
+            const HRESULT result = real_->GetDeviceState(size, data);
+            ++stateCalls_;
+            if (FAILED(result)) {
+                WE_LOG_WARN_LIMITED(detail::stateLog(), stateFailureLimiter_, "{}: GetDeviceState({} bytes) -> {}",
+                                    label_,
+                                    size, describeHresult(result));
+            } else if (const auto call = stateSampler_.next(); call != 0) {
+                WE_LOG_DEBUG(detail::stateLog(), "{}: GetDeviceState #{} ({} bytes) {}", label_, call, size,
+                             describeDeviceState(size, data));
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetDeviceData(DWORD objectSize, LPDIDEVICEOBJECTDATA data, LPDWORD inOut,
                                             DWORD flags) override {
-        const DWORD requested = inOut != nullptr ? *inOut : 0;
-        const HRESULT result = real_->GetDeviceData(objectSize, data, inOut, flags);
-        ++dataCalls_;
-        if (FAILED(result)) {
-            WE_LOG_WARN_LIMITED(detail::stateLog(), dataFailureLimiter_, "{}: GetDeviceData -> {}", label_,
-                                describeHresult(result));
-        } else if (const auto call = dataSampler_.next(); call != 0) {
-            WE_LOG_DEBUG(detail::stateLog(), "{}: GetDeviceData #{} requested={} returned={} flags=0x{:x} -> {}",
-                         label_, call, requested, inOut != nullptr ? *inOut : 0, flags, describeHresult(result));
-        }
-        return result;
+        return guarded("GetDeviceData", [&]() -> HRESULT {
+            const DWORD requested = inOut != nullptr ? *inOut : 0;
+            const HRESULT result = real_->GetDeviceData(objectSize, data, inOut, flags);
+            ++dataCalls_;
+            if (FAILED(result)) {
+                WE_LOG_WARN_LIMITED(detail::stateLog(), dataFailureLimiter_, "{}: GetDeviceData -> {}", label_,
+                                    describeHresult(result));
+            } else if (const auto call = dataSampler_.next(); call != 0) {
+                WE_LOG_DEBUG(detail::stateLog(), "{}: GetDeviceData #{} requested={} returned={} flags=0x{:x} -> {}",
+                             label_, call, requested, inOut != nullptr ? *inOut : 0, flags, describeHresult(result));
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE Poll() override {
-        const HRESULT result = real_->Poll();
-        ++pollCalls_;
-        if (FAILED(result)) {
-            WE_LOG_WARN_LIMITED(detail::stateLog(), pollFailureLimiter_, "{}: Poll -> {}", label_,
-                                describeHresult(result));
-        } else if (const auto call = pollSampler_.next(); call != 0) {
-            WE_LOG_TRACE(detail::stateLog(), "{}: Poll #{} -> {}", label_, call, describeHresult(result));
-        }
-        return result;
+        return guarded("Poll", [&]() -> HRESULT {
+            const HRESULT result = real_->Poll();
+            ++pollCalls_;
+            if (FAILED(result)) {
+                WE_LOG_WARN_LIMITED(detail::stateLog(), pollFailureLimiter_, "{}: Poll -> {}", label_,
+                                    describeHresult(result));
+            } else if (const auto call = pollSampler_.next(); call != 0) {
+                WE_LOG_TRACE(detail::stateLog(), "{}: Poll #{} -> {}", label_, call, describeHresult(result));
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SendDeviceData(DWORD objectSize, LPCDIDEVICEOBJECTDATA data, LPDWORD inOut,
                                              DWORD flags) override {
-        const HRESULT result = real_->SendDeviceData(objectSize, data, inOut, flags);
-        WE_LOG_INFO(detail::deviceLog(), "{}: SendDeviceData(count={}, flags=0x{:x}) -> {}", label_,
-                    inOut != nullptr ? *inOut : 0, flags, describeHresult(result));
-        return result;
+        return guarded("SendDeviceData", [&]() -> HRESULT {
+            const HRESULT result = real_->SendDeviceData(objectSize, data, inOut, flags);
+            WE_LOG_INFO(detail::deviceLog(), "{}: SendDeviceData(count={}, flags=0x{:x}) -> {}", label_,
+                        inOut != nullptr ? *inOut : 0, flags, describeHresult(result));
+            return result;
+        });
     }
 
     // --- Force feedback -----------------------------------------------------------------------------
 
     HRESULT STDMETHODCALLTYPE CreateEffect(REFGUID type, LPCDIEFFECT effect, LPDIRECTINPUTEFFECT* out,
                                            LPUNKNOWN outer) override {
-        const HRESULT result = real_->CreateEffect(type, effect, out, outer);
-        WE_LOG_INFO(detail::deviceLog(), "{}: CreateEffect({}) {} -> {}", label_, describeGuid(type),
-                    describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0), describeHresult(result));
-        if (SUCCEEDED(result) && out != nullptr && *out != nullptr) {
-            *out = new ProxyEffect(*out, type, label_);
-        }
-        return result;
+        return guarded("CreateEffect", [&]() -> HRESULT {
+            const HRESULT result = real_->CreateEffect(type, effect, out, outer);
+            WE_LOG_INFO(detail::deviceLog(), "{}: CreateEffect({}) {} -> {}", label_, describeGuid(type),
+                        describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0), describeHresult(result));
+            if (SUCCEEDED(result) && out != nullptr && *out != nullptr) {
+                *out = new ProxyEffect(*out, type, label_);
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE EnumEffects(typename T::EnumEffectsCallback callback, LPVOID ref, DWORD type) override {
-        WE_LOG_INFO(detail::deviceLog(), "{}: EnumEffects(type=0x{:x})", label_, type);
-        EnumContext<typename T::EnumEffectsCallback> context{callback, ref, this};
-        const HRESULT result = real_->EnumEffects(&ProxyDevice::onEffect, &context, type);
-        WE_LOG_INFO(detail::deviceLog(), "{}: EnumEffects -> {} ({} effects)", label_, describeHresult(result),
-                    context.count);
-        return result;
+        return guarded("EnumEffects", [&]() -> HRESULT {
+            if (callback == nullptr) {
+                return DIERR_INVALIDPARAM;
+            }
+            WE_LOG_INFO(detail::deviceLog(), "{}: EnumEffects(type=0x{:x})", label_, type);
+            EnumContext<typename T::EnumEffectsCallback> context{callback, ref, this};
+            const HRESULT result = real_->EnumEffects(&ProxyDevice::onEffect, &context, type);
+            WE_LOG_INFO(detail::deviceLog(), "{}: EnumEffects -> {} ({} effects)", label_, describeHresult(result),
+                        context.count);
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetEffectInfo(typename T::EffectInfo* info, REFGUID guid) override {
-        const HRESULT result = real_->GetEffectInfo(info, guid);
-        WE_LOG_DEBUG(detail::deviceLog(), "{}: GetEffectInfo({}) -> {}", label_, describeGuid(guid),
-                     describeHresult(result));
-        return result;
+        return guarded("GetEffectInfo", [&]() -> HRESULT {
+            const HRESULT result = real_->GetEffectInfo(info, guid);
+            WE_LOG_DEBUG(detail::deviceLog(), "{}: GetEffectInfo({}) -> {}", label_, describeGuid(guid),
+                         describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetForceFeedbackState(LPDWORD state) override {
-        const HRESULT result = real_->GetForceFeedbackState(state);
-        if (const auto call = ffStateSampler_.next(); call != 0) {
-            WE_LOG_DEBUG(detail::deviceLog(), "{}: GetForceFeedbackState #{} -> {} state=0x{:x}", label_, call,
-                         describeHresult(result), state != nullptr ? *state : 0);
-        }
-        return result;
+        return guarded("GetForceFeedbackState", [&]() -> HRESULT {
+            const HRESULT result = real_->GetForceFeedbackState(state);
+            if (const auto call = ffStateSampler_.next(); call != 0) {
+                WE_LOG_DEBUG(detail::deviceLog(), "{}: GetForceFeedbackState #{} -> {} state=0x{:x}", label_, call,
+                             describeHresult(result), state != nullptr ? *state : 0);
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SendForceFeedbackCommand(DWORD command) override {
-        const HRESULT result = real_->SendForceFeedbackCommand(command);
-        WE_LOG_INFO(detail::deviceLog(), "{}: SendForceFeedbackCommand({}) -> {}", label_, describeFfCommand(command),
-                    describeHresult(result));
-        return result;
+        return guarded("SendForceFeedbackCommand", [&]() -> HRESULT {
+            const HRESULT result = real_->SendForceFeedbackCommand(command);
+            WE_LOG_INFO(detail::deviceLog(), "{}: SendForceFeedbackCommand({}) -> {}", label_,
+                        describeFfCommand(command),
+                        describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE EnumCreatedEffectObjects(LPDIENUMCREATEDEFFECTOBJECTSCALLBACK callback, LPVOID ref,
                                                        DWORD flags) override {
-        // Callers receive the real effect objects here; logged so Phase 3 knows whether this matters.
-        const HRESULT result = real_->EnumCreatedEffectObjects(callback, ref, flags);
-        WE_LOG_WARN(detail::deviceLog(), "{}: EnumCreatedEffectObjects -> {} (effects handed out unwrapped)", label_,
-                    describeHresult(result));
-        return result;
+        return guarded("EnumCreatedEffectObjects", [&]() -> HRESULT {
+            // Callers receive the real effect objects here; logged so Phase 3 knows whether this matters.
+            const HRESULT result = real_->EnumCreatedEffectObjects(callback, ref, flags);
+            WE_LOG_WARN(detail::deviceLog(), "{}: EnumCreatedEffectObjects -> {} (effects handed out unwrapped)",
+                        label_,
+                        describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE Escape(LPDIEFFESCAPE escape) override {
-        const HRESULT result = real_->Escape(escape);
-        WE_LOG_INFO(detail::deviceLog(), "{}: Escape(command=0x{:x}, in={} bytes, out={} bytes) -> {}", label_,
-                    escape != nullptr ? escape->dwCommand : 0, escape != nullptr ? escape->cbInBuffer : 0,
-                    escape != nullptr ? escape->cbOutBuffer : 0, describeHresult(result));
-        return result;
+        return guarded("Escape", [&]() -> HRESULT {
+            const HRESULT result = real_->Escape(escape);
+            static logging::CallSampler sampler(20, 1000);   // some games send one every frame
+            if (const auto call = sampler.next(); call != 0) {
+                WE_LOG_INFO(detail::deviceLog(), "{}: Escape #{} (command=0x{:x}, in={} bytes, out={} bytes) -> {}",
+                            label_, call, escape != nullptr ? escape->dwCommand : 0,
+                            escape != nullptr ? escape->cbInBuffer : 0, escape != nullptr ? escape->cbOutBuffer : 0,
+                            describeHresult(result));
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE EnumEffectsInFile(typename T::String file, LPDIENUMEFFECTSINFILECALLBACK callback,
                                                 LPVOID ref, DWORD flags) override {
-        const HRESULT result = real_->EnumEffectsInFile(file, callback, ref, flags);
-        WE_LOG_INFO(detail::deviceLog(), "{}: EnumEffectsInFile('{}') -> {}", label_, toUtf8(file),
-                    describeHresult(result));
-        return result;
+        return guarded("EnumEffectsInFile", [&]() -> HRESULT {
+            const HRESULT result = real_->EnumEffectsInFile(file, callback, ref, flags);
+            WE_LOG_INFO(detail::deviceLog(), "{}: EnumEffectsInFile('{}') -> {}", label_, toUtf8(file),
+                        describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE WriteEffectToFile(typename T::String file, DWORD entries, LPDIFILEEFFECT effects,
                                                 DWORD flags) override {
-        const HRESULT result = real_->WriteEffectToFile(file, entries, effects, flags);
-        WE_LOG_INFO(detail::deviceLog(), "{}: WriteEffectToFile('{}', {} entries) -> {}", label_, toUtf8(file),
-                    entries, describeHresult(result));
-        return result;
+        return guarded("WriteEffectToFile", [&]() -> HRESULT {
+            const HRESULT result = real_->WriteEffectToFile(file, entries, effects, flags);
+            WE_LOG_INFO(detail::deviceLog(), "{}: WriteEffectToFile('{}', {} entries) -> {}", label_, toUtf8(file),
+                        entries, describeHresult(result));
+            return result;
+        });
     }
 
 private:
@@ -356,26 +430,32 @@ private:
     }
 
     static BOOL CALLBACK onObject(const typename T::DeviceObjectInstance* object, LPVOID ref) {
-        auto* const context = static_cast<EnumContext<typename T::EnumObjectsCallback>*>(ref);
-        ++context->count;
-        const BOOL next = context->callback(object, context->ref);
-        WE_LOG_DEBUG(detail::deviceLog(), "{}:   object {}{}", context->self->label_,
-                     object != nullptr ? describeObject(*object) : std::string("null"),
-                     next == DIENUM_STOP ? " (game stopped the enumeration)" : "");
-        return next;
+        // Called by the real DLL: an exception here would unwind through its frames.
+        return guardedOr<BOOL>(DIENUM_STOP, "onObject", [&]() -> BOOL {
+            auto* const context = static_cast<EnumContext<typename T::EnumObjectsCallback>*>(ref);
+            ++context->count;
+            const BOOL next = context->callback(object, context->ref);
+            WE_LOG_DEBUG(detail::deviceLog(), "{}:   object {}{}", context->self->label_,
+                         object != nullptr ? describeObject(*object) : std::string("null"),
+                         next == DIENUM_STOP ? " (game stopped the enumeration)" : "");
+            return next;
+        });
     }
 
     static BOOL CALLBACK onEffect(const typename T::EffectInfo* info, LPVOID ref) {
-        auto* const context = static_cast<EnumContext<typename T::EnumEffectsCallback>*>(ref);
-        ++context->count;
-        const BOOL next = context->callback(info, context->ref);
-        if (info != nullptr) {
-            WE_LOG_DEBUG(detail::deviceLog(), "{}:   effect {} '{}' type=0x{:x} static=0x{:x} dynamic=0x{:x}{}",
-                         context->self->label_, describeGuid(info->guid), toUtf8(info->tszName), info->dwEffType,
-                         info->dwStaticParams, info->dwDynamicParams,
-                         next == DIENUM_STOP ? " (game stopped the enumeration)" : "");
-        }
-        return next;
+        // Called by the real DLL: an exception here would unwind through its frames.
+        return guardedOr<BOOL>(DIENUM_STOP, "onEffect", [&]() -> BOOL {
+            auto* const context = static_cast<EnumContext<typename T::EnumEffectsCallback>*>(ref);
+            ++context->count;
+            const BOOL next = context->callback(info, context->ref);
+            if (info != nullptr) {
+                WE_LOG_DEBUG(detail::deviceLog(), "{}:   effect {} '{}' type=0x{:x} static=0x{:x} dynamic=0x{:x}{}",
+                             context->self->label_, describeGuid(info->guid), toUtf8(info->tszName), info->dwEffType,
+                             info->dwStaticParams, info->dwDynamicParams,
+                             next == DIENUM_STOP ? " (game stopped the enumeration)" : "");
+            }
+            return next;
+        });
     }
 
     void logStateful(const char* call, const HRESULT result) {

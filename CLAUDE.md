@@ -294,6 +294,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - Do nothing in `DllMain` beyond `DisableThreadLibraryCalls` and the detach hook: no logging, no
     `LoadLibrary`, no threads. Logging starts lazily through `shim::logger()`.
   - Don't start background threads, and flush every log line.
+  - Nothing may throw into the game: every COM method, export and enumeration callback runs its body through
+    `guarded()` / `guardedOr()` (`Guard.hpp`), which log the exception and return an error code instead. Singletons
+    are never destroyed (a static's destructor would close sockets and call WSACleanup inside DllMain).
   - The shim links statically (see the toolchain file). Don't add runtime DLL dependencies, and never link
     `dinput8`.
   - COM wrappers own one real reference and delete themselves at refcount 0. Anything handed back unwrapped

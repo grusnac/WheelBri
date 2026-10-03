@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -78,6 +79,10 @@ private:
     std::vector<std::uint8_t> typeSpecific_;
 
     logging::CallSampler setSampler_{20, 500};
+    logging::CallSampler startStopSampler_{20, 500};
+    // Games call an effect from several threads (input and force feedback). Recursive: SetParameters(DIEP_START)
+    // calls Start.
+    std::recursive_mutex mutex_;
     bool warnedEnvelope_ = false;
 };
 

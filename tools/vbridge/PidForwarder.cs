@@ -20,6 +20,11 @@ public sealed class PidForwarder
     public const int MaxSlots = 8;                    // same as the service (IFfbSink::kMaxSlots)
     const long KeepAliveMs = 100;
     const long RefreshMs = 250;
+    // As core's HidPid::kGameQuietMs: a game that crashed sends nothing more, and the bridge cannot tell. After this
+    // long without a report while a pushing force (constant, ramp, periodic) plays, keep-alives and refreshes stop,
+    // so the service's watchdog stops the forces; the game's next report brings them back. Springs and dampers
+    // alone keep going (they only resist, and games set them once).
+    public const long GameQuietMs = 10_000;
 
     // Report IDs of the PID block.
     public const byte SetEffect = 0x11, SetEnvelope = 0x12, SetCondition = 0x13, SetPeriodic = 0x14,
@@ -51,6 +56,8 @@ public sealed class PidForwarder
     readonly (bool Playing, FfbEffect Effect)?[] _sent = new (bool, FfbEffect)?[MaxSlots];
     readonly HashSet<string> _seen = new();       // first report of each kind is logged in full
     uint _sequence;
+    long _lastReportMs;
+    bool _quiet;
     long _lastSendMs = long.MinValue / 2;
     long _lastRefreshMs = long.MinValue / 2;
     float _deviceGain = 1;
@@ -103,6 +110,12 @@ public sealed class PidForwarder
         lock (_lock)
         {
             ++ReportsHandled;
+            _lastReportMs = nowMs;
+            if (_quiet)
+            {
+                _quiet = false;
+                _log("pid: the game sends force feedback again: forces back on");
+            }
             string kind = (feature ? "feature 0x" : "output 0x") + reportId.ToString("X2");
             if (_seen.Add(kind))
             {
@@ -144,7 +157,14 @@ public sealed class PidForwarder
     {
         lock (_lock)
         {
-            bool refresh = nowMs - _lastRefreshMs >= RefreshMs;
+            if (!_quiet && ReportsHandled > 0 && nowMs - _lastReportMs >= GameQuietMs && PushingForcePlays())
+            {
+                _quiet = true;
+                _log($"pid: WARNING: no force feedback report from the game for {GameQuietMs / 1000} s while a pushing "
+                     + "force plays (did the game crash?): keep-alives stopped, so the service stops the forces; they "
+                     + "come back with the game's next report");
+            }
+            bool refresh = !_quiet && nowMs - _lastRefreshMs >= RefreshMs;
             if (refresh)
             {
                 _lastRefreshMs = nowMs;
@@ -152,11 +172,34 @@ public sealed class PidForwarder
             SendChanges(nowMs, refresh);
             // Keep-alives only once a game has used force feedback: otherwise the service would report a game
             // that is not there.
-            if (ReportsHandled > 0 && nowMs - _lastSendMs >= KeepAliveMs)
+            if (!_quiet && ReportsHandled > 0 && nowMs - _lastSendMs >= KeepAliveMs)
             {
                 Send(FfbPacketKind.KeepAlive, 0, false, FfbEffect.Default, nowMs);
             }
         }
+    }
+
+    public bool GameQuiet
+    {
+        get { lock (_lock) return _quiet; }
+    }
+
+    // A force that pushes the wheel by itself (not a spring, damper, friction or inertia), above 2 %.
+    bool PushingForcePlays()
+    {
+        foreach (var s in _sent)
+        {
+            if (s is not { Playing: true } sent) continue;
+            var e = sent.Effect;
+            float strength = e.Type switch
+            {
+                FfbEffectType.Spring or FfbEffectType.Damper or FfbEffectType.Friction or FfbEffectType.Inertia => 0,
+                FfbEffectType.Constant => Math.Abs(e.ConstantLevel),
+                _ => Math.Abs(e.Magnitude) + Math.Abs(e.Offset),
+            };
+            if (strength * e.Gain > 0.02f) return true;
+        }
+        return false;
     }
 
     // Everything stops (bridge exiting, or the game reset its force feedback).
@@ -221,7 +264,10 @@ public sealed class PidForwarder
             int free = Array.FindIndex(_slotOwner, o => o == null);
             if (free < 0)
             {
-                _log($"pid: all {MaxSlots} slots in use, effect block {ebi} is not played");
+                if (_seen.Add($"slots full {ebi}"))   // once per block, not per report
+                {
+                    _log($"pid: all {MaxSlots} slots in use, effect block {ebi} is not played");
+                }
             }
             else
             {

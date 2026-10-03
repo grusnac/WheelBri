@@ -1,4 +1,5 @@
 #include "ProxyEffect.hpp"
+#include "Guard.hpp"
 
 #include <utility>
 
@@ -46,77 +47,104 @@ ULONG ProxyEffect::Release() {
 }
 
 HRESULT ProxyEffect::Initialize(HINSTANCE instance, DWORD version, REFGUID guid) {
-    const HRESULT result = real_->Initialize(instance, version, guid);
-    WE_LOG_DEBUG(log(), "{}: Initialize(version 0x{:x}) -> {}", label_, version, describeHresult(result));
-    return result;
+    return guarded("Initialize", [&]() -> HRESULT {
+        const HRESULT result = real_->Initialize(instance, version, guid);
+        WE_LOG_DEBUG(log(), "{}: Initialize(version 0x{:x}) -> {}", label_, version, describeHresult(result));
+        return result;
+    });
 }
 
-HRESULT ProxyEffect::GetEffectGuid(LPGUID guid) { return real_->GetEffectGuid(guid); }
+HRESULT ProxyEffect::GetEffectGuid(LPGUID guid) {
+    return guarded("GetEffectGuid", [&]() -> HRESULT { return real_->GetEffectGuid(guid); });
+}
 
 HRESULT ProxyEffect::GetParameters(LPDIEFFECT effect, DWORD flags) {
-    const HRESULT result = real_->GetParameters(effect, flags);
-    WE_LOG_TRACE(log(), "{}: GetParameters -> {} {}", label_, describeHresult(result),
-                 SUCCEEDED(result) ? describeEffect(type_, effect, flags) : std::string());
-    return result;
+    return guarded("GetParameters", [&]() -> HRESULT {
+        const HRESULT result = real_->GetParameters(effect, flags);
+        WE_LOG_TRACE(log(), "{}: GetParameters -> {} {}", label_, describeHresult(result),
+                     SUCCEEDED(result) ? describeEffect(type_, effect, flags) : std::string());
+        return result;
+    });
 }
 
 HRESULT ProxyEffect::SetParameters(LPCDIEFFECT effect, DWORD flags) {
-    const HRESULT result = real_->SetParameters(effect, flags);
-    // Games update constant forces every frame: log the first calls in full, then sample. Failures always.
-    if (FAILED(result)) {
-        static logging::RateLimiter limiter(std::chrono::seconds(5));
-        WE_LOG_WARN_LIMITED(log(), limiter, "{}: SetParameters {} -> {}", label_, describeEffect(type_, effect, flags),
-                            describeHresult(result));
-    } else if (const auto call = setParametersSampler_.next(); call != 0) {
-        WE_LOG_DEBUG(log(), "{}: SetParameters #{} {} -> {}", label_, call, describeEffect(type_, effect, flags),
-                     describeHresult(result));
-    }
-    return result;
+    return guarded("SetParameters", [&]() -> HRESULT {
+        const HRESULT result = real_->SetParameters(effect, flags);
+        // Games update constant forces every frame: log the first calls in full, then sample. Failures always.
+        if (FAILED(result)) {
+            static logging::RateLimiter limiter(std::chrono::seconds(5));
+            WE_LOG_WARN_LIMITED(log(), limiter, "{}: SetParameters {} -> {}", label_, describeEffect(type_, effect,
+                                flags),
+                                describeHresult(result));
+        } else if (const auto call = setParametersSampler_.next(); call != 0) {
+            WE_LOG_DEBUG(log(), "{}: SetParameters #{} {} -> {}", label_, call, describeEffect(type_, effect, flags),
+                         describeHresult(result));
+        }
+        return result;
+    });
 }
 
 HRESULT ProxyEffect::Start(DWORD iterations, DWORD flags) {
-    const HRESULT result = real_->Start(iterations, flags);
-    WE_LOG_DEBUG(log(), "{}: Start(iterations={}, flags=0x{:x}{}{}) -> {}", label_,
-                 iterations == INFINITE ? std::string("INFINITE") : std::to_string(iterations), flags,
-                 (flags & DIES_SOLO) != 0 ? " SOLO" : "", (flags & DIES_NODOWNLOAD) != 0 ? " NODOWNLOAD" : "",
-                 describeHresult(result));
-    return result;
+    return guarded("Start", [&]() -> HRESULT {
+        const HRESULT result = real_->Start(iterations, flags);
+        static logging::CallSampler sampler(20, 500);   // may come every frame
+        if (const auto call = sampler.next(); call != 0) {
+            WE_LOG_DEBUG(log(), "{}: Start #{} (iterations={}, flags=0x{:x}{}{}) -> {}", label_, call,
+                         iterations == INFINITE ? std::string("INFINITE") : std::to_string(iterations), flags,
+                         (flags & DIES_SOLO) != 0 ? " SOLO" : "", (flags & DIES_NODOWNLOAD) != 0 ? " NODOWNLOAD" : "",
+                         describeHresult(result));
+        }
+        return result;
+    });
 }
 
 HRESULT ProxyEffect::Stop() {
-    const HRESULT result = real_->Stop();
-    WE_LOG_DEBUG(log(), "{}: Stop -> {}", label_, describeHresult(result));
-    return result;
+    return guarded("Stop", [&]() -> HRESULT {
+        const HRESULT result = real_->Stop();
+        static logging::CallSampler sampler(20, 500);
+        if (const auto call = sampler.next(); call != 0) {
+            WE_LOG_DEBUG(log(), "{}: Stop #{} -> {}", label_, call, describeHresult(result));
+        }
+        return result;
+    });
 }
 
 HRESULT ProxyEffect::GetEffectStatus(LPDWORD status) {
-    const HRESULT result = real_->GetEffectStatus(status);
-    if (const auto call = statusSampler_.next(); call != 0) {
-        WE_LOG_TRACE(log(), "{}: GetEffectStatus #{} -> {} status=0x{:x}", label_, call, describeHresult(result),
-                     status != nullptr ? *status : 0);
-    }
-    return result;
+    return guarded("GetEffectStatus", [&]() -> HRESULT {
+        const HRESULT result = real_->GetEffectStatus(status);
+        if (const auto call = statusSampler_.next(); call != 0) {
+            WE_LOG_TRACE(log(), "{}: GetEffectStatus #{} -> {} status=0x{:x}", label_, call, describeHresult(result),
+                         status != nullptr ? *status : 0);
+        }
+        return result;
+    });
 }
 
 HRESULT ProxyEffect::Download() {
-    const HRESULT result = real_->Download();
-    WE_LOG_DEBUG(log(), "{}: Download -> {}", label_, describeHresult(result));
-    return result;
+    return guarded("Download", [&]() -> HRESULT {
+        const HRESULT result = real_->Download();
+        WE_LOG_DEBUG(log(), "{}: Download -> {}", label_, describeHresult(result));
+        return result;
+    });
 }
 
 HRESULT ProxyEffect::Unload() {
-    const HRESULT result = real_->Unload();
-    WE_LOG_DEBUG(log(), "{}: Unload -> {}", label_, describeHresult(result));
-    return result;
+    return guarded("Unload", [&]() -> HRESULT {
+        const HRESULT result = real_->Unload();
+        WE_LOG_DEBUG(log(), "{}: Unload -> {}", label_, describeHresult(result));
+        return result;
+    });
 }
 
 HRESULT ProxyEffect::Escape(LPDIEFFESCAPE escape) {
-    const HRESULT result = real_->Escape(escape);
-    // Driver-specific commands: exactly what a Logitech-aware game might send to its wheel.
-    WE_LOG_INFO(log(), "{}: Escape(command=0x{:x}, in={} bytes, out={} bytes) -> {}", label_,
-                escape != nullptr ? escape->dwCommand : 0, escape != nullptr ? escape->cbInBuffer : 0,
-                escape != nullptr ? escape->cbOutBuffer : 0, describeHresult(result));
-    return result;
+    return guarded("Escape", [&]() -> HRESULT {
+        const HRESULT result = real_->Escape(escape);
+        // Driver-specific commands: exactly what a Logitech-aware game might send to its wheel.
+        WE_LOG_INFO(log(), "{}: Escape(command=0x{:x}, in={} bytes, out={} bytes) -> {}", label_,
+                    escape != nullptr ? escape->dwCommand : 0, escape != nullptr ? escape->cbInBuffer : 0,
+                    escape != nullptr ? escape->cbOutBuffer : 0, describeHresult(result));
+        return result;
+    });
 }
 
 }  // namespace wheelemu::shim

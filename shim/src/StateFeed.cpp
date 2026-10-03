@@ -15,8 +15,10 @@ const logging::Logger& log() {
 }  // namespace
 
 StateFeed& StateFeed::instance() {
-    static StateFeed feed;
-    return feed;
+    // Never destroyed: a static's destructor would run in DllMain (process detach) under the loader lock, and closing
+    // its socket calls WSACleanup there, which can hang the game on exit.
+    static StateFeed* const feed = new StateFeed;
+    return *feed;
 }
 
 TargetReport StateFeed::current(const IDeviceProfile& profile) {
@@ -27,10 +29,19 @@ TargetReport StateFeed::current(const IDeviceProfile& profile) {
     if (!opened_) {
         opened_ = true;
         firstRequest_ = now;
+        lastOpenAttempt_ = now;
         receiver_ = UdpLoopbackReceiver::create(config.statePort);
         if (receiver_ == nullptr) {
-            WE_LOG_ERROR(log(), "cannot listen on 127.0.0.1:{}; the emulated wheel will stay centred",
+            WE_LOG_ERROR(log(), "cannot listen on 127.0.0.1:{} (another program has it?); the emulated wheel stays "
+                                "centred, trying again every 5 s",
                          config.statePort);
+        }
+    } else if (receiver_ == nullptr && now - lastOpenAttempt_ >= std::chrono::seconds(5)) {
+        // Taken by a launcher that loaded this DLL first, or still held by an earlier run: it may free up.
+        lastOpenAttempt_ = now;
+        receiver_ = UdpLoopbackReceiver::create(config.statePort);
+        if (receiver_ != nullptr) {
+            WE_LOG_INFO(log(), "listening on 127.0.0.1:{} now", config.statePort);
         }
     }
 

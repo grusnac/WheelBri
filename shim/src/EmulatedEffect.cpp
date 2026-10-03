@@ -1,4 +1,5 @@
 #include "EmulatedEffect.hpp"
+#include "Guard.hpp"
 
 #include "FfbForwarder.hpp"
 
@@ -101,11 +102,14 @@ ULONG EmulatedEffect::Release() {
 HRESULT EmulatedEffect::Initialize(HINSTANCE, DWORD, REFGUID) { return DI_OK; }
 
 HRESULT EmulatedEffect::GetEffectGuid(LPGUID guid) {
-    if (guid == nullptr) {
-        return E_POINTER;
-    }
-    *guid = type_;
-    return DI_OK;
+    return guarded("GetEffectGuid", [&]() -> HRESULT {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (guid == nullptr) {
+            return E_POINTER;
+        }
+        *guid = type_;
+        return DI_OK;
+    });
 }
 
 std::size_t EmulatedEffect::wheelAxisIndex() const {
@@ -173,161 +177,197 @@ FfbEffect EmulatedEffect::toFfb() const {
 }
 
 HRESULT EmulatedEffect::SetParameters(LPCDIEFFECT effect, const DWORD flags) {
-    if (effect == nullptr || (effect->dwSize != sizeof(DIEFFECT) && effect->dwSize != sizeof(DIEFFECT_DX5))) {
-        return DIERR_INVALIDPARAM;
-    }
-    if ((flags & DIEP_DURATION) != 0) duration_ = effect->dwDuration;
-    if ((flags & DIEP_SAMPLEPERIOD) != 0) samplePeriod_ = effect->dwSamplePeriod;
-    if ((flags & DIEP_GAIN) != 0) gain_ = std::min<DWORD>(effect->dwGain, DI_FFNOMINALMAX);
-    if ((flags & DIEP_TRIGGERBUTTON) != 0) triggerButton_ = effect->dwTriggerButton;
-    if ((flags & DIEP_TRIGGERREPEATINTERVAL) != 0) triggerRepeatInterval_ = effect->dwTriggerRepeatInterval;
-    if ((flags & DIEP_STARTDELAY) != 0 && effect->dwSize == sizeof(DIEFFECT)) startDelay_ = effect->dwStartDelay;
-    if ((flags & (DIEP_AXES | DIEP_DIRECTION)) != 0) {
-        flags_ = effect->dwFlags;
-    }
-    if ((flags & DIEP_AXES) != 0) {
-        if (effect->cAxes != 0 && effect->rgdwAxes == nullptr) {
+    return guarded("SetParameters", [&]() -> HRESULT {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (effect == nullptr || (effect->dwSize != sizeof(DIEFFECT) && effect->dwSize != sizeof(DIEFFECT_DX5))) {
             return DIERR_INVALIDPARAM;
         }
-        axes_.assign(effect->rgdwAxes, effect->rgdwAxes + effect->cAxes);
-    }
-    if ((flags & DIEP_DIRECTION) != 0) {
-        const DWORD count = effect->cAxes != 0 ? effect->cAxes : static_cast<DWORD>(axes_.size());
-        if (count != 0 && effect->rglDirection == nullptr) {
+        // Everything checked before anything changes: a rejected call leaves the effect as it was. The sizes come
+        // from the game: no more axes than a device has, no type-specific block larger than any DirectInput one.
+        constexpr DWORD kMaxAxes = 8;
+        constexpr DWORD kMaxTypeSpecificBytes = 1024;
+        if ((flags & DIEP_AXES) != 0 &&
+            (effect->cAxes > kMaxAxes || (effect->cAxes != 0 && effect->rgdwAxes == nullptr))) {
             return DIERR_INVALIDPARAM;
         }
-        direction_.assign(effect->rglDirection, effect->rglDirection + count);
-    }
-    if ((flags & DIEP_ENVELOPE) != 0) {
-        if (effect->lpEnvelope != nullptr) {
-            envelope_ = *effect->lpEnvelope;
-            if (!warnedEnvelope_) {
-                warnedEnvelope_ = true;
-                WE_LOG_DEBUG(log(), "{}: envelope (attack/fade) is ignored; the effect plays at full level", label_);
+        if ((flags & DIEP_DIRECTION) != 0) {
+            const DWORD count = effect->cAxes != 0 ? effect->cAxes : static_cast<DWORD>(axes_.size());
+            if (count > kMaxAxes || (count != 0 && effect->rglDirection == nullptr)) {
+                return DIERR_INVALIDPARAM;
             }
-        } else {
-            envelope_.reset();
         }
-    }
-    if ((flags & DIEP_TYPESPECIFICPARAMS) != 0) {
-        if (effect->cbTypeSpecificParams != 0 && effect->lpvTypeSpecificParams == nullptr) {
+        if ((flags & DIEP_TYPESPECIFICPARAMS) != 0 &&
+            (effect->cbTypeSpecificParams > kMaxTypeSpecificBytes ||
+             (effect->cbTypeSpecificParams != 0 && effect->lpvTypeSpecificParams == nullptr))) {
             return DIERR_INVALIDPARAM;
         }
-        const auto* bytes = static_cast<const std::uint8_t*>(effect->lpvTypeSpecificParams);
-        typeSpecific_.assign(bytes, bytes + effect->cbTypeSpecificParams);
-    }
+        if ((flags & DIEP_DURATION) != 0) duration_ = effect->dwDuration;
+        if ((flags & DIEP_SAMPLEPERIOD) != 0) samplePeriod_ = effect->dwSamplePeriod;
+        if ((flags & DIEP_GAIN) != 0) gain_ = std::min<DWORD>(effect->dwGain, DI_FFNOMINALMAX);
+        if ((flags & DIEP_TRIGGERBUTTON) != 0) triggerButton_ = effect->dwTriggerButton;
+        if ((flags & DIEP_TRIGGERREPEATINTERVAL) != 0) triggerRepeatInterval_ = effect->dwTriggerRepeatInterval;
+        if ((flags & DIEP_STARTDELAY) != 0 && effect->dwSize == sizeof(DIEFFECT)) startDelay_ = effect->dwStartDelay;
+        if ((flags & (DIEP_AXES | DIEP_DIRECTION)) != 0) {
+            flags_ = effect->dwFlags;
+        }
+        if ((flags & DIEP_AXES) != 0) {
+            axes_.assign(effect->rgdwAxes, effect->rgdwAxes + effect->cAxes);
+        }
+        if ((flags & DIEP_DIRECTION) != 0) {
+            const DWORD count = effect->cAxes != 0 ? effect->cAxes : static_cast<DWORD>(axes_.size());
+            direction_.assign(effect->rglDirection, effect->rglDirection + count);
+        }
+        if ((flags & DIEP_ENVELOPE) != 0) {
+            if (effect->lpEnvelope != nullptr) {
+                envelope_ = *effect->lpEnvelope;
+                if (!warnedEnvelope_) {
+                    warnedEnvelope_ = true;
+                    WE_LOG_DEBUG(log(), "{}: envelope (attack/fade) is ignored; the effect plays at full level",
+                                 label_);
+                }
+            } else {
+                envelope_.reset();
+            }
+        }
+        if ((flags & DIEP_TYPESPECIFICPARAMS) != 0) {
+            const auto* bytes = static_cast<const std::uint8_t*>(effect->lpvTypeSpecificParams);
+            typeSpecific_.assign(bytes, bytes + effect->cbTypeSpecificParams);
+        }
 
-    const FfbEffect converted = toFfb();
-    // SetParameters downloads the effect unless told not to (DIEP_NODOWNLOAD).
-    if ((flags & DIEP_NODOWNLOAD) == 0 && !ensureSlot()) {
-        return DIERR_DEVICEFULL;
-    }
-    if (slot_) {
-        FfbForwarder::instance().setEffect(*slot_, converted);
-    }
-    if (const auto call = setSampler_.next(); call != 0) {
-        WE_LOG_DEBUG(log(), "{}: SetParameters #{} flags=0x{:x} -> level={:+.3f} coef={:+.3f}/{:+.3f} "
-                            "sat={:.3f}/{:.3f} periodic={:.3f}@{:.0f}ms gain={:.2f}",
-                     label_, call, flags, converted.constantLevel, converted.condition.positiveCoefficient,
-                     converted.condition.negativeCoefficient, converted.condition.positiveSaturation,
-                     converted.condition.negativeSaturation, converted.periodic.magnitude,
-                     converted.periodic.periodMs, converted.gain);
-    }
-    if ((flags & DIEP_START) != 0) {
-        return Start(1, 0);
-    }
-    return DI_OK;
+        const FfbEffect converted = toFfb();
+        // SetParameters downloads the effect unless told not to (DIEP_NODOWNLOAD).
+        if ((flags & DIEP_NODOWNLOAD) == 0 && !ensureSlot()) {
+            return DIERR_DEVICEFULL;
+        }
+        if (slot_) {
+            FfbForwarder::instance().setEffect(*slot_, converted);
+        }
+        if (const auto call = setSampler_.next(); call != 0) {
+            WE_LOG_DEBUG(log(), "{}: SetParameters #{} flags=0x{:x} -> level={:+.3f} coef={:+.3f}/{:+.3f} "
+                                "sat={:.3f}/{:.3f} periodic={:.3f}@{:.0f}ms gain={:.2f}",
+                         label_, call, flags, converted.constantLevel, converted.condition.positiveCoefficient,
+                         converted.condition.negativeCoefficient, converted.condition.positiveSaturation,
+                         converted.condition.negativeSaturation, converted.periodic.magnitude,
+                         converted.periodic.periodMs, converted.gain);
+        }
+        if ((flags & DIEP_START) != 0) {
+            return Start(1, 0);
+        }
+        return DI_OK;
+    });
 }
 
 HRESULT EmulatedEffect::GetParameters(LPDIEFFECT effect, const DWORD flags) {
-    if (effect == nullptr || (effect->dwSize != sizeof(DIEFFECT) && effect->dwSize != sizeof(DIEFFECT_DX5))) {
-        return DIERR_INVALIDPARAM;
-    }
-    HRESULT result = DI_OK;
-    if ((flags & DIEP_DURATION) != 0) effect->dwDuration = duration_;
-    if ((flags & DIEP_SAMPLEPERIOD) != 0) effect->dwSamplePeriod = samplePeriod_;
-    if ((flags & DIEP_GAIN) != 0) effect->dwGain = gain_;
-    if ((flags & DIEP_TRIGGERBUTTON) != 0) effect->dwTriggerButton = triggerButton_;
-    if ((flags & DIEP_TRIGGERREPEATINTERVAL) != 0) effect->dwTriggerRepeatInterval = triggerRepeatInterval_;
-    if ((flags & DIEP_STARTDELAY) != 0 && effect->dwSize == sizeof(DIEFFECT)) effect->dwStartDelay = startDelay_;
-    if ((flags & (DIEP_AXES | DIEP_DIRECTION)) != 0) {
-        const DWORD needed = static_cast<DWORD>(std::max(axes_.size(), direction_.size()));
-        if (effect->cAxes < needed) {
+    return guarded("GetParameters", [&]() -> HRESULT {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (effect == nullptr || (effect->dwSize != sizeof(DIEFFECT) && effect->dwSize != sizeof(DIEFFECT_DX5))) {
+            return DIERR_INVALIDPARAM;
+        }
+        HRESULT result = DI_OK;
+        if ((flags & DIEP_DURATION) != 0) effect->dwDuration = duration_;
+        if ((flags & DIEP_SAMPLEPERIOD) != 0) effect->dwSamplePeriod = samplePeriod_;
+        if ((flags & DIEP_GAIN) != 0) effect->dwGain = gain_;
+        if ((flags & DIEP_TRIGGERBUTTON) != 0) effect->dwTriggerButton = triggerButton_;
+        if ((flags & DIEP_TRIGGERREPEATINTERVAL) != 0) effect->dwTriggerRepeatInterval = triggerRepeatInterval_;
+        if ((flags & DIEP_STARTDELAY) != 0 && effect->dwSize == sizeof(DIEFFECT)) effect->dwStartDelay = startDelay_;
+        if ((flags & (DIEP_AXES | DIEP_DIRECTION)) != 0) {
+            const DWORD needed = static_cast<DWORD>(std::max(axes_.size(), direction_.size()));
+            if (effect->cAxes < needed) {
+                effect->cAxes = needed;
+                return DIERR_MOREDATA;
+            }
             effect->cAxes = needed;
-            return DIERR_MOREDATA;
+            effect->dwFlags = (effect->dwFlags & ~(DIEFF_CARTESIAN | DIEFF_POLAR | DIEFF_SPHERICAL)) |
+                              (flags_ & (DIEFF_CARTESIAN | DIEFF_POLAR | DIEFF_SPHERICAL));
+            if ((flags & DIEP_AXES) != 0 && effect->rgdwAxes != nullptr) {
+                std::copy(axes_.begin(), axes_.end(), effect->rgdwAxes);
+            }
+            if ((flags & DIEP_DIRECTION) != 0 && effect->rglDirection != nullptr) {
+                std::copy(direction_.begin(), direction_.end(), effect->rglDirection);
+            }
         }
-        effect->cAxes = needed;
-        effect->dwFlags = (effect->dwFlags & ~(DIEFF_CARTESIAN | DIEFF_POLAR | DIEFF_SPHERICAL)) |
-                          (flags_ & (DIEFF_CARTESIAN | DIEFF_POLAR | DIEFF_SPHERICAL));
-        if ((flags & DIEP_AXES) != 0 && effect->rgdwAxes != nullptr) {
-            std::copy(axes_.begin(), axes_.end(), effect->rgdwAxes);
+        if ((flags & DIEP_ENVELOPE) != 0) {
+            if (envelope_ && effect->lpEnvelope != nullptr) {
+                *effect->lpEnvelope = *envelope_;
+            } else {
+                effect->lpEnvelope = nullptr;
+            }
         }
-        if ((flags & DIEP_DIRECTION) != 0 && effect->rglDirection != nullptr) {
-            std::copy(direction_.begin(), direction_.end(), effect->rglDirection);
+        if ((flags & DIEP_TYPESPECIFICPARAMS) != 0) {
+            if (effect->cbTypeSpecificParams < typeSpecific_.size()) {
+                effect->cbTypeSpecificParams = static_cast<DWORD>(typeSpecific_.size());
+                result = DIERR_MOREDATA;
+            } else if (effect->lpvTypeSpecificParams != nullptr) {
+                std::memcpy(effect->lpvTypeSpecificParams, typeSpecific_.data(), typeSpecific_.size());
+                effect->cbTypeSpecificParams = static_cast<DWORD>(typeSpecific_.size());
+            }
         }
-    }
-    if ((flags & DIEP_ENVELOPE) != 0) {
-        if (envelope_ && effect->lpEnvelope != nullptr) {
-            *effect->lpEnvelope = *envelope_;
-        } else {
-            effect->lpEnvelope = nullptr;
-        }
-    }
-    if ((flags & DIEP_TYPESPECIFICPARAMS) != 0) {
-        if (effect->cbTypeSpecificParams < typeSpecific_.size()) {
-            effect->cbTypeSpecificParams = static_cast<DWORD>(typeSpecific_.size());
-            result = DIERR_MOREDATA;
-        } else if (effect->lpvTypeSpecificParams != nullptr) {
-            std::memcpy(effect->lpvTypeSpecificParams, typeSpecific_.data(), typeSpecific_.size());
-            effect->cbTypeSpecificParams = static_cast<DWORD>(typeSpecific_.size());
-        }
-    }
-    return result;
+        return result;
+    });
 }
 
 HRESULT EmulatedEffect::Start(const DWORD iterations, const DWORD flags) {
-    const std::optional<std::uint64_t> duration =
-        duration_ == INFINITE ? std::nullopt : std::optional<std::uint64_t>(duration_);
-    const std::optional<std::uint32_t> count =
-        iterations == INFINITE ? std::nullopt : std::optional<std::uint32_t>(std::max<DWORD>(iterations, 1));
-    if (!ensureSlot()) {
-        return DIERR_DEVICEFULL;
-    }
-    FfbForwarder::instance().start(*slot_, duration, count, startDelay_, (flags & DIES_SOLO) != 0);
-    WE_LOG_DEBUG(log(), "{}: Start(iterations={}, flags=0x{:x})", label_,
-                 iterations == INFINITE ? std::string("INFINITE") : std::to_string(iterations), flags);
-    return DI_OK;
+    return guarded("Start", [&]() -> HRESULT {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        const std::optional<std::uint64_t> duration =
+            duration_ == INFINITE ? std::nullopt : std::optional<std::uint64_t>(duration_);
+        const std::optional<std::uint32_t> count =
+            iterations == INFINITE ? std::nullopt : std::optional<std::uint32_t>(std::max<DWORD>(iterations, 1));
+        if (!ensureSlot()) {
+            return DIERR_DEVICEFULL;
+        }
+        FfbForwarder::instance().start(*slot_, duration, count, startDelay_, (flags & DIES_SOLO) != 0);
+        if (const auto call = startStopSampler_.next(); call != 0) {   // may come every frame
+            WE_LOG_DEBUG(log(), "{}: Start #{} (iterations={}, flags=0x{:x})", label_, call,
+                         iterations == INFINITE ? std::string("INFINITE") : std::to_string(iterations), flags);
+        }
+        return DI_OK;
+    });
 }
 
 HRESULT EmulatedEffect::Stop() {
-    if (slot_) {
-        FfbForwarder::instance().stop(*slot_);
-    }
-    WE_LOG_DEBUG(log(), "{}: Stop", label_);
-    return DI_OK;
+    return guarded("Stop", [&]() -> HRESULT {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (slot_) {
+            FfbForwarder::instance().stop(*slot_);
+        }
+        if (const auto call = startStopSampler_.next(); call != 0) {
+            WE_LOG_DEBUG(log(), "{}: Stop #{}", label_, call);
+        }
+        return DI_OK;
+    });
 }
 
 HRESULT EmulatedEffect::GetEffectStatus(LPDWORD status) {
-    if (status == nullptr) {
-        return E_POINTER;
-    }
-    *status = slot_ && FfbForwarder::instance().isPlaying(*slot_) ? DIEGES_PLAYING : 0;
-    return DI_OK;
+    return guarded("GetEffectStatus", [&]() -> HRESULT {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        if (status == nullptr) {
+            return E_POINTER;
+        }
+        *status = slot_ && FfbForwarder::instance().isPlaying(*slot_) ? DIEGES_PLAYING : 0;
+        return DI_OK;
+    });
 }
 
 HRESULT EmulatedEffect::Download() {
-    return ensureSlot() ? DI_OK : DIERR_DEVICEFULL;
+    return guarded("Download", [&]() -> HRESULT {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        return ensureSlot() ? DI_OK : DIERR_DEVICEFULL;
+    });
 }
 
 HRESULT EmulatedEffect::Unload() {
-    // Stops the effect and frees its slot (the object stays valid and can be downloaded again).
-    if (slot_) {
-        const std::uint8_t slot = *slot_;
-        FfbForwarder::instance().release(slot);
-        slot_.reset();
-        WE_LOG_DEBUG(log(), "{}: Unload, slot {} freed", label_, slot);
-    }
-    return DI_OK;
+    return guarded("Unload", [&]() -> HRESULT {
+        const std::lock_guard<std::recursive_mutex> lock(mutex_);
+        // Stops the effect and frees its slot (the object stays valid and can be downloaded again).
+        if (slot_) {
+            const std::uint8_t slot = *slot_;
+            FfbForwarder::instance().release(slot);
+            slot_.reset();
+            WE_LOG_DEBUG(log(), "{}: Unload, slot {} freed", label_, slot);
+        }
+        return DI_OK;
+    });
 }
 
 HRESULT EmulatedEffect::Escape(LPDIEFFESCAPE) { return DIERR_UNSUPPORTED; }

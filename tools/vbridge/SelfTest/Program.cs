@@ -139,6 +139,22 @@ Check(sent.Count == 1 && sent[0].Kind == FfbPacketKind.StopAll, "device reset se
 Check(f.ActiveSlots == 0, "nothing plays after a reset");
 Check(logs.Count(l => l.StartsWith("pid: first")) >= 8, "the first report of each kind is logged");
 
+// --- a crashed game: no report for 10 s while a constant force plays -> no more keep-alives ---
+var quietSent = new List<byte[]>();
+var q = new PidForwarder(b => quietSent.Add(b), _ => { });
+q.Handle(0x11, new byte[] { 1, 0 }, feature: true, 0);
+q.Handle(PidForwarder.SetEffect, SetEffect(1, 1, 0xFFFF, 0x01), false, 0);
+q.Handle(PidForwarder.SetConstant, Constant(1, 5000), false, 0);
+q.Handle(PidForwarder.EffectOperation, new byte[] { 1, 1, 255 }, false, 0);
+for (long t = 10; t < PidForwarder.GameQuietMs; t += 10) q.Tick(t);
+Check(!q.GameQuiet, "a constant force is kept alive while the game is quiet for less than 10 s");
+quietSent.Clear();
+for (long t = PidForwarder.GameQuietMs; t < PidForwarder.GameQuietMs + 2000; t += 10) q.Tick(t);
+Check(q.GameQuiet && quietSent.Count == 0, "after 10 s without a report, nothing more is sent (the service stops it)");
+q.Handle(PidForwarder.SetConstant, Constant(1, 4000), false, PidForwarder.GameQuietMs + 2000);
+q.Tick(PidForwarder.GameQuietMs + 2300);
+Check(!q.GameQuiet && quietSent.Count > 0, "the game's next report brings the force back");
+
 // --- HidHide output parsing (formats as HidHideCLI prints them) ---
 const string gaming = """
  [ { "friendlyName" : "R3 Racing Wheel and Pedals" , "devices" : [

@@ -158,8 +158,9 @@ void HidPid::setFeature(std::uint8_t reportId, std::span<const std::uint8_t> d, 
             break;
         }
     }
-    if (lastLoadStatus_ == 2) {
-        log_("pid: all " + std::to_string(kMaxSlots) + " effect blocks in use, the game's new effect is refused");
+    if (lastLoadStatus_ == 2 && seen_.insert("pool full").second) {   // once: a game may keep trying
+        log_("pid: all " + std::to_string(kMaxSlots) + " effect blocks in use, the game's new effect is refused "
+             "(said once)");
     }
 }
 
@@ -205,8 +206,10 @@ HidPid::Block* HidPid::withBlock(std::uint8_t ebi) {
     if (block.slot < 0) {
         const auto free = std::find(slotOwner_.begin(), slotOwner_.end(), std::nullopt);
         if (free == slotOwner_.end()) {
-            log_("pid: all " + std::to_string(kMaxSlots) + " slots in use, effect block " + std::to_string(ebi) +
-                 " is not played");
+            if (seen_.insert("slots full " + std::to_string(ebi)).second) {   // once per block, not per report
+                log_("pid: all " + std::to_string(kMaxSlots) + " slots in use, effect block " + std::to_string(ebi) +
+                     " is not played");
+            }
         } else {
             block.slot = static_cast<int>(free - slotOwner_.begin());
             *free = ebi;

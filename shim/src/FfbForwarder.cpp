@@ -19,8 +19,9 @@ constexpr auto kRefresh = std::chrono::milliseconds(250);
 }  // namespace
 
 FfbForwarder& FfbForwarder::instance() {
-    static FfbForwarder forwarder;
-    return forwarder;
+    // Never destroyed (see StateFeed::instance): no socket closing and WSACleanup under the loader lock.
+    static FfbForwarder* const forwarder = new FfbForwarder;
+    return *forwarder;
 }
 
 void FfbForwarder::ensureSender() {
@@ -78,7 +79,11 @@ void FfbForwarder::sendSlot(const std::uint8_t index, const Clock::time_point no
     packet.effect = effect;
     send(packet, now);
     if (playing != slot.sentPlaying) {
-        WE_LOG_DEBUG(log(), "slot {}: {}", index, playing ? "playing" : "stopped");
+        // A game may restart a short effect every frame: sampled, the shim flushes every line to disk.
+        static logging::CallSampler sampler(50, 500);
+        if (const auto call = sampler.next(); call != 0) {
+            WE_LOG_DEBUG(log(), "slot {}: {} (#{})", index, playing ? "playing" : "stopped", call);
+        }
     }
     slot.sentPlaying = playing;
     slot.sentEffect = effect;

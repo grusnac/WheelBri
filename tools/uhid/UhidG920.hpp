@@ -8,6 +8,8 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <set>
+#include <utility>
 #include <string>
 
 namespace wheelemu::uhid {
@@ -61,6 +63,7 @@ private:
     bool started_ = false;
     int openCount_ = 0;
     bool haveLast_ = false;
+    std::set<std::pair<std::uint32_t, std::uint32_t>> unsupported_;   // get-report kinds already logged
     std::array<std::uint8_t, 12> last_{};
 };
 

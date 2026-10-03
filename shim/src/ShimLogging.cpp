@@ -1,5 +1,7 @@
 #include "ShimLogging.hpp"
 
+#include "Guard.hpp"
+
 #include "DiFormat.hpp"
 
 #include <windows.h>
@@ -89,6 +91,18 @@ void onDllDetach(const bool processTerminating) {
 logging::Logger logger(const char* component) {
     ensureLoggingInitialised();
     return logging::get(component);
+}
+
+// Guard.hpp: an exception stopped at the boundary to the game.
+void noteEscapedException(const char* where, const char* what) noexcept {
+    try {
+        static const logging::Logger instance = logger("shim");
+        static logging::RateLimiter limiter(std::chrono::seconds(5));
+        WE_LOG_ERROR_LIMITED(instance, limiter, "{}: stopped on an error, the game gets an error code: {}", where,
+                             what != nullptr ? what : "?");
+    } catch (...) {
+        // Logging itself failed (out of memory?): nothing more can be done safely.
+    }
 }
 
 }  // namespace wheelemu::shim

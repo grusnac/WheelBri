@@ -119,6 +119,8 @@ int main(int argc, char** argv) {
                 WHEELEMU_VERSION, o.statePort, o.ffbPort);
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
+    std::signal(SIGHUP, onSignal);    // the terminal or the Steam wrapper went away: stop cleanly too
+    std::signal(SIGQUIT, onSignal);
     if (!o.stopFile.empty()) {
         std::error_code ec;
         std::filesystem::remove(o.stopFile, ec);   // left over from an earlier run
@@ -180,6 +182,12 @@ int main(int argc, char** argv) {
         const int ready = ::poll(&pfd, 1, 2);
         if (ready < 0 && errno != EINTR) {
             WE_LOG_ERROR(log(), "poll: {}", std::strerror(errno));
+            break;
+        }
+        if (ready > 0 && (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0 && (pfd.revents & POLLIN) == 0) {
+            // Would wake poll at once forever (100 % CPU): the device is gone.
+            WE_LOG_ERROR(log(), "uhid: {} gave up (poll flags 0x{:x}): stopping", o.device,
+                         static_cast<unsigned>(pfd.revents));
             break;
         }
         const std::int64_t now = nowMs();

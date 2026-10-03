@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -153,6 +154,39 @@ TEST(UhidG920, OpenAndCloseAreCounted) {
     e.type = UHID_CLOSE;
     k.device.handle(e, 0);
     EXPECT_EQ(k.device.openCount(), 0);
+}
+
+// The game exits or crashes: the kernel closes its handle, and its forces stop at once.
+TEST(UhidG920, TheLastCloseStopsTheGamesForces) {
+    Kernel k;
+    k.device.create();
+    uhid_event e{};
+    e.type = UHID_OPEN;
+    k.device.handle(e, 0);
+    k.output("1501A00F", 0);
+    k.output("110101DC05000000000000FFFF04FF1F0000FFFFFFFF", 0);
+    k.output("1A010101", 1);
+    ASSERT_EQ(k.device.activeSlots(), 1U);
+    k.packets.clear();
+    e.type = UHID_CLOSE;
+    k.device.handle(e, 100);
+    EXPECT_EQ(k.device.activeSlots(), 0U);
+    bool stopAll = false;
+    for (const auto& p : k.packets) stopAll = stopAll || p.kind == FfbPacket::Kind::StopAll;
+    EXPECT_TRUE(stopAll);
+}
+
+TEST(UhidG920, AnUnsupportedReportIsLoggedOnce) {
+    Kernel k;
+    k.device.create();
+    k.logs.clear();
+    k.getFeature(1, 0x42);
+    k.getFeature(2, 0x42);
+    k.getFeature(3, 0x42);
+    EXPECT_EQ(k.written.back().u.get_report_reply.id, 3U);   // every request is still answered
+    EXPECT_EQ(std::count_if(k.logs.begin(), k.logs.end(),
+                            [](const std::string& s) { return s.find("not supported") != std::string::npos; }),
+              1);
 }
 
 }  // namespace

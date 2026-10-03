@@ -3,6 +3,7 @@
 #include "DiConvert.hpp"
 #include "EmulatedEffect.hpp"
 #include "FfbForwarder.hpp"
+#include "Guard.hpp"
 #include "ProxyEffect.hpp"
 #include "RealDInput.hpp"
 #include "ShimConfig.hpp"
@@ -112,6 +113,14 @@ public:
     ULONG STDMETHODCALLTYPE Release() override {
         const ULONG remaining = --references_;
         if (remaining == 0) {
+            // Released without Unacquire (or with effects still started): its forces must not play on, nor come
+            // back when the game opens the wheel again.
+            if (serviceFfb()) {
+                try {
+                    FfbForwarder::instance().stopAll();
+                } catch (...) {   // never let anything escape into the game
+                }
+            }
             real_->Release();
             WE_LOG_INFO(detail::emulationLog(), "{}: released after {} GetDeviceState / {} GetDeviceData calls",
                         label_, stateCalls_.load(), dataCalls_.load());
@@ -123,417 +132,481 @@ public:
     // --- Description ------------------------------------------------------------------------------
 
     HRESULT STDMETHODCALLTYPE GetCapabilities(LPDIDEVCAPS caps) override {
-        if (caps == nullptr || caps->dwSize < sizeof(DIDEVCAPS_DX3)) {
-            return DIERR_INVALIDPARAM;
-        }
-        const HRESULT result = real_->GetCapabilities(caps);   // keeps the real force feedback capabilities
-        if (SUCCEEDED(result)) {
-            caps->dwDevType =
-                DI8DEVTYPE_DRIVING | (DI8DEVTYPEDRIVING_THREEPEDALS << 8) | (caps->dwDevType & DIDEVTYPE_HID);
-            caps->dwAxes = static_cast<DWORD>(joystick_.axisCount());
-            caps->dwButtons = static_cast<DWORD>(joystick_.buttonCount());
-            caps->dwPOVs = static_cast<DWORD>(joystick_.povCount());
-            if (shimConfig().forceFeedback == FfbMode::Off) {
-                caps->dwFlags &= ~static_cast<DWORD>(DIDC_FORCEFEEDBACK | DIDC_FFATTACK | DIDC_FFFADE |
-                                                     DIDC_SATURATION | DIDC_POSNEGCOEFFICIENTS |
-                                                     DIDC_POSNEGSATURATION | DIDC_DEADBAND | DIDC_STARTDELAY);
+        return guarded("GetCapabilities", [&]() -> HRESULT {
+            if (caps == nullptr || caps->dwSize < sizeof(DIDEVCAPS_DX3)) {
+                return DIERR_INVALIDPARAM;
             }
-        }
-        WE_LOG_INFO(detail::emulationLog(), "{}: GetCapabilities -> {} {}", label_, describeHresult(result),
-                    SUCCEEDED(result) ? describeCaps(*caps) : std::string());
-        return result;
+            const HRESULT result = real_->GetCapabilities(caps);   // keeps the real force feedback capabilities
+            if (SUCCEEDED(result)) {
+                caps->dwDevType =
+                    DI8DEVTYPE_DRIVING | (DI8DEVTYPEDRIVING_THREEPEDALS << 8) | (caps->dwDevType & DIDEVTYPE_HID);
+                caps->dwAxes = static_cast<DWORD>(joystick_.axisCount());
+                caps->dwButtons = static_cast<DWORD>(joystick_.buttonCount());
+                caps->dwPOVs = static_cast<DWORD>(joystick_.povCount());
+                if (shimConfig().forceFeedback == FfbMode::Off) {
+                    caps->dwFlags &= ~static_cast<DWORD>(DIDC_FORCEFEEDBACK | DIDC_FFATTACK | DIDC_FFFADE |
+                                                         DIDC_SATURATION | DIDC_POSNEGCOEFFICIENTS |
+                                                         DIDC_POSNEGSATURATION | DIDC_DEADBAND | DIDC_STARTDELAY);
+                }
+            }
+            WE_LOG_INFO(detail::emulationLog(), "{}: GetCapabilities -> {} {}", label_, describeHresult(result),
+                        SUCCEEDED(result) ? describeCaps(*caps) : std::string());
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetDeviceInfo(typename T::DeviceInstance* info) override {
-        const HRESULT result = real_->GetDeviceInfo(info);
-        if (SUCCEEDED(result) && info != nullptr) {
-            presentAs(*info, profile_->identity());
-        }
-        WE_LOG_INFO(detail::emulationLog(), "{}: GetDeviceInfo -> {}", label_, describeHresult(result));
-        return result;
+        return guarded("GetDeviceInfo", [&]() -> HRESULT {
+            const HRESULT result = real_->GetDeviceInfo(info);
+            if (SUCCEEDED(result) && info != nullptr) {
+                presentAs(*info, profile_->identity());
+            }
+            WE_LOG_INFO(detail::emulationLog(), "{}: GetDeviceInfo -> {}", label_, describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE EnumObjects(typename T::EnumObjectsCallback callback, LPVOID ref, DWORD flags) override {
-        if (callback == nullptr) {
-            return DIERR_INVALIDPARAM;
-        }
-        std::vector<typename T::DeviceObjectInstance> list;
-        {
-            const std::lock_guard<std::mutex> lock(mutex_);
-            const DWORD kinds = flags & (DIDFT_AXIS | DIDFT_BUTTON | DIDFT_POV);
-            for (std::size_t i = 0; i < joystick_.objects().size(); ++i) {
-                const EmulatedObject& object = joystick_.objects()[i];
-                if (kinds != 0 && (kinds & object.typeId) == 0) {
-                    continue;
-                }
-                if ((flags & DIDFT_FFACTUATOR) != 0 && (object.typeId & DIDFT_FFACTUATOR) == 0) {
-                    continue;
-                }
-                if ((flags & DIDFT_FFEFFECTTRIGGER) != 0) {
-                    continue;   // no trigger buttons
-                }
-                list.push_back(describe(i));
+        return guarded("EnumObjects", [&]() -> HRESULT {
+            if (callback == nullptr) {
+                return DIERR_INVALIDPARAM;
             }
-        }
-        std::size_t delivered = 0;
-        for (const auto& object : list) {
-            ++delivered;
-            if (callback(&object, ref) == DIENUM_STOP) {
-                break;
+            std::vector<typename T::DeviceObjectInstance> list;
+            {
+                const std::lock_guard<std::mutex> lock(mutex_);
+                const DWORD kinds = flags & (DIDFT_AXIS | DIDFT_BUTTON | DIDFT_POV);
+                for (std::size_t i = 0; i < joystick_.objects().size(); ++i) {
+                    const EmulatedObject& object = joystick_.objects()[i];
+                    if (kinds != 0 && (kinds & object.typeId) == 0) {
+                        continue;
+                    }
+                    if ((flags & DIDFT_FFACTUATOR) != 0 && (object.typeId & DIDFT_FFACTUATOR) == 0) {
+                        continue;
+                    }
+                    if ((flags & DIDFT_FFEFFECTTRIGGER) != 0) {
+                        continue;   // no trigger buttons
+                    }
+                    list.push_back(describe(i));
+                }
             }
-        }
-        WE_LOG_INFO(detail::emulationLog(), "{}: EnumObjects(flags=0x{:x}) -> {} of {} objects", label_, flags,
-                    delivered, list.size());
-        return DI_OK;
+            std::size_t delivered = 0;
+            for (const auto& object : list) {
+                ++delivered;
+                if (callback(&object, ref) == DIENUM_STOP) {
+                    break;
+                }
+            }
+            WE_LOG_INFO(detail::emulationLog(), "{}: EnumObjects(flags=0x{:x}) -> {} of {} objects", label_, flags,
+                        delivered, list.size());
+            return DI_OK;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetObjectInfo(typename T::DeviceObjectInstance* info, DWORD object, DWORD how) override {
-        if (info == nullptr || info->dwSize == 0 || info->dwSize > sizeof(typename T::DeviceObjectInstance)) {
-            return DIERR_INVALIDPARAM;
-        }
-        const std::lock_guard<std::mutex> lock(mutex_);
-        const auto index = lookup(object, how);
-        if (!index) {
-            WE_LOG_DEBUG(detail::emulationLog(), "{}: GetObjectInfo(obj=0x{:x}, how={}) -> not found", label_, object,
-                         how);
-            return DIERR_OBJECTNOTFOUND;
-        }
-        const auto full = describe(*index);
-        const DWORD size = info->dwSize;
-        std::memcpy(info, &full, size);
-        info->dwSize = size;
-        return DI_OK;
+        return guarded("GetObjectInfo", [&]() -> HRESULT {
+            if (info == nullptr || info->dwSize == 0 || info->dwSize > sizeof(typename T::DeviceObjectInstance)) {
+                return DIERR_INVALIDPARAM;
+            }
+            const std::lock_guard<std::mutex> lock(mutex_);
+            const auto index = lookup(object, how);
+            if (!index) {
+                WE_LOG_DEBUG(detail::emulationLog(), "{}: GetObjectInfo(obj=0x{:x}, how={}) -> not found", label_,
+                             object, how);
+                return DIERR_OBJECTNOTFOUND;
+            }
+            const auto full = describe(*index);
+            const DWORD size = info->dwSize;
+            std::memcpy(info, &full, size);
+            info->dwSize = size;
+            return DI_OK;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetProperty(REFGUID property, LPDIPROPHEADER header) override {
-        if (header == nullptr || header->dwHeaderSize != sizeof(DIPROPHEADER)) {
-            return DIERR_INVALIDPARAM;
-        }
-        const HRESULT result = getProperty(property, header);
-        WE_LOG_DEBUG(detail::emulationLog(), "{}: GetProperty({}, how={}, obj=0x{:x}) -> {} {}", label_,
-                     describeProperty(property), header->dwHow, header->dwObj, describeHresult(result),
-                     SUCCEEDED(result) ? describePropertyValue(property, header) : std::string());
-        return result;
+        return guarded("GetProperty", [&]() -> HRESULT {
+            if (header == nullptr || header->dwHeaderSize != sizeof(DIPROPHEADER)) {
+                return DIERR_INVALIDPARAM;
+            }
+            const HRESULT result = getProperty(property, header);
+            WE_LOG_DEBUG(detail::emulationLog(), "{}: GetProperty({}, how={}, obj=0x{:x}) -> {} {}", label_,
+                         describeProperty(property), header->dwHow, header->dwObj, describeHresult(result),
+                         SUCCEEDED(result) ? describePropertyValue(property, header) : std::string());
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SetProperty(REFGUID property, LPCDIPROPHEADER header) override {
-        if (header == nullptr || header->dwHeaderSize != sizeof(DIPROPHEADER)) {
-            return DIERR_INVALIDPARAM;
-        }
-        const HRESULT result = setProperty(property, header);
-        WE_LOG_INFO(detail::emulationLog(), "{}: SetProperty({}, how={}, obj=0x{:x}, {}) -> {}", label_,
-                    describeProperty(property), header->dwHow, header->dwObj, describePropertyValue(property, header),
-                    describeHresult(result));
-        return result;
+        return guarded("SetProperty", [&]() -> HRESULT {
+            if (header == nullptr || header->dwHeaderSize != sizeof(DIPROPHEADER)) {
+                return DIERR_INVALIDPARAM;
+            }
+            const HRESULT result = setProperty(property, header);
+            WE_LOG_INFO(detail::emulationLog(), "{}: SetProperty({}, how={}, obj=0x{:x}, {}) -> {}", label_,
+                        describeProperty(property), header->dwHow, header->dwObj, describePropertyValue(property,
+                                         header),
+                        describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetImageInfo(typename T::ImageInfoHeader) override {
-        WE_LOG_INFO(detail::emulationLog(), "{}: GetImageInfo -> unsupported", label_);
-        return DIERR_UNSUPPORTED;
+        return guarded("GetImageInfo", [&]() -> HRESULT {
+            WE_LOG_INFO(detail::emulationLog(), "{}: GetImageInfo -> unsupported", label_);
+            return DIERR_UNSUPPORTED;
+        });
     }
 
     // --- Setup ------------------------------------------------------------------------------------
 
     HRESULT STDMETHODCALLTYPE SetDataFormat(LPCDIDATAFORMAT format) override {
-        if (format == nullptr || format->dwSize != sizeof(DIDATAFORMAT) ||
-            format->dwObjSize != sizeof(DIOBJECTDATAFORMAT) || (format->dwNumObjs != 0 && format->rgodf == nullptr)) {
-            return DIERR_INVALIDPARAM;
-        }
-        HRESULT result = DI_OK;
-        {
-            const std::lock_guard<std::mutex> lock(mutex_);
-            if (acquired_) {
-                result = DIERR_ACQUIRED;
-            } else if (joystick_.setDataFormat(toEntries(*format), format->dwDataSize) !=
-                       EmulatedJoystick::FormatResult::Ok) {
-                result = DIERR_INVALIDPARAM;
+        return guarded("SetDataFormat", [&]() -> HRESULT {
+            if (format == nullptr || format->dwSize != sizeof(DIDATAFORMAT) ||
+                format->dwObjSize != sizeof(DIOBJECTDATAFORMAT) ||
+                (format->dwNumObjs != 0 && format->rgodf == nullptr)) {
+                return DIERR_INVALIDPARAM;
             }
-        }
-        WE_LOG_INFO(detail::emulationLog(), "{}: SetDataFormat({}) -> {}", label_, describeDataFormat(format),
-                    describeHresult(result));
-        if (SUCCEEDED(result)) {
-            logAssignment();
-            // The physical device needs a format too, so force feedback axes given as offsets resolve.
-            // (c_dfDIJoystick2 lives in dinput8.lib, which this DLL must not link; the real DLL exports
-            // c_dfDIJoystick through GetdfDIJoystick.)
-            const HRESULT realResult = real_->SetDataFormat(format);
-            if (FAILED(realResult)) {
-                const RealDInput* const realDll = realDInput();
-                const LPCDIDATAFORMAT standard =
-                    realDll != nullptr && realDll->getdfDIJoystick != nullptr ? realDll->getdfDIJoystick() : nullptr;
-                const HRESULT fallback = standard != nullptr ? real_->SetDataFormat(standard) : DIERR_UNSUPPORTED;
-                WE_LOG_WARN(detail::emulationLog(),
-                            "{}: physical wheel rejected the game's data format ({}), using c_dfDIJoystick -> {}",
-                            label_, describeHresult(realResult), describeHresult(fallback));
+            HRESULT result = DI_OK;
+            {
+                const std::lock_guard<std::mutex> lock(mutex_);
+                if (acquired_) {
+                    result = DIERR_ACQUIRED;
+                } else if (joystick_.setDataFormat(toEntries(*format), format->dwDataSize) !=
+                           EmulatedJoystick::FormatResult::Ok) {
+                    result = DIERR_INVALIDPARAM;
+                }
             }
-        }
-        return result;
+            WE_LOG_INFO(detail::emulationLog(), "{}: SetDataFormat({}) -> {}", label_, describeDataFormat(format),
+                        describeHresult(result));
+            if (SUCCEEDED(result)) {
+                logAssignment();
+                // The physical device needs a format too, so force feedback axes given as offsets resolve.
+                // (c_dfDIJoystick2 lives in dinput8.lib, which this DLL must not link; the real DLL exports
+                // c_dfDIJoystick through GetdfDIJoystick.)
+                const HRESULT realResult = real_->SetDataFormat(format);
+                if (FAILED(realResult)) {
+                    const RealDInput* const realDll = realDInput();
+                    const LPCDIDATAFORMAT standard = realDll != nullptr && realDll->getdfDIJoystick != nullptr
+                                                         ? realDll->getdfDIJoystick()
+                                                         : nullptr;
+                    const HRESULT fallback = standard != nullptr ? real_->SetDataFormat(standard) : DIERR_UNSUPPORTED;
+                    WE_LOG_WARN(detail::emulationLog(),
+                                "{}: physical wheel rejected the game's data format ({}), using c_dfDIJoystick -> {}",
+                                label_, describeHresult(realResult), describeHresult(fallback));
+                }
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SetCooperativeLevel(HWND window, DWORD flags) override {
-        if (serviceFfb()) {
-            // wheelemu-service owns the physical wheel's force feedback (exclusive access), so the game's
-            // handle on it must stay non-exclusive. Input comes from the service anyway.
-            const HRESULT result = real_->SetCooperativeLevel(window, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND);
-            WE_LOG_INFO(detail::emulationLog(), "{}: SetCooperativeLevel(hwnd={}, {}) -> physical wheel opened "
-                                                "NONEXCLUSIVE|BACKGROUND -> {}",
-                        label_, static_cast<void*>(window), describeCooperativeLevel(flags), describeHresult(result));
-            return DI_OK;
-        }
-        const HRESULT result = real_->SetCooperativeLevel(window, flags);
-        WE_LOG_INFO(detail::emulationLog(), "{}: SetCooperativeLevel(hwnd={}, {}) -> {}", label_,
-                    static_cast<void*>(window), describeCooperativeLevel(flags), describeHresult(result));
-        return result;
+        return guarded("SetCooperativeLevel", [&]() -> HRESULT {
+            if (serviceFfb()) {
+                // wheelemu-service owns the physical wheel's force feedback (exclusive access), so the game's
+                // handle on it must stay non-exclusive. Input comes from the service anyway.
+                const HRESULT result = real_->SetCooperativeLevel(window, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND);
+                WE_LOG_INFO(detail::emulationLog(), "{}: SetCooperativeLevel(hwnd={}, {}) -> physical wheel opened "
+                                                    "NONEXCLUSIVE|BACKGROUND -> {}",
+                            label_, static_cast<void*>(window), describeCooperativeLevel(flags),
+                            describeHresult(result));
+                return DI_OK;
+            }
+            const HRESULT result = real_->SetCooperativeLevel(window, flags);
+            WE_LOG_INFO(detail::emulationLog(), "{}: SetCooperativeLevel(hwnd={}, {}) -> {}", label_,
+                        static_cast<void*>(window), describeCooperativeLevel(flags), describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SetEventNotification(HANDLE event) override {
-        // The physical wheel signals whenever it changes, which is when the service's state changes too.
-        return real_->SetEventNotification(event);
+        return guarded("SetEventNotification", [&]() -> HRESULT {
+            // The physical wheel signals whenever it changes, which is when the service's state changes too.
+            return real_->SetEventNotification(event);
+        });
     }
 
     HRESULT STDMETHODCALLTYPE Initialize(HINSTANCE instance, DWORD version, REFGUID guid) override {
-        return real_->Initialize(instance, version, guid);
+        return guarded("Initialize", [&]() -> HRESULT {
+            return real_->Initialize(instance, version, guid);
+        });
     }
 
     HRESULT STDMETHODCALLTYPE RunControlPanel(HWND owner, DWORD flags) override {
-        return real_->RunControlPanel(owner, flags);
+        return guarded("RunControlPanel", [&]() -> HRESULT {
+            return real_->RunControlPanel(owner, flags);
+        });
     }
 
     HRESULT STDMETHODCALLTYPE BuildActionMap(typename T::ActionFormat, typename T::String, DWORD) override {
-        WE_LOG_WARN(detail::emulationLog(), "{}: BuildActionMap (action mapping) is not emulated", label_);
-        return DIERR_UNSUPPORTED;
+        return guarded("BuildActionMap", [&]() -> HRESULT {
+            WE_LOG_WARN(detail::emulationLog(), "{}: BuildActionMap (action mapping) is not emulated", label_);
+            return DIERR_UNSUPPORTED;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SetActionMap(typename T::ActionFormat, typename T::String, DWORD) override {
-        WE_LOG_WARN(detail::emulationLog(), "{}: SetActionMap (action mapping) is not emulated", label_);
-        return DIERR_UNSUPPORTED;
+        return guarded("SetActionMap", [&]() -> HRESULT {
+            WE_LOG_WARN(detail::emulationLog(), "{}: SetActionMap (action mapping) is not emulated", label_);
+            return DIERR_UNSUPPORTED;
+        });
     }
 
     // --- Acquisition and reading --------------------------------------------------------------------
 
     HRESULT STDMETHODCALLTYPE Acquire() override {
-        HRESULT result = real_->Acquire();
-        if (serviceFfb() && FAILED(result)) {
-            // Not needed for input or force feedback in service mode; never let it block the game.
-            WE_LOG_DEBUG(detail::emulationLog(), "{}: physical wheel Acquire -> {} (ignored)", label_,
-                         describeHresult(result));
-            result = DI_OK;
-        }
-        if (SUCCEEDED(result)) {
-            const std::lock_guard<std::mutex> lock(mutex_);
-            if (!acquired_) {
-                acquired_ = true;
-                buffer_.clear();
-                lastReport_ = StateFeed::instance().current(*profile_);   // buffered data starts from now
-                WE_LOG_INFO(detail::emulationLog(), "{}: acquired", label_);
+        return guarded("Acquire", [&]() -> HRESULT {
+            HRESULT result = real_->Acquire();
+            if (serviceFfb() && FAILED(result)) {
+                // Not needed for input or force feedback in service mode; never let it block the game.
+                WE_LOG_DEBUG(detail::emulationLog(), "{}: physical wheel Acquire -> {} (ignored)", label_,
+                             describeHresult(result));
+                result = DI_OK;
             }
-        } else {
-            WE_LOG_WARN_LIMITED(detail::emulationLog(), acquireLimiter_, "{}: Acquire -> {}", label_,
-                                describeHresult(result));
-        }
-        return result;
+            if (SUCCEEDED(result)) {
+                const std::lock_guard<std::mutex> lock(mutex_);
+                if (!acquired_) {
+                    acquired_ = true;
+                    buffer_.clear();
+                    lastReport_ = StateFeed::instance().current(*profile_);   // buffered data starts from now
+                    WE_LOG_INFO(detail::emulationLog(), "{}: acquired", label_);
+                }
+            } else {
+                WE_LOG_WARN_LIMITED(detail::emulationLog(), acquireLimiter_, "{}: Acquire -> {}", label_,
+                                    describeHresult(result));
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE Unacquire() override {
-        HRESULT result = real_->Unacquire();
-        if (serviceFfb()) {
-            result = DI_OK;
-            FfbForwarder::instance().stopAll();   // DirectInput stops a device's effects when it is unacquired
-        }
-        const std::lock_guard<std::mutex> lock(mutex_);
-        if (acquired_) {
-            acquired_ = false;
-            WE_LOG_INFO(detail::emulationLog(), "{}: unacquired", label_);
-        }
-        return result;
+        return guarded("Unacquire", [&]() -> HRESULT {
+            HRESULT result = real_->Unacquire();
+            if (serviceFfb()) {
+                result = DI_OK;
+                FfbForwarder::instance().stopAll();   // DirectInput stops a device's effects when it is unacquired
+            }
+            const std::lock_guard<std::mutex> lock(mutex_);
+            if (acquired_) {
+                acquired_ = false;
+                WE_LOG_INFO(detail::emulationLog(), "{}: unacquired", label_);
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE Poll() override {
-        HRESULT result = real_->Poll();
-        const std::lock_guard<std::mutex> lock(mutex_);
-        if (serviceFfb()) {
-            result = acquired_ ? DI_NOEFFECT : DIERR_NOTACQUIRED;
-        }
-        if (acquired_) {
-            refresh();
-        }
-        return result;
+        return guarded("Poll", [&]() -> HRESULT {
+            HRESULT result = real_->Poll();
+            const std::lock_guard<std::mutex> lock(mutex_);
+            if (serviceFfb()) {
+                result = acquired_ ? DI_NOEFFECT : DIERR_NOTACQUIRED;
+            }
+            if (acquired_) {
+                refresh();
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetDeviceState(DWORD size, LPVOID data) override {
-        ++stateCalls_;
-        const std::lock_guard<std::mutex> lock(mutex_);
-        if (data == nullptr || !joystick_.hasDataFormat() || size != joystick_.dataSize()) {
-            WE_LOG_WARN_LIMITED(detail::emulationLog(), stateFailureLimiter_,
-                                "{}: GetDeviceState({} bytes) with data format of {} bytes -> invalid", label_, size,
-                                joystick_.dataSize());
-            return DIERR_INVALIDPARAM;
-        }
-        if (!acquired_) {
-            return DIERR_NOTACQUIRED;
-        }
-        refresh();
-        joystick_.writeState(lastReport_, std::span<std::uint8_t>(static_cast<std::uint8_t*>(data), size));
-        if (const auto call = stateSampler_.next(); call != 0) {
-            WE_LOG_DEBUG(detail::emulationLog(), "{}: GetDeviceState #{} steer={} thr={} brk={} clt={} btn={:08x} "
-                                                 "hat={} -> {}",
-                         label_, call, lastReport_.steering, lastReport_.throttle, lastReport_.brake,
-                         lastReport_.clutch, lastReport_.buttons, lastReport_.hat, describeDeviceState(size, data));
-        }
-        return DI_OK;
+        return guarded("GetDeviceState", [&]() -> HRESULT {
+            ++stateCalls_;
+            const std::lock_guard<std::mutex> lock(mutex_);
+            if (data == nullptr || !joystick_.hasDataFormat() || size != joystick_.dataSize()) {
+                WE_LOG_WARN_LIMITED(detail::emulationLog(), stateFailureLimiter_,
+                                    "{}: GetDeviceState({} bytes) with data format of {} bytes -> invalid", label_,
+                                                        size,
+                                    joystick_.dataSize());
+                return DIERR_INVALIDPARAM;
+            }
+            if (!acquired_) {
+                return DIERR_NOTACQUIRED;
+            }
+            refresh();
+            joystick_.writeState(lastReport_, std::span<std::uint8_t>(static_cast<std::uint8_t*>(data), size));
+            if (const auto call = stateSampler_.next(); call != 0) {
+                WE_LOG_DEBUG(detail::emulationLog(), "{}: GetDeviceState #{} steer={} thr={} brk={} clt={} btn={:08x} "
+                                                     "hat={} -> {}",
+                             label_, call, lastReport_.steering, lastReport_.throttle, lastReport_.brake,
+                             lastReport_.clutch, lastReport_.buttons, lastReport_.hat, describeDeviceState(size, data));
+            }
+            return DI_OK;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetDeviceData(DWORD objectSize, LPDIDEVICEOBJECTDATA data, LPDWORD inOut,
                                             DWORD flags) override {
-        ++dataCalls_;
-        if (inOut == nullptr ||
-            (objectSize != sizeof(DIDEVICEOBJECTDATA) && objectSize != sizeof(DIDEVICEOBJECTDATA_DX3))) {
-            return DIERR_INVALIDPARAM;
-        }
-        const std::lock_guard<std::mutex> lock(mutex_);
-        if (bufferSize_ == 0) {
-            return DIERR_NOTBUFFERED;
-        }
-        if (!acquired_) {
-            return DIERR_NOTACQUIRED;
-        }
-        refresh();
-
-        const bool peek = (flags & DIGDD_PEEK) != 0;
-        const std::size_t available = buffer_.size();
-        const std::size_t requested = *inOut;   // INFINITE with data == nullptr means "flush everything"
-        const std::size_t count = std::min(available, requested);
-        if (data != nullptr) {
-            auto* out = reinterpret_cast<std::uint8_t*>(data);
-            for (std::size_t i = 0; i < count; ++i) {
-                std::memcpy(out + i * objectSize, &buffer_[i], objectSize);
+        return guarded("GetDeviceData", [&]() -> HRESULT {
+            ++dataCalls_;
+            if (inOut == nullptr ||
+                (objectSize != sizeof(DIDEVICEOBJECTDATA) && objectSize != sizeof(DIDEVICEOBJECTDATA_DX3))) {
+                return DIERR_INVALIDPARAM;
             }
-        }
-        if (!peek) {
-            buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(count));
-        }
-        *inOut = static_cast<DWORD>(data == nullptr && peek ? available : count);
+            const std::lock_guard<std::mutex> lock(mutex_);
+            if (bufferSize_ == 0) {
+                return DIERR_NOTBUFFERED;
+            }
+            if (!acquired_) {
+                return DIERR_NOTACQUIRED;
+            }
+            refresh();
 
-        const bool overflowed = overflowed_;
-        if (!peek) {
-            overflowed_ = false;
-        }
-        if (const auto call = dataSampler_.next(); call != 0 && count != 0) {
-            WE_LOG_DEBUG(detail::emulationLog(), "{}: GetDeviceData #{} returned {} of {} events{}", label_, call,
-                         count, available, overflowed ? " (buffer overflowed)" : "");
-        }
-        return overflowed ? DI_BUFFEROVERFLOW : DI_OK;
+            const bool peek = (flags & DIGDD_PEEK) != 0;
+            const std::size_t available = buffer_.size();
+            const std::size_t requested = *inOut;   // INFINITE with data == nullptr means "flush everything"
+            const std::size_t count = std::min(available, requested);
+            if (data != nullptr) {
+                auto* out = reinterpret_cast<std::uint8_t*>(data);
+                for (std::size_t i = 0; i < count; ++i) {
+                    std::memcpy(out + i * objectSize, &buffer_[i], objectSize);
+                }
+            }
+            if (!peek) {
+                buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(count));
+            }
+            *inOut = static_cast<DWORD>(data == nullptr && peek ? available : count);
+
+            const bool overflowed = overflowed_;
+            if (!peek) {
+                overflowed_ = false;
+            }
+            if (const auto call = dataSampler_.next(); call != 0 && count != 0) {
+                WE_LOG_DEBUG(detail::emulationLog(), "{}: GetDeviceData #{} returned {} of {} events{}", label_, call,
+                             count, available, overflowed ? " (buffer overflowed)" : "");
+            }
+            return overflowed ? DI_BUFFEROVERFLOW : DI_OK;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SendDeviceData(DWORD objectSize, LPCDIDEVICEOBJECTDATA data, LPDWORD inOut,
                                              DWORD flags) override {
-        return real_->SendDeviceData(objectSize, data, inOut, flags);
+        return guarded("SendDeviceData", [&]() -> HRESULT {
+            return real_->SendDeviceData(objectSize, data, inOut, flags);
+        });
     }
 
     // --- Force feedback: to wheelemu-service (default), or passed to the physical wheel ---------------
 
     HRESULT STDMETHODCALLTYPE CreateEffect(REFGUID type, LPCDIEFFECT effect, LPDIRECTINPUTEFFECT* out,
                                            LPUNKNOWN outer) override {
-        if (shimConfig().forceFeedback == FfbMode::Off) {
-            WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) refused (force_feedback = off)", label_,
-                        describeGuid(type));
-            return DIERR_UNSUPPORTED;
-        }
-        if (serviceFfb()) {
-            return createServiceEffect(type, effect, out, outer);
-        }
-        const HRESULT result = real_->CreateEffect(type, effect, out, outer);
-        WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) {} -> {} (played by the physical wheel)", label_,
-                    describeGuid(type), describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0),
-                    describeHresult(result));
-        if (SUCCEEDED(result) && out != nullptr && *out != nullptr) {
-            *out = new ProxyEffect(*out, type, label_);
-        }
-        return result;
+        return guarded("CreateEffect", [&]() -> HRESULT {
+            if (shimConfig().forceFeedback == FfbMode::Off) {
+                WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) refused (force_feedback = off)", label_,
+                            describeGuid(type));
+                return DIERR_UNSUPPORTED;
+            }
+            if (serviceFfb()) {
+                return createServiceEffect(type, effect, out, outer);
+            }
+            const HRESULT result = real_->CreateEffect(type, effect, out, outer);
+            WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) {} -> {} (played by the physical wheel)", label_,
+                        describeGuid(type), describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0),
+                        describeHresult(result));
+            if (SUCCEEDED(result) && out != nullptr && *out != nullptr) {
+                *out = new ProxyEffect(*out, type, label_);
+            }
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE EnumEffects(typename T::EnumEffectsCallback callback, LPVOID ref, DWORD type) override {
-        if (shimConfig().forceFeedback == FfbMode::Off) {
-            return DI_OK;   // no effects to list
-        }
-        // The physical wheel's list: the service plays through its driver, so the same types are available.
-        return real_->EnumEffects(callback, ref, type);
+        return guarded("EnumEffects", [&]() -> HRESULT {
+            if (shimConfig().forceFeedback == FfbMode::Off) {
+                return DI_OK;   // no effects to list
+            }
+            // The physical wheel's list: the service plays through its driver, so the same types are available.
+            return real_->EnumEffects(callback, ref, type);
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetEffectInfo(typename T::EffectInfo* info, REFGUID guid) override {
-        return real_->GetEffectInfo(info, guid);
+        return guarded("GetEffectInfo", [&]() -> HRESULT {
+            return real_->GetEffectInfo(info, guid);
+        });
     }
 
     HRESULT STDMETHODCALLTYPE GetForceFeedbackState(LPDWORD state) override {
-        if (serviceFfb()) {
-            if (state == nullptr) {
-                return E_POINTER;
+        return guarded("GetForceFeedbackState", [&]() -> HRESULT {
+            if (serviceFfb()) {
+                if (state == nullptr) {
+                    return E_POINTER;
+                }
+                *state = FfbForwarder::instance().stateFlags();
+                return DI_OK;
             }
-            *state = FfbForwarder::instance().stateFlags();
-            return DI_OK;
-        }
-        return real_->GetForceFeedbackState(state);
+            return real_->GetForceFeedbackState(state);
+        });
     }
 
     HRESULT STDMETHODCALLTYPE SendForceFeedbackCommand(DWORD command) override {
-        if (serviceFfb()) {
-            FfbForwarder& forwarder = FfbForwarder::instance();
-            switch (command) {
-                case DISFFC_RESET: forwarder.reset(); break;
-                case DISFFC_STOPALL: forwarder.stopAll(); break;
-                case DISFFC_PAUSE: forwarder.setPaused(true); break;
-                case DISFFC_CONTINUE: forwarder.setPaused(false); break;
-                case DISFFC_SETACTUATORSON: forwarder.setActuators(true); break;
-                case DISFFC_SETACTUATORSOFF: forwarder.setActuators(false); break;
-                default: return DIERR_INVALIDPARAM;
+        return guarded("SendForceFeedbackCommand", [&]() -> HRESULT {
+            if (serviceFfb()) {
+                FfbForwarder& forwarder = FfbForwarder::instance();
+                switch (command) {
+                    case DISFFC_RESET: forwarder.reset(); break;
+                    case DISFFC_STOPALL: forwarder.stopAll(); break;
+                    case DISFFC_PAUSE: forwarder.setPaused(true); break;
+                    case DISFFC_CONTINUE: forwarder.setPaused(false); break;
+                    case DISFFC_SETACTUATORSON: forwarder.setActuators(true); break;
+                    case DISFFC_SETACTUATORSOFF: forwarder.setActuators(false); break;
+                    default: return DIERR_INVALIDPARAM;
+                }
+                WE_LOG_INFO(detail::emulationLog(), "{}: SendForceFeedbackCommand({})", label_,
+                            describeFfCommand(command));
+                return DI_OK;
             }
-            WE_LOG_INFO(detail::emulationLog(), "{}: SendForceFeedbackCommand({})", label_, describeFfCommand(command));
-            return DI_OK;
-        }
-        const HRESULT result = real_->SendForceFeedbackCommand(command);
-        WE_LOG_INFO(detail::emulationLog(), "{}: SendForceFeedbackCommand(0x{:x}) -> {}", label_, command,
-                    describeHresult(result));
-        return result;
+            const HRESULT result = real_->SendForceFeedbackCommand(command);
+            WE_LOG_INFO(detail::emulationLog(), "{}: SendForceFeedbackCommand(0x{:x}) -> {}", label_, command,
+                        describeHresult(result));
+            return result;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE EnumCreatedEffectObjects(LPDIENUMCREATEDEFFECTOBJECTSCALLBACK callback, LPVOID ref,
                                                        DWORD flags) override {
-        if (serviceFfb()) {
-            WE_LOG_DEBUG(detail::emulationLog(), "{}: EnumCreatedEffectObjects -> none listed", label_);
-            return DI_OK;
-        }
-        return real_->EnumCreatedEffectObjects(callback, ref, flags);
+        return guarded("EnumCreatedEffectObjects", [&]() -> HRESULT {
+            if (serviceFfb()) {
+                WE_LOG_DEBUG(detail::emulationLog(), "{}: EnumCreatedEffectObjects -> none listed", label_);
+                return DI_OK;
+            }
+            return real_->EnumCreatedEffectObjects(callback, ref, flags);
+        });
     }
 
     HRESULT STDMETHODCALLTYPE Escape(LPDIEFFESCAPE escape) override {
-        // Driver-specific commands meant for a Logitech driver must not reach the Moza driver. Some games
-        // send these every frame (LEDs, rev lights), so the log is sampled.
-        if (const auto call = escapeSampler_.next(); call != 0) {
-            // The payload shows what the game wants (e.g. rev lights or wheel range): first 32 bytes in hex.
-            std::string bytes;
-            if (escape != nullptr && escape->lpvInBuffer != nullptr) {
-                const auto* in = static_cast<const unsigned char*>(escape->lpvInBuffer);
-                for (DWORD i = 0; i < escape->cbInBuffer && i < 32; ++i) {
-                    char hex[4];
-                    std::snprintf(hex, sizeof(hex), "%02x ", in[i]);
-                    bytes += hex;
+        return guarded("Escape", [&]() -> HRESULT {
+            // Driver-specific commands meant for a Logitech driver must not reach the Moza driver. Some games
+            // send these every frame (LEDs, rev lights), so the log is sampled.
+            if (const auto call = escapeSampler_.next(); call != 0) {
+                // The payload shows what the game wants (e.g. rev lights or wheel range): first 32 bytes in hex.
+                std::string bytes;
+                if (escape != nullptr && escape->lpvInBuffer != nullptr) {
+                    const auto* in = static_cast<const unsigned char*>(escape->lpvInBuffer);
+                    for (DWORD i = 0; i < escape->cbInBuffer && i < 32; ++i) {
+                        char hex[4];
+                        std::snprintf(hex, sizeof(hex), "%02x ", in[i]);
+                        bytes += hex;
+                    }
                 }
+                WE_LOG_DEBUG(detail::emulationLog(), "{}: Escape #{} (command=0x{:x}, {} bytes in: {}) not forwarded",
+                             label_, call, escape != nullptr ? escape->dwCommand : 0,
+                             escape != nullptr ? escape->cbInBuffer : 0, bytes);
             }
-            WE_LOG_DEBUG(detail::emulationLog(), "{}: Escape #{} (command=0x{:x}, {} bytes in: {}) not forwarded",
-                         label_, call, escape != nullptr ? escape->dwCommand : 0,
-                         escape != nullptr ? escape->cbInBuffer : 0, bytes);
-        }
-        return DIERR_UNSUPPORTED;
+            return DIERR_UNSUPPORTED;
+        });
     }
 
     HRESULT STDMETHODCALLTYPE EnumEffectsInFile(typename T::String file, LPDIENUMEFFECTSINFILECALLBACK callback,
                                                 LPVOID ref, DWORD flags) override {
-        return real_->EnumEffectsInFile(file, callback, ref, flags);
+        return guarded("EnumEffectsInFile", [&]() -> HRESULT {
+            return real_->EnumEffectsInFile(file, callback, ref, flags);
+        });
     }
 
     HRESULT STDMETHODCALLTYPE WriteEffectToFile(typename T::String file, DWORD entries, LPDIFILEEFFECT effects,
                                                 DWORD flags) override {
-        return real_->WriteEffectToFile(file, entries, effects, flags);
+        return guarded("WriteEffectToFile", [&]() -> HRESULT {
+            return real_->WriteEffectToFile(file, entries, effects, flags);
+        });
     }
 
 private:
@@ -833,7 +906,8 @@ private:
                 if (acquired_) {
                     return DIERR_ACQUIRED;
                 }
-                bufferSize_ = reinterpret_cast<LPCDIPROPDWORD>(header)->dwData;
+                // Capped: a game that sets a huge buffer and never reads it must not grow it without end.
+                bufferSize_ = std::min<std::size_t>(reinterpret_cast<LPCDIPROPDWORD>(header)->dwData, 4096);
                 buffer_.clear();
                 return DI_OK;
             }

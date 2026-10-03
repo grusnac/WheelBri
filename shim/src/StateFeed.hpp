@@ -26,6 +26,7 @@ private:
 
     std::mutex mutex_;
     bool opened_ = false;
+    std::chrono::steady_clock::time_point lastOpenAttempt_{};
     std::unique_ptr<UdpLoopbackReceiver> receiver_;
     std::optional<StatePacket> latest_;
     std::chrono::steady_clock::time_point lastArrival_{};

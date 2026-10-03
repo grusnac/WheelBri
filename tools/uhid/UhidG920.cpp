@@ -118,6 +118,12 @@ void UhidG920::handle(const uhid_event& event, const std::int64_t nowMs) {
         case UHID_CLOSE:
             openCount_ = std::max(0, openCount_ - 1);
             log_("uhid: a program closed the virtual G920 (" + std::to_string(openCount_) + " left)");
+            // The last reader gone (the game exited, or crashed: the kernel closes its handle either way). Its
+            // effects must not play on: springs would otherwise get keep-alives for as long as this runs.
+            if (openCount_ == 0 && pid_.activeSlots() > 0) {
+                pid_.stopAll(nowMs);
+                log_("uhid: nobody reads the virtual G920 any more: the game's forces are stopped");
+            }
             break;
         case UHID_OUTPUT: {
             const auto& out = event.u.output;
@@ -139,9 +145,9 @@ void UhidG920::handle(const uhid_event& event, const std::int64_t nowMs) {
                 std::copy(last_.begin(), last_.end(), buffer.begin());
                 size = last_.size();
             }
-            if (size == 0) {
+            if (size == 0 && unsupported_.emplace(get.rtype, get.rnum).second) {   // once each: some poll it
                 log_("uhid: get " + std::string(reportType(get.rtype)) + " report " + std::to_string(get.rnum) +
-                     ": not supported");
+                     ": not supported (said once)");
             }
             reply(UHID_GET_REPORT_REPLY, get.id, size > 0 ? 0 : EIO, buffer.data(), size);
             break;
