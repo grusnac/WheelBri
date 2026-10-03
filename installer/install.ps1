@@ -3,22 +3,25 @@
 # for Administrator itself when needed. Running it again upgrades in place and keeps an edited config.
 #
 #   install.ps1                         install to C:\Program Files\WheelBri
-#   install.ps1 -InstallDir D:\wheelemu
+#   install.ps1 -InstallDir D:\wheelbri
 #   install.ps1 -NoDesktopShortcut
-#   install.ps1 -Quiet                  no pause even when it fails (for scripted installs)
+#   install.ps1 -Quiet                  no questions and no pause, even when it fails (for scripted installs); no
+#                                       restart either (restart Windows yourself afterwards)
 #
-# It asks nothing: Windows' Administrator prompt is the only question. The window closes by itself after a few
-# seconds when the install worked, and waits for Enter when it failed (so the reason can be read).
+# Two questions at most: Windows' Administrator prompt, and at the end of an install that worked, whether to restart
+# Windows now (default yes). The restart makes sure every driver is in use: the hiding filter in particular often
+# starts on the R3 only after one (when the R3 was on another driver, e.g. Moza's, Windows finishes the switch at
+# the restart). When the install failed the window waits for Enter (so the reason can be read).
 #
 # What it changes on this PC (all undone by the uninstaller):
 #   - files in the install folder; Start menu (and desktop) shortcut "WheelBri"; an uninstall entry
-#   - three driver packages (pnputil): the virtual G920 (wheelemu-g920), the Xbox controller (wheelemu-xusb) and the
-#     filter that hides the real wheel from games (wheelemu-hide, on the Moza R3's game-controller interface)
+#   - three driver packages (pnputil): the virtual G920 (wheelbri-g920), the Xbox controller (wheelbri-xusb) and the
+#     filter that hides the real wheel from games (wheelbri-hide, on the Moza R3's game-controller interface)
 #   - the certificate the drivers are signed with, added to this PC's trusted Root and TrustedPublisher stores (the
 #     drivers are signed by WheelBri's own test certificate, not by Microsoft)
 #
 # Exit codes: 0 installed (possibly with warnings, listed at the end), 1 failed (the red line says why).
-# Everything is also written to C:\ProgramData\wheelemu\logs\wheelemu-install-<date>.log.
+# Everything is also written to C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log.
 
 param(
     [string]$InstallDir = (Join-Path $env:ProgramFiles 'WheelBri'),
@@ -53,9 +56,9 @@ if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Pri
 $ErrorActionPreference = 'Stop'
 $package = $PSScriptRoot
 $version = if (Test-Path (Join-Path $package 'VERSION.txt')) { (Get-Content (Join-Path $package 'VERSION.txt') -Raw).Trim() } else { '0.0.0' }
-$logFolder = Join-Path $env:ProgramData 'wheelemu\logs'
+$logFolder = Join-Path $env:ProgramData 'wheelbri\logs'
 New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
-Start-Transcript -Append -Path (Join-Path $logFolder "wheelemu-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
 
 $warnings = New-Object System.Collections.Generic.List[string]
 $step = 0
@@ -95,15 +98,15 @@ try {
         Fail "WheelBri needs Windows 11 (build 22000 or newer) for its virtual G920 driver; this is build $build."
     }
     Write-Host "    Windows build $build, 64-bit: fine"
-    foreach ($required in 'wheelemu.exe', 'wheelemu-service.exe', 'config\moza-r3-as-g920.ini', 'uninstall.ps1', 'Uninstall.cmd',
+    foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'config\moza-r3-as-g920.ini', 'uninstall.ps1', 'Uninstall.cmd',
                           'driver\common.ps1', 'driver\install-driver.ps1', 'driver\hide\install-hide.ps1',
                           'driver\xusb\install-xusb.ps1') {
         if (-not (Test-Path (Join-Path $package $required))) {
             Fail "the package is incomplete ($required is missing): unpack the whole package again."
         }
     }
-    foreach ($driver in 'x64\Release\wheelemu-g920\wheelemu-g920', 'hide\x64\Release\wheelemu-hide\wheelemu-hide',
-                        'xusb\x64\Release\wheelemu-xusb\wheelemu-xusb') {
+    foreach ($driver in 'x64\Release\wheelbri-g920\wheelbri-g920', 'hide\x64\Release\wheelbri-hide\wheelbri-hide',
+                        'xusb\x64\Release\wheelbri-xusb\wheelbri-xusb') {
         foreach ($extension in '.inf', '.cat', '.dll') {
             if (-not (Test-Path (Join-Path $package "driver\$driver$extension"))) {
                 Fail "the package is incomplete (driver\$driver$extension is missing): unpack the whole package again."
@@ -122,7 +125,9 @@ try {
 
     # --- 2. a running copy ----------------------------------------------------------------------------------------
     Step 'closing a running WheelBri'
-    $running = @(Get-Process -Name 'wheelemu', 'wheelemu-service', 'wheelemu-bridge' -ErrorAction SilentlyContinue)
+    # Also the same programs under the project's old name (wheelemu, before the rename to wheelbri).
+    $running = @(Get-Process -Name 'wheelbri', 'wheelbri-service', 'wheelbri-bridge', 'wheelemu', 'wheelemu-service',
+                                   'wheelemu-bridge' -ErrorAction SilentlyContinue)
     if ($running.Count -eq 0) {
         Write-Host '    none running'
     } else {
@@ -141,20 +146,49 @@ try {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         }
         # An ended service could leave the wheel hidden: clear that (the hide filter also ignores a dead process).
-        $oldService = Join-Path $InstallDir 'wheelemu-service.exe'
+        $oldService = Join-Path $InstallDir 'wheelbri-service.exe'
         if (Test-Path $oldService) { & $oldService --unhide | Out-Null }
+    }
+
+    # --- 2b. a version from before the rename (wheelemu) ------------------------------------------------------------
+    # Everything that version named wheelemu goes: its Settings > Apps entry (its folder is handled with the files
+    # below), its hide setting and its virtual devices. Its drivers (wheelemu-*.inf) are removed by the driver install
+    # scripts in step 4; its data (%LOCALAPPDATA%\wheelemu) moves to %LOCALAPPDATA%\wheelbri when the app first starts.
+    $legacy = 'wheelemu'
+    $legacyKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$legacy"
+    $legacyInstall = (Get-ItemProperty -Path $legacyKey -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
+    $legacyDevices = @(Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like "SWD\$legacy\*" })
+    if ($legacyInstall -or $legacyDevices.Count -gt 0 -or (Test-Path "HKLM:\SOFTWARE\$legacy")) {
+        Step "removing the version from before the rename ($legacy)"
+        foreach ($device in $legacyDevices) {
+            pnputil /remove-device "$($device.InstanceId)" | Out-Null
+            Write-Host "    removed the old device $($device.InstanceId)"
+        }
+        Remove-Item "HKLM:\SOFTWARE\$legacy" -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "    removed HKLM\SOFTWARE\$legacy"
     }
 
     # --- 3. files -------------------------------------------------------------------------------------------------
     Step "copying the program to $InstallDir"
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    # An earlier install in another folder (C:\Program Files\wheelemu before the rename): its settings come along, and
-    # the old folder goes once the new one works. Only a real install folder (wheelemu.exe, no install.ps1).
-    $uninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\wheelemu'
+    # An earlier install in another folder (C:\Program Files\wheelemu, or another folder picked then): its settings come
+    # along, and the old folder goes once the new one works. Only a real install folder (the app's exe, no
+    # install.ps1). Its entry in Settings > Apps is this version's (wheelbri) or the one from before the rename.
+    $uninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\wheelbri'
     $previous = (Get-ItemProperty -Path $uninstallKey -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
+    if (-not $previous) { $previous = $legacyInstall }
     $oldFolder = $null
-    if ($previous -and ($previous.TrimEnd('\') -ine $InstallDir.TrimEnd('\')) -and
-        (Test-Path (Join-Path $previous 'wheelemu.exe')) -and -not (Test-Path (Join-Path $previous 'install.ps1'))) {
+    $isInstall = { param($folder) ((Test-Path (Join-Path $folder 'wheelbri.exe')) -or
+                                   (Test-Path (Join-Path $folder "$legacy.exe"))) -and
+                                  -not (Test-Path (Join-Path $folder 'install.ps1')) }
+    # The version from before the rename in this same folder: its program files go (their names changed, so the copy
+    # below would leave them next to the new ones); its config stays.
+    if ($previous -and ($previous.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) -and (Test-Path (Join-Path $InstallDir "$legacy.exe"))) {
+        Get-ChildItem $InstallDir -Force | Where-Object { $_.Name -ne 'config' } |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "    removed the old program files from $InstallDir (your config stays)"
+    }
+    if ($previous -and ($previous.TrimEnd('\') -ine $InstallDir.TrimEnd('\')) -and (& $isInstall $previous)) {
         $oldFolder = $previous
         New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir 'config') | Out-Null
         foreach ($ini in Get-ChildItem (Join-Path $previous 'config') -Filter '*.ini' -ErrorAction SilentlyContinue) {
@@ -185,10 +219,11 @@ try {
 
     # --- 4. drivers -----------------------------------------------------------------------------------------------
     Step 'installing the drivers'
+    $hidePending = $false   # the hiding filter is installed but Windows starts it only after a restart
     $drivers = @(
-        @{ Name = 'virtual G920 (wheelemu-g920)'; Script = 'driver\install-driver.ps1'; Required = $true },
-        @{ Name = 'Xbox controller (wheelemu-xusb)'; Script = 'driver\xusb\install-xusb.ps1'; Required = $false },
-        @{ Name = 'hiding filter (wheelemu-hide)'; Script = 'driver\hide\install-hide.ps1'; Required = $false }
+        @{ Name = 'virtual G920 (wheelbri-g920)'; Script = 'driver\install-driver.ps1'; Required = $true },
+        @{ Name = 'Xbox controller (wheelbri-xusb)'; Script = 'driver\xusb\install-xusb.ps1'; Required = $false },
+        @{ Name = 'hiding filter (wheelbri-hide)'; Script = 'driver\hide\install-hide.ps1'; Required = $false }
     )
     foreach ($driver in $drivers) {
         Write-Host "  $($driver.Name)"
@@ -196,7 +231,8 @@ try {
         if ($code -eq 0) {
             Write-Host "    installed" -ForegroundColor Green
         } elseif ($driver.Script -like '*install-hide.ps1' -and $code -eq 2) {
-            Warn '    the hiding filter is installed but not running on the R3 yet: unplug the R3 and plug it in again (or restart Windows)'
+            $hidePending = $true
+            Warn '    the hiding filter is installed but Windows starts it on the R3 only after a restart: restart Windows'
         } elseif ($driver.Required) {
             Fail "the $($driver.Name) driver did not install (exit code $code); the lines above say why."
         } else {
@@ -213,7 +249,7 @@ try {
     # --- 5. shortcuts ---------------------------------------------------------------------------------------------
     Step 'shortcuts'
     $shell = New-Object -ComObject WScript.Shell
-    $app = Join-Path $InstallDir 'wheelemu.exe'
+    $app = Join-Path $InstallDir 'wheelbri.exe'
     function New-Shortcut([string]$path, [string]$target, [string]$arguments, [string]$folder, [string]$description) {
         $link = $shell.CreateShortcut($path)
         $link.TargetPath = $target
@@ -244,7 +280,8 @@ try {
 
     # --- 6. uninstall entry ---------------------------------------------------------------------------------------
     Step 'adding WheelBri to Settings > Apps'
-    $key = $uninstallKey   # the key keeps its old name, so an upgrade replaces the entry instead of adding one
+    $key = $uninstallKey   # the same key every version, so an upgrade replaces the entry instead of adding one
+    Remove-Item $legacyKey -Recurse -Force -ErrorAction SilentlyContinue   # the entry from before the rename
     New-Item -Path $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'uninstall.ps1')`""
     $entries = @{
@@ -252,7 +289,7 @@ try {
         DisplayVersion = $version
         Publisher = 'WheelBri'
         InstallLocation = $InstallDir
-        DisplayIcon = Join-Path $InstallDir 'wheelemu.exe'
+        DisplayIcon = Join-Path $InstallDir 'wheelbri.exe'
         UninstallString = $uninstall
         QuietUninstallString = "$uninstall -Quiet"
         InstallDate = (Get-Date -Format yyyyMMdd)
@@ -267,7 +304,7 @@ try {
     # --- 7. check -------------------------------------------------------------------------------------------------
     Step 'checking the installation'
     $installed = pnputil /enum-drivers | Out-String
-    foreach ($inf in 'wheelemu-g920.inf', 'wheelemu-xusb.inf', 'wheelemu-hide.inf') {
+    foreach ($inf in 'wheelbri-g920.inf', 'wheelbri-xusb.inf', 'wheelbri-hide.inf') {
         if ($installed -match [regex]::Escape($inf)) { Write-Host "    $inf installed" } else { Warn "    $inf is not listed by pnputil" }
     }
     $exitCode = 0
@@ -284,13 +321,34 @@ try {
             Write-Host 'Things to look at:' -ForegroundColor Yellow
             $warnings | ForEach-Object { Write-Host "  $($_.Trim())" -ForegroundColor Yellow }
         }
-        Write-Host 'Next: plug in the R3, open "WheelBri" from the Start menu and press Start. joy.cpl then lists the'
-        Write-Host 'G920 and the Xbox controller, not the R3. To remove it: Start menu > WheelBri > Uninstall'
-        Write-Host 'WheelBri, or Settings > Apps > WheelBri > Uninstall.'
+        Write-Host 'Next: restart Windows (asked below), plug in the R3, open "WheelBri" from the Start menu and press'
+        Write-Host 'Start. joy.cpl then lists the G920 and the Xbox controller, not the R3. To remove it: Start menu >'
+        Write-Host 'WheelBri > Uninstall WheelBri, or Settings > Apps > WheelBri > Uninstall.'
     }
     Write-Host "Log: $logFolder"
+    # The restart question: only here, at the end of an install that worked (never in the app or the uninstaller).
+    $restart = $false
+    if ($exitCode -eq 0 -and -not $Quiet) {
+        Write-Host ''
+        if ($hidePending) {
+            Write-Host 'A restart of Windows is needed: the filter that hides the R3 from games starts only after it.' -ForegroundColor Yellow
+        } else {
+            Write-Host 'Restart Windows to make sure every driver is installed properly (the filter that hides the R3' -ForegroundColor Yellow
+            Write-Host 'from games often starts only after a restart).' -ForegroundColor Yellow
+        }
+        $answer = Read-Host 'Restart Windows now? Save your work in other programs first. [Y/n]'
+        $restart = -not $answer -or -not $answer.Trim() -or $answer.Trim().ToLower() -in @('y', 'yes')
+        if ($restart) {
+            Write-Host 'Windows restarts in 15 seconds (to cancel: shutdown /a in a command prompt).'
+        } else {
+            Write-Host 'Not restarting now: restart Windows before you use WheelBri.' -ForegroundColor Yellow
+        }
+    }
     Stop-Transcript | Out-Null
-    if (-not $Quiet) {
+    if ($restart) {
+        & shutdown.exe /r /t 15 /c 'WheelBri: restarting so its drivers are installed properly.' /d p:4:2
+        Start-Sleep -Seconds 3
+    } elseif (-not $Quiet) {
         if ($exitCode -eq 0) {
             Write-Host 'This window closes in 10 seconds.'
             Start-Sleep -Seconds 10

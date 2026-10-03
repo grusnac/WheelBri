@@ -7,7 +7,7 @@ This file guides Claude when working in this repository.
 - After every change, finish with **how to build it** and **how to test it** (what to run, what to look for,
   what a failure looks like), even when the change needs no rebuild (say so).
 - Build and test steps use the scripts in `scripts/make/` (`build.sh`, `rebuild.sh`, `test.sh`, `check.sh`,
-  `ui.sh`, `app.sh`, `shim.sh`, `bridge.sh`, `drivers.sh`, `all.sh`, `package.sh`; see `scripts/make/README.md`) as the shortcut
+  `ui.sh`, `app.sh`, `shim.sh`, `bridge.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`; see `scripts/make/README.md`) as the shortcut
   next to the full commands (next rule). When a new workflow keeps needing the same commands, add a script there
   (sourcing `common.sh`) and list it in that README.
 - **Every build or test step comes in two forms**: first the **full command(s)** that will run (exactly what the
@@ -37,7 +37,7 @@ This file guides Claude when working in this repository.
   then **Why** (the reason), **Use** (how to use it, settings) and **Look** (where to see it: UI, logs and
   telemetry columns, code files). Ask the user whether a functionality is finished if it's unclear.
 - Before guessing at a mapping or FFB problem, read the user's logs and telemetry
-  (`%LOCALAPPDATA%\wheelemu\logs`: `wheelemu-service-<date>.log`, `telemetry-<date>.csv`, `ffb-<date>.csv`) and
+  (`%LOCALAPPDATA%\wheelbri\logs`: `wheelbri-service-<date>.log`, `telemetry-<date>.csv`, `ffb-<date>.csv`) and
   run `scripts/telemetry_summary.py`. The `raw_a0`..`raw_a7` columns show which axis a control really moves.
 
 ## Project
@@ -52,13 +52,13 @@ Status (README.md has the full table):
 - **Settled**: NFS finds wheels through `DirectInput8Create` (A and W) and reads `c_dfDIJoystick2`: wheel X,
   throttle Slider, brake Y, clutch Rz, pedals released at the top of the range. R3 axes as the service numbers
   them: steering 0, throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
-- **Not yet verified**: the G29 profile in a game; Linux/Proton (Phase 4 `wheelemu-uhid` is unit-tested only, not
+- **Not yet verified**: the G29 profile in a game; Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes (ignored); NFS's 20-byte Logitech `Escape` calls (not forwarded).
 - The G920's own FFB is HID++, not the classic Logitech protocol; the virtual G920 exposes HID PID instead.
 
-Data flow: `Moza R3 --DirectInput/evdev--> wheelemu-service --UDP 127.0.0.1--> consumer`, where the consumer is
-one of: the `dinput8.dll` shim in the game, the `wheelemu-g920` driver (Windows), the HIDMaestro bridge
-(`tools/vbridge`, Windows, step 0) or `wheelemu-uhid` (Linux). Use UDP loopback, not shared memory: under Proton
+Data flow: `Moza R3 --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`, where the consumer is
+one of: the `dinput8.dll` shim in the game, the `wheelbri-g920` driver (Windows), the HIDMaestro bridge
+(`tools/vbridge`, Windows, step 0) or `wheelbri-uhid` (Linux). Use UDP loopback, not shared memory: under Proton
 the shim runs inside Wine and the service is a native Linux process, and named mappings don't cross that boundary.
 
 UDP ports (all 127.0.0.1):
@@ -68,8 +68,8 @@ UDP ports (all 127.0.0.1):
 | 41329 (`state_port`) | service → consumer | `StatePacket`; only one consumer at a time |
 | 41330 (`ffb_port`) | consumer → service | `FfbPacket` (game force feedback) |
 | 41331 | ClutchProbe → service | `ClutchPacket` test clutch (`TestClutch.hpp`) |
-| 41332 | service → `wheelemu-xusb` | Xbox pad state (`XboxPad.hpp`) |
-| 41333 | service → `wheelemu-g920` (`wheelemu\XBOXHID`) | the same pad packets for the Xbox pad's HID side (`HidXbox360.hpp`) |
+| 41332 | service → `wheelbri-xusb` | Xbox pad state (`XboxPad.hpp`) |
+| 41333 | service → `wheelbri-g920` (`wheelbri\XBOXHID`) | the same pad packets for the Xbox pad's HID side (`HidXbox360.hpp`) |
 
 ## Build and test
 
@@ -80,7 +80,9 @@ Xlib; skipped with a warning without libx11-dev). No SDL or other third-party li
 
 The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `build.sh` (incremental,
 configures the first time), `rebuild.sh` (deletes `build/`, full rebuild), `test.sh [filter]`, `check.sh` (before a
-commit), `ui.sh [config]`, `app.sh [--no-start]`, `shim.sh [--off] <game folder>`, `bridge.sh`, `drivers.sh [-Install]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer).
+commit), `ui.sh [config]`, `app.sh [--no-start]`, `shim.sh [--off] <game folder>`, `bridge.sh`, `drivers.sh [-Install]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer), `clean-pc.sh [-KeepData]
+[-GameFolder <folder>] [-ThirdParty] [-Yes]` (removes everything WheelBri put on the PC, for a fresh install; when the
+app, installer or drivers start leaving something new on the PC, add it to `clean-pc.ps1`).
 The raw commands they run:
 
 Windows, MSYS2 UCRT64, from the repo root. Configure (first time only):
@@ -110,11 +112,11 @@ ctest --test-dir build -R Mapper
 Or the test binary directly:
 
 ```bash
-./build/tests/wheelemu_tests --gtest_filter='Pipeline.*'
+./build/tests/wheelbri_tests --gtest_filter='Pipeline.*'
 ```
 
-Outputs: `build/service/wheelemu-service.exe` (command line), `build/service/wheelemu.exe` (the app: window with
-Start / Stop, asks for Administrator) and `build/shim/dinput8.dll`; all linked statically on MinGW. `scripts/wheelemu.sh --build` rebuilds the service and the bridge.
+Outputs: `build/service/wheelbri-service.exe` (command line), `build/service/wheelbri.exe` (the app: window with
+Start / Stop, asks for Administrator) and `build/shim/dinput8.dll`; all linked statically on MinGW. `scripts/wheelbri.sh --build` rebuilds the service and the bridge.
 
 Windows shim cross-compiled from Linux/macOS with MinGW-w64 (→ `build-win/shim/dinput8.dll`):
 
@@ -126,22 +128,22 @@ Drivers (`driver/`, see `driver/README.md`) are built with Visual Studio + WDK, 
 PowerShell, then installed from an Administrator PowerShell, e.g.:
 
 ```powershell
-msbuild driver\wheelemu-g920.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild driver\wheelbri-g920.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
 ```powershell
 driver\install-driver.ps1
 ```
 
-(same pattern for `driver\hide\wheelemu-hide.vcxproj` + `install-hide.ps1` and `driver\xusb\wheelemu-xusb.vcxproj`
-+ `install-xusb.ps1`). C# tools (.NET 10) in `tools/vbridge`: `dotnet build tools/vbridge/wheelemu-bridge.csproj -c
+(same pattern for `driver\hide\wheelbri-hide.vcxproj` + `install-hide.ps1` and `driver\xusb\wheelbri-xusb.vcxproj`
++ `install-xusb.ps1`). C# tools (.NET 10) in `tools/vbridge`: `dotnet build tools/vbridge/wheelbri-bridge.csproj -c
 Release`; `dotnet run --project tools/vbridge/SelfTest` checks `Wire.cs` and runs on any OS.
 
 CMake options: `WE_BUILD_TESTS` (ON; skipped when cross-compiling), `WE_BUILD_SERVICE` (ON), `WE_BUILD_SHIM` (ON
 only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra
 -Wpedantic` elsewhere. Keep new code free of warnings.
 
-Service CLI (`service/src/main.cpp`): `wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
+Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
 [--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide] [--xbox-pad buttons|idle|off]]
 [--unhide] [--app]`. `--app` opens the app's window (Start / Stop) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
 (click, or M / L / T / F / W): **Mapping** (the axes R3 -> G920, every R3 axis, the D-pad, the G920 buttons written
@@ -158,16 +160,16 @@ the editor), Status and Wheel setup; it opens on Wheel setup until a rig exists,
 letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp`
 (Xlib) on Linux.
 
-The app (`wheelemu`, `service/src/App.cpp`, same sources plus `WHEELEMU_APP`; on Windows a GUI-subsystem exe
+The app (`wheelbri`, `service/src/App.cpp`, same sources plus `WHEELBRI_APP`; on Windows a GUI-subsystem exe
 with an Administrator manifest, `service/app/`) runs sessions (`runSession` in `main.cpp`) on a thread of its
 own from Start / Stop buttons; sessions show themselves through `UiHost` (`SessionUi.hpp`): the app's window,
 or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it does not own.
 
 ## Layout and architecture
 
-- `core/` (`wheelemu_core`, static library): portable, **no OS headers and no SDL**. The one exception is
-  `UdpLoopback.cpp`, which has `#ifdef _WIN32` socket code. Headers live in `core/include/wheelemu/`,
-  namespace `wheelemu`.
+- `core/` (`wheelbri_core`, static library): portable, **no OS headers and no SDL**. The one exception is
+  `UdpLoopback.cpp`, which has `#ifdef _WIN32` socket code. Headers live in `core/include/wheelbri/`,
+  namespace `wheelbri`.
   - `RawInputState` (8 axes in [-1,1] exactly as the OS reports them) → `Mapper` → `WheelState`
     (target-agnostic: steering -1..1 over the *target* rotation, pedals 0..1) → `IDeviceProfile::encode`
     → `TargetReport` (the emulated device's own ranges) → `StatePacket` → `IStatePublisher`.
@@ -198,7 +200,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     after the last packet. `ClutchPacket` must stay byte-compatible with `ClutchPacket` in `tools/vbridge/Wire.cs`.
   - The rig (`Rig.hpp`): every device the user has (`[device_N]` name, id, kind) and each control's label, role
     (`ControlRole`: steering, throttle, ..., d-pad up, shift up, gear N) and invert, written `label | role | invert`;
-    one `<name>.ini` per rig in `rigsFolder()` (`%LOCALAPPDATA%\wheelemu\rigs`), the active one in the app's state
+    one `<name>.ini` per rig in `rigsFolder()` (`%LOCALAPPDATA%\wheelbri\rigs`), the active one in the app's state
     file (`[app] rig`). The Wheel setup tab (`WheelSetupView`) writes it (Detect: a touched control opens its popup;
     the rest position taken after ~20 reads gives a pedal's invert); the Mapping tab maps from it (`autoMap` in
     `MappingEdit.hpp` uses the roles). A session takes the names it shows from the active rig, else from the older
@@ -212,8 +214,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     setAccessories` (a lost accessory ends the tick like a lost wheel, `lostDevice()`); telemetry `raw_*` columns and
     the Wheel setup tab stay the wheel's. `MappingModel` / `writeMapping` are what the Mapping tab edits and saves
     (IniEditor; default button lines removed). The service opens accessories by id (`openAccessories` in main.cpp).
-  - Mapping configs the app picks from (`ConfigLibrary.hpp`): the built-in `config/*.ini` (not `wheelemu-shim.ini`),
-    never changed, and the user's own in `userConfigFolder()` (`%LOCALAPPDATA%\wheelemu\configs`), made by New as a
+  - Mapping configs the app picks from (`ConfigLibrary.hpp`): the built-in `config/*.ini` (not `wheelbri-shim.ini`),
+    never changed, and the user's own in `userConfigFolder()` (`%LOCALAPPDATA%\wheelbri\configs`), made by New as a
     copy of a built-in whose file name is kept in a `; made from: <file>` comment at the top, so Reset can copy it
     again. The pick is kept in `appStateFile()` (`app.ini`, `[app] config`). UI: `service/src/ConfigPicker.cpp` on the
     app's Status page, `service/src/MappingEditView.cpp` the idle Mapping tab (picks sources from
@@ -229,16 +231,16 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     one row per game FFB change), each session appended after a `# session started` block, rolled over at local
     midnight. Columns come from `telemetryColumns()`; when you add one, write it in `writeSample` in the same
     order and bump `kFormatVersion` (`Telemetry.cpp`, now "2") if a column moves.
-  - Logs are daily too (`logging::init` adds the date: `wheelemu-service-YYYY-MM-DD.log`); the shim logs to
-    `%LOCALAPPDATA%\wheelemu\logs\wheelemu-shim-YYYY-MM-DD.log`. `LocalDate.hpp` has the date helpers.
+  - Logs are daily too (`logging::init` adds the date: `wheelbri-service-YYYY-MM-DD.log`); the shim logs to
+    `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-YYYY-MM-DD.log`. `LocalDate.hpp` has the date helpers.
   - `Retention.hpp` decides which files are old (date in the name, else last-write day) and only ever touches
-    files starting `wheelemu-service`, `wheelemu-shim`, `wheelemu-bridge`, `wheelemu-logs-`, `telemetry-`, `ffb-`.
+    files starting `wheelbri-service`, `wheelbri-shim`, `wheelbri-bridge`, `wheelbri-logs-`, `telemetry-`, `ffb-`.
     The service's `Housekeeping` deletes them (default, after 7 days) or archives them with the best compressor
     found (7z > xz > zstd > zip > gzip) as a background process via `platform::ChildProcess`, deleting
     originals only after the compressor exited 0.
   - Wire format (`StatePacket.hpp`): 33 bytes, little-endian, magic `WEMU`, version 1. Any layout change
     must bump `kVersion` and update the layout comment, `StatePacketTest`, `tools/vbridge/Wire.cs` and the driver.
-- `service/` (`wheelemu-service`, namespace `wheelemu::service`):
+- `service/` (`wheelbri-service`, namespace `wheelbri::service`):
   - The wheel behind `Wheel.hpp` (`WheelDinput.cpp` DirectInput + `DinputReader`, `WheelEvdev.cpp` evdev),
     numbering inputs as the service always has (`DinputReader`, core `EvdevLayout`) and sending the same force
     feedback numbers as before (core `WheelOutput`).
@@ -247,12 +249,12 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView` (`--ui`); a fixed-rate loop
     (default 1 kHz, drift-free, resynchronises when behind).
   - Phase 5 (`--virtual-g920`, run as Administrator, no shim in the game, no bridge running): `VirtualG920`
-    creates the `wheelemu\G920` software device for the `wheelemu-g920` driver while the service runs and keeps
+    creates the `wheelbri\G920` software device for the `wheelbri-g920` driver while the service runs and keeps
     the DirectInput "driving" registry entry right (and Logitech's FFB entry out); `HideFilter` sets
-    `HKLM\SOFTWARE\wheelemu\hide\AllowedPid` for the `wheelemu-hide` filter so only the service sees the R3
+    `HKLM\SOFTWARE\wheelbri\hide\AllowedPid` for the `wheelbri-hide` filter so only the service sees the R3
     (our own filter only, no HidHide or other third-party tools: without it the window says "R3 NOT HIDDEN" in
     red; `--no-hide` skips it, `--unhide` clears it after a crash);
-    `VirtualXboxPad` creates the `wheelemu\XUSB` device and the loop sends pad state to 41332. The pad is created
+    `VirtualXboxPad` creates the `wheelbri\XUSB` device and the loop sends pad state to 41332. The pad is created
     only after the game's first force feedback on the G920 (`DeferredXboxPad` in main.cpp): with the pad there when it
     started, NFS drove from the pad (its sticks and triggers never move) and ignored the G920. Until then
     `XboxPadPublisher` passes the wheel through untouched. Keep it that way. Whether there is a pad at all is the app's
@@ -262,7 +264,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     virtual devices and waits for the wheel to come back, then carries on; creating devices and waiting for the
     hide installer stop on Stop (`cancelled`), but a running installer is never killed (it may be switching the
     R3's driver). Exceptions on the loop thread end the session instead of `std::terminate`.
-- `shim/` (`dinput8.dll`, Windows/Wine only, namespace `wheelemu::shim`): proxies `IDirectInput8A/W`,
+- `shim/` (`dinput8.dll`, Windows/Wine only, namespace `wheelbri::shim`): proxies `IDirectInput8A/W`,
   devices and effects. It is written once as templates over `AnsiTraits`/`WideTraits` (`Traits.hpp`).
   Exports are renamed through `dinput8.def` (`Proxy_*`) so they don't clash with SDK declarations. The real
   DLL is loaded from the system directory on first use (`RealDInput.cpp`). Phase 2: the physical wheel
@@ -271,12 +273,12 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   state when stale, default after 1500 ms). Phase 3: its effects are `EmulatedEffect`s whose parameters
   `FfbForwarder` sends to the service (timing, keep-alives); in that mode the physical device is opened
   non-exclusively because the service owns its force feedback. Other devices stay `ProxyDevice<T>`
-  (log and forward). Settings: optional `wheelemu-shim.ini` next to the DLL (`ShimConfig`).
+  (log and forward). Settings: optional `wheelbri-shim.ini` next to the DLL (`ShimConfig`).
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
-  - `wheelemu-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
+  - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
-    `StatePacket`, `FfbPacket` sources. Logs to `C:\ProgramData\wheelemu\logs\wheelemu-driver-<date>.log`.
-  - `hide/` (`wheelemu-hide`): upper filter on the R3's HID interface (`HID\VID_346E&PID_0005&MI_02`); only the
+    `StatePacket`, `FfbPacket` sources. Logs to `C:\ProgramData\wheelbri\logs\wheelbri-driver-<date>.log`.
+  - `hide/` (`wheelbri-hide`): upper filter on the R3's HID interface (`HID\VID_346E&PID_0005&MI_02`); only the
     process in `AllowedPid` may open it. Replaces HidHide. Fails open: a missing or unreadable setting, or an
     `AllowedPid` whose process is gone (or whose start time differs from `AllowedPidStart`: a reused id), hides
     nothing, so a crash never leaves the R3 hidden. `HideFilter::find` counts the filter only when it is running:
@@ -288,17 +290,17 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     another driver ranks higher (Windows' input.inf, or Moza's own "MOZA Windows Driver"). In these scripts wrap
     function results in `@(...)` before `.Count`: Windows PowerShell 5.1 gives no `.Count` for a single CIM object.
     Driver threads close their sockets only after joining, and repeating socket errors are logged once a minute.
-  - `xusb/` (`wheelemu-xusb`): the virtual Xbox 360 controller's XInput side, fed from 41332 (games' Xbox prompts).
+  - `xusb/` (`wheelbri-xusb`): the virtual Xbox 360 controller's XInput side, fed from 41332 (games' Xbox prompts).
     Its HID side, which joy.cpl lists as "Controller (XBOX 360 For Windows)" as for a real one, is a second software
-    device (`wheelemu\XBOXHID`) served by `wheelemu-g920` from 41333 (`core/HidXbox360`); `VirtualXboxPad` creates both.
+    device (`wheelbri\XBOXHID`) served by `wheelbri-g920` from 41333 (`core/HidXbox360`); `VirtualXboxPad` creates both.
 - `tools/vbridge/` (C#, .NET 10, Windows): Phase 5 step 0, superseded by `driver/` but kept (mainly for the
-  Xbox controller button prompts; `scripts/wheelemu.sh` still starts this path). HIDMaestro virtual G920 fed
+  Xbox controller button prompts; `scripts/wheelbri.sh` still starts this path). HIDMaestro virtual G920 fed
   from the service's `StatePacket`s; decodes HID PID reports (`PidForwarder.cs`) into `FfbPacket`s. `Wire.cs`
   must stay byte-compatible with `core/src/StatePacket.cpp`, `FfbPacket.cpp` and `TestClutch.cpp`; `SelfTest/`
   checks the portable parts with `dotnet run` (any OS, no NuGet packages needed). Probes (need the service
   running): `FfbProbe/` plays DirectInput effects on the virtual G920; `ClutchProbe/` sends the test clutch and
-  reads Rz back (`steps`, `sweep`, `hold`). Reports go to `%LOCALAPPDATA%\wheelemu\logs`.
-- `tools/uhid/` (C++, Linux only, `WE_BUILD_UHID`): Phase 4, `wheelemu-uhid`. The same virtual G920 as the bridge
+  reads Rz back (`steps`, `sweep`, `hold`). Reports go to `%LOCALAPPDATA%\wheelbri\logs`.
+- `tools/uhid/` (C++, Linux only, `WE_BUILD_UHID`): Phase 4, `wheelbri-uhid`. The same virtual G920 as the bridge
   (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
   raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. `UhidG920` holds the uhid protocol with no file descriptors so
   `UhidG920Test` covers it; `main.cpp` is the fd/UDP loop.
@@ -306,26 +308,33 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   Windows installer package in `dist/windows/` (folder, zip, `WheelBri-<version>-setup.exe` made with IExpress,
   which is part of Windows); the version comes from `project(VERSION)` in `CMakeLists.txt`.
 - `installer/`: what the package carries besides the build outputs. The product is called **WheelBri** (as the repo
-  folder) everywhere the user sees it: install folder, Start menu, Settings > Apps, window titles, Setup.exe; internal
-  names stay `wheelemu` (exe names, log and ProgramData folders, registry keys, drivers). `install.ps1` asks nothing
-  (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older
-  `%ProgramFiles%\wheelemu` install, runs the three driver install scripts, shortcuts, Settings > Apps entry, Start
-  menu folder with the app and "Uninstall WheelBri", closes itself 10 s after success, log in
-  `C:\ProgramData\wheelemu\logs\wheelemu-install-<date>.log`), `uninstall.ps1` + `Uninstall.cmd` (the folder from
-  Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelemu.exe` and no `install.ps1`, i.e. never a
+  folder) everywhere the user sees it: install folder, Start menu, Settings > Apps, window titles, Setup.exe; lower-case
+  `wheelbri` for everything else (exe names, log and ProgramData folders, registry keys, drivers, device ids, the C++
+  namespace and `core/include/wheelbri/`). Until 2026-10-03 the project was called **wheelemu**: never use that name
+  for anything new; it only appears where old installs are found and removed (`$legacy` / `$names` in `install.ps1`,
+  `uninstall.ps1`, `clean-pc.ps1`; `Remove-LegacyPackages` in `driver/common.ps1`; `moveFoldersFromOldName` in
+  `ServiceLogging.cpp`, which moves `%LOCALAPPDATA%\wheelemu` to `wheelbri` on first start; old log names in
+  `Retention.cpp`; `wheelemu-shim.ini` as the shim's fallback). The wire tags (`WEMU`, `WEXP`, `WECL`) and the `WE_LOG_*`
+  macros keep their letters. `install.ps1` asks one question, at the end of a successful install: restart Windows now
+  (default yes; `shutdown /r /t 15`; firmer wording when `install-hide.ps1` exited 2; none with `-Quiet`). Only the
+  installer asks this, never the app or the uninstaller (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older install
+  (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the three driver install scripts, shortcuts, Settings > Apps entry, Start
+  menu folder with the app and "Uninstall WheelBri", closes itself 10 s after success when no restart, log in
+  `C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log`), `uninstall.ps1` + `Uninstall.cmd` (the folder from
+  Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelbri.exe` and no `install.ps1`, i.e. never a
   package; runs from a `%TEMP%` copy; from the package it cleans up an install whose folder is gone), `Setup.cmd`
   (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), `README.txt` (for the end user). The
   installed app runs the driver path (virtual G920, Xbox controller, R3 hidden on every Start); the shim ships in
   `shim\` as an extra only. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
   driver scripts and the app's `ensureHideFilter` look there. Only Windows' own tools: no third-party installer.
   When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.
-- `scripts/`: `wheelemu.sh` (Windows, MSYS2 UCRT64: starts the service with `--ui` and the bridge as
+- `scripts/`: `wheelbri.sh` (Windows, MSYS2 UCRT64: starts the service with `--ui` and the bridge as
   Administrator, stops both on Enter; `--build`, `--no-ui`, `--xbox-pad`, `--config`); `telemetry_summary.py`
-  (reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelemu.sh`, udev rules,
+  (reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelbri.sh`, udev rules,
   `package.sh` bundle).
-- `config/`: `moza-r3-as-g920.ini`, `moza-r3-as-g29.ini` (service), `wheelemu-shim.ini` (shim).
+- `config/`: `moza-r3-as-g920.ini`, `moza-r3-as-g29.ini` (service), `wheelbri-shim.ini` (shim).
 - `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide).
-- `tests/`: GoogleTest for `core/` (`wheelemu_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
+- `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.
 
 ## Conventions
@@ -335,10 +344,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
 
 - Style: C++20, 4-space indent, `camelCase` functions and variables, `PascalCase` types, `trailing_` members,
   `kConstant` constants, `#pragma once`, `[[nodiscard]]` on queries, `const` parameters in definitions,
-  float literals as `1.0F`. Headers in `core/include/wheelemu/`, included as `"wheelemu/X.hpp"`.
+  float literals as `1.0F`. Headers in `core/include/wheelbri/`, included as `"wheelbri/X.hpp"`.
 - Code on the 1 kHz loop (`Mapper::map`, `Pipeline::tick`, `DeviceProfile::encode`) must stay free of
   allocations and blocking calls.
-- **Logging** (full rules in `core/include/wheelemu/Logging.hpp` and README):
+- **Logging** (full rules in `core/include/wheelbri/Logging.hpp` and README):
   - Always log through the `WE_LOG_*` macros, never `printf`/`std::cout`. The exceptions are `--list`,
     `--print` and `--ffb-test` output, which are user interface.
   - Use one named logger per component, fetched via a function-local static `log()` helper. Component names
@@ -364,7 +373,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   after 10 s without a report while a pushing force (constant, ramp, periodic) plays, so the service's watchdog
   stops it (springs and dampers keep going; the next report brings everything back)
   (`max_magnitude` 0.8, slew limit). Game effects reach the service as `FfbPacket`s (shim, driver, bridge or
-  uhid). The only way around the limiter is the opt-in `force_feedback = passthrough` in `wheelemu-shim.ini`;
+  uhid). The only way around the limiter is the opt-in `force_feedback = passthrough` in `wheelbri-shim.ini`;
   keep it opt-in and don't add others.
 - Licence: nothing is copied from GIMX (GPLv3). If GIMX code is ever copied rather than reimplemented, the
   project must become GPLv3, so flag that before doing it.

@@ -4,7 +4,7 @@ Presents a DirectInput wheel (target hardware: **Moza R3**) to PC games as a whe
 (first target: **Logitech G920**, with a G29 profile as an alternative), on Windows and on Linux (Proton). First target game: *Need for Speed (2015)*.
 
 ```
-Moza R3 ──DirectInput / evdev──► wheelemu-service ──UDP 127.0.0.1──► dinput8.dll shim (inside the game)
+Moza R3 ──DirectInput / evdev──► wheelbri-service ──UDP 127.0.0.1──► dinput8.dll shim (inside the game)
                    map · encode · FFB safety                reports "G920" to the game
 ```
 
@@ -19,8 +19,8 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | 1 | Core (mapping, G920 + G29 profiles, FFB limiter, config, wire format) + service | **working with a real R3** |
 | 2 | Shim answers as a G920 using the service's state | **working in NFS 2015**: wheel, pedals, buttons, D-pad |
 | 3 | Game FFB → service (safety limiter, watchdog) → R3 | **working in NFS 2015**: constant, spring, damper, sine, square |
-| 4 | Linux virtual G920: `tools/uhid` (`wheelemu-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
-| 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelemu-service --virtual-g920`): wheel, pedals, buttons, force feedback, the R3 hidden through HidHide. Step 0 (`tools/vbridge`, HIDMaestro) still there, with the Xbox controller for button prompts. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
+| 4 | Linux virtual G920: `tools/uhid` (`wheelbri-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
+| 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelbri-service --virtual-g920`): wheel, pedals, buttons, force feedback, the R3 hidden through HidHide. Step 0 (`tools/vbridge`, HIDMaestro) still there, with the Xbox controller for button prompts. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
 
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
@@ -45,23 +45,23 @@ a headline, why it was needed, how to use it, and where to look.
 - **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/moza-r3-as-g920.ini` and
   `config/moza-r3-as-g29.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
   return to 0%, raise `deadzone_low`. The game reads it as the G920's Rz axis.
-- **Look:** `wheelemu-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
+- **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
   `out_clutch` in `telemetry-<date>.csv`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
-  `tools/vbridge/ClutchProbe` drives a test clutch (`core/include/wheelemu/TestClutch.hpp`).
+  `tools/vbridge/ClutchProbe` drives a test clutch (`core/include/wheelbri/TestClutch.hpp`).
 
 ## Layout
 
 | Path | Contents |
 |---|---|
 | `core/` | Portable library, no OS dependencies: `Mapper`, `DeviceProfile`, `FfbSafetyLimiter`, `Pipeline`, `EmulatorConfig`/`IniDocument`, `StatePacket` + `UdpLoopback`, `LoopStats`, `Logging`, `Telemetry` |
-| `service/` | `wheelemu-service`: reads the wheel and plays its force feedback with the system's own API (DirectInput on Windows, evdev on Linux), 1 kHz loop, `--list` / `--print` / `--ui` (native window: Win32 on Windows, X11 on Linux) / `--ffb-test` |
+| `service/` | `wheelbri-service`: reads the wheel and plays its force feedback with the system's own API (DirectInput on Windows, evdev on Linux), 1 kHz loop, `--list` / `--print` / `--ui` (native window: Win32 on Windows, X11 on Linux) / `--ffb-test` |
 | `shim/` | `dinput8.dll` proxy (Windows / Wine): wraps `IDirectInput8A/W`, devices and effects |
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
 | `scripts/make/` | Build scripts: build, full rebuild, tests, pre-commit check, mapping window, app, shim, bridge, drivers ([README](scripts/make/README.md)) |
-| `scripts/` | `telemetry_summary.py`: summary of a recorded session; `wheelemu.sh`: start and stop everything on Windows (MSYS2); `linux/`: start/stop and Steam launch wrapper, udev rules, the Linux bundle |
-| `tools/uhid/` | Phase 4: `wheelemu-uhid`, the virtual G920 for Linux (C++, kernel uhid) |
-| `tools/vbridge/` | Phase 5 step 0: `wheelemu-bridge`, a virtual G920 through HIDMaestro (C#, Windows) |
+| `scripts/` | `telemetry_summary.py`: summary of a recorded session; `wheelbri.sh`: start and stop everything on Windows (MSYS2); `linux/`: start/stop and Steam launch wrapper, udev rules, the Linux bundle |
+| `tools/uhid/` | Phase 4: `wheelbri-uhid`, the virtual G920 for Linux (C++, kernel uhid) |
+| `tools/vbridge/` | Phase 5 step 0: `wheelbri-bridge`, a virtual G920 through HIDMaestro (C#, Windows) |
 
 ## Build
 
@@ -94,7 +94,7 @@ defaults to ON on Windows).
 1. Copy `dinput8.dll` next to the game's `.exe`.
    - Linux/Proton: same folder, and set the Steam launch option `WINEDLLOVERRIDES="dinput8=n,b" %command%`.
 2. Plug in the wheel and start the game. Open its controller settings and drive for a minute.
-3. Read `wheelemu-shim-<date>.log` in `%LOCALAPPDATA%\wheelemu\logs` (see [Logging](#logging)). Things to look for:
+3. Read `wheelbri-shim-<date>.log` in `%LOCALAPPDATA%\wheelbri\logs` (see [Logging](#logging)). Things to look for:
    - `EnumDevices ... device '...' product=VID_xxxx&PID_xxxx ... -> game STOPPED here`: which device the game picked.
    - `GetProperty(DIPROP_VIDPID)` or `DIPROP_PRODUCTNAME`: the game checks the identity.
    - `CreateEffect(GUID_ConstantForce)` / `SetParameters`: the force feedback it sends.
@@ -105,20 +105,20 @@ defaults to ON on Windows).
 
 ## Playing (Phases 2 and 3)
 
-1. Start the service and leave it running: `wheelemu-service --config config/moza-r3-as-g920.ini`
+1. Start the service and leave it running: `wheelbri-service --config config/moza-r3-as-g920.ini`
    (add `--ui` to watch the mapping at the same time).
 2. Copy `dinput8.dll` next to the game's `.exe` (Linux/Proton: also `WINEDLLOVERRIDES="dinput8=n,b" %command%`).
-   Optionally copy `config/wheelemu-shim.ini` there too; the defaults match the example service config.
+   Optionally copy `config/wheelbri-shim.ini` there too; the defaults match the example service config.
 3. Start the game. It should list a "Logitech G920 Driving Force Racing Wheel USB" instead of the R3.
 
 What the shim does: when the game enumerates devices, the R3 (vendor 346e) is offered as a G920 (VID 046D,
 PID C262, driving-wheel type, X = wheel, Slider = accelerator, Y = brake, Rz = clutch, 11 buttons, 1 hat,
 pedals released at the top of the range, as a real G920 and as NFS 2015 expects; the G29 profile uses
 Y / Rz / Slider instead). If a game reads the pedals from other axes, or backwards, change
-`throttle_axis` / `brake_axis` / `clutch_axis` / `invert_pedals` in `wheelemu-shim.ini`; no rebuild needed.
+`throttle_axis` / `brake_axis` / `clutch_axis` / `invert_pedals` in `wheelbri-shim.ini`; no rebuild needed.
 Every read (`GetDeviceState`, `GetDeviceData`) is answered from the latest packet the service sent, in the
 data format and ranges the game asked for. If the service stops sending for 250 ms the wheel reads as centred
-with pedals released. Everything else the game does is still logged to `wheelemu-shim-<date>.log`.
+with pedals released. Everything else the game does is still logged to `wheelbri-shim-<date>.log`.
 
 Force feedback (Phase 3): the game's DirectInput effects (constant, spring, damper, friction, inertia,
 periodic; ramps as their average; no custom forces or envelopes) are kept by the shim and sent to the service
@@ -126,7 +126,7 @@ on `ffb_port` (41330) as `FfbPacket`s. The service passes every effect through `
 (`[ffb] master_gain`, `max_magnitude`, `max_slew_per_second`) and plays it on the R3 (DirectInput on Windows, evdev on Linux); if the game
 goes quiet for 500 ms, every force stops. The service must be running before the game starts, because it
 opens the wheel's force feedback exclusively; the shim then opens the R3 non-exclusively. `force_feedback =
-passthrough` in `wheelemu-shim.ini` restores the Phase 2 behaviour (effects straight to the R3's driver,
+passthrough` in `wheelbri-shim.ini` restores the Phase 2 behaviour (effects straight to the R3's driver,
 limited only by Pit House), `off` disables force feedback. If forces pull the wrong way, set
 `[ffb] invert = true` in the service config.
 
@@ -134,14 +134,15 @@ limited only by Pit House), `off` disables force feedback. If forces pull the wr
 
 `scripts/make/package.sh` builds everything in Release and makes `dist/windows/WheelBri-<version>-setup.exe` (plus
 the same files as a folder and a zip). On a Windows 11 PC with nothing of it, run the setup and approve the
-Administrator prompt; it asks nothing else. It installs **WheelBri** to `C:\Program Files\WheelBri`, the three
+Administrator prompt; at the end it asks whether to restart Windows now (default yes), which makes sure every driver
+is in use (the hiding filter often starts on the R3 only after a restart). It installs **WheelBri** to `C:\Program Files\WheelBri`, the three
 drivers (trusting the drivers' certificate on that PC), a Start menu folder (the app and "Uninstall WheelBri") and a
 Settings > Apps entry that uninstalls it all. The app hides the R3 from games on every Start. The
-log is `C:\ProgramData\wheelemu\logs\wheelemu-install-<date>.log`; `installer/README.txt` is the end user's guide.
+log is `C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log`; `installer/README.txt` is the end user's guide.
 
 ## The app
 
-`wheelemu.exe` (built next to `wheelemu-service.exe` in `build/service/`) is the everyday way to run it:
+`wheelbri.exe` (built next to `wheelbri-service.exe` in `build/service/`) is the everyday way to run it:
 double-click it, let Windows start it as Administrator, press **Start**, then start the game. **Start** and **Stop**
 are only on the Mapping tab (top right, next to the Xbox pad toggle, stopped or running), with the state next to them
 (stopped, running and for how long, a lost wheel, a game not using it); the Status tab says why a start failed. Start shows the Logs tab of the same live view as `--ui`
@@ -169,10 +170,10 @@ in its controls settings.
 **Mapping config** (on the Status page, while stopped) picks the config Start uses, with `<` `>`. The built-in ones
 come with the program (`config/*.ini` next to it or one or two folders up) and are the defaults, never changed.
 **New** makes a config of your own: type a name, pick the built-in one to start from, Create; it is saved as
-`%LOCALAPPDATA%\wheelemu\configs\<name>.ini` and picked at once. **Reset** (after a "Yes, reset") copies the
+`%LOCALAPPDATA%\wheelbri\configs\<name>.ini` and picked at once. **Reset** (after a "Yes, reset") copies the
 built-in it was made from over the picked config again, dropping every change; built-in configs have nothing to
-reset. **Open folder** shows the file. The pick is remembered (`%LOCALAPPDATA%\wheelemu\app.ini`); `--config FILE`
-(in a shortcut) starts with another, and the other options below work too. `wheelemu-service --app` is the same window
+reset. **Open folder** shows the file. The pick is remembered (`%LOCALAPPDATA%\wheelbri\app.ini`); `--config FILE`
+(in a shortcut) starts with another, and the other options below work too. `wheelbri-service --app` is the same window
 from a console (and on Linux).
 
 **Wheel setup** (tab W) defines your **rig**: the devices you have (wheel, pedals, shifter, handbrake, button box) and
@@ -181,7 +182,7 @@ an axis (a pedal all the way) and its popup opens: type its name, pick what it i
 Handbrake, Axis; Button, D-pad up/right/down/left, Shift up/down, Gear 1-7, Reverse), Enter. A pedal found resting at
 the top of its axis is marked **Inverted**. Clicking an axis row or a button tile opens the same popup. Touching a control
 of a device adds it to the rig (at most 4 devices; **Remove from rig** takes one out); give each a name and a kind.
-**Save** writes `%LOCALAPPDATA%\wheelemu\rigs\<rig>.ini`; **New** / **Rename** / `<` `>` manage rigs, and the active one
+**Save** writes `%LOCALAPPDATA%\wheelbri\rigs\<rig>.ini`; **New** / **Rename** / `<` `>` manage rigs, and the active one
 is remembered. The first rig starts from names saved per device by earlier versions. The app opens on this tab until a
 rig is saved, then on Mapping; Start switches to the Logs tab so you can see it come up.
 
@@ -199,10 +200,10 @@ Only the R3 is hidden from games; accessories stay visible.
 ## Service
 
 ```bash
-wheelemu-service --list                                          # connected joysticks
-wheelemu-service --config config/moza-r3-as-g920.ini --print     # live raw -> mapped -> G920 values
-wheelemu-service --config config/moza-r3-as-g920.ini --ui        # window: every axis/button, its G920 mapping, and game force feedback
-wheelemu-service --config config/moza-r3-as-g920.ini --ffb-test  # gentle spring / left / right / damper
+wheelbri-service --list                                          # connected joysticks
+wheelbri-service --config config/moza-r3-as-g920.ini --print     # live raw -> mapped -> G920 values
+wheelbri-service --config config/moza-r3-as-g920.ini --ui        # window: every axis/button, its G920 mapping, and game force feedback
+wheelbri-service --config config/moza-r3-as-g920.ini --ffb-test  # gentle spring / left / right / damper
 ```
 
 ## Logging
@@ -217,10 +218,10 @@ Built on spdlog. Every line carries time, level, component, thread and source lo
 
 | Program | File |
 |---|---|
-| service, Windows | `%LOCALAPPDATA%\wheelemu\logs\wheelemu-service-<date>.log` |
-| service, Linux | `$XDG_STATE_HOME/wheelemu/` or `~/.local/state/wheelemu/wheelemu-service-<date>.log` |
-| service, macOS | `~/Library/Logs/wheelemu/wheelemu-service-<date>.log` |
-| shim (in the game) | `%LOCALAPPDATA%\wheelemu\logs\wheelemu-shim-<date>.log` (next to `dinput8.dll` if `LOCALAPPDATA` is not set) |
+| service, Windows | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-service-<date>.log` |
+| service, Linux | `$XDG_STATE_HOME/wheelbri/` or `~/.local/state/wheelbri/wheelbri-service-<date>.log` |
+| service, macOS | `~/Library/Logs/wheelbri/wheelbri-service-<date>.log` |
+| shim (in the game) | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-<date>.log` (next to `dinput8.dll` if `LOCALAPPDATA` is not set) |
 
 One file per day (`<date>` = `2026-09-30`, local time); a program running past midnight moves to the next
 day's file. Old files are deleted after 7 days by default, see [Old files](#old-files). The `--ui` window
@@ -233,14 +234,14 @@ The service defaults to `info`, the shim to `debug`.
 **Per-component levels without rebuilding**, through `SPDLOG_LEVEL`:
 
 ```bash
-SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelemu-service --config ...
+SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelbri-service --config ...
 ```
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`,
 `service.hide`, `service.config`, `service.mapping`, `service.setup`, `service.xbox`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
-`shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelemu-uhid`, Linux).
+`shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelbri-uhid`, Linux).
 
-**Rules the code follows** (see `core/include/wheelemu/Logging.hpp`)
+**Rules the code follows** (see `core/include/wheelbri/Logging.hpp`)
 - Log through the `WE_LOG_*` macros, never `printf`; `--print` and `--ffb-test` instructions are user interface
   and go to stdout on purpose.
 - Hot paths are sampled (`CallSampler`: first N calls, then every Mth) or rate-limited (`RateLimiter`,
@@ -257,7 +258,7 @@ Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `servi
 ## Telemetry
 
 While it runs, the service records to two CSV files per day in the log folder
-(`%LOCALAPPDATA%\wheelemu\logs` on Windows). Nothing is sent anywhere.
+(`%LOCALAPPDATA%\wheelbri\logs` on Windows). Nothing is sent anywhere.
 
 - `telemetry-<date>.csv`: a row whenever something changes (checked 50 times a second, plus one row a minute when nothing does) with the physical wheel (raw axes, buttons, hat), the mapped
   state, the values the emulated G920 reports to the game, the game's force feedback per slot (what the game
@@ -285,8 +286,8 @@ python scripts/telemetry_summary.py            # or pass a telemetry-*.csv / a f
 ## Old files
 
 Logs (service and game) and telemetry older than 7 days are **deleted** by default. The service checks at
-start-up and again after every midnight. Only its own files are touched (`wheelemu-service*`,
-`wheelemu-shim*`, `telemetry-*`, `ffb-*` and archives made from them). `[retention]` in the config:
+start-up and again after every midnight. Only its own files are touched (`wheelbri-service*`,
+`wheelbri-shim*`, `telemetry-*`, `ffb-*` and archives made from them). `[retention]` in the config:
 
 | Key | Values |
 |---|---|
@@ -299,11 +300,11 @@ start-up and again after every midnight. Only its own files are touched (`wheele
 `archive` compresses each old day and deletes the originals once the compressor has succeeded. `auto` uses the
 best compressor installed, in this order:
 
-1. **7-Zip** (`7z.exe`, found on PATH or in `Program Files\7-Zip`): one `wheelemu-logs-<date>.7z` per day,
+1. **7-Zip** (`7z.exe`, found on PATH or in `Program Files\7-Zip`): one `wheelbri-logs-<date>.7z` per day,
    LZMA2 at the highest level. The smallest files; recommended (install from 7-zip.org).
 2. **xz** (MSYS2: `pacman -S xz`): each file becomes `<file>.xz`, almost as small.
 3. **zstd** (`pacman -S mingw-w64-ucrt-x86_64-zstd`): `<file>.zst`, a little bigger, much faster to open.
-4. **zip** with Windows' built-in `tar.exe` (Windows 10 and later): `wheelemu-logs-<date>.zip`, always
+4. **zip** with Windows' built-in `tar.exe` (Windows 10 and later): `wheelbri-logs-<date>.zip`, always
    available, the largest.
 5. **gzip**: `<file>.gz`.
 
