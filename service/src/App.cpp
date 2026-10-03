@@ -198,8 +198,8 @@ public:
         std::string text = std::string(stamp) + " " + component + ": " + message;
         std::replace(text.begin(), text.end(), '\n', ' ');
         const std::lock_guard lock(mutex_);
-        if (level >= spdlog::level::err) {
-            lastProblem_ = message;
+        if (level >= spdlog::level::err && lastProblem_.empty()) {
+            lastProblem_ = message;   // the first error since Start: the cause; later ones are often consequences
         }
         lines_.push_back({level, std::move(text)});
         while (lines_.size() > kLogLines) {
@@ -256,6 +256,24 @@ std::string clock(const std::uint64_t seconds) {
     return text;
 }
 
+// The parts of the devices line that are problems (written in capitals: "R3 NOT HIDDEN: ...", "NO XBOX PAD ..."),
+// so they are what fits in the toolbar.
+std::string problemsOf(const std::string& devices) {
+    std::string problems;
+    std::size_t start = 0;
+    while (start < devices.size()) {
+        std::size_t end = devices.find(", ", start);
+        if (end == std::string::npos) end = devices.size();
+        const std::string part = devices.substr(start, end - start);
+        if (part.find("NOT ") != std::string::npos || part.find("NO ") != std::string::npos ||
+            part.find("LOST") != std::string::npos) {
+            problems += (problems.empty() ? "" : ", ") + part;
+        }
+        start = end + 2;
+    }
+    return problems.empty() ? devices : problems;
+}
+
 std::string fit(std::string text, const std::size_t chars) {
     if (text.size() > chars) {
         text = text.substr(0, chars - 3) + "...";
@@ -267,7 +285,39 @@ class App {
 public:
     explicit App(const AppSettings& settings) : settings_(settings) {}
 
+    // Never leave a session running (or its thread joinable, which would std::terminate) behind the app.
+    ~App() { stopAndWait(std::chrono::seconds(30)); }
+
+    // Asks the session to stop and waits up to `limit` for its clean-up; true if it ended.
+    bool stopAndWait(const std::chrono::milliseconds limit) {
+        if (!running()) return true;
+        settings_.requestStop();
+        const auto until = std::chrono::steady_clock::now() + limit;
+        while (!sessionDone_ && std::chrono::steady_clock::now() < until) {
+            platform::sleepMs(20);
+        }
+        if (!sessionDone_) {
+            WE_LOG_ERROR(log(), "the service did not stop within {} s", limit.count() / 1000);
+            return false;
+        }
+        session_.join();
+        return true;
+    }
+
     int run() {
+        try {
+            return runWindow();
+        } catch (const std::exception& e) {
+            WE_LOG_CRITICAL(log(), "app window: stopped on an error: {}", e.what());
+        } catch (...) {
+            WE_LOG_CRITICAL(log(), "app window: stopped on an unknown error");
+        }
+        stopAndWait(std::chrono::seconds(30));   // the session undoes everything before the app ends
+        return 1;
+    }
+
+private:
+    int runWindow() {
         // The listener outlives the app (logging goes on until the process ends): it shares the lines.
         logging::addListener([lines = lines_](const spdlog::level::level_enum level, const std::string& component,
                                               const std::string& message) { lines->add(level, component, message); });
@@ -279,6 +329,16 @@ public:
             return 1;
         }
         WE_LOG_INFO(log(), "app window open ({}); press Start", window_->describe());
+        // Logoff or shutdown: Windows ends the process right after this returns (about 5 s).
+        window_->onEndSession([this] {
+            if (!running()) return;
+            WE_LOG_WARN(log(), "Windows is ending the session (logoff or shutdown): stopping the service first");
+            state_ = State::Stopping;
+            stoppingSince_ = platform::nowNs();
+            if (stopAndWait(std::chrono::milliseconds(4500))) {
+                WE_LOG_INFO(log(), "the service stopped before Windows ended the session");
+            }
+        });
 
         bool quit = false;
         while (true) {
@@ -326,6 +386,7 @@ private:
 
     void start() {
         if (running()) return;
+        everRan_ = false;
         settings_.clearStop();
         host_.clear();
         view_.reset();
@@ -353,13 +414,22 @@ private:
         if (!running() || state_ == State::Stopping) return;
         WE_LOG_INFO(log(), "Stop pressed: stopping the service");
         state_ = State::Stopping;
+        stoppingSince_ = platform::nowNs();
         settings_.requestStop();
     }
 
     void openLogs() {
+        // The running session's folder (the config may have changed since the app started); made if missing,
+        // since Explorer silently shows another folder for one that does not exist.
+        const std::filesystem::path folder = info_ ? info_->files.logFolder : settings_.logFolder;
+        std::error_code ec;
+        std::filesystem::create_directories(folder, ec);
         std::string error;
-        if (!window_->openFolder(settings_.logFolder, error)) {
-            WE_LOG_WARN(log(), "cannot open {}: {}", settings_.logFolder.string(), error);
+        if (ec) {
+            const std::u8string name = folder.u8string();
+            WE_LOG_WARN(log(), "cannot open the log folder {}: {}", std::string(name.begin(), name.end()), ec.message());
+        } else if (!window_->openFolder(folder, error)) {
+            WE_LOG_WARN(log(), "cannot open the log folder: {}", error);
         }
     }
 
@@ -367,20 +437,24 @@ private:
     void collectSession() {
         if (const auto info = host_.newSession(seenGeneration_)) {
             info_ = info;
+            view_.reset();   // before its profile goes
             profile_ = makeProfile(info->targetProfile);
-            view_.reset();
             if (profile_ != nullptr) {
                 view_ = std::make_unique<MappingView>(*window_, info->sourceName, info->axes, info->buttons, *profile_,
                                                       info->mapper);
                 view_->setFiles(info->files);
                 view_->setDevices(info->devices, info->devicesWarning);
             }
-            if (state_ == State::Starting) state_ = State::Running;
-            runningSince_ = platform::nowNs();
+            if (state_ == State::Starting) {   // not again when the session carries on after the wheel came back
+                state_ = State::Running;
+                runningSince_ = platform::nowNs();
+                everRan_ = true;
+            }
         }
         if (running() && sessionDone_) {
             session_.join();
             lastResult_ = exitCode_.load();
+            lastRunStarted_ = everRan_;
             const bool wasStopping = state_ == State::Stopping;
             state_ = State::Stopped;
             view_.reset();
@@ -436,16 +510,24 @@ private:
             case State::Running:
                 status = "Running " + clock((now - runningSince_) / platform::kNsPerSecond);
                 colour = kActive;
+                if (const auto frame = host_.latest(); frame && frame->wheelLostMs > 0) {
+                    status = "WHEEL LOST " + clock(frame->wheelLostMs / 1000) + ": plug it in again";
+                    colour = kWarning;
+                }
                 break;
-            case State::Stopping:
-                status = "Stopping...";
+            case State::Stopping: {
+                const std::uint64_t seconds = (now - stoppingSince_) / platform::kNsPerSecond;
+                // Long: something the session must not cut off (the hide installer changing the wheel's driver,
+                // Windows removing a device). The log below says what.
+                status = "Stopping... " + clock(seconds) + (seconds >= 10 ? " (finishing a step, see the log)" : "");
                 colour = kCaution;
                 break;
+            }
         }
         window_->text(312, 10, fit(status, 50), colour);
         if (info_) {
             // A missing piece (the R3 not hidden, no Xbox pad) in red; otherwise which wheel is read.
-            window_->text(312, 22, fit(info_->devicesWarning ? info_->devices : info_->sourceName, 80),
+            window_->text(312, 22, fit(info_->devicesWarning ? problemsOf(info_->devices) : info_->sourceName, 80),
                           info_->devicesWarning ? kWarning : kDim);
         }
         window_->fill(0, kToolbarHeight - 1, kWidth, 1, kPanel);
@@ -481,8 +563,9 @@ private:
         line("Logs    " + settings_.logFolder.string(), kDim);
         if (lastResult_) {
             y += 10;
-            line(*lastResult_ == 0 ? "Last run: ended normally." : "Last run: did not start (exit code " +
-                                                                       std::to_string(*lastResult_) + ").",
+            line(*lastResult_ == 0 ? "Last run: ended normally."
+                 : lastRunStarted_ ? "Last run: ended with an error (exit code " + std::to_string(*lastResult_) + ")."
+                                   : "Last run: did not start (exit code " + std::to_string(*lastResult_) + ").",
                  *lastResult_ == 0 ? kDim : kWarning);
             if (*lastResult_ != 0) {
                 if (const std::string problem = lines_->lastProblem(); !problem.empty()) {
@@ -518,6 +601,9 @@ private:
     std::uint64_t startedAt_ = 0;
     std::uint64_t runningSince_ = 0;
     std::uint64_t seenGeneration_ = 0;
+    bool everRan_ = false;          // this session got as far as running
+    std::uint64_t stoppingSince_ = 0;
+    bool lastRunStarted_ = false;   // the last session that ended had been running
     std::optional<SessionInfo> info_;
     std::unique_ptr<IDeviceProfile> profile_;
     std::unique_ptr<MappingView> view_;

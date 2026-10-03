@@ -263,6 +263,16 @@ private:
             case WM_CLOSE:   // the owner destroys the window; here it only says so
                 closed_ = true;
                 return true;
+            case WM_QUERYENDSESSION:   // logoff or shutdown asks: yes (the clean-up runs on WM_ENDSESSION)
+                result = TRUE;
+                return true;
+            case WM_ENDSESSION:
+                if (wParam != FALSE && endSession_) {
+                    closed_ = true;
+                    endSession_();   // the process ends soon after this returns
+                }
+                result = 0;
+                return true;
             case WM_KEYDOWN:
                 if (wParam == VK_ESCAPE) {
                     keys_ += kEscape;

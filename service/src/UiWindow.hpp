@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -99,7 +100,13 @@ public:
     // For the log: "Win32 GDI", "X11 (font ...)".
     [[nodiscard]] virtual std::string describe() const = 0;
 
+    // Windows: called when the user logs off or Windows shuts down (WM_ENDSESSION), from pump(). The process ends
+    // when it returns, so it must stop the session and wait for its clean-up (the real wheel shown again). No
+    // console handler reaches a window program. Elsewhere it is never called.
+    void onEndSession(std::function<void()> handler) { endSession_ = std::move(handler); }
+
 protected:
+    std::function<void()> endSession_;
     float originX_ = 0.0F;
     float originY_ = 0.0F;
 };

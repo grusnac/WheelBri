@@ -1221,7 +1221,8 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
                 gStop = true;
                 break;
             }
-            // Keeps the window answering (the last picture of the wheel stays); false: it was closed.
+            // Keeps the window answering (the last picture of the wheel stays, marked lost); false: it was closed.
+            if (lastFrame) lastFrame->wheelLostMs = std::max<std::uint64_t>(waitedMs, 1);
             if (host != nullptr && !host->frame(lastFrame ? *lastFrame : UiFrame{})) {
                 WE_LOG_INFO(log(), "window closed: stopping");
                 gStop = true;

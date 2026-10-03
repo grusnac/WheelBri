@@ -7,6 +7,8 @@
 
 #include "UiWindow.hpp"
 
+#include "wheelemu/Logging.hpp"
+
 #include <X11/XKBlib.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
@@ -409,6 +411,16 @@ private:
 
 std::unique_ptr<UiWindow> openWindow(const std::string& title, const int logicalWidth, const int logicalHeight,
                                      const int windowWidth, const int windowHeight, std::string& error) {
+    // Xlib's default error handler ends the process (exit) on any protocol error, e.g. BadAlloc for a pixmap:
+    // the session would stop without its clean-up. Log it instead and carry on.
+    XSetErrorHandler([](Display* display, XErrorEvent* event) -> int {
+        char text[128] = {};
+        XGetErrorText(display, event->error_code, text, sizeof(text));
+        static const logging::Logger logger = logging::get("service.ui");
+        WE_LOG_ERROR(logger, "X11 error {} ({}), request {}", static_cast<int>(event->error_code), text,
+                     static_cast<int>(event->request_code));
+        return 0;
+    });
     Display* const display = XOpenDisplay(nullptr);
     if (display == nullptr) {
         const char* const name = std::getenv("DISPLAY");

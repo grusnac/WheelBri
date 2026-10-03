@@ -40,6 +40,7 @@ struct UiFrame {
     TelemetryFiles telemetry;
     std::string oldFiles;                         // Housekeeping::status()
     bool oldFilesFailed = false;
+    std::uint64_t wheelLostMs = 0;                // > 0: the wheel is gone, waiting this long for it to come back
 };
 
 class UiHost {
