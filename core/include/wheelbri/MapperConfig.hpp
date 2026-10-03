@@ -26,7 +26,7 @@ struct DeviceId {
 struct SteeringConfig {
     int sourceAxis = 0;
     int sourceDevice = 0;
-    float sourceRotationDeg = 900.0F;   // rotation configured on the physical wheel (Moza Pit House)
+    float sourceRotationDeg = 900.0F;   // rotation configured on the rig's wheel (its maker's software)
     float targetRotationDeg = 900.0F;   // rotation the emulated wheel reports (G29/G920 = 900)
     float deadzone = 0.0F;              // fraction of half-range around centre, 0..1
     bool invert = false;

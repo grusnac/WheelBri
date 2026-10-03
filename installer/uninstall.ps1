@@ -142,9 +142,9 @@ try {
     if ($folderOk -and (Test-Path $service)) { & $service --unhide | Out-Null }   # no "hidden" setting left behind
     Write-Host "    $(if ($running.Count) { "closed $($running.Count)" } else { 'none running' })"
 
-    # 2. Drivers: the filter first (the R3 goes back to Windows' own driver), then the virtual devices'.
+    # 2. Drivers: the filter first (the rig's devices go back to Windows' own driver), then the virtual devices'.
     Write-Host '[2/5] removing the drivers' -ForegroundColor Cyan
-    foreach ($script in 'hide\uninstall-hide.ps1', 'remove-xbox-controller.ps1', 'uninstall-driver.ps1') {
+    foreach ($script in 'hide\uninstall-hide.ps1', 'uninstall-driver.ps1') {
         $code = Run-Script (Join-Path $driverRoot $script)
         if ($code -ne 0) { Warn "    $script ended with exit code $code (see above)" }
     }

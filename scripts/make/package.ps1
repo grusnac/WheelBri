@@ -99,8 +99,7 @@ foreach ($ini in Get-ChildItem (Join-Path $root 'config') -Filter '*.ini') {
     if ($ini.Name -ne 'wheelbri-shim.ini') { Put-Text $ini.FullName "config\$($ini.Name)" }
 }
 foreach ($script in 'driver\common.ps1', 'driver\install-driver.ps1', 'driver\uninstall-driver.ps1',
-                    'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1',
-                    'driver\remove-xbox-controller.ps1') {
+                    'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1') {
     Put-Text (Join-Path $root $script) $script
 }
 foreach ($driver in $drivers) {
@@ -114,7 +113,7 @@ foreach ($file in 'install.ps1', 'uninstall.ps1', 'Setup.cmd', 'Uninstall.cmd', 
 Set-Content -Path (Join-Path $stage 'VERSION.txt') -Value $version -Encoding ASCII
 
 # 3. What install.ps1 checks for must be there (the same list), so a package never fails on the user's PC.
-$expected = @('wheelbri.exe', 'wheelbri-service.exe', 'config\moza-r3-as-g920.ini', 'install.ps1', 'uninstall.ps1',
+$expected = @('wheelbri.exe', 'wheelbri-service.exe', 'config\rig-as-g920.ini', 'install.ps1', 'uninstall.ps1',
               'Setup.cmd', 'Uninstall.cmd', 'README.txt', 'VERSION.txt', 'shim\dinput8.dll') +
             ($drivers | ForEach-Object { $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } })
 foreach ($file in $expected) {

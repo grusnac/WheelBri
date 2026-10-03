@@ -17,7 +17,7 @@
 #
 # What it removes: running WheelBri processes; the virtual devices (SWD\wheelbri\..., SWD\wheelemu\...) and the
 # HID devices under them, including ones Windows keeps half-removed; the driver packages under both names (the hide
-# filter first, then xusb and g920); every device our drivers are on (found by their driver description, so also when
+# filter first, then g920); every device our drivers are on (found by their driver description, so also when
 # the package is already gone: the rig's devices with the hide filter, whatever they are) is reinstalled on Windows'
 # own driver; the drivers' UMDF registrations (WUDF\Services); the drivers' test certificate (WDKTestCert) from the machine's Root
 # and TrustedPublisher stores; the install folder (%ProgramFiles%\WheelBri, an older %ProgramFiles%\wheelemu, or where
@@ -85,8 +85,8 @@ function Step([string]$text) { Write-Host $text -ForegroundColor Cyan }
 # --- What is there ----------------------------------------------------------------------------------------------
 
 $names = @('wheelbri', 'wheelemu')   # the name, and the project's old name (before the rename)
-# Removal order: the R3's filter first.
-$ourInfs = @(foreach ($part in 'hide', 'xusb', 'g920') { foreach ($name in $names) { "$name-$part.inf" } })
+# Removal order: the hide filter on the rig's devices first.
+$ourInfs = @(foreach ($part in 'hide', 'g920') { foreach ($name in $names) { "$name-$part.inf" } })
 function Test-ThirdPartyName([string]$text) { return $text -match 'hidhide|hidmaestro' }
 
 # Installed driver packages: objects with Driver (oemNN.inf) and Original (the package's own .inf name). DISM's view
@@ -151,7 +151,7 @@ $diKeys = @('HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivatePrope
 $otherKeys = @(foreach ($name in $names) {
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$name"; "HKLM:\SOFTWARE\$name"
     # The UMDF host's registration of each driver (UmdfService in the INFs), left behind by some removals.
-    foreach ($part in 'hide', 'g920', 'xusb') { "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part" }
+    foreach ($part in 'hide', 'g920') { "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part" }
 })
 
 # The installer's unpacked package and the uninstaller's copy (Setup.cmd, uninstall.ps1), left in %TEMP%.
@@ -283,7 +283,7 @@ try {
 
         Step '[1/8] closing WheelBri'
         foreach ($process in $processes) { if ($process.MainWindowHandle -ne 0) { [void]$process.CloseMainWindow() } }
-        $deadline = (Get-Date).AddSeconds(30)   # a closing session removes its devices and shows the R3 again itself
+        $deadline = (Get-Date).AddSeconds(30)   # a closing session removes its devices and shows the rig again itself
         while ((Get-Date) -lt $deadline -and @($processes | Where-Object { -not $_.HasExited }).Count -gt 0) {
             Start-Sleep -Milliseconds 250
         }

@@ -1,5 +1,5 @@
 # Puts wheelbri-hide, the filter that hides the rig from games while wheelbri-service runs, on the rig's devices
-# (build it first, see ..\README.md). Administrator; close Moza Pit House (or the device's own software) and games
+# (build it first, see ..\README.md). Administrator; close the rig's own software (the wheel maker's tool) and games
 # first: each device restarts once. Secure Boot and test mode stay as they are: the package is signed with a
 # certificate made on this PC by the WDK build (WDKTestCert), which this script adds to the machine's trusted Root and
 # TrustedPublisher stores.
@@ -92,7 +92,7 @@ try {
     } else {
 
         # A device's game-controller interfaces: its HID collections whose compatible IDs say joystick, gamepad or
-        # multi-axis controller (usage page 1, usages 4, 5, 8; the Moza R3 is multi-axis and has no
+        # multi-axis controller (usage page 1, usages 4, 5, 8; many wheels are multi-axis and have no
         # HID_DEVICE_SYSTEM_GAME) or simulation control (page 2): what DirectInput and games open. A vendor tool keeps
         # its other interfaces. Same rule as isGameController in core/src/HidHideCli.cpp. Every list is taken with
         # @(...): Windows PowerShell 5.1 gives no .Count for a single CIM object.

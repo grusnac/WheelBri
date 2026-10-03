@@ -105,7 +105,7 @@ TEST(WheelEffect, EvdevLikeSdl) {
 }
 
 TEST(DeviceMatch, NameOrUsbId) {
-    EXPECT_TRUE(deviceMatches("MOZA R3 Base", 0x346e, 0x0005, "moza"));
+    EXPECT_TRUE(deviceMatches("MY RACING Wheel Base", 0x346e, 0x0005, "racing"));
     EXPECT_TRUE(deviceMatches("Wheel", 0x346e, 0x0005, "346E"));
     EXPECT_TRUE(deviceMatches("Wheel", 0x346e, 0x0005, "346e:0005"));
     EXPECT_FALSE(deviceMatches("Logitech G920", 0x046d, 0xc262, "346e"));

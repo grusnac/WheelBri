@@ -6,7 +6,7 @@
 //
 // For a Proton game to use it, start the game with
 //   PROTON_ENABLE_HIDRAW=0x046D/0xC262 SDL_GAMECONTROLLER_IGNORE_DEVICES=0x346E/0x0005 %command%
-// (raw HID for the G920, so its force feedback works; the R3 hidden from the game). scripts/linux/wheelbri.sh
+// (raw HID for the G920, so its force feedback works; the rig hidden from the game). scripts/linux/wheelbri.sh
 // does all of this. Needs access to /dev/uhid (scripts/linux/install-udev-rules.sh, once).
 
 #include "UhidG920.hpp"

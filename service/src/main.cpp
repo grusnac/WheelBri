@@ -307,8 +307,7 @@ bool openAccessories(wheelbri::service::WheelBackend& backend, const wheelbri::M
                          accessories.labels[i].name, ids);
             return false;
         }
-        WE_LOG_INFO(log(), "accessory {} = '{}' ({}){}", i + 1, accessories.labels[i].name, ids,
-                    " (not hidden from games: only the wheel is)");
+        WE_LOG_INFO(log(), "accessory {} = '{}' ({})", i + 1, accessories.labels[i].name, ids);
     }
     return true;
 }
@@ -345,7 +344,7 @@ void printUsage() {
         "usage: wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
         "                        [--stop-file FILE] [--virtual-g920 [--no-hide]] [--unhide]\n"
         "                        [--telemetry-tab] [--ffb-tab]\n"
-        "  --config FILE  INI configuration (see config/moza-r3-as-g920.ini)\n"
+        "  --config FILE  INI configuration (see config/rig-as-g920.ini)\n"
         "  --list         list joysticks and exit\n"
         "  --print        show live raw and mapped values\n"
         "  --ui           open a window showing how every axis and button maps to the emulated wheel\n"
@@ -1100,6 +1099,20 @@ LoadedConfig loadForRun(const Options& options) {
     if (!options.oldFiles.empty()) {
         loaded.config.retention.action = *wheelbri::parseOldFilesAction(options.oldFiles);
     }
+    // No source_device in the config (the built-in ones have none): the wheel is the active rig's (the Rig tab's
+    // device with the steering axis, else its first). Without a rig it stays empty and the session says so.
+    if (loaded.config.sourceDeviceMatch.empty()) {
+        const std::string rigName = wheelbri::readAppSetting(wheelbri::service::appStateFile(), "rig");
+        std::vector<std::string> errors;
+        if (const auto rig = rigName.empty() ? std::nullopt
+                                             : wheelbri::readRig(wheelbri::service::rigsFolder(), rigName, errors)) {
+            const wheelbri::RigDevice* wheel = rig->wheel();
+            if (wheel == nullptr && !rig->devices.empty()) wheel = &rig->devices.front();
+            if (wheel != nullptr && !wheel->id.empty()) {
+                loaded.config.sourceDeviceMatch = wheelbri::deviceId(wheel->id.vendorId, wheel->id.productId);
+            }
+        }
+    }
     return loaded;
 }
 
@@ -1202,6 +1215,11 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         return 0;
     }
 
+    if (config.sourceDeviceMatch.empty()) {
+        WE_LOG_CRITICAL(log(), "no wheel to read: there is no rig with a wheel yet (set it up in the Rig tab) and the "
+                               "config names none ([emulator] source_device)");
+        return 2;
+    }
     auto source = wheelbri::service::openWheel(*backend, config.sourceDeviceMatch);
     if (source == nullptr) {
         std::fprintf(stderr, "no joystick matching '%s'. Connected devices:\n", config.sourceDeviceMatch.c_str());
@@ -1370,7 +1388,7 @@ int run(const Options& options) {
     return runSession(options, loaded, logFileOk, window.get());
 }
 
-// The config the app uses when none is given: config/moza-r3-as-g920.ini next to the program, or one or two
+// The config the app uses when none is given: config/rig-as-g920.ini next to the program, or one or two
 // folders up (build/service/ in the source tree), or under the current folder.
 std::string defaultConfigPath() {
     const std::filesystem::path exe = platform::executablePath();
@@ -1380,7 +1398,7 @@ std::string defaultConfigPath() {
     }
     bases.push_back(std::filesystem::current_path());
     for (const auto& base : bases) {
-        const std::filesystem::path candidate = base / "config" / "moza-r3-as-g920.ini";
+        const std::filesystem::path candidate = base / "config" / "rig-as-g920.ini";
         std::error_code ec;
         if (std::filesystem::is_regular_file(candidate, ec)) {
             return candidate.lexically_normal().string();

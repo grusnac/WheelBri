@@ -31,8 +31,8 @@ struct SessionInfo {
     FilesDisplay files;
     std::string ffbStatus;      // why there is no game force feedback, when there is none
     bool ffbInvert = false;
-    // The virtual devices with --virtual-g920 (the app): "virtual G920 on, R3 hidden (wheelbri-hide)";
-    // empty without them. `devicesWarning`: something the game needs is missing (e.g. the R3 is not hidden).
+    // The virtual devices with --virtual-g920 (the app): "virtual G920 on, rig hidden (1 of 1 devices)";
+    // empty without them. `devicesWarning`: something the game needs is missing (e.g. a rig device is not hidden).
     std::string devices;
     bool devicesWarning = false;
 };

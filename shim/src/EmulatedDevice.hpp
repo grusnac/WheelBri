@@ -574,7 +574,7 @@ public:
 
     HRESULT STDMETHODCALLTYPE Escape(LPDIEFFESCAPE escape) override {
         return guarded("Escape", [&]() -> HRESULT {
-            // Driver-specific commands meant for a Logitech driver must not reach the Moza driver. Some games
+            // Driver-specific commands meant for a Logitech driver must not reach the rig's own driver. Some games
             // send these every frame (LEDs, rev lights), so the log is sampled.
             if (const auto call = escapeSampler_.next(); call != 0) {
                 // The payload shows what the game wants (e.g. rev lights or wheel range): first 32 bytes in hex.

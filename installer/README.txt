@@ -1,7 +1,7 @@
 WheelBri
 ========
 
-Makes a Moza R3 wheel look like a Logitech G920, so
+Makes your rig (a wheel and its pedals, shifter or button box) look like a Logitech G920, so
 games that only know Logitech wheels, such as Need for Speed (2015), accept it, with force feedback. It does that
 with its own drivers: a virtual G920 and a filter that hides your real wheel and its accessories from games
 while WheelBri runs (otherwise games would see two wheels).
@@ -11,7 +11,7 @@ Needs
 - Windows 11, 64-bit (build 22000 or later). Nothing else has to be installed first: the programs carry their own
   runtime, and the drivers use what Windows already has (UMDF 2).
 - An account that can approve an Administrator prompt (the drivers are installed system-wide).
-- The Moza R3, connected by USB. It can also be connected after installing.
+- Your wheel and accessories, connected by USB. They can also be connected after installing.
 
 Install
 -------
@@ -29,8 +29,8 @@ the app starts.
 
 What it installs:
 - the program in C:\Program Files\WheelBri;
-- two drivers: the virtual G920 (wheelbri-g920) and the filter that hides the real wheel (wheelbri-hide). The virtual
-  Xbox controller of earlier versions is removed. The drivers are signed with WheelBri's own certificate, not by Microsoft, so
+- two drivers: the virtual G920 (wheelbri-g920) and the filter that hides the real wheel (wheelbri-hide).
+  The drivers are signed with WheelBri's own certificate, not by Microsoft, so
   the installer adds that certificate to this PC's trusted certificates. Secure Boot and test mode are not changed;
 - a Start menu folder "WheelBri" (the app, and "Uninstall WheelBri"), a desktop shortcut and an entry in
   Settings > Apps.
@@ -40,15 +40,15 @@ Play
 1. Start "WheelBri" from the Start menu (it asks for Administrator) and press Start. From then on games see the
    virtual G920, and not your real wheel: WheelBri hides it every time it starts.
 2. Start the game and pick the Logitech G920 in its controller settings.
-3. Press Stop, or close the window, when done: the virtual devices go away and the R3 is an ordinary wheel again.
+3. Press Stop, or close the window, when done: the virtual devices go away and your rig is ordinary again.
 
 What is hidden is your rig: every device set up in the Rig tab (R) (wheel, pedals, shifter, button box...).
 Set it up before the first Start; with no rig nothing is hidden and the window says so. The first Start puts
-WheelBri's filter on those devices (they restart once; close Moza Pit House and games first; Windows may want a
-restart). If Moza's software later puts its own driver back, the next Start puts the filter on again. The window
+WheelBri's filter on those devices (they restart once; close the wheel maker's software and games first; Windows may want a
+restart). If the wheel maker's software later puts its own driver back, the next Start puts the filter on again. The window
 says "rig hidden (N of M devices)", or lists in red the devices it could not hide.
 
-The settings are in C:\Program Files\WheelBri\config\moza-r3-as-g920.ini (moza-r3-as-g29.ini presents a G29).
+The settings are in C:\Program Files\WheelBri\config\rig-as-g920.ini (rig-as-g29.ini presents a G29).
 Editing them needs an editor started as Administrator; each Start reads them again.
 
 Uninstall

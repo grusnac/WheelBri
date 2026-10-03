@@ -73,8 +73,8 @@ function Get-InstalledPackages([string]$name) {
 }
 
 # The same driver under the project's old name (wheelemu-<x>.inf, before the rename to wheelbri on 2026-10-03): removed
-# before the new one goes on, so two hiding filters never sit on the R3 (the old one would also count as "the filter
-# is there" while reading a setting nothing writes any more, so the R3 would stay visible). Returns how many.
+# before the new one goes on, so two hiding filters never sit on a rig device (the old one would also count as "the
+# filter is there" while reading a setting nothing writes any more, so the device would stay visible). Returns how many.
 function Remove-LegacyPackages([string]$name) {
     $legacy = $name -replace '^wheelbri-', 'wheelemu-'
     $packages = @(Get-InstalledPackages $legacy)

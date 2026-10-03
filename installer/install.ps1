@@ -10,7 +10,7 @@
 #
 # Two questions at most: Windows' Administrator prompt, and at the end of an install that worked, whether to restart
 # Windows now (default yes). The restart makes sure every driver is in use: the hiding filter in particular often
-# starts on a device only after one (when it was on another driver, e.g. Moza's, Windows finishes the switch at
+# starts on a device only after one (when it was on another driver, e.g. the wheel maker's, Windows finishes the switch at
 # the restart). When the install failed the window waits for Enter (so the reason can be read).
 #
 # What it changes on this PC (all undone by the uninstaller):
@@ -105,9 +105,8 @@ try {
         Fail "WheelBri needs Windows 11 (build 22000 or newer) for its virtual G920 driver; this is build $build."
     }
     Write-Host "    Windows build $build, 64-bit: fine"
-    foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'config\moza-r3-as-g920.ini', 'uninstall.ps1', 'Uninstall.cmd',
-                          'driver\common.ps1', 'driver\install-driver.ps1', 'driver\hide\install-hide.ps1',
-                          'driver\remove-xbox-controller.ps1') {
+    foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'config\rig-as-g920.ini', 'uninstall.ps1', 'Uninstall.cmd',
+                          'driver\common.ps1', 'driver\install-driver.ps1', 'driver\hide\install-hide.ps1') {
         if (-not (Test-Path (Join-Path $package $required))) {
             Fail "the package is incomplete ($required is missing): unpack the whole package again."
         }
@@ -218,15 +217,15 @@ try {
         $copied++
     }
     Write-Host "    $copied files copied"
-    # An earlier version's Xbox controller driver files (removed from WheelBri on 2026-10-03).
-    Remove-Item (Join-Path $InstallDir 'driver\xusb') -Recurse -Force -ErrorAction SilentlyContinue
+    # The built-in configs' names before they were renamed for the rig (2026-10-04): the new ones replace them.
+    foreach ($old in 'moza-r3-as-g920.ini', 'moza-r3-as-g29.ini') {
+        foreach ($file in (Join-Path $InstallDir "config\$old"), (Join-Path $InstallDir "config\$old.new")) {
+            Remove-Item $file -Force -ErrorAction SilentlyContinue
+        }
+    }
 
     # --- 4. drivers -----------------------------------------------------------------------------------------------
     Step 'installing the drivers'
-    # The virtual Xbox controller of earlier versions goes first (WheelBri has none any more).
-    Write-Host '  the Xbox controller of an earlier version'
-    $code = Run-Script (Join-Path $InstallDir 'driver\remove-xbox-controller.ps1')
-    if ($code -ne 0) { Warn "    the old Xbox controller was not removed completely (exit code $code, see above)" }
     $hidePending = $false   # the hiding filter is installed but Windows starts it only after a restart
     $drivers = @(
         @{ Name = 'virtual G920 (wheelbri-g920)'; Script = 'driver\install-driver.ps1'; Required = $true },
@@ -275,14 +274,14 @@ try {
                 (Join-Path $desktop 'wheel-emulator.lnk') -Recurse -Force -ErrorAction SilentlyContinue
     $menu = Join-Path $programs 'WheelBri'
     New-Item -ItemType Directory -Force -Path $menu | Out-Null
-    New-Shortcut (Join-Path $menu 'WheelBri.lnk') $app '' $InstallDir 'WheelBri: Moza R3 as a Logitech G920'
+    New-Shortcut (Join-Path $menu 'WheelBri.lnk') $app '' $InstallDir 'WheelBri: your rig as a Logitech G920'
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     New-Shortcut (Join-Path $menu 'Uninstall WheelBri.lnk') $powershell `
         "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'uninstall.ps1')`"" $env:SystemRoot `
         'Removes WheelBri, its drivers and shortcuts'
     if (-not $NoDesktopShortcut) {
         New-Shortcut (Join-Path $desktop 'WheelBri.lnk') $app '' `
-            $InstallDir 'WheelBri: Moza R3 as a Logitech G920'
+            $InstallDir 'WheelBri: your rig as a Logitech G920'
     }
 
     # --- 6. uninstall entry ---------------------------------------------------------------------------------------
@@ -328,8 +327,8 @@ try {
             Write-Host 'Things to look at:' -ForegroundColor Yellow
             $warnings | ForEach-Object { Write-Host "  $($_.Trim())" -ForegroundColor Yellow }
         }
-        Write-Host 'Next: restart Windows (asked below), plug in the R3, open "WheelBri" from the Start menu and press'
-        Write-Host 'Start. joy.cpl then lists the G920, not the R3. To remove it: Start menu >'
+        Write-Host 'Next: restart Windows (asked below), plug in your wheel, open "WheelBri" from the Start menu, set up'
+        Write-Host 'your rig (Rig tab) and press Start. joy.cpl then lists the G920, not your rig. To remove it: Start menu >'
         Write-Host 'WheelBri > Uninstall WheelBri, or Settings > Apps > WheelBri > Uninstall.'
     }
     Write-Host "Log: $logFolder"

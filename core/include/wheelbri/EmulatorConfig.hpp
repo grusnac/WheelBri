@@ -18,7 +18,7 @@ inline constexpr std::uint16_t kDefaultStatePort = 41329;
 inline constexpr std::uint16_t kDefaultFfbPort = 41330;
 
 struct EmulatorConfig {
-    std::string sourceDeviceMatch = "346e";     // case-insensitive part of the wheel's name or "vid:pid" (346e = Moza)
+    std::string sourceDeviceMatch;              // case-insensitive part of the wheel's name or "vid:pid"; empty = the rig's wheel
     std::string targetProfile = "g920";
     std::uint16_t statePort = kDefaultStatePort; // UDP loopback port the service publishes state on
     std::uint16_t ffbPort = kDefaultFfbPort;     // UDP loopback port the service receives game force feedback on

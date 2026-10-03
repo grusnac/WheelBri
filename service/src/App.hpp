@@ -22,7 +22,7 @@ struct AppSettings {
     std::filesystem::path builtInConfigFolder;   // the configs that come with the program (config/)
     std::filesystem::path userConfigFolder;      // where New puts the user's own
     std::filesystem::path stateFile;             // remembers the picked config
-    std::string mode;                    // what Start does, in words ("virtual G920, R3 hidden")
+    std::string mode;                    // what Start does, in words ("virtual G920, rig hidden")
     std::filesystem::path logFolder;     // shown on the Status tab
     std::filesystem::path devicesFolder; // the Wheel setup tab's device names: <vid>-<pid>.ini
     // Runs one session with the config at `configPath` ("" = the built-in defaults) until it is asked to stop

@@ -123,8 +123,11 @@ std::optional<ConfigEntry> resetTemplateOf(const ConfigEntry& config, const std:
     if (config.builtIn) return std::nullopt;
     const std::optional<std::string> text = readText(config.path);
     if (!text) return std::nullopt;
-    const std::string made = lower(configTemplateOf(*text));
+    std::string made = lower(configTemplateOf(*text));
     if (made.empty()) return std::nullopt;
+    // Copies made before the built-in configs were renamed for the rig (2026-10-04) name the old files.
+    if (made == "moza-r3-as-g920.ini") made = "rig-as-g920.ini";
+    if (made == "moza-r3-as-g29.ini") made = "rig-as-g29.ini";
     for (const ConfigEntry& candidate : configs) {
         if (candidate.builtIn && lower(pathText(candidate.path.filename())) == made) return candidate;
     }

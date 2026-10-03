@@ -98,7 +98,7 @@ public:
             EnumContext context{callback, ref, this,
                                 shimConfig().emulate ? makeProfile(shimConfig().targetProfile) : nullptr};
             // A game asking only for driving wheels would never be offered a wheel that DirectInput classes
-            // differently (the R3 may report as a joystick). Ask for all game controllers and filter here.
+            // differently (a wheel may report as a joystick). Ask for all game controllers and filter here.
             DWORD realFilter = devType;
             if (context.profile != nullptr && devType == DI8DEVTYPE_DRIVING) {
                 realFilter = DI8DEVCLASS_GAMECTRL;

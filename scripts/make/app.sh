@@ -4,7 +4,7 @@
 #
 #   scripts/make/app.sh                               build and start
 #   scripts/make/app.sh --no-start                    only build
-#   scripts/make/app.sh --config config/moza-r3-as-g29.ini   start with another config
+#   scripts/make/app.sh --config config/rig-as-g29.ini       start with another config
 
 source "$(dirname "$0")/common.sh"
 

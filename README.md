@@ -25,7 +25,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
   `c_dfDIJoystick2`: wheel X, throttle Slider, brake Y, clutch Rz, pedals released at the top of the range;
-- the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/moza-r3-as-g920.ini`);
+- the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/rig-as-g920.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
 Still open:
@@ -42,8 +42,8 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** the add-on clutch pedal was recognised but the G920's clutch never moved: the configs mapped axis 3,
   while the pedal moves R3 axis 6 (found in `raw_a6` in the telemetry).
-- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/moza-r3-as-g920.ini` and
-  `config/moza-r3-as-g29.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
+- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/rig-as-g920.ini` and
+  `config/rig-as-g29.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
   return to 0%, raise `deadzone_low`. The game reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
   `out_clutch` in `telemetry-<date>.csv`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
@@ -104,7 +104,7 @@ defaults to ON on Windows).
 
 ## Playing (Phases 2 and 3)
 
-1. Start the service and leave it running: `wheelbri-service --config config/moza-r3-as-g920.ini`
+1. Start the service and leave it running: `wheelbri-service --config config/rig-as-g920.ini`
    (add `--ui` to watch the mapping at the same time).
 2. Copy `dinput8.dll` next to the game's `.exe` (Linux/Proton: also `WINEDLLOVERRIDES="dinput8=n,b" %command%`).
    Optionally copy `config/wheelbri-shim.ini` there too; the defaults match the example service config.
@@ -194,9 +194,9 @@ hidden.
 
 ```bash
 wheelbri-service --list                                          # connected joysticks
-wheelbri-service --config config/moza-r3-as-g920.ini --print     # live raw -> mapped -> G920 values
-wheelbri-service --config config/moza-r3-as-g920.ini --ui        # window: every axis/button, its G920 mapping, and game force feedback
-wheelbri-service --config config/moza-r3-as-g920.ini --ffb-test  # gentle spring / left / right / damper
+wheelbri-service --config config/rig-as-g920.ini --print     # live raw -> mapped -> G920 values
+wheelbri-service --config config/rig-as-g920.ini --ui        # window: every axis/button, its G920 mapping, and game force feedback
+wheelbri-service --config config/rig-as-g920.ini --ffb-test  # gentle spring / left / right / damper
 ```
 
 ## Logging

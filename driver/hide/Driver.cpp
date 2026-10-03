@@ -4,7 +4,7 @@
 // with the certificate trusted on this PC; no kernel code of ours, no test mode.
 //
 // It is an upper filter on the game-controller interface of each rig device (install-hide.ps1 -Devices puts it on
-// exactly those; a vendor tool such as Moza Pit House talks to the other interfaces). It does not care which device
+// exactly those; the wheel maker's own tool talks to the other interfaces). It does not care which device
 // it is on: it decides only by the setting below.
 // Every program that opens that interface asks it first (IRP_MJ_CREATE):
 //   - while wheelbri-service hides the wheel, it has written its process id to

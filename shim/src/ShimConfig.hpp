@@ -9,11 +9,11 @@
 namespace wheelbri::shim {
 
 // Settings of the proxy DLL, read once from wheelbri-shim.ini next to the DLL. The file is optional;
-// without it the shim presents the first Moza device as a G920 fed by the service on the default port.
+// without it the shim presents the first device with vendor id 346e (source_vid) as a G920 fed by the service on the default port.
 //
 //   [shim]
 //   emulate = true             ; false = Phase 0 behaviour: log and pass every device through unchanged
-//   source_vid = 346e          ; USB vendor id of the physical wheel to replace (hex)
+//   source_vid = 346e          ; USB vendor id of the rig's wheel to replace (hex, the Rig tab's vid:pid)
 //   source_pid = any           ; or a hex product id
 //   target_profile = g920      ; g920 or g29, must match the service's target_profile
 //   state_port = 41329         ; must match the service's state_port
@@ -27,7 +27,7 @@ namespace wheelbri::shim {
 //   clutch_axis = rz
 //   invert_pedals = false      ; true = pressed and released swapped for all pedals
 //
-// In passthrough mode force feedback is limited only by the wheel's own settings (Moza Pit House), not
+// In passthrough mode force feedback is limited only by the wheel's own settings (its maker's software), not
 // by the service's [ffb] limiter; service mode is the default and the safe one.
 enum class FfbMode { Service, Passthrough, Off };
 

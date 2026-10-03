@@ -94,7 +94,7 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
     for (std::size_t target = 0; target < mapper_.buttonMap.size(); ++target) {
         const int source = mapper_.buttonMap[target];
         if (profile_.buttonName(target).empty() || mapper_.buttonDevice[target] != 0) {
-            continue;   // the R3 panel below shows the wheel's own buttons only
+            continue;   // the rig buttons panel below shows the wheel's own buttons only
         }
         if (source >= 0 && static_cast<std::size_t>(source) < kMaxSourceButtons) {
             const auto index = static_cast<std::size_t>(source);
@@ -213,7 +213,7 @@ void MappingView::draw(const RawInputs& inputs, const WheelState& state, const T
     }
     drawHeader();
     if (tab_ == Tab::Mapping) {
-        // What is mapped to what: the axes and pedals (R3 -> G920), every R3 axis, the D-pad, the buttons.
+        // What is mapped to what: the axes and pedals (rig -> G920), every rig axis, the D-pad, the buttons.
         drawAxes(inputs, state, report, 34);
         drawRawAxes(raw, 128);
         drawHat(raw.hat, report.hat, 128);
@@ -250,7 +250,7 @@ std::string MappingView::sourceText(const int device, const int index, const boo
     if (index < 0) {
         result = "--";
     } else if (device == 0) {
-        result = (axis ? "R3 ax" : "R3 ") + std::to_string(index) + " " +
+        result = (axis ? "Rig ax" : "Rig ") + std::to_string(index) + " " +
                  (axis ? mapper_.sourceAxisLabels[static_cast<std::size_t>(std::min(index, 7))]
                        : sourceLabel(index));
     } else if (static_cast<std::size_t>(device) <= accessories_.size()) {
@@ -284,8 +284,8 @@ void MappingView::drawAxes(const RawInputs& inputs, const WheelState& state, con
 
     const float kTop = top;
     text(window_, 4, kTop, "AXES", kHeading);
-    text(window_, 76, kTop, "R3", kDim);
-    text(window_, 112, kTop, "R3 raw", kDim);
+    text(window_, 76, kTop, "Rig", kDim);
+    text(window_, 112, kTop, "Rig raw", kDim);
     text(window_, 282, kTop, "mapped", kDim);
     const std::string valueHeading = target_ + " value (0..65535)";
     text(window_, 452, kTop, valueHeading.c_str(), kDim);
@@ -339,7 +339,7 @@ void MappingView::drawAxes(const RawInputs& inputs, const WheelState& state, con
 
 void MappingView::drawRawAxes(const RawInputState& raw, const float top) {
     const float kTop = top;
-    text(window_, 4, kTop, "ALL R3 AXES", kHeading);
+    text(window_, 4, kTop, "ALL RIG AXES", kHeading);
 
     auto roleOf = [this](const int axis) -> const char* {
         if (mapper_.steering.sourceDevice == 0 && axis == mapper_.steering.sourceAxis) return "-> steering";
@@ -390,7 +390,7 @@ void MappingView::drawHat(const std::int8_t sourceHat, const std::int8_t targetH
          pressed ? kActive : kPanel);
 
     char line[48];
-    std::snprintf(line, sizeof(line), "R3 hat %2d -> %s hat %2d", sourceHat, target_.c_str(), targetHat);
+    std::snprintf(line, sizeof(line), "Rig hat %2d -> %s hat %2d", sourceHat, target_.c_str(), targetHat);
     text(window_, kLeft, gridTop + 3 * (kSize + 2) + 4, line, kText);
     text(window_, kLeft, gridTop + 3 * (kSize + 2) + 16, "-1 = centred, 0..7 clockwise", kDim);
 }
@@ -407,10 +407,10 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
     const std::string heading = target_ + " BUTTONS";
     text(window_, 4, kTop, heading.c_str(), kHeading);
     const float subtitleX = 4 + static_cast<float>(heading.size() + 1) * 8;
-    const std::string subtitle = target_ + " number name <- R3 number name   (INI: [buttons] target_N = R3 number)";
+    const std::string subtitle = target_ + " number name <- rig number name   (INI: [buttons] target_N = rig number)";
     text(window_, subtitleX, kTop, subtitle.c_str(), kDim);
 
-    // Every cell reads "G920  6 Menu     <- R3 35 Start": 39 characters fit a cell after its 3-pixel margin.
+    // Every cell reads "G920  6 Menu     <- Rig 35 Start": 39 characters fit a cell after its 3-pixel margin.
     constexpr int kColumns = 3;
     constexpr float kWidth = 316;
     constexpr float kHeight = 13;
@@ -432,13 +432,14 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
         if (source < 0) {
             std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- --", target_.c_str(), target, label.c_str());
         } else if (mapper_.buttonDevice[target] == 0) {
-            std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- R3 %2d %s", target_.c_str(), target,
+            std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- Rig %2d %s", target_.c_str(), target,
                           label.c_str(), source, sourceLabel(source).c_str());
         } else {
             std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- %s", target_.c_str(), target, label.c_str(),
                           sourceText(mapper_.buttonDevice[target], source, false, 20).c_str());
         }
 
+        cellText[39] = '\0';   // what fits the cell
         fill(window_, x, y, kWidth, kHeight, pressed ? kActive : kPanel);
         const Colour colour = pressed ? kDark : (source < 0 ? kDim : kText);
         text(window_, x + 3, y + 3, cellText, colour);
@@ -447,12 +448,12 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
 
 void MappingView::drawSourceButtons(const std::uint64_t sourceButtons, const float top) {
     const float kTop = top;
-    text(window_, 4, kTop, "R3 BUTTONS", kHeading);
+    text(window_, 4, kTop, "RIG BUTTONS", kHeading);
     const std::string legend =
         "pressed: green = reaches a " + target_ + " button or the D-pad, red = goes nowhere";
-    text(window_, 92, kTop, legend.c_str(), kDim);
+    text(window_, 100, kTop, legend.c_str(), kDim);
 
-    // Every cell reads "R3 35 Start": the R3 button only (where it goes is in the panel above).
+    // Every cell reads "Rig 35 Start": the rig button only (where it goes is in the panel above).
     // 14 characters fit a cell after its margin.
     constexpr int kColumns = 8;
     constexpr float kWidth = 116;
@@ -473,7 +474,7 @@ void MappingView::drawSourceButtons(const std::uint64_t sourceButtons, const flo
         fill(window_, x, y, kWidth, kHeight, background);
         const Colour foreground = pressed ? kDark : (target >= 0 || hatDirection != nullptr ? kText : kDim);
 
-        std::snprintf(line, sizeof(line), "R3 %d %s", source, sourceLabel(source).c_str());
+        std::snprintf(line, sizeof(line), "Rig %d %s", source, sourceLabel(source).c_str());
         text(window_, x + 2, y + 3, std::string(line).substr(0, 14).c_str(), foreground);
     }
     if (sourceButtons_ == 0) {
@@ -491,10 +492,10 @@ void MappingView::drawFooter(const float top) {
         const auto index = static_cast<std::size_t>(lastPressedSource_);
         const int target = sourceToTarget_[index];
         const char* const hatDirection = sourceHatDirection_[index];
-        // Same pattern as the cells: "G920 6 Menu <- R3 35 Start".
+        // Same pattern as the cells: "G920 6 Menu <- Rig 35 Start".
         const std::string& name = sourceLabel(lastPressedSource_);
         char button[40];
-        std::snprintf(button, sizeof(button), name.empty() ? "R3 %d" : "R3 %d %s", lastPressedSource_, name.c_str());
+        std::snprintf(button, sizeof(button), name.empty() ? "Rig %d" : "Rig %d %s", lastPressedSource_, name.c_str());
         if (hatDirection != nullptr) {
             std::snprintf(line, sizeof(line), "Last pressed: %s D-pad %s <- %s%s", target_.c_str(), hatDirection,
                           button, target >= 0 ? "  (and a button: check [buttons])" : "");
@@ -668,7 +669,7 @@ void MappingView::trackLastPressed(const std::uint64_t sourceButtons) {
     for (int source = 0; source < static_cast<int>(kMaxSourceButtons); ++source) {
         if (((newlyPressed >> source) & 1ULL) != 0) {
             lastPressedSource_ = source;
-            WE_LOG_DEBUG(log(), "R3 button {} pressed -> {} target {}", source, target_,
+            WE_LOG_DEBUG(log(), "rig button {} pressed -> {} target {}", source, target_,
                          sourceToTarget_[static_cast<std::size_t>(source)]);
         }
     }
@@ -769,7 +770,7 @@ void MappingView::refreshLogFiles() {
         const char* prefix;     // today's file is <prefix><date>.log
     };
     static constexpr Source kSources[] = {
-        {"Emulator", "service and app: reads R3, maps, plays FFB", false,
+        {"Emulator", "service and app: reads the rig, maps, plays FFB", false,
          "wheelbri-service-"},
         {"Game shim", "dinput8.dll next to the game (Phases 2-3)", false, "wheelbri-shim-"},
         {"G920 driver", "the virtual G920 (wheelbri-g920)", true, "wheelbri-driver-"},
@@ -1034,7 +1035,7 @@ void MappingView::trackEvents(const RawInputState& raw, const WheelState& state,
         if (((changed >> source) & 1ULL) == 0) continue;
         const bool down = ((raw.buttons >> source) & 1ULL) != 0;
         const std::string& name = sourceLabel(source);
-        std::string text = "R3 " + std::to_string(source) + (name.empty() ? "" : " " + name);
+        std::string text = "Rig " + std::to_string(source) + (name.empty() ? "" : " " + name);
         if (!down) {
             addEvent(kEventReleased, text + " released");
             continue;
@@ -1139,7 +1140,7 @@ void MappingView::drawTelemetry() {
     for (int source = 0; source < static_cast<int>(kMaxSourceButtons); ++source) {
         if (((eventButtons_ >> source) & 1ULL) != 0) {
             const std::string& name = sourceLabel(source);
-            held += (held.empty() ? "" : ",  ") + ("R3 " + std::to_string(source)) + (name.empty() ? "" : " " + name);
+            held += (held.empty() ? "" : ",  ") + ("Rig " + std::to_string(source)) + (name.empty() ? "" : " " + name);
         }
     }
     text(window_, x, y, held.empty() ? "no buttons" : shortenMiddle(held, 104).c_str(), held.empty() ? kDim : kText);

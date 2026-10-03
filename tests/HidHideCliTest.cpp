@@ -6,7 +6,7 @@ namespace wheelbri::hidhide {
 namespace {
 
 // As HidHideCLI --dev-gaming prints it (from a real run, 2026-09-30; shortened).
-constexpr std::string_view kGaming = R"( [ { "friendlyName" : "R3 Racing Wheel and Pedals" , "devices" : [
+constexpr std::string_view kGaming = R"( [ { "friendlyName" : "My Racing Wheel" , "devices" : [
 { "present" : true ,
 "gamingDevice" : true ,
 "symbolicLink" : "\\?\\HID#VID_346E&PID_0005&MI_02#8&8052F69&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}" ,
@@ -25,9 +25,9 @@ constexpr std::string_view kGaming = R"( [ { "friendlyName" : "R3 Racing Wheel a
 )";
 
 TEST(HidHideCli, OnlyTheWheelsGameControllerInterfaceIsChosen) {
-    const auto moza = gamingDevicesOf(kGaming, "346E");
-    ASSERT_EQ(moza.size(), 1U);
-    EXPECT_EQ(moza[0], R"(HID\VID_346E&PID_0005&MI_02\8&8052F69&0&0000)");
+    const auto wheel = gamingDevicesOf(kGaming, "346E");
+    ASSERT_EQ(wheel.size(), 1U);
+    EXPECT_EQ(wheel[0], R"(HID\VID_346E&PID_0005&MI_02\8&8052F69&0&0000)");
     EXPECT_EQ(gamingDevicesOf(kGaming, "346e").size(), 1U);   // any case
     EXPECT_EQ(gamingDevicesOf(kGaming, "046D").size(), 1U);
     EXPECT_TRUE(gamingDevicesOf(kGaming, "1234").empty());
@@ -66,7 +66,7 @@ TEST(HidHideCli, ReadsTheUsbIdsOfAHidDevice) {
 
 TEST(HidHideCli, TellsGameControllersFromOtherCollections) {
     EXPECT_TRUE(isGameController({"HID_DEVICE_SYSTEM_GAME", "HID_DEVICE_UP:0001_U:0004", "HID_DEVICE"}));
-    EXPECT_TRUE(isGameController({"HID_DEVICE_UP:0001_U:0008", "HID_DEVICE"}));   // multi-axis: the Moza R3
+    EXPECT_TRUE(isGameController({"HID_DEVICE_UP:0001_U:0008", "HID_DEVICE"}));   // multi-axis: many wheels
     EXPECT_TRUE(isGameController({"hid_device_up:0001_u:0005"}));
     EXPECT_TRUE(isGameController({"HID_DEVICE_UP:0002_U:0002", "HID_DEVICE"}));   // simulation controls
     EXPECT_FALSE(isGameController({"HID_DEVICE_UP:FF00_U:0001", "HID_DEVICE"}));  // a vendor tool's collection

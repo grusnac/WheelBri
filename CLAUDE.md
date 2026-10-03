@@ -42,21 +42,21 @@ This file guides Claude when working in this repository.
 
 ## Project
 
-wheel-emulator makes a physical wheel (Moza R3) look like a wheel a game supports (Logitech G920 by default, G29
+WheelBri makes the user's rig (a wheel and its accessories, defined in the Rig tab) look like a wheel a game supports (Logitech G920 by default, G29
 via `target_profile`) on Windows and Linux/Proton. First target game: Need for Speed (2015).
 
 Status (README.md has the full table):
-- **Working with a real R3 in NFS 2015 on Windows**: mapping and service (Phase 1), the `dinput8.dll` shim
+- **Working with a real direct drive wheel in NFS 2015 on Windows**: mapping and service (Phase 1), the `dinput8.dll` shim
   (Phase 2: wheel, pedals, buttons, D-pad), game force feedback through the service (Phase 3: constant, spring,
   damper, sine, square), and the virtual G920 with our own UMDF driver (Phase 5).
 - **Settled**: NFS finds wheels through `DirectInput8Create` (A and W) and reads `c_dfDIJoystick2`: wheel X,
-  throttle Slider, brake Y, clutch Rz, pedals released at the top of the range. R3 axes as the service numbers
+  throttle Slider, brake Y, clutch Rz, pedals released at the top of the range. The tested wheel's axes as the service numbers
   them: steering 0, throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
 - **Not yet verified**: the G29 profile in a game; Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes (ignored); NFS's 20-byte Logitech `Escape` calls (not forwarded).
 - The G920's own FFB is HID++, not the classic Logitech protocol; the virtual G920 exposes HID PID instead.
 
-Data flow: `Moza R3 --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`, where the consumer is
+Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`, where the consumer is
 one of: the `dinput8.dll` shim in the game, the `wheelbri-g920` driver (Windows) or `wheelbri-uhid` (Linux). Use UDP loopback, not shared memory: under Proton
 the shim runs inside Wine and the service is a native Linux process, and named mappings don't cross that boundary.
 
@@ -133,8 +133,7 @@ msbuild driver\wheelbri-g920.vcxproj /p:Configuration=Release /p:Platform=x64
 driver\install-driver.ps1
 ```
 
-(same pattern for `driver\hide\wheelbri-hide.vcxproj` + `install-hide.ps1`). `driver\remove-xbox-controller.ps1`
-takes away the virtual Xbox controller of versions before 2026-10-03 (the installer and uninstaller run it).
+(same pattern for `driver\hide\wheelbri-hide.vcxproj` + `install-hide.ps1`).
 
 CMake options: `WE_BUILD_TESTS` (ON; skipped when cross-compiling), `WE_BUILD_SERVICE` (ON), `WE_BUILD_SHIM` (ON
 only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra
@@ -144,8 +143,8 @@ Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list]
 [--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide]]
 [--unhide] [--app] [--telemetry-tab] [--ffb-tab]`. `--app` opens the app's window (Start / Stop) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
 (click, or M / R / L, T / F; in this order: Mapping, Rig, Logs, then Telemetry and Force feedback only with
-`--telemetry-tab` / `--ffb-tab`, never shown without them, `MappingView::setOptionalTabs`): **Mapping** (the axes R3 -> G920, every R3 axis, the D-pad, the G920 buttons written
-`G920 <n> <name> <- R3 <n> <name>` and the R3's own buttons `R3 <n> <name>` from `[button_labels]`), **Logs** (one
+`--telemetry-tab` / `--ffb-tab`, never shown without them, `MappingView::setOptionalTabs`): **Mapping** (the axes rig -> G920, every rig axis, the D-pad, the G920 buttons written
+`G920 <n> <name> <- Rig <n> <name>` and the wheel's own buttons `Rig <n> <name>` from `[button_labels]`), **Logs** (one
 line per component: emulator, game shim, G920 driver, hide filter, each in its own colour,
 with today's file, size, age, click opens its folder; then a scrollable live log of all those files merged:
 wheel, arrows, PageUp / PageDown, Home / End; core `LiveLog`), **Telemetry** (the CSV files, buttons held, the
@@ -206,7 +205,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `MappingEdit.hpp` uses the roles). A session takes the names it shows from the active rig, else from the older
     per-device files (`DeviceLabels.hpp`, `deviceLabelsFolder()`), which the first rig also imports. Mapping is not
     done in the rig.
-  - Several input devices: device 0 is the wheel (`source_device`, plays FFB), 1..3 are accessories
+  - Several input devices: device 0 is the wheel (`source_device`; empty, as in the built-in `config/rig-as-*.ini`, = the active rig's wheel, `Rig::wheel()`, filled in by `loadForRun`; plays FFB), 1..3 are accessories
     (`MapperConfig::accessories`, `DeviceId` vid:pid). Every source has a device next to its index
     (`sourceDevice`, `buttonDevice[]`, `HatButtons::devices`); in the INI a source is `N` (the wheel's) or `vid:pid/N`
     (`MappingEdit.hpp`: `parseSource` / `formatSource`; `readSource` in `EmulatorConfig.cpp` fills the accessories in
@@ -278,7 +277,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `StatePacket`, `FfbPacket` sources. Logs to `C:\ProgramData\wheelbri\logs\wheelbri-driver-<date>.log`.
   - `hide/` (`wheelbri-hide`): upper filter on the game-controller interfaces of each rig device: exactly the HID
     interfaces DirectInput lists as game controllers (`HideFilter::check` via `dinput::gameControllerPaths`,
-    `hidhide::instanceIdOfHidPath`; not compatible ids: the R3 is a multi-axis controller without
+    `hidhide::instanceIdOfHidPath`; not compatible ids: many wheels are multi-axis controllers without
     `HID_DEVICE_SYSTEM_GAME`, and the registry gave none). Device-agnostic, no ids in the INF or driver. The INF's
     only hardware id, `WHEELBRI_HIDE_FILTER`, belongs to no device, so Windows never puts it on anything by itself
     (when it matched compatible ids it went onto the virtual G920; the driver also never hides 046D:C262; DriverVer
@@ -293,7 +292,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     packages without depending on pnputil's language). Each fails with a red line and exit 1; `install-hide.ps1`
     exits 2 when the filter is set on a device but runs only after a restart; without `-Devices` it only adds the
     package (the installer). It forces the filter onto a device even though another driver ranks higher (Windows'
-    input.inf, or Moza's own "MOZA Windows Driver"). `uninstall-hide.ps1` and `clean-pc.ps1` find the devices by
+    input.inf, or the wheel maker's own driver). `uninstall-hide.ps1` and `clean-pc.ps1` find the devices by
     their driver (`Get-DevicesUsing`, DriverInfPath), never by id. In these scripts wrap
     function results in `@(...)` before `.Count`: Windows PowerShell 5.1 gives no `.Count` for a single CIM object.
     Driver threads close their sockets only after joining, and repeating socket errors are logged once a minute.
@@ -327,7 +326,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.
 - `scripts/`: `telemetry_summary.py` (reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelbri.sh`, udev rules,
   `package.sh` bundle).
-- `config/`: `moza-r3-as-g920.ini`, `moza-r3-as-g29.ini` (service), `wheelbri-shim.ini` (shim).
+- `config/`: `rig-as-g920.ini`, `rig-as-g29.ini` (service), `wheelbri-shim.ini` (shim).
 - `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide).
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.
@@ -362,7 +361,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - COM wrappers own one real reference and delete themselves at refcount 0. Anything handed back unwrapped
     (aggregation, `EnumDevicesBySemantics`, `DllGetClassObject`, `EnumCreatedEffectObjects`) is logged
     with a warning on purpose.
-- FFB safety: the R3 is direct drive. Every force the service sends to hardware must go through
+- FFB safety: rigs are often direct drive. Every force the service sends to hardware must go through
   `FfbSafetyLimiter` (in `FfbController`, which also has a watchdog); keep the defaults conservative. A game that
   crashes while using the virtual G920 sends nothing more and the driver cannot tell: `HidPid` stops keep-alives
   after 10 s without a report while a pushing force (constant, ramp, periodic) plays, so the service's watchdog

@@ -17,7 +17,7 @@
 // controls onto the emulated wheel (the mapping is the config, another file). A control's line:
 //
 //   [device_1]
-//   name = R3 Racing Wheel
+//   name = My wheel
 //   id = 346e:0005
 //   kind = wheel
 //   axis_0 = Wheel | steering

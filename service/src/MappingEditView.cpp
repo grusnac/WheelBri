@@ -186,7 +186,14 @@ void MappingEditView::saveAs() {
 // --- devices and sources ---------------------------------------------------------------------------------------
 
 const DeviceLabels* MappingEditView::wheelLabels() const {
-    const std::optional<DeviceId> exact = parseDeviceId(edit_.sourceDevice);
+    // No source_device (the built-in configs): the rig's wheel, as a session takes it.
+    std::optional<DeviceId> exact = parseDeviceId(edit_.sourceDevice);
+    if (edit_.sourceDevice.empty()) {
+        const RigDevice* wheel = rig_.wheel();
+        if (wheel == nullptr && !rig_.devices.empty()) wheel = &rig_.devices.front();
+        if (wheel == nullptr) return nullptr;
+        exact = wheel->id;
+    }
     for (const DeviceLabels& labels : devices_) {
         if (exact ? idOf(labels) == *exact
                   : deviceMatches(labels.name, labels.vendorId, labels.productId, edit_.sourceDevice)) {
@@ -235,7 +242,7 @@ std::string MappingEditView::describe(const SourceRef& source, const bool axis) 
         role = roleName(control->role);
     }
     const std::string number = (axis ? "axis " : "button ") + std::to_string(source.index);
-    // "R3: Gas  (axis 2, throttle)", "R3: axis 6", "R3: button 4  (d-pad up)".
+    // "Wheel: Gas  (axis 2, throttle)", "Wheel: axis 6", "Wheel: button 4  (d-pad up)".
     std::string about = name.empty() ? std::string() : number;
     if (!role.empty()) about += (about.empty() ? "" : ", ") + role;
     return fit(device, 20) + ": " + (name.empty() ? number : name) + (about.empty() ? "" : "  (" + about + ")");

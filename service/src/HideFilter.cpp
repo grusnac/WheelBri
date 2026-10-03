@@ -171,7 +171,7 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
     for (const Target& target : targets) checks.push_back({target, State::NotConnected, {}, "not connected", {}});
 
     // The game-controller interfaces are exactly what DirectInput lists (what games see), whatever HID usage the
-    // device reports: the Moza R3, a multi-axis controller, has no compatible id that says "game controller" and the
+    // device reports: a multi-axis controller (many wheels are) has no compatible id that says "game controller" and the
     // registry does not give compatible ids here. A vendor tool's other interfaces are never listed.
     for (const std::string& path : dinput::gameControllerPaths()) {
         const std::string id = hidhide::instanceIdOfHidPath(path);

@@ -11,7 +11,7 @@ namespace {
 Rig sampleRig() {
     Rig rig;
     RigDevice wheel;
-    wheel.name = "R3 Racing Wheel";
+    wheel.name = "My Racing Wheel";
     wheel.id = {0x346E, 0x0005};
     wheel.kind = DeviceKind::Wheel;
     wheel.axes[0] = {"Wheel", ControlRole::Steering, false};
@@ -58,7 +58,7 @@ TEST(Rig, WritesAndReadsBack) {
     EXPECT_TRUE(back.errors.empty()) << back.errors.front();
     EXPECT_EQ(back.rig, rig);
     ASSERT_NE(back.rig.wheel(), nullptr);
-    EXPECT_EQ(back.rig.wheel()->name, "R3 Racing Wheel");
+    EXPECT_EQ(back.rig.wheel()->name, "My Racing Wheel");
     ASSERT_NE(back.rig.find({0x30B7, 0x1001}), nullptr);
 }
 

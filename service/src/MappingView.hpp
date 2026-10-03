@@ -119,7 +119,7 @@ private:
 
     void drawHeader();
     void drawAxes(const RawInputs& inputs, const WheelState& state, const TargetReport& report, float top);
-    // "R3 13 R paddle" on the wheel, "Pedals 2 Gas" on an accessory (cut to `chars`).
+    // "Rig 13 R paddle" on the wheel, "Pedals 2 Gas" on an accessory (cut to `chars`).
     [[nodiscard]] std::string sourceText(int device, int index, bool axis, std::size_t chars) const;
     void drawRawAxes(const RawInputState& raw, float top);
     void drawHat(std::int8_t sourceHat, std::int8_t targetHat, float top);

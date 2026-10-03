@@ -48,7 +48,7 @@ Take the shim out of the game (`dinput8.dll` → `dinput8.dll.off`), do not run 
 Administrator:
 
 ```
-build\service\wheelbri-service.exe --config config\moza-r3-as-g920.ini --ui --virtual-g920
+build\service\wheelbri-service.exe --config config\rig-as-g920.ini --ui --virtual-g920
 ```
 
 The service log says `virtual G920 G920_0 ready after … ms` and `hide: the rig is hidden from games`; joy.cpl
@@ -97,8 +97,3 @@ Remove: `driver\hide\uninstall-hide.ps1` (those devices go back to Windows' own 
 `wheelbri-hide-install-<date>.log`. The window lists rig devices the filter is not running on.  Stop the service with
 Ctrl+C (close the game and Steam first). Driver log: `C:\ProgramData\wheelbri\logs\wheelbri-driver-<date>.log`.
 
-## No Xbox controller
-
-Until 2026-10-03 a third driver (`wheelbri-xusb`) and a second device served by this one (`wheelbri\XBOXHID`) made a
-virtual Xbox 360 controller for games' Xbox button prompts. It was removed (see CLAUDE.md). `remove-xbox-controller.ps1`
-takes it off a PC that still has it; the installer and the uninstaller run it.

@@ -18,7 +18,7 @@
 // devices folder:
 //
 //   [device]
-//   name = R3 Racing Wheel and Pedals
+//   name = My wheel
 //   id = 346e:0005
 //   kind = wheel                ; wheel | pedals | shifter | handbrake | button box | other
 //   [axis_labels]

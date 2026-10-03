@@ -30,7 +30,7 @@ struct SourceRef {
 [[nodiscard]] std::optional<SourceRef> parseSource(std::string_view text);
 // The other way: "-1" for nothing, "2" on the wheel, "044f:b696/2" on an accessory.
 [[nodiscard]] std::string formatSource(const SourceRef& source);
-// "vvvv:pppp" as source_device takes it, or nullopt if `text` is not exactly a USB id (e.g. "346e", "Moza").
+// "vvvv:pppp" as source_device takes it, or nullopt if `text` is not exactly a USB id (e.g. "346e", "Racing Wheel").
 [[nodiscard]] std::optional<DeviceId> parseDeviceId(std::string_view text);
 
 // The device number of `device` in `mapper` (0 for the wheel, i.e. empty), adding it to the accessories when it is

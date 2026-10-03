@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(wheel_emulator
     VERSION 0.1.0
-    DESCRIPTION "Presents a DirectInput wheel (e.g. Moza R3) to games as a wheel they support (e.g. Logitech G29)"
+    DESCRIPTION "Presents your rig (a wheel and its accessories) to games as a wheel they support (e.g. Logitech G920)"
     LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)

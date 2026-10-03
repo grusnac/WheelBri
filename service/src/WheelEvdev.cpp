@@ -1,5 +1,5 @@
 // The physical wheel on Linux, through evdev (/dev/input/event*): listing the game controllers, reading
-// the wheel and its force feedback (the kernel's EV_FF, e.g. hid-universal-pidff for the Moza R3).
+// the wheel and its force feedback (the kernel's EV_FF, e.g. hid-universal-pidff for direct drive wheels).
 //
 // Numbering and values follow SDL3 (EvdevLayout.hpp), the force feedback makes the same calls SDL3 (3.4)
 // made: gain 100 %, auto-centre off, one uploaded effect per slot on the steering axis (direction 0x4000,
@@ -125,7 +125,7 @@ public:
         }
         const auto features = readBits<FF_CNT>(fd, [](std::size_t length) { return EVIOCGBIT(EV_FF, length); });
         if (features.none()) {
-            WE_LOG_ERROR(ffbLog(), "'{}' has no force feedback (no EV_FF); on Linux 6.15+ the R3 needs the "
+            WE_LOG_ERROR(ffbLog(), "'{}' has no force feedback (no EV_FF); on Linux 6.15+ many direct drive wheels need the "
                                    "hid-universal-pidff driver (modinfo hid-universal-pidff)",
                          wheel.name);
             ::close(fd);

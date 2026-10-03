@@ -21,7 +21,7 @@ bool containsError(const EmulatorConfigResult& result, const std::string& fragme
 TEST(EmulatorConfig, EmptyFileGivesDefaults) {
     const auto result = load("");
     EXPECT_TRUE(result.errors.empty());
-    EXPECT_EQ(result.config.sourceDeviceMatch, "346e");
+    EXPECT_EQ(result.config.sourceDeviceMatch, "");   // the rig's wheel
     EXPECT_EQ(result.config.targetProfile, "g920");
     EXPECT_EQ(result.config.statePort, kDefaultStatePort);
     EXPECT_EQ(result.config.loopHz, 1000);
@@ -61,7 +61,7 @@ TEST(EmulatorConfig, ReadsAxisLabels) {
 
 TEST(EmulatorConfig, ReadsEverySection) {
     const auto result = load(
-        "[emulator]\nsource_device = R3\nstate_port = 50000\nffb_port = 50001\nloop_hz = 500\n"
+        "[emulator]\nsource_device = Racing\nstate_port = 50000\nffb_port = 50001\nloop_hz = 500\n"
         "[steering]\naxis = 0\nsource_rotation_deg = 540\ntarget_rotation_deg = 900\ndeadzone = 0.02\ninvert = yes\n"
         "[throttle]\naxis = 1\ninvert = true\n"
         "[brake]\naxis = 2\ndeadzone_low = 0.05\nsaturation_high = 0.8\ngamma = 1.8\n"
@@ -73,7 +73,7 @@ TEST(EmulatorConfig, ReadsEverySection) {
     ASSERT_TRUE(result.errors.empty()) << result.errors.front();
 
     const EmulatorConfig& config = result.config;
-    EXPECT_EQ(config.sourceDeviceMatch, "R3");
+    EXPECT_EQ(config.sourceDeviceMatch, "Racing");
     EXPECT_EQ(config.statePort, 50000);
     EXPECT_EQ(config.loopHz, 500);
     EXPECT_FLOAT_EQ(config.mapper.steering.sourceRotationDeg, 540.0F);

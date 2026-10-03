@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Linux / Steam Deck: starts everything for a game with the Moza R3 as a G920, and stops it again.
+# Linux / Steam Deck: starts everything for a game with your rig as a G920, and stops it again.
 #
 # Two ways for the game to see the G920:
 #   uhid (default)  wheelbri-uhid makes a virtual G920 for the whole system (Phase 4); the game reads it raw
-#                   (PROTON_ENABLE_HIDRAW) and the R3 is hidden from it (SDL_GAMECONTROLLER_IGNORE_DEVICES).
+#                   (PROTON_ENABLE_HIDRAW) and the rig is hidden from it (SDL_GAMECONTROLLER_IGNORE_DEVICES).
 #   --shim          the dinput8.dll proxy in the game folder answers as a G920 (copy dinput8.dll there first);
 #                   WINEDLLOVERRIDES makes Proton load it.
 #
@@ -14,7 +14,8 @@
 #   ./wheelbri.sh            (service with its --ui window)
 #
 # Options: --shim, --ui / --no-ui (default: window only from a terminal), --config FILE,
-#          --hide VID/PID (the real wheel to hide from the game, default 0x346E/0x0005 = Moza R3).
+#          --hide VID/PID[,VID/PID...] (the devices to hide from the game; default: every device of the active rig,
+#          set up in the Rig tab of wheelbri-service --ui).
 # Once before the first use: install-udev-rules.sh (needs sudo). Logs: ~/.local/state/wheelbri.
 
 set -u
@@ -24,17 +25,17 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 if [ -x "$here/bin/wheelbri-service" ]; then
     service="$here/bin/wheelbri-service"
     uhid="$here/bin/wheelbri-uhid"
-    config="$here/config/moza-r3-as-g920.ini"
+    config="$here/config/rig-as-g920.ini"
 else
     root=$(cd "$here/../.." && pwd)
     service="$root/build/service/wheelbri-service"
     uhid="$root/build/tools/uhid/wheelbri-uhid"
-    config="$root/config/moza-r3-as-g920.ini"
+    config="$root/config/rig-as-g920.ini"
 fi
 
 mode=uhid
 ui=
-hide="0x346E/0x0005"
+hide=   # empty: the active rig's devices (below)
 game=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -51,6 +52,19 @@ while [ $# -gt 0 ]; do
     shift
 done
 [ -z "$ui" ] && { [ ${#game[@]} -eq 0 ] && ui=1 || ui=0; }
+
+# Default --hide: every device of the active rig (app.ini [app] rig, then id = vvvv:pppp in rigs/<rig>.ini).
+if [ -z "$hide" ]; then
+    settings="${XDG_CONFIG_HOME:-$HOME/.config}/wheelbri"
+    rig=$(awk -F= '/^\[/{app = ($0 ~ /^\[app\]/); next} app && $1 ~ /^[ \t]*rig[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' \
+          "$settings/app.ini" 2>/dev/null)
+    if [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
+        hide=$(awk -F= '$1 ~ /^[ \t]*id[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/[ \t]/, "", $2); split($2, p, ":");
+                        if (length(p[1]) == 4 && length(p[2]) == 4 && toupper($2) != "046D:C262")
+                            printf "%s0x%s/0x%s", (n++ ? "," : ""), toupper(p[1]), toupper(p[2])}' "$settings/rigs/$rig.ini")
+    fi
+    [ -z "$hide" ] && echo "wheelbri.sh: no rig yet (set it up in the Rig tab of wheelbri-service --ui): nothing is hidden from the game" >&2
+fi
 
 state="${XDG_STATE_HOME:-$HOME/.local/state}/wheelbri"
 mkdir -p "$state"

@@ -16,7 +16,7 @@ namespace wheelbri::hidhide {
 // Device instance paths of the game-controller interfaces of devices with `vendorId` (e.g. "346E") in the JSON
 // of `--dev-gaming`: [ { "friendlyName": ..., "devices": [ { "gamingDevice": true,
 // "deviceInstancePath": "HID\\VID_346E&PID_0005&MI_02\\...", ... } ] } ]. Only game-controller interfaces, so a
-// vendor tool (Moza Pit House) keeps its own interfaces. Empty if the JSON cannot be read.
+// vendor tool (the wheel maker's software) keeps its own interfaces. Empty if the JSON cannot be read.
 [[nodiscard]] std::vector<std::string> gamingDevicesOf(std::string_view json, std::string_view vendorId);
 
 // Every device of `vendorId` in that JSON, described for the log ("PATH (gamingDevice false, present true)").
@@ -40,7 +40,7 @@ namespace wheelbri::hidhide {
 
 // Whether a HID collection is a game controller (what DirectInput and games open), from its compatible ids:
 // joystick, gamepad or multi-axis controller (usage page 1, usages 4, 5, 8; Windows adds HID_DEVICE_SYSTEM_GAME for
-// the first two only, and many wheels, the Moza R3 among them, are multi-axis controllers) or any simulation control
+// the first two only, and many wheels are multi-axis controllers) or any simulation control
 // (usage page 2). A vendor tool's collections (vendor-defined pages) are not.
 [[nodiscard]] bool isGameController(const std::vector<std::string>& compatibleIds);
 

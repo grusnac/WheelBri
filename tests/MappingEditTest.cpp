@@ -18,7 +18,7 @@ EmulatorConfig load(const std::string& text) {
 
 const std::string kConfig =
     "; my config\r\n"
-    "[emulator]\r\nsource_device = 346e            ; Moza\r\n"
+    "[emulator]\r\nsource_device = 346e            ; the wheel\r\n"
     "[steering]\r\naxis = 0\r\ninvert = false\r\nsource_rotation_deg = 540\r\n"
     "[throttle]\r\naxis = 2                        ; checked with --ui\r\ninvert = false\r\ngamma = 1.0\r\n"
     "[brake]\r\naxis = 5\r\n"
@@ -113,7 +113,7 @@ TEST(MappingEdit, AutoMapsFromTheRigsRoles) {
     pedals.axes[0] = {"Gas", ControlRole::Throttle, true};
     pedals.axes[1] = {"Brake", ControlRole::Brake, false};
     RigDevice wheel;
-    wheel.name = "R3";
+    wheel.name = "My wheel";
     wheel.id = {0x346E, 0x0005};
     wheel.axes[0] = {"Wheel", ControlRole::Steering, false};
     wheel.buttons[13] = {"R paddle", ControlRole::ShiftUp, false};
