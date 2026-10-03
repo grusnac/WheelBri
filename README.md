@@ -130,17 +130,71 @@ passthrough` in `wheelemu-shim.ini` restores the Phase 2 behaviour (effects stra
 limited only by Pit House), `off` disables force feedback. If forces pull the wrong way, set
 `[ffb] invert = true` in the service config.
 
+## Installing on another PC
+
+`scripts/make/package.sh` builds everything in Release and makes `dist/windows/WheelBri-<version>-setup.exe` (plus
+the same files as a folder and a zip). On a Windows 11 PC with nothing of it, run the setup and approve the
+Administrator prompt; it asks nothing else. It installs **WheelBri** to `C:\Program Files\WheelBri`, the three
+drivers (trusting the drivers' certificate on that PC), a Start menu folder (the app and "Uninstall WheelBri") and a
+Settings > Apps entry that uninstalls it all. The app hides the R3 from games on every Start. The
+log is `C:\ProgramData\wheelemu\logs\wheelemu-install-<date>.log`; `installer/README.txt` is the end user's guide.
+
 ## The app
 
 `wheelemu.exe` (built next to `wheelemu-service.exe` in `build/service/`) is the everyday way to run it:
-double-click it, let Windows start it as Administrator, press **Start**, then start the game. The window shows
-the state (stopped, running and for how long, or why a start failed), the same live view as `--ui` (axes,
-buttons, game force feedback, files) and the latest log lines. **Stop**, or closing the window, undoes
-everything (virtual G920 and Xbox controller removed, the R3 visible again). **Open logs** opens the log folder.
-Each Start reads the config again, so edits apply without restarting the app. It uses
-`config/moza-r3-as-g920.ini` found next to the program or one or two folders up; `--config FILE` (in a
-shortcut) picks another, and the other options below work too. `wheelemu-service --app` is the same window
+double-click it, let Windows start it as Administrator, press **Start**, then start the game. **Start** and **Stop**
+are only on the Mapping tab (top right, next to the Xbox pad toggle, stopped or running), with the state next to them
+(stopped, running and for how long, a lost wheel, a game not using it); the Status tab says why a start failed. Start shows the Logs tab of the same live view as `--ui`
+(axes, buttons, game force feedback, logs: click a line or press O for the folder). **Stop**, or closing the window,
+undoes everything (virtual G920 and Xbox controller removed, the R3 visible again).
+Each Start reads the config again, so edits apply without restarting the app.
+
+**Xbox pad (EX)** (EX: experimental; the toggle next to Start on the Mapping tab, while stopped; off until turned on,
+remembered in `app.ini` as `[app] xbox_buttons`) says whether Start adds the Xbox controller at all. Off: the game
+shows keyboard prompts. Not shown to work yet: NFS 2015 does not treat the G920 as an Xbox device and shows keyboard
+icons for it.
+The Xbox controller (for the game's Xbox button prompts) is added only once the game uses the G920, i.e. after its
+first force feedback: a game that finds the pad when it starts may drive from it instead of the wheel (NFS did, and
+then steering and pedals did nothing). The pad never presses anything: every button, pedal and the steering go to the
+G920, and after each button, D-pad or pedal press the pad's right stick is nudged by about 30 % for 60 ms
+(`XboxMirror::kNudge`, past XInput's dead zone; at most a brief camera look; not after steering), to make NFS show Xbox
+icons instead of keyboard ones. A nudge inside the dead zone did nothing. The log says "first icon nudge" and counts
+them once a minute.
+
+If the pedals are pressed for 20 s and the game has never played force feedback on the G920, the game is driving
+from another controller (the Xbox pad, whose triggers never move, or the keyboard): the state next to Start / Stop (Mapping tab) shows **GAME NOT
+USING THE WHEEL** in red and the log says so. Close the game with WheelBri running, start it again and pick the wheel
+in its controls settings.
+
+**Mapping config** (on the Status page, while stopped) picks the config Start uses, with `<` `>`. The built-in ones
+come with the program (`config/*.ini` next to it or one or two folders up) and are the defaults, never changed.
+**New** makes a config of your own: type a name, pick the built-in one to start from, Create; it is saved as
+`%LOCALAPPDATA%\wheelemu\configs\<name>.ini` and picked at once. **Reset** (after a "Yes, reset") copies the
+built-in it was made from over the picked config again, dropping every change; built-in configs have nothing to
+reset. **Open folder** shows the file. The pick is remembered (`%LOCALAPPDATA%\wheelemu\app.ini`); `--config FILE`
+(in a shortcut) starts with another, and the other options below work too. `wheelemu-service --app` is the same window
 from a console (and on Linux).
+
+**Wheel setup** (tab W) defines your **rig**: the devices you have (wheel, pedals, shifter, handbrake, button box) and
+what each control is. Every connected device is read at once. With **Detect** on (the default), press a button or move
+an axis (a pedal all the way) and its popup opens: type its name, pick what it is (Steering, Throttle, Brake, Clutch,
+Handbrake, Axis; Button, D-pad up/right/down/left, Shift up/down, Gear 1-7, Reverse), Enter. A pedal found resting at
+the top of its axis is marked **Inverted**. Clicking an axis row or a button tile opens the same popup. Touching a control
+of a device adds it to the rig (at most 4 devices; **Remove from rig** takes one out); give each a name and a kind.
+**Save** writes `%LOCALAPPDATA%\wheelemu\rigs\<rig>.ini`; **New** / **Rename** / `<` `>` manage rigs, and the active one
+is remembered. The first rig starts from names saved per device by earlier versions. The app opens on this tab until a
+rig is saved, then on Mapping; Start switches to the Logs tab so you can see it come up.
+
+**Mapping** (tab M, while stopped; while running the same tab is the live view) maps the active rig's controls onto
+the G920: the wheel (the device that plays force feedback, **Change** to pick another), Steering / Throttle / Brake /
+Clutch (each with **Invert**), the D-pad and the G920's buttons. **Auto-map** fills them from the rig's roles (axes,
+D-pad, Shift up/down to the paddles, gears where the target has them); plain buttons you pick yourself. Click a source
+and pick a control of the wheel or of an accessory (up to 3 besides the wheel), or "(nothing)". **Save**
+writes the config picked on the Status page, keeping its comments and other settings; a built-in config is saved as
+a copy of your own (**Save as**, then picked). **Revert**, picking another config or **Reset** drop unsaved edits.
+In the config a source on an accessory is written `vid:pid/N` (`axis = 30b7:1001/0`); a session opens every
+accessory its mapping names and does not start without them; one lost while running is waited for like the wheel.
+Only the R3 is hidden from games; accessories stay visible.
 
 ## Service
 
@@ -183,7 +237,7 @@ SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelemu-service --con
 ```
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`,
-`service.hide`, `service.xbox`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
+`service.hide`, `service.config`, `service.mapping`, `service.setup`, `service.xbox`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
 `shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelemu-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelemu/Logging.hpp`)

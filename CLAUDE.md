@@ -114,7 +114,7 @@ Or the test binary directly:
 ```
 
 Outputs: `build/service/wheelemu-service.exe` (command line), `build/service/wheelemu.exe` (the app: window with
-Start / Stop / Open logs, asks for Administrator) and `build/shim/dinput8.dll`; all linked statically on MinGW. `scripts/wheelemu.sh --build` rebuilds the service and the bridge.
+Start / Stop, asks for Administrator) and `build/shim/dinput8.dll`; all linked statically on MinGW. `scripts/wheelemu.sh --build` rebuilds the service and the bridge.
 
 Windows shim cross-compiled from Linux/macOS with MinGW-w64 (→ `build-win/shim/dinput8.dll`):
 
@@ -143,14 +143,17 @@ only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /pe
 
 Service CLI (`service/src/main.cpp`): `wheelemu-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
 [--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide] [--xbox-pad buttons|idle|off]]
-[--unhide] [--app]`. `--app` opens the app's window (Start / Stop / Open logs) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
-(click, or M / L / T / F): **Mapping** (the axes R3 -> G920, every R3 axis, the D-pad, the G920 buttons written
+[--unhide] [--app]`. `--app` opens the app's window (Start / Stop) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
+(click, or M / L / T / F / W): **Mapping** (the axes R3 -> G920, every R3 axis, the D-pad, the G920 buttons written
 `G920 <n> <name> <- R3 <n> <name>` and the R3's own buttons `R3 <n> <name>` from `[button_labels]`), **Logs** (one
 line per component: emulator, game shim, G920 driver, hide filter, Xbox driver, bridge, each in its own colour,
 with today's file, size, age, click opens its folder; then a scrollable live log of all those files merged:
 wheel, arrows, PageUp / PageDown, Home / End; core `LiveLog`), **Telemetry** (the CSV files, buttons held, the
-latest button / D-pad / pedal / FFB events, not scrollable) and **Force feedback** (live effects, usage since
-start, the latest effects). O opens the logs folder, D the drivers' folder. It draws through
+latest button / D-pad / pedal / FFB events, not scrollable), **Force feedback** (live effects, usage since
+start, the latest effects) and **Wheel setup** (W, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
+when stopped too, reading every connected device itself). The app has no log panel or toolbar: only the Mapping tab (the editor while stopped, the
+live one while running) has a short status, the Xbox pad toggle, Start and Stop, in its top right corner. Stopped, the app's own tabs are Mapping (`MappingEditView`,
+the editor), Status and Wheel setup; it opens on Wheel setup until a rig exists, else on Mapping; Start shows Logs. O opens the logs folder, D the drivers' folder. It draws through
 `UiWindow.hpp` (filled/outlined rectangles, 8x8-cell monospaced text and clicks on a 960x748 logical canvas,
 letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp`
 (Xlib) on Linux.
@@ -182,11 +185,39 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests.
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
     spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
-  - `XboxPad` (`XboxMirror`) mirrors the wheel onto an Xbox 360 pad for button prompts. `HidHideCli` holds
+  - `GameUseWatch`: pedals pressed for 20 s in total while the game never sent force feedback = the game drives from
+    another controller (the Xbox pad or the keyboard); the loop logs a warning and the app's status (next to Start / Stop) says
+    "GAME NOT USING THE WHEEL" (`UiFrame::gameIgnoresWheel`).
+  - `XboxPad` (`XboxMirror`, **experimental**, toggle off by default) tries to keep a game's icons Xbox: the G920 gets
+    every input untouched, and after each button, D-pad or pedal press the pad's right stick is nudged ~30 % (past the
+    dead zone; a nudge inside it did nothing in NFS) for 60 ms; never after steering, never a button or trigger (the
+    pad's own functions must never act, e.g. its right stick click is NFS's photo). `HidHideCli` holds
     device-id string helpers (`HideFilter` uses them; HidHide itself is no longer used).
   - `TestClutch`: a test clutch for when no pedal is connected. `tools/vbridge/ClutchProbe` sends `ClutchPacket`s
     (12 bytes, magic `WECL`, v1) to 41331; the service uses that value instead of the mapped clutch until 1.5 s
     after the last packet. `ClutchPacket` must stay byte-compatible with `ClutchPacket` in `tools/vbridge/Wire.cs`.
+  - The rig (`Rig.hpp`): every device the user has (`[device_N]` name, id, kind) and each control's label, role
+    (`ControlRole`: steering, throttle, ..., d-pad up, shift up, gear N) and invert, written `label | role | invert`;
+    one `<name>.ini` per rig in `rigsFolder()` (`%LOCALAPPDATA%\wheelemu\rigs`), the active one in the app's state
+    file (`[app] rig`). The Wheel setup tab (`WheelSetupView`) writes it (Detect: a touched control opens its popup;
+    the rest position taken after ~20 reads gives a pedal's invert); the Mapping tab maps from it (`autoMap` in
+    `MappingEdit.hpp` uses the roles). A session takes the names it shows from the active rig, else from the older
+    per-device files (`DeviceLabels.hpp`, `deviceLabelsFolder()`), which the first rig also imports. Mapping is not
+    done in the rig.
+  - Several input devices: device 0 is the wheel (`source_device`, plays FFB), 1..3 are accessories
+    (`MapperConfig::accessories`, `DeviceId` vid:pid). Every source has a device next to its index
+    (`sourceDevice`, `buttonDevice[]`, `HatButtons::devices`); in the INI a source is `N` (the wheel's) or `vid:pid/N`
+    (`MappingEdit.hpp`: `parseSource` / `formatSource`; `readSource` in `EmulatorConfig.cpp` fills the accessories in
+    reading order). `RawInputs` holds one `RawInputState` per device; `Mapper::map(RawInputs)`, `Pipeline::
+    setAccessories` (a lost accessory ends the tick like a lost wheel, `lostDevice()`); telemetry `raw_*` columns and
+    the Wheel setup tab stay the wheel's. `MappingModel` / `writeMapping` are what the Mapping tab edits and saves
+    (IniEditor; default button lines removed). The service opens accessories by id (`openAccessories` in main.cpp).
+  - Mapping configs the app picks from (`ConfigLibrary.hpp`): the built-in `config/*.ini` (not `wheelemu-shim.ini`),
+    never changed, and the user's own in `userConfigFolder()` (`%LOCALAPPDATA%\wheelemu\configs`), made by New as a
+    copy of a built-in whose file name is kept in a `; made from: <file>` comment at the top, so Reset can copy it
+    again. The pick is kept in `appStateFile()` (`app.ini`, `[app] config`). UI: `service/src/ConfigPicker.cpp` on the
+    app's Status page, `service/src/MappingEditView.cpp` the idle Mapping tab (picks sources from
+    `listDeviceLabels()`, Save as via `createConfigWithText`); `AppSettings::runSession` gets the picked path at each Start.
   - Config: `IniDocument` (minimal INI; `;`/`#` start a comment anywhere on a line) → `loadEmulatorConfig`,
     which collects *all* errors (unknown keys and sections, out-of-range values) instead of failing fast. When
     you add a config key, add it to the reader, `EmulatorConfig`, both example INIs and `EmulatorConfigTest`.
@@ -221,7 +252,12 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `HKLM\SOFTWARE\wheelemu\hide\AllowedPid` for the `wheelemu-hide` filter so only the service sees the R3
     (our own filter only, no HidHide or other third-party tools: without it the window says "R3 NOT HIDDEN" in
     red; `--no-hide` skips it, `--unhide` clears it after a crash);
-    `VirtualXboxPad` creates the `wheelemu\XUSB` device and the loop sends pad state to 41332.
+    `VirtualXboxPad` creates the `wheelemu\XUSB` device and the loop sends pad state to 41332. The pad is created
+    only after the game's first force feedback on the G920 (`DeferredXboxPad` in main.cpp): with the pad there when it
+    started, NFS drove from the pad (its sticks and triggers never move) and ignored the G920. Until then
+    `XboxPadPublisher` passes the wheel through untouched. Keep it that way. Whether there is a pad at all is the app's
+    "Xbox pad (EX)" (experimental) toggle on the Mapping tab (`[app] xbox_buttons`, off unless set; passed to
+    `AppSettings::runSession`).
   - Failure handling (keep it when changing `runSession`): a lost wheel (`runLoop` returns `kWheelLost`) keeps the
     virtual devices and waits for the wheel to come back, then carries on; creating devices and waiting for the
     hide installer stop on Stop (`cancelled`), but a running installer is never killed (it may be switching the

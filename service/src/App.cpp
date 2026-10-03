@@ -1,18 +1,22 @@
 #include "App.hpp"
 
+#include "ConfigPicker.hpp"
+#include "MappingEditView.hpp"
 #include "Platform.hpp"
+#include "ServiceLogging.hpp"
 #include "UiWindow.hpp"
+#include "WheelSetupView.hpp"
 
+#include "wheelemu/ConfigLibrary.hpp"
 #include "wheelemu/Logging.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
-#include <ctime>
-#include <deque>
 #include <mutex>
 #include <optional>
+#include <tuple>
 #include <thread>
 
 namespace wheelemu::service {
@@ -35,21 +39,44 @@ constexpr ui::Colour kWarning{214, 72, 64};
 constexpr ui::Colour kCaution{206, 164, 58};
 constexpr ui::Colour kDark{16, 18, 20};
 
-// Window layout, in logical pixels: the toolbar, the live view, the log lines.
+// Window layout, in logical pixels: the panel (the tabs) fills the window. Only the Mapping tab has the controls, in
+// its top right corner: the status, the Xbox pad toggle, Start and Stop.
 constexpr float kWidth = MappingView::kWidth;
-constexpr float kToolbarHeight = 40;
-constexpr float kViewTop = kToolbarHeight;
-constexpr float kLogTop = kViewTop + MappingView::kHeight + 6;
-constexpr int kLogLines = 6;
-constexpr float kLogLineHeight = 11;
-constexpr float kHeight = kLogTop + 12 + kLogLines * kLogLineHeight + 4;
+constexpr float kViewTop = 0;
+constexpr float kHeight = MappingView::kHeight;
+constexpr float kControlsY = 0;
+constexpr float kControlsHeight = 16;
+constexpr float kButtonWidth = 68;
+constexpr float kStopX = kWidth - 4 - kButtonWidth;
+constexpr float kStartX = kStopX - 4 - kButtonWidth;
+constexpr float kXboxWidth = 152;
+constexpr float kXboxX = kStartX - 4 - kXboxWidth;
+constexpr std::size_t kStatusChars = 20;   // between the tab's title and the toggle
 constexpr int kWindowWidth = static_cast<int>(kWidth * 1.3F);  // 1.3x the canvas at 100 % (smaller to fit the screen)
 constexpr int kWindowHeight = static_cast<int>(kHeight * 1.3F);
+// The tab bar at the bottom of the panel (MappingView's), in the panel's own coordinates.
+constexpr float kTabBarTop = MappingView::kHeight - 28;
+constexpr float kTabWidth = 156;
+constexpr float kSetupTabX = 4 + 4 * (kTabWidth + 6);   // where MappingView puts "Wheel setup (W)"
+constexpr float kMappingTabX = 4;                         // ...and "Mapping (M)"
+constexpr float kStatusTabX = 4 + kTabWidth + 6;          // the idle page's own, where the live view has Logs
+
+// The running session's wheel as the Wheel setup tab wants it.
+WheelSetupView::SessionWheel sessionWheel(const SessionInfo& info, const UiFrame& frame) {
+    WheelSetupView::SessionWheel wheel;
+    wheel.info.name = info.sourceName;
+    wheel.info.vendorId = info.vendorId;
+    wheel.info.productId = info.productId;
+    wheel.axes = info.axes;
+    wheel.buttons = info.buttons;
+    wheel.raw = frame.raw;
+    return wheel;
+}
 
 void draw(const FfbDisplay& ffb, MappingView& view, const UiFrame& frame) {
     view.setTelemetry(frame.telemetry);
     view.setOldFiles(frame.oldFiles, frame.oldFilesFailed);
-    view.draw(frame.raw, frame.state, frame.report, ffb);
+    view.draw(frame.inputs, frame.state, frame.report, ffb);
 }
 
 FfbDisplay ffbDisplay(const SessionInfo& info, const UiFrame& frame) {
@@ -65,11 +92,13 @@ FfbDisplay ffbDisplay(const SessionInfo& info, const UiFrame& frame) {
 
 class SessionWindow final : public UiHost {
 public:
+    explicit SessionWindow(std::string configPath) : configPath_(std::move(configPath)) {}
+
     bool sessionStarted(const SessionInfo& info) override {
         // Called again when the session carries on after the wheel came back: keep the window, rebuild the view.
         if (window_ == nullptr) {
             std::string error;
-            window_ = ui::openWindow("wheel-emulator: mapping", MappingView::kWidth, MappingView::kHeight,
+            window_ = ui::openWindow("WheelBri: mapping", MappingView::kWidth, MappingView::kHeight,
                                      static_cast<int>(MappingView::kWidth * 1.3F),
                                      static_cast<int>(MappingView::kHeight * 1.3F), error);
             if (window_ == nullptr) {
@@ -77,6 +106,9 @@ public:
                 return false;
             }
             WE_LOG_INFO(log(), "mapping window open ({})", window_->describe());
+            setup_ = std::make_unique<WheelSetupView>(*window_,
+                                                      WheelSetupView::Settings{rigsFolder(), deviceLabelsFolder(),
+                                                                               appStateFile()});
         }
         view_.reset();   // refers to the old profile
         info_ = info;
@@ -88,6 +120,7 @@ public:
                                               info.mapper);
         view_->setFiles(info.files);
         view_->setDevices(info.devices, info.devicesWarning);
+        view_->setAccessories(info.accessories);
         return true;
     }
 
@@ -96,32 +129,53 @@ public:
         if (input.close) {
             return false;
         }
-        for (const char key : input.keys) {
-            if (key == ui::kEscape) {
-                return false;
+        const bool setup = view_->tab() == MappingView::Tab::WheelSetup;
+        if (setup && setup_->editingText()) {
+            setup_->onText(input.text);   // typing a name: letters are not shortcuts, Escape stops typing
+            if (input.keys.find(ui::kEscape) != std::string::npos) setup_->onKey(ui::kEscape);
+        } else {
+            for (const char key : input.keys) {
+                if (key == ui::kEscape) {
+                    return false;
+                }
+                view_->onKey(key);
             }
-            view_->onKey(key);
         }
         for (const ui::Click& click : input.clicks) {
-            view_->onClick(click.x, click.y);
+            if (setup && click.y < kTabBarTop) {
+                setup_->onClick(click.x, click.y);
+            } else {
+                view_->onClick(click.x, click.y);
+            }
         }
         if (input.wheel != 0) {
             view_->onScroll(input.wheel);
         }
+        if (frame.ready && view_->tab() == MappingView::Tab::WheelSetup) {
+            const auto wheel = sessionWheel(info_, frame);
+            setup_->update(&wheel);
+        }
         // Nothing to show: drawing a hidden window can block (e.g. while a game switches display mode).
         if (frame.ready && window_->visible()) {
             window_->begin(kBackground);
-            draw(ffbDisplay(info_, frame), *view_, frame);
+            if (view_->tab() == MappingView::Tab::WheelSetup) {
+                setup_->draw();
+                view_->drawTabBar();
+            } else {
+                draw(ffbDisplay(info_, frame), *view_, frame);
+            }
             window_->present();
         }
         return true;
     }
 
 private:
+    std::string configPath_;
     std::unique_ptr<ui::UiWindow> window_;
     SessionInfo info_;
     std::unique_ptr<IDeviceProfile> profile_;
     std::unique_ptr<MappingView> view_;
+    std::unique_ptr<WheelSetupView> setup_;
 };
 
 // --- the app ------------------------------------------------------------------------------------------
@@ -137,9 +191,11 @@ public:
     }
 
     bool frame(const UiFrame& frame) override {
+        // A new copy each time (it cannot be assigned), made outside the lock; a pointer rather than
+        // optional::emplace, on which GCC 16 warns about a string "maybe used uninitialized" (a false positive).
+        auto copy = std::make_unique<UiFrame>(frame);
         const std::lock_guard lock(mutex_);
-        frame_.reset();
-        frame_.emplace(frame);
+        frame_ = std::move(copy);
         return true;
     }
 
@@ -171,45 +227,22 @@ private:
     std::mutex mutex_;
     std::optional<SessionInfo> info_;
     std::uint64_t generation_ = 0;
-    std::optional<UiFrame> frame_;
+    std::unique_ptr<UiFrame> frame_;
 };
 
-// The latest log lines, from every thread.
+// The first error logged since Start, from every thread: the Status tab's "Why:" when a start failed.
 class LogLines {
 public:
-    struct Line {
-        spdlog::level::level_enum level;
-        std::string text;
-    };
-
-    void add(const spdlog::level::level_enum level, const std::string& component, const std::string& message) {
-        if (level < spdlog::level::info) {
+    void add(const spdlog::level::level_enum level, const std::string& /*component*/, const std::string& message) {
+        if (level < spdlog::level::err) {
             return;
         }
-        char stamp[16];
-        const std::time_t now = std::time(nullptr);
-        std::tm local{};
-#if defined(_WIN32)
-        localtime_s(&local, &now);
-#else
-        localtime_r(&now, &local);
-#endif
-        std::strftime(stamp, sizeof(stamp), "%H:%M:%S", &local);
-        std::string text = std::string(stamp) + " " + component + ": " + message;
+        std::string text = message;
         std::replace(text.begin(), text.end(), '\n', ' ');
         const std::lock_guard lock(mutex_);
-        if (level >= spdlog::level::err && lastProblem_.empty()) {
-            lastProblem_ = message;   // the first error since Start: the cause; later ones are often consequences
+        if (lastProblem_.empty()) {
+            lastProblem_ = std::move(text);   // the first error since Start: the cause; later ones are often consequences
         }
-        lines_.push_back({level, std::move(text)});
-        while (lines_.size() > kLogLines) {
-            lines_.pop_front();
-        }
-    }
-
-    std::deque<Line> copy() {
-        const std::lock_guard lock(mutex_);
-        return lines_;
     }
 
     // The latest error message (what made a start fail), empty if none since clearProblem().
@@ -224,7 +257,6 @@ public:
 
 private:
     std::mutex mutex_;
-    std::deque<Line> lines_;
     std::string lastProblem_;
 };
 
@@ -254,24 +286,6 @@ std::string clock(const std::uint64_t seconds) {
     std::snprintf(text, sizeof(text), "%llu:%02llu:%02llu", static_cast<unsigned long long>(seconds / 3600),
                   static_cast<unsigned long long>(seconds / 60 % 60), static_cast<unsigned long long>(seconds % 60));
     return text;
-}
-
-// The parts of the devices line that are problems (written in capitals: "R3 NOT HIDDEN: ...", "NO XBOX PAD ..."),
-// so they are what fits in the toolbar.
-std::string problemsOf(const std::string& devices) {
-    std::string problems;
-    std::size_t start = 0;
-    while (start < devices.size()) {
-        std::size_t end = devices.find(", ", start);
-        if (end == std::string::npos) end = devices.size();
-        const std::string part = devices.substr(start, end - start);
-        if (part.find("NOT ") != std::string::npos || part.find("NO ") != std::string::npos ||
-            part.find("LOST") != std::string::npos) {
-            problems += (problems.empty() ? "" : ", ") + part;
-        }
-        start = end + 2;
-    }
-    return problems.empty() ? devices : problems;
 }
 
 std::string fit(std::string text, const std::size_t chars) {
@@ -322,13 +336,23 @@ private:
         logging::addListener([lines = lines_](const spdlog::level::level_enum level, const std::string& component,
                                               const std::string& message) { lines->add(level, component, message); });
         std::string error;
-        window_ = ui::openWindow("wheel-emulator", static_cast<int>(kWidth), static_cast<int>(kHeight), kWindowWidth,
+        window_ = ui::openWindow("WheelBri", static_cast<int>(kWidth), static_cast<int>(kHeight), kWindowWidth,
                                  kWindowHeight, error);
         if (window_ == nullptr) {
             WE_LOG_CRITICAL(log(), "cannot open the window: {}", error);
             return 1;
         }
         WE_LOG_INFO(log(), "app window open ({}); press Start", window_->describe());
+        picker_ = std::make_unique<ConfigPicker>(
+            *window_, ConfigPicker::Settings{settings_.builtInConfigFolder, settings_.userConfigFolder,
+                                             settings_.stateFile, settings_.configPath});
+        setup_ = std::make_unique<WheelSetupView>(
+            *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile});
+        // The first time (no rig yet) the devices are defined first; then the mapping is where to go.
+        idleTab_ = WheelSetupView::anyRig(rigsFolder()) ? IdleTab::Mapping : IdleTab::Setup;
+        mapping_ = std::make_unique<MappingEditView>(*window_, rigsFolder(), settings_.stateFile, *picker_);
+        const std::string savedXbox = readAppSetting(settings_.stateFile, "xbox_buttons");
+        xboxButtons_ = savedXbox == "true";   // experimental: off unless turned on
         // Logoff or shutdown: Windows ends the process right after this returns (about 5 s).
         window_->onEndSession([this] {
             if (!running()) return;
@@ -350,18 +374,64 @@ private:
                     stop();
                 }
             }
+            const bool setup = showingSetup();
+            const bool editingMapping = showingMappingEditor();
             for (const ui::Click& click : input.clicks) {
-                if (startButton().hit(click)) start();
-                if (stopButton().hit(click)) stop();
-                if (logsButton().hit(click)) openLogs();
-                // Below the toolbar: the live view's tabs and lines (in its own coordinates).
-                if (view_ != nullptr && click.y >= kViewTop) view_->onClick(click.x, click.y - kViewTop);
+                // The Mapping tab's controls (top right); not over the editor's popups.
+                if (showingMapping() && !(editingMapping && mapping_->popupOpen()) &&
+                    click.y < kControlsY + kControlsHeight && click.x >= kXboxX) {
+                    if (startButton().hit(click)) start();
+                    if (stopButton().hit(click)) stop();
+                    if (xboxToggle().hit(click)) toggleXboxButtons();
+                    continue;
+                }
+                // The panel, in its own coordinates; the tab bar at its bottom.
+                const float y = click.y - kViewTop;
+                if (y >= kTabBarTop) {
+                    if (view_ != nullptr) {
+                        view_->onClick(click.x, y);
+                    } else if (y >= kTabBarTop + 4 && y < kTabBarTop + 24) {
+                        if (click.x >= kMappingTabX && click.x < kMappingTabX + kTabWidth) idleTab_ = IdleTab::Mapping;
+                        if (click.x >= kStatusTabX && click.x < kStatusTabX + kTabWidth) idleTab_ = IdleTab::Status;
+                        if (click.x >= kSetupTabX && click.x < kSetupTabX + kTabWidth) idleTab_ = IdleTab::Setup;
+                    }
+                } else if (setup) {
+                    setup_->onClick(click.x, y);
+                } else if (editingMapping) {
+                    mapping_->onClick(click.x, y);
+                } else if (view_ != nullptr) {
+                    view_->onClick(click.x, y);
+                } else {
+                    picker_->onClick(click.x, y);
+                }
             }
-            for (const char key : input.keys) {
-                if (view_ != nullptr && key != ui::kEscape) view_->onKey(key);
+            const bool picker = view_ == nullptr && idleTab_ == IdleTab::Status;   // where the config is picked
+            if (editingMapping && mapping_->editingText()) {
+                mapping_->onText(input.text);   // the name of a copy of a built-in config
+                if (input.keys.find(ui::kEscape) != std::string::npos) mapping_->onKey(ui::kEscape);
+            } else if (setup && setup_->editingText()) {
+                setup_->onText(input.text);   // typing a name: letters are not shortcuts, Escape stops typing
+                if (input.keys.find(ui::kEscape) != std::string::npos) setup_->onKey(ui::kEscape);
+            } else if (picker && picker_->editingText()) {
+                picker_->onText(input.text);   // a new config's name
+                if (input.keys.find(ui::kEscape) != std::string::npos) picker_->onKey(ui::kEscape);
+            } else {
+                for (const char key : input.keys) {
+                    if (key == ui::kEscape) {
+                        if (setup) setup_->onKey(key);
+                        if (picker) picker_->onKey(key);
+                        if (editingMapping) mapping_->onKey(key);
+                    } else if (view_ != nullptr) {
+                        view_->onKey(key);
+                    } else if (key == 'w' || key == 's' || key == 'm') {
+                        idleTab_ = key == 'w' ? IdleTab::Setup : key == 'm' ? IdleTab::Mapping : IdleTab::Status;
+                    }
+                }
             }
             if (view_ != nullptr && input.wheel != 0) view_->onScroll(input.wheel);
             collectSession();
+            updateSetup();
+            if (showingMappingEditor()) mapping_->update();
             if (quit && !running()) {
                 break;
             }
@@ -378,11 +448,67 @@ private:
 
     [[nodiscard]] bool running() const { return session_.joinable(); }
 
-    Button startButton() const { return {4, 8, 90, 24, "Start", state_ == State::Stopped}; }
-    Button stopButton() const {
-        return {100, 8, 90, 24, "Stop", state_ == State::Starting || state_ == State::Running};
+    // The Mapping tab's "Xbox pad" toggle (top right, next to Start): whether Start adds the Xbox controller, which
+    // only makes the game show Xbox prompts (it never steers or drives). Only while stopped.
+    Button xboxToggle() const {
+        return {kXboxX, kControlsY, kXboxWidth, kControlsHeight, xboxButtons_ ? "Xbox pad (EX): ON" : "Xbox pad (EX): OFF",
+                state_ == State::Stopped};
     }
-    Button logsButton() const { return {196, 8, 104, 24, "Open logs", true}; }
+    void toggleXboxButtons() {
+        xboxButtons_ = !xboxButtons_;
+        writeAppSetting(settings_.stateFile, "xbox_buttons", xboxButtons_ ? "true" : "false");
+        WE_LOG_INFO(log(), "Xbox pad turned {} (from the next Start)", xboxButtons_ ? "on" : "off");
+    }
+
+    // Whether the Wheel setup tab shows: the live view's tab while a session runs, the idle page's otherwise.
+    [[nodiscard]] bool showingSetup() const {
+        return view_ != nullptr ? view_->tab() == MappingView::Tab::WheelSetup : idleTab_ == IdleTab::Setup;
+    }
+    // The Mapping tab's editor: on the idle page (no session shows; while running it is the live view).
+    [[nodiscard]] bool showingMappingEditor() const { return view_ == nullptr && idleTab_ == IdleTab::Mapping; }
+    // Either Mapping tab (the editor while stopped, the live view's while running): the only place with Start / Stop.
+    [[nodiscard]] bool showingMapping() const {
+        return view_ != nullptr ? view_->tab() == MappingView::Tab::Mapping : idleTab_ == IdleTab::Mapping;
+    }
+
+    // The tab reads the running session's wheel, or (stopped) the wheel picked in it; nothing while starting or
+    // stopping, when the session may be opening or closing the wheel.
+    void updateSetup() {
+        if (!showingSetup()) {
+            if (state_ == State::Stopped) setup_->releaseWheel();   // not kept open while nobody looks
+            return;
+        }
+        if (state_ == State::Stopped) {
+            setup_->update(nullptr);
+        } else if (info_) {
+            if (const auto frame = host_.latest(); frame && frame->ready) {
+                const auto wheel = sessionWheel(*info_, *frame);
+                setup_->update(&wheel);
+            }
+        }
+    }
+
+    // The idle page's tab bar: Status and Wheel setup (where the live view has its Wheel setup tab).
+    void drawIdleTabs() {
+        window_->fill(0, kTabBarTop, kWidth, 1, kPanel);
+        const std::tuple<float, const char*, IdleTab> tabs[] = {{kMappingTabX, "Mapping (M)", IdleTab::Mapping},
+                                                                {kStatusTabX, "Status (S)", IdleTab::Status},
+                                                                {kSetupTabX, "Wheel setup (W)", IdleTab::Setup}};
+        for (const auto& [x, label, tab] : tabs) {
+            const bool active = tab == idleTab_;
+            window_->fill(x, kTabBarTop + 4, kTabWidth, 20, active ? kHeading : kPanel);
+            const float labelWidth = static_cast<float>(std::string_view(label).size()) * ui::kCharWidth;
+            window_->text(x + (kTabWidth - labelWidth) / 2, kTabBarTop + 10, label, active ? kDark : kText);
+        }
+    }
+
+    Button startButton() const {
+        return {kStartX, kControlsY, kButtonWidth, kControlsHeight, "Start", state_ == State::Stopped};
+    }
+    Button stopButton() const {
+        return {kStopX, kControlsY, kButtonWidth, kControlsHeight, "Stop",
+                state_ == State::Starting || state_ == State::Running};
+    }
 
     void start() {
         if (running()) return;
@@ -395,11 +521,19 @@ private:
         lines_->clearProblem();
         state_ = State::Starting;
         startedAt_ = platform::nowNs();
-        WE_LOG_INFO(log(), "Start pressed: {}", settings_.mode);
-        session_ = std::thread([this] {
+        const std::string config = picker_->selected();
+        const bool xbox = xboxButtons_;
+        WE_LOG_INFO(log(), "Xbox pad: {}", xbox ? "on (added once the game uses the G920)" : "off");
+        if (mapping_->dirty()) {
+            WE_LOG_WARN(log(), "the Mapping tab has unsaved changes: Start uses the config as saved");
+        }
+        WE_LOG_INFO(log(), "Start pressed: {}; config {}", settings_.mode,
+                    config.empty() ? std::string("built-in defaults") : config);
+        setup_->releaseWheel();   // the session opens the wheel now
+        session_ = std::thread([this, config, xbox] {
             int result = 1;
             try {
-                result = settings_.runSession(host_);
+                result = settings_.runSession(host_, config, xbox);
             } catch (const std::exception& e) {
                 WE_LOG_CRITICAL(log(), "the service stopped on an error: {}", e.what());
             } catch (...) {
@@ -418,25 +552,12 @@ private:
         settings_.requestStop();
     }
 
-    void openLogs() {
-        // The running session's folder (the config may have changed since the app started); made if missing,
-        // since Explorer silently shows another folder for one that does not exist.
-        const std::filesystem::path folder = info_ ? info_->files.logFolder : settings_.logFolder;
-        std::error_code ec;
-        std::filesystem::create_directories(folder, ec);
-        std::string error;
-        if (ec) {
-            const std::u8string name = folder.u8string();
-            WE_LOG_WARN(log(), "cannot open the log folder {}: {}", std::string(name.begin(), name.end()), ec.message());
-        } else if (!window_->openFolder(folder, error)) {
-            WE_LOG_WARN(log(), "cannot open the log folder: {}", error);
-        }
-    }
-
     // A session that started showing itself, or one that ended.
     void collectSession() {
         if (const auto info = host_.newSession(seenGeneration_)) {
             info_ = info;
+            const std::optional<MappingView::Tab> previousTab =
+                view_ != nullptr ? std::optional(view_->tab()) : std::nullopt;
             view_.reset();   // before its profile goes
             profile_ = makeProfile(info->targetProfile);
             if (profile_ != nullptr) {
@@ -444,6 +565,9 @@ private:
                                                       info->mapper);
                 view_->setFiles(info->files);
                 view_->setDevices(info->devices, info->devicesWarning);
+                view_->setAccessories(info->accessories);
+                // Start: the logs, to see it come up; the wheel back after a loss: the tab that was showing.
+                view_->setTab(previousTab ? *previousTab : MappingView::Tab::Logs);
             }
             if (state_ == State::Starting) {   // not again when the session carries on after the wheel came back
                 state_ = State::Running;
@@ -457,6 +581,9 @@ private:
             lastRunStarted_ = everRan_;
             const bool wasStopping = state_ == State::Stopping;
             state_ = State::Stopped;
+            idleTab_ = showingSetup()                                     ? IdleTab::Setup
+                       : view_ != nullptr && view_->tab() == MappingView::Tab::Mapping ? IdleTab::Mapping
+                                                                                     : IdleTab::Status;
             view_.reset();
             info_.reset();
             if (lastResult_ == 0 || wasStopping) {
@@ -469,34 +596,38 @@ private:
 
     void drawWindow() {
         window_->begin(kBackground);
-        window_->setOrigin(0, 0);
-        drawToolbar();
         window_->setOrigin(0, kViewTop);
-        if (view_ != nullptr && info_) {
+        if (showingSetup()) {
+            setup_->draw();
+            if (view_ != nullptr) {
+                view_->drawTabBar();
+            } else {
+                drawIdleTabs();
+            }
+        } else if (showingMappingEditor()) {
+            mapping_->draw();
+            drawIdleTabs();
+        } else if (view_ != nullptr && info_) {
             if (const auto frame = host_.latest(); frame && frame->ready) {
                 draw(ffbDisplay(*info_, *frame), *view_, *frame);
             }
         } else {
             drawIdle();
+            drawIdleTabs();
         }
-        window_->setOrigin(0, 0);
-        drawLog();
+        if (showingMapping()) drawControls();
         window_->present();
     }
 
-    void drawToolbar() {
-        window_->fill(0, 0, kWidth, kToolbarHeight, kDark);
-        startButton().draw(*window_, false);
-        stopButton().draw(*window_, false);
-        logsButton().draw(*window_, false);
-
+    // The Mapping tab's controls, top right: the status, the Xbox pad toggle, Start, Stop. Nowhere else.
+    void drawControls() {
         std::string status;
         ui::Colour colour = kText;
         const std::uint64_t now = platform::nowNs();
         switch (state_) {
             case State::Stopped:
                 if (lastResult_ && *lastResult_ != 0) {
-                    status = "Stopped: the last start failed (see the log below)";
+                    status = "Start failed";   // the Status tab says why
                     colour = kWarning;
                 } else {
                     status = "Stopped";
@@ -504,33 +635,30 @@ private:
                 }
                 break;
             case State::Starting:
-                status = "Starting... " + clock((now - startedAt_) / platform::kNsPerSecond);
+                status = "Starting " + clock((now - startedAt_) / platform::kNsPerSecond);
                 colour = kCaution;
                 break;
             case State::Running:
                 status = "Running " + clock((now - runningSince_) / platform::kNsPerSecond);
                 colour = kActive;
                 if (const auto frame = host_.latest(); frame && frame->wheelLostMs > 0) {
-                    status = "WHEEL LOST " + clock(frame->wheelLostMs / 1000) + ": plug it in again";
+                    status = "WHEEL LOST " + clock(frame->wheelLostMs / 1000);
+                    colour = kWarning;
+                } else if (frame && frame->gameIgnoresWheel) {
+                    status = "GAME NOT USING WHEEL";
                     colour = kWarning;
                 }
                 break;
-            case State::Stopping: {
-                const std::uint64_t seconds = (now - stoppingSince_) / platform::kNsPerSecond;
-                // Long: something the session must not cut off (the hide installer changing the wheel's driver,
-                // Windows removing a device). The log below says what.
-                status = "Stopping... " + clock(seconds) + (seconds >= 10 ? " (finishing a step, see the log)" : "");
+            case State::Stopping:
+                status = "Stopping " + clock((now - stoppingSince_) / platform::kNsPerSecond);
                 colour = kCaution;
                 break;
-            }
         }
-        window_->text(312, 10, fit(status, 50), colour);
-        if (info_) {
-            // A missing piece (the R3 not hidden, no Xbox pad) in red; otherwise which wheel is read.
-            window_->text(312, 22, fit(info_->devicesWarning ? problemsOf(info_->devices) : info_->sourceName, 80),
-                          info_->devicesWarning ? kWarning : kDim);
-        }
-        window_->fill(0, kToolbarHeight - 1, kWidth, 1, kPanel);
+        status = fit(status, kStatusChars);
+        window_->text(kXboxX - 6 - static_cast<float>(status.size()) * ui::kCharWidth, kControlsY + 4, status, colour);
+        xboxToggle().draw(*window_, xboxButtons_);
+        startButton().draw(*window_, false);
+        stopButton().draw(*window_, false);
     }
 
     void drawIdle() {
@@ -558,8 +686,10 @@ private:
         } else {
             line("Opening the wheel and creating the virtual devices; this takes a few seconds.", kText);
         }
-        y += 10;
-        line("Config  " + settings_.configPath, kDim);
+        y += 14;
+        picker_->draw(16, y, state_ == State::Stopped);
+        y += ConfigPicker::kHeight;
+        line("Rigs    " + rigsFolder().string() + " (the Wheel setup tab's)", kDim);
         line("Logs    " + settings_.logFolder.string(), kDim);
         if (lastResult_) {
             y += 10;
@@ -572,20 +702,6 @@ private:
                     line("Why: " + problem, kText);
                 }
             }
-        }
-    }
-
-    void drawLog() {
-        window_->fill(0, kLogTop - 4, kWidth, 1, kPanel);
-        window_->text(4, kLogTop, "LOG", kHeading);
-        window_->text(40, kLogTop, "the latest lines; Open logs for everything", kDim);
-        float y = kLogTop + 12;
-        for (const LogLines::Line& entry : lines_->copy()) {
-            const ui::Colour colour = entry.level >= spdlog::level::err    ? kWarning
-                                      : entry.level == spdlog::level::warn ? kCaution
-                                                                           : kText;
-            window_->text(4, y, fit(entry.text, 89), colour);
-            y += kLogLineHeight;
         }
     }
 
@@ -607,11 +723,19 @@ private:
     std::optional<SessionInfo> info_;
     std::unique_ptr<IDeviceProfile> profile_;
     std::unique_ptr<MappingView> view_;
+    std::unique_ptr<WheelSetupView> setup_;
+    std::unique_ptr<ConfigPicker> picker_;
+    std::unique_ptr<MappingEditView> mapping_;
+    bool xboxButtons_ = false;
+    enum class IdleTab { Mapping, Status, Setup };
+    IdleTab idleTab_ = IdleTab::Status;   // what shows while no session does
 };
 
 }  // namespace
 
-std::unique_ptr<UiHost> makeSessionWindow() { return std::make_unique<SessionWindow>(); }
+std::unique_ptr<UiHost> makeSessionWindow(std::string configPath) {
+    return std::make_unique<SessionWindow>(std::move(configPath));
+}
 
 int runApp(const AppSettings& settings) {
     App app(settings);
