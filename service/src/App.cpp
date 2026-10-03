@@ -7,8 +7,8 @@
 #include "UiWindow.hpp"
 #include "WheelSetupView.hpp"
 
-#include "wheelemu/ConfigLibrary.hpp"
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/ConfigLibrary.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -19,7 +19,7 @@
 #include <tuple>
 #include <thread>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -40,7 +40,7 @@ constexpr ui::Colour kCaution{206, 164, 58};
 constexpr ui::Colour kDark{16, 18, 20};
 
 // Window layout, in logical pixels: the panel (the tabs) fills the window. Only the Mapping tab has the controls, in
-// its top right corner: the status, the Xbox pad toggle, Start and Stop.
+// its top right corner: the status, Start and Stop.
 constexpr float kWidth = MappingView::kWidth;
 constexpr float kViewTop = 0;
 constexpr float kHeight = MappingView::kHeight;
@@ -49,8 +49,6 @@ constexpr float kControlsHeight = 16;
 constexpr float kButtonWidth = 68;
 constexpr float kStopX = kWidth - 4 - kButtonWidth;
 constexpr float kStartX = kStopX - 4 - kButtonWidth;
-constexpr float kXboxWidth = 152;
-constexpr float kXboxX = kStartX - 4 - kXboxWidth;
 constexpr std::size_t kStatusChars = 20;   // between the tab's title and the toggle
 constexpr int kWindowWidth = static_cast<int>(kWidth * 1.3F);  // 1.3x the canvas at 100 % (smaller to fit the screen)
 constexpr int kWindowHeight = static_cast<int>(kHeight * 1.3F);
@@ -351,8 +349,6 @@ private:
         // The first time (no rig yet) the devices are defined first; then the mapping is where to go.
         idleTab_ = WheelSetupView::anyRig(rigsFolder()) ? IdleTab::Mapping : IdleTab::Setup;
         mapping_ = std::make_unique<MappingEditView>(*window_, rigsFolder(), settings_.stateFile, *picker_);
-        const std::string savedXbox = readAppSetting(settings_.stateFile, "xbox_buttons");
-        xboxButtons_ = savedXbox == "true";   // experimental: off unless turned on
         // Logoff or shutdown: Windows ends the process right after this returns (about 5 s).
         window_->onEndSession([this] {
             if (!running()) return;
@@ -379,10 +375,9 @@ private:
             for (const ui::Click& click : input.clicks) {
                 // The Mapping tab's controls (top right); not over the editor's popups.
                 if (showingMapping() && !(editingMapping && mapping_->popupOpen()) &&
-                    click.y < kControlsY + kControlsHeight && click.x >= kXboxX) {
+                    click.y < kControlsY + kControlsHeight && click.x >= kStartX) {
                     if (startButton().hit(click)) start();
                     if (stopButton().hit(click)) stop();
-                    if (xboxToggle().hit(click)) toggleXboxButtons();
                     continue;
                 }
                 // The panel, in its own coordinates; the tab bar at its bottom.
@@ -448,18 +443,6 @@ private:
 
     [[nodiscard]] bool running() const { return session_.joinable(); }
 
-    // The Mapping tab's "Xbox pad" toggle (top right, next to Start): whether Start adds the Xbox controller, which
-    // only makes the game show Xbox prompts (it never steers or drives). Only while stopped.
-    Button xboxToggle() const {
-        return {kXboxX, kControlsY, kXboxWidth, kControlsHeight, xboxButtons_ ? "Xbox pad (EX): ON" : "Xbox pad (EX): OFF",
-                state_ == State::Stopped};
-    }
-    void toggleXboxButtons() {
-        xboxButtons_ = !xboxButtons_;
-        writeAppSetting(settings_.stateFile, "xbox_buttons", xboxButtons_ ? "true" : "false");
-        WE_LOG_INFO(log(), "Xbox pad turned {} (from the next Start)", xboxButtons_ ? "on" : "off");
-    }
-
     // Whether the Wheel setup tab shows: the live view's tab while a session runs, the idle page's otherwise.
     [[nodiscard]] bool showingSetup() const {
         return view_ != nullptr ? view_->tab() == MappingView::Tab::WheelSetup : idleTab_ == IdleTab::Setup;
@@ -522,18 +505,16 @@ private:
         state_ = State::Starting;
         startedAt_ = platform::nowNs();
         const std::string config = picker_->selected();
-        const bool xbox = xboxButtons_;
-        WE_LOG_INFO(log(), "Xbox pad: {}", xbox ? "on (added once the game uses the G920)" : "off");
         if (mapping_->dirty()) {
             WE_LOG_WARN(log(), "the Mapping tab has unsaved changes: Start uses the config as saved");
         }
         WE_LOG_INFO(log(), "Start pressed: {}; config {}", settings_.mode,
                     config.empty() ? std::string("built-in defaults") : config);
         setup_->releaseWheel();   // the session opens the wheel now
-        session_ = std::thread([this, config, xbox] {
+        session_ = std::thread([this, config] {
             int result = 1;
             try {
-                result = settings_.runSession(host_, config, xbox);
+                result = settings_.runSession(host_, config);
             } catch (const std::exception& e) {
                 WE_LOG_CRITICAL(log(), "the service stopped on an error: {}", e.what());
             } catch (...) {
@@ -619,7 +600,7 @@ private:
         window_->present();
     }
 
-    // The Mapping tab's controls, top right: the status, the Xbox pad toggle, Start, Stop. Nowhere else.
+    // The Mapping tab's controls, top right: the status, Start, Stop. Nowhere else.
     void drawControls() {
         std::string status;
         ui::Colour colour = kText;
@@ -655,8 +636,7 @@ private:
                 break;
         }
         status = fit(status, kStatusChars);
-        window_->text(kXboxX - 6 - static_cast<float>(status.size()) * ui::kCharWidth, kControlsY + 4, status, colour);
-        xboxToggle().draw(*window_, xboxButtons_);
+        window_->text(kStartX - 6 - static_cast<float>(status.size()) * ui::kCharWidth, kControlsY + 4, status, colour);
         startButton().draw(*window_, false);
         stopButton().draw(*window_, false);
     }
@@ -726,7 +706,6 @@ private:
     std::unique_ptr<WheelSetupView> setup_;
     std::unique_ptr<ConfigPicker> picker_;
     std::unique_ptr<MappingEditView> mapping_;
-    bool xboxButtons_ = false;
     enum class IdleTab { Mapping, Status, Setup };
     IdleTab idleTab_ = IdleTab::Status;   // what shows while no session does
 };
@@ -742,4 +721,4 @@ int runApp(const AppSettings& settings) {
     return app.run();
 }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

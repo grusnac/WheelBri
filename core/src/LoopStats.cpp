@@ -1,8 +1,8 @@
-#include "wheelemu/LoopStats.hpp"
+#include "wheelbri/LoopStats.hpp"
 
 #include <algorithm>
 
-namespace wheelemu {
+namespace wheelbri {
 
 bool LoopStats::record(const std::uint64_t periodNs, const std::uint64_t workNs) {
     ++ticks_;
@@ -39,4 +39,4 @@ void LoopStats::reset() {
     maxWorkNs_ = 0;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

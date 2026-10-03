@@ -1,0 +1,2 @@
+# cmd misreads batch files with LF line ends
+*.cmd text eol=crlf

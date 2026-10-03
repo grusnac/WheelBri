@@ -1,6 +1,6 @@
-#include "wheelemu/UdpLoopback.hpp"
+#include "wheelbri/UdpLoopback.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <system_error>
 #include <utility>
@@ -18,7 +18,7 @@
 #include <unistd.h>
 #endif
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -343,4 +343,4 @@ std::optional<StatePacket> UdpLoopbackReceiver::pollLatest() {
     return latest;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

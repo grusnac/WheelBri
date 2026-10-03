@@ -1,9 +1,9 @@
-#include "wheelemu/DiEffect.hpp"
+#include "wheelbri/DiEffect.hpp"
 
 #include <algorithm>
 #include <cmath>
 
-namespace wheelemu::di {
+namespace wheelbri::di {
 
 namespace {
 
@@ -71,4 +71,4 @@ FfbEffect periodic(const FfbEffectType type, const std::uint32_t magnitude, cons
     return effect;
 }
 
-}  // namespace wheelemu::di
+}  // namespace wheelbri::di

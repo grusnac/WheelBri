@@ -1,14 +1,14 @@
-#include "wheelemu/TestClutch.hpp"
+#include "wheelbri/TestClutch.hpp"
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cstdint>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
-// 25 % pressed, byte for byte as tools/vbridge's ClutchProbe sends it (SelfTest checks the same bytes).
+// 25 % pressed, byte for byte as the old ClutchProbe sent it.
 constexpr std::array<std::uint8_t, 12> kQuarter = {0x57, 0x45, 0x43, 0x4C, 0x01, 0x00, 0x00, 0x00, 0xC4, 0x09, 0x00, 0x00};
 
 TEST(ClutchPacket, DecodesTheBridgeToolsBytes) {
@@ -41,4 +41,4 @@ TEST(TestClutch, CountsFor1500MsAfterTheLastPacket) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

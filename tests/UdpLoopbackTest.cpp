@@ -1,4 +1,4 @@
-#include "wheelemu/UdpLoopback.hpp"
+#include "wheelbri/UdpLoopback.hpp"
 
 #include <gtest/gtest.h>
 
@@ -7,7 +7,7 @@
 #include <thread>
 #include <vector>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 constexpr std::uint16_t kTestPort = 41999;
@@ -82,4 +82,4 @@ TEST(UdpLoopback, RawDatagramsArriveInOrder) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

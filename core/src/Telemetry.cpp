@@ -1,6 +1,6 @@
-#include "wheelemu/Telemetry.hpp"
+#include "wheelbri/Telemetry.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -11,7 +11,7 @@
 #include <ctime>
 #include <system_error>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -187,7 +187,7 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
         const std::filesystem::path* path;
         std::string intro;
     };
-    const std::string intro = "# wheelemu telemetry format " + std::string(kFormatVersion) + ", day " + day + "\n";
+    const std::string intro = "# wheelbri telemetry format " + std::string(kFormatVersion) + ", day " + day + "\n";
     const Target targets[] = {
         {&samples_, &samplesPath_,
          intro +
@@ -476,4 +476,4 @@ void TelemetryRecorder::noteMalformedFfb(const std::uint64_t nowNs, const std::s
     write(ffbEvents_, line_);
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

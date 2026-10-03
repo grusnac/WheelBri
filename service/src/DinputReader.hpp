@@ -1,11 +1,11 @@
 #pragma once
 
-#include "wheelemu/WheelState.hpp"
+#include "wheelbri/WheelState.hpp"
 
 #include <memory>
 #include <string>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 // Reads a wheel through DirectInput (Windows only): the device state directly, in microseconds, never
 // re-scanning devices (SDL's joystick update did, for 130-300 ms whenever any device came or went).
@@ -36,4 +36,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

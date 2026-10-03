@@ -3,7 +3,7 @@
 
 #include <utility>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace {
 
@@ -147,4 +147,4 @@ HRESULT ProxyEffect::Escape(LPDIEFFESCAPE escape) {
     });
 }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

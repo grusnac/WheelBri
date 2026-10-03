@@ -1,11 +1,11 @@
-#include "wheelemu/DeviceProfile.hpp"
+#include "wheelbri/DeviceProfile.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <utility>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -103,4 +103,4 @@ std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     return nullptr;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

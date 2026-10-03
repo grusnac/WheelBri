@@ -6,37 +6,41 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-add_executable(wheelemu_tests
+add_executable(wheelbri_tests
+    ConfigLibraryTest.cpp
+    DeviceLabelsTest.cpp
     DeviceProfileTest.cpp
     EmulatedJoystickTest.cpp
     EmulatorConfigTest.cpp
     FfbForwardingTest.cpp
     FfbSafetyLimiterTest.cpp
     FfbUsageTest.cpp
+    GameUseWatchTest.cpp
     HidHideCliTest.cpp
     HidPidTest.cpp
-    HidXbox360Test.cpp
     IniDocumentTest.cpp
+    IniEditorTest.cpp
     LiveLogTest.cpp
     LoggingTest.cpp
     LoopStatsTest.cpp
     MapperTest.cpp
+    MappingEditTest.cpp
     PipelineTest.cpp
     RetentionTest.cpp
+    RigTest.cpp
     StatePacketTest.cpp
     TelemetryTest.cpp
     TestClutchTest.cpp
     UdpLoopbackTest.cpp
     WheelOutputTest.cpp
-    XboxPadTest.cpp
 )
-target_link_libraries(wheelemu_tests PRIVATE wheelemu_core GTest::gtest_main)
+target_link_libraries(wheelbri_tests PRIVATE wheelbri_core GTest::gtest_main)
 
 # The Linux virtual G920's uhid protocol (tools/uhid), tested without /dev/uhid.
 if(WE_LINUX)
-    target_sources(wheelemu_tests PRIVATE UhidG920Test.cpp ${PROJECT_SOURCE_DIR}/tools/uhid/UhidG920.cpp)
-    target_include_directories(wheelemu_tests PRIVATE ${PROJECT_SOURCE_DIR}/tools/uhid)
+    target_sources(wheelbri_tests PRIVATE UhidG920Test.cpp ${PROJECT_SOURCE_DIR}/tools/uhid/UhidG920.cpp)
+    target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/tools/uhid)
 endif()
 
 include(GoogleTest)
-gtest_discover_tests(wheelemu_tests)
+gtest_discover_tests(wheelbri_tests)

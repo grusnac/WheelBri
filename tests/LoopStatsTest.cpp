@@ -1,8 +1,8 @@
-#include "wheelemu/LoopStats.hpp"
+#include "wheelbri/LoopStats.hpp"
 
 #include <gtest/gtest.h>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 TEST(LoopStats, AveragesMaximaAndOverruns) {
@@ -32,4 +32,4 @@ TEST(LoopStats, ResetStartsANewWindow) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

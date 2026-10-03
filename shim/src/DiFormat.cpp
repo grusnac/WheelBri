@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <iterator>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace {
 
@@ -367,4 +367,4 @@ std::string describeEffect(const GUID& effectType, LPCDIEFFECT effect, const DWO
     return out;
 }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

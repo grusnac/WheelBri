@@ -11,7 +11,6 @@
 #include "ServiceLogging.hpp"
 #include "SessionUi.hpp"
 #include "VirtualG920.hpp"
-#include "VirtualXboxPad.hpp"
 #include "Wheel.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
@@ -27,8 +26,6 @@
 #include "wheelbri/UdpLoopback.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/Rig.hpp"
-#include "wheelbri/HidXbox360.hpp"
-#include "wheelbri/XboxPad.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -75,7 +72,7 @@ void requestStop() { gStop = true; }
 bool sessionActive() { return gSessionActive; }
 
 // runLoop's result when the physical wheel stopped answering (unplugged, USB reset): runSession waits for it to
-// come back and carries on, keeping the virtual G920 and Xbox controller (games keep their controller).
+// come back and carries on, keeping the virtual G920 (games keep their controller).
 constexpr int kWheelLost = 3;
 
 const Logger& log() {
@@ -96,7 +93,6 @@ struct Options {
     bool unhide = false;                        // --unhide: make the real wheel visible again and exit
     bool app = false;                           // --app: the window with Start / Stop (always in wheelbri.exe)
     bool noVirtualG920 = false;                 // --no-virtual-g920: the app without its virtual G920
-    wheelbri::XboxPadMode xboxPad = wheelbri::XboxPadMode::Buttons;   // --xbox-pad: with --virtual-g920
 };
 
 // The wheel's USB vendor id: [emulator] source_device when it is one ("346e"), else Moza's.
@@ -179,8 +175,9 @@ void ensureHideFilter(const std::string& vendor, wheelbri::service::WheelBackend
     if (gStop) return;
     if (!exit || *exit != 0) {
         const char* why = !exit ? "took longer than 2 minutes (left to finish by itself)"
-                          : *exit == 2 ? "installed the filter, but it is not on the wheel yet: unplug the wheel and "
-                                         "plug it in again (or restart Windows)"
+                          : *exit == 2 ? "installed the filter, but it is not running on the wheel yet: restart "
+                                         "Windows (when Windows is not waiting for a restart, unplugging the wheel "
+                                         "and plugging it in again is enough; the installer's log says which)"
                                        : "failed";
         WE_LOG_ERROR(log(), "hide: the installer {}{} (its log: C:\\ProgramData\\wheelbri\\logs\\wheelbri-hide-install-"
                             "<date>.log; or run {} yourself as Administrator)",
@@ -317,7 +314,7 @@ bool allConnected(wheelbri::service::WheelBackend& backend, const wheelbri::Emul
     return true;
 }
 
-// --stop-file: another program (scripts/wheelbri.sh) asks the service to stop by creating this file; the
+// --stop-file: another program (scripts/linux/wheelbri.sh) asks the service to stop by creating this file; the
 // same clean stop as Ctrl+C or closing the window (force feedback off, logs closed).
 std::filesystem::path gStopFile;
 
@@ -336,7 +333,7 @@ bool stopRequested() {
 void printUsage() {
     std::puts(
         "usage: wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
-        "                        [--stop-file FILE] [--virtual-g920 [--no-hide] [--xbox-pad MODE]] [--unhide]\n"
+        "                        [--stop-file FILE] [--virtual-g920 [--no-hide]] [--unhide]\n"
         "  --config FILE  INI configuration (see config/moza-r3-as-g920.ini)\n"
         "  --list         list joysticks and exit\n"
         "  --print        show live raw and mapped values\n"
@@ -344,13 +341,9 @@ void printUsage() {
         "  --ffb-test     play a short, gentle force feedback sequence on the wheel and exit\n"
         "  --stop-file FILE  stop cleanly when FILE appears (it is deleted then; also at start)\n"
         "  --virtual-g920 while running, a virtual G920 for every game through wheelbri's own driver\n"
-        "                 (driver\\install-driver.ps1 once; Administrator; not with the shim or the bridge);\n"
+        "                 (driver\\install-driver.ps1 once; Administrator; not with the shim);\n"
         "                 the real wheel is hidden from games meanwhile by wheelbri's own filter\n"
         "                 (driver\\hide\\install-hide.ps1 once), unless --no-hide\n"
-        "  --xbox-pad buttons|idle|off\n"
-        "                 with --virtual-g920: a virtual Xbox 360 controller too, so games show Xbox button\n"
-        "                 prompts (driver\\xusb\\install-xusb.ps1 once). buttons (default): the wheel's A/B/X/Y/\n"
-        "                 Menu/View/D-pad press it in menus; idle: there, never pressed; off: none\n"
         "  --unhide       after a crash: make the real wheel visible to games again and exit\n"
         "  --app          a window with Start / Stop instead of running at once (what wheelbri.exe\n"
         "                 does); on Windows it starts with --virtual-g920 unless --no-virtual-g920\n"
@@ -376,13 +369,6 @@ bool parseOptions(const int argc, char** argv, Options& options) {
             options.ffbTest = true;
         } else if (arg == "--virtual-g920") {
             options.virtualG920 = true;
-        } else if (arg == "--xbox-pad" && i + 1 < argc) {
-            const auto mode = wheelbri::parseXboxPadMode(argv[++i]);
-            if (!mode) {
-                std::fprintf(stderr, "--xbox-pad %s: expected buttons, idle or off\n", argv[i]);
-                return false;
-            }
-            options.xboxPad = *mode;
         } else if (arg == "--app") {
             options.app = true;
         } else if (arg == "--no-virtual-g920") {
@@ -746,84 +732,6 @@ wheelbri::service::TelemetryFiles telemetryFiles(const wheelbri::TelemetryRecord
     return files;
 }
 
-// Between the pipeline and the state publisher while the virtual Xbox controller runs: every published wheel state
-// goes through XboxMirror (core/XboxPad.hpp), the G920 gets its version (D-pad and steering possibly held back in
-// menus) and the Xbox controller's driver gets the pad (UDP kXusbPort; at least every 100 ms, so it knows the
-// service is there). Runs on the loop's thread.
-// The Xbox controller, created only once the game has taken the G920 (its first force feedback). A game that finds an
-// XInput pad when it starts may drive from it instead of the wheel: NFS did (2026-10-03: no force feedback to the
-// G920, steering and pedals ignored, the pad's still sticks and triggers used), and drove fine without the pad. Made
-// after the game has the wheel, the pad only keeps the game's icons Xbox (XboxMirror: a tiny nudge, never a press).
-struct DeferredXboxPad {
-    wheelbri::XboxPadMode mode = wheelbri::XboxPadMode::Off;
-    std::unique_ptr<wheelbri::service::VirtualXboxPad> device;
-    bool failed = false;                // creating it failed: not tried again this session
-    std::atomic<bool> active{false};    // the pad exists: XboxPadPublisher passes buttons on
-};
-
-class XboxPadPublisher final : public wheelbri::IStatePublisher {
-public:
-    // Until `active` turns true (the pad exists) it passes the wheel through untouched.
-    XboxPadPublisher(wheelbri::IStatePublisher& inner, const wheelbri::XboxPadMode mode, const std::atomic<bool>& active)
-        : inner_(inner),
-          active_(active),
-          mirror_(mode),
-          sender_(wheelbri::UdpLoopbackSender::create(wheelbri::kXusbPort)),
-          hidSender_(wheelbri::UdpLoopbackSender::create(wheelbri::kXboxHidPort)) {}
-
-    bool publish(const wheelbri::StatePacket& packet) override {
-        if (!active_.load(std::memory_order_relaxed)) {
-            return inner_.publish(packet);   // no pad yet: the G920 gets everything
-        }
-        const auto now = static_cast<std::int64_t>(platform::nowMs());
-        const auto result = mirror_.update(packet.report, now);
-        if (result.nudged != wheelbri::XboxMirror::Cause::None) {
-            static constexpr const char* kCauses[] = {"", "a button", "the D-pad", "a pedal"};
-            const char* const cause = kCauses[static_cast<int>(result.nudged)];
-            if (mirror_.nudges() == 1) {
-                WE_LOG_INFO(log(), "xbox (experimental): first icon nudge (after {}): the pad's right stick moved by "
-                                   "{} of 32767 for {} ms, so the game shows Xbox icons; the G920 got the input",
-                            cause, wheelbri::XboxMirror::kNudge, wheelbri::XboxMirror::kNudgeMs);
-            } else {
-                WE_LOG_DEBUG(log(), "xbox: icon nudge #{} after {}", mirror_.nudges(), cause);
-            }
-            ++nudgesSinceLog_;
-        }
-        if (now - nudgeLogMs_ >= 60'000) {   // the count once a minute, when there were any
-            if (nudgesSinceLog_ > 0) {
-                WE_LOG_INFO(log(), "xbox: {} icon nudges in the last minute ({} in all)", nudgesSinceLog_,
-                            mirror_.nudges());
-            }
-            nudgesSinceLog_ = 0;
-            nudgeLogMs_ = now;
-        }
-        if (sender_ != nullptr && (result.pad != lastPad_ || now - lastSentMs_ >= 100)) {
-            const auto bytes = wheelbri::encodeXusbPacket(result.pad);
-            sender_->send(bytes);
-            // The HID side (joy.cpl) is only there to be listed: it never presses anything. DirectInput games
-            // would read it as one more controller and act on its buttons too.
-            if (hidSender_ != nullptr) hidSender_->send(wheelbri::encodeXusbPacket(wheelbri::XusbPad{}));
-            lastPad_ = result.pad;
-            lastSentMs_ = now;
-        }
-        wheelbri::StatePacket out = packet;
-        out.report = result.g920;
-        return inner_.publish(out);
-    }
-
-
-private:
-    wheelbri::IStatePublisher& inner_;
-    const std::atomic<bool>& active_;
-    wheelbri::XboxMirror mirror_;
-    std::unique_ptr<wheelbri::UdpLoopbackSender> sender_;
-    std::unique_ptr<wheelbri::UdpLoopbackSender> hidSender_;
-    wheelbri::XusbPad lastPad_;
-    std::uint64_t nudgesSinceLog_ = 0;
-    std::int64_t nudgeLogMs_ = 0;
-    std::int64_t lastSentMs_ = 0;
-};
-
 // What the window says about the virtual devices (--virtual-g920), see SessionInfo::devices.
 struct DeviceSummary {
     std::string text;
@@ -833,7 +741,7 @@ struct DeviceSummary {
 int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
             const std::filesystem::path& logFolder, const bool logToFile, wheelbri::service::Wheel& source,
             const Accessories& accessories, const bool print, wheelbri::service::UiHost* const host,
-            DeferredXboxPad* const xboxPad, const DeviceSummary& devices, std::optional<UiFrame>& lastFrame) {
+            const DeviceSummary& devices, std::optional<UiFrame>& lastFrame) {
     const auto profile = wheelbri::makeProfile(config.targetProfile);
     if (profile == nullptr) {
         WE_LOG_CRITICAL(log(), "unknown target_profile '{}' (known: {})", config.targetProfile,
@@ -847,21 +755,13 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     }
 
     const wheelbri::Mapper mapper(config.mapper);
-    std::unique_ptr<XboxPadPublisher> xboxPublisher;
-    if (xboxPad != nullptr && xboxPad->mode != wheelbri::XboxPadMode::Off) {
-        xboxPublisher = std::make_unique<XboxPadPublisher>(*publisher, xboxPad->mode, xboxPad->active);
-    }
-    // Set on the loop's thread when the game's first force feedback arrives: the window's thread then makes the pad.
-    std::atomic<bool> gameTookWheel{false};
-    wheelbri::Pipeline pipeline(source, mapper, *profile,
-                                xboxPublisher != nullptr ? static_cast<wheelbri::IStatePublisher&>(*xboxPublisher)
-                                                         : *publisher);
+    wheelbri::Pipeline pipeline(source, mapper, *profile, *publisher);
     pipeline.setAccessories(accessories.sources());
 
-    // Test clutch (tools/vbridge/ClutchProbe) while no clutch pedal is connected.
+    // Test clutch while no clutch pedal is connected: ClutchPackets on kTestClutchPort (TestClutch.hpp).
     const auto clutchListener = wheelbri::UdpLoopbackListener::create(wheelbri::kTestClutchPort);
     if (clutchListener != nullptr) {
-        WE_LOG_INFO(log(), "test clutch: listening on 127.0.0.1:{} (ClutchProbe)", wheelbri::kTestClutchPort);
+        WE_LOG_INFO(log(), "test clutch: listening on 127.0.0.1:{}", wheelbri::kTestClutchPort);
     }
     wheelbri::TestClutch testClutch;
     // Pedals pressed but the game never plays force feedback on the G920: it drives from another controller.
@@ -954,7 +854,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                 if (clutchOverride.has_value() != testClutchOn) {
                     testClutchOn = clutchOverride.has_value();
                     WE_LOG_INFO(log(), testClutchOn
-                                           ? "test clutch: controlled by ClutchProbe, the mapped clutch is ignored"
+                                           ? "test clutch: controlled by ClutchPackets, the mapped clutch is ignored"
                                            : "test clutch: ended, the mapped clutch is used again");
                 }
             }
@@ -977,14 +877,11 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                 const wheelbri::WheelState& state = pipeline.lastState();
                 const bool pedal = state.throttle > 0.1F || state.brake > 0.1F;
                 const std::uint64_t packets = gameFfb->controller().stats().packets;
-                if (packets > 0 && !gameTookWheel.load(std::memory_order_relaxed)) {
-                    gameTookWheel = true;
-                }
                 if (const auto change = gameUse.update(platform::nowMs(), pedal, packets)) {
                     if (*change) {
                         WE_LOG_WARN(log(), "the game is NOT USING the {}: pedals pressed for {} s and it has never "
-                                           "played force feedback on it, so it drives from another controller (the "
-                                           "Xbox pad, whose triggers never move, or the keyboard). Close the game "
+                                           "played force feedback on it, so it drives from another controller (a "
+                                           "gamepad or the keyboard). Close the game "
                                            "with WheelBri running, start it again and pick the wheel in its controls "
                                            "settings",
                                     profile->identity().shortName, wheelbri::GameUseWatch::kPedalMs / 1000);
@@ -1124,23 +1021,6 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                     gStop = true;
                 }
                 housekeeping.pump();
-                if (xboxPad != nullptr && xboxPad->mode != wheelbri::XboxPadMode::Off && xboxPad->device == nullptr &&
-                    !xboxPad->failed && gameTookWheel) {
-                    // Takes a fraction of a second (the window waits; the wheel's loop does not).
-                    std::string error;
-                    xboxPad->device = wheelbri::service::VirtualXboxPad::create(error, [] { return gStop.load(); });
-                    if (xboxPad->device == nullptr) {
-                        xboxPad->failed = true;
-                        if (!gStop) WE_LOG_WARN(log(), "no Xbox controller (games show keyboard prompts): {}", error);
-                    } else {
-                        xboxPad->active = true;
-                        WE_LOG_INFO(log(), "Xbox controller added now that the game uses the G920: {}",
-                                    xboxPad->mode == wheelbri::XboxPadMode::Buttons
-                                        ? "it only keeps the game's icons Xbox (a tiny stick nudge after each wheel input); "
-                                          "every button, pedal and the steering go to the G920"
-                                        : "idle (there, never pressed)");
-                    }
-                }
                 if (nextMidnight && wheelbri::WallClock::now() >= *nextMidnight) {
                     const auto wall = wheelbri::WallClock::now();
                     WE_LOG_INFO(log(), "new day {}: new log and telemetry files, checking old ones",
@@ -1346,14 +1226,6 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             hideFilter.reset();
         }
     }
-    // The Xbox controller (driver/xusb), for games' Xbox button prompts: made once the game has taken the G920
-    // (DeferredXboxPad). Without its driver the G920 still works.
-    DeferredXboxPad xboxPad;
-    if (g920 != nullptr && options.xboxPad != wheelbri::XboxPadMode::Off) {
-        xboxPad.mode = options.xboxPad;
-        WE_LOG_INFO(log(), "Xbox controller: added once the game uses the G920 (its first force feedback), so the game "
-                           "drives from the wheel; the pad only keeps its icons Xbox");
-    }
     // One line for the window: what games will see besides the G920, and what is missing.
     DeviceSummary devices;
     if (g920 != nullptr) {
@@ -1366,11 +1238,6 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         } else {
             devices.text += ", R3 left visible (--no-hide)";
         }
-        if (xboxPad.mode != wheelbri::XboxPadMode::Off) {
-            devices.text += ", Xbox pad once the game uses the G920";
-        } else {
-            devices.text += ", no Xbox pad (--xbox-pad off)";
-        }
     }
     int result = 0;
     std::optional<UiFrame> lastFrame;
@@ -1379,7 +1246,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     while (!gStop) {
         sessionStartMs = platform::nowMs();
         result = runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, accessories,
-                         options.print, host, &xboxPad, devices, lastFrame);
+                         options.print, host, devices, lastFrame);
         if (result != kWheelLost || gStop) {
             break;
         }
@@ -1438,8 +1305,6 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     if (hideFilter != nullptr) {
         hideFilter->restore();
     }
-    xboxPad.active = false;
-    xboxPad.device.reset();
     if (g920 != nullptr) {
         WE_LOG_INFO(log(), "removing the virtual G920 {}", g920->instanceId());
         g920.reset();
@@ -1512,19 +1377,13 @@ int runAppMode(Options options, const bool consoleLogging) {
     settings.stateFile = wheelbri::service::appStateFile();
     settings.mode = options.virtualG920
                         ? std::string("creates the virtual G920") +
-                              (options.xboxPad != wheelbri::XboxPadMode::Off ? " and Xbox controller" : "") +
                               (options.hide ? " and hides the real wheel from games" : "")
                         : std::string("sends it to the in-game shim (dinput8.dll)");
     settings.logFolder = logFolderOf(loaded.config);
     settings.devicesFolder = wheelbri::service::deviceLabelsFolder();
-    settings.runSession = [options, logFileOk](wheelbri::service::UiHost& host, const std::string& configPath,
-                                               const bool xboxButtons) {
+    settings.runSession = [options, logFileOk](wheelbri::service::UiHost& host, const std::string& configPath) {
         Options run = options;
         run.configPath = configPath;   // the config picked in the app
-        // The Mapping tab's toggle: --xbox-pad idle stays idle when on.
-        run.xboxPad = !xboxButtons                                     ? wheelbri::XboxPadMode::Off
-                      : options.xboxPad == wheelbri::XboxPadMode::Off ? wheelbri::XboxPadMode::Buttons
-                                                                      : options.xboxPad;
         const LoadedConfig fresh = loadForRun(run);
         return runSession(run, fresh, logFileOk, &host);
     };

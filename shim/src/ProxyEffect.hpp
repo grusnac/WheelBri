@@ -6,7 +6,7 @@
 #include <atomic>
 #include <string>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 // Logs every force feedback call the game makes on one effect, then forwards it unchanged.
 class ProxyEffect final : public IDirectInputEffect {
@@ -42,4 +42,4 @@ private:
     logging::CallSampler statusSampler_{5, 1000};
 };
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

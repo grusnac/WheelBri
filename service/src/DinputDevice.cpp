@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cwctype>
 
-namespace wheelemu::service::dinput {
+namespace wheelbri::service::dinput {
 
 namespace {
 
@@ -74,4 +74,4 @@ HWND createHelperWindow(const wchar_t* title) {
                            nullptr);
 }
 
-}  // namespace wheelemu::service::dinput
+}  // namespace wheelbri::service::dinput

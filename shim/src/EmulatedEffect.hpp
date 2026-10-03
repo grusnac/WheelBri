@@ -3,7 +3,7 @@
 #include "DiFormat.hpp"
 #include "ShimLogging.hpp"
 
-#include "wheelemu/Ffb.hpp"
+#include "wheelbri/Ffb.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -12,11 +12,11 @@
 #include <string>
 #include <vector>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 // Phase 3: a DirectInput effect of the emulated wheel. It keeps the parameters the game set (so
 // GetParameters answers truthfully), turns them into an FfbEffect and hands that to FfbForwarder,
-// which sends it to wheelemu-service. Nothing is played on the physical device from inside the game.
+// which sends it to wheelbri-service. Nothing is played on the physical device from inside the game.
 class EmulatedEffect final : public IDirectInputEffect {
 public:
     // The FfbEffectType for a DirectInput effect GUID, or nullopt if the type is not supported.
@@ -86,4 +86,4 @@ private:
     bool warnedEnvelope_ = false;
 };
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

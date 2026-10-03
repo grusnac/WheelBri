@@ -1,12 +1,12 @@
-#include "wheelemu/DeviceMatch.hpp"
-#include "wheelemu/EvdevLayout.hpp"
-#include "wheelemu/WheelOutput.hpp"
+#include "wheelbri/DeviceMatch.hpp"
+#include "wheelbri/EvdevLayout.hpp"
+#include "wheelbri/WheelOutput.hpp"
 
 #include <gtest/gtest.h>
 
 #include <limits>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 FfbEffect constant(const float level) {
@@ -187,4 +187,4 @@ TEST(WheelEffect, NonFiniteValuesGiveNoForce) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

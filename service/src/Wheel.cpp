@@ -1,10 +1,10 @@
 #include "Wheel.hpp"
 
-#include "wheelemu/DeviceMatch.hpp"
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/DeviceMatch.hpp"
+#include "wheelbri/Logging.hpp"
 
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -48,4 +48,4 @@ bool wheelConnected(WheelBackend& backend, const std::string& match) {
     return false;
 }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

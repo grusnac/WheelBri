@@ -1,8 +1,8 @@
-#include "wheelemu/StatePacket.hpp"
+#include "wheelbri/StatePacket.hpp"
 
 #include <gtest/gtest.h>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 StatePacket samplePacket() {
@@ -68,4 +68,4 @@ TEST(StatePacket, CenteredHatSurvives) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

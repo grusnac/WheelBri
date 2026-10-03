@@ -1,4 +1,4 @@
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <spdlog/cfg/env.h>
 #include <spdlog/sinks/base_sink.h>
@@ -11,7 +11,7 @@
 #include <mutex>
 #include <vector>
 
-namespace wheelemu::logging {
+namespace wheelbri::logging {
 
 namespace {
 
@@ -20,7 +20,7 @@ constexpr const char* kPattern = "[%Y-%m-%d %H:%M:%S.%e] [%^%-5l%$] [%-14n] [tid
 
 constexpr std::array<const char*, 7> kLevels = {"trace", "debug", "info", "warn", "error", "critical", "off"};
 
-// "wheelemu-service.log" -> "wheelemu-service-2026-09-30.log", the same date style as telemetry files.
+// "wheelbri-service.log" -> "wheelbri-service-2026-09-30.log", the same date style as telemetry files.
 struct DashedDateFileName {
     static spdlog::filename_t calc_filename(const spdlog::filename_t& filename, const tm& now) {
         char date[40];
@@ -218,4 +218,4 @@ std::uint64_t CallSampler::next() {
     return 0;
 }
 
-}  // namespace wheelemu::logging
+}  // namespace wheelbri::logging

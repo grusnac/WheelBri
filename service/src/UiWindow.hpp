@@ -10,7 +10,7 @@
 #include <string_view>
 #include <vector>
 
-namespace wheelemu::service::ui {
+namespace wheelbri::service::ui {
 
 // The `--ui` window's drawing surface, implemented with each system's own tools:
 //   Windows: Win32 + GDI (UiWindowWin32.cpp)
@@ -61,11 +61,17 @@ inline constexpr char kHome = '\x03';
 inline constexpr char kEnd = '\x04';
 inline constexpr char kUp = '\x05';
 inline constexpr char kDown = '\x06';
+// Editing keys, sent in WindowInput::text.
+inline constexpr char kBackspace = '\b';
+inline constexpr char kEnter = '\r';
 
 // What happened since the last pump().
 struct WindowInput {
     bool close = false;         // the window's close button
     std::string keys;           // keys pressed (not repeats): letters in lower case ("f", "u"), kEscape
+    // Text typed, for a text field: printable ASCII as typed (case, digits, punctuation, repeats included), plus
+    // kBackspace and kEnter. The same key presses also arrive in `keys`; a view that is editing text ignores those.
+    std::string text;
     std::vector<Click> clicks;  // left mouse button presses
     int wheel = 0;              // mouse wheel notches since the last pump(): > 0 away from the user (scroll up)
 };
@@ -116,4 +122,4 @@ protected:
 [[nodiscard]] std::unique_ptr<UiWindow> openWindow(const std::string& title, int logicalWidth, int logicalHeight,
                                                    int windowWidth, int windowHeight, std::string& error);
 
-}  // namespace wheelemu::service::ui
+}  // namespace wheelbri::service::ui

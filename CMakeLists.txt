@@ -18,7 +18,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 else()
     set(WE_LINUX OFF)
 endif()
-option(WE_BUILD_UHID    "Build wheelemu-uhid, the virtual G920 for Linux"  ${WE_LINUX})
+option(WE_BUILD_UHID    "Build wheelbri-uhid, the virtual G920 for Linux"  ${WE_LINUX})
 
 if(MSVC)
     add_compile_options(/W4 /permissive-)

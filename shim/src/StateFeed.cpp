@@ -3,7 +3,7 @@
 #include "ShimConfig.hpp"
 #include "ShimLogging.hpp"
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace {
 
@@ -51,7 +51,7 @@ TargetReport StateFeed::current(const IDeviceProfile& profile) {
             lastArrival_ = now;
             if (stale_) {
                 stale_ = false;
-                WE_LOG_INFO(log(), "receiving wheel state from wheelemu-service (packet #{})", packet->sequence);
+                WE_LOG_INFO(log(), "receiving wheel state from wheelbri-service (packet #{})", packet->sequence);
             }
         }
     }
@@ -63,15 +63,15 @@ TargetReport StateFeed::current(const IDeviceProfile& profile) {
 
     if (!stale_) {
         stale_ = true;
-        WE_LOG_WARN(log(), "no wheel state from wheelemu-service for {} ms: reporting a centred wheel and released "
+        WE_LOG_WARN(log(), "no wheel state from wheelbri-service for {} ms: reporting a centred wheel and released "
                            "pedals until it comes back",
                     config.staleAfterMs);
     } else if (!latest_ && !warnedNeverReceived_ && now - firstRequest_ > std::chrono::seconds(2)) {
         warnedNeverReceived_ = true;
-        WE_LOG_WARN(log(), "nothing received on port {} yet: is wheelemu-service running with the same state_port?",
+        WE_LOG_WARN(log(), "nothing received on port {} yet: is wheelbri-service running with the same state_port?",
                     config.statePort);
     }
     return profile.encode(WheelState{});
 }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

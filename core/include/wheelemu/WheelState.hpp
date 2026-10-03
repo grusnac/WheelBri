@@ -18,6 +18,15 @@ struct RawInputState {
     std::int8_t hat = kHatCentered;
 };
 
+// Devices one session reads: the wheel (0, which also plays force feedback) and up to three accessories (1..3:
+// pedals, a shifter, a button box) that the mapping takes inputs from.
+inline constexpr std::size_t kMaxInputDevices = 4;
+
+// Every device's snapshot, indexed by device number (0 = the wheel). Devices the mapping does not use stay at rest.
+struct RawInputs {
+    std::array<RawInputState, kMaxInputDevices> devices{};
+};
+
 // Target-agnostic wheel state after mapping.
 struct WheelState {
     float steering = 0.0F;              // -1 (full left) .. 1 (full right) over the TARGET rotation

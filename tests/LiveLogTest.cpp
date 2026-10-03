@@ -1,4 +1,4 @@
-#include "wheelemu/LiveLog.hpp"
+#include "wheelbri/LiveLog.hpp"
 
 #include <gtest/gtest.h>
 
@@ -6,7 +6,7 @@
 #include <fstream>
 #include <string>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 TEST(LiveLog, ParsesSpdlogLines) {
@@ -38,7 +38,7 @@ class LiveLogFiles : public ::testing::Test {
 protected:
     void SetUp() override {
         dir_ = std::filesystem::temp_directory_path() /
-               ("wheelemu-livelog-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
+               ("wheelbri-livelog-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(dir_);
     }
@@ -103,4 +103,4 @@ TEST_F(LiveLogFiles, ReadsOnlyTheTailOfABigFile) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

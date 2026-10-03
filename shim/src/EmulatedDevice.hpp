@@ -11,8 +11,8 @@
 #include "StateFeed.hpp"
 #include "Traits.hpp"
 
-#include "wheelemu/DeviceProfile.hpp"
-#include "wheelemu/EmulatedJoystick.hpp"
+#include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/EmulatedJoystick.hpp"
 
 #include <algorithm>
 #include <array>
@@ -29,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace detail {
 
@@ -71,7 +71,7 @@ void presentAs(Instance& instance, const DeviceIdentity& identity) {
     copyText(instance.tszInstanceName, identity.productName);
 }
 
-// Phase 2: the physical wheel presented as the target wheel (G920). Input comes from wheelemu-service
+// Phase 2: the physical wheel presented as the target wheel (G920). Input comes from wheelbri-service
 // through StateFeed, in the target's layout and the ranges the game asked for. Force feedback and device
 // management (acquire, cooperative level, events) are forwarded to the physical wheel.
 template <typename T>
@@ -301,7 +301,7 @@ public:
     HRESULT STDMETHODCALLTYPE SetCooperativeLevel(HWND window, DWORD flags) override {
         return guarded("SetCooperativeLevel", [&]() -> HRESULT {
             if (serviceFfb()) {
-                // wheelemu-service owns the physical wheel's force feedback (exclusive access), so the game's
+                // wheelbri-service owns the physical wheel's force feedback (exclusive access), so the game's
                 // handle on it must stay non-exclusive. Input comes from the service anyway.
                 const HRESULT result = real_->SetCooperativeLevel(window, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND);
                 WE_LOG_INFO(detail::emulationLog(), "{}: SetCooperativeLevel(hwnd={}, {}) -> physical wheel opened "
@@ -484,7 +484,7 @@ public:
         });
     }
 
-    // --- Force feedback: to wheelemu-service (default), or passed to the physical wheel ---------------
+    // --- Force feedback: to wheelbri-service (default), or passed to the physical wheel ---------------
 
     HRESULT STDMETHODCALLTYPE CreateEffect(REFGUID type, LPCDIEFFECT effect, LPDIRECTINPUTEFFECT* out,
                                            LPUNKNOWN outer) override {
@@ -664,7 +664,7 @@ private:
             result = created->SetParameters(effect, effect->dwSize == sizeof(DIEFFECT) ? DIEP_ALLPARAMS
                                                                                      : DIEP_ALLPARAMS_DX5);
         }
-        WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) {} -> slot {} for wheelemu-service -> {}", label_,
+        WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) {} -> slot {} for wheelbri-service -> {}", label_,
                     describeGuid(type), describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0), *slot,
                     describeHresult(result));
         if (FAILED(result)) {
@@ -977,4 +977,4 @@ private:
     logging::RateLimiter acquireLimiter_{std::chrono::seconds(5)};
 };
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

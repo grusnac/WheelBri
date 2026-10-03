@@ -57,11 +57,5 @@ cmake_build() {
 }
 
 service_exe() {
-    if on_windows; then echo "$build_dir/service/wheelemu-service.exe"; else echo "$build_dir/service/wheelemu-service"; fi
-}
-
-dotnet_exe() {
-    command -v dotnet 2>/dev/null && return
-    [ -x "/c/Program Files/dotnet/dotnet.exe" ] && { echo "/c/Program Files/dotnet/dotnet.exe"; return; }
-    return 1
+    if on_windows; then echo "$build_dir/service/wheelbri-service.exe"; else echo "$build_dir/service/wheelbri-service"; fi
 }

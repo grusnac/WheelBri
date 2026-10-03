@@ -5,7 +5,7 @@
 
 #include <string>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 // Human-readable renderings of DirectInput values for the Phase 0 log.
 
@@ -27,4 +27,4 @@ namespace wheelemu::shim {
 [[nodiscard]] std::string describeEffect(const GUID& effectType, LPCDIEFFECT effect, DWORD flags);
 [[nodiscard]] std::string describeEffectFlags(DWORD flags);          // DIEP_* flags of SetParameters
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

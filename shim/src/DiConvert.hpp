@@ -1,16 +1,16 @@
 #pragma once
 
-// Conversions between DirectInput structures and the portable types in wheelemu/EmulatedJoystick.hpp.
+// Conversions between DirectInput structures and the portable types in wheelbri/EmulatedJoystick.hpp.
 
 #include "DiFormat.hpp"
 
-#include "wheelemu/DeviceProfile.hpp"
-#include "wheelemu/EmulatedJoystick.hpp"
+#include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/EmulatedJoystick.hpp"
 
 #include <cstdint>
 #include <vector>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 // The portable constants must equal DirectInput's.
 static_assert(di::kAbsAxis == DIDFT_ABSAXIS);
@@ -79,4 +79,4 @@ void copyText(WCHAR (&out)[N], const std::string& text) {
     out[i] = L'\0';
 }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

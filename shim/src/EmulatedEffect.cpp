@@ -3,14 +3,14 @@
 
 #include "FfbForwarder.hpp"
 
-#include "wheelemu/DiEffect.hpp"
+#include "wheelbri/DiEffect.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <utility>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 static_assert(di::kCartesian == DIEFF_CARTESIAN);
 static_assert(di::kPolar == DIEFF_POLAR);
@@ -372,4 +372,4 @@ HRESULT EmulatedEffect::Unload() {
 
 HRESULT EmulatedEffect::Escape(LPDIEFFESCAPE) { return DIERR_UNSUPPORTED; }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

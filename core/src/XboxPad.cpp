@@ -1,10 +1,11 @@
-#include "wheelemu/XboxPad.hpp"
+#include "wheelbri/XboxPad.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <utility>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -18,28 +19,6 @@ void put16(std::array<std::uint8_t, kXusbPacketSize>& b, std::size_t at, std::ui
 
 std::uint16_t get16(std::span<const std::uint8_t> b, std::size_t at) {
     return static_cast<std::uint16_t>(b[at] | (b[at + 1] << 8U));
-}
-
-// G920 button bit -> XInput button (A, B, X, Y, Menu, View). Not the paddles, the stick clicks (in NFS the pad's
-// right stick click takes a photo and opens the photo menu) or the Xbox button.
-constexpr std::array<std::pair<int, std::uint16_t>, 6> kButtonMap = {{
-    {0, XusbPad::kA}, {1, XusbPad::kB}, {2, XusbPad::kX}, {3, XusbPad::kY},
-    {6, XusbPad::kStart}, {7, XusbPad::kBack},
-}};
-
-// Hat 0..7 (0 = up, clockwise) -> D-pad bits; -1 = centred.
-std::uint16_t dpad(const int hat) {
-    switch (hat) {
-        case 0: return XusbPad::kDpadUp;
-        case 1: return XusbPad::kDpadUp | XusbPad::kDpadRight;
-        case 2: return XusbPad::kDpadRight;
-        case 3: return XusbPad::kDpadDown | XusbPad::kDpadRight;
-        case 4: return XusbPad::kDpadDown;
-        case 5: return XusbPad::kDpadDown | XusbPad::kDpadLeft;
-        case 6: return XusbPad::kDpadLeft;
-        case 7: return XusbPad::kDpadUp | XusbPad::kDpadLeft;
-        default: return 0;
-    }
 }
 
 }  // namespace
@@ -81,78 +60,49 @@ std::optional<XboxPadMode> parseXboxPadMode(const std::string& text) {
     return std::nullopt;
 }
 
-XboxMirror::Result XboxMirror::update(const TargetReport& wheel, const std::int64_t nowMs, const float gameForce,
-                                      const bool gameUsesForce) {
+XboxMirror::Result XboxMirror::update(const TargetReport& wheel, const std::int64_t nowMs) {
     Result result;
-    result.g920 = wheel;
+    result.g920 = wheel;   // the G920 always gets everything
     if (mode_ != XboxPadMode::Buttons) {
         return result;
     }
-    if (!haveForceTime_) {
-        haveForceTime_ = true;
-        lastForceMs_ = nowMs;
-    }
     const auto pressedBy = [](const std::int32_t pedal) { return 65535 - std::clamp<std::int32_t>(pedal, 0, 65535); };
-    if (pressedBy(wheel.throttle) > kPedalPressed || pressedBy(wheel.brake) > kPedalPressed) {
-        lastPedalMs_ = nowMs;
+    const std::array<std::int32_t, 3> pedals = {wheel.throttle, wheel.brake, wheel.clutch};
+    if (!started_) {   // what is held at the start is not an input
+        started_ = true;
+        lastButtons_ = wheel.buttons;
+        lastHat_ = wheel.hat;
+        for (std::size_t i = 0; i < pedals.size(); ++i) pedalDown_[i] = pressedBy(pedals[i]) > kPedalPressed;
+        return result;
     }
-    const bool driving = nowMs - lastPedalMs_ < kPedalQuietMs;
-    if (gameForce > kForceZero) {
-        lastForceMs_ = nowMs;
-    }
-    if (driving) menuByPad_ = false;
 
-    std::uint16_t buttons = 0;
-    for (const auto& [bit, button] : kButtonMap) {
-        if ((wheel.buttons & (1U << bit)) != 0) buttons |= button;
+    // An input from the wheel: a button or the D-pad pressed, a pedal pressed (not steering: see the header).
+    Cause cause = Cause::None;
+    if ((wheel.buttons & ~lastButtons_) != 0) cause = Cause::Button;
+    lastButtons_ = wheel.buttons;
+    if (cause == Cause::None && wheel.hat != lastHat_ && wheel.hat >= 0) cause = Cause::Dpad;
+    lastHat_ = wheel.hat;
+    for (std::size_t i = 0; i < pedals.size(); ++i) {
+        const bool down = pressedBy(pedals[i]) > kPedalPressed;
+        if (down && !pedalDown_[i] && cause == Cause::None) cause = Cause::Pedal;
+        pedalDown_[i] = down;
     }
-    const std::uint16_t hat = dpad(wheel.hat);
 
-    // A button held when driving stops is not a press: it must be let go first.
-    if (driving) {
-        blocked_ = buttons;
-        hatBlocked_ = hat != 0;
-    } else {
-        blocked_ &= buttons;
-        hatBlocked_ = hatBlocked_ && hat != 0;
+    if (cause != Cause::None && !pending_) {
+        pending_ = true;
+        pendingCause_ = cause;
     }
-    const std::uint16_t padButtons = driving ? 0 : static_cast<std::uint16_t>(buttons & ~blocked_);
-    const std::uint16_t padHat = driving || hatBlocked_ ? 0 : hat;
-
-    // A press goes to one controller only: to the pad, or (while driving) to the G920. Pressing both made the game
-    // act twice, and NFS reads G920 buttons as keyboard-type input and switches its prompts back. A press that went
-    // to the pad stays off the G920 until let go, so holding it into driving is no second press.
-    if (padHat != 0) result.g920.hat = -1;
-    for (const auto& [bit, button] : kButtonMap) {
-        if ((padButtons & button) != 0) g920Hidden_ |= 1U << bit;
+    if (pending_ && nowMs - nudgedAtMs_ >= kNudgeGapMs) {
+        pending_ = false;
+        nudgedAtMs_ = nowMs;
+        sign_ = static_cast<std::int16_t>(-sign_);
+        ++nudges_;
+        result.nudged = pendingCause_;
     }
-    g920Hidden_ &= wheel.buttons;
-    result.g920.buttons &= ~g920Hidden_;
-
-    result.pad.buttons = static_cast<std::uint16_t>(padButtons | padHat);
-    const std::uint16_t newlyPressed = static_cast<std::uint16_t>(result.pad.buttons & ~lastButtons_);
-
-    // "In a menu": the game plays no force (some NFS menus), or a pad button was pressed since the last pedal (the
-    // menus in the open world keep the driving spring on, so force alone missed them).
-    if (newlyPressed != 0) menuByPad_ = true;
-    const bool forceQuiet = gameUsesForce && nowMs - lastForceMs_ >= kForceQuietMs;
-    const bool inMenu = !driving && (forceQuiet || menuByPad_);
-    if (inMenu != inMenu_) {
-        inMenu_ = inMenu;
-        heldSteering_ = wheel.steering;
-        result.menuChanged = inMenu;
+    if (nowMs - nudgedAtMs_ < kNudgeMs) {
+        result.pad.thumbRY = static_cast<std::int16_t>(sign_ * kNudge);   // the right stick: the camera, briefly
     }
-    if (inMenu_) result.g920.steering = heldSteering_;        // turning the wheel in a menu reaches nothing
-
-    if (newlyPressed != 0) {
-        ++presses_;
-        if (first_) {
-            first_ = false;
-            result.firstPress = true;
-        }
-    }
-    lastButtons_ = result.pad.buttons;
     return result;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

@@ -1,4 +1,4 @@
-#include "wheelemu/HidPid.hpp"
+#include "wheelbri/HidPid.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <numbers>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -493,4 +493,4 @@ std::size_t HidPid::activeSlots() const {
     return static_cast<std::size_t>(std::count_if(sent_.begin(), sent_.end(), [](const auto& s) { return s && s->playing; }));
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

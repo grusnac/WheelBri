@@ -13,7 +13,7 @@
 #include <mutex>
 #include <string>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace detail {
 
@@ -26,7 +26,7 @@ inline const logging::Logger& directInputLog() {
 
 // Wraps the game's IDirectInput8 object: logs device enumeration (the step where a game decides whether
 // a wheel is "supported") and wraps every created device so its use is logged too. The physical wheel
-// named in wheelemu-shim.ini is presented as the emulated wheel (EmulatedDevice); everything else is
+// named in wheelbri-shim.ini is presented as the emulated wheel (EmulatedDevice); everything else is
 // passed through with logging (ProxyDevice).
 template <typename T>
 class ProxyDirectInput8 final : public T::DirectInput {
@@ -241,4 +241,4 @@ private:
     std::map<std::string, std::string> names_;  // instance GUID -> product name, from EnumDevices
 };
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

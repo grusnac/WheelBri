@@ -1,7 +1,7 @@
 #pragma once
 
-#include "wheelemu/DeviceProfile.hpp"
-#include "wheelemu/HidPid.hpp"
+#include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/HidPid.hpp"
 
 #include <linux/uhid.h>
 
@@ -12,7 +12,7 @@
 #include <utility>
 #include <string>
 
-namespace wheelemu::uhid {
+namespace wheelbri::uhid {
 
 // The virtual G920 on Linux (Phase 4), through the kernel's uhid: the same HID device the Windows bridge
 // creates with HIDMaestro (HidG920.hpp: wheel X, brake Y, clutch Rz, throttle Slider, 11 buttons, hat, HID PID
@@ -67,4 +67,4 @@ private:
     std::array<std::uint8_t, 12> last_{};
 };
 
-}  // namespace wheelemu::uhid
+}  // namespace wheelbri::uhid

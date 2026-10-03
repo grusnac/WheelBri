@@ -1,12 +1,12 @@
 #include "Housekeeping.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <cstdio>
 #include <cstdlib>
 #include <system_error>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -255,10 +255,10 @@ Housekeeping::Job Housekeeping::makeJob(const std::string& day, const std::files
     if (a.onePerDay()) {
         // One archive per day and folder; never overwrite an existing one.
         const std::string extension = a.kind == Archiver::Kind::SevenZip ? ".7z" : ".zip";
-        std::filesystem::path archive = folder / ("wheelemu-logs-" + day + extension);
+        std::filesystem::path archive = folder / ("wheelbri-logs-" + day + extension);
         std::error_code ec;   // an unreadable folder must not throw (it would end the session)
         for (int n = 2; std::filesystem::exists(archive, ec) && n < 1000; ++n) {
-            archive = folder / ("wheelemu-logs-" + day + "-" + std::to_string(n) + extension);
+            archive = folder / ("wheelbri-logs-" + day + "-" + std::to_string(n) + extension);
         }
         job.outputs.push_back(archive);
         switch (a.kind) {
@@ -401,4 +401,4 @@ std::string Housekeeping::status() const {
     return text;
 }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

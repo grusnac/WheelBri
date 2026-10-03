@@ -2,7 +2,7 @@
 
 #include "UhidG920.hpp"
 
-#include "wheelemu/HidG920.hpp"
+#include "wheelbri/HidG920.hpp"
 
 #include <gtest/gtest.h>
 
@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace wheelemu::uhid {
+namespace wheelbri::uhid {
 namespace {
 
 std::vector<std::uint8_t> hex(const std::string& text) {
@@ -190,4 +190,4 @@ TEST(UhidG920, AnUnsupportedReportIsLoggedOnce) {
 }
 
 }  // namespace
-}  // namespace wheelemu::uhid
+}  // namespace wheelbri::uhid

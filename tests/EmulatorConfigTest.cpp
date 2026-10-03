@@ -1,10 +1,10 @@
-#include "wheelemu/EmulatorConfig.hpp"
+#include "wheelbri/EmulatorConfig.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 EmulatorConfigResult load(const char* text) {
@@ -49,6 +49,14 @@ TEST(EmulatorConfig, RejectsBadButtonLabels) {
     EXPECT_TRUE(containsError(result, "[button_labels] unknown key 'button_64'"));
     EXPECT_TRUE(containsError(result, "button_1 = 'Much too long a name': at most 12 characters"));
     EXPECT_EQ(result.config.mapper.sourceButtonLabels[1], "Much too lon");
+}
+
+TEST(EmulatorConfig, ReadsAxisLabels) {
+    const auto result = load("[axis_labels]\naxis_0 = Wheel\naxis_6 = Clutch pedal\naxis_8 = Nope\n");
+    EXPECT_EQ(result.config.mapper.sourceAxisLabels[0], "Wheel");
+    EXPECT_EQ(result.config.mapper.sourceAxisLabels[6], "Clutch pedal");
+    EXPECT_TRUE(result.config.mapper.sourceAxisLabels[1].empty());
+    EXPECT_TRUE(containsError(result, "[axis_labels] unknown key 'axis_8'"));
 }
 
 TEST(EmulatorConfig, ReadsEverySection) {
@@ -178,5 +186,33 @@ TEST(EmulatorConfig, FfbPortMustDifferFromStatePort) {
     EXPECT_TRUE(containsError(result, "ffb_port must differ"));
 }
 
+TEST(EmulatorConfig, ReadsSourcesOnAccessories) {
+    const auto result = load(
+        "[throttle]\naxis = 044f:b696/1\n[brake]\naxis = 044F:B696/2\n"
+        "[buttons]\ntarget_4 = 1234:1/3\n[hat]\nup = 1234:0001/0\n");
+    ASSERT_TRUE(result.errors.empty()) << result.errors.front();
+    const MapperConfig& mapper = result.config.mapper;
+    EXPECT_EQ(mapper.accessoryCount(), 2U);
+    EXPECT_EQ(mapper.accessories[0], (DeviceId{0x044F, 0xB696}));
+    EXPECT_EQ(mapper.accessories[1], (DeviceId{0x1234, 0x0001}));
+    EXPECT_EQ(mapper.throttle.sourceDevice, 1);
+    EXPECT_EQ(mapper.throttle.sourceAxis, 1);
+    EXPECT_EQ(mapper.brake.sourceDevice, 1);   // the same pedals, one device
+    EXPECT_EQ(mapper.buttonDevice[4], 2);
+    EXPECT_EQ(mapper.buttonMap[4], 3);
+    EXPECT_EQ(mapper.buttonDevice[5], 0);
+    EXPECT_EQ(mapper.hatButtons.devices[0], 2);
+    EXPECT_EQ(mapper.steering.sourceDevice, 0);
+}
+
+TEST(EmulatorConfig, RejectsBadSourcesAndTooManyAccessories) {
+    const auto bad = load("[throttle]\naxis = 044f:b696/9\n[brake]\naxis = pedals/1\n[buttons]\ntarget_0 = 1:2/-1\n");
+    EXPECT_TRUE(containsError(bad, "[throttle] axis"));
+    EXPECT_TRUE(containsError(bad, "[brake] axis"));
+    EXPECT_TRUE(containsError(bad, "[buttons] target_0"));
+    const auto many = load("[buttons]\ntarget_0 = 1:1/0\ntarget_1 = 1:2/0\ntarget_2 = 1:3/0\ntarget_3 = 1:4/0\n");
+    EXPECT_TRUE(containsError(many, "at most 3 accessories"));
+}
+
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

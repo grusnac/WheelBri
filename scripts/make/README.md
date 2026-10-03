@@ -5,20 +5,22 @@ work on Linux.
 
 | Script | When |
 |---|---|
-| `scripts/make/build.sh` | After any change: builds what changed (core, service, shim, tests). Configures the first time. Optional target: `build.sh wheelemu-service` |
+| `scripts/make/build.sh` | After any change: builds what changed (core, service, shim, tests). Configures the first time. Optional target: `build.sh wheelbri-service` |
 | `scripts/make/rebuild.sh` | Full rebuild of the CMake parts: deletes `build/`, configures and builds from scratch. After changing CMake files or options, or when a build acts up |
 | `scripts/make/test.sh` | Build, then all unit tests. `test.sh Mapper` runs only the matching ones |
-| `scripts/make/check.sh` | Before a commit: build, all unit tests, the bridge's wire self-test, then `git status` |
+| `scripts/make/check.sh` | Before a commit: build, all unit tests, then `git status` |
 | `scripts/make/ui.sh` | Build the service and open its mapping window (`--ui`) with `config/moza-r3-as-g920.ini`, or the config given. The check after a mapping or config change |
-| `scripts/make/app.sh` | Build the app (`wheelemu.exe`: Start, Stop, Open logs) and start it (Administrator prompt). `--no-start` only builds |
-| `scripts/make/shim.sh <game folder>` | Build `dinput8.dll` and copy it next to the game (plus `wheelemu-shim.ini` if there is none). `shim.sh --off <game folder>` takes it out, needed before using the virtual G920 |
-| `scripts/make/bridge.sh` | Build the C# bridge and probes in `tools/vbridge` (.NET 10). `--clean` rebuilds |
-| `scripts/make/drivers.sh` | Build the three UMDF drivers (Visual Studio + WDK). `-Install` installs them (Administrator prompt), `-Only g920`, `-Clean`, `-Configuration Debug` |
-| `scripts/make/all.sh` | Everything above that builds: CMake parts, bridge, drivers. `--clean` for a full rebuild of everything |
+| `scripts/make/app.sh` | Build the app (`wheelbri.exe`: Start, Stop) and start it (Administrator prompt). `--no-start` only builds |
+| `scripts/make/shim.sh <game folder>` | Build `dinput8.dll` and copy it next to the game (plus `wheelbri-shim.ini` if there is none). `shim.sh --off <game folder>` takes it out, needed before using the virtual G920 |
+| `scripts/make/drivers.sh` | Build the two UMDF drivers (Visual Studio + WDK). `-Install` installs them (Administrator prompt), `-Only g920`, `-Clean`, `-Configuration Debug` |
+| `scripts/make/package.sh` | The installer for another PC: builds app, service, shim and drivers (Release), then `package.ps1` makes `dist/windows/WheelBri-<version>/`, its zip and `WheelBri-<version>-setup.exe`. `--no-build` packages what is built; `-NoSetupExe` skips Setup.exe |
+| `scripts/make/clean-pc.sh` | Before installing from scratch: removes everything WheelBri put on the PC (running copies, virtual devices, its drivers (also an old Xbox controller), their certificate, the install folder, shortcuts, Settings > Apps entry, registry entries, `%LOCALAPPDATA%\wheelbri` and `C:\ProgramData\wheelbri`). Lists what it found and asks first (Administrator prompt). `-KeepData` keeps rigs, configs and logs; `-GameFolder <folder>` also takes the shim out of a game; `-ThirdParty` also removes HidHide / HIDMaestro; `-Yes` asks nothing. Never touches the repo |
+| `scripts/make/all.sh` | Everything above that builds: CMake parts and drivers. `--clean` for a full rebuild of everything |
 
-`drivers.ps1` is the PowerShell script behind `drivers.sh`; it can also be run on its own from PowerShell.
+`drivers.ps1`, `package.ps1` and `clean-pc.ps1` are the PowerShell scripts behind `drivers.sh`, `package.sh` and
+`clean-pc.sh`; they can also be run on their own from PowerShell.
 
 Settings through the environment: `WE_BUILD_TYPE=Debug` (default `Release`), `WE_BUILD_DIR` (default `build`),
 `WE_CMAKE_ARGS` (extra configure arguments), for example `WE_BUILD_TYPE=Debug scripts/make/build.sh`.
 
-To play, `scripts/wheelemu.sh` starts the service and the bridge (`--build` builds them first).
+To play, build and start the app (`scripts/make/app.sh`).

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build the dinput8.dll shim and put it next to a game's .exe, or take it out again.
-# The shim and the virtual G920 (--virtual-g920 / the bridge) must not be used together.
+# The shim and the virtual G920 (--virtual-g920) must not be used together.
 #
-#   scripts/make/shim.sh "D:\Games\Need for Speed"          build and copy dinput8.dll (and wheelemu-shim.ini
+#   scripts/make/shim.sh "D:\Games\Need for Speed"          build and copy dinput8.dll (and wheelbri-shim.ini
 #                                                           if the game folder has none)
 #   scripts/make/shim.sh --off "D:\Games\Need for Speed"    rename the game's dinput8.dll to dinput8.dll.off
 
@@ -29,9 +29,9 @@ if [ $off -eq 1 ]; then
 fi
 
 on_windows || fail "the shim is a Windows DLL: build it on Windows, or cross-compile (README, Build)"
-cmake_build dinput8
+cmake_build wheelbri_shim   # builds dinput8.dll
 cp -f "$build_dir/shim/dinput8.dll" "$game/" || fail "could not copy (is the game running?)"
 ok "copied dinput8.dll to $game"
-if [ ! -f "$game/wheelemu-shim.ini" ]; then
-    cp config/wheelemu-shim.ini "$game/" && ok "copied wheelemu-shim.ini (defaults)"
+if [ ! -f "$game/wheelbri-shim.ini" ]; then
+    cp config/wheelbri-shim.ini "$game/" && ok "copied wheelbri-shim.ini (defaults)"
 fi

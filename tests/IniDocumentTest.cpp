@@ -1,8 +1,8 @@
-#include "wheelemu/IniDocument.hpp"
+#include "wheelbri/IniDocument.hpp"
 
 #include <gtest/gtest.h>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 TEST(IniDocument, ParsesSectionsKeysAndComments) {
@@ -48,4 +48,4 @@ TEST(IniDocument, EmptyInput) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

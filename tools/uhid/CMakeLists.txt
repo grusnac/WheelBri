@@ -1,5 +1,5 @@
-# wheelemu-uhid: the virtual G920 on Linux (Phase 4), see main.cpp.
-add_executable(wheelemu-uhid main.cpp UhidG920.cpp)
-target_link_libraries(wheelemu-uhid PRIVATE wheelemu_core)
-target_compile_definitions(wheelemu-uhid PRIVATE WHEELEMU_VERSION="${PROJECT_VERSION}")
-install(TARGETS wheelemu-uhid RUNTIME DESTINATION bin)
+# wheelbri-uhid: the virtual G920 on Linux (Phase 4), see main.cpp.
+add_executable(wheelbri-uhid main.cpp UhidG920.cpp)
+target_link_libraries(wheelbri-uhid PRIVATE wheelbri_core)
+target_compile_definitions(wheelbri-uhid PRIVATE WHEELBRI_VERSION="${PROJECT_VERSION}")
+install(TARGETS wheelbri-uhid RUNTIME DESTINATION bin)

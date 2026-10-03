@@ -4,7 +4,7 @@
 #include "ShimConfig.hpp"
 #include "ShimLogging.hpp"
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace {
 
@@ -34,7 +34,7 @@ void FfbForwarder::ensureSender() {
         WE_LOG_ERROR(log(), "cannot create the force feedback socket; the game's effects will not be felt");
         return;
     }
-    WE_LOG_INFO(log(), "game force feedback goes to wheelemu-service on port {}", shimConfig().ffbPort);
+    WE_LOG_INFO(log(), "game force feedback goes to wheelbri-service on port {}", shimConfig().ffbPort);
     FfbPacket reset;
     reset.kind = FfbPacket::Kind::StopAll;   // clear whatever an earlier game session left behind
     send(reset, Clock::now());
@@ -247,4 +247,4 @@ void FfbForwarder::tick() {
     }
 }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

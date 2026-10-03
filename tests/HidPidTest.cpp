@@ -1,12 +1,12 @@
-#include "wheelemu/HidG920.hpp"
-#include "wheelemu/HidPid.hpp"
+#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidPid.hpp"
 
 #include <gtest/gtest.h>
 
 #include <string>
 #include <vector>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 std::vector<std::uint8_t> hex(const std::string& text) {
@@ -30,7 +30,7 @@ struct Recorder {
     }
 };
 
-// The reports Windows' pid.dll sent for tools/vbridge/FfbProbe (2026-09-30): parameters with EBI 0, then
+// The reports Windows' pid.dll sent for the old bridge's FfbProbe (2026-09-30): parameters with EBI 0, then
 // Set Effect naming the block, then Effect Operation.
 TEST(HidPid, PidDllSequenceFromTheProbe) {
     Recorder r;
@@ -173,4 +173,4 @@ TEST(HidG920, InputReportPacksLikeTheBridge) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

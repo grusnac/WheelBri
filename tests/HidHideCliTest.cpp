@@ -1,8 +1,8 @@
-#include "wheelemu/HidHideCli.hpp"
+#include "wheelbri/HidHideCli.hpp"
 
 #include <gtest/gtest.h>
 
-namespace wheelemu::hidhide {
+namespace wheelbri::hidhide {
 namespace {
 
 // As HidHideCLI --dev-gaming prints it (from a real run, 2026-09-30; shortened).
@@ -55,4 +55,4 @@ TEST(HidHideCli, ListsAndSpellings) {
 }
 
 }  // namespace
-}  // namespace wheelemu::hidhide
+}  // namespace wheelbri::hidhide

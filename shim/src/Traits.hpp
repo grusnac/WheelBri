@@ -2,7 +2,7 @@
 
 #include "DiFormat.hpp"
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 // DirectInput exists in ANSI (A) and wide (W) flavours that differ only in string and struct types.
 // The proxies are written once as templates over these traits.
@@ -47,4 +47,4 @@ struct WideTraits {
     static const IID& deviceIid() { return IID_IDirectInputDevice8W; }
 };
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

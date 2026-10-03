@@ -1,8 +1,8 @@
-#include "wheelemu/DeviceProfile.hpp"
+#include "wheelbri/DeviceProfile.hpp"
 
 #include <gtest/gtest.h>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 TEST(DeviceIdentity, DirectInputProductGuidForG29) {
@@ -86,4 +86,4 @@ TEST(DeviceProfile, FactoryKnowsBuiltInProfiles) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

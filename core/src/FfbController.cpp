@@ -1,10 +1,10 @@
-#include "wheelemu/FfbController.hpp"
+#include "wheelbri/FfbController.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <cmath>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -157,4 +157,4 @@ void FfbController::stopAll() {
     }
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

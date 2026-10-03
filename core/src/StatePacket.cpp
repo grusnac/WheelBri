@@ -1,8 +1,8 @@
-#include "wheelemu/StatePacket.hpp"
+#include "wheelbri/StatePacket.hpp"
 
 #include <algorithm>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -97,4 +97,4 @@ std::optional<StatePacket> decodeStatePacket(const std::span<const std::uint8_t>
     return packet;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

@@ -1,16 +1,16 @@
 #pragma once
 
-#include "wheelemu/DeviceProfile.hpp"
-#include "wheelemu/UdpLoopback.hpp"
+#include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/UdpLoopback.hpp"
 
 #include <chrono>
 #include <memory>
 #include <mutex>
 #include <optional>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
-// The emulated wheel's state as published by wheelemu-service over UDP loopback. One per process,
+// The emulated wheel's state as published by wheelbri-service over UDP loopback. One per process,
 // shared by every emulated device. Never blocks: each call drains whatever packets have arrived.
 class StateFeed {
 public:
@@ -35,4 +35,4 @@ private:
     std::chrono::steady_clock::time_point firstRequest_{};
 };
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

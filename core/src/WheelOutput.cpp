@@ -1,10 +1,10 @@
-#include "wheelemu/WheelOutput.hpp"
+#include "wheelbri/WheelOutput.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -169,4 +169,4 @@ Output toEvdev(const WheelEffect& e) {
 
 }  // namespace evdev
 
-}  // namespace wheelemu
+}  // namespace wheelbri

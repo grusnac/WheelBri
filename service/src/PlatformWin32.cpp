@@ -15,7 +15,7 @@
 #include <algorithm>
 #include <thread>
 
-namespace wheelemu::service::platform {
+namespace wheelbri::service::platform {
 
 namespace {
 
@@ -179,14 +179,14 @@ std::unique_ptr<SingleInstance> SingleInstance::acquire(const std::string& name,
     if (mutex == nullptr) {
         // An elevated copy's lock cannot be opened by a non-elevated one: that copy is running.
         error = GetLastError() == ERROR_ACCESS_DENIED
-                    ? "another wheelemu-service is already running on this computer (as Administrator): stop it first"
+                    ? "another wheelbri-service is already running on this computer (as Administrator): stop it first"
                     : lastError("creating the single-instance lock");
         return nullptr;
     }
     const DWORD waited = WaitForSingleObject(mutex, 0);
     if (waited != WAIT_OBJECT_0 && waited != WAIT_ABANDONED) {   // abandoned: the last owner crashed, fine
         CloseHandle(mutex);
-        error = "another wheelemu-service is already running on this computer (the app, or a console): stop it first";
+        error = "another wheelbri-service is already running on this computer (the app, or a console): stop it first";
         return nullptr;
     }
     auto impl = std::make_unique<Impl>();
@@ -348,4 +348,4 @@ void ChildProcess::kill() {
     impl_->running = false;
 }
 
-}  // namespace wheelemu::service::platform
+}  // namespace wheelbri::service::platform

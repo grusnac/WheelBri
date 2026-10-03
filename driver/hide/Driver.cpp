@@ -1,11 +1,11 @@
-// wheelemu-hide: hides the real wheel (Moza R3) from games while wheelemu-service presents the virtual G920.
+// wheelbri-hide: hides the real wheel (Moza R3) from games while wheelbri-service presents the virtual G920.
 // Our replacement for HidHide (third-party), built the same way as our G920 driver: UMDF 2, user mode, signed
 // with the certificate trusted on this PC; no kernel code of ours, no test mode.
 //
 // It is an upper filter on the R3's game-controller interface (HID\VID_346E&PID_0005&MI_02; Moza Pit House
 // talks to the other interfaces). Every program that opens that interface asks it first (IRP_MJ_CREATE):
-//   - while wheelemu-service hides the wheel, it has written its process id to
-//       HKLM\SOFTWARE\wheelemu\hide  AllowedPid (DWORD)
+//   - while wheelbri-service hides the wheel, it has written its process id to
+//       HKLM\SOFTWARE\wheelbri\hide  AllowedPid (DWORD)
 //     and only that process may open the R3; everyone else gets "access denied", so DirectInput, SDL, raw input
 //     and the game cannot see or read it (the same effect as HidHide);
 //   - when AllowedPid is 0 or missing (the service is not running, or stopped cleanly), everyone may open it:
@@ -27,10 +27,10 @@
 
 namespace {
 
-constexpr wchar_t kPolicyKey[] = L"SOFTWARE\\wheelemu\\hide";
+constexpr wchar_t kPolicyKey[] = L"SOFTWARE\\wheelbri\\hide";
 constexpr ULONG kSystemPid = 4;
 
-// C:\ProgramData\wheelemu\logs\wheelemu-hide-<date>.log (the driver host runs as LocalService) and DebugView.
+// C:\ProgramData\wheelbri\logs\wheelbri-hide-<date>.log (the driver host runs as LocalService) and DebugView.
 std::mutex g_logLock;
 
 void logLine(const std::string& text) {
@@ -41,10 +41,10 @@ void logLine(const std::string& text) {
                   now.wHour, now.wMinute, now.wSecond, now.wMilliseconds, text.c_str());
     OutputDebugStringA(line);
     std::lock_guard lock(g_logLock);
-    CreateDirectoryW(L"C:\\ProgramData\\wheelemu", nullptr);
-    CreateDirectoryW(L"C:\\ProgramData\\wheelemu\\logs", nullptr);
+    CreateDirectoryW(L"C:\\ProgramData\\wheelbri", nullptr);
+    CreateDirectoryW(L"C:\\ProgramData\\wheelbri\\logs", nullptr);
     wchar_t path[MAX_PATH];
-    swprintf_s(path, L"C:\\ProgramData\\wheelemu\\logs\\wheelemu-hide-%04u-%02u-%02u.log", now.wYear, now.wMonth, now.wDay);
+    swprintf_s(path, L"C:\\ProgramData\\wheelbri\\logs\\wheelbri-hide-%04u-%02u-%02u.log", now.wYear, now.wMonth, now.wDay);
     HANDLE file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
     static bool reportedFailure = false;
@@ -56,7 +56,7 @@ void logLine(const std::string& text) {
     } else if (!reportedFailure) {
         reportedFailure = true;   // only DebugView can show this one
         char why[160];
-        std::snprintf(why, sizeof(why), "wheelemu-hide: cannot write its log in C:\\ProgramData\\wheelemu\\logs (error %lu)\r\n",
+        std::snprintf(why, sizeof(why), "wheelbri-hide: cannot write its log in C:\\ProgramData\\wheelbri\\logs (error %lu)\r\n",
                       GetLastError());
         OutputDebugStringA(why);
     }
@@ -101,7 +101,7 @@ ULONG allowedPid() {
         RegGetValueW(HKEY_LOCAL_MACHINE, kPolicyKey, L"AllowedPid", RRF_RT_REG_DWORD, nullptr, &value, &size);
     if (status != ERROR_SUCCESS) {
         if (status != ERROR_FILE_NOT_FOUND) {
-            logOnce("WARNING: cannot read HKLM\\SOFTWARE\\wheelemu\\hide AllowedPid (error " + std::to_string(status) +
+            logOnce("WARNING: cannot read HKLM\\SOFTWARE\\wheelbri\\hide AllowedPid (error " + std::to_string(status) +
                     "): the wheel is not hidden");
         }
         return 0;
@@ -182,6 +182,6 @@ extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driverObject, PUNICODE_STRING reg
     WDF_DRIVER_CONFIG config;
     WDF_DRIVER_CONFIG_INIT(&config, EvtDeviceAdd);
     const NTSTATUS status = WdfDriverCreate(driverObject, registryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, WDF_NO_HANDLE);
-    logLine(NT_SUCCESS(status) ? "wheelemu-hide driver loaded" : "WdfDriverCreate failed: " + std::to_string(status));
+    logLine(NT_SUCCESS(status) ? "wheelbri-hide driver loaded" : "WdfDriverCreate failed: " + std::to_string(status));
     return status;
 }

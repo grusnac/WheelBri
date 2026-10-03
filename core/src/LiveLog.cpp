@@ -1,11 +1,11 @@
-#include "wheelemu/LiveLog.hpp"
+#include "wheelbri/LiveLog.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <system_error>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -178,4 +178,4 @@ void LiveLog::add(LiveLogLine line) {
     while (lines_.size() > kMaxLines) lines_.pop_front();
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

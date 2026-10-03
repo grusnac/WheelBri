@@ -1,4 +1,6 @@
-#include "wheelemu/EmulatorConfig.hpp"
+#include "wheelbri/EmulatorConfig.hpp"
+
+#include "wheelbri/MappingEdit.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -6,7 +8,7 @@
 #include <set>
 #include <utility>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -67,6 +69,31 @@ public:
         }
     }
 
+    // A source: "2" on the wheel, "044f:b696/2" on an accessory (MappingEdit.hpp), or -1 when `allowNone`.
+    void readSource(const std::string& key, int& index, int& device, const int max, const bool allowNone,
+                    MapperConfig& mapper) {
+        const auto value = lookup(key);
+        if (!value) {
+            return;
+        }
+        const std::string expected = std::string(allowNone ? "-1, " : "") + "0.." + std::to_string(max) +
+                                     " (the wheel's) or vid:pid/0.." + std::to_string(max) + " (an accessory's)";
+        const auto source = parseSource(*value);
+        if (!source || source->index > max || (!allowNone && !source->mapped())) {
+            invalid(key, *value, expected);
+            return;
+        }
+        const auto number = deviceNumber(mapper, source->device);
+        if (!number) {
+            errors_.push_back("[" + section_ + "] " + key + " = '" + *value + "': at most " +
+                              std::to_string(MapperConfig::kMaxAccessories) +
+                              " accessories besides the wheel can be read at once");
+            return;
+        }
+        index = source->index;
+        device = *number;
+    }
+
     void reportUnknownKeys() const {
         const auto& sections = ini_.sections();
         const auto it = sections.find(section_);
@@ -97,13 +124,32 @@ private:
 };
 
 constexpr int kMaxAxisIndex = static_cast<int>(RawInputState::kMaxAxes) - 1;
-// Longest [button_labels] name: it has to fit the mapping window's cells.
+// Longest [button_labels] / [axis_labels] name: it has to fit the mapping window's cells.
 constexpr std::size_t kMaxButtonLabel = 12;
 
-void readPedal(const IniDocument& ini, const std::string& section, PedalConfig& pedal,
+// Reads `<prefix>N = name` for N in [0, count) into `labels`, cutting names that are too long.
+template <std::size_t N>
+void readLabels(const IniDocument& ini, const std::string& section, const std::string& prefix,
+                std::array<std::string, N>& labels, std::vector<std::string>& errors) {
+    SectionReader reader(ini, section, errors);
+    for (std::size_t index = 0; index < N; ++index) {
+        const std::string key = prefix + std::to_string(index);
+        std::string label;
+        reader.readString(key, label);
+        if (label.size() > kMaxButtonLabel) {
+            errors.push_back("[" + section + "] " + key + " = '" + label + "': at most " +
+                             std::to_string(kMaxButtonLabel) + " characters");
+            label.resize(kMaxButtonLabel);
+        }
+        labels[index] = std::move(label);
+    }
+    reader.reportUnknownKeys();
+}
+
+void readPedal(const IniDocument& ini, const std::string& section, PedalConfig& pedal, MapperConfig& mapper,
                std::vector<std::string>& errors) {
     SectionReader reader(ini, section, errors);
-    reader.readInt("axis", pedal.sourceAxis, kUnmapped, kMaxAxisIndex);
+    reader.readSource("axis", pedal.sourceAxis, pedal.sourceDevice, kMaxAxisIndex, true, mapper);
     reader.readBool("invert", pedal.invert);
     reader.readFloat("deadzone_low", pedal.deadzoneLow, 0.0F, 0.99F);
     reader.readFloat("saturation_high", pedal.saturationHigh, 0.01F, 1.0F);
@@ -137,48 +183,36 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
     {
         SectionReader reader(ini, "steering", errors);
         SteeringConfig& steering = config.mapper.steering;
-        reader.readInt("axis", steering.sourceAxis, 0, kMaxAxisIndex);
+        reader.readSource("axis", steering.sourceAxis, steering.sourceDevice, kMaxAxisIndex, true, config.mapper);
         reader.readFloat("source_rotation_deg", steering.sourceRotationDeg, 90.0F, 2520.0F);
         reader.readFloat("target_rotation_deg", steering.targetRotationDeg, 90.0F, 2520.0F);
         reader.readFloat("deadzone", steering.deadzone, 0.0F, 0.5F);
         reader.readBool("invert", steering.invert);
         reader.reportUnknownKeys();
     }
-    readPedal(ini, "throttle", config.mapper.throttle, errors);
-    readPedal(ini, "brake", config.mapper.brake, errors);
-    readPedal(ini, "clutch", config.mapper.clutch, errors);
+    readPedal(ini, "throttle", config.mapper.throttle, config.mapper, errors);
+    readPedal(ini, "brake", config.mapper.brake, config.mapper, errors);
+    readPedal(ini, "clutch", config.mapper.clutch, config.mapper, errors);
     {
-        // [buttons] target_N = source index (or -1 to unmap).
+        // [buttons] target_N = source button (or -1 to unmap).
         SectionReader reader(ini, "buttons", errors);
         for (std::size_t target = 0; target < config.mapper.buttonMap.size(); ++target) {
-            reader.readInt("target_" + std::to_string(target), config.mapper.buttonMap[target], kUnmapped, 63);
+            reader.readSource("target_" + std::to_string(target), config.mapper.buttonMap[target],
+                              config.mapper.buttonDevice[target], 63, true, config.mapper);
         }
         reader.reportUnknownKeys();
     }
-    {
-        // [button_labels] button_N = what source button N is called on the wheel (display only).
-        SectionReader reader(ini, "button_labels", errors);
-        for (std::size_t source = 0; source < MapperConfig::kMaxSourceButtons; ++source) {
-            const std::string key = "button_" + std::to_string(source);
-            std::string label;
-            reader.readString(key, label);
-            if (label.size() > kMaxButtonLabel) {
-                errors.push_back("[button_labels] " + key + " = '" + label + "': at most " +
-                                 std::to_string(kMaxButtonLabel) + " characters");
-                label.resize(kMaxButtonLabel);
-            }
-            config.mapper.sourceButtonLabels[source] = std::move(label);
-        }
-        reader.reportUnknownKeys();
-    }
+    // [button_labels] button_N / [axis_labels] axis_N = what that control is called on the wheel (display only).
+    readLabels(ini, "button_labels", "button_", config.mapper.sourceButtonLabels, errors);
+    readLabels(ini, "axis_labels", "axis_", config.mapper.sourceAxisLabels, errors);
     {
         // [hat] up/right/down/left = source button that acts as that D-pad direction.
         SectionReader reader(ini, "hat", errors);
         HatButtons& hat = config.mapper.hatButtons;
-        reader.readInt("up", hat.up, kUnmapped, 63);
-        reader.readInt("right", hat.right, kUnmapped, 63);
-        reader.readInt("down", hat.down, kUnmapped, 63);
-        reader.readInt("left", hat.left, kUnmapped, 63);
+        reader.readSource("up", hat.up, hat.devices[0], 63, true, config.mapper);
+        reader.readSource("right", hat.right, hat.devices[1], 63, true, config.mapper);
+        reader.readSource("down", hat.down, hat.devices[2], 63, true, config.mapper);
+        reader.readSource("left", hat.left, hat.devices[3], 63, true, config.mapper);
         reader.reportUnknownKeys();
     }
     {
@@ -246,9 +280,10 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         reader.reportUnknownKeys();
     }
 
-    static const std::set<std::string> kKnownSections = {"",       "emulator", "steering", "throttle",
-                                                         "brake",  "clutch",   "buttons",  "button_labels", "hat",
-                                                         "ffb",    "logging",  "telemetry", "retention"};
+    static const std::set<std::string> kKnownSections = {"",         "emulator",      "steering",    "throttle",
+                                                         "brake",    "clutch",        "buttons",     "button_labels",
+                                                         "axis_labels", "hat",        "ffb",         "logging",
+                                                         "telemetry", "retention"};
     for (const auto& [section, keys] : ini.sections()) {
         if (kKnownSections.count(section) == 0) {
             errors.push_back("unknown section [" + section + "]");
@@ -259,4 +294,4 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
     return result;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

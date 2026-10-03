@@ -72,6 +72,19 @@ function Get-InstalledPackages([string]$name) {
     return $found
 }
 
+# The same driver under the project's old name (wheelemu-<x>.inf, before the rename to wheelbri on 2026-10-03): removed
+# before the new one goes on, so two hiding filters never sit on the R3 (the old one would also count as "the filter
+# is there" while reading a setting nothing writes any more, so the R3 would stay visible). Returns how many.
+function Remove-LegacyPackages([string]$name) {
+    $legacy = $name -replace '^wheelbri-', 'wheelemu-'
+    $packages = @(Get-InstalledPackages $legacy)
+    foreach ($package in $packages) {
+        Write-Host "removing $package ($legacy.inf, the old name of $name)"
+        Invoke-Pnputil @('/delete-driver', $package, '/uninstall', '/force') "removing $package" | Out-Null
+    }
+    return $packages.Count
+}
+
 # Removes every installed copy of <name>.inf. Returns how many were removed.
 function Remove-InstalledPackages([string]$name) {
     $packages = @(Get-InstalledPackages $name)

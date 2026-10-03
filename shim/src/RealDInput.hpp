@@ -2,7 +2,7 @@
 
 #include "DiFormat.hpp"
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 // Entry points of the system's real dinput8.dll, loaded lazily (never from DllMain).
 struct RealDInput {
@@ -24,4 +24,4 @@ struct RealDInput {
 // Returns nullptr (and logs why) if the system DLL cannot be loaded.
 [[nodiscard]] const RealDInput* realDInput();
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

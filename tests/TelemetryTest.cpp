@@ -1,4 +1,4 @@
-#include "wheelemu/Telemetry.hpp"
+#include "wheelbri/Telemetry.hpp"
 
 #include <gtest/gtest.h>
 
@@ -8,7 +8,7 @@
 #include <sstream>
 #include <system_error>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 namespace fs = std::filesystem;
@@ -32,7 +32,7 @@ class TelemetryTest : public ::testing::Test {
 protected:
     void SetUp() override {
         dir_ = fs::temp_directory_path() /
-               ("wheelemu-telemetry-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
+               ("wheelbri-telemetry-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
         std::error_code ec;
         fs::remove_all(dir_, ec);
     }
@@ -79,7 +79,7 @@ TEST_F(TelemetryTest, OneFilePerDayNamedByDate) {
     recorder.reset();
 
     const auto all = lines(dir_ / "telemetry-2026-09-30.csv", true);
-    EXPECT_EQ(count(all, "# wheelemu telemetry format 2"), 1U);
+    EXPECT_EQ(count(all, "# wheelbri telemetry format 2"), 1U);
     EXPECT_EQ(count(all, "# session started 2026-09-30 14:25:01"), 1U);
     EXPECT_EQ(count(all, "# source: test wheel"), 1U);
     const auto data = lines(dir_ / "telemetry-2026-09-30.csv");
@@ -318,4 +318,4 @@ TEST_F(TelemetryTest, StopsAtMaxFileSize) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

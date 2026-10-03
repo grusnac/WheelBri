@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Build everything the Windows installer ships (app, service, shim, the three drivers) in Release, then assemble
+# dist/windows/WheelBri-<version>/, its zip and WheelBri-<version>-setup.exe (package.ps1).
+#
+#   scripts/make/package.sh                    build, then package
+#   scripts/make/package.sh --no-build         package what is already built
+#   scripts/make/package.sh -NoSetupExe        arguments starting with - go to package.ps1
+
+source "$(dirname "$0")/common.sh"
+
+on_windows || fail "the installer package is Windows only (MSYS2 UCRT64 shell)"
+[ "$build_type" = "Release" ] || fail "the package is built from Release only (unset WE_BUILD_TYPE)"
+
+build=1
+if [ "${1:-}" = "--no-build" ]; then
+    build=0
+    shift
+fi
+
+if [ $build -eq 1 ]; then
+    cmake_build wheelbri wheelbri-service wheelbri_shim   # wheelbri_shim builds dinput8.dll
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$root/scripts/make/drivers.ps1")" \
+        || fail "the drivers did not build (Visual Studio + WDK, driver/README.md)"
+fi
+
+tree=$build_dir
+case "$tree" in /*) ;; *) tree="$root/$tree" ;; esac
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$root/scripts/make/package.ps1")" \
+    -BuildDir "$(cygpath -w "$tree")" "$@" || fail "packaging failed"

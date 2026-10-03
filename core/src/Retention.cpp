@@ -1,13 +1,13 @@
-#include "wheelemu/Retention.hpp"
+#include "wheelbri/Retention.hpp"
 
-#include "wheelemu/LocalDate.hpp"
+#include "wheelbri/LocalDate.hpp"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <system_error>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -52,9 +52,15 @@ bool isKnownArchiver(const std::string_view name) {
 
 bool isManagedFile(const std::string& fileName) {
     const std::string name = lower(fileName);
-    return startsWith(name, "wheelemu-service") || startsWith(name, "wheelemu-shim") ||
-           startsWith(name, "wheelemu-bridge") ||
-           startsWith(name, "wheelemu-logs-") || startsWith(name, "telemetry-") || startsWith(name, "ffb-");
+    // wheelemu: the project's name before the rename; those files moved along with the folder.
+    for (const std::string_view project : {std::string_view("wheelbri"), std::string_view("wheelemu")}) {
+        const std::string prefix(project);
+        if (startsWith(name, prefix + "-service") || startsWith(name, prefix + "-shim") ||
+            startsWith(name, prefix + "-bridge") || startsWith(name, prefix + "-logs-")) {
+            return true;
+        }
+    }
+    return startsWith(name, "telemetry-") || startsWith(name, "ffb-");
 }
 
 bool isArchive(const std::string& fileName) {
@@ -82,7 +88,7 @@ std::string fileDay(const std::filesystem::path& file) {
     if (const auto date = findDate(nameOf(file))) {
         return *date;
     }
-    // No date in the name (e.g. an old "wheelemu-service.log"): the day it was last written.
+    // No date in the name (e.g. an old "wheelbri-service.log"): the day it was last written.
     std::error_code ec;
     const auto written = std::filesystem::last_write_time(file, ec);
     if (ec) {
@@ -123,4 +129,4 @@ std::map<std::string, std::vector<std::filesystem::path>> filesBefore(const std:
     return days;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

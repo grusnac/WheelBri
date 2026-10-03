@@ -1,11 +1,12 @@
-#include "wheelemu/Mapper.hpp"
+#include "wheelbri/Mapper.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -21,6 +22,21 @@ void logPedal(const char* name, const PedalConfig& pedal) {
 
 bool isValidAxis(const int axis) {
     return axis >= 0 && static_cast<std::size_t>(axis) < RawInputState::kMaxAxes;
+}
+
+bool isValidDevice(const int device) {
+    return device >= 0 && static_cast<std::size_t>(device) < kMaxInputDevices;
+}
+
+// The axis' value, or nullopt for an axis that is not mapped (or out of range).
+std::optional<float> axisValue(const RawInputs& inputs, const int device, const int axis) {
+    if (!isValidDevice(device) || !isValidAxis(axis)) return std::nullopt;
+    return inputs.devices[static_cast<std::size_t>(device)].axes[static_cast<std::size_t>(axis)];
+}
+
+bool buttonDown(const RawInputs& inputs, const int device, const int button) {
+    return isValidDevice(device) && button >= 0 && button < 64 &&
+           ((inputs.devices[static_cast<std::size_t>(device)].buttons >> button) & 1U) != 0;
 }
 
 }  // namespace
@@ -40,6 +56,12 @@ Mapper::Mapper(const MapperConfig& config) : config_(config) {
                     steering.sourceRotationDeg, steering.targetRotationDeg,
                     100.0F * steering.sourceRotationDeg / steering.targetRotationDeg);
     }
+    for (std::size_t i = 0; i < config_.accessories.size(); ++i) {
+        if (!config_.accessories[i].empty()) {
+            WE_LOG_DEBUG(log(), "mapper: device {} = accessory {:04x}:{:04x}", i + 1, config_.accessories[i].vendorId,
+                         config_.accessories[i].productId);
+        }
+    }
     logPedal("throttle", config_.throttle);
     logPedal("brake", config_.brake);
     logPedal("clutch", config_.clutch);
@@ -53,9 +75,11 @@ Mapper::Mapper(const MapperConfig& config) : config_(config) {
         WE_LOG_DEBUG(log(), "mapper: hat from source buttons up={} right={} down={} left={}", hat.up, hat.right,
                      hat.down, hat.left);
         // A D-pad button that also drives a target button would press both at once in the game.
-        for (const int source : {hat.up, hat.right, hat.down, hat.left}) {
+        const std::array<int, 4> sources = {hat.up, hat.right, hat.down, hat.left};
+        for (std::size_t direction = 0; direction < sources.size(); ++direction) {
+            const int source = sources[direction];
             for (std::size_t target = 0; source >= 0 && target < config_.buttonMap.size(); ++target) {
-                if (config_.buttonMap[target] == source) {
+                if (config_.buttonMap[target] == source && config_.buttonDevice[target] == hat.devices[direction]) {
                     WE_LOG_WARN(log(), "mapper: source button {} drives the hat and also target button {}; "
                                        "set [buttons] target_{} = -1 unless that is intended",
                                 source, target, target);
@@ -66,23 +90,30 @@ Mapper::Mapper(const MapperConfig& config) : config_(config) {
 }
 
 WheelState Mapper::map(const RawInputState& raw) const {
+    RawInputs inputs;
+    inputs.devices[0] = raw;
+    return map(inputs);
+}
+
+WheelState Mapper::map(const RawInputs& inputs) const {
     WheelState state;
-    state.steering = mapSteering(raw);
-    state.throttle = mapPedal(config_.throttle, raw);
-    state.brake = mapPedal(config_.brake, raw);
-    state.clutch = mapPedal(config_.clutch, raw);
-    state.buttons = mapButtons(raw.buttons);
-    state.hat = mapHat(raw);
+    state.steering = mapSteering(inputs);
+    state.throttle = mapPedal(config_.throttle, inputs);
+    state.brake = mapPedal(config_.brake, inputs);
+    state.clutch = mapPedal(config_.clutch, inputs);
+    state.buttons = mapButtons(inputs);
+    state.hat = mapHat(inputs);
     return state;
 }
 
-float Mapper::mapSteering(const RawInputState& raw) const {
+float Mapper::mapSteering(const RawInputs& inputs) const {
     const SteeringConfig& steering = config_.steering;
-    if (!isValidAxis(steering.sourceAxis) || steering.targetRotationDeg <= 0.0F) {
+    const std::optional<float> raw = axisValue(inputs, steering.sourceDevice, steering.sourceAxis);
+    if (!raw || steering.targetRotationDeg <= 0.0F) {
         return 0.0F;
     }
 
-    float value = std::clamp(raw.axes[static_cast<std::size_t>(steering.sourceAxis)], -1.0F, 1.0F);
+    float value = std::clamp(*raw, -1.0F, 1.0F);
     if (steering.invert) {
         value = -value;
     }
@@ -99,13 +130,14 @@ float Mapper::mapSteering(const RawInputState& raw) const {
     return std::clamp(std::copysign(rescaled * degreeRatio, value), -1.0F, 1.0F);
 }
 
-float Mapper::mapPedal(const PedalConfig& pedal, const RawInputState& raw) {
-    if (!isValidAxis(pedal.sourceAxis)) {
+float Mapper::mapPedal(const PedalConfig& pedal, const RawInputs& inputs) {
+    const std::optional<float> raw = axisValue(inputs, pedal.sourceDevice, pedal.sourceAxis);
+    if (!raw) {
         return 0.0F;
     }
 
     // OS axes are bipolar: -1 = one end of travel, 1 = the other.
-    const float bipolar = std::clamp(raw.axes[static_cast<std::size_t>(pedal.sourceAxis)], -1.0F, 1.0F);
+    const float bipolar = std::clamp(*raw, -1.0F, 1.0F);
     float travel = (bipolar + 1.0F) * 0.5F;
     if (pedal.invert) {
         travel = 1.0F - travel;
@@ -119,28 +151,28 @@ float Mapper::mapPedal(const PedalConfig& pedal, const RawInputState& raw) {
     return pedal.gamma == 1.0F ? normalised : std::pow(normalised, pedal.gamma);
 }
 
-std::uint32_t Mapper::mapButtons(const std::uint64_t sourceButtons) const {
+std::uint32_t Mapper::mapButtons(const RawInputs& inputs) const {
     std::uint32_t target = 0;
     for (std::size_t i = 0; i < config_.buttonMap.size(); ++i) {
-        const int source = config_.buttonMap[i];
-        if (source >= 0 && source < 64 && ((sourceButtons >> source) & 1U) != 0) {
+        if (buttonDown(inputs, config_.buttonDevice[i], config_.buttonMap[i])) {
             target |= 1U << i;
         }
     }
     return target;
 }
 
-std::int8_t Mapper::mapHat(const RawInputState& raw) const {
+std::int8_t Mapper::mapHat(const RawInputs& inputs) const {
     const HatButtons& hat = config_.hatButtons;
-    if (raw.hat != kHatCentered || !hat.any()) {
-        return raw.hat;
+    const std::int8_t wheelHat = inputs.devices[0].hat;   // a real hat: the wheel's
+    if (wheelHat != kHatCentered || !hat.any()) {
+        return wheelHat;
     }
-    auto pressed = [&raw](const int source) {
-        return source >= 0 && source < 64 && ((raw.buttons >> source) & 1U) != 0;
+    auto pressed = [&inputs, &hat](const int source, const std::size_t direction) {
+        return buttonDown(inputs, hat.devices[direction], source);
     };
     // Opposite directions cancel, like a real D-pad that cannot report both.
-    const int vertical = (pressed(hat.up) ? 1 : 0) - (pressed(hat.down) ? 1 : 0);      // +1 up, -1 down
-    const int horizontal = (pressed(hat.right) ? 1 : 0) - (pressed(hat.left) ? 1 : 0);  // +1 right, -1 left
+    const int vertical = (pressed(hat.up, 0) ? 1 : 0) - (pressed(hat.down, 2) ? 1 : 0);      // +1 up, -1 down
+    const int horizontal = (pressed(hat.right, 1) ? 1 : 0) - (pressed(hat.left, 3) ? 1 : 0);  // +1 right, -1 left
 
     // Index [vertical + 1][horizontal + 1] -> hat position, clockwise from up.
     static constexpr std::int8_t kHat[3][3] = {
@@ -151,4 +183,4 @@ std::int8_t Mapper::mapHat(const RawInputState& raw) const {
     return kHat[vertical + 1][horizontal + 1];
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

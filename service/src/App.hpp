@@ -7,22 +7,27 @@
 #include <memory>
 #include <string>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 // The command line service's --ui window: the live view of one session, closed with Esc or its close button
 // (which stops the service).
-[[nodiscard]] std::unique_ptr<UiHost> makeSessionWindow();
+// `configPath`: the config it runs with (the start of a new wheel profile in its Wheel setup tab).
+[[nodiscard]] std::unique_ptr<UiHost> makeSessionWindow(std::string configPath);
 
-// The app (wheelemu.exe, or wheelemu-service --app): one window with Start, Stop and Open logs buttons, the
-// state of the service, the live view while it runs and the latest log lines. Start runs a session on a
+// The app (wheelbri.exe, or wheelbri-service --app): one window: the state of the service, Start and Stop on the
+// Mapping tab only, the live view while it runs. Start runs a session on a
 // thread of its own; Stop, or closing the window, ends it cleanly.
 struct AppSettings {
-    std::string configPath;              // shown in the window
-    std::string mode;                    // what Start does, in words ("virtual G920 + Xbox controller, R3 hidden")
-    std::filesystem::path logFolder;     // Open logs
-    // Runs one session until it is asked to stop (blocking); returns its exit code. Called on the app's
-    // session thread.
-    std::function<int(UiHost& host)> runSession;
+    std::string configPath;              // the config picked when the app starts ("" = the built-in defaults)
+    std::filesystem::path builtInConfigFolder;   // the configs that come with the program (config/)
+    std::filesystem::path userConfigFolder;      // where New puts the user's own
+    std::filesystem::path stateFile;             // remembers the picked config
+    std::string mode;                    // what Start does, in words ("virtual G920, R3 hidden")
+    std::filesystem::path logFolder;     // shown on the Status tab
+    std::filesystem::path devicesFolder; // the Wheel setup tab's device names: <vid>-<pid>.ini
+    // Runs one session with the config at `configPath` ("" = the built-in defaults) until it is asked to stop
+    // (blocking); returns its exit code. Called on the app's session thread.
+    std::function<int(UiHost& host, const std::string& configPath)> runSession;
     // Asks the running session to stop (from the window's thread).
     std::function<void()> requestStop;
     // Clears that request before the next Start.
@@ -33,4 +38,4 @@ struct AppSettings {
 // window could not be opened. Logging must be up (the app shows its lines).
 int runApp(const AppSettings& settings);
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

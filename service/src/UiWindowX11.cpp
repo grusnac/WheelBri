@@ -7,7 +7,7 @@
 
 #include "UiWindow.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <X11/XKBlib.h>
 #include <X11/Xatom.h>
@@ -28,7 +28,7 @@
 
 extern char** environ;
 
-namespace wheelemu::service::ui {
+namespace wheelbri::service::ui {
 
 namespace {
 
@@ -129,7 +129,7 @@ public:
         const Atom utf8 = XInternAtom(display_, "UTF8_STRING", False);
         XChangeProperty(display_, window_, XInternAtom(display_, "_NET_WM_NAME", False), utf8, 8, PropModeReplace,
                         reinterpret_cast<const unsigned char*>(title.c_str()), static_cast<int>(title.size()));
-        XClassHint classHint{const_cast<char*>("wheelemu-service"), const_cast<char*>("wheelemu")};
+        XClassHint classHint{const_cast<char*>("wheelbri-service"), const_cast<char*>("wheelbri")};
         XSetClassHint(display_, window_, &classHint);
         deleteWindow_ = XInternAtom(display_, "WM_DELETE_WINDOW", False);
         XSetWMProtocols(display_, window_, &deleteWindow_, 1);
@@ -163,6 +163,17 @@ public:
                     const bool repeat = keyDown_[code];
                     keyDown_[code] = true;
                     const KeySym sym = XLookupKeysym(&event.xkey, 0);
+                    // Text for a text field: the character with Shift and the layout applied (repeats too).
+                    if (sym == XK_BackSpace) {
+                        text_ += kBackspace;
+                    } else if (sym == XK_Return || sym == XK_KP_Enter) {
+                        text_ += kEnter;
+                    } else {
+                        char typed[8] = {};
+                        KeySym typedSym = 0;
+                        const int count = XLookupString(&event.xkey, typed, sizeof(typed), &typedSym, nullptr);
+                        if (count == 1 && typed[0] >= 32 && typed[0] < 127) text_ += typed[0];
+                    }
                     if (sym == XK_Escape) {
                         if (!repeat) keys_ += kEscape;
                     } else if (!repeat && sym >= XK_a && sym <= XK_z) {
@@ -217,6 +228,7 @@ public:
         WindowInput input;
         input.close = closed_;
         input.keys.swap(keys_);
+        input.text.swap(text_);
         input.clicks.swap(clicks_);
         input.wheel = wheel_;
         wheel_ = 0;
@@ -403,6 +415,7 @@ private:
     bool obscured_ = false;
     bool closed_ = false;
     std::string keys_;
+    std::string text_;
     std::vector<Click> clicks_;
     int wheel_ = 0;
 };
@@ -436,4 +449,4 @@ std::unique_ptr<UiWindow> openWindow(const std::string& title, const int logical
     return window;
 }
 
-}  // namespace wheelemu::service::ui
+}  // namespace wheelbri::service::ui

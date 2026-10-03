@@ -1,13 +1,13 @@
 #include "UhidG920.hpp"
 
-#include "wheelemu/HidG920.hpp"
+#include "wheelbri/HidG920.hpp"
 
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <span>
 
-namespace wheelemu::uhid {
+namespace wheelbri::uhid {
 
 namespace {
 
@@ -38,8 +38,8 @@ bool UhidG920::create() {
     event.type = UHID_CREATE2;
     auto& req = event.u.create2;
     std::strncpy(reinterpret_cast<char*>(req.name), kName, sizeof(req.name) - 1);
-    std::strncpy(reinterpret_cast<char*>(req.phys), "wheelemu", sizeof(req.phys) - 1);
-    std::strncpy(reinterpret_cast<char*>(req.uniq), "wheelemu-g920", sizeof(req.uniq) - 1);
+    std::strncpy(reinterpret_cast<char*>(req.phys), "wheelbri", sizeof(req.phys) - 1);
+    std::strncpy(reinterpret_cast<char*>(req.uniq), "wheelbri-g920", sizeof(req.uniq) - 1);
     const auto descriptor = g920ReportDescriptor();
     if (descriptor.size() > sizeof(req.rd_data)) {
         log_("uhid: descriptor too large");
@@ -169,4 +169,4 @@ void UhidG920::handle(const uhid_event& event, const std::int64_t nowMs) {
     }
 }
 
-}  // namespace wheelemu::uhid
+}  // namespace wheelbri::uhid

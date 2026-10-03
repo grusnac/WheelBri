@@ -20,7 +20,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | 2 | Shim answers as a G920 using the service's state | **working in NFS 2015**: wheel, pedals, buttons, D-pad |
 | 3 | Game FFB → service (safety limiter, watchdog) → R3 | **working in NFS 2015**: constant, spring, damper, sine, square |
 | 4 | Linux virtual G920: `tools/uhid` (`wheelbri-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
-| 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelbri-service --virtual-g920`): wheel, pedals, buttons, force feedback, the R3 hidden through HidHide. Step 0 (`tools/vbridge`, HIDMaestro) still there, with the Xbox controller for button prompts. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
+| 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelbri-service --virtual-g920`): wheel, pedals, buttons, force feedback, the R3 hidden by our own filter (`wheelbri-hide`). Step 0 (a HIDMaestro bridge) and the virtual Xbox controller were removed on 2026-10-03. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
 
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
@@ -47,7 +47,7 @@ a headline, why it was needed, how to use it, and where to look.
   return to 0%, raise `deadzone_low`. The game reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
   `out_clutch` in `telemetry-<date>.csv`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
-  `tools/vbridge/ClutchProbe` drives a test clutch (`core/include/wheelbri/TestClutch.hpp`).
+  a test clutch can be sent over UDP (`core/include/wheelbri/TestClutch.hpp`).
 
 ## Layout
 
@@ -58,15 +58,14 @@ a headline, why it was needed, how to use it, and where to look.
 | `shim/` | `dinput8.dll` proxy (Windows / Wine): wraps `IDirectInput8A/W`, devices and effects |
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
-| `scripts/make/` | Build scripts: build, full rebuild, tests, pre-commit check, mapping window, app, shim, bridge, drivers ([README](scripts/make/README.md)) |
-| `scripts/` | `telemetry_summary.py`: summary of a recorded session; `wheelbri.sh`: start and stop everything on Windows (MSYS2); `linux/`: start/stop and Steam launch wrapper, udev rules, the Linux bundle |
+| `scripts/make/` | Build scripts: build, full rebuild, tests, pre-commit check, mapping window, app, shim, drivers ([README](scripts/make/README.md)) |
+| `scripts/` | `telemetry_summary.py`: summary of a recorded session; `linux/`: start/stop and Steam launch wrapper, udev rules, the Linux bundle |
 | `tools/uhid/` | Phase 4: `wheelbri-uhid`, the virtual G920 for Linux (C++, kernel uhid) |
-| `tools/vbridge/` | Phase 5 step 0: `wheelbri-bridge`, a virtual G920 through HIDMaestro (C#, Windows) |
 
 ## Build
 
 The scripts in [`scripts/make/`](scripts/make/README.md) run all of this for you (`build.sh`, `rebuild.sh`,
-`test.sh`, `check.sh`, `ui.sh`, `app.sh`, `shim.sh`, `bridge.sh`, `drivers.sh`, `all.sh`) from an MSYS2 UCRT64 shell.
+`test.sh`, `check.sh`, `ui.sh`, `app.sh`, `shim.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`) from an MSYS2 UCRT64 shell.
 
 Needs CMake ≥ 3.24 and a C++20 compiler; on Linux also the X11 headers (`libx11-dev`). No other libraries: the
 service uses DirectInput / Win32 on Windows and evdev / X11 on Linux (it runs on those two only). spdlog and
@@ -144,26 +143,19 @@ log is `C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log`; `installer/RE
 
 `wheelbri.exe` (built next to `wheelbri-service.exe` in `build/service/`) is the everyday way to run it:
 double-click it, let Windows start it as Administrator, press **Start**, then start the game. **Start** and **Stop**
-are only on the Mapping tab (top right, next to the Xbox pad toggle, stopped or running), with the state next to them
+are only on the Mapping tab (top right, stopped or running), with the state next to them
 (stopped, running and for how long, a lost wheel, a game not using it); the Status tab says why a start failed. Start shows the Logs tab of the same live view as `--ui`
 (axes, buttons, game force feedback, logs: click a line or press O for the folder). **Stop**, or closing the window,
-undoes everything (virtual G920 and Xbox controller removed, the R3 visible again).
+undoes everything (virtual G920 removed, the R3 visible again).
 Each Start reads the config again, so edits apply without restarting the app.
 
-**Xbox pad (EX)** (EX: experimental; the toggle next to Start on the Mapping tab, while stopped; off until turned on,
-remembered in `app.ini` as `[app] xbox_buttons`) says whether Start adds the Xbox controller at all. Off: the game
-shows keyboard prompts. Not shown to work yet: NFS 2015 does not treat the G920 as an Xbox device and shows keyboard
-icons for it.
-The Xbox controller (for the game's Xbox button prompts) is added only once the game uses the G920, i.e. after its
-first force feedback: a game that finds the pad when it starts may drive from it instead of the wheel (NFS did, and
-then steering and pedals did nothing). The pad never presses anything: every button, pedal and the steering go to the
-G920, and after each button, D-pad or pedal press the pad's right stick is nudged by about 30 % for 60 ms
-(`XboxMirror::kNudge`, past XInput's dead zone; at most a brief camera look; not after steering), to make NFS show Xbox
-icons instead of keyboard ones. A nudge inside the dead zone did nothing. The log says "first icon nudge" and counts
-them once a minute.
+NFS 2015 shows keyboard button prompts with the G920 (it does not treat it as an Xbox device). A virtual Xbox
+controller to get Xbox prompts was tried and removed on 2026-10-03: with it there at the game's start NFS drove from
+the pad, its buttons triggered the pad's own functions (the right stick click took photos), and stick nudges did not
+change the prompts.
 
 If the pedals are pressed for 20 s and the game has never played force feedback on the G920, the game is driving
-from another controller (the Xbox pad, whose triggers never move, or the keyboard): the state next to Start / Stop (Mapping tab) shows **GAME NOT
+from another controller (a gamepad or the keyboard): the state next to Start / Stop (Mapping tab) shows **GAME NOT
 USING THE WHEEL** in red and the log says so. Close the game with WheelBri running, start it again and pick the wheel
 in its controls settings.
 
@@ -238,7 +230,7 @@ SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelbri-service --con
 ```
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`,
-`service.hide`, `service.config`, `service.mapping`, `service.setup`, `service.xbox`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
+`service.hide`, `service.config`, `service.mapping`, `service.setup`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
 `shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelbri-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelbri/Logging.hpp`)

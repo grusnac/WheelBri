@@ -1,12 +1,12 @@
-#include "wheelemu/FfbController.hpp"
-#include "wheelemu/FfbUsage.hpp"
+#include "wheelbri/FfbController.hpp"
+#include "wheelbri/FfbUsage.hpp"
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <vector>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 constexpr std::uint64_t kMs = 1'000'000;
@@ -170,4 +170,4 @@ TEST(FfbUsage, ControllerRecordsWhatPlays) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "wheelemu/Devices.hpp"
-#include "wheelemu/Ffb.hpp"
-#include "wheelemu/FfbPacket.hpp"
-#include "wheelemu/UdpLoopback.hpp"
+#include "wheelbri/Devices.hpp"
+#include "wheelbri/Ffb.hpp"
+#include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/UdpLoopback.hpp"
 
 #include <array>
 #include <chrono>
@@ -12,10 +12,10 @@
 #include <mutex>
 #include <optional>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 // Phase 3, shim side: the game's DirectInput effects (EmulatedEffect) become FfbPackets for
-// wheelemu-service, which limits them and plays them on the physical wheel. One per process.
+// wheelbri-service, which limits them and plays them on the physical wheel. One per process.
 //
 // Timing (duration, iterations, start delay) is tracked here, so the service only ever sees "slot N
 // plays effect E" or "slot N is quiet". Every change is sent at once; tick() adds a keep-alive and a
@@ -80,4 +80,4 @@ private:
     Clock::time_point lastRefresh_{};
 };
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

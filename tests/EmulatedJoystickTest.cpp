@@ -1,11 +1,11 @@
-#include "wheelemu/EmulatedJoystick.hpp"
+#include "wheelbri/EmulatedJoystick.hpp"
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cstring>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 constexpr std::uint32_t kAnyOptional = di::kAnyInstance | di::kOptional;
@@ -236,4 +236,4 @@ TEST(JoystickLayout, AxisNames) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

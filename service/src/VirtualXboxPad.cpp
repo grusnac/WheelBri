@@ -1,6 +1,6 @@
 #include "VirtualXboxPad.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #ifdef _WIN32
 
@@ -15,7 +15,7 @@
 #include <thread>
 #include <vector>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -115,7 +115,7 @@ std::wstring createDevice(const SwDeviceCreateFn swCreate, const SwDeviceCloseFn
     info.pszDeviceDescription = description;
     auto* wait = new CreateWait;   // heap: a late callback must not touch a dead stack frame
     device = nullptr;
-    result = swCreate(L"wheelemu", L"HTREE\\ROOT\\0", &info, 0, nullptr, onCreated, wait, &device);
+    result = swCreate(L"wheelbri", L"HTREE\\ROOT\\0", &info, 0, nullptr, onCreated, wait, &device);
     if (FAILED(result)) {
         delete wait;
         return {};
@@ -150,7 +150,7 @@ std::wstring createDevice(const SwDeviceCreateFn swCreate, const SwDeviceCloseFn
 struct VirtualXboxPad::Impl {
     SwDeviceCloseFn close = nullptr;
     HSWDEVICE_ device = nullptr;      // the XInput side (driver/xusb)
-    HSWDEVICE_ hidDevice = nullptr;   // the HID side (wheelemu-g920 driver): what joy.cpl lists
+    HSWDEVICE_ hidDevice = nullptr;   // the HID side (wheelbri-g920 driver): what joy.cpl lists
     std::string instanceId;
     std::string hidInstanceId;
 
@@ -169,7 +169,7 @@ struct VirtualXboxPad::Impl {
 namespace {
 
 // The HID side next to the XInput one, as a real wired Xbox 360 controller has: joy.cpl and DirectInput list it as
-// "Controller (XBOX 360 For Windows)". Served by the wheelemu-g920 driver (hardware ID wheelemu\XBOXHID). Without
+// "Controller (XBOX 360 For Windows)". Served by the wheelbri-g920 driver (hardware ID wheelbri\XBOXHID). Without
 // it the controller still works for XInput (games' Xbox prompts); only joy.cpl does not list it.
 void addHidSide(HSWDEVICE_& hidDevice, std::string& hidInstanceId, const SwDeviceCreateFn swCreate,
                 const SwDeviceCloseFn swClose, const std::function<bool()>& stopNow) {
@@ -178,8 +178,8 @@ void addHidSide(HSWDEVICE_& hidDevice, std::string& hidInstanceId, const SwDevic
         HSWDEVICE_ device = nullptr;
         HRESULT result = S_OK;
         const auto start = std::chrono::steady_clock::now();
-        const std::wstring id = createDevice(swCreate, swClose, instance, L"wheelemu\\XBOXHID\0",
-                                             L"Controller (XBOX 360 For Windows) (wheelemu)", deviceStarted, device, result,
+        const std::wstring id = createDevice(swCreate, swClose, instance, L"wheelbri\\XBOXHID\0",
+                                             L"Controller (XBOX 360 For Windows) (wheelbri)", deviceStarted, device, result,
                                              stopNow);
         if (!id.empty()) {
             hidDevice = device;
@@ -230,12 +230,12 @@ std::unique_ptr<VirtualXboxPad> VirtualXboxPad::create(std::string& error, const
         SwDeviceCreateInfo info{};
         info.cbSize = sizeof(info);
         info.pszInstanceId = instance;
-        info.pszzHardwareIds = L"wheelemu\\XUSB\0";
+        info.pszzHardwareIds = L"wheelbri\\XUSB\0";
         info.CapabilityFlags = kRemovable | kSilentInstall | kDriverRequired;
-        info.pszDeviceDescription = L"Xbox 360 Controller (wheelemu)";
+        info.pszDeviceDescription = L"Xbox 360 Controller (wheelbri)";
         auto* wait = new CreateWait;   // heap: a late callback must not touch a dead stack frame
         HSWDEVICE_ device = nullptr;
-        const HRESULT hr = swCreate(L"wheelemu", L"HTREE\\ROOT\\0", &info, 0, nullptr, onCreated, wait, &device);
+        const HRESULT hr = swCreate(L"wheelbri", L"HTREE\\ROOT\\0", &info, 0, nullptr, onCreated, wait, &device);
         if (FAILED(hr)) {
             delete wait;
             char text[160];
@@ -305,11 +305,11 @@ std::unique_ptr<VirtualXboxPad> VirtualXboxPad::create(std::string& error, const
 
 bool VirtualXboxPad::hidSide() const { return impl_->hidDevice != nullptr; }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service
 
 #else  // not Windows
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 struct VirtualXboxPad::Impl {
     std::string instanceId;
@@ -322,14 +322,14 @@ std::unique_ptr<VirtualXboxPad> VirtualXboxPad::create(std::string& error, const
 
 bool VirtualXboxPad::hidSide() const { return false; }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service
 
 #endif
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 VirtualXboxPad::VirtualXboxPad(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 VirtualXboxPad::~VirtualXboxPad() = default;
 const std::string& VirtualXboxPad::instanceId() const { return impl_->instanceId; }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

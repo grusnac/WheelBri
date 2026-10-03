@@ -7,7 +7,7 @@ This file guides Claude when working in this repository.
 - After every change, finish with **how to build it** and **how to test it** (what to run, what to look for,
   what a failure looks like), even when the change needs no rebuild (say so).
 - Build and test steps use the scripts in `scripts/make/` (`build.sh`, `rebuild.sh`, `test.sh`, `check.sh`,
-  `ui.sh`, `app.sh`, `shim.sh`, `bridge.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`; see `scripts/make/README.md`) as the shortcut
+  `ui.sh`, `app.sh`, `shim.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`; see `scripts/make/README.md`) as the shortcut
   next to the full commands (next rule). When a new workflow keeps needing the same commands, add a script there
   (sourcing `common.sh`) and list it in that README.
 - **Every build or test step comes in two forms**: first the **full command(s)** that will run (exactly what the
@@ -29,7 +29,7 @@ This file guides Claude when working in this repository.
   When a script runs several commands, list each one in its own block, in order, before the shortcut.
 - Put **every command in its own code block**, one command per block, so each can be copied on its own.
 - The user builds and runs on Windows (`D:\cpp-projects\WheelBri`) in an MSYS2 UCRT64 shell. Give commands for
-  that shell unless the step needs PowerShell (drivers, `dotnet`), and say which shell.
+  that shell unless the step needs PowerShell (drivers), and say which shell.
 - **Before every commit**, write down why the change was made: the commit message gets a short headline and a
   few lines of reasons.
 - **When a functionality is finished** (it may take several commits), add one entry for it under
@@ -57,8 +57,7 @@ Status (README.md has the full table):
 - The G920's own FFB is HID++, not the classic Logitech protocol; the virtual G920 exposes HID PID instead.
 
 Data flow: `Moza R3 --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`, where the consumer is
-one of: the `dinput8.dll` shim in the game, the `wheelbri-g920` driver (Windows), the HIDMaestro bridge
-(`tools/vbridge`, Windows, step 0) or `wheelbri-uhid` (Linux). Use UDP loopback, not shared memory: under Proton
+one of: the `dinput8.dll` shim in the game, the `wheelbri-g920` driver (Windows) or `wheelbri-uhid` (Linux). Use UDP loopback, not shared memory: under Proton
 the shim runs inside Wine and the service is a native Linux process, and named mappings don't cross that boundary.
 
 UDP ports (all 127.0.0.1):
@@ -67,9 +66,7 @@ UDP ports (all 127.0.0.1):
 |---|---|---|
 | 41329 (`state_port`) | service → consumer | `StatePacket`; only one consumer at a time |
 | 41330 (`ffb_port`) | consumer → service | `FfbPacket` (game force feedback) |
-| 41331 | ClutchProbe → service | `ClutchPacket` test clutch (`TestClutch.hpp`) |
-| 41332 | service → `wheelbri-xusb` | Xbox pad state (`XboxPad.hpp`) |
-| 41333 | service → `wheelbri-g920` (`wheelbri\XBOXHID`) | the same pad packets for the Xbox pad's HID side (`HidXbox360.hpp`) |
+| 41331 | test tool → service | `ClutchPacket` test clutch (`TestClutch.hpp`) |
 
 ## Build and test
 
@@ -80,7 +77,7 @@ Xlib; skipped with a warning without libx11-dev). No SDL or other third-party li
 
 The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `build.sh` (incremental,
 configures the first time), `rebuild.sh` (deletes `build/`, full rebuild), `test.sh [filter]`, `check.sh` (before a
-commit), `ui.sh [config]`, `app.sh [--no-start]`, `shim.sh [--off] <game folder>`, `bridge.sh`, `drivers.sh [-Install]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer), `clean-pc.sh [-KeepData]
+commit), `ui.sh [config]`, `app.sh [--no-start]`, `shim.sh [--off] <game folder>`, `drivers.sh [-Install]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer), `clean-pc.sh [-KeepData]
 [-GameFolder <folder>] [-ThirdParty] [-Yes]` (removes everything WheelBri put on the PC, for a fresh install; when the
 app, installer or drivers start leaving something new on the PC, add it to `clean-pc.ps1`).
 The raw commands they run:
@@ -116,7 +113,7 @@ Or the test binary directly:
 ```
 
 Outputs: `build/service/wheelbri-service.exe` (command line), `build/service/wheelbri.exe` (the app: window with
-Start / Stop, asks for Administrator) and `build/shim/dinput8.dll`; all linked statically on MinGW. `scripts/wheelbri.sh --build` rebuilds the service and the bridge.
+Start / Stop, asks for Administrator) and `build/shim/dinput8.dll`; all linked statically on MinGW.
 
 Windows shim cross-compiled from Linux/macOS with MinGW-w64 (→ `build-win/shim/dinput8.dll`):
 
@@ -135,26 +132,25 @@ msbuild driver\wheelbri-g920.vcxproj /p:Configuration=Release /p:Platform=x64
 driver\install-driver.ps1
 ```
 
-(same pattern for `driver\hide\wheelbri-hide.vcxproj` + `install-hide.ps1` and `driver\xusb\wheelbri-xusb.vcxproj`
-+ `install-xusb.ps1`). C# tools (.NET 10) in `tools/vbridge`: `dotnet build tools/vbridge/wheelbri-bridge.csproj -c
-Release`; `dotnet run --project tools/vbridge/SelfTest` checks `Wire.cs` and runs on any OS.
+(same pattern for `driver\hide\wheelbri-hide.vcxproj` + `install-hide.ps1`). `driver\remove-xbox-controller.ps1`
+takes away the virtual Xbox controller of versions before 2026-10-03 (the installer and uninstaller run it).
 
 CMake options: `WE_BUILD_TESTS` (ON; skipped when cross-compiling), `WE_BUILD_SERVICE` (ON), `WE_BUILD_SHIM` (ON
 only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra
 -Wpedantic` elsewhere. Keep new code free of warnings.
 
 Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
-[--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide] [--xbox-pad buttons|idle|off]]
+[--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide]]
 [--unhide] [--app]`. `--app` opens the app's window (Start / Stop) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
 (click, or M / L / T / F / W): **Mapping** (the axes R3 -> G920, every R3 axis, the D-pad, the G920 buttons written
 `G920 <n> <name> <- R3 <n> <name>` and the R3's own buttons `R3 <n> <name>` from `[button_labels]`), **Logs** (one
-line per component: emulator, game shim, G920 driver, hide filter, Xbox driver, bridge, each in its own colour,
+line per component: emulator, game shim, G920 driver, hide filter, each in its own colour,
 with today's file, size, age, click opens its folder; then a scrollable live log of all those files merged:
 wheel, arrows, PageUp / PageDown, Home / End; core `LiveLog`), **Telemetry** (the CSV files, buttons held, the
 latest button / D-pad / pedal / FFB events, not scrollable), **Force feedback** (live effects, usage since
 start, the latest effects) and **Wheel setup** (W, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
 when stopped too, reading every connected device itself). The app has no log panel or toolbar: only the Mapping tab (the editor while stopped, the
-live one while running) has a short status, the Xbox pad toggle, Start and Stop, in its top right corner. Stopped, the app's own tabs are Mapping (`MappingEditView`,
+live one while running) has a short status, Start and Stop, in its top right corner. Stopped, the app's own tabs are Mapping (`MappingEditView`,
 the editor), Status and Wheel setup; it opens on Wheel setup until a rig exists, else on Mapping; Start shows Logs. O opens the logs folder, D the drivers' folder. It draws through
 `UiWindow.hpp` (filled/outlined rectangles, 8x8-cell monospaced text and clicks on a 960x748 logical canvas,
 letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp`
@@ -188,16 +184,15 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
     spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
   - `GameUseWatch`: pedals pressed for 20 s in total while the game never sent force feedback = the game drives from
-    another controller (the Xbox pad or the keyboard); the loop logs a warning and the app's status (next to Start / Stop) says
+    another controller (a gamepad or the keyboard); the loop logs a warning and the app's status (next to Start / Stop) says
     "GAME NOT USING THE WHEEL" (`UiFrame::gameIgnoresWheel`).
-  - `XboxPad` (`XboxMirror`, **experimental**, toggle off by default) tries to keep a game's icons Xbox: the G920 gets
-    every input untouched, and after each button, D-pad or pedal press the pad's right stick is nudged ~30 % (past the
-    dead zone; a nudge inside it did nothing in NFS) for 60 ms; never after steering, never a button or trigger (the
-    pad's own functions must never act, e.g. its right stick click is NFS's photo). `HidHideCli` holds
-    device-id string helpers (`HideFilter` uses them; HidHide itself is no longer used).
-  - `TestClutch`: a test clutch for when no pedal is connected. `tools/vbridge/ClutchProbe` sends `ClutchPacket`s
-    (12 bytes, magic `WECL`, v1) to 41331; the service uses that value instead of the mapped clutch until 1.5 s
-    after the last packet. `ClutchPacket` must stay byte-compatible with `ClutchPacket` in `tools/vbridge/Wire.cs`.
+  - No virtual Xbox controller (removed 2026-10-03, with the HIDMaestro bridge): with an XInput pad there at the game's
+    start NFS drove from the pad, the pad's buttons acted as its own (its right stick click is NFS's photo), and stick
+    nudges did not change NFS's keyboard prompts. Do not add one back without asking. `HidHideCli` holds device-id
+    string helpers (`HideFilter` uses them; HidHide itself is no longer used).
+  - `TestClutch`: a test clutch for when no pedal is connected. A test tool sends `ClutchPacket`s (12 bytes, magic
+    `WECL`, v1; `ClutchPacket::encode`) to 41331; the service uses that value instead of the mapped clutch until 1.5 s
+    after the last packet. (Its C# sender, ClutchProbe, went with the bridge.)
   - The rig (`Rig.hpp`): every device the user has (`[device_N]` name, id, kind) and each control's label, role
     (`ControlRole`: steering, throttle, ..., d-pad up, shift up, gear N) and invert, written `label | role | invert`;
     one `<name>.ini` per rig in `rigsFolder()` (`%LOCALAPPDATA%\wheelbri\rigs`), the active one in the app's state
@@ -239,7 +234,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     found (7z > xz > zstd > zip > gzip) as a background process via `platform::ChildProcess`, deleting
     originals only after the compressor exited 0.
   - Wire format (`StatePacket.hpp`): 33 bytes, little-endian, magic `WEMU`, version 1. Any layout change
-    must bump `kVersion` and update the layout comment, `StatePacketTest`, `tools/vbridge/Wire.cs` and the driver.
+    must bump `kVersion` and update the layout comment, `StatePacketTest` and the driver.
 - `service/` (`wheelbri-service`, namespace `wheelbri::service`):
   - The wheel behind `Wheel.hpp` (`WheelDinput.cpp` DirectInput + `DinputReader`, `WheelEvdev.cpp` evdev),
     numbering inputs as the service always has (`DinputReader`, core `EvdevLayout`) and sending the same force
@@ -248,18 +243,12 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `SingleInstance` lock so only one session runs per computer, console close handler, `isElevated`); `FfbSelfTest`
     (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView` (`--ui`); a fixed-rate loop
     (default 1 kHz, drift-free, resynchronises when behind).
-  - Phase 5 (`--virtual-g920`, run as Administrator, no shim in the game, no bridge running): `VirtualG920`
+  - Phase 5 (`--virtual-g920`, run as Administrator, no shim in the game): `VirtualG920`
     creates the `wheelbri\G920` software device for the `wheelbri-g920` driver while the service runs and keeps
     the DirectInput "driving" registry entry right (and Logitech's FFB entry out); `HideFilter` sets
     `HKLM\SOFTWARE\wheelbri\hide\AllowedPid` for the `wheelbri-hide` filter so only the service sees the R3
     (our own filter only, no HidHide or other third-party tools: without it the window says "R3 NOT HIDDEN" in
-    red; `--no-hide` skips it, `--unhide` clears it after a crash);
-    `VirtualXboxPad` creates the `wheelbri\XUSB` device and the loop sends pad state to 41332. The pad is created
-    only after the game's first force feedback on the G920 (`DeferredXboxPad` in main.cpp): with the pad there when it
-    started, NFS drove from the pad (its sticks and triggers never move) and ignored the G920. Until then
-    `XboxPadPublisher` passes the wheel through untouched. Keep it that way. Whether there is a pad at all is the app's
-    "Xbox pad (EX)" (experimental) toggle on the Mapping tab (`[app] xbox_buttons`, off unless set; passed to
-    `AppSettings::runSession`).
+    red; `--no-hide` skips it, `--unhide` clears it after a crash).
   - Failure handling (keep it when changing `runSession`): a lost wheel (`runLoop` returns `kWheelLost`) keeps the
     virtual devices and waits for the wheel to come back, then carries on; creating devices and waiting for the
     hide installer stop on Stop (`cancelled`), but a running installer is never killed (it may be switching the
@@ -290,17 +279,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     another driver ranks higher (Windows' input.inf, or Moza's own "MOZA Windows Driver"). In these scripts wrap
     function results in `@(...)` before `.Count`: Windows PowerShell 5.1 gives no `.Count` for a single CIM object.
     Driver threads close their sockets only after joining, and repeating socket errors are logged once a minute.
-  - `xusb/` (`wheelbri-xusb`): the virtual Xbox 360 controller's XInput side, fed from 41332 (games' Xbox prompts).
-    Its HID side, which joy.cpl lists as "Controller (XBOX 360 For Windows)" as for a real one, is a second software
-    device (`wheelbri\XBOXHID`) served by `wheelbri-g920` from 41333 (`core/HidXbox360`); `VirtualXboxPad` creates both.
-- `tools/vbridge/` (C#, .NET 10, Windows): Phase 5 step 0, superseded by `driver/` but kept (mainly for the
-  Xbox controller button prompts; `scripts/wheelbri.sh` still starts this path). HIDMaestro virtual G920 fed
-  from the service's `StatePacket`s; decodes HID PID reports (`PidForwarder.cs`) into `FfbPacket`s. `Wire.cs`
-  must stay byte-compatible with `core/src/StatePacket.cpp`, `FfbPacket.cpp` and `TestClutch.cpp`; `SelfTest/`
-  checks the portable parts with `dotnet run` (any OS, no NuGet packages needed). Probes (need the service
-  running): `FfbProbe/` plays DirectInput effects on the virtual G920; `ClutchProbe/` sends the test clutch and
-  reads Rz back (`steps`, `sweep`, `hold`). Reports go to `%LOCALAPPDATA%\wheelbri\logs`.
-- `tools/uhid/` (C++, Linux only, `WE_BUILD_UHID`): Phase 4, `wheelbri-uhid`. The same virtual G920 as the bridge
+- `tools/uhid/` (C++, Linux only, `WE_BUILD_UHID`): Phase 4, `wheelbri-uhid`. The same virtual G920 as `driver/`
   (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
   raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. `UhidG920` holds the uhid protocol with no file descriptors so
   `UhidG920Test` covers it; `main.cpp` is the fd/UDP loop.
@@ -324,13 +303,11 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelbri.exe` and no `install.ps1`, i.e. never a
   package; runs from a `%TEMP%` copy; from the package it cleans up an install whose folder is gone), `Setup.cmd`
   (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), `README.txt` (for the end user). The
-  installed app runs the driver path (virtual G920, Xbox controller, R3 hidden on every Start); the shim ships in
+  installed app runs the driver path (virtual G920, R3 hidden on every Start); the shim ships in
   `shim\` as an extra only. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
   driver scripts and the app's `ensureHideFilter` look there. Only Windows' own tools: no third-party installer.
   When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.
-- `scripts/`: `wheelbri.sh` (Windows, MSYS2 UCRT64: starts the service with `--ui` and the bridge as
-  Administrator, stops both on Enter; `--build`, `--no-ui`, `--xbox-pad`, `--config`); `telemetry_summary.py`
-  (reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelbri.sh`, udev rules,
+- `scripts/`: `telemetry_summary.py` (reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelbri.sh`, udev rules,
   `package.sh` bundle).
 - `config/`: `moza-r3-as-g920.ini`, `moza-r3-as-g29.ini` (service), `wheelbri-shim.ini` (shim).
 - `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide).
@@ -339,7 +316,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
 
 ## Conventions
 
-- No third-party runtime tools or drivers (HidHide, ViGEm, HIDMaestro outside the old step-0 bridge): what the
+- No third-party runtime tools or drivers (HidHide, ViGEm, HIDMaestro): what the
   emulator needs on the PC is built in this repository.
 
 - Style: C++20, 4-space indent, `camelCase` functions and variables, `PascalCase` types, `trailing_` members,
@@ -372,7 +349,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   crashes while using the virtual G920 sends nothing more and the driver cannot tell: `HidPid` stops keep-alives
   after 10 s without a report while a pushing force (constant, ramp, periodic) plays, so the service's watchdog
   stops it (springs and dampers keep going; the next report brings everything back)
-  (`max_magnitude` 0.8, slew limit). Game effects reach the service as `FfbPacket`s (shim, driver, bridge or
+  (`max_magnitude` 0.8, slew limit). Game effects reach the service as `FfbPacket`s (shim, driver or
   uhid). The only way around the limiter is the opt-in `force_feedback = passthrough` in `wheelbri-shim.ini`;
   keep it opt-in and don't add others.
 - Licence: nothing is copied from GIMX (GPLv3). If GIMX code is ever copied rather than reimplemented, the

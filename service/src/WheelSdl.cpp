@@ -8,8 +8,8 @@
 #include "DinputReader.hpp"
 #endif
 
-#include "wheelemu/Logging.hpp"
-#include "wheelemu/WheelOutput.hpp"
+#include "wheelbri/Logging.hpp"
+#include "wheelbri/WheelOutput.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -17,7 +17,7 @@
 #include <array>
 #include <cstdlib>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -423,4 +423,4 @@ std::unique_ptr<WheelBackend> startWheelBackend() {
     return std::make_unique<SdlBackend>();
 }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

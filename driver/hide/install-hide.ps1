@@ -28,6 +28,7 @@ $logFolder = 'C:\ProgramData\wheelbri\logs'
 New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
 Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
 $exitCode = 1
+$script:needsWindowsRestart = $false   # pnputil said the R3 waits for a restart of Windows
 try {
     if ((Remove-LegacyPackages 'wheelbri-hide') -gt 0) {
         Invoke-Pnputil @('/scan-devices') 'rescanning devices' | Out-Null   # the R3 back on its own driver first
@@ -88,8 +89,22 @@ public static extern bool UpdateDriverForPlugAndPlayDevices(IntPtr parent, strin
     # for a restart of Windows. It fails while a program holds the R3 in a way Windows cannot interrupt.
     foreach ($device in @(Get-Pending)) {
         Write-Host "restarting $($device.InstanceId) so Windows loads the filter..."
-        & pnputil /restart-device "$($device.InstanceId)" | ForEach-Object { Write-Host $_ }
-        Write-Host "pnputil exit code $LASTEXITCODE"
+        $said = @(& pnputil /restart-device "$($device.InstanceId)")
+        $code = $LASTEXITCODE
+        if ($code -eq 0) {
+            Write-Host '    restarted'
+        } elseif ($code -in @(50, 3010)) {
+            # 3010: done at the next restart. 50 (ERROR_NOT_SUPPORTED): pnputil then prints "This command is not
+            # supported on this OS product", which is misleading: Windows refuses because the R3 is waiting for a
+            # restart of Windows ("pending system reboot"), not because the command is missing. Either way only a
+            # restart of Windows helps here; unplugging the R3 does not.
+            $script:needsWindowsRestart = $true
+            Write-Host '    Windows will not restart the R3 now: it is waiting for a restart of Windows to finish switching'
+            Write-Host "    its driver (pnputil exit code $code; unplugging the R3 does not help)."
+        } else {
+            $said | ForEach-Object { Write-Host "    pnputil: $_" }
+            Write-Host "    pnputil exit code $code"
+        }
     }
     for ($waited = 0; $waited -lt 15 -and @(Get-Pending).Count -gt 0; $waited++) { Start-Sleep -Seconds 1 }
 
@@ -105,6 +120,10 @@ public static extern bool UpdateDriverForPlugAndPlayDevices(IntPtr parent, strin
     if ($r3.Count -eq 0) {
         Write-Host 'The R3 is not plugged in: the filter attaches when it is.' -ForegroundColor Yellow
         $exitCode = 0
+    } elseif ($script:needsWindowsRestart -and (@(Get-Missing).Count -gt 0 -or @(Get-Pending).Count -gt 0)) {
+        Write-Host ('The filter is installed but Windows starts it on the R3 only after a restart: restart Windows; ' +
+                    'the next Start in the app then hides the R3.') -ForegroundColor Red
+        $exitCode = 2
     } elseif (@(Get-Missing).Count -gt 0 -or @(Get-Pending).Count -gt 0) {
         Write-Host ('The filter is installed but not running on the R3 yet: unplug the R3 and plug it in again (or ' +
                     'restart Windows); the next Start in the app then hides it.') -ForegroundColor Red

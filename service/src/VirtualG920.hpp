@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 // The virtual G920 served by our own driver (driver/, Phase 5 plan B), created while the service runs
 // (--virtual-g920) and removed when it stops, including a crash: it is a Windows "software device" tied
@@ -34,4 +34,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

@@ -1,9 +1,9 @@
-#include "wheelemu/FfbPacket.hpp"
+#include "wheelbri/FfbPacket.hpp"
 
 #include <bit>
 #include <cmath>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -128,4 +128,4 @@ std::optional<FfbPacket> decodeFfbPacket(const std::span<const std::uint8_t> byt
     return packet;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

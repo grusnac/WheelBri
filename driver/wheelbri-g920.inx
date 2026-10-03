@@ -1,0 +1,73 @@
+;
+; wheelbri-g920.inf: the virtual Logitech G920 of wheel-emulator (UMDF 2 HID minidriver).
+;
+; The device is a software device that wheelbri-service creates while it runs (--virtual-g920), with hardware
+; ID wheelbri\G920. Install: driver\install-driver.ps1 (Administrator).
+; Needs Windows 11 (MsHidUmdf.inf, 22000+).
+;
+[Version]
+Signature="$WINDOWS NT$"
+Class=HIDClass
+ClassGuid={745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Provider=%Provider%
+DriverVer=
+CatalogFile=wheelbri-g920.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1=%DiskName%,,,
+
+[SourceDisksFiles]
+wheelbri-g920.dll=1
+
+[Manufacturer]
+%Provider%=Wheelbri,NT$ARCH$.10.0...22000
+
+[Wheelbri.NT$ARCH$.10.0...22000]
+%DeviceDesc%=WheelbriG920, wheelbri\G920
+
+[WheelbriG920.NT]
+CopyFiles=UMDriverCopy
+Include=MsHidUmdf.inf
+Needs=MsHidUmdf.NT
+Include=WUDFRD.inf
+Needs=WUDFRD_LowerFilter.NT
+
+[WheelbriG920.NT.hw]
+Include=MsHidUmdf.inf
+Needs=MsHidUmdf.NT.hw
+Include=WUDFRD.inf
+Needs=WUDFRD_LowerFilter.NT.hw
+
+[WheelbriG920.NT.Services]
+Include=MsHidUmdf.inf
+Needs=MsHidUmdf.NT.Services
+Include=WUDFRD.inf
+Needs=WUDFRD_LowerFilter.NT.Services
+
+[WheelbriG920.NT.Filters]
+Include=WUDFRD.inf
+Needs=WUDFRD_LowerFilter.NT.Filters
+
+[WheelbriG920.NT.Wdf]
+UmdfService="wheelbri_g920", WheelbriG920_Install
+UmdfServiceOrder=wheelbri_g920
+UmdfKernelModeClientPolicy=AllowKernelModeClients
+UmdfFileObjectPolicy=AllowNullAndUnknownFileObjects
+UmdfMethodNeitherAction=Copy
+UmdfFsContextUsePolicy=CanUseFsContext2
+
+[WheelbriG920_Install]
+UmdfLibraryVersion=$UMDFVERSION$
+ServiceBinary="%13%\wheelbri-g920.dll"
+
+[UMDriverCopy]
+wheelbri-g920.dll
+
+[Strings]
+Provider="WheelBri"
+DiskName="WheelBri G920 driver"
+DeviceDesc="Logitech G920 Driving Force Racing Wheel USB (wheelbri)"

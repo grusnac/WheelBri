@@ -1,8 +1,8 @@
-#include "wheelemu/HidXbox360.hpp"
+#include "wheelbri/HidXbox360.hpp"
 
 #include <gtest/gtest.h>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 std::uint16_t at16(const std::array<std::uint8_t, kXboxHidInputReportSize>& r, const std::size_t i) {
@@ -60,4 +60,4 @@ TEST(HidXbox360, DescriptorDescribesTheReport) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

@@ -4,12 +4,12 @@
 #include <memory>
 #include <string>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 // The virtual Xbox 360 controller next to the virtual G920, created while the service runs (--virtual-g920, unless
 // --xbox-pad off) and removed when it stops or crashes. Two Windows software devices, as a real wired one has two
-// sides: wheelemu\XUSB (driver/xusb) for XInput, which games use for their Xbox prompts, and wheelemu\XBOXHID (the
-// wheelemu-g920 driver) for HID / DirectInput, which joy.cpl lists. The service feeds both over UDP
+// sides: wheelbri\XUSB (driver/xusb) for XInput, which games use for their Xbox prompts, and wheelbri\XBOXHID (the
+// wheelbri-g920 driver) for HID / DirectInput, which joy.cpl lists. The service feeds both over UDP
 // (core/XboxPad.hpp, core/HidXbox360.hpp).
 class VirtualXboxPad {
 public:
@@ -31,4 +31,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

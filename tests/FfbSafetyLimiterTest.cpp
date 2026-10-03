@@ -1,11 +1,11 @@
-#include "wheelemu/Ffb.hpp"
+#include "wheelbri/Ffb.hpp"
 
 #include <gtest/gtest.h>
 
 #include <cmath>
 #include <limits>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 constexpr float kTolerance = 1e-5F;
@@ -109,4 +109,4 @@ TEST(FfbSafetyLimiter, InvalidConfigIsClamped) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

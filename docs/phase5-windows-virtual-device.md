@@ -1,5 +1,9 @@
 # Phase 5 design: a virtual G920 on Windows
 
+> Since 2026-10-03 the step-0 bridge (`tools/vbridge`, HIDMaestro) and the virtual Xbox controller are gone: the
+> virtual G920 is our own driver (`driver/`). This page keeps the design history; paths under `tools/vbridge` no
+> longer exist.
+
 Status: **step 0 works** (`tools/vbridge`, 2026-09-30): NFS 2015 without `dinput8.dll` drives the virtual G920,
 force feedback feels as with the shim, the R3 is hidden by HidHide. Both step-0 questions are answered yes.
 
@@ -7,7 +11,7 @@ force feedback feels as with the shim, the R3 is hidden by HidHide. Both step-0 
 
 Today the G920 exists only inside NFS: `dinput8.dll` in the game folder answers DirectInput calls as a
 G920. Phase 5 makes Windows itself show a G920 (in `joy.cpl`, to every game, through every API that reads
-HID: DirectInput, raw HID, SDL), with its force feedback, fed by the same `wheelemu-service`.
+HID: DirectInput, raw HID, SDL), with its force feedback, fed by the same `wheelbri-service`.
 
 ```
 today      Moza R3 ──SDL3──► service ──UDP──► dinput8.dll inside each game ──► game
@@ -26,7 +30,7 @@ folders. Not worth it for NFS alone: the shim already works there.
 | Signing | The kernel parts (`MsHidUmdf.sys`, `WUDFRd.sys`) are Microsoft's, already signed. Our package (INF, DLL, catalog) is signed with a **self-made certificate trusted on this PC** (placed in the machine's Root and TrustedPublisher stores). **No test mode, Secure Boot stays on.** HIDMaestro installs this way ([HIDMaestro][hidmaestro-repo]). *Correction:* an earlier message said test signing with Secure Boot off would be needed; that applies to kernel drivers, not to this one. Still to confirm on your Windows edition (HIDMaestro lists Windows 10/11 IoT LTSC as tested). |
 | Identity | The driver chooses VID `046D`, PID `C262`, product string and HID report descriptor, so DirectInput derives the same product GUID and name the shim reports today. DirectInput reports "driving" device type from the registry's joystick OEM entry for `VID_046D&PID_C262` (to verify: installer writes it, as Logitech's software does). |
 | Force feedback | A real G920 does FFB through Logitech's driver (HID++), which we cannot use. The virtual G920 declares **HID PID** (usage page 0x0F) instead: Windows' built-in PID driver then offers DirectInput FFB for it and turns the game's effects into PID output and feature reports, which our driver decodes. vJoy and HIDMaestro use the same mechanism. |
-| The real R3 | Must be hidden from games, or a game may take the R3 instead of the G920. **HidHide** ([Nefarius][hidhide]), signed and free, hides it from everyone except whitelisted programs: `wheelemu-service.exe` stays on the list. |
+| The real R3 | Must be hidden from games, or a game may take the R3 instead of the G920. **HidHide** ([Nefarius][hidhide]), signed and free, hides it from everyone except whitelisted programs: `wheelbri-service.exe` stays on the list. |
 | Logitech G HUB | If installed, it may try to talk to anything with Logitech's VID. Check at the first test; exit G HUB if it interferes. |
 | Toolchain | Visual Studio 2022 (Community) + Windows SDK + WDK on your PC (roughly 10 GB). Drivers cannot be built with MSYS2/MinGW or in the Linux sandbox; the rest of the project stays on MSYS2. |
 
@@ -58,7 +62,7 @@ the shim stays the answer for NFS, and Phase 5 only matters for other games.
 | B2 | G920 identity and input: VID/PID/name, HID descriptor with the layout NFS already reads (wheel X, brake Y, clutch Rz, throttle Slider, 11 buttons, hat); the driver listens to the service's state on 127.0.0.1:41329 exactly like the shim | `joy.cpl` shows "Logitech G920 Driving Force Racing Wheel USB"; every axis and button moves |
 | B3 | Hide the R3 with HidHide, whitelist the service; installer writes the joystick OEM entry | NFS with **no** `dinput8.dll` sees only the G920 and drives |
 | B4 | HID PID descriptor and reports (pool, create/load/free effect, set effect/constant/condition/periodic/envelope, effect operation, device control and gain); decoded into `FfbEffect` and sent as `FfbPacket` to 41330: **the service does not change** | An FFB test tool, then NFS: forces as with the shim, telemetry identical in shape |
-| B5 | Logging (daily file in `C:\ProgramData\wheelemu\logs`, cleaned by the service's `[retention]`), uninstall script, README | Clean install and uninstall; logs show up in the `--ui` panel |
+| B5 | Logging (daily file in `C:\ProgramData\wheelbri\logs`, cleaned by the service's `[retention]`), uninstall script, README | Clean install and uninstall; logs show up in the `--ui` panel |
 
 ## What step 0 taught us
 
@@ -100,7 +104,7 @@ Things that were not in the plan and cost time; B must handle them too.
 
 - Step 0: .NET 10 SDK, HIDMaestro, HidHide. No security settings change. If HIDMaestro's releases do not
   offer a prebuilt `HIDMaestro.Core.dll`, building it needs Visual Studio 2022 with the WDK, the same
-  toolchain B needs. The bridge and its test steps: [tools/vbridge/README.md](../tools/vbridge/README.md).
+  toolchain B needs. The bridge and its test steps were in `tools/vbridge` (removed 2026-10-03).
 - B: additionally Visual Studio 2022 Community with the WDK.
 
 [umdf-hid]: https://github.com/MicrosoftDocs/windows-driver-docs/blob/staging/windows-driver-docs-pr/wdf/creating-umdf-hid-minidrivers.md

@@ -1,4 +1,4 @@
-# Installs WheelBri on a PC that has nothing of it yet: the app, its three drivers, shortcuts and an entry in
+# Installs WheelBri on a PC that has nothing of it yet: the app, its two drivers, shortcuts and an entry in
 # Settings > Apps (to uninstall). Run it from the unpacked package (Setup.exe does that), as Administrator; it asks
 # for Administrator itself when needed. Running it again upgrades in place and keeps an edited config.
 #
@@ -15,7 +15,7 @@
 #
 # What it changes on this PC (all undone by the uninstaller):
 #   - files in the install folder; Start menu (and desktop) shortcut "WheelBri"; an uninstall entry
-#   - three driver packages (pnputil): the virtual G920 (wheelbri-g920), the Xbox controller (wheelbri-xusb) and the
+#   - two driver packages (pnputil): the virtual G920 (wheelbri-g920) and the
 #     filter that hides the real wheel from games (wheelbri-hide, on the Moza R3's game-controller interface)
 #   - the certificate the drivers are signed with, added to this PC's trusted Root and TrustedPublisher stores (the
 #     drivers are signed by WheelBri's own test certificate, not by Microsoft)
@@ -100,13 +100,12 @@ try {
     Write-Host "    Windows build $build, 64-bit: fine"
     foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'config\moza-r3-as-g920.ini', 'uninstall.ps1', 'Uninstall.cmd',
                           'driver\common.ps1', 'driver\install-driver.ps1', 'driver\hide\install-hide.ps1',
-                          'driver\xusb\install-xusb.ps1') {
+                          'driver\remove-xbox-controller.ps1') {
         if (-not (Test-Path (Join-Path $package $required))) {
             Fail "the package is incomplete ($required is missing): unpack the whole package again."
         }
     }
-    foreach ($driver in 'x64\Release\wheelbri-g920\wheelbri-g920', 'hide\x64\Release\wheelbri-hide\wheelbri-hide',
-                        'xusb\x64\Release\wheelbri-xusb\wheelbri-xusb') {
+    foreach ($driver in 'x64\Release\wheelbri-g920\wheelbri-g920', 'hide\x64\Release\wheelbri-hide\wheelbri-hide') {
         foreach ($extension in '.inf', '.cat', '.dll') {
             if (-not (Test-Path (Join-Path $package "driver\$driver$extension"))) {
                 Fail "the package is incomplete (driver\$driver$extension is missing): unpack the whole package again."
@@ -216,13 +215,18 @@ try {
         $copied++
     }
     Write-Host "    $copied files copied"
+    # An earlier version's Xbox controller driver files (removed from WheelBri on 2026-10-03).
+    Remove-Item (Join-Path $InstallDir 'driver\xusb') -Recurse -Force -ErrorAction SilentlyContinue
 
     # --- 4. drivers -----------------------------------------------------------------------------------------------
     Step 'installing the drivers'
+    # The virtual Xbox controller of earlier versions goes first (WheelBri has none any more).
+    Write-Host '  the Xbox controller of an earlier version'
+    $code = Run-Script (Join-Path $InstallDir 'driver\remove-xbox-controller.ps1')
+    if ($code -ne 0) { Warn "    the old Xbox controller was not removed completely (exit code $code, see above)" }
     $hidePending = $false   # the hiding filter is installed but Windows starts it only after a restart
     $drivers = @(
         @{ Name = 'virtual G920 (wheelbri-g920)'; Script = 'driver\install-driver.ps1'; Required = $true },
-        @{ Name = 'Xbox controller (wheelbri-xusb)'; Script = 'driver\xusb\install-xusb.ps1'; Required = $false },
         @{ Name = 'hiding filter (wheelbri-hide)'; Script = 'driver\hide\install-hide.ps1'; Required = $false }
     )
     foreach ($driver in $drivers) {
@@ -304,7 +308,7 @@ try {
     # --- 7. check -------------------------------------------------------------------------------------------------
     Step 'checking the installation'
     $installed = pnputil /enum-drivers | Out-String
-    foreach ($inf in 'wheelbri-g920.inf', 'wheelbri-xusb.inf', 'wheelbri-hide.inf') {
+    foreach ($inf in 'wheelbri-g920.inf', 'wheelbri-hide.inf') {
         if ($installed -match [regex]::Escape($inf)) { Write-Host "    $inf installed" } else { Warn "    $inf is not listed by pnputil" }
     }
     $exitCode = 0
@@ -322,7 +326,7 @@ try {
             $warnings | ForEach-Object { Write-Host "  $($_.Trim())" -ForegroundColor Yellow }
         }
         Write-Host 'Next: restart Windows (asked below), plug in the R3, open "WheelBri" from the Start menu and press'
-        Write-Host 'Start. joy.cpl then lists the G920 and the Xbox controller, not the R3. To remove it: Start menu >'
+        Write-Host 'Start. joy.cpl then lists the G920, not the R3. To remove it: Start menu >'
         Write-Host 'WheelBri > Uninstall WheelBri, or Settings > Apps > WheelBri > Uninstall.'
     }
     Write-Host "Log: $logFolder"

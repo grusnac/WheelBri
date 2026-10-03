@@ -1,10 +1,10 @@
-#include "wheelemu/Pipeline.hpp"
+#include "wheelbri/Pipeline.hpp"
 
 #include <gtest/gtest.h>
 
 #include <vector>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 class FakeSource final : public IInputSource {
@@ -80,5 +80,28 @@ TEST(Pipeline, StopsWhenSourceDisconnects) {
     EXPECT_TRUE(publisher.packets.empty());
 }
 
+TEST(Pipeline, ReadsAccessoriesAndStopsWhenOneIsLost) {
+    FakeSource wheel;
+    FakeSource pedals;
+    RecordingPublisher publisher;
+    MapperConfig config;
+    config.accessories[0] = {0x044F, 0xB696};
+    config.throttle.sourceAxis = 0;
+    config.throttle.sourceDevice = 1;
+    const Mapper mapper(config);
+    const DeviceProfile profile(g29Spec());
+    Pipeline pipeline(wheel, mapper, profile, publisher);
+    pipeline.setAccessories({&pedals, nullptr, nullptr});
+
+    pedals.next.axes[0] = 1.0F;
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FLOAT_EQ(pipeline.lastState().throttle, 1.0F);
+    EXPECT_FLOAT_EQ(pipeline.lastInputs().devices[1].axes[0], 1.0F);
+
+    pedals.connected = false;
+    EXPECT_FALSE(pipeline.tick());
+    EXPECT_EQ(pipeline.lostDevice(), 1);
+}
+
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

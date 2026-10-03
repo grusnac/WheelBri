@@ -3,11 +3,11 @@
 #include <memory>
 #include <string>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
-// Our own way to hide the real wheel from games (driver/hide, the wheelemu-hide filter), replacing HidHide.
+// Our own way to hide the real wheel from games (driver/hide, the wheelbri-hide filter), replacing HidHide.
 // The filter sits on the wheel's game-controller interface and lets only the process named in
-//   HKLM\SOFTWARE\wheelemu\hide  AllowedPid
+//   HKLM\SOFTWARE\wheelbri\hide  AllowedPid
 // open it; 0 or missing = everyone. So hiding is one registry value, written while the service runs.
 // Windows only; elsewhere find() returns null.
 class HideFilter {
@@ -38,4 +38,4 @@ private:
     bool hidden_ = false;
 };
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

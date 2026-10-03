@@ -1,9 +1,9 @@
-#include "wheelemu/LocalDate.hpp"
+#include "wheelbri/LocalDate.hpp"
 
 #include <cctype>
 #include <cstdio>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -105,4 +105,4 @@ std::optional<std::string> findDate(const std::string& text) {
     return std::nullopt;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

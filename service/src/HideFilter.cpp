@@ -155,8 +155,9 @@ std::unique_ptr<HideFilter> HideFilter::find(const std::string& vendorId, const 
         if (CM_Get_DevNode_Status(&status, &problem, node, 0) == CR_SUCCESS &&
             ((status & DN_NEED_RESTART) != 0 || (status & DN_HAS_PROBLEM) != 0)) {
             if (!quiet) {
-                WE_LOG_WARN(log(), "hide: wheelbri-hide is set on {} but not running yet ({}): Windows loads it when the "
-                                   "R3 restarts (unplug it and plug it in again, or restart Windows)",
+                WE_LOG_WARN(log(), "hide: wheelbri-hide is set on {} but not running yet ({}): restart Windows "
+                                   "(when Windows is not waiting for a restart, unplugging the R3 and plugging it in "
+                                   "again is enough)",
                             id, (status & DN_NEED_RESTART) != 0 ? std::string("Windows wants a restart")
                                                                  : "problem code " + std::to_string(problem));
             }

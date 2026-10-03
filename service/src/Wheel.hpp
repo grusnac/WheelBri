@@ -1,6 +1,6 @@
 #pragma once
 
-#include "wheelemu/Devices.hpp"
+#include "wheelbri/Devices.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -12,7 +12,7 @@
 //   Linux:   evdev, /dev/input/event* (WheelEvdev.cpp)
 // Both number the axes, buttons and hats the way the service always has (see DinputReader.hpp and
 // EvdevLayout.hpp), so the config stays valid.
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 struct WheelInfo {
     std::string name;
@@ -56,4 +56,4 @@ public:
 // Whether a wheel matching `match` is connected now. Logs nothing: for polling while waiting for one.
 [[nodiscard]] bool wheelConnected(WheelBackend& backend, const std::string& match);
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

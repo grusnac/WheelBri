@@ -1,8 +1,8 @@
-#include "wheelemu/Pipeline.hpp"
+#include "wheelbri/Pipeline.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -21,12 +21,21 @@ Pipeline::Pipeline(IInputSource& source, const Mapper& mapper, const IDeviceProf
 }
 
 bool Pipeline::tick(std::optional<float> clutchOverride) {
-    if (!source_.poll(raw_)) {
+    if (!source_.poll(inputs_.devices[0])) {
         WE_LOG_WARN(log(), "pipeline: input source '{}' stopped delivering after {} ticks", source_.name(),
                     packet_.sequence);
+        lostDevice_ = 0;
         return false;
     }
-    state_ = mapper_.map(raw_);
+    for (std::size_t i = 0; i < accessories_.size(); ++i) {
+        if (accessories_[i] != nullptr && !accessories_[i]->poll(inputs_.devices[i + 1])) {
+            WE_LOG_WARN(log(), "pipeline: accessory '{}' stopped delivering after {} ticks", accessories_[i]->name(),
+                        packet_.sequence);
+            lostDevice_ = static_cast<int>(i + 1);
+            return false;
+        }
+    }
+    state_ = mapper_.map(inputs_);
     if (clutchOverride) {
         state_.clutch = *clutchOverride;
     }
@@ -41,7 +50,8 @@ bool Pipeline::tick(std::optional<float> clutchOverride) {
         WE_LOG_TRACE(log(),
                      "tick #{}: raw[{:+.3f} {:+.3f} {:+.3f} {:+.3f}] btn={:016x} hat={} -> steer={:+.4f} thr={:.3f} "
                      "brk={:.3f} clt={:.3f} btn={:08x} -> target steer={} thr={} brk={} clt={} (publish failures {})",
-                     call, raw_.axes[0], raw_.axes[1], raw_.axes[2], raw_.axes[3], raw_.buttons, raw_.hat,
+                     call, lastRaw().axes[0], lastRaw().axes[1], lastRaw().axes[2], lastRaw().axes[3], lastRaw().buttons,
+                     lastRaw().hat,
                      state_.steering, state_.throttle, state_.brake, state_.clutch, state_.buttons,
                      packet_.report.steering, packet_.report.throttle, packet_.report.brake, packet_.report.clutch,
                      publishFailures_);
@@ -49,4 +59,4 @@ bool Pipeline::tick(std::optional<float> clutchOverride) {
     return true;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

@@ -1,12 +1,12 @@
 #pragma once
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <string>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
-// Sets up logging for the proxy DLL on first use: %LOCALAPPDATA%\wheelemu\logs\wheelemu-shim-<date>.log, no console,
+// Sets up logging for the proxy DLL on first use: %LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-<date>.log, no console,
 // every line flushed at once (there is no background flush thread inside the game process).
 // Level defaults to debug; override per component with SPDLOG_LEVEL, e.g. "debug,shim.state=trace".
 // Never call from DllMain: it creates files and takes locks.
@@ -21,4 +21,4 @@ void onDllDetach(bool processTerminating);
 // Folder that holds this DLL, with a trailing separator (config and log files live next to it).
 [[nodiscard]] std::wstring dllDirectory();
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

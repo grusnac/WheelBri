@@ -1,8 +1,8 @@
-#include "wheelemu/Mapper.hpp"
+#include "wheelbri/Mapper.hpp"
 
 #include <gtest/gtest.h>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 constexpr float kTolerance = 1e-5F;
@@ -115,7 +115,10 @@ TEST(MapperButtons, HatPassesThrough) {
 
 MapperConfig dpadAsButtons() {
     MapperConfig config;
-    config.hatButtons = {4, 5, 6, 7};   // up, right, down, left
+    config.hatButtons.up = 4;
+    config.hatButtons.right = 5;
+    config.hatButtons.down = 6;
+    config.hatButtons.left = 7;
     return config;
 }
 
@@ -152,5 +155,31 @@ TEST(MapperHat, WithoutHatButtonsTheSourceHatPassesThrough) {
     EXPECT_EQ(mapper.map(raw).hat, 3);
 }
 
+TEST(MapperDevices, AccessoriesDrivePedalsButtonsAndTheDpad) {
+    MapperConfig config;
+    config.accessories[0] = {0x044F, 0xB696};   // device 1: pedals
+    config.accessories[1] = {0x1234, 0x0001};   // device 2: a button box
+    config.throttle.sourceAxis = 1;
+    config.throttle.sourceDevice = 1;
+    config.buttonMap[4] = 3;
+    config.buttonDevice[4] = 2;
+    config.hatButtons.up = 0;
+    config.hatButtons.devices[0] = 2;
+    const Mapper mapper(config);
+
+    RawInputs inputs;
+    inputs.devices[0].axes[1] = 1.0F;           // the wheel's axis 1: not the throttle any more
+    inputs.devices[0].buttons = 1U << 3;        // the wheel's button 3: drives target 3 only
+    EXPECT_FLOAT_EQ(mapper.map(inputs).throttle, 0.5F);   // device 1's axis 1 at rest (0) = half travel
+    EXPECT_EQ(mapper.map(inputs).buttons, 1U << 3);
+
+    inputs.devices[1].axes[1] = 1.0F;
+    inputs.devices[2].buttons = (1U << 3) | 1U;
+    const WheelState state = mapper.map(inputs);
+    EXPECT_FLOAT_EQ(state.throttle, 1.0F);
+    EXPECT_EQ(state.buttons, (1U << 3) | (1U << 4));        // device 2's button 0 drives only the D-pad
+    EXPECT_EQ(state.hat, 0);                                 // up, from the button box
+}
+
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

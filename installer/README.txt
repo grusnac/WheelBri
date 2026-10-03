@@ -1,9 +1,9 @@
 WheelBri
 ========
 
-Makes a Moza R3 wheel look like a Logitech G920 (plus an Xbox 360 controller for the game's button prompts), so
+Makes a Moza R3 wheel look like a Logitech G920, so
 games that only know Logitech wheels, such as Need for Speed (2015), accept it, with force feedback. It does that
-with its own drivers: a virtual G920, a virtual Xbox controller and a filter that hides the real R3 from games
+with its own drivers: a virtual G920 and a filter that hides the real R3 from games
 while WheelBri runs (otherwise games would see two wheels).
 
 Needs
@@ -29,8 +29,8 @@ the app starts.
 
 What it installs:
 - the program in C:\Program Files\WheelBri;
-- three drivers: the virtual G920 (wheelbri-g920), the virtual Xbox controller (wheelbri-xusb) and the filter that
-  hides the real R3 (wheelbri-hide). The drivers are signed with WheelBri's own certificate, not by Microsoft, so
+- two drivers: the virtual G920 (wheelbri-g920) and the filter that hides the real R3 (wheelbri-hide). The virtual
+  Xbox controller of earlier versions is removed. The drivers are signed with WheelBri's own certificate, not by Microsoft, so
   the installer adds that certificate to this PC's trusted certificates. Secure Boot and test mode are not changed;
 - a Start menu folder "WheelBri" (the app, and "Uninstall WheelBri"), a desktop shortcut and an entry in
   Settings > Apps.
@@ -38,7 +38,7 @@ What it installs:
 Play
 ----
 1. Start "WheelBri" from the Start menu (it asks for Administrator) and press Start. From then on games see the
-   virtual G920 and the Xbox controller, and not the R3: WheelBri hides it every time it starts.
+   virtual G920, and not the R3: WheelBri hides it every time it starts.
 2. Start the game and pick the Logitech G920 in its controller settings.
 3. Press Stop, or close the window, when done: the virtual devices go away and the R3 is an ordinary wheel again.
 

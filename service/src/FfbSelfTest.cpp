@@ -1,13 +1,13 @@
 #include "FfbSelfTest.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include "Platform.hpp"
 
 #include <algorithm>
 #include <cstdio>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -78,4 +78,4 @@ bool runFfbSelfTest(IFfbSink& sink, const FfbSafetyConfig& safety) {
     return ok;
 }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

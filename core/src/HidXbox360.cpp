@@ -1,8 +1,8 @@
-#include "wheelemu/HidXbox360.hpp"
+#include "wheelbri/HidXbox360.hpp"
 
 #include <algorithm>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -117,4 +117,4 @@ std::array<std::uint8_t, kXboxHidInputReportSize> packXboxHidInput(const XusbPad
     return report;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

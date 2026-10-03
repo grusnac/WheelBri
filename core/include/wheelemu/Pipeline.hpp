@@ -5,6 +5,7 @@
 #include "wheelemu/Mapper.hpp"
 #include "wheelemu/UdpLoopback.hpp"
 
+#include <array>
 #include <optional>
 
 namespace wheelemu {
@@ -14,11 +15,19 @@ class Pipeline {
 public:
     Pipeline(IInputSource& source, const Mapper& mapper, const IDeviceProfile& profile, IStatePublisher& publisher);
 
-    // Returns false once the input source is gone. `clutchOverride` (0..1 pressed), when set, replaces the
+    // The accessories the mapping reads (device 1, 2, 3; null = not used), polled after the wheel every tick.
+    void setAccessories(const std::array<IInputSource*, MapperConfig::kMaxAccessories>& accessories) {
+        accessories_ = accessories;
+    }
+
+    // Returns false once the wheel or an accessory is gone (lostDevice() says which). `clutchOverride` (0..1 pressed), when set, replaces the
     // mapped clutch: the test clutch while no clutch pedal is connected.
     bool tick(std::optional<float> clutchOverride = std::nullopt);
 
-    [[nodiscard]] const RawInputState& lastRaw() const { return raw_; }
+    [[nodiscard]] const RawInputState& lastRaw() const { return inputs_.devices[0]; }   // the wheel's
+    [[nodiscard]] const RawInputs& lastInputs() const { return inputs_; }
+    // The device that stopped delivering (0 = the wheel), after tick() returned false.
+    [[nodiscard]] int lostDevice() const { return lostDevice_; }
     [[nodiscard]] const WheelState& lastState() const { return state_; }
     [[nodiscard]] const TargetReport& lastReport() const { return packet_.report; }
     [[nodiscard]] std::uint32_t sequence() const { return packet_.sequence; }
@@ -30,7 +39,9 @@ private:
     const IDeviceProfile& profile_;
     IStatePublisher& publisher_;
 
-    RawInputState raw_;
+    std::array<IInputSource*, MapperConfig::kMaxAccessories> accessories_{};
+    RawInputs inputs_;
+    int lostDevice_ = -1;
     WheelState state_;
     StatePacket packet_;
     std::uint64_t publishFailures_ = 0;

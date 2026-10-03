@@ -20,11 +20,11 @@
 #include <string>
 #include <vector>
 
-namespace wheelemu::service::ui {
+namespace wheelbri::service::ui {
 
 namespace {
 
-constexpr wchar_t kClassName[] = L"wheelemu-ui";
+constexpr wchar_t kClassName[] = L"wheelbri-ui";
 constexpr wchar_t kFontFace[] = L"Consolas";
 
 std::wstring widen(const std::string_view text) {
@@ -154,6 +154,7 @@ public:
         WindowInput input;
         input.close = closed_;
         input.keys.swap(keys_);
+        input.text.swap(text_);
         input.clicks.swap(clicks_);
         input.wheel = wheelDelta_ / WHEEL_DELTA;
         wheelDelta_ %= WHEEL_DELTA;   // a fine-grained wheel keeps its remainder for the next notch
@@ -288,6 +289,15 @@ private:
                     keys_ += static_cast<char>('a' + (wParam - 'A'));
                 }
                 return true;
+            case WM_CHAR:   // after TranslateMessage: the character typed, with Shift and the keyboard layout applied
+                if (wParam == VK_BACK) {
+                    text_ += kBackspace;
+                } else if (wParam == VK_RETURN) {
+                    text_ += kEnter;
+                } else if (wParam >= 32 && wParam < 127) {
+                    text_ += static_cast<char>(wParam);
+                }
+                return true;
             case WM_MOUSEWHEEL:
                 wheelDelta_ += GET_WHEEL_DELTA_WPARAM(wParam);
                 return true;
@@ -397,6 +407,7 @@ private:
     std::vector<INT> advances_;
     bool closed_ = false;
     std::string keys_;
+    std::string text_;
     int wheelDelta_ = 0;
     std::vector<Click> clicks_;
 };
@@ -413,4 +424,4 @@ std::unique_ptr<UiWindow> openWindow(const std::string& title, const int logical
     return window;
 }
 
-}  // namespace wheelemu::service::ui
+}  // namespace wheelbri::service::ui

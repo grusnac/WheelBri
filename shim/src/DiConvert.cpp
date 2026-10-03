@@ -3,7 +3,7 @@
 #include <array>
 #include <utility>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace {
 
@@ -67,4 +67,4 @@ GUID toGuid(const Guid& guid) {
     return out;
 }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

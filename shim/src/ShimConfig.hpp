@@ -1,14 +1,14 @@
 #pragma once
 
-#include "wheelemu/EmulatedJoystick.hpp"
+#include "wheelbri/EmulatedJoystick.hpp"
 
 #include <cstdint>
 #include <optional>
 #include <string>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
-// Settings of the proxy DLL, read once from wheelemu-shim.ini next to the DLL. The file is optional;
+// Settings of the proxy DLL, read once from wheelbri-shim.ini next to the DLL. The file is optional;
 // without it the shim presents the first Moza device as a G920 fed by the service on the default port.
 //
 //   [shim]
@@ -19,7 +19,7 @@ namespace wheelemu::shim {
 //   state_port = 41329         ; must match the service's state_port
 //   stale_after_ms = 1500      ; no packet for this long = wheel centred, pedals released (the last
 //                              ; input is held until then, so a short service hiccup is not felt)
-//   force_feedback = service   ; service = game effects go to wheelemu-service (safety limiter, watchdog);
+//   force_feedback = service   ; service = game effects go to wheelbri-service (safety limiter, watchdog);
 //                              ; passthrough = straight to the wheel's driver; off = no force feedback
 //   ffb_port = 41330           ; must match ffb_port in the service config
 //   throttle_axis = slider     ; DirectInput axis per pedal: x y z rx ry rz slider (clutch also: none).
@@ -65,4 +65,4 @@ struct ShimConfig {
 // Loads the file on first use (never from DllMain) and logs what it used.
 [[nodiscard]] const ShimConfig& shimConfig();
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

@@ -22,7 +22,7 @@
 
 extern char** environ;
 
-namespace wheelemu::service::platform {
+namespace wheelbri::service::platform {
 
 void init() {}
 
@@ -114,7 +114,7 @@ std::unique_ptr<SingleInstance> SingleInstance::acquire(const std::string& name,
     if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
         const int why = errno;
         close(fd);
-        error = why == EWOULDBLOCK ? "another wheelemu-service is already running (" + path + " is locked): stop it first"
+        error = why == EWOULDBLOCK ? "another wheelbri-service is already running (" + path + " is locked): stop it first"
                                    : "cannot lock " + path + ": " + std::strerror(why);
         return nullptr;
     }
@@ -204,4 +204,4 @@ void ChildProcess::kill() {
     impl_->exitCode = 128 + SIGKILL;
 }
 
-}  // namespace wheelemu::service::platform
+}  // namespace wheelbri::service::platform

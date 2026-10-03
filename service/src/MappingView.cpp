@@ -1,7 +1,7 @@
 #include "MappingView.hpp"
 
-#include "wheelemu/LocalDate.hpp"
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/LocalDate.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -12,7 +12,7 @@
 #include <string>
 #include <utility>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -43,13 +43,11 @@ constexpr Colour kDark{16, 18, 20};
 constexpr Colour kCentre{160, 164, 172};
 
 // One colour per component, the same in the file list and the live log (index = its line in the list).
-constexpr std::array<Colour, 6> kComponentColours = {{
+constexpr std::array<Colour, 4> kComponentColours = {{
     {120, 190, 255},   // Emulator: blue
     {236, 152, 72},    // Game shim: orange
     {186, 140, 255},   // G920 driver: purple
     {80, 204, 190},    // Hide filter: teal
-    {132, 214, 96},    // Xbox driver: green
-    {238, 120, 172},   // Bridge: pink
 }};
 
 bool isValidAxis(const int axis) {
@@ -79,14 +77,15 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
 
 #if defined(_WIN32)
     // The drivers run as LocalService and cannot write to the user's folder (driver/*/Driver.cpp).
-    driverLogFolder_ = "C:\\ProgramData\\wheelemu\\logs";
+    driverLogFolder_ = "C:\\ProgramData\\wheelbri\\logs";
 #endif
     sourceToTarget_.fill(kUnmapped);
     const HatButtons& hat = mapper_.hatButtons;
     const std::array<std::pair<int, const char*>, 4> hatDirections = {
         {{hat.up, "up"}, {hat.right, "right"}, {hat.down, "down"}, {hat.left, "left"}}};
-    for (const auto& [source, direction] : hatDirections) {
-        if (source >= 0 && static_cast<std::size_t>(source) < kMaxSourceButtons) {
+    for (std::size_t i = 0; i < hatDirections.size(); ++i) {
+        const auto& [source, direction] = hatDirections[i];
+        if (hat.devices[i] == 0 && source >= 0 && static_cast<std::size_t>(source) < kMaxSourceButtons) {
             sourceHatDirection_[static_cast<std::size_t>(source)] = direction;
         }
     }
@@ -94,8 +93,8 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
     // default but no game sees them, so they would only show up as duplicates.
     for (std::size_t target = 0; target < mapper_.buttonMap.size(); ++target) {
         const int source = mapper_.buttonMap[target];
-        if (profile_.buttonName(target).empty()) {
-            continue;
+        if (profile_.buttonName(target).empty() || mapper_.buttonDevice[target] != 0) {
+            continue;   // the R3 panel below shows the wheel's own buttons only
         }
         if (source >= 0 && static_cast<std::size_t>(source) < kMaxSourceButtons) {
             const auto index = static_cast<std::size_t>(source);
@@ -119,6 +118,8 @@ void MappingView::onKey(const char key) {
         tab_ = Tab::Logs;
     } else if (key == 't') {
         tab_ = Tab::Telemetry;
+    } else if (key == 'w') {
+        tab_ = Tab::WheelSetup;
     } else if (tab_ == Tab::Logs) {
         const auto page = static_cast<long long>(std::max<std::size_t>(liveRows_ - 1, 1));
         if (key == ui::kPageUp) scrollLiveLog(page);
@@ -183,15 +184,20 @@ void unipolarBar(ui::UiWindow& window, const float x, const float y, const float
 
 // --- sections -------------------------------------------------------------------------------------
 
-void MappingView::draw(const RawInputState& raw, const WheelState& state, const TargetReport& report,
+void MappingView::draw(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
                        const FfbDisplay& ffb) {
+    const RawInputState& raw = inputs.devices[0];
     trackLastPressed(raw.buttons);
 
     trackEvents(raw, state, report, ffb);
+    if (tab_ == Tab::WheelSetup) {
+        drawTabs();   // the window draws the tab itself (WheelSetupView)
+        return;
+    }
     drawHeader();
     if (tab_ == Tab::Mapping) {
         // What is mapped to what: the axes and pedals (R3 -> G920), every R3 axis, the D-pad, the buttons.
-        drawAxes(raw, state, report, 34);
+        drawAxes(inputs, state, report, 34);
         drawRawAxes(raw, 128);
         drawHat(raw.hat, report.hat, 128);
         drawTargetButtons(report.buttons, 244);
@@ -211,6 +217,9 @@ void MappingView::drawHeader() {
     char line[128];
     std::snprintf(line, sizeof(line), "%.40s  ->  %.40s", sourceName_.c_str(),
                   profile_.identity().productName.c_str());
+    if (tab_ == Tab::Mapping) {
+        line[50] = '\0';   // the app puts its status, Start and Stop at the top right of this tab
+    }
     text(window_, 4, 4, line, kHeading);
     if (devices_.empty()) {
         text(window_, 4, 16, "Move every control and check where it lands.", kDim);
@@ -219,20 +228,41 @@ void MappingView::drawHeader() {
     }
 }
 
-void MappingView::drawAxes(const RawInputState& raw, const WheelState& state, const TargetReport& report,
+std::string MappingView::sourceText(const int device, const int index, const bool axis, const std::size_t chars) const {
+    std::string result;
+    if (index < 0) {
+        result = "--";
+    } else if (device == 0) {
+        result = (axis ? "R3 ax" : "R3 ") + std::to_string(index) + " " +
+                 (axis ? mapper_.sourceAxisLabels[static_cast<std::size_t>(std::min(index, 7))]
+                       : sourceLabel(index));
+    } else if (static_cast<std::size_t>(device) <= accessories_.size()) {
+        const DeviceLabels& labels = accessories_[static_cast<std::size_t>(device - 1)];
+        const std::string name = labels.name.empty() ? deviceId(labels.vendorId, labels.productId) : labels.name;
+        const std::string& label = axis ? labels.axes[static_cast<std::size_t>(std::min(index, 7))]
+                                        : labels.buttons[static_cast<std::size_t>(std::min(index, 63))];
+        result = name.substr(0, 10) + (axis ? " ax" : " ") + std::to_string(index) + " " + label;
+    }
+    while (!result.empty() && result.back() == ' ') result.pop_back();
+    if (result.size() > chars) result.resize(chars);
+    return result;
+}
+
+void MappingView::drawAxes(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
                            const float top) {
     struct Row {
         const char* name;
         int sourceAxis;
+        int sourceDevice;
         bool bipolarMapped;
         float mapped;
         std::int32_t target;
     };
     const std::array<Row, 4> rows = {{
-        {"Steering", mapper_.steering.sourceAxis, true, state.steering, report.steering},
-        {"Throttle", mapper_.throttle.sourceAxis, false, state.throttle, report.throttle},
-        {"Brake", mapper_.brake.sourceAxis, false, state.brake, report.brake},
-        {"Clutch", mapper_.clutch.sourceAxis, false, state.clutch, report.clutch},
+        {"Steering", mapper_.steering.sourceAxis, mapper_.steering.sourceDevice, true, state.steering, report.steering},
+        {"Throttle", mapper_.throttle.sourceAxis, mapper_.throttle.sourceDevice, false, state.throttle, report.throttle},
+        {"Brake", mapper_.brake.sourceAxis, mapper_.brake.sourceDevice, false, state.brake, report.brake},
+        {"Clutch", mapper_.clutch.sourceAxis, mapper_.clutch.sourceDevice, false, state.clutch, report.clutch},
     }};
 
     const float kTop = top;
@@ -247,17 +277,22 @@ void MappingView::drawAxes(const RawInputState& raw, const WheelState& state, co
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const Row& row = rows[i];
         const float y = kTop + 12 + static_cast<float>(i) * 16;
-        const bool valid = isValidAxis(row.sourceAxis);
+        const bool valid = isValidAxis(row.sourceAxis) && row.sourceDevice >= 0 &&
+                           static_cast<std::size_t>(row.sourceDevice) < kMaxInputDevices;
         text(window_, 4, y + 1, row.name, kText);
 
-        if (valid) {
+        if (!valid) {
+            std::snprintf(value, sizeof(value), "--");
+        } else if (row.sourceDevice == 0) {
             std::snprintf(value, sizeof(value), "ax%d", row.sourceAxis);
         } else {
-            std::snprintf(value, sizeof(value), "--");
+            std::snprintf(value, sizeof(value), "d%d.%d", row.sourceDevice, row.sourceAxis);   // an accessory's
         }
         text(window_, 76, y + 1, value, valid ? kText : kWarning);
 
-        const float rawValue = valid ? raw.axes[static_cast<std::size_t>(row.sourceAxis)] : 0.0F;
+        const float rawValue =
+            valid ? inputs.devices[static_cast<std::size_t>(row.sourceDevice)].axes[static_cast<std::size_t>(row.sourceAxis)]
+                  : 0.0F;
         bipolarBar(window_, 112, y, 110, 10, rawValue, valid ? kActive : kDim);
         std::snprintf(value, sizeof(value), "%+.3f", rawValue);
         text(window_, 226, y + 1, value, kText);
@@ -275,7 +310,14 @@ void MappingView::drawAxes(const RawInputState& raw, const WheelState& state, co
         std::snprintf(value, sizeof(value), "%5d", row.target);
         text(window_, 608, y + 1, value, kText);
     }
-    text(window_, 4, kTop + 78, pedalNote_.c_str(), kDim);
+    std::string accessories;
+    for (std::size_t i = 0; i < accessories_.size(); ++i) {
+        if (accessories_[i].vendorId == 0 && accessories_[i].productId == 0) continue;
+        accessories += (accessories.empty() ? "  d" : ", d") + std::to_string(i + 1) + " = " +
+                       (accessories_[i].name.empty() ? deviceId(accessories_[i].vendorId, accessories_[i].productId)
+                                                     : accessories_[i].name);
+    }
+    text(window_, 4, kTop + 78, (pedalNote_ + accessories).substr(0, 118).c_str(), kDim);
 }
 
 void MappingView::drawRawAxes(const RawInputState& raw, const float top) {
@@ -283,10 +325,10 @@ void MappingView::drawRawAxes(const RawInputState& raw, const float top) {
     text(window_, 4, kTop, "ALL R3 AXES", kHeading);
 
     auto roleOf = [this](const int axis) -> const char* {
-        if (axis == mapper_.steering.sourceAxis) return "-> steering";
-        if (axis == mapper_.throttle.sourceAxis) return "-> throttle";
-        if (axis == mapper_.brake.sourceAxis) return "-> brake";
-        if (axis == mapper_.clutch.sourceAxis) return "-> clutch";
+        if (mapper_.steering.sourceDevice == 0 && axis == mapper_.steering.sourceAxis) return "-> steering";
+        if (mapper_.throttle.sourceDevice == 0 && axis == mapper_.throttle.sourceAxis) return "-> throttle";
+        if (mapper_.brake.sourceDevice == 0 && axis == mapper_.brake.sourceAxis) return "-> brake";
+        if (mapper_.clutch.sourceDevice == 0 && axis == mapper_.clutch.sourceAxis) return "-> clutch";
         return "not used";
     };
 
@@ -372,9 +414,12 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
         const std::string label(name.substr(0, 8));
         if (source < 0) {
             std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- --", target_.c_str(), target, label.c_str());
-        } else {
+        } else if (mapper_.buttonDevice[target] == 0) {
             std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- R3 %2d %s", target_.c_str(), target,
                           label.c_str(), source, sourceLabel(source).c_str());
+        } else {
+            std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- %s", target_.c_str(), target, label.c_str(),
+                          sourceText(mapper_.buttonDevice[target], source, false, 20).c_str());
         }
 
         fill(window_, x, y, kWidth, kHeight, pressed ? kActive : kPanel);
@@ -708,18 +753,16 @@ void MappingView::refreshLogFiles() {
     };
     static constexpr Source kSources[] = {
         {"Emulator", "service and app: reads R3, maps, plays FFB", false,
-         "wheelemu-service-"},
-        {"Game shim", "dinput8.dll next to the game (Phases 2-3)", false, "wheelemu-shim-"},
-        {"G920 driver", "the virtual G920 (wheelemu-g920)", true, "wheelemu-driver-"},
-        {"Hide filter", "hides the real R3 from games (wheelemu-hide)", true, "wheelemu-hide-"},
-        {"Xbox driver", "the virtual Xbox controller (wheelemu-xusb)", true, "wheelemu-xusb-"},
-        {"Bridge", "HIDMaestro virtual G920 (step 0)", false, "wheelemu-bridge-"},
+         "wheelbri-service-"},
+        {"Game shim", "dinput8.dll next to the game (Phases 2-3)", false, "wheelbri-shim-"},
+        {"G920 driver", "the virtual G920 (wheelbri-g920)", true, "wheelbri-driver-"},
+        {"Hide filter", "hides the real R3 from games (wheelbri-hide)", true, "wheelbri-hide-"},
     };
     components_.clear();
     for (const Source& source : kSources) {
         ComponentLog component{source.name, source.what, source.driver ? driverLogFolder_ : files_.logFolder, {}, {}};
         std::filesystem::path path = component.folder / (std::string(source.prefix) + today + ".log");
-        if (std::string_view(source.prefix) == "wheelemu-service-") {
+        if (std::string_view(source.prefix) == "wheelbri-service-") {
             // The service knows its own file (it may be elsewhere through [logging] file).
             if (!files_.logToFile || logging::currentLogFile().empty()) {
                 component.status = "console only (no log file)";
@@ -866,10 +909,11 @@ void MappingView::drawLiveLog(const float top) {
 void MappingView::drawTabs() {
     constexpr float kBarTop = kLogicalHeight - 28;
     fill(window_, 0, kBarTop, kLogicalWidth, 1, kPanel);
-    const std::array<std::pair<Tab, const char*>, 4> tabs = {{{Tab::Mapping, "Mapping (M)"},
+    const std::array<std::pair<Tab, const char*>, 5> tabs = {{{Tab::Mapping, "Mapping (M)"},
                                                               {Tab::Logs, "Logs (L)"},
                                                               {Tab::Telemetry, "Telemetry (T)"},
-                                                              {Tab::ForceFeedback, "Force feedback (F)"}}};
+                                                              {Tab::ForceFeedback, "Force feedback (F)"},
+                                                              {Tab::WheelSetup, "Wheel setup (W)"}}};
     float x = 4;
     for (const auto& [tab, label] : tabs) {
         const bool active = tab == tab_;
@@ -883,7 +927,8 @@ void MappingView::drawTabs() {
 void MappingView::onClick(const float x, const float y) {
     constexpr float kBarTop = kLogicalHeight - 28;
     if (y >= kBarTop + 4 && y < kBarTop + 24) {
-        constexpr std::array<Tab, 4> kTabs = {Tab::Mapping, Tab::Logs, Tab::Telemetry, Tab::ForceFeedback};
+        constexpr std::array<Tab, 5> kTabs = {Tab::Mapping, Tab::Logs, Tab::Telemetry, Tab::ForceFeedback,
+                                              Tab::WheelSetup};
         const float offset = x - 4;
         const auto index = static_cast<std::size_t>(std::max(0.0F, offset) / (kTabWidth + 6));
         if (offset >= 0 && index < kTabs.size() && offset - static_cast<float>(index) * (kTabWidth + 6) < kTabWidth) {
@@ -1134,4 +1179,4 @@ void MappingView::drawForceFeedback(const FfbDisplay& ffb) {
     }
 }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

@@ -1,7 +1,6 @@
-# Installs wheelemu's G920 driver (build it first, see README.md). Administrator. Secure Boot and test
+# Installs wheelbri's G920 driver (build it first, see README.md). Administrator. Secure Boot and test
 # mode stay as they are: the package is signed with a certificate made on this PC by the WDK build
 # (WDKTestCert), which this script adds to the machine's trusted Root and TrustedPublisher stores.
-# The same driver serves the Xbox controller's HID side (what joy.cpl lists).
 #
 #   install-driver.ps1                 Release build
 #   install-driver.ps1 -Configuration Debug
@@ -19,11 +18,12 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Assert-Admin
 
-$inf = Find-BuiltPackage $PSScriptRoot 'wheelemu-g920' $Configuration
-Add-PackageCertificate $inf 'wheelemu-g920'
-Invoke-Pnputil @('/add-driver', $inf.FullName, '/install') 'installing wheelemu-g920' | Out-Null
-if (@(Get-InstalledPackages 'wheelemu-g920').Count -eq 0) {
-    Stop-WithError 'pnputil reported success, but Windows does not list wheelemu-g920.inf as installed.'
+Remove-LegacyPackages 'wheelbri-g920' | Out-Null
+$inf = Find-BuiltPackage $PSScriptRoot 'wheelbri-g920' $Configuration
+Add-PackageCertificate $inf 'wheelbri-g920'
+Invoke-Pnputil @('/add-driver', $inf.FullName, '/install') 'installing wheelbri-g920' | Out-Null
+if (@(Get-InstalledPackages 'wheelbri-g920').Count -eq 0) {
+    Stop-WithError 'pnputil reported success, but Windows does not list wheelbri-g920.inf as installed.'
 }
 Write-Host ''
-Write-Host 'Installed. Start wheelemu-service with --virtual-g920 (as Administrator) to create the G920.' -ForegroundColor Green
+Write-Host 'Installed. Start wheelbri-service with --virtual-g920 (as Administrator) to create the G920.' -ForegroundColor Green

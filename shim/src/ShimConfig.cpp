@@ -3,9 +3,9 @@
 #include "DiFormat.hpp"
 #include "ShimLogging.hpp"
 
-#include "wheelemu/DeviceProfile.hpp"
-#include "wheelemu/EmulatorConfig.hpp"
-#include "wheelemu/IniDocument.hpp"
+#include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/EmulatorConfig.hpp"
+#include "wheelbri/IniDocument.hpp"
 
 #include <charconv>
 #include <fstream>
@@ -13,7 +13,7 @@
 #include <sstream>
 #include <vector>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace {
 
@@ -30,8 +30,14 @@ ShimConfig load(const logging::Logger& log) {
     ShimConfig config;
     config.statePort = kDefaultStatePort;
 
-    const std::wstring path = dllDirectory() + L"wheelemu-shim.ini";
+    std::wstring path = dllDirectory() + L"wheelbri-shim.ini";
     std::ifstream file(path.c_str());
+    if (!file) {
+        // The name before the project's rename (wheelemu): a game folder set up then keeps its settings.
+        const std::wstring old = dllDirectory() + L"wheelemu-shim.ini";
+        file.open(old.c_str());
+        if (file) path = old;
+    }
     if (!file) {
         WE_LOG_INFO(log, "no '{}', using defaults", toUtf8(path.c_str()));
         return config;
@@ -134,7 +140,7 @@ ShimConfig load(const logging::Logger& log) {
         config.clutchAxis.reset();
     }
     for (const std::string& problem : problems) {
-        WE_LOG_ERROR(log, "wheelemu-shim.ini: {} (default kept)", problem);
+        WE_LOG_ERROR(log, "wheelbri-shim.ini: {} (default kept)", problem);
     }
     WE_LOG_INFO(log, "loaded '{}'", toUtf8(path.c_str()));
     return config;
@@ -168,10 +174,10 @@ const ShimConfig& shimConfig() {
                     axisName(layout.brake), axisName(layout.clutch), layout.invertPedals);
         if (config.emulate && config.forceFeedback == FfbMode::Passthrough) {
             WE_LOG_INFO(log, "force feedback goes straight to the physical wheel: its strength is capped by the "
-                             "wheel's own settings (Pit House), not by wheelemu-service");
+                             "wheel's own settings (Pit House), not by wheelbri-service");
         }
     });
     return config;
 }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

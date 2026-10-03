@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarise wheelemu telemetry (standard library only).
+"""Summarise wheelbri telemetry (standard library only).
 
 usage: python scripts/telemetry_summary.py [FILE | FOLDER] [--all]
 
@@ -21,9 +21,9 @@ import sys
 
 def default_folder():
     if os.name == "nt":
-        return os.path.join(os.environ.get("LOCALAPPDATA", ""), "wheelemu", "logs")
+        return os.path.join(os.environ.get("LOCALAPPDATA", ""), "wheelbri", "logs")
     state = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
-    return os.path.join(state, "wheelemu")
+    return os.path.join(state, "wheelbri")
 
 
 def pick_file(arg):
@@ -91,7 +91,7 @@ def weights(rows):
 
 def summarise(rows, comments):
     for c in comments:
-        if c.startswith(("# session started", "# wheelemu-service", "# source:", "# target_profile:", "# config:")):
+        if c.startswith(("# session started", "# wheelbri-service", "# source:", "# target_profile:", "# config:")):
             print(f"         {c[2:]}")
     if not rows:
         print("no rows")

@@ -12,8 +12,8 @@
 #include "DinputDevice.hpp"
 #include "DinputReader.hpp"
 
-#include "wheelemu/Logging.hpp"
-#include "wheelemu/WheelOutput.hpp"
+#include "wheelbri/Logging.hpp"
+#include "wheelbri/WheelOutput.hpp"
 
 #include <array>
 #include <cstdio>
@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -208,7 +208,7 @@ private:
             error = "it is no longer connected";
             return false;
         }
-        window_ = dinput::createHelperWindow(L"wheelemu-ffb");
+        window_ = dinput::createHelperWindow(L"wheelbri-ffb");
         HRESULT result = window_ == nullptr ? E_FAIL
                                             : device_->SetCooperativeLevel(window_, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
         if (FAILED(result)) {
@@ -508,4 +508,4 @@ std::unique_ptr<WheelBackend> startWheelBackend() {
     return std::make_unique<DinputBackend>(dinput);
 }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

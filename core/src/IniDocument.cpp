@@ -1,6 +1,6 @@
-#include "wheelemu/IniDocument.hpp"
+#include "wheelbri/IniDocument.hpp"
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -80,4 +80,4 @@ std::optional<std::string> IniDocument::get(const std::string& section, const st
     return keyIt->second;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

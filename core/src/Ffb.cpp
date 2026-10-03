@@ -1,11 +1,11 @@
-#include "wheelemu/Ffb.hpp"
+#include "wheelbri/Ffb.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <algorithm>
 #include <cmath>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -168,4 +168,4 @@ FfbPeriodic FfbSafetyLimiter::limitPeriodic(const FfbPeriodic& requested) const 
     return limited;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

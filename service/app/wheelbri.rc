@@ -1,0 +1,26 @@
+// wheelbri.exe's resources: the manifest (Administrator, DPI awareness) and version information.
+#include <winver.h>
+
+1 24 "wheelbri.exe.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription", "WheelBri: Moza R3 as a Logitech G920"
+            VALUE "ProductName", "WheelBri"
+            VALUE "FileVersion", "0.1.0"
+            VALUE "OriginalFilename", "wheelbri.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

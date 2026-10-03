@@ -1,0 +1,127 @@
+#include "wheelbri/IniEditor.hpp"
+
+#include <algorithm>
+#include <cstdlib>
+
+namespace wheelbri {
+
+namespace {
+
+std::string trim(std::string_view text) {
+    constexpr std::string_view kWhitespace = " \t\r\n";
+    const auto first = text.find_first_not_of(kWhitespace);
+    if (first == std::string_view::npos) return {};
+    const auto last = text.find_last_not_of(kWhitespace);
+    return std::string(text.substr(first, last - first + 1));
+}
+
+// "0.0" and "0", "1.0" and "1": the same number written differently counts as unchanged (the line, and its comment,
+// stay as the user wrote them).
+bool sameValue(const std::string& a, const std::string& b) {
+    if (a == b) return true;
+    if (a.empty() || b.empty()) return false;
+    char* endA = nullptr;
+    char* endB = nullptr;
+    const double x = std::strtod(a.c_str(), &endA);
+    const double y = std::strtod(b.c_str(), &endB);
+    return *endA == '\0' && *endB == '\0' && x == y;
+}
+
+}  // namespace
+
+IniEditor::Line IniEditor::parseLine(std::string text, const std::string& section) {
+    Line line;
+    line.section = section;
+    std::string_view content = text;
+    const auto comment = content.find_first_of(";#");
+    if (comment != std::string_view::npos) content = content.substr(0, comment);
+    const std::string stripped = trim(content);
+    if (stripped.size() >= 3 && stripped.front() == '[' && stripped.back() == ']') {
+        line.header = true;
+        line.section = trim(std::string_view(stripped).substr(1, stripped.size() - 2));
+    } else if (const auto equals = stripped.find('='); equals != std::string::npos) {
+        line.key = trim(std::string_view(stripped).substr(0, equals));
+        line.value = trim(std::string_view(stripped).substr(equals + 1));
+    }
+    line.text = std::move(text);
+    return line;
+}
+
+IniEditor::IniEditor(std::string_view text) {
+    if (text.size() >= 3 && text.substr(0, 3) == "\xEF\xBB\xBF") {
+        bom_ = true;
+        text.remove_prefix(3);
+    }
+    if (text.find("\r\n") != std::string_view::npos) newline_ = "\r\n";
+    std::string section;
+    std::size_t position = 0;
+    while (position < text.size()) {
+        auto end = text.find('\n', position);
+        if (end == std::string_view::npos) end = text.size();
+        std::string raw(text.substr(position, end - position));
+        if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+        Line line = parseLine(std::move(raw), section);
+        section = line.section;
+        lines_.push_back(std::move(line));
+        position = end + 1;
+    }
+}
+
+std::ptrdiff_t IniEditor::find(const std::string& section, const std::string& key) const {
+    for (std::size_t i = 0; i < lines_.size(); ++i) {
+        if (!lines_[i].header && lines_[i].section == section && lines_[i].key == key) {
+            return static_cast<std::ptrdiff_t>(i);
+        }
+    }
+    return -1;
+}
+
+bool IniEditor::hasSection(const std::string& section) const {
+    return std::any_of(lines_.begin(), lines_.end(),
+                       [&](const Line& line) { return line.header && line.section == section; });
+}
+
+void IniEditor::set(const std::string& section, const std::string& key, const std::string& value) {
+    if (const auto at = find(section, key); at >= 0) {
+        Line& line = lines_[static_cast<std::size_t>(at)];
+        if (!sameValue(line.value, value)) line = parseLine(key + " = " + value, section);
+        return;
+    }
+    // After the section's last key (or its header); comments and blank lines after it stay below the new key.
+    std::ptrdiff_t after = -1;
+    for (std::size_t i = 0; i < lines_.size(); ++i) {
+        const Line& line = lines_[i];
+        if (line.section != section) {
+            if (after >= 0) break;   // the section ended
+            continue;
+        }
+        if (line.header || !line.key.empty()) after = static_cast<std::ptrdiff_t>(i);
+    }
+    if (after < 0) {
+        if (!lines_.empty() && !trim(lines_.back().text).empty()) lines_.push_back(parseLine("", lines_.back().section));
+        lines_.push_back(parseLine("[" + section + "]", section));
+        lines_.push_back(parseLine(key + " = " + value, section));
+        return;
+    }
+    lines_.insert(lines_.begin() + after + 1, parseLine(key + " = " + value, section));
+}
+
+void IniEditor::remove(const std::string& section, const std::string& key) {
+    if (const auto at = find(section, key); at >= 0) lines_.erase(lines_.begin() + at);
+}
+
+void IniEditor::prepend(const std::string& line) {
+    if (!lines_.empty() && lines_.front().text == line) return;
+    lines_.insert(lines_.begin(), parseLine(line, ""));
+}
+
+std::string IniEditor::text() const {
+    std::string out = bom_ ? "\xEF\xBB\xBF" : "";
+    for (const Line& line : lines_) {
+        out += line.text;
+        out += newline_;
+    }
+    return out;
+}
+
+}  // namespace wheelbri

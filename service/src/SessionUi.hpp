@@ -2,29 +2,36 @@
 
 #include "MappingView.hpp"
 
-#include "wheelemu/DeviceProfile.hpp"
-#include "wheelemu/FfbController.hpp"
-#include "wheelemu/MapperConfig.hpp"
-#include "wheelemu/WheelState.hpp"
+#include "wheelbri/DeviceLabels.hpp"
+#include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/FfbController.hpp"
+#include "wheelbri/MapperConfig.hpp"
+#include "wheelbri/WheelState.hpp"
 
+#include <array>
+#include <cstdint>
 #include <optional>
 #include <string>
 
 // Where a running session (the wheel read, mapped and published at 1 kHz) shows itself: the `--ui` window of
 // the command line service, or the app's window (App.cpp).
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 // What does not change while a session runs.
 struct SessionInfo {
     std::string sourceName;     // the physical wheel
+    std::uint16_t vendorId = 0; // its USB ids (the Wheel setup tab finds its profile by them)
+    std::uint16_t productId = 0;
     int axes = 0;
     int buttons = 0;
     std::string targetProfile;  // "g920", "g29"
     MapperConfig mapper;
+    // The accessories the mapping reads (device 1, 2, 3; empty ids = none), named from the Wheel setup tab.
+    std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories{};
     FilesDisplay files;
     std::string ffbStatus;      // why there is no game force feedback, when there is none
     bool ffbInvert = false;
-    // The virtual devices with --virtual-g920 (the app): "virtual G920 on, R3 hidden (wheelemu-hide), Xbox pad on";
+    // The virtual devices with --virtual-g920 (the app): "virtual G920 on, R3 hidden (wheelbri-hide)";
     // empty without them. `devicesWarning`: something the game needs is missing (e.g. the R3 is not hidden).
     std::string devices;
     bool devicesWarning = false;
@@ -33,7 +40,8 @@ struct SessionInfo {
 // What the window draws, copied from the loop's thread about 60 times a second.
 struct UiFrame {
     bool ready = false;                           // false until the loop produced its first frame
-    RawInputState raw;
+    RawInputState raw;                            // the wheel's (inputs.devices[0])
+    RawInputs inputs;                             // every device's
     WheelState state;
     TargetReport report;
     std::optional<FfbController> ffb;             // copy-constructed each time (it cannot be assigned)
@@ -41,6 +49,7 @@ struct UiFrame {
     std::string oldFiles;                         // Housekeeping::status()
     bool oldFilesFailed = false;
     std::uint64_t wheelLostMs = 0;                // > 0: the wheel is gone, waiting this long for it to come back
+    bool gameIgnoresWheel = false;                // pedals pressed, but the game never used the emulated wheel
 };
 
 class UiHost {
@@ -55,4 +64,4 @@ public:
     virtual bool frame(const UiFrame& frame) = 0;
 };
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

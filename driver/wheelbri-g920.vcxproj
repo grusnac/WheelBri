@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- wheelbri-g920: UMDF 2 HID minidriver (see Driver.cpp and README.md). Needs Visual Studio 2026 with the
+     Windows Driver Kit. Build: msbuild driver\wheelbri-g920.vcxproj /p:Configuration=Release /p:Platform=x64
+     Layout follows Microsoft's vhidmini2 UMDF 2 sample (Windows-driver-samples, MIT). -->
+<Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{6F3C2A58-2D57-4C1B-9A0E-7B7E2E9D6A11}</ProjectGuid>
+    <RootNamespace>wheelbri_g920</RootNamespace>
+    <UMDF_VERSION_MAJOR>2</UMDF_VERSION_MAJOR>
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <TargetVersion>Windows10</TargetVersion>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">True</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">False</UseDebugLibraries>
+    <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
+    <DriverType>UMDF</DriverType>
+    <PlatformToolset>WindowsUserModeDriver10.0</PlatformToolset>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <TargetName>wheelbri-g920</TargetName>
+    <!-- Test-signed with a certificate made for this PC (WDKTestCert); install-driver.ps1 trusts it. -->
+    <SignMode>TestSign</SignMode>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);_UNICODE;UNICODE;WIN32_LEAN_AND_MEAN;NOMINMAX</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(DDK_INC_PATH);$(DDK_INC_PATH)\wdm;..\core\include</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <TreatWarningAsError>false</TreatWarningAsError>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>%(AdditionalDependencies);mincore.lib;ws2_32.lib</AdditionalDependencies>
+    </Link>
+    <DriverSign>
+      <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
+    </DriverSign>
+    <!-- stampinf writes today's local date as DriverVer by default, but inf2cat compares it with UTC: east of UTC
+         it is "in the future" for a few hours after midnight and signing fails (22.9.7). Stamp the UTC date. -->
+    <Inf>
+      <DateStamp>$([System.DateTime]::UtcNow.ToString('MM/dd/yyyy'))</DateStamp>
+    </Inf>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Driver.cpp" />
+    <ClCompile Include="..\core\src\FfbPacket.cpp" />
+    <ClCompile Include="..\core\src\HidG920.cpp" />
+    <ClCompile Include="..\core\src\HidPid.cpp" />
+    <ClCompile Include="..\core\src\StatePacket.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Inf Include="wheelbri-g920.inx" />
+    <FilesToPackage Include="$(TargetPath)" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

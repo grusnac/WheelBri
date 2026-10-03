@@ -1,4 +1,4 @@
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <gtest/gtest.h>
 
@@ -8,7 +8,7 @@
 #include <system_error>
 #include <thread>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 std::string readFile(const std::filesystem::path& path) {
@@ -19,7 +19,7 @@ std::string readFile(const std::filesystem::path& path) {
 }
 
 TEST(Logging, DatedFileNames) {
-    EXPECT_EQ(logging::datedFileName("wheelemu-service.log", "2026-09-30"), "wheelemu-service-2026-09-30.log");
+    EXPECT_EQ(logging::datedFileName("wheelbri-service.log", "2026-09-30"), "wheelbri-service-2026-09-30.log");
     EXPECT_EQ(std::filesystem::path(logging::datedFileName("/logs/x.log", "2026-09-30")),
               std::filesystem::path("/logs/x-2026-09-30.log"));
 }
@@ -56,7 +56,7 @@ TEST(LogConfig, LevelNames) {
 }
 
 TEST(Logging, WritesComponentLevelMessageAndSourceToFile) {
-    const auto path = std::filesystem::temp_directory_path() / "wheelemu-logging-test" / "test.log";
+    const auto path = std::filesystem::temp_directory_path() / "wheelbri-logging-test" / "test.log";
     std::error_code ignored;
     std::filesystem::remove_all(path.parent_path(), ignored);
 
@@ -101,7 +101,7 @@ TEST(Logging, UnwritableFileFallsBackToConsole) {
     config.console = false;
     config.periodicFlush = false;
     // A path below an existing regular file can never be created.
-    const auto blocker = std::filesystem::temp_directory_path() / "wheelemu-logging-blocker";
+    const auto blocker = std::filesystem::temp_directory_path() / "wheelbri-logging-blocker";
     std::ofstream(blocker) << "x";
     EXPECT_FALSE(logging::init(config, (blocker / "sub" / "x.log").string()));
     WE_LOG_ERROR(logging::get("test.fallback"), "still reaches stderr");
@@ -111,4 +111,4 @@ TEST(Logging, UnwritableFileFallsBackToConsole) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

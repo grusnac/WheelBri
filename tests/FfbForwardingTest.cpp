@@ -1,13 +1,13 @@
-#include "wheelemu/DiEffect.hpp"
-#include "wheelemu/FfbController.hpp"
-#include "wheelemu/FfbPacket.hpp"
+#include "wheelbri/DiEffect.hpp"
+#include "wheelbri/FfbController.hpp"
+#include "wheelbri/FfbPacket.hpp"
 
 #include <gtest/gtest.h>
 
 #include <limits>
 #include <vector>
 
-namespace wheelemu {
+namespace wheelbri {
 namespace {
 
 constexpr std::uint64_t kMs = 1'000'000;
@@ -223,4 +223,4 @@ TEST(FfbController, OutOfRangeSlotIsIgnored) {
 }
 
 }  // namespace
-}  // namespace wheelemu
+}  // namespace wheelbri

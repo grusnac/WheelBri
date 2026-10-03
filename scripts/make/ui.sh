@@ -15,6 +15,6 @@ if [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; then
 fi
 [ -f "$config" ] || fail "no config at $config"
 
-cmake_build wheelemu-service
+cmake_build wheelbri-service
 say "starting $(service_exe) --config $config --ui $*"
 "$(service_exe)" --config "$config" --ui "$@"

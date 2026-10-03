@@ -1,10 +1,10 @@
-#include "wheelemu/EmulatedJoystick.hpp"
+#include "wheelbri/EmulatedJoystick.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -334,4 +334,4 @@ std::vector<EmulatedJoystick::Change> EmulatedJoystick::diff(const TargetReport&
     return changes;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

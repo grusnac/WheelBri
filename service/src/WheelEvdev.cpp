@@ -8,9 +8,9 @@
 
 #include "Wheel.hpp"
 
-#include "wheelemu/EvdevLayout.hpp"
-#include "wheelemu/Logging.hpp"
-#include "wheelemu/WheelOutput.hpp"
+#include "wheelbri/EvdevLayout.hpp"
+#include "wheelbri/Logging.hpp"
+#include "wheelbri/WheelOutput.hpp"
 
 #include <fcntl.h>
 #include <linux/input.h>
@@ -27,7 +27,7 @@
 #include <string>
 #include <vector>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -434,4 +434,4 @@ private:
 
 std::unique_ptr<WheelBackend> startWheelBackend() { return std::make_unique<EvdevBackend>(); }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

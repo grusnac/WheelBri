@@ -1,15 +1,15 @@
-# Builds wheelemu's UMDF drivers with MSBuild (Visual Studio + WDK, see driver/README.md) and optionally
+# Builds wheelbri's UMDF drivers with MSBuild (Visual Studio + WDK, see driver/README.md) and optionally
 # installs them with their own install scripts. Works from any PowerShell: MSBuild is found with vswhere.
 #
-#   drivers.ps1                          build g920, hide and xusb (Release)
-#   drivers.ps1 -Only g920               build one; -Only g920,xusb for several
+#   drivers.ps1                          build g920 and hide (Release)
+#   drivers.ps1 -Only g920               build one
 #   drivers.ps1 -Install                 build, then install (asks for Administrator)
 #   drivers.ps1 -Clean                   rebuild from scratch
 #   drivers.ps1 -Configuration Debug
 
 param(
     [string]$Configuration = 'Release',
-    [string[]]$Only = @('g920', 'hide', 'xusb'),
+    [string[]]$Only = @('g920', 'hide'),
     [switch]$Install,
     [switch]$Clean
 )
@@ -17,13 +17,12 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 $drivers = [ordered]@{
-    g920 = @{ Project = 'driver\wheelemu-g920.vcxproj';      Installer = 'driver\install-driver.ps1' }
-    hide = @{ Project = 'driver\hide\wheelemu-hide.vcxproj'; Installer = 'driver\hide\install-hide.ps1' }
-    xusb = @{ Project = 'driver\xusb\wheelemu-xusb.vcxproj'; Installer = 'driver\xusb\install-xusb.ps1' }
+    g920 = @{ Project = 'driver\wheelbri-g920.vcxproj';      Installer = 'driver\install-driver.ps1' }
+    hide = @{ Project = 'driver\hide\wheelbri-hide.vcxproj'; Installer = 'driver\hide\install-hide.ps1' }
 }
 $Only = $Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ }
 foreach ($name in $Only) {
-    if (-not $drivers.Contains($name)) { Write-Host "unknown driver '$name' (g920, hide, xusb)" -ForegroundColor Red; exit 2 }
+    if (-not $drivers.Contains($name)) { Write-Host "unknown driver '$name' (g920, hide)" -ForegroundColor Red; exit 2 }
 }
 
 function Find-MSBuild {

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "wheelemu/LocalDate.hpp"
-#include "wheelemu/Retention.hpp"
+#include "wheelbri/LocalDate.hpp"
+#include "wheelbri/Retention.hpp"
 
 #include "Platform.hpp"
 
@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 // A compressor found on this PC. Tools that make one archive per day (7z, zip) and tools that compress each
 // file on its own (xz, zstd, gzip: "telemetry-2026-09-20.csv" -> "telemetry-2026-09-20.csv.xz").
@@ -26,7 +26,7 @@ struct Archiver {
     [[nodiscard]] bool onePerDay() const { return kind == Kind::SevenZip || kind == Kind::WindowsZip || kind == Kind::InfoZip; }
 };
 
-// Best available compressor for `preference` ("auto" or one of wheelemu::kArchivers). "auto" tries, in order
+// Best available compressor for `preference` ("auto" or one of wheelbri::kArchivers). "auto" tries, in order
 // of how small they make CSV and log files: 7-Zip (7z, LZMA2 ultra), xz, zstd, zip (Windows' built-in
 // tar.exe, or Info-ZIP), gzip. Looks on PATH and in the usual 7-Zip install folders.
 [[nodiscard]] std::optional<Archiver> findArchiver(const std::string& preference);
@@ -80,4 +80,4 @@ private:
     std::string lastProblem_;
 };
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the app (wheelemu.exe: a window with Start, Stop and Open logs) and start it. Windows asks for
+# Build the app (wheelbri.exe: a window with Start, Stop and Open logs) and start it. Windows asks for
 # Administrator (the app's manifest requires it), so it is started through PowerShell rather than from bash.
 #
 #   scripts/make/app.sh                               build and start
@@ -14,11 +14,11 @@ if [ "${1:-}" = "--no-start" ]; then
     shift
 fi
 
-cmake_build wheelemu
+cmake_build wheelbri
 if on_windows; then
-    app="$build_dir/service/wheelemu.exe"
+    app="$build_dir/service/wheelbri.exe"
 else
-    app="$build_dir/service/wheelemu"
+    app="$build_dir/service/wheelbri"
 fi
 ok "built: $app"
 [ $start -eq 1 ] || exit 0

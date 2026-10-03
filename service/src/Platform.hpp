@@ -10,7 +10,7 @@
 // The little the service needs from the operating system besides the wheel and the window: a monotonic
 // clock, precise sleeps for the 1 kHz loop, a higher thread priority, and starting a compressor for old log
 // files. PlatformWin32.cpp on Windows, PlatformPosix.cpp elsewhere (Linux, macOS).
-namespace wheelemu::service::platform {
+namespace wheelbri::service::platform {
 
 inline constexpr std::uint64_t kNsPerMs = 1'000'000ULL;
 inline constexpr std::uint64_t kNsPerSecond = 1'000'000'000ULL;
@@ -39,13 +39,13 @@ bool raiseThreadPriority(std::string& error);
 // The running program's own file, empty if unknown.
 [[nodiscard]] std::filesystem::path executablePath();
 
-// Only one wheelemu-service session at a time on this computer: two would both read the wheel, both send state to
+// Only one wheelbri-service session at a time on this computer: two would both read the wheel, both send state to
 // the same port (the game would get both, interleaved) and both create the virtual devices. Held while it lives.
 // Windows: a named mutex (released by Windows when the process dies). Elsewhere: an flock on a file in the
 // runtime folder (released by the kernel when the process dies).
 class SingleInstance {
 public:
-    // Null with `error` set ("another wheelemu-service is running (pid N)" or why the lock could not be made).
+    // Null with `error` set ("another wheelbri-service is running (pid N)" or why the lock could not be made).
     [[nodiscard]] static std::unique_ptr<SingleInstance> acquire(const std::string& name, std::string& error);
     ~SingleInstance();
 
@@ -91,4 +91,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace wheelemu::service::platform
+}  // namespace wheelbri::service::platform

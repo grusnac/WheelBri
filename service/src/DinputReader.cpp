@@ -1,6 +1,6 @@
 #include "DinputReader.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #ifdef _WIN32
 
@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <vector>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -146,7 +146,7 @@ std::unique_ptr<DinputReader> DinputReader::open(const std::string& hidPath, std
 
     // Shared, and also while another window has the focus. The force feedback holds the same wheel
     // exclusively (a second device object); exclusive access only excludes other exclusive users.
-    impl->window = dinput::createHelperWindow(L"wheelemu-input");
+    impl->window = dinput::createHelperWindow(L"wheelbri-input");
     if (impl->window == nullptr ||
         FAILED(impl->device->SetCooperativeLevel(impl->window, DISCL_NONEXCLUSIVE | DISCL_BACKGROUND))) {
         error = "SetCooperativeLevel(non-exclusive, background) failed";
@@ -223,6 +223,6 @@ bool DinputReader::read(RawInputState& state) {
     return true;
 }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service
 
 #endif  // _WIN32

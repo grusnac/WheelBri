@@ -9,7 +9,7 @@
 #include <string>
 #include <utility>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace detail {
 
@@ -490,4 +490,4 @@ private:
     logging::RateLimiter acquireFailureLimiter_{std::chrono::seconds(5)};
 };
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

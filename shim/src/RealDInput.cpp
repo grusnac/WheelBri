@@ -5,7 +5,7 @@
 #include <mutex>
 #include <string>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace {
 
@@ -63,4 +63,4 @@ const RealDInput* realDInput() {
     return loaded ? &real : nullptr;
 }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

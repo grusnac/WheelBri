@@ -1,14 +1,14 @@
-#include "wheelemu/HidG920.hpp"
+#include "wheelbri/HidG920.hpp"
 
 #include <algorithm>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
 // Generated from HIDMaestro's HidDescriptorBuilder (MIT, https://github.com/hifihedgehog/HIDMaestro) with
 // Joystick().AddAxis(X, 16, -32768, 32767).AddAxis(Y, ...).AddAxis(Rz, ...).AddAxis(Slider, ...)
-// .AddButtons(11).AddHat().AddPidFfbBlock(), exactly as tools/vbridge/Program.cs BuildProfile.
+// .AddButtons(11).AddHat().AddPidFfbBlock(), exactly as the old HIDMaestro bridge built it.
 constexpr std::uint8_t kDescriptor[] = {
     0x05, 0x01, 0x09, 0x04, 0xA1, 0x01, 0x85, 0x01, 0x05, 0x01, 0x09, 0x30, 0x16, 0x00, 0x80, 0x26,
     0xFF, 0x7F, 0x95, 0x01, 0x75, 0x10, 0x81, 0x02, 0x05, 0x01, 0x09, 0x31, 0x16, 0x00, 0x80, 0x26,
@@ -118,4 +118,4 @@ TargetReport g920Neutral() {
     return r;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

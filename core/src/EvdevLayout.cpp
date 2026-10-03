@@ -1,9 +1,9 @@
-#include "wheelemu/EvdevLayout.hpp"
+#include "wheelbri/EvdevLayout.hpp"
 
 #include <algorithm>
 #include <cmath>
 
-namespace wheelemu::evdev {
+namespace wheelbri::evdev {
 
 namespace {
 
@@ -209,4 +209,4 @@ void Layout::fill(RawInputState& state) const {
     }
 }
 
-}  // namespace wheelemu::evdev
+}  // namespace wheelbri::evdev

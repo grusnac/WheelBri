@@ -5,7 +5,7 @@
 #include <exception>
 #include <new>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 // Logs an exception caught at the boundary to the game. Never throws (if even logging fails, nothing is logged).
 void noteEscapedException(const char* where, const char* what) noexcept;
@@ -42,4 +42,4 @@ Result guardedOr(const Result fallback, const char* where, Body&& body) noexcept
     return fallback;
 }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

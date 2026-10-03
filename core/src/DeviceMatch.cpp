@@ -1,10 +1,10 @@
-#include "wheelemu/DeviceMatch.hpp"
+#include "wheelbri/DeviceMatch.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -24,4 +24,4 @@ bool deviceMatches(const std::string& name, const std::uint16_t vendorId, const 
     return toLower(name).find(lowered) != std::string::npos || std::string(ids).find(lowered) != std::string::npos;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

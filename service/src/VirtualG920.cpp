@@ -1,6 +1,6 @@
 #include "VirtualG920.hpp"
 
-#include "wheelemu/Logging.hpp"
+#include "wheelbri/Logging.hpp"
 
 #ifdef _WIN32
 
@@ -15,7 +15,7 @@
 #include <thread>
 #include <vector>
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 namespace {
 
@@ -206,13 +206,13 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         SwDeviceCreateInfo info{};
         info.cbSize = sizeof(info);
         info.pszInstanceId = instance;
-        info.pszzHardwareIds = L"wheelemu\\G920\0";
+        info.pszzHardwareIds = L"wheelbri\\G920\0";
         info.CapabilityFlags = kRemovable | kSilentInstall | kDriverRequired;
-        info.pszDeviceDescription = L"Logitech G920 Driving Force Racing Wheel USB (wheelemu)";
+        info.pszDeviceDescription = L"Logitech G920 Driving Force Racing Wheel USB (wheelbri)";
         // Heap-allocated: if Windows never answers, its late callback must not touch a dead stack frame.
         auto* wait = new CreateWait;
         HSWDEVICE_ device = nullptr;
-        const HRESULT hr = swCreate(L"wheelemu", L"HTREE\\ROOT\\0", &info, 0, nullptr, onCreated, wait, &device);
+        const HRESULT hr = swCreate(L"wheelbri", L"HTREE\\ROOT\\0", &info, 0, nullptr, onCreated, wait, &device);
         if (FAILED(hr)) {
             delete wait;
             char text[160];
@@ -296,11 +296,11 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
     return nullptr;
 }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service
 
 #else  // not Windows
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 struct VirtualG920::Impl {
     std::string instanceId;
@@ -311,14 +311,14 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
     return nullptr;
 }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service
 
 #endif
 
-namespace wheelemu::service {
+namespace wheelbri::service {
 
 VirtualG920::VirtualG920(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 VirtualG920::~VirtualG920() = default;
 const std::string& VirtualG920::instanceId() const { return impl_->instanceId; }
 
-}  // namespace wheelemu::service
+}  // namespace wheelbri::service

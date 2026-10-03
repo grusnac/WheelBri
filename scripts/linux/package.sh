@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Builds the Linux bundle dist/wheelemu-linux-x86_64.tar.gz (Steam Deck or any x86-64 distribution):
-#   wheelemu/bin/       wheelemu-service, wheelemu-uhid (C++ runtime linked in; they need only libX11 and
+# Builds the Linux bundle dist/wheelbri-linux-x86_64.tar.gz (Steam Deck or any x86-64 distribution):
+#   wheelbri/bin/       wheelbri-service, wheelbri-uhid (C++ runtime linked in; they need only libX11 and
 #                       the kernel: the wheel through evdev, the --ui window through X11/XWayland)
-#   wheelemu/config/    the example configs
-#   wheelemu/           wheelemu.sh, install-udev-rules.sh, LINUX.md, and dinput8.dll for --shim when given
+#   wheelbri/config/    the example configs
+#   wheelbri/           wheelbri.sh, install-udev-rules.sh, LINUX.md, and dinput8.dll for --shim when given
 #
 # spdlog is always built in (a system one would be a shared library the Deck does not have).
 # usage: scripts/linux/package.sh [--shim path/to/dinput8.dll] [-- more cmake arguments]
@@ -25,7 +25,7 @@ done
 
 build="$root/build-linux-release"
 dist="$root/dist"
-bundle="$dist/wheelemu"
+bundle="$dist/wheelbri"
 rm -rf "$bundle"
 mkdir -p "$bundle"
 
@@ -38,13 +38,13 @@ cmake --install "$build" --prefix "$bundle"
 
 mkdir -p "$bundle/config"
 cp "$root"/config/*.ini "$bundle/config/"
-cp "$root/scripts/linux/wheelemu.sh" "$root/scripts/linux/install-udev-rules.sh" "$bundle/"
+cp "$root/scripts/linux/wheelbri.sh" "$root/scripts/linux/install-udev-rules.sh" "$bundle/"
 cp "$root/docs/linux.md" "$bundle/LINUX.md"
 if [ -n "$shim" ]; then
     cp "$shim" "$bundle/dinput8.dll"
 fi
 chmod +x "$bundle"/*.sh "$bundle"/bin/*
 
-tar -czf "$dist/wheelemu-linux-x86_64.tar.gz" -C "$dist" wheelemu
-echo "built $dist/wheelemu-linux-x86_64.tar.gz"
+tar -czf "$dist/wheelbri-linux-x86_64.tar.gz" -C "$dist" wheelbri
+echo "built $dist/wheelbri-linux-x86_64.tar.gz"
 ls -l "$bundle" "$bundle/bin"

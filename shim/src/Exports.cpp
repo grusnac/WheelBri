@@ -8,10 +8,10 @@
 
 namespace {
 
-using namespace wheelemu::shim;
+using namespace wheelbri::shim;
 
-const wheelemu::logging::Logger& log() {
-    static const wheelemu::logging::Logger instance = logger("shim");
+const wheelbri::logging::Logger& log() {
+    static const wheelbri::logging::Logger instance = logger("shim");
     return instance;
 }
 
@@ -26,7 +26,7 @@ const RealDInput* requireReal(const char* caller) {
 
 }  // namespace
 
-using wheelemu::shim::guarded;
+using wheelbri::shim::guarded;
 
 extern "C" {
 

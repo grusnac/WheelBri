@@ -1,9 +1,9 @@
-#include "wheelemu/TestClutch.hpp"
+#include "wheelbri/TestClutch.hpp"
 
 #include <algorithm>
 #include <cmath>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -50,4 +50,4 @@ std::optional<float> TestClutch::active(std::uint64_t nowNs) const {
     return pressed_;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri

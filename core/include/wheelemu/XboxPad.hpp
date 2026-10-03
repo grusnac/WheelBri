@@ -11,19 +11,20 @@
 namespace wheelemu {
 
 // The virtual Xbox 360 controller next to the virtual G920 (driver/xusb, `wheelemu-service --virtual-g920`), so
-// games that pick their on-screen button prompts by controller (NFS 2015) show Xbox buttons. Its sticks and
-// triggers never move: it can never steer or drive. The rules are the ones tools/vbridge/XboxPad.cs settled in NFS:
+// games that pick their on-screen button prompts by controller (NFS 2015) show Xbox icons. EXPERIMENTAL: not shown to
+// work yet. It never presses a button or a trigger: everything the wheel does goes to the G920.
 //
-//   buttons: the wheel's A, B, X, Y, Menu (Start), View (Back) and D-pad press the pad's INSTEAD of the G920's while
-//            no pedal is pressed and for 2 s after; while driving they are the G920's. One press never reaches both
-//            (the game acted twice, and NFS reads G920 input as keyboard-type input and puts the keyboard prompts
-//            back). Paddles, stick clicks (the pad's right stick click is NFS's photo) and the Xbox button are never
-//            passed on. A button held when driving stops must be let go first.
-//            In a menu the G920's steering is held too (turning the wheel put the keyboard prompts back). "In a
-//            menu": no pedal for 2 s and either a pad button pressed since the last pedal (NFS's open-world menus
-//            keep the driving spring on) or the game playing all its effects at zero for 1.5 s (its other menus; a
-//            game that never used force feedback never gets this). The steering comes back with the next pedal.
-//   idle:    the pad is there, never pressed (games that only look at which controllers exist).
+//   buttons ("icons"): every input from the wheel (a button or D-pad press, a pedal pressed) reaches the G920 as it
+//            is, and the pad then gets a "nudge": its right stick moved by kNudge for kNudgeMs. NFS reads G920 input
+//            as keyboard-type input and shows keyboard icons; the pad's change right after should make the pad the
+//            last controller used, so the icons go back to Xbox. A nudge of 2500 (inside XInput's 7849 dead zone,
+//            on the left stick, also after steering) did nothing in NFS (2026-10-03): it is now outside the dead
+//            zone, on the right stick (camera / car view: at most a brief look) and not after steering, so the
+//            camera does not twitch while driving and the car is never steered by the pad. Until
+//            2026-10-03 the wheel's buttons were moved to the pad instead (in menus), and the pad's own functions
+//            took over (the Moza's R as the pad's right stick click took photos in NFS), pedal taps were swallowed
+//            and the steering was held: all gone.
+//   idle:    the pad is there, never touched (games that only look at which controllers exist).
 
 // XINPUT_GAMEPAD: wButtons bits as XInput defines them, triggers 0..255, sticks -32768..32767.
 struct XusbPad {
@@ -50,43 +51,40 @@ inline constexpr std::size_t kXusbPacketSize = 20;
 enum class XboxPadMode { Off, Idle, Buttons };
 [[nodiscard]] std::optional<XboxPadMode> parseXboxPadMode(const std::string& text);
 
-// The rules above, applied to every wheel state the service publishes.
+// The rules above, applied to every wheel state the service publishes. Allocation-free (the 1 kHz loop).
 class XboxMirror {
 public:
     explicit XboxMirror(XboxPadMode mode) : mode_(mode) {}
 
+    // What made a nudge (for the log).
+    enum class Cause { None, Button, Dpad, Pedal };
+
     struct Result {
-        TargetReport g920;                  // what the virtual G920 reports (D-pad and steering possibly held back)
-        XusbPad pad;                        // what the Xbox controller reports
-        std::optional<bool> menuChanged;    // set when "in a menu" turned on (true) or off (false): for the log
-        bool firstPress = false;            // the first pad press passed on: for the log
+        TargetReport g920;                  // what the virtual G920 reports: always the wheel, untouched
+        XusbPad pad;                        // what the Xbox controller reports: at most a right stick nudge
+        Cause nudged = Cause::None;         // a new nudge started now, and why
     };
 
-    // `gameForce`: the strongest force the game plays now (0..1); `gameUsesForce`: it has used force feedback.
-    [[nodiscard]] Result update(const TargetReport& wheel, std::int64_t nowMs, float gameForce, bool gameUsesForce);
+    [[nodiscard]] Result update(const TargetReport& wheel, std::int64_t nowMs);
 
-    [[nodiscard]] std::uint64_t presses() const { return presses_; }
-    [[nodiscard]] bool inMenu() const { return inMenu_; }
+    [[nodiscard]] std::uint64_t nudges() const { return nudges_; }
 
-    static constexpr std::int64_t kPedalQuietMs = 2000;
-    static constexpr std::int64_t kForceQuietMs = 1500;
-    static constexpr float kForceZero = 0.01F;
-    static constexpr int kPedalPressed = 65535 / 10;   // 10 % of travel (G920 pedals: 65535 = released)
+    static constexpr std::int16_t kNudge = 10000;       // of 32767: ~30 %, past XInput's 7849 dead zone
+    static constexpr std::int64_t kNudgeMs = 60;        // how long the stick stays nudged
+    static constexpr std::int64_t kNudgeGapMs = 100;    // at least this between nudges
+    static constexpr int kPedalPressed = 65535 / 10;    // 10 % of travel (G920 pedals: 65535 = released)
 
 private:
     XboxPadMode mode_;
-    std::int64_t lastPedalMs_ = INT64_MIN / 2;
-    std::int64_t lastForceMs_ = 0;
-    bool haveForceTime_ = false;
-    bool inMenu_ = false;
-    bool menuByPad_ = false;   // a pad button was pressed since the last pedal
-    int heldSteering_ = 32768;
-    std::uint16_t blocked_ = 0;
-    bool hatBlocked_ = false;
-    std::uint32_t g920Hidden_ = 0;   // G920 Menu/View bits that went to the pad, kept off the G920 until released
-    std::uint16_t lastButtons_ = 0;
-    std::uint64_t presses_ = 0;
-    bool first_ = true;
+    bool started_ = false;
+    std::uint32_t lastButtons_ = 0;
+    std::int8_t lastHat_ = -1;
+    std::array<bool, 3> pedalDown_{};
+    std::int64_t nudgedAtMs_ = INT64_MIN / 2;
+    bool pending_ = false;              // an input came within kNudgeGapMs of the last nudge: nudge when allowed
+    Cause pendingCause_ = Cause::None;
+    std::int16_t sign_ = 1;             // alternates, so every nudge is a change even if the last one is still on
+    std::uint64_t nudges_ = 0;
 };
 
 }  // namespace wheelemu

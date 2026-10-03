@@ -1,21 +1,21 @@
-// wheelemu-uhid: Phase 4, the virtual G920 on Linux (Steam Deck, any distribution).
+// wheelbri-uhid: Phase 4, the virtual G920 on Linux (Steam Deck, any distribution).
 //
-// The Linux counterpart of tools/vbridge (Windows, HIDMaestro): creates a virtual "Logitech G920" through the
-// kernel's uhid, feeds it the wheel state wheelemu-service publishes (UDP 127.0.0.1:41329) and sends the game's
+// The Linux counterpart of the old HIDMaestro bridge (Windows): creates a virtual "Logitech G920" through the
+// kernel's uhid, feeds it the wheel state wheelbri-service publishes (UDP 127.0.0.1:41329) and sends the game's
 // HID PID force feedback back to the service as FfbPackets (UDP 127.0.0.1:41330). The service does not change.
 //
 // For a Proton game to use it, start the game with
 //   PROTON_ENABLE_HIDRAW=0x046D/0xC262 SDL_GAMECONTROLLER_IGNORE_DEVICES=0x346E/0x0005 %command%
-// (raw HID for the G920, so its force feedback works; the R3 hidden from the game). scripts/linux/wheelemu.sh
+// (raw HID for the G920, so its force feedback works; the R3 hidden from the game). scripts/linux/wheelbri.sh
 // does all of this. Needs access to /dev/uhid (scripts/linux/install-udev-rules.sh, once).
 
 #include "UhidG920.hpp"
 
-#include "wheelemu/FfbPacket.hpp"
-#include "wheelemu/HidG920.hpp"
-#include "wheelemu/Logging.hpp"
-#include "wheelemu/StatePacket.hpp"
-#include "wheelemu/UdpLoopback.hpp"
+#include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/HidG920.hpp"
+#include "wheelbri/Logging.hpp"
+#include "wheelbri/StatePacket.hpp"
+#include "wheelbri/UdpLoopback.hpp"
 
 #include <fcntl.h>
 #include <poll.h>
@@ -34,14 +34,14 @@
 #include <string>
 #include <tuple>
 
-#ifndef WHEELEMU_VERSION
-#define WHEELEMU_VERSION "dev"
+#ifndef WHEELBRI_VERSION
+#define WHEELBRI_VERSION "dev"
 #endif
 
 namespace {
 
-const wheelemu::logging::Logger& log() {
-    static const wheelemu::logging::Logger logger = wheelemu::logging::get("tools.uhid");
+const wheelbri::logging::Logger& log() {
+    static const wheelbri::logging::Logger logger = wheelbri::logging::get("tools.uhid");
     return logger;
 }
 
@@ -61,13 +61,13 @@ std::string env(const char* name) {
     return value != nullptr ? value : "";
 }
 
-// Next to the service's log: $XDG_STATE_HOME/wheelemu or ~/.local/state/wheelemu.
+// Next to the service's log: $XDG_STATE_HOME/wheelbri or ~/.local/state/wheelbri.
 std::string defaultLogFile() {
     const std::string state = env("XDG_STATE_HOME");
     const std::filesystem::path directory = state.empty()
-                                                ? std::filesystem::path(env("HOME")) / ".local" / "state" / "wheelemu"
-                                                : std::filesystem::path(state) / "wheelemu";
-    return (directory / "wheelemu-uhid.log").string();
+                                                ? std::filesystem::path(env("HOME")) / ".local" / "state" / "wheelbri"
+                                                : std::filesystem::path(state) / "wheelbri";
+    return (directory / "wheelbri-uhid.log").string();
 }
 
 struct Options {
@@ -90,8 +90,8 @@ bool parse(int argc, char** argv, Options& o) {
             o.device = argv[++i];
         } else {
             std::puts(
-                "usage: wheelemu-uhid [--state-port 41329] [--ffb-port 41330] [--stop-file PATH] [--device /dev/uhid]\n"
-                "  A virtual Logitech G920 (uhid) fed by wheelemu-service; stops on Ctrl+C, SIGTERM or when\n"
+                "usage: wheelbri-uhid [--state-port 41329] [--ffb-port 41330] [--stop-file PATH] [--device /dev/uhid]\n"
+                "  A virtual Logitech G920 (uhid) fed by wheelbri-service; stops on Ctrl+C, SIGTERM or when\n"
                 "  --stop-file appears. Proton games: PROTON_ENABLE_HIDRAW=0x046D/0xC262 in the launch options.");
             return false;
         }
@@ -114,9 +114,9 @@ int main(int argc, char** argv) {
     if (!parse(argc, argv, o)) {
         return 2;
     }
-    wheelemu::logging::init(wheelemu::logging::LogConfig{}, defaultLogFile());
-    WE_LOG_INFO(log(), "wheelemu-uhid {} starting: state from 127.0.0.1:{}, force feedback to 127.0.0.1:{}",
-                WHEELEMU_VERSION, o.statePort, o.ffbPort);
+    wheelbri::logging::init(wheelbri::logging::LogConfig{}, defaultLogFile());
+    WE_LOG_INFO(log(), "wheelbri-uhid {} starting: state from 127.0.0.1:{}, force feedback to 127.0.0.1:{}",
+                WHEELBRI_VERSION, o.statePort, o.ffbPort);
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
     std::signal(SIGHUP, onSignal);    // the terminal or the Steam wrapper went away: stop cleanly too
@@ -137,10 +137,10 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto states = wheelemu::UdpLoopbackReceiver::create(o.statePort);
-    auto ffbOut = wheelemu::UdpLoopbackSender::create(o.ffbPort);
+    auto states = wheelbri::UdpLoopbackReceiver::create(o.statePort);
+    auto ffbOut = wheelbri::UdpLoopbackSender::create(o.ffbPort);
     if (states == nullptr || ffbOut == nullptr) {
-        WE_LOG_CRITICAL(log(), "cannot open the UDP ports (is another wheelemu-uhid, the bridge or the shim using {}?)",
+        WE_LOG_CRITICAL(log(), "cannot open the UDP ports (is another wheelbri-uhid, the bridge or the shim using {}?)",
                         o.statePort);
         ::close(fd);
         return 1;
@@ -149,22 +149,22 @@ int main(int argc, char** argv) {
     const auto writeEvent = [fd](const uhid_event& event) {
         const ssize_t written = ::write(fd, &event, sizeof(event));
         if (written != static_cast<ssize_t>(sizeof(event))) {
-            static wheelemu::logging::RateLimiter limiter(std::chrono::seconds(5));
+            static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(5));
             WE_LOG_WARN_LIMITED(log(), limiter, "uhid: write failed: {}", std::strerror(errno));
             return false;
         }
         return true;
     };
-    const auto sendFfb = [&ffbOut](const wheelemu::FfbPacket& packet) { ffbOut->send(wheelemu::encode(packet)); };
+    const auto sendFfb = [&ffbOut](const wheelbri::FfbPacket& packet) { ffbOut->send(wheelbri::encode(packet)); };
     const auto logLine = [](const std::string& line) { WE_LOG_INFO(log(), "{}", line); };
 
-    wheelemu::uhid::UhidG920 device(writeEvent, sendFfb, logLine);
+    wheelbri::uhid::UhidG920 device(writeEvent, sendFfb, logLine);
     if (!device.create()) {
         WE_LOG_CRITICAL(log(), "the kernel refused the virtual G920");
         ::close(fd);
         return 1;
     }
-    WE_LOG_INFO(log(), "virtual '{}' created (046D:C262); Ctrl+C{} to stop", wheelemu::uhid::UhidG920::kName,
+    WE_LOG_INFO(log(), "virtual '{}' created (046D:C262); Ctrl+C{} to stop", wheelbri::uhid::UhidG920::kName,
                 o.stopFile.empty() ? "" : " or " + o.stopFile);
 
     bool receiving = false;
@@ -175,7 +175,7 @@ int main(int argc, char** argv) {
     std::int64_t lastStopCheck = 0;
     std::int64_t lastStatus = nowMs();
     std::optional<std::tuple<int, std::size_t, bool>> shown;
-    wheelemu::TargetReport current = wheelemu::g920Neutral();
+    wheelbri::TargetReport current = wheelbri::g920Neutral();
 
     while (!gStop) {
         pollfd pfd{fd, POLLIN, 0};
@@ -205,7 +205,7 @@ int main(int argc, char** argv) {
         if (const auto packet = states->pollLatest()) {
             if (!receiving) {
                 receiving = true;
-                WE_LOG_INFO(log(), "receiving wheel state from wheelemu-service (packet #{})", packet->sequence);
+                WE_LOG_INFO(log(), "receiving wheel state from wheelbri-service (packet #{})", packet->sequence);
             }
             lastState = now;
             neutralSent = false;
@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
             }
             receiving = false;
             neutralSent = true;
-            current = wheelemu::g920Neutral();
+            current = wheelbri::g920Neutral();
             device.submit(current, true);
             lastInput = now;
         } else if (now - lastInput >= kKeepAliveMs) {

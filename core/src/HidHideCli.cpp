@@ -1,4 +1,4 @@
-#include "wheelemu/HidHideCli.hpp"
+#include "wheelbri/HidHideCli.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -7,7 +7,7 @@
 #include <tuple>
 #include <utility>
 
-namespace wheelemu::hidhide {
+namespace wheelbri::hidhide {
 
 namespace {
 
@@ -244,4 +244,4 @@ std::vector<std::string> storedSpellings(const std::vector<std::string>& stored,
     return result;
 }
 
-}  // namespace wheelemu::hidhide
+}  // namespace wheelbri::hidhide

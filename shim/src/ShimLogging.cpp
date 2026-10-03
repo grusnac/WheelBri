@@ -9,7 +9,7 @@
 #include <mutex>
 #include <string>
 
-namespace wheelemu::shim {
+namespace wheelbri::shim {
 
 namespace {
 
@@ -38,15 +38,15 @@ std::wstring dllDirectory() {
 
 namespace {
 
-// Next to the service's logs and telemetry (%LOCALAPPDATA%\wheelemu\logs), so every file is in one folder
+// Next to the service's logs and telemetry (%LOCALAPPDATA%\wheelbri\logs), so every file is in one folder
 // that the service's window shows and its [retention] settings clean up. One file per day:
-// wheelemu-shim-YYYY-MM-DD.log. Falls back to the DLL's folder if LOCALAPPDATA is not set.
+// wheelbri-shim-YYYY-MM-DD.log. Falls back to the DLL's folder if LOCALAPPDATA is not set.
 std::string logFilePath() {
     wchar_t localAppData[MAX_PATH] = {};
     const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
-    const std::wstring folder = length > 0 && length < MAX_PATH ? std::wstring(localAppData) + L"\\wheelemu\\logs\\"
+    const std::wstring folder = length > 0 && length < MAX_PATH ? std::wstring(localAppData) + L"\\wheelbri\\logs\\"
                                                                 : dllDirectory();
-    return toUtf8((folder + L"wheelemu-shim.log").c_str());
+    return toUtf8((folder + L"wheelbri-shim.log").c_str());
 }
 
 }  // namespace
@@ -61,7 +61,7 @@ void ensureLoggingInitialised() {
         logging::init(config, logFilePath());
 
         const logging::Logger log = logging::get("shim");
-        WE_LOG_INFO(log, "wheelemu dinput8 proxy loaded into '{}' (pid {})", toUtf8(modulePath(nullptr).c_str()),
+        WE_LOG_INFO(log, "wheelbri dinput8 proxy loaded into '{}' (pid {})", toUtf8(modulePath(nullptr).c_str()),
                     GetCurrentProcessId());
         WE_LOG_INFO(log, "proxy dll: '{}'", toUtf8(modulePath(thisModule()).c_str()));
 #if defined(_WIN64)
@@ -105,4 +105,4 @@ void noteEscapedException(const char* where, const char* what) noexcept {
     }
 }
 
-}  // namespace wheelemu::shim
+}  // namespace wheelbri::shim

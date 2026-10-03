@@ -17,7 +17,7 @@
 
 #include <string>
 
-namespace wheelemu::service::dinput {
+namespace wheelbri::service::dinput {
 
 [[nodiscard]] std::wstring toWide(const std::string& text);
 [[nodiscard]] std::string toUtf8(const wchar_t* text);
@@ -31,4 +31,4 @@ namespace wheelemu::service::dinput {
 // A hidden message-only window: DirectInput's SetCooperativeLevel needs one.
 [[nodiscard]] HWND createHelperWindow(const wchar_t* title);
 
-}  // namespace wheelemu::service::dinput
+}  // namespace wheelbri::service::dinput

@@ -1,10 +1,10 @@
-#include "wheelemu/FfbUsage.hpp"
+#include "wheelbri/FfbUsage.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 
-namespace wheelemu {
+namespace wheelbri {
 
 namespace {
 
@@ -201,4 +201,4 @@ std::string FfbUsage::histogramLine() const {
     return line;
 }
 
-}  // namespace wheelemu
+}  // namespace wheelbri
