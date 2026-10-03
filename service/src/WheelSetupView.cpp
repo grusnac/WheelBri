@@ -631,7 +631,7 @@ void WheelSetupView::draw() {
 
 void WheelSetupView::drawHeader() {
     // The rig.
-    window_.text(4, 6, "WHEEL SETUP", kHeading);
+    window_.text(4, 6, "RIG", kHeading);
     window_.text(108, 6, "Rig", kDim);
     const std::size_t rigs = rigNames_.size();
     const auto rigIndex = static_cast<std::size_t>(

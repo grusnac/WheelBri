@@ -57,7 +57,8 @@ constexpr float kTabBarTop = MappingView::kHeight - 28;
 constexpr float kTabWidth = 156;
 constexpr float kMappingTabX = 4;                         // where MappingView puts "Mapping (M)"
 constexpr float kSetupTabX = 4 + kTabWidth + 6;           // ...and "Rig (R)"
-constexpr float kStatusTabX = 4 + 2 * (kTabWidth + 6);    // the idle page's own, where the live view has Logs
+constexpr float kLogsTabX = 4 + 2 * (kTabWidth + 6);      // ...and "Logs (L)"
+constexpr float kStatusTabX = 4 + 3 * (kTabWidth + 6);    // the idle page's own, after Logs
 
 // The running session's wheel as the Wheel setup tab wants it.
 WheelSetupView::SessionWheel sessionWheel(const SessionInfo& info, const UiFrame& frame) {
@@ -349,6 +350,12 @@ private:
         // The first time (no rig yet) the devices are defined first; then the mapping is where to go.
         idleTab_ = WheelSetupView::anyRig(rigsFolder()) ? IdleTab::Mapping : IdleTab::Setup;
         mapping_ = std::make_unique<MappingEditView>(*window_, rigsFolder(), settings_.stateFile, *picker_);
+        // The Logs tab while no session shows (stopped, starting): a view of its own, used for that page only.
+        logsProfile_ = makeProfile("g920");
+        logs_ = std::make_unique<MappingView>(*window_, std::string(), 0, 0, *logsProfile_, MapperConfig{});
+        FilesDisplay files;
+        files.logFolder = settings_.logFolder;
+        logs_->setFiles(files);
         // Logoff or shutdown: Windows ends the process right after this returns (about 5 s).
         window_->onEndSession([this] {
             if (!running()) return;
@@ -387,6 +394,7 @@ private:
                         view_->onClick(click.x, y);
                     } else if (y >= kTabBarTop + 4 && y < kTabBarTop + 24) {
                         if (click.x >= kMappingTabX && click.x < kMappingTabX + kTabWidth) idleTab_ = IdleTab::Mapping;
+                        if (click.x >= kLogsTabX && click.x < kLogsTabX + kTabWidth) idleTab_ = IdleTab::Logs;
                         if (click.x >= kStatusTabX && click.x < kStatusTabX + kTabWidth) idleTab_ = IdleTab::Status;
                         if (click.x >= kSetupTabX && click.x < kSetupTabX + kTabWidth) idleTab_ = IdleTab::Setup;
                     }
@@ -396,6 +404,8 @@ private:
                     mapping_->onClick(click.x, y);
                 } else if (view_ != nullptr) {
                     view_->onClick(click.x, y);
+                } else if (idleTab_ == IdleTab::Logs) {
+                    logs_->onClick(click.x, y);
                 } else {
                     picker_->onClick(click.x, y);
                 }
@@ -418,12 +428,18 @@ private:
                         if (editingMapping) mapping_->onKey(key);
                     } else if (view_ != nullptr) {
                         view_->onKey(key);
-                    } else if (key == 'r' || key == 's' || key == 'm') {
-                        idleTab_ = key == 'r' ? IdleTab::Setup : key == 'm' ? IdleTab::Mapping : IdleTab::Status;
+                    } else if (key == 'r' || key == 's' || key == 'm' || key == 'l') {
+                        idleTab_ = key == 'r'   ? IdleTab::Setup
+                                   : key == 'm' ? IdleTab::Mapping
+                                   : key == 'l' ? IdleTab::Logs
+                                                : IdleTab::Status;
+                    } else if (idleTab_ == IdleTab::Logs) {
+                        logs_->onKey(key);   // scrolling, O / D open the folders
                     }
                 }
             }
             if (view_ != nullptr && input.wheel != 0) view_->onScroll(input.wheel);
+            if (view_ == nullptr && idleTab_ == IdleTab::Logs && input.wheel != 0) logs_->onScroll(input.wheel);
             collectSession();
             updateSetup();
             if (showingMappingEditor()) mapping_->update();
@@ -476,6 +492,7 @@ private:
         window_->fill(0, kTabBarTop, kWidth, 1, kPanel);
         const std::tuple<float, const char*, IdleTab> tabs[] = {{kMappingTabX, "Mapping (M)", IdleTab::Mapping},
                                                                 {kSetupTabX, "Rig (R)", IdleTab::Setup},
+                                                                {kLogsTabX, "Logs (L)", IdleTab::Logs},
                                                                 {kStatusTabX, "Status (S)", IdleTab::Status}};
         for (const auto& [x, label, tab] : tabs) {
             const bool active = tab == idleTab_;
@@ -511,6 +528,7 @@ private:
         WE_LOG_INFO(log(), "Start pressed: {}; config {}", settings_.mode,
                     config.empty() ? std::string("built-in defaults") : config);
         setup_->releaseWheel();   // the session opens the wheel now
+        idleTab_ = IdleTab::Logs;  // the logs at once: the session writes them while it comes up
         session_ = std::thread([this, config] {
             int result = 1;
             try {
@@ -547,8 +565,12 @@ private:
                 view_->setFiles(info->files);
                 view_->setDevices(info->devices, info->devicesWarning);
                 view_->setAccessories(info->accessories);
-                // Start: the logs, to see it come up; the wheel back after a loss: the tab that was showing.
-                view_->setTab(previousTab ? *previousTab : MappingView::Tab::Logs);
+                // Start: the tab showing while it came up (the logs, unless changed); the wheel back after a loss:
+                // the tab that was showing.
+                view_->setTab(previousTab                       ? *previousTab
+                              : idleTab_ == IdleTab::Mapping   ? MappingView::Tab::Mapping
+                              : idleTab_ == IdleTab::Setup     ? MappingView::Tab::WheelSetup
+                                                               : MappingView::Tab::Logs);
             }
             if (state_ == State::Starting) {   // not again when the session carries on after the wheel came back
                 state_ = State::Running;
@@ -562,9 +584,10 @@ private:
             lastRunStarted_ = everRan_;
             const bool wasStopping = state_ == State::Stopping;
             state_ = State::Stopped;
-            idleTab_ = showingSetup()                                     ? IdleTab::Setup
+            idleTab_ = showingSetup()                                                 ? IdleTab::Setup
                        : view_ != nullptr && view_->tab() == MappingView::Tab::Mapping ? IdleTab::Mapping
-                                                                                     : IdleTab::Status;
+                       : view_ == nullptr || view_->tab() == MappingView::Tab::Logs    ? IdleTab::Logs
+                                                                                       : IdleTab::Status;
             view_.reset();
             info_.reset();
             if (lastResult_ == 0 || wasStopping) {
@@ -592,6 +615,9 @@ private:
             if (const auto frame = host_.latest(); frame && frame->ready) {
                 draw(ffbDisplay(*info_, *frame), *view_, *frame);
             }
+        } else if (idleTab_ == IdleTab::Logs) {
+            logs_->drawLogsPage();   // stopped or starting: the same live log, before the session shows itself
+            drawIdleTabs();
         } else {
             drawIdle();
             drawIdleTabs();
@@ -706,7 +732,9 @@ private:
     std::unique_ptr<WheelSetupView> setup_;
     std::unique_ptr<ConfigPicker> picker_;
     std::unique_ptr<MappingEditView> mapping_;
-    enum class IdleTab { Mapping, Status, Setup };
+    std::unique_ptr<IDeviceProfile> logsProfile_;   // logs_ needs one; it shows no mapping
+    std::unique_ptr<MappingView> logs_;             // the Logs tab while no session shows
+    enum class IdleTab { Mapping, Status, Setup, Logs };
     IdleTab idleTab_ = IdleTab::Status;   // what shows while no session does
 };
 

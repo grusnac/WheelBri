@@ -88,6 +88,8 @@ public:
     void setTab(const Tab tab) { tab_ = tab; }
     // The tab bar alone (for the Wheel setup tab, whose content the window draws).
     void drawTabBar() { drawTabs(); }
+    // Only the Logs tab's page (no tab bar, no session needed): the app shows it while stopped and starting.
+    void drawLogsPage() { drawLogs(); }
     // Opens the folder with the logs (or the telemetry, if it has its own) in the file manager.
     void openFilesFolder() const;
 

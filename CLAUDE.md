@@ -153,7 +153,9 @@ latest button / D-pad / pedal / FFB events, not scrollable), **Force feedback** 
 start, the latest effects) and **Rig** (R, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
 when stopped too, reading every connected device itself). The app has no log panel or toolbar: only the Mapping tab (the editor while stopped, the
 live one while running) has a short status, Start and Stop, in its top right corner. Stopped, the app's own tabs are Mapping (`MappingEditView`,
-the editor), Rig and Status (in that order); it opens on Rig until a rig exists, else on Mapping; Start shows Logs. O opens the logs folder, D the drivers' folder. It draws through
+the editor), Rig, Logs (a `MappingView` of its own, `logs_`, drawing only its Logs page) and Status, in that order;
+it opens on Rig until a rig exists, else on Mapping; Start switches to Logs at once (the session logs while it comes
+up) and the live view keeps the tab showing then. O opens the logs folder, D the drivers' folder. It draws through
 `UiWindow.hpp` (filled/outlined rectangles, 8x8-cell monospaced text and clicks on a 960x748 logical canvas,
 letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp`
 (Xlib) on Linux.

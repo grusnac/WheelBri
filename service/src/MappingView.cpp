@@ -773,7 +773,7 @@ void MappingView::refreshLogFiles() {
          "wheelbri-service-"},
         {"Game shim", "dinput8.dll next to the game (Phases 2-3)", false, "wheelbri-shim-"},
         {"G920 driver", "the virtual G920 (wheelbri-g920)", true, "wheelbri-driver-"},
-        {"Hide filter", "hides the real R3 from games (wheelbri-hide)", true, "wheelbri-hide-"},
+        {"Hide filter", "hides the rig from games (wheelbri-hide)", true, "wheelbri-hide-"},
     };
     components_.clear();
     for (const Source& source : kSources) {
@@ -808,8 +808,8 @@ void MappingView::drawLogs() {
     constexpr std::size_t kPathChars = 90;
     constexpr std::size_t kWhatChars = 44;   // to the right edge
     refreshLogFiles();
-    text(window_, 4, kLogsTop, "LOGS AND TELEMETRY", kHeading);
-    text(window_, 164, kLogsTop, "one line per component, a new file every day; click a line to open its folder",
+    text(window_, 4, kLogsTop, "LOGS", kHeading);
+    text(window_, 52, kLogsTop, "one line per component, a new file every day; click a line to open its folder",
          kDim);
 
     const float x = 4 + 14 * 8;
@@ -842,7 +842,10 @@ void MappingView::drawLogs() {
     // What the emulator records besides its log: the Telemetry tab.
     y += 10;
     text(window_, 4, y, "Telemetry", kText);
-    text(window_, x, y, "the recorded CSV files and the latest events are on the Telemetry tab (T)", kDim);
+    text(window_, x, y,
+         gTelemetryTab ? "the recorded CSV files and the latest events are on the Telemetry tab (T)"
+                       : "recorded to telemetry-<date>.csv and ffb-<date>.csv in the logs folder (O opens it)",
+         kDim);
     y += kLogRowHeight;
     text(window_, 4, y, "Old files", kText);
     if (!files_.oldFiles.empty()) {
