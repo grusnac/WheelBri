@@ -94,6 +94,8 @@ struct Options {
     bool unhide = false;                        // --unhide: make the real wheel visible again and exit
     bool app = false;                           // --app: the window with Start / Stop (always in wheelbri.exe)
     bool noVirtualG920 = false;                 // --no-virtual-g920: the app without its virtual G920
+    bool telemetryTab = false;                  // --telemetry-tab: show the Telemetry tab (hidden otherwise)
+    bool ffbTab = false;                        // --ffb-tab: show the Force feedback tab (hidden otherwise)
 };
 
 // The active rig's devices (the Wheel setup tab's, [app] rig in the app's state file): everything the hide filter
@@ -342,6 +344,7 @@ void printUsage() {
     std::puts(
         "usage: wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
         "                        [--stop-file FILE] [--virtual-g920 [--no-hide]] [--unhide]\n"
+        "                        [--telemetry-tab] [--ffb-tab]\n"
         "  --config FILE  INI configuration (see config/moza-r3-as-g920.ini)\n"
         "  --list         list joysticks and exit\n"
         "  --print        show live raw and mapped values\n"
@@ -355,6 +358,8 @@ void printUsage() {
         "  --unhide       after a crash: make the real wheel visible to games again and exit\n"
         "  --app          a window with Start / Stop instead of running at once (what wheelbri.exe\n"
         "                 does); on Windows it starts with --virtual-g920 unless --no-virtual-g920\n"
+        "  --telemetry-tab, --ffb-tab\n"
+        "                 show the window's Telemetry / Force feedback tab (hidden without these)\n"
         "  --old-files delete|archive|keep\n"
         "                 logs and telemetry older than [retention] older_than_days (7): delete them (default),\n"
         "                 compress them (7-Zip, xz, zstd, zip or gzip, the best one found) or keep them\n"
@@ -381,6 +386,10 @@ bool parseOptions(const int argc, char** argv, Options& options) {
             options.app = true;
         } else if (arg == "--no-virtual-g920") {
             options.noVirtualG920 = true;
+        } else if (arg == "--telemetry-tab") {
+            options.telemetryTab = true;
+        } else if (arg == "--ffb-tab") {
+            options.ffbTab = true;
         } else if (arg == "--no-hide") {
             options.hide = false;
         } else if (arg == "--unhide") {
@@ -1182,7 +1191,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     const auto hideTargets = rigHideTargets(rigName);
     if (options.virtualG920 && options.hide) {
         if (hideTargets.empty()) {
-            WE_LOG_WARN(log(), "hide: no rig yet{}: nothing is hidden from games (define the devices in Wheel setup)",
+            WE_LOG_WARN(log(), "hide: no rig yet{}: nothing is hidden from games (define the devices in the Rig tab)",
                         rigName.empty() ? "" : " ('" + rigName + "' lists no device)");
         } else {
             ensureHideFilter(hideTargets);
@@ -1250,7 +1259,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         if (!options.hide) {
             devices.text += ", rig left visible (--no-hide)";
         } else if (hideTargets.empty()) {
-            devices.text += ", NOTHING HIDDEN: no rig yet (Wheel setup)";
+            devices.text += ", NOTHING HIDDEN: no rig yet (Rig tab)";
             devices.warning = true;
         } else {
             int hidden = 0;
@@ -1438,6 +1447,7 @@ int main(int argc, char** argv) {
     if (!parseOptions(argc, argv, options)) {
         return 2;
     }
+    wheelbri::service::MappingView::setOptionalTabs(options.telemetryTab, options.ffbTab);
 #ifdef WHEELBRI_APP
     constexpr bool kAppBuild = true;   // wheelbri.exe: a window program, no console
 #else

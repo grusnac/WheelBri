@@ -136,7 +136,7 @@ the same files as a folder and a zip). On a Windows 11 PC with nothing of it, ru
 Administrator prompt; at the end it asks whether to restart Windows now (default yes), which makes sure every driver
 is in use (the hiding filter often starts only after a restart). It installs **WheelBri** to `C:\Program Files\WheelBri`, the three
 drivers (trusting the drivers' certificate on that PC), a Start menu folder (the app and "Uninstall WheelBri") and a
-Settings > Apps entry that uninstalls it all. The app hides the rig (every device in Wheel setup) from games on every Start. The
+Settings > Apps entry that uninstalls it all. The app hides the rig (every device in the Rig tab) from games on every Start. The
 log is `C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log`; `installer/README.txt` is the end user's guide.
 
 ## The app
@@ -168,7 +168,7 @@ reset. **Open folder** shows the file. The pick is remembered (`%LOCALAPPDATA%\w
 (in a shortcut) starts with another, and the other options below work too. `wheelbri-service --app` is the same window
 from a console (and on Linux).
 
-**Wheel setup** (tab W) defines your **rig**: the devices you have (wheel, pedals, shifter, handbrake, button box) and
+The **Rig** tab (R) defines your **rig**: the devices you have (wheel, pedals, shifter, handbrake, button box) and
 what each control is. Every connected device is read at once. With **Detect** on (the default), press a button or move
 an axis (a pedal all the way) and its popup opens: type its name, pick what it is (Steering, Throttle, Brake, Clutch,
 Handbrake, Axis; Button, D-pad up/right/down/left, Shift up/down, Gear 1-7, Reverse), Enter. A pedal found resting at

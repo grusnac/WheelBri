@@ -142,17 +142,18 @@ only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /pe
 
 Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
 [--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide]]
-[--unhide] [--app]`. `--app` opens the app's window (Start / Stop) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
-(click, or M / L / T / F / W): **Mapping** (the axes R3 -> G920, every R3 axis, the D-pad, the G920 buttons written
+[--unhide] [--app] [--telemetry-tab] [--ffb-tab]`. `--app` opens the app's window (Start / Stop) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
+(click, or M / R / L, T / F; in this order: Mapping, Rig, Logs, then Telemetry and Force feedback only with
+`--telemetry-tab` / `--ffb-tab`, never shown without them, `MappingView::setOptionalTabs`): **Mapping** (the axes R3 -> G920, every R3 axis, the D-pad, the G920 buttons written
 `G920 <n> <name> <- R3 <n> <name>` and the R3's own buttons `R3 <n> <name>` from `[button_labels]`), **Logs** (one
 line per component: emulator, game shim, G920 driver, hide filter, each in its own colour,
 with today's file, size, age, click opens its folder; then a scrollable live log of all those files merged:
 wheel, arrows, PageUp / PageDown, Home / End; core `LiveLog`), **Telemetry** (the CSV files, buttons held, the
 latest button / D-pad / pedal / FFB events, not scrollable), **Force feedback** (live effects, usage since
-start, the latest effects) and **Wheel setup** (W, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
+start, the latest effects) and **Rig** (R, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
 when stopped too, reading every connected device itself). The app has no log panel or toolbar: only the Mapping tab (the editor while stopped, the
 live one while running) has a short status, Start and Stop, in its top right corner. Stopped, the app's own tabs are Mapping (`MappingEditView`,
-the editor), Status and Wheel setup; it opens on Wheel setup until a rig exists, else on Mapping; Start shows Logs. O opens the logs folder, D the drivers' folder. It draws through
+the editor), Rig and Status (in that order); it opens on Rig until a rig exists, else on Mapping; Start shows Logs. O opens the logs folder, D the drivers' folder. It draws through
 `UiWindow.hpp` (filled/outlined rectangles, 8x8-cell monospaced text and clicks on a 960x748 logical canvas,
 letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp`
 (Xlib) on Linux.

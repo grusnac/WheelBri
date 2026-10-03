@@ -105,20 +105,37 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
     }
 }
 
+namespace {
+bool gTelemetryTab = false;       // --telemetry-tab
+bool gForceFeedbackTab = false;   // --ffb-tab
+}  // namespace
+
+void MappingView::setOptionalTabs(const bool telemetry, const bool forceFeedback) {
+    gTelemetryTab = telemetry;
+    gForceFeedbackTab = forceFeedback;
+}
+
+std::vector<MappingView::Tab> MappingView::visibleTabs() {
+    std::vector<Tab> tabs = {Tab::Mapping, Tab::WheelSetup, Tab::Logs};
+    if (gTelemetryTab) tabs.push_back(Tab::Telemetry);
+    if (gForceFeedbackTab) tabs.push_back(Tab::ForceFeedback);
+    return tabs;
+}
+
 void MappingView::onKey(const char key) {
     if (key == 'o') {
         openFilesFolder();
     } else if (key == 'd') {
         openFolder(driverLogFolder_);
-    } else if (key == 'f') {
+    } else if (key == 'f' && gForceFeedbackTab) {
         tab_ = Tab::ForceFeedback;
     } else if (key == 'm') {
         tab_ = Tab::Mapping;
     } else if (key == 'l') {
         tab_ = Tab::Logs;
-    } else if (key == 't') {
+    } else if (key == 't' && gTelemetryTab) {
         tab_ = Tab::Telemetry;
-    } else if (key == 'w') {
+    } else if (key == 'r') {
         tab_ = Tab::WheelSetup;
     } else if (tab_ == Tab::Logs) {
         const auto page = static_cast<long long>(std::max<std::size_t>(liveRows_ - 1, 1));
@@ -909,13 +926,19 @@ void MappingView::drawLiveLog(const float top) {
 void MappingView::drawTabs() {
     constexpr float kBarTop = kLogicalHeight - 28;
     fill(window_, 0, kBarTop, kLogicalWidth, 1, kPanel);
-    const std::array<std::pair<Tab, const char*>, 5> tabs = {{{Tab::Mapping, "Mapping (M)"},
-                                                              {Tab::Logs, "Logs (L)"},
-                                                              {Tab::Telemetry, "Telemetry (T)"},
-                                                              {Tab::ForceFeedback, "Force feedback (F)"},
-                                                              {Tab::WheelSetup, "Wheel setup (W)"}}};
+    const auto labelOf = [](const Tab tab) {
+        switch (tab) {
+            case Tab::Mapping: return "Mapping (M)";
+            case Tab::WheelSetup: return "Rig (R)";
+            case Tab::Logs: return "Logs (L)";
+            case Tab::Telemetry: return "Telemetry (T)";
+            case Tab::ForceFeedback: return "Force feedback (F)";
+        }
+        return "?";
+    };
     float x = 4;
-    for (const auto& [tab, label] : tabs) {
+    for (const Tab tab : visibleTabs()) {
+        const char* label = labelOf(tab);
         const bool active = tab == tab_;
         fill(window_, x, kBarTop + 4, kTabWidth, 20, active ? kHeading : kPanel);
         const float labelWidth = static_cast<float>(std::strlen(label)) * 8;
@@ -927,8 +950,7 @@ void MappingView::drawTabs() {
 void MappingView::onClick(const float x, const float y) {
     constexpr float kBarTop = kLogicalHeight - 28;
     if (y >= kBarTop + 4 && y < kBarTop + 24) {
-        constexpr std::array<Tab, 5> kTabs = {Tab::Mapping, Tab::Logs, Tab::Telemetry, Tab::ForceFeedback,
-                                              Tab::WheelSetup};
+        const std::vector<Tab> kTabs = visibleTabs();
         const float offset = x - 4;
         const auto index = static_cast<std::size_t>(std::max(0.0F, offset) / (kTabWidth + 6));
         if (offset >= 0 && index < kTabs.size() && offset - static_cast<float>(index) * (kTabWidth + 6) < kTabWidth) {

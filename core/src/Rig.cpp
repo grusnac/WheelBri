@@ -191,7 +191,7 @@ RigResult loadRig(const IniDocument& ini) {
 
 std::string writeRig(const Rig& rig, const std::string& name) {
     const std::string nl = "\r\n";
-    std::string text = "; WheelBri rig '" + name + "': the devices and what their controls are (the Wheel setup tab" + nl +
+    std::string text = "; WheelBri rig '" + name + "': the devices and what their controls are (the Rig tab" + nl +
                        "; writes this). A control: name | role | invert (invert = released at the top of the axis)." + nl;
     for (std::size_t i = 0; i < rig.devices.size(); ++i) {
         const RigDevice& device = rig.devices[i];

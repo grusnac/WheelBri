@@ -55,9 +55,9 @@ constexpr int kWindowHeight = static_cast<int>(kHeight * 1.3F);
 // The tab bar at the bottom of the panel (MappingView's), in the panel's own coordinates.
 constexpr float kTabBarTop = MappingView::kHeight - 28;
 constexpr float kTabWidth = 156;
-constexpr float kSetupTabX = 4 + 4 * (kTabWidth + 6);   // where MappingView puts "Wheel setup (W)"
-constexpr float kMappingTabX = 4;                         // ...and "Mapping (M)"
-constexpr float kStatusTabX = 4 + kTabWidth + 6;          // the idle page's own, where the live view has Logs
+constexpr float kMappingTabX = 4;                         // where MappingView puts "Mapping (M)"
+constexpr float kSetupTabX = 4 + kTabWidth + 6;           // ...and "Rig (R)"
+constexpr float kStatusTabX = 4 + 2 * (kTabWidth + 6);    // the idle page's own, where the live view has Logs
 
 // The running session's wheel as the Wheel setup tab wants it.
 WheelSetupView::SessionWheel sessionWheel(const SessionInfo& info, const UiFrame& frame) {
@@ -418,8 +418,8 @@ private:
                         if (editingMapping) mapping_->onKey(key);
                     } else if (view_ != nullptr) {
                         view_->onKey(key);
-                    } else if (key == 'w' || key == 's' || key == 'm') {
-                        idleTab_ = key == 'w' ? IdleTab::Setup : key == 'm' ? IdleTab::Mapping : IdleTab::Status;
+                    } else if (key == 'r' || key == 's' || key == 'm') {
+                        idleTab_ = key == 'r' ? IdleTab::Setup : key == 'm' ? IdleTab::Mapping : IdleTab::Status;
                     }
                 }
             }
@@ -475,8 +475,8 @@ private:
     void drawIdleTabs() {
         window_->fill(0, kTabBarTop, kWidth, 1, kPanel);
         const std::tuple<float, const char*, IdleTab> tabs[] = {{kMappingTabX, "Mapping (M)", IdleTab::Mapping},
-                                                                {kStatusTabX, "Status (S)", IdleTab::Status},
-                                                                {kSetupTabX, "Wheel setup (W)", IdleTab::Setup}};
+                                                                {kSetupTabX, "Rig (R)", IdleTab::Setup},
+                                                                {kStatusTabX, "Status (S)", IdleTab::Status}};
         for (const auto& [x, label, tab] : tabs) {
             const bool active = tab == idleTab_;
             window_->fill(x, kTabBarTop + 4, kTabWidth, 20, active ? kHeading : kPanel);
@@ -669,7 +669,7 @@ private:
         y += 14;
         picker_->draw(16, y, state_ == State::Stopped);
         y += ConfigPicker::kHeight;
-        line("Rigs    " + rigsFolder().string() + " (the Wheel setup tab's)", kDim);
+        line("Rigs    " + rigsFolder().string() + " (the Rig tab's)", kDim);
         line("Logs    " + settings_.logFolder.string(), kDim);
         if (lastResult_) {
             y += 10;

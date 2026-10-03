@@ -65,11 +65,18 @@ public:
     MappingView(const MappingView&) = delete;
     MappingView& operator=(const MappingView&) = delete;
 
-    // The panel's tabs, switched with the buttons along the bottom (or M / L / T / F / W). Wheel setup is drawn by
-    // the window (WheelSetupView); this view then draws only the tab bar.
+    // The panel's tabs, switched with the buttons along the bottom (or M / R / L, and T / F when shown), in this
+    // order: Mapping, Rig, Logs, then Telemetry and Force feedback only when the program was started with
+    // --telemetry-tab / --ffb-tab (setOptionalTabs); without them those two never show. The Rig tab (WheelSetup) is
+    // drawn by the window (WheelSetupView); this view then draws only the tab bar.
     enum class Tab { Mapping, Logs, Telemetry, ForceFeedback, WheelSetup };
 
-    // A key pressed in the window: M / L / T / F switch tabs, O opens the logs (or telemetry) folder, D the drivers'
+    // Whether the Telemetry and Force feedback tabs exist (--telemetry-tab, --ffb-tab); set once at start.
+    static void setOptionalTabs(bool telemetry, bool forceFeedback);
+    // The tabs shown, left to right.
+    [[nodiscard]] static std::vector<Tab> visibleTabs();
+
+    // A key pressed in the window: M / R / L (T / F when shown) switch tabs, O opens the logs (or telemetry) folder, D the drivers'
     // log folder; on the Logs tab the arrows, PageUp / PageDown and Home / End scroll the live log.
     void onKey(char key);
     // Mouse wheel notches (> 0 = up): on the Logs tab, scrolls the live log.

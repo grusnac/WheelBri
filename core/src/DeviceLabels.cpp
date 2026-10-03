@@ -119,7 +119,7 @@ DeviceLabelsResult loadDeviceLabels(const IniDocument& ini) {
 
 std::string writeDeviceLabels(const std::string_view base, const DeviceLabels& labels) {
     IniEditor ini(base);
-    ini.prepend("; WheelBri device: what it is and what its controls are called (the Wheel setup tab writes this)");
+    ini.prepend("; WheelBri device: what it is and what its controls are called (the Rig tab writes this)");
     ini.set("device", "name", labels.name);
     ini.set("device", "id", deviceId(labels.vendorId, labels.productId));
     ini.set("device", "kind", deviceKindName(labels.kind));

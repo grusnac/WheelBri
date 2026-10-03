@@ -42,7 +42,7 @@ Play
 2. Start the game and pick the Logitech G920 in its controller settings.
 3. Press Stop, or close the window, when done: the virtual devices go away and the R3 is an ordinary wheel again.
 
-What is hidden is your rig: every device set up in the Wheel setup tab (wheel, pedals, shifter, button box...).
+What is hidden is your rig: every device set up in the Rig tab (R) (wheel, pedals, shifter, button box...).
 Set it up before the first Start; with no rig nothing is hidden and the window says so. The first Start puts
 WheelBri's filter on those devices (they restart once; close Moza Pit House and games first; Windows may want a
 restart). If Moza's software later puts its own driver back, the next Start puts the filter on again. The window

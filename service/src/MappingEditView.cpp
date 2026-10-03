@@ -216,7 +216,7 @@ const RigControl* MappingEditView::rigControl(const SourceRef& source, const boo
 void MappingEditView::autoMapFromRig() {
     if (profile_ == nullptr) return;
     const int set = autoMap(edit_, rig_, *profile_);
-    status_ = set == 0 ? "Nothing to auto-map: give the controls roles (steering, throttle, d-pad ...) in Wheel setup."
+    status_ = set == 0 ? "Nothing to auto-map: give the controls roles (steering, throttle, d-pad ...) in the Rig tab."
                        : "Auto-mapped " + std::to_string(set) +
                              " source(s) from the rig's roles; pick the plain buttons yourself, then Save.";
     statusError_ = set == 0;
@@ -357,8 +357,8 @@ void MappingEditView::draw() {
 
     if (rig_.devices.empty()) {
         window_.text(4, 42,
-                     rigName_.empty() ? "No rig yet: define your devices and their controls in the Wheel setup tab first."
-                                      : "The rig '" + rigName_ + "' has no devices yet: define them in the Wheel setup tab.",
+                     rigName_.empty() ? "No rig yet: define your devices and their controls in the Rig tab first."
+                                      : "The rig '" + rigName_ + "' has no devices yet: define them in the Rig tab.",
                      kCaution);
     }
     // The wheel: device 0, the one that plays force feedback.
@@ -366,7 +366,7 @@ void MappingEditView::draw() {
     const DeviceLabels* const wheel = wheelLabels();
     window_.text(68, 42,
                  wheel != nullptr ? fit(deviceName(*wheel), 40) + "  " + deviceId(wheel->vendorId, wheel->productId)
-                                  : "'" + edit_.sourceDevice + "' (not named in Wheel setup yet)",
+                                  : "'" + edit_.sourceDevice + "' (not named in the Rig tab yet)",
                  wheel != nullptr ? kText : kCaution);
     window_.text(500, 42, "plays force feedback", kDim);
     button(680, 38, "Change", [this] { mode_ = Mode::PickWheel; }, false, !devices_.empty(), 70);
@@ -405,7 +405,7 @@ void MappingEditView::draw() {
     }
 
     const float hint = kContentHeight - 52;
-    window_.text(4, hint, "Sources are the rig's controls (defined in Wheel setup); Auto-map fills what their roles say.",
+    window_.text(4, hint, "Sources are the rig's controls (defined in the Rig tab); Auto-map fills what their roles say.",
                  kDim);
     window_.text(4, hint + 12, "Save writes the config; Start uses it. Accessories must be plugged in to start.",
                  kDim);
@@ -447,7 +447,7 @@ void MappingEditView::drawPicker() {
     constexpr int kColumns = 5;
     constexpr float kEntryW = 174;
     if (devices_.empty()) {
-        window_.text(left, y, "The rig has no devices yet: define them in the Wheel setup tab and Save.", kCaution);
+        window_.text(left, y, "The rig has no devices yet: define them in the Rig tab and Save.", kCaution);
     }
     for (const DeviceLabels* const entry : order) {
         const DeviceLabels& device = *entry;
@@ -489,7 +489,7 @@ void MappingEditView::drawPicker() {
                   : std::any_of(rigDevice->buttons.begin(), rigDevice->buttons.end(),
                                 [](const RigControl& c) { return c.defined(); }));
         if (column == 0 && !anyDefined) {
-            window_.text(left, y, axis ? "no axis named: name them in Wheel setup" : "no button named: name them in Wheel setup",
+            window_.text(left, y, axis ? "no axis named: name them in the Rig tab" : "no button named: name them in the Rig tab",
                          kDim);
             y += 14;
         } else if (column != 0) {
@@ -518,7 +518,7 @@ void MappingEditView::drawWheelPicker() {
         hit(left, y, kPopupW - 24, 18, [this, device] { changeWheel(device); });
         y += 22;
     }
-    window_.text(left, y + 8, "The rig's devices (Wheel setup). Hiding from games works for the Moza R3 only.",
+    window_.text(left, y + 8, "The rig's devices (Rig tab). All of them are hidden from games while WheelBri runs.",
                  kDim);
 }
 

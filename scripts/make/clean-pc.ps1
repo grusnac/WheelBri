@@ -15,12 +15,14 @@
 #                                         has nothing left from any earlier version (-ThirdParty, the old switch, is
 #                                         still accepted and changes nothing)
 #
-# What it removes: running WheelBri processes; the virtual devices (SWD\wheelbri\..., SWD\wheelemu\...) including
-# ones Windows keeps half-removed; the three driver packages under both names (the hide filter first, so the R3 goes
-# back to Windows' own driver, then xusb and g920); the drivers' test certificate (WDKTestCert) from the machine's Root
+# What it removes: running WheelBri processes; the virtual devices (SWD\wheelbri\..., SWD\wheelemu\...) and the
+# HID devices under them, including ones Windows keeps half-removed; the driver packages under both names (the hide
+# filter first, then xusb and g920); every device our drivers are on (found by their driver description, so also when
+# the package is already gone: the rig's devices with the hide filter, whatever they are) is reinstalled on Windows'
+# own driver; the drivers' UMDF registrations (WUDF\Services); the drivers' test certificate (WDKTestCert) from the machine's Root
 # and TrustedPublisher stores; the install folder (%ProgramFiles%\WheelBri, an older %ProgramFiles%\wheelemu, or where
 # Settings > Apps says), its shortcuts and its Settings > Apps entries; HKLM\SOFTWARE\wheelbri and \wheelemu (the hide
-# setting);
+# setting); the installer's and uninstaller's copies in %TEMP% (wheelbri-setup-*, wheelbri-uninstall-*);
 # DirectInput's entries for VID_046D&PID_C262 (the G920's name and force feedback driver, which the service writes;
 # a real G920 gets them again when plugged in); the app's data folders unless -KeepData.
 # It never touches this repository (build\, dist\) or the WDK certificate in your own store that signs builds.
@@ -146,7 +148,22 @@ function Get-Shortcuts {
 $diKeys = @('HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_046D&PID_C262',
             'HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_046D&PID_C262',
             'HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\DirectInput\VID_046D&PID_C262')
-$otherKeys = @(foreach ($name in $names) { "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$name"; "HKLM:\SOFTWARE\$name" })
+$otherKeys = @(foreach ($name in $names) {
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$name"; "HKLM:\SOFTWARE\$name"
+    # The UMDF host's registration of each driver (UmdfService in the INFs), left behind by some removals.
+    foreach ($part in 'hide', 'g920', 'xusb') { "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part" }
+})
+
+# The installer's unpacked package and the uninstaller's copy (Setup.cmd, uninstall.ps1), left in %TEMP%.
+function Get-TempCopies {
+    $roots = @($env:TEMP, (Join-Path $UserLocalAppData 'Temp')) | Where-Object { $_ -and (Test-Path $_) } | Sort-Object -Unique
+    return @(foreach ($root in $roots) {
+        foreach ($name in $names) {
+            Get-ChildItem $root -Directory -Filter "$name-setup-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+            Get-ChildItem $root -Directory -Filter "$name-uninstall-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+        }
+    }) | Sort-Object -Unique
+}
 
 # A shim file of ours: the DLL has "wheelbri" (or the old "wheelemu") in it.
 function Test-OurShim([string]$path) {
@@ -180,6 +197,26 @@ $processes = @(Get-Process -Name (@(foreach ($name in $names) { $name; "$name-se
                                  @('ClutchProbe', 'FfbProbe')) -ErrorAction SilentlyContinue)
 $allDevices = @(Get-PnpDevice -ErrorAction SilentlyContinue)   # present and not present (half-removed ones too)
 $ourDevices = @($allDevices | Where-Object { $id = $_.InstanceId; @($names | Where-Object { $id -like "SWD\$_\*" }).Count -gt 0 })
+# Two properties of every device in one query (one query per device takes minutes): its parent, for the HID devices
+# under our virtual ones, and its driver's description, for every device on one of our drivers. Ours say "wheelbri"
+# (or "wheelemu"): "... (wheelbri: hidden from games ...)" on a device with the hide filter, "... (wheelbri)" on the
+# virtual G920. Found this way even when the driver package is already gone (an orphaned filter).
+$parents = @{}
+$onOurDriver = @{}
+if ($allDevices.Count -gt 0) {
+    foreach ($property in @(Get-PnpDeviceProperty -InstanceId @($allDevices | ForEach-Object { $_.InstanceId }) `
+                                -KeyName 'DEVPKEY_Device_Parent', 'DEVPKEY_Device_DriverDesc' -ErrorAction SilentlyContinue)) {
+        if (-not $property.Data) { continue }
+        if ($property.KeyName -eq 'DEVPKEY_Device_Parent') { $parents[$property.InstanceId] = [string]$property.Data }
+        elseif ([string]$property.Data -match 'wheelbri|wheelemu') { $onOurDriver[$property.InstanceId] = [string]$property.Data }
+    }
+}
+$ourIds = @($ourDevices | ForEach-Object { $_.InstanceId })
+$ourChildren = @($allDevices | Where-Object { $parents[$_.InstanceId] -and ($ourIds -contains $parents[$_.InstanceId]) })
+$ourDevices = @($ourChildren) + @($ourDevices)   # children first
+# The real devices on our drivers (the rig's, with the hide filter): put back on Windows' own driver.
+$ourIds = @($ourDevices | ForEach-Object { $_.InstanceId })
+$filteredDevices = @($allDevices | Where-Object { $onOurDriver.ContainsKey($_.InstanceId) -and ($ourIds -notcontains $_.InstanceId) })
 $thirdDevices = @($allDevices | Where-Object { (Test-ThirdPartyName "$($_.InstanceId) $($_.FriendlyName)") })
 $packages = @(Get-DriverPackages)
 $ourPackages = @(foreach ($inf in $ourInfs) { $packages | Where-Object { $_.Original -ieq $inf } })
@@ -189,6 +226,7 @@ $certificates = @(foreach ($store in 'Root', 'TrustedPublisher') {
         ForEach-Object { [pscustomobject]@{ Store = $store; Certificate = $_ } }
 })
 $installFolders = @(Get-InstallFolders)
+$tempCopies = @(Get-TempCopies)
 $shortcuts = @(Get-Shortcuts)
 $keys = @(($diKeys + $otherKeys) | Where-Object { Test-Path $_ })
 $shimFiles = @(Get-ShimFiles)
@@ -202,10 +240,12 @@ if (-not $KeepData) {
 $plan = @()
 $plan += $processes | ForEach-Object { "process     $($_.ProcessName) (pid $($_.Id))" }
 $plan += $ourDevices | ForEach-Object { "device      $($_.InstanceId) ($($_.Status))" }
+$plan += $filteredDevices | ForEach-Object { "on driver   $($_.InstanceId) ($($_.FriendlyName); $($onOurDriver[$_.InstanceId])): back to Windows' driver" }
 $plan += $ourPackages | ForEach-Object { "driver      $($_.Driver) = $($_.Original)" }
 $plan += $certificates | ForEach-Object { "certificate $($_.Certificate.Subject) in LocalMachine\$($_.Store)" }
 $plan += $installFolders | ForEach-Object { "folder      $_" }
 $plan += $shortcuts | ForEach-Object { "shortcut    $_" }
+$plan += $tempCopies | ForEach-Object { "temp copy   $_" }
 $plan += $keys | ForEach-Object { "registry    $_" }
 $plan += $shimFiles | ForEach-Object { "game shim   $_" }
 $plan += $dataFolders | ForEach-Object { "data        $_" }
@@ -273,20 +313,6 @@ try {
         $restart = $false
         $drivers = $ourPackages
         if ($ThirdParty) { $drivers += $thirdPackages }
-        # The devices our drivers are on (the rig's, whatever they are: found by their driver, not by any id), to
-        # put them back on Windows' own driver afterwards.
-        # One query for all devices: asking device by device takes minutes on a PC with hundreds of them.
-        $ourInstalled = @($ourPackages | ForEach-Object { $_.Driver.ToLower() })
-        $onOurDrivers = @()
-        if ($ourInstalled.Count -gt 0) {
-            $present = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue)
-            $ours = @(Get-PnpDeviceProperty -InstanceId @($present | ForEach-Object { $_.InstanceId }) `
-                          -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue |
-                      Where-Object { $_.Data -and ($ourInstalled -contains ([string]$_.Data).ToLower()) } |
-                      ForEach-Object { $_.InstanceId })
-            $onOurDrivers = @($present | Where-Object { $ours -contains $_.InstanceId })
-        }
-        foreach ($device in $onOurDrivers) { Write-Host "    on our driver: $($device.InstanceId) ($($device.FriendlyName))" }
         foreach ($package in $drivers) {
             pnputil /delete-driver $package.Driver /uninstall /force | Out-Null
             $code = $LASTEXITCODE
@@ -300,13 +326,19 @@ try {
         if ($drivers.Count -eq 0) { Write-Host '    none' }
         $left = @(Get-DriverPackages | Where-Object { $ourInfs -contains $_.Original })
         if ($left.Count -gt 0) { Warn "still installed: $(($left | ForEach-Object { $_.Original }) -join ', ')" }
-        # Those devices back on Windows' own driver now, not after a replug.
-        pnputil /scan-devices | Out-Null
-        foreach ($device in $onOurDrivers) {
-            if (-not (Get-PnpDevice -InstanceId $device.InstanceId -ErrorAction SilentlyContinue)) { continue }
-            pnputil /restart-device "$($device.InstanceId)" | Out-Null
-            if ($LASTEXITCODE -in @(50, 3010)) { $restart = $true }
+        # The devices our drivers were on: removed and found again, so Windows sets them up from scratch with its own
+        # driver (and no filter left in their settings), now rather than after a replug.
+        foreach ($device in $filteredDevices) {
+            pnputil /remove-device "$($device.InstanceId)" | Out-Null
+            $code = $LASTEXITCODE
+            if ($code -in @(0, 3010)) {
+                Write-Host "    $($device.InstanceId): back to Windows' driver"
+                if ($code -eq 3010) { $restart = $true }
+            } else {
+                Warn "could not reset $($device.InstanceId) (pnputil $code): unplug it and plug it in again"
+            }
         }
+        pnputil /scan-devices | Out-Null
         if ($restart) { Warn 'Windows wants a restart to finish removing a driver' }
 
         Step '[4/8] removing the drivers'' certificate'
@@ -318,15 +350,15 @@ try {
         }
         if ($certificates.Count -eq 0) { Write-Host '    none' }
 
-        Step '[5/8] removing the program, its shortcuts and its Settings > Apps entry'
-        foreach ($path in $shortcuts + $installFolders) {
+        Step '[5/8] removing the program, its shortcuts and the installer''s copies in %TEMP%'
+        foreach ($path in $shortcuts + $installFolders + $tempCopies) {
             Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue
             if (Test-Path $path) { Warn "could not remove $path completely (a file in use?): delete it after a restart" }
             else { Write-Host "    removed $path" }
         }
-        if (($shortcuts.Count + $installFolders.Count) -eq 0) { Write-Host '    none' }
+        if (($shortcuts.Count + $installFolders.Count + $tempCopies.Count) -eq 0) { Write-Host '    none' }
 
-        Step '[6/8] removing registry entries'
+        Step '[6/8] removing registry entries (hide setting, Settings > Apps entry, UMDF registrations, DirectInput)'
         foreach ($key in $keys) {
             Remove-Item $key -Recurse -Force -ErrorAction SilentlyContinue
             if (Test-Path $key) { Warn "could not remove $key" } else { Write-Host "    removed $key" }
