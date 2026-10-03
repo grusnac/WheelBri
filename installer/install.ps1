@@ -10,13 +10,14 @@
 #
 # Two questions at most: Windows' Administrator prompt, and at the end of an install that worked, whether to restart
 # Windows now (default yes). The restart makes sure every driver is in use: the hiding filter in particular often
-# starts on the R3 only after one (when the R3 was on another driver, e.g. Moza's, Windows finishes the switch at
+# starts on a device only after one (when it was on another driver, e.g. Moza's, Windows finishes the switch at
 # the restart). When the install failed the window waits for Enter (so the reason can be read).
 #
 # What it changes on this PC (all undone by the uninstaller):
 #   - files in the install folder; Start menu (and desktop) shortcut "WheelBri"; an uninstall entry
 #   - two driver packages (pnputil): the virtual G920 (wheelbri-g920) and the
-#     filter that hides the real wheel from games (wheelbri-hide, on the Moza R3's game-controller interface)
+#     filter that hides the rig from games (wheelbri-hide; only added here: the app puts it on the devices of the
+#     rig set up in Wheel setup, whatever they are, when Start is pressed)
 #   - the certificate the drivers are signed with, added to this PC's trusted Root and TrustedPublisher stores (the
 #     drivers are signed by WheelBri's own test certificate, not by Microsoft)
 #
@@ -112,12 +113,8 @@ try {
             }
         }
     }
-    $moza = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like 'HID\VID_346E&PID_0005&MI_02*' })
-    if ($moza.Count -gt 0) {
-        Write-Host '    Moza R3 connected: the hiding filter goes on it now (it restarts once; close Moza Pit House and games)'
-    } else {
-        Write-Host '    Moza R3 not connected: fine, the app puts the hiding filter on it the first time you press Start'
-    }
+    Write-Host ('    the hiding filter is only added now: the app puts it on the devices of your rig (Wheel setup) ' +
+                'the first time you press Start')
 
     Write-Host ('    the drivers are signed with WheelBri''s own certificate (not Microsoft''s): it is added to the ' +
                 'certificates this PC trusts (the uninstaller can remove it)')
@@ -236,7 +233,7 @@ try {
             Write-Host "    installed" -ForegroundColor Green
         } elseif ($driver.Script -like '*install-hide.ps1' -and $code -eq 2) {
             $hidePending = $true
-            Warn '    the hiding filter is installed but Windows starts it on the R3 only after a restart: restart Windows'
+            Warn '    the hiding filter is installed but Windows starts it only after a restart: restart Windows'
         } elseif ($driver.Required) {
             Fail "the $($driver.Name) driver did not install (exit code $code); the lines above say why."
         } else {
@@ -335,9 +332,9 @@ try {
     if ($exitCode -eq 0 -and -not $Quiet) {
         Write-Host ''
         if ($hidePending) {
-            Write-Host 'A restart of Windows is needed: the filter that hides the R3 from games starts only after it.' -ForegroundColor Yellow
+            Write-Host 'A restart of Windows is needed: the filter that hides the rig from games starts only after it.' -ForegroundColor Yellow
         } else {
-            Write-Host 'Restart Windows to make sure every driver is installed properly (the filter that hides the R3' -ForegroundColor Yellow
+            Write-Host 'Restart Windows to make sure every driver is installed properly (the filter that hides the rig' -ForegroundColor Yellow
             Write-Host 'from games often starts only after a restart).' -ForegroundColor Yellow
         }
         $answer = Read-Host 'Restart Windows now? Save your work in other programs first. [Y/n]'

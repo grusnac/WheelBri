@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <memory>
 #include <optional>
 #include <tuple>
@@ -182,6 +183,62 @@ void forEachDevice(std::string_view json, std::string_view vendorId, Visit visit
 }
 
 }  // namespace
+
+namespace {
+
+std::optional<std::uint16_t> hex4(const std::string_view text) {
+    if (text.size() < 4) return std::nullopt;
+    unsigned value = 0;
+    for (std::size_t i = 0; i < 4; ++i) {
+        const char c = text[i];
+        unsigned digit = 0;
+        if (c >= '0' && c <= '9') digit = static_cast<unsigned>(c - '0');
+        else if (c >= 'a' && c <= 'f') digit = static_cast<unsigned>(c - 'a' + 10);
+        else if (c >= 'A' && c <= 'F') digit = static_cast<unsigned>(c - 'A' + 10);
+        else return std::nullopt;
+        value = value * 16 + digit;
+    }
+    return static_cast<std::uint16_t>(value);
+}
+
+}  // namespace
+
+std::optional<DeviceId> hidDeviceIdOf(const std::string_view instanceId) {
+    constexpr std::string_view kVid = "HID\\VID_";
+    constexpr std::string_view kPid = "&PID_";
+    if (instanceId.size() < kVid.size() + 4 + kPid.size() + 4) return std::nullopt;
+    if (!equalsIgnoreCase(instanceId.substr(0, kVid.size()), kVid)) return std::nullopt;
+    const auto vendor = hex4(instanceId.substr(kVid.size()));
+    const std::size_t pidAt = kVid.size() + 4;
+    if (!equalsIgnoreCase(instanceId.substr(pidAt, kPid.size()), kPid)) return std::nullopt;
+    const auto product = hex4(instanceId.substr(pidAt + kPid.size()));
+    if (!vendor || !product) return std::nullopt;
+    return DeviceId{*vendor, *product};
+}
+
+bool isGameController(const std::vector<std::string>& compatibleIds) {
+    for (const std::string& id : compatibleIds) {
+        if (equalsIgnoreCase(id, "HID_DEVICE_SYSTEM_GAME") || equalsIgnoreCase(id, "HID_DEVICE_UP:0001_U:0004") ||
+            equalsIgnoreCase(id, "HID_DEVICE_UP:0001_U:0005") || equalsIgnoreCase(id, "HID_DEVICE_UP:0001_U:0008")) {
+            return true;
+        }
+        constexpr std::string_view kSimulation = "HID_DEVICE_UP:0002_";
+        if (id.size() >= kSimulation.size() && equalsIgnoreCase(std::string_view(id).substr(0, kSimulation.size()), kSimulation)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool mayHide(const DeviceId& id) {
+    return !id.empty() && !(id.vendorId == 0x046D && id.productId == 0xC262);
+}
+
+std::string deviceIdText(const DeviceId& id) {
+    char text[16];
+    std::snprintf(text, sizeof(text), "%04x:%04x", id.vendorId, id.productId);
+    return text;
+}
 
 bool equalsIgnoreCase(std::string_view a, std::string_view b) {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {

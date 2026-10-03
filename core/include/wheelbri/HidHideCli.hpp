@@ -1,5 +1,8 @@
 #pragma once
 
+#include "wheelbri/MapperConfig.hpp"
+
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -26,6 +29,23 @@ namespace wheelbri::hidhide {
 // removes an exact match).
 [[nodiscard]] std::vector<std::string> storedSpellings(const std::vector<std::string>& stored,
                                                        const std::vector<std::string>& wanted);
+
+// The USB ids in a HID device instance id ("HID\\VID_346E&PID_0004&MI_02\\8&...", any case): 346e:0004. Nullopt
+// for anything else. How the service and wheelbri-hide's installer find a rig's devices among Windows' devices.
+[[nodiscard]] std::optional<DeviceId> hidDeviceIdOf(std::string_view instanceId);
+
+// Whether a rig device may get the hiding filter: never the virtual G920 (046d:c262, ours; hiding it would hide
+// what games are meant to see) and never an empty id.
+[[nodiscard]] bool mayHide(const DeviceId& id);
+
+// Whether a HID collection is a game controller (what DirectInput and games open), from its compatible ids:
+// joystick, gamepad or multi-axis controller (usage page 1, usages 4, 5, 8; Windows adds HID_DEVICE_SYSTEM_GAME for
+// the first two only, and many wheels, the Moza R3 among them, are multi-axis controllers) or any simulation control
+// (usage page 2). A vendor tool's collections (vendor-defined pages) are not.
+[[nodiscard]] bool isGameController(const std::vector<std::string>& compatibleIds);
+
+// "346e:0004" (the spelling install-hide.ps1 -Devices takes).
+[[nodiscard]] std::string deviceIdText(const DeviceId& id);
 
 [[nodiscard]] bool equalsIgnoreCase(std::string_view a, std::string_view b);
 [[nodiscard]] bool containsIgnoreCase(std::string_view text, std::string_view part);

@@ -122,73 +122,139 @@ bool writeAllowedPid(const DWORD pid) {
     return true;
 }
 
+// HID devices' registry strings (REG_MULTI_SZ) by CM_DRP_* property; empty if not readable.
+std::vector<std::string> devNodeStrings(const DEVINST node, const ULONG property) {
+    wchar_t buffer[2048] = {};
+    ULONG bytes = sizeof(buffer);
+    ULONG type = 0;
+    if (CM_Get_DevNode_Registry_PropertyW(node, property, &type, buffer, &bytes, 0) != CR_SUCCESS) return {};
+    return multiSz(buffer, bytes / sizeof(wchar_t));
+}
+
+bool listsIgnoreCase(const std::vector<std::string>& items, std::string_view wanted) {
+    for (const std::string& item : items) {
+        if (hidhide::equalsIgnoreCase(item, wanted)) return true;
+    }
+    return false;
+}
+
 }  // namespace
 
-std::unique_ptr<HideFilter> HideFilter::find(const std::string& vendorId, const bool quiet) {
+const char* HideFilter::stateName(const State state) {
+    switch (state) {
+        case State::Ready: return "hidden while WheelBri runs";
+        case State::NotInstalled: return "no filter yet";
+        case State::NeedsRestart: return "filter waits for a restart";
+        case State::NotConnected: return "not connected";
+    }
+    return "?";
+}
+
+std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targets, const bool quiet) {
+    std::vector<Check> checks;
+    for (const Target& target : targets) checks.push_back({target, State::NotConnected, {}, "not connected", {}});
+
     ULONG size = 0;
     const ULONG flags = CM_GETIDLIST_FILTER_ENUMERATOR | CM_GETIDLIST_FILTER_PRESENT;
-    if (CM_Get_Device_ID_List_SizeW(&size, L"HID", flags) != CR_SUCCESS || size == 0) return nullptr;
-    std::vector<wchar_t> ids(size);
-    if (CM_Get_Device_ID_ListW(L"HID", ids.data(), size, flags) != CR_SUCCESS) return nullptr;
-
-    const std::string prefix = "HID\\VID_" + vendorId + "&";
-    for (const std::string& id : multiSz(ids.data(), ids.size())) {
-        if (id.size() < prefix.size() || !hidhide::equalsIgnoreCase(std::string_view(id).substr(0, prefix.size()), prefix)) {
-            continue;
+    std::vector<std::string> present;
+    if (CM_Get_Device_ID_List_SizeW(&size, L"HID", flags) == CR_SUCCESS && size > 0) {
+        std::vector<wchar_t> ids(size);
+        if (CM_Get_Device_ID_ListW(L"HID", ids.data(), size, flags) == CR_SUCCESS) present = multiSz(ids.data(), ids.size());
+    }
+    for (const std::string& id : present) {
+        const auto usb = hidhide::hidDeviceIdOf(id);
+        if (!usb) continue;
+        Check* entry = nullptr;
+        for (Check& c : checks) {
+            if (c.target.id == *usb) entry = &c;
         }
+        if (entry == nullptr) continue;
         DEVINST node = 0;
         const std::wstring wide(id.begin(), id.end());   // device instance ids are ASCII
         if (CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) continue;
-        wchar_t filters[512] = {};
-        ULONG bytes = sizeof(filters);
-        ULONG type = 0;
-        if (CM_Get_DevNode_Registry_PropertyW(node, CM_DRP_UPPERFILTERS, &type, filters, &bytes, 0) != CR_SUCCESS) continue;
-        bool listed = false;
-        for (const std::string& filter : multiSz(filters, bytes / sizeof(wchar_t))) {
-            listed = listed || hidhide::equalsIgnoreCase(filter, "WUDFRd");
-        }
-        if (!listed) continue;
-        // Listed in the registry is not running: after the driver is switched, Windows may load the new stack only
-        // when the interface restarts (something still had it open). Until then nothing is hidden.
-        ULONG status = 0;
-        ULONG problem = 0;
-        if (CM_Get_DevNode_Status(&status, &problem, node, 0) == CR_SUCCESS &&
-            ((status & DN_NEED_RESTART) != 0 || (status & DN_HAS_PROBLEM) != 0)) {
-            if (!quiet) {
-                WE_LOG_WARN(log(), "hide: wheelbri-hide is set on {} but not running yet ({}): restart Windows "
-                                   "(when Windows is not waiting for a restart, unplugging the R3 and plugging it in "
-                                   "again is enough)",
-                            id, (status & DN_NEED_RESTART) != 0 ? std::string("Windows wants a restart")
-                                                                 : "problem code " + std::to_string(problem));
-            }
+        // Only the game-controller interfaces (what DirectInput and games open); a vendor tool keeps the others.
+        const std::vector<std::string> compatible = devNodeStrings(node, CM_DRP_COMPATIBLEIDS);
+        if (!hidhide::isGameController(compatible)) {
+            std::string ids;
+            for (const std::string& c : compatible) ids += (ids.empty() ? "" : " ") + c;
+            entry->otherInterfaces.push_back(id + " [" + ids + "]");
             continue;
         }
-        WE_LOG_INFO(log(), "hide: wheelbri-hide is on {}", id);
-        return std::unique_ptr<HideFilter>(new HideFilter(id));
+        entry->interfaces.push_back(id);
+        State state = State::Ready;
+        std::string detail;
+        // Ours: the reflector in its upper filters (any user-mode filter shows as WUDFRd) and our INF's device
+        // description ("... (wheelbri: hidden from games ...)"; "wheelemu" before the rename).
+        const std::vector<std::string> description = devNodeStrings(node, CM_DRP_DEVICEDESC);
+        const bool ourDriver = !description.empty() && (hidhide::containsIgnoreCase(description.front(), "wheelbri") ||
+                                                        hidhide::containsIgnoreCase(description.front(), "wheelemu"));
+        if (!listsIgnoreCase(devNodeStrings(node, CM_DRP_UPPERFILTERS), "WUDFRd") || !ourDriver) {
+            state = State::NotInstalled;
+            detail = "no wheelbri-hide on " + id;
+        } else {
+            // Listed in the registry is not running: after the driver is switched, Windows may load the new stack
+            // only when the interface restarts (something still had it open). Until then nothing is hidden.
+            ULONG status = 0;
+            ULONG problem = 0;
+            if (CM_Get_DevNode_Status(&status, &problem, node, 0) == CR_SUCCESS &&
+                ((status & DN_NEED_RESTART) != 0 || (status & DN_HAS_PROBLEM) != 0)) {
+                state = State::NeedsRestart;
+                detail = "wheelbri-hide is set on " + id + " but not running yet (" +
+                         ((status & DN_NEED_RESTART) != 0 ? std::string("Windows wants a restart")
+                                                          : "problem code " + std::to_string(problem)) +
+                         ")";
+            }
+        }
+        // The device counts as its worst interface.
+        const auto rank = [](const State s) {
+            return s == State::NotInstalled ? 3 : s == State::NeedsRestart ? 2 : s == State::Ready ? 1 : 0;
+        };
+        if (entry->interfaces.size() == 1 || rank(state) > rank(entry->state)) {
+            entry->state = state;
+            entry->detail = detail;
+        }
     }
-    return nullptr;
+    if (!quiet) {
+        for (const Check& c : checks) {
+            const std::string what = "'" + c.target.name + "' (" + hidhide::deviceIdText(c.target.id) + ")";
+            if (c.state == State::Ready) {
+                std::string list;
+                for (const std::string& i : c.interfaces) list += (list.empty() ? "" : ", ") + i;
+                WE_LOG_INFO(log(), "hide: wheelbri-hide is on {}: {}", what, list);
+            } else {
+                WE_LOG_WARN(log(), "hide: {}: {}{}", what, stateName(c.state), c.detail.empty() ? "" : " (" + c.detail + ")");
+            }
+            if (c.interfaces.empty() && !c.otherInterfaces.empty()) {
+                std::string list;
+                for (const std::string& i : c.otherInterfaces) list += (list.empty() ? "" : ", ") + i;
+                WE_LOG_WARN(log(), "hide: {} is connected, but none of its HID collections is a game controller: {}",
+                            what, list);
+            }
+        }
+    }
+    return checks;
 }
 
 bool HideFilter::hide() {
     letFilterCheckThisProcess();
     hidden_ = writeAllowedPid(GetCurrentProcessId());
     if (hidden_) {
-        WE_LOG_INFO(log(), "hide: real wheel hidden from games (only this process, {}, may open {})",
-                    GetCurrentProcessId(), instanceId_);
+        WE_LOG_INFO(log(), "hide: the rig is hidden from games (only this process, {}, may open its devices)",
+                    GetCurrentProcessId());
     }
     return hidden_;
 }
 
 void HideFilter::restore() {
     if (hidden_ && writeAllowedPid(0)) {
-        WE_LOG_INFO(log(), "hide: real wheel visible to games again");
+        WE_LOG_INFO(log(), "hide: the rig is visible to games again");
     }
     hidden_ = false;
 }
 
 void HideFilter::clear() {
     if (writeAllowedPid(0)) {
-        WE_LOG_INFO(log(), "hide: wheelbri-hide lets every program open the wheel again");
+        WE_LOG_INFO(log(), "hide: wheelbri-hide lets every program open the rig's devices again");
     }
 }
 
@@ -213,7 +279,6 @@ void HideFilter::clearStale() {
     }
 }
 
-HideFilter::HideFilter(std::string instanceId) : instanceId_(std::move(instanceId)) {}
 HideFilter::~HideFilter() { restore(); }
 
 }  // namespace wheelbri::service
@@ -222,12 +287,18 @@ HideFilter::~HideFilter() { restore(); }
 
 namespace wheelbri::service {
 
-std::unique_ptr<HideFilter> HideFilter::find(const std::string&, bool) { return nullptr; }
+std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targets, bool) {
+    std::vector<Check> checks;
+    for (const Target& target : targets) checks.push_back({target, State::NotConnected, {}, "not on Windows", {}});
+    return checks;
+}
+const char* HideFilter::stateName(const State state) {
+    return state == State::Ready ? "hidden while WheelBri runs" : "not hidden";
+}
 bool HideFilter::hide() { return false; }
 void HideFilter::restore() {}
 void HideFilter::clear() {}
 void HideFilter::clearStale() {}
-HideFilter::HideFilter(std::string instanceId) : instanceId_(std::move(instanceId)) {}
 HideFilter::~HideFilter() = default;
 
 }  // namespace wheelbri::service

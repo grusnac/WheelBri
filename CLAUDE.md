@@ -273,9 +273,11 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
     `StatePacket`, `FfbPacket` sources. Logs to `C:\ProgramData\wheelbri\logs\wheelbri-driver-<date>.log`.
-  - `hide/` (`wheelbri-hide`): upper filter on the game-controller interface (compatible id
-    `HID_DEVICE_SYSTEM_GAME`) of each rig device; device-agnostic, no ids in the INF or driver. Windows never
-    picks it by itself; `install-hide.ps1 -Devices vid:pid,...` puts it on those devices with SetupAPI
+  - `hide/` (`wheelbri-hide`): upper filter on the game-controller interfaces of each rig device
+    (`hidhide::isGameController`: compatible ids for usage page 1 usages 4, 5, 8, or page 2; the R3 is a multi-axis
+    controller without `HID_DEVICE_SYSTEM_GAME`); device-agnostic, no ids in the INF or driver. The INF matches
+    `HID_DEVICE` and its DriverVer is fixed at 01/01/2001 (the .vcxproj) so Windows never picks it by itself (with
+    today's date it went onto the virtual G920; the driver also never hides 046D:C262); `install-hide.ps1 -Devices vid:pid,...` puts it on those devices with SetupAPI
     `DiInstallDevice` (inline C#). Only the process in `AllowedPid` may open a filtered interface. Replaces
     HidHide. Fails open: a missing or unreadable setting, or an `AllowedPid` whose process is gone (or whose start
     time differs from `AllowedPidStart`: a reused id), hides nothing, so a crash never leaves anything hidden.

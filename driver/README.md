@@ -51,40 +51,50 @@ Administrator:
 build\service\wheelbri-service.exe --config config\moza-r3-as-g920.ini --ui --virtual-g920
 ```
 
-The service log says `virtual G920 G920_0 ready after … ms` and `hide: real wheel hidden from games`; joy.cpl
-lists only the G920. While it runs the service hides the R3 from games (needed: NFS takes the R3 when it can see
-it), keeps its own access, and makes the R3 visible again when it stops. `--no-hide` leaves the R3 visible; after
-a crash, `wheelbri-service --unhide` makes it visible again (the next start also clears it by itself).
+The service log says `virtual G920 G920_0 ready after … ms` and `hide: the rig is hidden from games`; joy.cpl
+lists only the G920. While it runs the service hides every device of the active rig (Wheel setup: wheel, pedals,
+shifter, button box…) from games (needed: NFS takes the real wheel when it can see it), keeps its own access, and
+makes them visible again when it stops. `--no-hide` leaves the rig visible; after a crash, `wheelbri-service
+--unhide` makes it visible again (the next start also clears it by itself).
 
-## Hiding the R3: wheelbri-hide (`driver/hide`)
+## Hiding the rig: wheelbri-hide (`driver/hide`)
 
-Our replacement for HidHide: a UMDF 2 **upper filter** on the R3's game-controller interface
-(`HID\VID_346E&PID_0005&MI_02`; Moza Pit House uses the other interfaces). When a program opens that interface,
-the filter checks `HKLM\SOFTWARE\wheelbri\hide` `AllowedPid`: while the service runs it holds the service's
-process id and everyone else is refused (so DirectInput, SDL and games do not see the R3); 0 or missing lets
-everyone in. It fails open: if that process is gone (the service crashed or was killed) or the id now belongs to
-another program (`AllowedPidStart`, the process's start time, differs), or the setting cannot be read, the R3 is
-not hidden. Everything else passes straight through. Same signing as the G920 driver; user mode, no test mode.
+Our replacement for HidHide: a UMDF 2 **upper filter** on the game-controller interfaces of each device of the
+active rig: the HID collections whose compatible ids say joystick, gamepad or multi-axis controller (usage page 1,
+usages 4, 5, 8; the Moza R3 is multi-axis and has no `HID_DEVICE_SYSTEM_GAME`) or simulation control (page 2).
+Moza Pit House uses the other interfaces. No device ids are in the driver or the scripts: the INF matches any HID
+collection (`HID_DEVICE`), which Windows never picks by itself (input.inf matches better, or as well with a newer
+date: our DriverVer is fixed at 01/01/2001; with today's date Windows once put it on the virtual G920), and
+`install-hide.ps1 -Devices vid:pid,...` puts it on exactly the devices it is given (SetupAPI `DiInstallDevice`).
+The app passes the rig's devices at Start; the virtual G920 (046d:c262) is never touched, and the filter never
+hides it even if it ends up on it. When a program opens a filtered interface, the filter checks
+`HKLM\SOFTWARE\wheelbri\hide` `AllowedPid`: while the service runs it holds the service's process id and everyone
+else is refused (so DirectInput, SDL and games do not see the device); 0 or missing lets everyone in. It fails
+open: if that process is gone (the service crashed or was killed) or the id now belongs to another program
+(`AllowedPidStart`, the process's start time, differs), or the setting cannot be read, nothing is hidden.
+Everything else passes straight through. Same signing as the G920 driver; user mode, no test mode.
 
 The install and uninstall scripts stop at the first failed step with a red line and exit code 1; a yellow line
-says when Windows wants a restart. `install-hide.ps1` exits 2 when the filter is installed but not on the R3 yet
-(unplug and replug it). `uninstall-driver.ps1 -RemoveCertificate` refuses while wheelbri-hide is
-installed: it uses the same certificate, and the R3 itself depends on wheelbri-hide's.
+says when Windows wants a restart. `install-hide.ps1` with no `-Devices` only adds the package (what the installer
+does); with `-Devices` it exits 0 when the filter runs on every connected one, 2 when it is set but Windows starts
+it only after a restart, 1 on failure (devices not connected are listed and skipped). `uninstall-hide.ps1` takes it
+off whatever devices have it. `uninstall-driver.ps1 -RemoveCertificate` refuses while wheelbri-hide is installed:
+it uses the same certificate.
 
-Build and install (Developer PowerShell, then Administrator PowerShell; close Pit House and games, the R3
-restarts once):
+Build and install (Developer PowerShell, then Administrator PowerShell; close Pit House and games, the devices
+restart once):
 
 ```
 msbuild driver\hide\wheelbri-hide.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
 ```
-powershell -ExecutionPolicy Bypass -File driver\hide\install-hide.ps1
+powershell -ExecutionPolicy Bypass -File driver\hide\install-hide.ps1 -Devices 346e:0005
 ```
 
-Remove: `driver\hide\uninstall-hide.ps1` (the R3 goes back to Windows' own setup). Log:
-`C:\ProgramData\wheelbri\logs\wheelbri-hide-<date>.log` (which programs were refused). The service uses it when
-it is on the R3, else HidHide if installed.  Stop the service with
+Remove: `driver\hide\uninstall-hide.ps1` (those devices go back to Windows' own setup). Logs:
+`C:\ProgramData\wheelbri\logs\wheelbri-hide-<date>.log` (which programs were refused) and
+`wheelbri-hide-install-<date>.log`. The window lists rig devices the filter is not running on.  Stop the service with
 Ctrl+C (close the game and Steam first). Driver log: `C:\ProgramData\wheelbri\logs\wheelbri-driver-<date>.log`.
 
 ## No Xbox controller

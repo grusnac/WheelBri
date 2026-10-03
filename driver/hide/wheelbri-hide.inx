@@ -1,10 +1,17 @@
 ;
-; wheelbri-hide.inf: hides the real wheel (Moza R3) from games while wheelbri-service runs (see Driver.cpp).
+; wheelbri-hide.inf: hides the rig (every device the Wheel setup tab defined) from games while wheelbri-service runs
+; (see Driver.cpp).
 ;
-; Installs on the R3's game-controller interface only (HID\VID_346E&PID_0005&MI_02): the same setup Windows
-; gives it (input.inf, "HID-compliant game controller"), plus our UMDF 2 filter above it. While the service is
-; not running the filter lets everything through. Install: driver\hide\install-hide.ps1 (Administrator);
-; remove: driver\hide\uninstall-hide.ps1. Needs Windows 11.
+; Matches any HID collection by the generic compatible ID HID_DEVICE (the last one every collection has), so it fits
+; any wheel, pedals or shifter (joystick, gamepad or multi-axis controller: the Moza R3 is the last, and has no
+; HID_DEVICE_SYSTEM_GAME) without a list of ids here. Windows never picks it by itself: Windows' own input.inf matches
+; a more specific ID, or the same one with a newer date (DriverVer is stamped 01/01/2001 on purpose, see the
+; .vcxproj; with today's date Windows put it on the virtual G920). driver\hide\install-hide.ps1 -Devices
+; "vid:pid,..." puts it on exactly the game-controller collections of the rig's devices (as Device Manager's "Have
+; disk" does); the app runs that at Start with the active rig. It gives each one
+; the same setup Windows gives it (input.inf, "HID-compliant game controller"), plus our UMDF 2 filter above it.
+; While the service is not running the filter lets everything through. Remove: driver\hide\uninstall-hide.ps1.
+; Needs Windows 11.
 ;
 [Version]
 Signature="$WINDOWS NT$"
@@ -28,7 +35,7 @@ wheelbri-hide.dll=1
 %Provider%=Wheelbri,NT$ARCH$.10.0...22000
 
 [Wheelbri.NT$ARCH$.10.0...22000]
-%DeviceDesc%=WheelbriHide, HID\VID_346E&PID_0005&MI_02
+%DeviceDesc%=WheelbriHide, HID_DEVICE
 
 ; --- Windows' own game-controller setup (input.inf), with the filter added ---------------------------------
 

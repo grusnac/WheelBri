@@ -55,4 +55,30 @@ TEST(HidHideCli, ListsAndSpellings) {
 }
 
 }  // namespace
+TEST(HidHideCli, ReadsTheUsbIdsOfAHidDevice) {
+    EXPECT_EQ(hidDeviceIdOf(R"(HID\VID_346E&PID_0004&MI_02\A&397610E2&0&0000)"), (DeviceId{0x346E, 0x0004}));
+    EXPECT_EQ(hidDeviceIdOf(R"(hid\vid_30b7&pid_1001\7&1)"), (DeviceId{0x30B7, 0x1001}));
+    EXPECT_FALSE(hidDeviceIdOf(R"(USB\VID_346E&PID_0004\X)").has_value());
+    EXPECT_FALSE(hidDeviceIdOf(R"(HID\VID_34&PID_0004)").has_value());
+    EXPECT_FALSE(hidDeviceIdOf(R"(HID\VID_ZZZZ&PID_0004\X)").has_value());
+    EXPECT_FALSE(hidDeviceIdOf("").has_value());
+}
+
+TEST(HidHideCli, TellsGameControllersFromOtherCollections) {
+    EXPECT_TRUE(isGameController({"HID_DEVICE_SYSTEM_GAME", "HID_DEVICE_UP:0001_U:0004", "HID_DEVICE"}));
+    EXPECT_TRUE(isGameController({"HID_DEVICE_UP:0001_U:0008", "HID_DEVICE"}));   // multi-axis: the Moza R3
+    EXPECT_TRUE(isGameController({"hid_device_up:0001_u:0005"}));
+    EXPECT_TRUE(isGameController({"HID_DEVICE_UP:0002_U:0002", "HID_DEVICE"}));   // simulation controls
+    EXPECT_FALSE(isGameController({"HID_DEVICE_UP:FF00_U:0001", "HID_DEVICE"}));  // a vendor tool's collection
+    EXPECT_FALSE(isGameController({"HID_DEVICE_SYSTEM_KEYBOARD", "HID_DEVICE_UP:0001_U:0006", "HID_DEVICE"}));
+    EXPECT_FALSE(isGameController({}));
+}
+
+TEST(HidHideCli, NeverHidesTheVirtualG920) {
+    EXPECT_TRUE(mayHide({0x346E, 0x0004}));
+    EXPECT_FALSE(mayHide({0x046D, 0xC262}));
+    EXPECT_FALSE(mayHide({}));
+    EXPECT_EQ(deviceIdText({0x346E, 0x0004}), "346e:0004");
+}
+
 }  // namespace wheelbri::hidhide

@@ -20,7 +20,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | 2 | Shim answers as a G920 using the service's state | **working in NFS 2015**: wheel, pedals, buttons, D-pad |
 | 3 | Game FFB → service (safety limiter, watchdog) → R3 | **working in NFS 2015**: constant, spring, damper, sine, square |
 | 4 | Linux virtual G920: `tools/uhid` (`wheelbri-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
-| 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelbri-service --virtual-g920`): wheel, pedals, buttons, force feedback, the R3 hidden by our own filter (`wheelbri-hide`). Step 0 (a HIDMaestro bridge) and the virtual Xbox controller were removed on 2026-10-03. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
+| 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelbri-service --virtual-g920`): wheel, pedals, buttons, force feedback, the rig hidden by our own filter (`wheelbri-hide`). Step 0 (a HIDMaestro bridge) and the virtual Xbox controller were removed on 2026-10-03. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
 
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
@@ -134,9 +134,9 @@ limited only by Pit House), `off` disables force feedback. If forces pull the wr
 `scripts/make/package.sh` builds everything in Release and makes `dist/windows/WheelBri-<version>-setup.exe` (plus
 the same files as a folder and a zip). On a Windows 11 PC with nothing of it, run the setup and approve the
 Administrator prompt; at the end it asks whether to restart Windows now (default yes), which makes sure every driver
-is in use (the hiding filter often starts on the R3 only after a restart). It installs **WheelBri** to `C:\Program Files\WheelBri`, the three
+is in use (the hiding filter often starts only after a restart). It installs **WheelBri** to `C:\Program Files\WheelBri`, the three
 drivers (trusting the drivers' certificate on that PC), a Start menu folder (the app and "Uninstall WheelBri") and a
-Settings > Apps entry that uninstalls it all. The app hides the R3 from games on every Start. The
+Settings > Apps entry that uninstalls it all. The app hides the rig (every device in Wheel setup) from games on every Start. The
 log is `C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log`; `installer/README.txt` is the end user's guide.
 
 ## The app
@@ -187,7 +187,8 @@ writes the config picked on the Status page, keeping its comments and other sett
 a copy of your own (**Save as**, then picked). **Revert**, picking another config or **Reset** drop unsaved edits.
 In the config a source on an accessory is written `vid:pid/N` (`axis = 30b7:1001/0`); a session opens every
 accessory its mapping names and does not start without them; one lost while running is waited for like the wheel.
-Only the R3 is hidden from games; accessories stay visible.
+Every device of the active rig (wheel and accessories) is hidden from games while the app runs; no rig = nothing
+hidden.
 
 ## Service
 

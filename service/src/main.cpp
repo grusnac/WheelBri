@@ -14,18 +14,19 @@
 #include "Wheel.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
+#include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/FfbController.hpp"
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/GameUseWatch.hpp"
+#include "wheelbri/HidHideCli.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/LoopStats.hpp"
 #include "wheelbri/Pipeline.hpp"
+#include "wheelbri/Rig.hpp"
 #include "wheelbri/Telemetry.hpp"
 #include "wheelbri/TestClutch.hpp"
 #include "wheelbri/UdpLoopback.hpp"
-#include "wheelbri/DeviceLabels.hpp"
-#include "wheelbri/Rig.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -95,38 +96,41 @@ struct Options {
     bool noVirtualG920 = false;                 // --no-virtual-g920: the app without its virtual G920
 };
 
-// The wheel's USB vendor id: [emulator] source_device when it is one ("346e"), else Moza's.
-std::string wheelVendorId(const std::string& sourceDevice) {
-    std::string id = sourceDevice.substr(0, sourceDevice.find(':'));
-    const bool hex = id.size() == 4 && id.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos;
-    if (!hex) id = "346e";
-    for (char& c : id) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-    return id;
+// The active rig's devices (the Wheel setup tab's, [app] rig in the app's state file): everything the hide filter
+// hides from games while a session runs. Empty when there is no rig yet. `rigName` gets its name.
+std::vector<wheelbri::service::HideFilter::Target> rigHideTargets(std::string& rigName) {
+    std::vector<wheelbri::service::HideFilter::Target> targets;
+    rigName = wheelbri::readAppSetting(wheelbri::service::appStateFile(), "rig");
+    if (rigName.empty()) return targets;
+    std::vector<std::string> errors;
+    const auto rig = wheelbri::readRig(wheelbri::service::rigsFolder(), rigName, errors);
+    if (!rig) return targets;
+    for (const wheelbri::RigDevice& device : rig->devices) {
+        if (!wheelbri::hidhide::mayHide(device.id)) {
+            WE_LOG_WARN(log(), "hide: '{}' ({}) is in the rig but is never hidden (the virtual G920, or no id)",
+                        device.name, wheelbri::hidhide::deviceIdText(device.id));
+            continue;
+        }
+        targets.push_back({device.id, device.name.empty() ? wheelbri::hidhide::deviceIdText(device.id) : device.name});
+    }
+    return targets;
 }
 
-// With --virtual-g920 (Start in the app): wheelbri's hide filter on the real wheel, installed now if it is not
-// there yet, so Start alone leaves games only the G920. It installs from the package built in this source tree
-// (driver/hide/x64/Release, scripts/make/drivers.sh -Only hide) with driver/hide/install-hide.ps1; the service
-// runs as Administrator for --virtual-g920 anyway. Done before the wheel is opened: installing restarts it.
-void ensureHideFilter(const std::string& vendor, wheelbri::service::WheelBackend& backend, const std::string& match) {
+// With --virtual-g920 (Start in the app): wheelbri's hide filter on every connected device of the rig, put there now
+// if it is not yet, so Start alone leaves games only the G920. Which devices: the rig's ids, nothing else
+// (install-hide.ps1 -Devices "vid:pid,..."). It installs from the package built in this source tree or installed
+// with the program (driver/hide/x64/Release); the service runs as Administrator for --virtual-g920 anyway. Done
+// before the wheel is opened: putting the filter on a device restarts it.
+void ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& targets) {
 #ifdef _WIN32
-    if (wheelbri::service::HideFilter::find(vendor) != nullptr) {
-        return;
+    using wheelbri::service::HideFilter;
+    std::string devices;
+    for (const HideFilter::Check& c : HideFilter::check(targets)) {
+        if (c.state == HideFilter::State::NotInstalled) {
+            devices += (devices.empty() ? "" : ",") + wheelbri::hidhide::deviceIdText(c.target.id);
+        }
     }
-    // wheelbri-hide's driver package matches the Moza R3 only (HID\VID_346E&PID_0005&MI_02): another wheel stays
-    // visible to games next to the G920 for now.
-    if (vendor != "346E") {
-        WE_LOG_WARN(log(), "hide: hiding the real wheel works for the Moza R3 only so far; this wheel (vendor {}) stays "
-                           "visible to games next to the G920",
-                    vendor);
-        return;
-    }
-    // The filter is found only on a wheel that is plugged in: without one, installing proves nothing (and would
-    // run the installer on every Start).
-    if (!wheelbri::service::wheelConnected(backend, match)) {
-        WE_LOG_WARN(log(), "hide: the wheel is not connected, so wheelbri-hide cannot be checked or installed now");
-        return;
-    }
+    if (devices.empty()) return;   // everything connected already has it (or waits for a restart, said above)
     const std::filesystem::path exe = platform::executablePath();
     std::filesystem::path script;
     for (std::filesystem::path base = exe.parent_path(); !base.empty() && script.empty(); base = base.parent_path()) {
@@ -140,26 +144,27 @@ void ensureHideFilter(const std::string& vendor, wheelbri::service::WheelBackend
         if (base == base.parent_path()) break;
     }
     if (script.empty()) {
-        WE_LOG_ERROR(log(), "hide: wheelbri-hide is not installed and no built package was found next to the "
-                            "program (build it once: scripts/make/drivers.sh -Only hide)");
+        WE_LOG_ERROR(log(), "hide: wheelbri-hide is not on {} and no built package was found next to the program "
+                            "(build it once: scripts/make/drivers.sh -Only hide)",
+                     devices);
         return;
     }
     const char* systemRoot = std::getenv("SystemRoot");
     const std::filesystem::path powershell =
         std::filesystem::path(systemRoot != nullptr ? systemRoot : "C:\\Windows") / "System32" / "WindowsPowerShell" /
         "v1.0" / "powershell.exe";
-    WE_LOG_INFO(log(), "hide: wheelbri-hide is not running on the wheel yet: installing it ({}); the wheel restarts once",
+    WE_LOG_INFO(log(), "hide: putting wheelbri-hide on the rig's devices {} ({}); each restarts once", devices,
                 script.string());
     std::string error;
     const auto child = platform::ChildProcess::start(
         {powershell.string(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script.string(), "-Configuration",
-         "Release"},
+         "Release", "-Devices", devices},
         error);
     if (child == nullptr) {
         WE_LOG_ERROR(log(), "hide: cannot run the installer: {}", error);
         return;
     }
-    // Never cut the installer off: stopped halfway, it can leave the wheel with a half-switched driver. Stop
+    // Never cut the installer off: stopped halfway, it can leave a device with a half-switched driver. Stop
     // waits for it (it is short), and after 2 minutes it is left to finish by itself.
     std::optional<int> exit;
     bool saidWaiting = false;
@@ -167,7 +172,7 @@ void ensureHideFilter(const std::string& vendor, wheelbri::service::WheelBackend
         if (gStop && !saidWaiting) {
             saidWaiting = true;
             WE_LOG_INFO(log(), "hide: stop requested; waiting for the installer to finish first (it must not be "
-                               "cut off while it changes the wheel's driver)");
+                               "cut off while it changes a device's driver)");
         }
         platform::sleepMs(200);
     }
@@ -175,29 +180,31 @@ void ensureHideFilter(const std::string& vendor, wheelbri::service::WheelBackend
     if (gStop) return;
     if (!exit || *exit != 0) {
         const char* why = !exit ? "took longer than 2 minutes (left to finish by itself)"
-                          : *exit == 2 ? "installed the filter, but it is not running on the wheel yet: restart "
-                                         "Windows (when Windows is not waiting for a restart, unplugging the wheel "
+                          : *exit == 2 ? "put the filter on, but it is not running on every device yet: restart "
+                                         "Windows (when Windows is not waiting for a restart, unplugging the device "
                                          "and plugging it in again is enough; the installer's log says which)"
                                        : "failed";
         WE_LOG_ERROR(log(), "hide: the installer {}{} (its log: C:\\ProgramData\\wheelbri\\logs\\wheelbri-hide-install-"
-                            "<date>.log; or run {} yourself as Administrator)",
-                     why, exit ? " (exit code " + std::to_string(*exit) + ")" : std::string(), script.string());
+                            "<date>.log; or run {} -Devices {} yourself as Administrator)",
+                     why, exit ? " (exit code " + std::to_string(*exit) + ")" : std::string(), script.string(), devices);
         return;
     }
-    // The wheel comes back with the filter a moment later.
+    // The devices come back with the filter a moment later.
     for (int waited = 0; waited < 15'000 && !gStop; waited += 250) {
-        if (wheelbri::service::HideFilter::find(vendor, /*quiet=*/true) != nullptr) {
-            WE_LOG_INFO(log(), "hide: wheelbri-hide installed and on the wheel");
+        bool pending = false;
+        for (const HideFilter::Check& c : HideFilter::check(targets, /*quiet=*/true)) {
+            pending = pending || c.state == HideFilter::State::NotInstalled || c.state == HideFilter::State::NeedsRestart;
+        }
+        if (!pending) {
+            WE_LOG_INFO(log(), "hide: wheelbri-hide is on every connected device of the rig");
             return;
         }
         platform::sleepMs(250);
     }
-    WE_LOG_ERROR(log(), "hide: installed, but the filter is not running on the wheel yet: unplug the R3 and plug it in "
-                        "again, or restart Windows");
+    WE_LOG_ERROR(log(), "hide: the filter is on, but not running on every device of the rig yet (the next hide lines "
+                        "say which): restart Windows");
 #else
-    (void)vendor;
-    (void)backend;
-    (void)match;
+    (void)targets;
 #endif
 }
 
@@ -1169,8 +1176,16 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         }
         return gStop.load();
     };
+    // The rig hidden from games while the session runs: every device the Wheel setup tab defined.
+    std::string rigName;
+    const auto hideTargets = rigHideTargets(rigName);
     if (options.virtualG920 && options.hide) {
-        ensureHideFilter(wheelVendorId(config.sourceDeviceMatch), *backend, config.sourceDeviceMatch);
+        if (hideTargets.empty()) {
+            WE_LOG_WARN(log(), "hide: no rig yet{}: nothing is hidden from games (define the devices in Wheel setup)",
+                        rigName.empty() ? "" : " ('" + rigName + "' lists no device)");
+        } else {
+            ensureHideFilter(hideTargets);
+        }
     }
     if (cancelled()) {
         WE_LOG_INFO(log(), "stopped before the session started");
@@ -1214,29 +1229,51 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             return 1;
         }
     }
-    // The real wheel hidden from games meanwhile, or a game may take it instead of the G920 (NFS does): with
-    // wheelbri's own filter (driver/hide), which lets only this process open the wheel.
+    // The rig hidden from games meanwhile, or a game may take a real device instead of the G920 (NFS does): with
+    // wheelbri's own filter (driver/hide) on every device of the rig, which lets only this process open them.
     std::unique_ptr<wheelbri::service::HideFilter> hideFilter;
-    if (g920 != nullptr && options.hide) {
-        hideFilter = wheelbri::service::HideFilter::find(wheelVendorId(config.sourceDeviceMatch));
-        if (hideFilter == nullptr) {
-            WE_LOG_ERROR(log(), "the real wheel is NOT hidden: wheelbri-hide is not running on it (the hide lines above "
-                                "say why); games see it next to the G920 and may take it");
-        } else if (!hideFilter->hide()) {
-            hideFilter.reset();
+    std::vector<wheelbri::service::HideFilter::Check> hideChecks;
+    if (g920 != nullptr && options.hide && !hideTargets.empty()) {
+        hideChecks = wheelbri::service::HideFilter::check(hideTargets);
+        bool any = false;
+        for (const auto& c : hideChecks) any = any || c.state == wheelbri::service::HideFilter::State::Ready;
+        if (any) {
+            hideFilter = std::make_unique<wheelbri::service::HideFilter>();
+            if (!hideFilter->hide()) hideFilter.reset();
         }
     }
     // One line for the window: what games will see besides the G920, and what is missing.
     DeviceSummary devices;
     if (g920 != nullptr) {
         devices.text = "virtual G920 on";
-        if (hideFilter != nullptr) {
-            devices.text += ", R3 hidden (wheelbri-hide)";
-        } else if (options.hide) {
-            devices.text += ", R3 NOT HIDDEN: games see it (install driver\\hide\\install-hide.ps1)";
+        if (!options.hide) {
+            devices.text += ", rig left visible (--no-hide)";
+        } else if (hideTargets.empty()) {
+            devices.text += ", NOTHING HIDDEN: no rig yet (Wheel setup)";
             devices.warning = true;
         } else {
-            devices.text += ", R3 left visible (--no-hide)";
+            int hidden = 0;
+            std::string notHidden;
+            for (const auto& c : hideChecks) {
+                if (c.state == wheelbri::service::HideFilter::State::Ready && hideFilter != nullptr) {
+                    ++hidden;
+                } else if (c.state != wheelbri::service::HideFilter::State::NotConnected) {
+                    notHidden += (notHidden.empty() ? "" : ", ") + c.target.name + " (" +
+                                 (hideFilter == nullptr && c.state == wheelbri::service::HideFilter::State::Ready
+                                      ? std::string("setting not written")
+                                      : wheelbri::service::HideFilter::stateName(c.state)) +
+                                 ")";
+                }
+            }
+            devices.text += ", rig hidden (" + std::to_string(hidden) + " of " + std::to_string(hideTargets.size()) +
+                            " devices)";
+            if (!notHidden.empty()) {
+                devices.text += ", NOT HIDDEN: " + notHidden + ": restart Windows";
+                devices.warning = true;
+                WE_LOG_ERROR(log(), "hide: games can see {}: the filter does not run there yet (the hide lines above "
+                                    "say why)",
+                             notHidden);
+            }
         }
     }
     int result = 0;

@@ -1,21 +1,38 @@
-# Installs wheelbri-hide, the filter that hides the R3 from games while wheelbri-service runs (build it first,
-# see ..\README.md). Administrator; close Moza Pit House and games first (the R3 restarts once). Secure Boot and test
-# mode stay as they are: the package is signed with a certificate made on this PC by the WDK build
-# (WDKTestCert), which this script adds to the machine's trusted Root and TrustedPublisher stores.
+# Puts wheelbri-hide, the filter that hides the rig from games while wheelbri-service runs, on the rig's devices
+# (build it first, see ..\README.md). Administrator; close Moza Pit House (or the device's own software) and games
+# first: each device restarts once. Secure Boot and test mode stay as they are: the package is signed with a
+# certificate made on this PC by the WDK build (WDKTestCert), which this script adds to the machine's trusted Root and
+# TrustedPublisher stores.
 #
-#   install-hide.ps1                   Release build
-#   install-hide.ps1 -Configuration Debug
+# Which devices: only the ones given (the app gives the active rig's, the Wheel setup tab's), by USB ids. Nothing in
+# this script or the INF names a particular wheel: the INF matches any HID collection (HID_DEVICE), and Windows never
+# picks it by itself (its own input.inf matches better, or as well with a newer date: ours is stamped 2001), so only
+# the game-controller collections of the devices given here get it, the way Device Manager's "Have disk" puts a driver
+# on one device (DiInstallDevice). Without -Devices (the installer) it replaces any older copy, which takes it off
+# every device; the app puts it back at the next Start.
 #
-# Exit codes (wheelbri-service runs this when Start finds the filter missing, and logs the code):
-#   0 installed and on the R3 (or the R3 is unplugged: it attaches when the R3 is plugged in)
+#   install-hide.ps1                                     adds the package to Windows only (the installer: no rig yet)
+#   install-hide.ps1 -Devices 346e:0004,30b7:1001        ...and puts the filter on those devices' game-controller
+#                                                        interfaces (all of them: a device may have several)
+#   install-hide.ps1 -Devices 346e:0004 -Configuration Debug
+#
+# Exit codes (wheelbri-service runs this at Start when a rig device has no filter, and logs the code):
+#   0 done: the filter runs on every given device that is plugged in (unplugged ones are listed; they get it at a
+#     later Start)
 #   1 failed (the red line says why)
-#   2 installed, but not running on the R3 yet: unplug and replug the R3 (or restart Windows), then run it again
+#   2 put on, but not running on every device yet: restart Windows (when Windows is not waiting for a restart,
+#     unplugging the device and plugging it in again is enough), then press Start again
 
-param([string]$Configuration = 'Release')
+param(
+    [string]$Configuration = 'Release',
+    [string[]]$Devices = @()
+)
 # A 32-bit PowerShell (one started from a 32-bit prompt, e.g. some Developer PowerShell windows) sees SysWOW64,
 # where pnputil and the 64-bit driver tools are missing: run this again in the 64-bit PowerShell.
 if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
-    & (Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Configuration $Configuration
+    $forward = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Configuration', $Configuration)
+    if ($Devices.Count -gt 0) { $forward += @('-Devices', ($Devices -join ',')) }
+    & (Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe') @forward
     exit $LASTEXITCODE
 }
 $ErrorActionPreference = 'Stop'
@@ -23,114 +40,251 @@ $ErrorActionPreference = 'Stop'
 Assert-Admin
 
 # Everything below also goes to C:\ProgramData\wheelbri\logs\wheelbri-hide-install-<date>.log (the app runs this
-# without a window, so that file is where to look when Start says the R3 is not hidden).
+# without a window, so that file is where to look when Start says a device is not hidden).
 $logFolder = 'C:\ProgramData\wheelbri\logs'
 New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
 Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
 $exitCode = 1
-$script:needsWindowsRestart = $false   # pnputil said the R3 waits for a restart of Windows
+$script:needsWindowsRestart = $false   # pnputil said a device waits for a restart of Windows
 try {
-    if ((Remove-LegacyPackages 'wheelbri-hide') -gt 0) {
-        Invoke-Pnputil @('/scan-devices') 'rescanning devices' | Out-Null   # the R3 back on its own driver first
+    # "346e:0004,30b7:1001" (one argument from the app) or several arguments: the USB ids, checked.
+    $wanted = @()
+    foreach ($text in @($Devices | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+        if ($text -notmatch '^([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})$') {
+            Stop-WithError "-Devices: '$text' is not a USB id like 346e:0004"
+        }
+        $id = [pscustomobject]@{ Vendor = $Matches[1].ToUpper(); Product = $Matches[2].ToUpper(); Text = $text.ToLower() }
+        if ($id.Vendor -eq '046D' -and $id.Product -eq 'C262') {
+            Write-Host "skipping $($id.Text): that is the virtual G920 games are meant to see" -ForegroundColor Yellow
+            continue
+        }
+        $wanted += $id
+    }
+
+    $removed = Remove-LegacyPackages 'wheelbri-hide'
+    if ($wanted.Count -eq 0) {
+        # The installer: a fresh copy, off every device an older copy is on (an older one could even have been put
+        # on the virtual G920 by Windows itself). The app puts it back on the rig's devices at the next Start.
+        $removed += Remove-InstalledPackages 'wheelbri-hide'
+    }
+    if ($removed -gt 0) {
+        Invoke-Pnputil @('/scan-devices') 'rescanning devices' | Out-Null   # the devices back on their own driver first
     }
     $inf = Find-BuiltPackage $PSScriptRoot 'wheelbri-hide' $Configuration
     Add-PackageCertificate $inf 'wheelbri-hide'
-    Invoke-Pnputil @('/add-driver', $inf.FullName, '/install') 'installing wheelbri-hide' | Out-Null
+    # Added to Windows' driver store only (no /install): it never wins on any device by itself (old DriverVer date).
+    Invoke-Pnputil @('/add-driver', $inf.FullName) 'adding wheelbri-hide to Windows' | Out-Null
     Write-Host ''
-
-    # pnputil switches a device only to the best-ranked driver, and Windows ranks its own signed input.inf, and Moza's
-    # signed driver ("MOZA Windows Driver", which Moza's software can put on the R3), above this test-signed package:
-    # the R3 keeps that driver without our filter. So put ours on the R3's game-controller interface explicitly, as Device
-    # Manager's "Have disk" does (UpdateDriverForPlugAndPlayDevices, INSTALLFLAG_FORCE).
-    # Every list below is taken with @(...) at the call: a function returning one device hands back the device itself,
-    # and Windows PowerShell 5.1 gives no .Count for a single CIM object, so a missing filter looked like "none
-    # missing" and was never forced (the R3 stayed visible to games).
-    $hardwareId = 'HID\VID_346E&PID_0005&MI_02'
-    function Get-R3 { @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like "$hardwareId*" }) }
-    function Test-Filter($device) {
-        $filters = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_UpperFilters' -ErrorAction SilentlyContinue).Data
-        return @($filters) -contains 'WUDFRd'
-    }
-    function Get-Missing { @(Get-R3 | Where-Object { -not (Test-Filter $_) }) }
-    # Listed is not running: after a driver switch Windows may keep the old stack until the interface restarts
-    # (something still has it open), and says so with DN_NEED_RESTART (0x100) in the device's status. Until then
-    # the filter is not loaded and the R3 is not hidden, even though UpperFilters names it.
-    function Test-Pending($device) {
-        $status = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DevNodeStatus' -ErrorAction SilentlyContinue).Data
-        $problem = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_ProblemCode' -ErrorAction SilentlyContinue).Data
-        return (($status -band 0x100) -ne 0) -or ($problem -eq 14)   # 14: CM_PROB_NEED_RESTART
-    }
-    function Get-Pending { @(Get-R3 | Where-Object { (Test-Filter $_) -and (Test-Pending $_) }) }
-
-    $r3 = @(Get-R3)
-    if ($r3.Count -gt 0 -and @(Get-Missing).Count -gt 0) {
-        foreach ($device in $r3) {
-            $current = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data
-            $description = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DriverDesc' -ErrorAction SilentlyContinue).Data
-            Write-Host "the R3's game-controller interface uses $current ($description) now"
-        }
-        Add-Type -Namespace Wheelbri -Name NewDev -MemberDefinition @'
-[DllImport("newdev.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-public static extern bool UpdateDriverForPlugAndPlayDevices(IntPtr parent, string hardwareId, string infPath,
-                                                            uint flags, out bool rebootRequired);
-'@
-        $reboot = $false
-        Write-Host "putting wheelbri-hide on $hardwareId (its current driver ranks higher, so ours is forced)..."
-        if (-not [Wheelbri.NewDev]::UpdateDriverForPlugAndPlayDevices([IntPtr]::Zero, $hardwareId, $inf.FullName, 1, [ref]$reboot)) {
-            $code = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-            Stop-WithError "could not put the filter on the R3: $((New-Object ComponentModel.Win32Exception $code).Message) ($code)"
-        }
-        if ($reboot) { Write-Host 'Windows wants the R3 restarted before the filter runs: restarting it below.' }
-        # The R3's interface restarts with the filter: wait for it (up to 15 s) rather than a fixed pause.
-        for ($waited = 0; $waited -lt 15 -and @(Get-Missing).Count -gt 0; $waited++) { Start-Sleep -Seconds 1 }
-    }
-
-    # Installed but not loaded: restart the R3's interface ourselves (what unplugging it does), instead of asking
-    # for a restart of Windows. It fails while a program holds the R3 in a way Windows cannot interrupt.
-    foreach ($device in @(Get-Pending)) {
-        Write-Host "restarting $($device.InstanceId) so Windows loads the filter..."
-        $said = @(& pnputil /restart-device "$($device.InstanceId)")
-        $code = $LASTEXITCODE
-        if ($code -eq 0) {
-            Write-Host '    restarted'
-        } elseif ($code -in @(50, 3010)) {
-            # 3010: done at the next restart. 50 (ERROR_NOT_SUPPORTED): pnputil then prints "This command is not
-            # supported on this OS product", which is misleading: Windows refuses because the R3 is waiting for a
-            # restart of Windows ("pending system reboot"), not because the command is missing. Either way only a
-            # restart of Windows helps here; unplugging the R3 does not.
-            $script:needsWindowsRestart = $true
-            Write-Host '    Windows will not restart the R3 now: it is waiting for a restart of Windows to finish switching'
-            Write-Host "    its driver (pnputil exit code $code; unplugging the R3 does not help)."
-        } else {
-            $said | ForEach-Object { Write-Host "    pnputil: $_" }
-            Write-Host "    pnputil exit code $code"
-        }
-    }
-    for ($waited = 0; $waited -lt 15 -and @(Get-Pending).Count -gt 0; $waited++) { Start-Sleep -Seconds 1 }
-
-    # Check what the R3's game-controller interface runs with now.
-    $r3 = @(Get-R3)
-    foreach ($device in $r3) {
-        $filters = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_UpperFilters' -ErrorAction SilentlyContinue).Data
-        $driver = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data
-        $pending = if (Test-Pending $device) { ', waiting for a restart (filter not running yet)' } else { '' }
-        Write-Host "$($device.InstanceId): status $($device.Status), driver $driver, upper filters: $($filters -join ', ')$pending"
-    }
-    Write-Host ''
-    if ($r3.Count -eq 0) {
-        Write-Host 'The R3 is not plugged in: the filter attaches when it is.' -ForegroundColor Yellow
+    if ($wanted.Count -eq 0) {
+        Write-Host 'Package added. The app puts the filter on the rig''s devices (Wheel setup) when you press Start.' -ForegroundColor Green
         $exitCode = 0
-    } elseif ($script:needsWindowsRestart -and (@(Get-Missing).Count -gt 0 -or @(Get-Pending).Count -gt 0)) {
-        Write-Host ('The filter is installed but Windows starts it on the R3 only after a restart: restart Windows; ' +
-                    'the next Start in the app then hides the R3.') -ForegroundColor Red
-        $exitCode = 2
-    } elseif (@(Get-Missing).Count -gt 0 -or @(Get-Pending).Count -gt 0) {
-        Write-Host ('The filter is installed but not running on the R3 yet: unplug the R3 and plug it in again (or ' +
-                    'restart Windows); the next Start in the app then hides it.') -ForegroundColor Red
-        $exitCode = 2
     } else {
-        Write-Host 'Installed. wheelbri-service --virtual-g920 now hides the R3 with it.' -ForegroundColor Green
-        $exitCode = 0
+
+        # A device's game-controller interfaces: its HID collections whose compatible IDs say joystick, gamepad or
+        # multi-axis controller (usage page 1, usages 4, 5, 8; the Moza R3 is multi-axis and has no
+        # HID_DEVICE_SYSTEM_GAME) or simulation control (page 2): what DirectInput and games open. A vendor tool keeps
+        # its other interfaces. Same rule as isGameController in core/src/HidHideCli.cpp. Every list is taken with
+        # @(...): Windows PowerShell 5.1 gives no .Count for a single CIM object.
+        function Test-GameController($compatible) {
+            foreach ($c in @($compatible)) {
+                if ($c -in @('HID_DEVICE_SYSTEM_GAME', 'HID_DEVICE_UP:0001_U:0004', 'HID_DEVICE_UP:0001_U:0005',
+                             'HID_DEVICE_UP:0001_U:0008') -or $c -like 'HID_DEVICE_UP:0002_*') { return $true }
+            }
+            return $false
+        }
+        function Get-Interfaces($id) {
+            @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+                Where-Object { $_.InstanceId -like "HID\VID_$($id.Vendor)&PID_$($id.Product)*" } |
+                Where-Object {
+                    $compatible = (Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName 'DEVPKEY_Device_CompatibleIds' -ErrorAction SilentlyContinue).Data
+                    Test-GameController $compatible
+                })
+        }
+        # Ours: the device's driver is one of our installed copies (not just any user-mode filter, which also shows
+        # as WUDFRd), and the reflector is in its upper filters.
+        $ours = @(@(Get-InstalledPackages 'wheelbri-hide') | ForEach-Object { $_.ToLower() })
+        function Test-Filter($device) {
+            $filters = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_UpperFilters' -ErrorAction SilentlyContinue).Data
+            $driverInf = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data
+            return (@($filters) -contains 'WUDFRd') -and $driverInf -and ($ours -contains $driverInf.ToLower())
+        }
+        # Listed is not running: after a driver switch Windows may keep the old stack until the interface restarts
+        # (something still has it open), and says so with DN_NEED_RESTART (0x100) in the device's status. Until then
+        # the filter is not loaded and the device is not hidden, even though UpperFilters names it.
+        function Test-Pending($device) {
+            $status = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DevNodeStatus' -ErrorAction SilentlyContinue).Data
+            $problem = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_ProblemCode' -ErrorAction SilentlyContinue).Data
+            return (($status -band 0x100) -ne 0) -or ($problem -eq 14)   # 14: CM_PROB_NEED_RESTART
+        }
+        function Get-All { @($wanted | ForEach-Object { Get-Interfaces $_ }) }
+        function Get-Missing { @(Get-All | Where-Object { -not (Test-Filter $_) }) }
+        function Get-Pending { @(Get-All | Where-Object { (Test-Filter $_) -and (Test-Pending $_) }) }
+
+        # The filter on one interface, chosen from our INF only, whatever ranks higher (input.inf, a vendor's driver).
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace Wheelbri {
+public static class HideInstall {
+    const uint DI_ENUMSINGLEINF = 0x00010000;
+    const uint DI_FLAGSEX_ALLOWEXCLUDEDDRVS = 0x00000800;
+    const uint SPDIT_COMPATDRIVER = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct SP_DEVINFO_DATA { public uint cbSize; public Guid ClassGuid; public uint DevInst; public IntPtr Reserved; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct SP_DEVINSTALL_PARAMS {
+        public uint cbSize; public uint Flags; public uint FlagsEx; public IntPtr hwndParent;
+        public IntPtr InstallMsgHandler; public IntPtr InstallMsgHandlerContext; public IntPtr FileQueue;
+        public UIntPtr ClassInstallReserved; public uint Reserved;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string DriverPath;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct SP_DRVINFO_DATA {
+        public uint cbSize; public uint DriverType; public UIntPtr Reserved;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string Description;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string MfgName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string ProviderName;
+        public long DriverDate; public ulong DriverVersion;
+    }
+
+    [DllImport("setupapi.dll", SetLastError = true)]
+    static extern IntPtr SetupDiCreateDeviceInfoList(IntPtr classGuid, IntPtr hwnd);
+    [DllImport("setupapi.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool SetupDiOpenDeviceInfoW(IntPtr set, string instanceId, IntPtr hwnd, uint flags, ref SP_DEVINFO_DATA data);
+    [DllImport("setupapi.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool SetupDiGetDeviceInstallParamsW(IntPtr set, ref SP_DEVINFO_DATA data, ref SP_DEVINSTALL_PARAMS p);
+    [DllImport("setupapi.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool SetupDiSetDeviceInstallParamsW(IntPtr set, ref SP_DEVINFO_DATA data, ref SP_DEVINSTALL_PARAMS p);
+    [DllImport("setupapi.dll", SetLastError = true)]
+    static extern bool SetupDiBuildDriverInfoList(IntPtr set, ref SP_DEVINFO_DATA data, uint type);
+    [DllImport("setupapi.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool SetupDiEnumDriverInfoW(IntPtr set, ref SP_DEVINFO_DATA data, uint type, uint index, ref SP_DRVINFO_DATA info);
+    [DllImport("setupapi.dll", SetLastError = true)]
+    static extern bool SetupDiDestroyDriverInfoList(IntPtr set, ref SP_DEVINFO_DATA data, uint type);
+    [DllImport("setupapi.dll", SetLastError = true)]
+    static extern bool SetupDiDestroyDeviceInfoList(IntPtr set);
+    [DllImport("newdev.dll", SetLastError = true)]
+    static extern bool DiInstallDevice(IntPtr hwnd, IntPtr set, ref SP_DEVINFO_DATA data, ref SP_DRVINFO_DATA info, uint flags, out bool reboot);
+
+    static string Failed(string what) {
+        int code = Marshal.GetLastWin32Error();
+        return what + " failed: " + new Win32Exception(code).Message + " (0x" + code.ToString("X8") + ")";
+    }
+
+    // Puts the driver of `infPath` on the device `instanceId`. Empty on success, else why not.
+    public static string Install(string instanceId, string infPath, out bool reboot) {
+        reboot = false;
+        IntPtr set = SetupDiCreateDeviceInfoList(IntPtr.Zero, IntPtr.Zero);
+        if (set == new IntPtr(-1)) return Failed("SetupDiCreateDeviceInfoList");
+        try {
+            SP_DEVINFO_DATA device = new SP_DEVINFO_DATA();
+            device.cbSize = (uint)Marshal.SizeOf(typeof(SP_DEVINFO_DATA));
+            if (!SetupDiOpenDeviceInfoW(set, instanceId, IntPtr.Zero, 0, ref device)) return Failed("SetupDiOpenDeviceInfo");
+            SP_DEVINSTALL_PARAMS parameters = new SP_DEVINSTALL_PARAMS();
+            parameters.cbSize = (uint)Marshal.SizeOf(typeof(SP_DEVINSTALL_PARAMS));
+            if (!SetupDiGetDeviceInstallParamsW(set, ref device, ref parameters)) return Failed("SetupDiGetDeviceInstallParams");
+            parameters.DriverPath = infPath;   // only this INF
+            parameters.Flags |= DI_ENUMSINGLEINF;
+            parameters.FlagsEx |= DI_FLAGSEX_ALLOWEXCLUDEDDRVS;
+            if (!SetupDiSetDeviceInstallParamsW(set, ref device, ref parameters)) return Failed("SetupDiSetDeviceInstallParams");
+            if (!SetupDiBuildDriverInfoList(set, ref device, SPDIT_COMPATDRIVER)) return Failed("SetupDiBuildDriverInfoList");
+            try {
+                SP_DRVINFO_DATA driver = new SP_DRVINFO_DATA();
+                driver.cbSize = (uint)Marshal.SizeOf(typeof(SP_DRVINFO_DATA));
+                if (!SetupDiEnumDriverInfoW(set, ref device, SPDIT_COMPATDRIVER, 0, ref driver)) {
+                    return "the package does not fit this device (it is not a game controller?): " + Failed("SetupDiEnumDriverInfo");
+                }
+                if (!DiInstallDevice(IntPtr.Zero, set, ref device, ref driver, 0, out reboot)) return Failed("DiInstallDevice");
+                return "";
+            } finally {
+                SetupDiDestroyDriverInfoList(set, ref device, SPDIT_COMPATDRIVER);
+            }
+        } finally {
+            SetupDiDestroyDeviceInfoList(set);
+        }
+    }
+}
+}
+'@
+
+        $notConnected = @()
+        foreach ($id in $wanted) {
+            $interfaces = @(Get-Interfaces $id)
+            if ($interfaces.Count -eq 0) {
+                Write-Host "$($id.Text): not plugged in (or no game-controller interface): it gets the filter at a later Start" -ForegroundColor Yellow
+                $notConnected += $id.Text
+                continue
+            }
+            foreach ($device in $interfaces) {
+                if (Test-Filter $device) {
+                    Write-Host "$($id.Text): $($device.InstanceId) already has the filter"
+                    continue
+                }
+                $current = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data
+                $description = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DriverDesc' -ErrorAction SilentlyContinue).Data
+                Write-Host "$($id.Text): $($device.InstanceId) ($($device.FriendlyName)) uses $current ($description) now"
+                Write-Host "    putting wheelbri-hide on it..."
+                $reboot = $false
+                $problem = [Wheelbri.HideInstall]::Install($device.InstanceId, $inf.FullName, [ref]$reboot)
+                if ($problem) {
+                    Stop-WithError "could not put the filter on $($device.InstanceId): $problem"
+                }
+                if ($reboot) { Write-Host '    Windows wants the device restarted before the filter runs: restarting it below.' }
+            }
+        }
+        # The interfaces restart with the filter: wait for them (up to 15 s) rather than a fixed pause.
+        for ($waited = 0; $waited -lt 15 -and @(Get-Missing).Count -gt 0; $waited++) { Start-Sleep -Seconds 1 }
+
+        # Installed but not loaded: restart the interface ourselves (what unplugging it does), instead of asking for a
+        # restart of Windows. It fails while a program holds the device in a way Windows cannot interrupt.
+        foreach ($device in @(Get-Pending)) {
+            Write-Host "restarting $($device.InstanceId) so Windows loads the filter..."
+            $said = @(& pnputil /restart-device "$($device.InstanceId)")
+            $code = $LASTEXITCODE
+            if ($code -eq 0) {
+                Write-Host '    restarted'
+            } elseif ($code -in @(50, 3010)) {
+                # 3010: done at the next restart. 50 (ERROR_NOT_SUPPORTED): pnputil then prints "This command is not
+                # supported on this OS product", which is misleading: Windows refuses because the device is waiting for a
+                # restart of Windows ("pending system reboot"), not because the command is missing. Either way only a
+                # restart of Windows helps here; unplugging the device does not.
+                $script:needsWindowsRestart = $true
+                Write-Host '    Windows will not restart the device now: it is waiting for a restart of Windows to finish'
+                Write-Host "    switching its driver (pnputil exit code $code; unplugging the device does not help)."
+            } else {
+                $said | ForEach-Object { Write-Host "    pnputil: $_" }
+                Write-Host "    pnputil exit code $code"
+            }
+        }
+        for ($waited = 0; $waited -lt 15 -and @(Get-Pending).Count -gt 0; $waited++) { Start-Sleep -Seconds 1 }
+
+        # What each device's game-controller interfaces run with now.
+        foreach ($device in @(Get-All)) {
+            $filters = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_UpperFilters' -ErrorAction SilentlyContinue).Data
+            $driver = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_DriverInfPath' -ErrorAction SilentlyContinue).Data
+            $pending = if (Test-Pending $device) { ', waiting for a restart (filter not running yet)' } else { '' }
+            Write-Host "$($device.InstanceId): status $($device.Status), driver $driver, upper filters: $($filters -join ', ')$pending"
+        }
+        Write-Host ''
+        $left = @(Get-Missing) + @(Get-Pending)
+        if ($left.Count -gt 0 -and $script:needsWindowsRestart) {
+            Write-Host ('The filter is on, but Windows starts it only after a restart: restart Windows; the next Start in ' +
+                        'the app then hides the rig.') -ForegroundColor Red
+            $exitCode = 2
+        } elseif ($left.Count -gt 0) {
+            Write-Host ('The filter is on, but not running on every device yet: unplug those devices and plug them in ' +
+                        'again (or restart Windows); the next Start in the app then hides the rig.') -ForegroundColor Red
+            $exitCode = 2
+        } else {
+            $done = @($wanted | Where-Object { $notConnected -notcontains $_.Text } | ForEach-Object { $_.Text })
+            Write-Host "Done: the filter runs on $($done -join ', ')$(if ($notConnected.Count) { "; not plugged in: $($notConnected -join ', ')" })." -ForegroundColor Green
+            $exitCode = 0
+        }
     }
 } finally {
     Stop-Transcript | Out-Null

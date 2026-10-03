@@ -1,15 +1,18 @@
-// wheelbri-hide: hides the real wheel (Moza R3) from games while wheelbri-service presents the virtual G920.
+// wheelbri-hide: hides the rig (the wheel and every accessory the Wheel setup tab defined) from games while
+// wheelbri-service presents the virtual G920.
 // Our replacement for HidHide (third-party), built the same way as our G920 driver: UMDF 2, user mode, signed
 // with the certificate trusted on this PC; no kernel code of ours, no test mode.
 //
-// It is an upper filter on the R3's game-controller interface (HID\VID_346E&PID_0005&MI_02; Moza Pit House
-// talks to the other interfaces). Every program that opens that interface asks it first (IRP_MJ_CREATE):
+// It is an upper filter on the game-controller interface of each rig device (install-hide.ps1 -Devices puts it on
+// exactly those; a vendor tool such as Moza Pit House talks to the other interfaces). It does not care which device
+// it is on: it decides only by the setting below.
+// Every program that opens that interface asks it first (IRP_MJ_CREATE):
 //   - while wheelbri-service hides the wheel, it has written its process id to
 //       HKLM\SOFTWARE\wheelbri\hide  AllowedPid (DWORD)
-//     and only that process may open the R3; everyone else gets "access denied", so DirectInput, SDL, raw input
+//     and only that process may open the device; everyone else gets "access denied", so DirectInput, SDL, raw input
 //     and the game cannot see or read it (the same effect as HidHide);
 //   - when AllowedPid is 0 or missing (the service is not running, or stopped cleanly), everyone may open it:
-//     the R3 is an ordinary wheel again;
+//     it is an ordinary device again;
 //   - when AllowedPid names a process that is gone (the service crashed, was killed, or the PC lost power), the
 //     wheel is not hidden either: a crash must never leave the wheel hidden from everything. AllowedPidStart (the
 //     process's creation time, QWORD FILETIME) catches a later process that got the same id.
@@ -137,12 +140,33 @@ void noteDecision(const ULONG pid, const ULONG allowed, const bool refused) {
     }
 }
 
+// Per device: never hide the virtual G920 (046D:C262), even if the filter ended up on it (Windows put it there by
+// itself once): hiding it would hide the wheel games are meant to see.
+struct DeviceContext {
+    bool neverHide;
+};
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DeviceContext, deviceContext)
+
+// The first hardware id of the device being added ("HID\VID_346E&PID_0005&REV_..&MI_02"), for the log and the
+// check above; empty if Windows does not say.
+std::string hardwareId(PWDFDEVICE_INIT init) {
+    wchar_t buffer[512] = {};
+    ULONG length = 0;
+    if (!NT_SUCCESS(WdfFdoInitQueryProperty(init, DevicePropertyHardwareID, sizeof(buffer) - sizeof(wchar_t), buffer,
+                                            &length))) {
+        return {};
+    }
+    std::string text;
+    for (const wchar_t* c = buffer; *c != L'\0'; ++c) text += static_cast<char>(*c < 128 ? *c : '?');
+    return text;
+}
+
 VOID WINAPI onCreateForwarded(WDFREQUEST request, WDFIOTARGET, PWDF_REQUEST_COMPLETION_PARAMS params, WDFCONTEXT) {
     WdfRequestComplete(request, params->IoStatus.Status);
 }
 
 VOID EvtFileCreate(WDFDEVICE device, WDFREQUEST request, WDFFILEOBJECT) {
-    const ULONG allowed = allowedPid();
+    const ULONG allowed = deviceContext(device)->neverHide ? 0 : allowedPid();
     const ULONG pid = static_cast<ULONG>(WdfRequestGetRequestorProcessId(request));
     const bool refuse = allowed != 0 && pid != allowed && pid != kSystemPid;
     noteDecision(pid, allowed, refuse);
@@ -164,15 +188,27 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     fileConfig.AutoForwardCleanupClose = WdfTrue;
     WdfDeviceInitSetFileObjectConfig(init, &fileConfig, WDF_NO_OBJECT_ATTRIBUTES);
 
+    const std::string id = hardwareId(init);
+    std::string upper = id;
+    for (char& c : upper) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c);
+    const bool virtualG920 = upper.find("VID_046D&PID_C262") != std::string::npos;
+
+    WDF_OBJECT_ATTRIBUTES attributes;
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, DeviceContext);
     WDFDEVICE device;
-    const NTSTATUS status = WdfDeviceCreate(&init, WDF_NO_OBJECT_ATTRIBUTES, &device);
+    const NTSTATUS status = WdfDeviceCreate(&init, &attributes, &device);
     if (!NT_SUCCESS(status)) {
-        logLine("WdfDeviceCreate failed: " + std::to_string(status));
+        logLine("WdfDeviceCreate failed on " + id + ": " + std::to_string(status));
         return status;
     }
-    // No queues: everything but opening the wheel goes straight to the HID class driver below.
-    logLine("attached to the wheel's game-controller interface; " +
-            std::string(allowedPid() == 0 ? "not hidden now" : "hidden now"));
+    deviceContext(device)->neverHide = virtualG920;
+    // No queues: everything but opening the device goes straight to the HID class driver below.
+    if (virtualG920) {
+        logLine("attached to " + id + ", the virtual G920: never hidden (this filter does not belong there; "
+                "reinstall WheelBri to take it off)");
+    } else {
+        logLine("attached to " + id + "; " + std::string(allowedPid() == 0 ? "not hidden now" : "hidden now"));
+    }
     return STATUS_SUCCESS;
 }
 

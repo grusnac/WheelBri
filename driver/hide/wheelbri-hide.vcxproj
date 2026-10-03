@@ -49,10 +49,12 @@
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
-    <!-- stampinf writes today's local date as DriverVer by default, but inf2cat compares it with UTC: east of UTC
-         it is "in the future" for a few hours after midnight and signing fails (22.9.7). Stamp the UTC date. -->
+    <!-- A fixed old date on purpose: the INF matches every HID collection (HID_DEVICE), and when Windows weighs it
+         against its own input.inf for a device, an equal match goes to the newer date. With 2001 (input.inf says
+         2006) Windows never puts this filter on a device by itself (it did on the virtual G920 with today's date);
+         only install-hide.ps1 -Devices does, by choosing it explicitly. Keep it older than input.inf. -->
     <Inf>
-      <DateStamp>$([System.DateTime]::UtcNow.ToString('MM/dd/yyyy'))</DateStamp>
+      <DateStamp>01/01/2001</DateStamp>
     </Inf>
   </ItemDefinitionGroup>
   <ItemGroup>

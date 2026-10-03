@@ -3,7 +3,7 @@ WheelBri
 
 Makes a Moza R3 wheel look like a Logitech G920, so
 games that only know Logitech wheels, such as Need for Speed (2015), accept it, with force feedback. It does that
-with its own drivers: a virtual G920 and a filter that hides the real R3 from games
+with its own drivers: a virtual G920 and a filter that hides your real wheel and its accessories from games
 while WheelBri runs (otherwise games would see two wheels).
 
 Needs
@@ -17,7 +17,7 @@ Install
 -------
 Run Setup.exe and approve the Administrator prompt: everything is installed with its defaults. At the end, after
 "WheelBri is installed", it asks whether to restart Windows now (Enter = yes). Restart: that makes sure every driver
-is installed properly (the filter that hides the R3 from games often starts only after a restart). Save your work
+is installed properly (the filter that hides your wheel from games often starts only after a restart). Save your work
 in other programs first; Windows restarts 15 seconds after the answer. If something fails, the window stays open
 with the reason in red.
 
@@ -29,7 +29,7 @@ the app starts.
 
 What it installs:
 - the program in C:\Program Files\WheelBri;
-- two drivers: the virtual G920 (wheelbri-g920) and the filter that hides the real R3 (wheelbri-hide). The virtual
+- two drivers: the virtual G920 (wheelbri-g920) and the filter that hides the real wheel (wheelbri-hide). The virtual
   Xbox controller of earlier versions is removed. The drivers are signed with WheelBri's own certificate, not by Microsoft, so
   the installer adds that certificate to this PC's trusted certificates. Secure Boot and test mode are not changed;
 - a Start menu folder "WheelBri" (the app, and "Uninstall WheelBri"), a desktop shortcut and an entry in
@@ -38,14 +38,15 @@ What it installs:
 Play
 ----
 1. Start "WheelBri" from the Start menu (it asks for Administrator) and press Start. From then on games see the
-   virtual G920, and not the R3: WheelBri hides it every time it starts.
+   virtual G920, and not your real wheel: WheelBri hides it every time it starts.
 2. Start the game and pick the Logitech G920 in its controller settings.
 3. Press Stop, or close the window, when done: the virtual devices go away and the R3 is an ordinary wheel again.
 
-Hiding the R3 needs WheelBri's filter on the R3. The installer puts it there when the R3 is connected; otherwise
-the first Start does (the R3 restarts once; close Moza Pit House and games first). If Moza's software later puts
-its own driver back on the R3, the next Start puts the filter on again. The window says "R3 NOT HIDDEN" in red when
-it could not.
+What is hidden is your rig: every device set up in the Wheel setup tab (wheel, pedals, shifter, button box...).
+Set it up before the first Start; with no rig nothing is hidden and the window says so. The first Start puts
+WheelBri's filter on those devices (they restart once; close Moza Pit House and games first; Windows may want a
+restart). If Moza's software later puts its own driver back, the next Start puts the filter on again. The window
+says "rig hidden (N of M devices)", or lists in red the devices it could not hide.
 
 The settings are in C:\Program Files\WheelBri\config\moza-r3-as-g920.ini (moza-r3-as-g29.ini presents a G29).
 Editing them needs an editor started as Administrator; each Start reads them again.
@@ -70,10 +71,10 @@ Options (after Uninstall.cmd or uninstall.ps1): -KeepConfig, -RemoveCertificate,
 When something does not work
 ----------------------------
 - Logs: %LOCALAPPDATA%\wheelbri\logs (app/service, telemetry) and C:\ProgramData\wheelbri\logs (drivers,
-  installer, wheelbri-hide-install-<date>.log for hiding the R3). In the app, the Logs tab (press O) opens the first one.
+  installer, wheelbri-hide-install-<date>.log for hiding the rig). In the app, the Logs tab (press O) opens the first one.
 - The game shows no wheel: check that the app says "running", then joy.cpl (Win+R, joy.cpl) should list the
   G920.
-- After a crash the R3 is not hidden any more on its own; "wheelbri-service.exe --unhide" (as Administrator)
+- After a crash the rig is not hidden any more on its own; "wheelbri-service.exe --unhide" (as Administrator)
   clears the setting by hand.
 
 Extras
