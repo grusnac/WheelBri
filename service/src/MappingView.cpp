@@ -75,10 +75,6 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
                   target_.c_str());
     pedalNote_ = note;
 
-#if defined(_WIN32)
-    // The drivers run as LocalService and cannot write to the user's folder (driver/*/Driver.cpp).
-    driverLogFolder_ = "C:\\ProgramData\\wheelbri\\logs";
-#endif
     sourceToTarget_.fill(kUnmapped);
     const HatButtons& hat = mapper_.hatButtons;
     const std::array<std::pair<int, const char*>, 4> hatDirections = {
@@ -125,8 +121,6 @@ std::vector<MappingView::Tab> MappingView::visibleTabs() {
 void MappingView::onKey(const char key) {
     if (key == 'o') {
         openFilesFolder();
-    } else if (key == 'd') {
-        openFolder(driverLogFolder_);
     } else if (key == 'f' && gForceFeedbackTab) {
         tab_ = Tab::ForceFeedback;
     } else if (key == 'm') {
@@ -211,7 +205,7 @@ void MappingView::draw(const RawInputs& inputs, const WheelState& state, const T
         drawTabs();   // the window draws the tab itself (WheelSetupView)
         return;
     }
-    drawHeader();
+    if (tab_ != Tab::Logs) drawHeader();   // the Logs page starts at the top (the Mapping tab has the header)
     if (tab_ == Tab::Mapping) {
         // What is mapped to what: the axes and pedals (rig -> G920), every rig axis, the D-pad, the buttons.
         drawAxes(inputs, state, report, 34);
@@ -743,7 +737,7 @@ std::string describeFile(const std::filesystem::path& path) {
 }
 
 // Logs tab layout (logical pixels): the folders, then one line per component.
-constexpr float kLogsTop = 34;
+constexpr float kLogsTop = 4;   // no header above the Logs page
 constexpr float kLogRowHeight = 16;
 constexpr float kLogRowsTop = kLogsTop + 14 + 2 * kLogRowHeight + 22;   // after the heading and the two folders
 // Telemetry tab: the heading and folder, then the two file lines.
@@ -778,7 +772,13 @@ void MappingView::refreshLogFiles() {
     };
     components_.clear();
     for (const Source& source : kSources) {
-        ComponentLog component{source.name, source.what, source.driver ? driverLogFolder_ : files_.logFolder, {}, {}};
+        // The drivers write to the same folder (the app shares it with them: ServiceLogging.hpp shareLogFolder).
+#if defined(_WIN32)
+        const std::filesystem::path folder = files_.logFolder;
+#else
+        const std::filesystem::path folder = source.driver ? std::filesystem::path() : files_.logFolder;
+#endif
+        ComponentLog component{source.name, source.what, folder, {}, {}};
         std::filesystem::path path = component.folder / (std::string(source.prefix) + today + ".log");
         if (std::string_view(source.prefix) == "wheelbri-service-") {
             // The service knows its own file (it may be elsewhere through [logging] file).
@@ -819,11 +819,8 @@ void MappingView::drawLogs() {
     text(window_, x, y, shortenMiddle(displayPath(files_.logFolder), kPathChars).c_str(), kText);
     text(window_, x + (kPathChars + 2) * 8, y, "O opens", kDim);
     y += kLogRowHeight;
-    text(window_, 4, y, "Drivers", kDim);
-    text(window_, x, y,
-         driverLogFolder_.empty() ? "(Windows only)" : shortenMiddle(displayPath(driverLogFolder_), kPathChars).c_str(),
-         kText);
-    text(window_, x + (kPathChars + 2) * 8, y, "D opens", kDim);
+    text(window_, 4, y, "Everything", kDim);
+    text(window_, x, y, "app, game shim, drivers, installers and telemetry all write to this one folder", kDim);
 
     y = kLogRowsTop - 14;
     text(window_, 4, y, "COMPONENT", kHeading);
