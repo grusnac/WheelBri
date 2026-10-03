@@ -66,6 +66,13 @@ struct MappingWriteResult {
 // alone (only the user knows which G920 button they should be). Returns how many sources were set.
 int autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile);
 
+// The mapping a built-in config gets (they are templates: the rig decides, for that config's target): every button
+// and D-pad direction cleared, then autoMap's roles, then each target button still empty takes the rig control
+// named like it ("A", "Cross", "Menu"; case ignored; the wheel's first, then the accessories'). Axes keep `model`'s
+// unless the rig gives them a role. A target button nothing in the rig fits stays empty (-1), so a target's extra
+// buttons are not fed by unrelated controls. Returns how many sources were set.
+int rigMapping(MappingModel& model, const Rig& rig, const IDeviceProfile& profile);
+
 // Writes `model` into the config text `base`. A source on the wheel's own id (when source_device is a USB id) is
 // written as the wheel's; a button left at its default (target N <- the wheel's button N) loses its line.
 [[nodiscard]] MappingWriteResult writeMapping(std::string_view base, const MappingModel& model);

@@ -18,16 +18,15 @@ namespace wheelbri::service {
 // Mapping tab only, the live view while it runs. Start runs a session on a
 // thread of its own; Stop, or closing the window, ends it cleanly.
 struct AppSettings {
-    std::string configPath;              // the config picked when the app starts ("" = the built-in defaults)
     std::filesystem::path builtInConfigFolder;   // the configs that come with the program (config/)
-    std::filesystem::path userConfigFolder;      // where New puts the user's own
-    std::filesystem::path stateFile;             // remembers the picked config
-    std::string mode;                    // what Start does, in words ("virtual G920, rig hidden")
-    std::filesystem::path logFolder;     // shown on the Status tab
+    std::filesystem::path userConfigFolder;      // where the Mapping tab saves the user's own edits
+    std::filesystem::path stateFile;             // remembers the way (virtual device or shim) and the rig
+    std::filesystem::path logFolder;     // the Logs tab's
     std::filesystem::path devicesFolder; // the Wheel setup tab's device names: <vid>-<pid>.ini
     // Runs one session with the config at `configPath` ("" = the built-in defaults) until it is asked to stop
-    // (blocking); returns its exit code. Called on the app's session thread.
-    std::function<int(UiHost& host, const std::string& configPath)> runSession;
+    // (blocking); returns its exit code. `virtualDevice`: the virtual G920 (rig hidden) rather than the in-game shim.
+    // Called on the app's session thread.
+    std::function<int(UiHost& host, const std::string& configPath, bool virtualDevice)> runSession;
     // Asks the running session to stop (from the window's thread).
     std::function<void()> requestStop;
     // Clears that request before the next Start.

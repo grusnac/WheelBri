@@ -21,7 +21,7 @@ is installed properly (the filter that hides your wheel from games often starts 
 in other programs first; Windows restarts 15 seconds after the answer. If something fails, the window stays open
 with the reason in red.
 
-Everything the installer did is in C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log.
+Everything the installer did is in %LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log, with every other log.
 Running Setup.exe again upgrades in place; an edited config is kept (the new default is written next to it as
 <name>.ini.new). An install from before the rename (when WheelBri was called wheelemu) is replaced, settings included: its
 drivers, devices and Settings > Apps entry go, and its rigs and configs move to %LOCALAPPDATA%\wheelbri the first time
@@ -48,8 +48,10 @@ WheelBri's filter on those devices (they restart once; close the wheel maker's s
 restart). If the wheel maker's software later puts its own driver back, the next Start puts the filter on again. The window
 says "rig hidden (N of M devices)", or lists in red the devices it could not hide.
 
-The settings are in C:\Program Files\WheelBri\config\rig-as-g920.ini (rig-as-g29.ini presents a G29).
-Editing them needs an editor started as Administrator; each Start reads them again.
+The Mapping tab (M) maps your rig onto the G920 by itself, from what you set up in the Rig tab. Its top row says
+how the G920 reaches the game: "virtual device" (the default, every game) or "in-game shim" (dinput8.dll from the
+shim folder next to the game's .exe). Change a mapping there and press Save to keep your own; "Rig mapping" goes
+back to the rig's. Each Start uses exactly what the tab shows.
 
 Uninstall
 ---------
@@ -59,8 +61,7 @@ Any of these (they all run the same uninstaller and ask for Administrator):
 - Uninstall.cmd in C:\Program Files\WheelBri.
 It asks to confirm, whether to keep your settings (copied to C:\ProgramData\wheelbri\config-backup) and whether to
 remove the drivers' certificate, then closes a running WheelBri and removes the drivers, shortcuts, the
-Settings > Apps entry and the program folder. Logs stay in %LOCALAPPDATA%\wheelbri\logs and
-C:\ProgramData\wheelbri\logs.
+Settings > Apps entry and the program folder. Logs stay in %LOCALAPPDATA%\wheelbri\logs.
 
 If the program folder was deleted by hand or is damaged, Uninstall.cmd in the unpacked package (from the
 WheelBri-<version>.zip next to Setup.exe) removes what is left: drivers, certificate, shortcuts and the
@@ -70,8 +71,8 @@ Options (after Uninstall.cmd or uninstall.ps1): -KeepConfig, -RemoveCertificate,
 
 When something does not work
 ----------------------------
-- Logs: %LOCALAPPDATA%\wheelbri\logs (app/service, telemetry) and C:\ProgramData\wheelbri\logs (drivers,
-  installer, wheelbri-hide-install-<date>.log for hiding the rig). In the app, the Logs tab (press O) opens the first one.
+- Logs: all in %LOCALAPPDATA%\wheelbri\logs: the app, telemetry, both drivers, the installer and
+  wheelbri-hide-install-<date>.log for hiding the rig. In the app, the Logs tab (press O) opens it.
 - The game shows no wheel: check that the app says "running", then joy.cpl (Win+R, joy.cpl) should list the
   G920.
 - After a crash the rig is not hidden any more on its own; "wheelbri-service.exe --unhide" (as Administrator)

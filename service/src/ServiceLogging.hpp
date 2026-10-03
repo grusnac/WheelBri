@@ -31,6 +31,13 @@ namespace wheelbri::service {
 // first in main(); logStartupBanner logs what it did.
 void moveFoldersFromOldName();
 
+// One folder for every log, the user's (Windows: %LOCALAPPDATA%\wheelbri\logs): the drivers run as LocalService and
+// would otherwise write to C:\ProgramData\wheelbri\logs. As Administrator (the app) this lets LocalService write in
+// `folder`, tells the drivers where it is (HKLM\SOFTWARE\wheelbri LogFolder, read for every line they write) and
+// moves what is still in C:\ProgramData\wheelbri\logs into it. Not Administrator, or not Windows: does nothing (on
+// Linux every log is in one folder already). Logs what it did; call it once logging runs.
+void shareLogFolder(const std::filesystem::path& folder);
+
 // Writes the version and platform at startup so every log is self-describing.
 void logStartupBanner(const std::string& configPath);
 

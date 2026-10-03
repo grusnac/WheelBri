@@ -120,7 +120,7 @@ TEST(EmulatorConfig, ReadsTelemetry) {
 TEST(EmulatorConfig, ReadsRetention) {
     const auto defaults = load("");
     EXPECT_EQ(defaults.config.retention.action, OldFilesAction::Delete);
-    EXPECT_EQ(defaults.config.retention.olderThanDays, 7);
+    EXPECT_EQ(defaults.config.retention.olderThanDays, 2);
     EXPECT_EQ(defaults.config.retention.archiver, "auto");
 
     const auto result = load("[retention]\nold_files = archive\nolder_than_days = 14\narchiver = 7z\n");

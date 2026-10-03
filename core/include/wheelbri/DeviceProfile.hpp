@@ -87,20 +87,17 @@ private:
     DeviceProfileSpec spec_;
 };
 
-// Logitech G29 in PC mode. VID/PID are from GIMX core/haptic/common/ff_lg.h (0xc24f = G29 PC).
-// The product name, axis encodings and button labels still need checking against a real G29 (plan: Phase 0).
-[[nodiscard]] DeviceProfileSpec g29Spec();
-
 // Logitech G920 Driving Force (Xbox One / PC) in PC mode. 0xc262 is the PID it enumerates with once G HUB
 // or the kernel driver has switched it out of its Xbox-mode PID (0xc261). Product name, pedal encoding and
 // button labels are unverified against a real G920. Its force feedback is HID++ rather than the classic
 // Logitech protocol, which matters for Phase 3/4, not for DirectInput.
 [[nodiscard]] DeviceProfileSpec g920Spec();
 
-// Config names of the built-in profiles, for messages.
-inline constexpr std::string_view kKnownProfiles = "g920, g29";
+// Config names of the built-in profiles, for messages. Only the G920: it is the one wheel WheelBri emulates (a virtual
+// device and the shim both present it). A new target is a new profile here plus its support (driver, shim) first.
+inline constexpr std::string_view kKnownProfiles = "g920";
 
-// Looks up a built-in profile by its config name ("g920", "g29"). Returns nullptr for unknown names.
+// Looks up a built-in profile by its config name ("g920"). Returns nullptr for unknown names.
 [[nodiscard]] std::unique_ptr<IDeviceProfile> makeProfile(std::string_view name);
 
 }  // namespace wheelbri

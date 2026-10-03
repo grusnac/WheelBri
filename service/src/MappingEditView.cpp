@@ -78,8 +78,14 @@ void MappingEditView::update() {
     if (picker_.changes() != seenChanges_ || picker_.selected() != path_) {
         seenChanges_ = picker_.changes();
         load();
+        return;
     }
-    if (devicesReadMs_ == 0 || platform::nowMs() - devicesReadMs_ >= kDevicesEveryMs) refreshDevices();
+    if (devicesReadMs_ == 0 || platform::nowMs() - devicesReadMs_ >= kDevicesEveryMs) {
+        const Rig before = rig_;
+        refreshDevices();
+        // The rig's own mapping follows the rig (unless the user is in the middle of editing it).
+        if (rig_ != before && builtIn_ && loaded_ && !dirty()) load();
+    }
 }
 
 void MappingEditView::refreshDevices() {
@@ -97,10 +103,10 @@ void MappingEditView::load() {
     path_ = picker_.selected();
     loaded_ = false;
     profile_.reset();
-    const ConfigEntry* const entry = picker_.current();
-    builtIn_ = entry != nullptr && entry->builtIn;
+    builtIn_ = picker_.builtIn();
+    refreshDevices();
     if (path_.empty()) {
-        status_ = "No config to edit: there is none next to the program.";
+        status_ = "No config: config/rig-as-g920.ini is not next to the program.";
         statusError_ = true;
         return;
     }
@@ -116,6 +122,9 @@ void MappingEditView::load() {
     profile_ = makeProfile(result.config.targetProfile);
     if (profile_ == nullptr) profile_ = makeProfile("g920");
     saved_ = mappingModel(result.config);
+    // No edits of the user's: the rig's mapping, what Start uses too (loadForRun).
+    int fromRig = -1;
+    if (builtIn_ && !rig_.devices.empty()) fromRig = rigMapping(saved_, rig_, *profile_);
     edit_ = saved_;
     loaded_ = true;
     if (!parsed.errors.empty() || !result.errors.empty()) {
@@ -123,7 +132,11 @@ void MappingEditView::load() {
                   (parsed.errors.empty() ? result.errors.front() : parsed.errors.front());
         statusError_ = true;
     } else {
-        status_ = builtIn_ ? "Built-in config: Save keeps your changes as a config of your own." : "";
+        status_ = !builtIn_       ? "Your own mapping (saved edits). Rig mapping goes back to what the rig gives."
+                  : fromRig >= 0 ? "Mapped from the rig '" + rigName_ + "' (" + std::to_string(fromRig) +
+                                       " controls: roles and same-named controls). Change a source and Save to keep "
+                                       "your own."
+                                 : "No rig yet: set up your devices in the Rig tab; the mapping follows it.";
         statusError_ = false;
     }
     WE_LOG_INFO(log(), "mapping: editing {}", path_);
@@ -131,55 +144,47 @@ void MappingEditView::load() {
 
 void MappingEditView::save() {
     if (!loaded_) return;
-    if (builtIn_) {
-        mode_ = Mode::SaveAs;
-        saveName_.clear();
-        status_.clear();
-        return;
-    }
     const MappingWriteResult written = writeMapping(fileText_, edit_);
     if (!written.error.empty()) {
         status_ = "Not saved: " + written.error + ".";
         statusError_ = true;
         return;
     }
-    std::ofstream file(path_, std::ios::binary | std::ios::trunc);
+    // The built-in template stays as it is: the user's edits go to their own file (made from it).
+    const std::filesystem::path target = builtIn_ ? picker_.ownPath() : std::filesystem::path(path_);
+    std::error_code ec;
+    std::filesystem::create_directories(target.parent_path(), ec);
+    std::ofstream file(target, std::ios::binary | std::ios::trunc);
+    if (builtIn_) file << "; WheelBri: your own mapping for the G920 (the Mapping tab's Save; Rig mapping deletes it)\r\n";
     file << written.text;
     file.close();
     if (!file) {
-        status_ = "Could not write " + path_;
+        status_ = "Could not write " + target.string();
         statusError_ = true;
         WE_LOG_ERROR(log(), "mapping: {}", status_);
         return;
     }
-    fileText_ = written.text;
-    saved_ = edit_;
+    WE_LOG_INFO(log(), "mapping: saved {}", target.string());
+    if (builtIn_) {
+        picker_.refresh();   // Start uses the own file from now on
+        update();
+    } else {
+        fileText_ = written.text;
+        saved_ = edit_;
+    }
     status_ = "Saved. The next Start uses it.";
     statusError_ = false;
-    WE_LOG_INFO(log(), "mapping: saved {}", path_);
 }
 
-void MappingEditView::saveAs() {
-    const ConfigEntry* const from = picker_.current();
-    if (from == nullptr || !from->builtIn) return;
-    const MappingWriteResult written = writeMapping(fileText_, edit_);
-    if (!written.error.empty()) {
-        status_ = "Not saved: " + written.error + ".";
+void MappingEditView::dropOwnEdits() {
+    std::string error;
+    if (!picker_.dropOwnEdits(error)) {
+        status_ = "Not dropped: " + error;
         statusError_ = true;
         return;
     }
-    std::string name = saveName_;
-    while (!name.empty() && name.back() == ' ') name.pop_back();
-    const ConfigResult made = createConfigWithText(picker_.userFolder(), name, *from, written.text, picker_.configs());
-    if (!made.ok) {
-        status_ = "Not saved: " + made.error + ".";
-        statusError_ = true;
-        return;
-    }
-    WE_LOG_INFO(log(), "mapping: saved as '{}' (made from {}): {}", name, from->name, made.path.string());
-    picker_.adopt(made.path, "Made '" + name + "' with your mapping and picked it.");
-    update();   // reads the new config: nothing unsaved any more
-    status_ = "Saved as '" + name + "' (picked on the Status page). The next Start uses it.";
+    update();
+    status_ = "Your own mapping is gone: the rig gives the mapping again.";
     statusError_ = false;
 }
 
@@ -275,26 +280,12 @@ void MappingEditView::changeWheel(const DeviceLabels& wheel) {
 // --- input -------------------------------------------------------------------------------------------------------
 
 void MappingEditView::onClick(const float x, const float y) {
+    if (mode_ == Mode::Idle && picker_.onClick(x, y)) return;   // the row at the top
     for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
         if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
             const auto action = it->action;   // a copy: the list belongs to the last draw
             action();
             return;
-        }
-    }
-}
-
-void MappingEditView::onText(const std::string& text) {
-    if (mode_ != Mode::SaveAs) return;
-    for (const char c : text) {
-        if (c == ui::kBackspace) {
-            if (!saveName_.empty()) saveName_.pop_back();
-        } else if (c == ui::kEnter) {
-            saveAs();
-            return;
-        } else if (saveName_.size() < kMaxConfigName && !(saveName_.empty() && c == ' ') &&
-                   static_cast<unsigned char>(c) >= ' ' && static_cast<unsigned char>(c) < 0x7F) {
-            saveName_ += c;
         }
     }
 }
@@ -343,16 +334,13 @@ void MappingEditView::draw() {
     window_.text(4, 4, "MAPPING", kHeading);
     window_.text(68, 4, "what your controls do on the " + target, kDim);
 
-    const ConfigEntry* const entry = picker_.current();
-    window_.text(4, 22, "Config", kDim);
-    window_.text(68, 22,
-                 entry == nullptr ? std::string("(none)")
-                                  : fit(entry->name, 40) + (entry->builtIn ? "  (built-in)" : "  (yours)") +
-                                        "  - pick another on the Status page",
-                 kText);
-    const bool canSave = loaded_ && dirty();
-    button(800, 18, builtIn_ ? "Save as" : "Save", [this] { save(); }, canSave, canSave, 70);
-    button(876, 18, "Revert", [this] {
+    // How the G920 reaches the game, then what the mapping is: the rig's, or the user's own saved edits.
+    picker_.draw(4, 18, !locked_);
+    window_.text(400, 22, builtIn_ ? "mapping: the rig's" : "mapping: your own", builtIn_ ? kDim : kCaution);
+    const bool canSave = loaded_ && dirty() && !locked_;
+    button(580, 18, "Rig mapping", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
+    button(692, 18, "Save", [this] { save(); }, canSave, canSave, 80);
+    button(780, 18, "Revert", [this] {
         edit_ = saved_;
         status_ = "Changes dropped.";
         statusError_ = false;
@@ -422,7 +410,6 @@ void MappingEditView::draw() {
 
     if (mode_ == Mode::Pick) drawPicker();
     if (mode_ == Mode::PickWheel) drawWheelPicker();
-    if (mode_ == Mode::SaveAs) drawSaveAs();
 }
 
 void MappingEditView::drawPicker() {
@@ -527,29 +514,6 @@ void MappingEditView::drawWheelPicker() {
     }
     window_.text(left, y + 8, "The rig's devices (Rig tab). All of them are hidden from games while WheelBri runs.",
                  kDim);
-}
-
-void MappingEditView::drawSaveAs() {
-    hit(0, 0, 960, kContentHeight, [] {});
-    constexpr float kX = 160;
-    constexpr float kY = 180;
-    constexpr float kW = 640;
-    constexpr float kH = 130;
-    window_.fill(kX, kY, kW, kH, kPopup);
-    window_.outline(kX, kY, kW, kH, kHeading);
-    window_.text(kX + 16, kY + 14, "Built-in configs stay as they are: save your mapping as a config of your own.",
-                 kHeading);
-    window_.text(kX + 16, kY + 42, "Name", kDim);
-    const float field = kX + 64;
-    const float width = static_cast<float>(kMaxConfigName) * ui::kCharWidth + 16;
-    window_.fill(field, kY + 38, width, 16, kDark);
-    window_.outline(field, kY + 38, width, 16, kHeading);
-    window_.text(field + 6, kY + 42, saveName_ + ((platform::nowMs() / 500) % 2 == 0 ? "_" : ""), kText);
-    window_.text(kX + 16, kY + 66,
-                 statusError_ && !status_.empty() ? fit(status_, 76) : "Enter saves it, Esc goes back.",
-                 statusError_ && !status_.empty() ? kWarning : kDim);
-    button(kX + 16, kY + kH - 28, "Save", [this] { saveAs(); }, true, !saveName_.empty(), 80);
-    button(kX + 104, kY + kH - 28, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 80);
 }
 
 }  // namespace wheelbri::service

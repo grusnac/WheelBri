@@ -76,8 +76,8 @@ struct FormatEntry {
 };
 
 // Which DirectInput axis carries each pedal (the wheel is always X), and how many buttons there are.
-// Real wheels differ (throttle / brake / clutch): the G29 is Y / Rz / Slider, the G920 Slider / Y / Rz, as
-// used by games' own G29/G920 mappings (e.g. Codemasters). The G920 layout matched NFS 2015 in testing.
+// The G920's: throttle Slider, brake Y, clutch Rz, as games' own G920 mappings use (it matched NFS 2015 in testing).
+// wheelbri-shim.ini can move a pedal to another axis.
 struct JoystickLayout {
     ObjectGuid throttle = ObjectGuid::Slider;
     ObjectGuid brake = ObjectGuid::YAxis;
@@ -86,7 +86,7 @@ struct JoystickLayout {
     std::size_t buttonCount = 11;
 };
 
-// Built-in layout for a profile name ("g920", "g29"); the G920 layout for anything else.
+// Built-in layout for a profile name: the G920's (the one target).
 [[nodiscard]] JoystickLayout layoutFor(std::string_view profile, std::size_t buttonCount);
 // False if two controls share an axis or a pedal uses X (the wheel).
 [[nodiscard]] bool isValid(const JoystickLayout& layout);

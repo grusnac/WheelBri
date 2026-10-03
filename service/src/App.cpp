@@ -58,7 +58,6 @@ constexpr float kTabWidth = 156;
 constexpr float kMappingTabX = 4;                         // where MappingView puts "Mapping (M)"
 constexpr float kSetupTabX = 4 + kTabWidth + 6;           // ...and "Rig (R)"
 constexpr float kLogsTabX = 4 + 2 * (kTabWidth + 6);      // ...and "Logs (L)"
-constexpr float kStatusTabX = 4 + 3 * (kTabWidth + 6);    // the idle page's own, after Logs
 
 // The running session's wheel as the Wheel setup tab wants it.
 WheelSetupView::SessionWheel sessionWheel(const SessionInfo& info, const UiFrame& frame) {
@@ -229,36 +228,6 @@ private:
     std::unique_ptr<UiFrame> frame_;
 };
 
-// The first error logged since Start, from every thread: the Status tab's "Why:" when a start failed.
-class LogLines {
-public:
-    void add(const spdlog::level::level_enum level, const std::string& /*component*/, const std::string& message) {
-        if (level < spdlog::level::err) {
-            return;
-        }
-        std::string text = message;
-        std::replace(text.begin(), text.end(), '\n', ' ');
-        const std::lock_guard lock(mutex_);
-        if (lastProblem_.empty()) {
-            lastProblem_ = std::move(text);   // the first error since Start: the cause; later ones are often consequences
-        }
-    }
-
-    // The latest error message (what made a start fail), empty if none since clearProblem().
-    std::string lastProblem() {
-        const std::lock_guard lock(mutex_);
-        return lastProblem_;
-    }
-    void clearProblem() {
-        const std::lock_guard lock(mutex_);
-        lastProblem_.clear();
-    }
-
-private:
-    std::mutex mutex_;
-    std::string lastProblem_;
-};
-
 struct Button {
     float x;
     float y;
@@ -331,9 +300,6 @@ public:
 
 private:
     int runWindow() {
-        // The listener outlives the app (logging goes on until the process ends): it shares the lines.
-        logging::addListener([lines = lines_](const spdlog::level::level_enum level, const std::string& component,
-                                              const std::string& message) { lines->add(level, component, message); });
         std::string error;
         window_ = ui::openWindow("WheelBri", static_cast<int>(kWidth), static_cast<int>(kHeight), kWindowWidth,
                                  kWindowHeight, error);
@@ -344,7 +310,7 @@ private:
         WE_LOG_INFO(log(), "app window open ({}); press Start", window_->describe());
         picker_ = std::make_unique<ConfigPicker>(
             *window_, ConfigPicker::Settings{settings_.builtInConfigFolder, settings_.userConfigFolder,
-                                             settings_.stateFile, settings_.configPath});
+                                             settings_.stateFile});
         setup_ = std::make_unique<WheelSetupView>(
             *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile});
         // The first time (no rig yet) the devices are defined first; then the mapping is where to go.
@@ -395,7 +361,6 @@ private:
                     } else if (y >= kTabBarTop + 4 && y < kTabBarTop + 24) {
                         if (click.x >= kMappingTabX && click.x < kMappingTabX + kTabWidth) idleTab_ = IdleTab::Mapping;
                         if (click.x >= kLogsTabX && click.x < kLogsTabX + kTabWidth) idleTab_ = IdleTab::Logs;
-                        if (click.x >= kStatusTabX && click.x < kStatusTabX + kTabWidth) idleTab_ = IdleTab::Status;
                         if (click.x >= kSetupTabX && click.x < kSetupTabX + kTabWidth) idleTab_ = IdleTab::Setup;
                     }
                 } else if (setup) {
@@ -406,33 +371,20 @@ private:
                     view_->onClick(click.x, y);
                 } else if (idleTab_ == IdleTab::Logs) {
                     logs_->onClick(click.x, y);
-                } else {
-                    picker_->onClick(click.x, y);
                 }
             }
-            const bool picker = view_ == nullptr && idleTab_ == IdleTab::Status;   // where the config is picked
-            if (editingMapping && mapping_->editingText()) {
-                mapping_->onText(input.text);   // the name of a copy of a built-in config
-                if (input.keys.find(ui::kEscape) != std::string::npos) mapping_->onKey(ui::kEscape);
-            } else if (setup && setup_->editingText()) {
+            if (setup && setup_->editingText()) {
                 setup_->onText(input.text);   // typing a name: letters are not shortcuts, Escape stops typing
                 if (input.keys.find(ui::kEscape) != std::string::npos) setup_->onKey(ui::kEscape);
-            } else if (picker && picker_->editingText()) {
-                picker_->onText(input.text);   // a new config's name
-                if (input.keys.find(ui::kEscape) != std::string::npos) picker_->onKey(ui::kEscape);
             } else {
                 for (const char key : input.keys) {
                     if (key == ui::kEscape) {
                         if (setup) setup_->onKey(key);
-                        if (picker) picker_->onKey(key);
                         if (editingMapping) mapping_->onKey(key);
                     } else if (view_ != nullptr) {
                         view_->onKey(key);
-                    } else if (key == 'r' || key == 's' || key == 'm' || key == 'l') {
-                        idleTab_ = key == 'r'   ? IdleTab::Setup
-                                   : key == 'm' ? IdleTab::Mapping
-                                   : key == 'l' ? IdleTab::Logs
-                                                : IdleTab::Status;
+                    } else if (key == 'r' || key == 'm' || key == 'l') {
+                        idleTab_ = key == 'r' ? IdleTab::Setup : key == 'm' ? IdleTab::Mapping : IdleTab::Logs;
                     } else if (idleTab_ == IdleTab::Logs) {
                         logs_->onKey(key);   // scrolling, O / D open the folders
                     }
@@ -442,6 +394,7 @@ private:
             if (view_ == nullptr && idleTab_ == IdleTab::Logs && input.wheel != 0) logs_->onScroll(input.wheel);
             collectSession();
             updateSetup();
+            mapping_->setLocked(state_ != State::Stopped);   // the way and the mapping stay as Start found them
             if (showingMappingEditor()) mapping_->update();
             if (quit && !running()) {
                 break;
@@ -487,13 +440,12 @@ private:
         }
     }
 
-    // The idle page's tab bar: Status and Wheel setup (where the live view has its Wheel setup tab).
+    // The tab bar while no session shows: Mapping (the editor), Rig and Logs, where the live view has its own.
     void drawIdleTabs() {
         window_->fill(0, kTabBarTop, kWidth, 1, kPanel);
         const std::tuple<float, const char*, IdleTab> tabs[] = {{kMappingTabX, "Mapping (M)", IdleTab::Mapping},
                                                                 {kSetupTabX, "Rig (R)", IdleTab::Setup},
-                                                                {kLogsTabX, "Logs (L)", IdleTab::Logs},
-                                                                {kStatusTabX, "Status (S)", IdleTab::Status}};
+                                                                {kLogsTabX, "Logs (L)", IdleTab::Logs}};
         for (const auto& [x, label, tab] : tabs) {
             const bool active = tab == idleTab_;
             window_->fill(x, kTabBarTop + 4, kTabWidth, 20, active ? kHeading : kPanel);
@@ -518,21 +470,22 @@ private:
         view_.reset();
         info_.reset();
         sessionDone_ = false;
-        lines_->clearProblem();
         state_ = State::Starting;
         startedAt_ = platform::nowNs();
         const std::string config = picker_->selected();
+        const bool virtualDevice = picker_->virtualDevice();
         if (mapping_->dirty()) {
             WE_LOG_WARN(log(), "the Mapping tab has unsaved changes: Start uses the config as saved");
         }
-        WE_LOG_INFO(log(), "Start pressed: {}; config {}", settings_.mode,
-                    config.empty() ? std::string("built-in defaults") : config);
+        WE_LOG_INFO(log(), "Start pressed: G920 through {}; config {} ({})", ConfigPicker::describe(picker_->way()),
+                    config.empty() ? std::string("built-in defaults") : config,
+                    picker_->builtIn() ? "mapped from the rig" : "the user's own mapping");
         setup_->releaseWheel();   // the session opens the wheel now
         idleTab_ = IdleTab::Logs;  // the logs at once: the session writes them while it comes up
-        session_ = std::thread([this, config] {
+        session_ = std::thread([this, config, virtualDevice] {
             int result = 1;
             try {
-                result = settings_.runSession(host_, config);
+                result = settings_.runSession(host_, config, virtualDevice);
             } catch (const std::exception& e) {
                 WE_LOG_CRITICAL(log(), "the service stopped on an error: {}", e.what());
             } catch (...) {
@@ -581,13 +534,11 @@ private:
         if (running() && sessionDone_) {
             session_.join();
             lastResult_ = exitCode_.load();
-            lastRunStarted_ = everRan_;
             const bool wasStopping = state_ == State::Stopping;
             state_ = State::Stopped;
             idleTab_ = showingSetup()                                                 ? IdleTab::Setup
                        : view_ != nullptr && view_->tab() == MappingView::Tab::Mapping ? IdleTab::Mapping
-                       : view_ == nullptr || view_->tab() == MappingView::Tab::Logs    ? IdleTab::Logs
-                                                                                       : IdleTab::Status;
+                                                                                       : IdleTab::Logs;
             view_.reset();
             info_.reset();
             if (lastResult_ == 0 || wasStopping) {
@@ -615,11 +566,8 @@ private:
             if (const auto frame = host_.latest(); frame && frame->ready) {
                 draw(ffbDisplay(*info_, *frame), *view_, *frame);
             }
-        } else if (idleTab_ == IdleTab::Logs) {
+        } else if (view_ == nullptr) {
             logs_->drawLogsPage();   // stopped or starting: the same live log, before the session shows itself
-            drawIdleTabs();
-        } else {
-            drawIdle();
             drawIdleTabs();
         }
         if (showingMapping()) drawControls();
@@ -634,7 +582,7 @@ private:
         switch (state_) {
             case State::Stopped:
                 if (lastResult_ && *lastResult_ != 0) {
-                    status = "Start failed";   // the Status tab says why
+                    status = "Start failed (Logs)";   // the Logs tab says why, in red
                     colour = kWarning;
                 } else {
                     status = "Stopped";
@@ -667,54 +615,9 @@ private:
         stopButton().draw(*window_, false);
     }
 
-    void drawIdle() {
-        float y = 24;
-        // Wrapped at spaces to the panel's width.
-        const auto line = [&](const std::string& text, const ui::Colour colour) {
-            constexpr std::size_t kChars = 86;
-            std::size_t start = 0;
-            do {
-                std::size_t end = text.size();
-                if (end - start > kChars) {
-                    end = text.rfind(' ', start + kChars);
-                    if (end == std::string::npos || end <= start) end = start + kChars;
-                }
-                window_->text(16, y, text.substr(start, end - start), colour);
-                y += 14;
-                start = end < text.size() && text[end] == ' ' ? end + 1 : end;
-            } while (start < text.size());
-        };
-        line(state_ == State::Starting ? "STARTING" : state_ == State::Stopping ? "STOPPING" : "STOPPED", kHeading);
-        y += 6;
-        if (state_ == State::Stopped) {
-            line("Start: reads the wheel, then " + settings_.mode + ".", kText);
-            line("Then start the game. Stop (or closing this window) undoes all of it.", kText);
-        } else {
-            line("Opening the wheel and creating the virtual devices; this takes a few seconds.", kText);
-        }
-        y += 14;
-        picker_->draw(16, y, state_ == State::Stopped);
-        y += ConfigPicker::kHeight;
-        line("Rigs    " + rigsFolder().string() + " (the Rig tab's)", kDim);
-        line("Logs    " + settings_.logFolder.string(), kDim);
-        if (lastResult_) {
-            y += 10;
-            line(*lastResult_ == 0 ? "Last run: ended normally."
-                 : lastRunStarted_ ? "Last run: ended with an error (exit code " + std::to_string(*lastResult_) + ")."
-                                   : "Last run: did not start (exit code " + std::to_string(*lastResult_) + ").",
-                 *lastResult_ == 0 ? kDim : kWarning);
-            if (*lastResult_ != 0) {
-                if (const std::string problem = lines_->lastProblem(); !problem.empty()) {
-                    line("Why: " + problem, kText);
-                }
-            }
-        }
-    }
-
     const AppSettings& settings_;
     std::unique_ptr<ui::UiWindow> window_;
     AppHost host_;
-    std::shared_ptr<LogLines> lines_ = std::make_shared<LogLines>();
     std::thread session_;
     std::atomic<bool> sessionDone_{false};
     std::atomic<int> exitCode_{0};
@@ -725,7 +628,6 @@ private:
     std::uint64_t seenGeneration_ = 0;
     bool everRan_ = false;          // this session got as far as running
     std::uint64_t stoppingSince_ = 0;
-    bool lastRunStarted_ = false;   // the last session that ended had been running
     std::optional<SessionInfo> info_;
     std::unique_ptr<IDeviceProfile> profile_;
     std::unique_ptr<MappingView> view_;
@@ -734,8 +636,8 @@ private:
     std::unique_ptr<MappingEditView> mapping_;
     std::unique_ptr<IDeviceProfile> logsProfile_;   // logs_ needs one; it shows no mapping
     std::unique_ptr<MappingView> logs_;             // the Logs tab while no session shows
-    enum class IdleTab { Mapping, Status, Setup, Logs };
-    IdleTab idleTab_ = IdleTab::Status;   // what shows while no session does
+    enum class IdleTab { Mapping, Setup, Logs };
+    IdleTab idleTab_ = IdleTab::Mapping;   // what shows while no session does
 };
 
 }  // namespace

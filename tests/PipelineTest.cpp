@@ -38,7 +38,7 @@ TEST(Pipeline, MapsEncodesAndPublishesEachTick) {
     MapperConfig config;
     config.throttle.sourceAxis = 1;
     const Mapper mapper(config);
-    const DeviceProfile profile(g29Spec());
+    const DeviceProfile profile(g920Spec());
     Pipeline pipeline(source, mapper, profile, publisher);
 
     source.next.axes[0] = 1.0F;      // full right
@@ -50,7 +50,7 @@ TEST(Pipeline, MapsEncodesAndPublishesEachTick) {
     EXPECT_EQ(publisher.packets[0].sequence, 1U);
     EXPECT_EQ(publisher.packets[1].sequence, 2U);
     EXPECT_EQ(publisher.packets[1].report.steering, 65535);
-    EXPECT_EQ(publisher.packets[1].report.throttle, 0);   // G29 pedals: pressed = low end
+    EXPECT_EQ(publisher.packets[1].report.throttle, 0);   // G920 pedals: pressed = low end
     EXPECT_EQ(pipeline.lastReport(), publisher.packets[1].report);
 }
 
@@ -58,7 +58,7 @@ TEST(Pipeline, TestClutchReplacesTheMappedClutch) {
     FakeSource source;
     RecordingPublisher publisher;
     const Mapper mapper(MapperConfig{});
-    const DeviceProfile profile(g29Spec());
+    const DeviceProfile profile(g920Spec());
     Pipeline pipeline(source, mapper, profile, publisher);
 
     ASSERT_TRUE(pipeline.tick(1.0F));
@@ -72,7 +72,7 @@ TEST(Pipeline, StopsWhenSourceDisconnects) {
     FakeSource source;
     RecordingPublisher publisher;
     const Mapper mapper(MapperConfig{});
-    const DeviceProfile profile(g29Spec());
+    const DeviceProfile profile(g920Spec());
     Pipeline pipeline(source, mapper, profile, publisher);
 
     source.connected = false;
@@ -89,7 +89,7 @@ TEST(Pipeline, ReadsAccessoriesAndStopsWhenOneIsLost) {
     config.throttle.sourceAxis = 0;
     config.throttle.sourceDevice = 1;
     const Mapper mapper(config);
-    const DeviceProfile profile(g29Spec());
+    const DeviceProfile profile(g920Spec());
     Pipeline pipeline(wheel, mapper, profile, publisher);
     pipeline.setAccessories({&pedals, nullptr, nullptr});
 

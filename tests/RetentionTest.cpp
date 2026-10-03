@@ -57,6 +57,10 @@ TEST(Retention, OnlyTouchesItsOwnFiles) {
     EXPECT_TRUE(isManagedFile("ffb-2026-09-30.csv.xz"));
     EXPECT_TRUE(isManagedFile("wheelbri-logs-2026-09-30.7z"));
     EXPECT_FALSE(isManagedFile("notes.txt"));
+    EXPECT_TRUE(isManagedFile("wheelbri-driver-2026-09-30.log"));         // the drivers and installers: same folder
+    EXPECT_TRUE(isManagedFile("wheelbri-hide-2026-09-30.log"));
+    EXPECT_TRUE(isManagedFile("wheelbri-hide-install-2026-09-30.log"));
+    EXPECT_TRUE(isManagedFile("wheelbri-install-2026-09-30.log"));
     EXPECT_TRUE(isArchive("wheelbri-logs-2026-09-30.7z"));
     EXPECT_TRUE(isArchive("telemetry-2026-09-30.csv.zst"));
     EXPECT_FALSE(isArchive("telemetry-2026-09-30.csv"));

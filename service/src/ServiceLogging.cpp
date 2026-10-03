@@ -2,6 +2,17 @@
 
 #include "Platform.hpp"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <aclapi.h>
+#endif
+
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -159,6 +170,107 @@ void moveFoldersFromOldName() {
     }
     rewriteOldPaths(appStateFile());
 }
+
+#ifdef _WIN32
+namespace {
+
+// LocalService (the drivers' host) may create, write and delete files in `folder` and everything under it.
+DWORD grantLocalService(const std::filesystem::path& folder) {
+    PACL dacl = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    DWORD status = GetNamedSecurityInfoW(folder.wstring().c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr,
+                                         nullptr, &dacl, nullptr, &descriptor);
+    if (status != ERROR_SUCCESS) return status;
+    BYTE sid[SECURITY_MAX_SID_SIZE];
+    DWORD sidSize = sizeof(sid);
+    PACL updated = nullptr;
+    if (CreateWellKnownSid(WinLocalServiceSid, nullptr, sid, &sidSize)) {
+        EXPLICIT_ACCESSW access{};
+        access.grfAccessPermissions = FILE_GENERIC_READ | FILE_GENERIC_WRITE | DELETE;
+        access.grfAccessMode = GRANT_ACCESS;
+        access.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+        access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        access.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+        access.Trustee.ptstrName = reinterpret_cast<LPWSTR>(sid);
+        status = SetEntriesInAclW(1, &access, dacl, &updated);
+        if (status == ERROR_SUCCESS) {
+            std::wstring path = folder.wstring();
+            status = SetNamedSecurityInfoW(path.data(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr,
+                                           updated, nullptr);
+        }
+    } else {
+        status = GetLastError();
+    }
+    if (updated != nullptr) LocalFree(updated);
+    LocalFree(descriptor);
+    return status;
+}
+
+}  // namespace
+
+void shareLogFolder(const std::filesystem::path& folder) {
+    const logging::Logger logger = logging::get("service");
+    if (!platform::isElevated() || folder.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(folder, ec);
+    const std::filesystem::path absolute = std::filesystem::absolute(folder, ec);
+    if (const DWORD status = grantLocalService(absolute); status != ERROR_SUCCESS) {
+        WE_LOG_WARN(logger, "logs: cannot let the drivers write in {} (error {}): they keep writing to "
+                            "C:\\ProgramData\\wheelbri\\logs",
+                    absolute.string(), status);
+        return;
+    }
+    HKEY key = nullptr;
+    LSTATUS written = RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\wheelbri", 0, nullptr, REG_OPTION_NON_VOLATILE,
+                                      KEY_SET_VALUE, nullptr, &key, nullptr);
+    if (written == ERROR_SUCCESS) {
+        const std::wstring value = absolute.wstring();
+        written = RegSetValueExW(key, L"LogFolder", 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()),
+                                 static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(key);
+    }
+    if (written != ERROR_SUCCESS) {
+        WE_LOG_WARN(logger, "logs: cannot write HKLM\\SOFTWARE\\wheelbri LogFolder (error {}): the drivers keep "
+                            "writing to C:\\ProgramData\\wheelbri\\logs",
+                    written);
+        return;
+    }
+    // What the drivers and installers wrote before: into the one folder.
+    const std::filesystem::path programData = std::filesystem::path(envOrEmpty("ProgramData")) / "wheelbri";
+    const std::filesystem::path oldLogs = programData / "logs";
+    int moved = 0;
+    if (!envOrEmpty("ProgramData").empty() && std::filesystem::is_directory(oldLogs, ec)) {
+        for (const auto& entry : std::filesystem::directory_iterator(oldLogs, ec)) {
+            std::error_code entryError;
+            const std::filesystem::path target = absolute / entry.path().filename();
+            if (!entry.is_regular_file(entryError)) continue;
+            if (std::filesystem::exists(target, entryError)) {
+                // Same day's file on both sides: append the old part to the new one.
+                std::ifstream in(entry.path(), std::ios::binary);
+                std::ofstream out(target, std::ios::binary | std::ios::app);
+                if (!in || !out) continue;
+                out << in.rdbuf();
+                in.close();
+                out.close();
+                std::filesystem::remove(entry.path(), entryError);
+            } else {
+                std::filesystem::rename(entry.path(), target, entryError);
+                if (entryError) {   // another volume
+                    std::filesystem::copy_file(entry.path(), target, entryError);
+                    if (!entryError) std::filesystem::remove(entry.path(), entryError);
+                }
+            }
+            if (!entryError) ++moved;
+        }
+        std::filesystem::remove(oldLogs, ec);       // only when empty
+        std::filesystem::remove(programData, ec);   // only when empty
+    }
+    WE_LOG_INFO(logger, "logs: every log goes to {} (the drivers too){}", absolute.string(),
+                moved > 0 ? "; moved " + std::to_string(moved) + " files there from " + oldLogs.string() : "");
+}
+#else
+void shareLogFolder(const std::filesystem::path&) {}
+#endif
 
 void logStartupBanner(const std::string& configPath) {
     const logging::Logger logger = logging::get("service");

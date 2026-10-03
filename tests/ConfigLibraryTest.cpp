@@ -15,7 +15,7 @@ using namespace wheelbri;
 namespace {
 
 const std::string kG920 = "; the rig as a G920\r\n[target]\r\nprofile = g920\r\n";
-const std::string kG29 = "[target]\nprofile = g29\n";
+const std::string kOther = "[target]\nprofile = g920\n; another\n";
 
 class ConfigLibraryFiles : public ::testing::Test {
 protected:
@@ -25,7 +25,7 @@ protected:
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(builtIn());
         write(builtIn() / "rig-as-g920.ini", kG920);
-        write(builtIn() / "rig-as-g29.ini", kG29);
+        write(builtIn() / "rig-as-a.ini", kOther);
         write(builtIn() / "wheelbri-shim.ini", "[shim]\n");
         write(builtIn() / "notes.txt", "not a config");
     }
@@ -82,11 +82,11 @@ TEST(ConfigLibrary, TemplateLineOnlyCountsAtTheTop) {
 TEST_F(ConfigLibraryFiles, ListsBuiltInThenOwnAndLeavesTheShimOut) {
     EXPECT_TRUE(listConfigs(builtIn(), user()).size() == 2);   // no user folder yet
     std::filesystem::create_directories(user());
-    write(user() / "b.ini", kG29);
-    write(user() / "A.ini", kG29);
+    write(user() / "b.ini", kOther);
+    write(user() / "A.ini", kOther);
     const auto configs = list();
     ASSERT_EQ(configs.size(), 4U);
-    EXPECT_EQ(configs[0].name, "rig-as-g29");
+    EXPECT_EQ(configs[0].name, "rig-as-a");
     EXPECT_TRUE(configs[0].builtIn);
     EXPECT_EQ(configs[1].name, "rig-as-g920");
     EXPECT_EQ(configs[2].name, "A");
@@ -130,11 +130,11 @@ TEST_F(ConfigLibraryFiles, NewCopiesTheBuiltInAndResetCopiesItAgain) {
 
 TEST_F(ConfigLibraryFiles, ResetRefusesBuiltInAndHandMadeConfigs) {
     std::filesystem::create_directories(user());
-    write(user() / "hand.ini", kG29);
-    write(user() / "orphan.ini", "; made from: gone.ini\n" + kG29);
+    write(user() / "hand.ini", kOther);
+    write(user() / "orphan.ini", "; made from: gone.ini\n" + kOther);
     const auto configs = list();
     EXPECT_FALSE(resetConfig(configs[0], configs).ok);   // built in
-    EXPECT_EQ(read(builtIn() / "rig-as-g29.ini"), kG29);
+    EXPECT_EQ(read(builtIn() / "rig-as-a.ini"), kOther);
     for (const ConfigEntry& config : configs) {
         if (config.builtIn) continue;
         EXPECT_FALSE(resetTemplateOf(config, configs).has_value()) << config.name;
@@ -142,7 +142,7 @@ TEST_F(ConfigLibraryFiles, ResetRefusesBuiltInAndHandMadeConfigs) {
         EXPECT_FALSE(result.ok) << config.name;
         EXPECT_FALSE(result.error.empty());
     }
-    EXPECT_EQ(read(user() / "hand.ini"), kG29);
+    EXPECT_EQ(read(user() / "hand.ini"), kOther);
 }
 
 TEST_F(ConfigLibraryFiles, SaveAsWritesTheEditedTextAndResetGoesBackToTheBuiltIn) {
@@ -161,8 +161,8 @@ TEST_F(ConfigLibraryFiles, SaveAsWritesTheEditedTextAndResetGoesBackToTheBuiltIn
 TEST_F(ConfigLibraryFiles, RemembersThePickedConfig) {
     const std::filesystem::path state = dir_ / "state" / "app.ini";
     EXPECT_EQ(readConfigSelection(state), "");
-    ASSERT_TRUE(writeConfigSelection(state, "C:\\Program Files\\WheelBri\\config\\rig-as-g29.ini"));
-    EXPECT_EQ(readConfigSelection(state), "C:\\Program Files\\WheelBri\\config\\rig-as-g29.ini");
+    ASSERT_TRUE(writeConfigSelection(state, "C:\\Program Files\\WheelBri\\config\\rig-as-a.ini"));
+    EXPECT_EQ(readConfigSelection(state), "C:\\Program Files\\WheelBri\\config\\rig-as-a.ini");
     ASSERT_TRUE(writeConfigSelection(state, "/home/me/.config/wheelbri/configs/Rally.ini"));
     EXPECT_EQ(readConfigSelection(state), "/home/me/.config/wheelbri/configs/Rally.ini");
 }

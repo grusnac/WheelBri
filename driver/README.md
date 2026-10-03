@@ -92,8 +92,13 @@ msbuild driver\hide\wheelbri-hide.vcxproj /p:Configuration=Release /p:Platform=x
 powershell -ExecutionPolicy Bypass -File driver\hide\install-hide.ps1 -Devices 346e:0005
 ```
 
-Remove: `driver\hide\uninstall-hide.ps1` (those devices go back to Windows' own setup). Logs:
-`C:\ProgramData\wheelbri\logs\wheelbri-hide-<date>.log` (which programs were refused) and
+Remove: `driver\hide\uninstall-hide.ps1` (those devices go back to Windows' own setup). Logs (in
+`%LOCALAPPDATA%\wheelbri\logs`, with every other log): `wheelbri-hide-<date>.log` (which programs were refused) and
 `wheelbri-hide-install-<date>.log`. The window lists rig devices the filter is not running on.  Stop the service with
-Ctrl+C (close the game and Steam first). Driver log: `C:\ProgramData\wheelbri\logs\wheelbri-driver-<date>.log`.
+Ctrl+C (close the game and Steam first). Driver log: `wheelbri-driver-<date>.log` in the same folder.
+
+Both drivers run as LocalService. The app (as Administrator) lets LocalService write in the user's
+`%LOCALAPPDATA%\wheelbri\logs` and names it in `HKLM\SOFTWARE\wheelbri` `LogFolder`, which the drivers read for every
+line; the installer does the same. Until then (and if that folder cannot be written) they write to
+`C:\ProgramData\wheelbri\logs`, which the app moves into the user's folder at its next start.
 

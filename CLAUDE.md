@@ -42,8 +42,8 @@ This file guides Claude when working in this repository.
 
 ## Project
 
-WheelBri makes the user's rig (a wheel and its accessories, defined in the Rig tab) look like a wheel a game supports (Logitech G920 by default, G29
-via `target_profile`) on Windows and Linux/Proton. First target game: Need for Speed (2015).
+WheelBri makes the user's rig (a wheel and its accessories, defined in the Rig tab) look like the one wheel it emulates, the Logitech G920 (the G29 profile was dropped: the same wheel with more
+buttons; WheelBri decides which targets exist, never the user), on Windows and Linux/Proton. First target game: Need for Speed (2015).
 
 Status (README.md has the full table):
 - **Working with a real direct drive wheel in NFS 2015 on Windows**: mapping and service (Phase 1), the `dinput8.dll` shim
@@ -52,7 +52,7 @@ Status (README.md has the full table):
 - **Settled**: NFS finds wheels through `DirectInput8Create` (A and W) and reads `c_dfDIJoystick2`: wheel X,
   throttle Slider, brake Y, clutch Rz, pedals released at the top of the range. The tested wheel's axes as the service numbers
   them: steering 0, throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
-- **Not yet verified**: the G29 profile in a game; Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
+- **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes (ignored); NFS's 20-byte Logitech `Escape` calls (not forwarded).
 - The G920's own FFB is HID++, not the classic Logitech protocol; the virtual G920 exposes HID PID instead.
 
@@ -152,9 +152,10 @@ latest button / D-pad / pedal / FFB events, not scrollable), **Force feedback** 
 start, the latest effects) and **Rig** (R, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
 when stopped too, reading every connected device itself). The app has no log panel or toolbar: only the Mapping tab (the editor while stopped, the
 live one while running) has a short status, Start and Stop, in its top right corner. Stopped, the app's own tabs are Mapping (`MappingEditView`,
-the editor), Rig, Logs (a `MappingView` of its own, `logs_`, drawing only its Logs page) and Status, in that order;
+the editor, with `ConfigPicker` as its top row), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
+Logs page), in that order (there is no Status tab; a failed Start says "Start failed (Logs)");
 it opens on Rig until a rig exists, else on Mapping; Start switches to Logs at once (the session logs while it comes
-up) and the live view keeps the tab showing then. O opens the logs folder, D the drivers' folder. It draws through
+up) and the live view keeps the tab showing then. O opens the logs folder (every log is there). It draws through
 `UiWindow.hpp` (filled/outlined rectangles, 8x8-cell monospaced text and clicks on a 960x748 logical canvas,
 letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp`
 (Xlib) on Linux.
@@ -205,7 +206,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `MappingEdit.hpp` uses the roles). A session takes the names it shows from the active rig, else from the older
     per-device files (`DeviceLabels.hpp`, `deviceLabelsFolder()`), which the first rig also imports. Mapping is not
     done in the rig.
-  - Several input devices: device 0 is the wheel (`source_device`; empty, as in the built-in `config/rig-as-*.ini`, = the active rig's wheel, `Rig::wheel()`, filled in by `loadForRun`; plays FFB), 1..3 are accessories
+  - Several input devices: device 0 is the wheel (`source_device`; empty, as in the built-in `config/rig-as-g920.ini`, = the active rig's wheel, `Rig::wheel()`, filled in by `loadForRun`; plays FFB), 1..3 are accessories
     (`MapperConfig::accessories`, `DeviceId` vid:pid). Every source has a device next to its index
     (`sourceDevice`, `buttonDevice[]`, `HatButtons::devices`); in the INI a source is `N` (the wheel's) or `vid:pid/N`
     (`MappingEdit.hpp`: `parseSource` / `formatSource`; `readSource` in `EmulatorConfig.cpp` fills the accessories in
@@ -213,15 +214,17 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     setAccessories` (a lost accessory ends the tick like a lost wheel, `lostDevice()`); telemetry `raw_*` columns and
     the Wheel setup tab stay the wheel's. `MappingModel` / `writeMapping` are what the Mapping tab edits and saves
     (IniEditor; default button lines removed). The service opens accessories by id (`openAccessories` in main.cpp).
-  - Mapping configs the app picks from (`ConfigLibrary.hpp`): the built-in `config/*.ini` (not `wheelbri-shim.ini`),
-    never changed, and the user's own in `userConfigFolder()` (`%LOCALAPPDATA%\wheelbri\configs`), made by New as a
-    copy of a built-in whose file name is kept in a `; made from: <file>` comment at the top, so Reset can copy it
-    again. The pick is kept in `appStateFile()` (`app.ini`, `[app] config`). UI: `service/src/ConfigPicker.cpp` on the
-    app's Status page, `service/src/MappingEditView.cpp` the idle Mapping tab (picks sources from
-    `listDeviceLabels()`, Save as via `createConfigWithText`); `AppSettings::runSession` gets the picked path at each Start.
+  - The config Start uses (`service/src/ConfigPicker.cpp`, the top row of the idle Mapping tab): "G920 via [virtual
+    device] [in-game shim]" (`[app] way` in `appStateFile()`, `app.ini`; `AppSettings::runSession(host, config,
+    virtualDevice)`), and one config: the built-in `config/rig-as-g920.ini`, never changed, a template the active rig
+    fills (`rigMapping` in `MappingEdit.hpp`: autoMap's roles, then each G920 button whose name matches a rig control
+    label; `loadForRun` applies it to any config in the built-in folder, `isBuiltInConfig`), unless the Mapping tab
+    saved the user's own edits as `userConfigFolder()/my-g920.ini` (`%LOCALAPPDATA%\wheelbri\configs`), used as is.
+    "Rig mapping" deletes them. `ConfigLibrary.hpp` (listing, `; made from:` templates) is older and only reads what
+    earlier versions left. `MappingEditView` picks sources from the rig's controls.
   - Config: `IniDocument` (minimal INI; `;`/`#` start a comment anywhere on a line) → `loadEmulatorConfig`,
     which collects *all* errors (unknown keys and sections, out-of-range values) instead of failing fast. When
-    you add a config key, add it to the reader, `EmulatorConfig`, both example INIs and `EmulatorConfigTest`.
+    you add a config key, add it to the reader, `EmulatorConfig`, `config/rig-as-g920.ini` and `EmulatorConfigTest`.
   - `EmulatedJoystick` is the emulated wheel as DirectInput sees it (objects, the game's data format,
     ranges, state bytes, buffered changes). It mirrors DirectInput constants without `<dinput.h>` so it is
     unit-tested on Linux; `shim/src/DiConvert.hpp` static_asserts the constants against the real macros.
@@ -231,10 +234,16 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     midnight. Columns come from `telemetryColumns()`; when you add one, write it in `writeSample` in the same
     order and bump `kFormatVersion` (`Telemetry.cpp`, now "2") if a column moves.
   - Logs are daily too (`logging::init` adds the date: `wheelbri-service-YYYY-MM-DD.log`); the shim logs to
-    `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-YYYY-MM-DD.log`. `LocalDate.hpp` has the date helpers.
+    `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-YYYY-MM-DD.log`. **One folder for every log**, the user's
+    (`%LOCALAPPDATA%\wheelbri\logs`; Linux `~/.local/state/wheelbri`): app, shim, telemetry, both drivers, installer,
+    hide installer. The drivers run as LocalService: `shareLogFolder` (`ServiceLogging.hpp`, at every start as
+    Administrator) and `install.ps1` / `install-hide.ps1` let LocalService write there and set `HKLM\SOFTWARE\wheelbri
+    LogFolder`, which the drivers read per line (fallback `C:\ProgramData\wheelbri\logs`, moved in at the next start).
+    Do not add another log location. `LocalDate.hpp` has the date helpers.
   - `Retention.hpp` decides which files are old (date in the name, else last-write day) and only ever touches
-    files starting `wheelbri-service`, `wheelbri-shim`, `wheelbri-bridge`, `wheelbri-logs-`, `telemetry-`, `ffb-`.
-    The service's `Housekeeping` deletes them (default, after 7 days) or archives them with the best compressor
+    files starting `wheelbri-service`, `-shim`, `-bridge`, `-logs-`, `-driver`, `-hide`, `-install`, `-uhid`, `-sh`,
+    `telemetry-`, `ffb-`.
+    The service's `Housekeeping` deletes them (default, after 2 days) or archives them with the best compressor
     found (7z > xz > zstd > zip > gzip) as a background process via `platform::ChildProcess`, deleting
     originals only after the compressor exited 0.
   - Wire format (`StatePacket.hpp`): 33 bytes, little-endian, magic `WEMU`, version 1. Any layout change
@@ -274,7 +283,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
-    `StatePacket`, `FfbPacket` sources. Logs to `C:\ProgramData\wheelbri\logs\wheelbri-driver-<date>.log`.
+    `StatePacket`, `FfbPacket` sources. Logs to `wheelbri-driver-<date>.log` in the user's logs folder (see below).
   - `hide/` (`wheelbri-hide`): upper filter on the game-controller interfaces of each rig device: exactly the HID
     interfaces DirectInput lists as game controllers (`HideFilter::check` via `dinput::gameControllerPaths`,
     `hidhide::instanceIdOfHidPath`; not compatible ids: many wheels are multi-axis controllers without
@@ -316,17 +325,17 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   installer asks this, never the app or the uninstaller (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older install
   (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the three driver install scripts, shortcuts, Settings > Apps entry, Start
   menu folder with the app and "Uninstall WheelBri", closes itself 10 s after success when no restart, log in
-  `C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log`), `uninstall.ps1` + `Uninstall.cmd` (the folder from
+  `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log`), `uninstall.ps1` + `Uninstall.cmd` (the folder from
   Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelbri.exe` and no `install.ps1`, i.e. never a
   package; runs from a `%TEMP%` copy; from the package it cleans up an install whose folder is gone), `Setup.cmd`
   (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), `README.txt` (for the end user). The
-  installed app runs the driver path (virtual G920, rig hidden on every Start); the shim ships in
-  `shim\` as an extra only. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
+  installed app runs the driver path by default (virtual G920, rig hidden on every Start; "G920 via in-game shim" on
+  the Mapping tab switches); the shim ships in `shim\`. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
   driver scripts and the app's `ensureHideFilter` look there. Only Windows' own tools: no third-party installer.
   When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.
 - `scripts/`: `telemetry_summary.py` (reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelbri.sh`, udev rules,
   `package.sh` bundle).
-- `config/`: `rig-as-g920.ini`, `rig-as-g29.ini` (service), `wheelbri-shim.ini` (shim).
+- `config/`: `rig-as-g920.ini` (service; a template the rig fills), `wheelbri-shim.ini` (shim).
 - `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide).
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.

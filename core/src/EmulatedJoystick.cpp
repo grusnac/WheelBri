@@ -51,11 +51,7 @@ void putU32(std::span<std::uint8_t> out, const std::uint32_t offset, const std::
 JoystickLayout layoutFor(const std::string_view profile, const std::size_t buttonCount) {
     JoystickLayout layout;
     layout.buttonCount = buttonCount;
-    if (profile == "g29") {
-        layout.throttle = ObjectGuid::YAxis;
-        layout.brake = ObjectGuid::RzAxis;
-        layout.clutch = ObjectGuid::Slider;
-    }
+    static_cast<void>(profile);   // one built-in layout: the G920's
     return layout;
 }
 

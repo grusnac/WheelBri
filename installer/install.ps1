@@ -22,7 +22,7 @@
 #     drivers are signed by WheelBri's own test certificate, not by Microsoft)
 #
 # Exit codes: 0 installed (possibly with warnings, listed at the end), 1 failed (the red line says why).
-# Everything is also written to C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log.
+# Everything is also written to %LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log (with every other log).
 
 param(
     # Default: the 64-bit Program Files. Not $env:ProgramFiles: in a 32-bit PowerShell (MSYS2 can start one) that is
@@ -63,8 +63,14 @@ if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Pri
 $ErrorActionPreference = 'Stop'
 $package = $PSScriptRoot
 $version = if (Test-Path (Join-Path $package 'VERSION.txt')) { (Get-Content (Join-Path $package 'VERSION.txt') -Raw).Trim() } else { '0.0.0' }
-$logFolder = Join-Path $env:ProgramData 'wheelbri\logs'
+# Every log in one folder, the user's %LOCALAPPDATA%\wheelbri\logs (the app and both drivers write there too): the
+# drivers run as LocalService, so it may write there, and HKLM\SOFTWARE\wheelbri LogFolder tells them where (the
+# app does the same at every start, see ServiceLogging.hpp shareLogFolder).
+$logFolder = Join-Path $env:LOCALAPPDATA 'wheelbri\logs'
 New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
+& icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
+if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name 'LogFolder' -Value $logFolder
 Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
 
 $warnings = New-Object System.Collections.Generic.List[string]
@@ -218,7 +224,7 @@ try {
     }
     Write-Host "    $copied files copied"
     # The built-in configs' names before they were renamed for the rig (2026-10-04): the new ones replace them.
-    foreach ($old in 'moza-r3-as-g920.ini', 'moza-r3-as-g29.ini') {
+    foreach ($old in 'moza-r3-as-g920.ini', 'moza-r3-as-g29.ini', 'rig-as-g29.ini') {   # (the G29 is gone)
         foreach ($file in (Join-Path $InstallDir "config\$old"), (Join-Path $InstallDir "config\$old.new")) {
             Remove-Item $file -Force -ErrorAction SilentlyContinue
         }

@@ -41,10 +41,16 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '..\common.ps1')
 Assert-Admin
 
-# Everything below also goes to C:\ProgramData\wheelbri\logs\wheelbri-hide-install-<date>.log (the app runs this
+# Everything below also goes to %LOCALAPPDATA%\wheelbri\logs\wheelbri-hide-install-<date>.log (the app runs this
 # without a window, so that file is where to look when Start says a device is not hidden).
-$logFolder = 'C:\ProgramData\wheelbri\logs'
+# Every log in one folder, the user's %LOCALAPPDATA%\wheelbri\logs (the app and both drivers write there too): the
+# drivers run as LocalService, so it may write there, and HKLM\SOFTWARE\wheelbri LogFolder tells them where (the
+# app does the same at every start, see ServiceLogging.hpp shareLogFolder).
+$logFolder = Join-Path $env:LOCALAPPDATA 'wheelbri\logs'
 New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
+& icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
+if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name 'LogFolder' -Value $logFolder
 Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
 $exitCode = 1
 $script:needsWindowsRestart = $false   # pnputil said a device waits for a restart of Windows

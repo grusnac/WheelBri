@@ -65,7 +65,7 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
       profile_(profile),
       mapper_(mapper),
       target_(profile.identity().shortName.empty() ? std::string("target") : profile.identity().shortName) {
-    // Ask the profile rather than assuming the G29 convention, so the note is right for every target.
+    // Ask the profile rather than assuming a pedal convention.
     WheelState released;
     WheelState pressed;
     pressed.throttle = 1.0F;
@@ -409,7 +409,7 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
     constexpr float kWidth = 316;
     constexpr float kHeight = 13;
     char cellText[64];
-    // Only the buttons the target really has (G920 11, G29 25); room is kept for 9 rows.
+    // Only the buttons the target really has (the G920's 11); room is kept for 9 rows.
     std::size_t cell = 0;
     for (std::size_t target = 0; target < mapper_.buttonMap.size(); ++target) {
         const std::string_view name = profile_.buttonName(target);

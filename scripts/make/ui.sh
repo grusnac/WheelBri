@@ -3,7 +3,6 @@
 # Close the window to stop. Extra arguments go to the service (e.g. --virtual-g920, needs Administrator).
 #
 #   scripts/make/ui.sh                                    config/rig-as-g920.ini
-#   scripts/make/ui.sh config/rig-as-g29.ini              another config
 #   scripts/make/ui.sh config/rig-as-g920.ini --print
 
 source "$(dirname "$0")/common.sh"

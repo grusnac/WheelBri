@@ -173,7 +173,6 @@ private:
         std::string status;             // size and age, or why there is none
     };
     std::vector<ComponentLog> components_;
-    std::filesystem::path driverLogFolder_;   // the drivers write to C:\ProgramData\wheelbri\logs
     // Looked up at most once a second (files appear while a session runs and change at midnight).
     std::uint64_t filesCheckedMs_ = 0;
 

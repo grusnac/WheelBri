@@ -16,11 +16,13 @@
 
 namespace wheelbri::service {
 
-// The app's Mapping tab while stopped: maps what the Wheel setup tab named (the wheel's and the accessories' axes
-// and buttons) onto the emulated wheel's (G920) axes, buttons and D-pad, in the config picked on the Status page.
-// Every source is picked from a list of the named controls. Save writes the config (comments and other settings
-// kept; a built-in config is saved as a copy of your own, which is then picked); Revert drops the edits, and so
-// does the Status page's Reset. The live view (the session's Mapping tab) shows the result once started.
+// The app's Mapping tab while stopped: at the top how the G920 reaches the game (ConfigPicker: the virtual device or
+// the in-game shim), then what drives each of the G920's axes, buttons and D-pad directions, from the controls the
+// Rig tab named (the wheel's and the accessories'). With no edits of the user's the mapping is the rig's
+// (rigMapping on the built-in config/rig-as-g920.ini: roles, then same-named controls), exactly what Start uses.
+// Every source can be picked by hand from the named controls; Save keeps those edits (my-g920.ini, comments and
+// other settings kept), Revert drops unsaved ones, Rig mapping drops the saved ones. The live view (the session's
+// Mapping tab) shows the result once started.
 class MappingEditView {
 public:
     static constexpr float kContentHeight = 748 - 30;   // the tab bar is below
@@ -30,21 +32,21 @@ public:
     MappingEditView(ui::UiWindow& window, std::filesystem::path rigsFolder, std::filesystem::path stateFile,
                     ConfigPicker& picker);
 
-    // Every frame while the tab shows: reads the config again when the picker changed it (or picked another),
-    // and the devices' names now and then (the Wheel setup tab may just have saved some).
+    // Every frame while the tab shows: reads the config again when it changed, and the rig now and then (the Rig tab
+    // may just have saved it; the rig's mapping follows it).
     void update();
     void draw();
+    // While a session runs or starts the way and the config cannot change.
+    void setLocked(const bool locked) { locked_ = locked; }
 
     void onClick(float x, float y);
-    void onText(const std::string& text);
     void onKey(char key);
-    [[nodiscard]] bool editingText() const { return mode_ == Mode::SaveAs; }
     [[nodiscard]] bool dirty() const { return loaded_ && edit_ != saved_; }
-    // A popup (pick a source, the wheel, Save as) covers the tab: the window's own controls on it wait.
+    // A popup (pick a source, the wheel) covers the tab: the window's own controls on it wait.
     [[nodiscard]] bool popupOpen() const { return mode_ != Mode::Idle; }
 
 private:
-    enum class Mode { Idle, Pick, PickWheel, SaveAs };
+    enum class Mode { Idle, Pick, PickWheel };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
     enum class Slot { Axis, Hat, Button };
 
@@ -55,7 +57,7 @@ private:
 
     void load();
     void save();
-    void saveAs();
+    void dropOwnEdits();
     void refreshDevices();
     void changeWheel(const DeviceLabels& wheel);
     void autoMapFromRig();
@@ -69,7 +71,6 @@ private:
     void drawSource(float x, float y, float w, Slot kind, std::size_t index);
     void drawPicker();
     void drawWheelPicker();
-    void drawSaveAs();
     float button(float x, float y, const std::string& label, std::function<void()> action, bool on = false,
                  bool enabled = true, float width = 0);
     void hit(float x, float y, float w, float h, std::function<void()> action);
@@ -96,7 +97,7 @@ private:
     Mode mode_ = Mode::Idle;
     Slot pickKind_ = Slot::Axis;
     std::size_t pickIndex_ = 0;
-    std::string saveName_;
+    bool locked_ = false;
     std::string status_;
     bool statusError_ = false;
 };

@@ -55,8 +55,13 @@ bool isManagedFile(const std::string& fileName) {
     // wheelemu: the project's name before the rename; those files moved along with the folder.
     for (const std::string_view project : {std::string_view("wheelbri"), std::string_view("wheelemu")}) {
         const std::string prefix(project);
+        // The app, the shim, the drivers (-driver, -hide), the installers (-install, -hide-install), Linux's
+        // uhid and wheelbri.sh: every log is in the one folder.
         if (startsWith(name, prefix + "-service") || startsWith(name, prefix + "-shim") ||
-            startsWith(name, prefix + "-bridge") || startsWith(name, prefix + "-logs-")) {
+            startsWith(name, prefix + "-bridge") || startsWith(name, prefix + "-logs-") ||
+            startsWith(name, prefix + "-driver") || startsWith(name, prefix + "-hide") ||
+            startsWith(name, prefix + "-install") || startsWith(name, prefix + "-uhid") ||
+            startsWith(name, prefix + "-sh.") || startsWith(name, prefix + "-sh-")) {
             return true;
         }
     }

@@ -10,7 +10,7 @@
 namespace wheelbri {
 
 // What happens to logs and telemetry older than `olderThanDays` days ([retention] in the service config,
-// or --old-files on the command line). Default: delete everything older than 7 days.
+// or --old-files on the command line). Default: delete everything older than 2 days.
 enum class OldFilesAction {
     Keep,      // leave everything
     Delete,    // delete old files (and old archives)
@@ -26,7 +26,7 @@ inline constexpr const char* kArchivers = "auto, 7z, xz, zstd, zip, gzip";
 
 struct RetentionConfig {
     OldFilesAction action = OldFilesAction::Delete;
-    int olderThanDays = 7;             // today and the previous `olderThanDays` days are never touched
+    int olderThanDays = 2;             // today and the previous `olderThanDays` days are never touched
     std::string archiver = "auto";
 };
 

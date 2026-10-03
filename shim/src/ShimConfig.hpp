@@ -15,7 +15,7 @@ namespace wheelbri::shim {
 //   emulate = true             ; false = Phase 0 behaviour: log and pass every device through unchanged
 //   source_vid = 346e          ; USB vendor id of the rig's wheel to replace (hex, the Rig tab's vid:pid)
 //   source_pid = any           ; or a hex product id
-//   target_profile = g920      ; g920 or g29, must match the service's target_profile
+//   target_profile = g920      ; the one wheel WheelBri emulates
 //   state_port = 41329         ; must match the service's state_port
 //   stale_after_ms = 1500      ; no packet for this long = wheel centred, pedals released (the last
 //                              ; input is held until then, so a short service hiccup is not felt)
@@ -23,7 +23,7 @@ namespace wheelbri::shim {
 //                              ; passthrough = straight to the wheel's driver; off = no force feedback
 //   ffb_port = 41330           ; must match ffb_port in the service config
 //   throttle_axis = slider     ; DirectInput axis per pedal: x y z rx ry rz slider (clutch also: none).
-//   brake_axis = y             ;   Defaults come from target_profile: g920 = slider / y / rz, g29 = y / rz / slider.
+//   brake_axis = y             ;   Defaults: the G920's slider / y / rz.
 //   clutch_axis = rz
 //   invert_pedals = false      ; true = pressed and released swapped for all pedals
 //

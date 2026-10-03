@@ -136,9 +136,32 @@ TEST(MappingEdit, AutoMapsFromTheRigsRoles) {
     EXPECT_EQ(model.buttons[5], (SourceRef{{}, 12}));                   // G920 L paddle <- left paddle
     EXPECT_EQ(model.buttons[5], (SourceRef{{}, 12}));                   // G920 L paddle
     EXPECT_EQ(model.hat[0], (SourceRef{{}, 4}));
+}
 
-    MappingModel g29Model = mappingModel(load(kConfig));
-    const DeviceProfile g29(g29Spec());
-    EXPECT_EQ(autoMap(g29Model, rig, g29), 7);
-    EXPECT_EQ(g29Model.buttons[12], (SourceRef{{}, 30}));               // G29 "Gear 1"
+TEST(MappingEdit, RigMappingFitsTheTarget) {
+    Rig rig;
+    RigDevice wheel;
+    wheel.name = "My wheel";
+    wheel.id = {0x346E, 0x0005};
+    wheel.axes[0] = {"Wheel", ControlRole::Steering, false};
+    wheel.buttons[13] = {"R paddle", ControlRole::ShiftUp, false};
+    wheel.buttons[0] = {"A", ControlRole::Button, false};
+    wheel.buttons[1] = {"view", ControlRole::Button, false};    // named like a G920 button, any case
+    wheel.buttons[30] = {"1st", ControlRole::Gear1, false};
+    RigDevice box;
+    box.name = "Box";
+    box.id = {0x1234, 0x0001};
+    box.buttons[2] = {"Menu", ControlRole::Button, false};
+    rig.devices = {wheel, box};
+
+    // Paddle by role, A, View and Menu by name; everything else empty (not 1:1 any more), D-pad cleared.
+    MappingModel g920Model = mappingModel(load(kConfig));
+    EXPECT_EQ(rigMapping(g920Model, rig, DeviceProfile(g920Spec())), 5);   // steering, R paddle, A, View, Menu
+    EXPECT_EQ(g920Model.buttons[4], (SourceRef{{}, 13}));
+    EXPECT_EQ(g920Model.buttons[0], (SourceRef{{}, 0}));
+    EXPECT_EQ(g920Model.buttons[6], (SourceRef{{0x1234, 0x0001}, 2}));
+    EXPECT_EQ(g920Model.buttons[7], (SourceRef{{}, 1}));
+    EXPECT_FALSE(g920Model.buttons[1].mapped());
+    EXPECT_FALSE(g920Model.buttons[10].mapped());
+    EXPECT_FALSE(g920Model.hat[0].mapped());
 }

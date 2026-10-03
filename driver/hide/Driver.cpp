@@ -33,8 +33,37 @@ namespace {
 constexpr wchar_t kPolicyKey[] = L"SOFTWARE\\wheelbri\\hide";
 constexpr ULONG kSystemPid = 4;
 
-// C:\ProgramData\wheelbri\logs\wheelbri-hide-<date>.log (the driver host runs as LocalService) and DebugView.
+// Log: <the logs folder>\wheelbri-hide-<date>.log (see logFolder) and the debugger (DebugView).
 std::mutex g_logLock;
+
+// The folder for the log: the one the app shares with the drivers (HKLM\SOFTWARE\wheelbri LogFolder, the user's
+// %LOCALAPPDATA%\wheelbri\logs, which the app lets LocalService write in), else C:\ProgramData\wheelbri\logs (before the
+// app ever ran as Administrator). Read for every line, so a change applies at once.
+std::wstring logFolder() {
+    wchar_t shared[MAX_PATH] = {};
+    DWORD size = sizeof(shared);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\wheelbri", L"LogFolder", RRF_RT_REG_SZ, nullptr, shared, &size) ==
+            ERROR_SUCCESS &&
+        shared[0] != L'\0') {
+        return shared;
+    }
+    CreateDirectoryW(L"C:\\ProgramData\\wheelbri", nullptr);
+    CreateDirectoryW(L"C:\\ProgramData\\wheelbri\\logs", nullptr);
+    return L"C:\\ProgramData\\wheelbri\\logs";
+}
+
+// Appends `line` to <folder>\wheelbri-hide-<date>.log; false if the file cannot be opened.
+bool appendTo(const std::wstring& folder, const SYSTEMTIME& now, const char* line) {
+    wchar_t path[MAX_PATH];
+    swprintf_s(path, L"%s\\wheelbri-hide-%04u-%02u-%02u.log", folder.c_str(), now.wYear, now.wMonth, now.wDay);
+    HANDLE file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    DWORD written = 0;
+    WriteFile(file, line, static_cast<DWORD>(strlen(line)), &written, nullptr);
+    CloseHandle(file);
+    return true;
+}
 
 void logLine(const std::string& text) {
     SYSTEMTIME now;
@@ -44,23 +73,13 @@ void logLine(const std::string& text) {
                   now.wHour, now.wMinute, now.wSecond, now.wMilliseconds, text.c_str());
     OutputDebugStringA(line);
     std::lock_guard lock(g_logLock);
-    CreateDirectoryW(L"C:\\ProgramData\\wheelbri", nullptr);
-    CreateDirectoryW(L"C:\\ProgramData\\wheelbri\\logs", nullptr);
-    wchar_t path[MAX_PATH];
-    swprintf_s(path, L"C:\\ProgramData\\wheelbri\\logs\\wheelbri-hide-%04u-%02u-%02u.log", now.wYear, now.wMonth, now.wDay);
-    HANDLE file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
     static bool reportedFailure = false;
-    if (file != INVALID_HANDLE_VALUE) {
-        DWORD written = 0;
-        WriteFile(file, line, static_cast<DWORD>(strlen(line)), &written, nullptr);
-        CloseHandle(file);
+    if (appendTo(logFolder(), now, line) || appendTo(L"C:\\ProgramData\\wheelbri\\logs", now, line)) {
         reportedFailure = false;
     } else if (!reportedFailure) {
         reportedFailure = true;   // only DebugView can show this one
         char why[160];
-        std::snprintf(why, sizeof(why), "wheelbri-hide: cannot write its log in C:\\ProgramData\\wheelbri\\logs (error %lu)\r\n",
-                      GetLastError());
+        std::snprintf(why, sizeof(why), "wheelbri-hide: cannot write its log (error %lu)\r\n", GetLastError());
         OutputDebugStringA(why);
     }
 }

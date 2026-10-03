@@ -24,7 +24,7 @@ struct SessionInfo {
     std::uint16_t productId = 0;
     int axes = 0;
     int buttons = 0;
-    std::string targetProfile;  // "g920", "g29"
+    std::string targetProfile;  // "g920"
     MapperConfig mapper;
     // The accessories the mapping reads (device 1, 2, 3; empty ids = none), named from the Wheel setup tab.
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories{};

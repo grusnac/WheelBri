@@ -5,7 +5,7 @@
 #   clean-pc.ps1                          list, ask, remove
 #   clean-pc.ps1 -Yes                     no question (and no "press Enter" at the end)
 #   clean-pc.ps1 -KeepData                keep %LOCALAPPDATA%\wheelbri (rigs, configs, app.ini, logs, telemetry) and
-#                                         C:\ProgramData\wheelbri (driver and install logs), and the old-named ones
+#                                         C:\ProgramData\wheelbri (logs of older versions), and the old-named ones
 #   clean-pc.ps1 -GameFolder "D:\Games\Need for Speed"
 #                                         also take the shim out of a game folder (dinput8.dll / dinput8.dll.off when
 #                                         they are ours, wheelbri-shim.ini, wheelemu-shim.ini); several folders:

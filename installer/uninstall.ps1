@@ -4,7 +4,7 @@
 #   - Uninstall.cmd in the install folder (double-click);
 #   - Uninstall.cmd in the unpacked package: cleans up an installation whose folder is damaged or already deleted
 #     (drivers, certificate, shortcuts, entry), using the package's own driver scripts.
-# Logs and telemetry in %LOCALAPPDATA%\wheelbri\logs and C:\ProgramData\wheelbri\logs are left.
+# Logs and telemetry in %LOCALAPPDATA%\wheelbri\logs are left.
 #
 #   uninstall.ps1                      asks to confirm, whether to keep the config and whether to remove the certificate
 #   uninstall.ps1 -KeepConfig          keep the config (copied to C:\ProgramData\wheelbri\config-backup)
@@ -82,7 +82,7 @@ if ($folderOk -and ($here -ieq $InstallDir -or $here.StartsWith("$InstallDir\", 
 }
 
 $ErrorActionPreference = 'Stop'
-$logFolder = Join-Path $env:ProgramData 'wheelbri\logs'
+$logFolder = Join-Path $env:LOCALAPPDATA 'wheelbri\logs'   # with every other log
 New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
 Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
 $warnings = New-Object System.Collections.Generic.List[string]
@@ -203,7 +203,7 @@ try {
             Write-Host 'Things to look at:' -ForegroundColor Yellow
             $warnings | ForEach-Object { Write-Host "  $($_.Trim())" -ForegroundColor Yellow }
         }
-        Write-Host "Logs stay in $env:LOCALAPPDATA\wheelbri\logs and $logFolder."
+        Write-Host "Logs stay in $logFolder."
     }
     Stop-Transcript | Out-Null
     if (-not $Quiet) { Read-Host 'Press Enter to close' | Out-Null }

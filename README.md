@@ -1,7 +1,7 @@
 # wheel-emulator
 
 Presents a DirectInput wheel (target hardware: **Moza R3**) to PC games as a wheel they support
-(first target: **Logitech G920**, with a G29 profile as an alternative), on Windows and on Linux (Proton). First target game: *Need for Speed (2015)*.
+(the target: **Logitech G920**; the G29 profile was dropped on 2026-10-04, it is the same wheel with more buttons), on Windows and on Linux (Proton). First target game: *Need for Speed (2015)*.
 
 ```
 Moza R3 ──DirectInput / evdev──► wheelbri-service ──UDP 127.0.0.1──► dinput8.dll shim (inside the game)
@@ -16,7 +16,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | Phase | What | State |
 |---|---|---|
 | 0 | Logging `dinput8.dll` proxy: records how the game finds and drives wheels | **working** (its logs found the NFS 2015 details below) |
-| 1 | Core (mapping, G920 + G29 profiles, FFB limiter, config, wire format) + service | **working with a real R3** |
+| 1 | Core (mapping, G920 profile, FFB limiter, config, wire format) + service | **working with a real R3** |
 | 2 | Shim answers as a G920 using the service's state | **working in NFS 2015**: wheel, pedals, buttons, D-pad |
 | 3 | Game FFB → service (safety limiter, watchdog) → R3 | **working in NFS 2015**: constant, spring, damper, sine, square |
 | 4 | Linux virtual G920: `tools/uhid` (`wheelbri-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
@@ -29,7 +29,6 @@ Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
 Still open:
-- the G29 profile (built, not tried in a game);
 - Linux/Proton: both ways (Phase 4 and the shim under Proton) are ready to try on a Steam Deck, [docs/linux.md](docs/linux.md);
 - effect envelopes (attack/fade) are ignored, and NFS's 20-byte Logitech `Escape` calls are not forwarded.
 
@@ -42,8 +41,7 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** the add-on clutch pedal was recognised but the G920's clutch never moved: the configs mapped axis 3,
   while the pedal moves R3 axis 6 (found in `raw_a6` in the telemetry).
-- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/rig-as-g920.ini` and
-  `config/rig-as-g29.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
+- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/rig-as-g920.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
   return to 0%, raise `deadzone_low`. The game reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
   `out_clutch` in `telemetry-<date>.csv`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
@@ -112,8 +110,7 @@ defaults to ON on Windows).
 
 What the shim does: when the game enumerates devices, the R3 (vendor 346e) is offered as a G920 (VID 046D,
 PID C262, driving-wheel type, X = wheel, Slider = accelerator, Y = brake, Rz = clutch, 11 buttons, 1 hat,
-pedals released at the top of the range, as a real G920 and as NFS 2015 expects; the G29 profile uses
-Y / Rz / Slider instead). If a game reads the pedals from other axes, or backwards, change
+pedals released at the top of the range, as a real G920 and as NFS 2015 expects). If a game reads the pedals from other axes, or backwards, change
 `throttle_axis` / `brake_axis` / `clutch_axis` / `invert_pedals` in `wheelbri-shim.ini`; no rebuild needed.
 Every read (`GetDeviceState`, `GetDeviceData`) is answered from the latest packet the service sent, in the
 data format and ranges the game asked for. If the service stops sending for 250 ms the wheel reads as centred
@@ -137,14 +134,15 @@ Administrator prompt; at the end it asks whether to restart Windows now (default
 is in use (the hiding filter often starts only after a restart). It installs **WheelBri** to `C:\Program Files\WheelBri`, the three
 drivers (trusting the drivers' certificate on that PC), a Start menu folder (the app and "Uninstall WheelBri") and a
 Settings > Apps entry that uninstalls it all. The app hides the rig (every device in the Rig tab) from games on every Start. The
-log is `C:\ProgramData\wheelbri\logs\wheelbri-install-<date>.log`; `installer/README.txt` is the end user's guide.
+log is `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log` (every log, the drivers' too, is in that one folder); `installer/README.txt` is the end user's guide.
 
 ## The app
 
 `wheelbri.exe` (built next to `wheelbri-service.exe` in `build/service/`) is the everyday way to run it:
 double-click it, let Windows start it as Administrator, press **Start**, then start the game. **Start** and **Stop**
 are only on the Mapping tab (top right, stopped or running), with the state next to them
-(stopped, running and for how long, a lost wheel, a game not using it); the Status tab says why a start failed. Start shows the Logs tab of the same live view as `--ui`
+(stopped, running and for how long, a lost wheel, a game not using it); after "Start failed (Logs)" the Logs tab says
+why, in red. Start shows the Logs tab of the same live view as `--ui`
 (axes, buttons, game force feedback, logs: click a line or press O for the folder). **Stop**, or closing the window,
 undoes everything (virtual G920 removed, the R3 visible again).
 Each Start reads the config again, so edits apply without restarting the app.
@@ -159,13 +157,14 @@ from another controller (a gamepad or the keyboard): the state next to Start / S
 USING THE WHEEL** in red and the log says so. Close the game with WheelBri running, start it again and pick the wheel
 in its controls settings.
 
-**Mapping config** (on the Status page, while stopped) picks the config Start uses, with `<` `>`. The built-in ones
-come with the program (`config/*.ini` next to it or one or two folders up) and are the defaults, never changed.
-**New** makes a config of your own: type a name, pick the built-in one to start from, Create; it is saved as
-`%LOCALAPPDATA%\wheelbri\configs\<name>.ini` and picked at once. **Reset** (after a "Yes, reset") copies the
-built-in it was made from over the picked config again, dropping every change; built-in configs have nothing to
-reset. **Open folder** shows the file. The pick is remembered (`%LOCALAPPDATA%\wheelbri\app.ini`); `--config FILE`
-(in a shortcut) starts with another, and the other options below work too. `wheelbri-service --app` is the same window
+**G920 via** (the top row of the Mapping tab, while stopped) picks how the G920 reaches the game: **virtual device**
+(WheelBri's driver, every game sees it, the rig is hidden) or **in-game shim** (`dinput8.dll` next to the game's `.exe`,
+nothing hidden, nothing created). The G920 is the only target; other wheels come only when WheelBri supports them.
+The config is the built-in `config/rig-as-g920.ini` (next to the program or one or two folders up), a template that
+the active rig fills at every Start (roles first, then G920 buttons named like a rig control), unless you saved your
+own edits on the Mapping tab: `%LOCALAPPDATA%\wheelbri\configs\my-g920.ini`. **Rig mapping** deletes them, and the rig
+fills the template again. The choice is remembered (`%LOCALAPPDATA%\wheelbri\app.ini`, `[app] way`); `--config FILE`
+(in a shortcut) starts with another config, and the other options below work too. `wheelbri-service --app` is the same window
 from a console (and on Linux).
 
 The **Rig** tab (R) defines your **rig**: the devices you have (wheel, pedals, shifter, handbrake, button box) and
@@ -182,9 +181,10 @@ rig is saved, then on Mapping; Start switches to the Logs tab so you can see it 
 the G920: the wheel (the device that plays force feedback, **Change** to pick another), Steering / Throttle / Brake /
 Clutch (each with **Invert**), the D-pad and the G920's buttons. **Auto-map** fills them from the rig's roles (axes,
 D-pad, Shift up/down to the paddles, gears where the target has them); plain buttons you pick yourself. Click a source
-and pick a control of the wheel or of an accessory (up to 3 besides the wheel), or "(nothing)". **Save**
-writes the config picked on the Status page, keeping its comments and other settings; a built-in config is saved as
-a copy of your own (**Save as**, then picked). **Revert**, picking another config or **Reset** drop unsaved edits.
+and pick a control of the wheel or of an accessory (up to 3 besides the wheel), or "(nothing)". **Save** writes your own
+edits (`my-g920.ini`, comments and other settings kept); from then on Start uses them as they are and a changed rig no
+longer re-maps them. **Revert** drops unsaved edits, **Rig mapping** the saved ones. Start uses exactly what the tab
+shows (as saved).
 In the config a source on an accessory is written `vid:pid/N` (`axis = 30b7:1001/0`); a session opens every
 accessory its mapping names and does not start without them; one lost while running is waited for like the wheel.
 Every device of the active rig (wheel and accessories) is hidden from games while the app runs; no rig = nothing
@@ -217,7 +217,7 @@ Built on spdlog. Every line carries time, level, component, thread and source lo
 | shim (in the game) | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-<date>.log` (next to `dinput8.dll` if `LOCALAPPDATA` is not set) |
 
 One file per day (`<date>` = `2026-09-30`, local time); a program running past midnight moves to the next
-day's file. Old files are deleted after 7 days by default, see [Old files](#old-files). The `--ui` window
+day's file. Old files are deleted after 2 days by default, see [Old files](#old-files). The `--ui` window
 shows where everything is.
 
 **Levels**: `trace` per-tick/per-call detail · `debug` decisions and state changes · `info` lifecycle ·
@@ -278,14 +278,14 @@ python scripts/telemetry_summary.py            # or pass a telemetry-*.csv / a f
 
 ## Old files
 
-Logs (service and game) and telemetry older than 7 days are **deleted** by default. The service checks at
+Logs (service and game) and telemetry older than 2 days are **deleted** by default. The service checks at
 start-up and again after every midnight. Only its own files are touched (`wheelbri-service*`,
 `wheelbri-shim*`, `telemetry-*`, `ffb-*` and archives made from them). `[retention]` in the config:
 
 | Key | Values |
 |---|---|
 | `old_files` | `delete` (default), `archive`, `keep` |
-| `older_than_days` | `7` (default): today and the 7 days before it are never touched |
+| `older_than_days` | `2` (default): today and the 2 days before it are never touched |
 | `archiver` | `auto` (default), `7z`, `xz`, `zstd`, `zip`, `gzip` |
 
 `--old-files delete|archive|keep` on the command line overrides `old_files` for one run.

@@ -55,26 +55,6 @@ std::int32_t DeviceProfile::encodePedal(const float travel) const {
     return lerp(spec_.pedalRange, spec_.pedalsReleasedAtMax ? 1.0F - clamped : clamped);
 }
 
-DeviceProfileSpec g29Spec() {
-    DeviceProfileSpec spec;
-    spec.identity.shortName = "G29";
-    spec.identity.vendorId = 0x046D;
-    spec.identity.productId = 0xC24F;
-    spec.identity.productName = "Logitech G29 Driving Force Racing Wheel USB";
-    spec.identity.rotationDeg = 900.0F;
-    spec.steeringRange = {0, 65535};
-    spec.pedalRange = {0, 65535};
-    spec.pedalsReleasedAtMax = true;
-    // DirectInput button order of the G29 in PC mode, as documented by the sim-racing community
-    // (buttons 1..25 in joy.cpl). Unverified against a real G29, like the rest of this profile.
-    spec.buttonNames = {
-        "Cross",   "Square",  "Circle",  "Triangle", "R paddle", "L paddle",   "R2",        "L2",    "Share",
-        "Options", "R3",      "L3",      "Gear 1",   "Gear 2",   "Gear 3",     "Gear 4",    "Gear 5", "Gear 6",
-        "Gear R",  "Plus",    "Minus",   "Dial CW",  "Dial CCW", "Enter",      "PS",
-    };
-    return spec;
-}
-
 DeviceProfileSpec g920Spec() {
     DeviceProfileSpec spec;
     spec.identity.shortName = "G920";
@@ -84,7 +64,7 @@ DeviceProfileSpec g920Spec() {
     spec.identity.rotationDeg = 900.0F;
     spec.steeringRange = {0, 65535};
     spec.pedalRange = {0, 65535};
-    spec.pedalsReleasedAtMax = true;   // same pedal set and encoding as the G29 (assumed)
+    spec.pedalsReleasedAtMax = true;   // pressed = the low end (assumed from Logitech's pedal sets)
     // DirectInput button order in PC mode (joy.cpl buttons 1..11). The optional Driving Force Shifter adds
     // more buttons after these; their order is not known yet, so they are left unnamed.
     spec.buttonNames = {
@@ -96,9 +76,6 @@ DeviceProfileSpec g920Spec() {
 std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     if (name == "g920") {
         return std::make_unique<DeviceProfile>(g920Spec());
-    }
-    if (name == "g29") {
-        return std::make_unique<DeviceProfile>(g29Spec());
     }
     return nullptr;
 }
