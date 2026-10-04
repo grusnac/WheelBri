@@ -27,6 +27,7 @@
 #include "wheelbri/Telemetry.hpp"
 #include "wheelbri/TestClutch.hpp"
 #include "wheelbri/UdpLoopback.hpp"
+#include "wheelbri/WaitFor.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -1222,6 +1223,27 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         WE_LOG_CRITICAL(log(), "no wheel to read: there is no rig with a wheel yet (set it up in the Rig tab) and the "
                                "config names none ([emulator] source_device)");
         return 2;
+    }
+    // A wheel Windows is still restarting (after a reinstall, or while a driver or filter is put on it) is gone for
+    // a few seconds: wait a little for it instead of failing at once. Stop gives up.
+    if (!wheelbri::service::wheelConnected(*backend, config.sourceDeviceMatch)) {
+        const wheelbri::WaitSettings wait;
+        WE_LOG_INFO(log(), "the wheel ('{}') is not connected yet: waiting up to {} s for it (Windows may be restarting "
+                           "it); Stop gives up",
+                    config.sourceDeviceMatch, wait.timeoutMs / 1000);
+        std::uint64_t waitedMs = 0;
+        const wheelbri::WaitOutcome outcome = wheelbri::waitFor(
+            wait, [&] { return wheelbri::service::wheelConnected(*backend, config.sourceDeviceMatch); }, cancelled,
+            [](const std::uint64_t ms) { platform::sleepMs(static_cast<std::uint32_t>(ms)); }, &waitedMs);
+        if (outcome == wheelbri::WaitOutcome::Cancelled) {
+            WE_LOG_INFO(log(), "stopped while waiting for the wheel");
+            return 0;
+        }
+        if (outcome == wheelbri::WaitOutcome::Ready) {
+            WE_LOG_INFO(log(), "the wheel is there after {:.1f} s", static_cast<double>(waitedMs) / 1000.0);
+        } else {
+            WE_LOG_WARN(log(), "the wheel did not appear within {} s", waitedMs / 1000);
+        }
     }
     auto source = wheelbri::service::openWheel(*backend, config.sourceDeviceMatch);
     if (source == nullptr) {

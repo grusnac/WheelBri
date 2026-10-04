@@ -286,7 +286,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     NotConnected) and the window shows "rig hidden (N of M devices)" or, in red, "NOT HIDDEN: <device>"; no rig
     = nothing hidden, said in the window. Our own filter only, no HidHide or other third-party tools;
     `--no-hide` skips it, `--unhide` clears it after a crash.
-  - Failure handling (keep it when changing `runSession`): a lost wheel (`runLoop` returns `kWheelLost`) keeps the
+  - Failure handling (keep it when changing `runSession`): a wheel not connected at Start is waited for up to 15 s
+    (core `waitFor`, `WaitFor.hpp`, `WaitForTest`; Stop cancels): Windows restarts it after a reinstall or while
+    `install-hide.ps1` puts the filter on it, and Start used to fail at once then; a lost wheel (`runLoop` returns `kWheelLost`) keeps the
     virtual devices and waits for the wheel to come back, then carries on; creating devices and waiting for the
     hide installer stop on Stop (`cancelled`), but a running installer is never killed (it may be switching a
     device's driver). Exceptions on the loop thread end the session instead of `std::terminate`.

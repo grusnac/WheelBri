@@ -33,6 +33,7 @@ add_executable(wheelbri_tests
     TelemetryTest.cpp
     TestClutchTest.cpp
     UdpLoopbackTest.cpp
+    WaitForTest.cpp
     WheelOutputTest.cpp
 )
 target_link_libraries(wheelbri_tests PRIVATE wheelbri_core GTest::gtest_main)

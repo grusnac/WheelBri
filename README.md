@@ -147,7 +147,9 @@ are only on the Mapping tab (top right, stopped or running), with the state next
 why, in red. Start shows the Logs tab of the same live view as `--ui`
 (axes, buttons, game force feedback, logs: click a line or press O for the folder). **Stop**, or closing the window,
 undoes everything (virtual G920 removed, the R3 visible again).
-Each Start reads the config again, so edits apply without restarting the app.
+Each Start reads the config again, so edits apply without restarting the app. If the wheel is not connected when
+Start is pressed (Windows restarts it after WheelBri is reinstalled, and the first Start after that puts WheelBri's
+filter back on it, which restarts it again), the service waits up to 15 s for it before giving up; Stop ends the wait.
 
 The **Logs** tab's live log (every component's log merged, newest at the bottom) scrolls with the mouse wheel, the
 arrows and PageUp / PageDown / Home / End, and with its scroll bars: drag the one on the right to go up and down fast,
