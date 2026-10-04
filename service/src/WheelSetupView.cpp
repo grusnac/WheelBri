@@ -46,7 +46,7 @@ constexpr int kSettleFrames = 20;              // about a third of a second of r
 const std::string kFirstRig = "My rig";
 
 // Layout: the header, the axes rows, the buttons grid, the hints.
-constexpr float kAxesTop = 80;
+constexpr float kAxesTop = 64;   // under the device's name
 constexpr float kAxisRow = 17;
 constexpr float kButtonsTop = kAxesTop + 16 + kAxes * kAxisRow + 8;
 constexpr int kColumns = 8;
@@ -705,13 +705,8 @@ void WheelSetupView::drawHeader() {
     RigDevice* const editable = shownDevice();
     window_.text(4, 46, "Name", kDim);
     drawNameField(68, 42, editable->name, kMaxDeviceName);
-    window_.text(4, 64, "It is a", kDim);
-    x = 68;
-    for (const DeviceKind kind : kDeviceKinds) {
-        x += button(x, 60, capitalised(deviceKindName(kind)), [this, kind] {
-            if (RigDevice* const d = shownDevice()) d->kind = kind;
-        }, editable->kind == kind, true, 100) + 6;
-    }
+    // No "it is a wheel / pedals / ..." choice: what a device is follows from its controls (the one with a Steering
+    // axis is the wheel). The kind is still guessed from its name and kept in the rig file, for older files.
 }
 
 void WheelSetupView::drawAxes(const float top) {

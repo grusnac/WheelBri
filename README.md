@@ -215,7 +215,8 @@ what each control is. Every connected device is read at once. With **Detect** on
 an axis (a pedal all the way) and its popup opens: type its name, pick what it is (Steering, Throttle, Brake, Clutch,
 Handbrake, Axis; Button, D-pad up/right/down/left, Shift up/down, Gear 1-7, Reverse), Enter. A pedal found resting at
 the top of its axis is marked **Inverted**. Clicking an axis row or a button tile opens the same popup. Touching a control
-of a device adds it to the rig (at most 4 devices; **Remove from rig** takes one out); give each a name and a kind.
+of a device adds it to the rig (at most 4 devices; **Remove from rig** takes one out); give each a name. There is no "it is a wheel / pedals / ..." choice: the device
+with a **Steering** axis is the wheel (it plays force feedback).
 **Save** writes `%LOCALAPPDATA%\wheelbri\rigs\<rig>.ini`; **New** / **Rename** / `<` `>` manage rigs, and the active one
 is remembered. The first rig starts from names saved per device by earlier versions. The app opens on this tab until a
 rig is saved, then on Mapping; Start switches to the Logs tab so you can see it come up.

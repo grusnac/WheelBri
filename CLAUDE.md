@@ -199,7 +199,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `TestClutch`: a test clutch for when no pedal is connected. A test tool sends `ClutchPacket`s (12 bytes, magic
     `WECL`, v1; `ClutchPacket::encode`) to 41331; the service uses that value instead of the mapped clutch until 1.5 s
     after the last packet. (Its C# sender, ClutchProbe, went with the bridge.)
-  - The rig (`Rig.hpp`): every device the user has (`[device_N]` name, id, kind) and each control's label, role
+  - The rig (`Rig.hpp`): every device the user has (`[device_N]` name, id, kind: guessed from the name, no longer
+    shown or chosen in the Rig tab; `Rig::wheel()` is the device with a Steering axis, the kind only a fallback) and
+    each control's label, role
     (`ControlRole`: steering, throttle, ..., d-pad up, left / right paddle, shift up, gear N; new roles go at the end
     of the enum, since autoMap counts gears by value) and invert, written `label | role | invert`;
     one `<name>.ini` per rig in `rigsFolder()` (`%LOCALAPPDATA%\wheelbri\rigs`), the active one in the app's state
