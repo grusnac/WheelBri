@@ -121,11 +121,20 @@ std::string errorText(const int error) { return std::to_string(error) + " " + sy
 
 // One datagram into `buffer`: its size, or nothing when none is waiting. Errors that only concern one datagram are
 // skipped (a few times); others are logged (rate-limited) and end this read.
-std::optional<std::size_t> receiveOne(const NativeSocket socket, const std::span<std::uint8_t> buffer) {
+std::optional<std::size_t> receiveOne(const NativeSocket socket, const std::span<std::uint8_t> buffer,
+                                      std::uint16_t* const senderPort = nullptr) {
     for (int attempt = 0; attempt < 16; ++attempt) {
-        const auto received =
-            ::recv(socket, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+        sockaddr_in from{};
+#if defined(_WIN32)
+        int fromSize = sizeof(from);
+#else
+        socklen_t fromSize = sizeof(from);
+#endif
+        const auto received = ::recvfrom(socket, reinterpret_cast<char*>(buffer.data()),
+                                         static_cast<int>(buffer.size()), 0, reinterpret_cast<sockaddr*>(&from),
+                                         &fromSize);
         if (received >= 0) {
+            if (senderPort != nullptr) *senderPort = ntohs(from.sin_port);
             return static_cast<std::size_t>(received);
         }
         const int error = lastError();
@@ -211,6 +220,7 @@ bool UdpLoopbackPublisher::publish(const StatePacket& packet) {
 struct UdpLoopbackReceiver::Impl {
     UdpSocket socket;
     std::uint16_t port = 0;
+    SenderFilter filter;
     std::optional<std::uint32_t> lastSequence;
     std::uint64_t received = 0;
     std::uint64_t lost = 0;
@@ -318,17 +328,25 @@ std::unique_ptr<UdpLoopbackListener> UdpLoopbackListener::create(const std::uint
     return std::unique_ptr<UdpLoopbackListener>(new UdpLoopbackListener(std::move(impl)));
 }
 
-std::optional<std::size_t> UdpLoopbackListener::receive(const std::span<std::uint8_t> buffer) {
-    return receiveOne(impl_->socket.get(), buffer);
+std::optional<std::size_t> UdpLoopbackListener::receive(const std::span<std::uint8_t> buffer,
+                                                        std::uint16_t* const senderPort) {
+    return receiveOne(impl_->socket.get(), buffer, senderPort);
 }
+
+void UdpLoopbackReceiver::setSenderFilter(SenderFilter filter) { impl_->filter = std::move(filter); }
 
 std::optional<StatePacket> UdpLoopbackReceiver::pollLatest() {
     std::optional<StatePacket> latest;
     std::array<std::uint8_t, 64> buffer{};
-    for (;;) {
-        const auto received = receiveOne(impl_->socket.get(), buffer);
+    // At most kMaxPerPoll a call: a flood of datagrams must not keep the caller (the game's input thread) here.
+    for (std::size_t n = 0; n < kMaxPerPoll; ++n) {
+        std::uint16_t sender = 0;
+        const auto received = receiveOne(impl_->socket.get(), buffer, &sender);
         if (!received) {
             break;  // nothing more to read now
+        }
+        if (impl_->filter && !impl_->filter(sender)) {
+            continue;   // not from WheelBri's service
         }
         const auto size = *received;
         if (auto packet = decodeStatePacket(std::span<const std::uint8_t>(buffer.data(), size))) {

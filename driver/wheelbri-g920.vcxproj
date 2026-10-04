@@ -36,6 +36,9 @@
     <!-- Test-signed with a certificate made for this PC (WDKTestCert); install-driver.ps1 trusts it. -->
     <SignMode>TestSign</SignMode>
   </PropertyGroup>
+  <!-- WheelBri's own code-signing certificate instead of WDKTestCert, when new-signing-cert.ps1 made one on this PC
+       (signing-certificate.props sets TestCertificate). Without that file nothing changes. -->
+  <Import Project="$(MSBuildThisFileDirectory)signing-certificate.props" Condition="Exists('$(MSBuildThisFileDirectory)signing-certificate.props')" />
   <ItemDefinitionGroup>
     <ClCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);_UNICODE;UNICODE;WIN32_LEAN_AND_MEAN;NOMINMAX</PreprocessorDefinitions>

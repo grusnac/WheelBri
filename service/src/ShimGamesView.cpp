@@ -51,8 +51,8 @@ std::string fit(std::string text, const std::size_t chars) {
 ShimGamesView::ShimGamesView(ui::UiWindow& window, Settings settings)
     : window_(window), settings_(std::move(settings)), list_(readShimGames(settings_.listFile)) {
     refreshState();
-    WE_LOG_INFO(log(), "shim games: {} in {}; WheelBri's shim {}", list_.games.size(), settings_.listFile.string(),
-                settings_.sourceDll.empty() ? std::string("not found") : settings_.sourceDll.string());
+    WE_LOG_INFO(log(), "shim games: {} in {}; WheelBri's shim {}", list_.games.size(), pathToUtf8(settings_.listFile),
+                settings_.sourceDll.empty() ? std::string("not found") : pathToUtf8(settings_.sourceDll));
 }
 
 std::string ShimGamesView::selectedName() const {
@@ -69,7 +69,7 @@ void ShimGamesView::refreshState() {
 
 void ShimGamesView::save() {
     if (!writeShimGames(settings_.listFile, list_)) {
-        WE_LOG_WARN(log(), "cannot save the shim games in {}", settings_.listFile.string());
+        WE_LOG_WARN(log(), "cannot save the shim games in {}", pathToUtf8(settings_.listFile));
     }
 }
 
@@ -176,6 +176,7 @@ bool ShimGamesView::onClick(const float x, const float y) {
     for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
         if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
             const auto action = it->action;   // a copy: the list belongs to the last draw
+            hits_.clear();                    // stale until the next draw: a second click before it does nothing
             action();
             return true;
         }
@@ -217,6 +218,7 @@ void ShimGamesView::onPanelClick(const float x, const float y) {
     for (auto it = panelHits_.rbegin(); it != panelHits_.rend(); ++it) {
         if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
             const auto action = it->action;   // a copy: the list belongs to the last draw
+            panelHits_.clear();               // stale until the next draw
             action();
             return;
         }

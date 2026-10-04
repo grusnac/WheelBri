@@ -202,6 +202,15 @@ std::size_t HidPid::getFeature(std::uint8_t reportId, std::span<std::uint8_t> ou
 
 HidPid::Block* HidPid::withBlock(std::uint8_t ebi) {
     if (ebi == 0) return nullptr;
+    // Only block numbers this device hands out (1..kMaxSlots) get a slot: a stray number above them would otherwise
+    // hold one of the 8 slots until a Device Reset. (Hosts may skip Create New Effect, so 1..8 stay accepted.)
+    if (ebi > kMaxSlots && !blocks_.contains(ebi)) {
+        if (seen_.insert("out of range " + std::to_string(ebi)).second) {   // once per block number
+            log_("pid: a report for effect block " + std::to_string(ebi) + ", a number this device never hands out: "
+                 "ignored");
+        }
+        return nullptr;
+    }
     Block& block = blocks_[ebi];
     if (block.slot < 0) {
         const auto free = std::find(slotOwner_.begin(), slotOwner_.end(), std::nullopt);

@@ -122,9 +122,14 @@ public:
     // when it returns, so it must stop the session and wait for its clean-up (the real wheel shown again). No
     // console handler reaches a window program. Elsewhere it is never called.
     void onEndSession(std::function<void()> handler) { endSession_ = std::move(handler); }
+    // Windows: called when logoff or shutdown asks whether it may go ahead (WM_QUERYENDSESSION), from pump(); the
+    // answer is always yes. For a window pumped by the session's own thread (--ui), which cannot wait inside
+    // onEndSession: it stops pumping from here on, so the session cleans up before WM_ENDSESSION is delivered.
+    void onQueryEndSession(std::function<void()> handler) { queryEndSession_ = std::move(handler); }
 
 protected:
     std::function<void()> endSession_;
+    std::function<void()> queryEndSession_;
     float originX_ = 0.0F;
     float originY_ = 0.0F;
 };

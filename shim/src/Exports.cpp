@@ -47,10 +47,23 @@ HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE instance, DWORD version, REFII
         if (outer != nullptr) {
             // COM aggregation: the object belongs to the caller's outer object and must not be wrapped.
             WE_LOG_WARN(log(), "aggregated DirectInput object requested, passing it through unwrapped");
-        } else if (riid == IID_IDirectInput8W) {
-            *out = static_cast<IDirectInput8W*>(new ProxyDirectInput8<WideTraits>(static_cast<IDirectInput8W*>(*out)));
-        } else if (riid == IID_IDirectInput8A) {
-            *out = static_cast<IDirectInput8A*>(new ProxyDirectInput8<AnsiTraits>(static_cast<IDirectInput8A*>(*out)));
+        } else if (riid == IID_IDirectInput8W || riid == IID_IDirectInput8A) {
+            // The game gets the wrapper or nothing: if wrapping fails, the real object is released and the
+            // exception goes on to guarded().
+            auto* const realObject = static_cast<IUnknown*>(*out);
+            *out = nullptr;
+            try {
+                if (riid == IID_IDirectInput8W) {
+                    *out = static_cast<IDirectInput8W*>(
+                        new ProxyDirectInput8<WideTraits>(static_cast<IDirectInput8W*>(realObject)));
+                } else {
+                    *out = static_cast<IDirectInput8A*>(
+                        new ProxyDirectInput8<AnsiTraits>(static_cast<IDirectInput8A*>(realObject)));
+                }
+            } catch (...) {
+                realObject->Release();
+                throw;
+            }
         } else {
             WE_LOG_WARN(log(), "unexpected interface {} requested, passing it through unwrapped", describeGuid(riid));
         }
@@ -97,8 +110,10 @@ HRESULT WINAPI Proxy_DllUnregisterServer() {
 }
 
 LPCDIDATAFORMAT WINAPI Proxy_GetdfDIJoystick() {
-    const RealDInput* const real = requireReal("GetdfDIJoystick");
-    return real != nullptr && real->getdfDIJoystick != nullptr ? real->getdfDIJoystick() : nullptr;
+    return wheelbri::shim::guardedOr<LPCDIDATAFORMAT>(nullptr, "Proxy_GetdfDIJoystick", [&]() -> LPCDIDATAFORMAT {
+        const RealDInput* const real = requireReal("GetdfDIJoystick");
+        return real != nullptr && real->getdfDIJoystick != nullptr ? real->getdfDIJoystick() : nullptr;
+    });
 }
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {

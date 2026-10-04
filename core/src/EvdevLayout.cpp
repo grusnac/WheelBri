@@ -105,7 +105,9 @@ Layout::Layout(const Capabilities& caps) {
         const AbsInfo& info = caps.absInfo[static_cast<std::size_t>(code)];
         Axis axis{code, info.minimum, info.maximum, 1.0F};
         if (info.maximum != info.minimum) {
-            axis.scale = static_cast<float>(kAxisMax - kAxisMin) / static_cast<float>(info.maximum - info.minimum);
+            // In 64 bits: a device may declare INT32_MIN..INT32_MAX, whose span does not fit an int32.
+            axis.scale = static_cast<float>(kAxisMax - kAxisMin) /
+                         static_cast<float>(static_cast<std::int64_t>(info.maximum) - info.minimum);
         }
         axisIndex_[static_cast<std::size_t>(code)] = static_cast<int>(axisCodes_.size());
         axisCodes_.push_back(axis);
@@ -160,8 +162,11 @@ bool Layout::apply(const int type, const int code, const std::int32_t value) {
 
 std::int32_t Layout::correct(const Axis& axis, std::int32_t raw) const {
     if (axis.minimum != axis.maximum) {
-        raw = static_cast<std::int32_t>(
-            std::floor(static_cast<float>(raw - axis.minimum) * axis.scale + static_cast<float>(kAxisMin) + 0.5F));
+        // In double, clamped before the conversion: a value outside the declared range (or a tiny range, a big
+        // scale) can land far outside int32, and converting that is undefined.
+        const double scaled = std::floor(static_cast<double>(static_cast<std::int64_t>(raw) - axis.minimum) * axis.scale +
+                                         static_cast<double>(kAxisMin) + 0.5);
+        raw = static_cast<std::int32_t>(std::clamp(scaled, static_cast<double>(kAxisMin), static_cast<double>(kAxisMax)));
     }
     return std::clamp(raw, kAxisMin, kAxisMax);
 }

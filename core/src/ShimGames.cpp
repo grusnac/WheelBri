@@ -55,15 +55,6 @@ bool sameBytes(const std::filesystem::path& a, const std::filesystem::path& b) {
 
 }  // namespace
 
-std::string pathToUtf8(const std::filesystem::path& path) {
-    const std::u8string text = path.u8string();
-    return {text.begin(), text.end()};
-}
-
-std::filesystem::path pathFromUtf8(const std::string& text) {
-    return std::filesystem::path(std::u8string(text.begin(), text.end()));
-}
-
 ShimGameList readShimGames(const std::filesystem::path& file) {
     ShimGameList list;
     std::ifstream in(file, std::ios::binary);
@@ -74,6 +65,7 @@ ShimGameList readShimGames(const std::filesystem::path& file) {
         const std::vector<std::string> parts = split(line);
         if (parts[0] == "game" && parts.size() == 3 && !parts[2].empty()) {
             const std::filesystem::path folder = pathFromUtf8(parts[2]);
+            if (folder.empty()) continue;   // not valid UTF-8 (edited by hand in another code page): skipped
             const bool known = std::any_of(list.games.begin(), list.games.end(),
                                            [&](const ShimGame& g) { return sameFolder(g.folder, folder); });
             if (!known) list.games.push_back({parts[1], folder});
@@ -89,16 +81,11 @@ ShimGameList readShimGames(const std::filesystem::path& file) {
 }
 
 bool writeShimGames(const std::filesystem::path& file, const ShimGameList& list) {
-    std::error_code ec;
-    std::filesystem::create_directories(file.parent_path(), ec);
     std::ostringstream text;
     text << kHeader;
     for (const ShimGame& game : list.games) text << "game\t" << game.name << '\t' << pathToUtf8(game.folder) << '\n';
     if (!list.selected.empty()) text << "selected\t" << pathToUtf8(list.selected) << '\n';
-    std::ofstream out(file, std::ios::binary | std::ios::trunc);
-    out << text.str();
-    out.close();
-    return static_cast<bool>(out);
+    return writeFileReplacing(file, text.str());
 }
 
 std::size_t addShimGame(ShimGameList& list, const std::filesystem::path& folder) {
@@ -123,11 +110,12 @@ std::size_t addShimGame(ShimGameList& list, const std::filesystem::path& folder)
 std::string gameFolderProblem(const std::filesystem::path& folder) {
     std::error_code ec;
     if (folder.empty() || !std::filesystem::is_directory(folder, ec)) return "that folder does not exist";
-    for (const auto& entry : std::filesystem::directory_iterator(folder, ec)) {
+    bool exe = false;
+    forEachEntry(folder, [&exe](const std::filesystem::directory_entry& entry) {
         std::error_code entryError;
-        if (lower(pathToUtf8(entry.path().extension())) == ".exe" && entry.is_regular_file(entryError)) return {};
-    }
-    return "no .exe in that folder: pick the folder that holds the game's .exe";
+        if (lower(pathToUtf8(entry.path().extension())) == ".exe" && entry.is_regular_file(entryError)) exe = true;
+    });
+    return exe ? std::string() : "no .exe in that folder: pick the folder that holds the game's .exe";
 }
 
 const char* shimStateName(const ShimState state) {

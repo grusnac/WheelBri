@@ -86,5 +86,13 @@ TEST_F(ShimGamesFiles, AnotherModsDllIsLeftAlone) {
     EXPECT_EQ(read(game() / kShimDll), "someone else's proxy");
 }
 
+TEST_F(ShimGamesFiles, LinesThatAreNotUtf8AreSkipped) {
+    const auto file = dir_ / "shim-games.txt";
+    write(file, "game\tBad\t" + std::string("C:\\Spiele\\\xFC") + "\ngame\tGood\t" + pathToUtf8(game()) + "\n");
+    const ShimGameList list = readShimGames(file);
+    ASSERT_EQ(list.games.size(), 1U);
+    EXPECT_EQ(list.games[0].folder, game());
+}
+
 }  // namespace
 }  // namespace wheelbri

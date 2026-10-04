@@ -5,13 +5,12 @@
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceMatch.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
+#include "wheelbri/FileText.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <algorithm>
 #include <array>
-#include <fstream>
-#include <sstream>
 #include <utility>
 
 namespace wheelbri::service {
@@ -52,12 +51,10 @@ std::string fit(std::string text, const std::size_t chars) {
     return text;
 }
 
+// `path` is UTF-8 (as the picker keeps it).
 std::string readFile(const std::string& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return {};
-    std::stringstream text;
-    text << file.rdbuf();
-    return text.str();
+    const std::filesystem::path file = pathFromUtf8(path);
+    return readFileText(file.empty() ? std::filesystem::path(path) : file).value_or(std::string());
 }
 
 DeviceId idOf(const DeviceLabels& labels) { return {labels.vendorId, labels.productId}; }
@@ -146,20 +143,20 @@ void MappingEditView::save() {
     const std::filesystem::path target = builtIn_ ? picker_.ownPath() : std::filesystem::path(path_);
     std::error_code ec;
     std::filesystem::create_directories(target.parent_path(), ec);
-    std::ofstream file(target, std::ios::binary | std::ios::trunc);
+    std::string text;
     if (builtIn_) {
-        file << "; WheelBri: your own mapping for the " << ConfigPicker::name(picker_.way())
-             << " (the Mapping tab's Save; Default deletes it)\r\n";
+        text = std::string("; WheelBri: your own mapping for the ") + ConfigPicker::name(picker_.way()) +
+               " (the Mapping tab's Save; Default deletes it)\r\n";
     }
-    file << written.text;
-    file.close();
-    if (!file) {
-        status_ = "Could not write " + target.string();
+    text += written.text;
+    // Written next to it and then swapped in, so a full disk or a crash never leaves half a mapping.
+    if (!writeFileReplacing(target, text)) {
+        status_ = "Could not write " + pathToUtf8(target);
         statusError_ = true;
         WE_LOG_ERROR(log(), "mapping: {}", status_);
         return;
     }
-    WE_LOG_INFO(log(), "mapping: saved {}", target.string());
+    WE_LOG_INFO(log(), "mapping: saved {}", pathToUtf8(target));
     if (builtIn_) {
         picker_.refresh();   // Start uses the own file from now on
         update();
@@ -288,6 +285,7 @@ void MappingEditView::onClick(const float x, const float y) {
     for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
         if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
             const auto action = it->action;   // a copy: the list belongs to the last draw
+            hits_.clear();                    // stale until the next draw: a second click before it does nothing
             action();
             return;
         }

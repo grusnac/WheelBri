@@ -12,6 +12,7 @@ struct AnsiTraits {
     using Device = IDirectInputDevice8A;
     using DeviceInstance = DIDEVICEINSTANCEA;
     using DeviceObjectInstance = DIDEVICEOBJECTINSTANCEA;
+    using DeviceObjectInstanceDx3 = DIDEVICEOBJECTINSTANCE_DX3A;   // the shorter struct older games still pass
     using EffectInfo = DIEFFECTINFOA;
     using EnumDevicesCallback = LPDIENUMDEVICESCALLBACKA;
     using EnumObjectsCallback = LPDIENUMDEVICEOBJECTSCALLBACKA;
@@ -32,6 +33,7 @@ struct WideTraits {
     using Device = IDirectInputDevice8W;
     using DeviceInstance = DIDEVICEINSTANCEW;
     using DeviceObjectInstance = DIDEVICEOBJECTINSTANCEW;
+    using DeviceObjectInstanceDx3 = DIDEVICEOBJECTINSTANCE_DX3W;
     using EffectInfo = DIEFFECTINFOW;
     using EnumDevicesCallback = LPDIENUMDEVICESCALLBACKW;
     using EnumObjectsCallback = LPDIENUMDEVICEOBJECTSCALLBACKW;

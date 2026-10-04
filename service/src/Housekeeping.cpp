@@ -1,10 +1,20 @@
 #include "Housekeeping.hpp"
 
+#include "Platform.hpp"
 #include "wheelbri/Logging.hpp"
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <shlobj.h>
+#endif
 
 #include <cstdio>
 #include <cstdlib>
 #include <system_error>
+#include <vector>
 
 namespace wheelbri::service {
 
@@ -13,11 +23,6 @@ namespace {
 const logging::Logger& log() {
     static const logging::Logger logger = logging::get("service.files");
     return logger;
-}
-
-std::string envOrEmpty(const char* name) {
-    const char* const value = std::getenv(name);
-    return value != nullptr ? value : "";
 }
 
 // UTF-8 for the process starter (which converts back on Windows), whatever the ANSI code page is.
@@ -31,30 +36,46 @@ bool isFile(const std::filesystem::path& path) {
     return std::filesystem::is_regular_file(path, ec);
 }
 
-// First `name` on PATH (with .exe on Windows).
-std::optional<std::filesystem::path> onPath(const std::string& name) {
+// The folders on PATH. Not when running as Administrator (only possible on Windows): PATH can hold folders any program
+// of the user can write to, and a planted "xz.exe" would then run as Administrator. A standard user runs what is on
+// their own PATH anyway.
+std::vector<std::filesystem::path> pathFolders() {
+    std::vector<std::filesystem::path> folders;
+    if (platform::isElevated()) {
 #if defined(_WIN32)
-    constexpr char kSeparator = ';';
-    const std::string file = name + ".exe";
-#else
-    constexpr char kSeparator = ':';
-    const std::string& file = name;
+        return folders;
 #endif
-    const std::string path = envOrEmpty("PATH");
+    }
+#if defined(_WIN32)
+    const wchar_t* const value = _wgetenv(L"PATH");
+    const std::wstring path = value != nullptr ? value : L"";
+    constexpr wchar_t kSeparator = L';';
+#else
+    const char* const value = std::getenv("PATH");
+    const std::string path = value != nullptr ? value : "";
+    constexpr char kSeparator = ':';
+#endif
     std::size_t begin = 0;
     while (begin <= path.size()) {
         const std::size_t end = path.find(kSeparator, begin);
-        const std::string folder = path.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
-        if (!folder.empty()) {
-            const std::filesystem::path candidate = std::filesystem::path(folder) / file;
-            if (isFile(candidate)) {
-                return candidate;
-            }
-        }
-        if (end == std::string::npos) {
-            break;
-        }
+        const auto folder = path.substr(begin, end == decltype(path)::npos ? decltype(path)::npos : end - begin);
+        if (!folder.empty()) folders.emplace_back(folder);
+        if (end == decltype(path)::npos) break;
         begin = end + 1;
+    }
+    return folders;
+}
+
+// First `name` (with .exe on Windows) in pathFolders().
+std::optional<std::filesystem::path> onPath(const std::string& name) {
+#if defined(_WIN32)
+    const std::string file = name + ".exe";
+#else
+    const std::string& file = name;
+#endif
+    for (const std::filesystem::path& folder : pathFolders()) {
+        const std::filesystem::path candidate = folder / file;
+        if (isFile(candidate)) return candidate;
     }
     return std::nullopt;
 }
@@ -66,11 +87,15 @@ std::optional<std::filesystem::path> findSevenZip() {
         }
     }
 #if defined(_WIN32)
-    // The 7-Zip installer does not add itself to PATH.
-    for (const char* variable : {"ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"}) {
-        const std::string root = envOrEmpty(variable);
-        if (!root.empty() && isFile(std::filesystem::path(root) / "7-Zip" / "7z.exe")) {
-            return std::filesystem::path(root) / "7-Zip" / "7z.exe";
+    // 7-Zip's installer does not add itself to PATH: its own folder, from Windows (not from environment variables).
+    for (const KNOWNFOLDERID& id : {FOLDERID_ProgramFilesX64, FOLDERID_ProgramFiles, FOLDERID_ProgramFilesX86}) {
+        PWSTR root = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(id, 0, nullptr, &root)) && root != nullptr) {
+            const std::filesystem::path candidate = std::filesystem::path(std::wstring(root)) / "7-Zip" / "7z.exe";
+            CoTaskMemFree(root);
+            if (isFile(candidate)) return candidate;
+        } else if (root != nullptr) {
+            CoTaskMemFree(root);
         }
     }
 #endif
@@ -83,19 +108,16 @@ std::optional<Archiver> find(const Archiver::Kind kind) {
         case Archiver::Kind::SevenZip: exe = findSevenZip(); break;
         case Archiver::Kind::Xz: exe = onPath("xz"); break;
         case Archiver::Kind::Zstd: exe = onPath("zstd"); break;
+        case Archiver::Kind::InfoZip: exe = onPath("zip"); break;
+        case Archiver::Kind::Gzip: exe = onPath("gzip"); break;
         case Archiver::Kind::WindowsZip:
 #if defined(_WIN32)
             // Windows 10 1803+ ships bsdtar, which writes .zip; use it by full path, not an MSYS2 tar on PATH.
-            if (const std::string root = envOrEmpty("SystemRoot"); !root.empty()) {
-                const auto tar = std::filesystem::path(root) / "System32" / "tar.exe";
-                if (isFile(tar)) {
-                    exe = tar;
-                }
+            if (const auto tar = platform::systemFolder() / "tar.exe"; isFile(tar)) {
+                exe = tar;
             }
 #endif
             break;
-        case Archiver::Kind::InfoZip: exe = onPath("zip"); break;
-        case Archiver::Kind::Gzip: exe = onPath("gzip"); break;
     }
     if (!exe) {
         return std::nullopt;

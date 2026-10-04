@@ -39,6 +39,19 @@ TEST(HidHideCli, DevicesAreDescribedForTheLog) {
     EXPECT_NE(described[1].find("gamingDevice false, present true"), std::string::npos);
 }
 
+TEST(HidHideCli, UnicodeEscapes) {
+    std::string json(kGaming);
+    const std::string name = "\"My Racing Wheel\"";
+    json.replace(json.find(name), name.size(), "\"My Racing Wh\\u00e9el\"");
+    EXPECT_EQ(gamingDevicesOf(json, "346E").size(), 1U);   // a proper escape: read as usual
+    std::string broken(kGaming);
+    broken.replace(broken.find(name), name.size(), "\"My \\uZZZZ Wheel\"");
+    EXPECT_TRUE(gamingDevicesOf(broken, "346E").empty());   // not four hex digits: broken JSON, no exception
+    std::string signedHex(kGaming);
+    signedHex.replace(signedHex.find(name), name.size(), "\"My \\u+0aB Wheel\"");
+    EXPECT_TRUE(gamingDevicesOf(signedHex, "346E").empty());
+}
+
 TEST(HidHideCli, BrokenJsonGivesNothing) {
     EXPECT_TRUE(gamingDevicesOf("[ { \"devices\" : [ { ", "346E").empty());
     EXPECT_TRUE(gamingDevicesOf("", "346E").empty());

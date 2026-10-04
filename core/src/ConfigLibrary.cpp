@@ -1,5 +1,7 @@
 #include "wheelbri/ConfigLibrary.hpp"
 
+#include "wheelbri/FileText.hpp"
+
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/IniEditor.hpp"
 
@@ -20,37 +22,22 @@ std::string lower(std::string_view text) {
     return out;
 }
 
-std::string pathText(const std::filesystem::path& path) {
-    const std::u8string text = path.u8string();
-    return std::string(text.begin(), text.end());
-}
+std::string pathText(const std::filesystem::path& path) { return pathToUtf8(path); }
 
-std::optional<std::string> readText(const std::filesystem::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return std::nullopt;
-    std::stringstream text;
-    text << file.rdbuf();
-    return text.str();
-}
+std::optional<std::string> readText(const std::filesystem::path& path) { return readFileText(path); }
 
-bool writeText(const std::filesystem::path& path, const std::string& text) {
-    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-    file << text;
-    file.close();
-    return static_cast<bool>(file);
-}
+bool writeText(const std::filesystem::path& path, const std::string& text) { return writeFileReplacing(path, text); }
 
 std::vector<ConfigEntry> listFolder(const std::filesystem::path& folder, const bool builtIn) {
     std::vector<ConfigEntry> found;
-    std::error_code ec;
-    if (folder.empty() || !std::filesystem::is_directory(folder, ec)) return found;
-    for (const auto& entry : std::filesystem::directory_iterator(folder, ec)) {
+    forEachEntry(folder, [&](const std::filesystem::directory_entry& entry) {
         std::error_code fileEc;
-        if (!entry.is_regular_file(fileEc) || lower(pathText(entry.path().extension())) != ".ini") continue;
+        if (!entry.is_regular_file(fileEc) || lower(pathText(entry.path().extension())) != ".ini") return;
         std::string name = pathText(entry.path().stem());
-        if (builtIn && lower(name).rfind("wheelbri-shim", 0) == 0) continue;   // the shim's settings, not a mapping
+        if (name.empty()) return;   // a name that cannot be shown
+        if (builtIn && lower(name).rfind("wheelbri-shim", 0) == 0) return;   // the shim's settings, not a mapping
         found.push_back({std::move(name), entry.path(), builtIn});
-    }
+    });
     std::sort(found.begin(), found.end(),
               [](const ConfigEntry& a, const ConfigEntry& b) { return lower(a.name) < lower(b.name); });
     return found;
@@ -225,13 +212,42 @@ ConfigResult resetConfig(const ConfigEntry& config, const std::vector<ConfigEntr
 std::string readAppSetting(const std::filesystem::path& stateFile, const std::string& key) {
     const std::optional<std::string> text = readText(stateFile);
     if (!text) return {};
-    return IniDocument::parse(*text).document.get("app", key).value_or("");
+    // Read raw, not through IniDocument: values are paths, and '#' or ';' in a folder name ("C:\Users\A#B") must not
+    // start a comment there. A line is `key = value`; everything after the first '=' is the value, trimmed.
+    const auto trim = [](std::string_view v) {
+        while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.remove_prefix(1);
+        while (!v.empty() && (v.back() == ' ' || v.back() == '\t' || v.back() == '\r')) v.remove_suffix(1);
+        return v;
+    };
+    bool inApp = false;
+    std::string_view rest(*text);
+    while (!rest.empty()) {
+        const std::size_t end = rest.find('\n');
+        const std::string_view line = trim(rest.substr(0, end));
+        rest = end == std::string_view::npos ? std::string_view() : rest.substr(end + 1);
+        if (line.empty() || line.front() == ';' || line.front() == '#') continue;
+        if (line.front() == '[') {
+            inApp = lower(std::string(trim(line.substr(1, line.find(']') == std::string_view::npos
+                                                                ? std::string_view::npos
+                                                                : line.find(']') - 1)))) == "app";
+            continue;
+        }
+        const std::size_t equals = line.find('=');
+        if (!inApp || equals == std::string_view::npos) continue;
+        if (lower(std::string(trim(line.substr(0, equals)))) == lower(key)) {
+            return std::string(trim(line.substr(equals + 1)));
+        }
+    }
+    return {};
 }
 
 bool writeAppSetting(const std::filesystem::path& stateFile, const std::string& key, const std::string& value) {
+    std::optional<std::string> text = readText(stateFile);
     std::error_code ec;
-    std::filesystem::create_directories(stateFile.parent_path(), ec);
-    IniEditor ini(readText(stateFile).value_or("; WheelBri app state: what was picked in the app. Safe to delete.\n"));
+    if (!text && std::filesystem::exists(stateFile, ec)) {
+        return false;   // there but unreadable for now (another program has it): writing would lose its other settings
+    }
+    IniEditor ini(text.value_or("; WheelBri app state: what was picked in the app. Safe to delete.\n"));
     ini.set("app", key, value);
     return writeText(stateFile, ini.text());
 }

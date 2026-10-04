@@ -4,6 +4,7 @@
 
 #include <array>
 #include <chrono>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -79,6 +80,72 @@ TEST(UdpLoopback, RawDatagramsArriveInOrder) {
     EXPECT_EQ(sizes[0], 3U);
     EXPECT_EQ(sizes[1], 2U);
     EXPECT_FALSE(listener->receive(buffer).has_value());
+}
+
+TEST(UdpLoopback, PollReadsAtMostItsCapAndTheRestWaits) {
+    constexpr std::uint16_t kPort = 41997;
+    const auto receiver = UdpLoopbackReceiver::create(kPort);
+    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    ASSERT_NE(receiver, nullptr);
+    ASSERT_NE(publisher, nullptr);
+    constexpr std::uint32_t kSent = 160;   // well within the socket buffer (Linux keeps about 270 of these)
+    for (std::uint32_t sequence = 1; sequence <= kSent; ++sequence) {
+        StatePacket packet;
+        packet.sequence = sequence;
+        ASSERT_TRUE(publisher->publish(packet));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const auto first = receiver->pollLatest();
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->sequence, UdpLoopbackReceiver::kMaxPerPoll);   // one call stops after its share
+    std::optional<StatePacket> last;
+    for (int i = 0; i < 20; ++i) {
+        if (auto packet = receiver->pollLatest()) last = packet;
+    }
+    ASSERT_TRUE(last.has_value());
+    EXPECT_EQ(last->sequence, kSent);   // the later calls get the rest
+}
+
+TEST(UdpLoopback, SenderFilterDropsRefusedSenders) {
+    constexpr std::uint16_t kPort = 41996;
+    const auto receiver = UdpLoopbackReceiver::create(kPort);
+    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    ASSERT_NE(receiver, nullptr);
+    ASSERT_NE(publisher, nullptr);
+    std::vector<std::uint16_t> senders;
+    receiver->setSenderFilter([&](const std::uint16_t port) {
+        senders.push_back(port);
+        return false;
+    });
+    ASSERT_TRUE(publisher->publish(StatePacket{}));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_FALSE(receiver->pollLatest().has_value());
+    ASSERT_EQ(senders.size(), 1U);
+    EXPECT_NE(senders[0], 0);
+    receiver->setSenderFilter([](std::uint16_t) { return true; });
+    ASSERT_TRUE(publisher->publish(StatePacket{}));
+    EXPECT_TRUE(pollWithTimeout(*receiver).has_value());
+}
+
+TEST(UdpLoopback, ListenerTellsTheSendersPort) {
+    constexpr std::uint16_t kPort = 41995;
+    const auto listener = UdpLoopbackListener::create(kPort);
+    const auto sender = UdpLoopbackSender::create(kPort);
+    ASSERT_NE(listener, nullptr);
+    ASSERT_NE(sender, nullptr);
+    const std::array<std::uint8_t, 1> byte = {7};
+    ASSERT_TRUE(sender->send(byte));
+    std::array<std::uint8_t, 4> buffer{};
+    std::uint16_t from = 0;
+    std::optional<std::size_t> size;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (!size && std::chrono::steady_clock::now() < deadline) {
+        size = listener->receive(buffer, &from);
+        if (!size) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(size.has_value());
+    EXPECT_NE(from, 0);
+    EXPECT_NE(from, kPort);
 }
 
 }  // namespace

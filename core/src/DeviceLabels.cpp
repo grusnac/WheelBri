@@ -1,3 +1,4 @@
+#include "wheelbri/FileText.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 
 #include "wheelbri/IniEditor.hpp"
@@ -30,7 +31,7 @@ void readLabels(const IniDocument& ini, const std::string& section, const std::s
         if (label.size() > DeviceLabels::kMaxLabel) {
             errors.push_back("[" + section + "] " + key + " = '" + label + "': at most " +
                              std::to_string(DeviceLabels::kMaxLabel) + " characters");
-            label.resize(DeviceLabels::kMaxLabel);
+            label = truncateUtf8(std::move(label), DeviceLabels::kMaxLabel);
         }
         labels[i] = std::move(label);
     }
@@ -130,19 +131,16 @@ std::string writeDeviceLabels(const std::string_view base, const DeviceLabels& l
 
 std::vector<DeviceLabels> listDeviceLabels(const std::filesystem::path& folder) {
     std::vector<DeviceLabels> found;
-    std::error_code ec;
-    if (folder.empty() || !std::filesystem::is_directory(folder, ec)) return found;
-    for (const auto& entry : std::filesystem::directory_iterator(folder, ec)) {
+    forEachEntry(folder, [&found](const std::filesystem::directory_entry& entry) {
         std::error_code fileEc;
-        if (!entry.is_regular_file(fileEc) || entry.path().extension() != ".ini") continue;
-        std::ifstream file(entry.path(), std::ios::binary);
-        std::stringstream text;
-        text << file.rdbuf();
-        const auto parsed = IniDocument::parse(text.str());
+        if (!entry.is_regular_file(fileEc) || entry.path().extension() != ".ini") return;
+        const std::optional<std::string> text = readFileText(entry.path());
+        if (!text) return;
+        const auto parsed = IniDocument::parse(*text);
         const auto loaded = loadDeviceLabels(parsed.document);
-        if (loaded.labels.vendorId == 0 && loaded.labels.productId == 0) continue;
+        if (loaded.labels.vendorId == 0 && loaded.labels.productId == 0) return;
         found.push_back(loaded.labels);
-    }
+    });
     std::sort(found.begin(), found.end(), [](const DeviceLabels& a, const DeviceLabels& b) {
         return lower(a.name) != lower(b.name) ? lower(a.name) < lower(b.name)
                                               : deviceId(a.vendorId, a.productId) < deviceId(b.vendorId, b.productId);

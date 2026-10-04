@@ -38,6 +38,15 @@ bool raiseThreadPriority(std::string& error);
 
 // The running program's own file, empty if unknown.
 [[nodiscard]] std::filesystem::path executablePath();
+// Windows' System32 folder, from Windows itself (not from an environment variable a user could change); "/usr/bin"
+// elsewhere.
+[[nodiscard]] std::filesystem::path systemFolder();
+
+// Windows: the process that owns IPv4 UDP port `port` (bound to 127.0.0.1 or any address): its id, 0 when no process
+// owns it (any more), nullopt when the system could not say. Elsewhere always nullopt. For SenderGate.
+[[nodiscard]] std::optional<std::uint32_t> udpPortOwner(std::uint16_t port);
+// Windows: the full path of process `pid`'s program; empty when it cannot be read (and on other systems).
+[[nodiscard]] std::filesystem::path processImage(std::uint32_t pid);
 
 // Only one wheelbri-service session at a time on this computer: two would both read the wheel, both send state to
 // the same port (the game would get both, interleaved) and both create the virtual devices. Held while it lives.
@@ -84,6 +93,9 @@ public:
     void kill();
     // Lets it run on by itself: neither this object nor this process ending stops it any more.
     void release();
+    // Like release(), but poll() still reports its exit: for a child that must never be cut off halfway (an installer
+    // changing a device's driver), even when this process ends first.
+    void keepRunningAfterExit();
 
 private:
     struct Impl;

@@ -1,3 +1,4 @@
+#include "wheelbri/FileText.hpp"
 #include "wheelbri/Rig.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
@@ -50,7 +51,7 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
     control.label = parts[0];
     if (control.label.size() > DeviceLabels::kMaxLabel) {
         error = "at most " + std::to_string(DeviceLabels::kMaxLabel) + " characters in a name";
-        control.label.resize(DeviceLabels::kMaxLabel);
+        control.label = truncateUtf8(std::move(control.label), DeviceLabels::kMaxLabel);
     }
     for (std::size_t i = 1; i < parts.size(); ++i) {
         if (lower(parts[i]) == "invert") {
@@ -71,13 +72,7 @@ std::string controlText(const RigControl& control) {
     return text;
 }
 
-std::optional<std::string> readFile(const std::filesystem::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return std::nullopt;
-    std::stringstream text;
-    text << file.rdbuf();
-    return text.str();
-}
+std::optional<std::string> readFile(const std::filesystem::path& path) { return readFileText(path); }
 
 }  // namespace
 
@@ -234,14 +229,13 @@ RigDevice rigDeviceFrom(const DeviceLabels& labels) {
 
 std::vector<std::string> listRigs(const std::filesystem::path& folder) {
     std::vector<std::string> names;
-    std::error_code ec;
-    if (folder.empty() || !std::filesystem::is_directory(folder, ec)) return names;
-    for (const auto& entry : std::filesystem::directory_iterator(folder, ec)) {
+    forEachEntry(folder, [&names](const std::filesystem::directory_entry& entry) {
         std::error_code fileEc;
-        if (entry.is_regular_file(fileEc) && lower(entry.path().extension().string()) == ".ini") {
-            names.push_back(entry.path().stem().string());
+        if (entry.is_regular_file(fileEc) && lower(pathToUtf8(entry.path().extension())) == ".ini") {
+            const std::string name = pathToUtf8(entry.path().stem());
+            if (!name.empty()) names.push_back(name);
         }
-    }
+    });
     std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) { return lower(a) < lower(b); });
     return names;
 }
@@ -258,12 +252,7 @@ std::optional<Rig> readRig(const std::filesystem::path& folder, const std::strin
 }
 
 bool saveRig(const std::filesystem::path& folder, const std::string& name, const Rig& rig) {
-    std::error_code ec;
-    std::filesystem::create_directories(folder, ec);
-    std::ofstream file(folder / (name + ".ini"), std::ios::binary | std::ios::trunc);
-    file << writeRig(rig, name);
-    file.close();
-    return static_cast<bool>(file);
+    return writeFileReplacing(folder / (name + ".ini"), writeRig(rig, name));
 }
 
 std::string renameRig(const std::filesystem::path& folder, const std::string& oldName, const std::string& name) {

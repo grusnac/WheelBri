@@ -42,4 +42,8 @@ private:
     logging::CallSampler statusSampler_{5, 1000};
 };
 
+// Replaces the real effect in *out with a ProxyEffect around it. *out is cleared first, so if the wrapper cannot be
+// made the game never gets the unwrapped object: the real effect is released and the exception goes on to guarded().
+void wrapRealEffect(LPDIRECTINPUTEFFECT* out, const GUID& type, const std::string& deviceLabel);
+
 }  // namespace wheelbri::shim

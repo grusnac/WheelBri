@@ -37,21 +37,87 @@ function Find-BuiltPackage([string]$folder, [string]$name, [string]$configuratio
     return $inf
 }
 
-# Trusts the certificate that signed the package's catalog (Root and TrustedPublisher of this PC).
+# Where the install records the thumbprint of each certificate it trusted (one value per thumbprint, the subject as
+# its data), so that removing "our" certificate removes exactly those and never another one that happens to have a
+# similar name (every WDK test certificate is called WDKTestCert).
+$script:SigningCertificatesKey = 'HKLM:\SOFTWARE\wheelbri\SigningCertificates'
+
+# Trusts the certificate that signed the package's catalog (Root and TrustedPublisher of this PC) and records its
+# thumbprint. Added straight from memory: no .cer file in %TEMP%, which another process of this user could replace
+# between writing and importing it.
 function Add-PackageCertificate($inf, [string]$name) {
     $cat = Join-Path $inf.DirectoryName "$name.cat"
     $signature = Get-AuthenticodeSignature $cat
     if (-not $signature.SignerCertificate) { Stop-WithError "The catalog is not signed: $cat" }
-    $cer = Join-Path $env:TEMP "$name.cer"
-    [IO.File]::WriteAllBytes($cer, $signature.SignerCertificate.Export('Cert'))
-    foreach ($store in 'Root', 'TrustedPublisher') {
+    $certificate = $signature.SignerCertificate
+    foreach ($storeName in 'Root', 'TrustedPublisher') {
         try {
-            Import-Certificate -FilePath $cer -CertStoreLocation "Cert:\LocalMachine\$store" | Out-Null
+            $store = New-Object Security.Cryptography.X509Certificates.X509Store($storeName, 'LocalMachine')
+            $store.Open('ReadWrite')
+            try { $store.Add($certificate) } finally { $store.Close() }
         } catch {
-            Stop-WithError "Cannot trust the signing certificate in $store`: $($_.Exception.Message)"
+            Stop-WithError "Cannot trust the signing certificate in $storeName`: $($_.Exception.Message)"
         }
     }
-    Write-Host "trusted on this PC: $($signature.SignerCertificate.Subject) ($($signature.SignerCertificate.Thumbprint))"
+    try {
+        if (-not (Test-Path $script:SigningCertificatesKey)) { New-Item -Path $script:SigningCertificatesKey -Force | Out-Null }
+        Set-ItemProperty -Path $script:SigningCertificatesKey -Name $certificate.Thumbprint -Value $certificate.Subject
+    } catch {
+        Write-Host ("could not record the certificate's thumbprint ($($_.Exception.Message)); removing it later finds " +
+                    'it from the signed packages instead') -ForegroundColor Yellow
+    }
+    Write-Host "trusted on this PC: $($certificate.Subject) ($($certificate.Thumbprint))"
+}
+
+# The thumbprints of the certificates that signed our driver packages <names> (e.g. 'wheelbri-g920'): the ones
+# recorded at install (above), the signers of the installed packages' catalogs (in Windows' driver store, so look
+# before removing the packages) and the signers of the catalogs under <folders> (a package's or install folder's
+# driver\, the repository's). Never a certificate found by its name: other drivers on this PC may be test-signed too.
+function Get-SigningThumbprints([string[]]$names, [string[]]$folders = @()) {
+    $thumbprints = @()
+    $recorded = Get-Item -Path $script:SigningCertificatesKey -ErrorAction SilentlyContinue
+    if ($recorded) { $thumbprints += @($recorded.GetValueNames()) }
+    $catalogs = @()
+    try {
+        $catalogs += @(Get-WindowsDriver -Online -ErrorAction Stop |
+            Where-Object { $_.OriginalFileName -and ($names -contains [IO.Path]::GetFileNameWithoutExtension($_.OriginalFileName)) } |
+            ForEach-Object { Get-ChildItem (Split-Path $_.OriginalFileName) -Filter '*.cat' -ErrorAction SilentlyContinue })
+    } catch {
+        Write-Host "Get-WindowsDriver is not available ($($_.Exception.Message)); looking only at the recorded and packaged certificates" -ForegroundColor Yellow
+    }
+    foreach ($folder in @($folders | Where-Object { $_ -and (Test-Path $_) })) {
+        $catalogs += @(Get-ChildItem $folder -Recurse -Filter '*.cat' -ErrorAction SilentlyContinue |
+                       Where-Object { $names -contains $_.BaseName })
+    }
+    foreach ($catalog in $catalogs) {
+        $signer = (Get-AuthenticodeSignature $catalog.FullName).SignerCertificate
+        if ($signer) { $thumbprints += $signer.Thumbprint }
+    }
+    return @($thumbprints | Where-Object { $_ -match '^[0-9A-Fa-f]{40}$' } | ForEach-Object { $_.ToUpper() } | Sort-Object -Unique)
+}
+
+# Removes the certificates <thumbprints> from LocalMachine Root and TrustedPublisher, and their record. Returns how
+# many could not be removed.
+function Remove-SigningCertificates([string[]]$thumbprints) {
+    $failed = 0
+    foreach ($thumbprint in $thumbprints) {
+        foreach ($store in 'Root', 'TrustedPublisher') {
+            $path = "Cert:\LocalMachine\$store\$thumbprint"
+            $certificate = Get-Item -Path $path -ErrorAction SilentlyContinue
+            if (-not $certificate) { continue }
+            Remove-Item -Path $path -Force -ErrorAction SilentlyContinue
+            if (Test-Path $path) {
+                Write-Host "could not remove certificate $($certificate.Subject) ($thumbprint) from $store" -ForegroundColor Yellow
+                $failed++
+            } else {
+                Write-Host "removed certificate $($certificate.Subject) ($thumbprint) from $store"
+            }
+        }
+        if (-not (Test-Path "Cert:\LocalMachine\Root\$thumbprint") -and -not (Test-Path "Cert:\LocalMachine\TrustedPublisher\$thumbprint")) {
+            Remove-ItemProperty -Path $script:SigningCertificatesKey -Name $thumbprint -ErrorAction SilentlyContinue
+        }
+    }
+    return $failed
 }
 
 # The published names (oemNN.inf) of the installed packages whose original file is <name>.inf. Uses DISM's view,
@@ -113,4 +179,101 @@ function Remove-InstalledPackages([string]$name) {
         Invoke-Pnputil @('/delete-driver', $package, '/uninstall', '/force') "removing $package" | Out-Null
     }
     return $packages.Count
+}
+
+# --- The install folder (install.ps1, uninstall.ps1, scripts/make/clean-pc.ps1) -----------------------------------
+# installed-files.txt in the install folder lists, one relative path per line, every file the installer put there.
+# Removing an install deletes those files and WheelBri's own subfolders, then the folders left empty: never a whole
+# folder judged only by one file in it. An install from before the list existed is removed whole (the callers have
+# checked that it holds wheelbri.exe). Nothing here follows a link (junction, symbolic link): a link is removed as a
+# link, never entered, because what it points to could be anywhere on the PC (Windows PowerShell 5.1's
+# Remove-Item -Recurse would delete what a directory link points to).
+$script:InstallManifest = 'installed-files.txt'
+$script:InstallSubfolders = @('config', 'driver', 'shim')   # only WheelBri's files are in these
+
+function Test-Link($item) { return ([int]$item.Attributes -band 0x400) -ne 0 }   # FILE_ATTRIBUTE_REPARSE_POINT
+
+# A manifest line that stays inside the install folder: relative, without a drive, "." or "..".
+function Test-ManifestEntry([string]$entry) {
+    try {
+        if (-not $entry -or [IO.Path]::IsPathRooted($entry) -or $entry.Contains(':') -or $entry.Contains('/')) { return $false }
+    } catch { return $false }   # characters a path cannot have
+    return @($entry -split '\\' | Where-Object { $_ -in @('', '.', '..') }).Count -eq 0
+}
+
+# Whether <root>\<relative> is reached through no link (the last part included).
+function Test-NoLinkBelow([string]$root, [string]$relative) {
+    $path = $root
+    foreach ($part in ($relative -split '\\')) {
+        $path = Join-Path $path $part
+        $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        if ($item -and (Test-Link $item)) { return $false }
+    }
+    return $true
+}
+
+# Deletes a file or a folder with everything in it, without following links. Errors are ignored: the caller checks
+# what is left.
+function Remove-Tree([string]$path) {
+    $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    if (-not $item) { return }
+    try {
+        if ($item.PSIsContainer -and -not (Test-Link $item)) {
+            foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force -ErrorAction SilentlyContinue)) {
+                Remove-Tree $child.FullName
+            }
+            [IO.Directory]::Delete($item.FullName)
+        } elseif ($item.PSIsContainer) {
+            [IO.Directory]::Delete($item.FullName)   # a junction or directory link: the link only
+        } else {
+            if (-not (Test-Link $item) -and $item.IsReadOnly) { $item.IsReadOnly = $false }
+            [IO.File]::Delete($item.FullName)        # a file link: the link only
+        }
+    } catch { }
+}
+
+# Deletes the folders under <folder> (and <folder>) that are empty, deepest first; links are left alone.
+function Remove-EmptyFolders([string]$folder) {
+    foreach ($child in @(Get-ChildItem -LiteralPath $folder -Directory -Force -ErrorAction SilentlyContinue)) {
+        if (-not (Test-Link $child)) { Remove-EmptyFolders $child.FullName }
+    }
+    if (@(Get-ChildItem -LiteralPath $folder -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+        try { [IO.Directory]::Delete($folder) } catch { }
+    }
+}
+
+# Removes an installation's files from <folder> (see above). Returns $true when the folder is gone. A folder that is
+# a link itself is not touched (returns $false).
+function Remove-InstallFolder([string]$folder) {
+    $item = Get-Item -LiteralPath $folder -Force -ErrorAction SilentlyContinue
+    if (-not $item) { return $true }
+    if (Test-Link $item) {
+        Write-Host "    $folder is a link (junction or symbolic link): not removed" -ForegroundColor Yellow
+        return $false
+    }
+    $folder = $item.FullName.TrimEnd('\')
+    $manifest = Join-Path $folder $script:InstallManifest
+    if (Test-Path -LiteralPath $manifest -PathType Leaf) {
+        foreach ($entry in @(Get-Content -LiteralPath $manifest)) {
+            $entry = $entry.Trim()
+            if (-not (Test-ManifestEntry $entry)) { continue }
+            if (-not (Test-NoLinkBelow $folder $entry)) {
+                Write-Host "    skipped $entry`: it is reached through a link" -ForegroundColor Yellow
+                continue
+            }
+            $path = Join-Path $folder $entry
+            if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Tree $path }
+        }
+        foreach ($subfolder in $script:InstallSubfolders) { Remove-Tree (Join-Path $folder $subfolder) }
+        # The list goes last, and only with everything it names: a later install or uninstall still knows the rest.
+        if (Test-Path -LiteralPath $manifest -PathType Leaf) {
+            $left = @(Get-Content -LiteralPath $manifest | ForEach-Object { $_.Trim() } |
+                      Where-Object { (Test-ManifestEntry $_) -and (Test-Path -LiteralPath (Join-Path $folder $_)) })
+            if ($left.Count -eq 0) { Remove-Tree $manifest }
+        }
+        Remove-EmptyFolders $folder
+    } else {
+        Remove-Tree $folder
+    }
+    return -not (Test-Path -LiteralPath $folder)
 }

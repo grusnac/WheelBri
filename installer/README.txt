@@ -63,7 +63,7 @@ Any of these (they all run the same uninstaller and ask for Administrator):
 - Start menu > WheelBri > Uninstall WheelBri;
 - Settings > Apps > Installed apps > WheelBri > Uninstall;
 - Uninstall.cmd in C:\Program Files\WheelBri.
-It asks to confirm, whether to keep your settings (copied to C:\ProgramData\wheelbri\config-backup) and whether to
+It asks to confirm, whether to keep your settings (copied to %LOCALAPPDATA%\wheelbri\config-backup) and whether to
 remove the drivers' certificate, then closes a running WheelBri and removes the drivers, shortcuts, the
 Settings > Apps entry and the program folder. Logs stay in %LOCALAPPDATA%\wheelbri\logs.
 

@@ -159,6 +159,33 @@ TEST(EvdevLayout, NumbersLikeSdl) {
     EXPECT_TRUE(layout.apply(evdev::kEvSyn, evdev::kSynDropped, 0));
 }
 
+TEST(EvdevLayout, ExtremeRangesStayInRange) {
+    evdev::Capabilities caps;
+    caps.keys.set(0x120);
+    for (const int code : {0x00, 0x01, 0x02}) caps.axes.set(static_cast<std::size_t>(code));
+    caps.absInfo[0x00] = {0, std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::max(), 0, 0, 0};
+    caps.absInfo[0x01] = {0, 5, 5, 0, 0, 0};       // no range at all
+    caps.absInfo[0x02] = {0, 100, -100, 0, 0, 0};  // backwards
+    evdev::Layout layout(caps);
+    for (const std::int32_t value : {std::numeric_limits<std::int32_t>::min(), 0, std::numeric_limits<std::int32_t>::max()}) {
+        layout.apply(evdev::kEvAbs, 0x00, value);
+        layout.apply(evdev::kEvAbs, 0x01, value);
+        layout.apply(evdev::kEvAbs, 0x02, value);
+        RawInputState state;
+        layout.fill(state);
+        for (int axis = 0; axis < 3; ++axis) {
+            EXPECT_GE(state.axes[static_cast<std::size_t>(axis)], -1.0F);
+            EXPECT_LE(state.axes[static_cast<std::size_t>(axis)], 1.0F);
+            EXPECT_GE(layout.axisValue(axis), -32768);
+            EXPECT_LE(layout.axisValue(axis), 32767);
+        }
+    }
+    layout.apply(evdev::kEvAbs, 0x00, std::numeric_limits<std::int32_t>::max());
+    RawInputState state;
+    layout.fill(state);
+    EXPECT_FLOAT_EQ(state.axes[0], 1.0F);
+}
+
 TEST(EvdevLayout, KeyboardsMiceAndTouchPadsAreNotControllers) {
     evdev::Capabilities keyboard;
     keyboard.keys.set(30);   // KEY_A

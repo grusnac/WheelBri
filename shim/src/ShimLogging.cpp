@@ -6,7 +6,9 @@
 
 #include <windows.h>
 
+#include <atomic>
 #include <mutex>
+#include <optional>
 #include <string>
 
 namespace wheelbri::shim {
@@ -14,6 +16,9 @@ namespace wheelbri::shim {
 namespace {
 
 std::once_flag gInitOnce;
+// Set once logging::init has run. onDllDetach checks it so an unload before the first export call never
+// creates a logger inside DllMain.
+std::atomic<bool> gInitialised{false};
 
 std::wstring modulePath(HMODULE module) {
     wchar_t path[MAX_PATH] = {};
@@ -38,6 +43,56 @@ std::wstring dllDirectory() {
 
 namespace {
 
+bool isAscii(const std::wstring& text) {
+    for (const wchar_t c : text) {
+        if (c > 0x7F) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The folder (with a trailing separator) as a pure ASCII name, or nullopt.
+//
+// The log file's name goes through two readers that disagree on non-ASCII bytes: logging::init hands it to
+// std::filesystem (libstdc++ on Windows reads narrow names as UTF-8) and spdlog, built with narrow file names,
+// opens it with fopen (the ANSI code page). So a user folder with an accent (C:\Users\Jose with an acute e)
+// gave no log: in UTF-8 fopen looks for a folder that does not exist, and an ANSI name fails or means something
+// else in std::filesystem. Only ASCII reads the same in both, so the shim uses the folder's 8.3 short name
+// (GetShortPathNameW, kernel32 only: no new DLL dependency, and the spdlog build is left alone). The short name
+// exists only for an existing folder, so the folder is created here first. On a volume with 8.3 names turned
+// off the long name comes back, which is not ASCII: the caller then falls back to UTF-8 as before (no log, but
+// nothing worse; with the system code page set to UTF-8 that fallback even works).
+std::optional<std::string> asciiFolder(std::wstring folder) {
+    while (!folder.empty() && (folder.back() == L'\\' || folder.back() == L'/')) {
+        folder.pop_back();
+    }
+    if (folder.size() < 3) {
+        return std::nullopt;
+    }
+    // Create each missing level (only wheelbri\logs is ever new). A failure shows up as no short name below.
+    for (std::size_t slash = folder.find_first_of(L"\\/", 3);; slash = folder.find_first_of(L"\\/", slash + 1)) {
+        CreateDirectoryW(folder.substr(0, slash).c_str(), nullptr);
+        if (slash == std::wstring::npos) {
+            break;
+        }
+    }
+    const DWORD needed = GetShortPathNameW(folder.c_str(), nullptr, 0);
+    if (needed == 0) {
+        return std::nullopt;
+    }
+    std::wstring shortName(needed, L'\0');
+    const DWORD written = GetShortPathNameW(folder.c_str(), shortName.data(), needed);
+    if (written == 0 || written >= needed) {
+        return std::nullopt;
+    }
+    shortName.resize(written);
+    if (!isAscii(shortName)) {
+        return std::nullopt;
+    }
+    return toUtf8(shortName.c_str()) + "\\";   // ASCII: the same bytes in every encoding
+}
+
 // Next to the service's logs and telemetry (%LOCALAPPDATA%\wheelbri\logs), so every file is in one folder
 // that the service's window shows and its [retention] settings clean up. One file per day:
 // wheelbri-shim-YYYY-MM-DD.log. Falls back to the DLL's folder if LOCALAPPDATA is not set.
@@ -46,6 +101,11 @@ std::string logFilePath() {
     const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
     const std::wstring folder = length > 0 && length < MAX_PATH ? std::wstring(localAppData) + L"\\wheelbri\\logs\\"
                                                                 : dllDirectory();
+    if (!isAscii(folder)) {
+        if (const std::optional<std::string> narrow = asciiFolder(folder)) {
+            return *narrow + "wheelbri-shim.log";
+        }
+    }
     return toUtf8((folder + L"wheelbri-shim.log").c_str());
 }
 
@@ -59,6 +119,7 @@ void ensureLoggingInitialised() {
         config.flushLevel = "trace";
         config.periodicFlush = false;
         logging::init(config, logFilePath());
+        gInitialised = true;
 
         const logging::Logger log = logging::get("shim");
         WE_LOG_INFO(log, "wheelbri dinput8 proxy loaded into '{}' (pid {})", toUtf8(modulePath(nullptr).c_str()),
@@ -79,13 +140,17 @@ void ensureLoggingInitialised() {
     });
 }
 
-void onDllDetach(const bool processTerminating) {
-    if (processTerminating) {
+void onDllDetach(const bool processTerminating) noexcept {
+    // Never logged: nothing to flush, and creating a logger here would take locks and open files in DllMain.
+    if (processTerminating || !gInitialised.load()) {
         return;
     }
-    const logging::Logger log = logging::get("shim");
-    WE_LOG_INFO(log, "proxy unloaded by FreeLibrary");
-    logging::shutdown();
+    try {   // nothing may throw out of DllMain
+        const logging::Logger log = logging::get("shim");
+        WE_LOG_INFO(log, "proxy unloaded by FreeLibrary");
+        logging::shutdown();
+    } catch (...) {
+    }
 }
 
 logging::Logger logger(const char* component) {

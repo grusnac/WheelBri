@@ -185,6 +185,7 @@ public:
         if (width != bufferWidth_ || height != bufferHeight_ || buffer_ == nullptr) {
             makeBuffer(width, height);
         }
+        if (buffer_ == nullptr) return;   // Windows is out of drawing memory: nothing this frame, again next frame
         box_ = fitCanvas(width, height, logicalWidth_, logicalHeight_);
         updateFont();
         SetDCBrushColor(buffer_, rgb(background));
@@ -193,7 +194,7 @@ public:
     }
 
     void fill(const float x, const float y, const float w, const float h, const Colour colour) override {
-        if (w <= 0.0F || h <= 0.0F) {
+        if (w <= 0.0F || h <= 0.0F || buffer_ == nullptr) {
             return;
         }
         RECT rect{px(x), py(y), px(x + w), py(y + h)};
@@ -212,6 +213,7 @@ public:
     }
 
     void text(const float x, const float y, const std::string_view value, const Colour colour) override {
+        if (buffer_ == nullptr) return;
         const std::wstring wide = widen(value);
         if (wide.empty()) {
             return;
@@ -322,6 +324,7 @@ private:
                 closed_ = true;
                 return true;
             case WM_QUERYENDSESSION:   // logoff or shutdown asks: yes (the clean-up runs on WM_ENDSESSION)
+                if (queryEndSession_) queryEndSession_();
                 result = TRUE;
                 return true;
             case WM_ENDSESSION:
@@ -432,6 +435,16 @@ private:
         buffer_ = CreateCompatibleDC(screen);
         bitmap_ = CreateCompatibleBitmap(screen, width, height);
         ReleaseDC(window_, screen);
+        if (buffer_ == nullptr || bitmap_ == nullptr) {
+            // Out of GDI memory (a huge window, or a leak elsewhere): no buffer; begin() tries again next frame.
+            if (buffer_ != nullptr) DeleteDC(buffer_);
+            if (bitmap_ != nullptr) DeleteObject(bitmap_);
+            buffer_ = nullptr;
+            bitmap_ = nullptr;
+            bufferWidth_ = 0;
+            bufferHeight_ = 0;
+            return;
+        }
         previousBitmap_ = SelectObject(buffer_, bitmap_);
         SetBkMode(buffer_, TRANSPARENT);
         SetTextAlign(buffer_, TA_TOP | TA_LEFT | TA_NOUPDATECP);

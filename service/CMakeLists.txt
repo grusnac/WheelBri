@@ -42,13 +42,23 @@ if(WE_SERVICE_PLATFORM STREQUAL "Windows")
         src/PlatformWin32.cpp
         src/UiWindowWin32.cpp
         src/WheelDinput.cpp)
-    target_link_libraries(wheelbri_service_objects PUBLIC dinput8 dxguid cfgmgr32 advapi32 winmm user32 gdi32 shell32 ole32 uuid)
+    target_link_libraries(wheelbri_service_objects PUBLIC dinput8 dxguid cfgmgr32 advapi32 iphlpapi winmm user32 gdi32 shell32 ole32 uuid)
 else()
     target_sources(wheelbri_service_objects PRIVATE
         src/PlatformPosix.cpp
         src/UiWindowX11.cpp
         src/WheelEvdev.cpp)
     target_link_libraries(wheelbri_service_objects PUBLIC X11::X11)
+    # libX11 1.7+: lets the window survive the X server going away (UiWindowX11.cpp), so the session cleans up.
+    include(CheckSymbolExists)
+    set(CMAKE_REQUIRED_INCLUDES ${X11_INCLUDE_DIR})
+    set(CMAKE_REQUIRED_LIBRARIES ${X11_LIBRARIES})
+    check_symbol_exists(XSetIOErrorExitHandler "X11/Xlib.h" WE_HAVE_XIO_EXIT_HANDLER)
+    unset(CMAKE_REQUIRED_INCLUDES)
+    unset(CMAKE_REQUIRED_LIBRARIES)
+    if(WE_HAVE_XIO_EXIT_HANDLER)
+        target_compile_definitions(wheelbri_service_objects PRIVATE WE_HAVE_XIO_EXIT_HANDLER)
+    endif()
 endif()
 
 # The command line service (console).

@@ -89,6 +89,12 @@ const char* name() {
 #endif
 }
 
+std::filesystem::path systemFolder() { return "/usr/bin"; }
+
+std::optional<std::uint32_t> udpPortOwner(std::uint16_t /*port*/) { return std::nullopt; }
+
+std::filesystem::path processImage(std::uint32_t /*pid*/) { return {}; }
+
 std::filesystem::path executablePath() {
     std::error_code ec;
     const std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);   // Linux
@@ -133,6 +139,7 @@ void installConsoleStopHandler(void (*)(), bool (*)()) {}
 struct ChildProcess::Impl {
     pid_t pid = -1;
     bool running = true;
+    bool detached = false;   // keepRunningAfterExit(): never killed by this object
     int exitCode = -1;
 };
 
@@ -166,7 +173,7 @@ std::unique_ptr<ChildProcess> ChildProcess::start(const std::vector<std::string>
 ChildProcess::ChildProcess(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
 ChildProcess::~ChildProcess() {
-    if (impl_->running) {
+    if (impl_->running && !impl_->detached) {
         kill();
     }
 }
@@ -191,6 +198,8 @@ std::optional<int> ChildProcess::poll() {
 }
 
 void ChildProcess::release() { impl_->running = false; }
+
+void ChildProcess::keepRunningAfterExit() { impl_->detached = true; }
 
 void ChildProcess::kill() {
     if (!impl_->running) {

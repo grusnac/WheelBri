@@ -15,6 +15,7 @@ add_executable(wheelbri_tests
     FfbForwardingTest.cpp
     FfbSafetyLimiterTest.cpp
     FfbUsageTest.cpp
+    FileTextTest.cpp
     GameUseWatchTest.cpp
     HidHideCliTest.cpp
     HidPidTest.cpp
@@ -28,6 +29,7 @@ add_executable(wheelbri_tests
     PipelineTest.cpp
     RetentionTest.cpp
     RigTest.cpp
+    SenderGateTest.cpp
     ShimGamesTest.cpp
     StatePacketTest.cpp
     TelemetryTest.cpp

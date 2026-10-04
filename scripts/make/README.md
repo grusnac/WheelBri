@@ -17,6 +17,10 @@ work on Linux.
 | `scripts/make/clean-pc.sh` | Before installing from scratch: removes everything WheelBri put on the PC (running copies, virtual devices, its drivers (and HidHide / HIDMaestro, which earlier versions used), every device the hide filter was on put back on Windows' own driver, their certificate, the install folder (also under Program Files (x86)), shortcuts, the installer's copies in `%TEMP%`, Settings > Apps entry, registry entries (UMDF registrations included), `%LOCALAPPDATA%\wheelbri` and `C:\ProgramData\wheelbri`). Lists what it found and asks first (Administrator prompt). `-KeepData` keeps rigs, configs and logs; `-GameFolder <folder>` also takes the shim out of a game; `-KeepThirdParty` keeps HidHide / HIDMaestro; `-Yes` asks nothing. Never touches the repo |
 | `scripts/make/all.sh` | Everything above that builds: CMake parts and drivers. `--clean` for a full rebuild of everything |
 
+The drivers are signed with a certificate made on this PC, once, from an Administrator PowerShell:
+`powershell -ExecutionPolicy Bypass -File driver\new-signing-cert.ps1` (it writes `driver\signing-certificate.props`, which git ignores and the driver projects
+read; `-Remove` deletes it again). See `driver/README.md`.
+
 `drivers.ps1`, `package.ps1` and `clean-pc.ps1` are the PowerShell scripts behind `drivers.sh`, `package.sh` and
 `clean-pc.sh`; they can also be run on their own from PowerShell.
 

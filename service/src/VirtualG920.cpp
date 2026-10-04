@@ -5,6 +5,8 @@
 #ifdef _WIN32
 
 #include <windows.h>
+#include <cfgmgr32.h>
+#include <cwctype>
 
 #include <atomic>
 #include <cstdio>
@@ -80,7 +82,37 @@ struct HiddAttributes {
     USHORT VendorID, ProductID, VersionNumber;
 };
 
-bool hidDevicePresent(USHORT vid, USHORT pid) {
+// "\\?\HID#VID_046D&PID_C262#7&1a2b&0&0000#{guid}" -> "HID\VID_046D&PID_C262\7&1a2b&0&0000", the device's instance id.
+std::wstring instanceOfInterface(std::wstring_view path) {
+    if (path.starts_with(L"\\\\?\\")) path.remove_prefix(4);
+    if (const auto guid = path.rfind(L"#{"); guid != std::wstring_view::npos) path = path.substr(0, guid);
+    std::wstring id(path);
+    for (wchar_t& c : id) {
+        c = c == L'#' ? L'\\' : static_cast<wchar_t>(towupper(c));   // interface paths are often lower case
+    }
+    return id;
+}
+
+// Whether the device `instance` is `ancestor` or below it (a few levels up at most: HID child, its parent, ...).
+bool isBelow(const std::wstring& instance, const std::wstring& ancestor) {
+    DEVINST node = 0;
+    if (CM_Locate_DevNodeW(&node, const_cast<DEVINSTID_W>(instance.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+        return false;
+    }
+    for (int level = 0; level < 4; ++level) {
+        wchar_t id[MAX_DEVICE_ID_LEN + 1] = {};
+        if (CM_Get_Device_IDW(node, id, MAX_DEVICE_ID_LEN, 0) != CR_SUCCESS) return false;
+        if (_wcsicmp(id, ancestor.c_str()) == 0) return true;
+        DEVINST parent = 0;
+        if (CM_Get_Parent(&parent, node, 0) != CR_SUCCESS) return false;
+        node = parent;
+    }
+    return false;
+}
+
+// A HID interface with these ids; with `ancestor` set, only one whose device sits below that device (ours, not a real
+// G920 that happens to be plugged in).
+bool hidDevicePresent(USHORT vid, USHORT pid, const std::wstring& ancestor = {}) {
     static const HMODULE hid = LoadLibraryW(L"hid.dll");
     static const HMODULE cfg = LoadLibraryW(L"cfgmgr32.dll");
     if (hid == nullptr || cfg == nullptr) return false;
@@ -108,7 +140,7 @@ bool hidDevicePresent(USHORT vid, USHORT pid) {
         attributes.Size = sizeof(attributes);
         const bool match = getAttributes(device, &attributes) && attributes.VendorID == vid && attributes.ProductID == pid;
         CloseHandle(device);
-        if (match) return true;
+        if (match && (ancestor.empty() || isBelow(instanceOfInterface(path), ancestor))) return true;
     }
     return false;
 }
@@ -153,8 +185,14 @@ void removeForeignForceFeedbackDriver() {
         if (RegOpenKeyExW(root, kOemKey, 0, KEY_ALL_ACCESS, &oem) == ERROR_SUCCESS) {
             RegDeleteTreeW(oem, L"OEMForceFeedback");
             RegCloseKey(oem);
-            WE_LOG_INFO(log(), "DirectInput: removed another force feedback driver ({}) from {}; Windows' HID PID driver "
-                               "takes over", narrow(clsid), root == HKEY_CURRENT_USER ? "HKCU" : "HKLM");
+            // Logitech's software may write it back every few seconds (the watcher below): a note a minute at most.
+            static logging::RateLimiter limiter(std::chrono::minutes(1));
+            std::uint64_t suppressed = 0;
+            if (limiter.allow(suppressed)) {
+                WE_LOG_INFO(log(), "DirectInput: removed another force feedback driver ({}) from {}; Windows' HID PID "
+                                   "driver takes over ({} more removals since the last note)",
+                            narrow(clsid), root == HKEY_CURRENT_USER ? "HKCU" : "HKLM", suppressed);
+            }
         }
     }
 }
@@ -219,7 +257,10 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
             std::snprintf(text, sizeof(text), "SwDeviceCreate failed (0x%08lX)%s", static_cast<unsigned long>(hr),
                           hr == E_ACCESSDENIED ? ": run the service as Administrator" : "");
             error = text;
-            if (hr == E_ACCESSDENIED) return nullptr;   // the same for every identity
+            if (hr == E_ACCESSDENIED) {   // the same for every identity
+                writeDirectInputEntries(false);
+                return nullptr;
+            }
             // Often this identity is still being removed (Stop then Start at once): the next one is a new device.
             WE_LOG_WARN(log(), "virtual G920 {}: {}; trying the next identity", narrow(instance), text);
             continue;
@@ -227,20 +268,39 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         bool finished = false;
         HRESULT result = E_PENDING;
         std::wstring createdId;
+        bool cancelledWhileWaiting = false;
         {
+            // Up to 15 s, in short steps so Stop is not kept waiting.
             std::unique_lock guard(wait->lock);
-            wait->done.wait_for(guard, std::chrono::seconds(15), [wait] { return wait->finished; });
+            const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+            while (!wait->finished && std::chrono::steady_clock::now() < until) {
+                guard.unlock();
+                if (stopNow()) {
+                    cancelledWhileWaiting = true;
+                    guard.lock();
+                    break;
+                }
+                guard.lock();
+                wait->done.wait_for(guard, std::chrono::milliseconds(250), [wait] { return wait->finished; });
+            }
             finished = wait->finished;
             result = wait->result;
             createdId = wait->instanceId;
         }
         if (finished) delete wait;   // else leaked on purpose (see above)
+        if (cancelledWhileWaiting && !finished) {
+            swClose(device);
+            writeDirectInputEntries(false);
+            error = "cancelled";
+            return nullptr;
+        }
         if (!finished || FAILED(result)) {
             char text[200];
             std::snprintf(text, sizeof(text),
                           "the virtual G920 was not set up (0x%08lX): is the driver installed "
                           "(driver\\install-driver.ps1)?", static_cast<unsigned long>(result));
             swClose(device);
+            writeDirectInputEntries(false);   // an earlier identity may have written them
             error = text;
             return nullptr;
         }
@@ -251,7 +311,7 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         const auto start = std::chrono::steady_clock::now();
         bool ready = false;
         while (std::chrono::steady_clock::now() - start < std::chrono::seconds(8) && !stopNow()) {
-            if (hidDevicePresent(0x046D, 0xC262)) {
+            if (hidDevicePresent(0x046D, 0xC262, createdId)) {
                 ready = true;
                 break;
             }
@@ -292,6 +352,7 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         });
         return std::unique_ptr<VirtualG920>(new VirtualG920(std::move(impl)));
     }
+    writeDirectInputEntries(false);   // written for an identity that then never got its driver
     error = "every identity of the virtual G920 is stuck: restart Windows" + (error.empty() ? "" : " (last: " + error + ")");
     return nullptr;
 }

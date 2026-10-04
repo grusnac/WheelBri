@@ -30,7 +30,27 @@ msbuild driver\wheelbri-g920.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
 The package lands in `driver\x64\Release\wheelbri-g920\` (`.inf`, `.dll`, `.cat`), signed with a
-certificate the WDK made for this PC.
+certificate the WDK made for this PC (WDKTestCert), or with WheelBri's own one (next section).
+
+### Signing certificate
+
+By default both drivers are test-signed with the WDK's `WDKTestCert`, which other driver projects on this PC may
+share. WheelBri can have its own instead, for code signing only (private key not exportable, in
+`Cert:\CurrentUser\My`, 5 years). Once, in a normal PowerShell:
+
+```
+powershell -ExecutionPolicy Bypass -File driver\new-signing-cert.ps1
+```
+
+It prints the thumbprint and writes `driver\signing-certificate.props` (this PC only, git-ignored), which both
+`.vcxproj` files import when it exists (it sets their `TestCertificate`); then rebuild both drivers and install them
+again. Without that file the build signs with `WDKTestCert` as before. To go back (or if a build fails to sign):
+
+```
+powershell -ExecutionPolicy Bypass -File driver\new-signing-cert.ps1 -Remove
+```
+
+Both drivers must be signed by the same certificate (`package.ps1` checks): rebuild both after a switch.
 
 ## Install (Administrator PowerShell)
 
@@ -38,9 +58,11 @@ certificate the WDK made for this PC.
 driver\install-driver.ps1
 ```
 
-Trusts that certificate on this PC (Root and TrustedPublisher stores) and installs the package with
-`pnputil`. No test mode, Secure Boot stays on. Remove: `driver\uninstall-driver.ps1` (add
-`-RemoveCertificate` to also remove the certificate).
+Trusts that certificate on this PC (Root and TrustedPublisher stores), records its thumbprint in
+`HKLM\SOFTWARE\wheelbri\SigningCertificates` and installs the package with `pnputil`. No test mode, Secure Boot
+stays on. Remove: `driver\uninstall-driver.ps1` (add `-RemoveCertificate` to also remove the certificate). Only the
+certificates that signed our packages are removed, found by thumbprint (the recorded ones, and the signers of the
+installed packages' and the packaged `.cat` files), never other certificates named `WDKTestCert`.
 
 ## Use
 
@@ -71,7 +93,8 @@ hides it even if it ends up on it. When a program opens a filtered interface, th
 `HKLM\SOFTWARE\wheelbri\hide` `AllowedPid`: while the service runs it holds the service's process id and everyone
 else is refused (so DirectInput, SDL and games do not see the device); 0 or missing lets everyone in. It fails
 open: if that process is gone (the service crashed or was killed) or the id now belongs to another program
-(`AllowedPidStart`, the process's start time, differs), or the setting cannot be read, nothing is hidden.
+(`AllowedPidStart`, the process's start time, differs, or is earlier than this start of Windows when the driver
+may not look at the process), or the setting cannot be read, nothing is hidden.
 Everything else passes straight through. Same signing as the G920 driver; user mode, no test mode.
 
 The install and uninstall scripts stop at the first failed step with a red line and exit code 1; a yellow line
@@ -100,5 +123,8 @@ Ctrl+C (close the game and Steam first). Driver log: `wheelbri-driver-<date>.log
 Both drivers run as LocalService. The app (as Administrator) lets LocalService write in the user's
 `%LOCALAPPDATA%\wheelbri\logs` and names it in `HKLM\SOFTWARE\wheelbri` `LogFolder`, which the drivers read for every
 line; the installer does the same. Until then (and if that folder cannot be written) they write to
-`C:\ProgramData\wheelbri\logs`, which the app moves into the user's folder at its next start.
+`C:\ProgramData\wheelbri\logs`, which the app moves into the user's folder at its next start. They also use that
+fallback when `LogFolder` is not a plain local folder (it, or a folder above it, is a junction or symbolic link, or it
+does not exist), and never write to a log file that is a link or has other names (hard links): the user owns that
+folder and must not be able to point LocalService's writes elsewhere.
 

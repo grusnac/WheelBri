@@ -9,11 +9,14 @@
 
 #include "Platform.hpp"
 
+#include <winsock2.h>   // before windows.h; AF_INET for the UDP table
 #include <windows.h>
+#include <iphlpapi.h>
 #include <mmsystem.h>
 
 #include <algorithm>
 #include <thread>
+#include <vector>
 
 namespace wheelbri::service::platform {
 
@@ -149,6 +152,48 @@ bool raiseThreadPriority(std::string& error) {
 
 const char* name() { return "Windows"; }
 
+std::filesystem::path systemFolder() {
+    wchar_t folder[MAX_PATH] = {};
+    const UINT size = GetSystemDirectoryW(folder, MAX_PATH);
+    if (size == 0 || size >= MAX_PATH) return std::filesystem::path(L"C:\\Windows\\System32");
+    return std::filesystem::path(std::wstring(folder, size));
+}
+
+std::optional<std::uint32_t> udpPortOwner(const std::uint16_t port) {
+    // The table can grow between the size query and the read: a few tries.
+    std::vector<std::uint8_t> buffer;
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        DWORD size = static_cast<DWORD>(buffer.size());
+        const DWORD status = GetExtendedUdpTable(buffer.empty() ? nullptr : buffer.data(), &size, FALSE, AF_INET,
+                                                 UDP_TABLE_OWNER_PID, 0);
+        if (status == ERROR_INSUFFICIENT_BUFFER) {
+            buffer.resize(static_cast<std::size_t>(size) + 16 * sizeof(MIB_UDPROW_OWNER_PID));
+            continue;
+        }
+        if (status != NO_ERROR || buffer.empty()) return std::nullopt;
+        const auto* table = reinterpret_cast<const MIB_UDPTABLE_OWNER_PID*>(buffer.data());
+        const std::uint16_t wanted = static_cast<std::uint16_t>((port >> 8) | (port << 8));   // network byte order
+        for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+            const MIB_UDPROW_OWNER_PID& row = table->table[i];
+            if (static_cast<std::uint16_t>(row.dwLocalPort & 0xFFFFU) == wanted) return row.dwOwningPid;
+        }
+        return 0U;
+    }
+    return std::nullopt;
+}
+
+std::filesystem::path processImage(const std::uint32_t pid) {
+    const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (process == nullptr) return {};
+    std::wstring path(32768, L'\0');
+    DWORD size = static_cast<DWORD>(path.size());
+    const BOOL ok = QueryFullProcessImageNameW(process, 0, path.data(), &size);
+    CloseHandle(process);
+    if (ok == FALSE) return {};
+    path.resize(size);
+    return std::filesystem::path(path);
+}
+
 std::filesystem::path executablePath() {
     std::wstring path(MAX_PATH, L'\0');
     while (true) {
@@ -231,6 +276,7 @@ struct ChildProcess::Impl {
     PROCESS_INFORMATION info{};
     HANDLE job = nullptr;   // kill-on-close: the child and everything it started end with it
     bool running = true;
+    bool detached = false;   // keepRunningAfterExit(): never killed by this object
     int exitCode = -1;
 
     ~Impl() {
@@ -310,7 +356,7 @@ std::unique_ptr<ChildProcess> ChildProcess::start(const std::vector<std::string>
 ChildProcess::ChildProcess(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
 ChildProcess::~ChildProcess() {
-    if (impl_->running) {
+    if (impl_->running && !impl_->detached) {
         kill();
     }
 }
@@ -334,6 +380,14 @@ void ChildProcess::release() {
         SetInformationJobObject(impl_->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
     }
     impl_->running = false;
+}
+
+void ChildProcess::keepRunningAfterExit() {
+    if (impl_->job != nullptr) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};   // no kill-on-close any more
+        SetInformationJobObject(impl_->job, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+    }
+    impl_->detached = true;
 }
 
 void ChildProcess::kill() {

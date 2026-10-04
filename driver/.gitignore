@@ -1,0 +1,2 @@
+# Per PC: written by new-signing-cert.ps1, names a certificate only in this PC's store.
+signing-certificate.props

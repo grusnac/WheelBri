@@ -18,12 +18,15 @@
 #include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/FfbController.hpp"
 #include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/FileText.hpp"
 #include "wheelbri/GameUseWatch.hpp"
 #include "wheelbri/HidHideCli.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/LoopStats.hpp"
 #include "wheelbri/Pipeline.hpp"
 #include "wheelbri/Rig.hpp"
+#include "wheelbri/SenderGate.hpp"
+#include "wheelbri/ShimGames.hpp"
 #include "wheelbri/Telemetry.hpp"
 #include "wheelbri/TestClutch.hpp"
 #include "wheelbri/UdpLoopback.hpp"
@@ -137,7 +140,11 @@ void ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& 
     if (devices.empty()) return;   // everything connected already has it (or waits for a restart, said above)
     const std::filesystem::path exe = platform::executablePath();
     std::filesystem::path script;
-    for (std::filesystem::path base = exe.parent_path(); !base.empty() && script.empty(); base = base.parent_path()) {
+    // Next to the program (installed) or up to three folders above it (build/service/ in the source tree), never
+    // further: the script runs as Administrator, so it must not be found in a folder anyone can create (C:\driver\...).
+    int levels = 0;
+    for (std::filesystem::path base = exe.parent_path(); !base.empty() && script.empty() && levels <= 3;
+         base = base.parent_path(), ++levels) {
         std::error_code ec;
         const std::filesystem::path candidate = base / "driver" / "hide" / "install-hide.ps1";
         const std::filesystem::path package =
@@ -153,10 +160,8 @@ void ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& 
                      devices);
         return;
     }
-    const char* systemRoot = std::getenv("SystemRoot");
     const std::filesystem::path powershell =
-        std::filesystem::path(systemRoot != nullptr ? systemRoot : "C:\\Windows") / "System32" / "WindowsPowerShell" /
-        "v1.0" / "powershell.exe";
+        platform::systemFolder() / "WindowsPowerShell" / "v1.0" / "powershell.exe";
     WE_LOG_INFO(log(), "hide: putting wheelbri-hide on the rig's devices {} ({}); each restarts once", devices,
                 script.string());
     std::string error;
@@ -168,6 +173,7 @@ void ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& 
         WE_LOG_ERROR(log(), "hide: cannot run the installer: {}", error);
         return;
     }
+    child->keepRunningAfterExit();   // not even this process ending (a closed console) may cut it off
     // Never cut the installer off: stopped halfway, it can leave a device with a half-switched driver. Stop
     // waits for it (it is short), and after 2 minutes it is left to finish by itself.
     std::optional<int> exit;
@@ -301,7 +307,7 @@ bool openAccessories(wheelbri::service::WheelBackend& backend, const wheelbri::M
             return false;
         }
         if (quiet && !wheelbri::service::wheelConnected(backend, ids)) return false;
-        accessories.devices[i] = wheelbri::service::openWheel(backend, ids);
+        accessories.devices[i] = wheelbri::service::openWheel(backend, ids, quiet);
         if (accessories.devices[i] == nullptr) {
             WE_LOG_ERROR(log(), "accessory '{}' ({}) is not connected or cannot be read: plug it in, or map without it "
                                 "in the Mapping tab",
@@ -415,6 +421,7 @@ struct LoadedConfig {
     std::vector<std::string> problems;
     bool fileMissing = false;
     std::string text;                           // the file as read, copied into telemetry headers
+    std::vector<std::string> warnings;          // settings ignored on purpose (logged once logging is up)
 };
 
 // Runs before logging exists (logging is configured by this file), so problems are collected, not logged.
@@ -423,7 +430,9 @@ LoadedConfig loadConfig(const std::string& path) {
     if (path.empty()) {
         return result;
     }
-    std::ifstream file(path);
+    // Paths are UTF-8 here (as the app shows and stores them); narrow strings would be opened in the ANSI code page.
+    const std::filesystem::path filePath = wheelbri::pathFromUtf8(path);
+    std::ifstream file(filePath.empty() ? std::filesystem::path(path) : filePath);
     if (!file) {
         result.fileMissing = true;
         return result;
@@ -567,6 +576,46 @@ private:
 // A tick this long means the game gets no fresh input; it is logged at once, with where the time went.
 constexpr std::uint64_t kStallNs = 50 * platform::kNsPerMs;
 
+std::filesystem::path shimDllPath();
+
+#if defined(_WIN32)
+// Windows: who may send game force feedback (S7; SenderGate.hpp). Any program of the user can send to 127.0.0.1:41330
+// and the forces reach a direct-drive wheel, so only the virtual G920's driver host (WUDFHost.exe in System32) and a
+// game whose folder holds WheelBri's shim are let through. Not found any more: refused; the system cannot say: let
+// through (the limiter still caps every force), with a warning.
+wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
+    static const std::filesystem::path systemFolder = platform::systemFolder();
+    static const std::filesystem::path shimDll = shimDllPath();
+    static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(30));
+    const std::optional<std::uint32_t> pid = platform::udpPortOwner(port);
+    if (!pid) {
+        std::uint64_t suppressed = 0;
+        if (limiter.allow(suppressed)) {
+            WE_LOG_WARN(log(), "ffb: cannot tell which program sends from port {}; letting it through", port);
+        }
+        return wheelbri::SenderVerdict::Unknown;
+    }
+    const std::filesystem::path image = *pid != 0 ? platform::processImage(*pid) : std::filesystem::path();
+    if (!image.empty()) {
+        if (wheelbri::isDriverHostImage(image, systemFolder)) return wheelbri::SenderVerdict::Accept;
+        const wheelbri::ShimState state = wheelbri::shimState(image.parent_path(), shimDll);
+        if (state == wheelbri::ShimState::Installed || state == wheelbri::ShimState::Outdated) {
+            WE_LOG_DEBUG(log(), "ffb: sender {} (pid {}) is a game with WheelBri's shim", wheelbri::pathToUtf8(image),
+                         *pid);
+            return wheelbri::SenderVerdict::Accept;
+        }
+    }
+    std::uint64_t suppressed = 0;
+    if (limiter.allow(suppressed)) {
+        WE_LOG_WARN(log(), "ffb: ignoring force feedback from {} (pid {}, port {}): only the virtual G920's driver and "
+                           "games with WheelBri's shim may send it ({} similar suppressed)",
+                    image.empty() ? std::string("an unknown program") : wheelbri::pathToUtf8(image), *pid, port,
+                    suppressed);
+    }
+    return wheelbri::SenderVerdict::Refuse;
+}
+#endif
+
 // Phase 3: the game's force feedback, sent by the in-game shim, limited and played on the physical wheel.
 class GameFfb {
 public:
@@ -592,6 +641,11 @@ public:
             return nullptr;
         }
         ffb->controller_ = std::make_unique<wheelbri::FfbController>(*ffb->sink_, config.ffb);
+#if defined(_WIN32)
+        wheelbri::SenderGate::Settings gate;
+        gate.acceptUnknown = true;   // the lookup failing must not take a game's force feedback away
+        ffb->gate_ = std::make_unique<wheelbri::SenderGate>(lookupFfbSender, gate);
+#endif
         WE_LOG_INFO(log(), "game force feedback on: max {:.0f}% of the wheel's torque, gain {:.2f}",
                     config.ffb.maxMagnitude * 100.0F, config.ffb.masterGain);
         return ffb;
@@ -611,7 +665,12 @@ public:
 
     void pump(const std::uint64_t nowNs) {
         std::array<std::uint8_t, 256> buffer{};
-        while (const auto size = listener_->receive(buffer)) {
+        // At most kMaxPerTick a tick: a flood must not keep the loop (and the wheel's input) here; the rest waits.
+        for (std::size_t n = 0; n < kMaxPerTick; ++n) {
+            std::uint16_t sender = 0;
+            const auto size = listener_->receive(buffer, &sender);
+            if (!size) break;
+            if (gate_ != nullptr && !gate_->allow(sender, nowNs)) continue;
             if (const auto packet = wheelbri::decodeFfbPacket(std::span<const std::uint8_t>(buffer.data(), *size))) {
                 controller_->onPacket(*packet, nowNs);
                 if (telemetry_ != nullptr) {
@@ -667,8 +726,11 @@ public:
 private:
     GameFfb() = default;
 
+    static constexpr std::size_t kMaxPerTick = 256;
+
     std::unique_ptr<wheelbri::IFfbSink> sink_;
     std::unique_ptr<wheelbri::UdpLoopbackListener> listener_;
+    std::unique_ptr<wheelbri::SenderGate> gate_;   // Windows only: who may send (lookupFfbSender)
     std::unique_ptr<wheelbri::FfbController> controller_;
     wheelbri::TelemetryRecorder* telemetry_ = nullptr;
     std::uint64_t lastPackets_ = 0;
@@ -737,16 +799,19 @@ std::vector<std::filesystem::path> managedFolders(const wheelbri::EmulatorConfig
 
 using wheelbri::service::UiFrame;
 
-wheelbri::service::TelemetryFiles telemetryFiles(const wheelbri::TelemetryRecorder* recorder) {
-    wheelbri::service::TelemetryFiles files;
-    if (recorder != nullptr) {
-        files.on = true;
-        files.samplesPath = recorder->samplesPath();
-        files.ffbPath = recorder->ffbPath();
-        files.rows = recorder->rowsWritten();
-        files.ffbRows = recorder->ffbRowsWritten();
+// Brings `files` up to date. On the loop's thread: the paths are copied (which allocates) only when they changed (a
+// new day's files), not every frame.
+void updateTelemetryFiles(wheelbri::service::TelemetryFiles& files, const wheelbri::TelemetryRecorder* recorder) {
+    files.on = recorder != nullptr;
+    if (recorder == nullptr) {
+        files.rows = 0;
+        files.ffbRows = 0;
+        return;
     }
-    return files;
+    if (files.samplesPath != recorder->samplesPath()) files.samplesPath = recorder->samplesPath();
+    if (files.ffbPath != recorder->ffbPath()) files.ffbPath = recorder->ffbPath();
+    files.rows = recorder->rowsWritten();
+    files.ffbRows = recorder->ffbRowsWritten();
 }
 
 // What the window says about the virtual devices (--virtual-g920), see SessionInfo::devices.
@@ -942,7 +1007,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                     if (gameFfb != nullptr) {
                         sharedFrame.ffb.emplace(gameFfb->controller());
                     }
-                    sharedFrame.telemetry = telemetryFiles(telemetry.get());
+                    updateTelemetryFiles(sharedFrame.telemetry, telemetry.get());
                     sharedFrame.gameIgnoresWheel = gameUse.warning();
                     sharedFrame.ready = true;
                 }
@@ -1096,12 +1161,38 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     return loopResult;
 }
 
+std::filesystem::path logFolderOf(const wheelbri::EmulatorConfig& config);
+
 // The config, with --old-files applied and the rig's wheel when it names none.
 LoadedConfig loadForRun(const Options& options) {
     LoadedConfig loaded = loadConfig(options.configPath);
     if (!options.oldFiles.empty()) {
         loaded.config.retention.action = *wheelbri::parseOldFilesAction(options.oldFiles);
     }
+#if defined(_WIN32)
+    // Only when running as Administrator: the config is a file any program of the user can edit, so it must not choose
+    // where the Administrator writes; log and telemetry files then only go under the user's WheelBri folders. A
+    // standard user writes wherever they may write anyway.
+    if (platform::isElevated()) {
+        if (auto& file = loaded.config.logging.filePath;
+            !file.empty() && !wheelbri::service::isInsideUserFolders(wheelbri::pathFromUtf8(file))) {
+            loaded.warnings.push_back("log file '" + file + "' is outside the WheelBri folders, using the default log file");
+            file.clear();
+        }
+        if (auto& folder = loaded.config.telemetry.directory;
+            !folder.empty() && !wheelbri::service::isInsideUserFolders(wheelbri::pathFromUtf8(folder))) {
+            loaded.warnings.push_back("telemetry folder '" + folder +
+                                      "' is outside the WheelBri folders, using the log folder");
+            folder.clear();
+        }
+        for (const std::filesystem::path& folder :
+             {logFolderOf(loaded.config), wheelbri::pathFromUtf8(loaded.config.telemetry.directory)}) {
+            for (std::string& note : wheelbri::service::removeLinkedLogFiles(folder)) {
+                loaded.warnings.push_back(std::move(note));
+            }
+        }
+    }
+#endif
     const std::string rigName = wheelbri::readAppSetting(wheelbri::service::appStateFile(), "rig");
     std::vector<std::string> rigErrors;
     const auto rig =
@@ -1143,6 +1234,9 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     if (loaded.fileMissing) {
         WE_LOG_CRITICAL(log(), "cannot open config file '{}'", options.configPath);
         return 2;
+    }
+    for (const std::string& warning : loaded.warnings) {
+        WE_LOG_WARN(log(), "config {}: {}", options.configPath, warning);
     }
     for (const std::string& problem : loaded.problems) {
         WE_LOG_ERROR(log(), "config {}: {}", options.configPath, problem);
@@ -1256,6 +1350,18 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     if (!options.ffbTest && !openAccessories(*backend, config.mapper, source->info(), accessories, false)) {
         return 1;
     }
+    if (!options.ffbTest) {
+        // A mapped axis the device does not have reads centred or released for ever: say so (Start still goes on).
+        std::array<int, wheelbri::kMaxInputDevices> axisCounts{};
+        axisCounts.fill(-1);
+        axisCounts[0] = source->axes();
+        for (std::size_t i = 0; i < accessories.devices.size(); ++i) {
+            if (accessories.devices[i] != nullptr) axisCounts[i + 1] = accessories.devices[i]->axes();
+        }
+        for (const std::string& problem : wheelbri::missingMappedAxes(config.mapper, axisCounts)) {
+            WE_LOG_ERROR(log(), "mapping: {}; it will not move (map another axis in the Mapping tab)", problem);
+        }
+    }
 
     if (options.ffbTest) {
         const auto sink = source->openForceFeedback(config.ffbInvert);
@@ -1368,7 +1474,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             }
             if (waitedMs % retryEveryMs == 0 && waitedMs >= (quickLosses > 0 ? retryEveryMs : 0) &&
                 allConnected(*backend, config)) {
-                source = wheelbri::service::openWheel(*backend, config.sourceDeviceMatch);
+                source = wheelbri::service::openWheel(*backend, config.sourceDeviceMatch, /*quiet=*/true);
                 if (source != nullptr && !openAccessories(*backend, config.mapper, source->info(), accessories, true)) {
                     source.reset();   // an accessory is not ready yet: all again next time
                     accessories.close();
@@ -1503,23 +1609,30 @@ int runAppMode(Options options, const bool consoleLogging) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    wheelbri::service::moveFoldersFromOldName();   // before anything reads the user's folders
-    Options options;
-    if (!parseOptions(argc, argv, options)) {
-        return 2;
-    }
-    wheelbri::service::MappingView::setOptionalTabs(options.telemetryTab, options.ffbTab);
 #ifdef WHEELBRI_APP
     constexpr bool kAppBuild = true;   // wheelbri.exe: a window program, no console
 #else
     constexpr bool kAppBuild = false;
 #endif
-
     int exitCode = 1;
     try {
+        wheelbri::service::moveFoldersFromOldName();   // before anything reads the user's folders
+        // As Administrator it must not write through a link the user's programs put in its folders (a standard user
+        // can only reach what they could reach anyway).
+        if (const std::string problem = platform::isElevated() ? wheelbri::service::userFoldersProblem() : std::string();
+            !problem.empty()) {
+            wheelbri::service::reportStartupProblem(problem, kAppBuild);
+            return 1;
+        }
+        Options options;
+        if (!parseOptions(argc, argv, options)) {
+            return 2;
+        }
+        wheelbri::service::MappingView::setOptionalTabs(options.telemetryTab, options.ffbTab);
         exitCode = kAppBuild || options.app ? runAppMode(options, !kAppBuild) : run(options);
     } catch (const std::exception& e) {
         WE_LOG_CRITICAL(log(), "unhandled exception: {}", e.what());
+        if (kAppBuild) wheelbri::service::reportStartupProblem(std::string("stopped by an error: ") + e.what(), true);
     } catch (...) {
         WE_LOG_CRITICAL(log(), "unhandled non-standard exception");
     }

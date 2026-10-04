@@ -308,7 +308,8 @@ version, the device and a copy of the config; a session running past midnight co
 files. `time` is the local time of day, `t_ms` the time since the session started. Settings are in
 `[telemetry]`: `enabled`, `rate_hz`, `only_changes` (default `true`; `false` writes every sample),
 `heartbeat_s`, `min_change` (smallest axis move that counts, default 0.0005 = 0.23° of steering: smaller
-moves are sensor noise), `max_file_mb` (per file) and `directory`. A value holds until the next row.
+moves are sensor noise), `max_file_mb` (per file) and `directory` (on Windows inside `%LOCALAPPDATA%\wheelbri`;
+elsewhere it is ignored, with a warning in the log). A value holds until the next row.
 
 The `--ui` window lists the folder, today's log files (service and game), today's telemetry files and what
 happens to old files in the **LOGS AND TELEMETRY** panel at the bottom; press **F** there to open the folder.
@@ -337,17 +338,41 @@ start-up and again after every midnight. Only its own files are touched (`wheelb
 `archive` compresses each old day and deletes the originals once the compressor has succeeded. `auto` uses the
 best compressor installed, in this order:
 
-1. **7-Zip** (`7z.exe`, found on PATH or in `Program Files\7-Zip`): one `wheelbri-logs-<date>.7z` per day,
-   LZMA2 at the highest level. The smallest files; recommended (install from 7-zip.org).
+1. **7-Zip** (`7z.exe` on PATH or in `Program Files\7-Zip`): one `wheelbri-logs-<date>.7z` per day, LZMA2 at the
+   highest level. The smallest files; recommended (install from 7-zip.org).
 2. **xz** (MSYS2: `pacman -S xz`): each file becomes `<file>.xz`, almost as small.
 3. **zstd** (`pacman -S mingw-w64-ucrt-x86_64-zstd`): `<file>.zst`, a little bigger, much faster to open.
-4. **zip** with Windows' built-in `tar.exe` (Windows 10 and later): `wheelbri-logs-<date>.zip`, always
+4. **zip** with Windows' built-in `tar.exe` (System32, Windows 10 and later): `wheelbri-logs-<date>.zip`, always
    available, the largest.
 5. **gzip**: `<file>.gz`.
+
+When WheelBri runs as Administrator it ignores PATH and only uses `Program Files\7-Zip` and System32's `tar.exe`.
 
 The compressor runs in the background on one CPU thread (7-Zip and xz at their best level use up to about
 700 MB of RAM while they work).
 If it fails (or none is found) the originals are kept, the error is logged and shown in the window.
+
+## Security notes
+
+Everything WheelBri saves (configs, rigs, device names, the app's state, the games list, logs, telemetry) is per user,
+in `%LOCALAPPDATA%\wheelbri`, also when it runs as Administrator. Only the drivers, the virtual devices and their
+registry entries are system-wide. While it runs as Administrator, those user files (which any program of the user can
+change) never decide where the Administrator writes or what it runs:
+
+- A config's `[logging] file` and `[telemetry] directory` must then be inside `%LOCALAPPDATA%\wheelbri`; anything else
+  is ignored (the default is used) and the log says so.
+- The drivers write their logs into the user's log folder (`%LOCALAPPDATA%\wheelbri\logs`) only; no config can point
+  them elsewhere. The drivers do not follow links (junctions) in their log folder.
+- Compressors for old logs then come from `Program Files\7-Zip` and System32 only (see Old files).
+- If one of WheelBri's own folders under `%LOCALAPPDATA%\wheelbri` is a link to somewhere else, the app then says so
+  and does not start; a log file that is a link is deleted (the link only) before logging starts.
+- Game force feedback (UDP 41330) is taken only from the virtual G920's driver (`WUDFHost.exe` in System32) or from a
+  game whose folder holds WheelBri's shim; the shim takes the wheel's state (41329) only from WheelBri. Other senders
+  are ignored and named in the log. Every force still goes through the safety limiter. On Linux there is no such
+  check. Not covered: the virtual G920's driver takes the wheel's state from any local sender (it runs as
+  LocalService and cannot look into the elevated app), and the test clutch port (41331) has no check.
+- The driver signing certificate is made on the build PC (`driver\new-signing-cert.ps1`); the uninstaller removes only
+  the certificates WheelBri recorded (`HKLM\SOFTWARE\wheelbri\SigningCertificates`).
 
 ## Licence note
 

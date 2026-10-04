@@ -90,10 +90,13 @@ ULONG EmulatedEffect::AddRef() { return ++references_; }
 ULONG EmulatedEffect::Release() {
     const ULONG remaining = --references_;
     if (remaining == 0) {
-        if (slot_) {
-            FfbForwarder::instance().release(*slot_);
-        }
-        WE_LOG_DEBUG(log(), "{}: released", label_);
+        // Never let anything escape into the game; the object goes either way.
+        guardedVoid("Release", [&] {
+            if (slot_) {
+                FfbForwarder::instance().release(*slot_);
+            }
+            WE_LOG_DEBUG(log(), "{}: released", label_);
+        });
         delete this;
     }
     return remaining;
@@ -148,7 +151,9 @@ FfbEffect EmulatedEffect::toFfb() const {
                 DIRAMPFORCE ramp{};
                 readTypeSpecific(typeSpecific_, 0, ramp);
                 // A ramp is played as its average level; games use it rarely and briefly.
-                return di::constantForce((ramp.lStart + ramp.lEnd) / 2, direction, gain_);
+                // In 64 bits: the game's two LONGs may add up past the 32-bit range.
+                const std::int64_t average = (static_cast<std::int64_t>(ramp.lStart) + ramp.lEnd) / 2;
+                return di::constantForce(static_cast<std::int32_t>(average), direction, gain_);
             }
             DICONSTANTFORCE constant{};
             readTypeSpecific(typeSpecific_, 0, constant);

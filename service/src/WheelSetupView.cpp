@@ -530,6 +530,7 @@ void WheelSetupView::onClick(const float x, const float y) {
     for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
         if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
             const auto action = it->action;   // a copy: the list belongs to the last draw
+            hits_.clear();                    // stale until the next draw: a second click before it does nothing
             action();
             return;
         }

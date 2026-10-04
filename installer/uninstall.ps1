@@ -7,7 +7,7 @@
 # Logs and telemetry in %LOCALAPPDATA%\wheelbri\logs are left.
 #
 #   uninstall.ps1                      asks to confirm, whether to keep the config and whether to remove the certificate
-#   uninstall.ps1 -KeepConfig          keep the config (copied to C:\ProgramData\wheelbri\config-backup)
+#   uninstall.ps1 -KeepConfig          keep the config (copied to %LOCALAPPDATA%\wheelbri\config-backup)
 #   uninstall.ps1 -RemoveCertificate   also remove the drivers' certificate
 #   uninstall.ps1 -Quiet               no questions (removes the config, keeps the certificate unless -RemoveCertificate)
 #   uninstall.ps1 -InstallDir D:\x     the install folder (default: the one Settings > Apps records)
@@ -21,6 +21,12 @@ param(
     [string]$InstallDir = ''
 )
 
+# A full path without a trailing backslash, resolved here (before the Set-Location below, and before elevation, after
+# which a relative path would be resolved against System32).
+if ($InstallDir) {
+    $InstallDir = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir))
+}
+
 # Not inside the folder being deleted (Windows will not remove a folder that is some process's current directory).
 Set-Location $env:TEMP
 [Environment]::CurrentDirectory = $env:TEMP
@@ -30,6 +36,7 @@ if (-not $InstallDir) {
     $recorded = (Get-ItemProperty -Path $uninstallKey -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
     $InstallDir = if ($recorded) { $recorded } else { Join-Path $(if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }) 'WheelBri' }
 }
+if ($InstallDir.Length -gt 3) { $InstallDir = $InstallDir.TrimEnd('\') }
 
 function Forwarded {
     $list = @('-InstallDir', $InstallDir)
@@ -48,7 +55,7 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" " +
-                 ((Forwarded | ForEach-Object { if ($_ -like '-*') { $_ } else { "`"$_`"" } }) -join ' ')
+                 ((Forwarded | ForEach-Object { if ($_ -like '-*') { $_ } else { "`"$($_ -replace '\\$', '\\')`"" } }) -join ' ')   # "D:\" -> "D:\\"
     try {
         $p = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -Wait -PassThru
         exit $p.ExitCode
@@ -60,24 +67,36 @@ if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Pri
 }
 
 # Whether the folder is a real installation (not a package folder, not a system folder): only then is it deleted.
-$InstallDir = $InstallDir.TrimEnd('\')
 $folderOk = (Test-Path (Join-Path $InstallDir 'wheelbri.exe')) -and
             -not (Test-Path (Join-Path $InstallDir 'install.ps1')) -and          # the package has it, an install does not
             ($InstallDir.Length -gt 3) -and
             ($InstallDir -ine $env:ProgramFiles) -and ($InstallDir -ine $env:SystemRoot)
 
-# The install folder is deleted at the end, this script with it: run from a copy outside it.
+# The install folder is deleted at the end, this script with it: run from a copy outside it. The copy runs as
+# Administrator, so it goes where only Administrators and SYSTEM can write (not %TEMP%, where another program of this
+# user could swap the files between the copy and the run): a new folder under %SystemRoot%\Temp with a random name,
+# locked down before anything is copied into it. If that cannot be done the uninstall stops (no fallback).
 $here = (Resolve-Path $PSScriptRoot).Path.TrimEnd('\')
 if ($folderOk -and ($here -ieq $InstallDir -or $here.StartsWith("$InstallDir\", [StringComparison]::OrdinalIgnoreCase))) {
-    $temp = Join-Path $env:TEMP "wheelbri-uninstall-$PID"
-    New-Item -ItemType Directory -Force -Path $temp | Out-Null
-    Copy-Item $PSCommandPath $temp -Force
-    Copy-Item (Join-Path $InstallDir 'driver') $temp -Recurse -Force   # the driver uninstall scripts
+    $temp = Join-Path $env:SystemRoot "Temp\wheelbri-uninstall-$([guid]::NewGuid().ToString('N'))"
+    try {
+        New-Item -ItemType Directory -Path $temp -ErrorAction Stop | Out-Null   # new: fails if it exists
+        & icacls $temp /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "icacls could not restrict it to Administrators and SYSTEM (exit code $LASTEXITCODE)" }
+        if (@(Get-ChildItem -LiteralPath $temp -Force).Count -ne 0) { throw 'something was put in it before it was locked down' }
+        Copy-Item -LiteralPath $PSCommandPath -Destination $temp -Force -ErrorAction Stop
+        Copy-Item -LiteralPath (Join-Path $InstallDir 'driver') -Destination $temp -Recurse -Force -ErrorAction Stop   # the driver uninstall scripts
+    } catch {
+        Write-Host "Cannot prepare the uninstaller's copy in $temp`: $($_.Exception.Message)" -ForegroundColor Red
+        Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not $Quiet) { Read-Host 'Press Enter to close' | Out-Null }
+        exit 1
+    }
     & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass `
         -File (Join-Path $temp 'uninstall.ps1') @(Forwarded)
     $code = $LASTEXITCODE
     Set-Location $env:TEMP
-    Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
     exit $code
 }
 
@@ -111,6 +130,7 @@ try {
     if (-not (Test-Path (Join-Path $driverRoot 'common.ps1'))) {
         throw "the driver scripts are not next to this script ($driverRoot): run Uninstall.cmd from the install folder or the package."
     }
+    . (Join-Path $driverRoot 'common.ps1')   # Remove-InstallFolder
 
     if (-not $Quiet) {
         if (-not (Ask 'Remove WheelBri from this PC?' $true)) {
@@ -148,9 +168,10 @@ try {
         $code = Run-Script (Join-Path $driverRoot $script)
         if ($code -ne 0) { Warn "    $script ended with exit code $code (see above)" }
     }
+    $certificateRemoved = $false
     if ($RemoveCertificate) {
         $code = Run-Script (Join-Path $driverRoot 'uninstall-driver.ps1') @('-RemoveCertificate')
-        if ($code -ne 0) { Warn "    the certificate was not removed (exit code $code, see above)" }
+        if ($code -ne 0) { Warn "    the certificate was not removed (exit code $code, see above)" } else { $certificateRemoved = $true }
     }
 
     # 3. Shortcuts and the Settings > Apps entry.
@@ -163,7 +184,18 @@ try {
         Remove-Item (Join-Path $desktop "$name.lnk") -Force -ErrorAction SilentlyContinue
     }
     Remove-Item $uninstallKey -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item 'HKLM:\SOFTWARE\wheelbri' -Recurse -Force -ErrorAction SilentlyContinue   # the hide setting
+    if ($certificateRemoved) {
+        Remove-Item 'HKLM:\SOFTWARE\wheelbri' -Recurse -Force -ErrorAction SilentlyContinue   # the hide setting
+    } else {
+        # Everything but SigningCertificates: the record of the certificate stays with the certificate, so that removing
+        # it later (clean-pc.ps1, uninstall-driver.ps1 -RemoveCertificate) finds exactly that one.
+        Get-ChildItem 'HKLM:\SOFTWARE\wheelbri' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -ne 'SigningCertificates' } |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name '*' -ErrorAction SilentlyContinue   # LogFolder
+        if (@(Get-ChildItem 'HKLM:\SOFTWARE\wheelbri' -ErrorAction SilentlyContinue).Count -eq 0) {
+            Remove-Item 'HKLM:\SOFTWARE\wheelbri' -Force -ErrorAction SilentlyContinue
+        }
+    }
     # The same two under the project's old name (wheelemu, before the rename), if an upgrade left them.
     Remove-Item 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\wheelemu' -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item 'HKLM:\SOFTWARE\wheelemu' -Recurse -Force -ErrorAction SilentlyContinue
@@ -172,10 +204,15 @@ try {
     # 4. Config, if asked to keep it.
     Write-Host '[4/5] settings' -ForegroundColor Cyan
     if ($folderOk -and $KeepConfig) {
-        $backup = Join-Path $env:ProgramData 'wheelbri\config-backup'
-        New-Item -ItemType Directory -Force -Path $backup | Out-Null
-        Copy-Item (Join-Path $InstallDir 'config\*') $backup -Force
-        Write-Host "    kept in $backup (copy them into the config folder after a new install)"
+        $config = Join-Path $InstallDir 'config'
+        if (Test-Path -LiteralPath $config -PathType Container) {
+            $backup = Join-Path $env:LOCALAPPDATA 'wheelbri\config-backup'   # the user's folder, like every setting
+            New-Item -ItemType Directory -Force -Path $backup | Out-Null
+            Copy-Item (Join-Path $config '*') $backup -Force
+            Write-Host "    kept in $backup (copy them into the config folder after a new install)"
+        } else {
+            Warn "    no config folder in $InstallDir`: no settings to keep"
+        }
     } else {
         Write-Host '    removed with the program'
     }
@@ -183,9 +220,11 @@ try {
     # 5. The program.
     Write-Host '[5/5] removing the program files' -ForegroundColor Cyan
     if ($folderOk) {
-        Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
-        if (Test-Path $InstallDir) {
-            Warn "    $InstallDir could not be removed completely (a file still in use?): delete it after a restart"
+        # The files in its installed-files.txt and WheelBri's subfolders, then the folders left empty (an install from
+        # before that list: the whole folder, which holds wheelbri.exe and no install.ps1, see $folderOk).
+        if (-not (Remove-InstallFolder $InstallDir)) {
+            Warn ("    $InstallDir could not be removed completely (a file still in use, or files WheelBri did not put " +
+                  'there): delete what is left after a restart')
         } else {
             Write-Host '    done'
         }

@@ -228,7 +228,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `userConfigFolder()/my-<built-in name>` (`%LOCALAPPDATA%\wheelbri\configs`), used instead; "Default" deletes it.
     The rig no longer rewrites a mapping (no rigMapping); it gives the sources' names, the wheel when `source_device`
     is empty, and Auto-map. A source the active rig has not named shows "not in the rig" (`MappingEditView::missing`).
-  - `ShimGames.hpp`: the games the app put the in-game shim into (`shimGamesFile()`, `shim-games.txt`: tab-separated
+  - `ShimGames.hpp`: the games the app put the in-game shim into (`shimGamesFile()`:
+    `%LOCALAPPDATA%\wheelbri\shim-games.txt`, per user like every setting). The file: tab-separated
     `game name folder` / `selected folder`, UTF-8 paths; not IniDocument, which cuts at `;` and `#`), `installShim` /
     `removeShim` / `shimState` (Installed, Outdated, Missing, Foreign: a `dinput8.dll` that is neither byte-identical to
     ours nor next to a `wheelbri-shim.ini` is another mod's and never touched), `gameFolderProblem` (needs an `.exe`).
@@ -267,7 +268,18 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `telemetry-`, `ffb-`.
     The service's `Housekeeping` deletes them (default, after 2 days) or archives them with the best compressor
     found (7z > xz > zstd > zip > gzip) as a background process via `platform::ChildProcess`, deleting
-    originals only after the compressor exited 0.
+    originals only after the compressor exited 0. Running as Administrator it ignores PATH (any program of the user
+    can write there) and only uses 7-Zip in Program Files (`SHGetKnownFolderPath`) and `tar.exe` in System32.
+  - `FileText.hpp`: UTF-8 path conversion (`pathToUtf8`, `pathFromUtf8`, which refuses invalid UTF-8), `readFileText`
+    (regular files only), `writeFileReplacing` (writes `<file>.tmp`, then renames it over: never half a file, never a
+    file in place of a folder), `forEachEntry` (a folder listing that never throws), `truncateUtf8`. Use them for the
+    user's files rather than raw streams.
+  - `SenderGate.hpp`: who may send to the UDP ports. The receiver looks up the process that owns the sender's port
+    (Windows: `platform::udpPortOwner` / `processImage` in the service, the same through `iphlpapi.dll` loaded on
+    first use in the shim) once per new port, caches the verdict (2 s accepted, 10 s refused) and caps lookups at 16
+    a second. The service takes game force feedback only from `WUDFHost.exe` in System32 or a program whose folder
+    holds our shim (unknown: let through, warned); the shim takes the wheel's state only from `wheelbri.exe` /
+    `wheelbri-service.exe` (unknown, e.g. the native service under Proton: let through). Linux: no check.
   - Wire format (`StatePacket.hpp`): 33 bytes, little-endian, magic `WEMU`, version 1. Any layout change
     must bump `kVersion` and update the layout comment, `StatePacketTest` and the driver.
 - `service/` (`wheelbri-service`, namespace `wheelbri::service`):
@@ -351,7 +363,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   menu folder with the app and "Uninstall WheelBri", closes itself 10 s after success when no restart, log in
   `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log`), `uninstall.ps1` + `Uninstall.cmd` (the folder from
   Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelbri.exe` and no `install.ps1`, i.e. never a
-  package; runs from a `%TEMP%` copy; from the package it cleans up an install whose folder is gone), `Setup.cmd`
+  package; runs from a copy in `%SystemRoot%\Temp\wheelbri-uninstall-<guid>` that only Administrators may change; from the package it cleans up an install whose folder is gone), `Setup.cmd`
   (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), `README.txt` (for the end user). The
   installed app runs the driver path by default (virtual G920, rig hidden on every Start; "G920 in-game shim" on
   the Mapping tab switches); the shim ships in `shim\`. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
@@ -403,5 +415,17 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   (`max_magnitude` 0.8, slew limit). Game effects reach the service as `FfbPacket`s (shim, driver or
   uhid). The only way around the limiter is the opt-in `force_feedback = passthrough` in `wheelbri-shim.ini`;
   keep it opt-in and don't add others.
+- Files: everything the app saves (configs, rigs, device names, app.ini, the shim games list, logs, telemetry, the
+  uninstaller's config backup) is per user, under `%LOCALAPPDATA%\wheelbri` (XDG folders on Linux), also when it runs
+  as Administrator. Only drivers, virtual devices and their registry entries are system-wide. Never add a file
+  location under ProgramData, Program Files or HKLM for settings. End users are standard users; the developer runs
+  as Administrator.
+- Security, while running as Administrator (`platform::isElevated()`): everything under `%LOCALAPPDATA%\wheelbri`
+  can be written by any program of the user, so nothing from there may choose a privileged action. Log and telemetry
+  paths from a config must be inside the user's WheelBri folders (`isInsideUserFolders`, else ignored with a
+  warning); the shared log folder is always `logsFolder()`; helper programs come from fixed system places
+  (`platform::systemFolder()`, Program Files), not PATH; the app refuses to start when one of its user folders is a
+  link (`userFoldersProblem`) and deletes links among its log files (`removeLinkedLogFiles`). As a standard user
+  these checks are off (they would protect nothing). Keep new code to these rules.
 - Licence: nothing is copied from GIMX (GPLv3). If GIMX code is ever copied rather than reimplemented, the
   project must become GPLv3, so flag that before doing it.

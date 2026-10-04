@@ -57,6 +57,7 @@ public:
         std::optional<FfbEffect> sent;       // last effect given to the sink (after the limiter)
     };
     [[nodiscard]] SlotView slot(std::size_t index) const {
+        if (index >= slots_.size()) return {};   // no such slot: nothing wanted or playing
         const Slot& s = slots_[index];
         return {s.wanted, s.playing, s.requested, s.lastSent};
     }
@@ -84,7 +85,8 @@ private:
     FfbSafetyConfig safety_;
     Timing timing_;
     std::array<Slot, IFfbSink::kMaxSlots> slots_{};
-    std::vector<FfbSafetyLimiter> limiters_;
+    // One per slot; an array, so copying the controller (the window's frame, 60 times a second) allocates nothing.
+    std::array<FfbSafetyLimiter, IFfbSink::kMaxSlots> limiters_;
     std::optional<std::uint64_t> lastPacketNs_;
     bool watchdogTripped_ = false;
     Stats stats_;

@@ -7,6 +7,7 @@ add_library(wheelbri_core STATIC
     src/EmulatedJoystick.cpp
     src/EmulatorConfig.cpp
     src/EvdevLayout.cpp
+    src/FileText.cpp
     src/Ffb.cpp
     src/FfbController.cpp
     src/FfbPacket.cpp
@@ -26,6 +27,7 @@ add_library(wheelbri_core STATIC
     src/Pipeline.cpp
     src/Retention.cpp
     src/Rig.cpp
+    src/SenderGate.cpp
     src/ShimGames.cpp
     src/StatePacket.cpp
     src/Telemetry.cpp

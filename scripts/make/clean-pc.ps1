@@ -19,10 +19,14 @@
 # HID devices under them, including ones Windows keeps half-removed; the driver packages under both names (the hide
 # filter first, then g920); every device our drivers are on (found by their driver description, so also when
 # the package is already gone: the rig's devices with the hide filter, whatever they are) is reinstalled on Windows'
-# own driver; the drivers' UMDF registrations (WUDF\Services); the drivers' test certificate (WDKTestCert) from the machine's Root
-# and TrustedPublisher stores; the install folder (%ProgramFiles%\WheelBri, an older %ProgramFiles%\wheelemu, or where
-# Settings > Apps says), its shortcuts and its Settings > Apps entries; HKLM\SOFTWARE\wheelbri and \wheelemu (the hide
-# setting); the installer's and uninstaller's copies in %TEMP% (wheelbri-setup-*, wheelbri-uninstall-*);
+# own driver; the drivers' UMDF registrations (WUDF\Services); the certificates that signed our driver packages (by
+# thumbprint: recorded at install in HKLM\SOFTWARE\wheelbri\SigningCertificates, or read from the signed catalogs of
+# the installed packages, the install folders and this repository's builds; never another test certificate) from the
+# machine's Root and TrustedPublisher stores; the install folder (%ProgramFiles%\WheelBri, an older
+# %ProgramFiles%\wheelemu, or where Settings > Apps says: the files in its installed-files.txt and WheelBri's
+# subfolders, or all of it for an install from before that list), its shortcuts and its Settings > Apps entries;
+# HKLM\SOFTWARE\wheelbri and \wheelemu (the hide setting); the installer's and uninstaller's copies in %TEMP% and
+# %SystemRoot%\Temp (wheelbri-setup-*, wheelbri-uninstall-*);
 # DirectInput's entries for VID_046D&PID_C262 (the G920's name and force feedback driver, which the service writes;
 # a real G920 gets them again when plugged in); the app's data folders unless -KeepData.
 # It never touches this repository (build\, dist\) or the WDK certificate in your own store that signs builds.
@@ -40,6 +44,12 @@ param(
 
 if (-not $UserLocalAppData) { $UserLocalAppData = $env:LOCALAPPDATA }
 $ThirdParty = -not $KeepThirdParty
+# Game folders as full paths without a trailing backslash, before they are passed on: after elevation a relative path
+# would be resolved against System32, and "D:\Games\" quoted on a command line escapes its own closing quote.
+$GameFolder = @($GameFolder | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object {
+    $full = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($_))
+    if ($full.Length -gt 3) { $full.TrimEnd('\') } else { $full }
+})
 
 function Forwarded {
     $list = @('-UserLocalAppData', $UserLocalAppData)
@@ -61,7 +71,7 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" " +
-                 ((Forwarded | ForEach-Object { if ($_ -like '-*') { $_ } else { "`"$_`"" } }) -join ' ')
+                 ((Forwarded | ForEach-Object { if ($_ -like '-*') { $_ } else { "`"$($_ -replace '\\$', '\\')`"" } }) -join ' ')   # "D:\" -> "D:\\"
     Write-Host 'Cleaning the PC needs Administrator: answer the Windows prompt; it goes on in a new window.'
     try {
         $p = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -Wait -PassThru
@@ -76,6 +86,14 @@ $GameFolder = @($GameFolder | ForEach-Object { $_ -split ',' } | ForEach-Object 
 
 Set-Location $env:TEMP
 $ErrorActionPreference = 'Continue'
+# The drivers' shared helpers: the signing certificates' thumbprints and the install folder's removal.
+$commonScript = Join-Path $PSScriptRoot '..\..\driver\common.ps1'
+if (-not (Test-Path $commonScript)) {
+    Write-Host "$commonScript is missing: run this from the repository (scripts\make)." -ForegroundColor Red
+    if (-not $Yes) { Read-Host 'Press Enter to close' | Out-Null }
+    exit 1
+}
+. $commonScript
 $log = Join-Path $env:TEMP "wheelbri-clean-pc-$(Get-Date -Format yyyy-MM-dd-HHmmss).log"
 Start-Transcript -Path $log | Out-Null
 $warnings = New-Object System.Collections.Generic.List[string]
@@ -156,7 +174,9 @@ $otherKeys = @(foreach ($name in $names) {
 
 # The installer's unpacked package and the uninstaller's copy (Setup.cmd, uninstall.ps1), left in %TEMP%.
 function Get-TempCopies {
-    $roots = @($env:TEMP, (Join-Path $UserLocalAppData 'Temp')) | Where-Object { $_ -and (Test-Path $_) } | Sort-Object -Unique
+    # %SystemRoot%\Temp: where uninstall.ps1 runs its copy (only Administrators may write there).
+    $roots = @($env:TEMP, (Join-Path $UserLocalAppData 'Temp'), (Join-Path $env:SystemRoot 'Temp')) |
+             Where-Object { $_ -and (Test-Path $_) } | Sort-Object -Unique
     return @(foreach ($root in $roots) {
         foreach ($name in $names) {
             Get-ChildItem $root -Directory -Filter "$name-setup-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
@@ -221,11 +241,16 @@ $thirdDevices = @($allDevices | Where-Object { (Test-ThirdPartyName "$($_.Instan
 $packages = @(Get-DriverPackages)
 $ourPackages = @(foreach ($inf in $ourInfs) { $packages | Where-Object { $_.Original -ieq $inf } })
 $thirdPackages = @($packages | Where-Object { Test-ThirdPartyName $_.Original })
-$certificates = @(foreach ($store in 'Root', 'TrustedPublisher') {
-    Get-ChildItem "Cert:\LocalMachine\$store" -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*WDKTestCert*' } |
-        ForEach-Object { [pscustomobject]@{ Store = $store; Certificate = $_ } }
-})
 $installFolders = @(Get-InstallFolders)
+# Only the certificates that signed our packages (by thumbprint), looked up before the packages are removed.
+$signers = @(Get-SigningThumbprints @($ourInfs | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_) }) `
+                                    (@($installFolders) + @(Join-Path $PSScriptRoot '..\..\driver')))
+$certificates = @(foreach ($store in 'Root', 'TrustedPublisher') {
+    foreach ($thumbprint in $signers) {
+        $certificate = Get-Item "Cert:\LocalMachine\$store\$thumbprint" -ErrorAction SilentlyContinue
+        if ($certificate) { [pscustomobject]@{ Store = $store; Certificate = $certificate } }
+    }
+})
 $tempCopies = @(Get-TempCopies)
 $shortcuts = @(Get-Shortcuts)
 $keys = @(($diKeys + $otherKeys) | Where-Object { Test-Path $_ })
@@ -352,8 +377,10 @@ try {
 
         Step '[5/8] removing the program, its shortcuts and the installer''s copies in %TEMP%'
         foreach ($path in $shortcuts + $installFolders + $tempCopies) {
-            Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue
-            if (Test-Path $path) { Warn "could not remove $path completely (a file in use?): delete it after a restart" }
+            # An install folder: the files in its installed-files.txt and WheelBri's subfolders (all of it without that
+            # list); never following a link (common.ps1).
+            if ($installFolders -contains $path) { [void](Remove-InstallFolder $path) } else { Remove-Tree $path }
+            if (Test-Path $path) { Warn "could not remove $path completely (a file in use, or not WheelBri's?): delete it after a restart" }
             else { Write-Host "    removed $path" }
         }
         if (($shortcuts.Count + $installFolders.Count + $tempCopies.Count) -eq 0) { Write-Host '    none' }

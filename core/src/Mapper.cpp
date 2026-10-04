@@ -183,4 +183,22 @@ std::int8_t Mapper::mapHat(const RawInputs& inputs) const {
     return kHat[vertical + 1][horizontal + 1];
 }
 
+std::vector<std::string> missingMappedAxes(const MapperConfig& config,
+                                           const std::array<int, kMaxInputDevices>& axisCounts) {
+    std::vector<std::string> problems;
+    const auto check = [&](const char* what, const int axis, const int device) {
+        if (axis < 0 || device < 0 || static_cast<std::size_t>(device) >= axisCounts.size()) return;
+        const int count = axisCounts[static_cast<std::size_t>(device)];
+        if (count < 0 || axis < count) return;
+        problems.push_back(std::string(what) + ": axis " + std::to_string(axis) + " of " +
+                           (device == 0 ? std::string("the wheel") : "accessory " + std::to_string(device)) +
+                           ", which has " + std::to_string(count) + (count == 1 ? " axis" : " axes"));
+    };
+    check("steering", config.steering.sourceAxis, config.steering.sourceDevice);
+    check("throttle", config.throttle.sourceAxis, config.throttle.sourceDevice);
+    check("brake", config.brake.sourceAxis, config.brake.sourceDevice);
+    check("clutch", config.clutch.sourceAxis, config.clutch.sourceDevice);
+    return problems;
+}
+
 }  // namespace wheelbri

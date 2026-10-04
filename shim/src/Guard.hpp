@@ -42,4 +42,17 @@ Result guardedOr(const Result fallback, const char* where, Body&& body) noexcept
     return fallback;
 }
 
+// For work that must not change what the game gets once the real call is done (a log line after QueryInterface,
+// cleanup in Release): an exception is noted and dropped.
+template <typename Body>
+void guardedVoid(const char* where, Body&& body) noexcept {
+    try {
+        body();
+    } catch (const std::exception& e) {
+        noteEscapedException(where, e.what());
+    } catch (...) {
+        noteEscapedException(where, "unknown exception");
+    }
+}
+
 }  // namespace wheelbri::shim

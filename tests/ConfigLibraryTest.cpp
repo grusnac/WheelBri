@@ -166,3 +166,19 @@ TEST_F(ConfigLibraryFiles, RemembersThePickedConfig) {
     ASSERT_TRUE(writeConfigSelection(state, "/home/me/.config/wheelbri/configs/Rally.ini"));
     EXPECT_EQ(readConfigSelection(state), "/home/me/.config/wheelbri/configs/Rally.ini");
 }
+
+TEST_F(ConfigLibraryFiles, AppSettingsKeepCommentCharactersInValues) {
+    const auto state = dir_ / "app.ini";
+    ASSERT_TRUE(writeAppSetting(state, "config", "C:\\Games #1\\my;config.ini"));
+    ASSERT_TRUE(writeAppSetting(state, "rig", "Desk"));
+    EXPECT_EQ(readAppSetting(state, "config"), "C:\\Games #1\\my;config.ini");
+    EXPECT_EQ(readAppSetting(state, "rig"), "Desk");
+    EXPECT_EQ(readAppSetting(state, "missing"), "");
+}
+
+TEST_F(ConfigLibraryFiles, AppSettingsAreNotWrittenOverAFileThatCannotBeRead) {
+    const auto state = dir_ / "app.ini";
+    std::filesystem::create_directories(state);   // there, but not a file that can be read
+    EXPECT_FALSE(writeAppSetting(state, "rig", "Desk"));
+    EXPECT_TRUE(std::filesystem::is_directory(state));
+}

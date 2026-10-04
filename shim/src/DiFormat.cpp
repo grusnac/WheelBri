@@ -1,5 +1,6 @@
 #include "DiFormat.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <iterator>
 
@@ -55,6 +56,11 @@ bool isCondition(const GUID& type) {
     return type == GUID_Spring || type == GUID_Damper || type == GUID_Inertia || type == GUID_Friction;
 }
 
+// The same limits EmulatedEffect::SetParameters puts on what the game passes: describeEffect is also called on
+// parameters a call rejected, so it must not read further than a valid call could point to.
+constexpr DWORD kMaxAxes = 8;
+constexpr DWORD kMaxTypeSpecificBytes = 1024;
+
 void appendFlag(std::string& out, const DWORD flags, const DWORD bit, const char* name) {
     if ((flags & bit) != 0) {
         out += out.empty() ? "" : "|";
@@ -67,6 +73,9 @@ std::string describeTypeSpecific(const GUID& type, const DIEFFECT& effect) {
     const DWORD size = effect.cbTypeSpecificParams;
     if (params == nullptr || size == 0) {
         return " params=none";
+    }
+    if (size > kMaxTypeSpecificBytes) {
+        return format(" params=%lu bytes (too large, not read)", size);
     }
     if (type == GUID_ConstantForce && size >= sizeof(DICONSTANTFORCE)) {
         return format(" constant{magnitude=%ld}", static_cast<const DICONSTANTFORCE*>(params)->lMagnitude);
@@ -83,7 +92,8 @@ std::string describeTypeSpecific(const GUID& type, const DIEFFECT& effect) {
     if (isCondition(type) && size >= sizeof(DICONDITION)) {
         std::string out;
         const auto* conditions = static_cast<const DICONDITION*>(params);
-        for (DWORD i = 0; i < size / sizeof(DICONDITION); ++i) {
+        const DWORD count = std::min<DWORD>(size / sizeof(DICONDITION), kMaxAxes);
+        for (DWORD i = 0; i < count; ++i) {
             const DICONDITION& c = conditions[i];
             out += format(" condition[%lu]{offset=%ld +coef=%ld -coef=%ld +sat=%lu -sat=%lu deadband=%ld}", i,
                           c.lOffset, c.lPositiveCoefficient, c.lNegativeCoefficient, c.dwPositiveSaturation,
@@ -252,10 +262,15 @@ std::string describeCaps(const DIDEVCAPS& caps) {
     appendFlag(flags, caps.dwFlags, DIDC_POSNEGSATURATION, "POSNEGSATURATION");
     appendFlag(flags, caps.dwFlags, DIDC_DEADBAND, "DEADBAND");
     appendFlag(flags, caps.dwFlags, DIDC_STARTDELAY, "STARTDELAY");
-    return format("flags=%s devType=", flags.c_str()) + describeDevType(caps.dwDevType) +
-           format(" axes=%lu buttons=%lu povs=%lu ffSamplePeriod=%lu ffMinRes=%lu fw=%lu hw=%lu ffDriver=%lu",
-                  caps.dwAxes, caps.dwButtons, caps.dwPOVs, caps.dwFFSamplePeriod, caps.dwFFMinTimeResolution,
-                  caps.dwFirmwareRevision, caps.dwHardwareRevision, caps.dwFFDriverVersion);
+    std::string out = format("flags=%s devType=", flags.c_str()) + describeDevType(caps.dwDevType) +
+                      format(" axes=%lu buttons=%lu povs=%lu", caps.dwAxes, caps.dwButtons, caps.dwPOVs);
+    // A DirectX 3 DIDEVCAPS ends after dwPOVs: the force feedback fields are not there to read.
+    if (caps.dwSize >= sizeof(DIDEVCAPS)) {
+        out += format(" ffSamplePeriod=%lu ffMinRes=%lu fw=%lu hw=%lu ffDriver=%lu", caps.dwFFSamplePeriod,
+                      caps.dwFFMinTimeResolution, caps.dwFirmwareRevision, caps.dwHardwareRevision,
+                      caps.dwFFDriverVersion);
+    }
+    return out;
 }
 
 std::string describeDataFormat(LPCDIDATAFORMAT format_) {
@@ -329,6 +344,10 @@ std::string describeEffect(const GUID& effectType, LPCDIEFFECT effect, const DWO
     if (effect == nullptr) {
         return "effect=null";
     }
+    // Also called on parameters a call rejected: nothing past dwSize is trusted unless the size is a real one.
+    if (effect->dwSize != sizeof(DIEFFECT) && effect->dwSize != sizeof(DIEFFECT_DX5)) {
+        return format("invalid parameters (dwSize=%lu)", effect->dwSize);
+    }
     std::string out = "[" + describeEffectFlags(flags) + "]";
     if ((flags & DIEP_DURATION) != 0) {
         out += effect->dwDuration == INFINITE ? " duration=INFINITE" : format(" duration=%luus", effect->dwDuration);
@@ -346,9 +365,12 @@ std::string describeEffect(const GUID& effectType, LPCDIEFFECT effect, const DWO
         out += format(" coords=%s%s axes=%lu [",
                       (effect->dwFlags & DIEFF_POLAR) != 0 ? "POLAR" : (effect->dwFlags & DIEFF_SPHERICAL) != 0 ? "SPHERICAL" : "CARTESIAN",
                       (effect->dwFlags & DIEFF_OBJECTOFFSETS) != 0 ? "/OFFSETS" : "/IDS", effect->cAxes);
-        for (DWORD i = 0; i < effect->cAxes && i < 8; ++i) {
-            const DWORD axis = effect->rgdwAxes != nullptr ? effect->rgdwAxes[i] : 0;
-            const LONG direction = effect->rglDirection != nullptr ? effect->rglDirection[i] : 0;
+        // Each array is only read when its flag says the game filled it in (an unused pointer may be garbage).
+        const DWORD* const axes = (flags & DIEP_AXES) != 0 ? effect->rgdwAxes : nullptr;
+        const LONG* const directions = (flags & DIEP_DIRECTION) != 0 ? effect->rglDirection : nullptr;
+        for (DWORD i = 0; i < effect->cAxes && i < kMaxAxes; ++i) {
+            const DWORD axis = axes != nullptr ? axes[i] : 0;
+            const LONG direction = directions != nullptr ? directions[i] : 0;
             out += format("%s0x%lx dir=%ld", i == 0 ? "" : ", ", axis, direction);
         }
         out += "]";

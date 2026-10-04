@@ -1,6 +1,7 @@
 #include "wheelbri/HidHideCli.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cctype>
 #include <cstdio>
 #include <memory>
@@ -73,7 +74,11 @@ private:
                 case 'f': out += '\f'; break;
                 case 'u': {
                     if (pos_ + 4 > text_.size()) return std::nullopt;
-                    const unsigned code = static_cast<unsigned>(std::stoul(std::string(text_.substr(pos_, 4)), nullptr, 16));
+                    // Exactly four hex digits; anything else is a broken string, not an exception.
+                    unsigned code = 0;
+                    const std::string_view hex = text_.substr(pos_, 4);
+                    const auto parsed = std::from_chars(hex.data(), hex.data() + hex.size(), code, 16);
+                    if (parsed.ec != std::errc() || parsed.ptr != hex.data() + hex.size()) return std::nullopt;
                     pos_ += 4;
                     if (code < 0x80) {
                         out += static_cast<char>(code);

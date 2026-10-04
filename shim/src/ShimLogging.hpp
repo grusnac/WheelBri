@@ -14,7 +14,8 @@ void ensureLoggingInitialised();
 
 // Called from DLL_PROCESS_DETACH. Only flushes when the DLL is unloaded with FreeLibrary; at process
 // exit other threads are already gone and may have died holding logging locks, so nothing is touched.
-void onDllDetach(bool processTerminating);
+// Does nothing if logging was never initialised, and never throws.
+void onDllDetach(bool processTerminating) noexcept;
 
 [[nodiscard]] logging::Logger logger(const char* component);
 

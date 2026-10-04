@@ -48,8 +48,10 @@ public:
             return S_OK;
         }
         const HRESULT result = real_->QueryInterface(riid, object);
-        WE_LOG_WARN(detail::directInputLog(), "QueryInterface({}) passed to the real object unwrapped -> {}",
-                    describeGuid(riid), describeHresult(result));
+        guardedVoid("QueryInterface", [&] {
+            WE_LOG_WARN(detail::directInputLog(), "QueryInterface({}) passed to the real object unwrapped -> {}",
+                        describeGuid(riid), describeHresult(result));
+        });
         return result;
     }
 
@@ -59,8 +61,10 @@ public:
         const ULONG remaining = --references_;
         if (remaining == 0) {
             const ULONG realRemaining = real_->Release();
-            WE_LOG_INFO(detail::directInputLog(), "IDirectInput8{} released (real object refs left {})", T::kSuffix,
-                        realRemaining);
+            guardedVoid("Release", [&] {
+                WE_LOG_INFO(detail::directInputLog(), "IDirectInput8{} released (real object refs left {})",
+                            T::kSuffix, realRemaining);
+            });
             delete this;
         }
         return remaining;
@@ -70,17 +74,36 @@ public:
         return guarded("CreateDevice", [&]() -> HRESULT {
             const std::string label = labelFor(guid);
             const HRESULT result = real_->CreateDevice(guid, device, outer);
-            WE_LOG_INFO(detail::directInputLog(), "CreateDevice({}) -> {}", label, describeHresult(result));
+            // Between the real call and the wrapping nothing may throw, or the game would hold an unwrapped device.
+            guardedVoid("CreateDevice", [&] {
+                WE_LOG_INFO(detail::directInputLog(), "CreateDevice({}) -> {}", label, describeHresult(result));
+            });
             if (SUCCEEDED(result) && device != nullptr && *device != nullptr) {
-                // Decide by what the device is, not by how the game found it: a game may reuse an instance
-                // GUID saved from an earlier session without enumerating first.
-                typename T::DeviceInstance info{};
-                info.dwSize = sizeof(info);
-                auto profile = makeProfile(shimConfig().targetProfile);
-                if (profile != nullptr && SUCCEEDED((*device)->GetDeviceInfo(&info)) && isSourceDevice(info)) {
-                    *device = new EmulatedDevice<T>(*device, std::move(profile), toUtf8(info.tszProductName));
-                } else {
-                    *device = new ProxyDevice<T>(*device, label);
+                if (outer != nullptr) {
+                    // COM aggregation: the object belongs to the caller's outer object and must not be wrapped.
+                    WE_LOG_WARN(detail::directInputLog(), "CreateDevice({}): aggregated device requested, passing it "
+                                                          "through unwrapped",
+                                label);
+                    return result;
+                }
+                // The game gets the wrapper or nothing: if wrapping fails, the real device is released and the
+                // exception goes on to guarded().
+                typename T::Device* const realDevice = *device;
+                *device = nullptr;
+                try {
+                    // Decide by what the device is, not by how the game found it: a game may reuse an instance
+                    // GUID saved from an earlier session without enumerating first.
+                    typename T::DeviceInstance info{};
+                    info.dwSize = sizeof(info);
+                    auto profile = makeProfile(shimConfig().targetProfile);
+                    if (profile != nullptr && SUCCEEDED(realDevice->GetDeviceInfo(&info)) && isSourceDevice(info)) {
+                        *device = new EmulatedDevice<T>(realDevice, std::move(profile), toUtf8(info.tszProductName));
+                    } else {
+                        *device = new ProxyDevice<T>(realDevice, label);
+                    }
+                } catch (...) {
+                    realDevice->Release();
+                    throw;
                 }
             }
             return result;

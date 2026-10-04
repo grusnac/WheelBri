@@ -1,5 +1,7 @@
 #pragma once
 
+#include "wheelbri/FileText.hpp"
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -25,9 +27,7 @@ struct ShimGameList {
 inline constexpr const char* kShimDll = "dinput8.dll";
 inline constexpr const char* kShimSettings = "wheelbri-shim.ini";
 
-// Paths in the list file are UTF-8 (game folders often are not ASCII).
-[[nodiscard]] std::string pathToUtf8(const std::filesystem::path& path);
-[[nodiscard]] std::filesystem::path pathFromUtf8(const std::string& text);
+// Paths in the list file are UTF-8 (game folders often are not ASCII): pathToUtf8 / pathFromUtf8 (FileText.hpp).
 
 // Reads the list (a missing file is an empty list). Lines it does not understand are skipped.
 [[nodiscard]] ShimGameList readShimGames(const std::filesystem::path& file);

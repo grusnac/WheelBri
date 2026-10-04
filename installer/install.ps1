@@ -14,12 +14,15 @@
 # the restart). When the install failed the window waits for Enter (so the reason can be read).
 #
 # What it changes on this PC (all undone by the uninstaller):
-#   - files in the install folder; Start menu (and desktop) shortcut "WheelBri"; an uninstall entry
+#   - files in the install folder (listed in its installed-files.txt: the uninstaller removes those, not the whole
+#     folder; an -InstallDir that is not empty and holds no WheelBri install is refused); Start menu (and desktop)
+#     shortcut "WheelBri"; an uninstall entry
 #   - two driver packages (pnputil): the virtual G920 (wheelbri-g920) and the
 #     filter that hides the rig from games (wheelbri-hide; only added here: the app puts it on the devices of the
 #     rig set up in Wheel setup, whatever they are, when Start is pressed)
 #   - the certificate the drivers are signed with, added to this PC's trusted Root and TrustedPublisher stores (the
-#     drivers are signed by WheelBri's own test certificate, not by Microsoft)
+#     drivers are signed by WheelBri's own test certificate, not by Microsoft); its thumbprint is recorded in
+#     HKLM\SOFTWARE\wheelbri\SigningCertificates, so the uninstaller removes exactly that certificate
 #
 # Exit codes: 0 installed (possibly with warnings, listed at the end), 1 failed (the red line says why).
 # Everything is also written to %LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log (with every other log).
@@ -35,6 +38,10 @@ param(
 if (-not $InstallDir) {
     $InstallDir = Join-Path $(if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }) 'WheelBri'
 }
+# A full path without a trailing backslash, before it is passed on or recorded: a relative path would be resolved
+# against System32 once elevated, and "D:\WheelBri\" quoted on a command line escapes its own closing quote.
+$InstallDir = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir))
+if ($InstallDir.Length -gt 3) { $InstallDir = $InstallDir.TrimEnd('\') }
 
 # A 32-bit PowerShell sees SysWOW64, where pnputil and the 64-bit driver tools are missing: run again in 64-bit.
 if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
@@ -48,7 +55,8 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
 # Not Administrator: ask for it (one UAC prompt) and wait for the elevated run.
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -InstallDir `"$InstallDir`""
+    # A drive's root keeps its backslash: doubled, so it does not escape the closing quote.
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -InstallDir `"$($InstallDir -replace '\\$', '\\')`""
     if ($NoDesktopShortcut) { $arguments += ' -NoDesktopShortcut' }
     if ($Quiet) { $arguments += ' -Quiet' }
     try {
@@ -66,12 +74,9 @@ $version = if (Test-Path (Join-Path $package 'VERSION.txt')) { (Get-Content (Joi
 # Every log in one folder, the user's %LOCALAPPDATA%\wheelbri\logs (the app and both drivers write there too): the
 # drivers run as LocalService, so it may write there, and HKLM\SOFTWARE\wheelbri LogFolder tells them where (the
 # app does the same at every start, see ServiceLogging.hpp shareLogFolder).
+# (Set up as the first thing in the try below, so a failure there is reported and the window waits.)
 $logFolder = Join-Path $env:LOCALAPPDATA 'wheelbri\logs'
-New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
-& icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
-if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
-Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name 'LogFolder' -Value $logFolder
-Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+$transcript = $false
 
 $warnings = New-Object System.Collections.Generic.List[string]
 $step = 0
@@ -99,6 +104,13 @@ function Run-Script([string]$path, [string[]]$arguments = @()) {
 
 $exitCode = 1
 try {
+    New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
+    Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+    $transcript = $true
+    & icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
+    if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
+    Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name 'LogFolder' -Value $logFolder
+
     Write-Host "WheelBri $version setup" -ForegroundColor Green
     Write-Host "package:      $package"
     Write-Host "install into: $InstallDir"
@@ -122,6 +134,24 @@ try {
             if (-not (Test-Path (Join-Path $package "driver\$driver$extension"))) {
                 Fail "the package is incomplete (driver\$driver$extension is missing): unpack the whole package again."
             }
+        }
+    }
+    . (Join-Path $package 'driver\common.ps1')   # the install folder's helpers (Remove-Tree, Remove-InstallFolder)
+    # The install folder: new, empty, or an earlier install (its program or its installed-files.txt is there).
+    # Anything else is refused: the uninstaller removes what the installer put there, and other files do not belong
+    # in it. wheelemu.exe: the program's name before the rename to WheelBri.
+    if (Test-Path -LiteralPath $InstallDir) {
+        $isFolder = Test-Path -LiteralPath $InstallDir -PathType Container
+        $empty = $isFolder -and @(Get-ChildItem -LiteralPath $InstallDir -Force).Count -eq 0
+        $earlier = $false
+        foreach ($marker in 'wheelbri.exe', 'wheelemu.exe', 'installed-files.txt') {
+            if (Test-Path -LiteralPath (Join-Path $InstallDir $marker) -PathType Leaf) { $earlier = $true }
+        }
+        if (Test-Path -LiteralPath (Join-Path $InstallDir 'install.ps1')) {
+            Fail "$InstallDir is a WheelBri package, not an install folder: choose another folder (-InstallDir)."
+        }
+        if (-not $isFolder -or (-not $empty -and -not $earlier)) {
+            Fail "$InstallDir is not empty and holds no WheelBri installation: choose an empty or new folder (-InstallDir)."
         }
     }
     Write-Host ('    the hiding filter is only added now: the app puts it on the devices of your rig (Wheel setup) ' +
@@ -169,7 +199,14 @@ try {
         Step "removing the version from before the rename ($legacy)"
         foreach ($device in $legacyDevices) {
             pnputil /remove-device "$($device.InstanceId)" | Out-Null
-            Write-Host "    removed the old device $($device.InstanceId)"
+            $code = $LASTEXITCODE
+            if ($script:PnputilOk -contains $code) {   # 0, 259, 3010 (common.ps1)
+                Write-Host "    removed the old device $($device.InstanceId)"
+                if ($code -eq 3010) { Warn '    Windows finishes removing it at the next restart' }
+            } else {
+                Warn ("    could not remove the old device $($device.InstanceId) (pnputil exit code $code): Device Manager > " +
+                      'View > Show hidden devices > Uninstall')
+            }
         }
         Remove-Item "HKLM:\SOFTWARE\$legacy" -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "    removed HKLM\SOFTWARE\$legacy"
@@ -191,8 +228,8 @@ try {
     # The version from before the rename in this same folder: its program files go (their names changed, so the copy
     # below would leave them next to the new ones); its config stays.
     if ($previous -and ($previous.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) -and (Test-Path (Join-Path $InstallDir "$legacy.exe"))) {
-        Get-ChildItem $InstallDir -Force | Where-Object { $_.Name -ne 'config' } |
-            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -LiteralPath $InstallDir -Force | Where-Object { $_.Name -ne 'config' } |
+            ForEach-Object { Remove-Tree $_.FullName }   # links removed as links, never followed
         Write-Host "    removed the old program files from $InstallDir (your config stays)"
     }
     if ($previous -and ($previous.TrimEnd('\') -ine $InstallDir.TrimEnd('\')) -and (& $isInstall $previous)) {
@@ -204,6 +241,21 @@ try {
         }
         Write-Host "    an earlier install is in ${previous}: its settings are carried over, the folder is removed below"
     }
+    # installed-files.txt: every file the installer put in the folder (relative paths), so that removing it deletes
+    # those and nothing else (common.ps1 Remove-InstallFolder). Kept across upgrades: an older version's files stay
+    # listed while they are there. An install from before the list: all of it is WheelBri's (checked in step 1).
+    $manifest = Join-Path $InstallDir 'installed-files.txt'
+    $listed = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    if (Test-Path -LiteralPath $manifest) {
+        Get-Content -LiteralPath $manifest | ForEach-Object { if ($_.Trim()) { [void]$listed.Add($_.Trim()) } }
+    } else {
+        Get-ChildItem -LiteralPath $InstallDir -Recurse -File -Force |
+            ForEach-Object { [void]$listed.Add($_.FullName.Substring($InstallDir.Length).TrimStart('\')) }
+    }
+    if ($oldFolder) {
+        Get-ChildItem (Join-Path $InstallDir 'config') -Filter '*.ini' -ErrorAction SilentlyContinue |
+            ForEach-Object { [void]$listed.Add("config\$($_.Name)") }   # the carried-over settings
+    }
     $sourceRoot = (Resolve-Path $package).Path.TrimEnd('\')
     $copied = 0
     foreach ($file in Get-ChildItem $sourceRoot -Recurse -File) {
@@ -213,13 +265,16 @@ try {
         New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
         # An edited config stays: the new default goes next to it as .new.
         if ($relative -like 'config\*.ini' -and (Test-Path $target)) {
+            [void]$listed.Add($relative)
             if ((Get-FileHash $target).Hash -ne (Get-FileHash $file.FullName).Hash) {
                 Copy-Item $file.FullName "$target.new" -Force
+                [void]$listed.Add("$relative.new")
                 Write-Host "    kept your $relative (the new default is $relative.new)"
             }
             continue
         }
         Copy-Item $file.FullName $target -Force
+        [void]$listed.Add($relative)
         $copied++
     }
     Write-Host "    $copied files copied"
@@ -229,6 +284,11 @@ try {
             Remove-Item $file -Force -ErrorAction SilentlyContinue
         }
     }
+    # The list: only what is there now (the old configs above are gone), sorted; not itself.
+    $lines = @($listed | Where-Object { ($_ -ine 'installed-files.txt') -and (Test-ManifestEntry $_) -and
+                                        (Test-Path -LiteralPath (Join-Path $InstallDir $_) -PathType Leaf) } | Sort-Object)
+    Set-Content -LiteralPath $manifest -Value $lines -Encoding UTF8
+    Write-Host "    $($lines.Count) files listed in installed-files.txt (what the uninstaller removes)"
 
     # --- 4. drivers -----------------------------------------------------------------------------------------------
     Step 'installing the drivers'
@@ -253,8 +313,8 @@ try {
     }
 
     if ($oldFolder) {
-        Remove-Item $oldFolder -Recurse -Force -ErrorAction SilentlyContinue
-        if (Test-Path $oldFolder) { Warn "    the old folder $oldFolder could not be removed completely: delete it by hand" }
+        # Its installed-files.txt if it has one (only those files and WheelBri's subfolders), else all of it.
+        if (-not (Remove-InstallFolder $oldFolder)) { Warn "    the old folder $oldFolder could not be removed completely: delete it by hand" }
         else { Write-Host "    removed the old folder $oldFolder" }
     }
 
@@ -356,7 +416,7 @@ try {
             Write-Host 'Not restarting now: restart Windows before you use WheelBri.' -ForegroundColor Yellow
         }
     }
-    Stop-Transcript | Out-Null
+    if ($transcript) { Stop-Transcript | Out-Null }
     if ($restart) {
         & shutdown.exe /r /t 15 /c 'WheelBri: restarting so its drivers are installed properly.' /d p:4:2
         Start-Sleep -Seconds 3

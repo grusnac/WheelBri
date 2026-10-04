@@ -51,7 +51,8 @@ public:
 
 // The first connected wheel whose name or vid:pid contains `match` ([emulator] source_device); nullptr if
 // none (the log lists what is connected).
-[[nodiscard]] std::unique_ptr<Wheel> openWheel(WheelBackend& backend, const std::string& match);
+// `quiet`: a retry (waiting for a lost wheel), which logs less and a failure every 30 s at most.
+[[nodiscard]] std::unique_ptr<Wheel> openWheel(WheelBackend& backend, const std::string& match, bool quiet = false);
 
 // Whether a wheel matching `match` is connected now. Logs nothing: for polling while waiting for one.
 [[nodiscard]] bool wheelConnected(WheelBackend& backend, const std::string& match);

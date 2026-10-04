@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include <string>
 #include <vector>
 
@@ -151,6 +153,21 @@ TEST(HidPid, PoolFullAndReset) {
     EXPECT_EQ(feature[3], HidPid::kMaxSlots);
     EXPECT_EQ(feature[4], 0x01);
     EXPECT_EQ(r.pid.getFeature(0x42, feature), 0U);
+}
+
+TEST(HidPid, ABlockNumberNeverHandedOutTakesNoSlot) {
+    Recorder r;
+    r.pid.output(0x11, hex("2801DC05000000000000FFFF04FF1F0000FFFFFFFF"), 0);   // Set Effect for block 40
+    r.pid.output(0x1A, hex("280101"), 1);
+    EXPECT_EQ(r.lastPlaying(), nullptr);
+    EXPECT_TRUE(std::any_of(r.logs.begin(), r.logs.end(),
+                            [](const std::string& line) { return line.find("never hands out") != std::string::npos; }));
+    std::array<std::uint8_t, 8> feature{};
+    for (std::size_t i = 0; i < HidPid::kMaxSlots; ++i) {   // all eight still free
+        r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 10);
+        ASSERT_EQ(r.pid.getFeature(HidPid::kBlockLoad, feature), 5U);
+        EXPECT_EQ(feature[2], 1);   // success
+    }
 }
 
 TEST(HidG920, InputReportPacksLikeTheBridge) {

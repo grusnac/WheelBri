@@ -1,8 +1,8 @@
 # Puts wheelbri-hide, the filter that hides the rig from games while wheelbri-service runs, on the rig's devices
 # (build it first, see ..\README.md). Administrator; close the rig's own software (the wheel maker's tool) and games
 # first: each device restarts once. Secure Boot and test mode stay as they are: the package is signed with a
-# certificate made on this PC by the WDK build (WDKTestCert), which this script adds to the machine's trusted Root and
-# TrustedPublisher stores.
+# certificate made on this PC by the WDK build (WDKTestCert, or WheelBri's own from ..\new-signing-cert.ps1), which this
+# script adds to the machine's trusted Root and TrustedPublisher stores (thumbprint recorded, see ..\common.ps1).
 #
 # Which devices: only the ones given. The app gives the exact interfaces: the HID instance ids of the active rig's
 # game controllers as DirectInput lists them. By hand, USB ids work too (their game-controller interfaces, by
@@ -46,15 +46,19 @@ Assert-Admin
 # Every log in one folder, the user's %LOCALAPPDATA%\wheelbri\logs (the app and both drivers write there too): the
 # drivers run as LocalService, so it may write there, and HKLM\SOFTWARE\wheelbri LogFolder tells them where (the
 # app does the same at every start, see ServiceLogging.hpp shareLogFolder).
+# All of it inside the try: a failure there still ends in the finally below (and the red line says why).
 $logFolder = Join-Path $env:LOCALAPPDATA 'wheelbri\logs'
-New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
-& icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
-if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
-Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name 'LogFolder' -Value $logFolder
-Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
 $exitCode = 1
+$transcript = $false
 $script:needsWindowsRestart = $false   # pnputil said a device waits for a restart of Windows
 try {
+    New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
+    Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+    $transcript = $true
+    & icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
+    if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
+    Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name 'LogFolder' -Value $logFolder
+
     # "346e:0004,30b7:1001" (one argument from the app) or several arguments: the USB ids, checked.
     $wanted = @()
     foreach ($text in @($Devices | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
@@ -304,7 +308,9 @@ public static class HideInstall {
             $exitCode = 0
         }
     }
+} catch {
+    Write-Host "install-hide.ps1 failed: $($_.Exception.Message)" -ForegroundColor Red
 } finally {
-    Stop-Transcript | Out-Null
+    if ($transcript) { Stop-Transcript | Out-Null }
 }
 exit $exitCode

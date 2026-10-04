@@ -182,4 +182,25 @@ TEST(MapperDevices, AccessoriesDrivePedalsButtonsAndTheDpad) {
 }
 
 }  // namespace
+TEST(MapperDevices, MappedAxesTheDeviceDoesNotHaveAreNamed) {
+    MapperConfig config;
+    config.steering.sourceAxis = 0;
+    config.throttle.sourceAxis = 2;
+    config.brake.sourceAxis = 6;                 // the wheel has 3
+    config.clutch.sourceAxis = 1;
+    config.clutch.sourceDevice = 1;              // an accessory with 1 axis
+    std::array<int, kMaxInputDevices> counts{};
+    counts.fill(-1);
+    counts[0] = 3;
+    counts[1] = 1;
+    const auto problems = missingMappedAxes(config, counts);
+    ASSERT_EQ(problems.size(), 2U);
+    EXPECT_EQ(problems[0], "brake: axis 6 of the wheel, which has 3 axes");
+    EXPECT_EQ(problems[1], "clutch: axis 1 of accessory 1, which has 1 axis");
+    counts[1] = -1;                              // not known: not checked
+    EXPECT_EQ(missingMappedAxes(config, counts).size(), 1U);
+    config.brake.sourceAxis = kUnmapped;
+    EXPECT_TRUE(missingMappedAxes(config, counts).empty());
+}
+
 }  // namespace wheelbri

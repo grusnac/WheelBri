@@ -115,6 +115,15 @@ public:
                 return false;
             }
             WE_LOG_INFO(log(), "mapping window open ({})", window_->describe());
+            // Logoff or shutdown: Windows ends the process soon after WM_ENDSESSION, and this window is pumped by the
+            // session's own thread, which cannot clean up inside that message. So stop at the question before it:
+            // frame() says stop and the session undoes everything before the window is pumped again.
+            window_->onQueryEndSession([this] {
+                if (!endingSession_) {
+                    WE_LOG_WARN(log(), "Windows is ending the session (logoff or shutdown): stopping the service");
+                }
+                endingSession_ = true;
+            });
             setup_ = std::make_unique<WheelSetupView>(*window_,
                                                       WheelSetupView::Settings{rigsFolder(), deviceLabelsFolder(),
                                                                                appStateFile()});
@@ -134,8 +143,9 @@ public:
     }
 
     bool frame(const UiFrame& frame) override {
+        if (endingSession_) return false;   // no more pumping: WM_ENDSESSION waits until the clean-up is done
         const ui::WindowInput input = window_->pump();
-        if (input.close) {
+        if (input.close || endingSession_) {
             return false;
         }
         const bool setup = view_->tab() == MappingView::Tab::WheelSetup;
@@ -182,6 +192,7 @@ public:
 
 private:
     std::string configPath_;
+    bool endingSession_ = false;   // logoff or shutdown asked (Windows)
     std::unique_ptr<ui::UiWindow> window_;
     SessionInfo info_;
     std::unique_ptr<IDeviceProfile> profile_;
@@ -281,7 +292,19 @@ public:
     explicit App(const AppSettings& settings) : settings_(settings) {}
 
     // Never leave a session running (or its thread joinable, which would std::terminate) behind the app.
-    ~App() { stopAndWait(std::chrono::seconds(30)); }
+    ~App() { stopAndWaitForEver(); }
+
+    // As stopAndWait, but for as long as it takes (logging every 30 s): a session thread still running when the App
+    // goes would end the process with std::terminate, before the session gave the wheel back and removed the devices.
+    void stopAndWaitForEver() {
+        try {
+            while (!stopAndWait(std::chrono::seconds(30))) {
+                WE_LOG_WARN(log(), "still waiting for the service to stop");
+            }
+        } catch (...) {
+            // Nothing can be reported from here; never throw out of the destructor.
+        }
+    }
 
     // Asks the session to stop and waits up to `limit` for its clean-up; true if it ended.
     bool stopAndWait(const std::chrono::milliseconds limit) {
@@ -307,7 +330,7 @@ public:
         } catch (...) {
             WE_LOG_CRITICAL(log(), "app window: stopped on an unknown error");
         }
-        stopAndWait(std::chrono::seconds(30));   // the session undoes everything before the app ends
+        stopAndWaitForEver();   // the session undoes everything before the app ends
         return 1;
     }
 

@@ -3,6 +3,7 @@
 #include "wheelbri/Logging.hpp"
 
 #include <cmath>
+#include <utility>
 
 namespace wheelbri {
 
@@ -31,15 +32,19 @@ const char* typeName(const FfbEffectType type) {
 
 bool closeTo(const float a, const float b) { return std::abs(a - b) < 1e-3F; }
 
+template <std::size_t... I>
+std::array<FfbSafetyLimiter, sizeof...(I)> makeLimiters(const FfbSafetyConfig& safety, std::index_sequence<I...>) {
+    return {((void)I, FfbSafetyLimiter(safety))...};
+}
+
 }  // namespace
 
 FfbController::FfbController(IFfbSink& sink, const FfbSafetyConfig& safety, const Timing timing)
-    : sink_(sink), safety_(safety), timing_(timing), usage_(safety) {
-    limiters_.reserve(slots_.size());
-    for (std::size_t i = 0; i < slots_.size(); ++i) {
-        limiters_.emplace_back(safety_);
-    }
-}
+    : sink_(sink),
+      safety_(safety),
+      timing_(timing),
+      limiters_(makeLimiters(safety, std::make_index_sequence<IFfbSink::kMaxSlots>{})),
+      usage_(safety) {}
 
 bool FfbController::differs(const FfbEffect& a, const FfbEffect& b) {
     return a.type != b.type || !closeTo(a.gain, b.gain) || !closeTo(a.constantLevel, b.constantLevel) ||
@@ -115,7 +120,11 @@ void FfbController::update(const std::uint64_t nowNs) {
             continue;
         }
         ++active;
-        const bool starting = !slot.playing;
+        // Another kind of effect in the same slot (the game reused it, maybe after a stop that never arrived): the
+        // limiter's state belongs to the old one, so it starts afresh, as a new effect does (ramping up from 0).
+        const bool typeChanged = slot.playing && slot.lastSent && slot.lastSent->type != slot.requested.type;
+        if (typeChanged) limiters_[i].reset();
+        const bool starting = !slot.playing || typeChanged;
         if (!starting && nowNs - slot.lastSentNs < timing_.minUpdateNs) {
             continue;
         }

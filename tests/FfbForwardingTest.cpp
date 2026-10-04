@@ -222,5 +222,46 @@ TEST(FfbController, OutOfRangeSlotIsIgnored) {
     EXPECT_TRUE(sink.plays.empty());
 }
 
+TEST(FfbController, ATypeChangeOnAPlayingSlotStartsSoftAgain) {
+    RecordingSink sink;
+    FfbSafetyConfig config = safety();
+    config.maxSlewPerSecond = 10.0F;
+    FfbController controller(sink, config);
+    FfbEffect push;
+    push.constantLevel = 1.0F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.update(0);
+    controller.update(200 * kMs);
+    ASSERT_FLOAT_EQ(sink.plays.back().effect.constantLevel, 0.5F);   // ramped up to the cap
+    FfbEffect sine;
+    sine.type = FfbEffectType::Sine;
+    controller.onPacket(slotPacket(0, true, sine), 210 * kMs);
+    controller.update(210 * kMs);
+    controller.onPacket(slotPacket(0, true, push), 220 * kMs);       // constant again, on the same slot
+    controller.update(220 * kMs);
+    EXPECT_FLOAT_EQ(sink.plays.back().effect.constantLevel, 0.0F);   // from zero, not from where it was
+}
+
+TEST(FfbController, SlotViewOutOfRangeIsEmpty) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());
+    const FfbController::SlotView view = controller.slot(controller.slotCount() + 5);
+    EXPECT_FALSE(view.wanted);
+    EXPECT_FALSE(view.playing);
+    EXPECT_FALSE(view.sent.has_value());
+}
+
+TEST(FfbController, CopyingKeepsTheState) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());
+    FfbEffect push;
+    push.constantLevel = 0.2F;
+    controller.onPacket(slotPacket(3, true, push), 0);
+    controller.update(0);
+    const FfbController copy(controller);   // the window's frame
+    EXPECT_TRUE(copy.slot(3).playing);
+    EXPECT_EQ(copy.stats().plays, controller.stats().plays);
+}
+
 }  // namespace
 }  // namespace wheelbri

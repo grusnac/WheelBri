@@ -102,9 +102,11 @@ public:
             return S_OK;
         }
         const HRESULT result = real_->QueryInterface(riid, object);
-        WE_LOG_WARN(detail::emulationLog(),
-                    "{}: QueryInterface({}) handed out the PHYSICAL device -> {}; the game may see the real wheel",
-                    label_, describeGuid(riid), describeHresult(result));
+        guardedVoid("QueryInterface", [&] {
+            WE_LOG_WARN(detail::emulationLog(),
+                        "{}: QueryInterface({}) handed out the PHYSICAL device -> {}; the game may see the real wheel",
+                        label_, describeGuid(riid), describeHresult(result));
+        });
         return result;
     }
 
@@ -122,8 +124,10 @@ public:
                 }
             }
             real_->Release();
-            WE_LOG_INFO(detail::emulationLog(), "{}: released after {} GetDeviceState / {} GetDeviceData calls",
-                        label_, stateCalls_.load(), dataCalls_.load());
+            guardedVoid("Release", [&] {
+                WE_LOG_INFO(detail::emulationLog(), "{}: released after {} GetDeviceState / {} GetDeviceData calls",
+                            label_, stateCalls_.load(), dataCalls_.load());
+            });
             delete this;
         }
         return remaining;
@@ -204,7 +208,9 @@ public:
 
     HRESULT STDMETHODCALLTYPE GetObjectInfo(typename T::DeviceObjectInstance* info, DWORD object, DWORD how) override {
         return guarded("GetObjectInfo", [&]() -> HRESULT {
-            if (info == nullptr || info->dwSize == 0 || info->dwSize > sizeof(typename T::DeviceObjectInstance)) {
+            // Only the two sizes DirectInput knows (DirectX 3 and current), as the real DirectInput checks.
+            if (info == nullptr || (info->dwSize != sizeof(typename T::DeviceObjectInstance) &&
+                                    info->dwSize != sizeof(typename T::DeviceObjectInstanceDx3))) {
                 return DIERR_INVALIDPARAM;
             }
             const std::lock_guard<std::mutex> lock(mutex_);
@@ -356,9 +362,14 @@ public:
         return guarded("Acquire", [&]() -> HRESULT {
             HRESULT result = real_->Acquire();
             if (serviceFfb() && FAILED(result)) {
-                // Not needed for input or force feedback in service mode; never let it block the game.
-                WE_LOG_DEBUG(detail::emulationLog(), "{}: physical wheel Acquire -> {} (ignored)", label_,
-                             describeHresult(result));
+                // Not needed for input or force feedback in service mode; never let it block the game. Games
+                // acquire every frame, so this is rate limited.
+                std::uint64_t suppressed = 0;
+                if (physicalAcquireLimiter_.allow(suppressed)) {
+                    WE_LOG_DEBUG(detail::emulationLog(), "{}: physical wheel Acquire -> {} (ignored) ({} similar "
+                                                         "suppressed)",
+                                 label_, describeHresult(result), suppressed);
+                }
                 result = DI_OK;
             }
             if (SUCCEEDED(result)) {
@@ -498,11 +509,21 @@ public:
                 return createServiceEffect(type, effect, out, outer);
             }
             const HRESULT result = real_->CreateEffect(type, effect, out, outer);
-            WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) {} -> {} (played by the physical wheel)", label_,
-                        describeGuid(type), describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0),
-                        describeHresult(result));
+            // Between the real call and the wrapping nothing may throw, or the game would hold an unwrapped effect.
+            guardedVoid("CreateEffect", [&] {
+                WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) {} -> {} (played by the physical wheel)",
+                            label_, describeGuid(type),
+                            describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0),
+                            describeHresult(result));
+            });
             if (SUCCEEDED(result) && out != nullptr && *out != nullptr) {
-                *out = new ProxyEffect(*out, type, label_);
+                if (outer != nullptr) {
+                    // COM aggregation: the object belongs to the caller's outer object and must not be wrapped.
+                    WE_LOG_WARN(detail::emulationLog(), "{}: aggregated effect requested, passing it through unwrapped",
+                                label_);
+                    return result;
+                }
+                wrapRealEffect(out, type, label_);
             }
             return result;
         });
@@ -702,25 +723,39 @@ private:
     }
 
     // Logs the pedals as the game sees them whenever one crosses a quarter of its travel, so a log shows
-    // which axis each physical pedal moves and in which direction. Caller holds mutex_.
+    // which axis each physical pedal moves and in which direction. Runs on every read, so the line is only built
+    // when a pedal crossed, and sampled (every press crosses several quarters). Caller holds mutex_.
     void tracePedals(const TargetReport& report) {
-        std::string line;
         std::array<int, 4> buckets{};
         std::size_t pedal = 0;
-        for (std::size_t i = 0; i < joystick_.objects().size() && pedal < buckets.size(); ++i) {
+        forEachPedal(report, [&](const EmulatedObject&, const std::int32_t value, const LogicalRange& range) {
+            const double span = static_cast<double>(range.max) - static_cast<double>(range.min);
+            buckets[pedal++] = static_cast<int>(std::lround(4.0 * (value - range.min) / (span > 0 ? span : 1.0)));
+        });
+        if (buckets == pedalBuckets_) {
+            return;
+        }
+        pedalBuckets_ = buckets;
+        if (const auto call = pedalSampler_.next(); call != 0) {
+            std::string line;
+            forEachPedal(report, [&](const EmulatedObject& object, const std::int32_t value, const LogicalRange&) {
+                line += fmt::format(" {}({})={}", object.name, axisName(object.guid), value);
+            });
+            WE_LOG_INFO(detail::emulationLog(), "{}: pedals as the game sees them (#{}):{}", label_, call, line);
+        }
+    }
+
+    // Calls `visit(object, value, range)` for the first four non-steering axes. Caller holds mutex_.
+    template <typename Visit>
+    void forEachPedal(const TargetReport& report, Visit&& visit) const {
+        std::size_t pedal = 0;
+        for (std::size_t i = 0; i < joystick_.objects().size() && pedal < pedalBuckets_.size(); ++i) {
             const EmulatedObject& object = joystick_.objects()[i];
             if (!object.isAxis() || object.control == Control::Steering) {
                 continue;
             }
-            const LogicalRange range = joystick_.range(i);
-            const auto value = static_cast<std::int32_t>(joystick_.valueOf(i, report));
-            const double span = static_cast<double>(range.max) - static_cast<double>(range.min);
-            buckets[pedal++] = static_cast<int>(std::lround(4.0 * (value - range.min) / (span > 0 ? span : 1.0)));
-            line += fmt::format(" {}({})={}", object.name, axisName(object.guid), value);
-        }
-        if (buckets != pedalBuckets_) {
-            pedalBuckets_ = buckets;
-            WE_LOG_INFO(detail::emulationLog(), "{}: pedals as the game sees them:{}", label_, line);
+            ++pedal;
+            visit(object, static_cast<std::int32_t>(joystick_.valueOf(i, report)), joystick_.range(i));
         }
     }
 
@@ -973,8 +1008,10 @@ private:
     logging::CallSampler stateSampler_{10, 2000};
     logging::CallSampler dataSampler_{10, 2000};
     logging::CallSampler escapeSampler_{5, 1000};
+    logging::CallSampler pedalSampler_{50, 100};
     logging::RateLimiter stateFailureLimiter_{std::chrono::seconds(5)};
     logging::RateLimiter acquireLimiter_{std::chrono::seconds(5)};
+    logging::RateLimiter physicalAcquireLimiter_{std::chrono::seconds(5)};
 };
 
 }  // namespace wheelbri::shim

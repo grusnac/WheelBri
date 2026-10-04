@@ -3,6 +3,7 @@
 #include "wheelbri/StatePacket.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -48,7 +49,13 @@ public:
     UdpLoopbackReceiver(const UdpLoopbackReceiver&) = delete;
     UdpLoopbackReceiver& operator=(const UdpLoopbackReceiver&) = delete;
 
+    // Reads at most kMaxPerPoll datagrams a call (the rest wait for the next call).
     [[nodiscard]] std::optional<StatePacket> pollLatest() override;
+    static constexpr std::size_t kMaxPerPoll = 64;
+
+    // Optional: datagrams whose sender (its local UDP port on 127.0.0.1) the filter refuses are dropped.
+    using SenderFilter = std::function<bool(std::uint16_t senderPort)>;
+    void setSenderFilter(SenderFilter filter);
 
 private:
     struct Impl;
@@ -83,8 +90,10 @@ public:
     UdpLoopbackListener(const UdpLoopbackListener&) = delete;
     UdpLoopbackListener& operator=(const UdpLoopbackListener&) = delete;
 
-    // One queued datagram into `buffer`; its size, or nullopt if nothing is waiting.
-    [[nodiscard]] std::optional<std::size_t> receive(std::span<std::uint8_t> buffer);
+    // One queued datagram into `buffer`; its size, or nullopt if nothing is waiting. `senderPort` (optional) gets the
+    // sender's UDP port on 127.0.0.1, to tell who sent it.
+    [[nodiscard]] std::optional<std::size_t> receive(std::span<std::uint8_t> buffer,
+                                                     std::uint16_t* senderPort = nullptr);
 
 private:
     struct Impl;

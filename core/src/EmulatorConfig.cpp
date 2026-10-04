@@ -1,3 +1,4 @@
+#include "wheelbri/FileText.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 
 #include "wheelbri/MappingEdit.hpp"
@@ -139,7 +140,7 @@ void readLabels(const IniDocument& ini, const std::string& section, const std::s
         if (label.size() > kMaxButtonLabel) {
             errors.push_back("[" + section + "] " + key + " = '" + label + "': at most " +
                              std::to_string(kMaxButtonLabel) + " characters");
-            label.resize(kMaxButtonLabel);
+            label = truncateUtf8(std::move(label), kMaxButtonLabel);
         }
         labels[index] = std::move(label);
     }

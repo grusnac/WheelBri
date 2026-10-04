@@ -49,8 +49,10 @@ public:
             return S_OK;
         }
         const HRESULT result = real_->QueryInterface(riid, object);
-        WE_LOG_WARN(detail::deviceLog(), "{}: QueryInterface({}) passed to the real device unwrapped -> {}", label_,
-                    describeGuid(riid), describeHresult(result));
+        guardedVoid("QueryInterface", [&] {
+            WE_LOG_WARN(detail::deviceLog(), "{}: QueryInterface({}) passed to the real device unwrapped -> {}",
+                        label_, describeGuid(riid), describeHresult(result));
+        });
         return result;
     }
 
@@ -60,9 +62,11 @@ public:
         const ULONG remaining = --references_;
         if (remaining == 0) {
             const ULONG realRemaining = real_->Release();
-            WE_LOG_INFO(detail::deviceLog(), "{}: released after {} GetDeviceState / {} GetDeviceData / {} Poll calls "
-                                             "(real object refs left {})",
-                        label_, stateCalls_.load(), dataCalls_.load(), pollCalls_.load(), realRemaining);
+            guardedVoid("Release", [&] {
+                WE_LOG_INFO(detail::deviceLog(), "{}: released after {} GetDeviceState / {} GetDeviceData / {} Poll "
+                                                 "calls (real object refs left {})",
+                            label_, stateCalls_.load(), dataCalls_.load(), pollCalls_.load(), realRemaining);
+            });
             delete this;
         }
         return remaining;
@@ -286,10 +290,20 @@ public:
                                            LPUNKNOWN outer) override {
         return guarded("CreateEffect", [&]() -> HRESULT {
             const HRESULT result = real_->CreateEffect(type, effect, out, outer);
-            WE_LOG_INFO(detail::deviceLog(), "{}: CreateEffect({}) {} -> {}", label_, describeGuid(type),
-                        describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0), describeHresult(result));
+            // Between the real call and the wrapping nothing may throw, or the game would hold an unwrapped effect.
+            guardedVoid("CreateEffect", [&] {
+                WE_LOG_INFO(detail::deviceLog(), "{}: CreateEffect({}) {} -> {}", label_, describeGuid(type),
+                            describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0),
+                            describeHresult(result));
+            });
             if (SUCCEEDED(result) && out != nullptr && *out != nullptr) {
-                *out = new ProxyEffect(*out, type, label_);
+                if (outer != nullptr) {
+                    // COM aggregation: the object belongs to the caller's outer object and must not be wrapped.
+                    WE_LOG_WARN(detail::deviceLog(), "{}: aggregated effect requested, passing it through unwrapped",
+                                label_);
+                    return result;
+                }
+                wrapRealEffect(out, type, label_);
             }
             return result;
         });
@@ -405,10 +419,13 @@ private:
     }
 
     static std::string describeInstance(const typename T::DeviceInstance& instance) {
+        // A DirectX 3 DIDEVICEINSTANCE ends after the product name: guidFFDriver and the usage are not there.
         return "'" + toUtf8(instance.tszProductName) + "' instance='" + toUtf8(instance.tszInstanceName) +
                "' product=" + describeGuid(instance.guidProduct) + " devType=" + describeDevType(instance.dwDevType) +
-               " ffDriver=" + guidToString(instance.guidFFDriver) + " usage=" + toHex(instance.wUsagePage) + "/" +
-               toHex(instance.wUsage);
+               (instance.dwSize >= sizeof(typename T::DeviceInstance)
+                    ? " ffDriver=" + guidToString(instance.guidFFDriver) + " usage=" + toHex(instance.wUsagePage) +
+                          "/" + toHex(instance.wUsage)
+                    : std::string());
     }
 
     static std::string describeFfCommand(const DWORD command) {
@@ -463,7 +480,9 @@ private:
         // (DIERR_OTHERAPPHASPRIO); keep those from flooding the log, but always show the first success.
         std::uint64_t suppressed = 0;
         if (result == DI_OK) {
-            WE_LOG_INFO(detail::deviceLog(), "{}: {} -> {}", label_, call, describeHresult(result));
+            if (const auto number = acquireOkSampler_.next(); number != 0) {
+                WE_LOG_INFO(detail::deviceLog(), "{}: {} #{} -> {}", label_, call, number, describeHresult(result));
+            }
         } else if (FAILED(result)) {
             WE_LOG_WARN_LIMITED(detail::deviceLog(), acquireFailureLimiter_, "{}: {} -> {}", label_, call,
                                 describeHresult(result));
@@ -483,6 +502,7 @@ private:
     logging::CallSampler dataSampler_{10, 2000};
     logging::CallSampler pollSampler_{5, 5000};
     logging::CallSampler ffStateSampler_{5, 1000};
+    logging::CallSampler acquireOkSampler_{20, 1000};   // Acquire / Unacquire -> DI_OK, which some games do every frame
     logging::RateLimiter stateFailureLimiter_{std::chrono::seconds(5)};
     logging::RateLimiter dataFailureLimiter_{std::chrono::seconds(5)};
     logging::RateLimiter pollFailureLimiter_{std::chrono::seconds(5)};

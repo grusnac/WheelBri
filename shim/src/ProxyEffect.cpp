@@ -14,6 +14,17 @@ const logging::Logger& log() {
 
 }  // namespace
 
+void wrapRealEffect(LPDIRECTINPUTEFFECT* const out, const GUID& type, const std::string& deviceLabel) {
+    IDirectInputEffect* const real = *out;
+    *out = nullptr;
+    try {
+        *out = new ProxyEffect(real, type, deviceLabel);
+    } catch (...) {
+        real->Release();
+        throw;
+    }
+}
+
 ProxyEffect::ProxyEffect(IDirectInputEffect* const real, const GUID& type, std::string deviceLabel)
     : real_(real), type_(type), label_(std::move(deviceLabel) + " effect " + describeGuid(type)) {
     WE_LOG_DEBUG(log(), "{}: proxy created", label_);
@@ -29,8 +40,10 @@ HRESULT ProxyEffect::QueryInterface(REFIID riid, void** object) {
         return S_OK;
     }
     const HRESULT result = real_->QueryInterface(riid, object);
-    WE_LOG_WARN(log(), "{}: QueryInterface({}) passed to the real object unwrapped -> {}", label_, describeGuid(riid),
-                describeHresult(result));
+    guardedVoid("QueryInterface", [&] {
+        WE_LOG_WARN(log(), "{}: QueryInterface({}) passed to the real object unwrapped -> {}", label_,
+                    describeGuid(riid), describeHresult(result));
+    });
     return result;
 }
 
@@ -40,7 +53,9 @@ ULONG ProxyEffect::Release() {
     const ULONG remaining = --references_;
     if (remaining == 0) {
         const ULONG realRemaining = real_->Release();
-        WE_LOG_DEBUG(log(), "{}: released (real object refs left {})", label_, realRemaining);
+        guardedVoid("Release", [&] {
+            WE_LOG_DEBUG(log(), "{}: released (real object refs left {})", label_, realRemaining);
+        });
         delete this;
     }
     return remaining;
@@ -139,10 +154,14 @@ HRESULT ProxyEffect::Unload() {
 HRESULT ProxyEffect::Escape(LPDIEFFESCAPE escape) {
     return guarded("Escape", [&]() -> HRESULT {
         const HRESULT result = real_->Escape(escape);
-        // Driver-specific commands: exactly what a Logitech-aware game might send to its wheel.
-        WE_LOG_INFO(log(), "{}: Escape(command=0x{:x}, in={} bytes, out={} bytes) -> {}", label_,
-                    escape != nullptr ? escape->dwCommand : 0, escape != nullptr ? escape->cbInBuffer : 0,
-                    escape != nullptr ? escape->cbOutBuffer : 0, describeHresult(result));
+        // Driver-specific commands: exactly what a Logitech-aware game might send to its wheel. Some games send
+        // one every frame, so the log is sampled.
+        static logging::CallSampler sampler(20, 1000);
+        if (const auto call = sampler.next(); call != 0) {
+            WE_LOG_INFO(log(), "{}: Escape #{} (command=0x{:x}, in={} bytes, out={} bytes) -> {}", label_, call,
+                        escape != nullptr ? escape->dwCommand : 0, escape != nullptr ? escape->cbInBuffer : 0,
+                        escape != nullptr ? escape->cbOutBuffer : 0, describeHresult(result));
+        }
         return result;
     });
 }

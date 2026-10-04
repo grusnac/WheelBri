@@ -15,7 +15,8 @@
 //     it is an ordinary device again;
 //   - when AllowedPid names a process that is gone (the service crashed, was killed, or the PC lost power), the
 //     wheel is not hidden either: a crash must never leave the wheel hidden from everything. AllowedPidStart (the
-//     process's creation time, QWORD FILETIME) catches a later process that got the same id.
+//     process's creation time, QWORD FILETIME) catches a later process that got the same id, also one this driver
+//     may not look at: a process created before Windows last started is gone (startedBeforeBoot).
 // Fail open: if the setting cannot be read, the wheel is not hidden (and that is logged).
 // Everything else (reads, force feedback, feature reports) passes through untouched.
 
@@ -36,9 +37,18 @@ constexpr ULONG kSystemPid = 4;
 // Log: <the logs folder>\wheelbri-hide-<date>.log (see logFolder) and the debugger (DebugView).
 std::mutex g_logLock;
 
+// The folder for the log when LogFolder (below) is not set or not usable: made by this driver, in ProgramData.
+constexpr wchar_t kFallbackLogFolder[] = L"C:\\ProgramData\\wheelbri\\logs";
+
+std::wstring fallbackLogFolder() {
+    CreateDirectoryW(L"C:\\ProgramData\\wheelbri", nullptr);
+    CreateDirectoryW(kFallbackLogFolder, nullptr);
+    return kFallbackLogFolder;
+}
+
 // The folder for the log: the one the app shares with the drivers (HKLM\SOFTWARE\wheelbri LogFolder, the user's
-// %LOCALAPPDATA%\wheelbri\logs, which the app lets LocalService write in), else C:\ProgramData\wheelbri\logs (before the
-// app ever ran as Administrator). Read for every line, so a change applies at once.
+// %LOCALAPPDATA%\wheelbri\logs, which the app lets LocalService write in), else the fallback folder (before the app
+// ever ran as Administrator). Read for every line, so a change applies at once.
 std::wstring logFolder() {
     wchar_t shared[MAX_PATH] = {};
     DWORD size = sizeof(shared);
@@ -47,18 +57,57 @@ std::wstring logFolder() {
         shared[0] != L'\0') {
         return shared;
     }
-    CreateDirectoryW(L"C:\\ProgramData\\wheelbri", nullptr);
-    CreateDirectoryW(L"C:\\ProgramData\\wheelbri\\logs", nullptr);
-    return L"C:\\ProgramData\\wheelbri\\logs";
+    return fallbackLogFolder();
 }
 
-// Appends `line` to <folder>\wheelbri-hide-<date>.log; false if the file cannot be opened.
+// Whether `path` is a real local folder reached through no link: a full path below a drive's root ("C:\..."), with
+// no "." or ".." parts, that exists, and neither it nor any folder above it is a reparse point (junction, symbolic
+// link, mount point). LogFolder lies in the user's own profile: the user could replace it, or a folder above it,
+// with a link and so make this driver, which runs as LocalService, write wherever LocalService may. Such a folder
+// is not used (the fallback folder is, if it passes the same test).
+bool isPlainFolder(std::wstring path) {
+    if (path.size() < 3 || path[1] != L':' || path[2] != L'\\' || path.find(L'/') != std::wstring::npos) return false;
+    while (path.size() > 3 && path.back() == L'\\') path.pop_back();
+    if (path.size() <= 3) return false;   // a drive's root is no log folder
+    while (path.size() > 3) {             // each folder from `path` up to the drive's root (not checked itself)
+        const std::size_t slash = path.find_last_of(L'\\');
+        const std::wstring part = path.substr(slash + 1);
+        if (part.empty() || part == L"." || part == L"..") return false;
+        const DWORD attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+            (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+            return false;
+        }
+        path.resize(slash == 2 ? 3 : slash);
+    }
+    return true;
+}
+
+// Appends `line` to <folder>\wheelbri-hide-<date>.log; false if the folder is refused (isPlainFolder) or the file
+// cannot be opened. The path is a std::wstring: a long LogFolder only makes CreateFileW fail (then the fallback folder
+// is used), where swprintf_s into a MAX_PATH buffer ended the whole driver host. The file is opened without following
+// a link (FILE_FLAG_OPEN_REPARSE_POINT), and one that is a link itself or has other names (hard links) is not written.
 bool appendTo(const std::wstring& folder, const SYSTEMTIME& now, const char* line) {
-    wchar_t path[MAX_PATH];
-    swprintf_s(path, L"%s\\wheelbri-hide-%04u-%02u-%02u.log", folder.c_str(), now.wYear, now.wMonth, now.wDay);
-    HANDLE file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (!isPlainFolder(folder)) {
+        SetLastError(ERROR_CANT_RESOLVE_FILENAME);
+        return false;
+    }
+    std::wstring path = folder;
+    while (path.back() == L'\\') path.pop_back();   // not empty: isPlainFolder checked it
+    wchar_t name[48];                                 // at most 38 characters with any WORD values
+    swprintf_s(name, L"\\wheelbri-hide-%04u-%02u-%02u.log", now.wYear, now.wMonth, now.wDay);
+    path += name;
+    HANDLE file = CreateFileW(path.c_str(), FILE_APPEND_DATA | FILE_READ_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!GetFileInformationByHandle(file, &info) || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+        info.nNumberOfLinks > 1) {
+        CloseHandle(file);
+        SetLastError(ERROR_CANT_RESOLVE_FILENAME);
+        return false;
+    }
     DWORD written = 0;
     WriteFile(file, line, static_cast<DWORD>(strlen(line)), &written, nullptr);
     CloseHandle(file);
@@ -74,7 +123,7 @@ void logLine(const std::string& text) {
     OutputDebugStringA(line);
     std::lock_guard lock(g_logLock);
     static bool reportedFailure = false;
-    if (appendTo(logFolder(), now, line) || appendTo(L"C:\\ProgramData\\wheelbri\\logs", now, line)) {
+    if (appendTo(logFolder(), now, line) || appendTo(fallbackLogFolder(), now, line)) {
         reportedFailure = false;
     } else if (!reportedFailure) {
         reportedFailure = true;   // only DebugView can show this one
@@ -94,13 +143,35 @@ void logOnce(std::string text) {
     logLine(text);
 }
 
+// Whether a process created at `processStart` was created before Windows last started, so is certainly gone (a
+// restart ends every process). All in 100 ns units: `processStart` and `now` as FILETIME values (since 1601, UTC),
+// `uptime` the time since Windows started (GetTickCount64, which counts sleep too). Windows started at
+// `now - uptime`; kBootMargin absorbs the two clocks being read a moment apart and small corrections of the clock
+// since. Nonsense input (an uptime longer than `now`) gives false: not known to be gone. After a shut down with Fast
+// startup the uptime continues from before, so such a start counts as the same boot (the old behaviour: hidden).
+constexpr ULONGLONG kBootMargin = 60ULL * 10'000'000ULL;   // 60 s
+
+bool startedBeforeBoot(const ULONGLONG processStart, const ULONGLONG now, const ULONGLONG uptime) {
+    if (uptime >= now) return false;
+    const ULONGLONG bootedAt = now - uptime;
+    return processStart < bootedAt && bootedAt - processStart > kBootMargin;
+}
+
 // Whether `pid` still runs and is the process that wrote the setting. Unknown (cannot look) counts as running:
-// the driver host runs as LocalService and may not open an elevated service.
+// the driver host runs as LocalService and may not open an elevated service. Unless the process that wrote the
+// setting was created before this boot of Windows: then the id belongs to another program now (the service crashed
+// and the PC restarted), and the wheel must not stay hidden.
 bool stillRunning(const DWORD pid, const std::optional<ULONGLONG> started) {
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
     if (process == nullptr) {
         const DWORD error = GetLastError();
         if (error == ERROR_INVALID_PARAMETER) return false;   // no such process
+        if (started) {
+            FILETIME now{};
+            GetSystemTimeAsFileTime(&now);
+            const ULONGLONG nowValue = (static_cast<ULONGLONG>(now.dwHighDateTime) << 32U) | now.dwLowDateTime;
+            if (startedBeforeBoot(*started, nowValue, GetTickCount64() * 10'000ULL)) return false;
+        }
         return true;
     }
     bool running = true;

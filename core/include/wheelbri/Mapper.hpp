@@ -3,7 +3,17 @@
 #include "wheelbri/MapperConfig.hpp"
 #include "wheelbri/WheelState.hpp"
 
+#include <array>
+#include <string>
+#include <vector>
+
 namespace wheelbri {
+
+// The mapped axes (steering, the pedals) that their device does not have, one line each ("throttle: axis 6 of the
+// wheel, which has 3 axes"). axisCounts[d]: how many axes device d reports (0 the wheel, 1..3 the accessories); a
+// negative count is unknown and not checked. Such an axis only ever reads centred (steering) or released (a pedal).
+[[nodiscard]] std::vector<std::string> missingMappedAxes(const MapperConfig& config,
+                                                         const std::array<int, kMaxInputDevices>& axisCounts);
 
 // Converts the physical wheel's raw state into the target-agnostic WheelState.
 // Pure and allocation-free: safe to call from the 1 kHz loop.

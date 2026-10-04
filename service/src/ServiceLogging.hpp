@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace wheelbri::service {
 
@@ -25,8 +26,27 @@ namespace wheelbri::service {
 // The app's state file (which config is picked): app.ini in the folder above those two.
 [[nodiscard]] std::filesystem::path appStateFile();
 
-// The games the in-game shim was put into (the app, target G920 in-game shim; ShimGames.hpp).
+// The games the in-game shim was put into (the app, target G920 in-game shim; ShimGames.hpp): shim-games.txt next
+// to app.ini, per user like every other setting.
 [[nodiscard]] std::filesystem::path shimGamesFile();
+
+// %LOCALAPPDATA%\wheelbri, ~/.config/wheelbri (XDG) or ~/Library/Application Support/wheelbri.
+[[nodiscard]] std::filesystem::path userSettingsFolder();
+
+// Whether `path` is inside the user's WheelBri folders (settings or logs). Log and telemetry paths from a config must
+// be: the app runs as Administrator and a config can be written by any program of the user.
+[[nodiscard]] bool isInsideUserFolders(const std::filesystem::path& path);
+
+// Windows: a reason the user's WheelBri folders must not be written to (one of them is a link to elsewhere), or "".
+[[nodiscard]] std::string userFoldersProblem();
+
+// Windows: deletes links among the log and telemetry files in `folder` (a symbolic link, or a file with a second hard
+// link), which the app, running as Administrator, would otherwise append to wherever they point. Only the link goes,
+// never what it points to. Returns what it did, for the log. Does nothing on other systems.
+[[nodiscard]] std::vector<std::string> removeLinkedLogFiles(const std::filesystem::path& folder);
+
+// Tells the user why WheelBri cannot start: a message box in the window build (`window`), stderr otherwise.
+void reportStartupProblem(const std::string& text, bool window);
 
 // The project was called wheelemu before 2026-10-03: moves the user's folders from that name to wheelbri (rigs,
 // configs, app.ini, logs, telemetry), once, before anything opens them. Entries already in the new folder are kept

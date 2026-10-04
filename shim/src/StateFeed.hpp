@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/SenderGate.hpp"
 #include "wheelbri/UdpLoopback.hpp"
 
 #include <chrono>
@@ -22,12 +23,15 @@ public:
     [[nodiscard]] TargetReport current(const IDeviceProfile& profile);
 
 private:
-    StateFeed() = default;
+    StateFeed();
+    void openReceiver(std::uint16_t port);
 
     std::mutex mutex_;
     bool opened_ = false;
     std::chrono::steady_clock::time_point lastOpenAttempt_{};
     std::unique_ptr<UdpLoopbackReceiver> receiver_;
+    // Only WheelBri may feed the wheel's state; under Wine (the service a Linux program) nobody can tell: let through.
+    SenderGate gate_;
     std::optional<StatePacket> latest_;
     std::chrono::steady_clock::time_point lastArrival_{};
     bool stale_ = true;
