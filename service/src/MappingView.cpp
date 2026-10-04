@@ -229,7 +229,7 @@ void MappingView::drawHeader() {
     std::snprintf(line, sizeof(line), "%.40s  ->  %.40s", sourceName_.c_str(),
                   profile_.identity().productName.c_str());
     if (tab_ == Tab::Mapping) {
-        line[50] = '\0';   // the app puts its status, Start and Stop at the top right of this tab
+        line[std::min(headerChars_, sizeof(line) - 1)] = '\0';   // the app's controls are at the top right of this tab
     }
     text(window_, 4, 4, line, kHeading);
     if (devices_.empty()) {
@@ -772,6 +772,7 @@ void MappingView::refreshLogFiles() {
     };
     components_.clear();
     for (const Source& source : kSources) {
+        if (shimMode_ && source.driver) continue;   // the shim's session runs no driver
         // The drivers write to the same folder (the app shares it with them: ServiceLogging.hpp shareLogFolder).
 #if defined(_WIN32)
         const std::filesystem::path folder = files_.logFolder;

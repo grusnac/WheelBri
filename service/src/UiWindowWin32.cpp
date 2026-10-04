@@ -15,8 +15,10 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#include <shobjidl.h>
 
 #include <cmath>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -26,6 +28,12 @@ namespace {
 
 constexpr wchar_t kClassName[] = L"wheelbri-ui";
 constexpr wchar_t kFontFace[] = L"Consolas";
+
+std::string hex(const HRESULT value) {
+    char text[16];
+    std::snprintf(text, sizeof(text), "%08lX", static_cast<unsigned long>(value));
+    return text;
+}
 
 std::wstring widen(const std::string_view text) {
     if (text.empty()) {
@@ -237,6 +245,51 @@ public:
         }
         error = "ShellExecute error " + std::to_string(result);
         return false;
+    }
+
+    bool pickFolder(const std::string& title, std::filesystem::path& folder, std::string& error) override {
+        // The Vista+ folder window (IFileOpenDialog, FOS_PICKFOLDERS), modal over this window.
+        const HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        const bool uninit = SUCCEEDED(init);   // S_FALSE too: already initialised on this thread, still balanced
+        const auto finish = [&](const bool chosen) {
+            if (uninit) CoUninitialize();
+            return chosen;
+        };
+        IFileOpenDialog* dialog = nullptr;
+        HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+        if (FAILED(hr)) {
+            error = "cannot open the folder window (error 0x" + hex(hr) + ")";
+            return finish(false);
+        }
+        DWORD options = 0;
+        dialog->GetOptions(&options);
+        dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+        dialog->SetTitle(widen(title).c_str());
+        if (!folder.empty()) {
+            IShellItem* start = nullptr;
+            if (SUCCEEDED(SHCreateItemFromParsingName(folder.wstring().c_str(), nullptr, IID_PPV_ARGS(&start)))) {
+                dialog->SetFolder(start);
+                start->Release();
+            }
+        }
+        hr = dialog->Show(window_);
+        bool chosen = false;
+        if (SUCCEEDED(hr)) {
+            IShellItem* item = nullptr;
+            if (SUCCEEDED(dialog->GetResult(&item))) {
+                PWSTR path = nullptr;
+                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path != nullptr) {
+                    folder = std::filesystem::path(std::wstring(path));
+                    CoTaskMemFree(path);
+                    chosen = true;
+                }
+                item->Release();
+            }
+        } else if (hr != HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+            error = "the folder window failed (error 0x" + hex(hr) + ")";
+        }
+        dialog->Release();
+        return finish(chosen);
     }
 
     [[nodiscard]] std::string describe() const override {

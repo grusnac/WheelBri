@@ -20,7 +20,6 @@
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/GameUseWatch.hpp"
 #include "wheelbri/HidHideCli.hpp"
-#include "wheelbri/MappingEdit.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/LoopStats.hpp"
 #include "wheelbri/Pipeline.hpp"
@@ -345,7 +344,7 @@ void printUsage() {
         "usage: wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
         "                        [--stop-file FILE] [--virtual-g920 [--no-hide]] [--unhide]\n"
         "                        [--telemetry-tab] [--ffb-tab]\n"
-        "  --config FILE  INI configuration (see config/rig-as-g920.ini)\n"
+        "  --config FILE  INI configuration (see config/g920-virtual-device.ini)\n"
         "  --list         list joysticks and exit\n"
         "  --print        show live raw and mapped values\n"
         "  --ui           open a window showing how every axis and button maps to the emulated wheel\n"
@@ -415,7 +414,6 @@ struct LoadedConfig {
     std::vector<std::string> problems;
     bool fileMissing = false;
     std::string text;                           // the file as read, copied into telemetry headers
-    std::string rigNote;                        // how the rig filled a built-in config (logged by the session)
 };
 
 // Runs before logging exists (logging is configured by this file), so problems are collected, not logged.
@@ -759,7 +757,7 @@ struct DeviceSummary {
 int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
             const std::filesystem::path& logFolder, const bool logToFile, wheelbri::service::Wheel& source,
             const Accessories& accessories, const bool print, wheelbri::service::UiHost* const host,
-            const DeviceSummary& devices, std::optional<UiFrame>& lastFrame) {
+            const DeviceSummary& devices, std::optional<UiFrame>& lastFrame, const bool listenTestClutch) {
     const auto profile = wheelbri::makeProfile(config.targetProfile);
     if (profile == nullptr) {
         WE_LOG_CRITICAL(log(), "unknown target_profile '{}' (known: {})", config.targetProfile,
@@ -776,8 +774,10 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     wheelbri::Pipeline pipeline(source, mapper, *profile, *publisher);
     pipeline.setAccessories(accessories.sources());
 
-    // Test clutch while no clutch pedal is connected: ClutchPackets on kTestClutchPort (TestClutch.hpp).
-    const auto clutchListener = wheelbri::UdpLoopbackListener::create(wheelbri::kTestClutchPort);
+    // Test clutch while no clutch pedal is connected: ClutchPackets on kTestClutchPort (TestClutch.hpp). A developer
+    // tool: not with the in-game shim, whose session starts only what the shim needs.
+    const auto clutchListener =
+        listenTestClutch ? wheelbri::UdpLoopbackListener::create(wheelbri::kTestClutchPort) : nullptr;
     if (clutchListener != nullptr) {
         WE_LOG_INFO(log(), "test clutch: listening on 127.0.0.1:{}", wheelbri::kTestClutchPort);
     }
@@ -1095,18 +1095,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     return loopResult;
 }
 
-// The config, with --old-files applied.
-std::string defaultConfigPath();
-
-// Whether `path` is one of the built-in configs (config/ next to the program, where defaultConfigPath looks).
-bool isBuiltInConfig(const std::string& path) {
-    const std::string builtIn = defaultConfigPath();
-    if (path.empty() || builtIn.empty()) return false;
-    std::error_code ec;
-    return std::filesystem::equivalent(std::filesystem::path(path).parent_path(),
-                                       std::filesystem::path(builtIn).parent_path(), ec);
-}
-
+// The config, with --old-files applied and the rig's wheel when it names none.
 LoadedConfig loadForRun(const Options& options) {
     LoadedConfig loaded = loadConfig(options.configPath);
     if (!options.oldFiles.empty()) {
@@ -1116,27 +1105,6 @@ LoadedConfig loadForRun(const Options& options) {
     std::vector<std::string> rigErrors;
     const auto rig =
         rigName.empty() ? std::nullopt : wheelbri::readRig(wheelbri::service::rigsFolder(), rigName, rigErrors);
-    // A built-in config is a template for its target: the buttons, D-pad and axes come from the rig (rigMapping), the
-    // same the Mapping tab shows for it. A config of the user's is used as saved.
-    if (rig && !rig->devices.empty() && !loaded.text.empty() && isBuiltInConfig(options.configPath)) {
-        const auto profile = wheelbri::makeProfile(loaded.config.targetProfile);
-        if (profile != nullptr) {
-            wheelbri::MappingModel model = wheelbri::mappingModel(loaded.config);
-            const int set = wheelbri::rigMapping(model, *rig, *profile);
-            const wheelbri::MappingWriteResult written = wheelbri::writeMapping(loaded.text, model);
-            if (written.error.empty()) {
-                const auto parsed = wheelbri::IniDocument::parse(written.text);
-                auto remapped = wheelbri::loadEmulatorConfig(parsed.document);
-                if (parsed.errors.empty() && remapped.errors.empty()) {
-                    remapped.config.retention = loaded.config.retention;
-                    loaded.config = std::move(remapped.config);
-                    loaded.text = written.text;
-                    loaded.rigNote = "built-in config: mapped from the rig '" + rigName + "' for the " +
-                                     profile->identity().shortName + " (" + std::to_string(set) + " controls)";
-                }
-            }
-        }
-    }
     // No source_device in the config (the built-in ones have none): the wheel is the active rig's (the Rig tab's
     // device with the steering axis, else its first). Without a rig it stays empty and the session says so.
     if (loaded.config.sourceDeviceMatch.empty()) {
@@ -1184,7 +1152,6 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     }
     // A copy: the wheel's names from the Wheel setup tab replace the config's once the wheel is open.
     wheelbri::EmulatorConfig config = loaded.config;
-    if (!loaded.rigNote.empty()) WE_LOG_INFO(log(), "{}", loaded.rigNote);
     logEffectiveConfig(config);
 
     const auto backend = wheelbri::service::startWheelBackend();
@@ -1347,7 +1314,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     while (!gStop) {
         sessionStartMs = platform::nowMs();
         result = runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, accessories,
-                         options.print, host, devices, lastFrame);
+                         options.print, host, devices, lastFrame, /*listenTestClutch=*/options.virtualG920);
         if (result != kWheelLost || gStop) {
             break;
         }
@@ -1425,7 +1392,7 @@ int run(const Options& options) {
     return runSession(options, loaded, logFileOk, window.get());
 }
 
-// The config the app uses when none is given: config/rig-as-g920.ini next to the program, or one or two
+// The config used when none is given: config/g920-virtual-device.ini (the target's default mapping) next to the program, or one or two
 // folders up (build/service/ in the source tree), or under the current folder.
 std::string defaultConfigPath() {
     const std::filesystem::path exe = platform::executablePath();
@@ -1435,11 +1402,24 @@ std::string defaultConfigPath() {
     }
     bases.push_back(std::filesystem::current_path());
     for (const auto& base : bases) {
-        const std::filesystem::path candidate = base / "config" / "rig-as-g920.ini";
+        const std::filesystem::path candidate = base / "config" / "g920-virtual-device.ini";
         std::error_code ec;
         if (std::filesystem::is_regular_file(candidate, ec)) {
             return candidate.lexically_normal().string();
         }
+    }
+    return {};
+}
+
+// WheelBri's own dinput8.dll, which the app puts into games: shim\ next to the program (the installed package) or
+// build/shim/ (next to build/service/ in the source tree). Empty when there is none (Linux, or not built).
+std::filesystem::path shimDllPath() {
+    const std::filesystem::path exe = platform::executablePath();
+    if (exe.empty()) return {};
+    for (const std::filesystem::path& candidate :
+         {exe.parent_path() / "shim" / "dinput8.dll", exe.parent_path().parent_path() / "shim" / "dinput8.dll"}) {
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(candidate, ec)) return candidate.lexically_normal();
     }
     return {};
 }
@@ -1479,12 +1459,14 @@ int runAppMode(Options options, const bool consoleLogging) {
     settings.stateFile = wheelbri::service::appStateFile();
     settings.logFolder = logFolderOf(loaded.config);
     settings.devicesFolder = wheelbri::service::deviceLabelsFolder();
+    settings.shimDll = shimDllPath();
+    if (!settings.builtInConfigFolder.empty()) settings.shimSettings = settings.builtInConfigFolder / "wheelbri-shim.ini";
     settings.runSession = [options, logFileOk](wheelbri::service::UiHost& host, const std::string& configPath,
                                                const bool virtualDevice) {
         Options run = options;
         run.configPath = configPath;   // the config the Mapping tab shows
 #ifdef _WIN32
-        run.virtualG920 = virtualDevice;   // the Mapping tab's "G920 via": the virtual device or the in-game shim
+        run.virtualG920 = virtualDevice;   // the Mapping tab's target: G920 virtual device or G920 in-game shim
 #else
         static_cast<void>(virtualDevice);   // Linux: wheelbri-uhid is the virtual G920, started on its own
 #endif

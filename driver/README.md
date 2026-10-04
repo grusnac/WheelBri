@@ -48,7 +48,7 @@ Take the shim out of the game (`dinput8.dll` → `dinput8.dll.off`), do not run 
 Administrator:
 
 ```
-build\service\wheelbri-service.exe --config config\rig-as-g920.ini --ui --virtual-g920
+build\service\wheelbri-service.exe --config config\g920-virtual-device.ini --ui --virtual-g920
 ```
 
 The service log says `virtual G920 G920_0 ready after … ms` and `hide: the rig is hidden from games`; joy.cpl

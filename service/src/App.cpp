@@ -4,6 +4,7 @@
 #include "MappingEditView.hpp"
 #include "Platform.hpp"
 #include "ServiceLogging.hpp"
+#include "ShimGamesView.hpp"
 #include "UiWindow.hpp"
 #include "WheelSetupView.hpp"
 
@@ -15,6 +16,7 @@
 #include <chrono>
 #include <cstdio>
 #include <mutex>
+#include <functional>
 #include <optional>
 #include <tuple>
 #include <thread>
@@ -36,6 +38,7 @@ constexpr ui::Colour kDim{120, 126, 136};
 constexpr ui::Colour kHeading{120, 190, 255};
 constexpr ui::Colour kActive{64, 190, 100};
 constexpr ui::Colour kWarning{214, 72, 64};
+constexpr ui::Colour kPopup{36, 40, 48};
 constexpr ui::Colour kCaution{206, 164, 58};
 constexpr ui::Colour kDark{16, 18, 20};
 
@@ -50,6 +53,14 @@ constexpr float kButtonWidth = 68;
 constexpr float kStopX = kWidth - 4 - kButtonWidth;
 constexpr float kStartX = kStopX - 4 - kButtonWidth;
 constexpr std::size_t kStatusChars = 20;   // between the tab's title and the toggle
+constexpr float kGamesX = 220;              // the shim's games ("Game < name > Add"), left of the status: 360 wide
+constexpr std::size_t kHeaderChars = 50;    // the live view's title on the Mapping tab...
+constexpr std::size_t kHeaderCharsShim = 26;   // ...and with the games row next to it
+// The app's popups (a question or a notice), over everything.
+constexpr float kPopupX = 180;
+constexpr float kPopupY = 200;
+constexpr float kPopupW = 600;
+constexpr std::size_t kPopupChars = 70;
 constexpr int kWindowWidth = static_cast<int>(kWidth * 1.3F);  // 1.3x the canvas at 100 % (smaller to fit the screen)
 constexpr int kWindowHeight = static_cast<int>(kHeight * 1.3F);
 // The tab bar at the bottom of the panel (MappingView's), in the panel's own coordinates.
@@ -316,6 +327,8 @@ private:
         // The first time (no rig yet) the devices are defined first; then the mapping is where to go.
         idleTab_ = WheelSetupView::anyRig(rigsFolder()) ? IdleTab::Mapping : IdleTab::Setup;
         mapping_ = std::make_unique<MappingEditView>(*window_, rigsFolder(), settings_.stateFile, *picker_);
+        games_ = std::make_unique<ShimGamesView>(
+            *window_, ShimGamesView::Settings{shimGamesFile(), settings_.shimDll, settings_.shimSettings});
         // The Logs tab while no session shows (stopped, starting): a view of its own, used for that page only.
         logsProfile_ = makeProfile("g920");
         logs_ = std::make_unique<MappingView>(*window_, std::string(), 0, 0, *logsProfile_, MapperConfig{});
@@ -333,11 +346,10 @@ private:
             }
         });
 
-        bool quit = false;
         while (true) {
             const ui::WindowInput input = window_->pump();
-            if (input.close && !quit) {
-                quit = true;
+            if (input.close && !quitting_) {
+                quitting_ = true;
                 if (running()) {
                     WE_LOG_INFO(log(), "window closed: stopping the service first");
                     stop();
@@ -346,11 +358,27 @@ private:
             const bool setup = showingSetup();
             const bool editingMapping = showingMappingEditor();
             for (const ui::Click& click : input.clicks) {
+                // A popup of the app's takes every click until it is answered.
+                if (popup_) {
+                    onPopupClick(click);
+                    continue;
+                }
+                // So does the shim's games panel.
+                if (games_->panelOpen()) {
+                    games_->onPanelClick(click.x, click.y);
+                    continue;
+                }
                 // The Mapping tab's controls (top right); not over the editor's popups.
                 if (showingMapping() && !(editingMapping && mapping_->popupOpen()) &&
                     click.y < kControlsY + kControlsHeight && click.x >= kStartX) {
                     if (startButton().hit(click)) start();
                     if (stopButton().hit(click)) stop();
+                    continue;
+                }
+                // The shim's games, left of the status (only with the target G920 in-game shim).
+                if (showingMapping() && shimTarget() && !(editingMapping && mapping_->popupOpen()) &&
+                    click.y < kControlsY + kControlsHeight && click.x >= kGamesX) {
+                    games_->onClick(click.x, click.y);
                     continue;
                 }
                 // The panel, in its own coordinates; the tab bar at its bottom.
@@ -373,7 +401,11 @@ private:
                     logs_->onClick(click.x, y);
                 }
             }
-            if (setup && setup_->editingText()) {
+            if (popup_) {
+                if (input.keys.find(ui::kEscape) != std::string::npos) answerPopup(false);   // Escape = the "no" answer
+            } else if (games_->panelOpen()) {
+                if (input.keys.find(ui::kEscape) != std::string::npos) games_->closePanel();
+            } else if (setup && setup_->editingText()) {
                 setup_->onText(input.text);   // typing a name: letters are not shortcuts, Escape stops typing
                 if (input.keys.find(ui::kEscape) != std::string::npos) setup_->onKey(ui::kEscape);
             } else {
@@ -393,10 +425,12 @@ private:
             if (view_ != nullptr && input.wheel != 0) view_->onScroll(input.wheel);
             if (view_ == nullptr && idleTab_ == IdleTab::Logs && input.wheel != 0) logs_->onScroll(input.wheel);
             collectSession();
+            logs_->setShimMode(shimTarget());   // the Logs tab while stopped follows the target
             updateSetup();
             mapping_->setLocked(state_ != State::Stopped);   // the way and the mapping stay as Start found them
             if (showingMappingEditor()) mapping_->update();
-            if (quit && !running()) {
+            if (std::string problem; games_->takeProblem(problem)) notice("Game not added", problem);
+            if (quitting_ && !running()) {
                 break;
             }
             if (window_->visible()) {
@@ -454,8 +488,12 @@ private:
         }
     }
 
+    // The target is G920 in-game shim: the games row shows, and Start needs a game.
+    [[nodiscard]] bool shimTarget() const { return picker_ != nullptr && !picker_->virtualDevice(); }
+
     Button startButton() const {
-        return {kStartX, kControlsY, kButtonWidth, kControlsHeight, "Start", state_ == State::Stopped};
+        return {kStartX, kControlsY, kButtonWidth, kControlsHeight, "Start",
+                state_ == State::Stopped && !popup_ && !games_->panelOpen() && (!shimTarget() || games_->hasGame())};
     }
     Button stopButton() const {
         return {kStopX, kControlsY, kButtonWidth, kControlsHeight, "Stop",
@@ -463,7 +501,19 @@ private:
     }
 
     void start() {
-        if (running()) return;
+        if (running() || popup_ || games_->panelOpen()) return;
+        // The in-game shim: the picked game must have it (put in, or replaced by a newer one, now).
+        sessionGame_.clear();
+        if (shimTarget()) {
+            std::string error;
+            if (!games_->prepareStart(error)) {
+                WE_LOG_WARN(log(), "Start: {}", error);
+                notice("Cannot start", error);
+                return;
+            }
+            sessionGame_ = games_->selectedFolder();
+            sessionGameName_ = games_->selectedName();
+        }
         everRan_ = false;
         settings_.clearStop();
         host_.clear();
@@ -477,9 +527,13 @@ private:
         if (mapping_->dirty()) {
             WE_LOG_WARN(log(), "the Mapping tab has unsaved changes: Start uses the config as saved");
         }
-        WE_LOG_INFO(log(), "Start pressed: G920 through {}; config {} ({})", ConfigPicker::describe(picker_->way()),
+        WE_LOG_INFO(log(), "Start pressed: {}; config {} ({})", ConfigPicker::name(picker_->way()),
                     config.empty() ? std::string("built-in defaults") : config,
-                    picker_->builtIn() ? "mapped from the rig" : "the user's own mapping");
+                    picker_->builtIn() ? "the default mapping" : "the user's own mapping");
+        if (!sessionGame_.empty()) {
+            WE_LOG_INFO(log(), "the shim's game: {} ({}); start the game now", sessionGameName_,
+                        pathToUtf8(sessionGame_));
+        }
         setup_->releaseWheel();   // the session opens the wheel now
         idleTab_ = IdleTab::Logs;  // the logs at once: the session writes them while it comes up
         session_ = std::thread([this, config, virtualDevice] {
@@ -518,6 +572,8 @@ private:
                 view_->setFiles(info->files);
                 view_->setDevices(info->devices, info->devicesWarning);
                 view_->setAccessories(info->accessories);
+                view_->setHeaderChars(sessionGame_.empty() ? kHeaderChars : kHeaderCharsShim);
+                view_->setShimMode(!sessionGame_.empty());
                 // Start: the tab showing while it came up (the logs, unless changed); the wheel back after a loss:
                 // the tab that was showing.
                 view_->setTab(previousTab                       ? *previousTab
@@ -546,6 +602,10 @@ private:
             } else {
                 WE_LOG_WARN(log(), "the service could not run (exit code {}); the lines above say why", *lastResult_);
             }
+            // A shim session: the shim stays in the game's folder unless the user says to delete it (not asked when
+            // the window is closing: it stays then).
+            if (!sessionGame_.empty() && !quitting_) askDeleteShim(sessionGame_, sessionGameName_);
+            sessionGame_.clear();
         }
     }
 
@@ -571,6 +631,8 @@ private:
             drawIdleTabs();
         }
         if (showingMapping()) drawControls();
+        if (games_->panelOpen()) games_->drawPanel();
+        if (popup_) drawPopup();
         window_->present();
     }
 
@@ -610,9 +672,105 @@ private:
                 break;
         }
         status = fit(status, kStatusChars);
+        if (shimTarget()) games_->draw(kGamesX, kControlsY, state_ == State::Stopped && !popup_);
         window_->text(kStartX - 6 - static_cast<float>(status.size()) * ui::kCharWidth, kControlsY + 4, status, colour);
         startButton().draw(*window_, false);
         stopButton().draw(*window_, false);
+    }
+
+    // --- popups: a question (two answers) or a notice (OK) -----------------------------------------------------
+    struct Popup {
+        std::string title;
+        std::vector<std::string> lines;
+        std::string yes;                  // the first button ("OK" for a notice)
+        std::string no;                   // the second, empty for a notice
+        std::function<bool()> onYes;      // true: the popup closes
+        std::function<void()> onNo;
+        bool warning = false;             // the title in red
+    };
+
+    // Wraps at spaces (and at '\n') to the popup's width.
+    static std::vector<std::string> wrap(const std::string& text) {
+        std::vector<std::string> lines;
+        std::size_t start = 0;
+        while (start <= text.size()) {
+            std::size_t end = text.find('\n', start);
+            if (end == std::string::npos) end = text.size();
+            std::string paragraph = text.substr(start, end - start);
+            while (paragraph.size() > kPopupChars) {
+                std::size_t cut = paragraph.rfind(' ', kPopupChars);
+                if (cut == std::string::npos || cut == 0) cut = kPopupChars;
+                lines.push_back(paragraph.substr(0, cut));
+                paragraph = paragraph.substr(cut == kPopupChars ? cut : cut + 1);
+            }
+            lines.push_back(paragraph);
+            start = end + 1;
+        }
+        return lines;
+    }
+
+    void notice(const std::string& title, const std::string& text) {
+        popup_ = Popup{title, wrap(text), "OK", "", [] { return true; }, nullptr, true};
+    }
+
+    void askDeleteShim(const std::filesystem::path& folder, const std::string& name) {
+        const std::string where = pathToUtf8(folder);
+        popup_ = Popup{"The session stopped (" + name + ").",
+                       wrap("Would you like to delete the shim from the target folder?\n" + where + "\n(" +
+                            std::string(kShimDll) + ", " + kShimSettings + ")"),
+                       "Yes, delete it",
+                       "No, keep it",
+                       [this, folder, where] {
+                           std::string error;
+                           if (games_->removeFrom(folder, error)) return true;
+                           popup_->lines = wrap("Not deleted: " + error + "\n" + where);   // Yes again to retry
+                           popup_->warning = true;
+                           return false;
+                       },
+                       [] { WE_LOG_INFO(log(), "the shim stays in the game's folder"); },
+                       false};
+    }
+
+    [[nodiscard]] float popupHeight() const {
+        return 44 + static_cast<float>(popup_->lines.size()) * 14 + 30;
+    }
+    [[nodiscard]] Button popupYes() const {
+        return {kPopupX + 16, kPopupY + popupHeight() - 26, 150, 18, popup_->yes.c_str(), true};
+    }
+    [[nodiscard]] Button popupNo() const {
+        return {kPopupX + 16 + 158, kPopupY + popupHeight() - 26, 150, 18, popup_->no.c_str(), !popup_->no.empty()};
+    }
+
+    void answerPopup(const bool yes) {
+        if (!popup_) return;
+        if (yes) {
+            if (popup_->onYes && !popup_->onYes()) return;
+        } else if (popup_->onNo) {
+            popup_->onNo();
+        }
+        popup_.reset();
+    }
+
+    void onPopupClick(const ui::Click& click) {
+        if (popupYes().hit(click)) {
+            answerPopup(true);
+        } else if (popupNo().hit(click)) {
+            answerPopup(false);
+        }
+    }
+
+    void drawPopup() {
+        const float h = popupHeight();
+        window_->fill(kPopupX, kPopupY, kPopupW, h, kPopup);
+        window_->outline(kPopupX, kPopupY, kPopupW, h, kHeading);
+        window_->text(kPopupX + 16, kPopupY + 12, popup_->title, popup_->warning ? kWarning : kHeading);
+        float y = kPopupY + 34;
+        for (const std::string& line : popup_->lines) {
+            window_->text(kPopupX + 16, y, line, kText);
+            y += 14;
+        }
+        popupYes().draw(*window_, false);
+        if (!popup_->no.empty()) popupNo().draw(*window_, false);
     }
 
     const AppSettings& settings_;
@@ -634,6 +792,11 @@ private:
     std::unique_ptr<WheelSetupView> setup_;
     std::unique_ptr<ConfigPicker> picker_;
     std::unique_ptr<MappingEditView> mapping_;
+    std::unique_ptr<ShimGamesView> games_;   // the shim's games (target G920 in-game shim)
+    std::filesystem::path sessionGame_;       // the game a shim session was started for
+    std::string sessionGameName_;
+    std::optional<Popup> popup_;
+    bool quitting_ = false;                   // the window was closed: stop, then end
     std::unique_ptr<IDeviceProfile> logsProfile_;   // logs_ needs one; it shows no mapping
     std::unique_ptr<MappingView> logs_;             // the Logs tab while no session shows
     enum class IdleTab { Mapping, Setup, Logs };

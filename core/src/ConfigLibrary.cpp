@@ -126,8 +126,11 @@ std::optional<ConfigEntry> resetTemplateOf(const ConfigEntry& config, const std:
     std::string made = lower(configTemplateOf(*text));
     if (made.empty()) return std::nullopt;
     // Copies made before the built-in configs were renamed for the rig (2026-10-04) name the old files.
-    if (made == "moza-r3-as-g920.ini") made = "rig-as-g920.ini";
-    if (made == "moza-r3-as-g29.ini" || made == "rig-as-g29.ini") made = "rig-as-g920.ini";   // the G29 is gone
+    // Older names of the built-in config (the G29 is gone): the virtual device's now.
+    if (made == "moza-r3-as-g920.ini" || made == "moza-r3-as-g29.ini" || made == "rig-as-g920.ini" ||
+        made == "rig-as-g29.ini") {
+        made = "g920-virtual-device.ini";
+    }
     for (const ConfigEntry& candidate : configs) {
         if (candidate.builtIn && lower(pathText(candidate.path.filename())) == made) return candidate;
     }

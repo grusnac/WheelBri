@@ -103,6 +103,11 @@ public:
     // Opens a folder in the system's file manager. False and `error` set if that failed.
     virtual bool openFolder(const std::filesystem::path& folder, std::string& error) = 0;
 
+    // Lets the user choose a folder in the system's own folder window (modal, over this window), starting in `folder`
+    // when it is set. True and `folder` set when one was chosen; false when cancelled (`error` empty) or when there is
+    // no such window here (`error` says so; X11 has none).
+    virtual bool pickFolder(const std::string& title, std::filesystem::path& folder, std::string& error) = 0;
+
     // For the log: "Win32 GDI", "X11 (font ...)".
     [[nodiscard]] virtual std::string describe() const = 0;
 

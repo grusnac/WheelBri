@@ -111,7 +111,7 @@ try {
         Fail "WheelBri needs Windows 11 (build 22000 or newer) for its virtual G920 driver; this is build $build."
     }
     Write-Host "    Windows build $build, 64-bit: fine"
-    foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'config\rig-as-g920.ini', 'uninstall.ps1', 'Uninstall.cmd',
+    foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini', 'uninstall.ps1', 'Uninstall.cmd',
                           'driver\common.ps1', 'driver\install-driver.ps1', 'driver\hide\install-hide.ps1') {
         if (-not (Test-Path (Join-Path $package $required))) {
             Fail "the package is incomplete ($required is missing): unpack the whole package again."
@@ -223,8 +223,8 @@ try {
         $copied++
     }
     Write-Host "    $copied files copied"
-    # The built-in configs' names before they were renamed for the rig (2026-10-04): the new ones replace them.
-    foreach ($old in 'moza-r3-as-g920.ini', 'moza-r3-as-g29.ini', 'rig-as-g29.ini') {   # (the G29 is gone)
+    # The built-in configs' older names (one per target since 2026-10-04): the new ones replace them.
+    foreach ($old in 'moza-r3-as-g920.ini', 'moza-r3-as-g29.ini', 'rig-as-g920.ini', 'rig-as-g29.ini') {   # (the G29 is gone)
         foreach ($file in (Join-Path $InstallDir "config\$old"), (Join-Path $InstallDir "config\$old.new")) {
             Remove-Item $file -Force -ErrorAction SilentlyContinue
         }

@@ -206,7 +206,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `MappingEdit.hpp` uses the roles). A session takes the names it shows from the active rig, else from the older
     per-device files (`DeviceLabels.hpp`, `deviceLabelsFolder()`), which the first rig also imports. Mapping is not
     done in the rig.
-  - Several input devices: device 0 is the wheel (`source_device`; empty, as in the built-in `config/rig-as-g920.ini`, = the active rig's wheel, `Rig::wheel()`, filled in by `loadForRun`; plays FFB), 1..3 are accessories
+  - Several input devices: device 0 is the wheel (`source_device`; empty, as in the built-in `config/g920-*.ini`, = the active rig's wheel, `Rig::wheel()`, filled in by `loadForRun`; plays FFB), 1..3 are accessories
     (`MapperConfig::accessories`, `DeviceId` vid:pid). Every source has a device next to its index
     (`sourceDevice`, `buttonDevice[]`, `HatButtons::devices`); in the INI a source is `N` (the wheel's) or `vid:pid/N`
     (`MappingEdit.hpp`: `parseSource` / `formatSource`; `readSource` in `EmulatorConfig.cpp` fills the accessories in
@@ -214,17 +214,35 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     setAccessories` (a lost accessory ends the tick like a lost wheel, `lostDevice()`); telemetry `raw_*` columns and
     the Wheel setup tab stay the wheel's. `MappingModel` / `writeMapping` are what the Mapping tab edits and saves
     (IniEditor; default button lines removed). The service opens accessories by id (`openAccessories` in main.cpp).
-  - The config Start uses (`service/src/ConfigPicker.cpp`, the top row of the idle Mapping tab): "G920 via [virtual
-    device] [in-game shim]" (`[app] way` in `appStateFile()`, `app.ini`; `AppSettings::runSession(host, config,
-    virtualDevice)`), and one config: the built-in `config/rig-as-g920.ini`, never changed, a template the active rig
-    fills (`rigMapping` in `MappingEdit.hpp`: autoMap's roles, then each G920 button whose name matches a rig control
-    label; `loadForRun` applies it to any config in the built-in folder, `isBuiltInConfig`), unless the Mapping tab
-    saved the user's own edits as `userConfigFolder()/my-g920.ini` (`%LOCALAPPDATA%\wheelbri\configs`), used as is.
-    "Rig mapping" deletes them. `ConfigLibrary.hpp` (listing, `; made from:` templates) is older and only reads what
+  - The config Start uses (`service/src/ConfigPicker.cpp`, the top row of the idle Mapping tab): the target, picked
+    with `<` `>` like the Rig tab's device: "G920 virtual device" or "G920 in-game shim" (`[app] way` in
+    `appStateFile()`, `app.ini`; `AppSettings::runSession(host, config, virtualDevice)`). Two layers: the **target**
+    is fixed (the G920 profile's axes, D-pad and buttons; never the user's to change), the **mapping** of the rig onto
+    it is the user's. Each target has a built-in config, never changed, holding WheelBri's default mapping (the user's
+    corrected mapping of 2026-10-04): `config/g920-virtual-device.ini` (also `defaultConfigPath()`, the command line's
+    default) and `config/g920-in-game-shim.ini`. The Mapping tab's Save writes the user's own as
+    `userConfigFolder()/my-<built-in name>` (`%LOCALAPPDATA%\wheelbri\configs`), used instead; "Default" deletes it.
+    The rig no longer rewrites a mapping (no rigMapping); it gives the sources' names, the wheel when `source_device`
+    is empty, and Auto-map. A source the active rig has not named shows "not in the rig" (`MappingEditView::missing`).
+  - `ShimGames.hpp`: the games the app put the in-game shim into (`shimGamesFile()`, `shim-games.txt`: tab-separated
+    `game name folder` / `selected folder`, UTF-8 paths; not IniDocument, which cuts at `;` and `#`), `installShim` /
+    `removeShim` / `shimState` (Installed, Outdated, Missing, Foreign: a `dinput8.dll` that is neither byte-identical to
+    ours nor next to a `wheelbri-shim.ini` is another mod's and never touched), `gameFolderProblem` (needs an `.exe`).
+    `ShimGamesTest` covers it with temporary folders. UI: `service/src/ShimGamesView.cpp`, only with the target G920
+    in-game shim: "Game <name> [Games (N)]" next to Start, the games panel (pick, Add game through
+    `UiWindow::pickFolder`: IFileOpenDialog on Windows, none on X11; Put / Remove shim), and the App's popups: "Would
+    you like to delete the shim from the target folder?" after a shim session (not when the window closes), notices.
+    The shim's source is `AppSettings::shimDll` (`shim\dinput8.dll` next to the program, or `build/shim/`) and
+    `shimSettings` (`config/wheelbri-shim.ini`).
+  - A shim session starts only what the shim needs (README, "What Start runs"): no virtual G920, no hide filter, no
+    Administrator check (all keyed on `Options::virtualG920`), no test clutch listener (`runLoop(...,
+    listenTestClutch)`), and the Logs tab leaves out the driver rows (`MappingView::setShimMode`). The stale hide
+    check (`HideFilter::clearStale`) still runs: a leftover hide would keep the rig from the game. Keep this split
+    when adding components: anything for the virtual device only stays off with the shim. `ConfigLibrary.hpp` (listing, `; made from:` templates) is older and only reads what
     earlier versions left. `MappingEditView` picks sources from the rig's controls.
   - Config: `IniDocument` (minimal INI; `;`/`#` start a comment anywhere on a line) → `loadEmulatorConfig`,
     which collects *all* errors (unknown keys and sections, out-of-range values) instead of failing fast. When
-    you add a config key, add it to the reader, `EmulatorConfig`, `config/rig-as-g920.ini` and `EmulatorConfigTest`.
+    you add a config key, add it to the reader, `EmulatorConfig`, both `config/g920-*.ini` and `EmulatorConfigTest`.
   - `EmulatedJoystick` is the emulated wheel as DirectInput sees it (objects, the game's data format,
     ranges, state bytes, buffered changes). It mirrors DirectInput constants without `<dinput.h>` so it is
     unit-tested on Linux; `shim/src/DiConvert.hpp` static_asserts the constants against the real macros.
@@ -329,13 +347,14 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelbri.exe` and no `install.ps1`, i.e. never a
   package; runs from a `%TEMP%` copy; from the package it cleans up an install whose folder is gone), `Setup.cmd`
   (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), `README.txt` (for the end user). The
-  installed app runs the driver path by default (virtual G920, rig hidden on every Start; "G920 via in-game shim" on
+  installed app runs the driver path by default (virtual G920, rig hidden on every Start; "G920 in-game shim" on
   the Mapping tab switches); the shim ships in `shim\`. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
   driver scripts and the app's `ensureHideFilter` look there. Only Windows' own tools: no third-party installer.
   When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.
 - `scripts/`: `telemetry_summary.py` (reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelbri.sh`, udev rules,
   `package.sh` bundle).
-- `config/`: `rig-as-g920.ini` (service; a template the rig fills), `wheelbri-shim.ini` (shim).
+- `config/`: `g920-virtual-device.ini`, `g920-in-game-shim.ini` (service: the target and its default mapping),
+  `wheelbri-shim.ini` (shim).
 - `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide).
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.

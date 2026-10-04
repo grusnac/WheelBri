@@ -317,6 +317,11 @@ public:
         return true;
     }
 
+    bool pickFolder(const std::string& /*title*/, std::filesystem::path& /*folder*/, std::string& error) override {
+        error = "no folder window on Linux: put the shim in with scripts/linux/wheelbri.sh --shim (see docs/linux.md)";
+        return false;
+    }
+
     [[nodiscard]] std::string describe() const override {
         return "X11, font " + (fontName_.empty() ? std::string("none") : fontName_);
     }

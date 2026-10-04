@@ -28,6 +28,7 @@ add_executable(wheelbri_tests
     PipelineTest.cpp
     RetentionTest.cpp
     RigTest.cpp
+    ShimGamesTest.cpp
     StatePacketTest.cpp
     TelemetryTest.cpp
     TestClutchTest.cpp

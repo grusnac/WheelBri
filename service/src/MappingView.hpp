@@ -95,6 +95,12 @@ public:
 
     // Shown at the bottom of the panel.
     void setFiles(FilesDisplay files) { files_ = std::move(files); }
+    // The target G920 in-game shim: the Logs tab leaves out the virtual device's parts (G920 driver, hide filter),
+    // which do not run then.
+    void setShimMode(const bool shim) {
+        if (shim != shimMode_) filesCheckedMs_ = 0;   // the components list again at once
+        shimMode_ = shim;
+    }
     // The virtual devices' state, under the title (red when `warning`); empty: the usual hint.
     void setDevices(std::string devices, const bool warning) {
         devices_ = std::move(devices);
@@ -107,6 +113,8 @@ public:
     }
 
     // The accessories the mapping reads (device 1, 2, 3), with their names from the Wheel setup tab.
+    // How much of the title the Mapping tab shows: the app puts its controls (and the shim's games) to its right.
+    void setHeaderChars(const std::size_t chars) { headerChars_ = chars; }
     void setAccessories(const std::array<DeviceLabels, MapperConfig::kMaxAccessories>& accessories) {
         accessories_ = accessories;
     }
@@ -145,6 +153,7 @@ private:
 
     ui::UiWindow& window_;
     std::string sourceName_;
+    std::size_t headerChars_ = 50;
     int sourceAxes_;
     int sourceButtons_;
     const IDeviceProfile& profile_;
@@ -175,6 +184,7 @@ private:
     std::vector<ComponentLog> components_;
     // Looked up at most once a second (files appear while a session runs and change at midnight).
     std::uint64_t filesCheckedMs_ = 0;
+    bool shimMode_ = false;
 
     // The Logs tab's live log: every component's file followed, newest at the bottom.
     LiveLog liveLog_;

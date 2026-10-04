@@ -24,8 +24,8 @@ protected:
                ("wheelbri-configs-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(builtIn());
-        write(builtIn() / "rig-as-g920.ini", kG920);
-        write(builtIn() / "rig-as-a.ini", kOther);
+        write(builtIn() / "g920-virtual-device.ini", kG920);
+        write(builtIn() / "a-other.ini", kOther);
         write(builtIn() / "wheelbri-shim.ini", "[shim]\n");
         write(builtIn() / "notes.txt", "not a config");
     }
@@ -51,7 +51,7 @@ protected:
 }  // namespace
 
 TEST(ConfigLibrary, ChecksNames) {
-    const std::vector<ConfigEntry> existing = {{"rig-as-g920", "x/rig-as-g920.ini", true}};
+    const std::vector<ConfigEntry> existing = {{"g920-virtual-device", "x/g920-virtual-device.ini", true}};
     EXPECT_EQ(configNameProblem("My rig (rally)", existing), "");
     EXPECT_NE(configNameProblem("", existing), "");
     EXPECT_NE(configNameProblem(std::string(kMaxConfigName + 1, 'a'), existing), "");
@@ -59,14 +59,14 @@ TEST(ConfigLibrary, ChecksNames) {
     EXPECT_NE(configNameProblem("a;b", existing), "");
     EXPECT_NE(configNameProblem(" lead", existing), "");
     EXPECT_NE(configNameProblem("trail.", existing), "");
-    EXPECT_NE(configNameProblem("RIG-as-G920", existing), "");   // the same name as Windows sees it
+    EXPECT_NE(configNameProblem("G920-Virtual-Device", existing), "");   // the same name as Windows sees it
 }
 
 TEST(ConfigLibrary, NewTextNamesItsTemplateAndStillParses) {
-    const std::string text = newConfigText("Rally", "rig-as-g920.ini", "\xEF\xBB\xBF" + kG920);
-    EXPECT_EQ(configTemplateOf(text), "rig-as-g920.ini");
+    const std::string text = newConfigText("Rally", "g920-virtual-device.ini", "\xEF\xBB\xBF" + kG920);
+    EXPECT_EQ(configTemplateOf(text), "g920-virtual-device.ini");
     EXPECT_EQ(text.find("\xEF\xBB\xBF"), std::string::npos);
-    EXPECT_NE(text.find("\r\n; made from: rig-as-g920.ini\r\n"), std::string::npos);   // the template's line ends
+    EXPECT_NE(text.find("\r\n; made from: g920-virtual-device.ini\r\n"), std::string::npos);   // the template's line ends
     const auto parsed = IniDocument::parse(text);
     EXPECT_TRUE(parsed.errors.empty());
     EXPECT_EQ(parsed.document.get("target", "profile"), "g920");
@@ -86,16 +86,16 @@ TEST_F(ConfigLibraryFiles, ListsBuiltInThenOwnAndLeavesTheShimOut) {
     write(user() / "A.ini", kOther);
     const auto configs = list();
     ASSERT_EQ(configs.size(), 4U);
-    EXPECT_EQ(configs[0].name, "rig-as-a");
+    EXPECT_EQ(configs[0].name, "a-other");
     EXPECT_TRUE(configs[0].builtIn);
-    EXPECT_EQ(configs[1].name, "rig-as-g920");
+    EXPECT_EQ(configs[1].name, "g920-virtual-device");
     EXPECT_EQ(configs[2].name, "A");
     EXPECT_FALSE(configs[2].builtIn);
     EXPECT_EQ(configs[3].name, "b");
 }
 
 TEST_F(ConfigLibraryFiles, ResetFindsTheRenamedBuiltIn) {
-    // A copy made before the built-ins were renamed (moza-r3-as-g920.ini -> rig-as-g920.ini).
+    // A copy made before the built-ins were renamed (moza-r3-as-g920.ini, later rig-as-g920.ini).
     std::filesystem::create_directories(user());
     write(user() / "Old.ini", newConfigText("Old", "moza-r3-as-g920.ini", kG920));
     const auto configs = list();
@@ -103,7 +103,7 @@ TEST_F(ConfigLibraryFiles, ResetFindsTheRenamedBuiltIn) {
     ASSERT_NE(found, configs.end());
     const ConfigEntry old = *found;
     ASSERT_TRUE(resetTemplateOf(old, configs).has_value());
-    EXPECT_EQ(resetTemplateOf(old, configs)->name, "rig-as-g920");
+    EXPECT_EQ(resetTemplateOf(old, configs)->name, "g920-virtual-device");
 }
 
 TEST_F(ConfigLibraryFiles, NewCopiesTheBuiltInAndResetCopiesItAgain) {
@@ -122,7 +122,7 @@ TEST_F(ConfigLibraryFiles, NewCopiesTheBuiltInAndResetCopiesItAgain) {
     const ConfigEntry rally = withRally.back();
     ASSERT_EQ(rally.name, "Rally");
     ASSERT_TRUE(resetTemplateOf(rally, withRally).has_value());
-    EXPECT_EQ(resetTemplateOf(rally, withRally)->name, "rig-as-g920");
+    EXPECT_EQ(resetTemplateOf(rally, withRally)->name, "g920-virtual-device");
     const ConfigResult reset = resetConfig(rally, withRally);
     ASSERT_TRUE(reset.ok) << reset.error;
     EXPECT_EQ(read(made.path), fresh);   // the change is gone
@@ -134,7 +134,7 @@ TEST_F(ConfigLibraryFiles, ResetRefusesBuiltInAndHandMadeConfigs) {
     write(user() / "orphan.ini", "; made from: gone.ini\n" + kOther);
     const auto configs = list();
     EXPECT_FALSE(resetConfig(configs[0], configs).ok);   // built in
-    EXPECT_EQ(read(builtIn() / "rig-as-a.ini"), kOther);
+    EXPECT_EQ(read(builtIn() / "a-other.ini"), kOther);
     for (const ConfigEntry& config : configs) {
         if (config.builtIn) continue;
         EXPECT_FALSE(resetTemplateOf(config, configs).has_value()) << config.name;
@@ -151,7 +151,7 @@ TEST_F(ConfigLibraryFiles, SaveAsWritesTheEditedTextAndResetGoesBackToTheBuiltIn
     const ConfigResult made = createConfigWithText(user(), "Mine", configs[1], edited, configs);
     ASSERT_TRUE(made.ok) << made.error;
     EXPECT_NE(read(made.path).find("target_6 = 1209:2000/0"), std::string::npos);
-    EXPECT_EQ(configTemplateOf(read(made.path)), "rig-as-g920.ini");
+    EXPECT_EQ(configTemplateOf(read(made.path)), "g920-virtual-device.ini");
     const auto again = list();
     EXPECT_FALSE(createConfigWithText(user(), "mine", configs[1], edited, again).ok);
     ASSERT_TRUE(resetConfig(again.back(), again).ok);

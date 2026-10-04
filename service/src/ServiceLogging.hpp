@@ -25,6 +25,9 @@ namespace wheelbri::service {
 // The app's state file (which config is picked): app.ini in the folder above those two.
 [[nodiscard]] std::filesystem::path appStateFile();
 
+// The games the in-game shim was put into (the app, target G920 in-game shim; ShimGames.hpp).
+[[nodiscard]] std::filesystem::path shimGamesFile();
+
 // The project was called wheelemu before 2026-10-03: moves the user's folders from that name to wheelbri (rigs,
 // configs, app.ini, logs, telemetry), once, before anything opens them. Entries already in the new folder are kept
 // and the old one is left with what could not move. Paths to the old folder inside app.ini are rewritten. Call it

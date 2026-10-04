@@ -25,7 +25,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
   `c_dfDIJoystick2`: wheel X, throttle Slider, brake Y, clutch Rz, pedals released at the top of the range;
-- the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/rig-as-g920.ini`);
+- the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/g920-virtual-device.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
 Still open:
@@ -41,7 +41,7 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** the add-on clutch pedal was recognised but the G920's clutch never moved: the configs mapped axis 3,
   while the pedal moves R3 axis 6 (found in `raw_a6` in the telemetry).
-- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/rig-as-g920.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
+- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920-virtual-device.ini` and `config/g920-in-game-shim.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
   return to 0%, raise `deadzone_low`. The game reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
   `out_clutch` in `telemetry-<date>.csv`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
@@ -102,7 +102,9 @@ defaults to ON on Windows).
 
 ## Playing (Phases 2 and 3)
 
-1. Start the service and leave it running: `wheelbri-service --config config/rig-as-g920.ini`
+The app does all of this from its Mapping tab (target G920 in-game shim, Games). By hand:
+
+1. Start the service and leave it running: `wheelbri-service --config config/g920-in-game-shim.ini`
    (add `--ui` to watch the mapping at the same time).
 2. Copy `dinput8.dll` next to the game's `.exe` (Linux/Proton: also `WINEDLLOVERRIDES="dinput8=n,b" %command%`).
    Optionally copy `config/wheelbri-shim.ini` there too; the defaults match the example service config.
@@ -157,15 +159,48 @@ from another controller (a gamepad or the keyboard): the state next to Start / S
 USING THE WHEEL** in red and the log says so. Close the game with WheelBri running, start it again and pick the wheel
 in its controls settings.
 
-**G920 via** (the top row of the Mapping tab, while stopped) picks how the G920 reaches the game: **virtual device**
-(WheelBri's driver, every game sees it, the rig is hidden) or **in-game shim** (`dinput8.dll` next to the game's `.exe`,
-nothing hidden, nothing created). The G920 is the only target; other wheels come only when WheelBri supports them.
-The config is the built-in `config/rig-as-g920.ini` (next to the program or one or two folders up), a template that
-the active rig fills at every Start (roles first, then G920 buttons named like a rig control), unless you saved your
-own edits on the Mapping tab: `%LOCALAPPDATA%\wheelbri\configs\my-g920.ini`. **Rig mapping** deletes them, and the rig
-fills the template again. The choice is remembered (`%LOCALAPPDATA%\wheelbri\app.ini`, `[app] way`); `--config FILE`
+**Target** (the top row of the Mapping tab, while stopped) picks the target with `<` `>`, like the Rig tab's device:
+**G920 virtual device** (WheelBri's driver, every game sees it, the rig is hidden) or **G920 in-game shim** (`dinput8.dll`
+next to the game's `.exe`, nothing hidden, nothing created). The G920 is the only target wheel; others come only when
+WheelBri supports them. A target is fixed: the G920's axes, D-pad and buttons are what they are. What drives each of
+them is the mapping, and that is the user's: each target's built-in config (`config/g920-virtual-device.ini`,
+`config/g920-in-game-shim.ini`, next to the program or one or two folders up) holds WheelBri's default mapping, used
+until you save your own on the Mapping tab (`%LOCALAPPDATA%\wheelbri\configs\my-g920-virtual-device.ini` or
+`my-g920-in-game-shim.ini`). **Default** deletes yours. The target is remembered (`%LOCALAPPDATA%\wheelbri\app.ini`,
+`[app] way`); `--config FILE`
 (in a shortcut) starts with another config, and the other options below work too. `wheelbri-service --app` is the same window
 from a console (and on Linux).
+
+**Games** (only with the target **G920 in-game shim**): next to Start the app shows the game Start is for and a
+**Games (N)** button. It opens the games panel: every game the shim was put into, with its folder and whether the shim
+is there (shim in place / no shim / another dinput8.dll). Click a game to pick it; **Add game** opens Windows' folder
+window: choose the folder that holds the game's `.exe` and WheelBri copies the shim there (`dinput8.dll`, and
+`wheelbri-shim.ini` unless one is already there) and adds the game. **Put shim** / **Remove shim** per game. Start puts
+the shim back, or replaces it with a newer build, when needed (close the game first: Windows locks the DLL while it
+runs). When a shim session stops, the app asks **Would you like to delete the shim from the target folder?**: Yes
+deletes both files (the game stays in the list, marked "no shim"), No leaves them. A `dinput8.dll` that is not
+WheelBri's (another mod) is never overwritten or deleted. The list is `%LOCALAPPDATA%\wheelbri\shim-games.txt`.
+
+**What Start runs** depends on the target: only what that target needs.
+
+| Component | G920 virtual device | G920 in-game shim |
+|---|---|---|
+| Shim check / copy: `dinput8.dll` + `wheelbri-shim.ini` into the picked game | - | yes |
+| Read the rig: wheel + accessories (DirectInput, the wheel opened exclusively) | yes | yes |
+| Mapping loop, 1 kHz: rig -> G920 -> UDP 41329 | yes (to the driver) | yes (to the shim in the game) |
+| Force feedback in: UDP 41330 -> safety limiter + watchdog -> wheel | yes (from the driver) | yes (from the shim) |
+| Logs, telemetry CSVs, old-file cleanup | yes | yes |
+| Game-use watch ("GAME NOT USING THE WHEEL") | yes | yes |
+| Live view: Mapping / Rig / Logs tabs, Start / Stop | yes | yes |
+| Stale hide check: clears a hide left by a crashed session, warns if another one hides the rig | yes | yes |
+| Administrator check | yes | - |
+| Virtual G920 device (`wheelbri-g920` driver) and its DirectInput registry entries | yes | - |
+| Hide filter (`wheelbri-hide`): rig hidden from games | yes | - (the game must see the rig) |
+| Test clutch listener, UDP 41331 (developer tool) | yes | - |
+| Logs tab rows for the G920 driver and the hide filter | yes | - (emulator and game shim only) |
+
+`wheelbri.exe` still asks for Administrator when it opens, whichever target is picked: its manifest applies before the
+app knows the target, and the virtual device needs it.
 
 The **Rig** tab (R) defines your **rig**: the devices you have (wheel, pedals, shifter, handbrake, button box) and
 what each control is. Every connected device is read at once. With **Detect** on (the default), press a button or move
@@ -182,9 +217,9 @@ the G920: the wheel (the device that plays force feedback, **Change** to pick an
 Clutch (each with **Invert**), the D-pad and the G920's buttons. **Auto-map** fills them from the rig's roles (axes,
 D-pad, Shift up/down to the paddles, gears where the target has them); plain buttons you pick yourself. Click a source
 and pick a control of the wheel or of an accessory (up to 3 besides the wheel), or "(nothing)". **Save** writes your own
-edits (`my-g920.ini`, comments and other settings kept); from then on Start uses them as they are and a changed rig no
-longer re-maps them. **Revert** drops unsaved edits, **Rig mapping** the saved ones. Start uses exactly what the tab
-shows (as saved).
+mapping for the target (`my-g920-<target>.ini`, comments and other settings kept). **Revert** drops unsaved changes,
+**Default** the saved mapping (WheelBri's default again). A source the default names but your rig has not named shows
+"not in the rig" in orange: pick another or Auto-map. Start uses exactly what the tab shows (as saved).
 In the config a source on an accessory is written `vid:pid/N` (`axis = 30b7:1001/0`); a session opens every
 accessory its mapping names and does not start without them; one lost while running is waited for like the wheel.
 Every device of the active rig (wheel and accessories) is hidden from games while the app runs; no rig = nothing
@@ -194,9 +229,9 @@ hidden.
 
 ```bash
 wheelbri-service --list                                          # connected joysticks
-wheelbri-service --config config/rig-as-g920.ini --print     # live raw -> mapped -> G920 values
-wheelbri-service --config config/rig-as-g920.ini --ui        # window: every axis/button, its G920 mapping, and game force feedback
-wheelbri-service --config config/rig-as-g920.ini --ffb-test  # gentle spring / left / right / damper
+wheelbri-service --config config/g920-virtual-device.ini --print     # live raw -> mapped -> G920 values
+wheelbri-service --config config/g920-virtual-device.ini --ui        # window: every axis/button, its G920 mapping, and game force feedback
+wheelbri-service --config config/g920-virtual-device.ini --ffb-test  # gentle spring / left / right / damper
 ```
 
 ## Logging
@@ -231,7 +266,7 @@ SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelbri-service --con
 ```
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`,
-`service.hide`, `service.config`, `service.mapping`, `service.setup`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
+`service.hide`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
 `shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelbri-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelbri/Logging.hpp`)

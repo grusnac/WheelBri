@@ -40,11 +40,11 @@ R3 itself from the game (Proton applies it to every backend), so the game finds 
 4. Plug in the R3 and check its axes (the Linux numbering may differ from Windows):
 
    ```
-   ~/wheelbri/bin/wheelbri-service --config ~/wheelbri/config/rig-as-g920.ini --ui
+   ~/wheelbri/bin/wheelbri-service --config ~/wheelbri/config/g920-virtual-device.ini --ui
    ```
 
    Turn the wheel and press each pedal; if a pedal moves the wrong bar, fix `axis =` under `[throttle]`,
-   `[brake]` or `[clutch]` in `~/wheelbri/config/rig-as-g920.ini`. Close the window when done.
+   `[brake]` or `[clutch]` in `~/wheelbri/config/g920-virtual-device.ini`. Close the window when done.
 5. Force feedback on the R3 needs the kernel's driver for it: `hid-universal-pidff` (Linux 6.15 and later; it
    lists the R3). Check with `modinfo hid-universal-pidff`; `wheelbri-service --ffb-test` plays a short, gentle
    sequence on the wheel.

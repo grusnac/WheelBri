@@ -81,10 +81,7 @@ void MappingEditView::update() {
         return;
     }
     if (devicesReadMs_ == 0 || platform::nowMs() - devicesReadMs_ >= kDevicesEveryMs) {
-        const Rig before = rig_;
-        refreshDevices();
-        // The rig's own mapping follows the rig (unless the user is in the middle of editing it).
-        if (rig_ != before && builtIn_ && loaded_ && !dirty()) load();
+        refreshDevices();   // the names and the devices the sources are picked from
     }
 }
 
@@ -106,7 +103,8 @@ void MappingEditView::load() {
     builtIn_ = picker_.builtIn();
     refreshDevices();
     if (path_.empty()) {
-        status_ = "No config: config/rig-as-g920.ini is not next to the program.";
+        status_ = std::string("No config: config/") + ConfigPicker::builtInName(picker_.way()) +
+                  " is not next to the program.";
         statusError_ = true;
         return;
     }
@@ -122,9 +120,6 @@ void MappingEditView::load() {
     profile_ = makeProfile(result.config.targetProfile);
     if (profile_ == nullptr) profile_ = makeProfile("g920");
     saved_ = mappingModel(result.config);
-    // No edits of the user's: the rig's mapping, what Start uses too (loadForRun).
-    int fromRig = -1;
-    if (builtIn_ && !rig_.devices.empty()) fromRig = rigMapping(saved_, rig_, *profile_);
     edit_ = saved_;
     loaded_ = true;
     if (!parsed.errors.empty() || !result.errors.empty()) {
@@ -132,11 +127,8 @@ void MappingEditView::load() {
                   (parsed.errors.empty() ? result.errors.front() : parsed.errors.front());
         statusError_ = true;
     } else {
-        status_ = !builtIn_       ? "Your own mapping (saved edits). Rig mapping goes back to what the rig gives."
-                  : fromRig >= 0 ? "Mapped from the rig '" + rigName_ + "' (" + std::to_string(fromRig) +
-                                       " controls: roles and same-named controls). Change a source and Save to keep "
-                                       "your own."
-                                 : "No rig yet: set up your devices in the Rig tab; the mapping follows it.";
+        status_ = !builtIn_ ? "Your own mapping (saved). Default goes back to WheelBri's."
+                            : "WheelBri's default mapping. Change a source and Save to keep your own.";
         statusError_ = false;
     }
     WE_LOG_INFO(log(), "mapping: editing {}", path_);
@@ -150,12 +142,15 @@ void MappingEditView::save() {
         statusError_ = true;
         return;
     }
-    // The built-in template stays as it is: the user's edits go to their own file (made from it).
+    // The built-in default stays as it is: the user's mapping goes to their own file (made from it).
     const std::filesystem::path target = builtIn_ ? picker_.ownPath() : std::filesystem::path(path_);
     std::error_code ec;
     std::filesystem::create_directories(target.parent_path(), ec);
     std::ofstream file(target, std::ios::binary | std::ios::trunc);
-    if (builtIn_) file << "; WheelBri: your own mapping for the G920 (the Mapping tab's Save; Rig mapping deletes it)\r\n";
+    if (builtIn_) {
+        file << "; WheelBri: your own mapping for the " << ConfigPicker::name(picker_.way())
+             << " (the Mapping tab's Save; Default deletes it)\r\n";
+    }
     file << written.text;
     file.close();
     if (!file) {
@@ -184,11 +179,19 @@ void MappingEditView::dropOwnEdits() {
         return;
     }
     update();
-    status_ = "Your own mapping is gone: the rig gives the mapping again.";
+    status_ = "Your own mapping is gone: WheelBri's default mapping again.";
     statusError_ = false;
 }
 
 // --- devices and sources ---------------------------------------------------------------------------------------
+
+bool MappingEditView::missing(const SourceRef& source, const bool axis) const {
+    // The default mapping names controls of the rig it was made for; one this rig has not named stays mapped but
+    // shows it (pick another, or Auto-map).
+    if (!source.mapped() || rig_.devices.empty()) return false;
+    const RigControl* const control = rigControl(source, axis);
+    return control == nullptr || !control->defined();
+}
 
 const DeviceLabels* MappingEditView::wheelLabels() const {
     // No source_device (the built-in configs): the rig's wheel, as a session takes it.
@@ -246,6 +249,7 @@ std::string MappingEditView::describe(const SourceRef& source, const bool axis) 
         name = control->label;
         role = roleName(control->role);
     }
+    if (missing(source, axis)) role = "not in the rig";
     const std::string number = (axis ? "axis " : "button ") + std::to_string(source.index);
     // "Wheel: Gas  (axis 2, throttle)", "Wheel: axis 6", "Wheel: button 4  (d-pad up)".
     std::string about = name.empty() ? std::string() : number;
@@ -320,7 +324,8 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
     window_.fill(x, y, w, 16, kStripe);
     window_.outline(x, y, w, 16, changed ? kCaution : kPanel);
     const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
-    window_.text(x + 6, y + 4, fit(describe(source, kind == Slot::Axis), chars), source.mapped() ? kText : kDim);
+    window_.text(x + 6, y + 4, fit(describe(source, kind == Slot::Axis), chars),
+                 missing(source, kind == Slot::Axis) ? kCaution : source.mapped() ? kText : kDim);
     hit(x, y, w, 16, [this, kind, index] {
         mode_ = Mode::Pick;
         pickKind_ = kind;
@@ -332,13 +337,15 @@ void MappingEditView::draw() {
     hits_.clear();
     const std::string target = profile_ != nullptr ? profile_->identity().shortName : std::string("G920");
     window_.text(4, 4, "MAPPING", kHeading);
-    window_.text(68, 4, "what your controls do on the " + target, kDim);
+    // With the shim, the app's games row is where this would be.
+    if (picker_.virtualDevice()) window_.text(68, 4, "what your controls do on the " + target, kDim);
 
-    // How the G920 reaches the game, then what the mapping is: the rig's, or the user's own saved edits.
+    // The target (fixed inputs, picked with < >), then whose mapping onto it this is: WheelBri's default, or the
+    // user's own saved one.
     picker_.draw(4, 18, !locked_);
-    window_.text(400, 22, builtIn_ ? "mapping: the rig's" : "mapping: your own", builtIn_ ? kDim : kCaution);
+    window_.text(372, 22, builtIn_ ? "mapping: default" : "mapping: your own", builtIn_ ? kDim : kCaution);
     const bool canSave = loaded_ && dirty() && !locked_;
-    button(580, 18, "Rig mapping", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
+    button(580, 18, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
     button(692, 18, "Save", [this] { save(); }, canSave, canSave, 80);
     button(780, 18, "Revert", [this] {
         edit_ = saved_;
@@ -355,18 +362,10 @@ void MappingEditView::draw() {
                      rigName_.empty() ? "No rig yet: define your devices and their controls in the Rig tab first."
                                       : "The rig '" + rigName_ + "' has no devices yet: define them in the Rig tab.",
                      kCaution);
+    } else {
+        // The wheel: device 0, the one that plays force feedback.
+        drawWheelRow();
     }
-    // The wheel: device 0, the one that plays force feedback.
-    window_.text(4, 42, "Wheel", kDim);
-    const DeviceLabels* const wheel = wheelLabels();
-    window_.text(68, 42,
-                 wheel != nullptr ? fit(deviceName(*wheel), 40) + "  " + deviceId(wheel->vendorId, wheel->productId)
-                                  : "'" + edit_.sourceDevice + "' (not named in the Rig tab yet)",
-                 wheel != nullptr ? kText : kCaution);
-    window_.text(500, 42, "plays force feedback", kDim);
-    button(680, 38, "Change", [this] { mode_ = Mode::PickWheel; }, false, !devices_.empty(), 70);
-    button(760, 38, "Auto-map", [this] { autoMapFromRig(); }, false, !rig_.devices.empty(), 80);
-    window_.text(848, 42, fit("rig " + rigName_, 14), kDim);
 
     // Axes, left; D-pad, right.
     float y = 66;
@@ -410,6 +409,19 @@ void MappingEditView::draw() {
 
     if (mode_ == Mode::Pick) drawPicker();
     if (mode_ == Mode::PickWheel) drawWheelPicker();
+}
+
+void MappingEditView::drawWheelRow() {
+    window_.text(4, 42, "Wheel", kDim);
+    const DeviceLabels* const wheel = wheelLabels();
+    window_.text(68, 42,
+                 wheel != nullptr ? fit(deviceName(*wheel), 40) + "  " + deviceId(wheel->vendorId, wheel->productId)
+                                  : "'" + edit_.sourceDevice + "' (not named in the Rig tab yet)",
+                 wheel != nullptr ? kText : kCaution);
+    window_.text(500, 42, "plays force feedback", kDim);
+    button(680, 38, "Change", [this] { mode_ = Mode::PickWheel; }, false, !devices_.empty(), 70);
+    button(760, 38, "Auto-map", [this] { autoMapFromRig(); }, false, !rig_.devices.empty(), 80);
+    window_.text(848, 42, fit("rig " + rigName_, 14), kDim);
 }
 
 void MappingEditView::drawPicker() {

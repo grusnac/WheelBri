@@ -48,10 +48,14 @@ WheelBri's filter on those devices (they restart once; close the wheel maker's s
 restart). If the wheel maker's software later puts its own driver back, the next Start puts the filter on again. The window
 says "rig hidden (N of M devices)", or lists in red the devices it could not hide.
 
-The Mapping tab (M) maps your rig onto the G920 by itself, from what you set up in the Rig tab. Its top row says
-how the G920 reaches the game: "virtual device" (the default, every game) or "in-game shim" (dinput8.dll from the
-shim folder next to the game's .exe). Change a mapping there and press Save to keep your own; "Rig mapping" goes
-back to the rig's. Each Start uses exactly what the tab shows.
+The Mapping tab (M) shows which control of your rig drives each of the G920's axes, buttons and D-pad directions.
+Its top row picks the target with < and >: "G920 virtual device" (the default, every game) or "G920 in-game shim"
+(dinput8.dll from the shim folder next to the game's .exe). WheelBri starts from its default mapping; change a source
+and press Save to keep your own, "Default" goes back to WheelBri's. Each Start uses exactly what the tab shows.
+
+With "G920 in-game shim", the Games button next to Start lists your games. Add game: choose the game's folder (the one
+with its .exe) and WheelBri puts the shim there. Pick the game, press Start, then start the game. When you press Stop,
+WheelBri asks whether to delete the shim from the game's folder.
 
 Uninstall
 ---------

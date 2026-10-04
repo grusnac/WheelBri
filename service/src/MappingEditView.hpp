@@ -16,13 +16,13 @@
 
 namespace wheelbri::service {
 
-// The app's Mapping tab while stopped: at the top how the G920 reaches the game (ConfigPicker: the virtual device or
-// the in-game shim), then what drives each of the G920's axes, buttons and D-pad directions, from the controls the
-// Rig tab named (the wheel's and the accessories'). With no edits of the user's the mapping is the rig's
-// (rigMapping on the built-in config/rig-as-g920.ini: roles, then same-named controls), exactly what Start uses.
-// Every source can be picked by hand from the named controls; Save keeps those edits (my-g920.ini, comments and
-// other settings kept), Revert drops unsaved ones, Rig mapping drops the saved ones. The live view (the session's
-// Mapping tab) shows the result once started.
+// The app's Mapping tab while stopped: at the top the target (ConfigPicker: G920 virtual device or G920 in-game shim),
+// whose axes, buttons and D-pad are fixed, then what drives each of them, from the controls the Rig tab named (the
+// wheel's and the accessories'). Without a saved mapping of the user's it is WheelBri's default (the target's built-in
+// config), exactly what Start uses. Every source can be picked by hand from the named controls, or Auto-mapped from
+// their roles; Save keeps the user's mapping (my-<built-in name>, comments and other settings kept), Revert drops
+// unsaved changes, Default drops the saved mapping. A source the rig has not named shows "not in the rig". The live
+// view (the session's Mapping tab) shows the result once started.
 class MappingEditView {
 public:
     static constexpr float kContentHeight = 748 - 30;   // the tab bar is below
@@ -56,6 +56,8 @@ private:
     };
 
     void load();
+    // A mapped source that the active rig has not named (the default was made for another rig).
+    [[nodiscard]] bool missing(const SourceRef& source, bool axis) const;
     void save();
     void dropOwnEdits();
     void refreshDevices();
@@ -69,6 +71,7 @@ private:
     [[nodiscard]] SourceRef& slot(Slot kind, std::size_t index);
 
     void drawSource(float x, float y, float w, Slot kind, std::size_t index);
+    void drawWheelRow();   // the wheel (it plays force feedback), Change, Auto-map
     void drawPicker();
     void drawWheelPicker();
     float button(float x, float y, const std::string& label, std::function<void()> action, bool on = false,

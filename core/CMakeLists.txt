@@ -26,6 +26,7 @@ add_library(wheelbri_core STATIC
     src/Pipeline.cpp
     src/Retention.cpp
     src/Rig.cpp
+    src/ShimGames.cpp
     src/StatePacket.cpp
     src/Telemetry.cpp
     src/TestClutch.cpp

@@ -29,6 +29,7 @@ add_library(wheelbri_service_objects OBJECT
     src/Wheel.cpp
     src/WheelSetupView.cpp
     src/ConfigPicker.cpp
+    src/ShimGamesView.cpp
     src/MappingEditView.cpp
 )
 target_link_libraries(wheelbri_service_objects PUBLIC wheelbri_core)
@@ -41,7 +42,7 @@ if(WE_SERVICE_PLATFORM STREQUAL "Windows")
         src/PlatformWin32.cpp
         src/UiWindowWin32.cpp
         src/WheelDinput.cpp)
-    target_link_libraries(wheelbri_service_objects PUBLIC dinput8 dxguid cfgmgr32 advapi32 winmm user32 gdi32 shell32)
+    target_link_libraries(wheelbri_service_objects PUBLIC dinput8 dxguid cfgmgr32 advapi32 winmm user32 gdi32 shell32 ole32 uuid)
 else()
     target_sources(wheelbri_service_objects PRIVATE
         src/PlatformPosix.cpp

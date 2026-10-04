@@ -106,37 +106,6 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     return model;
 }
 
-int rigMapping(MappingModel& model, const Rig& rig, const IDeviceProfile& profile) {
-    for (SourceRef& button : model.buttons) button = SourceRef{};
-    for (SourceRef& direction : model.hat) direction = SourceRef{};
-    int set = autoMap(model, rig, profile);
-    const RigDevice* const wheel = rig.wheel();
-    std::vector<const RigDevice*> devices;   // the wheel first
-    if (wheel != nullptr) devices.push_back(wheel);
-    for (const RigDevice& device : rig.devices) {
-        if (&device != wheel) devices.push_back(&device);
-    }
-    const auto sameName = [](std::string_view a, std::string_view b) {
-        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
-                   return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
-               });
-    };
-    for (std::size_t target = 0; target < model.buttons.size(); ++target) {
-        const std::string_view name = profile.buttonName(target);
-        if (name.empty() || model.buttons[target].mapped()) continue;
-        for (const RigDevice* device : devices) {
-            const auto found = std::find_if(device->buttons.begin(), device->buttons.end(),
-                                            [&](const RigControl& control) { return sameName(control.label, name); });
-            if (found == device->buttons.end()) continue;
-            const auto index = static_cast<int>(found - device->buttons.begin());
-            model.buttons[target] = SourceRef{wheel != nullptr && device->id == wheel->id ? DeviceId{} : device->id, index};
-            ++set;
-            break;
-        }
-    }
-    return set;
-}
-
 int autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile) {
     const RigDevice* const wheel = rig.wheel();
     if (wheel != nullptr) model.sourceDevice = idText(wheel->id);

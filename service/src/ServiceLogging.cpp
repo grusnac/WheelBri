@@ -74,6 +74,8 @@ std::filesystem::path rigsFolder() { return userSettingsFolder() / "rigs"; }
 
 std::filesystem::path appStateFile() { return userSettingsFolder() / "app.ini"; }
 
+std::filesystem::path shimGamesFile() { return userSettingsFolder() / "shim-games.txt"; }
+
 namespace {
 
 constexpr const char* kOldName = "wheelemu";   // the project's name before the rename

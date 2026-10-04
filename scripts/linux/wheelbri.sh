@@ -25,15 +25,16 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 if [ -x "$here/bin/wheelbri-service" ]; then
     service="$here/bin/wheelbri-service"
     uhid="$here/bin/wheelbri-uhid"
-    config="$here/config/rig-as-g920.ini"
+    configs="$here/config"
 else
     root=$(cd "$here/../.." && pwd)
     service="$root/build/service/wheelbri-service"
     uhid="$root/build/tools/uhid/wheelbri-uhid"
-    config="$root/config/rig-as-g920.ini"
+    configs="$root/config"
 fi
 
 mode=uhid
+config=   # empty: the target's built-in config (below)
 ui=
 hide=   # empty: the active rig's devices (below)
 game=()
@@ -52,6 +53,10 @@ while [ $# -gt 0 ]; do
     shift
 done
 [ -z "$ui" ] && { [ ${#game[@]} -eq 0 ] && ui=1 || ui=0; }
+# Default --config: the target's own (WheelBri's default mapping): the virtual G920 (uhid) or the in-game shim.
+if [ -z "$config" ]; then
+    [ "$mode" = shim ] && config="$configs/g920-in-game-shim.ini" || config="$configs/g920-virtual-device.ini"
+fi
 
 # Default --hide: every device of the active rig (app.ini [app] rig, then id = vvvv:pppp in rigs/<rig>.ini).
 if [ -z "$hide" ]; then
