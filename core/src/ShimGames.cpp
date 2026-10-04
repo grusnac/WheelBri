@@ -107,6 +107,14 @@ std::size_t addShimGame(ShimGameList& list, const std::filesystem::path& folder)
     return list.games.size() - 1;
 }
 
+bool removeShimGame(ShimGameList& list, const std::size_t index) {
+    if (index >= list.games.size()) return false;
+    const bool wasSelected = sameFolder(list.games[index].folder, list.selected);
+    list.games.erase(list.games.begin() + static_cast<std::ptrdiff_t>(index));
+    if (wasSelected) list.selected = list.games.empty() ? std::filesystem::path() : list.games.front().folder;
+    return true;
+}
+
 std::string gameFolderProblem(const std::filesystem::path& folder) {
     std::error_code ec;
     if (folder.empty() || !std::filesystem::is_directory(folder, ec)) return "that folder does not exist";

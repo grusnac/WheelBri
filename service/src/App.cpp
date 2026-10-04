@@ -462,7 +462,7 @@ private:
             updateSetup();
             mapping_->setLocked(state_ != State::Stopped);   // the way and the mapping stay as Start found them
             if (showingMappingEditor()) mapping_->update();
-            if (std::string problem; games_->takeProblem(problem)) notice("Game not added", problem);
+            if (std::string problem; games_->takeProblem(problem)) notice("Games with the shim", problem);
             if (quitting_ && !running()) {
                 break;
             }

@@ -183,7 +183,7 @@ from a console (and on Linux).
 **Games (N)** button. It opens the games panel: every game the shim was put into, with its folder and whether the shim
 is there (shim in place / no shim / another dinput8.dll). Click a game to pick it; **Add game** opens Windows' folder
 window: choose the folder that holds the game's `.exe` and WheelBri copies the shim there (`dinput8.dll`, and
-`wheelbri-shim.ini` unless one is already there) and adds the game. **Put shim** / **Remove shim** per game. Start puts
+`wheelbri-shim.ini` unless one is already there) and adds the game. **Put shim** / **Remove shim** per game, and **Forget** to take a game off the list (its folder is not touched; if WheelBri's shim is still there, the app says so). Start puts
 the shim back, or replaces it with a newer build, when needed (close the game first: Windows locks the DLL while it
 runs). When a shim session stops, the app asks **Would you like to delete the shim from the target folder?**: Yes
 deletes both files (the game stays in the list, marked "no shim"), No leaves them. A `dinput8.dll` that is not

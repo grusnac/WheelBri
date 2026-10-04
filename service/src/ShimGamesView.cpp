@@ -109,6 +109,20 @@ void ShimGamesView::remove(const std::size_t index) {
     refreshStates();
 }
 
+void ShimGamesView::forget(const std::size_t index) {
+    if (index >= list_.games.size()) return;
+    const ShimGame game = list_.games[index];
+    const ShimState state = shimState(game.folder, settings_.sourceDll);
+    if (!removeShimGame(list_, index)) return;
+    save();
+    refreshStates();
+    WE_LOG_INFO(log(), "shim game forgotten: {} ({})", game.name, pathToUtf8(game.folder));
+    if (state == ShimState::Installed || state == ShimState::Outdated) {
+        problem_ = game.name + " is off the list. WheelBri's shim is still in its folder: to delete it too, add the "
+                   "game again and press Remove shim.\n" + pathToUtf8(game.folder);
+    }
+}
+
 void ShimGamesView::add() {
     std::filesystem::path folder = list_.selected;   // the window starts next to the last game
     if (!folder.empty()) folder = folder.parent_path();
@@ -258,10 +272,11 @@ void ShimGamesView::drawPanel() {
                                    : state == ShimState::Missing ? kCaution
                                                                  : kActive;
         window_.fill(left, y, kPanelW - 24, 18, on ? kHeading : kPanel);
-        panelHits_.push_back({left, y, kPanelW - 24 - 130, 18, [this, i] { pick(i); }});
+        panelHits_.push_back({left, y, kPanelW - 24 - 210, 18, [this, i] { pick(i); }});
         window_.text(left + 6, y + 5, fit(game.name, 18), on ? kDark : kText);
         window_.text(left + 158, y + 5, fit(pathToUtf8(game.folder), 46), on ? kDark : kDim);
         window_.text(left + 548, y + 5, shimStateName(state), on ? kDark : stateColour);
+        button(kPanelX + kPanelW - 210, y + 1, 74, "Forget", [this, i] { forget(i); });
         if (state == ShimState::Missing || state == ShimState::Outdated) {
             button(kPanelX + kPanelW - 130, y + 1, 110, "Put shim", [this, i] { put(i); });
         } else if (state == ShimState::Installed) {
@@ -270,7 +285,7 @@ void ShimGamesView::drawPanel() {
         y += 22;
     }
     window_.text(left, kPanelY + h - 20,
-                 "Click a game to pick it. Remove shim deletes the dinput8.dll and wheelbri-shim.ini WheelBri put there.",
+                 "Click a game to pick it. Remove shim deletes WheelBri's files there; Forget takes it off the list only.",
                  kDim);
 }
 

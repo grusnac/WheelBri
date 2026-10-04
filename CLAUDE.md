@@ -235,7 +235,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     ours nor next to a `wheelbri-shim.ini` is another mod's and never touched), `gameFolderProblem` (needs an `.exe`).
     `ShimGamesTest` covers it with temporary folders. UI: `service/src/ShimGamesView.cpp`, only with the target G920
     in-game shim: "Game <name> [Games (N)]" next to Start, the games panel (pick, Add game through
-    `UiWindow::pickFolder`: IFileOpenDialog on Windows, none on X11; Put / Remove shim), and the App's popups: "Would
+    `UiWindow::pickFolder`: IFileOpenDialog on Windows, none on X11; Put / Remove shim; Forget = `removeShimGame`, list only), and the App's popups: "Would
     you like to delete the shim from the target folder?" after a shim session (not when the window closes), notices.
     The shim's source is `AppSettings::shimDll` (`shim\dinput8.dll` next to the program, or `build/shim/`) and
     `shimSettings` (`config/wheelbri-shim.ini`).

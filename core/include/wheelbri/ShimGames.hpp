@@ -35,6 +35,9 @@ inline constexpr const char* kShimSettings = "wheelbri-shim.ini";
 bool writeShimGames(const std::filesystem::path& file, const ShimGameList& list);
 // Adds `folder` (or finds it: same folder, any case) and selects it. Returns its index.
 std::size_t addShimGame(ShimGameList& list, const std::filesystem::path& folder);
+// Takes game `index` off the list (its folder is not touched). When it was the selected one, the first game left is
+// selected (or none). False if there is no such game.
+bool removeShimGame(ShimGameList& list, std::size_t index);
 
 // Why `folder` cannot be a game folder ("" if it can): it must exist and hold at least one .exe.
 [[nodiscard]] std::string gameFolderProblem(const std::filesystem::path& folder);

@@ -94,5 +94,24 @@ TEST_F(ShimGamesFiles, LinesThatAreNotUtf8AreSkipped) {
     EXPECT_EQ(list.games[0].folder, game());
 }
 
+TEST_F(ShimGamesFiles, GamesCanBeTakenOffTheList) {
+    ShimGameList list;
+    addShimGame(list, dir_ / "A");
+    addShimGame(list, dir_ / "B");
+    addShimGame(list, dir_ / "C");
+    list.selected = dir_ / "B";
+    EXPECT_TRUE(removeShimGame(list, 0));        // not the selected one: the selection stays
+    EXPECT_EQ(list.selected, dir_ / "B");
+    EXPECT_TRUE(removeShimGame(list, 0));        // the selected one: the first game left is picked
+    ASSERT_EQ(list.games.size(), 1U);
+    EXPECT_EQ(list.selected, dir_ / "C");
+    EXPECT_FALSE(removeShimGame(list, 5));
+    EXPECT_TRUE(removeShimGame(list, 0));
+    EXPECT_TRUE(list.games.empty());
+    EXPECT_TRUE(list.selected.empty());
+    ASSERT_TRUE(writeShimGames(dir_ / "list.txt", list));
+    EXPECT_TRUE(readShimGames(dir_ / "list.txt").games.empty());
+}
+
 }  // namespace
 }  // namespace wheelbri
