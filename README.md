@@ -111,7 +111,7 @@ The app does all of this from its Mapping tab (target G920 in-game shim, Games).
 3. Start the game. It should list a "Logitech G920 Driving Force Racing Wheel USB" instead of the R3.
 
 What the shim does: when the game enumerates devices, the R3 (vendor 346e) is offered as a G920 (VID 046D,
-PID C262, driving-wheel type, X = wheel, Slider = accelerator, Y = brake, Rz = clutch, 11 buttons, 1 hat,
+PID C262, driving-wheel type, X = wheel, Slider = accelerator, Y = brake, Rz = clutch, 19 buttons (the wheel's 11; 13-18 the Driving Force Shifter's gears 1-6, 19 reverse), 1 hat,
 pedals released at the top of the range, as a real G920 and as NFS 2015 expects). If a game reads the pedals from other axes, or backwards, change
 `throttle_axis` / `brake_axis` / `clutch_axis` / `invert_pedals` in `wheelbri-shim.ini`; no rebuild needed.
 Every read (`GetDeviceState`, `GetDeviceData`) is answered from the latest packet the service sent, in the

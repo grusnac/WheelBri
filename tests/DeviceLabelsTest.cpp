@@ -69,3 +69,18 @@ TEST(DeviceLabels, AppliesToTheMapping) {
     EXPECT_EQ(mapper.sourceButtonLabels[35], "Start");
     EXPECT_TRUE(mapper.sourceButtonLabels[1].empty());   // the device file is the whole truth
 }
+
+TEST(DeviceLabels, IdsAreReadStrictly) {
+    EXPECT_EQ(load("[device]\nid = 046d:c262\n").labels.productId, 0xC262);
+    EXPECT_EQ(load("[device]\nid = -1:0005\n").errors.size(), 1U);
+    EXPECT_EQ(load("[device]\nid = 0x46:c262\n").errors.size(), 1U);
+    EXPECT_EQ(load("[device]\nid = 046d:c262x\n").errors.size(), 1U);
+}
+
+TEST(DeviceLabels, ANameWithACommentCharacterSurvivesSaving) {
+    DeviceLabels labels;
+    labels.name = "Shifter #1";
+    labels.vendorId = 0x046D;
+    labels.productId = 0xC262;
+    EXPECT_EQ(load(writeDeviceLabels("", labels)).labels.name, "Shifter  1");
+}

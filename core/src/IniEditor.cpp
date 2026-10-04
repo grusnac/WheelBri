@@ -67,8 +67,9 @@ IniEditor::IniEditor(std::string_view text) {
     }
 }
 
+// The last line with that key: the one the reader (IniDocument) uses when a key is written twice.
 std::ptrdiff_t IniEditor::find(const std::string& section, const std::string& key) const {
-    for (std::size_t i = 0; i < lines_.size(); ++i) {
+    for (std::size_t i = lines_.size(); i-- > 0;) {
         if (!lines_[i].header && lines_[i].section == section && lines_[i].key == key) {
             return static_cast<std::ptrdiff_t>(i);
         }
@@ -81,8 +82,21 @@ bool IniEditor::hasSection(const std::string& section) const {
                        [&](const Line& line) { return line.header && line.section == section; });
 }
 
-void IniEditor::set(const std::string& section, const std::string& key, const std::string& value) {
-    if (const auto at = find(section, key); at >= 0) {
+void IniEditor::set(const std::string& section, const std::string& key, const std::string& rawValue) {
+    // A line break in a value would end the line and start another (a new key, or a [section]).
+    std::string value = rawValue;
+    for (char& c : value) {
+        if (c == '\r' || c == '\n') c = ' ';
+    }
+    if (auto at = find(section, key); at >= 0) {
+        // Earlier copies of the key never counted (the reader takes the last): they go, so the file says it once.
+        for (std::ptrdiff_t i = at - 1; i >= 0; --i) {
+            const Line& earlier = lines_[static_cast<std::size_t>(i)];
+            if (!earlier.header && earlier.section == section && earlier.key == key) {
+                lines_.erase(lines_.begin() + i);
+                --at;
+            }
+        }
         Line& line = lines_[static_cast<std::size_t>(at)];
         if (!sameValue(line.value, value)) line = parseLine(key + " = " + value, section);
         return;
@@ -106,8 +120,9 @@ void IniEditor::set(const std::string& section, const std::string& key, const st
     lines_.insert(lines_.begin() + after + 1, parseLine(key + " = " + value, section));
 }
 
+// Every copy of the key: one left behind would become the value the reader uses.
 void IniEditor::remove(const std::string& section, const std::string& key) {
-    if (const auto at = find(section, key); at >= 0) lines_.erase(lines_.begin() + at);
+    for (auto at = find(section, key); at >= 0; at = find(section, key)) lines_.erase(lines_.begin() + at);
 }
 
 void IniEditor::prepend(const std::string& line) {

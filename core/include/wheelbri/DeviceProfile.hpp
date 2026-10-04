@@ -62,6 +62,9 @@ public:
     // Label printed on the emulated wheel for a target button (0-based), or empty if it has none.
     // For display and logs only; nothing is decided by it.
     [[nodiscard]] virtual std::string_view buttonName(std::size_t /*index*/) const { return {}; }
+    // How many buttons the emulated wheel reports (DirectInput's dwButtons, the HID report's button count), unnamed
+    // gaps included: the G920's button 12 (1-based) exists but nothing presses it.
+    [[nodiscard]] virtual std::size_t buttonCount() const { return 0; }
 };
 
 struct DeviceProfileSpec {
@@ -69,7 +72,7 @@ struct DeviceProfileSpec {
     AxisRange steeringRange;
     AxisRange pedalRange;
     bool pedalsReleasedAtMax = false;   // some wheels report a released pedal as the top of the range
-    std::vector<std::string> buttonNames;  // index = target button, 0-based
+    std::vector<std::string> buttonNames;  // index = target button, 0-based; "" = a button nothing presses
 };
 
 // Data-driven profile: identity plus linear axis encodings.
@@ -80,12 +83,19 @@ public:
     [[nodiscard]] const DeviceIdentity& identity() const override { return spec_.identity; }
     [[nodiscard]] TargetReport encode(const WheelState& state) const override;
     [[nodiscard]] std::string_view buttonName(std::size_t index) const override;
+    [[nodiscard]] std::size_t buttonCount() const override { return spec_.buttonNames.size(); }
 
 private:
     [[nodiscard]] std::int32_t encodePedal(float travel) const;
 
     DeviceProfileSpec spec_;
+    std::uint32_t buttonMask_ = 0;   // the named buttons: only they reach the game
 };
+
+// The G920's buttons with the Driving Force Shifter: 11 on the wheel, an unused 12th, then the shifter's gears 1-6 and
+// reverse (Logitech's shifter FAQ: G920 buttons 13-18 and 19, 1-based), so 19 in all.
+inline constexpr std::size_t kG920Buttons = 19;
+inline constexpr std::size_t kG920FirstGear = 12;   // 0-based: Gear 1 .. Gear 6 are 12..17, Gear R is 18
 
 // Logitech G920 Driving Force (Xbox One / PC) in PC mode. 0xc262 is the PID it enumerates with once G HUB
 // or the kernel driver has switched it out of its Xbox-mode PID (0xc261). Product name, pedal encoding and

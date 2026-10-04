@@ -384,9 +384,15 @@ void MappingEditView::draw() {
     window_.text(4, y, "BUTTONS", kHeading);
     window_.text(68, y, target + " button <- your control", kDim);
     std::size_t cell = 0;
+    bool gap = false;   // an unnamed button before this one: a new group (the G920's shifter) starts on its own row
     for (std::size_t index = 0; index < edit_.buttons.size(); ++index) {
         const std::string_view name = profile_->buttonName(index);
-        if (name.empty()) continue;
+        if (name.empty()) {
+            gap = cell > 0;
+            continue;
+        }
+        if (gap && cell % 2 != 0) ++cell;
+        gap = false;
         const float x = 4 + static_cast<float>(cell % 2) * 478;
         const float row = y + 16 + static_cast<float>(cell / 2) * 20;
         ++cell;

@@ -48,15 +48,26 @@ std::FILE* openAppend(const std::filesystem::path& path) {
 #if defined(__GNUC__)
 __attribute__((format(printf, 2, 3)))
 #endif
+// Appends printf-formatted text. Short pieces go through a stack buffer; a longer one (extreme numbers: a float near
+// 3.4e38 prints as about 45 characters) is formatted again at its full length rather than cut, which would shift
+// the CSV's columns.
 void appendf(std::string& out, const char* format, ...) {
     char buffer[256];
     va_list args;
     va_start(args, format);
+    va_list again;
+    va_copy(again, args);
     const int n = std::vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
-    if (n > 0) {
-        out.append(buffer, static_cast<std::size_t>(std::min<int>(n, static_cast<int>(sizeof(buffer)) - 1)));
+    if (n > 0 && static_cast<std::size_t>(n) < sizeof(buffer)) {
+        out.append(buffer, static_cast<std::size_t>(n));
+    } else if (n > 0) {
+        const std::size_t at = out.size();
+        out.resize(at + static_cast<std::size_t>(n) + 1);
+        std::vsnprintf(out.data() + at, static_cast<std::size_t>(n) + 1, format, again);
+        out.resize(at + static_cast<std::size_t>(n));
     }
+    va_end(again);
 }
 
 const char* packetKindName(const FfbPacket::Kind kind) {
@@ -334,7 +345,9 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
 
     // Row values. Times, sequence numbers, the packet counter, packet age and loop timing change all the
     // time and never make a row on their own.
-    std::string k;
+    // Reused buffers (members): no allocation per sample once they have grown, the loop runs at 1 kHz.
+    std::string& k = sampleValues_;
+    k.clear();
     for (const float axis : sample.raw.axes) {
         appendf(k, ",%.4f", static_cast<double>(axis));
     }
@@ -348,7 +361,8 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
     const std::size_t valuesEnd = k.size();   // ffb_* columns go in between in the row
 
     const FfbController* const ffb = sample.ffb;
-    std::string slots;
+    std::string& slots = sampleSlots_;
+    slots.clear();
     if (ffb == nullptr) {
         for (std::size_t slot = 0; slot < IFfbSink::kMaxSlots; ++slot) {
             slots += ",,,,";
@@ -375,7 +389,8 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
     }
     // Compared exactly: buttons, hats and everything force feedback (the game's forces are the output we
     // are here to see, so every change of them counts).
-    std::string exact;
+    std::string& exact = sampleExact_;
+    exact.clear();
     appendf(exact, "%llx,%d,%x,%d,%x,%d", static_cast<unsigned long long>(sample.raw.buttons), sample.raw.hat,
             static_cast<unsigned>(sample.state.buttons), sample.state.hat, static_cast<unsigned>(sample.report.buttons),
             sample.report.hat);
@@ -392,7 +407,7 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
             return;
         }
     }
-    lastExact_ = exact;
+    lastExact_.swap(exact);   // `exact` keeps the old buffer for the next sample
     lastRaw_ = sample.raw;
     lastState_ = sample.state;
     lastReport_ = sample.report;

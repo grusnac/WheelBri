@@ -102,3 +102,15 @@ TEST(Rig, FilesListSaveRenameAndNames) {
     EXPECT_NE(rigNameProblem("home", {"Home"}).find("rig"), std::string::npos);
     std::filesystem::remove_all(dir);
 }
+
+TEST(Rig, ADeviceNameWithACommentCharacterSurvivesSaving) {
+    Rig rig;
+    RigDevice box;
+    box.name = "Button Box #2";   // as Windows may name it
+    box.id = {0x1234, 0x5678};
+    rig.devices = {box};
+    const RigResult back = load(writeRig(rig, "Mine"));
+    ASSERT_EQ(back.rig.devices.size(), 1U);
+    EXPECT_EQ(back.rig.devices[0].name, "Button Box  2");   // not cut at '#'
+    EXPECT_EQ(back.rig.devices[0].id, (DeviceId{0x1234, 0x5678}));
+}

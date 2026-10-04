@@ -191,7 +191,7 @@ std::string writeRig(const Rig& rig, const std::string& name) {
     for (std::size_t i = 0; i < rig.devices.size(); ++i) {
         const RigDevice& device = rig.devices[i];
         text += nl + "[device_" + std::to_string(i + 1) + "]" + nl;
-        text += "name = " + device.name + nl;
+        text += "name = " + iniSafeValue(device.name) + nl;   // from Windows or evdev: may hold ';' or '#'
         text += "id = " + deviceId(device.id.vendorId, device.id.productId) + nl;
         text += std::string("kind = ") + deviceKindName(device.kind) + nl;
         for (std::size_t a = 0; a < device.axes.size(); ++a) {

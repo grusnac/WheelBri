@@ -185,6 +185,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     limiter holds state (slew), so use one limiter per played effect. `FfbController` holds the limiters and
     the watchdog; `FfbUsage` summarises per-effect use for the UI and log; `WheelOutput` converts effects to
     DirectInput/evdev units.
+  - The G920 has 19 buttons (`kG920Buttons`, `g920Spec().buttonNames`, 0-based): the wheel's 11 (0-10), an unused 11
+    (joy.cpl 12) and the Driving Force Shifter's Gear 1-6 (12-17) and Gear R (18), as Logitech's shifter FAQ gives them
+    (joy.cpl 13-19). Every target (shim, virtual device, uhid) reports all 19; `IDeviceProfile::buttonCount` counts
+    the gap, and `encode` only passes named buttons. The names are what Auto-map looks for ("Gear 1", "Gear R").
   - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT);
     `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests.
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
@@ -248,6 +252,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - Config: `IniDocument` (minimal INI; `;`/`#` start a comment anywhere on a line) → `loadEmulatorConfig`,
     which collects *all* errors (unknown keys and sections, out-of-range values) instead of failing fast. When
     you add a config key, add it to the reader, `EmulatorConfig`, both `config/g920-*.ini` and `EmulatorConfigTest`.
+    A key written twice: the reader takes the last copy, and `IniEditor` edits that one (and drops the others).
+    A value that comes from outside (a device's name from Windows or evdev) goes through `iniSafeValue` when
+    written, so `;`, `#` or a line break cannot cut it or add lines.
   - `EmulatedJoystick` is the emulated wheel as DirectInput sees it (objects, the game's data format,
     ranges, state bytes, buffered changes). It mirrors DirectInput constants without `<dinput.h>` so it is
     unit-tested on Linux; `shim/src/DiConvert.hpp` static_asserts the constants against the real macros.
@@ -373,7 +380,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   `package.sh` bundle).
 - `config/`: `g920-virtual-device.ini`, `g920-in-game-shim.ini` (service: the target and its default mapping),
   `wheelbri-shim.ini` (shim).
-- `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide).
+- `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide),
+  `future-functionalities.md` (worked-out ideas not built yet: running as a standard user, RS Handbrake, G29).
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.
 

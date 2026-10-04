@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/HidG920.hpp"
 #include "wheelbri/HidPid.hpp"
 
 #include <linux/uhid.h>
@@ -15,7 +16,7 @@
 namespace wheelbri::uhid {
 
 // The virtual G920 on Linux (Phase 4), through the kernel's uhid: the same HID device the Windows bridge
-// creates with HIDMaestro (HidG920.hpp: wheel X, brake Y, clutch Rz, throttle Slider, 11 buttons, hat, HID PID
+// creates with HIDMaestro (HidG920.hpp: wheel X, brake Y, clutch Rz, throttle Slider, 19 buttons with the shifter's, hat, HID PID
 // force feedback), so a game reading it raw sees what NFS 2015 sees on Windows. Proton reads it raw only when
 // asked (PROTON_ENABLE_HIDRAW=0x046D/0xC262); its dinput then speaks HID PID to it, which HidPid turns into the
 // service's FfbPackets.
@@ -64,7 +65,7 @@ private:
     int openCount_ = 0;
     bool haveLast_ = false;
     std::set<std::pair<std::uint32_t, std::uint32_t>> unsupported_;   // get-report kinds already logged
-    std::array<std::uint8_t, 12> last_{};
+    std::array<std::uint8_t, kG920InputReportSize> last_{};
 };
 
 }  // namespace wheelbri::uhid

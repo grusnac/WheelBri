@@ -60,3 +60,27 @@ TEST(IniEditor, PrependsATitleOnce) {
     EXPECT_TRUE(ini.hasSection("a"));
     EXPECT_FALSE(ini.hasSection("b"));
 }
+
+TEST(IniEditor, AKeyWrittenTwiceIsEditedWhereTheReaderLooks) {
+    // The reader takes the last copy; the editor used to change the first, so the edit was lost.
+    IniEditor ini("[a]\nx = 1\ny = 2\nx = 3\n");
+    ini.set("a", "x", "5");
+    EXPECT_EQ(ini.text(), "[a]\ny = 2\nx = 5\n");
+    EXPECT_EQ(IniDocument::parse(ini.text()).document.get("a", "x"), "5");
+    IniEditor twice("[a]\nx = 1\nx = 3\n[b]\nx = 4\n");
+    twice.remove("a", "x");
+    EXPECT_EQ(twice.text(), "[a]\n[b]\nx = 4\n");   // every copy, and only in its section
+}
+
+TEST(IniEditor, ALineBreakInAValueStaysOnItsLine) {
+    IniEditor ini("[a]\n");
+    ini.set("a", "x", "one\n[b]\ny = 2");
+    const auto parsed = IniDocument::parse(ini.text());
+    EXPECT_EQ(parsed.document.get("a", "x"), "one [b] y = 2");
+    EXPECT_FALSE(parsed.document.get("b", "y").has_value());
+}
+
+TEST(IniEditor, SafeValuesKeepEverythingButCommentsAndControls) {
+    EXPECT_EQ(wheelbri::iniSafeValue("Button Box #2; v1\r\n"), "Button Box  2  v1  ");
+    EXPECT_EQ(wheelbri::iniSafeValue("MOZA R3 (Base)"), "MOZA R3 (Base)");
+}

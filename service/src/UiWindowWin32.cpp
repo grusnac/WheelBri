@@ -13,10 +13,13 @@
 
 #include "UiWindow.hpp"
 
+#include "wheelbri/Logging.hpp"
+
 #include <windows.h>
 #include <shellapi.h>
 #include <shobjidl.h>
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -310,9 +313,22 @@ private:
         }
         auto* self = reinterpret_cast<Win32Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         if (self != nullptr) {
-            LRESULT result = 0;
-            if (self->handle(hwnd, message, wParam, lParam, result)) {
-                return result;
+            // An exception must not unwind through Windows' code (DispatchMessage): that ends the process without its
+            // clean-up, and here it may be the logoff handler stopping the session. Logged; Windows' default follows.
+            try {
+                LRESULT result = 0;
+                if (self->handle(hwnd, message, wParam, lParam, result)) {
+                    return result;
+                }
+            } catch (const std::exception& e) {
+                static logging::RateLimiter limiter(std::chrono::seconds(10));
+                std::uint64_t suppressed = 0;
+                if (limiter.allow(suppressed)) {
+                    WE_LOG_ERROR(logging::get("service.ui"), "window message 0x{:04x}: {} ({} similar suppressed)",
+                                 message, e.what(), suppressed);
+                }
+            } catch (...) {
+                WE_LOG_ERROR(logging::get("service.ui"), "window message 0x{:04x}: unknown error", message);
             }
         }
         return DefWindowProcW(hwnd, message, wParam, lParam);

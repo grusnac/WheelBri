@@ -14,7 +14,7 @@ G920 in one of two ways:
 `wheelbri.sh` sets the launch options itself, so the only one Steam needs is `wheelbri.sh %command%`.
 
 How the uhid way reaches the game: the virtual G920 has the descriptor the Windows bridge gives HIDMaestro
-(wheel X, brake Y, clutch Rz, throttle Slider, 11 buttons, hat, HID PID force feedback). Proton normally reads
+(wheel X, brake Y, clutch Rz, throttle Slider, 19 buttons with the Driving Force Shifter's, hat, HID PID force feedback). Proton normally reads
 joysticks through SDL, which would rename the axes and drop that force feedback; `PROTON_ENABLE_HIDRAW` makes it
 read this one raw, so its DirectInput sees exactly what NFS sees on Windows and sends HID PID effects, which
 `wheelbri-uhid` turns into the service's force feedback packets. `SDL_GAMECONTROLLER_IGNORE_DEVICES` hides the

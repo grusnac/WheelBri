@@ -182,3 +182,12 @@ TEST_F(ConfigLibraryFiles, AppSettingsAreNotWrittenOverAFileThatCannotBeRead) {
     EXPECT_FALSE(writeAppSetting(state, "rig", "Desk"));
     EXPECT_TRUE(std::filesystem::is_directory(state));
 }
+
+TEST(ConfigLibrary, WindowsDeviceNamesAreRefused) {
+    for (const char* name : {"con", "NUL", "aux.backup", "com1", "LPT9", "prn"}) {
+        EXPECT_FALSE(configNameProblem(name, {}).empty()) << name;
+    }
+    for (const char* name : {"console", "com10", "my con", "nulled"}) {
+        EXPECT_TRUE(configNameProblem(name, {}).empty()) << name;
+    }
+}

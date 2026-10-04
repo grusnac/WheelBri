@@ -185,9 +185,15 @@ std::optional<std::uint32_t> udpPortOwner(const std::uint16_t port) {
 std::filesystem::path processImage(const std::uint32_t pid) {
     const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
     if (process == nullptr) return {};
-    std::wstring path(32768, L'\0');
+    // MAX_PATH-sized first (almost every program), the longest path Windows allows only if that is too short.
+    std::wstring path(MAX_PATH, L'\0');
     DWORD size = static_cast<DWORD>(path.size());
-    const BOOL ok = QueryFullProcessImageNameW(process, 0, path.data(), &size);
+    BOOL ok = QueryFullProcessImageNameW(process, 0, path.data(), &size);
+    if (ok == FALSE && GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+        path.assign(32768, L'\0');
+        size = static_cast<DWORD>(path.size());
+        ok = QueryFullProcessImageNameW(process, 0, path.data(), &size);
+    }
     CloseHandle(process);
     if (ok == FALSE) return {};
     path.resize(size);

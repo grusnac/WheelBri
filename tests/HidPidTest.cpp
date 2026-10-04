@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <limits>
 
 #include <string>
 #include <vector>
@@ -176,17 +177,30 @@ TEST(HidG920, InputReportPacksLikeTheBridge) {
     report.throttle = 0;       // throttle pressed
     report.brake = 65535;      // released
     report.clutch = 32768;
-    report.buttons = 0x5FF;
+    report.buttons = 0x5FF | (1U << 12) | (1U << 18) | (1U << 20);   // Gear 1, Gear R, and one the G920 lacks
     report.hat = 2;
     const auto bytes = packG920Input(report);
     const std::array<std::uint8_t, kG920InputReportSize> expected = {
-        0x01, 0xFF, 0x7F, 0xFF, 0x7F, 0x00, 0x00, 0x00, 0x80, 0xFF, 0x05, 0x02};
+        0x01, 0xFF, 0x7F, 0xFF, 0x7F, 0x00, 0x00, 0x00, 0x80, 0xFF, 0x15, 0x04, 0x02};
     EXPECT_EQ(bytes, expected);
-    EXPECT_EQ(packG920Input(g920Neutral())[11], 8);   // hat centred
+    EXPECT_EQ(packG920Input(g920Neutral())[12], 8);   // hat centred
     const auto descriptor = g920ReportDescriptor();
-    ASSERT_EQ(descriptor.size(), 1144U);
+    ASSERT_EQ(descriptor.size(), 1150U);
+    // The button block: Usage 1..19, 19 one-bit fields, then 5 constant padding bits before the hat.
+    const std::array<std::uint8_t, 22> buttons = {0x05, 0x09, 0x19, 0x01, 0x29, 0x13, 0x15, 0x00, 0x25, 0x01, 0x95,
+                                                  0x13, 0x75, 0x01, 0x81, 0x02, 0x95, 0x05, 0x75, 0x01, 0x81, 0x03};
+    EXPECT_TRUE(std::search(descriptor.begin(), descriptor.end(), buttons.begin(), buttons.end()) != descriptor.end());
     EXPECT_EQ(descriptor[0], 0x05);          // Usage Page (Generic Desktop)
     EXPECT_EQ(descriptor[descriptor.size() - 1], 0xC0);
+    // Out-of-range axis values are clamped, never overflow.
+    TargetReport extreme;
+    extreme.steering = std::numeric_limits<std::int32_t>::min();
+    extreme.brake = std::numeric_limits<std::int32_t>::max();
+    const auto clamped = packG920Input(extreme);
+    EXPECT_EQ(clamped[1], 0x00);
+    EXPECT_EQ(clamped[2], 0x80);   // -32768
+    EXPECT_EQ(clamped[3], 0xFF);
+    EXPECT_EQ(clamped[4], 0x7F);   // 32767
 }
 
 }  // namespace

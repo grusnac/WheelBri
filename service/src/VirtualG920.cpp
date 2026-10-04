@@ -1,5 +1,6 @@
 #include "VirtualG920.hpp"
 
+#include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/Logging.hpp"
 
 #ifdef _WIN32
@@ -159,8 +160,8 @@ void writeDirectInputEntries(bool on) {
             continue;
         }
         if (on) {
-            // The name, and the device type the shim reports: JOY_HWS_ISCARCTRL | HASPOV, 11 buttons.
-            const BYTE data[8] = {0x42, 0, 0, 0, 11, 0, 0, 0};
+            // The name, and the device type the shim reports: JOY_HWS_ISCARCTRL | HASPOV, 19 buttons (the shifter's too).
+            const BYTE data[8] = {0x42, 0, 0, 0, static_cast<BYTE>(kG920Buttons), 0, 0, 0};
             RegSetValueExW(key, L"OEMName", 0, REG_SZ, reinterpret_cast<const BYTE*>(kOemName), sizeof(kOemName));
             RegSetValueExW(key, L"OEMData", 0, REG_BINARY, data, sizeof(data));
         } else {

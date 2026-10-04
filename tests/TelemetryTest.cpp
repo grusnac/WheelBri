@@ -190,6 +190,27 @@ TEST_F(TelemetryTest, DueFollowsTheRate) {
     EXPECT_TRUE(recorder->due(25 * kMs));
 }
 
+TEST_F(TelemetryTest, ExtremeNumbersKeepEveryColumn) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::SlotState;
+    packet.slot = 1;
+    packet.playing = true;
+    packet.effect.type = FfbEffectType::Spring;
+    packet.effect.condition.center = 3.0e38F;   // finite, so the decoder lets it through; prints as ~45 characters
+    packet.effect.condition.deadband = -3.0e38F;
+    packet.effect.condition.positiveCoefficient = 3.0e38F;
+    packet.effect.condition.negativeCoefficient = -3.0e38F;
+    packet.effect.condition.positiveSaturation = 3.0e38F;
+    packet.effect.condition.negativeSaturation = -3.0e38F;
+    recorder->writeFfbPacket(0, packet);
+    recorder.reset();
+    const auto data = lines(dir_ / "ffb-2026-09-30.csv");
+    ASSERT_EQ(data.size(), 2U);
+    EXPECT_EQ(fields(data[1]), fields(data[0])) << data[1];
+}
+
 TEST_F(TelemetryTest, FfbEventsSkipKeepAlives) {
     auto recorder = open(at(10, 0, 0));
     ASSERT_NE(recorder, nullptr);

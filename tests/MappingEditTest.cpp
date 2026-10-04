@@ -120,12 +120,14 @@ TEST(MappingEdit, AutoMapsFromTheRigsRoles) {
     wheel.buttons[12] = {"L paddle", ControlRole::LeftPaddle, false};
     wheel.buttons[4] = {"Up", ControlRole::DpadUp, false};
     wheel.buttons[0] = {"A", ControlRole::Button, false};
-    wheel.buttons[30] = {"1st", ControlRole::Gear1, false};   // the G920 has no gears: left out
+    wheel.buttons[30] = {"1st", ControlRole::Gear1, false};         // the G920's Driving Force Shifter: Gear 1
+    wheel.buttons[31] = {"R", ControlRole::GearReverse, false};     // ... and Gear R
+    wheel.buttons[32] = {"7th", ControlRole::Gear7, false};         // the G920's shifter has 6 gears: left out
     rig.devices = {pedals, wheel};
 
     MappingModel model = mappingModel(load(kConfig));
     const DeviceProfile g920(g920Spec());
-    EXPECT_EQ(autoMap(model, rig, g920), 6);   // 3 axes, 2 paddles, 1 D-pad direction
+    EXPECT_EQ(autoMap(model, rig, g920), 8);   // 3 axes, 2 paddles, 1 D-pad direction, 2 gears
     EXPECT_EQ(model.sourceDevice, "346e:0005");
     EXPECT_EQ(model.axes[MappingModel::kSteering], (SourceRef{{}, 0}));
     EXPECT_EQ(model.axes[MappingModel::kThrottle], (SourceRef{{0x30B7, 0x1001}, 0}));
@@ -136,5 +138,7 @@ TEST(MappingEdit, AutoMapsFromTheRigsRoles) {
     EXPECT_EQ(model.buttons[5], (SourceRef{{}, 12}));                   // G920 L paddle <- left paddle
     EXPECT_EQ(model.buttons[5], (SourceRef{{}, 12}));                   // G920 L paddle
     EXPECT_EQ(model.hat[0], (SourceRef{{}, 4}));
+    EXPECT_EQ(model.buttons[12], (SourceRef{{}, 30}));                  // G920 Gear 1 (joy.cpl 13)
+    EXPECT_EQ(model.buttons[18], (SourceRef{{}, 31}));                  // G920 Gear R (joy.cpl 19)
 }
 

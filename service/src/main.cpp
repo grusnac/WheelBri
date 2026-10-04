@@ -598,10 +598,17 @@ wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
     const std::filesystem::path image = *pid != 0 ? platform::processImage(*pid) : std::filesystem::path();
     if (!image.empty()) {
         if (wheelbri::isDriverHostImage(image, systemFolder)) return wheelbri::SenderVerdict::Accept;
+        // The game found last time, still running as the same program: accepted again without reading its folder
+        // (shimState compares the game's dinput8.dll with ours byte by byte, too slow for the loop every 2 s).
+        static std::uint32_t acceptedPid = 0;
+        static std::filesystem::path acceptedImage;
+        if (*pid == acceptedPid && image == acceptedImage) return wheelbri::SenderVerdict::Accept;
         const wheelbri::ShimState state = wheelbri::shimState(image.parent_path(), shimDll);
         if (state == wheelbri::ShimState::Installed || state == wheelbri::ShimState::Outdated) {
             WE_LOG_DEBUG(log(), "ffb: sender {} (pid {}) is a game with WheelBri's shim", wheelbri::pathToUtf8(image),
                          *pid);
+            acceptedPid = *pid;
+            acceptedImage = image;
             return wheelbri::SenderVerdict::Accept;
         }
     }
@@ -651,7 +658,10 @@ public:
         return ffb;
     }
 
-    ~GameFfb() {
+    ~GameFfb() { stopForces(); }
+
+    // Every force off now (the loop ended). Safe to call again; the next packet from the game starts them again.
+    void stopForces() {
         if (controller_ != nullptr) {
             controller_->stopAll();
         }
@@ -1088,6 +1098,15 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             WE_LOG_CRITICAL(log(), "loop: stopped on an unknown error");
             loopResult = 1;
         }
+        // Nothing updates the forces (or runs their watchdog) once the loop has ended, and the clean-up that stops
+        // them waits for the window side to notice, which can take a while (a window being dragged): stop them now.
+        if (gameFfb != nullptr) {
+            try {
+                gameFfb->stopForces();
+            } catch (...) {
+                WE_LOG_ERROR(log(), "loop: stopping the game's forces failed");
+            }
+        }
         loopDone = true;
     });
 
@@ -1258,16 +1277,17 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         listDevices(*backend);
         return 0;
     }
-    if (options.unhide) {
-        wheelbri::service::HideFilter::clear();
-        return 0;
-    }
     // One session at a time on this computer: a second would send the game a second, interleaved wheel.
     std::string instanceError;
     const auto instance = platform::SingleInstance::acquire("wheelbri-service", instanceError);
     if (instance == nullptr) {
-        WE_LOG_CRITICAL(log(), "{}", instanceError);
+        // --unhide too: a session that is running hides the rig on purpose (the game would see it next to the G920).
+        WE_LOG_CRITICAL(log(), "{}{}", instanceError, options.unhide ? " (--unhide: stop that session first)" : "");
         return 1;
+    }
+    if (options.unhide) {
+        wheelbri::service::HideFilter::clear();
+        return 0;
     }
     // Until the end of this function (its clean-up included), the console close handler waits.
     gSessionActive = true;
@@ -1368,7 +1388,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         if (sink == nullptr) {
             return 1;
         }
-        return wheelbri::service::runFfbSelfTest(*sink, config.ffb) ? 0 : 1;
+        return wheelbri::service::runFfbSelfTest(*sink, config.ffb, [] { return gStop.load(); }) ? 0 : 1;
     }
 
     std::signal(SIGINT, onSignal);

@@ -6,6 +6,7 @@
 #include "wheelbri/IniEditor.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <fstream>
 #include <sstream>
@@ -66,6 +67,14 @@ std::string configNameProblem(const std::string& name, const std::vector<ConfigE
     }
     if (name.front() == ' ' || name.back() == ' ' || name.front() == '.' || name.back() == '.') {
         return "no space or dot at the start or the end";
+    }
+    // Windows' device names, also before an extension: "con.ini" is the console, not a file.
+    const std::string base = lower(name.substr(0, name.find('.')));
+    static constexpr std::array<const char*, 4> kDevices = {"con", "prn", "aux", "nul"};
+    const bool numbered = base.size() == 4 && (base.compare(0, 3, "com") == 0 || base.compare(0, 3, "lpt") == 0) &&
+                          base[3] >= '0' && base[3] <= '9';
+    if (numbered || std::find(kDevices.begin(), kDevices.end(), base) != kDevices.end()) {
+        return "'" + name + "' is a name Windows keeps for a device: choose another";
     }
     for (const ConfigEntry& config : existing) {
         if (lower(config.name) == lower(name)) return "there is already a config called '" + config.name + "'";

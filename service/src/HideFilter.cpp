@@ -254,10 +254,12 @@ bool HideFilter::hide() {
 }
 
 void HideFilter::restore() {
-    if (hidden_ && writeAllowedPid(0)) {
+    if (!hidden_) return;
+    if (writeAllowedPid(0)) {
         WE_LOG_INFO(log(), "hide: the rig is visible to games again");
+        hidden_ = false;
     }
-    hidden_ = false;
+    // Not written: still hidden, tried again by the destructor (and cleared by the next session's clearStale).
 }
 
 void HideFilter::clear() {
@@ -271,7 +273,14 @@ void HideFilter::clearStale() {
     DWORD size = sizeof(pid);
     if (RegGetValueW(HKEY_LOCAL_MACHINE, kPolicyKey, L"AllowedPid", RRF_RT_REG_DWORD, nullptr, &pid, &size) !=
             ERROR_SUCCESS ||
-        pid == 0 || pid == GetCurrentProcessId()) {
+        pid == 0) {
+        return;
+    }
+    if (pid == GetCurrentProcessId()) {
+        // This process, but no session hides anything now (clearStale runs before hiding): an earlier session's
+        // restore could not write the value. Without this the rig stays hidden until the app closes.
+        WE_LOG_WARN(log(), "hide: the rig was still hidden for this process by an earlier session: clearing");
+        if (!writeAllowedPid(0)) WE_LOG_ERROR(log(), "hide: cannot clear it; the rig stays hidden from games");
         return;
     }
     HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);

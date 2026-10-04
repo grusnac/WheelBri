@@ -80,4 +80,12 @@ std::optional<std::string> IniDocument::get(const std::string& section, const st
     return keyIt->second;
 }
 
+std::string iniSafeValue(const std::string_view text) {
+    std::string out(text);
+    for (char& c : out) {
+        if (c == ';' || c == '#' || (static_cast<unsigned char>(c) < 0x20 && c != '\t') || c == 0x7F) c = ' ';
+    }
+    return out;
+}
+
 }  // namespace wheelbri

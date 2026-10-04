@@ -164,13 +164,19 @@ public:
     }
 
     void stopAll() override {
-        const HRESULT result = retry([&] { return device_->SendForceFeedbackCommand(DISFFC_STOPALL); });
-        if (FAILED(result)) {
-            WE_LOG_WARN(ffbLog(), "stopping all effects failed ({})", hresult(result));
-        }
-        WE_LOG_DEBUG(ffbLog(), "all effects stopped");
+        // Marked stopped first: if the command fails because the wheel was lost, retry() takes it back and restarts
+        // what is still marked running, which here would push the last forces again for a moment before stopping.
         for (Slot& slot : slots_) {
             slot.running = false;
+        }
+        const HRESULT result = retry([&] { return device_->SendForceFeedbackCommand(DISFFC_STOPALL); });
+        if (FAILED(result)) {
+            WE_LOG_WARN(ffbLog(), "stopping all effects failed ({}); stopping them one by one", hresult(result));
+            for (Slot& slot : slots_) {
+                if (slot.effect != nullptr) slot.effect->Stop();
+            }
+        } else {
+            WE_LOG_DEBUG(ffbLog(), "all effects stopped");
         }
     }
 

@@ -136,6 +136,9 @@ private:
     bool forceRow_ = true;             // the first row of a session and of every new day's file
     std::array<std::optional<std::pair<bool, FfbEffect>>, IFfbSink::kMaxSlots> lastSlots_{};
     std::string line_;                 // reused row buffer
+    std::string sampleValues_;         // writeSample's working buffers, reused (no allocation per sample)
+    std::string sampleSlots_;
+    std::string sampleExact_;
 };
 
 // Column names of telemetry-*.csv, in order (also written as the header row).

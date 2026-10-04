@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 namespace wheelbri {
 namespace {
 
@@ -58,7 +60,35 @@ TEST(DeviceProfile, G920ButtonNames) {
     const DeviceProfile profile(g920Spec());
     EXPECT_EQ(profile.buttonName(0), "A");
     EXPECT_EQ(profile.buttonName(10), "Xbox");
-    EXPECT_TRUE(profile.buttonName(11).empty());
+    EXPECT_TRUE(profile.buttonName(11).empty());       // joy.cpl 12: there, but nothing presses it
+    EXPECT_EQ(profile.buttonName(12), "Gear 1");       // joy.cpl 13, Logitech's shifter FAQ
+    EXPECT_EQ(profile.buttonName(17), "Gear 6");
+    EXPECT_EQ(profile.buttonName(18), "Gear R");       // joy.cpl 19
+    EXPECT_TRUE(profile.buttonName(19).empty());
+    EXPECT_EQ(profile.buttonCount(), kG920Buttons);
+    EXPECT_EQ(kG920Buttons, 19U);
+}
+
+TEST(DeviceProfile, OnlyTheG920sOwnButtonsReachTheGame) {
+    const DeviceProfile profile(g920Spec());
+    WheelState state;
+    state.buttons = 0xFFFFFFFFU;
+    const std::uint32_t buttons = profile.encode(state).buttons;
+    EXPECT_EQ(buttons, 0x7F7FFU);            // 0-10 and 12-18
+    EXPECT_EQ(buttons & (1U << 11), 0U);     // the unused 12th
+    EXPECT_EQ(buttons >> 19, 0U);            // nothing above the shifter
+}
+
+TEST(DeviceProfile, ValuesThatAreNotNumbersReadAsNeutral) {
+    const DeviceProfile profile(g920Spec());
+    WheelState state;
+    state.steering = std::numeric_limits<float>::quiet_NaN();
+    state.throttle = std::numeric_limits<float>::infinity();
+    state.brake = std::numeric_limits<float>::quiet_NaN();
+    const TargetReport report = profile.encode(state);
+    EXPECT_EQ(report.steering, 32768);   // centred, not full left lock
+    EXPECT_EQ(report.throttle, 65535);   // released (the G920 reports released at the top)
+    EXPECT_EQ(report.brake, 65535);
 }
 
 TEST(DeviceProfile, FactoryKnowsBuiltInProfiles) {

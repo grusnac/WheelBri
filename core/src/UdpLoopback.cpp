@@ -226,15 +226,22 @@ struct UdpLoopbackReceiver::Impl {
     std::uint64_t lost = 0;
     logging::RateLimiter malformedLimiter{std::chrono::seconds(5)};
     logging::RateLimiter lossLimiter{std::chrono::seconds(5)};
+    // Two senders at once (a second service, a stale one) make every other packet a "restart": in the game, where
+    // the shim flushes each log line, that would be a line per packet.
+    logging::RateLimiter restartLimiter{std::chrono::seconds(5)};
 
     void track(const StatePacket& packet) {
         ++received;
         if (!lastSequence) {
             WE_LOG_INFO(log(), "receiver: first packet from service (#{}) on port {}", packet.sequence, port);
         } else if (packet.sequence <= *lastSequence) {
-            // The service restarted and began counting from 1 again.
-            WE_LOG_INFO(log(), "receiver: sequence restarted ({} -> {}), service was probably restarted",
-                        *lastSequence, packet.sequence);
+            // The service restarted and began counting from 1 again (or two are sending).
+            std::uint64_t suppressed = 0;
+            if (restartLimiter.allow(suppressed)) {
+                WE_LOG_INFO(log(), "receiver: sequence restarted ({} -> {}), service was probably restarted ({} more "
+                                   "since the last note: two services sending?)",
+                            *lastSequence, packet.sequence, suppressed);
+            }
         } else if (packet.sequence != *lastSequence + 1) {
             const std::uint32_t gap = packet.sequence - *lastSequence - 1;
             lost += gap;

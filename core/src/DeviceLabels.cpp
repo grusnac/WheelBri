@@ -1,7 +1,9 @@
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 
+#include "wheelbri/IniDocument.hpp"
 #include "wheelbri/IniEditor.hpp"
+#include "wheelbri/MappingEdit.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -95,12 +97,10 @@ DeviceLabelsResult loadDeviceLabels(const IniDocument& ini) {
     DeviceLabels& labels = result.labels;
     labels.name = ini.get("device", "name").value_or("");
     if (const auto id = ini.get("device", "id")) {
-        unsigned vendor = 0;
-        unsigned product = 0;
-        char end = 0;
-        if (std::sscanf(id->c_str(), "%4x:%4x%c", &vendor, &product, &end) == 2) {
-            labels.vendorId = static_cast<std::uint16_t>(vendor);
-            labels.productId = static_cast<std::uint16_t>(product);
+        // The same strict reader as rigs and mappings (sscanf took "-1:0005" or "0x46:c262").
+        if (const auto parsed = parseDeviceId(*id)) {
+            labels.vendorId = parsed->vendorId;
+            labels.productId = parsed->productId;
         } else {
             result.errors.push_back("[device] id = '" + *id + "': expected vvvv:pppp (hex)");
         }
@@ -121,7 +121,7 @@ DeviceLabelsResult loadDeviceLabels(const IniDocument& ini) {
 std::string writeDeviceLabels(const std::string_view base, const DeviceLabels& labels) {
     IniEditor ini(base);
     ini.prepend("; WheelBri device: what it is and what its controls are called (the Rig tab writes this)");
-    ini.set("device", "name", labels.name);
+    ini.set("device", "name", iniSafeValue(labels.name));   // from Windows or evdev: may hold ';' or '#'
     ini.set("device", "id", deviceId(labels.vendorId, labels.productId));
     ini.set("device", "kind", deviceKindName(labels.kind));
     writeLabels(ini, "axis_labels", "axis_", labels.axes);

@@ -634,11 +634,8 @@ private:
     ~EmulatedDevice() = default;
 
     static std::size_t countButtons(const IDeviceProfile& profile) {
-        std::size_t count = 0;
-        while (!profile.buttonName(count).empty()) {
-            ++count;
-        }
-        return count;
+        // All the target's buttons, unnamed gaps included (the G920's 12th): the shifter must sit at its real numbers.
+        return profile.buttonCount();
     }
 
     [[nodiscard]] static bool serviceFfb() { return shimConfig().forceFeedback == FfbMode::Service; }

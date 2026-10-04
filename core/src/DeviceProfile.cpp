@@ -9,6 +9,10 @@ namespace wheelbri {
 
 namespace {
 
+// A value that is not a number (NaN, infinity) as `neutral`: std::clamp lets NaN through, and lround(NaN) is
+// INT32_MIN on Windows, which the game would read as full left lock.
+float finiteOr(const float value, const float neutral) { return std::isfinite(value) ? value : neutral; }
+
 std::int32_t lerp(const AxisRange& range, const float fraction) {
     const double span = static_cast<double>(range.max) - static_cast<double>(range.min);
     return static_cast<std::int32_t>(std::lround(range.min + span * static_cast<double>(fraction)));
@@ -32,16 +36,20 @@ Guid DeviceIdentity::directInputProductGuid() const {
     return guid;
 }
 
-DeviceProfile::DeviceProfile(DeviceProfileSpec spec) : spec_(std::move(spec)) {}
+DeviceProfile::DeviceProfile(DeviceProfileSpec spec) : spec_(std::move(spec)) {
+    for (std::size_t i = 0; i < spec_.buttonNames.size() && i < 32; ++i) {
+        if (!spec_.buttonNames[i].empty()) buttonMask_ |= 1U << i;
+    }
+}
 
 TargetReport DeviceProfile::encode(const WheelState& state) const {
     TargetReport report;
-    const float steeringFraction = (std::clamp(state.steering, -1.0F, 1.0F) + 1.0F) * 0.5F;
+    const float steeringFraction = (std::clamp(finiteOr(state.steering, 0.0F), -1.0F, 1.0F) + 1.0F) * 0.5F;
     report.steering = lerp(spec_.steeringRange, steeringFraction);
     report.throttle = encodePedal(state.throttle);
     report.brake = encodePedal(state.brake);
     report.clutch = encodePedal(state.clutch);
-    report.buttons = state.buttons;
+    report.buttons = state.buttons & buttonMask_;   // a mapped button the wheel does not have never reaches the game
     report.hat = state.hat;
     return report;
 }
@@ -51,7 +59,7 @@ std::string_view DeviceProfile::buttonName(const std::size_t index) const {
 }
 
 std::int32_t DeviceProfile::encodePedal(const float travel) const {
-    const float clamped = std::clamp(travel, 0.0F, 1.0F);
+    const float clamped = std::clamp(finiteOr(travel, 0.0F), 0.0F, 1.0F);   // not a number: released
     return lerp(spec_.pedalRange, spec_.pedalsReleasedAtMax ? 1.0F - clamped : clamped);
 }
 
@@ -65,10 +73,12 @@ DeviceProfileSpec g920Spec() {
     spec.steeringRange = {0, 65535};
     spec.pedalRange = {0, 65535};
     spec.pedalsReleasedAtMax = true;   // pressed = the low end (assumed from Logitech's pedal sets)
-    // DirectInput button order in PC mode (joy.cpl buttons 1..11). The optional Driving Force Shifter adds
-    // more buttons after these; their order is not known yet, so they are left unnamed.
+    // DirectInput button order in PC mode (joy.cpl buttons 1..11), then the Driving Force Shifter on the wheel's
+    // shifter port: joy.cpl 13..18 for gears 1..6 and 19 for reverse (Logitech's Driving Force Shifter FAQ). joy.cpl
+    // 12 exists on the G920 but nothing presses it. The names match what Auto-map looks for (MappingEdit.cpp).
     spec.buttonNames = {
-        "A", "B", "X", "Y", "R paddle", "L paddle", "Menu", "View", "RSB", "LSB", "Xbox",
+        "A",      "B",      "X",      "Y",      "R paddle", "L paddle", "Menu", "View", "RSB", "LSB",
+        "Xbox",   "",       "Gear 1", "Gear 2", "Gear 3",   "Gear 4",   "Gear 5", "Gear 6", "Gear R",
     };
     return spec;
 }
