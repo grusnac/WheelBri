@@ -137,8 +137,11 @@ public:
     HRESULT STDMETHODCALLTYPE GetDeviceStatus(REFGUID guid) override {
         return guarded("GetDeviceStatus", [&]() -> HRESULT {
             const HRESULT result = real_->GetDeviceStatus(guid);
-            WE_LOG_DEBUG(detail::directInputLog(), "GetDeviceStatus({}) -> {}", labelFor(guid),
-                         describeHresult(result));
+            // Some games poll it every frame to notice an unplugged wheel: sampled, as every line is flushed.
+            if (const auto call = statusSampler_.next(); call != 0) {
+                WE_LOG_DEBUG(detail::directInputLog(), "GetDeviceStatus({}) -> {} (#{})", labelFor(guid),
+                             describeHresult(result), call);
+            }
             return result;
         });
     }
@@ -262,6 +265,7 @@ private:
     std::atomic<ULONG> references_{1};
     std::mutex namesMutex_;
     std::map<std::string, std::string> names_;  // instance GUID -> product name, from EnumDevices
+    logging::CallSampler statusSampler_{20, 1000};
 };
 
 }  // namespace wheelbri::shim

@@ -73,6 +73,9 @@ Settings > Apps entry.
 Options (after Uninstall.cmd or uninstall.ps1): -KeepConfig, -RemoveCertificate, -Quiet (no questions),
 -InstallDir D:\WheelBri.
 
+A folder outside Program Files (-InstallDir D:\WheelBri) gets Program Files' permissions at install: only
+Administrators may change it, users read and run it (WheelBri runs as Administrator from there).
+
 When something does not work
 ----------------------------
 - Logs: all in %LOCALAPPDATA%\wheelbri\logs: the app, telemetry, both drivers, the installer and

@@ -89,13 +89,24 @@ void FfbForwarder::sendSlot(const std::uint8_t index, const Clock::time_point no
     slot.sentEffect = effect;
 }
 
-std::optional<std::uint8_t> FfbForwarder::allocate() {
+bool FfbForwarder::holdsLocked(const Allocation& a) const {
+    return a.slot < slots_.size() && slots_[a.slot].inUse && slots_[a.slot].ticket == a.ticket;
+}
+
+bool FfbForwarder::holds(const Allocation& a) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return holdsLocked(a);
+}
+
+std::optional<FfbForwarder::Allocation> FfbForwarder::allocate(const void* const owner) {
     const std::lock_guard<std::mutex> lock(mutex_);
     for (std::size_t i = 0; i < slots_.size(); ++i) {
         if (!slots_[i].inUse) {
             slots_[i] = Slot{};
             slots_[i].inUse = true;
-            return static_cast<std::uint8_t>(i);
+            slots_[i].owner = owner;
+            slots_[i].ticket = ++nextTicket_;
+            return Allocation{static_cast<std::uint8_t>(i), slots_[i].ticket};
         }
     }
     static logging::RateLimiter limiter(std::chrono::seconds(5));
@@ -104,27 +115,31 @@ std::optional<std::uint8_t> FfbForwarder::allocate() {
     return std::nullopt;
 }
 
-void FfbForwarder::release(const std::uint8_t slot) {
+void FfbForwarder::release(const Allocation& a) {
     const std::lock_guard<std::mutex> lock(mutex_);
-    slots_[slot].started = false;
-    sendSlot(slot, Clock::now(), false);
-    slots_[slot] = Slot{};
+    if (!holdsLocked(a)) return;   // already freed (a reset), maybe another effect's now
+    slots_[a.slot].started = false;
+    sendSlot(a.slot, Clock::now(), false);
+    slots_[a.slot] = Slot{};
 }
 
-void FfbForwarder::setEffect(const std::uint8_t slot, const FfbEffect& effect) {
+void FfbForwarder::setEffect(const Allocation& a, const FfbEffect& effect) {
     const std::lock_guard<std::mutex> lock(mutex_);
-    slots_[slot].effect = effect;
-    sendSlot(slot, Clock::now(), false);
+    if (!holdsLocked(a)) return;
+    slots_[a.slot].effect = effect;
+    sendSlot(a.slot, Clock::now(), false);
 }
 
-void FfbForwarder::start(const std::uint8_t slot, const std::optional<std::uint64_t> durationUs,
+void FfbForwarder::start(const Allocation& a, const std::optional<std::uint64_t> durationUs,
                          const std::optional<std::uint32_t> iterations, const std::uint64_t startDelayUs,
                          const bool solo) {
     const std::lock_guard<std::mutex> lock(mutex_);
+    if (!holdsLocked(a)) return;
+    const std::uint8_t slot = a.slot;
     const auto now = Clock::now();
     if (solo) {
         for (std::size_t i = 0; i < slots_.size(); ++i) {
-            if (i != slot && slots_[i].inUse) {
+            if (i != slot && slots_[i].inUse && slots_[i].owner == slots_[slot].owner) {
                 slots_[i].started = false;
                 sendSlot(static_cast<std::uint8_t>(i), now, false);
             }
@@ -142,34 +157,50 @@ void FfbForwarder::start(const std::uint8_t slot, const std::optional<std::uint6
     sendSlot(slot, now, false);
 }
 
-void FfbForwarder::stop(const std::uint8_t slot) {
+void FfbForwarder::stop(const Allocation& a) {
     const std::lock_guard<std::mutex> lock(mutex_);
-    slots_[slot].started = false;
-    sendSlot(slot, Clock::now(), false);
+    if (!holdsLocked(a)) return;
+    slots_[a.slot].started = false;
+    sendSlot(a.slot, Clock::now(), false);
 }
 
-bool FfbForwarder::isPlaying(const std::uint8_t slot) {
+bool FfbForwarder::isPlaying(const Allocation& a) {
     const std::lock_guard<std::mutex> lock(mutex_);
-    return effectivelyPlaying(slots_[slot], Clock::now());
+    return holdsLocked(a) && effectivelyPlaying(slots_[a.slot], Clock::now());
 }
 
-void FfbForwarder::stopAll() {
+void FfbForwarder::stopAll(const void* const owner) {
     const std::lock_guard<std::mutex> lock(mutex_);
     const auto now = Clock::now();
+    bool othersStarted = false;
     for (std::size_t i = 0; i < slots_.size(); ++i) {
-        slots_[i].started = false;
-        if (slots_[i].inUse) {
+        Slot& slot = slots_[i];
+        if (slot.inUse && slot.owner != owner) {
+            othersStarted = othersStarted || slot.started;
+            continue;
+        }
+        slot.started = false;
+        if (slot.inUse) {
             sendSlot(static_cast<std::uint8_t>(i), now, false);
         }
     }
-    FfbPacket packet;
-    packet.kind = FfbPacket::Kind::StopAll;
-    send(packet, now);
+    // The service's StopAll ends every slot: only when no other device of the game has effects started.
+    if (!othersStarted) {
+        FfbPacket packet;
+        packet.kind = FfbPacket::Kind::StopAll;
+        send(packet, now);
+    }
 }
 
-void FfbForwarder::reset() {
-    stopAll();
+void FfbForwarder::reset(const void* const owner) {
+    stopAll(owner);
     const std::lock_guard<std::mutex> lock(mutex_);
+    // DirectInput unloads the device's effects on a reset: their slots are free again (an effect that is used
+    // again takes a new one, see EmulatedEffect::ensureSlot). Without this, a game that resets between races and
+    // creates new effects ran out of slots.
+    for (Slot& slot : slots_) {
+        if (slot.inUse && slot.owner == owner) slot = Slot{};
+    }
     paused_ = false;
     actuatorsOn_ = true;
 }
@@ -237,9 +268,11 @@ void FfbForwarder::tick() {
         lastRefresh_ = now;
     }
     for (std::size_t i = 0; i < slots_.size(); ++i) {
-        // Also catches effects whose duration ran out or whose start delay has passed.
-        if (slots_[i].inUse) {
-            sendSlot(static_cast<std::uint8_t>(i), now, refresh && slots_[i].sentPlaying);
+        // Changes (also effects whose duration ran out or whose start delay has passed), and on a refresh every
+        // slot, quiet and free ones too: a lost "stop" would otherwise leave the force on in the service, whose
+        // watchdog the keep-alives below keep fed.
+        if (slots_[i].inUse || refresh) {
+            sendSlot(static_cast<std::uint8_t>(i), now, refresh);
         }
     }
     if (now - lastSend_ >= kKeepAlive) {

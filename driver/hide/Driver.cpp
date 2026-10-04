@@ -23,11 +23,15 @@
 #include <windows.h>
 #include <wdf.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace {
 
@@ -157,6 +161,54 @@ bool startedBeforeBoot(const ULONGLONG processStart, const ULONGLONG now, const 
     return processStart < bootedAt && bootedAt - processStart > kBootMargin;
 }
 
+// When process `pid` was created, read from the system's process list, which needs no handle to the process (the
+// driver host, LocalService, may not open it): nullopt when no such process runs, or the list cannot be read
+// (`readable` false). NtQuerySystemInformation(SystemProcessInformation) through ntdll; CreateTime sits at offset 32
+// of each entry on x64 and x86 alike, inside winternl.h's Reserved1 (bytes 8..55).
+std::optional<ULONGLONG> creationTimeOf(const DWORD pid, bool& readable) {
+    readable = false;
+    using QueryFn = LONG(NTAPI*)(ULONG, PVOID, ULONG, PULONG);
+    static const auto query = reinterpret_cast<QueryFn>(
+        reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQuerySystemInformation")));
+    if (query == nullptr) return std::nullopt;
+    constexpr ULONG kSystemProcessInformation = 5;
+    constexpr LONG kInfoLengthMismatch = static_cast<LONG>(0xC0000004L);
+    std::vector<std::uint8_t> buffer(256 * 1024);
+    LONG status = 0;
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        ULONG needed = 0;
+        status = query(kSystemProcessInformation, buffer.data(), static_cast<ULONG>(buffer.size()), &needed);
+        if (status != kInfoLengthMismatch) break;
+        buffer.resize(std::max<std::size_t>(buffer.size() * 2, static_cast<std::size_t>(needed) + 64 * 1024));
+    }
+    if (status < 0) return std::nullopt;
+    readable = true;
+    constexpr std::size_t kCreateTime = 32;
+    struct UnicodeStringLayout {   // UNICODE_STRING, without winternl.h
+        USHORT length;
+        USHORT maximumLength;
+        PWSTR buffer;
+    };
+    // UniqueProcessId follows ImageName (a UNICODE_STRING at 56) and BasePriority (padded to a pointer): 80 on x64.
+    constexpr std::size_t kProcessId = 56 + sizeof(UnicodeStringLayout) + sizeof(void*);
+    std::size_t offset = 0;
+    while (offset + kProcessId + sizeof(void*) <= buffer.size()) {
+        const std::uint8_t* entry = buffer.data() + offset;
+        ULONG next = 0;
+        std::memcpy(&next, entry, sizeof(next));
+        ULONG_PTR id = 0;
+        std::memcpy(&id, entry + kProcessId, sizeof(id));
+        if (id == pid) {
+            ULONGLONG created = 0;
+            std::memcpy(&created, entry + kCreateTime, sizeof(created));
+            return created;
+        }
+        if (next == 0) break;
+        offset += next;
+    }
+    return std::nullopt;
+}
+
 // Whether `pid` still runs and is the process that wrote the setting. Unknown (cannot look) counts as running:
 // the driver host runs as LocalService and may not open an elevated service. Unless the process that wrote the
 // setting was created before this boot of Windows: then the id belongs to another program now (the service crashed
@@ -167,6 +219,12 @@ bool stillRunning(const DWORD pid, const std::optional<ULONGLONG> started) {
         const DWORD error = GetLastError();
         if (error == ERROR_INVALID_PARAMETER) return false;   // no such process
         if (started) {
+            // Not allowed to open it: WheelBri lets LocalService look at itself, so this is most likely another
+            // program that got the id after a crash. The process list says when the process with that id started,
+            // without opening it.
+            bool readable = false;
+            const std::optional<ULONGLONG> created = creationTimeOf(pid, readable);
+            if (readable) return created && *created == *started;
             FILETIME now{};
             GetSystemTimeAsFileTime(&now);
             const ULONGLONG nowValue = (static_cast<ULONGLONG>(now.dwHighDateTime) << 32U) | now.dwLowDateTime;

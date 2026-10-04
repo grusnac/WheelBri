@@ -23,7 +23,9 @@ if not exist "%HERE%wheelbri.zip" (
 
 set "UNPACKED=%TEMP%\wheelbri-setup-%RANDOM%%RANDOM%"
 echo Unpacking WheelBri to %UNPACKED% ...
-"%POWERSHELL%" -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { Expand-Archive -LiteralPath '%HERE%wheelbri.zip' -DestinationPath '%UNPACKED%' -Force } catch { Write-Host $_.Exception.Message -ForegroundColor Red; exit 1 }"
+rem The paths go to PowerShell through the environment, not pasted into its command: a user name such as O'Brien
+rem (in %TEMP%) would end a quoted string there.
+"%POWERSHELL%" -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { Expand-Archive -LiteralPath (Join-Path $env:HERE 'wheelbri.zip') -DestinationPath $env:UNPACKED -Force } catch { Write-Host $_.Exception.Message -ForegroundColor Red; exit 1 }"
 if errorlevel 1 (
     echo Could not unpack wheelbri.zip ^(is the disk full?^).
     pause

@@ -52,12 +52,24 @@ $exitCode = 1
 $transcript = $false
 $script:needsWindowsRestart = $false   # pnputil said a device waits for a restart of Windows
 try {
-    New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
-    Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
-    $transcript = $true
-    & icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
-    if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
-    Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name 'LogFolder' -Value $logFolder
+    # Not through a link (junction) in the user's folders: as Administrator the grant below would change the
+    # permissions of whatever it points to (the app refuses such folders too).
+    $logsLinked = @((Split-Path $logFolder), $logFolder | Where-Object {
+        $item = Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue
+        $item -and (Test-Link $item)
+    }).Count -gt 0
+    if ($logsLinked) {
+        Start-Transcript -Append -Path (Join-Path $env:SystemRoot "Temp\wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+        $transcript = $true
+        Write-Host "$logFolder is a link to another folder: the drivers keep their logs in C:\ProgramData\wheelbri\logs" -ForegroundColor Yellow
+    } else {
+        New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
+        Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+        $transcript = $true
+        & icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
+        if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
+        Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name 'LogFolder' -Value $logFolder
+    }
 
     # "346e:0004,30b7:1001" (one argument from the app) or several arguments: the USB ids, checked.
     $wanted = @()
@@ -82,6 +94,9 @@ try {
         $wanted += $id
     }
 
+    # The new package first: without a build, nothing is taken off the devices (the script stops here).
+    $inf = Find-BuiltPackage $PSScriptRoot 'wheelbri-hide' $Configuration
+    Add-PackageCertificate $inf 'wheelbri-hide'
     $removed = Remove-LegacyPackages 'wheelbri-hide'
     if ($wanted.Count -eq 0) {
         # The installer: a fresh copy, off every device an older copy is on (an older one could even have been put
@@ -91,8 +106,6 @@ try {
     if ($removed -gt 0) {
         Invoke-Pnputil @('/scan-devices') 'rescanning devices' | Out-Null   # the devices back on their own driver first
     }
-    $inf = Find-BuiltPackage $PSScriptRoot 'wheelbri-hide' $Configuration
-    Add-PackageCertificate $inf 'wheelbri-hide'
     # Added to Windows' driver store only (no /install): no device has its hardware id, so it never goes on by itself.
     Invoke-Pnputil @('/add-driver', $inf.FullName) 'adding wheelbri-hide to Windows' | Out-Null
     Write-Host ''

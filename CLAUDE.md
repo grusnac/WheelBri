@@ -320,7 +320,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   (matched by USB VID in `EnumDevices` and again in `CreateDevice` via `GetDeviceInfo`) is presented as the
   target profile by `EmulatedDevice<T>`, which answers input calls from `StateFeed` (UDP receiver, neutral
   state when stale, default after 1500 ms). Phase 3: its effects are `EmulatedEffect`s whose parameters
-  `FfbForwarder` sends to the service (timing, keep-alives); in that mode the physical device is opened
+  `FfbForwarder` sends to the service (timing, keep-alives, every slot re-sent every 250 ms, stopped and free ones
+  too, so a lost "stop" heals; each slot belongs to the device that created its effect and carries a ticket, so
+  one device's Unacquire, Release or reset leaves another's effects alone and a stale effect cannot touch a reused
+  slot; the DLL pins itself on the first export call); in that mode the physical device is opened
   non-exclusively because the service owns its force feedback. Other devices stay `ProxyDevice<T>`
   (log and forward). Settings: optional `wheelbri-shim.ini` next to the DLL (`ShimConfig`).
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):

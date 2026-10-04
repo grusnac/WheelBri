@@ -70,7 +70,7 @@ if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Pri
 
 $ErrorActionPreference = 'Stop'
 $package = $PSScriptRoot
-$version = if (Test-Path (Join-Path $package 'VERSION.txt')) { (Get-Content (Join-Path $package 'VERSION.txt') -Raw).Trim() } else { '0.0.0' }
+$version = if (Test-Path -LiteralPath (Join-Path $package 'VERSION.txt')) { (Get-Content -LiteralPath (Join-Path $package 'VERSION.txt') -Raw).Trim() } else { '0.0.0' }
 # Every log in one folder, the user's %LOCALAPPDATA%\wheelbri\logs (the app and both drivers write there too): the
 # drivers run as LocalService, so it may write there, and HKLM\SOFTWARE\wheelbri LogFolder tells them where (the
 # app does the same at every start, see ServiceLogging.hpp shareLogFolder).
@@ -104,12 +104,28 @@ function Run-Script([string]$path, [string[]]$arguments = @()) {
 
 $exitCode = 1
 try {
-    New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
-    Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+    # The user's WheelBri folders must not be links (junctions): as Administrator, the permission grant below would
+    # follow one and change the permissions of whatever it points to. The app refuses them too (userFoldersProblem).
+    $logsLinked = @((Split-Path $logFolder), $logFolder | Where-Object {
+        $item = Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue
+        $item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)
+    }).Count -gt 0
+    if ($logsLinked) {
+        $transcriptFolder = Join-Path $env:SystemRoot 'Temp'
+    } else {
+        New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
+        $transcriptFolder = $logFolder
+    }
+    Start-Transcript -Append -Path (Join-Path $transcriptFolder "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
     $transcript = $true
-    & icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
-    if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
-    Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name 'LogFolder' -Value $logFolder
+    if ($logsLinked) {
+        Warn ("    $logFolder (or the folder above it) is a link to another folder: the drivers keep their logs in " +
+              'C:\ProgramData\wheelbri\logs. Replace the link with a real folder to have every log in one place.')
+    } else {
+        & icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
+        if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
+        Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name 'LogFolder' -Value $logFolder
+    }
 
     Write-Host "WheelBri $version setup" -ForegroundColor Green
     Write-Host "package:      $package"
@@ -125,13 +141,13 @@ try {
     Write-Host "    Windows build $build, 64-bit: fine"
     foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini', 'uninstall.ps1', 'Uninstall.cmd',
                           'driver\common.ps1', 'driver\install-driver.ps1', 'driver\hide\install-hide.ps1') {
-        if (-not (Test-Path (Join-Path $package $required))) {
+        if (-not (Test-Path -LiteralPath (Join-Path $package $required))) {
             Fail "the package is incomplete ($required is missing): unpack the whole package again."
         }
     }
     foreach ($driver in 'x64\Release\wheelbri-g920\wheelbri-g920', 'hide\x64\Release\wheelbri-hide\wheelbri-hide') {
         foreach ($extension in '.inf', '.cat', '.dll') {
-            if (-not (Test-Path (Join-Path $package "driver\$driver$extension"))) {
+            if (-not (Test-Path -LiteralPath (Join-Path $package "driver\$driver$extension"))) {
                 Fail "the package is incomplete (driver\$driver$extension is missing): unpack the whole package again."
             }
         }
@@ -143,9 +159,17 @@ try {
     if (Test-Path -LiteralPath $InstallDir) {
         $isFolder = Test-Path -LiteralPath $InstallDir -PathType Container
         $empty = $isFolder -and @(Get-ChildItem -LiteralPath $InstallDir -Force).Count -eq 0
-        $earlier = $false
-        foreach ($marker in 'wheelbri.exe', 'wheelemu.exe', 'installed-files.txt') {
-            if (Test-Path -LiteralPath (Join-Path $InstallDir $marker) -PathType Leaf) { $earlier = $true }
+        # An earlier install: one with its installed-files.txt, or the folder Settings > Apps records for WheelBri (or
+        # wheelemu) with the program in it. Not any folder that happens to hold a wheelbri.exe (a build folder, a
+        # portable copy): without a list, every file in it would count as WheelBri's and go at uninstall.
+        $earlier = Test-Path -LiteralPath (Join-Path $InstallDir 'installed-files.txt') -PathType Leaf
+        if (-not $earlier) {
+            foreach ($name in 'wheelbri', 'wheelemu') {
+                $recorded = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$name" `
+                                              -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
+                if ($recorded -and $recorded.TrimEnd('\') -ieq $InstallDir.TrimEnd('\') -and
+                    (Test-Path -LiteralPath (Join-Path $InstallDir "$name.exe") -PathType Leaf)) { $earlier = $true }
+            }
         }
         if (Test-Path -LiteralPath (Join-Path $InstallDir 'install.ps1')) {
             Fail "$InstallDir is a WheelBri package, not an install folder: choose another folder (-InstallDir)."
@@ -184,7 +208,7 @@ try {
         }
         # An ended service could leave the wheel hidden: clear that (the hide filter also ignores a dead process).
         $oldService = Join-Path $InstallDir 'wheelbri-service.exe'
-        if (Test-Path $oldService) { & $oldService --unhide | Out-Null }
+        if (Test-Path -LiteralPath $oldService) { & $oldService --unhide | Out-Null }
     }
 
     # --- 2b. a version from before the rename (wheelemu) ------------------------------------------------------------
@@ -215,6 +239,18 @@ try {
     # --- 3. files -------------------------------------------------------------------------------------------------
     Step "copying the program to $InstallDir"
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    # Outside Program Files a folder gets its drive's permissions, where any program of the user may change files;
+    # the app runs as Administrator from here, so it gets Program Files' rules: only Administrators and SYSTEM
+    # change it, users read and run it.
+    $programFolders = @($env:ProgramW6432, $env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ } |
+        ForEach-Object { $_.TrimEnd('\') + '\' }
+    if (-not ($programFolders | Where-Object { ($InstallDir + '\').StartsWith($_, [StringComparison]::OrdinalIgnoreCase) })) {
+        & icacls $InstallDir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Fail "could not protect $InstallDir (icacls exit code $LASTEXITCODE): install into Program Files instead."
+        }
+        Write-Host "    $InstallDir protected like Program Files (only Administrators may change it)"
+    }
     # An earlier install in another folder (C:\Program Files\wheelemu, or another folder picked then): its settings come
     # along, and the old folder goes once the new one works. Only a real install folder (the app's exe, no
     # install.ps1). Its entry in Settings > Apps is this version's (wheelbri) or the one from before the rename.
@@ -222,12 +258,12 @@ try {
     $previous = (Get-ItemProperty -Path $uninstallKey -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
     if (-not $previous) { $previous = $legacyInstall }
     $oldFolder = $null
-    $isInstall = { param($folder) ((Test-Path (Join-Path $folder 'wheelbri.exe')) -or
-                                   (Test-Path (Join-Path $folder "$legacy.exe"))) -and
-                                  -not (Test-Path (Join-Path $folder 'install.ps1')) }
+    $isInstall = { param($folder) ((Test-Path -LiteralPath (Join-Path $folder 'wheelbri.exe')) -or
+                                   (Test-Path -LiteralPath (Join-Path $folder "$legacy.exe"))) -and
+                                  -not (Test-Path -LiteralPath (Join-Path $folder 'install.ps1')) }
     # The version from before the rename in this same folder: its program files go (their names changed, so the copy
     # below would leave them next to the new ones); its config stays.
-    if ($previous -and ($previous.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) -and (Test-Path (Join-Path $InstallDir "$legacy.exe"))) {
+    if ($previous -and ($previous.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) -and (Test-Path -LiteralPath (Join-Path $InstallDir "$legacy.exe"))) {
         Get-ChildItem -LiteralPath $InstallDir -Force | Where-Object { $_.Name -ne 'config' } |
             ForEach-Object { Remove-Tree $_.FullName }   # links removed as links, never followed
         Write-Host "    removed the old program files from $InstallDir (your config stays)"
@@ -235,9 +271,9 @@ try {
     if ($previous -and ($previous.TrimEnd('\') -ine $InstallDir.TrimEnd('\')) -and (& $isInstall $previous)) {
         $oldFolder = $previous
         New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir 'config') | Out-Null
-        foreach ($ini in Get-ChildItem (Join-Path $previous 'config') -Filter '*.ini' -ErrorAction SilentlyContinue) {
+        foreach ($ini in Get-ChildItem -LiteralPath (Join-Path $previous 'config') -Filter '*.ini' -ErrorAction SilentlyContinue) {
             $target = Join-Path $InstallDir "config\$($ini.Name)"
-            if (-not (Test-Path $target)) { Copy-Item $ini.FullName $target }
+            if (-not (Test-Path -LiteralPath $target)) { Copy-Item -LiteralPath $ini.FullName -Destination $target }
         }
         Write-Host "    an earlier install is in ${previous}: its settings are carried over, the folder is removed below"
     }
@@ -253,27 +289,27 @@ try {
             ForEach-Object { [void]$listed.Add($_.FullName.Substring($InstallDir.Length).TrimStart('\')) }
     }
     if ($oldFolder) {
-        Get-ChildItem (Join-Path $InstallDir 'config') -Filter '*.ini' -ErrorAction SilentlyContinue |
+        Get-ChildItem -LiteralPath (Join-Path $InstallDir 'config') -Filter '*.ini' -ErrorAction SilentlyContinue |
             ForEach-Object { [void]$listed.Add("config\$($_.Name)") }   # the carried-over settings
     }
-    $sourceRoot = (Resolve-Path $package).Path.TrimEnd('\')
+    $sourceRoot = (Resolve-Path -LiteralPath $package).Path.TrimEnd('\')
     $copied = 0
-    foreach ($file in Get-ChildItem $sourceRoot -Recurse -File) {
+    foreach ($file in Get-ChildItem -LiteralPath $sourceRoot -Recurse -File) {
         $relative = $file.FullName.Substring($sourceRoot.Length + 1)
         if ($relative -in @('Setup.cmd', 'install.ps1')) { continue }   # the installer stays in the package
         $target = Join-Path $InstallDir $relative
         New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
         # An edited config stays: the new default goes next to it as .new.
-        if ($relative -like 'config\*.ini' -and (Test-Path $target)) {
+        if ($relative -like 'config\*.ini' -and (Test-Path -LiteralPath $target)) {
             [void]$listed.Add($relative)
-            if ((Get-FileHash $target).Hash -ne (Get-FileHash $file.FullName).Hash) {
-                Copy-Item $file.FullName "$target.new" -Force
+            if ((Get-FileHash -LiteralPath $target).Hash -ne (Get-FileHash -LiteralPath $file.FullName).Hash) {
+                Copy-Item -LiteralPath $file.FullName -Destination "$target.new" -Force
                 [void]$listed.Add("$relative.new")
                 Write-Host "    kept your $relative (the new default is $relative.new)"
             }
             continue
         }
-        Copy-Item $file.FullName $target -Force
+        Copy-Item -LiteralPath $file.FullName -Destination $target -Force
         [void]$listed.Add($relative)
         $copied++
     }
@@ -281,7 +317,7 @@ try {
     # The built-in configs' older names (one per target since 2026-10-04): the new ones replace them.
     foreach ($old in 'moza-r3-as-g920.ini', 'moza-r3-as-g29.ini', 'rig-as-g920.ini', 'rig-as-g29.ini') {   # (the G29 is gone)
         foreach ($file in (Join-Path $InstallDir "config\$old"), (Join-Path $InstallDir "config\$old.new")) {
-            Remove-Item $file -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
         }
     }
     # The list: only what is there now (the old configs above are gone), sorted; not itself.

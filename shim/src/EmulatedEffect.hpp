@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DiFormat.hpp"
+#include "FfbForwarder.hpp"
 #include "ShimLogging.hpp"
 
 #include "wheelbri/Ffb.hpp"
@@ -24,8 +25,9 @@ public:
 
     // `wheelAxisOffset` / `wheelAxisId`: how the game names the wheel axis in rgdwAxes, by data format
     // offset or by object id, so direction and per-axis conditions are read for the right axis.
-    EmulatedEffect(REFGUID type, FfbEffectType effectType, std::uint8_t slot, std::string deviceLabel,
-                   DWORD wheelAxisOffset, DWORD wheelAxisId);
+    // `owner`: the device that created it (FfbForwarder keeps each device's effects apart).
+    EmulatedEffect(REFGUID type, FfbEffectType effectType, FfbForwarder::Allocation slot, const void* owner,
+                   std::string deviceLabel, DWORD wheelAxisOffset, DWORD wheelAxisId);
 
     EmulatedEffect(const EmulatedEffect&) = delete;
     EmulatedEffect& operator=(const EmulatedEffect&) = delete;
@@ -49,8 +51,10 @@ private:
     ~EmulatedEffect() = default;
 
     [[nodiscard]] FfbEffect toFfb() const;
-    // A slot for this effect ("downloaded"), taking a free one if Unload gave the last one back.
+    // A slot for this effect ("downloaded"), taking a free one if Unload or a device reset gave the last one back.
     [[nodiscard]] bool ensureSlot();
+    // The slot it still holds, or nullopt (never downloaded, unloaded, or freed by the device's reset).
+    [[nodiscard]] std::optional<FfbForwarder::Allocation> currentSlot();
     [[nodiscard]] std::size_t wheelAxisIndex() const;
     [[nodiscard]] float directionAlongWheel() const;
 
@@ -59,7 +63,8 @@ private:
     // The service slot while the effect is downloaded. Unload gives it back, Download / SetParameters /
     // Start take one again: games such as NFS unload their effects between screens and never release the
     // objects, so tying slots to object lifetime ran out of slots after two screens.
-    std::optional<std::uint8_t> slot_;
+    std::optional<FfbForwarder::Allocation> slot_;
+    const void* owner_;
     std::string label_;
     DWORD wheelAxisOffset_;
     DWORD wheelAxisId_;

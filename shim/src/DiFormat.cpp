@@ -111,16 +111,21 @@ std::string describeTypeSpecific(const GUID& type, const DIEFFECT& effect) {
 
 }  // namespace
 
-std::string toUtf8(const WCHAR* text) {
+std::string toUtf8(const WCHAR* text, const std::size_t maxChars) {
     if (text == nullptr) {
         return "(null)";
     }
-    const int length = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
-    if (length <= 1) {
+    // At most `maxChars`: the strings come from the game, which may not end them inside its buffer.
+    const int chars = static_cast<int>(wcsnlen(text, maxChars));
+    if (chars == 0) {
         return {};
     }
-    std::string result(static_cast<std::size_t>(length - 1), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, text, -1, result.data(), length, nullptr, nullptr);
+    const int length = WideCharToMultiByte(CP_UTF8, 0, text, chars, nullptr, 0, nullptr, nullptr);
+    if (length <= 0) {
+        return {};
+    }
+    std::string result(static_cast<std::size_t>(length), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text, chars, result.data(), length, nullptr, nullptr);
     return result;
 }
 

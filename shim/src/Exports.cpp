@@ -6,6 +6,8 @@
 #include "RealDInput.hpp"
 #include "ShimLogging.hpp"
 
+#include <atomic>
+
 namespace {
 
 using namespace wheelbri::shim;
@@ -24,6 +26,21 @@ const RealDInput* requireReal(const char* caller) {
     return real;
 }
 
+// Keeps this DLL loaded for the rest of the process once the game uses it (never from DllMain: this runs from the
+// first export call). The shim's singletons (the state socket on 127.0.0.1:41329, the force feedback sender) are
+// never destroyed, so a FreeLibrary and LoadLibrary again would leave the old socket holding the port and the new
+// copy reading a centred wheel all session; pinned, the same copy serves every load.
+void pinThisModule() {
+    static std::atomic<bool> pinned{false};
+    if (pinned.exchange(true)) return;
+    HMODULE self = nullptr;
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                           reinterpret_cast<LPCWSTR>(&pinThisModule), &self) == FALSE) {
+        WE_LOG_WARN(log(), "could not keep the shim loaded (error {}); unloading it may lose the wheel's state",
+                    GetLastError());
+    }
+}
+
 }  // namespace
 
 using wheelbri::shim::guarded;
@@ -33,6 +50,7 @@ extern "C" {
 HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE instance, DWORD version, REFIID riid, LPVOID* out,
                                         LPUNKNOWN outer) {
     return guarded("Proxy_DirectInput8Create", [&]() -> HRESULT {
+        pinThisModule();
         WE_LOG_INFO(log(), "DirectInput8Create(version 0x{:x}, {}, outer={})", version, describeGuid(riid),
                     static_cast<void*>(outer));
         const RealDInput* const real = requireReal("DirectInput8Create");
@@ -81,6 +99,7 @@ HRESULT WINAPI Proxy_DllCanUnloadNow() {
 
 HRESULT WINAPI Proxy_DllGetClassObject(REFCLSID clsid, REFIID riid, LPVOID* out) {
     return guarded("Proxy_DllGetClassObject", [&]() -> HRESULT {
+        pinThisModule();
         // COM activation (CoCreateInstance(CLSID_DirectInput8)) normally loads the registered system DLL,
         // not this one; if a game gets here, its objects are not proxied. Worth knowing in Phase 0.
         WE_LOG_WARN(log(), "DllGetClassObject({}, {}) - objects created this way are NOT proxied", describeGuid(clsid),

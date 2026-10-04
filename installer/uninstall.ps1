@@ -67,8 +67,8 @@ if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Pri
 }
 
 # Whether the folder is a real installation (not a package folder, not a system folder): only then is it deleted.
-$folderOk = (Test-Path (Join-Path $InstallDir 'wheelbri.exe')) -and
-            -not (Test-Path (Join-Path $InstallDir 'install.ps1')) -and          # the package has it, an install does not
+$folderOk = (Test-Path -LiteralPath (Join-Path $InstallDir 'wheelbri.exe')) -and
+            -not (Test-Path -LiteralPath (Join-Path $InstallDir 'install.ps1')) -and          # the package has it, an install does not
             ($InstallDir.Length -gt 3) -and
             ($InstallDir -ine $env:ProgramFiles) -and ($InstallDir -ine $env:SystemRoot)
 
@@ -76,7 +76,7 @@ $folderOk = (Test-Path (Join-Path $InstallDir 'wheelbri.exe')) -and
 # Administrator, so it goes where only Administrators and SYSTEM can write (not %TEMP%, where another program of this
 # user could swap the files between the copy and the run): a new folder under %SystemRoot%\Temp with a random name,
 # locked down before anything is copied into it. If that cannot be done the uninstall stops (no fallback).
-$here = (Resolve-Path $PSScriptRoot).Path.TrimEnd('\')
+$here = (Resolve-Path -LiteralPath $PSScriptRoot).Path.TrimEnd('\')
 if ($folderOk -and ($here -ieq $InstallDir -or $here.StartsWith("$InstallDir\", [StringComparison]::OrdinalIgnoreCase))) {
     $temp = Join-Path $env:SystemRoot "Temp\wheelbri-uninstall-$([guid]::NewGuid().ToString('N'))"
     try {
@@ -102,8 +102,18 @@ if ($folderOk -and ($here -ieq $InstallDir -or $here.StartsWith("$InstallDir\", 
 
 $ErrorActionPreference = 'Stop'
 $logFolder = Join-Path $env:LOCALAPPDATA 'wheelbri\logs'   # with every other log
-New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
-Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+# Not through a link (junction) in the user's folders, as Administrator; and a log that cannot start is no reason
+# to stop: the window still says what happens.
+$logsLinked = @((Split-Path $logFolder), $logFolder | Where-Object {
+    $item = Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue
+    $item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)
+}).Count -gt 0
+try {
+    if ($logsLinked) { $logFolder = Join-Path $env:SystemRoot 'Temp' } else { New-Item -ItemType Directory -Force -Path $logFolder | Out-Null }
+    Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+} catch {
+    Write-Host "(no log file: $($_.Exception.Message))"
+}
 $warnings = New-Object System.Collections.Generic.List[string]
 function Warn([string]$text) { Write-Host $text -ForegroundColor Yellow; $warnings.Add($text) }
 function Ask([string]$question, [bool]$default) {
@@ -112,7 +122,7 @@ function Ask([string]$question, [bool]$default) {
     return $answer.Trim().ToLower() -in @('y', 'yes')
 }
 function Run-Script([string]$path, [string[]]$arguments = @()) {
-    if (-not (Test-Path $path)) { Write-Host "    missing: $path"; return 1 }
+    if (-not (Test-Path -LiteralPath $path)) { Write-Host "    missing: $path"; return 1 }
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     & $powershell -NoProfile -ExecutionPolicy Bypass -File $path @arguments | ForEach-Object { Write-Host "    $_" }
     return $LASTEXITCODE
@@ -244,7 +254,7 @@ try {
         }
         Write-Host "Logs stay in $logFolder."
     }
-    Stop-Transcript | Out-Null
+    try { Stop-Transcript | Out-Null } catch { }
     if (-not $Quiet) { Read-Host 'Press Enter to close' | Out-Null }
 }
 exit $exitCode

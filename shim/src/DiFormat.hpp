@@ -9,7 +9,8 @@ namespace wheelbri::shim {
 
 // Human-readable renderings of DirectInput values for the Phase 0 log.
 
-[[nodiscard]] std::string toUtf8(const WCHAR* text);
+// At most `maxChars` characters (game strings may not be terminated inside their MAX_PATH buffers).
+[[nodiscard]] std::string toUtf8(const WCHAR* text, std::size_t maxChars = MAX_PATH);
 [[nodiscard]] std::string toUtf8(const CHAR* text);
 
 [[nodiscard]] std::string guidToString(const GUID& guid);

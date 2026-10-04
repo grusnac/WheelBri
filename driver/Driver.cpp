@@ -289,7 +289,13 @@ bool Link::start() {
                 std::to_string(WSAGetLastError()) + "): the game's force feedback will not reach the wheel");
     }
     // The thread gets its own copy of the socket: stop() closes it only after the thread has ended.
-    thread_ = std::thread([this, sock = stateSocket_] { run(sock); });
+    try {
+        thread_ = std::thread([this, sock = stateSocket_] { run(sock); });
+    } catch (const std::exception& e) {   // out of resources: never let it out of a WDF callback (WUDFHost would end)
+        logLine(std::string("ERROR: cannot start the device's thread (") + e.what() + "): the device will not start");
+        closeSockets();
+        return false;
+    }
     return true;
 }
 
@@ -581,6 +587,9 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     return STATUS_SUCCESS;
 }
 
+// The driver goes away: Winsock is released with it (WSAStartup in DriverEntry).
+VOID EvtDriverCleanup(WDFOBJECT) { WSACleanup(); }
+
 }  // namespace
 
 extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driverObject, PUNICODE_STRING registryPath) {
@@ -591,7 +600,11 @@ extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driverObject, PUNICODE_STRING reg
     }
     WDF_DRIVER_CONFIG config;
     WDF_DRIVER_CONFIG_INIT(&config, EvtDeviceAdd);
-    const NTSTATUS status = WdfDriverCreate(driverObject, registryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, WDF_NO_HANDLE);
+    WDF_OBJECT_ATTRIBUTES attributes;
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.EvtCleanupCallback = EvtDriverCleanup;
+    const NTSTATUS status = WdfDriverCreate(driverObject, registryPath, &attributes, &config, WDF_NO_HANDLE);
     logLine(NT_SUCCESS(status) ? "wheelbri-g920 driver loaded" : "WdfDriverCreate failed: " + std::to_string(status));
+    if (!NT_SUCCESS(status)) WSACleanup();   // no driver object, so no cleanup callback either
     return status;
 }

@@ -48,27 +48,36 @@ std::optional<FfbEffectType> EmulatedEffect::typeFor(REFGUID guid) {
     return std::nullopt;
 }
 
-EmulatedEffect::EmulatedEffect(REFGUID type, const FfbEffectType effectType, const std::uint8_t slot,
-                               std::string deviceLabel, const DWORD wheelAxisOffset, const DWORD wheelAxisId)
+EmulatedEffect::EmulatedEffect(REFGUID type, const FfbEffectType effectType, const FfbForwarder::Allocation slot,
+                               const void* const owner, std::string deviceLabel, const DWORD wheelAxisOffset,
+                               const DWORD wheelAxisId)
     : type_(type),
       effectType_(effectType),
       slot_(slot),
+      owner_(owner),
       label_(std::move(deviceLabel) + " effect " + describeGuid(type)),
       wheelAxisOffset_(wheelAxisOffset),
       wheelAxisId_(wheelAxisId) {
-    WE_LOG_DEBUG(log(), "{}: created in slot {}", label_, slot);
+    WE_LOG_DEBUG(log(), "{}: created in slot {}", label_, slot.slot);
+}
+
+std::optional<FfbForwarder::Allocation> EmulatedEffect::currentSlot() {
+    if (slot_ && !FfbForwarder::instance().holds(*slot_)) {
+        slot_.reset();   // the device was reset: the effect is unloaded, its slot may be another effect's now
+    }
+    return slot_;
 }
 
 bool EmulatedEffect::ensureSlot() {
-    if (slot_) {
+    if (currentSlot()) {
         return true;
     }
-    slot_ = FfbForwarder::instance().allocate();
+    slot_ = FfbForwarder::instance().allocate(owner_);
     if (!slot_) {
         return false;
     }
     FfbForwarder::instance().setEffect(*slot_, toFfb());
-    WE_LOG_DEBUG(log(), "{}: downloaded again, slot {}", label_, *slot_);
+    WE_LOG_DEBUG(log(), "{}: downloaded again, slot {}", label_, slot_->slot);
     return true;
 }
 
@@ -93,7 +102,7 @@ ULONG EmulatedEffect::Release() {
         // Never let anything escape into the game; the object goes either way.
         guardedVoid("Release", [&] {
             if (slot_) {
-                FfbForwarder::instance().release(*slot_);
+                FfbForwarder::instance().release(*slot_);   // nothing when it is no longer this effect's
             }
             WE_LOG_DEBUG(log(), "{}: released", label_);
         });
@@ -244,8 +253,8 @@ HRESULT EmulatedEffect::SetParameters(LPCDIEFFECT effect, const DWORD flags) {
         if ((flags & DIEP_NODOWNLOAD) == 0 && !ensureSlot()) {
             return DIERR_DEVICEFULL;
         }
-        if (slot_) {
-            FfbForwarder::instance().setEffect(*slot_, converted);
+        if (const auto slot = currentSlot()) {
+            FfbForwarder::instance().setEffect(*slot, converted);
         }
         if (const auto call = setSampler_.next(); call != 0) {
             WE_LOG_DEBUG(log(), "{}: SetParameters #{} flags=0x{:x} -> level={:+.3f} coef={:+.3f}/{:+.3f} "
@@ -333,8 +342,8 @@ HRESULT EmulatedEffect::Start(const DWORD iterations, const DWORD flags) {
 HRESULT EmulatedEffect::Stop() {
     return guarded("Stop", [&]() -> HRESULT {
         const std::lock_guard<std::recursive_mutex> lock(mutex_);
-        if (slot_) {
-            FfbForwarder::instance().stop(*slot_);
+        if (const auto slot = currentSlot()) {
+            FfbForwarder::instance().stop(*slot);
         }
         if (const auto call = startStopSampler_.next(); call != 0) {
             WE_LOG_DEBUG(log(), "{}: Stop #{}", label_, call);
@@ -349,7 +358,8 @@ HRESULT EmulatedEffect::GetEffectStatus(LPDWORD status) {
         if (status == nullptr) {
             return E_POINTER;
         }
-        *status = slot_ && FfbForwarder::instance().isPlaying(*slot_) ? DIEGES_PLAYING : 0;
+        const auto slot = currentSlot();
+        *status = slot && FfbForwarder::instance().isPlaying(*slot) ? DIEGES_PLAYING : 0;
         return DI_OK;
     });
 }
@@ -365,11 +375,10 @@ HRESULT EmulatedEffect::Unload() {
     return guarded("Unload", [&]() -> HRESULT {
         const std::lock_guard<std::recursive_mutex> lock(mutex_);
         // Stops the effect and frees its slot (the object stays valid and can be downloaded again).
-        if (slot_) {
-            const std::uint8_t slot = *slot_;
-            FfbForwarder::instance().release(slot);
+        if (const auto slot = currentSlot()) {
+            FfbForwarder::instance().release(*slot);
             slot_.reset();
-            WE_LOG_DEBUG(log(), "{}: Unload, slot {} freed", label_, slot);
+            WE_LOG_DEBUG(log(), "{}: Unload, slot {} freed", label_, slot->slot);
         }
         return DI_OK;
     });

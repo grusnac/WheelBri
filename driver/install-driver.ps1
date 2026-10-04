@@ -19,9 +19,10 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Assert-Admin
 
-Remove-LegacyPackages 'wheelbri-g920' | Out-Null
+# The new package first: without a build, nothing old is removed (the script stops here, Windows keeps what it has).
 $inf = Find-BuiltPackage $PSScriptRoot 'wheelbri-g920' $Configuration
 Add-PackageCertificate $inf 'wheelbri-g920'
+Remove-LegacyPackages 'wheelbri-g920' | Out-Null
 Invoke-Pnputil @('/add-driver', $inf.FullName, '/install') 'installing wheelbri-g920' | Out-Null
 if (@(Get-InstalledPackages 'wheelbri-g920').Count -eq 0) {
     Stop-WithError 'pnputil reported success, but Windows does not list wheelbri-g920.inf as installed.'

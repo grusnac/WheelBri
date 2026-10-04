@@ -95,7 +95,8 @@ if (-not (Test-Path $commonScript)) {
 }
 . $commonScript
 $log = Join-Path $env:TEMP "wheelbri-clean-pc-$(Get-Date -Format yyyy-MM-dd-HHmmss).log"
-Start-Transcript -Path $log | Out-Null
+# A log is a help, not a must: if it cannot start, say so and go on (the window still explains what happens).
+try { Start-Transcript -Path $log | Out-Null } catch { Write-Host "(no log file: $($_.Exception.Message))"; $log = '(none)' }
 $warnings = New-Object System.Collections.Generic.List[string]
 function Warn([string]$text) { Write-Host "    $text" -ForegroundColor Yellow; $warnings.Add($text) }
 function Step([string]$text) { Write-Host $text -ForegroundColor Cyan }
@@ -195,14 +196,15 @@ function Test-OurShim([string]$path) {
 function Get-ShimFiles {
     $found = @()
     foreach ($folder in $GameFolder) {
-        if (-not (Test-Path $folder)) { Warn "game folder not found: $folder"; continue }
+        # -LiteralPath throughout: a folder name with [ or ] is not a wildcard.
+        if (-not (Test-Path -LiteralPath $folder)) { Warn "game folder not found: $folder"; continue }
         foreach ($name in 'dinput8.dll', 'dinput8.dll.off') {
             $path = Join-Path $folder $name
-            if ((Test-Path $path) -and (Test-OurShim $path)) { $found += $path }
+            if ((Test-Path -LiteralPath $path) -and (Test-OurShim $path)) { $found += $path }
         }
         foreach ($name in $names) {
             $ini = Join-Path $folder "$name-shim.ini"
-            if (Test-Path $ini) { $found += $ini }
+            if (Test-Path -LiteralPath $ini) { $found += $ini }
         }
     }
     return $found
@@ -394,8 +396,8 @@ try {
 
         Step '[7/8] taking the shim out of game folders'
         foreach ($file in $shimFiles) {
-            Remove-Item $file -Force -ErrorAction SilentlyContinue
-            if (Test-Path $file) { Warn "could not remove $file (is the game running?)" } else { Write-Host "    removed $file" }
+            Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $file) { Warn "could not remove $file (is the game running?)" } else { Write-Host "    removed $file" }
         }
         if ($GameFolder.Count -eq 0) { Write-Host '    no game folder given (-GameFolder)' }
         elseif ($shimFiles.Count -eq 0) { Write-Host '    none' }
@@ -405,8 +407,10 @@ try {
             Write-Host '    kept (-KeepData)'
         } else {
             foreach ($folder in $dataFolders) {
-                Remove-Item $folder -Recurse -Force -ErrorAction SilentlyContinue
-                if (Test-Path $folder) { Warn "could not remove $folder completely (a file in use?)" }
+                # Remove-Tree (common.ps1), not Remove-Item -Recurse: as Administrator that follows a link (junction)
+                # inside the folder and empties whatever it points to; Remove-Tree takes the link away only.
+                Remove-Tree $folder
+                if (Test-Path -LiteralPath $folder) { Warn "could not remove $folder completely (a file in use?)" }
                 else { Write-Host "    removed $folder" }
             }
             if ($dataFolders.Count -eq 0) { Write-Host '    none' }
@@ -425,7 +429,7 @@ try {
         }
     }
     Write-Host "log: $log"
-    Stop-Transcript | Out-Null
+    try { Stop-Transcript | Out-Null } catch { }
     if (-not $Yes) { Read-Host 'Press Enter to close' | Out-Null }
 }
 exit $exitCode

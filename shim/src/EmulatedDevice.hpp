@@ -116,10 +116,10 @@ public:
         const ULONG remaining = --references_;
         if (remaining == 0) {
             // Released without Unacquire (or with effects still started): its forces must not play on, nor come
-            // back when the game opens the wheel again.
+            // back when the game opens the wheel again. Only this device's: the game may have the wheel open twice.
             if (serviceFfb()) {
                 try {
-                    FfbForwarder::instance().stopAll();
+                    FfbForwarder::instance().stopAll(this);
                 } catch (...) {   // never let anything escape into the game
                 }
             }
@@ -234,9 +234,12 @@ public:
                 return DIERR_INVALIDPARAM;
             }
             const HRESULT result = getProperty(property, header);
-            WE_LOG_DEBUG(detail::emulationLog(), "{}: GetProperty({}, how={}, obj=0x{:x}) -> {} {}", label_,
-                         describeProperty(property), header->dwHow, header->dwObj, describeHresult(result),
-                         SUCCEEDED(result) ? describePropertyValue(property, header) : std::string());
+            // Some games ask every frame, and every shim line is flushed to disk: sampled (failures always).
+            if (const auto call = propertySampler_.next(); call != 0 || FAILED(result)) {
+                WE_LOG_DEBUG(detail::emulationLog(), "{}: GetProperty({}, how={}, obj=0x{:x}) -> {} {} (#{})", label_,
+                             describeProperty(property), header->dwHow, header->dwObj, describeHresult(result),
+                             SUCCEEDED(result) ? describePropertyValue(property, header) : std::string(), call);
+            }
             return result;
         });
     }
@@ -247,10 +250,11 @@ public:
                 return DIERR_INVALIDPARAM;
             }
             const HRESULT result = setProperty(property, header);
-            WE_LOG_INFO(detail::emulationLog(), "{}: SetProperty({}, how={}, obj=0x{:x}, {}) -> {}", label_,
-                        describeProperty(property), header->dwHow, header->dwObj, describePropertyValue(property,
-                                         header),
-                        describeHresult(result));
+            if (const auto call = setPropertySampler_.next(); call != 0 || FAILED(result)) {   // e.g. the gain every frame
+                WE_LOG_INFO(detail::emulationLog(), "{}: SetProperty({}, how={}, obj=0x{:x}, {}) -> {} (#{})", label_,
+                            describeProperty(property), header->dwHow, header->dwObj,
+                            describePropertyValue(property, header), describeHresult(result), call);
+            }
             return result;
         });
     }
@@ -393,7 +397,7 @@ public:
             HRESULT result = real_->Unacquire();
             if (serviceFfb()) {
                 result = DI_OK;
-                FfbForwarder::instance().stopAll();   // DirectInput stops a device's effects when it is unacquired
+                FfbForwarder::instance().stopAll(this);   // DirectInput stops a device's effects when it is unacquired
             }
             const std::lock_guard<std::mutex> lock(mutex_);
             if (acquired_) {
@@ -563,21 +567,25 @@ public:
             if (serviceFfb()) {
                 FfbForwarder& forwarder = FfbForwarder::instance();
                 switch (command) {
-                    case DISFFC_RESET: forwarder.reset(); break;
-                    case DISFFC_STOPALL: forwarder.stopAll(); break;
+                    case DISFFC_RESET: forwarder.reset(this); break;
+                    case DISFFC_STOPALL: forwarder.stopAll(this); break;
                     case DISFFC_PAUSE: forwarder.setPaused(true); break;
                     case DISFFC_CONTINUE: forwarder.setPaused(false); break;
                     case DISFFC_SETACTUATORSON: forwarder.setActuators(true); break;
                     case DISFFC_SETACTUATORSOFF: forwarder.setActuators(false); break;
                     default: return DIERR_INVALIDPARAM;
                 }
-                WE_LOG_INFO(detail::emulationLog(), "{}: SendForceFeedbackCommand({})", label_,
-                            describeFfCommand(command));
+                if (const auto call = ffCommandSampler_.next(); call != 0) {
+                    WE_LOG_INFO(detail::emulationLog(), "{}: SendForceFeedbackCommand({}) (#{})", label_,
+                                describeFfCommand(command), call);
+                }
                 return DI_OK;
             }
             const HRESULT result = real_->SendForceFeedbackCommand(command);
-            WE_LOG_INFO(detail::emulationLog(), "{}: SendForceFeedbackCommand(0x{:x}) -> {}", label_, command,
-                        describeHresult(result));
+            if (const auto call = ffCommandSampler_.next(); call != 0 || FAILED(result)) {
+                WE_LOG_INFO(detail::emulationLog(), "{}: SendForceFeedbackCommand(0x{:x}) -> {} (#{})", label_, command,
+                            describeHresult(result), call);
+            }
             return result;
         });
     }
@@ -665,32 +673,44 @@ private:
             WE_LOG_WARN(detail::emulationLog(), "{}: CreateEffect({}) not supported", label_, describeGuid(type));
             return DIERR_UNSUPPORTED;
         }
-        const auto slot = FfbForwarder::instance().allocate();
+        const auto slot = FfbForwarder::instance().allocate(this);
         if (!slot) {
             return DIERR_DEVICEFULL;
         }
-        DWORD wheelOffset = 0;
-        DWORD wheelId = 0;
-        {
-            const std::lock_guard<std::mutex> lock(mutex_);
-            wheelOffset = joystick_.reportedOffset(0);   // object 0 is always the wheel (X)
-            wheelId = joystick_.objects()[0].typeId;
+        // From here on the slot is this effect's: anything that fails (allocation, logging) must give it back.
+        EmulatedEffect* created = nullptr;
+        try {
+            DWORD wheelOffset = 0;
+            DWORD wheelId = 0;
+            {
+                const std::lock_guard<std::mutex> lock(mutex_);
+                wheelOffset = joystick_.reportedOffset(0);   // object 0 is always the wheel (X)
+                wheelId = joystick_.objects()[0].typeId;
+            }
+            created = new EmulatedEffect(type, *effectType, *slot, this, label_, wheelOffset, wheelId);
+            HRESULT result = DI_OK;
+            if (effect != nullptr) {
+                result = created->SetParameters(effect, effect->dwSize == sizeof(DIEFFECT) ? DIEP_ALLPARAMS
+                                                                                         : DIEP_ALLPARAMS_DX5);
+            }
+            WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) {} -> slot {} for wheelbri-service -> {}",
+                        label_, describeGuid(type),
+                        describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0), slot->slot,
+                        describeHresult(result));
+            if (FAILED(result)) {
+                created->Release();   // gives the slot back
+                return result;
+            }
+            *out = created;
+            return DI_OK;
+        } catch (...) {
+            if (created != nullptr) {
+                created->Release();   // gives the slot back
+            } else {
+                FfbForwarder::instance().release(*slot);
+            }
+            throw;   // guarded() turns it into an error for the game and logs it
         }
-        auto* created = new EmulatedEffect(type, *effectType, *slot, label_, wheelOffset, wheelId);
-        HRESULT result = DI_OK;
-        if (effect != nullptr) {
-            result = created->SetParameters(effect, effect->dwSize == sizeof(DIEFFECT) ? DIEP_ALLPARAMS
-                                                                                     : DIEP_ALLPARAMS_DX5);
-        }
-        WE_LOG_INFO(detail::emulationLog(), "{}: CreateEffect({}) {} -> slot {} for wheelbri-service -> {}", label_,
-                    describeGuid(type), describeEffect(type, effect, effect != nullptr ? DIEP_ALLPARAMS : 0), *slot,
-                    describeHresult(result));
-        if (FAILED(result)) {
-            created->Release();
-            return result;
-        }
-        *out = created;
-        return DI_OK;
     }
 
     // Pulls the newest state and, when buffered, queues what changed. Caller holds mutex_.
@@ -727,7 +747,7 @@ private:
         std::size_t pedal = 0;
         forEachPedal(report, [&](const EmulatedObject&, const std::int32_t value, const LogicalRange& range) {
             const double span = static_cast<double>(range.max) - static_cast<double>(range.min);
-            buckets[pedal++] = static_cast<int>(std::lround(4.0 * (value - range.min) / (span > 0 ? span : 1.0)));
+            buckets[pedal++] = static_cast<int>(std::lround(4.0 * (static_cast<double>(value) - range.min) / (span > 0 ? span : 1.0)));
         });
         if (buckets == pedalBuckets_) {
             return;
@@ -1006,6 +1026,9 @@ private:
     logging::CallSampler dataSampler_{10, 2000};
     logging::CallSampler escapeSampler_{5, 1000};
     logging::CallSampler pedalSampler_{50, 100};
+    logging::CallSampler propertySampler_{40, 1000};
+    logging::CallSampler setPropertySampler_{40, 1000};
+    logging::CallSampler ffCommandSampler_{20, 1000};
     logging::RateLimiter stateFailureLimiter_{std::chrono::seconds(5)};
     logging::RateLimiter acquireLimiter_{std::chrono::seconds(5)};
     logging::RateLimiter physicalAcquireLimiter_{std::chrono::seconds(5)};

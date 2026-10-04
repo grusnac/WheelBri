@@ -100,9 +100,11 @@ public:
     HRESULT STDMETHODCALLTYPE GetProperty(REFGUID property, LPDIPROPHEADER header) override {
         return guarded("GetProperty", [&]() -> HRESULT {
             const HRESULT result = real_->GetProperty(property, header);
-            WE_LOG_INFO(detail::deviceLog(), "{}: GetProperty({}) -> {} {}", label_, describeProperty(property),
-                        describeHresult(result),
-                        SUCCEEDED(result) ? describePropertyValue(property, header) : std::string());
+            if (const auto call = propertySampler_.next(); call != 0) {   // flushed lines: sampled
+                WE_LOG_INFO(detail::deviceLog(), "{}: GetProperty({}) -> {} {} (#{})", label_, describeProperty(property),
+                            describeHresult(result),
+                            SUCCEEDED(result) ? describePropertyValue(property, header) : std::string(), call);
+            }
             return result;
         });
     }
@@ -110,8 +112,10 @@ public:
     HRESULT STDMETHODCALLTYPE SetProperty(REFGUID property, LPCDIPROPHEADER header) override {
         return guarded("SetProperty", [&]() -> HRESULT {
             const HRESULT result = real_->SetProperty(property, header);
-            WE_LOG_INFO(detail::deviceLog(), "{}: SetProperty({}, {}) -> {}", label_, describeProperty(property),
-                        describePropertyValue(property, header), describeHresult(result));
+            if (const auto call = setPropertySampler_.next(); call != 0) {
+                WE_LOG_INFO(detail::deviceLog(), "{}: SetProperty({}, {}) -> {} (#{})", label_, describeProperty(property),
+                            describePropertyValue(property, header), describeHresult(result), call);
+            }
             return result;
         });
     }
@@ -346,9 +350,10 @@ public:
     HRESULT STDMETHODCALLTYPE SendForceFeedbackCommand(DWORD command) override {
         return guarded("SendForceFeedbackCommand", [&]() -> HRESULT {
             const HRESULT result = real_->SendForceFeedbackCommand(command);
-            WE_LOG_INFO(detail::deviceLog(), "{}: SendForceFeedbackCommand({}) -> {}", label_,
-                        describeFfCommand(command),
-                        describeHresult(result));
+            if (const auto call = ffCommandSampler_.next(); call != 0) {
+                WE_LOG_INFO(detail::deviceLog(), "{}: SendForceFeedbackCommand({}) -> {} (#{})", label_,
+                            describeFfCommand(command), describeHresult(result), call);
+            }
             return result;
         });
     }
@@ -502,7 +507,10 @@ private:
     logging::CallSampler dataSampler_{10, 2000};
     logging::CallSampler pollSampler_{5, 5000};
     logging::CallSampler ffStateSampler_{5, 1000};
-    logging::CallSampler acquireOkSampler_{20, 1000};   // Acquire / Unacquire -> DI_OK, which some games do every frame
+    logging::CallSampler acquireOkSampler_{20, 1000};
+    logging::CallSampler propertySampler_{40, 1000};
+    logging::CallSampler setPropertySampler_{40, 1000};
+    logging::CallSampler ffCommandSampler_{20, 1000};   // Acquire / Unacquire -> DI_OK, which some games do every frame
     logging::RateLimiter stateFailureLimiter_{std::chrono::seconds(5)};
     logging::RateLimiter dataFailureLimiter_{std::chrono::seconds(5)};
     logging::RateLimiter pollFailureLimiter_{std::chrono::seconds(5)};
