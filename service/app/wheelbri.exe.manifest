@@ -2,7 +2,7 @@
 <!-- wheelbri.exe: asks for Administrator when started (the virtual G920 and hiding the real wheel need it),
      sharp on high-DPI screens. -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="wheelbri.app" version="0.1.0.0" processorArchitecture="amd64"/>
+  <assemblyIdentity type="win32" name="wheelbri.app" version="0.5.0.0" processorArchitecture="amd64"/>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
