@@ -149,6 +149,12 @@ why, in red. Start shows the Logs tab of the same live view as `--ui`
 undoes everything (virtual G920 removed, the R3 visible again).
 Each Start reads the config again, so edits apply without restarting the app.
 
+The **Logs** tab's live log (every component's log merged, newest at the bottom) scrolls with the mouse wheel, the
+arrows and PageUp / PageDown / Home / End, and with its scroll bars: drag the one on the right to go up and down fast,
+or click its track to jump there. Long messages run off the side: drag the bar under them, use Shift + wheel (or a
+sideways wheel) or Left / Right. **Wrap** (or W) turns word wrap on: a long message continues on the next rows
+instead, and the sideways bar goes away. End (or scrolling to the bottom) follows the newest lines again.
+
 NFS 2015 shows keyboard button prompts with the G920 (it does not treat it as an Xbox device). A virtual Xbox
 controller to get Xbox prompts was tried and removed on 2026-10-03: with it there at the game's start NFS drove from
 the pad, its buttons triggered the pad's own functions (the right stick click took photos), and stick nudges did not

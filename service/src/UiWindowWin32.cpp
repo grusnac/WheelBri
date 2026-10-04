@@ -166,6 +166,10 @@ public:
         input.clicks.swap(clicks_);
         input.wheel = wheelDelta_ / WHEEL_DELTA;
         wheelDelta_ %= WHEEL_DELTA;   // a fine-grained wheel keeps its remainder for the next notch
+        input.hwheel = hwheelDelta_ / WHEEL_DELTA;
+        hwheelDelta_ %= WHEEL_DELTA;
+        input.pointer = pointer_;
+        input.leftDown = leftDown_;
         return input;
     }
 
@@ -331,13 +335,16 @@ private:
                 if (wParam == VK_ESCAPE) {
                     keys_ += kEscape;
                 } else if (wParam == VK_PRIOR || wParam == VK_NEXT || wParam == VK_HOME || wParam == VK_END ||
-                           wParam == VK_UP || wParam == VK_DOWN) {   // repeats too: holding scrolls on
+                           wParam == VK_UP || wParam == VK_DOWN || wParam == VK_LEFT ||
+                           wParam == VK_RIGHT) {   // repeats too: holding scrolls on
                     keys_ += wParam == VK_PRIOR  ? kPageUp
                              : wParam == VK_NEXT ? kPageDown
                              : wParam == VK_HOME ? kHome
                              : wParam == VK_END  ? kEnd
                              : wParam == VK_UP   ? kUp
-                                                 : kDown;
+                             : wParam == VK_DOWN ? kDown
+                             : wParam == VK_LEFT ? kLeft
+                                                 : kRight;
                 } else if (wParam >= 'A' && wParam <= 'Z' && (lParam & (1L << 30)) == 0) {   // not a repeat
                     keys_ += static_cast<char>('a' + (wParam - 'A'));
                 }
@@ -352,10 +359,31 @@ private:
                 }
                 return true;
             case WM_MOUSEWHEEL:
-                wheelDelta_ += GET_WHEEL_DELTA_WPARAM(wParam);
+                if ((GET_KEYSTATE_WPARAM(wParam) & MK_SHIFT) != 0) {
+                    hwheelDelta_ -= GET_WHEEL_DELTA_WPARAM(wParam);   // Shift + wheel: sideways (away = left)
+                } else {
+                    wheelDelta_ += GET_WHEEL_DELTA_WPARAM(wParam);
+                }
+                return true;
+            case 0x020E:   // WM_MOUSEHWHEEL: a tilt wheel or a touchpad's sideways swipe (> 0 to the right)
+                hwheelDelta_ += GET_WHEEL_DELTA_WPARAM(wParam);
                 return true;
             case WM_LBUTTONDOWN:
-                clicks_.push_back(toCanvas(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam))));
+                pointer_ = toCanvas(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
+                clicks_.push_back(pointer_);
+                leftDown_ = true;
+                SetCapture(hwnd);   // the drag goes on outside the window
+                return true;
+            case WM_MOUSEMOVE:
+                pointer_ = toCanvas(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
+                return true;
+            case WM_LBUTTONUP:
+                pointer_ = toCanvas(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
+                leftDown_ = false;
+                ReleaseCapture();
+                return true;
+            case WM_CAPTURECHANGED:   // another window took the mouse: the drag ends
+                leftDown_ = false;
                 return true;
             case WM_ERASEBKGND:   // everything is painted from the buffer: no flicker
                 result = 1;
@@ -462,6 +490,9 @@ private:
     std::string keys_;
     std::string text_;
     int wheelDelta_ = 0;
+    int hwheelDelta_ = 0;
+    Click pointer_;
+    bool leftDown_ = false;
     std::vector<Click> clicks_;
 };
 

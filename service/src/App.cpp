@@ -160,6 +160,8 @@ public:
         if (input.wheel != 0) {
             view_->onScroll(input.wheel);
         }
+        if (input.hwheel != 0) view_->onHScroll(input.hwheel);
+        view_->onPointer(input.pointer.x, input.pointer.y, input.leftDown);   // the live log's scroll bars
         if (frame.ready && view_->tab() == MappingView::Tab::WheelSetup) {
             const auto wheel = sessionWheel(info_, frame);
             setup_->update(&wheel);
@@ -335,6 +337,7 @@ private:
         FilesDisplay files;
         files.logFolder = settings_.logFolder;
         logs_->setFiles(files);
+        logs_->setTab(MappingView::Tab::Logs);   // it only ever shows its Logs page (scrolling and drags check the tab)
         // Logoff or shutdown: Windows ends the process right after this returns (about 5 s).
         window_->onEndSession([this] {
             if (!running()) return;
@@ -424,6 +427,13 @@ private:
             }
             if (view_ != nullptr && input.wheel != 0) view_->onScroll(input.wheel);
             if (view_ == nullptr && idleTab_ == IdleTab::Logs && input.wheel != 0) logs_->onScroll(input.wheel);
+            // The live log's scroll bars: dragged with the mouse, and the sideways wheel.
+            if (MappingView* const logsView = view_ != nullptr ? view_.get()
+                                              : idleTab_ == IdleTab::Logs ? logs_.get()
+                                                                          : nullptr) {
+                if (input.hwheel != 0) logsView->onHScroll(input.hwheel);
+                logsView->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
+            }
             collectSession();
             logs_->setShimMode(shimTarget());   // the Logs tab while stopped follows the target
             updateSetup();

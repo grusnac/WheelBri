@@ -77,10 +77,16 @@ public:
     [[nodiscard]] static std::vector<Tab> visibleTabs();
 
     // A key pressed in the window: M / R / L (T / F when shown) switch tabs, O opens the logs (or telemetry) folder, D the drivers'
-    // log folder; on the Logs tab the arrows, PageUp / PageDown and Home / End scroll the live log.
+    // log folder; on the Logs tab the arrows, PageUp / PageDown and Home / End scroll the live log, Left / Right
+    // sideways, and W turns word wrap on or off.
     void onKey(char key);
     // Mouse wheel notches (> 0 = up): on the Logs tab, scrolls the live log.
     void onScroll(int notches);
+    // Sideways wheel notches (> 0 = right): on the Logs tab, scrolls the live log's long lines.
+    void onHScroll(int notches);
+    // Every frame: where the mouse is (panel pixels) and whether the left button is held, to drag the live log's
+    // scroll bars (a press on one comes through onClick first).
+    void onPointer(float x, float y, bool leftDown);
     // A left click, in the panel's own logical pixels (the window's origin taken off): the tab buttons, and
     // on the Logs tab a component's line opens its folder.
     void onClick(float x, float y);
@@ -192,6 +198,24 @@ private:
     std::size_t liveScroll_ = 0;        // lines scrolled up from the newest; 0 = follow new lines
     std::uint64_t liveSeen_ = 0;        // liveLog_.added() when last drawn (to hold the view while scrolled up)
     std::size_t liveRows_ = 1;          // lines that fit, from the last draw
+    static constexpr std::size_t kLiveMessageChars = 80;   // a message row, to the scroll bar
+    std::size_t liveHScroll_ = 0;       // characters scrolled right in the messages (without word wrap)
+    std::size_t liveLongest_ = 0;       // the longest message, in characters (from the last draw)
+    bool liveWrap_ = false;             // word wrap: long messages go on over several rows instead of off the side
+    // The scroll bars as last drawn, for clicks and drags.
+    struct Bar {
+        float x = 0, y = 0, w = 0, h = 0;              // the track
+        float thumbStart = 0, thumbSize = 0;           // along it
+        bool shown = false;
+    };
+    Bar vBar_;
+    Bar hBar_;
+    float wrapX_ = 0, wrapY_ = 0, wrapW_ = 0;           // the Wrap button
+    enum class Drag { None, Vertical, Horizontal };
+    Drag drag_ = Drag::None;
+    float dragGrab_ = 0;                // where on the thumb it was taken
+    void dragTo(float x, float y);
+    [[nodiscard]] std::size_t liveMostScroll() const;
 
     // The Telemetry tab's latest events (buttons, D-pad, pedals, game force feedback), newest last.
     struct TelemetryEvent {

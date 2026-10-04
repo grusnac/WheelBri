@@ -139,12 +139,54 @@ void MappingView::onKey(const char key) {
         if (key == ui::kDown) scrollLiveLog(-1);
         if (key == ui::kHome) scrollLiveLog(static_cast<long long>(LiveLog::kMaxLines));
         if (key == ui::kEnd) liveScroll_ = 0;
+        if (key == ui::kLeft) onHScroll(-1);
+        if (key == ui::kRight) onHScroll(1);
+        if (key == 'w') {
+            liveWrap_ = !liveWrap_;
+            liveHScroll_ = 0;
+        }
     }
 }
 
 void MappingView::onScroll(const int notches) {
     if (tab_ == Tab::Logs) {
         scrollLiveLog(static_cast<long long>(notches) * 3);
+    }
+}
+
+void MappingView::onHScroll(const int notches) {
+    if (tab_ != Tab::Logs || liveWrap_) return;
+    const auto most = static_cast<long long>(liveLongest_ > kLiveMessageChars ? liveLongest_ - kLiveMessageChars : 0);
+    liveHScroll_ = static_cast<std::size_t>(
+        std::clamp(static_cast<long long>(liveHScroll_) + static_cast<long long>(notches) * 8, 0LL, most));
+}
+
+std::size_t MappingView::liveMostScroll() const {
+    const std::size_t total = liveLog_.lines().size();
+    return total > liveRows_ ? total - liveRows_ : 0;
+}
+
+void MappingView::onPointer(const float x, const float y, const bool leftDown) {
+    if (!leftDown || tab_ != Tab::Logs) {
+        drag_ = Drag::None;
+        return;
+    }
+    if (drag_ != Drag::None) dragTo(x, y);
+}
+
+void MappingView::dragTo(const float x, const float y) {
+    // The thumb's start follows the mouse (less where it was taken); its position along the free track is the
+    // position in the log.
+    if (drag_ == Drag::Vertical && vBar_.shown) {
+        const float free = std::max(1.0F, vBar_.h - vBar_.thumbSize);
+        const float at = std::clamp((y - dragGrab_ - vBar_.y) / free, 0.0F, 1.0F);
+        const auto most = static_cast<float>(liveMostScroll());
+        liveScroll_ = static_cast<std::size_t>(std::lround((1.0F - at) * most));   // the top = scrolled furthest up
+    } else if (drag_ == Drag::Horizontal && hBar_.shown) {
+        const float free = std::max(1.0F, hBar_.w - hBar_.thumbSize);
+        const float at = std::clamp((x - dragGrab_ - hBar_.x) / free, 0.0F, 1.0F);
+        const float most = static_cast<float>(liveLongest_ > kLiveMessageChars ? liveLongest_ - kLiveMessageChars : 0);
+        liveHScroll_ = static_cast<std::size_t>(std::lround(at * most));
     }
 }
 
@@ -856,7 +898,8 @@ void MappingView::drawLogs() {
 
 void MappingView::drawLiveLog(const float top) {
     constexpr float kLineHeight = 11;
-    constexpr std::size_t kMessageChars = 81;   // to the scroll bar
+    constexpr float kMessageX = 4 + 35 * 8;
+    constexpr float kBarThickness = 8;
     const auto nowMs = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                       std::chrono::steady_clock::now().time_since_epoch())
                                                       .count());
@@ -870,30 +913,76 @@ void MappingView::drawLiveLog(const float top) {
         liveScroll_ += static_cast<std::size_t>(liveLog_.added() - liveSeen_);
     }
     liveSeen_ = liveLog_.added();
+    liveLongest_ = 0;
+    for (const LiveLogLine& line : lines) liveLongest_ = std::max(liveLongest_, line.message.size());
+    const bool sideways = !liveWrap_ && liveLongest_ > kLiveMessageChars;
+    if (!sideways) liveHScroll_ = 0;
+    liveHScroll_ = std::min(liveHScroll_, liveLongest_ > kLiveMessageChars ? liveLongest_ - kLiveMessageChars : 0);
 
     const float listTop = top + 14;
-    const float listBottom = kLogicalHeight - 34;
+    const float listBottom = kLogicalHeight - 34 - (sideways ? kBarThickness + 2 : 0);
     liveRows_ = static_cast<std::size_t>(std::max(1.0F, (listBottom - listTop) / kLineHeight));
-    liveScroll_ = std::min(liveScroll_, lines.size() > liveRows_ ? lines.size() - liveRows_ : std::size_t{0});
+    liveScroll_ = std::min(liveScroll_, liveMostScroll());
 
     fill(window_, 0, top - 8, kLogicalWidth, 1, kPanel);
     text(window_, 4, top, "LIVE LOG", kHeading);
-    char status[96];
+    char status[112];
     if (liveScroll_ == 0) {
-        std::snprintf(status, sizeof(status), "newest at the bottom; wheel / PageUp to scroll back (%zu lines)",
+        std::snprintf(status, sizeof(status), "newest at the bottom; drag the bar, wheel or PageUp to go back (%zu lines)",
                       lines.size());
     } else {
         std::snprintf(status, sizeof(status), "%zu lines up: End (or scroll down) to follow the newest again",
                       liveScroll_);
     }
     text(window_, 76, top, status, liveScroll_ == 0 ? kDim : kUnlabelled);
+    // Word wrap (W): long messages on several rows instead of off the side.
+    wrapW_ = 96;
+    wrapX_ = kLogicalWidth - 4 - wrapW_;
+    wrapY_ = top - 3;
+    fill(window_, wrapX_, wrapY_, wrapW_, 14, liveWrap_ ? kHeading : kPanel);
+    const char* const wrapLabel = liveWrap_ ? "Wrap: on (W)" : "Wrap: off (W)";
+    text(window_, wrapX_ + (wrapW_ - static_cast<float>(std::strlen(wrapLabel)) * 8) / 2, top, wrapLabel,
+         liveWrap_ ? kDark : kText);
+    vBar_.shown = false;
+    hBar_.shown = false;
     if (lines.empty()) {
         text(window_, 4, listTop, "no log lines today yet: start the service, the game or a driver", kDim);
         return;
     }
 
-    const std::size_t last = lines.size() - liveScroll_;               // one past the newest line shown
-    const std::size_t first = last > liveRows_ ? last - liveRows_ : 0;
+    // A message's rows: one, cut to the view and scrolled sideways; or, wrapped, as many as it needs (at spaces
+    // where it can).
+    const auto rowsOf = [this](const std::string& message) {
+        std::vector<std::string> rows;
+        if (!liveWrap_) {
+            std::string row = liveHScroll_ < message.size() ? message.substr(liveHScroll_) : std::string();
+            if (row.size() > kLiveMessageChars) row = row.substr(0, kLiveMessageChars - 3) + "...";
+            rows.push_back(std::move(row));
+            return rows;
+        }
+        std::size_t start = 0;
+        do {
+            std::size_t end = std::min(message.size(), start + kLiveMessageChars);
+            if (end < message.size()) {
+                const std::size_t space = message.rfind(' ', end);
+                if (space != std::string::npos && space > start + kLiveMessageChars / 2) end = space + 1;
+            }
+            rows.push_back(message.substr(start, end - start));
+            start = end;
+        } while (start < message.size());
+        return rows;
+    };
+
+    // The lines that fit, from the newest one shown upwards (with wrap a line may take several rows).
+    const std::size_t last = lines.size() - liveScroll_;   // one past the newest line shown
+    std::size_t first = last;
+    std::size_t rowsUsed = 0;
+    while (first > 0) {
+        const std::size_t need = liveWrap_ ? rowsOf(lines[first - 1].message).size() : 1;
+        if (rowsUsed + need > liveRows_ && rowsUsed > 0) break;
+        rowsUsed += need;
+        --first;
+    }
     float y = listTop;
     char head[16];
     for (std::size_t i = first; i < last; ++i) {
@@ -908,21 +997,35 @@ void MappingView::drawLiveLog(const float top) {
                               : line.level == LiveLogLevel::Warn  ? kUnlabelled
                               : line.level == LiveLogLevel::Debug || line.level == LiveLogLevel::Trace ? kDim
                                                                                                       : kText;
-        const std::string message = line.message.size() > kMessageChars
-                                        ? line.message.substr(0, kMessageChars - 3) + "..."
-                                        : line.message;
-        text(window_, 4 + 35 * 8, y, message.c_str(), colour);
-        y += kLineHeight;
+        for (const std::string& row : rowsOf(line.message)) {
+            if (y + kLineHeight > listBottom + 1) break;
+            text(window_, kMessageX, y, row.c_str(), colour);
+            y += kLineHeight;
+        }
     }
 
-    // Scroll bar: where the lines shown sit in all of them.
-    const float barTop = listTop;
-    const float barHeight = listBottom - listTop;
-    fill(window_, kLogicalWidth - 6, barTop, 4, barHeight, kPanel);
+    // Vertical scroll bar: where the lines shown sit in all of them. Drag it, or click the track to jump.
     const float total = static_cast<float>(lines.size());
-    const float thumbTop = barTop + barHeight * static_cast<float>(first) / total;
-    const float thumbHeight = std::max(6.0F, barHeight * static_cast<float>(last - first) / total);
-    fill(window_, kLogicalWidth - 6, thumbTop, 4, thumbHeight, kHeading);
+    vBar_ = {kLogicalWidth - 2 - kBarThickness, listTop, kBarThickness, listBottom - listTop, 0, 0, true};
+    vBar_.thumbSize = std::max(12.0F, vBar_.h * static_cast<float>(last - first) / total);
+    const float vMost = static_cast<float>(liveMostScroll());
+    const float vAt = vMost > 0 ? 1.0F - static_cast<float>(liveScroll_) / vMost : 1.0F;
+    vBar_.thumbStart = (vBar_.h - vBar_.thumbSize) * vAt;
+    fill(window_, vBar_.x, vBar_.y, vBar_.w, vBar_.h, kPanel);
+    fill(window_, vBar_.x, vBar_.y + vBar_.thumbStart, vBar_.w, vBar_.thumbSize,
+         drag_ == Drag::Vertical ? kText : kHeading);
+
+    // Horizontal scroll bar, under the messages, when one is wider than the view (not with word wrap).
+    if (sideways) {
+        const float width = static_cast<float>(kLiveMessageChars) * 8;
+        hBar_ = {kMessageX, listBottom + 2, width, kBarThickness, 0, 0, true};
+        hBar_.thumbSize = std::max(12.0F, width * static_cast<float>(kLiveMessageChars) / static_cast<float>(liveLongest_));
+        const float hMost = static_cast<float>(liveLongest_ - kLiveMessageChars);
+        hBar_.thumbStart = (width - hBar_.thumbSize) * static_cast<float>(liveHScroll_) / hMost;
+        fill(window_, hBar_.x, hBar_.y, hBar_.w, hBar_.h, kPanel);
+        fill(window_, hBar_.x + hBar_.thumbStart, hBar_.y, hBar_.thumbSize, hBar_.h,
+             drag_ == Drag::Horizontal ? kText : kHeading);
+    }
 }
 
 void MappingView::drawTabs() {
@@ -963,6 +1066,34 @@ void MappingView::onClick(const float x, const float y) {
     if (tab_ == Tab::Telemetry && y >= kTelemetryRowsTop - 2 && y < kTelemetryRowsTop - 2 + 2 * kLogRowHeight) {
         openFilesFolder();   // the telemetry files' folder
         return;
+    }
+    if (tab_ == Tab::Logs) {
+        const auto inside = [x, y](const float bx, const float by, const float bw, const float bh) {
+            return x >= bx && x < bx + bw && y >= by && y < by + bh;
+        };
+        if (wrapW_ > 0 && inside(wrapX_, wrapY_, wrapW_, 14)) {
+            liveWrap_ = !liveWrap_;
+            liveHScroll_ = 0;
+            return;
+        }
+        // A press on a scroll bar: on the thumb it is taken where pressed; elsewhere on the track the thumb jumps
+        // there (centred on the mouse). Either way the drag goes on while the button is held.
+        if (vBar_.shown && inside(vBar_.x - 3, vBar_.y, vBar_.w + 6, vBar_.h)) {
+            const float offset = y - (vBar_.y + vBar_.thumbStart);
+            const bool onThumb = offset >= 0 && offset < vBar_.thumbSize;
+            dragGrab_ = onThumb ? offset : vBar_.thumbSize / 2;
+            drag_ = Drag::Vertical;
+            dragTo(x, y);
+            return;
+        }
+        if (hBar_.shown && inside(hBar_.x, hBar_.y - 3, hBar_.w, hBar_.h + 6)) {
+            const float offset = x - (hBar_.x + hBar_.thumbStart);
+            const bool onThumb = offset >= 0 && offset < hBar_.thumbSize;
+            dragGrab_ = onThumb ? offset : hBar_.thumbSize / 2;
+            drag_ = Drag::Horizontal;
+            dragTo(x, y);
+            return;
+        }
     }
     if (tab_ == Tab::Logs && y >= kLogRowsTop - 2) {
         const auto row = static_cast<std::size_t>((y - (kLogRowsTop - 2)) / kLogRowHeight);

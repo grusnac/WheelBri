@@ -134,7 +134,8 @@ public:
         deleteWindow_ = XInternAtom(display_, "WM_DELETE_WINDOW", False);
         XSetWMProtocols(display_, window_, &deleteWindow_, 1);
         XSelectInput(display_, window_,
-                     ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | StructureNotifyMask |
+                     ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask |
+                         Button1MotionMask | StructureNotifyMask |
                          VisibilityChangeMask);
         // Held keys repeat as presses only (no fake releases), so a repeat is recognisable.
         Bool supported = False;
@@ -190,17 +191,38 @@ public:
                         keys_ += kUp;
                     } else if (sym == XK_Down) {
                         keys_ += kDown;
+                    } else if (sym == XK_Left) {
+                        keys_ += kLeft;
+                    } else if (sym == XK_Right) {
+                        keys_ += kRight;
                     }
                     break;
                 }
-                case ButtonPress:
+                case ButtonPress: {
+                    const bool shift = (event.xbutton.state & ShiftMask) != 0;   // Shift + wheel: sideways
                     if (event.xbutton.button == Button1) {
-                        clicks_.push_back(toCanvas(event.xbutton.x, event.xbutton.y));
+                        pointer_ = toCanvas(event.xbutton.x, event.xbutton.y);
+                        clicks_.push_back(pointer_);
+                        leftDown_ = true;   // X grabs the pointer for the window while a button is held
                     } else if (event.xbutton.button == Button4) {   // wheel up
-                        ++wheel_;
+                        if (shift) --hwheel_; else ++wheel_;
                     } else if (event.xbutton.button == Button5) {   // wheel down
-                        --wheel_;
+                        if (shift) ++hwheel_; else --wheel_;
+                    } else if (event.xbutton.button == 6) {   // wheel left
+                        --hwheel_;
+                    } else if (event.xbutton.button == 7) {   // wheel right
+                        ++hwheel_;
                     }
+                    break;
+                }
+                case ButtonRelease:
+                    if (event.xbutton.button == Button1) {
+                        pointer_ = toCanvas(event.xbutton.x, event.xbutton.y);
+                        leftDown_ = false;
+                    }
+                    break;
+                case MotionNotify:
+                    pointer_ = toCanvas(event.xmotion.x, event.xmotion.y);
                     break;
                 case KeyRelease:
                     keyDown_[event.xkey.keycode & 0xFFU] = false;
@@ -232,6 +254,10 @@ public:
         input.clicks.swap(clicks_);
         input.wheel = wheel_;
         wheel_ = 0;
+        input.hwheel = hwheel_;
+        hwheel_ = 0;
+        input.pointer = pointer_;
+        input.leftDown = leftDown_;
         return input;
     }
 
@@ -423,6 +449,9 @@ private:
     std::string text_;
     std::vector<Click> clicks_;
     int wheel_ = 0;
+    int hwheel_ = 0;
+    Click pointer_;
+    bool leftDown_ = false;
 };
 
 }  // namespace

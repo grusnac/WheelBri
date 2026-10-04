@@ -61,6 +61,8 @@ inline constexpr char kHome = '\x03';
 inline constexpr char kEnd = '\x04';
 inline constexpr char kUp = '\x05';
 inline constexpr char kDown = '\x06';
+inline constexpr char kLeft = '\x0e';
+inline constexpr char kRight = '\x0f';
 // Editing keys, sent in WindowInput::text.
 inline constexpr char kBackspace = '\b';
 inline constexpr char kEnter = '\r';
@@ -74,6 +76,11 @@ struct WindowInput {
     std::string text;
     std::vector<Click> clicks;  // left mouse button presses
     int wheel = 0;              // mouse wheel notches since the last pump(): > 0 away from the user (scroll up)
+    int hwheel = 0;             // sideways wheel (or Shift + wheel) notches: > 0 to the right
+    // Where the mouse is (logical canvas pixels) and whether the left button is held: for dragging (scroll bars).
+    // While the button is held the position keeps coming even outside the window.
+    Click pointer;
+    bool leftDown = false;
 };
 
 class UiWindow {

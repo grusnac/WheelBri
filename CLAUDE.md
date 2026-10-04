@@ -147,7 +147,9 @@ Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list]
 `G920 <n> <name> <- Rig <n> <name>` and the wheel's own buttons `Rig <n> <name>` from `[button_labels]`), **Logs** (one
 line per component: emulator, game shim, G920 driver, hide filter, each in its own colour,
 with today's file, size, age, click opens its folder; then a scrollable live log of all those files merged:
-wheel, arrows, PageUp / PageDown, Home / End; core `LiveLog`), **Telemetry** (the CSV files, buttons held, the
+wheel, arrows, PageUp / PageDown, Home / End, a draggable vertical scroll bar, a sideways one for long messages
+(Shift + wheel, Left / Right) and word wrap (Wrap button or W); drags come from `WindowInput::pointer` / `leftDown`,
+`MappingView::onPointer`; core `LiveLog`), **Telemetry** (the CSV files, buttons held, the
 latest button / D-pad / pedal / FFB events, not scrollable), **Force feedback** (live effects, usage since
 start, the latest effects) and **Rig** (R, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
 when stopped too, reading every connected device itself). The app has no log panel or toolbar: only the Mapping tab (the editor while stopped, the
