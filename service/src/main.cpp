@@ -670,9 +670,10 @@ wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
     }
     if (!image.empty()) {
         if (const std::string why = platform::lastProcessImageError(); !why.empty()) {
-            static wheelbri::logging::RateLimiter namedLimiter(std::chrono::seconds(60));
-            std::uint64_t suppressed = 0;
-            if (namedLimiter.allow(suppressed)) {
+            // Once per process: the check runs again every few seconds, and the answer does not change.
+            static std::uint32_t namedPid = 0;
+            if (*pid != namedPid) {
+                namedPid = *pid;
                 WE_LOG_INFO(log(), "ffb: sender pid {} is {}, named by its id ({})", *pid, wheelbri::pathToUtf8(image), why);
             }
         }
