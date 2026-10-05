@@ -68,9 +68,11 @@ public:
     static constexpr std::int64_t kGameQuietMs = 10'000;
     // How long parameters without a block wait for the Set Effect that names it (see above).
     static constexpr std::int64_t kPendingMs = 20;
-    // Diagnostics: from the game's first report, this many lines go to the log, each report the host sends (raw
-    // bytes) and each slot change sent to the service, so the real order can be read from the driver's log.
-    static constexpr int kTraceLines = 1000;
+    // Diagnostics, off unless asked for: from the next report, `lines` lines go to the log, each report the host
+    // sends (raw bytes) and each slot change sent to the service, so the real order can be read from the driver's
+    // log. The driver turns it on from HKLM\SOFTWARE\wheelbri PidTraceLines (a DWORD; 1000 is a good number).
+    void enableTrace(int lines);
+    static constexpr int kMaxTraceLines = 100'000;
     [[nodiscard]] bool gameQuiet() const;
 
     // Everything stops (device going away).
@@ -143,7 +145,8 @@ private:
     std::map<ParamKind, std::uint8_t> lastOfKind_;
     std::set<std::string> seen_;
     bool loggedEbiZero_ = false;
-    int traceLeft_ = kTraceLines;
+    int traceLeft_ = 0;        // off
+    int traceLines_ = 0;
     bool traceQuiet_ = false;                // a refresh is being sent (not traced)
     std::int64_t traceStartMs_ = 0;
     void trace(const std::string& text, std::int64_t nowMs);

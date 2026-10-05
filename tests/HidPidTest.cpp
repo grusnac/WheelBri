@@ -33,6 +33,25 @@ struct Recorder {
     }
 };
 
+// The trace is off unless asked for, and then writes exactly the lines asked for, plus its start and end.
+TEST(HidPid, TraceIsOffUnlessEnabled) {
+    const auto traced = [](const Recorder& r) {
+        return std::count_if(r.logs.begin(), r.logs.end(),
+                             [](const std::string& s) { return s.rfind("pid trace", 0) == 0; });
+    };
+    Recorder off;
+    off.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    off.pid.output(0x15, hex("00A00F"), 0);
+    EXPECT_EQ(traced(off), 0);
+
+    Recorder on;
+    on.pid.enableTrace(2);
+    on.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    on.pid.output(0x15, hex("00A00F"), 0);
+    on.pid.output(0x15, hex("00A00F"), 1);   // past the 2 lines: not traced
+    EXPECT_EQ(traced(on), 4);                 // start, 2 lines, end
+}
+
 // The reports Windows' pid.dll sent for the old bridge's FfbProbe (2026-09-30): parameters with EBI 0, then
 // Set Effect naming the block, then Effect Operation.
 TEST(HidPid, PidDllSequenceFromTheProbe) {

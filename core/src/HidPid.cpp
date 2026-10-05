@@ -74,11 +74,17 @@ void HidPid::noteReport(const std::int64_t nowMs) {
     }
 }
 
+void HidPid::enableTrace(const int lines) {
+    std::lock_guard lock(mutex_);
+    traceLines_ = std::clamp(lines, 0, kMaxTraceLines);
+    traceLeft_ = traceLines_;
+}
+
 void HidPid::trace(const std::string& text, const std::int64_t nowMs) {
     if (traceLeft_ <= 0) return;
-    if (traceLeft_ == kTraceLines) {
+    if (traceLeft_ == traceLines_) {
         traceStartMs_ = nowMs;
-        log_("pid trace: the next " + std::to_string(kTraceLines) + " reports and slot changes (+ms from the first)");
+        log_("pid trace: the next " + std::to_string(traceLines_) + " reports and slot changes (+ms from the first)");
     }
     char at[32];
     std::snprintf(at, sizeof(at), "pid trace +%lld ", static_cast<long long>(nowMs - traceStartMs_));

@@ -285,6 +285,19 @@ void completeReads(DeviceContext* ctx, const Report& report) {
 bool Link::start() {
     stop();
     stop_ = false;
+    // The force feedback trace (HidPid::enableTrace) is off unless an Administrator asks for it, for each start of
+    // the device: reg add HKLM\SOFTWARE\wheelbri /v PidTraceLines /t REG_DWORD /d 1000 /f
+    DWORD traceLines = 0;
+    DWORD traceSize = sizeof(traceLines);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\wheelbri", L"PidTraceLines", RRF_RT_REG_DWORD, nullptr, &traceLines,
+                     &traceSize) == ERROR_SUCCESS &&
+        traceLines > 0) {
+        const int lines = static_cast<int>((std::min)(traceLines, static_cast<DWORD>(wheelbri::HidPid::kMaxTraceLines)));
+        pid.enableTrace(lines);
+        logLine("force feedback trace on (PidTraceLines = " + std::to_string(lines) + ")");
+    } else {
+        pid.enableTrace(0);
+    }
     stateSocket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     ffbSocket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (stateSocket_ == INVALID_SOCKET || ffbSocket_ == INVALID_SOCKET) {
