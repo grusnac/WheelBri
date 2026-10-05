@@ -29,6 +29,7 @@ add_library(wheelbri_core STATIC
     src/Rig.cpp
     src/SenderGate.cpp
     src/ShimGames.cpp
+    src/StartNeeds.cpp
     src/StatePacket.cpp
     src/Telemetry.cpp
     src/TestClutch.cpp

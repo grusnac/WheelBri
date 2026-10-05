@@ -32,6 +32,7 @@ add_executable(wheelbri_tests
     RigTest.cpp
     SenderGateTest.cpp
     ShimGamesTest.cpp
+    StartNeedsTest.cpp
     StatePacketTest.cpp
     TelemetryTest.cpp
     TestClutchTest.cpp

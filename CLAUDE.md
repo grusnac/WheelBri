@@ -154,7 +154,11 @@ wheel, arrows, PageUp / PageDown, Home / End, a draggable vertical scroll bar, a
 latest button / D-pad / pedal / FFB events, not scrollable), **Force feedback** (live effects, usage since
 start, the latest effects) and **Rig** (R, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
 when stopped too, reading every connected device itself). The app has no log panel or toolbar: only the Mapping tab (the editor while stopped, the
-live one while running) has a short status, Start and Stop, in its top right corner. Stopped, the app's own tabs are Mapping (`MappingEditView`,
+live one while running) has a short status, Start and Stop, in its top right corner. Stopped, Start is greyed out until
+every rig device the saved mapping uses is connected (core `StartNeeds`: the wheel and the accessories the mapping
+reads; `service/src/DeviceWatch.cpp` lists the game controllers every 2 s on its own thread), and the status says
+"NOT CONNECTED: <names>" or "NO RIG" in red. `WheelBackend::list()` on Windows makes a new DirectInput object each
+time, so a wheel switched on after the app started is found. Stopped, the app's own tabs are Mapping (`MappingEditView`,
 the editor, with `ConfigPicker` as its top row), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
 Logs page), in that order (there is no Status tab; a failed Start says "Start failed (Logs)");
 it opens on Rig until a rig exists, else on Mapping; Start switches to Logs at once (the session logs while it comes

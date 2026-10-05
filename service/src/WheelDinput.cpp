@@ -444,11 +444,20 @@ public:
 
     std::vector<WheelInfo> list() override {
         std::vector<WheelInfo> wheels;
+        // A new DirectInput object for every listing (the devices are opened by path, DinputReader, so nothing else
+        // uses it): one kept from earlier may go on listing what was there when it was made, and a wheel switched on
+        // after the app started was then never found.
+        IDirectInput8W* fresh = nullptr;
+        if (FAILED(DirectInput8Create(GetModuleHandleW(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8W,
+                                      reinterpret_cast<void**>(&fresh), nullptr))) {
+            fresh = nullptr;
+        }
+        IDirectInput8W* const dinput = fresh != nullptr ? fresh : dinput_;
         struct Context {
             IDirectInput8W* dinput;
             std::vector<WheelInfo>* wheels;
-        } context{dinput_, &wheels};
-        dinput_->EnumDevices(
+        } context{dinput, &wheels};
+        dinput->EnumDevices(
             DI8DEVCLASS_GAMECTRL,
             [](LPCDIDEVICEINSTANCEW instance, LPVOID data) -> BOOL {
                 auto* c = static_cast<Context*>(data);
@@ -477,6 +486,7 @@ public:
                 return DIENUM_CONTINUE;
             },
             &context, DIEDFL_ATTACHEDONLY);
+        if (fresh != nullptr) fresh->Release();
         WE_LOG_DEBUG(inputLog(), "{} game controller(s) connected", wheels.size());
         return wheels;
     }

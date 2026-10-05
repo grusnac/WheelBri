@@ -214,8 +214,11 @@ log is `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log` (every log, th
 `wheelbri.exe` (built next to `wheelbri-service.exe` in `build/service/`) is the everyday way to run it:
 double-click it, let Windows start it as Administrator, press **Start**, then start the game. **Start** and **Stop**
 are only on the Mapping tab (top right, stopped or running), with the state next to them
-(stopped, running and for how long, a lost wheel, a game not using it); after "Start failed (Logs)" the Logs tab says
-why, in red. Start shows the Logs tab of the same live view as `--ui`
+(ready, running and for how long, a lost wheel, a game not using it); after "Start failed (Logs)" the Logs tab says
+why, in red. While stopped, Start can only be pressed when every device of the rig that the mapping uses (the wheel,
+and each accessory the mapping takes an axis or button from) is connected: otherwise the state says, in red, **NOT
+CONNECTED:** and their names (or **NO RIG** before a rig is set up), and Start is greyed out until they appear (the
+app looks every 2 s). Devices of the rig the mapping does not use do not matter. Start shows the Logs tab of the same live view as `--ui`
 (axes, buttons, game force feedback, logs: click a line or press O for the folder). **Stop**, or closing the window,
 undoes everything (virtual G920 removed, the R3 visible again).
 Each Start reads the config again, so edits apply without restarting the app. If the wheel is not connected when
@@ -347,7 +350,7 @@ SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelbri-service --con
 ```
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`,
-`service.hide`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
+`service.hide`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `service.devices`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
 `shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelbri-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelbri/Logging.hpp`)

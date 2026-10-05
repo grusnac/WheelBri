@@ -1,6 +1,7 @@
 #include "App.hpp"
 
 #include "ConfigPicker.hpp"
+#include "DeviceWatch.hpp"
 #include "MappingEditView.hpp"
 #include "Platform.hpp"
 #include "ServiceLogging.hpp"
@@ -9,6 +10,11 @@
 #include "WheelSetupView.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
+#include "wheelbri/EmulatorConfig.hpp"
+#include "wheelbri/FileText.hpp"
+#include "wheelbri/IniDocument.hpp"
+#include "wheelbri/Rig.hpp"
+#include "wheelbri/StartNeeds.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <algorithm>
@@ -53,6 +59,10 @@ constexpr float kButtonWidth = 68;
 constexpr float kStopX = kWidth - 4 - kButtonWidth;
 constexpr float kStartX = kStopX - 4 - kButtonWidth;
 constexpr std::size_t kStatusChars = 20;   // between the tab's title and the toggle
+// Stopped, the status says which of the rig's devices are missing: more room (right of the editor's title, or of the
+// shim's games row).
+constexpr std::size_t kStoppedStatusChars = 56;
+constexpr std::size_t kStoppedStatusCharsShim = 28;
 constexpr float kGamesX = 220;              // the shim's games ("Game < name > Add"), left of the status: 360 wide
 constexpr std::size_t kHeaderChars = 50;    // the live view's title on the Mapping tab...
 constexpr std::size_t kHeaderCharsShim = 26;   // ...and with the games row next to it
@@ -458,6 +468,7 @@ private:
                 logsView->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
             }
             collectSession();
+            updateStartNeeds();
             logs_->setShimMode(shimTarget());   // the Logs tab while stopped follows the target
             updateSetup();
             mapping_->setLocked(state_ != State::Stopped);   // the way and the mapping stay as Start found them
@@ -526,7 +537,70 @@ private:
 
     Button startButton() const {
         return {kStartX, kControlsY, kButtonWidth, kControlsHeight, "Start",
-                state_ == State::Stopped && !popup_ && !games_->panelOpen() && (!shimTarget() || games_->hasGame())};
+                state_ == State::Stopped && !popup_ && !games_->panelOpen() && (!shimTarget() || games_->hasGame()) &&
+                    rigReady()};
+    }
+
+    // Every device of the rig the mapping uses is connected (or game controllers cannot be listed here at all: then
+    // Start tries and says what is wrong).
+    [[nodiscard]] bool rigReady() const { return needsKnown_ && needsProblem_.empty() && missing_.empty(); }
+
+    // What Start needs (StartNeeds.hpp): the config Start would use, as saved, and the active rig, checked against
+    // the devices connected now (DeviceWatch, every 2 s) while stopped. The status next to Start shows the result.
+    void updateStartNeeds() {
+        devices_.setActive(state_ == State::Stopped && !quitting_);
+        if (state_ != State::Stopped) {
+            needsKnown_ = false;
+            return;
+        }
+        const auto snapshot = devices_.latest();
+        const std::uint64_t now = platform::nowMs();
+        const std::uint64_t generation = snapshot ? snapshot->generation : 0;
+        // A new listing, or once a second (a saved mapping, another rig or target).
+        if (generation == needsGeneration_ && needsCheckedMs_ != 0 && now - needsCheckedMs_ < 1000) return;
+        needsGeneration_ = generation;
+        needsCheckedMs_ = now;
+
+        EmulatorConfig config;
+        if (const std::string path = picker_->selected(); !path.empty()) {
+            if (const auto text = readFileText(pathFromUtf8(path))) {
+                config = loadEmulatorConfig(IniDocument::parse(*text).document).config;
+            }
+        }
+        std::optional<Rig> rig;
+        if (const std::string name = readAppSetting(settings_.stateFile, "rig"); !name.empty()) {
+            std::vector<std::string> errors;
+            rig = readRig(rigsFolder(), name, errors);
+        }
+        const StartNeeds needs = startNeeds(config, rig ? &*rig : nullptr);
+        needsProblem_ = needs.problem;
+        if (devices_.unavailable()) {
+            needsKnown_ = true;   // nothing to wait for: Start says what is wrong
+            missing_.clear();
+        } else if (!snapshot) {
+            needsKnown_ = false;  // the first listing is under way
+            missing_.clear();
+        } else {
+            std::vector<PresentDevice> present;
+            for (const WheelInfo& info : snapshot->devices) present.push_back({info.name, info.vendorId, info.productId});
+            needsKnown_ = true;
+            missing_ = missingDevices(needs, present);
+        }
+        // Said in the log when it changes, not every second.
+        std::string said = needsProblem_;
+        if (needsProblem_.empty() && needsKnown_) {
+            for (const std::string& label : missing_) said += (said.empty() ? "not connected: " : ", ") + label;
+            if (said.empty()) said = "every device of the rig the mapping uses is connected";
+        }
+        if (!said.empty() && said != needsLogged_) {
+            needsLogged_ = said;
+            if (needsProblem_.empty() && missing_.empty()) {
+                WE_LOG_INFO(log(), "Start: {}", said);
+            } else {
+                WE_LOG_WARN(log(), "Start is greyed out: {}{}", said,
+                            needsProblem_.empty() ? " (switch it on or plug it in)" : "");
+            }
+        }
     }
     Button stopButton() const {
         return {kStopX, kControlsY, kButtonWidth, kControlsHeight, "Stop",
@@ -534,7 +608,7 @@ private:
     }
 
     void start() {
-        if (running() || popup_ || games_->panelOpen()) return;
+        if (running() || popup_ || games_->panelOpen() || !rigReady()) return;
         // The in-game shim: the picked game must have it (put in, or replaced by a newer one, now).
         sessionGame_.clear();
         if (shimTarget()) {
@@ -676,12 +750,23 @@ private:
         const std::uint64_t now = platform::nowNs();
         switch (state_) {
             case State::Stopped:
-                if (lastResult_ && *lastResult_ != 0) {
+                // What the rig is missing comes first: it is why Start is greyed out.
+                if (!needsProblem_.empty()) {
+                    status = needsProblem_;
+                    colour = kWarning;
+                } else if (needsKnown_ && !missing_.empty()) {
+                    status = "NOT CONNECTED: ";
+                    for (std::size_t i = 0; i < missing_.size(); ++i) status += (i == 0 ? "" : ", ") + missing_[i];
+                    colour = kWarning;
+                } else if (!needsKnown_) {
+                    status = "Looking for the rig...";
+                    colour = kDim;
+                } else if (lastResult_ && *lastResult_ != 0) {
                     status = "Start failed (Logs)";   // the Logs tab says why, in red
                     colour = kWarning;
                 } else {
-                    status = "Stopped";
-                    colour = kDim;
+                    status = "Ready";
+                    colour = kActive;
                 }
                 break;
             case State::Starting:
@@ -704,7 +789,9 @@ private:
                 colour = kCaution;
                 break;
         }
-        status = fit(status, kStatusChars);
+        status = fit(status, state_ != State::Stopped ? kStatusChars
+                             : shimTarget()         ? kStoppedStatusCharsShim
+                                                    : kStoppedStatusChars);
         if (shimTarget()) games_->draw(kGamesX, kControlsY, state_ == State::Stopped && !popup_);
         window_->text(kStartX - 6 - static_cast<float>(status.size()) * ui::kCharWidth, kControlsY + 4, status, colour);
         startButton().draw(*window_, false);
@@ -834,6 +921,14 @@ private:
     std::unique_ptr<MappingView> logs_;             // the Logs tab while no session shows
     enum class IdleTab { Mapping, Setup, Logs };
     IdleTab idleTab_ = IdleTab::Mapping;   // what shows while no session does
+    // What Start needs from the rig (updateStartNeeds).
+    DeviceWatch devices_;
+    bool needsKnown_ = false;              // the connected devices are known (first listing done)
+    std::string needsProblem_;             // no rig, no wheel in it
+    std::vector<std::string> missing_;     // the needed devices not connected
+    std::uint64_t needsGeneration_ = 0;
+    std::uint64_t needsCheckedMs_ = 0;
+    std::string needsLogged_;
 };
 
 }  // namespace
