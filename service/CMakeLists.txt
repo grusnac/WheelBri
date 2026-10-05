@@ -72,8 +72,20 @@ add_executable(wheelbri src/main.cpp)
 target_link_libraries(wheelbri PRIVATE wheelbri_service_objects)
 target_compile_definitions(wheelbri PRIVATE WHEELBRI_APP=1)
 if(WE_SERVICE_PLATFORM STREQUAL "Windows")
+    # Both programs carry WheelBri's icon (app/wheelbri.ico, made from app/wheelbri.svg) and the project's version;
+    # the app also its manifest. The .rc and manifest are made from the .in files with the version filled in.
     enable_language(RC)
-    target_sources(wheelbri PRIVATE app/wheelbri.rc)
+    set(WE_APP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/app")
+    set(WE_APP_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/app")
+    configure_file(app/wheelbri.exe.manifest.in app/wheelbri.exe.manifest @ONLY)
+    configure_file(app/wheelbri.rc.in app/wheelbri.rc @ONLY)
+    configure_file(app/wheelbri-service.rc.in app/wheelbri-service.rc @ONLY)
+    set_source_files_properties("${WE_APP_BIN_DIR}/wheelbri.rc" PROPERTIES
+        OBJECT_DEPENDS "${WE_APP_DIR}/wheelbri.ico;${WE_APP_BIN_DIR}/wheelbri.exe.manifest")
+    set_source_files_properties("${WE_APP_BIN_DIR}/wheelbri-service.rc" PROPERTIES
+        OBJECT_DEPENDS "${WE_APP_DIR}/wheelbri.ico")
+    target_sources(wheelbri PRIVATE "${WE_APP_BIN_DIR}/wheelbri.rc")
+    target_sources(wheelbri-service PRIVATE "${WE_APP_BIN_DIR}/wheelbri-service.rc")
     set_target_properties(wheelbri PROPERTIES WIN32_EXECUTABLE ON)
     if(MSVC)
         target_link_options(wheelbri PRIVATE /ENTRY:mainCRTStartup /MANIFEST:NO)

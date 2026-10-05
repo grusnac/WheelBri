@@ -170,7 +170,9 @@ letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware)
 (Xlib) on Linux.
 
 The app (`wheelbri`, `service/src/App.cpp`, same sources plus `WHEELBRI_APP`; on Windows a GUI-subsystem exe
-with an Administrator manifest, `service/app/`) runs sessions (`runSession` in `main.cpp`) on a thread of its
+with an Administrator manifest, `service/app/`: the `.rc` and manifest are `.in` templates CMake fills with the
+project's version; both exes carry the icon `wheelbri.ico`, made from `wheelbri.svg`, "wheel going digital", resource
+1, which `UiWindowWin32` also uses for the window) runs sessions (`runSession` in `main.cpp`) on a thread of its
 own from Start / Stop buttons; sessions show themselves through `UiHost` (`SessionUi.hpp`): the app's window,
 or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it does not own.
 

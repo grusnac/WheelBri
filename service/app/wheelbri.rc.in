@@ -1,0 +1,29 @@
+// wheelbri.exe's resources: the icon, the manifest (Administrator, DPI awareness) and version information.
+// CMake makes wheelbri.rc from this file in the build folder (configure_file), with the project's version.
+#include <winver.h>
+
+1 ICON "@WE_APP_DIR@/wheelbri.ico"
+1 24 "@WE_APP_BIN_DIR@/wheelbri.exe.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription", "WheelBri: your rig as a Logitech G920"
+            VALUE "ProductName", "WheelBri"
+            VALUE "FileVersion", "@PROJECT_VERSION@"
+            VALUE "ProductVersion", "@PROJECT_VERSION@ (early beta)"
+            VALUE "OriginalFilename", "wheelbri.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

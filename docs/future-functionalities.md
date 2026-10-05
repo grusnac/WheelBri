@@ -12,7 +12,7 @@ it at all.
 
 | What | Where in the code |
 |---|---|
-| The app always asks for Administrator | `service/app/wheelbri.exe.manifest` (`requireAdministrator`) |
+| The app always asks for Administrator | `service/app/wheelbri.exe.manifest.in` (`requireAdministrator`) |
 | Creating and removing the virtual G920 | `VirtualG920` (`SwDeviceCreate`) |
 | Showing the rig only to WheelBri: `HKLM\SOFTWARE\wheelbri\hide` `AllowedPid` / `AllowedPidStart` | `HideFilter` |
 | Clearing a hide left behind by a crash | `HideFilter::clearStale`, `--unhide` (HKLM) |

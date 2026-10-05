@@ -120,6 +120,14 @@ a headline, why it was needed, how to use it, and where to look.
   are daily and old ones go after 2 days (`--old-files`).
 - **Look:** `%LOCALAPPDATA%\wheelbri\logs`. Code: core `LiveLog`, `Retention`, `service/src/MappingView.cpp`.
 
+### App icon
+
+- **Why:** the app had Windows' generic icon everywhere.
+- **Use:** nothing to set: both programs carry it, so Explorer, the taskbar, the window, the Start menu shortcut and
+  Settings > Apps show it. The real wheel (solid) turning into pixels (the virtual one); the orange hub is the bridge.
+- **Look:** `service/app/wheelbri.svg` (the drawing), `wheelbri.ico` (16 to 256 px, made from it), `wheelbri.rc.in`,
+  `wheelbri-service.rc.in`; the window takes it in `service/src/UiWindowWin32.cpp`.
+
 ## Layout
 
 | Path | Contents |

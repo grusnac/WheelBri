@@ -116,7 +116,16 @@ public:
         cls.lpfnWndProc = &Win32Window::procedure;
         cls.hInstance = instance;
         cls.hCursor = LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
-        cls.hIcon = LoadIconW(nullptr, reinterpret_cast<LPCWSTR>(IDI_APPLICATION));
+        // WheelBri's icon (resource 1 of the program, app/wheelbri.ico), in the sizes Windows asks for; the generic one
+        // if the program has none.
+        cls.hIcon = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON, GetSystemMetrics(SM_CXICON),
+                                                  GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR | LR_SHARED));
+        cls.hIconSm = static_cast<HICON>(LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON,
+                                                    GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+                                                    LR_DEFAULTCOLOR | LR_SHARED));
+        if (cls.hIcon == nullptr) {
+            cls.hIcon = LoadIconW(nullptr, reinterpret_cast<LPCWSTR>(IDI_APPLICATION));
+        }
         cls.lpszClassName = kClassName;
         if (RegisterClassExW(&cls) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
             error = lastError("RegisterClassEx");
