@@ -109,7 +109,9 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** another PC needs WheelBri without a build tree, with only Windows' own tools.
 - **Use:** `scripts/make/package.sh` makes `dist/windows/WheelBri-<version>-setup.exe`; run it, approve Administrator.
-  Uninstall from the Start menu or Settings > Apps. `scripts/make/clean-pc.sh` removes everything, for tests.
+  Uninstall from the Start menu or Settings > Apps. `scripts/make/clean-pc.sh` removes everything, for tests. A
+  reinstall that finds a saved rig puts the hiding filter on its plugged-in devices itself (`wheelbri-service
+  --prepare-hide`), so the first Start after the restart is instant.
 - **Look:** `wheelbri-install-<date>.log` in the logs folder. Code: `installer/`, `scripts/make/package.ps1`,
   `scripts/make/clean-pc.ps1`.
 

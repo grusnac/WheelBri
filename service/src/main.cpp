@@ -97,6 +97,7 @@ struct Options {
     bool virtualG920 = false;                   // --virtual-g920: our own driver's G920 (driver/)
     bool hide = true;                           // --no-hide: leave the real wheel visible to games
     bool unhide = false;                        // --unhide: make the real wheel visible again and exit
+    bool prepareHide = false;                   // --prepare-hide: put the hide filter on the saved rig's devices, exit
     bool app = false;                           // --app: the window with Start / Stop (always in wheelbri.exe)
     bool noVirtualG920 = false;                 // --no-virtual-g920: the app without its virtual G920
     bool telemetryTab = false;                  // --telemetry-tab: show the Telemetry tab (hidden otherwise)
@@ -213,70 +214,87 @@ void ensureG920Driver() {
 #endif
 }
 
+// What ensureHideFilter() came to (also --prepare-hide's exit code).
+enum class HideSetup {
+    Running = 0,     // the filter runs on every connected device of the rig
+    Failed = 1,      // the installer could not be run, or failed (the log says why)
+    Waiting = 2,     // the filter is on, but Windows has not restarted a device with it yet (`why` in the log)
+    NothingToDo = 3, // no rig, or none of its devices connected
+};
+
 // With --virtual-g920 (Start in the app): wheelbri's hide filter on every connected device of the rig, put there now
 // if it is not yet, so Start alone leaves games only the G920. Which devices: the rig's ids, nothing else
 // (install-hide.ps1 -Devices with the HID instance ids of their game controllers, as DirectInput lists them). It
 // installs from the package built in this source tree or installed with the program (driver/hide/x64/Release); the
-// service runs as Administrator for --virtual-g920 anyway. Done before the wheel is opened: putting the filter on a
-// device restarts it.
-void ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& targets) {
+// service runs as Administrator for --virtual-g920 anyway. Done before the wheel is opened: a device takes the filter
+// only when Windows restarts it, which nothing may hold it open for (on 2026-10-05 the session opened the wheel a
+// second after the installer and the filter never started: "NOT HIDDEN ... restart Windows"). So this waits, opening
+// nothing, until every device runs the filter, restarting a device itself when Windows does not (HideFilter::
+// waitUntilStarted), and says who keeps one when that fails.
+HideSetup ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& targets) {
 #ifdef _WIN32
     using wheelbri::service::HideFilter;
-    std::string devices;
+    std::string devices;          // no filter yet: the installer puts it on
+    std::vector<std::string> all; // every connected game-controller interface of the rig
+    std::string waitingNames;     // set but not started (put on earlier, by the installer for example)
     for (const HideFilter::Check& c : HideFilter::check(targets)) {
+        for (const std::string& id : c.interfaces) all.push_back(id);
         if (c.state == HideFilter::State::NotInstalled) {
             // The exact interfaces DirectInput lists for it (the script skips those that have the filter already).
             for (const std::string& id : c.interfaces) devices += (devices.empty() ? "" : ",") + id;
+        } else if (c.state == HideFilter::State::NeedsRestart) {
+            waitingNames += (waitingNames.empty() ? "" : ", ") + c.target.name;
         }
     }
-    if (devices.empty()) return;   // everything connected already has it (or waits for a restart, said above)
-    const std::filesystem::path script = findDriverScript(
-        std::filesystem::path("driver") / "hide" / "install-hide.ps1",
-        std::filesystem::path("driver") / "hide" / "x64" / "Release" / "wheelbri-hide" / "wheelbri-hide.inf");
-    if (script.empty()) {
-        WE_LOG_ERROR(log(), "hide: wheelbri-hide is not on {} and no built package was found next to the program "
-                            "(build it once: scripts/make/drivers.sh -Only hide)",
-                     devices);
-        return;
-    }
-    WE_LOG_INFO(log(), "hide: putting wheelbri-hide on the rig's devices {} ({}); each restarts once", devices,
-                script.string());
-    bool started = false;
-    std::string error;
-    const std::optional<int> exit =
-        runDriverScript(script, {"-Configuration", "Release", "-Devices", devices}, "hide", started, error);
-    if (!started) {
-        WE_LOG_ERROR(log(), "hide: cannot run the installer: {}", error);
-        return;
-    }
-    if (gStop) return;
-    if (!exit || *exit != 0) {
-        const char* why = !exit ? "took longer than 2 minutes (left to finish by itself)"
-                          : *exit == 2 ? "put the filter on, but it is not running on every device yet: restart "
-                                         "Windows (when Windows is not waiting for a restart, unplugging the device "
-                                         "and plugging it in again is enough; the installer's log says which)"
-                                       : "failed";
-        WE_LOG_ERROR(log(), "hide: the installer {}{} (its log: wheelbri-hide-install-<date>.log in the "
-                            "logs folder; or run {} -Devices {} yourself as Administrator)",
-                     why, exit ? " (exit code " + std::to_string(*exit) + ")" : std::string(), script.string(), devices);
-        return;
-    }
-    // The devices come back with the filter a moment later.
-    for (int waited = 0; waited < 15'000 && !gStop; waited += 250) {
-        bool pending = false;
-        for (const HideFilter::Check& c : HideFilter::check(targets, /*quiet=*/true)) {
-            pending = pending || c.state == HideFilter::State::NotInstalled || c.state == HideFilter::State::NeedsRestart;
+    if (all.empty()) return HideSetup::NothingToDo;
+    if (!devices.empty()) {
+        const std::filesystem::path script = findDriverScript(
+            std::filesystem::path("driver") / "hide" / "install-hide.ps1",
+            std::filesystem::path("driver") / "hide" / "x64" / "Release" / "wheelbri-hide" / "wheelbri-hide.inf");
+        if (script.empty()) {
+            WE_LOG_ERROR(log(), "hide: wheelbri-hide is not on {} and no built package was found next to the program "
+                                "(build it once: scripts/make/drivers.sh -Only hide)",
+                         devices);
+            return HideSetup::Failed;
         }
-        if (!pending) {
-            WE_LOG_INFO(log(), "hide: wheelbri-hide is on every connected device of the rig");
-            return;
+        WE_LOG_INFO(log(), "hide: putting wheelbri-hide on the rig's devices {} ({}); each reconnects once, now only",
+                    devices, script.string());
+        bool started = false;
+        std::string error;
+        const std::optional<int> exit =
+            runDriverScript(script, {"-Configuration", "Release", "-Devices", devices}, "hide", started, error);
+        if (!started) {
+            WE_LOG_ERROR(log(), "hide: cannot run the installer: {}", error);
+            return HideSetup::Failed;
         }
-        platform::sleepMs(250);
+        if (gStop) return HideSetup::Waiting;
+        // 2: put on, but not started yet; waited for below like a filter put on earlier.
+        if (!exit || (*exit != 0 && *exit != 2)) {
+            WE_LOG_ERROR(log(), "hide: the installer {} (its log: wheelbri-hide-install-<date>.log in the logs folder; "
+                                "or run {} -Devices {} yourself as Administrator)",
+                         !exit ? "took longer than 2 minutes (left to finish by itself)"
+                               : "failed (exit code " + std::to_string(*exit) + ")",
+                         script.string(), devices);
+            return HideSetup::Failed;
+        }
+    } else if (waitingNames.empty()) {
+        return HideSetup::Running;   // every connected device runs it already
     }
-    WE_LOG_ERROR(log(), "hide: the filter is on, but not running on every device of the rig yet (the next hide lines "
-                        "say which): restart Windows");
+    // Windows loads the filter when it restarts the device: a few seconds, with nothing of ours holding it.
+    std::string why;
+    if (HideFilter::waitUntilStarted(all, 25'000, [] { return gStop.load(); }, why)) {
+        WE_LOG_INFO(log(), "hide: wheelbri-hide runs on every connected device of the rig");
+        return HideSetup::Running;
+    }
+    if (gStop) return HideSetup::Waiting;
+    WE_LOG_ERROR(log(), "hide: the filter is on, but Windows has not restarted the device with it yet: {}. Close what "
+                        "uses the wheel (its maker's software, Steam, the Game Controllers window) or unplug it and "
+                        "plug it in again, then press Start again",
+                 why);
+    return HideSetup::Waiting;
 #else
     (void)targets;
+    return HideSetup::NothingToDo;
 #endif
 }
 
@@ -411,7 +429,7 @@ bool stopRequested() {
 void printUsage() {
     std::puts(
         "usage: wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
-        "                        [--stop-file FILE] [--virtual-g920 [--no-hide]] [--unhide]\n"
+        "                        [--stop-file FILE] [--virtual-g920 [--no-hide]] [--unhide] [--prepare-hide]\n"
         "                        [--telemetry-tab] [--ffb-tab]\n"
         "  --config FILE  INI configuration (see config/g920-virtual-device.ini)\n"
         "  --list         list joysticks and exit\n"
@@ -424,6 +442,7 @@ void printUsage() {
         "                 the real wheel is hidden from games meanwhile by wheelbri's own filter\n"
         "                 (driver\\hide\\install-hide.ps1 once), unless --no-hide\n"
         "  --unhide       after a crash: make the real wheel visible to games again and exit\n"
+        "  --prepare-hide put the hide filter on the saved rig's devices and exit (the installer; Administrator)\n"
         "  --app          a window with Start / Stop instead of running at once (what wheelbri.exe\n"
         "                 does); on Windows it starts with --virtual-g920 unless --no-virtual-g920\n"
         "  --telemetry-tab, --ffb-tab\n"
@@ -462,6 +481,8 @@ bool parseOptions(const int argc, char** argv, Options& options) {
             options.hide = false;
         } else if (arg == "--unhide") {
             options.unhide = true;
+        } else if (arg == "--prepare-hide") {
+            options.prepareHide = true;
         } else if (arg == "--stop-file" && i + 1 < argc) {
             options.stopFile = argv[++i];
         } else if (arg == "--old-files" && i + 1 < argc) {
@@ -1400,6 +1421,28 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         wheelbri::service::HideFilter::clear();
         return 0;
     }
+    if (options.prepareHide) {
+        // The installer, after a reinstall that kept the user's settings: the filter on the saved rig's devices now,
+        // so the first Start does not have to. Prints one line (the installer shows it); the exit code is HideSetup's.
+        if (!platform::isElevated()) {
+            std::puts("--prepare-hide needs Administrator");
+            return 1;
+        }
+        std::string rigName;
+        const auto targets = rigHideTargets(rigName);
+        if (targets.empty()) {
+            std::puts(rigName.empty() ? "no saved rig: the first Start sets up the hiding"
+                                      : "the saved rig lists no device to hide");
+            return static_cast<int>(HideSetup::NothingToDo);
+        }
+        const HideSetup result = ensureHideFilter(targets);
+        std::puts(result == HideSetup::Running   ? "the rig's devices are hidden from games whenever WheelBri runs"
+                  : result == HideSetup::Waiting ? "the filter is on; it starts after the restart of Windows"
+                  : result == HideSetup::NothingToDo
+                      ? "none of the rig's devices is plugged in: the first Start sets up the hiding"
+                      : "could not set up the hiding (see the hide installer's log): the first Start tries again");
+        return static_cast<int>(result);
+    }
     // Until the end of this function (its clean-up included), the console close handler waits.
     gSessionActive = true;
     struct SessionActive {
@@ -1437,7 +1480,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             WE_LOG_WARN(log(), "hide: no rig yet{}: nothing is hidden from games (define the devices in the Rig tab)",
                         rigName.empty() ? "" : " ('" + rigName + "' lists no device)");
         } else {
-            ensureHideFilter(hideTargets);
+            (void)ensureHideFilter(hideTargets);
         }
     }
     if (cancelled()) {
@@ -1559,7 +1602,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             devices.text += ", rig hidden (" + std::to_string(hidden) + " of " + std::to_string(hideTargets.size()) +
                             " devices)";
             if (!notHidden.empty()) {
-                devices.text += ", NOT HIDDEN: " + notHidden + ": restart Windows";
+                devices.text += ", NOT HIDDEN: " + notHidden + ": close apps using it or replug it, then Start";
                 devices.warning = true;
                 WE_LOG_ERROR(log(), "hide: games can see {}: the filter does not run there yet (the hide lines above "
                                     "say why)",

@@ -144,7 +144,7 @@ only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /pe
 
 Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
 [--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide]]
-[--unhide] [--app] [--telemetry-tab] [--ffb-tab]`. `--app` opens the app's window (Start / Stop) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
+[--unhide] [--prepare-hide] [--app] [--telemetry-tab] [--ffb-tab]`. `--app` opens the app's window (Start / Stop) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
 (click, or M / R / L, T / F; in this order: Mapping, Rig, Logs, then Telemetry and Force feedback only with
 `--telemetry-tab` / `--ffb-tab`, never shown without them, `MappingView::setOptionalTabs`): **Mapping** (the axes rig -> G920, every rig axis, the D-pad, the G920 buttons written
 `G920 <n> <name> <- Rig <n> <name>` and the wheel's own buttons `Rig <n> <name>` from `[button_labels]`), **Logs** (one
@@ -380,7 +380,14 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - Install scripts share `driver/common.ps1` (admin check, pnputil exit codes 0/259/3010, finding installed
     packages without depending on pnputil's language). Each fails with a red line and exit 1; `install-hide.ps1`
     exits 2 when the filter is set on a device but runs only after a restart; without `-Devices` it only adds the
-    package (the installer). It forces the filter onto a device even though another driver ranks higher (Windows'
+    package (and takes it off every device). The installer then runs the installed `wheelbri-service --prepare-hide`,
+    which does what Start does (`ensureHideFilter` for the saved rig: the game controllers DirectInput lists, never
+    046d:c262; USB ids by compatible id missed the Moza R3), so after a reinstall the first Start does not have to.
+    A device takes a new filter only when Windows restarts it, which nothing may hold it open for: `ensureHideFilter`
+    then waits, opening nothing, with `HideFilter::waitUntilStarted` (device status only; after 6 s it restarts the
+    device itself with `CM_Query_And_Remove_SubTree` + `CM_Setup_DevNode`, and logs who vetoes). On 2026-10-05 the
+    session opened the wheel a second after the installer and the filter never started. Never tell the user to restart
+    Windows for this: close what uses the wheel, or replug it. It forces the filter onto a device even though another driver ranks higher (Windows'
     input.inf, or the wheel maker's own driver). `uninstall-hide.ps1` and `clean-pc.ps1` find the devices by
     their driver (`Get-DevicesUsing`, DriverInfPath), never by id. In these scripts wrap
     function results in `@(...)` before `.Count`: Windows PowerShell 5.1 gives no `.Count` for a single CIM object.

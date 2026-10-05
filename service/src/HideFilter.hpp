@@ -2,6 +2,7 @@
 
 #include "wheelbri/MapperConfig.hpp"
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -40,6 +41,15 @@ public:
     // Where wheelbri-hide stands on each device of `targets`. `quiet`: no log lines (for polling).
     [[nodiscard]] static std::vector<Check> check(const std::vector<Target>& targets, bool quiet = false);
     [[nodiscard]] static const char* stateName(State state);
+
+    // After the filter was put on: waits until Windows has restarted every interface in `interfaces` with it (gone for a
+    // moment, then back started, without a pending restart), up to `timeoutMs`. Windows usually does this by itself a
+    // few seconds after the installer, unless something has the device open: so nothing of ours opens it meanwhile
+    // (only the device's status is read), and when it still waits after a few seconds the device is restarted here
+    // (CM_Query_And_Remove_SubTree, then set up again), which also asks programs that registered for it to let go.
+    // False, with `why` (who refused, as Windows says it), when it did not happen in time. `cancelled`: Stop.
+    [[nodiscard]] static bool waitUntilStarted(const std::vector<std::string>& interfaces, int timeoutMs,
+                                               const std::function<bool()>& cancelled, std::string& why);
 
     HideFilter() = default;
     ~HideFilter();

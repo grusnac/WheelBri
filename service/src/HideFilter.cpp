@@ -13,6 +13,7 @@
 #include <aclapi.h>
 #include <cfgmgr32.h>
 
+#include <cwchar>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -160,10 +161,111 @@ const char* HideFilter::stateName(const State state) {
     switch (state) {
         case State::Ready: return "hidden while WheelBri runs";
         case State::NotInstalled: return "no filter yet";
-        case State::NeedsRestart: return "filter waits for a restart";
+        case State::NeedsRestart: return "filter not started yet";
         case State::NotConnected: return "not connected";
     }
     return "?";
+}
+
+namespace {
+
+enum class NodeState { Gone, Waiting, Running };
+
+// Where an interface stands now, from its device node's status only (nothing opens the device).
+NodeState nodeState(const std::string& instanceId) {
+    const std::wstring wide(instanceId.begin(), instanceId.end());   // device instance ids are ASCII
+    DEVINST node = 0;
+    if (CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+        return NodeState::Gone;   // not present: being restarted
+    }
+    ULONG status = 0;
+    ULONG problem = 0;
+    if (CM_Get_DevNode_Status(&status, &problem, node, 0) != CR_SUCCESS) return NodeState::Gone;
+    if ((status & DN_NEED_RESTART) != 0 || (status & DN_HAS_PROBLEM) != 0) return NodeState::Waiting;
+    return (status & DN_STARTED) != 0 ? NodeState::Running : NodeState::Gone;
+}
+
+std::string vetoText(const PNP_VETO_TYPE type, const std::wstring& name) {
+    const std::string who = name.empty() ? std::string() : narrow(name);
+    switch (type) {
+        case PNP_VetoOutstandingOpen: return "a program has it open" + (who.empty() ? "" : " (" + who + ")");
+        case PNP_VetoWindowsApp: return "the program " + (who.empty() ? std::string("(unnamed)") : who) + " refused";
+        case PNP_VetoWindowsService: return "the service " + (who.empty() ? std::string("(unnamed)") : who) + " refused";
+        case PNP_VetoInsufficientRights: return "not allowed to restart it";
+        case PNP_VetoDriver: return "the driver " + who + " refused";
+        case PNP_VetoDevice: return "the device " + who + " refused";
+        case PNP_VetoPendingClose: return "a program is still closing it";
+        default: return "Windows refused (veto type " + std::to_string(static_cast<int>(type)) + ")" +
+                        (who.empty() ? "" : " (" + who + ")");
+    }
+}
+
+// Restarts the interface now: removed (programs that registered for it are asked to let go), then set up again with
+// its new stack. False with `why` when something refused.
+bool restartNode(const std::string& instanceId, std::string& why) {
+    const std::wstring wide(instanceId.begin(), instanceId.end());
+    DEVINST node = 0;
+    if (CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+        return true;   // gone already: Windows is restarting it
+    }
+    PNP_VETO_TYPE veto = PNP_VetoTypeUnknown;
+    std::wstring vetoName(MAX_PATH, L'\0');
+    const CONFIGRET removed = CM_Query_And_Remove_SubTreeW(node, &veto, vetoName.data(), MAX_PATH, CM_REMOVE_NO_RESTART);
+    vetoName.resize(std::wcslen(vetoName.c_str()));
+    if (removed != CR_SUCCESS) {
+        why = removed == CR_REMOVE_VETOED ? vetoText(veto, vetoName)
+                                          : "Windows could not restart it (CM_Query_And_Remove_SubTree " +
+                                                std::to_string(removed) + ")";
+        return false;
+    }
+    // Back, with the filter: the removed node is a phantom until it is set up again.
+    if (CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_PHANTOM) == CR_SUCCESS) {
+        CM_Setup_DevNode(node, CM_SETUP_DEVNODE_READY);
+    }
+    return true;
+}
+
+}  // namespace
+
+bool HideFilter::waitUntilStarted(const std::vector<std::string>& interfaces, const int timeoutMs,
+                                  const std::function<bool()>& cancelled, std::string& why) {
+    constexpr int kStepMs = 250;
+    constexpr int kRestartAfterMs = 6'000;   // Windows usually restarts it by itself within ~7 s; then we do it
+    constexpr int kRetryEveryMs = 5'000;     // and again (closing a program that had it open is then enough)
+    int nextRestartMs = kRestartAfterMs;
+    for (int waited = 0; waited <= timeoutMs; waited += kStepMs) {
+        bool allRunning = true;
+        std::vector<std::string> waiting;
+        for (const std::string& id : interfaces) {
+            const NodeState state = nodeState(id);
+            if (state != NodeState::Running) allRunning = false;
+            if (state == NodeState::Waiting) waiting.push_back(id);
+        }
+        if (allRunning) {
+            if (waited > 0) WE_LOG_INFO(log(), "hide: Windows restarted the device with the filter after {:.1f} s",
+                                        static_cast<double>(waited) / 1000.0);
+            return true;
+        }
+        if (cancelled && cancelled()) {
+            why = "stopped";
+            return false;
+        }
+        if (waited >= nextRestartMs && !waiting.empty()) {
+            nextRestartMs = waited + kRetryEveryMs;
+            for (const std::string& id : waiting) {
+                std::string refused;
+                if (restartNode(id, refused)) {
+                    WE_LOG_INFO(log(), "hide: restarting {} so the filter starts", id);
+                } else {
+                    why = refused;
+                    WE_LOG_WARN(log(), "hide: cannot restart {} yet: {}", id, refused);
+                }
+            }
+        }
+        Sleep(kStepMs);
+    }
+    if (why.empty()) why = "Windows did not restart it in time";
+    return false;
 }
 
 std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targets, const bool quiet) {
@@ -303,6 +405,12 @@ HideFilter::~HideFilter() { restore(); }
 #else  // not Windows
 
 namespace wheelbri::service {
+
+bool HideFilter::waitUntilStarted(const std::vector<std::string>&, int, const std::function<bool()>&,
+                                  std::string& why) {
+    why = "not on Windows";
+    return false;
+}
 
 std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targets, bool) {
     std::vector<Check> checks;

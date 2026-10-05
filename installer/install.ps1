@@ -18,8 +18,9 @@
 #     folder; an -InstallDir that is not empty and holds no WheelBri install is refused); Start menu (and desktop)
 #     shortcut "WheelBri"; an uninstall entry
 #   - two driver packages (pnputil): the virtual G920 (wheelbri-g920) and the
-#     filter that hides the rig from games (wheelbri-hide; only added here: the app puts it on the devices of the
-#     rig set up in Wheel setup, whatever they are, when Start is pressed)
+#     filter that hides the rig from games (wheelbri-hide). When the user's saved settings name a rig (a reinstall
+#     that kept them), wheelbri-service --prepare-hide puts it on that rig's plugged-in devices here, before the
+#     restart, so the first Start is instant; otherwise the app puts it on them at the first Start
 #   - the certificate the drivers are signed with, added to this PC's trusted Root and TrustedPublisher stores (the
 #     drivers are signed by WheelBri's own test certificate, not by Microsoft); its thumbprint is recorded in
 #     HKLM\SOFTWARE\wheelbri\SigningCertificates, so the uninstaller removes exactly that certificate
@@ -329,6 +330,7 @@ try {
     # --- 4. drivers -----------------------------------------------------------------------------------------------
     Step 'installing the drivers'
     $hidePending = $false   # the hiding filter is installed but Windows starts it only after a restart
+    $hideCode = $null       # install-hide.ps1's exit code (the package)
     $drivers = @(
         @{ Name = 'virtual G920 (wheelbri-g920)'; Script = 'driver\install-driver.ps1'; Required = $true },
         @{ Name = 'hiding filter (wheelbri-hide)'; Script = 'driver\hide\install-hide.ps1'; Required = $false }
@@ -345,6 +347,45 @@ try {
             Fail "the $($driver.Name) driver did not install (exit code $code); the lines above say why."
         } else {
             Warn "    the $($driver.Name) driver did not install (exit code $code); the app works without it (see above)"
+        }
+        if ($driver.Script -like '*install-hide.ps1') { $hideCode = $code }
+    }
+
+    # The filter on the saved rig's devices now, after a reinstall that kept the user's settings, so the first Start
+    # does not have to (it took ~30 s with the wheel reconnecting, and looked like a failed Start). The installed
+    # service does it exactly as Start does (the rig's game controllers as DirectInput lists them; reading USB ids here
+    # missed the Moza R3). No saved rig (a new PC), settings of another account (Administrator given by another
+    # user), or the wheel not plugged in: the first Start does it, as before.
+    if ($hideCode -eq 0 -or $hideCode -eq 2) {
+        Write-Host '  hiding filter on your saved rig''s devices'
+        $service = Join-Path $InstallDir 'wheelbri-service.exe'
+        # Its log lines come on stderr. Windows PowerShell 5.1 turns each into an error record, and with
+        # $ErrorActionPreference = 'Stop' the first one ("logging to ...") ended the install, so: Continue here,
+        # its result line (stdout) shown as is, and from its log (all of it is in wheelbri-service-<date>.log)
+        # only the warnings and errors, without the time and source prefix.
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $service --prepare-hide 2>&1 | ForEach-Object {
+                if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                    $line = $_.Exception.Message
+                    if ($line -match '^\[[^\]]*\] \[(warn|error|critical)\s*\] \[[^\]]*\] \[tid \d+\s*\] (.*?)(\s+\([^()]*:\d+\))?$') {
+                        Write-Host "    $($Matches[2])" -ForegroundColor Yellow
+                    }
+                } elseif ("$_".Trim()) {
+                    Write-Host "    $_"
+                }
+            }
+            $code = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previous
+        }
+        if ($code -eq 0) {
+            Write-Host '    done' -ForegroundColor Green
+        } elseif ($code -eq 2) {
+            $hidePending = $true
+        } elseif ($code -ne 3) {
+            Warn "    not done (exit code $code): the app sets it up at the first Start instead"
         }
     }
 
