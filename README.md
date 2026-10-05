@@ -30,7 +30,10 @@ Settled with NFS 2015 and an R3 on Windows:
 
 Still open:
 - Linux/Proton: both ways (Phase 4 and the shim under Proton) are ready to try on a Steam Deck, [docs/linux.md](docs/linux.md);
-- effect envelopes (attack/fade) are ignored, and NFS's 20-byte Logitech `Escape` calls are not forwarded.
+- NFS's 20-byte Logitech `Escape` calls are not forwarded (the shim logs their bytes: whether NFS's forces need
+  them is still to be seen in a session's shim log);
+- effect envelopes (attack / fade) and ramps over time are implemented (`FfbShape.hpp`) and unit-tested, not yet
+  felt in a game.
 
 ## Functionalities
 
@@ -46,6 +49,74 @@ a headline, why it was needed, how to use it, and where to look.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
   `out_clutch` in `telemetry-<date>.csv`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
   a test clutch can be sent over UDP (`core/include/wheelbri/TestClutch.hpp`).
+
+### Virtual G920 (our own driver)
+
+- **Why:** every game should see a G920 without anything copied into it, on any wheel; third-party virtual-device
+  tools (HIDMaestro, ViGEm) are not allowed.
+- **Use:** target **G920 virtual device** on the Mapping tab, then Start (Administrator). Start installs the
+  `wheelbri-g920` driver itself when Windows lacks it; Stop or closing the window removes the device.
+- **Look:** joy.cpl lists "Logitech G920 Driving Force Racing Wheel USB"; `wheelbri-driver-<date>.log`, the service's
+  `service.g920` lines. Code: `driver/Driver.cpp`, `service/src/VirtualG920.cpp`, core `HidG920`, `HidPid`.
+
+### Hiding the rig from games
+
+- **Why:** with the real wheel visible too, a game (NFS) may pick it instead of the G920.
+- **Use:** automatic with the virtual G920: every device of the active rig is hidden while a session runs, and only
+  WheelBri may open it. The first Start puts the `wheelbri-hide` filter on each device (it restarts once; sometimes
+  Windows wants a restart). `--no-hide` skips it, `--unhide` clears a hide after a crash (a crash never leaves one).
+- **Look:** the state next to Start ("rig hidden (N of M devices)" or, in red, "NOT HIDDEN"); `wheelbri-hide-<date>.log`,
+  `wheelbri-hide-install-<date>.log`. Code: `driver/hide/`, `service/src/HideFilter.cpp`, `ensureHideFilter` in
+  `main.cpp`.
+
+### In-game shim and its games list
+
+- **Why:** a way that needs no driver: a `dinput8.dll` next to the game presents the rig as a G920 to that game only
+  (also under Proton).
+- **Use:** target **G920 in-game shim**, **Games (N)** next to Start: **Add game** (the folder with the game's `.exe`),
+  pick it, Start. After the session the app asks whether to delete the shim from the game's folder. Settings: an
+  optional `wheelbri-shim.ini` next to the DLL.
+- **Look:** `wheelbri-shim-<date>.log`; the list is `%LOCALAPPDATA%\wheelbri\shim-games.txt`. Code: `shim/`, core
+  `ShimGames`, `service/src/ShimGamesView.cpp`.
+
+### Rig tab
+
+- **Why:** WheelBri works with any wheel and accessories, so the user says what each device and control is, once.
+- **Use:** tab R: touch a control (Detect), name it and pick its role; **Save**. Several rigs, the active one
+  remembered. The device with a Steering axis is the wheel.
+- **Look:** `%LOCALAPPDATA%\wheelbri\rigs\<rig>.ini`; `service.setup` log lines. Code: core `Rig`,
+  `service/src/WheelSetupView.cpp`.
+
+### Mapping tab
+
+- **Why:** the target (the G920) is fixed; which rig control drives each of its axes and buttons is the user's.
+- **Use:** tab M while stopped: click a G920 input and pick a rig control, or **Auto-map** from the rig's roles;
+  **Save** writes your own mapping, **Default** goes back to WheelBri's. While running the same tab is the live view.
+- **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core
+  `MappingEdit`, `Mapper`, `service/src/MappingEditView.cpp`.
+
+### Game force feedback through the safety limiter
+
+- **Why:** rigs are often direct drive: no game force may reach the wheel unchecked.
+- **Use:** automatic on both targets. `[ffb] master_gain`, `max_magnitude` (0.8), `max_slew_per_second` in the config;
+  `[ffb] invert = true` if forces pull the wrong way. The forces stop when the game goes quiet (500 ms).
+- **Look:** `ffb-<date>.csv`; the Force feedback tab (`--ffb-tab`). Code: core `FfbController`,
+  `FfbSafetyLimiter` (`Ffb.cpp`), `WheelOutput`.
+
+### Installer and uninstaller
+
+- **Why:** another PC needs WheelBri without a build tree, with only Windows' own tools.
+- **Use:** `scripts/make/package.sh` makes `dist/windows/WheelBri-<version>-setup.exe`; run it, approve Administrator.
+  Uninstall from the Start menu or Settings > Apps. `scripts/make/clean-pc.sh` removes everything, for tests.
+- **Look:** `wheelbri-install-<date>.log` in the logs folder. Code: `installer/`, `scripts/make/package.ps1`,
+  `scripts/make/clean-pc.ps1`.
+
+### Logs tab and one logs folder
+
+- **Why:** one place to see why something failed: the app's, the shim's and both drivers' logs together.
+- **Use:** tab L (or O for the folder): one line per component, then their lines merged live (scroll, Wrap). Files
+  are daily and old ones go after 2 days (`--old-files`).
+- **Look:** `%LOCALAPPDATA%\wheelbri\logs`. Code: core `LiveLog`, `Retention`, `service/src/MappingView.cpp`.
 
 ## Layout
 
@@ -119,7 +190,7 @@ data format and ranges the game asked for. If the service stops sending for 250 
 with pedals released. Everything else the game does is still logged to `wheelbri-shim-<date>.log`.
 
 Force feedback (Phase 3): the game's DirectInput effects (constant, spring, damper, friction, inertia,
-periodic; ramps as their average; no custom forces or envelopes) are kept by the shim and sent to the service
+periodic; ramps from start to end over their duration; envelopes, i.e. attack and fade; no custom forces) are kept by the shim and sent to the service
 on `ffb_port` (41330) as `FfbPacket`s. The service passes every effect through `FfbSafetyLimiter`
 (`[ffb] master_gain`, `max_magnitude`, `max_slew_per_second`) and plays it on the R3 (DirectInput on Windows, evdev on Linux); if the game
 goes quiet for 500 ms, every force stops. The service must be running before the game starts, because it

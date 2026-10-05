@@ -7,6 +7,7 @@
 // gains 0..10000, phase in hundredths of a degree, period in microseconds.
 
 #include "wheelbri/Ffb.hpp"
+#include "wheelbri/FfbShape.hpp"
 
 #include <cstdint>
 
@@ -32,5 +33,9 @@ inline constexpr std::uint32_t kSpherical = 0x40;
 // the wave round (phase + 180 degrees) and flips the offset.
 [[nodiscard]] FfbEffect periodic(FfbEffectType type, std::uint32_t magnitude, std::int32_t offset, std::uint32_t phase,
                                  std::uint32_t periodUs, float direction, std::uint32_t gain);
+
+// DIENVELOPE: levels 0..10000, times in microseconds.
+[[nodiscard]] FfbEnvelope envelope(std::uint32_t attackLevel, std::uint32_t attackTimeUs, std::uint32_t fadeLevel,
+                                   std::uint32_t fadeTimeUs);
 
 }  // namespace wheelbri::di

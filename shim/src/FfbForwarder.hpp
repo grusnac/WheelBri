@@ -3,6 +3,7 @@
 #include "wheelbri/Devices.hpp"
 #include "wheelbri/Ffb.hpp"
 #include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/FfbShape.hpp"
 #include "wheelbri/UdpLoopback.hpp"
 
 #include <array>
@@ -18,7 +19,8 @@ namespace wheelbri::shim {
 // wheelbri-service, which limits them and plays them on the physical wheel. One per process.
 //
 // Timing (duration, iterations, start delay) is tracked here, so the service only ever sees "slot N
-// plays effect E" or "slot N is quiet". Every change is sent at once; tick() adds a keep-alive and a
+// plays effect E" or "slot N is quiet". So are envelopes (attack / fade) and ramps: while one changes the force,
+// every tick() sends the level for that moment (FfbShape.hpp). Every change is sent at once; tick() adds a keep-alive and a
 // periodic full refresh of every slot (stopped ones too) so a lost datagram heals, a lost "stop" included,
 // and the service's watchdog stays fed.
 //
@@ -40,7 +42,8 @@ public:
     [[nodiscard]] bool holds(const Allocation& a);
     void release(const Allocation& a);
 
-    void setEffect(const Allocation& a, const FfbEffect& effect);
+    // `shape`: the effect's envelope and a ramp's end level, applied as it plays.
+    void setEffect(const Allocation& a, const FfbEffect& effect, const FfbShape& shape = {});
     // durationUs / iterations: nullopt = infinite. `solo`: the owner's other effects stop.
     void start(const Allocation& a, std::optional<std::uint64_t> durationUs, std::optional<std::uint32_t> iterations,
                std::uint64_t startDelayUs, bool solo);
@@ -67,9 +70,11 @@ private:
         const void* owner = nullptr;
         std::uint32_t ticket = 0;
         FfbEffect effect;
+        FfbShape shape;
         bool started = false;
         Clock::time_point startedAt{};
         std::uint64_t startDelayUs = 0;
+        std::optional<std::uint64_t> durationUs;   // one play (iteration); nullopt = infinite
         std::optional<std::uint64_t> lengthUs;   // duration * iterations; nullopt = until stopped
         bool sentPlaying = false;
         std::optional<FfbEffect> sentEffect;

@@ -14,6 +14,7 @@ add_executable(wheelbri_tests
     EmulatorConfigTest.cpp
     FfbForwardingTest.cpp
     FfbSafetyLimiterTest.cpp
+    FfbShapeTest.cpp
     FfbUsageTest.cpp
     FileTextTest.cpp
     GameUseWatchTest.cpp

@@ -51,6 +51,8 @@ private:
     ~EmulatedEffect() = default;
 
     [[nodiscard]] FfbEffect toFfb() const;
+    // Its envelope (attack / fade) and a ramp's end level, which FfbForwarder applies as it plays.
+    [[nodiscard]] FfbShape toShape() const;
     // A slot for this effect ("downloaded"), taking a free one if Unload or a device reset gave the last one back.
     [[nodiscard]] bool ensureSlot();
     // The slot it still holds, or nullopt (never downloaded, unloaded, or freed by the device's reset).
@@ -88,7 +90,6 @@ private:
     // Games call an effect from several threads (input and force feedback). Recursive: SetParameters(DIEP_START)
     // calls Start.
     std::recursive_mutex mutex_;
-    bool warnedEnvelope_ = false;
 };
 
 }  // namespace wheelbri::shim

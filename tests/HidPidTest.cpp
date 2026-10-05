@@ -156,6 +156,52 @@ TEST(HidPid, PoolFullAndReset) {
     EXPECT_EQ(r.pid.getFeature(0x42, feature), 0U);
 }
 
+// Set Envelope comes with EBI 0 before the effect, like the other parameters; tick() sends the level as it changes.
+TEST(HidPid, EnvelopeShapesAConstantForce) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x12, hex("0000000000F4010000F4010000"), 0);   // attack 0 over 500 ms, fade to 0 over 500 ms
+    r.pid.output(0x15, hex("001027"), 0);                       // constant 10000
+    r.pid.output(0x11, hex("0101D007000000000000FFFF04FF1F0000FFFFFFFF"), 0);   // 2000 ms, 90 degrees
+    r.pid.output(0x1A, hex("010101"), 0);
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, 0.0F, 1e-2F);
+    r.pid.tick(250);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, 0.5F, 1e-2F);
+    r.pid.tick(1000);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, 1.0F, 1e-2F);
+    r.pid.tick(1750);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, 0.5F, 1e-2F);
+}
+
+TEST(HidPid, RampMovesOverItsDuration) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x16, hex("0078EC8813"), 0);                   // ramp -5000 -> 5000
+    r.pid.output(0x11, hex("0102D007000000000000FFFF04FF1F0000FFFFFFFF"), 0);   // 2000 ms
+    r.pid.output(0x1A, hex("010101"), 0);
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, -0.5F, 1e-2F);
+    r.pid.tick(500);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, -0.25F, 1e-2F);
+    r.pid.tick(1000);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, 0.0F, 1e-2F);
+}
+
+TEST(HidPid, AnEnvelopeBeforeASpringIsNotKeptForTheNextEffect) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x12, hex("0000000000F4010000F4010000"), 0);
+    r.pid.output(0x13, hex("000F000070177017102710270000"), 0);
+    r.pid.output(0x11, hex("0108B80B000000000000FFFF04FF1F0000FFFFFFFF"), 0);   // a spring
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x15, hex("001027"), 0);
+    r.pid.output(0x11, hex("0201D007000000000000FFFF04FF1F0000FFFFFFFF"), 0);   // then a constant, block 2
+    r.pid.output(0x1A, hex("020101"), 0);
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, 1.0F, 1e-2F);   // full at once: no attack
+}
+
 TEST(HidPid, ABlockNumberNeverHandedOutTakesNoSlot) {
     Recorder r;
     r.pid.output(0x11, hex("2801DC05000000000000FFFF04FF1F0000FFFFFFFF"), 0);   // Set Effect for block 40

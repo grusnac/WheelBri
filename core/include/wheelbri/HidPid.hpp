@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/FfbShape.hpp"
 
 #include <array>
 #include <cstddef>
@@ -31,7 +32,9 @@ namespace wheelbri {
 //
 // pid.dll sends the type-specific reports with EBI 0 just before the Set Effect naming the real block;
 // they are kept pending for the next Set Effect of the same kind (and applied to the last block of that
-// kind, for a game changing the magnitude of a running effect).
+// kind, for a game changing the magnitude of a running effect). Set Envelope (attack / fade) goes with the next
+// constant, ramp or periodic effect. Envelopes and ramps change the force while an effect plays: tick() works the
+// level out every time (FfbShape.hpp) and sends it.
 //
 // Thread-safe: a driver calls it from I/O callbacks and a timer.
 class HidPid {
@@ -84,13 +87,14 @@ private:
         float along = 1.0F;                  // share of the force along the wheel axis (-1..1)
         float constantMagnitude = 0.0F;
         float rampStart = 0.0F, rampEnd = 0.0F;
+        std::optional<FfbEnvelope> envelope;
         float center = 0.0F, deadband = 0.0F, posCoef = 0.0F, negCoef = 0.0F, posSat = 1.0F, negSat = 1.0F;
         float magnitude = 0.0F, offset = 0.0F, periodMs = 0.0F, phaseDeg = 0.0F;
         bool started = false;
         std::int64_t startedAtMs = 0;
         std::optional<int> loops;            // none = infinite
     };
-    enum class ParamKind { Constant, Ramp, Periodic, Condition };
+    enum class ParamKind { Constant, Ramp, Periodic, Condition, Envelope };
     using BlockAction = std::function<void(Block&)>;
     struct Sent {
         bool playing = false;
@@ -110,7 +114,8 @@ private:
     void onDeviceControl(std::uint8_t command, std::int64_t nowMs);
     void resetAll(std::int64_t nowMs);
     [[nodiscard]] bool playing(const Block& b, std::int64_t nowMs) const;
-    [[nodiscard]] FfbEffect toEffect(const Block& b) const;
+    // The effect at `nowMs`: its envelope and a ramp's level worked out for that moment.
+    [[nodiscard]] FfbEffect toEffect(const Block& b, std::int64_t nowMs) const;
     void sendChanges(std::int64_t nowMs, bool force);
     void send(FfbPacket::Kind kind, std::uint8_t slot, bool playing, const FfbEffect& effect, std::int64_t nowMs);
 

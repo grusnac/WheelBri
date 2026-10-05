@@ -67,6 +67,15 @@ void FfbForwarder::sendSlot(const std::uint8_t index, const Clock::time_point no
     Slot& slot = slots_[index];
     const bool playing = effectivelyPlaying(slot, now);
     FfbEffect effect = slot.effect;
+    if (playing && (slot.shape.envelope || slot.shape.rampEndLevel)) {
+        // Time into the current play (every iteration plays the envelope and the ramp again).
+        const auto sinceStartUs = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(now - slot.startedAt).count());
+        std::uint64_t elapsedUs = sinceStartUs > slot.startDelayUs ? sinceStartUs - slot.startDelayUs : 0;
+        if (slot.durationUs && *slot.durationUs > 0) elapsedUs %= *slot.durationUs;
+        const double durationMs = slot.durationUs ? static_cast<double>(*slot.durationUs) / 1000.0 : kUntilStopped;
+        effect = shapeAt(effect, slot.shape, static_cast<double>(elapsedUs) / 1000.0, durationMs);
+    }
     effect.gain *= deviceGain_;
     const bool changed = playing != slot.sentPlaying || (playing && slot.sentEffect != effect);
     if (!changed && !force) {
@@ -123,10 +132,11 @@ void FfbForwarder::release(const Allocation& a) {
     slots_[a.slot] = Slot{};
 }
 
-void FfbForwarder::setEffect(const Allocation& a, const FfbEffect& effect) {
+void FfbForwarder::setEffect(const Allocation& a, const FfbEffect& effect, const FfbShape& shape) {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (!holdsLocked(a)) return;
     slots_[a.slot].effect = effect;
+    slots_[a.slot].shape = shape;
     sendSlot(a.slot, Clock::now(), false);
 }
 
@@ -149,6 +159,7 @@ void FfbForwarder::start(const Allocation& a, const std::optional<std::uint64_t>
     s.started = true;
     s.startedAt = now;
     s.startDelayUs = startDelayUs;
+    s.durationUs = durationUs;
     if (durationUs && iterations) {
         s.lengthUs = *durationUs * *iterations;
     } else {

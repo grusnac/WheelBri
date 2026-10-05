@@ -34,10 +34,10 @@ if on_windows; then
     fi
     say "starting $app ${app_args}(answer the Administrator prompt)"
     if [ -n "$app_args" ]; then
-        powershell.exe -NoProfile -Command "Start-Process -FilePath '$(cygpath -w "$root/$app")' -ArgumentList '${app_args% }'" \
+        powershell.exe -NoProfile -Command "Start-Process -FilePath $(ps_quote "$(cygpath -w "$root/$app")") -ArgumentList $(ps_quote "${app_args% }")" \
             || fail "the app did not start (Administrator refused?)"
     else
-        powershell.exe -NoProfile -Command "Start-Process -FilePath '$(cygpath -w "$root/$app")'" \
+        powershell.exe -NoProfile -Command "Start-Process -FilePath $(ps_quote "$(cygpath -w "$root/$app")")" \
             || fail "the app did not start (Administrator refused?)"
     fi
 else

@@ -76,7 +76,7 @@ bool EmulatedEffect::ensureSlot() {
     if (!slot_) {
         return false;
     }
-    FfbForwarder::instance().setEffect(*slot_, toFfb());
+    FfbForwarder::instance().setEffect(*slot_, toFfb(), toShape());
     WE_LOG_DEBUG(log(), "{}: downloaded again, slot {}", label_, slot_->slot);
     return true;
 }
@@ -159,10 +159,9 @@ FfbEffect EmulatedEffect::toFfb() const {
             if (type_ == GUID_RampForce) {
                 DIRAMPFORCE ramp{};
                 readTypeSpecific(typeSpecific_, 0, ramp);
-                // A ramp is played as its average level; games use it rarely and briefly.
-                // In 64 bits: the game's two LONGs may add up past the 32-bit range.
-                const std::int64_t average = (static_cast<std::int64_t>(ramp.lStart) + ramp.lEnd) / 2;
-                return di::constantForce(static_cast<std::int32_t>(average), direction, gain_);
+                // Its start level; toShape() gives the end, and FfbForwarder goes from one to the other over the
+                // duration (the mean level when the duration is infinite).
+                return di::constantForce(ramp.lStart, direction, gain_);
             }
             DICONSTANTFORCE constant{};
             readTypeSpecific(typeSpecific_, 0, constant);
@@ -188,6 +187,21 @@ FfbEffect EmulatedEffect::toFfb() const {
                                 periodic.dwPeriod, direction, gain_);
         }
     }
+}
+
+FfbShape EmulatedEffect::toShape() const {
+    FfbShape shape;
+    if (envelope_ && effectType_ != FfbEffectType::Spring && effectType_ != FfbEffectType::Damper &&
+        effectType_ != FfbEffectType::Friction && effectType_ != FfbEffectType::Inertia) {
+        shape.envelope = di::envelope(envelope_->dwAttackLevel, envelope_->dwAttackTime, envelope_->dwFadeLevel,
+                                      envelope_->dwFadeTime);
+    }
+    if (type_ == GUID_RampForce) {
+        DIRAMPFORCE ramp{};
+        readTypeSpecific(typeSpecific_, 0, ramp);
+        shape.rampEndLevel = di::constantForce(ramp.lEnd, directionAlongWheel(), gain_).constantLevel;
+    }
+    return shape;
 }
 
 HRESULT EmulatedEffect::SetParameters(LPCDIEFFECT effect, const DWORD flags) {
@@ -234,11 +248,6 @@ HRESULT EmulatedEffect::SetParameters(LPCDIEFFECT effect, const DWORD flags) {
         if ((flags & DIEP_ENVELOPE) != 0) {
             if (effect->lpEnvelope != nullptr) {
                 envelope_ = *effect->lpEnvelope;
-                if (!warnedEnvelope_) {
-                    warnedEnvelope_ = true;
-                    WE_LOG_DEBUG(log(), "{}: envelope (attack/fade) is ignored; the effect plays at full level",
-                                 label_);
-                }
             } else {
                 envelope_.reset();
             }
@@ -254,7 +263,7 @@ HRESULT EmulatedEffect::SetParameters(LPCDIEFFECT effect, const DWORD flags) {
             return DIERR_DEVICEFULL;
         }
         if (const auto slot = currentSlot()) {
-            FfbForwarder::instance().setEffect(*slot, converted);
+            FfbForwarder::instance().setEffect(*slot, converted, toShape());
         }
         if (const auto call = setSampler_.next(); call != 0) {
             WE_LOG_DEBUG(log(), "{}: SetParameters #{} flags=0x{:x} -> level={:+.3f} coef={:+.3f}/{:+.3f} "

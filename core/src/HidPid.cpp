@@ -38,7 +38,8 @@ std::string hex(std::span<const std::uint8_t> d) {
 HidPid::HidPid(Sender send, Logger log) : send_(std::move(send)), log_(std::move(log)) {}
 
 // PID effect type (1-based, descriptor order: constant, ramp, square, sine, triangle, saw up, saw down, spring,
-// damper, inertia, friction, custom) -> the service's type. Ramp plays as a constant at its mean level.
+// damper, inertia, friction, custom) -> the service's type. A ramp is a constant force going from its start level to
+// its end over the duration (its mean level when the duration is infinite).
 std::optional<FfbEffectType> HidPid::typeFor(int pidType) {
     switch (pidType) {
         case 1:
@@ -85,7 +86,17 @@ void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std:
         case kSetEffect:
             if (d.size() >= 13) onSetEffect(d);
             break;
-        case kSetEnvelope: break;            // attack/fade: ignored, as by the shim
+        case kSetEnvelope:
+            // 0 EBI, 1 attack level, 3 fade level (0..10000), 5 attack time ms, 9 fade time ms (32 bits each).
+            if (d.size() >= 13) {
+                FfbEnvelope envelope;
+                envelope.attackLevel = std::clamp(static_cast<float>(u16(d, 1)) / 10000.0F, 0.0F, 1.0F);
+                envelope.fadeLevel = std::clamp(static_cast<float>(u16(d, 3)) / 10000.0F, 0.0F, 1.0F);
+                envelope.attackMs = static_cast<float>(u32(d, 5));
+                envelope.fadeMs = static_cast<float>(u32(d, 9));
+                withParams(d[0], ParamKind::Envelope, [envelope](Block& b) { b.envelope = envelope; });
+            }
+            break;
         case kSetCondition:
             if (d.size() >= 14) onSetCondition(d);
             break;
@@ -266,6 +277,16 @@ void HidPid::onSetEffect(std::span<const std::uint8_t> d) {
             pending->second(*b);
             pending_.erase(pending);
         }
+        // An envelope sent just before belongs to this effect when it can have one (not a condition).
+        if (*kind == ParamKind::Condition) {
+            pending_.erase(ParamKind::Envelope);
+        } else {
+            lastOfKind_[ParamKind::Envelope] = ebi;
+            if (const auto pending = pending_.find(ParamKind::Envelope); pending != pending_.end()) {
+                pending->second(*b);
+                pending_.erase(pending);
+            }
+        }
     }
     // With a direction, the force points that way (polar, 90 degrees = +X, as the shim reads DirectInput
     // polar directions); without one it acts along the enabled axes: here only the wheel counts.
@@ -389,14 +410,14 @@ bool HidPid::playing(const Block& b, std::int64_t nowMs) const {
     return elapsed - b.startDelayMs < *b.durationMs * *b.loops;
 }
 
-FfbEffect HidPid::toEffect(const Block& b) const {
+FfbEffect HidPid::toEffect(const Block& b, const std::int64_t nowMs) const {
     FfbEffect e;
     e.type = typeFor(b.pidType).value_or(FfbEffectType::Constant);
     e.gain = std::clamp(b.gain * deviceGain_, 0.0F, 1.0F);
     if (b.pidType == 1) {
         e.constantLevel = std::clamp(b.constantMagnitude * b.along, -1.0F, 1.0F);
     } else if (b.pidType == 2) {
-        e.constantLevel = std::clamp((b.rampStart + b.rampEnd) / 2.0F * b.along, -1.0F, 1.0F);
+        e.constantLevel = std::clamp(b.rampStart * b.along, -1.0F, 1.0F);   // to rampEnd, below
     } else if (b.pidType >= 3 && b.pidType <= 7) {
         e.periodic.magnitude = b.magnitude * std::abs(b.along);
         e.periodic.offset = b.offset * b.along;
@@ -410,7 +431,15 @@ FfbEffect HidPid::toEffect(const Block& b) const {
         e.condition.positiveSaturation = b.posSat;
         e.condition.negativeSaturation = b.negSat;
     }
-    return e;
+    FfbShape shape;
+    shape.envelope = b.envelope;
+    if (b.pidType == 2) shape.rampEndLevel = std::clamp(b.rampEnd * b.along, -1.0F, 1.0F);
+    if (!shape.envelope && !shape.rampEndLevel) return e;
+    // Time into the current play (each loop plays the envelope and the ramp again).
+    std::int64_t elapsed = b.started ? std::max<std::int64_t>(0, nowMs - b.startedAtMs - b.startDelayMs) : 0;
+    if (b.durationMs && *b.durationMs > 0) elapsed %= *b.durationMs;
+    const double duration = b.durationMs ? static_cast<double>(*b.durationMs) : kUntilStopped;
+    return shapeAt(e, shape, static_cast<double>(elapsed), duration);
 }
 
 void HidPid::sendChanges(std::int64_t nowMs, bool force) {
@@ -419,7 +448,7 @@ void HidPid::sendChanges(std::int64_t nowMs, bool force) {
         const auto found = blocks_.find(*slotOwner_[slot]);
         if (found == blocks_.end()) continue;
         const bool isPlaying = playing(found->second, nowMs);
-        const FfbEffect effect = toEffect(found->second);
+        const FfbEffect effect = toEffect(found->second, nowMs);
         const auto& last = sent_[slot];
         const bool changed = !last || last->playing != isPlaying || (isPlaying && !(last->effect == effect));
         if (changed || (force && last && last->playing)) {

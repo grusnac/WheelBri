@@ -26,6 +26,10 @@ on_windows() {
 
 need() { command -v "$1" >/dev/null 2>&1 || fail "$1 not found: $2"; }
 
+# A PowerShell single-quoted string holding $1 as it is: a ' inside is doubled (the only character such a string
+# treats specially), so a folder like D:\Grigore's games\ cannot end the string early.
+ps_quote() { local s=${1//\'/\'\'}; printf "'%s'" "$s"; }
+
 # Configure the CMake tree (always; cmake keeps what it can).
 configure() {
     need cmake "MSYS2: pacman -S mingw-w64-ucrt-x86_64-cmake"

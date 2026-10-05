@@ -53,7 +53,8 @@ Status (README.md has the full table):
   throttle Slider, brake Y, clutch Rz, pedals released at the top of the range. The tested wheel's axes as the service numbers
   them: steering 0, throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
 - **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
-  tried on a Steam Deck); effect envelopes (ignored); NFS's 20-byte Logitech `Escape` calls (not forwarded).
+  tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
+  `Escape` calls (not forwarded; the shim logs them).
 - The G920's own FFB is HID++, not the classic Logitech protocol; the virtual G920 exposes HID PID instead.
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`, where the consumer is
@@ -184,7 +185,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     parameters, `HidPid` from HID PID reports) and `FfbSafetyLimiter` is the last stage before hardware. The
     limiter holds state (slew), so use one limiter per played effect. `FfbController` holds the limiters and
     the watchdog; `FfbUsage` summarises per-effect use for the UI and log; `WheelOutput` converts effects to
-    DirectInput/evdev units.
+    DirectInput/evdev units. Envelopes (attack / fade) and ramps are worked out by the senders, which know each
+    effect's timing: `FfbShape.hpp` (header only, the driver compiles `HidPid.cpp` without the rest of core) and
+    `shapeAt()`, called by the shim's `FfbForwarder` and by `HidPid` on every tick; the wire and the service only see
+    levels.
   - The G920 has 19 buttons (`kG920Buttons`, `g920Spec().buttonNames`, 0-based): the wheel's 11 (0-10), an unused 11
     (joy.cpl 12) and the Driving Force Shifter's Gear 1-6 (12-17) and Gear R (18), as Logitech's shifter FAQ gives them
     (joy.cpl 13-19). Every target (shim, virtual device, uhid) reports all 19; `IDeviceProfile::buttonCount` counts

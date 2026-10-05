@@ -71,4 +71,14 @@ FfbEffect periodic(const FfbEffectType type, const std::uint32_t magnitude, cons
     return effect;
 }
 
+FfbEnvelope envelope(const std::uint32_t attackLevel, const std::uint32_t attackTimeUs, const std::uint32_t fadeLevel,
+                     const std::uint32_t fadeTimeUs) {
+    FfbEnvelope out;
+    out.attackLevel = unsignedUnit(attackLevel);
+    out.attackMs = static_cast<float>(attackTimeUs) / 1000.0F;
+    out.fadeLevel = unsignedUnit(fadeLevel);
+    out.fadeMs = static_cast<float>(fadeTimeUs) / 1000.0F;
+    return out;
+}
+
 }  // namespace wheelbri::di
