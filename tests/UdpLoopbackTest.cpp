@@ -98,12 +98,16 @@ TEST(UdpLoopback, PollReadsAtMostItsCapAndTheRestWaits) {
     const auto first = receiver->pollLatest();
     ASSERT_TRUE(first.has_value());
     EXPECT_EQ(first->sequence, UdpLoopbackReceiver::kMaxPerPoll);   // one call stops after its share
+    EXPECT_EQ(receiver->lastPoll().read, UdpLoopbackReceiver::kMaxPerPoll);
+    EXPECT_TRUE(receiver->lastPoll().capped);   // behind: newer packets still wait
     std::optional<StatePacket> last;
     for (int i = 0; i < 20; ++i) {
         if (auto packet = receiver->pollLatest()) last = packet;
     }
     ASSERT_TRUE(last.has_value());
     EXPECT_EQ(last->sequence, kSent);   // the later calls get the rest
+    EXPECT_EQ(receiver->lastPoll().read, 0U);
+    EXPECT_FALSE(receiver->lastPoll().capped);
 }
 
 TEST(UdpLoopback, SenderFilterDropsRefusedSenders) {

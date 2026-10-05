@@ -40,7 +40,7 @@ This file guides Claude when working in this repository.
   telemetry columns, code files). Ask the user whether a functionality is finished if it's unclear.
 - Before guessing at a mapping or FFB problem, read the user's logs and telemetry
   (`%LOCALAPPDATA%\wheelbri\logs`: `wheelbri-service-<date>.log`, `telemetry-<date>.csv`, `ffb-<date>.csv`) and
-  run `scripts/telemetry_summary.py`. The `raw_a0`..`raw_a7` columns show which axis a control really moves.
+  run `scripts/telemetry_summary.sh`. The `raw_a0`..`raw_a7` columns show which axis a control really moves.
 
 ## Project
 
@@ -191,7 +191,12 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     parameters, `HidPid` from HID PID reports) and `FfbSafetyLimiter` is the last stage before hardware. The
     limiter holds state (slew), so use one limiter per played effect. `FfbController` holds the limiters and
     the watchdog; `FfbUsage` summarises per-effect use for the UI and log; `WheelOutput` converts effects to
-    DirectInput/evdev units. Envelopes (attack / fade) and ramps are worked out by the senders, which know each
+    DirectInput/evdev units. The service plays on the wheel through `AsyncFfbSink`, a thread of its own at the loop's
+    raised priority (the newest command per slot; `stopAll` first, then stops, constant, periodic, conditions, and
+    anything that waited `kMaxWait` = 20 ms; a refused play is answered by the next `play` on that slot): a DirectInput
+    call takes 4-15 ms on the R3 (27 ms to start an effect) and must not hold the 1 kHz loop. Every call is measured
+    (`Applied`: wait, call), drained by the loop into `FfbDelayStats` (the log's `ffb delay` table) and the ffb CSV's
+    `wheel_*` rows (`wait_us`, `call_us`; sessions repeat their `# columns:`, which `telemetry_summary.sh` reads). Envelopes (attack / fade) and ramps are worked out by the senders, which know each
     effect's timing: `FfbShape.hpp` (header only, the driver compiles `HidPid.cpp` without the rest of core) and
     `shapeAt()`, called by the shim's `FfbForwarder` and by `HidPid` on every tick; the wire and the service only see
     levels.
@@ -204,8 +209,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     type-specific parameters with effect block 0 and then the Set Effect naming the block: `HidPid` keeps them pending
     for that Set Effect and never applies them early (Windows sends reports twice, a new effect's parameters before
     its first Set Effect, and Effect Operations in between; early guesses mixed up NFS's spring and damper). Unclaimed
-    ones reach the last block of their kind after `kPendingMs`. The first `kTraceLines` reports of a session and the
-    slot changes they cause are written to the driver's log (`pid trace`), for checking the real order.
+    ones reach the last block of their kind after `kPendingMs`. A trace (`HidPid::enableTrace`, off by default) writes
+    the next N reports and the slot changes they cause to the driver's log (`pid trace`), for checking the real order:
+    an Administrator sets `HKLM\SOFTWARE\wheelbri PidTraceLines` (DWORD, e.g. 1000), read at each start of the device.
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
     spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
   - `GameUseWatch`: pedals pressed for 20 s in total while the game never sent force feedback = the game drives from
@@ -346,7 +352,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   one device's Unacquire, Release or reset leaves another's effects alone and a stale effect cannot touch a reused
   slot; the DLL pins itself on the first export call); in that mode the physical device is opened
   non-exclusively because the service owns its force feedback. Other devices stay `ProxyDevice<T>`
-  (log and forward). Settings: optional `wheelbri-shim.ini` next to the DLL (`ShimConfig`).
+  (log and forward). Settings: optional `wheelbri-shim.ini` next to the DLL (`ShimConfig`). Once a minute (and at
+  release) `StateFeed` logs an `input:` line (core `InputReadStats`): how often the game reads (NFS: ~90/s), packets per
+  read, reads without new state, reads behind (`UdpLoopbackReceiver::lastPoll().capped`: kMaxPerPoll stopped the
+  drain, so older state was handed over) and the shim's own time per read.
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
@@ -402,7 +411,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   the Mapping tab switches); the shim ships in `shim\`. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
   driver scripts and the app's `ensureHideFilter` look there. Only Windows' own tools: no third-party installer.
   When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.
-- `scripts/`: `telemetry_summary.py` (reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelbri.sh`, udev rules,
+- `scripts/`: `telemetry_summary.sh` (bash + awk, reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelbri.sh`, udev rules,
   `package.sh` bundle).
 - `config/`: `g920-virtual-device.ini`, `g920-in-game-shim.ini` (service: the target and its default mapping),
   `wheelbri-shim.ini` (shim).
@@ -415,6 +424,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
 
 - No third-party runtime tools or drivers (HidHide, ViGEm, HIDMaestro): what the
   emulator needs on the PC is built in this repository.
+- No Python. Scripts are bash (MSYS2 UCRT64 and Linux; awk for data, POSIX awk only: MSYS2 has gawk, Linux may have
+  mawk, so no gawk extensions and no deep recursion) or, for Windows-only work, PowerShell (`.ps1`) / `.cmd`.
 
 - Style: C++20, 4-space indent, `camelCase` functions and variables, `PascalCase` types, `trailing_` members,
   `kConstant` constants, `#pragma once`, `[[nodiscard]]` on queries, `const` parameters in definitions,

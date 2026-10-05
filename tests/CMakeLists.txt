@@ -7,6 +7,7 @@ set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(wheelbri_tests
+    AsyncFfbSinkTest.cpp
     ConfigLibraryTest.cpp
     DeviceLabelsTest.cpp
     DeviceProfileTest.cpp
@@ -20,6 +21,7 @@ add_executable(wheelbri_tests
     GameUseWatchTest.cpp
     HidHideCliTest.cpp
     HidPidTest.cpp
+    InputReadStatsTest.cpp
     IniDocumentTest.cpp
     IniEditorTest.cpp
     LiveLogTest.cpp

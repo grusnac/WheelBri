@@ -224,6 +224,7 @@ struct UdpLoopbackReceiver::Impl {
     std::optional<std::uint32_t> lastSequence;
     std::uint64_t received = 0;
     std::uint64_t lost = 0;
+    UdpLoopbackReceiver::PollInfo lastPoll;
     logging::RateLimiter malformedLimiter{std::chrono::seconds(5)};
     logging::RateLimiter lossLimiter{std::chrono::seconds(5)};
     // Two senders at once (a second service, a stale one) make every other packet a "restart": in the game, where
@@ -345,13 +346,16 @@ void UdpLoopbackReceiver::setSenderFilter(SenderFilter filter) { impl_->filter =
 std::optional<StatePacket> UdpLoopbackReceiver::pollLatest() {
     std::optional<StatePacket> latest;
     std::array<std::uint8_t, 64> buffer{};
+    PollInfo info{0, true};
     // At most kMaxPerPoll a call: a flood of datagrams must not keep the caller (the game's input thread) here.
     for (std::size_t n = 0; n < kMaxPerPoll; ++n) {
         std::uint16_t sender = 0;
         const auto received = receiveOne(impl_->socket.get(), buffer, &sender);
         if (!received) {
+            info.capped = false;
             break;  // nothing more to read now
         }
+        ++info.read;
         if (impl_->filter && !impl_->filter(sender)) {
             continue;   // not from WheelBri's service
         }
@@ -365,7 +369,10 @@ std::optional<StatePacket> UdpLoopbackReceiver::pollLatest() {
                                 StatePacket::kPacketSize, StatePacket::kVersion);
         }
     }
+    impl_->lastPoll = info;
     return latest;
 }
+
+UdpLoopbackReceiver::PollInfo UdpLoopbackReceiver::lastPoll() const { return impl_->lastPoll; }
 
 }  // namespace wheelbri

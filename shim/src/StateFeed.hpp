@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/InputReadStats.hpp"
 #include "wheelbri/SenderGate.hpp"
 #include "wheelbri/UdpLoopback.hpp"
 
@@ -22,6 +23,12 @@ public:
     // released, no buttons. A stuck throttle is worse than no input.
     [[nodiscard]] TargetReport current(const IDeviceProfile& profile);
 
+    // One read by the game (GetDeviceState), its start and end on the steady clock in ns: how often the game reads,
+    // whether each read had new state and how long the shim took (InputReadStats; a log line a minute).
+    void noteRead(std::uint64_t startNs, std::uint64_t endNs);
+    // The reads since the last line, now (the device is released).
+    void logReads();
+
 private:
     StateFeed();
     void openReceiver(std::uint16_t port);
@@ -37,6 +44,7 @@ private:
     bool stale_ = true;
     bool warnedNeverReceived_ = false;
     std::chrono::steady_clock::time_point firstRequest_{};
+    InputReadStats reads_;
 };
 
 }  // namespace wheelbri::shim

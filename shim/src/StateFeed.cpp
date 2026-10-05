@@ -141,7 +141,10 @@ TargetReport StateFeed::current(const IDeviceProfile& profile) {
     }
 
     if (receiver_ != nullptr) {
-        if (auto packet = receiver_->pollLatest()) {
+        auto packet = receiver_->pollLatest();
+        const UdpLoopbackReceiver::PollInfo poll = receiver_->lastPoll();
+        reads_.addPackets(poll.read, poll.capped);
+        if (packet) {
             latest_ = *packet;
             lastArrival_ = now;
             if (stale_) {
@@ -167,6 +170,23 @@ TargetReport StateFeed::current(const IDeviceProfile& profile) {
                     config.statePort);
     }
     return profile.encode(WheelState{});
+}
+
+void StateFeed::noteRead(const std::uint64_t startNs, const std::uint64_t endNs) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    reads_.recordRead(startNs, endNs);
+    if (reads_.due(endNs)) {
+        WE_LOG_INFO(log(), "{}", reads_.summary(endNs));
+        reads_.restart(endNs);
+    }
+}
+
+void StateFeed::logReads() {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    if (reads_.reads() == 0) return;
+    const std::uint64_t now = steadyNs();
+    WE_LOG_INFO(log(), "{} (until the release)", reads_.summary(now));
+    reads_.restart(now);
 }
 
 }  // namespace wheelbri::shim

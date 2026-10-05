@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <optional>
@@ -127,6 +128,7 @@ public:
             guardedVoid("Release", [&] {
                 WE_LOG_INFO(detail::emulationLog(), "{}: released after {} GetDeviceState / {} GetDeviceData calls",
                             label_, stateCalls_.load(), dataCalls_.load());
+                StateFeed::instance().logReads();
             });
             delete this;
         }
@@ -424,6 +426,7 @@ public:
 
     HRESULT STDMETHODCALLTYPE GetDeviceState(DWORD size, LPVOID data) override {
         return guarded("GetDeviceState", [&]() -> HRESULT {
+            const std::uint64_t startNs = steadyNowNs();
             ++stateCalls_;
             const std::lock_guard<std::mutex> lock(mutex_);
             if (data == nullptr || !joystick_.hasDataFormat() || size != joystick_.dataSize()) {
@@ -444,6 +447,7 @@ public:
                              label_, call, lastReport_.steering, lastReport_.throttle, lastReport_.brake,
                              lastReport_.clutch, lastReport_.buttons, lastReport_.hat, describeDeviceState(size, data));
             }
+            StateFeed::instance().noteRead(startNs, steadyNowNs());
             return DI_OK;
         });
     }
@@ -711,6 +715,12 @@ private:
             }
             throw;   // guarded() turns it into an error for the game and logs it
         }
+    }
+
+    static std::uint64_t steadyNowNs() {
+        return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                              std::chrono::steady_clock::now().time_since_epoch())
+                                              .count());
     }
 
     // Pulls the newest state and, when buffered, queues what changed. Caller holds mutex_.

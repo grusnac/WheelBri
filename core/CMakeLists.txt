@@ -1,4 +1,5 @@
 add_library(wheelbri_core STATIC
+    src/AsyncFfbSink.cpp
     src/ConfigLibrary.cpp
     src/DeviceMatch.cpp
     src/DeviceLabels.cpp
@@ -18,6 +19,7 @@ add_library(wheelbri_core STATIC
     src/HidPid.cpp
     src/IniDocument.cpp
     src/IniEditor.cpp
+    src/InputReadStats.cpp
     src/LiveLog.cpp
     src/LocalDate.cpp
     src/Logging.cpp
@@ -39,7 +41,8 @@ add_library(wheelbri_core STATIC
 )
 
 target_include_directories(wheelbri_core PUBLIC include)
-target_link_libraries(wheelbri_core PUBLIC spdlog::spdlog)
+find_package(Threads REQUIRED)
+target_link_libraries(wheelbri_core PUBLIC spdlog::spdlog Threads::Threads)
 
 if(WIN32)
     target_link_libraries(wheelbri_core PUBLIC ws2_32)

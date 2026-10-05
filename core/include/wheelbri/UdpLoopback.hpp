@@ -53,6 +53,14 @@ public:
     [[nodiscard]] std::optional<StatePacket> pollLatest() override;
     static constexpr std::size_t kMaxPerPoll = 64;
 
+    // What the last pollLatest() did: datagrams read, and whether kMaxPerPoll stopped it (then newer ones still wait
+    // in the socket and the state handed over is older than the newest sent).
+    struct PollInfo {
+        std::size_t read = 0;
+        bool capped = false;
+    };
+    [[nodiscard]] PollInfo lastPoll() const;
+
     // Optional: datagrams whose sender (its local UDP port on 127.0.0.1) the filter refuses are dropped.
     using SenderFilter = std::function<bool(std::uint16_t senderPort)>;
     void setSenderFilter(SenderFilter filter);
