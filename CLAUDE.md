@@ -198,7 +198,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     (joy.cpl 13-19). Every target (shim, virtual device, uhid) reports all 19; `IDeviceProfile::buttonCount` counts
     the gap, and `encode` only passes named buttons. The names are what Auto-map looks for ("Gear 1", "Gear R").
   - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT);
-    `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests.
+    `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests. pid.dll sends
+    type-specific parameters with effect block 0 and then the Set Effect naming the block: `HidPid` keeps them pending
+    for that Set Effect, and applies them at once only when no other block has an effect of the same kind (a spring
+    and a damper are both conditions; applying at once mixed up their values, 30 times a second in NFS).
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
     spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
   - `GameUseWatch`: pedals pressed for 20 s in total while the game never sent force feedback = the game drives from
@@ -277,6 +280,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     hide installer. The drivers run as LocalService: `shareLogFolder` (`ServiceLogging.hpp`, at every start as
     Administrator) and `install.ps1` / `install-hide.ps1` let LocalService write there and set `HKLM\SOFTWARE\wheelbri
     LogFolder`, which the drivers read per line (fallback `C:\ProgramData\wheelbri\logs`, moved in at the next start).
+    The drivers refuse a log folder reached through a link by comparing the path Windows opened it under
+    (`GetFinalPathNameByHandleW`) with the one asked for: LocalService may not read the profile folders above it, so
+    checking each folder's attributes sent every line to the fallback folder.
     Do not add another log location. `LocalDate.hpp` has the date helpers.
   - `Retention.hpp` decides which files are old (date in the name, else last-write day) and only ever touches
     files starting `wheelbri-service`, `-shim`, `-bridge`, `-logs-`, `-driver`, `-hide`, `-install`, `-uhid`, `-sh`,

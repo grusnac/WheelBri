@@ -31,8 +31,10 @@ namespace wheelbri {
 // Block Free 0x1B, Device Control 0x1C, Device Gain 0x1D.
 //
 // pid.dll sends the type-specific reports with EBI 0 just before the Set Effect naming the real block;
-// they are kept pending for the next Set Effect of the same kind (and applied to the last block of that
-// kind, for a game changing the magnitude of a running effect). Set Envelope (attack / fade) goes with the next
+// they are kept pending for the next Set Effect of the same kind, which names the block they are for. Only when
+// no Set Effect claims them (a game changing a running effect without one) do they go to the last block of that
+// kind: at once when that block is the only one of its kind, else after kPendingMs (a spring and a damper are both
+// conditions; applied at once, each one's new values first landed on the other, 30 times a second in NFS). Set Envelope (attack / fade) goes with the next
 // constant, ramp or periodic effect. Envelopes and ramps change the force while an effect plays: tick() works the
 // level out every time (FfbShape.hpp) and sends it.
 //
@@ -63,6 +65,8 @@ public:
     // Springs and dampers alone keep going: they only resist, and games set them once and leave them.
     void tick(std::int64_t nowMs);
     static constexpr std::int64_t kGameQuietMs = 10'000;
+    // How long parameters without a block wait for the Set Effect that names it (see above).
+    static constexpr std::int64_t kPendingMs = 20;
     [[nodiscard]] bool gameQuiet() const;
 
     // Everything stops (device going away).
@@ -96,6 +100,10 @@ private:
     };
     enum class ParamKind { Constant, Ramp, Periodic, Condition, Envelope };
     using BlockAction = std::function<void(Block&)>;
+    struct Pending {
+        BlockAction action;
+        std::int64_t sinceMs = 0;
+    };
     struct Sent {
         bool playing = false;
         FfbEffect effect;
@@ -106,6 +114,10 @@ private:
 
     Block* withBlock(std::uint8_t ebi);
     void withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& action);
+    // How many blocks have an effect of `kind` (Envelope: every effect but conditions).
+    [[nodiscard]] std::size_t blocksOfKind(ParamKind kind) const;
+    // Parameters no Set Effect claimed: to the last block of their kind (`all`, or those waiting kPendingMs).
+    void flushPending(std::int64_t nowMs, bool all);
     void onSetEffect(std::span<const std::uint8_t> d);
     void onSetCondition(std::span<const std::uint8_t> d);
     void onSetPeriodic(std::span<const std::uint8_t> d);
@@ -125,7 +137,8 @@ private:
     std::map<std::uint8_t, Block> blocks_;
     std::array<std::optional<std::uint8_t>, kMaxSlots> slotOwner_{};
     std::array<std::optional<Sent>, kMaxSlots> sent_{};
-    std::map<ParamKind, BlockAction> pending_;
+    std::map<ParamKind, Pending> pending_;
+    bool creating_ = false;                  // Create New Effect came, its first Set Effect not yet
     std::map<ParamKind, std::uint8_t> lastOfKind_;
     std::set<std::string> seen_;
     bool loggedEbiZero_ = false;

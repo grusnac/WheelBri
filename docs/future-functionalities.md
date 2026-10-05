@@ -2,59 +2,91 @@
 
 Ideas worked out but not built, kept here until we decide to do them. Nothing in this file is implemented.
 
-## Running WheelBri as a standard user
+## Running WheelBri as a standard user (the helper service plan)
 
-End users are standard users, while development runs as Administrator. Today `wheelbri.exe` always asks for
-Administrator (its manifest says `requireAdministrator`), so a standard user cannot run it at all.
+Planned on 2026-10-05; not started. End users are standard users, while development runs as Administrator. Today
+`wheelbri.exe` always asks for Administrator (its manifest says `requireAdministrator`), so a standard user cannot run
+it at all.
 
 ### What needs Administrator today
 
-| What | Where | Needed for |
-|---|---|---|
-| The app always asks for Administrator | `service/app/wheelbri.exe.manifest` (`requireAdministrator`) | everything |
-| Creating the virtual G920 and the virtual Xbox pad | `VirtualG920`, `VirtualXboxPad` (`SwDeviceCreate`) | virtual device |
-| Hiding the rig: writing `HKLM\SOFTWARE\wheelbri\hide AllowedPid` | `HideFilter` | virtual device |
-| Putting the hide filter on the rig's devices | `ensureHideFilter` in `main.cpp` (runs `install-hide.ps1`, which installs a driver) | virtual device, first time per device |
-| Game controller registry entries (HKLM part) and removing Logitech's force feedback entry | `VirtualG920` (the HKCU part works as a user) | virtual device |
-| Letting the drivers write into the user's log folder | `shareLogFolder` (folder permission plus HKLM `LogFolder`) | driver logs |
-| Copying the shim into a game folder | `installShim` | shim, only for games in protected folders (e.g. under `Program Files`; Steam libraries are usually writable) |
+| What | Where in the code |
+|---|---|
+| The app always asks for Administrator | `service/app/wheelbri.exe.manifest` (`requireAdministrator`) |
+| Creating and removing the virtual G920 | `VirtualG920` (`SwDeviceCreate`) |
+| Showing the rig only to WheelBri: `HKLM\SOFTWARE\wheelbri\hide` `AllowedPid` / `AllowedPidStart` | `HideFilter` |
+| Clearing a hide left behind by a crash | `HideFilter::clearStale`, `--unhide` (HKLM) |
+| Putting the hide filter on the rig's devices | `ensureHideFilter` in `main.cpp` (`install-hide.ps1`) |
+| Installing the G920 driver when it is missing | `ensureG920Driver` in `main.cpp` (`install-driver.ps1`) |
+| DirectInput's G920 entries, and removing Logitech's force feedback entry every 2 s | `VirtualG920` (the HKLM half; the HKCU half works as a user) |
+| Letting the drivers write into the user's log folder | `shareLogFolder` (folder permission plus HKLM `LogFolder`) |
+| Copying the shim into a protected game folder (e.g. under `Program Files`) | `installShim` |
 
-The shim mode needs no Administrator, apart from the last row.
+Everything else already works as a standard user: reading the rig, force feedback, the UDP ports, the windows, every
+setting and log, the single-instance lock (a `Global\` mutex needs no privilege), and the shim in an ordinary game
+folder (Steam libraries are usually writable).
 
-### The plan: one small helper service, installed once
+### How it works
 
-1. **A "WheelBri Helper" Windows service.** The installer, run once by an Administrator, installs it and it runs as
-   SYSTEM. It does a short, fixed list of things on request from the app, over a local named pipe:
-   - creates and removes the virtual G920 and the Xbox pad;
-   - sets `AllowedPid`, always to the caller's own process id (the helper reads it from the pipe with
-     `GetNamedPipeClientProcessId`, so nobody can name another process);
-   - puts the hide filter on rig devices: only on game controllers that are plugged in, and only WheelBri's own
-     signed filter;
-   - writes the game controller registry entries and keeps Logitech's force feedback entry out.
+```
+ wheelbri.exe (the user, no prompt) --named pipe--> WheelBri Helper (Windows service, SYSTEM)
+   reads the rig, maps, plays FFB                      creates / removes the virtual G920
+   asks the helper for the privileged steps            sets / clears AllowedPid (always the caller's own process)
+                                                       puts the hide filter on rig devices
+                                                       installs the G920 driver when it is missing
+                                                       DirectInput G920 registry entries
+   pipe closes (Stop, crash, logoff) --------------->  helper removes the G920 and shows the rig again
+```
 
-   Every request is checked against strict rules; anything else is refused.
-2. **Clean-up comes with the connection.** When the app closes or crashes, the pipe closes. The helper then removes
-   the virtual devices and clears `AllowedPid`, so the wheel is never left hidden and no G920 is left behind.
-3. **The app runs as the user.** The manifest becomes `asInvoker`: no prompt. Start asks the helper for the privileged
-   steps. Without a helper (development builds), the app does them itself when it runs as Administrator, as now.
-4. **Driver logs.** Either the installer lets the drivers write to the user's log folder once (simplest), or the
-   helper does it per user.
-5. **Shim in protected game folders.** The app copies the shim as the user. If Windows refuses, it explains that the
-   folder is protected and what to do.
-6. **Installer and uninstaller.** They add and remove the helper; `scripts/make/clean-pc.ps1` learns about it.
-7. **Tests.** The pipe messages and the request checks go in `core`, unit-tested like the rest. The helper itself can
-   only be tested on Windows.
+Safety rules for the helper:
 
-Size: a new service program, the pipe protocol, changes to Start and Stop in the app, and the installer.
+- A fixed list of requests, each one checked; anything else is refused.
+- It never trusts what comes from the user: it reads none of the user's files and runs no path the app sends. Its
+  scripts come only from its own folder under Program Files.
+- `AllowedPid` is always the caller's own process (`GetNamedPipeClientProcessId`, with its start time), so nobody
+  can name another process.
+- The hide filter goes only on present HID interfaces of game controllers: never keyboards, mice or system controls
+  (HID usages 1/6, 1/2, 1/0x80), never the virtual G920 (046D:C262).
+- The pipe lets in the logged-on (interactive) user only, and the helper checks that the caller is `wheelbri.exe`
+  from the install folder.
+- Clean-up comes with the connection: when the pipe closes, the helper removes the devices and clears `AllowedPid`.
+  A crash never leaves anything behind (as the hide filter already promises).
+
+### Phases (small commits, each one switched off until the last)
+
+1. **Protocol in core**: the messages, their encoding and the request checks, with no Windows calls; unit-tested on
+   Linux like the rest.
+2. **`wheelbri-helper.exe`**: a Windows service (start and stop through the service manager), the pipe with its
+   permissions, caller checks, its own log.
+3. **The privileged code moves**: `VirtualG920`, the `HideFilter` registry writes, `ensureHideFilter`,
+   `ensureG920Driver` and the log-folder grant go into a library shared by the app and the helper.
+4. **App side**: one interface for the privileged steps with two versions: through the helper (standard user), or
+   directly (Administrator, as now, so development builds keep working without a helper). The status next to Start
+   says "HELPER NOT INSTALLED" in red when the virtual-device target cannot run.
+5. **The app runs as the user**: the manifest becomes `asInvoker` (no prompt). The shim target needs no helper. A shim
+   copy into a protected game folder gives a clear message instead.
+6. **Installer, uninstaller, clean-pc, package**: install the helper service (restart on failure) and remove it; the
+   new exe goes into `package.ps1` and the required list in `install.ps1`; `clean-pc.ps1` removes it too.
+7. **Docs**: CLAUDE.md's security rules (`isElevated` checks), README, `installer/README.txt`; this section is then
+   removed from this file.
+8. **Test as a real standard user**: a second Windows account without admin rights: install, Start / Stop, kill the
+   app (the rig must come back), the shim in a Steam folder, uninstall.
+
+Size: a new service program, about 6 to 8 commits. The biggest risk is phase 3, which moves code that works today.
 
 ### Decisions to make before building it
 
-1. **Approach:** the helper service above, or something lighter: Start shows one Administrator prompt when it needs
-   the virtual device, and the shim mode never asks.
-2. **Driver logs:** in the user's log folder (the installer grants it once), or in `C:\ProgramData\wheelbri\logs`
-   (they are the drivers' logs, not the user's files).
-3. **Shim into protected folders:** only a clear message, or let the helper copy it there too (more convenient, but a
-   SYSTEM service then writes DLLs into protected folders).
+1. **Driver logs.** (a) Keep them in the user's log folder: the helper grants the drivers access when the user
+   connects, done through a handle so that a link cannot redirect it (keeps the rule "everything at user level").
+   (b) Move them to `C:\ProgramData\wheelbri\logs` (system components; simpler and safer; the Logs tab still shows
+   them). Suggested: (a).
+2. **The helper's own log.** It runs as SYSTEM, so writing into a user's folder is risky. Suggested:
+   `C:\ProgramData\wheelbri\logs`, readable by users, shown in the Logs tab: the one exception to the user-level rule.
+3. **Development builds.** The build in `D:\cpp-projects\WheelBri\build` is not in Program Files, so the helper refuses
+   it. Either keep running the dev build as Administrator (as now), or add an admin-only registry switch that lets the
+   helper accept the build folder. Suggested: as Administrator.
+4. **Protected game folders.** A clear message only, or let the helper copy the shim there (a SYSTEM service then
+   writes DLLs into Program Files). Suggested: the message only.
 
 ## Logitech RS Shifter & Handbrake
 

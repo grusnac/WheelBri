@@ -64,50 +64,78 @@ std::wstring logFolder() {
     return fallbackLogFolder();
 }
 
-// Whether `path` is a real local folder reached through no link: a full path below a drive's root ("C:\..."), with
-// no "." or ".." parts, that exists, and neither it nor any folder above it is a reparse point (junction, symbolic
-// link, mount point). LogFolder lies in the user's own profile: the user could replace it, or a folder above it,
-// with a link and so make this driver, which runs as LocalService, write wherever LocalService may. Such a folder
-// is not used (the fallback folder is, if it passes the same test).
-bool isPlainFolder(std::wstring path) {
+// Whether `path` is a plain full path below a drive's root ("C:\..."): no "." or ".." parts, no "/", not the root.
+bool isPlainPath(std::wstring path) {
     if (path.size() < 3 || path[1] != L':' || path[2] != L'\\' || path.find(L'/') != std::wstring::npos) return false;
     while (path.size() > 3 && path.back() == L'\\') path.pop_back();
     if (path.size() <= 3) return false;   // a drive's root is no log folder
-    while (path.size() > 3) {             // each folder from `path` up to the drive's root (not checked itself)
-        const std::size_t slash = path.find_last_of(L'\\');
-        const std::wstring part = path.substr(slash + 1);
+    for (std::size_t start = 3; start <= path.size();) {
+        const std::size_t end = (std::min)(path.find(L'\\', start), path.size());   // (std::min): windows.h's min macro
+        const std::wstring part = path.substr(start, end - start);
         if (part.empty() || part == L"." || part == L"..") return false;
-        const DWORD attributes = GetFileAttributesW(path.c_str());
-        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
-            (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
-            return false;
-        }
-        path.resize(slash == 2 ? 3 : slash);
+        start = end + 1;
     }
     return true;
 }
 
-// Appends `line` to <folder>\wheelbri-hide-<date>.log; false if the folder is refused (isPlainFolder) or the file
-// cannot be opened. The path is a std::wstring: a long LogFolder only makes CreateFileW fail (then the fallback folder
-// is used), where swprintf_s into a MAX_PATH buffer ended the whole driver host. The file is opened without following
-// a link (FILE_FLAG_OPEN_REPARSE_POINT), and one that is a link itself or has other names (hard links) is not written.
-bool appendTo(const std::wstring& folder, const SYSTEMTIME& now, const char* line) {
-    if (!isPlainFolder(folder)) {
+// The path Windows really opened `handle` under ("C:\..."), empty if it cannot tell. Reached through a junction, a
+// symbolic link or a mount point anywhere on the way, it is the target's path, not the one asked for: so comparing
+// the two finds a link without reading the folders above (this driver runs as LocalService, which may pass through
+// the user's profile folders but not look at them: checking each folder's attributes failed there, and every line
+// went to the fallback folder).
+std::wstring openedPath(HANDLE handle) {
+    std::wstring buffer(1024, L'\0');
+    const DWORD length = GetFinalPathNameByHandleW(handle, buffer.data(), static_cast<DWORD>(buffer.size()),
+                                                   FILE_NAME_OPENED | VOLUME_NAME_DOS);
+    if (length == 0 || length >= buffer.size()) return {};
+    buffer.resize(length);
+    if (buffer.rfind(L"\\\\?\\UNC\\", 0) == 0) return {};       // a network path: never a log folder
+    if (buffer.rfind(L"\\\\?\\", 0) == 0) buffer.erase(0, 4);
+    return buffer;
+}
+
+bool samePath(const std::wstring& a, const std::wstring& b) {
+    return CompareStringOrdinal(a.c_str(), static_cast<int>(a.size()), b.c_str(), static_cast<int>(b.size()), TRUE) ==
+           CSTR_EQUAL;
+}
+
+// Appends `line` to <folder>\wheelbri-hide-<date>.log; false if the folder is refused or the file cannot be opened.
+// LogFolder lies in the user's own profile: the user could replace it, or a folder above it, with a link and so make
+// this driver, which runs as LocalService, write wherever LocalService may. So the folder is opened first (nothing is
+// created yet) and used only when it is no link itself and Windows opened it under the very path asked for; the file
+// is opened without following a link (FILE_FLAG_OPEN_REPARSE_POINT), and one that is a link, has other names (hard
+// links) or was opened under another path is not written. The path is a std::wstring: a long LogFolder only makes
+// CreateFileW fail (then the fallback folder is used), where swprintf_s into a MAX_PATH buffer ended the driver host.
+bool appendTo(std::wstring folder, const SYSTEMTIME& now, const char* line) {
+    if (!isPlainPath(folder)) {
         SetLastError(ERROR_CANT_RESOLVE_FILENAME);
         return false;
     }
-    std::wstring path = folder;
-    while (path.back() == L'\\') path.pop_back();   // not empty: isPlainFolder checked it
+    while (folder.back() == L'\\') folder.pop_back();   // not empty: isPlainPath checked it
+    HANDLE directory = CreateFileW(folder.c_str(), FILE_READ_ATTRIBUTES,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                   FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (directory == INVALID_HANDLE_VALUE) return false;
+    BY_HANDLE_FILE_INFORMATION folderInfo{};
+    const bool folderOk = GetFileInformationByHandle(directory, &folderInfo) &&
+                          (folderInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 &&
+                          (folderInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0 &&
+                          samePath(openedPath(directory), folder);
+    CloseHandle(directory);
+    if (!folderOk) {
+        SetLastError(ERROR_CANT_RESOLVE_FILENAME);
+        return false;
+    }
     wchar_t name[48];                                 // at most 38 characters with any WORD values
     swprintf_s(name, L"\\wheelbri-hide-%04u-%02u-%02u.log", now.wYear, now.wMonth, now.wDay);
-    path += name;
+    const std::wstring path = folder + name;
     HANDLE file = CreateFileW(path.c_str(), FILE_APPEND_DATA | FILE_READ_ATTRIBUTES,
                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
     BY_HANDLE_FILE_INFORMATION info{};
     if (!GetFileInformationByHandle(file, &info) || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
-        info.nNumberOfLinks > 1) {
+        info.nNumberOfLinks > 1 || !samePath(openedPath(file), path)) {
         CloseHandle(file);
         SetLastError(ERROR_CANT_RESOLVE_FILENAME);
         return false;

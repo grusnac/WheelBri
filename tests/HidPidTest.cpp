@@ -202,6 +202,79 @@ TEST(HidPid, AnEnvelopeBeforeASpringIsNotKeptForTheNextEffect) {
     EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, 1.0F, 1e-2F);   // full at once: no attack
 }
 
+// NFS on 2026-10-05: a spring and a damper (both conditions), each updated 30 times a second, as pid.dll sends it:
+// Set Condition with block 0, then the Set Effect naming the block. Each kept its own values only some of the time
+// (the other's landed on it first); now neither may ever play with the other's.
+TEST(HidPid, SpringAndDamperUpdatesStayApart) {
+    Recorder r;
+    const std::string spring = "000F0000282328 23BC02BC020000";
+    const std::string damper = "000F0000501450141027 10270000";
+    const auto clean = [](std::string s) {
+        s.erase(std::remove(s.begin(), s.end(), ' '), s.end());
+        return s;
+    };
+    const std::string setSpring = "0108FFFF000000000000FFFF04FF1F0000FFFFFFFF";
+    const std::string setDamper = "0209FFFF000000000000FFFF04FF1F0000FFFFFFFF";
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0800"), 0);
+    r.pid.output(0x13, hex(clean(spring)), 0);
+    r.pid.output(0x11, hex(setSpring), 0);
+    r.pid.output(0x1A, hex("010101"), 0);
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0900"), 1);
+    r.pid.output(0x13, hex(clean(damper)), 1);   // a new effect's: not the spring's, though it is the only condition
+    r.pid.output(0x11, hex(setDamper), 1);
+    r.pid.output(0x1A, hex("020101"), 1);
+    for (std::int64_t t = 33; t < 1000; t += 33) {
+        r.pid.output(0x13, hex(clean(spring)), t);
+        r.pid.output(0x11, hex(setSpring), t);
+        r.pid.output(0x13, hex(clean(damper)), t);
+        r.pid.output(0x11, hex(setDamper), t);
+        r.pid.tick(t + 10);
+    }
+    int springs = 0;
+    int dampers = 0;
+    for (const FfbPacket& p : r.packets) {
+        if (p.kind != FfbPacket::Kind::SlotState || !p.playing) continue;
+        if (p.effect.type == FfbEffectType::Spring) {
+            ++springs;
+            EXPECT_NEAR(p.effect.condition.positiveCoefficient, 0.9F, 1e-3F);
+            EXPECT_NEAR(p.effect.condition.positiveSaturation, 0.07F, 1e-3F);
+        } else if (p.effect.type == FfbEffectType::Damper) {
+            ++dampers;
+            EXPECT_NEAR(p.effect.condition.positiveCoefficient, 0.52F, 1e-3F);
+            EXPECT_NEAR(p.effect.condition.positiveSaturation, 1.0F, 1e-3F);
+        }
+    }
+    EXPECT_GT(springs, 0);
+    EXPECT_GT(dampers, 0);
+}
+
+// A running effect changed without a Set Effect (as the probe saw for a constant force): with two of its kind the
+// change goes to the last one set, once kPendingMs have passed without a Set Effect claiming it.
+TEST(HidPid, AnUnclaimedUpdateStillArrives) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0800"), 0);
+    r.pid.output(0x13, hex("000F000028232823102710270000"), 0);   // spring 0.9
+    r.pid.output(0x11, hex("0108FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    r.pid.output(0x1A, hex("010101"), 0);
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0900"), 1);
+    r.pid.output(0x13, hex("000F000050145014102710270000"), 1);   // damper 0.52
+    r.pid.output(0x11, hex("0209FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 1);
+    r.pid.output(0x1A, hex("020101"), 1);
+    r.pid.output(0x13, hex("000F0000A00FA00F102710270000"), 100);   // 0.4, no Set Effect after it
+    r.pid.tick(105);
+    const auto damperCoefficient = [&r] {
+        for (auto it = r.packets.rbegin(); it != r.packets.rend(); ++it) {
+            if (it->kind == FfbPacket::Kind::SlotState && it->effect.type == FfbEffectType::Damper) {
+                return it->effect.condition.positiveCoefficient;
+            }
+        }
+        return -1.0F;
+    };
+    EXPECT_NEAR(damperCoefficient(), 0.52F, 1e-3F);   // still waiting for a Set Effect
+    r.pid.tick(100 + HidPid::kPendingMs);
+    EXPECT_NEAR(damperCoefficient(), 0.4F, 1e-3F);    // the damper was set last
+}
+
 TEST(HidPid, ABlockNumberNeverHandedOutTakesNoSlot) {
     Recorder r;
     r.pid.output(0x11, hex("2801DC05000000000000FFFF04FF1F0000FFFFFFFF"), 0);   // Set Effect for block 40
