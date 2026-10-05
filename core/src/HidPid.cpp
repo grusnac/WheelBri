@@ -74,9 +74,26 @@ void HidPid::noteReport(const std::int64_t nowMs) {
     }
 }
 
+void HidPid::trace(const std::string& text, const std::int64_t nowMs) {
+    if (traceLeft_ <= 0) return;
+    if (traceLeft_ == kTraceLines) {
+        traceStartMs_ = nowMs;
+        log_("pid trace: the next " + std::to_string(kTraceLines) + " reports and slot changes (+ms from the first)");
+    }
+    char at[32];
+    std::snprintf(at, sizeof(at), "pid trace +%lld ", static_cast<long long>(nowMs - traceStartMs_));
+    log_(at + text);
+    if (--traceLeft_ == 0) log_("pid trace: end");
+}
+
 void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std::int64_t nowMs) {
     std::lock_guard lock(mutex_);
     noteReport(nowMs);
+    if (traceLeft_ > 0) {
+        char id[16];
+        std::snprintf(id, sizeof(id), "out %02X ", reportId);
+        trace(id + hex(d), nowMs);
+    }
     char kind[24];
     std::snprintf(kind, sizeof(kind), "output 0x%02X", reportId);
     if (seen_.insert(kind).second) {
@@ -139,6 +156,11 @@ void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std:
 void HidPid::setFeature(std::uint8_t reportId, std::span<const std::uint8_t> d, std::int64_t nowMs) {
     std::lock_guard lock(mutex_);
     noteReport(nowMs);
+    if (traceLeft_ > 0) {
+        char id[16];
+        std::snprintf(id, sizeof(id), "feat %02X ", reportId);
+        trace(id + hex(d), nowMs);
+    }
     char kind[24];
     std::snprintf(kind, sizeof(kind), "feature 0x%02X", reportId);
     if (seen_.insert(kind).second) {
@@ -169,7 +191,6 @@ void HidPid::setFeature(std::uint8_t reportId, std::span<const std::uint8_t> d, 
             break;
         }
     }
-    creating_ = lastLoadStatus_ == 1;   // the parameters that follow are the new effect's (its Set Effect names it)
     if (lastLoadStatus_ == 2 && seen_.insert("pool full").second) {   // once: a game may keep trying
         log_("pid: all " + std::to_string(kMaxSlots) + " effect blocks in use, the game's new effect is refused "
              "(said once)");
@@ -248,29 +269,11 @@ void HidPid::withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& act
         loggedEbiZero_ = true;
         log_("pid: parameters come with effect block 0: matched to the Set Effect that follows");
     }
-    // Earlier ones of this kind that no Set Effect claimed were for a running effect: they go first.
-    if (const auto earlier = pending_.find(kind); earlier != pending_.end()) {
-        const auto last = lastOfKind_.find(kind);
-        if (last != lastOfKind_.end() && blocks_.contains(last->second)) {
-            if (Block* b = withBlock(last->second)) earlier->second.action(*b);
-        }
-        pending_.erase(earlier);
-    }
+    // Kept for the Set Effect that names the block, never applied here: Windows often sends a report twice (the same
+    // bytes back to back), sends a new effect's parameters before its first Set Effect, and may put an Effect
+    // Operation in between; each of those put the values on another effect of the same kind (the trace of
+    // 2026-10-05). A later one of the same kind replaces this one (the copy, or the newer values).
     pending_[kind] = Pending{action, lastReportMs_};
-    // Applied at once only when it cannot be another effect's: the one block of this kind, and no new effect being
-    // set up (its parameters come before its first Set Effect). Otherwise the Set Effect that follows says which.
-    const auto last = lastOfKind_.find(kind);
-    if (!creating_ && blocksOfKind(kind) == 1 && last != lastOfKind_.end() && blocks_.contains(last->second)) {
-        if (Block* b = withBlock(last->second)) action(*b);
-    }
-}
-
-std::size_t HidPid::blocksOfKind(const ParamKind kind) const {
-    return static_cast<std::size_t>(std::count_if(blocks_.begin(), blocks_.end(), [kind](const auto& entry) {
-        const auto blockKind = kindOf(entry.second.pidType);
-        if (!blockKind) return false;
-        return kind == ParamKind::Envelope ? *blockKind != ParamKind::Condition : *blockKind == kind;
-    }));
 }
 
 void HidPid::flushPending(const std::int64_t nowMs, const bool all) {
@@ -300,7 +303,6 @@ void HidPid::onSetEffect(std::span<const std::uint8_t> d) {
     const std::uint16_t direction = d.size() >= 15 ? u16(d, 13) : 0;
     Block* b = withBlock(ebi);
     if (b == nullptr) return;
-    creating_ = false;
     b->pidType = type;
     b->durationMs = (duration == 0xFFFF || duration == 0) ? std::nullopt : std::optional<std::int64_t>(duration);
     b->startDelayMs = startDelay == 0xFFFF ? 0 : startDelay;
@@ -371,7 +373,6 @@ void HidPid::onEffectOperation(std::span<const std::uint8_t> d, std::int64_t now
     const std::uint8_t ebi = d[0];
     const std::uint8_t op = d[1];
     const std::uint8_t loops = d[2];
-    flushPending(nowMs, true);   // parameters before a start were for a running effect, not this operation's
     if (op == 2) {
         for (auto& [other, block] : blocks_) {
             if (other != ebi) block.started = false;
@@ -414,7 +415,6 @@ void HidPid::resetAll(std::int64_t nowMs) {
     sent_.fill(std::nullopt);
     pending_.clear();
     lastOfKind_.clear();
-    creating_ = false;
     allocated_ = 0;
     lastAllocated_ = 0;
     lastLoadStatus_ = 3;
@@ -488,7 +488,9 @@ void HidPid::sendChanges(std::int64_t nowMs, bool force) {
         const auto& last = sent_[slot];
         const bool changed = !last || last->playing != isPlaying || (isPlaying && !(last->effect == effect));
         if (changed || (force && last && last->playing)) {
+            traceQuiet_ = !changed;   // a refresh repeats what was sent: not traced
             send(FfbPacket::Kind::SlotState, static_cast<std::uint8_t>(slot), isPlaying, effect, nowMs);
+            traceQuiet_ = false;
             sent_[slot] = Sent{isPlaying, effect};
         }
     }
@@ -501,6 +503,15 @@ void HidPid::send(FfbPacket::Kind kind, std::uint8_t slot, bool isPlaying, const
     packet.sequence = ++sequence_;
     packet.playing = isPlaying;
     packet.effect = effect;
+    if (traceLeft_ > 0 && !traceQuiet_ && kind == FfbPacket::Kind::SlotState) {
+        char text[160];
+        std::snprintf(text, sizeof(text), "-> slot %u type %d %s level %.3f k %.3f/%.3f sat %.3f mag %.3f period %.0f",
+                      static_cast<unsigned>(slot), static_cast<int>(effect.type), isPlaying ? "on" : "off",
+                      effect.constantLevel, effect.condition.positiveCoefficient,
+                      effect.condition.negativeCoefficient, effect.condition.positiveSaturation,
+                      effect.periodic.magnitude, effect.periodic.periodMs);
+        trace(text, nowMs);
+    }
     send_(packet);
     lastSendMs_ = nowMs;
     ++packetsSent_;

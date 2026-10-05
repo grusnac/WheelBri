@@ -30,6 +30,8 @@ This file guides Claude when working in this repository.
 - Put **every command in its own code block**, one command per block, so each can be copied on its own.
 - The user builds and runs on Windows (`D:\cpp-projects\WheelBri`) in an MSYS2 UCRT64 shell. Give commands for
   that shell unless the step needs PowerShell (drivers), and say which shell.
+- Running scripts is disabled on the user's PC (PowerShell execution policy): never give a bare `script.ps1`. Every
+  PowerShell script is run as `powershell -NoProfile -ExecutionPolicy Bypass -File <script.ps1> [arguments]`.
 - **Before every commit**, write down why the change was made: the commit message gets a short headline and a
   few lines of reasons.
 - **When a functionality is finished** (it may take several commits), add one entry for it under
@@ -131,7 +133,7 @@ msbuild driver\wheelbri-g920.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
 ```powershell
-driver\install-driver.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File driver\install-driver.ps1
 ```
 
 (same pattern for `driver\hide\wheelbri-hide.vcxproj` + `install-hide.ps1`).
@@ -200,8 +202,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT);
     `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests. pid.dll sends
     type-specific parameters with effect block 0 and then the Set Effect naming the block: `HidPid` keeps them pending
-    for that Set Effect, and applies them at once only when no other block has an effect of the same kind (a spring
-    and a damper are both conditions; applying at once mixed up their values, 30 times a second in NFS).
+    for that Set Effect and never applies them early (Windows sends reports twice, a new effect's parameters before
+    its first Set Effect, and Effect Operations in between; early guesses mixed up NFS's spring and damper). Unclaimed
+    ones reach the last block of their kind after `kPendingMs`. The first `kTraceLines` reports of a session and the
+    slot changes they cause are written to the driver's log (`pid trace`), for checking the real order.
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
     spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
   - `GameUseWatch`: pedals pressed for 20 s in total while the game never sent force feedback = the game drives from

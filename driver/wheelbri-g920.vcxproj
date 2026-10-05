@@ -41,7 +41,9 @@
   <Import Project="$(MSBuildThisFileDirectory)signing-certificate.props" Condition="Exists('$(MSBuildThisFileDirectory)signing-certificate.props')" />
   <ItemDefinitionGroup>
     <ClCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);_UNICODE;UNICODE;WIN32_LEAN_AND_MEAN;NOMINMAX</PreprocessorDefinitions>
+      <!-- WHEELBRI_BUILD: when it was built (UTC), for the driver's log. The WDK builds reproducibly, so __DATE__ and
+           __TIME__ do not exist. -->
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);_UNICODE;UNICODE;WIN32_LEAN_AND_MEAN;NOMINMAX;WHEELBRI_BUILD=$([System.DateTime]::UtcNow.ToString('yyyyMMdd_HHmmss'))</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(DDK_INC_PATH);$(DDK_INC_PATH)\wdm;..\core\include</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ExceptionHandling>Sync</ExceptionHandling>

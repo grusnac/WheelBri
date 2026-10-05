@@ -53,6 +53,7 @@ TEST(HidPid, PidDllSequenceFromTheProbe) {
     EXPECT_NEAR(p->effect.gain, 1.0F, 1e-3F);
 
     r.pid.output(0x15, hex("00E0FA"), 100);  // -1312 while running: an EBI-0 update alone
+    r.pid.tick(100 + HidPid::kPendingMs);    // no Set Effect claimed it: the last constant gets it
     p = r.lastPlaying();
     ASSERT_NE(p, nullptr);
     EXPECT_NEAR(p->effect.constantLevel, -0.1312F, 1e-3F);
@@ -273,6 +274,69 @@ TEST(HidPid, AnUnclaimedUpdateStillArrives) {
     EXPECT_NEAR(damperCoefficient(), 0.52F, 1e-3F);   // still waiting for a Set Effect
     r.pid.tick(100 + HidPid::kPendingMs);
     EXPECT_NEAR(damperCoefficient(), 0.4F, 1e-3F);    // the damper was set last
+}
+
+// The driver's trace of NFS on 2026-10-05 (reports exactly as Windows sent them): the new damper's parameters come
+// before its first Set Effect, an Effect Operation can sit between them, and most reports come twice. Neither the
+// spring (k 0.90, small saturation) nor the damper (saturation 1.0) may ever be sent with the other's values.
+TEST(HidPid, NfsTraceKeepsSpringAndDamperApart) {
+    Recorder r;
+    const auto out = [&r](const char* id, const char* bytes, std::int64_t t) {
+        r.pid.output(static_cast<std::uint8_t>(std::stoul(id, nullptr, 16)), hex(bytes), t);
+    };
+    // Set up (+622 .. +647): constant, spring, damper, sine.
+    out("15", "000000", 622);
+    out("12", "00000000000000000000000000", 623);
+    out("11", "0101FFFF000000000000FFFF04FF1F0000FFFFFFFF", 624);
+    out("1A", "010101", 626);
+    out("13", "000F000028232823041004100000", 628);
+    out("11", "0208FFFF000000000000FFFF04FF1F0000FFFFFFFF", 628);
+    out("1A", "020101", 629);
+    out("13", "000F000000000000102710270000", 630);   // the damper's, before its first Set Effect
+    out("11", "0309FFFF000000000000FFFF04FF1F0000FFFFFFFF", 631);
+    out("1A", "030101", 632);
+    r.pid.tick(640);
+    // Driving (+105777 ..): doubled reports, a start in between.
+    out("1A", "020101", 105777);
+    out("13", "000F000028232823041004100000", 105777);
+    out("13", "000F000028232823041004100000", 105779);
+    out("11", "0208FFFF000000000000FFFF04FF1F0000FFFFFFFF", 105779);
+    out("11", "0208FFFF000000000000FFFF04FF1F0000FFFFFFFF", 105780);
+    out("1A", "010101", 105781);
+    out("13", "000F000000000000102710270000", 105784);
+    out("1A", "030101", 105784);
+    out("13", "000F000000000000102710270000", 105785);
+    out("11", "0309FFFF000000000000FFFF04FF1F0000FFFFFFFF", 105786);
+    r.pid.tick(105790);
+    const char* rounds[][2] = {{"000F0000282328234C044C040000", "000F00005B125B12102710270000"},
+                               {"000F000028232823830383030000", "000F000088138813102710270000"},
+                               {"000F0000282328232C012C010000", "000F0000DF15DF15102710270000"},
+                               {"000F000028232823C800C8000000", "000F0000A716A716102710270000"}};
+    std::int64_t t = 105810;
+    for (const auto& round : rounds) {
+        for (int copy = 0; copy < 2; ++copy) out("13", round[0], t + copy);
+        for (int copy = 0; copy < 2; ++copy) out("11", "0208FFFF000000000000FFFF04FF1F0000FFFFFFFF", t + 2 + copy);
+        for (int copy = 0; copy < 2; ++copy) out("13", round[1], t + 4 + copy);
+        for (int copy = 0; copy < 2; ++copy) out("11", "0309FFFF000000000000FFFF04FF1F0000FFFFFFFF", t + 6 + copy);
+        r.pid.tick(t + 10);
+        t += 33;
+    }
+    r.pid.tick(t + 100);
+    int springs = 0;
+    int dampers = 0;
+    for (const FfbPacket& p : r.packets) {
+        if (p.kind != FfbPacket::Kind::SlotState) continue;
+        if (p.effect.type == FfbEffectType::Spring && p.effect.condition.positiveCoefficient != 0.0F) {
+            ++springs;
+            EXPECT_NEAR(p.effect.condition.positiveCoefficient, 0.9F, 1e-3F);
+            EXPECT_LT(p.effect.condition.positiveSaturation, 0.5F);
+        } else if (p.effect.type == FfbEffectType::Damper) {
+            ++dampers;
+            EXPECT_NEAR(p.effect.condition.positiveSaturation, 1.0F, 1e-3F);
+        }
+    }
+    EXPECT_GT(springs, 4);
+    EXPECT_GT(dampers, 4);
 }
 
 TEST(HidPid, ABlockNumberNeverHandedOutTakesNoSlot) {

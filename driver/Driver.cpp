@@ -633,7 +633,16 @@ extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driverObject, PUNICODE_STRING reg
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
     attributes.EvtCleanupCallback = EvtDriverCleanup;
     const NTSTATUS status = WdfDriverCreate(driverObject, registryPath, &attributes, &config, WDF_NO_HANDLE);
-    logLine(NT_SUCCESS(status) ? "wheelbri-g920 driver loaded" : "WdfDriverCreate failed: " + std::to_string(status));
+    // The build in the log: which driver Windows really loaded (an older installed copy can win). WHEELBRI_BUILD comes
+    // from the project (yyyyMMdd_HHmmss, UTC): the WDK builds reproducibly, without __DATE__ / __TIME__.
+#define WHEELBRI_TEXT2(x) #x
+#define WHEELBRI_TEXT(x) WHEELBRI_TEXT2(x)
+#ifdef WHEELBRI_BUILD
+    const std::string built = " (built " WHEELBRI_TEXT(WHEELBRI_BUILD) " UTC)";
+#else
+    const std::string built;
+#endif
+    logLine(NT_SUCCESS(status) ? "wheelbri-g920 driver loaded" + built : "WdfDriverCreate failed: " + std::to_string(status));
     if (!NT_SUCCESS(status)) WSACleanup();   // no driver object, so no cleanup callback either
     return status;
 }

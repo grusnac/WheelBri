@@ -32,9 +32,10 @@ namespace wheelbri {
 //
 // pid.dll sends the type-specific reports with EBI 0 just before the Set Effect naming the real block;
 // they are kept pending for the next Set Effect of the same kind, which names the block they are for. Only when
-// no Set Effect claims them (a game changing a running effect without one) do they go to the last block of that
-// kind: at once when that block is the only one of its kind, else after kPendingMs (a spring and a damper are both
-// conditions; applied at once, each one's new values first landed on the other, 30 times a second in NFS). Set Envelope (attack / fade) goes with the next
+// no Set Effect claims them within kPendingMs (a game changing a running effect without one) do they go to the last
+// block of that kind. Never at once: Windows sends reports twice, a new effect's parameters before its first Set
+// Effect, and Effect Operations in between, and every early guess put a spring's values on the damper or back (30
+// times a second in NFS; seen in the driver's trace of 2026-10-05). Set Envelope (attack / fade) goes with the next
 // constant, ramp or periodic effect. Envelopes and ramps change the force while an effect plays: tick() works the
 // level out every time (FfbShape.hpp) and sends it.
 //
@@ -67,6 +68,9 @@ public:
     static constexpr std::int64_t kGameQuietMs = 10'000;
     // How long parameters without a block wait for the Set Effect that names it (see above).
     static constexpr std::int64_t kPendingMs = 20;
+    // Diagnostics: from the game's first report, this many lines go to the log, each report the host sends (raw
+    // bytes) and each slot change sent to the service, so the real order can be read from the driver's log.
+    static constexpr int kTraceLines = 1000;
     [[nodiscard]] bool gameQuiet() const;
 
     // Everything stops (device going away).
@@ -114,8 +118,6 @@ private:
 
     Block* withBlock(std::uint8_t ebi);
     void withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& action);
-    // How many blocks have an effect of `kind` (Envelope: every effect but conditions).
-    [[nodiscard]] std::size_t blocksOfKind(ParamKind kind) const;
     // Parameters no Set Effect claimed: to the last block of their kind (`all`, or those waiting kPendingMs).
     void flushPending(std::int64_t nowMs, bool all);
     void onSetEffect(std::span<const std::uint8_t> d);
@@ -138,10 +140,13 @@ private:
     std::array<std::optional<std::uint8_t>, kMaxSlots> slotOwner_{};
     std::array<std::optional<Sent>, kMaxSlots> sent_{};
     std::map<ParamKind, Pending> pending_;
-    bool creating_ = false;                  // Create New Effect came, its first Set Effect not yet
     std::map<ParamKind, std::uint8_t> lastOfKind_;
     std::set<std::string> seen_;
     bool loggedEbiZero_ = false;
+    int traceLeft_ = kTraceLines;
+    bool traceQuiet_ = false;                // a refresh is being sent (not traced)
+    std::int64_t traceStartMs_ = 0;
+    void trace(const std::string& text, std::int64_t nowMs);
 
     // Effect block allocation (device-managed pool).
     std::uint32_t allocated_ = 0;            // bit n = EBI n+1
