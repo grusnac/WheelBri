@@ -16,6 +16,7 @@
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
+#include "wheelbri/AsyncFfbSink.hpp"
 #include "wheelbri/FfbController.hpp"
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/FileText.hpp"
@@ -696,8 +697,8 @@ public:
             return nullptr;
         }
         auto ffb = std::unique_ptr<GameFfb>(new GameFfb());
-        ffb->sink_ = wheel.openForceFeedback(config.ffbInvert);
-        if (ffb->sink_ == nullptr) {
+        auto wheelSink = wheel.openForceFeedback(config.ffbInvert);
+        if (wheelSink == nullptr) {
             status = "unavailable: the wheel's force feedback could not be opened (see the log)";
             WE_LOG_ERROR(log(), "game force feedback unavailable: the wheel's force feedback could not be opened");
             return nullptr;
@@ -708,6 +709,14 @@ public:
             WE_LOG_ERROR(log(), "game force feedback unavailable: cannot listen on port {}", config.ffbPort);
             return nullptr;
         }
+        // The wheel's driver takes up to ~30 ms for one call (starting an effect): on a thread of its own, so the
+        // loop never waits for it (AsyncFfbSink.hpp).
+        // Its priority raised as the loop's: with a game loading every core, Windows would let a normal thread wait.
+        ffb->sink_ = std::make_unique<wheelbri::AsyncFfbSink>(std::move(wheelSink), [] {
+            if (std::string error; !platform::raiseThreadPriority(error)) {
+                WE_LOG_WARN(log(), "cannot raise the force feedback thread's priority: {}", error);
+            }
+        });
         ffb->controller_ = std::make_unique<wheelbri::FfbController>(*ffb->sink_, config.ffb);
 #if defined(_WIN32)
         wheelbri::SenderGate::Settings gate;
@@ -755,6 +764,14 @@ public:
             }
         }
         controller_->update(nowNs);
+        // What reached the wheel since the last tick, and how long it took (the log's delay table, ffb-*.csv).
+        const std::size_t applied = sink_->drainApplied(applied_);
+        for (std::size_t i = 0; i < applied; ++i) {
+            delays_.record(applied_[i]);
+            if (telemetry_ != nullptr) {
+                telemetry_->writeFfbApplied(nowNs, applied_[i]);
+            }
+        }
     }
 
     [[nodiscard]] const wheelbri::FfbController& controller() const { return *controller_; }
@@ -771,9 +788,9 @@ public:
         }
         lastLogged_ = key;
         WE_LOG_INFO(log(), "ffb: game {}, {} effects playing, {} packets and {} updates sent so far, {} failed, {} "
-                           "watchdog stops",
+                           "watchdog stops, the wheel's driver took at most {:.1f} ms for one call",
                     receiving ? "sending" : "quiet", stats.activeSlots, stats.packets, stats.plays, stats.playFailures,
-                    stats.watchdogStops);
+                    stats.watchdogStops, static_cast<double>(sink_->longestCallUs()) / 1000.0);
     }
 
     // Which effects the game used and how hard (FfbUsage), since the start: a table in the log, only
@@ -792,6 +809,19 @@ public:
             WE_LOG_INFO(log(), "ffb usage:   {}", usage.tableRow(type));
         }
         WE_LOG_INFO(log(), "ffb usage: {}", usage.histogramLine());
+        if (delays_.any()) {
+            WE_LOG_INFO(log(), "ffb delay to the wheel since the start (wait: before the wheel's driver was called; "
+                               "wheel: the call){}",
+                        sink_->droppedApplied() > 0
+                            ? ", " + std::to_string(sink_->droppedApplied()) + " calls not counted"
+                            : std::string());
+            for (std::size_t g = 0; g < wheelbri::FfbDelayStats::kGroups; ++g) {
+                if (const std::string line = delays_.line(static_cast<wheelbri::FfbDelayStats::Group>(g));
+                    !line.empty()) {
+                    WE_LOG_INFO(log(), "ffb delay:   {}", line);
+                }
+            }
+        }
     }
 
 private:
@@ -799,7 +829,7 @@ private:
 
     static constexpr std::size_t kMaxPerTick = 256;
 
-    std::unique_ptr<wheelbri::IFfbSink> sink_;
+    std::unique_ptr<wheelbri::AsyncFfbSink> sink_;   // before controller_, which uses it: destroyed after it
     std::unique_ptr<wheelbri::UdpLoopbackListener> listener_;
     std::unique_ptr<wheelbri::SenderGate> gate_;   // Windows only: who may send (lookupFfbSender)
     std::unique_ptr<wheelbri::FfbController> controller_;
@@ -807,6 +837,8 @@ private:
     std::uint64_t lastPackets_ = 0;
     std::uint64_t loggedUsageNs_ = 0;
     std::optional<std::tuple<std::size_t, std::uint64_t, std::uint64_t, bool>> lastLogged_;
+    std::array<wheelbri::AsyncFfbSink::Applied, wheelbri::AsyncFfbSink::kAppliedCapacity> applied_{};
+    wheelbri::FfbDelayStats delays_;
     wheelbri::logging::RateLimiter malformedLimiter_{std::chrono::seconds(5)};
 };
 

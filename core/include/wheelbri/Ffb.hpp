@@ -63,7 +63,7 @@ struct FfbEffect {
 struct FfbSafetyConfig {
     float masterGain = 1.0F;            // user strength setting, 0..1
     float maxMagnitude = 0.8F;          // hard cap for a direct-drive wheel, 0..1
-    float maxSlewPerSecond = 25.0F;     // constant force may move at most this much full-scale per second
+    float maxSlewPerSecond = 50.0F;     // constant force may move at most this much full-scale per second
 };
 
 // Last stage before the physical wheel: applies the user gain and protects against jolts.

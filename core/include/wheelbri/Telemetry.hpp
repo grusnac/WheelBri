@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wheelbri/AsyncFfbSink.hpp"
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/FfbController.hpp"
 #include "wheelbri/FfbPacket.hpp"
@@ -38,7 +39,8 @@ struct TelemetrySample {
 //                             state, what the emulated wheel reports to the game, the game's force feedback per
 //                             slot (requested -> sent to the wheel) and loop timing.
 //  ffb-YYYY-MM-DD.csv         one row per force feedback change the game sent (every SlotState / StopAll
-//                             packet, keep-alives are only counted), with every effect parameter.
+//                             packet, keep-alives are only counted), with every effect parameter; and one row per
+//                             call made to the wheel (wheel_*: wait_us, call_us), the delay to the rim.
 //
 // With [telemetry] only_changes (default) a telemetry row is written only when one of the wheel, mapped,
 // game-facing or force feedback values changed (checked rate_hz times a second), plus one row every
@@ -69,6 +71,9 @@ public:
 
     // Every packet the service received from the game shim (keep-alives only counted).
     void writeFfbPacket(std::uint64_t nowNs, const FfbPacket& packet);
+    // A call the service made to the wheel (AsyncFfbSink): kind wheel_play / wheel_stop / wheel_stopall, `playing` =
+    // the wheel accepted it, wait_us / call_us = the delay before the call and the call itself.
+    void writeFfbApplied(std::uint64_t nowNs, const AsyncFfbSink::Applied& applied);
     // A datagram on the force feedback port that was not a valid packet.
     void noteMalformedFfb(std::uint64_t nowNs, std::size_t bytes);
 

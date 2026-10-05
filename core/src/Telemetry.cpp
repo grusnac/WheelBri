@@ -101,7 +101,7 @@ std::string clockText(const WallClock::time_point time) {
 
 std::string ffbColumns() {
     return "time,t_ms,kind,slot,seq,playing,type,gain,level,center,deadband,k_pos,k_neg,sat_pos,sat_neg,"
-           "magnitude,offset,period_ms,phase_deg";
+           "magnitude,offset,period_ms,phase_deg,wait_us,call_us";
 }
 
 std::string joined(const std::vector<std::string>& columns) {
@@ -197,6 +197,7 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
         File* file;
         const std::filesystem::path* path;
         std::string intro;
+        std::string columns;   // repeated in every session: the file's first column row may be older
     };
     const std::string intro = "# wheelbri telemetry format " + std::string(kFormatVersion) + ", day " + day + "\n";
     const Target targets[] = {
@@ -207,8 +208,9 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
              "wheel reports to the game.\n"
              "# sN_state: w = game wants it playing, p = playing on the wheel. sN_req: what the game asked for, "
              "sN_out: what reached the wheel (signed force for constant, strength for the others).\n" +
-             joined(telemetryColumns()) + "\n"},
-        {&ffbEvents_, &ffbPath_, intro + ffbColumns() + "\n"},
+             joined(telemetryColumns()) + "\n",
+         "# columns: " + joined(telemetryColumns()) + "\n"},
+        {&ffbEvents_, &ffbPath_, intro + ffbColumns() + "\n", "# columns: " + ffbColumns() + "\n"},
     };
     for (const Target& target : targets) {
         // Append: every session of the day shares the file. The column row is written once, by the first.
@@ -225,7 +227,7 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
         if (target.file->bytes == 0) {
             write(*target.file, target.intro);
         }
-        write(*target.file, sessionHeader);
+        write(*target.file, sessionHeader + target.columns);
         if (std::fflush(target.file->handle) != 0) noteWriteFailure(*target.file, "writing its header");
     }
     dayOpen_ = true;
@@ -467,9 +469,26 @@ void TelemetryRecorder::writeFfbPacket(const std::uint64_t nowNs, const FfbPacke
             static_cast<double>(e.condition.deadband), static_cast<double>(e.condition.positiveCoefficient),
             static_cast<double>(e.condition.negativeCoefficient), static_cast<double>(e.condition.positiveSaturation),
             static_cast<double>(e.condition.negativeSaturation));
-    appendf(l, ",%.4f,%.4f,%.1f,%.1f\n", static_cast<double>(e.periodic.magnitude),
+    appendf(l, ",%.4f,%.4f,%.1f,%.1f,,\n", static_cast<double>(e.periodic.magnitude),
             static_cast<double>(e.periodic.offset), static_cast<double>(e.periodic.periodMs),
             static_cast<double>(e.periodic.phaseDeg));
+    write(ffbEvents_, l);
+    ++ffbRows_;
+    flushIfDue(nowNs);
+}
+
+void TelemetryRecorder::writeFfbApplied(const std::uint64_t nowNs, const AsyncFfbSink::Applied& applied) {
+    const WallClock::time_point wall = advance(nowNs);
+    const char* kind = applied.kind == AsyncFfbSink::Applied::Kind::Play   ? "wheel_play"
+                       : applied.kind == AsyncFfbSink::Applied::Kind::Stop ? "wheel_stop"
+                                                                             : "wheel_stopall";
+    std::string& l = line_;
+    l.clear();
+    appendTimes(l, wall, nowNs);
+    appendf(l, ",%s,%u,,%d,", kind, static_cast<unsigned>(applied.slot), applied.ok ? 1 : 0);
+    if (applied.kind == AsyncFfbSink::Applied::Kind::Play) l += typeField(applied.type);
+    appendf(l, ",,,,,,,,,,,,,%lu,%lu\n", static_cast<unsigned long>(applied.waitUs),
+            static_cast<unsigned long>(applied.callUs));
     write(ffbEvents_, l);
     ++ffbRows_;
     flushIfDue(nowNs);
@@ -485,7 +504,7 @@ void TelemetryRecorder::noteMalformedFfb(const std::uint64_t nowNs, const std::s
     const WallClock::time_point wall = advance(nowNs);
     line_.clear();
     appendTimes(line_, wall, nowNs);
-    appendf(line_, ",malformed_%lu_bytes_%llu_more,,,,,,,,,,,,,,,,\n", static_cast<unsigned long>(bytes),
+    appendf(line_, ",malformed_%lu_bytes_%llu_more,,,,,,,,,,,,,,,,,,\n", static_cast<unsigned long>(bytes),
             static_cast<unsigned long long>(malformedSkipped_));
     malformedSkipped_ = 0;
     write(ffbEvents_, line_);

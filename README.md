@@ -98,10 +98,12 @@ a headline, why it was needed, how to use it, and where to look.
 ### Game force feedback through the safety limiter
 
 - **Why:** rigs are often direct drive: no game force may reach the wheel unchecked.
-- **Use:** automatic on both targets. `[ffb] master_gain`, `max_magnitude` (0.8), `max_slew_per_second` in the config;
+- **Use:** automatic on both targets. `[ffb] master_gain`, `max_magnitude` (0.8), `max_slew_per_second` (50) in the config;
   `[ffb] invert = true` if forces pull the wrong way. The forces stop when the game goes quiet (500 ms).
-- **Look:** `ffb-<date>.csv`; the Force feedback tab (`--ffb-tab`). Code: core `FfbController`,
-  `FfbSafetyLimiter` (`Ffb.cpp`), `WheelOutput`.
+- **Look:** `ffb-<date>.csv` (`wheel_*` rows: the delay of every call to the wheel); the service log's `ffb delay`
+  table (with the usage table, every 10 minutes and at the end); the Force feedback tab (`--ffb-tab`). Code: core
+  `FfbController`, `FfbSafetyLimiter` (`Ffb.cpp`), `AsyncFfbSink` (the wheel's calls on their own raised-priority
+  thread: stops, then constant forces, then periodic, then spring and damper), `WheelOutput`.
 
 ### Installer and uninstaller
 
@@ -128,7 +130,7 @@ a headline, why it was needed, how to use it, and where to look.
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
 | `scripts/make/` | Build scripts: build, full rebuild, tests, pre-commit check, mapping window, app, shim, drivers ([README](scripts/make/README.md)) |
-| `scripts/` | `telemetry_summary.py`: summary of a recorded session; `linux/`: start/stop and Steam launch wrapper, udev rules, the Linux bundle |
+| `scripts/` | `telemetry_summary.sh`: summary of a recorded session (bash and awk); `linux/`: start/stop and Steam launch wrapper, udev rules, the Linux bundle |
 | `tools/uhid/` | Phase 4: `wheelbri-uhid`, the virtual G920 for Linux (C++, kernel uhid) |
 
 ## Build
@@ -376,7 +378,9 @@ While it runs, the service records to two CSV files per day in the log folder
   state, the values the emulated G920 reports to the game, the game's force feedback per slot (what the game
   asked for and what reached the wheel after the limiter), and loop timing.
 - `ffb-<date>.csv`: every force feedback change the game sent, with all effect parameters (the shim's periodic
-  re-sends of an unchanged effect are left out).
+  re-sends of an unchanged effect are left out), and one `wheel_play` / `wheel_stop` / `wheel_stopall` row per call
+  the service made to the wheel: `wait_us` (queued before the call) and `call_us` (the wheel's driver).
+  `scripts/telemetry_summary.sh` prints them as a delay table. Each session repeats its columns (`# columns:`).
 
 Every session of the day is appended to that day's files, after a `# session started ...` block with the
 version, the device and a copy of the config; a session running past midnight continues in the next day's
@@ -393,7 +397,7 @@ For a quick summary of the newest session (axis ranges, pedal use, force feedbac
 effect type, loop timing):
 
 ```
-python scripts/telemetry_summary.py            # or pass a telemetry-*.csv / a folder
+scripts/telemetry_summary.sh            # or pass a telemetry-*.csv / a folder; --all for every session of the day
 ```
 
 ## Old files

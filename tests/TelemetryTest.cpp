@@ -242,6 +242,33 @@ TEST_F(TelemetryTest, FfbEventsSkipKeepAlives) {
     EXPECT_NE(data[3].find("malformed_12_bytes"), std::string::npos);
 }
 
+TEST_F(TelemetryTest, CallsToTheWheelHaveTheirDelay) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    AsyncFfbSink::Applied applied;
+    applied.kind = AsyncFfbSink::Applied::Kind::Play;
+    applied.slot = 2;
+    applied.type = FfbEffectType::Spring;
+    applied.waitUs = 120;
+    applied.callUs = 4100;
+    recorder->writeFfbApplied(5 * kMs, applied);
+    applied.kind = AsyncFfbSink::Applied::Kind::StopAll;
+    recorder->writeFfbApplied(6 * kMs, applied);
+    recorder.reset();
+
+    const auto data = lines(dir_ / "ffb-2026-09-30.csv");
+    ASSERT_EQ(data.size(), 3U);
+    for (const auto& line : data) {
+        EXPECT_EQ(fields(line), fields(data[0])) << line;
+    }
+    EXPECT_NE(data[1].find(",wheel_play,2,,1,spring,"), std::string::npos) << data[1];
+    EXPECT_NE(data[1].find(",120,4100"), std::string::npos) << data[1];
+    EXPECT_NE(data[2].find(",wheel_stopall,"), std::string::npos);
+    // Every session repeats its columns, so a reader is right even after a newer version added some mid-day.
+    const auto all = lines(dir_ / "ffb-2026-09-30.csv", true);
+    EXPECT_NE(std::find(all.begin(), all.end(), "# columns: " + data[0]), all.end());
+}
+
 TEST_F(TelemetryTest, WritesRowsOnlyWhenAValueChanges) {
     auto recorder = open(at(10, 0, 0));
     ASSERT_NE(recorder, nullptr);
