@@ -311,7 +311,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     (Windows: `platform::udpPortOwner` / `processImage` in the service, the same through `iphlpapi.dll` loaded on
     first use in the shim) once per new port, caches the verdict (2 s accepted, 10 s refused) and caps lookups at 16
     a second. The service takes game force feedback only from `WUDFHost.exe` in System32 or a program whose folder
-    holds our shim (unknown: let through, warned); the shim takes the wheel's state only from `wheelbri.exe` /
+    holds our shim (unknown, or a program Windows will not name: let through, warned; `processImage` falls back to
+    `NtQuerySystemInformation(SystemProcessIdInformation)` when the process cannot be opened, as WUDFHost.exe after a
+    fresh install and restart); the shim takes the wheel's state only from `wheelbri.exe` /
     `wheelbri-service.exe` (unknown, e.g. the native service under Proton: let through). Linux: no check.
   - Wire format (`StatePacket.hpp`): 33 bytes, little-endian, magic `WEMU`, version 1. Any layout change
     must bump `kVersion` and update the layout comment, `StatePacketTest` and the driver.

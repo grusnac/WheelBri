@@ -658,7 +658,24 @@ wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
         return wheelbri::SenderVerdict::Unknown;
     }
     const std::filesystem::path image = *pid != 0 ? platform::processImage(*pid) : std::filesystem::path();
+    if (*pid != 0 && image.empty()) {
+        // Windows would not say which program it is: as when the port's owner is unknown, the game's force feedback
+        // must not be lost to a failed lookup (it still goes through the safety limiter).
+        std::uint64_t suppressed = 0;
+        if (limiter.allow(suppressed)) {
+            WE_LOG_WARN(log(), "ffb: cannot read which program pid {} (port {}) is ({}); letting its force feedback through",
+                        *pid, port, platform::lastProcessImageError());
+        }
+        return wheelbri::SenderVerdict::Unknown;
+    }
     if (!image.empty()) {
+        if (const std::string why = platform::lastProcessImageError(); !why.empty()) {
+            static wheelbri::logging::RateLimiter namedLimiter(std::chrono::seconds(60));
+            std::uint64_t suppressed = 0;
+            if (namedLimiter.allow(suppressed)) {
+                WE_LOG_INFO(log(), "ffb: sender pid {} is {}, named by its id ({})", *pid, wheelbri::pathToUtf8(image), why);
+            }
+        }
         if (wheelbri::isDriverHostImage(image, systemFolder)) return wheelbri::SenderVerdict::Accept;
         // The game found last time, still running as the same program: accepted again without reading its folder
         // (shimState compares the game's dinput8.dll with ours byte by byte, too slow for the loop every 2 s).

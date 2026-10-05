@@ -95,6 +95,8 @@ std::optional<std::uint32_t> udpPortOwner(std::uint16_t /*port*/) { return std::
 
 std::filesystem::path processImage(std::uint32_t /*pid*/) { return {}; }
 
+std::string lastProcessImageError() { return {}; }
+
 std::filesystem::path executablePath() {
     std::error_code ec;
     const std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);   // Linux

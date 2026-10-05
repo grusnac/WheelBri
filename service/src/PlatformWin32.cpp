@@ -15,6 +15,8 @@
 #include <mmsystem.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -182,9 +184,78 @@ std::optional<std::uint32_t> udpPortOwner(const std::uint16_t port) {
     return std::nullopt;
 }
 
+namespace {
+
+// Why the last processImage() on this thread came back empty (for the log).
+thread_local std::string tImageError;
+
+// \Device\HarddiskVolume3\Windows\... as C:\Windows\...: the drive whose device the path starts with; empty if none.
+std::filesystem::path dosPathFromNtPath(const std::wstring& ntPath) {
+    wchar_t drive[3] = L"A:";
+    std::wstring target(MAX_PATH, L'\0');
+    for (wchar_t letter = L'A'; letter <= L'Z'; ++letter) {
+        drive[0] = letter;
+        const DWORD length = QueryDosDeviceW(drive, target.data(), static_cast<DWORD>(target.size()));
+        if (length == 0) continue;
+        const std::wstring device(target.c_str());   // the first of the list QueryDosDevice returns
+        if (!device.empty() && ntPath.size() > device.size() && ntPath.compare(0, device.size(), device) == 0 &&
+            ntPath[device.size()] == L'\\') {
+            return std::filesystem::path(std::wstring(drive) + ntPath.substr(device.size()));
+        }
+    }
+    return {};
+}
+
+// The program of a process this one cannot open or read. Seen on 2026-10-05 after a fresh install and restart: the
+// program of WUDFHost.exe (the virtual G920's driver host, LocalService) could not be read, so the service refused
+// all of the game's force feedback. NtQuerySystemInformation(SystemProcessIdInformation) names any process without
+// opening it (Task Manager does the same for protected ones).
+std::filesystem::path processImageWithoutOpening(const std::uint32_t pid) {
+    using Query = LONG(NTAPI*)(ULONG, PVOID, ULONG, PULONG);
+    static const Query query = [] {
+        const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        return ntdll == nullptr ? nullptr
+                                : reinterpret_cast<Query>(
+                                      reinterpret_cast<void*>(GetProcAddress(ntdll, "NtQuerySystemInformation")));
+    }();
+    if (query == nullptr) {
+        tImageError += "; NtQuerySystemInformation not found";
+        return {};
+    }
+    struct CountedString {
+        USHORT length;
+        USHORT maximumLength;
+        PWSTR buffer;
+    };
+    struct ProcessIdInformation {
+        HANDLE processId;
+        CountedString imageName;
+    };
+    constexpr ULONG kSystemProcessIdInformation = 88;
+    std::wstring name(32767, L'\0');
+    ProcessIdInformation info{reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(pid)),
+                              {0, static_cast<USHORT>(name.size() * sizeof(wchar_t)), name.data()}};
+    if (const LONG status = query(kSystemProcessIdInformation, &info, sizeof(info), nullptr); status < 0) {
+        char text[64];
+        std::snprintf(text, sizeof(text), "; by id: status 0x%08lX", static_cast<unsigned long>(status));
+        tImageError += text;
+        return {};
+    }
+    std::filesystem::path path =
+        dosPathFromNtPath(std::wstring(info.imageName.buffer, info.imageName.length / sizeof(wchar_t)));
+    if (path.empty()) tImageError += "; by id: no drive letter for its path";
+    return path;
+}
+
+}  // namespace
+
 std::filesystem::path processImage(const std::uint32_t pid) {
+    tImageError.clear();
     const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (process == nullptr) return {};
+    if (process == nullptr) {
+        tImageError = lastError("OpenProcess");
+        return processImageWithoutOpening(pid);
+    }
     // MAX_PATH-sized first (almost every program), the longest path Windows allows only if that is too short.
     std::wstring path(MAX_PATH, L'\0');
     DWORD size = static_cast<DWORD>(path.size());
@@ -194,11 +265,14 @@ std::filesystem::path processImage(const std::uint32_t pid) {
         size = static_cast<DWORD>(path.size());
         ok = QueryFullProcessImageNameW(process, 0, path.data(), &size);
     }
+    if (ok == FALSE) tImageError = lastError("QueryFullProcessImageName");
     CloseHandle(process);
-    if (ok == FALSE) return {};
+    if (ok == FALSE) return processImageWithoutOpening(pid);
     path.resize(size);
     return std::filesystem::path(path);
 }
+
+std::string lastProcessImageError() { return tImageError; }
 
 std::filesystem::path executablePath() {
     std::wstring path(MAX_PATH, L'\0');

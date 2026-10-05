@@ -47,6 +47,9 @@ bool raiseThreadPriority(std::string& error);
 [[nodiscard]] std::optional<std::uint32_t> udpPortOwner(std::uint16_t port);
 // Windows: the full path of process `pid`'s program; empty when it cannot be read (and on other systems).
 [[nodiscard]] std::filesystem::path processImage(std::uint32_t pid);
+// Why the last processImage() on this thread could not open or read the process (also when the fallback by id then
+// named it), e.g. "OpenProcess failed (error 5)"; empty when it could.
+[[nodiscard]] std::string lastProcessImageError();
 
 // Only one wheelbri-service session at a time on this computer: two would both read the wheel, both send state to
 // the same port (the game would get both, interleaved) and both create the virtual devices. Held while it lives.
