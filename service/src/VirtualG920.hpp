@@ -18,6 +18,11 @@ namespace wheelbri::service {
 // identity a driver until it restarts; then a spare identity is used, as the bridge does.
 class VirtualG920 {
 public:
+    // Whether Windows has our driver package (wheelbri-g920.inf in its driver store). Unknown when that cannot be
+    // read (or not Windows): then create() just tries.
+    enum class DriverState { Installed, Missing, Unknown };
+    [[nodiscard]] static DriverState driverState();
+
     // Null + `error` if it cannot be created (not Windows, driver not installed, not Administrator, ...).
     // `cancelled`: checked while waiting for Windows (Stop pressed): then null, "cancelled".
     [[nodiscard]] static std::unique_ptr<VirtualG920> create(std::string& error, const std::function<bool()>& cancelled = {});

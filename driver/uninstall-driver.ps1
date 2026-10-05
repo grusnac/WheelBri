@@ -1,4 +1,5 @@
-# Removes wheelbri's G920 driver package (and, with -RemoveCertificate, the certificate the install trusted).
+# Removes wheelbri's G920 driver package and the virtual G920 devices left on this PC (and, with -RemoveCertificate,
+# the certificate the install trusted).
 # Administrator. Stop wheelbri-service first.
 #
 # -RemoveCertificate refuses while wheelbri-hide is installed: it is signed with the same
@@ -24,6 +25,8 @@ if ($RemoveCertificate) {
     $thumbprints = @(Get-SigningThumbprints @('wheelbri-g920', 'wheelbri-hide', 'wheelemu-g920', 'wheelemu-hide') @($PSScriptRoot))
 }
 
+# The virtual G920s first (also ones a crash left behind), then the package.
+if ((Remove-VirtualDevices) -gt 0) { Write-Host 'Some virtual devices are still listed (see above); they go after a restart.' -ForegroundColor Yellow }
 Remove-InstalledPackages 'wheelbri-g920' | Out-Null
 Remove-LegacyPackages 'wheelbri-g920' | Out-Null
 if (@(Get-InstalledPackages 'wheelbri-g920').Count -gt 0) { Stop-WithError 'wheelbri-g920 is still installed.' }

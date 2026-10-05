@@ -202,6 +202,7 @@ WheelBri's (another mod) is never overwritten or deleted. The list is `%LOCALAPP
 | Live view: Mapping / Rig / Logs tabs, Start / Stop | yes | yes |
 | Stale hide check: clears a hide left by a crashed session, warns if another one hides the rig | yes | yes |
 | Administrator check | yes | - |
+| G920 driver check: installs `wheelbri-g920` (`driver\install-driver.ps1`) when Windows does not have it | yes | - |
 | Virtual G920 device (`wheelbri-g920` driver) and its DirectInput registry entries | yes | - |
 | Hide filter (`wheelbri-hide`): rig hidden from games | yes | - (the game must see the rig) |
 | Test clutch listener, UDP 41331 (developer tool) | yes | - |

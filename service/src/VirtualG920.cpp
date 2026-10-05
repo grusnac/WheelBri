@@ -14,6 +14,8 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <iterator>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -74,6 +76,27 @@ VOID WINAPI onCreated(HSWDEVICE_, HRESULT result, PVOID context, PCWSTR instance
     wait->instanceId = instanceId != nullptr ? instanceId : L"";
     wait->finished = true;
     wait->done.notify_all();
+}
+
+// --- Has Windows a driver for it? ---
+
+// What Start says when Windows has no wheelbri-g920 driver (the app tries to install it first, see main.cpp).
+constexpr char kDriverMissing[] =
+    "the virtual G920's driver (wheelbri-g920) is not installed: install it once from an Administrator PowerShell "
+    "(driver\\install-driver.ps1, or scripts/make/drivers.sh -Install); WheelBri's installer does it too";
+
+// The problem code Windows shows for the device in Device Manager (0: none or not found).
+constexpr ULONG kProblemFailedInstall = 28;   // CM_PROB_FAILED_INSTALL: "the drivers for this device are not installed"
+
+ULONG problemOf(const std::wstring& instance) {
+    DEVINST node = 0;
+    if (CM_Locate_DevNodeW(&node, const_cast<DEVINSTID_W>(instance.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+        return 0;
+    }
+    ULONG status = 0;
+    ULONG problem = 0;
+    if (CM_Get_DevNode_Status(&status, &problem, node, 0) != CR_SUCCESS) return 0;
+    return (status & DN_HAS_PROBLEM) != 0 ? problem : 0;
 }
 
 // --- Is the game-controller part there? A HID interface with the G920's ids (cfgmgr32 + hid.dll) ---
@@ -224,6 +247,35 @@ struct VirtualG920::Impl {
     }
 };
 
+// Windows keeps one key per driver package in its store: SYSTEM\DriverDatabase\DriverPackages\<inf>_<arch>_<hash>
+// (what pnputil /add-driver adds and /delete-driver removes). Readable without Administrator.
+VirtualG920::DriverState VirtualG920::driverState() {
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\DriverDatabase\\DriverPackages", 0,
+                      KEY_ENUMERATE_SUB_KEYS | KEY_WOW64_64KEY, &key) != ERROR_SUCCESS) {
+        return DriverState::Unknown;
+    }
+    constexpr wchar_t kPrefix[] = L"wheelbri-g920.inf_";
+    DriverState state = DriverState::Missing;
+    for (DWORD index = 0;; ++index) {
+        wchar_t name[256];
+        DWORD length = static_cast<DWORD>(std::size(name));
+        const LONG result = RegEnumKeyExW(key, index, name, &length, nullptr, nullptr, nullptr, nullptr);
+        if (result == ERROR_NO_MORE_ITEMS) break;
+        if (result == ERROR_MORE_DATA) continue;   // a longer name: not ours
+        if (result != ERROR_SUCCESS) {
+            state = DriverState::Unknown;
+            break;
+        }
+        if (_wcsnicmp(name, kPrefix, std::size(kPrefix) - 1) == 0) {
+            state = DriverState::Installed;
+            break;
+        }
+    }
+    RegCloseKey(key);
+    return state;
+}
+
 std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::function<bool()>& cancelled) {
     const auto stopNow = [&cancelled] { return cancelled && cancelled(); };
     const HMODULE cfg = LoadLibraryW(L"cfgmgr32.dll");
@@ -233,6 +285,11 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         cfg != nullptr ? reinterpret_cast<SwDeviceCloseFn>(reinterpret_cast<void*>(GetProcAddress(cfg, "SwDeviceClose"))) : nullptr;
     if (swCreate == nullptr || swClose == nullptr) {
         error = "this Windows has no software devices (SwDeviceCreate)";
+        return nullptr;
+    }
+    // Without our driver every identity would wait 8 s for nothing and end in "restart Windows", which cannot help.
+    if (driverState() == DriverState::Missing) {
+        error = kDriverMissing;
         return nullptr;
     }
 
@@ -325,8 +382,18 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
             return nullptr;
         }
         if (!ready) {
-            WE_LOG_WARN(log(), "virtual G920 {} has no game-controller driver (an earlier one is probably stuck "
-                               "half-removed until Windows restarts); trying the next identity", id);
+            const ULONG problem = problemOf(createdId);
+            // No driver for it at all (removed since the check above, or Windows refused it): another identity gets
+            // the same, so say what is missing instead.
+            if (problem == kProblemFailedInstall && driverState() != DriverState::Installed) {
+                swClose(device);
+                writeDirectInputEntries(false);
+                error = std::string(kDriverMissing) + " (Windows found no driver for " + id + ")";
+                return nullptr;
+            }
+            WE_LOG_WARN(log(), "virtual G920 {} has no game-controller driver{} (an earlier one is probably stuck "
+                               "half-removed until Windows restarts); trying the next identity",
+                        id, problem != 0 ? " (Device Manager problem code " + std::to_string(problem) + ")" : std::string());
             swClose(device);
             continue;
         }
@@ -367,6 +434,10 @@ namespace wheelbri::service {
 struct VirtualG920::Impl {
     std::string instanceId;
 };
+
+VirtualG920::DriverState VirtualG920::driverState() {
+    return DriverState::Unknown;
+}
 
 std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::function<bool()>&) {
     error = "the virtual G920 exists on Windows only";

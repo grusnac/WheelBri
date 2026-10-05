@@ -167,6 +167,55 @@ function Get-DevicesUsing([string]$name) {
     return @($present | Where-Object { $using -contains $_.InstanceId })
 }
 
+# The virtual devices the app creates (SWD\wheelbri\G920_<n>; SWD\wheelemu\... from before the rename) and the HID
+# devices under them, present or not: after a crash, or a G920 Windows kept half-removed, they stay listed (Device
+# Manager > Show hidden devices). Children first. Returns how many could not be removed.
+function Remove-VirtualDevices {
+    $all = @(Get-PnpDevice -ErrorAction SilentlyContinue)
+    $ours = @($all | Where-Object { $_.InstanceId -like 'SWD\wheelbri\*' -or $_.InstanceId -like 'SWD\wheelemu\*' })
+    if ($ours.Count -eq 0) { return 0 }
+    $ids = @($ours | ForEach-Object { $_.InstanceId })
+    $hid = @($all | Where-Object { $_.Class -eq 'HIDClass' -and $ids -notcontains $_.InstanceId })
+    $children = @()
+    if ($hid.Count -gt 0) {
+        # One property query for all of them (one per device is slow).
+        $children = @(Get-PnpDeviceProperty -InstanceId @($hid | ForEach-Object { $_.InstanceId }) `
+                          -KeyName 'DEVPKEY_Device_Parent' -ErrorAction SilentlyContinue |
+                      Where-Object { $_.Data -and ($ids -contains [string]$_.Data) } | ForEach-Object { $_.InstanceId })
+    }
+    $failed = 0
+    foreach ($id in @($children) + @($ids)) {
+        & pnputil /remove-device $id | Out-Null
+        if ($LASTEXITCODE -in @(0, 3010)) {
+            Write-Host "removed device $id"
+        } else {
+            Write-Host "could not remove device $id (pnputil $LASTEXITCODE): Device Manager > View > Show hidden devices > Uninstall" -ForegroundColor Yellow
+            $failed++
+        }
+    }
+    return $failed
+}
+
+# install-driver.ps1 and install-hide.ps1 started by the app at Start keep running when the app closes (stopped
+# halfway, they could leave a device with a half-switched driver): wait for them before removing anything, never end
+# them. Returns $false when one still runs after $seconds.
+function Wait-DriverInstallers([int]$seconds = 120) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    $said = $false
+    while ($true) {
+        # "install-driver.ps1", not "uninstall-driver.ps1" (a letter before "install" means another script).
+        $running = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+                     Where-Object { $_.ProcessId -ne $PID -and "$($_.CommandLine)" -match '(?<![A-Za-z])install-(driver|hide)\.ps1' })
+        if ($running.Count -eq 0) { return $true }
+        if ((Get-Date) -ge $deadline) { return $false }
+        if (-not $said) {
+            Write-Host '    waiting for a driver installer WheelBri started to finish (it must not be cut off)'
+            $said = $true
+        }
+        Start-Sleep -Milliseconds 500
+    }
+}
+
 # Removes every installed copy of <name>.inf. Returns how many were removed.
 function Remove-InstalledPackages([string]$name) {
     $packages = @(Get-InstalledPackages $name)

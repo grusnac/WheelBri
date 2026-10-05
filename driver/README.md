@@ -60,7 +60,8 @@ driver\install-driver.ps1
 
 Trusts that certificate on this PC (Root and TrustedPublisher stores), records its thumbprint in
 `HKLM\SOFTWARE\wheelbri\SigningCertificates` and installs the package with `pnputil`. No test mode, Secure Boot
-stays on. Remove: `driver\uninstall-driver.ps1` (add `-RemoveCertificate` to also remove the certificate). Only the
+stays on. Its log: `wheelbri-driver-install-<date>.log` in the logs folder. The app runs it by itself at Start when
+Windows has no `wheelbri-g920` package (after `clean-pc`, say), and says so in its log. Remove: `driver\uninstall-driver.ps1` (add `-RemoveCertificate` to also remove the certificate). Only the
 certificates that signed our packages are removed, found by thumbprint (the recorded ones, and the signers of the
 installed packages' and the packaged `.cat` files), never other certificates named `WDKTestCert`.
 

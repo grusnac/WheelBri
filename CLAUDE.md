@@ -298,7 +298,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView` (`--ui`); a fixed-rate loop
     (default 1 kHz, drift-free, resynchronises when behind).
   - Phase 5 (`--virtual-g920`, run as Administrator, no shim in the game): `VirtualG920`
-    creates the `wheelbri\G920` software device for the `wheelbri-g920` driver while the service runs and keeps
+    creates the `wheelbri\G920` software device for the `wheelbri-g920` driver while the service runs (Start first
+    installs that driver with `install-driver.ps1` when Windows' driver store has no `wheelbri-g920.inf`,
+    `ensureG920Driver` / `VirtualG920::driverState`; without it `create` fails at once with what to do, never
+    "restart Windows") and keeps
     the DirectInput "driving" registry entry right (and Logitech's FFB entry out); `HideFilter` sets
     `HKLM\SOFTWARE\wheelbri\hide\AllowedPid` for the `wheelbri-hide` filter so only the service sees the rig.
     What is hidden is the active rig (Wheel setup), never a list of ids in the code: `rigHideTargets` (main.cpp)
@@ -371,7 +374,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   installer asks this, never the app or the uninstaller (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older install
   (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the three driver install scripts, shortcuts, Settings > Apps entry, Start
   menu folder with the app and "Uninstall WheelBri", closes itself 10 s after success when no restart, log in
-  `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log`), `uninstall.ps1` + `Uninstall.cmd` (the folder from
+  `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log`), `uninstall.ps1` + `Uninstall.cmd` (waits for a driver installer the app started (`Wait-DriverInstallers`), removes
+  the drivers, the virtual devices (`Remove-VirtualDevices` in `uninstall-driver.ps1`), the UMDF registrations and
+  DirectInput's G920 entries; the folder from
   Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelbri.exe` and no `install.ps1`, i.e. never a
   package; runs from a copy in `%SystemRoot%\Temp\wheelbri-uninstall-<guid>` that only Administrators may change; from the package it cleans up an install whose folder is gone), `Setup.cmd`
   (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), `README.txt` (for the end user). The

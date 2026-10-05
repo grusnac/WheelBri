@@ -1,4 +1,5 @@
-# Removes WheelBri: its drivers, shortcuts, the Settings > Apps entry and the install folder. Three ways to run
+# Removes WheelBri: its drivers and virtual devices, shortcuts, the Settings > Apps entry, its registry entries and
+# the install folder. Three ways to run
 # it, all the same script (it asks for Administrator itself):
 #   - Start menu > WheelBri > Uninstall WheelBri, or Settings > Apps > WheelBri > Uninstall;
 #   - Uninstall.cmd in the install folder (double-click);
@@ -168,6 +169,8 @@ try {
         Warn "    $($process.ProcessName) did not close within 15 s: ended"
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     }
+    # A driver installer the app started at Start (it keeps running when the app closes): finished first.
+    if (-not (Wait-DriverInstallers)) { Warn '    a driver installer WheelBri started is still running after 2 minutes: removing anyway' }
     $service = Join-Path $InstallDir 'wheelbri-service.exe'
     if ($folderOk -and (Test-Path $service)) { & $service --unhide | Out-Null }   # no "hidden" setting left behind
     Write-Host "    $(if ($running.Count) { "closed $($running.Count)" } else { 'none running' })"
@@ -205,6 +208,18 @@ try {
         if (@(Get-ChildItem 'HKLM:\SOFTWARE\wheelbri' -ErrorAction SilentlyContinue).Count -eq 0) {
             Remove-Item 'HKLM:\SOFTWARE\wheelbri' -Force -ErrorAction SilentlyContinue
         }
+    }
+    # The drivers' UMDF registrations (some removals leave them) and DirectInput's entries for the G920 the app writes
+    # (its name and type; a real G920 gets them again when plugged in). HKCU: the account this runs as.
+    foreach ($name in 'wheelbri', 'wheelemu') {
+        foreach ($part in 'hide', 'g920') {
+            Remove-Item "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part" -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    foreach ($key in 'HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_046D&PID_C262',
+                     'HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_046D&PID_C262',
+                     'HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\DirectInput\VID_046D&PID_C262') {
+        Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue
     }
     # The same two under the project's old name (wheelemu, before the rename), if an upgrade left them.
     Remove-Item 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\wheelemu' -Recurse -Force -ErrorAction SilentlyContinue

@@ -122,11 +122,102 @@ std::vector<wheelbri::service::HideFilter::Target> rigHideTargets(std::string& r
     return targets;
 }
 
+#ifdef _WIN32
+// A driver install script and its built package (both relative to a base folder), found next to the program
+// (installed) or up to three folders above it (build/service/ in the source tree), never further: the script runs as
+// Administrator, so it must not be found in a folder anyone can create (C:\driver\...). Empty when not found.
+std::filesystem::path findDriverScript(const std::filesystem::path& script, const std::filesystem::path& package) {
+    int levels = 0;
+    for (std::filesystem::path base = platform::executablePath().parent_path(); !base.empty() && levels <= 3;
+         base = base.parent_path(), ++levels) {
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(base / script, ec) && std::filesystem::is_regular_file(base / package, ec)) {
+            return base / script;
+        }
+        if (base == base.parent_path()) break;
+    }
+    return {};
+}
+
+// Runs a driver install script (Windows PowerShell from System32, no window) and waits for its exit code. Never cut
+// off: stopped halfway, it can leave a device with a half-switched driver, so Stop waits for it (it is short), and
+// after 2 minutes it is left to finish by itself (then no exit code). `started` false + `error`: it did not run.
+std::optional<int> runDriverScript(const std::filesystem::path& script, const std::vector<std::string>& arguments,
+                                   const char* tag, bool& started, std::string& error) {
+    const std::filesystem::path powershell =
+        platform::systemFolder() / "WindowsPowerShell" / "v1.0" / "powershell.exe";
+    std::vector<std::string> command{powershell.string(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                                     script.string()};
+    command.insert(command.end(), arguments.begin(), arguments.end());
+    const auto child = platform::ChildProcess::start(command, error);
+    started = child != nullptr;
+    if (child == nullptr) return std::nullopt;
+    child->keepRunningAfterExit();   // not even this process ending (a closed console) may cut it off
+    std::optional<int> exit;
+    bool saidWaiting = false;
+    for (int waited = 0; !(exit = child->poll()) && waited < 120'000; waited += 200) {
+        if (gStop && !saidWaiting) {
+            saidWaiting = true;
+            WE_LOG_INFO(log(), "{}: stop requested; waiting for the installer to finish first (it must not be cut off "
+                               "while it changes a device's driver)",
+                        tag);
+        }
+        platform::sleepMs(200);
+    }
+    if (!exit) child->release();
+    return exit;
+}
+#endif
+
+// With --virtual-g920 (Start in the app): the virtual G920 needs wheelbri's G920 driver. When Windows does not have it
+// (a fresh PC, after clean-pc, or the driver was uninstalled), Start installs it now with driver\install-driver.ps1,
+// from the package built in this source tree or installed with the program (driver/x64/Release); the service runs as
+// Administrator for --virtual-g920 anyway. When that is not possible, VirtualG920::create says what is missing.
+void ensureG920Driver() {
+#ifdef _WIN32
+    using wheelbri::service::VirtualG920;
+    if (VirtualG920::driverState() != VirtualG920::DriverState::Missing) return;
+    const std::filesystem::path script = findDriverScript(
+        std::filesystem::path("driver") / "install-driver.ps1",
+        std::filesystem::path("driver") / "x64" / "Release" / "wheelbri-g920" / "wheelbri-g920.inf");
+    if (script.empty()) {
+        WE_LOG_ERROR(log(), "g920: the virtual G920's driver (wheelbri-g920) is not installed and no built package was "
+                            "found next to the program (build and install it once: scripts/make/drivers.sh -Install)");
+        return;
+    }
+    WE_LOG_INFO(log(), "g920: the virtual G920's driver (wheelbri-g920) is not installed: installing it now ({})",
+                script.string());
+    bool started = false;
+    std::string error;
+    const std::optional<int> exit = runDriverScript(script, {"-Configuration", "Release"}, "g920", started, error);
+    if (!started) {
+        WE_LOG_ERROR(log(), "g920: cannot run the driver installer: {}", error);
+        return;
+    }
+    if (gStop) return;
+    if (!exit || *exit != 0) {
+        WE_LOG_ERROR(log(), "g920: the driver installer {} (its log: wheelbri-driver-install-<date>.log in the logs "
+                            "folder; or run {} yourself as Administrator)",
+                     !exit ? std::string("took longer than 2 minutes (left to finish by itself)")
+                           : "failed (exit code " + std::to_string(*exit) + ")",
+                     script.string());
+        return;
+    }
+    if (VirtualG920::driverState() == VirtualG920::DriverState::Missing) {
+        WE_LOG_ERROR(log(), "g920: the driver installer ended without error, but Windows still does not list "
+                            "wheelbri-g920 (its log: wheelbri-driver-install-<date>.log in the logs folder)");
+        return;
+    }
+    WE_LOG_INFO(log(), "g920: the virtual G920's driver (wheelbri-g920) is installed");
+#endif
+}
+
 // With --virtual-g920 (Start in the app): wheelbri's hide filter on every connected device of the rig, put there now
 // if it is not yet, so Start alone leaves games only the G920. Which devices: the rig's ids, nothing else
-// (install-hide.ps1 -Devices with the HID instance ids of their game controllers, as DirectInput lists them). It installs from the package built in this source tree or installed
-// with the program (driver/hide/x64/Release); the service runs as Administrator for --virtual-g920 anyway. Done
-// before the wheel is opened: putting the filter on a device restarts it.
+// (install-hide.ps1 -Devices with the HID instance ids of their game controllers, as DirectInput lists them). It
+// installs from the package built in this source tree or installed with the program (driver/hide/x64/Release); the
+// service runs as Administrator for --virtual-g920 anyway. Done before the wheel is opened: putting the filter on a
+// device restarts it.
 void ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& targets) {
 #ifdef _WIN32
     using wheelbri::service::HideFilter;
@@ -138,55 +229,25 @@ void ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& 
         }
     }
     if (devices.empty()) return;   // everything connected already has it (or waits for a restart, said above)
-    const std::filesystem::path exe = platform::executablePath();
-    std::filesystem::path script;
-    // Next to the program (installed) or up to three folders above it (build/service/ in the source tree), never
-    // further: the script runs as Administrator, so it must not be found in a folder anyone can create (C:\driver\...).
-    int levels = 0;
-    for (std::filesystem::path base = exe.parent_path(); !base.empty() && script.empty() && levels <= 3;
-         base = base.parent_path(), ++levels) {
-        std::error_code ec;
-        const std::filesystem::path candidate = base / "driver" / "hide" / "install-hide.ps1";
-        const std::filesystem::path package =
-            base / "driver" / "hide" / "x64" / "Release" / "wheelbri-hide" / "wheelbri-hide.inf";
-        if (std::filesystem::is_regular_file(candidate, ec) && std::filesystem::is_regular_file(package, ec)) {
-            script = candidate;
-        }
-        if (base == base.parent_path()) break;
-    }
+    const std::filesystem::path script = findDriverScript(
+        std::filesystem::path("driver") / "hide" / "install-hide.ps1",
+        std::filesystem::path("driver") / "hide" / "x64" / "Release" / "wheelbri-hide" / "wheelbri-hide.inf");
     if (script.empty()) {
         WE_LOG_ERROR(log(), "hide: wheelbri-hide is not on {} and no built package was found next to the program "
                             "(build it once: scripts/make/drivers.sh -Only hide)",
                      devices);
         return;
     }
-    const std::filesystem::path powershell =
-        platform::systemFolder() / "WindowsPowerShell" / "v1.0" / "powershell.exe";
     WE_LOG_INFO(log(), "hide: putting wheelbri-hide on the rig's devices {} ({}); each restarts once", devices,
                 script.string());
+    bool started = false;
     std::string error;
-    const auto child = platform::ChildProcess::start(
-        {powershell.string(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script.string(), "-Configuration",
-         "Release", "-Devices", devices},
-        error);
-    if (child == nullptr) {
+    const std::optional<int> exit =
+        runDriverScript(script, {"-Configuration", "Release", "-Devices", devices}, "hide", started, error);
+    if (!started) {
         WE_LOG_ERROR(log(), "hide: cannot run the installer: {}", error);
         return;
     }
-    child->keepRunningAfterExit();   // not even this process ending (a closed console) may cut it off
-    // Never cut the installer off: stopped halfway, it can leave a device with a half-switched driver. Stop
-    // waits for it (it is short), and after 2 minutes it is left to finish by itself.
-    std::optional<int> exit;
-    bool saidWaiting = false;
-    for (int waited = 0; !(exit = child->poll()) && waited < 120'000; waited += 200) {
-        if (gStop && !saidWaiting) {
-            saidWaiting = true;
-            WE_LOG_INFO(log(), "hide: stop requested; waiting for the installer to finish first (it must not be "
-                               "cut off while it changes a device's driver)");
-        }
-        platform::sleepMs(200);
-    }
-    if (!exit) child->release();
     if (gStop) return;
     if (!exit || *exit != 0) {
         const char* why = !exit ? "took longer than 2 minutes (left to finish by itself)"
@@ -1320,7 +1381,8 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     // The rig hidden from games while the session runs: every device the Wheel setup tab defined.
     std::string rigName;
     const auto hideTargets = rigHideTargets(rigName);
-    if (options.virtualG920 && options.hide) {
+    if (options.virtualG920) ensureG920Driver();
+    if (options.virtualG920 && options.hide && !gStop) {
         if (hideTargets.empty()) {
             WE_LOG_WARN(log(), "hide: no rig yet{}: nothing is hidden from games (define the devices in the Rig tab)",
                         rigName.empty() ? "" : " ('" + rigName + "' lists no device)");

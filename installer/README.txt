@@ -64,8 +64,8 @@ Any of these (they all run the same uninstaller and ask for Administrator):
 - Settings > Apps > Installed apps > WheelBri > Uninstall;
 - Uninstall.cmd in C:\Program Files\WheelBri.
 It asks to confirm, whether to keep your settings (copied to %LOCALAPPDATA%\wheelbri\config-backup) and whether to
-remove the drivers' certificate, then closes a running WheelBri and removes the drivers, shortcuts, the
-Settings > Apps entry and the program folder. Logs stay in %LOCALAPPDATA%\wheelbri\logs.
+remove the drivers' certificate, then closes a running WheelBri and removes the drivers, the virtual G920 devices,
+shortcuts, the Settings > Apps entry, WheelBri's registry entries and the program folder. Logs stay in %LOCALAPPDATA%\wheelbri\logs.
 
 If the program folder was deleted by hand or is damaged, Uninstall.cmd in the unpacked package (from the
 WheelBri-<version>.zip next to Setup.exe) removes what is left: drivers, certificate, shortcuts and the

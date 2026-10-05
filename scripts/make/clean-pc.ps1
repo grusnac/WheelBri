@@ -26,7 +26,8 @@
 # %ProgramFiles%\wheelemu, or where Settings > Apps says: the files in its installed-files.txt and WheelBri's
 # subfolders, or all of it for an install from before that list), its shortcuts and its Settings > Apps entries;
 # HKLM\SOFTWARE\wheelbri and \wheelemu (the hide setting); the installer's and uninstaller's copies in %TEMP% and
-# %SystemRoot%\Temp (wheelbri-setup-*, wheelbri-uninstall-*);
+# %SystemRoot%\Temp (wheelbri-setup-*, wheelbri-uninstall-*, and install logs written there when the logs folder was a
+# link);
 # DirectInput's entries for VID_046D&PID_C262 (the G920's name and force feedback driver, which the service writes;
 # a real G920 gets them again when plugged in); the app's data folders unless -KeepData.
 # It never touches this repository (build\, dist\) or the WDK certificate in your own store that signs builds.
@@ -182,6 +183,9 @@ function Get-TempCopies {
         foreach ($name in $names) {
             Get-ChildItem $root -Directory -Filter "$name-setup-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
             Get-ChildItem $root -Directory -Filter "$name-uninstall-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+            # Install logs written here when the user's logs folder was a link (install.ps1, uninstall.ps1,
+            # install-driver.ps1, install-hide.ps1).
+            Get-ChildItem $root -File -Filter "$name-*install-*.log" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
         }
     }) | Sort-Object -Unique
 }
@@ -318,6 +322,8 @@ try {
             Write-Host "    $($process.ProcessName) did not close within 30 s: ended"
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         }
+        # A driver installer the app started at Start keeps running when the app closes: finished first, never ended.
+        if (-not (Wait-DriverInstallers)) { Warn 'a driver installer WheelBri started is still running after 2 minutes: going on' }
         foreach ($name in $names) {
             Remove-ItemProperty -Path "HKLM:\SOFTWARE\$name\hide" -Name 'AllowedPid', 'AllowedPidStart' -ErrorAction SilentlyContinue
         }
