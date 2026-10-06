@@ -34,6 +34,8 @@ This file guides Claude when working in this repository.
   PowerShell script is run as `powershell -NoProfile -ExecutionPolicy Bypass -File <script.ps1> [arguments]`.
 - **Before every commit**, write down why the change was made: the commit message gets a short headline and a
   few lines of reasons.
+- **Order of a reply after a change**: what changed, then build, test and what to check, and the git commands
+  (`git add`, `git commit`, tags, push) always last, at the very end.
 - **When a functionality is finished** (it may take several commits), add one entry for it under
   `## Functionalities` in README.md, in the commit that completes it, not before. Keep it short: a `###` headline,
   then **Why** (the reason), **Use** (how to use it, settings) and **Look** (where to see it: UI, logs and
@@ -152,7 +154,7 @@ Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list]
 (click, or M / R / L, T / F; in this order: Mapping, Rig, Logs, then Telemetry and Force feedback only with
 `--telemetry-tab` / `--ffb-tab`, never shown without them, `MappingView::setOptionalTabs`): **Mapping** (the axes rig -> G920, every rig axis, the D-pad, the G920 buttons written
 `G920 <n> <name> <- Rig <n> <name>` and the wheel's own buttons `Rig <n> <name>` from `[button_labels]`), **Logs** (one
-line per component: emulator, game shim, G920 driver, hide filter, each in its own colour,
+line per component: emulator, game shim, G920 driver, hide filter, helper, each in its own colour,
 with today's file, size, age, click opens its folder; then a scrollable live log of all those files merged:
 wheel, arrows, PageUp / PageDown, Home / End, a draggable vertical scroll bar, a sideways one for long messages
 (Shift + wheel, Left / Right) and word wrap (Wrap button or W); drags come from `WindowInput::pointer` / `leftDown`,
@@ -416,6 +418,15 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     package (and takes it off every device). The installer then runs the installed `wheelbri-service --prepare-hide`,
     which does what Start does (`ensureHideFilter` for the saved rig: the game controllers DirectInput lists, never
     046d:c262; USB ids by compatible id missed the Moza R3), so after a reinstall the first Start does not have to.
+    With the wheel off at install, the app does it while stopped: as soon as every rig device is connected (target
+    virtual device), `App::startPreparingHide` runs `AppSettings::prepareHide` (main.cpp: `HideFilter::check`, then
+    `ensureHideFilter` only when a device lacks the filter) on a thread of its own; Start is greyed out and the status
+    says so meanwhile, and the Rig tab lets go of the wheel. During Start the session tells the app what takes long
+    (`UiHost::step`: hiding, waiting for the wheel), shown after "Starting". The WheelBri Helper (SYSTEM) passes the
+    caller's logs folder to the install scripts (`-LogFolder`, `privileged::installG920Driver` / `putHideFilter`;
+    ProgramData's before ShareLogFolder): their own `%LOCALAPPDATA%` would be SYSTEM's, and install-hide.ps1 also sets
+    HKLM LogFolder from it. The hide driver logs each program that opens the wheel or is refused by name
+    (`NtQuerySystemInformation`, as `processImage`), once per program until the hiding changes.
     A device takes a new filter only when Windows restarts it, which nothing may hold it open for: `ensureHideFilter`
     then waits, opening nothing, with `HideFilter::waitUntilStarted` (device status only; after 6 s it restarts the
     device itself with `CM_Query_And_Remove_SubTree` + `CM_Setup_DevNode`, and logs who vetoes). On 2026-10-05 the
@@ -481,7 +492,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   `wheelbri-shim.ini` (shim).
 - `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide),
   `future-functionalities.md` (worked-out ideas not built yet: RS Handbrake, G29; and the standard-user test still to
-  do).
+  do), `push-input-plan.md` (the service loop from polling to Windows' notifications: planned, put aside).
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.
 

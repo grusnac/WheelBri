@@ -42,11 +42,12 @@ constexpr Colour kDark{16, 18, 20};
 constexpr Colour kCentre{160, 164, 172};
 
 // One colour per component, the same in the file list and the live log (index = its line in the list).
-constexpr std::array<Colour, 4> kComponentColours = {{
+constexpr std::array<Colour, 5> kComponentColours = {{
     {120, 190, 255},   // Emulator: blue
     {236, 152, 72},    // Game shim: orange
     {186, 140, 255},   // G920 driver: purple
     {80, 204, 190},    // Hide filter: teal
+    {222, 196, 96},    // Helper: yellow
 }};
 
 bool isValidAxis(const int axis) {
@@ -810,6 +811,8 @@ void MappingView::refreshLogFiles() {
         {"Game shim", "dinput8.dll next to the game (Phases 2-3)", false, "wheelbri-shim-"},
         {"G920 driver", "the virtual G920 (wheelbri-g920)", true, "wheelbri-driver-"},
         {"Hide filter", "hides the rig from games (wheelbri-hide)", true, "wheelbri-hide-"},
+        // The WheelBri Helper (a service) writes into the connected user's folder (HelperLog), the same one.
+        {"Helper", "the Administrator steps for the app (WheelBri Helper)", true, "wheelbri-helper-"},
     };
     components_.clear();
     for (const Source& source : kSources) {

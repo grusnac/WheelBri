@@ -147,8 +147,10 @@ using privileged::HideSetup;
 // second after the installer and the filter never started: "NOT HIDDEN ... restart Windows"). So this waits, opening
 // nothing, until every device runs the filter, restarting a device itself when Windows does not (HideFilter::
 // waitUntilStarted), and says who keeps one when that fails.
+// `say`: what it is doing when that takes a while (the app shows it next to Start).
 HideSetup ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& targets,
-                           wheelbri::service::PrivilegedSteps& steps) {
+                           wheelbri::service::PrivilegedSteps& steps,
+                           const std::function<void(const std::string&)>& say = {}) {
 #ifdef _WIN32
     using wheelbri::service::HideFilter;
     std::vector<std::string> install;   // no filter yet: the installer puts it on
@@ -165,11 +167,15 @@ HideSetup ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Targ
     }
     if (all.empty()) return HideSetup::NothingToDo;
     if (install.empty() && waitingNames.empty()) return HideSetup::Running;   // every connected device runs it already
+    if (say) say(install.empty() ? "Windows restarts the wheel" : "hiding the wheel, first time: up to 30 s");
     std::string message;
-    return steps.putHideFilter(install, all, [] { return gStop.load(); }, message);
+    const HideSetup result = steps.putHideFilter(install, all, [] { return gStop.load(); }, message);
+    if (say) say({});
+    return result;
 #else
     (void)targets;
     (void)steps;
+    (void)say;
     return HideSetup::NothingToDo;
 #endif
 }
@@ -1384,7 +1390,9 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             WE_LOG_WARN(log(), "hide: no rig yet{}: nothing is hidden from games (define the devices in the Rig tab)",
                         rigName.empty() ? "" : " ('" + rigName + "' lists no device)");
         } else {
-            (void)ensureHideFilter(hideTargets, *steps);
+            (void)ensureHideFilter(hideTargets, *steps, [host](const std::string& what) {
+                if (host != nullptr) host->step(what);
+            });
         }
     }
     if (cancelled()) {
@@ -1405,9 +1413,11 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
                            "it); Stop gives up",
                     config.sourceDeviceMatch, wait.timeoutMs / 1000);
         std::uint64_t waitedMs = 0;
+        if (host != nullptr) host->step("waiting for the wheel (up to " + std::to_string(wait.timeoutMs / 1000) + " s)");
         const wheelbri::WaitOutcome outcome = wheelbri::waitFor(
             wait, [&] { return wheelbri::service::wheelConnected(*backend, config.sourceDeviceMatch); }, cancelled,
             [](const std::uint64_t ms) { platform::sleepMs(static_cast<std::uint32_t>(ms)); }, &waitedMs);
+        if (host != nullptr) host->step({});
         if (outcome == wheelbri::WaitOutcome::Cancelled) {
             WE_LOG_INFO(log(), "stopped while waiting for the wheel");
             return 0;
@@ -1681,6 +1691,36 @@ int runAppMode(Options options, const bool consoleLogging) {
     };
     settings.requestStop = [] { gStop = true; };
     settings.clearStop = [] { gStop = false; };
+#ifdef _WIN32
+    // The hide filter on the rig while the app is stopped (App: startPreparingHide). Only when a connected device of
+    // the rig lacks it, so most calls end after the check; the privileged steps open only then.
+    settings.prepareHide = [](const std::function<void(const std::string&)>& say) -> int {
+        std::string rigName;
+        const auto targets = rigHideTargets(rigName);
+        if (targets.empty()) return static_cast<int>(HideSetup::NothingToDo);
+        bool needed = false;
+        for (const wheelbri::service::HideFilter::Check& c : wheelbri::service::HideFilter::check(targets, true)) {
+            needed = needed || (!c.interfaces.empty() && (c.state == wheelbri::service::HideFilter::State::NotInstalled ||
+                                                           c.state == wheelbri::service::HideFilter::State::NeedsRestart));
+        }
+        if (!needed) return static_cast<int>(HideSetup::Running);
+        WE_LOG_INFO(log(), "hide: the rig '{}' is connected and not hidden yet: preparing the hiding now, before Start",
+                    rigName);
+        wheelbri::service::PrivilegedSteps::Problem problem{};
+        std::string problemText;
+        const auto steps = wheelbri::service::PrivilegedSteps::open(problem, problemText);
+        if (steps == nullptr) {
+            WE_LOG_WARN(log(), "hide: cannot prepare the hiding now: {}", problemText);
+            return static_cast<int>(HideSetup::Failed);
+        }
+        steps->shareLogFolder();   // the helper's installer writes its log there
+        const HideSetup result = ensureHideFilter(targets, *steps, [&say](const std::string& what) {
+            say(what.empty() ? what : "Hiding the wheel: first time, up to 30 s");
+        });
+        if (result == HideSetup::Running) WE_LOG_INFO(log(), "hide: prepared; Start hides the rig at once");
+        return static_cast<int>(result);
+    };
+#endif
     return wheelbri::service::runApp(settings);
 }
 

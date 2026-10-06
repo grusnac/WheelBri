@@ -60,8 +60,12 @@ public:
     // session then ends). Called on the thread that runs the session.
     virtual bool sessionStarted(const SessionInfo& info) = 0;
 
-    // About 60 times a second, on the same thread. False when the user asked to stop (the window was closed).
+    // About 30 times a second, on the same thread. False when the user asked to stop (the window was closed).
     virtual bool frame(const UiFrame& frame) = 0;
+
+    // While the session starts: what it is doing now when that can take a while ("hiding the wheel for the first
+    // time"); empty when that is over. The app shows it next to Start. Called on the session's thread.
+    virtual void step(const std::string& what) { (void)what; }
 };
 
 }  // namespace wheelbri::service

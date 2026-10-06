@@ -2,6 +2,7 @@
 
 #include "wheelbri/HelperProtocol.hpp"
 
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -45,6 +46,9 @@ private:
     Reply installG920Driver(std::uint32_t seq);
     Reply shareLogFolder(std::uint32_t seq);
     void showRigIfOurs();
+    // Where the driver install scripts write their logs: the caller's logs folder once ShareLogFolder took it, else
+    // ProgramData's (never SYSTEM's own %LOCALAPPDATA%, where nobody would look).
+    [[nodiscard]] std::filesystem::path scriptLogFolder() const;
 
     void* process_;   // HANDLE
     void* token_;     // HANDLE or null
@@ -53,6 +57,7 @@ private:
     Cancelled cancelled_;
     std::unique_ptr<service::VirtualG920> g920_;
     bool hid_ = false;
+    std::filesystem::path logFolder_;   // the caller's, checked by shareLogFolder
 };
 
 }  // namespace wheelbri::helper

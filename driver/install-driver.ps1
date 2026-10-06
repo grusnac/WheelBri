@@ -9,11 +9,14 @@
 # Exit codes: 0 installed (a yellow line says when Windows wants a restart), 1 failed (the red line says why).
 # The app runs it by itself at Start when Windows has no wheelbri-g920 driver (see ensureG920Driver in main.cpp).
 
-param([string]$Configuration = 'Release')
+# -LogFolder <folder>: its log in that folder (the WheelBri Helper, which runs as SYSTEM, gives the user's).
+param([string]$Configuration = 'Release', [string]$LogFolder = '')
 # A 32-bit PowerShell (one started from a 32-bit prompt, e.g. some Developer PowerShell windows) sees SysWOW64,
 # where pnputil and the 64-bit driver tools are missing: run this again in the 64-bit PowerShell.
 if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
-    & (Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Configuration $Configuration
+    $forward = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Configuration', $Configuration)
+    if ($LogFolder) { $forward += @('-LogFolder', $LogFolder) }   # never an empty argument: 5.1 would drop it
+    & (Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe') @forward
     exit $LASTEXITCODE
 }
 $ErrorActionPreference = 'Stop'
@@ -23,7 +26,7 @@ Assert-Admin
 # Everything below also goes to %LOCALAPPDATA%\wheelbri\logs\wheelbri-driver-install-<date>.log: the app runs this
 # without a window when Start finds the driver missing, so that file is where to look when it fails. Not through a link
 # (junction) in the user's folders: then the log goes to %SystemRoot%\Temp instead.
-$logFolder = Join-Path $env:LOCALAPPDATA 'wheelbri\logs'
+$logFolder = if ($LogFolder) { $LogFolder } else { Join-Path $env:LOCALAPPDATA 'wheelbri\logs' }
 $logName = "wheelbri-driver-install-$(Get-Date -Format yyyy-MM-dd).log"
 $transcript = $false
 try {

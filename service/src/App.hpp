@@ -14,8 +14,8 @@ namespace wheelbri::service {
 // `configPath`: the config it runs with (the start of a new wheel profile in its Wheel setup tab).
 [[nodiscard]] std::unique_ptr<UiHost> makeSessionWindow(std::string configPath);
 
-// The app (wheelbri.exe, or wheelbri-service --app): one window: the state of the service, Start and Stop on the
-// Mapping tab only, the live view while it runs. Start runs a session on a
+// The app (wheelbri.exe, or wheelbri-service --app): one window: the state of the service, Start and Stop on every
+// tab, the live view while it runs. Start runs a session on a
 // thread of its own; Stop, or closing the window, ends it cleanly.
 struct AppSettings {
     std::filesystem::path builtInConfigFolder;   // the configs that come with the program (config/)
@@ -33,6 +33,11 @@ struct AppSettings {
     std::function<void()> requestStop;
     // Clears that request before the next Start.
     std::function<void()> clearStop;
+    // While stopped, with the target virtual device and every rig device connected: puts the hide filter on the rig's
+    // devices that do not run it yet (what the first Start would otherwise do, ~25 s after a fresh install), saying
+    // what it does through `say` when there is something to do. Returns privileged::HideSetup as an int. Blocking;
+    // called on a thread of the app's own. Empty: not offered (Linux).
+    std::function<int(const std::function<void(const std::string&)>& say)> prepareHide;
 };
 
 // Runs the app until its window is closed (and the session, if one runs, has stopped). Returns 0, or 1 if the

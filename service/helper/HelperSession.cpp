@@ -152,7 +152,8 @@ Reply HelperSession::putHideFilter(const Request& request) {
     }
     std::string message;
     // The script skips the interfaces that have the filter already; then all of them are waited for.
-    switch (service::privileged::putHideFilter(request.devices, request.devices, scriptLevels_, cancelled_, message)) {
+    switch (service::privileged::putHideFilter(request.devices, request.devices, scriptLevels_, scriptLogFolder(),
+                                               cancelled_, message)) {
         case service::privileged::HideSetup::Running:
         case service::privileged::HideSetup::NothingToDo: return Reply{request.seq, Status::Ok, {}};
         case service::privileged::HideSetup::Waiting: return Reply{request.seq, Status::Pending, message};
@@ -163,7 +164,7 @@ Reply HelperSession::putHideFilter(const Request& request) {
 
 Reply HelperSession::installG920Driver(const std::uint32_t seq) {
     std::string message;
-    return service::privileged::installG920Driver(scriptLevels_, cancelled_, message)
+    return service::privileged::installG920Driver(scriptLevels_, scriptLogFolder(), cancelled_, message)
                ? Reply{seq, Status::Ok, {}}
                : Reply{seq, Status::Failed, message};
 }
@@ -239,7 +240,17 @@ Reply HelperSession::shareLogFolder(const std::uint32_t seq) {
                                               std::to_string(written) + ")"};
     }
     WE_LOG_INFO(log(), "helper: the drivers write their logs into {} (pid {})", utf8(opened), pid_);
+    logFolder_ = std::filesystem::path(opened);
     return Reply{seq, Status::Ok, utf8(opened)};
+}
+
+std::filesystem::path HelperSession::scriptLogFolder() const {
+    if (!logFolder_.empty()) return logFolder_;
+    wchar_t programData[MAX_PATH] = {};
+    const DWORD length = GetEnvironmentVariableW(L"ProgramData", programData, MAX_PATH);
+    const std::filesystem::path base =
+        length > 0 && length < MAX_PATH ? std::filesystem::path(programData) : std::filesystem::path(L"C:\\ProgramData");
+    return base / "wheelbri" / "logs";
 }
 
 }  // namespace wheelbri::helper

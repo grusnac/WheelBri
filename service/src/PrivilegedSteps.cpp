@@ -36,13 +36,13 @@ public:
     [[nodiscard]] const char* how() const override { return "as Administrator"; }
 
     bool installG920Driver(const Cancelled& cancelled, std::string& message) override {
-        return privileged::installG920Driver(kDriverScriptLevels, cancelled, message);
+        return privileged::installG920Driver(kDriverScriptLevels, {}, cancelled, message);   // the user's own logs
     }
 
     privileged::HideSetup putHideFilter(const std::vector<std::string>& install,
                                         const std::vector<std::string>& interfaces, const Cancelled& cancelled,
                                         std::string& message) override {
-        return privileged::putHideFilter(install, interfaces, kDriverScriptLevels, cancelled, message);
+        return privileged::putHideFilter(install, interfaces, kDriverScriptLevels, {}, cancelled, message);
     }
 
     bool createVirtualG920(const Cancelled& cancelled, std::string& instanceId, std::string& error) override {

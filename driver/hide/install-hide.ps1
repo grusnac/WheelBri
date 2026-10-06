@@ -17,6 +17,8 @@
 #                                                        interfaces (all of them: a device may have several)
 #   install-hide.ps1 -Devices "HID\VID_346E&PID_0005&MI_02\8&8052F69&0&0000"   ...on exactly that interface
 #   install-hide.ps1 -Devices 346e:0004 -Configuration Debug
+#   install-hide.ps1 -Devices ... -LogFolder <folder>    its log in that folder (the WheelBri Helper, which runs as
+#                                                        SYSTEM, gives the user's: %LOCALAPPDATA% would be SYSTEM's)
 #
 # Exit codes (wheelbri-service runs this at Start when a rig device has no filter, and logs the code):
 #   0 done: the filter runs on every given device that is plugged in (unplugged ones are listed; they get it at a
@@ -27,13 +29,15 @@
 
 param(
     [string]$Configuration = 'Release',
-    [string[]]$Devices = @()
+    [string[]]$Devices = @(),
+    [string]$LogFolder = ''
 )
 # A 32-bit PowerShell (one started from a 32-bit prompt, e.g. some Developer PowerShell windows) sees SysWOW64,
 # where pnputil and the 64-bit driver tools are missing: run this again in the 64-bit PowerShell.
 if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
     $forward = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Configuration', $Configuration)
     if ($Devices.Count -gt 0) { $forward += @('-Devices', ($Devices -join ',')) }
+    if ($LogFolder) { $forward += @('-LogFolder', $LogFolder) }
     & (Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe') @forward
     exit $LASTEXITCODE
 }
@@ -47,7 +51,7 @@ Assert-Admin
 # drivers run as LocalService, so it may write there, and HKLM\SOFTWARE\wheelbri LogFolder tells them where (the
 # app does the same at every start, see ServiceLogging.hpp shareLogFolder).
 # All of it inside the try: a failure there still ends in the finally below (and the red line says why).
-$logFolder = Join-Path $env:LOCALAPPDATA 'wheelbri\logs'
+$logFolder = if ($LogFolder) { $LogFolder } else { Join-Path $env:LOCALAPPDATA 'wheelbri\logs' }
 $exitCode = 1
 $transcript = $false
 $script:needsWindowsRestart = $false   # pnputil said a device waits for a restart of Windows

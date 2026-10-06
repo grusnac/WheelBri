@@ -64,10 +64,12 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** with the real wheel visible too, a game (NFS) may pick it instead of the G920.
 - **Use:** automatic with the virtual G920: every device of the active rig is hidden while a session runs, and only
-  WheelBri may open it. The first Start puts the `wheelbri-hide` filter on each device (it restarts once; sometimes
-  Windows wants a restart). `--no-hide` skips it, `--unhide` clears a hide after a crash (a crash never leaves one).
+  WheelBri may open it. The `wheelbri-hide` filter goes on each device once (it restarts once; sometimes Windows wants
+  a restart): while the app is stopped, as soon as the rig is switched on ("Hiding the wheel: first time, up to 30 s"
+  next to Start, which waits), else at Start. `--no-hide` skips it, `--unhide` clears a hide after a crash (a crash never leaves one).
 - **Look:** the state next to Start ("rig hidden (N of M devices)" or, in red, "NOT HIDDEN"); `wheelbri-hide-<date>.log`,
-  `wheelbri-hide-install-<date>.log`. Code: `driver/hide/`, `service/src/HideFilter.cpp`, `ensureHideFilter` in
+  `wheelbri-hide-install-<date>.log` (also when the WheelBri Helper runs it); the hide log names each program that
+  opens the wheel or is refused ("refused process 8964 (steam.exe)"). Code: `driver/hide/`, `service/src/HideFilter.cpp`, `ensureHideFilter` in
   `main.cpp`.
 
 ### In-game shim and its games list
@@ -118,7 +120,8 @@ a headline, why it was needed, how to use it, and where to look.
 
 ### Logs tab and one logs folder
 
-- **Why:** one place to see why something failed: the app's, the shim's and both drivers' logs together.
+- **Why:** one place to see why something failed: the app's, the shim's, both drivers' and the WheelBri Helper's logs
+  together.
 - **Use:** tab L (or O for the folder): one line per component, then their lines merged live (scroll, Wrap). Files
   are daily and old ones go after 2 days (`--old-files`).
 - **Look:** `%LOCALAPPDATA%\wheelbri\logs`. Code: core `LiveLog`, `Retention`, `service/src/MappingView.cpp`.

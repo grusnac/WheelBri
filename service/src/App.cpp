@@ -212,8 +212,19 @@ public:
     bool sessionStarted(const SessionInfo& info) override {
         const std::lock_guard lock(mutex_);
         info_ = info;
+        step_.clear();
         ++generation_;
         return true;
+    }
+
+    void step(const std::string& what) override {
+        const std::lock_guard lock(mutex_);
+        step_ = what;
+    }
+
+    [[nodiscard]] std::string currentStep() {
+        const std::lock_guard lock(mutex_);
+        return step_;
     }
 
     bool frame(const UiFrame& frame) override {
@@ -229,6 +240,7 @@ public:
         const std::lock_guard lock(mutex_);
         info_.reset();
         frame_.reset();
+        step_.clear();
     }
 
     // The session's info when it changed since `seen` (a new session started).
@@ -254,6 +266,7 @@ private:
     std::optional<SessionInfo> info_;
     std::uint64_t generation_ = 0;
     std::unique_ptr<UiFrame> frame_;
+    std::string step_;
 };
 
 struct Button {
@@ -295,8 +308,15 @@ class App {
 public:
     explicit App(const AppSettings& settings) : settings_(settings) {}
 
-    // Never leave a session running (or its thread joinable, which would std::terminate) behind the app.
-    ~App() { stopAndWaitForEver(); }
+    // Never leave a session running (or its thread joinable, which would std::terminate) behind the app, nor the hide
+    // preparation (a driver installer must not be cut off: it may be switching a device's driver).
+    ~App() {
+        stopAndWaitForEver();
+        if (prepareThread_.joinable()) {
+            if (preparing_) WE_LOG_INFO(log(), "hide: waiting for the hide filter's installer to finish first");
+            prepareThread_.join();
+        }
+    }
 
     // As stopAndWait, but for as long as it takes (logging every 30 s): a session thread still running when the App
     // goes would end the process with std::terminate, before the session gave the wheel back and removed the devices.
@@ -513,6 +533,10 @@ private:
     // The tab reads the running session's wheel, or (stopped) the wheel picked in it; nothing while starting or
     // stopping, when the session may be opening or closing the wheel.
     void updateSetup() {
+        if (preparing_) {
+            setup_->releaseWheel();   // nothing of ours may hold the wheel while Windows restarts it with the filter
+            return;
+        }
         if (!showingSetup()) {
             if (state_ == State::Stopped) setup_->releaseWheel();   // not kept open while nobody looks
             return;
@@ -570,7 +594,7 @@ private:
     // Every device of the rig the mapping uses is connected (or game controllers cannot be listed here at all: then
     // Start tries and says what is wrong).
     [[nodiscard]] bool rigReady() const {
-        return needsKnown_ && needsProblem_.empty() && missing_.empty() && !helperMissing_;
+        return needsKnown_ && needsProblem_.empty() && missing_.empty() && !helperMissing_ && !preparing_;
     }
 
     // What Start needs (StartNeeds.hpp): the config Start would use, as saved, and the active rig, checked against
@@ -632,6 +656,48 @@ private:
                             needsProblem_.empty() && !helperMissing_ ? " (switch it on or plug it in)" : "");
             }
         }
+        startPreparingHide();
+    }
+
+    // As soon as the rig is connected (target virtual device, stopped): the hide filter on its devices in the
+    // background, so Start does not have to (after a fresh install with the wheel off, Start spent ~23 s on it and
+    // looked stuck, 2026-10-06). Once per connection: again after a device was gone. Start waits while it runs.
+    void startPreparingHide() {
+        if (!missing_.empty() || !needsKnown_) preparedThisConnection_ = false;
+        if (prepareThread_.joinable() && !preparing_) prepareThread_.join();
+        if (!settings_.prepareHide || preparing_ || preparedThisConnection_ || state_ != State::Stopped ||
+            shimTarget() || !needsKnown_ || !needsProblem_.empty() || !missing_.empty() || helperMissing_) {
+            return;
+        }
+        preparedThisConnection_ = true;
+        preparing_ = true;
+        setup_->releaseWheel();
+        prepareThread_ = std::thread([this] {
+            int result = 1;
+            try {
+                result = settings_.prepareHide([this](const std::string& what) {
+                    const std::lock_guard lock(prepareMutex_);
+                    prepareStep_ = what;
+                });
+            } catch (const std::exception& e) {
+                WE_LOG_ERROR(log(), "hide: preparing failed: {}", e.what());
+            } catch (...) {
+                WE_LOG_ERROR(log(), "hide: preparing failed");
+            }
+            if (result == 1 || result == 2) {
+                WE_LOG_WARN(log(), "hide: the rig could not be prepared in advance; Start tries again");
+            }
+            {
+                const std::lock_guard lock(prepareMutex_);
+                prepareStep_.clear();
+            }
+            preparing_ = false;
+        });
+    }
+
+    [[nodiscard]] std::string prepareStep() {
+        const std::lock_guard lock(prepareMutex_);
+        return prepareStep_;
     }
     Button stopButton() const {
         return {kStopX, kButtonsY, kButtonWidth, MappingView::kTabHeight, "Stop",
@@ -795,6 +861,10 @@ private:
                 } else if (!needsKnown_) {
                     status = "Looking for the rig...";
                     colour = kDim;
+                } else if (preparing_) {
+                    const std::string step = prepareStep();
+                    status = step.empty() ? std::string("Checking the hiding...") : step;
+                    colour = kCaution;
                 } else if (lastResult_ && *lastResult_ != 0) {
                     status = "Start failed (Logs)";   // the Logs tab says why, in red
                     colour = kWarning;
@@ -803,10 +873,13 @@ private:
                     colour = kActive;
                 }
                 break;
-            case State::Starting:
-                status = "Starting " + clock((now - startedAt_) / platform::kNsPerSecond);
+            case State::Starting: {
+                const std::string step = host_.currentStep();
+                status = "Starting " + clock((now - startedAt_) / platform::kNsPerSecond) +
+                         (step.empty() ? std::string() : ": " + step);
                 colour = kCaution;
                 break;
+            }
             case State::Running:
                 status = "Running " + clock((now - runningSince_) / platform::kNsPerSecond);
                 colour = kActive;
@@ -965,6 +1038,12 @@ private:
     std::uint64_t needsGeneration_ = 0;
     std::uint64_t needsCheckedMs_ = 0;
     std::string needsLogged_;
+    // The hide filter put on the rig while stopped (startPreparingHide).
+    std::thread prepareThread_;
+    std::atomic<bool> preparing_{false};
+    bool preparedThisConnection_ = false;
+    std::mutex prepareMutex_;
+    std::string prepareStep_;
 };
 
 }  // namespace

@@ -130,7 +130,21 @@ std::optional<int> runDriverScript(const std::filesystem::path& script, const st
     return exit;
 }
 
-bool installG920Driver(const int levelsAbove, const Cancelled& cancelled, std::string& message) {
+namespace {
+
+// The script's arguments, with -LogFolder when one is given (never an empty argument).
+std::vector<std::string> withLogFolder(std::vector<std::string> arguments, const std::filesystem::path& logFolder) {
+    if (!logFolder.empty()) {
+        arguments.push_back("-LogFolder");
+        arguments.push_back(pathToUtf8(logFolder));   // UTF-8, as ChildProcess expects (a user name may not be ASCII)
+    }
+    return arguments;
+}
+
+}  // namespace
+
+bool installG920Driver(const int levelsAbove, const std::filesystem::path& logFolder, const Cancelled& cancelled,
+                       std::string& message) {
     if (VirtualG920::driverState() != VirtualG920::DriverState::Missing) return true;
     const std::filesystem::path script = findDriverScript(
         std::filesystem::path("driver") / "install-driver.ps1",
@@ -145,7 +159,8 @@ bool installG920Driver(const int levelsAbove, const Cancelled& cancelled, std::s
                 script.string());
     bool started = false;
     std::string error;
-    const std::optional<int> exit = runDriverScript(script, {"-Configuration", "Release"}, "g920", cancelled, started, error);
+    const std::optional<int> exit = runDriverScript(script, withLogFolder({"-Configuration", "Release"}, logFolder), "g920",
+                                                    cancelled, started, error);
     if (!started) {
         message = "cannot run the driver installer: " + error;
         WE_LOG_ERROR(g920Log(), "g920: {}", message);
@@ -175,7 +190,8 @@ bool installG920Driver(const int levelsAbove, const Cancelled& cancelled, std::s
 }
 
 HideSetup putHideFilter(const std::vector<std::string>& install, const std::vector<std::string>& interfaces,
-                        const int levelsAbove, const Cancelled& cancelled, std::string& message) {
+                        const int levelsAbove, const std::filesystem::path& logFolder, const Cancelled& cancelled,
+                        std::string& message) {
     if (interfaces.empty()) return HideSetup::NothingToDo;
     if (!install.empty()) {
         const std::string devices = joined(install);
@@ -194,8 +210,9 @@ HideSetup putHideFilter(const std::vector<std::string>& install, const std::vect
                     devices, script.string());
         bool started = false;
         std::string error;
-        const std::optional<int> exit = runDriverScript(script, {"-Configuration", "Release", "-Devices", devices},
-                                                        "hide", cancelled, started, error);
+        const std::optional<int> exit =
+            runDriverScript(script, withLogFolder({"-Configuration", "Release", "-Devices", devices}, logFolder), "hide",
+                            cancelled, started, error);
         if (!started) {
             message = "cannot run the installer: " + error;
             WE_LOG_ERROR(hideLog(), "hide: {}", message);
@@ -298,13 +315,13 @@ std::optional<int> runDriverScript(const std::filesystem::path&, const std::vect
     return std::nullopt;
 }
 
-bool installG920Driver(int, const Cancelled&, std::string& message) {
+bool installG920Driver(int, const std::filesystem::path&, const Cancelled&, std::string& message) {
     message = "the virtual G920's driver is for Windows only";
     return false;
 }
 
 HideSetup putHideFilter(const std::vector<std::string>&, const std::vector<std::string>& interfaces, int,
-                        const Cancelled&, std::string& message) {
+                        const std::filesystem::path&, const Cancelled&, std::string& message) {
     if (interfaces.empty()) return HideSetup::NothingToDo;
     message = "the hide filter is for Windows only (" + joined(interfaces) + ")";
     return HideSetup::Failed;

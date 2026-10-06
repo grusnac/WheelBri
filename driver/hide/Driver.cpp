@@ -298,21 +298,72 @@ ULONG allowedPid() {
     return value;
 }
 
-// One log line per refused program (a game retries often), until the hiding changes.
+// A process's program name ("steam.exe"), without opening it: this host runs as LocalService, which may not open
+// the user's processes, but NtQuerySystemInformation(SystemProcessIdInformation) names any (as Task Manager does).
+// Empty when Windows will not say. Only for the log: which programs open the wheel (2026-10-06: putting the filter on
+// waited 8.5 s for a device something held open, and only process numbers were logged).
+std::string processName(const ULONG pid) {
+    using Query = LONG(NTAPI*)(ULONG, PVOID, ULONG, PULONG);
+    static const Query query = [] {
+        const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        return ntdll == nullptr ? nullptr
+                                : reinterpret_cast<Query>(
+                                      reinterpret_cast<void*>(GetProcAddress(ntdll, "NtQuerySystemInformation")));
+    }();
+    if (query == nullptr) return {};
+    struct CountedString {
+        USHORT length;
+        USHORT maximumLength;
+        PWSTR buffer;
+    };
+    struct ProcessIdInformation {
+        HANDLE processId;
+        CountedString imageName;
+    };
+    constexpr ULONG kSystemProcessIdInformation = 88;
+    std::wstring path(1024, L'\0');
+    ProcessIdInformation info{reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(pid)),
+                              {0, static_cast<USHORT>(path.size() * sizeof(wchar_t)), path.data()}};
+    if (query(kSystemProcessIdInformation, &info, sizeof(info), nullptr) < 0) return {};
+    path.resize(info.imageName.length / sizeof(wchar_t));
+    const std::size_t slash = path.find_last_of(L'\\');
+    const std::wstring name = slash == std::wstring::npos ? path : path.substr(slash + 1);
+    if (name.empty()) return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, name.data(), static_cast<int>(name.size()), nullptr, 0, nullptr,
+                                         nullptr);
+    std::string text(static_cast<std::size_t>(size > 0 ? size : 0), '\0');
+    if (size > 0) {
+        WideCharToMultiByte(CP_UTF8, 0, name.data(), static_cast<int>(name.size()), text.data(), size, nullptr, nullptr);
+    }
+    return text;
+}
+
+// "process 8964 (steam.exe)", or the number alone.
+std::string describeProcess(const ULONG pid) {
+    const std::string name = processName(pid);
+    return "process " + std::to_string(pid) + (name.empty() ? std::string() : " (" + name + ")");
+}
+
+// One log line per program that opens the wheel or is refused (a game retries often), until the hiding changes.
 std::mutex g_seenLock;
-std::unordered_map<ULONG, bool> g_refused;
+std::unordered_map<ULONG, bool> g_seen;
 ULONG g_lastAllowed = ~0UL;
 
 void noteDecision(const ULONG pid, const ULONG allowed, const bool refused) {
     std::lock_guard lock(g_seenLock);
     if (allowed != g_lastAllowed) {
         g_lastAllowed = allowed;
-        g_refused.clear();
+        g_seen.clear();
         logLine(allowed == 0 ? "not hidden: every program may open the wheel"
-                             : "hidden: only process " + std::to_string(allowed) + " may open the wheel");
+                             : "hidden: only " + describeProcess(allowed) + " may open the wheel");
     }
-    if (refused && g_refused.emplace(pid, true).second) {
-        logLine("refused process " + std::to_string(pid) + " (the wheel is hidden from it)");
+    if (!g_seen.emplace(pid, true).second) return;
+    if (refused) {
+        logLine("refused " + describeProcess(pid) + " (the wheel is hidden from it)");
+    } else if (pid != allowed) {
+        // Who has the wheel open while it is not hidden: such a program keeps Windows from restarting the device when
+        // the filter is put on, and makes the first Start slow.
+        logLine("opened by " + describeProcess(pid));
     }
 }
 

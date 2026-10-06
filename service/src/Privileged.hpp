@@ -37,16 +37,22 @@ enum class HideSetup {
                                                  const std::vector<std::string>& arguments, const char* tag,
                                                  const Cancelled& cancelled, bool& started, std::string& error);
 
+// `logFolder` below: where the install scripts write their logs (-LogFolder). Empty: the script's own
+// %LOCALAPPDATA%\wheelbri\logs, right when the app runs them as the user's Administrator; the WheelBri Helper runs as
+// SYSTEM, whose %LOCALAPPDATA% nobody looks at, and gives the caller's folder (or ProgramData's).
+
 // The virtual G920's driver (wheelbri-g920) installed when Windows has none (driver\install-driver.ps1). True when
 // it is there afterwards (or was already); else `message` says why not.
-bool installG920Driver(int levelsAbove, const Cancelled& cancelled, std::string& message);
+bool installG920Driver(int levelsAbove, const std::filesystem::path& logFolder, const Cancelled& cancelled,
+                       std::string& message);
 
 // wheelbri-hide put on `install` (HID interface instance ids; install-hide.ps1 -Devices, which skips those that have
 // it already), then waits, opening nothing, until every one of `interfaces` runs it (HideFilter::waitUntilStarted:
 // Windows restarts each device, or this does after a few seconds). `message`: what to tell the user when it is not
 // Running.
 [[nodiscard]] HideSetup putHideFilter(const std::vector<std::string>& install, const std::vector<std::string>& interfaces,
-                                      int levelsAbove, const Cancelled& cancelled, std::string& message);
+                                      int levelsAbove, const std::filesystem::path& logFolder,
+                                      const Cancelled& cancelled, std::string& message);
 
 // HKLM\SOFTWARE\wheelbri\hide: AllowedPid (+ AllowedPidStart, the process's creation time, so a reused id is not
 // let in). `processStart` 0 with `pid` 0 (everyone again).
