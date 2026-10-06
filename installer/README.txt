@@ -10,7 +10,8 @@ Needs
 -----
 - Windows 11, 64-bit (build 22000 or later). Nothing else has to be installed first: the programs carry their own
   runtime, and the drivers use what Windows already has (UMDF 2).
-- An account that can approve an Administrator prompt (the drivers are installed system-wide).
+- An account that can approve an Administrator prompt, once, to install (the drivers and the WheelBri Helper are
+  installed system-wide). Playing needs no Administrator: any user of the PC can run WheelBri.
 - Your wheel and accessories, connected by USB. They can also be connected after installing.
 
 Install
@@ -32,12 +33,14 @@ What it installs:
 - two drivers: the virtual G920 (wheelbri-g920) and the filter that hides the real wheel (wheelbri-hide).
   The drivers are signed with WheelBri's own certificate, not by Microsoft, so
   the installer adds that certificate to this PC's trusted certificates. Secure Boot and test mode are not changed;
+- the WheelBri Helper, a Windows service that starts with Windows: it creates the virtual G920 and hides your rig
+  for the app, so the app runs as an ordinary user (Services: "WheelBri Helper");
 - a Start menu folder "WheelBri" (the app, and "Uninstall WheelBri"), a desktop shortcut and an entry in
   Settings > Apps.
 
 Play
 ----
-1. Start "WheelBri" from the Start menu (it asks for Administrator) and press Start. From then on games see the
+1. Start "WheelBri" from the Start menu and press Start (no Administrator prompt). From then on games see the
    virtual G920, and not your real wheel: WheelBri hides it every time it starts.
 2. Start the game and pick the Logitech G920 in its controller settings.
 3. Press Stop, or close the window, when done: the virtual devices go away and your rig is ordinary again.
@@ -64,8 +67,8 @@ Any of these (they all run the same uninstaller and ask for Administrator):
 - Settings > Apps > Installed apps > WheelBri > Uninstall;
 - Uninstall.cmd in C:\Program Files\WheelBri.
 It asks to confirm, whether to keep your settings (copied to %LOCALAPPDATA%\wheelbri\config-backup) and whether to
-remove the drivers' certificate, then closes a running WheelBri and removes the drivers, the virtual G920 devices,
-shortcuts, the Settings > Apps entry, WheelBri's registry entries and the program folder. Logs stay in %LOCALAPPDATA%\wheelbri\logs.
+remove the drivers' certificate, then closes a running WheelBri and removes the WheelBri Helper service, the drivers,
+the virtual G920 devices, shortcuts, the Settings > Apps entry, WheelBri's registry entries and the program folder. Logs stay in %LOCALAPPDATA%\wheelbri\logs.
 
 If the program folder was deleted by hand or is damaged, Uninstall.cmd in the unpacked package (from the
 WheelBri-<version>.zip next to Setup.exe) removes what is left: drivers, certificate, shortcuts and the
@@ -74,7 +77,7 @@ Options (after Uninstall.cmd or uninstall.ps1): -KeepConfig, -RemoveCertificate,
 -InstallDir D:\WheelBri.
 
 A folder outside Program Files (-InstallDir D:\WheelBri) gets Program Files' permissions at install: only
-Administrators may change it, users read and run it (WheelBri runs as Administrator from there).
+Administrators may change it, users read and run it (the WheelBri Helper runs as SYSTEM from there).
 
 When something does not work
 ----------------------------
@@ -82,8 +85,10 @@ When something does not work
   wheelbri-hide-install-<date>.log for hiding the rig. In the app, the Logs tab (press O) opens it.
 - The game shows no wheel: check that the app says "running", then joy.cpl (Win+R, joy.cpl) should list the
   G920.
-- After a crash the rig is not hidden any more on its own; "wheelbri-service.exe --unhide" (as Administrator)
-  clears the setting by hand.
+- The window says HELPER NOT INSTALLED: the WheelBri Helper service is not running. Start it (Win+R, services.msc,
+  "WheelBri Helper", Start) or run Setup.exe again.
+- After a crash the rig is not hidden any more on its own (the WheelBri Helper shows it again when the app goes);
+  "wheelbri-service.exe --unhide" (as Administrator) clears the setting by hand.
 
 Extras
 ------

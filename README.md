@@ -54,7 +54,8 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** every game should see a G920 without anything copied into it, on any wheel; third-party virtual-device
   tools (HIDMaestro, ViGEm) are not allowed.
-- **Use:** target **G920 virtual device** on the Mapping tab, then Start (Administrator). Start installs the
+- **Use:** target **G920 virtual device** on the Mapping tab, then Start (no Administrator: the WheelBri Helper does
+  it). Start installs the
   `wheelbri-g920` driver itself when Windows lacks it; Stop or closing the window removes the device.
 - **Look:** joy.cpl lists "Logitech G920 Driving Force Racing Wheel USB"; `wheelbri-driver-<date>.log`, the service's
   `service.g920` lines. Code: `driver/Driver.cpp`, `service/src/VirtualG920.cpp`, core `HidG920`, `HidPid`.
@@ -121,6 +122,18 @@ a headline, why it was needed, how to use it, and where to look.
 - **Use:** tab L (or O for the folder): one line per component, then their lines merged live (scroll, Wrap). Files
   are daily and old ones go after 2 days (`--old-files`).
 - **Look:** `%LOCALAPPDATA%\wheelbri\logs`. Code: core `LiveLog`, `Retention`, `service/src/MappingView.cpp`.
+
+### Running as a standard user (WheelBri Helper)
+
+- **Why:** end users are standard users, and the app should not ask for Administrator every time it opens.
+- **Use:** nothing to set: the installer adds the **WheelBri Helper** service (`WheelBriHelper`, starts with Windows);
+  `wheelbri.exe` runs as you and asks it for the virtual G920, hiding the rig, installing a missing G920 driver and
+  letting the drivers write into your logs folder. Started as Administrator (a development build), the app does those
+  itself. Without either, the status next to Start says **HELPER NOT INSTALLED** in red (virtual device target only).
+- **Look:** `wheelbri-helper-<date>.log` in the logs folder; the app's log says `through the WheelBri Helper` or
+  `as Administrator`; `services.msc` > WheelBri Helper; `wheelbri-helper.exe --hello`. Code: `service/helper/`
+  (pipe server, sessions, log), `service/src/PrivilegedSteps.cpp` (the app's side), `service/src/Privileged.cpp`
+  (the steps), `core/include/wheelbri/HelperProtocol.hpp` (the requests and their rules).
 
 ### App icon
 
@@ -215,16 +228,17 @@ limited only by Pit House), `off` disables force feedback. If forces pull the wr
 
 `scripts/make/package.sh` builds everything in Release and makes `dist/windows/WheelBri-<version>-setup.exe` (plus
 the same files as a folder and a zip). On a Windows 11 PC with nothing of it, run the setup and approve the
-Administrator prompt; at the end it asks whether to restart Windows now (default yes), which makes sure every driver
+Administrator prompt (the only one: the app itself runs as the user); at the end it asks whether to restart Windows now (default yes), which makes sure every driver
 is in use (the hiding filter often starts only after a restart). It installs **WheelBri** to `C:\Program Files\WheelBri`, the three
-drivers (trusting the drivers' certificate on that PC), a Start menu folder (the app and "Uninstall WheelBri") and a
+drivers (trusting the drivers' certificate on that PC), a Start menu folder (the app and "Uninstall WheelBri"), the WheelBri Helper service and a
 Settings > Apps entry that uninstalls it all. The app hides the rig (every device in the Rig tab) from games on every Start. The
 log is `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log` (every log, the drivers' too, is in that one folder); `installer/README.txt` is the end user's guide.
 
 ## The app
 
 `wheelbri.exe` (built next to `wheelbri-service.exe` in `build/service/`) is the everyday way to run it:
-double-click it, let Windows start it as Administrator, press **Start**, then start the game. **Start** and **Stop**
+double-click it (it runs as you; the WheelBri Helper service does what needs Administrator), press **Start**, then
+start the game. **Start** and **Stop**
 are only on the Mapping tab (top right, stopped or running), with the state next to them
 (ready, running and for how long, a lost wheel, a game not using it); after "Start failed (Logs)" the Logs tab says
 why, in red. While stopped, Start can only be pressed when every device of the rig that the mapping uses (the wheel,
@@ -287,15 +301,15 @@ WheelBri's (another mod) is never overwritten or deleted. The list is `%LOCALAPP
 | Game-use watch ("GAME NOT USING THE WHEEL") | yes | yes |
 | Live view: Mapping / Rig / Logs tabs, Start / Stop | yes | yes |
 | Stale hide check: clears a hide left by a crashed session, warns if another one hides the rig | yes | yes |
-| Administrator check | yes | - |
+| Administrator or the WheelBri Helper (`PrivilegedSteps`): needed for the rows below | yes | - |
 | G920 driver check: installs `wheelbri-g920` (`driver\install-driver.ps1`) when Windows does not have it | yes | - |
 | Virtual G920 device (`wheelbri-g920` driver) and its DirectInput registry entries | yes | - |
 | Hide filter (`wheelbri-hide`): rig hidden from games | yes | - (the game must see the rig) |
 | Test clutch listener, UDP 41331 (developer tool) | yes | - |
 | Logs tab rows for the G920 driver and the hide filter | yes | - (emulator and game shim only) |
 
-`wheelbri.exe` still asks for Administrator when it opens, whichever target is picked: its manifest applies before the
-app knows the target, and the virtual device needs it.
+`wheelbri.exe` runs as the user who starts it (`asInvoker`). With the virtual device, the privileged rows go through
+the WheelBri Helper service, or are done in the app when it was started as Administrator.
 
 The **Rig** tab (R) defines your **rig**: the devices you have (wheel, pedals, shifter, handbrake, button box) and
 what each control is. Every connected device is read at once. With **Detect** on (the default), press a button or move
@@ -444,9 +458,23 @@ If it fails (or none is found) the originals are kept, the error is logged and s
 ## Security notes
 
 Everything WheelBri saves (configs, rigs, device names, the app's state, the games list, logs, telemetry) is per user,
-in `%LOCALAPPDATA%\wheelbri`, also when it runs as Administrator. Only the drivers, the virtual devices and their
-registry entries are system-wide. While it runs as Administrator, those user files (which any program of the user can
-change) never decide where the Administrator writes or what it runs:
+in `%LOCALAPPDATA%\wheelbri`, also when it runs as Administrator; the WheelBri Helper's log too (written as the
+connected user).
+The app normally runs as the user; what needs Administrator is done by the **WheelBri Helper** service (SYSTEM), which:
+
+- creates its pipe first (nobody can pose as it), lets in local interactive users only, and serves only
+  `wheelbri.exe` / `wheelbri-service.exe` from its own folder (Program Files), checked through the caller's process
+  handle; the app in turn only trusts `wheelbri-helper.exe` next to it at the other end;
+- takes a fixed list of requests, each checked (`HelperProtocol.hpp`): no paths, files or commands from the app;
+  hiding names the caller's own process; the hide filter goes only on present HID game controllers (never a keyboard,
+  mouse, system or consumer control, digitizer or the virtual G920); driver scripts come from its own folder;
+- opens the user's logs folder as that user, refuses it when a link leads there, and changes its permission through
+  that handle;
+- undoes what a connection set up when it closes (Stop, a crash, logoff): the virtual G920 removed, the rig shown.
+
+Only the drivers, the virtual devices, the helper service and their registry entries are system-wide. When the app
+itself runs as Administrator (a development build), the user's files (which any program of the user can change) never
+decide where the Administrator writes or what it runs:
 
 - A config's `[logging] file` and `[telemetry] directory` must then be inside `%LOCALAPPDATA%\wheelbri`; anything else
   is ignored (the default is used) and the log says so.
@@ -459,7 +487,7 @@ change) never decide where the Administrator writes or what it runs:
   game whose folder holds WheelBri's shim; the shim takes the wheel's state (41329) only from WheelBri. Other senders
   are ignored and named in the log. Every force still goes through the safety limiter. On Linux there is no such
   check. Not covered: the virtual G920's driver takes the wheel's state from any local sender (it runs as
-  LocalService and cannot look into the elevated app), and the test clutch port (41331) has no check.
+  LocalService and cannot look into the app's process), and the test clutch port (41331) has no check.
 - The driver signing certificate is made on the build PC (`driver\new-signing-cert.ps1`); the uninstaller removes only
   the certificates WheelBri recorded (`HKLM\SOFTWARE\wheelbri\SigningCertificates`).
 

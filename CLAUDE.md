@@ -308,8 +308,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     (regular files only), `writeFileReplacing` (writes `<file>.tmp`, then renames it over: never half a file, never a
     file in place of a folder), `forEachEntry` (a folder listing that never throws), `truncateUtf8`. Use them for the
     user's files rather than raw streams.
-  - `HelperProtocol.hpp` (namespace `wheelbri::helper`): the app <-> WheelBri Helper pipe messages (the planned
-    helper service that lets the app run as a standard user, `docs/future-functionalities.md`): a fixed list of
+  - `HelperProtocol.hpp` (namespace `wheelbri::helper`): the app <-> WheelBri Helper pipe messages (the helper
+    service that lets the app run as a standard user): a fixed list of
     requests, their encoding and the rules each is checked against (`requestProblem`, `hideDeviceProblem`,
     `isInstalledApp`). Every new request goes there, with its checks and `HelperProtocolTest`.
   - `SenderGate.hpp`: who may send to the UDP ports. The receiver looks up the process that owns the sender's port
@@ -411,7 +411,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     Driver threads close their sockets only after joining, and repeating socket errors are logged once a minute.
 - `service/helper/` (`wheelbri-helper.exe`, Windows only, namespace `wheelbri::helper`): the WheelBri Helper, a
   Windows service (`WheelBriHelper`, SYSTEM) that will do the steps needing Administrator for the app so the app
-  runs as a standard user (plan and progress: `docs/future-functionalities.md`). `HelperServer`: the pipe
+  runs as a standard user (README: "Running as a standard user"). `HelperServer`: the pipe
   `\\.\pipe\wheelbri-helper` (DACL: SYSTEM, Administrators, interactive users without creating instances; first
   instance only, no remote clients), up to 4 connections each on a thread; a caller is accepted only as
   `wheelbri.exe` in the helper's own folder (opened, named by its handle, pid compared again), others may only say
@@ -464,7 +464,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
 - `config/`: `g920-virtual-device.ini`, `g920-in-game-shim.ini` (service: the target and its default mapping),
   `wheelbri-shim.ini` (shim).
 - `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide),
-  `future-functionalities.md` (worked-out ideas not built yet: running as a standard user, RS Handbrake, G29).
+  `future-functionalities.md` (worked-out ideas not built yet: RS Handbrake, G29; and the standard-user test still to
+  do).
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.
 
@@ -510,9 +511,11 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   keep it opt-in and don't add others.
 - Files: everything the app saves (configs, rigs, device names, app.ini, the shim games list, logs, telemetry, the
   uninstaller's config backup) is per user, under `%LOCALAPPDATA%\wheelbri` (XDG folders on Linux), also when it runs
-  as Administrator. Only drivers, virtual devices and their registry entries are system-wide. Never add a file
-  location under ProgramData, Program Files or HKLM for settings. End users are standard users; the developer runs
-  as Administrator.
+  as Administrator, and the WheelBri Helper's log (written as the connected user). Only drivers, virtual devices, the
+  helper service and their registry entries are system-wide. Never add a file location under ProgramData, Program
+  Files or HKLM for settings. End users are standard users (the app is `asInvoker`; the helper does the privileged
+  steps); the developer runs development builds as Administrator (`scripts/make/app.sh`; `--as-user` with
+  `wheelbri-helper --console`).
 - Security, while running as Administrator (`platform::isElevated()`): everything under `%LOCALAPPDATA%\wheelbri`
   can be written by any program of the user, so nothing from there may choose a privileged action. Log and telemetry
   paths from a config must be inside the user's WheelBri folders (`isInsideUserFolders`, else ignored with a
@@ -520,5 +523,13 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   (`platform::systemFolder()`, Program Files), not PATH; the app refuses to start when one of its user folders is a
   link (`userFoldersProblem`) and deletes links among its log files (`removeLinkedLogFiles`). As a standard user
   these checks are off (they would protect nothing). Keep new code to these rules.
+- Security of the WheelBri Helper (SYSTEM, serving a standard user): anything a step needs comes from the helper's
+  own checks, never from the app's word. Every request type is in `HelperProtocol.hpp` with its checks in
+  `requestProblem` and `HelperProtocolTest`; no request carries a path, a file name, a command line or a process id
+  (HideRig is always the caller's own process, ShareLogFolder always the caller's own folder, opened as the caller).
+  What only Windows can tell is checked again in the helper (`HideFilter::interfaceProblem`). Scripts come from the
+  helper's own folder only. Anything a connection sets up is undone in `~HelperSession`. A new privileged step goes
+  into `privileged::` (used by both sides), a request, the helper's session and `PrivilegedSteps` (both ways), never
+  around the helper.
 - Licence: nothing is copied from GIMX (GPLv3). If GIMX code is ever copied rather than reimplemented, the
   project must become GPLv3, so flag that before doing it.
