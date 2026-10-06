@@ -9,12 +9,14 @@
 #   measure.ps1 -Top 12                 threads listed per phase in the summary (default 10)
 #
 # Keys while it runs (in a real console window; scripts/make/measure.sh opens one):
-#   M  start a new phase: type its name ("virtual, no game", "NFS shim"...) and Enter
+#   M  start a new phase: type its name ("virtual-no-game", "shim"...) and Enter; spaces become -, a name used before
+#      gets -2, -3... so every phase has its own block in the summary
 #   Q  stop and write the summary
 #
 # What it measures, every sample:
 #   - each process: wheelbri.exe, wheelbri-service.exe, wheelbri-helper.exe, the driver hosts that load WheelBri's
-#     drivers (WUDFHost.exe with wheelbri-g920.dll = the virtual G920, with wheelbri-hide.dll = the hide filter), the
+#     drivers (WUDFHost.exe with wheelbri-g920.dll = the virtual G920, with wheelbri-hide.dll = the hide filter; one
+#     host may carry both: "WUDFHost:g920-driver+hide-filter", its threads tell them apart), the
 #     game (-Game) and this script itself: CPU as Task Manager shows it (share of the whole PC) and as a share of one
 #     core, memory (working set, private), handles, threads, GDI and USER objects;
 #   - each thread of those processes: CPU (share of one core), priority, state and wait reason, name (when the
@@ -95,18 +97,29 @@ $cores = [Environment]::ProcessorCount
 $Game = @($Game | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })   # -File gives "a,b" as one
 $names = @('wheelbri', 'wheelbri-service', 'wheelbri-helper') + @($Game | ForEach-Object { $_ -replace '\.exe$', '' })
 
-# The driver hosts: WUDFHost.exe processes, labelled by which of WheelBri's drivers they load (looked at once per
-# process; needs Administrator). Hosts without them are left out.
-$hostLabels = @{}
+# The driver hosts: WUDFHost.exe processes, labelled by which of WheelBri's drivers they load (needs Administrator).
+# Windows may load both drivers into one host, and a driver into a host that is already running (seen 2026-10-06: the
+# virtual G920 joined the hide filter's host when a session started), so the modules are looked at again every
+# $hostRecheckSeconds. Hosts without them are left out.
+$hostRecheckSeconds = 5
+$hostLabels = @{}   # pid -> @{ Label; At }
 function Get-HostLabel($process) {
-    if ($hostLabels.ContainsKey($process.Id)) { return $hostLabels[$process.Id] }
+    $known = $hostLabels[$process.Id]
+    if ($known -and ((Get-Date) - $known.At).TotalSeconds -lt $hostRecheckSeconds) { return $known.Label }
     $label = ''
     try {
         $modules = @($process.Modules | ForEach-Object { $_.ModuleName.ToLower() })
-        if ($modules -contains 'wheelbri-g920.dll') { $label = 'WUDFHost:g920-driver' }
-        elseif ($modules -contains 'wheelbri-hide.dll') { $label = 'WUDFHost:hide-filter' }
+        $parts = @()
+        if ($modules -contains 'wheelbri-g920.dll') { $parts += 'g920-driver' }
+        if ($modules -contains 'wheelbri-hide.dll') { $parts += 'hide-filter' }
+        if ($parts.Count -gt 0) { $label = 'WUDFHost:' + ($parts -join '+') }
     } catch { $label = '' }
-    $hostLabels[$process.Id] = $label
+    if ($known -and $known.Label -and $label -ne $known.Label) {
+        $changed = New-Object System.Collections.Generic.List[string]
+        $changed.Add((Stamp 'perf') + "driver host $($process.Id) is now $(if ($label) { $label } else { 'without WheelBri drivers' }) (was $($known.Label))")
+        Write-LogLines $changed
+    }
+    $hostLabels[$process.Id] = @{ Label = $label; At = Get-Date }
     return $label
 }
 
@@ -146,6 +159,8 @@ $threadKeys = @('t_s', 'phase', 'process', 'pid', 'tid', 'name', 'cpu_core_pct',
 $startLines = New-Object System.Collections.Generic.List[string]
 $startLines.Add((Stamp 'perf') + "WheelBri resource measurement started: $cores logical processors, every $IntervalMs ms" +
                 $(if (-not $elevated) { ', NOT Administrator: the helper and the driver hosts may be missing' } else { '' }))
+$Phase = $Phase.Trim() -replace '\s+', '-'
+if (-not $Phase) { $Phase = 'start' }
 $startLines.Add((Stamp 'perf.phase') + (Pairs @('phase') @($Phase)))
 Write-LogLines $startLines
 
@@ -158,6 +173,17 @@ $keys = $true
 try { [void][Console]::KeyAvailable } catch { $keys = $false }
 if ($keys) { Write-Host "  keys: M = new phase, Q = stop" } else { Write-Host '  no console keys here (Ctrl+C stops; -Seconds to stop by itself)' -ForegroundColor Yellow }
 Write-Host "  phase: $Phase"
+
+# A phase name used again gets -2, -3...: each phase keeps its own block in the summary (the same name three times was
+# one block, printed three times).
+function Get-UniquePhase([string]$name) {
+    $name = $name.Trim() -replace '\s+', '-'
+    $used = @($phases | ForEach-Object { $_.Name })
+    if ($used -notcontains $name) { return $name }
+    $n = 2
+    while ($used -contains "$name-$n") { $n++ }
+    return "$name-$n"
+}
 
 $previous = @{}        # pid -> @{ Cpu = ticks; Threads = @{ tid -> ticks }; At = ticks }
 $threadNames = @{}     # "pid/tid" -> name
@@ -265,6 +291,7 @@ try {
                 elseif ($key -eq 'M') {
                     $name = Read-Host 'new phase name'
                     if (-not $name) { $name = "phase $($phases.Count + 1)" }
+                    $name = Get-UniquePhase $name
                     $phases.Add([pscustomobject]@{ Name = $name; Start = Get-Date })
                     $phaseLine = New-Object System.Collections.Generic.List[string]
                     $phaseLine.Add((Stamp 'perf.phase') + (Pairs @('phase') @($name)))
