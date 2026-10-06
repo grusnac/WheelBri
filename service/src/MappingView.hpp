@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace wheelbri::service {
@@ -70,6 +71,20 @@ public:
     // --telemetry-tab / --ffb-tab (setOptionalTabs); without them those two never show. The Rig tab (WheelSetup) is
     // drawn by the window (WheelSetupView); this view then draws only the tab bar.
     enum class Tab { Mapping, Logs, Telemetry, ForceFeedback, WheelSetup };
+
+    // The tab buttons along the bottom (this view's, and the app's own while stopped): from kTabLeft, each as wide as
+    // its label plus kTabPadding on both sides, kTabGap apart, kTabHeight tall, kTabBarHeight from the bottom. Sized
+    // to the label so all five tabs leave the bar's right end free for the app's Start and Stop.
+    static constexpr float kTabLeft = 4.0F;
+    static constexpr float kTabGap = 6.0F;
+    static constexpr float kTabPadding = 12.0F;
+    static constexpr float kTabHeight = 20.0F;
+    static constexpr float kTabBarHeight = 28.0F;   // the bar: a line, 4 above the buttons, 4 below
+    [[nodiscard]] static float tabWidth(const std::string_view label) {
+        return static_cast<float>(label.size()) * 8.0F + 2.0F * kTabPadding;
+    }
+    // Where the last of visibleTabs() ends (what is right of it is free).
+    [[nodiscard]] static float tabsEnd();
 
     // Whether the Telemetry and Force feedback tabs exist (--telemetry-tab, --ffb-tab); set once at start.
     static void setOptionalTabs(bool telemetry, bool forceFeedback);

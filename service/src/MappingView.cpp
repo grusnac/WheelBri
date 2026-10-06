@@ -27,7 +27,6 @@ constexpr int kLogicalWidth = MappingView::kWidth;
 constexpr int kLogicalHeight = MappingView::kHeight;
 
 constexpr std::size_t kMaxSourceButtons = 64;
-constexpr float kTabWidth = 156;   // the tab buttons along the bottom
 
 using Colour = ui::Colour;
 
@@ -1028,38 +1027,54 @@ void MappingView::drawLiveLog(const float top) {
     }
 }
 
+namespace {
+
+// The tab buttons' labels.
+const char* tabLabel(const MappingView::Tab tab) {
+    using Tab = MappingView::Tab;
+    switch (tab) {
+        case Tab::Mapping: return "Mapping (M)";
+        case Tab::WheelSetup: return "Rig (R)";
+        case Tab::Logs: return "Logs (L)";
+        case Tab::Telemetry: return "Telemetry (T)";
+        case Tab::ForceFeedback: return "Force feedback (F)";
+    }
+    return "?";
+}
+
+}  // namespace
+
+float MappingView::tabsEnd() {
+    float x = kTabLeft;
+    for (const Tab tab : visibleTabs()) x += tabWidth(tabLabel(tab)) + kTabGap;
+    return x - kTabGap;
+}
+
 void MappingView::drawTabs() {
     constexpr float kBarTop = kLogicalHeight - 28;
     fill(window_, 0, kBarTop, kLogicalWidth, 1, kPanel);
-    const auto labelOf = [](const Tab tab) {
-        switch (tab) {
-            case Tab::Mapping: return "Mapping (M)";
-            case Tab::WheelSetup: return "Rig (R)";
-            case Tab::Logs: return "Logs (L)";
-            case Tab::Telemetry: return "Telemetry (T)";
-            case Tab::ForceFeedback: return "Force feedback (F)";
-        }
-        return "?";
-    };
-    float x = 4;
+    float x = kTabLeft;
     for (const Tab tab : visibleTabs()) {
-        const char* label = labelOf(tab);
+        const char* label = tabLabel(tab);
         const bool active = tab == tab_;
-        fill(window_, x, kBarTop + 4, kTabWidth, 20, active ? kHeading : kPanel);
-        const float labelWidth = static_cast<float>(std::strlen(label)) * 8;
-        text(window_, x + (kTabWidth - labelWidth) / 2, kBarTop + 10, label, active ? kDark : kText);
-        x += kTabWidth + 6;
+        const float width = tabWidth(label);
+        fill(window_, x, kBarTop + 4, width, kTabHeight, active ? kHeading : kPanel);
+        text(window_, x + kTabPadding, kBarTop + 10, label, active ? kDark : kText);
+        x += width + kTabGap;
     }
 }
 
 void MappingView::onClick(const float x, const float y) {
     constexpr float kBarTop = kLogicalHeight - 28;
     if (y >= kBarTop + 4 && y < kBarTop + 24) {
-        const std::vector<Tab> kTabs = visibleTabs();
-        const float offset = x - 4;
-        const auto index = static_cast<std::size_t>(std::max(0.0F, offset) / (kTabWidth + 6));
-        if (offset >= 0 && index < kTabs.size() && offset - static_cast<float>(index) * (kTabWidth + 6) < kTabWidth) {
-            tab_ = kTabs[index];
+        float left = kTabLeft;
+        for (const Tab tab : visibleTabs()) {
+            const float width = tabWidth(tabLabel(tab));
+            if (x >= left && x < left + width) {
+                tab_ = tab;
+                break;
+            }
+            left += width + kTabGap;
         }
         return;
     }
