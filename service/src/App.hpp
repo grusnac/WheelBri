@@ -33,11 +33,6 @@ struct AppSettings {
     std::function<void()> requestStop;
     // Clears that request before the next Start.
     std::function<void()> clearStop;
-    // While stopped, with the target virtual device and every rig device connected: puts the hide filter on the rig's
-    // devices that do not run it yet (what the first Start would otherwise do, ~25 s after a fresh install), saying
-    // what it does through `say` when there is something to do. Returns privileged::HideSetup as an int. Blocking;
-    // called on a thread of the app's own. Empty: not offered (Linux).
-    std::function<int(const std::function<void(const std::string&)>& say)> prepareHide;
 };
 
 // Runs the app until its window is closed (and the session, if one runs, has stopped). Returns 0, or 1 if the

@@ -52,6 +52,10 @@ struct UiFrame {
     bool gameIgnoresWheel = false;                // pedals pressed, but the game never used the emulated wheel
 };
 
+// UiHost::step while the hide filter is put on the rig for the first time (once per installation, ~10-40 s): the app
+// shows a popup that says so.
+inline constexpr const char* kStepFirstHide = "hiding the wheel, first time: up to a minute";
+
 class UiHost {
 public:
     virtual ~UiHost() = default;

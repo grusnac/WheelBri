@@ -48,8 +48,11 @@ public:
     // (only the device's status is read), and when it still waits after a few seconds the device is restarted here
     // (CM_Query_And_Remove_SubTree, then set up again), which also asks programs that registered for it to let go.
     // False, with `why` (who refused, as Windows says it), when it did not happen in time. `cancelled`: Stop.
+    // `restartAfterMs`: how long Windows gets to restart it by itself first; 0 when the installer already found the
+    // device waiting for a restart, which Windows then never does by itself (2026-10-06: 6 s waited for nothing).
     [[nodiscard]] static bool waitUntilStarted(const std::vector<std::string>& interfaces, int timeoutMs,
-                                               const std::function<bool()>& cancelled, std::string& why);
+                                               const std::function<bool()>& cancelled, std::string& why,
+                                               int restartAfterMs = 6'000);
 
     // Empty when `instanceId` is a HID interface present now that is not a keyboard, mouse, system or consumer control
     // or digitizer (hidhide::neverHiddenUsage on its compatible ids); else why it must not get the filter. The helper

@@ -64,9 +64,9 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** with the real wheel visible too, a game (NFS) may pick it instead of the G920.
 - **Use:** automatic with the virtual G920: every device of the active rig is hidden while a session runs, and only
-  WheelBri may open it. The `wheelbri-hide` filter goes on each device once (it restarts once; sometimes Windows wants
-  a restart): while the app is stopped, as soon as the rig is switched on ("Hiding the wheel: first time, up to 30 s"
-  next to Start, which waits), else at Start. `--no-hide` skips it, `--unhide` clears a hide after a crash (a crash never leaves one).
+  WheelBri may open it. The first Start puts the `wheelbri-hide` filter on each device, once per installation (the
+  device reconnects once, so the rig is gone for a few seconds): a popup says so ("Hiding your wheel from games: first
+  time only") and closes by itself when it is done. `--no-hide` skips it, `--unhide` clears a hide after a crash (a crash never leaves one).
 - **Look:** the state next to Start ("rig hidden (N of M devices)" or, in red, "NOT HIDDEN"); `wheelbri-hide-<date>.log`,
   `wheelbri-hide-install-<date>.log` (also when the WheelBri Helper runs it); the hide log names each program that
   opens the wheel or is refused ("refused process 8964 (steam.exe)"). Code: `driver/hide/`, `service/src/HideFilter.cpp`, `ensureHideFilter` in

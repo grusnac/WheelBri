@@ -157,11 +157,10 @@ bool restartNode(const std::string& instanceId, std::string& why) {
 }  // namespace
 
 bool HideFilter::waitUntilStarted(const std::vector<std::string>& interfaces, const int timeoutMs,
-                                  const std::function<bool()>& cancelled, std::string& why) {
+                                  const std::function<bool()>& cancelled, std::string& why, const int restartAfterMs) {
     constexpr int kStepMs = 250;
-    constexpr int kRestartAfterMs = 6'000;   // Windows usually restarts it by itself within ~7 s; then we do it
     constexpr int kRetryEveryMs = 5'000;     // and again (closing a program that had it open is then enough)
-    int nextRestartMs = kRestartAfterMs;
+    int nextRestartMs = restartAfterMs;      // Windows usually restarts it by itself within ~7 s; then we do it
     for (int waited = 0; waited <= timeoutMs; waited += kStepMs) {
         bool allRunning = true;
         std::vector<std::string> waiting;
@@ -343,7 +342,7 @@ HideFilter::~HideFilter() { restore(); }
 namespace wheelbri::service {
 
 bool HideFilter::waitUntilStarted(const std::vector<std::string>&, int, const std::function<bool()>&,
-                                  std::string& why) {
+                                  std::string& why, int) {
     why = "not on Windows";
     return false;
 }

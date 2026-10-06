@@ -418,11 +418,13 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     package (and takes it off every device). The installer then runs the installed `wheelbri-service --prepare-hide`,
     which does what Start does (`ensureHideFilter` for the saved rig: the game controllers DirectInput lists, never
     046d:c262; USB ids by compatible id missed the Moza R3), so after a reinstall the first Start does not have to.
-    With the wheel off at install, the app does it while stopped: as soon as every rig device is connected (target
-    virtual device), `App::startPreparingHide` runs `AppSettings::prepareHide` (main.cpp: `HideFilter::check`, then
-    `ensureHideFilter` only when a device lacks the filter) on a thread of its own; Start is greyed out and the status
-    says so meanwhile, and the Rig tab lets go of the wheel. During Start the session tells the app what takes long
-    (`UiHost::step`: hiding, waiting for the wheel), shown after "Starting". The WheelBri Helper (SYSTEM) passes the
+    With the wheel off at install, the first Start does it (never the app on its own: the user's rule, 2026-10-06,
+    nothing privileged happens without pressing Start). During Start the session tells the app what takes long
+    (`UiHost::step`: hiding, waiting for the wheel), shown after "Starting"; for `kStepFirstHide` the app also shows a
+    popup (`App::showFirstHide`: once per installation, may take up to a minute, do not unplug) that closes by itself.
+    The app runs `install-hide.ps1 -NoRestart` and restarts a device that waits for it at once
+    (`waitUntilStarted(..., restartAfterMs = 0)`): pnputil /restart-device refused there (exit 50) and the script then
+    waited 15 s, the app 6 s more (36 + 6 s on 2026-10-06). The script's lines carry their time. The WheelBri Helper (SYSTEM) passes the
     caller's logs folder to the install scripts (`-LogFolder`, `privileged::installG920Driver` / `putHideFilter`;
     ProgramData's before ShareLogFolder): their own `%LOCALAPPDATA%` would be SYSTEM's, and install-hide.ps1 also sets
     HKLM LogFolder from it. The hide driver logs each program that opens the wheel or is refused by name
@@ -470,12 +472,12 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   `ServiceLogging.cpp`, which moves `%LOCALAPPDATA%\wheelemu` to `wheelbri` on first start; old log names in
   `Retention.cpp`; `wheelemu-shim.ini` as the shim's fallback). The wire tags (`WEMU`, `WEXP`, `WECL`) and the `WE_LOG_*`
   macros keep their letters. `install.ps1` asks one question, at the end of a successful install: restart Windows now
-  (default yes; `shutdown /r /t 15`; firmer wording when `install-hide.ps1` exited 2; none with `-Quiet`). Only the
+  (default yes; `shutdown /r /t 2`; firmer wording when `install-hide.ps1` exited 2; none with `-Quiet`). Only the
   installer asks this, never the app or the uninstaller (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older install
   (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the three driver install scripts, registers and starts the WheelBri Helper service (`WheelBriHelper`,
   `Install-HelperService` in `driver/common.ps1`; the uninstaller and `clean-pc.ps1` remove it first with
   `Remove-HelperService`), shortcuts, Settings > Apps entry, Start
-  menu folder with the app and "Uninstall WheelBri", closes itself 10 s after success when no restart, log in
+  menu folder with the app and "Uninstall WheelBri", closes at once after a success (only a failure waits for Enter), log in
   `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log`), `uninstall.ps1` + `Uninstall.cmd` (waits for a driver installer the app started (`Wait-DriverInstallers`), removes
   the drivers, the virtual devices (`Remove-VirtualDevices` in `uninstall-driver.ps1`), the UMDF registrations and
   DirectInput's G920 entries; the folder from
@@ -500,6 +502,11 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
 
 - No third-party runtime tools or drivers (HidHide, ViGEm, HIDMaestro): what the
   emulator needs on the PC is built in this repository.
+- Scripts never wait for the user when they end ("press Enter to close", `pause`, a window left open with
+  `-NoExit`): they ask only for a real decision (clean-pc's "Remove all of the above?"). When a script continues in its
+  own Administrator window, that window closes when done and the calling window shows its result or log (clean-pc.ps1
+  `-LogPath`, drivers.ps1, measure.sh). The end user's installer and uninstaller are the exception (Setup.exe closes
+  its window otherwise before the user could read a failure).
 - No Python. Scripts are bash (MSYS2 UCRT64 and Linux; awk for data, POSIX awk only: MSYS2 has gawk, Linux may have
   mawk, so no gawk extensions and no deep recursion) or, for Windows-only work, PowerShell (`.ps1`) / `.cmd`.
 

@@ -19,6 +19,9 @@
 #   install-hide.ps1 -Devices 346e:0004 -Configuration Debug
 #   install-hide.ps1 -Devices ... -LogFolder <folder>    its log in that folder (the WheelBri Helper, which runs as
 #                                                        SYSTEM, gives the user's: %LOCALAPPDATA% would be SYSTEM's)
+#   install-hide.ps1 -Devices ... -NoRestart             the app: does not restart the devices itself (exit 2 when
+#                                                        one waits for it); the app restarts them at once, which
+#                                                        works where pnputil /restart-device refuses
 #
 # Exit codes (wheelbri-service runs this at Start when a rig device has no filter, and logs the code):
 #   0 done: the filter runs on every given device that is plugged in (unplugged ones are listed; they get it at a
@@ -30,7 +33,8 @@
 param(
     [string]$Configuration = 'Release',
     [string[]]$Devices = @(),
-    [string]$LogFolder = ''
+    [string]$LogFolder = '',
+    [switch]$NoRestart
 )
 # A 32-bit PowerShell (one started from a 32-bit prompt, e.g. some Developer PowerShell windows) sees SysWOW64,
 # where pnputil and the 64-bit driver tools are missing: run this again in the 64-bit PowerShell.
@@ -38,11 +42,21 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
     $forward = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Configuration', $Configuration)
     if ($Devices.Count -gt 0) { $forward += @('-Devices', ($Devices -join ',')) }
     if ($LogFolder) { $forward += @('-LogFolder', $LogFolder) }
+    if ($NoRestart) { $forward += '-NoRestart' }
     & (Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe') @forward
     exit $LASTEXITCODE
 }
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '..\common.ps1')
+
+# Every line this script writes carries the time, as the other logs ("[2026-10-06 21:55:07.123] text"; the app's Logs
+# tab reads it that way): on 2026-10-06 it took 36 s and its log could not say where.
+function Write-Host {
+    param([Parameter(Position = 0)] $Object = '', [ConsoleColor]$ForegroundColor = [ConsoleColor]::Gray)
+    $text = "$Object"
+    if ($text) { $text = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff')] $text" }
+    Microsoft.PowerShell.Utility\Write-Host $text -ForegroundColor $ForegroundColor
+}
 Assert-Admin
 
 # Everything below also goes to %LOCALAPPDATA%\wheelbri\logs\wheelbri-hide-install-<date>.log (the app runs this
@@ -281,7 +295,13 @@ public static class HideInstall {
 
         # Installed but not loaded: restart the interface ourselves (what unplugging it does), instead of asking for a
         # restart of Windows. It fails while a program holds the device in a way Windows cannot interrupt.
-        foreach ($device in @(Get-Pending)) {
+        # -NoRestart (the app): left to the caller, which restarts it at once with CM_Query_And_Remove_SubTree +
+        # CM_Setup_DevNode; pnputil refused (exit 50) where that worked in 0.25 s, and waiting 15 s for it cost the
+        # first Start ~20 s (2026-10-06).
+        if ($NoRestart -and @(Get-Pending).Count -gt 0) {
+            Write-Host 'the filter is on and waits for a restart of the device: the app restarts it now'
+        }
+        foreach ($device in @(if ($NoRestart) { @() } else { Get-Pending })) {
             Write-Host "restarting $($device.InstanceId) so Windows loads the filter..."
             $said = @(& pnputil /restart-device "$($device.InstanceId)")
             $code = $LASTEXITCODE
@@ -300,7 +320,9 @@ public static class HideInstall {
                 Write-Host "    pnputil exit code $code"
             }
         }
-        for ($waited = 0; $waited -lt 15 -and @(Get-Pending).Count -gt 0; $waited++) { Start-Sleep -Seconds 1 }
+        if (-not $NoRestart) {
+            for ($waited = 0; $waited -lt 15 -and @(Get-Pending).Count -gt 0; $waited++) { Start-Sleep -Seconds 1 }
+        }
 
         # What each device's game-controller interfaces run with now.
         foreach ($device in @(Get-All)) {
@@ -311,7 +333,10 @@ public static class HideInstall {
         }
         Write-Host ''
         $left = @(Get-Missing) + @(Get-Pending)
-        if ($left.Count -gt 0 -and $script:needsWindowsRestart) {
+        if ($left.Count -gt 0 -and $NoRestart) {
+            Write-Host 'The filter is on; the app restarts the devices that wait for it.'
+            $exitCode = 2
+        } elseif ($left.Count -gt 0 -and $script:needsWindowsRestart) {
             Write-Host ('The filter is on, but Windows starts it only after a restart: restart Windows; the next Start in ' +
                         'the app then hides the rig.') -ForegroundColor Red
             $exitCode = 2

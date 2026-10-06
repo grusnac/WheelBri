@@ -193,6 +193,7 @@ HideSetup putHideFilter(const std::vector<std::string>& install, const std::vect
                         const int levelsAbove, const std::filesystem::path& logFolder, const Cancelled& cancelled,
                         std::string& message) {
     if (interfaces.empty()) return HideSetup::NothingToDo;
+    int restartAfterMs = 6'000;   // a filter put on earlier: Windows may still restart the device by itself
     if (!install.empty()) {
         const std::string devices = joined(install);
         const std::filesystem::path script = findDriverScript(
@@ -211,8 +212,9 @@ HideSetup putHideFilter(const std::vector<std::string>& install, const std::vect
         bool started = false;
         std::string error;
         const std::optional<int> exit =
-            runDriverScript(script, withLogFolder({"-Configuration", "Release", "-Devices", devices}, logFolder), "hide",
-                            cancelled, started, error);
+            runDriverScript(script,
+                            withLogFolder({"-Configuration", "Release", "-Devices", devices, "-NoRestart"}, logFolder),
+                            "hide", cancelled, started, error);
         if (!started) {
             message = "cannot run the installer: " + error;
             WE_LOG_ERROR(hideLog(), "hide: {}", message);
@@ -222,7 +224,8 @@ HideSetup putHideFilter(const std::vector<std::string>& install, const std::vect
             message = "stopped";
             return HideSetup::Waiting;
         }
-        // 2: put on, but not started yet; waited for below like a filter put on earlier.
+        // 2: put on, but not started yet (-NoRestart: the device waits for a restart): restarted below at once.
+        if (exit && *exit == 2) restartAfterMs = 0;
         if (!exit || (*exit != 0 && *exit != 2)) {
             message = "the installer " +
                       (!exit ? std::string("took longer than 2 minutes (left to finish by itself)")
@@ -235,7 +238,7 @@ HideSetup putHideFilter(const std::vector<std::string>& install, const std::vect
     }
     // Windows loads the filter when it restarts the device: a few seconds, with nothing of ours holding it.
     std::string why;
-    if (HideFilter::waitUntilStarted(interfaces, 25'000, cancelled, why)) {
+    if (HideFilter::waitUntilStarted(interfaces, 25'000, cancelled, why, restartAfterMs)) {
         WE_LOG_INFO(hideLog(), "hide: wheelbri-hide runs on every connected device of the rig");
         return HideSetup::Running;
     }

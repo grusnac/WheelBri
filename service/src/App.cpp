@@ -308,15 +308,8 @@ class App {
 public:
     explicit App(const AppSettings& settings) : settings_(settings) {}
 
-    // Never leave a session running (or its thread joinable, which would std::terminate) behind the app, nor the hide
-    // preparation (a driver installer must not be cut off: it may be switching a device's driver).
-    ~App() {
-        stopAndWaitForEver();
-        if (prepareThread_.joinable()) {
-            if (preparing_) WE_LOG_INFO(log(), "hide: waiting for the hide filter's installer to finish first");
-            prepareThread_.join();
-        }
-    }
+    // Never leave a session running (or its thread joinable, which would std::terminate) behind the app.
+    ~App() { stopAndWaitForEver(); }
 
     // As stopAndWait, but for as long as it takes (logging every 30 s): a session thread still running when the App
     // goes would end the process with std::terminate, before the session gave the wheel back and removed the devices.
@@ -483,6 +476,7 @@ private:
                 logsView->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
             }
             collectSession();
+            showFirstHide();
             updateStartNeeds();
             logs_->setShimMode(shimTarget());   // the Logs tab while stopped follows the target
             updateSetup();
@@ -533,10 +527,6 @@ private:
     // The tab reads the running session's wheel, or (stopped) the wheel picked in it; nothing while starting or
     // stopping, when the session may be opening or closing the wheel.
     void updateSetup() {
-        if (preparing_) {
-            setup_->releaseWheel();   // nothing of ours may hold the wheel while Windows restarts it with the filter
-            return;
-        }
         if (!showingSetup()) {
             if (state_ == State::Stopped) setup_->releaseWheel();   // not kept open while nobody looks
             return;
@@ -594,7 +584,7 @@ private:
     // Every device of the rig the mapping uses is connected (or game controllers cannot be listed here at all: then
     // Start tries and says what is wrong).
     [[nodiscard]] bool rigReady() const {
-        return needsKnown_ && needsProblem_.empty() && missing_.empty() && !helperMissing_ && !preparing_;
+        return needsKnown_ && needsProblem_.empty() && missing_.empty() && !helperMissing_;
     }
 
     // What Start needs (StartNeeds.hpp): the config Start would use, as saved, and the active rig, checked against
@@ -656,48 +646,6 @@ private:
                             needsProblem_.empty() && !helperMissing_ ? " (switch it on or plug it in)" : "");
             }
         }
-        startPreparingHide();
-    }
-
-    // As soon as the rig is connected (target virtual device, stopped): the hide filter on its devices in the
-    // background, so Start does not have to (after a fresh install with the wheel off, Start spent ~23 s on it and
-    // looked stuck, 2026-10-06). Once per connection: again after a device was gone. Start waits while it runs.
-    void startPreparingHide() {
-        if (!missing_.empty() || !needsKnown_) preparedThisConnection_ = false;
-        if (prepareThread_.joinable() && !preparing_) prepareThread_.join();
-        if (!settings_.prepareHide || preparing_ || preparedThisConnection_ || state_ != State::Stopped ||
-            shimTarget() || !needsKnown_ || !needsProblem_.empty() || !missing_.empty() || helperMissing_) {
-            return;
-        }
-        preparedThisConnection_ = true;
-        preparing_ = true;
-        setup_->releaseWheel();
-        prepareThread_ = std::thread([this] {
-            int result = 1;
-            try {
-                result = settings_.prepareHide([this](const std::string& what) {
-                    const std::lock_guard lock(prepareMutex_);
-                    prepareStep_ = what;
-                });
-            } catch (const std::exception& e) {
-                WE_LOG_ERROR(log(), "hide: preparing failed: {}", e.what());
-            } catch (...) {
-                WE_LOG_ERROR(log(), "hide: preparing failed");
-            }
-            if (result == 1 || result == 2) {
-                WE_LOG_WARN(log(), "hide: the rig could not be prepared in advance; Start tries again");
-            }
-            {
-                const std::lock_guard lock(prepareMutex_);
-                prepareStep_.clear();
-            }
-            preparing_ = false;
-        });
-    }
-
-    [[nodiscard]] std::string prepareStep() {
-        const std::lock_guard lock(prepareMutex_);
-        return prepareStep_;
     }
     Button stopButton() const {
         return {kStopX, kButtonsY, kButtonWidth, MappingView::kTabHeight, "Stop",
@@ -861,10 +809,7 @@ private:
                 } else if (!needsKnown_) {
                     status = "Looking for the rig...";
                     colour = kDim;
-                } else if (preparing_) {
-                    const std::string step = prepareStep();
-                    status = step.empty() ? std::string("Checking the hiding...") : step;
-                    colour = kCaution;
+
                 } else if (lastResult_ && *lastResult_ != 0) {
                     status = "Start failed (Logs)";   // the Logs tab says why, in red
                     colour = kWarning;
@@ -936,6 +881,27 @@ private:
             start = end + 1;
         }
         return lines;
+    }
+
+    // While Start puts the hide filter on the rig for the first time (once per installation; ~10-40 s, during which
+    // Windows reconnects the wheel), a popup says so, so it does not look stuck (2026-10-06: Stop was pressed just as it
+    // finished). It closes by itself when that is done, or with OK.
+    void showFirstHide() {
+        const bool first = state_ == State::Starting && host_.currentStep() == kStepFirstHide;
+        if (state_ != State::Starting) firstHideNoticed_ = false;
+        if (first && !firstHideNoticed_ && !popup_) {
+            firstHideNoticed_ = true;
+            notice("Hiding your wheel from games: first time only",
+                   "WheelBri is putting its filter on your rig, so that games see only the G920. This happens once per "
+                   "installation and can take up to a minute; meanwhile Windows reconnects the wheel, so it may "
+                   "disappear for a moment. Please do not unplug it or press Stop.\nStart goes on by itself when it is "
+                   "done; the next Starts are quick.");
+            firstHidePopup_ = true;
+        }
+        if (firstHidePopup_ && (!popup_ || !first)) {
+            if (popup_ && !first) popup_.reset();   // done: the popup goes by itself
+            firstHidePopup_ = false;
+        }
     }
 
     void notice(const std::string& title, const std::string& text) {
@@ -1038,12 +1004,8 @@ private:
     std::uint64_t needsGeneration_ = 0;
     std::uint64_t needsCheckedMs_ = 0;
     std::string needsLogged_;
-    // The hide filter put on the rig while stopped (startPreparingHide).
-    std::thread prepareThread_;
-    std::atomic<bool> preparing_{false};
-    bool preparedThisConnection_ = false;
-    std::mutex prepareMutex_;
-    std::string prepareStep_;
+    bool firstHideNoticed_ = false;   // this Start's "hiding for the first time" popup was shown (showFirstHide)
+    bool firstHidePopup_ = false;     // ...and is the popup open now
 };
 
 }  // namespace
