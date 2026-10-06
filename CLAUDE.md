@@ -445,7 +445,9 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   macros keep their letters. `install.ps1` asks one question, at the end of a successful install: restart Windows now
   (default yes; `shutdown /r /t 15`; firmer wording when `install-hide.ps1` exited 2; none with `-Quiet`). Only the
   installer asks this, never the app or the uninstaller (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older install
-  (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the three driver install scripts, shortcuts, Settings > Apps entry, Start
+  (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the three driver install scripts, registers and starts the WheelBri Helper service (`WheelBriHelper`,
+  `Install-HelperService` in `driver/common.ps1`; the uninstaller and `clean-pc.ps1` remove it first with
+  `Remove-HelperService`), shortcuts, Settings > Apps entry, Start
   menu folder with the app and "Uninstall WheelBri", closes itself 10 s after success when no restart, log in
   `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log`), `uninstall.ps1` + `Uninstall.cmd` (waits for a driver installer the app started (`Wait-DriverInstallers`), removes
   the drivers, the virtual devices (`Remove-VirtualDevices` in `uninstall-driver.ps1`), the UMDF registrations and

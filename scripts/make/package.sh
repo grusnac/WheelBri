@@ -18,7 +18,7 @@ if [ "${1:-}" = "--no-build" ]; then
 fi
 
 if [ $build -eq 1 ]; then
-    cmake_build wheelbri wheelbri-service wheelbri_shim   # wheelbri_shim builds dinput8.dll
+    cmake_build wheelbri wheelbri-service wheelbri-helper wheelbri_shim   # wheelbri_shim builds dinput8.dll
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$root/scripts/make/drivers.ps1")" \
         || fail "the drivers did not build (Visual Studio + WDK, driver/README.md)"
 fi

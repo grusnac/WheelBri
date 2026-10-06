@@ -216,6 +216,65 @@ function Wait-DriverInstallers([int]$seconds = 120) {
     }
 }
 
+# The WheelBri Helper: a Windows service (LocalSystem) running wheelbri-helper.exe from the install folder, which does
+# the steps needing Administrator for the app, so the app runs as a standard user. Stopping it removes the virtual
+# G920 it made and shows the rig again (it undoes what every connected app set up).
+$script:HelperService = 'WheelBriHelper'
+
+# Stops the helper service if there is one (and waits up to 20 s). Returns $true when it existed.
+function Stop-HelperService {
+    $service = Get-Service -Name $script:HelperService -ErrorAction SilentlyContinue
+    if (-not $service) { return $false }
+    if ($service.Status -ne 'Stopped') {
+        Stop-Service -Name $script:HelperService -Force -ErrorAction SilentlyContinue
+        try { $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(20)) } catch { }
+    }
+    # Its process may take a moment longer to go; the program file stays locked until it has.
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline -and @(Get-Process -Name 'wheelbri-helper' -ErrorAction SilentlyContinue |
+               Where-Object { $_.SessionId -eq 0 }).Count -gt 0) {
+        Start-Sleep -Milliseconds 250
+    }
+    return $true
+}
+
+# Stops and deletes the helper service. Returns $true when it is gone (or never was).
+function Remove-HelperService {
+    if (-not (Stop-HelperService)) { return $true }
+    sc.exe delete $script:HelperService | Out-Null
+    # 1060: no such service; 1072: already marked for deletion (Windows deletes it when the last handle closes).
+    return $LASTEXITCODE -in @(0, 1060, 1072)
+}
+
+# Registers (or updates) the helper service for $exe, starts with Windows, restarts after a crash, and starts it now.
+# Returns '' when it runs, else why not.
+function Install-HelperService([string]$exe) {
+    $binary = '"' + $exe + '"'   # quoted: the path has spaces (Program Files)
+    $service = Get-Service -Name $script:HelperService -ErrorAction SilentlyContinue
+    if ($service) {
+        sc.exe config $script:HelperService binPath= $binary start= auto obj= LocalSystem | Out-Null
+        if ($LASTEXITCODE -ne 0) { return "sc.exe config failed (exit code $LASTEXITCODE)" }
+    } else {
+        try {
+            New-Service -Name $script:HelperService -BinaryPathName $binary -DisplayName 'WheelBri Helper' `
+                -StartupType Automatic -ErrorAction Stop | Out-Null
+        } catch {
+            return "cannot register the service: $($_.Exception.Message)"
+        }
+    }
+    sc.exe description $script:HelperService ('Lets WheelBri create its virtual G920 and hide your rig from games ' +
+        'without running as Administrator.') | Out-Null
+    # Restarted 5 s after a crash (twice), then after a minute; the count resets after a day.
+    sc.exe failure $script:HelperService reset= 86400 actions= restart/5000/restart/5000/restart/60000 | Out-Null
+    try {
+        Start-Service -Name $script:HelperService -ErrorAction Stop
+        (Get-Service -Name $script:HelperService).WaitForStatus('Running', [TimeSpan]::FromSeconds(15))
+    } catch {
+        return "the service did not start: $($_.Exception.Message)"
+    }
+    return ''
+}
+
 # Removes every installed copy of <name>.inf. Returns how many were removed.
 function Remove-InstalledPackages([string]$name) {
     $packages = @(Get-InstalledPackages $name)

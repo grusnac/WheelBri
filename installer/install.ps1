@@ -21,6 +21,8 @@
 #     filter that hides the rig from games (wheelbri-hide). When the user's saved settings name a rig (a reinstall
 #     that kept them), wheelbri-service --prepare-hide puts it on that rig's plugged-in devices here, before the
 #     restart, so the first Start is instant; otherwise the app puts it on them at the first Start
+#   - the WheelBri Helper, a Windows service (WheelBriHelper, LocalSystem, wheelbri-helper.exe in the install folder,
+#     starts with Windows): it creates the virtual G920 and hides the rig for the app, which runs as a standard user
 #   - the certificate the drivers are signed with, added to this PC's trusted Root and TrustedPublisher stores (the
 #     drivers are signed by WheelBri's own test certificate, not by Microsoft); its thumbprint is recorded in
 #     HKLM\SOFTWARE\wheelbri\SigningCertificates, so the uninstaller removes exactly that certificate
@@ -104,6 +106,7 @@ function Run-Script([string]$path, [string[]]$arguments = @()) {
 }
 
 $exitCode = 1
+$helperWasThere = $false   # an earlier install's WheelBri Helper was stopped (started again on failure)
 try {
     # The user's WheelBri folders must not be links (junctions): as Administrator, the permission grant below would
     # follow one and change the permissions of whatever it points to. The app refuses them too (userFoldersProblem).
@@ -140,7 +143,7 @@ try {
         Fail "WheelBri needs Windows 11 (build 22000 or newer) for its virtual G920 driver; this is build $build."
     }
     Write-Host "    Windows build $build, 64-bit: fine"
-    foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini', 'uninstall.ps1', 'Uninstall.cmd',
+    foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini', 'uninstall.ps1', 'Uninstall.cmd',
                           'driver\common.ps1', 'driver\install-driver.ps1', 'driver\hide\install-hide.ps1') {
         if (-not (Test-Path -LiteralPath (Join-Path $package $required))) {
             Fail "the package is incomplete ($required is missing): unpack the whole package again."
@@ -210,6 +213,12 @@ try {
         # An ended service could leave the wheel hidden: clear that (the hide filter also ignores a dead process).
         $oldService = Join-Path $InstallDir 'wheelbri-service.exe'
         if (Test-Path -LiteralPath $oldService) { & $oldService --unhide | Out-Null }
+    }
+    # The WheelBri Helper service of an earlier install: stopped while its program is replaced (it removes the virtual
+    # G920 it made and shows the rig again), started again below.
+    if (Stop-HelperService) {
+        $helperWasThere = $true
+        Write-Host '    stopped the WheelBri Helper service'
     }
 
     # --- 2b. a version from before the rename (wheelemu) ------------------------------------------------------------
@@ -356,6 +365,18 @@ try {
     # service does it exactly as Start does (the rig's game controllers as DirectInput lists them; reading USB ids here
     # missed the Moza R3). No saved rig (a new PC), settings of another account (Administrator given by another
     # user), or the wheel not plugged in: the first Start does it, as before.
+    # The WheelBri Helper: what lets the app run without Administrator (the virtual G920, hiding the rig). A service
+    # running as LocalSystem from the install folder, started with Windows and restarted after a crash.
+    Write-Host '  WheelBri Helper (service)'
+    $helperProblem = Install-HelperService (Join-Path $InstallDir 'wheelbri-helper.exe')
+    if ($helperProblem) {
+        Warn ("    the WheelBri Helper is not running ($helperProblem): until it does, the app shows HELPER NOT " +
+              'INSTALLED and the virtual G920 works only when WheelBri is started as Administrator')
+    } else {
+        $helperWasThere = $false   # running: nothing to start again if a later step fails
+        Write-Host '    running (starts with Windows)' -ForegroundColor Green
+    }
+
     if ($hideCode -eq 0 -or $hideCode -eq 2) {
         Write-Host '  hiding filter on your saved rig''s devices'
         $service = Join-Path $InstallDir 'wheelbri-service.exe'
@@ -369,7 +390,7 @@ try {
             & $service --prepare-hide 2>&1 | ForEach-Object {
                 if ($_ -is [System.Management.Automation.ErrorRecord]) {
                     $line = $_.Exception.Message
-                    if ($line -match '^\[[^\]]*\] \[(warn|error|critical)\s*\] \[[^\]]*\] \[tid \d+\s*\] (.*?)(\s+\([^()]*:\d+\))?$') {
+                    if ($line -match '^\[[^\]]*\] \[(warn\w*|error|critical)\s*\] \[[^\]]*\] \[tid \d+\s*\] (.*?)(\s+\([^()]*:\d+\))?$') {
                         Write-Host "    $($Matches[2])" -ForegroundColor Yellow
                     }
                 } elseif ("$_".Trim()) {
@@ -456,6 +477,9 @@ try {
     foreach ($inf in 'wheelbri-g920.inf', 'wheelbri-hide.inf') {
         if ($installed -match [regex]::Escape($inf)) { Write-Host "    $inf installed" } else { Warn "    $inf is not listed by pnputil" }
     }
+    $helper = Get-Service -Name 'WheelBriHelper' -ErrorAction SilentlyContinue
+    if ($helper -and $helper.Status -eq 'Running') { Write-Host '    WheelBri Helper running' }
+    else { Warn '    the WheelBri Helper service is not running (services.msc > WheelBri Helper > Start)' }
     $exitCode = 0
 } catch {
     if ($_.Exception.Message -notin @('stop', 'cancelled')) {
@@ -463,6 +487,8 @@ try {
         Write-Host $_.ScriptStackTrace
     }
 } finally {
+    # Failed after the earlier install's helper was stopped: started again, so that install keeps working.
+    if ($exitCode -ne 0 -and $helperWasThere) { Start-Service -Name 'WheelBriHelper' -ErrorAction SilentlyContinue }
     Write-Host ''
     if ($exitCode -eq 0) {
         Write-Host "WheelBri $version is installed." -ForegroundColor Green

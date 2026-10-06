@@ -1,5 +1,5 @@
-# Removes WheelBri: its drivers and virtual devices, shortcuts, the Settings > Apps entry, its registry entries and
-# the install folder. Three ways to run
+# Removes WheelBri: the WheelBri Helper service, its drivers and virtual devices, shortcuts, the Settings > Apps
+# entry, its registry entries and the install folder. Three ways to run
 # it, all the same script (it asks for Administrator itself):
 #   - Start menu > WheelBri > Uninstall WheelBri, or Settings > Apps > WheelBri > Uninstall;
 #   - Uninstall.cmd in the install folder (double-click);
@@ -168,6 +168,12 @@ try {
     foreach ($process in @($running | Where-Object { -not $_.HasExited })) {
         Warn "    $($process.ProcessName) did not close within 15 s: ended"
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    }
+    # The WheelBri Helper service: stopped (it removes the virtual G920 it made and shows the rig again) and removed,
+    # before its program and the drivers go.
+    if (Get-Service -Name 'WheelBriHelper' -ErrorAction SilentlyContinue) {
+        if (Remove-HelperService) { Write-Host '    removed the WheelBri Helper service' }
+        else { Warn '    the WheelBri Helper service could not be removed: sc.exe delete WheelBriHelper (as Administrator)' }
     }
     # A driver installer the app started at Start (it keeps running when the app closes): finished first.
     if (-not (Wait-DriverInstallers)) { Warn '    a driver installer WheelBri started is still running after 2 minutes: removing anyway' }

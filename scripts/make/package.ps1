@@ -6,8 +6,8 @@
 #   package.ps1 -BuildDir build-rel        take the programs from another CMake build tree
 #   package.ps1 -NoSetupExe                only the folder and the zip
 #
-# Needs: build\service\wheelbri.exe, wheelbri-service.exe, build\shim\dinput8.dll (scripts/make/build.sh) and the
-# two driver packages (scripts/make/drivers.sh), all Release.
+# Needs: build\service\wheelbri.exe, wheelbri-service.exe, wheelbri-helper.exe, build\shim\dinput8.dll
+# (scripts/make/build.sh) and the two driver packages (scripts/make/drivers.sh), all Release.
 #
 # Exit codes: 0 built, 1 something is missing or wrong (the red line says what).
 
@@ -36,6 +36,7 @@ Say "packaging WheelBri $version into $stage"
 $programs = @(
     @{ From = "$build\service\wheelbri.exe";         To = 'wheelbri.exe' },
     @{ From = "$build\service\wheelbri-service.exe"; To = 'wheelbri-service.exe' },
+    @{ From = "$build\service\wheelbri-helper.exe";  To = 'wheelbri-helper.exe' },
     @{ From = "$build\shim\dinput8.dll";             To = 'shim\dinput8.dll' }
 )
 foreach ($program in $programs) {
@@ -113,7 +114,7 @@ foreach ($file in 'install.ps1', 'uninstall.ps1', 'Setup.cmd', 'Uninstall.cmd', 
 Set-Content -Path (Join-Path $stage 'VERSION.txt') -Value $version -Encoding ASCII
 
 # 3. What install.ps1 checks for must be there (the same list), so a package never fails on the user's PC.
-$expected = @('wheelbri.exe', 'wheelbri-service.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini', 'install.ps1', 'uninstall.ps1',
+$expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini', 'install.ps1', 'uninstall.ps1',
               'Setup.cmd', 'Uninstall.cmd', 'README.txt', 'VERSION.txt', 'shim\dinput8.dll') +
             ($drivers | ForEach-Object { $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } })
 foreach ($file in $expected) {

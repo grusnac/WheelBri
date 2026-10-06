@@ -15,11 +15,11 @@
 #                                         has nothing left from any earlier version (-ThirdParty, the old switch, is
 #                                         still accepted and changes nothing)
 #
-# What it removes: running WheelBri processes; the virtual devices (SWD\wheelbri\..., SWD\wheelemu\...) and the
-# HID devices under them, including ones Windows keeps half-removed; the driver packages under both names (the hide
-# filter first, then g920); every device our drivers are on (found by their driver description, so also when
-# the package is already gone: the rig's devices with the hide filter, whatever they are) is reinstalled on Windows'
-# own driver; the drivers' UMDF registrations (WUDF\Services); the certificates that signed our driver packages (by
+# What it removes: the WheelBri Helper service (WheelBriHelper); running WheelBri processes; the virtual devices
+# (SWD\wheelbri\..., SWD\wheelemu\...) and the HID devices under them, including ones Windows keeps half-removed;
+# the driver packages under both names (the hide filter first, then g920); every device our drivers are on (found
+# by their driver description, so also when the package is already gone: the rig's devices with the hide filter,
+# whatever they are) is reinstalled on Windows' own driver; the drivers' UMDF registrations (WUDF\Services); the certificates that signed our driver packages (by
 # thumbprint: recorded at install in HKLM\SOFTWARE\wheelbri\SigningCertificates, or read from the signed catalogs of
 # the installed packages, the install folders and this repository's builds; never another test certificate) from the
 # machine's Root and TrustedPublisher stores; the install folder (%ProgramFiles%\WheelBri, an older
@@ -219,7 +219,8 @@ Write-Host "log: $log"
 Write-Host ''
 Write-Host 'Looking for what WheelBri left on this PC...'
 
-$processes = @(Get-Process -Name (@(foreach ($name in $names) { $name; "$name-service"; "$name-bridge" }) +
+$helperService = Get-Service -Name 'WheelBriHelper' -ErrorAction SilentlyContinue
+$processes = @(Get-Process -Name (@(foreach ($name in $names) { $name; "$name-service"; "$name-bridge"; "$name-helper" }) +
                                  @('ClutchProbe', 'FfbProbe')) -ErrorAction SilentlyContinue)
 $allDevices = @(Get-PnpDevice -ErrorAction SilentlyContinue)   # present and not present (half-removed ones too)
 $ourDevices = @($allDevices | Where-Object { $id = $_.InstanceId; @($names | Where-Object { $id -like "SWD\$_\*" }).Count -gt 0 })
@@ -269,6 +270,7 @@ if (-not $KeepData) {
 }
 
 $plan = @()
+if ($helperService) { $plan += "service     WheelBriHelper (WheelBri Helper, $($helperService.Status))" }
 $plan += $processes | ForEach-Object { "process     $($_.ProcessName) (pid $($_.Id))" }
 $plan += $ourDevices | ForEach-Object { "device      $($_.InstanceId) ($($_.Status))" }
 $plan += $filteredDevices | ForEach-Object { "on driver   $($_.InstanceId) ($($_.FriendlyName); $($onOurDriver[$_.InstanceId])): back to Windows' driver" }
@@ -313,6 +315,11 @@ try {
         Write-Host ''
 
         Step '[1/8] closing WheelBri'
+        # The helper service first: stopping it removes the virtual G920 it made and shows the rig again.
+        if ($helperService) {
+            if (Remove-HelperService) { Write-Host '    removed the WheelBri Helper service' }
+            else { Warn 'the WheelBri Helper service could not be removed: sc.exe delete WheelBriHelper' }
+        }
         foreach ($process in $processes) { if ($process.MainWindowHandle -ne 0) { [void]$process.CloseMainWindow() } }
         $deadline = (Get-Date).AddSeconds(30)   # a closing session removes its devices and shows the rig again itself
         while ((Get-Date) -lt $deadline -and @($processes | Where-Object { -not $_.HasExited }).Count -gt 0) {

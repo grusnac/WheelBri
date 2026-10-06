@@ -105,6 +105,10 @@ Size: a new service program, about 6 to 8 commits. The biggest risk is phase 3, 
   the status says "HELPER NOT INSTALLED" (red, Start greyed out) while no helper listens
   (`PrivilegedSteps::available`, checked once a second without connecting). A shim copy refused by a protected game
   folder says what to do. `scripts/make/app.sh` starts development builds as Administrator, `--as-user` as the user.
+- Phase 6 done (2026-10-06): the package carries `wheelbri-helper.exe`; `install.ps1` stops an earlier helper before
+  copying, then registers and starts the `WheelBriHelper` service (LocalSystem, automatic, restarted after a crash;
+  `Install-HelperService` in `driver/common.ps1`) and starts it again if the install fails after stopping it;
+  `uninstall.ps1` and `clean-pc.ps1` stop and delete it first (`Remove-HelperService`).
 
 ## Logitech RS Shifter & Handbrake
 
