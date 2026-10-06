@@ -93,6 +93,10 @@ Size: a new service program, about 6 to 8 commits. The biggest risk is phase 3, 
 - Phase 2 done (2026-10-06): `service/helper/` builds `wheelbri-helper.exe` (service `WheelBriHelper`, or
   `--console`; `--hello` asks a running one). The pipe, its permissions, the caller check and the log in the user's
   folder work; every request but Hello is answered "cannot do this yet". Not installed by the installer yet.
+- Phase 3 done (2026-10-06): the privileged steps are in `service/src/Privileged.hpp` (library
+  `wheelbri_privileged`), used by the app as before and by the helper's `HelperSession`, which now carries out every
+  request and undoes them when the connection closes. The app does not use the helper yet (phase 4); its user's HKCU
+  DirectInput entries stay with the app then.
 
 ## Logitech RS Shifter & Handbrake
 

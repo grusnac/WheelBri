@@ -325,6 +325,12 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - The wheel behind `Wheel.hpp` (`WheelDinput.cpp` DirectInput + `DinputReader`, `WheelEvdev.cpp` evdev),
     numbering inputs as the service always has (`DinputReader`, core `EvdevLayout`) and sending the same force
     feedback numbers as before (core `WheelOutput`).
+  - `Privileged.hpp` (library `wheelbri_privileged`, with `HideFilter`, `VirtualG920`, `DinputDevice` and the platform
+    file): every step that needs Administrator, with explicit inputs (nothing read from the user's settings):
+    `findDriverScript` (next to the program and up to N folders above, never a drive's root), `runDriverScript`,
+    `installG920Driver`, `putHideFilter` (install-hide.ps1, then `HideFilter::waitUntilStarted`), `writeAllowedPid`,
+    `allowOnly(process)`. The app calls them directly when elevated (`ensureG920Driver`, `ensureHideFilter` in
+    main.cpp); the helper calls them for a standard-user app. New privileged steps go there, and into the helper.
   - OS helpers in `Platform.hpp` (clock, precise sleep, thread priority, child process in a kill-on-close job,
     `SingleInstance` lock so only one session runs per computer, console close handler, `isElevated`); `FfbSelfTest`
     (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView` (`--ui`); a fixed-rate loop
@@ -406,7 +412,14 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   helper's log goes into the connected user's log folder (`wheelbri-helper-<date>.log`, the user's choice), opened
   only while impersonating that user, lines kept in memory until a user connects. `HelperClient`: the app's side
   (impersonation allowed, message mode, timeouts). `wheelbri-helper --console` (Administrator) runs it in a console,
-  `--hello` asks a running helper (exit 0 accepted, 2 refused, 3 none). Links only core and Windows libraries.
+  `--hello` asks a running helper (exit 0 accepted, 2 refused, 3 none). `HelperSession`: one per accepted
+  connection, carries the requests out through `privileged::` (HideRig names the caller's own process; PutHideFilter
+  checks each interface again with `HideFilter::interfaceProblem`, never a keyboard, mouse, system or consumer control
+  or digitizer, `hidhide::neverHiddenUsage`; ShareLogFolder opens the caller's own logs folder as the caller, refuses a
+  link, grants LocalService through that handle, sets HKLM LogFolder; the virtual G920 without HKCU entries, which the
+  app keeps); its destructor removes the G920 and shows the rig again. The helper clears a stale AllowedPid at start
+  and looks for driver scripts only next to itself (3 folders up with `--console`). Links core, `wheelbri_privileged`
+  and Windows libraries, not the app's objects.
 - `tools/uhid/` (C++, Linux only, `WE_BUILD_UHID`): Phase 4, `wheelbri-uhid`. The same virtual G920 as `driver/`
   (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
   raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. `UhidG920` holds the uhid protocol with no file descriptors so

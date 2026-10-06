@@ -44,6 +44,12 @@ namespace wheelbri::hidhide {
 // (usage page 2). A vendor tool's collections (vendor-defined pages) are not.
 [[nodiscard]] bool isGameController(const std::vector<std::string>& compatibleIds);
 
+// Why a HID collection must never get the hide filter, from its compatible ids: a keyboard, keypad, mouse or pointer,
+// system controls (power, sleep), consumer controls (media keys) or a digitizer (pen, touch screen). Empty when none of
+// those (a game controller, or compatible ids Windows did not give). The WheelBri Helper checks every interface it is
+// asked to hide against this, whatever the app said.
+[[nodiscard]] std::string neverHiddenUsage(const std::vector<std::string>& compatibleIds);
+
 // The device instance id behind a HID interface path as DirectInput reports it (DIPROP_GUIDANDPATH):
 // "\\?\hid#vid_346e&pid_0005&mi_02#8&8052f69&0&0000#{4d1e55b2-...}" -> "HID\VID_346E&PID_0005&MI_02\8&8052F69&0&0000"
 // (upper case; Windows compares them ignoring case). Empty if it is not a HID path.

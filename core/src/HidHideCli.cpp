@@ -235,6 +235,36 @@ bool isGameController(const std::vector<std::string>& compatibleIds) {
     return false;
 }
 
+std::string neverHiddenUsage(const std::vector<std::string>& compatibleIds) {
+    struct Rule {
+        std::string_view id;
+        bool prefix;
+        std::string_view what;
+    };
+    static constexpr Rule kRules[] = {
+        {"HID_DEVICE_SYSTEM_KEYBOARD", false, "a keyboard"},
+        {"HID_DEVICE_SYSTEM_MOUSE", false, "a mouse"},
+        {"HID_DEVICE_SYSTEM_CONTROL", false, "system controls"},
+        {"HID_DEVICE_SYSTEM_CONSUMER", false, "consumer controls"},
+        {"HID_DEVICE_UP:0001_U:0001", false, "a pointer"},
+        {"HID_DEVICE_UP:0001_U:0002", false, "a mouse"},
+        {"HID_DEVICE_UP:0001_U:0006", false, "a keyboard"},
+        {"HID_DEVICE_UP:0001_U:0007", false, "a keypad"},
+        {"HID_DEVICE_UP:0001_U:0080", false, "system controls"},
+        {"HID_DEVICE_UP:000C_", true, "consumer controls"},
+        {"HID_DEVICE_UP:000D_", true, "a digitizer"},
+    };
+    for (const std::string& id : compatibleIds) {
+        for (const Rule& rule : kRules) {
+            const bool match = rule.prefix ? id.size() >= rule.id.size() &&
+                                                 equalsIgnoreCase(std::string_view(id).substr(0, rule.id.size()), rule.id)
+                                           : equalsIgnoreCase(id, rule.id);
+            if (match) return std::string(rule.what) + " (" + id + ")";
+        }
+    }
+    return {};
+}
+
 std::string instanceIdOfHidPath(std::string_view path) {
     constexpr std::string_view kPrefix = "\\\\?\\";
     if (path.size() >= kPrefix.size() && path.substr(0, kPrefix.size()) == kPrefix) path.remove_prefix(kPrefix.size());

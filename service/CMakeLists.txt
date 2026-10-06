@@ -17,36 +17,44 @@ else()
     return()
 endif()
 
+# The steps that need Administrator (src/Privileged.hpp) and what they use, for the app and the WheelBri Helper.
+add_library(wheelbri_privileged STATIC
+    src/HideFilter.cpp
+    src/Privileged.cpp
+    src/VirtualG920.cpp)
+target_link_libraries(wheelbri_privileged PUBLIC wheelbri_core)
+if(WE_SERVICE_PLATFORM STREQUAL "Windows")
+    target_sources(wheelbri_privileged PRIVATE src/DinputDevice.cpp src/PlatformWin32.cpp)
+    target_link_libraries(wheelbri_privileged PUBLIC dinput8 dxguid cfgmgr32 advapi32 iphlpapi winmm)
+else()
+    target_sources(wheelbri_privileged PRIVATE src/PlatformPosix.cpp)
+endif()
+
 # Everything but main(), built once for both programs.
 add_library(wheelbri_service_objects OBJECT
     src/App.cpp
     src/DeviceWatch.cpp
     src/FfbSelfTest.cpp
-    src/HideFilter.cpp
     src/Housekeeping.cpp
     src/MappingView.cpp
     src/ServiceLogging.cpp
-    src/VirtualG920.cpp
     src/Wheel.cpp
     src/WheelSetupView.cpp
     src/ConfigPicker.cpp
     src/ShimGamesView.cpp
     src/MappingEditView.cpp
 )
-target_link_libraries(wheelbri_service_objects PUBLIC wheelbri_core)
+target_link_libraries(wheelbri_service_objects PUBLIC wheelbri_privileged)
 target_compile_definitions(wheelbri_service_objects PUBLIC WHEELBRI_VERSION="${PROJECT_VERSION}")
 
 if(WE_SERVICE_PLATFORM STREQUAL "Windows")
     target_sources(wheelbri_service_objects PRIVATE
-        src/DinputDevice.cpp
         src/DinputReader.cpp
-        src/PlatformWin32.cpp
         src/UiWindowWin32.cpp
         src/WheelDinput.cpp)
     target_link_libraries(wheelbri_service_objects PUBLIC dinput8 dxguid cfgmgr32 advapi32 iphlpapi winmm user32 gdi32 shell32 ole32 uuid)
 else()
     target_sources(wheelbri_service_objects PRIVATE
-        src/PlatformPosix.cpp
         src/UiWindowX11.cpp
         src/WheelEvdev.cpp)
     target_link_libraries(wheelbri_service_objects PUBLIC X11::X11)
@@ -93,7 +101,7 @@ if(WE_SERVICE_PLATFORM STREQUAL "Windows")
 endif()
 
 # The WheelBri Helper (Windows only): a service running as SYSTEM that does the steps needing Administrator for the
-# app (docs/future-functionalities.md). Only core and Windows' own libraries, not the app's objects.
+# app (docs/future-functionalities.md). Only core, wheelbri_privileged and Windows' libraries, not the app's objects.
 if(WE_SERVICE_PLATFORM STREQUAL "Windows")
     configure_file(app/wheelbri-helper.rc.in app/wheelbri-helper.rc @ONLY)
     set_source_files_properties("${WE_APP_BIN_DIR}/wheelbri-helper.rc" PROPERTIES
@@ -103,8 +111,10 @@ if(WE_SERVICE_PLATFORM STREQUAL "Windows")
         helper/HelperClient.cpp
         helper/HelperLog.cpp
         helper/HelperServer.cpp
+        helper/HelperSession.cpp
         "${WE_APP_BIN_DIR}/wheelbri-helper.rc")
-    target_link_libraries(wheelbri-helper PRIVATE wheelbri_core advapi32 shell32 ole32)
+    target_include_directories(wheelbri-helper PRIVATE src)
+    target_link_libraries(wheelbri-helper PRIVATE wheelbri_privileged shell32 ole32)
     target_compile_definitions(wheelbri-helper PRIVATE WHEELBRI_VERSION="${PROJECT_VERSION}")
     if(NOT MSVC)
         target_link_options(wheelbri-helper PRIVATE -static -static-libgcc -static-libstdc++)

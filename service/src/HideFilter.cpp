@@ -1,5 +1,7 @@
 #include "HideFilter.hpp"
 
+#include "Privileged.hpp"
+
 #ifdef _WIN32
 #include "DinputDevice.hpp"
 #endif
@@ -31,8 +33,6 @@ const logging::Logger& log() {
     return logger;
 }
 
-constexpr wchar_t kPolicyKey[] = L"SOFTWARE\\wheelbri\\hide";
-
 std::string narrow(std::wstring_view wide) {
     if (wide.empty()) return {};
     const int size = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
@@ -55,81 +55,10 @@ std::vector<std::string> multiSz(const wchar_t* data, std::size_t chars) {
     return items;
 }
 
-// This process's creation time: with the id, it tells the filter whether the process that hid the wheel still
-// runs (an id can be reused by another program after a crash).
-ULONGLONG processStart() {
-    FILETIME created{}, exited{}, kernel{}, user{};
-    if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) return 0;
-    return (static_cast<ULONGLONG>(created.dwHighDateTime) << 32U) | created.dwLowDateTime;
-}
-
-// The filter runs in the driver host as LocalService, which may not look at an elevated process: then it cannot
-// compare AllowedPidStart and must assume the process still runs. Let it query this process (name and times only:
-// PROCESS_QUERY_LIMITED_INFORMATION), so a reused process id after a crash is recognised.
-void letFilterCheckThisProcess() {
-    PACL dacl = nullptr;
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    DWORD status = GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr,
-                                   &dacl, nullptr, &descriptor);
-    if (status != ERROR_SUCCESS) {
-        WE_LOG_WARN(log(), "hide: cannot read this process's security (error {}): after a crash a reused process id "
-                           "may keep the wheel hidden (wheelbri-service --unhide fixes it)", status);
-        return;
-    }
-    BYTE sid[SECURITY_MAX_SID_SIZE];
-    DWORD sidSize = sizeof(sid);
-    PACL updated = nullptr;
-    if (CreateWellKnownSid(WinLocalServiceSid, nullptr, sid, &sidSize)) {
-        EXPLICIT_ACCESSW access{};
-        access.grfAccessPermissions = PROCESS_QUERY_LIMITED_INFORMATION;
-        access.grfAccessMode = GRANT_ACCESS;
-        access.grfInheritance = NO_INHERITANCE;
-        access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
-        access.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
-        access.Trustee.ptstrName = reinterpret_cast<LPWSTR>(sid);
-        status = SetEntriesInAclW(1, &access, dacl, &updated);
-        if (status == ERROR_SUCCESS) {
-            status = SetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, nullptr,
-                                     nullptr, updated, nullptr);
-        }
-    } else {
-        status = GetLastError();
-    }
-    if (status != ERROR_SUCCESS) {
-        WE_LOG_WARN(log(), "hide: cannot let wheelbri-hide check this process (error {}): after a crash a reused "
-                           "process id may keep the wheel hidden (wheelbri-service --unhide fixes it)", status);
-    }
-    if (updated != nullptr) LocalFree(updated);
-    LocalFree(descriptor);
-}
-
-bool writeAllowedPid(const DWORD pid) {
-    HKEY key = nullptr;
-    LSTATUS status = RegCreateKeyExW(HKEY_LOCAL_MACHINE, kPolicyKey, 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE,
-                                     nullptr, &key, nullptr);
-    if (status == ERROR_SUCCESS) {
-        // The start time first: the filter reads AllowedPid, then checks it against AllowedPidStart.
-        const ULONGLONG started = pid == 0 ? 0 : processStart();
-        const LSTATUS startStatus =
-            RegSetValueExW(key, L"AllowedPidStart", 0, REG_QWORD, reinterpret_cast<const BYTE*>(&started), sizeof(started));
-        if (startStatus != ERROR_SUCCESS) {
-            WE_LOG_WARN(log(), "hide: cannot write AllowedPidStart (error {}): a reused process id may stay allowed",
-                        startStatus);
-        }
-        status = RegSetValueExW(key, L"AllowedPid", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&pid), sizeof(pid));
-        RegCloseKey(key);
-    }
-    if (status != ERROR_SUCCESS) {
-        WE_LOG_ERROR(log(), "hide: cannot write HKLM\\SOFTWARE\\wheelbri\\hide (error {}){}", status,
-                     status == ERROR_ACCESS_DENIED ? ": run the service as Administrator" : "");
-        return false;
-    }
-    return true;
-}
-
 // Device properties (the same Device Manager and Get-PnpDeviceProperty show), defined here rather than through
 // <devpkey.h> and INITGUID.
 constexpr DEVPROPKEY kUpperFilters{{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 19};   // DEVPKEY_Device_UpperFilters (20 is LowerFilters)
+constexpr DEVPROPKEY kCompatibleIds{{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 4};   // DEVPKEY_Device_CompatibleIds
 constexpr DEVPROPKEY kDriverDesc{{0xa8b865dd, 0x2e3d, 0x4094, {0xad, 0x97, 0xe5, 0x93, 0xa7, 0x0c, 0x75, 0xd6}}, 4};
 
 // A device's string or string-list property; empty if it has none.
@@ -345,9 +274,21 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
     return checks;
 }
 
+std::string HideFilter::interfaceProblem(const std::string& instanceId) {
+    DEVINST node = 0;
+    const std::wstring wide(instanceId.begin(), instanceId.end());   // device instance ids are ASCII
+    if (CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+        return instanceId + " is not connected";
+    }
+    if (const std::string usage = hidhide::neverHiddenUsage(devNodeStrings(node, kCompatibleIds)); !usage.empty()) {
+        return instanceId + " is " + usage + ": never hidden";
+    }
+    return {};
+}
+
 bool HideFilter::hide() {
-    letFilterCheckThisProcess();
-    hidden_ = writeAllowedPid(GetCurrentProcessId());
+    std::string message;
+    hidden_ = privileged::allowOnly(GetCurrentProcess(), message);
     if (hidden_) {
         WE_LOG_INFO(log(), "hide: the rig is hidden from games (only this process, {}, may open its devices)",
                     GetCurrentProcessId());
@@ -357,7 +298,7 @@ bool HideFilter::hide() {
 
 void HideFilter::restore() {
     if (!hidden_) return;
-    if (writeAllowedPid(0)) {
+    if (privileged::writeAllowedPid(0, 0)) {
         WE_LOG_INFO(log(), "hide: the rig is visible to games again");
         hidden_ = false;
     }
@@ -365,24 +306,19 @@ void HideFilter::restore() {
 }
 
 void HideFilter::clear() {
-    if (writeAllowedPid(0)) {
+    if (privileged::writeAllowedPid(0, 0)) {
         WE_LOG_INFO(log(), "hide: wheelbri-hide lets every program open the rig's devices again");
     }
 }
 
 void HideFilter::clearStale() {
-    DWORD pid = 0;
-    DWORD size = sizeof(pid);
-    if (RegGetValueW(HKEY_LOCAL_MACHINE, kPolicyKey, L"AllowedPid", RRF_RT_REG_DWORD, nullptr, &pid, &size) !=
-            ERROR_SUCCESS ||
-        pid == 0) {
-        return;
-    }
+    const DWORD pid = privileged::allowedPid();
+    if (pid == 0) return;
     if (pid == GetCurrentProcessId()) {
         // This process, but no session hides anything now (clearStale runs before hiding): an earlier session's
         // restore could not write the value. Without this the rig stays hidden until the app closes.
         WE_LOG_WARN(log(), "hide: the rig was still hidden for this process by an earlier session: clearing");
-        if (!writeAllowedPid(0)) WE_LOG_ERROR(log(), "hide: cannot clear it; the rig stays hidden from games");
+        if (!privileged::writeAllowedPid(0, 0)) WE_LOG_ERROR(log(), "hide: cannot clear it; the rig stays hidden from games");
         return;
     }
     HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
@@ -393,7 +329,7 @@ void HideFilter::clearStale() {
         return;
     }
     WE_LOG_WARN(log(), "hide: the wheel was still hidden for process {}, which is gone (crash?): clearing", pid);
-    if (!writeAllowedPid(0)) {
+    if (!privileged::writeAllowedPid(0, 0)) {
         WE_LOG_ERROR(log(), "hide: the wheel stays hidden: run wheelbri-service --unhide as Administrator");
     }
 }
@@ -419,6 +355,9 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
 }
 const char* HideFilter::stateName(const State state) {
     return state == State::Ready ? "hidden while WheelBri runs" : "not hidden";
+}
+std::string HideFilter::interfaceProblem(const std::string& instanceId) {
+    return instanceId + ": the hide filter is for Windows only";
 }
 bool HideFilter::hide() { return false; }
 void HideFilter::restore() {}

@@ -1,6 +1,7 @@
 #include "HelperServer.hpp"
 
 #include "HelperLog.hpp"
+#include "HelperSession.hpp"
 
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/HelperProtocol.hpp"
@@ -89,7 +90,8 @@ Caller identify(const HANDLE pipe, const std::wstring& appFolder) {
         return caller;
     }
     caller.pid = pid;
-    caller.process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
+    // READ_CONTROL | WRITE_DAC: HideRig lets the hide filter (LocalService) look at this process.
+    caller.process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | READ_CONTROL | WRITE_DAC, FALSE, pid);
     if (caller.process == nullptr) {
         caller.why = "the caller's process cannot be opened (" + windowsError(GetLastError()) + ")";
         return caller;
@@ -122,12 +124,13 @@ Caller identify(const HANDLE pipe, const std::wstring& appFolder) {
     return caller;
 }
 
-// The caller's own log folder, %LOCALAPPDATA%\wheelbri\logs, handed to HelperLog with the caller's token. Needs a
-// message read first (Windows lets a pipe server impersonate only after that).
-void attachCallersLog(const HANDLE pipe) {
+// The caller's own log folder, %LOCALAPPDATA%\wheelbri\logs, handed to HelperLog with the caller's token; returns
+// another copy of that token for the session (ShareLogFolder), or null. Needs a message read first (Windows lets a
+// pipe server impersonate only after that).
+HANDLE attachCallersLog(const HANDLE pipe) {
     if (!ImpersonateNamedPipeClient(pipe)) {
         WE_LOG_WARN(log(), "helper: cannot act as the caller to find its log folder: {}", windowsError(GetLastError()));
-        return;
+        return nullptr;
     }
     HANDLE token = nullptr;
     const bool haveToken =
@@ -148,17 +151,24 @@ void attachCallersLog(const HANDLE pipe) {
         WE_LOG_WARN(log(), "helper: the caller's log folder is unknown (it must connect allowing impersonation): "
                            "this log stays in memory");
         if (haveToken) CloseHandle(token);
-        return;
+        return nullptr;
+    }
+    HANDLE forSession = nullptr;
+    if (!DuplicateTokenEx(token, TOKEN_IMPERSONATE | TOKEN_QUERY, nullptr, SecurityImpersonation, TokenImpersonation,
+                          &forSession)) {
+        forSession = nullptr;
     }
     HelperLog::instance().attachUser(token, folder);
+    return forSession;
 }
 
 class Connection {
 public:
-    Connection(const HANDLE pipe, const HANDLE stop, const std::wstring& appFolder)
-        : pipe_(pipe), stop_(stop), appFolder_(appFolder) {}
+    Connection(const HANDLE pipe, const HANDLE stop, const std::wstring& appFolder, const int scriptLevels)
+        : pipe_(pipe), stop_(stop), appFolder_(appFolder), scriptLevels_(scriptLevels) {}
 
     ~Connection() {
+        session_.reset();   // undoes what the caller set up (owns the caller's process handle then)
         if (caller_.process != nullptr) CloseHandle(caller_.process);
         DisconnectNamedPipe(pipe_);
         CloseHandle(pipe_);
@@ -188,9 +198,14 @@ public:
                 first_ = false;
                 caller_ = identify(pipe_, appFolder_);
                 if (caller_.accepted) {
-                    attachCallersLog(pipe_);
+                    const HANDLE token = attachCallersLog(pipe_);
                     WE_LOG_INFO(log(), "helper: {} (pid {}, session {}) connected", caller_.image, caller_.pid,
                                 caller_.session);
+                    const HANDLE stop = stop_;
+                    session_ = std::make_unique<HelperSession>(caller_.process, token, scriptLevels_, [stop] {
+                        return WaitForSingleObject(stop, 0) == WAIT_OBJECT_0;
+                    });
+                    caller_.process = nullptr;   // the session's now
                 } else {
                     WE_LOG_WARN(log(), "helper: refused a caller (pid {}): {}", caller_.pid, caller_.why);
                 }
@@ -199,8 +214,8 @@ public:
             const Reply reply = answer(std::span<const std::uint8_t>(buffer.data(), bytes), keepOpen);
             if (!send(reply) || !keepOpen) break;
         }
-        // Phase 3: undo what this connection set up (remove its virtual G920, show the rig again).
         if (caller_.accepted) WE_LOG_INFO(log(), "helper: pid {} disconnected", caller_.pid);
+        session_.reset();   // removes its virtual G920, shows the rig again
     }
 
 private:
@@ -230,10 +245,13 @@ private:
             WE_LOG_WARN(log(), "helper: refused {} from pid {}: {}", requestName(request->type), caller_.pid, problem);
             return Reply{request->seq, Status::Refused, problem};
         }
-        // Phase 3 carries the requests out; until then the helper only answers.
-        WE_LOG_INFO(log(), "helper: {} from pid {}: not carried out by this version yet", requestName(request->type),
-                    caller_.pid);
-        return Reply{request->seq, Status::Unsupported, version + " cannot do this yet"};
+        WE_LOG_INFO(log(), "helper: {} from pid {}", requestName(request->type), caller_.pid);
+        Reply reply = session_->handle(*request);
+        if (reply.status != Status::Ok) {
+            WE_LOG_WARN(log(), "helper: {} for pid {}: {}: {}", requestName(request->type), caller_.pid,
+                        statusName(reply.status), reply.text);
+        }
+        return reply;
     }
 
     bool send(const Reply& reply) {
@@ -250,7 +268,9 @@ private:
     HANDLE pipe_;
     HANDLE stop_;
     const std::wstring& appFolder_;
+    int scriptLevels_;
     Caller caller_;
+    std::unique_ptr<HelperSession> session_;
     bool first_ = true;
 };
 
@@ -261,7 +281,8 @@ struct Worker {
 
 }  // namespace
 
-HelperServer::HelperServer(std::wstring appFolder) : appFolder_(std::move(appFolder)) {}
+HelperServer::HelperServer(std::wstring appFolder, const int scriptLevels)
+    : appFolder_(std::move(appFolder)), scriptLevels_(scriptLevels) {}
 
 bool HelperServer::run(void* const stopEvent, std::string& error) {
     const HANDLE stop = static_cast<HANDLE>(stopEvent);
@@ -319,7 +340,7 @@ bool HelperServer::run(void* const stopEvent, std::string& error) {
         Worker& worker = workers.emplace_back();
         worker.thread = std::thread([pipe, stop, this, done = worker.done] {
             {
-                Connection connection(pipe, stop, appFolder_);
+                Connection connection(pipe, stop, appFolder_, scriptLevels_);
                 connection.serve();
             }
             done->store(true);

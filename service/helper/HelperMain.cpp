@@ -9,6 +9,7 @@
 #include "HelperClient.hpp"
 #include "HelperLog.hpp"
 #include "HelperServer.hpp"
+#include "HideFilter.hpp"
 
 #include "wheelbri/Logging.hpp"
 
@@ -61,9 +62,12 @@ void startLogging(const bool console) {
     WE_LOG_INFO(log(), "WheelBri Helper {} starting ({})", WHEELBRI_VERSION, console ? "console" : "service");
 }
 
-int serve() {
+// `console`: started by hand (a development build may then find its driver scripts in the source tree above it).
+int serve(const bool console) {
+    // A rig left hidden for a process that is gone (the helper or the app crashed): visible again.
+    service::HideFilter::clearStale();
     std::string error;
-    helper::HelperServer server(ownFolder());
+    helper::HelperServer server(ownFolder(), console ? 3 : 0);
     if (!server.run(gStop, error)) {
         WE_LOG_CRITICAL(log(), "helper: {}", error);
         return 1;
@@ -102,7 +106,7 @@ void WINAPI serviceMain(DWORD, LPWSTR*) {
     reportStatus(SERVICE_START_PENDING);
     startLogging(false);
     reportStatus(SERVICE_RUNNING);
-    const int code = serve();
+    const int code = serve(false);
     logging::shutdown();
     reportStatus(SERVICE_STOPPED, static_cast<DWORD>(code));
 }
@@ -160,7 +164,7 @@ int main(const int argc, char** argv) {
         }
         startLogging(true);
         SetConsoleCtrlHandler(consoleControl, TRUE);
-        const int code = serve();
+        const int code = serve(true);
         logging::shutdown();
         return code;
     }

@@ -25,7 +25,9 @@ public:
 
     // Null + `error` if it cannot be created (not Windows, driver not installed, not Administrator, ...).
     // `cancelled`: checked while waiting for Windows (Stop pressed): then null, "cancelled".
-    [[nodiscard]] static std::unique_ptr<VirtualG920> create(std::string& error, const std::function<bool()>& cancelled = {});
+    // `userHive`: also the user's DirectInput entries (HKCU); false in the WheelBri Helper, where HKCU is SYSTEM's.
+    [[nodiscard]] static std::unique_ptr<VirtualG920> create(std::string& error, const std::function<bool()>& cancelled = {},
+                                                             bool userHive = true);
     ~VirtualG920();
 
     VirtualG920(const VirtualG920&) = delete;

@@ -87,6 +87,18 @@ TEST(HidHideCli, TellsGameControllersFromOtherCollections) {
     EXPECT_FALSE(isGameController({}));
 }
 
+TEST(HidHideCli, NeverHidesKeyboardsMiceAndSystemControls) {
+    EXPECT_EQ(neverHiddenUsage({"HID_DEVICE_UP:0001_U:0004", "HID_DEVICE"}), "");   // joystick
+    EXPECT_EQ(neverHiddenUsage({"HID_DEVICE_UP:0001_U:0008", "HID_DEVICE"}), "");   // multi-axis (many wheels)
+    EXPECT_EQ(neverHiddenUsage({}), "");                                            // none given: DirectInput decides
+    EXPECT_NE(neverHiddenUsage({"HID_DEVICE_SYSTEM_KEYBOARD", "HID_DEVICE_UP:0001_U:0006", "HID_DEVICE"}), "");
+    EXPECT_NE(neverHiddenUsage({"hid_device_system_mouse"}), "");
+    EXPECT_NE(neverHiddenUsage({"HID_DEVICE_UP:0001_U:0080"}), "");                 // power / sleep
+    EXPECT_NE(neverHiddenUsage({"HID_DEVICE_UP:000C_U:0001"}), "");                 // media keys
+    EXPECT_NE(neverHiddenUsage({"HID_DEVICE_UP:000D_U:0004"}), "");                 // touch screen
+    EXPECT_NE(neverHiddenUsage({"HID_DEVICE_UP:0001_U:0002"}).find("mouse"), std::string::npos);
+}
+
 TEST(HidHideCli, TurnsDirectInputPathsIntoInstanceIds) {
     EXPECT_EQ(instanceIdOfHidPath(R"(\\?\hid#vid_346e&pid_0005&mi_02#8&8052f69&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030})"),
               R"(HID\VID_346E&PID_0005&MI_02\8&8052F69&0&0000)");
