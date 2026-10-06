@@ -19,6 +19,7 @@ add_executable(wheelbri_tests
     FfbUsageTest.cpp
     FileTextTest.cpp
     GameUseWatchTest.cpp
+    HelperProtocolTest.cpp
     HidHideCliTest.cpp
     HidPidTest.cpp
     InputReadStatsTest.cpp

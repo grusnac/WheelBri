@@ -15,6 +15,7 @@ add_library(wheelbri_core STATIC
     src/FfbUsage.cpp
     src/GameUseWatch.cpp
     src/HidG920.cpp
+    src/HelperProtocol.cpp
     src/HidHideCli.cpp
     src/HidPid.cpp
     src/IniDocument.cpp

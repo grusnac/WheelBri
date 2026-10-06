@@ -307,6 +307,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     (regular files only), `writeFileReplacing` (writes `<file>.tmp`, then renames it over: never half a file, never a
     file in place of a folder), `forEachEntry` (a folder listing that never throws), `truncateUtf8`. Use them for the
     user's files rather than raw streams.
+  - `HelperProtocol.hpp` (namespace `wheelbri::helper`): the app <-> WheelBri Helper pipe messages (the planned
+    helper service that lets the app run as a standard user, `docs/future-functionalities.md`): a fixed list of
+    requests, their encoding and the rules each is checked against (`requestProblem`, `hideDeviceProblem`,
+    `isInstalledApp`). Every new request goes there, with its checks and `HelperProtocolTest`.
   - `SenderGate.hpp`: who may send to the UDP ports. The receiver looks up the process that owns the sender's port
     (Windows: `platform::udpPortOwner` / `processImage` in the service, the same through `iphlpapi.dll` loaded on
     first use in the shim) once per new port, caches the verdict (2 s accepted, 10 s refused) and caps lookups at 16

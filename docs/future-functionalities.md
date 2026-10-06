@@ -4,7 +4,7 @@ Ideas worked out but not built, kept here until we decide to do them. Nothing in
 
 ## Running WheelBri as a standard user (the helper service plan)
 
-Planned on 2026-10-05; not started. End users are standard users, while development runs as Administrator. Today
+Planned on 2026-10-05; started 2026-10-06 (see Progress). End users are standard users, while development runs as Administrator. Today
 `wheelbri.exe` always asks for Administrator (its manifest says `requireAdministrator`), so a standard user cannot run
 it at all.
 
@@ -74,19 +74,22 @@ Safety rules for the helper:
 
 Size: a new service program, about 6 to 8 commits. The biggest risk is phase 3, which moves code that works today.
 
-### Decisions to make before building it
+### Decisions (taken 2026-10-06)
 
-1. **Driver logs.** (a) Keep them in the user's log folder: the helper grants the drivers access when the user
-   connects, done through a handle so that a link cannot redirect it (keeps the rule "everything at user level").
-   (b) Move them to `C:\ProgramData\wheelbri\logs` (system components; simpler and safer; the Logs tab still shows
-   them). Suggested: (a).
-2. **The helper's own log.** It runs as SYSTEM, so writing into a user's folder is risky. Suggested:
-   `C:\ProgramData\wheelbri\logs`, readable by users, shown in the Logs tab: the one exception to the user-level rule.
-3. **Development builds.** The build in `D:\cpp-projects\WheelBri\build` is not in Program Files, so the helper refuses
-   it. Either keep running the dev build as Administrator (as now), or add an admin-only registry switch that lets the
-   helper accept the build folder. Suggested: as Administrator.
-4. **Protected game folders.** A clear message only, or let the helper copy the shim there (a SYSTEM service then
-   writes DLLs into Program Files). Suggested: the message only.
+1. **Driver logs** stay in the user's log folder: the helper grants the drivers access when the user connects,
+   through a handle so that a link cannot redirect it.
+2. **The helper's own log** goes into the connected user's log folder too (`wheelbri-helper-<date>.log`, with every
+   other log; the user's choice: all logs in one place). The helper writes it while impersonating the pipe's client,
+   so it can only write where that user could, and a link in the folder gains nothing. Before any user connects (at
+   boot) it keeps its lines in memory and writes them at the first connection.
+3. **Development builds** keep running as Administrator: the helper accepts only `wheelbri.exe` from its install
+   folder, and the app does the privileged steps itself when elevated.
+4. **Protected game folders**: a clear message only; the helper never copies DLLs.
+
+### Progress
+
+- Phase 1 done (2026-10-06): `core/include/wheelbri/HelperProtocol.hpp` (requests, replies, rules,
+  `isInstalledApp`), `HelperProtocolTest`. Not used by anything yet.
 
 ## Logitech RS Shifter & Handbrake
 
