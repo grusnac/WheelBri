@@ -3,7 +3,9 @@
 # Every name below is looked for under both names: $names = wheelbri and the old wheelemu.
 #
 #   clean-pc.ps1                          list, ask, remove
-#   clean-pc.ps1 -Yes                     no question (and no "press Enter" at the end)
+#   clean-pc.ps1 -Yes                     no question
+# It never waits for Enter at the end: run without Administrator, it goes on in an Administrator window that closes
+# when done, and this window then shows that window's log.
 #   clean-pc.ps1 -KeepData                keep %LOCALAPPDATA%\wheelbri (rigs, configs, app.ini, logs, telemetry) and
 #                                         C:\ProgramData\wheelbri (logs of older versions), and the old-named ones
 #   clean-pc.ps1 -GameFolder "D:\Games\Need for Speed"
@@ -40,7 +42,8 @@ param(
     [switch]$ThirdParty,       # old switch: removing them is now the default
     [switch]$KeepThirdParty,
     [string[]]$GameFolder = @(),
-    [string]$UserLocalAppData = ''   # the user's %LOCALAPPDATA%, passed on when the script elevates itself
+    [string]$UserLocalAppData = '',  # the user's %LOCALAPPDATA%, passed on when the script elevates itself
+    [string]$LogPath = ''            # the log, chosen by the window that elevated it (it shows the log afterwards)
 )
 
 if (-not $UserLocalAppData) { $UserLocalAppData = $env:LOCALAPPDATA }
@@ -54,6 +57,7 @@ $GameFolder = @($GameFolder | ForEach-Object { $_ -split ',' } | ForEach-Object 
 
 function Forwarded {
     $list = @('-UserLocalAppData', $UserLocalAppData)
+    if ($LogPath) { $list += '-LogPath'; $list += $LogPath }
     if ($Yes) { $list += '-Yes' }
     if ($KeepData) { $list += '-KeepData' }
     if ($KeepThirdParty) { $list += '-KeepThirdParty' }
@@ -71,11 +75,23 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
 # Administrator: start again elevated, in its own window, and pass its exit code on.
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    # The Administrator window closes when it is done (no "press Enter"): its log is shown here afterwards.
+    $LogPath = Join-Path $env:TEMP "wheelbri-clean-pc-$(Get-Date -Format yyyy-MM-dd-HHmmss).log"
     $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" " +
                  ((Forwarded | ForEach-Object { if ($_ -like '-*') { $_ } else { "`"$($_ -replace '\\$', '\\')`"" } }) -join ' ')   # "D:\" -> "D:\\"
     Write-Host 'Cleaning the PC needs Administrator: answer the Windows prompt; it goes on in a new window.'
     try {
         $p = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -Wait -PassThru
+        if (Test-Path -LiteralPath $LogPath) {
+            # Its transcript without PowerShell's header and footer blocks.
+            $inHeader = $false
+            foreach ($line in @(Get-Content -LiteralPath $LogPath)) {
+                if ($line -eq ('*' * 22)) { $inHeader = -not $inHeader; continue }
+                if (-not $inHeader -and $line -notlike 'Windows PowerShell transcript*') { Write-Host $line }
+            }
+        } else {
+            Write-Host "(the Administrator window wrote no log: exit code $($p.ExitCode))"
+        }
         exit $p.ExitCode
     } catch {
         Write-Host 'Administrator was refused: nothing was removed.' -ForegroundColor Red
@@ -91,11 +107,10 @@ $ErrorActionPreference = 'Continue'
 $commonScript = Join-Path $PSScriptRoot '..\..\driver\common.ps1'
 if (-not (Test-Path $commonScript)) {
     Write-Host "$commonScript is missing: run this from the repository (scripts\make)." -ForegroundColor Red
-    if (-not $Yes) { Read-Host 'Press Enter to close' | Out-Null }
     exit 1
 }
 . $commonScript
-$log = Join-Path $env:TEMP "wheelbri-clean-pc-$(Get-Date -Format yyyy-MM-dd-HHmmss).log"
+$log = if ($LogPath) { $LogPath } else { Join-Path $env:TEMP "wheelbri-clean-pc-$(Get-Date -Format yyyy-MM-dd-HHmmss).log" }
 # A log is a help, not a must: if it cannot start, say so and go on (the window still explains what happens).
 try { Start-Transcript -Path $log | Out-Null } catch { Write-Host "(no log file: $($_.Exception.Message))"; $log = '(none)' }
 $warnings = New-Object System.Collections.Generic.List[string]
@@ -443,6 +458,5 @@ try {
     }
     Write-Host "log: $log"
     try { Stop-Transcript | Out-Null } catch { }
-    if (-not $Yes) { Read-Host 'Press Enter to close' | Out-Null }
 }
 exit $exitCode

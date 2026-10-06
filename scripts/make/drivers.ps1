@@ -17,8 +17,8 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 $drivers = [ordered]@{
-    g920 = @{ Project = 'driver\wheelbri-g920.vcxproj';      Installer = 'driver\install-driver.ps1' }
-    hide = @{ Project = 'driver\hide\wheelbri-hide.vcxproj'; Installer = 'driver\hide\install-hide.ps1' }
+    g920 = @{ Project = 'driver\wheelbri-g920.vcxproj';      Installer = 'driver\install-driver.ps1'; Log = 'wheelbri-driver-install-' }
+    hide = @{ Project = 'driver\hide\wheelbri-hide.vcxproj'; Installer = 'driver\hide\install-hide.ps1'; Log = 'wheelbri-hide-install-' }
 }
 $Only = $Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ }
 foreach ($name in $Only) {
@@ -61,16 +61,24 @@ foreach ($name in $Only) {
         & $installer -Configuration $Configuration
         if ($LASTEXITCODE) { Write-Host "$name install failed" -ForegroundColor Red; exit 1 }
     } else {
-        # One Administrator window per driver; on failure it waits for Enter so its output can be read.
-        $command = "& '$installer' -Configuration $Configuration; " +
-                   "if (`$LASTEXITCODE) { Read-Host 'install failed, press Enter to close' }; exit `$LASTEXITCODE"
+        # One Administrator window per driver; it closes when done (never waits for Enter). On failure the end of
+        # the installer's own log is shown here instead.
+        $command = "& '$installer' -Configuration $Configuration; exit `$LASTEXITCODE"
         try {
             $p = Start-Process powershell.exe -Verb RunAs -PassThru -Wait `
                 -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"$command`""
         } catch {
             Write-Host "$name install was not started (Administrator refused?)" -ForegroundColor Red; exit 1
         }
-        if ($p.ExitCode -ne 0) { Write-Host "$name install failed (exit $($p.ExitCode))" -ForegroundColor Red; exit 1 }
+        if ($p.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA "wheelbri\logs\$($drivers[$name].Log)$(Get-Date -Format yyyy-MM-dd).log"
+            if (Test-Path -LiteralPath $log) {
+                Write-Host "the end of $log :"
+                Get-Content -LiteralPath $log -Tail 25 | ForEach-Object { Write-Host "  $_" }
+            }
+            Write-Host "$name install failed (exit $($p.ExitCode))" -ForegroundColor Red
+            exit 1
+        }
     }
 }
 Write-Host "installed: $($Only -join ', ')" -ForegroundColor Green
