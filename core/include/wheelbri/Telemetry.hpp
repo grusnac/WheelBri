@@ -20,7 +20,7 @@
 
 namespace wheelbri {
 
-// One row of telemetry-*.csv. `ffb` is null when game force feedback is off.
+// One line of telemetry-*.log. `ffb` is null when game force feedback is off.
 struct TelemetrySample {
     std::uint64_t nowNs = 0;           // monotonic clock
     std::uint32_t sequence = 0;        // StatePacket sequence sent to the shim
@@ -33,23 +33,25 @@ struct TelemetrySample {
 };
 
 // Local recording of everything that passes through the service, for tuning and debugging after a drive.
-// Nothing leaves the PC. One pair of CSV files per day (local time), shared by every session of that day:
+// Nothing leaves the PC. One pair of log files per day (local time), shared by every session of that day, in the same
+// line format as the other logs ("[date time] [info ] [component] message"), the message being key=value pairs:
 //
-//  telemetry-YYYY-MM-DD.csv   one row every 1/rate_hz: the physical wheel (raw axes, buttons, hat), the mapped
+//  telemetry-YYYY-MM-DD.log   a line every 1/rate_hz: the physical wheel (raw axes, buttons, hat), the mapped
 //                             state, what the emulated wheel reports to the game, the game's force feedback per
-//                             slot (requested -> sent to the wheel) and loop timing.
-//  ffb-YYYY-MM-DD.csv         one row per force feedback change the game sent (every SlotState / StopAll
-//                             packet, keep-alives are only counted), with every effect parameter; and one row per
-//                             call made to the wheel (wheel_*: wait_us, call_us), the delay to the rim.
+//                             slot in use (requested -> sent to the wheel) and loop timing.
+//  ffb-YYYY-MM-DD.log         a line per force feedback change the game sent (every SlotState / StopAll packet,
+//                             keep-alives are only counted), with every effect parameter; and a line per call made
+//                             to the wheel (kind=wheel_*: wait_us, call_us), the delay to the rim.
 //
-// With [telemetry] only_changes (default) a telemetry row is written only when one of the wheel, mapped,
-// game-facing or force feedback values changed (checked rate_hz times a second), plus one row every
-// heartbeat_s; a value therefore holds until the next row. ffb-*.csv only gets rows for real changes:
+// With [telemetry] only_changes (default) a telemetry line is written only when one of the wheel, mapped,
+// game-facing or force feedback values changed (checked rate_hz times a second), plus one line every
+// heartbeat_s; a value therefore holds until the next line. ffb-*.log only gets lines for real changes:
 // the shim's periodic re-sends of an unchanged effect are left out.
 //
-// A new file starts with '#' comment lines and the column header row. Every session then appends a
-// "# session ..." block (version, device, config) followed by its rows; a session running past midnight
-// continues in the next day's files. `time` is the local time of day, `t_ms` counts from the session start.
+// A new file starts with lines saying what the keys mean. Every session then writes "session started ..." and its
+// header lines (version, device, config) before its rows, which start with t_ms= (from the session start); a
+// session running past midnight continues in the next day's files. Values that do not apply are left out
+// (an idle force feedback slot, ffb_* with game force feedback off).
 class TelemetryRecorder {
 public:
     // `wallNow` is the current wall-clock time (the session start). `header` lines are written as '#'
@@ -103,7 +105,10 @@ private:
     // Starts the clock on the first call, moves to the next day's files when midnight has passed, and
     // returns the wall-clock time of `nowNs`.
     WallClock::time_point advance(std::uint64_t nowNs);
-    void appendTimes(std::string& line, WallClock::time_point wall, std::uint64_t nowNs) const;
+    // "[date time] [info ] [component] " for `wall` (remembered for the max_file_mb note), then "t_ms=...".
+    void appendStamp(std::string& line, WallClock::time_point wall, const char* component);
+    void appendTimes(std::string& line, WallClock::time_point wall, std::uint64_t nowNs, const char* component);
+    std::string lastStamp_;
 
     TelemetryConfig config_;
     std::filesystem::path directory_;
@@ -146,7 +151,7 @@ private:
     std::string sampleExact_;
 };
 
-// Column names of telemetry-*.csv, in order (also written as the header row).
+// The keys a telemetry-*.log row can have, in the order they are written (slots and ffb_* only while in use).
 [[nodiscard]] std::vector<std::string> telemetryColumns();
 
 }  // namespace wheelbri

@@ -48,24 +48,41 @@ protected:
         return recorder;
     }
 
-    static std::vector<std::string> lines(const fs::path& path, const bool withComments = false) {
+    // Every line, or only the rows (the lines whose message starts with t_ms=).
+    static std::vector<std::string> lines(const fs::path& path, const bool all = false) {
         std::ifstream file(path);
         std::vector<std::string> result;
         for (std::string line; std::getline(file, line);) {
-            if (withComments || (!line.empty() && line[0] != '#')) {
+            if (all || message(line).rfind("t_ms=", 0) == 0) {
                 result.push_back(line);
             }
         }
         return result;
     }
 
-    static std::size_t fields(const std::string& line) {
-        return static_cast<std::size_t>(std::count(line.begin(), line.end(), ',')) + 1;
+    // The part after "[date time] [level] [component] ".
+    static std::string message(const std::string& line) {
+        std::size_t at = 0;
+        for (int i = 0; i < 3; ++i) {
+            at = line.find("] ", at);
+            if (at == std::string::npos) return {};
+            at += 2;
+        }
+        return line.substr(at);
     }
 
-    static std::size_t count(const std::vector<std::string>& all, const std::string& prefix) {
+    // The value of `key` in a row ("" when the row has no such key).
+    static std::string value(const std::string& line, const std::string& key) {
+        const std::string text = " " + message(line);
+        const std::size_t at = text.find(" " + key + "=");
+        if (at == std::string::npos) return {};
+        const std::size_t start = at + key.size() + 2;
+        return text.substr(start, text.find(' ', start) - start);
+    }
+
+    static std::size_t count(const std::vector<std::string>& all, const std::string& part) {
         return static_cast<std::size_t>(std::count_if(
-            all.begin(), all.end(), [&](const std::string& line) { return line.rfind(prefix, 0) == 0; }));
+            all.begin(), all.end(), [&](const std::string& line) { return message(line).rfind(part, 0) == 0; }));
     }
 
     fs::path dir_;
@@ -74,18 +91,19 @@ protected:
 TEST_F(TelemetryTest, OneFilePerDayNamedByDate) {
     auto recorder = open(at(14, 25, 1));
     ASSERT_NE(recorder, nullptr);
-    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-09-30.csv");
-    EXPECT_EQ(recorder->ffbPath().filename(), "ffb-2026-09-30.csv");
+    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-09-30.log");
+    EXPECT_EQ(recorder->ffbPath().filename(), "ffb-2026-09-30.log");
     recorder.reset();
 
-    const auto all = lines(dir_ / "telemetry-2026-09-30.csv", true);
-    EXPECT_EQ(count(all, "# wheelbri telemetry format 2"), 1U);
-    EXPECT_EQ(count(all, "# session started 2026-09-30 14:25:01"), 1U);
-    EXPECT_EQ(count(all, "# source: test wheel"), 1U);
-    const auto data = lines(dir_ / "telemetry-2026-09-30.csv");
-    ASSERT_EQ(data.size(), 1U);
-    EXPECT_EQ(data[0].rfind("time,t_ms,seq,raw_a0", 0), 0U);
-    EXPECT_EQ(fields(data[0]), telemetryColumns().size());
+    const auto all = lines(dir_ / "telemetry-2026-09-30.log", true);
+    EXPECT_EQ(count(all, "wheelbri telemetry format 3"), 1U);
+    EXPECT_EQ(count(all, "session started 2026-09-30 14:25:01"), 1U);
+    EXPECT_EQ(count(all, "source: test wheel"), 1U);
+    // Every line in the other logs' format.
+    for (const auto& line : all) {
+        EXPECT_EQ(line.rfind("[2026-09-30 14:25:01.000] [info ] [telemetry     ] ", 0), 0U) << line;
+    }
+    EXPECT_TRUE(lines(dir_ / "telemetry-2026-09-30.log").empty());   // no rows yet
 }
 
 TEST_F(TelemetryTest, SessionsOfTheSameDayAppendWithOneColumnRow) {
@@ -96,18 +114,18 @@ TEST_F(TelemetryTest, SessionsOfTheSameDayAppendWithOneColumnRow) {
         sample.nowNs = 5 * kMs;
         recorder->writeSample(sample);
     }
-    const auto all = lines(dir_ / "telemetry-2026-09-30.csv", true);
-    EXPECT_EQ(count(all, "time,"), 1U);
-    EXPECT_EQ(count(all, "# session started 2026-09-30 09:00:00"), 1U);
-    EXPECT_EQ(count(all, "# session started 2026-09-30 20:00:00"), 1U);
-    const auto data = lines(dir_ / "telemetry-2026-09-30.csv");
-    ASSERT_EQ(data.size(), 3U);
-    EXPECT_EQ(data[1].rfind("09:00:00.000,0.0,", 0), 0U);
-    EXPECT_EQ(data[2].rfind("20:00:00.000,0.0,", 0), 0U);
-    EXPECT_EQ(lines(dir_ / "ffb-2026-09-30.csv").size(), 1U);  // just the column row
+    const auto all = lines(dir_ / "telemetry-2026-09-30.log", true);
+    EXPECT_EQ(count(all, "wheelbri telemetry format"), 1U);   // what the keys mean: once, in a new file
+    EXPECT_EQ(count(all, "session started 2026-09-30 09:00:00"), 1U);
+    EXPECT_EQ(count(all, "session started 2026-09-30 20:00:00"), 1U);
+    const auto data = lines(dir_ / "telemetry-2026-09-30.log");
+    ASSERT_EQ(data.size(), 2U);
+    EXPECT_EQ(data[0].rfind("[2026-09-30 09:00:00.000] [info ] [telemetry     ] t_ms=0.0 ", 0), 0U) << data[0];
+    EXPECT_EQ(data[1].rfind("[2026-09-30 20:00:00.000] [info ] [telemetry     ] t_ms=0.0 ", 0), 0U) << data[1];
+    EXPECT_TRUE(lines(dir_ / "ffb-2026-09-30.log").empty());
 }
 
-TEST_F(TelemetryTest, RowsHaveOneFieldPerColumnWithAndWithoutFfb) {
+TEST_F(TelemetryTest, RowsHaveTheirKeysWithAndWithoutFfb) {
     auto recorder = open(at(10, 0, 0));
     ASSERT_NE(recorder, nullptr);
 
@@ -133,15 +151,23 @@ TEST_F(TelemetryTest, RowsHaveOneFieldPerColumnWithAndWithoutFfb) {
     recorder->writeSample(sample);
     recorder.reset();
 
-    const auto data = lines(dir_ / "telemetry-2026-09-30.csv");
-    ASSERT_EQ(data.size(), 3U);
-    EXPECT_EQ(fields(data[1]), telemetryColumns().size());
-    EXPECT_EQ(fields(data[2]), telemetryColumns().size());
-    EXPECT_EQ(data[1].rfind("10:00:00.000,0.0,", 0), 0U);
-    EXPECT_NE(data[1].find(",800000001,"), std::string::npos);  // raw buttons in hex
-    EXPECT_NE(data[1].find(",49151,"), std::string::npos);
-    EXPECT_EQ(data[2].rfind("10:00:00.020,20.0,", 0), 0U);
-    EXPECT_NE(data[2].find(",constant,wp,0.5000,"), std::string::npos);
+    const auto data = lines(dir_ / "telemetry-2026-09-30.log");
+    ASSERT_EQ(data.size(), 2U);
+    EXPECT_EQ(data[0].rfind("[2026-09-30 10:00:00.000] ", 0), 0U);
+    EXPECT_EQ(value(data[0], "t_ms"), "0.0");
+    EXPECT_EQ(value(data[0], "raw_a2"), "-0.5000");
+    EXPECT_EQ(value(data[0], "raw_buttons"), "800000001");   // in hex
+    EXPECT_EQ(value(data[0], "out_throttle"), "49151");
+    EXPECT_EQ(value(data[0], "ffb_packets"), "");            // force feedback off: no ffb_* keys
+    EXPECT_EQ(value(data[0], "s1_type"), "");
+    EXPECT_EQ(value(data[0], "period_us"), "0");
+    EXPECT_EQ(data[1].rfind("[2026-09-30 10:00:00.020] ", 0), 0U);
+    EXPECT_EQ(value(data[1], "t_ms"), "20.0");
+    EXPECT_EQ(value(data[1], "s1_type"), "constant");
+    EXPECT_EQ(value(data[1], "s1_state"), "wp");
+    EXPECT_EQ(value(data[1], "s1_req"), "0.5000");
+    EXPECT_EQ(value(data[1], "s0_type"), "");                 // an idle slot is left out
+    EXPECT_EQ(value(data[1], "ffb_watchdog"), "0");
 }
 
 TEST_F(TelemetryTest, SessionContinuesInTheNextDaysFileAfterMidnight) {
@@ -157,20 +183,20 @@ TEST_F(TelemetryTest, SessionContinuesInTheNextDaysFileAfterMidnight) {
     recorder->writeSample(sample);
     recorder->writeFfbPacket(160 * kMs, packet);
     EXPECT_EQ(recorder->day(), "2026-10-01");
-    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-10-01.csv");
+    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-10-01.log");
     recorder.reset();
 
-    const auto before = lines(dir_ / "telemetry-2026-09-30.csv");
-    const auto after = lines(dir_ / "telemetry-2026-10-01.csv");
-    ASSERT_EQ(before.size(), 2U);
-    ASSERT_EQ(after.size(), 2U);
-    EXPECT_EQ(before[1].rfind("23:59:59.900,0.0,", 0), 0U);
-    EXPECT_EQ(after[0].rfind("time,", 0), 0U);
-    EXPECT_EQ(after[1].rfind("00:00:00.050,150.0,", 0), 0U);
-    EXPECT_EQ(count(lines(dir_ / "telemetry-2026-10-01.csv", true), "# session started 2026-09-30 23:59:59, continued"),
-              1U);
-    EXPECT_EQ(lines(dir_ / "ffb-2026-09-30.csv").size(), 2U);
-    EXPECT_EQ(lines(dir_ / "ffb-2026-10-01.csv").size(), 2U);
+    const auto before = lines(dir_ / "telemetry-2026-09-30.log");
+    const auto after = lines(dir_ / "telemetry-2026-10-01.log");
+    ASSERT_EQ(before.size(), 1U);
+    ASSERT_EQ(after.size(), 1U);
+    EXPECT_EQ(before[0].rfind("[2026-09-30 23:59:59.900] [info ] [telemetry     ] t_ms=0.0 ", 0), 0U) << before[0];
+    EXPECT_EQ(after[0].rfind("[2026-10-01 00:00:00.050] [info ] [telemetry     ] t_ms=150.0 ", 0), 0U) << after[0];
+    const auto afterAll = lines(dir_ / "telemetry-2026-10-01.log", true);
+    EXPECT_EQ(count(afterAll, "session started 2026-09-30 23:59:59, continued"), 1U);
+    EXPECT_EQ(count(afterAll, "wheelbri telemetry format"), 1U);
+    EXPECT_EQ(lines(dir_ / "ffb-2026-09-30.log").size(), 1U);
+    EXPECT_EQ(lines(dir_ / "ffb-2026-10-01.log").size(), 1U);
 }
 
 TEST_F(TelemetryTest, DueFollowsTheRate) {
@@ -190,7 +216,7 @@ TEST_F(TelemetryTest, DueFollowsTheRate) {
     EXPECT_TRUE(recorder->due(25 * kMs));
 }
 
-TEST_F(TelemetryTest, ExtremeNumbersKeepEveryColumn) {
+TEST_F(TelemetryTest, ExtremeNumbersAreWrittenInFull) {
     auto recorder = open(at(10, 0, 0));
     ASSERT_NE(recorder, nullptr);
     FfbPacket packet;
@@ -206,9 +232,10 @@ TEST_F(TelemetryTest, ExtremeNumbersKeepEveryColumn) {
     packet.effect.condition.negativeSaturation = -3.0e38F;
     recorder->writeFfbPacket(0, packet);
     recorder.reset();
-    const auto data = lines(dir_ / "ffb-2026-09-30.csv");
-    ASSERT_EQ(data.size(), 2U);
-    EXPECT_EQ(fields(data[1]), fields(data[0])) << data[1];
+    const auto data = lines(dir_ / "ffb-2026-09-30.log");
+    ASSERT_EQ(data.size(), 1U);
+    EXPECT_GT(value(data[0], "center").size(), 30U) << data[0];   // not cut
+    EXPECT_EQ(value(data[0], "phase_deg"), "0.0") << data[0];      // and the keys after it are still there
 }
 
 TEST_F(TelemetryTest, FfbEventsSkipKeepAlives) {
@@ -230,16 +257,15 @@ TEST_F(TelemetryTest, FfbEventsSkipKeepAlives) {
     EXPECT_EQ(recorder->ffbRowsWritten(), 2U);
     recorder.reset();
 
-    const auto data = lines(dir_ / "ffb-2026-09-30.csv");
-    ASSERT_EQ(data.size(), 4U);  // column row + 2 packets + malformed note
-    const std::size_t columns = fields(data[0]);
-    for (const auto& line : data) {
-        EXPECT_EQ(fields(line), columns) << line;
-    }
-    EXPECT_EQ(data[1].rfind("10:00:00.002,2.0,slot,3,42,1,saw_up,", 0), 0U);
-    EXPECT_NE(data[1].find(",0.3000,"), std::string::npos);
-    EXPECT_NE(data[2].find(",stopall,"), std::string::npos);
-    EXPECT_NE(data[3].find("malformed_12_bytes"), std::string::npos);
+    const auto data = lines(dir_ / "ffb-2026-09-30.log");
+    ASSERT_EQ(data.size(), 3U);  // 2 packets + malformed note
+    EXPECT_EQ(data[0].rfind("[2026-09-30 10:00:00.002] [info ] [ffb           ] t_ms=2.0 kind=slot seq=42 slot=3 "
+                            "playing=1 type=saw_up ", 0), 0U) << data[0];
+    EXPECT_EQ(value(data[0], "magnitude"), "0.3000");
+    EXPECT_EQ(value(data[1], "kind"), "stopall");
+    EXPECT_EQ(value(data[1], "type"), "");   // nothing of an effect for stopall
+    EXPECT_EQ(value(data[2], "kind"), "malformed");
+    EXPECT_EQ(value(data[2], "bytes"), "12");
 }
 
 TEST_F(TelemetryTest, CallsToTheWheelHaveTheirDelay) {
@@ -256,17 +282,12 @@ TEST_F(TelemetryTest, CallsToTheWheelHaveTheirDelay) {
     recorder->writeFfbApplied(6 * kMs, applied);
     recorder.reset();
 
-    const auto data = lines(dir_ / "ffb-2026-09-30.csv");
-    ASSERT_EQ(data.size(), 3U);
-    for (const auto& line : data) {
-        EXPECT_EQ(fields(line), fields(data[0])) << line;
-    }
-    EXPECT_NE(data[1].find(",wheel_play,2,,1,spring,"), std::string::npos) << data[1];
-    EXPECT_NE(data[1].find(",120,4100"), std::string::npos) << data[1];
-    EXPECT_NE(data[2].find(",wheel_stopall,"), std::string::npos);
-    // Every session repeats its columns, so a reader is right even after a newer version added some mid-day.
-    const auto all = lines(dir_ / "ffb-2026-09-30.csv", true);
-    EXPECT_NE(std::find(all.begin(), all.end(), "# columns: " + data[0]), all.end());
+    const auto data = lines(dir_ / "ffb-2026-09-30.log");
+    ASSERT_EQ(data.size(), 2U);
+    EXPECT_NE(data[0].find(" kind=wheel_play slot=2 ok=1 type=spring wait_us=120 call_us=4100"), std::string::npos)
+        << data[0];
+    EXPECT_EQ(value(data[1], "kind"), "wheel_stopall");
+    EXPECT_EQ(value(data[1], "slot"), "");
 }
 
 TEST_F(TelemetryTest, WritesRowsOnlyWhenAValueChanges) {
@@ -294,11 +315,11 @@ TEST_F(TelemetryTest, WritesRowsOnlyWhenAValueChanges) {
     EXPECT_EQ(recorder->rowsSkipped(), 11U);
     recorder.reset();
 
-    const auto data = lines(dir_ / "telemetry-2026-09-30.csv");
-    ASSERT_EQ(data.size(), 3U);
-    EXPECT_EQ(data[1].rfind("10:00:00.000,0.0,", 0), 0U);
-    EXPECT_EQ(data[2].rfind("10:00:00.200,200.0,", 0), 0U);
-    EXPECT_EQ(fields(data[2]), telemetryColumns().size());
+    const auto data = lines(dir_ / "telemetry-2026-09-30.log");
+    ASSERT_EQ(data.size(), 2U);
+    EXPECT_EQ(value(data[0], "t_ms"), "0.0");
+    EXPECT_EQ(value(data[1], "t_ms"), "200.0");
+    EXPECT_EQ(value(data[1], "raw_a0"), "0.2500");
 }
 
 TEST_F(TelemetryTest, HeartbeatRowWhenNothingChanges) {
@@ -355,14 +376,14 @@ TEST_F(TelemetryTest, StopsAtMaxFileSize) {
     auto recorder = open(at(10, 0, 0), config);
     ASSERT_NE(recorder, nullptr);
     TelemetrySample sample;
-    for (int i = 0; i < 10000; ++i) {  // ~170 bytes a row: well past 1 MB
+    for (int i = 0; i < 10000; ++i) {  // ~400 bytes a row: well past 1 MB
         sample.nowNs = static_cast<std::uint64_t>(i) * 20 * kMs;
         recorder->writeSample(sample);
     }
     recorder.reset();
-    const auto path = dir_ / "telemetry-2026-09-30.csv";
-    EXPECT_LE(fs::file_size(path), 1024U * 1024U + 64U);
-    EXPECT_EQ(count(lines(path, true), "# stopped: max_file_mb reached"), 1U);
+    const auto path = dir_ / "telemetry-2026-09-30.log";
+    EXPECT_LE(fs::file_size(path), 1024U * 1024U + 128U);
+    EXPECT_EQ(count(lines(path, true), "stopped: max_file_mb reached"), 1U);
 }
 
 }  // namespace

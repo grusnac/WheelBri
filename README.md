@@ -47,7 +47,7 @@ a headline, why it was needed, how to use it, and where to look.
 - **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920-virtual-device.ini` and `config/g920-in-game-shim.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
   return to 0%, raise `deadzone_low`. The game reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
-  `out_clutch` in `telemetry-<date>.csv`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
+  `out_clutch` in `telemetry-<date>.log`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
   a test clutch can be sent over UDP (`core/include/wheelbri/TestClutch.hpp`).
 
 ### Virtual G920 (our own driver)
@@ -101,7 +101,7 @@ a headline, why it was needed, how to use it, and where to look.
 - **Why:** rigs are often direct drive: no game force may reach the wheel unchecked.
 - **Use:** automatic on both targets. `[ffb] master_gain`, `max_magnitude` (0.8), `max_slew_per_second` (50) in the config;
   `[ffb] invert = true` if forces pull the wrong way. The forces stop when the game goes quiet (500 ms).
-- **Look:** `ffb-<date>.csv` (`wheel_*` rows: the delay of every call to the wheel); the service log's `ffb delay`
+- **Look:** `ffb-<date>.log` (`kind=wheel_*` lines: the delay of every call to the wheel); the service log's `ffb delay`
   table (with the usage table, every 10 minutes and at the end); the Force feedback tab (`--ffb-tab`). Code: core
   `FfbController`, `FfbSafetyLimiter` (`Ffb.cpp`), `AsyncFfbSink` (the wheel's calls on their own raised-priority
   thread: stops, then constant forces, then periodic, then spring and damper), `WheelOutput`.
@@ -297,7 +297,7 @@ WheelBri's (another mod) is never overwritten or deleted. The list is `%LOCALAPP
 | Read the rig: wheel + accessories (DirectInput, the wheel opened exclusively) | yes | yes |
 | Mapping loop, 1 kHz: rig -> G920 -> UDP 41329 | yes (to the driver) | yes (to the shim in the game) |
 | Force feedback in: UDP 41330 -> safety limiter + watchdog -> wheel | yes (from the driver) | yes (from the shim) |
-| Logs, telemetry CSVs, old-file cleanup | yes | yes |
+| Logs, telemetry logs, old-file cleanup | yes | yes |
 | Game-use watch ("GAME NOT USING THE WHEEL") | yes | yes |
 | Live view: Mapping / Rig / Logs tabs, Start / Stop | yes | yes |
 | Stale hide check: clears a hide left by a crashed session, warns if another one hides the rig | yes | yes |
@@ -395,20 +395,23 @@ Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `servi
 
 ## Telemetry
 
-While it runs, the service records to two CSV files per day in the log folder
-(`%LOCALAPPDATA%\wheelbri\logs` on Windows). Nothing is sent anywhere.
+While it runs, the service records to two more log files per day in the log folder
+(`%LOCALAPPDATA%\wheelbri\logs` on Windows). Nothing is sent anywhere. Every file WheelBri writes is a log in the same
+format (`[date time] [level] [component] message`; no CSV, no JSON); in these two the message of a row is
+`key=value` pairs starting with `t_ms=`, and a key that does not apply is left out.
 
-- `telemetry-<date>.csv`: a row whenever something changes (checked 50 times a second, plus one row a minute when nothing does) with the physical wheel (raw axes, buttons, hat), the mapped
+- `telemetry-<date>.log`: a row whenever something changes (checked 50 times a second, plus one row a minute when nothing does) with the physical wheel (raw axes, buttons, hat), the mapped
   state, the values the emulated G920 reports to the game, the game's force feedback per slot (what the game
   asked for and what reached the wheel after the limiter), and loop timing.
-- `ffb-<date>.csv`: every force feedback change the game sent, with all effect parameters (the shim's periodic
-  re-sends of an unchanged effect are left out), and one `wheel_play` / `wheel_stop` / `wheel_stopall` row per call
-  the service made to the wheel: `wait_us` (queued before the call) and `call_us` (the wheel's driver).
-  `scripts/telemetry_summary.sh` prints them as a delay table. Each session repeats its columns (`# columns:`).
+- `ffb-<date>.log`: every force feedback change the game sent, with all effect parameters (the shim's periodic
+  re-sends of an unchanged effect are left out), and one `kind=wheel_play` / `wheel_stop` / `wheel_stopall` line per
+  call the service made to the wheel: `wait_us` (queued before the call) and `call_us` (the wheel's driver).
+  `scripts/telemetry_summary.sh` prints them as a delay table.
 
-Every session of the day is appended to that day's files, after a `# session started ...` block with the
-version, the device and a copy of the config; a session running past midnight continues in the next day's
-files. `time` is the local time of day, `t_ms` the time since the session started. Settings are in
+A new file starts with lines saying what the keys mean. Every session of the day is appended to that day's files,
+after a `session started ...` line and lines with the version, the device and the config; a session running past
+midnight continues in the next day's files. Each line has its date and time; `t_ms` is the time since the session
+started. Settings are in
 `[telemetry]`: `enabled`, `rate_hz`, `only_changes` (default `true`; `false` writes every sample),
 `heartbeat_s`, `min_change` (smallest axis move that counts, default 0.0005 = 0.23° of steering: smaller
 moves are sensor noise), `max_file_mb` (per file) and `directory` (on Windows inside `%LOCALAPPDATA%\wheelbri`;
@@ -421,7 +424,7 @@ For a quick summary of the newest session (axis ranges, pedal use, force feedbac
 effect type, loop timing):
 
 ```
-scripts/telemetry_summary.sh            # or pass a telemetry-*.csv / a folder; --all for every session of the day
+scripts/telemetry_summary.sh            # or pass a telemetry-*.log / a folder; --all for every session of the day
 ```
 
 ## Old files

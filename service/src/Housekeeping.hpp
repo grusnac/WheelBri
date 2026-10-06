@@ -16,7 +16,7 @@
 namespace wheelbri::service {
 
 // A compressor found on this PC. Tools that make one archive per day (7z, zip) and tools that compress each
-// file on its own (xz, zstd, gzip: "telemetry-2026-09-20.csv" -> "telemetry-2026-09-20.csv.xz").
+// file on its own (xz, zstd, gzip: "telemetry-2026-09-20.log" -> "telemetry-2026-09-20.log.xz").
 struct Archiver {
     enum class Kind { SevenZip, Xz, Zstd, WindowsZip, InfoZip, Gzip };
     Kind kind;
@@ -27,7 +27,7 @@ struct Archiver {
 };
 
 // Best available compressor for `preference` ("auto" or one of wheelbri::kArchivers). "auto" tries, in order
-// of how small they make CSV and log files: 7-Zip (7z, LZMA2 ultra), xz, zstd, zip (Windows' built-in
+// of how small they make log files: 7-Zip (7z, LZMA2 ultra), xz, zstd, zip (Windows' built-in
 // tar.exe, or Info-ZIP), gzip. Looks on PATH and in the usual 7-Zip install folders.
 [[nodiscard]] std::optional<Archiver> findArchiver(const std::string& preference);
 

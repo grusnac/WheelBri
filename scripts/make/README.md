@@ -15,14 +15,15 @@ work on Linux.
 | `scripts/make/drivers.sh` | Build the two UMDF drivers (Visual Studio + WDK). `-Install` installs them (Administrator prompt), `-Only g920`, `-Clean`, `-Configuration Debug` |
 | `scripts/make/package.sh` | The installer for another PC: builds app, service, shim and drivers (Release), then `package.ps1` makes `dist/windows/WheelBri-<version>/`, its zip and `WheelBri-<version>-setup.exe`. `--no-build` packages what is built; `-NoSetupExe` skips Setup.exe |
 | `scripts/make/clean-pc.sh` | Before installing from scratch: removes everything WheelBri put on the PC (running copies, virtual devices, its drivers (and HidHide / HIDMaestro, which earlier versions used), every device the hide filter was on put back on Windows' own driver, their certificate, the install folder (also under Program Files (x86)), shortcuts, the installer's copies in `%TEMP%`, Settings > Apps entry, registry entries (UMDF registrations included), `%LOCALAPPDATA%\wheelbri` and `C:\ProgramData\wheelbri`). Lists what it found and asks first (Administrator prompt). `-KeepData` keeps rigs, configs and logs; `-GameFolder <folder>` also takes the shim out of a game; `-KeepThirdParty` keeps HidHide / HIDMaestro; `-Yes` asks nothing. Never touches the repo |
+| `scripts/make/measure.sh` | Measure what WheelBri costs the PC, from outside the app (nothing added to it): every second, CPU per process (app or service, helper, the driver hosts, optionally the game: `-Game NFS16`) and per thread, memory, handles, GDI objects and the timer resolution. Opens its own Administrator PowerShell window; **M** starts a named phase ("stopped", "virtual, no game", "NFS shim"), **Q** stops. Everything goes to one log, `%LOCALAPPDATA%\wheelbri\logs\perf-<date>-<time>.log` (`[perf]` process lines, `[perf.thread]` thread lines, `[perf.phase]`, and the summary per phase as `[perf.summary]`, also printed) |
 | `scripts/make/all.sh` | Everything above that builds: CMake parts and drivers. `--clean` for a full rebuild of everything |
 
 The drivers are signed with a certificate made on this PC, once, from an Administrator PowerShell:
 `powershell -ExecutionPolicy Bypass -File driver\new-signing-cert.ps1` (it writes `driver\signing-certificate.props`, which git ignores and the driver projects
 read; `-Remove` deletes it again). See `driver/README.md`.
 
-`drivers.ps1`, `package.ps1` and `clean-pc.ps1` are the PowerShell scripts behind `drivers.sh`, `package.sh` and
-`clean-pc.sh`; they can also be run on their own from PowerShell.
+`drivers.ps1`, `package.ps1`, `clean-pc.ps1` and `measure.ps1` are the PowerShell scripts behind `drivers.sh`,
+`package.sh`, `clean-pc.sh` and `measure.sh`; they can also be run on their own from PowerShell.
 
 Settings through the environment: `WE_BUILD_TYPE=Debug` (default `Release`), `WE_BUILD_DIR` (default `build`),
 `WE_CMAKE_ARGS` (extra configure arguments), for example `WE_BUILD_TYPE=Debug scripts/make/build.sh`.

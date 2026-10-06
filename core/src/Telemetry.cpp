@@ -17,7 +17,10 @@ namespace {
 
 constexpr std::uint64_t kNsPerSecond = 1'000'000'000;
 constexpr std::uint64_t kFlushEveryNs = kNsPerSecond;  // a crash loses at most about a second
-constexpr const char* kFormatVersion = "2";
+constexpr const char* kFormatVersion = "3";   // 3: log lines with key=value (2: CSV)
+// The component field of the lines, padded as spdlog pads the other logs' (%-14n).
+constexpr const char* kSamplesComponent = "telemetry     ";
+constexpr const char* kFfbComponent = "ffb           ";
 constexpr auto kRetryEvery = std::chrono::minutes(1);
 
 const logging::Logger& log() {
@@ -44,13 +47,11 @@ std::FILE* openAppend(const std::filesystem::path& path) {
 #endif
 }
 
-// Appends printf-style text to `out`.
+// Appends printf-formatted text. Short pieces go through a stack buffer; a longer one (extreme numbers: a float near
+// 3.4e38 prints as about 45 characters) is formatted again at its full length rather than cut.
 #if defined(__GNUC__)
 __attribute__((format(printf, 2, 3)))
 #endif
-// Appends printf-formatted text. Short pieces go through a stack buffer; a longer one (extreme numbers: a float near
-// 3.4e38 prints as about 45 characters) is formatted again at its full length rather than cut, which would shift
-// the CSV's columns.
 void appendf(std::string& out, const char* format, ...) {
     char buffer[256];
     va_list args;
@@ -79,7 +80,7 @@ const char* packetKindName(const FfbPacket::Kind kind) {
     return "?";
 }
 
-// "constant" -> "constant", "saw up" -> "saw_up": no spaces inside CSV fields.
+// "constant" -> "constant", "saw up" -> "saw_up": no spaces inside a value.
 std::string typeField(const FfbEffectType type) {
     std::string name = ffbTypeName(type);
     std::replace(name.begin(), name.end(), ' ', '_');
@@ -97,19 +98,6 @@ std::string clockText(const WallClock::time_point time) {
     char text[16];
     std::strftime(text, sizeof(text), "%H:%M:%S", &local);
     return text;
-}
-
-std::string ffbColumns() {
-    return "time,t_ms,kind,slot,seq,playing,type,gain,level,center,deadband,k_pos,k_neg,sat_pos,sat_neg,"
-           "magnitude,offset,period_ms,phase_deg,wait_us,call_us";
-}
-
-std::string joined(const std::vector<std::string>& columns) {
-    std::string line;
-    for (const std::string& column : columns) {
-        line += (line.empty() ? "" : ",") + column;
-    }
-    return line;
 }
 
 }  // namespace
@@ -184,36 +172,37 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
     dayStart_ = startOfDay(day).value_or(sessionStart_);
     const std::string nextDay = addDays(day, 1).value_or(day);
     nextDayStart_ = startOfDay(nextDay).value_or(dayStart_ + std::chrono::hours(24));
-    samplesPath_ = directory_ / ("telemetry-" + day + ".csv");
-    ffbPath_ = directory_ / ("ffb-" + day + ".csv");
+    samplesPath_ = directory_ / ("telemetry-" + day + ".log");
+    ffbPath_ = directory_ / ("ffb-" + day + ".log");
 
-    std::string sessionHeader = "# session started " + localDate(sessionStart_) + " " + clockText(sessionStart_) +
-                                (continued ? ", continued after midnight" : "") + "\n";
-    for (const std::string& line : header_) {
-        sessionHeader += "# " + line + "\n";
-    }
-
+    // The lines before the rows carry the time the session (or, after midnight, the day) started.
+    const WallClock::time_point headerTime = continued || sessionStart_ < dayStart_ ? dayStart_ : sessionStart_;
     struct Target {
         File* file;
         const std::filesystem::path* path;
-        std::string intro;
-        std::string columns;   // repeated in every session: the file's first column row may be older
+        const char* component;
+        std::vector<std::string> intro;   // a new file's first lines
     };
-    const std::string intro = "# wheelbri telemetry format " + std::string(kFormatVersion) + ", day " + day + "\n";
+    const std::string format = "wheelbri telemetry format " + std::string(kFormatVersion) + ", day " + day +
+                               ": one line per row, values as key=value; a key that is missing has no value then";
     const Target targets[] = {
-        {&samples_, &samplesPath_,
-         intro +
-             "# time: local time of day, t_ms: since the session started. raw_*: physical wheel as the OS reports "
-             "it (axes -1..1, buttons bit n = button n). steer..hat: after mapping. out_*: values the emulated "
-             "wheel reports to the game.\n"
-             "# sN_state: w = game wants it playing, p = playing on the wheel. sN_req: what the game asked for, "
-             "sN_out: what reached the wheel (signed force for constant, strength for the others).\n" +
-             joined(telemetryColumns()) + "\n",
-         "# columns: " + joined(telemetryColumns()) + "\n"},
-        {&ffbEvents_, &ffbPath_, intro + ffbColumns() + "\n", "# columns: " + ffbColumns() + "\n"},
+        {&samples_, &samplesPath_, kSamplesComponent,
+         {format,
+          "keys: t_ms = since the session started; raw_* = the physical wheel as the OS reports it (axes -1..1, "
+          "buttons bit n = button n, hex); steer..hat = after mapping; out_* = what the emulated wheel reports to the "
+          "game",
+          "keys: sN_* = force feedback slot N while it is used: sN_state w = the game wants it playing, p = playing "
+          "on the wheel; sN_req = what the game asked for, sN_out = what reached the wheel (signed force for "
+          "constant, strength for the others); period_us / work_us = the loop"}},
+        {&ffbEvents_, &ffbPath_, kFfbComponent,
+         {format,
+          "keys: kind slot / stopall = what the game sent (every effect parameter); kind wheel_play / wheel_stop / "
+          "wheel_stopall = a call made to the wheel: ok = it accepted it, wait_us = queued before the call, call_us "
+          "= the wheel's driver"}},
     };
+    std::string line;
     for (const Target& target : targets) {
-        // Append: every session of the day shares the file. The column row is written once, by the first.
+        // Append: every session of the day shares the file; a new file starts with what its keys mean.
         target.file->handle = openAppend(*target.path);
         if (target.file->handle == nullptr) {
             error = "cannot open " + text(*target.path) + " (" + std::strerror(errno) + ")";
@@ -224,10 +213,18 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
         std::error_code ec;
         const auto size = std::filesystem::file_size(*target.path, ec);
         target.file->bytes = ec ? 0 : static_cast<std::uint64_t>(size);
-        if (target.file->bytes == 0) {
-            write(*target.file, target.intro);
+        std::vector<std::string> messages;
+        if (target.file->bytes == 0) messages = target.intro;
+        messages.push_back("session started " + localDate(sessionStart_) + " " + clockText(sessionStart_) +
+                           (continued ? ", continued after midnight" : ""));
+        messages.insert(messages.end(), header_.begin(), header_.end());
+        for (const std::string& message : messages) {
+            line.clear();
+            appendStamp(line, headerTime, target.component);
+            line += message;
+            line += '\n';
+            write(*target.file, line);
         }
-        write(*target.file, sessionHeader + target.columns);
         if (std::fflush(target.file->handle) != 0) noteWriteFailure(*target.file, "writing its header");
     }
     dayOpen_ = true;
@@ -251,7 +248,8 @@ void TelemetryRecorder::write(File& file, const std::string& line) {
     }
     const std::uint64_t limit = static_cast<std::uint64_t>(std::max(config_.maxFileMb, 1)) * 1024 * 1024;
     if (file.bytes + line.size() > limit) {
-        std::fputs("# stopped: max_file_mb reached\n", file.handle);
+        const std::string note = lastStamp_ + "stopped: max_file_mb reached\n";
+        std::fputs(note.c_str(), file.handle);
         std::fflush(file.handle);
         file.full = true;
         return;
@@ -305,12 +303,19 @@ WallClock::time_point TelemetryRecorder::advance(const std::uint64_t nowNs) {
     return wall;
 }
 
-void TelemetryRecorder::appendTimes(std::string& line, const WallClock::time_point wall,
-                                    const std::uint64_t nowNs) const {
+void TelemetryRecorder::appendStamp(std::string& line, const WallClock::time_point wall, const char* component) {
     const auto sinceMidnight = std::chrono::duration_cast<std::chrono::milliseconds>(wall - dayStart_).count();
     const long long ms = std::max<long long>(sinceMidnight, 0);
-    appendf(line, "%02lld:%02lld:%02lld.%03lld,%.1f", ms / 3'600'000, ms / 60'000 % 60, ms / 1000 % 60, ms % 1000,
-            static_cast<double>(nowNs - *startNs_) / 1e6);
+    const std::size_t start = line.size();
+    appendf(line, "[%s %02lld:%02lld:%02lld.%03lld] [info ] [%s] ", day_.c_str(), ms / 3'600'000, ms / 60'000 % 60,
+            ms / 1000 % 60, ms % 1000, component);
+    lastStamp_.assign(line, start, std::string::npos);
+}
+
+void TelemetryRecorder::appendTimes(std::string& line, const WallClock::time_point wall, const std::uint64_t nowNs,
+                                    const char* component) {
+    appendStamp(line, wall, component);
+    appendf(line, "t_ms=%.1f", static_cast<double>(nowNs - *startNs_) / 1e6);
 }
 
 bool TelemetryRecorder::changed(const TelemetrySample& sample, const std::string& exact) const {
@@ -350,42 +355,33 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
     // Reused buffers (members): no allocation per sample once they have grown, the loop runs at 1 kHz.
     std::string& k = sampleValues_;
     k.clear();
-    for (const float axis : sample.raw.axes) {
-        appendf(k, ",%.4f", static_cast<double>(axis));
+    for (std::size_t i = 0; i < sample.raw.axes.size(); ++i) {
+        appendf(k, " raw_a%u=%.4f", static_cast<unsigned>(i), static_cast<double>(sample.raw.axes[i]));
     }
-    appendf(k, ",%llx,%d", static_cast<unsigned long long>(sample.raw.buttons), sample.raw.hat);
-    appendf(k, ",%.4f,%.4f,%.4f,%.4f,%x,%d", static_cast<double>(sample.state.steering),
-            static_cast<double>(sample.state.throttle), static_cast<double>(sample.state.brake),
-            static_cast<double>(sample.state.clutch), static_cast<unsigned>(sample.state.buttons), sample.state.hat);
-    appendf(k, ",%ld,%ld,%ld,%ld,%x,%d", static_cast<long>(sample.report.steering),
-            static_cast<long>(sample.report.throttle), static_cast<long>(sample.report.brake),
-            static_cast<long>(sample.report.clutch), static_cast<unsigned>(sample.report.buttons), sample.report.hat);
-    const std::size_t valuesEnd = k.size();   // ffb_* columns go in between in the row
+    appendf(k, " raw_buttons=%llx raw_hat=%d", static_cast<unsigned long long>(sample.raw.buttons), sample.raw.hat);
+    appendf(k, " steer=%.4f throttle=%.4f brake=%.4f clutch=%.4f buttons=%x hat=%d",
+            static_cast<double>(sample.state.steering), static_cast<double>(sample.state.throttle),
+            static_cast<double>(sample.state.brake), static_cast<double>(sample.state.clutch),
+            static_cast<unsigned>(sample.state.buttons), sample.state.hat);
+    appendf(k, " out_steer=%ld out_throttle=%ld out_brake=%ld out_clutch=%ld out_buttons=%x out_hat=%d",
+            static_cast<long>(sample.report.steering), static_cast<long>(sample.report.throttle),
+            static_cast<long>(sample.report.brake), static_cast<long>(sample.report.clutch),
+            static_cast<unsigned>(sample.report.buttons), sample.report.hat);
 
     const FfbController* const ffb = sample.ffb;
     std::string& slots = sampleSlots_;
     slots.clear();
-    if (ffb == nullptr) {
-        for (std::size_t slot = 0; slot < IFfbSink::kMaxSlots; ++slot) {
-            slots += ",,,,";
-        }
-    } else {
-        for (std::size_t slot = 0; slot < IFfbSink::kMaxSlots; ++slot) {
-            if (slot >= ffb->slotCount()) {
-                slots += ",,,,";
-                continue;
-            }
+    if (ffb != nullptr) {
+        for (std::size_t slot = 0; slot < IFfbSink::kMaxSlots && slot < ffb->slotCount(); ++slot) {
             const auto view = ffb->slot(slot);
-            if (!view.wanted && !view.playing) {
-                slots += ",,,,";  // idle slots stay empty so active ones stand out
-                continue;
-            }
-            slots += ',';
+            if (!view.wanted && !view.playing) continue;   // idle slots are left out so active ones stand out
+            const auto n = static_cast<unsigned>(slot);
+            appendf(slots, " s%u_type=", n);
             slots += typeField(view.requested.type);
-            appendf(slots, ",%s%s,%.4f,", view.wanted ? "w" : "", view.playing ? "p" : "",
+            appendf(slots, " s%u_state=%s%s s%u_req=%.4f", n, view.wanted ? "w" : "", view.playing ? "p" : "", n,
                     static_cast<double>(ffbStrength(view.requested)));
             if (view.sent) {
-                appendf(slots, "%.4f", static_cast<double>(ffbStrength(*view.sent)));
+                appendf(slots, " s%u_out=%.4f", n, static_cast<double>(ffbStrength(*view.sent)));
             }
         }
     }
@@ -418,22 +414,21 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
 
     std::string& l = line_;
     l.clear();
-    appendTimes(l, wall, sample.nowNs);
-    appendf(l, ",%u", static_cast<unsigned>(sample.sequence));
-    l.append(k, 0, valuesEnd);
-    if (ffb == nullptr) {
-        l += ",,,,,";
-    } else {
+    appendTimes(l, wall, sample.nowNs, kSamplesComponent);
+    appendf(l, " seq=%u", static_cast<unsigned>(sample.sequence));
+    l += k;
+    if (ffb != nullptr) {
         const auto& stats = ffb->stats();
-        appendf(l, ",%llu,", static_cast<unsigned long long>(stats.packets));
+        appendf(l, " ffb_packets=%llu", static_cast<unsigned long long>(stats.packets));
         if (const auto last = ffb->lastPacketNs()) {
-            appendf(l, "%.0f", sample.nowNs >= *last ? static_cast<double>(sample.nowNs - *last) / 1e6 : 0.0);
+            appendf(l, " ffb_age_ms=%.0f",
+                    sample.nowNs >= *last ? static_cast<double>(sample.nowNs - *last) / 1e6 : 0.0);
         }
-        appendf(l, ",%d,%llu,%llu", ffb->watchdogTripped() ? 1 : 0, static_cast<unsigned long long>(stats.plays),
-                static_cast<unsigned long long>(stats.playFailures));
+        appendf(l, " ffb_watchdog=%d ffb_plays=%llu ffb_failures=%llu", ffb->watchdogTripped() ? 1 : 0,
+                static_cast<unsigned long long>(stats.plays), static_cast<unsigned long long>(stats.playFailures));
     }
     l += slots;
-    appendf(l, ",%.0f,%.0f\n", sample.periodUs, sample.workUs);
+    appendf(l, " period_us=%.0f work_us=%.0f\n", sample.periodUs, sample.workUs);
 
     write(samples_, l);
     ++rows_;
@@ -460,18 +455,24 @@ void TelemetryRecorder::writeFfbPacket(const std::uint64_t nowNs, const FfbPacke
     const FfbEffect& e = packet.effect;
     std::string& l = line_;
     l.clear();
-    appendTimes(l, wall, nowNs);
-    appendf(l, ",%s,%u,%lu,%d,", packetKindName(packet.kind), static_cast<unsigned>(packet.slot),
-            static_cast<unsigned long>(packet.sequence), packet.playing ? 1 : 0);
-    l += typeField(e.type);
-    appendf(l, ",%.4f,%.4f", static_cast<double>(e.gain), static_cast<double>(e.constantLevel));
-    appendf(l, ",%.4f,%.4f,%.4f,%.4f,%.4f,%.4f", static_cast<double>(e.condition.center),
-            static_cast<double>(e.condition.deadband), static_cast<double>(e.condition.positiveCoefficient),
-            static_cast<double>(e.condition.negativeCoefficient), static_cast<double>(e.condition.positiveSaturation),
-            static_cast<double>(e.condition.negativeSaturation));
-    appendf(l, ",%.4f,%.4f,%.1f,%.1f,,\n", static_cast<double>(e.periodic.magnitude),
-            static_cast<double>(e.periodic.offset), static_cast<double>(e.periodic.periodMs),
-            static_cast<double>(e.periodic.phaseDeg));
+    appendTimes(l, wall, nowNs, kFfbComponent);
+    appendf(l, " kind=%s seq=%lu", packetKindName(packet.kind), static_cast<unsigned long>(packet.sequence));
+    if (packet.kind == FfbPacket::Kind::SlotState) {
+        appendf(l, " slot=%u playing=%d type=", static_cast<unsigned>(packet.slot), packet.playing ? 1 : 0);
+        l += typeField(e.type);
+        appendf(l, " gain=%.4f level=%.4f", static_cast<double>(e.gain), static_cast<double>(e.constantLevel));
+        appendf(l, " center=%.4f deadband=%.4f k_pos=%.4f k_neg=%.4f sat_pos=%.4f sat_neg=%.4f",
+                static_cast<double>(e.condition.center), static_cast<double>(e.condition.deadband),
+                static_cast<double>(e.condition.positiveCoefficient),
+                static_cast<double>(e.condition.negativeCoefficient),
+                static_cast<double>(e.condition.positiveSaturation),
+                static_cast<double>(e.condition.negativeSaturation));
+        appendf(l, " magnitude=%.4f offset=%.4f period_ms=%.1f phase_deg=%.1f",
+                static_cast<double>(e.periodic.magnitude),
+                static_cast<double>(e.periodic.offset), static_cast<double>(e.periodic.periodMs),
+                static_cast<double>(e.periodic.phaseDeg));
+    }
+    l += '\n';
     write(ffbEvents_, l);
     ++ffbRows_;
     flushIfDue(nowNs);
@@ -484,10 +485,17 @@ void TelemetryRecorder::writeFfbApplied(const std::uint64_t nowNs, const AsyncFf
                                                                              : "wheel_stopall";
     std::string& l = line_;
     l.clear();
-    appendTimes(l, wall, nowNs);
-    appendf(l, ",%s,%u,,%d,", kind, static_cast<unsigned>(applied.slot), applied.ok ? 1 : 0);
-    if (applied.kind == AsyncFfbSink::Applied::Kind::Play) l += typeField(applied.type);
-    appendf(l, ",,,,,,,,,,,,,%lu,%lu\n", static_cast<unsigned long>(applied.waitUs),
+    appendTimes(l, wall, nowNs, kFfbComponent);
+    appendf(l, " kind=%s", kind);
+    if (applied.kind != AsyncFfbSink::Applied::Kind::StopAll) {
+        appendf(l, " slot=%u", static_cast<unsigned>(applied.slot));
+    }
+    appendf(l, " ok=%d", applied.ok ? 1 : 0);
+    if (applied.kind == AsyncFfbSink::Applied::Kind::Play) {
+        l += " type=";
+        l += typeField(applied.type);
+    }
+    appendf(l, " wait_us=%lu call_us=%lu\n", static_cast<unsigned long>(applied.waitUs),
             static_cast<unsigned long>(applied.callUs));
     write(ffbEvents_, l);
     ++ffbRows_;
@@ -503,8 +511,8 @@ void TelemetryRecorder::noteMalformedFfb(const std::uint64_t nowNs, const std::s
     lastMalformedNs_ = nowNs;
     const WallClock::time_point wall = advance(nowNs);
     line_.clear();
-    appendTimes(line_, wall, nowNs);
-    appendf(line_, ",malformed_%lu_bytes_%llu_more,,,,,,,,,,,,,,,,,,\n", static_cast<unsigned long>(bytes),
+    appendTimes(line_, wall, nowNs, kFfbComponent);
+    appendf(line_, " kind=malformed bytes=%lu skipped_before=%llu\n", static_cast<unsigned long>(bytes),
             static_cast<unsigned long long>(malformedSkipped_));
     malformedSkipped_ = 0;
     write(ffbEvents_, line_);

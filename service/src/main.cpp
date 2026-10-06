@@ -679,7 +679,7 @@ public:
             }
         }
         controller_->update(nowNs);
-        // What reached the wheel since the last tick, and how long it took (the log's delay table, ffb-*.csv).
+        // What reached the wheel since the last tick, and how long it took (the log's delay table, ffb-*.log).
         const std::size_t applied = sink_->drainApplied(applied_);
         for (std::size_t i = 0; i < applied; ++i) {
             delays_.record(applied_[i]);

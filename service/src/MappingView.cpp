@@ -715,7 +715,7 @@ void MappingView::trackLastPressed(const std::uint64_t sourceButtons) {
 
 namespace {
 
-// Keeps both ends of a long path: "C:\Users\...\logs\telemetry-20260930-142501.csv".
+// Keeps both ends of a long path: "C:\Users\...\logs\telemetry-2026-09-30.log".
 std::string shortenMiddle(const std::string& value, const std::size_t maxChars) {
     if (value.size() <= maxChars || maxChars < 8) {
         return value;
@@ -884,8 +884,8 @@ void MappingView::drawLogs() {
     y += 10;
     text(window_, 4, y, "Telemetry", kText);
     text(window_, x, y,
-         gTelemetryTab ? "the recorded CSV files and the latest events are on the Telemetry tab (T)"
-                       : "recorded to telemetry-<date>.csv and ffb-<date>.csv in the logs folder (O opens it)",
+         gTelemetryTab ? "the recorded telemetry files and the latest events are on the Telemetry tab (T)"
+                       : "recorded to telemetry-<date>.log and ffb-<date>.log in the logs folder (O opens it)",
          kDim);
     y += kLogRowHeight;
     text(window_, 4, y, "Old files", kText);
@@ -1228,7 +1228,7 @@ void MappingView::drawTelemetry() {
 
     // The files: where the service records all of this (click a line to open the folder).
     text(window_, 4, kTelemetryTop, "TELEMETRY", kHeading);
-    text(window_, 92, kTelemetryTop, "what the service records (CSV, one file per day) and the latest events", kDim);
+    text(window_, 92, kTelemetryTop, "what the service records (logs, one file a day) and the latest events", kDim);
     float y = kTelemetryTop + 14;
     text(window_, 4, y, "Folder", kDim);
     const std::filesystem::path folder = t.on ? t.samplesPath.parent_path() : files_.logFolder;
@@ -1274,7 +1274,7 @@ void MappingView::drawTelemetry() {
     }
     text(window_, x, y, held.empty() ? "no buttons" : shortenMiddle(held, 104).c_str(), held.empty() ? kDim : kText);
 
-    // The latest events: as many as fit, newest at the bottom (no scrolling: the CSV files have everything).
+    // The latest events: as many as fit, newest at the bottom (no scrolling: the telemetry files have everything).
     y += 24;
     fill(window_, 0, y - 8, kLogicalWidth, 1, kPanel);
     text(window_, 4, y, "LATEST EVENTS", kHeading);

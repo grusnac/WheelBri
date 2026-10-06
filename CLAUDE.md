@@ -7,7 +7,7 @@ This file guides Claude when working in this repository.
 - After every change, finish with **how to build it** and **how to test it** (what to run, what to look for,
   what a failure looks like), even when the change needs no rebuild (say so).
 - Build and test steps use the scripts in `scripts/make/` (`build.sh`, `rebuild.sh`, `test.sh`, `check.sh`,
-  `ui.sh`, `app.sh`, `shim.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`; see `scripts/make/README.md`) as the shortcut
+  `ui.sh`, `app.sh`, `shim.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`, `measure.sh`; see `scripts/make/README.md`) as the shortcut
   next to the full commands (next rule). When a new workflow keeps needing the same commands, add a script there
   (sourcing `common.sh`) and list it in that README.
 - **Every build or test step comes in two forms**: first the **full command(s)** that will run (exactly what the
@@ -39,7 +39,7 @@ This file guides Claude when working in this repository.
   then **Why** (the reason), **Use** (how to use it, settings) and **Look** (where to see it: UI, logs and
   telemetry columns, code files). Ask the user whether a functionality is finished if it's unclear.
 - Before guessing at a mapping or FFB problem, read the user's logs and telemetry
-  (`%LOCALAPPDATA%\wheelbri\logs`: `wheelbri-service-<date>.log`, `telemetry-<date>.csv`, `ffb-<date>.csv`) and
+  (`%LOCALAPPDATA%\wheelbri\logs`: `wheelbri-service-<date>.log`, `telemetry-<date>.log`, `ffb-<date>.log`) and
   run `scripts/telemetry_summary.sh`. The `raw_a0`..`raw_a7` columns show which axis a control really moves.
 
 ## Project
@@ -84,6 +84,10 @@ commit), `ui.sh [config]`, `app.sh [--no-start]`, `shim.sh [--off] <game folder>
 [-GameFolder <folder>] [-KeepThirdParty] [-Yes]` (removes everything WheelBri put on the PC, HidHide and HIDMaestro
 included, for a fresh install; when the
 app, installer or drivers start leaving something new on the PC, add it to `clean-pc.ps1`).
+`measure.sh [-Phase name] [-Game exe] [-Seconds N]` measures WheelBri's CPU (per process and per thread), memory,
+handles, GDI objects and the timer resolution from outside the app (`measure.ps1` in its own Administrator window;
+M = new phase, Q = stop; one `perf-<date>-<time>.log` in the logs folder, which housekeeping leaves alone). Measure with it
+rather than adding counters to the app, so the app's own use is what is seen.
 The raw commands they run:
 
 Windows, MSYS2 UCRT64, from the repo root. Configure (first time only):
@@ -152,7 +156,7 @@ line per component: emulator, game shim, G920 driver, hide filter, each in its o
 with today's file, size, age, click opens its folder; then a scrollable live log of all those files merged:
 wheel, arrows, PageUp / PageDown, Home / End, a draggable vertical scroll bar, a sideways one for long messages
 (Shift + wheel, Left / Right) and word wrap (Wrap button or W); drags come from `WindowInput::pointer` / `leftDown`,
-`MappingView::onPointer`; core `LiveLog`), **Telemetry** (the CSV files, buttons held, the
+`MappingView::onPointer`; core `LiveLog`), **Telemetry** (the telemetry files, buttons held, the
 latest button / D-pad / pedal / FFB events, not scrollable), **Force feedback** (live effects, usage since
 start, the latest effects) and **Rig** (R, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
 when stopped too, reading every connected device itself). The app has no log panel or toolbar: only the Mapping tab (the editor while stopped, the
@@ -198,8 +202,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     raised priority (the newest command per slot; `stopAll` first, then stops, constant, periodic, conditions, and
     anything that waited `kMaxWait` = 20 ms; a refused play is answered by the next `play` on that slot): a DirectInput
     call takes 4-15 ms on the R3 (27 ms to start an effect) and must not hold the 1 kHz loop. Every call is measured
-    (`Applied`: wait, call), drained by the loop into `FfbDelayStats` (the log's `ffb delay` table) and the ffb CSV's
-    `wheel_*` rows (`wait_us`, `call_us`; sessions repeat their `# columns:`, which `telemetry_summary.sh` reads). Envelopes (attack / fade) and ramps are worked out by the senders, which know each
+    (`Applied`: wait, call), drained by the loop into `FfbDelayStats` (the log's `ffb delay` table) and the ffb log's
+    `kind=wheel_*` lines (`wait_us`, `call_us`; `telemetry_summary.sh` reads them). Envelopes (attack / fade) and ramps are worked out by the senders, which know each
     effect's timing: `FfbShape.hpp` (header only, the driver compiles `HidPid.cpp` without the rest of core) and
     `shapeAt()`, called by the shim's `FfbForwarder` and by `HidPid` on every tick; the wire and the service only see
     levels.
@@ -282,11 +286,15 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `EmulatedJoystick` is the emulated wheel as DirectInput sees it (objects, the game's data format,
     ranges, state bytes, buffered changes). It mirrors DirectInput constants without `<dinput.h>` so it is
     unit-tested on Linux; `shim/src/DiConvert.hpp` static_asserts the constants against the real macros.
-  - `TelemetryRecorder` (`Telemetry.hpp`): daily CSVs in the log folder (`telemetry-YYYY-MM-DD.csv`, a row when
-    something changes, at most `rate_hz` = 50/s, plus a heartbeat every `heartbeat_s` = 60; `ffb-YYYY-MM-DD.csv`
-    one row per game FFB change), each session appended after a `# session started` block, rolled over at local
-    midnight. Columns come from `telemetryColumns()`; when you add one, write it in `writeSample` in the same
-    order and bump `kFormatVersion` (`Telemetry.cpp`, now "2") if a column moves.
+  - `TelemetryRecorder` (`Telemetry.hpp`): daily log files in the log folder (`telemetry-YYYY-MM-DD.log`, a row when
+    something changes, at most `rate_hz` = 50/s, plus a heartbeat every `heartbeat_s` = 60; `ffb-YYYY-MM-DD.log`
+    one line per game FFB change and per call to the wheel), in the other logs' line format (`[date time] [info ]
+    [telemetry     ] t_ms=... key=value ...`; values that do not apply are left out), each session appended after a
+    `session started` line and its header lines, rolled over at local midnight. `telemetryColumns()` lists the keys
+    in order; when you add one, write it in `writeSample` and `telemetry_summary.sh` reads it by name; bump
+    `kFormatVersion` (`Telemetry.cpp`, now "3": log lines; "2" was CSV) when a key changes meaning.
+  - **Every file WheelBri writes is a log** in that line format: no CSV, no JSON (the user's rule, 2026-10-06), the
+    developer tools' output too (`measure.ps1` writes `perf-<date>-<time>.log`).
   - Logs are daily too (`logging::init` adds the date: `wheelbri-service-YYYY-MM-DD.log`); the shim logs to
     `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-YYYY-MM-DD.log`. **One folder for every log**, the user's
     (`%LOCALAPPDATA%\wheelbri\logs`; Linux `~/.local/state/wheelbri`): app, shim, telemetry, both drivers, installer,

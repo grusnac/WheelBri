@@ -3,10 +3,13 @@
 #
 # usage: scripts/telemetry_summary.sh [FILE | FOLDER] [--all]
 #
-# FILE is a telemetry-YYYY-MM-DD.csv (also .csv.xz / .csv.gz). With a FOLDER (default: the service's log folder) the
+# FILE is a telemetry-YYYY-MM-DD.log (also .log.xz / .log.gz). With a FOLDER (default: the service's log folder) the
 # newest day is used. By default the last session of that day is summarised; --all summarises every session of the
-# day together. The matching ffb-*.csv next to it is read too: the game's force feedback changes and the delay of
-# every call the service made to the wheel (wheel_* rows).
+# day together. The matching ffb-*.log next to it is read too: the game's force feedback changes and the delay of
+# every call the service made to the wheel (kind=wheel_* lines).
+#
+# The files are logs like the others: "[date time] [info ] [telemetry     ] t_ms=... key=value ...". Rows are the
+# lines whose message starts with t_ms=; "session started" lines start a session.
 #
 # Rows are written only when a value changes (only_changes), so each row stands for the time until the next one;
 # shares of time below are weighted by that.
@@ -36,9 +39,9 @@ default_folder() {
 
 path="${target:-$(default_folder)}"
 if [[ -d "$path" ]]; then
-    newest="$(ls -1 "$path" 2>/dev/null | grep -E '^telemetry-.*\.csv(\.xz|\.gz)?$' | sort | tail -n 1 || true)"
+    newest="$(ls -1 "$path" 2>/dev/null | grep -E '^telemetry-.*\.log(\.xz|\.gz)?$' | sort | tail -n 1 || true)"
     if [[ -z "$newest" ]]; then
-        echo "no telemetry-*.csv in $path" >&2
+        echo "no telemetry-*.log in $path" >&2
         exit 1
     fi
     path="$path/$newest"
@@ -57,17 +60,29 @@ read_text() {
     esac
 }
 
-sessions_in() { read_text "$1" | grep -c '^# session started' || true; }
+sessions_in() { read_text "$1" | grep -c '\] session started ' || true; }
 
-# Shared awk: column names (a session's own "# columns:" line wins over the file's column row, since a newer version
-# may have added columns in the middle of a day), session selection, sorting and percentiles.
+# Shared awk: reading a line's key=value pairs, session selection, sorting and percentiles.
 read -r -d '' AWK_COMMON <<'AWK' || true
-function setColumns(line,    n, i, names) {
-    n = split(line, names, ",")
-    for (i in col) delete col[i]
-    for (i = 1; i <= n; i++) col[names[i]] = i
+# The message of a log line: what follows "[date time] [level] [component] ".
+function message(line,    i) {
+    for (i = 0; i < 3; i++) {
+        if (!match(line, /\] /)) return ""
+        line = substr(line, RSTART + 2)
+    }
+    return line
 }
-function v(name) { return (name in col) ? $(col[name]) : "" }
+# Fills val[] from the row's key=value pairs; val["time"] = the line's time of day.
+function parse(msg,    n, i, eq, parts) {
+    for (i in val) delete val[i]
+    val["time"] = substr($2, 1, length($2) - 1)
+    n = split(msg, parts, " ")
+    for (i = 1; i <= n; i++) {
+        eq = index(parts[i], "=")
+        if (eq > 1) val[substr(parts[i], 1, eq - 1)] = substr(parts[i], eq + 1)
+    }
+}
+function v(name) { return (name in val) ? val[name] : "" }
 # Sorts A[left..right] ascending: heapsort, no recursion (some awks limit its depth).
 function qsort(A, left, right,    n, i, end_, t) {
     n = right - left + 1
@@ -99,17 +114,16 @@ function median(A, n) {
     return (n % 2) ? A[(n + 1) / 2] : (A[n / 2] + A[n / 2 + 1]) / 2
 }
 function abs(x) { return x < 0 ? -x : x }
-# Line handling common to both files; returns 1 when the line is a data row of a chosen session.
-function take(    line) {
+# Line handling common to both files; returns 1 when the line is a row of a chosen session (its values in val[]).
+function take(    msg) {
     sub(/\r$/, "")
-    line = $0
-    if (line ~ /^# session started/) { session++; chosen = (all || session == last); if (chosen) comments[++nc] = line; return 0 }
-    if (line ~ /^# columns: /) { setColumns(substr(line, 12)); if (chosen) comments[++nc] = line; return 0 }
-    if (line ~ /^#/) { if (chosen && session > 0) comments[++nc] = line; return 0 }
-    if (!haveColumns) { setColumns(line); haveColumns = 1; return 0 }
-    if (line ~ /^time,/ || line == "") return 0
+    msg = message($0)
+    if (msg ~ /^session started /) { session++; chosen = (all || session == last); if (chosen) comments[++nc] = msg; return 0 }
+    if (msg !~ /^t_ms=/) { if (chosen && session > 0) comments[++nc] = msg; return 0 }
     if (session == 0) { session = 1; chosen = (all || session == last) }
-    return chosen
+    if (!chosen) return 0
+    parse(msg)
+    return 1
 }
 AWK
 
@@ -117,7 +131,7 @@ count="$(sessions_in "$path")"
 echo "file     $(basename "$path") ($count session(s))"
 [[ "$count" -gt 0 ]] || exit 0
 
-read_text "$path" | awk -F, -v all="$all" -v last="$count" "$AWK_COMMON"'
+read_text "$path" | awk -v all="$all" -v last="$count" "$AWK_COMMON"'
 function heldFor(now, following) {   # seconds a row held: until the next row (capped at 60 s)
     held = (following != "" && following + 0 >= now + 0) ? (following - now) / 1000.0 : 0.02
     return held > 60.0 ? 60.0 : held
@@ -189,12 +203,12 @@ END {
     if (rows > 0) settle(0.02)
     for (i = 1; i <= nc; i++) {
         c = comments[i]
-        if (c ~ /^# (session started|wheelbri-service|source:|target_profile:|config:)/) print "         " substr(c, 3)
+        if (c ~ /^(session started|wheelbri-service|source:|target_profile:|config:)/) print "         " c
     }
     if (rows == 0) { print "no rows"; exit }
     if (total == 0) total = 1.0
     printf "rows     %d, %s .. %s (%.0f s)\n", rows, firstTime, lastTime, total
-    for (i = 1; i <= nc; i++) if (comments[i] ~ /^# stopped/) { print "         NOTE: the file hit max_file_mb, recording stopped early"; break }
+    for (i = 1; i <= nc; i++) if (comments[i] ~ /^stopped: max_file_mb/) { print "         NOTE: the file hit max_file_mb, recording stopped early"; break }
 
     print "\nphysical axes (raw -1..1): min / max  -> moved?"
     for (i = 0; i < 8; i++) printf "  a%d  %+.3f / %+.3f  %s\n", i, amin[i], amax[i], (amax[i] - amin[i] > 0.05) ? "moved" : ""
@@ -245,7 +259,7 @@ ffb="$dir/${base/telemetry-/ffb-}"
 ffbCount="$(sessions_in "$ffb")"
 [[ "$ffbCount" -gt 0 ]] || exit 0
 
-read_text "$ffb" | awk -F, -v all="$all" -v last="$ffbCount" "$AWK_COMMON"'
+read_text "$ffb" | awk -v all="$all" -v last="$ffbCount" "$AWK_COMMON"'
 function group(kind, type) {
     if (kind != "wheel_play") return "stops"
     if (type == "constant") return "constant"

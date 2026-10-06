@@ -54,6 +54,8 @@ TEST(Retention, OnlyTouchesItsOwnFiles) {
     EXPECT_TRUE(isManagedFile("wheelemu-shim-2026-09-30.log"));
     EXPECT_FALSE(isManagedFile("wheelemu.ini"));
     EXPECT_TRUE(isManagedFile("telemetry-2026-09-30.csv"));
+    EXPECT_TRUE(isManagedFile("telemetry-2026-09-30.log"));   // since format 3
+    EXPECT_TRUE(isManagedFile("ffb-2026-09-30.log"));
     EXPECT_TRUE(isManagedFile("ffb-2026-09-30.csv.xz"));
     EXPECT_TRUE(isManagedFile("wheelbri-logs-2026-09-30.7z"));
     EXPECT_FALSE(isManagedFile("notes.txt"));
