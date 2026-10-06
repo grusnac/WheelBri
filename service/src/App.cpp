@@ -19,13 +19,13 @@
 #include "wheelbri/Logging.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <mutex>
 #include <functional>
 #include <optional>
-#include <tuple>
 #include <thread>
 
 namespace wheelbri::service {
@@ -49,21 +49,20 @@ constexpr ui::Colour kPopup{36, 40, 48};
 constexpr ui::Colour kCaution{206, 164, 58};
 constexpr ui::Colour kDark{16, 18, 20};
 
-// Window layout, in logical pixels: the panel (the tabs) fills the window. Only the Mapping tab has the controls, in
-// its top right corner: the status, Start and Stop.
+// Window layout, in logical pixels: the panel (the tabs) fills the window. Every tab has the controls at the right end
+// of the tab bar: the status (ready, what is missing, running...), then Start and Stop, as tall as the tab buttons. The
+// shim's games row is on the Mapping tab only, in its top row.
 constexpr float kWidth = MappingView::kWidth;
 constexpr float kViewTop = 0;
 constexpr float kHeight = MappingView::kHeight;
-constexpr float kControlsY = 0;
+constexpr float kControlsY = 0;            // the top row: the shim's games
 constexpr float kControlsHeight = 16;
+// The tab bar at the bottom of the panel (MappingView's), in the panel's own coordinates.
+constexpr float kTabBarTop = MappingView::kHeight - MappingView::kTabBarHeight;
+constexpr float kButtonsY = kTabBarTop + 4;   // Start and Stop, level with the tab buttons
 constexpr float kButtonWidth = 68;
 constexpr float kStopX = kWidth - 4 - kButtonWidth;
 constexpr float kStartX = kStopX - 4 - kButtonWidth;
-constexpr std::size_t kStatusChars = 20;   // between the tab's title and the toggle
-// Stopped, the status says which of the rig's devices are missing: more room (right of the editor's title, or of the
-// shim's games row).
-constexpr std::size_t kStoppedStatusChars = 56;
-constexpr std::size_t kStoppedStatusCharsShim = 28;
 constexpr float kGamesX = 220;              // the shim's games ("Game < name > Add"), left of the status: 360 wide
 constexpr std::size_t kHeaderChars = 50;    // the live view's title on the Mapping tab...
 constexpr std::size_t kHeaderCharsShim = 26;   // ...and with the games row next to it
@@ -74,12 +73,6 @@ constexpr float kPopupW = 600;
 constexpr std::size_t kPopupChars = 70;
 constexpr int kWindowWidth = static_cast<int>(kWidth * 1.3F);  // 1.3x the canvas at 100 % (smaller to fit the screen)
 constexpr int kWindowHeight = static_cast<int>(kHeight * 1.3F);
-// The tab bar at the bottom of the panel (MappingView's), in the panel's own coordinates.
-constexpr float kTabBarTop = MappingView::kHeight - 28;
-constexpr float kTabWidth = 156;
-constexpr float kMappingTabX = 4;                         // where MappingView puts "Mapping (M)"
-constexpr float kSetupTabX = 4 + kTabWidth + 6;           // ...and "Rig (R)"
-constexpr float kLogsTabX = 4 + 2 * (kTabWidth + 6);      // ...and "Logs (L)"
 
 // The running session's wheel as the Wheel setup tab wants it.
 WheelSetupView::SessionWheel sessionWheel(const SessionInfo& info, const UiFrame& frame) {
@@ -405,9 +398,10 @@ private:
                     games_->onPanelClick(click.x, click.y);
                     continue;
                 }
-                // The Mapping tab's controls (top right); not over the editor's popups.
-                if (showingMapping() && !(editingMapping && mapping_->popupOpen()) &&
-                    click.y < kControlsY + kControlsHeight && click.x >= kStartX) {
+                // Start and Stop, at the tab bar's right end on every tab; not over the editor's popups.
+                if (!(editingMapping && mapping_->popupOpen()) &&
+                    click.y >= kButtonsY + kViewTop && click.y < kButtonsY + kViewTop + MappingView::kTabHeight &&
+                    click.x >= kStartX) {
                     if (startButton().hit(click)) start();
                     if (stopButton().hit(click)) stop();
                     continue;
@@ -423,10 +417,10 @@ private:
                 if (y >= kTabBarTop) {
                     if (view_ != nullptr) {
                         view_->onClick(click.x, y);
-                    } else if (y >= kTabBarTop + 4 && y < kTabBarTop + 24) {
-                        if (click.x >= kMappingTabX && click.x < kMappingTabX + kTabWidth) idleTab_ = IdleTab::Mapping;
-                        if (click.x >= kLogsTabX && click.x < kLogsTabX + kTabWidth) idleTab_ = IdleTab::Logs;
-                        if (click.x >= kSetupTabX && click.x < kSetupTabX + kTabWidth) idleTab_ = IdleTab::Setup;
+                    } else if (y >= kButtonsY && y < kButtonsY + MappingView::kTabHeight) {
+                        for (const IdleTabButton& button : idleTabButtons()) {
+                            if (click.x >= button.x && click.x < button.x + button.w) idleTab_ = button.tab;
+                        }
                     }
                 } else if (setup) {
                     setup_->onClick(click.x, y);
@@ -496,6 +490,7 @@ private:
 
 private:
     enum class State { Stopped, Starting, Running, Stopping };
+    enum class IdleTab { Mapping, Setup, Logs };
 
     static constexpr std::uint64_t kDrawEveryNs = platform::kNsPerSecond / 30;
     std::uint64_t nextDrawNs_ = 0;
@@ -509,7 +504,8 @@ private:
     }
     // The Mapping tab's editor: on the idle page (no session shows; while running it is the live view).
     [[nodiscard]] bool showingMappingEditor() const { return view_ == nullptr && idleTab_ == IdleTab::Mapping; }
-    // Either Mapping tab (the editor while stopped, the live view's while running): the only place with Start / Stop.
+    // Either Mapping tab (the editor while stopped, the live view's while running): the only place with the shim's games
+    // row (Start, Stop and the status are on every tab).
     [[nodiscard]] bool showingMapping() const {
         return view_ != nullptr ? view_->tab() == MappingView::Tab::Mapping : idleTab_ == IdleTab::Mapping;
     }
@@ -531,17 +527,34 @@ private:
         }
     }
 
-    // The tab bar while no session shows: Mapping (the editor), Rig and Logs, where the live view has its own.
+    // The app's own tab buttons while no session shows (Mapping, the editor; Rig; Logs), placed and sized as the live
+    // view places its first three (MappingView::tabWidth), so nothing moves when a session starts.
+    struct IdleTabButton {
+        IdleTab tab;
+        const char* label;
+        float x;
+        float w;
+    };
+    [[nodiscard]] static std::array<IdleTabButton, 3> idleTabButtons() {
+        std::array<IdleTabButton, 3> buttons{{{IdleTab::Mapping, "Mapping (M)", 0, 0},
+                                              {IdleTab::Setup, "Rig (R)", 0, 0},
+                                              {IdleTab::Logs, "Logs (L)", 0, 0}}};
+        float x = MappingView::kTabLeft;
+        for (IdleTabButton& button : buttons) {
+            button.x = x;
+            button.w = MappingView::tabWidth(button.label);
+            x += button.w + MappingView::kTabGap;
+        }
+        return buttons;
+    }
+
+    // The tab bar while no session shows, where the live view has its own.
     void drawIdleTabs() {
         window_->fill(0, kTabBarTop, kWidth, 1, kPanel);
-        const std::tuple<float, const char*, IdleTab> tabs[] = {{kMappingTabX, "Mapping (M)", IdleTab::Mapping},
-                                                                {kSetupTabX, "Rig (R)", IdleTab::Setup},
-                                                                {kLogsTabX, "Logs (L)", IdleTab::Logs}};
-        for (const auto& [x, label, tab] : tabs) {
-            const bool active = tab == idleTab_;
-            window_->fill(x, kTabBarTop + 4, kTabWidth, 20, active ? kHeading : kPanel);
-            const float labelWidth = static_cast<float>(std::string_view(label).size()) * ui::kCharWidth;
-            window_->text(x + (kTabWidth - labelWidth) / 2, kTabBarTop + 10, label, active ? kDark : kText);
+        for (const IdleTabButton& button : idleTabButtons()) {
+            const bool active = button.tab == idleTab_;
+            window_->fill(button.x, kButtonsY, button.w, MappingView::kTabHeight, active ? kHeading : kPanel);
+            window_->text(button.x + MappingView::kTabPadding, kTabBarTop + 10, button.label, active ? kDark : kText);
         }
     }
 
@@ -549,7 +562,7 @@ private:
     [[nodiscard]] bool shimTarget() const { return picker_ != nullptr && !picker_->virtualDevice(); }
 
     Button startButton() const {
-        return {kStartX, kControlsY, kButtonWidth, kControlsHeight, "Start",
+        return {kStartX, kButtonsY, kButtonWidth, MappingView::kTabHeight, "Start",
                 state_ == State::Stopped && !popup_ && !games_->panelOpen() && (!shimTarget() || games_->hasGame()) &&
                     rigReady()};
     }
@@ -605,7 +618,7 @@ private:
         }
         // Said in the log when it changes, not every second.
         std::string said = needsProblem_;
-        if (helperMissing_) said = "the WheelBri Helper is not running (the virtual device needs it)";
+        if (said.empty() && helperMissing_) said = "the WheelBri Helper is not running (the virtual device needs it)";
         if (said.empty() && needsKnown_) {
             for (const std::string& label : missing_) said += (said.empty() ? "not connected: " : ", ") + label;
             if (said.empty()) said = "every device of the rig the mapping uses is connected";
@@ -621,7 +634,7 @@ private:
         }
     }
     Button stopButton() const {
-        return {kStopX, kControlsY, kButtonWidth, kControlsHeight, "Stop",
+        return {kStopX, kButtonsY, kButtonWidth, MappingView::kTabHeight, "Stop",
                 state_ == State::Starting || state_ == State::Running};
     }
 
@@ -755,25 +768,25 @@ private:
             logs_->drawLogsPage();   // stopped or starting: the same live log, before the session shows itself
             drawIdleTabs();
         }
-        if (showingMapping()) drawControls();
+        drawControls();   // every tab
         if (games_->panelOpen()) games_->drawPanel();
         if (popup_) drawPopup();
         window_->present();
     }
 
-    // The Mapping tab's controls, top right: the status, Start, Stop. Nowhere else.
+    // The controls at the tab bar's right end, on every tab: the status, Start, Stop; the games row on the Mapping tab.
     void drawControls() {
         std::string status;
         ui::Colour colour = kText;
         const std::uint64_t now = platform::nowNs();
         switch (state_) {
             case State::Stopped:
-                // What is missing comes first: it is why Start is greyed out.
-                if (helperMissing_) {
-                    status = "HELPER NOT INSTALLED";
-                    colour = kWarning;
-                } else if (!needsProblem_.empty()) {
+                // What is missing comes first, the most basic first (no rig, no mapping): it is why Start is greyed out.
+                if (!needsProblem_.empty()) {
                     status = needsProblem_;
+                    colour = kWarning;
+                } else if (helperMissing_) {
+                    status = "HELPER NOT INSTALLED";
                     colour = kWarning;
                 } else if (needsKnown_ && !missing_.empty()) {
                     status = "NOT CONNECTED: ";
@@ -810,11 +823,13 @@ private:
                 colour = kCaution;
                 break;
         }
-        status = fit(status, state_ != State::Stopped ? kStatusChars
-                             : shimTarget()         ? kStoppedStatusCharsShim
-                                                    : kStoppedStatusChars);
-        if (shimTarget()) games_->draw(kGamesX, kControlsY, state_ == State::Stopped && !popup_);
-        window_->text(kStartX - 6 - static_cast<float>(status.size()) * ui::kCharWidth, kControlsY + 4, status, colour);
+        // Between the last tab button and Start: what is left of the bar (3 tabs while stopped, up to 5 while running).
+        const float tabsEnd = view_ != nullptr ? MappingView::tabsEnd()
+                                               : idleTabButtons().back().x + idleTabButtons().back().w;
+        const float room = kStartX - 12 - tabsEnd - 12;
+        status = fit(status, static_cast<std::size_t>(std::max(4.0F, room / ui::kCharWidth)));
+        if (shimTarget() && showingMapping()) games_->draw(kGamesX, kControlsY, state_ == State::Stopped && !popup_);
+        window_->text(kStartX - 12 - static_cast<float>(status.size()) * ui::kCharWidth, kTabBarTop + 10, status, colour);
         startButton().draw(*window_, false);
         stopButton().draw(*window_, false);
     }
@@ -940,7 +955,6 @@ private:
     bool quitting_ = false;                   // the window was closed: stop, then end
     std::unique_ptr<IDeviceProfile> logsProfile_;   // logs_ needs one; it shows no mapping
     std::unique_ptr<MappingView> logs_;             // the Logs tab while no session shows
-    enum class IdleTab { Mapping, Setup, Logs };
     IdleTab idleTab_ = IdleTab::Mapping;   // what shows while no session does
     // What Start needs from the rig (updateStartNeeds).
     DeviceWatch devices_;

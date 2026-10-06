@@ -239,11 +239,11 @@ log is `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log` (every log, th
 `wheelbri.exe` (built next to `wheelbri-service.exe` in `build/service/`) is the everyday way to run it:
 double-click it (it runs as you; the WheelBri Helper service does what needs Administrator), press **Start**, then
 start the game. **Start** and **Stop**
-are only on the Mapping tab (top right, stopped or running), with the state next to them
+are at the bottom right of every tab, next to the tab buttons (stopped or running), with the state just left of them
 (ready, running and for how long, a lost wheel, a game not using it); after "Start failed (Logs)" the Logs tab says
 why, in red. While stopped, Start can only be pressed when every device of the rig that the mapping uses (the wheel,
 and each accessory the mapping takes an axis or button from) is connected: otherwise the state says, in red, **NOT
-CONNECTED:** and their names (or **NO RIG** before a rig is set up), and Start is greyed out until they appear (the
+CONNECTED:** and their names (or **NO RIG** before a rig is set up, **NO MAPPING** when nothing of the rig is mapped onto the G920), and Start is greyed out until they appear (the
 app looks every 2 s). Devices of the rig the mapping does not use do not matter. Start shows the Logs tab of the same live view as `--ui`
 (axes, buttons, game force feedback, logs: click a line or press O for the folder). **Stop**, or closing the window,
 undoes everything (virtual G920 removed, the R3 visible again).

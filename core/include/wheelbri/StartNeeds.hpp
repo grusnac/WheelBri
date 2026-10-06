@@ -20,9 +20,18 @@ struct NeededDevice {
 
 struct StartNeeds {
     std::vector<NeededDevice> devices;   // the wheel first, then the accessories
-    // Set when no wheel can be named (no rig yet, or a rig with no device): Start cannot run either.
+    // Set when Start cannot run, saying what is missing: no rig yet (kNoRig), a rig with no device, or a rig the mapping
+    // takes nothing from (kNoMapping: not one of the target's axes, buttons or D-pad directions comes from a device of
+    // the rig).
     std::string problem;
 };
+
+inline constexpr const char* kNoRig = "NO RIG: set it up in the Rig tab";
+inline constexpr const char* kNoMapping = "NO MAPPING: map the rig in the Mapping tab";
+
+// Whether at least one of the target's controls (steering, a pedal, a button, a D-pad direction) is taken from a
+// device of `rig`; `wheelInRig`: the mapping's device 0 (the wheel) is one of the rig's devices.
+[[nodiscard]] bool mappingUsesRig(const MapperConfig& mapper, const Rig& rig, bool wheelInRig);
 
 // A game controller connected now, as Windows (or evdev) lists it.
 struct PresentDevice {

@@ -84,5 +84,52 @@ TEST(StartNeeds, AnUnnamedAccessoryShowsItsId) {
     EXPECT_EQ(needs.devices[1].label, "0eb7:0e04");
 }
 
+// A config with nothing mapped: no axis, button or D-pad direction.
+EmulatorConfig unmapped() {
+    EmulatorConfig config;
+    config.mapper.steering.sourceAxis = kUnmapped;
+    config.mapper.buttonMap.fill(kUnmapped);
+    return config;
+}
+
+TEST(StartNeeds, NoRigSaysNoRig) {
+    EXPECT_EQ(startNeeds(EmulatorConfig{}, nullptr).problem, kNoRig);
+}
+
+TEST(StartNeeds, ARigWithNothingMappedSaysNoMapping) {
+    const Rig r = rig();
+    const StartNeeds needs = startNeeds(unmapped(), &r);
+    EXPECT_EQ(needs.problem, kNoMapping);
+    EXPECT_TRUE(needs.devices.empty());
+    EXPECT_TRUE(startNeeds(EmulatorConfig{}, &r).problem.empty());   // the default mapping: steering from the wheel
+}
+
+TEST(StartNeeds, OneControlFromTheRigIsAMapping) {
+    const Rig r = rig();
+    EmulatorConfig config = unmapped();
+    config.mapper.buttonMap[3] = 7;   // one button of the wheel
+    EXPECT_TRUE(startNeeds(config, &r).problem.empty());
+    config = unmapped();
+    config.mapper.hatButtons.up = 4;   // one D-pad direction
+    EXPECT_TRUE(startNeeds(config, &r).problem.empty());
+    config = unmapped();
+    config.mapper.accessories[0] = {0x30b7, 0x1001};   // the throttle from the rig's pedals
+    config.mapper.throttle.sourceAxis = 1;
+    config.mapper.throttle.sourceDevice = 1;
+    EXPECT_TRUE(startNeeds(config, &r).problem.empty());
+}
+
+TEST(StartNeeds, ControlsFromDevicesOutsideTheRigAreNoMapping) {
+    const Rig r = rig();
+    EmulatorConfig config = unmapped();
+    config.mapper.accessories[0] = {0x0eb7, 0x0e04};   // not in the rig
+    config.mapper.brake.sourceAxis = 2;
+    config.mapper.brake.sourceDevice = 1;
+    EXPECT_EQ(startNeeds(config, &r).problem, kNoMapping);
+    config = EmulatorConfig{};
+    config.sourceDeviceMatch = "0eb7";   // a wheel the rig does not have, everything mapped from it
+    EXPECT_EQ(startNeeds(config, &r).problem, kNoMapping);
+}
+
 }  // namespace
 }  // namespace wheelbri

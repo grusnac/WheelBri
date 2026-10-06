@@ -13,6 +13,29 @@ std::string idText(const DeviceId& id) { return deviceId(id.vendorId, id.product
 
 }  // namespace
 
+bool mappingUsesRig(const MapperConfig& mapper, const Rig& rig, const bool wheelInRig) {
+    // A source on device 0 is the wheel's, on 1..3 that accessory's.
+    const auto fromRig = [&](const int source, const int device) {
+        if (source < 0) return false;
+        if (device == 0) return wheelInRig;
+        const auto slot = static_cast<std::size_t>(device - 1);
+        return device > 0 && slot < mapper.accessories.size() && !mapper.accessories[slot].empty() &&
+               rig.find(mapper.accessories[slot]) != nullptr;
+    };
+    if (fromRig(mapper.steering.sourceAxis, mapper.steering.sourceDevice) ||
+        fromRig(mapper.throttle.sourceAxis, mapper.throttle.sourceDevice) ||
+        fromRig(mapper.brake.sourceAxis, mapper.brake.sourceDevice) ||
+        fromRig(mapper.clutch.sourceAxis, mapper.clutch.sourceDevice)) {
+        return true;
+    }
+    for (std::size_t i = 0; i < mapper.buttonMap.size(); ++i) {
+        if (fromRig(mapper.buttonMap[i], mapper.buttonDevice[i])) return true;
+    }
+    const HatButtons& hat = mapper.hatButtons;
+    return fromRig(hat.up, hat.devices[0]) || fromRig(hat.right, hat.devices[1]) || fromRig(hat.down, hat.devices[2]) ||
+           fromRig(hat.left, hat.devices[3]);
+}
+
 StartNeeds startNeeds(const EmulatorConfig& config, const Rig* const rig) {
     StartNeeds needs;
     NeededDevice wheel;
@@ -33,13 +56,19 @@ StartNeeds startNeeds(const EmulatorConfig& config, const Rig* const rig) {
         const RigDevice* device = rig != nullptr ? rig->wheel() : nullptr;
         if (device == nullptr && rig != nullptr && !rig->devices.empty()) device = &rig->devices.front();
         if (device == nullptr || device->id.empty()) {
-            needs.problem = rig == nullptr ? "NO RIG: set it up in the Rig tab" : "NO WHEEL IN THE RIG (Rig tab)";
+            needs.problem = rig == nullptr ? kNoRig : "NO WHEEL IN THE RIG (Rig tab)";
             return needs;
         }
         wheel.id = device->id;
         wheel.label = device->name.empty() ? idText(device->id) : device->name;
     }
     needs.devices.push_back(wheel);
+    // A rig and a target, but nothing of the rig mapped onto the target.
+    if (rig != nullptr && !mappingUsesRig(config.mapper, *rig, !wheel.id.empty() && rig->find(wheel.id) != nullptr)) {
+        needs.problem = kNoMapping;
+        needs.devices.clear();
+        return needs;
+    }
 
     for (std::size_t i = 0; i < config.mapper.accessoryCount(); ++i) {
         const DeviceId& id = config.mapper.accessories[i];
