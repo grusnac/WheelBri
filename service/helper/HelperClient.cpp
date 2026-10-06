@@ -1,5 +1,7 @@
 #include "HelperClient.hpp"
 
+#include "Platform.hpp"
+
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/HidHideCli.hpp"
 
@@ -69,15 +71,10 @@ HelperClient::Connect HelperClient::connect(std::string& error, const std::strin
             ULONG pid = 0;
             if (GetNamedPipeServerProcessId(pipe, &pid)) {
                 serverPid_ = pid;
-                if (const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
-                    std::wstring image(32768, L'\0');
-                    DWORD size = static_cast<DWORD>(image.size());
-                    if (QueryFullProcessImageNameW(process, 0, image.data(), &size)) {
-                        image.resize(size);
-                        serverImage_ = pathToUtf8(std::filesystem::path(image));
-                    }
-                    CloseHandle(process);
-                }
+                // A standard user may not open a service's process (seen 2026-10-06: the installed helper was "a
+                // program Windows will not name" and every Start was refused); processImage then names it without
+                // opening it (NtQuerySystemInformation), as for WUDFHost.exe.
+                serverImage_ = pathToUtf8(service::platform::processImage(pid));
             }
             if (!expectedFolder.empty() &&
                 !hidhide::equalsIgnoreCase(serverImage_, expectedFolder + "\\wheelbri-helper.exe")) {
