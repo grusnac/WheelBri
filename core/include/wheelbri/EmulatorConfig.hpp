@@ -24,6 +24,7 @@ struct EmulatorConfig {
     std::uint16_t ffbPort = kDefaultFfbPort;     // UDP loopback port the service receives game force feedback on
     bool gameFfb = true;                         // play the game's force feedback (sent by the shim)
     int loopHz = 1000;
+    int stateRateHz = 500;                       // at most this many state packets a second, only when it changed
     bool ffbInvert = false;                    // flip force direction if the wheel pulls the wrong way
 
     MapperConfig mapper;

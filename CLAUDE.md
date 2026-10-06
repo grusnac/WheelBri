@@ -170,7 +170,8 @@ Logs page), in that order (there is no Status tab; a failed Start says "Start fa
 it opens on Rig until a rig exists, else on Mapping; Start switches to Logs at once (the session logs while it comes
 up) and the live view keeps the tab showing then. O opens the logs folder (every log is there). It draws through
 `UiWindow.hpp` (filled/outlined rectangles, 8x8-cell monospaced text and clicks on a 960x748 logical canvas,
-letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware) on Windows, `UiWindowX11.cpp`
+letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware; records each frame as a core
+`DrawList` and draws it only when it differs from the one on screen) on Windows, `UiWindowX11.cpp`
 (Xlib) on Linux.
 
 The app (`wheelbri`, `service/src/App.cpp`, same sources plus `WHEELBRI_APP`; on Windows a GUI-subsystem exe
@@ -179,7 +180,8 @@ started as Administrator; the status says "HELPER NOT INSTALLED" in red and Star
 project's version; both exes carry the icon `wheelbri.ico`, made from `wheelbri.svg`, "wheel going digital", resource
 1, which `UiWindowWin32` also uses for the window) runs sessions (`runSession` in `main.cpp`) on a thread of its
 own from Start / Stop buttons; sessions show themselves through `UiHost` (`SessionUi.hpp`): the app's window,
-or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it does not own.
+or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it does not own. The window is drawn
+~30 times a second (sooner after input); 60 cost a sixth of a core for a picture that rarely changes.
 
 ## Layout and architecture
 
@@ -189,7 +191,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `RawInputState` (8 axes in [-1,1] exactly as the OS reports them) → `Mapper` → `WheelState`
     (target-agnostic: steering -1..1 over the *target* rotation, pedals 0..1) → `IDeviceProfile::encode`
     → `TargetReport` (the emulated device's own ranges) → `StatePacket` → `IStatePublisher`.
-  - `Pipeline::tick()` runs one pass of that chain (optionally with a clutch override, see `TestClutch`).
+  - `Pipeline::tick()` runs one pass of that chain (optionally with a clutch override, see `TestClutch`). The service
+    calls `limitSending` (`Pacing.hpp`, `StateSendGate`): a packet only when the state changed, at most `state_rate_hz`
+    (default 500) a second, and a keep-alive every 100 ms (receivers call 1500 ms stale); `sequence()` counts packets
+    sent. Measured 2026-10-06: 1000 packets a second kept one thread of the virtual G920's driver host at 84 % of a core.
     `IInputSource` / `IFfbSink` (`Devices.hpp`, `kMaxSlots = 8` effect slots) and `IStatePublisher` /
     `IStateReceiver` are the seams for tests and platform code.
   - New emulated wheels are new `DeviceProfileSpec`s (or `IDeviceProfile` implementations), registered in
@@ -346,7 +351,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `wheelbri-helper.exe` next to this program; the user's HKCU DirectInput entries are kept here by
     `DirectInputUserEntries`). Neither: the session fails with "HELPER NOT INSTALLED" / "HELPER REFUSED". `runSession`,
     `ensureHideFilter`, `ensureG920Driver` and `--prepare-hide` only go through it.
-  - OS helpers in `Platform.hpp` (clock, precise sleep, thread priority, child process in a kill-on-close job,
+  - OS helpers in `Platform.hpp` (clock, precise sleep: one sleep, then a spin of the learnt `SpinMargin`, 50-300 us,
+    never the whole wait (it kept a core busy until 2026-10-06), thread priority, child process in a kill-on-close job,
     `SingleInstance` lock so only one session runs per computer, console close handler, `isElevated`); `FfbSelfTest`
     (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView` (`--ui`); a fixed-rate loop
     (default 1 kHz, drift-free, resynchronises when behind).

@@ -20,7 +20,7 @@ Pipeline::Pipeline(IInputSource& source, const Mapper& mapper, const IDeviceProf
                 profile_.identity().vendorId, profile_.identity().productId);
 }
 
-bool Pipeline::tick(std::optional<float> clutchOverride) {
+bool Pipeline::tick(std::optional<float> clutchOverride, const std::uint64_t nowNs) {
     if (!source_.poll(inputs_.devices[0])) {
         WE_LOG_WARN(log(), "pipeline: input source '{}' stopped delivering after {} ticks", source_.name(),
                     packet_.sequence);
@@ -40,9 +40,11 @@ bool Pipeline::tick(std::optional<float> clutchOverride) {
         state_.clutch = *clutchOverride;
     }
     packet_.report = profile_.encode(state_);
-    ++packet_.sequence;
-    if (!publisher_.publish(packet_)) {
-        ++publishFailures_;
+    if (!gate_ || gate_->shouldSend(packet_.report, nowNs)) {
+        ++packet_.sequence;
+        if (!publisher_.publish(packet_)) {
+            ++publishFailures_;
+        }
     }
 
     static logging::CallSampler sampler(5, 5000);

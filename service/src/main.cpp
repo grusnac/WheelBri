@@ -408,10 +408,10 @@ LoadedConfig loadConfig(const std::string& path) {
 }
 
 void logEffectiveConfig(const wheelbri::EmulatorConfig& config) {
-    WE_LOG_INFO(log(), "source_device='{}' target_profile='{}' state_port={} ffb_port={} loop_hz={} game_effects={} "
-                       "ffb_invert={}",
+    WE_LOG_INFO(log(), "source_device='{}' target_profile='{}' state_port={} ffb_port={} loop_hz={} state_rate_hz={} "
+                       "game_effects={} ffb_invert={}",
                 config.sourceDeviceMatch, config.targetProfile, config.statePort, config.ffbPort, config.loopHz,
-                config.gameFfb, config.ffbInvert);
+                config.stateRateHz, config.gameFfb, config.ffbInvert);
     WE_LOG_DEBUG(log(), "ffb gain={:.2f} max_magnitude={:.2f} max_slew={:.1f}/s", config.ffb.masterGain,
                  config.ffb.maxMagnitude, config.ffb.maxSlewPerSecond);
 }
@@ -442,11 +442,15 @@ void printLive(const wheelbri::Pipeline& pipeline) {
 void logLoopStats(const char* what, const wheelbri::LoopStats& stats, const wheelbri::Pipeline& pipeline) {
     const auto snapshot = stats.snapshot();
     const double targetUs = static_cast<double>(stats.targetPeriodNs()) / 1000.0;
+    const wheelbri::StateSendGate* gate = pipeline.sendGate();
     WE_LOG_INFO(log(),
                 "loop: {}: {} ticks, period avg {:.1f} us / max {:.1f} us (target {:.0f}), work avg {:.1f} us / max "
-                "{:.1f} us, {} overruns, packet #{}, {} publish failures",
+                "{:.1f} us, {} overruns, packet #{} (since the start: {} ticks unchanged, {} changes held back for "
+                "state_rate_hz), {} publish failures, spin margin {} us",
                 what, snapshot.ticks, snapshot.averagePeriodUs, snapshot.maxPeriodUs, targetUs, snapshot.averageWorkUs,
-                snapshot.maxWorkUs, snapshot.overruns, pipeline.sequence(), pipeline.publishFailures());
+                snapshot.maxWorkUs, snapshot.overruns, pipeline.sequence(), gate != nullptr ? gate->unchanged() : 0,
+                gate != nullptr ? gate->heldBack() : 0, pipeline.publishFailures(),
+                platform::preciseSleepMarginNs() / 1000);
 }
 
 // Where the time of one loop tick goes, to find the cause of a slow tick.
@@ -779,6 +783,7 @@ std::unique_ptr<wheelbri::TelemetryRecorder> openTelemetry(const wheelbri::Emula
         std::string("wheelbri-service ") + WHEELBRI_VERSION + " on " + platform::name(),
         "source: " + source.name() + " (" + device + ")",
         "target_profile: " + config.targetProfile + ", loop_hz: " + std::to_string(config.loopHz) +
+            ", state_rate_hz: " + std::to_string(config.stateRateHz) +
             ", rate_hz: " + std::to_string(settings.rateHz),
         "config: " + (configPath.empty() ? std::string("(built-in defaults)") : configPath),
     };
@@ -857,6 +862,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     const wheelbri::Mapper mapper(config.mapper);
     wheelbri::Pipeline pipeline(source, mapper, *profile, *publisher);
     pipeline.setAccessories(accessories.sources());
+    pipeline.limitSending(platform::kNsPerSecond / static_cast<std::uint64_t>(config.stateRateHz));
 
     // Test clutch while no clutch pedal is connected: ClutchPackets on kTestClutchPort (TestClutch.hpp). A developer
     // tool: not with the in-game shim, whose session starts only what the shim needs.
@@ -909,7 +915,8 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
 
     const std::uint64_t periodNs = platform::kNsPerSecond / static_cast<std::uint64_t>(config.loopHz);
     const std::uint64_t printEveryTicks = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(config.loopHz) / 10);
-    const std::uint64_t frameEveryTicks = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(config.loopHz) / 60);  // ~60 fps
+    // The window's copy of the state, ~30 times a second (as often as the window draws).
+    const std::uint64_t frameEveryTicks = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(config.loopHz) / 30);
 
     // The 1 kHz loop (wheel input, state to the game, force feedback, telemetry) runs on its own thread; the
     // window and old-file checks stay on this one. A window that Windows holds up (a game going full screen,
@@ -961,7 +968,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                 }
             }
             stages.lap(TickStages::Input, mark);
-            if (!pipeline.tick(clutchOverride)) {
+            if (!pipeline.tick(clutchOverride, tickStart)) {
                 const int lost = pipeline.lostDevice();
                 WE_LOG_ERROR(log(), "{} lost after {} ticks (unplugged, or a USB reset?)",
                              lost <= 0 ? std::string("physical wheel")
@@ -1118,9 +1125,9 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         loopDone = true;
     });
 
-    // This thread: the window (~60 fps) and old files (every 250 ms, and again after every midnight).
+    // This thread: the window (~30 fps) and old files (every 250 ms, and again after every midnight).
     try {
-        constexpr std::uint64_t kFrameNs = platform::kNsPerSecond / 60;
+        constexpr std::uint64_t kFrameNs = platform::kNsPerSecond / 30;
         std::uint64_t lastHousekeepingNs = 0;
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {

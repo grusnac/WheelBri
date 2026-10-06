@@ -54,6 +54,30 @@ TEST(Pipeline, MapsEncodesAndPublishesEachTick) {
     EXPECT_EQ(pipeline.lastReport(), publisher.packets[1].report);
 }
 
+TEST(Pipeline, LimitedSendingPublishesOnlyChangesAndKeepAlives) {
+    FakeSource source;
+    RecordingPublisher publisher;
+    const Mapper mapper(MapperConfig{});
+    const DeviceProfile profile(g920Spec());
+    Pipeline pipeline(source, mapper, profile, publisher);
+    pipeline.limitSending(2'000'000);   // at most 500 a second
+
+    constexpr std::uint64_t kMs = 1'000'000;
+    ASSERT_TRUE(pipeline.tick(std::nullopt, 1 * kMs));    // first state: sent
+    ASSERT_TRUE(pipeline.tick(std::nullopt, 2 * kMs));    // unchanged: not sent
+    source.next.axes[0] = 0.5F;
+    ASSERT_TRUE(pipeline.tick(std::nullopt, 2 * kMs));    // changed, but within 2 ms: held
+    EXPECT_NE(pipeline.lastReport(), publisher.packets.back().report);   // the UI still sees the newest
+    ASSERT_TRUE(pipeline.tick(std::nullopt, 3 * kMs));    // the held change goes out
+    ASSERT_EQ(publisher.packets.size(), 2U);
+    EXPECT_EQ(publisher.packets[1].sequence, 2U);         // numbered by packets sent, not by ticks
+    EXPECT_EQ(publisher.packets[1].report, pipeline.lastReport());
+    ASSERT_TRUE(pipeline.tick(std::nullopt, 103 * kMs));  // 100 ms unchanged: a keep-alive
+    EXPECT_EQ(publisher.packets.size(), 3U);
+    ASSERT_NE(pipeline.sendGate(), nullptr);
+    EXPECT_EQ(pipeline.sendGate()->heldBack(), 1U);
+}
+
 TEST(Pipeline, TestClutchReplacesTheMappedClutch) {
     FakeSource source;
     RecordingPublisher publisher;

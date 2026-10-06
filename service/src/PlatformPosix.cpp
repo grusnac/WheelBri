@@ -2,6 +2,8 @@
 
 #include "Platform.hpp"
 
+#include "wheelbri/Pacing.hpp"
+
 #include <fcntl.h>
 #include <signal.h>
 #include <spawn.h>
@@ -15,6 +17,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -42,25 +45,28 @@ void sleepNs(const std::uint64_t ns) {
     }
 }
 
+namespace {
+std::atomic<std::uint64_t> gLastSpinMarginNs{0};   // what sleepPrecise used last, for the log
+}  // namespace
+
 void sleepPrecise(const std::uint64_t ns) {
-    std::uint64_t current = nowNs();
-    const std::uint64_t target = current + ns;
-    constexpr std::uint64_t kShortSleep = kNsPerMs;
-    std::uint64_t longestSleep = kShortSleep;
-    while (current + longestSleep < target) {
-        sleepNs(kShortSleep);
-        const std::uint64_t now = nowNs();
-        longestSleep = std::max(longestSleep, now - current);
-        current = now;
+    thread_local wheelbri::SpinMargin margin;
+    const std::uint64_t start = nowNs();
+    const std::uint64_t target = start + ns;
+    if (ns > margin.ns()) {
+        const std::uint64_t wakeAt = target - margin.ns();
+        sleepNs(wakeAt - start);
+        const std::uint64_t woke = nowNs();
+        margin.observe(woke > wakeAt ? woke - wakeAt : 0);
+        gLastSpinMarginNs.store(margin.ns(), std::memory_order_relaxed);
     }
-    if (current < target && target - current > longestSleep) {
-        sleepNs(target - current - longestSleep);
-        current = nowNs();
-    }
-    while (current < target) {
+    while (nowNs() < target) {
         std::this_thread::yield();
-        current = nowNs();
     }
+}
+
+std::uint64_t preciseSleepMarginNs() {
+    return gLastSpinMarginNs.load(std::memory_order_relaxed);
 }
 
 bool raiseThreadPriority(std::string& error) {

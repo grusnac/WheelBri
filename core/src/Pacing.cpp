@@ -1,0 +1,37 @@
+#include "wheelbri/Pacing.hpp"
+
+#include <algorithm>
+
+namespace wheelbri {
+
+void SpinMargin::observe(const std::uint64_t lateNs) {
+    const std::uint64_t wanted = std::clamp(lateNs + kHeadroomNs, kMinNs, kMaxNs);
+    if (wanted >= marginNs_) {
+        marginNs_ = wanted;
+    } else {
+        marginNs_ -= std::max<std::uint64_t>(1, (marginNs_ - wanted) / kFallDivisor);
+    }
+}
+
+bool StateSendGate::shouldSend(const TargetReport& report, const std::uint64_t nowNs) {
+    const std::uint64_t since = nowNs - lastSentNs_;
+    bool send = false;
+    if (!any_) {
+        send = true;
+    } else if (report != last_) {
+        send = since >= minIntervalNs_;
+        if (!send) ++heldBack_;
+    } else {
+        send = since >= keepAliveNs_;
+        if (!send) ++unchanged_;
+    }
+    if (send) {
+        any_ = true;
+        last_ = report;
+        lastSentNs_ = nowNs;
+        ++sent_;
+    }
+    return send;
+}
+
+}  // namespace wheelbri

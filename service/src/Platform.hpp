@@ -26,9 +26,12 @@ void init();
 void sleepNs(std::uint64_t ns);
 inline void sleepMs(const std::uint32_t ms) { sleepNs(ms * kNsPerMs); }
 
-// Sleeps exactly `ns`: real sleeps of 1 ms while there is time, then a short sleep, then spinning for the
-// last part (what SDL_DelayPrecise does).
+// Sleeps exactly `ns`: one real sleep until shortly before the end, then spinning for the rest. How much is spun is
+// learnt from how late the calling thread's sleeps end (core `SpinMargin`: 50..300 us), so the thread is not kept
+// busy through the whole wait after one slow wake-up.
 void sleepPrecise(std::uint64_t ns);
+// The spin margin sleepPrecise used last (any thread), for the loop's log.
+[[nodiscard]] std::uint64_t preciseSleepMarginNs();
 
 // The calling thread above normal priority. False with `error` set if the system refused.
 bool raiseThreadPriority(std::string& error);

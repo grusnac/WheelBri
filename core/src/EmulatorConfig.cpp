@@ -179,6 +179,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         reader.readInt("ffb_port", ffbPort, 1024, 65535);
         config.ffbPort = static_cast<std::uint16_t>(ffbPort);
         reader.readInt("loop_hz", config.loopHz, 100, 2000);
+        reader.readInt("state_rate_hz", config.stateRateHz, 10, 2000);
         reader.reportUnknownKeys();
     }
     {

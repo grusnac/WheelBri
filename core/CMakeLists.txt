@@ -26,6 +26,7 @@ add_library(wheelbri_core STATIC
     src/Logging.cpp
     src/LoopStats.cpp
     src/MappingEdit.cpp
+    src/Pacing.cpp
     src/Mapper.cpp
     src/Pipeline.cpp
     src/Retention.cpp

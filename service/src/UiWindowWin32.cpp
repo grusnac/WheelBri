@@ -1,7 +1,7 @@
 // The `--ui` window on Windows: a plain Win32 window drawn with GDI. Nothing to ship.
 //
-// Each frame is drawn into a memory bitmap the size of the window (the logical canvas scaled and centred),
-// then copied to the screen in one go, so it never flickers. The window is DPI aware: on a 150 % display it
+// Each frame is recorded, then drawn into a memory bitmap the size of the window (the logical canvas scaled and
+// centred) and copied to the screen in one go, so it never flickers; a frame like the one shown is not drawn again. The window is DPI aware: on a 150 % display it
 // is drawn at full resolution instead of being blown up blurry by Windows.
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -13,6 +13,7 @@
 
 #include "UiWindow.hpp"
 
+#include "wheelbri/DrawList.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <windows.h>
@@ -56,8 +57,6 @@ std::wstring widen(const std::string_view text) {
 std::string lastError(const char* what) {
     return std::string(what) + " failed (error " + std::to_string(GetLastError()) + ")";
 }
-
-COLORREF rgb(const Colour c) { return RGB(c.r, c.g, c.b); }
 
 // Per-monitor DPI awareness (Windows 10 1703+), else system DPI awareness (Vista+). Looked up at run time
 // so the program still starts on older Windows.
@@ -189,31 +188,22 @@ public:
         return window_ != nullptr && IsWindowVisible(window_) != FALSE && IsIconic(window_) == FALSE;
     }
 
+    // A frame is recorded (core DrawList) and drawn in present() only when it differs from the one on screen, or the
+    // window's size or scale changed: an unchanged window costs no GDI work.
     void begin(const Colour background) override {
         RECT client{};
         GetClientRect(window_, &client);
-        const int width = std::max(1, static_cast<int>(client.right - client.left));
-        const int height = std::max(1, static_cast<int>(client.bottom - client.top));
-        if (width != bufferWidth_ || height != bufferHeight_ || buffer_ == nullptr) {
-            makeBuffer(width, height);
-        }
-        if (buffer_ == nullptr) return;   // Windows is out of drawing memory: nothing this frame, again next frame
-        box_ = fitCanvas(width, height, logicalWidth_, logicalHeight_);
-        updateFont();
-        SetDCBrushColor(buffer_, rgb(background));
-        const RECT all{0, 0, width, height};
-        FillRect(buffer_, &all, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        frameWidth_ = std::max(1, static_cast<int>(client.right - client.left));
+        frameHeight_ = std::max(1, static_cast<int>(client.bottom - client.top));
+        box_ = fitCanvas(frameWidth_, frameHeight_, logicalWidth_, logicalHeight_);
+        frame_.begin(rgbOf(background));
     }
 
     void fill(const float x, const float y, const float w, const float h, const Colour colour) override {
-        if (w <= 0.0F || h <= 0.0F || buffer_ == nullptr) {
+        if (w <= 0.0F || h <= 0.0F) {
             return;
         }
-        RECT rect{px(x), py(y), px(x + w), py(y + h)};
-        if (rect.right <= rect.left) rect.right = rect.left + 1;   // a thin line never disappears
-        if (rect.bottom <= rect.top) rect.bottom = rect.top + 1;
-        SetDCBrushColor(buffer_, rgb(colour));
-        FillRect(buffer_, &rect, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        frame_.fill(x + originX_, y + originY_, w, h, rgbOf(colour));   // recorded on the canvas, origin applied
     }
 
     void outline(const float x, const float y, const float w, const float h, const Colour colour) override {
@@ -225,33 +215,40 @@ public:
     }
 
     void text(const float x, const float y, const std::string_view value, const Colour colour) override {
-        if (buffer_ == nullptr) return;
-        const std::wstring wide = widen(value);
-        if (wide.empty()) {
+        if (value.empty()) {
             return;
         }
-        // Every character on the 8-pixel grid, exactly where the layout put it.
-        advances_.resize(wide.size());
-        for (std::size_t i = 0; i < wide.size(); ++i) {
-            const float left = x + static_cast<float>(i) * kCharWidth;
-            advances_[i] = px(left + kCharWidth) - px(left);
-        }
-        SetTextColor(buffer_, rgb(colour));
-        // The font's cell is 12 logical pixels tall from y - 2: bigger letters than the 8-pixel line they were
-        // laid out on, centred on it (rows are 11..16 apart, so they still don't touch).
-        ExtTextOutW(buffer_, px(x), py(y - 2.0F), 0, nullptr, wide.c_str(), static_cast<UINT>(wide.size()),
-                    advances_.data());
+        frame_.text(x + originX_, y + originY_, value, rgbOf(colour));
     }
 
     void present() override {
+        const bool sameSize = buffer_ != nullptr && frameWidth_ == bufferWidth_ && frameHeight_ == bufferHeight_;
+        if (sameSize && frame_.sameAs(shown_)) {
+            return;   // what is on screen already (WM_PAINT repaints it from the buffer when needed)
+        }
+        if (!sameSize) {
+            makeBuffer(frameWidth_, frameHeight_);
+        }
         if (buffer_ == nullptr) {
-            return;
+            return;   // Windows is out of drawing memory: nothing this frame, again next frame
+        }
+        updateFont();
+        SetDCBrushColor(buffer_, rgbRef(frame_.background()));
+        const RECT all{0, 0, bufferWidth_, bufferHeight_};
+        FillRect(buffer_, &all, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        for (const DrawList::Command& command : frame_.commands()) {
+            if (command.kind == DrawList::Command::Kind::Fill) {
+                drawFill(command);
+            } else {
+                drawText(command);
+            }
         }
         const HDC screen = GetDC(window_);
         if (screen != nullptr) {
             BitBlt(screen, 0, 0, bufferWidth_, bufferHeight_, buffer_, 0, 0, SRCCOPY);
             ReleaseDC(window_, screen);
         }
+        frame_.swap(shown_);
     }
 
     bool openFolder(const std::filesystem::path& folder, std::string& error) override {
@@ -442,16 +439,43 @@ private:
         }
     }
 
-    [[nodiscard]] int px(const float x) const {
-        return static_cast<int>(std::lround(box_.offsetX + (x + originX_) * box_.scale));
-    }
-    [[nodiscard]] int py(const float y) const {
-        return static_cast<int>(std::lround(box_.offsetY + (y + originY_) * box_.scale));
-    }
     // Window pixels -> logical canvas pixels.
     [[nodiscard]] Click toCanvas(const int x, const int y) const {
         const float scale = box_.scale > 0.0F ? box_.scale : 1.0F;
         return {(static_cast<float>(x) - box_.offsetX) / scale, (static_cast<float>(y) - box_.offsetY) / scale};
+    }
+
+    // A recorded canvas position (origin already applied) -> window pixels.
+    [[nodiscard]] int canvasX(const float x) const { return static_cast<int>(std::lround(box_.offsetX + x * box_.scale)); }
+    [[nodiscard]] int canvasY(const float y) const { return static_cast<int>(std::lround(box_.offsetY + y * box_.scale)); }
+
+    static DrawList::Rgb rgbOf(const Colour c) { return {c.r, c.g, c.b}; }
+    static COLORREF rgbRef(const DrawList::Rgb c) { return RGB(c[0], c[1], c[2]); }
+
+    void drawFill(const DrawList::Command& c) {
+        RECT rect{canvasX(c.x), canvasY(c.y), canvasX(c.x + c.w), canvasY(c.y + c.h)};
+        if (rect.right <= rect.left) rect.right = rect.left + 1;   // a thin line never disappears
+        if (rect.bottom <= rect.top) rect.bottom = rect.top + 1;
+        SetDCBrushColor(buffer_, rgbRef(c.colour));
+        FillRect(buffer_, &rect, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    }
+
+    void drawText(const DrawList::Command& c) {
+        const std::wstring wide = widen(c.text);
+        if (wide.empty()) {
+            return;
+        }
+        // Every character on the 8-pixel grid, exactly where the layout put it.
+        advances_.resize(wide.size());
+        for (std::size_t i = 0; i < wide.size(); ++i) {
+            const float left = c.x + static_cast<float>(i) * kCharWidth;
+            advances_[i] = canvasX(left + kCharWidth) - canvasX(left);
+        }
+        SetTextColor(buffer_, rgbRef(c.colour));
+        // The font's cell is 12 logical pixels tall from y - 2: bigger letters than the 8-pixel line they were
+        // laid out on, centred on it (rows are 11..16 apart, so they still don't touch).
+        ExtTextOutW(buffer_, canvasX(c.x), canvasY(c.y - 2.0F), 0, nullptr, wide.c_str(), static_cast<UINT>(wide.size()),
+                    advances_.data());
     }
 
     void makeBuffer(const int width, const int height) {
@@ -523,6 +547,10 @@ private:
     int bufferWidth_ = 0;
     int bufferHeight_ = 0;
     Letterbox box_;
+    int frameWidth_ = 1;
+    int frameHeight_ = 1;
+    DrawList frame_;   // being recorded
+    DrawList shown_;   // in the buffer and on screen
     std::vector<INT> advances_;
     bool closed_ = false;
     std::string keys_;

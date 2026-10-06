@@ -11,6 +11,7 @@ add_executable(wheelbri_tests
     ConfigLibraryTest.cpp
     DeviceLabelsTest.cpp
     DeviceProfileTest.cpp
+    DrawListTest.cpp
     EmulatedJoystickTest.cpp
     EmulatorConfigTest.cpp
     FfbForwardingTest.cpp
@@ -30,6 +31,7 @@ add_executable(wheelbri_tests
     LoopStatsTest.cpp
     MapperTest.cpp
     MappingEditTest.cpp
+    PacingTest.cpp
     PipelineTest.cpp
     RetentionTest.cpp
     RigTest.cpp

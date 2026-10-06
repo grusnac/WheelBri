@@ -478,8 +478,16 @@ private:
             if (quitting_ && !running()) {
                 break;
             }
-            if (window_->visible()) {
+            // Input is answered within ~16 ms; otherwise the window is drawn ~30 times a second, and only what
+            // changed reaches the screen (UiWindow keeps the last frame).
+            const std::uint64_t now = platform::nowNs();
+            const bool touched = !input.keys.empty() || !input.text.empty() || !input.clicks.empty() ||
+                                 input.wheel != 0 || input.hwheel != 0 || input.leftDown ||
+                                 input.pointer.x != lastPointer_.x || input.pointer.y != lastPointer_.y;
+            lastPointer_ = input.pointer;
+            if (window_->visible() && (touched || now >= nextDrawNs_)) {
                 drawWindow();
+                nextDrawNs_ = now + kDrawEveryNs;
             }
             platform::sleepMs(16);
         }
@@ -488,6 +496,10 @@ private:
 
 private:
     enum class State { Stopped, Starting, Running, Stopping };
+
+    static constexpr std::uint64_t kDrawEveryNs = platform::kNsPerSecond / 30;
+    std::uint64_t nextDrawNs_ = 0;
+    ui::Click lastPointer_{};
 
     [[nodiscard]] bool running() const { return session_.joinable(); }
 
