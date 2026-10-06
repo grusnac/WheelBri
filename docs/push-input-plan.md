@@ -1,0 +1,82 @@
+# Plan: the service loop from pull to push
+
+Status: planned 2026-10-06, put aside, not started. Branch when started: `feature/push-input`, from the `v0.8.0` commit.
+
+## Why
+
+The service loop wakes 1000 times a second (`loop_hz`) and pulls: it asks DirectInput for the wheel's state
+(`DinputReader::read`: `Poll()` + `GetDeviceState()`) and checks the force feedback socket without waiting, whether
+anything changed or not. Since 0.8.0 the wait between ticks is cheap (the loop thread at 8-10 % of a core, measured
+with `scripts/make/measure.sh`), but it is still 1000 wake-ups a second, also with the wheel at rest in a menu.
+
+In push mode the loop sleeps until Windows (or Linux) says something happened, and only then does the work.
+
+## What changes
+
+1. **The wheel and accessories wake the loop.**
+   - Windows: `DinputReader` creates an auto-reset event and calls `SetEventNotification` before `Acquire`;
+     DirectInput signals it when the device's state changes. Reading stays `GetDeviceState`, so the numbering of
+     axes, buttons and hats does not change.
+   - A device DirectInput calls polled (`DIDC_POLLEDDEVICE`, no notifications) has no event: the session falls back
+     to the fixed 1 kHz loop and says so in the log.
+   - Linux: the evdev file descriptor can be waited on (`poll`).
+2. **The sockets wake the loop**: the game's force feedback (41330) and the test clutch (41331).
+   - Windows: `WSAEventSelect(FD_READ)` gives each socket an event. Linux: the socket fd.
+   - `UdpLoopbackListener` gets an accessor for its native socket.
+3. **One waiting point**, `platform::WaitSet`.
+   - Windows: `WaitForMultipleObjects` on those events plus the high-resolution waitable timer for the next deadline.
+   - Linux: `ppoll`.
+   - At least 0.5 ms between ticks, so a device or socket that signals without pause cannot spin the loop.
+4. **A timer for what must happen on time.** A core class (working name `WakePlanner`, unit-tested) works out the next
+   deadline from:
+   - force feedback while effects play: every 4 ms (`FfbController` `minUpdateNs`), so the limiter's slew stays
+     smooth, and the 500 ms watchdog;
+   - the 100 ms keep-alive to the game (`StateSendGate::kKeepAliveNs`);
+   - the window's frame copy, every 33 ms while a window is open;
+   - the test clutch expiring 1.5 s after the last packet;
+   - the 10 s loop statistics and the telemetry heartbeat;
+   - nothing playing and no window: 100 ms.
+5. **What counts ticks becomes time-based**: `frameEveryTicks`, `printEveryTicks`, the loop statistics. "Period" and
+   "overruns" mean nothing without a fixed rate: the log reports wake-ups a second by reason (wheel, force feedback,
+   timer) and the delay from a wake-up to the packet sent.
+6. **A setting to compare both ways**: `[emulator] loop_mode = events | fixed` (`events` the default on the branch,
+   `fixed` = today's 1 kHz loop). Into the reader, `EmulatorConfig`, both `config/g920-*.ini` and
+   `EmulatorConfigTest`. It allows A/B measurements with `measure.sh` and going back at once if driving feels different.
+
+## What stays
+
+- Force feedback safety: `FfbSafetyLimiter` already works from real elapsed time (`dt` from the last update), the
+  watchdog is checked at every deadline, `AsyncFfbSink` is untouched.
+- The pipeline, the mapping, `StateSendGate`, the wire format, the shim and both drivers.
+
+## Commits, in order
+
+Each one builds, passes the tests and comes with build and test steps.
+
+1. `WaitSet` (Windows and Linux) and the socket events; a test with a real loopback socket (as `UdpLoopbackTest`).
+2. The wheel's notification event (DirectInput, evdev). The log says whether the wheel supports it and how often it
+   signals a second. Already answers the main open question (risk 1) with `loop_mode` still fixed.
+3. `WakePlanner` with tests (fake clock; effects playing or not; window open or not); the UI frame, print and
+   statistics made time-based.
+4. The loop in `events` mode and the `loop_mode` setting.
+5. CLAUDE.md, README, and the README entry under Functionalities once it is called finished.
+
+## How to check it
+
+- `measure.sh` phases: `closed`, `stopped`, then for each `loop_mode`: in a menu (wheel at rest), driving with the
+  shim, driving with the virtual device.
+- The service log: wake-ups a second by reason, the wake-to-packet delay (well under 1 ms), no "no wheel state"
+  warnings in the shim or driver logs.
+- Feel: steering, pedals, buttons and force feedback in NFS, the two modes side by side.
+
+## Risks
+
+1. Not known yet how the Moza R3 reports at rest: if it sends the same values all the time, push mode saves little
+   (commit 2 measures it before the bigger steps).
+2. While driving the gain is small: the wheel reports ~1000 times a second while it moves, and force feedback keeps it
+   moving.
+3. Linux (evdev) would be unit-tested only until it runs on a Steam Deck.
+4. Not addressed: the driver host (the hide filter and the G920 driver, ~10 % of the PC in virtual sessions); it
+   needs its own fix.
+
+Size: about 8-10 files plus tests over the five commits.
