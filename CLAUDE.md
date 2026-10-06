@@ -331,6 +331,12 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `installG920Driver`, `putHideFilter` (install-hide.ps1, then `HideFilter::waitUntilStarted`), `writeAllowedPid`,
     `allowOnly(process)`. The app calls them directly when elevated (`ensureG920Driver`, `ensureHideFilter` in
     main.cpp); the helper calls them for a standard-user app. New privileged steps go there, and into the helper.
+  - `PrivilegedSteps.hpp`: the session's privileged steps as one interface, opened once per session
+    (`PrivilegedSteps::open`): `DirectSteps` when the process is elevated (calls `privileged::` itself), else
+    `HelperSteps` through the WheelBri Helper (`HelperClient`, one connection for the session, the server must be
+    `wheelbri-helper.exe` next to this program; the user's HKCU DirectInput entries are kept here by
+    `DirectInputUserEntries`). Neither: the session fails with "HELPER NOT INSTALLED" / "HELPER REFUSED". `runSession`,
+    `ensureHideFilter`, `ensureG920Driver` and `--prepare-hide` only go through it.
   - OS helpers in `Platform.hpp` (clock, precise sleep, thread priority, child process in a kill-on-close job,
     `SingleInstance` lock so only one session runs per computer, console close handler, `isElevated`); `FfbSelfTest`
     (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView` (`--ui`); a fixed-rate loop

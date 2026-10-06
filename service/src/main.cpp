@@ -6,6 +6,7 @@
 #include "FfbSelfTest.hpp"
 #include "HideFilter.hpp"
 #include "Privileged.hpp"
+#include "PrivilegedSteps.hpp"
 #include "Housekeeping.hpp"
 #include "MappingView.hpp"
 #include "Platform.hpp"
@@ -126,17 +127,13 @@ std::vector<wheelbri::service::HideFilter::Target> rigHideTargets(std::string& r
     return targets;
 }
 
-// Driver scripts are looked for next to the program and up to this many folders above it (build/service/ in the
-// source tree), never in a drive's root (privileged::findDriverScript).
-constexpr int kDriverScriptLevels = 3;
-
 // With --virtual-g920 (Start in the app): the virtual G920 needs wheelbri's G920 driver. When Windows does not have it
 // (a fresh PC, after clean-pc, or the driver was uninstalled), Start installs it now with driver\install-driver.ps1,
 // from the package built in this source tree or installed with the program (driver/x64/Release); the service runs as
 // Administrator for --virtual-g920 anyway. When that is not possible, VirtualG920::create says what is missing.
-void ensureG920Driver() {
+void ensureG920Driver(wheelbri::service::PrivilegedSteps& steps) {
     std::string message;
-    (void)privileged::installG920Driver(kDriverScriptLevels, [] { return gStop.load(); }, message);
+    (void)steps.installG920Driver([] { return gStop.load(); }, message);
 }
 
 using privileged::HideSetup;
@@ -150,7 +147,8 @@ using privileged::HideSetup;
 // second after the installer and the filter never started: "NOT HIDDEN ... restart Windows"). So this waits, opening
 // nothing, until every device runs the filter, restarting a device itself when Windows does not (HideFilter::
 // waitUntilStarted), and says who keeps one when that fails.
-HideSetup ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& targets) {
+HideSetup ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Target>& targets,
+                           wheelbri::service::PrivilegedSteps& steps) {
 #ifdef _WIN32
     using wheelbri::service::HideFilter;
     std::vector<std::string> install;   // no filter yet: the installer puts it on
@@ -168,9 +166,10 @@ HideSetup ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Targ
     if (all.empty()) return HideSetup::NothingToDo;
     if (install.empty() && waitingNames.empty()) return HideSetup::Running;   // every connected device runs it already
     std::string message;
-    return privileged::putHideFilter(install, all, kDriverScriptLevels, [] { return gStop.load(); }, message);
+    return steps.putHideFilter(install, all, [] { return gStop.load(); }, message);
 #else
     (void)targets;
+    (void)steps;
     return HideSetup::NothingToDo;
 #endif
 }
@@ -1312,7 +1311,14 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
                                       : "the saved rig lists no device to hide");
             return static_cast<int>(HideSetup::NothingToDo);
         }
-        const HideSetup result = ensureHideFilter(targets);
+        wheelbri::service::PrivilegedSteps::Problem problem{};
+        std::string problemText;
+        const auto steps = wheelbri::service::PrivilegedSteps::open(problem, problemText);
+        if (steps == nullptr) {
+            std::puts(problemText.c_str());
+            return 1;
+        }
+        const HideSetup result = ensureHideFilter(targets, *steps);
         std::puts(result == HideSetup::Running   ? "the rig's devices are hidden from games whenever WheelBri runs"
                   : result == HideSetup::Waiting ? "the filter is on; it starts after the restart of Windows"
                   : result == HideSetup::NothingToDo
@@ -1327,13 +1333,27 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     } sessionActiveGuard;
     platform::installConsoleStopHandler(requestStop, sessionActive);
 
-    if (options.virtualG920 && !platform::isElevated()) {
-        WE_LOG_CRITICAL(log(), "--virtual-g920 needs Administrator (it creates devices and hides the real wheel): "
-                               "start it from an Administrator prompt, or use wheelbri.exe, which asks for it");
-        return 1;
+    // The virtual G920 and hiding the rig need Administrator: this process's own when it is elevated, else the
+    // WheelBri Helper's (a standard user).
+    std::unique_ptr<wheelbri::service::PrivilegedSteps> steps;
+    if (options.virtualG920) {
+        wheelbri::service::PrivilegedSteps::Problem problem{};
+        std::string problemText;
+        steps = wheelbri::service::PrivilegedSteps::open(problem, problemText);
+        if (steps == nullptr) {
+            WE_LOG_CRITICAL(log(), "{}: the virtual G920 and hiding the rig need Administrator or the WheelBri "
+                                   "Helper: {}",
+                            problem == wheelbri::service::PrivilegedSteps::Problem::NoHelper ? "HELPER NOT INSTALLED"
+                                                                                             : "HELPER REFUSED",
+                            problemText);
+            return 1;
+        }
+        WE_LOG_INFO(log(), "the virtual G920 and hiding the rig: {}", steps->how());
+        steps->shareLogFolder();
     }
-    // A wheel still hidden for a service that crashed would be hidden from this one too.
-    wheelbri::service::HideFilter::clearStale();
+    // A wheel still hidden for a service that crashed would be hidden from this one too (through the helper, the
+    // helper clears that itself).
+    if (platform::isElevated()) wheelbri::service::HideFilter::clearStale();
     if (!options.stopFile.empty()) {
         gStopFile = options.stopFile;
         std::error_code ec;
@@ -1351,13 +1371,13 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     // The rig hidden from games while the session runs: every device the Wheel setup tab defined.
     std::string rigName;
     const auto hideTargets = rigHideTargets(rigName);
-    if (options.virtualG920) ensureG920Driver();
+    if (steps != nullptr) ensureG920Driver(*steps);
     if (options.virtualG920 && options.hide && !gStop) {
         if (hideTargets.empty()) {
             WE_LOG_WARN(log(), "hide: no rig yet{}: nothing is hidden from games (define the devices in the Rig tab)",
                         rigName.empty() ? "" : " ('" + rigName + "' lists no device)");
         } else {
-            (void)ensureHideFilter(hideTargets);
+            (void)ensureHideFilter(hideTargets, *steps);
         }
     }
     if (cancelled()) {
@@ -1427,11 +1447,12 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     std::signal(SIGTERM, onSignal);
     const std::filesystem::path logFolder = logFolderOf(config);
     // Our own driver's G920 (driver/): there while the loop runs, removed when it returns or the process ends.
-    std::unique_ptr<wheelbri::service::VirtualG920> g920;
-    if (options.virtualG920) {
+    bool g920 = false;
+    if (steps != nullptr) {
         std::string error;
-        g920 = wheelbri::service::VirtualG920::create(error, cancelled);
-        if (g920 == nullptr) {
+        std::string g920Id;
+        g920 = steps->createVirtualG920(cancelled, g920Id, error);
+        if (!g920) {
             if (cancelled()) {
                 WE_LOG_INFO(log(), "stopped while the virtual G920 was being created");
                 return 0;
@@ -1442,20 +1463,21 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     }
     // The rig hidden from games meanwhile, or a game may take a real device instead of the G920 (NFS does): with
     // wheelbri's own filter (driver/hide) on every device of the rig, which lets only this process open them.
-    std::unique_ptr<wheelbri::service::HideFilter> hideFilter;
+    bool rigHidden = false;
     std::vector<wheelbri::service::HideFilter::Check> hideChecks;
-    if (g920 != nullptr && options.hide && !hideTargets.empty()) {
+    if (g920 && options.hide && !hideTargets.empty()) {
         hideChecks = wheelbri::service::HideFilter::check(hideTargets);
         bool any = false;
         for (const auto& c : hideChecks) any = any || c.state == wheelbri::service::HideFilter::State::Ready;
         if (any) {
-            hideFilter = std::make_unique<wheelbri::service::HideFilter>();
-            if (!hideFilter->hide()) hideFilter.reset();
+            std::string message;
+            rigHidden = steps->hideRig(message);
+            if (!rigHidden) WE_LOG_ERROR(log(), "hide: {}", message);
         }
     }
     // One line for the window: what games will see besides the G920, and what is missing.
     DeviceSummary devices;
-    if (g920 != nullptr) {
+    if (g920) {
         devices.text = "virtual G920 on";
         if (!options.hide) {
             devices.text += ", rig left visible (--no-hide)";
@@ -1466,11 +1488,11 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             int hidden = 0;
             std::string notHidden;
             for (const auto& c : hideChecks) {
-                if (c.state == wheelbri::service::HideFilter::State::Ready && hideFilter != nullptr) {
+                if (c.state == wheelbri::service::HideFilter::State::Ready && rigHidden) {
                     ++hidden;
                 } else if (c.state != wheelbri::service::HideFilter::State::NotConnected) {
                     notHidden += (notHidden.empty() ? "" : ", ") + c.target.name + " (" +
-                                 (hideFilter == nullptr && c.state == wheelbri::service::HideFilter::State::Ready
+                                 (!rigHidden && c.state == wheelbri::service::HideFilter::State::Ready
                                       ? std::string("setting not written")
                                       : wheelbri::service::HideFilter::stateName(c.state)) +
                                  ")";
@@ -1550,12 +1572,9 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         }
         WE_LOG_INFO(log(), "the wheel is back after {:.1f} s: carrying on", static_cast<double>(waitedMs) / 1000.0);
     }
-    if (hideFilter != nullptr) {
-        hideFilter->restore();
-    }
-    if (g920 != nullptr) {
-        WE_LOG_INFO(log(), "removing the virtual G920 {}", g920->instanceId());
-        g920.reset();
+    if (steps != nullptr) {
+        steps->showRig();
+        steps->removeVirtualG920();
     }
     return result;
 }

@@ -41,4 +41,19 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+// The user's own DirectInput entries for the virtual G920 (HKCU: its name, the "driving" type, no foreign force
+// feedback driver, checked every 2 s), for an app whose G920 the WheelBri Helper creates: the helper, as SYSTEM,
+// keeps only the machine's (HKLM). Written while this exists, removed when it goes. Nothing elsewhere than Windows.
+class DirectInputUserEntries {
+public:
+    DirectInputUserEntries();
+    ~DirectInputUserEntries();
+    DirectInputUserEntries(const DirectInputUserEntries&) = delete;
+    DirectInputUserEntries& operator=(const DirectInputUserEntries&) = delete;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 }  // namespace wheelbri::service

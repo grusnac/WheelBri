@@ -119,7 +119,8 @@ TEST(HelperProtocol, InstalledApp) {
     EXPECT_TRUE(isInstalledApp(R"(C:\Program Files\WheelBri\wheelbri.exe)", folder));
     EXPECT_TRUE(isInstalledApp(R"(\\?\c:\program files\wheelbri\WHEELBRI.EXE)", folder + "\\"));
     EXPECT_TRUE(isInstalledApp("C:/Program Files/WheelBri/wheelbri.exe", folder));
-    EXPECT_FALSE(isInstalledApp(R"(C:\Program Files\WheelBri\wheelbri-service.exe)", folder));
+    EXPECT_TRUE(isInstalledApp(R"(C:\Program Files\WheelBri\wheelbri-service.exe)", folder));
+    EXPECT_FALSE(isInstalledApp(R"(C:\Program Files\WheelBri\wheelbri-helper.exe)", folder));
     EXPECT_FALSE(isInstalledApp(R"(C:\Users\me\wheelbri.exe)", folder));
     EXPECT_FALSE(isInstalledApp(R"(C:\Program Files\WheelBri\sub\wheelbri.exe)", folder));
     EXPECT_FALSE(isInstalledApp(R"(C:\Program Files\WheelBri\..\WheelBri\wheelbri.exe)", folder));

@@ -182,8 +182,8 @@ std::vector<HKEY> roots(const bool userHive) {
     return userHive ? std::vector<HKEY>{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE} : std::vector<HKEY>{HKEY_LOCAL_MACHINE};
 }
 
-void writeDirectInputEntries(const bool on, const bool userHive) {
-    for (HKEY root : roots(userHive)) {
+void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives) {
+    for (HKEY root : hives) {
         HKEY key = nullptr;
         if (RegCreateKeyExW(root, kOemKey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
             continue;
@@ -202,9 +202,9 @@ void writeDirectInputEntries(const bool on, const bool userHive) {
 
 // Logitech's software registers its own force feedback driver for every G920; it only works with a real
 // one (every effect fails with E_NOTIMPL). Without the entry DirectInput uses Windows' PID driver.
-void removeForeignForceFeedbackDriver(const bool userHive) {
+void removeForeignForceFeedbackDriver(const std::vector<HKEY>& hives) {
     const std::wstring path = std::wstring(kOemKey) + L"\\OEMForceFeedback";
-    for (HKEY root : roots(userHive)) {
+    for (HKEY root : hives) {
         wchar_t clsid[64] = {};
         DWORD size = sizeof(clsid);
         if (RegGetValueW(root, path.c_str(), L"CLSID", RRF_RT_REG_SZ, nullptr, clsid, &size) != ERROR_SUCCESS) {
@@ -250,7 +250,7 @@ struct VirtualG920::Impl {
             close(device);
             WE_LOG_INFO(log(), "virtual G920 {} removed", instanceId);
         }
-        writeDirectInputEntries(false, userHive);
+        writeDirectInputEntries(false, roots(userHive));
     }
 };
 
@@ -324,7 +324,7 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
                           hr == E_ACCESSDENIED ? ": run the service as Administrator" : "");
             error = text;
             if (hr == E_ACCESSDENIED) {   // the same for every identity
-                writeDirectInputEntries(false, userHive);
+                writeDirectInputEntries(false, roots(userHive));
                 return nullptr;
             }
             // Often this identity is still being removed (Stop then Start at once): the next one is a new device.
@@ -356,7 +356,7 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         if (finished) delete wait;   // else leaked on purpose (see above)
         if (cancelledWhileWaiting && !finished) {
             swClose(device);
-            writeDirectInputEntries(false, userHive);
+            writeDirectInputEntries(false, roots(userHive));
             error = "cancelled";
             return nullptr;
         }
@@ -366,13 +366,13 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
                           "the virtual G920 was not set up (0x%08lX): is the driver installed "
                           "(driver\\install-driver.ps1)?", static_cast<unsigned long>(result));
             swClose(device);
-            writeDirectInputEntries(false, userHive);   // an earlier identity may have written them
+            writeDirectInputEntries(false, roots(userHive));   // an earlier identity may have written them
             error = text;
             return nullptr;
         }
         const std::string id = narrow(createdId);
-        writeDirectInputEntries(true, userHive);
-        removeForeignForceFeedbackDriver(userHive);
+        writeDirectInputEntries(true, roots(userHive));
+        removeForeignForceFeedbackDriver(roots(userHive));
 
         const auto start = std::chrono::steady_clock::now();
         bool ready = false;
@@ -385,7 +385,7 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         }
         if (!ready && stopNow()) {
             swClose(device);
-            writeDirectInputEntries(false, userHive);
+            writeDirectInputEntries(false, roots(userHive));
             error = "cancelled";
             return nullptr;
         }
@@ -395,7 +395,7 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
             // the same, so say what is missing instead.
             if (problem == kProblemFailedInstall && driverState() != DriverState::Installed) {
                 swClose(device);
-                writeDirectInputEntries(false, userHive);
+                writeDirectInputEntries(false, roots(userHive));
                 error = std::string(kDriverMissing) + " (Windows found no driver for " + id + ")";
                 return nullptr;
             }
@@ -420,7 +420,7 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
                 std::unique_lock guard(raw->lock);
                 while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {
                     guard.unlock();
-                    removeForeignForceFeedbackDriver(raw->userHive);   // Logitech's software writes it back when it sees a "G920"
+                    removeForeignForceFeedbackDriver(roots(raw->userHive));   // Logitech's software writes it back when it sees a "G920"
                     guard.lock();
                 }
             } catch (const std::exception& e) {   // never std::terminate the service from here
@@ -429,9 +429,45 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         });
         return std::unique_ptr<VirtualG920>(new VirtualG920(std::move(impl)));
     }
-    writeDirectInputEntries(false, userHive);   // written for an identity that then never got its driver
+    writeDirectInputEntries(false, roots(userHive));   // written for an identity that then never got its driver
     error = "every identity of the virtual G920 is stuck: restart Windows" + (error.empty() ? "" : " (last: " + error + ")");
     return nullptr;
+}
+
+struct DirectInputUserEntries::Impl {
+    std::thread watcher;
+    std::mutex lock;
+    std::condition_variable wake;
+    bool stop = false;
+};
+
+DirectInputUserEntries::DirectInputUserEntries() : impl_(std::make_unique<Impl>()) {
+    const std::vector<HKEY> user{HKEY_CURRENT_USER};
+    writeDirectInputEntries(true, user);
+    removeForeignForceFeedbackDriver(user);
+    Impl* raw = impl_.get();
+    impl_->watcher = std::thread([raw] {
+        try {
+            std::unique_lock guard(raw->lock);
+            while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {
+                guard.unlock();
+                removeForeignForceFeedbackDriver({HKEY_CURRENT_USER});
+                guard.lock();
+            }
+        } catch (const std::exception& e) {
+            WE_LOG_ERROR(log(), "virtual G920: the user's registry watcher stopped: {}", e.what());
+        }
+    });
+}
+
+DirectInputUserEntries::~DirectInputUserEntries() {
+    {
+        std::lock_guard guard(impl_->lock);
+        impl_->stop = true;
+    }
+    impl_->wake.notify_all();
+    if (impl_->watcher.joinable()) impl_->watcher.join();
+    writeDirectInputEntries(false, {HKEY_CURRENT_USER});
 }
 
 }  // namespace wheelbri::service
@@ -447,6 +483,10 @@ struct VirtualG920::Impl {
 VirtualG920::DriverState VirtualG920::driverState() {
     return DriverState::Unknown;
 }
+
+struct DirectInputUserEntries::Impl {};
+DirectInputUserEntries::DirectInputUserEntries() = default;
+DirectInputUserEntries::~DirectInputUserEntries() = default;
 
 std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::function<bool()>&, bool) {
     error = "the virtual G920 exists on Windows only";

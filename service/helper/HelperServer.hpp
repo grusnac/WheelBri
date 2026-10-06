@@ -9,10 +9,10 @@ namespace wheelbri::helper {
 // - Only processes on this computer, of the logged-on (interactive) user, SYSTEM or Administrators may open it (the
 //   pipe's DACL; remote clients are rejected), and only this server may create it (first instance: a program that
 //   created the name first makes run() fail, so nobody can pose as the helper).
-// - A caller is accepted only when it is wheelbri.exe in the helper's own folder (`appFolder`): the process is
-//   opened and named by its handle, and its id is compared with the pipe's again after that, so it cannot have been
-//   swapped. Anything else may only say Hello (the reply says why it is refused), which is how `--hello` checks a
-//   running helper.
+// - A caller is accepted only when it is wheelbri.exe or wheelbri-service.exe in the helper's own folder
+//   (`appFolder`): the process is opened and named by its handle, and its id is compared with the pipe's again after
+//   that, so it cannot have been swapped. Anything else may only say Hello (the reply says why it is refused), which
+//   is how `--hello` checks a running helper.
 // - Every request is checked by requestProblem before anything is done.
 // - Up to kMaxConnections at once, each on its own thread with its HelperSession, which carries the requests out.
 //   When a connection closes (Stop, a crash, logoff) what it set up is undone: its virtual G920 removed, the rig shown

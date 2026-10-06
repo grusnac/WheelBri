@@ -97,6 +97,10 @@ Size: a new service program, about 6 to 8 commits. The biggest risk is phase 3, 
   `wheelbri_privileged`), used by the app as before and by the helper's `HelperSession`, which now carries out every
   request and undoes them when the connection closes. The app does not use the helper yet (phase 4); its user's HKCU
   DirectInput entries stay with the app then.
+- Phase 4 done (2026-10-06): `PrivilegedSteps` (direct when elevated, else the helper). The helper also accepts
+  `wheelbri-service.exe` from its folder, so a session can be tried as a standard user from a console before the app's
+  manifest changes (phase 5). A Stop during a long request closes the connection; the helper notices (its request's
+  `cancelled` checks the pipe) and undoes it.
 
 ## Logitech RS Shifter & Handbrake
 

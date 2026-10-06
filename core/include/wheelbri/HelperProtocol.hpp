@@ -88,7 +88,8 @@ inline constexpr std::uint32_t kReplyMagic = 0x52484557;     // "WEHR"
 // the virtual G920.
 [[nodiscard]] std::string hideDeviceProblem(std::string_view id);
 
-// Whether `image` (the caller's program, as Windows names it) is wheelbri.exe in `installFolder`, ignoring case,
+// Whether `image` (the caller's program, as Windows names it) is wheelbri.exe (the app) or wheelbri-service.exe (the
+// same sessions from a console) in `installFolder`, ignoring case,
 // '/' or '\', a trailing separator and a "\\?\" prefix. False for any ".." or "." part, or an empty folder.
 [[nodiscard]] bool isInstalledApp(std::string_view image, std::string_view installFolder);
 

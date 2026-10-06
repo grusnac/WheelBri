@@ -37,6 +37,7 @@ add_library(wheelbri_service_objects OBJECT
     src/FfbSelfTest.cpp
     src/Housekeeping.cpp
     src/MappingView.cpp
+    src/PrivilegedSteps.cpp
     src/ServiceLogging.cpp
     src/Wheel.cpp
     src/WheelSetupView.cpp
@@ -45,10 +46,12 @@ add_library(wheelbri_service_objects OBJECT
     src/MappingEditView.cpp
 )
 target_link_libraries(wheelbri_service_objects PUBLIC wheelbri_privileged)
+target_include_directories(wheelbri_service_objects PUBLIC src helper)
 target_compile_definitions(wheelbri_service_objects PUBLIC WHEELBRI_VERSION="${PROJECT_VERSION}")
 
 if(WE_SERVICE_PLATFORM STREQUAL "Windows")
     target_sources(wheelbri_service_objects PRIVATE
+        helper/HelperClient.cpp
         src/DinputReader.cpp
         src/UiWindowWin32.cpp
         src/WheelDinput.cpp)

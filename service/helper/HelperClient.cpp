@@ -1,6 +1,7 @@
 #include "HelperClient.hpp"
 
 #include "wheelbri/FileText.hpp"
+#include "wheelbri/HidHideCli.hpp"
 
 #include <windows.h>
 
@@ -11,17 +12,24 @@ namespace wheelbri::helper {
 
 namespace {
 
-// Overlapped I/O with a time limit; false (and the I/O cancelled) when it fails or takes longer.
-bool finishWithin(const HANDLE handle, OVERLAPPED& overlapped, const BOOL started, const int timeoutMs, DWORD& bytes,
-                  DWORD& error) {
+// Overlapped I/O with a time limit; false (and the I/O cancelled) when it fails, takes longer or is cancelled
+// (ERROR_CANCELLED).
+bool finishWithin(const HANDLE handle, OVERLAPPED& overlapped, const BOOL started, const int timeoutMs,
+                  const std::function<bool()>& cancelled, DWORD& bytes, DWORD& error) {
     if (!started) {
         error = GetLastError();
         if (error != ERROR_IO_PENDING) return false;
-        if (WaitForSingleObject(overlapped.hEvent, static_cast<DWORD>(timeoutMs)) != WAIT_OBJECT_0) {
-            CancelIoEx(handle, &overlapped);
-            GetOverlappedResult(handle, &overlapped, &bytes, TRUE);
-            error = WAIT_TIMEOUT;
-            return false;
+        int waited = 0;
+        for (;;) {
+            if (WaitForSingleObject(overlapped.hEvent, 100) == WAIT_OBJECT_0) break;
+            waited += 100;
+            const bool stop = cancelled && cancelled();
+            if (stop || waited >= timeoutMs) {
+                CancelIoEx(handle, &overlapped);
+                GetOverlappedResult(handle, &overlapped, &bytes, TRUE);
+                error = stop ? ERROR_CANCELLED : WAIT_TIMEOUT;
+                return false;
+            }
         }
     }
     if (!GetOverlappedResult(handle, &overlapped, &bytes, FALSE)) {
@@ -44,7 +52,7 @@ void HelperClient::close() {
     }
 }
 
-HelperClient::Connect HelperClient::connect(std::string& error) {
+HelperClient::Connect HelperClient::connect(std::string& error, const std::string& expectedFolder) {
     close();
     const std::wstring name(kPipeName.begin(), kPipeName.end());
     for (int attempt = 0; attempt < 2; ++attempt) {
@@ -71,6 +79,14 @@ HelperClient::Connect HelperClient::connect(std::string& error) {
                     CloseHandle(process);
                 }
             }
+            if (!expectedFolder.empty() &&
+                !hidhide::equalsIgnoreCase(serverImage_, expectedFolder + "\\wheelbri-helper.exe")) {
+                error = "the helper's pipe belongs to " + (serverImage_.empty() ? std::string("a program Windows will not name")
+                                                                                : serverImage_) +
+                        ", not to " + expectedFolder + "\\wheelbri-helper.exe";
+                close();
+                return Connect::Failed;
+            }
             return Connect::Ok;
         }
         const DWORD code = GetLastError();
@@ -88,7 +104,8 @@ HelperClient::Connect HelperClient::connect(std::string& error) {
 }
 
 std::optional<Reply> HelperClient::call(const RequestType type, const std::vector<std::string>& devices,
-                                        const int timeoutMs, std::string& error) {
+                                        const int timeoutMs, std::string& error,
+                                        const std::function<bool()>& cancelled) {
     if (pipe_ == nullptr) {
         error = "not connected to the helper";
         return std::nullopt;
@@ -102,18 +119,19 @@ std::optional<Reply> HelperClient::call(const RequestType type, const std::vecto
     DWORD code = 0;
     bool ok = finishWithin(pipe, overlapped,
                            WriteFile(pipe, bytes.data(), static_cast<DWORD>(bytes.size()), nullptr, &overlapped),
-                           timeoutMs, done, code);
+                           timeoutMs, cancelled, done, code);
     std::vector<std::uint8_t> buffer(kMaxMessage);
     if (ok) {
         ResetEvent(overlapped.hEvent);
         ok = finishWithin(pipe, overlapped,
                           ReadFile(pipe, buffer.data(), static_cast<DWORD>(buffer.size()), nullptr, &overlapped),
-                          timeoutMs, done, code);
+                          timeoutMs, cancelled, done, code);
     }
     CloseHandle(overlapped.hEvent);
     if (!ok) {
-        error = code == WAIT_TIMEOUT ? "the helper did not answer within " + std::to_string(timeoutMs / 1000) + " s"
-                                     : "the connection to the helper broke (error " + std::to_string(code) + ")";
+        error = code == WAIT_TIMEOUT      ? "the helper did not answer within " + std::to_string(timeoutMs / 1000) + " s"
+                : code == ERROR_CANCELLED ? std::string("stopped")
+                                          : "the connection to the helper broke (error " + std::to_string(code) + ")";
         close();
         return std::nullopt;
     }

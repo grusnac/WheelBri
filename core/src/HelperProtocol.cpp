@@ -220,7 +220,7 @@ bool isInstalledApp(const std::string_view image, const std::string_view install
     const std::string folder = windowsPathKey(installFolder);
     const std::string program = windowsPathKey(image);
     if (folder.empty() || hasDotPart(folder) || hasDotPart(program)) return false;
-    return program == folder + "\\WHEELBRI.EXE";
+    return program == folder + "\\WHEELBRI.EXE" || program == folder + "\\WHEELBRI-SERVICE.EXE";
 }
 
 const char* requestName(const RequestType type) {

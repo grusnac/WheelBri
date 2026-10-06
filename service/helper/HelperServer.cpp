@@ -117,7 +117,8 @@ Caller identify(const HANDLE pipe, const std::wstring& appFolder) {
     }
     const std::string folder = pathToUtf8(std::filesystem::path(appFolder));
     if (!isInstalledApp(caller.image, folder)) {
-        caller.why = "only " + folder + "\\wheelbri.exe may ask the helper for anything, not " + caller.image;
+        caller.why = "only WheelBri (wheelbri.exe or wheelbri-service.exe in " + folder +
+                     ") may ask the helper for anything, not " + caller.image;
         return caller;
     }
     caller.accepted = true;
@@ -201,9 +202,14 @@ public:
                     const HANDLE token = attachCallersLog(pipe_);
                     WE_LOG_INFO(log(), "helper: {} (pid {}, session {}) connected", caller_.image, caller_.pid,
                                 caller_.session);
+                    // A long request (a driver installer, waiting for a device) gives up when the helper stops or the
+                    // caller has gone (Stop in the app closes the connection).
                     const HANDLE stop = stop_;
-                    session_ = std::make_unique<HelperSession>(caller_.process, token, scriptLevels_, [stop] {
-                        return WaitForSingleObject(stop, 0) == WAIT_OBJECT_0;
+                    const HANDLE pipe = pipe_;
+                    session_ = std::make_unique<HelperSession>(caller_.process, token, scriptLevels_, [stop, pipe] {
+                        DWORD available = 0;
+                        return WaitForSingleObject(stop, 0) == WAIT_OBJECT_0 ||
+                               !PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr);
                     });
                     caller_.process = nullptr;   // the session's now
                 } else {
@@ -296,7 +302,7 @@ bool HelperServer::run(void* const stopEvent, std::string& error) {
     std::list<Worker> workers;
     bool first = true;
     bool ok = true;
-    WE_LOG_INFO(log(), "helper: listening on {} for {}\\wheelbri.exe", kPipeName,
+    WE_LOG_INFO(log(), "helper: listening on {} for WheelBri in {}", kPipeName,
                 pathToUtf8(std::filesystem::path(appFolder_)));
 
     while (WaitForSingleObject(stop, 0) == WAIT_TIMEOUT) {
