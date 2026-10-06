@@ -1,4 +1,5 @@
 #include "App.hpp"
+#include "PrivilegedSteps.hpp"
 
 #include "ConfigPicker.hpp"
 #include "DeviceWatch.hpp"
@@ -543,7 +544,9 @@ private:
 
     // Every device of the rig the mapping uses is connected (or game controllers cannot be listed here at all: then
     // Start tries and says what is wrong).
-    [[nodiscard]] bool rigReady() const { return needsKnown_ && needsProblem_.empty() && missing_.empty(); }
+    [[nodiscard]] bool rigReady() const {
+        return needsKnown_ && needsProblem_.empty() && missing_.empty() && !helperMissing_;
+    }
 
     // What Start needs (StartNeeds.hpp): the config Start would use, as saved, and the active rig, checked against
     // the devices connected now (DeviceWatch, every 2 s) while stopped. The status next to Start shows the result.
@@ -574,6 +577,8 @@ private:
         }
         const StartNeeds needs = startNeeds(config, rig ? &*rig : nullptr);
         needsProblem_ = needs.problem;
+        // The virtual device needs Administrator or the WheelBri Helper; the shim needs neither.
+        helperMissing_ = !shimTarget() && !PrivilegedSteps::available();
         if (devices_.unavailable()) {
             needsKnown_ = true;   // nothing to wait for: Start says what is wrong
             missing_.clear();
@@ -588,17 +593,18 @@ private:
         }
         // Said in the log when it changes, not every second.
         std::string said = needsProblem_;
-        if (needsProblem_.empty() && needsKnown_) {
+        if (helperMissing_) said = "the WheelBri Helper is not running (the virtual device needs it)";
+        if (said.empty() && needsKnown_) {
             for (const std::string& label : missing_) said += (said.empty() ? "not connected: " : ", ") + label;
             if (said.empty()) said = "every device of the rig the mapping uses is connected";
         }
         if (!said.empty() && said != needsLogged_) {
             needsLogged_ = said;
-            if (needsProblem_.empty() && missing_.empty()) {
+            if (needsProblem_.empty() && missing_.empty() && !helperMissing_) {
                 WE_LOG_INFO(log(), "Start: {}", said);
             } else {
                 WE_LOG_WARN(log(), "Start is greyed out: {}{}", said,
-                            needsProblem_.empty() ? " (switch it on or plug it in)" : "");
+                            needsProblem_.empty() && !helperMissing_ ? " (switch it on or plug it in)" : "");
             }
         }
     }
@@ -750,8 +756,11 @@ private:
         const std::uint64_t now = platform::nowNs();
         switch (state_) {
             case State::Stopped:
-                // What the rig is missing comes first: it is why Start is greyed out.
-                if (!needsProblem_.empty()) {
+                // What is missing comes first: it is why Start is greyed out.
+                if (helperMissing_) {
+                    status = "HELPER NOT INSTALLED";
+                    colour = kWarning;
+                } else if (!needsProblem_.empty()) {
                     status = needsProblem_;
                     colour = kWarning;
                 } else if (needsKnown_ && !missing_.empty()) {
@@ -925,6 +934,7 @@ private:
     DeviceWatch devices_;
     bool needsKnown_ = false;              // the connected devices are known (first listing done)
     std::string needsProblem_;             // no rig, no wheel in it
+    bool helperMissing_ = false;           // target virtual device, not elevated, no WheelBri Helper running
     std::vector<std::string> missing_;     // the needed devices not connected
     std::uint64_t needsGeneration_ = 0;
     std::uint64_t needsCheckedMs_ = 0;

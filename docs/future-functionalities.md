@@ -101,6 +101,10 @@ Size: a new service program, about 6 to 8 commits. The biggest risk is phase 3, 
   `wheelbri-service.exe` from its folder, so a session can be tried as a standard user from a console before the app's
   manifest changes (phase 5). A Stop during a long request closes the connection; the helper notices (its request's
   `cancelled` checks the pipe) and undoes it.
+- Phase 5 done (2026-10-06): `wheelbri.exe` is `asInvoker`. With the virtual-device target and no Administrator,
+  the status says "HELPER NOT INSTALLED" (red, Start greyed out) while no helper listens
+  (`PrivilegedSteps::available`, checked once a second without connecting). A shim copy refused by a protected game
+  folder says what to do. `scripts/make/app.sh` starts development builds as Administrator, `--as-user` as the user.
 
 ## Logitech RS Shifter & Handbrake
 

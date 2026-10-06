@@ -26,6 +26,10 @@ public:
     // Direct when elevated, else through the helper. Null with `problem` and `message` when neither is possible.
     [[nodiscard]] static std::unique_ptr<PrivilegedSteps> open(Problem& problem, std::string& message);
 
+    // Whether a session could get its privileged steps now: elevated, or a WheelBri Helper is listening (checked
+    // without connecting to it; cheap enough for once a second). For the app's status next to Start.
+    [[nodiscard]] static bool available();
+
     virtual ~PrivilegedSteps() = default;
 
     // "as Administrator" or "through the WheelBri Helper" (the log).

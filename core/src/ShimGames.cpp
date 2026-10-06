@@ -11,6 +11,25 @@ namespace wheelbri {
 
 namespace {
 
+// Windows refused because the folder is protected (under Program Files, say): WheelBri runs as a standard user, so
+// it says what to do instead of only the system's words.
+bool protectedFolder(const std::error_code& ec) {
+    return ec == std::errc::permission_denied || ec == std::errc::operation_not_permitted ||
+           (ec.category() == std::system_category() && ec.value() == 5);   // Windows' ERROR_ACCESS_DENIED
+}
+
+std::string writeProblem(const char* verb, const std::filesystem::path& file, const std::error_code& ec,
+                         const char* otherwise) {
+    if (protectedFolder(ec)) {
+        return std::string("Windows does not let WheelBri ") + verb + " " + pathToUtf8(file) +
+               ": close the game if it runs; if it does not, the game folder is protected (under Program Files?): do "
+               "it yourself as Administrator (WheelBri's shim folder has the files), or install the game in a folder "
+               "you own (Steam libraries are)";
+    }
+    return std::string("cannot ") + verb + " " + pathToUtf8(file) + " (" + ec.message() + ")" + otherwise;
+}
+
+
 constexpr const char* kHeader =
     "# WheelBri: the games the in-game shim was put into (the app's Mapping tab, target G920 in-game shim).\n"
     "# game<TAB>name<TAB>folder, selected<TAB>folder. Written by the app.\n";
@@ -166,8 +185,7 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
     if (state != ShimState::Installed) {
         std::filesystem::copy_file(sourceDll, folder / kShimDll, std::filesystem::copy_options::overwrite_existing, ec);
         if (ec) {
-            result.error = "cannot write " + pathToUtf8(folder / kShimDll) + " (" + ec.message() +
-                           "): close the game and try again";
+            result.error = writeProblem("write", folder / kShimDll, ec, ": close the game and try again");
             return result;
         }
         result.changed.push_back(pathToUtf8(folder / kShimDll));
@@ -175,7 +193,7 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
     if (!regularFile(folder / kShimSettings) && regularFile(sourceSettings)) {
         std::filesystem::copy_file(sourceSettings, folder / kShimSettings, ec);
         if (ec) {
-            result.error = "cannot write " + pathToUtf8(folder / kShimSettings) + " (" + ec.message() + ")";
+            result.error = writeProblem("write", folder / kShimSettings, ec, "");
             return result;
         }
         result.changed.push_back(pathToUtf8(folder / kShimSettings));
@@ -194,15 +212,15 @@ ShimResult removeShim(const std::filesystem::path& folder, const std::filesystem
     std::error_code ec;
     if (state != ShimState::Missing) {
         if (!std::filesystem::remove(folder / kShimDll, ec) || ec) {
-            result.error = "cannot delete " + pathToUtf8(folder / kShimDll) + " (" + ec.message() +
-                           "): is the game still running? Close it and try again";
+            result.error =
+                writeProblem("delete", folder / kShimDll, ec, ": is the game still running? Close it and try again");
             return result;
         }
         result.changed.push_back(pathToUtf8(folder / kShimDll));
     }
     if (regularFile(folder / kShimSettings)) {
         if (!std::filesystem::remove(folder / kShimSettings, ec) || ec) {
-            result.error = "cannot delete " + pathToUtf8(folder / kShimSettings) + " (" + ec.message() + ")";
+            result.error = writeProblem("delete", folder / kShimSettings, ec, "");
             return result;
         }
         result.changed.push_back(pathToUtf8(folder / kShimSettings));

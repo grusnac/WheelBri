@@ -77,8 +77,8 @@ endif()
 add_executable(wheelbri-service src/main.cpp)
 target_link_libraries(wheelbri-service PRIVATE wheelbri_service_objects)
 
-# The app. On Windows a window program (no console) that asks for Administrator when started: the virtual
-# G920 and hiding the real wheel need it.
+# The app. On Windows a window program (no console) that runs as the user who starts it: the virtual G920 and hiding
+# the rig go through the WheelBri Helper then (or are done directly when it is started as Administrator).
 add_executable(wheelbri src/main.cpp)
 target_link_libraries(wheelbri PRIVATE wheelbri_service_objects)
 target_compile_definitions(wheelbri PRIVATE WHEELBRI_APP=1)

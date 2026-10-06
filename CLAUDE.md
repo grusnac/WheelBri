@@ -117,7 +117,7 @@ Or the test binary directly:
 ```
 
 Outputs: `build/service/wheelbri-service.exe` (command line), `build/service/wheelbri.exe` (the app: window with
-Start / Stop, asks for Administrator) and `build/shim/dinput8.dll`; all linked statically on MinGW.
+Start / Stop, runs as the user; `asInvoker`) and `build/shim/dinput8.dll`; all linked statically on MinGW.
 
 Windows shim cross-compiled from Linux/macOS with MinGW-w64 (→ `build-win/shim/dinput8.dll`):
 
@@ -170,7 +170,8 @@ letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware)
 (Xlib) on Linux.
 
 The app (`wheelbri`, `service/src/App.cpp`, same sources plus `WHEELBRI_APP`; on Windows a GUI-subsystem exe
-with an Administrator manifest, `service/app/`: the `.rc` and manifest are `.in` templates CMake fills with the
+with an `asInvoker` manifest (a standard user; the virtual device goes through the WheelBri Helper, or directly when
+started as Administrator; the status says "HELPER NOT INSTALLED" in red and Start is greyed out when neither), `service/app/`: the `.rc` and manifest are `.in` templates CMake fills with the
 project's version; both exes carry the icon `wheelbri.ico`, made from `wheelbri.svg`, "wheel going digital", resource
 1, which `UiWindowWin32` also uses for the window) runs sessions (`runSession` in `main.cpp`) on a thread of its
 own from Start / Stop buttons; sessions show themselves through `UiHost` (`SessionUi.hpp`): the app's window,

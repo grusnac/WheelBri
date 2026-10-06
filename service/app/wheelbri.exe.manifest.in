@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<!-- wheelbri.exe: asks for Administrator when started (the virtual G920 and hiding the real wheel need it),
-     sharp on high-DPI screens. -->
+<!-- wheelbri.exe: runs as whoever starts it, a standard user too (asInvoker): what needs Administrator (the virtual
+     G920, hiding the rig) is asked of the WheelBri Helper service, or done directly when started as Administrator.
+     Sharp on high-DPI screens. -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <assemblyIdentity type="win32" name="wheelbri.app" version="@PROJECT_VERSION@.0" processorArchitecture="amd64"/>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
       </requestedPrivileges>
     </security>
   </trustInfo>

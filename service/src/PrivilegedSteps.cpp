@@ -219,6 +219,19 @@ private:
 
 }  // namespace
 
+bool PrivilegedSteps::available() {
+    static const bool elevated = platform::isElevated();
+    if (elevated) return true;
+#ifdef _WIN32
+    // Waiting 1 ms for a free instance: there is one, or all are busy (ERROR_SEM_TIMEOUT); no pipe at all is
+    // ERROR_FILE_NOT_FOUND. Nothing connects.
+    const std::wstring name(helper::kPipeName.begin(), helper::kPipeName.end());
+    return WaitNamedPipeW(name.c_str(), 1) || GetLastError() != ERROR_FILE_NOT_FOUND;
+#else
+    return false;
+#endif
+}
+
 std::unique_ptr<PrivilegedSteps> PrivilegedSteps::open(Problem& problem, std::string& message) {
     problem = Problem::None;
     if (platform::isElevated()) return std::make_unique<DirectSteps>();

@@ -10,7 +10,7 @@ work on Linux.
 | `scripts/make/test.sh` | Build, then all unit tests. `test.sh Mapper` runs only the matching ones |
 | `scripts/make/check.sh` | Before a commit: build, all unit tests, then `git status` |
 | `scripts/make/ui.sh` | Build the service and open its mapping window (`--ui`) with `config/moza-r3-as-g920.ini`, or the config given. The check after a mapping or config change |
-| `scripts/make/app.sh` | Build the app (`wheelbri.exe`: Start, Stop) and start it (Administrator prompt). `--no-start` only builds |
+| `scripts/make/app.sh` | Build the app (`wheelbri.exe`: Start, Stop) and start it as Administrator (prompt), or `--as-user` as you (needs `wheelbri-helper.exe --console` running from an Administrator shell). `--no-start` only builds |
 | `scripts/make/shim.sh <game folder>` | Build `dinput8.dll` and copy it next to the game (plus `wheelbri-shim.ini` if there is none). `shim.sh --off <game folder>` takes it out, needed before using the virtual G920 |
 | `scripts/make/drivers.sh` | Build the two UMDF drivers (Visual Studio + WDK). `-Install` installs them (Administrator prompt), `-Only g920`, `-Clean`, `-Configuration Debug` |
 | `scripts/make/package.sh` | The installer for another PC: builds app, service, shim and drivers (Release), then `package.ps1` makes `dist/windows/WheelBri-<version>/`, its zip and `WheelBri-<version>-setup.exe`. `--no-build` packages what is built; `-NoSetupExe` skips Setup.exe |
