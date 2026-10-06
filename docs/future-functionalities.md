@@ -90,6 +90,9 @@ Size: a new service program, about 6 to 8 commits. The biggest risk is phase 3, 
 
 - Phase 1 done (2026-10-06): `core/include/wheelbri/HelperProtocol.hpp` (requests, replies, rules,
   `isInstalledApp`), `HelperProtocolTest`. Not used by anything yet.
+- Phase 2 done (2026-10-06): `service/helper/` builds `wheelbri-helper.exe` (service `WheelBriHelper`, or
+  `--console`; `--hello` asks a running one). The pipe, its permissions, the caller check and the log in the user's
+  folder work; every request but Hello is answered "cannot do this yet". Not installed by the installer yet.
 
 ## Logitech RS Shifter & Handbrake
 

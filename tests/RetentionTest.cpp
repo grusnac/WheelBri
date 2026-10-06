@@ -60,6 +60,7 @@ TEST(Retention, OnlyTouchesItsOwnFiles) {
     EXPECT_TRUE(isManagedFile("wheelbri-driver-2026-09-30.log"));         // the drivers and installers: same folder
     EXPECT_TRUE(isManagedFile("wheelbri-hide-2026-09-30.log"));
     EXPECT_TRUE(isManagedFile("wheelbri-hide-install-2026-09-30.log"));
+    EXPECT_TRUE(isManagedFile("wheelbri-helper-2026-10-06.log"));         // the WheelBri Helper (service)
     EXPECT_TRUE(isManagedFile("wheelbri-install-2026-09-30.log"));
     EXPECT_TRUE(isArchive("wheelbri-logs-2026-09-30.7z"));
     EXPECT_TRUE(isArchive("telemetry-2026-09-30.csv.zst"));

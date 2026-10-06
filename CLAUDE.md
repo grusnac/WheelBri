@@ -297,7 +297,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     checking each folder's attributes sent every line to the fallback folder.
     Do not add another log location. `LocalDate.hpp` has the date helpers.
   - `Retention.hpp` decides which files are old (date in the name, else last-write day) and only ever touches
-    files starting `wheelbri-service`, `-shim`, `-bridge`, `-logs-`, `-driver`, `-hide`, `-install`, `-uhid`, `-sh`,
+    files starting `wheelbri-service`, `-shim`, `-bridge`, `-logs-`, `-driver`, `-hide`, `-install`, `-uhid`, `-helper`, `-sh`,
     `telemetry-`, `ffb-`.
     The service's `Housekeeping` deletes them (default, after 2 days) or archives them with the best compressor
     found (7z > xz > zstd > zip > gzip) as a background process via `platform::ChildProcess`, deleting
@@ -396,6 +396,17 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     their driver (`Get-DevicesUsing`, DriverInfPath), never by id. In these scripts wrap
     function results in `@(...)` before `.Count`: Windows PowerShell 5.1 gives no `.Count` for a single CIM object.
     Driver threads close their sockets only after joining, and repeating socket errors are logged once a minute.
+- `service/helper/` (`wheelbri-helper.exe`, Windows only, namespace `wheelbri::helper`): the WheelBri Helper, a
+  Windows service (`WheelBriHelper`, SYSTEM) that will do the steps needing Administrator for the app so the app
+  runs as a standard user (plan and progress: `docs/future-functionalities.md`). `HelperServer`: the pipe
+  `\\.\pipe\wheelbri-helper` (DACL: SYSTEM, Administrators, interactive users without creating instances; first
+  instance only, no remote clients), up to 4 connections each on a thread; a caller is accepted only as
+  `wheelbri.exe` in the helper's own folder (opened, named by its handle, pid compared again), others may only say
+  Hello; every request goes through `requestProblem`; a closed connection undoes what it set up. `HelperLog`: the
+  helper's log goes into the connected user's log folder (`wheelbri-helper-<date>.log`, the user's choice), opened
+  only while impersonating that user, lines kept in memory until a user connects. `HelperClient`: the app's side
+  (impersonation allowed, message mode, timeouts). `wheelbri-helper --console` (Administrator) runs it in a console,
+  `--hello` asks a running helper (exit 0 accepted, 2 refused, 3 none). Links only core and Windows libraries.
 - `tools/uhid/` (C++, Linux only, `WE_BUILD_UHID`): Phase 4, `wheelbri-uhid`. The same virtual G920 as `driver/`
   (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
   raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. `UhidG920` holds the uhid protocol with no file descriptors so

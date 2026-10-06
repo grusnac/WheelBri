@@ -92,6 +92,26 @@ if(WE_SERVICE_PLATFORM STREQUAL "Windows")
     endif()
 endif()
 
+# The WheelBri Helper (Windows only): a service running as SYSTEM that does the steps needing Administrator for the
+# app (docs/future-functionalities.md). Only core and Windows' own libraries, not the app's objects.
+if(WE_SERVICE_PLATFORM STREQUAL "Windows")
+    configure_file(app/wheelbri-helper.rc.in app/wheelbri-helper.rc @ONLY)
+    set_source_files_properties("${WE_APP_BIN_DIR}/wheelbri-helper.rc" PROPERTIES
+        OBJECT_DEPENDS "${WE_APP_DIR}/wheelbri.ico")
+    add_executable(wheelbri-helper
+        helper/HelperMain.cpp
+        helper/HelperClient.cpp
+        helper/HelperLog.cpp
+        helper/HelperServer.cpp
+        "${WE_APP_BIN_DIR}/wheelbri-helper.rc")
+    target_link_libraries(wheelbri-helper PRIVATE wheelbri_core advapi32 shell32 ole32)
+    target_compile_definitions(wheelbri-helper PRIVATE WHEELBRI_VERSION="${PROJECT_VERSION}")
+    if(NOT MSVC)
+        target_link_options(wheelbri-helper PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+    install(TARGETS wheelbri-helper RUNTIME DESTINATION bin)
+endif()
+
 # MinGW (MSYS2): the C++ runtime linked in, so both programs start from Explorer or a shortcut too, without
 # MSYS2's libstdc++/libgcc/libwinpthread DLLs on the PATH.
 if(WE_SERVICE_PLATFORM STREQUAL "Windows" AND NOT MSVC)

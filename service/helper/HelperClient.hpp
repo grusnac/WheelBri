@@ -1,0 +1,45 @@
+#pragma once
+
+#include "wheelbri/HelperProtocol.hpp"
+
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace wheelbri::helper {
+
+// The app's side of the pipe: one connection for as long as the app needs the helper (closing it makes the helper
+// undo what it set up). Windows only. Used by `wheelbri-helper --hello` now and by the app from phase 4.
+class HelperClient {
+public:
+    enum class Connect { Ok, NoHelper, Failed };
+
+    HelperClient() = default;
+    ~HelperClient();
+    HelperClient(const HelperClient&) = delete;
+    HelperClient& operator=(const HelperClient&) = delete;
+
+    // Opens the pipe, letting the helper act as this user (it needs that for the user's log folder) and only on
+    // this computer. NoHelper: no helper is running (not installed, or its service is stopped).
+    Connect connect(std::string& error);
+
+    // Sends one request and waits for its reply (at most `timeoutMs`). Nullopt with `error` when the pipe broke,
+    // the reply did not come in time, or it could not be read; the connection is then closed.
+    std::optional<Reply> call(RequestType type, const std::vector<std::string>& devices, int timeoutMs,
+                              std::string& error);
+
+    // The helper's process id and program, as Windows names them (for the log; empty when unknown).
+    [[nodiscard]] std::uint32_t serverPid() const { return serverPid_; }
+    [[nodiscard]] const std::string& serverImage() const { return serverImage_; }
+
+    void close();
+
+private:
+    void* pipe_ = nullptr;   // HANDLE
+    std::uint32_t seq_ = 0;
+    std::uint32_t serverPid_ = 0;
+    std::string serverImage_;
+};
+
+}  // namespace wheelbri::helper
