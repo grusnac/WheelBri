@@ -514,22 +514,19 @@ try {
         $answer = Read-Host 'Restart Windows now? Save your work in other programs first. [Y/n]'
         $restart = -not $answer -or -not $answer.Trim() -or $answer.Trim().ToLower() -in @('y', 'yes')
         if ($restart) {
-            Write-Host 'Windows restarts in 15 seconds (to cancel: shutdown /a in a command prompt).'
+            Write-Host 'Windows restarts in 2 seconds.'
         } else {
             Write-Host 'Not restarting now: restart Windows before you use WheelBri.' -ForegroundColor Yellow
         }
     }
     if ($transcript) { Stop-Transcript | Out-Null }
     if ($restart) {
-        & shutdown.exe /r /t 15 /c 'WheelBri: restarting so its drivers are installed properly.' /d p:4:2
-        Start-Sleep -Seconds 3
-    } elseif (-not $Quiet) {
-        if ($exitCode -eq 0) {
-            Write-Host 'This window closes in 10 seconds.'
-            Start-Sleep -Seconds 10
-        } else {
-            Read-Host 'Press Enter to close' | Out-Null
-        }
+        # The user just said yes: 2 s, enough for this window to close, no countdown (the user's rule, 2026-10-06).
+        & shutdown.exe /r /t 2 /c 'WheelBri: restarting so its drivers are installed properly.' /d p:4:2
+    } elseif (-not $Quiet -and $exitCode -ne 0) {
+        # Only a failure keeps the window open (Setup.exe's window would close before the red lines could be read).
+        # A success just ends: everything it said is in the log too.
+        Read-Host 'Press Enter to close' | Out-Null
     }
 }
 exit $exitCode

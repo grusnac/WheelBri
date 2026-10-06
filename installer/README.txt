@@ -19,7 +19,7 @@ Install
 Run Setup.exe and approve the Administrator prompt: everything is installed with its defaults. At the end, after
 "WheelBri is installed", it asks whether to restart Windows now (Enter = yes). Restart: that makes sure every driver
 is installed properly (the filter that hides your wheel from games often starts only after a restart). Save your work
-in other programs first; Windows restarts 15 seconds after the answer. If something fails, the window stays open
+in other programs first; Windows restarts 2 seconds after the answer. On success the window closes at once. If something fails, the window stays open
 with the reason in red.
 
 Everything the installer did is in %LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log, with every other log.
