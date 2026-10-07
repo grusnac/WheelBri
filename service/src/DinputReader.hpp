@@ -25,9 +25,13 @@ public:
     [[nodiscard]] int axes() const;
     [[nodiscard]] int buttons() const;
     [[nodiscard]] int hats() const;
+    // An auto-reset event DirectInput sets whenever the device's state changes (SetEventNotification), for the
+    // events loop; null when the device is polled (DIDC_POLLEDDEVICE) or Windows refused it.
+    [[nodiscard]] void* notification() const;
 
     // Latest values into `state` (axes -1..1 like SDL's /32767, buttons bit n, hat 0..7 or centred).
-    // False once the device is gone (unplugged): about half a second of failed reads in a row.
+    // False once the device is gone (unplugged): half a second of failed reads (by the clock, so also when the events
+    // loop reads only a few times a second).
     bool read(RawInputState& state);
 
 private:

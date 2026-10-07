@@ -103,6 +103,10 @@ public:
     [[nodiscard]] std::optional<std::size_t> receive(std::span<std::uint8_t> buffer,
                                                      std::uint16_t* senderPort = nullptr);
 
+    // The socket itself (a SOCKET on Windows, a file descriptor elsewhere), for waiting until a datagram arrives
+    // (the service's event loop, platform::WaitSet). Owned by this object.
+    [[nodiscard]] std::intptr_t nativeSocket() const;
+
 private:
     struct Impl;
     explicit UdpLoopbackListener(std::unique_ptr<Impl> impl);

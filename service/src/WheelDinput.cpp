@@ -416,6 +416,10 @@ public:
     [[nodiscard]] int axes() const override { return reader_->axes(); }
     [[nodiscard]] int buttons() const override { return reader_->buttons(); }
     [[nodiscard]] int hats() const override { return reader_->hats(); }
+    [[nodiscard]] std::intptr_t waitSource() const override {
+        void* const event = reader_->notification();
+        return event != nullptr ? reinterpret_cast<std::intptr_t>(event) : -1;
+    }
 
     bool poll(RawInputState& state) override {
         if (!reader_->read(state)) {
