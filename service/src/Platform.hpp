@@ -33,6 +33,39 @@ void sleepPrecise(std::uint64_t ns);
 // The spin margin sleepPrecise used last (any thread), for the loop's log.
 [[nodiscard]] std::uint64_t preciseSleepMarginNs();
 
+// Waits until one of several sources has something new, or a time passes: the service's events loop (`[emulator]
+// loop_mode = events`), which sleeps instead of waking 1000 times a second. One per thread; not thread safe.
+class WaitSet {
+public:
+    WaitSet();
+    ~WaitSet();
+    WaitSet(const WaitSet&) = delete;
+    WaitSet& operator=(const WaitSet&) = delete;
+
+    // A device's notification: an event object (Windows: the HANDLE DirectInput signals, auto-reset) or a file
+    // descriptor that becomes readable (Linux: evdev). Its index, or -1 if it cannot be waited for.
+    int addEvent(std::intptr_t source);
+    // A UDP socket (SOCKET on Windows, a file descriptor elsewhere) that has a datagram to read. Its index, or -1.
+    // Windows gives it an event (WSAEventSelect) for as long as this set lives.
+    int addSocket(std::intptr_t socket);
+
+    static constexpr int kTimedOut = -1;
+    static constexpr int kFailed = -2;   // the system could not wait (failureText() says why); nothing was waited for
+
+    // Until one of them has something (its index; the first if several, on Windows a socket with a datagram before
+    // a device's event; a socket counts only while a datagram waits in it) or `deadlineNs` (nowNs()'s clock) is reached
+    // (kTimedOut). A deadline already passed returns at once. Interrupted by a signal: kTimedOut early.
+    int waitUntil(std::uint64_t deadlineNs);
+    // How many sources were added.
+    [[nodiscard]] int size() const;
+    // Why the last waitUntil returned kFailed.
+    [[nodiscard]] const std::string& failureText() const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 // The calling thread above normal priority. False with `error` set if the system refused.
 bool raiseThreadPriority(std::string& error);
 
