@@ -146,6 +146,19 @@ a headline, why it was needed, how to use it, and where to look.
 - **Look:** `service/app/wheelbri.svg` (the drawing), `wheelbri.ico` (16 to 256 px, made from it), `wheelbri.rc.in`,
   `wheelbri-service.rc.in`; the window takes it in `service/src/UiWindowWin32.cpp`.
 
+### Service loop that wakes on input (events)
+
+- **Why:** polling the wheel 1000 times a second cost the loop about 8 % of a core, mostly on ticks with nothing new.
+- **Use:** `[emulator] loop_mode = events`, the default: the loop sleeps until the wheel, an accessory, the game's force
+  feedback or the test clutch has something new, and wakes by itself only for what must run on time (every 4 ms while
+  forces play and for 100 ms after new input). It switches to `fixed` (`loop_hz` a second, as before) by itself when
+  notifications fail, and at once for a device DirectInput can only poll; `loop_mode = fixed` forces that.
+- **Look:** the service log's "running on events" line and, once a minute, "loop (events)": wake-ups by reason and the
+  notifications missed or late. Measured in NFS 2015: the loop thread at 2.3 % of a core instead of 8 %
+  (`docs/cpu-measurements.md`). Code: core `EventLoopControl`, `WakePlanner`, `platform::WaitSet`
+  (`PlatformWin32.cpp`, `PlatformPosix.cpp`), `DinputReader`; tests `PushLoopTest` (emulators), `WaitSetTest`; plan
+  `docs/push-input-plan.md`.
+
 ## Layout
 
 | Path | Contents |
