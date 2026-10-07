@@ -689,6 +689,7 @@ private:
         setup_->releaseWheel();   // the session opens the wheel now
         idleTab_ = IdleTab::Logs;  // the logs at once: the session writes them while it comes up
         session_ = std::thread([this, config, virtualDevice] {
+            platform::nameThisThread("wheelbri session");
             int result = 1;
             try {
                 result = settings_.runSession(host_, config, virtualDevice);
@@ -1015,6 +1016,7 @@ std::unique_ptr<UiHost> makeSessionWindow(std::string configPath) {
 }
 
 int runApp(const AppSettings& settings) {
+    platform::nameThisThread("wheelbri window");   // the app's own thread: the window and its tabs
     App app(settings);
     return app.run();
 }

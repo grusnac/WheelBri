@@ -150,6 +150,20 @@ std::uint64_t preciseSleepMarginNs() {
     return gLastSpinMarginNs.load(std::memory_order_relaxed);
 }
 
+void nameThisThread(const char* const name) {
+    using SetDescription = HRESULT(WINAPI*)(HANDLE, PCWSTR);
+    static const auto setDescription = [] {
+        const HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+        return kernel != nullptr
+                   ? reinterpret_cast<SetDescription>(reinterpret_cast<void*>(GetProcAddress(kernel, "SetThreadDescription")))
+                   : nullptr;
+    }();
+    if (setDescription == nullptr || name == nullptr) return;
+    wchar_t wide[64] = {};
+    if (MultiByteToWideChar(CP_UTF8, 0, name, -1, wide, 63) == 0) return;
+    setDescription(GetCurrentThread(), wide);
+}
+
 bool raiseThreadPriority(std::string& error) {
     if (SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST) != FALSE) {
         return true;

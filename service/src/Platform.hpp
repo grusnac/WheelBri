@@ -36,6 +36,11 @@ void sleepPrecise(std::uint64_t ns);
 // The calling thread above normal priority. False with `error` set if the system refused.
 bool raiseThreadPriority(std::string& error);
 
+// Names the calling thread, so measure.ps1, Task Manager's details and debuggers show what it is ("wheelbri loop").
+// Windows 10 1607 and later (SetThreadDescription, looked up at run time); Linux keeps the first 15 characters. Does
+// nothing where the system has no names.
+void nameThisThread(const char* name);
+
 // "Windows", "Linux", "macOS".
 [[nodiscard]] const char* name();
 

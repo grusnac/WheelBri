@@ -1,5 +1,7 @@
 #include "VirtualG920.hpp"
 
+#include "Platform.hpp"
+
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/Logging.hpp"
 
@@ -416,6 +418,7 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         impl->userHive = userHive;
         Impl* raw = impl.get();
         impl->watcher = std::thread([raw] {
+            platform::nameThisThread("wheelbri g920 watch");
             try {
                 std::unique_lock guard(raw->lock);
                 while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {
@@ -447,6 +450,7 @@ DirectInputUserEntries::DirectInputUserEntries() : impl_(std::make_unique<Impl>(
     removeForeignForceFeedbackDriver(user);
     Impl* raw = impl_.get();
     impl_->watcher = std::thread([raw] {
+        platform::nameThisThread("wheelbri dinput watch");
         try {
             std::unique_lock guard(raw->lock);
             while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {

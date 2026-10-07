@@ -5,6 +5,7 @@
 #include "wheelbri/Pacing.hpp"
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <spawn.h>
 #include <sys/file.h>
@@ -67,6 +68,17 @@ void sleepPrecise(const std::uint64_t ns) {
 
 std::uint64_t preciseSleepMarginNs() {
     return gLastSpinMarginNs.load(std::memory_order_relaxed);
+}
+
+void nameThisThread(const char* const name) {
+#if defined(__linux__)
+    if (name == nullptr) return;
+    char shortName[16] = {};   // the kernel keeps 15 characters and the end
+    std::strncpy(shortName, name, sizeof(shortName) - 1);
+    pthread_setname_np(pthread_self(), shortName);
+#else
+    (void)name;
+#endif
 }
 
 bool raiseThreadPriority(std::string& error) {
