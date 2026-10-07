@@ -18,9 +18,12 @@ session's length (Start to Stop, `wheelbri-service-<date>.log`).
 | `perf-2026-10-07-185044` | 500 | 237 | 58.6 / 79.3 | 127.8 | 20.7 (8.1) |
 | `perf-2026-10-07-190435` | 250 | 171 | 55.3 / 74.9 | 122.9 | 19.9 (7.7) |
 | `perf-2026-10-07-191843` | 250 (meant 125*) | 177 | 49.6 / 68.9 | 114.9 | 20.5 (8.3) |
+| `perf-2026-10-07-214236` (repeat) | 500 | 296 | 66.8 / 82.5 | 138.9 | 19.6 (8.4) |
 | 2026-10-06 (earlier) | none (every tick) | 1000 | 84 | | |
 
 \* The 125 edit of the config never reached the PC; the service logged `state_rate_hz=250` at that Start.
+
+The repeat at 500 sent more packets (296 against 237 a second; the wheel's noise varies) and cost more (66.8 against 58.6), which fits a per-packet part; the part that does not depend on the rate stays at about 45-50 % of a core.
 
 **Findings:**
 
@@ -42,5 +45,25 @@ read and in order, keeps a quick button press and release between two reads. For
 touched. A once-a-minute driver log line, "states received N, reads completed M", proves the cause (M much larger
 than N) and shows the fix working.
 
-**Next:** the same round on `feature/push-input` (`loop_mode = events`). The driver is the same on both branches, so
-only the app's sending differs; if the driver costs the same there, the fix goes into the driver.
+## 2026-10-07: the same round on `feature/push-input` (events loop)
+
+**Setup:** as above, `state_rate_hz` 500, `loop_mode = events` (the service logged "running on events" and never fell
+back: 0 notifications missed, 178 late in 9 minutes).
+
+| Round (perf log) | Loop | Packets a second | Receiver thread avg / peak | Driver host total | wheelbri.exe (loop) |
+|---|---|---|---|---|---|
+| `perf-2026-10-07-185044` | main, fixed 1 kHz | 237 | 58.6 / 79.3 | 127.8 | 20.7 (8.1) |
+| `perf-2026-10-07-214236` | main, fixed 1 kHz | 296 | 66.8 / 82.5 | 138.9 | 19.6 (8.4) |
+| `perf-2026-10-07-215929` | push, events | 239 | 59.0 / 76.3 | 133.9 | 18.0 (2.3) |
+
+**Findings:**
+
+- The driver costs the same whichever loop feeds it: the same packets a second (the wheel's noise sets them, about
+  240), the same receiver (59 % of a core) and driver host (134 %). The cost is in the driver, as expected from the
+  same driver code on both branches.
+- The events loop does what it should for the app: its loop thread falls from about 8 % to 2.3 % of a core (about
+  530 wake-ups a second, nearly all from the wheel's notifications). The rest of wheelbri.exe is mostly threads that
+  are not ours (an unnamed thread at Highest priority, about 7 %: DirectInput's own, seen on main too).
+
+**Next:** the driver fix described above, with its "states received N, reads completed M" line, then the same round
+again to compare with these numbers.
