@@ -101,6 +101,19 @@ Each one builds, passes the tests and comes with build and test steps.
 - **A late notification** (the event a moment after the state): the timer's pass reads the input, the notification
   comes within 1 ms; counted as late, not as missed, so it never causes a fallback.
 
+Checked for abuse from other programs (2026-10-07; any local program can send to the UDP ports):
+
+- **An empty datagram** no longer hides the ones behind it on Windows: a socket counts as ready while a datagram of
+  any size waits (a one-byte peek, not FIONREAD, which gave the first one's size: 0).
+- **A flood on 41330 / 41331** wakes the loop at most every 0.5 ms (about the cost of loop_mode = fixed); the game's
+  packets and the wheel's input are still read within that gap (`PushLoop.AFloodOnTheForceFeedbackPort...`). Who
+  may send force feedback is still decided by SenderGate.
+- **A descriptor closed behind the wait's back** (Linux, POLLNVAL) is a failed wait: the loop falls back to the
+  fixed rate instead of waking without pause. On Windows a closed handle already failed the wait.
+- **A wait that wakes for nothing again and again** gives up after 64 rounds and lets the loop run a pass.
+- Still open, older than the events loop: the test clutch port (41331) takes packets from any local program, with no
+  sender check; it only replaces the clutch while packets come.
+
 All of these run as scenarios on emulated devices (`tests/emulators`, `PushLoopTest`): latency of every change, wake
 counts, when and why it falls back. Not covered there: whether DirectInput and evdev really behave like the emulators;
 that needs the rig (the "loop (events)" line's missed / late counts).

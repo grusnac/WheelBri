@@ -95,6 +95,26 @@ TEST(PushLoop, GameForceFeedbackWakesTheLoop) {
     EXPECT_EQ(rig.wokenBy(WakeReason::GameFfb), 36U);
 }
 
+TEST(PushLoop, AFloodOnTheForceFeedbackPortIsHeldToTheGapAndTheGameStillGetsThrough) {
+    // Any local program can send to 127.0.0.1:41330. A datagram every 10 us wakes the loop at most every 0.5 ms
+    // (2000 passes a second, about what loop_mode = fixed costs at 1 kHz); the game's own packets are still read
+    // within that gap, and the wheel's input too.
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    wheel.sweep(0, 1 * kS, 3 * kMs);
+    EmulatedSocket ffb;
+    ffb.arriveEvery(0, 1 * kS, 10 * kUs);
+    PushLoopRig rig(clock, wheel);
+    rig.addGameFfb(ffb);
+    rig.run(1 * kS);
+
+    EXPECT_TRUE(rig.control().events());
+    EXPECT_GE(rig.minPassGap(), kWake.minGapNs);
+    EXPECT_LE(rig.passes(), kS / kWake.minGapNs + 1);
+    for (const std::uint64_t latency : ffb.latencies()) EXPECT_LE(latency, kWake.minGapNs + 50 * kUs);
+    EXPECT_LE(rig.maxLatency(wheel), kWake.minGapNs + 50 * kUs);
+}
+
 TEST(PushLoop, WhatMustRunOnTimeSetsTheTimer) {
     {
         VirtualClock clock;

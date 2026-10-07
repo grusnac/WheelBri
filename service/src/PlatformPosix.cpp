@@ -22,6 +22,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <thread>
 
 extern char** environ;
@@ -96,7 +97,16 @@ int WaitSet::waitUntil(const std::uint64_t deadlineNs) {
     const int ready = ::poll(impl_->fds.data(), static_cast<nfds_t>(impl_->fds.size()), timeoutMs);
     if (ready > 0) {
         for (std::size_t i = 0; i < impl_->fds.size(); ++i) {
-            if (impl_->fds[i].revents != 0) return static_cast<int>(i);   // POLLIN, or an error: read says which
+            // A descriptor that is no longer open (closed behind the set's back): poll would report it at once every
+            // time, so the loop cannot wait on it; say so, and the loop falls back to the fixed rate.
+            if ((impl_->fds[i].revents & POLLNVAL) != 0) {
+                impl_->failure = "poll: source " + std::to_string(i) + " is not an open descriptor";
+                return kFailed;
+            }
+        }
+        for (std::size_t i = 0; i < impl_->fds.size(); ++i) {
+            // POLLIN, or POLLERR / POLLHUP (an unplugged evdev device): the read says which.
+            if (impl_->fds[i].revents != 0) return static_cast<int>(i);
         }
     } else if (ready < 0 && errno != EINTR) {
         impl_->failure = std::string("poll: ") + std::strerror(errno);

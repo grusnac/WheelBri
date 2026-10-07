@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <thread>
 
 #if defined(_WIN32)
@@ -174,6 +175,34 @@ TEST(WaitSet, ASignalledEventWakesWithItsIndex) {
 #endif
 }
 
+TEST(WaitSet, AnEmptyDatagramWakesAndDoesNotHideTheOnesBehindIt) {
+    // Any local program can send an empty datagram to the force feedback port: it must not hide a real one.
+    WaitSet set;
+    const auto listener = UdpLoopbackListener::create(kPortA);
+    ASSERT_NE(listener, nullptr);
+    ASSERT_EQ(set.addSocket(listener->nativeSocket()), 0);
+    {
+        const auto sender = UdpLoopbackSender::create(kPortA);
+        ASSERT_NE(sender, nullptr);
+        const std::array<std::uint8_t, 1> none{};
+        ASSERT_TRUE(sender->send(std::span<const std::uint8_t>(none).first(0)));
+    }
+    sendOne(kPortA);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    const std::uint64_t start = platform::nowNs();
+    EXPECT_EQ(set.waitUntil(start + 1000 * kMs), 0);
+    EXPECT_LT(platform::nowNs() - start, 500 * kMs);   // at once, not at the deadline
+    std::array<std::uint8_t, 64> buffer{};
+    const auto first = listener->receive(buffer);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(*first, 0U);                                         // the empty one
+    EXPECT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 0);   // the real one is still announced
+    const auto second = listener->receive(buffer);
+    ASSERT_TRUE(second.has_value());
+    EXPECT_EQ(*second, 4U);
+    EXPECT_EQ(set.waitUntil(platform::nowNs() + 20 * kMs), WaitSet::kTimedOut);
+}
+
 TEST(WaitSet, SeveralReadyGiveTheFirst) {
     WaitSet set;
     const auto a = UdpLoopbackListener::create(kPortA);
@@ -192,15 +221,17 @@ TEST(WaitSet, SeveralReadyGiveTheFirst) {
 }
 
 #if !defined(_WIN32)
-TEST(WaitSet, AClosedDescriptorFailsOrWakesButNeverSpinsSilently) {
+TEST(WaitSet, AClosedDescriptorMakesTheWaitFail) {
     WaitSet set;
     std::array<int, 2> pipeFds{};
     ASSERT_EQ(::pipe(pipeFds.data()), 0);
     ASSERT_EQ(set.addEvent(pipeFds[0]), 0);
     ::close(pipeFds[0]);
     ::close(pipeFds[1]);
-    // poll reports a closed descriptor as POLLNVAL on it: index 0, and the reader then finds out it is gone.
-    EXPECT_EQ(set.waitUntil(platform::nowNs() + 20 * kMs), 0);
+    // poll reports a closed descriptor as POLLNVAL at once, every time: a failure (the loop then runs fixed), not a
+    // source with news, which would wake the loop without pause.
+    EXPECT_EQ(set.waitUntil(platform::nowNs() + 20 * kMs), WaitSet::kFailed);
+    EXPECT_FALSE(set.failureText().empty());
 }
 #endif
 

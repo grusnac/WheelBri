@@ -175,7 +175,12 @@ std::unique_ptr<DinputReader> DinputReader::open(const std::string& hidPath, std
     caps.dwSize = sizeof(caps);
     if (SUCCEEDED(impl->device->GetCapabilities(&caps)) && (caps.dwFlags & DIDC_POLLEDDEVICE) == 0) {
         impl->notification = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (impl->notification != nullptr && FAILED(impl->device->SetEventNotification(impl->notification))) {
+        if (impl->notification == nullptr) {
+            WE_LOG_WARN(log(), "cannot create the event for DirectInput's notification (error {}): the loop polls",
+                        GetLastError());
+        } else if (const HRESULT set = impl->device->SetEventNotification(impl->notification); FAILED(set)) {
+            WE_LOG_WARN(log(), "DirectInput refused the notification event (0x{:08x}): the loop polls",
+                        static_cast<unsigned>(set));
             CloseHandle(impl->notification);
             impl->notification = nullptr;
         }

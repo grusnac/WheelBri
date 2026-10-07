@@ -203,12 +203,18 @@ int WaitSet::addSocket(const std::intptr_t socket) {
 
 namespace {
 
-// A datagram waits on the socket (Windows: FIONREAD gives the size of the first one; an empty datagram reads 0 and
-// only wakes the next wait the timer makes).
+// A datagram waits on the socket, an empty one too. Not FIONREAD: it gives the size of the first datagram, so an
+// empty one (any local program can send it) would read as "nothing" and hide the datagrams queued behind it until
+// the timer. A one-byte peek leaves the datagram queued: it succeeds, or says WSAEMSGSIZE for a longer one.
 bool hasDatagram(const SOCKET s) {
-    u_long pending = 0;
-    return ioctlsocket(s, FIONREAD, &pending) == 0 && pending > 0;
+    char byte = 0;
+    if (recv(s, &byte, 1, MSG_PEEK) != SOCKET_ERROR) return true;
+    return WSAGetLastError() == WSAEMSGSIZE;
 }
+
+// A wait that keeps waking for nothing (an event set again and again with an empty queue) gives up after this many
+// rounds and lets the loop run a pass: never a spin inside one wait.
+constexpr int kMaxStaleWakes = 64;
 
 }  // namespace
 
@@ -219,7 +225,7 @@ int WaitSet::waitUntil(const std::uint64_t deadlineNs) {
     // another socket's unread datagram. So the queue decides: reset each socket's event first, then look at its queue
     // (a datagram arriving after the reset sets the event again, one before it is seen in the queue), and a wake by a
     // socket's event whose queue is empty is stale: wait again for what is left of the time.
-    while (true) {
+    for (int round = 0; round < kMaxStaleWakes; ++round) {
         for (std::size_t i = 0; i < handles.size(); ++i) {
             if (!impl_->ownedSocketEvent[i]) continue;
             WSAResetEvent(handles[i]);
@@ -261,6 +267,7 @@ int WaitSet::waitUntil(const std::uint64_t deadlineNs) {
         }
         return kTimedOut;   // WAIT_TIMEOUT, the timer (index handles.size()), or WAIT_ABANDONED (never for these)
     }
+    return kTimedOut;
 }
 
 int WaitSet::size() const { return static_cast<int>(impl_->handles.size()); }
