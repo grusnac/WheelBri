@@ -1,12 +1,14 @@
 #include "DinputReader.hpp"
 
 #include "wheelbri/Logging.hpp"
+#include "wheelbri/WakePlanner.hpp"
 
 #ifdef _WIN32
 
 #include "DinputDevice.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <vector>
 
 namespace wheelbri::service {
@@ -112,16 +114,20 @@ struct DinputReader::Impl {
     IDirectInput8W* dinput = nullptr;
     IDirectInputDevice8W* device = nullptr;
     HWND window = nullptr;
+    HANDLE notification = nullptr;   // set by DirectInput when the state changes
     std::vector<Input> axes;       // SDL order
     std::vector<Input> buttons;
     std::vector<Input> hats;
-    int failures = 0;
+    LossTimer loss;                  // 0.5 s of failed reads by the clock = gone (also when read a few times a second)
+    ULONGLONG lastAcquireMs = 0;     // acquiring again at most every 50 ms
 
     ~Impl() {
         if (device != nullptr) {
             device->Unacquire();
+            if (notification != nullptr) device->SetEventNotification(nullptr);
             device->Release();
         }
+        if (notification != nullptr) CloseHandle(notification);
         if (dinput != nullptr) {
             dinput->Release();
         }
@@ -163,6 +169,17 @@ std::unique_ptr<DinputReader> DinputReader::open(const std::string& hidPath, std
     for (const Input& input : e.inputs) {
         (input.kind == Kind::Axis ? impl->axes : input.kind == Kind::Button ? impl->buttons : impl->hats).push_back(input);
     }
+    // A notification when the state changes, for the events loop; set before Acquire (DirectInput requires it).
+    // Polled devices never set it: none then, and the loop polls.
+    DIDEVCAPS caps{};
+    caps.dwSize = sizeof(caps);
+    if (SUCCEEDED(impl->device->GetCapabilities(&caps)) && (caps.dwFlags & DIDC_POLLEDDEVICE) == 0) {
+        impl->notification = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (impl->notification != nullptr && FAILED(impl->device->SetEventNotification(impl->notification))) {
+            CloseHandle(impl->notification);
+            impl->notification = nullptr;
+        }
+    }
     if (FAILED(impl->device->Acquire())) {
         error = "Acquire failed";
         return nullptr;
@@ -176,15 +193,19 @@ DinputReader::~DinputReader() = default;
 int DinputReader::axes() const { return static_cast<int>(impl_->axes.size()); }
 int DinputReader::buttons() const { return static_cast<int>(impl_->buttons.size()); }
 int DinputReader::hats() const { return static_cast<int>(impl_->hats.size()); }
+void* DinputReader::notification() const { return impl_->notification; }
 
 bool DinputReader::read(RawInputState& state) {
     DIJOYSTATE2 s{};
     impl_->device->Poll();
     HRESULT result = impl_->device->GetDeviceState(sizeof(s), &s);
-    // Acquire again at once, then every 50 reads at most: on an unplugged wheel it can take a while each time.
-    if ((result == DIERR_INPUTLOST || result == DIERR_NOTACQUIRED) && impl_->failures % 50 == 0) {
+    // Acquire again at once, then every 50 ms at most: on an unplugged wheel it can take a while each time.
+    const ULONGLONG nowMs = GetTickCount64();
+    if ((result == DIERR_INPUTLOST || result == DIERR_NOTACQUIRED) &&
+        (impl_->loss.failures() == 0 || nowMs - impl_->lastAcquireMs >= 50)) {
+        impl_->lastAcquireMs = nowMs;
         const HRESULT acquired = impl_->device->Acquire();
-        if (FAILED(acquired) && impl_->failures == 0) {
+        if (FAILED(acquired) && impl_->loss.failures() == 0) {
             WE_LOG_WARN(log(), "DirectInput: the wheel cannot be acquired again (0x{:08x}{})",
                         static_cast<unsigned>(acquired),
                         acquired == static_cast<HRESULT>(DIERR_UNPLUGGED) ? ", unplugged" : acquired == static_cast<HRESULT>(DIERR_OTHERAPPHASPRIO)
@@ -195,16 +216,15 @@ bool DinputReader::read(RawInputState& state) {
         result = impl_->device->GetDeviceState(sizeof(s), &s);
     }
     if (FAILED(result)) {
-        // Keep the last values; a wheel that stays unreadable for ~0.5 s (at 1 kHz) is gone.
-        if (++impl_->failures == 1) {
+        // Keep the last values; a wheel that stays unreadable for 0.5 s is gone.
+        if (impl_->loss.failures() == 0) {
             WE_LOG_WARN(log(), "DirectInput read failed (0x{:08x}{}); keeping the last values",
                         static_cast<unsigned>(result), result == static_cast<HRESULT>(DIERR_UNPLUGGED) ? ", unplugged" : "");
         }
-        return impl_->failures < 500;
+        return impl_->loss.failed(nowMs);
     }
-    if (impl_->failures > 0) {
-        WE_LOG_INFO(log(), "DirectInput reads again after {} failed", impl_->failures);
-        impl_->failures = 0;
+    if (const std::uint64_t failed = impl_->loss.succeeded(); failed > 0) {
+        WE_LOG_INFO(log(), "DirectInput reads again after {} failed", failed);
     }
     const std::size_t axisCount = std::min(impl_->axes.size(), RawInputState::kMaxAxes);
     for (std::size_t i = 0; i < axisCount; ++i) {

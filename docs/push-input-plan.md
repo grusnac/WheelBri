@@ -1,6 +1,8 @@
 # Plan: the service loop from pull to push
 
-Status: planned 2026-10-06, put aside, not started. Branch when started: `feature/push-input`, from the `v0.8.0` commit.
+Status: implemented on the branch `feature/push-input` (from `v0.8.1`), 2026-10-07; to be measured against
+`loop_mode = fixed` with `scripts/make/measure.sh` before it is merged. `loop_mode = events` is the default on the
+branch.
 
 ## Why
 
@@ -78,5 +80,20 @@ Each one builds, passes the tests and comes with build and test steps.
 3. Linux (evdev) would be unit-tested only until it runs on a Steam Deck.
 4. Not addressed: the driver host (the hide filter and the G920 driver, ~10 % of the PC in virtual sessions); it
    needs its own fix.
+
+## Edge cases handled (2026-10-07)
+
+- **A driver that does not signal its event** (DirectInput gives no error for that): each pass the timer woke that
+  still found new input counts as a missed notification (`Pipeline::inputChanged`, `NotificationCheck`); 20 within
+  10 s switch the session to `fixed` for good, with a warning naming `loop_hz`.
+- **The wait itself fails** (`WaitForMultipleObjects` / `poll` error): `WaitSet::kFailed` with the reason; the session
+  switches to `fixed` at once instead of sleeping until the deadline and failing again.
+- **A source that never stops signalling** (or an evdev descriptor left in error): never more than one pass every
+  0.5 ms (`floodGuardWaitNs`).
+- **A datagram that arrives while the loop works**: the socket's event is reset before the pass reads, so nothing is
+  lost; one left unread wakes the next wait at once (`WaitSetTest`).
+- **Few passes**: the window's copy, `--print` and a lost wheel go by the clock (`Periodic`, `LossTimer`: 0.5 s of
+  failed reads, re-acquiring at most every 50 ms), not by counting passes.
+- **A clock that goes back**: `Periodic`, `LossTimer` and `NotificationCheck` start again rather than wrap around.
 
 Size: about 8-10 files plus tests over the five commits.

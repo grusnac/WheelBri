@@ -43,9 +43,17 @@ add_executable(wheelbri_tests
     TestClutchTest.cpp
     UdpLoopbackTest.cpp
     WaitForTest.cpp
+    WakePlannerTest.cpp
     WheelOutputTest.cpp
 )
 target_link_libraries(wheelbri_tests PRIVATE wheelbri_core GTest::gtest_main)
+
+# platform::WaitSet (the service's event loop) with real sockets and events; needs the service's platform code.
+if(TARGET wheelbri_privileged)
+    target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp)
+    target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/service/src)
+    target_link_libraries(wheelbri_tests PRIVATE wheelbri_privileged)
+endif()
 
 # The Linux virtual G920's uhid protocol (tools/uhid), tested without /dev/uhid.
 if(WE_LINUX)

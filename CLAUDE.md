@@ -358,8 +358,19 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - OS helpers in `Platform.hpp` (clock, precise sleep: one sleep, then a spin of the learnt `SpinMargin`, 50-300 us,
     never the whole wait (it kept a core busy until 2026-10-06), thread priority, child process in a kill-on-close job,
     `SingleInstance` lock so only one session runs per computer, console close handler, `isElevated`); `FfbSelfTest`
-    (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView` (`--ui`); a fixed-rate loop
-    (default 1 kHz, drift-free, resynchronises when behind).
+    (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView` (`--ui`). The loop, two ways
+    (`[emulator] loop_mode`): `events` (the default) sleeps in `platform::WaitSet` (Windows: WaitForMultipleObjects on
+    the devices' DirectInput notifications, `DinputReader::notification` / `Wheel::waitSource`, the sockets' events,
+    WSAEventSelect, and a high-resolution timer; Linux: poll on the evdev and socket descriptors) until the wheel, an
+    accessory, the game's force feedback or the test clutch has something new, and wakes by itself only for what must
+    run on time (core `WakePlanner`: every 4 ms while forces play, ~30 a second with a window, else 100 ms; never two
+    passes closer than 0.5 ms); it logs its wake-ups by reason once a minute (`WakeStats`, "loop (events)"). A device
+    DirectInput only polls makes the session use `fixed`: `loop_hz` times a second (default 1 kHz, drift-free,
+    resynchronises when behind), as before. A running session also switches to `fixed` for good (with a warning) when
+    the wait itself fails (`WaitSet::kFailed`) or when the timer, not a notification, woke 20 passes within 10 s that
+    found new input (`NotificationCheck`, from `Pipeline::inputChanged`: a driver that does not signal its event). Anything on the loop that must happen regularly goes by the clock, never
+    by counting passes (the window's copy, `--print`, a lost wheel: 0.5 s of failed reads). Plan and measurements:
+    `docs/push-input-plan.md`.
   - Phase 5 (`--virtual-g920`, run as Administrator, no shim in the game): `VirtualG920`
     creates the `wheelbri\G920` software device for the `wheelbri-g920` driver while the service runs (Start first
     installs that driver with `install-driver.ps1` when Windows' driver store has no `wheelbri-g920.inf`,
@@ -494,9 +505,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   `wheelbri-shim.ini` (shim).
 - `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide),
   `future-functionalities.md` (worked-out ideas not built yet: RS Handbrake, G29; and the standard-user test still to
-  do), `push-input-plan.md` (the service loop from polling to Windows' notifications: planned, put aside).
+  do), `push-input-plan.md` (the service loop from polling to Windows' notifications: on the branch feature/push-input).
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
-  (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest`.
+  (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest` and `WaitSetTest` (the service's
+  `platform::WaitSet` with loopback sockets, a pipe or an event; linked when `wheelbri_privileged` is built).
 
 ## Conventions
 

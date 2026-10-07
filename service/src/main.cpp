@@ -34,6 +34,7 @@
 #include "wheelbri/TestClutch.hpp"
 #include "wheelbri/UdpLoopback.hpp"
 #include "wheelbri/WaitFor.hpp"
+#include "wheelbri/WakePlanner.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -71,6 +72,7 @@ namespace privileged = wheelbri::service::privileged;
 
 constexpr std::uint64_t kStatsWindowNs = 10 * platform::kNsPerSecond;
 constexpr std::uint64_t kUsageLogNs = 10 * 60 * platform::kNsPerSecond;   // force feedback usage table in the log
+constexpr std::uint64_t kWakeLogNs = 60 * platform::kNsPerSecond;         // loop_mode = events: wake-ups in the log
 
 std::atomic<bool> gStop{false};
 // A session is between its start and the end of its clean-up (the console close handler waits for it).
@@ -702,6 +704,8 @@ public:
     }
 
     [[nodiscard]] const wheelbri::FfbController& controller() const { return *controller_; }
+    // The socket the game's packets arrive on (loop_mode = events waits for it).
+    [[nodiscard]] std::intptr_t socket() const { return listener_->nativeSocket(); }
 
     // Called every 10 s; logs only when something changed: effects playing, failures, watchdog stops,
     // or the game starting / stopping to send.
@@ -922,9 +926,46 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     }
 
     const std::uint64_t periodNs = platform::kNsPerSecond / static_cast<std::uint64_t>(config.loopHz);
-    const std::uint64_t printEveryTicks = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(config.loopHz) / 10);
+    constexpr std::uint64_t kPrintEveryNs = 100'000'000;   // --print: 10 lines a second
+    const wheelbri::WakeSettings wakeSettings;
     // The window's copy of the state, ~30 times a second (as often as the window draws).
-    const std::uint64_t frameEveryTicks = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(config.loopHz) / 30);
+    const std::uint64_t frameEveryNs = wakeSettings.windowNs;
+
+    // loop_mode = events: the loop sleeps until the wheel, an accessory, the game's force feedback or the test clutch
+    // has something new (platform::WaitSet), and wakes by itself only for what must run on time (WakePlanner.hpp).
+    // Any device that DirectInput only lets us poll: the fixed rate, as loop_mode = fixed.
+    platform::WaitSet waitSet;
+    std::vector<wheelbri::WakeReason> wakeReasons;   // what each of waitSet's sources is
+    bool eventLoop = config.eventLoop;
+    if (eventLoop) {
+        const auto addDevice = [&](const wheelbri::service::Wheel& device) {
+            if (waitSet.addEvent(device.waitSource()) < 0) {
+                WE_LOG_WARN(log(), "loop: '{}' gives no notification of new input (DirectInput polls it): the loop "
+                                   "runs at loop_hz = {} instead (loop_mode = fixed)",
+                            device.info().name, config.loopHz);
+                eventLoop = false;
+                return;
+            }
+            wakeReasons.push_back(wheelbri::WakeReason::Wheel);
+        };
+        addDevice(source);
+        for (const auto& accessory : accessories.devices) {
+            if (eventLoop && accessory != nullptr) addDevice(*accessory);
+        }
+        const auto addSocket = [&](const std::intptr_t socket, const wheelbri::WakeReason reason, const char* what) {
+            if (waitSet.addSocket(socket) < 0) {
+                WE_LOG_WARN(log(), "loop: cannot wait for {} packets: the loop runs at loop_hz = {} instead", what,
+                            config.loopHz);
+                eventLoop = false;
+                return;
+            }
+            wakeReasons.push_back(reason);
+        };
+        if (eventLoop && gameFfb != nullptr) addSocket(gameFfb->socket(), wheelbri::WakeReason::GameFfb, "force feedback");
+        if (eventLoop && clutchListener != nullptr) {
+            addSocket(clutchListener->nativeSocket(), wheelbri::WakeReason::TestClutch, "test clutch");
+        }
+    }
 
     // The 1 kHz loop (wheel input, state to the game, force feedback, telemetry) runs on its own thread; the
     // window and old-file checks stay on this one. A window that Windows holds up (a game going full screen,
@@ -941,7 +982,18 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         if (std::string error; !platform::raiseThreadPriority(error)) {
             WE_LOG_WARN(log(), "cannot raise the loop's thread priority: {}", error);
         }
-        WE_LOG_INFO(log(), "running at {} Hz; press Ctrl+C to stop", config.loopHz);
+        if (eventLoop) {
+            WE_LOG_INFO(log(), "running on events (loop_mode = events): it wakes when the wheel or the game has "
+                               "something new, else every {} ms at most; press Ctrl+C to stop",
+                        wakeSettings.idleNs / platform::kNsPerMs);
+        } else {
+            WE_LOG_INFO(log(), "running at {} Hz (loop_mode = fixed); press Ctrl+C to stop", config.loopHz);
+        }
+        wheelbri::WakeStats wakeStats;
+        wheelbri::WakeReason wokeBy = wheelbri::WakeReason::Timer;
+        wheelbri::Periodic frameDue(frameEveryNs);
+        wheelbri::Periodic printDue(kPrintEveryNs);
+        wheelbri::NotificationCheck notifications;
         std::uint64_t nextTick = platform::nowNs();
         std::uint64_t lastTickStart = nextTick;
         std::uint64_t windowStart = nextTick;
@@ -949,6 +1001,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         std::uint64_t lastPeriodNs = 0;
         std::uint64_t lastWorkNs = 0;
         std::uint64_t lastUsageLogNs = nextTick;
+        std::uint64_t lastWakeLogNs = nextTick;
         int result = 0;
 
         while (!gStop && !stopLoop) {
@@ -987,6 +1040,17 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             }
             stages.lap(TickStages::Pipeline, mark);
             ++ticks;
+            // New input on a pass only the timer woke, again and again: the devices' notifications miss input (a
+            // driver that does not set DirectInput's event). Back to the fixed rate for the rest of the session.
+            if (eventLoop && notifications.record(wokeBy, pipeline.inputChanged(), tickStart)) {
+                WE_LOG_WARN(log(), "loop: the wheel's input changed {} times within {} s without a notification: its "
+                                   "notifications cannot be trusted; the loop runs at loop_hz = {} for the rest of this "
+                                   "session (loop_mode = fixed)",
+                            wheelbri::NotificationCheck::kThreshold,
+                            wheelbri::NotificationCheck::kWindowNs / platform::kNsPerSecond, config.loopHz);
+                eventLoop = false;
+                nextTick = tickStart;
+            }
             if (gameFfb != nullptr) {
                 gameFfb->pump(platform::nowNs());
             }
@@ -1025,10 +1089,10 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                 }
             }
             stages.lap(TickStages::Telemetry, mark);
-            if (print && ticks % printEveryTicks == 0) {
+            if (print && printDue.due(tickStart)) {
                 printLive(pipeline);
             }
-            if (host != nullptr && ticks % frameEveryTicks == 0) {
+            if (host != nullptr && frameDue.due(tickStart)) {
                 // Hand the window a copy. Never wait for it: if it is copying right now, skip this frame.
                 const std::unique_lock lock(frameMutex, std::try_to_lock);
                 if (lock.owns_lock()) {
@@ -1052,7 +1116,9 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             lastTickStart = tickStart;
             lastPeriodNs = period;
             lastWorkNs = tickEnd - tickStart;
-            if (ticks > 1) {
+            if (eventLoop) {
+                wakeStats.record(wokeBy, tickEnd - tickStart);
+            } else if (ticks > 1) {
                 loopHealth.record(period, tickEnd - tickStart, stages);
             }
             if (tickEnd - tickStart >= kStallNs) {
@@ -1062,7 +1128,18 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                                     static_cast<double>(tickEnd - tickStart) / 1e6, stages.describe());
             }
             if (tickEnd - windowStart >= kStatsWindowNs) {
-                loopHealth.endWindow(pipeline);
+                if (eventLoop) {
+                    // Once a minute: how often it woke and why (the fixed loop reports when ticks run late instead).
+                    if (tickEnd - lastWakeLogNs >= kWakeLogNs) {
+                        WE_LOG_INFO(log(), "loop (events): {}; packet #{}, {} publish failures",
+                                    wakeStats.describe(tickEnd - lastWakeLogNs), pipeline.sequence(),
+                                    pipeline.publishFailures());
+                        wakeStats.reset();
+                        lastWakeLogNs = tickEnd;
+                    }
+                } else {
+                    loopHealth.endWindow(pipeline);
+                }
                 if (gameFfb != nullptr) {
                     gameFfb->logStatsIfChanged();
                     if (tickEnd - lastUsageLogNs >= kUsageLogNs) {
@@ -1073,6 +1150,29 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                 windowStart = tickEnd;
             }
 
+            if (eventLoop) {
+                // Until something new arrives, or what must run on time is due; then at least minGapNs after this
+                // pass started (a source that signals without pause cannot spin the loop).
+                wheelbri::WakeState wake;
+                wake.lastPassNs = tickStart;
+                wake.windowOpen = host != nullptr;
+                wake.forcesPlaying = gameFfb != nullptr && gameFfb->controller().stats().activeSlots > 0;
+                const int ready = waitSet.waitUntil(wheelbri::nextWakeNs(wake, wakeSettings));
+                if (ready == platform::WaitSet::kFailed) {
+                    WE_LOG_WARN(log(), "loop: cannot wait for the devices ({}); the loop runs at loop_hz = {} for the "
+                                       "rest of this session (loop_mode = fixed)",
+                                waitSet.failureText(), config.loopHz);
+                    eventLoop = false;
+                    nextTick = platform::nowNs();
+                    continue;
+                }
+                wokeBy = wheelbri::wakeReasonFor(ready, wakeReasons);
+                if (const std::uint64_t wait = wheelbri::floodGuardWaitNs(wake, wakeSettings, platform::nowNs());
+                    wait > 0) {
+                    platform::sleepNs(wait);
+                }
+                continue;
+            }
             // Fixed rate without drift; if we fell behind (e.g. system sleep), resynchronise instead of bursting.
             nextTick += periodNs;
             if (nextTick > tickEnd) {
@@ -1099,7 +1199,12 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         if (print) {
             std::puts("");
         }
-        loopHealth.logSummary(pipeline);
+        if (eventLoop) {
+            WE_LOG_INFO(log(), "loop (events), since the last report: {}; packet #{}",
+                        wakeStats.describe(platform::nowNs() - lastWakeLogNs), pipeline.sequence());
+        } else {
+            loopHealth.logSummary(pipeline);
+        }
         if (gameFfb != nullptr) {
             gameFfb->logUsage();
         }
