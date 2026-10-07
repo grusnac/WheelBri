@@ -187,6 +187,10 @@ function Get-UniquePhase([string]$name) {
 
 $previous = @{}        # pid -> @{ Cpu = ticks; Threads = @{ tid -> ticks }; At = ticks }
 $threadNames = @{}     # "pid/tid" -> name
+# A thread is often seen before its program names it (the app names its main thread once it has started): names still
+# empty are read again every $nameRetrySeconds, so they show up once given.
+$nameRetrySeconds = 5
+$lastNameRetry = 0.0
 $samples = New-Object System.Collections.Generic.List[object]
 $threadSamples = New-Object System.Collections.Generic.List[object]
 $phases = New-Object System.Collections.Generic.List[object]
@@ -217,6 +221,8 @@ try {
         $timer = [math]::Round([WheelBriPerf]::TimerResolutionMs(), 3)
         $timerSeen[$timer] = $true
 
+        $retryNames = ($clock.Elapsed.TotalSeconds - $lastNameRetry) -ge $nameRetrySeconds
+        if ($retryNames) { $lastNameRetry = $clock.Elapsed.TotalSeconds }
         $processRows = @()
         $threadRows = @()
         $processLines = New-Object System.Collections.Generic.List[string]
@@ -256,7 +262,9 @@ try {
                 try { $ticks = $thread.TotalProcessorTime.Ticks } catch { continue }
                 $threadTicks[$thread.Id] = $ticks
                 $key = "$($p.Id)/$($thread.Id)"
-                if (-not $threadNames.ContainsKey($key)) { $threadNames[$key] = [WheelBriPerf]::ThreadName([uint32]$thread.Id) }
+                if (-not $threadNames.ContainsKey($key) -or ($retryNames -and -not $threadNames[$key])) {
+                    $threadNames[$key] = [WheelBriPerf]::ThreadName([uint32]$thread.Id)
+                }
                 if (-not $last -or -not $last.Threads.ContainsKey($thread.Id) -or $nowTicks -le $last.At) { continue }
                 $threadPct = [math]::Round(100.0 * ($ticks - $last.Threads[$thread.Id]) / [double]($nowTicks - $last.At), 2)
                 $state = "$($thread.ThreadState)"
@@ -314,12 +322,19 @@ try {
         if ($rows.Count -eq 0) { $out.Add('   no samples'); continue }
         $out.Add(('   {0,-28} {1,15} {2,17} {3,16} {4,8} {5,8} {6,9}' -f 'process', 'PC % avg/peak', 'core % avg/peak',
                   'private MB avg/max', 'handles', 'threads', 'GDI/USER'))
-        foreach ($group in ($rows | Group-Object Process)) {
+        # One row per process: a driver host's label changes when a driver joins or leaves it (the virtual G920 comes and
+        # goes with each session), so a process is named by the label it had most often in the phase.
+        $labelOf = @{}
+        foreach ($byPid in ($rows | Group-Object Pid)) {
+            $labelOf[[string]$byPid.Name] = @($byPid.Group | Group-Object Process | Sort-Object Count -Descending)[0].Name
+        }
+        foreach ($group in ($rows | Group-Object Pid)) {
+            $group | Add-Member -NotePropertyName Label -NotePropertyValue $labelOf[[string]$group.Name] -Force
             $core = @($group.Group | ForEach-Object { [double]$_.CorePct })
             $pc = @($group.Group | ForEach-Object { [double]$_.PcPct })
             $mem = @($group.Group | ForEach-Object { [double]$_.Private })
             $lastRow = $group.Group[$group.Group.Count - 1]
-            $out.Add(('   {0,-28} {1,7:N2}/{2,7:N2} {3,8:N1}/{4,8:N1} {5,8:N1}/{6,7:N1} {7,8} {8,8} {9,9}' -f $group.Name,
+            $out.Add(('   {0,-28} {1,7:N2}/{2,7:N2} {3,8:N1}/{4,8:N1} {5,8:N1}/{6,7:N1} {7,8} {8,8} {9,9}' -f $group.Label,
                 ($pc | Measure-Object -Average).Average, ($pc | Measure-Object -Maximum).Maximum,
                 ($core | Measure-Object -Average).Average, ($core | Measure-Object -Maximum).Maximum,
                 ($mem | Measure-Object -Average).Average, ($mem | Measure-Object -Maximum).Maximum,
@@ -331,7 +346,11 @@ try {
             $ranked = foreach ($group in ($threads | Group-Object Pid, Tid)) {
                 $values = @($group.Group | ForEach-Object { [double]$_.CorePct })
                 $first = $group.Group[0]
-                [pscustomobject]@{ Process = $first.Process; Tid = $first.Tid; Name = $first.Name; Priority = $first.Priority
+                $named = @($group.Group | Where-Object { $_.Name } | Select-Object -Last 1)
+                $label = $labelOf[[string]$first.Pid]
+                if (-not $label) { $label = $first.Process }
+                [pscustomobject]@{ Process = $label; Tid = $first.Tid
+                                   Name = $(if ($named.Count -gt 0) { $named[0].Name } else { '' }); Priority = $first.Priority
                                    Avg = ($values | Measure-Object -Average).Average; Peak = ($values | Measure-Object -Maximum).Maximum }
             }
             foreach ($r in @($ranked | Sort-Object Avg -Descending | Select-Object -First $Top)) {
