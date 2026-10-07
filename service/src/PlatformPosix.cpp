@@ -5,6 +5,7 @@
 #include "wheelbri/Pacing.hpp"
 
 #include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <spawn.h>
@@ -22,6 +23,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <thread>
 
 extern char** environ;
@@ -69,6 +71,54 @@ void sleepPrecise(const std::uint64_t ns) {
 std::uint64_t preciseSleepMarginNs() {
     return gLastSpinMarginNs.load(std::memory_order_relaxed);
 }
+
+// --- WaitSet: poll on the devices' and the sockets' file descriptors ---
+
+struct WaitSet::Impl {
+    std::vector<pollfd> fds;
+    std::string failure;
+};
+
+WaitSet::WaitSet() : impl_(std::make_unique<Impl>()) {}
+WaitSet::~WaitSet() = default;
+
+int WaitSet::addEvent(const std::intptr_t source) {
+    if (source < 0) return -1;
+    impl_->fds.push_back({static_cast<int>(source), POLLIN, 0});
+    return static_cast<int>(impl_->fds.size()) - 1;
+}
+
+int WaitSet::addSocket(const std::intptr_t socket) { return addEvent(socket); }
+
+int WaitSet::waitUntil(const std::uint64_t deadlineNs) {
+    const std::uint64_t now = nowNs();
+    const std::uint64_t remainingNs = deadlineNs > now ? deadlineNs - now : 0;
+    // Whole milliseconds, rounded up (poll is everywhere; the deadlines are 4 ms and more).
+    const auto timeoutMs = static_cast<int>(std::min<std::uint64_t>((remainingNs + kNsPerMs - 1) / kNsPerMs, 60'000));
+    const int ready = ::poll(impl_->fds.data(), static_cast<nfds_t>(impl_->fds.size()), timeoutMs);
+    if (ready > 0) {
+        for (std::size_t i = 0; i < impl_->fds.size(); ++i) {
+            // A descriptor that is no longer open (closed behind the set's back): poll would report it at once every
+            // time, so the loop cannot wait on it; say so, and the loop falls back to the fixed rate.
+            if ((impl_->fds[i].revents & POLLNVAL) != 0) {
+                impl_->failure = "poll: source " + std::to_string(i) + " is not an open descriptor";
+                return kFailed;
+            }
+        }
+        for (std::size_t i = 0; i < impl_->fds.size(); ++i) {
+            // POLLIN, or POLLERR / POLLHUP (an unplugged evdev device): the read says which.
+            if (impl_->fds[i].revents != 0) return static_cast<int>(i);
+        }
+    } else if (ready < 0 && errno != EINTR) {
+        impl_->failure = std::string("poll: ") + std::strerror(errno);
+        return kFailed;
+    }
+    return kTimedOut;
+}
+
+int WaitSet::size() const { return static_cast<int>(impl_->fds.size()); }
+
+const std::string& WaitSet::failureText() const { return impl_->failure; }
 
 void nameThisThread(const char* const name) {
 #if defined(__linux__)

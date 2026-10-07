@@ -14,6 +14,7 @@ add_executable(wheelbri_tests
     DrawListTest.cpp
     EmulatedJoystickTest.cpp
     EmulatorConfigTest.cpp
+    EventLoopControlTest.cpp
     FfbForwardingTest.cpp
     FfbSafetyLimiterTest.cpp
     FfbShapeTest.cpp
@@ -33,6 +34,7 @@ add_executable(wheelbri_tests
     MappingEditTest.cpp
     PacingTest.cpp
     PipelineTest.cpp
+    PushLoopTest.cpp
     RetentionTest.cpp
     RigTest.cpp
     SenderGateTest.cpp
@@ -43,9 +45,20 @@ add_executable(wheelbri_tests
     TestClutchTest.cpp
     UdpLoopbackTest.cpp
     WaitForTest.cpp
+    WakePlannerTest.cpp
     WheelOutputTest.cpp
+    emulators/PushEmulators.cpp
 )
 target_link_libraries(wheelbri_tests PRIVATE wheelbri_core GTest::gtest_main)
+# Emulated devices, sockets and waits for the events loop (PushLoopTest).
+target_include_directories(wheelbri_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# platform::WaitSet (the service's event loop) with real sockets and events; needs the service's platform code.
+if(TARGET wheelbri_privileged)
+    target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp)
+    target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/service/src)
+    target_link_libraries(wheelbri_tests PRIVATE wheelbri_privileged)
+endif()
 
 # The Linux virtual G920's uhid protocol (tools/uhid), tested without /dev/uhid.
 if(WE_LINUX)

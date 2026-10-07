@@ -21,6 +21,8 @@ Pipeline::Pipeline(IInputSource& source, const Mapper& mapper, const IDeviceProf
 }
 
 bool Pipeline::tick(std::optional<float> clutchOverride, const std::uint64_t nowNs) {
+    const RawInputs previous = inputs_;   // a copy on the stack, no allocation
+    inputChanged_ = false;                // until every device has been read
     if (!source_.poll(inputs_.devices[0])) {
         WE_LOG_WARN(log(), "pipeline: input source '{}' stopped delivering after {} ticks", source_.name(),
                     packet_.sequence);
@@ -35,6 +37,7 @@ bool Pipeline::tick(std::optional<float> clutchOverride, const std::uint64_t now
             return false;
         }
     }
+    inputChanged_ = !(inputs_ == previous);
     state_ = mapper_.map(inputs_);
     if (clutchOverride) {
         state_.clutch = *clutchOverride;

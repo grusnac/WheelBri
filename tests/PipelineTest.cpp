@@ -127,5 +127,64 @@ TEST(Pipeline, ReadsAccessoriesAndStopsWhenOneIsLost) {
     EXPECT_EQ(pipeline.lostDevice(), 1);
 }
 
+TEST(Pipeline, InputChangedSaysWhetherAnyDeviceReportedSomethingNew) {
+    FakeSource wheel;
+    FakeSource pedals;
+    RecordingPublisher publisher;
+    MapperConfig config;
+    config.accessories[0] = {0x044F, 0xB696};
+    const Mapper mapper(config);
+    const DeviceProfile profile(g920Spec());
+    Pipeline pipeline(wheel, mapper, profile, publisher);
+    pipeline.setAccessories({&pedals, nullptr, nullptr});
+
+    EXPECT_FALSE(pipeline.inputChanged());   // before the first tick
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FALSE(pipeline.inputChanged());   // all at rest, as the state starts
+
+    wheel.next.axes[0] = 0.25F;
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_TRUE(pipeline.inputChanged());    // an axis of the wheel
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FALSE(pipeline.inputChanged());   // the same again
+
+    wheel.next.buttons = 0x4U;
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_TRUE(pipeline.inputChanged());    // a button
+
+    pedals.next.axes[2] = -1.0F;
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_TRUE(pipeline.inputChanged());    // an accessory, mapped or not
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FALSE(pipeline.inputChanged());
+}
+
+TEST(Pipeline, InputChangedIgnoresTheTestClutch) {
+    FakeSource wheel;
+    RecordingPublisher publisher;
+    const Mapper mapper(MapperConfig{});
+    const DeviceProfile profile(g920Spec());
+    Pipeline pipeline(wheel, mapper, profile, publisher);
+
+    ASSERT_TRUE(pipeline.tick());
+    ASSERT_TRUE(pipeline.tick(0.5F));
+    EXPECT_FALSE(pipeline.inputChanged());   // the clutch override comes over UDP, not from a device
+}
+
+TEST(Pipeline, InputChangedIsFalseWhenTheSourceIsLost) {
+    FakeSource wheel;
+    RecordingPublisher publisher;
+    const Mapper mapper(MapperConfig{});
+    const DeviceProfile profile(g920Spec());
+    Pipeline pipeline(wheel, mapper, profile, publisher);
+
+    wheel.next.axes[0] = 1.0F;
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_TRUE(pipeline.inputChanged());
+    wheel.connected = false;
+    EXPECT_FALSE(pipeline.tick());
+    EXPECT_FALSE(pipeline.inputChanged());
+}
+
 }  // namespace
 }  // namespace wheelbri

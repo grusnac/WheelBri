@@ -27,6 +27,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -230,9 +231,30 @@ public:
         return report_;
     }
 
+    // A read from Windows' HID class (IOCTL_HID_READ_REPORT): answered at once with the oldest state not handed out
+    // yet, else it waits in the read queue until the next state comes. Each state goes out once: until 2026-10-07
+    // every state answered every read that came while it was being handed out, and the HID class sends its next read
+    // as soon as one is answered, so one state could go round many times (half a core whatever the state rate,
+    // docs/cpu-measurements.md).
+    void answerRead(WDFREQUEST request);
+
 private:
+    // States not handed out yet. One is normal (the HID class always has a read waiting); more only while no read
+    // waits. Kept in order, so a button pressed and released between two reads still reaches the game; when full,
+    // the oldest goes (counted in the minute's line).
+    static constexpr std::size_t kMaxPending = 8;
+    static constexpr std::int64_t kCountsEveryMs = 60'000;
+
+    struct Counts {
+        std::uint64_t states = 0;         // states from the service (and neutral ones when it went quiet)
+        std::uint64_t answeredAtOnce = 0; // reads answered on arrival
+        std::uint64_t answeredLater = 0;  // reads that waited for a state
+        std::uint64_t dropped = 0;        // states lost because kMaxPending were already waiting
+    };
+
     void run(SOCKET sock);
     void publish(Report report);
+    void logCounts(std::int64_t now);
     // false = stop the thread; a socket error other than the receive timeout is logged and slowed down.
     bool receiveFailed(int received);
     void closeSockets();
@@ -242,8 +264,11 @@ private:
     SOCKET ffbSocket_ = INVALID_SOCKET;
     std::thread thread_;
     std::atomic<bool> stop_{false};
-    std::mutex reportLock_;
+    std::mutex reportLock_;     // report_, pending_, counts_; never held while a request is completed
     Report report_;
+    std::deque<Report> pending_;
+    Counts counts_;
+    std::int64_t countsSinceMs_ = 0;
     Throttle recvErrors_{60'000};
     Throttle sendErrors_{60'000};
 };
@@ -262,24 +287,21 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DeviceContext, GetDeviceContext)
 
 namespace {
 
-// Completes every waiting read with `report`.
-void completeReads(DeviceContext* ctx, const Report& report) {
-    WDFREQUEST request;
-    while (NT_SUCCESS(WdfIoQueueRetrieveNextRequest(ctx->readQueue, &request))) {
-        WDFMEMORY memory;
+// Answers `request` with `report` (HID input report).
+void completeRead(WDFREQUEST request, const Report& report) {
+    WDFMEMORY memory;
+    NTSTATUS status = WdfRequestRetrieveOutputMemory(request, &memory);
+    if (NT_SUCCESS(status)) {
         size_t length = 0;
-        NTSTATUS status = WdfRequestRetrieveOutputMemory(request, &memory);
-        if (NT_SUCCESS(status)) {
-            WdfMemoryGetBuffer(memory, &length);
-            if (length < report.size()) {
-                status = STATUS_INVALID_BUFFER_SIZE;
-            } else {
-                status = WdfMemoryCopyFromBuffer(memory, 0, const_cast<std::uint8_t*>(report.data()), report.size());
-                if (NT_SUCCESS(status)) WdfRequestSetInformation(request, report.size());
-            }
+        WdfMemoryGetBuffer(memory, &length);
+        if (length < report.size()) {
+            status = STATUS_INVALID_BUFFER_SIZE;
+        } else {
+            status = WdfMemoryCopyFromBuffer(memory, 0, const_cast<std::uint8_t*>(report.data()), report.size());
+            if (NT_SUCCESS(status)) WdfRequestSetInformation(request, report.size());
         }
-        WdfRequestComplete(request, status);
     }
+    WdfRequestComplete(request, status);
 }
 
 bool Link::start() {
@@ -342,11 +364,71 @@ bool Link::start() {
 }
 
 void Link::publish(Report report) {
+    // Pairs of (waiting read, state) taken under the lock, answered after it: completing a read may bring the HID
+    // class's next one at once, and answerRead must not wait for this thread.
+    std::array<std::pair<WDFREQUEST, Report>, kMaxPending> answers;
+    std::size_t count = 0;
     {
         std::lock_guard lock(reportLock_);
         report_ = report;
+        ++counts_.states;
+        if (pending_.size() == kMaxPending) {
+            pending_.pop_front();
+            ++counts_.dropped;
+        }
+        pending_.push_back(std::move(report));
+        WDFREQUEST request;
+        while (count < answers.size() && !pending_.empty() &&
+               NT_SUCCESS(WdfIoQueueRetrieveNextRequest(device_->readQueue, &request))) {
+            answers[count++] = {request, std::move(pending_.front())};
+            pending_.pop_front();
+            ++counts_.answeredLater;
+        }
     }
-    completeReads(device_, report);
+    for (std::size_t i = 0; i < count; ++i) completeRead(answers[i].first, answers[i].second);
+}
+
+void Link::answerRead(const WDFREQUEST request) {
+    Report report;
+    {
+        std::lock_guard lock(reportLock_);
+        if (pending_.empty()) {
+            // Waits for the next state. Forwarded under the lock, so publish cannot miss it.
+            const NTSTATUS status = WdfRequestForwardToIoQueue(request, device_->readQueue);
+            if (NT_SUCCESS(status)) return;
+            report = report_;   // the queue refused it: answer with the latest state rather than fail the read
+        } else {
+            report = std::move(pending_.front());
+            pending_.pop_front();
+            ++counts_.answeredAtOnce;
+        }
+    }
+    completeRead(request, report);
+}
+
+// Once a minute: how many states came and how the reads were answered. answered at once + later = states - dropped
+// (minus those still waiting) when each state goes out once.
+void Link::logCounts(const std::int64_t now) {
+    if (countsSinceMs_ == 0) {
+        countsSinceMs_ = now;
+        return;
+    }
+    if (now - countsSinceMs_ < kCountsEveryMs) return;
+    Counts counts;
+    std::size_t waiting = 0;
+    {
+        std::lock_guard lock(reportLock_);
+        counts = counts_;
+        counts_ = Counts{};
+        waiting = pending_.size();
+    }
+    const std::int64_t seconds = (now - countsSinceMs_ + 500) / 1000;
+    countsSinceMs_ = now;
+    logLine("input, last " + std::to_string(seconds) + " s: " + std::to_string(counts.states) + " states, " +
+            std::to_string(counts.answeredAtOnce + counts.answeredLater) + " reads answered (" +
+            std::to_string(counts.answeredAtOnce) + " at once, " + std::to_string(counts.answeredLater) +
+            " after waiting), " + std::to_string(counts.dropped) + " states dropped, " + std::to_string(waiting) +
+            " waiting");
 }
 
 bool Link::receiveFailed(const int received) {
@@ -435,6 +517,7 @@ void Link::run(const SOCKET sock) {
             lastTick = now;
             pid.tick(now);
         }
+        logCounts(now);
     }
     pid.stopAll(nowMs());
     logLine("stopped: " + std::to_string(pid.reportsHandled()) + " force feedback reports from the game, " +
@@ -507,9 +590,12 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             break;
         }
         case IOCTL_HID_READ_REPORT:
-            status = WdfRequestForwardToIoQueue(request, ctx->readQueue);
-            if (NT_SUCCESS(status)) return;   // completed when the next state arrives
-            break;
+            if (ctx->link == nullptr) {   // being removed
+                status = STATUS_DEVICE_NOT_READY;
+                break;
+            }
+            ctx->link->answerRead(request);   // completes it now or when the next state arrives
+            return;
         case IOCTL_HID_WRITE_REPORT:
         case IOCTL_UMDF_HID_SET_OUTPUT_REPORT:
             status = readWrittenReport(request, reportId, data);

@@ -150,6 +150,130 @@ std::uint64_t preciseSleepMarginNs() {
     return gLastSpinMarginNs.load(std::memory_order_relaxed);
 }
 
+// --- WaitSet: WaitForMultipleObjects on the devices' events, the sockets' events and a high-resolution timer ---
+
+struct WaitSet::Impl {
+    std::vector<HANDLE> handles;        // what is waited for; the timer is added at the end of each wait
+    std::vector<bool> ownedSocketEvent; // the handle is a socket's event (WSACreateEvent): reset after each wait
+    std::vector<SOCKET> sockets;        // the sockets those belong to (INVALID_SOCKET for device events)
+    HANDLE timer = nullptr;
+    std::string failure;
+
+    ~Impl() {
+        for (std::size_t i = 0; i < handles.size(); ++i) {
+            if (!ownedSocketEvent[i]) continue;
+            WSAEventSelect(sockets[i], nullptr, 0);   // the socket stays non-blocking, as it was
+            WSACloseEvent(handles[i]);
+        }
+        if (timer != nullptr) CloseHandle(timer);
+    }
+};
+
+WaitSet::WaitSet() : impl_(std::make_unique<Impl>()) {
+    impl_->timer = CreateWaitableTimerExW(nullptr, nullptr, kHighResolutionTimer, TIMER_ALL_ACCESS);
+}
+
+WaitSet::~WaitSet() = default;
+
+int WaitSet::addEvent(const std::intptr_t source) {
+    const auto handle = reinterpret_cast<HANDLE>(source);
+    if (handle == nullptr || handle == INVALID_HANDLE_VALUE || impl_->handles.size() + 2 > MAXIMUM_WAIT_OBJECTS) {
+        return -1;
+    }
+    impl_->handles.push_back(handle);
+    impl_->ownedSocketEvent.push_back(false);
+    impl_->sockets.push_back(INVALID_SOCKET);
+    return static_cast<int>(impl_->handles.size()) - 1;
+}
+
+int WaitSet::addSocket(const std::intptr_t socket) {
+    const auto s = static_cast<SOCKET>(socket);
+    if (s == INVALID_SOCKET || impl_->handles.size() + 2 > MAXIMUM_WAIT_OBJECTS) return -1;
+    const WSAEVENT event = WSACreateEvent();
+    if (event == WSA_INVALID_EVENT) return -1;
+    if (WSAEventSelect(s, event, FD_READ) != 0) {
+        WSACloseEvent(event);
+        return -1;
+    }
+    impl_->handles.push_back(event);
+    impl_->ownedSocketEvent.push_back(true);
+    impl_->sockets.push_back(s);
+    return static_cast<int>(impl_->handles.size()) - 1;
+}
+
+namespace {
+
+// A datagram waits on the socket, an empty one too. Not FIONREAD: it gives the size of the first datagram, so an
+// empty one (any local program can send it) would read as "nothing" and hide the datagrams queued behind it until
+// the timer. A one-byte peek leaves the datagram queued: it succeeds, or says WSAEMSGSIZE for a longer one.
+bool hasDatagram(const SOCKET s) {
+    char byte = 0;
+    if (recv(s, &byte, 1, MSG_PEEK) != SOCKET_ERROR) return true;
+    return WSAGetLastError() == WSAEMSGSIZE;
+}
+
+// A wait that keeps waking for nothing (an event set again and again with an empty queue) gives up after this many
+// rounds and lets the loop run a pass: never a spin inside one wait.
+constexpr int kMaxStaleWakes = 64;
+
+}  // namespace
+
+int WaitSet::waitUntil(const std::uint64_t deadlineNs) {
+    std::vector<HANDLE>& handles = impl_->handles;
+    // A socket's event says only that FD_READ was posted at some point: Winsock posts it again on each recv that
+    // leaves data behind, so after a drain it is often still set, and resetting it for one socket must not hide
+    // another socket's unread datagram. So the queue decides: reset each socket's event first, then look at its queue
+    // (a datagram arriving after the reset sets the event again, one before it is seen in the queue), and a wake by a
+    // socket's event whose queue is empty is stale: wait again for what is left of the time.
+    for (int round = 0; round < kMaxStaleWakes; ++round) {
+        for (std::size_t i = 0; i < handles.size(); ++i) {
+            if (!impl_->ownedSocketEvent[i]) continue;
+            WSAResetEvent(handles[i]);
+            if (hasDatagram(impl_->sockets[i])) return static_cast<int>(i);
+        }
+
+        const std::uint64_t now = nowNs();
+        const std::uint64_t remainingNs = deadlineNs > now ? deadlineNs - now : 0;
+        DWORD timeoutMs = 0;
+        bool withTimer = false;
+        if (remainingNs > 0) {
+            LARGE_INTEGER due;
+            due.QuadPart = -static_cast<LONGLONG>(remainingNs / 100 > 0 ? remainingNs / 100 : 1);   // relative, 100 ns
+            withTimer =
+                impl_->timer != nullptr && SetWaitableTimerEx(impl_->timer, &due, 0, nullptr, nullptr, nullptr, 0);
+            // Without a high-resolution timer (Windows before 10 1803): whole milliseconds, rounded up.
+            timeoutMs = withTimer ? INFINITE : static_cast<DWORD>((remainingNs + kNsPerMs - 1) / kNsPerMs);
+        }
+        if (withTimer) handles.push_back(impl_->timer);
+        const DWORD result =
+            WaitForMultipleObjects(static_cast<DWORD>(handles.size()), handles.data(), FALSE, timeoutMs);
+        if (withTimer) handles.pop_back();
+
+        if (result >= WAIT_OBJECT_0 && result < WAIT_OBJECT_0 + handles.size()) {
+            const auto index = static_cast<std::size_t>(result - WAIT_OBJECT_0);
+            if (!impl_->ownedSocketEvent[index]) return static_cast<int>(index);   // a device's (auto-reset) event
+            if (remainingNs == 0) {
+                // Nothing left to wait for: only the queues count (checked again, the datagram may just have come).
+                for (std::size_t i = 0; i < handles.size(); ++i) {
+                    if (impl_->ownedSocketEvent[i] && hasDatagram(impl_->sockets[i])) return static_cast<int>(i);
+                }
+                return kTimedOut;
+            }
+            continue;   // the top of the loop resets the events and looks at the queues
+        }
+        if (result == WAIT_FAILED) {
+            impl_->failure = lastError("WaitForMultipleObjects");
+            return kFailed;
+        }
+        return kTimedOut;   // WAIT_TIMEOUT, the timer (index handles.size()), or WAIT_ABANDONED (never for these)
+    }
+    return kTimedOut;
+}
+
+int WaitSet::size() const { return static_cast<int>(impl_->handles.size()); }
+
+const std::string& WaitSet::failureText() const { return impl_->failure; }
+
 void nameThisThread(const char* const name) {
     using SetDescription = HRESULT(WINAPI*)(HANDLE, PCWSTR);
     static const auto setDescription = [] {

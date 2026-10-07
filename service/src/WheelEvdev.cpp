@@ -324,6 +324,7 @@ public:
     [[nodiscard]] int axes() const override { return layout_.axes(); }
     [[nodiscard]] int buttons() const override { return layout_.buttons(); }
     [[nodiscard]] int hats() const override { return layout_.hats(); }
+    [[nodiscard]] std::intptr_t waitSource() const override { return fd_; }
 
     bool poll(RawInputState& state) override {
         std::array<input_event, 64> events{};

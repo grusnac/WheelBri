@@ -180,6 +180,13 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         config.ffbPort = static_cast<std::uint16_t>(ffbPort);
         reader.readInt("loop_hz", config.loopHz, 100, 2000);
         reader.readInt("state_rate_hz", config.stateRateHz, 10, 2000);
+        std::string loopMode = config.eventLoop ? "events" : "fixed";
+        reader.readString("loop_mode", loopMode);
+        if (loopMode == "events" || loopMode == "fixed") {
+            config.eventLoop = loopMode == "events";
+        } else {
+            errors.push_back("[emulator] loop_mode = '" + loopMode + "': expected events or fixed");
+        }
         reader.reportUnknownKeys();
     }
     {

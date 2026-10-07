@@ -16,6 +16,8 @@ struct RawInputState {
     std::array<float, kMaxAxes> axes{};
     std::uint64_t buttons = 0;          // bit n = source button n pressed
     std::int8_t hat = kHatCentered;
+
+    friend bool operator==(const RawInputState&, const RawInputState&) = default;
 };
 
 // Devices one session reads: the wheel (0, which also plays force feedback) and up to three accessories (1..3:
@@ -25,6 +27,8 @@ inline constexpr std::size_t kMaxInputDevices = 4;
 // Every device's snapshot, indexed by device number (0 = the wheel). Devices the mapping does not use stay at rest.
 struct RawInputs {
     std::array<RawInputState, kMaxInputDevices> devices{};
+
+    friend bool operator==(const RawInputs&, const RawInputs&) = default;
 };
 
 // Target-agnostic wheel state after mapping.

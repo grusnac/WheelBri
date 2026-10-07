@@ -321,6 +321,10 @@ struct UdpLoopbackListener::Impl {
 UdpLoopbackListener::UdpLoopbackListener(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 UdpLoopbackListener::~UdpLoopbackListener() = default;
 
+std::intptr_t UdpLoopbackListener::nativeSocket() const {
+    return static_cast<std::intptr_t>(impl_->socket.get());
+}
+
 std::unique_ptr<UdpLoopbackListener> UdpLoopbackListener::create(const std::uint16_t port) {
     auto impl = std::make_unique<Impl>();
     if (!impl->socket.valid() || !makeNonBlocking(impl->socket.get())) {

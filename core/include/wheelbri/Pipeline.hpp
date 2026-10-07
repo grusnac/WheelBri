@@ -32,6 +32,8 @@ public:
 
     [[nodiscard]] const RawInputState& lastRaw() const { return inputs_.devices[0]; }   // the wheel's
     [[nodiscard]] const RawInputs& lastInputs() const { return inputs_; }
+    // Whether the last tick read anything different from the tick before (any device, any axis, button or hat).
+    [[nodiscard]] bool inputChanged() const { return inputChanged_; }
     // The device that stopped delivering (0 = the wheel), after tick() returned false.
     [[nodiscard]] int lostDevice() const { return lostDevice_; }
     [[nodiscard]] const WheelState& lastState() const { return state_; }
@@ -49,6 +51,7 @@ private:
     std::array<IInputSource*, MapperConfig::kMaxAccessories> accessories_{};
     RawInputs inputs_;
     int lostDevice_ = -1;
+    bool inputChanged_ = false;
     WheelState state_;
     StatePacket packet_;
     std::uint64_t publishFailures_ = 0;

@@ -28,6 +28,10 @@ public:
     [[nodiscard]] virtual int axes() const = 0;
     [[nodiscard]] virtual int buttons() const = 0;
     [[nodiscard]] virtual int hats() const = 0;
+    // What signals new input from this device, for platform::WaitSet::addEvent (the events loop): Windows: an event
+    // DirectInput sets when the state changes (SetEventNotification); Linux: the evdev file descriptor. -1 when the
+    // device must be polled (DirectInput says so for some), and then the loop runs at the fixed rate.
+    [[nodiscard]] virtual std::intptr_t waitSource() const { return -1; }
 
     // Force feedback on this wheel; nullptr (and the reason in the log) if it has none or it cannot be used.
     // Effects should already have passed the FfbSafetyLimiter. `invert` mirrors every effect.
