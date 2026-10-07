@@ -1,5 +1,7 @@
 #include "DeviceWatch.hpp"
 
+#include "Platform.hpp"
+
 #include "wheelbri/Logging.hpp"
 
 #include <chrono>
@@ -19,7 +21,10 @@ constexpr auto kRetryBackend = std::chrono::seconds(10);
 
 }  // namespace
 
-DeviceWatch::DeviceWatch() : thread_([this] { run(); }) {}
+DeviceWatch::DeviceWatch() : thread_([this] {
+    platform::nameThisThread("wheelbri device watch");
+    run();
+}) {}
 
 DeviceWatch::~DeviceWatch() {
     {

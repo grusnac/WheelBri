@@ -6,6 +6,7 @@
 
 #include <fcntl.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <spawn.h>
 #include <sys/file.h>
@@ -118,6 +119,17 @@ int WaitSet::waitUntil(const std::uint64_t deadlineNs) {
 int WaitSet::size() const { return static_cast<int>(impl_->fds.size()); }
 
 const std::string& WaitSet::failureText() const { return impl_->failure; }
+
+void nameThisThread(const char* const name) {
+#if defined(__linux__)
+    if (name == nullptr) return;
+    char shortName[16] = {};   // the kernel keeps 15 characters and the end
+    std::strncpy(shortName, name, sizeof(shortName) - 1);
+    pthread_setname_np(pthread_self(), shortName);
+#else
+    (void)name;
+#endif
+}
 
 bool raiseThreadPriority(std::string& error) {
 #if defined(__linux__)

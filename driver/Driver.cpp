@@ -395,6 +395,14 @@ void Link::sendFfb(const wheelbri::FfbPacket& packet) {
 }
 
 void Link::run(const SOCKET sock) {
+    // A name for measure.ps1 and debuggers (Windows 10 1607 and later; looked up so an older host still loads us).
+    using SetDescription = HRESULT(WINAPI*)(HANDLE, PCWSTR);
+    if (const HMODULE kernel = GetModuleHandleW(L"kernel32.dll"); kernel != nullptr) {
+        if (const auto setDescription =
+                reinterpret_cast<SetDescription>(reinterpret_cast<void*>(GetProcAddress(kernel, "SetThreadDescription")))) {
+            setDescription(GetCurrentThread(), L"wheelbri-g920 state receiver");
+        }
+    }
     logLine("listening for wheelbri-service on 127.0.0.1:41329, force feedback to 127.0.0.1:41330");
     std::array<std::uint8_t, 256> buffer{};
     std::int64_t lastState = nowMs() - kStaleMs - 1;

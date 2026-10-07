@@ -537,6 +537,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
 - Style: C++20, 4-space indent, `camelCase` functions and variables, `PascalCase` types, `trailing_` members,
   `kConstant` constants, `#pragma once`, `[[nodiscard]]` on queries, `const` parameters in definitions,
   float literals as `1.0F`. Headers in `core/include/wheelbri/`, included as `"wheelbri/X.hpp"`.
+- Every thread WheelBri starts is named (`platform::nameThisThread("wheelbri <role>")` first thing on the thread; the
+  G920 driver's with `SetThreadDescription`), so `measure.ps1` shows what costs what. Name new threads the same way.
 - Code on the 1 kHz loop (`Mapper::map`, `Pipeline::tick`, `DeviceProfile::encode`) must stay free of
   allocations and blocking calls.
 - **Logging** (full rules in `core/include/wheelbri/Logging.hpp` and README):

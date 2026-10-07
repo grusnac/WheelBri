@@ -643,6 +643,7 @@ public:
         // loop never waits for it (AsyncFfbSink.hpp).
         // Its priority raised as the loop's: with a game loading every core, Windows would let a normal thread wait.
         ffb->sink_ = std::make_unique<wheelbri::AsyncFfbSink>(std::move(wheelSink), [] {
+            platform::nameThisThread("wheelbri ffb worker");
             if (std::string error; !platform::raiseThreadPriority(error)) {
                 WE_LOG_WARN(log(), "cannot raise the force feedback thread's priority: {}", error);
             }
@@ -1215,6 +1216,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     };
 
     std::thread loopThread([&] {
+        platform::nameThisThread("wheelbri loop");
         // An exception must not escape this thread (std::terminate: no clean-up, the wheel left hidden and its
         // forces playing). It ends the session instead; runSession then undoes everything.
         try {
