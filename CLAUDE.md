@@ -511,7 +511,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   `wheelbri-shim.ini` (shim).
 - `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide),
   `future-functionalities.md` (worked-out ideas not built yet: RS Handbrake, G29; and the standard-user test still to
-  do), `push-input-plan.md` (the service loop from polling to Windows' notifications: on the branch feature/push-input).
+  do), `push-input-plan.md` (the service loop from polling to Windows' notifications: on the branch feature/push-input), `cpu-measurements.md` (measure.sh rounds: what was measured, the numbers and what they showed; add new rounds there).
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest` and `WaitSetTest` (the service's
   `platform::WaitSet` with loopback sockets, a pipe or an event; linked when `wheelbri_privileged` is built).
