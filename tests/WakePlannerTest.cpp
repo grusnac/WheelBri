@@ -94,6 +94,19 @@ TEST(WakePlanner, AnIntervalEqualToTheGapIsKept) {
     EXPECT_EQ(nextWakeNs(state, settings), settings.minGapNs);
 }
 
+TEST(WakePlanner, RecentInputWakesEvery4msButForcesAndTheGapStillApply) {
+    WakeState state;
+    state.lastPassNs = 20 * kMs;
+    state.inputRecent = true;
+    EXPECT_EQ(nextWakeNs(state, WakeSettings{}), 24 * kMs);
+    WakeSettings settings;
+    settings.recentInputEveryNs = 0;   // below the gap
+    EXPECT_EQ(nextWakeNs(state, settings), 20 * kMs + settings.minGapNs);
+    settings.recentInputEveryNs = 50 * kMs;   // longer than forces playing: forces win
+    state.forcesPlaying = true;
+    EXPECT_EQ(nextWakeNs(state, settings), 24 * kMs);
+}
+
 // --- floodGuardWaitNs: what is left of the minimum gap ---
 
 TEST(WakePlanner, FloodGuardWaitsForTheRestOfTheGap) {

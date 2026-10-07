@@ -34,6 +34,10 @@ This file guides Claude when working in this repository.
   PowerShell script is run as `powershell -NoProfile -ExecutionPolicy Bypass -File <script.ps1> [arguments]`.
 - **Before every commit**, write down why the change was made: the commit message gets a short headline and a
   few lines of reasons.
+- **Branches**: a feature with a branch of its own is committed there, never on `main`. The events loop ("push",
+  `loop_mode = events`) lives on `feature/push-input` until it is merged. The git commands for such a change start
+  with switching to its branch (`git switch feature/push-input`, harmless when already on it) and `git status`, then
+  `git add` / `git commit`. Before giving them, check which branch the PC is on (`.git/HEAD`).
 - **Order of a reply after a change**: what changed, then build, test and what to check, and the git commands
   (`git add`, `git commit`, tags, push) always last, at the very end.
 - **When a functionality is finished** (it may take several commits), add one entry for it under
@@ -363,12 +367,14 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     the devices' DirectInput notifications, `DinputReader::notification` / `Wheel::waitSource`, the sockets' events,
     WSAEventSelect, and a high-resolution timer; Linux: poll on the evdev and socket descriptors) until the wheel, an
     accessory, the game's force feedback or the test clutch has something new, and wakes by itself only for what must
-    run on time (core `WakePlanner`: every 4 ms while forces play, ~30 a second with a window, else 100 ms; never two
-    passes closer than 0.5 ms); it logs its wake-ups by reason once a minute (`WakeStats`, "loop (events)"). A device
+    run on time (core `WakePlanner`: every 4 ms while forces play and for 100 ms after a pass that found new input, ~30
+    a second with a window, else 100 ms; never two passes closer than 0.5 ms); its decisions (when to wake, what woke
+    it, when to give up on events) are core `EventLoopControl`, which runLoop calls around each pass and wait; it logs its wake-ups by reason once a minute (`WakeStats`, "loop (events)"). A device
     DirectInput only polls makes the session use `fixed`: `loop_hz` times a second (default 1 kHz, drift-free,
     resynchronises when behind), as before. A running session also switches to `fixed` for good (with a warning) when
-    the wait itself fails (`WaitSet::kFailed`) or when the timer, not a notification, woke 20 passes within 10 s that
-    found new input (`NotificationCheck`, from `Pipeline::inputChanged`: a driver that does not signal its event). Anything on the loop that must happen regularly goes by the clock, never
+    the wait itself fails (`WaitSet::kFailed`) or when the timer found new input 20 times within 10 s that no
+    notification announced, not even within 1 ms after (late ones are counted apart; `Pipeline::inputChanged`); the
+    "loop (events)" line counts missed and late notifications. Anything on the loop that must happen regularly goes by the clock, never
     by counting passes (the window's copy, `--print`, a lost wheel: 0.5 s of failed reads). Plan and measurements:
     `docs/push-input-plan.md`.
   - Phase 5 (`--virtual-g920`, run as Administrator, no shim in the game): `VirtualG920`
@@ -509,6 +515,12 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest` and `WaitSetTest` (the service's
   `platform::WaitSet` with loopback sockets, a pipe or an event; linked when `wheelbri_privileged` is built).
+  **Test the events loop ("push") on the emulators** in `tests/emulators/PushEmulators.hpp` (`PushLoopTest`): devices
+  that push input like DirectInput / evdev or misbehave (`EmulatedPushDevice::Behaviour`: polled, dropped, stopped,
+  late or spurious notifications, unplugged), game force feedback datagrams (`EmulatedSocket`), a wait that can fail
+  (`EmulatedWaitSet`) and `PushLoopRig`, which runs `EventLoopControl` and the real `Pipeline` as runLoop does, on a
+  virtual clock, and reports each change's latency, what woke each pass and when it fell back. A change to the loop's
+  events mode comes with a scenario there; keep the rig's loop in step with runLoop.
 
 ## Conventions
 

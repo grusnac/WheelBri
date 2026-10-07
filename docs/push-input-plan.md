@@ -95,5 +95,14 @@ Each one builds, passes the tests and comes with build and test steps.
 - **Few passes**: the window's copy, `--print` and a lost wheel go by the clock (`Periodic`, `LossTimer`: 0.5 s of
   failed reads, re-acquiring at most every 50 ms), not by counting passes.
 - **A clock that goes back**: `Periodic`, `LossTimer` and `NotificationCheck` start again rather than wrap around.
+- **A notification lost now and then while the wheel moves** (too few to fall back): for 100 ms after a pass that
+  found new input the timer wakes every 4 ms, so such a change waits 4 ms at most. At rest a lost one still waits for
+  the idle timer (up to 100 ms): `PushLoop.ALostNotificationAtRestWaitsForTheIdleTimer` measures it.
+- **A late notification** (the event a moment after the state): the timer's pass reads the input, the notification
+  comes within 1 ms; counted as late, not as missed, so it never causes a fallback.
+
+All of these run as scenarios on emulated devices (`tests/emulators`, `PushLoopTest`): latency of every change, wake
+counts, when and why it falls back. Not covered there: whether DirectInput and evdev really behave like the emulators;
+that needs the rig (the "loop (events)" line's missed / late counts).
 
 Size: about 8-10 files plus tests over the five commits.

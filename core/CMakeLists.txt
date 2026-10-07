@@ -39,6 +39,8 @@ add_library(wheelbri_core STATIC
     src/TestClutch.cpp
     src/UdpLoopback.cpp
     src/WaitFor.cpp
+    src/EventLoopControl.cpp
+    src/WakePlanner.cpp
     src/WheelOutput.cpp
 )
 

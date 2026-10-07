@@ -9,6 +9,7 @@ std::uint64_t nextWakeNs(const WakeState& state, const WakeSettings& settings) {
     std::uint64_t interval = settings.idleNs;
     if (state.windowOpen) interval = std::min(interval, settings.windowNs);
     if (state.forcesPlaying) interval = std::min(interval, settings.ffbNs);
+    if (state.inputRecent) interval = std::min(interval, settings.recentInputEveryNs);
     return state.lastPassNs + std::max(interval, settings.minGapNs);
 }
 

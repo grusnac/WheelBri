@@ -14,6 +14,8 @@ namespace wheelbri {
 //   - force feedback while forces play: every `ffbNs` (FfbController's minUpdateNs, 4 ms), so the safety limiter's
 //     slew steps stay smooth;
 //   - the window's copy of the state while one is open: every `windowNs` (~30 a second);
+//   - for `recentInputNs` after a pass that found new input: every `recentInputEveryNs`, so a notification a driver
+//     loses now and then while the wheel moves delays that input by 4 ms at most, not by idleNs;
 //   - everything else (the 100 ms keep-alive to the game, the 500 ms force feedback watchdog, the test clutch
 //     running out, statistics, telemetry heartbeats, Stop): at least every `idleNs`.
 // And never two passes closer than `minGapNs`, so a device or socket that signals without pause cannot spin the loop.
@@ -22,12 +24,15 @@ struct WakeSettings {
     std::uint64_t windowNs = 33'333'333;
     std::uint64_t ffbNs = 4'000'000;
     std::uint64_t minGapNs = 500'000;
+    std::uint64_t recentInputNs = 100'000'000;
+    std::uint64_t recentInputEveryNs = 4'000'000;
 };
 
 struct WakeState {
     std::uint64_t lastPassNs = 0;   // when the last pass of the loop started
     bool windowOpen = false;
     bool forcesPlaying = false;     // any force feedback effect playing (or wanted) now
+    bool inputRecent = false;       // a pass found new input less than recentInputNs ago
 };
 
 // The time (same clock as lastPassNs) the loop wakes up by itself at the latest.
