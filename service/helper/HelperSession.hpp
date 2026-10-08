@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wheelbri/HelperDispatch.hpp"
 #include "wheelbri/HelperProtocol.hpp"
 
 #include <filesystem>
@@ -23,20 +24,20 @@ namespace wheelbri::helper {
 // - ShareLogFolder takes the caller's own %LOCALAPPDATA%\wheelbri\logs (from its token), opened as the caller.
 // - Driver scripts come only from the helper's own folder (`scriptLevels` 0 as a service; up to 3 with --console,
 //   for a development build in the source tree).
-class HelperSession {
+class HelperSession final : public RequestHandler {
 public:
     using Cancelled = std::function<bool()>;
 
     // `process`, `token`: HANDLEs this session keeps and closes (the caller's process: PROCESS_QUERY_LIMITED_INFORMATION
     // | SYNCHRONIZE | READ_CONTROL | WRITE_DAC; an impersonation token of the caller, or null when it gave none).
     HelperSession(void* process, void* token, int scriptLevels, Cancelled cancelled);
-    ~HelperSession();
+    ~HelperSession() override;
 
     HelperSession(const HelperSession&) = delete;
     HelperSession& operator=(const HelperSession&) = delete;
 
     // Carries out a request that passed requestProblem (not Hello).
-    [[nodiscard]] Reply handle(const Request& request);
+    [[nodiscard]] Reply handle(const Request& request) override;
 
 private:
     Reply createVirtualG920(std::uint32_t seq);

@@ -1,28 +1,33 @@
 #pragma once
 
+#include "wheelbri/DailyLogFile.hpp"
+
 #include <spdlog/common.h>
 
 #include <cstddef>
-#include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 
 namespace wheelbri::helper {
 
-// The helper's log, in the connected user's log folder with every other log
-// (%LOCALAPPDATA%\wheelbri\logs\wheelbri-helper-<date>.log): the user's choice, 2026-10-06.
+// The helper's log, in WheelBri's user's log folder with every other log
+// (%LOCALAPPDATA%\wheelbri\logs\wheelbri-helper-<date>.log): the user's choice, 2026-10-06; it follows whoever
+// last ran WheelBri (HelperServer.hpp: an accepted app, or WheelBri from another folder saying Hello).
 //
 // The helper runs as SYSTEM and that folder belongs to the user, who could put a link in it pointing anywhere. So
 // the file is created and opened only while impersonating that user (with the token of the pipe's client): Windows
 // then checks the user's own rights, and a link leads nowhere the user could not write anyway. The handle, once
 // open, is written as SYSTEM.
 //
-// Before any user has connected (the helper starts at boot) the lines wait in memory (at most kPendingLines; the
-// oldest go first, counted) and are written at the first connection. A new file every day, opened again with the
-// same user's token. With --console the lines also go to the console (spdlog's own sink).
+// Before anyone has run WheelBri (the helper starts at boot) the lines wait in memory and are written when it does;
+// a new file every day, opened with the same user's token; a file that cannot be opened or written is tried again
+// a minute later, the lines waiting meanwhile (DailyLogFile.hpp). With --console the lines also go to the console
+// (spdlog's own sink).
 class HelperLog {
 public:
     static constexpr std::size_t kPendingLines = 2000;
+    static constexpr std::uint64_t kRetryMs = 60'000;
 
     static HelperLog& instance();
 
@@ -35,18 +40,19 @@ public:
 
     void write(spdlog::level::level_enum level, const std::string& component, const std::string& message);
 
+    // One line as the other logs write theirs (the Logs tab reads them alike), with "\r\n".
+    [[nodiscard]] static std::string formatLine(spdlog::level::level_enum level, const std::string& component,
+                                                const std::string& message);
+
+    // The daily file wheelbri-helper-<date>.log in `logsFolder`, created and opened as the user of `token` (a HANDLE
+    // it takes and closes). For attachUser, and for the tests.
+    [[nodiscard]] static std::unique_ptr<LogTarget> userFile(void* token, const std::wstring& logsFolder);
+
 private:
-    HelperLog() = default;
-    bool openLocked(const std::string& date);   // under mutex_
-    void writeLocked(const std::string& line);   // under mutex_, file open
+    HelperLog();
 
     std::mutex mutex_;
-    std::deque<std::string> pending_;
-    std::size_t droppedPending_ = 0;
-    void* token_ = nullptr;   // HANDLE
-    std::wstring folder_;
-    void* file_ = nullptr;    // HANDLE; nullptr: none
-    std::string fileDate_;
+    DailyLogFile file_;
 };
 
 }  // namespace wheelbri::helper

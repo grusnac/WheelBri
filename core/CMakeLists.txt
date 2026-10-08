@@ -2,6 +2,7 @@ add_library(wheelbri_core STATIC
     src/AsyncFfbSink.cpp
     src/ChangeCounter.cpp
     src/ConfigLibrary.cpp
+    src/DailyLogFile.cpp
     src/DeviceMatch.cpp
     src/DeviceLabels.cpp
     src/DeviceProfile.cpp
@@ -16,7 +17,9 @@ add_library(wheelbri_core STATIC
     src/FfbUsage.cpp
     src/GameUseWatch.cpp
     src/HidG920.cpp
+    src/HelperDispatch.cpp
     src/HelperProtocol.cpp
+    src/HelperStatus.cpp
     src/HidHideCli.cpp
     src/HidPid.cpp
     src/IniDocument.cpp
@@ -24,6 +27,7 @@ add_library(wheelbri_core STATIC
     src/InputReadStats.cpp
     src/LiveLog.cpp
     src/LocalDate.cpp
+    src/LogLevelCounter.cpp
     src/Logging.cpp
     src/MappingEdit.cpp
     src/Pacing.cpp

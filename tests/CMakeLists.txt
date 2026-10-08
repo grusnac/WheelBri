@@ -10,6 +10,7 @@ add_executable(wheelbri_tests
     AsyncFfbSinkTest.cpp
     ChangeCounterTest.cpp
     ConfigLibraryTest.cpp
+    DailyLogFileTest.cpp
     DeviceLabelsTest.cpp
     DeviceProfileTest.cpp
     DrawListTest.cpp
@@ -22,13 +23,16 @@ add_executable(wheelbri_tests
     FfbUsageTest.cpp
     FileTextTest.cpp
     GameUseWatchTest.cpp
+    HelperDispatchTest.cpp
     HelperProtocolTest.cpp
+    HelperStatusTest.cpp
     HidHideCliTest.cpp
     HidPidTest.cpp
     InputReadStatsTest.cpp
     IniDocumentTest.cpp
     IniEditorTest.cpp
     LiveLogTest.cpp
+    LogLevelCounterTest.cpp
     LoggingTest.cpp
     MapperTest.cpp
     MappingEditTest.cpp
@@ -57,10 +61,20 @@ target_include_directories(wheelbri_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # The service's platform code with real sockets, events, folders and threads: platform::WaitSet (the event loop),
 # FolderWatch and DeviceChanges (device notices), and DeviceWatch with a fake lister.
 if(TARGET wheelbri_privileged)
-    target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp FolderWatchTest.cpp DeviceWatchTest.cpp
-        ${PROJECT_SOURCE_DIR}/service/src/DeviceChanges.cpp ${PROJECT_SOURCE_DIR}/service/src/DeviceWatch.cpp)
+    target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp FolderWatchTest.cpp DeviceWatchTest.cpp HelperProbeTest.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/DeviceChanges.cpp ${PROJECT_SOURCE_DIR}/service/src/DeviceWatch.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp)
     target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/service/src)
     target_link_libraries(wheelbri_tests PRIVATE wheelbri_privileged)
+    # The WheelBri Helper's pipe, client and log on a pipe of the tests' own (Windows only): HelperPipeTest.
+    if(WIN32)
+        target_sources(wheelbri_tests PRIVATE HelperPipeTest.cpp
+            ${PROJECT_SOURCE_DIR}/service/helper/HelperClient.cpp
+            ${PROJECT_SOURCE_DIR}/service/helper/HelperLog.cpp
+            ${PROJECT_SOURCE_DIR}/service/helper/HelperServer.cpp)
+        target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/service/helper)
+        target_link_libraries(wheelbri_tests PRIVATE shell32 ole32)
+    endif()
 endif()
 
 # The Linux virtual G920's uhid protocol (tools/uhid), tested without /dev/uhid.

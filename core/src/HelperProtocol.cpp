@@ -223,6 +223,17 @@ bool isInstalledApp(const std::string_view image, const std::string_view install
     return program == folder + "\\WHEELBRI.EXE" || program == folder + "\\WHEELBRI-SERVICE.EXE";
 }
 
+bool isWheelBriProgram(const std::string_view image) {
+    const std::string key = windowsPathKey(image);
+    const std::size_t cut = key.find_last_of('\\');
+    const std::string name = cut == std::string::npos ? key : key.substr(cut + 1);
+    return name == "WHEELBRI.EXE" || name == "WHEELBRI-SERVICE.EXE";
+}
+
+bool fitsInOneMessage(const Request& request) {
+    return encode(request).size() <= kMaxMessage;
+}
+
 const char* requestName(const RequestType type) {
     switch (type) {
         case RequestType::Hello: return "Hello";

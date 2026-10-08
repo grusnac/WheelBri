@@ -4,6 +4,7 @@
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/FfbController.hpp"
 #include "wheelbri/LiveLog.hpp"
+#include "wheelbri/LogLevelCounter.hpp"
 #include "wheelbri/MapperConfig.hpp"
 
 #include "wheelbri/WheelState.hpp"
@@ -201,11 +202,15 @@ private:
         std::filesystem::path folder;   // where its files are
         std::string file;               // today's file name, empty if it has written none today
         std::string status;             // size and age, or why there is none
+        std::string state;              // the WheelBri Helper's: what the app last heard from it (else empty)
+        bool warns = false;             // its file has warnings or errors today: the row in the warning colour
     };
     std::vector<ComponentLog> components_;
     // Looked up at most once a second (files appear while a session runs and change at midnight).
     std::uint64_t filesCheckedMs_ = 0;
     bool shimMode_ = false;
+    // The warnings and errors in today's helper log (the Helper row turns to the warning colour).
+    LogLevelCounter helperLevels_;
 
     // The Logs tab's live log: every component's file followed, newest at the bottom.
     LiveLog liveLog_;

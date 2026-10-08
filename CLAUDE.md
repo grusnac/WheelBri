@@ -159,7 +159,9 @@ Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list]
 `--telemetry-tab` / `--ffb-tab`, never shown without them, `MappingView::setOptionalTabs`): **Mapping** (the axes rig -> G920, every rig axis, the D-pad, the G920 buttons written
 `G920 <n> <name> <- Rig <n> <name>` and the wheel's own buttons `Rig <n> <name>` from `[button_labels]`), **Logs** (one
 line per component: emulator, game shim, G920 driver, hide filter, helper, each in its own colour,
-with today's file, size, age, click opens its folder; then a scrollable live log of all those files merged:
+with today's file, size, age, click opens its folder; the helper's line says what `HelperProbe` last heard from the
+WheelBri Helper (core `describeHelper`) and turns to the warning colour when today's helper log has warnings or errors
+(core `LogLevelCounter`); then a scrollable live log of all those files merged:
 wheel, arrows, PageUp / PageDown, Home / End, a draggable vertical scroll bar, a sideways one for long messages
 (Shift + wheel, Left / Right) and word wrap (Wrap button or W); drags come from `WindowInput::pointer` / `leftDown`,
 `MappingView::onPointer`; core `LiveLog`), **Telemetry** (the telemetry files, buttons held, the
@@ -332,7 +334,10 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `HelperProtocol.hpp` (namespace `wheelbri::helper`): the app <-> WheelBri Helper pipe messages (the helper
     service that lets the app run as a standard user): a fixed list of
     requests, their encoding and the rules each is checked against (`requestProblem`, `hideDeviceProblem`,
-    `isInstalledApp`). Every new request goes there, with its checks and `HelperProtocolTest`.
+    `isInstalledApp`, `isWheelBriProgram`). Every new request goes there, with its checks and `HelperProtocolTest`.
+    `HelperDispatch.hpp` (`answerMessage`, `mayTakeTheLog`): how the helper answers one message, portable and tested.
+    `HelperStatus.hpp`: what a Hello's outcome means for the Logs tab. `DailyLogFile.hpp`: a daily log with no file
+    yet (the helper's). `LogLevelCounter.hpp`: warnings and errors in one log file.
   - `SenderGate.hpp`: who may send to the UDP ports. The receiver looks up the process that owns the sender's port
     (Windows: `platform::udpPortOwner` / `processImage` in the service, the same through `iphlpapi.dll` loaded on
     first use in the shim) once per new port, caches the verdict (2 s accepted, 10 s refused) and caps lookups at 16
@@ -468,9 +473,16 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   `\\.\pipe\wheelbri-helper` (DACL: SYSTEM, Administrators, interactive users without creating instances; first
   instance only, no remote clients), up to 4 connections each on a thread; a caller is accepted only as
   `wheelbri.exe` in the helper's own folder (opened, named by its handle, pid compared again), others may only say
-  Hello; every request goes through `requestProblem`; a closed connection undoes what it set up. `HelperLog`: the
-  helper's log goes into the connected user's log folder (`wheelbri-helper-<date>.log`, the user's choice), opened
-  only while impersonating that user, lines kept in memory until a user connects. `HelperClient`: the app's side
+  Hello and are then closed; every message is answered by core `answerMessage` (`HelperDispatch.hpp`: the rules, a
+  session that throws is a Failed reply, not a dead helper); the first message must come within 10 s; one pipe
+  instance more than the 4 connections always waits unserved, so the name never disappears; a closed connection
+  undoes what it set up. `HelperServer::Options` takes the pipe name, the session factory and the log taker (the
+  tests use their own; only `HelperMain` makes the real ones). `HelperLog`: the helper's log goes into the log
+  folder of whoever last ran WheelBri (`mayTakeTheLog`: an accepted app, or WheelBri from another folder saying
+  Hello; `wheelbri-helper-<date>.log`, the user's choice), opened only while impersonating that user; core
+  `DailyLogFile` keeps lines in memory until then, rolls over at midnight and retries a failed file once a minute.
+  The app says Hello at start and from the Logs tab (`service/src/HelperProbe.cpp`, own thread, every 5 min at most),
+  so the helper's boot lines reach the user's folder even when the app runs as Administrator. `HelperClient`: the app's side
   (impersonation allowed, message mode, timeouts). `wheelbri-helper --console` (Administrator) runs it in a console,
   `--hello` asks a running helper (exit 0 accepted, 2 refused, 3 none). `HelperSession`: one per accepted
   connection, carries the requests out through `privileged::` (HideRig names the caller's own process; PutHideFilter
@@ -521,7 +533,11 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   do), `push-input-plan.md` (the service loop from polling to Windows' notifications: merged into main on 2026-10-07), `cpu-measurements.md` (measure.sh rounds: what was measured, the numbers and what they showed; add new rounds there).
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest` and `WaitSetTest` (the service's
-  `platform::WaitSet` with loopback sockets, a pipe or an event), `FolderWatchTest` (inotify on a temporary folder) and `DeviceWatchTest` (real thread, fake lister); all three are linked when `wheelbri_privileged` is built.
+  `platform::WaitSet` with loopback sockets, a pipe or an event), `FolderWatchTest` (inotify on a temporary folder),
+  `DeviceWatchTest` (real thread, fake lister) and `HelperProbeTest` (real thread, fake check); linked when
+  `wheelbri_privileged` is built. On Windows also `HelperPipeTest`: `HelperServer` and `HelperClient` on a pipe of
+  the test's own with fake sessions, and `HelperLog`'s file written as the user (no Administrator needed; it also
+  runs under Wine, which skips the first-instance test).
   **Test the service loop on the emulators** in `tests/emulators/PushEmulators.hpp` (`PushLoopTest`): devices
   that push input like DirectInput / evdev or misbehave (`EmulatedPushDevice::Behaviour`: polled, dropped, stopped,
   late or spurious notifications, unplugged), game force feedback datagrams (`EmulatedSocket`), a wait that can fail
@@ -594,6 +610,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   own checks, never from the app's word. Every request type is in `HelperProtocol.hpp` with its checks in
   `requestProblem` and `HelperProtocolTest`; no request carries a path, a file name, a command line or a process id
   (HideRig is always the caller's own process, ShareLogFolder always the caller's own folder, opened as the caller).
+  How a message is answered (who may ask, unknown types, refusals, failures) is `answerMessage` with
+  `HelperDispatchTest`; change the rules there, not in the pipe code.
   What only Windows can tell is checked again in the helper (`HideFilter::interfaceProblem`). Scripts come from the
   helper's own folder only. Anything a connection sets up is undone in `~HelperSession`. A new privileged step goes
   into `privileged::` (used by both sides), a request, the helper's session and `PrivilegedSteps` (both ways), never

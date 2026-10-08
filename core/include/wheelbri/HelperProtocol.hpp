@@ -93,6 +93,14 @@ inline constexpr std::uint32_t kReplyMagic = 0x52484557;     // "WEHR"
 // '/' or '\', a trailing separator and a "\\?\" prefix. False for any ".." or "." part, or an empty folder.
 [[nodiscard]] bool isInstalledApp(std::string_view image, std::string_view installFolder);
 
+// Whether `image` is WheelBri's own program (wheelbri.exe or wheelbri-service.exe) in any folder, ignoring case and
+// '/' or '\'. Not a check of trust (anyone may name a program so): only whether the helper's log may follow it
+// (HelperDispatch.hpp mayTakeTheLog).
+[[nodiscard]] bool isWheelBriProgram(std::string_view image);
+
+// Encoded, `request` fits in one message (kMaxMessage); a longer one is refused unread by the helper.
+[[nodiscard]] bool fitsInOneMessage(const Request& request);
+
 [[nodiscard]] const char* requestName(RequestType type);
 [[nodiscard]] const char* statusName(Status status);
 

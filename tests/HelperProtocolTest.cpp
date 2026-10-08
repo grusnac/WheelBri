@@ -133,3 +133,176 @@ TEST(HelperProtocol, Names) {
     EXPECT_STREQ(requestName(RequestType::PutHideFilter), "PutHideFilter");
     EXPECT_STREQ(statusName(Status::Pending), "pending");
 }
+
+// --- every remaining branch: the edges of each rule ---
+
+TEST(HelperProtocol, ARequestOfOnlyAHeaderHasNoDeviceCount) {
+    auto bytes = encode(Request{RequestType::HideRig, 1, {}});
+    bytes.pop_back();   // the device count
+    ASSERT_EQ(bytes.size(), kHeaderSize);
+    std::string error;
+    EXPECT_FALSE(decodeRequest(bytes, error).has_value());
+    EXPECT_EQ(error, "no device count");
+}
+
+TEST(HelperProtocol, ADeviceWhoseLengthIsCutOffIsRefused) {
+    auto bytes = encode(Request{RequestType::PutHideFilter, 1, {}});
+    bytes.back() = 1;      // one device...
+    bytes.push_back(5);    // ...and only one byte of its length
+    std::string error;
+    EXPECT_FALSE(decodeRequest(bytes, error).has_value());
+    EXPECT_EQ(error, "device 1 of 1 runs past the end");
+}
+
+TEST(HelperProtocol, AMessageOfExactlyTheLimitIsRead) {
+    // The largest message there is: still read. One byte more is refused unread (RefusesBrokenMessages).
+    Request request{RequestType::PutHideFilter, 1, {}};
+    const std::size_t room = kMaxMessage - kHeaderSize - 1 - 2;
+    request.devices.push_back(std::string(room, 'A'));
+    const auto bytes = encode(request);
+    ASSERT_EQ(bytes.size(), kMaxMessage);
+    EXPECT_TRUE(fitsInOneMessage(request));
+    std::string error;
+    const auto decoded = decodeRequest(bytes, error);
+    ASSERT_TRUE(decoded.has_value()) << error;
+    EXPECT_EQ(decoded->devices.front().size(), room);
+    request.devices.front().push_back('A');
+    EXPECT_FALSE(fitsInOneMessage(request));
+}
+
+TEST(HelperProtocol, EncodingKeepsAtMost255DevicesAndIdsOf65535Bytes) {
+    Request request{RequestType::PutHideFilter, 1, std::vector<std::string>(300, "x")};
+    auto bytes = encode(request);
+    EXPECT_EQ(bytes[kHeaderSize], 255);
+    request.devices = {std::string(70'000, 'y')};
+    bytes = encode(request);
+    EXPECT_EQ(bytes.size(), kHeaderSize + 1 + 2 + 0xFFFF);
+    EXPECT_EQ(bytes[kHeaderSize + 1], 0xFF);
+    EXPECT_EQ(bytes[kHeaderSize + 2], 0xFF);
+}
+
+TEST(HelperProtocol, RefusesBrokenReplies) {
+    std::string error;
+    const auto good = encode(Reply{3, Status::Ok, "hi"});
+
+    auto status = good;
+    status[6] = static_cast<std::uint8_t>(Status::Unsupported) + 1;
+    EXPECT_FALSE(decodeReply(status, error).has_value());
+    EXPECT_EQ(error, "unknown status 5");
+
+    auto noLength = good;
+    noLength.resize(kHeaderSize + 1);   // half a length
+    EXPECT_FALSE(decodeReply(noLength, error).has_value());
+    EXPECT_EQ(error, "text runs past the end");
+
+    auto shortText = good;
+    shortText.pop_back();
+    EXPECT_FALSE(decodeReply(shortText, error).has_value());
+    EXPECT_EQ(error, "text runs past the end");
+
+    auto trailing = good;
+    trailing.push_back('!');
+    EXPECT_FALSE(decodeReply(trailing, error).has_value());
+    EXPECT_EQ(error, "1 bytes after the message");
+
+    EXPECT_FALSE(decodeReply(std::span(good).first(kHeaderSize - 1), error).has_value());
+    EXPECT_NE(error.find("too short"), std::string::npos);
+    EXPECT_FALSE(decodeReply(std::vector<std::uint8_t>(kMaxMessage + 1, 0), error).has_value());
+    EXPECT_NE(error.find("too long"), std::string::npos);
+
+    auto version = good;
+    version[5] = 1;   // version 257
+    EXPECT_FALSE(decodeReply(version, error).has_value());
+    EXPECT_EQ(error, "protocol version 257, expected 1");
+}
+
+TEST(HelperProtocol, EveryStatusAndAnEmptyTextRoundTrip) {
+    for (const Status status : {Status::Ok, Status::Refused, Status::Failed, Status::Pending, Status::Unsupported}) {
+        std::string error;
+        const auto reply = decodeReply(encode(Reply{9, status, {}}), error);
+        ASSERT_TRUE(reply.has_value()) << error;
+        EXPECT_EQ(reply->status, status);
+        EXPECT_EQ(reply->text, "");
+    }
+}
+
+TEST(HelperProtocol, KnownTypesAreExactlyHelloToShareLogFolder) {
+    EXPECT_FALSE(isKnown(static_cast<RequestType>(0)));
+    for (int type = 1; type <= 8; ++type) EXPECT_TRUE(isKnown(static_cast<RequestType>(type))) << type;
+    EXPECT_FALSE(isKnown(static_cast<RequestType>(9)));
+    EXPECT_FALSE(isKnown(static_cast<RequestType>(255)));
+    EXPECT_EQ(requestProblem(Request{static_cast<RequestType>(0), 1, {}}), "unknown request 0");
+}
+
+TEST(HelperProtocol, EveryRequestButPutHideFilterTakesNoDevices) {
+    for (int type = 1; type <= 8; ++type) {
+        const auto requestType = static_cast<RequestType>(type);
+        if (requestType == RequestType::PutHideFilter) continue;
+        EXPECT_EQ(requestProblem(Request{requestType, 1, {}}), "") << type;
+        EXPECT_EQ(requestProblem(Request{requestType, 1, {kMoza}}),
+                  std::string(requestName(requestType)) + " takes no devices");
+    }
+    EXPECT_EQ(requestProblem(Request{RequestType::PutHideFilter, 1, std::vector<std::string>(kMaxDevices, kMoza)}), "");
+}
+
+TEST(HelperProtocol, HideDeviceEdges) {
+    EXPECT_EQ(hideDeviceProblem("HID\\VID_346E&PID_0005\\" + std::string(kMaxIdLength - 22, 'A')), "");   // exactly
+    EXPECT_EQ(hideDeviceProblem(R"(HID\VID_346E&PID_0005&Col01\{a-b}.c#d_e)"), "");   // every allowed sign
+    EXPECT_EQ(hideDeviceProblem(R"(\VID_346E&PID_0005\1)"),
+              "not a device instance id (three parts: HID\\<hardware>\\<instance>)");   // empty first part
+    EXPECT_EQ(hideDeviceProblem(R"(HID\\1)"),
+              "not a device instance id (three parts: HID\\<hardware>\\<instance>)");   // empty middle part
+    EXPECT_EQ(hideDeviceProblem(R"(HIDVID_346E&PID_0005)"),
+              "not a device instance id (three parts: HID\\<hardware>\\<instance>)");   // one part
+    EXPECT_EQ(hideDeviceProblem(R"(HID\ABC\1)"), "not a HID device with a vendor and product id");
+    EXPECT_EQ(hideDeviceProblem(std::string("HID\\VID_346E&PID_0005\\a\0b", 24)),
+              "device id with a character not allowed in an instance id");
+    EXPECT_EQ(hideDeviceProblem("HID\\VID_346E&PID_0005\\\xC3\xA9"),
+              "device id with a character not allowed in an instance id");
+}
+
+TEST(HelperProtocol, InstalledAppEdges) {
+    const std::string folder = R"(C:\Program Files\WheelBri)";
+    EXPECT_TRUE(isInstalledApp("//?/C:/Program Files/WheelBri/wheelbri.exe", folder));
+    EXPECT_TRUE(isInstalledApp(R"(C:\Program Files\WheelBri\wheelbri.exe)", "C:/Program Files/WheelBri//"));
+    EXPECT_FALSE(isInstalledApp(R"(C:\Program Files\WheelBri\wheelbri.exe)", R"(C:\Program Files\..\WheelBri)"));
+    EXPECT_FALSE(isInstalledApp(R"(C:\Program Files\WheelBri\wheelbri.exe)", "\\"));   // only a separator: empty
+    EXPECT_FALSE(isInstalledApp("", folder));
+    EXPECT_FALSE(isInstalledApp(R"(C:\Program Files\WheelBri\wheelbri.exe.bak)", folder));
+    EXPECT_FALSE(isInstalledApp(R"(C:\Program Files\WheelBri\xwheelbri.exe)", folder));
+    EXPECT_TRUE(isInstalledApp(R"(C:\Program Files\WheelBri\..foo\wheelbri.exe)",
+                               R"(C:\Program Files\WheelBri\..foo)"));   // "..foo" is a name, not ".."
+}
+
+TEST(HelperProtocol, WheelBriProgramInAnyFolder) {
+    EXPECT_TRUE(isWheelBriProgram(R"(C:\Program Files\WheelBri\wheelbri.exe)"));
+    EXPECT_TRUE(isWheelBriProgram(R"(D:\cpp-projects\WheelBri\build\service\WHEELBRI-SERVICE.EXE)"));
+    EXPECT_TRUE(isWheelBriProgram("D:/x/WheelBri.exe"));
+    EXPECT_TRUE(isWheelBriProgram(R"(\\?\D:\x\wheelbri.exe)"));
+    EXPECT_TRUE(isWheelBriProgram("wheelbri.exe"));   // a bare name
+    EXPECT_FALSE(isWheelBriProgram(R"(C:\Program Files\WheelBri\wheelbri-helper.exe)"));
+    EXPECT_FALSE(isWheelBriProgram(R"(C:\x\notwheelbri.exe)"));
+    EXPECT_FALSE(isWheelBriProgram(R"(C:\wheelbri.exe\other.exe)"));
+    EXPECT_FALSE(isWheelBriProgram(""));
+}
+
+TEST(HelperProtocol, EveryNameAndUnknownOnes) {
+    const std::pair<RequestType, const char*> requests[] = {
+        {RequestType::Hello, "Hello"},
+        {RequestType::CreateVirtualG920, "CreateVirtualG920"},
+        {RequestType::RemoveVirtualG920, "RemoveVirtualG920"},
+        {RequestType::HideRig, "HideRig"},
+        {RequestType::ShowRig, "ShowRig"},
+        {RequestType::PutHideFilter, "PutHideFilter"},
+        {RequestType::InstallG920Driver, "InstallG920Driver"},
+        {RequestType::ShareLogFolder, "ShareLogFolder"},
+    };
+    for (const auto& [type, name] : requests) EXPECT_STREQ(requestName(type), name);
+    EXPECT_STREQ(requestName(static_cast<RequestType>(99)), "unknown");
+    const std::pair<Status, const char*> statuses[] = {
+        {Status::Ok, "ok"}, {Status::Refused, "refused"}, {Status::Failed, "failed"},
+        {Status::Pending, "pending"}, {Status::Unsupported, "unsupported"},
+    };
+    for (const auto& [status, name] : statuses) EXPECT_STREQ(statusName(status), name);
+    EXPECT_STREQ(statusName(static_cast<Status>(99)), "unknown");
+}

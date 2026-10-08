@@ -16,7 +16,11 @@ class HelperClient {
 public:
     enum class Connect { Ok, NoHelper, Failed };
 
-    HelperClient() = default;
+    // How long connect waits for a free connection when all of the helper's are in use.
+    static constexpr int kBusyWaitMs = 5000;
+
+    // `pipeName`: the helper's pipe (empty: kPipeName; the tests use their own).
+    explicit HelperClient(std::wstring pipeName = {});
     ~HelperClient();
     HelperClient(const HelperClient&) = delete;
     HelperClient& operator=(const HelperClient&) = delete;
@@ -40,6 +44,7 @@ public:
     void close();
 
 private:
+    std::wstring pipeName_;
     void* pipe_ = nullptr;   // HANDLE
     std::uint32_t seq_ = 0;
     std::uint32_t serverPid_ = 0;

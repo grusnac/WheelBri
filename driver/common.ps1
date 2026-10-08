@@ -266,6 +266,8 @@ function Install-HelperService([string]$exe) {
         'without running as Administrator.') | Out-Null
     # Restarted 5 s after a crash (twice), then after a minute; the count resets after a day.
     sc.exe failure $script:HelperService reset= 86400 actions= restart/5000/restart/5000/restart/60000 | Out-Null
+    # Also when it stops with an error of its own (it reports one when its pipe cannot be served), not only a crash.
+    sc.exe failureflag $script:HelperService 1 | Out-Null
     try {
         Start-Service -Name $script:HelperService -ErrorAction Stop
         (Get-Service -Name $script:HelperService).WaitForStatus('Running', [TimeSpan]::FromSeconds(15))

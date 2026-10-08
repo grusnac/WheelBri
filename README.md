@@ -123,8 +123,13 @@ a headline, why it was needed, how to use it, and where to look.
 - **Why:** one place to see why something failed: the app's, the shim's, both drivers' and the WheelBri Helper's logs
   together.
 - **Use:** tab L (or O for the folder): one line per component, then their lines merged live (scroll, Wrap). Files
-  are daily and old ones go after 2 days (`--old-files`).
-- **Look:** `%LOCALAPPDATA%\wheelbri\logs`. Code: core `LiveLog`, `Retention`, `service/src/MappingView.cpp`.
+  are daily and old ones go after 2 days (`--old-files`). The **Helper** line also says what the app last heard from
+  the WheelBri Helper (`running 0.9.0, serves this app`, `not running ...`, `not for this copy of WheelBri` for a
+  development build), and turns red with `2 err, 1 warn, last 14:03` when today's helper log has warnings or errors.
+  The app says Hello to the helper when it opens (and every 5 minutes on this tab), which also makes the helper write
+  what it logged since boot into your logs folder.
+- **Look:** `%LOCALAPPDATA%\wheelbri\logs`. Code: core `LiveLog`, `LogLevelCounter`, `HelperStatus`, `Retention`,
+  `service/src/MappingView.cpp`, `service/src/HelperProbe.cpp`.
 
 ### Running as a standard user (WheelBri Helper)
 
@@ -134,9 +139,10 @@ a headline, why it was needed, how to use it, and where to look.
   letting the drivers write into your logs folder. Started as Administrator (a development build), the app does those
   itself. Without either, the status next to Start says **HELPER NOT INSTALLED** in red (virtual device target only).
 - **Look:** `wheelbri-helper-<date>.log` in the logs folder; the app's log says `through the WheelBri Helper` or
-  `as Administrator`; `services.msc` > WheelBri Helper; `wheelbri-helper.exe --hello`. Code: `service/helper/`
-  (pipe server, sessions, log), `service/src/PrivilegedSteps.cpp` (the app's side), `service/src/Privileged.cpp`
-  (the steps), `core/include/wheelbri/HelperProtocol.hpp` (the requests and their rules).
+  `as Administrator`; the Logs tab's Helper line; `services.msc` > WheelBri Helper; `wheelbri-helper.exe --hello`.
+  Code: `service/helper/` (pipe server, sessions, log), `service/src/PrivilegedSteps.cpp` (the app's side),
+  `service/src/Privileged.cpp` (the steps), `core/include/wheelbri/HelperProtocol.hpp` (the requests and their rules),
+  `HelperDispatch.hpp` (how each message is answered), `DailyLogFile.hpp` (its log before anyone connected).
 
 ### App icon
 
@@ -393,7 +399,7 @@ SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelbri-service --con
 ```
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`,
-`service.hide`, `helper`, `helper.pipe`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `service.devices`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
+`service.hide`, `service.helper`, `helper`, `helper.pipe`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `service.devices`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
 `shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelbri-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelbri/Logging.hpp`)
@@ -479,7 +485,7 @@ If it fails (or none is found) the originals are kept, the error is logged and s
 
 Everything WheelBri saves (configs, rigs, device names, the app's state, the games list, logs, telemetry) is per user,
 in `%LOCALAPPDATA%\wheelbri`, also when it runs as Administrator; the WheelBri Helper's log too (written as the
-connected user).
+user who last ran WheelBri: it connected, or said Hello).
 The app normally runs as the user; what needs Administrator is done by the **WheelBri Helper** service (SYSTEM), which:
 
 - creates its pipe first (nobody can pose as it), lets in local interactive users only, and serves only

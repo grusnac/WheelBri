@@ -9,6 +9,7 @@
 #include "HelperClient.hpp"
 #include "HelperLog.hpp"
 #include "HelperServer.hpp"
+#include "HelperSession.hpp"
 #include "HideFilter.hpp"
 
 #include "wheelbri/Logging.hpp"
@@ -17,6 +18,9 @@
 
 #include <cstdio>
 #include <cstring>
+#include <exception>
+#include <functional>
+#include <memory>
 #include <string>
 
 namespace {
@@ -66,9 +70,28 @@ void startLogging(const bool console) {
 int serve(const bool console) {
     // A rig left hidden for a process that is gone (the helper or the app crashed): visible again.
     service::HideFilter::clearStale();
+    // Driver scripts only next to the helper as a service; a development build (--console) also 3 folders up.
+    const int scriptLevels = console ? 3 : 0;
+    helper::HelperServer::Options options;
+    options.appFolder = ownFolder();
+    options.version = std::string("WheelBri Helper ") + WHEELBRI_VERSION;
+    options.makeSession = [scriptLevels](void* const process, void* const token, std::function<bool()> cancelled) {
+        return std::make_unique<helper::HelperSession>(process, token, scriptLevels, std::move(cancelled));
+    };
+    options.takeLog = [](void* const token, const std::wstring& folder) {
+        helper::HelperLog::instance().attachUser(token, folder);
+    };
+    helper::HelperServer server(std::move(options));
     std::string error;
-    helper::HelperServer server(ownFolder(), console ? 3 : 0);
-    if (!server.run(gStop, error)) {
+    bool served = false;
+    try {
+        served = server.run(gStop, error);
+    } catch (const std::exception& e) {
+        error = std::string("stopped by an error: ") + e.what();
+    } catch (...) {
+        error = "stopped by an unknown error";
+    }
+    if (!served) {
         WE_LOG_CRITICAL(log(), "helper: {}", error);
         return 1;
     }

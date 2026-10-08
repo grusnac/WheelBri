@@ -21,15 +21,18 @@ bool finishWithin(const HANDLE handle, OVERLAPPED& overlapped, const BOOL starte
     if (!started) {
         error = GetLastError();
         if (error != ERROR_IO_PENDING) return false;
-        int waited = 0;
+        const ULONGLONG start = GetTickCount64();
         for (;;) {
-            if (WaitForSingleObject(overlapped.hEvent, 100) == WAIT_OBJECT_0) break;
-            waited += 100;
-            const bool stop = cancelled && cancelled();
-            if (stop || waited >= timeoutMs) {
+            const DWORD waited = WaitForSingleObject(overlapped.hEvent, 100);
+            if (waited == WAIT_OBJECT_0) break;
+            const bool failed = waited == WAIT_FAILED;
+            const DWORD waitError = failed ? GetLastError() : 0;
+            const bool stop = !failed && cancelled && cancelled();
+            const bool late = GetTickCount64() - start >= static_cast<ULONGLONG>(timeoutMs < 0 ? 0 : timeoutMs);
+            if (failed || stop || late) {
                 CancelIoEx(handle, &overlapped);
                 GetOverlappedResult(handle, &overlapped, &bytes, TRUE);
-                error = stop ? ERROR_CANCELLED : WAIT_TIMEOUT;
+                error = failed ? waitError : stop ? ERROR_CANCELLED : WAIT_TIMEOUT;
                 return false;
             }
         }
@@ -42,6 +45,10 @@ bool finishWithin(const HANDLE handle, OVERLAPPED& overlapped, const BOOL starte
 }
 
 }  // namespace
+
+HelperClient::HelperClient(std::wstring pipeName) : pipeName_(std::move(pipeName)) {
+    if (pipeName_.empty()) pipeName_ = std::wstring(kPipeName.begin(), kPipeName.end());
+}
 
 HelperClient::~HelperClient() {
     close();
@@ -56,8 +63,11 @@ void HelperClient::close() {
 
 HelperClient::Connect HelperClient::connect(std::string& error, const std::string& expectedFolder) {
     close();
-    const std::wstring name(kPipeName.begin(), kPipeName.end());
-    for (int attempt = 0; attempt < 2; ++attempt) {
+    const std::wstring& name = pipeName_;
+    // All of the helper's connections in use: wait for one to come free, up to kBusyWaitMs in all (another program
+    // may take a freed one first; then wait again).
+    const ULONGLONG deadline = GetTickCount64() + kBusyWaitMs;
+    for (;;) {
         const HANDLE pipe = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
                                         FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IMPERSONATION, nullptr);
         if (pipe != INVALID_HANDLE_VALUE) {
@@ -91,10 +101,20 @@ HelperClient::Connect HelperClient::connect(std::string& error, const std::strin
             error = "the WheelBri Helper is not running";
             return Connect::NoHelper;
         }
-        if (code != ERROR_PIPE_BUSY || !WaitNamedPipeW(name.c_str(), 2000)) {
+        if (code == ERROR_ACCESS_DENIED) {
+            error = "the helper's pipe may not be opened by this user (error 5): not the logged-on user, or not the "
+                    "helper's pipe";
+            return Connect::Failed;
+        }
+        if (code != ERROR_PIPE_BUSY) {
             error = "cannot open the helper's pipe (error " + std::to_string(code) + ")";
             return Connect::Failed;
         }
+        const ULONGLONG now = GetTickCount64();
+        if (now >= deadline) break;
+        // Returns when an instance is free (or at once, or with an error, on some systems): then try again, and
+        // sleep a little so a quick refusal does not spin.
+        if (!WaitNamedPipeW(name.c_str(), static_cast<DWORD>(deadline - now))) Sleep(50);
     }
     error = "the helper is busy";
     return Connect::Failed;
@@ -110,8 +130,16 @@ std::optional<Reply> HelperClient::call(const RequestType type, const std::vecto
     const HANDLE pipe = static_cast<HANDLE>(pipe_);
     const Request request{type, ++seq_, devices};
     const std::vector<std::uint8_t> bytes = encode(request);
+    if (bytes.size() > kMaxMessage) {
+        error = "the request is longer than the helper reads (" + std::to_string(bytes.size()) + " bytes)";
+        return std::nullopt;   // nothing was sent: the connection is still good
+    }
     OVERLAPPED overlapped{};
     overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (overlapped.hEvent == nullptr) {
+        error = "no event to wait for the helper (error " + std::to_string(GetLastError()) + ")";
+        return std::nullopt;
+    }
     DWORD done = 0;
     DWORD code = 0;
     bool ok = finishWithin(pipe, overlapped,
@@ -126,7 +154,9 @@ std::optional<Reply> HelperClient::call(const RequestType type, const std::vecto
     }
     CloseHandle(overlapped.hEvent);
     if (!ok) {
-        error = code == WAIT_TIMEOUT      ? "the helper did not answer within " + std::to_string(timeoutMs / 1000) + " s"
+        error = code == WAIT_TIMEOUT      ? "the helper did not answer within " +
+                                                (timeoutMs % 1000 == 0 ? std::to_string(timeoutMs / 1000) + " s"
+                                                                       : std::to_string(timeoutMs) + " ms")
                 : code == ERROR_CANCELLED ? std::string("stopped")
                                           : "the connection to the helper broke (error " + std::to_string(code) + ")";
         close();

@@ -1,5 +1,7 @@
 #include "MappingView.hpp"
 
+#include "HelperProbe.hpp"
+
 #include "wheelbri/LocalDate.hpp"
 #include "wheelbri/Logging.hpp"
 
@@ -65,6 +67,11 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
       profile_(profile),
       mapper_(mapper),
       target_(profile.identity().shortName.empty() ? std::string("target") : profile.identity().shortName) {
+#if defined(_WIN32)
+    // The app's window is open: say Hello to the WheelBri Helper now (on its own thread), so the helper writes what it
+    // kept since boot into this user's logs folder and the Logs tab knows how it is.
+    (void)HelperProbe::shared();
+#endif
     // Ask the profile rather than assuming a pedal convention.
     WheelState released;
     WheelState pressed;
@@ -823,7 +830,8 @@ void MappingView::refreshLogFiles() {
 #else
         const std::filesystem::path folder = source.driver ? std::filesystem::path() : files_.logFolder;
 #endif
-        ComponentLog component{source.name, source.what, folder, {}, {}};
+        ComponentLog component{source.name, source.what, folder, {}, {}, {}, false};
+        const bool isHelper = std::string_view(source.prefix) == "wheelbri-helper-";
         std::filesystem::path path = component.folder / (std::string(source.prefix) + today + ".log");
         if (std::string_view(source.prefix) == "wheelbri-service-") {
             // The service knows its own file (it may be elsewhere through [logging] file).
@@ -845,6 +853,24 @@ void MappingView::refreshLogFiles() {
             component.status = describeFile(path);
         } else {
             component.status = "no log today";
+        }
+        if (isHelper && !component.folder.empty()) {
+            // What the app last heard from the helper (it says Hello at start, and again from here at most every
+            // 5 minutes), and whether today's helper log has warnings or errors.
+            HelperProbe::shared().request();
+            component.state = helper::describeHelper(HelperProbe::shared().latest());
+            helperLevels_.setFile(path);
+            helperLevels_.poll();
+            const LogLevelCount& count = helperLevels_.count();
+            if (count.any()) {
+                component.warns = true;
+                // "2 err, 3 warn, last 14:03" (the column is 27 characters)
+                std::string said;
+                if (count.errors > 0) said = std::to_string(count.errors) + " err";
+                if (count.warnings > 0) said += (said.empty() ? "" : ", ") + std::to_string(count.warnings) + " warn";
+                if (count.lastTime.size() >= 5) said += ", last " + count.lastTime.substr(0, 5);
+                component.status = said;
+            }
         }
         components_.push_back(std::move(component));
     }
@@ -874,11 +900,16 @@ void MappingView::drawLogs() {
     y = kLogRowsTop;
     for (const ComponentLog& component : components_) {
         fill(window_, 2, y - 2, kLogicalWidth - 4, kLogRowHeight - 2, kPanel);
-        text(window_, 4, y + 2, component.name, kComponentColours[static_cast<std::size_t>(&component - components_.data()) % kComponentColours.size()]);
+        const Colour own = kComponentColours[static_cast<std::size_t>(&component - components_.data()) %
+                                             kComponentColours.size()];
+        text(window_, 4, y + 2, component.name, component.warns ? kWarning : own);
         text(window_, x, y + 2, component.file.empty() ? "-" : shortenMiddle(component.file, 32).c_str(),
              component.file.empty() ? kDim : kText);
-        text(window_, x + 33 * 8, y + 2, shortenMiddle(component.status, 27).c_str(), component.file.empty() ? kDim : kText);
-        text(window_, x + 61 * 8, y + 2, shortenMiddle(component.what, kWhatChars).c_str(), kDim);
+        text(window_, x + 33 * 8, y + 2, shortenMiddle(component.status, 27).c_str(),
+             component.warns ? kWarning : component.file.empty() ? kDim : kText);
+        // The helper's line says what the app last heard from it instead of what it is.
+        text(window_, x + 61 * 8, y + 2,
+             shortenMiddle(component.state.empty() ? component.what : component.state, kWhatChars).c_str(), kDim);
         y += kLogRowHeight;
     }
 
