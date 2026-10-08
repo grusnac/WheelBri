@@ -1,5 +1,6 @@
 add_library(wheelbri_core STATIC
     src/AsyncFfbSink.cpp
+    src/ChangeCounter.cpp
     src/ConfigLibrary.cpp
     src/DeviceMatch.cpp
     src/DeviceLabels.cpp

@@ -19,6 +19,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -259,35 +260,75 @@ void ChildProcess::kill() {
     impl_->exitCode = 128 + SIGKILL;
 }
 
-// --- DeviceChanges: inotify on /dev/input (Linux) ---
+// --- FolderWatch (inotify, Linux) and DeviceChanges on /dev/input ---
+
+struct FolderWatch::Impl {
+    int inotify = -1;
+    std::array<int, 2> stopPipe{-1, -1};   // written to by the destructor: poll wakes, the thread ends
+    std::function<void()> onChange;
+    std::thread thread;
+
+    ~Impl() {
+        for (const int fd : {inotify, stopPipe[0], stopPipe[1]}) {
+            if (fd >= 0) ::close(fd);
+        }
+    }
+
+    void run() {
+        nameThisThread("wheelbri folder watch");
+        alignas(8) char buffer[4096];
+        for (;;) {
+            std::array<pollfd, 2> fds{{{inotify, POLLIN, 0}, {stopPipe[0], POLLIN, 0}}};
+            const int ready = ::poll(fds.data(), fds.size(), -1);
+            if (ready < 0 && errno == EINTR) continue;
+            if (ready < 0 || fds[1].revents != 0) return;           // stopped (or poll itself failed)
+            if ((fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) return;
+            if ((fds[0].revents & POLLIN) == 0) continue;
+            const ssize_t got = ::read(inotify, buffer, sizeof(buffer));   // every event queued now: one call
+            if (got < 0 && (errno == EINTR || errno == EAGAIN)) continue;
+            if (got <= 0) return;   // the descriptor is broken: callers still have their safety timer
+            onChange();
+        }
+    }
+};
+
+std::unique_ptr<FolderWatch> FolderWatch::create(const std::filesystem::path& folder, std::function<void()> onChange) {
+#if defined(__linux__)
+    if (!onChange) return nullptr;
+    auto impl = std::make_unique<Impl>();
+    impl->inotify = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
+    if (impl->inotify < 0 || ::pipe2(impl->stopPipe.data(), O_CLOEXEC) != 0) return nullptr;
+    if (inotify_add_watch(impl->inotify, folder.c_str(),
+                          IN_CREATE | IN_DELETE | IN_ATTRIB | IN_MOVED_TO | IN_MOVED_FROM | IN_ONLYDIR) < 0) {
+        return nullptr;
+    }
+    impl->onChange = std::move(onChange);
+    Impl* const raw = impl.get();
+    impl->thread = std::thread([raw] { raw->run(); });
+    return std::unique_ptr<FolderWatch>(new FolderWatch(std::move(impl)));
+#else
+    (void)folder;
+    (void)onChange;
+    return nullptr;
+#endif
+}
+
+FolderWatch::FolderWatch(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+
+FolderWatch::~FolderWatch() {
+    const char stop = 's';
+    (void)!::write(impl_->stopPipe[1], &stop, 1);
+    if (impl_->thread.joinable()) impl_->thread.join();
+}
 
 namespace detail {
 
 bool watchDeviceChanges(std::function<void()> onChange) {
-#if defined(__linux__)
-    // An event device appearing or going, or becoming readable once udev has set its permissions.
-    const int fd = inotify_init1(IN_CLOEXEC);
-    if (fd < 0) return false;
-    if (inotify_add_watch(fd, "/dev/input", IN_CREATE | IN_DELETE | IN_ATTRIB | IN_MOVED_TO | IN_MOVED_FROM) < 0) {
-        ::close(fd);
-        return false;
-    }
-    // Blocks in read until something changes; runs as long as the process (DeviceChanges is never destroyed).
-    std::thread([fd, onChange = std::move(onChange)] {
-        nameThisThread("wheelbri device changes");
-        alignas(inotify_event) char buffer[4096];
-        for (;;) {
-            const ssize_t got = ::read(fd, buffer, sizeof(buffer));
-            if (got < 0 && errno == EINTR) continue;
-            if (got <= 0) return;   // the descriptor is broken: the safety listing still runs
-            onChange();
-        }
-    }).detach();
-    return true;
-#else
-    (void)onChange;
-    return false;
-#endif
+    // Event devices appearing or going, or becoming readable once udev has set their permissions. Kept for the life
+    // of the process, as DeviceChanges.
+    static std::unique_ptr<FolderWatch>* const watch =
+        new std::unique_ptr<FolderWatch>(FolderWatch::create("/dev/input", std::move(onChange)));
+    return *watch != nullptr;
 }
 
 }  // namespace detail

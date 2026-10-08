@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <vector>
 
 namespace wheelbri {
 namespace {
@@ -90,6 +91,58 @@ TEST(WaitFor, ASleepThatEndsAtOnceStillMovesOn) {
     EXPECT_EQ(outcome, WaitOutcome::TimedOut);
     EXPECT_EQ(sleeps, 100);   // 1 ms counted each time: it ends
     EXPECT_EQ(waited, 100U);
+}
+
+TEST(WaitFor, ASleepThatOverranCountsOnlyWhatWasAsked) {
+    // Windows let a 250 ms sleep last 400 ms: the wait counts 250 (never beyond the timeout because of it).
+    FakeClock clock;
+    std::uint64_t waited = 0;
+    int sleeps = 0;
+    const auto outcome = waitFor({1'000, 250}, [] { return false; }, [] { return false; },
+                                 [&](const std::uint64_t ms) -> std::uint64_t { ++sleeps; return ms + 150; }, &waited);
+    EXPECT_EQ(outcome, WaitOutcome::TimedOut);
+    EXPECT_EQ(waited, 1'000U);
+    EXPECT_EQ(sleeps, 4);
+}
+
+TEST(WaitFor, AZeroIntervalAsksEveryMillisecond) {
+    FakeClock clock;
+    int asked = 0;
+    EXPECT_EQ(waitFor({5, 0}, [&] { ++asked; return false; }, [] { return false; }, clock.sleep()),
+              WaitOutcome::TimedOut);
+    EXPECT_EQ(clock.nowMs, 5U);
+    EXPECT_EQ(asked, 6);   // at once and after each of five 1 ms sleeps: never a spin, never a zero sleep
+}
+
+TEST(WaitFor, TheLastSleepIsCutToTheTimeout) {
+    FakeClock clock;
+    std::vector<std::uint64_t> asked;
+    const auto outcome = waitFor({600, 250}, [] { return false; }, [] { return false; },
+                                 [&](const std::uint64_t ms) -> std::uint64_t { asked.push_back(ms); return ms; });
+    EXPECT_EQ(outcome, WaitOutcome::TimedOut);
+    EXPECT_EQ(asked, (std::vector<std::uint64_t>{250, 250, 100}));
+}
+
+TEST(WaitFor, CancelledAfterSomeSleepsSaysCancelledAndHowLongItWaited) {
+    FakeClock clock;
+    std::uint64_t waited = 0;
+    const auto outcome = waitFor({15'000, 250}, [] { return false; }, [&] { return clock.sleeps == 3; },
+                                 clock.sleep(), &waited);
+    EXPECT_EQ(outcome, WaitOutcome::Cancelled);
+    EXPECT_EQ(waited, 750U);
+}
+
+TEST(WaitFor, ReadyOnTheLastLookBeforeTheTimeoutCountsAsReady) {
+    FakeClock clock;
+    const auto outcome = waitFor({1'000, 250}, [&] { return clock.nowMs >= 1'000; }, [] { return false; },
+                                 clock.sleep());
+    EXPECT_EQ(outcome, WaitOutcome::Ready);
+}
+
+TEST(WaitFor, WithoutWaitedMsItStillWorks) {
+    FakeClock clock;
+    EXPECT_EQ(waitFor({500, 250}, [] { return false; }, [] { return false; }, clock.sleep(), nullptr),
+              WaitOutcome::TimedOut);
 }
 
 TEST(WaitFor, ZeroTimeoutAsksOnce) {

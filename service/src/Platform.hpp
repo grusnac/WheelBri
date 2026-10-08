@@ -1,7 +1,10 @@
 #pragma once
 
+#include "wheelbri/ChangeCounter.hpp"
+
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -28,29 +31,45 @@ inline void sleepMs(const std::uint32_t ms) { sleepNs(ms * kNsPerMs); }
 
 // Tells when game controllers may have been plugged in or out, so the devices are listed again only then
 // (core RelistTimer) instead of every 2 s. Windows: device-interface arrivals and removals of HID devices
-// (CM_Register_Notification, looked up at run time); Linux: inotify on /dev/input (event devices appearing, going, or
-// becoming readable). It never says which device: the caller lists. One per process, made on first use and kept until
-// the process ends (the system calls it from its own threads); thread safe.
+// (CM_Register_Notification, looked up at run time); Linux: a FolderWatch on /dev/input (event devices appearing,
+// going, or becoming readable). It never says which device: the caller lists. One per process, made on first use and
+// kept until the process ends (the system calls it from its own threads); thread safe.
 class DeviceChanges {
 public:
     [[nodiscard]] static DeviceChanges& shared();
 
     // False when the system refused the notifications: callers then list on a timer, as before
     // (RelistTimer::Settings::withoutNotifications()).
-    [[nodiscard]] bool available() const;
-    // Changes announced so far (only ever grows).
-    [[nodiscard]] std::uint64_t count() const;
-    // Waits until count() is no longer `seen`, `timeoutMs` passed, or wakeWaiters() was called; true when it changed.
-    bool waitForChange(std::uint64_t seen, std::uint64_t timeoutMs);
-    // Ends every waitForChange now (a waiter that is stopping); they look at their own state and wait again if needed.
-    void wakeWaiters();
+    [[nodiscard]] bool available() const { return available_; }
+    // The count of changes and the waiting (core ChangeCounter).
+    [[nodiscard]] ChangeCounter& counter() { return counter_; }
 
-    struct Impl;   // per system, in PlatformWin32.cpp / PlatformPosix.cpp
+    DeviceChanges(const DeviceChanges&) = delete;
+    DeviceChanges& operator=(const DeviceChanges&) = delete;
 
 private:
     DeviceChanges();
     ~DeviceChanges() = delete;   // lives as long as the process: system callbacks may still come while it ends
-    Impl* impl_;
+    ChangeCounter counter_;
+    bool available_ = false;
+};
+
+// Calls `onChange`, from a thread of its own, whenever an entry of `folder` is created, deleted, moved in or out, or
+// changes its attributes (inotify on Linux; create() gives null elsewhere, or when the folder cannot be watched). A
+// burst of changes read at once is one call. The destructor stops the thread and waits for it.
+class FolderWatch {
+public:
+    [[nodiscard]] static std::unique_ptr<FolderWatch> create(const std::filesystem::path& folder,
+                                                             std::function<void()> onChange);
+    ~FolderWatch();
+    FolderWatch(const FolderWatch&) = delete;
+    FolderWatch& operator=(const FolderWatch&) = delete;
+
+    struct Impl;   // PlatformPosix.cpp
+
+private:
+    explicit FolderWatch(std::unique_ptr<Impl> impl);
+    std::unique_ptr<Impl> impl_;
 };
 
 // Waits until one of several sources has something new, or a time passes: the service's loop (core EventLoopControl),

@@ -29,7 +29,7 @@ void RelistTimer::listed(const std::uint64_t nowMs, const std::uint64_t changes)
 }
 
 std::uint64_t RelistTimer::nextDueMs(const std::uint64_t nowMs, const std::uint64_t changes) const {
-    if (!listedOnce_) return nowMs;
+    if (!listedOnce_ || nowMs < lastListMs_) return nowMs;   // as due(): the first time, or a clock gone back
     std::uint64_t next = lastListMs_ + settings_.safetyMs;
     if (changePending_) {
         next = std::min(next, changeSeenMs_ + settings_.settleMs);

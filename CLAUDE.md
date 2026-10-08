@@ -170,7 +170,7 @@ of the tab bar, a short status and then Start and Stop, as tall as
 the tab buttons (which are as wide as their labels, `MappingView::tabWidth`, so five tabs leave room for them). Stopped, Start is greyed out until
 every rig device the saved mapping uses is connected (core `StartNeeds`: the wheel and the accessories the mapping
 reads; "NO RIG" without a rig, "NO MAPPING" when not one of the target's controls comes from a device of the rig,
-`mappingUsesRig`; those two come first in the status; `service/src/DeviceWatch.cpp` lists the game controllers on its own thread when Windows says one came or went: `platform::DeviceChanges`, `CM_Register_Notification` on HID interfaces / inotify on `/dev/input`, timed by core `RelistTimer`, with a listing every 30 s as a safety net and every 2 s where there are no notifications; the Rig tab and the session's wait for the wheel use the same), and the status says
+`mappingUsesRig`; those two come first in the status; `service/src/DeviceWatch.cpp` lists the game controllers on its own thread when Windows says one came or went: `platform::DeviceChanges`, `CM_Register_Notification` on HID interfaces / inotify on `/dev/input`, counted by core `ChangeCounter`, timed by core `RelistTimer`; `DeviceWatch` takes its lister, counter and timings as arguments (`systemLister()`, `systemOptions()`) so `DeviceWatchTest` drives it with a fake lister; `platform::FolderWatch` is the inotify watch, Linux only), with a listing every 30 s as a safety net and every 2 s where there are no notifications; the Rig tab and the session's wait for the wheel use the same), and the status says
 "NOT CONNECTED: <names>" or "NO RIG" in red. `WheelBackend::list()` on Windows makes a new DirectInput object each
 time, so a wheel switched on after the app started is found. Stopped, the app's own tabs are Mapping (`MappingEditView`,
 the editor, with `ConfigPicker` as its top row), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
@@ -521,7 +521,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   do), `push-input-plan.md` (the service loop from polling to Windows' notifications: merged into main on 2026-10-07), `cpu-measurements.md` (measure.sh rounds: what was measured, the numbers and what they showed; add new rounds there).
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest` and `WaitSetTest` (the service's
-  `platform::WaitSet` with loopback sockets, a pipe or an event; linked when `wheelbri_privileged` is built).
+  `platform::WaitSet` with loopback sockets, a pipe or an event), `FolderWatchTest` (inotify on a temporary folder) and `DeviceWatchTest` (real thread, fake lister); all three are linked when `wheelbri_privileged` is built.
   **Test the service loop on the emulators** in `tests/emulators/PushEmulators.hpp` (`PushLoopTest`): devices
   that push input like DirectInput / evdev or misbehave (`EmulatedPushDevice::Behaviour`: polled, dropped, stopped,
   late or spurious notifications, unplugged), game force feedback datagrams (`EmulatedSocket`), a wait that can fail

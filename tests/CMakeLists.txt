@@ -8,6 +8,7 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(wheelbri_tests
     AsyncFfbSinkTest.cpp
+    ChangeCounterTest.cpp
     ConfigLibraryTest.cpp
     DeviceLabelsTest.cpp
     DeviceProfileTest.cpp
@@ -53,9 +54,11 @@ target_link_libraries(wheelbri_tests PRIVATE wheelbri_core GTest::gtest_main)
 # Emulated devices, sockets and waits for the events loop (PushLoopTest).
 target_include_directories(wheelbri_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# platform::WaitSet (the service's event loop) with real sockets and events; needs the service's platform code.
+# The service's platform code with real sockets, events, folders and threads: platform::WaitSet (the event loop),
+# FolderWatch and DeviceChanges (device notices), and DeviceWatch with a fake lister.
 if(TARGET wheelbri_privileged)
-    target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp)
+    target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp FolderWatchTest.cpp DeviceWatchTest.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/DeviceChanges.cpp ${PROJECT_SOURCE_DIR}/service/src/DeviceWatch.cpp)
     target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/service/src)
     target_link_libraries(wheelbri_tests PRIVATE wheelbri_privileged)
 endif()

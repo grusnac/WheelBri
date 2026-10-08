@@ -602,6 +602,18 @@ void ChildProcess::kill() {
     impl_->running = false;
 }
 
+// --- FolderWatch: not used on Windows (DeviceChanges uses the system's device notices) ---
+
+struct FolderWatch::Impl {};
+
+std::unique_ptr<FolderWatch> FolderWatch::create(const std::filesystem::path&, std::function<void()>) {
+    return nullptr;
+}
+
+FolderWatch::FolderWatch(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+
+FolderWatch::~FolderWatch() = default;
+
 // --- DeviceChanges: Windows' notifications of HID device interfaces coming and going ---
 
 namespace {

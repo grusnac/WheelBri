@@ -1437,7 +1437,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         std::uint64_t waitedMs = 0;
         if (host != nullptr) host->step("waiting for the wheel (up to " + std::to_string(wait.timeoutMs / 1000) + " s)");
         // Each check of the wheel at once when Windows says a device came (else every 250 ms, for Stop as well).
-        platform::DeviceChanges& changes = platform::DeviceChanges::shared();
+        wheelbri::ChangeCounter& changes = platform::DeviceChanges::shared().counter();
         const wheelbri::WaitOutcome outcome = wheelbri::waitFor(
             wait, [&] { return wheelbri::service::wheelConnected(*backend, config.sourceDeviceMatch); }, cancelled,
             [&changes](const std::uint64_t ms) {

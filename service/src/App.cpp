@@ -997,7 +997,8 @@ private:
     std::unique_ptr<MappingView> logs_;             // the Logs tab while no session shows
     IdleTab idleTab_ = IdleTab::Mapping;   // what shows while no session does
     // What Start needs from the rig (updateStartNeeds).
-    DeviceWatch devices_;
+    DeviceWatch devices_{DeviceWatch::systemLister(), platform::DeviceChanges::shared().counter(),
+                         DeviceWatch::systemOptions(platform::DeviceChanges::shared().available())};
     bool needsKnown_ = false;              // the connected devices are known (first listing done)
     std::string needsProblem_;             // no rig, no wheel in it
     bool helperMissing_ = false;           // target virtual device, not elevated, no WheelBri Helper running

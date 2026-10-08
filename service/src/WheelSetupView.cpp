@@ -133,7 +133,7 @@ RelistTimer::Settings WheelSetupView::relistSettings() {
 bool WheelSetupView::refreshDevices(const bool force) {
     // Only when a device came or went (a quick look at a counter on every frame), not every 2 s: listing through
     // DirectInput can hold this window's thread for a good part of a second.
-    const std::uint64_t changes = platform::DeviceChanges::shared().count();
+    const std::uint64_t changes = platform::DeviceChanges::shared().counter().count();
     if (!force && !relist_.due(platform::nowMs(), changes)) return false;
     if (backend_ == nullptr) {
         backend_ = startWheelBackend();

@@ -35,6 +35,7 @@ add_library(wheelbri_service_objects OBJECT
     src/App.cpp
     src/DeviceChanges.cpp
     src/DeviceWatch.cpp
+    src/DeviceWatchSystem.cpp
     src/FfbSelfTest.cpp
     src/Housekeeping.cpp
     src/MappingView.cpp
