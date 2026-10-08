@@ -68,15 +68,20 @@ if [ -z "$config" ]; then
 fi
 
 # Default --hide: every device of the active rig (app.ini [app] rig, then id = vvvv:pppp in rigs/<rig>.ini).
+# The app writes its files with Windows line ends (CRLF), on Linux too: each line loses its \r first.
 if [ -z "$hide" ]; then
-    rig=$(awk -F= '/^\[/{app = ($0 ~ /^\[app\]/); next} app && $1 ~ /^[ \t]*rig[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' \
+    rig=$(awk -F= '{sub(/\r$/, "")} /^\[/{app = ($0 ~ /^\[app\]/); next} app && $1 ~ /^[ \t]*rig[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' \
           "$settings/app.ini" 2>/dev/null)
     if [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
-        hide=$(awk -F= '$1 ~ /^[ \t]*id[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/[ \t]/, "", $2); split($2, p, ":");
+        hide=$(awk -F= '{sub(/\r$/, "")} $1 ~ /^[ \t]*id[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/[ \t]/, "", $2); split($2, p, ":");
                         if (length(p[1]) == 4 && length(p[2]) == 4 && toupper($2) != "046D:C262")
                             printf "%s0x%s/0x%s", (n++ ? "," : ""), toupper(p[1]), toupper(p[2])}' "$settings/rigs/$rig.ini")
     fi
-    [ -z "$hide" ] && echo "wheelbri.sh: no rig yet (set it up in the Rig tab of wheelbri-service --ui): nothing is hidden from the game" >&2
+    if [ -z "$hide" ] && [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
+        echo "wheelbri.sh: rig '$rig' names no device id (vvvv:pppp): nothing is hidden from the game" >&2
+    elif [ -z "$hide" ]; then
+        echo "wheelbri.sh: no rig yet (set it up in the Rig tab of wheelbri-service --ui): nothing is hidden from the game" >&2
+    fi
 fi
 
 state="${XDG_STATE_HOME:-$HOME/.local/state}/wheelbri"
@@ -129,6 +134,7 @@ start() {
             say "virtual G920 created (wheelbri-uhid)"
         fi
         # Raw HID for the G920 (its force feedback is HID PID), and the real wheel hidden from the game.
+        say "hidden from the game: ${hide:-nothing}"
         export PROTON_ENABLE_HIDRAW="${PROTON_ENABLE_HIDRAW:+$PROTON_ENABLE_HIDRAW,}0x046D/0xC262"
         export SDL_GAMECONTROLLER_IGNORE_DEVICES="${SDL_GAMECONTROLLER_IGNORE_DEVICES:+$SDL_GAMECONTROLLER_IGNORE_DEVICES,}$hide"
     else
