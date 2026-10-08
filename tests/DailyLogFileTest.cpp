@@ -164,6 +164,69 @@ TEST(DailyLogFile, AttachingToAClosedTargetDoesNotCloseItAgain) {
     EXPECT_TRUE(log.isOpen());
 }
 
+// The Helper bug of 0.9.0: the app's Hello every 5 minutes attached the same folder again and each time started a
+// new, empty wheelbri-helper-<date>-<NN>.log.
+TEST(DailyLogFile, TheSamePlaceAgainKeepsTheFileAndDropsTheNewTarget) {
+    Disk current;
+    Disk again;
+    DailyLogFile log;
+    log.attach(std::make_unique<FakeTarget>(current), kDay1, 0, "C:\\logs");
+    log.write("one", kDay1, 1);
+    log.attach(std::make_unique<FakeTarget>(again), kDay1, 2, "C:\\logs");
+    log.write("two", kDay1, 3);
+    EXPECT_EQ(current.opened.size(), 1U);
+    EXPECT_EQ(current.closes, 0);
+    EXPECT_TRUE(again.opened.empty());   // never opened: no new file
+    EXPECT_EQ(current.files[kDay1], (std::vector<std::string>{"one", "two"}));
+    EXPECT_EQ(log.where(), "C:\\logs");
+}
+
+TEST(DailyLogFile, TheSamePlaceWhoseFileCouldNotOpenIsTriedAgainAtOnce) {
+    Disk disk;
+    disk.openFails = true;
+    DailyLogFile log(settings(10, 60'000));
+    log.attach(std::make_unique<FakeTarget>(disk), kDay1, 0, "here");
+    log.write("waits", kDay1, 1);
+    disk.openFails = false;
+    Disk unused;
+    log.attach(std::make_unique<FakeTarget>(unused), kDay1, 2, "here");   // well before the retry time
+    EXPECT_TRUE(log.isOpen());
+    EXPECT_EQ(disk.opened.size(), 2U);
+    EXPECT_TRUE(unused.opened.empty());
+    EXPECT_EQ(disk.files[kDay1], std::vector<std::string>{"waits"});
+}
+
+TEST(DailyLogFile, AnotherPlaceOrNoPlaceTakesTheNewTarget) {
+    Disk first;
+    Disk second;
+    Disk third;
+    DailyLogFile log;
+    log.attach(std::make_unique<FakeTarget>(first), kDay1, 0, "alice");
+    log.attach(std::make_unique<FakeTarget>(second), kDay1, 1, "bob");
+    EXPECT_EQ(first.closes, 1);
+    EXPECT_EQ(log.where(), "bob");
+    log.attach(std::make_unique<FakeTarget>(third), kDay1, 2);   // no place said: always the new one
+    EXPECT_EQ(second.closes, 1);
+    EXPECT_EQ(third.opened.size(), 1U);
+    EXPECT_EQ(log.where(), "");
+    Disk fourth;
+    log.attach(std::make_unique<FakeTarget>(fourth), kDay1, 3);   // two empty places are not the same place
+    EXPECT_EQ(third.closes, 1);
+    EXPECT_EQ(fourth.opened.size(), 1U);
+}
+
+TEST(DailyLogFile, AfterANullTargetTheSamePlaceIsANewTarget) {
+    Disk first;
+    Disk second;
+    DailyLogFile log;
+    log.attach(std::make_unique<FakeTarget>(first), kDay1, 0, "here");
+    log.attach(nullptr, kDay1, 1, "here");
+    EXPECT_EQ(log.where(), "");
+    log.attach(std::make_unique<FakeTarget>(second), kDay1, 2, "here");
+    EXPECT_EQ(second.opened.size(), 1U);
+    EXPECT_TRUE(log.isOpen());
+}
+
 TEST(DailyLogFile, TheFileIsClosedWhenTheLogEnds) {
     Disk disk;
     {

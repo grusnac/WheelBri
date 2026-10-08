@@ -94,7 +94,7 @@ public:
 
     // A key pressed in the window: M / R / L (T / F when shown) switch tabs, O opens the logs (or telemetry) folder, D the drivers'
     // log folder; on the Logs tab the arrows, PageUp / PageDown and Home / End scroll the live log, Left / Right
-    // sideways, and W turns word wrap on or off.
+    // sideways, W turns word wrap on or off, and V steps the log level (the Level button, in the app only).
     void onKey(char key);
     // Mouse wheel notches (> 0 = up): on the Logs tab, scrolls the live log.
     void onScroll(int notches);
@@ -231,6 +231,7 @@ private:
     Bar vBar_;
     Bar hBar_;
     float wrapX_ = 0, wrapY_ = 0, wrapW_ = 0;           // the Wrap button
+    float levelX_ = 0, levelY_ = 0, levelW_ = 0;        // the Level button (0 wide: not shown)
     enum class Drag { None, Vertical, Horizontal };
     Drag drag_ = Drag::None;
     float dragGrab_ = 0;                // where on the thumb it was taken

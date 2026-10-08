@@ -7,7 +7,7 @@ namespace wheelbri::logging {
 
 // Kept free of spdlog so configuration code does not pull the logging headers in.
 struct LogConfig {
-    std::string level = "info";                  // trace | debug | info | warn | error | critical | off
+    std::string level = "warn";                  // trace | debug | info | warn | error | critical | off
     std::string filePath;                        // empty = application default location; the date is added to
                                                  // the name, a new file every day ("x.log" -> "x-2026-09-30.log")
     bool console = true;                         // coloured stderr output (off inside the game process)

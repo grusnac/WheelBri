@@ -278,6 +278,24 @@ bool writeAllowedPid(const std::uint32_t pid, const std::uint64_t processStart) 
     return true;
 }
 
+bool writeLogLevel(const LogLevel level, std::string& message) {
+    HKEY key = nullptr;
+    LSTATUS status = RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\wheelbri", 0, nullptr, REG_OPTION_NON_VOLATILE,
+                                     KEY_SET_VALUE, nullptr, &key, nullptr);
+    if (status == ERROR_SUCCESS) {
+        const std::string name = logLevelName(clampToApp(level));
+        const std::wstring value(name.begin(), name.end());   // ASCII
+        status = RegSetValueExW(key, L"LogLevel", 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()),
+                                static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(key);
+    }
+    if (status != ERROR_SUCCESS) {
+        message = "cannot write HKLM\\SOFTWARE\\wheelbri LogLevel (error " + std::to_string(status) + ")";
+        return false;
+    }
+    return true;
+}
+
 std::uint32_t allowedPid() {
     DWORD pid = 0;
     DWORD size = sizeof(pid);
@@ -331,6 +349,7 @@ HideSetup putHideFilter(const std::vector<std::string>&, const std::vector<std::
 }
 
 bool writeAllowedPid(std::uint32_t, std::uint64_t) { return false; }
+bool writeLogLevel(LogLevel, std::string&) { return true; }
 std::uint32_t allowedPid() { return 0; }
 
 bool allowOnly(void*, std::string& message) {

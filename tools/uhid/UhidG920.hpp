@@ -26,7 +26,7 @@ namespace wheelbri::uhid {
 class UhidG920 {
 public:
     using Write = std::function<bool(const uhid_event&)>;
-    using Log = std::function<void(const std::string&)>;
+    using Log = HidPid::Logger;   // a line and its level
 
     static constexpr const char* kName = "Logitech G920 Driving Force Racing Wheel USB";   // as the shim reports
 

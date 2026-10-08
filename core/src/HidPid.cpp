@@ -33,6 +33,14 @@ std::string hex(std::span<const std::uint8_t> d) {
     return text;
 }
 
+// PID effect types in the descriptor's order (1-based).
+const char* pidTypeName(const int pidType) {
+    static constexpr const char* kNames[] = {"no type yet", "constant", "ramp",   "square",  "sine",
+                                             "triangle",    "saw up",   "saw down", "spring", "damper",
+                                             "inertia",     "friction", "custom"};
+    return pidType >= 0 && pidType <= 12 ? kNames[pidType] : "unknown type";
+}
+
 }  // namespace
 
 HidPid::HidPid(Sender send, Logger log) : send_(std::move(send)), log_(std::move(log)) {}
@@ -70,7 +78,7 @@ void HidPid::noteReport(const std::int64_t nowMs) {
     lastReportMs_ = nowMs;
     if (quiet_) {
         quiet_ = false;
-        log_("pid: the game sends force feedback again: forces back on");
+        log_(LogLevel::Info, "pid: the game sends force feedback again: forces back on");
     }
 }
 
@@ -84,12 +92,37 @@ void HidPid::trace(const std::string& text, const std::int64_t nowMs) {
     if (traceLeft_ <= 0) return;
     if (traceLeft_ == traceLines_) {
         traceStartMs_ = nowMs;
-        log_("pid trace: the next " + std::to_string(traceLines_) + " reports and slot changes (+ms from the first)");
+        log_(LogLevel::Trace, "pid trace: the next " + std::to_string(traceLines_) +
+                                  " reports and slot changes (+ms from the first)");
     }
     char at[32];
     std::snprintf(at, sizeof(at), "pid trace +%lld ", static_cast<long long>(nowMs - traceStartMs_));
-    log_(at + text);
-    if (--traceLeft_ == 0) log_("pid trace: end");
+    log_(LogLevel::Trace, at + text);
+    if (--traceLeft_ == 0) log_(LogLevel::Trace, "pid trace: end");
+}
+
+void HidPid::event(const std::string& text, const std::int64_t nowMs, const LogLevel level) {
+    if (nowMs - eventWindowMs_ >= kEventWindowMs) {
+        if (eventsSkipped_ > 0) {
+            log_(LogLevel::Debug, "pid: " + std::to_string(eventsSkipped_) + " more effect events in " +
+                 std::to_string(kEventWindowMs / 1000) + " s were not logged");
+        }
+        eventWindowMs_ = nowMs;
+        eventsInWindow_ = 0;
+        eventsSkipped_ = 0;
+    }
+    if (eventsInWindow_ >= kMaxEventLines) {
+        ++eventsSkipped_;
+        return;
+    }
+    ++eventsInWindow_;
+    log_(level, "pid: " + text);
+}
+
+std::string HidPid::describe(const std::uint8_t ebi, const Block& b) const {
+    std::string text = "block " + std::to_string(ebi) + " (" + pidTypeName(b.pidType);
+    text += b.slot >= 0 ? ", slot " + std::to_string(b.slot) + ")" : ", no slot)";
+    return text;
 }
 
 void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std::int64_t nowMs) {
@@ -103,11 +136,11 @@ void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std:
     char kind[24];
     std::snprintf(kind, sizeof(kind), "output 0x%02X", reportId);
     if (seen_.insert(kind).second) {
-        log_(std::string("pid: first ") + kind + ": " + hex(d));
+        log_(LogLevel::Debug, std::string("pid: first ") + kind + ": " + hex(d));
     }
     switch (reportId) {
         case kSetEffect:
-            if (d.size() >= 13) onSetEffect(d);
+            if (d.size() >= 13) onSetEffect(d, nowMs);
             break;
         case kSetEnvelope:
             // 0 EBI, 1 attack level, 3 fade level (0..10000), 5 attack time ms, 9 fade time ms (32 bits each).
@@ -152,7 +185,13 @@ void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std:
             if (!d.empty()) onDeviceControl(d[0], nowMs);
             break;
         case kDeviceGain:
-            if (!d.empty()) deviceGain_ = static_cast<float>(d[0]) / 255.0F;
+            if (!d.empty()) {
+                const float gain = static_cast<float>(d[0]) / 255.0F;
+                if (gain != deviceGain_) {
+                    event("device gain " + std::to_string(static_cast<int>(std::lround(gain * 100.0F))) + "%", nowMs);
+                }
+                deviceGain_ = gain;
+            }
             break;
         default: break;
     }
@@ -170,7 +209,7 @@ void HidPid::setFeature(std::uint8_t reportId, std::span<const std::uint8_t> d, 
     char kind[24];
     std::snprintf(kind, sizeof(kind), "feature 0x%02X", reportId);
     if (seen_.insert(kind).second) {
-        log_(std::string("pid: first ") + kind + ": " + hex(d));
+        log_(LogLevel::Debug, std::string("pid: first ") + kind + ": " + hex(d));
     }
     // pid.dll may send Block Free and Device Control through the feature path too.
     if (reportId == kBlockFree && !d.empty()) {
@@ -197,9 +236,11 @@ void HidPid::setFeature(std::uint8_t reportId, std::span<const std::uint8_t> d, 
             break;
         }
     }
-    if (lastLoadStatus_ == 2 && seen_.insert("pool full").second) {   // once: a game may keep trying
-        log_("pid: all " + std::to_string(kMaxSlots) + " effect blocks in use, the game's new effect is refused "
-             "(said once)");
+    if (lastLoadStatus_ == 1) {
+        event("new effect: block " + std::to_string(lastAllocated_), nowMs);
+    } else {
+        event("new effect refused: all " + std::to_string(kMaxSlots) + " effect blocks are in use", nowMs,
+              LogLevel::Warn);
     }
 }
 
@@ -245,8 +286,8 @@ HidPid::Block* HidPid::withBlock(std::uint8_t ebi) {
     // hold one of the 8 slots until a Device Reset. (Hosts may skip Create New Effect, so 1..8 stay accepted.)
     if (ebi > kMaxSlots && !blocks_.contains(ebi)) {
         if (seen_.insert("out of range " + std::to_string(ebi)).second) {   // once per block number
-            log_("pid: a report for effect block " + std::to_string(ebi) + ", a number this device never hands out: "
-                 "ignored");
+            log_(LogLevel::Warn, "pid: a report for effect block " + std::to_string(ebi) +
+                                     ", a number this device never hands out: ignored");
         }
         return nullptr;
     }
@@ -255,8 +296,8 @@ HidPid::Block* HidPid::withBlock(std::uint8_t ebi) {
         const auto free = std::find(slotOwner_.begin(), slotOwner_.end(), std::nullopt);
         if (free == slotOwner_.end()) {
             if (seen_.insert("slots full " + std::to_string(ebi)).second) {   // once per block, not per report
-                log_("pid: all " + std::to_string(kMaxSlots) + " slots in use, effect block " + std::to_string(ebi) +
-                     " is not played");
+                log_(LogLevel::Warn, "pid: all " + std::to_string(kMaxSlots) + " slots in use, effect block " +
+                                         std::to_string(ebi) + " is not played");
             }
         } else {
             block.slot = static_cast<int>(free - slotOwner_.begin());
@@ -273,7 +314,7 @@ void HidPid::withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& act
     }
     if (!loggedEbiZero_) {
         loggedEbiZero_ = true;
-        log_("pid: parameters come with effect block 0: matched to the Set Effect that follows");
+        log_(LogLevel::Debug, "pid: parameters come with effect block 0: matched to the Set Effect that follows");
     }
     // Kept for the Set Effect that names the block, never applied here: Windows often sends a report twice (the same
     // bytes back to back), sends a new effect's parameters before its first Set Effect, and may put an Effect
@@ -299,7 +340,7 @@ void HidPid::flushPending(const std::int64_t nowMs, const bool all) {
 // Set Effect: 0 EBI, 1 type, 2 duration ms, 4 trigger repeat, 6 sample period, 8 start delay ms,
 // 10 gain 0..255, 11 trigger button, 12 bit0 X enable / bit1 Y enable / bit2 direction enable,
 // 13 direction 1 (0..32767 = 0..360 degrees), 15 direction 2, 17/19 type-specific block offsets.
-void HidPid::onSetEffect(std::span<const std::uint8_t> d) {
+void HidPid::onSetEffect(std::span<const std::uint8_t> d, const std::int64_t nowMs) {
     const std::uint8_t ebi = d[0];
     const int type = d[1];
     const std::uint16_t duration = u16(d, 2);
@@ -309,9 +350,22 @@ void HidPid::onSetEffect(std::span<const std::uint8_t> d) {
     const std::uint16_t direction = d.size() >= 15 ? u16(d, 13) : 0;
     Block* b = withBlock(ebi);
     if (b == nullptr) return;
+    const std::optional<std::int64_t> durationMs =
+        (duration == 0xFFFF || duration == 0) ? std::nullopt : std::optional<std::int64_t>(duration);
+    const std::int64_t delayMs = startDelay == 0xFFFF ? 0 : startDelay;
+    // Logged when the block gets its type, or its type or timing changes (a game updating a running effect sends
+    // the same Set Effect over and over: not logged again).
+    if (b->pidType != type || b->durationMs != durationMs || b->startDelayMs != delayMs) {
+        b->pidType = type;
+        std::string text = describe(ebi, *b) + ": " +
+                           (durationMs ? std::to_string(*durationMs) + " ms" : std::string("until stopped"));
+        if (delayMs > 0) text += ", starts " + std::to_string(delayMs) + " ms after its start";
+        text += ", gain " + std::to_string(static_cast<int>(std::lround(gain * 100.0F))) + "%";
+        event(text, nowMs);
+    }
     b->pidType = type;
-    b->durationMs = (duration == 0xFFFF || duration == 0) ? std::nullopt : std::optional<std::int64_t>(duration);
-    b->startDelayMs = startDelay == 0xFFFF ? 0 : startDelay;
+    b->durationMs = durationMs;
+    b->startDelayMs = delayMs;
     b->gain = gain;
     if (const auto kind = kindOf(type)) {
         lastOfKind_[*kind] = ebi;
@@ -385,13 +439,28 @@ void HidPid::onEffectOperation(std::span<const std::uint8_t> d, std::int64_t now
         }
     }
     Block* b = withBlock(ebi);
-    if (b == nullptr) return;
+    if (b == nullptr) {
+        event("effect operation " + std::to_string(op) + " for block " + std::to_string(ebi) +
+                  ", a block this device does not have: ignored",
+              nowMs, LogLevel::Warn);
+        return;
+    }
     if (op == 1 || op == 2) {
         b->started = true;
         b->startedAtMs = nowMs;
         b->loops = loops == 255 ? std::nullopt : std::optional<int>(std::max(1, static_cast<int>(loops)));
+        std::string text = std::string(op == 2 ? "start solo " : "start ") + describe(ebi, *b) +
+                           (b->loops ? ", " + std::to_string(*b->loops) + " time(s)" : std::string());
+        if (b->pidType == 0) text += ": its Set Effect has not come yet, it plays once that does";
+        if (!actuatorsOn_) text += ": the actuators are off (the game disabled them)";
+        if (paused_) text += ": the device is paused (the game paused it)";
+        event(text, nowMs);
     } else if (op == 3) {
         b->started = false;
+        event("stop " + describe(ebi, *b), nowMs);
+    } else {
+        event("effect operation " + std::to_string(op) + " for " + describe(ebi, *b) + ": unknown, ignored", nowMs,
+              LogLevel::Warn);
     }
 }
 
@@ -403,7 +472,11 @@ void HidPid::onBlockFree(std::uint8_t ebi, std::int64_t nowMs) {
         it = it->second == ebi ? lastOfKind_.erase(it) : std::next(it);
     }
     const auto found = blocks_.find(ebi);
-    if (found == blocks_.end()) return;
+    if (found == blocks_.end()) {
+        event("free block " + std::to_string(ebi) + ", which was not in use", nowMs);
+        return;
+    }
+    event("free " + describe(ebi, found->second), nowMs);
     const int slot = found->second.slot;
     blocks_.erase(found);
     if (slot < 0) return;
@@ -431,6 +504,18 @@ void HidPid::resetAll(std::int64_t nowMs) {
 
 // Device Control: 1 enable actuators, 2 disable, 3 stop all, 4 reset, 5 pause, 6 continue.
 void HidPid::onDeviceControl(std::uint8_t command, std::int64_t nowMs) {
+    static constexpr const char* kCommands[] = {
+        "",
+        "enable actuators",
+        "disable actuators (no force until they are enabled again)",
+        "stop all effects",
+        "reset (every effect is gone)",
+        "pause (no force until it continues)",
+        "continue",
+    };
+    event(command >= 1 && command <= 6 ? std::string("device control: ") + kCommands[command]
+                                       : "device control " + std::to_string(command) + ": unknown, ignored",
+          nowMs, command >= 1 && command <= 6 ? LogLevel::Debug : LogLevel::Warn);
     switch (command) {
         case 1: actuatorsOn_ = true; break;
         case 2: actuatorsOn_ = false; break;
@@ -543,9 +628,10 @@ void HidPid::tick(std::int64_t nowMs) {
                                          [&](const auto& s) { return s && s->playing && pushes(s->effect); });
         if (pushing) {
             quiet_ = true;
-            log_("pid: WARNING: no force feedback report from the game for " + std::to_string(kGameQuietMs / 1000) +
-                 " s while a pushing force plays (did the game crash?): keep-alives stopped, so the service stops "
-                 "the forces; they come back with the game's next report");
+            log_(LogLevel::Warn, "pid: no force feedback report from the game for " +
+                                     std::to_string(kGameQuietMs / 1000) +
+                                     " s while a pushing force plays (did the game crash?): keep-alives stopped, so "
+                                     "the service stops the forces; they come back with the game's next report");
         }
     }
     flushPending(nowMs, false);

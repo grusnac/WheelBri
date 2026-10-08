@@ -74,7 +74,7 @@ UDP ports (all 127.0.0.1):
 
 | Port | Direction | What |
 |---|---|---|
-| 41329 (`state_port`) | service → consumer | `StatePacket`; only one consumer at a time |
+| 41329 (`state_port`) | service → consumer | `StatePacket`, and `LogLevelPacket` (8 bytes, `WELV`) from the same socket; only one consumer at a time |
 | 41330 (`ffb_port`) | consumer → service | `FfbPacket` (game force feedback) |
 | 41331 | test tool → service | `ClutchPacket` test clutch (`TestClutch.hpp`) |
 
@@ -192,7 +192,8 @@ project's version; both exes carry the icon `wheelbri.ico`, made from `wheelbri.
 1, which `UiWindowWin32` also uses for the window) runs sessions (`runSession` in `main.cpp`) on a thread of its
 own from Start / Stop buttons; sessions show themselves through `UiHost` (`SessionUi.hpp`): the app's window,
 or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it does not own. The window is drawn
-~30 times a second (sooner after input); 60 cost a sixth of a core for a picture that rarely changes.
+60 times a second (`kWindowFramesPerSecond` in `WakePlanner.hpp`; at once after input), on a drift-free schedule: the
+user found 30 laggy (2026-10-08). The session loop hands the window its state as often (`WakeSettings::windowNs`).
 
 ## Layout and architecture
 
@@ -235,11 +236,22 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     ones reach the last block of their kind after `kPendingMs`. A trace (`HidPid::enableTrace`, off by default) writes
     the next N reports and the slot changes they cause to the driver's log (`pid trace`), for checking the real order:
     an Administrator sets `HKLM\SOFTWARE\wheelbri PidTraceLines` (DWORD, e.g. 1000), read at each start of the device.
+    One `pid:` line per effect event at debug (new effect or refused, a Set Effect that changes type, duration or
+    delay, start / start solo / stop with why a start cannot play yet, free, every device control, a gain change),
+    at most `kMaxEventLines` (100) per `kEventWindowMs` (10 s) and the rest counted. That says whether the game asked
+    to start its effects (set the app's Level to debug first). `HidPid::Logger` takes each line's `LogLevel`: trace
+    lines at trace, what goes wrong at warn (refused effect, unknown operation or device control, a block it never
+    handed out, the game gone quiet).
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
     spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
   - `GameUseWatch`: pedals pressed for 20 s in total while the game never sent force feedback = the game drives from
     another controller (a gamepad or the keyboard); the loop logs a warning and the app's status (next to Start / Stop) says
     "GAME NOT USING THE WHEEL" (`UiFrame::gameIgnoresWheel`).
+  - `FfbIdleWatch`: the game has lasting effects loaded (constant, spring, damper, friction, inertia; `FfbController`
+    `lastingLoaded()` / `lastingWanted()`, a slot is loaded from its first `SlotState` until a StopAll or the watchdog)
+    but wants none playing, and the pedals were pressed for 10 s in total = it forgot to start them (NFS 2015 at the
+    start of some races; an alt-tab makes it start them). The loop logs a warning, the status says
+    "GAME FFB OFF: ALT-TAB" (`UiFrame::gameFfbIdle`). Short effects (sine, square, ...) do not count.
   - No virtual Xbox controller (removed 2026-10-03, with the HIDMaestro bridge): with an XInput pad there at the game's
     start NFS drove from the pad, the pad's buttons acted as its own (its right stick click is NFS's photo), and stick
     nudges did not change NFS's keyboard prompts. Do not add one back without asking. `HidHideCli` holds device-id
@@ -381,7 +393,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `Wheel::waitSource`, the sockets' events, WSAEventSelect, and a high-resolution timer; Linux: poll on the evdev and
     socket descriptors) until the wheel, an accessory, the game's force feedback or the test clutch has something new,
     and wakes by itself only for what must run on time (core `WakePlanner`: every 4 ms while forces play and for 100 ms
-    after a pass that found new input, ~30 a second with a window, else 100 ms; never two passes closer than 0.5 ms).
+    after a pass that found new input, 60 a second with a window, else 100 ms; never two passes closer than 0.5 ms).
     Its decisions (when to wake, what woke it, when to poll) are core `EventLoopControl`, which runLoop calls around
     each pass and wait. **Polling** (`EventLoopControl::polling()`, `PollReason`) is its fallback, never a separate
     loop: a device DirectInput only polls or a socket the wait cannot take (at setup), or the timer finding new input
@@ -489,6 +501,8 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   folder of whoever last ran WheelBri (`mayTakeTheLog`: an accepted app, or WheelBri from another folder saying
   Hello; `wheelbri-helper-<date>-<NN>.log`, the user's choice), opened only while impersonating that user; core
   `DailyLogFile` keeps lines in memory until then, rolls over at midnight and retries a failed file once a minute.
+  Attaching the folder it already writes into keeps that file (`attach(..., where)`): 0.9.0 made a new, empty file at
+  every Hello.
   The app says Hello at start and from the Logs tab (`service/src/HelperProbe.cpp`, own thread, every 5 min at most),
   so the helper's boot lines reach the user's folder even when the app runs as Administrator. `HelperClient`: the app's side
   (impersonation allowed, message mode, timeouts). `wheelbri-helper --console` (Administrator) runs it in a console,
@@ -580,6 +594,17 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - Hot paths must use `logging::CallSampler` or `logging::RateLimiter` / `WE_LOG_*_LIMITED`.
   - Levels: trace (per call/tick), debug (decisions), info (lifecycle), warn (recoverable), error (feature
     broken), critical (process cannot continue).
+  - The level is the app's Level button (Logs tab, V): warn (default), info, debug, trace, round again; never quieter
+    than warn (`LogLevel.hpp` `clampToApp`). `service/src/AppLogLevel` holds it (`[app] log_level` in app.ini) and
+    applies it to this process; the session sends `LogLevelPacket` (header only, `LogLevelBeacon`: at start, on a
+    change, every 2 s) from the state socket (`UdpLoopbackPublisher::publishLogLevel`, never a second socket: the shim
+    checks each new sender port on the game's thread) to the shim (`applyLogLevel`, which starts from app.ini) and
+    wheelbri-uhid (`UdpLoopbackReceiver::takeLogLevel`); the helper takes it from the app's Hello (its one string) and
+    `SetLogLevel` (request 9, also writes `HKLM\SOFTWARE\wheelbri LogLevel`); both drivers read that value at most
+    once a second and write `[time] [level] text` lines. The drivers' registry value is privileged work: written at
+    Start (`PrivilegedSteps::setDriverLogLevel`) and on a click only while a session runs. The command-line service
+    keeps its config's `[logging] level` (default warn). Default level everywhere: warn (`LogConfig`).
+    `logging::currentLevel()`, never `spdlog::get_level()` (it needs spdlog's default logger, gone after shutdown).
 - **Shim rules** (it runs inside the game process):
   - Do nothing in `DllMain` beyond `DisableThreadLibraryCalls` and the detach hook: no logging, no
     `LoadLibrary`, no threads. Logging starts lazily through `shim::logger()`.

@@ -21,6 +21,7 @@
 #include <exception>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 
 namespace {
@@ -80,6 +81,18 @@ int serve(const bool console) {
     };
     options.takeLog = [](void* const token, const std::wstring& folder) {
         helper::HelperLog::instance().attachUser(token, folder);
+    };
+    options.setLogLevel = [](const LogLevel level) {
+        // Several connections may say it at once; one change, said once.
+        static std::mutex mutex;
+        static LogLevel current = static_cast<LogLevel>(logging::currentLevel());
+        const std::lock_guard<std::mutex> lock(mutex);
+        if (level == current) return;
+        const bool quieter = !logLevelAllows(level, LogLevel::Info);
+        if (!quieter) logging::setLevel(logLevelName(level));
+        WE_LOG_INFO(log(), "helper: log level {} (the app's Level button)", logLevelName(level));
+        if (quieter) logging::setLevel(logLevelName(level));
+        current = level;
     };
     helper::HelperServer server(std::move(options));
     std::string error;

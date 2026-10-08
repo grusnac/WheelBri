@@ -1,5 +1,6 @@
 #include "PrivilegedSteps.hpp"
 
+#include "AppLogLevel.hpp"
 #include "HideFilter.hpp"
 #include "Platform.hpp"
 #include "VirtualG920.hpp"
@@ -74,6 +75,13 @@ public:
     }
 
     void shareLogFolder() override {}   // done at start (service::shareLogFolder), as Administrator
+
+    void setDriverLogLevel(const LogLevel level) override {
+        std::string message;
+        if (!privileged::writeLogLevel(level, message)) {
+            WE_LOG_WARN(log(), "logs: the drivers keep their log level: {}", message);
+        }
+    }
 
 private:
     std::unique_ptr<VirtualG920> g920_;
@@ -174,6 +182,17 @@ public:
         }
     }
 
+    void setDriverLogLevel(const LogLevel level) override {
+        std::string message;
+        switch (ask(helper::RequestType::SetLogLevel, {logLevelName(level)}, kShortMs, {}, message)) {
+            case helper::Status::Ok: break;
+            case helper::Status::Unsupported:
+                WE_LOG_DEBUG(log(), "logs: this WheelBri Helper is older: the drivers keep their log level");
+                break;
+            default: WE_LOG_WARN(log(), "logs: the drivers keep their log level: {}", message); break;
+        }
+    }
+
 private:
     static constexpr int kShortMs = 10'000;
     static constexpr int kCreateMs = 60'000;
@@ -250,7 +269,8 @@ std::unique_ptr<PrivilegedSteps> PrivilegedSteps::open(Problem& problem, std::st
             message = error;
             return nullptr;
     }
-    const auto hello = client->call(helper::RequestType::Hello, {}, 5000, error);
+    const auto hello =
+        client->call(helper::RequestType::Hello, {logLevelName(AppLogLevel::shared().current())}, 5000, error);
     if (!hello || hello->status != helper::Status::Ok) {
         problem = Problem::HelperFailed;
         message = hello ? hello->text : error;

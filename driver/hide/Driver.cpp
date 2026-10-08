@@ -24,8 +24,10 @@
 #include <wdf.h>
 
 #include "wheelbri/LogFileNames.hpp"
+#include "wheelbri/LogLevel.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -39,6 +41,7 @@ namespace {
 
 constexpr wchar_t kPolicyKey[] = L"SOFTWARE\\wheelbri\\hide";
 constexpr ULONG kSystemPid = 4;
+using Level = wheelbri::LogLevel;
 
 // Log: <the logs folder>\wheelbri-hide-<date>-<NN>.log (see logFolder) and the debugger (DebugView).
 std::mutex g_logLock;
@@ -200,12 +203,49 @@ bool appendTo(std::wstring folder, const SYSTEMTIME& now, const char* line) {
     return true;
 }
 
-void logLine(const std::string& text) {
+// The level the lines are written at: HKLM\SOFTWARE\wheelbri LogLevel (REG_SZ trace, debug, info or warn: the app's
+// Level button, written at each Start and on a change), read at most once a second. Warn when it is missing: warnings
+// and errors are always written.
+wheelbri::LogLevel currentLevel() {
+    static std::atomic<std::uint64_t> readAtMs{0};
+    static std::atomic<std::uint8_t> level{static_cast<std::uint8_t>(wheelbri::kDefaultAppLogLevel)};
+    const std::uint64_t now = GetTickCount64();
+    const std::uint64_t last = readAtMs.load();
+    if (last == 0 || now - last >= 1000) {
+        readAtMs = now;
+        wchar_t value[16] = {};
+        DWORD size = sizeof(value);
+        std::string name;
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\wheelbri", L"LogLevel", RRF_RT_REG_SZ, nullptr, value,
+                         &size) == ERROR_SUCCESS) {
+            for (const wchar_t* c = value; *c != L'\0'; ++c) {
+                name.push_back(*c < 0x80 ? static_cast<char>(*c) : '?');
+            }
+        }
+        level = static_cast<std::uint8_t>(wheelbri::appLogLevel(name));
+    }
+    return static_cast<wheelbri::LogLevel>(level.load());
+}
+
+// As spdlog names them in the other logs, so the Logs tab reads the level the same way.
+const char* levelText(const wheelbri::LogLevel level) {
+    switch (level) {
+        case wheelbri::LogLevel::Trace: return "trace";
+        case wheelbri::LogLevel::Debug: return "debug";
+        case wheelbri::LogLevel::Info: return "info";
+        case wheelbri::LogLevel::Warn: return "warning";
+        case wheelbri::LogLevel::Error: return "error";
+        default: return "critical";
+    }
+}
+
+void logLine(const Level level, const std::string& text) {
+    if (!wheelbri::logLevelAllows(currentLevel(), level)) return;
     SYSTEMTIME now;
     GetLocalTime(&now);
     char line[1024];
-    std::snprintf(line, sizeof(line), "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %s\r\n", now.wYear, now.wMonth, now.wDay,
-                  now.wHour, now.wMinute, now.wSecond, now.wMilliseconds, text.c_str());
+    std::snprintf(line, sizeof(line), "[%04u-%02u-%02u %02u:%02u:%02u.%03u] [%s] %s\r\n", now.wYear, now.wMonth,
+                  now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds, levelText(level), text.c_str());
     OutputDebugStringA(line);
     std::lock_guard lock(g_logLock);
     static bool reportedFailure = false;
@@ -220,13 +260,13 @@ void logLine(const std::string& text) {
 }
 
 // Logged once per distinct problem (a game opens the wheel often).
-void logOnce(std::string text) {
+void logOnce(const Level level, std::string text) {
     static std::mutex lock;
     static std::string last;
     std::lock_guard guard(lock);
     if (text == last) return;
     last = text;
-    logLine(text);
+    logLine(level, text);
 }
 
 // Whether a process created at `processStart` was created before Windows last started, so is certainly gone (a
@@ -334,8 +374,8 @@ ULONG allowedPid() {
         RegGetValueW(HKEY_LOCAL_MACHINE, kPolicyKey, L"AllowedPid", RRF_RT_REG_DWORD, nullptr, &value, &size);
     if (status != ERROR_SUCCESS) {
         if (status != ERROR_FILE_NOT_FOUND) {
-            logOnce("WARNING: cannot read HKLM\\SOFTWARE\\wheelbri\\hide AllowedPid (error " + std::to_string(status) +
-                    "): the wheel is not hidden");
+            logOnce(Level::Warn, "cannot read HKLM\\SOFTWARE\\wheelbri\\hide AllowedPid (error " +
+                                     std::to_string(status) + "): the wheel is not hidden");
         }
         return 0;
     }
@@ -345,7 +385,7 @@ ULONG allowedPid() {
     const bool haveStart = RegGetValueW(HKEY_LOCAL_MACHINE, kPolicyKey, L"AllowedPidStart", RRF_RT_REG_QWORD, nullptr,
                                         &started, &startedSize) == ERROR_SUCCESS;
     if (!stillRunning(value, haveStart && started != 0 ? std::optional<ULONGLONG>(started) : std::nullopt)) {
-        logOnce("process " + std::to_string(value) +
+        logOnce(Level::Warn, "process " + std::to_string(value) +
                 " hid the wheel but is gone (crashed or killed?): not hidden, every program may open it");
         return 0;
     }
@@ -408,16 +448,16 @@ void noteDecision(const ULONG pid, const ULONG allowed, const bool refused) {
     if (allowed != g_lastAllowed) {
         g_lastAllowed = allowed;
         g_seen.clear();
-        logLine(allowed == 0 ? "not hidden: every program may open the wheel"
+        logLine(Level::Info, allowed == 0 ? "not hidden: every program may open the wheel"
                              : "hidden: only " + describeProcess(allowed) + " may open the wheel");
     }
     if (!g_seen.emplace(pid, true).second) return;
     if (refused) {
-        logLine("refused " + describeProcess(pid) + " (the wheel is hidden from it)");
+        logLine(Level::Info, "refused " + describeProcess(pid) + " (the wheel is hidden from it)");
     } else if (pid != allowed) {
         // Who has the wheel open while it is not hidden: such a program keeps Windows from restarting the device when
         // the filter is put on, and makes the first Start slow.
-        logLine("opened by " + describeProcess(pid));
+        logLine(Level::Info, "opened by " + describeProcess(pid));
     }
 }
 
@@ -479,16 +519,18 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     WDFDEVICE device;
     const NTSTATUS status = WdfDeviceCreate(&init, &attributes, &device);
     if (!NT_SUCCESS(status)) {
-        logLine("WdfDeviceCreate failed on " + id + ": " + std::to_string(status));
+        logLine(Level::Error, "WdfDeviceCreate failed on " + id + ": " + std::to_string(status));
         return status;
     }
     deviceContext(device)->neverHide = virtualG920;
     // No queues: everything but opening the device goes straight to the HID class driver below.
     if (virtualG920) {
-        logLine("attached to " + id + ", the virtual G920: never hidden (this filter does not belong there; "
-                "reinstall WheelBri to take it off)");
+        logLine(Level::Warn, "attached to " + id +
+                                 ", the virtual G920: never hidden (this filter does not belong there; reinstall "
+                                 "WheelBri to take it off)");
     } else {
-        logLine("attached to " + id + "; " + std::string(allowedPid() == 0 ? "not hidden now" : "hidden now"));
+        logLine(Level::Info,
+                "attached to " + id + "; " + std::string(allowedPid() == 0 ? "not hidden now" : "hidden now"));
     }
     return STATUS_SUCCESS;
 }
@@ -499,6 +541,7 @@ extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driverObject, PUNICODE_STRING reg
     WDF_DRIVER_CONFIG config;
     WDF_DRIVER_CONFIG_INIT(&config, EvtDeviceAdd);
     const NTSTATUS status = WdfDriverCreate(driverObject, registryPath, WDF_NO_OBJECT_ATTRIBUTES, &config, WDF_NO_HANDLE);
-    logLine(NT_SUCCESS(status) ? "wheelbri-hide driver loaded" : "WdfDriverCreate failed: " + std::to_string(status));
+    logLine(NT_SUCCESS(status) ? Level::Info : Level::Error,
+            NT_SUCCESS(status) ? "wheelbri-hide driver loaded" : "WdfDriverCreate failed: " + std::to_string(status));
     return status;
 }

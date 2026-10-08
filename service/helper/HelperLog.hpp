@@ -36,7 +36,8 @@ public:
     void install();
 
     // From now on writes into `logsFolder` (UTF-16 path, created if missing) as the user of `token`, an impersonation
-    // token the log keeps (the previous one is closed). `token` is a Windows HANDLE.
+    // token the log keeps (the previous one is closed). `token` is a Windows HANDLE. The folder it already writes into
+    // keeps its file and token (`token` is closed): attaching again makes no new file.
     void attachUser(void* token, const std::wstring& logsFolder);
 
     void write(spdlog::level::level_enum level, const std::string& component, const std::string& message);

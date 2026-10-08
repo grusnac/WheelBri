@@ -2,6 +2,8 @@
 
 #include "Privileged.hpp"
 
+#include "wheelbri/LogLevel.hpp"
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -47,6 +49,8 @@ public:
     virtual void showRig() = 0;
     // The drivers may write into this user's log folder (nothing when that is not possible; the log says why).
     virtual void shareLogFolder() = 0;
+    // The drivers log at `level` (the app's Level button): HKLM\SOFTWARE\wheelbri LogLevel. A failure is only logged.
+    virtual void setDriverLogLevel(LogLevel level) = 0;
 };
 
 }  // namespace wheelbri::service

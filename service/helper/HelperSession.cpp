@@ -102,6 +102,7 @@ Reply HelperSession::handle(const Request& request) {
         case RequestType::PutHideFilter: return putHideFilter(request);
         case RequestType::InstallG920Driver: return installG920Driver(request.seq);
         case RequestType::ShareLogFolder: return shareLogFolder(request.seq);
+        case RequestType::SetLogLevel: return setLogLevel(request);
         case RequestType::Hello: break;
     }
     return Reply{request.seq, Status::Unsupported, "not a request for a session"};
@@ -173,6 +174,14 @@ Reply HelperSession::installG920Driver(const std::uint32_t seq) {
 // LogFolder names it. The folder is made and opened as the caller (so Windows checks the caller's own rights, and a
 // link leads only where the caller could change permissions anyway), must be a real folder reached without a link
 // (what Windows opened is compared with what was asked), and its permission is changed through that handle.
+Reply HelperSession::setLogLevel(const Request& request) {
+    const std::optional<LogLevel> level = requestLogLevel(request);   // requestProblem checked it
+    if (!level) return Reply{request.seq, Status::Refused, "SetLogLevel takes one level: trace, debug, info or warn"};
+    std::string message;
+    if (!service::privileged::writeLogLevel(*level, message)) return Reply{request.seq, Status::Failed, message};
+    return Reply{request.seq, Status::Ok, {}};
+}
+
 Reply HelperSession::shareLogFolder(const std::uint32_t seq) {
     if (token_ == nullptr) return Reply{seq, Status::Refused, "the caller did not let the helper act as it"};
     const HANDLE token = static_cast<HANDLE>(token_);

@@ -122,7 +122,8 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** one place to see why something failed: the app's, the shim's, both drivers' and the WheelBri Helper's logs
   together.
-- **Use:** tab L (or O for the folder): one line per component, then their lines merged live (scroll, Wrap). Files
+- **Use:** tab L (or O for the folder): one line per component, then their lines merged live (scroll, Wrap, and
+  Level: warn, info, debug, trace for every component, see [Logging](#logging)). Files
   are daily and old ones go after 2 days (`--old-files`). The **Helper** line also says what the app last heard from
   the WheelBri Helper (`running 0.9.0, serves this app`, `not running ...`, `not for this copy of WheelBri` for a
   development build), and turns red with `2 err, 1 warn, last 14:03` when today's helper log has warnings or errors.
@@ -322,6 +323,7 @@ WheelBri's (another mod) is never overwritten or deleted. The list is `%LOCALAPP
 | Force feedback in: UDP 41330 -> safety limiter + watchdog -> wheel | yes (from the driver) | yes (from the shim) |
 | Logs, telemetry logs, old-file cleanup | yes | yes |
 | Game-use watch ("GAME NOT USING THE WHEEL") | yes | yes |
+| Game FFB idle watch ("GAME FFB OFF: ALT-TAB": effects loaded, none started while you drive) | yes | yes |
 | Live view: Mapping / Rig / Logs tabs, Start / Stop | yes | yes |
 | Stale hide check: clears a hide left by a crashed session, warns if another one hides the rig | yes | yes |
 | Administrator or the WheelBri Helper (`PrivilegedSteps`): needed for the rows below | yes | - |
@@ -393,16 +395,33 @@ shows where everything is.
 
 **Levels**: `trace` per-tick/per-call detail · `debug` decisions and state changes · `info` lifecycle ·
 `warn` recoverable problems · `error` a feature is broken · `critical` the process cannot continue.
-The service defaults to `info`, the shim to `debug`.
 
-**Per-component levels without rebuilding**, through `SPDLOG_LEVEL`:
+**The app's Level button** (Logs tab, or V there): `warn` (the default: warnings and errors only), click for `info`,
+`debug`, `trace`, and back to `warn`. Warnings and errors are always written; nothing quieter can be picked. It is
+remembered (`[app] log_level` in `%LOCALAPPDATA%\wheelbri\app.ini`) and applies to every component:
+
+| Component | How it gets the level |
+|---|---|
+| app and session | at once |
+| shim in the game | `app.ini` when the game starts, then the session's `LogLevelPacket` on 41329 (at once, and every 2 s) |
+| `wheelbri-uhid` (Linux) | the session's `LogLevelPacket` |
+| WheelBri Helper | the app's Hello (at start, every 5 min on the Logs tab, at once on a click) and `SetLogLevel` |
+| G920 driver, hide filter | `HKLM\SOFTWARE\wheelbri LogLevel`, written at each Start and on a click while a session runs (as Administrator, or by the helper); read at most once a second |
+
+Effect events in the driver log (`pid: start block 1 ...`) are `debug`: set the Level to debug before a race you want
+to look at. The driver's force feedback trace (`PidTraceLines`) writes at `trace`. The drivers write their level in
+brackets like the other logs: `[2026-10-08 21:14:05.120] [debug] pid: ...`. The command-line service
+(`wheelbri-service`) keeps its config's `[logging] level` (default `warn` now) and passes that on the same way.
+
+**Per-component levels without rebuilding**, through `SPDLOG_LEVEL` (the command-line service and the shim at its
+start; in the app the Level button sets every component's level instead):
 
 ```bash
 SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelbri-service --config ...
 ```
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.hidhide`,
-`service.hide`, `service.helper`, `helper`, `helper.pipe`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `service.devices`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
+`service.hide`, `service.helper`, `service.log` (the Level button), `helper`, `helper.pipe`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `service.devices`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
 `shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelbri-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelbri/Logging.hpp`)

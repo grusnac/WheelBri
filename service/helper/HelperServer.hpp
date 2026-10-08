@@ -25,7 +25,8 @@ namespace wheelbri::helper {
 // - When a connection closes (Stop, a crash, logoff) its session is destroyed, which undoes what it set up: its
 //   virtual G920 removed, the rig shown again.
 // - The helper's log follows WheelBri (mayTakeTheLog): the first message of an accepted caller, or a Hello from
-//   WheelBri in another folder, moves it into that user's own log folder, opened as that user (HelperLog.hpp).
+//   WheelBri in another folder, moves it into that user's own log folder, opened as that user (HelperLog.hpp). The
+//   same Hello's log level (the app's Level button) becomes the helper's.
 class HelperServer {
 public:
     static constexpr int kMaxConnections = 4;
@@ -39,6 +40,8 @@ public:
         std::function<std::unique_ptr<RequestHandler>(void* process, void* token, std::function<bool()> cancelled)>;
     // Moves the helper's log into `logsFolder` (UTF-16), opened as the user of `token`, a HANDLE it takes.
     using LogTaker = std::function<void(void* token, const std::wstring& logsFolder)>;
+    // Sets the helper's own log level (a Hello's or an accepted SetLogLevel's: HelperDispatch Answer::logLevel).
+    using LevelSetter = std::function<void(LogLevel level)>;
 
     struct Options {
         std::wstring appFolder;        // the helper's own folder: only WheelBri there is accepted
@@ -46,6 +49,7 @@ public:
         std::wstring pipeName;         // empty: kPipeName (the tests use their own)
         SessionFactory makeSession;    // empty: no sessions (every request but Hello fails)
         LogTaker takeLog;              // empty: the log stays where it is
+        LevelSetter setLogLevel;       // empty: the log's level stays as it is
         // Only the tests: which caller programs count as WheelBri (empty: isInstalledApp in appFolder).
         std::function<bool(const std::string& image)> isApp;
         int firstMessageMs = kFirstMessageMs;

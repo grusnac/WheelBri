@@ -33,9 +33,10 @@ bool eventually(const std::function<bool()>& condition, const std::chrono::milli
 class FakeCheck {
 public:
     HelperProbe::Check check() {
-        return [this] {
+        return [this](const HelperProbe::Ask& ask) {
             std::unique_lock<std::mutex> lock(mutex_);
             ++calls_;
+            asks_.push_back(ask);
             inside_ = true;
             changed_.notify_all();
             changed_.wait(lock, [this] { return !hold_; });
@@ -67,6 +68,10 @@ public:
         const std::lock_guard<std::mutex> lock(mutex_);
         return calls_;
     }
+    std::vector<HelperProbe::Ask> asks() {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        return asks_;
+    }
     void answer(const Kind kind) {
         const std::lock_guard<std::mutex> lock(mutex_);
         kind_ = kind;
@@ -84,6 +89,7 @@ private:
     std::mutex mutex_;
     std::condition_variable changed_;
     int calls_ = 0;
+    std::vector<HelperProbe::Ask> asks_;
     bool hold_ = false;
     bool inside_ = false;
     bool throwStd_ = false;
@@ -238,6 +244,57 @@ TEST(HelperProbe, ManyThreadsAskingAndReadingAtOnce) {
     EXPECT_EQ(probe.latest().kind, Kind::Accepted);
 }
 
+// --- the app's log level (the Logs tab's Level button) ---
+
+TEST(HelperProbe, EveryHelloSaysTheLevelItWasGiven) {
+    FakeCheck fake;
+    HelperProbe probe(fake.check(), 0, LogLevel::Debug);
+    ASSERT_TRUE(eventually([&] { return probe.checks() == 1; }));
+    probe.request();
+    ASSERT_TRUE(eventually([&] { return probe.checks() == 2; }));
+    const auto asks = fake.asks();
+    ASSERT_EQ(asks.size(), 2U);
+    for (const auto& ask : asks) {
+        EXPECT_EQ(ask.level, LogLevel::Debug);
+        EXPECT_FALSE(ask.driversToo);   // at start and on the Logs tab: only the helper's own log
+    }
+}
+
+TEST(HelperProbe, ANewLevelIsSaidAtOnceWithTheDriversTooAndThenNoMore) {
+    FakeCheck fake;
+    HelperProbe probe(fake.check(), 60'000);   // a gap that would stop request()
+    ASSERT_TRUE(eventually([&] { return probe.checks() == 1; }));
+    EXPECT_EQ(fake.asks()[0].level, kDefaultAppLogLevel);
+    probe.levelChanged(LogLevel::Trace, true);   // a session runs
+    ASSERT_TRUE(eventually([&] { return probe.checks() == 2; }));
+    EXPECT_EQ(fake.asks()[1].level, LogLevel::Trace);
+    EXPECT_TRUE(fake.asks()[1].driversToo);
+    probe.request();   // within the gap: nothing
+    std::this_thread::sleep_for(50ms);
+    EXPECT_EQ(fake.calls(), 2);
+    probe.levelChanged(LogLevel::Info, false);   // stopped: only the helper's own; the gap never holds it back
+    ASSERT_TRUE(eventually([&] { return probe.checks() == 3; }));
+    EXPECT_EQ(fake.asks()[2].level, LogLevel::Info);
+    EXPECT_FALSE(fake.asks()[2].driversToo);
+}
+
+TEST(HelperProbe, ALevelChangedWhileACheckRunsIsSaidRightAfterIt) {
+    FakeCheck fake;
+    fake.hold();
+    HelperProbe probe(fake.check(), 60'000);
+    ASSERT_TRUE(fake.waitInside());
+    probe.levelChanged(LogLevel::Debug, true);
+    probe.levelChanged(LogLevel::Trace, false);   // two clicks while it runs: one check, the newest level, drivers too
+    fake.release();
+    ASSERT_TRUE(eventually([&] { return probe.checks() == 2; }));
+    std::this_thread::sleep_for(50ms);
+    const auto asks = fake.asks();
+    ASSERT_EQ(asks.size(), 2U);
+    EXPECT_FALSE(asks[0].driversToo);
+    EXPECT_EQ(asks[1].level, LogLevel::Trace);
+    EXPECT_TRUE(asks[1].driversToo);
+}
+
 TEST(HelperProbe, TheProcessHasOneAndItChecksAtOnce) {
     HelperProbe& probe = HelperProbe::shared();
     EXPECT_EQ(&probe, &HelperProbe::shared());
@@ -246,7 +303,7 @@ TEST(HelperProbe, TheProcessHasOneAndItChecksAtOnce) {
 }
 
 TEST(HelperProbe, TheSystemsCheckOnThisSystem) {
-    const helper::HelperState state = HelperProbe::systemCheck()();
+    const helper::HelperState state = HelperProbe::systemCheck()(HelperProbe::Ask{});
 #if defined(_WIN32)
     // Whatever this PC has: a helper or none, but never "not Windows" and never "not checked".
     EXPECT_NE(state.kind, Kind::NotWindows);

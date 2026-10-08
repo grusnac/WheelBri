@@ -142,6 +142,7 @@ TargetReport StateFeed::current(const IDeviceProfile& profile) {
 
     if (receiver_ != nullptr) {
         auto packet = receiver_->pollLatest();
+        if (const std::optional<LogLevel> level = receiver_->takeLogLevel()) applyLogLevel(*level);
         const UdpLoopbackReceiver::PollInfo poll = receiver_->lastPoll();
         reads_.addPackets(poll.read, poll.capped);
         if (packet) {

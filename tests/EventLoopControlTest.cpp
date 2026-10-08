@@ -61,7 +61,7 @@ TEST(EventLoopControl, DeadlineFollowsWhatMustRunAndRecentInput) {
     EventLoopControl::Pass window = passAt(300 * kMs);
     window.windowOpen = true;
     control.afterPass(window);
-    EXPECT_EQ(control.deadlineNs(), 300 * kMs + 33'333'333);
+    EXPECT_EQ(control.deadlineNs(), 300 * kMs + 16'666'666);
     EventLoopControl::Pass forces = passAt(400 * kMs);
     forces.forcesPlaying = true;
     control.afterPass(forces);

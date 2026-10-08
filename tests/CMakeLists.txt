@@ -18,6 +18,7 @@ add_executable(wheelbri_tests
     EmulatorConfigTest.cpp
     EventLoopControlTest.cpp
     FfbForwardingTest.cpp
+    FfbIdleWatchTest.cpp
     FfbSafetyLimiterTest.cpp
     FfbShapeTest.cpp
     FfbUsageTest.cpp
@@ -34,6 +35,7 @@ add_executable(wheelbri_tests
     LiveLogTest.cpp
     LogFilesTest.cpp
     LogLevelCounterTest.cpp
+    LogLevelTest.cpp
     LoggingTest.cpp
     MapperTest.cpp
     MappingEditTest.cpp
@@ -63,8 +65,9 @@ target_include_directories(wheelbri_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # FolderWatch and DeviceChanges (device notices), and DeviceWatch with a fake lister.
 if(TARGET wheelbri_privileged)
     target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp FolderWatchTest.cpp DeviceWatchTest.cpp HelperProbeTest.cpp
+        AppLogLevelTest.cpp
         ${PROJECT_SOURCE_DIR}/service/src/DeviceChanges.cpp ${PROJECT_SOURCE_DIR}/service/src/DeviceWatch.cpp
-        ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp)
+        ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp ${PROJECT_SOURCE_DIR}/service/src/AppLogLevel.cpp)
     target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/service/src)
     target_link_libraries(wheelbri_tests PRIVATE wheelbri_privileged)
     # The WheelBri Helper's pipe, client and log on a pipe of the tests' own (Windows only): HelperPipeTest.

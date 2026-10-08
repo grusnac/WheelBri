@@ -179,9 +179,9 @@ TEST(EmulatorConfig, ReadsLoggingSection) {
     EXPECT_EQ(log.flushLevel, "info");
 }
 
-TEST(EmulatorConfig, InvalidLogLevelFallsBackToInfo) {
+TEST(EmulatorConfig, InvalidLogLevelFallsBackToWarn) {
     const auto result = load("[logging]\nlevel = verbose\n");
-    EXPECT_EQ(result.config.logging.level, "info");
+    EXPECT_EQ(result.config.logging.level, "warn");
     EXPECT_TRUE(containsError(result, "[logging] level = 'verbose'"));
 }
 

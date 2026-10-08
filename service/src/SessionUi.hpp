@@ -50,6 +50,7 @@ struct UiFrame {
     bool oldFilesFailed = false;
     std::uint64_t wheelLostMs = 0;                // > 0: the wheel is gone, waiting this long for it to come back
     bool gameIgnoresWheel = false;                // pedals pressed, but the game never used the emulated wheel
+    bool gameFfbIdle = false;                     // the game loaded force feedback, started none while you drive
 };
 
 // UiHost::step while the hide filter is put on the rig for the first time (once per installation, ~10-40 s): the app
@@ -64,7 +65,7 @@ public:
     // session then ends). Called on the thread that runs the session.
     virtual bool sessionStarted(const SessionInfo& info) = 0;
 
-    // About 30 times a second, on the same thread. False when the user asked to stop (the window was closed).
+    // kWindowFramesPerSecond (60) times a second, on the same thread. False when the user asked to stop (the window was closed).
     virtual bool frame(const UiFrame& frame) = 0;
 
     // While the session starts: what it is doing now when that can take a while ("hiding the wheel for the first

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wheelbri/LogLevel.hpp"
 #include "wheelbri/StatePacket.hpp"
 
 #include <cstdint>
@@ -35,6 +36,10 @@ public:
 
     bool publish(const StatePacket& packet) override;
 
+    // The app's log level to the same reader (LogLevelPacket.hpp), from the same socket: the shim checks each new
+    // sender port once (SenderGate), so another socket would cost the game's input thread another lookup.
+    bool publishLogLevel(LogLevel level);
+
 private:
     struct Impl;
     explicit UdpLoopbackPublisher(std::unique_ptr<Impl> impl);
@@ -60,6 +65,10 @@ public:
         bool capped = false;
     };
     [[nodiscard]] PollInfo lastPoll() const;
+
+    // The log level the service sent last (LogLevelPacket.hpp), read by pollLatest along with the states; nullopt
+    // when none came since the previous call.
+    [[nodiscard]] std::optional<LogLevel> takeLogLevel();
 
     // Optional: datagrams whose sender (its local UDP port on 127.0.0.1) the filter refuses are dropped.
     using SenderFilter = std::function<bool(std::uint16_t senderPort)>;

@@ -156,7 +156,15 @@ int main(int argc, char** argv) {
         return true;
     };
     const auto sendFfb = [&ffbOut](const wheelbri::FfbPacket& packet) { ffbOut->send(wheelbri::encode(packet)); };
-    const auto logLine = [](const std::string& line) { WE_LOG_INFO(log(), "{}", line); };
+    const auto logLine = [](const wheelbri::LogLevel level, const std::string& line) {
+        switch (level) {
+            case wheelbri::LogLevel::Trace: WE_LOG_TRACE(log(), "{}", line); break;
+            case wheelbri::LogLevel::Debug: WE_LOG_DEBUG(log(), "{}", line); break;
+            case wheelbri::LogLevel::Info: WE_LOG_INFO(log(), "{}", line); break;
+            case wheelbri::LogLevel::Warn: WE_LOG_WARN(log(), "{}", line); break;
+            default: WE_LOG_ERROR(log(), "{}", line); break;
+        }
+    };
 
     wheelbri::uhid::UhidG920 device(writeEvent, sendFfb, logLine);
     if (!device.create()) {
@@ -168,6 +176,7 @@ int main(int argc, char** argv) {
                 o.stopFile.empty() ? "" : " or " + o.stopFile);
 
     bool receiving = false;
+    wheelbri::LogLevel appliedLevel = wheelbri::LogLevel::Off;   // none applied yet: the first packet is said
     bool neutralSent = true;
     std::int64_t lastState = nowMs() - kStaleMs;
     std::int64_t lastInput = 0;
@@ -202,7 +211,16 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (const auto packet = states->pollLatest()) {
+        const auto packet = states->pollLatest();
+        if (const auto level = states->takeLogLevel(); level && *level != appliedLevel) {
+            // The app's Level button, from the service (LogLevelPacket).
+            const bool quieter = !wheelbri::logLevelAllows(*level, wheelbri::LogLevel::Info);
+            if (!quieter) wheelbri::logging::setLevel(wheelbri::logLevelName(*level));
+            WE_LOG_INFO(log(), "log level {} (the app's Level button)", wheelbri::logLevelName(*level));
+            if (quieter) wheelbri::logging::setLevel(wheelbri::logLevelName(*level));
+            appliedLevel = *level;
+        }
+        if (packet) {
             if (!receiving) {
                 receiving = true;
                 WE_LOG_INFO(log(), "receiving wheel state from wheelbri-service (packet #{})", packet->sequence);

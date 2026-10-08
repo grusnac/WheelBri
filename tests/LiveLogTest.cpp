@@ -28,6 +28,25 @@ TEST(LiveLog, ParsesDriverAndBridgeLines) {
     EXPECT_EQ(parseLogLine("[2026-10-02 08:01:02.003] ERROR: bind failed", 1).level, LiveLogLevel::Error);
 }
 
+// Since the app's Level button (2026-10-08) the drivers write their level in brackets, as spdlog does.
+TEST(LiveLog, ParsesTheDriversLevelledLines) {
+    const auto debug = parseLogLine("[2026-10-08 21:14:05.120] [debug] pid: start block 1 (constant, slot 0)", 1);
+    EXPECT_EQ(debug.time, "21:14:05.120");
+    EXPECT_EQ(debug.level, LiveLogLevel::Debug);
+    EXPECT_TRUE(debug.logger.empty());
+    EXPECT_EQ(debug.message, "pid: start block 1 (constant, slot 0)");
+    const auto warning =
+        parseLogLine("[2026-10-08 21:14:05.120] [warning] receiving from wheelbri-service failed (10054)", 1);
+    EXPECT_EQ(warning.level, LiveLogLevel::Warn);
+    EXPECT_EQ(warning.message, "receiving from wheelbri-service failed (10054)");
+    EXPECT_EQ(parseLogLine("[2026-10-08 21:14:05.120] [error] WSAStartup failed (10091)", 1).level,
+              LiveLogLevel::Error);
+    EXPECT_EQ(parseLogLine("[2026-10-08 21:14:05.120] [trace] pid trace +3 out 1A 0101FF", 1).level,
+              LiveLogLevel::Trace);
+    // A message in brackets after the level is not taken for a component and lost.
+    EXPECT_EQ(parseLogLine("[2026-10-08 21:14:05.120] [info] stopped: 12 reports", 1).message, "stopped: 12 reports");
+}
+
 TEST(LiveLog, KeepsOtherLinesWhole) {
     const auto line = parseLogLine("   at Program.Main()", 0);
     EXPECT_TRUE(line.time.empty());

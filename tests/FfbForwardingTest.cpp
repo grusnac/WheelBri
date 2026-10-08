@@ -251,6 +251,53 @@ TEST(FfbController, SlotViewOutOfRangeIsEmpty) {
     EXPECT_FALSE(view.sent.has_value());
 }
 
+TEST(FfbController, CountsTheLastingEffectsLoadedAndWanted) {
+    RecordingSink sink;
+    FfbController controller(sink, safety(), {100 * kMs, 4 * kMs});
+    EXPECT_EQ(controller.lastingLoaded(), 0U);
+    FfbEffect constant;   // Constant by default
+    FfbEffect spring;
+    spring.type = FfbEffectType::Spring;
+    FfbEffect sine;
+    sine.type = FfbEffectType::Sine;
+    // NFS 2015 at the start of a race: everything created, nothing started.
+    controller.onPacket(slotPacket(0, false, constant), 0);
+    controller.onPacket(slotPacket(1, false, spring), 0);
+    controller.onPacket(slotPacket(2, true, sine), 0);   // a short effect playing does not count
+    EXPECT_EQ(controller.lastingLoaded(), 2U);
+    EXPECT_EQ(controller.lastingWanted(), 0U);
+    EXPECT_TRUE(controller.slot(1).loaded);
+    EXPECT_FALSE(controller.slot(3).loaded);
+    controller.onPacket(slotPacket(1, true, spring), 1 * kMs);
+    EXPECT_EQ(controller.lastingWanted(), 1U);
+
+    FfbPacket stopAll;
+    stopAll.kind = FfbPacket::Kind::StopAll;
+    controller.onPacket(stopAll, 2 * kMs);   // stop all / reset: a new set of effects comes next
+    EXPECT_EQ(controller.lastingLoaded(), 0U);
+    EXPECT_EQ(controller.lastingWanted(), 0U);
+
+    controller.onPacket(slotPacket(4, false, spring), 3 * kMs);
+    EXPECT_EQ(controller.lastingLoaded(), 1U);
+    controller.update(200 * kMs);   // the game went quiet: nothing is known any more
+    EXPECT_TRUE(controller.watchdogTripped());
+    EXPECT_EQ(controller.lastingLoaded(), 0U);
+}
+
+TEST(FfbController, OnlyConstantAndConditionsAreLasting) {
+    EXPECT_TRUE(FfbController::lasting(FfbEffectType::Constant));
+    EXPECT_TRUE(FfbController::lasting(FfbEffectType::Spring));
+    EXPECT_TRUE(FfbController::lasting(FfbEffectType::Damper));
+    EXPECT_TRUE(FfbController::lasting(FfbEffectType::Friction));
+    EXPECT_TRUE(FfbController::lasting(FfbEffectType::Inertia));
+    EXPECT_FALSE(FfbController::lasting(FfbEffectType::Sine));
+    EXPECT_FALSE(FfbController::lasting(FfbEffectType::Square));
+    EXPECT_FALSE(FfbController::lasting(FfbEffectType::Triangle));
+    EXPECT_FALSE(FfbController::lasting(FfbEffectType::SawtoothUp));
+    EXPECT_FALSE(FfbController::lasting(FfbEffectType::SawtoothDown));
+    EXPECT_FALSE(FfbController::lasting(static_cast<FfbEffectType>(200)));
+}
+
 TEST(FfbController, CopyingKeepsTheState) {
     RecordingSink sink;
     FfbController controller(sink, safety());

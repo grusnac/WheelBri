@@ -52,6 +52,7 @@ public:
     // Read-only view of one slot, for displays: what the game asked for and what reached the wheel.
     struct SlotView {
         bool wanted = false;                 // the game wants it playing
+        bool loaded = false;                 // the game has sent this slot's effect since its last "stop all"
         bool playing = false;                // the sink is playing it
         FfbEffect requested;                 // as the game sent it (before the limiter)
         std::optional<FfbEffect> sent;       // last effect given to the sink (after the limiter)
@@ -59,9 +60,15 @@ public:
     [[nodiscard]] SlotView slot(std::size_t index) const {
         if (index >= slots_.size()) return {};   // no such slot: nothing wanted or playing
         const Slot& s = slots_[index];
-        return {s.wanted, s.playing, s.requested, s.lastSent};
+        return {s.wanted, s.loaded, s.playing, s.requested, s.lastSent};
     }
     [[nodiscard]] std::size_t slotCount() const { return slots_.size(); }
+
+    // Lasting effects (constant force, spring, damper, friction, inertia: what a game holds for the whole race) the
+    // game has loaded, and how many of those it wants playing. For FfbIdleWatch.
+    [[nodiscard]] static bool lasting(FfbEffectType type);
+    [[nodiscard]] std::size_t lastingLoaded() const;
+    [[nodiscard]] std::size_t lastingWanted() const;
     [[nodiscard]] std::optional<std::uint64_t> lastPacketNs() const { return lastPacketNs_; }
     [[nodiscard]] bool watchdogTripped() const { return watchdogTripped_; }
     [[nodiscard]] const FfbSafetyConfig& safety() const { return safety_; }
@@ -72,6 +79,7 @@ public:
 private:
     struct Slot {
         bool wanted = false;                 // the game wants this slot playing
+        bool loaded = false;                 // a SlotState came since the last StopAll
         FfbEffect requested;
         bool playing = false;                // what the sink is doing
         std::optional<FfbEffect> lastSent;

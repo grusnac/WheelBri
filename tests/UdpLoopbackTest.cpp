@@ -1,5 +1,7 @@
 #include "wheelbri/UdpLoopback.hpp"
 
+#include "wheelbri/LogLevelPacket.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>
@@ -129,6 +131,38 @@ TEST(UdpLoopback, SenderFilterDropsRefusedSenders) {
     receiver->setSenderFilter([](std::uint16_t) { return true; });
     ASSERT_TRUE(publisher->publish(StatePacket{}));
     EXPECT_TRUE(pollWithTimeout(*receiver).has_value());
+}
+
+TEST(UdpLoopback, TheReceiverTakesTheServicesLogLevelBesideTheStates) {
+    constexpr std::uint16_t kPort = 41994;
+    const auto receiver = UdpLoopbackReceiver::create(kPort);
+    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    const auto sender = UdpLoopbackSender::create(kPort);
+    ASSERT_NE(receiver, nullptr);
+    ASSERT_NE(publisher, nullptr);
+    ASSERT_NE(sender, nullptr);
+    EXPECT_FALSE(receiver->takeLogLevel().has_value());
+    // From the state's own socket, as the service sends it.
+    ASSERT_TRUE(publisher->publishLogLevel(LogLevel::Info));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_FALSE(receiver->pollLatest().has_value());
+    EXPECT_EQ(receiver->takeLogLevel(), LogLevel::Info);
+    StatePacket state;
+    state.sequence = 7;
+    ASSERT_TRUE(publisher->publish(state));
+    ASSERT_TRUE(sender->send(encode(LogLevelPacket{LogLevel::Info})));
+    ASSERT_TRUE(sender->send(encode(LogLevelPacket{LogLevel::Debug})));   // the newest one counts
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const auto latest = pollWithTimeout(*receiver);
+    ASSERT_TRUE(latest.has_value());
+    EXPECT_EQ(latest->sequence, 7U);   // a level is not a state
+    EXPECT_EQ(receiver->takeLogLevel(), LogLevel::Debug);
+    EXPECT_FALSE(receiver->takeLogLevel().has_value());   // taken
+    // A level alone: no state from it.
+    ASSERT_TRUE(sender->send(encode(LogLevelPacket{LogLevel::Trace})));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_FALSE(receiver->pollLatest().has_value());
+    EXPECT_EQ(receiver->takeLogLevel(), LogLevel::Trace);
 }
 
 TEST(UdpLoopback, ListenerTellsTheSendersPort) {

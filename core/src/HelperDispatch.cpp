@@ -29,6 +29,7 @@ Answer answerMessage(const std::span<const std::uint8_t> bytes, const CallerInfo
     answer.type = request->type;
     const std::uint32_t seq = request->seq;
     if (request->type == RequestType::Hello) {
+        if (mayTakeTheLog(caller)) answer.logLevel = requestLogLevel(*request);
         if (caller.accepted) {
             answer.reply = Reply{seq, Status::Ok, std::string(version)};
         } else {
@@ -66,6 +67,9 @@ Answer answerMessage(const std::span<const std::uint8_t> bytes, const CallerInfo
         } catch (...) {
             answer.reply = Reply{seq, Status::Failed, "the helper failed (an unknown error)"};
         }
+    }
+    if (answer.reply.status == Status::Ok && request->type == RequestType::SetLogLevel) {
+        answer.logLevel = requestLogLevel(*request);
     }
     if (answer.reply.status != Status::Ok) {
         if (answer.reply.status == Status::Failed) {

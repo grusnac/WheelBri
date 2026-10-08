@@ -129,10 +129,10 @@ TEST(PushLoop, WhatMustRunOnTimeSetsTheTimer) {
         VirtualClock clock;
         EmulatedPushDevice wheel("R3", clock);
         PushLoopRig::Options options;
-        options.windowOpen = true;   // ~30 a second
+        options.windowOpen = true;   // 60 a second
         PushLoopRig rig(clock, wheel, options);
         rig.run(1 * kS);
-        EXPECT_EQ(rig.passes(), 31U);
+        EXPECT_EQ(rig.passes(), 61U);
     }
 }
 

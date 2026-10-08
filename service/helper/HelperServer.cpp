@@ -227,6 +227,7 @@ public:
             const Answer answer = answerMessage(std::span<const std::uint8_t>(buffer.data(), bytes), caller_.info,
                                                 options_.version, session_.get());
             note(answer);
+            if (answer.logLevel && options_.setLogLevel) options_.setLogLevel(*answer.logLevel);
             if (!send(answer.reply) || !answer.keepOpen) break;
         }
         if (announced_) WE_LOG_INFO(log(), "helper: pid {} disconnected", caller_.info.pid);

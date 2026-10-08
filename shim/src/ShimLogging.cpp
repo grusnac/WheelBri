@@ -4,9 +4,12 @@
 
 #include "DiFormat.hpp"
 
+#include "wheelbri/ConfigLibrary.hpp"
+
 #include <windows.h>
 
 #include <atomic>
+#include <filesystem>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -19,6 +22,7 @@ std::once_flag gInitOnce;
 // Set once logging::init has run. onDllDetach checks it so an unload before the first export call never
 // creates a logger inside DllMain.
 std::atomic<bool> gInitialised{false};
+std::atomic<std::uint8_t> gLevel{static_cast<std::uint8_t>(kDefaultAppLogLevel)};   // what applyLogLevel last set
 
 std::wstring modulePath(HMODULE module) {
     wchar_t path[MAX_PATH] = {};
@@ -96,6 +100,16 @@ std::optional<std::string> asciiFolder(std::wstring folder) {
 // Next to the service's logs and telemetry (%LOCALAPPDATA%\wheelbri\logs), so every file is in one folder
 // that the service's window shows and its [retention] settings clean up. One file per run of the game (and day):
 // wheelbri-shim-YYYY-MM-DD-NN.log (LogFiles.hpp). Falls back to the DLL's folder if LOCALAPPDATA is not set.
+// The level the app picked last ([app] log_level in %LOCALAPPDATA%\wheelbri\app.ini), warn without one. The
+// service's packets say it again once the game reads the wheel.
+LogLevel appLevelAtStart() {
+    wchar_t localAppData[MAX_PATH] = {};
+    const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) return kDefaultAppLogLevel;
+    const std::filesystem::path file = std::filesystem::path(std::wstring(localAppData)) / L"wheelbri" / L"app.ini";
+    return appLogLevel(readAppSetting(file, "log_level"));
+}
+
 std::string logFilePath() {
     wchar_t localAppData[MAX_PATH] = {};
     const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
@@ -114,11 +128,12 @@ std::string logFilePath() {
 void ensureLoggingInitialised() {
     std::call_once(gInitOnce, [] {
         logging::LogConfig config;
-        config.level = "debug";
+        config.level = logLevelName(appLevelAtStart());
         config.console = false;
         config.flushLevel = "trace";
         config.periodicFlush = false;
         logging::init(config, logFilePath());
+        gLevel = static_cast<std::uint8_t>(appLogLevel(config.level));
         gInitialised = true;
 
         const logging::Logger log = logging::get("shim");
@@ -168,6 +183,16 @@ void noteEscapedException(const char* where, const char* what) noexcept {
     } catch (...) {
         // Logging itself failed (out of memory?): nothing more can be done safely.
     }
+}
+
+void applyLogLevel(const LogLevel level) {
+    ensureLoggingInitialised();   // first: it sets the level it starts with
+    if (gLevel.exchange(static_cast<std::uint8_t>(level)) == static_cast<std::uint8_t>(level)) return;
+    const logging::Logger log = logging::get("shim");
+    const bool quieter = !logLevelAllows(level, LogLevel::Info);
+    if (!quieter) logging::setLevel(logLevelName(level));
+    WE_LOG_INFO(log, "log level {} (the app's Level button)", logLevelName(level));
+    if (quieter) logging::setLevel(logLevelName(level));
 }
 
 }  // namespace wheelbri::shim

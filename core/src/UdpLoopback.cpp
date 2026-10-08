@@ -1,5 +1,6 @@
 #include "wheelbri/UdpLoopback.hpp"
 
+#include "wheelbri/LogLevelPacket.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <system_error>
@@ -217,6 +218,19 @@ bool UdpLoopbackPublisher::publish(const StatePacket& packet) {
     return true;
 }
 
+bool UdpLoopbackPublisher::publishLogLevel(const LogLevel level) {
+    const auto bytes = encode(LogLevelPacket{level});
+    const auto sent = ::sendto(impl_->socket.get(), reinterpret_cast<const char*>(bytes.data()),
+                               static_cast<int>(bytes.size()), 0,
+                               reinterpret_cast<const sockaddr*>(&impl_->destination), sizeof(impl_->destination));
+    if (sent < 0 || static_cast<std::size_t>(sent) != bytes.size()) {
+        static logging::RateLimiter limiter(std::chrono::seconds(30));
+        WE_LOG_WARN_LIMITED(log(), limiter, "publisher: sendto failed for the log level: {}", errorText(lastError()));
+        return false;
+    }
+    return true;
+}
+
 struct UdpLoopbackReceiver::Impl {
     UdpSocket socket;
     std::uint16_t port = 0;
@@ -225,6 +239,7 @@ struct UdpLoopbackReceiver::Impl {
     std::uint64_t received = 0;
     std::uint64_t lost = 0;
     UdpLoopbackReceiver::PollInfo lastPoll;
+    std::optional<LogLevel> logLevel;   // the newest LogLevelPacket's, until takeLogLevel()
     logging::RateLimiter malformedLimiter{std::chrono::seconds(5)};
     logging::RateLimiter lossLimiter{std::chrono::seconds(5)};
     // Two senders at once (a second service, a stale one) make every other packet a "restart": in the game, where
@@ -367,6 +382,8 @@ std::optional<StatePacket> UdpLoopbackReceiver::pollLatest() {
         if (auto packet = decodeStatePacket(std::span<const std::uint8_t>(buffer.data(), size))) {
             impl_->track(*packet);
             latest = packet;
+        } else if (const auto level = decodeLogLevelPacket(std::span<const std::uint8_t>(buffer.data(), size))) {
+            impl_->logLevel = level->level;
         } else {
             WE_LOG_WARN_LIMITED(log(), impl_->malformedLimiter,
                                 "receiver: dropped malformed datagram of {} bytes (expected {}, version {})", size,
@@ -378,5 +395,7 @@ std::optional<StatePacket> UdpLoopbackReceiver::pollLatest() {
 }
 
 UdpLoopbackReceiver::PollInfo UdpLoopbackReceiver::lastPoll() const { return impl_->lastPoll; }
+
+std::optional<LogLevel> UdpLoopbackReceiver::takeLogLevel() { return std::exchange(impl_->logLevel, std::nullopt); }
 
 }  // namespace wheelbri

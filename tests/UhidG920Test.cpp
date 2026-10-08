@@ -28,7 +28,7 @@ struct Kernel {
     std::vector<std::string> logs;
     UhidG920 device{[this](const uhid_event& e) { written.push_back(e); return true; },
                     [this](const FfbPacket& p) { packets.push_back(p); },
-                    [this](const std::string& s) { logs.push_back(s); }};
+                    [this](LogLevel, const std::string& s) { logs.push_back(s); }};
 
     // What hidraw passes on: the report ID first.
     void output(const std::string& bytes, std::int64_t now) {

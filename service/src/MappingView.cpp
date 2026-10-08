@@ -1,5 +1,6 @@
 #include "MappingView.hpp"
 
+#include "AppLogLevel.hpp"
 #include "HelperProbe.hpp"
 
 #include "wheelbri/LocalDate.hpp"
@@ -155,6 +156,7 @@ void MappingView::onKey(const char key) {
             liveWrap_ = !liveWrap_;
             liveHScroll_ = 0;
         }
+        if (key == 'v' && AppLogLevel::shared().started()) static_cast<void>(AppLogLevel::shared().next());
     }
 }
 
@@ -969,15 +971,6 @@ void MappingView::drawLiveLog(const float top) {
 
     fill(window_, 0, top - 8, kLogicalWidth, 1, kPanel);
     text(window_, 4, top, "LIVE LOG", kHeading);
-    char status[112];
-    if (liveScroll_ == 0) {
-        std::snprintf(status, sizeof(status), "newest at the bottom; drag the bar, wheel or PageUp to go back (%zu lines)",
-                      lines.size());
-    } else {
-        std::snprintf(status, sizeof(status), "%zu lines up: End (or scroll down) to follow the newest again",
-                      liveScroll_);
-    }
-    text(window_, 76, top, status, liveScroll_ == 0 ? kDim : kUnlabelled);
     // Word wrap (W): long messages on several rows instead of off the side.
     wrapW_ = 96;
     wrapX_ = kLogicalWidth - 4 - wrapW_;
@@ -986,6 +979,34 @@ void MappingView::drawLiveLog(const float top) {
     const char* const wrapLabel = liveWrap_ ? "Wrap: on (W)" : "Wrap: off (W)";
     text(window_, wrapX_ + (wrapW_ - static_cast<float>(std::strlen(wrapLabel)) * 8) / 2, top, wrapLabel,
          liveWrap_ ? kDark : kText);
+    // The log level (V, the app only): warn, info, debug, trace and round again, for every component. Warnings and
+    // errors are always written. Lit while it writes more than warnings, so a forgotten trace shows.
+    levelW_ = 0;
+    if (AppLogLevel::shared().started()) {
+        const LogLevel level = AppLogLevel::shared().current();
+        levelW_ = 136;   // "Level: debug (V)" and a margin
+        levelX_ = wrapX_ - 8 - levelW_;
+        levelY_ = top - 3;
+        const bool loud = level != LogLevel::Warn;
+        fill(window_, levelX_, levelY_, levelW_, 14, loud ? kHeading : kPanel);
+        char levelLabel[24];
+        std::snprintf(levelLabel, sizeof(levelLabel), "Level: %s (V)", logLevelName(level));
+        text(window_, levelX_ + (levelW_ - static_cast<float>(std::strlen(levelLabel)) * 8) / 2, top, levelLabel,
+             loud ? kDark : kText);
+    }
+    // What is left between the title and the buttons.
+    char status[112];
+    if (liveScroll_ == 0) {
+        std::snprintf(status, sizeof(status), "newest last; wheel or PageUp goes back (%zu)", lines.size());
+    } else {
+        std::snprintf(status, sizeof(status), "%zu lines up: End follows the newest", liveScroll_);
+    }
+    const float statusRoom = (levelW_ > 0 ? levelX_ : wrapX_) - 8 - 76;
+    std::string statusText = status;
+    if (statusText.size() * 8 > static_cast<std::size_t>(std::max(0.0F, statusRoom))) {
+        statusText.resize(static_cast<std::size_t>(std::max(0.0F, statusRoom)) / 8);
+    }
+    text(window_, 76, top, statusText.c_str(), liveScroll_ == 0 ? kDim : kUnlabelled);
     vBar_.shown = false;
     hBar_.shown = false;
     if (lines.empty()) {
@@ -1133,6 +1154,10 @@ void MappingView::onClick(const float x, const float y) {
         if (wrapW_ > 0 && inside(wrapX_, wrapY_, wrapW_, 14)) {
             liveWrap_ = !liveWrap_;
             liveHScroll_ = 0;
+            return;
+        }
+        if (levelW_ > 0 && inside(levelX_, levelY_, levelW_, 14)) {
+            static_cast<void>(AppLogLevel::shared().next());   // warn -> info -> debug -> trace -> warn
             return;
         }
         // A press on a scroll bar: on the thumb it is taken where pressed; elsewhere on the track the thumb jumps

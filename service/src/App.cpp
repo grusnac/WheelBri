@@ -16,6 +16,7 @@
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/Rig.hpp"
 #include "wheelbri/StartNeeds.hpp"
+#include "wheelbri/WakePlanner.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <algorithm>
@@ -486,18 +487,25 @@ private:
             if (quitting_ && !running()) {
                 break;
             }
-            // Input is answered within ~16 ms; otherwise the window is drawn ~30 times a second, and only what
-            // changed reaches the screen (UiWindow keeps the last frame).
+            // The window is drawn kWindowFramesPerSecond (60) times a second, on a schedule that does not drift (a
+            // sleep that wakes late is not added to the next one), and at once after input; only what changed reaches
+            // the screen (UiWindow keeps the last frame). Input is answered within one frame (~17 ms).
             const std::uint64_t now = platform::nowNs();
             const bool touched = !input.keys.empty() || !input.text.empty() || !input.clicks.empty() ||
                                  input.wheel != 0 || input.hwheel != 0 || input.leftDown ||
                                  input.pointer.x != lastPointer_.x || input.pointer.y != lastPointer_.y;
             lastPointer_ = input.pointer;
-            if (window_->visible() && (touched || now >= nextDrawNs_)) {
+            const bool visible = window_->visible();
+            if (visible && (touched || now >= nextDrawNs_)) {
                 drawWindow();
-                nextDrawNs_ = now + kDrawEveryNs;
+                // On schedule: the next frame one period after this one was due; held up (or after input): from now.
+                nextDrawNs_ = !touched && now - nextDrawNs_ < kDrawEveryNs ? nextDrawNs_ + kDrawEveryNs
+                                                                            : now + kDrawEveryNs;
             }
-            platform::sleepMs(16);
+            const std::uint64_t after = platform::nowNs();
+            platform::sleepNs(!visible ? kHiddenWaitNs
+                                       : nextDrawNs_ > after ? std::min(nextDrawNs_ - after, kDrawEveryNs)
+                                                             : platform::kNsPerMs);
         }
         return 0;
     }
@@ -506,7 +514,8 @@ private:
     enum class State { Stopped, Starting, Running, Stopping };
     enum class IdleTab { Mapping, Setup, Logs };
 
-    static constexpr std::uint64_t kDrawEveryNs = platform::kNsPerSecond / 30;
+    static constexpr std::uint64_t kDrawEveryNs = platform::kNsPerSecond / kWindowFramesPerSecond;
+    static constexpr std::uint64_t kHiddenWaitNs = 16 * platform::kNsPerMs;   // the window minimised: input only
     std::uint64_t nextDrawNs_ = 0;
     ui::Click lastPointer_{};
 
@@ -834,6 +843,9 @@ private:
                     colour = kWarning;
                 } else if (frame && frame->gameIgnoresWheel) {
                     status = "GAME NOT USING WHEEL";
+                    colour = kWarning;
+                } else if (frame && frame->gameFfbIdle) {
+                    status = "GAME FFB OFF: ALT-TAB";   // the Logs tab says more (main.cpp, FfbIdleWatch)
                     colour = kWarning;
                 }
                 break;

@@ -6,6 +6,8 @@
 #include <vector>
 
 using namespace wheelbri::helper;
+using wheelbri::LogLevel;
+using wheelbri::parseLogLevel;
 
 namespace {
 
@@ -226,16 +228,16 @@ TEST(HelperProtocol, EveryStatusAndAnEmptyTextRoundTrip) {
     }
 }
 
-TEST(HelperProtocol, KnownTypesAreExactlyHelloToShareLogFolder) {
+TEST(HelperProtocol, KnownTypesAreExactlyHelloToSetLogLevel) {
     EXPECT_FALSE(isKnown(static_cast<RequestType>(0)));
-    for (int type = 1; type <= 8; ++type) EXPECT_TRUE(isKnown(static_cast<RequestType>(type))) << type;
-    EXPECT_FALSE(isKnown(static_cast<RequestType>(9)));
+    for (int type = 1; type <= 9; ++type) EXPECT_TRUE(isKnown(static_cast<RequestType>(type))) << type;
+    EXPECT_FALSE(isKnown(static_cast<RequestType>(10)));
     EXPECT_FALSE(isKnown(static_cast<RequestType>(255)));
     EXPECT_EQ(requestProblem(Request{static_cast<RequestType>(0), 1, {}}), "unknown request 0");
 }
 
 TEST(HelperProtocol, EveryRequestButPutHideFilterTakesNoDevices) {
-    for (int type = 1; type <= 8; ++type) {
+    for (int type = 2; type <= 8; ++type) {   // Hello and SetLogLevel take a level (below)
         const auto requestType = static_cast<RequestType>(type);
         if (requestType == RequestType::PutHideFilter) continue;
         EXPECT_EQ(requestProblem(Request{requestType, 1, {}}), "") << type;
@@ -243,6 +245,39 @@ TEST(HelperProtocol, EveryRequestButPutHideFilterTakesNoDevices) {
                   std::string(requestName(requestType)) + " takes no devices");
     }
     EXPECT_EQ(requestProblem(Request{RequestType::PutHideFilter, 1, std::vector<std::string>(kMaxDevices, kMoza)}), "");
+}
+
+TEST(HelperProtocol, AHelloMayCarryTheAppsLogLevel) {
+    EXPECT_EQ(requestProblem(Request{RequestType::Hello, 1, {}}), "");          // an older app
+    EXPECT_EQ(requestProblem(Request{RequestType::Hello, 1, {"debug"}}), "");
+    EXPECT_EQ(requestProblem(Request{RequestType::Hello, 1, {kMoza}}), "Hello takes nothing but the app's log level");
+    EXPECT_EQ(requestProblem(Request{RequestType::Hello, 1, {"info", "info"}}),
+              "Hello takes nothing but the app's log level");
+    EXPECT_FALSE(requestLogLevel(Request{RequestType::Hello, 1, {}}).has_value());
+    EXPECT_EQ(requestLogLevel(Request{RequestType::Hello, 1, {"trace"}}), LogLevel::Trace);
+    // It goes over the pipe as the body's one string.
+    std::string error;
+    const auto decoded = decodeRequest(encode(Request{RequestType::Hello, 4, {"info"}}), error);
+    ASSERT_TRUE(decoded.has_value()) << error;
+    EXPECT_EQ(requestLogLevel(*decoded), LogLevel::Info);
+}
+
+TEST(HelperProtocol, SetLogLevelTakesExactlyOneAppLevel) {
+    for (const char* level : {"trace", "debug", "info", "warn"}) {
+        const Request request{RequestType::SetLogLevel, 1, {level}};
+        EXPECT_EQ(requestProblem(request), "") << level;
+        EXPECT_EQ(requestLogLevel(request), parseLogLevel(level));
+    }
+    const std::string problem = "SetLogLevel takes one level: trace, debug, info or warn";
+    EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {}}), problem);
+    EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {"debug", "info"}}), problem);
+    // Quieter than warn would hide warnings and errors: never.
+    for (const char* quiet : {"error", "critical", "off"}) {
+        EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {quiet}}), problem) << quiet;
+    }
+    EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {"warning"}}), problem);   // the names it sends
+    EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {"DEBUG"}}), problem);
+    EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {kMoza}}), problem);
 }
 
 TEST(HelperProtocol, HideDeviceEdges) {
@@ -296,6 +331,7 @@ TEST(HelperProtocol, EveryNameAndUnknownOnes) {
         {RequestType::PutHideFilter, "PutHideFilter"},
         {RequestType::InstallG920Driver, "InstallG920Driver"},
         {RequestType::ShareLogFolder, "ShareLogFolder"},
+        {RequestType::SetLogLevel, "SetLogLevel"},
     };
     for (const auto& [type, name] : requests) EXPECT_STREQ(requestName(type), name);
     EXPECT_STREQ(requestName(static_cast<RequestType>(99)), "unknown");

@@ -22,6 +22,8 @@ namespace wheelbri::helper {
 // interface is present and is not a keyboard, mouse, ...) and never takes a process, a path or a command from it:
 // - HideRig names the caller's own process (`process`, opened by the server and named by its handle).
 // - ShareLogFolder takes the caller's own %LOCALAPPDATA%\wheelbri\logs (from its token), opened as the caller.
+// - SetLogLevel writes the one level it was given (checked: trace, debug, info or warn) to HKLM\SOFTWARE\wheelbri
+//   LogLevel for the drivers; the server sets the helper's own log to it too (HelperDispatch: Answer::logLevel).
 // - Driver scripts come only from the helper's own folder (`scriptLevels` 0 as a service; up to 3 with --console,
 //   for a development build in the source tree).
 class HelperSession final : public RequestHandler {
@@ -46,6 +48,7 @@ private:
     Reply putHideFilter(const Request& request);
     Reply installG920Driver(std::uint32_t seq);
     Reply shareLogFolder(std::uint32_t seq);
+    Reply setLogLevel(const Request& request);
     void showRigIfOurs();
     // Where the driver install scripts write their logs: the caller's logs folder once ShareLogFolder took it, else
     // ProgramData's (never SYSTEM's own %LOCALAPPDATA%, where nobody would look).

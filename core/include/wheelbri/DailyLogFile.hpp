@@ -50,12 +50,18 @@ public:
 
     // Writes into `target` from now on (the previous one is closed): opens the file of `date` and writes what waited.
     // A null target only closes the previous one.
-    void attach(std::unique_ptr<LogTarget> target, const std::string& date, std::uint64_t nowMs);
+    // `where` names the place `target` writes to (the Helper: the user's logs folder). When it is the place the
+    // current target already writes to, `target` is dropped and the current one kept: the same file goes on, and a
+    // caller saying "here" again (the app's Hello every 5 minutes) makes no new, empty file. An empty `where` always
+    // takes the new target.
+    void attach(std::unique_ptr<LogTarget> target, const std::string& date, std::uint64_t nowMs,
+                const std::string& where = {});
 
     // One whole line, written on `date` at `nowMs` (a steady clock).
     void write(std::string line, const std::string& date, std::uint64_t nowMs);
 
     [[nodiscard]] bool hasTarget() const { return target_ != nullptr; }
+    [[nodiscard]] const std::string& where() const { return where_; }
     [[nodiscard]] bool isOpen() const { return open_; }
     [[nodiscard]] const std::string& fileDate() const { return fileDate_; }
     [[nodiscard]] std::size_t pending() const { return pending_.size(); }
@@ -70,6 +76,7 @@ private:
     Settings settings_;
     NoteLine noteLine_;
     std::unique_ptr<LogTarget> target_;
+    std::string where_;   // what attach was told the current target writes to
     bool open_ = false;
     std::string fileDate_;
     std::uint64_t lastTryMs_ = 0;

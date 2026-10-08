@@ -21,6 +21,7 @@
 #include "wheelbri/HidG920.hpp"
 #include "wheelbri/HidPid.hpp"
 #include "wheelbri/LogFileNames.hpp"
+#include "wheelbri/LogLevel.hpp"
 #include "wheelbri/StatePacket.hpp"
 
 #include <algorithm>
@@ -48,6 +49,7 @@ constexpr wchar_t kProduct[] = L"G920 Driving Force Racing Wheel USB";
 constexpr wchar_t kSerial[] = L"WHEELBRI0001";
 
 using Report = std::vector<std::uint8_t>;
+using Level = wheelbri::LogLevel;
 
 Report g920Report(const wheelbri::TargetReport& report) {
     const auto packed = wheelbri::packG920Input(report);
@@ -216,12 +218,49 @@ bool appendTo(std::wstring folder, const SYSTEMTIME& now, const char* line) {
     return true;
 }
 
-void logLine(const std::string& text) {
+// The level the lines are written at: HKLM\SOFTWARE\wheelbri LogLevel (REG_SZ trace, debug, info or warn: the app's
+// Level button, written at each Start and on a change), read at most once a second (a line may come from the game's
+// force feedback path). Warn when it is missing: warnings and errors are always written.
+wheelbri::LogLevel currentLevel() {
+    static std::atomic<std::uint64_t> readAtMs{0};
+    static std::atomic<std::uint8_t> level{static_cast<std::uint8_t>(wheelbri::kDefaultAppLogLevel)};
+    const std::uint64_t now = GetTickCount64();
+    const std::uint64_t last = readAtMs.load();
+    if (last == 0 || now - last >= 1000) {
+        readAtMs = now;
+        wchar_t value[16] = {};
+        DWORD size = sizeof(value);
+        std::string name;
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\wheelbri", L"LogLevel", RRF_RT_REG_SZ, nullptr, value,
+                         &size) == ERROR_SUCCESS) {
+            for (const wchar_t* c = value; *c != L'\0'; ++c) {
+                name.push_back(*c < 0x80 ? static_cast<char>(*c) : '?');
+            }
+        }
+        level = static_cast<std::uint8_t>(wheelbri::appLogLevel(name));
+    }
+    return static_cast<wheelbri::LogLevel>(level.load());
+}
+
+// As spdlog names them in the other logs, so the Logs tab reads the level the same way.
+const char* levelText(const wheelbri::LogLevel level) {
+    switch (level) {
+        case wheelbri::LogLevel::Trace: return "trace";
+        case wheelbri::LogLevel::Debug: return "debug";
+        case wheelbri::LogLevel::Info: return "info";
+        case wheelbri::LogLevel::Warn: return "warning";
+        case wheelbri::LogLevel::Error: return "error";
+        default: return "critical";
+    }
+}
+
+void logLine(const wheelbri::LogLevel level, const std::string& text) {
+    if (!wheelbri::logLevelAllows(currentLevel(), level)) return;
     SYSTEMTIME now;
     GetLocalTime(&now);
     char line[1024];
-    std::snprintf(line, sizeof(line), "[%04u-%02u-%02u %02u:%02u:%02u.%03u] %s\r\n", now.wYear, now.wMonth, now.wDay,
-                  now.wHour, now.wMinute, now.wSecond, now.wMilliseconds, text.c_str());
+    std::snprintf(line, sizeof(line), "[%04u-%02u-%02u %02u:%02u:%02u.%03u] [%s] %s\r\n", now.wYear, now.wMonth,
+                  now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds, levelText(level), text.c_str());
     OutputDebugStringA(line);
     std::lock_guard lock(g_logLock);
     static bool reportedFailure = false;
@@ -278,7 +317,8 @@ public:
     void stop();
     void sendFfb(const wheelbri::FfbPacket& packet);
 
-    wheelbri::HidPid pid{[this](const wheelbri::FfbPacket& p) { sendFfb(p); }, [](const std::string& s) { logLine(s); }};
+    wheelbri::HidPid pid{[this](const wheelbri::FfbPacket& p) { sendFfb(p); },
+                         [](const Level level, const std::string& s) { logLine(level, s); }};
 
     // The latest input report (neutral until the service sends state).
     Report latestReport() {
@@ -371,14 +411,16 @@ bool Link::start() {
         traceLines > 0) {
         const int lines = static_cast<int>((std::min)(traceLines, static_cast<DWORD>(wheelbri::HidPid::kMaxTraceLines)));
         pid.enableTrace(lines);
-        logLine("force feedback trace on (PidTraceLines = " + std::to_string(lines) + ")");
+        logLine(Level::Info, "force feedback trace on (PidTraceLines = " + std::to_string(lines) +
+                                 "; its lines are written with the app's Level at trace)");
     } else {
         pid.enableTrace(0);
     }
     stateSocket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     ffbSocket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (stateSocket_ == INVALID_SOCKET || ffbSocket_ == INVALID_SOCKET) {
-        logLine("ERROR: cannot create UDP sockets (" + std::to_string(WSAGetLastError()) + "): the device will not start");
+        logLine(Level::Error,
+                "cannot create UDP sockets (" + std::to_string(WSAGetLastError()) + "): the device will not start");
         closeSockets();
         return false;
     }
@@ -387,7 +429,7 @@ bool Link::start() {
     local.sin_port = htons(kStatePort);
     local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (bind(stateSocket_, reinterpret_cast<sockaddr*>(&local), sizeof(local)) != 0) {
-        logLine("cannot listen on 127.0.0.1:41329 (" + std::to_string(WSAGetLastError()) +
+        logLine(Level::Error, "cannot listen on 127.0.0.1:41329 (" + std::to_string(WSAGetLastError()) +
                 "): is the shim's game still running? Only one of them may run.");
         closeSockets();
         return false;
@@ -395,7 +437,8 @@ bool Link::start() {
     // The thread must wake regularly (stop requests, the stale-state check, force feedback timing).
     DWORD timeoutMs = 5;
     if (setsockopt(stateSocket_, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs)) != 0) {
-        logLine("ERROR: cannot set the receive timeout (" + std::to_string(WSAGetLastError()) + "): the device will not start");
+        logLine(Level::Error, "cannot set the receive timeout (" + std::to_string(WSAGetLastError()) +
+                                  "): the device will not start");
         closeSockets();
         return false;
     }
@@ -404,14 +447,15 @@ bool Link::start() {
     service.sin_port = htons(kFfbPort);
     service.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (connect(ffbSocket_, reinterpret_cast<sockaddr*>(&service), sizeof(service)) != 0) {
-        logLine("WARNING: cannot address the service's force feedback port 127.0.0.1:41330 (" +
+        logLine(Level::Warn, "cannot address the service's force feedback port 127.0.0.1:41330 (" +
                 std::to_string(WSAGetLastError()) + "): the game's force feedback will not reach the wheel");
     }
     // The thread gets its own copy of the socket: stop() closes it only after the thread has ended.
     try {
         thread_ = std::thread([this, sock = stateSocket_] { run(sock); });
     } catch (const std::exception& e) {   // out of resources: never let it out of a WDF callback (WUDFHost would end)
-        logLine(std::string("ERROR: cannot start the device's thread (") + e.what() + "): the device will not start");
+        logLine(Level::Error,
+                std::string("cannot start the device's thread (") + e.what() + "): the device will not start");
         closeSockets();
         return false;
     }
@@ -479,7 +523,8 @@ void Link::logCounts(const std::int64_t now) {
     }
     const std::int64_t seconds = (now - countsSinceMs_ + 500) / 1000;
     countsSinceMs_ = now;
-    logLine("input, last " + std::to_string(seconds) + " s: " + std::to_string(counts.states) + " states, " +
+    logLine(Level::Debug,
+            "input, last " + std::to_string(seconds) + " s: " + std::to_string(counts.states) + " states, " +
             std::to_string(counts.answeredAtOnce + counts.answeredLater) + " reads answered (" +
             std::to_string(counts.answeredAtOnce) + " at once, " + std::to_string(counts.answeredLater) +
             " after waiting), " + std::to_string(counts.dropped) + " states dropped, " + std::to_string(waiting) +
@@ -494,7 +539,7 @@ bool Link::receiveFailed(const int received) {
     const std::int64_t now = nowMs();
     if (recvErrors_.allow(now)) {
         const auto skipped = recvErrors_.takeSuppressed();
-        logLine("WARNING: receiving from wheelbri-service failed (" + std::to_string(error) + ")" +
+        logLine(Level::Warn, "receiving from wheelbri-service failed (" + std::to_string(error) + ")" +
                 (skipped > 0 ? ", " + std::to_string(skipped) + " more since the last line" : std::string()));
     }
     if (error == WSAENOTSOCK || error == WSAEINVAL) return false;   // the socket is gone: nothing to wait for
@@ -524,7 +569,7 @@ void Link::sendFfb(const wheelbri::FfbPacket& packet) {
         const int error = WSAGetLastError();
         if (sendErrors_.allow(nowMs())) {
             const auto skipped = sendErrors_.takeSuppressed();
-            logLine("WARNING: force feedback to wheelbri-service not sent (" + std::to_string(error) +
+            logLine(Level::Warn, "force feedback to wheelbri-service not sent (" + std::to_string(error) +
                     "; is the service running?)" +
                     (skipped > 0 ? ", " + std::to_string(skipped) + " more since the last line" : std::string()));
         }
@@ -540,7 +585,7 @@ void Link::run(const SOCKET sock) {
             setDescription(GetCurrentThread(), L"wheelbri-g920 state receiver");
         }
     }
-    logLine("listening for wheelbri-service on 127.0.0.1:41329, force feedback to 127.0.0.1:41330");
+    logLine(Level::Info, "listening for wheelbri-service on 127.0.0.1:41329, force feedback to 127.0.0.1:41330");
     std::array<std::uint8_t, 256> buffer{};
     std::int64_t lastState = nowMs() - kStaleMs - 1;
     std::int64_t lastTick = 0;
@@ -554,7 +599,8 @@ void Link::run(const SOCKET sock) {
             if (const auto packet = wheelbri::decodeStatePacket(std::span(buffer.data(), static_cast<std::size_t>(received)))) {
                 if (!receiving) {
                     receiving = true;
-                    logLine("receiving wheel state from wheelbri-service (packet #" + std::to_string(packet->sequence) + ")");
+                    logLine(Level::Info, "receiving wheel state from wheelbri-service (packet #" +
+                                             std::to_string(packet->sequence) + ")");
                 }
                 lastState = now;
                 neutralSent = false;
@@ -562,7 +608,8 @@ void Link::run(const SOCKET sock) {
             }
         } else if (now - lastState > kStaleMs && !neutralSent) {
             if (receiving) {
-                logLine("no wheel state for 1500 ms: centred wheel and released pedals until it comes back");
+                logLine(Level::Info,
+                        "no wheel state for 1500 ms: centred wheel and released pedals until it comes back");
             }
             receiving = false;
             neutralSent = true;
@@ -575,7 +622,8 @@ void Link::run(const SOCKET sock) {
         logCounts(now);
     }
     pid.stopAll(nowMs());
-    logLine("stopped: " + std::to_string(pid.reportsHandled()) + " force feedback reports from the game, " +
+    logLine(Level::Info, "stopped: " + std::to_string(pid.reportsHandled()) +
+                             " force feedback reports from the game, " +
             std::to_string(pid.packetsSent()) + " packets to the service");
 }
 
@@ -719,7 +767,7 @@ VOID EvtDeviceCleanup(WDFOBJECT object) {
     DeviceContext* ctx = GetDeviceContext(static_cast<WDFDEVICE>(object));
     delete ctx->link;
     ctx->link = nullptr;
-    logLine("virtual G920 removed");
+    logLine(Level::Info, "virtual G920 removed");
 }
 
 NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
@@ -735,7 +783,7 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     WDFDEVICE device;
     NTSTATUS status = WdfDeviceCreate(&init, &attributes, &device);
     if (!NT_SUCCESS(status)) {
-        logLine("WdfDeviceCreate failed: " + std::to_string(status));
+        logLine(Level::Error, "WdfDeviceCreate failed: " + std::to_string(status));
         return status;
     }
     DeviceContext* ctx = GetDeviceContext(device);
@@ -763,18 +811,18 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     WDFQUEUE queue;
     status = WdfIoQueueCreate(device, &queueConfig, WDF_NO_OBJECT_ATTRIBUTES, &queue);
     if (!NT_SUCCESS(status)) {
-        logLine("default queue: " + std::to_string(status));
+        logLine(Level::Error, "default queue: " + std::to_string(status));
         return status;
     }
     WDF_IO_QUEUE_CONFIG_INIT(&queueConfig, WdfIoQueueDispatchManual);
     status = WdfIoQueueCreate(device, &queueConfig, WDF_NO_OBJECT_ATTRIBUTES, &ctx->readQueue);
     if (!NT_SUCCESS(status)) {
-        logLine("read queue: " + std::to_string(status));
+        logLine(Level::Error, "read queue: " + std::to_string(status));
         return status;
     }
 
     ctx->link = new Link(ctx);
-    logLine("virtual G920 added (VID 046D PID C262)");
+    logLine(Level::Info, "virtual G920 added (VID 046D PID C262)");
     return STATUS_SUCCESS;
 }
 
@@ -786,7 +834,8 @@ VOID EvtDriverCleanup(WDFOBJECT) { WSACleanup(); }
 extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driverObject, PUNICODE_STRING registryPath) {
     WSADATA wsa;
     if (const int error = WSAStartup(MAKEWORD(2, 2), &wsa); error != 0) {
-        logLine("ERROR: WSAStartup failed (" + std::to_string(error) + "): the driver cannot talk to wheelbri-service");
+        logLine(Level::Error,
+                "WSAStartup failed (" + std::to_string(error) + "): the driver cannot talk to wheelbri-service");
         return STATUS_UNSUCCESSFUL;
     }
     WDF_DRIVER_CONFIG config;
@@ -804,7 +853,9 @@ extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driverObject, PUNICODE_STRING reg
 #else
     const std::string built;
 #endif
-    logLine(NT_SUCCESS(status) ? "wheelbri-g920 driver loaded" + built : "WdfDriverCreate failed: " + std::to_string(status));
+    logLine(NT_SUCCESS(status) ? Level::Info : Level::Error,
+            NT_SUCCESS(status) ? "wheelbri-g920 driver loaded" + built
+                               : "WdfDriverCreate failed: " + std::to_string(status));
     if (!NT_SUCCESS(status)) WSACleanup();   // no driver object, so no cleanup callback either
     return status;
 }

@@ -124,7 +124,7 @@ bool init(const LogConfig& config, const std::string& defaultFilePath) {
     // The registry's formatter is applied to every logger (and its sinks) on registration, so set it globally.
     spdlog::set_pattern(kPattern);
 
-    const auto level = isValidLevel(config.level) ? spdlog::level::from_str(config.level) : spdlog::level::info;
+    const auto level = isValidLevel(config.level) ? spdlog::level::from_str(config.level) : spdlog::level::warn;
     spdlog::set_level(level);
     spdlog::cfg::load_env_levels();          // SPDLOG_LEVEL overrides the config, per component if wanted
     // Problems reach the file even if the process dies right after logging them.
@@ -136,7 +136,7 @@ bool init(const LogConfig& config, const std::string& defaultFilePath) {
 
     const Logger logger = get("logging");
     if (!isValidLevel(config.level)) {
-        WE_LOG_WARN(logger, "unknown log level '{}', using info", config.level);
+        WE_LOG_WARN(logger, "unknown log level '{}', using warn", config.level);
     }
     if (!fileOk) {
         WE_LOG_ERROR(logger, "cannot open log file '{}': {} - logging to console only", filePath, fileError);
@@ -203,6 +203,10 @@ bool setLevel(const std::string& level) {
     }
     spdlog::set_level(spdlog::level::from_str(level));
     return true;
+}
+
+spdlog::level::level_enum currentLevel() {
+    return get("logging")->level();   // looked up each time: shutdown() drops the loggers
 }
 
 bool RateLimiter::allow(std::uint64_t& suppressed) {

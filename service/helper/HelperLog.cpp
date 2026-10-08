@@ -141,7 +141,10 @@ std::unique_ptr<LogTarget> HelperLog::userFile(void* const token, const std::wst
 void HelperLog::attachUser(void* const token, const std::wstring& logsFolder) {
     std::unique_ptr<LogTarget> target = userFile(token, logsFolder);
     const std::lock_guard<std::mutex> lock(mutex_);
-    file_.attach(std::move(target), today(), GetTickCount64());
+    // The folder names the place: the same user's folder again (their app's Hello every 5 minutes, a second app)
+    // keeps this run's file instead of starting a new, empty one; `target`, dropped, closes its token.
+    const std::string where(reinterpret_cast<const char*>(logsFolder.data()), logsFolder.size() * sizeof(wchar_t));
+    file_.attach(std::move(target), today(), GetTickCount64(), where);
 }
 
 void HelperLog::write(const spdlog::level::level_enum level, const std::string& component, const std::string& message) {

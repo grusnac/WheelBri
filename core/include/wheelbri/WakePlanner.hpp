@@ -13,15 +13,20 @@ namespace wheelbri {
 // without a new event (and, while the loop polls, every EventLoopControl::Settings::pollNs as well):
 //   - force feedback while forces play: every `ffbNs` (FfbController's minUpdateNs, 4 ms), so the safety limiter's
 //     slew steps stay smooth;
-//   - the window's copy of the state while one is open: every `windowNs` (~30 a second);
+//   - the window's copy of the state while one is open: every `windowNs` (kWindowFramesPerSecond, as often as the
+//     window draws);
 //   - for `recentInputNs` after a pass that found new input: every `recentInputEveryNs`, so a notification a driver
 //     loses now and then while the wheel moves delays that input by 4 ms at most, not by idleNs;
 //   - everything else (the 100 ms keep-alive to the game, the 500 ms force feedback watchdog, the test clutch
 //     running out, statistics, telemetry heartbeats, Stop): at least every `idleNs`.
 // And never two passes closer than `minGapNs`, so a device or socket that signals without pause cannot spin the loop.
+// How often the windows (the app, --ui) draw, and so how often the loop hands them the state: 60, the user's choice
+// on 2026-10-08 (30 felt laggy). Only what changed reaches the screen (UiWindow keeps the last frame).
+inline constexpr std::uint64_t kWindowFramesPerSecond = 60;
+
 struct WakeSettings {
     std::uint64_t idleNs = 100'000'000;
-    std::uint64_t windowNs = 33'333'333;
+    std::uint64_t windowNs = 1'000'000'000 / kWindowFramesPerSecond;
     std::uint64_t ffbNs = 4'000'000;
     std::uint64_t minGapNs = 500'000;
     std::uint64_t recentInputNs = 100'000'000;

@@ -11,8 +11,16 @@ DailyLogFile::~DailyLogFile() {
     if (open_) target_->close();
 }
 
-void DailyLogFile::attach(std::unique_ptr<LogTarget> target, const std::string& date, const std::uint64_t nowMs) {
+void DailyLogFile::attach(std::unique_ptr<LogTarget> target, const std::string& date, const std::uint64_t nowMs,
+                          const std::string& where) {
+    if (target != nullptr && target_ != nullptr && !where.empty() && where == where_) {
+        // The same place again: the current file goes on (`target` is dropped, closing nothing it had not opened).
+        // One that could not be opened is tried again now, as a new target would have been.
+        if (!open_) tryOpen(date, nowMs);
+        return;
+    }
     if (open_) target_->close();
+    where_ = target != nullptr ? where : std::string();
     open_ = false;
     fileDate_.clear();
     target_ = std::move(target);

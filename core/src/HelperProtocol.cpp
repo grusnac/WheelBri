@@ -176,7 +176,14 @@ std::optional<Reply> decodeReply(std::span<const std::uint8_t> bytes, std::strin
 bool isKnown(const RequestType type) {
     const auto value = static_cast<std::uint8_t>(type);
     return value >= static_cast<std::uint8_t>(RequestType::Hello) &&
-           value <= static_cast<std::uint8_t>(RequestType::ShareLogFolder);
+           value <= static_cast<std::uint8_t>(RequestType::SetLogLevel);
+}
+
+std::optional<LogLevel> requestLogLevel(const Request& request) {
+    if (request.devices.size() != 1) return std::nullopt;
+    const std::optional<LogLevel> level = parseLogLevel(request.devices.front());
+    if (!level || clampToApp(*level) != *level || request.devices.front() == "warning") return std::nullopt;
+    return level;
 }
 
 std::string hideDeviceProblem(const std::string_view id) {
@@ -202,6 +209,13 @@ std::string hideDeviceProblem(const std::string_view id) {
 std::string requestProblem(const Request& request) {
     if (!isKnown(request.type)) {
         return "unknown request " + std::to_string(static_cast<int>(request.type));
+    }
+    if (request.type == RequestType::Hello) {
+        return request.devices.empty() || requestLogLevel(request) ? std::string()
+                                                                   : "Hello takes nothing but the app's log level";
+    }
+    if (request.type == RequestType::SetLogLevel) {
+        return requestLogLevel(request) ? std::string() : "SetLogLevel takes one level: trace, debug, info or warn";
     }
     if (request.type != RequestType::PutHideFilter) {
         return request.devices.empty() ? std::string() : std::string(requestName(request.type)) + " takes no devices";
@@ -244,6 +258,7 @@ const char* requestName(const RequestType type) {
         case RequestType::PutHideFilter: return "PutHideFilter";
         case RequestType::InstallG920Driver: return "InstallG920Driver";
         case RequestType::ShareLogFolder: return "ShareLogFolder";
+        case RequestType::SetLogLevel: return "SetLogLevel";
     }
     return "unknown";
 }

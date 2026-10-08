@@ -59,6 +59,7 @@ struct Record {
     int destroyed = 0;
     int tokens = 0;          // sessions given the caller's token
     std::vector<std::wstring> logFolders;
+    std::vector<LogLevel> levels;   // what setLogLevel was given
     bool throwOnRequest = false;
 
     int madeNow() {
@@ -76,6 +77,10 @@ struct Record {
     std::size_t logsNow() {
         const std::lock_guard<std::mutex> lock(mutex);
         return logFolders.size();
+    }
+    std::vector<LogLevel> levelsNow() {
+        const std::lock_guard<std::mutex> lock(mutex);
+        return levels;
     }
 };
 
@@ -133,6 +138,10 @@ public:
             CloseHandle(static_cast<HANDLE>(token));
             const std::lock_guard<std::mutex> lock(record_.mutex);
             record_.logFolders.push_back(folder);
+        };
+        options.setLogLevel = [this](const LogLevel level) {
+            const std::lock_guard<std::mutex> lock(record_.mutex);
+            record_.levels.push_back(level);
         };
         server_ = std::make_unique<HelperServer>(std::move(options));
         thread_ = std::thread([this] { ran_ = server_->run(stop_, error_); });
@@ -230,6 +239,36 @@ TEST(HelperPipe, AnAcceptedCallersSessionGetsItsTokenAndTheLogMoves) {
     EXPECT_EQ(server.record().tokens, 1);
     const std::wstring& folder = server.record().logFolders.front();
     EXPECT_EQ(folder.substr(folder.size() - 14), L"\\wheelbri\\logs");
+}
+
+TEST(HelperPipe, TheAppsLogLevelComesWithItsHelloAndItsSetLogLevel) {
+    TestServer server;
+    HelperClient client(server.name());
+    std::string error;
+    ASSERT_EQ(client.connect(error), HelperClient::Connect::Ok) << error;
+    auto reply = call(client, RequestType::Hello, error, {"debug"});
+    ASSERT_TRUE(reply.has_value()) << error;
+    EXPECT_EQ(reply->status, Status::Ok);
+    EXPECT_EQ(server.record().levelsNow(), std::vector<LogLevel>{LogLevel::Debug});
+    reply = call(client, RequestType::SetLogLevel, error, {"trace"});
+    ASSERT_TRUE(reply.has_value()) << error;
+    EXPECT_EQ(reply->status, Status::Ok);
+    EXPECT_EQ(server.record().levelsNow(), (std::vector<LogLevel>{LogLevel::Debug, LogLevel::Trace}));
+    reply = call(client, RequestType::SetLogLevel, error, {"off"});   // refused: never quieter than warn
+    ASSERT_TRUE(reply.has_value()) << error;
+    EXPECT_EQ(reply->status, Status::Refused);
+    EXPECT_EQ(server.record().levelsNow().size(), 2U);
+}
+
+TEST(HelperPipe, AnotherProgramsHelloSetsNoLevel) {
+    TestServer server(/*acceptCaller=*/false);   // these tests are not WheelBri: they may not take the log either
+    HelperClient client(server.name());
+    std::string error;
+    ASSERT_EQ(client.connect(error), HelperClient::Connect::Ok) << error;
+    const auto reply = call(client, RequestType::Hello, error, {"trace"});
+    ASSERT_TRUE(reply.has_value()) << error;
+    EXPECT_EQ(reply->status, Status::Refused);
+    EXPECT_TRUE(server.record().levelsNow().empty());
 }
 
 TEST(HelperPipe, AnyOtherProgramMayOnlySayHelloAndIsThenClosed) {
@@ -626,6 +665,34 @@ TEST(HelperLogFile, IsMadeWithItsFoldersAndAppendedToAsTheUser) {
     EXPECT_EQ(readAll(logs / "wheelbri-helper-2026-10-08-02.log"), "second run\r\n");
     EXPECT_EQ(readAll(logs / "wheelbri-helper-2026-10-08-01.log"), "one\r\ntwo\r\n");
     std::filesystem::remove_all(base);
+}
+
+// 0.9.0 made a new, empty wheelbri-helper-<date>-<NN>.log every time the app said Hello (every 5 minutes on the
+// Logs tab): the same user's folder again now keeps the file.
+TEST(HelperLogFile, TheSameFolderAgainKeepsOneFile) {
+    const std::filesystem::path base = tempFolder("again");
+    std::filesystem::remove_all(base);
+    const std::filesystem::path logs = base / "logs";
+    HelperLog& log = HelperLog::instance();
+    log.attachUser(myImpersonationToken(), logs.wstring());
+    log.write(spdlog::level::info, "helper.test", "first");
+    log.attachUser(myImpersonationToken(), logs.wstring());   // the app's next Hello
+    log.attachUser(myImpersonationToken(), logs.wstring());
+    log.write(spdlog::level::info, "helper.test", "second");
+    std::vector<std::filesystem::path> files;
+    for (const auto& entry : std::filesystem::directory_iterator(logs)) files.push_back(entry.path());
+    ASSERT_EQ(files.size(), 1U);
+    const std::string text = readAll(files.front());
+    EXPECT_NE(text.find("first"), std::string::npos);
+    EXPECT_NE(text.find("second"), std::string::npos);
+    // Another folder takes the log (and frees this one's file).
+    const std::filesystem::path other = base / "other";
+    log.attachUser(myImpersonationToken(), other.wstring());
+    log.write(spdlog::level::info, "helper.test", "moved");
+    EXPECT_NE(readAll(files.front()).find("second"), std::string::npos);
+    EXPECT_EQ(readAll(files.front()).find("moved"), std::string::npos);
+    std::error_code ec;
+    std::filesystem::remove_all(logs, ec);
 }
 
 TEST(HelperLogFile, WithoutATokenOrAFolderNothingOpens) {

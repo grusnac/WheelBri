@@ -33,17 +33,22 @@ struct Answer {
     Reply reply;
     bool keepOpen = true;                   // false: close the connection after sending the reply
     std::optional<RequestType> type;        // the request's type, when the message could be read
+    // The log level the helper takes for its own log: a Hello's (from a caller that may take the log) or an accepted
+    // SetLogLevel's. Nullopt: its level stays.
+    std::optional<LogLevel> logLevel;
 };
 
 // The rules, in this order:
 // - a message that cannot be read: Refused (seq 0), and the connection is closed;
 // - Hello: Ok with `version` for an accepted caller (the connection stays); for any other caller Refused with
-//   "<version>: <why>", and the connection is closed (it may hold none of the helper's few connections);
+//   "<version>: <why>", and the connection is closed (it may hold none of the helper's few connections). Its log
+//   level, when it carries one and the caller may take the log (mayTakeTheLog), is the Answer's logLevel;
 // - anything but Hello from a caller not accepted: Refused with why, closed;
 // - an unknown request type: Unsupported (an app newer than the helper), the connection stays;
 // - a request requestProblem refuses: Refused with the problem, the connection stays;
 // - otherwise `session` carries it out; no session (it could not be made) or a session that throws: Failed, with
-//   what went wrong, the connection stays (and the helper keeps running).
+//   what went wrong, the connection stays (and the helper keeps running). A SetLogLevel the session carried out
+//   (Ok) sets the Answer's logLevel too.
 // Every refusal and failure is logged (helper.pipe) with the caller's pid.
 [[nodiscard]] Answer answerMessage(std::span<const std::uint8_t> bytes, const CallerInfo& caller,
                                    std::string_view version, RequestHandler* session);

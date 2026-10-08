@@ -1,5 +1,7 @@
 #pragma once
 
+#include "wheelbri/LogLevel.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -59,6 +61,11 @@ bool installG920Driver(int levelsAbove, const std::filesystem::path& logFolder, 
 bool writeAllowedPid(std::uint32_t pid, std::uint64_t processStart);
 // The value now (0: nobody hides the rig).
 [[nodiscard]] std::uint32_t allowedPid();
+
+// HKLM\SOFTWARE\wheelbri LogLevel (REG_SZ: trace, debug, info or warn): the app's log level for the drivers (the
+// hide filter reads it at each line; the virtual G920's driver when it starts, then from the session's packets).
+// False with `message` when it could not be written (not Windows: nothing to write, true).
+bool writeLogLevel(LogLevel level, std::string& message);
 
 // Only `process` (a HANDLE opened with PROCESS_QUERY_LIMITED_INFORMATION | READ_CONTROL | WRITE_DAC) may open the
 // rig's filtered devices: writes its id and creation time, and lets the filter (LocalService) look at that process so

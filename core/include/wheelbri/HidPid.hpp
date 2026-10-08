@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/LogLevel.hpp"
 #include "wheelbri/FfbShape.hpp"
 
 #include <array>
@@ -39,6 +40,12 @@ namespace wheelbri {
 // constant, ramp or periodic effect. Envelopes and ramps change the force while an effect plays: tick() works the
 // level out every time (FfbShape.hpp) and sends it.
 //
+// What the game does with its effects goes to the log, one line each (2026-10-08: NFS loaded its effects for a race
+// and never started them until an alt-tab, and the log could not tell whether it had asked): a new effect block (or
+// its refusal), an effect's type and timing when its Set Effect first comes or changes, every start, stop and free,
+// every device command (enable / disable actuators, stop all, reset, pause, continue) and device gain change. At most
+// kMaxEventLines in kEventWindowMs, then counted, so a game that restarts an effect very often cannot flood the log.
+//
 // Thread-safe: a driver calls it from I/O callbacks and a timer.
 class HidPid {
 public:
@@ -46,7 +53,9 @@ public:
     static constexpr std::uint16_t kPoolSize = 0xFFFF;
 
     using Sender = std::function<void(const FfbPacket&)>;
-    using Logger = std::function<void(const std::string&)>;
+    // One line and its level (LogLevel.hpp): the driver writes it when its level allows (the app's Level button).
+    // Effect events are debug, the opt-in trace (enableTrace) trace, what goes wrong warn.
+    using Logger = std::function<void(LogLevel level, const std::string& text)>;
 
     HidPid(Sender send, Logger log);
 
@@ -72,6 +81,8 @@ public:
     // sends (raw bytes) and each slot change sent to the service, so the real order can be read from the driver's
     // log. The driver turns it on from HKLM\SOFTWARE\wheelbri PidTraceLines (a DWORD; 1000 is a good number).
     void enableTrace(int lines);
+    static constexpr int kMaxEventLines = 100;
+    static constexpr std::int64_t kEventWindowMs = 10'000;
     static constexpr int kMaxTraceLines = 100'000;
     [[nodiscard]] bool gameQuiet() const;
 
@@ -122,7 +133,7 @@ private:
     void withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& action);
     // Parameters no Set Effect claimed: to the last block of their kind (`all`, or those waiting kPendingMs).
     void flushPending(std::int64_t nowMs, bool all);
-    void onSetEffect(std::span<const std::uint8_t> d);
+    void onSetEffect(std::span<const std::uint8_t> d, std::int64_t nowMs);
     void onSetCondition(std::span<const std::uint8_t> d);
     void onSetPeriodic(std::span<const std::uint8_t> d);
     void onEffectOperation(std::span<const std::uint8_t> d, std::int64_t nowMs);
@@ -150,6 +161,12 @@ private:
     bool traceQuiet_ = false;                // a refresh is being sent (not traced)
     std::int64_t traceStartMs_ = 0;
     void trace(const std::string& text, std::int64_t nowMs);
+    // One line of what the game does (see above), within the limit.
+    void event(const std::string& text, std::int64_t nowMs, LogLevel level = LogLevel::Debug);
+    [[nodiscard]] std::string describe(std::uint8_t ebi, const Block& b) const;
+    std::int64_t eventWindowMs_ = INT64_MIN / 2;
+    int eventsInWindow_ = 0;
+    int eventsSkipped_ = 0;
 
     // Effect block allocation (device-managed pool).
     std::uint32_t allocated_ = 0;            // bit n = EBI n+1

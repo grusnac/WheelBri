@@ -1,5 +1,6 @@
 #include "HelperProbe.hpp"
 
+#include "AppLogLevel.hpp"
 #include "Platform.hpp"
 
 #include "wheelbri/Logging.hpp"
@@ -30,12 +31,12 @@ std::uint64_t steadyMs() {
 
 HelperProbe& HelperProbe::shared() {
     // Never destroyed: the window and the app ask it until the process ends.
-    static HelperProbe* const probe = new HelperProbe(systemCheck(), kMinGapMs);
+    static HelperProbe* const probe = new HelperProbe(systemCheck(), kMinGapMs, AppLogLevel::shared().current());
     return *probe;
 }
 
 HelperProbe::Check HelperProbe::systemCheck() {
-    return [] {
+    return [](const Ask& ask) {
         helper::HelperState state;
 #ifdef _WIN32
         helper::HelperClient client;
@@ -50,17 +51,30 @@ HelperProbe::Check HelperProbe::systemCheck() {
                 state.detail = error;
                 return state;
         }
-        const auto reply = client.call(helper::RequestType::Hello, {}, 5000, error);
-        return helper::helperStateFromHello(reply, error, client.serverImage());
+        const auto reply = client.call(helper::RequestType::Hello, {logLevelName(ask.level)}, 5000, error);
+        state = helper::helperStateFromHello(reply, error, client.serverImage());
+        if (ask.driversToo && state.kind == helper::HelperState::Kind::Accepted) {
+            std::string setError;
+            const auto set = client.call(helper::RequestType::SetLogLevel, {logLevelName(ask.level)}, 5000, setError);
+            if (!set) {
+                WE_LOG_WARN(log(), "the drivers' log level stays as it was until the next Start: {}", setError);
+            } else if (set->status == helper::Status::Unsupported) {
+                WE_LOG_DEBUG(log(), "this WheelBri Helper is older: the drivers' log level changes at the next Start");
+            } else if (set->status != helper::Status::Ok) {
+                WE_LOG_WARN(log(), "the drivers' log level stays as it was until the next Start: {}", set->text);
+            }
+        }
+        return state;
 #else
+        static_cast<void>(ask);
         state.kind = helper::HelperState::Kind::NotWindows;
         return state;
 #endif
     };
 }
 
-HelperProbe::HelperProbe(Check check, const std::uint64_t minGapMs)
-    : check_(std::move(check)), minGapMs_(minGapMs), thread_([this] { run(); }) {}
+HelperProbe::HelperProbe(Check check, const std::uint64_t minGapMs, const LogLevel level)
+    : check_(std::move(check)), minGapMs_(minGapMs), level_(level), thread_([this] { run(); }) {}
 
 HelperProbe::~HelperProbe() {
     {
@@ -77,6 +91,16 @@ void HelperProbe::request() {
         if (pending_ || running_) return;
         if (checks_ > 0 && steadyMs() - startedMs_ < minGapMs_) return;
         pending_ = true;
+    }
+    wake_.notify_all();
+}
+
+void HelperProbe::levelChanged(const LogLevel level, const bool driversToo) {
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        level_ = level;
+        driversToo_ = driversToo_ || driversToo;
+        pending_ = true;   // a check that runs now ends first, then this one
     }
     wake_.notify_all();
 }
@@ -100,10 +124,12 @@ void HelperProbe::run() {
         pending_ = false;
         running_ = true;
         startedMs_ = steadyMs();
+        const Ask ask{level_, driversToo_};
+        driversToo_ = false;
         lock.unlock();
         helper::HelperState state;
         try {
-            state = check_ ? check_() : helper::HelperState{};
+            state = check_ ? check_(ask) : helper::HelperState{};
         } catch (const std::exception& e) {
             state.kind = helper::HelperState::Kind::Failed;
             state.detail = e.what();

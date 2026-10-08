@@ -248,7 +248,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         reader.reportUnknownKeys();
         if (!logging::isValidLevel(log.level)) {
             errors.push_back("[logging] level = '" + log.level + "': expected trace, debug, info, warn, error, critical or off");
-            log.level = "info";
+            log.level = "warn";
         }
         if (!logging::isValidLevel(log.flushLevel)) {
             errors.push_back("[logging] flush_level = '" + log.flushLevel + "': expected a log level");

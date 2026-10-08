@@ -60,6 +60,10 @@ void shutdown();
 // Changes the level of every logger at runtime. Returns false for an unknown level name.
 bool setLevel(const std::string& level);
 
+// The level setLevel (or init) last gave every logger, as one of them has it. Safe after shutdown() too (unlike
+// spdlog::get_level, which needs spdlog's default logger).
+[[nodiscard]] spdlog::level::level_enum currentLevel();
+
 // Allows at most one message per interval and counts what it dropped, so a flood of identical
 // problems (e.g. a send failing 1000 times a second) turns into one line every few seconds.
 class RateLimiter {

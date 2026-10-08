@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
+
 #include <algorithm>
 #include <limits>
 
@@ -23,7 +25,20 @@ std::vector<std::uint8_t> hex(const std::string& text) {
 struct Recorder {
     std::vector<FfbPacket> packets;
     std::vector<std::string> logs;
-    HidPid pid{[this](const FfbPacket& p) { packets.push_back(p); }, [this](const std::string& s) { logs.push_back(s); }};
+    std::vector<LogLevel> levels;   // each line's, in the same order
+    HidPid pid{[this](const FfbPacket& p) { packets.push_back(p); },
+               [this](const LogLevel level, const std::string& s) {
+                   logs.push_back(s);
+                   levels.push_back(level);
+               }};
+
+    // The level the line starting with `start` was logged at (the first such line).
+    [[nodiscard]] std::optional<LogLevel> levelOf(const std::string& start) const {
+        for (std::size_t i = 0; i < logs.size(); ++i) {
+            if (logs[i].rfind(start, 0) == 0) return levels[i];
+        }
+        return std::nullopt;
+    }
 
     const FfbPacket* lastPlaying() const {
         for (auto it = packets.rbegin(); it != packets.rend(); ++it) {
@@ -371,6 +386,141 @@ TEST(HidPid, ABlockNumberNeverHandedOutTakesNoSlot) {
         ASSERT_EQ(r.pid.getFeature(HidPid::kBlockLoad, feature), 5U);
         EXPECT_EQ(feature[2], 1);   // success
     }
+}
+
+// --- what the game does with its effects, in the log (2026-10-08) ---
+
+std::vector<std::string> events(const Recorder& r) {
+    std::vector<std::string> lines;
+    for (const std::string& line : r.logs) {
+        if (line.rfind("pid: first ", 0) != 0 && line.rfind("pid: parameters come", 0) != 0) lines.push_back(line);
+    }
+    return lines;
+}
+
+bool has(const std::vector<std::string>& lines, const std::string& text) {
+    return std::any_of(lines.begin(), lines.end(), [&](const std::string& l) { return l == text; });
+}
+
+TEST(HidPid, EveryStepOfAnEffectIsLogged) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x15, hex("00A00F"), 0);
+    r.pid.output(0x11, hex("0101FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);   // NFS's constant: until stopped
+    r.pid.output(0x11, hex("0101FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 5);   // the same again: not logged twice
+    r.pid.output(0x1A, hex("0101FF"), 10);
+    r.pid.output(0x1A, hex("010300"), 20);
+    r.pid.output(0x1B, hex("01"), 30);
+    const auto lines = events(r);
+    EXPECT_TRUE(has(lines, "pid: new effect: block 1"));
+    EXPECT_TRUE(has(lines, "pid: block 1 (constant, slot 0): until stopped, gain 100%"));
+    EXPECT_TRUE(has(lines, "pid: start block 1 (constant, slot 0)"));
+    EXPECT_TRUE(has(lines, "pid: stop block 1 (constant, slot 0)"));
+    EXPECT_TRUE(has(lines, "pid: free block 1 (constant, slot 0)"));
+    EXPECT_EQ(lines.size(), 5U);
+}
+
+TEST(HidPid, TimingAndLoopsAreSaid) {
+    Recorder r;
+    r.pid.output(0x11, hex("0203DC0500000000F401FFFF04FF1F0000FFFFFFFF"), 0);   // square, 1500 ms, 500 ms delay
+    r.pid.output(0x1A, hex("020102"), 1);                                      // start, 2 times
+    r.pid.output(0x11, hex("0203E80300000000F401FFFF04FF1F0000FFFFFFFF"), 2);   // now 1000 ms: logged again
+    r.pid.output(0x1A, hex("020201"), 3);                                      // start solo
+    const auto lines = events(r);
+    EXPECT_TRUE(has(lines, "pid: block 2 (square, slot 0): 1500 ms, starts 500 ms after its start, gain 100%"));
+    EXPECT_TRUE(has(lines, "pid: start block 2 (square, slot 0), 2 time(s)"));
+    EXPECT_TRUE(has(lines, "pid: block 2 (square, slot 0): 1000 ms, starts 500 ms after its start, gain 100%"));
+    EXPECT_TRUE(has(lines, "pid: start solo block 2 (square, slot 0), 1 time(s)"));
+}
+
+TEST(HidPid, AStartThatCannotPlayYetSaysWhy) {
+    Recorder r;
+    r.pid.output(0x1A, hex("0301FF"), 0);   // before its Set Effect
+    r.pid.output(0x1C, hex("02"), 1);       // actuators off
+    r.pid.output(0x1A, hex("0301FF"), 2);
+    r.pid.output(0x1C, hex("05"), 3);       // paused
+    r.pid.output(0x1A, hex("0301FF"), 4);
+    r.pid.output(0x1A, hex("0901FF"), 5);   // a block this device never hands out
+    r.pid.output(0x1A, hex("030700"), 6);   // an operation PID does not have
+    const auto lines = events(r);
+    EXPECT_TRUE(has(lines, "pid: start block 3 (no type yet, slot 0): its Set Effect has not come yet, it plays once "
+                           "that does"));
+    EXPECT_TRUE(has(lines, "pid: device control: disable actuators (no force until they are enabled again)"));
+    EXPECT_TRUE(has(lines, "pid: start block 3 (no type yet, slot 0): its Set Effect has not come yet, it plays once "
+                           "that does: the actuators are off (the game disabled them)"));
+    EXPECT_TRUE(has(lines, "pid: device control: pause (no force until it continues)"));
+    EXPECT_TRUE(has(lines, "pid: start block 3 (no type yet, slot 0): its Set Effect has not come yet, it plays once "
+                           "that does: the actuators are off (the game disabled them): the device is paused (the "
+                           "game paused it)"));
+    EXPECT_TRUE(has(lines, "pid: effect operation 1 for block 9, a block this device does not have: ignored"));
+    EXPECT_TRUE(has(lines, "pid: effect operation 7 for block 3 (no type yet, slot 0): unknown, ignored"));
+}
+
+TEST(HidPid, EveryDeviceCommandAndGainChangeIsSaid) {
+    Recorder r;
+    for (const char* command : {"01", "03", "06", "04", "09"}) r.pid.output(0x1C, hex(command), 0);
+    r.pid.output(0x1D, hex("80"), 1);
+    r.pid.output(0x1D, hex("80"), 2);   // unchanged: not again
+    r.pid.output(0x1B, hex("05"), 3);   // free of a block not in use
+    r.pid.setFeature(HidPid::kDeviceControl, hex("03"), 4);   // through the feature path too
+    const auto lines = events(r);
+    EXPECT_TRUE(has(lines, "pid: device control: enable actuators"));
+    EXPECT_TRUE(has(lines, "pid: device control: stop all effects"));
+    EXPECT_TRUE(has(lines, "pid: device control: continue"));
+    EXPECT_TRUE(has(lines, "pid: device control: reset (every effect is gone)"));
+    EXPECT_TRUE(has(lines, "pid: device control 9: unknown, ignored"));
+    EXPECT_EQ(std::count(lines.begin(), lines.end(), "pid: device gain 50%"), 1);
+    EXPECT_TRUE(has(lines, "pid: free block 5, which was not in use"));
+    EXPECT_EQ(std::count(lines.begin(), lines.end(), "pid: device control: stop all effects"), 2);
+}
+
+TEST(HidPid, ARefusedNewEffectIsSaidEachTime) {
+    Recorder r;
+    for (std::size_t i = 0; i < HidPid::kMaxSlots + 2; ++i) r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    const auto lines = events(r);
+    EXPECT_EQ(std::count(lines.begin(), lines.end(), "pid: new effect refused: all 8 effect blocks are in use"), 2);
+}
+
+TEST(HidPid, AFloodOfEventsIsCutAndCounted) {
+    Recorder r;
+    r.pid.output(0x11, hex("0103DC05000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    for (int i = 0; i < HidPid::kMaxEventLines + 50; ++i) r.pid.output(0x1A, hex("010101"), 1 + i);   // 150 starts
+    auto lines = events(r);
+    EXPECT_EQ(lines.size(), static_cast<std::size_t>(HidPid::kMaxEventLines));   // the Set Effect and 99 starts
+    r.pid.output(0x1A, hex("010300"), HidPid::kEventWindowMs);   // the next window: the count first, then the line
+    lines = events(r);
+    EXPECT_EQ(lines[lines.size() - 2], "pid: 51 more effect events in 10 s were not logged");
+    EXPECT_EQ(lines.back(), "pid: stop block 1 (square, slot 0)");
+    r.pid.output(0x1A, hex("0101FF"), 2 * HidPid::kEventWindowMs + 1);   // a quiet window: no count line
+    lines = events(r);
+    EXPECT_EQ(lines.back(), "pid: start block 1 (square, slot 0)");
+}
+
+// The app's Level button: effect events at debug, the opt-in trace at trace, what goes wrong at warn, so the driver
+// writes them only when its level allows (warn by default: warnings only).
+TEST(HidPid, EachLineHasTheLevelItBelongsTo) {
+    Recorder r;
+    r.pid.enableTrace(2);
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x11, hex("0101FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    r.pid.output(0x1A, hex("0101FF"), 10);
+    r.pid.output(0x1A, hex("010700"), 11);   // an operation it does not know
+    r.pid.output(0x1A, hex("090100"), 12);   // a block it does not have
+    r.pid.output(0x1C, hex("09"), 13);       // a device control it does not know
+    r.pid.output(0x1C, hex("05"), 14);       // pause
+    r.pid.output(0x11, hex("2801DC05000000000000FFFF04FF1F0000FFFFFFFF"), 15);   // block 40: never handed out
+    EXPECT_EQ(r.levelOf("pid trace"), LogLevel::Trace);
+    EXPECT_EQ(r.levelOf("pid: first output"), LogLevel::Debug);
+    EXPECT_EQ(r.levelOf("pid: new effect: block 1"), LogLevel::Debug);
+    EXPECT_EQ(r.levelOf("pid: start block 1"), LogLevel::Debug);
+    EXPECT_EQ(r.levelOf("pid: effect operation 7 for block 1"), LogLevel::Warn);
+    EXPECT_EQ(r.levelOf("pid: effect operation 1 for block 9"), LogLevel::Warn);
+    EXPECT_EQ(r.levelOf("pid: device control 9: unknown"), LogLevel::Warn);
+    EXPECT_EQ(r.levelOf("pid: device control: pause"), LogLevel::Debug);
+    EXPECT_EQ(r.levelOf("pid: a report for effect block 40"), LogLevel::Warn);
+    Recorder full;
+    for (int i = 0; i < 9; ++i) full.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), i);
+    EXPECT_EQ(full.levelOf("pid: new effect refused"), LogLevel::Warn);
 }
 
 TEST(HidG920, InputReportPacksLikeTheBridge) {

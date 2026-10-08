@@ -1,5 +1,7 @@
 #pragma once
 
+#include "wheelbri/LogLevel.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -42,6 +44,7 @@ enum class RequestType : std::uint8_t {
     PutHideFilter = 6,      // devices: the HID interfaces to put wheelbri-hide on (then waits for it to start)
     InstallG920Driver = 7,  // when Windows' driver store has none
     ShareLogFolder = 8,     // lets the drivers write into the caller's own log folder
+    SetLogLevel = 9,        // devices: one app log level (trace, debug, info, warn) for the drivers and the helper
 };
 
 enum class Status : std::uint8_t {
@@ -52,10 +55,12 @@ enum class Status : std::uint8_t {
     Unsupported = 4,  // a request type this helper does not know (an older helper)
 };
 
+// The body's strings ("devices"): PutHideFilter's HID interfaces; SetLogLevel's one level; and a Hello may carry the
+// app's log level as its one string (the helper takes it for its own log; an older helper ignores it).
 struct Request {
     RequestType type = RequestType::Hello;
     std::uint32_t seq = 0;              // echoed in the reply
-    std::vector<std::string> devices;   // PutHideFilter only
+    std::vector<std::string> devices;   // PutHideFilter, SetLogLevel, Hello (see above)
 };
 
 struct Reply {
@@ -82,6 +87,10 @@ inline constexpr std::uint32_t kReplyMagic = 0x52484557;     // "WEHR"
 // an unknown type: isKnown).
 [[nodiscard]] std::string requestProblem(const Request& request);
 [[nodiscard]] bool isKnown(RequestType type);
+
+// The app log level a Hello or SetLogLevel carries: exactly one string naming trace, debug, info or warn. Nullopt
+// for anything else (a Hello without one, from an older app).
+[[nodiscard]] std::optional<LogLevel> requestLogLevel(const Request& request);
 
 // Empty when `id` is a HID interface instance id the hide filter may go on: "HID\VID_xxxx&PID_xxxx...\<instance>",
 // at most kMaxIdLength characters of [A-Za-z0-9&_.#{}-] and backslashes, exactly three parts, no empty part, and not

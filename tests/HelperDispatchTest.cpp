@@ -92,6 +92,21 @@ TEST(HelperDispatch, HelloWithDevicesIsStillHello) {
     // requestProblem would refuse devices on Hello, but Hello is answered before any rule: it only says who is there.
     const Answer answer = ask(Request{RequestType::Hello, 1, {kMoza}}, accepted(), nullptr);
     EXPECT_EQ(answer.reply.status, Status::Ok);
+    EXPECT_FALSE(answer.logLevel.has_value());   // not a level
+}
+
+TEST(HelperDispatch, AHellosLogLevelIsTakenFromWheelBriOnly) {
+    EXPECT_EQ(ask(Request{RequestType::Hello, 1, {"debug"}}, accepted(), nullptr).logLevel, LogLevel::Debug);
+    // WheelBri from another folder: refused, closed, but its user's log and level are the helper's.
+    const Answer dev = ask(Request{RequestType::Hello, 1, {"trace"}},
+                           refused(R"(D:\cpp-projects\WheelBri\build\service\wheelbri.exe)"), nullptr);
+    EXPECT_EQ(dev.reply.status, Status::Refused);
+    EXPECT_EQ(dev.logLevel, LogLevel::Trace);
+    // Any other program: nothing.
+    EXPECT_FALSE(ask(Request{RequestType::Hello, 1, {"trace"}}, refused(), nullptr).logLevel.has_value());
+    // An older app's Hello, or one saying a level the app cannot pick: the level stays.
+    EXPECT_FALSE(ask(Request{RequestType::Hello, 1, {}}, accepted(), nullptr).logLevel.has_value());
+    EXPECT_FALSE(ask(Request{RequestType::Hello, 1, {"off"}}, accepted(), nullptr).logLevel.has_value());
 }
 
 // --- anything else from a caller not accepted ---
@@ -211,6 +226,29 @@ TEST(HelperDispatch, ASessionThatThrowsIsAFailureAndTheHelperGoesOn) {
     session.behaviour = FakeSession::Behaviour::Answer;   // and the next request is served again
     answer = ask(Request{RequestType::CreateVirtualG920, 11, {}}, accepted(), &session);
     EXPECT_EQ(answer.reply.status, Status::Ok);
+}
+
+TEST(HelperDispatch, ASetLogLevelTheSessionCarriedOutSetsTheHelpersLevelToo) {
+    FakeSession session;
+    const Answer answer = ask(Request{RequestType::SetLogLevel, 3, {"info"}}, accepted(), &session);
+    EXPECT_EQ(answer.reply.status, Status::Ok);
+    EXPECT_EQ(answer.logLevel, LogLevel::Info);
+    ASSERT_EQ(session.seen.size(), 1U);
+    EXPECT_EQ(session.seen[0].devices, std::vector<std::string>{"info"});
+    // Failed (the registry could not be written): the helper's level stays.
+    session.reply = Reply{0, Status::Failed, "access denied"};
+    EXPECT_FALSE(ask(Request{RequestType::SetLogLevel, 4, {"debug"}}, accepted(), &session).logLevel.has_value());
+    // Refused by the rules: never reaches the session.
+    const Answer quiet = ask(Request{RequestType::SetLogLevel, 5, {"off"}}, accepted(), &session);
+    EXPECT_EQ(quiet.reply.status, Status::Refused);
+    EXPECT_FALSE(quiet.logLevel.has_value());
+    EXPECT_EQ(session.seen.size(), 2U);
+    // From a caller not accepted: refused and closed.
+    const Answer other = ask(Request{RequestType::SetLogLevel, 6, {"debug"}},
+                             refused(R"(D:\cpp-projects\WheelBri\build\service\wheelbri.exe)"), &session);
+    EXPECT_EQ(other.reply.status, Status::Refused);
+    EXPECT_FALSE(other.keepOpen);
+    EXPECT_FALSE(other.logLevel.has_value());
 }
 
 // --- whose folder the helper's log may go to ---

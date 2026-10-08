@@ -3,7 +3,9 @@
 // telemetry of both directions for later tuning.
 
 #include "App.hpp"
+#include "AppLogLevel.hpp"
 #include "FfbSelfTest.hpp"
+#include "HelperProbe.hpp"
 #include "HideFilter.hpp"
 #include "Privileged.hpp"
 #include "PrivilegedSteps.hpp"
@@ -22,8 +24,10 @@
 #include "wheelbri/FfbController.hpp"
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/FileText.hpp"
+#include "wheelbri/FfbIdleWatch.hpp"
 #include "wheelbri/GameUseWatch.hpp"
 #include "wheelbri/HidHideCli.hpp"
+#include "wheelbri/LogLevelPacket.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/Pipeline.hpp"
 #include "wheelbri/Rig.hpp"
@@ -750,7 +754,8 @@ std::unique_ptr<wheelbri::TelemetryRecorder> openTelemetry(const wheelbri::Emula
         WE_LOG_ERROR(log(), "telemetry off: {}", error);
         return nullptr;
     }
-    WE_LOG_INFO(log(), "telemetry: recording {} rows/s to {} (game force feedback: {}), a new file every day",
+    WE_LOG_INFO(log(),
+                "telemetry: recording {} rows/s to {} (game force feedback: {}), a new file every start and every day",
                 settings.rateHz, recorder->samplesPath().string(), recorder->ffbPath().filename().string());
     return recorder;
 }
@@ -808,6 +813,10 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         return 1;
     }
 
+    // The app's log level to whatever reads the state (the shim, the virtual G920's driver, wheelbri-uhid): its own
+    // packet, from the same socket (LogLevelPacket.hpp).
+    wheelbri::LogLevelBeacon levelBeacon;
+
     const wheelbri::Mapper mapper(config.mapper);
     wheelbri::Pipeline pipeline(source, mapper, *profile, *publisher);
     pipeline.setAccessories(accessories.sources());
@@ -823,6 +832,8 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     wheelbri::TestClutch testClutch;
     // Pedals pressed but the game never plays force feedback on the G920: it drives from another controller.
     wheelbri::GameUseWatch gameUse;
+    // Force feedback loaded but none of it started while you drive (NFS 2015 at the start of a race): alt-tab.
+    wheelbri::FfbIdleWatch ffbIdle;
     bool testClutchOn = false;
 
     std::string ffbStatus;
@@ -864,7 +875,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
 
     constexpr std::uint64_t kPrintEveryNs = 100'000'000;   // --print: 10 lines a second
     const wheelbri::WakeSettings wakeSettings;
-    // The window's copy of the state, ~30 times a second (as often as the window draws).
+    // The window's copy of the state, kWindowFramesPerSecond (60) times a second, as often as the window draws.
     const std::uint64_t frameEveryNs = wakeSettings.windowNs;
 
     // The loop sleeps until the wheel, an accessory, the game's force feedback or the test clutch has something new
@@ -997,6 +1008,23 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                                     profile->identity().shortName);
                     }
                 }
+                const wheelbri::FfbController& controller = gameFfb->controller();
+                if (const auto change = ffbIdle.update(platform::nowMs(), pedal, controller.lastingLoaded(),
+                                                       controller.lastingWanted())) {
+                    if (*change) {
+                        WE_LOG_WARN(log(), "the game loaded its force feedback ({} effects) but has started none of "
+                                           "them while you drove for {} s, so the wheel stays limp. Alt-tab out of "
+                                           "the game and back once: it then starts them (NFS 2015 does this at the "
+                                           "start of some races)",
+                                    controller.lastingLoaded(), wheelbri::FfbIdleWatch::kPedalMs / 1000);
+                    } else {
+                        WE_LOG_INFO(log(), "the game's force feedback plays again (or it unloaded it)");
+                    }
+                }
+            }
+            if (const wheelbri::LogLevel level = wheelbri::service::AppLogLevel::shared().current();
+                levelBeacon.due(platform::nowMs(), level)) {
+                static_cast<void>(publisher->publishLogLevel(level));
             }
             stages.lap(TickStages::Ffb, mark);
             if (telemetry != nullptr) {
@@ -1032,6 +1060,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                     }
                     updateTelemetryFiles(sharedFrame.telemetry, telemetry.get());
                     sharedFrame.gameIgnoresWheel = gameUse.warning();
+                    sharedFrame.gameFfbIdle = ffbIdle.warning();
                     sharedFrame.ready = true;
                 }
             }
@@ -1153,9 +1182,10 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         loopDone = true;
     });
 
-    // This thread: the window (~30 fps) and old files (every 250 ms, and again after every midnight).
+    // This thread: the window (kWindowFramesPerSecond, 60 fps) and old files (every 250 ms, and again after every
+    // midnight).
     try {
-        constexpr std::uint64_t kFrameNs = platform::kNsPerSecond / 30;
+        constexpr std::uint64_t kFrameNs = platform::kNsPerSecond / wheelbri::kWindowFramesPerSecond;
         std::uint64_t lastHousekeepingNs = 0;
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
@@ -1385,6 +1415,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         }
         WE_LOG_INFO(log(), "the virtual G920 and hiding the rig: {}", steps->how());
         steps->shareLogFolder();
+        steps->setDriverLogLevel(wheelbri::service::AppLogLevel::shared().current());
     }
     // A wheel still hidden for a service that crashed would be hidden from this one too (through the helper, the
     // helper clears that itself).
@@ -1690,6 +1721,20 @@ int runAppMode(Options options, const bool consoleLogging) {
     const LoadedConfig loaded = loadForRun(options);
     const bool logFileOk = startProcess(options, loaded.config.logging, consoleLogging);
     wheelbri::service::shareLogFolder(logFolderOf(loaded.config));
+    // The Logs tab's Level button, remembered (warn the first time): this process now; the shim, the driver and
+    // wheelbri-uhid from the session's packets; the helper from its Hellos; the drivers' registry value at each Start
+    // and, while a session runs, at once.
+    wheelbri::service::AppLogLevel::shared().start(wheelbri::service::appStateFile());
+    wheelbri::service::AppLogLevel::shared().addListener([](const wheelbri::LogLevel level) {
+        const bool running = gSessionActive;
+        wheelbri::service::HelperProbe::shared().levelChanged(level, running);
+        if (running && platform::isElevated()) {
+            std::string message;
+            if (!wheelbri::service::privileged::writeLogLevel(level, message)) {
+                WE_LOG_WARN(log(), "logs: the drivers keep their log level until the next Start: {}", message);
+            }
+        }
+    });
 
     if (!pickedGone.empty()) {
         WE_LOG_WARN(log(), "the config picked last time is gone ({}): using {}", pickedGone,

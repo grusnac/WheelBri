@@ -72,6 +72,7 @@ void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs)
             WE_LOG_DEBUG(log(), "ffb: game stopped all effects");
             for (Slot& slot : slots_) {
                 slot.wanted = false;
+                slot.loaded = false;   // "stop all" or "reset": what comes next is a new set of effects
             }
             return;
         case FfbPacket::Kind::SlotState:
@@ -89,7 +90,42 @@ void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs)
                      typeName(packet.effect.type));
     }
     slot.wanted = packet.playing;
+    slot.loaded = true;
     slot.requested = packet.effect;
+}
+
+bool FfbController::lasting(const FfbEffectType type) {
+    switch (type) {
+        case FfbEffectType::Constant:
+        case FfbEffectType::Spring:
+        case FfbEffectType::Damper:
+        case FfbEffectType::Friction:
+        case FfbEffectType::Inertia:
+            return true;
+        case FfbEffectType::Sine:
+        case FfbEffectType::Square:
+        case FfbEffectType::Triangle:
+        case FfbEffectType::SawtoothUp:
+        case FfbEffectType::SawtoothDown:
+            break;
+    }
+    return false;
+}
+
+std::size_t FfbController::lastingLoaded() const {
+    std::size_t count = 0;
+    for (const Slot& slot : slots_) {
+        if (slot.loaded && lasting(slot.requested.type)) ++count;
+    }
+    return count;
+}
+
+std::size_t FfbController::lastingWanted() const {
+    std::size_t count = 0;
+    for (const Slot& slot : slots_) {
+        if (slot.loaded && slot.wanted && lasting(slot.requested.type)) ++count;
+    }
+    return count;
 }
 
 void FfbController::update(const std::uint64_t nowNs) {
@@ -99,6 +135,7 @@ void FfbController::update(const std::uint64_t nowNs) {
         for (Slot& slot : slots_) {
             anyWanted = anyWanted || slot.wanted;
             slot.wanted = false;
+            slot.loaded = false;   // the game went quiet (crashed, closed): what it had loaded is not known any more
         }
         if (anyWanted) {
             ++stats_.watchdogStops;

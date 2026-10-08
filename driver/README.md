@@ -129,3 +129,10 @@ fallback when `LogFolder` is not a plain local folder (it, or a folder above it,
 does not exist), and never write to a log file that is a link or has other names (hard links): the user owns that
 folder and must not be able to point LocalService's writes elsewhere.
 
+How much they write is the app's Level button (Logs tab): `HKLM\SOFTWARE\wheelbri` `LogLevel` (REG_SZ `warn`, `info`,
+`debug` or `trace`; missing = `warn`), which the app writes at each Start and on a click while a session runs (as
+Administrator, or through the WheelBri Helper), and the drivers read at most once a second. Warnings and errors are
+always written. Each line says its level: `[2026-10-08 21:14:05.120] [debug] pid: start block 1 (constant, slot 0)`.
+The game's effect events (`pid:` lines) are `debug`; the `PidTraceLines` trace is `trace`. By hand, from an
+Administrator PowerShell: `reg add HKLM\SOFTWARE\wheelbri /v LogLevel /t REG_SZ /d debug /f`.
+
