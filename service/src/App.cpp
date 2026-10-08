@@ -724,8 +724,8 @@ private:
     void collectSession() {
         if (const auto info = host_.newSession(seenGeneration_)) {
             info_ = info;
-            // A flag and a value rather than std::optional: GCC 12 (Debian 12, the Steam Deck's build container)
-            // warns that an optional enum "may be used uninitialized" here.
+            // A flag and a value rather than std::optional: GCC 12 warns that an optional enum "may be used
+            // uninitialized" here (a false alarm; the Steam Deck build may use any GCC).
             const bool hadView = view_ != nullptr;
             const MappingView::Tab previousTab = hadView ? view_->tab() : MappingView::Tab::Logs;
             view_.reset();   // before its profile goes

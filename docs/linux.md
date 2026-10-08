@@ -23,8 +23,10 @@ R3 itself from the game (Proton applies it to every backend), so the game finds 
 ## Steam Deck: build it there from the repository
 
 The way to follow development: get the code with git, build it on the Deck, and after every change only
-`git pull` and build again. SteamOS's own system stays untouched: the compiler lives in a distrobox container
-(SteamOS 3.5 and later have distrobox), Debian 12, whose programs run on SteamOS as they are.
+`git pull` and build again. SteamOS is Arch Linux underneath, but read-only and without a compiler, so the compiler
+lives in an Arch Linux distrobox container (SteamOS 3.5 and later have distrobox) and SteamOS itself stays untouched.
+The container is pinned to the day Arch still shipped SteamOS's glibc version (the Arch Linux Archive), so what it
+builds runs on SteamOS as it is.
 
 Once (Desktop Mode, Konsole):
 
@@ -39,7 +41,8 @@ Once (Desktop Mode, Konsole):
    git switch steam-deck
    ```
 
-4. The build tools (a few minutes and ~450 MB the first time; nothing is installed on SteamOS itself):
+4. The build tools: pacman's base-devel, cmake, ninja, git, libx11 and mingw-w64-gcc in the container (several
+   minutes and ~1 GB the first time; nothing is installed on SteamOS itself):
 
    ```
    bash scripts/linux/deck-setup.sh
@@ -63,7 +66,8 @@ cd ~/WheelBri && git pull && bash scripts/linux/deck-build.sh
 
 `deck-build.sh` options: `--no-tests` (faster), `--no-shim` (no `dinput8.dll`), `--clean` (from scratch),
 `--prefix DIR`. A config you edited in `~/wheelbri/config` is kept; the new version goes next to it as `<name>.new`.
-`deck-setup.sh --recreate` makes the container again if it ever breaks (your files are not in it).
+`deck-setup.sh --recreate` makes the container again if it ever breaks, or when `deck-build.sh` says a SteamOS
+update brought a newer glibc (your files are not in it).
 
 ## Steam Deck: install from the bundle (Desktop Mode, once)
 

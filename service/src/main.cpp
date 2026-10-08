@@ -1120,12 +1120,14 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             }
             const std::uint64_t woke = platform::nowNs();
             if (woke > deadline && woke - deadline >= kStallNs) {
-                // Not our work: Windows let the loop sleep far longer than asked (the PC was busy).
+                // Not our work: the system let the loop sleep far longer than asked (busy, or asleep: a Steam Deck
+                // with its screen off sleeps, and a few seconds late is that).
                 static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(5));
                 WE_LOG_WARN_LIMITED(log(), limiter,
-                                    "loop: woke {:.0f} ms after its deadline: Windows did not schedule the service "
-                                    "(PC busy?)",
-                                    static_cast<double>(woke - deadline) / 1e6);
+                                    "loop: woke {:.0f} ms after its deadline: the system did not run the service for "
+                                    "that long ({})",
+                                    static_cast<double>(woke - deadline) / 1e6,
+                                    woke - deadline >= 2'000'000'000ULL ? "asleep?" : "busy?");
             }
             const wheelbri::EventLoopControl::Woke next = control.afterWait(ready, wakeReasons, woke);
             if (next.startedPolling) {

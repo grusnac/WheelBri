@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# On the Steam Deck (or any x86-64 Linux with distrobox), after every `git pull`: builds WheelBri in the
-# wheelbri-build container (scripts/linux/deck-setup.sh makes it, once), runs the unit tests, and installs it into
+# On the Steam Deck (SteamOS, Arch Linux underneath), after every `git pull`: builds WheelBri in the wheelbri-build
+# Arch Linux container (scripts/linux/deck-setup.sh makes it, once), runs the unit tests, and installs it into
 # ~/wheelbri, where wheelbri.sh, the docs (LINUX.md) and Steam's launch option expect it:
 #   ~/wheelbri/bin/       wheelbri (the app), wheelbri-service, wheelbri-uhid
 #   ~/wheelbri/config/    the example configs; one you edited is kept, the new one goes next to it as <name>.new
@@ -95,8 +95,12 @@ if [ "$inside" = 1 ]; then
             warn "kept your config/$name; this version's is config/$name.new"
         fi
     done
-    cp -f "$root/scripts/linux/wheelbri.sh" "$root/scripts/linux/install-udev-rules.sh" "$prefix/"
-    chmod +x "$prefix/wheelbri.sh" "$prefix/install-udev-rules.sh"
+    for script in wheelbri.sh install-udev-rules.sh; do
+        # LF line ends whatever the checkout has: "env: 'bash\r'" otherwise (a script committed from Windows).
+        sed 's/\r$//' "$root/scripts/linux/$script" >"$prefix/.$script.new"
+        chmod +x "$prefix/.$script.new"
+        mv -f "$prefix/.$script.new" "$prefix/$script"
+    done
     cp -f "$root/docs/linux.md" "$prefix/LINUX.md"
     if [ "$shim" = 1 ]; then
         cp -f "$shim_build/shim/dinput8.dll" "$prefix/dinput8.dll"
@@ -112,6 +116,17 @@ command -v distrobox >/dev/null 2>&1 || fail "distrobox not found: run scripts/l
 if ! distrobox list --no-color 2>/dev/null | awk -F'|' 'NR > 1 { gsub(/ /, "", $2); print $2 }' |
         grep -qx "$container"; then
     fail "no $container container yet: run scripts/linux/deck-setup.sh first"
+fi
+# What the container builds needs its glibc: never newer than SteamOS's (deck-setup.sh pins it; a SteamOS update or
+# an older container can change that).
+glibc_of() { grep -oE '[0-9]+\.[0-9]+$' <<<"$1" | head -1; }
+host_glibc=$(glibc_of "$(ldd --version 2>/dev/null | head -1)")
+box_glibc=$(glibc_of "$(distrobox enter "$container" -- ldd --version 2>/dev/null | head -1)")
+if [ -n "$host_glibc" ] && [ -n "$box_glibc" ] && [ "$host_glibc" != "$box_glibc" ]; then
+    if [ "$(printf '%s\n%s\n' "$host_glibc" "$box_glibc" | sort -V | tail -1)" = "$box_glibc" ]; then
+        fail "the container has glibc $box_glibc, SteamOS $host_glibc: run bash scripts/linux/deck-setup.sh --recreate"
+    fi
+    warn "SteamOS has glibc $host_glibc, the container $box_glibc (fine; deck-setup.sh --recreate matches them again)"
 fi
 for program in wheelbri wheelbri-service wheelbri-uhid; do
     if pgrep -x "$program" >/dev/null 2>&1; then

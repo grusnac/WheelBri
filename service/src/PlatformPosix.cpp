@@ -116,7 +116,10 @@ bool raiseThreadPriority(std::string& error) {
     if (setpriority(PRIO_PROCESS, thread, -10) == 0) {
         return true;
     }
-    error = std::string("setpriority: ") + std::strerror(errno);
+    error = errno == EACCES || errno == EPERM
+                ? std::string("not allowed for this user (install-udev-rules.sh allows it: run it again, then log out "
+                              "and in); it runs at normal priority")
+                : std::string("setpriority: ") + std::strerror(errno);
     return false;
 #else
     error = "not supported on this system";
