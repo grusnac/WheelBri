@@ -13,7 +13,8 @@
 # From a terminal (Desktop Mode), without a game: starts, waits for Enter or Ctrl+C, stops.
 #   ./wheelbri.sh            (service with its --ui window)
 #
-# Options: --shim, --ui / --no-ui (default: window only from a terminal), --config FILE,
+# Options: --shim, --ui / --no-ui (default: window only from a terminal), --config FILE (default: the mapping saved in
+#          the app's Mapping tab, else WheelBri's default for the target),
 #          --hide VID/PID[,VID/PID...] (the devices to hide from the game; default: every device of the active rig,
 #          set up in the Rig tab of wheelbri-service --ui).
 # Once before the first use: install-udev-rules.sh (needs sudo). Logs: ~/.local/state/wheelbri.
@@ -45,7 +46,7 @@ while [ $# -gt 0 ]; do
         --no-ui) ui=0 ;;
         --config) shift; config=${1:-} ;;
         --hide) shift; hide=${1:-} ;;
-        -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         --) shift; game=("$@"); break ;;
         -*) echo "wheelbri.sh: unknown option $1 (see --help)" >&2; exit 2 ;;
         *) game=("$@"); break ;;          # Steam's %command%
@@ -53,14 +54,21 @@ while [ $# -gt 0 ]; do
     shift
 done
 [ -z "$ui" ] && { [ ${#game[@]} -eq 0 ] && ui=1 || ui=0; }
-# Default --config: the target's own (WheelBri's default mapping): the virtual G920 (uhid) or the in-game shim.
+settings="${XDG_CONFIG_HOME:-$HOME/.config}/wheelbri"
+# Default --config: the mapping you saved in the app's Mapping tab for this target (configs/my-<name>.ini), else
+# WheelBri's default one: the virtual G920 (uhid) or the in-game shim. The default was made on Windows; Linux numbers
+# the rig's axes in another order, so on Linux save your own (Auto-map in the Mapping tab, then Save).
 if [ -z "$config" ]; then
-    [ "$mode" = shim ] && config="$configs/g920-in-game-shim.ini" || config="$configs/g920-virtual-device.ini"
+    [ "$mode" = shim ] && name=g920-in-game-shim.ini || name=g920-virtual-device.ini
+    if [ -f "$settings/configs/my-$name" ]; then
+        config="$settings/configs/my-$name"
+    else
+        config="$configs/$name"
+    fi
 fi
 
 # Default --hide: every device of the active rig (app.ini [app] rig, then id = vvvv:pppp in rigs/<rig>.ini).
 if [ -z "$hide" ]; then
-    settings="${XDG_CONFIG_HOME:-$HOME/.config}/wheelbri"
     rig=$(awk -F= '/^\[/{app = ($0 ~ /^\[app\]/); next} app && $1 ~ /^[ \t]*rig[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' \
           "$settings/app.ini" 2>/dev/null)
     if [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
