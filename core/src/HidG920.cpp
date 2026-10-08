@@ -85,6 +85,23 @@ constexpr std::uint8_t kDescriptor[] = {
     0xB1, 0x02, 0x75, 0x06, 0xB1, 0x01, 0xC0, 0xC0,
 };
 
+// Where the clutch's and the throttle's Usage values sit in kDescriptor (each axis: Usage Page, Usage, ...).
+constexpr std::size_t kClutchUsageAt = 43;
+constexpr std::size_t kThrottleUsageAt = 59;
+static_assert(kDescriptor[kClutchUsageAt - 1] == 0x09 && kDescriptor[kClutchUsageAt] == 0x35, "clutch is Usage Rz");
+static_assert(kDescriptor[kThrottleUsageAt - 1] == 0x09 && kDescriptor[kThrottleUsageAt] == 0x36,
+              "throttle is Usage Slider");
+
+constexpr auto kProtonDescriptor = [] {
+    std::array<std::uint8_t, sizeof(kDescriptor)> d{};
+    for (std::size_t i = 0; i < d.size(); ++i) {
+        d[i] = kDescriptor[i];
+    }
+    d[kClutchUsageAt] = 0x32;     // Z: Proton reports it as Rz
+    d[kThrottleUsageAt] = 0x35;   // Rz: Proton reports it as Slider 0
+    return d;
+}();
+
 void putAxis(std::array<std::uint8_t, kG920InputReportSize>& out, std::size_t at, std::int32_t value) {
     // In 64 bits: value - 32768 overflows for values near INT32_MIN.
     const auto v = static_cast<std::int16_t>(
@@ -96,6 +113,8 @@ void putAxis(std::array<std::uint8_t, kG920InputReportSize>& out, std::size_t at
 }  // namespace
 
 std::span<const std::uint8_t> g920ReportDescriptor() { return kDescriptor; }
+
+std::span<const std::uint8_t> g920ProtonReportDescriptor() { return kProtonDescriptor; }
 
 std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport& report) {
     std::array<std::uint8_t, kG920InputReportSize> out{};

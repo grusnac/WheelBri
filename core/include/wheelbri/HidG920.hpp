@@ -24,6 +24,13 @@ inline constexpr std::size_t kG920InputReportSize = 13;   // report ID + 4 axes 
 
 [[nodiscard]] std::span<const std::uint8_t> g920ReportDescriptor();
 
+// The same descriptor for Proton (wheelbri-uhid): the input report is unchanged, only two axes are renamed, clutch
+// Rz -> Z and throttle Slider -> Rz. Proton's DirectInput has a hack for 046D:C262 made for the real G920's layout
+// (dlls/dinput/joystick_hid.c: Z becomes Rz "Brake", Rz becomes a Slider "Clutch"); with the Windows descriptor our
+// clutch landed in Slider 0, where NFS reads its throttle (2026-10-08). Through that hack this one gives the game
+// what Windows gives it: wheel X, brake Y, clutch Rz, throttle Slider 0.
+[[nodiscard]] std::span<const std::uint8_t> g920ProtonReportDescriptor();
+
 // The input report for `report` (G920 ranges: steering 0..65535 centred at 32768, pedals 0..65535 with
 // 65535 = released, buttons bit n, hat -1 or 0..7). The same packing as the bridge.
 [[nodiscard]] std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport& report);

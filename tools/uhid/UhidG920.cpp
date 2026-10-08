@@ -40,7 +40,7 @@ bool UhidG920::create() {
     std::strncpy(reinterpret_cast<char*>(req.name), kName, sizeof(req.name) - 1);
     std::strncpy(reinterpret_cast<char*>(req.phys), "wheelbri", sizeof(req.phys) - 1);
     std::strncpy(reinterpret_cast<char*>(req.uniq), "wheelbri-g920", sizeof(req.uniq) - 1);
-    const auto descriptor = g920ReportDescriptor();
+    const auto descriptor = g920ProtonReportDescriptor();   // games read it through Proton's DirectInput
     if (descriptor.size() > sizeof(req.rd_data)) {
         log_(LogLevel::Error, "uhid: descriptor too large");
         return false;

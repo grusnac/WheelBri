@@ -516,7 +516,9 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
   and Windows libraries, not the app's objects.
 - `tools/uhid/` (C++, Linux only, `WE_BUILD_UHID`): Phase 4, `wheelbri-uhid`. The same virtual G920 as `driver/`
   (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
-  raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. `UhidG920` holds the uhid protocol with no file descriptors so
+  raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. Its descriptor is `g920ProtonReportDescriptor` (same report,
+  clutch Usage Z, throttle Usage Rz): Proton's DirectInput has a hack for 046D:C262 (Z -> Rz, Rz -> Slider), and
+  with the Windows descriptor NFS read the clutch as throttle (2026-10-08). `UhidG920` holds the uhid protocol with no file descriptors so
   `UhidG920Test` covers it; `main.cpp` is the fd/UDP loop.
 - `scripts/make/`: the build scripts (above); `common.sh` holds the shared helpers. `package.ps1` assembles the
   Windows installer package in `dist/windows/` (folder, zip, `WheelBri-<version>-setup.exe` made with IExpress,

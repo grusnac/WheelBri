@@ -555,5 +555,31 @@ TEST(HidG920, InputReportPacksLikeTheBridge) {
     EXPECT_EQ(clamped[4], 0x7F);   // 32767
 }
 
+// The four axis usages in report order (steering, brake, clutch, throttle): each axis starts Usage Page (Generic
+// Desktop), Usage.
+std::vector<std::uint8_t> axisUsages(const std::span<const std::uint8_t> descriptor) {
+    std::vector<std::uint8_t> usages;
+    for (std::size_t i = 8; i + 3 < descriptor.size() && usages.size() < 4; ++i) {
+        if (descriptor[i] == 0x05 && descriptor[i + 1] == 0x01 && descriptor[i + 2] == 0x09) {
+            usages.push_back(descriptor[i + 3]);
+        }
+    }
+    return usages;
+}
+
+TEST(HidG920, ProtonDescriptorOnlyRenamesClutchAndThrottle) {
+    const auto windows = g920ReportDescriptor();
+    const auto proton = g920ProtonReportDescriptor();
+    ASSERT_EQ(proton.size(), windows.size());
+    std::size_t differences = 0;
+    for (std::size_t i = 0; i < windows.size(); ++i) {
+        differences += windows[i] != proton[i] ? 1U : 0U;
+    }
+    EXPECT_EQ(differences, 2U);
+    // Windows: X, Y, Rz, Slider. Proton: X, Y, Z, Rz, which its G920 hack turns into X, Y, Rz, Slider.
+    EXPECT_EQ(axisUsages(windows), (std::vector<std::uint8_t>{0x30, 0x31, 0x35, 0x36}));
+    EXPECT_EQ(axisUsages(proton), (std::vector<std::uint8_t>{0x30, 0x31, 0x32, 0x35}));
+}
+
 }  // namespace
 }  // namespace wheelbri

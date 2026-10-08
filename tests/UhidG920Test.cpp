@@ -61,7 +61,7 @@ struct Kernel {
     }
 };
 
-TEST(UhidG920, CreatesALogitechG920WithTheBridgeDescriptor) {
+TEST(UhidG920, CreatesALogitechG920WithTheProtonDescriptor) {
     Kernel k;
     ASSERT_TRUE(k.device.create());
     ASSERT_EQ(k.written.size(), 2U);
@@ -71,7 +71,7 @@ TEST(UhidG920, CreatesALogitechG920WithTheBridgeDescriptor) {
     EXPECT_EQ(create.u.create2.product, 0xC262U);
     EXPECT_EQ(create.u.create2.bus, 0x03);
     EXPECT_STREQ(reinterpret_cast<const char*>(create.u.create2.name), "Logitech G920 Driving Force Racing Wheel USB");
-    const auto descriptor = g920ReportDescriptor();
+    const auto descriptor = g920ProtonReportDescriptor();
     ASSERT_EQ(create.u.create2.rd_size, descriptor.size());
     EXPECT_EQ(std::memcmp(create.u.create2.rd_data, descriptor.data(), descriptor.size()), 0);
 
