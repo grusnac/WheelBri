@@ -70,6 +70,10 @@ if(TARGET wheelbri_privileged)
         ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp ${PROJECT_SOURCE_DIR}/service/src/AppLogLevel.cpp)
     target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/service/src)
     target_link_libraries(wheelbri_tests PRIVATE wheelbri_privileged)
+    # Linux: the single-instance lock and child processes with real files and processes (PlatformPosix.cpp).
+    if(WE_LINUX)
+        target_sources(wheelbri_tests PRIVATE PlatformPosixTest.cpp)
+    endif()
     # The WheelBri Helper's pipe, client and log on a pipe of the tests' own (Windows only): HelperPipeTest.
     if(WIN32)
         target_sources(wheelbri_tests PRIVATE HelperPipeTest.cpp
@@ -83,7 +87,8 @@ endif()
 
 # The Linux virtual G920's uhid protocol (tools/uhid), tested without /dev/uhid.
 if(WE_LINUX)
-    target_sources(wheelbri_tests PRIVATE UhidG920Test.cpp ${PROJECT_SOURCE_DIR}/tools/uhid/UhidG920.cpp)
+    target_sources(wheelbri_tests PRIVATE UhidG920Test.cpp UhidLoopTest.cpp ${PROJECT_SOURCE_DIR}/tools/uhid/UhidG920.cpp
+        ${PROJECT_SOURCE_DIR}/tools/uhid/UhidLoop.cpp)
     target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/tools/uhid)
 endif()
 

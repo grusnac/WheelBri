@@ -176,6 +176,113 @@ TEST(UhidG920, TheLastCloseStopsTheGamesForces) {
     EXPECT_TRUE(stopAll);
 }
 
+// The service's evdev listing leaves a device with this uniq out (WheelEvdev.cpp): it must be what uhid sets.
+TEST(UhidG920, MarksItselfSoTheServiceNeverReadsItAsARig) {
+    Kernel k;
+    ASSERT_TRUE(k.device.create());
+    EXPECT_STREQ(reinterpret_cast<const char*>(k.written[0].u.create2.uniq), kG920VirtualUniq);
+    EXPECT_STREQ(reinterpret_cast<const char*>(k.written[0].u.create2.phys), "wheelbri");
+}
+
+TEST(UhidG920, ARefusedCreateIsReported) {
+    UhidG920 device{[](const uhid_event&) { return false; }, [](const FfbPacket&) {}, [](LogLevel, const std::string&) {}};
+    EXPECT_FALSE(device.create());
+}
+
+TEST(UhidG920, StopAndDestroy) {
+    Kernel k;
+    k.device.create();
+    uhid_event e{};
+    e.type = UHID_START;
+    k.device.handle(e, 0);
+    ASSERT_TRUE(k.device.started());
+    e.type = UHID_STOP;
+    k.device.handle(e, 0);
+    EXPECT_FALSE(k.device.started());
+    k.device.destroy();
+    EXPECT_EQ(k.written.back().type, UHID_DESTROY);
+}
+
+TEST(UhidG920, CloseWithoutOpenNeverGoesNegative) {
+    Kernel k;
+    uhid_event e{};
+    e.type = UHID_CLOSE;
+    k.device.handle(e, 0);
+    k.device.handle(e, 0);
+    EXPECT_EQ(k.device.openCount(), 0);
+}
+
+// Some programs read the input report through a get-report request instead of waiting for it.
+TEST(UhidG920, TheInputReportCanBeAskedFor) {
+    Kernel k;
+    const auto getInput = [&k](std::uint32_t id) {
+        uhid_event e{};
+        e.type = UHID_GET_REPORT;
+        e.u.get_report.id = id;
+        e.u.get_report.rnum = kG920InputReportId;
+        e.u.get_report.rtype = UHID_INPUT_REPORT;
+        k.device.handle(e, 0);
+        return k.written.back().u.get_report_reply;
+    };
+    auto reply = getInput(7);   // nothing submitted yet: an error, still answered
+    EXPECT_EQ(reply.id, 7U);
+    EXPECT_EQ(reply.err, EIO);
+    EXPECT_EQ(reply.size, 0U);
+
+    k.device.create();
+    TargetReport turned = g920Neutral();
+    turned.steering = 50000;
+    k.device.submit(turned, false);
+    reply = getInput(8);
+    EXPECT_EQ(reply.err, 0);
+    const auto expected = packG920Input(turned);
+    ASSERT_EQ(reply.size, expected.size());
+    EXPECT_EQ(std::memcmp(reply.data, expected.data(), expected.size()), 0);
+}
+
+// Output reports may also come as SET_REPORT (hidraw's HIDIOCSOUTPUT): the same force feedback, and an answer.
+TEST(UhidG920, OutputReportsBySetReportAlsoBecomeForceFeedback) {
+    Kernel k;
+    k.device.create();
+    const auto setOutput = [&k](std::uint32_t id, const std::string& bytes) {
+        uhid_event e{};
+        e.type = UHID_SET_REPORT;
+        const auto b = hex(bytes);
+        e.u.set_report.id = id;
+        e.u.set_report.rnum = b[0];
+        e.u.set_report.rtype = UHID_OUTPUT_REPORT;
+        e.u.set_report.size = static_cast<std::uint16_t>(b.size());
+        std::memcpy(e.u.set_report.data, b.data(), b.size());
+        k.device.handle(e, 0);
+        return k.written.back();
+    };
+    setOutput(1, "1501A00F");
+    setOutput(2, "110101DC05000000000000FFFF04FF1F0000FFFFFFFF");
+    const auto reply = setOutput(3, "1A010101");
+    EXPECT_EQ(reply.type, UHID_SET_REPORT_REPLY);
+    EXPECT_EQ(reply.u.set_report_reply.id, 3U);
+    EXPECT_EQ(reply.u.set_report_reply.err, 0);
+    EXPECT_EQ(k.device.activeSlots(), 1U);
+}
+
+TEST(UhidG920, AnEmptyOrOversizedOutputReportIsHarmless) {
+    Kernel k;
+    k.device.create();
+    const std::size_t before = k.written.size();
+    uhid_event e{};
+    e.type = UHID_OUTPUT;
+    e.u.output.size = 0;
+    k.device.handle(e, 0);
+    e.u.output.size = 0xFFFF;   // more than the event holds: cut to its buffer, never read past it
+    e.u.output.data[0] = 0x7E;  // an id HidPid does not know
+    k.device.handle(e, 0);
+    EXPECT_EQ(k.written.size(), before);   // nothing to answer
+    EXPECT_EQ(k.packets.size(), 0U);
+    e.type = 0xFFFF;                       // an event type this kernel does not have yet
+    k.device.handle(e, 0);
+    EXPECT_EQ(k.written.size(), before);
+}
+
 TEST(UhidG920, AnUnsupportedReportIsLoggedOnce) {
     Kernel k;
     k.device.create();

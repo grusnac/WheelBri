@@ -9,6 +9,7 @@
 #include "Wheel.hpp"
 
 #include "wheelbri/EvdevLayout.hpp"
+#include "wheelbri/HidG920.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/WheelOutput.hpp"
 
@@ -381,16 +382,22 @@ public:
     std::vector<WheelInfo> list() override {
         std::vector<WheelInfo> wheels;
         int unreadable = 0;
+        int own = 0;
         for (const std::string& path : eventNodes()) {
             const int fd = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
             if (fd < 0) {
                 unreadable += errno == EACCES ? 1 : 0;
                 continue;
             }
-            if (evdev::isGameController(readCapabilities(fd))) {
+            if (isOwnVirtualDevice(fd)) {
+                ++own;
+            } else if (evdev::isGameController(readCapabilities(fd))) {
                 wheels.push_back(describe(fd, path));
             }
             ::close(fd);
+        }
+        if (own > 0) {
+            WE_LOG_DEBUG(inputLog(), "{} WheelBri virtual G920(s) left out (wheelbri-uhid's own)", own);
         }
         if (unreadable > 0) {
             WE_LOG_DEBUG(inputLog(), "{} input device(s) not readable by this user (keyboards and mice usually are "
@@ -413,6 +420,13 @@ public:
     [[nodiscard]] std::string describe() const override { return "evdev"; }
 
 private:
+    // wheelbri-uhid's virtual G920 (kG920VirtualUniq): a rig built from it, or a session reading it as the wheel,
+    // would feed the service its own output.
+    static bool isOwnVirtualDevice(const int fd) {
+        char uniq[64] = {};
+        return ioctl(fd, EVIOCGUNIQ(sizeof(uniq) - 1), uniq) >= 0 && std::strcmp(uniq, kG920VirtualUniq) == 0;
+    }
+
     static WheelInfo describe(const int fd, const std::string& path) {
         WheelInfo info;
         info.path = path;

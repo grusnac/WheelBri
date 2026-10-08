@@ -22,6 +22,10 @@ inline constexpr std::uint16_t kG920ProductId = 0xC262;
 inline constexpr std::uint8_t kG920InputReportId = 0x01;
 inline constexpr std::size_t kG920InputReportSize = 13;   // report ID + 4 axes x 2 + 3 button bytes + hat
 
+// The unique id ("uniq", EVIOCGUNIQ) wheelbri-uhid gives the Linux virtual G920. The service never lists a device
+// with it as part of a rig: it would read its own output as input.
+inline constexpr const char* kG920VirtualUniq = "wheelbri-g920";
+
 [[nodiscard]] std::span<const std::uint8_t> g920ReportDescriptor();
 
 // The same descriptor for Proton (wheelbri-uhid): the input report is unchanged, only two axes are renamed, clutch

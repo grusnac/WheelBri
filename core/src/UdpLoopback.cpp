@@ -362,6 +362,8 @@ std::optional<std::size_t> UdpLoopbackListener::receive(const std::span<std::uin
 
 void UdpLoopbackReceiver::setSenderFilter(SenderFilter filter) { impl_->filter = std::move(filter); }
 
+std::intptr_t UdpLoopbackReceiver::nativeSocket() const { return static_cast<std::intptr_t>(impl_->socket.get()); }
+
 std::optional<StatePacket> UdpLoopbackReceiver::pollLatest() {
     std::optional<StatePacket> latest;
     std::array<std::uint8_t, 64> buffer{};

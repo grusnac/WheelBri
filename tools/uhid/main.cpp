@@ -10,6 +10,7 @@
 // does all of this. Needs access to /dev/uhid (scripts/linux/install-udev-rules.sh, once).
 
 #include "UhidG920.hpp"
+#include "UhidLoop.hpp"
 
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/HidG920.hpp"
@@ -21,6 +22,8 @@
 #include <poll.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -33,6 +36,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <vector>
 
 #ifndef WHEELBRI_VERSION
 #define WHEELBRI_VERSION "dev"
@@ -48,8 +52,6 @@ const wheelbri::logging::Logger& log() {
 std::atomic<bool> gStop{false};
 void onSignal(int) { gStop = true; }
 
-constexpr std::int64_t kStaleMs = 1500;       // same as the shim and the bridge
-constexpr std::int64_t kKeepAliveMs = 100;    // input report at least this often
 
 std::int64_t nowMs() {
     using namespace std::chrono;
@@ -70,35 +72,6 @@ std::string defaultLogFile() {
     return (directory / "wheelbri-uhid.log").string();
 }
 
-struct Options {
-    std::uint16_t statePort = 41329;
-    std::uint16_t ffbPort = 41330;
-    std::string stopFile;
-    std::string device = "/dev/uhid";
-};
-
-bool parse(int argc, char** argv, Options& o) {
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        if (arg == "--state-port" && i + 1 < argc) {
-            o.statePort = static_cast<std::uint16_t>(std::atoi(argv[++i]));
-        } else if (arg == "--ffb-port" && i + 1 < argc) {
-            o.ffbPort = static_cast<std::uint16_t>(std::atoi(argv[++i]));
-        } else if (arg == "--stop-file" && i + 1 < argc) {
-            o.stopFile = argv[++i];
-        } else if (arg == "--device" && i + 1 < argc) {
-            o.device = argv[++i];
-        } else {
-            std::puts(
-                "usage: wheelbri-uhid [--state-port 41329] [--ffb-port 41330] [--stop-file PATH] [--device /dev/uhid]\n"
-                "  A virtual Logitech G920 (uhid) fed by wheelbri-service; stops on Ctrl+C, SIGTERM or when\n"
-                "  --stop-file appears. Proton games: PROTON_ENABLE_HIDRAW=0x046D/0xC262 in the launch options.");
-            return false;
-        }
-    }
-    return true;
-}
-
 bool takeStopFile(const std::string& path) {
     if (path.empty()) return false;
     std::error_code ec;
@@ -107,13 +80,19 @@ bool takeStopFile(const std::string& path) {
     return true;
 }
 
+constexpr std::int64_t kTickMs = 10;        // HidPid's tick: effects that ran out, keep-alives to the service
+constexpr int kMaxEventsPerWake = 64;       // uhid events read per wake; the kernel queues at most 32
+
 }  // namespace
 
 int main(int argc, char** argv) {
-    Options o;
-    if (!parse(argc, argv, o)) {
-        return 2;
+    const auto parsed = wheelbri::uhid::parseOptions(std::vector<std::string>(argv + 1, argv + argc));
+    if (!parsed.options) {
+        if (!parsed.error.empty()) std::fprintf(stderr, "wheelbri-uhid: %s\n", parsed.error.c_str());
+        std::puts(wheelbri::uhid::kUsage);
+        return parsed.error.empty() ? 0 : 2;
     }
+    const wheelbri::uhid::Options& o = *parsed.options;
     wheelbri::logging::init(wheelbri::logging::LogConfig{}, defaultLogFile());
     WE_LOG_INFO(log(), "wheelbri-uhid {} starting: state from 127.0.0.1:{}, force feedback to 127.0.0.1:{}",
                 WHEELBRI_VERSION, o.statePort, o.ffbPort);
@@ -126,7 +105,7 @@ int main(int argc, char** argv) {
         std::filesystem::remove(o.stopFile, ec);   // left over from an earlier run
     }
 
-    const int fd = ::open(o.device.c_str(), O_RDWR | O_CLOEXEC);
+    const int fd = ::open(o.device.c_str(), O_RDWR | O_CLOEXEC | O_NONBLOCK);   // reads drain the queue
     if (fd < 0) {
         const int error = errno;
         WE_LOG_CRITICAL(log(), "cannot open {}: {}. {}", o.device, std::strerror(error),
@@ -175,40 +154,57 @@ int main(int argc, char** argv) {
     WE_LOG_INFO(log(), "virtual '{}' created (046D:C262); Ctrl+C{} to stop", wheelbri::uhid::UhidG920::kName,
                 o.stopFile.empty() ? "" : " or " + o.stopFile);
 
-    bool receiving = false;
+    wheelbri::uhid::InputFeed feed(nowMs());
     wheelbri::LogLevel appliedLevel = wheelbri::LogLevel::Off;   // none applied yet: the first packet is said
-    bool neutralSent = true;
-    std::int64_t lastState = nowMs() - kStaleMs;
-    std::int64_t lastInput = 0;
     std::int64_t lastTick = 0;
     std::int64_t lastStopCheck = 0;
     std::int64_t lastStatus = nowMs();
     std::optional<std::tuple<int, std::size_t, bool>> shown;
-    wheelbri::TargetReport current = wheelbri::g920Neutral();
+    const int stateSocket = static_cast<int>(states->nativeSocket());
 
     while (!gStop) {
-        pollfd pfd{fd, POLLIN, 0};
-        const int ready = ::poll(&pfd, 1, 2);
+        // Wakes for a uhid event (the game's force feedback), a state from the service, or what is due next: the
+        // tick, a keep-alive, going neutral. Until 2026-10-08 it woke every 2 ms and read one uhid event each time.
+        const std::int64_t before = nowMs();
+        const std::int64_t timeout =
+            std::clamp<std::int64_t>(std::min(lastTick + kTickMs - before, feed.msUntilDue(before)), 0, kTickMs);
+        std::array<pollfd, 2> pfds{{{fd, POLLIN, 0}, {stateSocket, POLLIN, 0}}};
+        const int ready = ::poll(pfds.data(), pfds.size(), static_cast<int>(timeout));
         if (ready < 0 && errno != EINTR) {
             WE_LOG_ERROR(log(), "poll: {}", std::strerror(errno));
             break;
         }
-        if (ready > 0 && (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0 && (pfd.revents & POLLIN) == 0) {
+        const short uhidFlags = ready > 0 ? pfds[0].revents : 0;
+        if ((uhidFlags & (POLLERR | POLLHUP | POLLNVAL)) != 0 && (uhidFlags & POLLIN) == 0) {
             // Would wake poll at once forever (100 % CPU): the device is gone.
             WE_LOG_ERROR(log(), "uhid: {} gave up (poll flags 0x{:x}): stopping", o.device,
-                         static_cast<unsigned>(pfd.revents));
+                         static_cast<unsigned>(uhidFlags));
+            break;
+        }
+        if (ready > 0 && (pfds[1].revents & POLLNVAL) != 0) {
+            WE_LOG_ERROR(log(), "the state socket is closed: stopping");
             break;
         }
         const std::int64_t now = nowMs();
-        if (ready > 0 && (pfd.revents & POLLIN) != 0) {
-            uhid_event event{};
-            const ssize_t got = ::read(fd, &event, sizeof(event));
-            if (got > 0) {
-                device.handle(event, now);
-            } else if (got < 0 && errno != EAGAIN && errno != EINTR) {
-                WE_LOG_ERROR(log(), "uhid read: {}", std::strerror(errno));
+        if ((uhidFlags & POLLIN) != 0) {
+            // Every queued event (the kernel's queue holds 32; a burst of force feedback reports would overflow it if
+            // only one were read per wake). Bounded, so a flood cannot starve the states.
+            bool failed = false;
+            for (int i = 0; i < kMaxEventsPerWake; ++i) {
+                uhid_event event{};
+                const ssize_t got = ::read(fd, &event, sizeof(event));
+                if (got > 0) {
+                    device.handle(event, now);
+                    continue;
+                }
+                if (got < 0 && errno == EINTR) continue;
+                if (got < 0 && errno != EAGAIN) {
+                    WE_LOG_ERROR(log(), "uhid read: {}", std::strerror(errno));
+                    failed = true;
+                }
                 break;
             }
+            if (failed) break;
         }
 
         const auto packet = states->pollLatest();
@@ -220,33 +216,18 @@ int main(int argc, char** argv) {
             if (quieter) wheelbri::logging::setLevel(wheelbri::logLevelName(*level));
             appliedLevel = *level;
         }
-        if (packet) {
-            if (!receiving) {
-                receiving = true;
+        switch (feed.update(packet, now, device)) {
+            case wheelbri::uhid::InputFeed::Change::Receiving:
                 WE_LOG_INFO(log(), "receiving wheel state from wheelbri-service (packet #{})", packet->sequence);
-            }
-            lastState = now;
-            neutralSent = false;
-            current = packet->report;
-            device.submit(current, now - lastInput >= kKeepAliveMs);
-            lastInput = now;
-        } else if (now - lastState > kStaleMs && !neutralSent) {
-            // Same rule as the shim: hold the last input for 1.5 s, then centred wheel, released pedals.
-            if (receiving) {
+                break;
+            case wheelbri::uhid::InputFeed::Change::Stale:
                 WE_LOG_INFO(log(), "no wheel state for {} ms: centred wheel and released pedals until it comes back",
-                            kStaleMs);
-            }
-            receiving = false;
-            neutralSent = true;
-            current = wheelbri::g920Neutral();
-            device.submit(current, true);
-            lastInput = now;
-        } else if (now - lastInput >= kKeepAliveMs) {
-            device.submit(current, true);
-            lastInput = now;
+                            wheelbri::uhid::InputFeed::kStaleMs);
+                break;
+            case wheelbri::uhid::InputFeed::Change::None: break;
         }
 
-        if (now - lastTick >= 10) {
+        if (now - lastTick >= kTickMs) {
             lastTick = now;
             device.tick(now);
         }

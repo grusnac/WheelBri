@@ -74,6 +74,10 @@ public:
     using SenderFilter = std::function<bool(std::uint16_t senderPort)>;
     void setSenderFilter(SenderFilter filter);
 
+    // The socket itself (a SOCKET on Windows, a file descriptor elsewhere), for waiting until a state arrives
+    // (wheelbri-uhid's poll). Owned by this object.
+    [[nodiscard]] std::intptr_t nativeSocket() const;
+
 private:
     struct Impl;
     explicit UdpLoopbackReceiver(std::unique_ptr<Impl> impl);

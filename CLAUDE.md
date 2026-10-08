@@ -519,7 +519,11 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
   raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. Its descriptor is `g920ProtonReportDescriptor` (same report,
   clutch Usage Z, throttle Usage Rz): Proton's DirectInput has a hack for 046D:C262 (Z -> Rz, Rz -> Slider), and
   with the Windows descriptor NFS read the clutch as throttle (2026-10-08). `UhidG920` holds the uhid protocol with no file descriptors so
-  `UhidG920Test` covers it; `main.cpp` is the fd/UDP loop.
+  `UhidG920Test` covers it; `UhidLoop` (`UhidLoopTest`) holds the command line (ports checked) and `InputFeed`
+  (newest state, a keep-alive 100 ms after the last report written, neutral after 1.5 s); `main.cpp` is the fd/UDP
+  loop: it waits on /dev/uhid and the state socket (`UdpLoopbackReceiver::nativeSocket`) and reads every queued uhid
+  event per wake (the kernel queues 32). It marks the device `uniq = kG920VirtualUniq`; the evdev listing
+  (`WheelEvdev.cpp`) leaves such a device out, so the service never reads its own output.
 - `scripts/make/`: the build scripts (above); `common.sh` holds the shared helpers. `package.ps1` assembles the
   Windows installer package in `dist/windows/` (folder, zip, `WheelBri-<version>-setup.exe` made with IExpress,
   which is part of Windows); the version comes from `project(VERSION)` in `CMakeLists.txt`.
@@ -566,7 +570,8 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
   `DeviceWatchTest` (real thread, fake lister) and `HelperProbeTest` (real thread, fake check); linked when
   `wheelbri_privileged` is built. On Windows also `HelperPipeTest`: `HelperServer` and `HelperClient` on a pipe of
   the test's own with fake sessions, and `HelperLog`'s file written as the user (no Administrator needed; it also
-  runs under Wine, which skips the first-instance test).
+  runs under Wine, which skips the first-instance test). On Linux also `PlatformPosixTest`: the single-instance lock
+  and child processes with real files and processes.
   **Test the service loop on the emulators** in `tests/emulators/PushEmulators.hpp` (`PushLoopTest`): devices
   that push input like DirectInput / evdev or misbehave (`EmulatedPushDevice::Behaviour`: polled, dropped, stopped,
   late or spurious notifications, unplugged), game force feedback datagrams (`EmulatedSocket`), a wait that can fail

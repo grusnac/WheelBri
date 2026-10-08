@@ -39,7 +39,7 @@ bool UhidG920::create() {
     auto& req = event.u.create2;
     std::strncpy(reinterpret_cast<char*>(req.name), kName, sizeof(req.name) - 1);
     std::strncpy(reinterpret_cast<char*>(req.phys), "wheelbri", sizeof(req.phys) - 1);
-    std::strncpy(reinterpret_cast<char*>(req.uniq), "wheelbri-g920", sizeof(req.uniq) - 1);
+    std::strncpy(reinterpret_cast<char*>(req.uniq), kG920VirtualUniq, sizeof(req.uniq) - 1);
     const auto descriptor = g920ProtonReportDescriptor();   // games read it through Proton's DirectInput
     if (descriptor.size() > sizeof(req.rd_data)) {
         log_(LogLevel::Error, "uhid: descriptor too large");
@@ -67,11 +67,11 @@ void UhidG920::destroy() {
     write_(event);
 }
 
-void UhidG920::submit(const TargetReport& report, const bool force) {
+bool UhidG920::submit(const TargetReport& report, const bool force) {
     const auto packed = packG920Input(report);
     static_assert(packed.size() == std::tuple_size_v<decltype(last_)>);
     if (!force && haveLast_ && packed == last_) {
-        return;
+        return false;
     }
     last_ = packed;
     haveLast_ = true;
@@ -80,6 +80,7 @@ void UhidG920::submit(const TargetReport& report, const bool force) {
     event.u.input2.size = static_cast<std::uint16_t>(packed.size());
     std::memcpy(event.u.input2.data, packed.data(), packed.size());
     write_(event);
+    return true;
 }
 
 void UhidG920::reply(const std::uint32_t type, const std::uint32_t id, const std::uint16_t err,

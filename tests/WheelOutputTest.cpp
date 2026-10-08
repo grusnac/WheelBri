@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <bitset>
+
 #include <limits>
 
 namespace wheelbri {
@@ -184,6 +186,179 @@ TEST(EvdevLayout, ExtremeRangesStayInRange) {
     RawInputState state;
     layout.fill(state);
     EXPECT_FLOAT_EQ(state.axes[0], 1.0F);
+}
+
+// A hat whose range is wider than -1..1 (SDL's dead zone: a third of the range), and one that reports beyond it.
+TEST(EvdevLayout, HatsUseAThirdOfTheirRangeAndGrowWithIt) {
+    evdev::Capabilities caps;
+    caps.keys.set(0x120);
+    caps.axes.set(0x10);
+    caps.axes.set(0x11);
+    caps.absInfo[0x10] = {0, -3, 3, 0, 0, 0};   // plain (no fuzz, flat, resolution): digital
+    caps.absInfo[0x11] = {0, -3, 3, 0, 0, 0};
+    evdev::Layout layout(caps);
+    ASSERT_EQ(layout.hats(), 1);
+    EXPECT_EQ(layout.axes(), 0);   // the pair is the hat, not two axes
+    RawInputState state;
+    const auto hatAt = [&](std::int32_t x, std::int32_t y) {
+        layout.apply(evdev::kEvAbs, 0x10, x);
+        layout.apply(evdev::kEvAbs, 0x11, y);
+        layout.fill(state);
+        return state.hat;
+    };
+    EXPECT_EQ(hatAt(0, 0), kHatCentered);
+    EXPECT_EQ(hatAt(1, -1), kHatCentered);   // within the third: centred
+    EXPECT_EQ(hatAt(2, 0), 2);               // right
+    EXPECT_EQ(hatAt(0, 2), 4);               // down
+    EXPECT_EQ(hatAt(-2, -2), 7);             // up-left
+    EXPECT_EQ(hatAt(3, 3), 3);               // the ends: down-right
+    EXPECT_EQ(hatAt(-9, 0), 6);              // beyond the range: left, and the range grows to -9
+    EXPECT_EQ(hatAt(-2, 0), kHatCentered);   // -2 is now within a third of -9
+    EXPECT_EQ(hatAt(-4, 0), 6);
+}
+
+TEST(EvdevLayout, AHatPairThatLooksAnalogueStaysTwoAxes) {
+    evdev::Capabilities caps;
+    caps.keys.set(0x120);
+    caps.axes.set(0x10);
+    caps.axes.set(0x11);
+    caps.absInfo[0x10] = {0, -127, 127, 4, 0, 0};   // fuzz: an analogue stick on the hat codes
+    caps.absInfo[0x11] = {0, -127, 127, 4, 0, 0};
+    evdev::Layout layout(caps);
+    EXPECT_EQ(layout.hats(), 0);
+    EXPECT_EQ(layout.axes(), 2);
+    layout.apply(evdev::kEvAbs, 0x10, 127);
+    RawInputState state;
+    layout.fill(state);
+    EXPECT_FLOAT_EQ(state.axes[0], 1.0F);
+    EXPECT_EQ(state.hat, kHatCentered);
+}
+
+TEST(EvdevLayout, AHatWithOnlyOneAxisWorks) {
+    evdev::Capabilities caps;
+    caps.keys.set(0x120);
+    caps.axes.set(0x10);   // HAT0X only
+    caps.absInfo[0x10] = {0, -1, 1, 0, 0, 0};
+    evdev::Layout layout(caps);
+    ASSERT_EQ(layout.hats(), 1);
+    layout.apply(evdev::kEvAbs, 0x10, -1);
+    RawInputState state;
+    layout.fill(state);
+    EXPECT_EQ(state.hat, 6);   // left
+}
+
+// Button boxes and wheels with more buttons than RawInputState holds: the first 64 count, the rest are ignored.
+TEST(EvdevLayout, ButtonsBeyond64AreIgnoredSafely) {
+    evdev::Capabilities caps;
+    for (int code = 0x2c0; code < 0x2c0 + 40; ++code) caps.keys.set(static_cast<std::size_t>(code));   // 0..39
+    for (int code = 0x120; code < 0x120 + 30; ++code) caps.keys.set(static_cast<std::size_t>(code));   // also 0..29 first
+    caps.axes.set(0x00);
+    caps.absInfo[0x00] = {0, 0, 255, 0, 0, 0};
+    evdev::Layout layout(caps);
+    ASSERT_EQ(layout.buttons(), 70);
+    layout.apply(evdev::kEvKey, 0x2c0 + 39, 1);   // button 69: past 64
+    layout.apply(evdev::kEvKey, 0x2c0 + 33, 1);   // button 63: the last one held
+    RawInputState state;
+    layout.fill(state);
+    EXPECT_EQ(state.buttons, 1ULL << 63);
+
+    std::bitset<evdev::kKeyCount> down;
+    down.set(0x2c0 + 39);
+    down.set(0x120);
+    layout.reset(caps.absInfo, down);
+    layout.fill(state);
+    EXPECT_EQ(state.buttons, 1ULL);   // button 0 only
+}
+
+TEST(EvdevLayout, EventsOutsideTheDeviceAreIgnored) {
+    evdev::Layout layout(wheelCaps());
+    RawInputState before;
+    layout.fill(before);
+    EXPECT_FALSE(layout.apply(evdev::kEvKey, -1, 1));
+    EXPECT_FALSE(layout.apply(evdev::kEvKey, evdev::kKeyCount, 1));
+    EXPECT_FALSE(layout.apply(evdev::kEvKey, 30, 1));                 // KEY_A: not one of its buttons
+    EXPECT_FALSE(layout.apply(evdev::kEvAbs, -1, 100));
+    EXPECT_FALSE(layout.apply(evdev::kEvAbs, evdev::kAbsCount, 100));
+    EXPECT_FALSE(layout.apply(evdev::kEvAbs, 0x01, 100));             // ABS_Y: not one of its axes
+    EXPECT_FALSE(layout.apply(0x02, 0x00, 5));                       // EV_REL
+    EXPECT_FALSE(layout.apply(evdev::kEvSyn, 0, 0));                 // SYN_REPORT
+    RawInputState after;
+    layout.fill(after);
+    EXPECT_EQ(after.axes, before.axes);
+    EXPECT_EQ(after.buttons, before.buttons);
+    EXPECT_EQ(after.hat, before.hat);
+    EXPECT_EQ(layout.axisValue(-1), 0);
+    EXPECT_EQ(layout.axisValue(layout.axes()), 0);
+}
+
+TEST(EvdevLayout, OnlyTheFirstEightAxesAreFilled) {
+    evdev::Capabilities caps;
+    caps.keys.set(0x120);
+    for (int code = 0; code < 10; ++code) {   // X .. ABS_BRAKE: ten axes
+        caps.axes.set(static_cast<std::size_t>(code));
+        caps.absInfo[static_cast<std::size_t>(code)] = {0, 0, 100, 0, 0, 0};
+    }
+    evdev::Layout layout(caps);
+    ASSERT_EQ(layout.axes(), 10);
+    layout.apply(evdev::kEvAbs, 9, 100);   // the tenth: readable, not in RawInputState
+    layout.apply(evdev::kEvAbs, 7, 100);
+    RawInputState state;
+    layout.fill(state);
+    EXPECT_FLOAT_EQ(state.axes[7], 1.0F);
+    EXPECT_EQ(layout.axisValue(9), 32767);
+}
+
+TEST(EvdevLayout, ResetTakesTheDevicesValuesAfterDroppedEvents) {
+    evdev::Capabilities caps = wheelCaps();
+    evdev::Layout layout(caps);
+    layout.apply(evdev::kEvKey, 0x120, 1);
+    layout.apply(evdev::kEvAbs, 0x10, 1);
+    auto now = caps.absInfo;
+    now[0x00].value = 0;   // the wheel full left now
+    now[0x10].value = 0;   // the hat released while events were lost
+    now[0x11].value = 1;   // and pressed down
+    std::bitset<evdev::kKeyCount> down;
+    down.set(0x121);       // button 1 held instead of 0
+    layout.reset(now, down);
+    RawInputState state;
+    layout.fill(state);
+    EXPECT_FLOAT_EQ(state.axes[0], -1.0F);   // -32768 / 32767, clamped
+    EXPECT_EQ(state.buttons, 1ULL << 1);
+    EXPECT_EQ(state.hat, 4);
+}
+
+TEST(EvdevLayout, TouchScreensPensAndBareAxesAreNotControllers) {
+    evdev::Capabilities touchscreen;   // multi-touch axes only
+    touchscreen.axes.set(0x2f);
+    touchscreen.axes.set(0x35);
+    touchscreen.keys.set(0x120);
+    EXPECT_FALSE(evdev::isGameController(touchscreen));
+
+    evdev::Capabilities pen;   // X/Y with BTN_TOOL_PEN (BTN_DIGI range)
+    pen.axes.set(0x00);
+    pen.axes.set(0x01);
+    pen.keys.set(0x140);
+    EXPECT_FALSE(evdev::isGameController(pen));
+
+    evdev::Capabilities accelerometer;   // axes, no buttons, no driving axes
+    accelerometer.axes.set(0x00);
+    accelerometer.axes.set(0x01);
+    accelerometer.axes.set(0x02);
+    EXPECT_FALSE(evdev::isGameController(accelerometer));
+
+    evdev::Capabilities numbered;   // a joystick numbering its buttons BTN_0..
+    numbered.axes.set(0x00);
+    numbered.keys.set(0x100 + 9);
+    EXPECT_TRUE(evdev::isGameController(numbered));
+
+    evdev::Capabilities buttonBox;   // trigger-happy buttons and one axis
+    buttonBox.axes.set(0x00);
+    buttonBox.keys.set(0x2c0 + 0x27);
+    EXPECT_TRUE(evdev::isGameController(buttonBox));
+
+    evdev::Capabilities buttonsOnly;   // buttons without any axis
+    buttonsOnly.keys.set(0x120);
+    EXPECT_FALSE(evdev::isGameController(buttonsOnly));
 }
 
 TEST(EvdevLayout, KeyboardsMiceAndTouchPadsAreNotControllers) {

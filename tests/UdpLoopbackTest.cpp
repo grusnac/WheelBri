@@ -10,6 +10,10 @@
 #include <thread>
 #include <vector>
 
+#ifndef _WIN32
+#include <poll.h>
+#endif
+
 namespace wheelbri {
 namespace {
 
@@ -184,6 +188,86 @@ TEST(UdpLoopback, ListenerTellsTheSendersPort) {
     ASSERT_TRUE(size.has_value());
     EXPECT_NE(from, 0);
     EXPECT_NE(from, kPort);
+}
+StatePacket withSequence(const std::uint32_t sequence) {
+    StatePacket packet;
+    packet.sequence = sequence;
+    packet.report.steering = static_cast<std::int32_t>(sequence);
+    return packet;
+}
+
+// A restarted service counts from 1 again, and packets may be lost: the receiver hands over what came last, in
+// arrival order, never holding on to the old, higher numbers.
+TEST(UdpLoopback, ARestartedServiceAndLostPacketsAreFollowed) {
+    constexpr std::uint16_t kPort = 41993;
+    const auto receiver = UdpLoopbackReceiver::create(kPort);
+    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    ASSERT_NE(receiver, nullptr);
+    ASSERT_NE(publisher, nullptr);
+    ASSERT_TRUE(publisher->publish(withSequence(100)));
+    EXPECT_EQ(pollWithTimeout(*receiver)->sequence, 100U);
+    ASSERT_TRUE(publisher->publish(withSequence(1)));   // restarted
+    EXPECT_EQ(pollWithTimeout(*receiver)->sequence, 1U);
+    ASSERT_TRUE(publisher->publish(withSequence(1)));   // the same number again (two services)
+    EXPECT_EQ(pollWithTimeout(*receiver)->sequence, 1U);
+    ASSERT_TRUE(publisher->publish(withSequence(50)));  // 48 lost
+    EXPECT_EQ(pollWithTimeout(*receiver)->sequence, 50U);
+}
+
+TEST(UdpLoopback, MalformedDatagramsAreDroppedAndTheGoodOnesKept) {
+    constexpr std::uint16_t kPort = 41992;
+    const auto receiver = UdpLoopbackReceiver::create(kPort);
+    const auto sender = UdpLoopbackSender::create(kPort);
+    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    ASSERT_NE(receiver, nullptr);
+    ASSERT_NE(sender, nullptr);
+    ASSERT_NE(publisher, nullptr);
+    const std::array<std::uint8_t, 5> garbage{1, 2, 3, 4, 5};
+    auto wrongVersion = encode(withSequence(7));
+    wrongVersion[4] = 0x7F;   // the version field
+    ASSERT_TRUE(sender->send(garbage));
+    ASSERT_TRUE(sender->send(wrongVersion));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_FALSE(receiver->pollLatest().has_value());
+    EXPECT_EQ(receiver->lastPoll().read, 2U);   // both read (and dropped), not left in the socket
+
+    ASSERT_TRUE(sender->send(garbage));
+    ASSERT_TRUE(publisher->publish(withSequence(8)));
+    ASSERT_TRUE(sender->send(garbage));
+    const auto latest = pollWithTimeout(*receiver);
+    ASSERT_TRUE(latest.has_value());
+    EXPECT_EQ(latest->sequence, 8U);
+}
+
+TEST(UdpLoopback, ASecondReceiverOnTheSamePortIsRefused) {
+    constexpr std::uint16_t kPort = 41991;
+    const auto first = UdpLoopbackReceiver::create(kPort);
+    ASSERT_NE(first, nullptr);
+    EXPECT_EQ(UdpLoopbackReceiver::create(kPort), nullptr);   // a second wheelbri-uhid, or the shim in a game
+    EXPECT_EQ(UdpLoopbackListener::create(kPort), nullptr);
+}
+
+TEST(UdpLoopback, TheReceiversSocketCanBeWaitedOn) {
+    constexpr std::uint16_t kPort = 41990;
+    const auto receiver = UdpLoopbackReceiver::create(kPort);
+    ASSERT_NE(receiver, nullptr);
+#ifdef _WIN32
+    EXPECT_NE(receiver->nativeSocket(), static_cast<std::intptr_t>(~static_cast<std::uintptr_t>(0)));
+#else
+    const int fd = static_cast<int>(receiver->nativeSocket());
+    ASSERT_GE(fd, 0);
+    pollfd pfd{fd, POLLIN, 0};
+    EXPECT_EQ(::poll(&pfd, 1, 0), 0);   // nothing yet
+    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    ASSERT_NE(publisher, nullptr);
+    ASSERT_TRUE(publisher->publish(withSequence(1)));
+    pfd.revents = 0;
+    EXPECT_EQ(::poll(&pfd, 1, 1000), 1);   // wakes for the state (wheelbri-uhid's loop)
+    EXPECT_NE(pfd.revents & POLLIN, 0);
+    EXPECT_TRUE(receiver->pollLatest().has_value());
+    pfd.revents = 0;
+    EXPECT_EQ(::poll(&pfd, 1, 0), 0);   // read: quiet again
+#endif
 }
 
 }  // namespace

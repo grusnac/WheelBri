@@ -16,7 +16,7 @@
 namespace wheelbri::uhid {
 
 // The virtual G920 on Linux (Phase 4), through the kernel's uhid: the same HID device the Windows bridge
-// creates with HIDMaestro (HidG920.hpp: wheel X, brake Y, clutch Rz, throttle Slider, 19 buttons with the shifter's, hat, HID PID
+// creates with HIDMaestro, with clutch and throttle named for Proton (g920ProtonReportDescriptor; 19 buttons with the shifter's, hat, HID PID
 // force feedback), so a game reading it raw sees what NFS 2015 sees on Windows. Proton reads it raw only when
 // asked (PROTON_ENABLE_HIDRAW=0x046D/0xC262); its dinput then speaks HID PID to it, which HidPid turns into the
 // service's FfbPackets.
@@ -38,7 +38,8 @@ public:
     void destroy();
 
     // The wheel's state as an input report. Sent when it changed, or when `force` (keep-alive).
-    void submit(const TargetReport& report, bool force);
+    // Whether it was written (false: unchanged and not forced).
+    bool submit(const TargetReport& report, bool force);
 
     // One event read from /dev/uhid.
     void handle(const uhid_event& event, std::int64_t nowMs);
