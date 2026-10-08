@@ -29,7 +29,6 @@ add_executable(wheelbri_tests
     IniEditorTest.cpp
     LiveLogTest.cpp
     LoggingTest.cpp
-    LoopStatsTest.cpp
     MapperTest.cpp
     MappingEditTest.cpp
     PacingTest.cpp

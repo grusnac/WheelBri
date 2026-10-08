@@ -1,4 +1,4 @@
-// loop_mode = events end to end on emulated devices (tests/emulators): the service loop's decisions (core
+// The service loop end to end on emulated devices (tests/emulators): its decisions (core
 // EventLoopControl) and the real Pipeline, on a virtual clock, against devices that push their input the way
 // DirectInput and evdev do, and against devices that do it badly.
 
@@ -23,7 +23,7 @@ TEST(PushLoop, WhileDrivingEveryChangeIsReadWhenItIsAnnounced) {
     PushLoopRig rig(clock, wheel);
     rig.run(2 * kS);
 
-    EXPECT_TRUE(rig.control().events());
+    EXPECT_FALSE(rig.control().polling());
     EXPECT_EQ(rig.maxLatency(wheel), 0U);
     EXPECT_EQ(rig.control().missedNotifications(), 0U);
     EXPECT_EQ(rig.control().lateNotifications(), 0U);
@@ -36,7 +36,7 @@ TEST(PushLoop, AtRestOnlyTheIdleTimerWakesIt) {
     PushLoopRig rig(clock, wheel);
     rig.run(2 * kS);
 
-    EXPECT_TRUE(rig.control().events());
+    EXPECT_FALSE(rig.control().polling());
     EXPECT_EQ(rig.passes(), 2 * kS / kWake.idleNs);   // 0, 100, ..., 1900 ms
     EXPECT_EQ(rig.wokenBy(WakeReason::Wheel), 0U);
 }
@@ -49,7 +49,7 @@ TEST(PushLoop, NotificationsWithoutAChangeCostPassesButNeverAFallback) {
     PushLoopRig rig(clock, wheel);
     rig.run(1 * kS);
 
-    EXPECT_TRUE(rig.control().events());
+    EXPECT_FALSE(rig.control().polling());
     EXPECT_NEAR(static_cast<double>(rig.passes()), 455.0, 5.0);
     EXPECT_EQ(rig.control().missedNotifications(), 0U);
 }
@@ -64,7 +64,7 @@ TEST(PushLoop, ADeviceThatSignalsWithoutPauseIsHeldToTheMinimumGap) {
 
     EXPECT_GE(rig.minPassGap(), kWake.minGapNs);
     EXPECT_LE(rig.passes(), kS / kWake.minGapNs + 1);
-    EXPECT_TRUE(rig.control().events());
+    EXPECT_FALSE(rig.control().polling());
 }
 
 TEST(PushLoop, AnAccessoryWakesTheLoopToo) {
@@ -76,7 +76,7 @@ TEST(PushLoop, AnAccessoryWakesTheLoopToo) {
     rig.addAccessory(pedals);
     rig.run(1 * kS);
 
-    EXPECT_TRUE(rig.control().events());
+    EXPECT_FALSE(rig.control().polling());
     EXPECT_EQ(rig.maxLatency(pedals), 0U);
     EXPECT_EQ(rig.wokenBy(WakeReason::Wheel), pedals.changeTimes().size());
 }
@@ -97,7 +97,7 @@ TEST(PushLoop, GameForceFeedbackWakesTheLoop) {
 
 TEST(PushLoop, AFloodOnTheForceFeedbackPortIsHeldToTheGapAndTheGameStillGetsThrough) {
     // Any local program can send to 127.0.0.1:41330. A datagram every 10 us wakes the loop at most every 0.5 ms
-    // (2000 passes a second, about what loop_mode = fixed costs at 1 kHz); the game's own packets are still read
+    // (2000 passes a second, twice what polling every millisecond costs); the game's own packets are still read
     // within that gap, and the wheel's input too.
     VirtualClock clock;
     EmulatedPushDevice wheel("R3", clock);
@@ -108,7 +108,7 @@ TEST(PushLoop, AFloodOnTheForceFeedbackPortIsHeldToTheGapAndTheGameStillGetsThro
     rig.addGameFfb(ffb);
     rig.run(1 * kS);
 
-    EXPECT_TRUE(rig.control().events());
+    EXPECT_FALSE(rig.control().polling());
     EXPECT_GE(rig.minPassGap(), kWake.minGapNs);
     EXPECT_LE(rig.passes(), kS / kWake.minGapNs + 1);
     for (const std::uint64_t latency : ffb.latencies()) EXPECT_LE(latency, kWake.minGapNs + 50 * kUs);
@@ -159,13 +159,13 @@ TEST(PushLoop, ANotificationLostNowAndThenWhileTurningCostsAt4msMost) {
     PushLoopRig rig(clock, wheel);
     rig.run(3 * kS);
 
-    EXPECT_TRUE(rig.control().events());   // 14 lost in 3 s: below 20 in 10 s
+    EXPECT_FALSE(rig.control().polling());   // 14 lost in 3 s: below 20 in 10 s
     EXPECT_EQ(rig.control().missedNotifications(), wheel.droppedNotifications());
     EXPECT_LE(rig.maxLatency(wheel), kWake.recentInputEveryNs);
     EXPECT_GT(rig.maxLatency(wheel), 0U);
 }
 
-TEST(PushLoop, LosingOneInTenForLongFallsBackToTheFixedRate) {
+TEST(PushLoop, LosingOneInTenForLongStartsPolling) {
     VirtualClock clock;
     Behaviour lossy;
     lossy.dropEvery = 10;
@@ -174,13 +174,13 @@ TEST(PushLoop, LosingOneInTenForLongFallsBackToTheFixedRate) {
     PushLoopRig rig(clock, wheel);
     rig.run(10 * kS);
 
-    EXPECT_EQ(rig.control().fallback(), LoopFallback::MissedNotifications);
-    ASSERT_TRUE(rig.fellBackAtNs().has_value());
-    EXPECT_NEAR(static_cast<double>(*rig.fellBackAtNs()) / kS, 4.2, 0.1);   // the 20th lost one
-    EXPECT_LE(rig.maxLatency(wheel, *rig.fellBackAtNs()), 1 * kMs);       // then loop_hz = 1000
+    EXPECT_EQ(rig.control().pollReason(), PollReason::MissedNotifications);
+    ASSERT_TRUE(rig.pollingFromNs().has_value());
+    EXPECT_NEAR(static_cast<double>(*rig.pollingFromNs()) / kS, 4.2, 0.1);   // the 20th lost one
+    EXPECT_LE(rig.maxLatency(wheel, *rig.pollingFromNs()), 1 * kMs);   // then every millisecond
 }
 
-TEST(PushLoop, NotificationsThatStopWhileDrivingFallBackWithin100ms) {
+TEST(PushLoop, NotificationsThatStopWhileDrivingStartPollingWithin100ms) {
     VirtualClock clock;
     Behaviour stops;
     stops.stopNotifyingAtNs = 1 * kS;
@@ -189,12 +189,12 @@ TEST(PushLoop, NotificationsThatStopWhileDrivingFallBackWithin100ms) {
     PushLoopRig rig(clock, wheel);
     rig.run(2 * kS);
 
-    EXPECT_EQ(rig.control().fallback(), LoopFallback::MissedNotifications);
-    ASSERT_TRUE(rig.fellBackAtNs().has_value());
-    EXPECT_GT(*rig.fellBackAtNs(), 1 * kS);
-    EXPECT_LT(*rig.fellBackAtNs(), 1 * kS + 100 * kMs);
-    EXPECT_LE(rig.maxLatency(wheel), kWake.recentInputEveryNs);   // even before the fallback
-    EXPECT_LE(rig.maxLatency(wheel, *rig.fellBackAtNs()), 1 * kMs);
+    EXPECT_EQ(rig.control().pollReason(), PollReason::MissedNotifications);
+    ASSERT_TRUE(rig.pollingFromNs().has_value());
+    EXPECT_GT(*rig.pollingFromNs(), 1 * kS);
+    EXPECT_LT(*rig.pollingFromNs(), 1 * kS + 100 * kMs);
+    EXPECT_LE(rig.maxLatency(wheel), kWake.recentInputEveryNs);   // even before it polls
+    EXPECT_LE(rig.maxLatency(wheel, *rig.pollingFromNs()), 1 * kMs);
 }
 
 TEST(PushLoop, LateNotificationsAreNotTakenForLostOnes) {
@@ -206,7 +206,7 @@ TEST(PushLoop, LateNotificationsAreNotTakenForLostOnes) {
     PushLoopRig rig(clock, wheel);
     rig.run(3 * kS);
 
-    EXPECT_TRUE(rig.control().events());
+    EXPECT_FALSE(rig.control().polling());
     EXPECT_EQ(rig.control().missedNotifications(), 0U);
     EXPECT_GT(rig.control().lateNotifications(), 0U);
     EXPECT_LE(rig.maxLatency(wheel), late.notifyDelayNs);
@@ -226,12 +226,12 @@ TEST(PushLoop, ALostNotificationAtRestWaitsForTheIdleTimer) {
     EXPECT_EQ(rig.maxLatency(wheel), 50 * kMs);   // the 1100 ms wake-up
     EXPECT_LE(rig.maxLatency(wheel), kWake.idleNs);
     EXPECT_EQ(rig.control().missedNotifications(), 1U);
-    EXPECT_TRUE(rig.control().events());
+    EXPECT_FALSE(rig.control().polling());
 }
 
 // --- what cannot be waited for ---
 
-TEST(PushLoop, AWheelDirectInputOnlyPollsRunsAtTheFixedRate) {
+TEST(PushLoop, AWheelDirectInputOnlyPollsIsPolledEveryMillisecond) {
     VirtualClock clock;
     Behaviour polled;
     polled.notifies = false;
@@ -240,14 +240,15 @@ TEST(PushLoop, AWheelDirectInputOnlyPollsRunsAtTheFixedRate) {
     PushLoopRig rig(clock, wheel);
     rig.run(1 * kS);
 
-    EXPECT_EQ(rig.control().fallback(), LoopFallback::NoNotification);
+    EXPECT_EQ(rig.control().pollReason(), PollReason::NoNotification);
     EXPECT_EQ(rig.passes(), 1000U);
     EXPECT_LE(rig.maxLatency(wheel), 1 * kMs);
 }
 
-TEST(PushLoop, APolledAccessoryMakesTheWholeSessionFixed) {
+TEST(PushLoop, APolledAccessoryIsPolledAndTheWheelStillWakesTheLoop) {
     VirtualClock clock;
     EmulatedPushDevice wheel("R3", clock);
+    wheel.sweep(0, 1 * kS, 3'300 * kUs);   // never on the millisecond: only its notification reads it at once
     Behaviour polled;
     polled.notifies = false;
     EmulatedPushDevice pedals("polled pedals", clock, polled);
@@ -256,24 +257,28 @@ TEST(PushLoop, APolledAccessoryMakesTheWholeSessionFixed) {
     rig.addAccessory(pedals);
     rig.run(1 * kS);
 
-    EXPECT_EQ(rig.control().fallback(), LoopFallback::NoNotification);
+    EXPECT_EQ(rig.control().pollReason(), PollReason::NoNotification);
     EXPECT_LE(rig.maxLatency(pedals), 1 * kMs);
+    EXPECT_LE(rig.maxLatency(wheel, 0, 990 * kMs), kWake.minGapNs);   // by its own notification, not the 1 ms poll
+    EXPECT_GT(rig.wokenBy(WakeReason::Wheel), 0U);
 }
 
-TEST(PushLoop, ASocketTheWaitCannotTakeMakesTheSessionFixed) {
+TEST(PushLoop, ASocketTheWaitCannotTakeIsReadEveryMillisecond) {
     VirtualClock clock;
     EmulatedPushDevice wheel("R3", clock);
+    wheel.sweep(0, 1 * kS, 3'300 * kUs);
     EmulatedSocket ffb(false);
     ffb.arriveEvery(0, 1 * kS, 28 * kMs);
     PushLoopRig rig(clock, wheel);
     rig.addGameFfb(ffb);
     rig.run(1 * kS);
 
-    EXPECT_EQ(rig.control().fallback(), LoopFallback::SocketNotWaitable);
+    EXPECT_EQ(rig.control().pollReason(), PollReason::SocketNotWaitable);
     for (const std::uint64_t latency : ffb.latencies()) EXPECT_LE(latency, 1 * kMs);
+    EXPECT_LE(rig.maxLatency(wheel, 0, 990 * kMs), kWake.minGapNs);   // the wheel still wakes it
 }
 
-TEST(PushLoop, AWaitThatFailsMidSessionFallsBackAtOnce) {
+TEST(PushLoop, AWaitThatFailsMidSessionPollsAtOnceAndStopsWaiting) {
     VirtualClock clock;
     EmulatedPushDevice wheel("R3", clock);
     wheel.sweep(0, 1 * kS, 7 * kMs);
@@ -281,25 +286,15 @@ TEST(PushLoop, AWaitThatFailsMidSessionFallsBackAtOnce) {
     rig.waitSet().failFrom(400 * kMs);
     rig.run(1 * kS);
 
-    EXPECT_EQ(rig.control().fallback(), LoopFallback::WaitFailed);
-    ASSERT_TRUE(rig.fellBackAtNs().has_value());
-    EXPECT_GE(*rig.fellBackAtNs(), 400 * kMs);
-    EXPECT_LT(*rig.fellBackAtNs(), 401 * kMs);
-    EXPECT_EQ(rig.passesBetween(500 * kMs, 1 * kS), 500U);   // loop_hz = 1000 from then on
+    EXPECT_EQ(rig.control().pollReason(), PollReason::WaitFailed);
+    ASSERT_TRUE(rig.pollingFromNs().has_value());
+    EXPECT_GE(*rig.pollingFromNs(), 400 * kMs);
+    EXPECT_LT(*rig.pollingFromNs(), 401 * kMs);
+    EXPECT_EQ(rig.passesBetween(500 * kMs, 1 * kS), 500U);   // every millisecond from then on
     EXPECT_LE(rig.maxLatency(wheel), 1 * kMs);
-}
-
-TEST(PushLoop, LoopModeFixedNeverWaits) {
-    VirtualClock clock;
-    EmulatedPushDevice wheel("R3", clock);
-    PushLoopRig::Options options;
-    options.eventsWanted = false;
-    PushLoopRig rig(clock, wheel, options);
-    rig.run(1 * kS);
-
-    EXPECT_EQ(rig.control().fallback(), LoopFallback::NotWanted);
-    EXPECT_EQ(rig.waitSet().waits(), 0U);
-    EXPECT_EQ(rig.passes(), 1000U);
+    EXPECT_FALSE(rig.control().canWait());
+    const std::uint64_t waits = rig.waitSet().waits();
+    EXPECT_LE(waits, 200U);   // the waits before 400 ms and the one that failed: none after it
 }
 
 // --- a device that goes away ---

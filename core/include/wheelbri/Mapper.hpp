@@ -16,7 +16,7 @@ namespace wheelbri {
                                                          const std::array<int, kMaxInputDevices>& axisCounts);
 
 // Converts the physical wheel's raw state into the target-agnostic WheelState.
-// Pure and allocation-free: safe to call from the 1 kHz loop.
+// Pure and allocation-free: safe to call on every pass of the service loop.
 class Mapper {
 public:
     explicit Mapper(const MapperConfig& config);

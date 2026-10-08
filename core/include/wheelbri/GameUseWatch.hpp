@@ -9,7 +9,7 @@ namespace wheelbri {
 // force feedback on it (at least the centring spring), so pedals pressed for a while with no force feedback ever
 // received means the game took another controller: a gamepad or
 // the keyboard. Usually the game was started before the wheel existed, or it picked the pad in its settings.
-// Allocation-free; called from the 1 kHz loop.
+// Allocation-free; called on every pass of the service loop.
 class GameUseWatch {
 public:
     static constexpr std::uint64_t kPedalMs = 20'000;   // pedals pressed this long, in total, before warning

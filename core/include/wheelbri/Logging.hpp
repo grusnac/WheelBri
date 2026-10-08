@@ -11,7 +11,7 @@
 //  * Levels: trace = per-tick/per-call detail, debug = decisions and state changes, info = lifecycle
 //    (start, device found, config loaded), warn = recoverable problems, error = a feature is broken,
 //    critical = the process cannot continue.
-//  * Hot paths (1 kHz loop, GetDeviceState, SetParameters) must use RateLimiter or CallSampler.
+//  * Hot paths (the service loop, GetDeviceState, SetParameters) must use RateLimiter or CallSampler.
 //  * Levels can be changed without rebuilding: config [logging] level, or per component through the
 //    SPDLOG_LEVEL environment variable, e.g. SPDLOG_LEVEL="info,core.net=trace,shim.effect=debug".
 

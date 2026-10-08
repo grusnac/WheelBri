@@ -1,8 +1,10 @@
 # Plan: the service loop from pull to push
 
-Status: implemented on the branch `feature/push-input` (from `v0.8.1`), 2026-10-07; to be measured against
-`loop_mode = fixed` with `scripts/make/measure.sh` before it is merged. `loop_mode = events` is the default on the
-branch.
+Status: done. Built on the branch `feature/push-input` (from `v0.8.1`), measured in NFS 2015 (the loop thread at 2.3 %
+of a core instead of 8 %, `docs/cpu-measurements.md`) and merged into `main` on 2026-10-07. The same day the fixed
+loop was removed: `loop_mode` and `loop_hz` are ignored when an older config has them, and what this plan calls the
+fallback to `fixed` is now polling every millisecond inside the one loop (`EventLoopControl::polling()`), which still
+waits for everything that can notify it. The rest of this file is the plan as it was written.
 
 ## Why
 

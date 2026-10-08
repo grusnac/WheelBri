@@ -8,9 +8,9 @@
 
 namespace wheelbri {
 
-// When the service's loop wakes up by itself in the events mode (`[emulator] loop_mode = events`): between those
-// wake-ups it sleeps until Windows (or Linux) says the wheel, an accessory or the game's force feedback has something
-// new. The timer is only for what must happen on time without a new event:
+// When the service's loop wakes up by itself: between those wake-ups it sleeps until Windows (or Linux) says the
+// wheel, an accessory or the game's force feedback has something new. The timer is only for what must happen on time
+// without a new event (and, while the loop polls, every EventLoopControl::Settings::pollNs as well):
 //   - force feedback while forces play: every `ffbNs` (FfbController's minUpdateNs, 4 ms), so the safety limiter's
 //     slew steps stay smooth;
 //   - the window's copy of the state while one is open: every `windowNs` (~30 a second);
@@ -46,7 +46,7 @@ struct WakeState {
 // How long a pass that woke at `nowNs` waits before it runs (0: at once): what is left of minGapNs since the last pass.
 [[nodiscard]] std::uint64_t floodGuardWaitNs(const WakeState& state, const WakeSettings& settings, std::uint64_t nowNs);
 
-// What woke the loop, counted for the log ("loop (events): ...").
+// What woke the loop, counted for the log ("loop: ...").
 enum class WakeReason : std::uint8_t { Wheel, GameFfb, TestClutch, Timer, kCount };
 
 // What platform::WaitSet's result means: the reason registered for that source (`reasons[ready]`), else the timer
@@ -68,8 +68,8 @@ private:
 };
 
 // A device that stopped answering is gone after `lostAfterMs` of failed reads by the clock, not after a number of
-// reads: the events loop reads a few times a second at rest, the fixed one 1000 (DinputReader; before 2026-10-07 it
-// counted 500 reads, which in the events loop would have been a minute).
+// reads: the loop reads a few times a second at rest and up to 1000 while it polls (DinputReader; before 2026-10-07 it
+// counted 500 reads, which at rest would have been a minute).
 class LossTimer {
 public:
     static constexpr std::uint64_t kLostAfterMs = 500;
@@ -87,11 +87,11 @@ private:
     std::uint64_t firstFailureMs_ = 0;
 };
 
-// Whether the devices' notifications can be trusted. The events loop reads the wheel at every pass; a pass the timer
-// woke that still finds new input means that input arrived without a notification (a driver that does not set
+// Whether the devices' notifications can be trusted. The loop reads the wheel at every pass; a pass the timer woke
+// that still finds new input means that input arrived without a notification (a driver that does not set
 // DirectInput's event, or a device that stopped). Once that happens `threshold` times within `windowNs`, record()
-// says so (once), and the loop goes back to the fixed rate. A lone one can be a race (input arriving just after the
-// timer woke the loop), so it takes several.
+// says so (once), and the loop polls as well from then on (EventLoopControl). A lone one can be a race (input arriving
+// just after the timer woke the loop), so it takes several.
 class NotificationCheck {
 public:
     static constexpr std::uint32_t kThreshold = 20;

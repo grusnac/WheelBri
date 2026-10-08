@@ -169,7 +169,7 @@ std::unique_ptr<DinputReader> DinputReader::open(const std::string& hidPath, std
     for (const Input& input : e.inputs) {
         (input.kind == Kind::Axis ? impl->axes : input.kind == Kind::Button ? impl->buttons : impl->hats).push_back(input);
     }
-    // A notification when the state changes, for the events loop; set before Acquire (DirectInput requires it).
+    // A notification when the state changes, for the service loop; set before Acquire (DirectInput requires it).
     // Polled devices never set it: none then, and the loop polls.
     DIDEVCAPS caps{};
     caps.dwSize = sizeof(caps);

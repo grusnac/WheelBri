@@ -6,35 +6,6 @@ namespace wheelbri {
 namespace {
 
 constexpr std::uint64_t kMs = 1'000'000;
-constexpr std::uint64_t kUs = 1'000;
-
-TEST(SpinMargin, RisesAtOnceAfterALateWakeUp) {
-    SpinMargin margin;
-    margin.observe(250 * kUs);
-    EXPECT_EQ(margin.ns(), 270 * kUs);
-}
-
-TEST(SpinMargin, NeverAboveTheCap) {
-    SpinMargin margin;
-    margin.observe(5 * kMs);   // one very late wake-up (the PC was busy)
-    EXPECT_EQ(margin.ns(), SpinMargin::kMaxNs);
-}
-
-TEST(SpinMargin, FallsBackSlowlyToWhatTheSleepsNeed) {
-    SpinMargin margin;
-    margin.observe(5 * kMs);
-    margin.observe(10 * kUs);
-    EXPECT_LT(margin.ns(), SpinMargin::kMaxNs);
-    EXPECT_GT(margin.ns(), 250 * kUs);   // one good sleep is not enough to trust them again
-    for (int i = 0; i < 2000; ++i) margin.observe(10 * kUs);
-    EXPECT_EQ(margin.ns(), SpinMargin::kMinNs);
-}
-
-TEST(SpinMargin, SettlesJustAboveATypicalLateness) {
-    SpinMargin margin;
-    for (int i = 0; i < 5000; ++i) margin.observe(120 * kUs);
-    EXPECT_EQ(margin.ns(), 140 * kUs);
-}
 
 TargetReport report(const std::int32_t steering) {
     TargetReport r;

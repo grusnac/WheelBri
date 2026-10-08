@@ -7,29 +7,34 @@
 
 namespace wheelbri {
 
-// What platform::WaitSet::waitUntil returns when the system could not wait (core has no OS headers).
+// What platform::WaitSet::waitUntil returns when nothing was ready by the deadline, or the system could not wait
+// (core has no OS headers).
 inline constexpr int kWaitTimedOut = -1;
 inline constexpr int kWaitFailed = -2;
 
-// Why a session that wanted loop_mode = events runs at the fixed rate.
-enum class LoopFallback : std::uint8_t {
-    None,
-    NotWanted,             // loop_mode = fixed
+// Why the loop polls (wakes every pollNs by itself) instead of relying on notifications alone.
+enum class PollReason : std::uint8_t {
+    None,                  // notifications only: the normal case
     NoNotification,        // a device DirectInput only polls (or whose notification could not be set up)
     SocketNotWaitable,     // a UDP socket the wait could not take
-    WaitFailed,            // WaitForMultipleObjects / poll failed during the session
-    MissedNotifications,   // the timer kept finding new input: the device's notifications cannot be trusted
+    WaitFailed,            // WaitForMultipleObjects / poll failed: from then on the loop sleeps instead of waiting
+    MissedNotifications,   // the timer kept finding new input: the devices' notifications cannot be trusted
 };
 
-[[nodiscard]] const char* describe(LoopFallback fallback);
+[[nodiscard]] const char* describe(PollReason reason);
 
-// The decisions of the service's loop in loop_mode = events, without the OS: when to wake up by itself (WakePlanner),
-// what woke it, the flood guard, and when to give up on events for the rest of the session (fall back to the fixed
-// rate). main.cpp's loop calls it around each pass and each wait; the tests run it against emulated devices.
+// The decisions of the service's loop, without the OS: when to wake up by itself (WakePlanner), what woke it, the
+// flood guard, and when to stop relying on notifications alone and poll as well. The loop waits for everything that
+// can tell it about new input (platform::WaitSet: the devices' notifications, the game's force feedback and the test
+// clutch sockets) and wakes by itself for what must run on time. Anything that cannot notify it, or notifications
+// that miss input, make it also wake every pollNs (1 ms, the rate the loop ran at before it waited for events) for the
+// rest of the session, so input never waits for idleNs. main.cpp's runLoop calls it around each pass and each wait;
+// the tests run it against emulated devices (tests/emulators).
 class EventLoopControl {
 public:
     struct Settings {
         WakeSettings wake;
+        std::uint64_t pollNs = 1'000'000;
         std::uint32_t missThreshold = NotificationCheck::kThreshold;
         std::uint64_t missWindowNs = NotificationCheck::kWindowNs;
         // A device's notification that comes this long after the timer's pass already read its new input was late,
@@ -37,15 +42,17 @@ public:
         std::uint64_t lateToleranceNs = 1'000'000;
     };
 
-    explicit EventLoopControl(bool eventsWanted) : EventLoopControl(eventsWanted, Settings{}) {}
-    EventLoopControl(bool eventsWanted, const Settings& settings);
+    EventLoopControl() : EventLoopControl(Settings{}) {}
+    explicit EventLoopControl(const Settings& settings);
 
-    // Setting up the wait found something it cannot wait for: the session runs at the fixed rate (the first reason
+    // Setting up the wait found something that cannot notify the loop: it polls from the start (the first reason
     // stays).
-    void setupFailed(LoopFallback why);
+    void pollBecause(PollReason why);
 
-    [[nodiscard]] bool events() const { return fallback_ == LoopFallback::None; }
-    [[nodiscard]] LoopFallback fallback() const { return fallback_; }
+    [[nodiscard]] bool polling() const { return pollReason_ != PollReason::None; }
+    [[nodiscard]] PollReason pollReason() const { return pollReason_; }
+    // False once the wait itself failed: the loop then sleeps until deadlineNs() instead of waiting.
+    [[nodiscard]] bool canWait() const { return pollReason_ != PollReason::WaitFailed; }
     [[nodiscard]] const Settings& settings() const { return settings_; }
 
     struct Pass {
@@ -58,13 +65,13 @@ public:
     void afterPass(const Pass& pass);
 
     // When the wait after the last pass ends by itself at the latest.
-    [[nodiscard]] std::uint64_t deadlineNs() const { return nextWakeNs(state_, settings_.wake); }
+    [[nodiscard]] std::uint64_t deadlineNs() const;
 
     struct Woke {
         WakeReason reason = WakeReason::Timer;   // what the next pass counts as its cause
         std::uint64_t sleepNs = 0;               // the flood guard: wait this long before the pass
-        bool fellBack = false;   // the loop gives up on events now (fallback() says why: WaitFailed or
-                                 // MissedNotifications); log it once and run at the fixed rate
+        bool startedPolling = false;   // the loop polls from now on (pollReason() says why: WaitFailed or
+                                       // MissedNotifications); log it once
     };
     // The wait's result (a source's index, kWaitTimedOut or kWaitFailed) at `nowNs`.
     Woke afterWait(int ready, std::span<const WakeReason> reasons, std::uint64_t nowNs);
@@ -72,14 +79,14 @@ public:
     // The reason of the pass that runs now (set by afterWait; the timer before the first wait).
     [[nodiscard]] WakeReason wokeBy() const { return wokeBy_; }
     // Passes the timer woke that found new input no notification announced, not even late (0 with a healthy
-    // device): notifications lost.
+    // device): notifications lost. Counted until the loop polls.
     [[nodiscard]] std::uint64_t missedNotifications() const { return missedCount_; }
     // Passes the timer woke that found new input whose notification came within lateToleranceNs after.
     [[nodiscard]] std::uint64_t lateNotifications() const { return lateCount_; }
 
 private:
     Settings settings_;
-    LoopFallback fallback_ = LoopFallback::None;
+    PollReason pollReason_ = PollReason::None;
     WakeState state_;
     NotificationCheck missed_;
     WakeReason wokeBy_ = WakeReason::Timer;

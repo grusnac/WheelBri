@@ -26,7 +26,7 @@ public:
     [[nodiscard]] int buttons() const;
     [[nodiscard]] int hats() const;
     // An auto-reset event DirectInput sets whenever the device's state changes (SetEventNotification), for the
-    // events loop; null when the device is polled (DIDC_POLLEDDEVICE) or Windows refused it.
+    // service loop; null when the device is polled (DIDC_POLLEDDEVICE) or Windows refused it.
     [[nodiscard]] void* notification() const;
 
     // Latest values into `state` (axes -1..1 like SDL's /32767, buttons bit n, hat 0..7 or centred).

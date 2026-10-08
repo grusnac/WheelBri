@@ -36,9 +36,9 @@ TEST(IniDocument, LastValueWins) {
 }
 
 TEST(IniDocument, IgnoresAUtf8ByteOrderMark) {
-    const auto result = IniDocument::parse("\xEF\xBB\xBF[emulator]\nloop_hz = 500\n");
+    const auto result = IniDocument::parse("\xEF\xBB\xBF[emulator]\nstate_rate_hz = 500\n");
     EXPECT_TRUE(result.errors.empty());
-    EXPECT_EQ(result.document.get("emulator", "loop_hz"), "500");
+    EXPECT_EQ(result.document.get("emulator", "state_rate_hz"), "500");
 }
 
 TEST(IniDocument, EmptyInput) {

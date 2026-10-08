@@ -2,7 +2,6 @@
 
 #include "Platform.hpp"
 
-#include "wheelbri/Pacing.hpp"
 
 #include <fcntl.h>
 #include <poll.h>
@@ -19,7 +18,6 @@
 #endif
 
 #include <algorithm>
-#include <atomic>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -46,30 +44,6 @@ void sleepNs(const std::uint64_t ns) {
     timespec remaining{static_cast<time_t>(ns / kNsPerSecond), static_cast<long>(ns % kNsPerSecond)};
     while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
     }
-}
-
-namespace {
-std::atomic<std::uint64_t> gLastSpinMarginNs{0};   // what sleepPrecise used last, for the log
-}  // namespace
-
-void sleepPrecise(const std::uint64_t ns) {
-    thread_local wheelbri::SpinMargin margin;
-    const std::uint64_t start = nowNs();
-    const std::uint64_t target = start + ns;
-    if (ns > margin.ns()) {
-        const std::uint64_t wakeAt = target - margin.ns();
-        sleepNs(wakeAt - start);
-        const std::uint64_t woke = nowNs();
-        margin.observe(woke > wakeAt ? woke - wakeAt : 0);
-        gLastSpinMarginNs.store(margin.ns(), std::memory_order_relaxed);
-    }
-    while (nowNs() < target) {
-        std::this_thread::yield();
-    }
-}
-
-std::uint64_t preciseSleepMarginNs() {
-    return gLastSpinMarginNs.load(std::memory_order_relaxed);
 }
 
 // --- WaitSet: poll on the devices' and the sockets' file descriptors ---
@@ -99,7 +73,7 @@ int WaitSet::waitUntil(const std::uint64_t deadlineNs) {
     if (ready > 0) {
         for (std::size_t i = 0; i < impl_->fds.size(); ++i) {
             // A descriptor that is no longer open (closed behind the set's back): poll would report it at once every
-            // time, so the loop cannot wait on it; say so, and the loop falls back to the fixed rate.
+            // time, so the loop cannot wait on it; say so, and the loop polls instead (EventLoopControl).
             if ((impl_->fds[i].revents & POLLNVAL) != 0) {
                 impl_->failure = "poll: source " + std::to_string(i) + " is not an open descriptor";
                 return kFailed;

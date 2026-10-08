@@ -149,22 +149,23 @@ a headline, why it was needed, how to use it, and where to look.
 ### Service loop that wakes on input (events)
 
 - **Why:** polling the wheel 1000 times a second cost the loop about 8 % of a core, mostly on ticks with nothing new.
-- **Use:** `[emulator] loop_mode = events`, the default: the loop sleeps until the wheel, an accessory, the game's force
-  feedback or the test clutch has something new, and wakes by itself only for what must run on time (every 4 ms while
-  forces play and for 100 ms after new input). It switches to `fixed` (`loop_hz` a second, as before) by itself when
-  notifications fail, and at once for a device DirectInput can only poll; `loop_mode = fixed` forces that.
-- **Look:** the service log's "running on events" line and, once a minute, "loop (events)": wake-ups by reason and the
-  notifications missed or late. Measured in NFS 2015: the loop thread at 2.3 % of a core instead of 8 %
-  (`docs/cpu-measurements.md`). Code: core `EventLoopControl`, `WakePlanner`, `platform::WaitSet`
-  (`PlatformWin32.cpp`, `PlatformPosix.cpp`), `DinputReader`; tests `PushLoopTest` (emulators), `WaitSetTest`; plan
-  `docs/push-input-plan.md`.
+- **Use:** nothing to set (the only loop since 2026-10-07; `loop_mode` and `loop_hz` in an older config are ignored):
+  the loop sleeps until the wheel, an accessory, the game's force feedback or the test clutch has something new, and
+  wakes by itself only for what must run on time (every 4 ms while forces play and for 100 ms after new input). A
+  device DirectInput can only poll, or notifications that miss input, make it also poll every millisecond, as the old
+  loop did, while it still wakes at once for everything else.
+- **Look:** the service log's "running on events" line (or "running on events, and polling every 1 ms (why)") and, once
+  a minute, "loop:": wake-ups by reason, events or polling, and the notifications missed or late. Measured in NFS
+  2015: the loop thread at 2.3 % of a core instead of 8 % (`docs/cpu-measurements.md`). Code: core
+  `EventLoopControl`, `WakePlanner`, `platform::WaitSet` (`PlatformWin32.cpp`, `PlatformPosix.cpp`), `DinputReader`;
+  tests `PushLoopTest` (emulators), `WaitSetTest`; plan `docs/push-input-plan.md`.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
 | `core/` | Portable library, no OS dependencies: `Mapper`, `DeviceProfile`, `FfbSafetyLimiter`, `Pipeline`, `EmulatorConfig`/`IniDocument`, `StatePacket` + `UdpLoopback`, `LoopStats`, `Logging`, `Telemetry` |
-| `service/` | `wheelbri-service`: reads the wheel and plays its force feedback with the system's own API (DirectInput on Windows, evdev on Linux), 1 kHz loop, `--list` / `--print` / `--ui` (native window: Win32 on Windows, X11 on Linux) / `--ffb-test` |
+| `service/` | `wheelbri-service`: reads the wheel and plays its force feedback with the system's own API (DirectInput on Windows, evdev on Linux), a loop that wakes on input, `--list` / `--print` / `--ui` (native window: Win32 on Windows, X11 on Linux) / `--ffb-test` |
 | `shim/` | `dinput8.dll` proxy (Windows / Wine): wraps `IDirectInput8A/W`, devices and effects |
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
@@ -311,7 +312,7 @@ WheelBri's (another mod) is never overwritten or deleted. The list is `%LOCALAPP
 |---|---|---|
 | Shim check / copy: `dinput8.dll` + `wheelbri-shim.ini` into the picked game | - | yes |
 | Read the rig: wheel + accessories (DirectInput, the wheel opened exclusively) | yes | yes |
-| Mapping loop, 1 kHz: rig -> G920 -> UDP 41329 | yes (to the driver) | yes (to the shim in the game) |
+| Mapping loop, woken by input: rig -> G920 -> UDP 41329 | yes (to the driver) | yes (to the shim in the game) |
 | Force feedback in: UDP 41330 -> safety limiter + watchdog -> wheel | yes (from the driver) | yes (from the shim) |
 | Logs, telemetry logs, old-file cleanup | yes | yes |
 | Game-use watch ("GAME NOT USING THE WHEEL") | yes | yes |

@@ -151,7 +151,7 @@ public:
 };
 
 PushLoopRig::PushLoopRig(VirtualClock& clock, EmulatedPushDevice& wheel, const Options& options)
-    : clock_(clock), wheel_(wheel), options_(options), control_(options.eventsWanted, options.settings),
+    : clock_(clock), wheel_(wheel), options_(options), control_(options.settings),
       waitSet_(clock) {}
 
 PushLoopRig::~PushLoopRig() = default;
@@ -171,24 +171,25 @@ void PushLoopRig::run(const std::uint64_t endNs) {
     Pipeline pipeline(wheel_, mapper, profile, publisher);
     pipeline.setAccessories(accessories_);
 
-    // As runLoop: every device must notify, every socket must be waitable, else the fixed rate.
-    if (control_.events()) {
-        if (waitSet_.addDevice(wheel_) < 0) control_.setupFailed(LoopFallback::NoNotification);
+    // As runLoop: the loop waits for every device that notifies and every socket it can take; anything else makes it
+    // poll as well.
+    const auto addDevice = [&](EmulatedPushDevice& device) {
+        if (waitSet_.addDevice(device) < 0) {
+            control_.pollBecause(PollReason::NoNotification);
+            return;
+        }
         reasons_.push_back(WakeReason::Wheel);
-        for (std::size_t i = 0; i < accessoryCount_ && control_.events(); ++i) {
-            if (waitSet_.addDevice(*static_cast<EmulatedPushDevice*>(accessories_[i])) < 0) {
-                control_.setupFailed(LoopFallback::NoNotification);
-            }
-            reasons_.push_back(WakeReason::Wheel);
+    };
+    addDevice(wheel_);
+    for (std::size_t i = 0; i < accessoryCount_; ++i) addDevice(*static_cast<EmulatedPushDevice*>(accessories_[i]));
+    for (EmulatedSocket* socket : sockets_) {
+        if (waitSet_.addSocket(*socket) < 0) {
+            control_.pollBecause(PollReason::SocketNotWaitable);
+            continue;
         }
-        for (EmulatedSocket* socket : sockets_) {
-            if (!control_.events()) break;
-            if (waitSet_.addSocket(*socket) < 0) control_.setupFailed(LoopFallback::SocketNotWaitable);
-            reasons_.push_back(WakeReason::GameFfb);
-        }
+        reasons_.push_back(WakeReason::GameFfb);
     }
 
-    std::uint64_t nextTick = clock_.now();
     while (clock_.now() < endNs) {
         const std::uint64_t start = clock_.now();
         if (!pipeline.tick()) {
@@ -196,34 +197,27 @@ void PushLoopRig::run(const std::uint64_t endNs) {
             return;
         }
         passTimes_.push_back(start);
-        if (control_.events()) ++wokenBy_[static_cast<std::size_t>(control_.wokeBy())];
+        ++wokenBy_[static_cast<std::size_t>(control_.wokeBy())];
         for (EmulatedSocket* socket : sockets_) socket->readAll(start);
         clock_.advanceBy(options_.passWorkNs);
 
-        if (control_.events()) {
-            EventLoopControl::Pass pass;
-            pass.startNs = start;
-            pass.inputChanged = pipeline.inputChanged();
-            pass.windowOpen = options_.windowOpen;
-            pass.forcesPlaying = options_.forcesPlaying;
-            control_.afterPass(pass);
-            const int ready = waitSet_.waitUntil(std::min(control_.deadlineNs(), endNs));
-            if (ready == kWaitTimedOut && clock_.now() >= endNs) return;
-            const EventLoopControl::Woke woke = control_.afterWait(ready, reasons_, clock_.now());
-            if (woke.fellBack) {
-                fellBackAtNs_ = clock_.now();
-                nextTick = clock_.now();
-                continue;
-            }
-            clock_.advanceBy(woke.sleepNs);
-            continue;
+        EventLoopControl::Pass pass;
+        pass.startNs = start;
+        pass.inputChanged = pipeline.inputChanged();
+        pass.windowOpen = options_.windowOpen;
+        pass.forcesPlaying = options_.forcesPlaying;
+        control_.afterPass(pass);
+        const std::uint64_t deadline = std::min(control_.deadlineNs(), endNs);
+        int ready = kWaitTimedOut;
+        if (control_.canWait()) {
+            ready = waitSet_.waitUntil(deadline);
+        } else if (deadline > clock_.now()) {
+            clock_.advanceTo(deadline);   // the sleep runLoop takes once the wait failed
         }
-        nextTick += options_.fixedPeriodNs;
-        if (nextTick > clock_.now()) {
-            clock_.advanceTo(nextTick);
-        } else {
-            nextTick = clock_.now();
-        }
+        if (ready == kWaitTimedOut && clock_.now() >= endNs) return;
+        const EventLoopControl::Woke woke = control_.afterWait(ready, reasons_, clock_.now());
+        if (woke.startedPolling && !pollingFromNs_) pollingFromNs_ = clock_.now();
+        clock_.advanceBy(woke.sleepNs);
     }
 }
 

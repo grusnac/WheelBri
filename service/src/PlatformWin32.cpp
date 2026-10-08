@@ -9,7 +9,6 @@
 
 #include "Platform.hpp"
 
-#include "wheelbri/Pacing.hpp"
 
 #include <winsock2.h>   // before windows.h; AF_INET for the UDP table
 #include <windows.h>
@@ -17,7 +16,6 @@
 #include <mmsystem.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cstdio>
 #include <string>
 #include <thread>
@@ -124,30 +122,6 @@ void sleepNs(const std::uint64_t ns) {
         }
     }
     Sleep(static_cast<DWORD>((ns + kNsPerMs - 1) / kNsPerMs));
-}
-
-namespace {
-std::atomic<std::uint64_t> gLastSpinMarginNs{0};   // what sleepPrecise used last, for the log
-}  // namespace
-
-void sleepPrecise(const std::uint64_t ns) {
-    thread_local wheelbri::SpinMargin margin;
-    const std::uint64_t start = nowNs();
-    const std::uint64_t target = start + ns;
-    if (ns > margin.ns()) {
-        const std::uint64_t wakeAt = target - margin.ns();
-        sleepNs(wakeAt - start);
-        const std::uint64_t woke = nowNs();
-        margin.observe(woke > wakeAt ? woke - wakeAt : 0);
-        gLastSpinMarginNs.store(margin.ns(), std::memory_order_relaxed);
-    }
-    while (nowNs() < target) {
-        YieldProcessor();
-    }
-}
-
-std::uint64_t preciseSleepMarginNs() {
-    return gLastSpinMarginNs.load(std::memory_order_relaxed);
 }
 
 // --- WaitSet: WaitForMultipleObjects on the devices' events, the sockets' events and a high-resolution timer ---

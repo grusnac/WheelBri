@@ -18,7 +18,7 @@
 
 namespace wheelbri {
 
-// Plays force feedback on a thread of its own, so the 1 kHz loop never waits for the wheel's driver. A DirectInput
+// Plays force feedback on a thread of its own, so the service loop never waits for the wheel's driver. A DirectInput
 // SetParameters, CreateEffect or Start takes 4 to 27 ms on a direct drive wheel; called from the loop, that made the
 // ticks late (the wheel's input and the game's state waited) every time an effect started.
 //

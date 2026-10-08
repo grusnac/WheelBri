@@ -24,7 +24,6 @@ add_library(wheelbri_core STATIC
     src/LiveLog.cpp
     src/LocalDate.cpp
     src/Logging.cpp
-    src/LoopStats.cpp
     src/MappingEdit.cpp
     src/Pacing.cpp
     src/Mapper.cpp

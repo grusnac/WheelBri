@@ -95,6 +95,9 @@ public:
         device = *number;
     }
 
+    // A key earlier versions read: accepted (not an unknown key) and ignored, so an older file still loads.
+    void retired(const std::string& key) { known_.insert(key); }
+
     void reportUnknownKeys() const {
         const auto& sections = ini_.sections();
         const auto it = sections.find(section_);
@@ -178,15 +181,11 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         int ffbPort = config.ffbPort;
         reader.readInt("ffb_port", ffbPort, 1024, 65535);
         config.ffbPort = static_cast<std::uint16_t>(ffbPort);
-        reader.readInt("loop_hz", config.loopHz, 100, 2000);
         reader.readInt("state_rate_hz", config.stateRateHz, 10, 2000);
-        std::string loopMode = config.eventLoop ? "events" : "fixed";
-        reader.readString("loop_mode", loopMode);
-        if (loopMode == "events" || loopMode == "fixed") {
-            config.eventLoop = loopMode == "events";
-        } else {
-            errors.push_back("[emulator] loop_mode = '" + loopMode + "': expected events or fixed");
-        }
+        // The fixed-rate loop's settings (until 2026-10-07; the loop now waits for events and polls only when it must,
+        // EventLoopControl): users' own configs still have them, so they load and are ignored.
+        reader.retired("loop_mode");
+        reader.retired("loop_hz");
         reader.reportUnknownKeys();
     }
     {

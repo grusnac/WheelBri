@@ -1,6 +1,6 @@
 #pragma once
 
-// Emulators for testing loop_mode = events (the "push" input) without hardware or an OS: devices that announce new
+// Emulators for testing the service loop (the "push" input) without hardware or an OS: devices that announce new
 // input the way DirectInput / evdev do (or fail to), the game's force feedback datagrams, a wait over them, and a rig
 // that runs the service loop's real decisions (core EventLoopControl) and the real Pipeline on them, all on a virtual
 // clock. What the tests read back: when each change of a device was read (its latency), what woke each pass, and
@@ -126,15 +126,14 @@ private:
 };
 
 // The service's loop (service/src/main.cpp, runLoop) on emulated devices: the same setup decisions, the same
-// EventLoopControl calls around each pass and wait, the fixed rate after a fallback, and the real Pipeline.
+// EventLoopControl calls around each pass and wait (a sleep instead of the wait once it failed), and the real
+// Pipeline.
 class PushLoopRig {
 public:
     struct Options {
-        bool eventsWanted = true;              // loop_mode = events
         bool windowOpen = false;
         bool forcesPlaying = false;
         std::uint64_t passWorkNs = 50 * kUs;   // what one pass costs
-        std::uint64_t fixedPeriodNs = 1 * kMs; // loop_hz = 1000
         EventLoopControl::Settings settings;
     };
 
@@ -153,7 +152,8 @@ public:
     void run(std::uint64_t endNs);
 
     [[nodiscard]] const EventLoopControl& control() const { return control_; }
-    [[nodiscard]] std::optional<std::uint64_t> fellBackAtNs() const { return fellBackAtNs_; }
+    // When the loop started polling during the run (not at setup: control().pollReason() says that).
+    [[nodiscard]] std::optional<std::uint64_t> pollingFromNs() const { return pollingFromNs_; }
     [[nodiscard]] std::optional<std::uint64_t> lostAtNs() const { return lostAtNs_; }
     [[nodiscard]] std::uint64_t passes() const { return passTimes_.size(); }
     [[nodiscard]] std::uint64_t passesBetween(std::uint64_t fromNs, std::uint64_t toNs) const;
@@ -163,7 +163,7 @@ public:
                                                        std::uint64_t untilNs = kNever) const;
     [[nodiscard]] std::uint64_t maxLatency(const EmulatedPushDevice& device, std::uint64_t fromNs = 0,
                                            std::uint64_t untilNs = kNever) const;
-    // The shortest time between two passes (the flood guard keeps it at minGapNs or more in events mode).
+    // The shortest time between two passes (the flood guard keeps it at minGapNs or more).
     [[nodiscard]] std::uint64_t minPassGap() const;
 
 private:
@@ -180,7 +180,7 @@ private:
     std::vector<EmulatedSocket*> sockets_;
     std::vector<std::uint64_t> passTimes_;
     std::array<std::uint64_t, static_cast<std::size_t>(WakeReason::kCount)> wokenBy_{};
-    std::optional<std::uint64_t> fellBackAtNs_;
+    std::optional<std::uint64_t> pollingFromNs_;
     std::optional<std::uint64_t> lostAtNs_;
 };
 

@@ -11,7 +11,7 @@
 namespace wheelbri {
 
 // The live log of the --ui window's Logs tab: the newest lines of every component's log file (the service,
-// the game shim, the drivers, the bridge), merged as they are written. Not on the 1 kHz loop.
+// the game shim, the drivers, the bridge), merged as they are written. Not on the service loop.
 
 enum class LiveLogLevel { Trace, Debug, Info, Warn, Error, Unknown };
 

@@ -40,7 +40,7 @@ bool hold(IFfbSink& sink, FfbSafetyLimiter& limiter, const FfbEffect& effect, co
             WE_LOG_WARN(log(), "self-test step failed after {} ms: {}", elapsed / platform::kNsPerMs, label);
             return false;
         }
-        platform::sleepPrecise(kTickNs);
+        platform::sleepNs(kTickNs);
     }
     sink.stop(0);
     return true;

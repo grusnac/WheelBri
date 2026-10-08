@@ -24,9 +24,7 @@ TEST(EmulatorConfig, EmptyFileGivesDefaults) {
     EXPECT_EQ(result.config.sourceDeviceMatch, "");   // the rig's wheel
     EXPECT_EQ(result.config.targetProfile, "g920");
     EXPECT_EQ(result.config.statePort, kDefaultStatePort);
-    EXPECT_EQ(result.config.loopHz, 1000);
     EXPECT_EQ(result.config.stateRateHz, 500);
-    EXPECT_TRUE(result.config.eventLoop);
 }
 
 TEST(EmulatorConfig, RejectsNotANumber) {
@@ -61,15 +59,18 @@ TEST(EmulatorConfig, ReadsAxisLabels) {
     EXPECT_TRUE(containsError(result, "[axis_labels] unknown key 'axis_8'"));
 }
 
-TEST(EmulatorConfig, AnUnknownLoopModeIsAnError) {
-    const auto result = load("[emulator]\nloop_mode = busy\n");
-    EXPECT_TRUE(containsError(result, "[emulator] loop_mode = 'busy': expected events or fixed"));
-    EXPECT_TRUE(result.config.eventLoop);   // the default kept
+TEST(EmulatorConfig, TheFixedLoopsOldKeysStillLoadAndAreIgnored) {
+    // Users' own configs, saved before the fixed loop went (2026-10-07), still have them: an unknown key would stop
+    // every session.
+    const auto result = load("[emulator]\nloop_mode = fixed\nloop_hz = 500\nstate_rate_hz = 250\n");
+    EXPECT_TRUE(result.errors.empty()) << result.errors.front();
+    EXPECT_EQ(result.config.stateRateHz, 250);
+    EXPECT_TRUE(load("[emulator]\nloop_mode = anything\n").errors.empty());
 }
 
 TEST(EmulatorConfig, ReadsEverySection) {
     const auto result = load(
-        "[emulator]\nsource_device = Racing\nstate_port = 50000\nffb_port = 50001\nloop_hz = 500\nstate_rate_hz = 250\nloop_mode = fixed\n"
+        "[emulator]\nsource_device = Racing\nstate_port = 50000\nffb_port = 50001\nstate_rate_hz = 250\n"
         "[steering]\naxis = 0\nsource_rotation_deg = 540\ntarget_rotation_deg = 900\ndeadzone = 0.02\ninvert = yes\n"
         "[throttle]\naxis = 1\ninvert = true\n"
         "[brake]\naxis = 2\ndeadzone_low = 0.05\nsaturation_high = 0.8\ngamma = 1.8\n"
@@ -83,9 +84,7 @@ TEST(EmulatorConfig, ReadsEverySection) {
     const EmulatorConfig& config = result.config;
     EXPECT_EQ(config.sourceDeviceMatch, "Racing");
     EXPECT_EQ(config.statePort, 50000);
-    EXPECT_EQ(config.loopHz, 500);
     EXPECT_EQ(config.stateRateHz, 250);
-    EXPECT_FALSE(config.eventLoop);
     EXPECT_FLOAT_EQ(config.mapper.steering.sourceRotationDeg, 540.0F);
     EXPECT_TRUE(config.mapper.steering.invert);
     EXPECT_EQ(config.mapper.throttle.sourceAxis, 1);

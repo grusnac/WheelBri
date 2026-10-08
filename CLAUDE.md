@@ -34,8 +34,8 @@ This file guides Claude when working in this repository.
   PowerShell script is run as `powershell -NoProfile -ExecutionPolicy Bypass -File <script.ps1> [arguments]`.
 - **Before every commit**, write down why the change was made: the commit message gets a short headline and a
   few lines of reasons.
-- **Branches**: a feature with a branch of its own is committed there, never on `main`. The events loop ("push",
-  `loop_mode = events`) was one, merged into main on 2026-10-07. The git commands for such a change start
+- **Branches**: a feature with a branch of its own is committed there, never on `main`. The events loop ("push")
+  was one, merged into main on 2026-10-07. The git commands for such a change start
   with switching to its branch (`git switch <branch>`, harmless when already on it) and `git status`, then
   `git add` / `git commit`. Before giving them, check which branch the PC is on (`.git/HEAD`).
 - **Order of a reply after a change**: what changed, then build, test and what to check, and the git commands
@@ -202,7 +202,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `Pipeline::tick()` runs one pass of that chain (optionally with a clutch override, see `TestClutch`). The service
     calls `limitSending` (`Pacing.hpp`, `StateSendGate`): a packet only when the state changed, at most `state_rate_hz`
     (default 500) a second, and a keep-alive every 100 ms (receivers call 1500 ms stale); `sequence()` counts packets
-    sent. Measured 2026-10-06: 1000 packets a second kept one thread of the virtual G920's driver host at 84 % of a core.
+    sent.
     `IInputSource` / `IFfbSink` (`Devices.hpp`, `kMaxSlots = 8` effect slots) and `IStatePublisher` /
     `IStateReceiver` are the seams for tests and platform code.
   - New emulated wheels are new `DeviceProfileSpec`s (or `IDeviceProfile` implementations), registered in
@@ -214,7 +214,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     DirectInput/evdev units. The service plays on the wheel through `AsyncFfbSink`, a thread of its own at the loop's
     raised priority (the newest command per slot; `stopAll` first, then stops, constant, periodic, conditions, and
     anything that waited `kMaxWait` = 20 ms; a refused play is answered by the next `play` on that slot): a DirectInput
-    call takes 4-15 ms on the R3 (27 ms to start an effect) and must not hold the 1 kHz loop. Every call is measured
+    call takes 4-15 ms on the R3 (27 ms to start an effect) and must not hold the loop. Every call is measured
     (`Applied`: wait, call), drained by the loop into `FfbDelayStats` (the log's `ffb delay` table) and the ffb log's
     `kind=wheel_*` lines (`wait_us`, `call_us`; `telemetry_summary.sh` reads them). Envelopes (attack / fade) and ramps are worked out by the senders, which know each
     effect's timing: `FfbShape.hpp` (header only, the driver compiles `HidPid.cpp` without the rest of core) and
@@ -359,24 +359,27 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
     `wheelbri-helper.exe` next to this program; the user's HKCU DirectInput entries are kept here by
     `DirectInputUserEntries`). Neither: the session fails with "HELPER NOT INSTALLED" / "HELPER REFUSED". `runSession`,
     `ensureHideFilter`, `ensureG920Driver` and `--prepare-hide` only go through it.
-  - OS helpers in `Platform.hpp` (clock, precise sleep: one sleep, then a spin of the learnt `SpinMargin`, 50-300 us,
-    never the whole wait (it kept a core busy until 2026-10-06), thread priority, child process in a kill-on-close job,
-    `SingleInstance` lock so only one session runs per computer, console close handler, `isElevated`); `FfbSelfTest`
-    (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView` (`--ui`). The loop, two ways
-    (`[emulator] loop_mode`): `events` (the default) sleeps in `platform::WaitSet` (Windows: WaitForMultipleObjects on
-    the devices' DirectInput notifications, `DinputReader::notification` / `Wheel::waitSource`, the sockets' events,
-    WSAEventSelect, and a high-resolution timer; Linux: poll on the evdev and socket descriptors) until the wheel, an
-    accessory, the game's force feedback or the test clutch has something new, and wakes by itself only for what must
-    run on time (core `WakePlanner`: every 4 ms while forces play and for 100 ms after a pass that found new input, ~30
-    a second with a window, else 100 ms; never two passes closer than 0.5 ms); its decisions (when to wake, what woke
-    it, when to give up on events) are core `EventLoopControl`, which runLoop calls around each pass and wait; it logs its wake-ups by reason once a minute (`WakeStats`, "loop (events)"). A device
-    DirectInput only polls makes the session use `fixed`: `loop_hz` times a second (default 1 kHz, drift-free,
-    resynchronises when behind), as before. A running session also switches to `fixed` for good (with a warning) when
-    the wait itself fails (`WaitSet::kFailed`) or when the timer found new input 20 times within 10 s that no
-    notification announced, not even within 1 ms after (late ones are counted apart; `Pipeline::inputChanged`); the
-    "loop (events)" line counts missed and late notifications. Anything on the loop that must happen regularly goes by the clock, never
-    by counting passes (the window's copy, `--print`, a lost wheel: 0.5 s of failed reads). Plan and measurements:
-    `docs/push-input-plan.md`.
+  - OS helpers in `Platform.hpp` (clock, sleep (a high-resolution timer on Windows), thread priority, child process in
+    a kill-on-close job, `SingleInstance` lock so only one session runs per computer, console close handler,
+    `isElevated`); `FfbSelfTest` (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView`
+    (`--ui`). **The loop** (one kind since 2026-10-07; the fixed 1 kHz loop, `loop_mode` / `loop_hz`, is gone: those
+    keys are read as retired and ignored, so old configs still load) sleeps in `platform::WaitSet` (Windows:
+    WaitForMultipleObjects on the devices' DirectInput notifications, `DinputReader::notification` /
+    `Wheel::waitSource`, the sockets' events, WSAEventSelect, and a high-resolution timer; Linux: poll on the evdev and
+    socket descriptors) until the wheel, an accessory, the game's force feedback or the test clutch has something new,
+    and wakes by itself only for what must run on time (core `WakePlanner`: every 4 ms while forces play and for 100 ms
+    after a pass that found new input, ~30 a second with a window, else 100 ms; never two passes closer than 0.5 ms).
+    Its decisions (when to wake, what woke it, when to poll) are core `EventLoopControl`, which runLoop calls around
+    each pass and wait. **Polling** (`EventLoopControl::polling()`, `PollReason`) is its fallback, never a separate
+    loop: a device DirectInput only polls or a socket the wait cannot take (at setup), or the timer finding new input
+    20 times within 10 s that no notification announced, not even within 1 ms after (late ones are counted apart;
+    `Pipeline::inputChanged`), make it also wake every `pollNs` (1 ms) for the rest of the session while it still waits
+    for everything else; a failed wait (`WaitSet::kFailed`) makes it sleep instead of waiting (`canWait()`). Each is
+    logged once. Once a minute the "loop:" line gives the wake-ups by reason (`WakeStats`), events or polling, and the
+    missed and late notifications; a wake-up 50 ms after its deadline and a pass of 50 ms or more are warned about.
+    Anything on the loop that must happen regularly goes by the clock, never by counting passes (the window's copy,
+    `--print`, a lost wheel: 0.5 s of failed reads). Plan and measurements: `docs/push-input-plan.md`,
+    `docs/cpu-measurements.md`.
   - Phase 5 (`--virtual-g920`, run as Administrator, no shim in the game): `VirtualG920`
     creates the `wheelbri\G920` software device for the `wheelbri-g920` driver while the service runs (Start first
     installs that driver with `install-driver.ps1` when Windows' driver store has no `wheelbri-g920.inf`,
@@ -519,12 +522,12 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest` and `WaitSetTest` (the service's
   `platform::WaitSet` with loopback sockets, a pipe or an event; linked when `wheelbri_privileged` is built).
-  **Test the events loop ("push") on the emulators** in `tests/emulators/PushEmulators.hpp` (`PushLoopTest`): devices
+  **Test the service loop on the emulators** in `tests/emulators/PushEmulators.hpp` (`PushLoopTest`): devices
   that push input like DirectInput / evdev or misbehave (`EmulatedPushDevice::Behaviour`: polled, dropped, stopped,
   late or spurious notifications, unplugged), game force feedback datagrams (`EmulatedSocket`), a wait that can fail
   (`EmulatedWaitSet`) and `PushLoopRig`, which runs `EventLoopControl` and the real `Pipeline` as runLoop does, on a
-  virtual clock, and reports each change's latency, what woke each pass and when it fell back. A change to the loop's
-  events mode comes with a scenario there; keep the rig's loop in step with runLoop.
+  virtual clock, and reports each change's latency, what woke each pass and when it started polling. A change to the
+  loop comes with a scenario there; keep the rig's loop in step with runLoop.
 
 ## Conventions
 
@@ -543,7 +546,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   float literals as `1.0F`. Headers in `core/include/wheelbri/`, included as `"wheelbri/X.hpp"`.
 - Every thread WheelBri starts is named (`platform::nameThisThread("wheelbri <role>")` first thing on the thread; the
   G920 driver's with `SetThreadDescription`), so `measure.ps1` shows what costs what. Name new threads the same way.
-- Code on the 1 kHz loop (`Mapper::map`, `Pipeline::tick`, `DeviceProfile::encode`) must stay free of
+- Code on the loop (`Mapper::map`, `Pipeline::tick`, `DeviceProfile::encode`) must stay free of
   allocations and blocking calls.
 - **Logging** (full rules in `core/include/wheelbri/Logging.hpp` and README):
   - Always log through the `WE_LOG_*` macros, never `printf`/`std::cout`. The exceptions are `--list`,

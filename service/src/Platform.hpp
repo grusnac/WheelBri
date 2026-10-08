@@ -8,7 +8,7 @@
 #include <vector>
 
 // The little the service needs from the operating system besides the wheel and the window: a monotonic
-// clock, precise sleeps for the 1 kHz loop, a higher thread priority, and starting a compressor for old log
+// clock, sleeps and waits for the service loop, a higher thread priority, and starting a compressor for old log
 // files. PlatformWin32.cpp on Windows, PlatformPosix.cpp elsewhere (Linux, macOS).
 namespace wheelbri::service::platform {
 
@@ -26,15 +26,8 @@ void init();
 void sleepNs(std::uint64_t ns);
 inline void sleepMs(const std::uint32_t ms) { sleepNs(ms * kNsPerMs); }
 
-// Sleeps exactly `ns`: one real sleep until shortly before the end, then spinning for the rest. How much is spun is
-// learnt from how late the calling thread's sleeps end (core `SpinMargin`: 50..300 us), so the thread is not kept
-// busy through the whole wait after one slow wake-up.
-void sleepPrecise(std::uint64_t ns);
-// The spin margin sleepPrecise used last (any thread), for the loop's log.
-[[nodiscard]] std::uint64_t preciseSleepMarginNs();
-
-// Waits until one of several sources has something new, or a time passes: the service's events loop (`[emulator]
-// loop_mode = events`), which sleeps instead of waking 1000 times a second. One per thread; not thread safe.
+// Waits until one of several sources has something new, or a time passes: the service's loop (core EventLoopControl),
+// which sleeps instead of waking 1000 times a second. One per thread; not thread safe.
 class WaitSet {
 public:
     WaitSet();

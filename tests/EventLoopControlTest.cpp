@@ -20,37 +20,34 @@ EventLoopControl::Pass passAt(const std::uint64_t startNs, const bool inputChang
     return pass;
 }
 
-TEST(EventLoopControl, StartsOnEventsOrNotWanted) {
-    EXPECT_TRUE(EventLoopControl(true).events());
-    EXPECT_EQ(EventLoopControl(true).fallback(), LoopFallback::None);
-    EXPECT_FALSE(EventLoopControl(false).events());
-    EXPECT_EQ(EventLoopControl(false).fallback(), LoopFallback::NotWanted);
+TEST(EventLoopControl, StartsOnEventsWithoutPolling) {
+    const EventLoopControl control;
+    EXPECT_FALSE(control.polling());
+    EXPECT_EQ(control.pollReason(), PollReason::None);
+    EXPECT_TRUE(control.canWait());
 }
 
-TEST(EventLoopControl, SetupFailureKeepsTheFirstReason) {
-    EventLoopControl control(true);
-    control.setupFailed(LoopFallback::None);   // nothing
-    EXPECT_TRUE(control.events());
-    control.setupFailed(LoopFallback::NoNotification);
-    control.setupFailed(LoopFallback::SocketNotWaitable);
-    EXPECT_EQ(control.fallback(), LoopFallback::NoNotification);
-
-    EventLoopControl fixed(false);
-    fixed.setupFailed(LoopFallback::NoNotification);
-    EXPECT_EQ(fixed.fallback(), LoopFallback::NotWanted);
+TEST(EventLoopControl, ASetupThatCannotWaitForEverythingPollsAndKeepsTheFirstReason) {
+    EventLoopControl control;
+    control.pollBecause(PollReason::None);   // nothing
+    EXPECT_FALSE(control.polling());
+    control.pollBecause(PollReason::NoNotification);
+    control.pollBecause(PollReason::SocketNotWaitable);
+    EXPECT_TRUE(control.polling());
+    EXPECT_EQ(control.pollReason(), PollReason::NoNotification);
+    EXPECT_TRUE(control.canWait());   // it still waits for everything else
 }
 
-TEST(EventLoopControl, DescribesEveryFallback) {
-    for (const LoopFallback fallback :
-         {LoopFallback::None, LoopFallback::NotWanted, LoopFallback::NoNotification, LoopFallback::SocketNotWaitable,
-          LoopFallback::WaitFailed, LoopFallback::MissedNotifications}) {
-        EXPECT_NE(std::string(describe(fallback)), "unknown");
+TEST(EventLoopControl, DescribesEveryReason) {
+    for (const PollReason reason : {PollReason::None, PollReason::NoNotification, PollReason::SocketNotWaitable,
+                                    PollReason::WaitFailed, PollReason::MissedNotifications}) {
+        EXPECT_NE(std::string(describe(reason)), "unknown");
     }
-    EXPECT_EQ(std::string(describe(static_cast<LoopFallback>(99))), "unknown");
+    EXPECT_EQ(std::string(describe(static_cast<PollReason>(99))), "unknown");
 }
 
 TEST(EventLoopControl, DeadlineFollowsWhatMustRunAndRecentInput) {
-    EventLoopControl control(true);
+    EventLoopControl control;
     control.afterPass(passAt(0));
     EXPECT_EQ(control.deadlineNs(), 100 * kMs);   // idle
 
@@ -71,13 +68,29 @@ TEST(EventLoopControl, DeadlineFollowsWhatMustRunAndRecentInput) {
     EXPECT_EQ(control.deadlineNs(), 404 * kMs);
 }
 
+TEST(EventLoopControl, WhilePollingTheDeadlineIsAMillisecondAtMost) {
+    EventLoopControl control;
+    control.pollBecause(PollReason::NoNotification);
+    control.afterPass(passAt(0));
+    EXPECT_EQ(control.deadlineNs(), 1 * kMs);   // instead of 100 ms idle
+    control.afterPass(passAt(10 * kMs, true));
+    EXPECT_EQ(control.deadlineNs(), 11 * kMs);  // instead of 4 ms after new input
+
+    EventLoopControl::Settings settings;
+    settings.pollNs = 100'000;   // below the flood guard: the flood guard wins
+    EventLoopControl fast(settings);
+    fast.pollBecause(PollReason::NoNotification);
+    fast.afterPass(passAt(0));
+    EXPECT_EQ(fast.deadlineNs(), 500'000U);
+}
+
 TEST(EventLoopControl, AfterWaitGivesTheReasonAndTheFloodGuard) {
-    EventLoopControl control(true);
+    EventLoopControl control;
     control.afterPass(passAt(100 * kMs));
     EventLoopControl::Woke woke = control.afterWait(kGameFfb, kReasons, 100 * kMs + 200'000);
     EXPECT_EQ(woke.reason, WakeReason::GameFfb);
     EXPECT_EQ(woke.sleepNs, 300'000U);
-    EXPECT_FALSE(woke.fellBack);
+    EXPECT_FALSE(woke.startedPolling);
     EXPECT_EQ(control.wokeBy(), WakeReason::GameFfb);
 
     woke = control.afterWait(kWaitTimedOut, kReasons, 200 * kMs);
@@ -87,30 +100,36 @@ TEST(EventLoopControl, AfterWaitGivesTheReasonAndTheFloodGuard) {
     EXPECT_EQ(woke.reason, WakeReason::Timer);
 }
 
-TEST(EventLoopControl, AFailedWaitFallsBackOnce) {
-    EventLoopControl control(true);
+TEST(EventLoopControl, AFailedWaitStopsTheWaitingOnce) {
+    EventLoopControl control;
     control.afterPass(passAt(0));
     EventLoopControl::Woke woke = control.afterWait(kWaitFailed, kReasons, 1 * kMs);
-    EXPECT_TRUE(woke.fellBack);
-    EXPECT_EQ(control.fallback(), LoopFallback::WaitFailed);
+    EXPECT_TRUE(woke.startedPolling);
+    EXPECT_EQ(control.pollReason(), PollReason::WaitFailed);
+    EXPECT_FALSE(control.canWait());
     EXPECT_EQ(woke.reason, WakeReason::Timer);
     woke = control.afterWait(kWaitFailed, kReasons, 2 * kMs);
-    EXPECT_FALSE(woke.fellBack);   // already fixed: nothing new to log
+    EXPECT_FALSE(woke.startedPolling);   // already: nothing new to log
+}
 
-    EventLoopControl fixed(false);
-    EXPECT_FALSE(fixed.afterWait(kWaitFailed, kReasons, 0).fellBack);
-    EXPECT_EQ(fixed.fallback(), LoopFallback::NotWanted);
+TEST(EventLoopControl, AFailedWaitWhilePollingForAnotherReasonIsSaidToo) {
+    EventLoopControl control;
+    control.pollBecause(PollReason::NoNotification);
+    control.afterPass(passAt(0));
+    EXPECT_TRUE(control.afterWait(kWaitFailed, kReasons, 1 * kMs).startedPolling);   // the loop must stop waiting
+    EXPECT_EQ(control.pollReason(), PollReason::WaitFailed);
+    EXPECT_FALSE(control.canWait());
 }
 
 TEST(EventLoopControl, TheFirstPassSaysNothingAboutNotifications) {
-    EventLoopControl control(true);
+    EventLoopControl control;
     control.afterPass(passAt(0, true));   // the timer "woke" it: it ran before any wait
     (void)control.afterWait(kWaitTimedOut, kReasons, 100 * kMs);
     EXPECT_EQ(control.missedNotifications(), 0U);
 }
 
 TEST(EventLoopControl, ANotificationThatComesSoonAfterTheTimerPassWasLate) {
-    EventLoopControl control(true);
+    EventLoopControl control;
     control.afterPass(passAt(0));
     (void)control.afterWait(kWaitTimedOut, kReasons, 4 * kMs);
     control.afterPass(passAt(4 * kMs, true));                        // the timer found new input
@@ -122,7 +141,7 @@ TEST(EventLoopControl, ANotificationThatComesSoonAfterTheTimerPassWasLate) {
 }
 
 TEST(EventLoopControl, ANotificationThatNeverComesWasMissed) {
-    EventLoopControl control(true);
+    EventLoopControl control;
     control.afterPass(passAt(0));
     (void)control.afterWait(kWaitTimedOut, kReasons, 4 * kMs);
     control.afterPass(passAt(4 * kMs, true));
@@ -132,41 +151,43 @@ TEST(EventLoopControl, ANotificationThatNeverComesWasMissed) {
 }
 
 TEST(EventLoopControl, TimerPassesWithoutNewInputCountForNothing) {
-    EventLoopControl control(true);
+    EventLoopControl control;
     for (std::uint64_t t = 0; t < 10'000 * kMs; t += 100 * kMs) {
         control.afterPass(passAt(t));
         (void)control.afterWait(kWaitTimedOut, kReasons, t + 100 * kMs);
     }
     EXPECT_EQ(control.missedNotifications(), 0U);
-    EXPECT_TRUE(control.events());
+    EXPECT_FALSE(control.polling());
 }
 
-TEST(EventLoopControl, TwentyMissedWithinTheWindowFallBack) {
+TEST(EventLoopControl, TwentyMissedWithinTheWindowStartPolling) {
     EventLoopControl::Settings settings;
     settings.missThreshold = 3;
-    EventLoopControl control(true, settings);
+    EventLoopControl control(settings);
     control.afterPass(passAt(0));
     std::uint64_t t = 4 * kMs;
-    bool fellBack = false;
-    int waitsUntilFallback = 0;
+    bool polling = false;
+    int waitsUntilPolling = 0;
     (void)control.afterWait(kWaitTimedOut, kReasons, t);
-    while (!fellBack && waitsUntilFallback < 10) {
+    while (!polling && waitsUntilPolling < 10) {
         control.afterPass(passAt(t, true));
         t += 4 * kMs;
-        fellBack = control.afterWait(kWaitTimedOut, kReasons, t).fellBack;
-        ++waitsUntilFallback;
+        polling = control.afterWait(kWaitTimedOut, kReasons, t).startedPolling;
+        ++waitsUntilPolling;
     }
-    EXPECT_TRUE(fellBack);
-    EXPECT_EQ(waitsUntilFallback, 3);
-    EXPECT_EQ(control.fallback(), LoopFallback::MissedNotifications);
+    EXPECT_TRUE(polling);
+    EXPECT_EQ(waitsUntilPolling, 3);
+    EXPECT_EQ(control.pollReason(), PollReason::MissedNotifications);
+    EXPECT_TRUE(control.canWait());   // it still waits for the notifications that do come
 
-    // Once fixed, nothing more is decided here.
+    // Once polling, nothing more is decided here.
     control.afterPass(passAt(t, true));
-    EXPECT_FALSE(control.afterWait(kWaitTimedOut, kReasons, t + 4 * kMs).fellBack);
+    EXPECT_FALSE(control.afterWait(kWaitTimedOut, kReasons, t + 4 * kMs).startedPolling);
 }
 
-TEST(EventLoopControl, InFixedModeMissesAreNotCounted) {
-    EventLoopControl control(false);
+TEST(EventLoopControl, WhilePollingMissesAreNotCounted) {
+    EventLoopControl control;
+    control.pollBecause(PollReason::NoNotification);
     control.afterPass(passAt(0));
     (void)control.afterWait(kWaitTimedOut, kReasons, 1 * kMs);
     control.afterPass(passAt(1 * kMs, true));

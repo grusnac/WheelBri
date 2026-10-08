@@ -65,5 +65,26 @@ back: 0 notifications missed, 178 late in 9 minutes).
   530 wake-ups a second, nearly all from the wheel's notifications). The rest of wheelbri.exe is mostly threads that
   are not ours (an unnamed thread at Highest priority, about 7 %: DirectInput's own, seen on main too).
 
-**Next:** the driver fix described above, with its "states received N, reads completed M" line, then the same round
-again to compare with these numbers.
+## 2026-10-07: the G920 driver hands each state to Windows once (main, after the merge)
+
+**Change:** `driver/Driver.cpp`: a HID read gets the oldest state not handed out yet, or waits for the next one (up
+to 8 kept in order); before, every state answered every read that came while it was being handed out. Built
+`20261007_192135`. **Setup:** as above, events loop, `state_rate_hz` 500; input checked by hand in the NFS menu first
+(wheel, pedals, buttons, D-pad).
+
+| Round (perf log) | Driver | Packets a second | Receiver thread avg / peak | Driver host total | wheelbri.exe |
+|---|---|---|---|---|---|
+| `perf-2026-10-07-215929` | before | 239 | 59.0 / 76.3 | 133.9 | 18.0 |
+| `perf-2026-10-07-222812` | each state once | about 230 | **1.8 / 7.8** | **47.6** | 18.4 |
+
+**Findings:**
+
+- The cause is confirmed: the receiver falls from 59 % to 1.8 % of a core at the same state rate, and the driver
+  host's other threads fall with it (the host from 134 % to 48 %).
+- The driver's new minute line, e.g. `input, last 60 s: 14504 states, 14504 reads answered (0 at once, 14504 after
+  waiting), 0 states dropped, 0 waiting`: every state is handed out exactly once, none is dropped, and Windows always
+  has a read waiting, so a state goes out the moment it arrives (no added latency).
+- The rest of the driver host (about 48 %) is close to what the hide filter alone cost in a shim session (47 %, same
+  `WUDFHost.exe`): the next thing to look at.
+- One `WARNING: receiving from wheelbri-service failed (997)` in the driver log at 22:31:42 (Windows'
+  "overlapped I/O in progress" on a blocking `recv`), once, input carried on: to watch.

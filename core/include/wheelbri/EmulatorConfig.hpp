@@ -23,11 +23,7 @@ struct EmulatorConfig {
     std::uint16_t statePort = kDefaultStatePort; // UDP loopback port the service publishes state on
     std::uint16_t ffbPort = kDefaultFfbPort;     // UDP loopback port the service receives game force feedback on
     bool gameFfb = true;                         // play the game's force feedback (sent by the shim)
-    int loopHz = 1000;
     int stateRateHz = 500;                       // at most this many state packets a second, only when it changed
-    // The loop: true = it sleeps until the wheel, an accessory or the game has something new (loop_mode = events,
-    // WakePlanner.hpp); false = it wakes loop_hz times a second (loop_mode = fixed, as before 0.9).
-    bool eventLoop = true;
     bool ffbInvert = false;                    // flip force direction if the wheel pulls the wrong way
 
     MapperConfig mapper;

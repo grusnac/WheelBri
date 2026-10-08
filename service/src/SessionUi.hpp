@@ -13,7 +13,7 @@
 #include <optional>
 #include <string>
 
-// Where a running session (the wheel read, mapped and published at 1 kHz) shows itself: the `--ui` window of
+// Where a running session (the wheel read, mapped and published as it changes) shows itself: the `--ui` window of
 // the command line service, or the app's window (App.cpp).
 namespace wheelbri::service {
 

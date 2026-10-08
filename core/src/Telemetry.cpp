@@ -352,7 +352,7 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
 
     // Row values. Times, sequence numbers, the packet counter, packet age and loop timing change all the
     // time and never make a row on their own.
-    // Reused buffers (members): no allocation per sample once they have grown, the loop runs at 1 kHz.
+    // Reused buffers (members): no allocation per sample once they have grown (the loop may pass 2000 times a second).
     std::string& k = sampleValues_;
     k.clear();
     for (std::size_t i = 0; i < sample.raw.axes.size(); ++i) {
