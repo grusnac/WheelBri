@@ -20,7 +20,52 @@ read this one raw, so its DirectInput sees exactly what NFS sees on Windows and 
 `wheelbri-uhid` turns into the service's force feedback packets. `SDL_GAMECONTROLLER_IGNORE_DEVICES` hides the
 R3 itself from the game (Proton applies it to every backend), so the game finds one wheel.
 
-## Steam Deck: install (Desktop Mode, once)
+## Steam Deck: build it there from the repository
+
+The way to follow development: get the code with git, build it on the Deck, and after every change only
+`git pull` and build again. SteamOS's own system stays untouched: the compiler lives in a distrobox container
+(SteamOS 3.5 and later have distrobox), Debian 12, whose programs run on SteamOS as they are.
+
+Once (Desktop Mode, Konsole):
+
+1. A password for `sudo`, if you never set one: `passwd`.
+2. A key for GitHub, so the Deck can fetch the repository: `ssh-keygen -t ed25519` (Enter at each question), then
+   add the contents of `~/.ssh/id_ed25519.pub` in GitHub > Settings > SSH and GPG keys.
+3. The code, on the branch being worked on:
+
+   ```
+   git clone git@github.com:grusnac/WheelBri.git ~/WheelBri
+   cd ~/WheelBri
+   git switch steam-deck
+   ```
+
+4. The build tools (a few minutes and ~450 MB the first time; nothing is installed on SteamOS itself):
+
+   ```
+   bash scripts/linux/deck-setup.sh
+   ```
+
+5. Build, test and install into `~/wheelbri` (the first build downloads spdlog and GoogleTest and takes a few
+   minutes; later ones only rebuild what changed):
+
+   ```
+   bash scripts/linux/deck-build.sh
+   ```
+
+6. The udev rules, once: `~/wheelbri/install-udev-rules.sh`. Then go on with steps 4 and 5 below (check the axes,
+   force feedback) and [Every day](#every-day).
+
+After every change: close WheelBri and the game, then
+
+```
+cd ~/WheelBri && git pull && bash scripts/linux/deck-build.sh
+```
+
+`deck-build.sh` options: `--no-tests` (faster), `--no-shim` (no `dinput8.dll`), `--clean` (from scratch),
+`--prefix DIR`. A config you edited in `~/wheelbri/config` is kept; the new version goes next to it as `<name>.new`.
+`deck-setup.sh --recreate` makes the container again if it ever breaks (your files are not in it).
+
+## Steam Deck: install from the bundle (Desktop Mode, once)
 
 1. Copy `wheelbri-linux-x86_64.tar.gz` to the Deck and unpack it in your home folder (Konsole):
 

@@ -1,2 +1,4 @@
 # cmd misreads batch files with LF line ends
 *.cmd text eol=crlf
+# bash reads scripts with CRLF line ends as broken (the Steam Deck checks out what the PC committed)
+*.sh text eol=lf

@@ -29,7 +29,8 @@ Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
 Still open:
-- Linux/Proton: both ways (Phase 4 and the shim under Proton) are ready to try on a Steam Deck, [docs/linux.md](docs/linux.md);
+- Linux/Proton: both ways (Phase 4 and the shim under Proton) are ready to try on a Steam Deck, [docs/linux.md](docs/linux.md)
+  (build it on the Deck from a git checkout: `scripts/linux/deck-setup.sh` once, then `deck-build.sh` after each pull);
 - NFS's 20-byte Logitech `Escape` calls are not forwarded (the shim logs their bytes: whether NFS's forces need
   them is still to be seen in a session's shim log);
 - effect envelopes (attack / fade) and ramps over time are implemented (`FfbShape.hpp`) and unit-tested, not yet
