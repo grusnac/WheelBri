@@ -45,8 +45,9 @@ This file guides Claude when working in this repository.
   then **Why** (the reason), **Use** (how to use it, settings) and **Look** (where to see it: UI, logs and
   telemetry columns, code files). Ask the user whether a functionality is finished if it's unclear.
 - Before guessing at a mapping or FFB problem, read the user's logs and telemetry
-  (`%LOCALAPPDATA%\wheelbri\logs`: `wheelbri-service-<date>.log`, `telemetry-<date>.log`, `ffb-<date>.log`) and
-  run `scripts/telemetry_summary.sh`. The `raw_a0`..`raw_a7` columns show which axis a control really moves.
+  (`%LOCALAPPDATA%\wheelbri\logs`: `wheelbri-service-<date>-<NN>.log`, `telemetry-<date>-<NN>.log`,
+  `ffb-<date>-<NN>.log`, one file per run) and run `scripts/telemetry_summary.sh`. The `raw_a0`..`raw_a7` columns
+  show which axis a control really moves.
 
 ## Project
 
@@ -301,17 +302,24 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   - `EmulatedJoystick` is the emulated wheel as DirectInput sees it (objects, the game's data format,
     ranges, state bytes, buffered changes). It mirrors DirectInput constants without `<dinput.h>` so it is
     unit-tested on Linux; `shim/src/DiConvert.hpp` static_asserts the constants against the real macros.
-  - `TelemetryRecorder` (`Telemetry.hpp`): daily log files in the log folder (`telemetry-YYYY-MM-DD.log`, a row when
-    something changes, at most `rate_hz` = 50/s, plus a heartbeat every `heartbeat_s` = 60; `ffb-YYYY-MM-DD.log`
+  - `TelemetryRecorder` (`Telemetry.hpp`): log files per run in the log folder (`telemetry-YYYY-MM-DD-NN.log`, a row when
+    something changes, at most `rate_hz` = 50/s, plus a heartbeat every `heartbeat_s` = 60; `ffb-YYYY-MM-DD-NN.log`
     one line per game FFB change and per call to the wheel), in the other logs' line format (`[date time] [info ]
     [telemetry     ] t_ms=... key=value ...`; values that do not apply are left out), each session appended after a
-    `session started` line and its header lines, rolled over at local midnight. `telemetryColumns()` lists the keys
+    `session started` line and its header lines (every session of one run in the same file), rolled over at local
+    midnight. `telemetryColumns()` lists the keys
     in order; when you add one, write it in `writeSample` and `telemetry_summary.sh` reads it by name; bump
     `kFormatVersion` (`Telemetry.cpp`, now "3": log lines; "2" was CSV) when a key changes meaning.
   - **Every file WheelBri writes is a log** in that line format: no CSV, no JSON (the user's rule, 2026-10-06), the
     developer tools' output too (`measure.ps1` writes `perf-<date>-<time>.log`).
-  - Logs are daily too (`logging::init` adds the date: `wheelbri-service-YYYY-MM-DD.log`); the shim logs to
-    `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-YYYY-MM-DD.log`. **One folder for every log**, the user's
+  - **One log file per run** (the user's choice, 2026-10-08): `<stem>-<date>-<NN>.log`, NN = the run's number that
+    day (the next free one, created exclusively), and a new file at local midnight. Core `LogFileNames.hpp` (header
+    only: names, `nextIndex`, `newestOf`; the drivers use it too) and `LogFiles.hpp` (`runFile`: this run's file,
+    the app's telemetry/ffb take the app's number; `newestFile`). `logging::init` names its file through `runFile`
+    (`wheelbri-service-YYYY-MM-DD-NN.log`); the shim logs to
+    `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-YYYY-MM-DD-NN.log`; the drivers (`openRunFile` in each Driver.cpp) and
+    the helper (`HelperLog` `UserFile`) choose their number the same way. The installers' transcripts stay daily.
+    The Logs tab shows each component's newest file. **One folder for every log**, the user's
     (`%LOCALAPPDATA%\wheelbri\logs`; Linux `~/.local/state/wheelbri`): app, shim, telemetry, both drivers, installer,
     hide installer. The drivers run as LocalService: `shareLogFolder` (`ServiceLogging.hpp`, at every start as
     Administrator) and `install.ps1` / `install-hide.ps1` let LocalService write there and set `HKLM\SOFTWARE\wheelbri
@@ -423,7 +431,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
-    `StatePacket`, `FfbPacket` sources. Logs to `wheelbri-driver-<date>.log` in the user's logs folder (see below).
+    `StatePacket`, `FfbPacket` sources. Logs to `wheelbri-driver-<date>-<NN>.log` in the user's logs folder (see below).
     Each state goes to Windows once (`Link::publish` / `answerRead`): a HID read gets the oldest state not handed out
     yet or waits for the next one (up to 8 kept in order, so quick presses are not lost); until 2026-10-07 each state
     answered every read that came meanwhile, the suspected cause of half a core busy (`docs/cpu-measurements.md`). Once a minute the
@@ -479,7 +487,7 @@ or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it d
   undoes what it set up. `HelperServer::Options` takes the pipe name, the session factory and the log taker (the
   tests use their own; only `HelperMain` makes the real ones). `HelperLog`: the helper's log goes into the log
   folder of whoever last ran WheelBri (`mayTakeTheLog`: an accepted app, or WheelBri from another folder saying
-  Hello; `wheelbri-helper-<date>.log`, the user's choice), opened only while impersonating that user; core
+  Hello; `wheelbri-helper-<date>-<NN>.log`, the user's choice), opened only while impersonating that user; core
   `DailyLogFile` keeps lines in memory until then, rolls over at midnight and retries a failed file once a minute.
   The app says Hello at start and from the Logs tab (`service/src/HelperProbe.cpp`, own thread, every 5 min at most),
   so the helper's boot lines reach the user's folder even when the app runs as Administrator. `HelperClient`: the app's side

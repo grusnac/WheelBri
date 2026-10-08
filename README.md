@@ -47,7 +47,7 @@ a headline, why it was needed, how to use it, and where to look.
 - **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920-virtual-device.ini` and `config/g920-in-game-shim.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
   return to 0%, raise `deadzone_low`. The game reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
-  `out_clutch` in `telemetry-<date>.log`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
+  `out_clutch` in `telemetry-<date>-<NN>.log`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
   a test clutch can be sent over UDP (`core/include/wheelbri/TestClutch.hpp`).
 
 ### Virtual G920 (our own driver)
@@ -57,7 +57,7 @@ a headline, why it was needed, how to use it, and where to look.
 - **Use:** target **G920 virtual device** on the Mapping tab, then Start (no Administrator: the WheelBri Helper does
   it). Start installs the
   `wheelbri-g920` driver itself when Windows lacks it; Stop or closing the window removes the device.
-- **Look:** joy.cpl lists "Logitech G920 Driving Force Racing Wheel USB"; `wheelbri-driver-<date>.log`, the service's
+- **Look:** joy.cpl lists "Logitech G920 Driving Force Racing Wheel USB"; `wheelbri-driver-<date>-<NN>.log`, the service's
   `service.g920` lines. Code: `driver/Driver.cpp`, `service/src/VirtualG920.cpp`, core `HidG920`, `HidPid`.
 
 ### Hiding the rig from games
@@ -67,7 +67,7 @@ a headline, why it was needed, how to use it, and where to look.
   WheelBri may open it. The first Start puts the `wheelbri-hide` filter on each device, once per installation (the
   device reconnects once, so the rig is gone for a few seconds): a popup says so ("Hiding your wheel from games: first
   time only") and closes by itself when it is done. `--no-hide` skips it, `--unhide` clears a hide after a crash (a crash never leaves one).
-- **Look:** the state next to Start ("rig hidden (N of M devices)" or, in red, "NOT HIDDEN"); `wheelbri-hide-<date>.log`,
+- **Look:** the state next to Start ("rig hidden (N of M devices)" or, in red, "NOT HIDDEN"); `wheelbri-hide-<date>-<NN>.log`,
   `wheelbri-hide-install-<date>.log` (also when the WheelBri Helper runs it); the hide log names each program that
   opens the wheel or is refused ("refused process 8964 (steam.exe)"). Code: `driver/hide/`, `service/src/HideFilter.cpp`, `ensureHideFilter` in
   `main.cpp`.
@@ -79,7 +79,7 @@ a headline, why it was needed, how to use it, and where to look.
 - **Use:** target **G920 in-game shim**, **Games (N)** next to Start: **Add game** (the folder with the game's `.exe`),
   pick it, Start. After the session the app asks whether to delete the shim from the game's folder. Settings: an
   optional `wheelbri-shim.ini` next to the DLL.
-- **Look:** `wheelbri-shim-<date>.log`; the list is `%LOCALAPPDATA%\wheelbri\shim-games.txt`. Code: `shim/`, core
+- **Look:** `wheelbri-shim-<date>-<NN>.log`; the list is `%LOCALAPPDATA%\wheelbri\shim-games.txt`. Code: `shim/`, core
   `ShimGames`, `service/src/ShimGamesView.cpp`.
 
 ### Rig tab
@@ -103,7 +103,7 @@ a headline, why it was needed, how to use it, and where to look.
 - **Why:** rigs are often direct drive: no game force may reach the wheel unchecked.
 - **Use:** automatic on both targets. `[ffb] master_gain`, `max_magnitude` (0.8), `max_slew_per_second` (50) in the config;
   `[ffb] invert = true` if forces pull the wrong way. The forces stop when the game goes quiet (500 ms).
-- **Look:** `ffb-<date>.log` (`kind=wheel_*` lines: the delay of every call to the wheel); the service log's `ffb delay`
+- **Look:** `ffb-<date>-<NN>.log` (`kind=wheel_*` lines: the delay of every call to the wheel); the service log's `ffb delay`
   table (with the usage table, every 10 minutes and at the end); the Force feedback tab (`--ffb-tab`). Code: core
   `FfbController`, `FfbSafetyLimiter` (`Ffb.cpp`), `AsyncFfbSink` (the wheel's calls on their own raised-priority
   thread: stops, then constant forces, then periodic, then spring and damper), `WheelOutput`.
@@ -138,7 +138,7 @@ a headline, why it was needed, how to use it, and where to look.
   `wheelbri.exe` runs as you and asks it for the virtual G920, hiding the rig, installing a missing G920 driver and
   letting the drivers write into your logs folder. Started as Administrator (a development build), the app does those
   itself. Without either, the status next to Start says **HELPER NOT INSTALLED** in red (virtual device target only).
-- **Look:** `wheelbri-helper-<date>.log` in the logs folder; the app's log says `through the WheelBri Helper` or
+- **Look:** `wheelbri-helper-<date>-<NN>.log` in the logs folder; the app's log says `through the WheelBri Helper` or
   `as Administrator`; the Logs tab's Helper line; `services.msc` > WheelBri Helper; `wheelbri-helper.exe --hello`.
   Code: `service/helper/` (pipe server, sessions, log), `service/src/PrivilegedSteps.cpp` (the app's side),
   `service/src/Privileged.cpp` (the steps), `core/include/wheelbri/HelperProtocol.hpp` (the requests and their rules),
@@ -210,7 +210,7 @@ defaults to ON on Windows).
 1. Copy `dinput8.dll` next to the game's `.exe`.
    - Linux/Proton: same folder, and set the Steam launch option `WINEDLLOVERRIDES="dinput8=n,b" %command%`.
 2. Plug in the wheel and start the game. Open its controller settings and drive for a minute.
-3. Read `wheelbri-shim-<date>.log` in `%LOCALAPPDATA%\wheelbri\logs` (see [Logging](#logging)). Things to look for:
+3. Read `wheelbri-shim-<date>-<NN>.log` in `%LOCALAPPDATA%\wheelbri\logs` (see [Logging](#logging)). Things to look for:
    - `EnumDevices ... device '...' product=VID_xxxx&PID_xxxx ... -> game STOPPED here`: which device the game picked.
    - `GetProperty(DIPROP_VIDPID)` or `DIPROP_PRODUCTNAME`: the game checks the identity.
    - `CreateEffect(GUID_ConstantForce)` / `SetParameters`: the force feedback it sends.
@@ -235,7 +235,7 @@ pedals released at the top of the range, as a real G920 and as NFS 2015 expects)
 `throttle_axis` / `brake_axis` / `clutch_axis` / `invert_pedals` in `wheelbri-shim.ini`; no rebuild needed.
 Every read (`GetDeviceState`, `GetDeviceData`) is answered from the latest packet the service sent, in the
 data format and ranges the game asked for. If the service stops sending for 250 ms the wheel reads as centred
-with pedals released. Everything else the game does is still logged to `wheelbri-shim-<date>.log`.
+with pedals released. Everything else the game does is still logged to `wheelbri-shim-<date>-<NN>.log`.
 
 Force feedback (Phase 3): the game's DirectInput effects (constant, spring, damper, friction, inertia,
 periodic; ramps from start to end over their duration; envelopes, i.e. attack and fade; no custom forces) are kept by the shim and sent to the service
@@ -379,13 +379,16 @@ Built on spdlog. Every line carries time, level, component, thread and source lo
 
 | Program | File |
 |---|---|
-| service, Windows | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-service-<date>.log` |
-| service, Linux | `$XDG_STATE_HOME/wheelbri/` or `~/.local/state/wheelbri/wheelbri-service-<date>.log` |
-| service, macOS | `~/Library/Logs/wheelbri/wheelbri-service-<date>.log` |
-| shim (in the game) | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-<date>.log` (next to `dinput8.dll` if `LOCALAPPDATA` is not set) |
+| service, Windows | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-service-<date>-<NN>.log` |
+| service, Linux | `$XDG_STATE_HOME/wheelbri/` or `~/.local/state/wheelbri/wheelbri-service-<date>-<NN>.log` |
+| service, macOS | `~/Library/Logs/wheelbri/wheelbri-service-<date>-<NN>.log` |
+| shim (in the game) | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-<date>-<NN>.log` (next to `dinput8.dll` if `LOCALAPPDATA` is not set) |
 
-One file per day (`<date>` = `2026-09-30`, local time); a program running past midnight moves to the next
-day's file. Old files are deleted after 2 days by default, see [Old files](#old-files). The `--ui` window
+One file per run of each program (`<date>` = `2026-09-30`, local time; `<NN>` = `01`, `02`, ... the run's number that
+day), so every start of the app, the game (shim), a driver or the helper has a file of its own; a program running past
+midnight moves to a new file of the next day. The app's telemetry and ffb files take the app's run number
+(`wheelbri-service-2026-10-08-03.log` goes with `telemetry-2026-10-08-03.log`). The Logs tab follows each
+component's latest run. Old files are deleted after 2 days by default, see [Old files](#old-files). The `--ui` window
 shows where everything is.
 
 **Levels**: `trace` per-tick/per-call detail · `debug` decisions and state changes · `info` lifecycle ·
@@ -423,10 +426,10 @@ While it runs, the service records to two more log files per day in the log fold
 format (`[date time] [level] [component] message`; no CSV, no JSON); in these two the message of a row is
 `key=value` pairs starting with `t_ms=`, and a key that does not apply is left out.
 
-- `telemetry-<date>.log`: a row whenever something changes (checked 50 times a second, plus one row a minute when nothing does) with the physical wheel (raw axes, buttons, hat), the mapped
+- `telemetry-<date>-<NN>.log`: a row whenever something changes (checked 50 times a second, plus one row a minute when nothing does) with the physical wheel (raw axes, buttons, hat), the mapped
   state, the values the emulated G920 reports to the game, the game's force feedback per slot (what the game
   asked for and what reached the wheel after the limiter), and loop timing.
-- `ffb-<date>.log`: every force feedback change the game sent, with all effect parameters (the shim's periodic
+- `ffb-<date>-<NN>.log`: every force feedback change the game sent, with all effect parameters (the shim's periodic
   re-sends of an unchanged effect are left out), and one `kind=wheel_play` / `wheel_stop` / `wheel_stopall` line per
   call the service made to the wheel: `wait_us` (queued before the call) and `call_us` (the wheel's driver).
   `scripts/telemetry_summary.sh` prints them as a delay table.

@@ -1,4 +1,5 @@
 #include "wheelbri/Logging.hpp"
+#include "wheelbri/LogFiles.hpp"
 
 #include <gtest/gtest.h>
 
@@ -81,10 +82,13 @@ TEST(Logging, WritesComponentLevelMessageAndSourceToFile) {
     const std::string dated = logging::currentLogFile();
     logging::shutdown();
 
-    // One file per day: "test.log" is written as "test-YYYY-MM-DD.log".
+    // One file per run and day: "test.log" is written as "test-YYYY-MM-DD-NN.log".
     EXPECT_EQ(std::filesystem::path(dated).parent_path(), path.parent_path());
     EXPECT_EQ(std::filesystem::path(dated).filename().string().rfind("test-", 0), 0U);
-    EXPECT_EQ(dated.size(), path.string().size() + 11);
+    EXPECT_EQ(dated.size(), path.string().size() + 14);
+    const auto parts = logfiles::partsOf(std::filesystem::path(dated).filename().string(), "test");
+    ASSERT_TRUE(parts.has_value()) << dated;
+    EXPECT_GE(parts->index, 1);
     const std::string text = readFile(dated);
     EXPECT_NE(text.find("[test.component"), std::string::npos);
     EXPECT_NE(text.find("[debug]"), std::string::npos);

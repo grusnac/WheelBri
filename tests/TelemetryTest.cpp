@@ -1,4 +1,5 @@
 #include "wheelbri/Telemetry.hpp"
+#include "wheelbri/LogFiles.hpp"
 
 #include <gtest/gtest.h>
 
@@ -35,6 +36,7 @@ protected:
                ("wheelbri-telemetry-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
         std::error_code ec;
         fs::remove_all(dir_, ec);
+        logfiles::forgetRun();   // each test is a new run: its files are -01
     }
     void TearDown() override {
         std::error_code ec;
@@ -91,11 +93,11 @@ protected:
 TEST_F(TelemetryTest, OneFilePerDayNamedByDate) {
     auto recorder = open(at(14, 25, 1));
     ASSERT_NE(recorder, nullptr);
-    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-09-30.log");
-    EXPECT_EQ(recorder->ffbPath().filename(), "ffb-2026-09-30.log");
+    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-09-30-01.log");
+    EXPECT_EQ(recorder->ffbPath().filename(), "ffb-2026-09-30-01.log");
     recorder.reset();
 
-    const auto all = lines(dir_ / "telemetry-2026-09-30.log", true);
+    const auto all = lines(dir_ / "telemetry-2026-09-30-01.log", true);
     EXPECT_EQ(count(all, "wheelbri telemetry format 3"), 1U);
     EXPECT_EQ(count(all, "session started 2026-09-30 14:25:01"), 1U);
     EXPECT_EQ(count(all, "source: test wheel"), 1U);
@@ -103,7 +105,7 @@ TEST_F(TelemetryTest, OneFilePerDayNamedByDate) {
     for (const auto& line : all) {
         EXPECT_EQ(line.rfind("[2026-09-30 14:25:01.000] [info ] [telemetry     ] ", 0), 0U) << line;
     }
-    EXPECT_TRUE(lines(dir_ / "telemetry-2026-09-30.log").empty());   // no rows yet
+    EXPECT_TRUE(lines(dir_ / "telemetry-2026-09-30-01.log").empty());   // no rows yet
 }
 
 TEST_F(TelemetryTest, SessionsOfTheSameDayAppendWithOneColumnRow) {
@@ -114,15 +116,15 @@ TEST_F(TelemetryTest, SessionsOfTheSameDayAppendWithOneColumnRow) {
         sample.nowNs = 5 * kMs;
         recorder->writeSample(sample);
     }
-    const auto all = lines(dir_ / "telemetry-2026-09-30.log", true);
+    const auto all = lines(dir_ / "telemetry-2026-09-30-01.log", true);
     EXPECT_EQ(count(all, "wheelbri telemetry format"), 1U);   // what the keys mean: once, in a new file
     EXPECT_EQ(count(all, "session started 2026-09-30 09:00:00"), 1U);
     EXPECT_EQ(count(all, "session started 2026-09-30 20:00:00"), 1U);
-    const auto data = lines(dir_ / "telemetry-2026-09-30.log");
+    const auto data = lines(dir_ / "telemetry-2026-09-30-01.log");
     ASSERT_EQ(data.size(), 2U);
     EXPECT_EQ(data[0].rfind("[2026-09-30 09:00:00.000] [info ] [telemetry     ] t_ms=0.0 ", 0), 0U) << data[0];
     EXPECT_EQ(data[1].rfind("[2026-09-30 20:00:00.000] [info ] [telemetry     ] t_ms=0.0 ", 0), 0U) << data[1];
-    EXPECT_TRUE(lines(dir_ / "ffb-2026-09-30.log").empty());
+    EXPECT_TRUE(lines(dir_ / "ffb-2026-09-30-01.log").empty());
 }
 
 TEST_F(TelemetryTest, RowsHaveTheirKeysWithAndWithoutFfb) {
@@ -151,7 +153,7 @@ TEST_F(TelemetryTest, RowsHaveTheirKeysWithAndWithoutFfb) {
     recorder->writeSample(sample);
     recorder.reset();
 
-    const auto data = lines(dir_ / "telemetry-2026-09-30.log");
+    const auto data = lines(dir_ / "telemetry-2026-09-30-01.log");
     ASSERT_EQ(data.size(), 2U);
     EXPECT_EQ(data[0].rfind("[2026-09-30 10:00:00.000] ", 0), 0U);
     EXPECT_EQ(value(data[0], "t_ms"), "0.0");
@@ -183,20 +185,20 @@ TEST_F(TelemetryTest, SessionContinuesInTheNextDaysFileAfterMidnight) {
     recorder->writeSample(sample);
     recorder->writeFfbPacket(160 * kMs, packet);
     EXPECT_EQ(recorder->day(), "2026-10-01");
-    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-10-01.log");
+    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-10-01-01.log");
     recorder.reset();
 
-    const auto before = lines(dir_ / "telemetry-2026-09-30.log");
-    const auto after = lines(dir_ / "telemetry-2026-10-01.log");
+    const auto before = lines(dir_ / "telemetry-2026-09-30-01.log");
+    const auto after = lines(dir_ / "telemetry-2026-10-01-01.log");
     ASSERT_EQ(before.size(), 1U);
     ASSERT_EQ(after.size(), 1U);
     EXPECT_EQ(before[0].rfind("[2026-09-30 23:59:59.900] [info ] [telemetry     ] t_ms=0.0 ", 0), 0U) << before[0];
     EXPECT_EQ(after[0].rfind("[2026-10-01 00:00:00.050] [info ] [telemetry     ] t_ms=150.0 ", 0), 0U) << after[0];
-    const auto afterAll = lines(dir_ / "telemetry-2026-10-01.log", true);
+    const auto afterAll = lines(dir_ / "telemetry-2026-10-01-01.log", true);
     EXPECT_EQ(count(afterAll, "session started 2026-09-30 23:59:59, continued"), 1U);
     EXPECT_EQ(count(afterAll, "wheelbri telemetry format"), 1U);
-    EXPECT_EQ(lines(dir_ / "ffb-2026-09-30.log").size(), 1U);
-    EXPECT_EQ(lines(dir_ / "ffb-2026-10-01.log").size(), 1U);
+    EXPECT_EQ(lines(dir_ / "ffb-2026-09-30-01.log").size(), 1U);
+    EXPECT_EQ(lines(dir_ / "ffb-2026-10-01-01.log").size(), 1U);
 }
 
 TEST_F(TelemetryTest, DueFollowsTheRate) {
@@ -232,7 +234,7 @@ TEST_F(TelemetryTest, ExtremeNumbersAreWrittenInFull) {
     packet.effect.condition.negativeSaturation = -3.0e38F;
     recorder->writeFfbPacket(0, packet);
     recorder.reset();
-    const auto data = lines(dir_ / "ffb-2026-09-30.log");
+    const auto data = lines(dir_ / "ffb-2026-09-30-01.log");
     ASSERT_EQ(data.size(), 1U);
     EXPECT_GT(value(data[0], "center").size(), 30U) << data[0];   // not cut
     EXPECT_EQ(value(data[0], "phase_deg"), "0.0") << data[0];      // and the keys after it are still there
@@ -257,7 +259,7 @@ TEST_F(TelemetryTest, FfbEventsSkipKeepAlives) {
     EXPECT_EQ(recorder->ffbRowsWritten(), 2U);
     recorder.reset();
 
-    const auto data = lines(dir_ / "ffb-2026-09-30.log");
+    const auto data = lines(dir_ / "ffb-2026-09-30-01.log");
     ASSERT_EQ(data.size(), 3U);  // 2 packets + malformed note
     EXPECT_EQ(data[0].rfind("[2026-09-30 10:00:00.002] [info ] [ffb           ] t_ms=2.0 kind=slot seq=42 slot=3 "
                             "playing=1 type=saw_up ", 0), 0U) << data[0];
@@ -282,7 +284,7 @@ TEST_F(TelemetryTest, CallsToTheWheelHaveTheirDelay) {
     recorder->writeFfbApplied(6 * kMs, applied);
     recorder.reset();
 
-    const auto data = lines(dir_ / "ffb-2026-09-30.log");
+    const auto data = lines(dir_ / "ffb-2026-09-30-01.log");
     ASSERT_EQ(data.size(), 2U);
     EXPECT_NE(data[0].find(" kind=wheel_play slot=2 ok=1 type=spring wait_us=120 call_us=4100"), std::string::npos)
         << data[0];
@@ -315,7 +317,7 @@ TEST_F(TelemetryTest, WritesRowsOnlyWhenAValueChanges) {
     EXPECT_EQ(recorder->rowsSkipped(), 11U);
     recorder.reset();
 
-    const auto data = lines(dir_ / "telemetry-2026-09-30.log");
+    const auto data = lines(dir_ / "telemetry-2026-09-30-01.log");
     ASSERT_EQ(data.size(), 2U);
     EXPECT_EQ(value(data[0], "t_ms"), "0.0");
     EXPECT_EQ(value(data[1], "t_ms"), "200.0");
@@ -369,6 +371,31 @@ TEST_F(TelemetryTest, FfbEventsOnlyForRealChanges) {
     EXPECT_EQ(recorder->ffbRowsWritten(), 5U);
 }
 
+TEST_F(TelemetryTest, ANewRunOfTheProgramStartsTheNextNumberedFiles) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-09-30-01.log");
+    recorder.reset();
+    recorder = open(at(11, 0, 0));   // another session of the same run: the same files
+    ASSERT_NE(recorder, nullptr);
+    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-09-30-01.log");
+    recorder.reset();
+    logfiles::forgetRun();           // the program started again
+    recorder = open(at(12, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    EXPECT_EQ(recorder->samplesPath().filename(), "telemetry-2026-09-30-02.log");
+    EXPECT_EQ(recorder->ffbPath().filename(), "ffb-2026-09-30-02.log");
+}
+
+TEST_F(TelemetryTest, NoFileCanBeMadeIsAnErrorNotACrash) {
+    std::ofstream(dir_.string()) << "a file where the folder should be";
+    TelemetryConfig config;
+    std::string error;
+    EXPECT_EQ(TelemetryRecorder::open(config, dir_, at(10, 0, 0), {}, error), nullptr);
+    EXPECT_NE(error, "");
+    fs::remove(dir_);
+}
+
 TEST_F(TelemetryTest, StopsAtMaxFileSize) {
     TelemetryConfig config;
     config.maxFileMb = 1;
@@ -381,7 +408,7 @@ TEST_F(TelemetryTest, StopsAtMaxFileSize) {
         recorder->writeSample(sample);
     }
     recorder.reset();
-    const auto path = dir_ / "telemetry-2026-09-30.log";
+    const auto path = dir_ / "telemetry-2026-09-30-01.log";
     EXPECT_LE(fs::file_size(path), 1024U * 1024U + 128U);
     EXPECT_EQ(count(lines(path, true), "stopped: max_file_mb reached"), 1U);
 }

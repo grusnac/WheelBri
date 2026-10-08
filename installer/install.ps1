@@ -382,7 +382,7 @@ try {
         $service = Join-Path $InstallDir 'wheelbri-service.exe'
         # Its log lines come on stderr. Windows PowerShell 5.1 turns each into an error record, and with
         # $ErrorActionPreference = 'Stop' the first one ("logging to ...") ended the install, so: Continue here,
-        # its result line (stdout) shown as is, and from its log (all of it is in wheelbri-service-<date>.log)
+        # its result line (stdout) shown as is, and from its log (all of it is in wheelbri-service-<date>-<NN>.log)
         # only the warnings and errors, without the time and source prefix.
         $previous = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'

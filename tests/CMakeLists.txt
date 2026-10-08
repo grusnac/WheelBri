@@ -32,6 +32,7 @@ add_executable(wheelbri_tests
     IniDocumentTest.cpp
     IniEditorTest.cpp
     LiveLogTest.cpp
+    LogFilesTest.cpp
     LogLevelCounterTest.cpp
     LoggingTest.cpp
     MapperTest.cpp

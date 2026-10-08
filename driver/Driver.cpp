@@ -20,6 +20,7 @@
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/HidG920.hpp"
 #include "wheelbri/HidPid.hpp"
+#include "wheelbri/LogFileNames.hpp"
 #include "wheelbri/StatePacket.hpp"
 
 #include <algorithm>
@@ -27,11 +28,13 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -52,7 +55,7 @@ Report g920Report(const wheelbri::TargetReport& report) {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// Log: <the logs folder>\wheelbri-driver-<date>.log (see logFolder) and the debugger (DebugView).
+// Log: <the logs folder>\wheelbri-driver-<date>-<NN>.log (see logFolder) and the debugger (DebugView).
 
 std::mutex g_logLock;
 
@@ -114,7 +117,63 @@ bool samePath(const std::wstring& a, const std::wstring& b) {
            CSTR_EQUAL;
 }
 
-// Appends `line` to <folder>\wheelbri-driver-<date>.log; false if the folder is refused or the file cannot be opened.
+// One log file per run of this driver (each time Windows loads it into a host: the device was made or restarted),
+// and a new one at midnight: <folder>\wheelbri-driver-<date>-<NN>.log with the next free number of that day (core
+// LogFileNames.hpp, the same rules as every other WheelBri log). The first line of a run in a folder makes the file
+// (CREATE_NEW: never an existing name, so never a link someone put there; a number another host took a moment ago
+// gives the next); later lines append to it. Under g_logLock.
+struct RunFile {
+    std::string date;
+    std::wstring path;
+};
+std::unordered_map<std::wstring, RunFile> g_runFiles;   // folder -> this run's file there
+
+constexpr const char* kLogStem = "wheelbri-driver";
+
+HANDLE openRunFile(const std::wstring& folder, const SYSTEMTIME& now, std::wstring& path) {
+    char dateText[16];
+    std::snprintf(dateText, sizeof(dateText), "%04u-%02u-%02u", now.wYear, now.wMonth, now.wDay);
+    const std::string date = dateText;
+    constexpr DWORD kShare = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    constexpr DWORD kAccess = FILE_APPEND_DATA | FILE_READ_ATTRIBUTES;
+    constexpr DWORD kFlags = FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT;
+    RunFile& run = g_runFiles[folder];
+    if (run.date == date && !run.path.empty()) {
+        path = run.path;
+        return CreateFileW(path.c_str(), kAccess, kShare, nullptr, OPEN_ALWAYS, kFlags, nullptr);
+    }
+    // The names of that day's files there (ours are ASCII; any other name just does not count).
+    std::vector<std::string> names;
+    const std::wstring pattern = folder + L"\\" + std::wstring(kLogStem, kLogStem + std::strlen(kLogStem)) + L"-" +
+                                 std::wstring(date.begin(), date.end()) + L"*";
+    WIN32_FIND_DATAW found{};
+    const HANDLE search = FindFirstFileW(pattern.c_str(), &found);
+    if (search != INVALID_HANDLE_VALUE) {
+        do {
+            std::string name;
+            for (const wchar_t* c = found.cFileName; *c != L'\0' && *c < 0x80; ++c) name.push_back(static_cast<char>(*c));
+            names.push_back(std::move(name));
+        } while (FindNextFileW(search, &found));
+        FindClose(search);
+    }
+    int index = wheelbri::logfiles::nextIndex(names, kLogStem, date);
+    for (int attempt = 0; attempt < 100 && index <= wheelbri::logfiles::kMaxIndex; ++attempt, ++index) {
+        const std::string name = wheelbri::logfiles::numberedName(kLogStem, date, index);
+        path = folder + L"\\" + std::wstring(name.begin(), name.end());
+        const HANDLE file = CreateFileW(path.c_str(), kAccess, kShare, nullptr, CREATE_NEW, kFlags, nullptr);
+        if (file != INVALID_HANDLE_VALUE) {
+            run.date = date;
+            run.path = path;
+            return file;
+        }
+        if (GetLastError() != ERROR_FILE_EXISTS) return INVALID_HANDLE_VALUE;
+    }
+    SetLastError(ERROR_FILE_EXISTS);
+    return INVALID_HANDLE_VALUE;
+}
+
+// Appends `line` to this run's <folder>\wheelbri-driver-<date>-<NN>.log (openRunFile); false if the folder is refused
+// or the file cannot be opened.
 // LogFolder lies in the user's own profile: the user could replace it, or a folder above it, with a link and so make
 // this driver, which runs as LocalService, write wherever LocalService may. So the folder is opened first (nothing is
 // created yet) and used only when it is no link itself and Windows opened it under the very path asked for; the file
@@ -141,12 +200,8 @@ bool appendTo(std::wstring folder, const SYSTEMTIME& now, const char* line) {
         SetLastError(ERROR_CANT_RESOLVE_FILENAME);
         return false;
     }
-    wchar_t name[48];                                 // at most 38 characters with any WORD values
-    swprintf_s(name, L"\\wheelbri-driver-%04u-%02u-%02u.log", now.wYear, now.wMonth, now.wDay);
-    const std::wstring path = folder + name;
-    HANDLE file = CreateFileW(path.c_str(), FILE_APPEND_DATA | FILE_READ_ATTRIBUTES,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    std::wstring path;
+    HANDLE file = openRunFile(folder, now, path);
     if (file == INVALID_HANDLE_VALUE) return false;
     BY_HANDLE_FILE_INFORMATION info{};
     if (!GetFileInformationByHandle(file, &info) || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||

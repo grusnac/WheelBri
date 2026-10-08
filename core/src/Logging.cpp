@@ -1,5 +1,7 @@
 #include "wheelbri/Logging.hpp"
 
+#include "wheelbri/LogFiles.hpp"
+
 #include <spdlog/cfg/env.h>
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/daily_file_sink.h>
@@ -20,12 +22,17 @@ constexpr const char* kPattern = "[%Y-%m-%d %H:%M:%S.%e] [%^%-5l%$] [%-14n] [tid
 
 constexpr std::array<const char*, 7> kLevels = {"trace", "debug", "info", "warn", "error", "critical", "off"};
 
-// "wheelbri-service.log" -> "wheelbri-service-2026-09-30.log", the same date style as telemetry files.
+// "wheelbri-service.log" -> "wheelbri-service-2026-09-30-03.log": this run's file of the day (LogFiles.hpp), asked
+// for when the sink opens and again at midnight. Should no numbered file be possible, the old daily name.
 struct DashedDateFileName {
     static spdlog::filename_t calc_filename(const spdlog::filename_t& filename, const tm& now) {
         char date[40];
         std::snprintf(date, sizeof(date), "%04d-%02d-%02d", now.tm_year + 1900, now.tm_mon + 1, now.tm_mday);
-        return datedFileName(filename, date);
+        const std::filesystem::path path(filename);
+        std::string error;
+        const std::filesystem::path run =
+            logfiles::runFile(path.parent_path(), path.stem().string(), date, path.extension().string(), error);
+        return run.empty() ? datedFileName(filename, date) : run.string();
     }
 };
 using DailySink = spdlog::sinks::daily_file_sink<std::mutex, DashedDateFileName>;
@@ -134,7 +141,7 @@ bool init(const LogConfig& config, const std::string& defaultFilePath) {
     if (!fileOk) {
         WE_LOG_ERROR(logger, "cannot open log file '{}': {} - logging to console only", filePath, fileError);
     } else if (!filePath.empty()) {
-        WE_LOG_INFO(logger, "logging to '{}' (level {}, a new file every day)", currentLogFile(),
+        WE_LOG_INFO(logger, "logging to '{}' (level {}, a new file every start and every day)", currentLogFile(),
                     spdlog::level::to_string_view(level));
     }
     return fileOk;

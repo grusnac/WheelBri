@@ -1,5 +1,6 @@
 #include "wheelbri/Telemetry.hpp"
 
+#include "wheelbri/LogFiles.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <algorithm>
@@ -172,8 +173,16 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
     dayStart_ = startOfDay(day).value_or(sessionStart_);
     const std::string nextDay = addDays(day, 1).value_or(day);
     nextDayStart_ = startOfDay(nextDay).value_or(dayStart_ + std::chrono::hours(24));
-    samplesPath_ = directory_ / ("telemetry-" + day + ".log");
-    ffbPath_ = directory_ / ("ffb-" + day + ".log");
+    // This run's files of the day, numbered like the app's own log (LogFiles.hpp): "telemetry-2026-10-08-03.log".
+    std::string nameError;
+    samplesPath_ = logfiles::runFile(directory_, "telemetry", day, ".log", nameError);
+    if (!samplesPath_.empty()) ffbPath_ = logfiles::runFile(directory_, "ffb", day, ".log", nameError);
+    if (samplesPath_.empty() || ffbPath_.empty()) {
+        error = nameError;
+        closeFiles();
+        dayOpen_ = false;
+        return false;
+    }
 
     // The lines before the rows carry the time the session (or, after midnight, the day) started.
     const WallClock::time_point headerTime = continued || sessionStart_ < dayStart_ ? dayStart_ : sessionStart_;
@@ -202,7 +211,7 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
     };
     std::string line;
     for (const Target& target : targets) {
-        // Append: every session of the day shares the file; a new file starts with what its keys mean.
+        // Append: every session of this run shares the file; a new file starts with what its keys mean.
         target.file->handle = openAppend(*target.path);
         if (target.file->handle == nullptr) {
             error = "cannot open " + text(*target.path) + " (" + std::strerror(errno) + ")";

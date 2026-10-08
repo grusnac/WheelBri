@@ -610,13 +610,21 @@ TEST(HelperLogFile, IsMadeWithItsFoldersAndAppendedToAsTheUser) {
         EXPECT_TRUE(file->write("one\r\n"));
         file->close();
         EXPECT_FALSE(file->write("closed\r\n"));
-        ASSERT_TRUE(file->open("2026-10-08"));   // again: appended, not replaced
+        ASSERT_TRUE(file->open("2026-10-08"));   // again in this run: appended, not a new file
         EXPECT_TRUE(file->write("two\r\n"));
         ASSERT_TRUE(file->open("2026-10-09"));   // another day while open: the first is closed
         EXPECT_TRUE(file->write("next day\r\n"));
     }
-    EXPECT_EQ(readAll(logs / "wheelbri-helper-2026-10-08.log"), "one\r\ntwo\r\n");
-    EXPECT_EQ(readAll(logs / "wheelbri-helper-2026-10-09.log"), "next day\r\n");
+    EXPECT_EQ(readAll(logs / "wheelbri-helper-2026-10-08-01.log"), "one\r\ntwo\r\n");
+    EXPECT_EQ(readAll(logs / "wheelbri-helper-2026-10-09-01.log"), "next day\r\n");
+    {
+        // The helper started again (a new log): the next number, the first file untouched.
+        auto file = HelperLog::userFile(myImpersonationToken(), logs.wstring());
+        ASSERT_TRUE(file->open("2026-10-08"));
+        EXPECT_TRUE(file->write("second run\r\n"));
+    }
+    EXPECT_EQ(readAll(logs / "wheelbri-helper-2026-10-08-02.log"), "second run\r\n");
+    EXPECT_EQ(readAll(logs / "wheelbri-helper-2026-10-08-01.log"), "one\r\ntwo\r\n");
     std::filesystem::remove_all(base);
 }
 

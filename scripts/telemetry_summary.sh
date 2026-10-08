@@ -3,9 +3,10 @@
 #
 # usage: scripts/telemetry_summary.sh [FILE | FOLDER] [--all]
 #
-# FILE is a telemetry-YYYY-MM-DD.log (also .log.xz / .log.gz). With a FOLDER (default: the service's log folder) the
-# newest day is used. By default the last session of that day is summarised; --all summarises every session of the
-# day together. The matching ffb-*.log next to it is read too: the game's force feedback changes and the delay of
+# FILE is a telemetry-YYYY-MM-DD-NN.log (NN: the app's run; also .log.xz / .log.gz, and the older daily
+# telemetry-YYYY-MM-DD.log). With a FOLDER (default: the service's log folder) the newest run is used (the latest day,
+# then the highest NN). By default the last session of that run is summarised; --all summarises every session of the
+# run together. The matching ffb-*.log next to it is read too: the game's force feedback changes and the delay of
 # every call the service made to the wheel (kind=wheel_* lines).
 #
 # The files are logs like the others: "[date time] [info ] [telemetry     ] t_ms=... key=value ...". Rows are the
@@ -39,7 +40,11 @@ default_folder() {
 
 path="${target:-$(default_folder)}"
 if [[ -d "$path" ]]; then
-    newest="$(ls -1 "$path" 2>/dev/null | grep -E '^telemetry-.*\.log(\.xz|\.gz)?$' | sort | tail -n 1 || true)"
+    # The day, then the run's number as a number (-10 after -09, -100 after -99); an old daily file is number 0.
+    newest="$(ls -1 "$path" 2>/dev/null | grep -E '^telemetry-[0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9]+)?\.log(\.xz|\.gz)?$' |
+        awk '{ n = $0; sub(/^telemetry-/, "", n); day = substr(n, 1, 10); run = 0
+               if (substr(n, 11, 1) == "-") { run = substr(n, 12); sub(/\..*$/, "", run) }
+               printf "%s %09d %s\n", day, run, $0 }' | sort | tail -n 1 | cut -d' ' -f3 || true)"
     if [[ -z "$newest" ]]; then
         echo "no telemetry-*.log in $path" >&2
         exit 1

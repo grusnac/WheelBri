@@ -27,6 +27,7 @@ add_library(wheelbri_core STATIC
     src/InputReadStats.cpp
     src/LiveLog.cpp
     src/LocalDate.cpp
+    src/LogFiles.cpp
     src/LogLevelCounter.cpp
     src/Logging.cpp
     src/MappingEdit.cpp

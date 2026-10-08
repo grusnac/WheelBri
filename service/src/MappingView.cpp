@@ -3,6 +3,7 @@
 #include "HelperProbe.hpp"
 
 #include "wheelbri/LocalDate.hpp"
+#include "wheelbri/LogFiles.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <algorithm>
@@ -11,6 +12,8 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <map>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -722,7 +725,7 @@ void MappingView::trackLastPressed(const std::uint64_t sourceButtons) {
 
 namespace {
 
-// Keeps both ends of a long path: "C:\Users\...\logs\telemetry-2026-09-30.log".
+// Keeps both ends of a long path: "C:\Users\...\logs\telemetry-2026-09-30-01.log".
 std::string shortenMiddle(const std::string& value, const std::size_t maxChars) {
     if (value.size() <= maxChars || maxChars < 8) {
         return value;
@@ -803,25 +806,25 @@ void MappingView::refreshLogFiles() {
         return;
     }
     filesCheckedMs_ = nowMs;
-    const std::string today = localDate(WallClock::now());
 
     // Every part of wheel-emulator that writes a log, in the order they sit between the wheel and the game.
     struct Source {
         const char* name;
         const char* what;
         bool driver;            // in the drivers' folder, not the user's
-        const char* prefix;     // today's file is <prefix><date>.log
+        const char* stem;       // its files are <stem>-<date>-<NN>.log, one per run (LogFiles.hpp)
     };
     static constexpr Source kSources[] = {
         {"Emulator", "service and app: reads the rig, maps, plays FFB", false,
-         "wheelbri-service-"},
-        {"Game shim", "dinput8.dll next to the game (Phases 2-3)", false, "wheelbri-shim-"},
-        {"G920 driver", "the virtual G920 (wheelbri-g920)", true, "wheelbri-driver-"},
-        {"Hide filter", "hides the rig from games (wheelbri-hide)", true, "wheelbri-hide-"},
+         "wheelbri-service"},
+        {"Game shim", "dinput8.dll next to the game (Phases 2-3)", false, "wheelbri-shim"},
+        {"G920 driver", "the virtual G920 (wheelbri-g920)", true, "wheelbri-driver"},
+        {"Hide filter", "hides the rig from games (wheelbri-hide)", true, "wheelbri-hide"},
         // The WheelBri Helper (a service) writes into the connected user's folder (HelperLog), the same one.
-        {"Helper", "the Administrator steps for the app (WheelBri Helper)", true, "wheelbri-helper-"},
+        {"Helper", "the Administrator steps for the app (WheelBri Helper)", true, "wheelbri-helper"},
     };
     components_.clear();
+    std::map<std::u8string, std::vector<std::string>> names;   // each folder listed once
     for (const Source& source : kSources) {
         if (shimMode_ && source.driver) continue;   // the shim's session runs no driver
         // The drivers write to the same folder (the app shares it with them: ServiceLogging.hpp shareLogFolder).
@@ -831,9 +834,15 @@ void MappingView::refreshLogFiles() {
         const std::filesystem::path folder = source.driver ? std::filesystem::path() : files_.logFolder;
 #endif
         ComponentLog component{source.name, source.what, folder, {}, {}, {}, false};
-        const bool isHelper = std::string_view(source.prefix) == "wheelbri-helper-";
-        std::filesystem::path path = component.folder / (std::string(source.prefix) + today + ".log");
-        if (std::string_view(source.prefix) == "wheelbri-service-") {
+        const bool isHelper = std::string_view(source.stem) == "wheelbri-helper";
+        // The latest run's file (another component may have started yesterday and still be writing).
+        const std::string stem = source.stem;
+        if (!names.count(component.folder.u8string())) {
+            names[component.folder.u8string()] = logfiles::namesIn(component.folder);
+        }
+        const std::optional<std::string> newest = logfiles::newestOf(names[component.folder.u8string()], stem);
+        std::filesystem::path path = newest ? component.folder / *newest : std::filesystem::path();
+        if (stem == "wheelbri-service") {
             // The service knows its own file (it may be elsewhere through [logging] file).
             if (!files_.logToFile || logging::currentLogFile().empty()) {
                 component.status = "console only (no log file)";
@@ -843,20 +852,20 @@ void MappingView::refreshLogFiles() {
             path = std::filesystem::path(logging::currentLogFile());
             component.folder = path.parent_path();
         }
-        // The live log follows today's file (it appears as soon as the component writes).
+        // The live log follows the latest run's file (a new run's appears as soon as it writes).
         liveLog_.setFile(static_cast<int>(components_.size()), component.folder.empty() ? std::filesystem::path() : path);
         std::error_code ec;
         if (component.folder.empty()) {
             component.status = "Windows only";
-        } else if (std::filesystem::exists(path, ec)) {
+        } else if (!path.empty() && std::filesystem::exists(path, ec)) {
             component.file = path.filename().string();
             component.status = describeFile(path);
         } else {
-            component.status = "no log today";
+            component.status = "no log yet";
         }
         if (isHelper && !component.folder.empty()) {
             // What the app last heard from the helper (it says Hello at start, and again from here at most every
-            // 5 minutes), and whether today's helper log has warnings or errors.
+            // 5 minutes), and whether its latest log has warnings or errors.
             HelperProbe::shared().request();
             component.state = helper::describeHelper(HelperProbe::shared().latest());
             helperLevels_.setFile(path);
@@ -878,10 +887,10 @@ void MappingView::refreshLogFiles() {
 
 void MappingView::drawLogs() {
     constexpr std::size_t kPathChars = 90;
-    constexpr std::size_t kWhatChars = 44;   // to the right edge
+    constexpr std::size_t kWhatChars = 41;   // to the right edge
     refreshLogFiles();
     text(window_, 4, kLogsTop, "LOGS", kHeading);
-    text(window_, 52, kLogsTop, "one line per component, a new file every day; click a line to open its folder",
+    text(window_, 52, kLogsTop, "one line per component, a new file every run and every day; click a line to open its folder",
          kDim);
 
     const float x = 4 + 14 * 8;
@@ -895,20 +904,21 @@ void MappingView::drawLogs() {
 
     y = kLogRowsTop - 14;
     text(window_, 4, y, "COMPONENT", kHeading);
-    text(window_, x, y, "TODAY'S LOG", kHeading);
-    text(window_, x + 33 * 8, y, "SIZE, LAST WRITTEN", kHeading);
+    text(window_, x, y, "LATEST LOG (ONE PER RUN)", kHeading);
+    text(window_, x + 36 * 8, y, "SIZE, LAST WRITTEN", kHeading);
     y = kLogRowsTop;
     for (const ComponentLog& component : components_) {
         fill(window_, 2, y - 2, kLogicalWidth - 4, kLogRowHeight - 2, kPanel);
         const Colour own = kComponentColours[static_cast<std::size_t>(&component - components_.data()) %
                                              kComponentColours.size()];
         text(window_, 4, y + 2, component.name, component.warns ? kWarning : own);
-        text(window_, x, y + 2, component.file.empty() ? "-" : shortenMiddle(component.file, 32).c_str(),
+        // "wheelbri-service-2026-10-08-03.log" is 34 characters.
+        text(window_, x, y + 2, component.file.empty() ? "-" : shortenMiddle(component.file, 35).c_str(),
              component.file.empty() ? kDim : kText);
-        text(window_, x + 33 * 8, y + 2, shortenMiddle(component.status, 27).c_str(),
+        text(window_, x + 36 * 8, y + 2, shortenMiddle(component.status, 27).c_str(),
              component.warns ? kWarning : component.file.empty() ? kDim : kText);
         // The helper's line says what the app last heard from it instead of what it is.
-        text(window_, x + 61 * 8, y + 2,
+        text(window_, x + 64 * 8, y + 2,
              shortenMiddle(component.state.empty() ? component.what : component.state, kWhatChars).c_str(), kDim);
         y += kLogRowHeight;
     }
@@ -918,7 +928,7 @@ void MappingView::drawLogs() {
     text(window_, 4, y, "Telemetry", kText);
     text(window_, x, y,
          gTelemetryTab ? "the recorded telemetry files and the latest events are on the Telemetry tab (T)"
-                       : "recorded to telemetry-<date>.log and ffb-<date>.log in the logs folder (O opens it)",
+                       : "recorded to telemetry-<date>-<NN>.log and ffb-<date>-<NN>.log, NN = this run (O opens the folder)",
          kDim);
     y += kLogRowHeight;
     text(window_, 4, y, "Old files", kText);
@@ -979,7 +989,7 @@ void MappingView::drawLiveLog(const float top) {
     vBar_.shown = false;
     hBar_.shown = false;
     if (lines.empty()) {
-        text(window_, 4, listTop, "no log lines today yet: start the service, the game or a driver", kDim);
+        text(window_, 4, listTop, "no log lines yet: start the service, the game or a driver", kDim);
         return;
     }
 

@@ -16,7 +16,7 @@
 namespace wheelbri::service {
 
 // A compressor found on this PC. Tools that make one archive per day (7z, zip) and tools that compress each
-// file on its own (xz, zstd, gzip: "telemetry-2026-09-20.log" -> "telemetry-2026-09-20.log.xz").
+// file on its own (xz, zstd, gzip: "telemetry-2026-09-20-01.log" -> "telemetry-2026-09-20-01.log.xz").
 struct Archiver {
     enum class Kind { SevenZip, Xz, Zstd, WindowsZip, InfoZip, Gzip };
     Kind kind;

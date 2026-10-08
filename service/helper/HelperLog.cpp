@@ -1,12 +1,14 @@
 #include "HelperLog.hpp"
 
 #include "wheelbri/LocalDate.hpp"
+#include "wheelbri/LogFiles.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <windows.h>
 
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 
 namespace wheelbri::helper {
 
@@ -38,22 +40,39 @@ public:
     UserFile(const UserFile&) = delete;
     UserFile& operator=(const UserFile&) = delete;
 
+    // This run's file of `date` (LogFiles.hpp): the first open of a day makes wheelbri-helper-<date>-<NN>.log with the
+    // next free number; opening the same day again (after a failed write) appends to it.
     bool open(const std::string& date) override {
         close();
         if (token_ == nullptr || folder_.empty()) return false;
-        const std::wstring path = folder_ + L"\\wheelbri-helper-" + std::wstring(date.begin(), date.end()) + L".log";
         HANDLE file = INVALID_HANDLE_VALUE;
+        std::wstring path;
         asUser(token_, [&] {
             // %LOCALAPPDATA%\wheelbri, then logs (the app makes them; after a clean install they may not exist yet).
             const std::size_t cut = folder_.find_last_of(L'\\');
             if (cut != std::wstring::npos && cut > 0) CreateDirectoryW(folder_.substr(0, cut).c_str(), nullptr);
             CreateDirectoryW(folder_.c_str(), nullptr);
-            file = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                               nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (date == date_ && !path_.empty()) {
+                path = path_;
+                file = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                   nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                return file != INVALID_HANDLE_VALUE;
+            }
+            // Listed as the user too: the helper learns no more of the folder than the user may see.
+            int index = logfiles::nextIndex(logfiles::namesIn(std::filesystem::path(folder_)), kStem, date);
+            for (int attempt = 0; attempt < 100 && index <= logfiles::kMaxIndex; ++attempt, ++index) {
+                const std::string name = logfiles::numberedName(kStem, date, index);
+                path = folder_ + L"\\" + std::wstring(name.begin(), name.end());
+                file = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                   nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (file != INVALID_HANDLE_VALUE || GetLastError() != ERROR_FILE_EXISTS) break;
+            }
             return file != INVALID_HANDLE_VALUE;
         });
         if (file == INVALID_HANDLE_VALUE) return false;
         file_ = file;
+        path_ = path;
+        date_ = date;
         return true;
     }
 
@@ -70,9 +89,13 @@ public:
     }
 
 private:
+    static constexpr const char* kStem = "wheelbri-helper";
+
     HANDLE token_;
     std::wstring folder_;
     HANDLE file_ = nullptr;
+    std::wstring path_;   // this run's file of date_
+    std::string date_;
 };
 
 std::string today() {

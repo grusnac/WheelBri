@@ -117,9 +117,9 @@ powershell -ExecutionPolicy Bypass -File driver\hide\install-hide.ps1 -Devices 3
 ```
 
 Remove: `driver\hide\uninstall-hide.ps1` (those devices go back to Windows' own setup). Logs (in
-`%LOCALAPPDATA%\wheelbri\logs`, with every other log): `wheelbri-hide-<date>.log` (which programs were refused) and
+`%LOCALAPPDATA%\wheelbri\logs`, with every other log): `wheelbri-hide-<date>-<NN>.log` (which programs were refused) and
 `wheelbri-hide-install-<date>.log`. The window lists rig devices the filter is not running on.  Stop the service with
-Ctrl+C (close the game and Steam first). Driver log: `wheelbri-driver-<date>.log` in the same folder.
+Ctrl+C (close the game and Steam first). Driver log: `wheelbri-driver-<date>-<NN>.log` in the same folder.
 
 Both drivers run as LocalService. The app (as Administrator) lets LocalService write in the user's
 `%LOCALAPPDATA%\wheelbri\logs` and names it in `HKLM\SOFTWARE\wheelbri` `LogFolder`, which the drivers read for every

@@ -33,15 +33,16 @@ struct TelemetrySample {
 };
 
 // Local recording of everything that passes through the service, for tuning and debugging after a drive.
-// Nothing leaves the PC. One pair of log files per day (local time), shared by every session of that day, in the same
-// line format as the other logs ("[date time] [info ] [component] message"), the message being key=value pairs:
+// Nothing leaves the PC. One pair of log files per run of the program and day (local time; NN is the run's number,
+// the same as its own log's, LogFiles.hpp), shared by every session of that run, in the same line format as the other
+// logs ("[date time] [info ] [component] message"), the message being key=value pairs:
 //
-//  telemetry-YYYY-MM-DD.log   a line every 1/rate_hz: the physical wheel (raw axes, buttons, hat), the mapped
-//                             state, what the emulated wheel reports to the game, the game's force feedback per
-//                             slot in use (requested -> sent to the wheel) and loop timing.
-//  ffb-YYYY-MM-DD.log         a line per force feedback change the game sent (every SlotState / StopAll packet,
-//                             keep-alives are only counted), with every effect parameter; and a line per call made
-//                             to the wheel (kind=wheel_*: wait_us, call_us), the delay to the rim.
+//  telemetry-YYYY-MM-DD-NN.log  a line every 1/rate_hz: the physical wheel (raw axes, buttons, hat), the mapped
+//                               state, what the emulated wheel reports to the game, the game's force feedback per
+//                               slot in use (requested -> sent to the wheel) and loop timing.
+//  ffb-YYYY-MM-DD-NN.log        a line per force feedback change the game sent (every SlotState / StopAll packet,
+//                               keep-alives are only counted), with every effect parameter; and a line per call made
+//                               to the wheel (kind=wheel_*: wait_us, call_us), the delay to the rim.
 //
 // With [telemetry] only_changes (default) a telemetry line is written only when one of the wheel, mapped,
 // game-facing or force feedback values changed (checked rate_hz times a second), plus one line every

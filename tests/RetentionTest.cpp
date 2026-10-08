@@ -31,6 +31,8 @@ TEST(LocalDate, StartOfDayIsLocalMidnight) {
 TEST(LocalDate, FindsDatesInFileNames) {
     EXPECT_EQ(findDate("telemetry-2026-09-30.csv"), "2026-09-30");
     EXPECT_EQ(findDate("wheelbri-service-2026-09-30.log"), "2026-09-30");
+    EXPECT_EQ(findDate("wheelbri-service-2026-09-30-03.log"), "2026-09-30");   // numbered per run
+    EXPECT_EQ(findDate("telemetry-2026-09-30-12.log.xz"), "2026-09-30");
     EXPECT_EQ(findDate("telemetry-20260930-142501.csv"), "2026-09-30");  // format 1 names
     EXPECT_EQ(findDate("wheelbri-service.1.log"), std::nullopt);
     EXPECT_EQ(findDate("x-2026-13-01.log"), std::nullopt);

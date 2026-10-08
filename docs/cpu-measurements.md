@@ -11,7 +11,7 @@ packets (`state_rate_hz`) cuts it?
 **Setup:** branch `main` (with thread names and the `measure.ps1` fix), virtual device (G920 driver + hide filter in one
 `WUDFHost.exe`), NFS 2015 in its menu, hands off, about 4 to 9 minutes per round, `state_rate_hz` changed in the
 user's `my-g920-virtual-device.ini` between rounds. Packets a second = the service's `packet #` at Stop divided by the
-session's length (Start to Stop, `wheelbri-service-<date>.log`).
+session's length (Start to Stop, `wheelbri-service-<date>-<NN>.log`).
 
 | Round (perf log) | `state_rate_hz` | Packets a second | Receiver thread avg / peak | Driver host total | wheelbri.exe (loop) |
 |---|---|---|---|---|---|

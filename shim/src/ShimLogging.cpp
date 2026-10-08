@@ -94,8 +94,8 @@ std::optional<std::string> asciiFolder(std::wstring folder) {
 }
 
 // Next to the service's logs and telemetry (%LOCALAPPDATA%\wheelbri\logs), so every file is in one folder
-// that the service's window shows and its [retention] settings clean up. One file per day:
-// wheelbri-shim-YYYY-MM-DD.log. Falls back to the DLL's folder if LOCALAPPDATA is not set.
+// that the service's window shows and its [retention] settings clean up. One file per run of the game (and day):
+// wheelbri-shim-YYYY-MM-DD-NN.log (LogFiles.hpp). Falls back to the DLL's folder if LOCALAPPDATA is not set.
 std::string logFilePath() {
     wchar_t localAppData[MAX_PATH] = {};
     const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
