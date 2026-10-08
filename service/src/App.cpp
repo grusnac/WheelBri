@@ -724,8 +724,10 @@ private:
     void collectSession() {
         if (const auto info = host_.newSession(seenGeneration_)) {
             info_ = info;
-            const std::optional<MappingView::Tab> previousTab =
-                view_ != nullptr ? std::optional(view_->tab()) : std::nullopt;
+            // A flag and a value rather than std::optional: GCC 12 warns that an optional enum "may be used
+            // uninitialized" here (a false alarm; the Steam Deck build may use any GCC).
+            const bool hadView = view_ != nullptr;
+            const MappingView::Tab previousTab = hadView ? view_->tab() : MappingView::Tab::Logs;
             view_.reset();   // before its profile goes
             profile_ = makeProfile(info->targetProfile);
             if (profile_ != nullptr) {
@@ -738,7 +740,7 @@ private:
                 view_->setShimMode(!sessionGame_.empty());
                 // Start: the tab showing while it came up (the logs, unless changed); the wheel back after a loss:
                 // the tab that was showing.
-                view_->setTab(previousTab                       ? *previousTab
+                view_->setTab(hadView                           ? previousTab
                               : idleTab_ == IdleTab::Mapping   ? MappingView::Tab::Mapping
                               : idleTab_ == IdleTab::Setup     ? MappingView::Tab::WheelSetup
                                                                : MappingView::Tab::Logs);

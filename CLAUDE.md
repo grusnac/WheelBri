@@ -546,7 +546,12 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
   the Mapping tab switches); the shim ships in `shim\`. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
   driver scripts and the app's `ensureHideFilter` look there. Only Windows' own tools: no third-party installer.
   When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.
-- `scripts/`: `telemetry_summary.sh` (bash + awk, reads telemetry columns by name); `linux/` (start/stop and Steam launch wrapper `wheelbri.sh`, udev rules,
+- `scripts/`: `telemetry_summary.sh` (bash + awk, reads telemetry columns by name); `linux/` (`deck-setup.sh` makes the
+  `wheelbri-build` distrobox container: Arch Linux (SteamOS is Arch underneath) from pacman (base-devel, cmake, ninja,
+  git, libx11, mingw-w64-gcc), pinned through the Arch Linux Archive to the day Arch still had SteamOS's glibc
+  version, so its programs load on SteamOS; `deck-build.sh` builds, tests and installs into `~/wheelbri` from a git
+  checkout on the Deck (it refuses a container whose glibc is newer than SteamOS's). Its GCC and CMake are recent
+  Arch ones: keep the code warning-free with them; start/stop and Steam launch wrapper `wheelbri.sh`, udev rules,
   `package.sh` bundle).
 - `config/`: `g920-virtual-device.ini`, `g920-in-game-shim.ini` (service: the target and its default mapping),
   `wheelbri-shim.ini` (shim).
