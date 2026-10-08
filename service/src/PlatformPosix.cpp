@@ -14,6 +14,7 @@
 #include <time.h>
 #include <unistd.h>
 #if defined(__linux__)
+#include <sys/inotify.h>
 #include <sys/syscall.h>
 #endif
 
@@ -21,6 +22,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <thread>
 
@@ -97,8 +99,8 @@ const std::string& WaitSet::failureText() const { return impl_->failure; }
 void nameThisThread(const char* const name) {
 #if defined(__linux__)
     if (name == nullptr) return;
-    char shortName[16] = {};   // the kernel keeps 15 characters and the end
-    std::strncpy(shortName, name, sizeof(shortName) - 1);
+    char shortName[16] = {};   // the kernel keeps 15 characters and the end: longer names are cut on purpose
+    std::memcpy(shortName, name, std::min(std::strlen(name), sizeof(shortName) - 1));
     pthread_setname_np(pthread_self(), shortName);
 #else
     (void)name;
@@ -256,5 +258,38 @@ void ChildProcess::kill() {
     impl_->running = false;
     impl_->exitCode = 128 + SIGKILL;
 }
+
+// --- DeviceChanges: inotify on /dev/input (Linux) ---
+
+namespace detail {
+
+bool watchDeviceChanges(std::function<void()> onChange) {
+#if defined(__linux__)
+    // An event device appearing or going, or becoming readable once udev has set its permissions.
+    const int fd = inotify_init1(IN_CLOEXEC);
+    if (fd < 0) return false;
+    if (inotify_add_watch(fd, "/dev/input", IN_CREATE | IN_DELETE | IN_ATTRIB | IN_MOVED_TO | IN_MOVED_FROM) < 0) {
+        ::close(fd);
+        return false;
+    }
+    // Blocks in read until something changes; runs as long as the process (DeviceChanges is never destroyed).
+    std::thread([fd, onChange = std::move(onChange)] {
+        nameThisThread("wheelbri device changes");
+        alignas(inotify_event) char buffer[4096];
+        for (;;) {
+            const ssize_t got = ::read(fd, buffer, sizeof(buffer));
+            if (got < 0 && errno == EINTR) continue;
+            if (got <= 0) return;   // the descriptor is broken: the safety listing still runs
+            onChange();
+        }
+    }).detach();
+    return true;
+#else
+    (void)onChange;
+    return false;
+#endif
+}
+
+}  // namespace detail
 
 }  // namespace wheelbri::service::platform

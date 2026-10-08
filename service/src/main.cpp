@@ -1436,9 +1436,16 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
                     config.sourceDeviceMatch, wait.timeoutMs / 1000);
         std::uint64_t waitedMs = 0;
         if (host != nullptr) host->step("waiting for the wheel (up to " + std::to_string(wait.timeoutMs / 1000) + " s)");
+        // Each check of the wheel at once when Windows says a device came (else every 250 ms, for Stop as well).
+        platform::DeviceChanges& changes = platform::DeviceChanges::shared();
         const wheelbri::WaitOutcome outcome = wheelbri::waitFor(
             wait, [&] { return wheelbri::service::wheelConnected(*backend, config.sourceDeviceMatch); }, cancelled,
-            [](const std::uint64_t ms) { platform::sleepMs(static_cast<std::uint32_t>(ms)); }, &waitedMs);
+            [&changes](const std::uint64_t ms) {
+                const std::uint64_t start = platform::nowMs();
+                (void)changes.waitForChange(changes.count(), ms);
+                return platform::nowMs() - start;
+            },
+            &waitedMs);
         if (host != nullptr) host->step({});
         if (outcome == wheelbri::WaitOutcome::Cancelled) {
             WE_LOG_INFO(log(), "stopped while waiting for the wheel");

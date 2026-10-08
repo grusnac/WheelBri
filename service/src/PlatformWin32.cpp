@@ -12,11 +12,13 @@
 
 #include <winsock2.h>   // before windows.h; AF_INET for the UDP table
 #include <windows.h>
+#include <cfgmgr32.h>
 #include <iphlpapi.h>
 #include <mmsystem.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <functional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -599,5 +601,49 @@ void ChildProcess::kill() {
     (void)poll();
     impl_->running = false;
 }
+
+// --- DeviceChanges: Windows' notifications of HID device interfaces coming and going ---
+
+namespace {
+
+// GUID_DEVINTERFACE_HID (hidclass.h), spelled out so no GUID has to be instantiated here.
+constexpr GUID kHidInterfaces = {0x4d1e55b2, 0xf16f, 0x11cf, {0x88, 0xcb, 0x00, 0x11, 0x11, 0x00, 0x00, 0x30}};
+
+// Called by Windows on a thread of its own: only counts (DeviceChanges), never lists or waits here.
+DWORD CALLBACK onHidInterfaceChange(HCMNOTIFICATION, PVOID context, const CM_NOTIFY_ACTION action,
+                                    PCM_NOTIFY_EVENT_DATA, DWORD) {
+    if (action == CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL || action == CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL) {
+        (*static_cast<const std::function<void()>*>(context))();
+    }
+    return ERROR_SUCCESS;
+}
+
+}  // namespace
+
+namespace detail {
+
+bool watchDeviceChanges(std::function<void()> onChange) {
+    // CM_Register_Notification (Windows 8 and later) is looked up: not every SDK's cfgmgr32.h declares it (MinGW's).
+    using Register = CONFIGRET(WINAPI*)(PCM_NOTIFY_FILTER, PVOID, PCM_NOTIFY_CALLBACK, PHCMNOTIFICATION);
+    const HMODULE library = LoadLibraryExW(L"cfgmgr32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (library == nullptr) return false;
+    const auto registerNotification =
+        reinterpret_cast<Register>(reinterpret_cast<void*>(GetProcAddress(library, "CM_Register_Notification")));
+    if (registerNotification == nullptr) return false;
+    CM_NOTIFY_FILTER filter{};
+    filter.cbSize = sizeof(filter);
+    filter.FilterType = CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE;
+    filter.u.DeviceInterface.ClassGuid = kHidInterfaces;
+    // Kept, as the registration, for the life of the process (DeviceChanges is never destroyed).
+    auto* const context = new std::function<void()>(std::move(onChange));
+    HCMNOTIFICATION handle = nullptr;
+    if (registerNotification(&filter, context, onHidInterfaceChange, &handle) != CR_SUCCESS) {
+        delete context;
+        return false;
+    }
+    return true;
+}
+
+}  // namespace detail
 
 }  // namespace wheelbri::service::platform

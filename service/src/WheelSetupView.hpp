@@ -3,6 +3,7 @@
 #include "UiWindow.hpp"
 #include "Wheel.hpp"
 
+#include "wheelbri/RelistTimer.hpp"
 #include "wheelbri/Rig.hpp"
 #include "wheelbri/WheelState.hpp"
 
@@ -143,7 +144,9 @@ private:
     std::unique_ptr<WheelBackend> backend_;
     std::vector<WheelInfo> connected_;
     std::vector<Open> open_;
-    std::uint64_t devicesListedMs_ = 0;
+    // When to list the game controllers again: when the system says one came or went (platform::DeviceChanges).
+    [[nodiscard]] static RelistTimer::Settings relistSettings();
+    RelistTimer relist_{relistSettings()};
     bool listLogged_ = false;
     bool fromSession_ = false;
     WheelInfo sessionInfo_;

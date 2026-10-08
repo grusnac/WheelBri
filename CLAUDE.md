@@ -170,7 +170,7 @@ of the tab bar, a short status and then Start and Stop, as tall as
 the tab buttons (which are as wide as their labels, `MappingView::tabWidth`, so five tabs leave room for them). Stopped, Start is greyed out until
 every rig device the saved mapping uses is connected (core `StartNeeds`: the wheel and the accessories the mapping
 reads; "NO RIG" without a rig, "NO MAPPING" when not one of the target's controls comes from a device of the rig,
-`mappingUsesRig`; those two come first in the status; `service/src/DeviceWatch.cpp` lists the game controllers every 2 s on its own thread), and the status says
+`mappingUsesRig`; those two come first in the status; `service/src/DeviceWatch.cpp` lists the game controllers on its own thread when Windows says one came or went: `platform::DeviceChanges`, `CM_Register_Notification` on HID interfaces / inotify on `/dev/input`, timed by core `RelistTimer`, with a listing every 30 s as a safety net and every 2 s where there are no notifications; the Rig tab and the session's wait for the wheel use the same), and the status says
 "NOT CONNECTED: <names>" or "NO RIG" in red. `WheelBackend::list()` on Windows makes a new DirectInput object each
 time, so a wheel switched on after the app started is found. Stopped, the app's own tabs are Mapping (`MappingEditView`,
 the editor, with `ConfigPicker` as its top row), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its

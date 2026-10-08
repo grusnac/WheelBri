@@ -39,7 +39,6 @@ constexpr Colour kCentre{160, 164, 172};
 constexpr int kAxes = static_cast<int>(RawInputState::kMaxAxes);
 constexpr int kButtons = static_cast<int>(MapperConfig::kMaxSourceButtons);
 constexpr std::size_t kMaxDeviceName = 40;
-constexpr std::uint64_t kListEveryMs = 2000;   // looks for devices plugged in or out this often
 constexpr float kTrigger = 0.5F;               // Detect: an axis this far from where it rested has been moved
 constexpr float kBack = 0.15F;                 // ...and is armed again once back this close
 constexpr int kSettleFrames = 20;              // about a third of a second of reads before the rest is taken
@@ -122,16 +121,24 @@ void WheelSetupView::releaseWheel() {
     open_.clear();
     backend_.reset();
     connected_.clear();
-    devicesListedMs_ = 0;
+    relist_ = RelistTimer(relistSettings());
     listLogged_ = false;
 }
 
+RelistTimer::Settings WheelSetupView::relistSettings() {
+    return platform::DeviceChanges::shared().available() ? RelistTimer::Settings{}
+                                                         : RelistTimer::Settings::withoutNotifications();
+}
+
 bool WheelSetupView::refreshDevices(const bool force) {
-    if (!force && devicesListedMs_ != 0 && platform::nowMs() - devicesListedMs_ < kListEveryMs) return false;
+    // Only when a device came or went (a quick look at a counter on every frame), not every 2 s: listing through
+    // DirectInput can hold this window's thread for a good part of a second.
+    const std::uint64_t changes = platform::DeviceChanges::shared().count();
+    if (!force && !relist_.due(platform::nowMs(), changes)) return false;
     if (backend_ == nullptr) {
         backend_ = startWheelBackend();
         if (backend_ == nullptr) {
-            devicesListedMs_ = platform::nowMs();
+            relist_.listed(platform::nowMs(), changes);   // tried again at the next change, or 30 s on
             status_ = "Cannot read game controllers on this computer (the log says why).";
             statusError_ = true;
             return false;
@@ -140,7 +147,7 @@ bool WheelSetupView::refreshDevices(const bool force) {
     }
     std::vector<WheelInfo> found = backend_->list();
     // The time is taken after listing: DirectInput can take a good part of a second to list.
-    devicesListedMs_ = platform::nowMs();
+    relist_.listed(platform::nowMs(), changes);
     if (found.size() != connected_.size() || !listLogged_) {
         listLogged_ = true;
         std::string names;
@@ -604,7 +611,7 @@ void WheelSetupView::draw() {
     hits_.clear();
     drawHeader();
     if (shown_.empty()) {
-        window_.text(4, kAxesTop, "Plug in your wheel, pedals, shifter or button box: they show up here within two seconds.",
+        window_.text(4, kAxesTop, "Plug in your wheel, pedals, shifter or button box: they show up here at once.",
                      kText);
         if (!status_.empty()) window_.text(4, kAxesTop + 20, fit(status_, 118), statusError_ ? kWarning : kActive);
         if (popup_ == Popup::NewRig || popup_ == Popup::RenameRig) drawNamePopup();

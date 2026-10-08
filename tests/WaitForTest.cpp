@@ -2,17 +2,22 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 namespace wheelbri {
 namespace {
 
-// A clock that only moves when the wait sleeps.
+// A clock that only moves when the wait sleeps; a sleep can be cut short (`wakeAfterMs`, a device arriving).
 struct FakeClock {
     std::uint64_t nowMs = 0;
     int sleeps = 0;
-    std::function<void(std::uint64_t)> sleep() {
+    std::uint64_t wakeAfterMs = 0;   // 0: every sleep runs its full time
+    std::function<std::uint64_t(std::uint64_t)> sleep() {
         return [this](const std::uint64_t ms) {
-            nowMs += ms;
+            const std::uint64_t slept = wakeAfterMs != 0 ? std::min(ms, wakeAfterMs) : ms;
+            nowMs += slept;
             ++sleeps;
+            return slept;
         };
     }
 };
@@ -61,6 +66,30 @@ TEST(WaitFor, ReadyWinsOverCancelledAtTheSameMoment) {
     // ends it right after.
     FakeClock clock;
     EXPECT_EQ(waitFor({}, [] { return true; }, [] { return true; }, clock.sleep()), WaitOutcome::Ready);
+}
+
+TEST(WaitFor, OnlyTheTimeReallyWaitedCountsTowardsTheTimeout) {
+    // Device changes cut every sleep to 10 ms: the wait still lasts its full second, asking more often.
+    FakeClock clock;
+    clock.wakeAfterMs = 10;
+    int asked = 0;
+    std::uint64_t waited = 0;
+    EXPECT_EQ(waitFor({1'000, 250}, [&] { ++asked; return false; }, [] { return false; }, clock.sleep(), &waited),
+              WaitOutcome::TimedOut);
+    EXPECT_EQ(waited, 1'000U);
+    EXPECT_EQ(clock.nowMs, 1'000U);
+    EXPECT_EQ(asked, 101);
+}
+
+TEST(WaitFor, ASleepThatEndsAtOnceStillMovesOn) {
+    FakeClock clock;
+    int sleeps = 0;
+    std::uint64_t waited = 0;
+    const auto outcome = waitFor({100, 50}, [] { return false; }, [] { return false; },
+                                 [&](std::uint64_t) -> std::uint64_t { ++sleeps; return 0; }, &waited);
+    EXPECT_EQ(outcome, WaitOutcome::TimedOut);
+    EXPECT_EQ(sleeps, 100);   // 1 ms counted each time: it ends
+    EXPECT_EQ(waited, 100U);
 }
 
 TEST(WaitFor, ZeroTimeoutAsksOnce) {

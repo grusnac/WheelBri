@@ -34,6 +34,7 @@ add_executable(wheelbri_tests
     PacingTest.cpp
     PipelineTest.cpp
     PushLoopTest.cpp
+    RelistTimerTest.cpp
     RetentionTest.cpp
     RigTest.cpp
     SenderGateTest.cpp

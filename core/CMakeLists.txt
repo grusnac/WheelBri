@@ -28,6 +28,7 @@ add_library(wheelbri_core STATIC
     src/Pacing.cpp
     src/Mapper.cpp
     src/Pipeline.cpp
+    src/RelistTimer.cpp
     src/Retention.cpp
     src/Rig.cpp
     src/SenderGate.cpp

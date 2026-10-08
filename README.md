@@ -261,7 +261,7 @@ are at the bottom right of every tab, next to the tab buttons (stopped or runnin
 why, in red. While stopped, Start can only be pressed when every device of the rig that the mapping uses (the wheel,
 and each accessory the mapping takes an axis or button from) is connected: otherwise the state says, in red, **NOT
 CONNECTED:** and their names (or **NO RIG** before a rig is set up, **NO MAPPING** when nothing of the rig is mapped onto the G920), and Start is greyed out until they appear (the
-app looks every 2 s). Devices of the rig the mapping does not use do not matter. Start shows the Logs tab of the same live view as `--ui`
+app sees a device the moment Windows does). Devices of the rig the mapping does not use do not matter. Start shows the Logs tab of the same live view as `--ui`
 (axes, buttons, game force feedback, logs: click a line or press O for the folder). **Stop**, or closing the window,
 undoes everything (virtual G920 removed, the R3 visible again).
 Each Start reads the config again, so edits apply without restarting the app. If the wheel is not connected when
