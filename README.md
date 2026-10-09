@@ -35,8 +35,8 @@ Settled with NFS 2015 and an R3 on Windows:
 Still open:
 - Linux/Proton: both ways (Phase 4 and the shim under Proton) are ready to try on a Steam Deck, [docs/linux.md](docs/linux.md)
   (build it on the Deck from a git checkout: `scripts/linux/deck-setup.sh` once, then `deck-build.sh` after each pull);
-- NFS's 20-byte Logitech `Escape` calls are not forwarded (the shim logs their bytes: whether NFS's forces need
-  them is still to be seen in a session's shim log);
+- NFS 2015's 20-byte Logitech `Escape` calls are its rev lights (rpm, first light, redline), not forwarded; the
+  shim's axis audit (`shim.audit`) logs every call that could remap axes and the game's input-related DLLs;
 - effect envelopes (attack / fade) and ramps over time are implemented (`FfbShape.hpp`) and unit-tested, not yet
   felt in a game.
 
@@ -427,7 +427,7 @@ SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelbri-service --con
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.uhid` (the app starting wheelbri-uhid, Linux), `service.hidhide`,
 `service.hide`, `service.helper`, `service.log` (the Level button), `helper`, `helper.pipe`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `service.devices`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
-`shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `tools.uhid` (`wheelbri-uhid`, Linux).
+`shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `shim.audit`, `tools.uhid` (`wheelbri-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelbri/Logging.hpp`)
 - Log through the `WE_LOG_*` macros, never `printf`; `--print` and `--ffb-test` instructions are user interface

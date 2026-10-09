@@ -67,7 +67,8 @@ Status (README.md has the full table):
   throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
 - **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
-  `Escape` calls (not forwarded; the shim logs them).
+  `Escape` calls are Logitech's rev lights (command 0: size 20, version 1, rpm 0..1, first light 0.01, redline 1),
+  not forwarded; no axis remapping call seen (2026-10-04..07 shim logs; the axis audit checks every session).
 - The G920's own FFB is HID++, not the classic Logitech protocol; the virtual G920 exposes HID PID instead.
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`, where the consumer is
@@ -456,6 +457,12 @@ rewrites on every build only when it changes); views keep their own top-row cont
   release) `StateFeed` logs an `input:` line (core `InputReadStats`): how often the game reads (NFS: ~90/s), packets per
   read, reads without new state, reads behind (`UdpLoopbackReceiver::lastPoll().capped`: kMaxPerPoll stopped the
   drain, so older state was handed over) and the shim's own time per read.
+  Axis audit (`shim.audit`, `DeviceAudit` over core `AxisAudit`): every device records what the game asks and sets
+  (first call of each kind logged in full; anything that could remap axes at warn: action maps, `SendDeviceData`,
+  the control panel, calibration and other non-scaling `SetProperty`, any `Escape` except Logitech's rev lights) and
+  logs a summary ("none could remap axes" or what could) at Unacquire, Release, after a minute of reading and every
+  5 minutes. `ModuleWatch` logs the game's DLLs at `DirectInput8Create`, `CreateDevice` and each summary
+  (input-related ones, `isInputModule`: Logitech SDK, hid.dll, XInput, Windows.Gaming.Input, SDL).
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
