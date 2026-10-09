@@ -81,8 +81,8 @@ update brought a newer glibc (your files are not in it).
    tar -xzf wheelbri-linux-x86_64.tar.gz -C ~
    ```
 
-   That gives `~/wheelbri` with `bin/`, `config/`, `wheelbri.sh`, `install-udev-rules.sh`, this file
-   and `dinput8.dll` (for the shim way).
+   That gives `~/wheelbri` with `bin/`, `config/`, `shim/dinput8.dll` (for the shim way), `wheelbri.sh`,
+   `install-udev-rules.sh` and this file.
 2. `sudo` needs a password; if you never set one: `passwd`.
 3. Let your user create the virtual G920, games open it, and the service use the R3:
 

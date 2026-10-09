@@ -4,7 +4,8 @@
 # ~/wheelbri, where wheelbri.sh, the docs (LINUX.md) and Steam's launch option expect it:
 #   ~/wheelbri/bin/       wheelbri (the app), wheelbri-service, wheelbri-uhid
 #   ~/wheelbri/config/    the example configs; one you edited is kept, the new one goes next to it as <name>.new
-#   ~/wheelbri/           wheelbri.sh, install-udev-rules.sh, LINUX.md, dinput8.dll (the shim, for --shim)
+#   ~/wheelbri/shim/      dinput8.dll (the game shim, for --shim and the app's Games panel)
+#   ~/wheelbri/           wheelbri.sh, install-udev-rules.sh, LINUX.md
 # The builds stay in the checkout (build-deck/, build-deck-shim/), so the next one only rebuilds what changed.
 # Then it checks on SteamOS itself (outside the container) that every program finds its libraries.
 #
@@ -103,7 +104,10 @@ if [ "$inside" = 1 ]; then
     done
     cp -f "$root/docs/linux.md" "$prefix/LINUX.md"
     if [ "$shim" = 1 ]; then
-        cp -f "$shim_build/shim/dinput8.dll" "$prefix/dinput8.dll"
+        # In shim/, as in the Windows package: where the app (Games > Add game) and wheelbri.sh look for it.
+        mkdir -p "$prefix/shim"
+        cp -f "$shim_build/shim/dinput8.dll" "$prefix/shim/dinput8.dll"
+        rm -f "$prefix/dinput8.dll"   # where versions before 2026-10-09 put it
     fi
     exit 0
 fi

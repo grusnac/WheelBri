@@ -173,7 +173,10 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
         return result;
     }
     if (!regularFile(sourceDll)) {
-        result.error = "WheelBri's dinput8.dll is missing (" + pathToUtf8(sourceDll) + "): reinstall or build the shim";
+        result.error = "WheelBri's dinput8.dll is missing (" +
+                       (sourceDll.empty() ? std::string("not found in shim/ next to the program")
+                                          : pathToUtf8(sourceDll)) +
+                       "): reinstall or build the shim";
         return result;
     }
     const ShimState state = shimState(folder, sourceDll);

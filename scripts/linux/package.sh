@@ -3,7 +3,8 @@
 #   wheelbri/bin/       wheelbri-service, wheelbri-uhid (C++ runtime linked in; they need only libX11 and
 #                       the kernel: the wheel through evdev, the --ui window through X11/XWayland)
 #   wheelbri/config/    the example configs
-#   wheelbri/           wheelbri.sh, install-udev-rules.sh, LINUX.md, and dinput8.dll for --shim when given
+#   wheelbri/shim/      dinput8.dll for --shim and the app's Games panel, when given
+#   wheelbri/           wheelbri.sh, install-udev-rules.sh, LINUX.md
 #
 # spdlog is always built in (a system one would be a shared library the Deck does not have).
 # usage: scripts/linux/package.sh [--shim path/to/dinput8.dll] [-- more cmake arguments]
@@ -41,7 +42,8 @@ cp "$root"/config/*.ini "$bundle/config/"
 cp "$root/scripts/linux/wheelbri.sh" "$root/scripts/linux/install-udev-rules.sh" "$bundle/"
 cp "$root/docs/linux.md" "$bundle/LINUX.md"
 if [ -n "$shim" ]; then
-    cp "$shim" "$bundle/dinput8.dll"
+    mkdir -p "$bundle/shim"
+    cp "$shim" "$bundle/shim/dinput8.dll"   # in shim/, as in the Windows package: where the app looks for it
 fi
 chmod +x "$bundle"/*.sh "$bundle"/bin/*
 
