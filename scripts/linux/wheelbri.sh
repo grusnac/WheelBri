@@ -117,8 +117,30 @@ uhid_pid=
 own_service=0
 
 # --- the shim in the game's folder (--shim) ---
-# The game's folder: --game-folder, else the folder of the last .exe in Steam's %command% (Proton's command ends with
-# the game's own .exe; the ones before it are Steam's and Proton's programs).
+# The Steam game's install folder from its app id (AppId=N in %command%, else Steam's SteamAppId): the "installdir" of
+# appmanifest_<id>.acf in whichever Steam library holds it (libraryfolders.vdf lists them).
+steam_install_folder() {
+    local id= arg steam lib manifest dir
+    for arg in "${game[@]}"; do
+        case "$arg" in AppId=[0-9]*) id=${arg#AppId=} ;; esac
+    done
+    [ -n "$id" ] || id=${SteamAppId:-}
+    case "$id" in ''|*[!0-9]*) return 0 ;; esac
+    for steam in "$HOME/.local/share/Steam" "$HOME/.steam/steam"; do
+        [ -d "$steam/steamapps" ] || continue
+        while IFS= read -r lib; do   # one library per line (their paths may hold spaces)
+            manifest="$lib/steamapps/appmanifest_$id.acf"
+            [ -f "$manifest" ] || continue
+            dir=$(sed -n 's/^[[:space:]]*"installdir"[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$manifest" | head -1)
+            [ -n "$dir" ] && [ -d "$lib/steamapps/common/$dir" ] && { printf '%s\n' "$lib/steamapps/common/$dir"; return 0; }
+        done < <(printf '%s\n' "$steam"
+                 sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$steam/steamapps/libraryfolders.vdf" 2>/dev/null)
+    done
+}
+
+# The game's folder: --game-folder; else the folder of the last .exe in Steam's %command% (Proton's command ends with
+# the game's own .exe; the ones before it are Steam's and Proton's programs); else, for a game Steam starts through a
+# launcher (NFS 2015: "steam2ea://launchgame/..." through the EA app, no .exe at all), the Steam install folder.
 find_game_folder() {
     if [ -n "$game_folder" ]; then
         printf '%s\n' "$game_folder"
@@ -130,6 +152,7 @@ find_game_folder() {
             *.exe) [ -f "$arg" ] && found=$(dirname "$arg") ;;
         esac
     done
+    [ -n "$found" ] || found=$(steam_install_folder)
     printf '%s\n' "$found"
 }
 
@@ -148,7 +171,7 @@ put_shim() {
     local folder dll ini
     folder=$(find_game_folder)
     if [ -z "$folder" ]; then
-        say "--shim: no game folder (no .exe in the game's command): pass --game-folder DIR, or put dinput8.dll there yourself"
+        say "--shim: no game folder (no .exe and no Steam app id in the game's command): pass --game-folder DIR, or put dinput8.dll there yourself"
         [ ${#game[@]} -gt 0 ] && return 1
         return 0   # from a terminal without a game: the shim may already be in place
     fi

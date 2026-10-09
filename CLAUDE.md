@@ -569,7 +569,8 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
   version, so its programs load on SteamOS; `deck-build.sh` builds, tests and installs into `~/wheelbri` from a git
   checkout on the Deck (it refuses a container whose glibc is newer than SteamOS's). Its GCC and CMake are recent
   Arch ones: keep the code warning-free with them; start/stop and Steam launch wrapper `wheelbri.sh` (`--virtual`, the default, or
-  `--shim`: puts `dinput8.dll` and `wheelbri-shim.ini` into the folder of the `.exe` in `%command%` and takes them out
+  `--shim`: puts `dinput8.dll` and `wheelbri-shim.ini` into the folder of the `.exe` in `%command%`, else the Steam
+  install folder of its `AppId=` (NFS 2015 starts as `steam2ea://...` through the EA app, no `.exe`), and takes them out
   when the game ends, `--keep-shim` leaves them for testing, `--virtual` takes a leftover out; never touches another
   mod's `dinput8.dll`, the same rule as `ShimGames`), udev rules,
   `package.sh` bundle).

@@ -114,8 +114,12 @@ and stops both when it ends (`--virtual` says the same explicitly). For the shim
 /home/deck/wheelbri/wheelbri.sh --shim %command%
 ```
 
-`--shim` puts `dinput8.dll` and `wheelbri-shim.ini` into the game's folder (the folder of the `.exe` at the end of
-`%command%`; `--game-folder DIR` names another) before the game starts and takes them out when it ends. For
+`--shim` puts `dinput8.dll` and `wheelbri-shim.ini` into the game's folder before the game starts and takes them
+out when it ends. The folder is the one of the `.exe` at the end of `%command%`; a game Steam starts through a
+launcher has none (NFS 2015 starts as `steam2ea://launchgame/1262540...`, through the EA app), so then it is the
+game's Steam install folder, found from its app id (`AppId=` in `%command%`) in Steam's libraries. `--game-folder
+DIR` names another. With the EA app, Proton may count the game as running until the EA app closes too, so the shim
+can stay in the folder a little longer than the game. For
 testing, `--keep-shim` leaves them there; the next `--virtual` start takes them out again, so the game then finds
 only the virtual G920. Only WheelBri's files are touched: a `dinput8.dll` of another mod (not ours, and no
 `wheelbri-shim.ini` next to it) makes `--shim` stop before starting anything, and a `wheelbri-shim.ini` with your
