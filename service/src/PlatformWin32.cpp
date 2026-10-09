@@ -15,6 +15,7 @@
 #include <cfgmgr32.h>
 #include <iphlpapi.h>
 #include <mmsystem.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -368,6 +369,23 @@ std::filesystem::path processImageWithoutOpening(const std::uint32_t pid) {
 }
 
 }  // namespace
+
+std::vector<std::string> runningPrograms() {
+    std::vector<std::string> programs;
+    const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return programs;
+    PROCESSENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    for (BOOL more = Process32FirstW(snapshot, &entry); more != FALSE; more = Process32NextW(snapshot, &entry)) {
+        const int length = WideCharToMultiByte(CP_UTF8, 0, entry.szExeFile, -1, nullptr, 0, nullptr, nullptr);
+        if (length <= 1) continue;
+        std::string name(static_cast<std::size_t>(length - 1), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, entry.szExeFile, -1, name.data(), length, nullptr, nullptr);
+        programs.push_back(std::move(name));
+    }
+    CloseHandle(snapshot);
+    return programs;
+}
 
 std::filesystem::path processImage(const std::uint32_t pid) {
     tImageError.clear();

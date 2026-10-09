@@ -51,6 +51,7 @@ struct UiFrame {
     std::uint64_t wheelLostMs = 0;                // > 0: the wheel is gone, waiting this long for it to come back
     bool gameIgnoresWheel = false;                // pedals pressed, but the game never used the emulated wheel
     bool gameFfbIdle = false;                     // the game loaded force feedback, started none while you drive
+    std::string game;                             // the known game running (KnownGames.hpp), empty when none
 };
 
 // UiHost::step while the hide filter is put on the rig for the first time (once per installation, ~10-40 s): the app

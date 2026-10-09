@@ -25,6 +25,7 @@ add_library(wheelbri_core STATIC
     src/HidPid.cpp
     src/IniDocument.cpp
     src/IniEditor.cpp
+    src/KnownGames.cpp
     src/InputReadStats.cpp
     src/LiveLog.cpp
     src/LocalDate.cpp
@@ -34,6 +35,7 @@ add_library(wheelbri_core STATIC
     src/MappingEdit.cpp
     src/Pacing.cpp
     src/Mapper.cpp
+    src/PedalLayout.cpp
     src/Pipeline.cpp
     src/RelistTimer.cpp
     src/Retention.cpp

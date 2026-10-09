@@ -3,6 +3,8 @@
 
 #include "Platform.hpp"
 
+#include "wheelbri/KnownGames.hpp"
+
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -13,6 +15,7 @@
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 namespace wheelbri::service::platform {
 namespace {
@@ -204,6 +207,17 @@ TEST(PlatformPosix, RaisingThePriorityEitherWorksOrSaysWhy) {
             EXPECT_FALSE(error.empty());
         }
     }).join();
+}
+
+// KnownGames reads the running programs: this test program is among them, by the first word of its command line.
+TEST(PlatformPosix, RunningProgramsListsThisOne) {
+    const std::vector<std::string> programs = runningPrograms();
+    ASSERT_FALSE(programs.empty());
+    bool found = false;
+    for (const std::string& program : programs) {
+        found = found || programName(program) == "wheelbri_tests";
+    }
+    EXPECT_TRUE(found);
 }
 
 }  // namespace

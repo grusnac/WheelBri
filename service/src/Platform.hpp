@@ -125,6 +125,11 @@ void nameThisThread(const char* name);
 // Windows: the process that owns IPv4 UDP port `port` (bound to 127.0.0.1 or any address): its id, 0 when no process
 // owns it (any more), nullopt when the system could not say. Elsewhere always nullopt. For SenderGate.
 [[nodiscard]] std::optional<std::uint32_t> udpPortOwner(std::uint16_t port);
+// The programs running now, one entry per process: the program's file name on Windows ("NFS16.exe"); on Linux the
+// first word of each process's command line (a Wine game's is its Windows path, "Z:\games\NFS16.exe"), else its
+// name. For KnownGames: a few milliseconds, never on the service loop. Empty if the system could not say.
+[[nodiscard]] std::vector<std::string> runningPrograms();
+
 // Windows: the full path of process `pid`'s program; empty when it cannot be read (and on other systems).
 [[nodiscard]] std::filesystem::path processImage(std::uint32_t pid);
 // Why the last processImage() on this thread could not open or read the process (also when the fallback by id then

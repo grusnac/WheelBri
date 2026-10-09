@@ -54,6 +54,38 @@ TEST(Pipeline, MapsEncodesAndPublishesEachTick) {
     EXPECT_EQ(pipeline.lastReport(), publisher.packets[1].report);
 }
 
+// The game's pedal layout moves the pedals of what is published; the window and telemetry keep the mapped pedals.
+TEST(Pipeline, PedalLayoutMovesOnlyThePublishedPedals) {
+    FakeSource source;
+    RecordingPublisher publisher;
+    MapperConfig config;
+    config.throttle.sourceAxis = 1;
+    config.brake.sourceAxis = 2;
+    const Mapper mapper(config);
+    const DeviceProfile profile(g920Spec());
+    Pipeline pipeline(source, mapper, profile, publisher);
+    EXPECT_EQ(pipeline.pedalLayout(), PedalLayout::Logitech);   // a real G920 until a game says otherwise
+
+    source.next.axes[1] = 1.0F;    // throttle fully pressed
+    source.next.axes[2] = -1.0F;   // brake released
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report, pipeline.lastReport());
+
+    pipeline.setPedalLayout(PedalLayout::Nfs2015);
+    ASSERT_TRUE(pipeline.tick());
+    const TargetReport& sent = publisher.packets.back().report;
+    const TargetReport& mapped = pipeline.lastReport();
+    EXPECT_EQ(mapped.throttle, 0);                 // as mapped: the throttle pressed
+    EXPECT_EQ(sent.clutch, mapped.throttle);       // NFS 2015 reads the throttle from the Slider (clutch field)
+    EXPECT_EQ(sent.throttle, mapped.brake);        // and the brake from Y (throttle field)
+    EXPECT_EQ(sent.brake, mapped.clutch);          // and the clutch from Rz (brake field)
+    EXPECT_EQ(sent.steering, mapped.steering);
+
+    pipeline.setPedalLayout(PedalLayout::Logitech);
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report, pipeline.lastReport());
+}
+
 TEST(Pipeline, LimitedSendingPublishesOnlyChangesAndKeepAlives) {
     FakeSource source;
     RecordingPublisher publisher;

@@ -8,6 +8,7 @@
 #include "ServiceLogging.hpp"
 #include "ShimGamesView.hpp"
 #include "UiWindow.hpp"
+#include "Version.hpp"
 #include "WheelSetupView.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
@@ -795,9 +796,16 @@ private:
             drawIdleTabs();
         }
         drawControls();   // every tab
+        drawVersion();
         if (games_->panelOpen()) games_->drawPanel();
         if (popup_) drawPopup();
         window_->present();
+    }
+
+    // The version and the commit it was built from, in the top-right corner of every tab (Version.hpp).
+    void drawVersion() {
+        static const std::string version = buildVersion();
+        window_->text(kWidth - 4 - static_cast<float>(version.size()) * ui::kCharWidth, 6, version, kDim);
     }
 
     // The controls at the tab bar's right end, on every tab: the status, Start, Stop; the games row on the Mapping tab.
@@ -840,6 +848,9 @@ private:
             case State::Running:
                 status = "Running " + clock((now - runningSince_) / platform::kNsPerSecond);
                 colour = kActive;
+                if (const auto frame = host_.latest(); frame && !frame->game.empty()) {
+                    status += ", " + frame->game;   // the known game detected (KnownGames.hpp): its pedal layout
+                }
                 if (const auto frame = host_.latest(); frame && frame->wheelLostMs > 0) {
                     status = "WHEEL LOST " + clock(frame->wheelLostMs / 1000);
                     colour = kWarning;

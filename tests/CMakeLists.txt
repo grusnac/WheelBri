@@ -40,6 +40,7 @@ add_executable(wheelbri_tests
     MapperTest.cpp
     MappingEditTest.cpp
     PacingTest.cpp
+    PedalLayoutTest.cpp
     PipelineTest.cpp
     PushLoopTest.cpp
     RelistTimerTest.cpp

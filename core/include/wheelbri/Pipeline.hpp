@@ -4,9 +4,11 @@
 #include "wheelbri/Devices.hpp"
 #include "wheelbri/Mapper.hpp"
 #include "wheelbri/Pacing.hpp"
+#include "wheelbri/PedalLayout.hpp"
 #include "wheelbri/UdpLoopback.hpp"
 
 #include <array>
+#include <atomic>
 #include <optional>
 
 namespace wheelbri {
@@ -26,6 +28,11 @@ public:
     // publishes (the tests).
     void limitSending(const std::uint64_t minIntervalNs) { gate_.emplace(minIntervalNs); }
 
+    // Where the published state puts the pedals for the game that runs (PedalLayout.hpp; KnownGames.hpp detects it).
+    // Safe from another thread; the next tick uses it. lastReport() stays as mapped (the user's pedals).
+    void setPedalLayout(const PedalLayout layout) { pedalLayout_.store(layout, std::memory_order_relaxed); }
+    [[nodiscard]] PedalLayout pedalLayout() const { return pedalLayout_.load(std::memory_order_relaxed); }
+
     // Returns false once the wheel or an accessory is gone (lostDevice() says which). `clutchOverride` (0..1 pressed), when set, replaces the
     // mapped clutch: the test clutch while no clutch pedal is connected. `nowNs`: monotonic time, for limitSending.
     bool tick(std::optional<float> clutchOverride = std::nullopt, std::uint64_t nowNs = 0);
@@ -37,7 +44,8 @@ public:
     // The device that stopped delivering (0 = the wheel), after tick() returned false.
     [[nodiscard]] int lostDevice() const { return lostDevice_; }
     [[nodiscard]] const WheelState& lastState() const { return state_; }
-    [[nodiscard]] const TargetReport& lastReport() const { return packet_.report; }
+    // The mapped target report, before the game's pedal layout moved its pedals (what the window and telemetry show).
+    [[nodiscard]] const TargetReport& lastReport() const { return report_; }
     [[nodiscard]] std::uint32_t sequence() const { return packet_.sequence; }   // packets published
     [[nodiscard]] const StateSendGate* sendGate() const { return gate_ ? &*gate_ : nullptr; }
     [[nodiscard]] std::uint64_t publishFailures() const { return publishFailures_; }
@@ -53,7 +61,9 @@ private:
     int lostDevice_ = -1;
     bool inputChanged_ = false;
     WheelState state_;
+    TargetReport report_;
     StatePacket packet_;
+    std::atomic<PedalLayout> pedalLayout_{PedalLayout::Logitech};
     std::uint64_t publishFailures_ = 0;
     std::optional<StateSendGate> gate_;
 };

@@ -60,10 +60,11 @@ Status (README.md has the full table):
   damper, sine, square), and the virtual G920 with our own UMDF driver (Phase 5).
 - **Settled**: NFS finds wheels through `DirectInput8Create` (A and W) and reads `c_dfDIJoystick2`, pedals released
   at the top of the range. The emulated G920 (driver, shim, uhid) reports pedals as a real G920 on Windows: wheel X,
-  throttle Y, brake Rz, clutch Slider (NFS Unbound reads them so; NFS 2015 with this layout: retest pending, it was
-  tested with throttle Slider, brake Y, clutch Rz). One layout for every game, never one per game. The tested
-  wheel's axes as the service numbers them: steering 0, throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked
-  from telemetry).
+  throttle Y, brake Rz, clutch Slider (NFS Unbound reads them so). Games that read a G920's pedals elsewhere are
+  detected, not configured: the service looks at the running programs every 2 s (`KnownGames`) and moves the
+  published pedals (`PedalLayout`); NFS 2015 (`NFS16.exe`) reads brake Y, clutch Rz, throttle Slider (2026-10-09).
+  The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
+  throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
 - **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
   `Escape` calls (not forwarded; the shim logs them).
@@ -197,6 +198,9 @@ own from Start / Stop buttons; sessions show themselves through `UiHost` (`Sessi
 or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it does not own. The window is drawn
 60 times a second (`kWindowFramesPerSecond` in `WakePlanner.hpp`; at once after input), on a drift-free schedule: the
 user found 30 laggy (2026-10-08). The session loop hands the window its state as often (`WakeSettings::windowNs`).
+Every tab shows the build in its top-right corner (`Version.hpp`: `WHEELBRI_VERSION` and `WHEELBRI_BUILD`, the git
+commit with `+` for uncommitted changes, from `build/service/generated/BuildInfo.hpp`, which `cmake/BuildInfo.cmake`
+rewrites on every build only when it changes); views keep their own top-row controls left of `kVersionReserve`.
 
 ## Layout and architecture
 
@@ -247,6 +251,13 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
     handed out, the game gone quiet).
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
     spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
+  - `PedalLayout` / `KnownGames`: where a game reads the G920's pedals, and the games known by their program
+    (`nfs16.exe` = NFS 2015: brake Y, clutch Rz, throttle Slider; the NFS Payback, Heat and Unbound programs and any
+    other game: a real G920's throttle Y, brake Rz, clutch Slider). The service's window thread calls
+    `platform::runningPrograms()` every 2 s and `Pipeline::setPedalLayout` (atomic; the loop applies it to the published
+    packet, `lastReport()` stays as mapped); every change is logged ("game: NFS 2015 (nfs16.exe) runs: pedal layout
+    NFS 2015") and the app's status says "Running 1:23, NFS 2015". A game that reads a G920 differently is a new row
+    in `KnownGames.cpp` (and a layout if none fits), never a user setting.
   - `GameUseWatch`: pedals pressed for 20 s in total while the game never sent force feedback = the game drives from
     another controller (a gamepad or the keyboard); the loop logs a warning and the app's status (next to Start / Stop) says
     "GAME NOT USING THE WHEEL" (`UiFrame::gameIgnoresWheel`).

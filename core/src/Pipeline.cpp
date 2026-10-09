@@ -42,7 +42,8 @@ bool Pipeline::tick(std::optional<float> clutchOverride, const std::uint64_t now
     if (clutchOverride) {
         state_.clutch = *clutchOverride;
     }
-    packet_.report = profile_.encode(state_);
+    report_ = profile_.encode(state_);
+    packet_.report = applyPedalLayout(report_, pedalLayout_.load(std::memory_order_relaxed));
     if (!gate_ || gate_->shouldSend(packet_.report, nowNs)) {
         ++packet_.sequence;
         if (!publisher_.publish(packet_)) {
@@ -58,7 +59,7 @@ bool Pipeline::tick(std::optional<float> clutchOverride, const std::uint64_t now
                      call, lastRaw().axes[0], lastRaw().axes[1], lastRaw().axes[2], lastRaw().axes[3], lastRaw().buttons,
                      lastRaw().hat,
                      state_.steering, state_.throttle, state_.brake, state_.clutch, state_.buttons,
-                     packet_.report.steering, packet_.report.throttle, packet_.report.brake, packet_.report.clutch,
+                     report_.steering, report_.throttle, report_.brake, report_.clutch,
                      publishFailures_);
     }
     return true;

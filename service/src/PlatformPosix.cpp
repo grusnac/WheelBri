@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -140,6 +141,36 @@ const char* name() {
 std::filesystem::path systemFolder() { return "/usr/bin"; }
 
 std::optional<std::uint32_t> udpPortOwner(std::uint16_t /*port*/) { return std::nullopt; }
+
+std::vector<std::string> runningPrograms() {
+    std::vector<std::string> programs;
+#if defined(__linux__)
+    std::error_code error;
+    for (std::filesystem::directory_iterator it("/proc", error), end; !error && it != end; it.increment(error)) {
+        const std::string pid = it->path().filename().string();
+        if (pid.empty() || pid.find_first_not_of("0123456789") != std::string::npos) continue;
+        // The command line's first word (NUL-separated): a Wine process's is its Windows path; a process that ended
+        // meanwhile, or a kernel thread, has none: then its name (at most 15 characters).
+        std::string first;
+        if (std::FILE* const file = std::fopen(("/proc/" + pid + "/cmdline").c_str(), "rb")) {
+            for (int c = std::fgetc(file); c != EOF && c != '\0' && first.size() < 4096; c = std::fgetc(file)) {
+                first.push_back(static_cast<char>(c));
+            }
+            std::fclose(file);
+        }
+        if (first.empty()) {
+            if (std::FILE* const file = std::fopen(("/proc/" + pid + "/comm").c_str(), "rb")) {
+                for (int c = std::fgetc(file); c != EOF && c != '\n' && first.size() < 64; c = std::fgetc(file)) {
+                    first.push_back(static_cast<char>(c));
+                }
+                std::fclose(file);
+            }
+        }
+        if (!first.empty()) programs.push_back(std::move(first));
+    }
+#endif
+    return programs;
+}
 
 std::filesystem::path processImage(std::uint32_t /*pid*/) { return {}; }
 

@@ -29,6 +29,7 @@
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/FfbIdleWatch.hpp"
 #include "wheelbri/GameUseWatch.hpp"
+#include "wheelbri/KnownGames.hpp"
 #include "wheelbri/HidHideCli.hpp"
 #include "wheelbri/LogLevelPacket.hpp"
 #include "wheelbri/Logging.hpp"
@@ -1199,6 +1200,11 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     try {
         constexpr std::uint64_t kFrameNs = platform::kNsPerSecond / wheelbri::kWindowFramesPerSecond;
         std::uint64_t lastHousekeepingNs = 0;
+        // The game that runs, looked for every 2 s here (a few milliseconds; never on the loop): its pedal layout.
+        constexpr std::uint64_t kGameCheckNs = 2 * platform::kNsPerSecond;
+        std::uint64_t lastGameCheckNs = 0;
+        const wheelbri::KnownGame* runningGame = nullptr;
+        bool gameChecked = false;
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
             const std::uint64_t now = platform::nowNs();
@@ -1209,6 +1215,23 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                     gStop = true;
                 }
                 housekeeping.pump();
+                if (!gameChecked || now - lastGameCheckNs >= kGameCheckNs) {
+                    lastGameCheckNs = now;
+                    const wheelbri::KnownGame* const game = wheelbri::findRunningGame(platform::runningPrograms());
+                    if (!gameChecked || game != runningGame) {
+                        const wheelbri::PedalLayout layout =
+                            game != nullptr ? game->pedals : wheelbri::PedalLayout::Logitech;
+                        pipeline.setPedalLayout(layout);
+                        if (game != nullptr) {
+                            WE_LOG_INFO(log(), "game: {} ({}) runs: pedal layout {}", game->name, game->program,
+                                        wheelbri::pedalLayoutName(layout));
+                        } else if (runningGame != nullptr) {
+                            WE_LOG_INFO(log(), "game: {} ended: pedals as a real G920 again", runningGame->name);
+                        }
+                        runningGame = game;
+                        gameChecked = true;
+                    }
+                }
                 if (nextMidnight && wheelbri::WallClock::now() >= *nextMidnight) {
                     const auto wall = wheelbri::WallClock::now();
                     WE_LOG_INFO(log(), "new day {}: new log and telemetry files, checking old ones",
@@ -1232,6 +1255,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                 frame.emplace();
             }
             frame->oldFiles = housekeeping.status();
+            frame->game = runningGame != nullptr ? std::string(runningGame->name) : std::string();
             frame->oldFilesFailed = housekeeping.failed();
             if (!host->frame(*frame)) {
                 WE_LOG_INFO(log(), "window closed: stopping");
