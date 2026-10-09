@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EmulatedDevice.hpp"
+#include "ModuleWatch.hpp"
 #include "Guard.hpp"
 #include "ProxyDevice.hpp"
 #include "ShimLogging.hpp"
@@ -105,6 +106,7 @@ public:
                     realDevice->Release();
                     throw;
                 }
+                guardedVoid("CreateDevice", [&] { logNewModules("CreateDevice"); });
             }
             return result;
         });
@@ -180,7 +182,8 @@ public:
             // Phase 2 must wrap it too.
             const HRESULT result = real_->EnumDevicesBySemantics(user, format, callback, ref, flags);
             WE_LOG_WARN(detail::directInputLog(),
-                        "EnumDevicesBySemantics(user='{}', flags=0x{:x}) -> {}: devices from this call are NOT proxied",
+                        "EnumDevicesBySemantics(user='{}', flags=0x{:x}) -> {}: action mapping, could remap axes; devices "
+                        "from this call are NOT proxied",
                         toUtf8(user), flags, describeHresult(result));
             return result;
         });
@@ -190,8 +193,9 @@ public:
                                                DWORD flags, LPVOID ref) override {
         return guarded("ConfigureDevices", [&]() -> HRESULT {
             const HRESULT result = real_->ConfigureDevices(callback, params, flags, ref);
-            WE_LOG_INFO(detail::directInputLog(), "ConfigureDevices(flags=0x{:x}) -> {}", flags,
-                        describeHresult(result));
+            // DirectInput's own "configure your controls" dialog over action maps: it could remap axes.
+            WE_LOG_WARN(detail::directInputLog(), "ConfigureDevices(flags=0x{:x}) -> {}: action-map dialog, could remap axes",
+                        flags, describeHresult(result));
             return result;
         });
     }

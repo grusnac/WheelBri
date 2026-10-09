@@ -3,6 +3,7 @@
 
 #include "ProxyDirectInput8.hpp"
 #include "Guard.hpp"
+#include "ModuleWatch.hpp"
 #include "RealDInput.hpp"
 #include "ShimLogging.hpp"
 
@@ -86,6 +87,8 @@ HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE instance, DWORD version, REFII
             WE_LOG_WARN(log(), "unexpected interface {} requested, passing it through unwrapped", describeGuid(riid));
         }
         WE_LOG_DEBUG(log(), "DirectInput8Create -> {}", describeHresult(result));
+        // What else the game has loaded that could read or reconfigure a wheel (Logitech's SDK, raw HID, XInput).
+        logNewModules("DirectInput8Create");
         return result;
     });
 }

@@ -1,6 +1,10 @@
 #include "ProxyEffect.hpp"
 #include "Guard.hpp"
 
+#include "wheelbri/AxisAudit.hpp"
+
+#include <cstdint>
+#include <span>
 #include <utility>
 
 namespace wheelbri::shim {
@@ -158,8 +162,11 @@ HRESULT ProxyEffect::Escape(LPDIEFFESCAPE escape) {
         // one every frame, so the log is sampled.
         static logging::CallSampler sampler(20, 1000);
         if (const auto call = sampler.next(); call != 0) {
-            WE_LOG_INFO(log(), "{}: Escape #{} (command=0x{:x}, in={} bytes, out={} bytes) -> {}", label_, call,
-                        escape != nullptr ? escape->dwCommand : 0, escape != nullptr ? escape->cbInBuffer : 0,
+            const auto* const in = escape != nullptr ? static_cast<const std::uint8_t*>(escape->lpvInBuffer) : nullptr;
+            const DWORD size = in != nullptr ? escape->cbInBuffer : 0;
+            WE_LOG_INFO(log(), "{}: Escape #{} (command=0x{:x}, in={} bytes: {}; out={} bytes) -> {}", label_, call,
+                        escape != nullptr ? escape->dwCommand : 0, size,
+                        hexBytes(std::span<const std::uint8_t>(in, size)),
                         escape != nullptr ? escape->cbOutBuffer : 0, describeHresult(result));
         }
         return result;

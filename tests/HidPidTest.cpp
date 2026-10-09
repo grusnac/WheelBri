@@ -523,7 +523,7 @@ TEST(HidPid, EachLineHasTheLevelItBelongsTo) {
     EXPECT_EQ(full.levelOf("pid: new effect refused"), LogLevel::Warn);
 }
 
-TEST(HidG920, InputReportPacksLikeTheBridge) {
+TEST(HidG920, InputReportPacksLikeARealG920) {
     TargetReport report;
     report.steering = 65535;   // full right
     report.throttle = 0;       // throttle pressed
@@ -532,8 +532,9 @@ TEST(HidG920, InputReportPacksLikeTheBridge) {
     report.buttons = 0x5FF | (1U << 12) | (1U << 18) | (1U << 20);   // Gear 1, Gear R, and one the G920 lacks
     report.hat = 2;
     const auto bytes = packG920Input(report);
+    // Wheel X, throttle Y (pressed: -32768), brake Rz (released: 32767), clutch Slider (half: 0).
     const std::array<std::uint8_t, kG920InputReportSize> expected = {
-        0x01, 0xFF, 0x7F, 0xFF, 0x7F, 0x00, 0x00, 0x00, 0x80, 0xFF, 0x15, 0x04, 0x02};
+        0x01, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x00, 0xFF, 0x15, 0x04, 0x02};
     EXPECT_EQ(bytes, expected);
     EXPECT_EQ(packG920Input(g920Neutral())[12], 8);   // hat centred
     const auto descriptor = g920ReportDescriptor();
@@ -547,7 +548,7 @@ TEST(HidG920, InputReportPacksLikeTheBridge) {
     // Out-of-range axis values are clamped, never overflow.
     TargetReport extreme;
     extreme.steering = std::numeric_limits<std::int32_t>::min();
-    extreme.brake = std::numeric_limits<std::int32_t>::max();
+    extreme.throttle = std::numeric_limits<std::int32_t>::max();
     const auto clamped = packG920Input(extreme);
     EXPECT_EQ(clamped[1], 0x00);
     EXPECT_EQ(clamped[2], 0x80);   // -32768
@@ -576,7 +577,8 @@ TEST(HidG920, ProtonDescriptorOnlyRenamesClutchAndThrottle) {
         differences += windows[i] != proton[i] ? 1U : 0U;
     }
     EXPECT_EQ(differences, 2U);
-    // Windows: X, Y, Rz, Slider. Proton: X, Y, Z, Rz, which its G920 hack turns into X, Y, Rz, Slider.
+    // Windows: X, Y, Rz, Slider (wheel, throttle, brake, clutch). Proton: X, Y, Z, Rz, the real G920's own HID layout,
+    // which its G920 hack turns into X, Y, Rz, Slider.
     EXPECT_EQ(axisUsages(windows), (std::vector<std::uint8_t>{0x30, 0x31, 0x35, 0x36}));
     EXPECT_EQ(axisUsages(proton), (std::vector<std::uint8_t>{0x30, 0x31, 0x32, 0x35}));
 }

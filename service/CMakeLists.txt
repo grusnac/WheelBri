@@ -25,7 +25,7 @@ add_library(wheelbri_privileged STATIC
 target_link_libraries(wheelbri_privileged PUBLIC wheelbri_core)
 if(WE_SERVICE_PLATFORM STREQUAL "Windows")
     target_sources(wheelbri_privileged PRIVATE src/DinputDevice.cpp src/PlatformWin32.cpp)
-    target_link_libraries(wheelbri_privileged PUBLIC dinput8 dxguid cfgmgr32 advapi32 iphlpapi winmm)
+    target_link_libraries(wheelbri_privileged PUBLIC dinput8 dxguid cfgmgr32 advapi32 iphlpapi winmm shell32 ole32)
 else()
     target_sources(wheelbri_privileged PRIVATE src/PlatformPosix.cpp)
 endif()
@@ -38,6 +38,7 @@ add_library(wheelbri_service_objects OBJECT
     src/DeviceWatch.cpp
     src/DeviceWatchSystem.cpp
     src/FfbSelfTest.cpp
+    src/GameWatch.cpp
     src/HelperProbe.cpp
     src/Housekeeping.cpp
     src/MappingView.cpp
@@ -52,6 +53,17 @@ add_library(wheelbri_service_objects OBJECT
 target_link_libraries(wheelbri_service_objects PUBLIC wheelbri_privileged)
 target_include_directories(wheelbri_service_objects PUBLIC src helper)
 target_compile_definitions(wheelbri_service_objects PUBLIC WHEELBRI_VERSION="${PROJECT_VERSION}")
+# The git commit of the build, for the version in the app's top-right corner (BuildInfo.hpp, WHEELBRI_BUILD): looked
+# up on every build, the header rewritten only when it changes.
+set(WE_BUILD_INFO "${CMAKE_CURRENT_BINARY_DIR}/generated/BuildInfo.hpp")
+add_custom_target(wheelbri_build_info
+    COMMAND "${CMAKE_COMMAND}" -DSRC=${PROJECT_SOURCE_DIR} -DOUT=${WE_BUILD_INFO}
+            -P "${PROJECT_SOURCE_DIR}/cmake/BuildInfo.cmake"
+    BYPRODUCTS "${WE_BUILD_INFO}"
+    COMMENT "build info (git commit)"
+    VERBATIM)
+add_dependencies(wheelbri_service_objects wheelbri_build_info)
+target_include_directories(wheelbri_service_objects PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 if(WE_SERVICE_PLATFORM STREQUAL "Windows")
     target_sources(wheelbri_service_objects PRIVATE

@@ -13,7 +13,7 @@ Moza R3 ─► wheelbri-service ─UDP 41329─► wheelbri-g920 driver ─HID�
   `SWD\wheelbri\G920_0`), removed when it stops or crashes. If an earlier one is stuck half-removed (a
   program held it), the service uses a spare identity (`G920_1` … `G920_3`) instead of needing a restart.
 - **Identity:** VID 046D PID C262, "G920 Driving Force Racing Wheel USB", the same HID report descriptor the
-  HIDMaestro bridge used (wheel X, brake Y, clutch Rz, throttle Slider, 19 buttons (the wheel's 11, the Driving Force Shifter's gears 1-6 and reverse at 13-19), hat, HID PID force feedback). The
+  HIDMaestro bridge used (axes X, Y, Rz, Slider carrying wheel, throttle, brake and clutch as a real G920 does, 19 buttons (the wheel's 11, the Driving Force Shifter's gears 1-6 and reverse at 13-19), hat, HID PID force feedback). The
   service writes the DirectInput "driving" entry and removes Logitech's foreign force feedback entry.
 - **Force feedback:** Windows' `pid.dll` turns DirectInput effects into HID PID reports; the driver answers
   the effect-block handshake and decodes them (`core/src/HidPid.cpp`, unit-tested) into the service's

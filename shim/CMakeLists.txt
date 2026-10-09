@@ -2,11 +2,13 @@
 # with WINEDLLOVERRIDES="dinput8=n,b" (Linux). Phase 2: presents the physical wheel as the emulated one,
 # fed by wheelbri-service; every other device is passed through and logged (Phase 0 behaviour).
 add_library(wheelbri_shim SHARED
+    src/DeviceAudit.cpp
     src/DiConvert.cpp
     src/DiFormat.cpp
     src/EmulatedEffect.cpp
     src/Exports.cpp
     src/FfbForwarder.cpp
+    src/ModuleWatch.cpp
     src/ProxyEffect.cpp
     src/RealDInput.cpp
     src/ShimConfig.cpp

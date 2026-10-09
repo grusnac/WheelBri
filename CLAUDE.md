@@ -58,12 +58,18 @@ Status (README.md has the full table):
 - **Working with a real direct drive wheel in NFS 2015 on Windows**: mapping and service (Phase 1), the `dinput8.dll` shim
   (Phase 2: wheel, pedals, buttons, D-pad), game force feedback through the service (Phase 3: constant, spring,
   damper, sine, square), and the virtual G920 with our own UMDF driver (Phase 5).
-- **Settled**: NFS finds wheels through `DirectInput8Create` (A and W) and reads `c_dfDIJoystick2`: wheel X,
-  throttle Slider, brake Y, clutch Rz, pedals released at the top of the range. The tested wheel's axes as the service numbers
-  them: steering 0, throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
+- **Settled**: NFS finds wheels through `DirectInput8Create` (A and W) and reads `c_dfDIJoystick2`, pedals released
+  at the top of the range. The emulated G920 (driver, shim, uhid) reports pedals as a real G920 on Windows: wheel X,
+  throttle Y, brake Rz, clutch Slider (NFS Unbound reads them so). That is the default for every game; a game that
+  reads the wheel differently gets a game profile (`config/games/<id>.ini`) holding only what it needs changed, laid
+  over the defaults (`GameProfiles`): NFS 2015 (`NFS16.exe`) reads brake Y, clutch Rz, throttle Slider from its own
+  G920 table (2026-10-09; the shim's axis audit saw no remapping call, real G920 owners report the same swap).
+  The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
+  throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
 - **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
-  `Escape` calls (not forwarded; the shim logs them).
+  `Escape` calls are Logitech's rev lights (command 0: size 20, version 1, rpm 0..1, first light 0.01, redline 1),
+  not forwarded; no axis remapping call seen (2026-10-04..07 shim logs; the axis audit checks every session).
 - The G920's own FFB is HID++, not the classic Logitech protocol; the virtual G920 exposes HID PID instead.
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`, where the consumer is
@@ -194,6 +200,9 @@ own from Start / Stop buttons; sessions show themselves through `UiHost` (`Sessi
 or `makeSessionWindow()` for `--ui`. `MappingView` only draws into a window it does not own. The window is drawn
 60 times a second (`kWindowFramesPerSecond` in `WakePlanner.hpp`; at once after input), on a drift-free schedule: the
 user found 30 laggy (2026-10-08). The session loop hands the window its state as often (`WakeSettings::windowNs`).
+Every tab shows the build in its top-right corner (`Version.hpp`: `WHEELBRI_VERSION` and `WHEELBRI_BUILD`, the git
+commit with `+` for uncommitted changes, from `build/service/generated/BuildInfo.hpp`, which `cmake/BuildInfo.cmake`
+rewrites on every build only when it changes); views keep their own top-row controls left of `kVersionReserve`.
 
 ## Layout and architecture
 
@@ -244,6 +253,38 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
     handed out, the game gone quiet).
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
     spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
+  - Game profiles (`GameProfiles`), the exception and not the rule. The defaults (the target's own layout:
+    `layoutFor`, a real G920's throttle Y, brake Rz, clutch Slider) are the base for every game. A game that needs
+    something else gets `config/games/<id>.ini` holding ONLY what it changes: `[game]` label / program (file name) /
+    target (the target it was checked with), `[pedals]` throttle_axis / brake_axis / clutch_axis (x y z rx ry rz slider
+    none), only the keys that differ. It is laid over the defaults like a sieve (`overlay`: a key set replaces the
+    default, a key left out keeps it). The files are compiled in: core's CMakeLists.txt embeds every
+    `config/games/*.ini` into a generated `GameProfileFiles.inc` (configure time, reconfigured when a file changes;
+    `)wbgame` may not appear in a file); `parseGameProfile` collects every problem and a file with any is not used
+    (`gameProfileProblems()`, logged by the service and the shim; `GameProfilesTest` fails on any). A game without a
+    file is never named (nothing in the log or the window). Only `nfs2015.ini` exists (brake y, clutch rz, throttle
+    slider; checked with `g920` only). Both ways use the same file:
+    - virtual G920 / wheelbri-uhid: the service routes the published pedals (`routePedals(device, overlay(device,
+      profile))` → `PedalRoute`, `Pipeline::setPedalRoute`, atomic, applied to the packet only; `lastReport()` and
+      telemetry stay as mapped). The device's pedal axes are fixed (y, rz, slider), so a profile that is not a
+      permutation of them is refused for it (logged once, pedals left).
+    - in-game shim: the shim knows its game (`GetModuleFileNameW`), and `ShimConfig::layout()` is the sieve of three
+      layers: the target's defaults, `wheelbri-shim.ini`'s *_axis, the game profile (if it fits the shim's target and
+      the result is valid). The service then routes nothing (`runLoop(..., routePedals = virtualG920 || uhid)`).
+    `GameDetector` (portable, every branch in `GameDetectorTest`, profiles passed in so tests cover two games) decides
+    which profiled game the service follows: at once on start; dropped only after 2 misses in a row (a restart under
+    a new pid keeps it, `Restarted`); with two profiled games the followed one stays (none followed: profile order),
+    the others are reported; a failed program listing changes nothing (`ListFailed`/`ListBack`, logged only while a
+    profile is in use); a profile for another target is named in the log but not used. Matching is by exact program
+    file name, ASCII-lowered, from a name or a Windows/Unix path. The service's `GameWatch` (window thread, which runs
+    with or without a window, every 2 s; never the loop) polls `platform::runningPrograms()` (Toolhelp; Linux
+    `/proc/*/cmdline` first word, the next one after a wine loader; nullopt when it cannot list), logs under
+    `service.game` with the game's full path and what the profile changes ("game: NFS 2015 started (pid …,
+    D:\…\NFS16.exe): game profile nfs2015 laid over the defaults (throttle_axis = slider, …)"), and gives the app
+    "Running 1:23, NFS 2015" (the profile's `label`). `Nfs2015Settings` reads NFS 2015's own wheel bindings
+    (`Documents\Need For Speed\settings\PROFILEOPTIONS_profile`: `GstInput.CustomControlsWheel`, the type-3 slot of
+    `ConceptMoveFB` / `ConceptBrake`, wheel inputs 24 Throttle, 25 Brake) whenever they change, silently, and only
+    warns ("NFS 2015: RESET ITS WHEEL CONTROLS", red) when an old in-game workaround would undo the profile.
   - `GameUseWatch`: pedals pressed for 20 s in total while the game never sent force feedback = the game drives from
     another controller (a gamepad or the keyboard); the loop logs a warning and the app's status (next to Start / Stop) says
     "GAME NOT USING THE WHEEL" (`UiFrame::gameIgnoresWheel`).
@@ -442,6 +483,12 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
   release) `StateFeed` logs an `input:` line (core `InputReadStats`): how often the game reads (NFS: ~90/s), packets per
   read, reads without new state, reads behind (`UdpLoopbackReceiver::lastPoll().capped`: kMaxPerPoll stopped the
   drain, so older state was handed over) and the shim's own time per read.
+  Axis audit (`shim.audit`, `DeviceAudit` over core `AxisAudit`): every device records what the game asks and sets
+  (first call of each kind logged in full; anything that could remap axes at warn: action maps, `SendDeviceData`,
+  the control panel, calibration and other non-scaling `SetProperty`, any `Escape` except Logitech's rev lights) and
+  logs a summary ("none could remap axes" or what could) at Unacquire, Release, after a minute of reading and every
+  5 minutes. `ModuleWatch` logs the game's DLLs at `DirectInput8Create`, `CreateDevice` and each summary
+  (input-related ones, `isInputModule`: Logitech SDK, hid.dll, XInput, Windows.Gaming.Input, SDL).
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
@@ -596,6 +643,10 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
 
 ## Conventions
 
+- Game names, wherever WheelBri shows them (a game profile's `label`, the log, the window, docs): short, and Need for
+  Speed games as "NFS <name>" (NFS 2015, NFS Payback, NFS Heat, NFS Unbound), never "Need for Speed ...". A profile's
+  `label` is shown as it is ("Running 1:23, NFS 2015"); `parseGameProfile` refuses labels over 20 characters or
+  starting with "Need for Speed".
 - No third-party runtime tools or drivers (HidHide, ViGEm, HIDMaestro): what the
   emulator needs on the PC is built in this repository.
 - Scripts never wait for the user when they end ("press Enter to close", `pause`, a window left open with

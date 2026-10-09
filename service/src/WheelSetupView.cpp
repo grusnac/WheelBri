@@ -1,6 +1,7 @@
 #include "WheelSetupView.hpp"
 
 #include "Platform.hpp"
+#include "Version.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceLabels.hpp"
@@ -669,10 +670,15 @@ void WheelSetupView::drawHeader() {
         editing_ = &popupName_;
         editingMax_ = kMaxConfigName;
     }, false, true, 64);
+    // Save and Revert end left of the version in the top-right corner (Version.hpp); the state right before them.
+    constexpr float kRevertWidth = 64;
+    constexpr float kSaveWidth = 56;
+    constexpr float kRevertX = kWidth - kVersionReserve - kRevertWidth;
+    constexpr float kSaveX = kRevertX - 6 - kSaveWidth;
     const std::string state = !rigSaved_ ? "not saved yet" : dirty() ? "unsaved changes" : "saved";
-    window_.text(650, 6, state, dirty() ? kCaution : kDim);
-    button(800, 2, "Save", [this] { save(); }, dirty(), dirty(), 70);
-    button(876, 2, "Revert", [this] { revert(); }, false, rigSaved_ && dirty(), 80);
+    window_.text(kSaveX - 4 - static_cast<float>(state.size()) * ui::kCharWidth, 6, state, dirty() ? kCaution : kDim);
+    button(kSaveX, 2, "Save", [this] { save(); }, dirty(), dirty(), kSaveWidth);
+    button(kRevertX, 2, "Revert", [this] { revert(); }, false, rigSaved_ && dirty(), kRevertWidth);
 
     // The device shown.
     window_.text(4, 26, "Device", kDim);

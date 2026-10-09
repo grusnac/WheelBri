@@ -56,7 +56,7 @@ TEST(EmulatedJoystick, G920Layout) {
     EXPECT_EQ(joystick.povCount(), 1U);
     EXPECT_EQ(joystick.objects()[0].guid, ObjectGuid::XAxis);
     EXPECT_NE(joystick.objects()[0].typeId & di::kFfActuator, 0U);
-    EXPECT_EQ(joystick.objects()[1].guid, ObjectGuid::YAxis);   // brake
+    EXPECT_EQ(joystick.objects()[1].guid, ObjectGuid::YAxis);   // throttle
 }
 
 TEST(EmulatedJoystick, StandardJoystickFormat) {
@@ -66,10 +66,10 @@ TEST(EmulatedJoystick, StandardJoystickFormat) {
     std::vector<std::uint8_t> state(80, 0xCD);
     ASSERT_TRUE(joystick.writeState(sampleReport(), state));
     EXPECT_EQ(readI32(state, 0), 65535);    // X = wheel
-    EXPECT_EQ(readI32(state, 4), 65535);    // Y = brake (released)
+    EXPECT_EQ(readI32(state, 4), 0);        // Y = accelerator (fully pressed)
     EXPECT_EQ(readI32(state, 8), 0);        // Z: not on this device
-    EXPECT_EQ(readI32(state, 20), 32768);   // Rz = clutch
-    EXPECT_EQ(readI32(state, 24), 0);       // slider 0 = accelerator (fully pressed)
+    EXPECT_EQ(readI32(state, 20), 65535);   // Rz = brake (released)
+    EXPECT_EQ(readI32(state, 24), 32768);   // slider 0 = clutch
     EXPECT_EQ(readU32(state, 32), 9000U);   // POV 0: right = 90 degrees
     EXPECT_EQ(readU32(state, 36), di::kPovCentered);   // missing POVs read as centred
     EXPECT_EQ(state[48], di::kButtonDown);
@@ -92,9 +92,9 @@ TEST(EmulatedJoystick, RangesScaleAxes) {
 
 TEST(EmulatedJoystick, CustomFormatMatchesByGuidAndInstance) {
     EmulatedJoystick joystick(g920());
-    // A game that only wants the brake (Y) at 0, button instance 3 at 4, and the POV at 8.
+    // A game that only wants the brake (Rz) at 0, button instance 3 at 4, and the POV at 8.
     const std::vector<FormatEntry> entries = {
-        {ObjectGuid::YAxis, 0, di::kAxis | di::kAnyInstance, 0},
+        {ObjectGuid::RzAxis, 0, di::kAxis | di::kAnyInstance, 0},
         {ObjectGuid::Any, 4, di::kButton | di::makeInstance(3), 0},
         {ObjectGuid::Pov, 8, di::kPov | di::kAnyInstance, 0},
     };
@@ -103,7 +103,7 @@ TEST(EmulatedJoystick, CustomFormatMatchesByGuidAndInstance) {
     report.buttons = 1U << 3;
     std::vector<std::uint8_t> state(12);
     ASSERT_TRUE(joystick.writeState(report, state));
-    EXPECT_EQ(readI32(state, 0), 65535);
+    EXPECT_EQ(readI32(state, 0), 65535);   // brake released
     EXPECT_EQ(state[4], di::kButtonDown);
     EXPECT_EQ(readU32(state, 8), 9000U);
     EXPECT_EQ(joystick.objectAtOffset(4), std::optional<std::size_t>(4 + 3));
@@ -158,7 +158,7 @@ TEST(EmulatedJoystick, DiffReportsChangedObjectsInFormatOrder) {
     after.hat = kHatCentered;
     const auto changes = joystick.diff(before, after);
     ASSERT_EQ(changes.size(), 3U);
-    EXPECT_EQ(changes[0].offset, 4U);    // Y = brake
+    EXPECT_EQ(changes[0].offset, 20U);   // Rz = brake
     EXPECT_EQ(changes[0].data, 0U);
     EXPECT_EQ(changes[1].offset, 32U);
     EXPECT_EQ(changes[1].data, di::kPovCentered);
@@ -167,24 +167,25 @@ TEST(EmulatedJoystick, DiffReportsChangedObjectsInFormatOrder) {
     EXPECT_TRUE(joystick.diff(after, after).empty());
 }
 
-TEST(EmulatedJoystick, G920LayoutIsSliderYRz) {
+// A real G920 on Windows: throttle Y, brake Rz, clutch Slider (what NFS Unbound reads, 2026-10-09).
+TEST(EmulatedJoystick, G920LayoutIsYRzSlider) {
     EmulatedJoystick joystick(layoutFor("g920", 11));
     ASSERT_EQ(joystick.axisCount(), 4U);
     EXPECT_EQ(joystick.objects()[1].guid, ObjectGuid::YAxis);
-    EXPECT_EQ(joystick.objects()[1].control, Control::Brake);
+    EXPECT_EQ(joystick.objects()[1].control, Control::Throttle);
     EXPECT_EQ(joystick.objects()[2].guid, ObjectGuid::RzAxis);
-    EXPECT_EQ(joystick.objects()[2].control, Control::Clutch);
+    EXPECT_EQ(joystick.objects()[2].control, Control::Brake);
     EXPECT_EQ(joystick.objects()[3].guid, ObjectGuid::Slider);
-    EXPECT_EQ(joystick.objects()[3].control, Control::Throttle);
+    EXPECT_EQ(joystick.objects()[3].control, Control::Clutch);
     EXPECT_EQ(di::instanceOf(joystick.objects()[3].typeId), 3U);
 
     ASSERT_EQ(joystick.setDataFormat(joystickFormat(), 80), EmulatedJoystick::FormatResult::Ok);
     std::vector<std::uint8_t> state(80);
     ASSERT_TRUE(joystick.writeState(sampleReport(), state));
-    EXPECT_EQ(readI32(state, 4), 65535);    // Y = brake (released)
+    EXPECT_EQ(readI32(state, 4), 0);        // Y = accelerator (fully pressed)
     EXPECT_EQ(readI32(state, 8), 0);        // no Z
-    EXPECT_EQ(readI32(state, 20), 32768);   // Rz = clutch
-    EXPECT_EQ(readI32(state, 24), 0);       // slider 0 = accelerator (fully pressed)
+    EXPECT_EQ(readI32(state, 20), 65535);   // Rz = brake (released)
+    EXPECT_EQ(readI32(state, 24), 32768);   // slider 0 = clutch
 }
 
 TEST(EmulatedJoystick, AxesAreNumberedInUsageOrder) {
@@ -206,8 +207,8 @@ TEST(EmulatedJoystick, InvertPedalsFlipsOnlyThePedals) {
     const EmulatedJoystick joystick(layout);
     const TargetReport report = sampleReport();
     EXPECT_EQ(joystick.valueOf(0, report), 65535U);   // wheel unchanged
-    EXPECT_EQ(joystick.valueOf(3, report), 65535U);   // throttle (slider) 0 -> 65535
-    EXPECT_EQ(joystick.valueOf(1, report), 0U);       // brake (Y) 65535 -> 0
+    EXPECT_EQ(joystick.valueOf(1, report), 65535U);   // throttle (Y) 0 -> 65535
+    EXPECT_EQ(joystick.valueOf(2, report), 0U);       // brake (Rz) 65535 -> 0
 }
 
 TEST(JoystickLayout, Validation) {

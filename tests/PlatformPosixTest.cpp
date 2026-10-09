@@ -3,6 +3,8 @@
 
 #include "Platform.hpp"
 
+#include "wheelbri/GameProfiles.hpp"
+
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -13,6 +15,7 @@
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 namespace wheelbri::service::platform {
 namespace {
@@ -204,6 +207,27 @@ TEST(PlatformPosix, RaisingThePriorityEitherWorksOrSaysWhy) {
             EXPECT_FALSE(error.empty());
         }
     }).join();
+}
+
+// GameDetector reads the running programs: this test program is among them, by the first word of its command line.
+TEST(PlatformPosix, RunningProgramsListsThisOne) {
+    const auto programs = runningPrograms();
+#if defined(__linux__)
+    ASSERT_TRUE(programs.has_value());
+    ASSERT_FALSE(programs->empty());
+    bool found = false;
+    for (const RunningProgram& program : *programs) {
+        if (programName(program.name) == "wheelbri_tests") {
+            found = true;
+            EXPECT_EQ(program.pid, static_cast<std::uint32_t>(::getpid()));
+        }
+        EXPECT_FALSE(program.name.empty());
+    }
+    EXPECT_TRUE(found);
+#else
+    EXPECT_FALSE(programs.has_value());   // cannot list here: game detection says so, the pedals never move
+#endif
+    EXPECT_TRUE(documentsFolder().empty());
 }
 
 }  // namespace

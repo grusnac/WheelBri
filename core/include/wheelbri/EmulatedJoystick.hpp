@@ -76,12 +76,12 @@ struct FormatEntry {
 };
 
 // Which DirectInput axis carries each pedal (the wheel is always X), and how many buttons there are.
-// The G920's: throttle Slider, brake Y, clutch Rz, as games' own G920 mappings use (it matched NFS 2015 in testing).
-// wheelbri-shim.ini can move a pedal to another axis.
+// The G920's, as a real one reports them on Windows: throttle Y, brake Rz, clutch Slider (what NFS Unbound reads,
+// 2026-10-09). wheelbri-shim.ini can move a pedal to another axis.
 struct JoystickLayout {
-    ObjectGuid throttle = ObjectGuid::Slider;
-    ObjectGuid brake = ObjectGuid::YAxis;
-    ObjectGuid clutch = ObjectGuid::RzAxis;     // ObjectGuid::Any = the device has no clutch axis
+    ObjectGuid throttle = ObjectGuid::YAxis;
+    ObjectGuid brake = ObjectGuid::RzAxis;
+    ObjectGuid clutch = ObjectGuid::Slider;     // ObjectGuid::Any = the device has no clutch axis
     bool invertPedals = false;                  // flip pressed/released on top of the profile's encoding
     std::size_t buttonCount = 11;
 };
