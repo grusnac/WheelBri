@@ -58,9 +58,12 @@ Status (README.md has the full table):
 - **Working with a real direct drive wheel in NFS 2015 on Windows**: mapping and service (Phase 1), the `dinput8.dll` shim
   (Phase 2: wheel, pedals, buttons, D-pad), game force feedback through the service (Phase 3: constant, spring,
   damper, sine, square), and the virtual G920 with our own UMDF driver (Phase 5).
-- **Settled**: NFS finds wheels through `DirectInput8Create` (A and W) and reads `c_dfDIJoystick2`: wheel X,
-  throttle Slider, brake Y, clutch Rz, pedals released at the top of the range. The tested wheel's axes as the service numbers
-  them: steering 0, throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
+- **Settled**: NFS finds wheels through `DirectInput8Create` (A and W) and reads `c_dfDIJoystick2`, pedals released
+  at the top of the range. The emulated G920 (driver, shim, uhid) reports pedals as a real G920 on Windows: wheel X,
+  throttle Y, brake Rz, clutch Slider (NFS Unbound reads them so; NFS 2015 with this layout: retest pending, it was
+  tested with throttle Slider, brake Y, clutch Rz). One layout for every game, never one per game. The tested
+  wheel's axes as the service numbers them: steering 0, throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked
+  from telemetry).
 - **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
   `Escape` calls (not forwarded; the shim logs them).

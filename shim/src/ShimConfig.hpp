@@ -22,9 +22,9 @@ namespace wheelbri::shim {
 //   force_feedback = service   ; service = game effects go to wheelbri-service (safety limiter, watchdog);
 //                              ; passthrough = straight to the wheel's driver; off = no force feedback
 //   ffb_port = 41330           ; must match ffb_port in the service config
-//   throttle_axis = slider     ; DirectInput axis per pedal: x y z rx ry rz slider (clutch also: none).
-//   brake_axis = y             ;   Defaults: the G920's slider / y / rz.
-//   clutch_axis = rz
+//   throttle_axis = y          ; DirectInput axis per pedal: x y z rx ry rz slider (clutch also: none).
+//   brake_axis = rz            ;   Defaults: the G920's y / rz / slider.
+//   clutch_axis = slider
 //   invert_pedals = false      ; true = pressed and released swapped for all pedals
 //
 // In passthrough mode force feedback is limited only by the wheel's own settings (its maker's software), not

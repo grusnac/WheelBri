@@ -85,20 +85,21 @@ constexpr std::uint8_t kDescriptor[] = {
     0xB1, 0x02, 0x75, 0x06, 0xB1, 0x01, 0xC0, 0xC0,
 };
 
-// Where the clutch's and the throttle's Usage values sit in kDescriptor (each axis: Usage Page, Usage, ...).
-constexpr std::size_t kClutchUsageAt = 43;
-constexpr std::size_t kThrottleUsageAt = 59;
-static_assert(kDescriptor[kClutchUsageAt - 1] == 0x09 && kDescriptor[kClutchUsageAt] == 0x35, "clutch is Usage Rz");
-static_assert(kDescriptor[kThrottleUsageAt - 1] == 0x09 && kDescriptor[kThrottleUsageAt] == 0x36,
-              "throttle is Usage Slider");
+// Where the third and fourth axes' Usage values sit in kDescriptor (each axis: Usage Page, Usage, ...): the brake's
+// (Rz) and the clutch's (Slider).
+constexpr std::size_t kBrakeUsageAt = 43;
+constexpr std::size_t kClutchUsageAt = 59;
+static_assert(kDescriptor[kBrakeUsageAt - 1] == 0x09 && kDescriptor[kBrakeUsageAt] == 0x35, "brake is Usage Rz");
+static_assert(kDescriptor[kClutchUsageAt - 1] == 0x09 && kDescriptor[kClutchUsageAt] == 0x36,
+              "clutch is Usage Slider");
 
 constexpr auto kProtonDescriptor = [] {
     std::array<std::uint8_t, sizeof(kDescriptor)> d{};
     for (std::size_t i = 0; i < d.size(); ++i) {
         d[i] = kDescriptor[i];
     }
-    d[kClutchUsageAt] = 0x32;     // Z: Proton reports it as Rz
-    d[kThrottleUsageAt] = 0x35;   // Rz: Proton reports it as Slider 0
+    d[kBrakeUsageAt] = 0x32;    // Z: Proton reports it as Rz "Brake"
+    d[kClutchUsageAt] = 0x35;   // Rz: Proton reports it as Slider 0 "Clutch"
     return d;
 }();
 
@@ -120,9 +121,9 @@ std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport&
     std::array<std::uint8_t, kG920InputReportSize> out{};
     out[0] = kG920InputReportId;
     putAxis(out, 1, report.steering);
-    putAxis(out, 3, report.brake);
-    putAxis(out, 5, report.clutch);
-    putAxis(out, 7, report.throttle);
+    putAxis(out, 3, report.throttle);   // Y
+    putAxis(out, 5, report.brake);      // Rz
+    putAxis(out, 7, report.clutch);     // Slider
     const std::uint32_t buttons = report.buttons & ((1U << kG920Buttons) - 1U);   // 19 buttons, the shifter's included
     out[9] = static_cast<std::uint8_t>(buttons & 0xFFU);
     out[10] = static_cast<std::uint8_t>((buttons >> 8U) & 0xFFU);

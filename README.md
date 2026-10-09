@@ -24,7 +24,10 @@ service is a native Linux process; named mappings do not cross that boundary, so
 
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
-  `c_dfDIJoystick2`: wheel X, throttle Slider, brake Y, clutch Rz, pedals released at the top of the range;
+  `c_dfDIJoystick2`, pedals released at the top of the range;
+- the emulated G920 reports its pedals as a real one does on Windows: wheel X, throttle Y, brake Rz, clutch Slider
+  (NFS Unbound reads it so; up to 0.9.2 it was throttle Slider, brake Y, clutch Rz, which NFS 2015 accepted, retest
+  pending);
 - the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/g920-virtual-device.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 

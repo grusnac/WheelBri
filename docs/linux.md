@@ -13,11 +13,11 @@ G920 in one of two ways:
 
 `wheelbri.sh` sets the launch options itself, so the only one Steam needs is `wheelbri.sh %command%`.
 
-How the uhid way reaches the game: the virtual G920 has the Windows device's report (wheel, brake, clutch,
-throttle, 19 buttons with the Driving Force Shifter's, hat, HID PID force feedback), with two axes renamed for
-Proton: clutch Z and throttle Rz. Proton's DirectInput has a hack for the G920's id that turns Z into Rz and Rz into
-a Slider, so the game gets what it gets on Windows: wheel X, brake Y, clutch Rz, throttle Slider (with the Windows
-names, the clutch ended up in the Slider, where NFS reads its throttle). Proton normally reads
+How the uhid way reaches the game: the virtual G920 has the Windows device's report (wheel, throttle, brake,
+clutch, 19 buttons with the Driving Force Shifter's, hat, HID PID force feedback), with two axes renamed for
+Proton: brake Z and clutch Rz, the real G920's own layout. Proton's DirectInput has a hack for the G920's id that
+turns Z into Rz and Rz into a Slider, so the game gets what it gets on Windows: wheel X, throttle Y, brake Rz, clutch
+Slider (with the Windows names, the axes would shift by one). Proton normally reads
 joysticks through SDL, which would rename the axes and drop that force feedback; `PROTON_ENABLE_HIDRAW` makes it
 read this one raw, so its DirectInput sees exactly what NFS sees on Windows and sends HID PID effects, which
 `wheelbri-uhid` turns into the service's force feedback packets. `SDL_GAMECONTROLLER_IGNORE_DEVICES` hides the
