@@ -128,12 +128,13 @@ writes there too, not into the game's Wine prefix).
 ## Steam's virtual pad
 
 Proton always gives the game Steam Input's virtual Xbox pad (`28de:11ff`): the Deck's own controls, and any pad
-Steam Input takes over. No launch option hides it: Proton lets it through before it looks at
-`SDL_GAMECONTROLLER_IGNORE_DEVICES`. On Windows, NFS drove from an Xbox pad that was there when it started instead
-of the wheel; whether it does the same on the Deck is not tested yet (`wheelbri.sh` says when the pad is there).
-Signs: the app's status says GAME NOT USING THE WHEEL, and the `wheelbri-uhid` log counts no force feedback
-reports from the game. To try: pick the wheel in NFS's controls settings; Steam > NFS > Properties > Controller >
-Disable Steam Input (Steam then makes no pad for external controllers; the Deck's own controls may stay).
+Steam Input takes over. WheelBri never hides it: it is the only thing that controls the Steam Deck (Steam, its
+menus, the game's menus), so it must always stay. (No launch option could hide it anyway: Proton lets it through
+before it looks at `SDL_GAMECONTROLLER_IGNORE_DEVICES`.) WheelBri only leaves it out of its own device list.
+On Windows, NFS drove from an Xbox pad that was there when it started instead of the wheel; whether it does the same
+on the Deck is not tested yet. Signs: the app's status says GAME NOT USING THE WHEEL, and the `wheelbri-uhid` log
+counts no force feedback reports from the game. Then pick the wheel in NFS's controls settings; do not turn Steam
+Input off.
 
 ## When it does not work
 

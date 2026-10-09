@@ -532,8 +532,9 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
   already running, wheelbri.sh's, is used and left alone). `wheelbri.sh` sees an app session through the service's
   `SingleInstance` lock (`flock`). The kernel's `hid-logitech-hidpp` claims 046D:C262 and gives up because output
   report 0x11 is too short for HID++ ("not enough values in hidpp report 17"); `UhidG920Test` keeps it so, or it
-  would send HID++ commands that `HidPid` reads as force feedback. Steam's virtual pad cannot be hidden from a
-  Proton game (docs/linux.md, "Steam's virtual pad").
+  would send HID++ commands that `HidPid` reads as force feedback. Steam's virtual pad is never hidden from a game
+  (the user's rule, 2026-10-09): it is the only thing that controls the Steam Deck, so it always stays; no hiding of
+  it, no advice to turn Steam Input off (docs/linux.md, "Steam's virtual pad").
 - `scripts/make/`: the build scripts (above); `common.sh` holds the shared helpers. `package.ps1` assembles the
   Windows installer package in `dist/windows/` (folder, zip, `WheelBri-<version>-setup.exe` made with IExpress,
   which is part of Windows); the version comes from `project(VERSION)` in `CMakeLists.txt`.

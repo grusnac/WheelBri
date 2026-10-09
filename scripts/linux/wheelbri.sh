@@ -143,12 +143,7 @@ start() {
         say "hidden from the game: ${hide:-nothing}"
         export PROTON_ENABLE_HIDRAW="${PROTON_ENABLE_HIDRAW:+$PROTON_ENABLE_HIDRAW,}0x046D/0xC262"
         export SDL_GAMECONTROLLER_IGNORE_DEVICES="${SDL_GAMECONTROLLER_IGNORE_DEVICES:+$SDL_GAMECONTROLLER_IGNORE_DEVICES,}$hide"
-        # Steam's virtual pad (28de:11ff: the Deck's own controls, or a pad Steam Input makes): Proton always gives it
-        # to the game, the list above cannot hide it. A game may drive from it instead of the G920 (LINUX.md).
-        if grep -qsx 28de /sys/class/input/event*/device/id/vendor &&
-           grep -qsx 11ff /sys/class/input/event*/device/id/product; then
-            say "Steam's virtual pad is there too: if the game drives from it, see LINUX.md (Steam's virtual pad)"
-        fi
+        # Steam's virtual pad (28de:11ff) is never hidden: it is the only thing that controls the Steam Deck.
     else
         export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+$WINEDLLOVERRIDES;}dinput8=n,b"
     fi
