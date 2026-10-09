@@ -142,35 +142,48 @@ std::filesystem::path systemFolder() { return "/usr/bin"; }
 
 std::optional<std::uint32_t> udpPortOwner(std::uint16_t /*port*/) { return std::nullopt; }
 
-std::vector<std::string> runningPrograms() {
-    std::vector<std::string> programs;
+std::optional<std::vector<RunningProgram>> runningPrograms() {
 #if defined(__linux__)
     std::error_code error;
-    for (std::filesystem::directory_iterator it("/proc", error), end; !error && it != end; it.increment(error)) {
+    std::filesystem::directory_iterator it("/proc", error);
+    if (error) return std::nullopt;
+    std::vector<RunningProgram> programs;
+    for (const std::filesystem::directory_iterator end; it != end; it.increment(error)) {
+        if (error) return std::nullopt;   // the listing broke off: a partial list could miss the game
         const std::string pid = it->path().filename().string();
-        if (pid.empty() || pid.find_first_not_of("0123456789") != std::string::npos) continue;
-        // The command line's first word (NUL-separated): a Wine process's is its Windows path; a process that ended
-        // meanwhile, or a kernel thread, has none: then its name (at most 15 characters).
-        std::string first;
+        if (pid.empty() || pid.size() > 10 || pid.find_first_not_of("0123456789") != std::string::npos) continue;
+        // The command line: NUL-separated words. A process that ended meanwhile, a zombie or a kernel thread has none.
+        std::vector<std::string> words(1);
         if (std::FILE* const file = std::fopen(("/proc/" + pid + "/cmdline").c_str(), "rb")) {
-            for (int c = std::fgetc(file); c != EOF && c != '\0' && first.size() < 4096; c = std::fgetc(file)) {
-                first.push_back(static_cast<char>(c));
+            std::size_t read = 0;
+            for (int c = std::fgetc(file); c != EOF && read < 8192 && words.size() <= 2; c = std::fgetc(file), ++read) {
+                if (c == '\0') {
+                    words.emplace_back();
+                } else {
+                    words.back().push_back(static_cast<char>(c));
+                }
             }
             std::fclose(file);
         }
-        if (first.empty()) {
-            if (std::FILE* const file = std::fopen(("/proc/" + pid + "/comm").c_str(), "rb")) {
-                for (int c = std::fgetc(file); c != EOF && c != '\n' && first.size() < 64; c = std::fgetc(file)) {
-                    first.push_back(static_cast<char>(c));
-                }
-                std::fclose(file);
-            }
+        std::string program = words.front();
+        // Started through Wine by hand ("wine64 game.exe"): the program is the next word. Proton's processes name
+        // themselves by their Windows path.
+        const std::string loader = programName(program);
+        if ((loader == "wine" || loader == "wine64" || loader == "wine-preloader" || loader == "wine64-preloader") &&
+            words.size() > 1) {
+            program = words[1];
         }
-        if (!first.empty()) programs.push_back(std::move(first));
+        if (program.empty()) continue;
+        const unsigned long id = std::strtoul(pid.c_str(), nullptr, 10);
+        programs.push_back(RunningProgram{static_cast<std::uint32_t>(id), std::move(program)});
     }
-#endif
     return programs;
+#else
+    return std::nullopt;   // no way to list programs here yet: game detection says so once
+#endif
 }
+
+std::filesystem::path documentsFolder() { return {}; }
 
 std::filesystem::path processImage(std::uint32_t /*pid*/) { return {}; }
 

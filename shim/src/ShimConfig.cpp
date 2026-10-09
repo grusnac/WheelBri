@@ -172,6 +172,38 @@ const ShimConfig& shimConfig() {
         const JoystickLayout layout = config.layout(0);
         WE_LOG_INFO(log, "axes: wheel=x throttle={} brake={} clutch={} invert_pedals={}", axisName(layout.throttle),
                     axisName(layout.brake), axisName(layout.clutch), layout.invertPedals);
+        for (const std::string& problem : gameProfileProblems()) {
+            WE_LOG_ERROR(log, "game profile {}: not used", problem);
+        }
+        // The game this DLL is loaded into: its profile, if it has one, laid over the layout above.
+        wchar_t exe[MAX_PATH] = {};
+        const DWORD length = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        const GameProfile* const game = length > 0 && length < MAX_PATH ? gameProfileFor(toUtf8(exe)) : nullptr;
+        if (game != nullptr && !profileFitsTarget(*game, config.targetProfile)) {
+            WE_LOG_INFO(log, "game profile {} ({}) is for the {}, the target is {}: not used", game->id, game->label,
+                        game->target, config.targetProfile);
+        } else if (game != nullptr) {
+            ShimConfig withGame = config;
+            withGame.gameProfile = game;
+            if (!isValid(withGame.layout(0))) {
+                WE_LOG_ERROR(log, "game profile {} ({}) over this file's axes puts two pedals on one axis or a pedal "
+                                  "on x: not used",
+                             game->id, describeOverlay(*game));
+            } else {
+                config.gameProfile = game;
+                const JoystickLayout used = config.layout(0);
+                WE_LOG_INFO(log, "game profile {} ({}) laid over the defaults: {}; axes now throttle={} brake={} "
+                                 "clutch={}",
+                            game->id, game->label, describeOverlay(*game), axisName(used.throttle),
+                            axisName(used.brake), axisName(used.clutch));
+                if ((game->throttleAxis && config.throttleAxis) || (game->brakeAxis && config.brakeAxis) ||
+                    (game->clutchAxis && config.clutchAxis)) {
+                    WE_LOG_WARN(log, "wheelbri-shim.ini sets pedal axes the game profile {} also sets: the profile's "
+                                     "are used",
+                                game->id);
+                }
+            }
+        }
         if (config.emulate && config.forceFeedback == FfbMode::Passthrough) {
             WE_LOG_INFO(log, "force feedback goes straight to the physical wheel: its strength is capped by the "
                              "wheel's own settings (Pit House), not by wheelbri-service");

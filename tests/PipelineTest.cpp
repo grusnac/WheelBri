@@ -54,8 +54,8 @@ TEST(Pipeline, MapsEncodesAndPublishesEachTick) {
     EXPECT_EQ(pipeline.lastReport(), publisher.packets[1].report);
 }
 
-// The game's pedal layout moves the pedals of what is published; the window and telemetry keep the mapped pedals.
-TEST(Pipeline, PedalLayoutMovesOnlyThePublishedPedals) {
+// A game profile's pedal route moves the pedals of what is published; the window and telemetry keep the mapped ones.
+TEST(Pipeline, PedalRouteMovesOnlyThePublishedPedals) {
     FakeSource source;
     RecordingPublisher publisher;
     MapperConfig config;
@@ -64,14 +64,16 @@ TEST(Pipeline, PedalLayoutMovesOnlyThePublishedPedals) {
     const Mapper mapper(config);
     const DeviceProfile profile(g920Spec());
     Pipeline pipeline(source, mapper, profile, publisher);
-    EXPECT_EQ(pipeline.pedalLayout(), PedalLayout::Logitech);   // a real G920 until a game says otherwise
+    EXPECT_TRUE(pipeline.pedalRoute().identity());   // the defaults until a game profile says otherwise
 
     source.next.axes[1] = 1.0F;    // throttle fully pressed
     source.next.axes[2] = -1.0F;   // brake released
     ASSERT_TRUE(pipeline.tick());
     EXPECT_EQ(publisher.packets.back().report, pipeline.lastReport());
 
-    pipeline.setPedalLayout(PedalLayout::Nfs2015);
+    const PedalRoute nfs2015{{1, 2, 0}};   // Y carries the brake, Rz the clutch, the Slider the throttle
+    pipeline.setPedalRoute(nfs2015);
+    EXPECT_EQ(pipeline.pedalRoute(), nfs2015);
     ASSERT_TRUE(pipeline.tick());
     const TargetReport& sent = publisher.packets.back().report;
     const TargetReport& mapped = pipeline.lastReport();
@@ -81,7 +83,7 @@ TEST(Pipeline, PedalLayoutMovesOnlyThePublishedPedals) {
     EXPECT_EQ(sent.brake, mapped.clutch);          // and the clutch from Rz (brake field)
     EXPECT_EQ(sent.steering, mapped.steering);
 
-    pipeline.setPedalLayout(PedalLayout::Logitech);
+    pipeline.setPedalRoute(PedalRoute{});
     ASSERT_TRUE(pipeline.tick());
     EXPECT_EQ(publisher.packets.back().report, pipeline.lastReport());
 }

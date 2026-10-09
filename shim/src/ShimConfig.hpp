@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wheelbri/EmulatedJoystick.hpp"
+#include "wheelbri/GameProfiles.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -27,6 +28,10 @@ namespace wheelbri::shim {
 //   clutch_axis = slider
 //   invert_pedals = false      ; true = pressed and released swapped for all pedals
 //
+// The pedal axes are a sieve of three layers: the target's defaults, then any *_axis set here, then the game profile of
+// the game the shim is loaded into, if it has one for this target (GameProfiles.hpp, config/games/*.ini): what the game
+// needs changed, and nothing else.
+//
 // In passthrough mode force feedback is limited only by the wheel's own settings (its maker's software), not
 // by the service's [ffb] limiter; service mode is the default and the safe one.
 enum class FfbMode { Service, Passthrough, Off };
@@ -46,15 +51,19 @@ struct ShimConfig {
     std::optional<ObjectGuid> brakeAxis;
     std::optional<ObjectGuid> clutchAxis;
     bool invertPedals = false;
+    // The game profile of the game the shim is in (gameProfiles(), never freed), when it has one for targetProfile and
+    // its layout is valid; null otherwise.
+    const GameProfile* gameProfile = nullptr;
 
-    // The profile's layout with the overrides applied (validated when the file is loaded).
+    // The layout: the target's, the overrides of this file on top, the game profile on top of that (validated when the
+    // file is loaded).
     [[nodiscard]] JoystickLayout layout(std::size_t buttonCount) const {
         JoystickLayout result = layoutFor(targetProfile, buttonCount);
         result.throttle = throttleAxis.value_or(result.throttle);
         result.brake = brakeAxis.value_or(result.brake);
         result.clutch = clutchAxis.value_or(result.clutch);
         result.invertPedals = invertPedals;
-        return result;
+        return gameProfile != nullptr ? overlay(result, *gameProfile) : result;
     }
 
     [[nodiscard]] bool matchesSource(std::uint16_t vendorId, std::uint16_t productId) const {

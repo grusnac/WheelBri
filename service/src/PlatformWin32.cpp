@@ -15,6 +15,7 @@
 #include <cfgmgr32.h>
 #include <iphlpapi.h>
 #include <mmsystem.h>
+#include <shlobj.h>     // SHGetKnownFolderPath: the Documents folder
 #include <tlhelp32.h>
 
 #include <algorithm>
@@ -370,21 +371,37 @@ std::filesystem::path processImageWithoutOpening(const std::uint32_t pid) {
 
 }  // namespace
 
-std::vector<std::string> runningPrograms() {
-    std::vector<std::string> programs;
+std::optional<std::vector<RunningProgram>> runningPrograms() {
     const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) return programs;
+    if (snapshot == INVALID_HANDLE_VALUE) return std::nullopt;
+    std::vector<RunningProgram> programs;
     PROCESSENTRY32W entry{};
     entry.dwSize = sizeof(entry);
-    for (BOOL more = Process32FirstW(snapshot, &entry); more != FALSE; more = Process32NextW(snapshot, &entry)) {
+    BOOL more = Process32FirstW(snapshot, &entry);
+    if (more == FALSE) {   // even the system's own processes are missing: the list says nothing
+        CloseHandle(snapshot);
+        return std::nullopt;
+    }
+    for (; more != FALSE; more = Process32NextW(snapshot, &entry)) {
+        entry.szExeFile[MAX_PATH - 1] = L'\0';   // never read past the array, whatever the system left in it
         const int length = WideCharToMultiByte(CP_UTF8, 0, entry.szExeFile, -1, nullptr, 0, nullptr, nullptr);
         if (length <= 1) continue;
         std::string name(static_cast<std::size_t>(length - 1), '\0');
         WideCharToMultiByte(CP_UTF8, 0, entry.szExeFile, -1, name.data(), length, nullptr, nullptr);
-        programs.push_back(std::move(name));
+        programs.push_back(RunningProgram{static_cast<std::uint32_t>(entry.th32ProcessID), std::move(name)});
     }
     CloseHandle(snapshot);
     return programs;
+}
+
+std::filesystem::path documentsFolder() {
+    PWSTR folder = nullptr;
+    std::filesystem::path path;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &folder)) && folder != nullptr) {
+        path = folder;
+    }
+    CoTaskMemFree(folder);
+    return path;
 }
 
 std::filesystem::path processImage(const std::uint32_t pid) {

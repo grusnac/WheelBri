@@ -43,7 +43,7 @@ bool Pipeline::tick(std::optional<float> clutchOverride, const std::uint64_t now
         state_.clutch = *clutchOverride;
     }
     report_ = profile_.encode(state_);
-    packet_.report = applyPedalLayout(report_, pedalLayout_.load(std::memory_order_relaxed));
+    packet_.report = applyPedalRoute(report_, pedalRoute());
     if (!gate_ || gate_->shouldSend(packet_.report, nowNs)) {
         ++packet_.sequence;
         if (!publisher_.publish(packet_)) {

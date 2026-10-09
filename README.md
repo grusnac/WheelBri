@@ -26,9 +26,13 @@ Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
   `c_dfDIJoystick2`, pedals released at the top of the range;
 - the emulated G920 reports its pedals as a real one does on Windows: wheel X, throttle Y, brake Rz, clutch Slider
-  (NFS Unbound reads it so); NFS 2015 reads a G920's brake from Y, clutch from Rz and throttle from the Slider, so
-  while `NFS16.exe` runs the service moves the pedals there by itself (game detection, `KnownGames`): the mapping is
-  the same in every game, nothing to set;
+  (NFS Unbound reads it so), the default for every game. A game that reads it differently gets a game profile,
+  `config/games/<id>.ini`, holding only what that game needs changed, laid over the defaults like a sieve; it is
+  compiled in and used automatically, for the G920 virtual device and the in-game shim alike. Only NFS 2015 has one
+  (it reads a G920's brake from Y, clutch from Rz and throttle from the Slider): while `NFS16.exe` runs, the app's
+  status says "NFS 2015" and the log (`service.game`, `shim.config`) says what it changes. A game without a
+  profile is never mentioned. If NFS 2015's own wheel controls were changed to work around its G920 table, the
+  status says "NFS 2015: RESET ITS WHEEL CONTROLS"; reset them to default in the game;
 - the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/g920-virtual-device.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
@@ -426,7 +430,7 @@ SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelbri-service --con
 ```
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.uhid` (the app starting wheelbri-uhid, Linux), `service.hidhide`,
-`service.hide`, `service.helper`, `service.log` (the Level button), `helper`, `helper.pipe`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `service.devices`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
+`service.hide`, `service.helper`, `service.game` (game detection, game profiles), `service.log` (the Level button), `helper`, `helper.pipe`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `service.devices`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
 `shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `shim.audit`, `tools.uhid` (`wheelbri-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelbri/Logging.hpp`)

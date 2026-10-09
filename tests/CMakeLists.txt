@@ -24,6 +24,8 @@ add_executable(wheelbri_tests
     FfbShapeTest.cpp
     FfbUsageTest.cpp
     FileTextTest.cpp
+    GameDetectorTest.cpp
+    GameProfilesTest.cpp
     GameUseWatchTest.cpp
     HelperDispatchTest.cpp
     HelperProtocolTest.cpp
@@ -39,9 +41,9 @@ add_executable(wheelbri_tests
     LogLevelTest.cpp
     LoggingTest.cpp
     MapperTest.cpp
+    Nfs2015SettingsTest.cpp
     MappingEditTest.cpp
     PacingTest.cpp
-    PedalLayoutTest.cpp
     PipelineTest.cpp
     PushLoopTest.cpp
     RelistTimerTest.cpp

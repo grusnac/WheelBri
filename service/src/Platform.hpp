@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wheelbri/ChangeCounter.hpp"
+#include "wheelbri/GameProfiles.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -14,6 +15,8 @@
 // clock, sleeps and waits for the service loop, a higher thread priority, and starting a compressor for old log
 // files. PlatformWin32.cpp on Windows, PlatformPosix.cpp elsewhere (Linux, macOS).
 namespace wheelbri::service::platform {
+
+using wheelbri::RunningProgram;
 
 inline constexpr std::uint64_t kNsPerMs = 1'000'000ULL;
 inline constexpr std::uint64_t kNsPerSecond = 1'000'000'000ULL;
@@ -125,10 +128,15 @@ void nameThisThread(const char* name);
 // Windows: the process that owns IPv4 UDP port `port` (bound to 127.0.0.1 or any address): its id, 0 when no process
 // owns it (any more), nullopt when the system could not say. Elsewhere always nullopt. For SenderGate.
 [[nodiscard]] std::optional<std::uint32_t> udpPortOwner(std::uint16_t port);
-// The programs running now, one entry per process: the program's file name on Windows ("NFS16.exe"); on Linux the
-// first word of each process's command line (a Wine game's is its Windows path, "Z:\games\NFS16.exe"), else its
-// name. For KnownGames: a few milliseconds, never on the service loop. Empty if the system could not say.
-[[nodiscard]] std::vector<std::string> runningPrograms();
+// The programs running now, one entry per process with its id: the program's file name on Windows ("NFS16.exe"); on
+// Linux the first word of each process's command line (a Wine game's is its Windows path, "Z:\games\NFS16.exe"; after
+// a wine/wine64/wine-preloader/wine64-preloader word, the next one), never the 15-character process name (a zombie or
+// kernel thread has no command line and is no running game). nullopt when the system could not say (Windows: no
+// snapshot; Linux: /proc unreadable; other systems: always). For GameDetector: a few milliseconds, never on the loop.
+[[nodiscard]] std::optional<std::vector<RunningProgram>> runningPrograms();
+// Windows: the user's Documents folder (where NFS 2015 keeps its settings; OneDrive may have moved it), empty when
+// unknown. Elsewhere empty.
+[[nodiscard]] std::filesystem::path documentsFolder();
 
 // Windows: the full path of process `pid`'s program; empty when it cannot be read (and on other systems).
 [[nodiscard]] std::filesystem::path processImage(std::uint32_t pid);

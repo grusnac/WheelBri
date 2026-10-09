@@ -4,7 +4,7 @@
 #include "wheelbri/Devices.hpp"
 #include "wheelbri/Mapper.hpp"
 #include "wheelbri/Pacing.hpp"
-#include "wheelbri/PedalLayout.hpp"
+#include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/UdpLoopback.hpp"
 
 #include <array>
@@ -28,10 +28,20 @@ public:
     // publishes (the tests).
     void limitSending(const std::uint64_t minIntervalNs) { gate_.emplace(minIntervalNs); }
 
-    // Where the published state puts the pedals for the game that runs (PedalLayout.hpp; KnownGames.hpp detects it).
-    // Safe from another thread; the next tick uses it. lastReport() stays as mapped (the user's pedals).
-    void setPedalLayout(const PedalLayout layout) { pedalLayout_.store(layout, std::memory_order_relaxed); }
-    [[nodiscard]] PedalLayout pedalLayout() const { return pedalLayout_.load(std::memory_order_relaxed); }
+    // Which pedal each published pedal field carries: a game profile's (GameProfiles.hpp, routePedals) while that game
+    // runs with the virtual G920, else straight through. Safe from another thread; the next tick uses it.
+    // lastReport() stays as mapped (the user's pedals).
+    void setPedalRoute(const PedalRoute route) {
+        const std::uint32_t packed = static_cast<std::uint32_t>(route.from[0]) |
+                                     (static_cast<std::uint32_t>(route.from[1]) << 8U) |
+                                     (static_cast<std::uint32_t>(route.from[2]) << 16U);
+        pedalRoute_.store(packed, std::memory_order_relaxed);
+    }
+    [[nodiscard]] PedalRoute pedalRoute() const {
+        const std::uint32_t packed = pedalRoute_.load(std::memory_order_relaxed);
+        return PedalRoute{{static_cast<std::uint8_t>(packed & 0xFFU), static_cast<std::uint8_t>((packed >> 8U) & 0xFFU),
+                           static_cast<std::uint8_t>((packed >> 16U) & 0xFFU)}};
+    }
 
     // Returns false once the wheel or an accessory is gone (lostDevice() says which). `clutchOverride` (0..1 pressed), when set, replaces the
     // mapped clutch: the test clutch while no clutch pedal is connected. `nowNs`: monotonic time, for limitSending.
@@ -63,7 +73,7 @@ private:
     WheelState state_;
     TargetReport report_;
     StatePacket packet_;
-    std::atomic<PedalLayout> pedalLayout_{PedalLayout::Logitech};
+    std::atomic<std::uint32_t> pedalRoute_{0x00020100U};   // PedalRoute packed: straight through
     std::uint64_t publishFailures_ = 0;
     std::optional<StateSendGate> gate_;
 };

@@ -849,7 +849,7 @@ private:
                 status = "Running " + clock((now - runningSince_) / platform::kNsPerSecond);
                 colour = kActive;
                 if (const auto frame = host_.latest(); frame && !frame->game.empty()) {
-                    status += ", " + frame->game;   // the known game detected (KnownGames.hpp): its pedal layout
+                    status += ", " + frame->game;   // the known game followed, "NFS 2015 pedal profile" (GameWatch)
                 }
                 if (const auto frame = host_.latest(); frame && frame->wheelLostMs > 0) {
                     status = "WHEEL LOST " + clock(frame->wheelLostMs / 1000);
@@ -859,6 +859,9 @@ private:
                     colour = kWarning;
                 } else if (frame && frame->gameFfbIdle) {
                     status = "GAME FFB OFF: ALT-TAB";   // the Logs tab says more (main.cpp, FfbIdleWatch)
+                    colour = kWarning;
+                } else if (frame && !frame->gameWarning.empty()) {
+                    status = frame->gameWarning;   // e.g. NFS 2015's own wheel controls undo its pedal profile
                     colour = kWarning;
                 }
                 break;
