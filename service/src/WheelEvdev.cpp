@@ -383,6 +383,7 @@ public:
         std::vector<WheelInfo> wheels;
         int unreadable = 0;
         int own = 0;
+        int steamPads = 0;
         for (const std::string& path : eventNodes()) {
             const int fd = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
             if (fd < 0) {
@@ -391,6 +392,8 @@ public:
             }
             if (isOwnVirtualDevice(fd)) {
                 ++own;
+            } else if (isSteamVirtualPad(fd)) {
+                ++steamPads;
             } else if (evdev::isGameController(readCapabilities(fd))) {
                 wheels.push_back(describe(fd, path));
             }
@@ -398,6 +401,11 @@ public:
         }
         if (own > 0) {
             WE_LOG_DEBUG(inputLog(), "{} WheelBri virtual G920(s) left out (wheelbri-uhid's own)", own);
+        }
+        if (steamPads > 0) {
+            WE_LOG_DEBUG(inputLog(), "{} Steam virtual pad(s) left out (28de:11ff: Steam Input's copy of another "
+                                     "controller)",
+                         steamPads);
         }
         if (unreadable > 0) {
             WE_LOG_DEBUG(inputLog(), "{} input device(s) not readable by this user (keyboards and mice usually are "
@@ -425,6 +433,13 @@ private:
     static bool isOwnVirtualDevice(const int fd) {
         char uniq[64] = {};
         return ioctl(fd, EVIOCGUNIQ(sizeof(uniq) - 1), uniq) >= 0 && std::strcmp(uniq, kG920VirtualUniq) == 0;
+    }
+
+    // Steam Input's virtual Xbox pad (28de:11ff, made through uinput): a copy of another controller (the Steam Deck's
+    // own, or one Steam Input took over), never a rig device; every one has the same id, so none could be told apart.
+    static bool isSteamVirtualPad(const int fd) {
+        input_id id{};
+        return ioctl(fd, EVIOCGID, &id) == 0 && id.vendor == 0x28DE && id.product == 0x11FF;
     }
 
     static WheelInfo describe(const int fd, const std::string& path) {

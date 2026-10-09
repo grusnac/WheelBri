@@ -237,6 +237,12 @@ int main(int argc, char** argv) {
                 WE_LOG_INFO(log(), "stop requested ({} appeared)", o.stopFile);
                 break;
             }
+            // Started by the app (--parent): an app that was killed cannot stop us, so we go when it is gone (we are
+            // handed to another parent then).
+            if (o.parentPid != 0 && ::getppid() != o.parentPid) {
+                WE_LOG_WARN(log(), "the program that started us (pid {}) is gone: stopping", o.parentPid);
+                break;
+            }
         }
         if (now - lastStatus >= 10'000) {
             lastStatus = now;

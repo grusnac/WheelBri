@@ -97,24 +97,64 @@ std::optional<std::string> asciiFolder(std::wstring folder) {
     return toUtf8(shortName.c_str()) + "\\";   // ASCII: the same bytes in every encoding
 }
 
+std::wstring environment(const wchar_t* name) {
+    wchar_t value[MAX_PATH] = {};
+    const DWORD length = GetEnvironmentVariableW(name, value, MAX_PATH);
+    return length > 0 && length < MAX_PATH ? std::wstring(value, length) : std::wstring();
+}
+
+// Under Wine (Proton) the game's %LOCALAPPDATA% is inside its own prefix, where neither the app nor the user looks: the
+// Linux user's WheelBri folder instead, where the service on Linux keeps it ($`variable`/wheelbri, else
+// ~/`fallback`/wheelbri), as the Windows path Wine gives it (Z:\home\...). Wine hands the Unix HOME over as WINEHOME.
+// Empty when not under Wine or Wine cannot name the folder.
+std::wstring wineUserFolder(const wchar_t* const variable, const wchar_t* const fallback) {
+    using DosNameFn = WCHAR*(WINAPI*)(const char*);   // Wine's kernel32: a Unix path to a Windows one
+    const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    const auto dosName = kernel32 == nullptr ? nullptr
+                                             : reinterpret_cast<DosNameFn>(reinterpret_cast<void*>(
+                                                   GetProcAddress(kernel32, "wine_get_dos_file_name")));
+    if (dosName == nullptr) return {};
+    std::wstring folder = environment(variable);
+    if (folder.empty() || folder.front() != L'/') {
+        std::wstring home = environment(L"WINEHOME");
+        if (home.empty()) home = environment(L"HOME");
+        if (home.empty() || home.front() != L'/') return {};
+        folder = home + L"/" + fallback;
+    }
+    folder += L"/wheelbri";
+    const std::string unixPath = toUtf8(folder.c_str());   // Wine reads Unix names as UTF-8
+    WCHAR* const dos = dosName(unixPath.c_str());
+    if (dos == nullptr) return {};
+    std::wstring result(dos);
+    HeapFree(GetProcessHeap(), 0, dos);
+    return result;
+}
+
 // Next to the service's logs and telemetry (%LOCALAPPDATA%\wheelbri\logs), so every file is in one folder
 // that the service's window shows and its [retention] settings clean up. One file per run of the game (and day):
-// wheelbri-shim-YYYY-MM-DD-NN.log (LogFiles.hpp). Falls back to the DLL's folder if LOCALAPPDATA is not set.
-// The level the app picked last ([app] log_level in %LOCALAPPDATA%\wheelbri\app.ini), warn without one. The
-// service's packets say it again once the game reads the wheel.
+// wheelbri-shim-YYYY-MM-DD-NN.log (LogFiles.hpp). Falls back to the DLL's folder if LOCALAPPDATA is not set. Under
+// Wine: the Linux service's log folder (~/.local/state/wheelbri).
+// The level the app picked last ([app] log_level in %LOCALAPPDATA%\wheelbri\app.ini; under Wine the Linux app's
+// ~/.config/wheelbri/app.ini), warn without one. The service's packets say it again once the game reads the wheel.
 LogLevel appLevelAtStart() {
-    wchar_t localAppData[MAX_PATH] = {};
-    const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH) return kDefaultAppLogLevel;
-    const std::filesystem::path file = std::filesystem::path(std::wstring(localAppData)) / L"wheelbri" / L"app.ini";
+    std::wstring folder = wineUserFolder(L"XDG_CONFIG_HOME", L".config");
+    if (folder.empty()) {
+        const std::wstring localAppData = environment(L"LOCALAPPDATA");
+        if (localAppData.empty()) return kDefaultAppLogLevel;
+        folder = localAppData + L"\\wheelbri";
+    }
+    const std::filesystem::path file = std::filesystem::path(folder) / L"app.ini";
     return appLogLevel(readAppSetting(file, "log_level"));
 }
 
 std::string logFilePath() {
-    wchar_t localAppData[MAX_PATH] = {};
-    const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
-    const std::wstring folder = length > 0 && length < MAX_PATH ? std::wstring(localAppData) + L"\\wheelbri\\logs\\"
-                                                                : dllDirectory();
+    std::wstring folder = wineUserFolder(L"XDG_STATE_HOME", L".local/state");
+    if (!folder.empty()) {
+        folder += L"\\";
+    } else {
+        const std::wstring localAppData = environment(L"LOCALAPPDATA");
+        folder = !localAppData.empty() ? localAppData + L"\\wheelbri\\logs\\" : dllDirectory();
+    }
     if (!isAscii(folder)) {
         if (const std::optional<std::string> narrow = asciiFolder(folder)) {
             return *narrow + "wheelbri-shim.log";

@@ -62,6 +62,7 @@ if(WE_SERVICE_PLATFORM STREQUAL "Windows")
     target_link_libraries(wheelbri_service_objects PUBLIC dinput8 dxguid cfgmgr32 advapi32 iphlpapi winmm user32 gdi32 shell32 ole32 uuid)
 else()
     target_sources(wheelbri_service_objects PRIVATE
+        src/UhidProcess.cpp
         src/UiWindowX11.cpp
         src/WheelEvdev.cpp)
     target_link_libraries(wheelbri_service_objects PUBLIC X11::X11)

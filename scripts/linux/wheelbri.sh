@@ -102,10 +102,16 @@ service_pid=
 uhid_pid=
 own_service=0
 
+# A session already running, the app's (wheelbri, Start) or wheelbri-service's: it holds this lock (SingleInstance).
+lock="${XDG_RUNTIME_DIR:-/tmp}/wheelbri-service-$(id -u).lock"
+session_running() {
+    [ -e "$lock" ] && ! flock -n "$lock" true 2>/dev/null
+}
+
 start() {
     rm -f "$service_stop" "$uhid_stop"
-    if pgrep -f '(^|/)wheelbri-service( |$)' >/dev/null; then
-        say "wheelbri-service is already running: using it (and leaving it running afterwards)"
+    if session_running || pgrep -f '(^|/)wheelbri-service( |$)' >/dev/null; then
+        say "a WheelBri session is already running (the app or wheelbri-service): using it (and leaving it running afterwards)"
     else
         local args=(--config "$config" --stop-file "$service_stop")
         [ "$ui" = 1 ] && args+=(--ui)
@@ -137,6 +143,12 @@ start() {
         say "hidden from the game: ${hide:-nothing}"
         export PROTON_ENABLE_HIDRAW="${PROTON_ENABLE_HIDRAW:+$PROTON_ENABLE_HIDRAW,}0x046D/0xC262"
         export SDL_GAMECONTROLLER_IGNORE_DEVICES="${SDL_GAMECONTROLLER_IGNORE_DEVICES:+$SDL_GAMECONTROLLER_IGNORE_DEVICES,}$hide"
+        # Steam's virtual pad (28de:11ff: the Deck's own controls, or a pad Steam Input makes): Proton always gives it
+        # to the game, the list above cannot hide it. A game may drive from it instead of the G920 (LINUX.md).
+        if grep -qsx 28de /sys/class/input/event*/device/id/vendor &&
+           grep -qsx 11ff /sys/class/input/event*/device/id/product; then
+            say "Steam's virtual pad is there too: if the game drives from it, see LINUX.md (Steam's virtual pad)"
+        fi
     else
         export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+$WINEDLLOVERRIDES;}dinput8=n,b"
     fi
@@ -162,7 +174,7 @@ stopped=0
 stop() {
     [ $stopped = 1 ] && return
     stopped=1
-    trap '' INT TERM
+    trap '' INT TERM HUP
     if [ -n "$uhid_pid" ]; then
         touch "$uhid_stop"
         wait_for "$uhid_pid" 5
@@ -177,6 +189,7 @@ stop() {
 }
 trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
+trap 'stop; exit 129' HUP   # the terminal closed: stop cleanly rather than leave the service and the G920 behind
 
 if ! start; then
     stop

@@ -8,7 +8,7 @@ G920 in one of two ways:
 |---|---|---|
 | What | `wheelbri-uhid`: a virtual G920 for the whole system, through the kernel's uhid (Phase 4; the Linux counterpart of `driver/wheelbri-g920`) | `dinput8.dll` in the game folder answers as a G920 (Phases 2 and 3, as on Windows) |
 | Game folder | untouched | `dinput8.dll` copied there |
-| Launch option | `PROTON_ENABLE_HIDRAW=0x046D/0xC262 SDL_GAMECONTROLLER_IGNORE_DEVICES=0x346E/0x0005 %command%` | `WINEDLLOVERRIDES="dinput8=n,b" %command%` |
+| Launch option | `PROTON_ENABLE_HIDRAW=0x046D/0xC262 SDL_GAMECONTROLLER_IGNORE_DEVICES=0xVVVV/0xPPPP %command%` (your rig's ids, comma separated; the R3: `0x346E/0x0005`) | `WINEDLLOVERRIDES="dinput8=n,b" %command%` |
 | Once | `install-udev-rules.sh` (sudo) | nothing |
 
 `wheelbri.sh` sets the launch options itself, so the only one Steam needs is `wheelbri.sh %command%`.
@@ -21,7 +21,8 @@ names, the clutch ended up in the Slider, where NFS reads its throttle). Proton 
 joysticks through SDL, which would rename the axes and drop that force feedback; `PROTON_ENABLE_HIDRAW` makes it
 read this one raw, so its DirectInput sees exactly what NFS sees on Windows and sends HID PID effects, which
 `wheelbri-uhid` turns into the service's force feedback packets. `SDL_GAMECONTROLLER_IGNORE_DEVICES` hides the
-R3 itself from the game (Proton applies it to every backend), so the game finds one wheel.
+R3 itself from the game, so the game finds one wheel: Proton (9 and 10) checks that list for SDL devices and for
+raw (hidraw) ones too, so it also hides wheels Proton would open raw by itself (Fanatec, Simucube, ...).
 
 ## Steam Deck: build it there from the repository
 
@@ -116,7 +117,23 @@ and stops both when it ends. For the shim way instead (copy `~/wheelbri/dinput8.
 Without Steam, from Konsole: `~/wheelbri/wheelbri.sh` starts both (the service with its window) and stops them
 when you press Enter; start the game with the launch option it prints.
 
-Logs: `~/.local/state/wheelbri/` (service, `wheelbri-uhid`, `wheelbri.sh`, telemetry).
+From the app (`~/wheelbri/bin/wheelbri`): Start with the target "G920 virtual device" (Mapping tab) starts
+`wheelbri-uhid` too and Stop removes it; the game still needs the launch options above (or `wheelbri.sh %command%`,
+which then uses the app's session instead of starting its own). With the target "G920 in-game shim", the Games
+button next to Start puts `dinput8.dll` into a game's folder (KDE's or GNOME's folder window).
+
+Logs: `~/.local/state/wheelbri/` (service, `wheelbri-uhid`, `wheelbri.sh`, telemetry, and the shim: under Proton it
+writes there too, not into the game's Wine prefix).
+
+## Steam's virtual pad
+
+Proton always gives the game Steam Input's virtual Xbox pad (`28de:11ff`): the Deck's own controls, and any pad
+Steam Input takes over. No launch option hides it: Proton lets it through before it looks at
+`SDL_GAMECONTROLLER_IGNORE_DEVICES`. On Windows, NFS drove from an Xbox pad that was there when it started instead
+of the wheel; whether it does the same on the Deck is not tested yet (`wheelbri.sh` says when the pad is there).
+Signs: the app's status says GAME NOT USING THE WHEEL, and the `wheelbri-uhid` log counts no force feedback
+reports from the game. To try: pick the wheel in NFS's controls settings; Steam > NFS > Properties > Controller >
+Disable Steam Input (Steam then makes no pad for external controllers; the Deck's own controls may stay).
 
 ## When it does not work
 
@@ -128,6 +145,9 @@ Logs: `~/.local/state/wheelbri/` (service, `wheelbri-uhid`, `wheelbri.sh`, telem
   (look for `046d:c262`).
 - Two wheels in the game, or the R3 instead of the G920: the R3 has a different id; pass it with
   `--hide 0x346E/0xNNNN` (`lsusb` shows it).
+- `dmesg` says `logitech-hidpp-device ... not enough values in hidpp report 17` when the virtual G920 appears: that is
+  expected. The kernel's Logitech HID++ driver claims every G920 id, sees that ours is no HID++ device and leaves it
+  to the generic HID driver (`UhidG920Test` keeps it that way).
 - No force feedback but the wheel works: check the R3 first (`wheelbri-service --ffb-test`), then the
   `wheelbri-uhid` log (`force feedback reports from the game`).
 

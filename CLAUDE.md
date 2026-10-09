@@ -295,7 +295,7 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
     ours nor next to a `wheelbri-shim.ini` is another mod's and never touched), `gameFolderProblem` (needs an `.exe`).
     `ShimGamesTest` covers it with temporary folders. UI: `service/src/ShimGamesView.cpp`, only with the target G920
     in-game shim: "Game <name> [Games (N)]" next to Start, the games panel (pick, Add game through
-    `UiWindow::pickFolder`: IFileOpenDialog on Windows, none on X11; Put / Remove shim; Forget = `removeShimGame`, list only), and the App's popups: "Would
+    `UiWindow::pickFolder`: IFileOpenDialog on Windows, `/usr/bin/kdialog` or `/usr/bin/zenity` on X11; Put / Remove shim; Forget = `removeShimGame`, list only), and the App's popups: "Would
     you like to delete the shim from the target folder?" after a shim session (not when the window closes), notices.
     The shim's source is `AppSettings::shimDll` (`shim\dinput8.dll` next to the program, or `build/shim/`) and
     `shimSettings` (`config/wheelbri-shim.ini`).
@@ -329,7 +329,9 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
     only: names, `nextIndex`, `newestOf`; the drivers use it too) and `LogFiles.hpp` (`runFile`: this run's file,
     the app's telemetry/ffb take the app's number; `newestFile`). `logging::init` names its file through `runFile`
     (`wheelbri-service-YYYY-MM-DD-NN.log`); the shim logs to
-    `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-YYYY-MM-DD-NN.log`; the drivers (`openRunFile` in each Driver.cpp) and
+    `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-YYYY-MM-DD-NN.log` (under Wine/Proton the Linux user's
+    `~/.local/state/wheelbri` and `~/.config/wheelbri/app.ini` instead of the game prefix's, through Wine's
+    `wine_get_dos_file_name` and `WINEHOME`: `wineUserFolder` in `ShimLogging.cpp`); the drivers (`openRunFile` in each Driver.cpp) and
     the helper (`HelperLog` `UserFile`) choose their number the same way. The installers' transcripts stay daily.
     The Logs tab shows each component's newest file. **One folder for every log**, the user's
     (`%LOCALAPPDATA%\wheelbri\logs`; Linux `~/.local/state/wheelbri`): app, shim, telemetry, both drivers, installer,
@@ -523,7 +525,15 @@ user found 30 laggy (2026-10-08). The session loop hands the window its state as
   (newest state, a keep-alive 100 ms after the last report written, neutral after 1.5 s); `main.cpp` is the fd/UDP
   loop: it waits on /dev/uhid and the state socket (`UdpLoopbackReceiver::nativeSocket`) and reads every queued uhid
   event per wake (the kernel queues 32). It marks the device `uniq = kG920VirtualUniq`; the evdev listing
-  (`WheelEvdev.cpp`) leaves such a device out, so the service never reads its own output.
+  (`WheelEvdev.cpp`) leaves such a device out, so the service never reads its own output (and Steam Input's virtual
+  pads, 28de:11ff, copies of other controllers). The app's Start with the target "G920 virtual device" starts it on
+  Linux (`--virtual-g920` there, `Options::uhid`, `service/src/UhidProcess.cpp`: next to the program or
+  build/tools/uhid/, `--stop-file` in the log folder and `--parent <app pid>` so it goes when the app is killed; one
+  already running, wheelbri.sh's, is used and left alone). `wheelbri.sh` sees an app session through the service's
+  `SingleInstance` lock (`flock`). The kernel's `hid-logitech-hidpp` claims 046D:C262 and gives up because output
+  report 0x11 is too short for HID++ ("not enough values in hidpp report 17"); `UhidG920Test` keeps it so, or it
+  would send HID++ commands that `HidPid` reads as force feedback. Steam's virtual pad cannot be hidden from a
+  Proton game (docs/linux.md, "Steam's virtual pad").
 - `scripts/make/`: the build scripts (above); `common.sh` holds the shared helpers. `package.ps1` assembles the
   Windows installer package in `dist/windows/` (folder, zip, `WheelBri-<version>-setup.exe` made with IExpress,
   which is part of Windows); the version comes from `project(VERSION)` in `CMakeLists.txt`.

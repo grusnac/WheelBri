@@ -7,7 +7,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
+#include <span>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -174,6 +177,71 @@ TEST(UhidG920, TheLastCloseStopsTheGamesForces) {
     bool stopAll = false;
     for (const auto& p : k.packets) stopAll = stopAll || p.kind == FfbPacket::Kind::StopAll;
     EXPECT_TRUE(stopAll);
+}
+
+// The length Linux's hid-logitech-hidpp gives output report `id` (hidpp_get_report_length): the first field's
+// Report Count + 1, a field being an Output item with usages (padding has none and makes no field); 0 if absent.
+std::size_t hidppReportLength(const std::span<const std::uint8_t> descriptor, const std::uint8_t id) {
+    struct Globals {
+        std::uint32_t count = 0;
+        std::uint8_t reportId = 0;
+    };
+    Globals globals;
+    std::vector<Globals> stack;
+    std::size_t usages = 0;
+    std::uint32_t usageMinimum = 0;
+    for (std::size_t i = 0; i < descriptor.size();) {
+        const std::uint8_t prefix = descriptor[i];
+        if (prefix == 0xFE) {   // long item: its data size follows
+            i += 3 + (i + 1 < descriptor.size() ? descriptor[i + 1] : 0);
+            continue;
+        }
+        const std::size_t size = (prefix & 3U) == 3 ? 4 : (prefix & 3U);
+        std::uint32_t value = 0;
+        for (std::size_t b = 0; b < size && i + 1 + b < descriptor.size(); ++b) {
+            value |= static_cast<std::uint32_t>(descriptor[i + 1 + b]) << (8 * b);
+        }
+        switch (prefix & 0xFCU) {
+            case 0x94: globals.count = value; break;                                     // Report Count
+            case 0x84: globals.reportId = static_cast<std::uint8_t>(value); break;       // Report ID
+            case 0xA4: stack.push_back(globals); break;                                  // Push
+            case 0xB4: if (!stack.empty()) { globals = stack.back(); stack.pop_back(); } break;   // Pop
+            case 0x08: ++usages; break;                                                  // Usage
+            case 0x18: usageMinimum = value; break;                                      // Usage Minimum
+            case 0x28: usages += value >= usageMinimum ? value - usageMinimum + 1 : 0; break;   // Usage Maximum
+            case 0x90:                                                                   // Output
+                if (usages > 0 && globals.reportId == id) return globals.count + 1;
+                [[fallthrough]];
+            case 0x80: case 0xB0: case 0xA0: case 0xC0:                                  // the other main items
+                usages = 0;
+                usageMinimum = 0;
+                break;
+            default: break;
+        }
+        i += 1 + size;
+    }
+    return 0;
+}
+
+// The kernel's hid-logitech-hidpp claims 046D:C262 and, when output reports 0x10 / 0x11 / 0x12 look like HID++ ones,
+// sends HID++ commands to the device, which HidPid would take for the game's force feedback. It gives up (and leaves
+// the device to the generic HID driver: "not enough values in hidpp report 17") when one of them is there but shorter
+// than HID++ needs (hidpp_validate_device): keep it so whenever the descriptor changes.
+TEST(UhidG920, TheKernelsHidppDriverLeavesTheDeviceAlone) {
+    const auto descriptor = g920ProtonReportDescriptor();
+    constexpr std::array<std::pair<std::uint8_t, std::size_t>, 3> kHidppReports{{
+        {0x10, 7},    // HIDPP_REPORT_SHORT_LENGTH
+        {0x11, 20},   // HIDPP_REPORT_LONG_LENGTH
+        {0x12, 20},   // very long: at least HIDPP_REPORT_LONG_LENGTH
+    }};
+    bool refused = false;
+    for (const auto& [id, needed] : kHidppReports) {
+        const std::size_t length = hidppReportLength(descriptor, id);
+        refused = refused || (length > 0 && length < needed);
+    }
+    EXPECT_TRUE(refused) << "hid-logitech-hidpp would take the virtual G920 for a HID++ device";
+    EXPECT_GT(hidppReportLength(descriptor, 0x11), 0U);   // the report that makes it give up today
+    EXPECT_LT(hidppReportLength(descriptor, 0x11), 20U);
 }
 
 // The service's evdev listing leaves a device with this uniq out (WheelEvdev.cpp): it must be what uhid sets.

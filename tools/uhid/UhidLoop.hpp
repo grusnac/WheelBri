@@ -20,6 +20,7 @@ struct Options {
     std::uint16_t ffbPort = 41330;
     std::string stopFile;
     std::string device = "/dev/uhid";
+    int parentPid = 0;   // --parent: stop once this process is no longer our parent (0: never)
 };
 
 struct ParsedOptions {
@@ -33,8 +34,10 @@ struct ParsedOptions {
 
 inline constexpr const char* kUsage =
     "usage: wheelbri-uhid [--state-port 41329] [--ffb-port 41330] [--stop-file PATH] [--device /dev/uhid]\n"
-    "  A virtual Logitech G920 (uhid) fed by wheelbri-service; stops on Ctrl+C, SIGTERM or when\n"
-    "  --stop-file appears. Proton games: PROTON_ENABLE_HIDRAW=0x046D/0xC262 in the launch options.";
+    "                     [--parent PID]\n"
+    "  A virtual Logitech G920 (uhid) fed by wheelbri-service; stops on Ctrl+C, SIGTERM, when\n"
+    "  --stop-file appears or when process PID (--parent, the app that started it) is gone.\n"
+    "  Proton games: PROTON_ENABLE_HIDRAW=0x046D/0xC262 in the launch options.";
 
 // The wheel's state into the device: each new state (sent when it changed, or as a keep-alive), an input report at
 // least every kKeepAliveMs, and after kStaleMs without a state the centred wheel and released pedals until states

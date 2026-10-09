@@ -15,11 +15,14 @@
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 
+#include <fcntl.h>
 #include <spawn.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -37,6 +40,51 @@ namespace {
 const logging::Logger& log() {
     static const logging::Logger logger = logging::get("service.ui");
     return logger;
+}
+
+// Runs `argv` (a full path first) and collects what it prints, waiting for it to end. Steam's preloads and
+// runtime libraries are left out of its environment (the app may have been started from Steam).
+bool runForOutput(const std::vector<std::string>& argv, std::string& output, int& exitCode, std::string& error) {
+    std::vector<char*> args;
+    std::vector<std::string> copies(argv);
+    for (std::string& arg : copies) args.push_back(arg.data());
+    args.push_back(nullptr);
+    std::vector<char*> env;
+    for (char** e = environ; *e != nullptr; ++e) {
+        if (std::strncmp(*e, "LD_PRELOAD=", 11) != 0 && std::strncmp(*e, "LD_LIBRARY_PATH=", 16) != 0) env.push_back(*e);
+    }
+    env.push_back(nullptr);
+    int pipeFds[2] = {-1, -1};
+    if (pipe2(pipeFds, O_CLOEXEC) != 0) {
+        error = std::string("pipe: ") + std::strerror(errno);
+        return false;
+    }
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, pipeFds[1], 1);
+    posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+    pid_t pid = 0;
+    const int result = posix_spawn(&pid, args.front(), &actions, nullptr, args.data(), env.data());
+    posix_spawn_file_actions_destroy(&actions);
+    close(pipeFds[1]);
+    if (result != 0) {
+        close(pipeFds[0]);
+        error = argv.front() + ": " + std::strerror(result);
+        return false;
+    }
+    std::array<char, 1024> buffer{};
+    for (;;) {
+        const ssize_t got = read(pipeFds[0], buffer.data(), buffer.size());
+        if (got < 0 && errno == EINTR) continue;
+        if (got <= 0) break;
+        output.append(buffer.data(), static_cast<std::size_t>(got));
+    }
+    close(pipeFds[0]);
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    return true;
 }
 
 // The X server went away (logout, XWayland restarted): every Xlib call on the display is off from then on, and the
@@ -362,8 +410,27 @@ public:
         return true;
     }
 
-    bool pickFolder(const std::string& /*title*/, std::filesystem::path& /*folder*/, std::string& error) override {
-        error = "no folder window on Linux: put the shim in with scripts/linux/wheelbri.sh --shim (see docs/linux.md)";
+    // The desktop's own folder window: KDE's kdialog (the Steam Deck's Desktop Mode), else GNOME's zenity, by full
+    // path (never PATH). It blocks until it closes, as the Windows one does.
+    bool pickFolder(const std::string& title, std::filesystem::path& folder, std::string& error) override {
+        const std::string start = folder.empty() ? std::string(std::getenv("HOME") != nullptr ? std::getenv("HOME") : "/")
+                                                 : folder.string();
+        const std::vector<std::vector<std::string>> dialogs = {
+            {"/usr/bin/kdialog", "--title", title, "--getexistingdirectory", start},
+            {"/usr/bin/zenity", "--file-selection", "--directory", "--title=" + title, "--filename=" + start + "/"},
+        };
+        for (const std::vector<std::string>& dialog : dialogs) {
+            if (access(dialog[0].c_str(), X_OK) != 0) continue;
+            std::string chosen;
+            int exitCode = -1;
+            if (!runForOutput(dialog, chosen, exitCode, error)) return false;
+            while (!chosen.empty() && (chosen.back() == '\n' || chosen.back() == '\r')) chosen.pop_back();
+            if (exitCode != 0 || chosen.empty()) return false;   // cancelled
+            folder = chosen;
+            return true;
+        }
+        error = "no folder window here (kdialog or zenity): put the shim in with scripts/linux/wheelbri.sh --shim "
+                "(see docs/linux.md)";
         return false;
     }
 

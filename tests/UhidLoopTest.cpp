@@ -66,6 +66,19 @@ TEST(UhidOptions, UnknownOptionsAndMissingValuesAreRefused) {
     }
     EXPECT_FALSE(parseOptions({"--device", ""}).options);
     EXPECT_FALSE(parseOptions({"--stop-file", ""}).options);
+    EXPECT_NE(parseOptions({"--parent"}).error.find("needs a value"), std::string::npos);
+}
+
+TEST(UhidOptions, ParentIsAProcessIdAboveInit) {
+    const auto parsed = parseOptions({"--parent", "4242"});
+    ASSERT_TRUE(parsed.options) << parsed.error;
+    EXPECT_EQ(parsed.options->parentPid, 4242);
+    EXPECT_EQ(parseOptions({}).options->parentPid, 0);   // without it: never stops for a lost parent
+    for (const char* bad : {"", "0", "1", "-5", "12a", "1234567890"}) {
+        const auto refused = parseOptions({"--parent", bad});
+        EXPECT_FALSE(refused.options) << "'" << bad << "'";
+        EXPECT_NE(refused.error.find("not a process id"), std::string::npos) << refused.error;
+    }
 }
 
 // --- the state feed ---

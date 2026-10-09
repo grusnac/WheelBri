@@ -15,6 +15,9 @@
 #include "ServiceLogging.hpp"
 #include "SessionUi.hpp"
 #include "VirtualG920.hpp"
+#ifndef _WIN32
+#include "UhidProcess.hpp"
+#endif
 #include "Wheel.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
@@ -104,6 +107,7 @@ struct Options {
     std::string oldFiles;                       // --old-files: overrides [retention] old_files
     std::string stopFile;                       // --stop-file: stop when this file appears
     bool virtualG920 = false;                   // --virtual-g920: our own driver's G920 (driver/)
+    bool uhid = false;                          // Linux --virtual-g920: wheelbri-uhid's G920 (tools/uhid)
     bool hide = true;                           // --no-hide: leave the real wheel visible to games
     bool unhide = false;                        // --unhide: make the real wheel visible again and exit
     bool prepareHide = false;                   // --prepare-hide: put the hide filter on the saved rig's devices, exit
@@ -330,7 +334,9 @@ void printUsage() {
         "  --virtual-g920 while running, a virtual G920 for every game through wheelbri's own driver\n"
         "                 (driver\\install-driver.ps1 once; Administrator; not with the shim);\n"
         "                 the real wheel is hidden from games meanwhile by wheelbri's own filter\n"
-        "                 (driver\\hide\\install-hide.ps1 once), unless --no-hide\n"
+        "                 (driver\\hide\\install-hide.ps1 once), unless --no-hide.\n"
+        "                 Linux: starts wheelbri-uhid (install-udev-rules.sh once); the game's launch\n"
+        "                 options hide the rig (scripts/linux/wheelbri.sh)\n"
         "  --unhide       after a crash: make the real wheel visible to games again and exit\n"
         "  --prepare-hide put the hide filter on the saved rig's devices and exit (the installer; Administrator)\n"
         "  --app          a window with Start / Stop instead of running at once (what wheelbri.exe\n"
@@ -358,7 +364,11 @@ bool parseOptions(const int argc, char** argv, Options& options) {
         } else if (arg == "--ffb-test") {
             options.ffbTest = true;
         } else if (arg == "--virtual-g920") {
+#ifdef _WIN32
             options.virtualG920 = true;
+#else
+            options.uhid = true;   // Linux: wheelbri-uhid, started and stopped with the session
+#endif
         } else if (arg == "--app") {
             options.app = true;
         } else if (arg == "--no-virtual-g920") {
@@ -1524,6 +1534,10 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
 
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
+#ifdef SIGHUP
+    // Linux: the terminal closed, or Steam's wrapper (wheelbri.sh) went away: the same clean stop, never cut off.
+    std::signal(SIGHUP, onSignal);
+#endif
     const std::filesystem::path logFolder = logFolderOf(config);
     // Our own driver's G920 (driver/): there while the loop runs, removed when it returns or the process ends.
     bool g920 = false;
@@ -1540,6 +1554,18 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             return 1;
         }
     }
+#ifndef _WIN32
+    // Linux: the virtual G920 is wheelbri-uhid, there until this function returns (Stop, or the window closed).
+    std::unique_ptr<wheelbri::service::UhidProcess> uhid;
+    if (options.uhid) {
+        std::string error;
+        uhid = wheelbri::service::UhidProcess::start(logFolder, error);
+        if (uhid == nullptr) {
+            WE_LOG_CRITICAL(log(), "virtual G920: {}", error);
+            return 1;
+        }
+    }
+#endif
     // The rig hidden from games meanwhile, or a game may take a real device instead of the G920 (NFS does): with
     // wheelbri's own filter (driver/hide) on every device of the rig, which lets only this process open them.
     bool rigHidden = false;
@@ -1588,6 +1614,12 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             }
         }
     }
+#ifndef _WIN32
+    if (uhid != nullptr) {
+        // Hiding the rig is the game's launch option on Linux (SDL_GAMECONTROLLER_IGNORE_DEVICES, wheelbri.sh).
+        devices.text = "virtual G920 on (" + uhid->describe() + "); hide the rig in the game's launch options";
+    }
+#endif
     int result = 0;
     std::optional<UiFrame> lastFrame;
     std::uint64_t sessionStartMs = platform::nowMs();
@@ -1655,6 +1687,11 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         steps->showRig();
         steps->removeVirtualG920();
     }
+#ifndef _WIN32
+    if (uhid != nullptr && !uhid->running()) {
+        WE_LOG_ERROR(log(), "virtual G920: wheelbri-uhid ended during the session (its log says why)");
+    }
+#endif
     return result;
 }
 
@@ -1718,6 +1755,8 @@ int runAppMode(Options options, const bool consoleLogging) {
     }
 #ifdef _WIN32
     options.virtualG920 = !options.noVirtualG920;
+#else
+    options.uhid = !options.noVirtualG920;
 #endif
     options.print = false;
     const LoadedConfig loaded = loadForRun(options);
@@ -1760,7 +1799,7 @@ int runAppMode(Options options, const bool consoleLogging) {
 #ifdef _WIN32
         run.virtualG920 = virtualDevice;   // the Mapping tab's target: G920 virtual device or G920 in-game shim
 #else
-        static_cast<void>(virtualDevice);   // Linux: wheelbri-uhid is the virtual G920, started on its own
+        run.uhid = virtualDevice;   // Linux: the session starts wheelbri-uhid for the virtual G920
 #endif
         const LoadedConfig fresh = loadForRun(run);
         return runSession(run, fresh, logFileOk, &host);
