@@ -4,10 +4,10 @@ The Moza R3 as a Logitech G920 for Proton games (NFS 2015) on Linux: the Steam D
 distribution. `wheelbri-service` reads the R3 and plays force feedback on it, as on Windows. The game sees the
 G920 in one of two ways:
 
-| | uhid (default) | shim |
+| | `--virtual` (uhid, default) | `--shim` |
 |---|---|---|
 | What | `wheelbri-uhid`: a virtual G920 for the whole system, through the kernel's uhid (Phase 4; the Linux counterpart of `driver/wheelbri-g920`) | `dinput8.dll` in the game folder answers as a G920 (Phases 2 and 3, as on Windows) |
-| Game folder | untouched | `dinput8.dll` copied there |
+| Game folder | a WheelBri shim left there is taken out | `dinput8.dll` and `wheelbri-shim.ini` put in before the game, taken out after it (`--keep-shim` leaves them) |
 | Launch option | `PROTON_ENABLE_HIDRAW=0x046D/0xC262 SDL_GAMECONTROLLER_IGNORE_DEVICES=0xVVVV/0xPPPP %command%` (your rig's ids, comma separated; the R3: `0x346E/0x0005`) | `WINEDLLOVERRIDES="dinput8=n,b" %command%` |
 | Once | `install-udev-rules.sh` (sudo) | nothing |
 
@@ -108,11 +108,19 @@ In Steam, NFS > Properties > Launch Options:
 ```
 
 Start the game as usual, also in Game Mode: the script starts the service and the virtual G920 before the game
-and stops both when it ends. For the shim way instead (copy `~/wheelbri/dinput8.dll` into the NFS folder first):
+and stops both when it ends (`--virtual` says the same explicitly). For the shim way instead:
 
 ```
 /home/deck/wheelbri/wheelbri.sh --shim %command%
 ```
+
+`--shim` puts `dinput8.dll` and `wheelbri-shim.ini` into the game's folder (the folder of the `.exe` at the end of
+`%command%`; `--game-folder DIR` names another) before the game starts and takes them out when it ends. For
+testing, `--keep-shim` leaves them there; the next `--virtual` start takes them out again, so the game then finds
+only the virtual G920. Only WheelBri's files are touched: a `dinput8.dll` of another mod (not ours, and no
+`wheelbri-shim.ini` next to it) makes `--shim` stop before starting anything, and a `wheelbri-shim.ini` with your
+own settings is used and kept. If Steam kills the game hard, the shim stays until the next `--virtual` start (or
+`--shim` start, which takes it out at the end).
 
 Without Steam, from Konsole: `~/wheelbri/wheelbri.sh` starts both (the service with its window) and stops them
 when you press Enter; start the game with the launch option it prints.
