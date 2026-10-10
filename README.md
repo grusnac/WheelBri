@@ -42,7 +42,28 @@ Still open:
 - NFS 2015's 20-byte Logitech `Escape` calls are its rev lights (rpm, first light, redline), not forwarded; the
   shim's axis audit (`shim.audit`) logs every call that could remap axes and the game's input-related DLLs;
 - effect envelopes (attack / fade) and ramps over time are implemented (`FfbShape.hpp`) and unit-tested, not yet
-  felt in a game.
+  felt in a game;
+- NFS Payback: see [Games with Logitech's wheel SDK](#games-with-logitechs-wheel-sdk-nfs-payback).
+
+### Games with Logitech's wheel SDK (NFS Payback)
+
+NFS Payback does not read wheels itself: it asks Logitech's Steering Wheel SDK, built into the game, which loads a
+helper DLL named in the registry (the default value of `HKCR\CLSID\{63BD165D-1584-4E75-AB56-08330350545F}\ServerBinary`).
+Without a working helper the game ignores every wheel, a real G920 included (found 2026-10-10: on the test PC that value
+still named a removed Logitech Gaming Software). Pointed at a Logitech helper that exists, Payback takes the virtual
+G920 as a G920: Xbox prompts, buttons, pedals, steering, force feedback through the safety limiter. Two helpers
+worked: G HUB's (`C:\Program Files\Logi\wheel_sdk\9_1_1\logi_steering_wheel_x64.dll`, the better force feedback)
+and the old Logitech Gaming Software's (`...\Logitech\Gaming Software\SDKs\LogitechSteeringWheel.dll`). Logitech's
+DLLs are Logitech's: WheelBri never ships them.
+
+Still wrong: steering responds late and little (the keyboard does not), with either helper, while the game reads the
+wheel without delay. To see what the SDK hands the game, **`wheelbri-logi.dll`** (`logi/`, built by
+`scripts/make/logi.sh`) is a logging stand-in for the helper: point the registry value at it and it passes every call
+on to Logitech's own helper (G HUB's newest, else the old one, or `[logi] real_library = <path>` in a
+`wheelbri-logi.ini` next to it), logging what the game asks and gets: the state it reads every frame
+(`logi.input`, debug), any steering curve (`LogiGenerateNonLinearValues`, `LogiGetNonLinearValue`), the range, the
+controller properties, every force (`logi.ffb`), a summary a minute. Its log is
+`wheelbri-logi-<date>-<NN>.log` in the log folder (the app's Logs tab does not list it yet). x64 only.
 
 ## Functionalities
 
@@ -183,9 +204,10 @@ a headline, why it was needed, how to use it, and where to look.
 | `core/` | Portable library, no OS dependencies: `Mapper`, `DeviceProfile`, `FfbSafetyLimiter`, `Pipeline`, `EmulatorConfig`/`IniDocument`, `StatePacket` + `UdpLoopback`, `LoopStats`, `Logging`, `Telemetry` |
 | `service/` | `wheelbri-service`: reads the wheel and plays its force feedback with the system's own API (DirectInput on Windows, evdev on Linux), a loop that wakes on input, `--list` / `--print` / `--ui` (native window: Win32 on Windows, X11 on Linux) / `--ffb-test` |
 | `shim/` | `dinput8.dll` proxy (Windows / Wine): wraps `IDirectInput8A/W`, devices and effects |
+| `logi/` | `wheelbri-logi.dll`: logging stand-in for Logitech's wheel SDK helper DLL (games built with the SDK: NFS Payback) |
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
-| `scripts/make/` | Build scripts: build, full rebuild, tests, pre-commit check, mapping window, app, shim, drivers ([README](scripts/make/README.md)) |
+| `scripts/make/` | Build scripts: build, full rebuild, tests, pre-commit check, mapping window, app, shim, Logitech SDK stand-in, drivers ([README](scripts/make/README.md)) |
 | `scripts/` | `telemetry_summary.sh`: summary of a recorded session (bash and awk); `linux/`: start/stop and Steam launch wrapper, udev rules, the Linux bundle |
 | `tools/uhid/` | Phase 4: `wheelbri-uhid`, the virtual G920 for Linux (C++, kernel uhid) |
 
@@ -394,6 +416,7 @@ Built on spdlog. Every line carries time, level, component, thread and source lo
 | service, Linux | `$XDG_STATE_HOME/wheelbri/` or `~/.local/state/wheelbri/wheelbri-service-<date>-<NN>.log` |
 | service, macOS | `~/Library/Logs/wheelbri/wheelbri-service-<date>-<NN>.log` |
 | shim (in the game) | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-<date>-<NN>.log` (next to `dinput8.dll` if `LOCALAPPDATA` is not set) |
+| Logitech SDK stand-in (in the game) | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-logi-<date>-<NN>.log` |
 
 One file per run of each program (`<date>` = `2026-09-30`, local time; `<NN>` = `01`, `02`, ... the run's number that
 day), so every start of the app, the game (shim), a driver or the helper has a file of its own; a program running past
@@ -431,7 +454,8 @@ SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelbri-service --con
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.uhid` (the app starting wheelbri-uhid, Linux), `service.hidhide`,
 `service.hide`, `service.helper`, `service.game` (game detection, game profiles), `service.log` (the Level button), `helper`, `helper.pipe`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `service.devices`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
-`shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `shim.audit`, `tools.uhid` (`wheelbri-uhid`, Linux).
+`shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `shim.audit`, `logi`, `logi.query`, `logi.input`,
+`logi.ffb`, `logi.leds` (`wheelbri-logi.dll`), `tools.uhid` (`wheelbri-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelbri/Logging.hpp`)
 - Log through the `WE_LOG_*` macros, never `printf`; `--print` and `--ffb-test` instructions are user interface
@@ -485,7 +509,7 @@ scripts/telemetry_summary.sh            # or pass a telemetry-*.log / a folder; 
 
 Logs (service and game) and telemetry older than 2 days are **deleted** by default. The service checks at
 start-up and again after every midnight. Only its own files are touched (`wheelbri-service*`,
-`wheelbri-shim*`, `telemetry-*`, `ffb-*` and archives made from them). `[retention]` in the config:
+`wheelbri-shim*`, `wheelbri-logi*`, `telemetry-*`, `ffb-*` and archives made from them). `[retention]` in the config:
 
 | Key | Values |
 |---|---|

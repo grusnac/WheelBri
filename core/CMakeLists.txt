@@ -32,6 +32,7 @@ add_library(wheelbri_core STATIC
     src/LiveLog.cpp
     src/LocalDate.cpp
     src/LogFiles.cpp
+    src/LogiSdk.cpp
     src/LogLevelCounter.cpp
     src/Logging.cpp
     src/MappingEdit.cpp

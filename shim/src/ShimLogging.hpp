@@ -1,5 +1,7 @@
 #pragma once
 
+#include "LogFolder.hpp"
+
 #include "wheelbri/LogLevel.hpp"
 #include "wheelbri/Logging.hpp"
 
@@ -27,7 +29,7 @@ void onDllDetach(bool processTerminating) noexcept;
 // is the same (the game's input thread calls it).
 void applyLogLevel(LogLevel level);
 
-// Folder that holds this DLL, with a trailing separator (config and log files live next to it).
-[[nodiscard]] std::wstring dllDirectory();
+// Folder that holds this DLL, with a trailing separator (config files live next to it).
+using gamelog::dllDirectory;
 
 }  // namespace wheelbri::shim

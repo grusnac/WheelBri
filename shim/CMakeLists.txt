@@ -8,6 +8,7 @@ add_library(wheelbri_shim SHARED
     src/EmulatedEffect.cpp
     src/Exports.cpp
     src/FfbForwarder.cpp
+    src/LogFolder.cpp
     src/ModuleWatch.cpp
     src/ProxyEffect.cpp
     src/RealDInput.cpp

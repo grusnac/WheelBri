@@ -156,7 +156,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File driver\install-driver.ps1
 (same pattern for `driver\hide\wheelbri-hide.vcxproj` + `install-hide.ps1`).
 
 CMake options: `WE_BUILD_TESTS` (ON; skipped when cross-compiling), `WE_BUILD_SERVICE` (ON), `WE_BUILD_SHIM` (ON
-only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra
+only on Windows targets), `WE_BUILD_LOGI` (ON only on 64-bit Windows targets), `WE_BUILD_UHID` (ON only on Linux).
+Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra
 -Wpedantic` elsewhere. Keep new code free of warnings.
 
 Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
@@ -384,7 +385,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     checking each folder's attributes sent every line to the fallback folder.
     Do not add another log location. `LocalDate.hpp` has the date helpers.
   - `Retention.hpp` decides which files are old (date in the name, else last-write day) and only ever touches
-    files starting `wheelbri-service`, `-shim`, `-bridge`, `-logs-`, `-driver`, `-hide`, `-install`, `-uhid`, `-helper`, `-sh`,
+    files starting `wheelbri-service`, `-shim`, `-logi`, `-bridge`, `-logs-`, `-driver`, `-hide`, `-install`, `-uhid`, `-helper`, `-sh`,
     `telemetry-`, `ffb-`.
     The service's `Housekeeping` deletes them (default, after 2 days) or archives them with the best compressor
     found (7z > xz > zstd > zip > gzip) as a background process via `platform::ChildProcess`, deleting
@@ -489,6 +490,20 @@ rewrites on every build only when it changes); views keep their own top-row cont
   logs a summary ("none could remap axes" or what could) at Unacquire, Release, after a minute of reading and every
   5 minutes. `ModuleWatch` logs the game's DLLs at `DirectInput8Create`, `CreateDevice` and each summary
   (input-related ones, `isInputModule`: Logitech SDK, hid.dll, XInput, Windows.Gaming.Input, SDL).
+  `LogFolder.hpp` (namespace `wheelbri::gamelog`): where a DLL inside a game logs and its starting level; shared with
+  `logi/` (each DLL compiles it).
+- `logi/` (`wheelbri-logi.dll`, x64 Windows only, `WE_BUILD_LOGI`, namespace `wheelbri::logi`): a logging stand-in for
+  Logitech's Steering Wheel SDK helper DLL. Games built with that SDK (NFS Payback) find the helper through the
+  registry (`ServerBinary` of `HKCR\CLSID\{63BD165D-1584-4E75-AB56-08330350545F}`) and look up its 48 `Logi*`
+  functions by name (core `LogiSdk.hpp`, the list and how to print each call; `wheelbri-logi.def` exports them).
+  Each export takes four raw 64-bit register values and passes them to the same function in Logitech's real DLL
+  (`RealLibrary.cpp`: `[logi] real_library` in a `wheelbri-logi.ini` next to it, else G HUB's newest
+  `wheel_sdk\<version>\logi_steering_wheel_x64.dll`, else the old Logitech Gaming Software's), so the forwarding is
+  exact whatever the declared types; only the two LED functions are typed (floats travel in XMM registers). It logs
+  what the game asked and got (`logi` lifecycle and setup, `logi.query`, `logi.input` the state every frame at debug,
+  `logi.ffb`, `logi.leds`; a call is logged when its answer changes, `ChangeLog`) and a summary a minute, to
+  `wheelbri-logi-<date>-<NN>.log`. Same rules as the shim inside the game: nothing in `DllMain`, lazy logging, no
+  threads. Never ship Logitech's DLLs. `scripts/make/logi.sh` builds it and prints the registry commands.
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
