@@ -1,6 +1,7 @@
 #include "LogiLogging.hpp"
 
 #include "LogFolder.hpp"
+#include "Settings.hpp"
 
 #include "wheelbri/LogLevel.hpp"
 
@@ -22,7 +23,8 @@ std::atomic<bool> gInitialised{false};
 void ensureLoggingInitialised() {
     std::call_once(gInitOnce, [] {
         logging::LogConfig config;
-        config.level = logLevelName(gamelog::appLevelAtStart());
+        const Settings& own = settings();
+        config.level = own.logLevel.empty() ? std::string(logLevelName(gamelog::appLevelAtStart())) : own.logLevel;
         config.console = false;
         config.flushLevel = "trace";
         config.periodicFlush = false;
@@ -32,8 +34,11 @@ void ensureLoggingInitialised() {
         const logging::Logger log = logging::get("logi");
         WE_LOG_INFO(log, "wheelbri-logi.dll (Logitech wheel SDK stand-in) loaded into '{}' (pid {})",
                     gamelog::utf8(gamelog::modulePath(nullptr)), GetCurrentProcessId());
-        WE_LOG_INFO(log, "this dll: '{}', log level {}", gamelog::utf8(gamelog::modulePath(gamelog::thisModule())),
-                    config.level);
+        WE_LOG_INFO(log, "this dll: '{}', log level {} ({})", gamelog::utf8(gamelog::modulePath(gamelog::thisModule())),
+                    config.level, own.logLevel.empty() ? "the app's" : "wheelbri-logi.ini");
+        for (const std::string& problem : own.problems) {
+            WE_LOG_WARN(log, "{}", problem);
+        }
 #if defined(_WIN64)
         WE_LOG_INFO(log, "architecture: x64");
 #else

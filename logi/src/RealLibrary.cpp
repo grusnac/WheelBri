@@ -2,16 +2,14 @@
 
 #include "LogFolder.hpp"
 #include "LogiLogging.hpp"
+#include "Settings.hpp"
 
-#include "wheelbri/FileText.hpp"
-#include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LogiSdk.hpp"
 
 #include <windows.h>
 
 #include <algorithm>
 #include <cwctype>
-#include <filesystem>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -53,21 +51,6 @@ std::wstring fullPath(const std::wstring& path) {
     return length > 0 && length < MAX_PATH ? lower(std::wstring(buffer, length)) : lower(path);
 }
 
-// [logi] real_library in wheelbri-logi.ini next to this DLL, or empty.
-std::wstring configuredLibrary() {
-    const std::filesystem::path file = std::filesystem::path(gamelog::dllDirectory()) / L"wheelbri-logi.ini";
-    const std::optional<std::string> text = readFileText(file);
-    if (!text) return {};
-    const IniDocument::ParseResult ini = IniDocument::parse(*text);
-    for (const std::string& error : ini.errors) {
-        WE_LOG_WARN(log(), "wheelbri-logi.ini: {}", error);
-    }
-    const std::optional<std::string> value = ini.document.get("logi", "real_library");
-    if (!value || value->empty()) return {};
-    WE_LOG_INFO(log(), "wheelbri-logi.ini names the real library: {}", *value);
-    return std::filesystem::path(std::u8string(value->begin(), value->end())).wstring();
-}
-
 // G HUB's newest wheel_sdk version folder holding the DLL, or empty.
 std::wstring ghubLibrary() {
     const std::wstring root = programFiles() + L"\\Logi\\wheel_sdk\\";
@@ -100,7 +83,10 @@ Real load() {
     const std::wstring self = fullPath(gamelog::modulePath(gamelog::thisModule()));
 
     std::vector<std::wstring> candidates;
-    if (std::wstring configured = configuredLibrary(); !configured.empty()) candidates.push_back(configured);
+    if (!settings().realLibrary.empty()) {
+        WE_LOG_INFO(log(), "wheelbri-logi.ini names the real library: {}", gamelog::utf8(settings().realLibrary));
+        candidates.push_back(settings().realLibrary);
+    }
     if (std::wstring ghub = ghubLibrary(); !ghub.empty()) candidates.push_back(ghub);
     candidates.push_back(programFiles() + kLgsFolder + L"LogitechSteeringWheel.dll");
 

@@ -5,6 +5,7 @@ add_library(wheelbri_logi SHARED
     src/Exports.cpp
     src/LogiLogging.cpp
     src/RealLibrary.cpp
+    src/Settings.cpp
     ../shim/src/LogFolder.cpp
     wheelbri-logi.def
 )

@@ -502,7 +502,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
   exact whatever the declared types; only the two LED functions are typed (floats travel in XMM registers). It logs
   what the game asked and got (`logi` lifecycle and setup, `logi.query`, `logi.input` the state every frame at debug,
   `logi.ffb`, `logi.leds`; a call is logged when its answer changes, `ChangeLog`) and a summary a minute, to
-  `wheelbri-logi-<date>-<NN>.log`. Same rules as the shim inside the game: nothing in `DllMain`, lazy logging, no
+  `wheelbri-logi-<date>-<NN>.log`, at `[logi] log_level` from `wheelbri-logi.ini` (`Settings.cpp`; `logi.sh` writes
+  `debug`), else the app's level. Same rules as the shim inside the game: nothing in `DllMain`, lazy logging, no
   threads. Never ship Logitech's DLLs. `scripts/make/logi.sh` builds it and prints the registry commands.
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on

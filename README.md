@@ -60,7 +60,7 @@ Still wrong: steering responds late and little (the keyboard does not), with eit
 wheel without delay. To see what the SDK hands the game, **`wheelbri-logi.dll`** (`logi/`, built by
 `scripts/make/logi.sh`) is a logging stand-in for the helper: point the registry value at it and it passes every call
 on to Logitech's own helper (G HUB's newest, else the old one, or `[logi] real_library = <path>` in a
-`wheelbri-logi.ini` next to it), logging what the game asks and gets: the state it reads every frame
+`wheelbri-logi.ini` next to it, where `log_level` sets its own log level: `logi.sh` writes `debug` there), logging what the game asks and gets: the state it reads every frame
 (`logi.input`, debug), any steering curve (`LogiGenerateNonLinearValues`, `LogiGetNonLinearValue`), the range, the
 controller properties, every force (`logi.ffb`), a summary a minute. Its log is
 `wheelbri-logi-<date>-<NN>.log` in the log folder (the app's Logs tab does not list it yet). x64 only.
