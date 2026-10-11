@@ -1,11 +1,13 @@
 #include "wheelbri/MappingEdit.hpp"
 
+#include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/IniEditor.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstdio>
 #include <set>
 #include <vector>
@@ -28,6 +30,10 @@ std::optional<int> parseIndex(const std::string_view text) {
     if (text.empty() || ec != std::errc{} || end != text.data() + text.size()) return std::nullopt;
     return value;
 }
+
+constexpr std::array<const char*, 4> kAxisSections = {"steering", "throttle", "brake", "clutch"};
+
+bool same(const float a, const float b) { return std::fabs(a - b) < 1e-5F; }
 
 std::string idText(const DeviceId& device) {
     char text[16];
@@ -103,6 +109,11 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     const HatButtons& hat = mapper.hatButtons;
     model.hat = {sourceOf(mapper, hat.devices[0], hat.up), sourceOf(mapper, hat.devices[1], hat.right),
                  sourceOf(mapper, hat.devices[2], hat.down), sourceOf(mapper, hat.devices[3], hat.left)};
+    model.wheelRotationDeg = mapper.steering.sourceRotationDeg;
+    model.gameRotationDeg = mapper.steering.targetRotationDeg;
+    model.deadzone = {mapper.steering.deadzone, mapper.throttle.deadzoneLow, mapper.brake.deadzoneLow,
+                      mapper.clutch.deadzoneLow};
+    model.full = {1.0F, mapper.throttle.saturationHigh, mapper.brake.saturationHigh, mapper.clutch.saturationHigh};
     return model;
 }
 
@@ -133,6 +144,8 @@ int autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile) 
             if (slot == model.axes.size()) continue;
             model.axes[slot] = source(device, a);
             model.invert[slot] = control.invert;
+            if (control.deadzone) model.deadzone[slot] = *control.deadzone;
+            if (control.full && slot != MappingModel::kSteering) model.full[slot] = *control.full;
             ++set;
         }
         for (std::size_t b = 0; b < device.buttons.size(); ++b) {
@@ -167,8 +180,26 @@ int autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile) 
     return set;
 }
 
+std::string tuningProblem(const MappingModel& model) {
+    if (std::string problem = tuning::rotationProblem(model.wheelRotationDeg); !problem.empty()) {
+        return "wheel rotation: " + problem;
+    }
+    if (std::string problem = tuning::rotationProblem(model.gameRotationDeg); !problem.empty()) {
+        return "game rotation: " + problem;
+    }
+    if (std::string problem = tuning::steeringDeadzoneProblem(model.deadzone[0]); !problem.empty()) return problem;
+    for (std::size_t i = 1; i < kAxisSections.size(); ++i) {
+        if (std::string problem = tuning::pedalProblem(model.deadzone[i], model.full[i]); !problem.empty()) {
+            return std::string(kAxisSections[i]) + ": " + problem;
+        }
+    }
+    return {};
+}
+
 MappingWriteResult writeMapping(const std::string_view base, const MappingModel& model) {
     MappingWriteResult result;
+    result.error = tuningProblem(model);
+    if (!result.error.empty()) return result;
     const std::optional<DeviceId> wheel = parseDeviceId(model.sourceDevice);
     // On the wheel's own id: the wheel's (device 0), so the same device is not opened twice.
     const auto normal = [&wheel](SourceRef source) {
@@ -193,7 +224,21 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     const IniDocument before = IniDocument::parse(base).document;
     IniEditor ini(base);
     ini.set("emulator", "source_device", model.sourceDevice);
-    static constexpr std::array<const char*, 4> kAxisSections = {"steering", "throttle", "brake", "clutch"};
+    // A number: left alone when the file already says it (or, with no line, when it is the default).
+    const auto number = [&](const char* section, const char* key, const float value, const float defaultValue) {
+        const std::optional<std::string> line = before.get(section, key);
+        const std::optional<float> current = line ? tuning::parseNumber(*line) : std::optional<float>(defaultValue);
+        if (current && same(*current, value)) return;
+        ini.set(section, key, tuning::formatNumber(value));
+    };
+    // The defaults as the config reader has them (MapperConfig.hpp).
+    number("steering", "source_rotation_deg", model.wheelRotationDeg, SteeringConfig{}.sourceRotationDeg);
+    number("steering", "target_rotation_deg", model.gameRotationDeg, SteeringConfig{}.targetRotationDeg);
+    number("steering", "deadzone", model.deadzone[0], SteeringConfig{}.deadzone);
+    for (std::size_t i = 1; i < kAxisSections.size(); ++i) {
+        number(kAxisSections[i], "deadzone_low", model.deadzone[i], PedalConfig{}.deadzoneLow);
+        number(kAxisSections[i], "saturation_high", model.full[i], PedalConfig{}.saturationHigh);
+    }
     for (std::size_t i = 0; i < kAxisSections.size(); ++i) {
         ini.set(kAxisSections[i], "axis", formatSource(normal(model.axes[i])));
         // false is the default: written only over a line that is there already.

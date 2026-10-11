@@ -454,6 +454,9 @@ private:
             } else if (setup && setup_->editingText()) {
                 setup_->onText(input.text);   // typing a name: letters are not shortcuts, Escape stops typing
                 if (input.keys.find(ui::kEscape) != std::string::npos) setup_->onKey(ui::kEscape);
+            } else if (editingMapping && mapping_->editingText()) {
+                mapping_->onText(input.text);   // typing a number: the same
+                if (input.keys.find(ui::kEscape) != std::string::npos) mapping_->onKey(ui::kEscape);
             } else {
                 for (const char key : input.keys) {
                     if (key == ui::kEscape) {
@@ -468,6 +471,7 @@ private:
                     }
                 }
             }
+            if (editingMapping) mapping_->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
             if (view_ != nullptr && input.wheel != 0) view_->onScroll(input.wheel);
             if (view_ == nullptr && idleTab_ == IdleTab::Logs && input.wheel != 0) logs_->onScroll(input.wheel);
             // The live log's scroll bars: dragged with the mouse, and the sideways wheel.
@@ -850,6 +854,10 @@ private:
                 colour = kActive;
                 if (const auto frame = host_.latest(); frame && !frame->game.empty()) {
                     status += ", " + frame->game;   // the known game followed, "NFS 2015 pedal profile" (GameWatch)
+                    if (!frame->gameAdvice.empty()) {
+                        status += ": " + frame->gameAdvice;   // its profile's rotation advice; the log says why
+                        colour = kCaution;
+                    }
                 }
                 if (const auto frame = host_.latest(); frame && frame->wheelLostMs > 0) {
                     status = "WHEEL LOST " + clock(frame->wheelLostMs / 1000);

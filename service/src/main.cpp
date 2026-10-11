@@ -1207,7 +1207,8 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         std::uint64_t lastGameCheckNs = 0;
         bool gameChecked = false;
         // Game profiles: applied here for the virtual G920 / wheelbri-uhid, by the shim itself for the in-game shim.
-        wheelbri::service::GameWatch gameWatch(config.targetProfile, routePedals);
+        wheelbri::service::GameWatch gameWatch(config.targetProfile, routePedals,
+                                               config.mapper.steering.targetRotationDeg);
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
             const std::uint64_t now = platform::nowNs();
@@ -1252,6 +1253,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             frame->oldFiles = housekeeping.status();
             frame->game = gameWatch.status();
             frame->gameWarning = gameWatch.warning();
+            frame->gameAdvice = gameWatch.advice();
             frame->oldFilesFailed = housekeeping.failed();
             if (!host->frame(*frame)) {
                 WE_LOG_INFO(log(), "window closed: stopping");

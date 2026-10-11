@@ -114,3 +114,44 @@ TEST(Rig, ADeviceNameWithACommentCharacterSurvivesSaving) {
     EXPECT_EQ(back.rig.devices[0].name, "Button Box  2");   // not cut at '#'
     EXPECT_EQ(back.rig.devices[0].id, (DeviceId{0x1234, 0x5678}));
 }
+
+TEST(Rig, DeadzonesWriteAndReadBack) {
+    Rig rig = sampleRig();
+    RigControl& steering = rig.devices[0].axes[0];
+    steering.deadzone = 0.01F;
+    RigControl& gas = rig.devices[1].axes[1];
+    gas.deadzone = 0.03F;
+    gas.full = 0.9F;
+    const std::string text = writeRig(rig, "Mine");
+    EXPECT_NE(text.find("axis_0 = Wheel | steering | deadzone 1%\r\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("axis_1 = Gas | throttle | invert | deadzone 3% | full 90%\r\n"), std::string::npos) << text;
+    const RigResult back = load(text);
+    EXPECT_TRUE(back.errors.empty()) << back.errors.front();
+    ASSERT_EQ(back.rig.devices.size(), 2U);
+    EXPECT_NEAR(*back.rig.devices[0].axes[0].deadzone, 0.01F, 1e-6F);
+    EXPECT_FALSE(back.rig.devices[0].axes[0].full.has_value());
+    EXPECT_NEAR(*back.rig.devices[1].axes[1].deadzone, 0.03F, 1e-6F);
+    EXPECT_NEAR(*back.rig.devices[1].axes[1].full, 0.9F, 1e-6F);
+}
+
+TEST(Rig, DeadzonesInAnyOrderAndRefusedWhereTheyDoNotBelong) {
+    const auto control = [](const std::string& line) {
+        const RigResult result = load("[device_1]\nid = 30b7:1001\naxis_2 = " + line + "\n");
+        return std::make_pair(result.rig.devices.empty() ? RigControl{} : result.rig.devices[0].axes[2],
+                              result.errors.empty() ? std::string() : result.errors.front());
+    };
+    auto [brake, ok] = control("Brake | full 95% | brake | Deadzone 2.5%");   // any order, any case
+    EXPECT_TRUE(ok.empty()) << ok;
+    EXPECT_EQ(brake.role, ControlRole::Brake);
+    EXPECT_NEAR(*brake.deadzone, 0.025F, 1e-6F);
+    EXPECT_NEAR(*brake.full, 0.95F, 1e-6F);
+
+    for (const char* bad : {"Hand | handbrake | deadzone 5%", "Wheel | steering | full 90%",
+                            "Wheel | steering | deadzone 60%", "Gas | throttle | deadzone 50% | full 40%",
+                            "Gas | throttle | deadzone lots", "Gas | deadzone 5%"}) {
+        const auto [read, error] = control(bad);
+        EXPECT_FALSE(error.empty()) << bad;
+        EXPECT_FALSE(read.deadzone.has_value()) << bad;   // dropped, the rest kept
+        EXPECT_FALSE(read.full.has_value()) << bad;
+    }
+}

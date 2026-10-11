@@ -28,11 +28,14 @@ Settled with NFS 2015 and an R3 on Windows:
 - the emulated G920 reports its pedals as a real one does on Windows: wheel X, throttle Y, brake Rz, clutch Slider
   (NFS Unbound reads it so), the default for every game. A game that reads it differently gets a game profile,
   `config/games/<id>.ini`, holding only what that game needs changed, laid over the defaults like a sieve; it is
-  compiled in and used automatically, for the G920 virtual device and the in-game shim alike. Only NFS 2015 has one
+  compiled in and used automatically, for the G920 virtual device and the in-game shim alike. NFS 2015 has one
   (it reads a G920's brake from Y, clutch from Rz and throttle from the Slider): while `NFS16.exe` runs, the app's
   status says "NFS 2015" and the log (`service.game`, `shim.config`) says what it changes. A game without a
   profile is never mentioned. If NFS 2015's own wheel controls were changed to work around its G920 table, the
-  status says "NFS 2015: RESET ITS WHEEL CONTROLS"; reset them to default in the game;
+  status says "NFS 2015: RESET ITS WHEEL CONTROLS"; reset them to default in the game. A profile can also give
+  steering advice (`[steering] rotation_deg` and `note`, advice only, never applied by itself): NFS Payback's
+  (`nfspayback.ini`, `NeedForSpeedPayback.exe`) recommends 180 degrees, shown in the Mapping tab and, while the game
+  runs with another rotation, in the status ("NFS Payback: 180 deg advised") and the log;
 - the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/g920-virtual-device.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
@@ -56,8 +59,12 @@ worked: G HUB's (`C:\Program Files\Logi\wheel_sdk\9_1_1\logi_steering_wheel_x64.
 and the old Logitech Gaming Software's (`...\Logitech\Gaming Software\SDKs\LogitechSteeringWheel.dll`). Logitech's
 DLLs are Logitech's: WheelBri never ships them.
 
-Still wrong: steering responds late and little (the keyboard does not), with either helper, while the game reads the
-wheel without delay. To see what the SDK hands the game, **`wheelbri-logi.dll`** (`logi/`, built by
+Steering: the game turns in late and little with a wheel (the keyboard does not), with either helper. The stand-in
+below showed (2026-10-11) that the SDK hands the game WheelBri's steering exactly, within about 4 ms, with no steering
+curve: the slowness is the game's own handling (G29 owners report the same). What helps is a small rotation: 180
+degrees (90 each way to full lock), set the same in the Mapping tab and in the wheel's own software (Pit House for
+Moza); with the wheel set wider than the game's full lock it turns on past it and the force feedback drops there.
+The game profile `nfspayback.ini` gives that advice. To see what the SDK hands the game, **`wheelbri-logi.dll`** (`logi/`, built by
 `scripts/make/logi.sh`) is a logging stand-in for the helper: point the registry value at it and it passes every call
 on to Logitech's own helper (G HUB's newest, else the old one, or `[logi] real_library = <path>` in a
 `wheelbri-logi.ini` next to it, where `log_level` sets its own log level: `logi.sh` writes `debug` there), logging what the game asks and gets: the state it reads every frame
@@ -116,7 +123,10 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** WheelBri works with any wheel and accessories, so the user says what each device and control is, once.
 - **Use:** tab R: touch a control (Detect), name it and pick its role; **Save**. Several rigs, the active one
-  remembered. The device with a Steering axis is the wheel.
+  remembered. The device with a Steering axis is the wheel. Steering and pedal axes can have dead zones, typed in %
+  in the axis popup (the live bar shows them): steering around the centre, a pedal at its released end, and a
+  pedal's "full at" point (fully pressed from there on). Empty = the mapping's own; Auto-map copies them into the
+  mapping. In the file: `axis_2 = Gas | throttle | deadzone 3% | full 90%`.
 - **Look:** `%LOCALAPPDATA%\wheelbri\rigs\<rig>.ini`; `service.setup` log lines. Code: core `Rig`,
   `service/src/WheelSetupView.cpp`.
 
@@ -125,8 +135,16 @@ a headline, why it was needed, how to use it, and where to look.
 - **Why:** the target (the G920) is fixed; which rig control drives each of its axes and buttons is the user's.
 - **Use:** tab M while stopped: click a G920 input and pick a rig control, or **Auto-map** from the rig's roles;
   **Save** writes your own mapping, **Default** goes back to WheelBri's. While running the same tab is the live view.
+  Each axis has its dead zone (and each pedal its full point), typed in %. **Steering rotation**: the game's full
+  lock (slider, typed degrees, or 180 / 360 / 540 / 720 / 900 / 1080) and the wheel's rotation, which must be what
+  the wheel's own software is set to; when they differ the tab says so in amber (**Same as game** copies it): a wheel
+  set wider than the game's full lock turns on past it with the force feedback dropping there. WheelBri never reads
+  or sets the wheel's own settings. **Game advice** lists the game profiles' recommendations; **Use N** fills in both
+  rotations (then set the wheel's software to N too). All of it reaches the shim and the virtual device alike (the
+  service's mapper applies it), from the next Start. Config keys: `[steering] source_rotation_deg`,
+  `target_rotation_deg`, `deadzone`; pedals `deadzone_low`, `saturation_high`.
 - **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core
-  `MappingEdit`, `Mapper`, `service/src/MappingEditView.cpp`.
+  `MappingEdit`, `AxisTuning`, `Mapper`, `service/src/MappingEditView.cpp`.
 
 ### Game force feedback through the safety limiter
 

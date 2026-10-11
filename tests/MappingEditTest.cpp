@@ -142,3 +142,74 @@ TEST(MappingEdit, AutoMapsFromTheRigsRoles) {
     EXPECT_EQ(model.buttons[18], (SourceRef{{}, 31}));                  // G920 Gear R (joy.cpl 19)
 }
 
+
+TEST(MappingEdit, RotationAndDeadzonesReadFromTheConfig) {
+    const MappingModel model = mappingModel(load(kConfig));
+    EXPECT_EQ(model.wheelRotationDeg, 540.0F);
+    EXPECT_EQ(model.gameRotationDeg, 900.0F);   // the default
+    EXPECT_EQ(model.deadzone, (std::array<float, 4>{0.0F, 0.0F, 0.0F, 0.0F}));
+    EXPECT_EQ(model.full, (std::array<float, 4>{1.0F, 1.0F, 1.0F, 1.0F}));
+    EXPECT_TRUE(tuningProblem(model).empty());
+}
+
+TEST(MappingEdit, WritesRotationAndDeadzonesOnlyWhereTheyChanged) {
+    MappingModel model = mappingModel(load(kConfig));
+    model.wheelRotationDeg = 180.0F;
+    model.gameRotationDeg = 180.0F;
+    model.deadzone[MappingModel::kBrake] = 0.03F;
+    model.full[MappingModel::kBrake] = 0.9F;
+    const MappingWriteResult written = writeMapping(kConfig, model);
+    ASSERT_TRUE(written.error.empty()) << written.error;
+    EXPECT_NE(written.text.find("source_rotation_deg = 180\r\n"), std::string::npos) << written.text;
+    EXPECT_NE(written.text.find("target_rotation_deg = 180\r\n"), std::string::npos) << written.text;
+    EXPECT_NE(written.text.find("deadzone_low = 0.03\r\n"), std::string::npos) << written.text;
+    EXPECT_NE(written.text.find("saturation_high = 0.9\r\n"), std::string::npos) << written.text;
+    EXPECT_EQ(written.text.find("[steering]\r\naxis = 0\r\ninvert = false\r\nsource_rotation_deg = 180\r\ndeadzone"),
+              std::string::npos);   // the steering's dead zone is still the default: no line for it
+    EXPECT_NE(written.text.find("; checked with --ui"), std::string::npos);   // comments kept
+
+    const EmulatorConfig back = load(written.text);
+    EXPECT_EQ(mappingModel(back), model);
+    EXPECT_EQ(back.mapper.steering.targetRotationDeg, 180.0F);
+    EXPECT_NEAR(back.mapper.brake.deadzoneLow, 0.03F, 1e-6F);
+    EXPECT_EQ(back.mapper.throttle.deadzoneLow, 0.0F);   // untouched
+    // Written again unchanged: the same text.
+    EXPECT_EQ(writeMapping(written.text, model).text, written.text);
+}
+
+TEST(MappingEdit, RefusesRotationAndDeadzonesOutOfRange) {
+    const MappingModel good = mappingModel(load(kConfig));
+    for (int which = 0; which < 5; ++which) {
+        MappingModel model = good;
+        switch (which) {
+            case 0: model.gameRotationDeg = 45.0F; break;
+            case 1: model.wheelRotationDeg = 9000.0F; break;
+            case 2: model.deadzone[MappingModel::kSteering] = 0.7F; break;
+            case 3: model.deadzone[MappingModel::kThrottle] = 0.5F; model.full[MappingModel::kThrottle] = 0.4F; break;
+            default: model.full[MappingModel::kClutch] = 0.0F; break;
+        }
+        EXPECT_FALSE(tuningProblem(model).empty()) << which;
+        const MappingWriteResult refused = writeMapping(kConfig, model);
+        EXPECT_FALSE(refused.error.empty()) << which;
+        EXPECT_TRUE(refused.text.empty()) << which;
+    }
+}
+
+TEST(MappingEdit, AutoMapCopiesTheRigsDeadzones) {
+    Rig rig;
+    RigDevice wheel;
+    wheel.id = {0x346E, 0x0005};
+    wheel.axes[0] = {"Wheel", ControlRole::Steering, false, 0.01F, std::nullopt};
+    wheel.axes[2] = {"Gas", ControlRole::Throttle, false, 0.04F, 0.95F};
+    wheel.axes[5] = {"Brake", ControlRole::Brake, false, std::nullopt, std::nullopt};   // none: the mapping's kept
+    rig.devices = {wheel};
+    MappingModel model = mappingModel(load(kConfig));
+    model.deadzone[MappingModel::kBrake] = 0.02F;
+    const DeviceProfile g920(g920Spec());
+    autoMap(model, rig, g920);
+    EXPECT_NEAR(model.deadzone[MappingModel::kSteering], 0.01F, 1e-6F);
+    EXPECT_EQ(model.full[MappingModel::kSteering], 1.0F);
+    EXPECT_NEAR(model.deadzone[MappingModel::kThrottle], 0.04F, 1e-6F);
+    EXPECT_NEAR(model.full[MappingModel::kThrottle], 0.95F, 1e-6F);
+    EXPECT_NEAR(model.deadzone[MappingModel::kBrake], 0.02F, 1e-6F);
+}

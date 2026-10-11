@@ -36,8 +36,8 @@ TEST(GameProfiles, EveryBuiltInFileParsesCleanly) {
         EXPECT_FALSE(profile.label.empty()) << profile.id;
         EXPECT_EQ(programName(profile.program), profile.program) << profile.id;
         EXPECT_EQ(gameProfileFor(profile.program), &profile) << profile.id;
-        // A profile is the exception: it changes something, or it should not exist.
-        EXPECT_FALSE(describeOverlay(profile).empty()) << profile.id;
+        // A profile is the exception: it changes something or gives advice, or it should not exist.
+        EXPECT_TRUE(!describeOverlay(profile).empty() || profile.rotationDeg.has_value()) << profile.id;
     }
 }
 
@@ -209,6 +209,42 @@ TEST(GameProfiles, RunningGamesInProfileOrderOncePerGame) {
     EXPECT_TRUE(findRunningGames({}).empty());
     EXPECT_EQ(findRunningGames(std::vector<RunningProgram>{{1, "NFS16.exe"}, {2, "NeedForSpeedUnbound.exe"}}).size(),
               1U);
+}
+
+
+TEST(GameProfiles, SteeringAdvice) {
+    const auto parse = [](const std::string& steering) {
+        return parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n" + steering);
+    };
+    const ParsedGameProfile good = parse("[steering]\nrotation_deg = 180\nnote = Its cars understeer.\n");
+    ASSERT_TRUE(good.profile.has_value()) << good.problems.front();
+    EXPECT_EQ(good.profile->rotationDeg, 180.0F);
+    EXPECT_EQ(rotationAdvice(*good.profile), "NFS X: 180 degrees recommended. Its cars understeer.");
+    EXPECT_TRUE(rotationDiffers(*good.profile, 360.0F));
+    EXPECT_FALSE(rotationDiffers(*good.profile, 180.0F));
+    EXPECT_EQ(describeOverlay(*good.profile), "");   // advice only: no pedal changes
+
+    const ParsedGameProfile none = parse("");
+    ASSERT_TRUE(none.profile.has_value());
+    EXPECT_EQ(rotationAdvice(*none.profile), "");
+    EXPECT_FALSE(rotationDiffers(*none.profile, 360.0F));
+
+    EXPECT_FALSE(parse("[steering]\nrotation_deg = 180\n").profile.has_value());        // no reason given
+    EXPECT_FALSE(parse("[steering]\nnote = Why.\n").profile.has_value());               // a reason for nothing
+    EXPECT_FALSE(parse("[steering]\nrotation_deg = 30\nnote = Why.\n").profile.has_value());   // out of range
+    EXPECT_FALSE(parse("[steering]\nrotation_deg = lots\nnote = Why.\n").profile.has_value());
+    EXPECT_FALSE(parse("[steering]\nlock = 180\n").profile.has_value());
+    EXPECT_FALSE(parse("[steering]\nrotation_deg = 180\nnote = " + std::string(200, 'x') + "\n").profile.has_value());
+}
+
+TEST(GameProfiles, NfsPaybackAdvises180) {
+    const GameProfile* const payback = gameProfileFor("D:\\Games\\NFS Payback\\NeedForSpeedPayback.exe");
+    ASSERT_NE(payback, nullptr);
+    EXPECT_EQ(payback->label, "NFS Payback");
+    EXPECT_EQ(payback->rotationDeg, 180.0F);
+    EXPECT_FALSE(payback->rotationNote.empty());
+    EXPECT_EQ(describeOverlay(*payback), "");   // its pedals are a G920's
+    EXPECT_FALSE(payback->throttleAxis.has_value());
 }
 
 }  // namespace

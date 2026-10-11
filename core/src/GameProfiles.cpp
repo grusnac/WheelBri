@@ -1,7 +1,9 @@
 #include "wheelbri/GameProfiles.hpp"
 
+#include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/IniDocument.hpp"
 
+#include <cmath>
 #include <mutex>
 
 namespace wheelbri {
@@ -15,6 +17,7 @@ constexpr GameProfileFile kFiles[] = {
 };
 
 constexpr std::size_t kMaxLabel = 20;   // the window shows it after "Running 1:23, "
+constexpr std::size_t kMaxNote = 160;   // one line of the window
 
 std::string lower(const std::string_view text) {
     std::string out(text);
@@ -95,8 +98,24 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                                               "': expected x, y, z, rx, ry, rz, slider or none");
                 }
             }
+        } else if (section == "steering") {
+            for (const auto& [key, value] : keys) {
+                if (key == "rotation_deg") {
+                    const auto degrees = tuning::parseNumber(value);
+                    const std::string problem = degrees ? tuning::rotationProblem(*degrees) : "expected a number";
+                    if (problem.empty()) {
+                        profile.rotationDeg = *degrees;
+                    } else {
+                        result.problems.push_back("[steering] rotation_deg = '" + value + "': " + problem);
+                    }
+                } else if (key == "note") {
+                    profile.rotationNote = value;
+                } else {
+                    result.problems.push_back("[steering] " + key + ": unknown key");
+                }
+            }
         } else {
-            result.problems.push_back("[" + section + "]: unknown section (only [game] and [pedals])");
+            result.problems.push_back("[" + section + "]: unknown section (only [game], [pedals] and [steering])");
         }
     }
     if (profile.label.empty()) {
@@ -111,6 +130,11 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
         result.problems.push_back("[game] program must be the game's program file name, e.g. nfs16.exe");
     }
     if (profile.target.empty()) result.problems.push_back("[game] target is missing (e.g. g920)");
+    if (profile.rotationDeg.has_value() != !profile.rotationNote.empty()) {
+        result.problems.push_back("[steering] rotation_deg and note go together: the advice and why");
+    } else if (profile.rotationNote.size() > kMaxNote) {
+        result.problems.push_back("[steering] note: at most " + std::to_string(kMaxNote) + " characters");
+    }
     if (!isValid(overlay(layoutFor(profile.target, 0), profile))) {
         result.problems.push_back("[pedals]: two pedals on one axis, a pedal on x (the wheel), or throttle/brake none");
     }
@@ -119,6 +143,16 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
 }
 
 std::span<const GameProfile> gameProfiles() { return loaded().profiles; }
+
+std::string rotationAdvice(const GameProfile& profile) {
+    if (!profile.rotationDeg) return {};
+    return profile.label + ": " + tuning::formatNumber(*profile.rotationDeg) + " degrees recommended. " +
+           profile.rotationNote;
+}
+
+bool rotationDiffers(const GameProfile& profile, const float gameRotationDeg) {
+    return profile.rotationDeg && std::fabs(*profile.rotationDeg - gameRotationDeg) >= 0.5F;
+}
 
 const std::vector<std::string>& gameProfileProblems() { return loaded().problems; }
 

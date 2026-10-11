@@ -22,6 +22,7 @@
 //   kind = wheel
 //   axis_0 = Wheel | steering
 //   axis_2 = Gas | throttle | invert       ; invert: released at the top of the axis
+//   axis_5 = Brake | brake | deadzone 3% | full 90%
 //   button_13 = R paddle | right paddle
 namespace wheelbri {
 
@@ -49,11 +50,19 @@ inline constexpr std::array<ControlRole, 17> kButtonRoles = {
 [[nodiscard]] const char* roleName(ControlRole role);   // "throttle", "d-pad up", "gear 1", "" for None
 [[nodiscard]] std::optional<ControlRole> parseRole(std::string_view text);
 [[nodiscard]] bool isAxisRole(ControlRole role);
+// Steering, throttle, brake, clutch: the roles with dead zones (the ones the emulated wheel's axes come from).
+[[nodiscard]] bool hasDeadzones(ControlRole role);
+[[nodiscard]] bool isPedal(ControlRole role);   // throttle, brake, clutch
 
 struct RigControl {
     std::string label;                  // what it says on the device (DeviceLabels::kMaxLabel characters at most)
     ControlRole role = ControlRole::None;
     bool invert = false;                // an axis released (or centred) at +1 instead of -1
+    // Dead zones (AxisTuning.hpp), fractions; unset = the mapping's own. Steering: around the centre (`full` unused).
+    // Throttle, brake, clutch: `deadzone` ignored at the released end, fully pressed from `full` on. Auto-map copies
+    // them into the mapping, as it does `invert`; other roles have none.
+    std::optional<float> deadzone;
+    std::optional<float> full;
 
     [[nodiscard]] bool defined() const { return !label.empty() || role != ControlRole::None; }
     friend bool operator==(const RigControl&, const RigControl&) = default;

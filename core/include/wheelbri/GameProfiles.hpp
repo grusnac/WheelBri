@@ -30,6 +30,11 @@ namespace wheelbri {
 //            label: what the window and the log show, short (at most 20 characters); Need for Speed games are
 //            "NFS <name>" (NFS 2015, NFS Heat), never "Need for Speed ...".
 //   [pedals] throttle_axis / brake_axis / clutch_axis = x y z rx ry rz slider none   (only those that change)
+//   [steering] rotation_deg = 180 / note = why   (advice only, both or neither): a game whose own handling needs
+//            another steering rotation than usual (NFS Payback's cars understeer and turn in slowly). WheelBri never
+//            guesses the user's hardware and never changes the rotation by itself: the app shows the advice (the
+//            Mapping tab, with a button that fills it in; the window and the log when the game runs and the mapping's
+//            game rotation differs), and the user sets it, in WheelBri and in their wheel's own software.
 struct GameProfile {
     std::string id;        // the file's name without .ini: "nfs2015"
     std::string label;     // [game] label, shown as it is in the window's status and the log: "NFS 2015"
@@ -38,7 +43,14 @@ struct GameProfile {
     std::optional<ObjectGuid> throttleAxis;   // [pedals]: unset = the default
     std::optional<ObjectGuid> brakeAxis;
     std::optional<ObjectGuid> clutchAxis;
+    std::optional<float> rotationDeg;   // [steering] rotation_deg: the recommended steering rotation (full lock)
+    std::string rotationNote;           // [steering] note: why, in a sentence, for the user
 };
+
+// "NFS Payback: 180 degrees recommended. <note>": the advice, or empty when the profile has none.
+[[nodiscard]] std::string rotationAdvice(const GameProfile& profile);
+// True when the profile recommends a rotation and `gameRotationDeg` is not it.
+[[nodiscard]] bool rotationDiffers(const GameProfile& profile, float gameRotationDeg);
 
 // One built-in profile file as compiled in: its id and its text.
 struct GameProfileFile {

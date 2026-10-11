@@ -2,15 +2,19 @@
 
 #include "Platform.hpp"
 
+#include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceMatch.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/FileText.hpp"
+#include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstdio>
 #include <utility>
 
 namespace wheelbri::service {
@@ -46,10 +50,45 @@ constexpr float kPopupY = 56;
 constexpr float kPopupW = 912;
 constexpr float kPopupH = 640;
 
+// The axes' rows: the source, Invert, the dead zone and (pedals) the full point, before the D-pad column at 620.
+constexpr float kAxisSourceW = 300;
+constexpr float kInvertX = 388;
+constexpr float kDeadzoneX = 456;
+constexpr float kFullX = 536;
+constexpr float kTuningW = 72;
+
+// The game full lock slider: 90 to 1080 degrees, in steps of 10 (typed values go up to tuning::kMaxRotationDeg).
+constexpr float kSliderX = 132;
+constexpr float kSliderW = 400;
+constexpr float kSliderMinDeg = 90.0F;
+constexpr float kSliderMaxDeg = 1080.0F;
+constexpr float kSliderStepDeg = 10.0F;
+constexpr std::array<float, 6> kPresetsDeg = {180.0F, 360.0F, 540.0F, 720.0F, 900.0F, 1080.0F};
+constexpr std::size_t kMaxTyped = 12;
+
 std::string fit(std::string text, const std::size_t chars) {
     if (text.size() > chars) text = text.substr(0, chars - 2) + "..";
     return text;
 }
+
+// `text` in lines of at most `chars`, broken at spaces; at most `maxLines`, the last one cut with "..".
+std::vector<std::string> wrap(const std::string& text, const std::size_t chars, const std::size_t maxLines) {
+    std::vector<std::string> lines;
+    std::string rest = text;
+    while (!rest.empty() && lines.size() < maxLines) {
+        if (rest.size() <= chars || lines.size() + 1 == maxLines) {
+            lines.push_back(fit(rest, chars));
+            break;
+        }
+        std::size_t cut = rest.rfind(' ', chars);
+        if (cut == std::string::npos || cut == 0) cut = chars;
+        lines.push_back(rest.substr(0, cut));
+        rest = rest.substr(std::min(rest.size(), cut + 1));
+    }
+    return lines;
+}
+
+std::string degrees(const float value) { return tuning::formatNumber(value, 1); }
 
 // `path` is UTF-8 (as the picker keeps it).
 std::string readFile(const std::string& path) {
@@ -94,6 +133,8 @@ void MappingEditView::refreshDevices() {
 
 void MappingEditView::load() {
     mode_ = Mode::Idle;
+    field_ = Field::None;
+    dragging_ = false;
     path_ = picker_.selected();
     loaded_ = false;
     profile_.reset();
@@ -114,6 +155,7 @@ void MappingEditView::load() {
     }
     const auto parsed = IniDocument::parse(fileText_);
     const auto result = loadEmulatorConfig(parsed.document);
+    targetName_ = result.config.targetProfile.empty() ? std::string("g920") : result.config.targetProfile;
     profile_ = makeProfile(result.config.targetProfile);
     if (profile_ == nullptr) profile_ = makeProfile("g920");
     saved_ = mappingModel(result.config);
@@ -280,7 +322,21 @@ void MappingEditView::changeWheel(const DeviceLabels& wheel) {
 
 // --- input -------------------------------------------------------------------------------------------------------
 
+void MappingEditView::setLocked(const bool locked) {
+    locked_ = locked;
+    if (locked_) {
+        field_ = Field::None;   // a session started: nothing is edited until it stops
+        dragging_ = false;
+    }
+}
+
 void MappingEditView::onClick(const float x, const float y) {
+    // A click anywhere ends the typing first (the value if it is usable; otherwise the status says why), then acts.
+    if (field_ != Field::None) {
+        commitTyping();
+        field_ = Field::None;
+    }
+    clickX_ = x;
     if (mode_ == Mode::Idle && picker_.onClick(x, y)) return;   // the row at the top
     for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
         if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
@@ -293,7 +349,100 @@ void MappingEditView::onClick(const float x, const float y) {
 }
 
 void MappingEditView::onKey(const char key) {
-    if (key == ui::kEscape) mode_ = Mode::Idle;
+    if (key != ui::kEscape) return;
+    if (field_ != Field::None) {
+        field_ = Field::None;   // Escape while typing: drop what was typed
+        return;
+    }
+    mode_ = Mode::Idle;
+}
+
+void MappingEditView::onText(const std::string& text) {
+    if (field_ == Field::None) return;
+    for (const char c : text) {
+        if (c == ui::kBackspace) {
+            if (!typed_.empty()) typed_.pop_back();
+        } else if (c == ui::kEnter) {
+            if (commitTyping()) field_ = Field::None;   // not usable: keep typing, the status says why
+            return;
+        } else if (((c >= '0' && c <= '9') || c == '.' || c == '%' || c == ' ') && typed_.size() < kMaxTyped) {
+            typed_ += c;
+        }
+    }
+}
+
+void MappingEditView::onPointer(const float x, const float /*y*/, const bool leftDown) {
+    if (!dragging_) return;
+    if (!leftDown || locked_ || mode_ != Mode::Idle) {
+        dragging_ = false;
+        return;
+    }
+    setGameRotationFromX(x);
+}
+
+void MappingEditView::setGameRotationFromX(const float x) {
+    const float t = std::clamp((x - kSliderX) / kSliderW, 0.0F, 1.0F);
+    const float value = kSliderMinDeg + t * (kSliderMaxDeg - kSliderMinDeg);
+    edit_.gameRotationDeg =
+        std::clamp(std::round(value / kSliderStepDeg) * kSliderStepDeg, kSliderMinDeg, kSliderMaxDeg);
+}
+
+std::string MappingEditView::fieldText(const Field field, const std::size_t index) const {
+    switch (field) {
+        case Field::Deadzone: return tuning::formatPercent(edit_.deadzone[index]);
+        case Field::Full: return tuning::formatPercent(edit_.full[index]);
+        case Field::GameRotation: return degrees(edit_.gameRotationDeg);
+        case Field::WheelRotation: return degrees(edit_.wheelRotationDeg);
+        case Field::None: break;
+    }
+    return {};
+}
+
+void MappingEditView::startTyping(const Field field, const std::size_t index) {
+    if (locked_) return;
+    field_ = field;
+    fieldIndex_ = index;
+    typed_ = fieldText(field, index);
+}
+
+bool MappingEditView::commitTyping() {
+    if (field_ == Field::None) return true;
+    const std::optional<float> number = tuning::parseNumber(typed_);
+    const bool percent = field_ == Field::Deadzone || field_ == Field::Full;   // typed as percentages: "3" is 3%
+    std::string problem;
+    if (!number) {
+        problem = "'" + typed_ + "' is not a number";
+    } else {
+        const float value = percent ? *number / 100.0F : *number;
+        const std::size_t i = fieldIndex_;
+        switch (field_) {
+            case Field::Deadzone:
+                problem = i == MappingModel::kSteering ? tuning::steeringDeadzoneProblem(value)
+                                                       : tuning::pedalProblem(value, edit_.full[i]);
+                if (problem.empty()) edit_.deadzone[i] = value;
+                break;
+            case Field::Full:
+                problem = tuning::pedalProblem(edit_.deadzone[i], value);
+                if (problem.empty()) edit_.full[i] = value;
+                break;
+            case Field::GameRotation:
+            case Field::WheelRotation:
+                problem = tuning::rotationProblem(value);
+                if (problem.empty()) {
+                    (field_ == Field::GameRotation ? edit_.gameRotationDeg : edit_.wheelRotationDeg) = value;
+                }
+                break;
+            case Field::None: break;
+        }
+    }
+    if (!problem.empty()) {
+        status_ = "Not changed: " + problem + ".";
+        statusError_ = true;
+        return false;
+    }
+    if (statusError_) status_.clear();   // the last typing's complaint is answered
+    statusError_ = false;
+    return true;
 }
 
 // --- drawing ----------------------------------------------------------------------------------------------------
@@ -311,6 +460,21 @@ float MappingEditView::button(const float x, const float y, const std::string& l
     window_.text(textX, y + 4, label, !enabled ? kDim : on ? kDark : kText);
     if (enabled) hit(x, y, w, 16, std::move(action));
     return w;
+}
+
+void MappingEditView::drawField(const float x, const float y, const float w, const Field field, const std::size_t index,
+                                const std::string& value, const bool changed) {
+    const bool typing = field_ == field && fieldIndex_ == index;
+    window_.fill(x, y, w, 16, typing ? kDark : kStripe);
+    window_.outline(x, y, w, 16, typing ? kHeading : changed ? kCaution : kPanel);
+    const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
+    if (typing) {
+        const std::string shown = typed_ + "_";
+        window_.text(x + 6, y + 4, shown.size() > chars ? shown.substr(shown.size() - chars) : shown, kText);
+    } else {
+        window_.text(x + 6, y + 4, fit(value, chars), locked_ ? kDim : kText);
+    }
+    if (!locked_) hit(x, y, w, 16, [this, field, index] { startTyping(field, index); });
 }
 
 void MappingEditView::drawSource(const float x, const float y, const float w, const Slot kind,
@@ -369,12 +533,21 @@ void MappingEditView::draw() {
     float y = 66;
     window_.text(4, y, "AXES", kHeading);
     window_.text(48, y, "click a source to pick another", kDim);
+    window_.text(kDeadzoneX, y, "dead zone", kDim);
+    window_.text(kFullX + 8, y, "full", kDim);
     window_.text(620, y, "D-PAD", kHeading);
     for (std::size_t i = 0; i < kAxisNames.size(); ++i) {
         const float row = y + 16 + static_cast<float>(i) * 20;
         window_.text(4, row + 4, kAxisNames[i], kText);
-        drawSource(80, row, 420, Slot::Axis, i);
-        button(508, row, "Invert", [this, i] { edit_.invert[i] = !edit_.invert[i]; }, edit_.invert[i], true, 70);
+        drawSource(80, row, kAxisSourceW, Slot::Axis, i);
+        button(kInvertX, row, "Invert", [this, i] { edit_.invert[i] = !edit_.invert[i]; }, edit_.invert[i], true, 60);
+        // Steering: around the centre; pedals: at the released end, and where they count as fully pressed.
+        drawField(kDeadzoneX, row, kTuningW, Field::Deadzone, i, tuning::formatPercent(edit_.deadzone[i]),
+                  edit_.deadzone[i] != saved_.deadzone[i]);
+        if (i != MappingModel::kSteering) {
+            drawField(kFullX, row, kTuningW, Field::Full, i, tuning::formatPercent(edit_.full[i]),
+                      edit_.full[i] != saved_.full[i]);
+        }
         window_.text(620, row + 4, kHatNames[i], kText);
         drawSource(668, row, 288, Slot::Hat, i);
     }
@@ -384,6 +557,7 @@ void MappingEditView::draw() {
     window_.text(4, y, "BUTTONS", kHeading);
     window_.text(68, y, target + " button <- your control", kDim);
     std::size_t cell = 0;
+    float gridEnd = y + 16;
     bool gap = false;   // an unnamed button before this one: a new group (the G920's shifter) starts on its own row
     for (std::size_t index = 0; index < edit_.buttons.size(); ++index) {
         const std::string_view name = profile_->buttonName(index);
@@ -396,11 +570,14 @@ void MappingEditView::draw() {
         const float x = 4 + static_cast<float>(cell % 2) * 478;
         const float row = y + 16 + static_cast<float>(cell / 2) * 20;
         ++cell;
+        gridEnd = row + 16;
         char label[32];
         std::snprintf(label, sizeof(label), "%2zu %.10s", index, std::string(name).c_str());
         window_.text(x, row + 4, label, kText);
         drawSource(x + 112, row, 356, Slot::Button, index);
     }
+
+    drawRotation(gridEnd + 14);
 
     const float hint = kContentHeight - 52;
     window_.text(4, hint, "Sources are the rig's controls (defined in the Rig tab); Auto-map fills what their roles say.",
@@ -413,6 +590,103 @@ void MappingEditView::draw() {
 
     if (mode_ == Mode::Pick) drawPicker();
     if (mode_ == Mode::PickWheel) drawWheelPicker();
+}
+
+void MappingEditView::drawRotation(const float top) {
+    float y = top;
+    window_.text(4, y, "STEERING ROTATION", kHeading);
+    window_.text(148, y, "full lock to full lock, in degrees", kDim);
+
+    // The game's full lock: the slider (90 to 1080), the typed number (up to 2520) and the usual values.
+    y += 16;
+    window_.text(4, y + 4, "Game full lock", kText);
+    const float shown = std::clamp(edit_.gameRotationDeg, kSliderMinDeg, kSliderMaxDeg);
+    const float filled = (shown - kSliderMinDeg) / (kSliderMaxDeg - kSliderMinDeg) * kSliderW;
+    window_.fill(kSliderX, y + 6, kSliderW, 4, kStripe);
+    window_.fill(kSliderX, y + 6, filled, 4, locked_ ? kDim : kHeading);
+    window_.fill(kSliderX + filled - 3, y + 1, 6, 14, locked_ ? kDim : kText);
+    window_.outline(kSliderX, y + 6, kSliderW, 4, edit_.gameRotationDeg != saved_.gameRotationDeg ? kCaution : kPanel);
+    if (!locked_) {
+        hit(kSliderX - 4, y, kSliderW + 8, 16, [this] {
+            setGameRotationFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
+            dragging_ = true;
+        });
+    }
+    drawField(kSliderX + kSliderW + 12, y, 64, Field::GameRotation, 0, degrees(edit_.gameRotationDeg),
+              edit_.gameRotationDeg != saved_.gameRotationDeg);
+    window_.text(kSliderX + kSliderW + 80, y + 4, "deg", kDim);
+    float x = kSliderX + kSliderW + 112;
+    for (const float preset : kPresetsDeg) {
+        x += button(x, y, degrees(preset), [this, preset] { edit_.gameRotationDeg = preset; },
+                    std::fabs(edit_.gameRotationDeg - preset) < 0.5F, !locked_, 46) + 4;
+    }
+    window_.text(kSliderX, y + 20, "90", kDim);
+    window_.text(kSliderX + kSliderW - 32, y + 20, "1080", kDim);
+
+    // What the wheel's own software is set to: the mapper turns that into the game's full lock.
+    y += 34;
+    window_.text(4, y + 4, "Wheel rotation", kText);
+    drawField(kSliderX, y, 64, Field::WheelRotation, 0, degrees(edit_.wheelRotationDeg),
+              edit_.wheelRotationDeg != saved_.wheelRotationDeg);
+    window_.text(kSliderX + 68, y + 4, "deg: what your wheel's own software (e.g. Moza Pit House) is set to", kDim);
+    const bool same = std::fabs(edit_.wheelRotationDeg - edit_.gameRotationDeg) < 0.5F;
+    if (!same) {
+        button(852, y, "Same as game", [this] { edit_.wheelRotationDeg = edit_.gameRotationDeg; }, false, !locked_,
+               104);
+    }
+    y += 20;
+    if (same) {
+        window_.text(4, y, fit("Both match: the wheel reaches its end stop where the game reaches full lock. Keep them "
+                               "the same when you change one.", 118),
+                     kDim);
+        y += 12;
+    } else {
+        const std::string game = degrees(edit_.gameRotationDeg);
+        for (const std::string& line : wrap("Wheel " + degrees(edit_.wheelRotationDeg) + " deg, game " + game +
+                                                " deg: set your wheel's own software to " + game +
+                                                " too (or press Same as game).",
+                                            118, 2)) {
+            window_.text(4, y, line, kCaution);
+            y += 12;
+        }
+        const char* const why = edit_.wheelRotationDeg > edit_.gameRotationDeg
+                                    ? "Otherwise the wheel turns on past the game's full lock and the force feedback "
+                                      "drops there."
+                                    : "Otherwise the game's full lock is never reached: the wheel stops first.";
+        window_.text(4, y, why, kDim);
+        y += 12;
+    }
+
+    // The games' advice (game profiles that recommend a rotation for this target): applied only on a press.
+    y += 16;
+    bool any = false;
+    for (const GameProfile& game : gameProfiles()) {
+        if (!game.rotationDeg || !profileFitsTarget(game, targetName_)) continue;
+        if (!any) {
+            window_.text(4, y, "GAME ADVICE", kHeading);
+            window_.text(100, y, "nothing is applied by itself; Use fills in both rotations", kDim);
+            y += 16;
+            any = true;
+        }
+        if (y > kContentHeight - 52 - 26) break;   // keep clear of the hint
+        const float deg = *game.rotationDeg;
+        const std::string use = "Use " + degrees(deg);
+        const float useW = static_cast<float>(use.size()) * ui::kCharWidth + 14;
+        button(956 - useW, y, use, [this, deg] {
+            edit_.gameRotationDeg = deg;
+            edit_.wheelRotationDeg = deg;
+            status_ = "Set your wheel's own software to " + degrees(deg) + " degrees too, then Save.";
+            statusError_ = false;
+        }, std::fabs(edit_.gameRotationDeg - deg) < 0.5F && std::fabs(edit_.wheelRotationDeg - deg) < 0.5F, !locked_,
+               useW);
+        const auto chars = static_cast<std::size_t>((956 - useW - 12) / ui::kCharWidth);
+        const std::vector<std::string> lines = wrap(rotationAdvice(game), chars, 2);
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            window_.text(4, y + 4 + static_cast<float>(i) * 12, lines[i],
+                         rotationDiffers(game, edit_.gameRotationDeg) ? kText : kDim);
+        }
+        y += lines.size() > 1 ? 30 : 20;
+    }
 }
 
 void MappingEditView::drawWheelRow() {

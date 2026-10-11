@@ -1,6 +1,7 @@
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 
+#include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/MappingEdit.hpp"
 
 #include <charconv>
@@ -155,8 +156,8 @@ void readPedal(const IniDocument& ini, const std::string& section, PedalConfig& 
     SectionReader reader(ini, section, errors);
     reader.readSource("axis", pedal.sourceAxis, pedal.sourceDevice, kMaxAxisIndex, true, mapper);
     reader.readBool("invert", pedal.invert);
-    reader.readFloat("deadzone_low", pedal.deadzoneLow, 0.0F, 0.99F);
-    reader.readFloat("saturation_high", pedal.saturationHigh, 0.01F, 1.0F);
+    reader.readFloat("deadzone_low", pedal.deadzoneLow, 0.0F, tuning::kMaxPedalDeadzone);
+    reader.readFloat("saturation_high", pedal.saturationHigh, tuning::kMinPedalFull, 1.0F);
     reader.readFloat("gamma", pedal.gamma, 0.1F, 10.0F);
     reader.reportUnknownKeys();
     if (pedal.saturationHigh <= pedal.deadzoneLow) {
@@ -192,9 +193,11 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         SectionReader reader(ini, "steering", errors);
         SteeringConfig& steering = config.mapper.steering;
         reader.readSource("axis", steering.sourceAxis, steering.sourceDevice, kMaxAxisIndex, true, config.mapper);
-        reader.readFloat("source_rotation_deg", steering.sourceRotationDeg, 90.0F, 2520.0F);
-        reader.readFloat("target_rotation_deg", steering.targetRotationDeg, 90.0F, 2520.0F);
-        reader.readFloat("deadzone", steering.deadzone, 0.0F, 0.5F);
+        reader.readFloat("source_rotation_deg", steering.sourceRotationDeg, tuning::kMinRotationDeg,
+                         tuning::kMaxRotationDeg);
+        reader.readFloat("target_rotation_deg", steering.targetRotationDeg, tuning::kMinRotationDeg,
+                         tuning::kMaxRotationDeg);
+        reader.readFloat("deadzone", steering.deadzone, 0.0F, tuning::kMaxSteeringDeadzone);
         reader.readBool("invert", steering.invert);
         reader.reportUnknownKeys();
     }

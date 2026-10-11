@@ -64,7 +64,11 @@ Status (README.md has the full table):
   reads the wheel differently gets a game profile (`config/games/<id>.ini`) holding only what it needs changed, laid
   over the defaults (`GameProfiles`): NFS 2015 (`NFS16.exe`) reads brake Y, clutch Rz, throttle Slider from its own
   G920 table (2026-10-09; the shim's axis audit saw no remapping call, real G920 owners report the same swap).
-  The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
+  A profile may also give steering advice only (`[steering] rotation_deg` + `note`, both or neither): NFS Payback
+  (`NeedForSpeedPayback.exe`) advises 180 degrees, its own handling being slow with any wheel (2026-10-11). Advice is
+  shown (Mapping tab with a "Use N" button; status and `service.game` log via `GameWatch::advice` when the game runs
+  with another rotation) and never applied by itself; WheelBri never guesses the user's hardware and never reads or
+  sets the wheel's own software (no Moza SDK). The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
   throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
 - **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
@@ -183,7 +187,9 @@ reads; "NO RIG" without a rig, "NO MAPPING" when not one of the target's control
 `mappingUsesRig`; those two come first in the status; `service/src/DeviceWatch.cpp` lists the game controllers on its own thread when Windows says one came or went: `platform::DeviceChanges`, `CM_Register_Notification` on HID interfaces / inotify on `/dev/input`, counted by core `ChangeCounter`, timed by core `RelistTimer`; `DeviceWatch` takes its lister, counter and timings as arguments (`systemLister()`, `systemOptions()`) so `DeviceWatchTest` drives it with a fake lister; `platform::FolderWatch` is the inotify watch, Linux only), with a listing every 30 s as a safety net and every 2 s where there are no notifications; the Rig tab and the session's wait for the wheel use the same), and the status says
 "NOT CONNECTED: <names>" or "NO RIG" in red. `WheelBackend::list()` on Windows makes a new DirectInput object each
 time, so a wheel switched on after the app started is found. Stopped, the app's own tabs are Mapping (`MappingEditView`,
-the editor, with `ConfigPicker` as its top row), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
+the editor, with `ConfigPicker` as its top row; also the axes' dead zones and the STEERING ROTATION section: game full
+lock and wheel rotation, typed or by slider, ranges and formatting in core `AxisTuning`; the rig's dead zones are
+`RigControl::deadzone` / `full`, edited in the Rig tab's axis popup and copied by Auto-map), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
 Logs page), in that order (there is no Status tab; a failed Start says "Start failed (Logs)");
 it opens on Rig until a rig exists, else on Mapping; Start switches to Logs at once (the session logs while it comes
 up) and the live view keeps the tab showing then. O opens the logs folder (every log is there). It draws through

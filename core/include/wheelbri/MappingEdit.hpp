@@ -40,7 +40,8 @@ struct SourceRef {
 [[nodiscard]] SourceRef sourceOf(const MapperConfig& mapper, int device, int index);
 
 // What the Mapping tab edits: the wheel, where each axis, button and D-pad direction of the emulated wheel comes
-// from, and whether an axis is inverted. Everything else in the config stays as it is in the file.
+// from, whether an axis is inverted, the steering rotation and the axes' dead zones (AxisTuning.hpp). Everything
+// else in the config stays as it is in the file.
 struct MappingModel {
     static constexpr std::size_t kSteering = 0, kThrottle = 1, kBrake = 2, kClutch = 3;
 
@@ -49,6 +50,14 @@ struct MappingModel {
     std::array<bool, 4> invert{};             // the same order
     std::array<SourceRef, MapperConfig::kMaxTargetButtons> buttons;
     std::array<SourceRef, 4> hat;             // up, right, down, left
+    // [steering] source_rotation_deg: what the wheel's own software is set to; target_rotation_deg: the game's full
+    // lock (the emulated wheel reports full lock when the wheel has turned that far).
+    float wheelRotationDeg = 900.0F;
+    float gameRotationDeg = 900.0F;
+    // Steering: [steering] deadzone (around the centre); pedals: deadzone_low. Fractions, in the axes' order.
+    std::array<float, 4> deadzone{};
+    // Pedals: saturation_high (fully pressed from there on); the steering's (index 0) is unused and stays 1.
+    std::array<float, 4> full{1.0F, 1.0F, 1.0F, 1.0F};
 
     friend bool operator==(const MappingModel&, const MappingModel&) = default;
 };
@@ -61,12 +70,17 @@ struct MappingWriteResult {
 };
 
 // Fills `model` from the rig's roles: the wheel (the device with the Steering axis) becomes source_device; Steering,
-// Throttle, Brake and Clutch axes (with their invert) the emulated wheel's axes; D-pad roles its D-pad; Shift up /
+// Throttle, Brake and Clutch axes (with their invert, and their dead zones where the rig sets them) the emulated
+// wheel's axes; D-pad roles its D-pad; Shift up /
 // down its R / L paddle and gears its "Gear N" / "Gear R" buttons, where `profile` has them. Plain buttons are left
 // alone (only the user knows which G920 button they should be). Returns how many sources were set.
 int autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile);
 
-// Writes `model` into the config text `base`. A source on the wheel's own id (when source_device is a USB id) is
+// Why the model's rotation and dead zones cannot be saved (AxisTuning.hpp's ranges), or empty.
+[[nodiscard]] std::string tuningProblem(const MappingModel& model);
+
+// Writes `model` into the config text `base` (refused with tuningProblem's reason). A number is written only when it
+// differs from what the file says (or, with no line, from the default), so an unchanged mapping keeps its text. A source on the wheel's own id (when source_device is a USB id) is
 // written as the wheel's; a button left at its default (target N <- the wheel's button N) loses its line.
 [[nodiscard]] MappingWriteResult writeMapping(std::string_view base, const MappingModel& model);
 
