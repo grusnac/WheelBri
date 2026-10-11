@@ -67,6 +67,24 @@ Played on the tested rig: wheel, pedals, buttons and force feedback checked in t
     lights; G HUB's DLL turns these down. Nothing is lost: the rotation is WheelBri's, and rev lights are not passed
     to the wheel in any game.
 
+### NFS Heat (`NeedForSpeedHeat.exe`)
+
+- **Ways:** G920 virtual device. The in-game shim was not tried.
+- **Works:** steering, throttle, brake, buttons (A, B, X, Y, paddles, Menu, View, RSB, LSB), D-pad with diagonals;
+  force feedback (spring, damper, constant, sine, square) through the safety limiter. No game profile: it reads the
+  G920 as a real one reports itself. The clutch was not tried.
+- **Caveats:**
+  - **No Logitech software needed.** Unlike NFS Payback, it reads the wheel through DirectInput itself: while it ran,
+    no process had Logitech's wheel SDK helper loaded (`tasklist /m logi_steering_wheel_x64.dll` listed none).
+  - **Any rotation, kept the same in both places.** Played at 360 degrees (Mapping tab: game full lock and wheel
+    rotation 360; Pit House: Maximum Steering Angle 360). The game's full lock is the wheel's end stop.
+  - **Light force feedback.** The game asks for little: constant force under 10% most of the time and never over 30%,
+    spring and damper around 25-50%; nothing came near the 0.8 cap. For stronger forces, raise the game's own force
+    feedback setting if it has one, or the wheel's in Pit House.
+  - **Force feedback can stop until you alt-tab.** Once the game stopped every effect and sent none while driving on
+    for 3.5 minutes (the app's log warns: "the game loaded its force feedback ... but has started none of them"). It
+    came back after switching to another window and back, as in NFS 2015.
+
 ### NFS Unbound (`NeedForSpeedUnbound.exe`)
 
 - **Ways:** G920 in-game shim.
@@ -89,9 +107,9 @@ Not played yet; what is in place and what is not known.
 ### Other DirectInput games that support a G920
 
 - **Ways:** G920 virtual device (every game sees it), or the in-game shim for games that load `dinput8.dll`.
-- **Status:** a game that reads a G920 the way a real one reports itself needs nothing; one that reads it
-  differently needs a small game profile, as NFS 2015 does. Games built on Logitech's wheel SDK need G HUB, as NFS
-  Payback does.
+- **Status:** a game that reads a G920 the way a real one reports itself needs nothing (as NFS Heat and NFS Unbound);
+  one that reads it differently needs a small game profile, as NFS 2015 does. Games built on Logitech's wheel SDK
+  need G HUB, as NFS Payback does.
 
 ## Reporting a game
 
