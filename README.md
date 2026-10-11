@@ -22,6 +22,8 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | 4 | Linux virtual G920: `tools/uhid` (`wheelbri-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
 | 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelbri-service --virtual-g920`): wheel, pedals, buttons, force feedback, the rig hidden by our own filter (`wheelbri-hide`). Step 0 (a HIDMaestro bridge) and the virtual Xbox controller were removed on 2026-10-03. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
 
+Which games were played and what to know about each: [docs/games.md](docs/games.md).
+
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
   `c_dfDIJoystick2`, pedals released at the top of the range;
