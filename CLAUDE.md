@@ -93,7 +93,6 @@ UDP ports (all 127.0.0.1):
 CMake ≥ 3.24, C++20. spdlog 1.15.3 and GoogleTest 1.15.2 come in through FetchContent (needs internet on the first
 configure). The service uses only the system's APIs and runs on Windows (DirectInput, Win32) and Linux (evdev,
 Xlib; skipped with a warning without libx11-dev). No SDL or other third-party library: do not add one back.
-`service/src/WheelSdl.cpp` is dead code from before that decision and is not compiled.
 
 The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `build.sh` (incremental,
 configures the first time), `rebuild.sh` (deletes `build/`, full rebuild), `test.sh [filter]`, `check.sh` (before a
