@@ -1,5 +1,6 @@
 add_library(wheelbri_core STATIC
     src/AsyncFfbSink.cpp
+    src/AxisTuning.cpp
     src/AxisAudit.cpp
     src/ChangeCounter.cpp
     src/ConfigLibrary.cpp
@@ -32,6 +33,7 @@ add_library(wheelbri_core STATIC
     src/LiveLog.cpp
     src/LocalDate.cpp
     src/LogFiles.cpp
+    src/LogiSdk.cpp
     src/LogLevelCounter.cpp
     src/Logging.cpp
     src/MappingEdit.cpp

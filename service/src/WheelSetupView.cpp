@@ -3,6 +3,7 @@
 #include "Platform.hpp"
 #include "Version.hpp"
 
+#include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/Logging.hpp"
@@ -55,6 +56,10 @@ constexpr float kTileH = 30;
 constexpr float kTileStepX = 118;
 constexpr float kTileStepY = 33;
 constexpr float kHintTop = kButtonsTop + 16 + 8 * kTileStepY + 4;
+constexpr float kAxisBarX = 440;               // an axis row: the description left of it, the value right of it
+constexpr float kAxisBarW = 400;
+constexpr std::size_t kAxisText = static_cast<std::size_t>((kAxisBarX - 28) / ui::kCharWidth);
+constexpr std::size_t kMaxPercent = 7;         // a typed dead zone: "12.5%"
 
 std::string fit(std::string text, const std::size_t chars) {
     if (text.size() > chars) text.resize(chars);
@@ -69,11 +74,6 @@ std::string trimmed(const std::string& text) {
 
 std::string lower(std::string text) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return text;
-}
-
-std::string capitalised(std::string text) {
-    if (!text.empty()) text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
     return text;
 }
 
@@ -96,11 +96,24 @@ bool isPedalRole(const ControlRole role) {
            role == ControlRole::Handbrake;
 }
 
-// "Gas  (throttle, inverted)": the label, then what it is for.
+// A typed percentage as a fraction ("3", "3%" -> 0.03); nullopt if it is not a number.
+std::optional<float> typedFraction(const std::string& text) {
+    const std::optional<float> percent = tuning::parseNumber(text);
+    if (!percent) return std::nullopt;
+    return *percent / 100.0F;
+}
+
+// "Gas  (throttle, inverted, dz 3%, full 90%)": the label, then what it is for.
 std::string describe(const RigControl& control) {
     std::string text = control.label;
-    std::string about = roleName(control.role);
-    if (control.invert) about += about.empty() ? "inverted" : ", inverted";
+    // The role, unless the name already says it ("Y", "D-pad up": named by picking the role).
+    std::string about = control.label == roleLabel(control.role) ? std::string() : std::string(roleName(control.role));
+    const auto add = [&about](const std::string& part) { about += (about.empty() ? "" : ", ") + part; };
+    if (control.invert) add("inverted");
+    if (hasDeadzones(control.role)) {
+        if (control.deadzone) add("dz " + tuning::formatPercent(*control.deadzone));
+        if (control.full && isPedal(control.role)) add("full " + tuning::formatPercent(*control.full));
+    }
     if (!about.empty()) text += (text.empty() ? "(" : "  (") + about + ")";
     return text;
 }
@@ -503,13 +516,45 @@ void WheelSetupView::openControl(const bool axis, const int index, const std::op
                     : axis           ? device->axes[static_cast<std::size_t>(index)]
                                      : device->buttons[static_cast<std::size_t>(index)];
     if (axis && rest && !popupControl_.defined()) popupControl_.invert = *rest > 0.5F;   // a pedal resting at the top
+    popupDeadzone_ = popupControl_.deadzone ? tuning::formatPercent(*popupControl_.deadzone) : std::string();
+    popupFull_ = popupControl_.full ? tuning::formatPercent(*popupControl_.full) : std::string();
+    popupProblem_.clear();
     editing_ = &popupControl_.label;   // ready to type
     editingMax_ = DeviceLabels::kMaxLabel;
 }
 
+std::string WheelSetupView::popupTuning(std::optional<float>& deadzone, std::optional<float>& full) const {
+    deadzone.reset();
+    full.reset();
+    if (!popupAxis_ || !hasDeadzones(popupControl_.role)) return {};
+    const bool pedal = isPedal(popupControl_.role);
+    if (!trimmed(popupDeadzone_).empty()) {
+        deadzone = typedFraction(popupDeadzone_);
+        if (!deadzone) return "the dead zone is not a number (e.g. 3 or 3%)";
+    }
+    if (pedal && !trimmed(popupFull_).empty()) {
+        full = typedFraction(popupFull_);
+        if (!full) return "the full point is not a number (e.g. 90 or 90%)";
+    }
+    if (!pedal) return deadzone ? tuning::steeringDeadzoneProblem(*deadzone) : std::string();
+    if (!deadzone && !full) return {};
+    return tuning::pedalProblem(deadzone.value_or(0.0F), full.value_or(1.0F));
+}
+
 void WheelSetupView::closeControl(const bool keep) {
+    if (keep) {
+        std::optional<float> deadzone;
+        std::optional<float> full;
+        if (std::string problem = popupTuning(deadzone, full); !problem.empty()) {
+            popupProblem_ = "Not kept: " + problem + ".";   // the popup stays open with what was typed
+            return;
+        }
+        popupControl_.deadzone = deadzone;
+        popupControl_.full = full;
+    }
     popup_ = Popup::None;
     editing_ = nullptr;
+    popupProblem_.clear();
     if (!keep) return;
     RigDevice* const device = addShownDevice();
     if (device == nullptr) return;
@@ -517,7 +562,18 @@ void WheelSetupView::closeControl(const bool keep) {
     RigControl& control = popupAxis_ ? device->axes[static_cast<std::size_t>(popupIndex_)]
                                      : device->buttons[static_cast<std::size_t>(popupIndex_)];
     control = popupControl_;
-    if (!popupAxis_) control.invert = false;
+    if (!popupAxis_) {
+        control.invert = false;
+        control.deadzone.reset();
+        control.full.reset();
+    }
+    // A role two controls have: Auto-map takes the first in the rig, so say which.
+    if (const std::string other = sameRoleElsewhere(edit_, device->id, popupAxis_, static_cast<std::size_t>(popupIndex_),
+                                                    control.role);
+        !other.empty()) {
+        status_ = roleLabel(control.role) + " is also " + other + ": Auto-map uses the first in the rig. Clear one.";
+        statusError_ = true;
+    }
 }
 
 // --- input ----------------------------------------------------------------------------------------------------------
@@ -547,7 +603,13 @@ void WheelSetupView::onClick(const float x, const float y) {
 
 void WheelSetupView::onText(const std::string& text) {
     if (editing_ == nullptr) return;
+    const bool number = editing_ == &popupDeadzone_ || editing_ == &popupFull_;
     for (const char c : text) {
+        if (number && c != ui::kBackspace && c != ui::kEnter && std::isdigit(static_cast<unsigned char>(c)) == 0 &&
+            c != '.' && c != '%') {
+            continue;   // a percentage: digits, '.', '%'
+        }
+        if (popup_ == Popup::Control) popupProblem_.clear();
         if (c == ui::kBackspace) {
             if (!editing_->empty()) editing_->pop_back();
         } else if (c == ui::kEnter) {
@@ -735,15 +797,15 @@ void WheelSetupView::drawAxes(const float top) {
         const RigControl control = device != nullptr ? device->axes[static_cast<std::size_t>(axis)] : RigControl{};
         const std::string text = describe(control);
         window_.text(4, y, std::to_string(axis), kDim);
-        window_.text(20, y, text.empty() ? "(not defined)" : fit(text, 34), text.empty() ? kDim : kText);
+        window_.text(20, y, text.empty() ? "(not defined)" : fit(text, kAxisText), text.empty() ? kDim : kText);
         hit(0, y - 3, kWidth, kAxisRow - 1, [this, axis] { openControl(true, axis, std::nullopt); });
         if (live && axes > 0 && axis >= axes) {
-            window_.text(300, y, "(this device has no axis " + std::to_string(axis) + ")", kDim);
+            window_.text(kAxisBarX, y, "(this device has no axis " + std::to_string(axis) + ")", kDim);
             continue;
         }
         // -1..1 from the centre, as the system reports it.
-        constexpr float kBarX = 300;
-        constexpr float kBarW = 420;
+        constexpr float kBarX = kAxisBarX;
+        constexpr float kBarW = kAxisBarW;
         const float v = std::clamp(axisValue(axis), -1.0F, 1.0F);
         const float half = kBarW / 2;
         window_.fill(kBarX, y - 1, kBarW, 10, kPanel);
@@ -752,7 +814,7 @@ void WheelSetupView::drawAxes(const float top) {
         window_.fill(kBarX + half, y - 2, 1, 12, kCentre);
         char value[16];
         std::snprintf(value, sizeof(value), "%+.3f", static_cast<double>(v));
-        window_.text(732, y, live ? value : "unplugged", kDim);
+        window_.text(kBarX + kBarW + 12, y, live ? value : "unplugged", kDim);
     }
 }
 
@@ -774,7 +836,7 @@ void WheelSetupView::drawButtons(const float top) {
         std::snprintf(number, sizeof(number), "%2d", source);
         window_.text(x + 4, y + 5, number, down ? kDark : kDim);
         window_.text(x + 26, y + 5, fit(control.label, 11), down ? kDark : kText);
-        window_.text(x + 4, y + 18, fit(roleName(control.role), 13), down ? kDark : kHeading);
+        window_.text(x + 4, y + 18, fit(roleLabel(control.role), 13), down ? kDark : kHeading);
         hit(x, y, kTileW, kTileH, [this, source] { openControl(false, source, std::nullopt); });
     }
 }
@@ -783,20 +845,17 @@ void WheelSetupView::drawControlPopup() {
     constexpr float kX = 100;
     constexpr float kY = 130;
     constexpr float kW = 760;
-    constexpr float kH = 210;
+    const float height = popupAxis_ ? 236 : 210;   // an axis has the dead zones too
     hit(0, 0, kWidth, kContentHeight, [] {});   // clicks outside the popup do nothing
-    window_.fill(kX, kY, kW, kH, kPopup);
-    window_.outline(kX, kY, kW, kH, kHeading);
+    window_.fill(kX, kY, kW, height, kPopup);
+    window_.outline(kX, kY, kW, height, kHeading);
     const float left = kX + 16;
     const RigDevice* const device = shownDevice();
     const std::string deviceName = device != nullptr ? device->name : systemName(shown_);
     window_.text(left, kY + 12,
                  (popupAxis_ ? "Axis " : "Button ") + std::to_string(popupIndex_) + " on " + fit(deviceName, 40), kHeading);
     if (popupAxis_) {
-        const float v = std::clamp(axisValue(popupIndex_), -1.0F, 1.0F);
-        window_.fill(left + 480, kY + 11, 240, 10, kPanel);
-        window_.fill(v >= 0 ? left + 600 : left + 600 + 120 * v, kY + 11, 120 * std::abs(v), 10, kActive);
-        window_.fill(left + 600, kY + 10, 1, 12, kCentre);
+        drawPopupAxisBar(left + 480, kY + 11, 240);
     } else if (buttonDown(popupIndex_)) {
         window_.fill(left + 480, kY + 9, 80, 14, kActive);
         window_.text(left + 488, kY + 12, "pressed", kDark);
@@ -816,15 +875,19 @@ void WheelSetupView::drawControlPopup() {
             y += 20;
         }
         x += button(x, y, label, [this, role] {
+            // The name follows the role while it is empty or still the last role's name: typed names are kept.
+            if (popupControl_.label.empty() || popupControl_.label == roleLabel(popupControl_.role)) {
+                popupControl_.label = roleLabel(role);
+            }
             popupControl_.role = role;
             if (isPedalRole(role) && popupRest_) popupControl_.invert = *popupRest_ > 0.5F;
         }, popupControl_.role == role, true, width) + 4;
     };
     roleButton(ControlRole::None, "nothing yet", 100);
     if (popupAxis_) {
-        for (const ControlRole role : kAxisRoles) roleButton(role, capitalised(roleName(role)), 100);
+        for (const ControlRole role : kAxisRoles) roleButton(role, roleLabel(role), 100);
     } else {
-        for (const ControlRole role : kButtonRoles) roleButton(role, capitalised(roleName(role)), 100);
+        for (const ControlRole role : kButtonRoles) roleButton(role, roleLabel(role), 100);
     }
 
     y += 26;
@@ -838,15 +901,72 @@ void WheelSetupView::drawControlPopup() {
             note = std::string(rest) + (*popupRest_ > 0.5F ? ": a pedal released at the top, so inverted" : "");
         }
         window_.text(left + 100, y + 4, note, kDim);
+        drawTuningFields(left, y + 26);
     }
-    const float by = kY + kH - 26;
+    const float by = kY + height - 26;
     button(left, by, "OK", [this] { closeControl(true); }, true, true, 80);
     button(left + 88, by, "Cancel", [this] { closeControl(false); }, false, true, 80);
     button(left + 176, by, "Clear", [this] {
         popupControl_ = RigControl{};
+        popupDeadzone_.clear();
+        popupFull_.clear();
         closeControl(true);
     }, false, true, 80);
     window_.text(left + 270, by + 4, "Enter keeps it, Esc drops it.", kDim);
+}
+
+// The live value; with dead zones, what is typed (when it reads as a number) shaded on it, so the effect shows while
+// typing. Steering: a band around the centre. Pedals: the released end, and a mark where it is fully pressed.
+void WheelSetupView::drawPopupAxisBar(const float x, const float y, const float width) {
+    const float v = std::clamp(axisValue(popupIndex_), -1.0F, 1.0F);
+    const float half = width / 2;
+    const float centre = x + half;
+    const ControlRole role = popupControl_.role;
+    const std::optional<float> deadzone = hasDeadzones(role) ? typedFraction(popupDeadzone_) : std::nullopt;
+    window_.fill(x, y, width, 10, kPanel);
+    if (!isPedal(role)) {
+        const float dz = std::clamp(deadzone.value_or(0.0F), 0.0F, 1.0F);
+        if (dz > 0) window_.fill(centre - half * dz, y, width * dz, 10, kCaution);
+        const bool ignored = std::abs(v) <= dz && dz > 0;
+        window_.fill(v >= 0 ? centre : centre + half * v, y, half * std::abs(v), 10, ignored ? kDim : kActive);
+        window_.fill(centre, y - 1, 1, 12, kCentre);
+        return;
+    }
+    // Pedal travel 0..1 from the released end: -1 (or +1 when inverted).
+    const bool inverted = popupControl_.invert;
+    const auto at = [&](const float travel) { return inverted ? x + width * (1.0F - travel) : x + width * travel; };
+    const float travel = inverted ? (1.0F - v) / 2 : (v + 1.0F) / 2;
+    const float dz = std::clamp(deadzone.value_or(0.0F), 0.0F, 1.0F);
+    if (dz > 0) window_.fill(std::min(at(0.0F), at(dz)), y, width * dz, 10, kCaution);
+    window_.fill(std::min(at(0.0F), at(travel)), y, width * travel, 10, travel <= dz && dz > 0 ? kDim : kActive);
+    if (const std::optional<float> full = typedFraction(popupFull_)) {
+        const float mark = std::clamp(*full, 0.0F, 1.0F);
+        window_.fill(std::clamp(at(mark) - 1, x, x + width - 2), y - 3, 2, 16, kCaution);
+    }
+}
+
+void WheelSetupView::drawTuningFields(const float left, const float y) {
+    const ControlRole role = popupControl_.role;
+    if (!hasDeadzones(role)) {
+        window_.text(left, y + 4, "No dead zones for this role: only steering and the pedals have them.", kDim);
+        return;
+    }
+    const bool pedal = isPedal(role);
+    window_.text(left, y + 4, "Dead zone", kDim);
+    drawNameField(left + 80, y, popupDeadzone_, kMaxPercent);
+    constexpr float kFieldW = static_cast<float>(kMaxPercent) * ui::kCharWidth + 16;
+    float x = left + 80 + kFieldW + 16;
+    if (pedal) {
+        window_.text(x, y + 4, "Full at", kDim);
+        drawNameField(x + 64, y, popupFull_, kMaxPercent);
+        x += 64 + kFieldW + 16;
+    }
+    window_.text(x, y + 4, pedal ? "% of the travel; empty = the config's own" : "%; empty = the config's own", kDim);
+    window_.text(left, y + 24,
+                 pedal ? "Dead zone: ignored from the released end. Full at: fully pressed from there on."
+                       : "Ignored this close to the centre (% of half the range): shaded on the bar above.",
+                 kDim);
+    if (!popupProblem_.empty()) window_.text(left, y + 40, fit(popupProblem_, 90), kWarning);
 }
 
 void WheelSetupView::drawNamePopup() {

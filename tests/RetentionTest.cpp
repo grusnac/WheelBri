@@ -52,6 +52,7 @@ TEST(Retention, OnlyTouchesItsOwnFiles) {
     EXPECT_TRUE(isManagedFile("wheelbri-service-2026-09-30.log"));
     EXPECT_TRUE(isManagedFile("wheelbri-shim-2026-09-30.log"));
     EXPECT_TRUE(isManagedFile("wheelbri-bridge-2026-09-30.log"));
+    EXPECT_TRUE(isManagedFile("wheelbri-logi-2026-10-11-01.log"));   // wheelbri-logi.dll inside a game
     EXPECT_TRUE(isManagedFile("wheelemu-service-2026-09-30.log"));   // the old name: moved in with the folder
     EXPECT_TRUE(isManagedFile("wheelemu-shim-2026-09-30.log"));
     EXPECT_FALSE(isManagedFile("wheelemu.ini"));

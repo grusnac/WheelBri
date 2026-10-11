@@ -64,7 +64,11 @@ Status (README.md has the full table):
   reads the wheel differently gets a game profile (`config/games/<id>.ini`) holding only what it needs changed, laid
   over the defaults (`GameProfiles`): NFS 2015 (`NFS16.exe`) reads brake Y, clutch Rz, throttle Slider from its own
   G920 table (2026-10-09; the shim's axis audit saw no remapping call, real G920 owners report the same swap).
-  The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
+  A profile may also give steering advice only (`[steering] rotation_deg` + `note`, both or neither): NFS Payback
+  (`NeedForSpeedPayback.exe`) advises 180 degrees, its own handling being slow with any wheel (2026-10-11). Advice is
+  shown (Mapping tab with a "Use N" button; status and `service.game` log via `GameWatch::advice` when the game runs
+  with another rotation) and never applied by itself; WheelBri never guesses the user's hardware and never reads or
+  sets the wheel's own software (no Moza SDK). The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
   throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
 - **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
@@ -156,7 +160,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File driver\install-driver.ps1
 (same pattern for `driver\hide\wheelbri-hide.vcxproj` + `install-hide.ps1`).
 
 CMake options: `WE_BUILD_TESTS` (ON; skipped when cross-compiling), `WE_BUILD_SERVICE` (ON), `WE_BUILD_SHIM` (ON
-only on Windows targets), `WE_BUILD_UHID` (ON only on Linux). Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra
+only on Windows targets), `WE_BUILD_LOGI` (ON only on 64-bit Windows targets), `WE_BUILD_UHID` (ON only on Linux).
+Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra
 -Wpedantic` elsewhere. Keep new code free of warnings.
 
 Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
@@ -182,7 +187,14 @@ reads; "NO RIG" without a rig, "NO MAPPING" when not one of the target's control
 `mappingUsesRig`; those two come first in the status; `service/src/DeviceWatch.cpp` lists the game controllers on its own thread when Windows says one came or went: `platform::DeviceChanges`, `CM_Register_Notification` on HID interfaces / inotify on `/dev/input`, counted by core `ChangeCounter`, timed by core `RelistTimer`; `DeviceWatch` takes its lister, counter and timings as arguments (`systemLister()`, `systemOptions()`) so `DeviceWatchTest` drives it with a fake lister; `platform::FolderWatch` is the inotify watch, Linux only), with a listing every 30 s as a safety net and every 2 s where there are no notifications; the Rig tab and the session's wait for the wheel use the same), and the status says
 "NOT CONNECTED: <names>" or "NO RIG" in red. `WheelBackend::list()` on Windows makes a new DirectInput object each
 time, so a wheel switched on after the app started is found. Stopped, the app's own tabs are Mapping (`MappingEditView`,
-the editor, with `ConfigPicker` as its top row), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
+the editor, with `ConfigPicker` as its top row; also the STEERING ROTATION section: game full lock and wheel
+rotation, typed or by slider, ranges and formatting in core `AxisTuning`. Dead zones are the real devices' only, never
+the emulated wheel's: `RigControl::deadzone` / `full`, edited in the Rig tab's axis popup, laid over the config's
+values at Start by core `applyRigDeadzones` (main.cpp, logged as `rig: ...`); the config's `deadzone`,
+`deadzone_low`, `saturation_high` stay as the defaults when the rig sets none; Auto-map is core `autoMap`, which
+returns `AutoMapResult` notes for every edge case: a role twice (first wins; `sameRoleElsewhere` warns in the Rig
+tab), a role the target lacks, a placed button freed from older places, another wheel's sources kept as an
+accessory), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
 Logs page), in that order (there is no Status tab; a failed Start says "Start failed (Logs)");
 it opens on Rig until a rig exists, else on Mapping; Start switches to Logs at once (the session logs while it comes
 up) and the live view keeps the tab showing then. O opens the logs folder (every log is there). It draws through
@@ -384,7 +396,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     checking each folder's attributes sent every line to the fallback folder.
     Do not add another log location. `LocalDate.hpp` has the date helpers.
   - `Retention.hpp` decides which files are old (date in the name, else last-write day) and only ever touches
-    files starting `wheelbri-service`, `-shim`, `-bridge`, `-logs-`, `-driver`, `-hide`, `-install`, `-uhid`, `-helper`, `-sh`,
+    files starting `wheelbri-service`, `-shim`, `-logi`, `-bridge`, `-logs-`, `-driver`, `-hide`, `-install`, `-uhid`, `-helper`, `-sh`,
     `telemetry-`, `ffb-`.
     The service's `Housekeeping` deletes them (default, after 2 days) or archives them with the best compressor
     found (7z > xz > zstd > zip > gzip) as a background process via `platform::ChildProcess`, deleting
@@ -489,6 +501,21 @@ rewrites on every build only when it changes); views keep their own top-row cont
   logs a summary ("none could remap axes" or what could) at Unacquire, Release, after a minute of reading and every
   5 minutes. `ModuleWatch` logs the game's DLLs at `DirectInput8Create`, `CreateDevice` and each summary
   (input-related ones, `isInputModule`: Logitech SDK, hid.dll, XInput, Windows.Gaming.Input, SDL).
+  `LogFolder.hpp` (namespace `wheelbri::gamelog`): where a DLL inside a game logs and its starting level; shared with
+  `logi/` (each DLL compiles it).
+- `logi/` (`wheelbri-logi.dll`, x64 Windows only, `WE_BUILD_LOGI`, namespace `wheelbri::logi`): a logging stand-in for
+  Logitech's Steering Wheel SDK helper DLL. Games built with that SDK (NFS Payback) find the helper through the
+  registry (`ServerBinary` of `HKCR\CLSID\{63BD165D-1584-4E75-AB56-08330350545F}`) and look up its 48 `Logi*`
+  functions by name (core `LogiSdk.hpp`, the list and how to print each call; `wheelbri-logi.def` exports them).
+  Each export takes four raw 64-bit register values and passes them to the same function in Logitech's real DLL
+  (`RealLibrary.cpp`: `[logi] real_library` in a `wheelbri-logi.ini` next to it, else G HUB's newest
+  `wheel_sdk\<version>\logi_steering_wheel_x64.dll`, else the old Logitech Gaming Software's), so the forwarding is
+  exact whatever the declared types; only the two LED functions are typed (floats travel in XMM registers). It logs
+  what the game asked and got (`logi` lifecycle and setup, `logi.query`, `logi.input` the state every frame at debug,
+  `logi.ffb`, `logi.leds`; a call is logged when its answer changes, `ChangeLog`) and a summary a minute, to
+  `wheelbri-logi-<date>-<NN>.log`, at `[logi] log_level` from `wheelbri-logi.ini` (`Settings.cpp`; `logi.sh` writes
+  `debug`), else the app's level. Same rules as the shim inside the game: nothing in `DllMain`, lazy logging, no
+  threads. Never ship Logitech's DLLs. `scripts/make/logi.sh` builds it and prints the registry commands.
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
     41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,

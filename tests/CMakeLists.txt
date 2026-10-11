@@ -9,6 +9,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(wheelbri_tests
     AsyncFfbSinkTest.cpp
     AxisAuditTest.cpp
+    AxisTuningTest.cpp
     ChangeCounterTest.cpp
     ConfigLibraryTest.cpp
     DailyLogFileTest.cpp
@@ -37,6 +38,7 @@ add_executable(wheelbri_tests
     IniEditorTest.cpp
     LiveLogTest.cpp
     LogFilesTest.cpp
+    LogiSdkTest.cpp
     LogLevelCounterTest.cpp
     LogLevelTest.cpp
     LoggingTest.cpp

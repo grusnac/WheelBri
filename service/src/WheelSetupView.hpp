@@ -120,11 +120,16 @@ private:
     // The control popup.
     void openControl(bool axis, int index, std::optional<float> rest);
     void closeControl(bool keep);
+    // The typed dead zones as fractions (unset when a field is empty, or the role has none); why they cannot be
+    // used, or empty.
+    [[nodiscard]] std::string popupTuning(std::optional<float>& deadzone, std::optional<float>& full) const;
 
     void drawHeader();
     void drawAxes(float top);
     void drawButtons(float top);
     void drawControlPopup();
+    void drawPopupAxisBar(float x, float y, float width);
+    void drawTuningFields(float left, float y);
     void drawNamePopup();
     void drawNameField(float x, float y, std::string& name, std::size_t maxChars);
 
@@ -171,6 +176,9 @@ private:
     int popupIndex_ = -1;
     RigControl popupControl_;
     std::optional<float> popupRest_;
+    std::string popupDeadzone_;   // typed percentages ("3", "3%"); empty = the mapping keeps its own
+    std::string popupFull_;
+    std::string popupProblem_;    // why OK did not keep the dead zones (shown in the popup)
     std::string popupName_;
     std::string* editing_ = nullptr;
     std::size_t editingMax_ = DeviceLabels::kMaxLabel;

@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // The mapping by device ids, as the Mapping tab edits it, and how a source is written in the config:
 //   axis = 2               the wheel's ([emulator] source_device) axis 2
@@ -40,7 +41,9 @@ struct SourceRef {
 [[nodiscard]] SourceRef sourceOf(const MapperConfig& mapper, int device, int index);
 
 // What the Mapping tab edits: the wheel, where each axis, button and D-pad direction of the emulated wheel comes
-// from, and whether an axis is inverted. Everything else in the config stays as it is in the file.
+// from, whether an axis is inverted, and the steering rotation (AxisTuning.hpp). Everything else in the config stays
+// as it is in the file. Dead zones are not the mapping's: they belong to the real devices (the rig, laid over the
+// mapping at Start by applyRigDeadzones, Rig.hpp).
 struct MappingModel {
     static constexpr std::size_t kSteering = 0, kThrottle = 1, kBrake = 2, kClutch = 3;
 
@@ -49,6 +52,10 @@ struct MappingModel {
     std::array<bool, 4> invert{};             // the same order
     std::array<SourceRef, MapperConfig::kMaxTargetButtons> buttons;
     std::array<SourceRef, 4> hat;             // up, right, down, left
+    // [steering] source_rotation_deg: what the wheel's own software is set to; target_rotation_deg: the game's full
+    // lock (the emulated wheel reports full lock when the wheel has turned that far).
+    float wheelRotationDeg = 900.0F;
+    float gameRotationDeg = 900.0F;
 
     friend bool operator==(const MappingModel&, const MappingModel&) = default;
 };
@@ -60,14 +67,28 @@ struct MappingWriteResult {
     std::string error;   // why it could not be written (then `text` is empty)
 };
 
-// Fills `model` from the rig's roles: the wheel (the device with the Steering axis) becomes source_device; Steering,
-// Throttle, Brake and Clutch axes (with their invert) the emulated wheel's axes; D-pad roles its D-pad; Shift up /
-// down its R / L paddle and gears its "Gear N" / "Gear R" buttons, where `profile` has them. Plain buttons are left
-// alone (only the user knows which G920 button they should be). Returns how many sources were set.
-int autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile);
+struct AutoMapResult {
+    int set = 0;                      // sources placed from the rig's roles
+    std::vector<std::string> notes;   // what was left out or changed besides, one line each (the app's log, status)
+};
 
-// Writes `model` into the config text `base`. A source on the wheel's own id (when source_device is a USB id) is
-// written as the wheel's; a button left at its default (target N <- the wheel's button N) loses its line.
+// Fills `model` from the rig's roles: the wheel (the device with the Steering axis, else the first of kind wheel)
+// becomes source_device (what read another wheel keeps reading it, as an accessory); Steering, Throttle, Brake and
+// Clutch axes (with their invert) the emulated wheel's axes; D-pad roles its D-pad; the G920's button roles (A, B, X,
+// Y, Menu, View, RSB, LSB, Xbox, the paddles, Shift up / down, gears; g920ButtonFor, Rig.hpp) that button, where
+// `profile` has it. Plain buttons are left alone (only the user knows which G920 button they should be), and so is
+// everything no role names. Edge cases, each said in `notes`: a role given to two controls (the first in the rig's
+// order keeps it); a role the target lacks (handbrake axis, Gear 7); a button placed now that an older line also maps
+// elsewhere (that line goes: one button drives one G920 input).
+AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile);
+
+// Why the model's rotations cannot be saved (AxisTuning.hpp's ranges), or empty.
+[[nodiscard]] std::string tuningProblem(const MappingModel& model);
+
+// Writes `model` into the config text `base` (refused with tuningProblem's reason). A number is written only when it
+// differs from what the file says (or, with no line, from the default), so an unchanged mapping keeps its text. A
+// source on the wheel's own id (when source_device is a USB id) is written as the wheel's; a button left at its
+// default (target N <- the wheel's button N) loses its line.
 [[nodiscard]] MappingWriteResult writeMapping(std::string_view base, const MappingModel& model);
 
 }  // namespace wheelbri

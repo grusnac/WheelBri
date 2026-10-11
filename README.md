@@ -22,17 +22,22 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | 4 | Linux virtual G920: `tools/uhid` (`wheelbri-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
 | 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelbri-service --virtual-g920`): wheel, pedals, buttons, force feedback, the rig hidden by our own filter (`wheelbri-hide`). Step 0 (a HIDMaestro bridge) and the virtual Xbox controller were removed on 2026-10-03. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
 
+Which games were played and what to know about each: [docs/games.md](docs/games.md).
+
 Settled with NFS 2015 and an R3 on Windows:
 - NFS 2015 finds wheels through `DirectInput8Create` (both A and W interfaces) and reads a G920 with
   `c_dfDIJoystick2`, pedals released at the top of the range;
 - the emulated G920 reports its pedals as a real one does on Windows: wheel X, throttle Y, brake Rz, clutch Slider
   (NFS Unbound reads it so), the default for every game. A game that reads it differently gets a game profile,
   `config/games/<id>.ini`, holding only what that game needs changed, laid over the defaults like a sieve; it is
-  compiled in and used automatically, for the G920 virtual device and the in-game shim alike. Only NFS 2015 has one
+  compiled in and used automatically, for the G920 virtual device and the in-game shim alike. NFS 2015 has one
   (it reads a G920's brake from Y, clutch from Rz and throttle from the Slider): while `NFS16.exe` runs, the app's
   status says "NFS 2015" and the log (`service.game`, `shim.config`) says what it changes. A game without a
   profile is never mentioned. If NFS 2015's own wheel controls were changed to work around its G920 table, the
-  status says "NFS 2015: RESET ITS WHEEL CONTROLS"; reset them to default in the game;
+  status says "NFS 2015: RESET ITS WHEEL CONTROLS"; reset them to default in the game. A profile can also give
+  steering advice (`[steering] rotation_deg` and `note`, advice only, never applied by itself): NFS Payback's
+  (`nfspayback.ini`, `NeedForSpeedPayback.exe`) recommends 180 degrees, shown in the Mapping tab and, while the game
+  runs with another rotation, in the status ("NFS Payback: 180 deg advised") and the log;
 - the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/g920-virtual-device.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
@@ -42,7 +47,32 @@ Still open:
 - NFS 2015's 20-byte Logitech `Escape` calls are its rev lights (rpm, first light, redline), not forwarded; the
   shim's axis audit (`shim.audit`) logs every call that could remap axes and the game's input-related DLLs;
 - effect envelopes (attack / fade) and ramps over time are implemented (`FfbShape.hpp`) and unit-tested, not yet
-  felt in a game.
+  felt in a game;
+- NFS Payback: see [Games with Logitech's wheel SDK](#games-with-logitechs-wheel-sdk-nfs-payback).
+
+### Games with Logitech's wheel SDK (NFS Payback)
+
+NFS Payback does not read wheels itself: it asks Logitech's Steering Wheel SDK, built into the game, which loads a
+helper DLL named in the registry (the default value of `HKCR\CLSID\{63BD165D-1584-4E75-AB56-08330350545F}\ServerBinary`).
+Without a working helper the game ignores every wheel, a real G920 included (found 2026-10-10: on the test PC that value
+still named a removed Logitech Gaming Software). Pointed at a Logitech helper that exists, Payback takes the virtual
+G920 as a G920: Xbox prompts, buttons, pedals, steering, force feedback through the safety limiter. Two helpers
+worked: G HUB's (`C:\Program Files\Logi\wheel_sdk\9_1_1\logi_steering_wheel_x64.dll`, the better force feedback)
+and the old Logitech Gaming Software's (`...\Logitech\Gaming Software\SDKs\LogitechSteeringWheel.dll`). Logitech's
+DLLs are Logitech's: WheelBri never ships them.
+
+Steering: the game turns in late and little with a wheel (the keyboard does not), with either helper. The stand-in
+below showed (2026-10-11) that the SDK hands the game WheelBri's steering exactly, within about 4 ms, with no steering
+curve: the slowness is the game's own handling (G29 owners report the same). What helps is a small rotation: 180
+degrees (90 each way to full lock), set the same in the Mapping tab and in the wheel's own software (Pit House for
+Moza); with the wheel set wider than the game's full lock it turns on past it and the force feedback drops there.
+The game profile `nfspayback.ini` gives that advice. To see what the SDK hands the game, **`wheelbri-logi.dll`** (`logi/`, built by
+`scripts/make/logi.sh`) is a logging stand-in for the helper: point the registry value at it and it passes every call
+on to Logitech's own helper (G HUB's newest, else the old one, or `[logi] real_library = <path>` in a
+`wheelbri-logi.ini` next to it, where `log_level` sets its own log level: `logi.sh` writes `debug` there), logging what the game asks and gets: the state it reads every frame
+(`logi.input`, debug), any steering curve (`LogiGenerateNonLinearValues`, `LogiGetNonLinearValue`), the range, the
+controller properties, every force (`logi.ffb`), a summary a minute. Its log is
+`wheelbri-logi-<date>-<NN>.log` in the log folder (the app's Logs tab does not list it yet). x64 only.
 
 ## Functionalities
 
@@ -53,8 +83,8 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** the add-on clutch pedal was recognised but the G920's clutch never moved: the configs mapped axis 3,
   while the pedal moves R3 axis 6 (found in `raw_a6` in the telemetry).
-- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920-virtual-device.ini` and `config/g920-in-game-shim.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
-  return to 0%, raise `deadzone_low`. The game reads it as the G920's Rz axis.
+- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920-virtual-device.ini` and `config/g920-in-game-shim.ini`. If it doesn't reach 100% at the floor, lower its "full at"; if it doesn't
+  return to 0%, raise its dead zone (Rig tab, the axis popup). The game reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
   `out_clutch` in `telemetry-<date>-<NN>.log`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
   a test clutch can be sent over UDP (`core/include/wheelbri/TestClutch.hpp`).
@@ -94,8 +124,16 @@ a headline, why it was needed, how to use it, and where to look.
 ### Rig tab
 
 - **Why:** WheelBri works with any wheel and accessories, so the user says what each device and control is, once.
-- **Use:** tab R: touch a control (Detect), name it and pick its role; **Save**. Several rigs, the active one
-  remembered. The device with a Steering axis is the wheel.
+- **Use:** tab R: touch a control (Detect), pick its role (the name fills in with the role's: press the button
+  that should be Y, click **Y**, Enter), or type your own name; **Save**. Button roles are the G920's own buttons (A,
+  B, X, Y, Menu, View, RSB, LSB, Xbox, the paddles, the D-pad, the shifter's gears) plus plain Button; Auto-map puts
+  each on that G920 button. Several rigs, the active one remembered. The device with a Steering axis is the wheel. Steering and pedal axes can have dead zones, typed in %
+  in the axis popup (the live bar shows them): steering around the centre, a pedal at its released end, and a
+  pedal's "full at" point (fully pressed from there on). Dead zones belong to the real devices, so only the rig has
+  them: at Start they are laid over the mapping for whichever emulated axis reads that control (the log says
+  `rig: throttle <- 'Gas' (axis 1 of Pedals): dead zone 3%, full 95% (the rig's)`). Empty = the config's own
+  (`deadzone_low` 2%, `saturation_high` 95-98%, steering `deadzone` 0). In the file:
+  `axis_2 = Gas | throttle | deadzone 3% | full 90%`.
 - **Look:** `%LOCALAPPDATA%\wheelbri\rigs\<rig>.ini`; `service.setup` log lines. Code: core `Rig`,
   `service/src/WheelSetupView.cpp`.
 
@@ -104,8 +142,22 @@ a headline, why it was needed, how to use it, and where to look.
 - **Why:** the target (the G920) is fixed; which rig control drives each of its axes and buttons is the user's.
 - **Use:** tab M while stopped: click a G920 input and pick a rig control, or **Auto-map** from the rig's roles;
   **Save** writes your own mapping, **Default** goes back to WheelBri's. While running the same tab is the live view.
+  **Auto-map** places every control that has a role in the (saved) rig: steering and pedal axes, the D-pad, the
+  G920's named buttons; plain buttons and anything without a role stay as they are. A button placed this way leaves
+  any other G920 input it drove (one button, one input). It says what it could not do, in the status and the log
+  (`service.mapping`): a role on two controls (the first in the rig keeps it; the Rig tab says so when you give it),
+  a role the G920 lacks (handbrake axis, Gear 7), sources still pointing at controls the rig has not named (amber),
+  and a Rig tab with unsaved changes.
+  **Steering rotation**: the game's full
+  lock (slider, typed degrees, or 180 / 360 / 540 / 720 / 900 / 1080) and the wheel's rotation, which must be what
+  the wheel's own software is set to; when they differ the tab says so in amber (**Same as game** copies it): a wheel
+  set wider than the game's full lock turns on past it with the force feedback dropping there. WheelBri never reads
+  or sets the wheel's own settings. **Game advice** lists the game profiles' recommendations; **Use N** fills in both
+  rotations (then set the wheel's software to N too). All of it reaches the shim and the virtual device alike (the
+  service's mapper applies it), from the next Start. Config keys: `[steering] source_rotation_deg`,
+  `target_rotation_deg`. Dead zones are not here: they are the real devices' (Rig tab).
 - **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core
-  `MappingEdit`, `Mapper`, `service/src/MappingEditView.cpp`.
+  `MappingEdit`, `AxisTuning`, `Mapper`, `service/src/MappingEditView.cpp`.
 
 ### Game force feedback through the safety limiter
 
@@ -183,9 +235,10 @@ a headline, why it was needed, how to use it, and where to look.
 | `core/` | Portable library, no OS dependencies: `Mapper`, `DeviceProfile`, `FfbSafetyLimiter`, `Pipeline`, `EmulatorConfig`/`IniDocument`, `StatePacket` + `UdpLoopback`, `LoopStats`, `Logging`, `Telemetry` |
 | `service/` | `wheelbri-service`: reads the wheel and plays its force feedback with the system's own API (DirectInput on Windows, evdev on Linux), a loop that wakes on input, `--list` / `--print` / `--ui` (native window: Win32 on Windows, X11 on Linux) / `--ffb-test` |
 | `shim/` | `dinput8.dll` proxy (Windows / Wine): wraps `IDirectInput8A/W`, devices and effects |
+| `logi/` | `wheelbri-logi.dll`: logging stand-in for Logitech's wheel SDK helper DLL (games built with the SDK: NFS Payback) |
 | `tests/` | GoogleTest unit tests for `core/` |
 | `config/` | Example configuration |
-| `scripts/make/` | Build scripts: build, full rebuild, tests, pre-commit check, mapping window, app, shim, drivers ([README](scripts/make/README.md)) |
+| `scripts/make/` | Build scripts: build, full rebuild, tests, pre-commit check, mapping window, app, shim, Logitech SDK stand-in, drivers ([README](scripts/make/README.md)) |
 | `scripts/` | `telemetry_summary.sh`: summary of a recorded session (bash and awk); `linux/`: start/stop and Steam launch wrapper, udev rules, the Linux bundle |
 | `tools/uhid/` | Phase 4: `wheelbri-uhid`, the virtual G920 for Linux (C++, kernel uhid) |
 
@@ -394,6 +447,7 @@ Built on spdlog. Every line carries time, level, component, thread and source lo
 | service, Linux | `$XDG_STATE_HOME/wheelbri/` or `~/.local/state/wheelbri/wheelbri-service-<date>-<NN>.log` |
 | service, macOS | `~/Library/Logs/wheelbri/wheelbri-service-<date>-<NN>.log` |
 | shim (in the game) | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-shim-<date>-<NN>.log` (next to `dinput8.dll` if `LOCALAPPDATA` is not set) |
+| Logitech SDK stand-in (in the game) | `%LOCALAPPDATA%\wheelbri\logs\wheelbri-logi-<date>-<NN>.log` |
 
 One file per run of each program (`<date>` = `2026-09-30`, local time; `<NN>` = `01`, `02`, ... the run's number that
 day), so every start of the app, the game (shim), a driver or the helper has a file of its own; a program running past
@@ -431,7 +485,8 @@ SPDLOG_LEVEL="info,core.pipeline=trace,service.ffb=debug" wheelbri-service --con
 
 Components: `service`, `service.input`, `service.ffb`, `service.ffbtest`, `service.ui`, `service.g920`, `service.uhid` (the app starting wheelbri-uhid, Linux), `service.hidhide`,
 `service.hide`, `service.helper`, `service.game` (game detection, game profiles), `service.log` (the Level button), `helper`, `helper.pipe`, `service.config`, `service.mapping`, `service.shim`, `service.setup`, `service.devices`, `core.mapper`, `core.pipeline`, `core.net`, `core.ffb`, `core.telemetry`, `logging`,
-`shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `shim.audit`, `tools.uhid` (`wheelbri-uhid`, Linux).
+`shim`, `shim.loader`, `shim.di`, `shim.device`, `shim.state`, `shim.effect`, `shim.audit`, `logi`, `logi.query`, `logi.input`,
+`logi.ffb`, `logi.leds` (`wheelbri-logi.dll`), `tools.uhid` (`wheelbri-uhid`, Linux).
 
 **Rules the code follows** (see `core/include/wheelbri/Logging.hpp`)
 - Log through the `WE_LOG_*` macros, never `printf`; `--print` and `--ffb-test` instructions are user interface
@@ -485,7 +540,7 @@ scripts/telemetry_summary.sh            # or pass a telemetry-*.log / a folder; 
 
 Logs (service and game) and telemetry older than 2 days are **deleted** by default. The service checks at
 start-up and again after every midnight. Only its own files are touched (`wheelbri-service*`,
-`wheelbri-shim*`, `telemetry-*`, `ffb-*` and archives made from them). `[retention]` in the config:
+`wheelbri-shim*`, `wheelbri-logi*`, `telemetry-*`, `ffb-*` and archives made from them). `[retention]` in the config:
 
 | Key | Values |
 |---|---|

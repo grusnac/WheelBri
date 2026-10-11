@@ -22,6 +22,7 @@
 //   kind = wheel
 //   axis_0 = Wheel | steering
 //   axis_2 = Gas | throttle | invert       ; invert: released at the top of the axis
+//   axis_5 = Brake | brake | deadzone 3% | full 90%
 //   button_13 = R paddle | right paddle
 namespace wheelbri {
 
@@ -34,26 +35,45 @@ enum class ControlRole {
     Gear1, Gear2, Gear3, Gear4, Gear5, Gear6, Gear7, GearReverse,
     // Added later, so they come last (the values above stay as they were; files store the names anyway).
     LeftPaddle, RightPaddle,
+    // The G920's own buttons by name (its profile's names: A, B, X, Y, Menu, View, RSB, LSB, Xbox): Auto-map puts each
+    // on that G920 button.
+    ButtonA, ButtonB, ButtonX, ButtonY, Menu, View, Rsb, Lsb, Xbox,
 };
 
 inline constexpr std::array<ControlRole, 6> kAxisRoles = {ControlRole::Steering, ControlRole::Throttle,
                                                           ControlRole::Brake,    ControlRole::Clutch,
                                                           ControlRole::Handbrake, ControlRole::OtherAxis};
 // In the order the Wheel setup tab offers them.
-inline constexpr std::array<ControlRole, 17> kButtonRoles = {
-    ControlRole::Button,     ControlRole::DpadUp,      ControlRole::DpadRight, ControlRole::DpadDown, ControlRole::DpadLeft,
+inline constexpr std::array<ControlRole, 26> kButtonRoles = {
+    ControlRole::Button,     ControlRole::ButtonA,     ControlRole::ButtonB,   ControlRole::ButtonX,  ControlRole::ButtonY,
+    ControlRole::Menu,       ControlRole::View,        ControlRole::Rsb,       ControlRole::Lsb,      ControlRole::Xbox,
+    ControlRole::DpadUp,     ControlRole::DpadRight,   ControlRole::DpadDown,  ControlRole::DpadLeft,
     ControlRole::LeftPaddle, ControlRole::RightPaddle, ControlRole::ShiftUp,   ControlRole::ShiftDown,
     ControlRole::Gear1,      ControlRole::Gear2,       ControlRole::Gear3,
     ControlRole::Gear4,   ControlRole::Gear5,   ControlRole::Gear6,     ControlRole::Gear7,    ControlRole::GearReverse};
 
 [[nodiscard]] const char* roleName(ControlRole role);   // "throttle", "d-pad up", "gear 1", "" for None
+// As the app shows it, and the name a control gets when the role is picked: "Throttle", "D-pad up", "Gear 1", the
+// G920's own spelling for its buttons ("A", "RSB", "Xbox"); "" for None. At most DeviceLabels::kMaxLabel characters.
+[[nodiscard]] std::string roleLabel(ControlRole role);
+// The G920 button a role stands for, as the G920 profile names it ("A", "R paddle", "Gear 1"), or "" (not a G920
+// button: Button, the D-pad, the axes).
+[[nodiscard]] std::string g920ButtonFor(ControlRole role);
 [[nodiscard]] std::optional<ControlRole> parseRole(std::string_view text);
 [[nodiscard]] bool isAxisRole(ControlRole role);
+// Steering, throttle, brake, clutch: the roles with dead zones (the ones the emulated wheel's axes come from).
+[[nodiscard]] bool hasDeadzones(ControlRole role);
+[[nodiscard]] bool isPedal(ControlRole role);   // throttle, brake, clutch
 
 struct RigControl {
     std::string label;                  // what it says on the device (DeviceLabels::kMaxLabel characters at most)
     ControlRole role = ControlRole::None;
     bool invert = false;                // an axis released (or centred) at +1 instead of -1
+    // Dead zones of the real device (AxisTuning.hpp), fractions; unset = the config's own. Steering: around the centre
+    // (`full` unused). Throttle, brake, clutch: `deadzone` ignored at the released end, fully pressed from `full` on.
+    // Other roles have none. Laid over the mapping at Start (applyRigDeadzones).
+    std::optional<float> deadzone{};
+    std::optional<float> full{};
 
     [[nodiscard]] bool defined() const { return !label.empty() || role != ControlRole::None; }
     friend bool operator==(const RigControl&, const RigControl&) = default;
@@ -99,6 +119,20 @@ struct RigResult {
 // Reads <folder>/<name>.ini; nullopt if it cannot be read. `errors` gets what was wrong in it.
 [[nodiscard]] std::optional<Rig> readRig(const std::filesystem::path& folder, const std::string& name,
                                          std::vector<std::string>& errors);
+// Another control of the rig that Auto-map would put in the same place as `role` on control `index` of `device`
+// (the same role, or another role for the same G920 button: Shift up and Right paddle), as "button 7 ('Y') of Moza
+// R3"; empty when there is none, or the role may repeat (None, Button, Axis). The first in the rig's order wins.
+[[nodiscard]] std::string sameRoleElsewhere(const Rig& rig, const DeviceId& device, bool axis, std::size_t index,
+                                            ControlRole role);
+
+// At Start: the rig's dead zones laid over `mapper` (whose sources are already read from the config). Each emulated
+// axis (steering, throttle, brake, clutch) that reads a rig control with dead zones set takes them: steering its
+// deadzone, a pedal its deadzone_low and saturation_high. Device 0 is the wheel, found in the rig by
+// `sourceDeviceMatch` (as [emulator] source_device: a name or vvvv:pppp; empty = the rig's wheel), the others by
+// mapper.accessories. Returns one line per axis that took the rig's values, for the log ("throttle <- 'Gas' (axis
+// 2 of Pedals): dead zone 3%, full 95%"); values out of range are not used and say so.
+std::vector<std::string> applyRigDeadzones(MapperConfig& mapper, const Rig& rig, const std::string& sourceDeviceMatch);
+
 // Writes it (making the folder); false if it cannot be written.
 bool saveRig(const std::filesystem::path& folder, const std::string& name, const Rig& rig);
 // Renames <old>.ini to <name>.ini; the error, or empty when done.

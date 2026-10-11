@@ -406,6 +406,7 @@ struct LoadedConfig {
     bool fileMissing = false;
     std::string text;                           // the file as read, copied into telemetry headers
     std::vector<std::string> warnings;          // settings ignored on purpose (logged once logging is up)
+    std::vector<std::string> notes;             // what the rig changed (its dead zones), logged at info
 };
 
 // Runs before logging exists (logging is configured by this file), so problems are collected, not logged.
@@ -1207,7 +1208,8 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         std::uint64_t lastGameCheckNs = 0;
         bool gameChecked = false;
         // Game profiles: applied here for the virtual G920 / wheelbri-uhid, by the shim itself for the in-game shim.
-        wheelbri::service::GameWatch gameWatch(config.targetProfile, routePedals);
+        wheelbri::service::GameWatch gameWatch(config.targetProfile, routePedals,
+                                               config.mapper.steering.targetRotationDeg);
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
             const std::uint64_t now = platform::nowNs();
@@ -1252,6 +1254,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             frame->oldFiles = housekeeping.status();
             frame->game = gameWatch.status();
             frame->gameWarning = gameWatch.warning();
+            frame->gameAdvice = gameWatch.advice();
             frame->oldFilesFailed = housekeeping.failed();
             if (!host->frame(*frame)) {
                 WE_LOG_INFO(log(), "window closed: stopping");
@@ -1332,6 +1335,13 @@ LoadedConfig loadForRun(const Options& options) {
             }
         }
     }
+    // Dead zones belong to the real devices: the rig's, where it sets them, over the config's.
+    if (rig) {
+        for (std::string& note :
+             wheelbri::applyRigDeadzones(loaded.config.mapper, *rig, loaded.config.sourceDeviceMatch)) {
+            loaded.notes.push_back(std::move(note));
+        }
+    }
     return loaded;
 }
 
@@ -1361,6 +1371,9 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     }
     for (const std::string& warning : loaded.warnings) {
         WE_LOG_WARN(log(), "config {}: {}", options.configPath, warning);
+    }
+    for (const std::string& note : loaded.notes) {
+        WE_LOG_INFO(log(), "rig: {}", note);
     }
     for (const std::string& problem : loaded.problems) {
         WE_LOG_ERROR(log(), "config {}: {}", options.configPath, problem);

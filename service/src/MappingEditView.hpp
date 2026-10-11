@@ -37,10 +37,18 @@ public:
     void update();
     void draw();
     // While a session runs or starts the way and the config cannot change.
-    void setLocked(const bool locked) { locked_ = locked; }
+    void setLocked(bool locked);
+    // The Rig tab has changes it has not saved: Auto-map (which reads the saved rig) warns.
+    void setRigUnsaved(const bool unsaved) { rigUnsaved_ = unsaved; }
 
     void onClick(float x, float y);
     void onKey(char key);
+    // Typing in a number field (a rotation): printable characters, ui::kBackspace, ui::kEnter.
+    void onText(const std::string& text);
+    // The pointer every frame (panel coordinates): drags the game full lock slider while the left button is held.
+    void onPointer(float x, float y, bool leftDown);
+    // A number field is being typed in: letters are not the window's shortcuts then, Escape stops typing.
+    [[nodiscard]] bool editingText() const { return field_ != Field::None; }
     [[nodiscard]] bool dirty() const { return loaded_ && edit_ != saved_; }
     // A popup (pick a source, the wheel) covers the tab: the window's own controls on it wait.
     [[nodiscard]] bool popupOpen() const { return mode_ != Mode::Idle; }
@@ -49,6 +57,8 @@ private:
     enum class Mode { Idle, Pick, PickWheel };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
     enum class Slot { Axis, Hat, Button };
+    // A number field: one of the two rotations.
+    enum class Field { None, GameRotation, WheelRotation };
 
     struct Hit {
         float x, y, w, h;
@@ -74,6 +84,15 @@ private:
     void drawWheelRow();   // the wheel (it plays force feedback), Change, Auto-map
     void drawPicker();
     void drawWheelPicker();
+    // The STEERING ROTATION section from `y`: the game's full lock, the wheel's rotation, the games' advice.
+    void drawRotation(float y);
+    // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
+    void drawField(float x, float y, float w, Field field, const std::string& value, bool changed);
+    [[nodiscard]] std::string fieldText(Field field) const;
+    void startTyping(Field field);
+    // Applies what was typed: false (and the reason in the status) when it is not a usable value.
+    bool commitTyping();
+    void setGameRotationFromX(float x);
     float button(float x, float y, const std::string& label, std::function<void()> action, bool on = false,
                  bool enabled = true, float width = 0);
     void hit(float x, float y, float w, float h, std::function<void()> action);
@@ -101,8 +120,15 @@ private:
     Slot pickKind_ = Slot::Axis;
     std::size_t pickIndex_ = 0;
     bool locked_ = false;
+    bool rigUnsaved_ = false;
     std::string status_;
     bool statusError_ = false;
+
+    std::string targetName_ = "g920";   // [emulator] target_profile: which games' advice fits
+    Field field_ = Field::None;
+    std::string typed_;
+    bool dragging_ = false;   // the slider, from a press on it until the left button is let go
+    float clickX_ = 0.0F;     // where the click being answered is (the slider's press)
 };
 
 }  // namespace wheelbri::service

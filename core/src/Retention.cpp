@@ -61,7 +61,7 @@ bool isManagedFile(const std::string& fileName) {
             startsWith(name, prefix + "-bridge") || startsWith(name, prefix + "-logs-") ||
             startsWith(name, prefix + "-driver") || startsWith(name, prefix + "-hide") ||
             startsWith(name, prefix + "-install") || startsWith(name, prefix + "-uhid") ||
-            startsWith(name, prefix + "-helper") ||
+            startsWith(name, prefix + "-helper") || startsWith(name, prefix + "-logi") ||
             startsWith(name, prefix + "-sh.") || startsWith(name, prefix + "-sh-")) {
             return true;
         }

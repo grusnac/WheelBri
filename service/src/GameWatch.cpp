@@ -2,6 +2,7 @@
 
 #include "Platform.hpp"
 
+#include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/Nfs2015Settings.hpp"
@@ -30,8 +31,9 @@ std::string lower(const std::string_view text) {
 
 }  // namespace
 
-GameWatch::GameWatch(const std::string_view targetProfile, const bool routePedals)
-    : detector_(targetProfile), target_(lower(targetProfile)), routePedals_(routePedals) {
+GameWatch::GameWatch(const std::string_view targetProfile, const bool routePedals, const float gameRotationDeg)
+    : detector_(targetProfile), target_(lower(targetProfile)), routePedals_(routePedals),
+      gameRotationDeg_(gameRotationDeg) {
     for (const std::string& problem : gameProfileProblems()) {
         WE_LOG_ERROR(log(), "game profile {}: not used", problem);
     }
@@ -48,9 +50,29 @@ std::string GameWatch::describeFollowed() const {
         return text + ": its game profile " + state.game->id + " is for the " + state.game->target +
                " and the target is " + target_ + ": not used";
     }
-    text += ": game profile " + state.game->id + " laid over the defaults (" + describeOverlay(*state.game) + ")";
+    const std::string overlay = describeOverlay(*state.game);
+    if (overlay.empty()) return text + ": game profile " + state.game->id + " (no pedal changes)";
+    text += ": game profile " + state.game->id + " laid over the defaults (" + overlay + ")";
     return text + (routePedals_ ? ": the virtual G920's pedals are routed to match"
                                 : ": the shim in the game applies it, the service leaves the pedals alone");
+}
+
+void GameWatch::sayAdvice() const {
+    const GameDetector::State& state = detector_.state();
+    if (state.game == nullptr || !state.profileApplies || !state.game->rotationDeg) return;
+    if (rotationDiffers(*state.game, gameRotationDeg_)) {
+        WE_LOG_WARN(log(), "game: {} The mapping's game rotation is {} degrees: change it in the Mapping tab (and the "
+                           "wheel's own software to the same), then Start again",
+                    rotationAdvice(*state.game), tuning::formatNumber(gameRotationDeg_));
+    } else {
+        WE_LOG_INFO(log(), "game: {} The mapping has it", rotationAdvice(*state.game));
+    }
+}
+
+std::string GameWatch::advice() const {
+    const GameDetector::State& state = detector_.state();
+    if (state.game == nullptr || !state.profileApplies || !rotationDiffers(*state.game, gameRotationDeg_)) return {};
+    return tuning::formatNumber(*state.game->rotationDeg) + " deg advised";
 }
 
 void GameWatch::logEvents(const GameDetector::Update& update) {
@@ -59,6 +81,7 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
         switch (event) {
             case GameDetector::Event::Started:
                 WE_LOG_INFO(log(), "game: {} started: {}", state.game->label, describeFollowed());
+                sayAdvice();
                 break;
             case GameDetector::Event::Ended:
                 WE_LOG_INFO(log(), "game: {} ended: the defaults again", update.previous->label);
@@ -66,6 +89,7 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
             case GameDetector::Event::Switched:
                 WE_LOG_INFO(log(), "game: {} ended, {} runs: {}", update.previous->label, state.game->label,
                             describeFollowed());
+                sayAdvice();
                 break;
             case GameDetector::Event::Restarted:
                 WE_LOG_INFO(log(), "game: {} runs again as pid {}: its profile kept", state.game->label, state.pid);

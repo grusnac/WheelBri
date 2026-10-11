@@ -30,7 +30,7 @@ struct RetentionConfig {
     std::string archiver = "auto";
 };
 
-// Files the service manages in its folders: wheelbri-service*, wheelbri-shim*, wheelbri-bridge*, telemetry-*,
+// Files the service manages in its folders: wheelbri-service*, wheelbri-shim*, wheelbri-logi*, wheelbri-bridge*, telemetry-*,
 // ffb-* and the archives made from them; also the same files under the project's old name (wheelemu-*). Anything else in the folder is never touched.
 [[nodiscard]] bool isManagedFile(const std::string& fileName);
 [[nodiscard]] bool isArchive(const std::string& fileName);
