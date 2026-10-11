@@ -64,11 +64,12 @@ Status (README.md has the full table):
   reads the wheel differently gets a game profile (`config/games/<id>.ini`) holding only what it needs changed, laid
   over the defaults (`GameProfiles`): NFS 2015 (`NFS16.exe`) reads brake Y, clutch Rz, throttle Slider from its own
   G920 table (2026-10-09; the shim's axis audit saw no remapping call, real G920 owners report the same swap).
-  A profile may also give steering advice only (`[steering] rotation_deg` + `note`, both or neither): NFS Payback
-  (`NeedForSpeedPayback.exe`) advises 180 degrees, its own handling being slow with any wheel (2026-10-11). Advice is
-  shown (Mapping tab with a "Use N" button; status and `service.game` log via `GameWatch::advice` when the game runs
-  with another rotation) and never applied by itself; WheelBri never guesses the user's hardware and never reads or
-  sets the wheel's own software (no Moza SDK). The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
+  A profile may also carry a steering rotation (`[steering] rotation_deg` + `note`, both or neither), applied while
+  the game runs (wheel = game, 1:1): NFS Payback (`NeedForSpeedPayback.exe`) 180, its own handling being slow with
+  any wheel (2026-10-11). Core `GameRotation` (`rotationWhileRunning`: the user's `[game_rotation]` line, else the
+  profile's); `GameWatch::check` returns the ratio, `Pipeline::setSteeringRatio` applies it (atomic, next tick),
+  `Mapper::map(inputs, ratio)`; status and `service.game` log say so and to set the wheel's own software to the
+  same. WheelBri never reads or sets the wheel's own software (no Moza SDK). The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
   throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
 - **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech

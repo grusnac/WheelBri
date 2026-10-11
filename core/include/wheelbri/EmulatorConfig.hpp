@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wheelbri/Ffb.hpp"
+#include "wheelbri/GameRotation.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LogConfig.hpp"
 #include "wheelbri/MapperConfig.hpp"
@@ -27,6 +28,9 @@ struct EmulatorConfig {
     bool ffbInvert = false;                    // flip force direction if the wheel pulls the wrong way
 
     MapperConfig mapper;
+    // [game_rotation] <profile id> = 180 | 360/180 | off: the steering rotation while that game runs, instead of the
+    // game profile's own (GameRotation.hpp). A game left out uses its profile's, if it has one.
+    GameRotations gameRotations;
     FfbSafetyConfig ffb;
     logging::LogConfig logging;
     TelemetryConfig telemetry;

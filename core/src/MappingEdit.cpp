@@ -111,6 +111,7 @@ MappingModel mappingModel(const EmulatorConfig& config) {
                  sourceOf(mapper, hat.devices[2], hat.down), sourceOf(mapper, hat.devices[3], hat.left)};
     model.wheelRotationDeg = mapper.steering.sourceRotationDeg;
     model.gameRotationDeg = mapper.steering.targetRotationDeg;
+    model.gameRotations = config.gameRotations;
     return model;
 }
 
@@ -259,6 +260,12 @@ std::string tuningProblem(const MappingModel& model) {
     if (std::string problem = tuning::rotationProblem(model.gameRotationDeg); !problem.empty()) {
         return "game rotation: " + problem;
     }
+    for (const auto& [game, value] : model.gameRotations) {
+        if (value.off) continue;
+        for (const float deg : {value.rotation.wheelDeg, value.rotation.gameDeg}) {
+            if (std::string problem = tuning::rotationProblem(deg); !problem.empty()) return game + ": " + problem;
+        }
+    }
     return {};
 }
 
@@ -300,6 +307,18 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     // The defaults as the config reader has them (MapperConfig.hpp).
     number("steering", "source_rotation_deg", model.wheelRotationDeg, SteeringConfig{}.sourceRotationDeg);
     number("steering", "target_rotation_deg", model.gameRotationDeg, SteeringConfig{}.targetRotationDeg);
+    // [game_rotation]: one line per game the user set; a line for a game no longer set goes.
+    const auto& sections = before.sections();
+    if (const auto old = sections.find("game_rotation"); old != sections.end()) {
+        for (const auto& [game, value] : old->second) {
+            if (model.gameRotations.count(game) == 0) ini.remove("game_rotation", game);
+        }
+    }
+    for (const auto& [game, value] : model.gameRotations) {
+        const std::optional<std::string> line = before.get("game_rotation", game);
+        const std::optional<GameRotationOverride> current = line ? parseGameRotation(*line) : std::nullopt;
+        if (!current || !(*current == value)) ini.set("game_rotation", game, formatGameRotation(value));
+    }
     for (std::size_t i = 0; i < kAxisSections.size(); ++i) {
         ini.set(kAxisSections[i], "axis", formatSource(normal(model.axes[i])));
         // false is the default: written only over a line that is there already.

@@ -2,6 +2,7 @@
 
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
+#include "wheelbri/GameRotation.hpp"
 #include "wheelbri/MapperConfig.hpp"
 #include "wheelbri/Rig.hpp"
 
@@ -56,6 +57,8 @@ struct MappingModel {
     // lock (the emulated wheel reports full lock when the wheel has turned that far).
     float wheelRotationDeg = 900.0F;
     float gameRotationDeg = 900.0F;
+    // [game_rotation]: the user's own rotation per game profile (GameRotation.hpp); a game left out uses its profile's.
+    GameRotations gameRotations;
 
     friend bool operator==(const MappingModel&, const MappingModel&) = default;
 };

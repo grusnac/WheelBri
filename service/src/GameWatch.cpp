@@ -8,6 +8,7 @@
 #include "wheelbri/Nfs2015Settings.hpp"
 
 #include <system_error>
+#include <utility>
 
 namespace wheelbri::service {
 
@@ -31,9 +32,10 @@ std::string lower(const std::string_view text) {
 
 }  // namespace
 
-GameWatch::GameWatch(const std::string_view targetProfile, const bool routePedals, const float gameRotationDeg)
-    : detector_(targetProfile), target_(lower(targetProfile)), routePedals_(routePedals),
-      gameRotationDeg_(gameRotationDeg) {
+GameWatch::GameWatch(const std::string_view targetProfile, const bool routePedals, const SteeringRotation mapping,
+                     GameRotations overrides)
+    : detector_(targetProfile), target_(lower(targetProfile)), routePedals_(routePedals), mapping_(mapping),
+      overrides_(std::move(overrides)) {
     for (const std::string& problem : gameProfileProblems()) {
         WE_LOG_ERROR(log(), "game profile {}: not used", problem);
     }
@@ -57,22 +59,33 @@ std::string GameWatch::describeFollowed() const {
                                 : ": the shim in the game applies it, the service leaves the pedals alone");
 }
 
-void GameWatch::sayAdvice() const {
+std::optional<SteeringRotation> GameWatch::currentRotation() const {
     const GameDetector::State& state = detector_.state();
-    if (state.game == nullptr || !state.profileApplies || !state.game->rotationDeg) return;
-    if (rotationDiffers(*state.game, gameRotationDeg_)) {
-        WE_LOG_WARN(log(), "game: {} The mapping's game rotation is {} degrees: change it in the Mapping tab (and the "
-                           "wheel's own software to the same), then Start again",
-                    rotationAdvice(*state.game), tuning::formatNumber(gameRotationDeg_));
-    } else {
-        WE_LOG_INFO(log(), "game: {} The mapping has it", rotationAdvice(*state.game));
-    }
+    if (state.game == nullptr || !state.profileApplies) return std::nullopt;
+    std::optional<SteeringRotation> rotation = rotationWhileRunning(*state.game, overrides_);
+    if (rotation && *rotation == mapping_) return std::nullopt;   // the mapping has it already: nothing changes
+    return rotation;
 }
 
-std::string GameWatch::advice() const {
+void GameWatch::sayRotation() {
+    const std::optional<SteeringRotation> next = currentRotation();
+    if (next == applied_) return;
     const GameDetector::State& state = detector_.state();
-    if (state.game == nullptr || !state.profileApplies || !rotationDiffers(*state.game, gameRotationDeg_)) return {};
-    return tuning::formatNumber(*state.game->rotationDeg) + " deg advised";
+    if (next) {
+        const bool own = overrides_.count(state.game->id) != 0;
+        WE_LOG_WARN(log(), "game: {} steers with {} while it runs ({}), not the mapping's {}: set your wheel's own "
+                           "software (Pit House for Moza) to {} degrees too, or the steering will not match",
+                    state.game->label, describeRotation(*next),
+                    own ? std::string("your mapping's [game_rotation]") : "its game profile: " + state.game->rotationNote,
+                    describeRotation(mapping_), tuning::formatNumber(next->wheelDeg));
+    } else if (applied_) {
+        WE_LOG_INFO(log(), "game: the mapping's steering rotation again ({})", describeRotation(mapping_));
+    }
+    applied_ = next;
+}
+
+std::string GameWatch::rotationStatus() const {
+    return applied_ ? describeRotation(*applied_) : std::string();
 }
 
 void GameWatch::logEvents(const GameDetector::Update& update) {
@@ -81,7 +94,6 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
         switch (event) {
             case GameDetector::Event::Started:
                 WE_LOG_INFO(log(), "game: {} started: {}", state.game->label, describeFollowed());
-                sayAdvice();
                 break;
             case GameDetector::Event::Ended:
                 WE_LOG_INFO(log(), "game: {} ended: the defaults again", update.previous->label);
@@ -89,7 +101,6 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
             case GameDetector::Event::Switched:
                 WE_LOG_INFO(log(), "game: {} ended, {} runs: {}", update.previous->label, state.game->label,
                             describeFollowed());
-                sayAdvice();
                 break;
             case GameDetector::Event::Restarted:
                 WE_LOG_INFO(log(), "game: {} runs again as pid {}: its profile kept", state.game->label, state.pid);
@@ -122,7 +133,7 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
     }
 }
 
-PedalRoute GameWatch::check() {
+GameWatch::Decision GameWatch::check() {
     const GameDetector::Update update = detector_.poll(platform::runningPrograms());
     logEvents(update);
     const GameDetector::State& state = detector_.state();
@@ -148,7 +159,8 @@ PedalRoute GameWatch::check() {
         warning_.clear();
         settingsWritten_.reset();
     }
-    return route;
+    sayRotation();
+    return Decision{route, applied_ ? applied_->ratio() : 0.0F};
 }
 
 void GameWatch::checkNfs2015Bindings() {

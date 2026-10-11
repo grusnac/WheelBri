@@ -35,9 +35,10 @@ Settled with NFS 2015 and an R3 on Windows:
   status says "NFS 2015" and the log (`service.game`, `shim.config`) says what it changes. A game without a
   profile is never mentioned. If NFS 2015's own wheel controls were changed to work around its G920 table, the
   status says "NFS 2015: RESET ITS WHEEL CONTROLS"; reset them to default in the game. A profile can also give
-  steering advice (`[steering] rotation_deg` and `note`, advice only, never applied by itself): NFS Payback's
-  (`nfspayback.ini`, `NeedForSpeedPayback.exe`) recommends 180 degrees, shown in the Mapping tab and, while the game
-  runs with another rotation, in the status ("NFS Payback: 180 deg advised") and the log;
+  the game's steering rotation (`[steering] rotation_deg` and `note`): while the game runs the service steers with
+  it, wheel and game full lock both at that number, then the mapping's own again. NFS Payback's (`nfspayback.ini`,
+  `NeedForSpeedPayback.exe`) is 180: the status shows "NFS Payback, 180 deg" and the log says to set the wheel's
+  own software to 180 too. The Mapping tab's PER GAME rows change it per game or turn it off (`[game_rotation]`);
 - the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/g920-virtual-device.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
@@ -66,7 +67,7 @@ below showed (2026-10-11) that the SDK hands the game WheelBri's steering exactl
 curve: the slowness is the game's own handling (G29 owners report the same). What helps is a small rotation: 180
 degrees (90 each way to full lock), set the same in the Mapping tab and in the wheel's own software (Pit House for
 Moza); with the wheel set wider than the game's full lock it turns on past it and the force feedback drops there.
-The game profile `nfspayback.ini` gives that advice. To see what the SDK hands the game, **`wheelbri-logi.dll`** (`logi/`, built by
+The game profile `nfspayback.ini` applies 180/180 while the game runs (set Pit House to 180 too). To see what the SDK hands the game, **`wheelbri-logi.dll`** (`logi/`, built by
 `scripts/make/logi.sh`) is a logging stand-in for the helper: point the registry value at it and it passes every call
 on to Logitech's own helper (G HUB's newest, else the old one, or `[logi] real_library = <path>` in a
 `wheelbri-logi.ini` next to it, where `log_level` sets its own log level: `logi.sh` writes `debug` there), logging what the game asks and gets: the state it reads every frame
@@ -152,8 +153,9 @@ a headline, why it was needed, how to use it, and where to look.
   lock (slider, typed degrees, or 180 / 360 / 540 / 720 / 900 / 1080) and the wheel's rotation, which must be what
   the wheel's own software is set to; when they differ the tab says so in amber (**Same as game** copies it): a wheel
   set wider than the game's full lock turns on past it with the force feedback dropping there. WheelBri never reads
-  or sets the wheel's own settings. **Game advice** lists the game profiles' recommendations; **Use N** fills in both
-  rotations (then set the wheel's software to N too). All of it reaches the shim and the virtual device alike (the
+  or sets the wheel's own settings. **PER GAME**: a game whose profile has a rotation (NFS Payback: 180) steers with
+  it while it runs; type another (`180`, or `360/180` for wheel/game), **On/Off**, or **Default** for the profile's,
+  saved as `[game_rotation] nfspayback = 180 | 360/180 | off`. Set the wheel's own software to the same. All of it reaches the shim and the virtual device alike (the
   service's mapper applies it), from the next Start. Config keys: `[steering] source_rotation_deg`,
   `target_rotation_deg`. Dead zones are not here: they are the real devices' (Rig tab).
 - **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core

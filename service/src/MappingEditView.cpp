@@ -8,6 +8,7 @@
 #include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/GameProfiles.hpp"
+#include "wheelbri/GameRotation.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/Logging.hpp"
 
@@ -15,6 +16,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <span>
 #include <utility>
 
 namespace wheelbri::service {
@@ -386,7 +388,9 @@ void MappingEditView::onText(const std::string& text) {
         } else if (c == ui::kEnter) {
             if (commitTyping()) field_ = Field::None;   // not usable: keep typing, the status says why
             return;
-        } else if (((c >= '0' && c <= '9') || c == '.' || c == '%' || c == ' ') && typed_.size() < kMaxTyped) {
+        } else if (((c >= '0' && c <= '9') || c == '.' || c == '%' || c == ' ' ||
+                    (field_ == Field::PerGame && (c == '/' || c == 'o' || c == 'f' || c == 'O' || c == 'F'))) &&
+                   typed_.size() < kMaxTyped) {
             typed_ += c;
         }
     }
@@ -408,8 +412,14 @@ void MappingEditView::setGameRotationFromX(const float x) {
         std::clamp(std::round(value / kSliderStepDeg) * kSliderStepDeg, kSliderMinDeg, kSliderMaxDeg);
 }
 
-std::string MappingEditView::fieldText(const Field field) const {
+std::string MappingEditView::fieldText(const Field field, const std::size_t index) const {
     switch (field) {
+        case Field::PerGame: {
+            const std::span<const GameProfile> games = gameProfiles();
+            if (index >= games.size()) return {};
+            const std::optional<SteeringRotation> rotation = rotationWhileRunning(games[index], edit_.gameRotations);
+            return rotation ? formatGameRotation({false, *rotation}) : std::string("off");
+        }
         case Field::GameRotation: return degrees(edit_.gameRotationDeg);
         case Field::WheelRotation: return degrees(edit_.wheelRotationDeg);
         case Field::None: break;
@@ -417,17 +427,29 @@ std::string MappingEditView::fieldText(const Field field) const {
     return {};
 }
 
-void MappingEditView::startTyping(const Field field) {
+void MappingEditView::startTyping(const Field field, const std::size_t index) {
     if (locked_) return;
     field_ = field;
-    typed_ = fieldText(field);
+    fieldIndex_ = index;
+    typed_ = fieldText(field, index);
 }
 
 bool MappingEditView::commitTyping() {
     if (field_ == Field::None) return true;
     const std::optional<float> number = tuning::parseNumber(typed_);
     std::string problem;
-    if (!number) {
+    if (field_ == Field::PerGame) {
+        // "180", "360/180" or "off" for one game.
+        const std::span<const GameProfile> games = gameProfiles();
+        const std::optional<GameRotationOverride> parsed = parseGameRotation(typed_);
+        if (!parsed) {
+            problem = "'" + typed_ + "': expected degrees (180), wheel/game (360/180) or off; each " +
+                      tuning::formatNumber(tuning::kMinRotationDeg) + " to " +
+                      tuning::formatNumber(tuning::kMaxRotationDeg);
+        } else if (fieldIndex_ < games.size()) {
+            edit_.gameRotations[games[fieldIndex_].id] = *parsed;
+        }
+    } else if (!number) {
         problem = "'" + typed_ + "' is not a number";
     } else {
         const float value = *number;
@@ -439,6 +461,7 @@ bool MappingEditView::commitTyping() {
                     (field_ == Field::GameRotation ? edit_.gameRotationDeg : edit_.wheelRotationDeg) = value;
                 }
                 break;
+            case Field::PerGame:
             case Field::None: break;
         }
     }
@@ -470,8 +493,8 @@ float MappingEditView::button(const float x, const float y, const std::string& l
 }
 
 void MappingEditView::drawField(const float x, const float y, const float w, const Field field,
-                                const std::string& value, const bool changed) {
-    const bool typing = field_ == field;
+                                const std::string& value, const bool changed, const std::size_t index) {
+    const bool typing = field_ == field && fieldIndex_ == index;
     window_.fill(x, y, w, 16, typing ? kDark : kStripe);
     window_.outline(x, y, w, 16, typing ? kHeading : changed ? kCaution : kPanel);
     const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
@@ -481,7 +504,7 @@ void MappingEditView::drawField(const float x, const float y, const float w, con
     } else {
         window_.text(x + 6, y + 4, fit(value, chars), locked_ ? kDim : kText);
     }
-    if (!locked_) hit(x, y, w, 16, [this, field] { startTyping(field); });
+    if (!locked_) hit(x, y, w, 16, [this, field, index] { startTyping(field, index); });
 }
 
 void MappingEditView::drawSource(const float x, const float y, const float w, const Slot kind,
@@ -655,35 +678,46 @@ void MappingEditView::drawRotation(const float top) {
         y += 12;
     }
 
-    // The games' advice (game profiles that recommend a rotation for this target): applied only on a press.
+    // Per game (game profiles with a rotation for this target): it steers with that rotation while the game runs,
+    // instead of the one above. The user's own number, or off, goes in [game_rotation]; Default drops it.
     y += 16;
     bool any = false;
-    for (const GameProfile& game : gameProfiles()) {
-        if (!game.rotationDeg || !profileFitsTarget(game, targetName_)) continue;
+    const std::span<const GameProfile> games = gameProfiles();
+    for (std::size_t g = 0; g < games.size(); ++g) {
+        const GameProfile& game = games[g];
+        const bool own = edit_.gameRotations.count(game.id) != 0;
+        if ((!game.rotationDeg && !own) || !profileFitsTarget(game, targetName_)) continue;
         if (!any) {
-            window_.text(4, y, "GAME ADVICE", kHeading);
-            window_.text(100, y, "nothing is applied by itself; Use fills in both rotations", kDim);
+            window_.text(4, y, "PER GAME", kHeading);
+            window_.text(76, y, "applied while that game runs, instead of the rotation above", kDim);
             y += 16;
             any = true;
         }
-        if (y > kContentHeight - 52 - 26) break;   // keep clear of the hint
-        const float deg = *game.rotationDeg;
-        const std::string use = "Use " + degrees(deg);
-        const float useW = static_cast<float>(use.size()) * ui::kCharWidth + 14;
-        button(956 - useW, y, use, [this, deg] {
-            edit_.gameRotationDeg = deg;
-            edit_.wheelRotationDeg = deg;
-            status_ = "Set your wheel's own software to " + degrees(deg) + " degrees too, then Save.";
-            statusError_ = false;
-        }, std::fabs(edit_.gameRotationDeg - deg) < 0.5F && std::fabs(edit_.wheelRotationDeg - deg) < 0.5F, !locked_,
-               useW);
-        const auto chars = static_cast<std::size_t>((956 - useW - 12) / ui::kCharWidth);
-        const std::vector<std::string> lines = wrap(rotationAdvice(game), chars, 2);
-        for (std::size_t i = 0; i < lines.size(); ++i) {
-            window_.text(4, y + 4 + static_cast<float>(i) * 12, lines[i],
-                         rotationDiffers(game, edit_.gameRotationDeg) ? kText : kDim);
+        if (y > kContentHeight - 52 - 30) break;   // keep clear of the hint
+        const std::optional<SteeringRotation> rotation = rotationWhileRunning(game, edit_.gameRotations);
+        const bool changed = own != (saved_.gameRotations.count(game.id) != 0) ||
+                             (own && !(edit_.gameRotations.at(game.id) == saved_.gameRotations.at(game.id)));
+        window_.text(4, y + 4, fit(game.label, 14), kText);
+        const std::string value = rotation ? formatGameRotation({false, *rotation}) : std::string("off");
+        drawField(132, y, 80, Field::PerGame, value, changed, g);
+        window_.text(216, y + 4, rotation ? "deg" : "", kDim);
+        const std::string id = game.id;
+        button(252, y, rotation ? "On" : "Off", [this, id, rotation, &game] {
+            if (rotation) {
+                edit_.gameRotations[id] = GameRotationOverride{true, {}};   // off: the rotation above in this game too
+            } else if (game.rotationDeg) {
+                edit_.gameRotations.erase(id);                               // back to the profile's
+            } else {
+                edit_.gameRotations[id] = GameRotationOverride{false, {edit_.wheelRotationDeg, edit_.gameRotationDeg}};
+            }
+        }, rotation.has_value(), !locked_, 48);
+        button(304, y, "Default", [this, id] { edit_.gameRotations.erase(id); }, false, !locked_ && own, 72);
+        std::string about = game.rotationDeg ? "profile: " + degrees(*game.rotationDeg) + ". " : std::string();
+        if (rotation) {
+            about += "Set your wheel's own software to " + degrees(rotation->wheelDeg) + " deg for this game.";
         }
-        y += lines.size() > 1 ? 30 : 20;
+        window_.text(384, y + 4, fit(about, 71), kDim);
+        y += 20;
     }
 }
 

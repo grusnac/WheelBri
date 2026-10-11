@@ -95,9 +95,16 @@ WheelState Mapper::map(const RawInputState& raw) const {
     return map(inputs);
 }
 
-WheelState Mapper::map(const RawInputs& inputs) const {
+float Mapper::degreeRatio() const {
+    const SteeringConfig& steering = config_.steering;
+    return steering.targetRotationDeg > 0.0F ? steering.sourceRotationDeg / steering.targetRotationDeg : 0.0F;
+}
+
+WheelState Mapper::map(const RawInputs& inputs) const { return map(inputs, degreeRatio()); }
+
+WheelState Mapper::map(const RawInputs& inputs, const float ratio) const {
     WheelState state;
-    state.steering = mapSteering(inputs);
+    state.steering = mapSteering(inputs, std::isfinite(ratio) && ratio > 0.0F ? ratio : degreeRatio());
     state.throttle = mapPedal(config_.throttle, inputs);
     state.brake = mapPedal(config_.brake, inputs);
     state.clutch = mapPedal(config_.clutch, inputs);
@@ -106,7 +113,7 @@ WheelState Mapper::map(const RawInputs& inputs) const {
     return state;
 }
 
-float Mapper::mapSteering(const RawInputs& inputs) const {
+float Mapper::mapSteering(const RawInputs& inputs, const float ratio) const {
     const SteeringConfig& steering = config_.steering;
     const std::optional<float> raw = axisValue(inputs, steering.sourceDevice, steering.sourceAxis);
     if (!raw || steering.targetRotationDeg <= 0.0F) {
@@ -126,8 +133,7 @@ float Mapper::mapSteering(const RawInputs& inputs) const {
     const float rescaled = (magnitude - steering.deadzone) / (1.0F - steering.deadzone);
 
     // Keep degrees 1:1: a 540-degree physical wheel at full lock is only 270 of the target's 450 degrees.
-    const float degreeRatio = steering.sourceRotationDeg / steering.targetRotationDeg;
-    return std::clamp(std::copysign(rescaled * degreeRatio, value), -1.0F, 1.0F);
+    return std::clamp(std::copysign(rescaled * ratio, value), -1.0F, 1.0F);
 }
 
 float Mapper::mapPedal(const PedalConfig& pedal, const RawInputs& inputs) {

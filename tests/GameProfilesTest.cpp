@@ -212,22 +212,19 @@ TEST(GameProfiles, RunningGamesInProfileOrderOncePerGame) {
 }
 
 
-TEST(GameProfiles, SteeringAdvice) {
+TEST(GameProfiles, SteeringRotation) {
     const auto parse = [](const std::string& steering) {
         return parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n" + steering);
     };
     const ParsedGameProfile good = parse("[steering]\nrotation_deg = 180\nnote = Its cars understeer.\n");
     ASSERT_TRUE(good.profile.has_value()) << good.problems.front();
     EXPECT_EQ(good.profile->rotationDeg, 180.0F);
-    EXPECT_EQ(rotationAdvice(*good.profile), "NFS X: 180 degrees recommended. Its cars understeer.");
-    EXPECT_TRUE(rotationDiffers(*good.profile, 360.0F));
-    EXPECT_FALSE(rotationDiffers(*good.profile, 180.0F));
+    EXPECT_EQ(good.profile->rotationNote, "Its cars understeer.");
     EXPECT_EQ(describeOverlay(*good.profile), "");   // advice only: no pedal changes
 
     const ParsedGameProfile none = parse("");
     ASSERT_TRUE(none.profile.has_value());
-    EXPECT_EQ(rotationAdvice(*none.profile), "");
-    EXPECT_FALSE(rotationDiffers(*none.profile, 360.0F));
+    EXPECT_FALSE(none.profile->rotationDeg.has_value());
 
     EXPECT_FALSE(parse("[steering]\nrotation_deg = 180\n").profile.has_value());        // no reason given
     EXPECT_FALSE(parse("[steering]\nnote = Why.\n").profile.has_value());               // a reason for nothing

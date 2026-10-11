@@ -3,7 +3,6 @@
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/IniDocument.hpp"
 
-#include <cmath>
 #include <mutex>
 
 namespace wheelbri {
@@ -144,15 +143,6 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
 
 std::span<const GameProfile> gameProfiles() { return loaded().profiles; }
 
-std::string rotationAdvice(const GameProfile& profile) {
-    if (!profile.rotationDeg) return {};
-    return profile.label + ": " + tuning::formatNumber(*profile.rotationDeg) + " degrees recommended. " +
-           profile.rotationNote;
-}
-
-bool rotationDiffers(const GameProfile& profile, const float gameRotationDeg) {
-    return profile.rotationDeg && std::fabs(*profile.rotationDeg - gameRotationDeg) >= 0.5F;
-}
 
 const std::vector<std::string>& gameProfileProblems() { return loaded().problems; }
 

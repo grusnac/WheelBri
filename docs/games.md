@@ -56,12 +56,13 @@ Played on the tested rig: wheel, pedals, buttons and force feedback checked in t
     while the keyboard is instant. WheelBri checked what the SDK hands the game: the steering arrives exactly and
     within about 4 ms, with no steering curve, so the delay is in the game's own handling. The cars also understeer
     and have a wide turning circle at speed.
-  - **Use 180° of rotation, set the same in two places.** A small rotation makes the car respond to less turning:
-    at 180° full lock is 90° each way. Set it in the Mapping tab (Steering rotation: **Use 180** under Game advice)
-    **and** in your wheel's own software (Pit House for Moza). If the wheel is set wider than the game's full lock,
-    it turns on past it and the force feedback drops there (a "bump"). WheelBri's game profile
-    (`config/games/nfspayback.ini`) shows this advice, and the status says "NFS Payback: 180 deg advised" while the
-    game runs with another rotation. Nothing is changed by itself.
+  - **180° of rotation, set automatically; set Pit House to match.** A small rotation makes the car respond to less
+    turning: at 180° full lock is 90° each way. WheelBri's game profile (`config/games/nfspayback.ini`) switches the
+    steering to 180/180 while the game runs (the status shows "NFS Payback, 180 deg") and back afterwards; change it
+    or turn it off in the Mapping tab (PER GAME). Set your wheel's own software (Pit House: Maximum Steering Angle)
+    to **180** for this game too: WheelBri cannot set it. With Pit House at 360 the steering is 1:1 and slow (full
+    lock at the wheel's end stop); with the wheel wider than the game's full lock (360 wheel, 180 game) it turns on
+    past full lock with the car not steering and the force feedback slack, as seen on 2026-10-11.
   - **Harmless things in the logs:** the game asks Logitech's DLL for a 900° range and its own settings, and for rev
     lights; G HUB's DLL turns these down. Nothing is lost: the rotation is WheelBri's, and rev lights are not passed
     to the wheel in any game.

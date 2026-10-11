@@ -53,7 +53,7 @@ struct UiFrame {
     bool gameFfbIdle = false;                     // the game loaded force feedback, started none while you drive
     std::string game;                             // the known game followed (GameWatch::status), empty when none
     std::string gameWarning;                      // what the player should fix for it (GameWatch::warning), or empty
-    std::string gameAdvice;                       // its profile's steering advice, when the mapping differs (GameWatch)
+    std::string gameRotation;                     // the rotation it steers with, when not the mapping's (GameWatch)
 };
 
 // UiHost::step while the hide filter is put on the rig for the first time (once per installation, ~10-40 s): the app

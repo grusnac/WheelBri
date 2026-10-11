@@ -855,9 +855,8 @@ private:
                 colour = kActive;
                 if (const auto frame = host_.latest(); frame && !frame->game.empty()) {
                     status += ", " + frame->game;   // the known game followed, "NFS 2015 pedal profile" (GameWatch)
-                    if (!frame->gameAdvice.empty()) {
-                        status += ": " + frame->gameAdvice;   // its profile's rotation advice; the log says why
-                        colour = kCaution;
+                    if (!frame->gameRotation.empty()) {
+                        status += ", " + frame->gameRotation;   // its rotation (set the wheel's software to it too)
                     }
                 }
                 if (const auto frame = host_.latest(); frame && frame->wheelLostMs > 0) {

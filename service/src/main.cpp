@@ -1208,8 +1208,10 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         std::uint64_t lastGameCheckNs = 0;
         bool gameChecked = false;
         // Game profiles: applied here for the virtual G920 / wheelbri-uhid, by the shim itself for the in-game shim.
-        wheelbri::service::GameWatch gameWatch(config.targetProfile, routePedals,
-                                               config.mapper.steering.targetRotationDeg);
+        wheelbri::service::GameWatch gameWatch(
+            config.targetProfile, routePedals,
+            wheelbri::SteeringRotation{config.mapper.steering.sourceRotationDeg, config.mapper.steering.targetRotationDeg},
+            config.gameRotations);
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
             const std::uint64_t now = platform::nowNs();
@@ -1224,7 +1226,9 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                     lastGameCheckNs = now;
                     gameChecked = true;
                     try {
-                        pipeline.setPedalRoute(gameWatch.check());
+                        const auto decision = gameWatch.check();
+                        pipeline.setPedalRoute(decision.route);
+                        pipeline.setSteeringRatio(decision.steeringRatio);   // a game's rotation (GameRotation.hpp)
                     } catch (const std::exception& e) {   // never ends the session; the pedals stay as they are
                         WE_LOG_WARN(log(), "game: looking for known games failed: {}", e.what());
                     }
@@ -1254,7 +1258,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             frame->oldFiles = housekeeping.status();
             frame->game = gameWatch.status();
             frame->gameWarning = gameWatch.warning();
-            frame->gameAdvice = gameWatch.advice();
+            frame->gameRotation = gameWatch.rotationStatus();
             frame->oldFilesFailed = housekeeping.failed();
             if (!host->frame(*frame)) {
                 WE_LOG_INFO(log(), "window closed: stopping");

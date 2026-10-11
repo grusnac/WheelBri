@@ -2,6 +2,7 @@
 #include "wheelbri/EmulatorConfig.hpp"
 
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/MappingEdit.hpp"
 
 #include <charconv>
@@ -236,6 +237,24 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         reader.reportUnknownKeys();
     }
 
+    // [game_rotation] <game profile id> = 180 | 360/180 | off.
+    for (const auto& [section, keys] : ini.sections()) {
+        if (section != "game_rotation") continue;
+        for (const auto& [key, value] : keys) {
+            bool known = false;
+            for (const GameProfile& game : gameProfiles()) known = known || game.id == key;
+            const std::optional<GameRotationOverride> parsed = parseGameRotation(value);
+            if (!known) {
+                errors.push_back("[game_rotation] " + key + ": no built-in game profile of that name");
+            } else if (!parsed) {
+                errors.push_back("[game_rotation] " + key + " = '" + value +
+                                 "': expected degrees (180), wheel/game degrees (360/180) or off");
+            } else {
+                config.gameRotations[key] = *parsed;
+            }
+        }
+    }
+
     if (config.ffbPort == config.statePort) {
         errors.push_back("[emulator] ffb_port must differ from state_port");
         config.ffbPort = kDefaultFfbPort;
@@ -294,7 +313,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
     static const std::set<std::string> kKnownSections = {"",         "emulator",      "steering",    "throttle",
                                                          "brake",    "clutch",        "buttons",     "button_labels",
                                                          "axis_labels", "hat",        "ffb",         "logging",
-                                                         "telemetry", "retention"};
+                                                         "telemetry", "retention",    "game_rotation"};
     for (const auto& [section, keys] : ini.sections()) {
         if (kKnownSections.count(section) == 0) {
             errors.push_back("unknown section [" + section + "]");
