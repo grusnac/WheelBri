@@ -111,17 +111,40 @@ MappingModel mappingModel(const EmulatorConfig& config) {
                  sourceOf(mapper, hat.devices[2], hat.down), sourceOf(mapper, hat.devices[3], hat.left)};
     model.wheelRotationDeg = mapper.steering.sourceRotationDeg;
     model.gameRotationDeg = mapper.steering.targetRotationDeg;
-    model.deadzone = {mapper.steering.deadzone, mapper.throttle.deadzoneLow, mapper.brake.deadzoneLow,
-                      mapper.clutch.deadzoneLow};
-    model.full = {1.0F, mapper.throttle.saturationHigh, mapper.brake.saturationHigh, mapper.clutch.saturationHigh};
     return model;
 }
 
-int autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile) {
+AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile) {
+    AutoMapResult result;
     const RigDevice* const wheel = rig.wheel();
-    if (wheel != nullptr) model.sourceDevice = idText(wheel->id);
+    const auto everySource = [&model](const auto& change) {
+        for (SourceRef& s : model.axes) change(s);
+        for (SourceRef& s : model.buttons) change(s);
+        for (SourceRef& s : model.hat) change(s);
+    };
+    if (wheel != nullptr) {
+        // Another wheel than the mapping's: what read the old one keeps reading it (now as an accessory, as the
+        // Mapping tab's Change does); what names the rig's wheel by id becomes the wheel's.
+        const std::optional<DeviceId> old = parseDeviceId(model.sourceDevice);
+        if (old && *old != wheel->id) {
+            everySource([&old](SourceRef& s) {
+                if (s.mapped() && s.device.empty()) s.device = *old;
+            });
+        }
+        everySource([wheel](SourceRef& s) {
+            if (s.device == wheel->id) s.device = {};
+        });
+        model.sourceDevice = idText(wheel->id);
+    }
     const auto source = [wheel](const RigDevice& device, const std::size_t index) {
         return SourceRef{wheel != nullptr && device.id == wheel->id ? DeviceId{} : device.id, static_cast<int>(index)};
+    };
+    // "'Gas' (axis 2 of Pedals)", for the notes.
+    const auto who = [](const RigDevice& device, const bool axis, const std::size_t index) {
+        const RigControl& control = axis ? device.axes[index] : device.buttons[index];
+        const std::string name = device.name.empty() ? idText(device.id) : device.name;
+        return (control.label.empty() ? std::string() : "'" + control.label + "' ") + "(" + (axis ? "axis " : "button ") +
+               std::to_string(index) + " of " + name + ")";
     };
     const auto target = [&profile](const std::string& name) -> int {
         for (std::size_t i = 0; i < MapperConfig::kMaxTargetButtons; ++i) {
@@ -129,7 +152,13 @@ int autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile) 
         }
         return -1;
     };
-    int set = 0;
+
+    // The first control with a role takes it (devices in the rig's order, then by number); a second one is said.
+    std::array<std::string, 4> axisBy;
+    std::array<std::string, 4> hatBy;
+    std::array<std::string, MapperConfig::kMaxTargetButtons> buttonBy;
+    std::vector<SourceRef> buttonSources;   // the buttons placed now (a button drives one G920 input only)
+    bool handbrakeSaid = false;
     for (const RigDevice& device : rig.devices) {
         for (std::size_t a = 0; a < device.axes.size(); ++a) {
             const RigControl& control = device.axes[a];
@@ -139,45 +168,88 @@ int autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile) 
                 case ControlRole::Throttle: slot = MappingModel::kThrottle; break;
                 case ControlRole::Brake: slot = MappingModel::kBrake; break;
                 case ControlRole::Clutch: slot = MappingModel::kClutch; break;
+                case ControlRole::Handbrake:
+                    if (!handbrakeSaid) {
+                        result.notes.push_back("handbrake " + who(device, true, a) + ": the " +
+                                               profile.identity().shortName + " has no handbrake axis, not mapped");
+                        handbrakeSaid = true;
+                    }
+                    break;
                 default: break;
             }
             if (slot == model.axes.size()) continue;
+            if (!axisBy[slot].empty()) {
+                result.notes.push_back(std::string(roleName(control.role)) + " is also " + who(device, true, a) +
+                                       ": " + axisBy[slot] + " kept");
+                continue;
+            }
+            axisBy[slot] = who(device, true, a);
             model.axes[slot] = source(device, a);
             model.invert[slot] = control.invert;
-            if (control.deadzone) model.deadzone[slot] = *control.deadzone;
-            if (control.full && slot != MappingModel::kSteering) model.full[slot] = *control.full;
-            ++set;
+            ++result.set;
         }
         for (std::size_t b = 0; b < device.buttons.size(); ++b) {
             const ControlRole role = device.buttons[b].role;
             int hat = -1;
-            std::string name;
             switch (role) {
                 case ControlRole::DpadUp: hat = 0; break;
                 case ControlRole::DpadRight: hat = 1; break;
                 case ControlRole::DpadDown: hat = 2; break;
                 case ControlRole::DpadLeft: hat = 3; break;
-                case ControlRole::RightPaddle:   // the G920's paddles; shifting up and down is what games use them for
-                case ControlRole::ShiftUp: name = "R paddle"; break;
-                case ControlRole::LeftPaddle:
-                case ControlRole::ShiftDown: name = "L paddle"; break;
-                case ControlRole::GearReverse: name = "Gear R"; break;
-                default:
-                    if (role >= ControlRole::Gear1 && role <= ControlRole::Gear7) {
-                        name = "Gear " + std::to_string(static_cast<int>(role) - static_cast<int>(ControlRole::Gear1) + 1);
-                    }
-                    break;
+                default: break;
             }
+            const std::string name = g920ButtonFor(role);   // A, Menu, R paddle, Gear 1 ...: that G920 button
+            std::string* by = nullptr;
+            SourceRef* slot = nullptr;
             if (hat >= 0) {
-                model.hat[static_cast<std::size_t>(hat)] = source(device, b);
-                ++set;
-            } else if (const int index = name.empty() ? -1 : target(name); index >= 0) {
-                model.buttons[static_cast<std::size_t>(index)] = source(device, b);
-                ++set;
+                by = &hatBy[static_cast<std::size_t>(hat)];
+                slot = &model.hat[static_cast<std::size_t>(hat)];
+            } else if (!name.empty()) {
+                const int index = target(name);
+                if (index < 0) {
+                    result.notes.push_back(std::string(roleName(role)) + " " + who(device, false, b) + ": the " +
+                                           profile.identity().shortName + " has no " + name + ", not mapped");
+                    continue;
+                }
+                by = &buttonBy[static_cast<std::size_t>(index)];
+                slot = &model.buttons[static_cast<std::size_t>(index)];
+            } else {
+                continue;   // a plain button (or none): the user maps it
             }
+            if (!by->empty()) {
+                result.notes.push_back(std::string(roleName(role)) + " is also " + who(device, false, b) + ": " + *by +
+                                       " kept");
+                continue;
+            }
+            *by = who(device, false, b);
+            *slot = source(device, b);
+            buttonSources.push_back(*slot);
+            ++result.set;
         }
     }
-    return set;
+
+    // A button placed now drives nothing else: an older mapping of it (the default's button N <- button N) would
+    // press two G920 inputs at once.
+    const auto placedNow = [&buttonSources](const SourceRef& s) {
+        return std::find(buttonSources.begin(), buttonSources.end(), s) != buttonSources.end();
+    };
+    for (std::size_t t = 0; t < model.buttons.size(); ++t) {
+        if (buttonBy[t].empty() && model.buttons[t].mapped() && placedNow(model.buttons[t])) {
+            result.notes.push_back(std::string(profile.buttonName(t).empty() ? "button " + std::to_string(t)
+                                                                             : std::string(profile.buttonName(t))) +
+                                   ": no longer " + formatSource(model.buttons[t]) + " (it has a role now)");
+            model.buttons[t] = {};
+        }
+    }
+    static constexpr std::array<const char*, 4> kHatNames = {"d-pad up", "d-pad right", "d-pad down", "d-pad left"};
+    for (std::size_t h = 0; h < model.hat.size(); ++h) {
+        if (hatBy[h].empty() && model.hat[h].mapped() && placedNow(model.hat[h])) {
+            result.notes.push_back(std::string(kHatNames[h]) + ": no longer " + formatSource(model.hat[h]) +
+                                   " (it has a role now)");
+            model.hat[h] = {};
+        }
+    }
+    return result;
 }
 
 std::string tuningProblem(const MappingModel& model) {
@@ -186,12 +258,6 @@ std::string tuningProblem(const MappingModel& model) {
     }
     if (std::string problem = tuning::rotationProblem(model.gameRotationDeg); !problem.empty()) {
         return "game rotation: " + problem;
-    }
-    if (std::string problem = tuning::steeringDeadzoneProblem(model.deadzone[0]); !problem.empty()) return problem;
-    for (std::size_t i = 1; i < kAxisSections.size(); ++i) {
-        if (std::string problem = tuning::pedalProblem(model.deadzone[i], model.full[i]); !problem.empty()) {
-            return std::string(kAxisSections[i]) + ": " + problem;
-        }
     }
     return {};
 }
@@ -234,11 +300,6 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     // The defaults as the config reader has them (MapperConfig.hpp).
     number("steering", "source_rotation_deg", model.wheelRotationDeg, SteeringConfig{}.sourceRotationDeg);
     number("steering", "target_rotation_deg", model.gameRotationDeg, SteeringConfig{}.targetRotationDeg);
-    number("steering", "deadzone", model.deadzone[0], SteeringConfig{}.deadzone);
-    for (std::size_t i = 1; i < kAxisSections.size(); ++i) {
-        number(kAxisSections[i], "deadzone_low", model.deadzone[i], PedalConfig{}.deadzoneLow);
-        number(kAxisSections[i], "saturation_high", model.full[i], PedalConfig{}.saturationHigh);
-    }
     for (std::size_t i = 0; i < kAxisSections.size(); ++i) {
         ini.set(kAxisSections[i], "axis", formatSource(normal(model.axes[i])));
         // false is the default: written only over a line that is there already.

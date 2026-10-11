@@ -187,9 +187,14 @@ reads; "NO RIG" without a rig, "NO MAPPING" when not one of the target's control
 `mappingUsesRig`; those two come first in the status; `service/src/DeviceWatch.cpp` lists the game controllers on its own thread when Windows says one came or went: `platform::DeviceChanges`, `CM_Register_Notification` on HID interfaces / inotify on `/dev/input`, counted by core `ChangeCounter`, timed by core `RelistTimer`; `DeviceWatch` takes its lister, counter and timings as arguments (`systemLister()`, `systemOptions()`) so `DeviceWatchTest` drives it with a fake lister; `platform::FolderWatch` is the inotify watch, Linux only), with a listing every 30 s as a safety net and every 2 s where there are no notifications; the Rig tab and the session's wait for the wheel use the same), and the status says
 "NOT CONNECTED: <names>" or "NO RIG" in red. `WheelBackend::list()` on Windows makes a new DirectInput object each
 time, so a wheel switched on after the app started is found. Stopped, the app's own tabs are Mapping (`MappingEditView`,
-the editor, with `ConfigPicker` as its top row; also the axes' dead zones and the STEERING ROTATION section: game full
-lock and wheel rotation, typed or by slider, ranges and formatting in core `AxisTuning`; the rig's dead zones are
-`RigControl::deadzone` / `full`, edited in the Rig tab's axis popup and copied by Auto-map), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
+the editor, with `ConfigPicker` as its top row; also the STEERING ROTATION section: game full lock and wheel
+rotation, typed or by slider, ranges and formatting in core `AxisTuning`. Dead zones are the real devices' only, never
+the emulated wheel's: `RigControl::deadzone` / `full`, edited in the Rig tab's axis popup, laid over the config's
+values at Start by core `applyRigDeadzones` (main.cpp, logged as `rig: ...`); the config's `deadzone`,
+`deadzone_low`, `saturation_high` stay as the defaults when the rig sets none; Auto-map is core `autoMap`, which
+returns `AutoMapResult` notes for every edge case: a role twice (first wins; `sameRoleElsewhere` warns in the Rig
+tab), a role the target lacks, a placed button freed from older places, another wheel's sources kept as an
+accessory), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
 Logs page), in that order (there is no Status tab; a failed Start says "Start failed (Logs)");
 it opens on Rig until a rig exists, else on Mapping; Start switches to Logs at once (the session logs while it comes
 up) and the live view keeps the tab showing then. O opens the logs folder (every log is there). It draws through

@@ -127,7 +127,17 @@ TEST(MappingEdit, AutoMapsFromTheRigsRoles) {
 
     MappingModel model = mappingModel(load(kConfig));
     const DeviceProfile g920(g920Spec());
-    EXPECT_EQ(autoMap(model, rig, g920), 8);   // 3 axes, 2 paddles, 1 D-pad direction, 2 gears
+    const AutoMapResult result = autoMap(model, rig, g920);
+    EXPECT_EQ(result.set, 8);   // 3 axes, 2 paddles, 1 D-pad direction, 2 gears
+    const std::string notes = [&] {
+        std::string all;
+        for (const std::string& note : result.notes) all += note + "\n";
+        return all;
+    }();
+    EXPECT_NE(notes.find("gear 7 '7th' (button 32 of My wheel): the G920 has no Gear 7"), std::string::npos) << notes;
+    // The default's Gear 2 <- button 13 went: button 13 is the R paddle now (one button, one G920 input).
+    EXPECT_FALSE(model.buttons[13].mapped());
+    EXPECT_NE(notes.find("Gear 2: no longer 13"), std::string::npos) << notes;
     EXPECT_EQ(model.sourceDevice, "346e:0005");
     EXPECT_EQ(model.axes[MappingModel::kSteering], (SourceRef{{}, 0}));
     EXPECT_EQ(model.axes[MappingModel::kThrottle], (SourceRef{{0x30B7, 0x1001}, 0}));
@@ -143,73 +153,170 @@ TEST(MappingEdit, AutoMapsFromTheRigsRoles) {
 }
 
 
-TEST(MappingEdit, RotationAndDeadzonesReadFromTheConfig) {
+TEST(MappingEdit, RotationReadFromTheConfig) {
     const MappingModel model = mappingModel(load(kConfig));
     EXPECT_EQ(model.wheelRotationDeg, 540.0F);
     EXPECT_EQ(model.gameRotationDeg, 900.0F);   // the default
-    EXPECT_EQ(model.deadzone, (std::array<float, 4>{0.0F, 0.0F, 0.0F, 0.0F}));
-    EXPECT_EQ(model.full, (std::array<float, 4>{1.0F, 1.0F, 1.0F, 1.0F}));
     EXPECT_TRUE(tuningProblem(model).empty());
 }
 
-TEST(MappingEdit, WritesRotationAndDeadzonesOnlyWhereTheyChanged) {
+TEST(MappingEdit, WritesRotationOnlyWhereItChanged) {
     MappingModel model = mappingModel(load(kConfig));
     model.wheelRotationDeg = 180.0F;
     model.gameRotationDeg = 180.0F;
-    model.deadzone[MappingModel::kBrake] = 0.03F;
-    model.full[MappingModel::kBrake] = 0.9F;
     const MappingWriteResult written = writeMapping(kConfig, model);
     ASSERT_TRUE(written.error.empty()) << written.error;
     EXPECT_NE(written.text.find("source_rotation_deg = 180\r\n"), std::string::npos) << written.text;
     EXPECT_NE(written.text.find("target_rotation_deg = 180\r\n"), std::string::npos) << written.text;
-    EXPECT_NE(written.text.find("deadzone_low = 0.03\r\n"), std::string::npos) << written.text;
-    EXPECT_NE(written.text.find("saturation_high = 0.9\r\n"), std::string::npos) << written.text;
-    EXPECT_EQ(written.text.find("[steering]\r\naxis = 0\r\ninvert = false\r\nsource_rotation_deg = 180\r\ndeadzone"),
-              std::string::npos);   // the steering's dead zone is still the default: no line for it
+    EXPECT_EQ(written.text.find("deadzone"), std::string::npos);   // dead zones are the rig's, never written here
     EXPECT_NE(written.text.find("; checked with --ui"), std::string::npos);   // comments kept
 
     const EmulatorConfig back = load(written.text);
     EXPECT_EQ(mappingModel(back), model);
     EXPECT_EQ(back.mapper.steering.targetRotationDeg, 180.0F);
-    EXPECT_NEAR(back.mapper.brake.deadzoneLow, 0.03F, 1e-6F);
-    EXPECT_EQ(back.mapper.throttle.deadzoneLow, 0.0F);   // untouched
     // Written again unchanged: the same text.
     EXPECT_EQ(writeMapping(written.text, model).text, written.text);
 }
 
-TEST(MappingEdit, RefusesRotationAndDeadzonesOutOfRange) {
+TEST(MappingEdit, RefusesRotationsOutOfRange) {
     const MappingModel good = mappingModel(load(kConfig));
-    for (int which = 0; which < 5; ++which) {
+    for (const bool game : {true, false}) {
         MappingModel model = good;
-        switch (which) {
-            case 0: model.gameRotationDeg = 45.0F; break;
-            case 1: model.wheelRotationDeg = 9000.0F; break;
-            case 2: model.deadzone[MappingModel::kSteering] = 0.7F; break;
-            case 3: model.deadzone[MappingModel::kThrottle] = 0.5F; model.full[MappingModel::kThrottle] = 0.4F; break;
-            default: model.full[MappingModel::kClutch] = 0.0F; break;
-        }
-        EXPECT_FALSE(tuningProblem(model).empty()) << which;
+        (game ? model.gameRotationDeg : model.wheelRotationDeg) = game ? 45.0F : 9000.0F;
+        EXPECT_FALSE(tuningProblem(model).empty()) << game;
         const MappingWriteResult refused = writeMapping(kConfig, model);
-        EXPECT_FALSE(refused.error.empty()) << which;
-        EXPECT_TRUE(refused.text.empty()) << which;
+        EXPECT_FALSE(refused.error.empty()) << game;
+        EXPECT_TRUE(refused.text.empty()) << game;
     }
 }
 
-TEST(MappingEdit, AutoMapCopiesTheRigsDeadzones) {
+TEST(MappingEdit, AutoMapsTheG920sNamedButtons) {
     Rig rig;
     RigDevice wheel;
     wheel.id = {0x346E, 0x0005};
-    wheel.axes[0] = {"Wheel", ControlRole::Steering, false, 0.01F, std::nullopt};
-    wheel.axes[2] = {"Gas", ControlRole::Throttle, false, 0.04F, 0.95F};
-    wheel.axes[5] = {"Brake", ControlRole::Brake, false, std::nullopt, std::nullopt};   // none: the mapping's kept
+    wheel.axes[0] = {"Wheel", ControlRole::Steering, false};
+    wheel.buttons[20] = {"Y", ControlRole::ButtonY, false};
+    wheel.buttons[21] = {"Start", ControlRole::Menu, false};
+    wheel.buttons[22] = {"Home", ControlRole::Xbox, false};
+    wheel.buttons[23] = {"RSB", ControlRole::Rsb, false};
     rig.devices = {wheel};
     MappingModel model = mappingModel(load(kConfig));
-    model.deadzone[MappingModel::kBrake] = 0.02F;
     const DeviceProfile g920(g920Spec());
-    autoMap(model, rig, g920);
-    EXPECT_NEAR(model.deadzone[MappingModel::kSteering], 0.01F, 1e-6F);
-    EXPECT_EQ(model.full[MappingModel::kSteering], 1.0F);
-    EXPECT_NEAR(model.deadzone[MappingModel::kThrottle], 0.04F, 1e-6F);
-    EXPECT_NEAR(model.full[MappingModel::kThrottle], 0.95F, 1e-6F);
-    EXPECT_NEAR(model.deadzone[MappingModel::kBrake], 0.02F, 1e-6F);
+    EXPECT_EQ(autoMap(model, rig, g920).set, 5);
+    EXPECT_EQ(model.buttons[3], (SourceRef{{}, 20}));    // G920 Y
+    EXPECT_EQ(model.buttons[6], (SourceRef{{}, 21}));    // G920 Menu
+    EXPECT_EQ(model.buttons[10], (SourceRef{{}, 22}));   // G920 Xbox
+    EXPECT_EQ(model.buttons[8], (SourceRef{{}, 23}));    // G920 RSB
+}
+
+namespace {
+
+RigDevice r3() {
+    RigDevice wheel;
+    wheel.name = "R3";
+    wheel.id = {0x346E, 0x0005};
+    wheel.kind = DeviceKind::Wheel;
+    wheel.axes[0] = {"Wheel", ControlRole::Steering, false};
+    return wheel;
+}
+
+std::string allNotes(const AutoMapResult& result) {
+    std::string all;
+    for (const std::string& note : result.notes) all += note + "\n";
+    return all;
+}
+
+}  // namespace
+
+TEST(MappingEdit, AutoMapARoleTwiceKeepsTheFirstAndSaysSo) {
+    Rig rig;
+    RigDevice wheel = r3();
+    wheel.buttons[20] = {"Y", ControlRole::ButtonY, false};
+    wheel.buttons[21] = {"Y too", ControlRole::ButtonY, false};
+    wheel.buttons[22] = {"Up", ControlRole::ShiftUp, false};
+    wheel.buttons[23] = {"R", ControlRole::RightPaddle, false};   // the same G920 button as Shift up
+    wheel.axes[1] = {"Wheel 2", ControlRole::Steering, false};
+    rig.devices = {wheel};
+    MappingModel model = mappingModel(load(kConfig));
+    const AutoMapResult result = autoMap(model, rig, DeviceProfile(g920Spec()));
+    EXPECT_EQ(result.set, 3);   // steering, Y, R paddle
+    EXPECT_EQ(model.buttons[3], (SourceRef{{}, 20}));
+    EXPECT_EQ(model.buttons[4], (SourceRef{{}, 22}));
+    EXPECT_EQ(model.axes[MappingModel::kSteering], (SourceRef{{}, 0}));
+    const std::string notes = allNotes(result);
+    EXPECT_NE(notes.find("y is also 'Y too' (button 21 of R3): 'Y' (button 20 of R3) kept"), std::string::npos) << notes;
+    EXPECT_NE(notes.find("right paddle is also 'R' (button 23 of R3)"), std::string::npos) << notes;
+    EXPECT_NE(notes.find("steering is also 'Wheel 2' (axis 1 of R3)"), std::string::npos) << notes;
+}
+
+TEST(MappingEdit, AutoMapSaysWhatTheTargetLacks) {
+    Rig rig;
+    RigDevice wheel = r3();
+    wheel.axes[3] = {"Hand", ControlRole::Handbrake, false};
+    wheel.axes[4] = {"Knob", ControlRole::OtherAxis, false};   // a plain axis: nothing to say
+    rig.devices = {wheel};
+    MappingModel model = mappingModel(load(kConfig));
+    const MappingModel before = model;
+    const AutoMapResult result = autoMap(model, rig, DeviceProfile(g920Spec()));
+    EXPECT_EQ(result.set, 1);
+    ASSERT_EQ(result.notes.size(), 1U) << allNotes(result);
+    EXPECT_NE(result.notes[0].find("has no handbrake axis"), std::string::npos);
+    EXPECT_EQ(model.axes[MappingModel::kThrottle], before.axes[MappingModel::kThrottle]);   // untouched
+}
+
+TEST(MappingEdit, AutoMapFreesAButtonFromItsOlderPlaces) {
+    // The config's D-pad up is button 4 and its button 5 (L paddle) is button 5 (the default).
+    Rig rig;
+    RigDevice wheel = r3();
+    wheel.buttons[4] = {"Y", ControlRole::ButtonY, false};
+    wheel.buttons[5] = {"Start", ControlRole::Menu, false};
+    rig.devices = {wheel};
+    MappingModel model = mappingModel(load(kConfig));
+    ASSERT_EQ(model.hat[0], (SourceRef{{}, 4}));
+    ASSERT_EQ(model.buttons[5], (SourceRef{{}, 5}));
+    const AutoMapResult result = autoMap(model, rig, DeviceProfile(g920Spec()));
+    EXPECT_EQ(model.buttons[3], (SourceRef{{}, 4}));   // Y
+    EXPECT_EQ(model.buttons[6], (SourceRef{{}, 5}));   // Menu
+    EXPECT_FALSE(model.hat[0].mapped());              // no longer D-pad up as well
+    EXPECT_FALSE(model.buttons[5].mapped());          // no longer L paddle as well
+    EXPECT_FALSE(model.hat[1].mapped());              // D-pad right was button 5 too
+    const std::string notes = allNotes(result);
+    EXPECT_NE(notes.find("d-pad up: no longer 4"), std::string::npos) << notes;
+    EXPECT_NE(notes.find("L paddle: no longer 5"), std::string::npos) << notes;
+    // Saved and read back: the same.
+    const MappingWriteResult written = writeMapping(kConfig, model);
+    ASSERT_TRUE(written.error.empty()) << written.error;
+    EXPECT_EQ(mappingModel(load(written.text)), model);
+}
+
+TEST(MappingEdit, AutoMapWithAnotherWheelKeepsWhatReadTheOldOne) {
+    std::string config = kConfig;
+    config.replace(config.find("source_device = 346e "), 21, "source_device = 1111:2222 ");
+    MappingModel model = mappingModel(load(config));
+    ASSERT_EQ(model.buttons[4], (SourceRef{{}, 13}));   // on the old wheel
+    Rig rig;
+    rig.devices = {r3()};
+    const AutoMapResult result = autoMap(model, rig, DeviceProfile(g920Spec()));
+    EXPECT_EQ(result.set, 1);
+    EXPECT_EQ(model.sourceDevice, "346e:0005");
+    EXPECT_EQ(model.axes[MappingModel::kSteering], (SourceRef{{}, 0}));                   // the new wheel's
+    EXPECT_EQ(model.buttons[4], (SourceRef{{0x1111, 0x2222}, 13}));                       // still the old wheel's
+    EXPECT_EQ(model.axes[MappingModel::kThrottle], (SourceRef{{0x1111, 0x2222}, 2}));
+}
+
+TEST(MappingEdit, AutoMapWithoutRolesChangesNothing) {
+    Rig rig;
+    RigDevice pedals;
+    pedals.name = "Pedals";
+    pedals.id = {0x30B7, 0x1001};
+    pedals.kind = DeviceKind::Pedals;
+    pedals.axes[0] = {"Gas", ControlRole::None, false};
+    pedals.buttons[0] = {"Horn", ControlRole::Button, false};
+    rig.devices = {pedals};
+    MappingModel model = mappingModel(load(kConfig));
+    const MappingModel before = model;
+    const AutoMapResult result = autoMap(model, rig, DeviceProfile(g920Spec()));
+    EXPECT_EQ(result.set, 0);
+    EXPECT_TRUE(result.notes.empty());
+    EXPECT_EQ(model, before);   // no wheel in the rig: source_device kept too
 }

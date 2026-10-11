@@ -38,10 +38,12 @@ public:
     void draw();
     // While a session runs or starts the way and the config cannot change.
     void setLocked(bool locked);
+    // The Rig tab has changes it has not saved: Auto-map (which reads the saved rig) warns.
+    void setRigUnsaved(const bool unsaved) { rigUnsaved_ = unsaved; }
 
     void onClick(float x, float y);
     void onKey(char key);
-    // Typing in a number field (dead zone, full point, rotation): printable characters, ui::kBackspace, ui::kEnter.
+    // Typing in a number field (a rotation): printable characters, ui::kBackspace, ui::kEnter.
     void onText(const std::string& text);
     // The pointer every frame (panel coordinates): drags the game full lock slider while the left button is held.
     void onPointer(float x, float y, bool leftDown);
@@ -55,8 +57,8 @@ private:
     enum class Mode { Idle, Pick, PickWheel };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
     enum class Slot { Axis, Hat, Button };
-    // A number field: an axis's dead zone or full point (`fieldIndex_` = the axis), or one of the two rotations.
-    enum class Field { None, Deadzone, Full, GameRotation, WheelRotation };
+    // A number field: one of the two rotations.
+    enum class Field { None, GameRotation, WheelRotation };
 
     struct Hit {
         float x, y, w, h;
@@ -85,9 +87,9 @@ private:
     // The STEERING ROTATION section from `y`: the game's full lock, the wheel's rotation, the games' advice.
     void drawRotation(float y);
     // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
-    void drawField(float x, float y, float w, Field field, std::size_t index, const std::string& value, bool changed);
-    [[nodiscard]] std::string fieldText(Field field, std::size_t index) const;
-    void startTyping(Field field, std::size_t index);
+    void drawField(float x, float y, float w, Field field, const std::string& value, bool changed);
+    [[nodiscard]] std::string fieldText(Field field) const;
+    void startTyping(Field field);
     // Applies what was typed: false (and the reason in the status) when it is not a usable value.
     bool commitTyping();
     void setGameRotationFromX(float x);
@@ -118,12 +120,12 @@ private:
     Slot pickKind_ = Slot::Axis;
     std::size_t pickIndex_ = 0;
     bool locked_ = false;
+    bool rigUnsaved_ = false;
     std::string status_;
     bool statusError_ = false;
 
     std::string targetName_ = "g920";   // [emulator] target_profile: which games' advice fits
     Field field_ = Field::None;
-    std::size_t fieldIndex_ = 0;
     std::string typed_;
     bool dragging_ = false;   // the slider, from a press on it until the left button is let go
     float clickX_ = 0.0F;     // where the click being answered is (the slider's press)

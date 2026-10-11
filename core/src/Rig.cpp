@@ -3,19 +3,21 @@
 
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
+#include "wheelbri/DeviceMatch.hpp"
 #include "wheelbri/MappingEdit.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <set>
+#include <span>
 #include <sstream>
 
 namespace wheelbri {
 
 namespace {
 
-constexpr std::array<std::pair<ControlRole, const char*>, 23> kRoleNames = {{
+constexpr std::array<std::pair<ControlRole, const char*>, 32> kRoleNames = {{
     {ControlRole::Steering, "steering"},   {ControlRole::Throttle, "throttle"},   {ControlRole::Brake, "brake"},
     {ControlRole::Clutch, "clutch"},       {ControlRole::Handbrake, "handbrake"}, {ControlRole::OtherAxis, "axis"},
     {ControlRole::Button, "button"},       {ControlRole::DpadUp, "d-pad up"},     {ControlRole::DpadRight, "d-pad right"},
@@ -24,6 +26,9 @@ constexpr std::array<std::pair<ControlRole, const char*>, 23> kRoleNames = {{
     {ControlRole::Gear3, "gear 3"},        {ControlRole::Gear4, "gear 4"},        {ControlRole::Gear5, "gear 5"},
     {ControlRole::Gear6, "gear 6"},        {ControlRole::Gear7, "gear 7"},        {ControlRole::GearReverse, "reverse"},
     {ControlRole::LeftPaddle, "left paddle"}, {ControlRole::RightPaddle, "right paddle"},
+    {ControlRole::ButtonA, "a"},           {ControlRole::ButtonB, "b"},           {ControlRole::ButtonX, "x"},
+    {ControlRole::ButtonY, "y"},           {ControlRole::Menu, "menu"},           {ControlRole::View, "view"},
+    {ControlRole::Rsb, "rsb"},             {ControlRole::Lsb, "lsb"},             {ControlRole::Xbox, "xbox"},
 }};
 
 std::string lower(std::string_view text) {
@@ -131,6 +136,45 @@ bool isAxisRole(const ControlRole role) {
     return std::find(kAxisRoles.begin(), kAxisRoles.end(), role) != kAxisRoles.end();
 }
 
+std::string roleLabel(const ControlRole role) {
+    switch (role) {
+        case ControlRole::ButtonA: return "A";
+        case ControlRole::ButtonB: return "B";
+        case ControlRole::ButtonX: return "X";
+        case ControlRole::ButtonY: return "Y";
+        case ControlRole::Rsb: return "RSB";
+        case ControlRole::Lsb: return "LSB";
+        default: break;
+    }
+    std::string text = roleName(role);
+    if (!text.empty()) text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
+    return text;
+}
+
+std::string g920ButtonFor(const ControlRole role) {
+    switch (role) {
+        case ControlRole::ButtonA: return "A";
+        case ControlRole::ButtonB: return "B";
+        case ControlRole::ButtonX: return "X";
+        case ControlRole::ButtonY: return "Y";
+        case ControlRole::Menu: return "Menu";
+        case ControlRole::View: return "View";
+        case ControlRole::Rsb: return "RSB";
+        case ControlRole::Lsb: return "LSB";
+        case ControlRole::Xbox: return "Xbox";
+        case ControlRole::RightPaddle:   // the G920's paddles; shifting up and down is what games use them for
+        case ControlRole::ShiftUp: return "R paddle";
+        case ControlRole::LeftPaddle:
+        case ControlRole::ShiftDown: return "L paddle";
+        case ControlRole::GearReverse: return "Gear R";
+        default: break;
+    }
+    if (role >= ControlRole::Gear1 && role <= ControlRole::Gear7) {
+        return "Gear " + std::to_string(static_cast<int>(role) - static_cast<int>(ControlRole::Gear1) + 1);
+    }
+    return {};
+}
+
 bool isPedal(const ControlRole role) {
     return role == ControlRole::Throttle || role == ControlRole::Brake || role == ControlRole::Clutch;
 }
@@ -224,6 +268,90 @@ RigResult loadRig(const IniDocument& ini) {
         result.rig.devices.push_back(std::move(device));
     }
     return result;
+}
+
+std::string sameRoleElsewhere(const Rig& rig, const DeviceId& device, const bool axis, const std::size_t index,
+                              const ControlRole role) {
+    if (role == ControlRole::None || role == ControlRole::Button || role == ControlRole::OtherAxis) return {};
+    const std::string g920 = g920ButtonFor(role);
+    const auto clashes = [&](const ControlRole other) {
+        return other == role || (!g920.empty() && g920ButtonFor(other) == g920);
+    };
+    for (const RigDevice& candidate : rig.devices) {
+        const std::span<const RigControl> controls =
+            axis ? std::span<const RigControl>(candidate.axes) : std::span<const RigControl>(candidate.buttons);
+        for (std::size_t i = 0; i < controls.size(); ++i) {
+            if (candidate.id == device && i == index) continue;
+            if (!clashes(controls[i].role)) continue;
+            const std::string name =
+                candidate.name.empty() ? deviceId(candidate.id.vendorId, candidate.id.productId) : candidate.name;
+            return std::string(axis ? "axis " : "button ") + std::to_string(i) +
+                   (controls[i].label.empty() ? std::string() : " ('" + controls[i].label + "')") + " of " + name;
+        }
+    }
+    return {};
+}
+
+std::vector<std::string> applyRigDeadzones(MapperConfig& mapper, const Rig& rig, const std::string& sourceDeviceMatch) {
+    std::vector<std::string> notes;
+    const auto deviceFor = [&](const int number) -> const RigDevice* {
+        if (number == 0) {
+            if (sourceDeviceMatch.empty()) return rig.wheel();
+            for (const RigDevice& device : rig.devices) {
+                if (deviceMatches(device.name, device.id.vendorId, device.id.productId, sourceDeviceMatch)) {
+                    return &device;
+                }
+            }
+            return nullptr;
+        }
+        if (number < 0 || static_cast<std::size_t>(number) > mapper.accessories.size()) return nullptr;
+        const DeviceId& id = mapper.accessories[static_cast<std::size_t>(number - 1)];
+        return id.empty() ? nullptr : rig.find(id);
+    };
+    // The rig's control an emulated axis reads, or null.
+    const auto controlFor = [&](const int device, const int axis, const RigDevice*& owner) -> const RigControl* {
+        owner = deviceFor(device);
+        if (owner == nullptr || axis < 0 || static_cast<std::size_t>(axis) >= owner->axes.size()) return nullptr;
+        const RigControl& control = owner->axes[static_cast<std::size_t>(axis)];
+        return control.deadzone || control.full ? &control : nullptr;
+    };
+    const auto describe = [](const char* name, const RigControl& control, const RigDevice& owner, const int axis) {
+        const std::string label = control.label.empty() ? std::string() : "'" + control.label + "' ";
+        return std::string(name) + " <- " + label + "(axis " + std::to_string(axis) + " of " +
+               (owner.name.empty() ? deviceId(owner.id.vendorId, owner.id.productId) : owner.name) + "): ";
+    };
+
+    SteeringConfig& steering = mapper.steering;
+    const RigDevice* owner = nullptr;
+    if (const RigControl* control = controlFor(steering.sourceDevice, steering.sourceAxis, owner);
+        control != nullptr && control->deadzone) {
+        const std::string head = describe("steering", *control, *owner, steering.sourceAxis);
+        if (const std::string problem = tuning::steeringDeadzoneProblem(*control->deadzone); !problem.empty()) {
+            notes.push_back(head + "the rig's dead zone not used: " + problem);
+        } else {
+            steering.deadzone = *control->deadzone;
+            notes.push_back(head + "dead zone " + tuning::formatPercent(steering.deadzone) + " (the rig's)");
+        }
+    }
+    const std::array<std::pair<const char*, PedalConfig*>, 3> pedals = {
+        {{"throttle", &mapper.throttle}, {"brake", &mapper.brake}, {"clutch", &mapper.clutch}}};
+    for (const auto& [name, pedal] : pedals) {
+        const RigControl* control = controlFor(pedal->sourceDevice, pedal->sourceAxis, owner);
+        if (control == nullptr) continue;
+        const std::string head = describe(name, *control, *owner, pedal->sourceAxis);
+        const float deadzone = control->deadzone.value_or(pedal->deadzoneLow);
+        const float full = control->full.value_or(pedal->saturationHigh);
+        if (const std::string problem = tuning::pedalProblem(deadzone, full); !problem.empty()) {
+            notes.push_back(head + "the rig's dead zones not used: " + problem);
+            continue;
+        }
+        pedal->deadzoneLow = deadzone;
+        pedal->saturationHigh = full;
+        notes.push_back(head + "dead zone " + tuning::formatPercent(deadzone) + ", full " +
+                        tuning::formatPercent(full) + " (the rig's" +
+                        (control->deadzone && control->full ? ")" : "; the other the config's)"));
+    }
+    return notes;
 }
 
 std::string writeRig(const Rig& rig, const std::string& name) {

@@ -77,11 +77,6 @@ std::string lower(std::string text) {
     return text;
 }
 
-std::string capitalised(std::string text) {
-    if (!text.empty()) text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
-    return text;
-}
-
 DeviceId idOf(const WheelInfo& info) { return {info.vendorId, info.productId}; }
 
 std::string idText(const DeviceId& id) { return deviceId(id.vendorId, id.productId); }
@@ -111,7 +106,8 @@ std::optional<float> typedFraction(const std::string& text) {
 // "Gas  (throttle, inverted, dz 3%, full 90%)": the label, then what it is for.
 std::string describe(const RigControl& control) {
     std::string text = control.label;
-    std::string about = roleName(control.role);
+    // The role, unless the name already says it ("Y", "D-pad up": named by picking the role).
+    std::string about = control.label == roleLabel(control.role) ? std::string() : std::string(roleName(control.role));
     const auto add = [&about](const std::string& part) { about += (about.empty() ? "" : ", ") + part; };
     if (control.invert) add("inverted");
     if (hasDeadzones(control.role)) {
@@ -571,6 +567,13 @@ void WheelSetupView::closeControl(const bool keep) {
         control.deadzone.reset();
         control.full.reset();
     }
+    // A role two controls have: Auto-map takes the first in the rig, so say which.
+    if (const std::string other = sameRoleElsewhere(edit_, device->id, popupAxis_, static_cast<std::size_t>(popupIndex_),
+                                                    control.role);
+        !other.empty()) {
+        status_ = roleLabel(control.role) + " is also " + other + ": Auto-map uses the first in the rig. Clear one.";
+        statusError_ = true;
+    }
 }
 
 // --- input ----------------------------------------------------------------------------------------------------------
@@ -833,7 +836,7 @@ void WheelSetupView::drawButtons(const float top) {
         std::snprintf(number, sizeof(number), "%2d", source);
         window_.text(x + 4, y + 5, number, down ? kDark : kDim);
         window_.text(x + 26, y + 5, fit(control.label, 11), down ? kDark : kText);
-        window_.text(x + 4, y + 18, fit(roleName(control.role), 13), down ? kDark : kHeading);
+        window_.text(x + 4, y + 18, fit(roleLabel(control.role), 13), down ? kDark : kHeading);
         hit(x, y, kTileW, kTileH, [this, source] { openControl(false, source, std::nullopt); });
     }
 }
@@ -872,15 +875,19 @@ void WheelSetupView::drawControlPopup() {
             y += 20;
         }
         x += button(x, y, label, [this, role] {
+            // The name follows the role while it is empty or still the last role's name: typed names are kept.
+            if (popupControl_.label.empty() || popupControl_.label == roleLabel(popupControl_.role)) {
+                popupControl_.label = roleLabel(role);
+            }
             popupControl_.role = role;
             if (isPedalRole(role) && popupRest_) popupControl_.invert = *popupRest_ > 0.5F;
         }, popupControl_.role == role, true, width) + 4;
     };
     roleButton(ControlRole::None, "nothing yet", 100);
     if (popupAxis_) {
-        for (const ControlRole role : kAxisRoles) roleButton(role, capitalised(roleName(role)), 100);
+        for (const ControlRole role : kAxisRoles) roleButton(role, roleLabel(role), 100);
     } else {
-        for (const ControlRole role : kButtonRoles) roleButton(role, capitalised(roleName(role)), 100);
+        for (const ControlRole role : kButtonRoles) roleButton(role, roleLabel(role), 100);
     }
 
     y += 26;
@@ -954,7 +961,7 @@ void WheelSetupView::drawTuningFields(const float left, const float y) {
         drawNameField(x + 64, y, popupFull_, kMaxPercent);
         x += 64 + kFieldW + 16;
     }
-    window_.text(x, y + 4, pedal ? "% of the travel; empty = the mapping's own" : "%; empty = the mapping's own", kDim);
+    window_.text(x, y + 4, pedal ? "% of the travel; empty = the config's own" : "%; empty = the config's own", kDim);
     window_.text(left, y + 24,
                  pedal ? "Dead zone: ignored from the released end. Full at: fully pressed from there on."
                        : "Ignored this close to the centre (% of half the range): shaded on the bar above.",

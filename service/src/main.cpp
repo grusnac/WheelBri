@@ -406,6 +406,7 @@ struct LoadedConfig {
     bool fileMissing = false;
     std::string text;                           // the file as read, copied into telemetry headers
     std::vector<std::string> warnings;          // settings ignored on purpose (logged once logging is up)
+    std::vector<std::string> notes;             // what the rig changed (its dead zones), logged at info
 };
 
 // Runs before logging exists (logging is configured by this file), so problems are collected, not logged.
@@ -1334,6 +1335,13 @@ LoadedConfig loadForRun(const Options& options) {
             }
         }
     }
+    // Dead zones belong to the real devices: the rig's, where it sets them, over the config's.
+    if (rig) {
+        for (std::string& note :
+             wheelbri::applyRigDeadzones(loaded.config.mapper, *rig, loaded.config.sourceDeviceMatch)) {
+            loaded.notes.push_back(std::move(note));
+        }
+    }
     return loaded;
 }
 
@@ -1363,6 +1371,9 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     }
     for (const std::string& warning : loaded.warnings) {
         WE_LOG_WARN(log(), "config {}: {}", options.configPath, warning);
+    }
+    for (const std::string& note : loaded.notes) {
+        WE_LOG_INFO(log(), "rig: {}", note);
     }
     for (const std::string& problem : loaded.problems) {
         WE_LOG_ERROR(log(), "config {}: {}", options.configPath, problem);

@@ -50,12 +50,6 @@ constexpr float kPopupY = 56;
 constexpr float kPopupW = 912;
 constexpr float kPopupH = 640;
 
-// The axes' rows: the source, Invert, the dead zone and (pedals) the full point, before the D-pad column at 620.
-constexpr float kAxisSourceW = 300;
-constexpr float kInvertX = 388;
-constexpr float kDeadzoneX = 456;
-constexpr float kFullX = 536;
-constexpr float kTuningW = 72;
 
 // The game full lock slider: 90 to 1080 degrees, in steps of 10 (typed values go up to tuning::kMaxRotationDeg).
 constexpr float kSliderX = 132;
@@ -269,11 +263,38 @@ const RigControl* MappingEditView::rigControl(const SourceRef& source, const boo
 
 void MappingEditView::autoMapFromRig() {
     if (profile_ == nullptr) return;
-    const int set = autoMap(edit_, rig_, *profile_);
-    status_ = set == 0 ? "Nothing to auto-map: give the controls roles (steering, throttle, d-pad ...) in the Rig tab."
-                       : "Auto-mapped " + std::to_string(set) +
-                             " source(s) from the rig's roles; pick the plain buttons yourself, then Save.";
-    statusError_ = set == 0;
+    const AutoMapResult result = autoMap(edit_, rig_, *profile_);
+    WE_LOG_INFO(log(), "mapping: auto-mapped {} source(s) from the rig '{}'", result.set, rigName_);
+    for (const std::string& note : result.notes) WE_LOG_INFO(log(), "mapping: auto-map: {}", note);
+    // What still reads a control the rig has not named (amber in the tab): the user's to pick or name.
+    std::size_t unnamed = 0;
+    for (std::size_t i = 0; i < edit_.axes.size(); ++i) unnamed += missing(edit_.axes[i], true) ? 1 : 0;
+    for (std::size_t i = 0; i < edit_.hat.size(); ++i) unnamed += missing(edit_.hat[i], false) ? 1 : 0;
+    for (std::size_t i = 0; i < edit_.buttons.size(); ++i) {
+        if (!profile_->buttonName(i).empty()) unnamed += missing(edit_.buttons[i], false) ? 1 : 0;
+    }
+    if (result.set == 0) {
+        if (rigUnsaved_) {
+            status_ = "Nothing to auto-map in the saved rig, and the Rig tab has unsaved changes: Save it there first.";
+            statusError_ = true;
+            return;
+        }
+        status_ = "Nothing to auto-map: give the controls roles (steering, throttle, Y, d-pad up ...) in the Rig tab.";
+        statusError_ = true;
+        return;
+    }
+    status_ = "Auto-mapped " + std::to_string(result.set) + " from the rig's roles";
+    if (!result.notes.empty()) {
+        status_ += "; " + result.notes.front() +
+                   (result.notes.size() > 1 ? " (+" + std::to_string(result.notes.size() - 1) + " more, Logs)" : "");
+    }
+    if (unnamed > 0) status_ += "; " + std::to_string(unnamed) + " amber: not in the rig";
+    status_ += ". Then Save.";
+    statusError_ = false;
+    if (rigUnsaved_) {
+        status_ = "The Rig tab has unsaved changes: this used the saved rig. Save it there, then Auto-map again.";
+        statusError_ = true;
+    }
 }
 
 std::string MappingEditView::describe(const SourceRef& source, const bool axis) const {
@@ -387,10 +408,8 @@ void MappingEditView::setGameRotationFromX(const float x) {
         std::clamp(std::round(value / kSliderStepDeg) * kSliderStepDeg, kSliderMinDeg, kSliderMaxDeg);
 }
 
-std::string MappingEditView::fieldText(const Field field, const std::size_t index) const {
+std::string MappingEditView::fieldText(const Field field) const {
     switch (field) {
-        case Field::Deadzone: return tuning::formatPercent(edit_.deadzone[index]);
-        case Field::Full: return tuning::formatPercent(edit_.full[index]);
         case Field::GameRotation: return degrees(edit_.gameRotationDeg);
         case Field::WheelRotation: return degrees(edit_.wheelRotationDeg);
         case Field::None: break;
@@ -398,33 +417,21 @@ std::string MappingEditView::fieldText(const Field field, const std::size_t inde
     return {};
 }
 
-void MappingEditView::startTyping(const Field field, const std::size_t index) {
+void MappingEditView::startTyping(const Field field) {
     if (locked_) return;
     field_ = field;
-    fieldIndex_ = index;
-    typed_ = fieldText(field, index);
+    typed_ = fieldText(field);
 }
 
 bool MappingEditView::commitTyping() {
     if (field_ == Field::None) return true;
     const std::optional<float> number = tuning::parseNumber(typed_);
-    const bool percent = field_ == Field::Deadzone || field_ == Field::Full;   // typed as percentages: "3" is 3%
     std::string problem;
     if (!number) {
         problem = "'" + typed_ + "' is not a number";
     } else {
-        const float value = percent ? *number / 100.0F : *number;
-        const std::size_t i = fieldIndex_;
+        const float value = *number;
         switch (field_) {
-            case Field::Deadzone:
-                problem = i == MappingModel::kSteering ? tuning::steeringDeadzoneProblem(value)
-                                                       : tuning::pedalProblem(value, edit_.full[i]);
-                if (problem.empty()) edit_.deadzone[i] = value;
-                break;
-            case Field::Full:
-                problem = tuning::pedalProblem(edit_.deadzone[i], value);
-                if (problem.empty()) edit_.full[i] = value;
-                break;
             case Field::GameRotation:
             case Field::WheelRotation:
                 problem = tuning::rotationProblem(value);
@@ -462,9 +469,9 @@ float MappingEditView::button(const float x, const float y, const std::string& l
     return w;
 }
 
-void MappingEditView::drawField(const float x, const float y, const float w, const Field field, const std::size_t index,
+void MappingEditView::drawField(const float x, const float y, const float w, const Field field,
                                 const std::string& value, const bool changed) {
-    const bool typing = field_ == field && fieldIndex_ == index;
+    const bool typing = field_ == field;
     window_.fill(x, y, w, 16, typing ? kDark : kStripe);
     window_.outline(x, y, w, 16, typing ? kHeading : changed ? kCaution : kPanel);
     const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
@@ -474,7 +481,7 @@ void MappingEditView::drawField(const float x, const float y, const float w, con
     } else {
         window_.text(x + 6, y + 4, fit(value, chars), locked_ ? kDim : kText);
     }
-    if (!locked_) hit(x, y, w, 16, [this, field, index] { startTyping(field, index); });
+    if (!locked_) hit(x, y, w, 16, [this, field] { startTyping(field); });
 }
 
 void MappingEditView::drawSource(const float x, const float y, const float w, const Slot kind,
@@ -533,21 +540,12 @@ void MappingEditView::draw() {
     float y = 66;
     window_.text(4, y, "AXES", kHeading);
     window_.text(48, y, "click a source to pick another", kDim);
-    window_.text(kDeadzoneX, y, "dead zone", kDim);
-    window_.text(kFullX + 8, y, "full", kDim);
     window_.text(620, y, "D-PAD", kHeading);
     for (std::size_t i = 0; i < kAxisNames.size(); ++i) {
         const float row = y + 16 + static_cast<float>(i) * 20;
         window_.text(4, row + 4, kAxisNames[i], kText);
-        drawSource(80, row, kAxisSourceW, Slot::Axis, i);
-        button(kInvertX, row, "Invert", [this, i] { edit_.invert[i] = !edit_.invert[i]; }, edit_.invert[i], true, 60);
-        // Steering: around the centre; pedals: at the released end, and where they count as fully pressed.
-        drawField(kDeadzoneX, row, kTuningW, Field::Deadzone, i, tuning::formatPercent(edit_.deadzone[i]),
-                  edit_.deadzone[i] != saved_.deadzone[i]);
-        if (i != MappingModel::kSteering) {
-            drawField(kFullX, row, kTuningW, Field::Full, i, tuning::formatPercent(edit_.full[i]),
-                      edit_.full[i] != saved_.full[i]);
-        }
+        drawSource(80, row, 420, Slot::Axis, i);
+        button(508, row, "Invert", [this, i] { edit_.invert[i] = !edit_.invert[i]; }, edit_.invert[i], true, 70);
         window_.text(620, row + 4, kHatNames[i], kText);
         drawSource(668, row, 288, Slot::Hat, i);
     }
@@ -612,7 +610,7 @@ void MappingEditView::drawRotation(const float top) {
             dragging_ = true;
         });
     }
-    drawField(kSliderX + kSliderW + 12, y, 64, Field::GameRotation, 0, degrees(edit_.gameRotationDeg),
+    drawField(kSliderX + kSliderW + 12, y, 64, Field::GameRotation, degrees(edit_.gameRotationDeg),
               edit_.gameRotationDeg != saved_.gameRotationDeg);
     window_.text(kSliderX + kSliderW + 80, y + 4, "deg", kDim);
     float x = kSliderX + kSliderW + 112;
@@ -626,7 +624,7 @@ void MappingEditView::drawRotation(const float top) {
     // What the wheel's own software is set to: the mapper turns that into the game's full lock.
     y += 34;
     window_.text(4, y + 4, "Wheel rotation", kText);
-    drawField(kSliderX, y, 64, Field::WheelRotation, 0, degrees(edit_.wheelRotationDeg),
+    drawField(kSliderX, y, 64, Field::WheelRotation, degrees(edit_.wheelRotationDeg),
               edit_.wheelRotationDeg != saved_.wheelRotationDeg);
     window_.text(kSliderX + 68, y + 4, "deg: what your wheel's own software (e.g. Moza Pit House) is set to", kDim);
     const bool same = std::fabs(edit_.wheelRotationDeg - edit_.gameRotationDeg) < 0.5F;

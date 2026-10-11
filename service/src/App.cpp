@@ -487,6 +487,7 @@ private:
             logs_->setShimMode(shimTarget());   // the Logs tab while stopped follows the target
             updateSetup();
             mapping_->setLocked(state_ != State::Stopped);   // the way and the mapping stay as Start found them
+            mapping_->setRigUnsaved(setup_->dirty());   // Auto-map reads the saved rig: it says so when that is behind
             if (showingMappingEditor()) mapping_->update();
             if (std::string problem; games_->takeProblem(problem)) notice("Games with the shim", problem);
             if (quitting_ && !running()) {

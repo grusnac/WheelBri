@@ -81,8 +81,8 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** the add-on clutch pedal was recognised but the G920's clutch never moved: the configs mapped axis 3,
   while the pedal moves R3 axis 6 (found in `raw_a6` in the telemetry).
-- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920-virtual-device.ini` and `config/g920-in-game-shim.ini`. If it doesn't reach 100% at the floor, lower `saturation_high`; if it doesn't
-  return to 0%, raise `deadzone_low`. The game reads it as the G920's Rz axis.
+- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920-virtual-device.ini` and `config/g920-in-game-shim.ini`. If it doesn't reach 100% at the floor, lower its "full at"; if it doesn't
+  return to 0%, raise its dead zone (Rig tab, the axis popup). The game reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
   `out_clutch` in `telemetry-<date>-<NN>.log`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
   a test clutch can be sent over UDP (`core/include/wheelbri/TestClutch.hpp`).
@@ -122,11 +122,16 @@ a headline, why it was needed, how to use it, and where to look.
 ### Rig tab
 
 - **Why:** WheelBri works with any wheel and accessories, so the user says what each device and control is, once.
-- **Use:** tab R: touch a control (Detect), name it and pick its role; **Save**. Several rigs, the active one
-  remembered. The device with a Steering axis is the wheel. Steering and pedal axes can have dead zones, typed in %
+- **Use:** tab R: touch a control (Detect), pick its role (the name fills in with the role's: press the button
+  that should be Y, click **Y**, Enter), or type your own name; **Save**. Button roles are the G920's own buttons (A,
+  B, X, Y, Menu, View, RSB, LSB, Xbox, the paddles, the D-pad, the shifter's gears) plus plain Button; Auto-map puts
+  each on that G920 button. Several rigs, the active one remembered. The device with a Steering axis is the wheel. Steering and pedal axes can have dead zones, typed in %
   in the axis popup (the live bar shows them): steering around the centre, a pedal at its released end, and a
-  pedal's "full at" point (fully pressed from there on). Empty = the mapping's own; Auto-map copies them into the
-  mapping. In the file: `axis_2 = Gas | throttle | deadzone 3% | full 90%`.
+  pedal's "full at" point (fully pressed from there on). Dead zones belong to the real devices, so only the rig has
+  them: at Start they are laid over the mapping for whichever emulated axis reads that control (the log says
+  `rig: throttle <- 'Gas' (axis 1 of Pedals): dead zone 3%, full 95% (the rig's)`). Empty = the config's own
+  (`deadzone_low` 2%, `saturation_high` 95-98%, steering `deadzone` 0). In the file:
+  `axis_2 = Gas | throttle | deadzone 3% | full 90%`.
 - **Look:** `%LOCALAPPDATA%\wheelbri\rigs\<rig>.ini`; `service.setup` log lines. Code: core `Rig`,
   `service/src/WheelSetupView.cpp`.
 
@@ -135,14 +140,20 @@ a headline, why it was needed, how to use it, and where to look.
 - **Why:** the target (the G920) is fixed; which rig control drives each of its axes and buttons is the user's.
 - **Use:** tab M while stopped: click a G920 input and pick a rig control, or **Auto-map** from the rig's roles;
   **Save** writes your own mapping, **Default** goes back to WheelBri's. While running the same tab is the live view.
-  Each axis has its dead zone (and each pedal its full point), typed in %. **Steering rotation**: the game's full
+  **Auto-map** places every control that has a role in the (saved) rig: steering and pedal axes, the D-pad, the
+  G920's named buttons; plain buttons and anything without a role stay as they are. A button placed this way leaves
+  any other G920 input it drove (one button, one input). It says what it could not do, in the status and the log
+  (`service.mapping`): a role on two controls (the first in the rig keeps it; the Rig tab says so when you give it),
+  a role the G920 lacks (handbrake axis, Gear 7), sources still pointing at controls the rig has not named (amber),
+  and a Rig tab with unsaved changes.
+  **Steering rotation**: the game's full
   lock (slider, typed degrees, or 180 / 360 / 540 / 720 / 900 / 1080) and the wheel's rotation, which must be what
   the wheel's own software is set to; when they differ the tab says so in amber (**Same as game** copies it): a wheel
   set wider than the game's full lock turns on past it with the force feedback dropping there. WheelBri never reads
   or sets the wheel's own settings. **Game advice** lists the game profiles' recommendations; **Use N** fills in both
   rotations (then set the wheel's software to N too). All of it reaches the shim and the virtual device alike (the
   service's mapper applies it), from the next Start. Config keys: `[steering] source_rotation_deg`,
-  `target_rotation_deg`, `deadzone`; pedals `deadzone_low`, `saturation_high`.
+  `target_rotation_deg`. Dead zones are not here: they are the real devices' (Rig tab).
 - **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core
   `MappingEdit`, `AxisTuning`, `Mapper`, `service/src/MappingEditView.cpp`.
 
