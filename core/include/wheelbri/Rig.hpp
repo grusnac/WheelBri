@@ -44,8 +44,9 @@ inline constexpr std::array<ControlRole, 6> kAxisRoles = {ControlRole::Steering,
                                                           ControlRole::Brake,    ControlRole::Clutch,
                                                           ControlRole::Handbrake, ControlRole::OtherAxis};
 // In the order the Wheel setup tab offers them.
-inline constexpr std::array<ControlRole, 26> kButtonRoles = {
-    ControlRole::Button,     ControlRole::ButtonA,     ControlRole::ButtonB,   ControlRole::ButtonX,  ControlRole::ButtonY,
+// Handbrake is both: a lever that reports an axis, or one switched to report a button (Moza's HBP can do either).
+inline constexpr std::array<ControlRole, 27> kButtonRoles = {
+    ControlRole::Button,      ControlRole::Handbrake,     ControlRole::ButtonA,     ControlRole::ButtonB,   ControlRole::ButtonX,  ControlRole::ButtonY,
     ControlRole::Menu,       ControlRole::View,        ControlRole::Rsb,       ControlRole::Lsb,      ControlRole::Xbox,
     ControlRole::DpadUp,     ControlRole::DpadRight,   ControlRole::DpadDown,  ControlRole::DpadLeft,
     ControlRole::LeftPaddle, ControlRole::RightPaddle, ControlRole::ShiftUp,   ControlRole::ShiftDown,
@@ -53,14 +54,19 @@ inline constexpr std::array<ControlRole, 26> kButtonRoles = {
     ControlRole::Gear4,   ControlRole::Gear5,   ControlRole::Gear6,     ControlRole::Gear7,    ControlRole::GearReverse};
 
 [[nodiscard]] const char* roleName(ControlRole role);   // "throttle", "d-pad up", "gear 1", "" for None
-// As the app shows it, and the name a control gets when the role is picked: "Throttle", "D-pad up", "Gear 1", the
+// As the app shows it, and the name a control gets when the role is picked: "Throttle", "D-pad Up", "Gear 1", the
 // G920's own spelling for its buttons ("A", "RSB", "Xbox"); "" for None. At most DeviceLabels::kMaxLabel characters.
 [[nodiscard]] std::string roleLabel(ControlRole role);
-// The G920 button a role stands for, as the G920 profile names it ("A", "R paddle", "Gear 1"), or "" (not a G920
+// The G920 button a role stands for, as the G920 profile names it ("A", "R Paddle", "Gear 1"), or "" (not a G920
 // button: Button, the D-pad, the axes).
 [[nodiscard]] std::string g920ButtonFor(ControlRole role);
 [[nodiscard]] std::optional<ControlRole> parseRole(std::string_view text);
 [[nodiscard]] bool isAxisRole(ControlRole role);
+// Whether a control with `role` may have it: an axis role on an axis, a button role on a button (Handbrake: both).
+[[nodiscard]] bool roleFits(ControlRole role, bool axis);
+// Throttle, brake, clutch, handbrake: one-sided axes (released at one end, pressed toward the other), the only ones
+// that may press a target button past a threshold (MapperConfig::buttonSecondary). Steering goes both ways: never.
+[[nodiscard]] bool axisDrivesButtons(ControlRole role);
 // Steering, throttle, brake, clutch: the roles with dead zones (the ones the emulated wheel's axes come from).
 [[nodiscard]] bool hasDeadzones(ControlRole role);
 [[nodiscard]] bool isPedal(ControlRole role);   // throttle, brake, clutch
@@ -124,6 +130,15 @@ struct RigResult {
 // R3"; empty when there is none, or the role may repeat (None, Button, Axis). The first in the rig's order wins.
 [[nodiscard]] std::string sameRoleElsewhere(const Rig& rig, const DeviceId& device, bool axis, std::size_t index,
                                             ControlRole role);
+
+// The rig's device that mapping device `number` reads (0: the wheel, found by `sourceDeviceMatch` as
+// [emulator] source_device takes it, empty = the rig's wheel; 1..3: mapper.accessories), or null.
+[[nodiscard]] const RigDevice* rigDeviceFor(const MapperConfig& mapper, const Rig& rig,
+                                            const std::string& sourceDeviceMatch, int number);
+// At Start: an axis pressing a target button (buttonSecondary) that the rig does not name as throttle, brake, clutch or
+// handbrake, one line each for the log (the mapping is used as it is: nothing is taken away).
+[[nodiscard]] std::vector<std::string> buttonAxisProblems(const MapperConfig& mapper, const Rig& rig,
+                                                          const std::string& sourceDeviceMatch);
 
 // At Start: the rig's dead zones laid over `mapper` (whose sources are already read from the config). Each emulated
 // axis (steering, throttle, brake, clutch) that reads a rig control with dead zones set takes them: steering its

@@ -1,5 +1,6 @@
 #include "wheelbri/MappingEdit.hpp"
 
+#include "wheelbri/FileText.hpp"
 #include "wheelbri/IniDocument.hpp"
 
 #include <gtest/gtest.h>
@@ -281,8 +282,8 @@ TEST(MappingEdit, AutoMapFreesAButtonFromItsOlderPlaces) {
     EXPECT_FALSE(model.buttons[5].mapped());          // no longer L paddle as well
     EXPECT_FALSE(model.hat[1].mapped());              // D-pad right was button 5 too
     const std::string notes = allNotes(result);
-    EXPECT_NE(notes.find("d-pad up: no longer 4"), std::string::npos) << notes;
-    EXPECT_NE(notes.find("L paddle: no longer 5"), std::string::npos) << notes;
+    EXPECT_NE(notes.find("D-pad Up: no longer 4"), std::string::npos) << notes;
+    EXPECT_NE(notes.find("L Paddle: no longer 5"), std::string::npos) << notes;
     // Saved and read back: the same.
     const MappingWriteResult written = writeMapping(kConfig, model);
     ASSERT_TRUE(written.error.empty()) << written.error;
@@ -319,4 +320,159 @@ TEST(MappingEdit, AutoMapWithoutRolesChangesNothing) {
     EXPECT_EQ(result.set, 0);
     EXPECT_TRUE(result.notes.empty());
     EXPECT_EQ(model, before);   // no wheel in the rig: source_device kept too
+}
+
+TEST(MappingEdit, ButtonSecondSourcesParseAndFormat) {
+    EXPECT_EQ(parseButtonRef("5"), (ButtonRef{{{}, 5}, false, false, 0.5F}));
+    EXPECT_EQ(parseButtonRef("-1"), (ButtonRef{{{}, kUnmapped}, false, false, 0.5F}));
+    EXPECT_EQ(parseButtonRef("axis 3 > 40%"), (ButtonRef{{{}, 3}, true, false, 0.4F}));
+    EXPECT_EQ(parseButtonRef(" 30b7:1001/axis 3 inverted > 60% "), (ButtonRef{{{0x30B7, 0x1001}, 3}, true, true, 0.6F}));
+    EXPECT_EQ(parseButtonRef("axis 2"), (ButtonRef{{{}, 2}, true, false, 0.5F}));   // 50% when left out
+    for (const char* bad : {"axis", "axis x", "axis 9", "axis 2 > 100%", "axis 2 > 1%", "axis 2 > lots", "x/axis 1",
+                            "30b7:1001axis 1", "button"}) {
+        EXPECT_FALSE(parseButtonRef(bad).has_value()) << bad;
+    }
+    EXPECT_EQ(formatButtonRef({{{}, 3}, true, false, 0.4F}), "axis 3 > 40%");
+    EXPECT_EQ(formatButtonRef({{{0x30B7, 0x1001}, 3}, true, true, 0.5F}), "30b7:1001/axis 3 inverted > 50%");
+    EXPECT_EQ(formatButtonRef({{{}, 7}, false, false, 0.5F}), "7");
+    EXPECT_EQ(formatButtonRef({}), "-1");
+}
+
+TEST(MappingEdit, SecondaryListsParseAndFormat) {
+    EXPECT_EQ(parseButtonRefs("-1"), std::vector<ButtonRef>{});
+    EXPECT_EQ(parseButtonRefs(""), std::vector<ButtonRef>{});
+    EXPECT_EQ(parseButtonRefs("20, 30b7:1001/4 ,axis 3 > 40%"),
+              (std::vector<ButtonRef>{{{{}, 20}, false, false, 0.5F},
+                                      {{{0x30B7, 0x1001}, 4}, false, false, 0.5F},
+                                      {{{}, 3}, true, false, 0.4F}}));
+    for (const char* bad : {"1,,2", "1,", ",1", "-1, 4", "4, x", "axis 9, 1"}) {
+        EXPECT_FALSE(parseButtonRefs(bad).has_value()) << bad;
+    }
+    EXPECT_EQ(formatButtonRefs({}), "-1");
+    EXPECT_EQ(formatButtonRefs({{{{}, 20}, false, false, 0.5F}, {{{0x30B7, 0x1001}, 3}, true, true, 0.4F}}),
+              "20, 30b7:1001/axis 3 inverted > 40%");
+}
+
+TEST(MappingEdit, SecondariesWriteAndReadBack) {
+    MappingModel model = mappingModel(load(kConfig));
+    // G920 X <- also the handbrake lever, a button box button and wheel button 20; A <- also wheel button 21.
+    model.secondaries[2] = {{{{0x30B7, 0x1001}, 3}, true, false, 0.4F},
+                            {{{0x30B7, 0x1001}, 4}, false, false, 0.5F},
+                            {{{}, 20}, false, false, 0.5F}};
+    model.secondaries[0] = {{{{}, 21}, false, false, 0.5F}};
+    const MappingWriteResult written = writeMapping(kConfig, model);
+    ASSERT_TRUE(written.error.empty()) << written.error;
+    EXPECT_NE(written.text.find("target_2_or = 30b7:1001/axis 3 > 40%, 30b7:1001/4, 20"), std::string::npos)
+        << written.text;
+    EXPECT_NE(written.text.find("target_0_or = 21"), std::string::npos) << written.text;
+    const EmulatorConfig back = load(written.text);
+    EXPECT_EQ(mappingModel(back), model);
+    EXPECT_TRUE(back.mapper.buttonSecondary[2][0].axis);
+    EXPECT_NEAR(back.mapper.buttonSecondary[2][0].threshold, 0.4F, 1e-6F);
+    EXPECT_EQ(back.mapper.buttonSecondary[2][2], (ButtonSource{0, 20, false, false, 0.5F}));
+    EXPECT_FALSE(back.mapper.buttonSecondary[2][3].mapped());
+    EXPECT_EQ(back.mapper.buttonMap[2], 2);   // the role assignment stays
+    EXPECT_EQ(writeMapping(written.text, model).text, written.text);   // unchanged: the same text
+
+    model.secondaries[2].clear();
+    EXPECT_EQ(writeMapping(written.text, model).text.find("target_2_or"), std::string::npos);
+    model.secondaries[2] = {{{{}, 1}, true, false, 0.99F}};
+    EXPECT_FALSE(writeMapping(kConfig, model).error.empty());   // threshold out of range
+    model.secondaries[2].clear();
+    for (int i = 0; i < 9; ++i) model.secondaries[2].push_back({{{}, 40 + i}, false, false, 0.5F});
+    EXPECT_FALSE(writeMapping(kConfig, model).error.empty());   // 9: at most 8
+}
+
+TEST(MappingEdit, UsesOfAControl) {
+    MappingModel model = mappingModel(load(kConfig));
+    model.sourceDevice = "346e:0005";
+    model.secondaries[2] = {{{{0x30B7, 0x1001}, 3}, true, false, 0.5F}, {{{0x346E, 0x0005}, 30}, false, false, 0.5F}};
+    const DeviceProfile g920(g920Spec());
+    using Kind = ControlUse::Kind;
+    EXPECT_EQ(usesOf(model, g920, {{{}, 2}, true}), (std::vector<ControlUse>{{Kind::Axis, MappingModel::kThrottle}}));
+    // Button 13: the R paddle, and Gear 2 too (target 13 <- button 13 by default: this config does not clear it).
+    EXPECT_EQ(usesOf(model, g920, {{{}, 13}, false}), (std::vector<ControlUse>{{Kind::Button, 4}, {Kind::Button, 13}}));
+    EXPECT_EQ(usesOf(model, g920, {{{}, 4}, false}), (std::vector<ControlUse>{{Kind::Hat, 0}}));
+    EXPECT_EQ(usesOf(model, g920, {{{0x30B7, 0x1001}, 3}, true}), (std::vector<ControlUse>{{Kind::Secondary, 2}}));
+    EXPECT_TRUE(usesOf(model, g920, {{{0x30B7, 0x1001}, 3}, false}).empty());   // button 3, not axis 3
+    // On the wheel's own id: the wheel's, either way it is asked.
+    EXPECT_EQ(usesOf(model, g920, {{{}, 30}, false}), (std::vector<ControlUse>{{Kind::Secondary, 2}}));
+    EXPECT_EQ(usesOf(model, g920, {{{0x346E, 0x0005}, 30}, false}), (std::vector<ControlUse>{{Kind::Secondary, 2}}));
+    // Buttons the G920 does not name reach no game: not uses (target 25 <- button 25 by default).
+    EXPECT_TRUE(usesOf(model, g920, {{{}, 25}, false}).empty());
+    EXPECT_TRUE(usesOf(model, g920, {{{}, 60}, false}).empty());
+
+    EXPECT_EQ(describeUse({Kind::Button, 0}, g920), "Role: G920 A");
+    EXPECT_EQ(describeUse({Kind::Axis, MappingModel::kThrottle}, g920), "Role: G920 throttle");
+    EXPECT_EQ(describeUse({Kind::Hat, 0}, g920), "Role: G920 D-pad Up");
+    EXPECT_EQ(describeUse({Kind::Secondary, 2}, g920), "Secondary of G920 X");
+}
+
+TEST(MappingEdit, ControlsUsedTwice) {
+    MappingModel model = mappingModel(load(kConfig));
+    const DeviceProfile g920(g920Spec());
+    // This config's D-pad buttons 5, 6, 7 also drive G920 L paddle, Menu and View, and its R paddle (13) Gear 2
+    // (target N <- button N by default).
+    std::vector<std::string> twice = controlsUsedTwice(model, g920);
+    ASSERT_EQ(twice.size(), 4U);
+    EXPECT_EQ(twice[0], "button 5 of the wheel: role: G920 D-pad Right, role: G920 L Paddle");
+    EXPECT_EQ(twice[3], "button 13 of the wheel: role: G920 R Paddle, role: G920 Gear 2");
+    model.buttons[5] = model.buttons[6] = model.buttons[7] = model.buttons[13] = {};
+    EXPECT_TRUE(controlsUsedTwice(model, g920).empty());
+    model.secondaries[1] = {{{{}, 13}, false, false, 0.5F}};   // R paddle's button as B's secondary too
+    twice = controlsUsedTwice(model, g920);
+    ASSERT_EQ(twice.size(), 1U);
+    EXPECT_EQ(twice[0], "button 13 of the wheel: role: G920 R Paddle, secondary of G920 B");
+    // The built-in configs use every control once.
+    for (const char* name : {"g920-virtual-device.ini", "g920-in-game-shim.ini"}) {
+        const std::optional<std::string> text = readFileText(std::filesystem::path(WHEELBRI_CONFIG_DIR) / name);
+        ASSERT_TRUE(text.has_value()) << name;
+        EXPECT_TRUE(controlsUsedTwice(mappingModel(load(*text)), g920).empty()) << name;
+    }
+}
+
+TEST(MappingEdit, AutoMapKeepsSecondaries) {
+    MappingModel model = mappingModel(load(kConfig));
+    model.secondaries[2] = {{{{}, 13}, false, false, 0.5F},   // X also <- button 13, whose role is the R paddle
+                            {{{}, 3}, true, false, 0.5F}};    // ... and the axis whose role is the clutch
+    Rig rig;
+    RigDevice wheel;
+    wheel.id = {0x346E, 0x0005};
+    wheel.axes[0] = {"Wheel", ControlRole::Steering, false};
+    wheel.axes[3] = {"Clutch", ControlRole::Clutch, false};
+    wheel.axes[4] = {"Hand", ControlRole::Handbrake, false};
+    wheel.buttons[13] = {"R", ControlRole::RightPaddle, false};
+    wheel.buttons[0] = {"A", ControlRole::ButtonA, false};
+    rig.devices = {wheel};
+    const MappingModel before = model;
+    const AutoMapResult result = autoMap(model, rig, DeviceProfile(g920Spec()));
+    EXPECT_EQ(model.secondaries, before.secondaries);   // the user's: kept
+    EXPECT_FALSE(model.buttons[4].mapped());            // R paddle left empty (was button 13)
+    EXPECT_FALSE(model.axes[MappingModel::kClutch].mapped());
+    EXPECT_EQ(model.buttons[0], (SourceRef{{}, 0}));
+    EXPECT_EQ(result.set, 2);   // steering and A
+    std::string all;
+    for (const std::string& note : result.notes) all += note + "\n";
+    EXPECT_NE(all.find("'R' (button 13 of 346e:0005) is a secondary of X: G920 R Paddle left empty; remove it from X "
+                       "to put it on G920 R Paddle"),
+              std::string::npos)
+        << all;
+    EXPECT_NE(all.find("is a secondary of X: G920 clutch left empty"), std::string::npos) << all;
+    EXPECT_NE(all.find("add it as a secondary of the button your game brakes with"), std::string::npos) << all;
+}
+
+TEST(MappingEdit, AutoMapFreesAnAxisPlacedElsewhere) {
+    MappingModel model = mappingModel(load(kConfig));   // throttle axis 2, brake 5
+    Rig rig;
+    RigDevice wheel;
+    wheel.id = {0x346E, 0x0005};
+    wheel.axes[0] = {"Wheel", ControlRole::Steering, false};
+    wheel.axes[5] = {"Gas", ControlRole::Throttle, false};   // axis 5 is the throttle now: no longer the brake
+    rig.devices = {wheel};
+    const AutoMapResult result = autoMap(model, rig, DeviceProfile(g920Spec()));
+    EXPECT_EQ(model.axes[MappingModel::kThrottle], (SourceRef{{}, 5}));
+    EXPECT_FALSE(model.axes[MappingModel::kBrake].mapped());
+    std::string all;
+    for (const std::string& note : result.notes) all += note + "\n";
+    EXPECT_NE(all.find("brake: no longer 5"), std::string::npos) << all;
 }

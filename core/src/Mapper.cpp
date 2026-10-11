@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <optional>
 
 namespace wheelbri {
@@ -68,6 +69,13 @@ Mapper::Mapper(const MapperConfig& config) : config_(config) {
     for (std::size_t target = 0; target < config_.buttonMap.size(); ++target) {
         if (config_.buttonMap[target] != static_cast<int>(target)) {
             WE_LOG_DEBUG(log(), "mapper: button target {} <- source {}", target, config_.buttonMap[target]);
+        }
+        for (const ButtonSource& alt : config_.buttonSecondary[target]) {
+            if (!alt.mapped()) continue;
+            WE_LOG_DEBUG(log(), "mapper: button target {} also <- device {} {} {}{}", target, alt.device,
+                         alt.axis ? "axis" : "button", alt.index,
+                         alt.axis ? std::format(" past {:.0f}%{}", alt.threshold * 100.0F, alt.invert ? " (inverted)" : "")
+                                  : std::string());
         }
     }
     const HatButtons& hat = config_.hatButtons;
@@ -160,9 +168,25 @@ float Mapper::mapPedal(const PedalConfig& pedal, const RawInputs& inputs) {
 std::uint32_t Mapper::mapButtons(const RawInputs& inputs) const {
     std::uint32_t target = 0;
     for (std::size_t i = 0; i < config_.buttonMap.size(); ++i) {
-        if (buttonDown(inputs, config_.buttonDevice[i], config_.buttonMap[i])) {
-            target |= 1U << i;
+        bool down = buttonDown(inputs, config_.buttonDevice[i], config_.buttonMap[i]);
+        for (std::size_t s = 0; s < MapperConfig::kMaxSecondaries; ++s) {
+            const ButtonSource& alt = config_.buttonSecondary[i][s];
+            if (!alt.mapped()) continue;
+            if (!alt.axis) {
+                down = down || buttonDown(inputs, alt.device, alt.index);
+                continue;
+            }
+            // An axis: its travel from where it rests; pressed from the threshold, released kAxisButtonRelease below
+            // it, so a lever resting right at the threshold does not flicker. Every axis is followed (not only until
+            // one source is down), so each latch stays right.
+            const std::optional<float> raw = axisValue(inputs, alt.device, alt.index);
+            const float v = std::clamp(raw.value_or(alt.invert ? 1.0F : -1.0F), -1.0F, 1.0F);
+            const float travel = alt.invert ? (1.0F - v) * 0.5F : (v + 1.0F) * 0.5F;
+            bool& latched = axisDown_[i][s];
+            latched = latched ? travel >= alt.threshold - kAxisButtonRelease : travel >= alt.threshold;
+            down = down || latched;
         }
+        if (down) target |= 1U << i;
     }
     return target;
 }

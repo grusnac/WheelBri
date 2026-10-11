@@ -77,12 +77,18 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
             control.deadzone = percentPart(part, 9, error);
         } else if (axis && part.rfind("full ", 0) == 0) {
             control.full = percentPart(part, 5, error);
-        } else if (const auto role = parseRole(parts[i]); role && isAxisRole(*role) == axis) {
+        } else if (const auto role = parseRole(parts[i]); role && roleFits(*role, axis)) {
             control.role = *role;
         } else if (!parts[i].empty()) {
             error = "'" + parts[i] + "' is not " + (axis ? "an axis role, 'invert', 'deadzone N%' or 'full N%'"
                                                              : "a button role or 'invert'");
         }
+    }
+    // A name made by picking the role, written the way the role is named now ("D-pad up" -> "D-pad Up"; the paddles
+    // were "Left paddle" / "Right paddle"); a name of the user's own stays as it is.
+    if (!control.label.empty() &&
+        (lower(control.label) == lower(roleLabel(control.role)) || lower(control.label) == roleName(control.role))) {
+        control.label = roleLabel(control.role);
     }
     // The dead zones after the role (the parts can come in any order): only where the role has them, in range.
     if (control.deadzone || control.full) {
@@ -144,6 +150,12 @@ std::string roleLabel(const ControlRole role) {
         case ControlRole::ButtonY: return "Y";
         case ControlRole::Rsb: return "RSB";
         case ControlRole::Lsb: return "LSB";
+        case ControlRole::LeftPaddle: return "L Paddle";
+        case ControlRole::RightPaddle: return "R Paddle";
+        case ControlRole::DpadUp: return "D-pad Up";
+        case ControlRole::DpadRight: return "D-pad Right";
+        case ControlRole::DpadDown: return "D-pad Down";
+        case ControlRole::DpadLeft: return "D-pad Left";
         default: break;
     }
     std::string text = roleName(role);
@@ -163,9 +175,9 @@ std::string g920ButtonFor(const ControlRole role) {
         case ControlRole::Lsb: return "LSB";
         case ControlRole::Xbox: return "Xbox";
         case ControlRole::RightPaddle:   // the G920's paddles; shifting up and down is what games use them for
-        case ControlRole::ShiftUp: return "R paddle";
+        case ControlRole::ShiftUp: return "R Paddle";
         case ControlRole::LeftPaddle:
-        case ControlRole::ShiftDown: return "L paddle";
+        case ControlRole::ShiftDown: return "L Paddle";
         case ControlRole::GearReverse: return "Gear R";
         default: break;
     }
@@ -174,6 +186,13 @@ std::string g920ButtonFor(const ControlRole role) {
     }
     return {};
 }
+
+bool roleFits(const ControlRole role, const bool axis) {
+    if (role == ControlRole::Handbrake) return true;
+    return isAxisRole(role) == axis;
+}
+
+bool axisDrivesButtons(const ControlRole role) { return isPedal(role) || role == ControlRole::Handbrake; }
 
 bool isPedal(const ControlRole role) {
     return role == ControlRole::Throttle || role == ControlRole::Brake || role == ControlRole::Clutch;
@@ -292,22 +311,46 @@ std::string sameRoleElsewhere(const Rig& rig, const DeviceId& device, const bool
     return {};
 }
 
+const RigDevice* rigDeviceFor(const MapperConfig& mapper, const Rig& rig, const std::string& sourceDeviceMatch,
+                              const int number) {
+    if (number == 0) {
+        if (sourceDeviceMatch.empty()) return rig.wheel();
+        for (const RigDevice& device : rig.devices) {
+            if (deviceMatches(device.name, device.id.vendorId, device.id.productId, sourceDeviceMatch)) return &device;
+        }
+        return nullptr;
+    }
+    if (number < 0 || static_cast<std::size_t>(number) > mapper.accessories.size()) return nullptr;
+    const DeviceId& id = mapper.accessories[static_cast<std::size_t>(number - 1)];
+    return id.empty() ? nullptr : rig.find(id);
+}
+
+std::vector<std::string> buttonAxisProblems(const MapperConfig& mapper, const Rig& rig,
+                                            const std::string& sourceDeviceMatch) {
+    std::vector<std::string> problems;
+    for (std::size_t t = 0; t < mapper.buttonSecondary.size(); ++t) {
+        for (const ButtonSource& alt : mapper.buttonSecondary[t]) {
+            if (!alt.mapped() || !alt.axis) continue;
+            const RigDevice* const device = rigDeviceFor(mapper, rig, sourceDeviceMatch, alt.device);
+            if (device == nullptr || alt.index >= static_cast<int>(device->axes.size())) continue;   // not in the rig
+            const ControlRole role = device->axes[static_cast<std::size_t>(alt.index)].role;
+            if (!axisDrivesButtons(role)) {
+                problems.push_back("[buttons] target_" + std::to_string(t) + "_or: axis " + std::to_string(alt.index) +
+                                   " of " + (device->name.empty() ? deviceId(device->id.vendorId, device->id.productId)
+                                                                  : device->name) +
+                                   " is " + (role == ControlRole::None ? std::string("not named in the rig")
+                                                                       : std::string("the ") + roleName(role)) +
+                                   ": only a throttle, brake, clutch or handbrake axis should press a button (it is "
+                                   "used anyway)");
+            }
+        }
+    }
+    return problems;
+}
+
 std::vector<std::string> applyRigDeadzones(MapperConfig& mapper, const Rig& rig, const std::string& sourceDeviceMatch) {
     std::vector<std::string> notes;
-    const auto deviceFor = [&](const int number) -> const RigDevice* {
-        if (number == 0) {
-            if (sourceDeviceMatch.empty()) return rig.wheel();
-            for (const RigDevice& device : rig.devices) {
-                if (deviceMatches(device.name, device.id.vendorId, device.id.productId, sourceDeviceMatch)) {
-                    return &device;
-                }
-            }
-            return nullptr;
-        }
-        if (number < 0 || static_cast<std::size_t>(number) > mapper.accessories.size()) return nullptr;
-        const DeviceId& id = mapper.accessories[static_cast<std::size_t>(number - 1)];
-        return id.empty() ? nullptr : rig.find(id);
-    };
+    const auto deviceFor = [&](const int number) { return rigDeviceFor(mapper, rig, sourceDeviceMatch, number); };
     // The rig's control an emulated axis reads, or null.
     const auto controlFor = [&](const int device, const int axis, const RigDevice*& owner) -> const RigControl* {
         owner = deviceFor(device);

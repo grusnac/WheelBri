@@ -7,7 +7,7 @@
 #   package.ps1 -NoSetupExe                only the folder and the zip
 #
 # Needs: build\service\wheelbri.exe, wheelbri-service.exe, wheelbri-helper.exe, build\shim\dinput8.dll
-# (scripts/make/build.sh) and the two driver packages (scripts/make/drivers.sh), all Release.
+# (scripts/make/app.sh --no-start) and the two driver packages (scripts/make/drivers.sh), all Release.
 #
 # Exit codes: 0 built, 1 something is missing or wrong (the red line says what).
 
@@ -40,7 +40,7 @@ $programs = @(
     @{ From = "$build\shim\dinput8.dll";             To = 'shim\dinput8.dll' }
 )
 foreach ($program in $programs) {
-    if (-not (Test-Path $program.From)) { Fail "missing $($program.From): run scripts/make/build.sh first." }
+    if (-not (Test-Path $program.From)) { Fail "missing $($program.From): run scripts/make/app.sh --no-start first." }
 }
 # The programs must start on a PC without MSYS2: no MinGW runtime DLL may be imported (they link it statically).
 foreach ($program in $programs) {

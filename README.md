@@ -128,9 +128,10 @@ a headline, why it was needed, how to use it, and where to look.
 - **Use:** tab R: touch a control (Detect), pick its role (the name fills in with the role's: press the button
   that should be Y, click **Y**, Enter), or type your own name; **Save**. Button roles are the G920's own buttons (A,
   B, X, Y, Menu, View, RSB, LSB, Xbox, the paddles, the D-pad, the shifter's gears) plus plain Button; Auto-map puts
-  each on that G920 button. Several rigs, the active one remembered. The device with a Steering axis is the wheel. Steering and pedal axes can have dead zones, typed in %
-  in the axis popup (the live bar shows them): steering around the centre, a pedal at its released end, and a
-  pedal's "full at" point (fully pressed from there on). Dead zones belong to the real devices, so only the rig has
+  each on that G920 button. Several rigs, the active one remembered. The device with a Steering axis is the wheel.
+  **Handbrake** is a role for an axis or a button (a lever like Moza's HBP reports an axis, or a button when switched
+  to that in its own software). Steering and pedal axes can have dead zones, typed in % in the axis popup (the live
+  bar shows them): steering around the centre, a pedal at its released end, and a pedal's "full at" point (fully pressed from there on). Dead zones belong to the real devices, so only the rig has
   them: at Start they are laid over the mapping for whichever emulated axis reads that control (the log says
   `rig: throttle <- 'Gas' (axis 1 of Pedals): dead zone 3%, full 95% (the rig's)`). Empty = the config's own
   (`deadzone_low` 2%, `saturation_high` 95-98%, steering `deadzone` 0). In the file:
@@ -143,9 +144,19 @@ a headline, why it was needed, how to use it, and where to look.
 - **Why:** the target (the G920) is fixed; which rig control drives each of its axes and buttons is the user's.
 - **Use:** tab M while stopped: click a G920 input and pick a rig control, or **Auto-map** from the rig's roles;
   **Save** writes your own mapping, **Default** goes back to WheelBri's. While running the same tab is the live view.
+  Every G920 input has one **role assignment** (its main source), and every G920 button can also have up to 8
+  **secondary assignments** ("or"): buttons, or **throttle, brake, clutch or handbrake axes** that press it past a
+  threshold of their travel (25-75%, 50% by default), e.g. G920 X <- the wheel's X *or* a handbrake lever *or* a
+  button box button. Steering and unnamed axes are never offered: they have no "pressed" direction. Saved as
+  `[buttons] target_N_or = 30b7:1001/axis 3 > 50%, 1234:5678/0`; the live view marks such a button with "+".
+  **Each rig control is used once** in a mapping: as one input's role assignment or as one button's secondary. Both
+  pickers show a control used elsewhere greyed, and hovering over it says where ("Role: G920 A", "Secondary of G920
+  X"); clear it there first. A control used twice (an older mapping) is red, with both places in its tooltip; Save
+  refuses until it is fixed, and Start warns about it.
   **Auto-map** places every control that has a role in the (saved) rig: steering and pedal axes, the D-pad, the
-  G920's named buttons; plain buttons and anything without a role stay as they are. A button placed this way leaves
-  any other G920 input it drove (one button, one input). It says what it could not do, in the status and the log
+  G920's named buttons; plain buttons and anything without a role stay as they are. A control placed this way leaves
+  any other G920 input it drove (a control, one place). Your secondaries stay: a control that is a secondary is not
+  placed by its role, and that input is left empty (the note says so). It says what it could not do, in the status and the log
   (`service.mapping`): a role on two controls (the first in the rig keeps it; the Rig tab says so when you give it),
   a role the G920 lacks (handbrake axis, Gear 7), sources still pointing at controls the rig has not named (amber),
   and a Rig tab with unsaved changes.
@@ -246,8 +257,8 @@ a headline, why it was needed, how to use it, and where to look.
 
 ## Build
 
-The scripts in [`scripts/make/`](scripts/make/README.md) run all of this for you (`build.sh`, `rebuild.sh`,
-`test.sh`, `check.sh`, `ui.sh`, `app.sh`, `shim.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`) from an MSYS2 UCRT64 shell.
+The scripts in [`scripts/make/`](scripts/make/README.md) run all of this for you (`app.sh [--test]`,
+`rebuild.sh`, `ui.sh`, `shim.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`) from an MSYS2 UCRT64 shell.
 
 Needs CMake ≥ 3.24 and a C++20 compiler; on Linux also the X11 headers (`libx11-dev`). No other libraries: the
 service uses DirectInput / Win32 on Windows and evdev / X11 on Linux (it runs on those two only). spdlog and

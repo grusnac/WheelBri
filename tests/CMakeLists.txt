@@ -67,6 +67,8 @@ add_executable(wheelbri_tests
 target_link_libraries(wheelbri_tests PRIVATE wheelbri_core GTest::gtest_main)
 # Emulated devices, sockets and waits for the events loop (PushLoopTest).
 target_include_directories(wheelbri_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# The shipped configs (config/), which some tests read as they are.
+target_compile_definitions(wheelbri_tests PRIVATE WHEELBRI_CONFIG_DIR="${PROJECT_SOURCE_DIR}/config")
 
 # The service's platform code with real sockets, events, folders and threads: platform::WaitSet (the event loop),
 # FolderWatch and DeviceChanges (device notices), and DeviceWatch with a fake lister.

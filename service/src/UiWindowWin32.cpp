@@ -181,6 +181,7 @@ public:
         hwheelDelta_ %= WHEEL_DELTA;
         input.pointer = pointer_;
         input.leftDown = leftDown_;
+        input.pointerInside = inside_;
         return input;
     }
 
@@ -401,6 +402,17 @@ private:
                 return true;
             case WM_MOUSEMOVE:
                 pointer_ = toCanvas(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
+                if (!inside_) {
+                    // Asks for one WM_MOUSELEAVE when the mouse leaves (then asked again on the next move in).
+                    TRACKMOUSEEVENT track{};
+                    track.cbSize = sizeof(track);
+                    track.dwFlags = TME_LEAVE;
+                    track.hwndTrack = hwnd;
+                    inside_ = TrackMouseEvent(&track) != FALSE;
+                }
+                return true;
+            case WM_MOUSELEAVE:
+                inside_ = false;
                 return true;
             case WM_LBUTTONUP:
                 pointer_ = toCanvas(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)));
@@ -559,6 +571,7 @@ private:
     int hwheelDelta_ = 0;
     Click pointer_;
     bool leftDown_ = false;
+    bool inside_ = false;   // the mouse is over the window (WM_MOUSELEAVE is being tracked)
     std::vector<Click> clicks_;
 };
 

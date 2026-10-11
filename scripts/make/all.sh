@@ -13,7 +13,7 @@ clean=0
 if [ $clean -eq 1 ]; then
     bash "$here/rebuild.sh" || exit 1
 else
-    bash "$here/build.sh" || exit 1
+    bash "$here/app.sh" --no-start || exit 1
 fi
 
 if on_windows; then

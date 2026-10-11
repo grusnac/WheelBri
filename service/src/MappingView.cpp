@@ -488,6 +488,15 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
         }
 
         cellText[39] = '\0';   // what fits the cell
+        if (mapper_.buttonSecondary[target][0].mapped()) {
+            // Secondary sources too (a button, or an axis past a threshold): a "+" at the cell's end.
+            const std::size_t length = std::strlen(cellText);
+            if (length < 38) {
+                std::memset(cellText + length, ' ', 38 - length);
+            }
+            cellText[38] = '+';
+            cellText[39] = '\0';
+        }
         fill(window_, x, y, kWidth, kHeight, pressed ? kActive : kPanel);
         const Colour colour = pressed ? kDark : (source < 0 ? kDim : kText);
         text(window_, x + 3, y + 3, cellText, colour);

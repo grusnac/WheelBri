@@ -5,6 +5,7 @@
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/MappingEdit.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <optional>
@@ -95,6 +96,43 @@ public:
         }
         index = source->index;
         device = *number;
+    }
+
+    // "5", "044f:b696/5", "axis 3 > 50%", "044f:b696/axis 3 inverted > 40%", "-1" (MappingEdit.hpp, ButtonRef).
+    // A target button's secondary sources: a comma-separated list of buttons and axes (parseButtonRefs), -1 or
+    // empty for none.
+    void readButtonSources(const std::string& key, std::array<ButtonSource, MapperConfig::kMaxSecondaries>& out,
+                           MapperConfig& mapper) {
+        const auto value = lookup(key);
+        if (!value) return;
+        const auto refs = parseButtonRefs(*value);
+        const bool buttonTooHigh = refs && std::any_of(refs->begin(), refs->end(), [](const ButtonRef& ref) {
+            return !ref.axis && ref.source.index > 63;
+        });
+        if (!refs || buttonTooHigh) {
+            invalid(key, *value,
+                    "buttons (5, vid:pid/5) and axes (axis 3 > 50%, vid:pid/axis 3 inverted > 40%), comma-separated, "
+                    "or -1");
+            return;
+        }
+        if (refs->size() > out.size()) {
+            errors_.push_back("[" + section_ + "] " + key + " = '" + *value + "': at most " +
+                              std::to_string(out.size()) + " secondary sources per button");
+            return;
+        }
+        out = {};
+        for (std::size_t i = 0; i < refs->size(); ++i) {
+            const ButtonRef& ref = (*refs)[i];
+            const auto number = deviceNumber(mapper, ref.source.device);
+            if (!number) {
+                errors_.push_back("[" + section_ + "] " + key + " = '" + *value + "': at most " +
+                                  std::to_string(MapperConfig::kMaxAccessories) +
+                                  " accessories besides the wheel can be read at once");
+                out = {};
+                return;
+            }
+            out[i] = ButtonSource{*number, ref.source.index, ref.axis, ref.invert, ref.threshold};
+        }
     }
 
     // A key earlier versions read: accepted (not an unknown key) and ignored, so an older file still loads.
@@ -211,6 +249,9 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         for (std::size_t target = 0; target < config.mapper.buttonMap.size(); ++target) {
             reader.readSource("target_" + std::to_string(target), config.mapper.buttonMap[target],
                               config.mapper.buttonDevice[target], 63, true, config.mapper);
+            // target_N_or: its secondary sources, buttons and axes (MapperConfig::buttonSecondary).
+            reader.readButtonSources("target_" + std::to_string(target) + "_or", config.mapper.buttonSecondary[target],
+                                     config.mapper);
         }
         reader.reportUnknownKeys();
     }

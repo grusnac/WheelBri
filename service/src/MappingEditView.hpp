@@ -47,6 +47,13 @@ public:
     void onText(const std::string& text);
     // The pointer every frame (panel coordinates): drags the game full lock slider while the left button is held.
     void onPointer(float x, float y, bool leftDown);
+    // Where the mouse is (panel coordinates) every frame, and whether it is over the tab: a hovered greyed control in
+    // a picker shows where it is used.
+    void setHover(const float x, const float y, const bool inside) {
+        hoverX_ = x;
+        hoverY_ = y;
+        hoverInside_ = inside;
+    }
     // A number field is being typed in: letters are not the window's shortcuts then, Escape stops typing.
     [[nodiscard]] bool editingText() const { return field_ != Field::None; }
     [[nodiscard]] bool dirty() const { return loaded_ && edit_ != saved_; }
@@ -54,7 +61,7 @@ public:
     [[nodiscard]] bool popupOpen() const { return mode_ != Mode::Idle; }
 
 private:
-    enum class Mode { Idle, Pick, PickWheel };
+    enum class Mode { Idle, Pick, PickWheel, PickAlt };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
     enum class Slot { Axis, Hat, Button };
     // A number field: one of the two rotations, or a game's own rotation (`fieldIndex_` = its gameProfiles() index).
@@ -63,6 +70,19 @@ private:
     struct Hit {
         float x, y, w, h;
         std::function<void()> action;
+    };
+    struct Tip {
+        float x, y, w, h;
+        std::string text;
+    };
+    // How a picker shows a rig control (each control is used once in a mapping: usesOf, MappingEdit.hpp): `mine`
+    // what is being picked has it; `taken` something else has it (greyed, `tip` says what); `twice` it is used more
+    // than once (red: Save refuses).
+    struct EntryState {
+        bool mine = false;
+        bool taken = false;
+        bool twice = false;
+        std::string tip;
     };
 
     void load();
@@ -77,13 +97,30 @@ private:
 
     [[nodiscard]] const DeviceLabels* wheelLabels() const;
     [[nodiscard]] const DeviceLabels* labelsOf(const SourceRef& source) const;
+    // "Moza R3: A": the device and the control's role (its name when it has none, else its number).
     [[nodiscard]] std::string describe(const SourceRef& source, bool axis) const;
+    // The hover text: name, number and role ("Moza R3: 'A', button 0, role A").
+    [[nodiscard]] std::string describeFull(const SourceRef& source, bool axis) const;
+    [[nodiscard]] std::string deviceText(const SourceRef& source) const;
     [[nodiscard]] SourceRef& slot(Slot kind, std::size_t index);
 
     void drawSource(float x, float y, float w, Slot kind, std::size_t index);
     void drawWheelRow();   // the wheel (it plays force feedback), Change, Auto-map
     void drawPicker();
     void drawWheelPicker();
+    // A target button's secondary sources (MappingModel::secondaries): its field (the first, "+N" more), and its
+    // picker (the rig's buttons and its throttle, brake, clutch and handbrake axes, each toggled; an axis' threshold).
+    void drawAltSource(float x, float y, float w, std::size_t index);
+    void drawAltPicker();
+    [[nodiscard]] std::string describeAlt(const ButtonRef& alt) const;
+    [[nodiscard]] std::string axisName(const SourceRef& source) const;
+    [[nodiscard]] std::string shortAlt(const ButtonRef& alt) const;     // "Horn", "Lever > 50%"   // its rig label, role, or "axis N"
+    [[nodiscard]] EntryState entryState(const ControlRef& control, const ControlUse& self) const;
+    // A picker's entry for a rig control: highlighted when `state.mine`, greyed (no click, a tooltip) when taken.
+    void drawEntry(float x, float y, float w, const std::string& text, const EntryState& state,
+                   std::function<void()> action);
+    void tip(float x, float y, float w, float h, std::string text);
+    void drawTooltip();
     // The STEERING ROTATION section from `y`: the game's full lock, the wheel's rotation, the games' advice.
     void drawRotation(float y);
     // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
@@ -105,6 +142,12 @@ private:
     Rig rig_;
     ConfigPicker& picker_;
     std::vector<Hit> hits_;
+    std::vector<Tip> tips_;
+    std::size_t popupTips_ = 0;   // tips_ from here on are the open popup's
+    float hoverX_ = 0.0F;
+    float hoverY_ = 0.0F;
+    bool hoverInside_ = false;
+    std::size_t altFocus_ = 0;   // the secondary whose threshold the picker edits (when it is an axis)
 
     std::uint64_t seenChanges_ = ~0ULL;
     std::string path_;

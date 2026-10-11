@@ -81,6 +81,8 @@ struct WindowInput {
     // While the button is held the position keeps coming even outside the window.
     Click pointer;
     bool leftDown = false;
+    // Whether the mouse is over the window (hover tooltips go when it leaves). Moves arrive with no button held too.
+    bool pointerInside = false;
 };
 
 class UiWindow {

@@ -41,7 +41,8 @@ TEST(Rig, RolesHaveNamesAndKinds) {
         EXPECT_EQ(parseRole(roleName(role)), role);
     }
     for (const ControlRole role : kButtonRoles) {
-        EXPECT_FALSE(isAxisRole(role));
+        EXPECT_TRUE(roleFits(role, false));
+        EXPECT_EQ(role == ControlRole::Handbrake, roleFits(role, true));   // the handbrake: axis or button
         EXPECT_EQ(parseRole(roleName(role)), role);
     }
     EXPECT_EQ(parseRole(" D-Pad Up "), ControlRole::DpadUp);
@@ -220,7 +221,25 @@ TEST(Rig, TheG920sButtonsAreRolesWithItsNames) {
     EXPECT_EQ(roleLabel(ControlRole::ButtonY), "Y");
     EXPECT_EQ(roleLabel(ControlRole::Rsb), "RSB");
     EXPECT_EQ(roleLabel(ControlRole::Xbox), "Xbox");
-    EXPECT_EQ(roleLabel(ControlRole::DpadUp), "D-pad up");
+    EXPECT_EQ(roleLabel(ControlRole::DpadUp), "D-pad Up");
+    EXPECT_EQ(roleLabel(ControlRole::DpadLeft), "D-pad Left");
+    EXPECT_EQ(roleLabel(ControlRole::LeftPaddle), "L Paddle");
+    EXPECT_EQ(roleLabel(ControlRole::RightPaddle), "R Paddle");
+    EXPECT_EQ(g920ButtonFor(ControlRole::ShiftUp), "R Paddle");
+    // A name made by picking the role under the old role names reads as the new one; a name of the user's own stays.
+    const IniDocument oldNames = IniDocument::parse(
+        "[device_1]\nname = Wheel\nid = 346e:0005\nkind = wheel\nbutton_12 = Left paddle | left paddle\n"
+        "button_13 = Right Paddle | right paddle\nbutton_14 = Left paddle | button\nbutton_15 = Shift | right paddle\n"
+        "button_4 = D-pad up | d-pad up\nbutton_5 = Hat right | d-pad right\n")
+                                     .document;
+    const RigResult read = loadRig(oldNames);
+    ASSERT_EQ(read.rig.devices.size(), 1U);
+    EXPECT_EQ(read.rig.devices[0].buttons[12].label, "L Paddle");
+    EXPECT_EQ(read.rig.devices[0].buttons[13].label, "R Paddle");
+    EXPECT_EQ(read.rig.devices[0].buttons[14].label, "Left paddle");
+    EXPECT_EQ(read.rig.devices[0].buttons[15].label, "Shift");
+    EXPECT_EQ(read.rig.devices[0].buttons[4].label, "D-pad Up");
+    EXPECT_EQ(read.rig.devices[0].buttons[5].label, "Hat right");
     EXPECT_EQ(roleLabel(ControlRole::Steering), "Steering");
     EXPECT_EQ(roleLabel(ControlRole::None), "");
     for (const ControlRole role : kButtonRoles) {
@@ -259,4 +278,31 @@ TEST(Rig, SameRoleElsewhere) {
     EXPECT_EQ(sameRoleElsewhere(rig, wheel, true, 3, ControlRole::Throttle), "axis 1 ('Gas') of Pedals");
     EXPECT_EQ(sameRoleElsewhere(rig, wheel, false, 20, ControlRole::Button), "");   // plain buttons repeat
     EXPECT_EQ(sameRoleElsewhere(rig, wheel, false, 20, ControlRole::ButtonY), "");
+}
+
+TEST(Rig, OnlyOneSidedAxesDriveButtons) {
+    for (const ControlRole role : {ControlRole::Throttle, ControlRole::Brake, ControlRole::Clutch, ControlRole::Handbrake}) {
+        EXPECT_TRUE(axisDrivesButtons(role)) << roleName(role);
+    }
+    for (const ControlRole role : {ControlRole::Steering, ControlRole::OtherAxis, ControlRole::None, ControlRole::Button}) {
+        EXPECT_FALSE(axisDrivesButtons(role)) << roleName(role);
+    }
+    // A handbrake switched to report a button keeps its role.
+    const RigResult back = load("[device_1]\nid = 346e:1000\nbutton_0 = Hand | handbrake\naxis_0 = Lever | handbrake\n");
+    EXPECT_TRUE(back.errors.empty()) << back.errors.front();
+    EXPECT_EQ(back.rig.devices[0].buttons[0].role, ControlRole::Handbrake);
+    EXPECT_EQ(back.rig.devices[0].axes[0].role, ControlRole::Handbrake);
+}
+
+TEST(Rig, AnAxisPressingAButtonShouldBeOneSided) {
+    Rig rig = sampleRig();   // the pedals' axis 1 = Gas (throttle); the wheel's axis 0 = steering
+    MapperConfig mapper;
+    mapper.accessories[0] = {0x30B7, 0x1001};
+    mapper.buttonSecondary[2][0] = ButtonSource{1, 1, true, false, 0.5F};   // the gas pedal: fine
+    EXPECT_TRUE(buttonAxisProblems(mapper, rig, "346e:0005").empty());
+    mapper.buttonSecondary[3][0] = ButtonSource{0, 0, true, false, 0.5F};   // the steering: said
+    const std::vector<std::string> problems = buttonAxisProblems(mapper, rig, "346e:0005");
+    ASSERT_EQ(problems.size(), 1U);
+    EXPECT_NE(problems[0].find("target_3_or: axis 0 of My Racing Wheel is the steering"), std::string::npos)
+        << problems[0];
 }

@@ -16,7 +16,9 @@ namespace wheelbri {
                                                          const std::array<int, kMaxInputDevices>& axisCounts);
 
 // Converts the physical wheel's raw state into the target-agnostic WheelState.
-// Pure and allocation-free: safe to call on every pass of the service loop.
+// Allocation-free: safe to call on every pass of the service loop. One thread at a time: an axis that presses a
+// target button (MapperConfig::buttonSecondary) remembers whether it is pressed, for its release point.
+inline constexpr float kAxisButtonRelease = 0.05F;   // of the travel below the threshold: released there
 class Mapper {
 public:
     explicit Mapper(const MapperConfig& config);
@@ -40,6 +42,7 @@ private:
     [[nodiscard]] std::int8_t mapHat(const RawInputs& inputs) const;
 
     MapperConfig config_;
+    mutable std::array<std::array<bool, MapperConfig::kMaxSecondaries>, MapperConfig::kMaxTargetButtons> axisDown_{};
 };
 
 }  // namespace wheelbri

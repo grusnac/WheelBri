@@ -33,6 +33,7 @@
 #include "wheelbri/HidHideCli.hpp"
 #include "wheelbri/LogLevelPacket.hpp"
 #include "wheelbri/Logging.hpp"
+#include "wheelbri/MappingEdit.hpp"
 #include "wheelbri/Pipeline.hpp"
 #include "wheelbri/Rig.hpp"
 #include "wheelbri/SenderGate.hpp"
@@ -1344,6 +1345,17 @@ LoadedConfig loadForRun(const Options& options) {
         for (std::string& note :
              wheelbri::applyRigDeadzones(loaded.config.mapper, *rig, loaded.config.sourceDeviceMatch)) {
             loaded.notes.push_back(std::move(note));
+        }
+        for (std::string& problem :
+             wheelbri::buttonAxisProblems(loaded.config.mapper, *rig, loaded.config.sourceDeviceMatch)) {
+            loaded.warnings.push_back(std::move(problem));
+        }
+    }
+    // A control is used once (one input's role assignment or one button's secondary): an older mapping that uses one
+    // twice still runs as written, but both inputs press together.
+    if (const auto profile = wheelbri::makeProfile(loaded.config.targetProfile)) {
+        for (const std::string& line : wheelbri::controlsUsedTwice(wheelbri::mappingModel(loaded.config), *profile)) {
+            loaded.warnings.push_back("a control used twice: " + line + " (the Mapping tab marks it red)");
         }
     }
     return loaded;

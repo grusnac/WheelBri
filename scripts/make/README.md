@@ -5,12 +5,9 @@ work on Linux.
 
 | Script | When |
 |---|---|
-| `scripts/make/build.sh` | After any change: builds what changed (core, service, shim, tests). Configures the first time. Optional target: `build.sh wheelbri-service` |
 | `scripts/make/rebuild.sh` | Full rebuild of the CMake parts: deletes `build/`, configures and builds from scratch. After changing CMake files or options, or when a build acts up |
-| `scripts/make/test.sh` | Build, then all unit tests. `test.sh Mapper` runs only the matching ones |
-| `scripts/make/check.sh` | Before a commit: build, all unit tests, then `git status` |
 | `scripts/make/ui.sh` | Build the service and open its mapping window (`--ui`) with `config/moza-r3-as-g920.ini`, or the config given. The check after a mapping or config change |
-| `scripts/make/app.sh` | Build the app (`wheelbri.exe`: Start, Stop) and start it as Administrator (prompt), or `--as-user` as you (needs `wheelbri-helper.exe --console` running from an Administrator shell). `--no-start` only builds |
+| `scripts/make/app.sh` | After any change: builds everything that changed (core, app, service, helper, shim, tests; configures the first time) and starts the app (`wheelbri.exe`: Start, Stop) as Administrator (prompt), or `--as-user` as you (needs `wheelbri-helper.exe --console` running from an Administrator shell). `--test` runs the whole unit test suite before starting (nothing starts when a test fails); `--no-start` only builds (and tests, with `--test`) |
 | `scripts/make/shim.sh <game folder>` | Build `dinput8.dll` and copy it next to the game (plus `wheelbri-shim.ini` if there is none). `shim.sh --off <game folder>` takes it out, needed before using the virtual G920 |
 | `scripts/make/logi.sh` | Build `wheelbri-logi.dll` (the logging stand-in for Logitech's wheel SDK helper, for NFS Payback) and print the Administrator PowerShell commands that point the SDK's registry entry at it, and back at G HUB's library |
 | `scripts/make/drivers.sh` | Build the two UMDF drivers (Visual Studio + WDK). `-Install` installs them (Administrator prompt), `-Only g920`, `-Clean`, `-Configuration Debug` |
@@ -27,6 +24,6 @@ read; `-Remove` deletes it again). See `driver/README.md`.
 `package.sh`, `clean-pc.sh` and `measure.sh`; they can also be run on their own from PowerShell.
 
 Settings through the environment: `WE_BUILD_TYPE=Debug` (default `Release`), `WE_BUILD_DIR` (default `build`),
-`WE_CMAKE_ARGS` (extra configure arguments), for example `WE_BUILD_TYPE=Debug scripts/make/build.sh`.
+`WE_CMAKE_ARGS` (extra configure arguments), for example `WE_BUILD_TYPE=Debug scripts/make/app.sh`.
 
-To play, build and start the app (`scripts/make/app.sh`).
+To play, build and start the app (`scripts/make/app.sh`); before a commit, `scripts/make/app.sh --test`.

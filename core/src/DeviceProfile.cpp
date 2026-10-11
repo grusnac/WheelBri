@@ -77,7 +77,7 @@ DeviceProfileSpec g920Spec() {
     // shifter port: joy.cpl 13..18 for gears 1..6 and 19 for reverse (Logitech's Driving Force Shifter FAQ). joy.cpl
     // 12 exists on the G920 but nothing presses it. The names match what Auto-map looks for (MappingEdit.cpp).
     spec.buttonNames = {
-        "A",      "B",      "X",      "Y",      "R paddle", "L paddle", "Menu", "View", "RSB", "LSB",
+        "A",      "B",      "X",      "Y",      "R Paddle", "L Paddle", "Menu", "View", "RSB", "LSB",
         "Xbox",   "",       "Gear 1", "Gear 2", "Gear 3",   "Gear 4",   "Gear 5", "Gear 6", "Gear R",
     };
     return spec;

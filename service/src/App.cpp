@@ -472,6 +472,8 @@ private:
                 }
             }
             if (editingMapping) mapping_->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
+            // Hover tooltips (the pickers' used controls): where the mouse is, or nowhere once it left the window.
+            mapping_->setHover(input.pointer.x, input.pointer.y - kViewTop, editingMapping && input.pointerInside);
             if (view_ != nullptr && input.wheel != 0) view_->onScroll(input.wheel);
             if (view_ == nullptr && idleTab_ == IdleTab::Logs && input.wheel != 0) logs_->onScroll(input.wheel);
             // The live log's scroll bars: dragged with the mouse, and the sideways wheel.
@@ -499,8 +501,10 @@ private:
             const std::uint64_t now = platform::nowNs();
             const bool touched = !input.keys.empty() || !input.text.empty() || !input.clicks.empty() ||
                                  input.wheel != 0 || input.hwheel != 0 || input.leftDown ||
-                                 input.pointer.x != lastPointer_.x || input.pointer.y != lastPointer_.y;
+                                 input.pointer.x != lastPointer_.x || input.pointer.y != lastPointer_.y ||
+                                 input.pointerInside != lastInside_;
             lastPointer_ = input.pointer;
+            lastInside_ = input.pointerInside;
             const bool visible = window_->visible();
             if (visible && (touched || now >= nextDrawNs_)) {
                 drawWindow();
@@ -524,6 +528,7 @@ private:
     static constexpr std::uint64_t kHiddenWaitNs = 16 * platform::kNsPerMs;   // the window minimised: input only
     std::uint64_t nextDrawNs_ = 0;
     ui::Click lastPointer_{};
+    bool lastInside_ = false;
 
     [[nodiscard]] bool running() const { return session_.joinable(); }
 

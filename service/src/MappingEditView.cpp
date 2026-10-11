@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <span>
@@ -94,6 +95,28 @@ std::string readFile(const std::string& path) {
 
 DeviceId idOf(const DeviceLabels& labels) { return {labels.vendorId, labels.productId}; }
 
+// What a rig control is called in this tab: "Throttle/Gas" (its role / its name), one of them when they say the same
+// ("A", "D-pad Up" named "Up") or it has only one; empty when it has neither (the caller says its number).
+std::string controlName(const RigControl& control) {
+    const bool plain = control.role == ControlRole::None || control.role == ControlRole::Button ||
+                       control.role == ControlRole::OtherAxis;
+    const std::string role = plain ? std::string() : roleLabel(control.role);
+    const auto lower = [](std::string text) {
+        for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return text;
+    };
+    if (role.empty()) return control.label;
+    // The same, or the name is the role's last word ("D-pad Up" named "Up"): the role alone.
+    const std::string label = lower(control.label);
+    const std::string full = lower(role);
+    if (label.empty() || full == label ||
+        (full.size() > label.size() && full.compare(full.size() - label.size(), label.size(), label) == 0 &&
+         full[full.size() - label.size() - 1] == ' ')) {
+        return role;
+    }
+    return role + "/" + control.label;
+}
+
 std::string deviceName(const DeviceLabels& labels) {
     return labels.name.empty() ? deviceId(labels.vendorId, labels.productId) : labels.name;
 }
@@ -171,6 +194,16 @@ void MappingEditView::load() {
 
 void MappingEditView::save() {
     if (!loaded_) return;
+    // A control is used once: as one input's role assignment or as one button's secondary.
+    if (profile_ != nullptr) {
+        if (const std::vector<std::string> twice = controlsUsedTwice(edit_, *profile_); !twice.empty()) {
+            status_ = "Not saved: a control is used twice (red in its picker): " + twice.front() +
+                      (twice.size() > 1 ? " (+" + std::to_string(twice.size() - 1) + " more)" : "") + ".";
+            statusError_ = true;
+            for (const std::string& line : twice) WE_LOG_INFO(log(), "mapping: used twice: {}", line);
+            return;
+        }
+    }
     const MappingWriteResult written = writeMapping(fileText_, edit_);
     if (!written.error.empty()) {
         status_ = "Not saved: " + written.error + ".";
@@ -299,24 +332,35 @@ void MappingEditView::autoMapFromRig() {
     }
 }
 
+std::string MappingEditView::deviceText(const SourceRef& source) const {
+    const DeviceLabels* const labels = labelsOf(source);
+    return labels != nullptr       ? deviceName(*labels)
+           : source.device.empty() ? std::string("the wheel")
+                                   : deviceId(source.device.vendorId, source.device.productId);
+}
+
 std::string MappingEditView::describe(const SourceRef& source, const bool axis) const {
     if (!source.mapped()) return "(nothing)";
-    const DeviceLabels* const labels = labelsOf(source);
-    const std::string device = labels != nullptr       ? deviceName(*labels)
-                               : source.device.empty() ? std::string("the wheel")
-                                                       : deviceId(source.device.vendorId, source.device.productId);
-    std::string name;
-    std::string role;
-    if (const RigControl* const control = rigControl(source, axis)) {
-        name = control->label;
-        role = roleName(control->role);
-    }
-    if (missing(source, axis)) role = "not in the rig";
     const std::string number = (axis ? "axis " : "button ") + std::to_string(source.index);
-    // "Wheel: Gas  (axis 2, throttle)", "Wheel: axis 6", "Wheel: button 4  (d-pad up)".
-    std::string about = name.empty() ? std::string() : number;
-    if (!role.empty()) about += (about.empty() ? "" : ", ") + role;
-    return fit(device, 20) + ": " + (name.empty() ? number : name) + (about.empty() ? "" : "  (" + about + ")");
+    // "Pedals: Throttle/Gas": the control's role (what it is for) / its name; one of them when they say the same
+    // ("Moza R3: A") or it has only one; its number when it has neither.
+    const RigControl* const control = rigControl(source, axis);
+    std::string name = control != nullptr ? controlName(*control) : std::string();
+    if (name.empty()) name = number;
+    if (missing(source, axis)) name += "  (not in the rig)";
+    return fit(deviceText(source), 20) + ": " + name;
+}
+
+std::string MappingEditView::describeFull(const SourceRef& source, const bool axis) const {
+    if (!source.mapped()) return {};
+    // "Moza R3: A  (button 0, role A)": the hover text, with what the short form leaves out.
+    std::string text = deviceText(source) + ": ";
+    const std::string number = (axis ? "axis " : "button ") + std::to_string(source.index);
+    const RigControl* const control = rigControl(source, axis);
+    text += control != nullptr && !control->label.empty() ? "'" + control->label + "', " + number : number;
+    if (control != nullptr && control->role != ControlRole::None) text += ", role " + roleLabel(control->role);
+    if (missing(source, axis)) text += ", not in the rig";
+    return text;
 }
 
 SourceRef& MappingEditView::slot(const Slot kind, const std::size_t index) {
@@ -339,6 +383,9 @@ void MappingEditView::changeWheel(const DeviceLabels& wheel) {
     for (SourceRef& s : edit_.axes) move(s);
     for (SourceRef& s : edit_.buttons) move(s);
     for (SourceRef& s : edit_.hat) move(s);
+    for (auto& list : edit_.secondaries) {
+        for (ButtonRef& b : list) move(b.source);
+    }
     edit_.sourceDevice = deviceId(wheel.vendorId, wheel.productId);
     mode_ = Mode::Idle;
 }
@@ -513,8 +560,21 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
     const bool changed = kind == Slot::Axis     ? source != saved_.axes[index]
                          : kind == Slot::Hat    ? source != saved_.hat[index]
                                                 : source != saved_.buttons[index];
+    // Used twice (an older mapping): red, and where in a tooltip (Save refuses it).
+    const EntryState state =
+        source.mapped() ? entryState({source, kind == Slot::Axis},
+                                     {kind == Slot::Axis  ? ControlUse::Kind::Axis
+                                      : kind == Slot::Hat ? ControlUse::Kind::Hat
+                                                          : ControlUse::Kind::Button,
+                                      index})
+                        : EntryState{};
     window_.fill(x, y, w, 16, kStripe);
-    window_.outline(x, y, w, 16, changed ? kCaution : kPanel);
+    window_.outline(x, y, w, 16, state.twice ? kWarning : changed ? kCaution : kPanel);
+    if (state.twice) {
+        tip(x, y, w, 16, state.tip);
+    } else if (source.mapped()) {
+        tip(x, y, w, 16, describeFull(source, kind == Slot::Axis));
+    }
     const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
     window_.text(x + 6, y + 4, fit(describe(source, kind == Slot::Axis), chars),
                  missing(source, kind == Slot::Axis) ? kCaution : source.mapped() ? kText : kDim);
@@ -527,6 +587,7 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
 
 void MappingEditView::draw() {
     hits_.clear();
+    tips_.clear();
     const std::string target = profile_ != nullptr ? profile_->identity().shortName : std::string("G920");
     window_.text(4, 4, "MAPPING", kHeading);
     // With the shim, the app's games row is where this would be.
@@ -595,7 +656,10 @@ void MappingEditView::draw() {
         char label[32];
         std::snprintf(label, sizeof(label), "%2zu %.10s", index, std::string(name).c_str());
         window_.text(x, row + 4, label, kText);
-        drawSource(x + 112, row, 356, Slot::Button, index);
+        // The first source (a button), "or" a second one (a button, or a one-sided axis past a threshold).
+        drawSource(x + 112, row, 206, Slot::Button, index);
+        window_.text(x + 322, row + 4, "or", kDim);
+        drawAltSource(x + 342, row, 126, index);
     }
 
     drawRotation(gridEnd + 14);
@@ -609,8 +673,67 @@ void MappingEditView::draw() {
     window_.text(4, hint + 28, fit(status_.empty() ? state : status_, 118),
                  statusError_ ? kWarning : status_.empty() ? (dirty() ? kCaution : kDim) : kActive);
 
+    popupTips_ = tips_.size();   // a popup's own tips come after the tab's (which it covers)
     if (mode_ == Mode::Pick) drawPicker();
     if (mode_ == Mode::PickWheel) drawWheelPicker();
+    if (mode_ == Mode::PickAlt) drawAltPicker();
+    drawTooltip();   // over everything
+}
+
+void MappingEditView::tip(const float x, const float y, const float w, const float h, std::string text) {
+    tips_.push_back({x, y, w, h, std::move(text)});
+}
+
+void MappingEditView::drawTooltip() {
+    if (!hoverInside_) return;
+    // The last one drawn wins; with a popup open only its own (it covers the tab below it).
+    const std::size_t first = mode_ != Mode::Idle ? popupTips_ : 0;
+    for (auto it = tips_.rbegin(); it != tips_.rend() - static_cast<std::ptrdiff_t>(first); ++it) {
+        if (hoverX_ < it->x || hoverX_ >= it->x + it->w || hoverY_ < it->y || hoverY_ >= it->y + it->h) continue;
+        constexpr float kMaxW = 940;
+        const std::string text = fit(it->text, static_cast<std::size_t>((kMaxW - 12) / ui::kCharWidth));
+        const float w = static_cast<float>(text.size()) * ui::kCharWidth + 12;
+        constexpr float h = 18;
+        // Below and right of the pointer; moved in at the window's right edge, above the pointer at the bottom.
+        float x = std::min(hoverX_ + 12, 960 - w - 2);
+        float y = hoverY_ + 18;
+        if (y + h > kContentHeight - 2) y = hoverY_ - h - 6;
+        x = std::max(x, 2.0F);
+        window_.fill(x, y, w, h, kDark);
+        window_.outline(x, y, w, h, kHeading);
+        window_.text(x + 6, y + 5, text, kText);
+        return;
+    }
+}
+
+MappingEditView::EntryState MappingEditView::entryState(const ControlRef& control, const ControlUse& self) const {
+    EntryState state;
+    if (profile_ == nullptr) return state;
+    const std::vector<ControlUse> uses = usesOf(edit_, *profile_, control);
+    std::vector<std::string> others;
+    for (const ControlUse& use : uses) {
+        if (use == self) {
+            state.mine = true;
+        } else {
+            others.push_back(describeUse(use, *profile_));
+        }
+    }
+    state.taken = !others.empty();
+    state.twice = uses.size() > 1;
+    for (std::size_t i = 0; i < others.size(); ++i) state.tip += (i > 0 ? "; " : "") + others[i];
+    if (state.twice) state.tip = "Used twice: " + (state.mine ? "here; " : std::string()) + state.tip;
+    return state;
+}
+
+void MappingEditView::drawEntry(const float x, const float y, const float w, const std::string& text,
+                                const EntryState& state, std::function<void()> action) {
+    const bool greyed = state.taken && !state.mine;
+    window_.fill(x, y, w, 16, state.mine ? kHeading : greyed ? kDark : kPanel);
+    if (state.twice) window_.outline(x, y, w, 16, kWarning);
+    const auto chars = static_cast<std::size_t>((w - 8) / ui::kCharWidth);
+    window_.text(x + 4, y + 4, fit(text, chars), state.mine ? kDark : greyed ? kDim : kText);
+    if (!state.tip.empty()) tip(x, y, w, 16, state.tip);
+    if (!greyed && action) hit(x, y, w, 16, std::move(action));
 }
 
 void MappingEditView::drawRotation(const float top) {
@@ -721,6 +844,167 @@ void MappingEditView::drawRotation(const float top) {
     }
 }
 
+std::string MappingEditView::axisName(const SourceRef& source) const {
+    const RigControl* const control = rigControl(source, true);
+    const std::string name = control != nullptr ? controlName(*control) : std::string();
+    return name.empty() ? "axis " + std::to_string(source.index) : name;
+}
+
+std::string MappingEditView::shortAlt(const ButtonRef& alt) const {
+    if (alt.axis) return describeAlt(alt);
+    const RigControl* const control = rigControl(alt.source, false);
+    const std::string name = control != nullptr ? controlName(*control) : std::string();
+    return name.empty() ? "button " + std::to_string(alt.source.index) : name;
+}
+
+std::string MappingEditView::describeAlt(const ButtonRef& alt) const {
+    if (!alt.mapped()) return "(nothing)";
+    if (!alt.axis) return describe(alt.source, false);
+    // "Hand > 50%": the axis' name (or role), and where it presses the button.
+    return axisName(alt.source) + " > " + tuning::formatPercent(alt.threshold);
+}
+
+void MappingEditView::drawAltSource(const float x, const float y, const float w, const std::size_t index) {
+    const std::vector<ButtonRef>& list = edit_.secondaries[index];
+    const bool changed = list != saved_.secondaries[index];
+    const ControlUse self{ControlUse::Kind::Secondary, index};
+    const bool twice = std::any_of(list.begin(), list.end(), [this, &self](const ButtonRef& ref) {
+        return entryState({ref.source, ref.axis}, self).twice;
+    });
+    window_.fill(x, y, w, 16, kStripe);
+    window_.outline(x, y, w, 16, twice ? kWarning : changed ? kCaution : kPanel);
+    // The first, and how many more: "Hand > 50% +2".
+    const std::string more = list.size() > 1 ? " +" + std::to_string(list.size() - 1) : std::string();
+    const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
+    const std::string first =
+        list.empty() ? std::string("(nothing)") : fit(shortAlt(list.front()), chars - std::min(chars - 3, more.size()));
+    const bool absent = std::any_of(list.begin(), list.end(),
+                                    [this](const ButtonRef& ref) { return missing(ref.source, ref.axis); });
+    window_.text(x + 6, y + 4, fit(first + more, chars), absent ? kCaution : list.empty() ? kDim : kText);
+    if (!list.empty()) {
+        std::string all;
+        for (const ButtonRef& ref : list) all += (all.empty() ? "" : ", ") + describeAlt(ref);
+        tip(x, y, w, 16, (twice ? "A control here is used twice (red in the picker). " : "") +
+                             std::string("Also pressed by: ") + all);
+    }
+    hit(x, y, w, 16, [this, index] {
+        mode_ = Mode::PickAlt;
+        pickIndex_ = index;
+        altFocus_ = 0;
+    });
+}
+
+void MappingEditView::drawAltPicker() {
+    hit(0, 0, 960, kContentHeight, [] {});   // clicks outside the popup do nothing
+    window_.fill(kPopupX, kPopupY, kPopupW, kPopupH, kPopup);
+    window_.outline(kPopupX, kPopupY, kPopupW, kPopupH, kHeading);
+    const float left = kPopupX + 12;
+    const std::size_t target = pickIndex_;
+    const std::string targetName = profile_->identity().shortName + " " + std::string(profile_->buttonName(target));
+    window_.text(left, kPopupY + 10, "What else presses " + targetName + "? Its secondary assignments:", kHeading);
+    button(kPopupX + kPopupW - 100, kPopupY + 6, "Done", [this] { mode_ = Mode::Idle; }, false, true, 88);
+    std::vector<ButtonRef>& list = edit_.secondaries[target];
+    const std::size_t max = MapperConfig::kMaxSecondaries;
+    button(left, kPopupY + 28, "(clear all)", [&list] { list.clear(); }, false, !list.empty(), 100);
+    window_.text(left + 112, kPopupY + 32,
+                 std::to_string(list.size()) + " of " + std::to_string(max) +
+                     ". Click a control below to add or remove it; click an axis here for its threshold.",
+                 kDim);
+
+    // The ones it has, as chips (an axis' chip picks it for the threshold row).
+    constexpr float kChipW = 174;
+    if (altFocus_ >= list.size()) altFocus_ = 0;
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        const float x = left + static_cast<float>(i % 5) * (kChipW + 4);
+        const float y = kPopupY + 48 + static_cast<float>(i / 5) * 18;
+        const bool focused = list[i].axis && i == altFocus_;
+        window_.fill(x, y, kChipW, 16, focused ? kHeading : kStripe);
+        window_.outline(x, y, kChipW, 16, kHeading);
+        window_.text(x + 4, y + 4, fit(shortAlt(list[i]), 20), focused ? kDark : kText);
+        tip(x, y, kChipW, 16, list[i].axis ? describeAlt(list[i]) : describeFull(list[i].source, false));
+        if (list[i].axis) hit(x, y, kChipW, 16, [this, i] { altFocus_ = i; });
+    }
+    // An axis presses it past a threshold of its travel (from where it rests).
+    float y = kPopupY + 88;
+    if (altFocus_ < list.size() && list[altFocus_].axis) {
+        ButtonRef& focused = list[altFocus_];
+        window_.text(left, y + 4, fit(axisName(focused.source), 16) + " pressed past", kDim);
+        float x = left + 248;
+        for (const float threshold : {0.25F, 0.4F, 0.5F, 0.6F, 0.75F}) {
+            x += button(x, y, tuning::formatPercent(threshold), [&focused, threshold] {
+                focused.threshold = threshold;
+            }, std::fabs(focused.threshold - threshold) < 0.001F, true, 52) + 4;
+        }
+        window_.text(x + 8, y + 4, "of its travel", kDim);
+    }
+
+    const DeviceLabels* const wheel = wheelLabels();
+    std::vector<const DeviceLabels*> order;
+    if (wheel != nullptr) order.push_back(wheel);
+    for (const DeviceLabels& device : devices_) {
+        if (&device != wheel) order.push_back(&device);
+    }
+    y = kPopupY + 112;
+    constexpr int kColumns = 5;
+    constexpr float kEntryW = 174;
+    if (devices_.empty()) {
+        window_.text(left, y, "The rig has no devices yet: define them in the Rig tab and Save.", kCaution);
+    }
+    const ControlUse self{ControlUse::Kind::Secondary, target};
+    for (const DeviceLabels* const entry : order) {
+        const DeviceLabels& device = *entry;
+        if (y > kPopupY + kPopupH - 30) break;
+        const RigDevice* const rigDevice = rig_.find(idOf(device));
+        if (rigDevice == nullptr) continue;
+        const bool isWheel = wheel != nullptr && idOf(device) == idOf(*wheel);
+        window_.text(left, y, fit(deviceName(device), 40) + "  " + deviceId(device.vendorId, device.productId) + "  " +
+                                  (isWheel ? "(the wheel)" : deviceKindName(device.kind)),
+                     kText);
+        y += 14;
+        int column = 0;
+        const auto entryAt = [&](const bool axis, const std::size_t index, const RigControl& control) {
+            const SourceRef source{isWheel ? DeviceId{} : idOf(device), static_cast<int>(index)};
+            EntryState state = entryState({source, axis}, self);
+            if (!state.mine && !state.taken && list.size() >= max) {
+                state.taken = true;   // full: nothing more is added
+                state.tip = "At most " + std::to_string(max) + " secondary assignments per button";
+            }
+            const float x = left + static_cast<float>(column) * (kEntryW + 4);
+            const std::string name = controlName(control);
+            const ButtonRef ref{source, axis, control.invert, 0.5F};
+            drawEntry(x, y, kEntryW, (axis ? "axis " : "") + std::to_string(index) + " " + name, state,
+                      [this, &list, ref, mine = state.mine] {
+                          const auto same = [&ref](const ButtonRef& b) {
+                              return b.axis == ref.axis && b.source == ref.source;
+                          };
+                          if (mine) {
+                              list.erase(std::remove_if(list.begin(), list.end(), same), list.end());
+                              altFocus_ = 0;
+                              return;
+                          }
+                          list.push_back(ref);
+                          if (ref.axis) altFocus_ = list.size() - 1;   // its threshold next
+                      });
+            if (++column == kColumns) {
+                column = 0;
+                y += 18;
+            }
+        };
+        for (std::size_t b = 0; b < rigDevice->buttons.size(); ++b) {
+            if (rigDevice->buttons[b].defined()) entryAt(false, b, rigDevice->buttons[b]);
+        }
+        // Only one-sided axes: steering (or an unknown axis) has no "pressed" direction.
+        for (std::size_t a = 0; a < rigDevice->axes.size(); ++a) {
+            if (axisDrivesButtons(rigDevice->axes[a].role)) entryAt(true, a, rigDevice->axes[a]);
+        }
+        if (column != 0) y += 18;
+        y += 8;
+    }
+    window_.text(left, kPopupY + kPopupH - 20,
+                 "Greyed: used elsewhere (hover to see where). Axes: only throttle, brake, clutch, handbrake. Save writes it.",
+                 kDim);
+}
+
 void MappingEditView::drawWheelRow() {
     window_.text(4, 42, "Wheel", kDim);
     const DeviceLabels* const wheel = wheelLabels();
@@ -746,7 +1030,14 @@ void MappingEditView::drawPicker() {
     const float left = kPopupX + 12;
     window_.text(left, kPopupY + 10, "What drives " + what + "?", kHeading);
     const SourceRef current = slot(pickKind_, pickIndex_);
+    // What is being picked, as usesOf names it: a control used anywhere else is greyed (its use in a tooltip).
+    const ControlUse self{pickKind_ == Slot::Axis  ? ControlUse::Kind::Axis
+                          : pickKind_ == Slot::Hat ? ControlUse::Kind::Hat
+                                                   : ControlUse::Kind::Button,
+                          pickIndex_};
     button(kPopupX + kPopupW - 100, kPopupY + 6, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 88);
+    window_.text(left + 140, kPopupY + 32, "Greyed: used elsewhere (hover to see where); clear it there first.",
+                 kDim);
     button(left, kPopupY + 28, "(nothing)", [this] {
         slot(pickKind_, pickIndex_) = {};
         mode_ = Mode::Idle;
@@ -782,13 +1073,12 @@ void MappingEditView::drawPicker() {
             if (control == nullptr || !control->defined()) continue;
             const SourceRef source{isWheel ? DeviceId{} : idOf(device), static_cast<int>(index)};
             const float x = left + static_cast<float>(column) * (kEntryW + 4);
-            const bool on = source == current;
-            window_.fill(x, y, kEntryW, 16, on ? kHeading : kPanel);
+            EntryState state = entryState({source, axis}, self);
+            state.mine = state.mine || source == current;
             const std::string text = std::to_string(index) + " " +
-                                     (control->label.empty() ? std::string(roleName(control->role)) : control->label);
-            window_.text(x + 4, y + 4, fit(text, 21), on ? kDark : kText);
+                                     controlName(*control);
             const bool invert = control->invert;
-            hit(x, y, kEntryW, 16, [this, source, invert] {
+            drawEntry(x, y, kEntryW, text, state, [this, source, invert] {
                 slot(pickKind_, pickIndex_) = source;
                 if (pickKind_ == Slot::Axis) edit_.invert[pickIndex_] = invert;   // as the rig says it rests
                 mode_ = Mode::Idle;

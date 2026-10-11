@@ -67,6 +67,92 @@ std::optional<SourceRef> parseSource(const std::string_view text) {
     return SourceRef{*device, *index};
 }
 
+std::optional<ButtonRef> parseButtonRef(const std::string_view text) {
+    std::string_view rest = text;
+    while (!rest.empty() && rest.front() == ' ') rest.remove_prefix(1);
+    while (!rest.empty() && rest.back() == ' ') rest.remove_suffix(1);
+    const std::size_t axisAt = rest.find("axis");
+    if (axisAt == std::string_view::npos) {
+        const auto source = parseSource(rest);
+        if (!source) return std::nullopt;
+        return ButtonRef{*source, false, false, 0.5F};
+    }
+    // "[vvvv:pppp/]axis N[ inverted][ > P%]"
+    ButtonRef ref;
+    ref.axis = true;
+    if (axisAt > 0) {
+        const std::string_view prefix = rest.substr(0, axisAt);
+        if (prefix.back() != '/') return std::nullopt;
+        const auto device = parseDeviceId(prefix.substr(0, prefix.size() - 1));
+        if (!device) return std::nullopt;
+        ref.source.device = *device;
+    }
+    std::string_view tail = rest.substr(axisAt + 4);
+    if (const std::size_t gt = tail.find('>'); gt != std::string_view::npos) {
+        const auto percent = tuning::parseNumber(tail.substr(gt + 1));
+        if (!percent) return std::nullopt;
+        ref.threshold = *percent / 100.0F;
+        if (ref.threshold < kMinButtonThreshold - 1e-4F || ref.threshold > kMaxButtonThreshold + 1e-4F) return std::nullopt;
+        tail = tail.substr(0, gt);
+    }
+    if (const std::size_t inv = tail.find("inverted"); inv != std::string_view::npos) {
+        ref.invert = true;
+        tail = tail.substr(0, inv);
+    }
+    while (!tail.empty() && tail.front() == ' ') tail.remove_prefix(1);
+    while (!tail.empty() && tail.back() == ' ') tail.remove_suffix(1);
+    const auto index = parseIndex(tail);
+    if (!index || *index < 0 || static_cast<std::size_t>(*index) >= RawInputState::kMaxAxes) return std::nullopt;
+    ref.source.index = *index;
+    return ref;
+}
+
+std::string formatButtonRef(const ButtonRef& ref) {
+    if (!ref.mapped()) return std::to_string(kUnmapped);
+    if (!ref.axis) return formatSource(ref.source);
+    std::string text = (ref.source.device.empty() ? std::string() : idText(ref.source.device) + "/") + "axis " +
+                       std::to_string(ref.source.index);
+    if (ref.invert) text += " inverted";
+    return text + " > " + tuning::formatPercent(ref.threshold);
+}
+
+std::optional<std::vector<ButtonRef>> parseButtonRefs(const std::string_view text) {
+    std::vector<ButtonRef> refs;
+    std::string_view rest = text;
+    bool none = false;
+    while (true) {
+        const std::size_t comma = rest.find(',');
+        std::string_view item = rest.substr(0, comma);
+        while (!item.empty() && (item.front() == ' ' || item.front() == '\t')) item.remove_prefix(1);
+        while (!item.empty() && (item.back() == ' ' || item.back() == '\t')) item.remove_suffix(1);
+        if (item.empty()) {
+            if (comma != std::string_view::npos || !refs.empty()) return std::nullopt;   // "1,,2", "1,"
+        } else {
+            const std::optional<ButtonRef> ref = parseButtonRef(item);
+            if (!ref) return std::nullopt;
+            if (ref->mapped()) {
+                refs.push_back(*ref);
+            } else {
+                none = true;
+            }
+        }
+        if (comma == std::string_view::npos) break;
+        rest = rest.substr(comma + 1);
+    }
+    if (none && !refs.empty()) return std::nullopt;   // "-1, 4": one or the other
+    return refs;
+}
+
+std::string formatButtonRefs(const std::vector<ButtonRef>& refs) {
+    std::string text;
+    for (const ButtonRef& ref : refs) {
+        if (!ref.mapped()) continue;
+        if (!text.empty()) text += ", ";
+        text += formatButtonRef(ref);
+    }
+    return text.empty() ? std::to_string(kUnmapped) : text;
+}
+
 std::string formatSource(const SourceRef& source) {
     if (!source.mapped()) return std::to_string(kUnmapped);
     if (source.device.empty()) return std::to_string(source.index);
@@ -105,6 +191,10 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     model.invert = {mapper.steering.invert, mapper.throttle.invert, mapper.brake.invert, mapper.clutch.invert};
     for (std::size_t target = 0; target < model.buttons.size(); ++target) {
         model.buttons[target] = sourceOf(mapper, mapper.buttonDevice[target], mapper.buttonMap[target]);
+        for (const ButtonSource& alt : mapper.buttonSecondary[target]) {
+            const ButtonRef ref{sourceOf(mapper, alt.device, alt.index), alt.axis, alt.invert, alt.threshold};
+            if (ref.mapped()) model.secondaries[target].push_back(ref);
+        }
     }
     const HatButtons& hat = mapper.hatButtons;
     model.hat = {sourceOf(mapper, hat.devices[0], hat.up), sourceOf(mapper, hat.devices[1], hat.right),
@@ -115,6 +205,95 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     return model;
 }
 
+namespace {
+
+constexpr std::array<const char*, 4> kAxisUseNames = {"steering", "throttle", "brake", "clutch"};
+constexpr std::array<const char*, 4> kHatUseNames = {"D-pad Up", "D-pad Right", "D-pad Down", "D-pad Left"};
+
+// A source as the mapping compares them: on the wheel's own id it is the wheel's.
+SourceRef normalSource(const MappingModel& model, SourceRef source) {
+    const std::optional<DeviceId> wheel = parseDeviceId(model.sourceDevice);
+    if (wheel && source.device == *wheel) source.device = {};
+    return source;
+}
+
+// Calls use(control, how) for every source the mapping uses (the target's named buttons only).
+template <typename Use>
+void forEachUse(const MappingModel& model, const IDeviceProfile& profile, const Use& use) {
+    for (std::size_t i = 0; i < model.axes.size(); ++i) {
+        if (model.axes[i].mapped()) use(ControlRef{model.axes[i], true}, ControlUse{ControlUse::Kind::Axis, i});
+    }
+    for (std::size_t i = 0; i < model.hat.size(); ++i) {
+        if (model.hat[i].mapped()) use(ControlRef{model.hat[i], false}, ControlUse{ControlUse::Kind::Hat, i});
+    }
+    for (std::size_t i = 0; i < model.buttons.size(); ++i) {
+        if (model.buttons[i].mapped() && !profile.buttonName(i).empty()) {
+            use(ControlRef{model.buttons[i], false}, ControlUse{ControlUse::Kind::Button, i});
+        }
+    }
+    for (std::size_t i = 0; i < model.secondaries.size(); ++i) {
+        if (profile.buttonName(i).empty()) continue;
+        for (const ButtonRef& ref : model.secondaries[i]) {
+            if (ref.mapped()) use(ControlRef{ref.source, ref.axis}, ControlUse{ControlUse::Kind::Secondary, i});
+        }
+    }
+}
+
+std::string controlText(const ControlRef& control) {
+    return std::string(control.axis ? "axis " : "button ") + std::to_string(control.source.index) + " of " +
+           (control.source.device.empty() ? std::string("the wheel") : idText(control.source.device));
+}
+
+}  // namespace
+
+std::vector<ControlUse> usesOf(const MappingModel& model, const IDeviceProfile& profile, const ControlRef& control) {
+    std::vector<ControlUse> uses;
+    const ControlRef wanted{normalSource(model, control.source), control.axis};
+    forEachUse(model, profile, [&](const ControlRef& used, const ControlUse& use) {
+        if (ControlRef{normalSource(model, used.source), used.axis} == wanted) uses.push_back(use);
+    });
+    return uses;
+}
+
+std::string describeUse(const ControlUse& use, const IDeviceProfile& profile) {
+    const std::string target = profile.identity().shortName;
+    switch (use.kind) {
+        case ControlUse::Kind::Axis:
+            return "Role: " + target + " " + (use.index < kAxisUseNames.size() ? kAxisUseNames[use.index] : "axis");
+        case ControlUse::Kind::Hat:
+            return "Role: " + target + " " + (use.index < kHatUseNames.size() ? kHatUseNames[use.index] : "D-pad");
+        case ControlUse::Kind::Button: return "Role: " + target + " " + std::string(profile.buttonName(use.index));
+        case ControlUse::Kind::Secondary:
+            return "Secondary of " + target + " " + std::string(profile.buttonName(use.index));
+    }
+    return {};
+}
+
+std::vector<std::string> controlsUsedTwice(const MappingModel& model, const IDeviceProfile& profile) {
+    std::vector<std::pair<ControlRef, std::vector<ControlUse>>> all;
+    forEachUse(model, profile, [&](const ControlRef& used, const ControlUse& use) {
+        const ControlRef key{normalSource(model, used.source), used.axis};
+        const auto it = std::find_if(all.begin(), all.end(), [&key](const auto& entry) { return entry.first == key; });
+        if (it == all.end()) {
+            all.push_back({key, {use}});
+        } else {
+            it->second.push_back(use);
+        }
+    });
+    std::vector<std::string> lines;
+    for (const auto& [control, uses] : all) {
+        if (uses.size() < 2) continue;
+        std::string line = controlText(control) + ": ";
+        for (std::size_t i = 0; i < uses.size(); ++i) {
+            std::string what = describeUse(uses[i], profile);
+            what[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(what[0])));
+            line += (i > 0 ? ", " : "") + what;
+        }
+        lines.push_back(line);
+    }
+    return lines;
+}
+
 AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile) {
     AutoMapResult result;
     const RigDevice* const wheel = rig.wheel();
@@ -122,6 +301,9 @@ AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile&
         for (SourceRef& s : model.axes) change(s);
         for (SourceRef& s : model.buttons) change(s);
         for (SourceRef& s : model.hat) change(s);
+        for (auto& list : model.secondaries) {
+            for (ButtonRef& b : list) change(b.source);
+        }
     };
     if (wheel != nullptr) {
         // Another wheel than the mapping's: what read the old one keeps reading it (now as an accessory, as the
@@ -154,11 +336,29 @@ AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile&
         return -1;
     };
 
+    // The secondaries are the user's: a control that is one stays one (and is placed nowhere by its role).
+    const auto secondaryOf = [&model, &profile](const SourceRef& s, const bool axis) -> std::string {
+        for (std::size_t t = 0; t < model.secondaries.size(); ++t) {
+            for (const ButtonRef& ref : model.secondaries[t]) {
+                if (ref.axis == axis && normalSource(model, ref.source) == s) {
+                    return profile.buttonName(t).empty() ? "button " + std::to_string(t)
+                                                         : std::string(profile.buttonName(t));
+                }
+            }
+        }
+        return {};
+    };
+    const auto keptSecondary = [&](const RigDevice& device, const bool axis, const std::size_t index,
+                                   const std::string& place, const std::string& of) {
+        result.notes.push_back(who(device, axis, index) + " is a secondary of " + of + ": " + place +
+                               " left empty; remove it from " + of + " to put it on " + place);
+    };
+
     // The first control with a role takes it (devices in the rig's order, then by number); a second one is said.
     std::array<std::string, 4> axisBy;
     std::array<std::string, 4> hatBy;
     std::array<std::string, MapperConfig::kMaxTargetButtons> buttonBy;
-    std::vector<SourceRef> buttonSources;   // the buttons placed now (a button drives one G920 input only)
+    std::vector<ControlRef> placed;   // the controls placed now (a control is used once)
     bool handbrakeSaid = false;
     for (const RigDevice& device : rig.devices) {
         for (std::size_t a = 0; a < device.axes.size(); ++a) {
@@ -172,7 +372,8 @@ AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile&
                 case ControlRole::Handbrake:
                     if (!handbrakeSaid) {
                         result.notes.push_back("handbrake " + who(device, true, a) + ": the " +
-                                               profile.identity().shortName + " has no handbrake axis, not mapped");
+                                               profile.identity().shortName + " has no handbrake axis; add it as a "
+                                               "secondary of the button your game brakes with");
                         handbrakeSaid = true;
                     }
                     break;
@@ -184,9 +385,15 @@ AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile&
                                        ": " + axisBy[slot] + " kept");
                 continue;
             }
+            if (const std::string of = secondaryOf(source(device, a), true); !of.empty()) {
+                keptSecondary(device, true, a, profile.identity().shortName + " " + roleName(control.role), of);
+                model.axes[slot] = {};
+                continue;
+            }
             axisBy[slot] = who(device, true, a);
             model.axes[slot] = source(device, a);
             model.invert[slot] = control.invert;
+            placed.push_back({model.axes[slot], true});
             ++result.set;
         }
         for (std::size_t b = 0; b < device.buttons.size(); ++b) {
@@ -199,12 +406,16 @@ AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile&
                 case ControlRole::DpadLeft: hat = 3; break;
                 default: break;
             }
-            const std::string name = g920ButtonFor(role);   // A, Menu, R paddle, Gear 1 ...: that G920 button
+            const std::string name = g920ButtonFor(role);   // A, Menu, R Paddle, Gear 1 ...: that G920 button
             std::string* by = nullptr;
             SourceRef* slot = nullptr;
+            std::string place;
+            static constexpr std::array<const char*, 4> kHatPlaces = {"D-pad Up", "D-pad Right", "D-pad Down",
+                                                                      "D-pad Left"};
             if (hat >= 0) {
                 by = &hatBy[static_cast<std::size_t>(hat)];
                 slot = &model.hat[static_cast<std::size_t>(hat)];
+                place = profile.identity().shortName + " " + kHatPlaces[static_cast<std::size_t>(hat)];
             } else if (!name.empty()) {
                 const int index = target(name);
                 if (index < 0) {
@@ -214,6 +425,7 @@ AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile&
                 }
                 by = &buttonBy[static_cast<std::size_t>(index)];
                 slot = &model.buttons[static_cast<std::size_t>(index)];
+                place = profile.identity().shortName + " " + name;
             } else {
                 continue;   // a plain button (or none): the user maps it
             }
@@ -222,18 +434,30 @@ AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile&
                                        " kept");
                 continue;
             }
+            if (const std::string of = secondaryOf(source(device, b), false); !of.empty()) {
+                keptSecondary(device, false, b, place, of);
+                *slot = {};
+                continue;
+            }
             *by = who(device, false, b);
             *slot = source(device, b);
-            buttonSources.push_back(*slot);
+            placed.push_back({*slot, false});
             ++result.set;
         }
     }
 
-    // A button placed now drives nothing else: an older mapping of it (the default's button N <- button N) would
+    // A control placed now drives nothing else: an older mapping of it (the default's button N <- button N) would
     // press two G920 inputs at once.
-    const auto placedNow = [&buttonSources](const SourceRef& s) {
-        return std::find(buttonSources.begin(), buttonSources.end(), s) != buttonSources.end();
+    const auto placedNow = [&placed, &model](const SourceRef& s, const bool axis = false) {
+        return std::find(placed.begin(), placed.end(), ControlRef{normalSource(model, s), axis}) != placed.end();
     };
+    for (std::size_t i = 0; i < model.axes.size(); ++i) {
+        if (axisBy[i].empty() && model.axes[i].mapped() && placedNow(model.axes[i], true)) {
+            result.notes.push_back(std::string(kAxisUseNames[i]) + ": no longer " + formatSource(model.axes[i]) +
+                                   " (it has a role now)");
+            model.axes[i] = {};
+        }
+    }
     for (std::size_t t = 0; t < model.buttons.size(); ++t) {
         if (buttonBy[t].empty() && model.buttons[t].mapped() && placedNow(model.buttons[t])) {
             result.notes.push_back(std::string(profile.buttonName(t).empty() ? "button " + std::to_string(t)
@@ -242,7 +466,7 @@ AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile&
             model.buttons[t] = {};
         }
     }
-    static constexpr std::array<const char*, 4> kHatNames = {"d-pad up", "d-pad right", "d-pad down", "d-pad left"};
+    static constexpr std::array<const char*, 4> kHatNames = {"D-pad Up", "D-pad Right", "D-pad Down", "D-pad Left"};
     for (std::size_t h = 0; h < model.hat.size(); ++h) {
         if (hatBy[h].empty() && model.hat[h].mapped() && placedNow(model.hat[h])) {
             result.notes.push_back(std::string(kHatNames[h]) + ": no longer " + formatSource(model.hat[h]) +
@@ -259,6 +483,20 @@ std::string tuningProblem(const MappingModel& model) {
     }
     if (std::string problem = tuning::rotationProblem(model.gameRotationDeg); !problem.empty()) {
         return "game rotation: " + problem;
+    }
+    for (std::size_t t = 0; t < model.secondaries.size(); ++t) {
+        if (model.secondaries[t].size() > MapperConfig::kMaxSecondaries) {
+            return "button " + std::to_string(t) + ": at most " + std::to_string(MapperConfig::kMaxSecondaries) +
+                   " secondary sources";
+        }
+        for (const ButtonRef& alt : model.secondaries[t]) {
+            if (alt.mapped() && alt.axis &&
+                (alt.threshold < kMinButtonThreshold - 1e-4F || alt.threshold > kMaxButtonThreshold + 1e-4F)) {
+                return "button " + std::to_string(t) + ": an axis presses it between " +
+                       tuning::formatPercent(kMinButtonThreshold) + " and " +
+                       tuning::formatPercent(kMaxButtonThreshold);
+            }
+        }
     }
     for (const auto& [game, value] : model.gameRotations) {
         if (value.off) continue;
@@ -288,6 +526,9 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     for (const SourceRef& s : model.axes) count(s);
     for (const SourceRef& s : model.buttons) count(s);
     for (const SourceRef& s : model.hat) count(s);
+    for (const auto& list : model.secondaries) {
+        for (const ButtonRef& b : list) count(b.source);
+    }
     if (accessories.size() > MapperConfig::kMaxAccessories) {
         result.error = "the mapping uses " + std::to_string(accessories.size()) + " accessories besides the wheel; at most " +
                        std::to_string(MapperConfig::kMaxAccessories) + " can be read at once";
@@ -333,6 +574,17 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
             ini.remove("buttons", key);   // the default
         } else {
             ini.set("buttons", key, formatSource(source));
+        }
+        std::vector<ButtonRef> secondaries;
+        for (ButtonRef alt : model.secondaries[target]) {
+            alt.source = normal(alt.source);
+            if (alt.mapped()) secondaries.push_back(alt);
+        }
+        if (secondaries.empty()) {
+            ini.remove("buttons", key + "_or");
+        } else if (const std::optional<std::string> line = before.get("buttons", key + "_or");
+                   !line || parseButtonRefs(*line) != secondaries) {
+            ini.set("buttons", key + "_or", formatButtonRefs(secondaries));   // unchanged: its text stays
         }
     }
     static constexpr std::array<const char*, 4> kHatKeys = {"up", "right", "down", "left"};

@@ -223,5 +223,36 @@ TEST(EmulatorConfig, RejectsBadSourcesAndTooManyAccessories) {
     EXPECT_TRUE(containsError(many, "at most 3 accessories"));
 }
 
+TEST(EmulatorConfig, ButtonSecondSources) {
+    const auto parsed = IniDocument::parse(
+        "[buttons]\ntarget_2_or = 30b7:1001/axis 3 inverted > 40%\ntarget_0_or = 20\ntarget_1_or = -1\n"
+        "target_3_or = axis 9\n");
+    const EmulatorConfigResult result = loadEmulatorConfig(parsed.document);
+    ASSERT_EQ(result.errors.size(), 1U);   // axis 9: no such axis
+    EXPECT_NE(result.errors[0].find("target_3_or"), std::string::npos) << result.errors[0];
+    const MapperConfig& mapper = result.config.mapper;
+    EXPECT_EQ(mapper.buttonSecondary[2][0], (ButtonSource{1, 3, true, true, 0.4F}));
+    EXPECT_EQ(mapper.accessories[0], (DeviceId{0x30B7, 0x1001}));
+    EXPECT_EQ(mapper.buttonSecondary[0][0], (ButtonSource{0, 20, false, false, 0.5F}));
+    EXPECT_FALSE(mapper.buttonSecondary[1][0].mapped());
+    EXPECT_EQ(mapper.buttonMap[2], 2);   // the first sources as they were
+}
+
+TEST(EmulatorConfig, ButtonSecondaryLists) {
+    const auto parsed = IniDocument::parse(
+        "[buttons]\ntarget_2_or = 20, 30b7:1001/4, 30b7:1001/axis 3 > 60%\n"
+        "target_0_or = 1, 2, 3, 4, 5, 6, 7, 8, 9\ntarget_1_or = 4, , 5\ntarget_3_or = 64\n");
+    const EmulatorConfigResult result = loadEmulatorConfig(parsed.document);
+    ASSERT_EQ(result.errors.size(), 3U);
+    EXPECT_NE(result.errors[0].find("target_0_or"), std::string::npos) << result.errors[0];
+    EXPECT_NE(result.errors[0].find("at most 8"), std::string::npos) << result.errors[0];
+    const MapperConfig& mapper = result.config.mapper;
+    EXPECT_EQ(mapper.buttonSecondary[2][0], (ButtonSource{0, 20, false, false, 0.5F}));
+    EXPECT_EQ(mapper.buttonSecondary[2][1], (ButtonSource{1, 4, false, false, 0.5F}));
+    EXPECT_EQ(mapper.buttonSecondary[2][2], (ButtonSource{1, 3, true, false, 0.6F}));
+    EXPECT_FALSE(mapper.buttonSecondary[2][3].mapped());
+    EXPECT_FALSE(mapper.buttonSecondary[0][0].mapped());   // refused: none
+}
+
 }  // namespace
 }  // namespace wheelbri

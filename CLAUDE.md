@@ -6,8 +6,8 @@ This file guides Claude when working in this repository.
 
 - After every change, finish with **how to build it** and **how to test it** (what to run, what to look for,
   what a failure looks like), even when the change needs no rebuild (say so).
-- Build and test steps use the scripts in `scripts/make/` (`build.sh`, `rebuild.sh`, `test.sh`, `check.sh`,
-  `ui.sh`, `app.sh`, `shim.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`, `measure.sh`; see `scripts/make/README.md`) as the shortcut
+- Build and test steps use the scripts in `scripts/make/` (`app.sh` builds everything and starts the app,
+  `app.sh --test` also runs every test first; `rebuild.sh`, `ui.sh`, `shim.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`, `measure.sh`; see `scripts/make/README.md`) as the shortcut
   next to the full commands (next rule). When a new workflow keeps needing the same commands, add a script there
   (sourcing `common.sh`) and list it in that README.
 - **Every build or test step comes in two forms**: first the **full command(s)** that will run (exactly what the
@@ -23,7 +23,7 @@ This file guides Claude when working in this repository.
   Shortcut:
 
   ```bash
-  scripts/make/build.sh
+  scripts/make/app.sh --no-start
   ```
 
   When a script runs several commands, list each one in its own block, in order, before the shortcut.
@@ -95,9 +95,9 @@ CMake ≥ 3.24, C++20. spdlog 1.15.3 and GoogleTest 1.15.2 come in through Fetch
 configure). The service uses only the system's APIs and runs on Windows (DirectInput, Win32) and Linux (evdev,
 Xlib; skipped with a warning without libx11-dev). No SDL or other third-party library: do not add one back.
 
-The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `build.sh` (incremental,
-configures the first time), `rebuild.sh` (deletes `build/`, full rebuild), `test.sh [filter]`, `check.sh` (before a
-commit), `ui.sh [config]`, `app.sh [--no-start]`, `shim.sh [--off] <game folder>`, `drivers.sh [-Install]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer), `clean-pc.sh [-KeepData]
+The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `app.sh` (builds everything
+incrementally, configures the first time, then starts the app; `--test` runs the whole test suite first and starts
+nothing on a failure; `--no-start`), `rebuild.sh` (deletes `build/`, full rebuild), `ui.sh [config]`, `shim.sh [--off] <game folder>`, `drivers.sh [-Install]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer), `clean-pc.sh [-KeepData]
 [-GameFolder <folder>] [-KeepThirdParty] [-Yes]` (removes everything WheelBri put on the PC, HidHide and HIDMaestro
 included, for a fresh install; when the
 app, installer or drivers start leaving something new on the PC, add it to `clean-pc.ps1`).
@@ -194,7 +194,14 @@ values at Start by core `applyRigDeadzones` (main.cpp, logged as `rig: ...`); th
 `deadzone_low`, `saturation_high` stay as the defaults when the rig sets none; Auto-map is core `autoMap`, which
 returns `AutoMapResult` notes for every edge case: a role twice (first wins; `sameRoleElsewhere` warns in the Rig
 tab), a role the target lacks, a placed button freed from older places, another wheel's sources kept as an
-accessory), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
+accessory, a control kept as a secondary (its role's input left empty); each target button has one role assignment
+(`buttonMap`) and up to `kMaxSecondaries` (8) secondaries, `MapperConfig::buttonSecondary` / `[buttons] target_N_or`
+(a comma-separated list): buttons, or one-sided axes (`axisDrivesButtons`: throttle, brake, clutch, handbrake) past a
+threshold, each axis with its own 5% release gap in `Mapper::mapButtons`; the picker offers only those axes and
+`buttonAxisProblems` warns at Start otherwise. A rig control is used once in a mapping: core `usesOf` /
+`describeUse` / `controlsUsedTwice` (MappingEdit.hpp; only the target's named buttons count); both pickers grey a
+used control with a hover tooltip (`UiInput::pointer` / `pointerInside`, `MappingEditView::setHover`, `tip`,
+`drawTooltip`), Save refuses a control used twice and Start warns), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
 Logs page), in that order (there is no Status tab; a failed Start says "Start failed (Logs)");
 it opens on Rig until a rig exists, else on Mapping; Start switches to Logs at once (the session logs while it comes
 up) and the live view keeps the tab showing then. O opens the logs folder (every log is there). It draws through

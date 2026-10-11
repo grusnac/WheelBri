@@ -195,7 +195,7 @@ public:
         XSetWMProtocols(display_, window_, &deleteWindow_, 1);
         XSelectInput(display_, window_,
                      ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask |
-                         Button1MotionMask | StructureNotifyMask |
+                         PointerMotionMask | EnterWindowMask | LeaveWindowMask | StructureNotifyMask |
                          VisibilityChangeMask);
         // Held keys repeat as presses only (no fake releases), so a repeat is recognisable.
         Bool supported = False;
@@ -288,6 +288,14 @@ public:
                     break;
                 case MotionNotify:
                     pointer_ = toCanvas(event.xmotion.x, event.xmotion.y);
+                    inside_ = true;
+                    break;
+                case EnterNotify:
+                    pointer_ = toCanvas(event.xcrossing.x, event.xcrossing.y);
+                    inside_ = true;
+                    break;
+                case LeaveNotify:
+                    if (event.xcrossing.mode == NotifyNormal) inside_ = false;   // not a grab's crossing
                     break;
                 case KeyRelease:
                     keyDown_[event.xkey.keycode & 0xFFU] = false;
@@ -323,6 +331,7 @@ public:
         hwheel_ = 0;
         input.pointer = pointer_;
         input.leftDown = leftDown_;
+        input.pointerInside = inside_;
         return input;
     }
 
@@ -538,6 +547,7 @@ private:
     int hwheel_ = 0;
     Click pointer_;
     bool leftDown_ = false;
+    bool inside_ = false;   // the mouse is over the window (Enter / LeaveNotify)
 };
 
 }  // namespace

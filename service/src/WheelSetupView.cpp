@@ -106,8 +106,13 @@ std::optional<float> typedFraction(const std::string& text) {
 // "Gas  (throttle, inverted, dz 3%, full 90%)": the label, then what it is for.
 std::string describe(const RigControl& control) {
     std::string text = control.label;
-    // The role, unless the name already says it ("Y", "D-pad up": named by picking the role).
-    std::string about = control.label == roleLabel(control.role) ? std::string() : std::string(roleName(control.role));
+    // The role as the role buttons name it ("L Paddle"), unless the name already says it ("Y", "D-pad Up": named by
+    // picking the role; any case).
+    const auto lower = [](std::string text) {
+        for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return text;
+    };
+    std::string about = lower(control.label) == lower(roleLabel(control.role)) ? std::string() : roleLabel(control.role);
     const auto add = [&about](const std::string& part) { about += (about.empty() ? "" : ", ") + part; };
     if (control.invert) add("inverted");
     if (hasDeadzones(control.role)) {
@@ -876,7 +881,12 @@ void WheelSetupView::drawControlPopup() {
         }
         x += button(x, y, label, [this, role] {
             // The name follows the role while it is empty or still the last role's name: typed names are kept.
-            if (popupControl_.label.empty() || popupControl_.label == roleLabel(popupControl_.role)) {
+            const auto lower = [](std::string text) {
+                for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                return text;
+            };
+            if (popupControl_.label.empty() || lower(popupControl_.label) == lower(roleLabel(popupControl_.role)) ||
+                lower(popupControl_.label) == roleName(popupControl_.role)) {
                 popupControl_.label = roleLabel(role);
             }
             popupControl_.role = role;

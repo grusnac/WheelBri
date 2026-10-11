@@ -30,6 +30,9 @@ bool mappingUsesRig(const MapperConfig& mapper, const Rig& rig, const bool wheel
     }
     for (std::size_t i = 0; i < mapper.buttonMap.size(); ++i) {
         if (fromRig(mapper.buttonMap[i], mapper.buttonDevice[i])) return true;
+        for (const ButtonSource& alt : mapper.buttonSecondary[i]) {
+            if (fromRig(alt.index, alt.device)) return true;
+        }
     }
     const HatButtons& hat = mapper.hatButtons;
     return fromRig(hat.up, hat.devices[0]) || fromRig(hat.right, hat.devices[1]) || fromRig(hat.down, hat.devices[2]) ||

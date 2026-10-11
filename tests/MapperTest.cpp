@@ -203,4 +203,66 @@ TEST(MapperDevices, MappedAxesTheDeviceDoesNotHaveAreNamed) {
     EXPECT_TRUE(missingMappedAxes(config, counts).empty());
 }
 
+TEST(Mapper, ATargetButtonPressedByEitherSourceAndAnAxisPastItsThreshold) {
+    MapperConfig config;
+    config.buttonMap[2] = 2;                                  // G920 X <- the wheel's X
+    config.buttonSecondary[2][0] = ButtonSource{1, 3, true, false, 0.5F};   // ... or the handbrake lever (device 1, axis 3)
+    config.buttonSecondary[0][0] = ButtonSource{0, 20, false, false, 0.5F}; // G920 A <- also wheel button 20
+    const Mapper mapper(config);
+    RawInputs inputs;
+    inputs.devices[1].axes[3] = -1.0F;   // released
+    EXPECT_EQ(mapper.map(inputs).buttons & (1U << 2), 0U);
+    inputs.devices[0].buttons = 1ULL << 2;   // the wheel's X
+    EXPECT_NE(mapper.map(inputs).buttons & (1U << 2), 0U);
+    inputs.devices[0].buttons = 1ULL << 20;   // button 20: G920 A
+    EXPECT_NE(mapper.map(inputs).buttons & 1U, 0U);
+    inputs.devices[0].buttons = 0;
+    inputs.devices[1].axes[3] = 0.1F;   // 55% of the travel: past 50%
+    EXPECT_NE(mapper.map(inputs).buttons & (1U << 2), 0U);
+    inputs.devices[1].axes[3] = -0.05F;   // 47.5%: still pressed (released only below 45%)
+    EXPECT_NE(mapper.map(inputs).buttons & (1U << 2), 0U);
+    inputs.devices[1].axes[3] = -0.12F;   // 44%: released
+    EXPECT_EQ(mapper.map(inputs).buttons & (1U << 2), 0U);
+    inputs.devices[1].axes[3] = -0.05F;   // 47.5% from below: not yet
+    EXPECT_EQ(mapper.map(inputs).buttons & (1U << 2), 0U);
+}
+
+TEST(Mapper, ManySecondariesEachAxisWithItsOwnRelease) {
+    MapperConfig config;
+    config.buttonMap[2] = kUnmapped;
+    config.buttonSecondary[2] = {ButtonSource{0, 20, false, false, 0.5F}, ButtonSource{1, 4, false, false, 0.5F},
+                                 ButtonSource{1, 3, true, false, 0.5F}, ButtonSource{0, 6, true, false, 0.75F}};
+    const Mapper mapper(config);
+    RawInputs inputs;
+    inputs.devices[1].axes[3] = -1.0F;
+    inputs.devices[0].axes[6] = -1.0F;
+    const auto x = [&] { return (mapper.map(inputs).buttons & (1U << 2)) != 0; };
+    EXPECT_FALSE(x());
+    inputs.devices[1].buttons = 1ULL << 4;   // the button box's button
+    EXPECT_TRUE(x());
+    inputs.devices[1].buttons = 0;
+    inputs.devices[0].axes[6] = 0.6F;   // 80%: past 75%
+    inputs.devices[1].axes[3] = 0.2F;   // 60%: past 50%
+    EXPECT_TRUE(x());
+    inputs.devices[0].axes[6] = 0.42F;   // 71%: above its release (70%), still pressed
+    inputs.devices[1].axes[3] = -0.2F;   // 40%: the lever is released
+    EXPECT_TRUE(x());
+    inputs.devices[0].axes[6] = 0.3F;    // 65%: released too
+    EXPECT_FALSE(x());
+    inputs.devices[0].buttons = 1ULL << 20;
+    EXPECT_TRUE(x());
+}
+
+TEST(Mapper, AnInvertedAxisCountsFromWhereItRests) {
+    MapperConfig config;
+    config.buttonMap[2] = kUnmapped;
+    config.buttonSecondary[2][0] = ButtonSource{0, 5, true, true, 0.5F};   // rests at +1
+    const Mapper mapper(config);
+    RawInputs inputs;
+    inputs.devices[0].axes[5] = 1.0F;
+    EXPECT_EQ(mapper.map(inputs).buttons & (1U << 2), 0U);
+    inputs.devices[0].axes[5] = -0.5F;   // 75% pulled
+    EXPECT_NE(mapper.map(inputs).buttons & (1U << 2), 0U);
+}
+
 }  // namespace wheelbri
