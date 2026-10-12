@@ -1,4 +1,17 @@
+# Line endings: LF in every file, on Windows and Linux alike. Git stores LF and checks out LF whatever core.autocrlf
+# says, so a commit never carries line-ending noise; .editorconfig tells the editors the same.
+* text=auto eol=lf
+# The exceptions, read by Windows tools that want CRLF:
 # cmd misreads batch files with LF line ends
 *.cmd text eol=crlf
-# bash reads scripts with CRLF line ends as broken (the Steam Deck checks out what the PC committed)
-*.sh text eol=lf
+*.bat text eol=crlf
+# driver INF templates (stampinf, inf2cat)
+*.inx text eol=crlf
+*.inf text eol=crlf
+# Binary: never touched
+*.ico binary
+*.png binary
+*.jpg binary
+*.dll binary
+*.exe binary
+*.zip binary
