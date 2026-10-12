@@ -58,6 +58,39 @@ TEST(FfbSafetyLimiter, CapsConditionSaturation) {
     EXPECT_NEAR(limited.condition.positiveCoefficient, 1.0F, kTolerance);
 }
 
+// NFS Unbound's idle spring (2026-10-11): coefficient 1, saturation 0, dead band over the whole travel. It can never
+// push, and the R3 drove itself to full lock with it: sent as an empty condition.
+TEST(FfbSafetyLimiter, AConditionThatCanNeverPushIsSentEmpty) {
+    FfbSafetyLimiter limiter({0.7F, 0.8F, 50.0F});
+    FfbEffect spring;
+    spring.type = FfbEffectType::Spring;
+    spring.condition.positiveCoefficient = 1.0F;
+    spring.condition.negativeCoefficient = 1.0F;
+    spring.condition.positiveSaturation = 0.0F;
+    spring.condition.negativeSaturation = 0.0F;
+    spring.condition.deadband = 1.0F;
+    const FfbEffect limited = limiter.apply(spring, 0.001F);
+    EXPECT_EQ(limited.condition.positiveCoefficient, 0.0F);
+    EXPECT_EQ(limited.condition.negativeCoefficient, 0.0F);
+    EXPECT_EQ(limited.condition.positiveSaturation, 0.0F);
+    EXPECT_EQ(limited.condition.deadband, 0.0F);
+}
+
+// A saturation of 0 is "no limit" to the R3 (NFS Heat's spring): it gets the cap, never more.
+TEST(FfbSafetyLimiter, AZeroSaturationGetsTheCap) {
+    FfbSafetyLimiter limiter({0.7F, 0.8F, 50.0F});
+    FfbEffect spring;
+    spring.type = FfbEffectType::Spring;
+    spring.condition.positiveCoefficient = 0.15F;
+    spring.condition.negativeCoefficient = 0.15F;
+    spring.condition.positiveSaturation = 0.0F;
+    spring.condition.negativeSaturation = 0.5F;
+    const FfbEffect limited = limiter.apply(spring, 0.001F);
+    EXPECT_NEAR(limited.condition.positiveSaturation, 0.8F, kTolerance);
+    EXPECT_NEAR(limited.condition.negativeSaturation, 0.35F, kTolerance);
+    EXPECT_NEAR(limited.condition.positiveCoefficient, 0.105F, kTolerance);
+}
+
 TEST(FfbSafetyLimiter, PeriodicMagnitudePlusOffsetStaysUnderCap) {
     FfbSafetyLimiter limiter({1.0F, 0.8F, 1000.0F});
     FfbEffect sine;

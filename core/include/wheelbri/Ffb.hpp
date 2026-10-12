@@ -78,6 +78,7 @@ public:
 private:
     [[nodiscard]] float limitConstant(float requested, float dtSeconds);
     [[nodiscard]] FfbCondition limitCondition(const FfbCondition& requested) const;
+    static constexpr float kWholeTravel = 0.999F;   // a condition's dead band from here on covers all of it
     [[nodiscard]] FfbPeriodic limitPeriodic(const FfbPeriodic& requested) const;
 
     FfbSafetyConfig config_;

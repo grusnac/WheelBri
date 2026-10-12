@@ -147,13 +147,24 @@ float FfbSafetyLimiter::limitConstant(const float requested, const float dtSecon
 }
 
 FfbCondition FfbSafetyLimiter::limitCondition(const FfbCondition& requested) const {
+    // A dead band over the whole travel: the condition can never push, so it is sent as an empty one. Not as asked:
+    // the R3 drove itself to full lock and held there with NFS Unbound's idle spring (coefficient 1, saturation 0,
+    // dead band 100%; 2026-10-11).
+    if (!(std::fabs(requested.deadband) < kWholeTravel)) {
+        FfbCondition none;
+        none.positiveSaturation = 0.0F;
+        none.negativeSaturation = 0.0F;
+        return none;
+    }
     const float gain = config_.masterGain;
     const float cap = config_.maxMagnitude;
+    // A saturation of 0 is "no limit" to the R3 (NFS Heat's spring had 0 and still pushed): the cap then.
+    const auto saturation = [&](const float s) { return s > 0.0F ? std::clamp(s * gain, 0.0F, cap) : cap; };
     FfbCondition limited = requested;
     limited.positiveCoefficient = std::clamp(requested.positiveCoefficient * gain, -1.0F, 1.0F);
     limited.negativeCoefficient = std::clamp(requested.negativeCoefficient * gain, -1.0F, 1.0F);
-    limited.positiveSaturation = std::clamp(requested.positiveSaturation * gain, 0.0F, cap);
-    limited.negativeSaturation = std::clamp(requested.negativeSaturation * gain, 0.0F, cap);
+    limited.positiveSaturation = saturation(requested.positiveSaturation);
+    limited.negativeSaturation = saturation(requested.negativeSaturation);
     return limited;
 }
 
