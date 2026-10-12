@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -65,7 +66,8 @@ private:
     // running (and the running programs could be listed).
     void queueGameSettings(const GameDetector::Update& update);
     void writePendingGameSettings();
-    void writeGameSettings(const GameProfile& game);
+    // True when done (written, already as set, or nothing that trying again would change); false: try again.
+    bool writeGameSettings(const GameProfile& game);
     [[nodiscard]] bool running(const GameProfile& game) const;
     [[nodiscard]] std::string describeFollowed() const;
 
@@ -81,6 +83,7 @@ private:
     bool settingsQueued_ = false;               // the first check() queued every game with settings
     std::set<std::string> settingsPending_;     // profile ids whose settings are still to be written
     std::set<std::string> settingsWaitSaid_;    // "set after it closes" said for these, while they run
+    std::map<std::string, std::string> settingsFailureSaid_;   // the last "trying again" reason said, per game
     bool noDocumentsSaid_ = false;
     const GameProfile* unroutable_ = nullptr;   // a profile the device cannot apply, said once
     std::string warning_;

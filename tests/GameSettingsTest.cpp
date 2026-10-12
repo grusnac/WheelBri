@@ -1,12 +1,15 @@
 #include "wheelbri/GameSettings.hpp"
 
 #include "wheelbri/EmulatorConfig.hpp"
+#include "wheelbri/FileText.hpp"
 #include "wheelbri/GameRotation.hpp"
 #include "wheelbri/MappingEdit.hpp"
 
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <filesystem>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -238,6 +241,148 @@ TEST(GameSettings, FfbGainComesFromTheUserThenTheProfile) {
     EXPECT_EQ(writeMapping(written, model).text.find("game_ffb_gain]\nnfsunbound"), std::string::npos);
     model.gameFfbGains["nfsunbound"] = 5.0F;
     EXPECT_FALSE(writeMapping(written, model).error.empty());
+}
+
+// Whatever bytes the file holds (cut short, damaged, another game's), the edit never reads past them and either
+// writes nothing or keeps the file's size. Seeded: the same cases on every run.
+TEST(GameSettings, DamagedFilesAreSafe) {
+    std::mt19937 random(20261012U);
+    const std::string good = unboundFile();
+    const std::vector<GameSettingText> values = {{"WheelFFBMagnitude", "1.000000"},
+                                                 {"WheelMaxRotation", "360.000000"}};
+    for (int round = 0; round < 3000; ++round) {
+        std::string bytes = good;
+        switch (round % 3) {
+            case 0: bytes.resize(random() % (good.size() + 1)); break;   // cut short anywhere
+            case 1:
+                for (int n = 0; n < 8; ++n) bytes[random() % bytes.size()] = static_cast<char>(random());
+                break;
+            default:
+                bytes = "FBCHUNKS";
+                for (std::size_t n = random() % 400; n > 0; --n) bytes.push_back(static_cast<char>(random()));
+                break;
+        }
+        const GameSettingsEdit edit = editFrostbiteSettings(bytes, values);
+        if (edit.problems.empty()) {
+            EXPECT_EQ(edit.bytes.size(), bytes.size());
+        } else {
+            EXPECT_TRUE(edit.bytes.empty());
+            EXPECT_TRUE(edit.changes.empty());
+        }
+        (void)frostbiteSetting(bytes, "WheelFFBMagnitude");
+    }
+}
+
+// --- the file on disk (writeGameSettingsFile) ---------------------------------------------------------------------
+
+class GameSettingsFile : public ::testing::Test {
+protected:
+    void SetUp() override {
+        const std::string test = ::testing::UnitTest::GetInstance()->current_test_info()->name();
+        root_ = std::filesystem::temp_directory_path() / ("wheelbri-gamesettings-" + test);
+        std::filesystem::remove_all(root_);
+        std::filesystem::create_directories(root_ / "Game" / "settings");
+    }
+    void TearDown() override { std::filesystem::remove_all(root_); }
+
+    [[nodiscard]] std::filesystem::path file() const { return root_ / "Game" / "settings" / "PROFILEOPTIONS"; }
+    [[nodiscard]] std::filesystem::path backup() const {
+        return root_ / "Game" / "settings" / "PROFILEOPTIONS.before-wheelbri";
+    }
+    [[nodiscard]] GameSettingsFileResult write(const std::vector<GameSettingText>& values) const {
+        return writeGameSettingsFile(root_, "Game/settings/PROFILEOPTIONS", values);
+    }
+
+    std::filesystem::path root_;
+};
+
+const std::vector<GameSettingText> kStronger = {{"WheelFFBMagnitude", "1.000000"},
+                                                {"WheelMaxRotation", "360.000000"}};
+
+TEST_F(GameSettingsFile, WritesKeepsTheOriginalOnceAndThenSaysAsSet) {
+    const std::string original = unboundFile();
+    ASSERT_TRUE(writeFileReplacing(file(), original));
+    GameSettingsFileResult result = write(kStronger);
+    ASSERT_EQ(result.outcome, GameSettingsFileResult::Outcome::Written) << result.why;
+    EXPECT_EQ(result.changes.size(), 2U);
+    EXPECT_EQ(readFileText(backup()).value_or(""), original);   // the user's file as it was
+    const std::string written = readFileText(file()).value_or("");
+    EXPECT_EQ(written.size(), original.size());
+    EXPECT_EQ(frostbiteSetting(written, "WheelFFBMagnitude"), "1.000000");
+
+    EXPECT_EQ(write(kStronger).outcome, GameSettingsFileResult::Outcome::AsSet);   // nothing more to do
+
+    // Changed again later: the first backup stays (it is what puts the user's own file back).
+    result = write({{"WheelFFBMagnitude", "0.800000"}});
+    ASSERT_EQ(result.outcome, GameSettingsFileResult::Outcome::Written) << result.why;
+    EXPECT_EQ(readFileText(backup()).value_or(""), original);
+    EXPECT_FALSE(std::filesystem::exists(file().string() + ".tmp"));
+}
+
+TEST_F(GameSettingsFile, NoFileYetIsNotAnError) {
+    const GameSettingsFileResult result = write(kStronger);
+    EXPECT_EQ(result.outcome, GameSettingsFileResult::Outcome::NoFile);
+    EXPECT_FALSE(std::filesystem::exists(file()));
+    EXPECT_FALSE(std::filesystem::exists(backup()));
+}
+
+TEST_F(GameSettingsFile, ANotExpectedFileIsLeftAsItIs) {
+    ASSERT_TRUE(writeFileReplacing(file(), "PROFILE: not a Frostbite file"));
+    EXPECT_EQ(write(kStronger).outcome, GameSettingsFileResult::Outcome::Refused);
+    ASSERT_TRUE(writeFileReplacing(file(), unboundFile()));
+    const GameSettingsFileResult longer = write({{"WheelMaxRotation", "1080.000000"}});
+    EXPECT_EQ(longer.outcome, GameSettingsFileResult::Outcome::Refused);
+    EXPECT_NE(longer.why.find("not as long"), std::string::npos) << longer.why;
+    EXPECT_EQ(readFileText(file()).value_or(""), unboundFile());   // untouched
+    EXPECT_FALSE(std::filesystem::exists(backup()));
+
+    std::filesystem::remove(file());
+    std::filesystem::create_directory(file());   // a folder where the file should be
+    EXPECT_EQ(write(kStronger).outcome, GameSettingsFileResult::Outcome::Refused);
+    std::filesystem::remove(file());
+    ASSERT_TRUE(writeFileReplacing(file(), std::string(kMaxGameSettingsFileBytes + 1, 'x')));
+    EXPECT_EQ(write(kStronger).outcome, GameSettingsFileResult::Outcome::Refused);   // too large to be it
+}
+
+TEST_F(GameSettingsFile, OnlyPathsUnderTheFolder) {
+    // "/abs" and "C:x" leave the folder on Windows even though neither is absolute there; "\\server\x" is a share.
+    for (const char* relative :
+         {"", "../outside", "Game/../../outside", "/abs/PROFILEOPTIONS", "C:x/PROFILEOPTIONS", "\\\\server\\x"}) {
+        EXPECT_EQ(writeGameSettingsFile(root_, relative, kStronger).outcome, GameSettingsFileResult::Outcome::Refused)
+            << relative;
+    }
+    EXPECT_EQ(writeGameSettingsFile({}, "Game/settings/PROFILEOPTIONS", kStronger).outcome,
+              GameSettingsFileResult::Outcome::Refused);
+}
+
+// The service may run as Administrator: a link put in place of the file, its backup or a folder is never followed.
+TEST_F(GameSettingsFile, LinksAreNotFollowed) {
+    std::error_code ec;
+    const std::filesystem::path elsewhere = root_ / "elsewhere";
+    ASSERT_TRUE(writeFileReplacing(elsewhere, unboundFile()));
+    std::filesystem::create_symlink(elsewhere, file(), ec);
+    if (ec) GTEST_SKIP() << "links cannot be made here: " << ec.message();
+    EXPECT_EQ(write(kStronger).outcome, GameSettingsFileResult::Outcome::Refused);
+    EXPECT_EQ(readFileText(elsewhere).value_or(""), unboundFile());
+
+    // The backup's name is a link (dangling: the place it points to does not exist yet): nothing is written there.
+    std::filesystem::remove(file());
+    ASSERT_TRUE(writeFileReplacing(file(), unboundFile()));
+    const std::filesystem::path target = root_ / "target";
+    std::filesystem::create_symlink(target, backup(), ec);
+    ASSERT_FALSE(ec);
+    EXPECT_EQ(write(kStronger).outcome, GameSettingsFileResult::Outcome::Refused);
+    EXPECT_FALSE(std::filesystem::exists(target));
+    EXPECT_EQ(readFileText(file()).value_or(""), unboundFile());
+    std::filesystem::remove(backup());
+
+    // A folder on the way is a link.
+    std::filesystem::create_directories(root_ / "real" / "settings");
+    ASSERT_TRUE(writeFileReplacing(root_ / "real" / "settings" / "PROFILEOPTIONS", unboundFile()));
+    std::filesystem::create_directory_symlink(root_ / "real", root_ / "Linked", ec);
+    ASSERT_FALSE(ec);
+    EXPECT_EQ(writeGameSettingsFile(root_, "Linked/settings/PROFILEOPTIONS", kStronger).outcome,
+              GameSettingsFileResult::Outcome::Refused);
 }
 
 }  // namespace

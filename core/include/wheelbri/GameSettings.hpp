@@ -2,6 +2,7 @@
 
 #include "wheelbri/GameProfiles.hpp"
 
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <span>
@@ -76,5 +77,28 @@ struct GameSettingsEdit {
 [[nodiscard]] GameSettingsEdit editFrostbiteSettings(std::string_view bytes, std::span<const GameSettingText> values);
 // The value of `name` in a Frostbite settings file, or nullopt (not a Frostbite file, no such entry, or more than one).
 [[nodiscard]] std::optional<std::string> frostbiteSetting(std::string_view bytes, std::string_view name);
+
+// Writes `values` into the Frostbite settings file at `root` / `relative` (root: the user's Documents folder;
+// relative: a profile's [game_settings] file, / separated). The user's file as it was is kept once, next to it, as
+// "<file>.before-wheelbri" (never overwritten: putting it back undoes everything WheelBri set). Written through a
+// temporary file and a rename, so the game never reads half a file. The service may run as Administrator, so a link
+// is never followed: the file, its backup and every folder below `root` must be real files and folders.
+struct GameSettingsFileResult {
+    enum class Outcome {
+        Written,   // values changed (`changes`), the backup made if it was not there
+        AsSet,     // every value already as asked: nothing written
+        NoFile,    // the game has not written its settings yet: nothing to do until it has
+        Refused,   // the file is not as expected (`why`): nothing written, and trying again will not help
+        Failed,    // could not read or write it (`why`), e.g. the game holds it: worth trying again later
+    };
+    Outcome outcome = Outcome::Failed;
+    std::vector<GameSettingsEdit::Change> changes;
+    std::string why;
+    std::filesystem::path file;
+    std::filesystem::path backup;
+};
+inline constexpr std::uintmax_t kMaxGameSettingsFileBytes = 1024 * 1024;   // NFS Unbound's is 128 KB
+[[nodiscard]] GameSettingsFileResult writeGameSettingsFile(const std::filesystem::path& root, std::string_view relative,
+                                                           std::span<const GameSettingText> values);
 
 }  // namespace wheelbri

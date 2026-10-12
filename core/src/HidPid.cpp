@@ -734,8 +734,28 @@ void HidPid::tick(std::int64_t nowMs) {
     constexpr std::int64_t kKeepAliveMs = 100;
     constexpr std::int64_t kRefreshMs = 250;
     std::lock_guard lock(mutex_);
+    // Whether a force that pushes the wheel one way (constant, ramp, periodic: not springs and dampers, which only
+    // resist) plays at more than `above` of full scale. Not Ffb.cpp's helpers: the driver compiles this file without
+    // the service's logging.
+    const auto pushing = [this](const float above) {
+        const auto pushes = [above](const FfbEffect& e) {
+            switch (e.type) {
+                case FfbEffectType::Spring:
+                case FfbEffectType::Damper:
+                case FfbEffectType::Inertia:
+                case FfbEffectType::Friction: return false;
+                case FfbEffectType::Constant: return std::fabs(e.constantLevel * e.gain) > above;
+                default: return (std::fabs(e.periodic.magnitude) + std::fabs(e.periodic.offset)) * e.gain > above;
+            }
+        };
+        return std::any_of(sent_.begin(), sent_.end(),
+                           [&](const auto& s) { return s && s->playing && pushes(s->effect); });
+    };
+    // A stream that stops: only when something pushes (even a little: 0.7% took the R3 to full lock). A game at
+    // rest that only holds its springs and dampers may stop sending while it waits; those stay.
     const bool streamed = lastReportMs_ - streamStartMs_ >= kStreamMinMs;
-    if (!quiet_ && reportsHandled_ > 0 && streamed && nowMs - lastReportMs_ >= kStreamQuietMs) {
+    if (!quiet_ && reportsHandled_ > 0 && streamed && nowMs - lastReportMs_ >= kStreamQuietMs &&
+        pushing(kStreamPushingAbove)) {
         quiet_ = true;
         log_(LogLevel::Info, "pid: the game streamed force feedback for " +
                                  std::to_string((lastReportMs_ - streamStartMs_) / 1000) + " s and then nothing for " +
@@ -744,20 +764,7 @@ void HidPid::tick(std::int64_t nowMs) {
                                  "forces; they come back with the game's next report");
     }
     if (!quiet_ && reportsHandled_ > 0 && nowMs - lastReportMs_ >= kGameQuietMs) {
-        // Not Ffb.cpp's helpers: the driver compiles this file without the service's logging.
-        const auto pushes = [](const FfbEffect& e) {
-            switch (e.type) {
-                case FfbEffectType::Spring:
-                case FfbEffectType::Damper:
-                case FfbEffectType::Inertia:
-                case FfbEffectType::Friction: return false;
-                case FfbEffectType::Constant: return std::fabs(e.constantLevel * e.gain) > 0.02F;
-                default: return (std::fabs(e.periodic.magnitude) + std::fabs(e.periodic.offset)) * e.gain > 0.02F;
-            }
-        };
-        const bool pushing = std::any_of(sent_.begin(), sent_.end(),
-                                         [&](const auto& s) { return s && s->playing && pushes(s->effect); });
-        if (pushing) {
+        if (pushing(kQuietPushingAbove)) {
             quiet_ = true;
             log_(LogLevel::Warn, "pid: no force feedback report from the game for " +
                                      std::to_string(kGameQuietMs / 1000) +

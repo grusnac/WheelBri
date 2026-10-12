@@ -20,7 +20,7 @@ const logging::Logger& log() {
     return logger;
 }
 
-// A settings file larger than this is not a game's (NFS 2015's is 19 KB, NFS Unbound's 128 KB): not read.
+// A settings file larger than this is not NFS 2015's (19 KB): not read.
 constexpr std::uintmax_t kMaxSettingsBytes = 1024 * 1024;
 
 std::string lower(const std::string_view text) {
@@ -147,12 +147,11 @@ void GameWatch::writePendingGameSettings() {
             continue;
         }
         settingsWaitSaid_.erase(game->id);
-        writeGameSettings(*game);
-        it = settingsPending_.erase(it);
+        it = writeGameSettings(*game) ? settingsPending_.erase(it) : std::next(it);
     }
 }
 
-void GameWatch::writeGameSettings(const GameProfile& game) {
+bool GameWatch::writeGameSettings(const GameProfile& game) {
     const std::filesystem::path documents = platform::documentsFolder();
     if (documents.empty()) {
         if (!noDocumentsSaid_) {
@@ -161,57 +160,44 @@ void GameWatch::writeGameSettings(const GameProfile& game) {
                                "in the game's Proton folder here): not set",
                         game.label);
         }
-        return;
-    }
-    const std::filesystem::path file = documents / pathFromUtf8(game.settingsFile);
-    std::error_code error;
-    if (!std::filesystem::is_regular_file(file, error)) {
-        WE_LOG_INFO(log(), "game settings: {}: no settings file yet ({}): start the game once, WheelBri sets them "
-                           "after it closes",
-                    game.label, pathToUtf8(file));
-        return;
-    }
-    const std::uintmax_t size = std::filesystem::file_size(file, error);
-    const std::optional<std::string> bytes =
-        !error && size <= kMaxSettingsBytes ? readFileText(file) : std::optional<std::string>();
-    if (!bytes) {
-        WE_LOG_WARN(log(), "game settings: {}: cannot read {}: not set", game.label, pathToUtf8(file));
-        return;
+        return true;
     }
     // The steering rotation the game is played with: its own (GameRotation.hpp), else the mapping's.
     const std::optional<SteeringRotation> own = rotationWhileRunning(game, overrides_);
     const float steeringDeg = own ? own->gameDeg : mapping_.gameDeg;
     const std::vector<GameSettingText> values = gameSettingTexts(game, settingOverrides_, steeringDeg);
-    const GameSettingsEdit edit = editFrostbiteSettings(*bytes, values);
-    if (!edit.problems.empty()) {
-        std::string problems;
-        for (const std::string& problem : edit.problems) problems += (problems.empty() ? "" : "; ") + problem;
-        WE_LOG_WARN(log(), "game settings: {}: nothing written to {}: {}", game.label, pathToUtf8(file), problems);
-        return;
+    const GameSettingsFileResult result = writeGameSettingsFile(documents, game.settingsFile, values);
+    const std::string file = pathToUtf8(result.file);
+    using Outcome = GameSettingsFileResult::Outcome;
+    switch (result.outcome) {
+        case Outcome::Written:
+            for (const GameSettingsEdit::Change& change : result.changes) {
+                WE_LOG_INFO(log(), "game settings: {}: {} {} -> {} ({}; the original is kept as {})", game.label,
+                            change.name, change.before, change.after, game.settingsNote, pathToUtf8(result.backup));
+            }
+            break;
+        case Outcome::AsSet:
+            WE_LOG_INFO(log(), "game settings: {}: its own settings are as set ({})", game.label, file);
+            break;
+        case Outcome::NoFile:
+            WE_LOG_INFO(log(), "game settings: {}: no settings file yet ({}): start the game once, WheelBri sets them "
+                               "after it closes",
+                        game.label, file);
+            break;
+        case Outcome::Refused:
+            WE_LOG_WARN(log(), "game settings: {}: nothing written to {}: {}", game.label, file, result.why);
+            break;
+        case Outcome::Failed:
+            // Tried again at every check (the game may hold the file a moment); said once per reason.
+            if (std::string& said = settingsFailureSaid_[game.id]; said != result.why) {
+                said = result.why;
+                WE_LOG_WARN(log(), "game settings: {}: not written yet to {}: {}; trying again", game.label, file,
+                            result.why);
+            }
+            return false;
     }
-    if (edit.changes.empty()) {
-        WE_LOG_INFO(log(), "game settings: {}: its own settings are as set ({})", game.label, pathToUtf8(file));
-        return;
-    }
-    // The user's file as it was, once: put it back to undo everything WheelBri set.
-    std::filesystem::path backup = file;
-    backup += ".before-wheelbri";
-    if (!std::filesystem::exists(backup, error)) {
-        std::filesystem::copy_file(file, backup, std::filesystem::copy_options::skip_existing, error);
-        if (error) {
-            WE_LOG_WARN(log(), "game settings: {}: cannot keep a copy of {} ({}): nothing written", game.label,
-                        pathToUtf8(file), error.message());
-            return;
-        }
-    }
-    if (!writeFileReplacing(file, edit.bytes)) {
-        WE_LOG_WARN(log(), "game settings: {}: cannot write {}: not set", game.label, pathToUtf8(file));
-        return;
-    }
-    for (const GameSettingsEdit::Change& change : edit.changes) {
-        WE_LOG_INFO(log(), "game settings: {}: {} {} -> {} ({}; the original is kept as {})", game.label, change.name,
-                    change.before, change.after, game.settingsNote, pathToUtf8(backup));
-    }
+    settingsFailureSaid_.erase(game.id);
+    return true;
 }
 
 std::string GameWatch::rotationStatus() const {

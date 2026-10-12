@@ -89,14 +89,17 @@ public:
     // and refreshes stop: the service's watchdog then stops every force. The game's next report brings them back.
     // Springs and dampers alone keep going: they only resist, and games set them once and leave them.
     // A game that streams its force feedback (a report at least every kStreamGapMs for kStreamMinMs, as NFS Unbound
-    // does every 16 ms) and then sends nothing for kStreamQuietMs has closed, crashed or paused: keep-alives stop at
-    // once, whatever plays (2026-10-12: NFS Unbound closed without stopping its effects, and a held force of under 1%
-    // took the R3 to full lock in 1.5 s and kept it there).
+    // does every 16 ms) and then sends nothing for kStreamQuietMs while any pushing force plays (above
+    // kStreamPushingAbove) has closed, crashed or paused: keep-alives stop at once (2026-10-12: NFS Unbound closed
+    // without stopping its effects, and a held force of under 1% took the R3 to full lock in 1.5 s and kept it there).
+    // Springs and dampers alone keep going here too: a game at rest may stop sending while it holds only those.
     void tick(std::int64_t nowMs);
     static constexpr std::int64_t kGameQuietMs = 10'000;
     static constexpr std::int64_t kStreamGapMs = 250;
     static constexpr std::int64_t kStreamMinMs = 2'000;
     static constexpr std::int64_t kStreamQuietMs = 500;
+    static constexpr float kStreamPushingAbove = 0.001F;   // any force at all
+    static constexpr float kQuietPushingAbove = 0.02F;     // the 10 s rule: a force that is felt
     // How long parameters without a block wait for the Set Effect that names it (see above).
     static constexpr std::int64_t kPendingMs = 20;
     static constexpr std::int64_t kRunGapMs = 8;

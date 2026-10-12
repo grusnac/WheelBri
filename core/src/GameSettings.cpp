@@ -1,5 +1,7 @@
 #include "wheelbri/GameSettings.hpp"
 
+#include "wheelbri/FileText.hpp"
+
 #include <cstdint>
 #include <cstdio>
 
@@ -139,6 +141,111 @@ std::optional<std::string> frostbiteSetting(const std::string_view bytes, const 
     const std::vector<ValueSpan> found = findValues(bytes, name);
     if (found.size() != 1) return std::nullopt;
     return std::string(bytes.substr(found[0].at, found[0].length));
+}
+
+namespace {
+
+// True when `path` itself is a link (or a reparse point the library reports as one); never follows it.
+bool isLink(const std::filesystem::path& path) {
+    std::error_code ec;
+    return std::filesystem::is_symlink(std::filesystem::symlink_status(path, ec));
+}
+
+}  // namespace
+
+GameSettingsFileResult writeGameSettingsFile(const std::filesystem::path& root, const std::string_view relative,
+                                             const std::span<const GameSettingText> values) {
+    using Outcome = GameSettingsFileResult::Outcome;
+    GameSettingsFileResult result;
+    const std::filesystem::path rel = pathFromUtf8(std::string(relative));
+    // / separated and relative, on every system: no drive ("C:x" is relative on Windows yet leaves `root`), no
+    // backslash (a Windows separator, or a share), no root ("/x" has no drive on Windows but root / "/x" still leaves
+    // `root`).
+    if (root.empty() || rel.empty() || rel.has_root_path() || relative.find(':') != std::string_view::npos ||
+        relative.find('\\') != std::string_view::npos) {
+        result.outcome = Outcome::Refused;
+        result.why = "no settings folder, or not a path under it";
+        return result;
+    }
+    result.file = root / rel;
+    result.backup = result.file;
+    result.backup += ".before-wheelbri";
+
+    // Every folder from `root` down, and the file: real ones, no links.
+    std::filesystem::path walk = root;
+    for (const std::filesystem::path& part : rel) {
+        if (part == ".." || part == ".") {
+            result.outcome = Outcome::Refused;
+            result.why = "the path leaves the settings folder";
+            return result;
+        }
+        walk /= part;
+        if (isLink(walk)) {
+            result.outcome = Outcome::Refused;
+            result.why = pathToUtf8(walk) + " is a link: not followed";
+            return result;
+        }
+    }
+    std::error_code ec;
+    const std::filesystem::file_status status = std::filesystem::symlink_status(result.file, ec);
+    if (status.type() == std::filesystem::file_type::not_found) {
+        result.outcome = Outcome::NoFile;
+        result.why = "no settings file yet";
+        return result;
+    }
+    if (!std::filesystem::is_regular_file(status)) {
+        result.outcome = Outcome::Refused;
+        result.why = "not a plain file";
+        return result;
+    }
+    const std::uintmax_t size = std::filesystem::file_size(result.file, ec);
+    if (ec) {
+        result.outcome = Outcome::Failed;
+        result.why = "cannot read its size (" + ec.message() + ")";
+        return result;
+    }
+    if (size > kMaxGameSettingsFileBytes) {
+        result.outcome = Outcome::Refused;
+        result.why = "larger than a settings file (" + std::to_string(size) + " bytes)";
+        return result;
+    }
+    const std::optional<std::string> bytes = readFileText(result.file);
+    if (!bytes) {
+        result.outcome = Outcome::Failed;
+        result.why = "cannot read it";
+        return result;
+    }
+    GameSettingsEdit edit = editFrostbiteSettings(*bytes, values);
+    if (!edit.problems.empty()) {
+        result.outcome = Outcome::Refused;
+        for (const std::string& problem : edit.problems) result.why += (result.why.empty() ? "" : "; ") + problem;
+        return result;
+    }
+    if (edit.changes.empty()) {
+        result.outcome = Outcome::AsSet;
+        return result;
+    }
+    // The backup: made once, from the bytes just read, never through a link and never over an existing one.
+    const std::filesystem::file_status backupStatus = std::filesystem::symlink_status(result.backup, ec);
+    if (backupStatus.type() == std::filesystem::file_type::not_found) {
+        if (!writeFileReplacing(result.backup, *bytes)) {
+            result.outcome = Outcome::Failed;
+            result.why = "cannot keep a copy of the file as it was";
+            return result;
+        }
+    } else if (!std::filesystem::is_regular_file(backupStatus)) {
+        result.outcome = Outcome::Refused;
+        result.why = pathToUtf8(result.backup) + " is there but is not a plain file";
+        return result;
+    }
+    if (!writeFileReplacing(result.file, edit.bytes)) {
+        result.outcome = Outcome::Failed;
+        result.why = "cannot write it (the game may have it open)";
+        return result;
+    }
+    result.outcome = Outcome::Written;
+    result.changes = std::move(edit.changes);
+    return result;
 }
 
 }  // namespace wheelbri

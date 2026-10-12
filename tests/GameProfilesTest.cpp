@@ -37,8 +37,8 @@ TEST(GameProfiles, EveryBuiltInFileParsesCleanly) {
         EXPECT_EQ(programName(profile.program), profile.program) << profile.id;
         EXPECT_EQ(gameProfileFor(profile.program), &profile) << profile.id;
         // A profile is the exception: it changes something or gives advice, or it should not exist.
-        EXPECT_TRUE(!describeOverlay(profile).empty() || profile.rotationDeg.has_value() || profile.ffbGain.has_value() ||
-                    !profile.settings.empty())
+        EXPECT_TRUE(!describeOverlay(profile).empty() || profile.rotationDeg.has_value() ||
+                    profile.ffbGain.has_value() || !profile.settings.empty())
             << profile.id;
     }
 }
@@ -273,6 +273,30 @@ TEST(GameProfiles, NfsUnboundGetsStrongerForceFeedback) {
     EXPECT_FALSE(unbound->ffbNote.empty());
     EXPECT_EQ(describeOverlay(*unbound), "");   // its pedals are a G920's
     EXPECT_FALSE(unbound->rotationDeg.has_value());
+}
+
+// Every problem a profile file can have is named, and such a file is not used.
+TEST(GameProfiles, EveryKindOfProblemIsNamed) {
+    const std::string head = "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n";
+    const auto problems = [&](const std::string& rest) { return parseGameProfile("x", head + rest).problems; };
+    const auto names = [&](const std::string& rest, const std::string& expected) {
+        const std::vector<std::string> found = problems(rest);
+        std::string all;
+        for (const std::string& p : found) all += p + "\n";
+        return all.find(expected) != std::string::npos ? ::testing::AssertionSuccess()
+                                                       : ::testing::AssertionFailure() << all;
+    };
+    EXPECT_TRUE(names("[game]\nversion = 2\n", "[game] version: unknown key"));
+    EXPECT_TRUE(names("[ffb]\ngain = 2\nnote = " + std::string(200, 'x') + "\n", "[ffb] note: at most"));
+    EXPECT_TRUE(names("[ffb]\nmax = 2\n", "[ffb] max: unknown key"));
+    std::string many = "[game_settings]\nfile = G/x\nnote = Why.\n";
+    for (char c = 'a'; c < 'a' + static_cast<char>(kMaxGameSettings) + 1; ++c) {
+        many += std::string(1, c) + " = Wheel" + std::string(1, c) + " 0.5\n";
+    }
+    EXPECT_TRUE(names(many, "at most"));
+    EXPECT_TRUE(names("[game_settings]\nfile = G/x\nnote = " + std::string(200, 'x') + "\na = WheelA 0.5\n",
+                      "[game_settings] note: at most"));
+    EXPECT_TRUE(names("[cheats]\na = 1\n", "unknown section"));
 }
 
 }  // namespace

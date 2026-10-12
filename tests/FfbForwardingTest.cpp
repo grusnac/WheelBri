@@ -255,6 +255,66 @@ TEST(FfbController, WatchdogStopsEverythingWhenTheGameGoesQuiet) {
     EXPECT_EQ(sink.stops.size(), 1U);
 }
 
+// After the watchdog stopped everything, the game's next packets bring the forces back.
+TEST(FfbController, ForcesComeBackWhenTheGameSendsAgain) {
+    RecordingSink sink;
+    FfbController controller(sink, safety(), {100 * kMs, 4 * kMs});
+    FfbEffect push;
+    push.constantLevel = 0.3F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.update(0);
+    controller.update(150 * kMs);
+    ASSERT_TRUE(controller.watchdogTripped());
+    EXPECT_FALSE(controller.slot(0).playing);
+    controller.onPacket(slotPacket(0, true, push), 200 * kMs);
+    EXPECT_FALSE(controller.watchdogTripped());
+    controller.update(200 * kMs);
+    EXPECT_TRUE(controller.slot(0).playing);
+}
+
+// The wheel refusing an effect: counted, and not retried every tick (the game sends it again if it cares).
+TEST(FfbController, AnEffectTheWheelRefusesIsNotRetriedEveryTick) {
+    RecordingSink sink;
+    sink.accept = false;
+    FfbController controller(sink, safety());
+    FfbEffect push;
+    push.constantLevel = 0.3F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.update(0);
+    controller.update(10 * kMs);
+    controller.update(20 * kMs);
+    EXPECT_EQ(sink.plays.size(), 1U);
+    EXPECT_EQ(controller.stats().playFailures, 1U);
+    EXPECT_FALSE(controller.slot(0).playing);
+}
+
+TEST(FfbController, StopAllEndsEverythingAtOnce) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());
+    FfbEffect push;
+    push.constantLevel = 0.3F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.onPacket(slotPacket(3, true, push), 0);
+    controller.update(0);
+    controller.stopAll();
+    EXPECT_EQ(sink.stopAlls, 1);
+    EXPECT_FALSE(controller.slot(0).playing);
+    EXPECT_FALSE(controller.slot(3).wanted);
+    controller.update(10 * kMs);
+    EXPECT_EQ(sink.plays.size(), 2U);   // nothing started again
+}
+
+// A game gain that is not a number is the game's forces as asked.
+TEST(FfbController, NonFiniteGameGainIsOne) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());
+    controller.setGameGain(3.0F);
+    controller.setGameGain(std::numeric_limits<float>::quiet_NaN());
+    EXPECT_FLOAT_EQ(controller.gameGain(), 1.0F);
+    controller.setGameGain(-2.0F);
+    EXPECT_FLOAT_EQ(controller.gameGain(), kFfbGainMin);
+}
+
 TEST(FfbController, OutOfRangeSlotIsIgnored) {
     RecordingSink sink;
     FfbController controller(sink, safety());

@@ -269,7 +269,11 @@ rewrites on every build only when it changes); views keep their own top-row cont
     ones (a game that streams parameters with no Set Effect, as NFS Unbound does every 16 ms) are applied `kPendingMs`
     after the first one waited (a newer one replaces it without restarting the wait); a run of several of one kind
     goes to the blocks of that kind whose values each continues (`applyUnclaimed`, nearest values, ties by block
-    number), and an exact repeat within `kCopyMs` is Windows' copy, ignored. A trace (`HidPid::enableTrace`, off by default) writes
+    number), and an exact repeat within `kCopyMs` is Windows' copy, ignored. A game that streamed (`kStreamMinMs`)
+    and goes quiet for `kStreamQuietMs` while a pushing force plays (any above `kStreamPushingAbove`) stops the
+    keep-alives (the service's watchdog then stops the forces); springs and dampers alone stay; the 10 s rule
+    (`kGameQuietMs`, a felt force) covers games that set effects once. `AnyReportsAreSafe` throws random reports at
+    it. A trace (`HidPid::enableTrace`, off by default) writes
     the next N reports and the slot changes they cause to the driver's log (`pid trace`), for checking the real order:
     an Administrator sets `HKLM\SOFTWARE\wheelbri PidTraceLines` (DWORD, e.g. 1000), read at each start of the device.
     One `pid:` line per effect event at debug (new effect or refused, a Set Effect that changes type, duration or
@@ -294,9 +298,13 @@ rewrites on every build only when it changes); views keep their own top-row cont
     with `g920` only. A profile may set the game's own settings (`[game_settings]` file / note / `<id> = <game's name> <0..1 | steering>`):
     core `GameSettings` (`gameSettingTexts`: the user's `[game_settings] <game>.<id>` value, else the profile's;
     "steering" = the game's steering rotation; `editFrostbiteSettings`: Frostbite `FBCHUNKS` files, each name found
-    by its own entry's length fields, exactly once, only same-length values written, any problem = nothing written).
+    by its own entry's length fields, exactly once, only same-length values written, any problem = nothing written;
+    `writeGameSettingsFile`: the file under the Documents folder, no link followed (file, backup, folders: the service
+    may run as Administrator), backup `<file>.before-wheelbri` written once from the bytes read, outcomes Written /
+    AsSet / NoFile / Refused / Failed; `GameSettingsTest` covers it with temporary folders and damaged files).
     `GameWatch` writes them (Windows, under `platform::documentsFolder()`) only while the game is not running: at
-    the first `check()` and when the game ends; it keeps `<file>.before-wheelbri` once and logs every change. The
+    the first `check()` and when the game ends; it logs every change, and tries again at each check after a Failed
+    (said once per reason). The
     Mapping tab's PER GAME rows edit the numbers (`Field::GameSetting`); a game with a "steering" setting
     (`hasSteeringSetting`) also gets a rotation row like Payback's (`[game_rotation]`), whose game rotation is written.
     A profile's `[ffb] gain` has an ffb gain row too (`[game_ffb_gain] <game> = 0.25..4`, `gameFfbGain`: the user's,

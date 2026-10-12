@@ -3,10 +3,13 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <optional>
+#include <random>
 #include <set>
+#include <span>
 
 #include <algorithm>
 #include <limits>
@@ -201,6 +204,103 @@ TEST(HidPid, AFewReportsAreNotAStream) {
     EXPECT_FALSE(r.pid.gameQuiet());
     r.pid.tick(1000 + HidPid::kGameQuietMs);
     EXPECT_TRUE(r.pid.gameQuiet());
+}
+
+// A game at rest may stop sending while it holds only springs and dampers: those are not a game gone, they stay.
+TEST(HidPid, AStreamOfSpringsAloneThatPausesKeepsGoing) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0800"), 0);
+    r.pid.output(0x11, hex("0108FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    r.pid.output(0x1A, hex("010101"), 0);
+    std::int64_t t = 0;
+    for (; t < 3000; t += 16) {
+        r.pid.output(0x13, hex("000F000028232823041004100000"), t);
+        r.pid.tick(t);
+    }
+    for (; t < 6000; t += 10) r.pid.tick(t);
+    EXPECT_FALSE(r.pid.gameQuiet());
+    r.packets.clear();
+    r.pid.tick(6300);
+    EXPECT_FALSE(r.packets.empty());   // still kept alive
+}
+
+// pid.dll may send Block Free and Device Control as feature reports: they act as the output reports do.
+TEST(HidPid, BlockFreeAndDeviceControlAsFeatureReports) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x15, hex("00A00F"), 0);
+    r.pid.output(0x11, hex("0101FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    r.pid.output(0x1A, hex("010101"), 0);
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    r.pid.setFeature(0x1C, hex("03"), 10);   // device control: stop all effects
+    EXPECT_EQ(r.pid.activeSlots(), 0U);
+    r.pid.setFeature(0x1B, hex("01"), 20);   // block free: the block can be handed out again
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 30);
+    std::array<std::uint8_t, 8> feature{};
+    ASSERT_EQ(r.pid.getFeature(HidPid::kBlockLoad, feature), 5U);
+    EXPECT_EQ(feature[1], 1);
+    r.pid.setFeature(0x42, hex("00"), 40);   // a feature report this device does not have: nothing happens
+    EXPECT_EQ(r.pid.activeSlots(), 0U);
+}
+
+TEST(HidPid, StateFeatureSaysActuatorsAndPause) {
+    Recorder r;
+    std::array<std::uint8_t, 8> out{};
+    ASSERT_EQ(r.pid.getFeature(HidPid::kState, out), 3U);
+    EXPECT_EQ(out[0], HidPid::kState);
+    EXPECT_EQ(out[2], 0x12);   // actuators on, not paused
+    r.pid.output(0x1C, hex("02"), 0);   // disable actuators
+    r.pid.output(0x1C, hex("05"), 0);   // pause
+    ASSERT_EQ(r.pid.getFeature(HidPid::kState, out), 3U);
+    EXPECT_EQ(out[2], 0x11);
+    EXPECT_EQ(r.pid.getFeature(HidPid::kState, std::span<std::uint8_t>(out.data(), 2)), 0U);   // too short
+    ASSERT_EQ(r.pid.getFeature(HidPid::kCreateNewEffect, out), 1U);
+    EXPECT_EQ(r.pid.getFeature(HidPid::kCreateNewEffect, std::span<std::uint8_t>()), 0U);
+}
+
+// Without a direction, a force acts along the enabled axes: X enabled = the wheel, else nothing on the wheel.
+TEST(HidPid, ForceAlongTheEnabledAxesWithoutADirection) {
+    const auto levelWithAxes = [](const char* axes) {
+        Recorder r;
+        r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+        r.pid.output(0x15, hex("00A00F"), 0);   // 0.4
+        r.pid.output(0x11, hex(std::string("0101FFFF000000000000FFFF") + axes + "0000000000FFFFFFFF"), 0);
+        r.pid.output(0x1A, hex("010101"), 0);
+        r.pid.tick(10);
+        const FfbPacket* const p = r.lastPlaying();
+        return p != nullptr ? p->effect.constantLevel : -9.0F;
+    };
+    EXPECT_NEAR(levelWithAxes("01"), 0.4F, 1e-4F);   // X
+    EXPECT_NEAR(levelWithAxes("02"), 0.0F, 1e-4F);   // Y only: nothing on the wheel
+}
+
+// Reports from a game are not trusted: any id, any length, any bytes. Nothing reads past them, the slots stay within
+// the device's, and every packet sent is a well-formed one. Seeded: the same cases on every run.
+TEST(HidPid, AnyReportsAreSafe) {
+    std::mt19937 random(20261012U);
+    Recorder r;
+    std::vector<std::uint8_t> bytes;
+    std::array<std::uint8_t, 64> out{};
+    for (std::int64_t t = 0; t < 20000; t += 1) {
+        bytes.resize(random() % 24);
+        for (std::uint8_t& b : bytes) b = static_cast<std::uint8_t>(random());
+        if (!bytes.empty() && random() % 2 == 0) bytes[0] = static_cast<std::uint8_t>(random() % 10);   // real blocks
+        const auto id = static_cast<std::uint8_t>(0x10 + random() % 16);
+        switch (random() % 8) {
+            case 0: r.pid.setFeature(id, bytes, t); break;
+            case 1: (void)r.pid.getFeature(id, std::span<std::uint8_t>(out.data(), random() % out.size())); break;
+            default: r.pid.output(id, bytes, t); break;
+        }
+        if (t % 7 == 0) r.pid.tick(t);
+        ASSERT_LE(r.pid.activeSlots(), HidPid::kMaxSlots);
+    }
+    for (const FfbPacket& p : r.packets) {
+        EXPECT_LT(p.slot, HidPid::kMaxSlots);
+        EXPECT_TRUE(std::isfinite(p.effect.constantLevel));
+        EXPECT_TRUE(std::isfinite(p.effect.periodic.magnitude));
+        EXPECT_TRUE(std::isfinite(p.effect.periodic.periodMs));
+        EXPECT_TRUE(std::isfinite(p.effect.condition.positiveCoefficient));
+    }
 }
 
 TEST(HidPid, SpringAloneIsKeptAliveWhileTheGameIsSilent) {

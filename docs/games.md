@@ -107,8 +107,9 @@ Played on the tested rig: wheel, pedals, buttons and force feedback checked in t
   and the slew limit still apply; its springs and damper stay as they are). Change it in the Mapping tab, PER GAME,
   ffb gain (`[game_ffb_gain] nfsunbound = 3`, 0.25 to 4), from the next Start.
 - **Closing the game leaves its forces on.** It quits without stopping its effects; the virtual G920's driver now
-  stops them 0.5 s after the game's stream of updates ends (before: 10 s, or never for a force under 2%, and the
-  wheel crept to full lock).
+  stops them 0.5 s after the game's stream of updates ends while any pushing force plays (before: 10 s, or never for
+  a force under 2%, and the wheel crept to full lock). Springs and dampers alone are kept: a game at rest may stop
+  sending while it holds only those.
 
 ## Expected to work
 
