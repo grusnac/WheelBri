@@ -38,7 +38,11 @@ Settled with NFS 2015 and an R3 on Windows:
   the game's steering rotation (`[steering] rotation_deg` and `note`): while the game runs the service steers with
   it, wheel and game full lock both at that number, then the mapping's own again. NFS Payback's (`nfspayback.ini`,
   `NeedForSpeedPayback.exe`) is 180: the status shows "NFS Payback, 180 deg" and the log says to set the wheel's
-  own software to 180 too. The Mapping tab's PER GAME rows change it per game or turn it off (`[game_rotation]`);
+  own software to 180 too. The Mapping tab's PER GAME rows change it per game or turn it off (`[game_rotation]`).
+  A profile can also make a game's force feedback stronger (`[ffb] gain` and `note`): while the game runs, the
+  service multiplies its pushing forces (steering force, rumble; not springs or dampers) by it before the safety
+  limits, which still apply. NFS Unbound's (`nfsunbound.ini`) is 3: its force feedback is very light and the game
+  has no setting for it;
 - the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/g920-virtual-device.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
@@ -166,7 +170,15 @@ a headline, why it was needed, how to use it, and where to look.
   set wider than the game's full lock turns on past it with the force feedback dropping there. WheelBri never reads
   or sets the wheel's own settings. **PER GAME**: a game whose profile has a rotation (NFS Payback: 180) steers with
   it while it runs; type another (`180`, or `360/180` for wheel/game), **On/Off**, or **Default** for the profile's,
-  saved as `[game_rotation] nfspayback = 180 | 360/180 | off`. Set the wheel's own software to the same. All of it reaches the shim and the virtual device alike (the
+  saved as `[game_rotation] nfspayback = 180 | 360/180 | off`. Set the wheel's own software to the same. A game
+  whose profile sets the game's own settings (NFS Unbound's hidden wheel settings: force feedback, spring) lists
+  them under its name: type a value (0 to 1) or **Default**, saved as `[game_settings] nfsunbound.spring = 0.8`.
+  A game that keeps its own steering rotation (NFS Unbound's `WheelMaxRotation`) has a rotation row like Payback's
+  (`[game_rotation] nfsunbound = 360`; Off = the mapping's), and that number is written into the game's file too.
+  A game whose profile has a force feedback gain (NFS Unbound: 3) has an **ffb gain** row: type 0.25 to 4 or
+  **Default**, saved as `[game_ffb_gain] nfsunbound = 3`;
+  WheelBri writes them into the game's settings file while the game is closed (at Start and when it ends), keeping
+  the original as `<file>.before-wheelbri`. All of it reaches the shim and the virtual device alike (the
   service's mapper applies it), from the next Start. Config keys: `[steering] source_rotation_deg`,
   `target_rotation_deg`. Dead zones are not here: they are the real devices' (Rig tab).
 - **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core

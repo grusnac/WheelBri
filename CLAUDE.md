@@ -69,7 +69,12 @@ Status (README.md has the full table):
   any wheel (2026-10-11). Core `GameRotation` (`rotationWhileRunning`: the user's `[game_rotation]` line, else the
   profile's); `GameWatch::check` returns the ratio, `Pipeline::setSteeringRatio` applies it (atomic, next tick),
   `Mapper::map(inputs, ratio)`; status and `service.game` log say so and to set the wheel's own software to the
-  same. WheelBri never reads or sets the wheel's own software (no Moza SDK). The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
+  same. A profile may also carry a force feedback gain (`[ffb] gain` + `note`, both or neither, 0.25..4): NFS Unbound
+  (`NeedForSpeedUnbound.exe`) 3, its force feedback being very light with no setting for it (2026-10-12: steering
+  force 5% of full scale on average). `GameWatch::check` returns it, the loop hands it to
+  `FfbController::setGameGain`, which multiplies only pushing forces (constant level, periodic magnitude and offset;
+  conditions untouched) before `FfbSafetyLimiter`, so the cap and slew still hold. WheelBri never reads or sets the
+  wheel's own software (no Moza SDK). The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
   throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
 - **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
@@ -261,7 +266,10 @@ rewrites on every build only when it changes); views keep their own top-row cont
     type-specific parameters with effect block 0 and then the Set Effect naming the block: `HidPid` keeps them pending
     for that Set Effect and never applies them early (Windows sends reports twice, a new effect's parameters before
     its first Set Effect, and Effect Operations in between; early guesses mixed up NFS's spring and damper). Unclaimed
-    ones reach the last block of their kind after `kPendingMs`. A trace (`HidPid::enableTrace`, off by default) writes
+    ones (a game that streams parameters with no Set Effect, as NFS Unbound does every 16 ms) are applied `kPendingMs`
+    after the first one waited (a newer one replaces it without restarting the wait); a run of several of one kind
+    goes to the blocks of that kind whose values each continues (`applyUnclaimed`, nearest values, ties by block
+    number), and an exact repeat within `kCopyMs` is Windows' copy, ignored. A trace (`HidPid::enableTrace`, off by default) writes
     the next N reports and the slot changes they cause to the driver's log (`pid trace`), for checking the real order:
     an Administrator sets `HKLM\SOFTWARE\wheelbri PidTraceLines` (DWORD, e.g. 1000), read at each start of the device.
     One `pid:` line per effect event at debug (new effect or refused, a Set Effect that changes type, duration or
@@ -281,8 +289,18 @@ rewrites on every build only when it changes); views keep their own top-row cont
     `config/games/*.ini` into a generated `GameProfileFiles.inc` (configure time, reconfigured when a file changes;
     `)wbgame` may not appear in a file); `parseGameProfile` collects every problem and a file with any is not used
     (`gameProfileProblems()`, logged by the service and the shim; `GameProfilesTest` fails on any). A game without a
-    file is never named (nothing in the log or the window). Only `nfs2015.ini` exists (brake y, clutch rz, throttle
-    slider; checked with `g920` only). Both ways use the same file:
+    file is never named (nothing in the log or the window). `nfs2015.ini` (brake y, clutch rz, throttle slider),
+    `nfspayback.ini` (`[steering]` 180) and `nfsunbound.ini` (`[ffb]` gain 3, `[game_settings]`) exist, all checked
+    with `g920` only. A profile may set the game's own settings (`[game_settings]` file / note / `<id> = <game's name> <0..1 | steering>`):
+    core `GameSettings` (`gameSettingTexts`: the user's `[game_settings] <game>.<id>` value, else the profile's;
+    "steering" = the game's steering rotation; `editFrostbiteSettings`: Frostbite `FBCHUNKS` files, each name found
+    by its own entry's length fields, exactly once, only same-length values written, any problem = nothing written).
+    `GameWatch` writes them (Windows, under `platform::documentsFolder()`) only while the game is not running: at
+    the first `check()` and when the game ends; it keeps `<file>.before-wheelbri` once and logs every change. The
+    Mapping tab's PER GAME rows edit the numbers (`Field::GameSetting`); a game with a "steering" setting
+    (`hasSteeringSetting`) also gets a rotation row like Payback's (`[game_rotation]`), whose game rotation is written.
+    A profile's `[ffb] gain` has an ffb gain row too (`[game_ffb_gain] <game> = 0.25..4`, `gameFfbGain`: the user's,
+    else the profile's, else 1; `GameWatch::check` returns it for `FfbController::setGameGain`). The pedals: both ways use the same file:
     - virtual G920 / wheelbri-uhid: the service routes the published pedals (`routePedals(device, overlay(device,
       profile))` → `PedalRoute`, `Pipeline::setPedalRoute`, atomic, applied to the packet only; `lastReport()` and
       telemetry stay as mapped). The device's pedal axes are fixed (y, rz, slider), so a profile that is not a
@@ -677,6 +695,9 @@ rewrites on every build only when it changes); views keep their own top-row cont
 
 ## Conventions
 
+- Line endings: LF in every file, on Windows too; CRLF only for `.cmd`, `.bat`, `.inx` and `.inf` (`.gitattributes`
+  enforces it, `.editorconfig` tells editors). Write files with LF; never convert a whole file's line endings as a
+  side effect of an edit.
 - Game names, wherever WheelBri shows them (a game profile's `label`, the log, the window, docs): short, and Need for
   Speed games as "NFS <name>" (NFS 2015, NFS Payback, NFS Heat, NFS Unbound), never "Need for Speed ...". A profile's
   `label` is shown as it is ("Running 1:23, NFS 2015"); `parseGameProfile` refuses labels over 20 characters or
@@ -734,7 +755,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
   crashes while using the virtual G920 sends nothing more and the driver cannot tell: `HidPid` stops keep-alives
   after 10 s without a report while a pushing force (constant, ramp, periodic) plays, so the service's watchdog
   stops it (springs and dampers keep going; the next report brings everything back)
-  (`max_magnitude` 0.8, slew limit). Game effects reach the service as `FfbPacket`s (shim, driver or
+  (`max_magnitude` 0.8, slew limit). A condition whose dead band covers the whole travel is sent empty (the R3 drove
+  itself to full lock with one), and a saturation of 0 (which the R3 reads as "no limit") gets the cap. Game effects reach the service as `FfbPacket`s (shim, driver or
   uhid). The only way around the limiter is the opt-in `force_feedback = passthrough` in `wheelbri-shim.ini`;
   keep it opt-in and don't add others.
 - Files: everything the app saves (configs, rigs, device names, app.ini, the shim games list, logs, telemetry, the

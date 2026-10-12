@@ -37,7 +37,9 @@ TEST(GameProfiles, EveryBuiltInFileParsesCleanly) {
         EXPECT_EQ(programName(profile.program), profile.program) << profile.id;
         EXPECT_EQ(gameProfileFor(profile.program), &profile) << profile.id;
         // A profile is the exception: it changes something or gives advice, or it should not exist.
-        EXPECT_TRUE(!describeOverlay(profile).empty() || profile.rotationDeg.has_value()) << profile.id;
+        EXPECT_TRUE(!describeOverlay(profile).empty() || profile.rotationDeg.has_value() || profile.ffbGain.has_value() ||
+                    !profile.settings.empty())
+            << profile.id;
     }
 }
 
@@ -187,8 +189,8 @@ TEST(GameProfiles, ProgramMatching) {
     EXPECT_EQ(programName("C:\\Games\\"), "");
     EXPECT_EQ(gameProfileFor("Z:\\home\\deck\\NFS16.exe"), &nfs2015());
     for (const char* other : {"", "nfs16", "nfs16.exe.bak", "notnfs16.exe", "nfs16.exe ", "C:\\nfs16.exe\\x.exe",
-                              "NeedForSpeedUnbound.exe"}) {
-        EXPECT_EQ(gameProfileFor(other), nullptr) << other;   // Unbound works with the defaults: no profile
+                              "NeedForSpeedHeat.exe"}) {
+        EXPECT_EQ(gameProfileFor(other), nullptr) << other;   // Heat works with the defaults: no profile
     }
 }
 
@@ -207,7 +209,7 @@ TEST(GameProfiles, RunningGamesInProfileOrderOncePerGame) {
     EXPECT_EQ(games[0].program, "A.exe");
     EXPECT_EQ(games[1].game->label, "B");
     EXPECT_TRUE(findRunningGames({}).empty());
-    EXPECT_EQ(findRunningGames(std::vector<RunningProgram>{{1, "NFS16.exe"}, {2, "NeedForSpeedUnbound.exe"}}).size(),
+    EXPECT_EQ(findRunningGames(std::vector<RunningProgram>{{1, "NFS16.exe"}, {2, "NeedForSpeedHeat.exe"}}).size(),
               1U);
 }
 
@@ -242,6 +244,35 @@ TEST(GameProfiles, NfsPaybackAdvises180) {
     EXPECT_FALSE(payback->rotationNote.empty());
     EXPECT_EQ(describeOverlay(*payback), "");   // its pedals are a G920's
     EXPECT_FALSE(payback->throttleAxis.has_value());
+}
+
+TEST(GameProfiles, FfbGain) {
+    const auto parse = [](const std::string& ffb) {
+        return parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n" + ffb);
+    };
+    const ParsedGameProfile good = parse("[ffb]\ngain = 2.5\nnote = Too light.\n");
+    ASSERT_TRUE(good.profile.has_value()) << good.problems.front();
+    EXPECT_EQ(good.profile->ffbGain, 2.5F);
+    EXPECT_EQ(good.profile->ffbNote, "Too light.");
+    EXPECT_FALSE(parse("").profile->ffbGain.has_value());
+
+    EXPECT_FALSE(parse("[ffb]\ngain = 2\n").profile.has_value());            // no reason given
+    EXPECT_FALSE(parse("[ffb]\nnote = Why.\n").profile.has_value());         // a reason for nothing
+    EXPECT_FALSE(parse("[ffb]\ngain = 5\nnote = Why.\n").profile.has_value());     // over kFfbGainMax
+    EXPECT_FALSE(parse("[ffb]\ngain = 0.1\nnote = Why.\n").profile.has_value());   // under kFfbGainMin
+    EXPECT_FALSE(parse("[ffb]\ngain = lots\nnote = Why.\n").profile.has_value());
+    EXPECT_FALSE(parse("[ffb]\nstrength = 2\n").profile.has_value());
+}
+
+TEST(GameProfiles, NfsUnboundGetsStrongerForceFeedback) {
+    const GameProfile* const unbound =
+        gameProfileFor("D:\\Steam\\steamapps\\common\\Excalibur\\NeedForSpeedUnbound.exe");
+    ASSERT_NE(unbound, nullptr);
+    EXPECT_EQ(unbound->label, "NFS Unbound");
+    EXPECT_EQ(unbound->ffbGain, 3.0F);
+    EXPECT_FALSE(unbound->ffbNote.empty());
+    EXPECT_EQ(describeOverlay(*unbound), "");   // its pedals are a G920's
+    EXPECT_FALSE(unbound->rotationDeg.has_value());
 }
 
 }  // namespace

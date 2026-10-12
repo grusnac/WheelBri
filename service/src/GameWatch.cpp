@@ -4,6 +4,7 @@
 
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/FileText.hpp"
+#include "wheelbri/GameSettings.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/Nfs2015Settings.hpp"
 
@@ -19,7 +20,7 @@ const logging::Logger& log() {
     return logger;
 }
 
-// A settings file larger than this is not NFS 2015's (19 KB): not read.
+// A settings file larger than this is not a game's (NFS 2015's is 19 KB, NFS Unbound's 128 KB): not read.
 constexpr std::uintmax_t kMaxSettingsBytes = 1024 * 1024;
 
 std::string lower(const std::string_view text) {
@@ -33,9 +34,9 @@ std::string lower(const std::string_view text) {
 }  // namespace
 
 GameWatch::GameWatch(const std::string_view targetProfile, const bool routePedals, const SteeringRotation mapping,
-                     GameRotations overrides)
+                     GameRotations overrides, GameSettingOverrides settings, GameFfbGains gains)
     : detector_(targetProfile), target_(lower(targetProfile)), routePedals_(routePedals), mapping_(mapping),
-      overrides_(std::move(overrides)) {
+      overrides_(std::move(overrides)), settingOverrides_(std::move(settings)), ffbGains_(std::move(gains)) {
     for (const std::string& problem : gameProfileProblems()) {
         WE_LOG_ERROR(log(), "game profile {}: not used", problem);
     }
@@ -82,6 +83,135 @@ void GameWatch::sayRotation() {
         WE_LOG_INFO(log(), "game: the mapping's steering rotation again ({})", describeRotation(mapping_));
     }
     applied_ = next;
+}
+
+void GameWatch::sayFfbGain() {
+    const GameDetector::State& state = detector_.state();
+    const float next =
+        state.game != nullptr && state.profileApplies ? gameFfbGain(*state.game, ffbGains_) : 1.0F;
+    if (next == ffbGain_) return;
+    if (next != 1.0F) {
+        const bool own = ffbGains_.count(state.game->id) != 0;
+        WE_LOG_INFO(log(), "game: {}'s force feedback {} times stronger while it runs ({}); the cap and the slew limit "
+                           "still apply, its springs and dampers stay as they are",
+                    state.game->label, tuning::formatNumber(next),
+                    own ? std::string("your mapping's [game_ffb_gain]") : state.game->ffbNote);
+    } else {
+        WE_LOG_INFO(log(), "game: the games' force feedback as they ask again");
+    }
+    ffbGain_ = next;
+}
+
+bool GameWatch::running(const GameProfile& game) const {
+    const GameDetector::State& state = detector_.state();
+    if (state.game == &game) return true;
+    for (const RunningGame& other : state.others) {
+        if (other.game == &game) return true;
+    }
+    return false;
+}
+
+void GameWatch::queueGameSettings(const GameDetector::Update& update) {
+    if (!settingsQueued_) {
+        settingsQueued_ = true;
+        for (const GameProfile& game : gameProfiles()) {
+            if (!game.settings.empty() && profileFitsTarget(game, target_)) settingsPending_.insert(game.id);
+        }
+    }
+    for (const GameDetector::Event event : update.events) {
+        const bool ended = event == GameDetector::Event::Ended || event == GameDetector::Event::Switched;
+        if (ended && update.previous != nullptr && !update.previous->settings.empty() &&
+            profileFitsTarget(*update.previous, target_)) {
+            settingsPending_.insert(update.previous->id);   // it wrote its own values back as it closed
+        }
+    }
+}
+
+void GameWatch::writePendingGameSettings() {
+    if (settingsPending_.empty() || !detector_.state().listing) return;   // unknown what runs: wait
+    for (auto it = settingsPending_.begin(); it != settingsPending_.end();) {
+        const GameProfile* game = nullptr;
+        for (const GameProfile& candidate : gameProfiles()) {
+            if (candidate.id == *it) game = &candidate;
+        }
+        if (game == nullptr) {
+            it = settingsPending_.erase(it);
+            continue;
+        }
+        if (running(*game)) {
+            if (settingsWaitSaid_.insert(game->id).second) {
+                WE_LOG_INFO(log(), "game settings: {} runs: its own settings are written after it closes (it reads "
+                                   "them when it starts)", game->label);
+            }
+            ++it;
+            continue;
+        }
+        settingsWaitSaid_.erase(game->id);
+        writeGameSettings(*game);
+        it = settingsPending_.erase(it);
+    }
+}
+
+void GameWatch::writeGameSettings(const GameProfile& game) {
+    const std::filesystem::path documents = platform::documentsFolder();
+    if (documents.empty()) {
+        if (!noDocumentsSaid_) {
+            noDocumentsSaid_ = true;
+            WE_LOG_INFO(log(), "game settings: {}'s own settings are only set on Windows for now (its settings file is "
+                               "in the game's Proton folder here): not set",
+                        game.label);
+        }
+        return;
+    }
+    const std::filesystem::path file = documents / pathFromUtf8(game.settingsFile);
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(file, error)) {
+        WE_LOG_INFO(log(), "game settings: {}: no settings file yet ({}): start the game once, WheelBri sets them "
+                           "after it closes",
+                    game.label, pathToUtf8(file));
+        return;
+    }
+    const std::uintmax_t size = std::filesystem::file_size(file, error);
+    const std::optional<std::string> bytes =
+        !error && size <= kMaxSettingsBytes ? readFileText(file) : std::optional<std::string>();
+    if (!bytes) {
+        WE_LOG_WARN(log(), "game settings: {}: cannot read {}: not set", game.label, pathToUtf8(file));
+        return;
+    }
+    // The steering rotation the game is played with: its own (GameRotation.hpp), else the mapping's.
+    const std::optional<SteeringRotation> own = rotationWhileRunning(game, overrides_);
+    const float steeringDeg = own ? own->gameDeg : mapping_.gameDeg;
+    const std::vector<GameSettingText> values = gameSettingTexts(game, settingOverrides_, steeringDeg);
+    const GameSettingsEdit edit = editFrostbiteSettings(*bytes, values);
+    if (!edit.problems.empty()) {
+        std::string problems;
+        for (const std::string& problem : edit.problems) problems += (problems.empty() ? "" : "; ") + problem;
+        WE_LOG_WARN(log(), "game settings: {}: nothing written to {}: {}", game.label, pathToUtf8(file), problems);
+        return;
+    }
+    if (edit.changes.empty()) {
+        WE_LOG_INFO(log(), "game settings: {}: its own settings are as set ({})", game.label, pathToUtf8(file));
+        return;
+    }
+    // The user's file as it was, once: put it back to undo everything WheelBri set.
+    std::filesystem::path backup = file;
+    backup += ".before-wheelbri";
+    if (!std::filesystem::exists(backup, error)) {
+        std::filesystem::copy_file(file, backup, std::filesystem::copy_options::skip_existing, error);
+        if (error) {
+            WE_LOG_WARN(log(), "game settings: {}: cannot keep a copy of {} ({}): nothing written", game.label,
+                        pathToUtf8(file), error.message());
+            return;
+        }
+    }
+    if (!writeFileReplacing(file, edit.bytes)) {
+        WE_LOG_WARN(log(), "game settings: {}: cannot write {}: not set", game.label, pathToUtf8(file));
+        return;
+    }
+    for (const GameSettingsEdit::Change& change : edit.changes) {
+        WE_LOG_INFO(log(), "game settings: {}: {} {} -> {} ({}; the original is kept as {})", game.label, change.name,
+                    change.before, change.after, game.settingsNote, pathToUtf8(backup));
+    }
 }
 
 std::string GameWatch::rotationStatus() const {
@@ -160,7 +290,10 @@ GameWatch::Decision GameWatch::check() {
         settingsWritten_.reset();
     }
     sayRotation();
-    return Decision{route, applied_ ? applied_->ratio() : 0.0F};
+    sayFfbGain();
+    queueGameSettings(update);
+    writePendingGameSettings();
+    return Decision{route, applied_ ? applied_->ratio() : 0.0F, ffbGain_};
 }
 
 void GameWatch::checkNfs2015Bindings() {

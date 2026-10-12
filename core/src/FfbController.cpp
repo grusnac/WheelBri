@@ -1,7 +1,9 @@
 #include "wheelbri/FfbController.hpp"
 
+#include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/Logging.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <utility>
 
@@ -128,6 +130,37 @@ std::size_t FfbController::lastingWanted() const {
     return count;
 }
 
+void FfbController::setGameGain(const float gain) {
+    const float clamped = std::isfinite(gain) ? std::clamp(gain, kFfbGainMin, kFfbGainMax) : 1.0F;
+    if (clamped == gameGain_) return;
+    WE_LOG_INFO(log(), "ffb: game gain {:.2f} (was {:.2f}): the game's pushing forces times this, then the limiter",
+                clamped, gameGain_);
+    gameGain_ = clamped;
+}
+
+FfbEffect FfbController::withGameGain(const FfbEffect& effect, const float gain) {
+    FfbEffect out = effect;
+    switch (effect.type) {
+        case FfbEffectType::Constant:
+            out.constantLevel = effect.constantLevel * gain;
+            break;
+        case FfbEffectType::Sine:
+        case FfbEffectType::Square:
+        case FfbEffectType::Triangle:
+        case FfbEffectType::SawtoothUp:
+        case FfbEffectType::SawtoothDown:
+            out.periodic.magnitude = effect.periodic.magnitude * gain;
+            out.periodic.offset = effect.periodic.offset * gain;
+            break;
+        case FfbEffectType::Spring:
+        case FfbEffectType::Damper:
+        case FfbEffectType::Friction:
+        case FfbEffectType::Inertia:
+            break;   // they only resist: a stronger one only feels heavy
+    }
+    return out;
+}
+
 void FfbController::update(const std::uint64_t nowNs) {
     if (lastPacketNs_ && !watchdogTripped_ && nowNs - *lastPacketNs_ > timing_.watchdogNs) {
         watchdogTripped_ = true;
@@ -167,7 +200,7 @@ void FfbController::update(const std::uint64_t nowNs) {
         }
         const float dt = starting ? 0.0F : static_cast<float>(nowNs - slot.lastUpdateNs) / 1e9F;
         slot.lastUpdateNs = nowNs;
-        const FfbEffect limited = limiters_[i].apply(slot.requested, dt);
+        const FfbEffect limited = limiters_[i].apply(withGameGain(slot.requested, gameGain_), dt);
         if (!starting && slot.lastSent && !differs(limited, *slot.lastSent)) {
             continue;
         }

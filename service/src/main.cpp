@@ -659,6 +659,8 @@ public:
     }
 
     [[nodiscard]] const wheelbri::FfbController& controller() const { return *controller_; }
+    // A game profile's force feedback gain (FfbController::setGameGain); cheap when it does not change.
+    void setGameGain(const float gain) { controller_->setGameGain(gain); }
     // The socket the game's packets arrive on (the loop waits for it).
     [[nodiscard]] std::intptr_t socket() const { return listener_->nativeSocket(); }
 
@@ -852,6 +854,8 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
 
     std::string ffbStatus;
     const auto gameFfb = GameFfb::open(config, source, ffbStatus);
+    // A game profile's force feedback gain ([ffb] gain): set by the window thread's GameWatch, read by the loop.
+    std::atomic<float> gameFfbGain{1.0F};
     const auto telemetry = openTelemetry(config, configPath, configText, source);
     if (gameFfb != nullptr) {
         gameFfb->setTelemetry(telemetry.get());
@@ -1003,6 +1007,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             stages.lap(TickStages::Pipeline, mark);
             ++ticks;
             if (gameFfb != nullptr) {
+                gameFfb->setGameGain(gameFfbGain.load(std::memory_order_relaxed));
                 gameFfb->pump(platform::nowNs());
             }
             if (gameFfb != nullptr) {
@@ -1212,7 +1217,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         wheelbri::service::GameWatch gameWatch(
             config.targetProfile, routePedals,
             wheelbri::SteeringRotation{config.mapper.steering.sourceRotationDeg, config.mapper.steering.targetRotationDeg},
-            config.gameRotations);
+            config.gameRotations, config.gameSettings, config.gameFfbGains);
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
             const std::uint64_t now = platform::nowNs();
@@ -1230,6 +1235,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                         const auto decision = gameWatch.check();
                         pipeline.setPedalRoute(decision.route);
                         pipeline.setSteeringRatio(decision.steeringRatio);   // a game's rotation (GameRotation.hpp)
+                        gameFfbGain.store(decision.ffbGain, std::memory_order_relaxed);   // a game's [ffb] gain
                     } catch (const std::exception& e) {   // never ends the session; the pedals stay as they are
                         WE_LOG_WARN(log(), "game: looking for known games failed: {}", e.what());
                     }

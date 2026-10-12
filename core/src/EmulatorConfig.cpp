@@ -296,6 +296,55 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         }
     }
 
+    // [game_settings] <game profile id>.<setting id> = 0..1.
+    for (const auto& [section, keys] : ini.sections()) {
+        if (section != "game_settings") continue;
+        for (const auto& [key, value] : keys) {
+            const std::size_t dot = key.find('.');
+            const std::string gameId = key.substr(0, dot);
+            const GameProfile* game = nullptr;
+            for (const GameProfile& candidate : gameProfiles()) {
+                if (candidate.id == gameId) game = &candidate;
+            }
+            const GameSetting* const setting =
+                game != nullptr && dot != std::string::npos ? findGameSetting(*game, key.substr(dot + 1)) : nullptr;
+            const std::optional<float> number = tuning::parseNumber(value);
+            if (game == nullptr) {
+                errors.push_back("[game_settings] " + key + ": no built-in game profile " + gameId +
+                                 " (expected <game>.<setting>, e.g. nfsunbound.spring)");
+            } else if (setting == nullptr) {
+                errors.push_back("[game_settings] " + key + ": " + game->label + " has no such setting");
+            } else if (!setting->value) {
+                errors.push_back("[game_settings] " + key + ": follows the steering rotation (the Mapping tab's PER "
+                                 "GAME rotation), not set here");
+            } else if (!number || *number < kGameSettingMin || *number > kGameSettingMax) {
+                errors.push_back("[game_settings] " + key + " = '" + value + "': expected a number from " +
+                                 tuning::formatNumber(kGameSettingMin) + " to " +
+                                 tuning::formatNumber(kGameSettingMax));
+            } else {
+                config.gameSettings[gameId][setting->id] = *number;
+            }
+        }
+    }
+
+    // [game_ffb_gain] <game profile id> = 0.25..4.
+    for (const auto& [section, keys] : ini.sections()) {
+        if (section != "game_ffb_gain") continue;
+        for (const auto& [key, value] : keys) {
+            bool known = false;
+            for (const GameProfile& game : gameProfiles()) known = known || game.id == key;
+            const std::optional<float> number = tuning::parseNumber(value);
+            if (!known) {
+                errors.push_back("[game_ffb_gain] " + key + ": no built-in game profile of that name");
+            } else if (!number || *number < kFfbGainMin || *number > kFfbGainMax) {
+                errors.push_back("[game_ffb_gain] " + key + " = '" + value + "': expected a number from " +
+                                 tuning::formatNumber(kFfbGainMin) + " to " + tuning::formatNumber(kFfbGainMax));
+            } else {
+                config.gameFfbGains[key] = *number;
+            }
+        }
+    }
+
     if (config.ffbPort == config.statePort) {
         errors.push_back("[emulator] ffb_port must differ from state_port");
         config.ffbPort = kDefaultFfbPort;
@@ -354,7 +403,8 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
     static const std::set<std::string> kKnownSections = {"",         "emulator",      "steering",    "throttle",
                                                          "brake",    "clutch",        "buttons",     "button_labels",
                                                          "axis_labels", "hat",        "ffb",         "logging",
-                                                         "telemetry", "retention",    "game_rotation"};
+                                                         "telemetry", "retention",    "game_rotation",
+                                                         "game_settings", "game_ffb_gain"};
     for (const auto& [section, keys] : ini.sections()) {
         if (kKnownSections.count(section) == 0) {
             errors.push_back("unknown section [" + section + "]");

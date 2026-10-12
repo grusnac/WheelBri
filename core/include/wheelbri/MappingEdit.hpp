@@ -85,6 +85,11 @@ struct MappingModel {
     float gameRotationDeg = 900.0F;
     // [game_rotation]: the user's own rotation per game profile (GameRotation.hpp); a game left out uses its profile's.
     GameRotations gameRotations;
+    // [game_settings]: the user's own values for games' own settings (GameSettings.hpp); a setting left out uses its
+    // game profile's.
+    GameSettingOverrides gameSettings;
+    // [game_ffb_gain]: the user's own force feedback gain per game; a game left out uses its profile's.
+    GameFfbGains gameFfbGains;
 
     friend bool operator==(const MappingModel&, const MappingModel&) = default;
 };

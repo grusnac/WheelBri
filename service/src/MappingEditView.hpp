@@ -64,8 +64,10 @@ private:
     enum class Mode { Idle, Pick, PickWheel, PickAlt };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
     enum class Slot { Axis, Hat, Button };
-    // A number field: one of the two rotations, or a game's own rotation (`fieldIndex_` = its gameProfiles() index).
-    enum class Field { None, GameRotation, WheelRotation, PerGame };
+    // A number field: one of the two rotations, a game's own rotation (`fieldIndex_` = its gameProfiles() index), or
+    // a game's own setting (`fieldIndex_` = game index * kMaxGameSettings + the setting's index), or a game's force
+    // feedback gain (`fieldIndex_` = its gameProfiles() index).
+    enum class Field { None, GameRotation, WheelRotation, PerGame, GameSetting, FfbGain };
 
     struct Hit {
         float x, y, w, h;

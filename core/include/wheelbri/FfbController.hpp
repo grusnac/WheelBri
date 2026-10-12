@@ -47,6 +47,14 @@ public:
     // Stops everything now (service shutting down).
     void stopAll();
 
+    // A game profile's force feedback gain ([ffb] gain, GameProfiles.hpp): the game's pushing forces (constant force
+    // level, periodic magnitude and offset) times this before the limiter; conditions are left as they are. 1 = as
+    // the game asks; clamped to kFfbGainMin..kFfbGainMax. Takes effect at the next update().
+    void setGameGain(float gain);
+    [[nodiscard]] float gameGain() const { return gameGain_; }
+    // `effect` with the game gain applied, as update() hands it to the limiter.
+    [[nodiscard]] static FfbEffect withGameGain(const FfbEffect& effect, float gain);
+
     [[nodiscard]] const Stats& stats() const { return stats_; }
 
     // Read-only view of one slot, for displays: what the game asked for and what reached the wheel.
@@ -96,6 +104,7 @@ private:
     // One per slot; an array, so copying the controller (the window's frame, 60 times a second) allocates nothing.
     std::array<FfbSafetyLimiter, IFfbSink::kMaxSlots> limiters_;
     std::optional<std::uint64_t> lastPacketNs_;
+    float gameGain_ = 1.0F;
     bool watchdogTripped_ = false;
     Stats stats_;
     FfbUsage usage_;

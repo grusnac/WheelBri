@@ -26,6 +26,57 @@ std::string lower(const std::string_view text) {
     return out;
 }
 
+bool validSettingId(const std::string_view id) {
+    if (id.empty() || id.size() > 24) return false;
+    for (const char c : id) {
+        if (!((c >= 'a' && c <= 'z') || c == '_')) return false;
+    }
+    return true;
+}
+
+bool validSettingName(const std::string_view name) {
+    if (name.empty() || name.size() > 64) return false;
+    for (const char c : name) {
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// "WheelSpringMagnitude 0.8" or "WheelMaxRotation steering".
+std::optional<GameSetting> parseSetting(const std::string& id, const std::string_view text) {
+    const std::size_t space = text.find(' ');
+    if (space == std::string_view::npos) return std::nullopt;
+    std::string_view rest = text.substr(space + 1);
+    while (!rest.empty() && rest.front() == ' ') rest.remove_prefix(1);
+    GameSetting setting{id, std::string(text.substr(0, space)), std::nullopt};
+    if (!validSettingName(setting.name)) return std::nullopt;
+    if (rest == "steering") return setting;
+    const std::optional<float> value = tuning::parseNumber(rest);
+    if (!value || *value < kGameSettingMin || *value > kGameSettingMax) return std::nullopt;
+    setting.value = *value;
+    return setting;
+}
+
+// Relative, / separated, no empty, . or .. parts, no drive or backslash.
+bool validSettingsFile(const std::string_view file) {
+    if (file.empty() || file.front() == '/' || file.find('\\') != std::string_view::npos ||
+        file.find(':') != std::string_view::npos) {
+        return false;
+    }
+    std::size_t start = 0;
+    while (start <= file.size()) {
+        const std::size_t slash = file.find('/', start);
+        const std::string_view part = file.substr(start, slash == std::string_view::npos ? std::string_view::npos
+                                                                                          : slash - start);
+        if (part.empty() || part == "." || part == "..") return false;
+        if (slash == std::string_view::npos) break;
+        start = slash + 1;
+    }
+    return true;
+}
+
 struct Loaded {
     std::vector<GameProfile> profiles;
     std::vector<std::string> problems;
@@ -113,8 +164,45 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                     result.problems.push_back("[steering] " + key + ": unknown key");
                 }
             }
+        } else if (section == "ffb") {
+            for (const auto& [key, value] : keys) {
+                if (key == "gain") {
+                    const auto gain = tuning::parseNumber(value);
+                    if (gain && *gain >= kFfbGainMin && *gain <= kFfbGainMax) {
+                        profile.ffbGain = *gain;
+                    } else {
+                        result.problems.push_back("[ffb] gain = '" + value + "': expected a number from " +
+                                                  tuning::formatNumber(kFfbGainMin) + " to " +
+                                                  tuning::formatNumber(kFfbGainMax));
+                    }
+                } else if (key == "note") {
+                    profile.ffbNote = value;
+                } else {
+                    result.problems.push_back("[ffb] " + key + ": unknown key");
+                }
+            }
+        } else if (section == "game_settings") {
+            for (const auto& [key, value] : keys) {
+                if (key == "file") {
+                    profile.settingsFile = value;
+                } else if (key == "note") {
+                    profile.settingsNote = value;
+                } else if (!validSettingId(key)) {
+                    result.problems.push_back("[game_settings] " + key +
+                                              ": a setting's id is lower case letters and _ (e.g. spring)");
+                } else if (const std::optional<GameSetting> setting = parseSetting(key, value)) {
+                    profile.settings.push_back(*setting);
+                } else {
+                    result.problems.push_back("[game_settings] " + key + " = '" + value +
+                                              "': expected the game's name for it and a number from " +
+                                              tuning::formatNumber(kGameSettingMin) + " to " +
+                                              tuning::formatNumber(kGameSettingMax) + " or steering");
+                }
+            }
         } else {
-            result.problems.push_back("[" + section + "]: unknown section (only [game], [pedals] and [steering])");
+            result.problems.push_back("[" + section +
+                                      "]: unknown section (only [game], [pedals], [steering], [ffb] and "
+                                      "[game_settings])");
         }
     }
     if (profile.label.empty()) {
@@ -133,6 +221,34 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
         result.problems.push_back("[steering] rotation_deg and note go together: the advice and why");
     } else if (profile.rotationNote.size() > kMaxNote) {
         result.problems.push_back("[steering] note: at most " + std::to_string(kMaxNote) + " characters");
+    }
+    if (profile.ffbGain.has_value() != !profile.ffbNote.empty()) {
+        result.problems.push_back("[ffb] gain and note go together: the change and why");
+    } else if (profile.ffbNote.size() > kMaxNote) {
+        result.problems.push_back("[ffb] note: at most " + std::to_string(kMaxNote) + " characters");
+    }
+    const bool anySettings =
+        !profile.settingsFile.empty() || !profile.settingsNote.empty() || !profile.settings.empty();
+    if (anySettings) {
+        if (profile.settingsFile.empty() || profile.settingsNote.empty() || profile.settings.empty()) {
+            result.problems.push_back("[game_settings] file, note and at least one setting go together");
+        } else if (!validSettingsFile(profile.settingsFile)) {
+            result.problems.push_back("[game_settings] file = '" + profile.settingsFile +
+                                      "': a path under the Documents folder, / separated, no .. (e.g. "
+                                      "Need For Speed(TM) Unbound/settings/PROFILEOPTIONS)");
+        } else if (profile.settings.size() > kMaxGameSettings) {
+            result.problems.push_back("[game_settings]: at most " + std::to_string(kMaxGameSettings) + " settings");
+        } else if (profile.settingsNote.size() > kMaxNote) {
+            result.problems.push_back("[game_settings] note: at most " + std::to_string(kMaxNote) + " characters");
+        }
+        for (std::size_t i = 0; i < profile.settings.size(); ++i) {
+            for (std::size_t j = 0; j < i; ++j) {
+                if (profile.settings[i].name == profile.settings[j].name) {
+                    result.problems.push_back("[game_settings] " + profile.settings[i].id + ": " +
+                                              profile.settings[i].name + " is set twice");
+                }
+            }
+        }
     }
     if (!isValid(overlay(layoutFor(profile.target, 0), profile))) {
         result.problems.push_back("[pedals]: two pedals on one axis, a pedal on x (the wheel), or throttle/brake none");

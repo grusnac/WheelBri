@@ -2,6 +2,7 @@
 
 #include "wheelbri/Ffb.hpp"
 #include "wheelbri/GameRotation.hpp"
+#include "wheelbri/GameSettings.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LogConfig.hpp"
 #include "wheelbri/MapperConfig.hpp"
@@ -31,6 +32,12 @@ struct EmulatorConfig {
     // [game_rotation] <profile id> = 180 | 360/180 | off: the steering rotation while that game runs, instead of the
     // game profile's own (GameRotation.hpp). A game left out uses its profile's, if it has one.
     GameRotations gameRotations;
+    // [game_settings] <profile id>.<setting id> = 0..1: the user's value for a game's own setting that WheelBri sets
+    // in the game's settings file (GameSettings.hpp). A setting left out has its game profile's value.
+    GameSettingOverrides gameSettings;
+    // [game_ffb_gain] <profile id> = 0.25..4: the game's pushing forces times this while it runs, instead of its game
+    // profile's [ffb] gain (GameSettings.hpp).
+    GameFfbGains gameFfbGains;
     FfbSafetyConfig ffb;
     logging::LogConfig logging;
     TelemetryConfig telemetry;

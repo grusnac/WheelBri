@@ -202,6 +202,8 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     model.wheelRotationDeg = mapper.steering.sourceRotationDeg;
     model.gameRotationDeg = mapper.steering.targetRotationDeg;
     model.gameRotations = config.gameRotations;
+    model.gameSettings = config.gameSettings;
+    model.gameFfbGains = config.gameFfbGains;
     return model;
 }
 
@@ -504,6 +506,19 @@ std::string tuningProblem(const MappingModel& model) {
             if (std::string problem = tuning::rotationProblem(deg); !problem.empty()) return game + ": " + problem;
         }
     }
+    for (const auto& [game, gain] : model.gameFfbGains) {
+        if (!(gain >= kFfbGainMin && gain <= kFfbGainMax)) {
+            return game + " gain: from " + tuning::formatNumber(kFfbGainMin) + " to " + tuning::formatNumber(kFfbGainMax);
+        }
+    }
+    for (const auto& [game, values] : model.gameSettings) {
+        for (const auto& [setting, value] : values) {
+            if (!(value >= kGameSettingMin && value <= kGameSettingMax)) {
+                return game + "." + setting + ": from " + tuning::formatNumber(kGameSettingMin) + " to " +
+                       tuning::formatNumber(kGameSettingMax);
+            }
+        }
+    }
     return {};
 }
 
@@ -559,6 +574,37 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
         const std::optional<std::string> line = before.get("game_rotation", game);
         const std::optional<GameRotationOverride> current = line ? parseGameRotation(*line) : std::nullopt;
         if (!current || !(*current == value)) ini.set("game_rotation", game, formatGameRotation(value));
+    }
+    // [game_settings]: one line per setting the user set; a line no longer set goes.
+    const auto settingSet = [&model](const std::string& key) {
+        const std::size_t dot = key.find('.');
+        if (dot == std::string::npos) return false;
+        const auto game = model.gameSettings.find(key.substr(0, dot));
+        return game != model.gameSettings.end() && game->second.count(key.substr(dot + 1)) != 0;
+    };
+    if (const auto old = sections.find("game_settings"); old != sections.end()) {
+        for (const auto& [key, value] : old->second) {
+            if (!settingSet(key)) ini.remove("game_settings", key);
+        }
+    }
+    for (const auto& [game, values] : model.gameSettings) {
+        for (const auto& [setting, value] : values) {
+            const std::string key = game + "." + setting;
+            const std::optional<std::string> line = before.get("game_settings", key);
+            const std::optional<float> current = line ? tuning::parseNumber(*line) : std::nullopt;
+            if (!current || !same(*current, value)) ini.set("game_settings", key, tuning::formatNumber(value));
+        }
+    }
+    // [game_ffb_gain]: one line per game the user set; a line for a game no longer set goes.
+    if (const auto old = sections.find("game_ffb_gain"); old != sections.end()) {
+        for (const auto& [game, value] : old->second) {
+            if (model.gameFfbGains.count(game) == 0) ini.remove("game_ffb_gain", game);
+        }
+    }
+    for (const auto& [game, gain] : model.gameFfbGains) {
+        const std::optional<std::string> line = before.get("game_ffb_gain", game);
+        const std::optional<float> current = line ? tuning::parseNumber(*line) : std::nullopt;
+        if (!current || !same(*current, gain)) ini.set("game_ffb_gain", game, tuning::formatNumber(gain));
     }
     for (std::size_t i = 0; i < kAxisSections.size(); ++i) {
         ini.set(kAxisSections[i], "axis", formatSource(normal(model.axes[i])));

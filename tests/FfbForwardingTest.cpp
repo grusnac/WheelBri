@@ -1,6 +1,7 @@
 #include "wheelbri/DiEffect.hpp"
 #include "wheelbri/FfbController.hpp"
 #include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/GameProfiles.hpp"
 
 #include <gtest/gtest.h>
 
@@ -171,6 +172,46 @@ TEST(FfbController, ConstantForceRampsAndIsRateLimited) {
     EXPECT_NEAR(sink.plays[1].effect.constantLevel, 0.1F, 1e-4F);
     controller.update(200 * kMs);
     EXPECT_FLOAT_EQ(sink.plays.back().effect.constantLevel, 0.5F);   // capped at max_magnitude
+}
+
+// A game profile's gain (NFS Unbound: 3) makes the pushing forces stronger, never past the cap; conditions stay.
+TEST(FfbController, GameGainScalesPushingForcesUpToTheCap) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());   // gain 1, cap 0.5, fast slew
+    controller.setGameGain(3.0F);
+    EXPECT_FLOAT_EQ(controller.gameGain(), 3.0F);
+    FfbEffect push;
+    push.constantLevel = -0.1F;
+    FfbEffect rumble;
+    rumble.type = FfbEffectType::Triangle;
+    rumble.periodic.magnitude = 0.05F;
+    rumble.periodic.periodMs = 64.0F;
+    FfbEffect damper;
+    damper.type = FfbEffectType::Damper;
+    damper.condition.positiveCoefficient = 0.25F;
+    damper.condition.negativeCoefficient = 0.25F;
+    damper.condition.positiveSaturation = 0.25F;
+    damper.condition.negativeSaturation = 0.25F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.onPacket(slotPacket(1, true, rumble), 0);
+    controller.onPacket(slotPacket(2, true, damper), 0);
+    controller.update(0);
+    controller.update(100 * kMs);
+    EXPECT_NEAR(controller.slot(0).sent->constantLevel, -0.3F, 1e-4F);
+    EXPECT_NEAR(controller.slot(1).sent->periodic.magnitude, 0.15F, 1e-4F);
+    EXPECT_FLOAT_EQ(controller.slot(2).sent->condition.positiveCoefficient, 0.25F);   // untouched
+    EXPECT_FLOAT_EQ(controller.slot(0).requested.constantLevel, -0.1F);              // the game's own, for telemetry
+
+    push.constantLevel = 0.4F;   // 1.2 asked: the cap still holds
+    controller.onPacket(slotPacket(0, true, push), 110 * kMs);
+    controller.update(300 * kMs);
+    EXPECT_FLOAT_EQ(controller.slot(0).sent->constantLevel, 0.5F);
+
+    controller.setGameGain(100.0F);   // out of range: clamped
+    EXPECT_FLOAT_EQ(controller.gameGain(), kFfbGainMax);
+    controller.setGameGain(1.0F);     // the game ended: as asked again
+    controller.update(400 * kMs);
+    EXPECT_FLOAT_EQ(controller.slot(0).sent->constantLevel, 0.4F);
 }
 
 TEST(FfbController, StopsWhenTheGameSaysSo) {

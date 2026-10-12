@@ -35,6 +35,28 @@ namespace wheelbri {
 //            service steers with it, wheel and game both at that number (GameRotation.hpp), unless the user's mapping
 //            says otherwise for that game ([game_rotation], the Mapping tab's PER GAME rows). WheelBri never reads or
 //            sets the wheel's own software: the log and the window say to set it to the same number.
+//   [ffb]    gain = 3 / note = why   (both or neither, gain kFfbGainMin..kFfbGainMax): a game whose own force feedback
+//            is too light to feel (NFS Unbound asks for 5% of full scale on average). While the game runs the
+//            service multiplies the game's pushing forces by it (constant force, ramp and periodic effects; springs,
+//            dampers and the like are left as they are: they only resist, and a stronger one feels heavy), before
+//            FfbSafetyLimiter: the user's gain, the cap (max_magnitude) and the slew limit still apply.
+//   [game_settings] file = <path under the user's Documents folder> / note = why / <id> = <the game's name> <value>
+//            (file, note and at least one setting go together; at most kMaxGameSettings): the game's own settings that
+//            WheelBri sets in the game's settings file while the game is closed (GameSettings.hpp; NFS Unbound keeps
+//            its wheel force feedback settings there and shows none of them in its menus). <id> is lower case
+//            (spring), the user's name for it in the Mapping tab and in [game_settings] <game>.<id> = value; <value>
+//            is a number from kGameSettingMin to kGameSettingMax, or "steering" for the steering rotation the game
+//            is played with (not changed by the user here: it follows the mapping's rotation for that game).
+struct GameSetting {
+    std::string id;                  // spring
+    std::string name;                // the game's own name for it: WheelSpringMagnitude
+    std::optional<float> value;      // nullopt: the steering rotation
+    friend bool operator==(const GameSetting&, const GameSetting&) = default;
+};
+inline constexpr std::size_t kMaxGameSettings = 8;
+inline constexpr float kGameSettingMin = 0.0F;
+inline constexpr float kGameSettingMax = 1.0F;
+
 struct GameProfile {
     std::string id;        // the file's name without .ini: "nfs2015"
     std::string label;     // [game] label, shown as it is in the window's status and the log: "NFS 2015"
@@ -45,7 +67,15 @@ struct GameProfile {
     std::optional<ObjectGuid> clutchAxis;
     std::optional<float> rotationDeg;   // [steering] rotation_deg: the rotation while the game runs (wheel = game)
     std::string rotationNote;           // [steering] note: why, in a sentence, for the user (the log says it)
+    std::optional<float> ffbGain;       // [ffb] gain: the game's pushing forces times this while it runs
+    std::string ffbNote;                // [ffb] note: why, in a sentence (the log says it)
+    std::string settingsFile;           // [game_settings] file: relative to the user's Documents folder, / separated
+    std::string settingsNote;           // [game_settings] note
+    std::vector<GameSetting> settings;  // [game_settings] the rest, by id
 };
+
+inline constexpr float kFfbGainMin = 0.25F;
+inline constexpr float kFfbGainMax = 4.0F;
 
 
 // One built-in profile file as compiled in: its id and its text.

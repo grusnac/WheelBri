@@ -87,9 +87,28 @@ Played on the tested rig: wheel, pedals, buttons and force feedback checked in t
 
 ### NFS Unbound (`NeedForSpeedUnbound.exe`)
 
-- **Ways:** G920 in-game shim.
+- **Ways:** G920 in-game shim; G920 virtual device (force feedback being tuned, 2026-10-12).
 - **Works:** it reads the pedals as a real G920 reports them (throttle Y, brake Rz, clutch Slider), which is why
-  that is WheelBri's default for every game; no game profile.
+  that is WheelBri's default for every game.
+- **Its wheel settings are hidden.** Its menus have none, but its settings file (`Documents\Need For Speed(TM)
+  Unbound\settings\PROFILEOPTIONS`) has `WheelFFBMagnitude` (all of it), `WheelTireForcesMagnitude` (the steering
+  force), `WheelSpringMagnitude` (the centring spring), `WheelDamperMagnitude`, `WheelSurfaceMagnitude`,
+  `WheelCollisionMagnitude` (0.5 each by default), `WheelMaxRotation` (270) and `WheelDeadzone`. At the defaults its
+  force feedback is very light (steering force 5% of full scale on average, the centring spring 0 most of the time;
+  real G920 owners say the same). With force feedback 1.0 and spring 0.8 it centres and has weight (2026-10-12).
+  WheelBri's game profile (`config/games/nfsunbound.ini`) sets these while the game is closed: force feedback 1.0,
+  spring 0.8, and `WheelMaxRotation` = the steering rotation it is played with. Change them in the Mapping tab, PER
+  GAME: the rotation in Unbound's rotation row as for NFS Payback (`[game_rotation] nfsunbound = 360`; Off = the
+  mapping's own), the others below it (`[game_settings] nfsunbound.spring = 0.8`); they are written at the next
+  Start, or when the game closes. Set the wheel's own software (Pit House) to the same rotation. The
+  file as it was is kept as `PROFILEOPTIONS.before-wheelbri`. The game reads the file when it starts and writes its
+  own values back when it ends, so edits made while it runs are lost.
+- **Steering force made stronger.** The profile also multiplies its pushing forces by 3 (`[ffb] gain`; the 80% cap
+  and the slew limit still apply; its springs and damper stay as they are). Change it in the Mapping tab, PER GAME,
+  ffb gain (`[game_ffb_gain] nfsunbound = 3`, 0.25 to 4), from the next Start.
+- **Closing the game leaves its forces on.** It quits without stopping its effects; the virtual G920's driver now
+  stops them 0.5 s after the game's stream of updates ends (before: 10 s, or never for a force under 2%, and the
+  wheel crept to full lock).
 
 ## Expected to work
 
