@@ -201,10 +201,24 @@ public:
         Bool supported = False;
         XkbSetDetectableAutoRepeat(display_, True, &supported);
 
+        // Resizable from kMinZoom times the design (less only when the screen is) up to the screen.
+        XSizeHints* const hints = XAllocSizeHints();
+        if (hints != nullptr) {
+            hints->flags = PMinSize | PMaxSize;
+            hints->min_width = std::min(static_cast<int>(static_cast<float>(logicalWidth_) * kMinZoom),
+                                        DisplayWidth(display_, screen));
+            hints->min_height = std::min(static_cast<int>(static_cast<float>(logicalHeight_) * kMinZoom),
+                                         DisplayHeight(display_, screen));
+            hints->max_width = DisplayWidth(display_, screen);
+            hints->max_height = DisplayHeight(display_, screen);
+            XSetWMNormalHints(display_, window_, hints);
+            XFree(hints);
+        }
+
         gc_ = XCreateGC(display_, window_, 0, nullptr);
         width_ = width;
         height_ = height;
-        box_ = fitCanvas(width_, height_, logicalWidth_, logicalHeight_);
+        refit(width_, height_);
         updateFont();
         XMapWindow(display_, window_);
         XFlush(display_);
@@ -303,6 +317,7 @@ public:
                 case ConfigureNotify:
                     width_ = event.xconfigure.width;
                     height_ = event.xconfigure.height;
+                    refit(std::max(1, width_), std::max(1, height_));   // the views lay out for it from now on
                     break;
                 case MapNotify:
                     mapped_ = true;
@@ -348,7 +363,7 @@ public:
             pixmapWidth_ = width;
             pixmapHeight_ = height;
         }
-        box_ = fitCanvas(width, height, logicalWidth_, logicalHeight_);
+        refit(width, height);
         updateFont();
         XSetForeground(display_, gc_, pixel(background));
         XFillRectangle(display_, pixmap_, gc_, 0, 0, static_cast<unsigned>(width), static_cast<unsigned>(height));
@@ -454,6 +469,13 @@ private:
     [[nodiscard]] int py(const float y) const {
         return static_cast<int>(std::lround(box_.offsetY + (y + originY_) * box_.scale));
     }
+    // The canvas for a window this size (fitCanvas; no display scale here: X11 has none worth trusting).
+    void refit(const int width, const int height) {
+        box_ = fitCanvas(width, height, logicalWidth_, logicalHeight_, kMaxZoom);
+        canvasWidth_ = box_.width;
+        canvasHeight_ = box_.height;
+    }
+
     // Window pixels -> logical canvas pixels.
     [[nodiscard]] Click toCanvas(const int x, const int y) const {
         const float scale = box_.scale > 0.0F ? box_.scale : 1.0F;

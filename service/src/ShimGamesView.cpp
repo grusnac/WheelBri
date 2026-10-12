@@ -35,10 +35,10 @@ constexpr float kRowHeight = 16;
 constexpr float kFieldWidth = 230;
 constexpr float kGamesWidth = 96;
 // The games panel, over the window.
+// The games panel: 24 in from the sides and 40 from the top, as wide as the canvas (and as tall, at most) less those
+// margins; 912 x 660 in the 960 x 748 design.
 constexpr float kPanelX = 24;
 constexpr float kPanelY = 40;
-constexpr float kPanelW = 912;
-constexpr float kPanelMaxH = 660;
 constexpr std::uint64_t kStateEveryMs = 2000;
 
 std::string fit(std::string text, const std::size_t chars) {
@@ -241,6 +241,9 @@ void ShimGamesView::onPanelClick(const float x, const float y) {
 
 void ShimGamesView::drawPanel() {
     panelHits_.clear();
+    const float kPanelW = window_.width() - 2 * kPanelX;
+    const float kPanelMaxH = window_.height() - kPanelY - 48;
+    const auto extraChars = static_cast<std::size_t>(std::max(0.0F, kPanelW - 912) / ui::kCharWidth);
     if (states_.size() != list_.games.size()) refreshStates();
     const float rows = static_cast<float>(std::max<std::size_t>(list_.games.size(), 1));
     const float h = std::min(kPanelMaxH, 80 + rows * 22 + 30);
@@ -274,8 +277,10 @@ void ShimGamesView::drawPanel() {
         window_.fill(left, y, kPanelW - 24, 18, on ? kHeading : kPanel);
         panelHits_.push_back({left, y, kPanelW - 24 - 210, 18, [this, i] { pick(i); }});
         window_.text(left + 6, y + 5, fit(game.name, 18), on ? kDark : kText);
-        window_.text(left + 158, y + 5, fit(pathToUtf8(game.folder), 46), on ? kDark : kDim);
-        window_.text(left + 548, y + 5, shimStateName(state), on ? kDark : stateColour);
+        // The folder gets what a wider window adds.
+        window_.text(left + 158, y + 5, fit(pathToUtf8(game.folder), 46 + extraChars), on ? kDark : kDim);
+        window_.text(left + 548 + static_cast<float>(extraChars) * ui::kCharWidth, y + 5, shimStateName(state),
+                     on ? kDark : stateColour);
         button(kPanelX + kPanelW - 210, y + 1, 74, "Forget", [this, i] { forget(i); });
         if (state == ShimState::Missing || state == ShimState::Outdated) {
             button(kPanelX + kPanelW - 130, y + 1, 110, "Put shim", [this, i] { put(i); });

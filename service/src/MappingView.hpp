@@ -11,6 +11,7 @@
 
 #include "UiWindow.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <deque>
@@ -56,7 +57,9 @@ struct FilesDisplay {
 
 class MappingView {
 public:
-    // The panel's size in logical pixels; it draws from the window's current origin.
+    // The panel's design size in logical pixels: the smallest canvas (UiWindow.hpp fitCanvas). A bigger window gives
+    // it more room (the window's width() and height()), which every tab uses: wider bars, cells and columns, more log
+    // and event rows, the tab bar at the bottom. It draws from the window's current origin.
     static constexpr int kWidth = 960;
     static constexpr int kHeight = 748;
 
@@ -150,6 +153,12 @@ public:
 
 private:
 
+    // The canvas now (at least kWidth x kHeight), and what it has beyond the design's width, in pixels.
+    [[nodiscard]] float canvasW() const { return window_.width(); }
+    [[nodiscard]] float canvasH() const { return window_.height(); }
+    [[nodiscard]] float extraW() const { return std::max(0.0F, window_.width() - static_cast<float>(kWidth)); }
+    [[nodiscard]] std::size_t extraChars() const { return static_cast<std::size_t>(extraW() / 8.0F); }
+
     void drawHeader();
     void drawAxes(const RawInputs& inputs, const WheelState& state, const TargetReport& report, float top);
     // "Rig 13 R paddle" on the wheel, "Pedals 2 Gas" on an accessory (cut to `chars`).
@@ -221,7 +230,7 @@ private:
     std::size_t liveScroll_ = 0;        // lines scrolled up from the newest; 0 = follow new lines
     std::uint64_t liveSeen_ = 0;        // liveLog_.added() when last drawn (to hold the view while scrolled up)
     std::size_t liveRows_ = 1;          // lines that fit, from the last draw
-    static constexpr std::size_t kLiveMessageChars = 80;   // a message row, to the scroll bar
+    std::size_t liveMessageChars_ = 80;   // a message row, to the scroll bar (from the canvas width, each draw)
     std::size_t liveHScroll_ = 0;       // characters scrolled right in the messages (without word wrap)
     std::size_t liveLongest_ = 0;       // the longest message, in characters (from the last draw)
     bool liveWrap_ = false;             // word wrap: long messages go on over several rows instead of off the side

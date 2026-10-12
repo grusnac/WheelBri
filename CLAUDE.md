@@ -212,8 +212,15 @@ used control with a hover tooltip (`UiInput::pointer` / `pointerInside`, `Mappin
 Logs page), in that order (there is no Status tab; a failed Start says "Start failed (Logs)");
 it opens on Rig until a rig exists, else on Mapping; Start switches to Logs at once (the session logs while it comes
 up) and the live view keeps the tab showing then. O opens the logs folder (every log is there). It draws through
-`UiWindow.hpp` (filled/outlined rectangles, 8x8-cell monospaced text and clicks on a 960x748 logical canvas,
-letterboxed), implemented natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware; records each frame as a core
+`UiWindow.hpp` (filled/outlined rectangles, 8x8-cell monospaced text and clicks on a logical canvas of at least
+960x748, `fitCanvas`: the design scales with the window up to `kMaxZoom` (1.5) times the display scale, and whatever
+the window has beyond that shape or size is room on the canvas, no bars; the window is resizable from `kMinZoom`
+(0.75) times the design up to the screen's work area). Views read `UiWindow::width()` / `height()` every frame and
+lay out from them: full-width rows, bars, cells, fields and picker columns grow (pickers 5..8 columns), buttons at
+the right edge stay there (Start / Stop, Save / Revert, Detect), the tab bar stays at the bottom, lists (live log,
+events) get more rows, popups are centred. Code that places something must use those, never 960 or 748 (the design
+constants `MappingView::kWidth` / `kHeight` are the minimum only); `UiCanvasTest` covers `fitCanvas`. Implemented
+natively: `UiWindowWin32.cpp` (Win32 + GDI, DPI aware; records each frame as a core
 `DrawList` and draws it only when it differs from the one on screen) on Windows, `UiWindowX11.cpp`
 (Xlib) on Linux.
 

@@ -49,16 +49,14 @@ constexpr std::uint64_t kDevicesEveryMs = 2000;
 constexpr std::array<const char*, 4> kAxisNames = {"Steering", "Throttle", "Brake", "Clutch"};
 constexpr std::array<const char*, 4> kHatNames = {"Up", "Right", "Down", "Left"};
 
-// The popups.
+// The popups: 24 in from the sides and 56 from the top; as wide and tall as the canvas allows (popupW, popupH), their
+// entries in more columns when wider (popupColumns).
 constexpr float kPopupX = 24;
 constexpr float kPopupY = 56;
-constexpr float kPopupW = 912;
-constexpr float kPopupH = 640;
 
 
 // The game full lock slider: 90 to 1080 degrees, in steps of 10 (typed values go up to tuning::kMaxRotationDeg).
 constexpr float kSliderX = 132;
-constexpr float kSliderW = 400;
 constexpr float kSliderMinDeg = 90.0F;
 constexpr float kSliderMaxDeg = 1080.0F;
 constexpr float kSliderStepDeg = 10.0F;
@@ -455,7 +453,7 @@ void MappingEditView::onPointer(const float x, const float /*y*/, const bool lef
 }
 
 void MappingEditView::setGameRotationFromX(const float x) {
-    const float t = std::clamp((x - kSliderX) / kSliderW, 0.0F, 1.0F);
+    const float t = std::clamp((x - kSliderX) / sliderW(), 0.0F, 1.0F);
     const float value = kSliderMinDeg + t * (kSliderMaxDeg - kSliderMinDeg);
     edit_.gameRotationDeg =
         std::clamp(std::round(value / kSliderStepDeg) * kSliderStepDeg, kSliderMinDeg, kSliderMaxDeg);
@@ -640,15 +638,17 @@ void MappingEditView::draw() {
     picker_.draw(4, 18, !locked_);
     window_.text(372, 22, builtIn_ ? "mapping: default" : "mapping: your own", builtIn_ ? kDim : kCaution);
     const bool canSave = loaded_ && dirty() && !locked_;
-    button(580, 18, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
-    button(692, 18, "Save", [this] { save(); }, canSave, canSave, 80);
-    button(780, 18, "Revert", [this] {
+    // Default, Save and Revert stay at the right (as far from it as in the design).
+    const float right = extraW();
+    button(580 + right, 18, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
+    button(692 + right, 18, "Save", [this] { save(); }, canSave, canSave, 80);
+    button(780 + right, 18, "Revert", [this] {
         edit_ = saved_;
         status_ = "Changes dropped.";
         statusError_ = false;
     }, false, canSave, 80);
     if (!loaded_) {
-        window_.text(4, 60, fit(status_, 118), kWarning);
+        window_.text(4, 60, fit(status_, 118 + extraChars()), kWarning);
         return;
     }
     if (page_ == Page::Games) {
@@ -671,14 +671,16 @@ void MappingEditView::draw() {
     float y = 66;
     window_.text(4, y, "AXES", kHeading);
     window_.text(48, y, "click a source to pick another", kDim);
-    window_.text(620, y, "D-PAD", kHeading);
+    // The axes' and the D-pad's source fields share what a wider window adds.
+    const float half = extraW() / 2;
+    window_.text(620 + half, y, "D-PAD", kHeading);
     for (std::size_t i = 0; i < kAxisNames.size(); ++i) {
         const float row = y + 16 + static_cast<float>(i) * 20;
         window_.text(4, row + 4, kAxisNames[i], kText);
-        drawSource(80, row, 420, Slot::Axis, i);
-        button(508, row, "Invert", [this, i] { edit_.invert[i] = !edit_.invert[i]; }, edit_.invert[i], true, 70);
-        window_.text(620, row + 4, kHatNames[i], kText);
-        drawSource(668, row, 288, Slot::Hat, i);
+        drawSource(80, row, 420 + half, Slot::Axis, i);
+        button(508 + half, row, "Invert", [this, i] { edit_.invert[i] = !edit_.invert[i]; }, edit_.invert[i], true, 70);
+        window_.text(620 + half, row + 4, kHatNames[i], kText);
+        drawSource(668 + half, row, 288 + half, Slot::Hat, i);
     }
 
     // The target's buttons (the ones its profile names; the others are not seen by games).
@@ -696,7 +698,7 @@ void MappingEditView::draw() {
         }
         if (gap && cell % 2 != 0) ++cell;
         gap = false;
-        const float x = 4 + static_cast<float>(cell % 2) * 478;
+        const float x = 4 + static_cast<float>(cell % 2) * (478 + half);   // two columns across the canvas
         const float row = y + 16 + static_cast<float>(cell / 2) * 20;
         ++cell;
         gridEnd = row + 16;
@@ -704,20 +706,21 @@ void MappingEditView::draw() {
         std::snprintf(label, sizeof(label), "%2zu %.10s", index, std::string(name).c_str());
         window_.text(x, row + 4, label, kText);
         // The first source (a button), "or" a second one (a button, or a one-sided axis past a threshold).
-        drawSource(x + 112, row, 206, Slot::Button, index);
-        window_.text(x + 322, row + 4, "or", kDim);
-        drawAltSource(x + 342, row, 126, index);
+        const float quarter = half / 2;   // each column's fields share its extra width
+        drawSource(x + 112, row, 206 + quarter, Slot::Button, index);
+        window_.text(x + 322 + quarter, row + 4, "or", kDim);
+        drawAltSource(x + 342 + quarter, row, 126 + quarter, index);
     }
 
     drawRotation(gridEnd + 14);
 
-    const float hint = kContentHeight - 52;
+    const float hint = contentH() - 52;
     window_.text(4, hint, "Sources are the rig's controls (defined in the Rig tab); Auto-map fills what their roles say.",
                  kDim);
     window_.text(4, hint + 12, "Save writes the config; Start uses it. Accessories must be plugged in to start.",
                  kDim);
     const std::string state = dirty() ? "unsaved changes" : "saved";
-    window_.text(4, hint + 28, fit(status_.empty() ? state : status_, 118),
+    window_.text(4, hint + 28, fit(status_.empty() ? state : status_, 118 + extraChars()),
                  statusError_ ? kWarning : status_.empty() ? (dirty() ? kCaution : kDim) : kActive);
 
     popupTips_ = tips_.size();   // a popup's own tips come after the tab's (which it covers)
@@ -737,14 +740,14 @@ void MappingEditView::drawTooltip() {
     const std::size_t first = mode_ != Mode::Idle ? popupTips_ : 0;
     for (auto it = tips_.rbegin(); it != tips_.rend() - static_cast<std::ptrdiff_t>(first); ++it) {
         if (hoverX_ < it->x || hoverX_ >= it->x + it->w || hoverY_ < it->y || hoverY_ >= it->y + it->h) continue;
-        constexpr float kMaxW = 940;
+        const float kMaxW = canvasW() - 20;
         const std::string text = fit(it->text, static_cast<std::size_t>((kMaxW - 12) / ui::kCharWidth));
         const float w = static_cast<float>(text.size()) * ui::kCharWidth + 12;
         constexpr float h = 18;
         // Below and right of the pointer; moved in at the window's right edge, above the pointer at the bottom.
-        float x = std::min(hoverX_ + 12, 960 - w - 2);
+        float x = std::min(hoverX_ + 12, canvasW() - w - 2);
         float y = hoverY_ + 18;
-        if (y + h > kContentHeight - 2) y = hoverY_ - h - 6;
+        if (y + h > contentH() - 2) y = hoverY_ - h - 6;
         x = std::max(x, 2.0F);
         window_.fill(x, y, w, h, kDark);
         window_.outline(x, y, w, h, kHeading);
@@ -792,27 +795,27 @@ void MappingEditView::drawRotation(const float top) {
     y += 16;
     window_.text(4, y + 4, "Game full lock", kText);
     const float shown = std::clamp(edit_.gameRotationDeg, kSliderMinDeg, kSliderMaxDeg);
-    const float filled = (shown - kSliderMinDeg) / (kSliderMaxDeg - kSliderMinDeg) * kSliderW;
-    window_.fill(kSliderX, y + 6, kSliderW, 4, kStripe);
+    const float filled = (shown - kSliderMinDeg) / (kSliderMaxDeg - kSliderMinDeg) * sliderW();
+    window_.fill(kSliderX, y + 6, sliderW(), 4, kStripe);
     window_.fill(kSliderX, y + 6, filled, 4, locked_ ? kDim : kHeading);
     window_.fill(kSliderX + filled - 3, y + 1, 6, 14, locked_ ? kDim : kText);
-    window_.outline(kSliderX, y + 6, kSliderW, 4, edit_.gameRotationDeg != saved_.gameRotationDeg ? kCaution : kPanel);
+    window_.outline(kSliderX, y + 6, sliderW(), 4, edit_.gameRotationDeg != saved_.gameRotationDeg ? kCaution : kPanel);
     if (!locked_) {
-        hit(kSliderX - 4, y, kSliderW + 8, 16, [this] {
+        hit(kSliderX - 4, y, sliderW() + 8, 16, [this] {
             setGameRotationFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
             dragging_ = true;
         });
     }
-    drawField(kSliderX + kSliderW + 12, y, 64, Field::GameRotation, degrees(edit_.gameRotationDeg),
+    drawField(kSliderX + sliderW() + 12, y, 64, Field::GameRotation, degrees(edit_.gameRotationDeg),
               edit_.gameRotationDeg != saved_.gameRotationDeg);
-    window_.text(kSliderX + kSliderW + 80, y + 4, "deg", kDim);
-    float x = kSliderX + kSliderW + 112;
+    window_.text(kSliderX + sliderW() + 80, y + 4, "deg", kDim);
+    float x = kSliderX + sliderW() + 112;
     for (const float preset : kPresetsDeg) {
         x += button(x, y, degrees(preset), [this, preset] { edit_.gameRotationDeg = preset; },
                     std::fabs(edit_.gameRotationDeg - preset) < 0.5F, !locked_, 46) + 4;
     }
     window_.text(kSliderX, y + 20, "90", kDim);
-    window_.text(kSliderX + kSliderW - 32, y + 20, "1080", kDim);
+    window_.text(kSliderX + sliderW() - 32, y + 20, "1080", kDim);
 
     // What the wheel's own software is set to: the mapper turns that into the game's full lock.
     y += 34;
@@ -822,13 +825,14 @@ void MappingEditView::drawRotation(const float top) {
     window_.text(kSliderX + 68, y + 4, "deg: what your wheel's own software (e.g. Moza Pit House) is set to", kDim);
     const bool same = std::fabs(edit_.wheelRotationDeg - edit_.gameRotationDeg) < 0.5F;
     if (!same) {
-        button(852, y, "Same as game", [this] { edit_.wheelRotationDeg = edit_.gameRotationDeg; }, false, !locked_,
+        button(852 + extraW(), y, "Same as game", [this] { edit_.wheelRotationDeg = edit_.gameRotationDeg; }, false,
+               !locked_,
                104);
     }
     y += 20;
     if (same) {
         window_.text(4, y, fit("Both match: the wheel reaches its end stop where the game reaches full lock. Keep them "
-                               "the same when you change one.", 118),
+                               "the same when you change one.", 118 + extraChars()),
                      kDim);
         y += 12;
     } else {
@@ -836,7 +840,7 @@ void MappingEditView::drawRotation(const float top) {
         for (const std::string& line : wrap("Wheel " + degrees(edit_.wheelRotationDeg) + " deg, game " + game +
                                                 " deg: set your wheel's own software to " + game +
                                                 " too (or press Same as game).",
-                                            118, 2)) {
+                                            118 + extraChars(), 2)) {
             window_.text(4, y, line, kCaution);
             y += 12;
         }
@@ -861,10 +865,7 @@ namespace {
 // The Games page: the list on the left, the picked game's profile right of it.
 constexpr float kGameListW = 196;
 constexpr float kGameX = 216;
-constexpr std::size_t kGameChars = 92;   // a line right of the list
 constexpr float kGameValueX = kGameX + 168;   // the values' fields, and the lines under them
-constexpr std::size_t kValueChars = 71;         // from kGameValueX to the right edge
-constexpr float kFileColumnX = 956 - 13 * 8;  // a game setting's value in its file
 constexpr std::uint64_t kFileStateEveryMs = 2000;
 
 std::string upper(std::string text) {
@@ -947,21 +948,21 @@ void MappingEditView::drawGames() {
         window_.text(4, y, line, kDim);
         y += 12;
     }
-    window_.fill(kGameX - 8, 42, 1, kContentHeight - 100, kPanel);
+    window_.fill(kGameX - 8, 42, 1, contentH() - 100, kPanel);
 
     // The picked game.
     float top = drawGameProfile(picked, 46);
     top = drawGameValues(picked, top + 10);
     drawGameSettings(picked, top + 10);
 
-    const float hint = kContentHeight - 52;
+    const float hint = contentH() - 52;
     window_.text(4, hint,
                  "Your values are saved with the mapping (Save) and used from the next Start; Default goes back to the "
                  "profile's.",
                  kDim);
     window_.text(4, hint + 12, "While WheelBri runs they are shown, not changed.", kDim);
     const std::string state = dirty() ? "unsaved changes" : "saved";
-    window_.text(4, hint + 28, fit(status_.empty() ? state : status_, 118),
+    window_.text(4, hint + 28, fit(status_.empty() ? state : status_, 118 + extraChars()),
                  statusError_ ? kWarning : status_.empty() ? (dirty() ? kCaution : kDim) : kActive);
 }
 
@@ -969,7 +970,7 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
     const GameProfile& game = gameProfiles()[index];
     window_.text(kGameX, y, game.label, kHeading);
     window_.text(kGameX + static_cast<float>(game.label.size() + 2) * ui::kCharWidth, y,
-                 fit("program " + game.program + ", for the " + upper(game.target), kGameChars - game.label.size() - 2),
+                 fit("program " + game.program + ", for the " + upper(game.target), gameChars() - game.label.size() - 2),
                  kDim);
     y += 16;
 
@@ -977,7 +978,7 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
     if (now_.id == game.id) {
         const std::string line =
             "RUNNING, pid " + std::to_string(now_.pid) + ", for " + clockText(now_.forMs) + ": its profile is in use";
-        window_.text(kGameX, y, fit(line, kGameChars), kActive);
+        window_.text(kGameX, y, fit(line, gameChars()), kActive);
         y += 12;
         std::string applied;
         if (!now_.rotation.empty()) applied += "steering " + now_.rotation;
@@ -987,24 +988,24 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
         }
         if (!describeOverlay(game).empty()) applied += (applied.empty() ? "" : ", ") + std::string("pedals as below");
         if (!applied.empty()) {
-            window_.text(kGameX, y, fit("now: " + applied, kGameChars), kText);
+            window_.text(kGameX, y, fit("now: " + applied, gameChars()), kText);
             y += 12;
         }
         if (!now_.warning.empty()) {
-            window_.text(kGameX, y, fit(now_.warning, kGameChars), kWarning);
+            window_.text(kGameX, y, fit(now_.warning, gameChars()), kWarning);
             y += 12;
         }
     } else if (now_.session) {
         window_.text(kGameX, y,
                      fit(now_.id.empty() ? std::string("not running: WheelBri looks for it every 2 s")
                                          : "not running (another game with a profile runs)",
-                         kGameChars),
+                         gameChars()),
                      kDim);
         y += 12;
     } else {
         window_.text(kGameX, y,
                      fit("While WheelBri runs (Start) it finds the game when it starts, and uses this profile.",
-                         kGameChars),
+                         gameChars()),
                      kDim);
         y += 12;
     }
@@ -1012,7 +1013,7 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
         window_.text(kGameX, y,
                      fit("This profile is for the " + upper(game.target) + ": not used with the " + upper(targetName_) +
                              " target.",
-                         kGameChars),
+                         gameChars()),
                      kCaution);
         y += 12;
     }
@@ -1029,11 +1030,11 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
     }
     for (const GameProfileChange& change : changes) {
         window_.text(kGameX, y, fit(change.what, 19), kText);
-        for (const std::string& line : wrap(change.value, kGameChars - 20, 2)) {
+        for (const std::string& line : wrap(change.value, gameChars() - 20, 2)) {
             window_.text(kGameX + 160, y, line, kText);
             y += 12;
         }
-        for (const std::string& line : wrap(change.why, kGameChars - 20, 2)) {
+        for (const std::string& line : wrap(change.why, gameChars() - 20, 2)) {
             window_.text(kGameX + 160, y, line, kDim);
             y += 12;
         }
@@ -1080,7 +1081,7 @@ float MappingEditView::drawGameValues(const std::size_t index, float y) {
         about += " Written to the game's own settings: " + degrees(written) + " deg" +
                  (written >= 1000.0F ? " (it keeps 3 digits: 100 to 999)." : ".");
     }
-    for (const std::string& line : wrap(about, kValueChars, 2)) {
+    for (const std::string& line : wrap(about, valueChars(), 2)) {
         window_.text(kGameValueX, y, line, kDim);
         y += 12;
     }
@@ -1102,7 +1103,7 @@ float MappingEditView::drawGameValues(const std::size_t index, float y) {
               "Profile: " +
                   tuning::formatNumber(game.ffbGain.value_or(1.0F), 2) + ", from " +
                   tuning::formatNumber(kFfbGainMin, 2) + " to " + tuning::formatNumber(kFfbGainMax, 2) + ".",
-              kValueChars, 2)) {
+              valueChars(), 2)) {
         window_.text(kGameValueX, y, line, kDim);
         y += 12;
     }
@@ -1131,7 +1132,7 @@ float MappingEditView::drawGameSettings(const std::size_t index, float y) {
     }
     const GameSettingsFileState& file = *fileState_;
     window_.text(kGameX, y, "File", kText);
-    window_.text(kGameValueX, y, fit("Documents/" + game.settingsFile, kValueChars), kDim);
+    window_.text(kGameValueX, y, fit("Documents/" + game.settingsFile, valueChars()), kDim);
     y += 12;
     using Status = GameSettingsFileState::Status;
     std::string fileLine;
@@ -1156,18 +1157,18 @@ float MappingEditView::drawGameSettings(const std::size_t index, float y) {
             }
             break;
     }
-    window_.text(kGameValueX, y, fit(fileLine, kValueChars), fileColour);
+    window_.text(kGameValueX, y, fit(fileLine, valueChars()), fileColour);
     y += 12;
     if (const auto said = now_.settings.find(id); said != now_.settings.end()) {
-        window_.text(kGameValueX, y, fit("this session: " + said->second, kValueChars), kDim);
+        window_.text(kGameValueX, y, fit("this session: " + said->second, valueChars()), kDim);
         y += 12;
     }
     y += 6;
-    if (file.status == Status::Read) window_.text(kFileColumnX, y - 2, "in the file", kDim);
+    if (file.status == Status::Read) window_.text(fileColumnX(), y - 2, "in the file", kDim);
     y += 10;
 
     for (std::size_t s = 0; s < game.settings.size() && s < kMaxGameSettings; ++s) {
-        if (y > kContentHeight - 52 - 20) break;   // keep clear of the hint
+        if (y > contentH() - 52 - 20) break;   // keep clear of the hint
         const GameSetting& setting = game.settings[s];
         window_.text(kGameX, y + 4, fit(gameSettingLabel(setting.id), 19), kText);
         const std::optional<std::string> inFile =
@@ -1175,10 +1176,10 @@ float MappingEditView::drawGameSettings(const std::size_t index, float y) {
         // What the file holds, right: amber while it is not what the next Start writes.
         if (file.status == Status::Read) {
             const bool asWanted = s < wanted.size() && inFile == wanted[s].text;
-            window_.text(kFileColumnX, y + 4, fit(inFile.value_or(std::string("not found")), 13),
+            window_.text(fileColumnX(), y + 4, fit(inFile.value_or(std::string("not found")), 13),
                          asWanted ? kDim : kCaution);
         }
-        tip(kGameX, y, kFileColumnX - kGameX, 16,
+        tip(kGameX, y, fileColumnX() - kGameX, 16,
             setting.name + " in the game's settings file" +
                 (setting.value ? ": profile " + tuning::formatNumber(*setting.value, 2) + ", 0 to 1"
                                : ": the steering rotation, in degrees"));
@@ -1264,14 +1265,14 @@ void MappingEditView::drawAltSource(const float x, const float y, const float w,
 }
 
 void MappingEditView::drawAltPicker() {
-    hit(0, 0, 960, kContentHeight, [] {});   // clicks outside the popup do nothing
-    window_.fill(kPopupX, kPopupY, kPopupW, kPopupH, kPopup);
-    window_.outline(kPopupX, kPopupY, kPopupW, kPopupH, kHeading);
+    hit(0, 0, canvasW(), contentH(), [] {});   // clicks outside the popup do nothing
+    window_.fill(kPopupX, kPopupY, popupW(), popupH(), kPopup);
+    window_.outline(kPopupX, kPopupY, popupW(), popupH(), kHeading);
     const float left = kPopupX + 12;
     const std::size_t target = pickIndex_;
     const std::string targetName = profile_->identity().shortName + " " + std::string(profile_->buttonName(target));
     window_.text(left, kPopupY + 10, "What else presses " + targetName + "? Its secondary assignments:", kHeading);
-    button(kPopupX + kPopupW - 100, kPopupY + 6, "Done", [this] { mode_ = Mode::Idle; }, false, true, 88);
+    button(kPopupX + popupW() - 100, kPopupY + 6, "Done", [this] { mode_ = Mode::Idle; }, false, true, 88);
     std::vector<ButtonRef>& list = edit_.secondaries[target];
     const std::size_t max = MapperConfig::kMaxSecondaries;
     button(left, kPopupY + 28, "(clear all)", [&list] { list.clear(); }, false, !list.empty(), 100);
@@ -1280,16 +1281,19 @@ void MappingEditView::drawAltPicker() {
                      ". Click a control below to add or remove it; click an axis here for its threshold.",
                  kDim);
 
-    // The ones it has, as chips (an axis' chip picks it for the threshold row).
-    constexpr float kChipW = 174;
+    // The ones it has, as chips (an axis' chip picks it for the threshold row; at most 8, so two rows of 5 or one).
+    const int kColumns = popupColumns();
+    const float kChipW = entryW(kColumns);
+    const auto chipsPerRow = static_cast<std::size_t>(kColumns);
     if (altFocus_ >= list.size()) altFocus_ = 0;
     for (std::size_t i = 0; i < list.size(); ++i) {
-        const float x = left + static_cast<float>(i % 5) * (kChipW + 4);
-        const float y = kPopupY + 48 + static_cast<float>(i / 5) * 18;
+        const float x = left + static_cast<float>(i % chipsPerRow) * (kChipW + 4);
+        const float y = kPopupY + 48 + static_cast<float>(i / chipsPerRow) * 18;
         const bool focused = list[i].axis && i == altFocus_;
         window_.fill(x, y, kChipW, 16, focused ? kHeading : kStripe);
         window_.outline(x, y, kChipW, 16, kHeading);
-        window_.text(x + 4, y + 4, fit(shortAlt(list[i]), 20), focused ? kDark : kText);
+        window_.text(x + 4, y + 4, fit(shortAlt(list[i]), static_cast<std::size_t>((kChipW - 8) / ui::kCharWidth)),
+                     focused ? kDark : kText);
         tip(x, y, kChipW, 16, list[i].axis ? describeAlt(list[i]) : describeFull(list[i].source, false));
         if (list[i].axis) hit(x, y, kChipW, 16, [this, i] { altFocus_ = i; });
     }
@@ -1314,15 +1318,14 @@ void MappingEditView::drawAltPicker() {
         if (&device != wheel) order.push_back(&device);
     }
     y = kPopupY + 112;
-    constexpr int kColumns = 5;
-    constexpr float kEntryW = 174;
+    const float kEntryW = kChipW;
     if (devices_.empty()) {
         window_.text(left, y, "The rig has no devices yet: define them in the Rig tab and Save.", kCaution);
     }
     const ControlUse self{ControlUse::Kind::Secondary, target};
     for (const DeviceLabels* const entry : order) {
         const DeviceLabels& device = *entry;
-        if (y > kPopupY + kPopupH - 30) break;
+        if (y > kPopupY + popupH() - 30) break;
         const RigDevice* const rigDevice = rig_.find(idOf(device));
         if (rigDevice == nullptr) continue;
         const bool isWheel = wheel != nullptr && idOf(device) == idOf(*wheel);
@@ -1369,7 +1372,7 @@ void MappingEditView::drawAltPicker() {
         if (column != 0) y += 18;
         y += 8;
     }
-    window_.text(left, kPopupY + kPopupH - 20,
+    window_.text(left, kPopupY + popupH() - 20,
                  "Greyed: used elsewhere (hover to see where). Axes: only throttle, brake, clutch, handbrake. Save writes it.",
                  kDim);
 }
@@ -1382,15 +1385,16 @@ void MappingEditView::drawWheelRow() {
                                   : "'" + edit_.sourceDevice + "' (not named in the Rig tab yet)",
                  wheel != nullptr ? kText : kCaution);
     window_.text(500, 42, "plays force feedback", kDim);
-    button(680, 38, "Change", [this] { mode_ = Mode::PickWheel; }, false, !devices_.empty(), 70);
-    button(760, 38, "Auto-map", [this] { autoMapFromRig(); }, false, !rig_.devices.empty(), 80);
-    window_.text(848, 42, fit("rig " + rigName_, 14), kDim);
+    const float right = extraW();   // Change, Auto-map and the rig's name stay at the right
+    button(680 + right, 38, "Change", [this] { mode_ = Mode::PickWheel; }, false, !devices_.empty(), 70);
+    button(760 + right, 38, "Auto-map", [this] { autoMapFromRig(); }, false, !rig_.devices.empty(), 80);
+    window_.text(848 + right, 42, fit("rig " + rigName_, 14), kDim);
 }
 
 void MappingEditView::drawPicker() {
-    hit(0, 0, 960, kContentHeight, [] {});   // clicks outside the popup do nothing
-    window_.fill(kPopupX, kPopupY, kPopupW, kPopupH, kPopup);
-    window_.outline(kPopupX, kPopupY, kPopupW, kPopupH, kHeading);
+    hit(0, 0, canvasW(), contentH(), [] {});   // clicks outside the popup do nothing
+    window_.fill(kPopupX, kPopupY, popupW(), popupH(), kPopup);
+    window_.outline(kPopupX, kPopupY, popupW(), popupH(), kHeading);
     const bool axis = pickKind_ == Slot::Axis;
     const std::string what = pickKind_ == Slot::Axis ? kAxisNames[pickIndex_]
                              : pickKind_ == Slot::Hat ? std::string("D-pad ") + kHatNames[pickIndex_]
@@ -1404,7 +1408,7 @@ void MappingEditView::drawPicker() {
                           : pickKind_ == Slot::Hat ? ControlUse::Kind::Hat
                                                    : ControlUse::Kind::Button,
                           pickIndex_};
-    button(kPopupX + kPopupW - 100, kPopupY + 6, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 88);
+    button(kPopupX + popupW() - 100, kPopupY + 6, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 88);
     window_.text(left + 140, kPopupY + 32, "Greyed: used elsewhere (hover to see where); clear it there first.",
                  kDim);
     button(left, kPopupY + 28, "(nothing)", [this] {
@@ -1420,14 +1424,14 @@ void MappingEditView::drawPicker() {
         if (&device != wheel) order.push_back(&device);
     }
     float y = kPopupY + 54;
-    constexpr int kColumns = 5;
-    constexpr float kEntryW = 174;
+    const int kColumns = popupColumns();   // more columns in a wider window
+    const float kEntryW = entryW(kColumns);
     if (devices_.empty()) {
         window_.text(left, y, "The rig has no devices yet: define them in the Rig tab and Save.", kCaution);
     }
     for (const DeviceLabels* const entry : order) {
         const DeviceLabels& device = *entry;
-        if (y > kPopupY + kPopupH - 30) break;
+        if (y > kPopupY + popupH() - 30) break;
         const bool isWheel = wheel != nullptr && idOf(device) == idOf(*wheel);
         window_.text(left, y, fit(deviceName(device), 40) + "  " + deviceId(device.vendorId, device.productId) + "  " +
                                   (isWheel ? "(the wheel)" : deviceKindName(device.kind)),
@@ -1475,22 +1479,22 @@ void MappingEditView::drawPicker() {
 }
 
 void MappingEditView::drawWheelPicker() {
-    hit(0, 0, 960, kContentHeight, [] {});
-    window_.fill(kPopupX, kPopupY, kPopupW, kPopupH, kPopup);
-    window_.outline(kPopupX, kPopupY, kPopupW, kPopupH, kHeading);
+    hit(0, 0, canvasW(), contentH(), [] {});
+    window_.fill(kPopupX, kPopupY, popupW(), popupH(), kPopup);
+    window_.outline(kPopupX, kPopupY, popupW(), popupH(), kHeading);
     const float left = kPopupX + 12;
     window_.text(left, kPopupY + 10, "Which device is the wheel? It plays the game's force feedback.", kHeading);
-    button(kPopupX + kPopupW - 100, kPopupY + 6, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 88);
+    button(kPopupX + popupW() - 100, kPopupY + 6, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 88);
     const DeviceLabels* const wheel = wheelLabels();
     float y = kPopupY + 34;
     for (const DeviceLabels& device : devices_) {
         const bool on = wheel != nullptr && idOf(device) == idOf(*wheel);
-        window_.fill(left, y, kPopupW - 24, 18, on ? kHeading : kPanel);
+        window_.fill(left, y, popupW() - 24, 18, on ? kHeading : kPanel);
         window_.text(left + 6, y + 5,
                      fit(deviceName(device), 40) + "  " + deviceId(device.vendorId, device.productId) + "  " +
                          deviceKindName(device.kind),
                      on ? kDark : kText);
-        hit(left, y, kPopupW - 24, 18, [this, device] { changeWheel(device); });
+        hit(left, y, popupW() - 24, 18, [this, device] { changeWheel(device); });
         y += 22;
     }
     window_.text(left, y + 8, "The rig's devices (Rig tab). All of them are hidden from games while WheelBri runs.",

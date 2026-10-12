@@ -25,6 +25,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <mutex>
 #include <functional>
@@ -52,26 +53,21 @@ constexpr ui::Colour kPopup{36, 40, 48};
 constexpr ui::Colour kCaution{206, 164, 58};
 constexpr ui::Colour kDark{16, 18, 20};
 
-// Window layout, in logical pixels: the panel (the tabs) fills the window. Every tab has the controls at the right end
-// of the tab bar: the status (ready, what is missing, running...), then Start and Stop, as tall as the tab buttons. The
-// shim's games row is on the Mapping tab only, in its top row.
+// Window layout, in logical pixels: the panel (the tabs) fills the window's canvas, which is at least the design size
+// (kWidth x kHeight) and grows with the window (UiWindow.hpp). Every tab has the controls at the right end of the tab
+// bar, which is at the bottom: the status (ready, what is missing, running...), then Start and Stop, as tall as the tab
+// buttons, kept at the right edge (App::startX, stopX, tabBarTop). The shim's games row is on the Mapping tab only, in
+// its top row.
 constexpr float kWidth = MappingView::kWidth;
 constexpr float kViewTop = 0;
 constexpr float kHeight = MappingView::kHeight;
 constexpr float kControlsY = 0;            // the top row: the shim's games
 constexpr float kControlsHeight = 16;
-// The tab bar at the bottom of the panel (MappingView's), in the panel's own coordinates.
-constexpr float kTabBarTop = MappingView::kHeight - MappingView::kTabBarHeight;
-constexpr float kButtonsY = kTabBarTop + 4;   // Start and Stop, level with the tab buttons
 constexpr float kButtonWidth = 68;
-constexpr float kStopX = kWidth - 4 - kButtonWidth;
-constexpr float kStartX = kStopX - 4 - kButtonWidth;
 constexpr float kGamesX = 220;              // the shim's games ("Game < name > Add"), left of the status: 360 wide
 constexpr std::size_t kHeaderChars = 50;    // the live view's title on the Mapping tab...
 constexpr std::size_t kHeaderCharsShim = 26;   // ...and with the games row next to it
-// The app's popups (a question or a notice), over everything.
-constexpr float kPopupX = 180;
-constexpr float kPopupY = 200;
+// The app's popups (a question or a notice), over everything: centred (App::popupX, popupY).
 constexpr float kPopupW = 600;
 constexpr std::size_t kPopupChars = 70;
 constexpr int kWindowWidth = static_cast<int>(kWidth * 1.3F);  // 1.3x the canvas at 100 % (smaller to fit the screen)
@@ -168,7 +164,7 @@ public:
             }
         }
         for (const ui::Click& click : input.clicks) {
-            if (setup && click.y < kTabBarTop) {
+            if (setup && click.y < window_->height() - MappingView::kTabBarHeight) {
                 setup_->onClick(click.x, click.y);
             } else {
                 view_->onClick(click.x, click.y);
@@ -417,8 +413,8 @@ private:
                 }
                 // Start and Stop, at the tab bar's right end on every tab; not over the editor's popups.
                 if (!(editingMapping && mapping_->popupOpen()) &&
-                    click.y >= kButtonsY + kViewTop && click.y < kButtonsY + kViewTop + MappingView::kTabHeight &&
-                    click.x >= kStartX) {
+                    click.y >= buttonsY() + kViewTop && click.y < buttonsY() + kViewTop + MappingView::kTabHeight &&
+                    click.x >= startX()) {
                     if (startButton().hit(click)) start();
                     if (stopButton().hit(click)) stop();
                     continue;
@@ -431,10 +427,10 @@ private:
                 }
                 // The panel, in its own coordinates; the tab bar at its bottom.
                 const float y = click.y - kViewTop;
-                if (y >= kTabBarTop) {
+                if (y >= tabBarTop()) {
                     if (view_ != nullptr) {
                         view_->onClick(click.x, y);
-                    } else if (y >= kButtonsY && y < kButtonsY + MappingView::kTabHeight) {
+                    } else if (y >= buttonsY() && y < buttonsY() + MappingView::kTabHeight) {
                         for (const IdleTabButton& button : idleTabButtons()) {
                             if (click.x >= button.x && click.x < button.x + button.w) idleTab_ = button.tab;
                         }
@@ -539,6 +535,15 @@ private:
 
     [[nodiscard]] bool running() const { return session_.joinable(); }
 
+    // Where things are on the canvas now (it grows with the window): the tab bar at the bottom, Start and Stop at its
+    // right end, popups centred.
+    [[nodiscard]] float tabBarTop() const { return window_->height() - MappingView::kTabBarHeight; }
+    [[nodiscard]] float buttonsY() const { return tabBarTop() + 4; }   // Start and Stop, level with the tab buttons
+    [[nodiscard]] float stopX() const { return window_->width() - 4 - kButtonWidth; }
+    [[nodiscard]] float startX() const { return stopX() - 4 - kButtonWidth; }
+    [[nodiscard]] float popupX() const { return std::floor((window_->width() - kPopupW) / 2); }
+    [[nodiscard]] float popupY() const { return std::floor(200 + (window_->height() - kHeight) / 2); }
+
     // Whether the Wheel setup tab shows: the live view's tab while a session runs, the idle page's otherwise.
     [[nodiscard]] bool showingSetup() const {
         return view_ != nullptr ? view_->tab() == MappingView::Tab::WheelSetup : idleTab_ == IdleTab::Setup;
@@ -627,11 +632,11 @@ private:
 
     // The tab bar while no session shows, where the live view has its own.
     void drawIdleTabs() {
-        window_->fill(0, kTabBarTop, kWidth, 1, kPanel);
+        window_->fill(0, tabBarTop(), window_->width(), 1, kPanel);
         for (const IdleTabButton& button : idleTabButtons()) {
             const bool active = button.tab == idleTab_;
-            window_->fill(button.x, kButtonsY, button.w, MappingView::kTabHeight, active ? kHeading : kPanel);
-            window_->text(button.x + MappingView::kTabPadding, kTabBarTop + 10, button.label, active ? kDark : kText);
+            window_->fill(button.x, buttonsY(), button.w, MappingView::kTabHeight, active ? kHeading : kPanel);
+            window_->text(button.x + MappingView::kTabPadding, tabBarTop() + 10, button.label, active ? kDark : kText);
         }
     }
 
@@ -639,7 +644,7 @@ private:
     [[nodiscard]] bool shimTarget() const { return picker_ != nullptr && !picker_->virtualDevice(); }
 
     Button startButton() const {
-        return {kStartX, kButtonsY, kButtonWidth, MappingView::kTabHeight, "Start",
+        return {startX(), buttonsY(), kButtonWidth, MappingView::kTabHeight, "Start",
                 state_ == State::Stopped && !popup_ && !games_->panelOpen() && (!shimTarget() || games_->hasGame()) &&
                     rigReady()};
     }
@@ -711,7 +716,7 @@ private:
         }
     }
     Button stopButton() const {
-        return {kStopX, kButtonsY, kButtonWidth, MappingView::kTabHeight, "Stop",
+        return {stopX(), buttonsY(), kButtonWidth, MappingView::kTabHeight, "Stop",
                 state_ == State::Starting || state_ == State::Running};
     }
 
@@ -865,7 +870,7 @@ private:
     // The version and the commit it was built from, in the top-right corner of every tab (Version.hpp).
     void drawVersion() {
         static const std::string version = buildVersion();
-        window_->text(kWidth - 4 - static_cast<float>(version.size()) * ui::kCharWidth, 6, version, kDim);
+        window_->text(window_->width() - 4 - static_cast<float>(version.size()) * ui::kCharWidth, 6, version, kDim);
     }
 
     // The controls at the tab bar's right end, on every tab: the status, Start, Stop; the games row on the Mapping tab.
@@ -936,10 +941,11 @@ private:
         // Between the last tab button and Start: what is left of the bar (3 tabs while stopped, up to 5 while running).
         const float tabsEnd = view_ != nullptr ? MappingView::tabsEnd()
                                                : idleTabButtons().back().x + idleTabButtons().back().w;
-        const float room = kStartX - 12 - tabsEnd - 12;
+        const float room = startX() - 12 - tabsEnd - 12;
         status = fit(status, static_cast<std::size_t>(std::max(4.0F, room / ui::kCharWidth)));
         if (shimTarget() && showingMapping()) games_->draw(kGamesX, kControlsY, state_ == State::Stopped && !popup_);
-        window_->text(kStartX - 12 - static_cast<float>(status.size()) * ui::kCharWidth, kTabBarTop + 10, status, colour);
+        window_->text(startX() - 12 - static_cast<float>(status.size()) * ui::kCharWidth, tabBarTop() + 10, status,
+                      colour);
         startButton().draw(*window_, false);
         stopButton().draw(*window_, false);
     }
@@ -1022,10 +1028,10 @@ private:
         return 44 + static_cast<float>(popup_->lines.size()) * 14 + 30;
     }
     [[nodiscard]] Button popupYes() const {
-        return {kPopupX + 16, kPopupY + popupHeight() - 26, 150, 18, popup_->yes.c_str(), true};
+        return {popupX() + 16, popupY() + popupHeight() - 26, 150, 18, popup_->yes.c_str(), true};
     }
     [[nodiscard]] Button popupNo() const {
-        return {kPopupX + 16 + 158, kPopupY + popupHeight() - 26, 150, 18, popup_->no.c_str(), !popup_->no.empty()};
+        return {popupX() + 16 + 158, popupY() + popupHeight() - 26, 150, 18, popup_->no.c_str(), !popup_->no.empty()};
     }
 
     void answerPopup(const bool yes) {
@@ -1048,12 +1054,12 @@ private:
 
     void drawPopup() {
         const float h = popupHeight();
-        window_->fill(kPopupX, kPopupY, kPopupW, h, kPopup);
-        window_->outline(kPopupX, kPopupY, kPopupW, h, kHeading);
-        window_->text(kPopupX + 16, kPopupY + 12, popup_->title, popup_->warning ? kWarning : kHeading);
-        float y = kPopupY + 34;
+        window_->fill(popupX(), popupY(), kPopupW, h, kPopup);
+        window_->outline(popupX(), popupY(), kPopupW, h, kHeading);
+        window_->text(popupX() + 16, popupY() + 12, popup_->title, popup_->warning ? kWarning : kHeading);
+        float y = popupY() + 34;
         for (const std::string& line : popup_->lines) {
-            window_->text(kPopupX + 16, y, line, kText);
+            window_->text(popupX() + 16, y, line, kText);
             y += 14;
         }
         popupYes().draw(*window_, false);

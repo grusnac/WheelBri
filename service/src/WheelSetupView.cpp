@@ -51,14 +51,13 @@ constexpr float kAxesTop = 64;   // under the device's name
 constexpr float kAxisRow = 17;
 constexpr float kButtonsTop = kAxesTop + 16 + kAxes * kAxisRow + 8;
 constexpr int kColumns = 8;
-constexpr float kTileW = 114;
+constexpr float kTileW = 114;                  // in the design; wider with the window (tileW)
 constexpr float kTileH = 30;
 constexpr float kTileStepX = 118;
 constexpr float kTileStepY = 33;
 constexpr float kHintTop = kButtonsTop + 16 + 8 * kTileStepY + 4;
 constexpr float kAxisBarX = 440;               // an axis row: the description left of it, the value right of it
-constexpr float kAxisBarW = 400;
-constexpr std::size_t kAxisText = static_cast<std::size_t>((kAxisBarX - 28) / ui::kCharWidth);
+constexpr float kAxisBarW = 400;               // (both in the design: a wider window moves and widens the bar)
 constexpr std::size_t kMaxPercent = 7;         // a typed dead zone: "12.5%"
 
 std::string fit(std::string text, const std::size_t chars) {
@@ -681,7 +680,9 @@ void WheelSetupView::draw() {
     if (shown_.empty()) {
         window_.text(4, kAxesTop, "Plug in your wheel, pedals, shifter or button box: they show up here at once.",
                      kText);
-        if (!status_.empty()) window_.text(4, kAxesTop + 20, fit(status_, 118), statusError_ ? kWarning : kActive);
+        if (!status_.empty()) {
+            window_.text(4, kAxesTop + 20, fit(status_, 118 + extraChars()), statusError_ ? kWarning : kActive);
+        }
         if (popup_ == Popup::NewRig || popup_ == Popup::RenameRig) drawNamePopup();
         return;
     }
@@ -700,7 +701,9 @@ void WheelSetupView::draw() {
         window_.text(4, kHintTop + 26,
                      "Last pressed: button " + std::to_string(lastPressed_) + (label.empty() ? "" : "  " + label), kHeading);
     }
-    if (!status_.empty()) window_.text(4, kHintTop + 40, fit(status_, 118), statusError_ ? kWarning : kActive);
+    if (!status_.empty()) {
+        window_.text(4, kHintTop + 40, fit(status_, 118 + extraChars()), statusError_ ? kWarning : kActive);
+    }
     if (popup_ == Popup::Control) drawControlPopup();
     if (popup_ == Popup::NewRig || popup_ == Popup::RenameRig) drawNamePopup();
 }
@@ -718,9 +721,11 @@ void WheelSetupView::drawHeader() {
         if (rigs == 0) return;
         activate(rigNames_[rigIndex < rigs ? (rigIndex + rigs - 1) % rigs : 0]);
     }, false, canSwitch, 20) + 2;
-    window_.fill(x, 2, 260, 16, kStripe);
-    window_.text(x + 6, 6, fit(rigName_, 22) + (rigSaved_ ? "" : " (not saved)"), rigSaved_ ? kText : kCaution);
-    x += 262;
+    const float nameW = 260 + extraW() / 4;   // a wider window: a longer rig name shows
+    window_.fill(x, 2, nameW, 16, kStripe);
+    const std::size_t nameChars = 22 + static_cast<std::size_t>(extraW() / 32);
+    window_.text(x + 6, 6, fit(rigName_, nameChars) + (rigSaved_ ? "" : " (not saved)"), rigSaved_ ? kText : kCaution);
+    x += nameW + 2;
     x += button(x, 2, ">", [this, rigs, rigIndex] {
         if (rigs == 0) return;
         activate(rigNames_[rigIndex < rigs ? (rigIndex + 1) % rigs : 0]);
@@ -740,8 +745,8 @@ void WheelSetupView::drawHeader() {
     // Save and Revert end left of the version in the top-right corner (Version.hpp); the state right before them.
     constexpr float kRevertWidth = 64;
     constexpr float kSaveWidth = 56;
-    constexpr float kRevertX = kWidth - kVersionReserve - kRevertWidth;
-    constexpr float kSaveX = kRevertX - 6 - kSaveWidth;
+    const float kRevertX = window_.width() - kVersionReserve - kRevertWidth;
+    const float kSaveX = kRevertX - 6 - kSaveWidth;
     const std::string state = !rigSaved_ ? "not saved yet" : dirty() ? "unsaved changes" : "saved";
     window_.text(kSaveX - 4 - static_cast<float>(state.size()) * ui::kCharWidth, 6, state, dirty() ? kCaution : kDim);
     button(kSaveX, 2, "Save", [this] { save(); }, dirty(), dirty(), kSaveWidth);
@@ -760,21 +765,25 @@ void WheelSetupView::drawHeader() {
     x += button(x, 22, "<", [this, list, at, count] { shown_ = list[(at + count - 1) % count]; }, false, count > 1, 24) + 4;
     const RigDevice* const device = shownDevice();
     const bool connected = openFor(shown_) != nullptr;
-    window_.fill(x, 22, 420, 16, kStripe);
-    window_.text(x + 6, 26, fit(device != nullptr ? device->name : systemName(shown_), 34) + "  " + idText(shown_),
+    // The device's name gets half of what a wider window adds; Detect stays at the right edge.
+    const float half = extraW() / 2;
+    window_.fill(x, 22, 420 + half, 16, kStripe);
+    window_.text(x + 6, 26,
+                 fit(device != nullptr ? device->name : systemName(shown_), 34 + static_cast<std::size_t>(half / 8)) +
+                     "  " + idText(shown_),
                  connected ? kText : kDim);
-    x += 424;
+    x += 424 + half;
     button(x, 22, ">", [this, list, at, count] { shown_ = list[(at + 1) % count]; }, false, count > 1, 24);
     window_.text(x + 30, 26, std::to_string(std::min(at, count - 1) + 1) + " of " + std::to_string(count), kDim);
     if (fromSession_) {
-        window_.text(620, 26, "(the session's)", kDim);
+        window_.text(620 + half, 26, "(the session's)", kDim);
     } else if (device != nullptr) {
-        button(620, 22, "Remove from rig", [this] { removeShownDevice(); }, false, true, 140);
-        if (!connected) window_.text(766, 26, "unplugged", kCaution);
+        button(620 + half, 22, "Remove from rig", [this] { removeShownDevice(); }, false, true, 140);
+        if (!connected) window_.text(766 + half, 26, "unplugged", kCaution);
     } else {
-        button(620, 22, "Add to rig", [this] { addShownDevice(); }, false, true, 140);
+        button(620 + half, 22, "Add to rig", [this] { addShownDevice(); }, false, true, 140);
     }
-    button(800, 22, detect_ ? "Detect: on" : "Detect: off", [this] {
+    button(800 + extraW(), 22, detect_ ? "Detect: on" : "Detect: off", [this] {
         detect_ = !detect_;
         for (Open& d : open_) d.restTaken = false;   // where everything rests now
     }, detect_, true, 156);
@@ -796,21 +805,25 @@ void WheelSetupView::drawAxes(const float top) {
     const RigDevice* const device = shownDevice();
     const int axes = axisCount();
     const bool live = liveRaw() != nullptr;
+    // A wider window: the description gets a third of the extra width, the bar the rest.
+    const float barX = kAxisBarX + extraW() / 3;
+    const float barW = kAxisBarW + extraW() * 2 / 3;
+    const auto textChars = static_cast<std::size_t>((barX - 28) / ui::kCharWidth);
     for (int axis = 0; axis < kAxes; ++axis) {
         const float y = top + 16 + static_cast<float>(axis) * kAxisRow;
-        if (axis % 2 == 0) window_.fill(0, y - 3, kWidth, kAxisRow - 1, kStripe);
+        if (axis % 2 == 0) window_.fill(0, y - 3, window_.width(), kAxisRow - 1, kStripe);
         const RigControl control = device != nullptr ? device->axes[static_cast<std::size_t>(axis)] : RigControl{};
         const std::string text = describe(control);
         window_.text(4, y, std::to_string(axis), kDim);
-        window_.text(20, y, text.empty() ? "(not defined)" : fit(text, kAxisText), text.empty() ? kDim : kText);
-        hit(0, y - 3, kWidth, kAxisRow - 1, [this, axis] { openControl(true, axis, std::nullopt); });
+        window_.text(20, y, text.empty() ? "(not defined)" : fit(text, textChars), text.empty() ? kDim : kText);
+        hit(0, y - 3, window_.width(), kAxisRow - 1, [this, axis] { openControl(true, axis, std::nullopt); });
         if (live && axes > 0 && axis >= axes) {
-            window_.text(kAxisBarX, y, "(this device has no axis " + std::to_string(axis) + ")", kDim);
+            window_.text(barX, y, "(this device has no axis " + std::to_string(axis) + ")", kDim);
             continue;
         }
         // -1..1 from the centre, as the system reports it.
-        constexpr float kBarX = kAxisBarX;
-        constexpr float kBarW = kAxisBarW;
+        const float kBarX = barX;
+        const float kBarW = barW;
         const float v = std::clamp(axisValue(axis), -1.0F, 1.0F);
         const float half = kBarW / 2;
         window_.fill(kBarX, y - 1, kBarW, 10, kPanel);
@@ -829,29 +842,34 @@ void WheelSetupView::drawButtons(const float top) {
     const RigDevice* const device = shownDevice();
     const int buttons = buttonCount();
     const bool live = liveRaw() != nullptr;
+    // The tiles share what a wider window adds (eight columns across the canvas).
+    const float tileW = kTileW + extraW() / kColumns;
+    const float stepX = kTileStepX + extraW() / kColumns;
     for (int source = 0; source < kButtons; ++source) {
-        const float x = 4 + static_cast<float>(source % kColumns) * kTileStepX;
+        const float x = 4 + static_cast<float>(source % kColumns) * stepX;
         const float y = top + 16 + static_cast<float>(source / kColumns) * kTileStepY;
         const bool present = !live || buttons == 0 || source < buttons;
         const bool down = buttonDown(source);
         const RigControl control = device != nullptr ? device->buttons[static_cast<std::size_t>(source)] : RigControl{};
-        window_.fill(x, y, kTileW, kTileH, !present ? kDark : down ? kActive : control.defined() ? kPanel : kStripe);
-        if (source == lastPressed_) window_.outline(x, y, kTileW, kTileH, kHeading);
+        window_.fill(x, y, tileW, kTileH, !present ? kDark : down ? kActive : control.defined() ? kPanel : kStripe);
+        if (source == lastPressed_) window_.outline(x, y, tileW, kTileH, kHeading);
         char number[8];
         std::snprintf(number, sizeof(number), "%2d", source);
         window_.text(x + 4, y + 5, number, down ? kDark : kDim);
-        window_.text(x + 26, y + 5, fit(control.label, 11), down ? kDark : kText);
-        window_.text(x + 4, y + 18, fit(roleLabel(control.role), 13), down ? kDark : kHeading);
-        hit(x, y, kTileW, kTileH, [this, source] { openControl(false, source, std::nullopt); });
+        window_.text(x + 26, y + 5, fit(control.label, static_cast<std::size_t>((tileW - 26) / ui::kCharWidth)),
+                     down ? kDark : kText);
+        window_.text(x + 4, y + 18, fit(roleLabel(control.role), static_cast<std::size_t>((tileW - 8) / ui::kCharWidth)),
+                     down ? kDark : kHeading);
+        hit(x, y, tileW, kTileH, [this, source] { openControl(false, source, std::nullopt); });
     }
 }
 
 void WheelSetupView::drawControlPopup() {
-    constexpr float kX = 100;
-    constexpr float kY = 130;
     constexpr float kW = 760;
+    const float kX = std::floor((window_.width() - kW) / 2);                 // centred
+    const float kY = std::floor(130 + (window_.height() - kHeight) / 2);
     const float height = popupAxis_ ? 236 : 210;   // an axis has the dead zones too
-    hit(0, 0, kWidth, kContentHeight, [] {});   // clicks outside the popup do nothing
+    hit(0, 0, window_.width(), contentHeight(), [] {});   // clicks outside the popup do nothing
     window_.fill(kX, kY, kW, height, kPopup);
     window_.outline(kX, kY, kW, height, kHeading);
     const float left = kX + 16;
@@ -980,11 +998,11 @@ void WheelSetupView::drawTuningFields(const float left, const float y) {
 }
 
 void WheelSetupView::drawNamePopup() {
-    constexpr float kX = 200;
-    constexpr float kY = 160;
     constexpr float kW = 560;
     constexpr float kH = 120;
-    hit(0, 0, kWidth, kContentHeight, [] {});
+    const float kX = std::floor((window_.width() - kW) / 2);                 // centred
+    const float kY = std::floor(160 + (window_.height() - kHeight) / 2);
+    hit(0, 0, window_.width(), contentHeight(), [] {});
     window_.fill(kX, kY, kW, kH, kPopup);
     window_.outline(kX, kY, kW, kH, kHeading);
     const bool isNew = popup_ == Popup::NewRig;

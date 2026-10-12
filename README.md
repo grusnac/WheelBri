@@ -143,6 +143,17 @@ a headline, why it was needed, how to use it, and where to look.
 - **Look:** `%LOCALAPPDATA%\wheelbri\rigs\<rig>.ini`; `service.setup` log lines. Code: core `Rig`,
   `service/src/WheelSetupView.cpp`.
 
+### The window
+
+- **Why:** screens differ; the window should use the room it has without black bars or tiny text.
+- **Use:** drag the window's edges or maximise it. Up to 1.5 times the design (times the Windows display scale)
+  everything grows with it; past that, or when the window is wider or taller than the design's shape, the tabs get
+  the room: wider fields, bars and button cells, more picker columns, more live log and event rows, the buttons at
+  the right edge stay there and the tab bar stays at the bottom. It cannot be made smaller than three quarters of the
+  design (960 x 748 at 100 %), nor bigger than the screen.
+- **Look:** code: `service/src/UiWindow.hpp` (`fitCanvas`), `UiWindowWin32.cpp` (`WM_GETMINMAXINFO`), `UiWindowX11.cpp`
+  (size hints); the views read `UiWindow::width()` / `height()`.
+
 ### Mapping tab
 
 - **Why:** the target (the G920) is fixed; which rig control drives each of its axes and buttons is the user's.

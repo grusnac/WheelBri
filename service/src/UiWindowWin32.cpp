@@ -1,7 +1,8 @@
 // The `--ui` window on Windows: a plain Win32 window drawn with GDI. Nothing to ship.
 //
-// Each frame is recorded, then drawn into a memory bitmap the size of the window (the logical canvas scaled and
-// centred) and copied to the screen in one go, so it never flickers; a frame like the one shown is not drawn again. The window is DPI aware: on a 150 % display it
+// Each frame is recorded, then drawn into a memory bitmap the size of the window (the logical canvas scaled to it,
+// UiWindow.hpp fitCanvas) and copied to the screen in one go, so it never flickers; a frame like the one shown is
+// not drawn again. The window is DPI aware: on a 150 % display it
 // is drawn at full resolution instead of being blown up blurry by Windows.
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -159,6 +160,7 @@ public:
             error = lastError("CreateWindowEx");
             return false;
         }
+        refit();
         ShowWindow(window_, SW_SHOWNORMAL);
         UpdateWindow(window_);
         return true;
@@ -170,6 +172,7 @@ public:
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
+        refit();   // a resize: the views lay out for the new canvas from this frame's input on
         WindowInput input;
         input.close = closed_;
         input.keys.swap(keys_);
@@ -192,11 +195,7 @@ public:
     // A frame is recorded (core DrawList) and drawn in present() only when it differs from the one on screen, or the
     // window's size or scale changed: an unchanged window costs no GDI work.
     void begin(const Colour background) override {
-        RECT client{};
-        GetClientRect(window_, &client);
-        frameWidth_ = std::max(1, static_cast<int>(client.right - client.left));
-        frameHeight_ = std::max(1, static_cast<int>(client.bottom - client.top));
-        box_ = fitCanvas(frameWidth_, frameHeight_, logicalWidth_, logicalHeight_);
+        refit();
         frame_.begin(rgbOf(background));
     }
 
@@ -441,14 +440,51 @@ private:
                 return true;
             }
             case WM_GETMINMAXINFO: {
+                // At least kMinZoom times the design (at this display scale), at most the screen the window is on
+                // (its work area: not over the taskbar); maximised, exactly that.
                 auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
-                info->ptMinTrackSize.x = 240;
-                info->ptMinTrackSize.y = 200;
+                MONITORINFO monitor{};
+                monitor.cbSize = sizeof(monitor);
+                RECT work{0, 0, 1920, 1040};
+                RECT whole = work;
+                if (GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor) != FALSE) {
+                    work = monitor.rcWork;
+                    whole = monitor.rcMonitor;
+                }
+                const LONG workW = work.right - work.left;
+                const LONG workH = work.bottom - work.top;
+                RECT frame{0, 0, 0, 0};
+                AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0);
+                const double scale = static_cast<double>(windowDpi(hwnd)) / 96.0 * kMinZoom;
+                const LONG minW = std::lround(logicalWidth_ * scale) + (frame.right - frame.left);
+                const LONG minH = std::lround(logicalHeight_ * scale) + (frame.bottom - frame.top);
+                info->ptMinTrackSize.x = std::min(minW, workW);
+                info->ptMinTrackSize.y = std::min(minH, workH);
+                info->ptMaxTrackSize.x = workW;
+                info->ptMaxTrackSize.y = workH;
+                info->ptMaxSize.x = workW;
+                info->ptMaxSize.y = workH;
+                info->ptMaxPosition.x = work.left - whole.left;
+                info->ptMaxPosition.y = work.top - whole.top;
                 return true;
             }
             default:
                 return false;
         }
+    }
+
+    // The canvas for the window's size now: the design scaled up to kMaxZoom times the display scale, the rest as room
+    // (fitCanvas); the views read it through width() and height().
+    void refit() {
+        if (window_ == nullptr) return;
+        RECT client{};
+        GetClientRect(window_, &client);
+        frameWidth_ = std::max(1, static_cast<int>(client.right - client.left));
+        frameHeight_ = std::max(1, static_cast<int>(client.bottom - client.top));
+        const float maxScale = static_cast<float>(windowDpi(window_)) / 96.0F * kMaxZoom;
+        box_ = fitCanvas(frameWidth_, frameHeight_, logicalWidth_, logicalHeight_, maxScale);
+        canvasWidth_ = box_.width;
+        canvasHeight_ = box_.height;
     }
 
     // Window pixels -> logical canvas pixels.

@@ -15,9 +15,14 @@ namespace wheelbri::service::ui {
 // The `--ui` window's drawing surface, implemented with each system's own tools:
 //   Windows: Win32 + GDI (UiWindowWin32.cpp)
 //   Linux:   Xlib, X11 or XWayland (UiWindowX11.cpp)
-// Everything is drawn on a fixed logical canvas that is scaled to the window, centred (letterboxed), so the
-// layout code never deals with window sizes. Text is monospaced: one character every 8 logical pixels,
-// 8 logical pixels tall (the cell the layout was made for).
+// Everything is drawn on a logical canvas that is scaled to the window. The canvas is at least the design size
+// (960 x 748 for the app) and grows with the window: the scale is what fits the design size into the window, at most
+// kMaxZoom times the display scale, and the canvas is the window at that scale (fitCanvas). So a window of the
+// design's shape shows the design scaled; a wider or taller one (or one bigger than kMaxZoom allows) gives the views
+// more room, which they use (width(), height(): wider fields and bars, more log rows, more picker columns, buttons
+// kept at the right edge and the tab bar at the bottom). Text is monospaced: one character every 8 logical pixels,
+// 8 logical pixels tall (the cell the layout was made for). The window cannot be made smaller than kMinZoom times the
+// design size (times the display scale; less only when the screen is), nor bigger than the screen.
 
 struct Colour {
     std::uint8_t r, g, b;
@@ -26,24 +31,36 @@ struct Colour {
 inline constexpr float kCharWidth = 8.0F;   // logical pixels from one character to the next
 inline constexpr float kCharHeight = 8.0F;  // logical pixels of a line of text
 
-// Logical canvas -> window pixels: x * scale + offsetX.
+// How far the design grows with the window (times the display scale) before the window's extra size becomes room
+// on the canvas instead, and the smallest window (times the design size and the display scale).
+inline constexpr float kMaxZoom = 1.5F;
+inline constexpr float kMinZoom = 0.75F;
+
+// Logical canvas -> window pixels: x * scale + offsetX; the canvas is width x height logical pixels.
 struct Letterbox {
     float scale = 1.0F;
     float offsetX = 0.0F;
     float offsetY = 0.0F;
+    float width = 0.0F;
+    float height = 0.0F;
 };
 
+// The canvas for a window: the scale fits the design (logicalWidth x logicalHeight) into the window, at most
+// `maxScale`; the canvas is the whole window at that scale, so it is never smaller than the design in either
+// direction and there are no bars. A window smaller than the design (only when the screen is) shows it scaled down.
 [[nodiscard]] inline Letterbox fitCanvas(const int windowWidth, const int windowHeight, const int logicalWidth,
-                                         const int logicalHeight) {
+                                         const int logicalHeight, const float maxScale = 1.0e6F) {
     Letterbox box;
+    box.width = static_cast<float>(std::max(logicalWidth, 1));
+    box.height = static_cast<float>(std::max(logicalHeight, 1));
     if (windowWidth <= 0 || windowHeight <= 0 || logicalWidth <= 0 || logicalHeight <= 0) {
         return box;
     }
     box.scale = std::min(static_cast<float>(windowWidth) / static_cast<float>(logicalWidth),
                          static_cast<float>(windowHeight) / static_cast<float>(logicalHeight));
-    box.offsetX = std::floor((static_cast<float>(windowWidth) - static_cast<float>(logicalWidth) * box.scale) * 0.5F);
-    box.offsetY =
-        std::floor((static_cast<float>(windowHeight) - static_cast<float>(logicalHeight) * box.scale) * 0.5F);
+    if (maxScale > 0.0F) box.scale = std::min(box.scale, maxScale);
+    box.width = std::max(static_cast<float>(logicalWidth), std::floor(static_cast<float>(windowWidth) / box.scale));
+    box.height = std::max(static_cast<float>(logicalHeight), std::floor(static_cast<float>(windowHeight) / box.scale));
     return box;
 }
 
@@ -96,6 +113,11 @@ public:
     // switches display mode).
     [[nodiscard]] virtual bool visible() const = 0;
 
+    // The canvas now, in logical pixels: at least the design size, more when the window has room (fitCanvas). Set by
+    // pump() and begin(), so input and drawing in one frame see the same size.
+    [[nodiscard]] float width() const { return canvasWidth_; }
+    [[nodiscard]] float height() const { return canvasHeight_; }
+
     // Where (0, 0) of the draw calls below is on the canvas, so a panel can be drawn anywhere unchanged.
     void setOrigin(const float x, const float y) {
         originX_ = x;
@@ -134,10 +156,13 @@ protected:
     std::function<void()> queryEndSession_;
     float originX_ = 0.0F;
     float originY_ = 0.0F;
+    float canvasWidth_ = 960.0F;
+    float canvasHeight_ = 748.0F;
 };
 
 // The window for this system, `windowWidth` x `windowHeight` (at 100 % display scale; made smaller if the
-// screen is). Nullptr, with `error` set, if it cannot be opened (no display, ...).
+// screen is), resizable from kMinZoom times the design (`logicalWidth` x `logicalHeight`) to the screen. Nullptr,
+// with `error` set, if it cannot be opened (no display, ...).
 [[nodiscard]] std::unique_ptr<UiWindow> openWindow(const std::string& title, int logicalWidth, int logicalHeight,
                                                    int windowWidth, int windowHeight, std::string& error);
 

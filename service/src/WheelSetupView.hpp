@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 #include "UiWindow.hpp"
 #include "Wheel.hpp"
 
@@ -24,13 +26,13 @@ namespace wheelbri::service {
 // button, moving an axis well away from where it rested) opens its popup: type the label, pick the role, Enter.
 // A pedal's rest position also says whether it is inverted. Rigs are files in rigsFolder() (New, Rename, < >); the
 // active one is remembered in the app's state file ([app] rig) and is what the Mapping tab maps from. It maps
-// nothing itself. With a session running it reads the session's wheel only. Draws on the same 960 x 748 panel as
-// MappingView, above its tab bar.
+// nothing itself. With a session running it reads the session's wheel only. Draws on the same panel as MappingView,
+// above its tab bar: kWidth x kHeight in the design, bigger with the window (UiWindow.hpp), the axis bars, the button
+// tiles and the device's name wider, Save, Revert and Detect kept at the right, popups centred.
 class WheelSetupView {
 public:
     static constexpr int kWidth = 960;
     static constexpr int kHeight = 748;
-    static constexpr float kContentHeight = kHeight - 30;   // the tab bar is below
 
     struct Settings {
         std::filesystem::path rigsFolder;      // <name>.ini per rig
@@ -73,6 +75,10 @@ public:
     [[nodiscard]] bool dirty() const { return edit_ != saved_ || !rigSaved_; }
 
 private:
+    // The canvas beyond the design's width (pixels, characters), and the height above the tab bar.
+    [[nodiscard]] float extraW() const { return std::max(0.0F, window_.width() - static_cast<float>(kWidth)); }
+    [[nodiscard]] std::size_t extraChars() const { return static_cast<std::size_t>(extraW() / 8.0F); }
+    [[nodiscard]] float contentHeight() const { return window_.height() - 30; }   // the tab bar is below
     enum class Popup { None, Control, NewRig, RenameRig };
 
     struct Hit {

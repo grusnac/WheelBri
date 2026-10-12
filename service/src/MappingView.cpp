@@ -27,10 +27,8 @@ const logging::Logger& log() {
     return logger;
 }
 
-// Everything is laid out on a fixed logical canvas; the window scales it (letterboxed).
-// Text is 8x8 logical pixels per character (UiWindow.hpp).
-constexpr int kLogicalWidth = MappingView::kWidth;
-constexpr int kLogicalHeight = MappingView::kHeight;
+// Everything is laid out on the window's logical canvas: at least MappingView::kWidth x kHeight, bigger when the
+// window has room (UiWindow.hpp). Text is 8x8 logical pixels per character.
 
 constexpr std::size_t kMaxSourceButtons = 64;
 
@@ -176,7 +174,7 @@ void MappingView::onScroll(const int notches) {
 
 void MappingView::onHScroll(const int notches) {
     if (tab_ != Tab::Logs || liveWrap_) return;
-    const auto most = static_cast<long long>(liveLongest_ > kLiveMessageChars ? liveLongest_ - kLiveMessageChars : 0);
+    const auto most = static_cast<long long>(liveLongest_ > liveMessageChars_ ? liveLongest_ - liveMessageChars_ : 0);
     liveHScroll_ = static_cast<std::size_t>(
         std::clamp(static_cast<long long>(liveHScroll_) + static_cast<long long>(notches) * 8, 0LL, most));
 }
@@ -205,7 +203,7 @@ void MappingView::dragTo(const float x, const float y) {
     } else if (drag_ == Drag::Horizontal && hBar_.shown) {
         const float free = std::max(1.0F, hBar_.w - hBar_.thumbSize);
         const float at = std::clamp((x - dragGrab_ - hBar_.x) / free, 0.0F, 1.0F);
-        const float most = static_cast<float>(liveLongest_ > kLiveMessageChars ? liveLongest_ - kLiveMessageChars : 0);
+        const float most = static_cast<float>(liveLongest_ > liveMessageChars_ ? liveLongest_ - liveMessageChars_ : 0);
         liveHScroll_ = static_cast<std::size_t>(std::lround(at * most));
     }
 }
@@ -291,13 +289,15 @@ void MappingView::drawHeader() {
     std::snprintf(line, sizeof(line), "%.40s  ->  %.40s", sourceName_.c_str(),
                   profile_.identity().productName.c_str());
     if (tab_ == Tab::Mapping) {
-        line[std::min(headerChars_, sizeof(line) - 1)] = '\0';   // the app's controls are at the top right of this tab
+        // The app's controls are at the top right of this tab: what is left of them (more in a wider window).
+        // (With the shim its games row is right of the title: that stays as it is.)
+        line[std::min(headerChars_ + (shimMode_ ? 0 : extraChars()), sizeof(line) - 1)] = '\0';
     }
     text(window_, 4, 4, line, kHeading);
     if (devices_.empty()) {
         text(window_, 4, 16, "Move every control and check where it lands.", kDim);
     } else {
-        text(window_, 4, 16, devices_.substr(0, 118).c_str(), devicesWarning_ ? kWarning : kDim);
+        text(window_, 4, 16, devices_.substr(0, 118 + extraChars()).c_str(), devicesWarning_ ? kWarning : kDim);
     }
 }
 
@@ -339,12 +339,19 @@ void MappingView::drawAxes(const RawInputs& inputs, const WheelState& state, con
     }};
 
     const float kTop = top;
+    // The three bars share what a wider window adds (a quarter, a quarter, and the target's a bit more).
+    const float rawW = 110 + extraW() * 0.25F;
+    const float mappedW = 110 + extraW() * 0.25F;
+    const float targetW = 150 + extraW() * 0.3F;
+    const float rawX = 112;
+    const float mappedX = rawX + rawW + 60;
+    const float targetX = mappedX + mappedW + 60;
     text(window_, 4, kTop, "AXES", kHeading);
     text(window_, 76, kTop, "Rig", kDim);
-    text(window_, 112, kTop, "Rig raw", kDim);
-    text(window_, 282, kTop, "mapped", kDim);
+    text(window_, rawX, kTop, "Rig raw", kDim);
+    text(window_, mappedX, kTop, "mapped", kDim);
     const std::string valueHeading = target_ + " value (0..65535)";
-    text(window_, 452, kTop, valueHeading.c_str(), kDim);
+    text(window_, targetX, kTop, valueHeading.c_str(), kDim);
 
     char value[32];
     for (std::size_t i = 0; i < rows.size(); ++i) {
@@ -366,22 +373,22 @@ void MappingView::drawAxes(const RawInputs& inputs, const WheelState& state, con
         const float rawValue =
             valid ? inputs.devices[static_cast<std::size_t>(row.sourceDevice)].axes[static_cast<std::size_t>(row.sourceAxis)]
                   : 0.0F;
-        bipolarBar(window_, 112, y, 110, 10, rawValue, valid ? kActive : kDim);
+        bipolarBar(window_, rawX, y, rawW, 10, rawValue, valid ? kActive : kDim);
         std::snprintf(value, sizeof(value), "%+.3f", rawValue);
-        text(window_, 226, y + 1, value, kText);
+        text(window_, rawX + rawW + 4, y + 1, value, kText);
 
         if (row.bipolarMapped) {
-            bipolarBar(window_, 282, y, 110, 10, row.mapped, kActive);
+            bipolarBar(window_, mappedX, y, mappedW, 10, row.mapped, kActive);
             std::snprintf(value, sizeof(value), "%+.3f", row.mapped);
         } else {
-            unipolarBar(window_, 282, y, 110, 10, row.mapped, kActive);
+            unipolarBar(window_, mappedX, y, mappedW, 10, row.mapped, kActive);
             std::snprintf(value, sizeof(value), "%5.1f%%", row.mapped * 100.0F);
         }
-        text(window_, 396, y + 1, value, kText);
+        text(window_, mappedX + mappedW + 4, y + 1, value, kText);
 
-        unipolarBar(window_, 452, y, 150, 10, static_cast<float>(row.target) / 65535.0F, kHeading);
+        unipolarBar(window_, targetX, y, targetW, 10, static_cast<float>(row.target) / 65535.0F, kHeading);
         std::snprintf(value, sizeof(value), "%5d", row.target);
-        text(window_, 608, y + 1, value, kText);
+        text(window_, targetX + targetW + 6, y + 1, value, kText);
     }
     std::string accessories;
     for (std::size_t i = 0; i < accessories_.size(); ++i) {
@@ -390,7 +397,7 @@ void MappingView::drawAxes(const RawInputs& inputs, const WheelState& state, con
                        (accessories_[i].name.empty() ? deviceId(accessories_[i].vendorId, accessories_[i].productId)
                                                      : accessories_[i].name);
     }
-    text(window_, 4, kTop + 78, (pedalNote_ + accessories).substr(0, 118).c_str(), kDim);
+    text(window_, 4, kTop + 78, (pedalNote_ + accessories).substr(0, 118 + extraChars()).c_str(), kDim);
 }
 
 void MappingView::drawRawAxes(const RawInputState& raw, const float top) {
@@ -416,16 +423,17 @@ void MappingView::drawRawAxes(const RawInputState& raw, const float top) {
             continue;
         }
         const float v = raw.axes[static_cast<std::size_t>(axis)];
-        bipolarBar(window_, 64, y, 150, 8, v, kActive);
+        const float barW = 150 + extraW() * 0.25F;   // the D-pad panel moves right by as much
+        bipolarBar(window_, 64, y, barW, 8, v, kActive);
         std::snprintf(value, sizeof(value), "%+.3f", v);
-        text(window_, 220, y, value, kText);
+        text(window_, 64 + barW + 6, y, value, kText);
         const char* const role = roleOf(axis);
-        text(window_, 276, y, role, role[0] == '-' ? kText : kDim);
+        text(window_, 64 + barW + 62, y, role, role[0] == '-' ? kText : kDim);
     }
 }
 
 void MappingView::drawHat(const std::int8_t sourceHat, const std::int8_t targetHat, const float top) {
-    constexpr float kLeft = 470;
+    const float kLeft = 470 + extraW() * 0.25F;   // right of the rig axes, whose bars grow as much
     const float kTop = top;
     text(window_, kLeft, kTop, "D-PAD / HAT", kHeading);
 
@@ -466,11 +474,13 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
     const std::string subtitle = target_ + " number name <- rig number name   (INI: [buttons] target_N = rig number)";
     text(window_, subtitleX, kTop, subtitle.c_str(), kDim);
 
-    // Every cell reads "G920  6 Menu     <- Rig 35 Start": 39 characters fit a cell after its 3-pixel margin.
+    // Every cell reads "G920  6 Menu     <- Rig 35 Start": three columns across the canvas (316 wide in the design:
+    // 39 characters after the 3-pixel margin; more in a wider window).
     constexpr int kColumns = 3;
-    constexpr float kWidth = 316;
+    const float kWidth = (canvasW() - 8 - 2 * (kColumns - 1)) / kColumns;
     constexpr float kHeight = 13;
-    char cellText[64];
+    const std::size_t chars = std::clamp<std::size_t>(static_cast<std::size_t>((kWidth - 3) / 8), 39, 120);
+    char cellText[128];
     // Only the buttons the target names (the G920's 11 and the shifter's 7; its unused 12th is left out); room for 9 rows.
     std::size_t cell = 0;
     for (std::size_t target = 0; target < mapper_.buttonMap.size(); ++target) {
@@ -492,18 +502,18 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
                           label.c_str(), source, sourceLabel(source).c_str());
         } else {
             std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- %s", target_.c_str(), target, label.c_str(),
-                          sourceText(mapper_.buttonDevice[target], source, false, 20).c_str());
+                          sourceText(mapper_.buttonDevice[target], source, false, 20 + (chars - 39)).c_str());
         }
 
-        cellText[39] = '\0';   // what fits the cell
+        cellText[chars] = '\0';   // what fits the cell
         if (mapper_.buttonSecondary[target][0].mapped()) {
             // Secondary sources too (a button, or an axis past a threshold): a "+" at the cell's end.
             const std::size_t length = std::strlen(cellText);
-            if (length < 38) {
-                std::memset(cellText + length, ' ', 38 - length);
+            if (length < chars - 1) {
+                std::memset(cellText + length, ' ', chars - 1 - length);
             }
-            cellText[38] = '+';
-            cellText[39] = '\0';
+            cellText[chars - 1] = '+';
+            cellText[chars] = '\0';
         }
         fill(window_, x, y, kWidth, kHeight, pressed ? kActive : kPanel);
         const Colour colour = pressed ? kDark : (source < 0 ? kDim : kText);
@@ -518,12 +528,13 @@ void MappingView::drawSourceButtons(const std::uint64_t sourceButtons, const flo
         "pressed: green = reaches a " + target_ + " button or the D-pad, red = goes nowhere";
     text(window_, 100, kTop, legend.c_str(), kDim);
 
-    // Every cell reads "Rig 35 Start": the rig button only (where it goes is in the panel above).
-    // 14 characters fit a cell after its margin.
+    // Every cell reads "Rig 35 Start": the rig button only (where it goes is in the panel above). Eight columns
+    // across the canvas: 116 wide in the design, 14 characters after the margin; more in a wider window.
     constexpr int kColumns = 8;
-    constexpr float kWidth = 116;
+    const float kWidth = (canvasW() - 8 - 3 * (kColumns - 1)) / kColumns;
     constexpr float kHeight = 13;
-    char line[40];
+    const std::size_t chars = std::max<std::size_t>(14, static_cast<std::size_t>((kWidth - 4) / 8));
+    char line[80];
     for (int source = 0; source < sourceButtons_; ++source) {
         const auto index = static_cast<std::size_t>(source);
         const float x = 4 + static_cast<float>(source % kColumns) * (kWidth + 3);
@@ -540,7 +551,7 @@ void MappingView::drawSourceButtons(const std::uint64_t sourceButtons, const flo
         const Colour foreground = pressed ? kDark : (target >= 0 || hatDirection != nullptr ? kText : kDim);
 
         std::snprintf(line, sizeof(line), "Rig %d %s", source, sourceLabel(source).c_str());
-        text(window_, x + 2, y + 3, std::string(line).substr(0, 14).c_str(), foreground);
+        text(window_, x + 2, y + 3, std::string(line).substr(0, chars).c_str(), foreground);
     }
     if (sourceButtons_ == 0) {
         text(window_, 4, kTop + 14, "(the device reports no buttons)", kDim);
@@ -905,8 +916,8 @@ void MappingView::refreshLogFiles() {
 }
 
 void MappingView::drawLogs() {
-    constexpr std::size_t kPathChars = 90;
-    constexpr std::size_t kWhatChars = 41;   // to the right edge
+    const std::size_t kPathChars = 90 + extraChars();
+    const std::size_t kWhatChars = 41 + extraChars();   // to the right edge
     refreshLogFiles();
     text(window_, 4, kLogsTop, "LOGS", kHeading);
     text(window_, 52, kLogsTop, "one line per component, a new file every run and every day; click a line to open its folder",
@@ -927,7 +938,7 @@ void MappingView::drawLogs() {
     text(window_, x + 36 * 8, y, "SIZE, LAST WRITTEN", kHeading);
     y = kLogRowsTop;
     for (const ComponentLog& component : components_) {
-        fill(window_, 2, y - 2, kLogicalWidth - 4, kLogRowHeight - 2, kPanel);
+        fill(window_, 2, y - 2, canvasW() - 4, kLogRowHeight - 2, kPanel);
         const Colour own = kComponentColours[static_cast<std::size_t>(&component - components_.data()) %
                                              kComponentColours.size()];
         text(window_, 4, y + 2, component.name, component.warns ? kWarning : own);
@@ -977,20 +988,22 @@ void MappingView::drawLiveLog(const float top) {
     liveSeen_ = liveLog_.added();
     liveLongest_ = 0;
     for (const LiveLogLine& line : lines) liveLongest_ = std::max(liveLongest_, line.message.size());
-    const bool sideways = !liveWrap_ && liveLongest_ > kLiveMessageChars;
+    // The messages run to the scroll bar: 80 characters in the design, more in a wider window.
+    liveMessageChars_ = std::max<std::size_t>(20, static_cast<std::size_t>((canvasW() - kMessageX - 30) / 8));
+    const bool sideways = !liveWrap_ && liveLongest_ > liveMessageChars_;
     if (!sideways) liveHScroll_ = 0;
-    liveHScroll_ = std::min(liveHScroll_, liveLongest_ > kLiveMessageChars ? liveLongest_ - kLiveMessageChars : 0);
+    liveHScroll_ = std::min(liveHScroll_, liveLongest_ > liveMessageChars_ ? liveLongest_ - liveMessageChars_ : 0);
 
     const float listTop = top + 14;
-    const float listBottom = kLogicalHeight - 34 - (sideways ? kBarThickness + 2 : 0);
+    const float listBottom = canvasH() - 34 - (sideways ? kBarThickness + 2 : 0);   // more rows in a taller window
     liveRows_ = static_cast<std::size_t>(std::max(1.0F, (listBottom - listTop) / kLineHeight));
     liveScroll_ = std::min(liveScroll_, liveMostScroll());
 
-    fill(window_, 0, top - 8, kLogicalWidth, 1, kPanel);
+    fill(window_, 0, top - 8, canvasW(), 1, kPanel);
     text(window_, 4, top, "LIVE LOG", kHeading);
     // Word wrap (W): long messages on several rows instead of off the side.
     wrapW_ = 96;
-    wrapX_ = kLogicalWidth - 4 - wrapW_;
+    wrapX_ = canvasW() - 4 - wrapW_;
     wrapY_ = top - 3;
     fill(window_, wrapX_, wrapY_, wrapW_, 14, liveWrap_ ? kHeading : kPanel);
     const char* const wrapLabel = liveWrap_ ? "Wrap: on (W)" : "Wrap: off (W)";
@@ -1037,16 +1050,16 @@ void MappingView::drawLiveLog(const float top) {
         std::vector<std::string> rows;
         if (!liveWrap_) {
             std::string row = liveHScroll_ < message.size() ? message.substr(liveHScroll_) : std::string();
-            if (row.size() > kLiveMessageChars) row = row.substr(0, kLiveMessageChars - 3) + "...";
+            if (row.size() > liveMessageChars_) row = row.substr(0, liveMessageChars_ - 3) + "...";
             rows.push_back(std::move(row));
             return rows;
         }
         std::size_t start = 0;
         do {
-            std::size_t end = std::min(message.size(), start + kLiveMessageChars);
+            std::size_t end = std::min(message.size(), start + liveMessageChars_);
             if (end < message.size()) {
                 const std::size_t space = message.rfind(' ', end);
-                if (space != std::string::npos && space > start + kLiveMessageChars / 2) end = space + 1;
+                if (space != std::string::npos && space > start + liveMessageChars_ / 2) end = space + 1;
             }
             rows.push_back(message.substr(start, end - start));
             start = end;
@@ -1087,7 +1100,7 @@ void MappingView::drawLiveLog(const float top) {
 
     // Vertical scroll bar: where the lines shown sit in all of them. Drag it, or click the track to jump.
     const float total = static_cast<float>(lines.size());
-    vBar_ = {kLogicalWidth - 2 - kBarThickness, listTop, kBarThickness, listBottom - listTop, 0, 0, true};
+    vBar_ = {canvasW() - 2 - kBarThickness, listTop, kBarThickness, listBottom - listTop, 0, 0, true};
     vBar_.thumbSize = std::max(12.0F, vBar_.h * static_cast<float>(last - first) / total);
     const float vMost = static_cast<float>(liveMostScroll());
     const float vAt = vMost > 0 ? 1.0F - static_cast<float>(liveScroll_) / vMost : 1.0F;
@@ -1098,10 +1111,10 @@ void MappingView::drawLiveLog(const float top) {
 
     // Horizontal scroll bar, under the messages, when one is wider than the view (not with word wrap).
     if (sideways) {
-        const float width = static_cast<float>(kLiveMessageChars) * 8;
+        const float width = static_cast<float>(liveMessageChars_) * 8;
         hBar_ = {kMessageX, listBottom + 2, width, kBarThickness, 0, 0, true};
-        hBar_.thumbSize = std::max(12.0F, width * static_cast<float>(kLiveMessageChars) / static_cast<float>(liveLongest_));
-        const float hMost = static_cast<float>(liveLongest_ - kLiveMessageChars);
+        hBar_.thumbSize = std::max(12.0F, width * static_cast<float>(liveMessageChars_) / static_cast<float>(liveLongest_));
+        const float hMost = static_cast<float>(liveLongest_ - liveMessageChars_);
         hBar_.thumbStart = (width - hBar_.thumbSize) * static_cast<float>(liveHScroll_) / hMost;
         fill(window_, hBar_.x, hBar_.y, hBar_.w, hBar_.h, kPanel);
         fill(window_, hBar_.x + hBar_.thumbStart, hBar_.y, hBar_.thumbSize, hBar_.h,
@@ -1134,8 +1147,8 @@ float MappingView::tabsEnd() {
 }
 
 void MappingView::drawTabs() {
-    constexpr float kBarTop = kLogicalHeight - 28;
-    fill(window_, 0, kBarTop, kLogicalWidth, 1, kPanel);
+    const float kBarTop = canvasH() - kTabBarHeight;   // always at the bottom
+    fill(window_, 0, kBarTop, canvasW(), 1, kPanel);
     float x = kTabLeft;
     for (const Tab tab : visibleTabs()) {
         const char* label = tabLabel(tab);
@@ -1148,7 +1161,7 @@ void MappingView::drawTabs() {
 }
 
 void MappingView::onClick(const float x, const float y) {
-    constexpr float kBarTop = kLogicalHeight - 28;
+    const float kBarTop = canvasH() - kTabBarHeight;
     if (y >= kBarTop + 4 && y < kBarTop + 24) {
         float left = kTabLeft;
         for (const Tab tab : visibleTabs()) {
@@ -1324,7 +1337,7 @@ void MappingView::trackEvents(const RawInputState& raw, const WheelState& state,
 }
 
 void MappingView::drawTelemetry() {
-    constexpr std::size_t kPathChars = 80;
+    const std::size_t kPathChars = 80 + extraChars();
     const float x = 4 + 14 * 8;
     const TelemetryFiles& t = files_.telemetry;
 
@@ -1348,7 +1361,7 @@ void MappingView::drawTelemetry() {
     const std::array<Row, 2> rows = {{{"Samples", t.samplesPath, t.rows, "rows", "the wheel, the mapping, what the game sees"},
                                       {"Force fb", t.ffbPath, t.ffbRows, "changes", "every force feedback change the game sent"}}};
     for (const Row& row : rows) {
-        fill(window_, 2, y - 2, kLogicalWidth - 4, kLogRowHeight - 2, kPanel);
+        fill(window_, 2, y - 2, canvasW() - 4, kLogRowHeight - 2, kPanel);
         text(window_, 4, y + 2, row.name, kText);
         if (!t.on || row.path.empty()) {
             text(window_, x, y + 2, t.on ? "-" : files_.telemetryStatus.c_str(), kDim);
@@ -1374,17 +1387,18 @@ void MappingView::drawTelemetry() {
             held += (held.empty() ? "" : ",  ") + ("Rig " + std::to_string(source)) + (name.empty() ? "" : " " + name);
         }
     }
-    text(window_, x, y, held.empty() ? "no buttons" : shortenMiddle(held, 104).c_str(), held.empty() ? kDim : kText);
+    text(window_, x, y, held.empty() ? "no buttons" : shortenMiddle(held, 104 + extraChars()).c_str(),
+         held.empty() ? kDim : kText);
 
     // The latest events: as many as fit, newest at the bottom (no scrolling: the telemetry files have everything).
     y += 24;
-    fill(window_, 0, y - 8, kLogicalWidth, 1, kPanel);
+    fill(window_, 0, y - 8, canvasW(), 1, kPanel);
     text(window_, 4, y, "LATEST EVENTS", kHeading);
     text(window_, 116, y, "buttons, D-pad, pedals and game force feedback since this window opened, newest at the bottom",
          kDim);
     constexpr float kLineHeight = 11;
     const float listTop = y + 14;
-    const float listBottom = kLogicalHeight - 34;
+    const float listBottom = canvasH() - 34;   // more rows in a taller window
     const auto fit = static_cast<std::size_t>(std::max(1.0F, (listBottom - listTop) / kLineHeight));
     if (events_.empty()) {
         text(window_, 4, listTop, "nothing yet: press a button or a pedal", kDim);
@@ -1397,7 +1411,7 @@ void MappingView::drawTelemetry() {
         const auto kind = static_cast<std::size_t>(event.kind);
         text(window_, 4, y, event.time.substr(0, 12).c_str(), kDim);
         text(window_, 4 + 14 * 8, y, kEventNames[kind], kEventColours[kind]);
-        text(window_, 4 + 23 * 8, y, shortenMiddle(event.text, 94).c_str(), kind == kEventReleased ? kDim : kText);
+        text(window_, 4 + 23 * 8, y, shortenMiddle(event.text, 94 + extraChars()).c_str(), kind == kEventReleased ? kDim : kText);
         y += kLineHeight;
     }
 }
@@ -1407,19 +1421,19 @@ void MappingView::drawForceFeedback(const FfbDisplay& ffb) {
     drawFfb(ffb, 34);
     float y = 196;
     if (ffb.controller != nullptr) {
-        fill(window_, 0, y - 8, kLogicalWidth, 1, kPanel);
+        fill(window_, 0, y - 8, canvasW(), 1, kPanel);
         text(window_, 4, y, "USAGE", kHeading);
         drawFfbUsage(*ffb.controller, y);
         y = 356;
     }
 
     // The latest starts and stops (the same events as the Telemetry tab, force feedback only).
-    fill(window_, 0, y - 8, kLogicalWidth, 1, kPanel);
+    fill(window_, 0, y - 8, canvasW(), 1, kPanel);
     text(window_, 4, y, "LATEST EFFECTS", kHeading);
     text(window_, 124, y, "effects starting and stopping since this window opened, newest at the bottom", kDim);
     constexpr float kLineHeight = 11;
     const float listTop = y + 14;
-    const auto fit = static_cast<std::size_t>(std::max(1.0F, (kLogicalHeight - 34 - listTop) / kLineHeight));
+    const auto fit = static_cast<std::size_t>(std::max(1.0F, (canvasH() - 34 - listTop) / kLineHeight));
     std::vector<const TelemetryEvent*> shown;
     for (auto it = events_.rbegin(); it != events_.rend() && shown.size() < fit; ++it) {
         if (it->kind == kEventFfb) shown.push_back(&*it);

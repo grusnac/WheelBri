@@ -8,6 +8,7 @@
 #include "wheelbri/GameSettings.hpp"
 #include "wheelbri/MappingEdit.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -34,7 +35,8 @@ namespace wheelbri::service {
 // that runs (setGameNow); the app switches to it and picks the game when a profiled game starts (GameTabFollower).
 class MappingEditView {
 public:
-    static constexpr float kContentHeight = 748 - 30;   // the tab bar is below
+    // The canvas this tab is drawn on: at least 960 x 748, bigger in a bigger window (UiWindow.hpp); the tab bar
+    // takes its bottom 30. Fields, bars and pickers grow with it, buttons at the right stay at the right.
 
     enum class Page { Mapping, Games };
     void setPage(const Page page) {
@@ -121,6 +123,28 @@ private:
         bool twice = false;
         std::string tip;
     };
+
+    [[nodiscard]] float canvasW() const { return window_.width(); }
+    [[nodiscard]] float canvasH() const { return window_.height(); }
+    [[nodiscard]] float contentH() const { return window_.height() - 30; }   // the tab bar is below
+    // What the canvas has beyond the 960 the tab was designed for, in pixels and in characters.
+    [[nodiscard]] float extraW() const { return std::max(0.0F, window_.width() - 960.0F); }
+    [[nodiscard]] std::size_t extraChars() const { return static_cast<std::size_t>(extraW() / 8.0F); }
+    // The popups (pickers): the canvas less a margin; their entries in as many columns of at least 174 as fit (5..8).
+    [[nodiscard]] float popupW() const { return window_.width() - 48; }
+    [[nodiscard]] float popupH() const { return window_.height() - 108; }
+    [[nodiscard]] int popupColumns() const {
+        return std::clamp(static_cast<int>((popupW() - 24 + 4) / (174 + 4)), 5, 8);
+    }
+    [[nodiscard]] float entryW(const int columns) const {
+        return (popupW() - 24 - 4 * static_cast<float>(columns - 1)) / static_cast<float>(columns);
+    }
+    // The game full lock slider: 400 wide in the design, half of the extra width more.
+    [[nodiscard]] float sliderW() const { return 400 + extraW() / 2; }
+    // The Games page: characters right of the list, from the values' column, and where a file value goes.
+    [[nodiscard]] std::size_t gameChars() const { return 92 + extraChars(); }
+    [[nodiscard]] std::size_t valueChars() const { return 71 + extraChars(); }
+    [[nodiscard]] float fileColumnX() const { return window_.width() - 4 - 13 * 8; }
 
     void load();
     // A mapped source that the active rig has not named (the default was made for another rig).
