@@ -149,14 +149,17 @@ TEST(ChangeCounter, EveryWaiterIsWoken) {
 
 TEST(ChangeCounter, AHugeTimeoutIsCutAndTheWaitStillEndsOnAChange) {
     // A timeout near the clock's limit must not overflow into "no wait at all" (or "for ever").
+    // It did wait until the change: an overflow would have returned at once, false. (Not checked by the clock: on
+    // Windows a 30 ms sleep can end after 16, a timer tick, and the test failed there on 2026-10-12.)
     ChangeCounter counter;
+    std::atomic<bool> announced{false};
     std::thread later([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        announced = true;
         counter.announce();
     });
-    const auto start = Clock::now();
     EXPECT_TRUE(counter.waitForChange(0, std::numeric_limits<std::uint64_t>::max()));
-    EXPECT_GE(msSince(start), 20U);   // it did wait (an overflow would have returned at once, false)
+    EXPECT_TRUE(announced.load());
     later.join();
 }
 
