@@ -29,6 +29,7 @@ add_executable(wheelbri_tests
     GameProfilesTest.cpp
     GameRotationTest.cpp
     GameSettingsTest.cpp
+    GameTabTest.cpp
     GameUseWatchTest.cpp
     HelperDispatchTest.cpp
     HelperProtocolTest.cpp

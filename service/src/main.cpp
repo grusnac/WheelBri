@@ -1266,6 +1266,16 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             frame->game = gameWatch.status();
             frame->gameWarning = gameWatch.warning();
             frame->gameRotation = gameWatch.rotationStatus();
+            {
+                const wheelbri::service::GameWatch::Live live = gameWatch.live();
+                frame->gameId = live.id;
+                frame->gamePid = live.pid;
+                const std::uint64_t nowMs = platform::nowMs();
+                frame->gameForMs = live.id.empty() || nowMs < live.sinceMs ? 0 : nowMs - live.sinceMs;
+                frame->gameStarts = live.starts;
+                frame->gameFfbGain = live.ffbGain;
+                frame->gameSettingsStates = gameWatch.settingsStates();
+            }
             frame->oldFilesFailed = housekeeping.failed();
             if (!host->frame(*frame)) {
                 WE_LOG_INFO(log(), "window closed: stopping");

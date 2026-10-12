@@ -22,6 +22,7 @@ add_library(wheelbri_core STATIC
     src/GameProfiles.cpp
     src/GameRotation.cpp
     src/GameSettings.cpp
+    src/GameTab.cpp
     src/GameUseWatch.cpp
     src/HidG920.cpp
     src/HelperDispatch.cpp

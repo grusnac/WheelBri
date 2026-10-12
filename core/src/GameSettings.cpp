@@ -151,68 +151,89 @@ bool isLink(const std::filesystem::path& path) {
     return std::filesystem::is_symlink(std::filesystem::symlink_status(path, ec));
 }
 
-}  // namespace
-
-GameSettingsFileResult writeGameSettingsFile(const std::filesystem::path& root, const std::string_view relative,
-                                             const std::span<const GameSettingText> values) {
-    using Outcome = GameSettingsFileResult::Outcome;
-    GameSettingsFileResult result;
+// The settings file at `root` / `relative`, checked as writeGameSettingsFile describes: nullopt and `why` when the
+// path is not one under `root`, or a folder on the way is a link.
+std::optional<std::filesystem::path> settingsFilePath(const std::filesystem::path& root,
+                                                      const std::string_view relative, std::string& why) {
     const std::filesystem::path rel = pathFromUtf8(std::string(relative));
     // / separated and relative, on every system: no drive ("C:x" is relative on Windows yet leaves `root`), no
     // backslash (a Windows separator, or a share), no root ("/x" has no drive on Windows but root / "/x" still leaves
     // `root`).
     if (root.empty() || rel.empty() || rel.has_root_path() || relative.find(':') != std::string_view::npos ||
         relative.find('\\') != std::string_view::npos) {
-        result.outcome = Outcome::Refused;
-        result.why = "no settings folder, or not a path under it";
-        return result;
+        why = "no settings folder, or not a path under it";
+        return std::nullopt;
     }
-    result.file = root / rel;
-    result.backup = result.file;
-    result.backup += ".before-wheelbri";
-
     // Every folder from `root` down, and the file: real ones, no links.
     std::filesystem::path walk = root;
     for (const std::filesystem::path& part : rel) {
         if (part == ".." || part == ".") {
-            result.outcome = Outcome::Refused;
-            result.why = "the path leaves the settings folder";
-            return result;
+            why = "the path leaves the settings folder";
+            return std::nullopt;
         }
         walk /= part;
         if (isLink(walk)) {
-            result.outcome = Outcome::Refused;
-            result.why = pathToUtf8(walk) + " is a link: not followed";
-            return result;
+            why = pathToUtf8(walk) + " is a link: not followed";
+            return std::nullopt;
         }
     }
+    return root / rel;
+}
+
+// The file's bytes, when it is a plain file of a settings file's size: nullopt and `why` otherwise (`missing` true
+// when it is not there at all, `retry` true when reading it failed and may work later).
+std::optional<std::string> readSettingsFile(const std::filesystem::path& file, std::string& why, bool& missing,
+                                            bool& retry) {
+    missing = false;
+    retry = false;
     std::error_code ec;
-    const std::filesystem::file_status status = std::filesystem::symlink_status(result.file, ec);
+    const std::filesystem::file_status status = std::filesystem::symlink_status(file, ec);
     if (status.type() == std::filesystem::file_type::not_found) {
-        result.outcome = Outcome::NoFile;
-        result.why = "no settings file yet";
-        return result;
+        missing = true;
+        why = "no settings file yet";
+        return std::nullopt;
     }
     if (!std::filesystem::is_regular_file(status)) {
-        result.outcome = Outcome::Refused;
-        result.why = "not a plain file";
-        return result;
+        why = "not a plain file";
+        return std::nullopt;
     }
-    const std::uintmax_t size = std::filesystem::file_size(result.file, ec);
+    const std::uintmax_t size = std::filesystem::file_size(file, ec);
     if (ec) {
-        result.outcome = Outcome::Failed;
-        result.why = "cannot read its size (" + ec.message() + ")";
-        return result;
+        retry = true;
+        why = "cannot read its size (" + ec.message() + ")";
+        return std::nullopt;
     }
     if (size > kMaxGameSettingsFileBytes) {
+        why = "larger than a settings file (" + std::to_string(size) + " bytes)";
+        return std::nullopt;
+    }
+    std::optional<std::string> bytes = readFileText(file);
+    if (!bytes) {
+        retry = true;
+        why = "cannot read it";
+    }
+    return bytes;
+}
+
+}  // namespace
+
+GameSettingsFileResult writeGameSettingsFile(const std::filesystem::path& root, const std::string_view relative,
+                                             const std::span<const GameSettingText> values) {
+    using Outcome = GameSettingsFileResult::Outcome;
+    GameSettingsFileResult result;
+    const std::optional<std::filesystem::path> file = settingsFilePath(root, relative, result.why);
+    if (!file) {
         result.outcome = Outcome::Refused;
-        result.why = "larger than a settings file (" + std::to_string(size) + " bytes)";
         return result;
     }
-    const std::optional<std::string> bytes = readFileText(result.file);
+    result.file = *file;
+    result.backup = result.file;
+    result.backup += ".before-wheelbri";
+    bool missing = false;
+    bool retry = false;
+    const std::optional<std::string> bytes = readSettingsFile(result.file, result.why, missing, retry);
     if (!bytes) {
-        result.outcome = Outcome::Failed;
-        result.why = "cannot read it";
+        result.outcome = missing ? Outcome::NoFile : retry ? Outcome::Failed : Outcome::Refused;
         return result;
     }
     GameSettingsEdit edit = editFrostbiteSettings(*bytes, values);
@@ -226,6 +247,7 @@ GameSettingsFileResult writeGameSettingsFile(const std::filesystem::path& root, 
         return result;
     }
     // The backup: made once, from the bytes just read, never through a link and never over an existing one.
+    std::error_code ec;
     const std::filesystem::file_status backupStatus = std::filesystem::symlink_status(result.backup, ec);
     if (backupStatus.type() == std::filesystem::file_type::not_found) {
         if (!writeFileReplacing(result.backup, *bytes)) {
@@ -246,6 +268,47 @@ GameSettingsFileResult writeGameSettingsFile(const std::filesystem::path& root, 
     result.outcome = Outcome::Written;
     result.changes = std::move(edit.changes);
     return result;
+}
+
+bool GameSettingsFileState::asSet() const {
+    if (status != Status::Read) return false;
+    for (const Entry& entry : entries) {
+        if (entry.inFile != entry.wanted) return false;
+    }
+    return true;
+}
+
+GameSettingsFileState readGameSettingsState(const std::filesystem::path& root, const std::string_view relative,
+                                            const std::span<const GameSettingText> values) {
+    using Status = GameSettingsFileState::Status;
+    GameSettingsFileState state;
+    for (const GameSettingText& value : values) state.entries.push_back({value.name, value.text, std::nullopt});
+    if (root.empty()) {
+        state.status = Status::NotHere;
+        state.why = "the game's own settings are only set on Windows for now";
+        return state;
+    }
+    const std::optional<std::filesystem::path> file = settingsFilePath(root, relative, state.why);
+    if (!file) {
+        state.status = Status::Unreadable;
+        return state;
+    }
+    state.file = *file;
+    bool missing = false;
+    bool retry = false;
+    const std::optional<std::string> bytes = readSettingsFile(state.file, state.why, missing, retry);
+    if (!bytes) {
+        state.status = missing ? Status::NoFile : Status::Unreadable;
+        return state;
+    }
+    if (bytes->substr(0, kFrostbiteMagic.size()) != kFrostbiteMagic) {
+        state.status = Status::Unreadable;
+        state.why = "not a Frostbite settings file (it does not start with FBCHUNKS)";
+        return state;
+    }
+    state.status = Status::Read;
+    for (GameSettingsFileState::Entry& entry : state.entries) entry.inFile = frostbiteSetting(*bytes, entry.name);
+    return state;
 }
 
 }  // namespace wheelbri

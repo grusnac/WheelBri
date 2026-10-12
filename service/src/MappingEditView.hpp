@@ -5,10 +5,13 @@
 
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/GameSettings.hpp"
 #include "wheelbri/MappingEdit.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -23,9 +26,41 @@ namespace wheelbri::service {
 // their roles; Save keeps the user's mapping (my-<built-in name>, comments and other settings kept), Revert drops
 // unsaved changes, Default drops the saved mapping. A source the rig has not named shows "not in the rig". The live
 // view (the session's Mapping tab) shows the result once started.
+//
+// It also draws the app's Games tab (Page::Games), which edits the same mapping: the built-in game profiles
+// (GameProfiles.hpp) in a list, and for the one picked what its profile changes, the user's own values for it (its
+// steering rotation, force feedback gain and own settings: [game_rotation], [game_ffb_gain], [game_settings], saved
+// with the same Save) and what its settings file holds now. While a session runs it is shown locked, with the game
+// that runs (setGameNow); the app switches to it and picks the game when a profiled game starts (GameTabFollower).
 class MappingEditView {
 public:
     static constexpr float kContentHeight = 748 - 30;   // the tab bar is below
+
+    enum class Page { Mapping, Games };
+    void setPage(const Page page) {
+        if (page != page_) {
+            field_ = Field::None;   // typing and a picker end with the page they were on
+            mode_ = Mode::Idle;
+            dragging_ = false;
+        }
+        page_ = page;
+    }
+    [[nodiscard]] Page page() const { return page_; }
+    // The game the Games page shows (a profile id); an unknown one is ignored.
+    void selectGame(const std::string& id);
+
+    // What the running session says about games, for the Games page (UiFrame's game fields).
+    struct GameNow {
+        bool session = false;           // a session runs: games are looked for every 2 s
+        std::string id;                 // the profile in use now; empty: none runs
+        std::uint32_t pid = 0;
+        std::uint64_t forMs = 0;
+        std::string rotation;           // the rotation it steers with, when not the mapping's
+        float ffbGain = 1.0F;
+        std::string warning;
+        std::map<std::string, std::string> settings;   // by profile id: what happened to its own settings
+    };
+    void setGameNow(GameNow now) { now_ = std::move(now); }
 
     // `rigsFolder` / `stateFile`: the rig the Wheel setup tab made (its active one, [app] rig), whose controls are
     // the sources.
@@ -123,8 +158,15 @@ private:
                    std::function<void()> action);
     void tip(float x, float y, float w, float h, std::string text);
     void drawTooltip();
-    // The STEERING ROTATION section from `y`: the game's full lock, the wheel's rotation, the games' advice.
+    // The STEERING ROTATION section from `y`: the game's full lock, the wheel's rotation.
     void drawRotation(float y);
+    // The Games page: the list of profiles, and the picked one's.
+    void drawGames();
+    // The picked game from `y` (x from kGameX): what its profile changes, the user's values, its settings file.
+    float drawGameProfile(std::size_t index, float y);
+    float drawGameValues(std::size_t index, float y);
+    float drawGameSettings(std::size_t index, float y);
+    [[nodiscard]] std::size_t selectedGameIndex() const;
     // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
     void drawField(float x, float y, float w, Field field, const std::string& value, bool changed,
                    std::size_t index = 0);
@@ -176,6 +218,14 @@ private:
     std::string typed_;
     bool dragging_ = false;   // the slider, from a press on it until the left button is let go
     float clickX_ = 0.0F;     // where the click being answered is (the slider's press)
+
+    Page page_ = Page::Mapping;
+    std::string selectedGame_;   // the Games page's game (a profile id); empty: the first
+    GameNow now_;
+    // The picked game's settings file as last read (at most every 2 s, and when the game or the saved values change).
+    std::optional<GameSettingsFileState> fileState_;
+    std::string fileStateKey_;
+    std::uint64_t fileStateReadMs_ = 0;
 };
 
 }  // namespace wheelbri::service

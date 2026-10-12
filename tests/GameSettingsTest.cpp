@@ -136,7 +136,7 @@ TEST(GameSettings, ValuesComeFromTheUserThenTheProfile) {
     EXPECT_EQ(texts, expected);
     EXPECT_EQ(gameSettingLabel("force_feedback"), "force feedback");
 
-    // Its rotation is set per game (PER GAME, [game_rotation]) and written as WheelMaxRotation.
+    // Its rotation is set per game (the Games tab, [game_rotation]) and written as WheelMaxRotation.
     EXPECT_TRUE(hasSteeringSetting(*unbound));
     EXPECT_FALSE(hasSteeringSetting(*gameProfileFor("NeedForSpeedPayback.exe")));
     EXPECT_FALSE(rotationWhileRunning(*unbound, {}).has_value());   // none of its own: the mapping's is written
@@ -364,6 +364,9 @@ TEST_F(GameSettingsFile, LinksAreNotFollowed) {
     if (ec) GTEST_SKIP() << "links cannot be made here: " << ec.message();
     EXPECT_EQ(write(kStronger).outcome, GameSettingsFileResult::Outcome::Refused);
     EXPECT_EQ(readFileText(elsewhere).value_or(""), unboundFile());
+    // Nor read through by the Games tab.
+    EXPECT_EQ(readGameSettingsState(root_, "Game/settings/PROFILEOPTIONS", kStronger).status,
+              GameSettingsFileState::Status::Unreadable);
 
     // The backup's name is a link (dangling: the place it points to does not exist yet): nothing is written there.
     std::filesystem::remove(file());
@@ -383,6 +386,64 @@ TEST_F(GameSettingsFile, LinksAreNotFollowed) {
     ASSERT_FALSE(ec);
     EXPECT_EQ(writeGameSettingsFile(root_, "Linked/settings/PROFILEOPTIONS", kStronger).outcome,
               GameSettingsFileResult::Outcome::Refused);
+    EXPECT_EQ(readGameSettingsState(root_, "Linked/settings/PROFILEOPTIONS", kStronger).status,
+              GameSettingsFileState::Status::Unreadable);
+}
+
+// The Games tab reads what the file holds now, with the writer's checks, and never changes it.
+TEST_F(GameSettingsFile, StateSaysWhatTheFileHolds) {
+    using Status = GameSettingsFileState::Status;
+    const std::string path = "Game/settings/PROFILEOPTIONS";
+    GameSettingsFileState state = readGameSettingsState(root_, path, kStronger);
+    EXPECT_EQ(state.status, Status::NoFile);
+    ASSERT_EQ(state.entries.size(), 2U);
+    EXPECT_EQ(state.entries[0].wanted, "1.000000");
+    EXPECT_FALSE(state.entries[0].inFile);
+    EXPECT_FALSE(state.asSet());
+
+    ASSERT_TRUE(writeFileReplacing(file(), unboundFile()));
+    state = readGameSettingsState(root_, path, kStronger);
+    ASSERT_EQ(state.status, Status::Read) << state.why;
+    EXPECT_EQ(state.entries[0].inFile, "0.500000");
+    EXPECT_EQ(state.entries[1].inFile, "270.000000");
+    EXPECT_FALSE(state.asSet());
+    EXPECT_EQ(readFileText(file()).value_or(""), unboundFile());   // only read
+    EXPECT_FALSE(std::filesystem::exists(backup()));
+
+    ASSERT_EQ(write(kStronger).outcome, GameSettingsFileResult::Outcome::Written);
+    state = readGameSettingsState(root_, path, kStronger);
+    EXPECT_TRUE(state.asSet());
+
+    // A name the file does not have: read, not as set.
+    const std::vector<GameSettingText> unknown = {{"WheelNothing", "1.000000"}};
+    state = readGameSettingsState(root_, path, unknown);
+    EXPECT_EQ(state.status, Status::Read);
+    EXPECT_FALSE(state.entries[0].inFile);
+    EXPECT_FALSE(state.asSet());
+    // Nothing asked: as set (nothing to write).
+    EXPECT_TRUE(readGameSettingsState(root_, path, {}).asSet());
+}
+
+TEST_F(GameSettingsFile, StateOfWhatCannotBeRead) {
+    using Status = GameSettingsFileState::Status;
+    const std::string path = "Game/settings/PROFILEOPTIONS";
+    const GameSettingsFileState notHere = readGameSettingsState({}, path, kStronger);
+    EXPECT_EQ(notHere.status, Status::NotHere);
+    EXPECT_FALSE(notHere.why.empty());
+    EXPECT_EQ(notHere.entries.size(), 2U);
+    EXPECT_FALSE(notHere.asSet());
+    for (const char* relative : {"", "../outside", "/abs/PROFILEOPTIONS", "C:x/PROFILEOPTIONS", "\\\\server\\x"}) {
+        EXPECT_EQ(readGameSettingsState(root_, relative, kStronger).status, Status::Unreadable) << relative;
+    }
+    ASSERT_TRUE(writeFileReplacing(file(), "PROFILE: not a Frostbite file"));
+    GameSettingsFileState state = readGameSettingsState(root_, path, kStronger);
+    EXPECT_EQ(state.status, Status::Unreadable);
+    EXPECT_NE(state.why.find("FBCHUNKS"), std::string::npos) << state.why;
+    ASSERT_TRUE(writeFileReplacing(file(), std::string(kMaxGameSettingsFileBytes + 1, 'x')));
+    EXPECT_EQ(readGameSettingsState(root_, path, kStronger).status, Status::Unreadable);
+    std::filesystem::remove(file());
+    std::filesystem::create_directory(file());
+    EXPECT_EQ(readGameSettingsState(root_, path, kStronger).status, Status::Unreadable);
 }
 
 }  // namespace

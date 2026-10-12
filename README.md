@@ -38,7 +38,7 @@ Settled with NFS 2015 and an R3 on Windows:
   the game's steering rotation (`[steering] rotation_deg` and `note`): while the game runs the service steers with
   it, wheel and game full lock both at that number, then the mapping's own again. NFS Payback's (`nfspayback.ini`,
   `NeedForSpeedPayback.exe`) is 180: the status shows "NFS Payback, 180 deg" and the log says to set the wheel's
-  own software to 180 too. The Mapping tab's PER GAME rows change it per game or turn it off (`[game_rotation]`).
+  own software to 180 too. The Games tab changes it per game or turns it off (`[game_rotation]`).
   A profile can also make a game's force feedback stronger (`[ffb] gain` and `note`): while the game runs, the
   service multiplies its pushing forces (steering force, rumble; not springs or dampers) by it before the safety
   limits, which still apply. NFS Unbound's (`nfsunbound.ini`) is 3: its force feedback is very light and the game
@@ -168,21 +168,35 @@ a headline, why it was needed, how to use it, and where to look.
   lock (slider, typed degrees, or 180 / 360 / 540 / 720 / 900 / 1080) and the wheel's rotation, which must be what
   the wheel's own software is set to; when they differ the tab says so in amber (**Same as game** copies it): a wheel
   set wider than the game's full lock turns on past it with the force feedback dropping there. WheelBri never reads
-  or sets the wheel's own settings. **PER GAME**: a game whose profile has a rotation (NFS Payback: 180) steers with
-  it while it runs; type another (`180`, or `360/180` for wheel/game), **On/Off**, or **Default** for the profile's,
-  saved as `[game_rotation] nfspayback = 180 | 360/180 | off`. Set the wheel's own software to the same. A game
-  whose profile sets the game's own settings (NFS Unbound's hidden wheel settings: force feedback, spring) lists
-  them under its name: type a value (0 to 1) or **Default**, saved as `[game_settings] nfsunbound.spring = 0.8`.
-  A game that keeps its own steering rotation (NFS Unbound's `WheelMaxRotation`) has a rotation row like Payback's
-  (`[game_rotation] nfsunbound = 360`; Off = the mapping's), and that number is written into the game's file too.
-  A game whose profile has a force feedback gain (NFS Unbound: 3) has an **ffb gain** row: type 0.25 to 4 or
-  **Default**, saved as `[game_ffb_gain] nfsunbound = 3`;
-  WheelBri writes them into the game's settings file while the game is closed (at Start and when it ends), keeping
-  the original as `<file>.before-wheelbri`. All of it reaches the shim and the virtual device alike (the
-  service's mapper applies it), from the next Start. Config keys: `[steering] source_rotation_deg`,
-  `target_rotation_deg`. Dead zones are not here: they are the real devices' (Rig tab).
+  or sets the wheel's own settings. A game's own rotation (NFS Payback: 180) is set in the Games tab. All of it
+  reaches the shim and the virtual device alike (the service's mapper applies it), from the next Start. Config keys:
+  `[steering] source_rotation_deg`, `target_rotation_deg`. Dead zones are not here: they are the real devices' (Rig
+  tab).
 - **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core
   `MappingEdit`, `AxisTuning`, `Mapper`, `service/src/MappingEditView.cpp`.
+
+### Games tab
+
+- **Why:** a few games need something changed (NFS 2015's pedals, NFS Payback's rotation, NFS Unbound's force
+  feedback); everything about one game is in one place, with what WheelBri does for it and why.
+- **Use:** tab G. On the left the games that have a profile; pick one to see what its profile changes (and the
+  profile's reason), your own values for it, and (NFS Unbound) what its settings file holds now. Your values, saved
+  with the mapping (Save, Revert, Default as on the Mapping tab), from the next Start:
+  **Steering rotation**: type another (`180`, or `360/180` for wheel/game), **On/Off** (Off = the Mapping tab's), or
+  **Default** for the profile's; saved as `[game_rotation] nfspayback = 180 | 360/180 | off`. Set the wheel's own
+  software to the same. A game that keeps its own rotation (NFS Unbound's `WheelMaxRotation`) gets that number
+  written into its file too. **Force feedback gain**: 0.25 to 4 or **Default**, on the game's pushing forces (steering
+  force, rumble) before the safety limits; saved as `[game_ffb_gain] nfsunbound = 3`. **Its own settings** (NFS
+  Unbound's hidden wheel settings: force feedback, spring): 0 to 1 or **Default**, saved as
+  `[game_settings] nfsunbound.spring = 0.8`; WheelBri writes them into the game's settings file while the game is
+  closed (at Start and when it ends), keeping the original as `<file>.before-wheelbri`. The tab reads the file every
+  2 s and says whether it already holds your saved values; the column on the right is the value in the file (amber
+  until it is written). While WheelBri runs, the tab opens by itself when a game with a profile starts, on that
+  game, and says that it runs (pid, for how long, the rotation and gain in use, what happened to its settings); it
+  does so once per start, so you can go to another tab while you play. Values cannot be changed while it runs.
+- **Look:** the service log (`service.game` lines; `Games tab: <game> started`); `config/games/<id>.ini`. Code: core
+  `GameProfiles`, `GameTab` (`GameTabFollower`, `describeGameProfile`), `GameSettings` (`readGameSettingsState`),
+  `service/src/GameWatch.cpp`, the Games page in `service/src/MappingEditView.cpp`.
 
 ### Game force feedback through the safety limiter
 
@@ -411,7 +425,7 @@ WheelBri's (another mod) is never overwritten or deleted. The list is `%LOCALAPP
 | Logs, telemetry logs, old-file cleanup | yes | yes |
 | Game-use watch ("GAME NOT USING THE WHEEL") | yes | yes |
 | Game FFB idle watch ("GAME FFB OFF: ALT-TAB": effects loaded, none started while you drive) | yes | yes |
-| Live view: Mapping / Rig / Logs tabs, Start / Stop | yes | yes |
+| Live view: Mapping / Games / Rig / Logs tabs, Start / Stop | yes | yes |
 | Stale hide check: clears a hide left by a crashed session, warns if another one hides the rig | yes | yes |
 | Administrator or the WheelBri Helper (`PrivilegedSteps`): needed for the rows below | yes | - |
 | G920 driver check: installs `wheelbri-g920` (`driver\install-driver.ps1`) when Windows does not have it | yes | - |

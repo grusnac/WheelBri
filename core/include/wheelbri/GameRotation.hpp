@@ -10,8 +10,8 @@
 // The steering rotation used while a game with a profile runs. A game profile can name one ([steering] rotation_deg:
 // NFS Payback 180): while that game runs the service steers with it instead of the mapping's own, the wheel and the
 // game's full lock both at that number (1:1, so the wheel's end stop is the game's full lock and there is no travel
-// past it). The user's mapping can change it per game, or turn it off ([game_rotation] in the config, the Mapping
-// tab's PER GAME rows):
+// past it). The user's mapping can change it per game, or turn it off ([game_rotation] in the config, set in the Games
+// tab):
 //   [game_rotation]
 //   nfspayback = 180        ; wheel and game 180
 //   nfspayback = 360/180    ; wheel 360, game 180 (faster steering, but the wheel turns on past the game's full lock)

@@ -115,6 +115,7 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
 namespace {
 bool gTelemetryTab = false;       // --telemetry-tab
 bool gForceFeedbackTab = false;   // --ffb-tab
+bool gGamesTab = false;           // the app's window
 }  // namespace
 
 void MappingView::setOptionalTabs(const bool telemetry, const bool forceFeedback) {
@@ -122,8 +123,13 @@ void MappingView::setOptionalTabs(const bool telemetry, const bool forceFeedback
     gForceFeedbackTab = forceFeedback;
 }
 
+void MappingView::setGamesTab(const bool games) { gGamesTab = games; }
+
 std::vector<MappingView::Tab> MappingView::visibleTabs() {
-    std::vector<Tab> tabs = {Tab::Mapping, Tab::WheelSetup, Tab::Logs};
+    std::vector<Tab> tabs = {Tab::Mapping};
+    if (gGamesTab) tabs.push_back(Tab::Games);
+    tabs.push_back(Tab::WheelSetup);
+    tabs.push_back(Tab::Logs);
     if (gTelemetryTab) tabs.push_back(Tab::Telemetry);
     if (gForceFeedbackTab) tabs.push_back(Tab::ForceFeedback);
     return tabs;
@@ -136,6 +142,8 @@ void MappingView::onKey(const char key) {
         tab_ = Tab::ForceFeedback;
     } else if (key == 'm') {
         tab_ = Tab::Mapping;
+    } else if (key == 'g' && gGamesTab) {
+        tab_ = Tab::Games;
     } else if (key == 'l') {
         tab_ = Tab::Logs;
     } else if (key == 't' && gTelemetryTab) {
@@ -255,8 +263,8 @@ void MappingView::draw(const RawInputs& inputs, const WheelState& state, const T
     trackLastPressed(raw.buttons);
 
     trackEvents(raw, state, report, ffb);
-    if (tab_ == Tab::WheelSetup) {
-        drawTabs();   // the window draws the tab itself (WheelSetupView)
+    if (tab_ == Tab::WheelSetup || tab_ == Tab::Games) {
+        drawTabs();   // the window draws the tab itself (WheelSetupView, MappingEditView's Games page)
         return;
     }
     if (tab_ != Tab::Logs) drawHeader();   // the Logs page starts at the top (the Mapping tab has the header)
@@ -1108,6 +1116,7 @@ const char* tabLabel(const MappingView::Tab tab) {
     using Tab = MappingView::Tab;
     switch (tab) {
         case Tab::Mapping: return "Mapping (M)";
+        case Tab::Games: return "Games (G)";
         case Tab::WheelSetup: return "Rig (R)";
         case Tab::Logs: return "Logs (L)";
         case Tab::Telemetry: return "Telemetry (T)";

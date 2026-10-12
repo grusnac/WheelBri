@@ -33,7 +33,7 @@ namespace wheelbri {
 //   [steering] rotation_deg = 180 / note = why   (both or neither): a game whose own handling needs another
 //            steering rotation than usual (NFS Payback's cars understeer and turn in slowly). While the game runs the
 //            service steers with it, wheel and game both at that number (GameRotation.hpp), unless the user's mapping
-//            says otherwise for that game ([game_rotation], the Mapping tab's PER GAME rows). WheelBri never reads or
+//            says otherwise for that game ([game_rotation], set in the Games tab). WheelBri never reads or
 //            sets the wheel's own software: the log and the window say to set it to the same number.
 //   [ffb]    gain = 3 / note = why   (both or neither, gain kFfbGainMin..kFfbGainMax): a game whose own force feedback
 //            is too light to feel (NFS Unbound asks for 5% of full scale on average). While the game runs the
@@ -44,7 +44,7 @@ namespace wheelbri {
 //            (file, note and at least one setting go together; at most kMaxGameSettings): the game's own settings that
 //            WheelBri sets in the game's settings file while the game is closed (GameSettings.hpp; NFS Unbound keeps
 //            its wheel force feedback settings there and shows none of them in its menus). <id> is lower case
-//            (spring), the user's name for it in the Mapping tab and in [game_settings] <game>.<id> = value; <value>
+//            (spring), the user's name for it in the Games tab and in [game_settings] <game>.<id> = value; <value>
 //            is a number from kGameSettingMin to kGameSettingMax, or "steering" for the steering rotation the game
 //            is played with (not changed by the user here: it follows the mapping's rotation for that game).
 struct GameSetting {

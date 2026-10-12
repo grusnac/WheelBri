@@ -139,6 +139,7 @@ void GameWatch::writePendingGameSettings() {
             continue;
         }
         if (running(*game)) {
+            settingsStates_[game->id] = "it runs: written when it closes (it reads them when it starts)";
             if (settingsWaitSaid_.insert(game->id).second) {
                 WE_LOG_INFO(log(), "game settings: {} runs: its own settings are written after it closes (it reads "
                                    "them when it starts)", game->label);
@@ -154,6 +155,7 @@ void GameWatch::writePendingGameSettings() {
 bool GameWatch::writeGameSettings(const GameProfile& game) {
     const std::filesystem::path documents = platform::documentsFolder();
     if (documents.empty()) {
+        settingsStates_[game.id] = "only set on Windows for now";
         if (!noDocumentsSaid_) {
             noDocumentsSaid_ = true;
             WE_LOG_INFO(log(), "game settings: {}'s own settings are only set on Windows for now (its settings file is "
@@ -170,24 +172,32 @@ bool GameWatch::writeGameSettings(const GameProfile& game) {
     const std::string file = pathToUtf8(result.file);
     using Outcome = GameSettingsFileResult::Outcome;
     switch (result.outcome) {
-        case Outcome::Written:
+        case Outcome::Written: {
+            std::string written;
             for (const GameSettingsEdit::Change& change : result.changes) {
+                written += (written.empty() ? "" : ", ") + change.name + " " + change.before + " -> " + change.after;
                 WE_LOG_INFO(log(), "game settings: {}: {} {} -> {} ({}; the original is kept as {})", game.label,
                             change.name, change.before, change.after, game.settingsNote, pathToUtf8(result.backup));
             }
+            settingsStates_[game.id] = "written: " + written;
             break;
+        }
         case Outcome::AsSet:
+            settingsStates_[game.id] = "as set in its file";
             WE_LOG_INFO(log(), "game settings: {}: its own settings are as set ({})", game.label, file);
             break;
         case Outcome::NoFile:
+            settingsStates_[game.id] = "no settings file yet: start the game once, they are set after it closes";
             WE_LOG_INFO(log(), "game settings: {}: no settings file yet ({}): start the game once, WheelBri sets them "
                                "after it closes",
                         game.label, file);
             break;
         case Outcome::Refused:
+            settingsStates_[game.id] = "not written: " + result.why;
             WE_LOG_WARN(log(), "game settings: {}: nothing written to {}: {}", game.label, file, result.why);
             break;
         case Outcome::Failed:
+            settingsStates_[game.id] = "not written yet, trying again: " + result.why;
             // Tried again at every check (the game may hold the file a moment); said once per reason.
             if (std::string& said = settingsFailureSaid_[game.id]; said != result.why) {
                 said = result.why;
@@ -200,6 +210,18 @@ bool GameWatch::writeGameSettings(const GameProfile& game) {
     return true;
 }
 
+GameWatch::Live GameWatch::live() const {
+    Live live;
+    live.starts = starts_;
+    live.ffbGain = ffbGain_;
+    const GameDetector::State& state = detector_.state();
+    if (state.game == nullptr || !state.profileApplies) return live;
+    live.id = state.game->id;
+    live.pid = state.pid;
+    live.sinceMs = followedSinceMs_;
+    return live;
+}
+
 std::string GameWatch::rotationStatus() const {
     return applied_ ? describeRotation(*applied_) : std::string();
 }
@@ -209,12 +231,16 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
     for (const GameDetector::Event event : update.events) {
         switch (event) {
             case GameDetector::Event::Started:
+                followedSinceMs_ = platform::nowMs();
+                if (state.profileApplies) ++starts_;
                 WE_LOG_INFO(log(), "game: {} started: {}", state.game->label, describeFollowed());
                 break;
             case GameDetector::Event::Ended:
                 WE_LOG_INFO(log(), "game: {} ended: the defaults again", update.previous->label);
                 break;
             case GameDetector::Event::Switched:
+                followedSinceMs_ = platform::nowMs();
+                if (state.profileApplies) ++starts_;
                 WE_LOG_INFO(log(), "game: {} ended, {} runs: {}", update.previous->label, state.game->label,
                             describeFollowed());
                 break;

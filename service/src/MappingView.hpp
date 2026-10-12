@@ -67,11 +67,12 @@ public:
     MappingView(const MappingView&) = delete;
     MappingView& operator=(const MappingView&) = delete;
 
-    // The panel's tabs, switched with the buttons along the bottom (or M / R / L, and T / F when shown), in this
-    // order: Mapping, Rig, Logs, then Telemetry and Force feedback only when the program was started with
-    // --telemetry-tab / --ffb-tab (setOptionalTabs); without them those two never show. The Rig tab (WheelSetup) is
-    // drawn by the window (WheelSetupView); this view then draws only the tab bar.
-    enum class Tab { Mapping, Logs, Telemetry, ForceFeedback, WheelSetup };
+    // The panel's tabs, switched with the buttons along the bottom (or M / G / R / L, and T / F when shown), in this
+    // order: Mapping, Games (the app only: setGamesTab), Rig, Logs, then Telemetry and Force feedback only when the
+    // program was started with --telemetry-tab / --ffb-tab (setOptionalTabs); without them those two never show. The
+    // Rig tab (WheelSetup) and the Games tab are drawn by the window (WheelSetupView, MappingEditView's Games page);
+    // this view then draws only the tab bar.
+    enum class Tab { Mapping, Logs, Telemetry, ForceFeedback, WheelSetup, Games };
 
     // The tab buttons along the bottom (this view's, and the app's own while stopped): from kTabLeft, each as wide as
     // its label plus kTabPadding on both sides, kTabGap apart, kTabHeight tall, kTabBarHeight from the bottom. Sized
@@ -89,10 +90,12 @@ public:
 
     // Whether the Telemetry and Force feedback tabs exist (--telemetry-tab, --ffb-tab); set once at start.
     static void setOptionalTabs(bool telemetry, bool forceFeedback);
+    // Whether the Games tab exists: the app's window has it, the command line service's --ui window does not.
+    static void setGamesTab(bool games);
     // The tabs shown, left to right.
     [[nodiscard]] static std::vector<Tab> visibleTabs();
 
-    // A key pressed in the window: M / R / L (T / F when shown) switch tabs, O opens the logs (or telemetry) folder, D the drivers'
+    // A key pressed in the window: M / G / R / L (T / F when shown) switch tabs, O opens the logs (or telemetry) folder, D the drivers'
     // log folder; on the Logs tab the arrows, PageUp / PageDown and Home / End scroll the live log, Left / Right
     // sideways, W turns word wrap on or off, and V steps the log level (the Level button, in the app only).
     void onKey(char key);

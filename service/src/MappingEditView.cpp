@@ -10,6 +10,7 @@
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameRotation.hpp"
 #include "wheelbri/GameSettings.hpp"
+#include "wheelbri/GameTab.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/Logging.hpp"
 
@@ -625,9 +626,14 @@ void MappingEditView::draw() {
     hits_.clear();
     tips_.clear();
     const std::string target = profile_ != nullptr ? profile_->identity().shortName : std::string("G920");
-    window_.text(4, 4, "MAPPING", kHeading);
-    // With the shim, the app's games row is where this would be.
-    if (picker_.virtualDevice()) window_.text(68, 4, "what your controls do on the " + target, kDim);
+    if (page_ == Page::Games) {
+        window_.text(4, 4, "GAMES", kHeading);
+        window_.text(52, 4, "the games WheelBri changes something for, and your own values for them", kDim);
+    } else {
+        window_.text(4, 4, "MAPPING", kHeading);
+        // With the shim, the app's games row is where this would be.
+        if (picker_.virtualDevice()) window_.text(68, 4, "what your controls do on the " + target, kDim);
+    }
 
     // The target (fixed inputs, picked with < >), then whose mapping onto it this is: WheelBri's default, or the
     // user's own saved one.
@@ -643,6 +649,11 @@ void MappingEditView::draw() {
     }, false, canSave, 80);
     if (!loaded_) {
         window_.text(4, 60, fit(status_, 118), kWarning);
+        return;
+    }
+    if (page_ == Page::Games) {
+        drawGames();
+        drawTooltip();
         return;
     }
 
@@ -837,127 +848,369 @@ void MappingEditView::drawRotation(const float top) {
         y += 12;
     }
 
-    // Per game (game profiles with a rotation for this target): it steers with that rotation while the game runs,
-    // instead of the one above. The user's own number, or off, goes in [game_rotation]; Default drops it.
-    y += 16;
-    bool any = false;
+    // A game can have its own (NFS Payback: 180): the Games tab.
+    y += 4;
+    window_.text(4, y, "A game can steer with its own rotation (NFS Payback: 180): the Games tab (G) sets it per game.",
+                 kDim);
+}
+
+// --- the Games page ---------------------------------------------------------------------------------------------
+
+namespace {
+
+// The Games page: the list on the left, the picked game's profile right of it.
+constexpr float kGameListW = 196;
+constexpr float kGameX = 216;
+constexpr std::size_t kGameChars = 92;   // a line right of the list
+constexpr float kGameValueX = kGameX + 168;   // the values' fields, and the lines under them
+constexpr std::size_t kValueChars = 71;         // from kGameValueX to the right edge
+constexpr float kFileColumnX = 956 - 13 * 8;  // a game setting's value in its file
+constexpr std::uint64_t kFileStateEveryMs = 2000;
+
+std::string upper(std::string text) {
+    for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return text;
+}
+
+std::string clockText(const std::uint64_t ms) {
+    const std::uint64_t seconds = ms / 1000;
+    char text[32];
+    std::snprintf(text, sizeof(text), "%llu:%02llu:%02llu", static_cast<unsigned long long>(seconds / 3600),
+                  static_cast<unsigned long long>(seconds / 60 % 60), static_cast<unsigned long long>(seconds % 60));
+    return text;
+}
+
+}  // namespace
+
+void MappingEditView::selectGame(const std::string& id) {
+    for (const GameProfile& game : gameProfiles()) {
+        if (game.id == id) {
+            if (selectedGame_ != id) field_ = Field::None;
+            selectedGame_ = id;
+            return;
+        }
+    }
+}
+
+std::size_t MappingEditView::selectedGameIndex() const {
     const std::span<const GameProfile> games = gameProfiles();
     for (std::size_t g = 0; g < games.size(); ++g) {
-        const GameProfile& game = games[g];
-        const bool own = edit_.gameRotations.count(game.id) != 0;
-        // Also a game that keeps its own steering rotation (a "steering" game setting: NFS Unbound's WheelMaxRotation):
-        // its number here is written into the game's settings too.
-        const bool writesRotation = hasSteeringSetting(game);
-        if ((!game.rotationDeg && !own && !writesRotation) || !profileFitsTarget(game, targetName_)) continue;
-        if (!any) {
-            window_.text(4, y, "PER GAME", kHeading);
-            window_.text(76, y, "applied while that game runs, instead of the rotation above", kDim);
-            y += 16;
-            any = true;
-        }
-        if (y > kContentHeight - 52 - 30) break;   // keep clear of the hint
-        const std::optional<SteeringRotation> rotation = rotationWhileRunning(game, edit_.gameRotations);
-        const bool changed = own != (saved_.gameRotations.count(game.id) != 0) ||
-                             (own && !(edit_.gameRotations.at(game.id) == saved_.gameRotations.at(game.id)));
-        window_.text(4, y + 4, fit(game.label, 14), kText);
-        const std::string value = rotation ? formatGameRotation({false, *rotation}) : std::string("off");
-        drawField(132, y, 80, Field::PerGame, value, changed, g);
-        window_.text(216, y + 4, rotation ? "deg" : "", kDim);
-        const std::string id = game.id;
-        button(252, y, rotation ? "On" : "Off", [this, id, rotation, &game] {
-            if (rotation) {
-                edit_.gameRotations[id] = GameRotationOverride{true, {}};   // off: the rotation above in this game too
-            } else if (game.rotationDeg) {
-                edit_.gameRotations.erase(id);                               // back to the profile's
-            } else {
-                edit_.gameRotations[id] = GameRotationOverride{false, {edit_.wheelRotationDeg, edit_.gameRotationDeg}};
-            }
-        }, rotation.has_value(), !locked_, 48);
-        button(304, y, "Default", [this, id] { edit_.gameRotations.erase(id); }, false, !locked_ && own, 72);
-        std::string about = game.rotationDeg ? "profile: " + degrees(*game.rotationDeg) + ". " : std::string();
-        if (writesRotation) {
-            const float written = rotation ? rotation->gameDeg : edit_.gameRotationDeg;
-            about += "Written to the game: " + degrees(written) + " deg" +
-                     (written >= 1000.0F ? " (it keeps 3 digits: 100 to 999)" : std::string()) + ". ";
-        }
-        if (rotation) {
-            about += "Set your wheel's own software to " + degrees(rotation->wheelDeg) + " deg.";
-        }
-        window_.text(384, y + 4, fit(about, 71), kDim);
-        y += 20;
+        if (games[g].id == selectedGame_) return g;
     }
+    // None picked yet: the one that runs, else the first for this target, else the first.
+    for (std::size_t g = 0; g < games.size(); ++g) {
+        if (games[g].id == now_.id) return g;
+    }
+    for (std::size_t g = 0; g < games.size(); ++g) {
+        if (profileFitsTarget(games[g], targetName_)) return g;
+    }
+    return 0;
+}
 
-    // Games' own settings (a profile's [game_settings]: NFS Unbound's hidden wheel settings): written into the game's
-    // settings file while it is closed. The user's own value goes in [game_settings]; Default drops it.
+void MappingEditView::drawGames() {
+    const std::span<const GameProfile> games = gameProfiles();
+    float y = 46;
+    if (games.empty()) {
+        window_.text(4, y, "No game profiles in this build.", kWarning);
+        return;
+    }
+    const std::size_t picked = selectedGameIndex();
+
+    // The list: every built-in profile; the one that runs now in green.
+    window_.text(4, y, "PROFILES", kHeading);
+    y += 16;
     for (std::size_t g = 0; g < games.size(); ++g) {
         const GameProfile& game = games[g];
-        const bool ownGain = edit_.gameFfbGains.count(game.id) != 0;
-        const bool showGain = game.ffbGain.has_value() || ownGain;
-        if ((game.settings.empty() && !showGain) || !profileFitsTarget(game, targetName_)) continue;
-        if (!any) {
-            window_.text(4, y, "PER GAME", kHeading);
-            y += 16;
-            any = true;
+        const bool on = g == picked;
+        const bool runs = game.id == now_.id;
+        const bool fits = profileFitsTarget(game, targetName_);
+        window_.fill(4, y, kGameListW, 18, on ? kHeading : kPanel);
+        window_.text(10, y + 5, fit(game.label, 16), on ? kDark : fits ? kText : kDim);
+        if (runs) {
+            window_.fill(4 + kGameListW - 64, y + 3, 58, 12, kActive);
+            window_.text(4 + kGameListW - 60, y + 5, "running", kDark);
+        } else if (!fits) {
+            window_.text(4 + kGameListW - 52, y + 5, game.target, on ? kDark : kDim);
         }
-        if (y > kContentHeight - 52 - 30) break;   // keep clear of the hint
-        // A game with a rotation row above has its name there already.
-        if (!hasSteeringSetting(game)) {
-            window_.text(4, y + 4, fit(game.label, 14), kText);
-            y += 20;
-        }
-        // WheelBri's own gain for the game's pushing forces ([game_ffb_gain]; the profile's [ffb] gain by default).
-        if (showGain) {
-            const auto savedGain = saved_.gameFfbGains.find(game.id);
-            const bool changed = ownGain != (savedGain != saved_.gameFfbGains.end()) ||
-                                 (ownGain && std::fabs(edit_.gameFfbGains.at(game.id) - savedGain->second) > 1e-5F);
-            window_.text(12, y + 4, "ffb gain", kText);
-            drawField(132, y, 80, Field::FfbGain, tuning::formatNumber(gameFfbGain(game, edit_.gameFfbGains), 2),
-                      changed, g);
-            const std::string id = game.id;
-            button(304, y, "Default", [this, id] { edit_.gameFfbGains.erase(id); }, false, !locked_ && ownGain, 72);
-            window_.text(384, y + 4,
-                         fit("WheelBri: x its steering force and rumble (profile: " +
-                                 tuning::formatNumber(game.ffbGain.value_or(1.0F), 2) + ", 0.25 to 4)",
-                             71),
-                         kDim);
-            y += 20;
-        }
-        if (game.settings.empty()) continue;
-        window_.text(132, y + 4, fit("in the game's own settings, written while it is closed (next Start)", 80),
-                     kDim);
-        y += 20;
-        for (std::size_t s = 0; s < game.settings.size() && s < kMaxGameSettings; ++s) {
-            if (y > kContentHeight - 52 - 30) break;
-            const GameSetting& setting = game.settings[s];
-            if (!setting.value) continue;   // the steering rotation: the game's rotation row above sets it
-            window_.text(12, y + 4, fit(gameSettingLabel(setting.id), 14), kText);
-            const auto ownOf = [&](const GameSettingOverrides& values) -> std::optional<float> {
-                const auto byGame = values.find(game.id);
-                if (byGame == values.end()) return std::nullopt;
-                const auto it = byGame->second.find(setting.id);
-                return it == byGame->second.end() ? std::nullopt : std::optional<float>(it->second);
-            };
-            const std::optional<float> own = ownOf(edit_.gameSettings);
-            const std::optional<float> saved = ownOf(saved_.gameSettings);
-            const bool changed = own.has_value() != saved.has_value() || (own && std::fabs(*own - *saved) > 1e-5F);
-            const float value = own.value_or(*setting.value);
-            drawField(132, y, 80, Field::GameSetting, tuning::formatNumber(value, 2), changed,
-                      g * kMaxGameSettings + s);
-            const std::string id = game.id;
-            const std::string settingId = setting.id;
-            button(304, y, "Default", [this, id, settingId] {
-                if (const auto byGame = edit_.gameSettings.find(id); byGame != edit_.gameSettings.end()) {
-                    byGame->second.erase(settingId);
-                    if (byGame->second.empty()) edit_.gameSettings.erase(byGame);
-                }
-            }, false, !locked_ && own.has_value(), 72);
-            window_.text(384, y + 4,
-                         fit("profile: " + tuning::formatNumber(*setting.value, 2) + " (" + setting.name + ", 0 to 1)",
-                             71),
-                         kDim);
-            y += 20;
-        }
+        const std::string id = game.id;
+        hit(4, y, kGameListW, 18, [this, id] { selectGame(id); });
+        y += 22;
     }
+    y += 6;
+    for (const char* line : {"Only games that need", "something changed have", "a profile; every other",
+                             "game plays with the", "Mapping tab as it is."}) {
+        window_.text(4, y, line, kDim);
+        y += 12;
+    }
+    y += 8;
+    for (const char* line : {"While WheelBri runs,", "this tab opens by itself", "when a game with a", "profile starts."}) {
+        window_.text(4, y, line, kDim);
+        y += 12;
+    }
+    window_.fill(kGameX - 8, 42, 1, kContentHeight - 100, kPanel);
+
+    // The picked game.
+    float top = drawGameProfile(picked, 46);
+    top = drawGameValues(picked, top + 10);
+    drawGameSettings(picked, top + 10);
+
+    const float hint = kContentHeight - 52;
+    window_.text(4, hint,
+                 "Your values are saved with the mapping (Save) and used from the next Start; Default goes back to the "
+                 "profile's.",
+                 kDim);
+    window_.text(4, hint + 12, "While WheelBri runs they are shown, not changed.", kDim);
+    const std::string state = dirty() ? "unsaved changes" : "saved";
+    window_.text(4, hint + 28, fit(status_.empty() ? state : status_, 118),
+                 statusError_ ? kWarning : status_.empty() ? (dirty() ? kCaution : kDim) : kActive);
+}
+
+float MappingEditView::drawGameProfile(const std::size_t index, float y) {
+    const GameProfile& game = gameProfiles()[index];
+    window_.text(kGameX, y, game.label, kHeading);
+    window_.text(kGameX + static_cast<float>(game.label.size() + 2) * ui::kCharWidth, y,
+                 fit("program " + game.program + ", for the " + upper(game.target), kGameChars - game.label.size() - 2),
+                 kDim);
+    y += 16;
+
+    // Now: the game that runs (while a session does), else how it is found.
+    if (now_.id == game.id) {
+        const std::string line =
+            "RUNNING, pid " + std::to_string(now_.pid) + ", for " + clockText(now_.forMs) + ": its profile is in use";
+        window_.text(kGameX, y, fit(line, kGameChars), kActive);
+        y += 12;
+        std::string applied;
+        if (!now_.rotation.empty()) applied += "steering " + now_.rotation;
+        if (std::fabs(now_.ffbGain - 1.0F) > 1e-4F) {
+            applied += (applied.empty() ? "" : ", ") + std::string("force feedback x") +
+                       tuning::formatNumber(now_.ffbGain, 2);
+        }
+        if (!describeOverlay(game).empty()) applied += (applied.empty() ? "" : ", ") + std::string("pedals as below");
+        if (!applied.empty()) {
+            window_.text(kGameX, y, fit("now: " + applied, kGameChars), kText);
+            y += 12;
+        }
+        if (!now_.warning.empty()) {
+            window_.text(kGameX, y, fit(now_.warning, kGameChars), kWarning);
+            y += 12;
+        }
+    } else if (now_.session) {
+        window_.text(kGameX, y,
+                     fit(now_.id.empty() ? std::string("not running: WheelBri looks for it every 2 s")
+                                         : "not running (another game with a profile runs)",
+                         kGameChars),
+                     kDim);
+        y += 12;
+    } else {
+        window_.text(kGameX, y,
+                     fit("While WheelBri runs (Start) it finds the game when it starts, and uses this profile.",
+                         kGameChars),
+                     kDim);
+        y += 12;
+    }
+    if (!profileFitsTarget(game, targetName_)) {
+        window_.text(kGameX, y,
+                     fit("This profile is for the " + upper(game.target) + ": not used with the " + upper(targetName_) +
+                             " target.",
+                         kGameChars),
+                     kCaution);
+        y += 12;
+    }
+
+    // What the profile changes from WheelBri's defaults.
+    y += 10;
+    window_.text(kGameX, y, "ITS PROFILE CHANGES", kHeading);
+    window_.text(kGameX + 160, y, "from WheelBri's defaults, built in", kDim);
+    y += 16;
+    const std::vector<GameProfileChange> changes = describeGameProfile(game);
+    if (changes.empty()) {
+        window_.text(kGameX, y, "nothing", kDim);
+        y += 12;
+    }
+    for (const GameProfileChange& change : changes) {
+        window_.text(kGameX, y, fit(change.what, 19), kText);
+        for (const std::string& line : wrap(change.value, kGameChars - 20, 2)) {
+            window_.text(kGameX + 160, y, line, kText);
+            y += 12;
+        }
+        for (const std::string& line : wrap(change.why, kGameChars - 20, 2)) {
+            window_.text(kGameX + 160, y, line, kDim);
+            y += 12;
+        }
+        y += 4;
+    }
+    return y;
+}
+
+float MappingEditView::drawGameValues(const std::size_t index, float y) {
+    const GameProfile& game = gameProfiles()[index];
+    const std::string id = game.id;
+    window_.text(kGameX, y, "YOUR VALUES", kHeading);
+    window_.text(kGameX + 160, y, "while it runs, instead of the Mapping tab's (Default: the profile's)", kDim);
+    y += 16;
+
+    // Its steering rotation ([game_rotation]): the profile's, the user's own, or off (the Mapping tab's).
+    const bool own = edit_.gameRotations.count(id) != 0;
+    const std::optional<SteeringRotation> rotation = rotationWhileRunning(game, edit_.gameRotations);
+    const bool rotationChanged = own != (saved_.gameRotations.count(id) != 0) ||
+                                 (own && !(edit_.gameRotations.at(id) == saved_.gameRotations.at(id)));
+    window_.text(kGameX, y + 4, "Steering rotation", kText);
+    const std::string rotationText = rotation ? formatGameRotation({false, *rotation}) : std::string("off");
+    drawField(kGameValueX, y, 80, Field::PerGame, rotationText, rotationChanged, index);
+    window_.text(kGameValueX + 84, y + 4, rotation ? "deg" : "", kDim);
+    button(kGameValueX + 116, y, rotation ? "On" : "Off", [this, id, rotation, &game] {
+        if (rotation) {
+            edit_.gameRotations[id] = GameRotationOverride{true, {}};   // off: the Mapping tab's in this game too
+        } else if (game.rotationDeg) {
+            edit_.gameRotations.erase(id);                               // back to the profile's
+        } else {
+            edit_.gameRotations[id] = GameRotationOverride{false, {edit_.wheelRotationDeg, edit_.gameRotationDeg}};
+        }
+    }, rotation.has_value(), !locked_, 48);
+    button(kGameValueX + 168, y, "Default", [this, id] { edit_.gameRotations.erase(id); }, false, !locked_ && own, 72);
+    y += 20;
+    std::string about = game.rotationDeg ? "profile: " + degrees(*game.rotationDeg) + " deg. " : std::string();
+    if (rotation) {
+        about += "Set your wheel's own software to " + degrees(rotation->wheelDeg) + " deg while you play it.";
+    } else {
+        about += "Off: the Mapping tab's rotation (" + degrees(edit_.gameRotationDeg) + " deg).";
+    }
+    if (hasSteeringSetting(game)) {
+        const float written = rotation ? rotation->gameDeg : edit_.gameRotationDeg;
+        about += " Written to the game's own settings: " + degrees(written) + " deg" +
+                 (written >= 1000.0F ? " (it keeps 3 digits: 100 to 999)." : ".");
+    }
+    for (const std::string& line : wrap(about, kValueChars, 2)) {
+        window_.text(kGameValueX, y, line, kDim);
+        y += 12;
+    }
+    y += 6;
+
+    // Its force feedback gain ([game_ffb_gain]): WheelBri's, on the game's pushing forces.
+    const bool ownGain = edit_.gameFfbGains.count(id) != 0;
+    const auto savedGain = saved_.gameFfbGains.find(id);
+    const bool gainChanged = ownGain != (savedGain != saved_.gameFfbGains.end()) ||
+                             (ownGain && std::fabs(edit_.gameFfbGains.at(id) - savedGain->second) > 1e-5F);
+    window_.text(kGameX, y + 4, "Force feedback gain", kText);
+    drawField(kGameValueX, y, 80, Field::FfbGain, tuning::formatNumber(gameFfbGain(game, edit_.gameFfbGains), 2),
+              gainChanged, index);
+    button(kGameValueX + 168, y, "Default", [this, id] { edit_.gameFfbGains.erase(id); }, false, !locked_ && ownGain,
+           72);
+    y += 20;
+    for (const std::string& line :
+         wrap("Times its steering force and rumble, before the cap; its springs and dampers stay as they are. "
+              "Profile: " +
+                  tuning::formatNumber(game.ffbGain.value_or(1.0F), 2) + ", from " +
+                  tuning::formatNumber(kFfbGainMin, 2) + " to " + tuning::formatNumber(kFfbGainMax, 2) + ".",
+              kValueChars, 2)) {
+        window_.text(kGameValueX, y, line, kDim);
+        y += 12;
+    }
+    return y;
+}
+
+float MappingEditView::drawGameSettings(const std::size_t index, float y) {
+    const GameProfile& game = gameProfiles()[index];
+    if (game.settings.empty()) return y;
+    const std::string id = game.id;
+    window_.text(kGameX, y, "ITS OWN SETTINGS", kHeading);
+    window_.text(kGameX + 160, y, "written into its settings file while it is closed", kDim);
+    y += 16;
+
+    // What the file holds now against what the next Start writes (the saved values), read every 2 s.
+    const std::optional<SteeringRotation> savedRotation = rotationWhileRunning(game, saved_.gameRotations);
+    const float steeringDeg = savedRotation ? savedRotation->gameDeg : saved_.gameRotationDeg;
+    const std::vector<GameSettingText> wanted = gameSettingTexts(game, saved_.gameSettings, steeringDeg);
+    std::string key = id;
+    for (const GameSettingText& value : wanted) key += "|" + value.name + "=" + value.text;
+    const std::uint64_t nowMs = platform::nowMs();
+    if (!fileState_ || key != fileStateKey_ || nowMs - fileStateReadMs_ >= kFileStateEveryMs) {
+        fileState_ = readGameSettingsState(platform::documentsFolder(), game.settingsFile, wanted);
+        fileStateKey_ = key;
+        fileStateReadMs_ = nowMs;
+    }
+    const GameSettingsFileState& file = *fileState_;
+    window_.text(kGameX, y, "File", kText);
+    window_.text(kGameValueX, y, fit("Documents/" + game.settingsFile, kValueChars), kDim);
+    y += 12;
+    using Status = GameSettingsFileState::Status;
+    std::string fileLine;
+    Colour fileColour = kDim;
+    switch (file.status) {
+        case Status::NotHere: fileLine = file.why; break;
+        case Status::NoFile:
+            fileLine = "not there yet: start the game once; WheelBri sets them after it closes";
+            fileColour = kCaution;
+            break;
+        case Status::Unreadable:
+            fileLine = "cannot be read: " + file.why;
+            fileColour = kWarning;
+            break;
+        case Status::Read:
+            if (file.asSet()) {
+                fileLine = "as WheelBri sets them (your saved values)";
+                fileColour = kActive;
+            } else {
+                fileLine = "not as your saved values yet: written at the next Start, or when the game closes";
+                fileColour = kCaution;
+            }
+            break;
+    }
+    window_.text(kGameValueX, y, fit(fileLine, kValueChars), fileColour);
+    y += 12;
+    if (const auto said = now_.settings.find(id); said != now_.settings.end()) {
+        window_.text(kGameValueX, y, fit("this session: " + said->second, kValueChars), kDim);
+        y += 12;
+    }
+    y += 6;
+    if (file.status == Status::Read) window_.text(kFileColumnX, y - 2, "in the file", kDim);
+    y += 10;
+
+    for (std::size_t s = 0; s < game.settings.size() && s < kMaxGameSettings; ++s) {
+        if (y > kContentHeight - 52 - 20) break;   // keep clear of the hint
+        const GameSetting& setting = game.settings[s];
+        window_.text(kGameX, y + 4, fit(gameSettingLabel(setting.id), 19), kText);
+        const std::optional<std::string> inFile =
+            s < file.entries.size() ? file.entries[s].inFile : std::optional<std::string>();
+        // What the file holds, right: amber while it is not what the next Start writes.
+        if (file.status == Status::Read) {
+            const bool asWanted = s < wanted.size() && inFile == wanted[s].text;
+            window_.text(kFileColumnX, y + 4, fit(inFile.value_or(std::string("not found")), 13),
+                         asWanted ? kDim : kCaution);
+        }
+        tip(kGameX, y, kFileColumnX - kGameX, 16,
+            setting.name + " in the game's settings file" +
+                (setting.value ? ": profile " + tuning::formatNumber(*setting.value, 2) + ", 0 to 1"
+                               : ": the steering rotation, in degrees"));
+        if (!setting.value) {
+            // The steering rotation: the rotation above sets it.
+            window_.text(kGameValueX, y + 4, "= the steering rotation above, in degrees", kDim);
+            y += 20;
+            continue;
+        }
+        const auto ownOf = [&](const GameSettingOverrides& values) -> std::optional<float> {
+            const auto byGame = values.find(id);
+            if (byGame == values.end()) return std::nullopt;
+            const auto it = byGame->second.find(setting.id);
+            return it == byGame->second.end() ? std::nullopt : std::optional<float>(it->second);
+        };
+        const std::optional<float> own = ownOf(edit_.gameSettings);
+        const std::optional<float> saved = ownOf(saved_.gameSettings);
+        const bool changed = own.has_value() != saved.has_value() || (own && std::fabs(*own - *saved) > 1e-5F);
+        drawField(kGameValueX, y, 80, Field::GameSetting, tuning::formatNumber(own.value_or(*setting.value), 2),
+                  changed, index * kMaxGameSettings + s);
+        const std::string settingId = setting.id;
+        button(kGameValueX + 168, y, "Default", [this, id, settingId] {
+            if (const auto byGame = edit_.gameSettings.find(id); byGame != edit_.gameSettings.end()) {
+                byGame->second.erase(settingId);
+                if (byGame->second.empty()) edit_.gameSettings.erase(byGame);
+            }
+        }, false, !locked_ && own.has_value(), 72);
+        window_.text(kGameValueX + 248, y + 4,
+                     fit("profile " + tuning::formatNumber(*setting.value, 2) + ", 0 to 1", 26), kDim);
+        y += 20;
+    }
+    return y;
 }
 
 std::string MappingEditView::axisName(const SourceRef& source) const {

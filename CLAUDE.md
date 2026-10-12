@@ -172,8 +172,9 @@ Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra
 Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
 [--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide]]
 [--unhide] [--prepare-hide] [--app] [--telemetry-tab] [--ffb-tab]`. `--app` opens the app's window (Start / Stop) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
-(click, or M / R / L, T / F; in this order: Mapping, Rig, Logs, then Telemetry and Force feedback only with
-`--telemetry-tab` / `--ffb-tab`, never shown without them, `MappingView::setOptionalTabs`): **Mapping** (the axes rig -> G920, every rig axis, the D-pad, the G920 buttons written
+(click, or M / G / R / L, T / F; in this order: Mapping, Games (the app only, `MappingView::setGamesTab`), Rig, Logs,
+then Telemetry and Force feedback only with `--telemetry-tab` / `--ffb-tab`, never shown without them,
+`MappingView::setOptionalTabs`): **Mapping** (the axes rig -> G920, every rig axis, the D-pad, the G920 buttons written
 `G920 <n> <name> <- Rig <n> <name>` and the wheel's own buttons `Rig <n> <name>` from `[button_labels]`), **Logs** (one
 line per component: emulator, game shim, G920 driver, hide filter, helper, each in its own colour,
 with today's file, size, age, click opens its folder; the helper's line says what `HelperProbe` last heard from the
@@ -183,8 +184,9 @@ wheel, arrows, PageUp / PageDown, Home / End, a draggable vertical scroll bar, a
 (Shift + wheel, Left / Right) and word wrap (Wrap button or W); drags come from `WindowInput::pointer` / `leftDown`,
 `MappingView::onPointer`; core `LiveLog`), **Telemetry** (the telemetry files, buttons held, the
 latest button / D-pad / pedal / FFB events, not scrollable), **Force feedback** (live effects, usage since
-start, the latest effects) and **Rig** (R, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
-when stopped too, reading every connected device itself). The app has no log panel or toolbar: every tab (stopped and running) has, at the right end
+start, the latest effects), **Rig** (R, `WheelSetupView`: defines the rig, see `Rig.hpp`; the app shows it
+when stopped too, reading every connected device itself) and **Games** (G, the app only: `MappingEditView`'s Games page,
+stopped and running; see the game profiles below). The app has no log panel or toolbar: every tab (stopped and running) has, at the right end
 of the tab bar, a short status and then Start and Stop, as tall as
 the tab buttons (which are as wide as their labels, `MappingView::tabWidth`, so five tabs leave room for them). Stopped, Start is greyed out until
 every rig device the saved mapping uses is connected (core `StartNeeds`: the wheel and the accessories the mapping
@@ -305,10 +307,17 @@ rewrites on every build only when it changes); views keep their own top-row cont
     `GameWatch` writes them (Windows, under `platform::documentsFolder()`) only while the game is not running: at
     the first `check()` and when the game ends; it logs every change, and tries again at each check after a Failed
     (said once per reason). The
-    Mapping tab's PER GAME rows edit the numbers (`Field::GameSetting`); a game with a "steering" setting
-    (`hasSteeringSetting`) also gets a rotation row like Payback's (`[game_rotation]`), whose game rotation is written.
-    A profile's `[ffb] gain` has an ffb gain row too (`[game_ffb_gain] <game> = 0.25..4`, `gameFfbGain`: the user's,
-    else the profile's, else 1; `GameWatch::check` returns it for `FfbController::setGameGain`). The pedals: both ways use the same file:
+    app's Games tab edits them: `MappingEditView` with `Page::Games` (the same `MappingModel`, Save and Revert as the
+    Mapping tab, which keeps only the general rotation): a list of `gameProfiles()`, and for the one picked
+    `describeGameProfile` (core `GameTab`), its rotation row (`Field::PerGame`, `[game_rotation]`, for every game; a
+    game with a "steering" setting, `hasSteeringSetting`, gets that rotation written), its gain row (`Field::FfbGain`,
+    `[game_ffb_gain] <game> = 0.25..4`, `gameFfbGain`: the user's, else the profile's, else 1; `GameWatch::check`
+    returns it for `FfbController::setGameGain`) and its settings rows (`Field::GameSetting`), with what the file
+    holds now (core `readGameSettingsState`: read-only, the writer's path and link checks, read every 2 s) against the
+    saved values. While a session runs the page is locked and shows the game that runs from `UiFrame`'s game fields
+    (`GameWatch::live`, `settingsStates`); the app (`updateGames`) switches the live view to the Games tab and picks
+    the game when `UiFrame::gameStarts` changes with a game followed (core `GameTabFollower`: once per start, reset at
+    every Start; not while a name is typed in the Rig tab or a popup is open). The pedals: both ways use the same file:
     - virtual G920 / wheelbri-uhid: the service routes the published pedals (`routePedals(device, overlay(device,
       profile))` → `PedalRoute`, `Pipeline::setPedalRoute`, atomic, applied to the packet only; `lastReport()` and
       telemetry stay as mapped). The device's pedal axes are fixed (y, rz, slider), so a profile that is not a
