@@ -4,6 +4,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <numbers>
 
 namespace wheelbri {
@@ -74,6 +75,7 @@ std::optional<HidPid::ParamKind> HidPid::kindOf(int pidType) {
 }
 
 void HidPid::noteReport(const std::int64_t nowMs) {
+    if (reportsHandled_ == 0 || nowMs - lastReportMs_ > kStreamGapMs) streamStartMs_ = nowMs;
     ++reportsHandled_;
     lastReportMs_ = nowMs;
     if (quiet_) {
@@ -133,6 +135,16 @@ void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std:
         std::snprintf(id, sizeof(id), "out %02X ", reportId);
         trace(id + hex(d), nowMs);
     }
+    // A parameter report with EBI 0 (the type-specific ones: envelope, condition, periodic, constant, ramp) that
+    // repeats the one before it byte for byte is Windows' copy: nothing to do, and it must not count in a run.
+    const bool parameters = reportId >= kSetEnvelope && reportId <= kSetRamp && !d.empty() && d[0] == 0;
+    const bool copy = parameters && reportId == lastOutId_ && nowMs - lastOutMs_ <= kCopyMs &&
+                      std::equal(d.begin(), d.end(), lastOutBytes_.begin(), lastOutBytes_.end());
+    lastOutId_ = reportId;
+    lastOutBytes_.assign(d.begin(), d.end());
+    lastOutMs_ = nowMs;
+    if (copy) return;
+    if (!parameters) runBroken_ = true;   // a run is parameters one after the other
     char kind[24];
     std::snprintf(kind, sizeof(kind), "output 0x%02X", reportId);
     if (seen_.insert(kind).second) {
@@ -150,7 +162,9 @@ void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std:
                 envelope.fadeLevel = std::clamp(static_cast<float>(u16(d, 3)) / 10000.0F, 0.0F, 1.0F);
                 envelope.attackMs = static_cast<float>(u32(d, 5));
                 envelope.fadeMs = static_cast<float>(u32(d, 9));
-                withParams(d[0], ParamKind::Envelope, [envelope](Block& b) { b.envelope = envelope; });
+                withParams(d[0], ParamKind::Envelope, [envelope](Block& b) { b.envelope = envelope; },
+                           {envelope.attackLevel, envelope.fadeLevel, envelope.attackMs / 1000.0F,
+                            envelope.fadeMs / 1000.0F, 0.0F, 0.0F});
             }
             break;
         case kSetCondition:
@@ -162,17 +176,21 @@ void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std:
         case kSetConstant:
             if (d.size() >= 3) {
                 const float magnitude = static_cast<float>(i16(d, 1)) / 10000.0F;
-                withParams(d[0], ParamKind::Constant, [magnitude](Block& b) { b.constantMagnitude = magnitude; });
+                withParams(d[0], ParamKind::Constant, [magnitude](Block& b) { b.constantMagnitude = magnitude; },
+                           {magnitude, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F});
             }
             break;
         case kSetRamp:
             if (d.size() >= 5) {
                 const float start = static_cast<float>(i16(d, 1)) / 10000.0F;
                 const float end = static_cast<float>(i16(d, 3)) / 10000.0F;
-                withParams(d[0], ParamKind::Ramp, [start, end](Block& b) {
-                    b.rampStart = start;
-                    b.rampEnd = end;
-                });
+                withParams(
+                    d[0], ParamKind::Ramp,
+                    [start, end](Block& b) {
+                        b.rampStart = start;
+                        b.rampEnd = end;
+                    },
+                    {start, end, 0.0F, 0.0F, 0.0F, 0.0F});
             }
             break;
         case kEffectOperation:
@@ -307,7 +325,7 @@ HidPid::Block* HidPid::withBlock(std::uint8_t ebi) {
     return &block;
 }
 
-void HidPid::withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& action) {
+void HidPid::withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& action, const Values& values) {
     if (ebi != 0) {
         if (Block* b = withBlock(ebi)) action(*b);
         return;
@@ -316,24 +334,124 @@ void HidPid::withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& act
         loggedEbiZero_ = true;
         log_(LogLevel::Debug, "pid: parameters come with effect block 0: matched to the Set Effect that follows");
     }
-    // Kept for the Set Effect that names the block, never applied here: Windows often sends a report twice (the same
-    // bytes back to back), sends a new effect's parameters before its first Set Effect, and may put an Effect
-    // Operation in between; each of those put the values on another effect of the same kind (the trace of
-    // 2026-10-05). A later one of the same kind replaces this one (the copy, or the newer values).
-    pending_[kind] = Pending{action, lastReportMs_};
+    // Its place in the run of this kind (see HidPid.hpp).
+    if (!runBroken_ && runKind_ == kind && lastReportMs_ - runLastMs_ <= kRunGapMs) {
+        ++runPosition_;
+    } else {
+        runKind_ = kind;
+        runPosition_ = 0;
+    }
+    runBroken_ = false;
+    runLastMs_ = lastReportMs_;
+    // Kept for the Set Effect that names the block, never applied here: Windows sends a new effect's parameters
+    // before its first Set Effect and may put an Effect Operation in between; each of those put the values on
+    // another effect of the same kind (the trace of 2026-10-05). A later one at the same place replaces this one
+    // (the newer values) but keeps its wait, so a stream of them still lands (the trace of 2026-10-11).
+    const PendingKey key{kind, runPosition_};
+    if (const auto it = pending_.find(key); it != pending_.end()) {
+        it->second.action = action;
+        it->second.values = values;
+    } else {
+        pending_.emplace(key, Pending{action, values, lastReportMs_});
+    }
+}
+
+void HidPid::claimPending(const ParamKind kind, Block& b) {
+    const auto it = pending_.lower_bound(PendingKey{kind, 0});
+    if (it == pending_.end() || it->first.first != kind) return;
+    it->second.action(b);
+    pending_.erase(it);
+}
+
+HidPid::Values HidPid::valuesOf(const ParamKind kind, const Block& b) {
+    switch (kind) {
+        case ParamKind::Constant: return {b.constantMagnitude, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+        case ParamKind::Ramp: return {b.rampStart, b.rampEnd, 0.0F, 0.0F, 0.0F, 0.0F};
+        case ParamKind::Periodic: return {b.magnitude, b.offset, b.phaseDeg / 360.0F, b.periodMs / 1000.0F, 0.0F, 0.0F};
+        case ParamKind::Condition: return {b.center, b.posCoef, b.negCoef, b.posSat, b.negSat, b.deadband};
+        case ParamKind::Envelope:
+            if (!b.envelope) return {};
+            return {b.envelope->attackLevel, b.envelope->fadeLevel, b.envelope->attackMs / 1000.0F,
+                    b.envelope->fadeMs / 1000.0F, 0.0F, 0.0F};
+    }
+    return {};
+}
+
+void HidPid::applyUnclaimed(const ParamKind kind, const std::vector<Pending>& waiting) {
+    // The blocks of this kind, by block number (an envelope: those that can have one). Not only the started ones:
+    // a game sends a new effect's values just before it starts it (Unbound's damper, 17 ms before).
+    std::vector<std::uint8_t> blocks;
+    for (const auto& [ebi, block] : blocks_) {
+        const auto blockKind = kindOf(block.pidType);
+        if (!blockKind) continue;
+        if (kind == ParamKind::Envelope ? *blockKind == ParamKind::Condition : *blockKind != kind) continue;
+        blocks.push_back(ebi);
+    }
+    const auto apply = [this](const std::uint8_t ebi, const Pending& pending) {
+        if (Block* b = withBlock(ebi)) pending.action(*b);
+    };
+    if (blocks.empty()) return;
+    // Each to the block nearest its values, one per block (ties by block number), the cheapest way over all of
+    // them. At most kMaxSlots blocks and as many updates: tried exhaustively, small enough.
+    const std::size_t n = std::min(waiting.size(), blocks.size());
+    std::vector<std::vector<double>> cost(waiting.size(), std::vector<double>(blocks.size()));
+    for (std::size_t i = 0; i < waiting.size(); ++i) {
+        for (std::size_t j = 0; j < blocks.size(); ++j) {
+            const Values now = valuesOf(kind, blocks_.at(blocks[j]));
+            double d = 0.0;
+            for (std::size_t k = 0; k < now.size(); ++k) d += std::fabs(static_cast<double>(now[k] - waiting[i].values[k]));
+            // A hair for the order: equally near, the i-th goes to the i-th block.
+            cost[i][j] = d + 1e-9 * static_cast<double>(i > j ? i - j : j - i);
+        }
+    }
+    std::vector<int> best(waiting.size(), -1);
+    std::vector<int> pick(waiting.size(), -1);
+    std::vector<bool> used(blocks.size(), false);
+    double bestCost = std::numeric_limits<double>::max();
+    // Every update gets a block while blocks last; the ones past `n` in the run are the left-overs.
+    const std::function<void(std::size_t, std::size_t, double)> search = [&](const std::size_t i, const std::size_t given,
+                                                                          const double sum) {
+        if (sum >= bestCost) return;
+        if (given == n || i == waiting.size()) {
+            if (given == n) {
+                bestCost = sum;
+                best = pick;
+            }
+            return;
+        }
+        for (std::size_t j = 0; j < blocks.size(); ++j) {
+            if (used[j]) continue;
+            used[j] = true;
+            pick[i] = static_cast<int>(j);
+            search(i + 1, given + 1, sum + cost[i][j]);
+            used[j] = false;
+            pick[i] = -1;
+        }
+        if (waiting.size() - i > n - given) search(i + 1, given, sum);   // this one left over
+    };
+    search(0, 0, 0.0);
+    for (std::size_t i = 0; i < waiting.size(); ++i) {
+        if (best[i] >= 0) apply(blocks[static_cast<std::size_t>(best[i])], waiting[i]);
+    }
 }
 
 void HidPid::flushPending(const std::int64_t nowMs, const bool all) {
-    for (auto it = pending_.begin(); it != pending_.end();) {
-        if (!all && nowMs - it->second.sinceMs < kPendingMs) {
-            ++it;
-            continue;
+    // A kind is due once its oldest waiting value waited kPendingMs; then its whole run goes at once (they belong
+    // together: which block each goes to depends on the others).
+    for (const ParamKind kind :
+         {ParamKind::Constant, ParamKind::Ramp, ParamKind::Periodic, ParamKind::Condition, ParamKind::Envelope}) {
+        auto first = pending_.lower_bound(PendingKey{kind, 0});
+        bool due = false;
+        for (auto it = first; it != pending_.end() && it->first.first == kind; ++it) {
+            due = due || all || nowMs - it->second.sinceMs >= kPendingMs;
         }
-        const auto last = lastOfKind_.find(it->first);
-        if (last != lastOfKind_.end() && blocks_.contains(last->second)) {
-            if (Block* b = withBlock(last->second)) it->second.action(*b);
+        if (!due) continue;
+        std::vector<Pending> waiting;
+        while (first != pending_.end() && first->first.first == kind) {
+            waiting.push_back(std::move(first->second));
+            first = pending_.erase(first);
         }
-        it = pending_.erase(it);
+        applyUnclaimed(kind, waiting);
     }
 }
 
@@ -369,19 +487,15 @@ void HidPid::onSetEffect(std::span<const std::uint8_t> d, const std::int64_t now
     b->gain = gain;
     if (const auto kind = kindOf(type)) {
         lastOfKind_[*kind] = ebi;
-        if (const auto pending = pending_.find(*kind); pending != pending_.end()) {
-            pending->second.action(*b);
-            pending_.erase(pending);
-        }
+        claimPending(*kind, *b);
         // An envelope sent just before belongs to this effect when it can have one (not a condition).
         if (*kind == ParamKind::Condition) {
-            pending_.erase(ParamKind::Envelope);
+            for (auto it = pending_.begin(); it != pending_.end();) {
+                it = it->first.first == ParamKind::Envelope ? pending_.erase(it) : std::next(it);
+            }
         } else {
             lastOfKind_[ParamKind::Envelope] = ebi;
-            if (const auto pending = pending_.find(ParamKind::Envelope); pending != pending_.end()) {
-                pending->second.action(*b);
-                pending_.erase(pending);
-            }
+            claimPending(ParamKind::Envelope, *b);
         }
     }
     // With a direction, the force points that way (polar, 90 degrees = +X, as the shim reads DirectInput
@@ -404,14 +518,17 @@ void HidPid::onSetCondition(std::span<const std::uint8_t> d) {
     const float posSat = static_cast<float>(u16(d, 8)) / 10000.0F;
     const float negSat = static_cast<float>(u16(d, 10)) / 10000.0F;
     const float dead = static_cast<float>(u16(d, 12)) / 10000.0F;
-    withParams(d[0], ParamKind::Condition, [=](Block& b) {
-        b.center = center;
-        b.posCoef = pos;
-        b.negCoef = neg;
-        b.posSat = posSat;
-        b.negSat = negSat;
-        b.deadband = dead;
-    });
+    withParams(
+        d[0], ParamKind::Condition,
+        [=](Block& b) {
+            b.center = center;
+            b.posCoef = pos;
+            b.negCoef = neg;
+            b.posSat = posSat;
+            b.negSat = negSat;
+            b.deadband = dead;
+        },
+        {center, pos, neg, posSat, negSat, dead});
 }
 
 // Set Periodic: 0 EBI, 1 magnitude 0..10000, 3 offset -10000..10000, 5 phase (1/100 degree), 7 period ms.
@@ -420,12 +537,15 @@ void HidPid::onSetPeriodic(std::span<const std::uint8_t> d) {
     const float offset = static_cast<float>(i16(d, 3)) / 10000.0F;
     const float phase = static_cast<float>(u16(d, 5)) / 100.0F;
     const auto period = static_cast<float>(u32(d, 7));
-    withParams(d[0], ParamKind::Periodic, [=](Block& b) {
-        b.magnitude = magnitude;
-        b.offset = offset;
-        b.phaseDeg = phase;
-        b.periodMs = period;
-    });
+    withParams(
+        d[0], ParamKind::Periodic,
+        [=](Block& b) {
+            b.magnitude = magnitude;
+            b.offset = offset;
+            b.phaseDeg = phase;
+            b.periodMs = period;
+        },
+        {magnitude, offset, phase / 360.0F, period / 1000.0F, 0.0F, 0.0F});
 }
 
 // Effect Operation: 0 EBI, 1 op (1 start, 2 start solo, 3 stop), 2 loop count (255 = infinite).
@@ -493,6 +613,8 @@ void HidPid::resetAll(std::int64_t nowMs) {
     slotOwner_.fill(std::nullopt);
     sent_.fill(std::nullopt);
     pending_.clear();
+    runKind_.reset();
+    runBroken_ = true;
     lastOfKind_.clear();
     allocated_ = 0;
     lastAllocated_ = 0;
@@ -612,6 +734,15 @@ void HidPid::tick(std::int64_t nowMs) {
     constexpr std::int64_t kKeepAliveMs = 100;
     constexpr std::int64_t kRefreshMs = 250;
     std::lock_guard lock(mutex_);
+    const bool streamed = lastReportMs_ - streamStartMs_ >= kStreamMinMs;
+    if (!quiet_ && reportsHandled_ > 0 && streamed && nowMs - lastReportMs_ >= kStreamQuietMs) {
+        quiet_ = true;
+        log_(LogLevel::Info, "pid: the game streamed force feedback for " +
+                                 std::to_string((lastReportMs_ - streamStartMs_) / 1000) + " s and then nothing for " +
+                                 std::to_string(kStreamQuietMs) +
+                                 " ms (closed, crashed or paused?): keep-alives stopped, so the service stops the "
+                                 "forces; they come back with the game's next report");
+    }
     if (!quiet_ && reportsHandled_ > 0 && nowMs - lastReportMs_ >= kGameQuietMs) {
         // Not Ffb.cpp's helpers: the driver compiles this file without the service's logging.
         const auto pushes = [](const FfbEffect& e) {

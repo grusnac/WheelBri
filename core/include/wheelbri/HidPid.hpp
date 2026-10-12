@@ -14,6 +14,8 @@
 #include <set>
 #include <span>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace wheelbri {
 
@@ -33,10 +35,23 @@ namespace wheelbri {
 //
 // pid.dll sends the type-specific reports with EBI 0 just before the Set Effect naming the real block;
 // they are kept pending for the next Set Effect of the same kind, which names the block they are for. Only when
-// no Set Effect claims them within kPendingMs (a game changing a running effect without one) do they go to the last
-// block of that kind. Never at once: Windows sends reports twice, a new effect's parameters before its first Set
+// no Set Effect claims them within kPendingMs (a game changing a running effect without one) do they go to a block
+// of that kind. Never at once: Windows sends reports twice, a new effect's parameters before its first Set
 // Effect, and Effect Operations in between, and every early guess put a spring's values on the damper or back (30
-// times a second in NFS; seen in the driver's trace of 2026-10-05). Set Envelope (attack / fade) goes with the next
+// times a second in NFS; seen in the driver's trace of 2026-10-05).
+// A game that only ever sends parameters (NFS Unbound, the trace of 2026-10-11: every 16 ms a constant force, two
+// conditions and a periodic, all EBI 0, no Set Effect) is served too:
+//   - kPendingMs counts from the first value that waits: a newer one of the same kind replaces it but does not
+//     restart the wait, so a stream every 16 ms still lands every ~20 ms (it used to wait for a pause, and the
+//     force came in bursts or not at all);
+//   - a run is the reports of one kind that come one after the other (no other report between, at most kRunGapMs
+//     apart). Two or more in a run (Unbound's damper and spring) go to the started blocks of that kind, each to the
+//     block whose values it is nearest (the game's values change a little from one update to the next, while the
+//     order it sends them in can change: Unbound swapped damper and spring in the middle of a race); a block gets at
+//     most one, ties go by block number, and what is left over is dropped. A run of one goes to the only started
+//     block of its kind, else to the last one set;
+//   - an EBI-0 report with exactly the bytes of the one before it (within kCopyMs) is Windows' copy: ignored, so it
+//     cannot shift a run (two different effects with the very same values lose the second one's update). Set Envelope (attack / fade) goes with the next
 // constant, ramp or periodic effect. Envelopes and ramps change the force while an effect plays: tick() works the
 // level out every time (FfbShape.hpp) and sends it.
 //
@@ -73,10 +88,19 @@ public:
     // So when no report came for kGameQuietMs while a pushing force (constant, ramp, periodic) plays, keep-alives
     // and refreshes stop: the service's watchdog then stops every force. The game's next report brings them back.
     // Springs and dampers alone keep going: they only resist, and games set them once and leave them.
+    // A game that streams its force feedback (a report at least every kStreamGapMs for kStreamMinMs, as NFS Unbound
+    // does every 16 ms) and then sends nothing for kStreamQuietMs has closed, crashed or paused: keep-alives stop at
+    // once, whatever plays (2026-10-12: NFS Unbound closed without stopping its effects, and a held force of under 1%
+    // took the R3 to full lock in 1.5 s and kept it there).
     void tick(std::int64_t nowMs);
     static constexpr std::int64_t kGameQuietMs = 10'000;
+    static constexpr std::int64_t kStreamGapMs = 250;
+    static constexpr std::int64_t kStreamMinMs = 2'000;
+    static constexpr std::int64_t kStreamQuietMs = 500;
     // How long parameters without a block wait for the Set Effect that names it (see above).
     static constexpr std::int64_t kPendingMs = 20;
+    static constexpr std::int64_t kRunGapMs = 8;
+    static constexpr std::int64_t kCopyMs = 8;
     // Diagnostics, off unless asked for: from the next report, `lines` lines go to the log, each report the host
     // sends (raw bytes) and each slot change sent to the service, so the real order can be read from the driver's
     // log. The driver turns it on from HKLM\SOFTWARE\wheelbri PidTraceLines (a DWORD; 1000 is a good number).
@@ -117,10 +141,14 @@ private:
     };
     enum class ParamKind { Constant, Ramp, Periodic, Condition, Envelope };
     using BlockAction = std::function<void(Block&)>;
+    // A parameter report's numbers, to tell which block it continues (see above).
+    using Values = std::array<float, 6>;
     struct Pending {
         BlockAction action;
-        std::int64_t sinceMs = 0;
+        Values values{};
+        std::int64_t sinceMs = 0;   // the first value that waited here (a newer one keeps it)
     };
+    using PendingKey = std::pair<ParamKind, int>;   // the kind, the position in its run
     struct Sent {
         bool playing = false;
         FfbEffect effect;
@@ -130,9 +158,15 @@ private:
     static std::optional<FfbEffectType> typeFor(int pidType);
 
     Block* withBlock(std::uint8_t ebi);
-    void withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& action);
-    // Parameters no Set Effect claimed: to the last block of their kind (`all`, or those waiting kPendingMs).
+    void withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& action, const Values& values);
+    // The same numbers as a block holds them now.
+    [[nodiscard]] static Values valuesOf(ParamKind kind, const Block& b);
+    // Parameters no Set Effect claimed: to a block of their kind (see above; `all`, or those waiting kPendingMs).
     void flushPending(std::int64_t nowMs, bool all);
+    // Unclaimed parameters of one kind (in run order) to their blocks (see above).
+    void applyUnclaimed(ParamKind kind, const std::vector<Pending>& waiting);
+    // The first (lowest position) waiting parameter of `kind`, applied to `b` and dropped.
+    void claimPending(ParamKind kind, Block& b);
     void onSetEffect(std::span<const std::uint8_t> d, std::int64_t nowMs);
     void onSetCondition(std::span<const std::uint8_t> d);
     void onSetPeriodic(std::span<const std::uint8_t> d);
@@ -152,7 +186,15 @@ private:
     std::map<std::uint8_t, Block> blocks_;
     std::array<std::optional<std::uint8_t>, kMaxSlots> slotOwner_{};
     std::array<std::optional<Sent>, kMaxSlots> sent_{};
-    std::map<ParamKind, Pending> pending_;
+    std::map<PendingKey, Pending> pending_;
+    // The run of EBI-0 parameters being received (see above).
+    std::optional<ParamKind> runKind_;
+    int runPosition_ = 0;
+    std::int64_t runLastMs_ = 0;
+    bool runBroken_ = true;                   // another report came since the last EBI-0 parameter
+    std::uint8_t lastOutId_ = 0;              // the report before (for Windows' copies)
+    std::vector<std::uint8_t> lastOutBytes_;
+    std::int64_t lastOutMs_ = INT64_MIN / 2;
     std::map<ParamKind, std::uint8_t> lastOfKind_;
     std::set<std::string> seen_;
     bool loggedEbiZero_ = false;
@@ -182,6 +224,7 @@ private:
     std::uint64_t reportsHandled_ = 0;
     std::uint64_t packetsSent_ = 0;
     std::int64_t lastReportMs_ = 0;
+    std::int64_t streamStartMs_ = 0;         // the first report of the current stream (gaps under kStreamGapMs)
     bool quiet_ = false;                     // kGameQuietMs without a report while a pushing force plays
     void noteReport(std::int64_t nowMs);
 };

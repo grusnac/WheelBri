@@ -3,7 +3,10 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <cstdio>
 #include <optional>
+#include <set>
 
 #include <algorithm>
 #include <limits>
@@ -156,6 +159,48 @@ TEST(HidPid, GameSilentWithAPushingForceStopsKeepAlives) {
     EXPECT_FALSE(r.pid.gameQuiet());
     r.pid.tick(HidPid::kGameQuietMs + 2300);
     EXPECT_FALSE(r.packets.empty());
+}
+
+// NFS Unbound streams its effects every 16 ms and, when it closes, simply stops: a held force under 1% (below the
+// 10 s rule's "pushing" threshold) took the R3 to full lock (2026-10-12). A stream that stops is a game gone.
+TEST(HidPid, AStreamThatStopsStopsKeepAlivesSoon) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x15, hex("004A00"), 0);    // constant 0.0074
+    r.pid.output(0x11, hex("0101FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    r.pid.output(0x1A, hex("010101"), 0);
+    std::int64_t t = 0;
+    for (; t < 3000; t += 16) {
+        r.pid.output(0x15, hex("004A00"), t);
+        r.pid.tick(t);
+    }
+    const std::int64_t last = t - 16;
+    for (; t < last + HidPid::kStreamQuietMs; t += 10) r.pid.tick(t);
+    EXPECT_FALSE(r.pid.gameQuiet());
+    r.pid.tick(last + HidPid::kStreamQuietMs);
+    EXPECT_TRUE(r.pid.gameQuiet());
+    EXPECT_EQ(r.levelOf("pid: the game streamed force feedback"), LogLevel::Info);
+    r.packets.clear();
+    for (t = last + HidPid::kStreamQuietMs; t < last + 3000; t += 10) r.pid.tick(t);
+    EXPECT_TRUE(r.packets.empty());          // nothing more: the service's watchdog stops the force
+    r.pid.output(0x15, hex("004A00"), last + 3000);   // the game again
+    EXPECT_FALSE(r.pid.gameQuiet());
+    r.pid.tick(last + 3300);
+    EXPECT_FALSE(r.packets.empty());
+}
+
+// A game that sets its effects and leaves them (a few reports, then silence) keeps the 10 s rule.
+TEST(HidPid, AFewReportsAreNotAStream) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x15, hex("00A00F"), 0);    // constant 0.4
+    r.pid.output(0x11, hex("0101FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    r.pid.output(0x1A, hex("010101"), 0);
+    for (std::int64_t t = 0; t <= 1000; t += 100) r.pid.output(0x15, hex("00A00F"), t);   // 1 s: too short
+    for (std::int64_t t = 1010; t < 1000 + HidPid::kGameQuietMs; t += 10) r.pid.tick(t);
+    EXPECT_FALSE(r.pid.gameQuiet());
+    r.pid.tick(1000 + HidPid::kGameQuietMs);
+    EXPECT_TRUE(r.pid.gameQuiet());
 }
 
 TEST(HidPid, SpringAloneIsKeptAliveWhileTheGameIsSilent) {
@@ -581,6 +626,256 @@ TEST(HidG920, ProtonDescriptorOnlyRenamesClutchAndThrottle) {
     // which its G920 hack turns into X, Y, Rz, Slider.
     EXPECT_EQ(axisUsages(windows), (std::vector<std::uint8_t>{0x30, 0x31, 0x35, 0x36}));
     EXPECT_EQ(axisUsages(proton), (std::vector<std::uint8_t>{0x30, 0x31, 0x32, 0x35}));
+}
+
+// A game that streams parameters without Set Effects (NFS Unbound, 2026-10-11: a constant force every 16 ms, EBI 0):
+// each value lands within about kPendingMs, not only when the game pauses.
+TEST(HidPid, AStreamOfUnclaimedUpdatesKeepsArriving) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x15, hex("000000"), 0);
+    r.pid.output(0x11, hex("0101FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    r.pid.output(0x1A, hex("010101"), 0);
+    std::int64_t tick = 0;
+    for (int i = 1; i <= 40; ++i) {
+        const std::int64_t t = 16 * i;
+        for (; tick + 10 <= t; tick += 10) r.pid.tick(tick + 10);
+        const std::int16_t level = static_cast<std::int16_t>(i * 100);   // 0.01 more each time
+        const std::vector<std::uint8_t> bytes = {0x00, static_cast<std::uint8_t>(level & 0xFF),
+                                                 static_cast<std::uint8_t>((level >> 8) & 0xFF)};
+        r.pid.output(0x15, bytes, t);
+    }
+    for (; tick < 16 * 40 + 40; tick += 10) r.pid.tick(tick + 10);
+    std::set<int> levels;
+    for (const FfbPacket& p : r.packets) {
+        if (p.kind == FfbPacket::Kind::SlotState && p.playing && p.effect.type == FfbEffectType::Constant) {
+            levels.insert(static_cast<int>(std::lround(p.effect.constantLevel * 100.0F)));
+        }
+    }
+    EXPECT_GE(levels.size(), 15U);   // about every other value (one each ~30 ms), not one at the end
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, 0.40F, 1e-3F);   // and the last one
+}
+
+// Two conditions updated one after the other with EBI 0 (a damper, then a spring) go to the conditions in block
+// order when nothing tells them apart; Windows' copy of the second (the same bytes again) is not a third update, and
+// the third, idle spring keeps its own values.
+TEST(HidPid, ARunOfUnclaimedUpdatesGoesToTheStartedBlocksInOrder) {
+    Recorder r;
+    const auto create = [&r](const char* setEffect, const char* start, std::int64_t t) {
+        r.pid.setFeature(HidPid::kCreateNewEffect, hex("0900"), t);
+        r.pid.output(0x13, hex("000F000000000000000000000000"), t);
+        r.pid.output(0x11, hex(setEffect), t);
+        if (start != nullptr) r.pid.output(0x1A, hex(start), t);
+    };
+    create("0109FFFF000000000000FFFF04FF1F0000FFFFFFFF", "010101", 0);   // block 1 damper
+    create("0208FFFF000000000000FFFF04FF1F0000FFFFFFFF", "020101", 1);   // block 2 spring
+    create("0308FFFF000000000000FFFF04FF1F0000FFFFFFFF", nullptr, 2);    // block 3 spring, never started
+    for (std::int64_t t = 16; t < 400; t += 16) {
+        r.pid.output(0x15, hex("000000"), t);                               // another kind ends any run
+        r.pid.output(0x13, hex("000F0000C409C409C409C4090000"), t + 1);   // damper 0.25
+        r.pid.output(0x13, hex("000F00004B004B004B004B000000"), t + 2);   // spring 0.0075
+        r.pid.output(0x13, hex("000F00004B004B004B004B000000"), t + 2);   // Windows' copy
+        r.pid.tick(t + 5);
+        r.pid.tick(t + 15);
+    }
+    int dampers = 0;
+    int springs = 0;
+    for (const FfbPacket& p : r.packets) {
+        if (p.kind != FfbPacket::Kind::SlotState || !p.playing) continue;
+        if (p.effect.type == FfbEffectType::Damper && p.effect.condition.positiveCoefficient > 0.0F) {
+            ++dampers;
+            EXPECT_NEAR(p.effect.condition.positiveCoefficient, 0.25F, 1e-4F);
+        } else if (p.effect.type == FfbEffectType::Spring && p.effect.condition.positiveCoefficient > 0.0F) {
+            ++springs;
+            EXPECT_NEAR(p.effect.condition.positiveCoefficient, 0.0075F, 1e-4F);
+            EXPECT_EQ(p.slot, 1);   // block 2's slot: never the unstarted block 3
+        }
+    }
+    EXPECT_GT(dampers, 0);
+    EXPECT_GT(springs, 0);
+}
+
+// The driver's trace of NFS Unbound on 2026-10-11 (an excerpt, reports exactly as Windows sent them, ms from the
+// first): six effects set up, then only EBI-0 parameters every ~16 ms: constant, damper (0.25), spring (falling with
+// speed), triangle. Each goes to its own effect, and the idle spring (block 5) keeps its own values.
+TEST(HidPid, UnboundTraceStreamsToTheRightEffects) {
+    struct Report {
+        std::int64_t t;
+        std::uint8_t id;
+        const char* bytes;
+    };
+    const std::vector<Report> trace = {
+        {0, 0x1C, "04"},
+        {2, 0x1C, "04"},
+        {2, 0x1D, "FF"},
+        {4, 0x1D, "FF"},
+        {4, 0x1D, "FF"},
+        {6, 0x15, "008813"},
+        {7, 0x11, "0101FFFF000000000000FFFF04FF1F0000FFFFFFFF"},
+        {9, 0x14, "0000000000000000000000"},
+        {9, 0x11, "0204FFFF000000000000FFFF04FF1F0000FFFFFFFF"},
+        {11, 0x13, "000F000000000000000000000000"},
+        {11, 0x11, "0309FFFF000000000000FFFF04FF1F0000FFFFFFFF"},
+        {13, 0x13, "000F000000000000000000000000"},
+        {13, 0x11, "0408FFFF000000000000FFFF04FF1F0000FFFFFFFF"},
+        {14, 0x13, "000F000010271027102710271027"},
+        {15, 0x11, "0508FFFF000000000000FFFF04FF1F0000FFFFFFFF"},
+        {16, 0x1A, "050101"},
+        {18, 0x14, "0010270000000032000000"},
+        {18, 0x12, "001027000000000000F4010000"},
+        {19, 0x11, "0604F401000000000000FFFF04FF1F0000FFFFFFFF"},
+        {65294, 0x1A, "010101"},
+        {65306, 0x1A, "040101"},
+        {65314, 0x1A, "030101"},
+        {65320, 0x1A, "020300"},
+        {65338, 0x11, "0205FFFF000000000000FFFF04FF1F0000FFFFFFFF"},
+        {65348, 0x1A, "020101"},
+        {75100, 0x14, "0018000000000021000000"},
+        {75116, 0x15, "006401"},
+        {75117, 0x13, "000F0000C409C409C409C4090000"},
+        {75118, 0x13, "000F00004B004B004B004B000000"},
+        {75119, 0x14, "0018000000000021000000"},
+        {75132, 0x15, "005D01"},
+        {75134, 0x13, "000F0000C409C409C409C4090000"},
+        {75135, 0x13, "000F00004A004A004A004A000000"},
+        {75136, 0x14, "0018000000000021000000"},
+        {75148, 0x15, "005C01"},
+        {75149, 0x13, "000F0000C409C409C409C4090000"},
+        {75150, 0x13, "000F000049004900490049000000"},
+        {75151, 0x14, "0018000000000021000000"},
+        {75164, 0x15, "005701"},
+        {75165, 0x13, "000F0000C409C409C409C4090000"},
+        {75166, 0x13, "000F000048004800480048000000"},
+        {75167, 0x14, "0018000000000021000000"},
+        {75180, 0x15, "005201"},
+        {75181, 0x13, "000F0000C409C409C409C4090000"},
+        {75182, 0x13, "000F000046004600460046000000"},
+        {75182, 0x14, "0018000000000021000000"},
+        {75196, 0x15, "004E01"},
+        {75197, 0x13, "000F0000C409C409C409C4090000"},
+        {75198, 0x13, "000F000045004500450045000000"},
+        {75199, 0x14, "0018000000000021000000"},
+        {75217, 0x15, "004B01"},
+        {75219, 0x13, "000F0000C409C409C409C4090000"},
+        {75220, 0x13, "000F000044004400440044000000"},
+        {75221, 0x14, "0019000000000021000000"},
+        {75232, 0x15, "004801"},
+        {75233, 0x13, "000F0000C409C409C409C4090000"},
+        {75233, 0x13, "000F000042004200420042000000"},
+        {75234, 0x14, "0019000000000021000000"},
+        {75249, 0x15, "004001"},
+        {75250, 0x13, "000F0000C409C409C409C4090000"},
+        {75251, 0x13, "000F000041004100410041000000"},
+        {75252, 0x14, "0019000000000021000000"},
+        {75264, 0x15, "003F01"},
+        {75265, 0x13, "000F0000C409C409C409C4090000"},
+        {75266, 0x13, "000F00003F003F003F003F000000"},
+        {75267, 0x14, "0019000000000021000000"},
+        {75281, 0x15, "003D01"},
+        {75282, 0x13, "000F0000C409C409C409C4090000"},
+        {75282, 0x13, "000F00003E003E003E003E000000"},
+        {75284, 0x14, "0019000000000021000000"},
+        {75296, 0x15, "003C01"},
+        {75297, 0x13, "000F0000C409C409C409C4090000"},
+        {75298, 0x13, "000F00003D003D003D003D000000"},
+        {75298, 0x14, "0019000000000021000000"},
+        {75317, 0x15, "003B01"},
+        {75319, 0x13, "000F0000C409C409C409C4090000"},
+        {75319, 0x13, "000F00003B003B003B003B000000"},
+        {75320, 0x13, "000F00003B003B003B003B000000"},
+        {75321, 0x14, "001A000000000021000000"},
+        {75332, 0x15, "003A01"},
+        {75333, 0x13, "000F0000C409C409C409C4090000"},
+        {75334, 0x13, "000F00003A003A003A003A000000"},
+        {75335, 0x14, "001A000000000021000000"},
+        {75348, 0x15, "003901"},
+        {75349, 0x13, "000F0000C409C409C409C4090000"},
+        {75350, 0x13, "000F000038003800380038000000"},
+        {75351, 0x14, "001A000000000021000000"},
+        {75364, 0x15, "003801"},
+        {75365, 0x13, "000F0000C409C409C409C4090000"},
+        {75366, 0x13, "000F000037003700370037000000"},
+        {75367, 0x14, "001A000000000021000000"},
+        {75381, 0x15, "003D01"},
+        {75382, 0x13, "000F0000C409C409C409C4090000"},
+        {75382, 0x13, "000F000035003500350035000000"},
+        {75383, 0x14, "001A000000000021000000"},
+        {75396, 0x15, "004101"},
+        {75398, 0x13, "000F0000C409C409C409C4090000"},
+        {75398, 0x13, "000F000034003400340034000000"},
+        {75399, 0x14, "001A000000000021000000"},
+    };
+    Recorder r;
+    std::int64_t tick = 0;
+    for (const Report& report : trace) {
+        for (; tick + 10 <= report.t; tick += 10) r.pid.tick(tick + 10);
+        r.pid.output(report.id, hex(report.bytes), report.t);
+    }
+    for (int i = 0; i < 5; ++i) r.pid.tick(tick += 10);
+    std::set<int> constants;
+    int dampers = 0;
+    int springs = 0;
+    for (const FfbPacket& p : r.packets) {
+        if (p.kind != FfbPacket::Kind::SlotState) continue;
+        if (p.effect.type == FfbEffectType::Constant && p.playing) {
+            constants.insert(static_cast<int>(std::lround(p.effect.constantLevel * 10000.0F)));
+        } else if (p.effect.type == FfbEffectType::Damper && p.playing && p.effect.condition.positiveCoefficient > 0) {
+            ++dampers;
+            EXPECT_NEAR(p.effect.condition.positiveCoefficient, 0.25F, 1e-4F);   // never the spring's
+        } else if (p.effect.type == FfbEffectType::Spring && p.slot == 3 && p.effect.condition.positiveCoefficient > 0) {
+            ++springs;
+            EXPECT_LT(p.effect.condition.positiveCoefficient, 0.01F);            // never the damper's
+        } else if (p.effect.type == FfbEffectType::Spring && p.slot == 4) {
+            EXPECT_NEAR(p.effect.condition.positiveCoefficient, 1.0F, 1e-4F);    // the idle spring, untouched
+        }
+    }
+    EXPECT_GE(constants.size(), 10U);   // the steering force follows the stream (it used to wait for a pause)
+    EXPECT_GT(dampers, 0);
+    EXPECT_GT(springs, 0);
+}
+
+// Unbound, 2026-10-11 (+70047 in the trace): in the middle of a race the game starts sending its damper and spring
+// the other way round. Each value goes on to the block it continues (the damper slowly falling from 0.25, the spring
+// slowly rising from 0), never swapping them.
+TEST(HidPid, UnclaimedUpdatesFollowTheirEffectWhenTheOrderChanges) {
+    Recorder r;
+    r.pid.output(0x13, hex("000F000000000000000000000000"), 0);
+    r.pid.output(0x11, hex("0109FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);   // block 1 damper
+    r.pid.output(0x1A, hex("010101"), 0);
+    r.pid.output(0x13, hex("000F000000000000000000000000"), 1);
+    r.pid.output(0x11, hex("0208FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 1);   // block 2 spring
+    r.pid.output(0x1A, hex("020101"), 1);
+    const auto condition = [](const int value) {   // k and saturation both `value` / 10000
+        char text[32];
+        std::snprintf(text, sizeof(text), "000F0000%02X%02X%02X%02X%02X%02X%02X%02X0000", value & 0xFF, value >> 8,
+                      value & 0xFF, value >> 8, value & 0xFF, value >> 8, value & 0xFF, value >> 8);
+        return hex(text);
+    };
+    std::int64_t t = 16;
+    for (int i = 0; i < 10; ++i, t += 16) {   // damper first
+        r.pid.output(0x15, hex("000000"), t);
+        r.pid.output(0x13, condition(2500), t + 1);
+        r.pid.output(0x13, condition(0), t + 2);
+        r.pid.tick(t + 5);
+        r.pid.tick(t + 15);
+    }
+    for (int i = 0; i < 20; ++i, t += 16) {   // spring first: rising, while the damper falls
+        r.pid.output(0x15, hex("000000"), t);
+        r.pid.output(0x13, condition(20 * i), t + 1);
+        r.pid.output(0x13, condition(2500 - 20 * i), t + 2);
+        r.pid.tick(t + 5);
+        r.pid.tick(t + 15);
+    }
+    for (const FfbPacket& p : r.packets) {
+        if (p.kind != FfbPacket::Kind::SlotState || !p.playing) continue;
+        const float k = p.effect.condition.positiveCoefficient;
+        if (p.effect.type == FfbEffectType::Damper && k > 0.0F) {
+            EXPECT_GE(k, 0.2F);
+        } else if (p.effect.type == FfbEffectType::Spring) {
+            EXPECT_LE(k, 0.05F);
+        }
+    }
 }
 
 }  // namespace
