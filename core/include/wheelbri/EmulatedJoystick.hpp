@@ -86,7 +86,7 @@ struct JoystickLayout {
     std::size_t buttonCount = 11;
 };
 
-// Built-in layout for a profile name: the G920's (the one target).
+// Built-in layout for a profile name: the G920 and the G25 have the same (the G25's is unverified).
 [[nodiscard]] JoystickLayout layoutFor(std::string_view profile, std::size_t buttonCount);
 // False if two controls share an axis or a pedal uses X (the wheel).
 [[nodiscard]] bool isValid(const JoystickLayout& layout);

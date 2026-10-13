@@ -83,9 +83,32 @@ DeviceProfileSpec g920Spec() {
     return spec;
 }
 
+DeviceProfileSpec g25Spec() {
+    DeviceProfileSpec spec;
+    spec.identity.shortName = "G25";
+    spec.identity.vendorId = 0x046D;
+    spec.identity.productId = 0xC299;
+    spec.identity.productName = "Logitech G25 Racing Wheel USB";
+    spec.identity.rotationDeg = 900.0F;
+    spec.steeringRange = {0, 65535};
+    spec.pedalRange = {0, 65535};
+    spec.pedalsReleasedAtMax = true;   // Logitech's pedals of that time report released as the top of the range
+    // Gears 1-6 and reverse at 8..14 (Logitech's numbering); the rest is a guess (kG25Buttons): the shifter's 4 black
+    // buttons, the paddles, the wheel's two buttons, then the shifter's 4 red buttons.
+    spec.buttonNames = {
+        "Black 1", "Black 2", "Black 3", "Black 4", "R Paddle", "L Paddle", "R Wheel", "L Wheel",
+        "Gear 1",  "Gear 2",  "Gear 3",  "Gear 4",  "Gear 5",   "Gear 6",   "Gear R",
+        "Red 1",   "Red 2",   "Red 3",   "Red 4",
+    };
+    return spec;
+}
+
 std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     if (name == "g920") {
         return std::make_unique<DeviceProfile>(g920Spec());
+    }
+    if (name == "g25") {
+        return std::make_unique<DeviceProfile>(g25Spec());
     }
     return nullptr;
 }

@@ -42,9 +42,10 @@ public:
     [[nodiscard]] const std::filesystem::path& selectedFolder() const { return list_.selected; }
     [[nodiscard]] std::string selectedName() const;
 
-    // Before Start: the selected game must have the shim, as current as WheelBri's (put in or replaced now). False and
-    // `error` set when it cannot (no game, the game holds the DLL, another mod's dinput8.dll).
-    bool prepareStart(std::string& error);
+    // Before Start: the selected game must have the shim, as current as WheelBri's (put in or replaced now), presenting
+    // `profile` ("g920", "g25": its wheelbri-shim.ini's target_profile). False and `error` set when it cannot (no game,
+    // the game holds the DLL, another mod's dinput8.dll).
+    bool prepareStart(const std::string& profile, std::string& error);
     // Deletes the shim from `folder` (after a session, when the user says so). False and `error` set if it cannot.
     bool removeFrom(const std::filesystem::path& folder, std::string& error);
 

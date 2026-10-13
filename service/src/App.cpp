@@ -741,7 +741,7 @@ private:
         sessionGame_.clear();
         if (shimTarget()) {
             std::string error;
-            if (!games_->prepareStart(error)) {
+            if (!games_->prepareStart(picker_->profileName(), error)) {
                 WE_LOG_WARN(log(), "Start: {}", error);
                 notice("Cannot start", error);
                 return;
@@ -762,7 +762,7 @@ private:
         if (mapping_->dirty()) {
             WE_LOG_WARN(log(), "the Mapping tab has unsaved changes: Start uses the config as saved");
         }
-        WE_LOG_INFO(log(), "Start pressed: {}; config {} ({})", ConfigPicker::name(picker_->way()),
+        WE_LOG_INFO(log(), "Start pressed: {}; config {} ({})", picker_->name(),
                     config.empty() ? std::string("built-in defaults") : config,
                     picker_->builtIn() ? "the default mapping" : "the user's own mapping");
         if (!sessionGame_.empty()) {

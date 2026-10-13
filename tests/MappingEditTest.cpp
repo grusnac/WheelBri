@@ -271,4 +271,12 @@ TEST(MappingEdit, ControlsUsedTwice) {
         ASSERT_TRUE(text.has_value()) << name;
         EXPECT_TRUE(controlsUsedTwice(mappingModel(load(*text)), g920).empty()) << name;
     }
+    const DeviceProfile g25(g25Spec());
+    for (const char* name : {"g25-virtual-device.ini", "g25-in-game-shim.ini"}) {
+        const std::optional<std::string> text = readFileText(std::filesystem::path(WHEELBRI_CONFIG_DIR) / name);
+        ASSERT_TRUE(text.has_value()) << name;
+        const EmulatorConfig config = load(*text);
+        EXPECT_EQ(config.targetProfile, "g25") << name;
+        EXPECT_TRUE(controlsUsedTwice(mappingModel(config), g25).empty()) << name;
+    }
 }

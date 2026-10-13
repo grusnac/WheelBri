@@ -149,21 +149,30 @@ void ShimGamesView::add() {
     WE_LOG_INFO(log(), "shim game added: {} ({})", selectedName(), pathToUtf8(list_.selected));
 }
 
-bool ShimGamesView::prepareStart(std::string& error) {
+bool ShimGamesView::prepareStart(const std::string& profile, std::string& error) {
     if (!hasGame()) {
         error = "No game yet: press Add next to Game and choose the game's folder.";
         return false;
     }
     refreshState();
-    if (state_ == ShimState::Installed) return true;
-    const ShimResult result = installShim(list_.selected, settings_.sourceDll, settings_.sourceSettings);
-    refreshState();
-    if (!result.ok) {
-        error = "The shim could not be put into " + selectedName() + ": " + result.error + ".";
+    if (state_ != ShimState::Installed) {
+        const ShimResult result = installShim(list_.selected, settings_.sourceDll, settings_.sourceSettings);
+        refreshState();
+        if (!result.ok) {
+            error = "The shim could not be put into " + selectedName() + ": " + result.error + ".";
+            WE_LOG_WARN(log(), "shim: {}", error);
+            return false;
+        }
+        for (const std::string& file : result.changed) WE_LOG_INFO(log(), "shim: wrote {}", file);
+    }
+    // The wheel it presents: the target picked on the Mapping tab.
+    const ShimResult target = setShimTarget(list_.selected, profile);
+    if (!target.ok) {
+        error = "The shim in " + selectedName() + " could not be set to the " + profile + ": " + target.error + ".";
         WE_LOG_WARN(log(), "shim: {}", error);
         return false;
     }
-    for (const std::string& file : result.changed) WE_LOG_INFO(log(), "shim: wrote {}", file);
+    for (const std::string& file : target.changed) WE_LOG_INFO(log(), "shim: target_profile = {} in {}", profile, file);
     return true;
 }
 

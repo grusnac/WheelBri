@@ -1,9 +1,13 @@
 #include "wheelbri/ShimGames.hpp"
 
+#include "wheelbri/IniDocument.hpp"
+#include "wheelbri/IniEditor.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <sstream>
 #include <system_error>
 
@@ -31,7 +35,7 @@ std::string writeProblem(const char* verb, const std::filesystem::path& file, co
 
 
 constexpr const char* kHeader =
-    "# WheelBri: the games the in-game shim was put into (the app's Mapping tab, target G920 in-game shim).\n"
+    "# WheelBri: the games the in-game shim was put into (the app's Mapping tab, Run as Shim).\n"
     "# game<TAB>name<TAB>folder, selected<TAB>folder. Written by the app.\n";
 
 std::string lower(std::string text) {
@@ -201,6 +205,29 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
         }
         result.changed.push_back(pathToUtf8(folder / kShimSettings));
     }
+    result.ok = true;
+    return result;
+}
+
+ShimResult setShimTarget(const std::filesystem::path& folder, const std::string& profile) {
+    ShimResult result;
+    const std::filesystem::path file = folder / kShimSettings;
+    const std::optional<std::string> text = regularFile(file) ? readFileText(file) : std::optional<std::string>("");
+    if (!text) {
+        result.error = "cannot read " + pathToUtf8(file);
+        return result;
+    }
+    if (IniDocument::parse(*text).document.get("shim", "target_profile") == profile) {
+        result.ok = true;
+        return result;
+    }
+    IniEditor editor(*text);
+    editor.set("shim", "target_profile", profile);
+    if (!writeFileReplacing(file, editor.text())) {
+        result.error = "cannot write " + pathToUtf8(file) + ": close the game and try again";
+        return result;
+    }
+    result.changed.push_back(pathToUtf8(file));
     result.ok = true;
     return result;
 }

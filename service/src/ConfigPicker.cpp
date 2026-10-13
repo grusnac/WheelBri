@@ -26,35 +26,39 @@ constexpr Colour kHeading{120, 190, 255};
 constexpr Colour kDark{16, 18, 20};
 
 constexpr float kArrowWidth = 24;
-constexpr float kTargetWidth = 72;   // "G920"
+constexpr float kTargetWidth = 72;   // "G920", "G25"
 constexpr float kWayWidth = 80;      // "Virtual", "Shim"
 constexpr float kRowHeight = 16;
 
 }  // namespace
 
-const char* ConfigPicker::name(const Way way) {
-    return way == Way::VirtualDevice ? "G920 virtual device" : "G920 in-game shim";
+std::string ConfigPicker::name() const {
+    return std::string(targetName(target_)) + (way_ == Way::VirtualDevice ? " virtual device" : " in-game shim");
 }
 
-const char* ConfigPicker::targetName() { return "G920"; }
+const char* ConfigPicker::targetName(const Target target) { return target == Target::G25 ? "G25" : "G920"; }
+
+const char* ConfigPicker::profileName(const Target target) { return target == Target::G25 ? "g25" : "g920"; }
 
 const char* ConfigPicker::wayName(const Way way) { return way == Way::VirtualDevice ? "Virtual" : "Shim"; }
 
-const char* ConfigPicker::builtInName(const Way way) {
-    return way == Way::VirtualDevice ? "g920-virtual-device.ini" : "g920-in-game-shim.ini";
+std::string ConfigPicker::builtInName(const Target target, const Way way) {
+    return std::string(profileName(target)) +
+           (way == Way::VirtualDevice ? "-virtual-device.ini" : "-in-game-shim.ini");
 }
 
 ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
     : window_(window), settings_(std::move(settings)) {
     way_ = readAppSetting(settings_.stateFile, "way") == "shim" ? Way::Shim : Way::VirtualDevice;
+    target_ = readAppSetting(settings_.stateFile, "target") == "g25" ? Target::G25 : Target::G920;
     refresh();
-    WE_LOG_INFO(log(), "target {}; config {}", name(way_), selected_.empty() ? "(none)" : selected_);
+    WE_LOG_INFO(log(), "target {}; config {}", name(), selected_.empty() ? "(none)" : selected_);
 }
 
-std::filesystem::path ConfigPicker::builtInPath() const { return settings_.builtInFolder / builtInName(way_); }
+std::filesystem::path ConfigPicker::builtInPath() const { return settings_.builtInFolder / builtInName(); }
 
 std::filesystem::path ConfigPicker::ownPath() const {
-    return settings_.userFolder / (std::string("my-") + builtInName(way_));
+    return settings_.userFolder / ("my-" + builtInName());
 }
 
 void ConfigPicker::refresh() {
@@ -81,7 +85,7 @@ bool ConfigPicker::dropOwnEdits(std::string& error) {
         WE_LOG_WARN(log(), "{}", error);
         return false;
     }
-    WE_LOG_INFO(log(), "own mapping dropped ({}): {} uses the default {} again", own.string(), name(way_),
+    WE_LOG_INFO(log(), "own mapping dropped ({}): {} uses the default {} again", own.string(), name(),
                 builtInPath().string());
     refresh();
     return true;
@@ -91,10 +95,23 @@ void ConfigPicker::choose(const Way way) {
     if (way == way_) return;
     way_ = way;
     if (!writeAppSetting(settings_.stateFile, "way", way == Way::Shim ? "shim" : "virtual")) {
+        WE_LOG_WARN(log(), "cannot save the way in {}", settings_.stateFile.string());
+    }
+    chosen();
+}
+
+void ConfigPicker::choose(const Target target) {
+    if (target == target_) return;
+    target_ = target;
+    if (!writeAppSetting(settings_.stateFile, "target", profileName(target))) {
         WE_LOG_WARN(log(), "cannot save the target in {}", settings_.stateFile.string());
     }
+    chosen();
+}
+
+void ConfigPicker::chosen() {
     refresh();
-    WE_LOG_INFO(log(), "target {}; config {}", name(way_), selected_.empty() ? "(none)" : selected_);
+    WE_LOG_INFO(log(), "target {}; config {}", name(), selected_.empty() ? "(none)" : selected_);
 }
 
 bool ConfigPicker::onClick(const float x, const float y) {
@@ -132,10 +149,10 @@ float ConfigPicker::draw(const float x0, const float y, const bool canChange) {
         x += width + 4;
         arrow(">");
     };
-    // The target: only the G920 for now, so its arrows are off.
-    picker("Target", 64, targetName(), kTargetWidth, nullptr);
+    // The target and the way: two of each, so either arrow goes to the other one.
+    const Target otherTarget = target_ == Target::G920 ? Target::G25 : Target::G920;
+    picker("Target", 64, targetName(target_), kTargetWidth, [this, otherTarget] { choose(otherTarget); });
     x += 16;
-    // How it runs: two ways, so either arrow goes to the other one.
     const Way other = way_ == Way::VirtualDevice ? Way::Shim : Way::VirtualDevice;
     picker("Run as", 56, wayName(way_), kWayWidth, [this, other] { choose(other); });
     return x;

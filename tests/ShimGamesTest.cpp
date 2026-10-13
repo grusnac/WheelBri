@@ -78,6 +78,22 @@ TEST_F(ShimGamesFiles, InstallThenRemove) {
     EXPECT_TRUE(std::filesystem::exists(game() / "Game.exe"));
 }
 
+TEST_F(ShimGamesFiles, TheTargetIsSetInTheShimsSettings) {
+    write(game() / kShimSettings, "; mine\n[shim]\nsource_vid = 346e   ; my rig\ntarget_profile = g920\n");
+    const ShimResult g25 = setShimTarget(game(), "g25");
+    ASSERT_TRUE(g25.ok) << g25.error;
+    EXPECT_EQ(g25.changed.size(), 1U);
+    EXPECT_EQ(read(game() / kShimSettings), "; mine\n[shim]\nsource_vid = 346e   ; my rig\ntarget_profile = g25\n");
+    const ShimResult again = setShimTarget(game(), "g25");   // already so: nothing written
+    ASSERT_TRUE(again.ok);
+    EXPECT_TRUE(again.changed.empty());
+}
+
+TEST_F(ShimGamesFiles, TheTargetMakesTheSettingsWhenMissing) {
+    ASSERT_TRUE(setShimTarget(game(), "g920").ok);
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");
+}
+
 TEST_F(ShimGamesFiles, AnotherModsDllIsLeftAlone) {
     write(game() / kShimDll, "someone else's proxy");
     EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Foreign);

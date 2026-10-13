@@ -103,11 +103,23 @@ inline constexpr std::size_t kG920FirstGear = 12;   // 0-based: Gear 1 .. Gear 6
 // Logitech protocol, which matters for Phase 3/4, not for DirectInput.
 [[nodiscard]] DeviceProfileSpec g920Spec();
 
-// Config names of the built-in profiles, for messages. Only the G920: it is the one wheel WheelBri emulates (a virtual
-// device and the shim both present it). A new target is a new profile here plus its support (driver, shim) first.
-inline constexpr std::string_view kKnownProfiles = "g920";
+// The G25's buttons in native mode (046D:C299): 19, the shifter's included (docs/g25-target-plan.md). Logitech's own
+// numbering puts the gears at 8..14 (0-based: Gear 1 .. Gear 6, then Gear R); the order of the other 12 (4 black and
+// 4 red shifter buttons, 2 paddles, 2 wheel buttons) is not documented and is a guess until a real G25 is captured.
+inline constexpr std::size_t kG25Buttons = 19;
+inline constexpr std::size_t kG25FirstGear = 8;
 
-// Looks up a built-in profile by its config name ("g920"). Returns nullptr for unknown names.
+// Logitech G25 Racing Wheel in native mode (046D:C299, after the mode switch a real one gets from Logitech's driver).
+// The axes are presented like the G920's (wheel X, throttle Y, brake Rz, clutch Slider, released pedals at the top of
+// the range), which is also what a G25 with separate pedals is reported to show in DirectInput; unverified against a
+// real one, like the button order above. The 900 degrees are its full lock.
+[[nodiscard]] DeviceProfileSpec g25Spec();
+
+// Config names of the built-in profiles, for messages: the wheels WheelBri emulates (a virtual device and the shim both
+// present them). A new target is a new profile here plus its support (driver, shim) first.
+inline constexpr std::string_view kKnownProfiles = "g920, g25";
+
+// Looks up a built-in profile by its config name ("g920", "g25"). Returns nullptr for unknown names.
 [[nodiscard]] std::unique_ptr<IDeviceProfile> makeProfile(std::string_view name);
 
 }  // namespace wheelbri

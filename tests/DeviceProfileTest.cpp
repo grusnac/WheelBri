@@ -95,8 +95,51 @@ TEST(DeviceProfile, FactoryKnowsBuiltInProfiles) {
     const auto g920 = makeProfile("g920");
     ASSERT_NE(g920, nullptr);
     EXPECT_EQ(g920->identity().productId, 0xC262);
-    EXPECT_EQ(makeProfile("g29"), nullptr);   // the G920 is the one target
+    const auto g25 = makeProfile("g25");
+    ASSERT_NE(g25, nullptr);
+    EXPECT_EQ(g25->identity().productId, 0xC299);
+    EXPECT_EQ(makeProfile("g29"), nullptr);   // the G920 and the G25 are the targets
     EXPECT_EQ(makeProfile("t300"), nullptr);
+}
+
+TEST(DeviceProfile, G25IsTheNativeModeWheel) {
+    const DeviceProfile profile(g25Spec());
+    EXPECT_EQ(profile.identity().shortName, "G25");
+    EXPECT_EQ(profile.identity().vendorId, 0x046D);
+    EXPECT_EQ(profile.identity().productId, 0xC299);   // native mode, never the Driving Force mode's C294
+    EXPECT_EQ(profile.identity().productName, "Logitech G25 Racing Wheel USB");
+    EXPECT_FLOAT_EQ(profile.identity().rotationDeg, 900.0F);
+    EXPECT_EQ(toString(profile.identity().directInputProductGuid()), "{C299046D-0000-0000-0000-504944564944}");
+}
+
+TEST(DeviceProfile, G25ButtonsHaveTheGearsAtLogitechsNumbers) {
+    const DeviceProfile profile(g25Spec());
+    EXPECT_EQ(profile.buttonCount(), kG25Buttons);
+    EXPECT_EQ(kG25Buttons, 19U);
+    EXPECT_EQ(profile.buttonName(kG25FirstGear), "Gear 1");      // joy.cpl 9
+    EXPECT_EQ(profile.buttonName(kG25FirstGear + 5), "Gear 6");
+    EXPECT_EQ(profile.buttonName(kG25FirstGear + 6), "Gear R");  // joy.cpl 15
+    for (std::size_t i = 0; i < kG25Buttons; ++i) EXPECT_FALSE(profile.buttonName(i).empty()) << i;
+    EXPECT_TRUE(profile.buttonName(kG25Buttons).empty());
+}
+
+TEST(DeviceProfile, G25EncodesLikeTheG920) {
+    const DeviceProfile g25(g25Spec());
+    const DeviceProfile g920(g920Spec());
+    WheelState state;
+    state.steering = -0.25F;
+    state.throttle = 0.5F;
+    state.brake = 1.0F;
+    state.clutch = 0.0F;
+    state.hat = 3;
+    state.buttons = 0xFFFFFFFFU;
+    const TargetReport report = g25.encode(state);
+    EXPECT_EQ(report.steering, g920.encode(state).steering);
+    EXPECT_EQ(report.throttle, g920.encode(state).throttle);
+    EXPECT_EQ(report.brake, 0);          // fully pressed: the bottom of the range
+    EXPECT_EQ(report.clutch, 65535);     // released: the top
+    EXPECT_EQ(report.hat, 3);
+    EXPECT_EQ(report.buttons, (1U << kG25Buttons) - 1U);   // all 19, nothing above
 }
 
 }  // namespace

@@ -142,7 +142,7 @@ void MappingEditView::load() {
     builtIn_ = picker_.builtIn();
     refreshDevices();
     if (path_.empty()) {
-        status_ = std::string("No config: config/") + ConfigPicker::builtInName(picker_.way()) +
+        status_ = std::string("No config: config/") + picker_.builtInName() +
                   " is not next to the program.";
         statusError_ = true;
         return;
@@ -198,7 +198,7 @@ void MappingEditView::save() {
     std::filesystem::create_directories(target.parent_path(), ec);
     std::string text;
     if (builtIn_) {
-        text = std::string("; WheelBri: your own mapping for the ") + ConfigPicker::name(picker_.way()) +
+        text = std::string("; WheelBri: your own mapping for the ") + picker_.name() +
                " (the Mapping tab's Save; Default deletes it)\r\n";
     }
     text += written.text;
@@ -548,7 +548,8 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
 void MappingEditView::draw() {
     hits_.clear();
     tips_.clear();
-    const std::string target = profile_ != nullptr ? profile_->identity().shortName : std::string("G920");
+    const std::string target = profile_ != nullptr ? profile_->identity().shortName
+                                                   : std::string(ConfigPicker::targetName(picker_.target()));
     // The top row: the title left; Default, Save and Revert right, left of the version (Version.hpp). The second row:
     // Target and Run as left; with Run as Shim, the app draws the shim's game at its right (App: gamesRowX).
     const float revertX = canvasW() - kVersionReserve - 80;

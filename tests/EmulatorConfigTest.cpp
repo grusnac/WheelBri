@@ -27,6 +27,12 @@ TEST(EmulatorConfig, EmptyFileGivesDefaults) {
     EXPECT_EQ(result.config.stateRateHz, 500);
 }
 
+TEST(EmulatorConfig, ReadsTheG25Target) {
+    const auto result = load("[emulator]\ntarget_profile = g25\n");
+    EXPECT_TRUE(result.errors.empty());
+    EXPECT_EQ(result.config.targetProfile, "g25");
+}
+
 TEST(EmulatorConfig, RejectsNotANumber) {
     // "nan" passes a range check (every comparison is false) and would switch the force cap off.
     const auto result = load("[ffb]\nmax_magnitude = nan\nmax_slew_per_second = inf\n[brake]\ngamma = -nan\n");

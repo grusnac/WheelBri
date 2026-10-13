@@ -143,7 +143,8 @@ try {
         Fail "WheelBri needs Windows 11 (build 22000 or newer) for its virtual G920 driver; this is build $build."
     }
     Write-Host "    Windows build $build, 64-bit: fine"
-    foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini', 'uninstall.ps1', 'Uninstall.cmd',
+    foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini',
+                          'config\g25-virtual-device.ini', 'config\g25-in-game-shim.ini', 'uninstall.ps1', 'Uninstall.cmd',
                           'driver\common.ps1', 'driver\install-driver.ps1', 'driver\hide\install-hide.ps1') {
         if (-not (Test-Path -LiteralPath (Join-Path $package $required))) {
             Fail "the package is incomplete ($required is missing): unpack the whole package again."

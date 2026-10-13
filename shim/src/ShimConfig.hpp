@@ -10,13 +10,14 @@
 namespace wheelbri::shim {
 
 // Settings of the proxy DLL, read once from wheelbri-shim.ini next to the DLL. The file is optional;
-// without it the shim presents the first device with vendor id 346e (source_vid) as a G920 fed by the service on the default port.
+// without it the shim presents the first device with vendor id 346e (source_vid) as a G920 fed by the service on the
+// default port.
 //
 //   [shim]
 //   emulate = true             ; false = Phase 0 behaviour: log and pass every device through unchanged
 //   source_vid = 346e          ; USB vendor id of the rig's wheel to replace (hex, the Rig tab's vid:pid)
 //   source_pid = any           ; or a hex product id
-//   target_profile = g920      ; the one wheel WheelBri emulates
+//   target_profile = g920      ; g920 or g25 (the app sets it at Start, from the Mapping tab's Target)
 //   state_port = 41329         ; must match the service's state_port
 //   stale_after_ms = 1500      ; no packet for this long = wheel centred, pedals released (the last
 //                              ; input is held until then, so a short service hiccup is not felt)
@@ -24,7 +25,7 @@ namespace wheelbri::shim {
 //                              ; passthrough = straight to the wheel's driver; off = no force feedback
 //   ffb_port = 41330           ; must match ffb_port in the service config
 //   throttle_axis = y          ; DirectInput axis per pedal: x y z rx ry rz slider (clutch also: none).
-//   brake_axis = rz            ;   Defaults: the G920's y / rz / slider.
+//   brake_axis = rz            ;   Defaults: the target's, y / rz / slider for the G920 and the G25.
 //   clutch_axis = slider
 //   invert_pedals = false      ; true = pressed and released swapped for all pedals
 //

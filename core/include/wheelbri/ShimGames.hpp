@@ -8,7 +8,7 @@
 
 namespace wheelbri {
 
-// The games the app put the in-game shim into (target "G920 in-game shim"): each is a folder holding the game's .exe,
+// The games the app put the in-game shim into (Run as Shim): each is a folder holding the game's .exe,
 // where the shim is dinput8.dll plus its settings, wheelbri-shim.ini. The list lives in a small file of the app's
 // (shimGamesFile() in the service), one game per line, so the user never types a path: Add game picks the folder.
 struct ShimGame {
@@ -65,6 +65,10 @@ struct ShimResult {
 // wheelbri-shim.ini is there yet (the user's edits stay). Fails while the game runs (Windows locks the DLL).
 ShimResult installShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll,
                        const std::filesystem::path& sourceSettings);
+// Makes the shim in `folder` present `profile` ("g920", "g25"): [shim] target_profile in its wheelbri-shim.ini, the
+// file's other lines (the user's edits) kept. Nothing is written when it already says so (`changed` stays empty); a
+// missing file is created with just that line. The app does it at Start, for the target picked on the Mapping tab.
+ShimResult setShimTarget(const std::filesystem::path& folder, const std::string& profile);
 // Deletes what installShim put there: dinput8.dll (only ours) and wheelbri-shim.ini.
 ShimResult removeShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll);
 

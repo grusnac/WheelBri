@@ -51,7 +51,7 @@ void putU32(std::span<std::uint8_t> out, const std::uint32_t offset, const std::
 JoystickLayout layoutFor(const std::string_view profile, const std::size_t buttonCount) {
     JoystickLayout layout;
     layout.buttonCount = buttonCount;
-    static_cast<void>(profile);   // one built-in layout: the G920's
+    static_cast<void>(profile);   // the G920 and the G25 share one: throttle Y, brake Rz, clutch Slider
     return layout;
 }
 
