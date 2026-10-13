@@ -64,7 +64,9 @@ constexpr float kHeight = MappingView::kHeight;
 constexpr float kControlsY = 0;            // the top row: the shim's games
 constexpr float kControlsHeight = 16;
 constexpr float kButtonWidth = 68;
-constexpr float kGamesX = 220;              // the shim's games ("Game < name > Add"), left of the status: 360 wide
+constexpr float kGamesX = 220;              // the live view: the shim's games ("Game < name > Games (N)"), 370 wide
+constexpr float kGamesWidth = 370;
+constexpr float kGamesEditorY = 18;         // the Mapping tab's editor: its second row, at the right edge
 constexpr std::size_t kHeaderChars = 50;    // the live view's title on the Mapping tab...
 constexpr std::size_t kHeaderCharsShim = 26;   // ...and with the games row next to it
 // The app's popups (a question or a notice), over everything: centred (App::popupX, popupY).
@@ -422,9 +424,9 @@ private:
                     if (stopButton().hit(click)) stop();
                     continue;
                 }
-                // The shim's games, left of the status (only with the target G920 in-game shim).
+                // The shim's game (only with Run as Shim), where gamesRowX / gamesRowY put it.
                 if (showingMapping() && shimTarget() && !(editingMapping && mapping_->popupOpen()) &&
-                    click.y < kControlsY + kControlsHeight && click.x >= kGamesX) {
+                    click.y >= gamesRowY() && click.y < gamesRowY() + kControlsHeight && click.x >= gamesRowX()) {
                     games_->onClick(click.x, click.y);
                     continue;
                 }
@@ -546,6 +548,12 @@ private:
     // Where things are on the canvas now (it grows with the window): the tab bar at the bottom, Start and Stop at its
     // right end, popups centred.
     [[nodiscard]] float tabBarTop() const { return window_->height() - MappingView::kTabBarHeight; }
+    // The shim's game row: in the Mapping tab's editor its second row at the right edge (where Default, Save and Revert
+    // were: they are in the top row now); in the live view the top row, next to the title.
+    [[nodiscard]] float gamesRowX() const {
+        return view_ == nullptr ? window_->width() - 4 - kGamesWidth : kGamesX;
+    }
+    [[nodiscard]] float gamesRowY() const { return view_ == nullptr ? kGamesEditorY : kControlsY; }
     [[nodiscard]] float buttonsY() const { return tabBarTop() + 4; }   // Start and Stop, level with the tab buttons
     [[nodiscard]] float stopX() const { return window_->width() - 4 - kButtonWidth; }
     [[nodiscard]] float startX() const { return stopX() - 4 - kButtonWidth; }
@@ -578,7 +586,6 @@ private:
                 now.rotation = frame->gameRotation;
                 now.ffbGain = frame->gameFfbGain;
                 now.warning = frame->gameWarning;
-                now.settings = frame->gameSettingsStates;
                 const std::optional<std::string> started = gameFollower_.onFrame(frame->gameStarts, frame->gameId);
                 if (started) {
                     mapping_->selectGame(*started);
@@ -870,6 +877,8 @@ private:
         }
         drawControls();   // every tab
         drawVersion();
+        // The editor's hover text over everything it shares the window with (the shim's game row), under the panels.
+        if (showingEditor() && !games_->panelOpen() && !popup_) mapping_->drawTooltip();
         if (games_->panelOpen()) games_->drawPanel();
         if (popup_) drawPopup();
         window_->present();
@@ -951,7 +960,9 @@ private:
                                                : idleTabButtons().back().x + idleTabButtons().back().w;
         const float room = startX() - 12 - tabsEnd - 12;
         status = fit(status, static_cast<std::size_t>(std::max(4.0F, room / ui::kCharWidth)));
-        if (shimTarget() && showingMapping()) games_->draw(kGamesX, kControlsY, state_ == State::Stopped && !popup_);
+        if (shimTarget() && showingMapping()) {
+            games_->draw(gamesRowX(), gamesRowY(), state_ == State::Stopped && !popup_);
+        }
         window_->text(startX() - 12 - static_cast<float>(status.size()) * ui::kCharWidth, tabBarTop() + 10, status,
                       colour);
         startButton().draw(*window_, false);

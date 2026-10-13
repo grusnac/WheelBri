@@ -72,6 +72,8 @@ public:
     // may just have saved it; the rig's mapping follows it).
     void update();
     void draw();
+    // The hover text, after everything else in the window (the app draws the shim's game row over the tab).
+    void drawTooltip();
     // While a session runs or starts the way and the config cannot change.
     void setLocked(bool locked);
 
@@ -95,7 +97,7 @@ public:
     [[nodiscard]] bool popupOpen() const { return mode_ != Mode::Idle; }
 
 private:
-    enum class Mode { Idle, Pick, PickWheel, PickAlt };
+    enum class Mode { Idle, Pick, PickAlt };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
     enum class Slot { Axis, Hat, Button };
     // A number field: the steering rotation, a game's own rotation (`fieldIndex_` = its gameProfiles() index; PerGame
@@ -150,7 +152,6 @@ private:
     void save();
     void dropOwnEdits();
     void refreshDevices();
-    void changeWheel(const DeviceLabels& wheel);
     [[nodiscard]] const RigControl* rigControl(const SourceRef& source, bool axis) const;
 
     [[nodiscard]] const DeviceLabels* wheelLabels() const;
@@ -163,11 +164,9 @@ private:
     [[nodiscard]] SourceRef& slot(Slot kind, std::size_t index);
 
     void drawSource(float x, float y, float w, Slot kind, std::size_t index);
-    void drawWheelRow();   // the wheel (it plays force feedback), Change
     void drawPicker();
-    void drawWheelPicker();
     // A target button's secondary sources (MappingModel::secondaries): its field (the first, "+N" more), and its
-    // picker (the rig's buttons and its throttle, brake, clutch and handbrake axes, each toggled; an axis' threshold).
+    // picker (the rig's buttons and its named axes, each toggled; an axis' threshold).
     void drawAltSource(float x, float y, float w, std::size_t index);
     void drawAltPicker();
     [[nodiscard]] std::string describeAlt(const ButtonRef& alt) const;
@@ -179,7 +178,6 @@ private:
     void drawEntry(float x, float y, float w, const std::string& text, const EntryState& state,
                    std::function<void()> action);
     void tip(float x, float y, float w, float h, std::string text);
-    void drawTooltip();
     // The STEERING ROTATION section from `y`: the rotation, and that the wheel's own software must match it.
     void drawRotation(float y);
     // The Games page: the list of profiles, and the picked one's.

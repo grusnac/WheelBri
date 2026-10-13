@@ -1,6 +1,7 @@
 #include "MappingEditView.hpp"
 
 #include "Platform.hpp"
+#include "Version.hpp"
 
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
@@ -315,24 +316,6 @@ SourceRef& MappingEditView::slot(const Slot kind, const std::size_t index) {
     return edit_.buttons[index];
 }
 
-void MappingEditView::changeWheel(const DeviceLabels& wheel) {
-    const DeviceLabels* const old = wheelLabels();
-    const DeviceId newId = idOf(wheel);
-    // Sources on the old wheel keep pointing at it (now as an accessory); the new wheel's become the wheel's.
-    const auto move = [&](SourceRef& source) {
-        if (source.mapped() && source.device.empty() && old != nullptr) source.device = idOf(*old);
-        if (source.device == newId) source.device = {};
-    };
-    for (SourceRef& s : edit_.axes) move(s);
-    for (SourceRef& s : edit_.buttons) move(s);
-    for (SourceRef& s : edit_.hat) move(s);
-    for (auto& list : edit_.secondaries) {
-        for (ButtonRef& b : list) move(b.source);
-    }
-    edit_.sourceDevice = deviceId(wheel.vendorId, wheel.productId);
-    mode_ = Mode::Idle;
-}
-
 // --- input -------------------------------------------------------------------------------------------------------
 
 void MappingEditView::setLocked(const bool locked) {
@@ -566,29 +549,41 @@ void MappingEditView::draw() {
     hits_.clear();
     tips_.clear();
     const std::string target = profile_ != nullptr ? profile_->identity().shortName : std::string("G920");
+    // The top row: the title left; Default, Save and Revert right, left of the version (Version.hpp). The second row:
+    // Target and Run as left; with Run as Shim, the app draws the shim's game at its right (App: gamesRowX).
+    const float revertX = canvasW() - kVersionReserve - 80;
+    const float saveX = revertX - 8 - 80;
+    const float defaultX = saveX - 8 - 104;
+    // Left of Default: "custom" while the user's own saved mapping is in use, nothing with WheelBri's default.
+    constexpr std::string_view kCustom = "custom";
+    const float customX = defaultX - 10 - static_cast<float>(kCustom.size()) * ui::kCharWidth;
+    if (!builtIn_) {
+        window_.text(customX, 6, std::string(kCustom), kCaution);
+        tip(customX - 4, 2, defaultX - customX, 16, "Your saved mapping, not the default.");
+    }
+    const float titleEnd = builtIn_ ? defaultX : customX;
+    const auto subtitle = [&](const float x, const std::string& text) {
+        window_.text(x, 4, fit(text, static_cast<std::size_t>(std::max(0.0F, (titleEnd - 12 - x) / ui::kCharWidth))),
+                     kDim);
+    };
     if (page_ == Page::Games) {
         window_.text(4, 4, "GAME PROFILES", kHeading);
-        window_.text(116, 4, "the games WheelBri changes something for, and your own values for them", kDim);
+        subtitle(116, "the games WheelBri changes something for, and your own values for them");
     } else {
         window_.text(4, 4, "MAPPING", kHeading);
-        // With the shim, the app's games row is where this would be.
-        if (picker_.virtualDevice()) window_.text(68, 4, "what your controls do on the " + target, kDim);
+        subtitle(68, "what your controls do on the " + target);
     }
 
-    // The target (fixed inputs, picked with < >), then whose mapping onto it this is: WheelBri's default, or the
-    // user's own saved one.
+    // The target (fixed inputs, picked with < >) and how it runs.
     // The target is the Mapping tab's alone: the Game profiles page does not show it (its values are saved with the
     // same mapping, so Default, Save and Revert stay).
     if (page_ != Page::Games) {
         picker_.draw(4, 18, !locked_);
-        window_.text(372, 22, builtIn_ ? "mapping: default" : "mapping: your own", builtIn_ ? kDim : kCaution);
     }
     const bool canSave = loaded_ && dirty() && !locked_;
-    // Default, Save and Revert stay at the right (as far from it as in the design).
-    const float right = extraW();
-    button(580 + right, 18, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
-    button(692 + right, 18, "Save", [this] { save(); }, canSave, canSave, 80);
-    button(780 + right, 18, "Revert", [this] {
+    button(defaultX, 2, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
+    button(saveX, 2, "Save", [this] { save(); }, canSave, canSave, 80);
+    button(revertX, 2, "Revert", [this] {
         edit_ = saved_;
         status_ = "Changes dropped.";
         statusError_ = false;
@@ -599,22 +594,20 @@ void MappingEditView::draw() {
     }
     if (page_ == Page::Games) {
         drawGames();
-        drawTooltip();
         return;
     }
 
+    // No wheel line: there is one rig, and its wheel is device 0 (Rig::wheel, or the config's source_device).
+    float y = 44;
     if (rig_.devices.empty()) {
-        window_.text(4, 42,
+        window_.text(4, y,
                      rigName_.empty() ? "No rig yet: define your devices and their controls in the Rig tab first."
                                       : "The rig has no devices yet: name their controls in the Rig tab.",
                      kCaution);
-    } else {
-        // The wheel: device 0, the one that plays force feedback.
-        drawWheelRow();
+        y += 22;
     }
 
     // Axes, left; D-pad, right.
-    float y = 66;
     window_.text(4, y, "AXES", kHeading);
     window_.text(48, y, "click a source to pick another", kDim);
     // The axes' and the D-pad's source fields share what a wider window adds.
@@ -671,9 +664,7 @@ void MappingEditView::draw() {
 
     popupTips_ = tips_.size();   // a popup's own tips come after the tab's (which it covers)
     if (mode_ == Mode::Pick) drawPicker();
-    if (mode_ == Mode::PickWheel) drawWheelPicker();
     if (mode_ == Mode::PickAlt) drawAltPicker();
-    drawTooltip();   // over everything
 }
 
 void MappingEditView::tip(const float x, const float y, const float w, const float h, std::string text) {
@@ -1421,18 +1412,6 @@ void MappingEditView::drawAltPicker() {
                  kDim);
 }
 
-void MappingEditView::drawWheelRow() {
-    window_.text(4, 42, "Wheel", kDim);
-    const DeviceLabels* const wheel = wheelLabels();
-    window_.text(68, 42,
-                 wheel != nullptr ? fit(deviceName(*wheel), 40) + "  " + deviceId(wheel->vendorId, wheel->productId)
-                                  : "'" + edit_.sourceDevice + "' (not named in the Rig tab yet)",
-                 wheel != nullptr ? kText : kCaution);
-    window_.text(500, 42, "plays force feedback", kDim);
-    const float right = extraW();   // Change stays at the right
-    button(760 + right, 38, "Change", [this] { mode_ = Mode::PickWheel; }, false, !devices_.empty(), 80);
-}
-
 void MappingEditView::drawPicker() {
     hit(0, 0, canvasW(), contentH(), [] {});   // clicks outside the popup do nothing
     window_.fill(kPopupX, kPopupY, popupW(), popupH(), kPopup);
@@ -1518,29 +1497,6 @@ void MappingEditView::drawPicker() {
         }
         y += 8;
     }
-}
-
-void MappingEditView::drawWheelPicker() {
-    hit(0, 0, canvasW(), contentH(), [] {});
-    window_.fill(kPopupX, kPopupY, popupW(), popupH(), kPopup);
-    window_.outline(kPopupX, kPopupY, popupW(), popupH(), kHeading);
-    const float left = kPopupX + 12;
-    window_.text(left, kPopupY + 10, "Which device is the wheel? It plays the game's force feedback.", kHeading);
-    button(kPopupX + popupW() - 100, kPopupY + 6, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 88);
-    const DeviceLabels* const wheel = wheelLabels();
-    float y = kPopupY + 34;
-    for (const DeviceLabels& device : devices_) {
-        const bool on = wheel != nullptr && idOf(device) == idOf(*wheel);
-        window_.fill(left, y, popupW() - 24, 18, on ? kHeading : kPanel);
-        window_.text(left + 6, y + 5,
-                     fit(deviceName(device), 40) + "  " + deviceId(device.vendorId, device.productId) + "  " +
-                         deviceKindName(device.kind),
-                     on ? kDark : kText);
-        hit(left, y, popupW() - 24, 18, [this, device] { changeWheel(device); });
-        y += 22;
-    }
-    window_.text(left, y + 8, "The rig's devices (Rig tab). All of them are hidden from games while WheelBri runs.",
-                 kDim);
 }
 
 }  // namespace wheelbri::service
