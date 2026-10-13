@@ -388,8 +388,9 @@ rewrites on every build only when it changes); views keep their own top-row cont
     setAccessories` (a lost accessory ends the tick like a lost wheel, `lostDevice()`); telemetry `raw_*` columns and
     the Wheel setup tab stay the wheel's. `MappingModel` / `writeMapping` are what the Mapping tab edits and saves
     (IniEditor; default button lines removed). The service opens accessories by id (`openAccessories` in main.cpp).
-  - The config Start uses (`service/src/ConfigPicker.cpp`, the top row of the idle Mapping tab): the target, picked
-    with `<` `>` like the Rig tab's rig: "G920 virtual device" or "G920 in-game shim" (`[app] way` in
+  - The config Start uses (`service/src/ConfigPicker.cpp`, the top row of the idle Mapping tab): two pickers with
+    `<` `>`, Target (`targetName()`: G920 only, its arrows off) and Run as (`wayName()`: Virtual or Shim; in the log
+    still "G920 virtual device" / "G920 in-game shim", `name()`) (`[app] way` in
     `appStateFile()`, `app.ini`; `AppSettings::runSession(host, config, virtualDevice)`). Two layers: the **target**
     is fixed (the G920 profile's axes, D-pad and buttons; never the user's to change), the **mapping** of the rig onto
     it is the user's. Each target has a built-in config, never changed, holding WheelBri's default mapping (the user's

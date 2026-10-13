@@ -99,7 +99,7 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** every game should see a G920 without anything copied into it, on any wheel; third-party virtual-device
   tools (HIDMaestro, ViGEm) are not allowed.
-- **Use:** target **G920 virtual device** on the Mapping tab, then Start (no Administrator: the WheelBri Helper does
+- **Use:** **Run as** **Virtual** on the Mapping tab, then Start (no Administrator: the WheelBri Helper does
   it). Start installs the
   `wheelbri-g920` driver itself when Windows lacks it; Stop or closing the window removes the device.
 - **Look:** joy.cpl lists "Logitech G920 Driving Force Racing Wheel USB"; `wheelbri-driver-<date>-<NN>.log`, the service's
@@ -121,7 +121,7 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** a way that needs no driver: a `dinput8.dll` next to the game presents the rig as a G920 to that game only
   (also under Proton).
-- **Use:** target **G920 in-game shim**, **Games (N)** next to Start: **Add game** (the folder with the game's `.exe`),
+- **Use:** **Run as** **Shim**, **Games (N)** next to Start: **Add game** (the folder with the game's `.exe`),
   pick it, Start. After the session the app asks whether to delete the shim from the game's folder. Settings: an
   optional `wheelbri-shim.ini` next to the DLL.
 - **Look:** `wheelbri-shim-<date>-<NN>.log`; the list is `%LOCALAPPDATA%\wheelbri\shim-games.txt`. Code: `shim/`, core
@@ -162,7 +162,8 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** the target (the G920) is fixed; which rig control drives each of its axes and buttons is the user's.
 - **Use:** tab M while stopped: click a G920 input and pick a rig control (there is no Auto-map: you decide);
-  **Save** writes your own mapping, **Default** goes back to WheelBri's. While running the same tab is the live view.
+  **Save** writes your own mapping ("custom" then shows left of **Default**; hover it for why), **Default** goes back
+  to WheelBri's. While running the same tab is the live view.
   Every G920 input has one **role assignment** (its main source), and every G920 button can also have up to 8
   **secondary assignments** ("or"): buttons, or named axes (a pedal or a lever makes sense: one-sided) that press it
   past a threshold of their travel (25-75%, 50% by default), e.g. G920 X <- the wheel's X *or* a handbrake lever *or*
@@ -172,8 +173,8 @@ a headline, why it was needed, how to use it, and where to look.
   pickers show a control used elsewhere greyed, and hovering over it says where ("Role: G920 A", "Secondary of G920
   X"); clear it there first. A control used twice (an older mapping) is red, with both places in its tooltip; Save
   refuses until it is fixed, and Start warns about it. A source pointing at a control the rig has not named is amber.
-  The wheel (it plays force feedback) is the one **Change** picks; without one, the rig's first device of kind wheel,
-  else its first device.
+  There is no wheel line: the wheel (it plays force feedback) is the rig's first device of kind wheel, else its first
+  device (an older config's `source_device` still names it).
   **Steering rotation**: the game's full
   lock (slider, typed degrees, or 180 / 360 / 540 / 720 / 900 / 1080). **Set your wheel's own software (Pit House for
   Moza) to the same number**: WheelBri passes the wheel through 1:1 and never reads or sets the wheel's own settings,
@@ -408,10 +409,10 @@ from another controller (a gamepad or the keyboard): the state next to Start / S
 USING THE WHEEL** in red and the log says so. Close the game with WheelBri running, start it again and pick the wheel
 in its controls settings.
 
-**Target** (the top row of the Mapping tab, while stopped) picks the target with `<` `>`, like the Rig tab's device:
-**G920 virtual device** (WheelBri's driver, every game sees it, the rig is hidden) or **G920 in-game shim** (`dinput8.dll`
-next to the game's `.exe`, nothing hidden, nothing created). The G920 is the only target wheel; others come only when
-WheelBri supports them. A target is fixed: the G920's axes, D-pad and buttons are what they are. What drives each of
+The top row of the Mapping tab (while stopped) has two pickers, each with `<` `>`: **Target**, the wheel WheelBri
+emulates (the **G920**, the only one for now: others come only when WheelBri supports them), and **Run as**: **Virtual**
+(WheelBri's driver, every game sees it, the rig is hidden) or **Shim** (`dinput8.dll` next to the game's `.exe`, nothing
+hidden, nothing created). A target is fixed: the G920's axes, D-pad and buttons are what they are. What drives each of
 them is the mapping, and that is the user's: each target's built-in config (`config/g920-virtual-device.ini`,
 `config/g920-in-game-shim.ini`, next to the program or one or two folders up) holds WheelBri's default mapping, used
 until you save your own on the Mapping tab (`%LOCALAPPDATA%\wheelbri\configs\my-g920-virtual-device.ini` or
@@ -420,7 +421,7 @@ until you save your own on the Mapping tab (`%LOCALAPPDATA%\wheelbri\configs\my-
 (in a shortcut) starts with another config, and the other options below work too. `wheelbri-service --app` is the same window
 from a console (and on Linux).
 
-**Games** (only with the target **G920 in-game shim**): next to Start the app shows the game Start is for and a
+**Games** (only with **Run as** **Shim**): next to Start the app shows the game Start is for and a
 **Games (N)** button. It opens the games panel: every game the shim was put into, with its folder and whether the shim
 is there (shim in place / no shim / another dinput8.dll). Click a game to pick it; **Add game** opens Windows' folder
 window: choose the folder that holds the game's `.exe` and WheelBri copies the shim there (`dinput8.dll`, and
@@ -466,7 +467,7 @@ other rig files from when the tab managed several stay in the folder, unused). T
 rig is saved, then on Mapping; Start switches to the Logs tab so you can see it come up.
 
 **Mapping** (tab M, while stopped; while running the same tab is the live view) maps the active rig's controls onto
-the G920: the wheel (the device that plays force feedback, **Change** to pick another), Steering / Throttle / Brake /
+the G920: Steering / Throttle / Brake /
 Clutch (each with **Invert**), the D-pad and the G920's buttons, each picked by you. Click a source
 and pick a control of the wheel or of an accessory (up to 3 besides the wheel), or "(nothing)". **Save** writes your own
 mapping for the target (`my-g920-<target>.ini`, comments and other settings kept). **Revert** drops unsaved changes,

@@ -11,11 +11,12 @@
 
 namespace wheelbri::service {
 
-// The top row of the app's Mapping tab: the target, and so the config Start uses.
-//
-// WheelBri emulates one wheel, the Logitech G920, in one of two ways, picked with < > like the Rig tab's device:
-//   - G920 virtual device: WheelBri's own driver, a device every game sees (Administrator; the rig is hidden);
-//   - G920 in-game shim: dinput8.dll next to the game's .exe presents the rig's wheel as a G920 to that game only.
+// The top row of the app's Mapping tab: the target and how it runs, and so the config Start uses. Two pickers, each
+// with < >:
+//   - Target: the wheel WheelBri emulates. One for now, the Logitech G920 (more come only when WheelBri supports them,
+//     never from the user; docs/g25-target-plan.md);
+//   - Run as: Virtual (WheelBri's own driver, a device every game sees; Administrator; the rig is hidden) or Shim
+//     (dinput8.dll next to the game's .exe presents the rig's wheel as the target to that game only).
 // The choice is kept in the app's state file ([app] way). Each target has a built-in config (config/g920-virtual-
 // device.ini, config/g920-in-game-shim.ini): the target's own inputs (fixed) and WheelBri's default mapping of the rig
 // onto them. The user's own mapping, once saved on the Mapping tab, goes to <user configs>/my-<built-in name> and is
@@ -34,8 +35,11 @@ public:
 
     [[nodiscard]] Way way() const { return way_; }
     [[nodiscard]] bool virtualDevice() const { return way_ == Way::VirtualDevice; }
-    // "G920 virtual device", "G920 in-game shim".
+    // "G920 virtual device", "G920 in-game shim": for the log and the status.
     [[nodiscard]] static const char* name(Way way);
+    // The target's short name ("G920"), and the way's ("Virtual", "Shim"), as the row shows them.
+    [[nodiscard]] static const char* targetName();
+    [[nodiscard]] static const char* wayName(Way way);
     // The built-in config's file name for a way ("g920-virtual-device.ini").
     [[nodiscard]] static const char* builtInName(Way way);
 
@@ -53,8 +57,9 @@ public:
     // Deletes the user's own mapping for the target: the default again. False (and `error`) if it cannot.
     bool dropOwnEdits(std::string& error);
 
-    // Draws the row at (x, y): "Target", <, the target's name, >. `canChange` is false while a session runs or starts.
-    void draw(float x, float y, bool canChange);
+    // Draws the row at (x, y): "Target" < G920 >, then "Run as" < Virtual | Shim >. `canChange` is false while a
+    // session runs or starts. Returns the x where the row ends.
+    float draw(float x, float y, bool canChange);
     // A click on the tab; true if it was on the row.
     bool onClick(float x, float y);
 

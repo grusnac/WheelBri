@@ -26,7 +26,8 @@ constexpr Colour kHeading{120, 190, 255};
 constexpr Colour kDark{16, 18, 20};
 
 constexpr float kArrowWidth = 24;
-constexpr float kFieldWidth = 220;
+constexpr float kTargetWidth = 72;   // "G920"
+constexpr float kWayWidth = 80;      // "Virtual", "Shim"
 constexpr float kRowHeight = 16;
 
 }  // namespace
@@ -34,6 +35,10 @@ constexpr float kRowHeight = 16;
 const char* ConfigPicker::name(const Way way) {
     return way == Way::VirtualDevice ? "G920 virtual device" : "G920 in-game shim";
 }
+
+const char* ConfigPicker::targetName() { return "G920"; }
+
+const char* ConfigPicker::wayName(const Way way) { return way == Way::VirtualDevice ? "Virtual" : "Shim"; }
 
 const char* ConfigPicker::builtInName(const Way way) {
     return way == Way::VirtualDevice ? "g920-virtual-device.ini" : "g920-in-game-shim.ini";
@@ -104,26 +109,36 @@ bool ConfigPicker::onClick(const float x, const float y) {
     return false;
 }
 
-void ConfigPicker::draw(const float x0, const float y, const bool canChange) {
+float ConfigPicker::draw(const float x0, const float y, const bool canChange) {
     hits_.clear();
-    window_.text(x0, y + 4, "Target", kDim);
-    float x = x0 + 64;
-    // Two targets: either arrow goes to the other one.
-    const Way other = way_ == Way::VirtualDevice ? Way::Shim : Way::VirtualDevice;
-    const auto arrow = [&](const char* label) {
-        window_.fill(x, y, kArrowWidth, kRowHeight, canChange ? kPanel : kDark);
-        window_.outline(x, y, kArrowWidth, kRowHeight, canChange ? kDim : kPanel);
-        window_.text(x + (kArrowWidth - ui::kCharWidth) / 2, y + 4, label, canChange ? kText : kDim);
-        if (canChange) hits_.push_back({x, y, kArrowWidth, kRowHeight, [this, other] { choose(other); }});
-        x += kArrowWidth + 4;
+    float x = x0;
+    // One picker: a label, <, the value, >. `step` null: nothing to go to (the arrows are drawn off).
+    const auto picker = [&](const char* label, const float labelWidth, const std::string& value, const float width,
+                            const std::function<void()>& step) {
+        window_.text(x, y + 4, label, kDim);
+        x += labelWidth;
+        const bool on = canChange && step != nullptr;
+        const auto arrow = [&](const char* glyph) {
+            window_.fill(x, y, kArrowWidth, kRowHeight, on ? kPanel : kDark);
+            window_.outline(x, y, kArrowWidth, kRowHeight, on ? kDim : kPanel);
+            window_.text(x + (kArrowWidth - ui::kCharWidth) / 2, y + 4, glyph, on ? kText : kDim);
+            if (on) hits_.push_back({x, y, kArrowWidth, kRowHeight, step});
+            x += kArrowWidth + 4;
+        };
+        arrow("<");
+        window_.fill(x, y, width, kRowHeight, kStripe);
+        window_.text(x + (width - static_cast<float>(value.size()) * ui::kCharWidth) / 2, y + 4, value,
+                     canChange ? kHeading : kText);
+        x += width + 4;
+        arrow(">");
     };
-    arrow("<");
-    window_.fill(x, y, kFieldWidth, kRowHeight, kStripe);
-    const std::string label = name(way_);
-    window_.text(x + (kFieldWidth - static_cast<float>(label.size()) * ui::kCharWidth) / 2, y + 4, label,
-                 canChange ? kHeading : kText);
-    x += kFieldWidth + 4;
-    arrow(">");
+    // The target: only the G920 for now, so its arrows are off.
+    picker("Target", 64, targetName(), kTargetWidth, nullptr);
+    x += 16;
+    // How it runs: two ways, so either arrow goes to the other one.
+    const Way other = way_ == Way::VirtualDevice ? Way::Shim : Way::VirtualDevice;
+    picker("Run as", 56, wayName(way_), kWayWidth, [this, other] { choose(other); });
+    return x;
 }
 
 }  // namespace wheelbri::service
