@@ -60,6 +60,11 @@ struct UiFrame {
     std::uint32_t gamePid = 0;
     std::uint64_t gameForMs = 0;                  // how long it has been followed
     std::uint64_t gameStarts = 0;                 // profiled games started this session: the tab follows each one
+    // A game that does not work the way the session runs (GameWatch::wayAdvice): what to tell the user while it runs,
+    // and how many such starts this session (the app tells the user once per start, WayNoticeFollower).
+    std::string gameWayTitle;
+    std::string gameWayText;
+    std::uint64_t gameWayNotices = 0;
     float gameFfbGain = 1.0F;                     // the force feedback gain in use
 };
 

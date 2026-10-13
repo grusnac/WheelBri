@@ -21,6 +21,7 @@
 #include <shellapi.h>
 #include <shobjidl.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -54,6 +55,21 @@ std::wstring widen(const std::string_view text) {
     MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), size);
     return out;
 }
+
+// `text` into a fixed WCHAR array of a Windows struct, cut to fit (a cut word keeps "..." at its end) and ended.
+template <std::size_t N>
+void copyCut(WCHAR (&out)[N], const std::wstring_view text) {
+    static_assert(N > 4);
+    std::size_t n = std::min(text.size(), N - 1);
+    for (std::size_t i = 0; i < n; ++i) out[i] = text[i];
+    if (text.size() > N - 1) {
+        for (std::size_t i = N - 4; i < N - 1; ++i) out[i] = L'.';
+        n = N - 1;
+    }
+    out[n] = L'\0';
+}
+
+constexpr UINT kTrayId = 1;   // WheelBri's one icon in the notification area (notify)
 
 std::string lastError(const char* what) {
     return std::string(what) + " failed (error " + std::to_string(GetLastError()) + ")";
@@ -97,6 +113,13 @@ public:
         : logicalWidth_(logicalWidth), logicalHeight_(logicalHeight) {}
 
     ~Win32Window() override {
+        if (trayIcon_) {
+            NOTIFYICONDATAW data{};
+            data.cbSize = sizeof(data);
+            data.hWnd = window_;
+            data.uID = kTrayId;
+            Shell_NotifyIconW(NIM_DELETE, &data);
+        }
         releaseBuffer();
         if (font_ != nullptr) DeleteObject(font_);
         if (window_ != nullptr) {
@@ -305,6 +328,34 @@ public:
         }
         dialog->Release();
         return finish(chosen);
+    }
+
+    // WheelBri's icon in the notification area, added with the first notification and there until the window goes (a
+    // toast whose icon is gone may vanish from the notification centre); each notification is a balloon on it.
+    bool notify(const std::string& title, const std::string& text) override {
+        if (window_ == nullptr) return false;
+        NOTIFYICONDATAW data{};
+        data.cbSize = sizeof(data);
+        data.hWnd = window_;
+        data.uID = kTrayId;
+        data.uFlags = NIF_ICON | NIF_TIP | NIF_INFO;
+        data.hIcon = reinterpret_cast<HICON>(GetClassLongPtrW(window_, GCLP_HICONSM));
+        if (data.hIcon == nullptr) data.hIcon = LoadIconW(nullptr, reinterpret_cast<LPCWSTR>(IDI_APPLICATION));
+        copyCut(data.szTip, L"WheelBri");
+        copyCut(data.szInfoTitle, widen(title));
+        copyCut(data.szInfo, widen(text));
+        data.dwInfoFlags = NIIF_WARNING;
+        if (!trayIcon_) {
+            if (Shell_NotifyIconW(NIM_ADD, &data) == FALSE) {
+                WE_LOG_WARN(logging::get("service.ui"), "notification: the notification area refused WheelBri's icon");
+                return false;
+            }
+            trayIcon_ = true;
+        } else if (Shell_NotifyIconW(NIM_MODIFY, &data) == FALSE) {
+            WE_LOG_WARN(logging::get("service.ui"), "notification: not shown by Windows");
+            return false;
+        }
+        return true;
     }
 
     [[nodiscard]] std::string describe() const override {
@@ -586,6 +637,7 @@ private:
     int logicalWidth_;
     int logicalHeight_;
     HWND window_ = nullptr;
+    bool trayIcon_ = false;   // notify() added WheelBri's icon to the notification area
     HDC buffer_ = nullptr;
     HBITMAP bitmap_ = nullptr;
     HGDIOBJ previousBitmap_ = nullptr;

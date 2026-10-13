@@ -19,6 +19,7 @@
 #include "wheelbri/Rig.hpp"
 #include "wheelbri/StartNeeds.hpp"
 #include "wheelbri/WakePlanner.hpp"
+#include "wheelbri/WayNotices.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <algorithm>
@@ -505,6 +506,11 @@ private:
             mapping_->setPage(showingGames() ? MappingEditView::Page::Games : MappingEditView::Page::Mapping);
             if (showingEditor()) mapping_->update();
             if (std::string problem; games_->takeProblem(problem)) notice("Games with the shim", problem);
+            if (pendingWayNotice_ && !popup_) {   // never over another popup (a question would be lost)
+                notice(pendingWayNotice_->title, pendingWayNotice_->text);
+                popup_->warning = true;
+                pendingWayNotice_.reset();
+            }
             if (quitting_ && !running()) {
                 break;
             }
@@ -586,6 +592,15 @@ private:
                 now.rotation = frame->gameRotation;
                 now.ffbGain = frame->gameFfbGain;
                 now.warning = frame->gameWarning;
+                // A game that does not work the way this session runs: told once per start, by Windows (seen over the
+                // game) and in the app (when the user comes back to it).
+                if (wayFollower_.onFrame(frame->gameWayNotices) && !frame->gameWayTitle.empty()) {
+                    if (!window_->notify(frame->gameWayTitle, frame->gameWayText)) {
+                        WE_LOG_INFO(log(), "no system notification here ({}): the app's popup says it",
+                                    window_->describe());
+                    }
+                    pendingWayNotice_ = Notice{frame->gameWayTitle, frame->gameWayText};
+                }
                 const std::optional<std::string> started = gameFollower_.onFrame(frame->gameStarts, frame->gameId);
                 if (started) {
                     mapping_->selectGame(*started);
@@ -777,6 +792,8 @@ private:
         }
         setup_->releaseWheel();   // the session opens the wheel now
         gameFollower_.reset();    // the new session counts its games' starts from 0
+        wayFollower_.reset();
+        pendingWayNotice_.reset();
         idleTab_ = IdleTab::Logs;  // the logs at once: the session writes them while it comes up
         session_ = std::thread([this, config, virtualDevice] {
             platform::nameThisThread("wheelbri session");
@@ -1112,6 +1129,12 @@ private:
     std::unique_ptr<MappingEditView> mapping_;
     std::unique_ptr<ShimGamesView> games_;   // the shim's games (target G920 in-game shim)
     GameTabFollower gameFollower_;            // the Game profiles tab opens when a profiled game starts
+    WayNoticeFollower wayFollower_;           // a game that does not work this way: told once per start
+    struct Notice {
+        std::string title;
+        std::string text;
+    };
+    std::optional<Notice> pendingWayNotice_;  // shown as a popup once no other popup is open
     std::filesystem::path sessionGame_;       // the game a shim session was started for
     std::string sessionGameName_;
     std::optional<Popup> popup_;

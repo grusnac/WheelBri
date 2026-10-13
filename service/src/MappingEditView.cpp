@@ -882,6 +882,14 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
                  fit("program " + game.program, gameChars() - game.label.size() - 2),
                  kDim);
     y += 16;
+    // A game that works one way only ([game] ways): a session run the other way tells the user when it starts.
+    if (!game.virtualDevice || !game.shim) {
+        const std::string only = game.shim ? "Run as Shim only" : "Run as Virtual only";
+        for (const std::string& line : wrap(only + ": " + game.waysNote + ".", gameChars(), 2)) {
+            window_.text(kGameX, y, line, kCaution);
+            y += 12;
+        }
+    }
 
     // Now: the game that runs (while a session does), else how it is found.
     if (now_.id == game.id) {

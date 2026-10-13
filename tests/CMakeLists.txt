@@ -63,6 +63,7 @@ add_executable(wheelbri_tests
     UdpLoopbackTest.cpp
     VirtualWheelTest.cpp
     WaitForTest.cpp
+    WayNoticesTest.cpp
     WakePlannerTest.cpp
     WheelOutputTest.cpp
     emulators/PushEmulators.cpp

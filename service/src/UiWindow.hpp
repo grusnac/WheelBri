@@ -139,6 +139,11 @@ public:
     // no such window here (`error` says so; X11 has none).
     virtual bool pickFolder(const std::string& title, std::filesystem::path& folder, std::string& error) = 0;
 
+    // A system notification (Windows: the notification area's balloon, shown as a toast and kept in the notification
+    // centre), seen even while a game is in front. False when there is none here (X11) or it failed: the caller shows
+    // it in the window too either way.
+    virtual bool notify(const std::string& /*title*/, const std::string& /*text*/) { return false; }
+
     // For the log: "Win32 GDI", "X11 (font ...)".
     [[nodiscard]] virtual std::string describe() const = 0;
 

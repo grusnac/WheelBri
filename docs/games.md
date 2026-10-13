@@ -37,7 +37,8 @@ Played on the tested rig: wheel, pedals, buttons and force feedback checked in t
 ### NFS Payback (`NeedForSpeedPayback.exe`)
 
 - **Ways:** G920 virtual device only. With the in-game shim the game showed a DirectX error (ResizeBuffers) and did
-  not start.
+  not start. Its profile says so (`ways = virtual`): started with Run as Shim, the app tells you to switch (a Windows
+  notification and a popup).
 - **Works:** steering, throttle, brake, handbrake, nitro, buttons, D-pad, Xbox button prompts; force feedback
   through the safety limiter.
 - **Caveats:**

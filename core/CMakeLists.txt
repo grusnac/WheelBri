@@ -57,6 +57,7 @@ add_library(wheelbri_core STATIC
     src/WaitFor.cpp
     src/EventLoopControl.cpp
     src/WakePlanner.cpp
+    src/WayNotices.cpp
     src/WheelOutput.cpp
 )
 

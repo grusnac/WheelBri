@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wheelbri/GameDetector.hpp"
+#include "wheelbri/WayNotices.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameRotation.hpp"
 #include "wheelbri/GameSettings.hpp"
@@ -46,8 +47,13 @@ public:
 
     // For the window's status, after "Running 1:23, ": the profile's label ("NFS 2015") while it is in use, else empty.
     [[nodiscard]] std::string status() const;
-    // For the window, in red: what the player should fix ("NFS 2015: RESET ITS WHEEL CONTROLS"), or empty.
-    [[nodiscard]] const std::string& warning() const { return warning_; }
+    // For the window, in red: what the player should fix ("NFS PAYBACK NEEDS THE VIRTUAL DEVICE", "NFS 2015: RESET ITS
+    // WHEEL CONTROLS"), or empty.
+    [[nodiscard]] const std::string& warning() const { return wayWarning_.empty() ? warning_ : wayWarning_; }
+    // A game that does not work the way this session runs ([game] ways: NFS Payback with the shim): the advice while it
+    // runs, and how many times such a game started this session (the app tells the user once per start).
+    [[nodiscard]] const std::optional<WayAdvice>& wayAdvice() const { return wayNotices_.current(); }
+    [[nodiscard]] std::uint64_t wayNotices() const { return wayNotices_.count(); }
     // For the window, after the label: the rotation the game steers with while it is not the mapping's own ("180
     // deg"), else empty: the wheel's own software must be set to it while the game runs.
     [[nodiscard]] std::string rotationStatus() const;
@@ -84,6 +90,8 @@ private:
     std::uint64_t followedSinceMs_ = 0;                        // Live::sinceMs
     const GameProfile* unroutable_ = nullptr;   // a profile the device cannot apply, said once
     std::string warning_;
+    WayNotices wayNotices_;          // the session runs the shim when it does not route the pedals (the shim does)
+    std::string wayWarning_;         // wayNotices_.current()'s title, upper case, for warning()
     // NFS 2015's settings file: checked again only when its last write changes.
     std::optional<std::filesystem::file_time_type> settingsWritten_;
 };

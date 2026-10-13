@@ -1266,6 +1266,11 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             frame->game = gameWatch.status();
             frame->gameWarning = gameWatch.warning();
             frame->gameRotation = gameWatch.rotationStatus();
+            if (const auto& advice = gameWatch.wayAdvice()) {
+                frame->gameWayTitle = advice->title;
+                frame->gameWayText = advice->text;
+            }
+            frame->gameWayNotices = gameWatch.wayNotices();
             {
                 const wheelbri::service::GameWatch::Live live = gameWatch.live();
                 frame->gameId = live.id;

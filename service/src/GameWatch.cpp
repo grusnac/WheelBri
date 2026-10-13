@@ -32,12 +32,20 @@ std::string lower(const std::string_view text) {
     return out;
 }
 
+std::string upper(const std::string_view text) {
+    std::string out(text);
+    for (char& c : out) {
+        if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+    }
+    return out;
+}
+
 }  // namespace
 
 GameWatch::GameWatch(const std::string_view targetProfile, const bool routePedals, const float mapping,
                      GameRotations overrides, GameFfbGains gains)
     : detector_(targetProfile), target_(lower(targetProfile)), routePedals_(routePedals), mapping_(mapping),
-      overrides_(std::move(overrides)), ffbGains_(std::move(gains)) {
+      overrides_(std::move(overrides)), ffbGains_(std::move(gains)), wayNotices_(!routePedals) {
     for (const std::string& problem : gameProfileProblems()) {
         WE_LOG_ERROR(log(), "game profile {}: not used", problem);
     }
@@ -174,6 +182,12 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
 GameWatch::Decision GameWatch::check() {
     const GameDetector::Update update = detector_.poll(platform::runningPrograms());
     logEvents(update);
+    const std::uint64_t notices = wayNotices_.count();
+    wayNotices_.update(update, detector_.state());
+    if (wayNotices_.count() != notices && wayNotices_.current()) {
+        WE_LOG_WARN(log(), "game: {}", wayNotices_.current()->text);
+    }
+    wayWarning_ = wayNotices_.current() ? upper(wayNotices_.current()->title) : std::string();
     const GameDetector::State& state = detector_.state();
     const bool active = state.game != nullptr && state.profileApplies;
 

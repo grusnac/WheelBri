@@ -26,6 +26,28 @@ std::string lower(const std::string_view text) {
     return out;
 }
 
+// [game] ways: "virtual", "shim" or both, comma-separated, any spacing, each once. False (the profile untouched) for
+// an empty list, another word or one said twice.
+bool parseWays(const std::string_view text, GameProfile& profile) {
+    bool virtualDevice = false;
+    bool shim = false;
+    std::string_view rest = text;
+    while (true) {
+        const std::size_t comma = rest.find(',');
+        std::string_view word = rest.substr(0, comma);
+        while (!word.empty() && (word.front() == ' ' || word.front() == '\t')) word.remove_prefix(1);
+        while (!word.empty() && (word.back() == ' ' || word.back() == '\t')) word.remove_suffix(1);
+        bool& seen = word == "virtual" ? virtualDevice : shim;
+        if ((word != "virtual" && word != "shim") || seen) return false;
+        seen = true;
+        if (comma == std::string_view::npos) break;
+        rest.remove_prefix(comma + 1);
+    }
+    profile.virtualDevice = virtualDevice;
+    profile.shim = shim;
+    return true;
+}
+
 bool validSettingId(const std::string_view id) {
     if (id.empty() || id.size() > 24) return false;
     for (const char c : id) {
@@ -119,6 +141,7 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
     result.problems = std::move(ini.errors);
     GameProfile profile;
     profile.id = std::string(id);
+    bool waysSet = false;   // [game] ways was there (even when it could not be read)
 
     for (const auto& [section, keys] : ini.document.sections()) {
         if (section == "game") {
@@ -129,6 +152,14 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                     profile.program = lower(value);
                 } else if (key == "target") {
                     profile.target = lower(value);
+                } else if (key == "ways") {
+                    waysSet = true;
+                    if (!parseWays(value, profile)) {
+                        result.problems.push_back("[game] ways = '" + value +
+                                                  "': expected virtual, shim or both (virtual, shim)");
+                    }
+                } else if (key == "ways_note") {
+                    profile.waysNote = value;
                 } else {
                     result.problems.push_back("[game] " + key + ": unknown key");
                 }
@@ -217,6 +248,15 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
         result.problems.push_back("[game] program must be the game's program file name, e.g. nfs16.exe");
     }
     if (profile.target.empty()) result.problems.push_back("[game] target is missing (e.g. g920)");
+    // The note says why the game does not work the other way: only with ways, and only when it leaves one out.
+    const bool restricted = !profile.virtualDevice || !profile.shim;
+    if (waysSet && !restricted && !profile.waysNote.empty()) {
+        result.problems.push_back("[game] ways_note: only for a game that does not work both ways");
+    } else if (restricted != !profile.waysNote.empty()) {
+        result.problems.push_back("[game] ways and ways_note go together: the ways and why not the other");
+    } else if (profile.waysNote.size() > kMaxNote) {
+        result.problems.push_back("[game] ways_note: at most " + std::to_string(kMaxNote) + " characters");
+    }
     if (profile.rotationDeg.has_value() != !profile.rotationNote.empty()) {
         result.problems.push_back("[steering] rotation_deg and note go together: the advice and why");
     } else if (profile.rotationNote.size() > kMaxNote) {
@@ -274,6 +314,15 @@ const GameProfile* gameProfileFor(const std::string_view nameOrPath, const std::
         if (name == profile.program) return &profile;
     }
     return nullptr;
+}
+
+std::optional<WayAdvice> wayAdvice(const GameProfile& game, const bool shim) {
+    if (shim ? game.shim : game.virtualDevice) return std::nullopt;
+    const std::string way = shim ? "the in-game shim" : "the virtual device";     // the session's, which fails
+    const std::string need = shim ? "the virtual device" : "the in-game shim";    // the one it works with
+    return WayAdvice{game.label + " needs " + need,
+                     game.label + " does not work with " + way + " (" + game.waysNote + "). Close the game, Stop, set "
+                     "Run as to " + (shim ? "Virtual" : "Shim") + " on the Mapping tab, and Start again."};
 }
 
 bool profileFitsTarget(const GameProfile& profile, const std::string_view targetProfile) {

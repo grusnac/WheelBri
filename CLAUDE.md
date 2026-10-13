@@ -71,7 +71,12 @@ Status (README.md has the full table):
   (2026-10-11). Core `GameRotation` (`rotationWhileRunning`: the user's `[game_rotation]` line, else the profile's;
   degrees only, an older "360/180" reads as 180). The steering axis always goes through 1:1 (no ratio since
   2026-10-13): the rotation is advice, so `GameWatch` (status, `service.game` log) tells the user to set the wheel's own
-  software to it, and a game whose own settings follow the steering rotation gets it written there. A profile may also carry a force feedback gain (`[ffb] gain` + `note`, both or neither, 0.25..4): NFS Unbound
+  software to it, and a game whose own settings follow the steering rotation gets it written there. A profile may also say which ways the game works with (`[game] ways` = virtual and/or shim + `ways_note`, both or
+  neither; left out, both): NFS Payback is virtual only (a DirectX error with the shim). Core `wayAdvice` and
+  `WayNotices` (fed by `GameWatch` from every `GameDetector` poll; a shim session is one that does not route the pedals)
+  count each start of a game run the wrong way; the app (`WayNoticeFollower`) shows it once per start as a Windows
+  notification (`UiWindow::notify`: Win32 notification-area balloon; none on X11) and a popup, and `GameWatch::warning`
+  puts it in red next to Start. A profile may also carry a force feedback gain (`[ffb] gain` + `note`, both or neither, 0.25..4): NFS Unbound
   (`NeedForSpeedUnbound.exe`) 3, its force feedback being very light with no setting for it (2026-10-12: steering
   force 5% of full scale on average). `GameWatch::check` returns it, the loop hands it to
   `FfbController::setGameGain`, which multiplies only pushing forces (constant level, periodic magnitude and offset;

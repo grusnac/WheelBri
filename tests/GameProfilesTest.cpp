@@ -299,5 +299,92 @@ TEST(GameProfiles, EveryKindOfProblemIsNamed) {
     EXPECT_TRUE(names("[cheats]\na = 1\n", "unknown section"));
 }
 
+// --- [game] ways: which ways a game works with ---
+
+ParsedGameProfile withWays(const std::string& lines) {
+    return parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n" + lines);
+}
+
+TEST(GameProfiles, BothWaysUnlessTheProfileSaysOtherwise) {
+    const ParsedGameProfile none = withWays("");
+    ASSERT_TRUE(none.profile) << none.problems.front();
+    EXPECT_TRUE(none.profile->virtualDevice);
+    EXPECT_TRUE(none.profile->shim);
+    EXPECT_TRUE(none.profile->waysNote.empty());
+    for (const char* both : {"ways = virtual, shim\n", "ways = shim,virtual\n", "ways =  virtual ,\tshim \n"}) {
+        const ParsedGameProfile parsed = withWays(both);
+        ASSERT_TRUE(parsed.profile) << both << parsed.problems.front();
+        EXPECT_TRUE(parsed.profile->virtualDevice && parsed.profile->shim) << both;
+    }
+}
+
+TEST(GameProfiles, OneWayComesWithWhyNotTheOther) {
+    const ParsedGameProfile virtualOnly = withWays("ways = virtual\nways_note = the shim crashes it\n");
+    ASSERT_TRUE(virtualOnly.profile) << virtualOnly.problems.front();
+    EXPECT_TRUE(virtualOnly.profile->virtualDevice);
+    EXPECT_FALSE(virtualOnly.profile->shim);
+    EXPECT_EQ(virtualOnly.profile->waysNote, "the shim crashes it");
+    const ParsedGameProfile shimOnly = withWays("ways = shim\nways_note = it finds no virtual wheel\n");
+    ASSERT_TRUE(shimOnly.profile) << shimOnly.problems.front();
+    EXPECT_FALSE(shimOnly.profile->virtualDevice);
+    EXPECT_TRUE(shimOnly.profile->shim);
+}
+
+TEST(GameProfiles, WaysThatCannotBeReadAreProblems) {
+    const auto problem = [](const std::string& lines) {
+        const ParsedGameProfile parsed = withWays(lines);
+        EXPECT_FALSE(parsed.profile) << lines;
+        return parsed.problems.empty() ? std::string() : parsed.problems.front();
+    };
+    for (const char* bad : {"ways =\nways_note = x\n", "ways = uhid\nways_note = x\n", "ways = virtual,,shim\n",
+                            "ways = virtual, virtual\nways_note = x\n", "ways = Virtual\nways_note = x\n",
+                            "ways = virtual shim\nways_note = x\n"}) {
+        EXPECT_NE(problem(bad).find("[game] ways = '"), std::string::npos) << bad;
+    }
+    EXPECT_EQ(problem("ways = virtual\n"), "[game] ways and ways_note go together: the ways and why not the other");
+    EXPECT_EQ(problem("ways_note = why\n"), "[game] ways and ways_note go together: the ways and why not the other");
+    EXPECT_EQ(problem("ways = virtual, shim\nways_note = why\n"),
+              "[game] ways_note: only for a game that does not work both ways");
+    EXPECT_EQ(problem("ways = shim\nways_note = " + std::string(161, 'x') + "\n"),
+              "[game] ways_note: at most 160 characters");
+}
+
+TEST(GameProfiles, NfsPaybackWorksOnlyWithTheVirtualDevice) {
+    const GameProfile* payback = gameProfileFor("NeedForSpeedPayback.exe");
+    ASSERT_NE(payback, nullptr);
+    EXPECT_TRUE(payback->virtualDevice);
+    EXPECT_FALSE(payback->shim);
+    EXPECT_FALSE(payback->waysNote.empty());
+    for (const char* both : {"NFS16.exe", "NeedForSpeedUnbound.exe"}) {   // played both ways (docs/games.md)
+        const GameProfile* game = gameProfileFor(both);
+        ASSERT_NE(game, nullptr) << both;
+        EXPECT_TRUE(game->virtualDevice && game->shim) << both;
+    }
+}
+
+TEST(GameProfiles, AdviceOnlyForTheWayAGameDoesNotWorkWith) {
+    GameProfile game;
+    game.label = "NFS X";
+    EXPECT_FALSE(wayAdvice(game, true));    // both ways: nothing to say
+    EXPECT_FALSE(wayAdvice(game, false));
+    game.shim = false;
+    game.waysNote = "the shim crashes it";
+    EXPECT_FALSE(wayAdvice(game, false));   // the virtual device: fine
+    const std::optional<WayAdvice> shim = wayAdvice(game, true);
+    ASSERT_TRUE(shim);
+    EXPECT_EQ(shim->title, "NFS X needs the virtual device");
+    EXPECT_EQ(shim->text, "NFS X does not work with the in-game shim (the shim crashes it). Close the game, Stop, set "
+                          "Run as to Virtual on the Mapping tab, and Start again.");
+    game.shim = true;
+    game.virtualDevice = false;
+    game.waysNote = "it finds no virtual wheel";
+    EXPECT_FALSE(wayAdvice(game, true));
+    const std::optional<WayAdvice> virtualDevice = wayAdvice(game, false);
+    ASSERT_TRUE(virtualDevice);
+    EXPECT_EQ(virtualDevice->title, "NFS X needs the in-game shim");
+    EXPECT_EQ(virtualDevice->text, "NFS X does not work with the virtual device (it finds no virtual wheel). Close the "
+                                   "game, Stop, set Run as to Shim on the Mapping tab, and Start again.");
+}
+
 }  // namespace
 }  // namespace wheelbri

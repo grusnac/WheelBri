@@ -29,6 +29,9 @@ namespace wheelbri {
 //   [game]   label = NFS 2015 / program = nfs16.exe / target = g920   (who it is for; all three required)
 //            label: what the window and the log show, short (at most 20 characters); Need for Speed games are
 //            "NFS <name>" (NFS 2015, NFS Heat), never "Need for Speed ...".
+//            ways = virtual / ways_note = why   (both or neither): the ways the game works with, virtual (the virtual
+//            device) and/or shim (the in-game shim), comma-separated; left out, both. A session run the other way
+//            tells the user when the game starts (wayAdvice): NFS Payback shows a DirectX error with the shim.
 //   [pedals] throttle_axis / brake_axis / clutch_axis = x y z rx ry rz slider none   (only those that change)
 //   [steering] rotation_deg = 180 / note = why   (both or neither): a game whose own handling needs another
 //            steering rotation than usual (NFS Payback's cars understeer and turn in slowly). While the game runs the
@@ -62,6 +65,9 @@ struct GameProfile {
     std::string label;     // [game] label, shown as it is in the window's status and the log: "NFS 2015"
     std::string program;   // the game's program file, lower case: "nfs16.exe"
     std::string target;    // the target profile it was checked with, lower case: "g920"
+    bool virtualDevice = true;   // [game] ways: it works with the virtual device
+    bool shim = true;            //              and with the in-game shim
+    std::string waysNote;        // [game] ways_note: why not the other way, in a sentence (set with ways only)
     std::optional<ObjectGuid> throttleAxis;   // [pedals]: unset = the default
     std::optional<ObjectGuid> brakeAxis;
     std::optional<ObjectGuid> clutchAxis;
@@ -104,6 +110,16 @@ struct ParsedGameProfile {
 // The profile for a program, or null. Exact file-name match: "nfs16.exe.bak" or "notnfs16.exe" are not NFS 2015.
 [[nodiscard]] const GameProfile* gameProfileFor(std::string_view nameOrPath,
                                                 std::span<const GameProfile> profiles = gameProfiles());
+
+// What to tell the user when `game` starts in a session run a way it does not work with (`shim`: the in-game shim; else
+// the virtual device): a short title for the notification ("NFS Payback needs the virtual device") and what to do;
+// nullopt when the game works that way.
+struct WayAdvice {
+    std::string title;
+    std::string text;
+    friend bool operator==(const WayAdvice&, const WayAdvice&) = default;
+};
+[[nodiscard]] std::optional<WayAdvice> wayAdvice(const GameProfile& game, bool shim);
 
 // True when the profile is for this target profile (any case).
 [[nodiscard]] bool profileFitsTarget(const GameProfile& profile, std::string_view targetProfile);
