@@ -24,6 +24,12 @@ read this one raw, so its DirectInput sees exactly what NFS sees on Windows and 
 R3 itself from the game, so the game finds one wheel: Proton (9 and 10) checks that list for SDL devices and for
 raw (hidraw) ones too, so it also hides wheels Proton would open raw by itself (Fanatec, Simucube, ...).
 
+The G25 (Target G25 in the app, or `wheelbri.sh --target g25`; [g25-target-plan.md](g25-target-plan.md)): the same
+in both ways, with `PROTON_ENABLE_HIDRAW=0x046D/0xC299` instead (`wheelbri.sh` sets it from the target). The virtual
+G25 keeps the Windows axis names (Proton has no hack for it) and sits on the virtual bus (`0006:046D:C299`): on USB
+the kernel's `hid-lg` would claim it and then refuse it, leaving it to no driver. Run `install-udev-rules.sh` again
+once, for its hidraw rule. Untried so far.
+
 ## Steam Deck: build it there from the repository
 
 The way to follow development: get the code with git, build it on the Deck, and after every change only

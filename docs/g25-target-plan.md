@@ -1,108 +1,84 @@
-# Plan: the Logitech G25 as a target
+# The Logitech G25 as a target
 
-Status: plan only, parked (2026-10-13). Nothing of it is built. Pick it up from "Steps"; the open questions come first.
+Status: built (2026-10-13), not yet tried in a game. Pick **Target < G25 >** on the Mapping tab; Run as Virtual or Shim
+works as for the G920. What is still a guess, and how to check it, is under "Unverified".
 
 ## Why
 
-Today the only target is the G920 (`g920Spec`, `config/g920-*.ini`, the `wheelbri-g920` driver, `wheelbri-uhid`). Some
-games know the G25 and not the G920: older titles (rFactor, GTR 2, LFS, Richard Burns Rally, the NFS games before
-2015) have G25 presets, button names and force feedback tuned for it, and some only offer a wheel at all when they see
-046D:C299. A G25 target lets the rig be that wheel, the same way it is a G920 now.
+Some games know the G25 and not the G920: older titles (rFactor, GTR 2, LFS, Richard Burns Rally, the NFS games before
+2015, NFS Undercover among them) have G25 presets, button names and force feedback tuned for it, and some only offer a
+wheel at all when they see 046D:C299. A G25 target lets the rig be that wheel, the same way it is a G920.
 
 ## What a G25 is (from the research of 2026-10-13)
 
 - One USB device: the pedals and the shifter plug into the wheel base, so everything reports through it.
 - Two USB identities: 046D:C294 (Driving Force compatibility, what it starts as: 12 buttons, combined pedals, no
-  clutch, only gears 1-2) and 046D:C299 (native G25, after the host sends `F8 10 00 00 00 00 00`).
+  clutch, only gears 1-2) and 046D:C299 (native G25, after Logitech's driver switches it).
 - Native mode: 4 axes (wheel 14-bit, accelerator, brake, clutch, separate), 1 hat (the shifter's D-pad), 19 buttons:
   2 on the wheel, 2 paddles, 8 on the shifter (4 red, 4 black), gears 1-6 and R. Logitech's own numbering (support
   article) puts the gears at DirectInput buttons 8-14 (0-based). The order of the other 12 is not documented.
-- Rotation 40-900 deg (`F8 81` + range). No LEDs (those came with the G27).
-- Force feedback: two motors, Logitech's classic protocol (the Driving Force Pro / G27 family): 4 effect slots,
-  constant, spring, damper, auto-centre, periodic shapes, ramp, high-resolution spring and damper, friction; range and
-  auto-centre as their own commands. Not HID PID, not the G920's HID++. On Windows games reach it through DirectInput
-  and Logitech's driver; on Linux `hid-lg4ff` drives it (constant force and auto-centre only).
+- Rotation 40-900 deg. No LEDs (those came with the G27).
+- Force feedback: Logitech's classic protocol (7-byte output reports), not HID PID. On Windows games reach it through
+  DirectInput and Logitech's driver; on Linux `hid-lg4ff` drives it.
 
-## Open questions (answer before building)
+## How WheelBri presents it
 
-1. **The real descriptor and button order.** We have no G25. Get a native-mode report descriptor and a joy.cpl button
-   list from an owner (a `usbhid-dump` / USBView capture, or a forum post we can read), or buy one second-hand. The
-   descriptor decides axis letters (Y / Rz / Slider for the pedals is a guess from the G920) and the 12 button
-   positions we cannot fill in yet.
-2. **Which games and which way.** List the games the user wants the G25 for, and whether each finds the wheel through
-   DirectInput (shim and virtual device both work) or through Logitech's SDK / LGS (needs the real driver stack: out of
-   scope, as for the G920).
-3. **Force feedback on the virtual G25.** A real G25 has no HID PID. Windows' `pid.dll` gives a HID PID device
-   DirectInput force feedback with no Logitech driver, as our G920 does today, so the plan keeps PID. A game that sends
-   Logitech's classic commands itself (raw HID writes) would get nothing; check the games from question 2.
-4. **Sequential mode.** How the G25 reports the stick in sequential mode (its own two buttons, or the gear buttons) is
-   not documented. We need it only if a game binds it; otherwise sequential up/down map onto the paddles.
+One target among two, with the same machinery as the G920 (a target is a profile, its configs and an identity):
 
-## Decisions (proposed)
+- **Profile**: `g25Spec()` (`core/src/DeviceProfile.cpp`, `makeProfile("g25")`, `target_profile = g25`): 046D:C299,
+  "Logitech G25 Racing Wheel USB", 900 deg, 19 buttons (`kG25Buttons`, gears at `kG25FirstGear` = 8), pedals released
+  at the top of the range. Its DirectInput layout is the G920's: wheel X, throttle Y, brake Rz, clutch Slider.
+- **Configs**: `config/g25-in-game-shim.ini`, `config/g25-virtual-device.ini` (WheelBri's default mapping onto the
+  G25); the user's own as `my-g25-*.ini`, as for the G920.
+- **Mapping tab**: Target `< G920 | G25 >` (`ConfigPicker`, `[app] target` in app.ini).
+- **Shim**: the shim already presents whatever `target_profile` says; at Start the app writes the target into the
+  game's `wheelbri-shim.ini` (`setShimTarget`), keeping the user's other lines.
+- **Virtual device (Windows)**: the same driver (`wheelbri-g920`, its INF binds `wheelbri\G920` and `wheelbri\G25`) and
+  the same HID descriptor and input report (four 16-bit axes, 19 buttons, hat, HID PID force feedback through
+  Windows' `pid.dll`); `VirtualWheel` (`core/include/wheelbri/HidG920.hpp`) holds each one's identity: hardware id,
+  instance names, ids, product string, DirectInput name. The service creates the software device with the G25's
+  hardware id; the driver reads it and answers as 046D:C299. The WheelBri Helper takes the wheel's name in
+  `CreateVirtualG920` ("g25"; none = the G920, as an older app asks). A driver installed before the G25 has no entry
+  for `wheelbri\G25`: Start says to install the new one.
+- **Linux (`wheelbri-uhid --target g25`)**: the Windows descriptor as it is (Proton's DirectInput has a hack for the
+  G920's own layout, none for the G25), on the virtual bus (`BUS_VIRTUAL`): the kernel's `hid-lg` claims USB
+  046D:C299 and refuses any device that is not really on USB, which would leave the device to no driver at all; on the
+  virtual bus `hid-generic` takes it. Proton games: `PROTON_ENABLE_HIDRAW=0x046D/0xC299` (`scripts/linux/wheelbri.sh`
+  sets it from the target); force feedback is HID PID, as for the G920.
+- **Force feedback** stays one model: game effects arrive as HID PID (driver, uhid) or DirectInput parameters (shim)
+  and become `FfbEffect`s through `FfbSafetyLimiter`.
 
-- **Native identity only.** The target is always 046D:C299 with the native layout. No compatibility mode, no mode
-  switch to emulate: our devices come up native.
-- **Same three ways as the G920**: in-game shim, virtual device (Windows driver), `wheelbri-uhid` (Linux). Each is a
-  step of its own below; the shim is the cheapest and goes first.
-- **Profiles stay data.** A `g25Spec()` next to `g920Spec()`, registered in `makeProfile("g25")`; nothing in the mapper
-  changes. Game profiles keep their `target = g920 | g25` line; a game profile is only applied with its target
-  (`profileFitsTarget` exists already).
-- **Force feedback stays one model.** Whatever the way, game effects end as `FfbEffect`s through `FfbSafetyLimiter`
-  (`FfbController`). The Linux classic-protocol decoder (step 5) produces `FfbEffect`s like `HidPid` does.
-- **No Logitech files.** Nothing from Logitech's driver or SDK is shipped or copied.
+### Changed from the plan
 
-## Steps (each a reviewable PR, in this order)
+- No `HidTarget` / driver rename: the G25 uses the G920's descriptor and report, so only the identity differs.
+- No classic Logitech force feedback decoder (the plan's step 5): it was for `hid-lg4ff` on Linux, which never binds
+  the virtual-bus device. Windows games use DirectInput (HID PID through `pid.dll`); a game that wrote classic
+  commands to a real G25 through raw HID would get no force feedback (none known).
 
-1. **G25 profile in core.**
-   - `g25Spec()` in `DeviceProfile.cpp`: short name "G25", 046D:C299, "G25 Racing Wheel", rotation 900, the axis ranges
-     of the descriptor, the 19 button names (gears at 8-14; the rest from question 1, else placeholders "Button 0" ...
-     marked in a comment as unverified).
-   - `makeProfile("g25")`; `DeviceProfileTest` for the names, ranges and encode.
-   - `[emulator] target_profile = g25` is accepted by `loadEmulatorConfig` (and `EmulatorConfigTest`).
-2. **The shim as a G25.**
-   - `EmulatedJoystick` takes its identity, objects and button count from the profile instead of G920 constants
-     (check every `kG920*` used there and in `shim/`).
-   - `config/g25-in-game-shim.ini` (built-in config: WheelBri's default mapping onto the G25, with gears and the
-     8 shifter buttons left to the user where the order is unknown).
-   - The Mapping tab's target picker (`ConfigPicker`) gets "G25 in-game shim"; the Mapping tab already draws the target
-     profile's own buttons and axes.
-   - Test in one G25 game (question 2) with `[shim]` logs: the game sees "G25 Racing Wheel", buttons and FFB arrive.
-3. **The virtual device as a G25 (Windows).**
-   - Generalise `HidG920` into a per-target descriptor + input report (`HidTarget`, keeping the HID PID block shared),
-     with a G25 descriptor built from the real one (question 1) plus the PID block.
-   - The `wheelbri-g920` driver picks its descriptor and hardware id from a device property the service sets
-     (`VirtualG920` -> `VirtualWheel`), so one driver serves both; its INF gets the 046D:C299 hardware id. The rename
-     of files and the service class is its own small PR before this one.
-   - `config/g25-virtual-device.ini`; "G25 virtual device" in `ConfigPicker`.
-   - The hide filter, the "driving" registry entry and the XUSB pad stay as they are; check that Logitech's FFB entry
-     (kept out for the G920) is not needed or wanted for C299 either.
-4. **Linux (`wheelbri-uhid`) as a G25, input only.**
-   - `UhidG920` -> per-target, with the G25 descriptor; `PROTON_ENABLE_HIDRAW=0x046D/0xC299` in the launch wrapper and
-     `docs/linux.md`.
-   - Note: the kernel binds `hid-lg4ff` to C299 and talks the classic protocol, not PID, so force feedback needs step 5.
-5. **Classic Logitech force feedback decoder (Linux, and any game that writes it raw).**
-   - core `LogiClassicFfb`: 7-byte output reports (slot commands for constant, spring, damper, periodic, auto-centre,
-     range) -> `FfbPacket`s, unit-tested from captured `hid-lg4ff` traffic (or from the protocol document). This is
-     our own implementation from the protocol; nothing copied from GPL code (`hid-lg4ff` is GPL: read for behaviour,
-     not copied).
-   - `wheelbri-uhid` feeds it the output reports when the target is the G25.
-6. **Game profiles for G25 games** as they come (`config/games/<id>.ini`, `target = g25`), and the docs: README target
-   table, CLAUDE.md status list, `docs/games.md`.
+## Unverified (check before relying on it)
+
+1. **Button order** (other than the gears) and **axis letters**: a guess, the same layout as the G920's. A game's
+   built-in G25 preset may bind the wrong controls. Check with a real G25 (joy.cpl's button numbers, or a
+   `usbhid-dump` of its descriptor) and fix `g25Spec()` and the G25 configs.
+2. **Games**: none tried yet. NFS Undercover and NFS 2015 are the first candidates (shim first, then the virtual
+   device). NFS 2015's game profile (`config/games/nfs2015.ini`) is for the G920 only; if NFS 2015 swaps the G25's
+   pedals too, the telemetry will show it and a G25 profile can follow.
+3. **Linux**: the virtual-bus G25 under Proton is untried (as the uhid G920 is on a Steam Deck).
+4. **Sequential mode**: how the G25 reports its stick in sequential mode is not documented; the paddles cover it.
+
+## How to test
+
+- Unit: `DeviceProfileTest` (G25 spec), `EmulatorConfigTest` (`target_profile = g25`), `VirtualWheelTest`,
+  `ShimGamesTest` (target in the shim's settings), `HelperProtocolTest` (`CreateVirtualG920` with a wheel),
+  `UhidG920Test` / `UhidLoopTest` (the G25 on uhid), `MappingEditTest` (the G25 configs use each control once).
+- Windows: joy.cpl shows "Logitech G25 Racing Wheel USB", 4 axes, 19 buttons and the hat moving with the rig; the FFB
+  test in joy.cpl plays through the limiter; one G25 game end to end with telemetry and `ffb-<date>.csv`.
+- Linux: `evtest` on the uhid G25 (046D:C299 on bus 0006); a Proton game with `PROTON_ENABLE_HIDRAW=0x046D/0xC299`.
 
 ## Risks
 
-- The button order and axis letters are guesses until question 1 is answered: a game's built-in G25 preset would bind
-  the wrong controls. Step 1 must not ship placeholders as if they were known.
 - Games that detect the G25 through Logitech's software (LGS/G HUB, the Steering Wheel SDK) will not see a virtual one,
   as with the G920.
-- Two virtual wheels at once (G920 and G25) are not planned: one target per session, as now.
-- FFB feel: the G25's own effects are weaker and coarser than a direct drive wheel; the limiter's defaults stay as they
-  are, and a game's G25-tuned forces may need a game profile gain.
-
-## Test plan
-
-- Unit: `DeviceProfileTest` (G25 spec), `EmulatorConfigTest` (`target_profile = g25`), the descriptor and report tests
-  for `HidTarget` (G25), `UhidG920Test` per target, `LogiClassicFfbTest` (step 5).
-- Windows: joy.cpl shows "G25 Racing Wheel", 4 axes, 19 buttons and the hat moving with the rig; the FFB test in joy.cpl
-  plays through the limiter; one G25 game end to end with telemetry and `ffb-<date>.csv`.
-- Linux: `evtest` on the uhid G25, `fftest` (constant force) once step 5 is in.
+- Two virtual wheels at once are not possible: one target per session.
+- FFB feel: a game's G25-tuned forces were made for a weak geared wheel; the limiter's defaults stay as they are, and a
+  game profile gain can raise them.

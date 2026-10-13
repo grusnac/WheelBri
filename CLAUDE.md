@@ -51,8 +51,10 @@ This file guides Claude when working in this repository.
 
 ## Project
 
-WheelBri makes the user's rig (a wheel and its accessories, defined in the Rig tab) look like the one wheel it emulates, the Logitech G920 (the G29 profile was dropped: the same wheel with more
-buttons; WheelBri decides which targets exist, never the user), on Windows and Linux/Proton. First target game: Need for Speed (2015).
+WheelBri makes the user's rig (a wheel and its accessories, defined in the Rig tab) look like a wheel it emulates: the
+Logitech G920, or the Logitech G25 for games that know it and not the G920 (the G29 profile was dropped: the same wheel
+as the G920 with more buttons; WheelBri decides which targets exist, never the user), on Windows and Linux/Proton.
+First target game: Need for Speed (2015).
 
 Status (README.md has the full table):
 - **Working with a real direct drive wheel in NFS 2015 on Windows**: mapping and service (Phase 1), the `dinput8.dll` shim
@@ -76,7 +78,9 @@ Status (README.md has the full table):
   conditions untouched) before `FfbSafetyLimiter`, so the cap and slew still hold. WheelBri never reads or sets the
   wheel's own software (no Moza SDK). The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
   throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
-- **Not yet verified**: Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
+- **Not yet verified**: the G25 target in any game (`docs/g25-target-plan.md`: built for the shim, the Windows virtual
+  device and uhid; its button order other than the gears, and its axis letters, are a guess, the G920's layout);
+  Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
   `Escape` calls are Logitech's rev lights (command 0: size 20, version 1, rpm 0..1, first light 0.01, redline 1),
   not forwarded; no axis remapping call seen (2026-10-04..07 shim logs; the axis audit checks every session).
@@ -270,7 +274,10 @@ rewrites on every build only when it changes); views keep their own top-row cont
     (joy.cpl 12) and the Driving Force Shifter's Gear 1-6 (12-17) and Gear R (18), as Logitech's shifter FAQ gives them
     (joy.cpl 13-19). Every target (shim, virtual device, uhid) reports all 19; `IDeviceProfile::buttonCount` counts
     the gap, and `encode` only passes named buttons.
-  - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT);
+  - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT), the virtual
+    G25's too: `VirtualWheel` (`virtualWheels()`, `virtualWheel("g25")`, `virtualWheelForHardwareId`) holds each
+    wheel's identity (hardware id `wheelbri\G920` / `wheelbri\G25`, instance names, 046D:C262 / C299, product string,
+    DirectInput name, button count) and `isVirtualWheelId` keeps both out of hiding;
     `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests. pid.dll sends
     type-specific parameters with effect block 0 and then the Set Effect naming the block: `HidPid` keeps them pending
     for that Set Effect and never applies them early (Windows sends reports twice, a new effect's parameters before
@@ -389,13 +396,15 @@ rewrites on every build only when it changes); views keep their own top-row cont
     the Wheel setup tab stay the wheel's. `MappingModel` / `writeMapping` are what the Mapping tab edits and saves
     (IniEditor; default button lines removed). The service opens accessories by id (`openAccessories` in main.cpp).
   - The config Start uses (`service/src/ConfigPicker.cpp`, the top row of the idle Mapping tab): two pickers with
-    `<` `>`, Target (`targetName()`: G920 only, its arrows off) and Run as (`wayName()`: Virtual or Shim; in the log
-    still "G920 virtual device" / "G920 in-game shim", `name()`) (`[app] way` in
+    `<` `>`, Target (`targetName()`: G920 or G25; `profileName()` "g920" / "g25") and Run as (`wayName()`: Virtual
+    or Shim; in the log "G25 virtual device" / "G920 in-game shim", `name()`) (`[app] target`, `[app] way` in
     `appStateFile()`, `app.ini`; `AppSettings::runSession(host, config, virtualDevice)`). Two layers: the **target**
-    is fixed (the G920 profile's axes, D-pad and buttons; never the user's to change), the **mapping** of the rig onto
-    it is the user's. Each target has a built-in config, never changed, holding WheelBri's default mapping (the user's
-    corrected mapping of 2026-10-04): `config/g920-virtual-device.ini` (also `defaultConfigPath()`, the command line's
-    default) and `config/g920-in-game-shim.ini`. The Mapping tab's Save writes the user's own as
+    is fixed (the profile's axes, D-pad and buttons; never the user's to change), the **mapping** of the rig onto
+    it is the user's. Each target and way has a built-in config, never changed, holding WheelBri's default mapping (the
+    user's corrected mapping of 2026-10-04): `config/g920-virtual-device.ini` (also `defaultConfigPath()`, the command
+    line's default), `config/g920-in-game-shim.ini`, `config/g25-virtual-device.ini`, `config/g25-in-game-shim.ini`
+    (`builtInName(target, way)`). With Run as Shim, Start writes the target into the game's `wheelbri-shim.ini`
+    (`setShimTarget` in core `ShimGames`, the user's other lines kept). The Mapping tab's Save writes the user's own as
     `userConfigFolder()/my-<built-in name>` (`%LOCALAPPDATA%\wheelbri\configs`), used instead; "Default" deletes it.
     The rig no longer rewrites a mapping (no rigMapping); it gives the sources' names, the wheel when `source_device`
     is empty. A source the active rig has not named shows "not in the rig" (`MappingEditView::missing`).
@@ -575,8 +584,11 @@ rewrites on every build only when it changes); views keep their own top-row cont
   `debug`), else the app's level. Same rules as the shim inside the game: nothing in `DllMain`, lazy logging, no
   threads. Never ship Logitech's DLLs. `scripts/make/logi.sh` builds it and prints the registry commands.
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
-  - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262). Reads `StatePacket`s on
-    41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
+  - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262) or G25 (046D:C299): its INF
+    binds `wheelbri\G920` and `wheelbri\G25`, and `EvtDeviceAdd` reads the device's hardware id to pick the identity
+    (`virtualWheelForHardwareId`; unknown = the G920). The service's `VirtualG920::create(wheel, ...)` creates the
+    software device with that id (the helper's `CreateVirtualG920` carries "g25"; none = the G920). Reads
+    `StatePacket`s on 41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
     `StatePacket`, `FfbPacket` sources. Logs to `wheelbri-driver-<date>-<NN>.log` in the user's logs folder (see below).
     Each state goes to Windows once (`Link::publish` / `answerRead`): a HID read gets the oldest state not handed out
     yet or waits for the next one (up to 8 kept in order, so quick presses are not lost); until 2026-10-07 each state
@@ -652,7 +664,10 @@ rewrites on every build only when it changes); views keep their own top-row cont
   (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
   raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. Its descriptor is `g920ProtonReportDescriptor` (same report,
   clutch Usage Z, throttle Usage Rz): Proton's DirectInput has a hack for 046D:C262 (Z -> Rz, Rz -> Slider), and
-  with the Windows descriptor NFS read the clutch as throttle (2026-10-08). `UhidG920` holds the uhid protocol with no file descriptors so
+  with the Windows descriptor NFS read the clutch as throttle (2026-10-08). `--target g25` (the service passes the
+  config's target): the Windows descriptor, 046D:C299 on `BUS_VIRTUAL` (on USB the kernel's `hid-lg` claims C299 and
+  then refuses a device not really on USB), `PROTON_ENABLE_HIDRAW=0x046D/0xC299`. `UhidG920` holds the uhid protocol
+  with no file descriptors so
   `UhidG920Test` covers it; `UhidLoop` (`UhidLoopTest`) holds the command line (ports checked) and `InputFeed`
   (newest state, a keep-alive 100 ms after the last report written, neutral after 1.5 s); `main.cpp` is the fd/UDP
   loop: it waits on /dev/uhid and the state socket (`UdpLoopbackReceiver::nativeSocket`) and reads every queued uhid
