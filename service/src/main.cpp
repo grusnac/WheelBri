@@ -1217,7 +1217,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         wheelbri::service::GameWatch gameWatch(
             config.targetProfile, routePedals,
             config.mapper.steering.targetRotationDeg,
-            config.gameRotations, config.gameSettings, config.gameFfbGains);
+            config.gameRotations, config.gameFfbGains);
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
             const std::uint64_t now = platform::nowNs();
@@ -1273,7 +1273,6 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                 frame->gameForMs = live.id.empty() || nowMs < live.sinceMs ? 0 : nowMs - live.sinceMs;
                 frame->gameStarts = live.starts;
                 frame->gameFfbGain = live.ffbGain;
-                frame->gameSettingsStates = gameWatch.settingsStates();
             }
             frame->oldFilesFailed = housekeeping.failed();
             if (!host->frame(*frame)) {
@@ -1344,7 +1343,7 @@ LoadedConfig loadForRun(const Options& options) {
     std::vector<std::string> rigErrors;
     const auto rig =
         rigName.empty() ? std::nullopt : wheelbri::readRig(wheelbri::service::rigsFolder(), rigName, rigErrors);
-    // No source_device in the config (the built-in ones have none; the Mapping tab's Change sets one): the wheel is
+    // No source_device in the config (the built-in ones have none; an older Mapping tab's Change set one): the wheel is
     // the active rig's (Rig::wheel: its first device of kind wheel, else its first). Without a rig it stays empty and
     // the session says so.
     if (loaded.config.sourceDeviceMatch.empty()) {

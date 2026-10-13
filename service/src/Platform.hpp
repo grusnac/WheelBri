@@ -138,6 +138,14 @@ void nameThisThread(const char* name);
 // unknown. Elsewhere empty.
 [[nodiscard]] std::filesystem::path documentsFolder();
 
+// A file the user picks in the system's Open dialog, titled `title`, opening in `folder` with `fileName` filled in
+// (it must exist; a link is returned as the link, never followed). nullopt when cancelled, and on systems without such
+// a dialog (Linux for now: canPickFile() says so). Modal: call it from the window's thread, never from the loop.
+[[nodiscard]] std::optional<std::filesystem::path> pickFile(const std::string& title,
+                                                            const std::filesystem::path& folder,
+                                                            const std::string& fileName);
+[[nodiscard]] bool canPickFile();
+
 // Windows: the full path of process `pid`'s program; empty when it cannot be read (and on other systems).
 [[nodiscard]] std::filesystem::path processImage(std::uint32_t pid);
 // Why the last processImage() on this thread could not open or read the process (also when the fallback by id then

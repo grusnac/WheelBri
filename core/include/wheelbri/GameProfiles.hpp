@@ -42,8 +42,8 @@ namespace wheelbri {
 //            FfbSafetyLimiter: the user's gain, the cap (max_magnitude) and the slew limit still apply.
 //   [game_settings] file = <path under the user's Documents folder> / note = why / <id> = <the game's name> <value>
 //            (file, note and at least one setting go together; at most kMaxGameSettings): the game's own settings that
-//            WheelBri sets in the game's settings file while the game is closed (GameSettings.hpp; NFS Unbound keeps
-//            its wheel force feedback settings there and shows none of them in its menus). <id> is lower case
+//            the user writes into the game's settings file from the Game profiles tab (GameSettings.hpp; NFS Unbound
+//            keeps its wheel force feedback settings there and shows none of them in its menus). <id> is lower case
 //            (spring), the user's name for it in the Game profiles tab and in [game_settings] <game>.<id> = value;
 //            <value> is a number from kGameSettingMin to kGameSettingMax, or "steering" for the steering rotation the
 //            game is played with (not changed by the user here: it follows the mapping's rotation for that game).

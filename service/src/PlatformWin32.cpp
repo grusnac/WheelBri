@@ -13,6 +13,7 @@
 #include <winsock2.h>   // before windows.h; AF_INET for the UDP table
 #include <windows.h>
 #include <cfgmgr32.h>
+#include <commdlg.h>    // GetOpenFileNameW: pickFile
 #include <iphlpapi.h>
 #include <mmsystem.h>
 #include <shlobj.h>     // SHGetKnownFolderPath: the Documents folder
@@ -393,6 +394,29 @@ std::optional<std::vector<RunningProgram>> runningPrograms() {
     CloseHandle(snapshot);
     return programs;
 }
+
+std::optional<std::filesystem::path> pickFile(const std::string& title, const std::filesystem::path& folder,
+                                              const std::string& fileName) {
+    std::wstring file(32768, L'\0');   // long paths
+    const std::wstring name = widen(fileName);
+    std::copy_n(name.begin(), std::min(name.size(), file.size() - 1), file.begin());
+    const std::wstring wideTitle = widen(title);
+    const std::wstring start = folder.wstring();
+    OPENFILENAMEW dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = GetActiveWindow();   // the app's window, called from its thread
+    dialog.lpstrFilter = L"All files\0*\0";
+    dialog.lpstrFile = file.data();
+    dialog.nMaxFile = static_cast<DWORD>(file.size());
+    dialog.lpstrInitialDir = start.empty() ? nullptr : start.c_str();
+    dialog.lpstrTitle = wideTitle.c_str();
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_DONTADDTORECENT |
+                   OFN_NODEREFERENCELINKS | OFN_HIDEREADONLY | OFN_EXPLORER;
+    if (GetOpenFileNameW(&dialog) == FALSE) return std::nullopt;   // cancelled (or failed: CommDlgExtendedError)
+    return std::filesystem::path(file.c_str());
+}
+
+bool canPickFile() { return true; }
 
 std::filesystem::path documentsFolder() {
     PWSTR folder = nullptr;

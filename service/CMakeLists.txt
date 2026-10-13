@@ -25,7 +25,8 @@ add_library(wheelbri_privileged STATIC
 target_link_libraries(wheelbri_privileged PUBLIC wheelbri_core)
 if(WE_SERVICE_PLATFORM STREQUAL "Windows")
     target_sources(wheelbri_privileged PRIVATE src/DinputDevice.cpp src/PlatformWin32.cpp)
-    target_link_libraries(wheelbri_privileged PUBLIC dinput8 dxguid cfgmgr32 advapi32 iphlpapi winmm shell32 ole32)
+    target_link_libraries(wheelbri_privileged PUBLIC
+        dinput8 dxguid cfgmgr32 advapi32 iphlpapi winmm shell32 ole32 comdlg32)
 else()
     target_sources(wheelbri_privileged PRIVATE src/PlatformPosix.cpp)
 endif()

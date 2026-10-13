@@ -35,9 +35,9 @@ std::string lower(const std::string_view text) {
 }  // namespace
 
 GameWatch::GameWatch(const std::string_view targetProfile, const bool routePedals, const float mapping,
-                     GameRotations overrides, GameSettingOverrides settings, GameFfbGains gains)
+                     GameRotations overrides, GameFfbGains gains)
     : detector_(targetProfile), target_(lower(targetProfile)), routePedals_(routePedals), mapping_(mapping),
-      overrides_(std::move(overrides)), settingOverrides_(std::move(settings)), ffbGains_(std::move(gains)) {
+      overrides_(std::move(overrides)), ffbGains_(std::move(gains)) {
     for (const std::string& problem : gameProfileProblems()) {
         WE_LOG_ERROR(log(), "game profile {}: not used", problem);
     }
@@ -104,113 +104,6 @@ void GameWatch::sayFfbGain() {
         WE_LOG_INFO(log(), "game: the games' force feedback as they ask again");
     }
     ffbGain_ = next;
-}
-
-bool GameWatch::running(const GameProfile& game) const {
-    const GameDetector::State& state = detector_.state();
-    if (state.game == &game) return true;
-    for (const RunningGame& other : state.others) {
-        if (other.game == &game) return true;
-    }
-    return false;
-}
-
-void GameWatch::queueGameSettings(const GameDetector::Update& update) {
-    if (!settingsQueued_) {
-        settingsQueued_ = true;
-        for (const GameProfile& game : gameProfiles()) {
-            if (!game.settings.empty() && profileFitsTarget(game, target_)) settingsPending_.insert(game.id);
-        }
-    }
-    for (const GameDetector::Event event : update.events) {
-        const bool ended = event == GameDetector::Event::Ended || event == GameDetector::Event::Switched;
-        if (ended && update.previous != nullptr && !update.previous->settings.empty() &&
-            profileFitsTarget(*update.previous, target_)) {
-            settingsPending_.insert(update.previous->id);   // it wrote its own values back as it closed
-        }
-    }
-}
-
-void GameWatch::writePendingGameSettings() {
-    if (settingsPending_.empty() || !detector_.state().listing) return;   // unknown what runs: wait
-    for (auto it = settingsPending_.begin(); it != settingsPending_.end();) {
-        const GameProfile* game = nullptr;
-        for (const GameProfile& candidate : gameProfiles()) {
-            if (candidate.id == *it) game = &candidate;
-        }
-        if (game == nullptr) {
-            it = settingsPending_.erase(it);
-            continue;
-        }
-        if (running(*game)) {
-            settingsStates_[game->id] = "it runs: written when it closes (it reads them when it starts)";
-            if (settingsWaitSaid_.insert(game->id).second) {
-                WE_LOG_INFO(log(), "game settings: {} runs: its own settings are written after it closes (it reads "
-                                   "them when it starts)", game->label);
-            }
-            ++it;
-            continue;
-        }
-        settingsWaitSaid_.erase(game->id);
-        it = writeGameSettings(*game) ? settingsPending_.erase(it) : std::next(it);
-    }
-}
-
-bool GameWatch::writeGameSettings(const GameProfile& game) {
-    const std::filesystem::path documents = platform::documentsFolder();
-    if (documents.empty()) {
-        settingsStates_[game.id] = "only set on Windows for now";
-        if (!noDocumentsSaid_) {
-            noDocumentsSaid_ = true;
-            WE_LOG_INFO(log(), "game settings: {}'s own settings are only set on Windows for now (its settings file is "
-                               "in the game's Proton folder here): not set",
-                        game.label);
-        }
-        return true;
-    }
-    // The steering rotation the game is played with: its own (GameRotation.hpp), else the mapping's.
-    const float steeringDeg = rotationWhileRunning(game, overrides_).value_or(mapping_);
-    const std::vector<GameSettingText> values = gameSettingTexts(game, settingOverrides_, steeringDeg);
-    const GameSettingsFileResult result = writeGameSettingsFile(documents, game.settingsFile, values);
-    const std::string file = pathToUtf8(result.file);
-    using Outcome = GameSettingsFileResult::Outcome;
-    switch (result.outcome) {
-        case Outcome::Written: {
-            std::string written;
-            for (const GameSettingsEdit::Change& change : result.changes) {
-                written += (written.empty() ? "" : ", ") + change.name + " " + change.before + " -> " + change.after;
-                WE_LOG_INFO(log(), "game settings: {}: {} {} -> {} ({}; the original is kept as {})", game.label,
-                            change.name, change.before, change.after, game.settingsNote, pathToUtf8(result.backup));
-            }
-            settingsStates_[game.id] = "written: " + written;
-            break;
-        }
-        case Outcome::AsSet:
-            settingsStates_[game.id] = "as set in its file";
-            WE_LOG_INFO(log(), "game settings: {}: its own settings are as set ({})", game.label, file);
-            break;
-        case Outcome::NoFile:
-            settingsStates_[game.id] = "no settings file yet: start the game once, they are set after it closes";
-            WE_LOG_INFO(log(), "game settings: {}: no settings file yet ({}): start the game once, WheelBri sets them "
-                               "after it closes",
-                        game.label, file);
-            break;
-        case Outcome::Refused:
-            settingsStates_[game.id] = "not written: " + result.why;
-            WE_LOG_WARN(log(), "game settings: {}: nothing written to {}: {}", game.label, file, result.why);
-            break;
-        case Outcome::Failed:
-            settingsStates_[game.id] = "not written yet, trying again: " + result.why;
-            // Tried again at every check (the game may hold the file a moment); said once per reason.
-            if (std::string& said = settingsFailureSaid_[game.id]; said != result.why) {
-                said = result.why;
-                WE_LOG_WARN(log(), "game settings: {}: not written yet to {}: {}; trying again", game.label, file,
-                            result.why);
-            }
-            return false;
-    }
-    settingsFailureSaid_.erase(game.id);
-    return true;
 }
 
 GameWatch::Live GameWatch::live() const {
@@ -306,8 +199,6 @@ GameWatch::Decision GameWatch::check() {
     }
     sayRotation();
     sayFfbGain();
-    queueGameSettings(update);
-    writePendingGameSettings();
     return Decision{route, ffbGain_};
 }
 

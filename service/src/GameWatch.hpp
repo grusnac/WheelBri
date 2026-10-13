@@ -25,12 +25,9 @@ namespace wheelbri::service {
 // [game_rotation] line; GameRotation.hpp) is played with it: the axis goes through 1:1 either way, so the log says
 // the wheel's own software must be set to it while the game runs, and the window shows it.
 // A game with a force feedback gain (its profile's [ffb] gain: NFS Unbound) gets it while it runs: check() returns it
-// for the service's FfbController, and the log says so. A game with its own settings to set (its profile's
-// [game_settings], GameSettings.hpp: NFS Unbound's hidden wheel settings) gets them written into its settings file
-// while it is NOT running: at the first check() and again whenever it ends (it reads the file when it starts and
-// writes its own values back when it ends); while it runs the log says they follow when it closes.
-// For the app's Game profiles tab it also says which game runs (live: profile id, pid, since when, how many starts) and
-// what happened to each game's own settings (settingsStates).
+// for the service's FfbController, and the log says so. A game's own settings (its profile's [game_settings]) are never
+// written here: the user saves them into the game's file from the Game profiles tab (Save to file).
+// For the app's Game profiles tab it also says which game runs (live: profile id, pid, since when, how many starts).
 // Called from the session's window thread every 2 s (a few milliseconds; never on the service loop); not thread-safe.
 class GameWatch {
 public:
@@ -38,7 +35,7 @@ public:
     // for the in-game shim (the shim does). `mapping`: the session's own rotation in degrees ([steering]);
     // `overrides`: the user's per-game rotations ([game_rotation]). Logs the built-in profiles' problems, if any.
     GameWatch(std::string_view targetProfile, bool routePedals, float mapping, GameRotations overrides,
-              GameSettingOverrides settings = {}, GameFfbGains gains = {});
+              GameFfbGains gains = {});
 
     struct Decision {
         PedalRoute route;           // Pipeline::setPedalRoute
@@ -64,9 +61,6 @@ public:
         float ffbGain = 1.0F;        // the gain in use for it
     };
     [[nodiscard]] Live live() const;
-    // For the Game profiles tab, by profile id: what happened to each game's own settings this session ("as set in its
-    // file", "written: WheelSpringMagnitude 0.500000 -> 0.800000", "it runs: written when it closes"...).
-    [[nodiscard]] const std::map<std::string, std::string>& settingsStates() const { return settingsStates_; }
 
 private:
     void logEvents(const GameDetector::Update& update);
@@ -76,13 +70,6 @@ private:
     void sayRotation();
     // The force feedback gain for the game followed now (1: none), said in the log when it changes.
     void sayFfbGain();
-    // Games' own settings: queued at the first check() and when a game with settings ends; written once it is not
-    // running (and the running programs could be listed).
-    void queueGameSettings(const GameDetector::Update& update);
-    void writePendingGameSettings();
-    // True when done (written, already as set, or nothing that trying again would change); false: try again.
-    bool writeGameSettings(const GameProfile& game);
-    [[nodiscard]] bool running(const GameProfile& game) const;
     [[nodiscard]] std::string describeFollowed() const;
 
     GameDetector detector_;
@@ -92,16 +79,9 @@ private:
     GameRotations overrides_;
     std::optional<float> applied_;              // what the last check() said
     float ffbGain_ = 1.0F;                      // the same for the force feedback gain
-    GameSettingOverrides settingOverrides_;     // the user's [game_settings]
     GameFfbGains ffbGains_;                     // the user's [game_ffb_gain]
-    bool settingsQueued_ = false;               // the first check() queued every game with settings
-    std::set<std::string> settingsPending_;     // profile ids whose settings are still to be written
-    std::set<std::string> settingsWaitSaid_;    // "set after it closes" said for these, while they run
-    std::map<std::string, std::string> settingsFailureSaid_;   // the last "trying again" reason said, per game
-    std::map<std::string, std::string> settingsStates_;        // settingsStates()
     std::uint64_t starts_ = 0;                                 // Live::starts
     std::uint64_t followedSinceMs_ = 0;                        // Live::sinceMs
-    bool noDocumentsSaid_ = false;
     const GameProfile* unroutable_ = nullptr;   // a profile the device cannot apply, said once
     std::string warning_;
     // NFS 2015's settings file: checked again only when its last write changes.

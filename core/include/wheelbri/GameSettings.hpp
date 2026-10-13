@@ -14,9 +14,9 @@
 // keeps its wheel force feedback settings in its settings file (in Documents: Need For Speed(TM) Unbound, settings,
 // PROFILEOPTIONS) and shows none of them in its menus; at 0.5 each (its defaults) its force feedback is very light
 // (2026-10-12: with WheelFFBMagnitude 1.0 and WheelSpringMagnitude 1.0 its centring spring went from 0 most of the
-// time to 75-99%, its idle spring to full strength, its steering force and rumble up by half). The service sets them
-// while the game is closed (the game reads the file when it starts and writes its own values back when it ends); the
-// user changes them in the Game profiles tab, saved as
+// time to 75-99%, its idle spring to full strength, its steering force and rumble up by half). Nothing writes them by
+// itself: the user writes them from the Game profiles tab (Save to file, with the game closed: it reads the file when
+// it starts and writes its own values back when it ends). The user changes them in the same tab, saved as
 //   [game_settings]
 //   nfsunbound.spring = 0.8        ; <game profile id>.<setting id> = kGameSettingMin..kGameSettingMax
 // A setting left out has its profile's value. "steering" settings (WheelMaxRotation) get the steering rotation the
@@ -79,10 +79,11 @@ struct GameSettingsEdit {
 [[nodiscard]] std::optional<std::string> frostbiteSetting(std::string_view bytes, std::string_view name);
 
 // Writes `values` into the Frostbite settings file at `root` / `relative` (root: the user's Documents folder;
-// relative: a profile's [game_settings] file, / separated). The user's file as it was is kept once, next to it, as
-// "<file>.before-wheelbri" (never overwritten: putting it back undoes everything WheelBri set). Written through a
-// temporary file and a rename, so the game never reads half a file. The service may run as Administrator, so a link
-// is never followed: the file, its backup and every folder below `root` must be real files and folders.
+// relative: a profile's [game_settings] file, / separated; or the file the user located: its folder and its name). The
+// user's file as it was is kept once, next to it, as "<file>.before-wheelbri" (never overwritten: putting it back
+// undoes everything WheelBri set). Written through a temporary file and a rename, so the game never reads half a file.
+// The service may run as Administrator, so a link is never followed: the file, its backup and every folder below `root`
+// must be real files and folders.
 struct GameSettingsFileResult {
     enum class Outcome {
         Written,   // values changed (`changes`), the backup made if it was not there
@@ -103,7 +104,7 @@ inline constexpr std::uintmax_t kMaxGameSettingsFileBytes = 1024 * 1024;   // NF
 
 // What the game's settings file holds now for `values`, for the Game profiles tab: read only, with the same checks as
 // writeGameSettingsFile (no link followed, nothing outside `root`, at most kMaxGameSettingsFileBytes). `root` empty:
-// not on this system (the service sets them on Windows only for now).
+// not known on this system (no Documents folder: Windows only for now).
 struct GameSettingsFileState {
     enum class Status {
         NotHere,      // no Documents folder here (not Windows): `why`

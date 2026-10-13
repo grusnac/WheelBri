@@ -100,13 +100,14 @@ Played on the tested rig: wheel, pedals, buttons and force feedback checked in t
   `WheelCollisionMagnitude` (0.5 each by default), `WheelMaxRotation` (270) and `WheelDeadzone`. At the defaults its
   force feedback is very light (steering force 5% of full scale on average, the centring spring 0 most of the time;
   real G920 owners say the same). With force feedback 1.0 and spring 0.8 it centres and has weight (2026-10-12).
-  WheelBri's game profile (`config/games/nfsunbound.ini`) sets these while the game is closed: force feedback 1.0,
+  WheelBri's game profile (`config/games/nfsunbound.ini`) has these values: force feedback 1.0,
   spring 0.8, and `WheelMaxRotation` = the steering rotation it is played with. Change them in the Game profiles tab
   (NFS Unbound): the rotation in its rotation row as for NFS Payback (`[game_rotation] nfsunbound = 360`; Off = the
-  mapping's own), the others below it (`[game_settings] nfsunbound.spring = 0.8`); they are written at the next
-  Start, or when the game closes. The tab shows what the file holds now (the column on the right). Set the wheel's own software (Pit House) to the same rotation. The
-  file as it was is kept as `PROFILEOPTIONS.before-wheelbri`. The game reads the file when it starts and writes its
-  own values back when it ends, so edits made while it runs are lost.
+  mapping's own), the others below it (`[game_settings] nfsunbound.spring = 0.8`). They are written only when you
+  press **Save to file** in Game config, with the game closed (**Locate file** first when the file is not under
+  Documents). The tab shows what the file holds now (the column on the right). Set the wheel's own software (Pit House)
+  to the same rotation. The file as it was is kept as `PROFILEOPTIONS.before-wheelbri`. The game reads the file when it
+  starts and writes its own values back when it ends, so edits made while it runs are lost.
 - **Steering force made stronger.** The profile also multiplies its pushing forces by 3 (`[ffb] gain`; the 80% cap
   and the slew limit still apply; its springs and damper stay as they are). Change it in the Game profiles tab, force
   feedback gain (`[game_ffb_gain] nfsunbound = 3`, 0.25 to 4), from the next Start.

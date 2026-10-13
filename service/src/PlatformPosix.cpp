@@ -185,6 +185,13 @@ std::optional<std::vector<RunningProgram>> runningPrograms() {
 
 std::filesystem::path documentsFolder() { return {}; }
 
+std::optional<std::filesystem::path> pickFile(const std::string& /*title*/, const std::filesystem::path& /*folder*/,
+                                              const std::string& /*fileName*/) {
+    return std::nullopt;   // no file dialog without a toolkit (only the system's own APIs: Xlib has none)
+}
+
+bool canPickFile() { return false; }
+
 std::filesystem::path processImage(std::uint32_t /*pid*/) { return {}; }
 
 std::string lastProcessImageError() { return {}; }
