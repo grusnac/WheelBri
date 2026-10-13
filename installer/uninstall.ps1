@@ -222,10 +222,13 @@ try {
             Remove-Item "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part" -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
-    foreach ($key in 'HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_046D&PID_C262',
-                     'HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_046D&PID_C262',
-                     'HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\DirectInput\VID_046D&PID_C262') {
-        Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue
+    # DirectInput's entries for the virtual G920 (C262) and G25 (C299).
+    foreach ($ids in 'VID_046D&PID_C262', 'VID_046D&PID_C299') {
+        foreach ($key in "HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids",
+                         "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids",
+                         "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\DirectInput\$ids") {
+            Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
     # The same two under the project's old name (wheelemu, before the rename), if an upgrade left them.
     Remove-Item 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\wheelemu' -Recurse -Force -ErrorAction SilentlyContinue

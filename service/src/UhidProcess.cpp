@@ -44,9 +44,11 @@ bool uhidRunning() {
     return found;
 }
 
-std::unique_ptr<UhidProcess> UhidProcess::start(const std::filesystem::path& stopFolder, std::string& error) {
+std::unique_ptr<UhidProcess> UhidProcess::start(const std::filesystem::path& stopFolder, const std::string& target,
+                                                std::string& error) {
     if (uhidRunning()) {
-        WE_LOG_INFO(log(), "wheelbri-uhid is already running (wheelbri.sh?): using its virtual G920");
+        WE_LOG_INFO(log(), "wheelbri-uhid is already running (wheelbri.sh?): using its virtual wheel (it was started "
+                           "for its own target; this config's is {})", target);
         return std::unique_ptr<UhidProcess>(new UhidProcess(nullptr, {}, "wheelbri-uhid (already running)"));
     }
     const std::filesystem::path program = findUhid();
@@ -59,7 +61,9 @@ std::unique_ptr<UhidProcess> UhidProcess::start(const std::filesystem::path& sto
     std::error_code ec;
     std::filesystem::remove(stopFile, ec);
     auto child = platform::ChildProcess::start(
-        {pathToUtf8(program), "--stop-file", pathToUtf8(stopFile), "--parent", std::to_string(::getpid())}, error);
+        {pathToUtf8(program), "--stop-file", pathToUtf8(stopFile), "--parent", std::to_string(::getpid()), "--target",
+         target},
+        error);
     if (child == nullptr) return nullptr;
     // A missing /dev/uhid permission or a taken port ends it at once: wait that long before calling it started.
     for (int i = 0; i < 10; ++i) {

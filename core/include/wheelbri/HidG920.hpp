@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace wheelbri {
 
@@ -21,12 +22,36 @@ namespace wheelbri {
 // feature reads anyway (see HidPid). The input report has ID 1.
 inline constexpr std::uint16_t kG920VendorId = 0x046D;
 inline constexpr std::uint16_t kG920ProductId = 0xC262;
+// The virtual G25 (docs/g25-target-plan.md): the same descriptor and report as the virtual G920, a native-mode G25's
+// ids (046D:C299, never the Driving Force mode's C294).
+inline constexpr std::uint16_t kG25VendorId = 0x046D;
+inline constexpr std::uint16_t kG25ProductId = 0xC299;
 inline constexpr std::uint8_t kG920InputReportId = 0x01;
 inline constexpr std::size_t kG920InputReportSize = 13;   // report ID + 4 axes x 2 + 3 button bytes + hat
 
-// The unique id ("uniq", EVIOCGUNIQ) wheelbri-uhid gives the Linux virtual G920. The service never lists a device
-// with it as part of a rig: it would read its own output as input.
+// The unique id ("uniq", EVIOCGUNIQ) wheelbri-uhid gives the Linux virtual wheel (G920 or G25). The service never
+// lists a device with it as part of a rig: it would read its own output as input.
 inline constexpr const char* kG920VirtualUniq = "wheelbri-g920";
+
+// The wheels WheelBri's driver (wheelbri-g920) can be: the descriptor and input report here for all of them, another
+// identity each. The service creates the software device with the identity's hardware id (wheelbri\G920,
+// wheelbri\G25); the driver, bound to every one of them by its INF, answers with that identity's ids and names.
+struct VirtualWheel {
+    std::string_view profile;          // target_profile: "g920", "g25"
+    std::string_view hardwareId;       // the software device's hardware id: wheelbri\G920
+    std::string_view instancePrefix;   // its instance ids: G920_0 .. G920_3 (spares for a stuck one)
+    std::uint16_t vendorId = 0;
+    std::uint16_t productId = 0;
+    std::string_view product;          // the HID product string: "G920 Driving Force Racing Wheel USB"
+    std::string_view oemName;          // DirectInput's name for it (OEMName): "Logitech G920 Driving Force Racing ..."
+    std::size_t buttons = 0;           // DirectInput's OEMData button count
+};
+[[nodiscard]] std::span<const VirtualWheel> virtualWheels();
+// By target_profile ("g920", "g25"), or by a hardware id (any case); null when it is none of them.
+[[nodiscard]] const VirtualWheel* virtualWheel(std::string_view profile);
+[[nodiscard]] const VirtualWheel* virtualWheelForHardwareId(std::string_view hardwareId);
+// Whether vid:pid is one of the virtual wheels' ids (never hidden: games are meant to see it).
+[[nodiscard]] bool isVirtualWheelId(std::uint16_t vendorId, std::uint16_t productId);
 
 [[nodiscard]] std::span<const std::uint8_t> g920ReportDescriptor();
 

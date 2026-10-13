@@ -107,6 +107,7 @@ TEST(HelperProtocol, HideDeviceRules) {
     EXPECT_EQ(hideDeviceProblem(R"(hid\vid_346e&pid_0005&mi_02\8&8052f69&0&0000)"), "");
     EXPECT_NE(hideDeviceProblem(""), "");
     EXPECT_NE(hideDeviceProblem(R"(HID\VID_046D&PID_C262\1&2&0&0000)"), "");   // the virtual G920
+    EXPECT_NE(hideDeviceProblem(R"(HID\VID_046D&PID_C299\1&2&0&0000)"), "");   // the virtual G25
     EXPECT_NE(hideDeviceProblem(R"(USB\VID_346E&PID_0005\123)"), "");         // not HID
     EXPECT_NE(hideDeviceProblem(R"(HID\VID_346E&PID_0005)"), "");             // two parts
     EXPECT_NE(hideDeviceProblem(R"(HID\VID_346E&PID_0005\a\b)"), "");         // four parts
@@ -236,10 +237,20 @@ TEST(HelperProtocol, KnownTypesAreExactlyHelloToSetLogLevel) {
     EXPECT_EQ(requestProblem(Request{static_cast<RequestType>(0), 1, {}}), "unknown request 0");
 }
 
-TEST(HelperProtocol, EveryRequestButPutHideFilterTakesNoDevices) {
+TEST(HelperProtocol, CreateVirtualG920MayNameTheWheel) {
+    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualG920, 1, {}}), "");   // an older app: the G920
+    EXPECT_EQ(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {}}), "g920");
+    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualG920, 1, {"g25"}}), "");
+    EXPECT_EQ(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {"g25"}}), "g25");
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualG920, 1, {kMoza}}), "");
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualG920, 1, {"g25", "g920"}}), "");
+    EXPECT_FALSE(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {"G25"}}));   // names are lower case
+}
+
+TEST(HelperProtocol, EveryOtherRequestButPutHideFilterTakesNoDevices) {
     for (int type = 2; type <= 8; ++type) {   // Hello and SetLogLevel take a level (below)
         const auto requestType = static_cast<RequestType>(type);
-        if (requestType == RequestType::PutHideFilter) continue;
+        if (requestType == RequestType::PutHideFilter || requestType == RequestType::CreateVirtualG920) continue;
         EXPECT_EQ(requestProblem(Request{requestType, 1, {}}), "") << type;
         EXPECT_EQ(requestProblem(Request{requestType, 1, {kMoza}}),
                   std::string(requestName(requestType)) + " takes no devices");

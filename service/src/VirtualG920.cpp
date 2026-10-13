@@ -3,12 +3,14 @@
 #include "Platform.hpp"
 
 #include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/HidG920.hpp"
 #include "wheelbri/Logging.hpp"
 
 #ifdef _WIN32
 
 #include <windows.h>
 #include <cfgmgr32.h>
+#include <cwchar>
 #include <cwctype>
 
 #include <atomic>
@@ -29,6 +31,10 @@ namespace {
 const logging::Logger& log() {
     static const logging::Logger logger = logging::get("service.g920");
     return logger;
+}
+
+std::wstring widen(const std::string_view text) {
+    return std::wstring(text.begin(), text.end());   // the identities are ASCII
 }
 
 std::string narrow(std::wstring_view wide) {
@@ -171,12 +177,15 @@ bool hidDevicePresent(USHORT vid, USHORT pid, const std::wstring& ancestor = {})
     return false;
 }
 
-// --- DirectInput's registry entries for VID_046D&PID_C262 ---
+// --- DirectInput's registry entries for the wheel's ids (VID_046D&PID_C262 for the G920, PID_C299 for the G25) ---
 
-constexpr wchar_t kOemKey[] =
-    L"System\\CurrentControlSet\\Control\\MediaProperties\\PrivateProperties\\Joystick\\OEM\\VID_046D&PID_C262";
+std::wstring oemKey(const VirtualWheel& wheel) {
+    wchar_t ids[32];
+    std::swprintf(ids, std::size(ids), L"VID_%04X&PID_%04X", wheel.vendorId, wheel.productId);
+    return std::wstring(L"System\\CurrentControlSet\\Control\\MediaProperties\\PrivateProperties\\Joystick\\OEM\\") +
+           ids;
+}
 constexpr wchar_t kPidDriverClsid[] = L"{EEC6993A-B3FD-11D2-A916-00C04FB98638}";
-constexpr wchar_t kOemName[] = L"Logitech G920 Driving Force Racing Wheel USB";
 
 // The machine's entries, and the user's too when `userHive` (not in the helper: as SYSTEM, HKCU is SYSTEM's own; the
 // app keeps the user's).
@@ -184,16 +193,19 @@ std::vector<HKEY> roots(const bool userHive) {
     return userHive ? std::vector<HKEY>{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE} : std::vector<HKEY>{HKEY_LOCAL_MACHINE};
 }
 
-void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives) {
+void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
+    const std::wstring path = oemKey(wheel);
+    const std::wstring name = widen(wheel.oemName);
     for (HKEY root : hives) {
         HKEY key = nullptr;
-        if (RegCreateKeyExW(root, kOemKey, 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
+        if (RegCreateKeyExW(root, path.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) {
             continue;
         }
         if (on) {
             // The name, and the device type the shim reports: JOY_HWS_ISCARCTRL | HASPOV, 19 buttons (the shifter's too).
-            const BYTE data[8] = {0x42, 0, 0, 0, static_cast<BYTE>(kG920Buttons), 0, 0, 0};
-            RegSetValueExW(key, L"OEMName", 0, REG_SZ, reinterpret_cast<const BYTE*>(kOemName), sizeof(kOemName));
+            const BYTE data[8] = {0x42, 0, 0, 0, static_cast<BYTE>(wheel.buttons), 0, 0, 0};
+            RegSetValueExW(key, L"OEMName", 0, REG_SZ, reinterpret_cast<const BYTE*>(name.c_str()),
+                           static_cast<DWORD>((name.size() + 1) * sizeof(wchar_t)));
             RegSetValueExW(key, L"OEMData", 0, REG_BINARY, data, sizeof(data));
         } else {
             RegDeleteValueW(key, L"OEMData");
@@ -202,10 +214,11 @@ void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives) {
     }
 }
 
-// Logitech's software registers its own force feedback driver for every G920; it only works with a real
+// Logitech's software registers its own force feedback driver for every G920 (and G25); it only works with a real
 // one (every effect fails with E_NOTIMPL). Without the entry DirectInput uses Windows' PID driver.
-void removeForeignForceFeedbackDriver(const std::vector<HKEY>& hives) {
-    const std::wstring path = std::wstring(kOemKey) + L"\\OEMForceFeedback";
+void removeForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
+    const std::wstring key = oemKey(wheel);
+    const std::wstring path = key + L"\\OEMForceFeedback";
     for (HKEY root : hives) {
         wchar_t clsid[64] = {};
         DWORD size = sizeof(clsid);
@@ -214,7 +227,7 @@ void removeForeignForceFeedbackDriver(const std::vector<HKEY>& hives) {
         }
         if (_wcsicmp(clsid, kPidDriverClsid) == 0) continue;
         HKEY oem = nullptr;
-        if (RegOpenKeyExW(root, kOemKey, 0, KEY_ALL_ACCESS, &oem) == ERROR_SUCCESS) {
+        if (RegOpenKeyExW(root, key.c_str(), 0, KEY_ALL_ACCESS, &oem) == ERROR_SUCCESS) {
             RegDeleteTreeW(oem, L"OEMForceFeedback");
             RegCloseKey(oem);
             // Logitech's software may write it back every few seconds (the watcher below): a note a minute at most.
@@ -232,6 +245,7 @@ void removeForeignForceFeedbackDriver(const std::vector<HKEY>& hives) {
 }  // namespace
 
 struct VirtualG920::Impl {
+    const VirtualWheel* wheel = nullptr;
     SwDeviceCloseFn close = nullptr;
     HSWDEVICE_ device = nullptr;
     std::string instanceId;
@@ -250,9 +264,9 @@ struct VirtualG920::Impl {
         if (watcher.joinable()) watcher.join();
         if (device != nullptr && close != nullptr) {
             close(device);
-            WE_LOG_INFO(log(), "virtual G920 {} removed", instanceId);
+            WE_LOG_INFO(log(), "virtual {} {} removed", wheel->instancePrefix, instanceId);
         }
-        writeDirectInputEntries(false, roots(userHive));
+        writeDirectInputEntries(false, roots(userHive), *wheel);
     }
 };
 
@@ -285,8 +299,8 @@ VirtualG920::DriverState VirtualG920::driverState() {
     return state;
 }
 
-std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::function<bool()>& cancelled,
-                                                 const bool userHive) {
+std::unique_ptr<VirtualG920> VirtualG920::create(const VirtualWheel& wheel, std::string& error,
+                                                 const std::function<bool()>& cancelled, const bool userHive) {
     const auto stopNow = [&cancelled] { return cancelled && cancelled(); };
     const HMODULE cfg = LoadLibraryW(L"cfgmgr32.dll");
     const auto swCreate =
@@ -304,17 +318,22 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
     }
 
     // Spare identities: a new device to Windows when an earlier one is stuck half-removed.
-    for (const wchar_t* instance : {L"G920_0", L"G920_1", L"G920_2", L"G920_3"}) {
+    std::wstring hardwareIds = widen(wheel.hardwareId);
+    hardwareIds.push_back(L'\0');   // a list: the string's own end ends it
+    const std::wstring description = widen(wheel.oemName) + L" (wheelbri)";
+    const std::wstring wheelName = widen(wheel.instancePrefix);   // "G920", "G25"
+    const std::string label = "virtual " + std::string(wheel.instancePrefix);
+    for (const std::wstring& instance : {wheelName + L"_0", wheelName + L"_1", wheelName + L"_2", wheelName + L"_3"}) {
         if (stopNow()) {
             error = "cancelled";
             return nullptr;
         }
         SwDeviceCreateInfo info{};
         info.cbSize = sizeof(info);
-        info.pszInstanceId = instance;
-        info.pszzHardwareIds = L"wheelbri\\G920\0";
+        info.pszInstanceId = instance.c_str();
+        info.pszzHardwareIds = hardwareIds.c_str();
         info.CapabilityFlags = kRemovable | kSilentInstall | kDriverRequired;
-        info.pszDeviceDescription = L"Logitech G920 Driving Force Racing Wheel USB (wheelbri)";
+        info.pszDeviceDescription = description.c_str();
         // Heap-allocated: if Windows never answers, its late callback must not touch a dead stack frame.
         auto* wait = new CreateWait;
         HSWDEVICE_ device = nullptr;
@@ -326,11 +345,11 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
                           hr == E_ACCESSDENIED ? ": run the service as Administrator" : "");
             error = text;
             if (hr == E_ACCESSDENIED) {   // the same for every identity
-                writeDirectInputEntries(false, roots(userHive));
+                writeDirectInputEntries(false, roots(userHive), wheel);
                 return nullptr;
             }
             // Often this identity is still being removed (Stop then Start at once): the next one is a new device.
-            WE_LOG_WARN(log(), "virtual G920 {}: {}; trying the next identity", narrow(instance), text);
+            WE_LOG_WARN(log(), "{} {}: {}; trying the next identity", label, narrow(instance), text);
             continue;
         }
         bool finished = false;
@@ -358,28 +377,28 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         if (finished) delete wait;   // else leaked on purpose (see above)
         if (cancelledWhileWaiting && !finished) {
             swClose(device);
-            writeDirectInputEntries(false, roots(userHive));
+            writeDirectInputEntries(false, roots(userHive), wheel);
             error = "cancelled";
             return nullptr;
         }
         if (!finished || FAILED(result)) {
             char text[200];
             std::snprintf(text, sizeof(text),
-                          "the virtual G920 was not set up (0x%08lX): is the driver installed "
-                          "(driver\\install-driver.ps1)?", static_cast<unsigned long>(result));
+                          "the %s was not set up (0x%08lX): is the driver installed "
+                          "(driver\\install-driver.ps1)?", label.c_str(), static_cast<unsigned long>(result));
             swClose(device);
-            writeDirectInputEntries(false, roots(userHive));   // an earlier identity may have written them
+            writeDirectInputEntries(false, roots(userHive), wheel);   // an earlier identity may have written them
             error = text;
             return nullptr;
         }
         const std::string id = narrow(createdId);
-        writeDirectInputEntries(true, roots(userHive));
-        removeForeignForceFeedbackDriver(roots(userHive));
+        writeDirectInputEntries(true, roots(userHive), wheel);
+        removeForeignForceFeedbackDriver(roots(userHive), wheel);
 
         const auto start = std::chrono::steady_clock::now();
         bool ready = false;
         while (std::chrono::steady_clock::now() - start < std::chrono::seconds(8) && !stopNow()) {
-            if (hidDevicePresent(0x046D, 0xC262, createdId)) {
+            if (hidDevicePresent(wheel.vendorId, wheel.productId, createdId)) {
                 ready = true;
                 break;
             }
@@ -387,7 +406,7 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
         }
         if (!ready && stopNow()) {
             swClose(device);
-            writeDirectInputEntries(false, roots(userHive));
+            writeDirectInputEntries(false, roots(userHive), wheel);
             error = "cancelled";
             return nullptr;
         }
@@ -397,21 +416,30 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
             // the same, so say what is missing instead.
             if (problem == kProblemFailedInstall && driverState() != DriverState::Installed) {
                 swClose(device);
-                writeDirectInputEntries(false, roots(userHive));
+                writeDirectInputEntries(false, roots(userHive), wheel);
                 error = std::string(kDriverMissing) + " (Windows found no driver for " + id + ")";
                 return nullptr;
             }
-            WE_LOG_WARN(log(), "virtual G920 {} has no game-controller driver{} (an earlier one is probably stuck "
+            // The driver is there but has no entry for this wheel: an older wheelbri-g920 (from before the G25).
+            if (problem == kProblemFailedInstall && wheel.profile != "g920") {
+                swClose(device);
+                writeDirectInputEntries(false, roots(userHive), wheel);
+                error = "the installed wheelbri-g920 driver is older than the " + label +
+                        ": install the new one (scripts/make/drivers.sh -Only g920 -Install, or WheelBri's installer)";
+                return nullptr;
+            }
+            WE_LOG_WARN(log(), "{} {} has no game-controller driver{} (an earlier one is probably stuck "
                                "half-removed until Windows restarts); trying the next identity",
-                        id, problem != 0 ? " (Device Manager problem code " + std::to_string(problem) + ")" : std::string());
+                        label, id, problem != 0 ? " (Device Manager problem code " + std::to_string(problem) + ")" : std::string());
             swClose(device);
             continue;
         }
         const auto elapsed =
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
-        WE_LOG_INFO(log(), "virtual G920 {} ready after {} ms (joy.cpl and games can see it)", id, elapsed);
+        WE_LOG_INFO(log(), "{} {} ready after {} ms (joy.cpl and games can see it)", label, id, elapsed);
 
         auto impl = std::make_unique<Impl>();
+        impl->wheel = &wheel;
         impl->close = swClose;
         impl->device = device;
         impl->instanceId = id;
@@ -423,31 +451,35 @@ std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::
                 std::unique_lock guard(raw->lock);
                 while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {
                     guard.unlock();
-                    removeForeignForceFeedbackDriver(roots(raw->userHive));   // Logitech's software writes it back when it sees a "G920"
+                    // Logitech's software writes it back when it sees a "G920" (or a "G25")
+                    removeForeignForceFeedbackDriver(roots(raw->userHive), *raw->wheel);
                     guard.lock();
                 }
             } catch (const std::exception& e) {   // never std::terminate the service from here
-                WE_LOG_ERROR(log(), "virtual G920: the registry watcher stopped: {}", e.what());
+                WE_LOG_ERROR(log(), "virtual {}: the registry watcher stopped: {}", raw->wheel->instancePrefix, e.what());
             }
         });
         return std::unique_ptr<VirtualG920>(new VirtualG920(std::move(impl)));
     }
-    writeDirectInputEntries(false, roots(userHive));   // written for an identity that then never got its driver
-    error = "every identity of the virtual G920 is stuck: restart Windows" + (error.empty() ? "" : " (last: " + error + ")");
+    writeDirectInputEntries(false, roots(userHive), wheel);   // written for an identity that then never got its driver
+    error = "every identity of the " + label + " is stuck: restart Windows" +
+            (error.empty() ? "" : " (last: " + error + ")");
     return nullptr;
 }
 
 struct DirectInputUserEntries::Impl {
+    const VirtualWheel* wheel = nullptr;
     std::thread watcher;
     std::mutex lock;
     std::condition_variable wake;
     bool stop = false;
 };
 
-DirectInputUserEntries::DirectInputUserEntries() : impl_(std::make_unique<Impl>()) {
+DirectInputUserEntries::DirectInputUserEntries(const VirtualWheel& wheel) : impl_(std::make_unique<Impl>()) {
+    impl_->wheel = &wheel;
     const std::vector<HKEY> user{HKEY_CURRENT_USER};
-    writeDirectInputEntries(true, user);
-    removeForeignForceFeedbackDriver(user);
+    writeDirectInputEntries(true, user, wheel);
+    removeForeignForceFeedbackDriver(user, wheel);
     Impl* raw = impl_.get();
     impl_->watcher = std::thread([raw] {
         platform::nameThisThread("wheelbri dinput watch");
@@ -455,11 +487,12 @@ DirectInputUserEntries::DirectInputUserEntries() : impl_(std::make_unique<Impl>(
             std::unique_lock guard(raw->lock);
             while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {
                 guard.unlock();
-                removeForeignForceFeedbackDriver({HKEY_CURRENT_USER});
+                removeForeignForceFeedbackDriver({HKEY_CURRENT_USER}, *raw->wheel);
                 guard.lock();
             }
         } catch (const std::exception& e) {
-            WE_LOG_ERROR(log(), "virtual G920: the user's registry watcher stopped: {}", e.what());
+            WE_LOG_ERROR(log(), "virtual {}: the user's registry watcher stopped: {}", raw->wheel->instancePrefix,
+                         e.what());
         }
     });
 }
@@ -471,7 +504,7 @@ DirectInputUserEntries::~DirectInputUserEntries() {
     }
     impl_->wake.notify_all();
     if (impl_->watcher.joinable()) impl_->watcher.join();
-    writeDirectInputEntries(false, {HKEY_CURRENT_USER});
+    writeDirectInputEntries(false, {HKEY_CURRENT_USER}, *impl_->wheel);
 }
 
 }  // namespace wheelbri::service
@@ -489,11 +522,12 @@ VirtualG920::DriverState VirtualG920::driverState() {
 }
 
 struct DirectInputUserEntries::Impl {};
-DirectInputUserEntries::DirectInputUserEntries() = default;
+DirectInputUserEntries::DirectInputUserEntries(const VirtualWheel&) {}
 DirectInputUserEntries::~DirectInputUserEntries() = default;
 
-std::unique_ptr<VirtualG920> VirtualG920::create(std::string& error, const std::function<bool()>&, bool) {
-    error = "the virtual G920 exists on Windows only";
+std::unique_ptr<VirtualG920> VirtualG920::create(const VirtualWheel&, std::string& error,
+                                                 const std::function<bool()>&, bool) {
+    error = "the virtual wheel exists on Windows only";
     return nullptr;
 }
 

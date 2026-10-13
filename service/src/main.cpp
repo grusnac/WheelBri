@@ -30,6 +30,7 @@
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/FfbIdleWatch.hpp"
 #include "wheelbri/GameUseWatch.hpp"
+#include "wheelbri/HidG920.hpp"
 #include "wheelbri/HidHideCli.hpp"
 #include "wheelbri/LogLevelPacket.hpp"
 #include "wheelbri/Logging.hpp"
@@ -1591,15 +1592,22 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     std::signal(SIGHUP, onSignal);
 #endif
     const std::filesystem::path logFolder = logFolderOf(config);
-    // Our own driver's G920 (driver/): there while the loop runs, removed when it returns or the process ends.
+    // Our own driver's wheel (driver/), the config's target (a G920 or a G25): there while the loop runs, removed when
+    // it returns or the process ends.
+    const wheelbri::VirtualWheel* virtualWheel = wheelbri::virtualWheel(config.targetProfile);
+    const std::string wheelName = virtualWheel != nullptr ? std::string(virtualWheel->instancePrefix) : "G920";
     bool g920 = false;
     if (steps != nullptr) {
+        if (virtualWheel == nullptr) {
+            WE_LOG_CRITICAL(log(), "--virtual-g920: no virtual device for target_profile '{}'", config.targetProfile);
+            return 1;
+        }
         std::string error;
         std::string g920Id;
-        g920 = steps->createVirtualG920(cancelled, g920Id, error);
+        g920 = steps->createVirtualG920(*virtualWheel, cancelled, g920Id, error);
         if (!g920) {
             if (cancelled()) {
-                WE_LOG_INFO(log(), "stopped while the virtual G920 was being created");
+                WE_LOG_INFO(log(), "stopped while the virtual {} was being created", wheelName);
                 return 0;
             }
             WE_LOG_CRITICAL(log(), "--virtual-g920: {}", error);
@@ -1611,9 +1619,9 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     std::unique_ptr<wheelbri::service::UhidProcess> uhid;
     if (options.uhid) {
         std::string error;
-        uhid = wheelbri::service::UhidProcess::start(logFolder, error);
+        uhid = wheelbri::service::UhidProcess::start(logFolder, config.targetProfile, error);
         if (uhid == nullptr) {
-            WE_LOG_CRITICAL(log(), "virtual G920: {}", error);
+            WE_LOG_CRITICAL(log(), "virtual {}: {}", wheelName, error);
             return 1;
         }
     }
@@ -1635,7 +1643,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     // One line for the window: what games will see besides the G920, and what is missing.
     DeviceSummary devices;
     if (g920) {
-        devices.text = "virtual G920 on";
+        devices.text = "virtual " + wheelName + " on";
         if (!options.hide) {
             devices.text += ", rig left visible (--no-hide)";
         } else if (hideTargets.empty()) {
@@ -1669,7 +1677,8 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
 #ifndef _WIN32
     if (uhid != nullptr) {
         // Hiding the rig is the game's launch option on Linux (SDL_GAMECONTROLLER_IGNORE_DEVICES, wheelbri.sh).
-        devices.text = "virtual G920 on (" + uhid->describe() + "); hide the rig in the game's launch options";
+        devices.text =
+            "virtual " + wheelName + " on (" + uhid->describe() + "); hide the rig in the game's launch options";
     }
 #endif
     int result = 0;

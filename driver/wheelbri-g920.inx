@@ -2,7 +2,8 @@
 ; wheelbri-g920.inf: the virtual Logitech G920 of wheel-emulator (UMDF 2 HID minidriver).
 ;
 ; The device is a software device that wheelbri-service creates while it runs (--virtual-g920), with hardware
-; ID wheelbri\G920. Install: driver\install-driver.ps1 (Administrator).
+; ID wheelbri\G920, or wheelbri\G25 for the virtual G25 (the same driver; the id decides which wheel it is).
+; Install: driver\install-driver.ps1 (Administrator).
 ; Needs Windows 11 (MsHidUmdf.inf, 22000+).
 ;
 [Version]
@@ -28,6 +29,7 @@ wheelbri-g920.dll=1
 
 [Wheelbri.NT$ARCH$.10.0...22000]
 %DeviceDesc%=WheelbriG920, wheelbri\G920
+%DeviceDescG25%=WheelbriG920, wheelbri\G25
 
 [WheelbriG920.NT]
 CopyFiles=UMDriverCopy
@@ -71,3 +73,4 @@ wheelbri-g920.dll
 Provider="WheelBri"
 DiskName="WheelBri G920 driver"
 DeviceDesc="Logitech G920 Driving Force Racing Wheel USB (wheelbri)"
+DeviceDescG25="Logitech G25 Racing Wheel USB (wheelbri)"

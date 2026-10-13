@@ -1,4 +1,4 @@
-// wheelbri-g920: a UMDF 2 HID minidriver presenting a Logitech G920 to Windows (Phase 5, plan B).
+// wheelbri-g920: a UMDF 2 HID minidriver presenting a Logitech G920 or G25 to Windows (Phase 5, plan B).
 //
 // It does what the former HIDMaestro bridge (step 0) did, inside Windows' driver host:
 //   input  wheelbri-service --UDP 127.0.0.1:41329 (StatePacket)--> driver --> HID input report --> games
@@ -7,7 +7,9 @@
 // Only one of them may run at a time (they share the ports).
 //
 // The device itself is created by wheelbri-service while it runs (a software device, see
-// service/src/VirtualG920.cpp); this INF-installed driver binds to it by hardware ID wheelbri\G920.
+// service/src/VirtualG920.cpp); this INF-installed driver binds to it by hardware ID wheelbri\G920 or wheelbri\G25,
+// and that id decides which wheel it is (VirtualWheel, core/include/wheelbri/HidG920.hpp): its vendor and product ids
+// and its product string. Both have the same HID descriptor and input report.
 //
 // Structure follows Microsoft's vhidmini2 sample (UMDF 2): HID class requests arrive as IOCTLs on a
 // parallel queue; read requests wait on a manual queue until a state packet arrives.
@@ -45,7 +47,6 @@ constexpr USHORT kStatePort = 41329;
 constexpr USHORT kFfbPort = 41330;
 constexpr std::int64_t kStaleMs = 1500;              // same as the shim: then centred wheel, released pedals
 constexpr wchar_t kManufacturer[] = L"Logitech";
-constexpr wchar_t kProduct[] = L"G920 Driving Force Racing Wheel USB";
 constexpr wchar_t kSerial[] = L"WHEELBRI0001";
 
 using Report = std::vector<std::uint8_t>;
@@ -372,6 +373,8 @@ private:
 
 struct DeviceContext {
     WDFDEVICE device;
+    const wheelbri::VirtualWheel* wheel;   // which wheel this device is (by its hardware id)
+    WCHAR product[64];               // the wheel's HID product string, 0-terminated
     WDFQUEUE readQueue;              // manual: IOCTL_HID_READ_REPORT waits here for the next state
     HID_DEVICE_ATTRIBUTES attributes;
     HID_DESCRIPTOR hidDescriptor;
@@ -654,7 +657,7 @@ NTSTATUS readWrittenReport(WDFREQUEST request, std::uint8_t& reportId, std::span
     return STATUS_SUCCESS;
 }
 
-NTSTATUS getString(WDFREQUEST request) {
+NTSTATUS getString(WDFREQUEST request, const DeviceContext* ctx) {
     PVOID buffer = nullptr;
     size_t size = 0;
     NTSTATUS status = WdfRequestRetrieveInputBuffer(request, sizeof(ULONG), &buffer, &size);
@@ -662,7 +665,8 @@ NTSTATUS getString(WDFREQUEST request) {
     const ULONG id = *static_cast<const ULONG*>(buffer) & 0xFFFFU;
     switch (id) {
         case HID_STRING_ID_IMANUFACTURER: return copyToRequest(request, kManufacturer, sizeof(kManufacturer));
-        case HID_STRING_ID_IPRODUCT: return copyToRequest(request, kProduct, sizeof(kProduct));
+        case HID_STRING_ID_IPRODUCT:
+            return copyToRequest(request, ctx->product, (wcslen(ctx->product) + 1) * sizeof(WCHAR));
         case HID_STRING_ID_ISERIALNUMBER: return copyToRequest(request, kSerial, sizeof(kSerial));
         default: return STATUS_INVALID_PARAMETER;
     }
@@ -742,7 +746,7 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             break;
         }
         case IOCTL_HID_GET_STRING:
-            status = getString(request);
+            status = getString(request, ctx);
             break;
         default:
             status = STATUS_NOT_IMPLEMENTED;
@@ -767,10 +771,32 @@ VOID EvtDeviceCleanup(WDFOBJECT object) {
     DeviceContext* ctx = GetDeviceContext(static_cast<WDFDEVICE>(object));
     delete ctx->link;
     ctx->link = nullptr;
-    logLine(Level::Info, "virtual G920 removed");
+    logLine(Level::Info, "virtual " + (ctx->wheel != nullptr ? std::string(ctx->wheel->instancePrefix) : "wheel") +
+                             " removed");
+}
+
+// The first hardware id of the device being added ("wheelbri\G25"); empty if Windows does not say.
+std::string hardwareId(PWDFDEVICE_INIT init) {
+    wchar_t buffer[256] = {};
+    ULONG length = 0;
+    if (!NT_SUCCESS(WdfFdoInitQueryProperty(init, DevicePropertyHardwareID, sizeof(buffer) - sizeof(wchar_t), buffer,
+                                            &length))) {
+        return {};
+    }
+    std::string text;
+    for (const wchar_t* c = buffer; *c != L'\0'; ++c) text += static_cast<char>(*c < 128 ? *c : '?');
+    return text;
 }
 
 NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
+    // Which wheel: by the hardware id the service gave the software device. An unknown one (an older service, or a
+    // hand-made device) is the G920, as before there were two.
+    const std::string id = hardwareId(init);
+    const wheelbri::VirtualWheel* wheel = wheelbri::virtualWheelForHardwareId(id);
+    if (wheel == nullptr) {
+        logLine(Level::Warn, "hardware id '" + id + "' is not a known wheel: presenting the G920");
+        wheel = wheelbri::virtualWheel("g920");
+    }
     WdfFdoInitSetFilter(init);
     WDF_PNPPOWER_EVENT_CALLBACKS power;
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&power);
@@ -788,12 +814,17 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     }
     DeviceContext* ctx = GetDeviceContext(device);
     ctx->device = device;
+    ctx->wheel = wheel;
     ctx->link = nullptr;
+    RtlZeroMemory(ctx->product, sizeof(ctx->product));
+    for (std::size_t i = 0; i < wheel->product.size() && i + 1 < std::size(ctx->product); ++i) {
+        ctx->product[i] = static_cast<WCHAR>(wheel->product[i]);
+    }
 
     RtlZeroMemory(&ctx->attributes, sizeof(ctx->attributes));
     ctx->attributes.Size = sizeof(HID_DEVICE_ATTRIBUTES);
-    ctx->attributes.VendorID = wheelbri::kG920VendorId;
-    ctx->attributes.ProductID = wheelbri::kG920ProductId;
+    ctx->attributes.VendorID = wheel->vendorId;
+    ctx->attributes.ProductID = wheel->productId;
     ctx->attributes.VersionNumber = 0x0100;
 
     RtlZeroMemory(&ctx->hidDescriptor, sizeof(ctx->hidDescriptor));
@@ -822,7 +853,9 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     }
 
     ctx->link = new Link(ctx);
-    logLine(Level::Info, "virtual G920 added (VID 046D PID C262)");
+    char ids[16];
+    std::snprintf(ids, sizeof(ids), "%04X PID %04X", wheel->vendorId, wheel->productId);
+    logLine(Level::Info, "virtual " + std::string(wheel->instancePrefix) + " added (" + id + ": VID " + ids + ")");
     return STATUS_SUCCESS;
 }
 

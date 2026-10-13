@@ -34,8 +34,8 @@ namespace wheelbri::hidhide {
 // for anything else. How the service and wheelbri-hide's installer find a rig's devices among Windows' devices.
 [[nodiscard]] std::optional<DeviceId> hidDeviceIdOf(std::string_view instanceId);
 
-// Whether a rig device may get the hiding filter: never the virtual G920 (046d:c262, ours; hiding it would hide
-// what games are meant to see) and never an empty id.
+// Whether a rig device may get the hiding filter: never a virtual wheel (046d:c262, 046d:c299: ours; hiding it would
+// hide what games are meant to see) and never an empty id.
 [[nodiscard]] bool mayHide(const DeviceId& id);
 
 // Whether a HID collection is a game controller (what DirectInput and games open), from its compatible ids:

@@ -1,6 +1,7 @@
 #include "wheelbri/HelperProtocol.hpp"
 
 #include "wheelbri/FileText.hpp"
+#include "wheelbri/HidG920.hpp"
 #include "wheelbri/HidHideCli.hpp"
 
 #include <algorithm>
@@ -202,7 +203,7 @@ std::string hideDeviceProblem(const std::string_view id) {
     }
     const auto usb = hidhide::hidDeviceIdOf(id);
     if (!usb) return "not a HID device with a vendor and product id";
-    if (!hidhide::mayHide(*usb)) return "the virtual G920 is never hidden";
+    if (!hidhide::mayHide(*usb)) return "the virtual wheel (G920, G25) is never hidden";
     return {};
 }
 
@@ -217,6 +218,9 @@ std::string requestProblem(const Request& request) {
     if (request.type == RequestType::SetLogLevel) {
         return requestLogLevel(request) ? std::string() : "SetLogLevel takes one level: trace, debug, info or warn";
     }
+    if (request.type == RequestType::CreateVirtualG920) {
+        return requestVirtualWheel(request) ? std::string() : "CreateVirtualG920 takes one wheel: g920 or g25";
+    }
     if (request.type != RequestType::PutHideFilter) {
         return request.devices.empty() ? std::string() : std::string(requestName(request.type)) + " takes no devices";
     }
@@ -228,6 +232,12 @@ std::string requestProblem(const Request& request) {
         if (std::string problem = hideDeviceProblem(id); !problem.empty()) return problem;
     }
     return {};
+}
+
+std::optional<std::string> requestVirtualWheel(const Request& request) {
+    if (request.devices.empty()) return std::string("g920");
+    if (request.devices.size() == 1 && virtualWheel(request.devices[0]) != nullptr) return request.devices[0];
+    return std::nullopt;
 }
 
 bool isInstalledApp(const std::string_view image, const std::string_view installFolder) {

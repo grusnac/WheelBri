@@ -13,6 +13,7 @@
 
 #include <cwctype>
 #include <filesystem>
+#include <optional>
 
 namespace wheelbri::helper {
 
@@ -90,11 +91,11 @@ HelperSession::~HelperSession() {
 
 Reply HelperSession::handle(const Request& request) {
     switch (request.type) {
-        case RequestType::CreateVirtualG920: return createVirtualG920(request.seq);
+        case RequestType::CreateVirtualG920: return createVirtualG920(request);
         case RequestType::RemoveVirtualG920:
             if (g920_) {
                 g920_.reset();
-                WE_LOG_INFO(log(), "helper: virtual G920 removed for pid {}", pid_);
+                WE_LOG_INFO(log(), "helper: virtual wheel removed for pid {}", pid_);
             }
             return Reply{request.seq, Status::Ok, {}};
         case RequestType::HideRig: return hideRig(request.seq);
@@ -108,12 +109,23 @@ Reply HelperSession::handle(const Request& request) {
     return Reply{request.seq, Status::Unsupported, "not a request for a session"};
 }
 
-Reply HelperSession::createVirtualG920(const std::uint32_t seq) {
+Reply HelperSession::createVirtualG920(const Request& request) {
+    const std::uint32_t seq = request.seq;
+    const std::optional<std::string> name = requestVirtualWheel(request);   // checked by requestProblem
+    const VirtualWheel* wheel = name ? virtualWheel(*name) : nullptr;
+    if (wheel == nullptr) return Reply{seq, Status::Refused, "CreateVirtualG920 takes one wheel: g920 or g25"};
+    // Another wheel than this connection's: the one there goes first (one virtual wheel per session).
+    if (g920_ && g920Wheel_ != wheel) {
+        g920_.reset();
+        WE_LOG_INFO(log(), "helper: virtual {} removed for pid {} (it asks for the {} now)", g920Wheel_->instancePrefix,
+                    pid_, wheel->instancePrefix);
+    }
     if (g920_) return Reply{seq, Status::Ok, g920_->instanceId()};
     std::string error;
-    g920_ = service::VirtualG920::create(error, cancelled_, /*userHive=*/false);
+    g920_ = service::VirtualG920::create(*wheel, error, cancelled_, /*userHive=*/false);
     if (!g920_) return Reply{seq, Status::Failed, error};
-    WE_LOG_INFO(log(), "helper: virtual G920 {} created for pid {}", g920_->instanceId(), pid_);
+    g920Wheel_ = wheel;
+    WE_LOG_INFO(log(), "helper: virtual {} {} created for pid {}", wheel->instancePrefix, g920_->instanceId(), pid_);
     return Reply{seq, Status::Ok, g920_->instanceId()};
 }
 

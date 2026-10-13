@@ -64,6 +64,24 @@ struct Kernel {
     }
 };
 
+TEST(UhidG920, CreatesALogitechG25OnTheVirtualBusWithTheWindowsDescriptor) {
+    std::vector<uhid_event> written;
+    UhidG920 device{[&written](const uhid_event& e) { written.push_back(e); return true; }, [](const FfbPacket&) {},
+                    [](LogLevel, const std::string&) {}, *virtualWheel("g25")};
+    ASSERT_TRUE(device.create());
+    ASSERT_EQ(written.size(), 2U);
+    const auto& create = written[0].u.create2;
+    EXPECT_EQ(create.vendor, 0x046DU);
+    EXPECT_EQ(create.product, 0xC299U);
+    EXPECT_EQ(create.bus, 0x06);   // BUS_VIRTUAL: hid-lg would claim (and then refuse) a USB 046D:C299
+    EXPECT_STREQ(reinterpret_cast<const char*>(create.name), "Logitech G25 Racing Wheel USB");
+    EXPECT_STREQ(reinterpret_cast<const char*>(create.uniq), kG920VirtualUniq);   // the service never reads it
+    const auto descriptor = g920ReportDescriptor();   // Proton has no G25 hack: X, Y, Rz, Slider as on Windows
+    ASSERT_EQ(create.rd_size, descriptor.size());
+    EXPECT_EQ(std::memcmp(create.rd_data, descriptor.data(), descriptor.size()), 0);
+    EXPECT_EQ(device.label(), "G25");
+}
+
 TEST(UhidG920, CreatesALogitechG920WithTheProtonDescriptor) {
     Kernel k;
     ASSERT_TRUE(k.device.create());

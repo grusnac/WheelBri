@@ -46,8 +46,9 @@ public:
         return privileged::putHideFilter(install, interfaces, kDriverScriptLevels, {}, cancelled, message);
     }
 
-    bool createVirtualG920(const Cancelled& cancelled, std::string& instanceId, std::string& error) override {
-        if (!g920_) g920_ = VirtualG920::create(error, cancelled);
+    bool createVirtualG920(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
+                           std::string& error) override {
+        if (!g920_) g920_ = VirtualG920::create(wheel, error, cancelled);
         if (!g920_) return false;
         instanceId = g920_->instanceId();
         return true;
@@ -55,7 +56,7 @@ public:
 
     void removeVirtualG920() override {
         if (!g920_) return;
-        WE_LOG_INFO(log(), "removing the virtual G920 {}", g920_->instanceId());
+        WE_LOG_INFO(log(), "removing the virtual wheel {}", g920_->instanceId());
         g920_.reset();
     }
 
@@ -129,24 +130,28 @@ public:
         }
     }
 
-    bool createVirtualG920(const Cancelled& cancelled, std::string& instanceId, std::string& error) override {
-        if (ask(helper::RequestType::CreateVirtualG920, {}, kCreateMs, cancelled, error) != helper::Status::Ok) {
+    bool createVirtualG920(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
+                           std::string& error) override {
+        // The G920 as an older helper knows it (no wheel named); the G25 by name (an older helper refuses that).
+        std::vector<std::string> named;
+        if (wheel.profile != "g920") named.emplace_back(wheel.profile);
+        if (ask(helper::RequestType::CreateVirtualG920, named, kCreateMs, cancelled, error) != helper::Status::Ok) {
             return false;
         }
         instanceId = error;   // the reply's text is its instance id
         error.clear();
         g920_ = instanceId;
-        userEntries_ = std::make_unique<DirectInputUserEntries>();
-        WE_LOG_INFO(log(), "virtual G920 {} ready (created by the WheelBri Helper)", instanceId);
+        userEntries_ = std::make_unique<DirectInputUserEntries>(wheel);
+        WE_LOG_INFO(log(), "virtual {} {} ready (created by the WheelBri Helper)", wheel.instancePrefix, instanceId);
         return true;
     }
 
     void removeVirtualG920() override {
         if (g920_.empty()) return;
-        WE_LOG_INFO(log(), "removing the virtual G920 {}", g920_);
+        WE_LOG_INFO(log(), "removing the virtual wheel {}", g920_);
         std::string message;
         if (connected() && ask(helper::RequestType::RemoveVirtualG920, {}, kShortMs, {}, message) != helper::Status::Ok) {
-            WE_LOG_WARN(log(), "the WheelBri Helper did not remove the virtual G920: {} (it does when this app ends)",
+            WE_LOG_WARN(log(), "the WheelBri Helper did not remove the virtual wheel: {} (it does when this app ends)",
                         message);
         }
         userEntries_.reset();

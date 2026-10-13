@@ -1,13 +1,14 @@
-// wheelbri-uhid: Phase 4, the virtual G920 on Linux (Steam Deck, any distribution).
+// wheelbri-uhid: Phase 4, the virtual G920 (or G25, --target g25) on Linux (Steam Deck, any distribution).
 //
-// The Linux counterpart of the old HIDMaestro bridge (Windows): creates a virtual "Logitech G920" through the
-// kernel's uhid, feeds it the wheel state wheelbri-service publishes (UDP 127.0.0.1:41329) and sends the game's
-// HID PID force feedback back to the service as FfbPackets (UDP 127.0.0.1:41330). The service does not change.
+// The Linux counterpart of the old HIDMaestro bridge (Windows): creates a virtual "Logitech G920" (or "Logitech G25",
+// 046D:C299) through the kernel's uhid, feeds it the wheel state wheelbri-service publishes (UDP 127.0.0.1:41329) and
+// sends the game's HID PID force feedback back to the service as FfbPackets (UDP 127.0.0.1:41330). The service does
+// not change.
 //
 // For a Proton game to use it, start the game with
 //   PROTON_ENABLE_HIDRAW=0x046D/0xC262 SDL_GAMECONTROLLER_IGNORE_DEVICES=0x346E/0x0005 %command%
-// (raw HID for the G920, so its force feedback works; the rig hidden from the game). scripts/linux/wheelbri.sh
-// does all of this. Needs access to /dev/uhid (scripts/linux/install-udev-rules.sh, once).
+// (raw HID for the G920, so its force feedback works; 0x046D/0xC299 for the G25; the rig hidden from the game).
+// scripts/linux/wheelbri.sh does all of this. Needs access to /dev/uhid (scripts/linux/install-udev-rules.sh, once).
 
 #include "UhidG920.hpp"
 #include "UhidLoop.hpp"
@@ -145,14 +146,15 @@ int main(int argc, char** argv) {
         }
     };
 
-    wheelbri::uhid::UhidG920 device(writeEvent, sendFfb, logLine);
+    const wheelbri::VirtualWheel& wheel = *wheelbri::virtualWheel(o.target);   // checked by parseOptions
+    wheelbri::uhid::UhidG920 device(writeEvent, sendFfb, logLine, wheel);
     if (!device.create()) {
-        WE_LOG_CRITICAL(log(), "the kernel refused the virtual G920");
+        WE_LOG_CRITICAL(log(), "the kernel refused the virtual {}", device.label());
         ::close(fd);
         return 1;
     }
-    WE_LOG_INFO(log(), "virtual '{}' created (046D:C262); Ctrl+C{} to stop", wheelbri::uhid::UhidG920::kName,
-                o.stopFile.empty() ? "" : " or " + o.stopFile);
+    WE_LOG_INFO(log(), "virtual '{}' created ({:04X}:{:04X}); Ctrl+C{} to stop", device.name(), wheel.vendorId,
+                wheel.productId, o.stopFile.empty() ? "" : " or " + o.stopFile);
 
     wheelbri::uhid::InputFeed feed(nowMs());
     wheelbri::LogLevel appliedLevel = wheelbri::LogLevel::Off;   // none applied yet: the first packet is said

@@ -39,7 +39,7 @@ ParsedOptions parseOptions(const std::vector<std::string>& args) {
             return result;
         }
         const bool takesValue = arg == "--state-port" || arg == "--ffb-port" || arg == "--stop-file" ||
-                                arg == "--device" || arg == "--parent";
+                                arg == "--device" || arg == "--parent" || arg == "--target";
         if (!takesValue) {
             result.error = "unknown option " + arg;
             return result;
@@ -66,6 +66,12 @@ ParsedOptions parseOptions(const std::vector<std::string>& args) {
         } else if (value.empty()) {
             result.error = arg + " needs a value";
             return result;
+        } else if (arg == "--target") {
+            if (virtualWheel(value) == nullptr) {
+                result.error = "--target: '" + value + "' is not a wheel WheelBri emulates (g920, g25)";
+                return result;
+            }
+            o.target = value;
         } else if (arg == "--stop-file") {
             o.stopFile = value;
         } else {

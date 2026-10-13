@@ -94,8 +94,8 @@ try {
     foreach ($text in @($Devices | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
         # The app gives the exact interfaces (HID instance ids of the game controllers DirectInput lists).
         if ($text -match '^HID\\VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})') {
-            if ($Matches[1] -eq '046D' -and $Matches[2] -eq 'C262') {
-                Write-Host "skipping ${text}: that is the virtual G920 games are meant to see" -ForegroundColor Yellow
+            if ($Matches[1] -eq '046D' -and $Matches[2] -in 'C262', 'C299') {
+                Write-Host "skipping ${text}: that is the virtual wheel games are meant to see" -ForegroundColor Yellow
                 continue
             }
             $wanted += [pscustomobject]@{ Vendor = $Matches[1].ToUpper(); Product = $Matches[2].ToUpper(); Text = $text; Instance = $text }
@@ -105,8 +105,8 @@ try {
             Stop-WithError "-Devices: '$text' is not a USB id like 346e:0004 or a HID instance id like HID\VID_346E&PID_0004&MI_02\..."
         }
         $id = [pscustomobject]@{ Vendor = $Matches[1].ToUpper(); Product = $Matches[2].ToUpper(); Text = $text.ToLower(); Instance = '' }
-        if ($id.Vendor -eq '046D' -and $id.Product -eq 'C262') {
-            Write-Host "skipping $($id.Text): that is the virtual G920 games are meant to see" -ForegroundColor Yellow
+        if ($id.Vendor -eq '046D' -and $id.Product -in 'C262', 'C299') {
+            Write-Host "skipping $($id.Text): that is the virtual wheel games are meant to see" -ForegroundColor Yellow
             continue
         }
         $wanted += $id

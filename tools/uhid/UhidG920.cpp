@@ -30,28 +30,32 @@ std::span<const std::uint8_t> withoutId(const std::uint8_t* data, std::size_t si
 
 }  // namespace
 
-UhidG920::UhidG920(Write write, HidPid::Sender ffb, Log log)
-    : write_(std::move(write)), log_(log), pid_(std::move(ffb), std::move(log)) {}
+UhidG920::UhidG920(Write write, HidPid::Sender ffb, Log log, const VirtualWheel& wheel)
+    : write_(std::move(write)), log_(log), wheel_(wheel), pid_(std::move(ffb), std::move(log)) {}
 
 bool UhidG920::create() {
     uhid_event event{};
     event.type = UHID_CREATE2;
     auto& req = event.u.create2;
-    std::strncpy(reinterpret_cast<char*>(req.name), kName, sizeof(req.name) - 1);
+    const std::size_t nameSize = std::min(wheel_.oemName.size(), sizeof(req.name) - 1);
+    std::memcpy(req.name, wheel_.oemName.data(), nameSize);
     std::strncpy(reinterpret_cast<char*>(req.phys), "wheelbri", sizeof(req.phys) - 1);
     std::strncpy(reinterpret_cast<char*>(req.uniq), kG920VirtualUniq, sizeof(req.uniq) - 1);
-    const auto descriptor = g920ProtonReportDescriptor();   // games read it through Proton's DirectInput
+    // Games read it through Proton's DirectInput: its G920 hack wants the G920's own axis names (see the header).
+    const bool g920 = wheel_.productId == kG920ProductId;
+    const auto descriptor = g920 ? g920ProtonReportDescriptor() : g920ReportDescriptor();
     if (descriptor.size() > sizeof(req.rd_data)) {
         log_(LogLevel::Error, "uhid: descriptor too large");
         return false;
     }
     std::memcpy(req.rd_data, descriptor.data(), descriptor.size());
     req.rd_size = static_cast<std::uint16_t>(descriptor.size());
-    // USB, as a real G920: the kernel's Logitech driver (hid-logitech-hidpp) matches the ids, finds no HID++
-    // reports in this descriptor and leaves the device to the generic HID driver.
-    req.bus = 0x03;   // BUS_USB
-    req.vendor = kG920VendorId;
-    req.product = kG920ProductId;
+    // The G920 on USB, as a real one: the kernel's Logitech driver (hid-logitech-hidpp) matches the ids, finds no
+    // HID++ reports in this descriptor and leaves the device to the generic HID driver. The G25 on the virtual bus:
+    // hid-lg would claim it on USB and then refuse it (not a real USB device), leaving it to no driver at all.
+    req.bus = g920 ? 0x03 : 0x06;   // BUS_USB, BUS_VIRTUAL
+    req.vendor = wheel_.vendorId;
+    req.product = wheel_.productId;
     req.version = 0x0100;
     req.country = 0;
     if (!write_(event)) {
@@ -106,24 +110,26 @@ void UhidG920::handle(const uhid_event& event, const std::int64_t nowMs) {
     switch (event.type) {
         case UHID_START:
             started_ = true;
-            log_(LogLevel::Info, "uhid: virtual G920 started (the kernel took it)");
+            log_(LogLevel::Info, "uhid: virtual " + label() + " started (the kernel took it)");
             break;
         case UHID_STOP:
             started_ = false;
-            log_(LogLevel::Info, "uhid: virtual G920 stopped by the kernel");
+            log_(LogLevel::Info, "uhid: virtual " + label() + " stopped by the kernel");
             break;
         case UHID_OPEN:
             ++openCount_;
-            log_(LogLevel::Info, "uhid: a program opened the virtual G920 (" + std::to_string(openCount_) + " now)");
+            log_(LogLevel::Info,
+                 "uhid: a program opened the virtual " + label() + " (" + std::to_string(openCount_) + " now)");
             break;
         case UHID_CLOSE:
             openCount_ = std::max(0, openCount_ - 1);
-            log_(LogLevel::Info, "uhid: a program closed the virtual G920 (" + std::to_string(openCount_) + " left)");
+            log_(LogLevel::Info,
+                 "uhid: a program closed the virtual " + label() + " (" + std::to_string(openCount_) + " left)");
             // The last reader gone (the game exited, or crashed: the kernel closes its handle either way). Its
             // effects must not play on: springs would otherwise get keep-alives for as long as this runs.
             if (openCount_ == 0 && pid_.activeSlots() > 0) {
                 pid_.stopAll(nowMs);
-                log_(LogLevel::Info, "uhid: nobody reads the virtual G920 any more: the game's forces are stopped");
+                log_(LogLevel::Info, "uhid: nobody reads the virtual wheel any more: the game's forces are stopped");
             }
             break;
         case UHID_OUTPUT: {

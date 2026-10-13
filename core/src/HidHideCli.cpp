@@ -1,5 +1,7 @@
 #include "wheelbri/HidHideCli.hpp"
 
+#include "wheelbri/HidG920.hpp"
+
 #include <algorithm>
 #include <charconv>
 #include <cctype>
@@ -280,7 +282,7 @@ std::string instanceIdOfHidPath(std::string_view path) {
 }
 
 bool mayHide(const DeviceId& id) {
-    return !id.empty() && !(id.vendorId == 0x046D && id.productId == 0xC262);
+    return !id.empty() && !isVirtualWheelId(id.vendorId, id.productId);
 }
 
 std::string deviceIdText(const DeviceId& id) {

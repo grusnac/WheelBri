@@ -1,6 +1,7 @@
 #include "wheelbri/HidG920.hpp"
 
 #include <algorithm>
+#include <cctype>
 
 namespace wheelbri {
 
@@ -111,7 +112,43 @@ void putAxis(std::array<std::uint8_t, kG920InputReportSize>& out, std::size_t at
     out[at + 1] = static_cast<std::uint8_t>(static_cast<std::uint16_t>(v) >> 8U);
 }
 
+constexpr VirtualWheel kVirtualWheels[] = {
+    {"g920", "wheelbri\\G920", "G920", kG920VendorId, kG920ProductId, "G920 Driving Force Racing Wheel USB",
+     "Logitech G920 Driving Force Racing Wheel USB", kG920Buttons},
+    {"g25", "wheelbri\\G25", "G25", kG25VendorId, kG25ProductId, "G25 Racing Wheel", "Logitech G25 Racing Wheel USB",
+     kG25Buttons},
+};
+
+bool sameIgnoringCase(const std::string_view a, const std::string_view b) {
+    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](const char x, const char y) {
+               return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+           });
+}
+
 }  // namespace
+
+std::span<const VirtualWheel> virtualWheels() { return kVirtualWheels; }
+
+const VirtualWheel* virtualWheel(const std::string_view profile) {
+    for (const VirtualWheel& wheel : kVirtualWheels) {
+        if (wheel.profile == profile) return &wheel;
+    }
+    return nullptr;
+}
+
+const VirtualWheel* virtualWheelForHardwareId(const std::string_view hardwareId) {
+    for (const VirtualWheel& wheel : kVirtualWheels) {
+        if (sameIgnoringCase(wheel.hardwareId, hardwareId)) return &wheel;
+    }
+    return nullptr;
+}
+
+bool isVirtualWheelId(const std::uint16_t vendorId, const std::uint16_t productId) {
+    for (const VirtualWheel& wheel : kVirtualWheels) {
+        if (wheel.vendorId == vendorId && wheel.productId == productId) return true;
+    }
+    return false;
+}
 
 std::span<const std::uint8_t> g920ReportDescriptor() { return kDescriptor; }
 

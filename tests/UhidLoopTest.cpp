@@ -21,6 +21,17 @@ TEST(UhidOptions, DefaultsWithoutArguments) {
     EXPECT_TRUE(parsed.options->stopFile.empty());
 }
 
+TEST(UhidOptions, TheTargetIsAWheelWheelBriEmulates) {
+    EXPECT_EQ(parseOptions({}).options->target, "g920");   // as before there were two
+    const auto g25 = parseOptions({"--target", "g25"});
+    ASSERT_TRUE(g25.options) << g25.error;
+    EXPECT_EQ(g25.options->target, "g25");
+    const auto bad = parseOptions({"--target", "g27"});
+    EXPECT_FALSE(bad.options);
+    EXPECT_NE(bad.error.find("--target"), std::string::npos);
+    EXPECT_FALSE(parseOptions({"--target"}).options);
+}
+
 TEST(UhidOptions, EveryOptionTakesItsValue) {
     const auto parsed = parseOptions({"--state-port", "1", "--ffb-port", "65535", "--stop-file", "/tmp/stop",
                                       "--device", "/dev/uhid2"});

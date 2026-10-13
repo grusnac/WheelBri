@@ -16,7 +16,9 @@ class UhidProcess {
 public:
     // Starts wheelbri-uhid (next to this program, or build/tools/uhid/ in the source tree) with a stop file in
     // `stopFolder`, or finds one already running. Nullptr and `error` when it cannot be found or stopped at once.
-    [[nodiscard]] static std::unique_ptr<UhidProcess> start(const std::filesystem::path& stopFolder, std::string& error);
+    // `target`: which wheel it presents, the config's target_profile ("g920", "g25").
+    [[nodiscard]] static std::unique_ptr<UhidProcess> start(const std::filesystem::path& stopFolder,
+                                                            const std::string& target, std::string& error);
     ~UhidProcess();   // stops it (stop file, then SIGKILL after 3 s) unless it was not ours
 
     UhidProcess(const UhidProcess&) = delete;

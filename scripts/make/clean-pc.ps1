@@ -30,8 +30,8 @@
 # HKLM\SOFTWARE\wheelbri and \wheelemu (the hide setting); the installer's and uninstaller's copies in %TEMP% and
 # %SystemRoot%\Temp (wheelbri-setup-*, wheelbri-uninstall-*, and install logs written there when the logs folder was a
 # link);
-# DirectInput's entries for VID_046D&PID_C262 (the G920's name and force feedback driver, which the service writes;
-# a real G920 gets them again when plugged in); the app's data folders unless -KeepData.
+# DirectInput's entries for VID_046D&PID_C262 and PID_C299 (the G920's and G25's name and force feedback driver,
+# which the service writes; a real one gets them again when plugged in); the app's data folders unless -KeepData.
 # It never touches this repository (build\, dist\) or the WDK certificate in your own store that signs builds.
 #
 # Exit codes: 0 clean (yellow lines say what to look at, e.g. a restart), 1 failed or cancelled.
@@ -180,9 +180,11 @@ function Get-Shortcuts {
     return @($found | Sort-Object -Unique)
 }
 
-$diKeys = @('HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_046D&PID_C262',
-            'HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\VID_046D&PID_C262',
-            'HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\DirectInput\VID_046D&PID_C262')
+$diKeys = @(foreach ($ids in 'VID_046D&PID_C262', 'VID_046D&PID_C299') {   # the virtual G920 and G25
+    "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids"
+    "HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids"
+    "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\DirectInput\$ids"
+})
 $otherKeys = @(foreach ($name in $names) {
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$name"; "HKLM:\SOFTWARE\$name"
     # The UMDF host's registration of each driver (UmdfService in the INFs), left behind by some removals.

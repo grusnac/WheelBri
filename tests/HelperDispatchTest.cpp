@@ -158,7 +158,7 @@ TEST(HelperDispatch, ARequestTheRulesRefuseIsRefusedAndTheConnectionStays) {
     Answer answer = ask(Request{RequestType::PutHideFilter, 3, {R"(HID\VID_046D&PID_C262\1&2&0&0000)"}}, accepted(),
                         &session);
     EXPECT_EQ(answer.reply.status, Status::Refused);
-    EXPECT_EQ(answer.reply.text, "the virtual G920 is never hidden");
+    EXPECT_EQ(answer.reply.text, "the virtual wheel (G920, G25) is never hidden");
     EXPECT_TRUE(answer.keepOpen);
     answer = ask(Request{RequestType::HideRig, 4, {kMoza}}, accepted(), &session);
     EXPECT_EQ(answer.reply.text, "HideRig takes no devices");

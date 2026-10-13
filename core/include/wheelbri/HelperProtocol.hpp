@@ -19,11 +19,11 @@ namespace wheelbri::helper {
 //
 // Safety, kept by the helper whatever the request says:
 // - HideRig always names the caller's own process (the pipe tells the helper who it is), never one from the request.
-// - PutHideFilter only takes HID interface instance ids, never the virtual G920 (046D:C262); the helper checks again
-//   that each is present and a game controller before it puts the filter on.
+// - PutHideFilter only takes HID interface instance ids, never a virtual wheel (046D:C262, C299); the helper checks
+//   again that each is present and a game controller before it puts the filter on.
 // - No paths, no file names, no command lines: the helper reads none of the user's files and runs only its own
 //   scripts from its install folder.
-// - When the pipe closes (Stop, crash, logoff) the helper removes the virtual G920 and shows the rig again.
+// - When the pipe closes (Stop, crash, logoff) the helper removes the virtual wheel and shows the rig again.
 
 // \\.\pipe\wheelbri-helper
 inline constexpr std::string_view kPipeName = R"(\\.\pipe\wheelbri-helper)";
@@ -37,7 +37,7 @@ inline constexpr std::size_t kMaxText = 2000;      // a reply's text (cut at a U
 
 enum class RequestType : std::uint8_t {
     Hello = 1,              // first on every connection: the reply's text is the helper's version
-    CreateVirtualG920 = 2,  // the wheelbri\G920 software device (and the DirectInput entries), for this connection
+    CreateVirtualG920 = 2,  // the virtual wheel's software device (and the DirectInput entries), for this connection
     RemoveVirtualG920 = 3,
     HideRig = 4,            // only the caller's process may open the filtered devices (AllowedPid = caller)
     ShowRig = 5,            // clears that again
@@ -55,8 +55,9 @@ enum class Status : std::uint8_t {
     Unsupported = 4,  // a request type this helper does not know (an older helper)
 };
 
-// The body's strings ("devices"): PutHideFilter's HID interfaces; SetLogLevel's one level; and a Hello may carry the
-// app's log level as its one string (the helper takes it for its own log; an older helper ignores it).
+// The body's strings ("devices"): PutHideFilter's HID interfaces; SetLogLevel's one level; a Hello may carry the
+// app's log level as its one string (the helper takes it for its own log; an older helper ignores it); and
+// CreateVirtualG920 may name the wheel, "g920" or "g25" (none: the G920, as an older app asks).
 struct Request {
     RequestType type = RequestType::Hello;
     std::uint32_t seq = 0;              // echoed in the reply
@@ -88,13 +89,17 @@ inline constexpr std::uint32_t kReplyMagic = 0x52484557;     // "WEHR"
 [[nodiscard]] std::string requestProblem(const Request& request);
 [[nodiscard]] bool isKnown(RequestType type);
 
+// The wheel a CreateVirtualG920 asks for ("g920", "g25"): its one string, or "g920" when it has none. Nullopt for
+// anything else (requestProblem refuses it).
+[[nodiscard]] std::optional<std::string> requestVirtualWheel(const Request& request);
+
 // The app log level a Hello or SetLogLevel carries: exactly one string naming trace, debug, info or warn. Nullopt
 // for anything else (a Hello without one, from an older app).
 [[nodiscard]] std::optional<LogLevel> requestLogLevel(const Request& request);
 
 // Empty when `id` is a HID interface instance id the hide filter may go on: "HID\VID_xxxx&PID_xxxx...\<instance>",
 // at most kMaxIdLength characters of [A-Za-z0-9&_.#{}-] and backslashes, exactly three parts, no empty part, and not
-// the virtual G920.
+// a virtual wheel.
 [[nodiscard]] std::string hideDeviceProblem(std::string_view id);
 
 // Whether `image` (the caller's program, as Windows names it) is wheelbri.exe (the app) or wheelbri-service.exe (the

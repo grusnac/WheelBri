@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Linux / Steam Deck: starts everything for a game with your rig as a G920, and stops it again.
+# Linux / Steam Deck: starts everything for a game with your rig as a G920 (or a G25), and stops it again.
 #
-# Two ways for the game to see the G920:
-#   --virtual (default)  wheelbri-uhid makes a virtual G920 for the whole system (Phase 4); the game reads it raw
+# Two ways for the game to see the wheel:
+#   --virtual (default)  wheelbri-uhid makes a virtual wheel for the whole system (Phase 4); the game reads it raw
 #                        (PROTON_ENABLE_HIDRAW) and the rig is hidden from it (SDL_GAMECONTROLLER_IGNORE_DEVICES).
 #                        A WheelBri shim left in the game's folder (--keep-shim) is taken out first.
-#   --shim               the dinput8.dll proxy answers as a G920 inside the game: dinput8.dll and wheelbri-shim.ini
+#   --shim               the dinput8.dll proxy answers as the wheel inside the game: dinput8.dll and wheelbri-shim.ini
 #                        are put into the game's folder (the one with the .exe in %command%) before it starts and
 #                        taken out when it ends; WINEDLLOVERRIDES makes Proton load it.
 #
@@ -15,7 +15,8 @@
 # From a terminal (Desktop Mode), without a game: starts, waits for Enter or Ctrl+C, stops.
 #   ./wheelbri.sh            (service with its --ui window)
 #
-# Options: --virtual / --shim, --keep-shim (leave the shim in the game's folder afterwards, for testing),
+# Options: --virtual / --shim, --target g920|g25 (the wheel the game sees; default: the app's Mapping tab Target,
+#          else the G920), --keep-shim (leave the shim in the game's folder afterwards, for testing),
 #          --game-folder DIR (where --shim puts it; default: the folder of the .exe in %command%),
 #          --ui / --no-ui (default: window only from a terminal), --config FILE (default: the mapping saved in
 #          the app's Mapping tab, else WheelBri's default for the target),
@@ -44,6 +45,7 @@ else
 fi
 
 mode=uhid
+target=   # empty: the app's Target (below)
 config=   # empty: the target's built-in config (below)
 ui=
 hide=   # empty: the active rig's devices (below)
@@ -54,6 +56,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --virtual) mode=uhid ;;
         --shim) mode=shim ;;
+        --target) shift; target=${1:-} ;;
         --keep-shim) keep_shim=1 ;;
         --game-folder) shift; game_folder=${1:-} ;;
         --ui) ui=1 ;;
@@ -69,11 +72,24 @@ while [ $# -gt 0 ]; do
 done
 [ -z "$ui" ] && { [ ${#game[@]} -eq 0 ] && ui=1 || ui=0; }
 settings="${XDG_CONFIG_HOME:-$HOME/.config}/wheelbri"
+# Default --target: the app's Mapping tab Target (app.ini [app] target), else the G920.
+# The app writes its files with Windows line ends (CRLF), on Linux too: each line loses its \r first.
+if [ -z "$target" ]; then
+    target=$(awk -F= '{sub(/\r$/, "")} /^\[/{app = ($0 ~ /^\[app\]/); next}
+                      app && $1 ~ /^[ \t]*target[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' \
+             "$settings/app.ini" 2>/dev/null)
+    [ -n "$target" ] || target=g920
+fi
+case "$target" in
+    g920) wheel=G920; wheel_id=0x046D/0xC262 ;;
+    g25) wheel=G25; wheel_id=0x046D/0xC299 ;;
+    *) echo "wheelbri.sh: --target $target: expected g920 or g25" >&2; exit 2 ;;
+esac
 # Default --config: the mapping you saved in the app's Mapping tab for this target (configs/my-<name>.ini), else
-# WheelBri's default one: the virtual G920 (uhid) or the in-game shim. The default was made on Windows; Linux numbers
+# WheelBri's default one: the virtual wheel (uhid) or the in-game shim. The default was made on Windows; Linux numbers
 # the rig's axes in another order, so on Linux save your own (map it in the Mapping tab, then Save).
 if [ -z "$config" ]; then
-    [ "$mode" = shim ] && name=g920-in-game-shim.ini || name=g920-virtual-device.ini
+    [ "$mode" = shim ] && name=$target-in-game-shim.ini || name=$target-virtual-device.ini
     if [ -f "$settings/configs/my-$name" ]; then
         config="$settings/configs/my-$name"
     else
@@ -88,7 +104,8 @@ if [ -z "$hide" ]; then
           "$settings/app.ini" 2>/dev/null)
     if [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
         hide=$(awk -F= '{sub(/\r$/, "")} $1 ~ /^[ \t]*id[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/[ \t]/, "", $2); split($2, p, ":");
-                        if (length(p[1]) == 4 && length(p[2]) == 4 && toupper($2) != "046D:C262")
+                        virtual = toupper($2) == "046D:C262" || toupper($2) == "046D:C299"   # the virtual G920, G25
+                        if (length(p[1]) == 4 && length(p[2]) == 4 && !virtual)
                             printf "%s0x%s/0x%s", (n++ ? "," : ""), toupper(p[1]), toupper(p[2])}' "$settings/rigs/$rig.ini")
     fi
     if [ -z "$hide" ] && [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
@@ -100,6 +117,12 @@ fi
 
 state="${XDG_STATE_HOME:-$HOME/.local/state}/wheelbri"
 mkdir -p "$state"
+# The shim's settings to put into the game's folder: WheelBri's, presenting the target (target_profile).
+shim_ini="$configs/wheelbri-shim.ini"
+if [ "$target" != g920 ] && [ -f "$configs/wheelbri-shim.ini" ]; then
+    shim_ini="$state/wheelbri-shim-$target.ini"
+    sed "s/^target_profile *=[^;]*/target_profile = $target           /" "$configs/wheelbri-shim.ini" >"$shim_ini"
+fi
 service_stop="$state/service.stop"
 uhid_stop="$state/uhid.stop"
 log="$state/wheelbri-sh.log"
@@ -189,15 +212,15 @@ put_shim() {
     shim_folder=$folder
     shim_put_dll=1
     if [ ! -e "$ini" ]; then
-        if cp "$configs/wheelbri-shim.ini" "$ini"; then
+        if cp "$shim_ini" "$ini"; then
             shim_put_ini=1
         else
-            say "--shim: cannot copy wheelbri-shim.ini into $folder: the shim uses its defaults"
+            say "--shim: cannot copy wheelbri-shim.ini into $folder: the shim uses its defaults (a G920)"
         fi
-    elif cmp -s "$configs/wheelbri-shim.ini" "$ini"; then
+    elif cmp -s "$shim_ini" "$ini"; then
         shim_put_ini=1   # WheelBri's own settings, left from an earlier --keep-shim: ours to take out
     else
-        say "--shim: using your own $ini (kept afterwards)"
+        say "--shim: using your own $ini (kept afterwards; its target_profile must say $target)"
     fi
     say "shim put into $folder"
     return 0
@@ -214,7 +237,7 @@ take_shim_out() {
     if [ "$shim_put_dll" = 1 ] && cmp -s "$shim_dll" "$shim_folder/dinput8.dll"; then
         rm -f "$shim_folder/dinput8.dll" && removed="dinput8.dll"
     fi
-    if [ "$shim_put_ini" = 1 ] && cmp -s "$configs/wheelbri-shim.ini" "$shim_folder/wheelbri-shim.ini"; then
+    if [ "$shim_put_ini" = 1 ] && cmp -s "$shim_ini" "$shim_folder/wheelbri-shim.ini"; then
         rm -f "$shim_folder/wheelbri-shim.ini" && removed="$removed${removed:+, }wheelbri-shim.ini"
     fi
     say "shim taken out of $shim_folder (${removed:-nothing to remove})"
@@ -222,7 +245,7 @@ take_shim_out() {
 }
 
 # --virtual: a WheelBri shim left in the game's folder (--keep-shim, or put in by hand) is taken out, so the game
-# finds only the virtual G920. Ours means: identical to this dinput8.dll, or next to a wheelbri-shim.ini (an older
+# finds only the virtual wheel. Ours means: identical to this dinput8.dll, or next to a wheelbri-shim.ini (an older
 # WheelBri shim). Another mod's dinput8.dll stays; a wheelbri-shim.ini with your own settings stays too.
 remove_leftover_shim() {
     local folder removed=
@@ -232,7 +255,7 @@ remove_leftover_shim() {
     if [ -e "$dll" ] && { { [ -n "$shim_dll" ] && cmp -s "$shim_dll" "$dll"; } || [ -e "$ini" ]; }; then
         rm -f "$dll" && removed="dinput8.dll"
     fi
-    if [ -e "$ini" ] && cmp -s "$configs/wheelbri-shim.ini" "$ini"; then
+    if [ -e "$ini" ] && { cmp -s "$configs/wheelbri-shim.ini" "$ini" || cmp -s "$shim_ini" "$ini"; }; then
         rm -f "$ini" && removed="$removed${removed:+, }wheelbri-shim.ini"
     elif [ -e "$ini" ] && [ -n "$removed" ]; then
         say "--virtual: kept your own $ini (no effect without dinput8.dll)"
@@ -275,18 +298,19 @@ start() {
         if pgrep -f '(^|/)wheelbri-uhid( |$)' >/dev/null; then
             say "wheelbri-uhid is already running: using it"
         else
-            "${clean_env[@]}" "$uhid" --stop-file "$uhid_stop" >>"$state/wheelbri-uhid.console" 2>&1 &
+            "${clean_env[@]}" "$uhid" --stop-file "$uhid_stop" --target "$target" \
+                >>"$state/wheelbri-uhid.console" 2>&1 &
             uhid_pid=$!
             sleep 1
             if ! kill -0 "$uhid_pid" 2>/dev/null; then
                 say "wheelbri-uhid stopped at once: see $state/wheelbri-uhid-*.log (install-udev-rules.sh run?)"
                 return 1
             fi
-            say "virtual G920 created (wheelbri-uhid)"
+            say "virtual $wheel created (wheelbri-uhid)"
         fi
-        # Raw HID for the G920 (its force feedback is HID PID), and the real wheel hidden from the game.
+        # Raw HID for the virtual wheel (its force feedback is HID PID), and the real wheel hidden from the game.
         say "hidden from the game: ${hide:-nothing}"
-        export PROTON_ENABLE_HIDRAW="${PROTON_ENABLE_HIDRAW:+$PROTON_ENABLE_HIDRAW,}0x046D/0xC262"
+        export PROTON_ENABLE_HIDRAW="${PROTON_ENABLE_HIDRAW:+$PROTON_ENABLE_HIDRAW,}$wheel_id"
         export SDL_GAMECONTROLLER_IGNORE_DEVICES="${SDL_GAMECONTROLLER_IGNORE_DEVICES:+$SDL_GAMECONTROLLER_IGNORE_DEVICES,}$hide"
         # Steam's virtual pad (28de:11ff) is never hidden: it is the only thing that controls the Steam Deck.
     else
@@ -318,7 +342,7 @@ stop() {
     if [ -n "$uhid_pid" ]; then
         touch "$uhid_stop"
         wait_for "$uhid_pid" 5
-        say "virtual G920 removed"
+        say "virtual $wheel removed"
     fi
     if [ $own_service = 1 ] && [ -n "$service_pid" ]; then
         touch "$service_stop"
@@ -330,7 +354,7 @@ stop() {
 }
 trap 'stop; exit 130' INT
 trap 'stop; exit 143' TERM
-trap 'stop; exit 129' HUP   # the terminal closed: stop cleanly rather than leave the service and the G920 behind
+trap 'stop; exit 129' HUP   # the terminal closed: stop cleanly rather than leave the service and the virtual wheel behind
 
 if ! start; then
     stop
@@ -346,7 +370,7 @@ if [ ${#game[@]} -gt 0 ]; then
     exit $status
 fi
 
-say "running ($mode). Start the game$([ "$mode" = uhid ] && echo " with the launch option: PROTON_ENABLE_HIDRAW=0x046D/0xC262 SDL_GAMECONTROLLER_IGNORE_DEVICES=$hide %command%" || echo " with: WINEDLLOVERRIDES=\"dinput8=n,b\" %command%")"
+say "running ($mode). Start the game$([ "$mode" = uhid ] && echo " with the launch option: PROTON_ENABLE_HIDRAW=$wheel_id SDL_GAMECONTROLLER_IGNORE_DEVICES=$hide %command%" || echo " with: WINEDLLOVERRIDES=\"dinput8=n,b\" %command%")"
 say "press Enter (or Ctrl+C) here to stop everything"
 while :; do
     read -r -t 2

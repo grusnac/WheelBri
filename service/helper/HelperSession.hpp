@@ -1,6 +1,7 @@
 #pragma once
 
 #include "wheelbri/HelperDispatch.hpp"
+#include "wheelbri/HidG920.hpp"
 #include "wheelbri/HelperProtocol.hpp"
 
 #include <filesystem>
@@ -42,7 +43,7 @@ public:
     [[nodiscard]] Reply handle(const Request& request) override;
 
 private:
-    Reply createVirtualG920(std::uint32_t seq);
+    Reply createVirtualG920(const Request& request);
     Reply hideRig(std::uint32_t seq);
     Reply showRig(std::uint32_t seq);
     Reply putHideFilter(const Request& request);
@@ -60,6 +61,7 @@ private:
     int scriptLevels_;
     Cancelled cancelled_;
     std::unique_ptr<service::VirtualG920> g920_;
+    const VirtualWheel* g920Wheel_ = nullptr;   // which one g920_ is
     bool hid_ = false;
     std::filesystem::path logFolder_;   // the caller's, checked by shareLogFolder
 };

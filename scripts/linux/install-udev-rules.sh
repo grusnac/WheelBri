@@ -31,10 +31,12 @@ fi
 
 sudo tee "$rules" >/dev/null <<'RULES'
 # wheel-emulator (scripts/linux/install-udev-rules.sh)
-# wheelbri-uhid creates the virtual G920 through uhid: allow the user at the seat.
+# wheelbri-uhid creates the virtual G920 or G25 through uhid: allow the user at the seat.
 KERNEL=="uhid", MODE="0660", TAG+="uaccess"
-# Games (Proton with PROTON_ENABLE_HIDRAW=0x046D/0xC262) open the G920 raw for its force feedback.
+# Games (Proton with PROTON_ENABLE_HIDRAW=0x046D/0xC262) open the G920 raw for its force feedback; the virtual G25
+# (0x046D/0xC299) is on the virtual bus (0006), where the kernel's generic driver takes it.
 SUBSYSTEM=="hidraw", KERNELS=="0003:046D:C262.*", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="hidraw", KERNELS=="0006:046D:C299.*", MODE="0660", TAG+="uaccess"
 # wheelbri-service reads the rig's devices (any game controller) and writes force feedback through evdev.
 SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_JOYSTICK}=="1", MODE="0660", TAG+="uaccess"
 RULES
