@@ -42,6 +42,18 @@ const char* ConfigPicker::profileName(const Target target) { return target == Ta
 
 const char* ConfigPicker::wayName(const Way way) { return way == Way::VirtualDevice ? "Virtual" : "Shim"; }
 
+std::optional<ConfigPicker::Target> ConfigPicker::parseTarget(const std::string_view profile) {
+    if (profile == profileName(Target::G920)) return Target::G920;
+    if (profile == profileName(Target::G25)) return Target::G25;
+    return std::nullopt;
+}
+
+std::optional<ConfigPicker::Way> ConfigPicker::parseWay(const std::string_view way) {
+    if (way == "virtual") return Way::VirtualDevice;
+    if (way == "shim") return Way::Shim;
+    return std::nullopt;
+}
+
 std::string ConfigPicker::builtInName(const Target target, const Way way) {
     return std::string(profileName(target)) +
            (way == Way::VirtualDevice ? "-virtual-device.ini" : "-in-game-shim.ini");
@@ -49,8 +61,17 @@ std::string ConfigPicker::builtInName(const Target target, const Way way) {
 
 ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
     : window_(window), settings_(std::move(settings)) {
-    way_ = readAppSetting(settings_.stateFile, "way") == "shim" ? Way::Shim : Way::VirtualDevice;
-    target_ = readAppSetting(settings_.stateFile, "target") == "g25" ? Target::G25 : Target::G920;
+    // Not set yet: the virtual G920, as before there was a choice. Set to something else: the same, and the log says.
+    const std::string way = readAppSetting(settings_.stateFile, "way");
+    way_ = parseWay(way).value_or(Way::VirtualDevice);
+    if (!way.empty() && !parseWay(way)) {
+        WE_LOG_WARN(log(), "[app] way = '{}' is neither virtual nor shim: Virtual", way);
+    }
+    const std::string target = readAppSetting(settings_.stateFile, "target");
+    target_ = parseTarget(target).value_or(Target::G920);
+    if (!target.empty() && !parseTarget(target)) {
+        WE_LOG_WARN(log(), "[app] target = '{}' is not a wheel WheelBri emulates (g920, g25): the G920", target);
+    }
     refresh();
     WE_LOG_INFO(log(), "target {}; config {}", name(), selected_.empty() ? "(none)" : selected_);
 }
@@ -92,7 +113,6 @@ bool ConfigPicker::dropOwnEdits(std::string& error) {
 }
 
 void ConfigPicker::choose(const Way way) {
-    if (way == way_) return;
     way_ = way;
     if (!writeAppSetting(settings_.stateFile, "way", way == Way::Shim ? "shim" : "virtual")) {
         WE_LOG_WARN(log(), "cannot save the way in {}", settings_.stateFile.string());
@@ -101,7 +121,6 @@ void ConfigPicker::choose(const Way way) {
 }
 
 void ConfigPicker::choose(const Target target) {
-    if (target == target_) return;
     target_ = target;
     if (!writeAppSetting(settings_.stateFile, "target", profileName(target))) {
         WE_LOG_WARN(log(), "cannot save the target in {}", settings_.stateFile.string());

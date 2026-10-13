@@ -122,7 +122,18 @@ shim_ini="$configs/wheelbri-shim.ini"
 if [ "$target" != g920 ] && [ -f "$configs/wheelbri-shim.ini" ]; then
     shim_ini="$state/wheelbri-shim-$target.ini"
     sed "s/^target_profile *=[^;]*/target_profile = $target           /" "$configs/wheelbri-shim.ini" >"$shim_ini"
+    # A wheelbri-shim.ini without the line (edited by hand): the shim's own default would be the G920.
+    grep -q "^target_profile *= *$target\b" "$shim_ini" ||
+        printf '\n[shim]\ntarget_profile = %s\n' "$target" >>"$shim_ini"
 fi
+# The target_profile a shim's settings file says (the last line in [shim], as the shim reads it; g920 when none).
+shim_target_of() {
+    local said
+    said=$(awk -F= '{sub(/\r$/, "")} /^\[/{shim = ($0 ~ /^\[shim\]/); next}
+                    shim && $1 ~ /^[ \t]*target_profile[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $2); t = $2}
+                    END {print t}' "$1" 2>/dev/null)
+    echo "${said:-g920}"
+}
 service_stop="$state/service.stop"
 uhid_stop="$state/uhid.stop"
 log="$state/wheelbri-sh.log"
@@ -220,7 +231,11 @@ put_shim() {
     elif cmp -s "$shim_ini" "$ini"; then
         shim_put_ini=1   # WheelBri's own settings, left from an earlier --keep-shim: ours to take out
     else
-        say "--shim: using your own $ini (kept afterwards; its target_profile must say $target)"
+        say "--shim: using your own $ini (kept afterwards)"
+        local own
+        own=$(shim_target_of "$ini")
+        [ "$own" = "$target" ] ||
+            say "--shim: WARNING: your $ini presents the $own, not the $target: set target_profile = $target there"
     fi
     say "shim put into $folder"
     return 0

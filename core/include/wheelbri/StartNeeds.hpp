@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace wheelbri {
@@ -43,6 +44,12 @@ struct PresentDevice {
 // `rig`: the active rig, or nullptr when there is none. The wheel is the config's source_device when it names one,
 // else the rig's wheel (the device with a Steering axis, else its first), as a session picks it.
 [[nodiscard]] StartNeeds startNeeds(const EmulatorConfig& config, const Rig* rig);
+
+// Why the config cannot run as `target` (the Mapping tab's Target: "g920", "g25"), or "" when it can: its
+// target_profile is a wheel WheelBri does not emulate, or another target than the one picked (a user's own mapping
+// edited by hand). The session encodes for the config's target and the shim or virtual device presents the picked one,
+// so a mismatch would give a game one wheel's name with another's buttons.
+[[nodiscard]] std::string targetProblem(const EmulatorConfig& config, std::string_view target);
 
 // The labels of the needed devices that are not connected, in order.
 [[nodiscard]] std::vector<std::string> missingDevices(const StartNeeds& needs, const std::vector<PresentDevice>& present);

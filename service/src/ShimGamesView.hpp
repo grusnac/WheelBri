@@ -12,9 +12,10 @@
 
 namespace wheelbri::service {
 
-// The app's games with the in-game shim, shown next to Start only while the target is "G920 in-game shim":
+// The app's games with the in-game shim, shown on the Mapping tab only with Run as Shim:
 // "Game <name> [Games (N)]". The button opens the games panel (over the window): every game with its folder and
-// whether the shim is there; a click on a game picks the one Start uses, Put shim / Remove shim and Forget (off the list, files left) per game, and Add game
+// whether the shim is there; a click on a game picks the one Start uses, Put shim / Remove shim and Forget (off the
+// list, files left) per game, and Add game
 // opens the system's folder window, puts the shim into the folder chosen (installShim) and adds the game. A game whose
 // shim was deleted stays in the list, marked "no shim"; Start puts it back. The list is shimGamesFile().
 class ShimGamesView {

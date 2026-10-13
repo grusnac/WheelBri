@@ -77,9 +77,10 @@ target_compile_definitions(wheelbri_tests PRIVATE WHEELBRI_CONFIG_DIR="${PROJECT
 # FolderWatch and DeviceChanges (device notices), and DeviceWatch with a fake lister.
 if(TARGET wheelbri_privileged)
     target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp FolderWatchTest.cpp DeviceWatchTest.cpp HelperProbeTest.cpp
-        AppLogLevelTest.cpp UiCanvasTest.cpp
+        AppLogLevelTest.cpp UiCanvasTest.cpp ConfigPickerTest.cpp ShimGamesViewTest.cpp
         ${PROJECT_SOURCE_DIR}/service/src/DeviceChanges.cpp ${PROJECT_SOURCE_DIR}/service/src/DeviceWatch.cpp
-        ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp ${PROJECT_SOURCE_DIR}/service/src/AppLogLevel.cpp)
+        ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp ${PROJECT_SOURCE_DIR}/service/src/AppLogLevel.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/ConfigPicker.cpp ${PROJECT_SOURCE_DIR}/service/src/ShimGamesView.cpp)
     target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/service/src)
     target_link_libraries(wheelbri_tests PRIVATE wheelbri_privileged)
     # Linux: the single-instance lock and child processes with real files and processes (PlatformPosix.cpp).

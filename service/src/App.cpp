@@ -687,9 +687,11 @@ private:
         needsCheckedMs_ = now;
 
         EmulatorConfig config;
+        bool configRead = false;
         if (const std::string path = picker_->selected(); !path.empty()) {
             if (const auto text = readFileText(pathFromUtf8(path))) {
                 config = loadEmulatorConfig(IniDocument::parse(*text).document).config;
+                configRead = true;
             }
         }
         std::optional<Rig> rig;
@@ -699,6 +701,10 @@ private:
         }
         const StartNeeds needs = startNeeds(config, rig ? &*rig : nullptr);
         needsProblem_ = needs.problem;
+        // The mapping must be for the picked target (a user's own one edited by hand may not be).
+        if (needsProblem_.empty() && configRead) {
+            needsProblem_ = targetProblem(config, picker_->profileName());
+        }
         // The virtual device needs Administrator or the WheelBri Helper; the shim needs neither.
         helperMissing_ = !shimTarget() && !PrivilegedSteps::available();
         if (devices_.unavailable()) {

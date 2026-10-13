@@ -2,6 +2,7 @@
 
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DeviceMatch.hpp"
+#include "wheelbri/DeviceProfile.hpp"
 
 #include <algorithm>
 
@@ -37,6 +38,19 @@ bool mappingUsesRig(const MapperConfig& mapper, const Rig& rig, const bool wheel
     const HatButtons& hat = mapper.hatButtons;
     return fromRig(hat.up, hat.devices[0]) || fromRig(hat.right, hat.devices[1]) || fromRig(hat.down, hat.devices[2]) ||
            fromRig(hat.left, hat.devices[3]);
+}
+
+std::string targetProblem(const EmulatorConfig& config, const std::string_view target) {
+    const auto profile = makeProfile(config.targetProfile);
+    if (profile == nullptr) {
+        return "UNKNOWN TARGET '" + config.targetProfile + "' in the mapping: Default, or target_profile = " +
+               std::string(target);
+    }
+    if (config.targetProfile != target) {
+        return "THE MAPPING IS FOR THE " + profile->identity().shortName + ": Default, or target_profile = " +
+               std::string(target) + " in it";
+    }
+    return {};
 }
 
 StartNeeds startNeeds(const EmulatorConfig& config, const Rig* const rig) {

@@ -48,8 +48,10 @@ public:
 
     bool createVirtualG920(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
                            std::string& error) override {
+        if (g920_ && g920Wheel_ != &wheel) removeVirtualG920();   // another wheel than the one there: that one goes
         if (!g920_) g920_ = VirtualG920::create(wheel, error, cancelled);
         if (!g920_) return false;
+        g920Wheel_ = &wheel;
         instanceId = g920_->instanceId();
         return true;
     }
@@ -86,6 +88,7 @@ public:
 
 private:
     std::unique_ptr<VirtualG920> g920_;
+    const VirtualWheel* g920Wheel_ = nullptr;   // which wheel g920_ is
     std::unique_ptr<HideFilter> hider_;
 };
 

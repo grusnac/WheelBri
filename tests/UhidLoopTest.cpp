@@ -30,6 +30,8 @@ TEST(UhidOptions, TheTargetIsAWheelWheelBriEmulates) {
     EXPECT_FALSE(bad.options);
     EXPECT_NE(bad.error.find("--target"), std::string::npos);
     EXPECT_FALSE(parseOptions({"--target"}).options);
+    EXPECT_NE(parseOptions({"--target", ""}).error.find("needs a value"), std::string::npos);
+    EXPECT_EQ(parseOptions({"--target", "g920"}).options->target, "g920");
 }
 
 TEST(UhidOptions, EveryOptionTakesItsValue) {

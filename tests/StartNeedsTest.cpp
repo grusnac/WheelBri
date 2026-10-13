@@ -21,6 +21,12 @@ Rig rig() {
     return r;
 }
 
+EmulatorConfig withTarget(const std::string& target) {
+    EmulatorConfig config;
+    config.targetProfile = target;
+    return config;
+}
+
 const PresentDevice kR3{"R3 Racing Wheel and Pedals", 0x346e, 0x0005};
 const PresentDevice kPedals{"Pedals", 0x30b7, 0x1001};
 
@@ -129,6 +135,20 @@ TEST(StartNeeds, ControlsFromDevicesOutsideTheRigAreNoMapping) {
     config = EmulatorConfig{};
     config.sourceDeviceMatch = "0eb7";   // a wheel the rig does not have, everything mapped from it
     EXPECT_EQ(startNeeds(config, &r).problem, kNoMapping);
+}
+
+TEST(StartNeeds, TheMappingMustBeForThePickedTarget) {
+    EXPECT_EQ(targetProblem(withTarget("g920"), "g920"), "");
+    EXPECT_EQ(targetProblem(withTarget("g25"), "g25"), "");
+    EXPECT_EQ(targetProblem(withTarget("g920"), "g25"),
+              "THE MAPPING IS FOR THE G920: Default, or target_profile = g25 in it");
+    EXPECT_EQ(targetProblem(withTarget("g25"), "g920"),
+              "THE MAPPING IS FOR THE G25: Default, or target_profile = g920 in it");
+    EXPECT_EQ(targetProblem(withTarget("g29"), "g25"),
+              "UNKNOWN TARGET 'g29' in the mapping: Default, or target_profile = g25");
+    EXPECT_EQ(targetProblem(withTarget(""), "g920"),
+              "UNKNOWN TARGET '' in the mapping: Default, or target_profile = g920");
+    EXPECT_EQ(targetProblem(EmulatorConfig{}, "g920"), "");   // a config without the line: the G920
 }
 
 }  // namespace

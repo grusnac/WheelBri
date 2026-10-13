@@ -245,6 +245,14 @@ TEST(HelperProtocol, CreateVirtualG920MayNameTheWheel) {
     EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualG920, 1, {kMoza}}), "");
     EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualG920, 1, {"g25", "g920"}}), "");
     EXPECT_FALSE(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {"G25"}}));   // names are lower case
+    EXPECT_FALSE(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {""}}));
+    EXPECT_EQ(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {"g920"}}), "g920");   // named: the same
+    // On the wire: the wheel travels as the request's one string.
+    std::string error;
+    const auto back = decodeRequest(encode(Request{RequestType::CreateVirtualG920, 7, {"g25"}}), error);
+    ASSERT_TRUE(back) << error;
+    EXPECT_EQ(back->devices, std::vector<std::string>{"g25"});
+    EXPECT_EQ(requestVirtualWheel(*back), "g25");
 }
 
 TEST(HelperProtocol, EveryOtherRequestButPutHideFilterTakesNoDevices) {

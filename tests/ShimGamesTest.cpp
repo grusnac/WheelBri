@@ -94,6 +94,86 @@ TEST_F(ShimGamesFiles, TheTargetMakesTheSettingsWhenMissing) {
     EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");
 }
 
+TEST_F(ShimGamesFiles, TheTargetMustBeAWheelWheelBriEmulates) {
+    write(game() / kShimSettings, "[shim]\ntarget_profile = g920\n");
+    for (const char* bad : {"", "g29", "G25", "g25 "}) {
+        const ShimResult result = setShimTarget(game(), bad);
+        EXPECT_FALSE(result.ok) << bad;
+        EXPECT_NE(result.error.find("g920, g25"), std::string::npos) << result.error;
+        EXPECT_TRUE(result.changed.empty());
+    }
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");   // untouched
+}
+
+TEST_F(ShimGamesFiles, TheTargetNeverMakesTheGameFolder) {
+    const auto missing = dir_ / "not installed";
+    const ShimResult result = setShimTarget(missing, "g25");
+    EXPECT_FALSE(result.ok);
+    EXPECT_NE(result.error.find("is not there"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(missing));
+    EXPECT_FALSE(setShimTarget({}, "g25").ok);                       // no folder at all
+    EXPECT_FALSE(setShimTarget(game() / "Game.exe", "g25").ok);      // a file, not a folder
+    EXPECT_EQ(read(game() / "Game.exe"), "MZ");
+}
+
+TEST_F(ShimGamesFiles, AFolderInTheSettingsPlaceIsLeftAlone) {
+    std::filesystem::create_directories(game() / kShimSettings / "inside");
+    const ShimResult result = setShimTarget(game(), "g25");
+    EXPECT_FALSE(result.ok);
+    EXPECT_NE(result.error.find("is a folder"), std::string::npos);
+    EXPECT_TRUE(std::filesystem::is_directory(game() / kShimSettings / "inside"));
+}
+
+TEST_F(ShimGamesFiles, TheTargetKeepsLineEndsBomAndComments) {
+    write(game() / kShimSettings, "\xEF\xBB\xBF[shim]\r\nemulate = true ; mine\r\ntarget_profile = g920\r\n");
+    ASSERT_TRUE(setShimTarget(game(), "g25").ok);
+    EXPECT_EQ(read(game() / kShimSettings), "\xEF\xBB\xBF[shim]\r\nemulate = true ; mine\r\ntarget_profile = g25\r\n");
+}
+
+TEST_F(ShimGamesFiles, TheTargetIsReadLikeTheShimReadsIt) {
+    // Already so, with a comment after it: nothing written.
+    write(game() / kShimSettings, "[shim]\ntarget_profile = g25   ; the app sets it\n");
+    const ShimResult same = setShimTarget(game(), "g25");
+    ASSERT_TRUE(same.ok);
+    EXPECT_TRUE(same.changed.empty());
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g25   ; the app sets it\n");
+    // Written twice: the shim reads the last one, so that is the one set and the earlier one goes.
+    write(game() / kShimSettings, "[shim]\ntarget_profile = g25\ntarget_profile = g920\n");
+    const ShimResult twice = setShimTarget(game(), "g25");
+    ASSERT_TRUE(twice.ok);
+    EXPECT_EQ(twice.changed.size(), 1U);
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g25\n");
+    // In another section it is not the shim's: [shim] gets its own.
+    write(game() / kShimSettings, "[other]\ntarget_profile = g25\n");
+    ASSERT_TRUE(setShimTarget(game(), "g25").ok);
+    EXPECT_EQ(read(game() / kShimSettings), "[other]\ntarget_profile = g25\n\n[shim]\ntarget_profile = g25\n");
+}
+
+TEST_F(ShimGamesFiles, TheTargetSaysWhenTheFileCannotBeWritten) {
+    write(game() / kShimSettings, "[shim]\ntarget_profile = g920\n");
+    // Its temporary file cannot be made (a folder holds that name): the old file stays as it was.
+    std::filesystem::create_directories(game() / (std::string(kShimSettings) + ".tmp") / "busy");
+    const ShimResult result = setShimTarget(game(), "g25");
+    EXPECT_FALSE(result.ok);
+    EXPECT_NE(result.error.find("cannot write"), std::string::npos);
+    EXPECT_TRUE(result.changed.empty());
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");
+}
+
+TEST_F(ShimGamesFiles, TheTargetSaysWhenTheFileCannotBeRead) {
+    write(game() / kShimSettings, "[shim]\ntarget_profile = g920\n");
+    std::filesystem::permissions(game() / kShimSettings, std::filesystem::perms::none);
+    if (std::ifstream(game() / kShimSettings).good()) {   // Administrator / root, or Windows: still readable
+        std::filesystem::permissions(game() / kShimSettings, std::filesystem::perms::owner_all);
+        GTEST_SKIP() << "the file stays readable here";
+    }
+    const ShimResult result = setShimTarget(game(), "g25");
+    std::filesystem::permissions(game() / kShimSettings, std::filesystem::perms::owner_all);
+    EXPECT_FALSE(result.ok);
+    EXPECT_NE(result.error.find("cannot read"), std::string::npos);
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");
+}
+
 TEST_F(ShimGamesFiles, AnotherModsDllIsLeftAlone) {
     write(game() / kShimDll, "someone else's proxy");
     EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Foreign);

@@ -1618,6 +1618,10 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     // Linux: the virtual G920 is wheelbri-uhid, there until this function returns (Stop, or the window closed).
     std::unique_ptr<wheelbri::service::UhidProcess> uhid;
     if (options.uhid) {
+        if (virtualWheel == nullptr) {
+            WE_LOG_CRITICAL(log(), "virtual wheel: no virtual device for target_profile '{}'", config.targetProfile);
+            return 1;
+        }
         std::string error;
         uhid = wheelbri::service::UhidProcess::start(logFolder, config.targetProfile, error);
         if (uhid == nullptr) {

@@ -66,8 +66,10 @@ struct ShimResult {
 ShimResult installShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll,
                        const std::filesystem::path& sourceSettings);
 // Makes the shim in `folder` present `profile` ("g920", "g25"): [shim] target_profile in its wheelbri-shim.ini, the
-// file's other lines (the user's edits) kept. Nothing is written when it already says so (`changed` stays empty); a
-// missing file is created with just that line. The app does it at Start, for the target picked on the Mapping tab.
+// file's other lines (the user's edits, comments, CRLF, a BOM) kept. Nothing is written when it already says so
+// (`changed` stays empty); a missing file is created with just that line. Fails (nothing written) for a profile that is
+// not a target, a missing folder, a folder in the file's place, an unreadable file. The app does it at Start, for the
+// target picked on the Mapping tab.
 ShimResult setShimTarget(const std::filesystem::path& folder, const std::string& profile);
 // Deletes what installShim put there: dinput8.dll (only ours) and wheelbri-shim.ini.
 ShimResult removeShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll);

@@ -3,6 +3,10 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+#include <string_view>
+#include <vector>
+
 namespace wheelbri {
 namespace {
 
@@ -36,6 +40,49 @@ TEST(VirtualWheel, ItsIdsAreKnown) {
     EXPECT_TRUE(isVirtualWheelId(0x046D, 0xC299));
     EXPECT_FALSE(isVirtualWheelId(0x046D, 0xC294));   // a G25 in Driving Force mode: a real one
     EXPECT_FALSE(isVirtualWheelId(0x346E, 0x0005));
+}
+
+TEST(VirtualWheel, EveryKnownProfileIsAWheelAndBack) {
+    // kKnownProfiles (for messages) names exactly the profiles makeProfile knows and the virtual wheels.
+    std::vector<std::string> named;
+    std::string_view rest = kKnownProfiles;
+    while (!rest.empty()) {
+        const std::size_t comma = rest.find(", ");
+        named.emplace_back(rest.substr(0, comma));
+        rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 2);
+    }
+    ASSERT_EQ(named.size(), virtualWheels().size());
+    for (std::size_t i = 0; i < named.size(); ++i) {
+        EXPECT_NE(makeProfile(named[i]), nullptr) << named[i];
+        EXPECT_EQ(virtualWheels()[i].profile, named[i]);
+    }
+}
+
+TEST(VirtualWheel, IdentitiesAreDistinctAndFitWhereTheyGo) {
+    const auto wheels = virtualWheels();
+    for (std::size_t i = 0; i < wheels.size(); ++i) {
+        const VirtualWheel& wheel = wheels[i];
+        EXPECT_LT(wheel.product.size(), 64U) << wheel.profile;     // the driver's product string buffer
+        EXPECT_LT(wheel.oemName.size(), 128U) << wheel.profile;    // uhid's device name
+        EXPECT_EQ(wheel.hardwareId.substr(0, 9), "wheelbri\\") << wheel.profile;
+        EXPECT_EQ(virtualWheelForHardwareId(wheel.hardwareId), &wheel);
+        for (std::size_t j = i + 1; j < wheels.size(); ++j) {
+            EXPECT_NE(wheel.profile, wheels[j].profile);
+            EXPECT_NE(wheel.hardwareId, wheels[j].hardwareId);
+            EXPECT_NE(wheel.instancePrefix, wheels[j].instancePrefix);
+            EXPECT_NE(wheel.productId, wheels[j].productId);
+        }
+    }
+}
+
+TEST(VirtualWheel, NothingElseIsAVirtualWheel) {
+    EXPECT_EQ(virtualWheelForHardwareId(""), nullptr);
+    EXPECT_EQ(virtualWheelForHardwareId("wheelbri\\G920 "), nullptr);   // no trimming: Windows gives it exactly
+    EXPECT_EQ(virtualWheelForHardwareId("HID\\VID_046D&PID_C262"), nullptr);
+    EXPECT_EQ(virtualWheel(""), nullptr);
+    EXPECT_EQ(virtualWheel("G920"), nullptr);   // config names are lower case
+    EXPECT_FALSE(isVirtualWheelId(0x046E, 0xC262));
+    EXPECT_FALSE(isVirtualWheelId(0, 0));
 }
 
 }  // namespace

@@ -1,5 +1,6 @@
 #include "wheelbri/ShimGames.hpp"
 
+#include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/IniEditor.hpp"
 
@@ -211,7 +212,20 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
 
 ShimResult setShimTarget(const std::filesystem::path& folder, const std::string& profile) {
     ShimResult result;
+    if (makeProfile(profile) == nullptr) {   // never a name the shim would refuse (it would present nothing)
+        result.error = "'" + profile + "' is not a wheel WheelBri emulates (" + std::string(kKnownProfiles) + ")";
+        return result;
+    }
+    std::error_code ec;
+    if (folder.empty() || !std::filesystem::is_directory(folder, ec)) {   // never makes the game's folder
+        result.error = "the game folder " + pathToUtf8(folder) + " is not there";
+        return result;
+    }
     const std::filesystem::path file = folder / kShimSettings;
+    if (std::filesystem::is_directory(file, ec)) {
+        result.error = pathToUtf8(file) + " is a folder, not the shim's settings";
+        return result;
+    }
     const std::optional<std::string> text = regularFile(file) ? readFileText(file) : std::optional<std::string>("");
     if (!text) {
         result.error = "cannot read " + pathToUtf8(file);
@@ -223,8 +237,11 @@ ShimResult setShimTarget(const std::filesystem::path& folder, const std::string&
     }
     IniEditor editor(*text);
     editor.set("shim", "target_profile", profile);
+    // IniEditor sets the line the shim reads (the last in [shim]) and drops earlier copies.
     if (!writeFileReplacing(file, editor.text())) {
-        result.error = "cannot write " + pathToUtf8(file) + ": close the game and try again";
+        result.error = "cannot write " + pathToUtf8(file) +
+                       ": close the game and try again (a game folder under Program Files is protected: install the "
+                       "game in a folder you own, or set target_profile there yourself as Administrator)";
         return result;
     }
     result.changed.push_back(pathToUtf8(file));

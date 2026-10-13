@@ -182,6 +182,25 @@ TEST(HelperDispatch, AnAllowedRequestGoesToTheSessionAndItsReplyBack) {
     EXPECT_EQ(answer.type, RequestType::CreateVirtualG920);
 }
 
+TEST(HelperDispatch, CreateVirtualG920ReachesTheSessionWithItsWheel) {
+    FakeSession session;
+    const Answer answer = ask(Request{RequestType::CreateVirtualG920, 12, {"g25"}}, accepted(), &session);
+    ASSERT_EQ(session.seen.size(), 1U);
+    EXPECT_EQ(session.seen[0].devices, std::vector<std::string>{"g25"});
+    EXPECT_EQ(answer.reply.status, Status::Ok);
+}
+
+TEST(HelperDispatch, AWheelWheelBriDoesNotEmulateNeverReachesTheSession) {
+    FakeSession session;
+    for (const std::vector<std::string>& devices :
+         {std::vector<std::string>{"g29"}, std::vector<std::string>{""}, std::vector<std::string>{"g25", "g25"}}) {
+        const Answer answer = ask(Request{RequestType::CreateVirtualG920, 13, devices}, accepted(), &session);
+        EXPECT_EQ(answer.reply.status, Status::Refused);
+        EXPECT_EQ(answer.reply.text, "CreateVirtualG920 takes one wheel: g920 or g25");
+    }
+    EXPECT_TRUE(session.seen.empty());
+}
+
 TEST(HelperDispatch, PutHideFilterReachesTheSessionWithItsDevices) {
     FakeSession session;
     const Answer answer = ask(Request{RequestType::PutHideFilter, 2, {kMoza}}, accepted(), &session);

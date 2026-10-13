@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace wheelbri::service {
@@ -45,6 +47,10 @@ public:
     [[nodiscard]] static const char* profileName(Target target);
     [[nodiscard]] const char* profileName() const { return profileName(target_); }
     [[nodiscard]] static const char* wayName(Way way);
+    // The target a config name names ("g920", "g25"), the way a saved one does ("virtual", "shim"); nullopt for
+    // anything else (an app.ini from a newer WheelBri, or edited by hand).
+    [[nodiscard]] static std::optional<Target> parseTarget(std::string_view profile);
+    [[nodiscard]] static std::optional<Way> parseWay(std::string_view way);
     // The built-in config's file name for the target and way ("g920-virtual-device.ini", "g25-in-game-shim.ini").
     [[nodiscard]] static std::string builtInName(Target target, Way way);
     [[nodiscard]] std::string builtInName() const { return builtInName(target_, way_); }
@@ -75,6 +81,7 @@ private:
         std::function<void()> action;
     };
 
+    // The other way or target (the arrows), kept in the state file; it stays chosen when that cannot be written.
     void choose(Way way);
     void choose(Target target);
     void chosen();   // after either: the config again, and the log

@@ -59,6 +59,18 @@ TEST(EmulatedJoystick, G920Layout) {
     EXPECT_EQ(joystick.objects()[1].guid, ObjectGuid::YAxis);   // throttle
 }
 
+TEST(EmulatedJoystick, G25LayoutIsTheG920sWithItsButtons) {
+    const JoystickLayout layout = layoutFor("g25", kG25Buttons);
+    EXPECT_TRUE(isValid(layout));
+    EXPECT_EQ(layout.throttle, ObjectGuid::YAxis);
+    EXPECT_EQ(layout.brake, ObjectGuid::RzAxis);
+    EXPECT_EQ(layout.clutch, ObjectGuid::Slider);
+    const EmulatedJoystick joystick(layout);
+    EXPECT_EQ(joystick.axisCount(), 4U);
+    EXPECT_EQ(joystick.buttonCount(), 19U);   // the gears and the shifter's 8 buttons too
+    EXPECT_EQ(joystick.povCount(), 1U);
+}
+
 TEST(EmulatedJoystick, StandardJoystickFormat) {
     EmulatedJoystick joystick(g920());
     ASSERT_EQ(joystick.setDataFormat(joystickFormat(), 80), EmulatedJoystick::FormatResult::Ok);

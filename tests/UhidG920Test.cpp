@@ -29,9 +29,12 @@ struct Kernel {
     std::vector<uhid_event> written;
     std::vector<FfbPacket> packets;
     std::vector<std::string> logs;
-    UhidG920 device{[this](const uhid_event& e) { written.push_back(e); return true; },
-                    [this](const FfbPacket& p) { packets.push_back(p); },
-                    [this](LogLevel, const std::string& s) { logs.push_back(s); }};
+    UhidG920 device;
+
+    explicit Kernel(const VirtualWheel& wheel = *virtualWheel("g920"))
+        : device{[this](const uhid_event& e) { written.push_back(e); return true; },
+                 [this](const FfbPacket& p) { packets.push_back(p); },
+                 [this](LogLevel, const std::string& s) { logs.push_back(s); }, wheel} {}
 
     // What hidraw passes on: the report ID first.
     void output(const std::string& bytes, std::int64_t now) {
@@ -65,12 +68,10 @@ struct Kernel {
 };
 
 TEST(UhidG920, CreatesALogitechG25OnTheVirtualBusWithTheWindowsDescriptor) {
-    std::vector<uhid_event> written;
-    UhidG920 device{[&written](const uhid_event& e) { written.push_back(e); return true; }, [](const FfbPacket&) {},
-                    [](LogLevel, const std::string&) {}, *virtualWheel("g25")};
-    ASSERT_TRUE(device.create());
-    ASSERT_EQ(written.size(), 2U);
-    const auto& create = written[0].u.create2;
+    Kernel k(*virtualWheel("g25"));
+    ASSERT_TRUE(k.device.create());
+    ASSERT_EQ(k.written.size(), 2U);
+    const auto& create = k.written[0].u.create2;
     EXPECT_EQ(create.vendor, 0x046DU);
     EXPECT_EQ(create.product, 0xC299U);
     EXPECT_EQ(create.bus, 0x06);   // BUS_VIRTUAL: hid-lg would claim (and then refuse) a USB 046D:C299
@@ -79,7 +80,8 @@ TEST(UhidG920, CreatesALogitechG25OnTheVirtualBusWithTheWindowsDescriptor) {
     const auto descriptor = g920ReportDescriptor();   // Proton has no G25 hack: X, Y, Rz, Slider as on Windows
     ASSERT_EQ(create.rd_size, descriptor.size());
     EXPECT_EQ(std::memcmp(create.rd_data, descriptor.data(), descriptor.size()), 0);
-    EXPECT_EQ(device.label(), "G25");
+    EXPECT_EQ(k.device.label(), "G25");
+    EXPECT_EQ(k.device.name(), "Logitech G25 Racing Wheel USB");
 }
 
 TEST(UhidG920, CreatesALogitechG920WithTheProtonDescriptor) {
@@ -161,6 +163,41 @@ TEST(UhidG920, OutputReportsBecomeForceFeedback) {
     EXPECT_EQ(playing->effect.type, FfbEffectType::Constant);
     EXPECT_NEAR(playing->effect.constantLevel, 0.4F, 1e-3F);
     EXPECT_EQ(k.device.activeSlots(), 1U);
+}
+
+// The G25 plays the game's force feedback the same way, and its log names it.
+TEST(UhidG920, TheG25PlaysForceFeedbackAndSaysWhoItIs) {
+    Kernel k(*virtualWheel("g25"));
+    ASSERT_TRUE(k.device.create());
+    uhid_event e{};
+    e.type = UHID_START;
+    k.device.handle(e, 0);
+    e.type = UHID_OPEN;
+    k.device.handle(e, 0);
+    k.output("1501A00F", 0);
+    k.output("110101DC05000000000000FFFF04FF1F0000FFFFFFFF", 0);
+    k.output("1A010101", 1);
+    EXPECT_EQ(k.device.activeSlots(), 1U);
+    e.type = UHID_CLOSE;
+    k.device.handle(e, 2);
+    e.type = UHID_STOP;
+    k.device.handle(e, 3);
+    const auto said = [&k](const std::string& text) {
+        return std::any_of(k.logs.begin(), k.logs.end(), [&](const std::string& l) { return l == text; });
+    };
+    EXPECT_TRUE(said("uhid: virtual G25 started (the kernel took it)"));
+    EXPECT_TRUE(said("uhid: a program opened the virtual G25 (1 now)"));
+    EXPECT_TRUE(said("uhid: a program closed the virtual G25 (0 left)"));
+    EXPECT_TRUE(said("uhid: virtual G25 stopped by the kernel"));
+    EXPECT_EQ(k.device.activeSlots(), 0U);   // the last close stopped its forces
+    // Its input reports are the G920's report (the same descriptor on Windows).
+    TargetReport report = g920Neutral();
+    report.buttons = 1U << kG25FirstGear;
+    k.written.clear();
+    ASSERT_TRUE(k.device.submit(report, false));
+    ASSERT_EQ(k.written.size(), 1U);
+    const auto packed = packG920Input(report);
+    EXPECT_EQ(std::memcmp(k.written[0].u.input2.data, packed.data(), packed.size()), 0);
 }
 
 TEST(UhidG920, OpenAndCloseAreCounted) {

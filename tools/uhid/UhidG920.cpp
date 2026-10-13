@@ -42,7 +42,7 @@ bool UhidG920::create() {
     std::strncpy(reinterpret_cast<char*>(req.phys), "wheelbri", sizeof(req.phys) - 1);
     std::strncpy(reinterpret_cast<char*>(req.uniq), kG920VirtualUniq, sizeof(req.uniq) - 1);
     // Games read it through Proton's DirectInput: its G920 hack wants the G920's own axis names (see the header).
-    const bool g920 = wheel_.productId == kG920ProductId;
+    const bool g920 = wheel_.profile == "g920";
     const auto descriptor = g920 ? g920ProtonReportDescriptor() : g920ReportDescriptor();
     if (descriptor.size() > sizeof(req.rd_data)) {
         log_(LogLevel::Error, "uhid: descriptor too large");
