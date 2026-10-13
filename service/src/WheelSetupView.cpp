@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <span>
 #include <cstdio>
 #include <utility>
 
@@ -111,24 +112,10 @@ DeviceKind guessKind(const std::string& name) {
     return DeviceKind::Other;
 }
 
-bool isPedalRole(const ControlRole role) {
-    return role == ControlRole::Throttle || role == ControlRole::Brake || role == ControlRole::Clutch ||
-           role == ControlRole::Handbrake;
-}
-
-// "Gas  (throttle, inverted)": the label, then what it is for.
+// "Gas  (inverted)": the name, and whether the axis rests at +1.
 std::string describe(const RigControl& control) {
     std::string text = control.label;
-    // The role as the role buttons name it ("L Paddle"), unless the name already says it ("Y", "D-pad Up": named by
-    // picking the role; any case).
-    const auto lower = [](std::string text) {
-        for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return text;
-    };
-    std::string about = lower(control.label) == lower(roleLabel(control.role)) ? std::string() : roleLabel(control.role);
-    const auto add = [&about](const std::string& part) { about += (about.empty() ? "" : ", ") + part; };
-    if (control.invert) add("inverted");
-    if (!about.empty()) text += (text.empty() ? "(" : "  (") + about + ")";
+    if (control.invert) text += text.empty() ? "(inverted)" : "  (inverted)";
     return text;
 }
 
@@ -282,7 +269,7 @@ void WheelSetupView::detect(Open& device) {
         return;
     }
     const DeviceId id = idOf(device.info);
-    // Controls already defined in the rig (a label or a role) never open the popup by themselves: pressing or moving
+    // Controls already named in the rig never open the popup by themselves: pressing or moving
     // them again only shows them (click one to change it).
     const RigDevice* const known = edit_.find(id);
     const auto defined = [known](const bool axis, const int index) {
@@ -537,13 +524,6 @@ void WheelSetupView::closeControl(const bool keep) {
                                      : device->buttons[static_cast<std::size_t>(popupIndex_)];
     control = popupControl_;
     if (!popupAxis_) control.invert = false;
-    // A role two controls have: Auto-map takes the first in the rig, so say which.
-    if (const std::string other = sameRoleElsewhere(edit_, device->id, popupAxis_, static_cast<std::size_t>(popupIndex_),
-                                                    control.role);
-        !other.empty()) {
-        status_ = roleLabel(control.role) + " is also " + other + ": Auto-map uses the first in the rig. Clear one.";
-        statusError_ = true;
-    }
 }
 
 // --- input ----------------------------------------------------------------------------------------------------------
@@ -595,7 +575,7 @@ void WheelSetupView::onText(const std::string& text) {
         } else if (c != ';' && c != '#' && c != '=' && c != '[' && c != ']' && c != '|' &&
                    editing_->size() < editingMax_ && !(editing_->empty() && c == ' ') &&
                    static_cast<unsigned char>(c) >= ' ' && static_cast<unsigned char>(c) < 0x7F) {
-            *editing_ += c;   // nothing that would read as a comment, a section or a role in the file
+            *editing_ += c;   // nothing that would read as a comment, a section or a second part in the file
         }
     }
 }
@@ -869,8 +849,6 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
         window_.text(x + 4, ty + 5, number, down ? kDark : kDim);
         window_.text(x + 26, ty + 5, fit(control.label, static_cast<std::size_t>((tileW - 26) / ui::kCharWidth)),
                      down ? kDark : kText);
-        const auto roleChars = static_cast<std::size_t>((tileW - 8) / ui::kCharWidth);
-        window_.text(x + 4, ty + 18, fit(roleLabel(control.role), roleChars), down ? kDark : kHeading);
         hit(x, ty, tileW, kTileH, [this, id, source] { openControl(id, false, source, std::nullopt); });
     }
 }
@@ -943,15 +921,15 @@ void WheelSetupView::drawHints(const float x, const float top) {
 
 void WheelSetupView::drawControlPopup() {
     constexpr float kW = 760;
-    constexpr float kRoleW = 100;      // a role button, and the gap after it
+    constexpr float kRoleW = 100;      // a name button, and the gap after it
     constexpr float kRoleGap = 4;
     constexpr float kRoleRow = 20;
-    // The role buttons wrap at the popup's right edge: the popup is as tall as their rows (there are more button roles
+    // The name buttons wrap at the popup's right edge: the popup is as tall as their rows (there are more button names
     // than fit on two rows), so OK / Cancel / Clear always sit below them.
     const float kX = std::floor((window_.width() - kW) / 2);   // centred
     const float rolesLeft = kX + 76;
     const float rolesRight = kX + kW - 12;
-    const std::size_t roleCount = 1 + (popupAxis_ ? std::size(kAxisRoles) : std::size(kButtonRoles));
+    const std::size_t roleCount = popupAxis_ ? kAxisNames.size() : kButtonNames.size();
     const auto perRow = static_cast<std::size_t>(std::max(1.0F, std::floor((rolesRight - rolesLeft + kRoleGap) /
                                                                              (kRoleW + kRoleGap))));
     const auto roleRows = static_cast<float>((roleCount + perRow - 1) / perRow);
@@ -982,30 +960,18 @@ void WheelSetupView::drawControlPopup() {
     window_.text(left, kY + 62, "It is", kDim);
     float x = left + 60;
     float y = kY + 58;
-    const auto roleButton = [&](const ControlRole role, const std::string& label, const float width) {
+    // A name button only fills in the name (lit while the name is that); nothing else is kept.
+    const auto nameButton = [&](const std::string& name, const float width) {
         if (x + width > rolesRight) {
             x = rolesLeft;
             y += kRoleRow;
         }
-        x += button(x, y, label, [this, role] {
-            // The name follows the role while it is empty or still the last role's name: typed names are kept.
-            const auto lower = [](std::string text) {
-                for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                return text;
-            };
-            if (popupControl_.label.empty() || lower(popupControl_.label) == lower(roleLabel(popupControl_.role)) ||
-                lower(popupControl_.label) == roleName(popupControl_.role)) {
-                popupControl_.label = roleLabel(role);
-            }
-            popupControl_.role = role;
-            if (isPedalRole(role) && popupRest_) popupControl_.invert = *popupRest_ > 0.5F;
-        }, popupControl_.role == role, true, width) + kRoleGap;
+        x += button(x, y, name, [this, name] { popupControl_.label = name; }, lower(popupControl_.label) == lower(name),
+                    true, width) + kRoleGap;
     };
-    roleButton(ControlRole::None, "nothing yet", kRoleW);
-    if (popupAxis_) {
-        for (const ControlRole role : kAxisRoles) roleButton(role, roleLabel(role), kRoleW);
-    } else {
-        for (const ControlRole role : kButtonRoles) roleButton(role, roleLabel(role), kRoleW);
+    for (const std::string_view name : popupAxis_ ? std::span<const std::string_view>(kAxisNames)
+                                                  : std::span<const std::string_view>(kButtonNames)) {
+        nameButton(std::string(name), kRoleW);
     }
 
     y += kRoleRow + 6;
@@ -1036,7 +1002,9 @@ void WheelSetupView::drawPopupAxisBar(const float x, const float y, const float 
     const float half = width / 2;
     const float centre = x + half;
     window_.fill(x, y, width, 10, kPanel);
-    if (!isPedal(popupControl_.role)) {
+    // A pedal or lever (found resting at an end, or inverted): its travel; anything else from the centre.
+    const bool pedal = popupControl_.invert || (popupRest_ && std::fabs(*popupRest_) > 0.5F);
+    if (!pedal) {
         window_.fill(v >= 0 ? centre : centre + half * v, y, half * std::abs(v), 10, kActive);
         window_.fill(centre, y - 1, 1, 12, kCentre);
         return;

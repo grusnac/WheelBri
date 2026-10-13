@@ -5,11 +5,11 @@
 namespace wheelbri {
 namespace {
 
-RigDevice device(const std::string& name, const std::uint16_t vid, const std::uint16_t pid, const bool steering) {
+RigDevice device(const std::string& name, const std::uint16_t vid, const std::uint16_t pid, const bool wheel) {
     RigDevice d;
     d.name = name;
     d.id = {vid, pid};
-    if (steering) d.axes[0].role = ControlRole::Steering;
+    if (wheel) d.kind = DeviceKind::Wheel;
     return d;
 }
 

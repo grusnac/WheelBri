@@ -71,7 +71,7 @@ done
 settings="${XDG_CONFIG_HOME:-$HOME/.config}/wheelbri"
 # Default --config: the mapping you saved in the app's Mapping tab for this target (configs/my-<name>.ini), else
 # WheelBri's default one: the virtual G920 (uhid) or the in-game shim. The default was made on Windows; Linux numbers
-# the rig's axes in another order, so on Linux save your own (Auto-map in the Mapping tab, then Save).
+# the rig's axes in another order, so on Linux save your own (map it in the Mapping tab, then Save).
 if [ -z "$config" ]; then
     [ "$mode" = shim ] && name=g920-in-game-shim.ini || name=g920-virtual-device.ini
     if [ -f "$settings/configs/my-$name" ]; then

@@ -75,7 +75,7 @@ DeviceProfileSpec g920Spec() {
     spec.pedalsReleasedAtMax = true;   // pressed = the low end (assumed from Logitech's pedal sets)
     // DirectInput button order in PC mode (joy.cpl buttons 1..11), then the Driving Force Shifter on the wheel's
     // shifter port: joy.cpl 13..18 for gears 1..6 and 19 for reverse (Logitech's Driving Force Shifter FAQ). joy.cpl
-    // 12 exists on the G920 but nothing presses it. The names match what Auto-map looks for (MappingEdit.cpp).
+    // 12 exists on the G920 but nothing presses it.
     spec.buttonNames = {
         "A",      "B",      "X",      "Y",      "R Paddle", "L Paddle", "Menu", "View", "RSB", "LSB",
         "Xbox",   "",       "Gear 1", "Gear 2", "Gear 3",   "Gear 4",   "Gear 5", "Gear 6", "Gear R",

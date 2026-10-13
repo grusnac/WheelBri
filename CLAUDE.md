@@ -200,14 +200,12 @@ wheel's own software to the same (the axis goes through 1:1; `source_rotation_de
 WheelBri (since 2026-10-13: the devices' own software sets them): the mapper uses steering as reported and pedals as
 0-100% of their travel (`gamma` stays); older configs' `deadzone`, `deadzone_low`, `saturation_high` and older rigs'
 `deadzone N%` / `full N%` load and are ignored (`SectionReader::retired`, `parseControl`), and `writeMapping` /
-`writeRig` drop them; do not add them back; Auto-map is core `autoMap`, which
-returns `AutoMapResult` notes for every edge case: a role twice (first wins; `sameRoleElsewhere` warns in the Rig
-tab), a role the target lacks, a placed button freed from older places, another wheel's sources kept as an
-accessory, a control kept as a secondary (its role's input left empty); each target button has one role assignment
+`writeRig` drop them; do not add them back. There are no roles and no Auto-map (since 2026-10-13: every wheel is
+different, so WheelBri does not guess what a control is for; the user maps everything by hand); do not add them back
+either. Each target button has one role assignment
 (`buttonMap`) and up to `kMaxSecondaries` (8) secondaries, `MapperConfig::buttonSecondary` / `[buttons] target_N_or`
-(a comma-separated list): buttons, or one-sided axes (`axisDrivesButtons`: throttle, brake, clutch, handbrake) past a
-threshold, each axis with its own 5% release gap in `Mapper::mapButtons`; the picker offers only those axes and
-`buttonAxisProblems` warns at Start otherwise. A rig control is used once in a mapping: core `usesOf` /
+(a comma-separated list): buttons, or axes past a threshold (a pedal or lever makes sense; the picker offers every
+named axis), each axis with its own 5% release gap in `Mapper::mapButtons`. A rig control is used once in a mapping: core `usesOf` /
 `describeUse` / `controlsUsedTwice` (MappingEdit.hpp; only the target's named buttons count); both pickers grey a
 used control with a hover tooltip (`UiInput::pointer` / `pointerInside`, `MappingEditView::setHover`, `tip`,
 `drawTooltip`), Save refuses a control used twice and Start warns), Rig and Logs (a `MappingView` of its own, `logs_`, drawing only its
@@ -271,7 +269,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   - The G920 has 19 buttons (`kG920Buttons`, `g920Spec().buttonNames`, 0-based): the wheel's 11 (0-10), an unused 11
     (joy.cpl 12) and the Driving Force Shifter's Gear 1-6 (12-17) and Gear R (18), as Logitech's shifter FAQ gives them
     (joy.cpl 13-19). Every target (shim, virtual device, uhid) reports all 19; `IDeviceProfile::buttonCount` counts
-    the gap, and `encode` only passes named buttons. The names are what Auto-map looks for ("Gear 1", "Gear R").
+    the gap, and `encode` only passes named buttons.
   - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT);
     `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests. pid.dll sends
     type-specific parameters with effect block 0 and then the Set Effect naming the block: `HidPid` keeps them pending
@@ -364,10 +362,10 @@ rewrites on every build only when it changes); views keep their own top-row cont
     `WECL`, v1; `ClutchPacket::encode`) to 41331; the service uses that value instead of the mapped clutch until 1.5 s
     after the last packet. (Its C# sender, ClutchProbe, went with the bridge.)
   - The rig (`Rig.hpp`): every device the user has (`[device_N]` name, id, kind: guessed from the name, no longer
-    shown or chosen in the Rig tab; `Rig::wheel()` is the device with a Steering axis, the kind only a fallback) and
-    each control's label, role
-    (`ControlRole`: steering, throttle, ..., d-pad up, left / right paddle, shift up, gear N; new roles go at the end
-    of the enum, since autoMap counts gears by value) and invert, written `label | role | invert`;
+    shown or chosen in the Rig tab; `Rig::wheel()` is the first device of kind wheel, else the first) and each
+    control's name and invert, written `label | invert`. No roles (since 2026-10-13): the popup's "It is" buttons
+    (`kAxisNames`, `kButtonNames`) only fill in the name; an older rig's `| role` is read and ignored (`kOlderRoles`:
+    a role-only control gets the role's name, a steering axis makes its device kind wheel) and not written again;
     one rig, `<name>.ini` in `rigsFolder()` (`%LOCALAPPDATA%\wheelbri\rigs`, "My rig" when first saved), named in
     the app's state file (`[app] rig`; else the first file there). No rig selector, New or Rename: other rig files
     are left alone, unused. The Rig tab (`WheelSetupView`) writes it: no device selector, every rig device (an unplugged
@@ -375,8 +373,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     section each, `shownDevices`; the bottom-left list `listedDevices`, with Forget); a device joins the rig when one of its controls is named (`addFocusDevice`: the rig's devices
     are what the hide filter hides, so connected devices are never added by themselves). Detect: a touched control on
     any device opens its popup and scrolls to its section; the rest position taken after ~20 reads gives a pedal's
-    invert; the Mapping tab maps from it (`autoMap` in
-    `MappingEdit.hpp` uses the roles). A session takes the names it shows from the active rig, else from the older
+    invert; the Mapping tab maps from it, by hand. A session takes the names it shows from the active rig, else from the older
     per-device files (`DeviceLabels.hpp`, `deviceLabelsFolder()`), which the first rig also imports. Mapping is not
     done in the rig.
   - Several input devices: device 0 is the wheel (`source_device`; empty, as in the built-in `config/g920-*.ini`, = the active rig's wheel, `Rig::wheel()`, filled in by `loadForRun`; plays FFB), 1..3 are accessories
@@ -396,7 +393,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     default) and `config/g920-in-game-shim.ini`. The Mapping tab's Save writes the user's own as
     `userConfigFolder()/my-<built-in name>` (`%LOCALAPPDATA%\wheelbri\configs`), used instead; "Default" deletes it.
     The rig no longer rewrites a mapping (no rigMapping); it gives the sources' names, the wheel when `source_device`
-    is empty, and Auto-map. A source the active rig has not named shows "not in the rig" (`MappingEditView::missing`).
+    is empty. A source the active rig has not named shows "not in the rig" (`MappingEditView::missing`).
   - `ShimGames.hpp`: the games the app put the in-game shim into (`shimGamesFile()`:
     `%LOCALAPPDATA%\wheelbri\shim-games.txt`, per user like every setting). The file: tab-separated
     `game name folder` / `selected folder`, UTF-8 paths; not IniDocument, which cuts at `;` and `#`), `installShim` /

@@ -23,16 +23,16 @@ namespace wheelbri::service {
 // The app's Mapping tab while stopped: at the top the target (ConfigPicker: G920 virtual device or G920 in-game shim),
 // whose axes, buttons and D-pad are fixed, then what drives each of them, from the controls the Rig tab named (the
 // wheel's and the accessories'). Without a saved mapping of the user's it is WheelBri's default (the target's built-in
-// config), exactly what Start uses. Every source can be picked by hand from the named controls, or Auto-mapped from
-// their roles; Save keeps the user's mapping (my-<built-in name>, comments and other settings kept), Revert drops
-// unsaved changes, Default drops the saved mapping. A source the rig has not named shows "not in the rig". The live
-// view (the session's Mapping tab) shows the result once started.
+// config), exactly what Start uses. Every source is picked by hand from the named controls (WheelBri does not guess
+// what a control is for: every wheel is different); Save keeps the user's mapping (my-<built-in name>, comments and
+// other settings kept), Revert drops unsaved changes, Default drops the saved mapping. A source the rig has not named
+// shows "not in the rig". The live view (the session's Mapping tab) shows the result once started.
 //
 // It also draws the app's Games tab (Page::Games), which edits the same mapping: the built-in game profiles
 // (GameProfiles.hpp) in a list, and for the one picked what its profile changes, the user's own values for it (its
 // steering rotation, force feedback gain and own settings: [game_rotation], [game_ffb_gain], [game_settings], saved
-// with the same Save) and what its settings file holds now. While a session runs it is shown locked, with the game
-// that runs (setGameNow); the app switches to it and picks the game when a profiled game starts (GameTabFollower).
+// with the same Save) and what its settings file holds now. While a session runs it is shown locked, with the game that
+// runs (setGameNow); the app switches to it and picks the game when a profiled game starts (GameTabFollower).
 class MappingEditView {
 public:
     // The canvas this tab is drawn on: at least 960 x 748, bigger in a bigger window (UiWindow.hpp); the tab bar
@@ -75,8 +75,6 @@ public:
     void draw();
     // While a session runs or starts the way and the config cannot change.
     void setLocked(bool locked);
-    // The Rig tab has changes it has not saved: Auto-map (which reads the saved rig) warns.
-    void setRigUnsaved(const bool unsaved) { rigUnsaved_ = unsaved; }
 
     void onClick(float x, float y);
     void onKey(char key);
@@ -153,20 +151,19 @@ private:
     void dropOwnEdits();
     void refreshDevices();
     void changeWheel(const DeviceLabels& wheel);
-    void autoMapFromRig();
     [[nodiscard]] const RigControl* rigControl(const SourceRef& source, bool axis) const;
 
     [[nodiscard]] const DeviceLabels* wheelLabels() const;
     [[nodiscard]] const DeviceLabels* labelsOf(const SourceRef& source) const;
-    // "Moza R3: A": the device and the control's role (its name when it has none, else its number).
+    // "Moza R3: A": the device and the control's name (its number when it has none).
     [[nodiscard]] std::string describe(const SourceRef& source, bool axis) const;
-    // The hover text: name, number and role ("Moza R3: 'A', button 0, role A").
+    // The hover text: name and number ("Moza R3: 'A', button 0").
     [[nodiscard]] std::string describeFull(const SourceRef& source, bool axis) const;
     [[nodiscard]] std::string deviceText(const SourceRef& source) const;
     [[nodiscard]] SourceRef& slot(Slot kind, std::size_t index);
 
     void drawSource(float x, float y, float w, Slot kind, std::size_t index);
-    void drawWheelRow();   // the wheel (it plays force feedback), Change, Auto-map
+    void drawWheelRow();   // the wheel (it plays force feedback), Change
     void drawPicker();
     void drawWheelPicker();
     // A target button's secondary sources (MappingModel::secondaries): its field (the first, "+N" more), and its
@@ -175,7 +172,8 @@ private:
     void drawAltPicker();
     [[nodiscard]] std::string describeAlt(const ButtonRef& alt) const;
     [[nodiscard]] std::string axisName(const SourceRef& source) const;
-    [[nodiscard]] std::string shortAlt(const ButtonRef& alt) const;     // "Horn", "Lever > 50%"   // its rig label, role, or "axis N"
+    // "Horn", "Lever > 50%": its rig name, or "axis N".
+    [[nodiscard]] std::string shortAlt(const ButtonRef& alt) const;
     [[nodiscard]] EntryState entryState(const ControlRef& control, const ControlUse& self) const;
     // A picker's entry for a rig control: highlighted when `state.mine`, greyed (no click, a tooltip) when taken.
     void drawEntry(float x, float y, float w, const std::string& text, const EntryState& state,
@@ -232,7 +230,6 @@ private:
     Slot pickKind_ = Slot::Axis;
     std::size_t pickIndex_ = 0;
     bool locked_ = false;
-    bool rigUnsaved_ = false;
     std::string status_;
     bool statusError_ = false;
 

@@ -129,16 +129,16 @@ a headline, why it was needed, how to use it, and where to look.
 
 ### Rig tab
 
-- **Why:** WheelBri works with any wheel and accessories, so the user says what each device and control is, once.
-- **Use:** tab R: touch a control (Detect), pick its role (the name fills in with the role's: press the button
-  that should be Y, click **Y**, Enter), or type your own name; **Save**. Button roles are the G920's own buttons (A,
-  B, X, Y, Menu, View, RSB, LSB, Xbox, the paddles, the D-pad, the shifter's gears) plus plain Button; Auto-map puts
-  each on that G920 button. One rig (no rig selector, New or Rename). The device with a Steering axis is the wheel.
-  **Handbrake** is a role for an axis or a button (a lever like Moza's HBP reports an axis, or a button when switched
-  to that in its own software). There is no device to pick: every device of the rig and every other connected game
+- **Why:** WheelBri works with any wheel and accessories, so the user names each device and control, once.
+- **Use:** tab R: touch a control (Detect) and name it: type a name, or press one of the names the popup offers
+  (**It is**: Steering, Throttle, Brake, Clutch, Handbrake for an axis; A, B, X, Y, Menu, View, RSB, LSB, Xbox, the
+  D-pad, the paddles, Shift up/down, Gear 1-7, Reverse for a button), which only fills in the name; Enter; **Save**.
+  A control is only a name: WheelBri does not guess what a control is for (every wheel is different), so the Mapping
+  tab is where you say what drives what. One rig (no rig selector, New or Rename). Older rigs' roles (`Gas |
+  throttle`) load and are ignored (a steering axis makes its device the wheel), and go when saved again. There is no
+  device to pick: every device of the rig and every other connected game
   controller (what Windows' Game Controllers lists) is shown at once, one section each (its axes, its buttons),
-  scrolled (mouse wheel, the scroll bar at the right, PageUp / PageDown, Home / End) when they do not all fit; a rig device that is unplugged is shown as saved (its names and roles, still
-  editable). Each device shows its name (an input for a rig device), its id and **Online** / **Offline**. The
+  scrolled (mouse wheel, the scroll bar at the right, PageUp / PageDown, Home / End) when they do not all fit; a rig device that is unplugged is shown as saved (its names, still editable). Each device shows its name (an input for a rig device), its id and **Online** / **Offline**. The
   bottom-left corner lists them all the same way (**Forget** takes a device out of the rig). A device joins
   the rig when one of its controls is named (the rig's devices are hidden from games, at most 4). **No dead zones**:
   WheelBri uses every axis as the device reports it (steering from the centre, pedals 0-100% of their travel); set
@@ -161,24 +161,19 @@ a headline, why it was needed, how to use it, and where to look.
 ### Mapping tab
 
 - **Why:** the target (the G920) is fixed; which rig control drives each of its axes and buttons is the user's.
-- **Use:** tab M while stopped: click a G920 input and pick a rig control, or **Auto-map** from the rig's roles;
+- **Use:** tab M while stopped: click a G920 input and pick a rig control (there is no Auto-map: you decide);
   **Save** writes your own mapping, **Default** goes back to WheelBri's. While running the same tab is the live view.
   Every G920 input has one **role assignment** (its main source), and every G920 button can also have up to 8
-  **secondary assignments** ("or"): buttons, or **throttle, brake, clutch or handbrake axes** that press it past a
-  threshold of their travel (25-75%, 50% by default), e.g. G920 X <- the wheel's X *or* a handbrake lever *or* a
-  button box button. Steering and unnamed axes are never offered: they have no "pressed" direction. Saved as
+  **secondary assignments** ("or"): buttons, or named axes (a pedal or a lever makes sense: one-sided) that press it
+  past a threshold of their travel (25-75%, 50% by default), e.g. G920 X <- the wheel's X *or* a handbrake lever *or*
+  a button box button. Saved as
   `[buttons] target_N_or = 30b7:1001/axis 3 > 50%, 1234:5678/0`; the live view marks such a button with "+".
   **Each rig control is used once** in a mapping: as one input's role assignment or as one button's secondary. Both
   pickers show a control used elsewhere greyed, and hovering over it says where ("Role: G920 A", "Secondary of G920
   X"); clear it there first. A control used twice (an older mapping) is red, with both places in its tooltip; Save
-  refuses until it is fixed, and Start warns about it.
-  **Auto-map** places every control that has a role in the (saved) rig: steering and pedal axes, the D-pad, the
-  G920's named buttons; plain buttons and anything without a role stay as they are. A control placed this way leaves
-  any other G920 input it drove (a control, one place). Your secondaries stay: a control that is a secondary is not
-  placed by its role, and that input is left empty (the note says so). It says what it could not do, in the status and the log
-  (`service.mapping`): a role on two controls (the first in the rig keeps it; the Rig tab says so when you give it),
-  a role the G920 lacks (handbrake axis, Gear 7), sources still pointing at controls the rig has not named (amber),
-  and a Rig tab with unsaved changes.
+  refuses until it is fixed, and Start warns about it. A source pointing at a control the rig has not named is amber.
+  The wheel (it plays force feedback) is the one **Change** picks; without one, the rig's first device of kind wheel,
+  else its first device.
   **Steering rotation**: the game's full
   lock (slider, typed degrees, or 180 / 360 / 540 / 720 / 900 / 1080). **Set your wheel's own software (Pit House for
   Moza) to the same number**: WheelBri passes the wheel through 1:1 and never reads or sets the wheel's own settings,
@@ -465,12 +460,11 @@ rig is saved, then on Mapping; Start switches to the Logs tab so you can see it 
 
 **Mapping** (tab M, while stopped; while running the same tab is the live view) maps the active rig's controls onto
 the G920: the wheel (the device that plays force feedback, **Change** to pick another), Steering / Throttle / Brake /
-Clutch (each with **Invert**), the D-pad and the G920's buttons. **Auto-map** fills them from the rig's roles (axes,
-D-pad, Shift up/down to the paddles, gears where the target has them); plain buttons you pick yourself. Click a source
+Clutch (each with **Invert**), the D-pad and the G920's buttons, each picked by you. Click a source
 and pick a control of the wheel or of an accessory (up to 3 besides the wheel), or "(nothing)". **Save** writes your own
 mapping for the target (`my-g920-<target>.ini`, comments and other settings kept). **Revert** drops unsaved changes,
 **Default** the saved mapping (WheelBri's default again). A source the default names but your rig has not named shows
-"not in the rig" in orange: pick another or Auto-map. Start uses exactly what the tab shows (as saved).
+"not in the rig" in orange: pick another, or name it in the Rig tab. Start uses exactly what the tab shows (as saved).
 In the config a source on an accessory is written `vid:pid/N` (`axis = 30b7:1001/0`); a session opens every
 accessory its mapping names and does not start without them; one lost while running is waited for like the wheel.
 Every device of the active rig (wheel and accessories) is hidden from games while the app runs; no rig = nothing

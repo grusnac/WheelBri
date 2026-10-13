@@ -21,21 +21,21 @@
 namespace wheelbri::service {
 
 // The Rig tab: defines the rig, i.e. which devices the user has (the wheel, pedals, a shifter, a button box) and what
-// each of their controls is called and is for (Rig.hpp: a label and a role such as steering, throttle, d-pad up, left
-// paddle, shift up). There is no device to pick: every device of the rig (an unplugged one as saved) and every other
-// connected game controller (what Windows' Game Controllers lists) is shown at once, one section each with its axes
-// and its buttons. When they do not all fit they scroll: the mouse wheel, the scroll bar at the right (dragged or
-// clicked), PageUp / PageDown, Up / Down, Home / End. The bottom-left corner lists them (at most 6 lines; the mouse
-// wheel over it scrolls it; a line's click brings its section into view). With Detect on, touching a control on
-// any device (pressing a button, moving an axis well away from where it rested) opens its popup: type the label,
-// pick the role, Enter. A pedal's rest position also says whether it is inverted. A device joins the rig when one of
-// its controls is named (the rig's devices are the ones hidden from games, at most Rig::kMaxDevices); Forget takes one
-// out. There are no dead zones: those belong in the device's own software. There is one rig, a file in rigsFolder()
-// (remembered in the app's state file, [app] rig; "My rig" when it is first saved); it is what the Mapping tab maps
-// from. It maps nothing itself. With a session running it reads the session's wheel only. Draws on the same panel as
-// MappingView, above its tab bar: kWidth x kHeight in the design, bigger with the window (UiWindow.hpp): the axis
-// bars wider, more button tiles per row, more of the devices shown; Save, Revert and Detect kept at the right, popups
-// centred.
+// each of their controls is called (Rig.hpp: a name only; WheelBri does not guess what a control is for, every wheel
+// being different). There is no device to pick: every device of the rig (an unplugged one as saved) and every other
+// connected game controller (what Windows' Game Controllers lists) is shown at once, one section each with its axes and
+// its buttons. When they do not all fit they scroll: the mouse wheel, the scroll bar at the right (dragged or clicked),
+// PageUp / PageDown, Up / Down, Home / End. The bottom-left corner lists them (at most 6 lines; the mouse wheel over it
+// scrolls it; a line's click brings its section into view). With Detect on, touching a control on any device (pressing
+// a button, moving an axis well away from where it rested) opens its popup: type the name, or press one of the names it
+// offers ("It is": Steering, Throttle, A, Gear 1 ...: it only fills in the name), Enter. A pedal's rest position also
+// says whether it is inverted. A device joins the rig when one of its controls is named (the rig's devices are the ones
+// hidden from games, at most Rig::kMaxDevices); Forget takes one out. There are no dead zones: those belong in the
+// device's own software. There is one rig, a file in rigsFolder() (remembered in the app's state file, [app] rig; "My
+// rig" when it is first saved); it is what the Mapping tab maps from. It maps nothing itself. With a session running it
+// reads the session's wheel only. Draws on the same panel as MappingView, above its tab bar: kWidth x kHeight in the
+// design, bigger with the window (UiWindow.hpp): the axis bars wider, more button tiles per row, more of the devices
+// shown; Save, Revert and Detect kept at the right, popups centred.
 class WheelSetupView {
 public:
     static constexpr int kWidth = 960;

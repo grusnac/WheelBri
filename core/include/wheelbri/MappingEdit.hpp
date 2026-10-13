@@ -36,8 +36,8 @@ struct SourceRef {
 // above, or an axis
 //   axis 5 > 50%                       the wheel's axis 5, pressed past half its travel
 //   30b7:1001/axis 3 inverted > 40%    that accessory's axis 3, resting at +1, pressed past 40%
-// ("> P%" left out: 50%). Only throttle, brake, clutch and handbrake axes make sense (one-sided); the Mapping tab
-// offers only those (axisDrivesButtons, Rig.hpp). The line is a comma-separated list of them:
+// ("> P%" left out: 50%). A pedal or handbrake lever (one-sided) is what makes sense here; the Mapping tab offers
+// every named axis and leaves the choice to the user. The line is a comma-separated list of them:
 //   target_2_or = 20, 30b7:1001/4, 30b7:1001/axis 3 > 50%
 struct ButtonRef {
     SourceRef source;
@@ -123,22 +123,6 @@ struct MappingWriteResult {
     std::string text;    // the config with the mapping written in (comments and other settings kept)
     std::string error;   // why it could not be written (then `text` is empty)
 };
-
-struct AutoMapResult {
-    int set = 0;                      // sources placed from the rig's roles
-    std::vector<std::string> notes;   // what was left out or changed besides, one line each (the app's log, status)
-};
-
-// Fills `model` from the rig's roles: the wheel (the device with the Steering axis, else the first of kind wheel)
-// becomes source_device (what read another wheel keeps reading it, as an accessory); Steering, Throttle, Brake and
-// Clutch axes (with their invert) the emulated wheel's axes; D-pad roles its D-pad; the G920's button roles (A, B, X,
-// Y, Menu, View, RSB, LSB, Xbox, the paddles, Shift up / down, gears; g920ButtonFor, Rig.hpp) that button, where
-// `profile` has it. Plain buttons are left alone (only the user knows which G920 button they should be), and so is
-// everything no role names. The secondaries are the user's and stay as they are. Edge cases, each said in `notes`: a
-// role given to two controls (the first in the rig's order keeps it); a role the target lacks (handbrake axis, Gear
-// 7); a control that is a secondary (it stays one: its role's input is left empty); a control placed now that an
-// older line also maps elsewhere (that line goes: a control is used once).
-AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile& profile);
 
 // Why the model's rotations cannot be saved (AxisTuning.hpp's ranges), or empty.
 [[nodiscard]] std::string tuningProblem(const MappingModel& model);

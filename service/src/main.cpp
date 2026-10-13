@@ -1344,24 +1344,18 @@ LoadedConfig loadForRun(const Options& options) {
     std::vector<std::string> rigErrors;
     const auto rig =
         rigName.empty() ? std::nullopt : wheelbri::readRig(wheelbri::service::rigsFolder(), rigName, rigErrors);
-    // No source_device in the config (the built-in ones have none): the wheel is the active rig's (the Rig tab's
-    // device with the steering axis, else its first). Without a rig it stays empty and the session says so.
+    // No source_device in the config (the built-in ones have none; the Mapping tab's Change sets one): the wheel is
+    // the active rig's (Rig::wheel: its first device of kind wheel, else its first). Without a rig it stays empty and
+    // the session says so.
     if (loaded.config.sourceDeviceMatch.empty()) {
         if (rig) {
-            const wheelbri::RigDevice* wheel = rig->wheel();
-            if (wheel == nullptr && !rig->devices.empty()) wheel = &rig->devices.front();
+            const wheelbri::RigDevice* const wheel = rig->wheel();
             if (wheel != nullptr && !wheel->id.empty()) {
                 loaded.config.sourceDeviceMatch = wheelbri::deviceId(wheel->id.vendorId, wheel->id.productId);
             }
         }
     }
-    if (rig) {
-        for (std::string& problem :
-             wheelbri::buttonAxisProblems(loaded.config.mapper, *rig, loaded.config.sourceDeviceMatch)) {
-            loaded.warnings.push_back(std::move(problem));
-        }
-    }
-    // A control is used once (one input's role assignment or one button's secondary): an older mapping that uses one
+    // A control is used once (one input's assignment or one button's secondary): an older mapping that uses one
     // twice still runs as written, but both inputs press together.
     if (const auto profile = wheelbri::makeProfile(loaded.config.targetProfile)) {
         for (const std::string& line : wheelbri::controlsUsedTwice(wheelbri::mappingModel(loaded.config), *profile)) {

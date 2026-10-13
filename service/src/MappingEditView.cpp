@@ -95,27 +95,8 @@ std::string readFile(const std::string& path) {
 
 DeviceId idOf(const DeviceLabels& labels) { return {labels.vendorId, labels.productId}; }
 
-// What a rig control is called in this tab: "Throttle/Gas" (its role / its name), one of them when they say the same
-// ("A", "D-pad Up" named "Up") or it has only one; empty when it has neither (the caller says its number).
-std::string controlName(const RigControl& control) {
-    const bool plain = control.role == ControlRole::None || control.role == ControlRole::Button ||
-                       control.role == ControlRole::OtherAxis;
-    const std::string role = plain ? std::string() : roleLabel(control.role);
-    const auto lower = [](std::string text) {
-        for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return text;
-    };
-    if (role.empty()) return control.label;
-    // The same, or the name is the role's last word ("D-pad Up" named "Up"): the role alone.
-    const std::string label = lower(control.label);
-    const std::string full = lower(role);
-    if (label.empty() || full == label ||
-        (full.size() > label.size() && full.compare(full.size() - label.size(), label.size(), label) == 0 &&
-         full[full.size() - label.size() - 1] == ' ')) {
-        return role;
-    }
-    return role + "/" + control.label;
-}
+// What a rig control is called in this tab: its name (empty when it has none: the caller says its number).
+std::string controlName(const RigControl& control) { return control.label; }
 
 std::string deviceName(const DeviceLabels& labels) {
     return labels.name.empty() ? deviceId(labels.vendorId, labels.productId) : labels.name;
@@ -255,7 +236,7 @@ void MappingEditView::dropOwnEdits() {
 
 bool MappingEditView::missing(const SourceRef& source, const bool axis) const {
     // The default mapping names controls of the rig it was made for; one this rig has not named stays mapped but
-    // shows it (pick another, or Auto-map).
+    // shows it (pick another, or name it in the Rig tab).
     if (!source.mapped() || rig_.devices.empty()) return false;
     const RigControl* const control = rigControl(source, axis);
     return control == nullptr || !control->defined();
@@ -296,42 +277,6 @@ const RigControl* MappingEditView::rigControl(const SourceRef& source, const boo
     return axis ? &device->axes[index] : &device->buttons[index];
 }
 
-void MappingEditView::autoMapFromRig() {
-    if (profile_ == nullptr) return;
-    const AutoMapResult result = autoMap(edit_, rig_, *profile_);
-    WE_LOG_INFO(log(), "mapping: auto-mapped {} source(s) from the rig '{}'", result.set, rigName_);
-    for (const std::string& note : result.notes) WE_LOG_INFO(log(), "mapping: auto-map: {}", note);
-    // What still reads a control the rig has not named (amber in the tab): the user's to pick or name.
-    std::size_t unnamed = 0;
-    for (std::size_t i = 0; i < edit_.axes.size(); ++i) unnamed += missing(edit_.axes[i], true) ? 1 : 0;
-    for (std::size_t i = 0; i < edit_.hat.size(); ++i) unnamed += missing(edit_.hat[i], false) ? 1 : 0;
-    for (std::size_t i = 0; i < edit_.buttons.size(); ++i) {
-        if (!profile_->buttonName(i).empty()) unnamed += missing(edit_.buttons[i], false) ? 1 : 0;
-    }
-    if (result.set == 0) {
-        if (rigUnsaved_) {
-            status_ = "Nothing to auto-map in the saved rig, and the Rig tab has unsaved changes: Save it there first.";
-            statusError_ = true;
-            return;
-        }
-        status_ = "Nothing to auto-map: give the controls roles (steering, throttle, Y, d-pad up ...) in the Rig tab.";
-        statusError_ = true;
-        return;
-    }
-    status_ = "Auto-mapped " + std::to_string(result.set) + " from the rig's roles";
-    if (!result.notes.empty()) {
-        status_ += "; " + result.notes.front() +
-                   (result.notes.size() > 1 ? " (+" + std::to_string(result.notes.size() - 1) + " more, Logs)" : "");
-    }
-    if (unnamed > 0) status_ += "; " + std::to_string(unnamed) + " amber: not in the rig";
-    status_ += ". Then Save.";
-    statusError_ = false;
-    if (rigUnsaved_) {
-        status_ = "The Rig tab has unsaved changes: this used the saved rig. Save it there, then Auto-map again.";
-        statusError_ = true;
-    }
-}
-
 std::string MappingEditView::deviceText(const SourceRef& source) const {
     const DeviceLabels* const labels = labelsOf(source);
     return labels != nullptr       ? deviceName(*labels)
@@ -342,8 +287,7 @@ std::string MappingEditView::deviceText(const SourceRef& source) const {
 std::string MappingEditView::describe(const SourceRef& source, const bool axis) const {
     if (!source.mapped()) return "(nothing)";
     const std::string number = (axis ? "axis " : "button ") + std::to_string(source.index);
-    // "Pedals: Throttle/Gas": the control's role (what it is for) / its name; one of them when they say the same
-    // ("Moza R3: A") or it has only one; its number when it has neither.
+    // "Pedals: Gas": the control's name; its number when it has none.
     const RigControl* const control = rigControl(source, axis);
     std::string name = control != nullptr ? controlName(*control) : std::string();
     if (name.empty()) name = number;
@@ -353,12 +297,11 @@ std::string MappingEditView::describe(const SourceRef& source, const bool axis) 
 
 std::string MappingEditView::describeFull(const SourceRef& source, const bool axis) const {
     if (!source.mapped()) return {};
-    // "Moza R3: A  (button 0, role A)": the hover text, with what the short form leaves out.
+    // "Moza R3: 'A', button 0": the hover text, with what the short form leaves out.
     std::string text = deviceText(source) + ": ";
     const std::string number = (axis ? "axis " : "button ") + std::to_string(source.index);
     const RigControl* const control = rigControl(source, axis);
     text += control != nullptr && !control->label.empty() ? "'" + control->label + "', " + number : number;
-    if (control != nullptr && control->role != ControlRole::None) text += ", role " + roleLabel(control->role);
     if (missing(source, axis)) text += ", not in the rig";
     return text;
 }
@@ -656,7 +599,7 @@ void MappingEditView::draw() {
     if (rig_.devices.empty()) {
         window_.text(4, 42,
                      rigName_.empty() ? "No rig yet: define your devices and their controls in the Rig tab first."
-                                      : "The rig '" + rigName_ + "' has no devices yet: define them in the Rig tab.",
+                                      : "The rig has no devices yet: name their controls in the Rig tab.",
                      kCaution);
     } else {
         // The wheel: device 0, the one that plays force feedback.
@@ -711,7 +654,7 @@ void MappingEditView::draw() {
     drawRotation(gridEnd + 14);
 
     const float hint = contentH() - 52;
-    window_.text(4, hint, "Sources are the rig's controls (defined in the Rig tab); Auto-map fills what their roles say.",
+    window_.text(4, hint, "Sources are the rig's controls (named in the Rig tab): click one to pick what drives it.",
                  kDim);
     window_.text(4, hint + 12, "Save writes the config; Start uses it. Accessories must be plugged in to start.",
                  kDim);
@@ -1202,7 +1145,7 @@ std::string MappingEditView::shortAlt(const ButtonRef& alt) const {
 std::string MappingEditView::describeAlt(const ButtonRef& alt) const {
     if (!alt.mapped()) return "(nothing)";
     if (!alt.axis) return describe(alt.source, false);
-    // "Hand > 50%": the axis' name (or role), and where it presses the button.
+    // "Hand > 50%": the axis' name, and where it presses the button.
     return axisName(alt.source) + " > " + tuning::formatPercent(alt.threshold);
 }
 
@@ -1337,15 +1280,15 @@ void MappingEditView::drawAltPicker() {
         for (std::size_t b = 0; b < rigDevice->buttons.size(); ++b) {
             if (rigDevice->buttons[b].defined()) entryAt(false, b, rigDevice->buttons[b]);
         }
-        // Only one-sided axes: steering (or an unknown axis) has no "pressed" direction.
+        // Every named axis: a pedal or a handbrake lever is what makes sense (one-sided), the user knows which.
         for (std::size_t a = 0; a < rigDevice->axes.size(); ++a) {
-            if (axisDrivesButtons(rigDevice->axes[a].role)) entryAt(true, a, rigDevice->axes[a]);
+            if (rigDevice->axes[a].defined()) entryAt(true, a, rigDevice->axes[a]);
         }
         if (column != 0) y += 18;
         y += 8;
     }
     window_.text(left, kPopupY + popupH() - 20,
-                 "Greyed: used elsewhere (hover to see where). Axes: only throttle, brake, clutch, handbrake. Save writes it.",
+                 "Greyed: used elsewhere (hover to see where). Axes: a pedal or a lever, pressed past the threshold.",
                  kDim);
 }
 
@@ -1357,10 +1300,8 @@ void MappingEditView::drawWheelRow() {
                                   : "'" + edit_.sourceDevice + "' (not named in the Rig tab yet)",
                  wheel != nullptr ? kText : kCaution);
     window_.text(500, 42, "plays force feedback", kDim);
-    const float right = extraW();   // Change, Auto-map and the rig's name stay at the right
-    button(680 + right, 38, "Change", [this] { mode_ = Mode::PickWheel; }, false, !devices_.empty(), 70);
-    button(760 + right, 38, "Auto-map", [this] { autoMapFromRig(); }, false, !rig_.devices.empty(), 80);
-    window_.text(848 + right, 42, fit("rig " + rigName_, 14), kDim);
+    const float right = extraW();   // Change stays at the right
+    button(760 + right, 38, "Change", [this] { mode_ = Mode::PickWheel; }, false, !devices_.empty(), 80);
 }
 
 void MappingEditView::drawPicker() {
