@@ -124,9 +124,9 @@ void MappingView::setOptionalTabs(const bool telemetry, const bool forceFeedback
 void MappingView::setGamesTab(const bool games) { gGamesTab = games; }
 
 std::vector<MappingView::Tab> MappingView::visibleTabs() {
-    std::vector<Tab> tabs = {Tab::Mapping};
+    // In the order they are used: the rig first, then its mapping, then the game profiles.
+    std::vector<Tab> tabs = {Tab::WheelSetup, Tab::Mapping};
     if (gGamesTab) tabs.push_back(Tab::Games);
-    tabs.push_back(Tab::WheelSetup);
     tabs.push_back(Tab::Logs);
     if (gTelemetryTab) tabs.push_back(Tab::Telemetry);
     if (gForceFeedbackTab) tabs.push_back(Tab::ForceFeedback);
@@ -1129,7 +1129,7 @@ const char* tabLabel(const MappingView::Tab tab) {
     using Tab = MappingView::Tab;
     switch (tab) {
         case Tab::Mapping: return "Mapping (M)";
-        case Tab::Games: return "Games (G)";
+        case Tab::Games: return "Game profiles (G)";
         case Tab::WheelSetup: return "Rig (R)";
         case Tab::Logs: return "Logs (L)";
         case Tab::Telemetry: return "Telemetry (T)";

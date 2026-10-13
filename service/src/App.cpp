@@ -368,7 +368,7 @@ private:
                                              settings_.stateFile});
         setup_ = std::make_unique<WheelSetupView>(
             *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile});
-        MappingView::setGamesTab(true);   // the live view's tab bar has the Games tab too
+        MappingView::setGamesTab(true);   // the live view's tab bar has the Game profiles tab too
         // The first time (no rig yet) the devices are defined first; then the mapping is where to go.
         idleTab_ = WheelSetupView::anyRig(rigsFolder()) ? IdleTab::Mapping : IdleTab::Setup;
         mapping_ = std::make_unique<MappingEditView>(*window_, rigsFolder(), settings_.stateFile, *picker_);
@@ -402,7 +402,7 @@ private:
                 }
             }
             const bool setup = showingSetup();
-            const bool editingMapping = showingEditor();   // the Mapping tab's editor, or the Games tab
+            const bool editingMapping = showingEditor();   // the Mapping tab's editor, or the Game profiles tab
             for (const ui::Click& click : input.clicks) {
                 // A popup of the app's takes every click until it is answered.
                 if (popup_) {
@@ -558,15 +558,15 @@ private:
     }
     // The Mapping tab's editor: on the idle page (no session shows; while running it is the live view).
     [[nodiscard]] bool showingMappingEditor() const { return view_ == nullptr && idleTab_ == IdleTab::Mapping; }
-    // The Games tab: the editor's Games page, stopped or running (then locked, with the game that runs).
+    // The Game profiles tab: the editor's Games page, stopped or running (then locked, with the game that runs).
     [[nodiscard]] bool showingGames() const {
         return view_ != nullptr ? view_->tab() == MappingView::Tab::Games : idleTab_ == IdleTab::Games;
     }
     // What the editor (MappingEditView) draws: either page.
     [[nodiscard]] bool showingEditor() const { return showingMappingEditor() || showingGames(); }
 
-    // The Games tab's view of the session's games, every frame; and when a profiled game starts, the tab opens on it
-    // (once per start: the user may go to another tab while it runs).
+    // The Game profiles tab's view of the session's games, every frame; and when a profiled game starts, the tab opens
+    // on it (once per start: the user may go to another tab while it runs).
     void updateGames() {
         MappingEditView::GameNow now;
         if (state_ == State::Running) {
@@ -586,7 +586,7 @@ private:
                     if (view_ != nullptr && !popup_ && !games_->panelOpen() &&
                         !(showingSetup() && setup_->editingText())) {
                         view_->setTab(MappingView::Tab::Games);
-                        WE_LOG_INFO(log(), "Games tab: {} started, its profile shown", frame->game);
+                        WE_LOG_INFO(log(), "Game profiles tab: {} started, its profile shown", frame->game);
                     }
                 }
             }
@@ -625,9 +625,9 @@ private:
         float w;
     };
     [[nodiscard]] static std::array<IdleTabButton, 4> idleTabButtons() {
-        std::array<IdleTabButton, 4> buttons{{{IdleTab::Mapping, "Mapping (M)", 0, 0},
-                                              {IdleTab::Games, "Games (G)", 0, 0},
-                                              {IdleTab::Setup, "Rig (R)", 0, 0},
+        std::array<IdleTabButton, 4> buttons{{{IdleTab::Setup, "Rig (R)", 0, 0},
+                                              {IdleTab::Mapping, "Mapping (M)", 0, 0},
+                                              {IdleTab::Games, "Game profiles (G)", 0, 0},
                                               {IdleTab::Logs, "Logs (L)", 0, 0}}};
         float x = MappingView::kTabLeft;
         for (IdleTabButton& button : buttons) {
@@ -854,7 +854,7 @@ private:
                 drawIdleTabs();
             }
         } else if (showingEditor()) {
-            mapping_->draw();   // the Mapping tab's editor, or the Games tab (running too: locked)
+            mapping_->draw();   // the Mapping tab's editor, or the Game profiles tab (running too: locked)
             if (view_ != nullptr) {
                 view_->drawTabBar();
             } else {
@@ -1094,7 +1094,7 @@ private:
     std::unique_ptr<ConfigPicker> picker_;
     std::unique_ptr<MappingEditView> mapping_;
     std::unique_ptr<ShimGamesView> games_;   // the shim's games (target G920 in-game shim)
-    GameTabFollower gameFollower_;            // the Games tab opens when a profiled game starts
+    GameTabFollower gameFollower_;            // the Game profiles tab opens when a profiled game starts
     std::filesystem::path sessionGame_;       // the game a shim session was started for
     std::string sessionGameName_;
     std::optional<Popup> popup_;

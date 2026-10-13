@@ -8,14 +8,14 @@
 #include <string_view>
 #include <vector>
 
-// The app's Games tab (service MappingEditView, its Games page): the built-in game profiles (GameProfiles.hpp), what
-// each one changes, and the user's own values for them. The portable parts are here so they are unit-tested.
+// The app's Game profiles tab (service MappingEditView, its Games page): the built-in game profiles (GameProfiles.hpp),
+// what each one changes, and the user's own values for them. The portable parts are here so they are unit-tested.
 namespace wheelbri {
 
-// Which game the Games tab shows when a session reports that a profiled game started. The session counts every time
-// it starts following a profiled game (UiFrame::gameStarts, GameWatch); the app calls onFrame with each frame's count
-// and the game followed now. It answers once per start: the tab switches to that game when the game starts, and the
-// user is free to go to another tab while it runs.
+// Which game the Game profiles tab shows when a session reports that a profiled game started. The session counts every
+// time it starts following a profiled game (UiFrame::gameStarts, GameWatch); the app calls onFrame with each frame's
+// count and the game followed now. It answers once per start: the tab switches to that game when the game starts, and
+// the user is free to go to another tab while it runs.
 class GameTabFollower {
 public:
     // The profile id to show now: a start not seen yet with a game followed; nullopt otherwise (no new start, or the
@@ -28,8 +28,8 @@ private:
     std::uint64_t seen_ = 0;
 };
 
-// One thing a profile changes, for the Games tab: "Pedals", "throttle_axis = slider, ...", and why (the profile's
-// note; empty when it has none).
+// One thing a profile changes, for the Game profiles tab: "Pedals", "throttle_axis = slider, ...", and why (the
+// profile's note; empty when it has none).
 struct GameProfileChange {
     std::string what;
     std::string value;

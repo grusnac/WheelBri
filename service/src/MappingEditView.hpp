@@ -28,7 +28,7 @@ namespace wheelbri::service {
 // other settings kept), Revert drops unsaved changes, Default drops the saved mapping. A source the rig has not named
 // shows "not in the rig". The live view (the session's Mapping tab) shows the result once started.
 //
-// It also draws the app's Games tab (Page::Games), which edits the same mapping: the built-in game profiles
+// It also draws the app's Game profiles tab (Page::Games), which edits the same mapping: the built-in game profiles
 // (GameProfiles.hpp) in a list, and for the one picked what its profile changes, the user's own values for it (its
 // steering rotation, force feedback gain and own settings: [game_rotation], [game_ffb_gain], [game_settings], saved
 // with the same Save) and what its settings file holds now. While a session runs it is shown locked, with the game that

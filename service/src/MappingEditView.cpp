@@ -564,8 +564,8 @@ void MappingEditView::draw() {
     tips_.clear();
     const std::string target = profile_ != nullptr ? profile_->identity().shortName : std::string("G920");
     if (page_ == Page::Games) {
-        window_.text(4, 4, "GAMES", kHeading);
-        window_.text(52, 4, "the games WheelBri changes something for, and your own values for them", kDim);
+        window_.text(4, 4, "GAME PROFILES", kHeading);
+        window_.text(116, 4, "the games WheelBri changes something for, and your own values for them", kDim);
     } else {
         window_.text(4, 4, "MAPPING", kHeading);
         // With the shim, the app's games row is where this would be.
@@ -768,9 +768,9 @@ void MappingEditView::drawRotation(const float top) {
         y += 12;
     }
 
-    // A game can have its own (NFS Payback: 180): the Games tab.
+    // A game can have its own (NFS Payback: 180): the Game profiles tab.
     y += 4;
-    window_.text(4, y, "A game can steer with its own rotation (NFS Payback: 180): the Games tab (G) sets it per game.",
+    window_.text(4, y, "A game can steer with its own rotation (NFS Payback: 180): the Game profiles tab (G) sets it.",
                  kDim);
 }
 

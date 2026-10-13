@@ -9,8 +9,8 @@ Which games WheelBri has been played with, and what to know about each. WheelBri
 The lists below say which way was used. Tested rig: Moza R3 base and pedals, with the add-on clutch pedal, on
 Windows 11.
 
-A game that needs something changed has a game profile (`config/games/<id>.ini`, built in). The app's **Games tab**
-lists them: what each profile changes and why, your own values for it, and for NFS Unbound what its settings file
+A game that needs something changed has a game profile (`config/games/<id>.ini`, built in). The app's **Game profiles
+tab** lists them: what each profile changes and why, your own values for it, and for NFS Unbound what its settings file
 holds now. While WheelBri runs, the tab opens by itself on a game with a profile when it starts.
 
 ## Verified
@@ -63,7 +63,7 @@ Played on the tested rig: wheel, pedals, buttons and force feedback checked in t
   - **180° of rotation, set automatically; set Pit House to match.** A small rotation makes the car respond to less
     turning: at 180° full lock is 90° each way. WheelBri's game profile (`config/games/nfspayback.ini`) switches the
     steering to 180/180 while the game runs (the status shows "NFS Payback, 180 deg") and back afterwards; change it
-    or turn it off in the Games tab. Set your wheel's own software (Pit House: Maximum Steering Angle)
+    or turn it off in the Game profiles tab. Set your wheel's own software (Pit House: Maximum Steering Angle)
     to **180** for this game too: WheelBri cannot set it. With Pit House at 360 the steering is 1:1 and slow (full
     lock at the wheel's end stop); with the wheel wider than the game's full lock (360 wheel, 180 game) it turns on
     past full lock with the car not steering and the force feedback slack, as seen on 2026-10-11.
@@ -101,14 +101,14 @@ Played on the tested rig: wheel, pedals, buttons and force feedback checked in t
   force feedback is very light (steering force 5% of full scale on average, the centring spring 0 most of the time;
   real G920 owners say the same). With force feedback 1.0 and spring 0.8 it centres and has weight (2026-10-12).
   WheelBri's game profile (`config/games/nfsunbound.ini`) sets these while the game is closed: force feedback 1.0,
-  spring 0.8, and `WheelMaxRotation` = the steering rotation it is played with. Change them in the Games tab (NFS
-  Unbound): the rotation in its rotation row as for NFS Payback (`[game_rotation] nfsunbound = 360`; Off = the
+  spring 0.8, and `WheelMaxRotation` = the steering rotation it is played with. Change them in the Game profiles tab
+  (NFS Unbound): the rotation in its rotation row as for NFS Payback (`[game_rotation] nfsunbound = 360`; Off = the
   mapping's own), the others below it (`[game_settings] nfsunbound.spring = 0.8`); they are written at the next
   Start, or when the game closes. The tab shows what the file holds now (the column on the right). Set the wheel's own software (Pit House) to the same rotation. The
   file as it was is kept as `PROFILEOPTIONS.before-wheelbri`. The game reads the file when it starts and writes its
   own values back when it ends, so edits made while it runs are lost.
 - **Steering force made stronger.** The profile also multiplies its pushing forces by 3 (`[ffb] gain`; the 80% cap
-  and the slew limit still apply; its springs and damper stay as they are). Change it in the Games tab, force
+  and the slew limit still apply; its springs and damper stay as they are). Change it in the Game profiles tab, force
   feedback gain (`[game_ffb_gain] nfsunbound = 3`, 0.25 to 4), from the next Start.
 - **Closing the game leaves its forces on.** It quits without stopping its effects; the virtual G920's driver now
   stops them 0.5 s after the game's stream of updates ends while any pushing force plays (before: 10 s, or never for

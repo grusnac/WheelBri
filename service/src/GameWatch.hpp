@@ -29,8 +29,8 @@ namespace wheelbri::service {
 // [game_settings], GameSettings.hpp: NFS Unbound's hidden wheel settings) gets them written into its settings file
 // while it is NOT running: at the first check() and again whenever it ends (it reads the file when it starts and
 // writes its own values back when it ends); while it runs the log says they follow when it closes.
-// For the app's Games tab it also says which game runs (live: profile id, pid, since when, how many starts) and what
-// happened to each game's own settings (settingsStates).
+// For the app's Game profiles tab it also says which game runs (live: profile id, pid, since when, how many starts) and
+// what happened to each game's own settings (settingsStates).
 // Called from the session's window thread every 2 s (a few milliseconds; never on the service loop); not thread-safe.
 class GameWatch {
 public:
@@ -55,7 +55,7 @@ public:
     // deg"), else empty: the wheel's own software must be set to it while the game runs.
     [[nodiscard]] std::string rotationStatus() const;
 
-    // For the app's Games tab: the game followed now, while its profile is in use.
+    // For the app's Game profiles tab: the game followed now, while its profile is in use.
     struct Live {
         std::string id;              // its profile's id; empty: none
         std::uint32_t pid = 0;
@@ -64,7 +64,7 @@ public:
         float ffbGain = 1.0F;        // the gain in use for it
     };
     [[nodiscard]] Live live() const;
-    // For the Games tab, by profile id: what happened to each game's own settings this session ("as set in its
+    // For the Game profiles tab, by profile id: what happened to each game's own settings this session ("as set in its
     // file", "written: WheelSpringMagnitude 0.500000 -> 0.800000", "it runs: written when it closes"...).
     [[nodiscard]] const std::map<std::string, std::string>& settingsStates() const { return settingsStates_; }
 

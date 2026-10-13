@@ -16,19 +16,19 @@
 // (2026-10-12: with WheelFFBMagnitude 1.0 and WheelSpringMagnitude 1.0 its centring spring went from 0 most of the
 // time to 75-99%, its idle spring to full strength, its steering force and rumble up by half). The service sets them
 // while the game is closed (the game reads the file when it starts and writes its own values back when it ends); the
-// user changes them in the Games tab, saved as
+// user changes them in the Game profiles tab, saved as
 //   [game_settings]
 //   nfsunbound.spring = 0.8        ; <game profile id>.<setting id> = kGameSettingMin..kGameSettingMax
 // A setting left out has its profile's value. "steering" settings (WheelMaxRotation) get the steering rotation the
-// game is played with: its own rotation ([game_rotation], GameRotation.hpp, set in the Games tab as for NFS Payback),
-// else the mapping's; so changing that rotation changes the game's file too.
+// game is played with: its own rotation ([game_rotation], GameRotation.hpp, set in the Game profiles tab as for NFS
+// Payback), else the mapping's; so changing that rotation changes the game's file too.
 namespace wheelbri {
 
 // By game profile id, then setting id: the user's own values.
 using GameSettingOverrides = std::map<std::string, std::map<std::string, float>>;
 
 // The user's own force feedback gain per game ([game_ffb_gain] <game profile id> = kFfbGainMin..kFfbGainMax, set in
-// the Games tab): instead of the profile's [ffb] gain (FfbController::setGameGain).
+// the Game profiles tab): instead of the profile's [ffb] gain (FfbController::setGameGain).
 using GameFfbGains = std::map<std::string, float>;
 // The gain while `game` runs: the user's, else the profile's, else 1 (the game's forces as it asks).
 [[nodiscard]] float gameFfbGain(const GameProfile& game, const GameFfbGains& gains);
@@ -37,7 +37,7 @@ using GameFfbGains = std::map<std::string, float>;
 [[nodiscard]] std::optional<float> gameSettingValue(const GameProfile& game, const GameSetting& setting,
                                                     const GameSettingOverrides& overrides);
 // True when one of the game's settings is "steering" (the game keeps its own steering rotation): its rotation is set
-// per game in the Games tab like a profile's [steering] rotation.
+// per game in the Game profiles tab like a profile's [steering] rotation.
 [[nodiscard]] bool hasSteeringSetting(const GameProfile& game);
 // The profile's setting with this id, or null.
 [[nodiscard]] const GameSetting* findGameSetting(const GameProfile& game, std::string_view id);
@@ -101,7 +101,7 @@ inline constexpr std::uintmax_t kMaxGameSettingsFileBytes = 1024 * 1024;   // NF
 [[nodiscard]] GameSettingsFileResult writeGameSettingsFile(const std::filesystem::path& root, std::string_view relative,
                                                            std::span<const GameSettingText> values);
 
-// What the game's settings file holds now for `values`, for the Games tab: read only, with the same checks as
+// What the game's settings file holds now for `values`, for the Game profiles tab: read only, with the same checks as
 // writeGameSettingsFile (no link followed, nothing outside `root`, at most kMaxGameSettingsFileBytes). `root` empty:
 // not on this system (the service sets them on Windows only for now).
 struct GameSettingsFileState {

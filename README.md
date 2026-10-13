@@ -38,7 +38,7 @@ Settled with NFS 2015 and an R3 on Windows:
   the game's steering rotation (`[steering] rotation_deg` and `note`): while the game runs the service steers with
   it, wheel and game full lock both at that number, then the mapping's own again. NFS Payback's (`nfspayback.ini`,
   `NeedForSpeedPayback.exe`) is 180: the status shows "NFS Payback, 180 deg" and the log says to set the wheel's
-  own software to 180 too. The Games tab changes it per game or turns it off (`[game_rotation]`).
+  own software to 180 too. The Game profiles tab changes it per game or turns it off (`[game_rotation]`).
   A profile can also make a game's force feedback stronger (`[ffb] gain` and `note`): while the game runs, the
   service multiplies its pushing forces (steering force, rumble; not springs or dampers) by it before the safety
   limits, which still apply. NFS Unbound's (`nfsunbound.ini`) is 3: its force feedback is very light and the game
@@ -179,12 +179,12 @@ a headline, why it was needed, how to use it, and where to look.
   Moza) to the same number**: WheelBri passes the wheel through 1:1 and never reads or sets the wheel's own settings,
   so the wheel's end stop is the game's full lock only when they match. There is no separate wheel rotation (since
   2026-10-13; an older config's `source_rotation_deg` is ignored and goes when saved). A game's own rotation (NFS
-  Payback: 180) is set in the Games tab. Config key: `[steering] target_rotation_deg`. No dead zones: set them in the
-  devices' own software.
+  Payback: 180) is set in the Game profiles tab. Config key: `[steering] target_rotation_deg`. No dead zones: set them
+  in the devices' own software.
 - **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core
   `MappingEdit`, `AxisTuning`, `Mapper`, `service/src/MappingEditView.cpp`.
 
-### Games tab
+### Game profiles tab
 
 - **Why:** a few games need something changed (NFS 2015's pedals, NFS Payback's rotation, NFS Unbound's force
   feedback); everything about one game is in one place, with what WheelBri does for it and why.
@@ -203,8 +203,8 @@ a headline, why it was needed, how to use it, and where to look.
   until it is written). While WheelBri runs, the tab opens by itself when a game with a profile starts, on that
   game, and says that it runs (pid, for how long, the rotation and gain in use, what happened to its settings); it
   does so once per start, so you can go to another tab while you play. Values cannot be changed while it runs.
-- **Look:** the service log (`service.game` lines; `Games tab: <game> started`); `config/games/<id>.ini`. Code: core
-  `GameProfiles`, `GameTab` (`GameTabFollower`, `describeGameProfile`), `GameSettings` (`readGameSettingsState`),
+- **Look:** the service log (`service.game` lines; `Game profiles tab: <game> started`); `config/games/<id>.ini`. Code:
+  core `GameProfiles`, `GameTab` (`GameTabFollower`, `describeGameProfile`), `GameSettings` (`readGameSettingsState`),
   `service/src/GameWatch.cpp`, the Games page in `service/src/MappingEditView.cpp`.
 
 ### Game force feedback through the safety limiter
@@ -434,7 +434,7 @@ WheelBri's (another mod) is never overwritten or deleted. The list is `%LOCALAPP
 | Logs, telemetry logs, old-file cleanup | yes | yes |
 | Game-use watch ("GAME NOT USING THE WHEEL") | yes | yes |
 | Game FFB idle watch ("GAME FFB OFF: ALT-TAB": effects loaded, none started while you drive) | yes | yes |
-| Live view: Mapping / Games / Rig / Logs tabs, Start / Stop | yes | yes |
+| Live view: Rig / Mapping / Game profiles / Logs tabs, Start / Stop | yes | yes |
 | Stale hide check: clears a hide left by a crashed session, warns if another one hides the rig | yes | yes |
 | Administrator or the WheelBri Helper (`PrivilegedSteps`): needed for the rows below | yes | - |
 | G920 driver check: installs `wheelbri-g920` (`driver\install-driver.ps1`) when Windows does not have it | yes | - |
