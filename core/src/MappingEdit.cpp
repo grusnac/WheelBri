@@ -199,8 +199,7 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     const HatButtons& hat = mapper.hatButtons;
     model.hat = {sourceOf(mapper, hat.devices[0], hat.up), sourceOf(mapper, hat.devices[1], hat.right),
                  sourceOf(mapper, hat.devices[2], hat.down), sourceOf(mapper, hat.devices[3], hat.left)};
-    model.wheelRotationDeg = mapper.steering.sourceRotationDeg;
-    model.gameRotationDeg = mapper.steering.targetRotationDeg;
+    model.steeringRotationDeg = mapper.steering.targetRotationDeg;
     model.gameRotations = config.gameRotations;
     model.gameSettings = config.gameSettings;
     model.gameFfbGains = config.gameFfbGains;
@@ -480,11 +479,8 @@ AutoMapResult autoMap(MappingModel& model, const Rig& rig, const IDeviceProfile&
 }
 
 std::string tuningProblem(const MappingModel& model) {
-    if (std::string problem = tuning::rotationProblem(model.wheelRotationDeg); !problem.empty()) {
-        return "wheel rotation: " + problem;
-    }
-    if (std::string problem = tuning::rotationProblem(model.gameRotationDeg); !problem.empty()) {
-        return "game rotation: " + problem;
+    if (std::string problem = tuning::rotationProblem(model.steeringRotationDeg); !problem.empty()) {
+        return "steering rotation: " + problem;
     }
     for (std::size_t t = 0; t < model.secondaries.size(); ++t) {
         if (model.secondaries[t].size() > MapperConfig::kMaxSecondaries) {
@@ -502,9 +498,7 @@ std::string tuningProblem(const MappingModel& model) {
     }
     for (const auto& [game, value] : model.gameRotations) {
         if (value.off) continue;
-        for (const float deg : {value.rotation.wheelDeg, value.rotation.gameDeg}) {
-            if (std::string problem = tuning::rotationProblem(deg); !problem.empty()) return game + ": " + problem;
-        }
+        if (std::string problem = tuning::rotationProblem(value.deg); !problem.empty()) return game + ": " + problem;
     }
     for (const auto& [game, gain] : model.gameFfbGains) {
         if (!(gain >= kFfbGainMin && gain <= kFfbGainMax)) {
@@ -555,6 +549,8 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     ini.set("emulator", "source_device", model.sourceDevice);
     // Dead zones are gone (since 2026-10-13: the devices' own software sets them): an older file's lines go.
     ini.remove("steering", "deadzone");
+    // So is the wheel's separate rotation (since 2026-10-13: the axis goes through 1:1).
+    ini.remove("steering", "source_rotation_deg");
     for (const char* const pedal : {"throttle", "brake", "clutch"}) {
         ini.remove(pedal, "deadzone_low");
         ini.remove(pedal, "saturation_high");
@@ -567,8 +563,7 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
         ini.set(section, key, tuning::formatNumber(value));
     };
     // The defaults as the config reader has them (MapperConfig.hpp).
-    number("steering", "source_rotation_deg", model.wheelRotationDeg, SteeringConfig{}.sourceRotationDeg);
-    number("steering", "target_rotation_deg", model.gameRotationDeg, SteeringConfig{}.targetRotationDeg);
+    number("steering", "target_rotation_deg", model.steeringRotationDeg, SteeringConfig{}.targetRotationDeg);
     // [game_rotation]: one line per game the user set; a line for a game no longer set goes.
     const auto& sections = before.sections();
     if (const auto old = sections.find("game_rotation"); old != sections.end()) {
@@ -579,7 +574,9 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     for (const auto& [game, value] : model.gameRotations) {
         const std::optional<std::string> line = before.get("game_rotation", game);
         const std::optional<GameRotationOverride> current = line ? parseGameRotation(*line) : std::nullopt;
-        if (!current || !(*current == value)) ini.set("game_rotation", game, formatGameRotation(value));
+        // An older "360/180" is written again as the one number it now means.
+        const bool olderPair = line && line->find('/') != std::string::npos;
+        if (!current || !(*current == value) || olderPair) ini.set("game_rotation", game, formatGameRotation(value));
     }
     // [game_settings]: one line per setting the user set; a line no longer set goes.
     const auto settingSet = [&model](const std::string& key) {

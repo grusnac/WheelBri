@@ -1216,7 +1216,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         // Game profiles: applied here for the virtual G920 / wheelbri-uhid, by the shim itself for the in-game shim.
         wheelbri::service::GameWatch gameWatch(
             config.targetProfile, routePedals,
-            wheelbri::SteeringRotation{config.mapper.steering.sourceRotationDeg, config.mapper.steering.targetRotationDeg},
+            config.mapper.steering.targetRotationDeg,
             config.gameRotations, config.gameSettings, config.gameFfbGains);
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
@@ -1234,7 +1234,6 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                     try {
                         const auto decision = gameWatch.check();
                         pipeline.setPedalRoute(decision.route);
-                        pipeline.setSteeringRatio(decision.steeringRatio);   // a game's rotation (GameRotation.hpp)
                         gameFfbGain.store(decision.ffbGain, std::memory_order_relaxed);   // a game's [ffb] gain
                     } catch (const std::exception& e) {   // never ends the session; the pedals stay as they are
                         WE_LOG_WARN(log(), "game: looking for known games failed: {}", e.what());

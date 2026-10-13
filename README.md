@@ -180,12 +180,12 @@ a headline, why it was needed, how to use it, and where to look.
   a role the G920 lacks (handbrake axis, Gear 7), sources still pointing at controls the rig has not named (amber),
   and a Rig tab with unsaved changes.
   **Steering rotation**: the game's full
-  lock (slider, typed degrees, or 180 / 360 / 540 / 720 / 900 / 1080) and the wheel's rotation, which must be what
-  the wheel's own software is set to; when they differ the tab says so in amber (**Same as game** copies it): a wheel
-  set wider than the game's full lock turns on past it with the force feedback dropping there. WheelBri never reads
-  or sets the wheel's own settings. A game's own rotation (NFS Payback: 180) is set in the Games tab. All of it
-  reaches the shim and the virtual device alike (the service's mapper applies it), from the next Start. Config keys:
-  `[steering] source_rotation_deg`, `target_rotation_deg`. No dead zones: set them in the devices' own software.
+  lock (slider, typed degrees, or 180 / 360 / 540 / 720 / 900 / 1080). **Set your wheel's own software (Pit House for
+  Moza) to the same number**: WheelBri passes the wheel through 1:1 and never reads or sets the wheel's own settings,
+  so the wheel's end stop is the game's full lock only when they match. There is no separate wheel rotation (since
+  2026-10-13; an older config's `source_rotation_deg` is ignored and goes when saved). A game's own rotation (NFS
+  Payback: 180) is set in the Games tab. Config key: `[steering] target_rotation_deg`. No dead zones: set them in the
+  devices' own software.
 - **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core
   `MappingEdit`, `AxisTuning`, `Mapper`, `service/src/MappingEditView.cpp`.
 
@@ -196,9 +196,9 @@ a headline, why it was needed, how to use it, and where to look.
 - **Use:** tab G. On the left the games that have a profile; pick one to see what its profile changes (and the
   profile's reason), your own values for it, and (NFS Unbound) what its settings file holds now. Your values, saved
   with the mapping (Save, Revert, Default as on the Mapping tab), from the next Start:
-  **Steering rotation**: type another (`180`, or `360/180` for wheel/game), **On/Off** (Off = the Mapping tab's), or
-  **Default** for the profile's; saved as `[game_rotation] nfspayback = 180 | 360/180 | off`. Set the wheel's own
-  software to the same. A game that keeps its own rotation (NFS Unbound's `WheelMaxRotation`) gets that number
+  **Steering rotation**: type another (`180`), **On/Off** (Off = the Mapping tab's), or **Default** for the profile's;
+  saved as `[game_rotation] nfspayback = 180 | off` (an older `360/180` reads as 180). Set the wheel's own software to
+  the same while you play that game, and back afterwards. A game that keeps its own rotation (NFS Unbound's `WheelMaxRotation`) gets that number
   written into its file too. **Force feedback gain**: 0.25 to 4 or **Default**, on the game's pushing forces (steering
   force, rumble) before the safety limits; saved as `[game_ffb_gain] nfsunbound = 3`. **Its own settings** (NFS
   Unbound's hidden wheel settings: force feedback, spring): 0 to 1 or **Default**, saved as

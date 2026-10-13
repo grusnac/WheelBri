@@ -18,7 +18,8 @@ std::vector<GameProfileChange> describeGameProfile(const GameProfile& game) {
         changes.push_back({"Pedals", pedals, {}});
     }
     if (game.rotationDeg) {
-        changes.push_back({"Steering rotation", tuning::formatNumber(*game.rotationDeg, 1) + " deg (wheel and game)",
+        changes.push_back({"Steering rotation",
+                           tuning::formatNumber(*game.rotationDeg, 1) + " deg (set your wheel's software to it too)",
                            game.rotationNote});
     }
     if (game.ffbGain) {

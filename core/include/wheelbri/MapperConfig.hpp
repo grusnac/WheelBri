@@ -26,8 +26,11 @@ struct DeviceId {
 struct SteeringConfig {
     int sourceAxis = 0;
     int sourceDevice = 0;
-    float sourceRotationDeg = 900.0F;   // rotation configured on the rig's wheel (its maker's software)
-    float targetRotationDeg = 900.0F;   // rotation the emulated wheel reports (the G920 = 900)
+    // The steering rotation: the game's full lock, and what the wheel's own software must be set to (WheelBri never
+    // sets it). The axis goes through 1:1 (the wheel's end stop is the game's full lock), so it is not used to scale
+    // the axis: it is the advice the app gives and what a game profile writes into a game's own settings. The old
+    // source_rotation_deg (a separate wheel rotation, scaled against this) is read and ignored since 2026-10-13.
+    float targetRotationDeg = 900.0F;
     bool invert = false;
     // No dead zone here (since 2026-10-13): the axis is used as the device reports it. A dead zone belongs in the
     // device's own software (Pit House for Moza); the config's old "deadzone" key is read and ignored.

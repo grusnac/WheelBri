@@ -38,8 +38,7 @@ bool Pipeline::tick(std::optional<float> clutchOverride, const std::uint64_t now
         }
     }
     inputChanged_ = !(inputs_ == previous);
-    const float ratio = steeringRatio();
-    state_ = ratio > 0.0F ? mapper_.map(inputs_, ratio) : mapper_.map(inputs_);
+    state_ = mapper_.map(inputs_);
     if (clutchOverride) {
         state_.clutch = *clutchOverride;
     }

@@ -101,10 +101,10 @@ private:
     enum class Mode { Idle, Pick, PickWheel, PickAlt };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
     enum class Slot { Axis, Hat, Button };
-    // A number field: one of the two rotations, a game's own rotation (`fieldIndex_` = its gameProfiles() index), or
+    // A number field: the steering rotation, a game's own rotation (`fieldIndex_` = its gameProfiles() index), or
     // a game's own setting (`fieldIndex_` = game index * kMaxGameSettings + the setting's index), or a game's force
     // feedback gain (`fieldIndex_` = its gameProfiles() index).
-    enum class Field { None, GameRotation, WheelRotation, PerGame, GameSetting, FfbGain };
+    enum class Field { None, Rotation, PerGame, GameSetting, FfbGain };
 
     struct Hit {
         float x, y, w, h;
@@ -182,7 +182,7 @@ private:
                    std::function<void()> action);
     void tip(float x, float y, float w, float h, std::string text);
     void drawTooltip();
-    // The STEERING ROTATION section from `y`: the game's full lock, the wheel's rotation.
+    // The STEERING ROTATION section from `y`: the rotation, and that the wheel's own software must match it.
     void drawRotation(float y);
     // The Games page: the list of profiles, and the picked one's.
     void drawGames();
@@ -198,7 +198,7 @@ private:
     void startTyping(Field field, std::size_t index = 0);
     // Applies what was typed: false (and the reason in the status) when it is not a usable value.
     bool commitTyping();
-    void setGameRotationFromX(float x);
+    void setRotationFromX(float x);
     float button(float x, float y, const std::string& label, std::function<void()> action, bool on = false,
                  bool enabled = true, float width = 0);
     void hit(float x, float y, float w, float h, std::function<void()> action);

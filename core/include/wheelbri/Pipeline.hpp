@@ -43,10 +43,6 @@ public:
                            static_cast<std::uint8_t>((packed >> 16U) & 0xFFU)}};
     }
 
-    // The steering ratio (wheel degrees / game degrees) while a game profile's rotation applies (GameRotation.hpp);
-    // 0 = the mapping's own. Safe from another thread; the next tick uses it.
-    void setSteeringRatio(const float ratio) { steeringRatio_.store(ratio, std::memory_order_relaxed); }
-    [[nodiscard]] float steeringRatio() const { return steeringRatio_.load(std::memory_order_relaxed); }
 
     // Returns false once the wheel or an accessory is gone (lostDevice() says which). `clutchOverride` (0..1 pressed), when set, replaces the
     // mapped clutch: the test clutch while no clutch pedal is connected. `nowNs`: monotonic time, for limitSending.
@@ -79,7 +75,6 @@ private:
     TargetReport report_;
     StatePacket packet_;
     std::atomic<std::uint32_t> pedalRoute_{0x00020100U};   // PedalRoute packed: straight through
-    std::atomic<float> steeringRatio_{0.0F};                // 0: the mapping's own
     std::uint64_t publishFailures_ = 0;
     std::optional<StateSendGate> gate_;
 };

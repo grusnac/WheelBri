@@ -8,29 +8,22 @@
 #include <string_view>
 
 // The steering rotation used while a game with a profile runs. A game profile can name one ([steering] rotation_deg:
-// NFS Payback 180): while that game runs the service steers with it instead of the mapping's own, the wheel and the
-// game's full lock both at that number (1:1, so the wheel's end stop is the game's full lock and there is no travel
-// past it). The user's mapping can change it per game, or turn it off ([game_rotation] in the config, set in the Games
-// tab):
+// NFS Payback 180): while that game runs, that is the rotation to play it with instead of the mapping's own
+// ([steering] target_rotation_deg). The axis always goes through 1:1, so the wheel's end stop is the game's full lock:
+// the wheel's own software (Pit House for Moza) must be set to the same number, by the user (WheelBri never reads or
+// sets it); the app and the log say so. A game whose own settings follow the steering rotation gets it written there
+// (GameSettings.hpp). The user's mapping can change it per game, or turn it off ([game_rotation] in the config, set in
+// the Games tab):
 //   [game_rotation]
-//   nfspayback = 180        ; wheel and game 180
-//   nfspayback = 360/180    ; wheel 360, game 180 (faster steering, but the wheel turns on past the game's full lock)
+//   nfspayback = 180        ; 180 in this game
 //   nfspayback = off        ; the mapping's own rotation in this game too
-// WheelBri never reads or sets the wheel's own software: the wheel's number must be what that software is set to.
+// Older files may say "360/180" (a wheel rotation, then the game's: before 2026-10-13): read as the game's, 180.
 namespace wheelbri {
 
-struct SteeringRotation {
-    float wheelDeg = 900.0F;   // what the wheel's own software is set to
-    float gameDeg = 900.0F;    // the game's full lock
-
-    [[nodiscard]] float ratio() const { return gameDeg > 0.0F ? wheelDeg / gameDeg : 1.0F; }
-    friend bool operator==(const SteeringRotation&, const SteeringRotation&) = default;
-};
-
-// One game's line in [game_rotation]: off, or a rotation.
+// One game's line in [game_rotation]: off, or a rotation in degrees.
 struct GameRotationOverride {
     bool off = false;
-    SteeringRotation rotation;
+    float deg = 900.0F;
 
     friend bool operator==(const GameRotationOverride&, const GameRotationOverride&) = default;
 };
@@ -38,16 +31,16 @@ struct GameRotationOverride {
 // By game profile id ("nfspayback").
 using GameRotations = std::map<std::string, GameRotationOverride>;
 
-// "180", "360/180", "off" (any case, spaces allowed); nullopt otherwise or out of range (AxisTuning.hpp).
+// "180", "off" (any case, spaces allowed), and the older "360/180" (its second number); nullopt otherwise or out of
+// range (AxisTuning.hpp).
 [[nodiscard]] std::optional<GameRotationOverride> parseGameRotation(std::string_view text);
-// The other way: "180" when both are the same, "360/180", "off".
+// The other way: "180", "off".
 [[nodiscard]] std::string formatGameRotation(const GameRotationOverride& value);
-// "180 deg", "wheel 360 / game 180 deg".
-[[nodiscard]] std::string describeRotation(const SteeringRotation& rotation);
+// "180 deg".
+[[nodiscard]] std::string describeRotation(float deg);
 
-// What steers while `game` runs: the user's line for it, else the profile's rotation (wheel = game); nullopt: the
-// mapping's own (no rotation in the profile, or the user's line says off).
-[[nodiscard]] std::optional<SteeringRotation> rotationWhileRunning(const GameProfile& game,
-                                                                   const GameRotations& overrides);
+// The rotation while `game` runs: the user's line for it, else the profile's; nullopt: the mapping's own (no rotation
+// in the profile, or the user's line says off).
+[[nodiscard]] std::optional<float> rotationWhileRunning(const GameProfile& game, const GameRotations& overrides);
 
 }  // namespace wheelbri

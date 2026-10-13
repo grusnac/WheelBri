@@ -44,18 +44,10 @@ bool buttonDown(const RawInputs& inputs, const int device, const int button) {
 
 Mapper::Mapper(const MapperConfig& config) : config_(config) {
     const SteeringConfig& steering = config_.steering;
-    WE_LOG_DEBUG(log(), "mapper: steering axis={} rotation {:.0f} -> {:.0f} deg (ratio {:.3f}) invert={}",
-                 steering.sourceAxis, steering.sourceRotationDeg, steering.targetRotationDeg,
-                 steering.targetRotationDeg > 0.0F ? steering.sourceRotationDeg / steering.targetRotationDeg : 0.0F,
-                 steering.invert);
+    WE_LOG_DEBUG(log(), "mapper: steering axis={} 1:1 (rotation {:.0f} deg, set on the wheel too) invert={}",
+                 steering.sourceAxis, steering.targetRotationDeg, steering.invert);
     if (!isValidAxis(steering.sourceAxis)) {
         WE_LOG_WARN(log(), "mapper: steering axis {} is out of range, steering will stay centred", steering.sourceAxis);
-    }
-    if (steering.sourceRotationDeg < steering.targetRotationDeg) {
-        WE_LOG_INFO(log(), "mapper: physical wheel turns {:.0f} deg but the target reports {:.0f}: full lock will "
-                           "read as {:.0f}% of the target's range",
-                    steering.sourceRotationDeg, steering.targetRotationDeg,
-                    100.0F * steering.sourceRotationDeg / steering.targetRotationDeg);
     }
     for (std::size_t i = 0; i < config_.accessories.size(); ++i) {
         if (!config_.accessories[i].empty()) {
@@ -103,16 +95,9 @@ WheelState Mapper::map(const RawInputState& raw) const {
     return map(inputs);
 }
 
-float Mapper::degreeRatio() const {
-    const SteeringConfig& steering = config_.steering;
-    return steering.targetRotationDeg > 0.0F ? steering.sourceRotationDeg / steering.targetRotationDeg : 0.0F;
-}
-
-WheelState Mapper::map(const RawInputs& inputs) const { return map(inputs, degreeRatio()); }
-
-WheelState Mapper::map(const RawInputs& inputs, const float ratio) const {
+WheelState Mapper::map(const RawInputs& inputs) const {
     WheelState state;
-    state.steering = mapSteering(inputs, std::isfinite(ratio) && ratio > 0.0F ? ratio : degreeRatio());
+    state.steering = mapSteering(inputs);
     state.throttle = mapPedal(config_.throttle, inputs);
     state.brake = mapPedal(config_.brake, inputs);
     state.clutch = mapPedal(config_.clutch, inputs);
@@ -121,20 +106,15 @@ WheelState Mapper::map(const RawInputs& inputs, const float ratio) const {
     return state;
 }
 
-float Mapper::mapSteering(const RawInputs& inputs, const float ratio) const {
+float Mapper::mapSteering(const RawInputs& inputs) const {
     const SteeringConfig& steering = config_.steering;
     const std::optional<float> raw = axisValue(inputs, steering.sourceDevice, steering.sourceAxis);
-    if (!raw || steering.targetRotationDeg <= 0.0F) {
+    if (!raw) {
         return 0.0F;
     }
-
-    float value = std::clamp(*raw, -1.0F, 1.0F);
-    if (steering.invert) {
-        value = -value;
-    }
-
-    // Keep degrees 1:1: a 540-degree physical wheel at full lock is only 270 of the target's 450 degrees.
-    return std::clamp(value * ratio, -1.0F, 1.0F);
+    // 1:1: the wheel's full lock (set in its own software) is the game's full lock.
+    const float value = std::clamp(*raw, -1.0F, 1.0F);
+    return steering.invert ? -value : value;
 }
 
 float Mapper::mapPedal(const PedalConfig& pedal, const RawInputs& inputs) {

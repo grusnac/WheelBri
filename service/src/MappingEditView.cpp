@@ -449,13 +449,13 @@ void MappingEditView::onPointer(const float x, const float /*y*/, const bool lef
         dragging_ = false;
         return;
     }
-    setGameRotationFromX(x);
+    setRotationFromX(x);
 }
 
-void MappingEditView::setGameRotationFromX(const float x) {
+void MappingEditView::setRotationFromX(const float x) {
     const float t = std::clamp((x - kSliderX) / sliderW(), 0.0F, 1.0F);
     const float value = kSliderMinDeg + t * (kSliderMaxDeg - kSliderMinDeg);
-    edit_.gameRotationDeg =
+    edit_.steeringRotationDeg =
         std::clamp(std::round(value / kSliderStepDeg) * kSliderStepDeg, kSliderMinDeg, kSliderMaxDeg);
 }
 
@@ -464,7 +464,7 @@ std::string MappingEditView::fieldText(const Field field, const std::size_t inde
         case Field::PerGame: {
             const std::span<const GameProfile> games = gameProfiles();
             if (index >= games.size()) return {};
-            const std::optional<SteeringRotation> rotation = rotationWhileRunning(games[index], edit_.gameRotations);
+            const std::optional<float> rotation = rotationWhileRunning(games[index], edit_.gameRotations);
             return rotation ? formatGameRotation({false, *rotation}) : std::string("off");
         }
         case Field::GameSetting: {
@@ -480,8 +480,7 @@ std::string MappingEditView::fieldText(const Field field, const std::size_t inde
             return index < games.size() ? tuning::formatNumber(gameFfbGain(games[index], edit_.gameFfbGains), 2)
                                         : std::string();
         }
-        case Field::GameRotation: return degrees(edit_.gameRotationDeg);
-        case Field::WheelRotation: return degrees(edit_.wheelRotationDeg);
+        case Field::Rotation: return degrees(edit_.steeringRotationDeg);
         case Field::None: break;
     }
     return {};
@@ -499,11 +498,11 @@ bool MappingEditView::commitTyping() {
     const std::optional<float> number = tuning::parseNumber(typed_);
     std::string problem;
     if (field_ == Field::PerGame) {
-        // "180", "360/180" or "off" for one game.
+        // "180" or "off" for one game.
         const std::span<const GameProfile> games = gameProfiles();
         const std::optional<GameRotationOverride> parsed = parseGameRotation(typed_);
         if (!parsed) {
-            problem = "'" + typed_ + "': expected degrees (180), wheel/game (360/180) or off; each " +
+            problem = "'" + typed_ + "': expected degrees (180) or off; from " +
                       tuning::formatNumber(tuning::kMinRotationDeg) + " to " +
                       tuning::formatNumber(tuning::kMaxRotationDeg);
         } else if (fieldIndex_ < games.size()) {
@@ -534,12 +533,9 @@ bool MappingEditView::commitTyping() {
     } else {
         const float value = *number;
         switch (field_) {
-            case Field::GameRotation:
-            case Field::WheelRotation:
+            case Field::Rotation:
                 problem = tuning::rotationProblem(value);
-                if (problem.empty()) {
-                    (field_ == Field::GameRotation ? edit_.gameRotationDeg : edit_.wheelRotationDeg) = value;
-                }
+                if (problem.empty()) edit_.steeringRotationDeg = value;
                 break;
             case Field::PerGame:
             case Field::GameSetting:
@@ -791,64 +787,41 @@ void MappingEditView::drawRotation(const float top) {
     window_.text(4, y, "STEERING ROTATION", kHeading);
     window_.text(148, y, "full lock to full lock, in degrees", kDim);
 
-    // The game's full lock: the slider (90 to 1080), the typed number (up to 2520) and the usual values.
+    // The steering rotation: the slider (90 to 1080), the typed number (up to 2520) and the usual values.
     y += 16;
-    window_.text(4, y + 4, "Game full lock", kText);
-    const float shown = std::clamp(edit_.gameRotationDeg, kSliderMinDeg, kSliderMaxDeg);
+    window_.text(4, y + 4, "Rotation", kText);
+    const float shown = std::clamp(edit_.steeringRotationDeg, kSliderMinDeg, kSliderMaxDeg);
     const float filled = (shown - kSliderMinDeg) / (kSliderMaxDeg - kSliderMinDeg) * sliderW();
     window_.fill(kSliderX, y + 6, sliderW(), 4, kStripe);
     window_.fill(kSliderX, y + 6, filled, 4, locked_ ? kDim : kHeading);
     window_.fill(kSliderX + filled - 3, y + 1, 6, 14, locked_ ? kDim : kText);
-    window_.outline(kSliderX, y + 6, sliderW(), 4, edit_.gameRotationDeg != saved_.gameRotationDeg ? kCaution : kPanel);
+    window_.outline(kSliderX, y + 6, sliderW(), 4,
+                    edit_.steeringRotationDeg != saved_.steeringRotationDeg ? kCaution : kPanel);
     if (!locked_) {
         hit(kSliderX - 4, y, sliderW() + 8, 16, [this] {
-            setGameRotationFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
+            setRotationFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
             dragging_ = true;
         });
     }
-    drawField(kSliderX + sliderW() + 12, y, 64, Field::GameRotation, degrees(edit_.gameRotationDeg),
-              edit_.gameRotationDeg != saved_.gameRotationDeg);
+    drawField(kSliderX + sliderW() + 12, y, 64, Field::Rotation, degrees(edit_.steeringRotationDeg),
+              edit_.steeringRotationDeg != saved_.steeringRotationDeg);
     window_.text(kSliderX + sliderW() + 80, y + 4, "deg", kDim);
     float x = kSliderX + sliderW() + 112;
     for (const float preset : kPresetsDeg) {
-        x += button(x, y, degrees(preset), [this, preset] { edit_.gameRotationDeg = preset; },
-                    std::fabs(edit_.gameRotationDeg - preset) < 0.5F, !locked_, 46) + 4;
+        x += button(x, y, degrees(preset), [this, preset] { edit_.steeringRotationDeg = preset; },
+                    std::fabs(edit_.steeringRotationDeg - preset) < 0.5F, !locked_, 46) + 4;
     }
     window_.text(kSliderX, y + 20, "90", kDim);
     window_.text(kSliderX + sliderW() - 32, y + 20, "1080", kDim);
 
-    // What the wheel's own software is set to: the mapper turns that into the game's full lock.
+    // WheelBri passes the wheel through 1:1: the wheel's own software sets where its end stop is.
     y += 34;
-    window_.text(4, y + 4, "Wheel rotation", kText);
-    drawField(kSliderX, y, 64, Field::WheelRotation, degrees(edit_.wheelRotationDeg),
-              edit_.wheelRotationDeg != saved_.wheelRotationDeg);
-    window_.text(kSliderX + 68, y + 4, "deg: what your wheel's own software (e.g. Moza Pit House) is set to", kDim);
-    const bool same = std::fabs(edit_.wheelRotationDeg - edit_.gameRotationDeg) < 0.5F;
-    if (!same) {
-        button(852 + extraW(), y, "Same as game", [this] { edit_.wheelRotationDeg = edit_.gameRotationDeg; }, false,
-               !locked_,
-               104);
-    }
-    y += 20;
-    if (same) {
-        window_.text(4, y, fit("Both match: the wheel reaches its end stop where the game reaches full lock. Keep them "
-                               "the same when you change one.", 118 + extraChars()),
-                     kDim);
-        y += 12;
-    } else {
-        const std::string game = degrees(edit_.gameRotationDeg);
-        for (const std::string& line : wrap("Wheel " + degrees(edit_.wheelRotationDeg) + " deg, game " + game +
-                                                " deg: set your wheel's own software to " + game +
-                                                " too (or press Same as game).",
-                                            118 + extraChars(), 2)) {
-            window_.text(4, y, line, kCaution);
-            y += 12;
-        }
-        const char* const why = edit_.wheelRotationDeg > edit_.gameRotationDeg
-                                    ? "Otherwise the wheel turns on past the game's full lock and the force feedback "
-                                      "drops there."
-                                    : "Otherwise the game's full lock is never reached: the wheel stops first.";
-        window_.text(4, y, why, kDim);
+    for (const std::string& line : wrap("Set your wheel's own software (Pit House for Moza) to " +
+                                            degrees(edit_.steeringRotationDeg) +
+                                            " deg too: WheelBri passes the wheel through 1:1 and never changes that "
+                                            "setting, so the wheel's end stop is the game's full lock.",
+                                        118 + extraChars(), 2)) {
+        window_.text(4, y, line, kCaution);
         y += 12;
     }
 
@@ -1052,7 +1025,7 @@ float MappingEditView::drawGameValues(const std::size_t index, float y) {
 
     // Its steering rotation ([game_rotation]): the profile's, the user's own, or off (the Mapping tab's).
     const bool own = edit_.gameRotations.count(id) != 0;
-    const std::optional<SteeringRotation> rotation = rotationWhileRunning(game, edit_.gameRotations);
+    const std::optional<float> rotation = rotationWhileRunning(game, edit_.gameRotations);
     const bool rotationChanged = own != (saved_.gameRotations.count(id) != 0) ||
                                  (own && !(edit_.gameRotations.at(id) == saved_.gameRotations.at(id)));
     window_.text(kGameX, y + 4, "Steering rotation", kText);
@@ -1065,19 +1038,19 @@ float MappingEditView::drawGameValues(const std::size_t index, float y) {
         } else if (game.rotationDeg) {
             edit_.gameRotations.erase(id);                               // back to the profile's
         } else {
-            edit_.gameRotations[id] = GameRotationOverride{false, {edit_.wheelRotationDeg, edit_.gameRotationDeg}};
+            edit_.gameRotations[id] = GameRotationOverride{false, edit_.steeringRotationDeg};
         }
     }, rotation.has_value(), !locked_, 48);
     button(kGameValueX + 168, y, "Default", [this, id] { edit_.gameRotations.erase(id); }, false, !locked_ && own, 72);
     y += 20;
     std::string about = game.rotationDeg ? "profile: " + degrees(*game.rotationDeg) + " deg. " : std::string();
     if (rotation) {
-        about += "Set your wheel's own software to " + degrees(rotation->wheelDeg) + " deg while you play it.";
+        about += "Set your wheel's own software to " + degrees(*rotation) + " deg while you play it.";
     } else {
-        about += "Off: the Mapping tab's rotation (" + degrees(edit_.gameRotationDeg) + " deg).";
+        about += "Off: the Mapping tab's rotation (" + degrees(edit_.steeringRotationDeg) + " deg, your wheel's too).";
     }
     if (hasSteeringSetting(game)) {
-        const float written = rotation ? rotation->gameDeg : edit_.gameRotationDeg;
+        const float written = rotation.value_or(edit_.steeringRotationDeg);
         about += " Written to the game's own settings: " + degrees(written) + " deg" +
                  (written >= 1000.0F ? " (it keeps 3 digits: 100 to 999)." : ".");
     }
@@ -1119,8 +1092,7 @@ float MappingEditView::drawGameSettings(const std::size_t index, float y) {
     y += 16;
 
     // What the file holds now against what the next Start writes (the saved values), read every 2 s.
-    const std::optional<SteeringRotation> savedRotation = rotationWhileRunning(game, saved_.gameRotations);
-    const float steeringDeg = savedRotation ? savedRotation->gameDeg : saved_.gameRotationDeg;
+    const float steeringDeg = rotationWhileRunning(game, saved_.gameRotations).value_or(saved_.steeringRotationDeg);
     const std::vector<GameSettingText> wanted = gameSettingTexts(game, saved_.gameSettings, steeringDeg);
     std::string key = id;
     for (const GameSettingText& value : wanted) key += "|" + value.name + "=" + value.text;

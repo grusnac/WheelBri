@@ -140,10 +140,10 @@ TEST(GameSettings, ValuesComeFromTheUserThenTheProfile) {
     EXPECT_TRUE(hasSteeringSetting(*unbound));
     EXPECT_FALSE(hasSteeringSetting(*gameProfileFor("NeedForSpeedPayback.exe")));
     EXPECT_FALSE(rotationWhileRunning(*unbound, {}).has_value());   // none of its own: the mapping's is written
-    const GameRotations mine540 = {{"nfsunbound", GameRotationOverride{false, {540.0F, 540.0F}}}};
-    const std::optional<SteeringRotation> perGame = rotationWhileRunning(*unbound, mine540);
+    const GameRotations mine540 = {{"nfsunbound", GameRotationOverride{false, 540.0F}}};
+    const std::optional<float> perGame = rotationWhileRunning(*unbound, mine540);
     ASSERT_TRUE(perGame.has_value());
-    EXPECT_EQ(gameSettingTexts(*unbound, {}, perGame->gameDeg)[1], (GameSettingText{"WheelMaxRotation", "540.000000"}));
+    EXPECT_EQ(gameSettingTexts(*unbound, {}, *perGame)[1], (GameSettingText{"WheelMaxRotation", "540.000000"}));
     EXPECT_EQ(findGameSetting(*unbound, "brakes"), nullptr);
 }
 

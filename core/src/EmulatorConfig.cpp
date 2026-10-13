@@ -230,8 +230,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         SectionReader reader(ini, "steering", errors);
         SteeringConfig& steering = config.mapper.steering;
         reader.readSource("axis", steering.sourceAxis, steering.sourceDevice, kMaxAxisIndex, true, config.mapper);
-        reader.readFloat("source_rotation_deg", steering.sourceRotationDeg, tuning::kMinRotationDeg,
-                         tuning::kMaxRotationDeg);
+        reader.retired("source_rotation_deg");   // the wheel's own rotation (until 2026-10-13): ignored, 1:1 now
         reader.readFloat("target_rotation_deg", steering.targetRotationDeg, tuning::kMinRotationDeg,
                          tuning::kMaxRotationDeg);
         reader.readBool("invert", steering.invert);
@@ -276,7 +275,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         reader.reportUnknownKeys();
     }
 
-    // [game_rotation] <game profile id> = 180 | 360/180 | off.
+    // [game_rotation] <game profile id> = 180 | off (an older "360/180" reads as 180).
     for (const auto& [section, keys] : ini.sections()) {
         if (section != "game_rotation") continue;
         for (const auto& [key, value] : keys) {
@@ -287,7 +286,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
                 errors.push_back("[game_rotation] " + key + ": no built-in game profile of that name");
             } else if (!parsed) {
                 errors.push_back("[game_rotation] " + key + " = '" + value +
-                                 "': expected degrees (180), wheel/game degrees (360/180) or off");
+                                 "': expected degrees (180) or off");
             } else {
                 config.gameRotations[key] = *parsed;
             }

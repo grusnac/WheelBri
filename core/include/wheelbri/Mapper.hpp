@@ -25,18 +25,13 @@ public:
 
     // Every device's state (device 0 is the wheel; sources on other devices read theirs).
     [[nodiscard]] WheelState map(const RawInputs& inputs) const;
-    // The same with another steering ratio (wheel degrees / game degrees) than the config's: a game profile's
-    // rotation while its game runs (GameRotation.hpp). A ratio <= 0 or not finite means the config's.
-    [[nodiscard]] WheelState map(const RawInputs& inputs, float ratio) const;
-    // The config's: source_rotation_deg / target_rotation_deg.
-    [[nodiscard]] float degreeRatio() const;
     // The wheel only (no accessories).
     [[nodiscard]] WheelState map(const RawInputState& raw) const;
 
     [[nodiscard]] const MapperConfig& config() const { return config_; }
 
 private:
-    [[nodiscard]] float mapSteering(const RawInputs& inputs, float ratio) const;
+    [[nodiscard]] float mapSteering(const RawInputs& inputs) const;
     [[nodiscard]] static float mapPedal(const PedalConfig& pedal, const RawInputs& inputs);
     [[nodiscard]] std::uint32_t mapButtons(const RawInputs& inputs) const;
     [[nodiscard]] std::int8_t mapHat(const RawInputs& inputs) const;

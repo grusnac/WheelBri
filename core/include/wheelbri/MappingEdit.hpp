@@ -79,10 +79,9 @@ struct MappingModel {
     // Each button's secondary sources (at most MapperConfig::kMaxSecondaries), in the order they were added.
     std::array<std::vector<ButtonRef>, MapperConfig::kMaxTargetButtons> secondaries;
     std::array<SourceRef, 4> hat;             // up, right, down, left
-    // [steering] source_rotation_deg: what the wheel's own software is set to; target_rotation_deg: the game's full
-    // lock (the emulated wheel reports full lock when the wheel has turned that far).
-    float wheelRotationDeg = 900.0F;
-    float gameRotationDeg = 900.0F;
+    // [steering] target_rotation_deg: the steering rotation, the game's full lock and what the wheel's own software
+    // must be set to (the axis goes through 1:1). An older file's source_rotation_deg goes when saved.
+    float steeringRotationDeg = 900.0F;
     // [game_rotation]: the user's own rotation per game profile (GameRotation.hpp); a game left out uses its profile's.
     GameRotations gameRotations;
     // [game_settings]: the user's own values for games' own settings (GameSettings.hpp); a setting left out uses its

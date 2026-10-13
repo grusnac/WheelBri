@@ -8,6 +8,7 @@
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/Nfs2015Settings.hpp"
 
+#include <cmath>
 #include <system_error>
 #include <utility>
 
@@ -33,7 +34,7 @@ std::string lower(const std::string_view text) {
 
 }  // namespace
 
-GameWatch::GameWatch(const std::string_view targetProfile, const bool routePedals, const SteeringRotation mapping,
+GameWatch::GameWatch(const std::string_view targetProfile, const bool routePedals, const float mapping,
                      GameRotations overrides, GameSettingOverrides settings, GameFfbGains gains)
     : detector_(targetProfile), target_(lower(targetProfile)), routePedals_(routePedals), mapping_(mapping),
       overrides_(std::move(overrides)), settingOverrides_(std::move(settings)), ffbGains_(std::move(gains)) {
@@ -60,27 +61,30 @@ std::string GameWatch::describeFollowed() const {
                                 : ": the shim in the game applies it, the service leaves the pedals alone");
 }
 
-std::optional<SteeringRotation> GameWatch::currentRotation() const {
+std::optional<float> GameWatch::currentRotation() const {
     const GameDetector::State& state = detector_.state();
     if (state.game == nullptr || !state.profileApplies) return std::nullopt;
-    std::optional<SteeringRotation> rotation = rotationWhileRunning(*state.game, overrides_);
-    if (rotation && *rotation == mapping_) return std::nullopt;   // the mapping has it already: nothing changes
+    std::optional<float> rotation = rotationWhileRunning(*state.game, overrides_);
+    // The mapping has it already: nothing to say.
+    if (rotation && std::fabs(*rotation - mapping_) < 0.5F) return std::nullopt;
     return rotation;
 }
 
 void GameWatch::sayRotation() {
-    const std::optional<SteeringRotation> next = currentRotation();
+    const std::optional<float> next = currentRotation();
     if (next == applied_) return;
     const GameDetector::State& state = detector_.state();
     if (next) {
         const bool own = overrides_.count(state.game->id) != 0;
-        WE_LOG_WARN(log(), "game: {} steers with {} while it runs ({}), not the mapping's {}: set your wheel's own "
-                           "software (Pit House for Moza) to {} degrees too, or the steering will not match",
+        WE_LOG_WARN(log(), "game: {} is played with a steering rotation of {} ({}), not the mapping's {}: set your "
+                           "wheel's own software (Pit House for Moza) to {} too while you play it",
                     state.game->label, describeRotation(*next),
-                    own ? std::string("your mapping's [game_rotation]") : "its game profile: " + state.game->rotationNote,
-                    describeRotation(mapping_), tuning::formatNumber(next->wheelDeg));
+                    own ? std::string("your mapping's [game_rotation]")
+                        : "its game profile: " + state.game->rotationNote,
+                    describeRotation(mapping_), describeRotation(*next));
     } else if (applied_) {
-        WE_LOG_INFO(log(), "game: the mapping's steering rotation again ({})", describeRotation(mapping_));
+        WE_LOG_INFO(log(), "game: the mapping's steering rotation again ({}): set your wheel's own software back to it",
+                    describeRotation(mapping_));
     }
     applied_ = next;
 }
@@ -165,8 +169,7 @@ bool GameWatch::writeGameSettings(const GameProfile& game) {
         return true;
     }
     // The steering rotation the game is played with: its own (GameRotation.hpp), else the mapping's.
-    const std::optional<SteeringRotation> own = rotationWhileRunning(game, overrides_);
-    const float steeringDeg = own ? own->gameDeg : mapping_.gameDeg;
+    const float steeringDeg = rotationWhileRunning(game, overrides_).value_or(mapping_);
     const std::vector<GameSettingText> values = gameSettingTexts(game, settingOverrides_, steeringDeg);
     const GameSettingsFileResult result = writeGameSettingsFile(documents, game.settingsFile, values);
     const std::string file = pathToUtf8(result.file);
@@ -305,7 +308,7 @@ GameWatch::Decision GameWatch::check() {
     sayFfbGain();
     queueGameSettings(update);
     writePendingGameSettings();
-    return Decision{route, applied_ ? applied_->ratio() : 0.0F, ffbGain_};
+    return Decision{route, ffbGain_};
 }
 
 void GameWatch::checkNfs2015Bindings() {

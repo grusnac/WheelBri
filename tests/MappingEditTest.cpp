@@ -20,7 +20,7 @@ EmulatorConfig load(const std::string& text) {
 const std::string kConfig =
     "; my config\r\n"
     "[emulator]\r\nsource_device = 346e            ; the wheel\r\n"
-    "[steering]\r\naxis = 0\r\ninvert = false\r\nsource_rotation_deg = 540\r\n"
+    "[steering]\r\naxis = 0\r\ninvert = false\r\n"
     "[throttle]\r\naxis = 2                        ; checked with --ui\r\ninvert = false\r\ngamma = 1.0\r\n"
     "[brake]\r\naxis = 5\r\n"
     "[clutch]\r\naxis = 6\r\n"
@@ -83,7 +83,6 @@ TEST(MappingEdit, WritesAccessoriesAndReadsThemBack) {
     EXPECT_NE(written.text.find("; my config\r\n"), std::string::npos);
     EXPECT_EQ(written.text.find("target_22"), std::string::npos);
     EXPECT_EQ(written.text.find("up ="), std::string::npos);
-    EXPECT_NE(written.text.find("source_rotation_deg = 540"), std::string::npos);   // not the mapping's: kept
 
     const EmulatorConfig back = load(written.text);
     EXPECT_EQ(mappingModel(back), model);
@@ -156,9 +155,20 @@ TEST(MappingEdit, AutoMapsFromTheRigsRoles) {
 
 TEST(MappingEdit, RotationReadFromTheConfig) {
     const MappingModel model = mappingModel(load(kConfig));
-    EXPECT_EQ(model.wheelRotationDeg, 540.0F);
-    EXPECT_EQ(model.gameRotationDeg, 900.0F);   // the default
+    EXPECT_EQ(model.steeringRotationDeg, 900.0F);   // the default
     EXPECT_TRUE(tuningProblem(model).empty());
+}
+
+// An older config's wheel rotation (gone since 2026-10-13: the axis goes through 1:1 and the wheel's own software is
+// set to the steering rotation) is ignored, and goes when it is saved.
+TEST(MappingEdit, SavingDropsTheOldWheelRotation) {
+    const std::string old = kConfig + "[steering]\r\nsource_rotation_deg = 540\r\n";
+    const MappingModel model = mappingModel(load(old));
+    EXPECT_EQ(model.steeringRotationDeg, 900.0F);
+    const MappingWriteResult written = writeMapping(old, model);
+    ASSERT_TRUE(written.error.empty()) << written.error;
+    EXPECT_EQ(written.text.find("source_rotation_deg"), std::string::npos) << written.text;
+    EXPECT_EQ(mappingModel(load(written.text)), model);
 }
 
 // An older config's dead zones (gone since 2026-10-13: the devices' own software sets them) go when it is saved.
@@ -175,11 +185,9 @@ TEST(MappingEdit, SavingDropsOldDeadzones) {
 
 TEST(MappingEdit, WritesRotationOnlyWhereItChanged) {
     MappingModel model = mappingModel(load(kConfig));
-    model.wheelRotationDeg = 180.0F;
-    model.gameRotationDeg = 180.0F;
+    model.steeringRotationDeg = 180.0F;
     const MappingWriteResult written = writeMapping(kConfig, model);
     ASSERT_TRUE(written.error.empty()) << written.error;
-    EXPECT_NE(written.text.find("source_rotation_deg = 180\r\n"), std::string::npos) << written.text;
     EXPECT_NE(written.text.find("target_rotation_deg = 180\r\n"), std::string::npos) << written.text;
     EXPECT_EQ(written.text.find("deadzone"), std::string::npos);   // no dead zones: never written
     EXPECT_NE(written.text.find("; checked with --ui"), std::string::npos);   // comments kept
@@ -193,13 +201,13 @@ TEST(MappingEdit, WritesRotationOnlyWhereItChanged) {
 
 TEST(MappingEdit, RefusesRotationsOutOfRange) {
     const MappingModel good = mappingModel(load(kConfig));
-    for (const bool game : {true, false}) {
+    for (const float deg : {45.0F, 9000.0F}) {
         MappingModel model = good;
-        (game ? model.gameRotationDeg : model.wheelRotationDeg) = game ? 45.0F : 9000.0F;
-        EXPECT_FALSE(tuningProblem(model).empty()) << game;
+        model.steeringRotationDeg = deg;
+        EXPECT_FALSE(tuningProblem(model).empty()) << deg;
         const MappingWriteResult refused = writeMapping(kConfig, model);
-        EXPECT_FALSE(refused.error.empty()) << game;
-        EXPECT_TRUE(refused.text.empty()) << game;
+        EXPECT_FALSE(refused.error.empty()) << deg;
+        EXPECT_TRUE(refused.text.empty()) << deg;
     }
 }
 

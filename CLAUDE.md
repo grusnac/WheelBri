@@ -65,11 +65,11 @@ Status (README.md has the full table):
   over the defaults (`GameProfiles`): NFS 2015 (`NFS16.exe`) reads brake Y, clutch Rz, throttle Slider from its own
   G920 table (2026-10-09; the shim's axis audit saw no remapping call, real G920 owners report the same swap).
   A profile may also carry a steering rotation (`[steering] rotation_deg` + `note`, both or neither), applied while
-  the game runs (wheel = game, 1:1): NFS Payback (`NeedForSpeedPayback.exe`) 180, its own handling being slow with
-  any wheel (2026-10-11). Core `GameRotation` (`rotationWhileRunning`: the user's `[game_rotation]` line, else the
-  profile's); `GameWatch::check` returns the ratio, `Pipeline::setSteeringRatio` applies it (atomic, next tick),
-  `Mapper::map(inputs, ratio)`; status and `service.game` log say so and to set the wheel's own software to the
-  same. A profile may also carry a force feedback gain (`[ffb] gain` + `note`, both or neither, 0.25..4): NFS Unbound
+  the game runs: NFS Payback (`NeedForSpeedPayback.exe`) 180, its own handling being slow with any wheel
+  (2026-10-11). Core `GameRotation` (`rotationWhileRunning`: the user's `[game_rotation]` line, else the profile's;
+  degrees only, an older "360/180" reads as 180). The steering axis always goes through 1:1 (no ratio since
+  2026-10-13): the rotation is advice, so `GameWatch` (status, `service.game` log) tells the user to set the wheel's own
+  software to it, and a game whose own settings follow the steering rotation gets it written there. A profile may also carry a force feedback gain (`[ffb] gain` + `note`, both or neither, 0.25..4): NFS Unbound
   (`NeedForSpeedUnbound.exe`) 3, its force feedback being very light with no setting for it (2026-10-12: steering
   force 5% of full scale on average). `GameWatch::check` returns it, the loop hands it to
   `FfbController::setGameGain`, which multiplies only pushing forces (constant level, periodic magnitude and offset;
@@ -194,8 +194,9 @@ reads; "NO RIG" without a rig, "NO MAPPING" when not one of the target's control
 `mappingUsesRig`; those two come first in the status; `service/src/DeviceWatch.cpp` lists the game controllers on its own thread when Windows says one came or went: `platform::DeviceChanges`, `CM_Register_Notification` on HID interfaces / inotify on `/dev/input`, counted by core `ChangeCounter`, timed by core `RelistTimer`; `DeviceWatch` takes its lister, counter and timings as arguments (`systemLister()`, `systemOptions()`) so `DeviceWatchTest` drives it with a fake lister; `platform::FolderWatch` is the inotify watch, Linux only), with a listing every 30 s as a safety net and every 2 s where there are no notifications; the Rig tab and the session's wait for the wheel use the same), and the status says
 "NOT CONNECTED: <names>" or "NO RIG" in red. `WheelBackend::list()` on Windows makes a new DirectInput object each
 time, so a wheel switched on after the app started is found. Stopped, the app's own tabs are Mapping (`MappingEditView`,
-the editor, with `ConfigPicker` as its top row; also the STEERING ROTATION section: game full lock and wheel
-rotation, typed or by slider, ranges and formatting in core `AxisTuning`. There are no dead zones anywhere in
+the editor, with `ConfigPicker` as its top row; also the STEERING ROTATION section: one rotation
+(`target_rotation_deg`), typed or by slider, ranges and formatting in core `AxisTuning`, with the reminder to set the
+wheel's own software to the same (the axis goes through 1:1; `source_rotation_deg` is retired since 2026-10-13). There are no dead zones anywhere in
 WheelBri (since 2026-10-13: the devices' own software sets them): the mapper uses steering as reported and pedals as
 0-100% of their travel (`gamma` stays); older configs' `deadzone`, `deadzone_low`, `saturation_high` and older rigs'
 `deadzone N%` / `full N%` load and are ignored (`SectionReader::retired`, `parseControl`), and `writeMapping` /

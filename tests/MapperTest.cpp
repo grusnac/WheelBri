@@ -27,22 +27,17 @@ TEST(MapperSteering, SameRotationPassesThrough) {
     EXPECT_NEAR(mapper.map(withAxis(0, -1.0F)).steering, -1.0F, kTolerance);
 }
 
-TEST(MapperSteering, SmallerSourceRotationKeepsDegreesOneToOne) {
-    MapperConfig config;
-    config.steering.sourceRotationDeg = 540.0F;
-    config.steering.targetRotationDeg = 900.0F;
-    const Mapper mapper(config);
-    // Full lock on a 540-degree wheel is 270 of the target's 450 degrees each side.
-    EXPECT_NEAR(mapper.map(withAxis(0, 1.0F)).steering, 0.6F, kTolerance);
-}
-
-TEST(MapperSteering, LargerSourceRotationClampsAtTargetLock) {
-    MapperConfig config;
-    config.steering.sourceRotationDeg = 1080.0F;
-    config.steering.targetRotationDeg = 900.0F;
-    const Mapper mapper(config);
-    EXPECT_NEAR(mapper.map(withAxis(0, 1.0F)).steering, 1.0F, kTolerance);
-    EXPECT_NEAR(mapper.map(withAxis(0, 0.5F)).steering, 0.6F, kTolerance);
+// The steering rotation is the game's full lock and what the wheel's own software is set to: the axis goes through 1:1
+// whatever it is (no separate wheel rotation since 2026-10-13), so the wheel's end stop is the game's full lock.
+TEST(MapperSteering, OneToOneWhateverTheRotation) {
+    for (const float rotation : {180.0F, 540.0F, 900.0F, 1080.0F}) {
+        MapperConfig config;
+        config.steering.targetRotationDeg = rotation;
+        const Mapper mapper(config);
+        EXPECT_NEAR(mapper.map(withAxis(0, 1.0F)).steering, 1.0F, kTolerance) << rotation;
+        EXPECT_NEAR(mapper.map(withAxis(0, 0.25F)).steering, 0.25F, kTolerance) << rotation;
+        EXPECT_NEAR(mapper.map(withAxis(0, -0.5F)).steering, -0.5F, kTolerance) << rotation;
+    }
 }
 
 TEST(MapperSteering, NoDeadZoneAroundTheCentre) {

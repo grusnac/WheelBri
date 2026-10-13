@@ -5,10 +5,10 @@
 #include <string_view>
 
 // The steering rotation as the app edits it (Mapping tab) and the config reads it (EmulatorConfig): the allowed
-// range, typed numbers, and how they are written. The mapper applies it (Mapper.cpp), before the state goes to the
-// shim or the virtual device, so both ways to the game get the same.
-//   steering: source_rotation_deg (what the wheel's own software is set to), target_rotation_deg (the game's full
-//             lock: the emulated wheel reports full lock there).
+// range, typed numbers, and how they are written.
+//   steering: target_rotation_deg, the game's full lock. The wheel's own software must be set to the same: the axis
+//             goes through 1:1 (Mapper.cpp), so the wheel's end stop is the game's full lock. The older
+//             source_rotation_deg (a separate wheel rotation) is read and ignored since 2026-10-13.
 // There are no dead zones in WheelBri (since 2026-10-13): every axis is used as the device reports it; a dead zone is
 // set in the device's own software (Pit House for Moza).
 namespace wheelbri::tuning {

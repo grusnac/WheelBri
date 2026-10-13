@@ -85,7 +85,7 @@ TEST(EmulatorConfig, ReadsEverySection) {
     EXPECT_EQ(config.sourceDeviceMatch, "Racing");
     EXPECT_EQ(config.statePort, 50000);
     EXPECT_EQ(config.stateRateHz, 250);
-    EXPECT_FLOAT_EQ(config.mapper.steering.sourceRotationDeg, 540.0F);
+    EXPECT_FLOAT_EQ(config.mapper.steering.targetRotationDeg, 900.0F);   // source_rotation_deg: read and ignored
     EXPECT_TRUE(config.mapper.steering.invert);
     EXPECT_EQ(config.mapper.throttle.sourceAxis, 1);
     EXPECT_TRUE(config.mapper.throttle.invert);
@@ -151,12 +151,12 @@ TEST(EmulatorConfig, RemovedLoggingKeysAreReported) {
 }
 
 TEST(EmulatorConfig, InvalidValuesKeepDefaultsAndAreReported) {
-    const auto result = load("[steering]\naxis = nine\nsource_rotation_deg = 5\n[ffb]\nmaster_gain = 2\n");
+    const auto result = load("[steering]\naxis = nine\ntarget_rotation_deg = 5\n[ffb]\nmaster_gain = 2\n");
     EXPECT_EQ(result.config.mapper.steering.sourceAxis, 0);
-    EXPECT_FLOAT_EQ(result.config.mapper.steering.sourceRotationDeg, SteeringConfig{}.sourceRotationDeg);
+    EXPECT_FLOAT_EQ(result.config.mapper.steering.targetRotationDeg, SteeringConfig{}.targetRotationDeg);
     EXPECT_FLOAT_EQ(result.config.ffb.masterGain, 1.0F);
     EXPECT_TRUE(containsError(result, "[steering] axis = 'nine'"));
-    EXPECT_TRUE(containsError(result, "[steering] source_rotation_deg = '5'"));
+    EXPECT_TRUE(containsError(result, "[steering] target_rotation_deg = '5'"));
     EXPECT_TRUE(containsError(result, "[ffb] master_gain = '2'"));
 }
 

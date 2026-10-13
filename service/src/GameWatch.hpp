@@ -22,8 +22,8 @@ namespace wheelbri::service {
 // profile itself, so the pedals go out as they are and the log says so. With NFS 2015 followed it also reads the
 // game's own wheel bindings (core Nfs2015Settings) whenever its settings file changes, and warns only when they would
 // undo the profile. A game with a steering rotation (its profile's [steering] rotation_deg, or the user's
-// [game_rotation] line; GameRotation.hpp) steers with it while it runs: check() returns the ratio for the pipeline,
-// the log says what changed and that the wheel's own software must be set to the same, and the window shows it.
+// [game_rotation] line; GameRotation.hpp) is played with it: the axis goes through 1:1 either way, so the log says
+// the wheel's own software must be set to it while the game runs, and the window shows it.
 // A game with a force feedback gain (its profile's [ffb] gain: NFS Unbound) gets it while it runs: check() returns it
 // for the service's FfbController, and the log says so. A game with its own settings to set (its profile's
 // [game_settings], GameSettings.hpp: NFS Unbound's hidden wheel settings) gets them written into its settings file
@@ -35,14 +35,13 @@ namespace wheelbri::service {
 class GameWatch {
 public:
     // `routePedals`: the session publishes to the virtual G920 or wheelbri-uhid (the service applies profiles); false
-    // for the in-game shim (the shim does). `mapping`: the session's own rotation ([steering]); `overrides`: the
-    // user's per-game rotations ([game_rotation]). Logs the built-in profiles' problems, if any.
-    GameWatch(std::string_view targetProfile, bool routePedals, SteeringRotation mapping, GameRotations overrides,
+    // for the in-game shim (the shim does). `mapping`: the session's own rotation in degrees ([steering]);
+    // `overrides`: the user's per-game rotations ([game_rotation]). Logs the built-in profiles' problems, if any.
+    GameWatch(std::string_view targetProfile, bool routePedals, float mapping, GameRotations overrides,
               GameSettingOverrides settings = {}, GameFfbGains gains = {});
 
     struct Decision {
         PedalRoute route;           // Pipeline::setPedalRoute
-        float steeringRatio = 0;    // Pipeline::setSteeringRatio: 0 = the mapping's own
         float ffbGain = 1.0F;       // FfbController::setGameGain: 1 = the game's forces as it asks
     };
     // One look: what the pipeline should use now.
@@ -53,7 +52,7 @@ public:
     // For the window, in red: what the player should fix ("NFS 2015: RESET ITS WHEEL CONTROLS"), or empty.
     [[nodiscard]] const std::string& warning() const { return warning_; }
     // For the window, after the label: the rotation the game steers with while it is not the mapping's own ("180
-    // deg"), else empty. The log says the wheel's own software must be set to the same.
+    // deg"), else empty: the wheel's own software must be set to it while the game runs.
     [[nodiscard]] std::string rotationStatus() const;
 
     // For the app's Games tab: the game followed now, while its profile is in use.
@@ -73,7 +72,7 @@ private:
     void logEvents(const GameDetector::Update& update);
     void checkNfs2015Bindings();
     // The rotation for the game followed now (nullopt: the mapping's own), said in the log when it changes.
-    [[nodiscard]] std::optional<SteeringRotation> currentRotation() const;
+    [[nodiscard]] std::optional<float> currentRotation() const;
     void sayRotation();
     // The force feedback gain for the game followed now (1: none), said in the log when it changes.
     void sayFfbGain();
@@ -89,9 +88,9 @@ private:
     GameDetector detector_;
     std::string target_;
     bool routePedals_;
-    SteeringRotation mapping_;
+    float mapping_;
     GameRotations overrides_;
-    std::optional<SteeringRotation> applied_;   // what the last check() applied
+    std::optional<float> applied_;              // what the last check() said
     float ffbGain_ = 1.0F;                      // the same for the force feedback gain
     GameSettingOverrides settingOverrides_;     // the user's [game_settings]
     GameFfbGains ffbGains_;                     // the user's [game_ffb_gain]

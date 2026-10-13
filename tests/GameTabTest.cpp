@@ -57,7 +57,7 @@ TEST(GameProfileChanges, EveryKindInOrder) {
     EXPECT_EQ(changes[0].what, "Pedals");
     EXPECT_NE(changes[0].value.find("throttle_axis = slider"), std::string::npos) << changes[0].value;
     EXPECT_EQ(changes[1].what, "Steering rotation");
-    EXPECT_EQ(changes[1].value, "180 deg (wheel and game)");
+    EXPECT_EQ(changes[1].value, "180 deg (set your wheel's software to it too)");
     EXPECT_EQ(changes[1].why, "turns in slowly");
     EXPECT_EQ(changes[2].what, "Force feedback gain");
     EXPECT_NE(changes[2].value.find("x3"), std::string::npos) << changes[2].value;
