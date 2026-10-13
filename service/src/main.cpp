@@ -1356,12 +1356,7 @@ LoadedConfig loadForRun(const Options& options) {
             }
         }
     }
-    // Dead zones belong to the real devices: the rig's, where it sets them, over the config's.
     if (rig) {
-        for (std::string& note :
-             wheelbri::applyRigDeadzones(loaded.config.mapper, *rig, loaded.config.sourceDeviceMatch)) {
-            loaded.notes.push_back(std::move(note));
-        }
         for (std::string& problem :
              wheelbri::buttonAxisProblems(loaded.config.mapper, *rig, loaded.config.sourceDeviceMatch)) {
             loaded.warnings.push_back(std::move(problem));

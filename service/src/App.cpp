@@ -160,6 +160,7 @@ public:
                 if (key == ui::kEscape) {
                     return false;
                 }
+                if (setup) setup_->onKey(key);   // scrolling the devices
                 view_->onKey(key);
             }
         }
@@ -170,7 +171,9 @@ public:
                 view_->onClick(click.x, click.y);
             }
         }
+        if (setup) setup_->onPointer(input.pointer.x, input.pointer.y, input.leftDown);
         if (input.wheel != 0) {
+            if (setup) setup_->onScroll(input.wheel);
             view_->onScroll(input.wheel);
         }
         if (input.hwheel != 0) view_->onHScroll(input.hwheel);
@@ -461,6 +464,7 @@ private:
                         if (setup) setup_->onKey(key);
                         if (editingMapping) mapping_->onKey(key);
                     } else if (view_ != nullptr) {
+                        if (setup) setup_->onKey(key);   // scrolling the devices (letters are the tabs' keys)
                         view_->onKey(key);
                     } else if (key == 'r' || key == 'm' || key == 'l' || key == 'g') {
                         idleTab_ = key == 'r'   ? IdleTab::Setup
@@ -469,12 +473,17 @@ private:
                                                 : IdleTab::Logs;
                     } else if (idleTab_ == IdleTab::Logs) {
                         logs_->onKey(key);   // scrolling, O / D open the folders
+                    } else if (setup) {
+                        setup_->onKey(key);  // scrolling the devices
                     }
                 }
             }
             if (editingMapping) mapping_->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
             // Hover tooltips (the pickers' used controls): where the mouse is, or nowhere once it left the window.
             mapping_->setHover(input.pointer.x, input.pointer.y - kViewTop, editingMapping && input.pointerInside);
+            // The Rig tab's scroll bar is dragged with the mouse.
+            if (setup) setup_->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
+            if (setup && input.wheel != 0 && !popup_) setup_->onScroll(input.wheel);   // the Rig tab's devices
             if (view_ != nullptr && input.wheel != 0) view_->onScroll(input.wheel);
             if (view_ == nullptr && idleTab_ == IdleTab::Logs && input.wheel != 0) logs_->onScroll(input.wheel);
             // The live log's scroll bars: dragged with the mouse, and the sideways wheel.

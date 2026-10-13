@@ -45,12 +45,11 @@ TEST(MapperSteering, LargerSourceRotationClampsAtTargetLock) {
     EXPECT_NEAR(mapper.map(withAxis(0, 0.5F)).steering, 0.6F, kTolerance);
 }
 
-TEST(MapperSteering, DeadzoneIsRemovedWithoutAJump) {
-    MapperConfig config;
-    config.steering.deadzone = 0.1F;
-    const Mapper mapper(config);
-    EXPECT_EQ(mapper.map(withAxis(0, 0.05F)).steering, 0.0F);
-    EXPECT_NEAR(mapper.map(withAxis(0, 0.1F + 1e-6F)).steering, 0.0F, 1e-4F);
+TEST(MapperSteering, NoDeadZoneAroundTheCentre) {
+    const Mapper mapper{MapperConfig{}};
+    EXPECT_NEAR(mapper.map(withAxis(0, 0.01F)).steering, 0.01F, kTolerance);   // the smallest move counts
+    EXPECT_NEAR(mapper.map(withAxis(0, -0.01F)).steering, -0.01F, kTolerance);
+    EXPECT_EQ(mapper.map(withAxis(0, 0.0F)).steering, 0.0F);
     EXPECT_NEAR(mapper.map(withAxis(0, -1.0F)).steering, -1.0F, kTolerance);
 }
 
@@ -76,15 +75,15 @@ TEST(MapperPedals, InvertedAxis) {
     EXPECT_NEAR(mapper.map(withAxis(2, -1.0F)).brake, 1.0F, kTolerance);
 }
 
-TEST(MapperPedals, DeadzoneSaturationAndGamma) {
+TEST(MapperPedals, TheWholeTravelAndGamma) {
     MapperConfig config = pedalConfig();
-    config.brake.deadzoneLow = 0.1F;
-    config.brake.saturationHigh = 0.9F;
+    const Mapper linear(config);
+    EXPECT_NEAR(linear.map(withAxis(2, -0.96F)).brake, 0.02F, kTolerance);   // no dead zone at the released end
+    EXPECT_NEAR(linear.map(withAxis(2, 0.96F)).brake, 0.98F, kTolerance);    // nor early full at the other
     config.brake.gamma = 2.0F;
-    const Mapper mapper(config);
-    EXPECT_NEAR(mapper.map(withAxis(2, -0.9F)).brake, 0.0F, kTolerance);   // travel 0.05, inside dead zone
-    EXPECT_NEAR(mapper.map(withAxis(2, 0.0F)).brake, 0.25F, kTolerance);   // travel 0.5 -> 0.5 -> 0.5^2
-    EXPECT_NEAR(mapper.map(withAxis(2, 0.85F)).brake, 1.0F, kTolerance);   // travel 0.925, saturated
+    const Mapper curved(config);
+    EXPECT_NEAR(curved.map(withAxis(2, 0.0F)).brake, 0.25F, kTolerance);     // travel 0.5 -> 0.5^2
+    EXPECT_NEAR(curved.map(withAxis(2, 1.0F)).brake, 1.0F, kTolerance);
 }
 
 TEST(MapperPedals, UnmappedPedalStaysReleased) {

@@ -13,7 +13,7 @@
 #include <vector>
 
 // The rig: every device the user has (wheel, pedals, shifter, button box) and what each of their controls is called
-// and is for. The Wheel setup tab makes it (one file per rig, <name>.ini in rigsFolder()); the Mapping tab maps its
+// and is for. The Rig tab makes it (one file, <name>.ini in rigsFolder(), "My rig" at first); the Mapping tab maps its
 // controls onto the emulated wheel (the mapping is the config, another file). A control's line:
 //
 //   [device_1]
@@ -22,8 +22,10 @@
 //   kind = wheel
 //   axis_0 = Wheel | steering
 //   axis_2 = Gas | throttle | invert       ; invert: released at the top of the axis
-//   axis_5 = Brake | brake | deadzone 3% | full 90%
+//   axis_5 = Brake | brake
 //   button_13 = R paddle | right paddle
+// Rigs written before 2026-10-13 may have "| deadzone 3% | full 90%" on an axis: read and ignored (WheelBri has no
+// dead zones: the device's own software sets them), and left out when the rig is saved again.
 namespace wheelbri {
 
 enum class ControlRole {
@@ -67,19 +69,12 @@ inline constexpr std::array<ControlRole, 27> kButtonRoles = {
 // Throttle, brake, clutch, handbrake: one-sided axes (released at one end, pressed toward the other), the only ones
 // that may press a target button past a threshold (MapperConfig::buttonSecondary). Steering goes both ways: never.
 [[nodiscard]] bool axisDrivesButtons(ControlRole role);
-// Steering, throttle, brake, clutch: the roles with dead zones (the ones the emulated wheel's axes come from).
-[[nodiscard]] bool hasDeadzones(ControlRole role);
 [[nodiscard]] bool isPedal(ControlRole role);   // throttle, brake, clutch
 
 struct RigControl {
     std::string label;                  // what it says on the device (DeviceLabels::kMaxLabel characters at most)
     ControlRole role = ControlRole::None;
     bool invert = false;                // an axis released (or centred) at +1 instead of -1
-    // Dead zones of the real device (AxisTuning.hpp), fractions; unset = the config's own. Steering: around the centre
-    // (`full` unused). Throttle, brake, clutch: `deadzone` ignored at the released end, fully pressed from `full` on.
-    // Other roles have none. Laid over the mapping at Start (applyRigDeadzones).
-    std::optional<float> deadzone{};
-    std::optional<float> full{};
 
     [[nodiscard]] bool defined() const { return !label.empty() || role != ControlRole::None; }
     friend bool operator==(const RigControl&, const RigControl&) = default;
@@ -140,20 +135,7 @@ struct RigResult {
 [[nodiscard]] std::vector<std::string> buttonAxisProblems(const MapperConfig& mapper, const Rig& rig,
                                                           const std::string& sourceDeviceMatch);
 
-// At Start: the rig's dead zones laid over `mapper` (whose sources are already read from the config). Each emulated
-// axis (steering, throttle, brake, clutch) that reads a rig control with dead zones set takes them: steering its
-// deadzone, a pedal its deadzone_low and saturation_high. Device 0 is the wheel, found in the rig by
-// `sourceDeviceMatch` (as [emulator] source_device: a name or vvvv:pppp; empty = the rig's wheel), the others by
-// mapper.accessories. Returns one line per axis that took the rig's values, for the log ("throttle <- 'Gas' (axis
-// 2 of Pedals): dead zone 3%, full 95%"); values out of range are not used and say so.
-std::vector<std::string> applyRigDeadzones(MapperConfig& mapper, const Rig& rig, const std::string& sourceDeviceMatch);
-
 // Writes it (making the folder); false if it cannot be written.
 bool saveRig(const std::filesystem::path& folder, const std::string& name, const Rig& rig);
-// Renames <old>.ini to <name>.ini; the error, or empty when done.
-[[nodiscard]] std::string renameRig(const std::filesystem::path& folder, const std::string& oldName,
-                                    const std::string& name);
-// Why `name` cannot be a new rig's name (as configNameProblem), or empty.
-[[nodiscard]] std::string rigNameProblem(const std::string& name, const std::vector<std::string>& existing);
 
 }  // namespace wheelbri

@@ -4,19 +4,17 @@
 #include <string>
 #include <string_view>
 
-// The steering rotation and the axes' dead zones as the app edits them (Rig tab, Mapping tab) and the config reads
-// them (EmulatorConfig): the allowed ranges, typed numbers, and how they are written. The mapper applies them
-// (Mapper.cpp), before the state goes to the shim or the virtual device, so both ways to the game get the same.
+// The steering rotation as the app edits it (Mapping tab) and the config reads it (EmulatorConfig): the allowed
+// range, typed numbers, and how they are written. The mapper applies it (Mapper.cpp), before the state goes to the
+// shim or the virtual device, so both ways to the game get the same.
 //   steering: source_rotation_deg (what the wheel's own software is set to), target_rotation_deg (the game's full
-//             lock: the emulated wheel reports full lock there), deadzone (around the centre, of half the range);
-//   pedals:   deadzone_low (ignored at the released end), saturation_high (from there on: fully pressed).
+//             lock: the emulated wheel reports full lock there).
+// There are no dead zones in WheelBri (since 2026-10-13): every axis is used as the device reports it; a dead zone is
+// set in the device's own software (Pit House for Moza).
 namespace wheelbri::tuning {
 
 inline constexpr float kMinRotationDeg = 90.0F;
 inline constexpr float kMaxRotationDeg = 2520.0F;
-inline constexpr float kMaxSteeringDeadzone = 0.5F;
-inline constexpr float kMaxPedalDeadzone = 0.99F;
-inline constexpr float kMinPedalFull = 0.01F;
 
 // A typed number: "180", " 2.5 ", "5%", "180 deg"; nullopt for anything else (empty, "abc", "1e3", "-", "5%%").
 // A leading '-' is accepted (the range checks below refuse it where it does not belong).
@@ -29,7 +27,5 @@ inline constexpr float kMinPedalFull = 0.01F;
 
 // Why a value cannot be used, or empty. Fractions, not percentages.
 [[nodiscard]] std::string rotationProblem(float degrees);
-[[nodiscard]] std::string steeringDeadzoneProblem(float deadzone);
-[[nodiscard]] std::string pedalProblem(float deadzone, float full);
 
 }  // namespace wheelbri::tuning

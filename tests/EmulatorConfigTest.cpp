@@ -29,10 +29,10 @@ TEST(EmulatorConfig, EmptyFileGivesDefaults) {
 
 TEST(EmulatorConfig, RejectsNotANumber) {
     // "nan" passes a range check (every comparison is false) and would switch the force cap off.
-    const auto result = load("[ffb]\nmax_magnitude = nan\nmax_slew_per_second = inf\n[steering]\ndeadzone = -nan\n");
+    const auto result = load("[ffb]\nmax_magnitude = nan\nmax_slew_per_second = inf\n[brake]\ngamma = -nan\n");
     EXPECT_TRUE(containsError(result, "max_magnitude"));
     EXPECT_TRUE(containsError(result, "max_slew_per_second"));
-    EXPECT_TRUE(containsError(result, "deadzone"));
+    EXPECT_TRUE(containsError(result, "gamma"));
     EXPECT_FLOAT_EQ(result.config.ffb.maxMagnitude, FfbSafetyConfig{}.maxMagnitude);
 }
 
@@ -151,12 +151,12 @@ TEST(EmulatorConfig, RemovedLoggingKeysAreReported) {
 }
 
 TEST(EmulatorConfig, InvalidValuesKeepDefaultsAndAreReported) {
-    const auto result = load("[steering]\naxis = nine\ndeadzone = 0.9\n[ffb]\nmaster_gain = 2\n");
+    const auto result = load("[steering]\naxis = nine\nsource_rotation_deg = 5\n[ffb]\nmaster_gain = 2\n");
     EXPECT_EQ(result.config.mapper.steering.sourceAxis, 0);
-    EXPECT_FLOAT_EQ(result.config.mapper.steering.deadzone, 0.0F);
+    EXPECT_FLOAT_EQ(result.config.mapper.steering.sourceRotationDeg, SteeringConfig{}.sourceRotationDeg);
     EXPECT_FLOAT_EQ(result.config.ffb.masterGain, 1.0F);
     EXPECT_TRUE(containsError(result, "[steering] axis = 'nine'"));
-    EXPECT_TRUE(containsError(result, "[steering] deadzone = '0.9'"));
+    EXPECT_TRUE(containsError(result, "[steering] source_rotation_deg = '5'"));
     EXPECT_TRUE(containsError(result, "[ffb] master_gain = '2'"));
 }
 
@@ -185,9 +185,12 @@ TEST(EmulatorConfig, InvalidLogLevelFallsBackToWarn) {
     EXPECT_TRUE(containsError(result, "[logging] level = 'verbose'"));
 }
 
-TEST(EmulatorConfig, PedalSaturationMustExceedDeadzone) {
-    const auto result = load("[brake]\ndeadzone_low = 0.6\nsaturation_high = 0.5\n");
-    EXPECT_TRUE(containsError(result, "[brake] saturation_high must be greater than deadzone_low"));
+// Dead zones are gone (the devices' own software sets them): an older config's lines load, whatever they say, and
+// change nothing.
+TEST(EmulatorConfig, OldDeadzonesLoadAndAreIgnored) {
+    const auto result = load("[steering]\ndeadzone = 0.9\n[throttle]\ndeadzone_low = 0.6\nsaturation_high = 0.5\n"
+                             "[brake]\ndeadzone_low = lots\n[clutch]\nsaturation_high = 0.98\n");
+    EXPECT_TRUE(result.errors.empty()) << result.errors.front();
 }
 
 TEST(EmulatorConfig, FfbPortMustDifferFromStatePort) {

@@ -195,10 +195,11 @@ reads; "NO RIG" without a rig, "NO MAPPING" when not one of the target's control
 "NOT CONNECTED: <names>" or "NO RIG" in red. `WheelBackend::list()` on Windows makes a new DirectInput object each
 time, so a wheel switched on after the app started is found. Stopped, the app's own tabs are Mapping (`MappingEditView`,
 the editor, with `ConfigPicker` as its top row; also the STEERING ROTATION section: game full lock and wheel
-rotation, typed or by slider, ranges and formatting in core `AxisTuning`. Dead zones are the real devices' only, never
-the emulated wheel's: `RigControl::deadzone` / `full`, edited in the Rig tab's axis popup, laid over the config's
-values at Start by core `applyRigDeadzones` (main.cpp, logged as `rig: ...`); the config's `deadzone`,
-`deadzone_low`, `saturation_high` stay as the defaults when the rig sets none; Auto-map is core `autoMap`, which
+rotation, typed or by slider, ranges and formatting in core `AxisTuning`. There are no dead zones anywhere in
+WheelBri (since 2026-10-13: the devices' own software sets them): the mapper uses steering as reported and pedals as
+0-100% of their travel (`gamma` stays); older configs' `deadzone`, `deadzone_low`, `saturation_high` and older rigs'
+`deadzone N%` / `full N%` load and are ignored (`SectionReader::retired`, `parseControl`), and `writeMapping` /
+`writeRig` drop them; do not add them back; Auto-map is core `autoMap`, which
 returns `AutoMapResult` notes for every edge case: a role twice (first wins; `sameRoleElsewhere` warns in the Rig
 tab), a role the target lacks, a placed button freed from older places, another wheel's sources kept as an
 accessory, a control kept as a secondary (its role's input left empty); each target button has one role assignment
@@ -366,9 +367,14 @@ rewrites on every build only when it changes); views keep their own top-row cont
     each control's label, role
     (`ControlRole`: steering, throttle, ..., d-pad up, left / right paddle, shift up, gear N; new roles go at the end
     of the enum, since autoMap counts gears by value) and invert, written `label | role | invert`;
-    one `<name>.ini` per rig in `rigsFolder()` (`%LOCALAPPDATA%\wheelbri\rigs`), the active one in the app's state
-    file (`[app] rig`). The Wheel setup tab (`WheelSetupView`) writes it (Detect: a touched control opens its popup;
-    the rest position taken after ~20 reads gives a pedal's invert); the Mapping tab maps from it (`autoMap` in
+    one rig, `<name>.ini` in `rigsFolder()` (`%LOCALAPPDATA%\wheelbri\rigs`, "My rig" when first saved), named in
+    the app's state file (`[app] rig`; else the first file there). No rig selector, New or Rename: other rig files
+    are left alone, unused. The Rig tab (`WheelSetupView`) writes it: no device selector, every rig device (an unplugged
+    one as saved: its named controls, `tileCount`) and every other connected device shown at once (one scrolled
+    section each, `shownDevices`; the bottom-left list `listedDevices`, with Forget); a device joins the rig when one of its controls is named (`addFocusDevice`: the rig's devices
+    are what the hide filter hides, so connected devices are never added by themselves). Detect: a touched control on
+    any device opens its popup and scrolls to its section; the rest position taken after ~20 reads gives a pedal's
+    invert; the Mapping tab maps from it (`autoMap` in
     `MappingEdit.hpp` uses the roles). A session takes the names it shows from the active rig, else from the older
     per-device files (`DeviceLabels.hpp`, `deviceLabelsFolder()`), which the first rig also imports. Mapping is not
     done in the rig.
@@ -381,7 +387,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     the Wheel setup tab stay the wheel's. `MappingModel` / `writeMapping` are what the Mapping tab edits and saves
     (IniEditor; default button lines removed). The service opens accessories by id (`openAccessories` in main.cpp).
   - The config Start uses (`service/src/ConfigPicker.cpp`, the top row of the idle Mapping tab): the target, picked
-    with `<` `>` like the Rig tab's device: "G920 virtual device" or "G920 in-game shim" (`[app] way` in
+    with `<` `>` like the Rig tab's rig: "G920 virtual device" or "G920 in-game shim" (`[app] way` in
     `appStateFile()`, `app.ini`; `AppSettings::runSession(host, config, virtualDevice)`). Two layers: the **target**
     is fixed (the G920 profile's axes, D-pad and buttons; never the user's to change), the **mapping** of the rig onto
     it is the user's. Each target has a built-in config, never changed, holding WheelBri's default mapping (the user's

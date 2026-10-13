@@ -553,6 +553,12 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     const IniDocument before = IniDocument::parse(base).document;
     IniEditor ini(base);
     ini.set("emulator", "source_device", model.sourceDevice);
+    // Dead zones are gone (since 2026-10-13: the devices' own software sets them): an older file's lines go.
+    ini.remove("steering", "deadzone");
+    for (const char* const pedal : {"throttle", "brake", "clutch"}) {
+        ini.remove(pedal, "deadzone_low");
+        ini.remove(pedal, "saturation_high");
+    }
     // A number: left alone when the file already says it (or, with no line, when it is the default).
     const auto number = [&](const char* section, const char* key, const float value, const float defaultValue) {
         const std::optional<std::string> line = before.get(section, key);

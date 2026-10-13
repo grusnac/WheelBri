@@ -17,8 +17,8 @@ const logging::Logger& log() {
 }
 
 void logPedal(const char* name, const PedalConfig& pedal) {
-    WE_LOG_DEBUG(log(), "mapper: {:<8} axis={} invert={} deadzone_low={:.3f} saturation_high={:.3f} gamma={:.2f}", name,
-                 pedal.sourceAxis, pedal.invert, pedal.deadzoneLow, pedal.saturationHigh, pedal.gamma);
+    WE_LOG_DEBUG(log(), "mapper: {:<8} axis={} invert={} gamma={:.2f}", name, pedal.sourceAxis, pedal.invert,
+                 pedal.gamma);
 }
 
 bool isValidAxis(const int axis) {
@@ -44,10 +44,10 @@ bool buttonDown(const RawInputs& inputs, const int device, const int button) {
 
 Mapper::Mapper(const MapperConfig& config) : config_(config) {
     const SteeringConfig& steering = config_.steering;
-    WE_LOG_DEBUG(log(), "mapper: steering axis={} rotation {:.0f} -> {:.0f} deg (ratio {:.3f}) deadzone={:.3f} invert={}",
+    WE_LOG_DEBUG(log(), "mapper: steering axis={} rotation {:.0f} -> {:.0f} deg (ratio {:.3f}) invert={}",
                  steering.sourceAxis, steering.sourceRotationDeg, steering.targetRotationDeg,
                  steering.targetRotationDeg > 0.0F ? steering.sourceRotationDeg / steering.targetRotationDeg : 0.0F,
-                 steering.deadzone, steering.invert);
+                 steering.invert);
     if (!isValidAxis(steering.sourceAxis)) {
         WE_LOG_WARN(log(), "mapper: steering axis {} is out of range, steering will stay centred", steering.sourceAxis);
     }
@@ -133,15 +133,8 @@ float Mapper::mapSteering(const RawInputs& inputs, const float ratio) const {
         value = -value;
     }
 
-    const float magnitude = std::abs(value);
-    if (magnitude <= steering.deadzone) {
-        return 0.0F;
-    }
-    // Rescale so the output leaves the dead zone smoothly instead of jumping.
-    const float rescaled = (magnitude - steering.deadzone) / (1.0F - steering.deadzone);
-
     // Keep degrees 1:1: a 540-degree physical wheel at full lock is only 270 of the target's 450 degrees.
-    return std::clamp(std::copysign(rescaled * ratio, value), -1.0F, 1.0F);
+    return std::clamp(value * ratio, -1.0F, 1.0F);
 }
 
 float Mapper::mapPedal(const PedalConfig& pedal, const RawInputs& inputs) {
@@ -157,11 +150,7 @@ float Mapper::mapPedal(const PedalConfig& pedal, const RawInputs& inputs) {
         travel = 1.0F - travel;
     }
 
-    const float span = pedal.saturationHigh - pedal.deadzoneLow;
-    if (span <= 0.0F) {
-        return 0.0F;
-    }
-    const float normalised = std::clamp((travel - pedal.deadzoneLow) / span, 0.0F, 1.0F);
+    const float normalised = std::clamp(travel, 0.0F, 1.0F);
     return pedal.gamma == 1.0F ? normalised : std::pow(normalised, pedal.gamma);
 }
 

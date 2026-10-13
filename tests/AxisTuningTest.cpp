@@ -34,13 +34,4 @@ TEST(AxisTuning, Ranges) {
     EXPECT_TRUE(tuning::rotationProblem(2520.0F).empty());
     EXPECT_FALSE(tuning::rotationProblem(89.0F).empty());
     EXPECT_FALSE(tuning::rotationProblem(3000.0F).empty());
-    EXPECT_TRUE(tuning::steeringDeadzoneProblem(0.0F).empty());
-    EXPECT_TRUE(tuning::steeringDeadzoneProblem(0.5F).empty());
-    EXPECT_FALSE(tuning::steeringDeadzoneProblem(0.6F).empty());
-    EXPECT_FALSE(tuning::steeringDeadzoneProblem(-0.1F).empty());
-    EXPECT_TRUE(tuning::pedalProblem(0.02F, 1.0F).empty());
-    EXPECT_TRUE(tuning::pedalProblem(0.1F, 0.9F).empty());
-    EXPECT_FALSE(tuning::pedalProblem(0.5F, 0.5F).empty());    // full must be above the dead zone
-    EXPECT_FALSE(tuning::pedalProblem(1.0F, 1.0F).empty());
-    EXPECT_FALSE(tuning::pedalProblem(0.0F, 1.5F).empty());
 }

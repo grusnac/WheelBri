@@ -88,8 +88,9 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** the add-on clutch pedal was recognised but the G920's clutch never moved: the configs mapped axis 3,
   while the pedal moves R3 axis 6 (found in `raw_a6` in the telemetry).
-- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920-virtual-device.ini` and `config/g920-in-game-shim.ini`. If it doesn't reach 100% at the floor, lower its "full at"; if it doesn't
-  return to 0%, raise its dead zone (Rig tab, the axis popup). The game reads it as the G920's Rz axis.
+- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920-virtual-device.ini` and `config/g920-in-game-shim.ini`. If it doesn't reach 100% at the floor, or doesn't
+  return to 0%, set its range or dead zone in Pit House (WheelBri uses the axis as the device reports it). The game
+  reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
   `out_clutch` in `telemetry-<date>-<NN>.log`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
   a test clutch can be sent over UDP (`core/include/wheelbri/TestClutch.hpp`).
@@ -132,14 +133,17 @@ a headline, why it was needed, how to use it, and where to look.
 - **Use:** tab R: touch a control (Detect), pick its role (the name fills in with the role's: press the button
   that should be Y, click **Y**, Enter), or type your own name; **Save**. Button roles are the G920's own buttons (A,
   B, X, Y, Menu, View, RSB, LSB, Xbox, the paddles, the D-pad, the shifter's gears) plus plain Button; Auto-map puts
-  each on that G920 button. Several rigs, the active one remembered. The device with a Steering axis is the wheel.
+  each on that G920 button. One rig (no rig selector, New or Rename). The device with a Steering axis is the wheel.
   **Handbrake** is a role for an axis or a button (a lever like Moza's HBP reports an axis, or a button when switched
-  to that in its own software). Steering and pedal axes can have dead zones, typed in % in the axis popup (the live
-  bar shows them): steering around the centre, a pedal at its released end, and a pedal's "full at" point (fully pressed from there on). Dead zones belong to the real devices, so only the rig has
-  them: at Start they are laid over the mapping for whichever emulated axis reads that control (the log says
-  `rig: throttle <- 'Gas' (axis 1 of Pedals): dead zone 3%, full 95% (the rig's)`). Empty = the config's own
-  (`deadzone_low` 2%, `saturation_high` 95-98%, steering `deadzone` 0). In the file:
-  `axis_2 = Gas | throttle | deadzone 3% | full 90%`.
+  to that in its own software). There is no device to pick: every device of the rig and every other connected game
+  controller (what Windows' Game Controllers lists) is shown at once, one section each (its axes, its buttons),
+  scrolled (mouse wheel, the scroll bar at the right, PageUp / PageDown, Home / End) when they do not all fit; a rig device that is unplugged is shown as saved (its names and roles, still
+  editable). Each device shows its name (an input for a rig device), its id and **Online** / **Offline**. The
+  bottom-left corner lists them all the same way (**Forget** takes a device out of the rig). A device joins
+  the rig when one of its controls is named (the rig's devices are hidden from games, at most 4). **No dead zones**:
+  WheelBri uses every axis as the device reports it (steering from the centre, pedals 0-100% of their travel); set
+  dead zones and pedal ranges in the device's own software (Pit House). Older rigs' `deadzone N%` / `full N%` and
+  configs' `deadzone`, `deadzone_low`, `saturation_high` load and are ignored, and go when saved again.
 - **Look:** `%LOCALAPPDATA%\wheelbri\rigs\<rig>.ini`; `service.setup` log lines. Code: core `Rig`,
   `service/src/WheelSetupView.cpp`.
 
@@ -181,8 +185,7 @@ a headline, why it was needed, how to use it, and where to look.
   set wider than the game's full lock turns on past it with the force feedback dropping there. WheelBri never reads
   or sets the wheel's own settings. A game's own rotation (NFS Payback: 180) is set in the Games tab. All of it
   reaches the shim and the virtual device alike (the service's mapper applies it), from the next Start. Config keys:
-  `[steering] source_rotation_deg`, `target_rotation_deg`. Dead zones are not here: they are the real devices' (Rig
-  tab).
+  `[steering] source_rotation_deg`, `target_rotation_deg`. No dead zones: set them in the devices' own software.
 - **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core
   `MappingEdit`, `AxisTuning`, `Mapper`, `service/src/MappingEditView.cpp`.
 
@@ -452,11 +455,12 @@ The **Rig** tab (R) defines your **rig**: the devices you have (wheel, pedals, s
 what each control is. Every connected device is read at once. With **Detect** on (the default), press a button or move
 an axis (a pedal all the way) and its popup opens: type its name, pick what it is (Steering, Throttle, Brake, Clutch,
 Handbrake, Axis; Button, D-pad up/right/down/left, Shift up/down, Gear 1-7, Reverse), Enter. A pedal found resting at
-the top of its axis is marked **Inverted**. Clicking an axis row or a button tile opens the same popup. Touching a control
-of a device adds it to the rig (at most 4 devices; **Remove from rig** takes one out); give each a name. There is no "it is a wheel / pedals / ..." choice: the device
+the top of its axis is marked **Inverted**. Clicking an axis row or a button tile opens the same popup. Every connected
+device is shown at once (scroll for more); naming a control of a device adds it to the rig (at most 4 devices; **Forget**
+in the device list at the bottom left takes one out); give each a name. There is no "it is a wheel / pedals / ..." choice: the device
 with a **Steering** axis is the wheel (it plays force feedback).
-**Save** writes `%LOCALAPPDATA%\wheelbri\rigs\<rig>.ini`; **New** / **Rename** / `<` `>` manage rigs, and the active one
-is remembered. The first rig starts from names saved per device by earlier versions. The app opens on this tab until a
+**Save** writes the one rig, `%LOCALAPPDATA%\wheelbri\rigs\My rig.ini` (an older install keeps the rig it last used;
+other rig files from when the tab managed several stay in the folder, unused). The rig starts from names saved per device by earlier versions. The app opens on this tab until a
 rig is saved, then on Mapping; Start switches to the Logs tab so you can see it come up.
 
 **Mapping** (tab M, while stopped; while running the same tab is the live view) maps the active rig's controls onto

@@ -67,8 +67,8 @@ inline constexpr float kMaxButtonThreshold = 0.95F;
 
 // What the Mapping tab edits: the wheel, where each axis, button and D-pad direction of the emulated wheel comes
 // from, whether an axis is inverted, and the steering rotation (AxisTuning.hpp). Everything else in the config stays
-// as it is in the file. Dead zones are not the mapping's: they belong to the real devices (the rig, laid over the
-// mapping at Start by applyRigDeadzones, Rig.hpp).
+// as it is in the file. There are no dead zones: they belong in the devices' own software (an older config's
+// deadzone, deadzone_low and saturation_high lines are dropped by writeMapping).
 struct MappingModel {
     static constexpr std::size_t kSteering = 0, kThrottle = 1, kBrake = 2, kClutch = 3;
 

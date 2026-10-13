@@ -28,17 +28,18 @@ struct SteeringConfig {
     int sourceDevice = 0;
     float sourceRotationDeg = 900.0F;   // rotation configured on the rig's wheel (its maker's software)
     float targetRotationDeg = 900.0F;   // rotation the emulated wheel reports (the G920 = 900)
-    float deadzone = 0.0F;              // fraction of half-range around centre, 0..1
     bool invert = false;
+    // No dead zone here (since 2026-10-13): the axis is used as the device reports it. A dead zone belongs in the
+    // device's own software (Pit House for Moza); the config's old "deadzone" key is read and ignored.
 };
 
 struct PedalConfig {
     int sourceAxis = kUnmapped;
     int sourceDevice = 0;
     bool invert = false;                // true when the OS reports "pressed" as the low end
-    float deadzoneLow = 0.0F;           // fraction of travel ignored at the released end
-    float saturationHigh = 1.0F;        // fraction of travel that already counts as fully pressed
     float gamma = 1.0F;                 // response curve: <1 more sensitive early, >1 less
+    // 0..100% of the travel exactly as the device reports it: no dead zone and no early full (since 2026-10-13; the
+    // device's own software sets those). The config's old deadzone_low / saturation_high are read and ignored.
 };
 
 // Source buttons that act as a D-pad (some rims report their D-pad as four buttons instead of a hat).

@@ -65,22 +65,4 @@ std::string rotationProblem(const float degrees) {
     return {};
 }
 
-std::string steeringDeadzoneProblem(const float deadzone) {
-    if (!std::isfinite(deadzone) || deadzone < 0.0F || deadzone > kMaxSteeringDeadzone) {
-        return "the steering's dead zone is 0 to " + formatPercent(kMaxSteeringDeadzone);
-    }
-    return {};
-}
-
-std::string pedalProblem(const float deadzone, const float full) {
-    if (!std::isfinite(deadzone) || deadzone < 0.0F || deadzone > kMaxPedalDeadzone) {
-        return "a pedal's dead zone is 0 to " + formatPercent(kMaxPedalDeadzone);
-    }
-    if (!std::isfinite(full) || full < kMinPedalFull || full > 1.0F) {
-        return "a pedal's full point is " + formatPercent(kMinPedalFull) + " to 100%";
-    }
-    if (full <= deadzone) return "a pedal's full point must be above its dead zone";
-    return {};
-}
-
 }  // namespace wheelbri::tuning

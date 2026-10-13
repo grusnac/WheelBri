@@ -195,13 +195,11 @@ void readPedal(const IniDocument& ini, const std::string& section, PedalConfig& 
     SectionReader reader(ini, section, errors);
     reader.readSource("axis", pedal.sourceAxis, pedal.sourceDevice, kMaxAxisIndex, true, mapper);
     reader.readBool("invert", pedal.invert);
-    reader.readFloat("deadzone_low", pedal.deadzoneLow, 0.0F, tuning::kMaxPedalDeadzone);
-    reader.readFloat("saturation_high", pedal.saturationHigh, tuning::kMinPedalFull, 1.0F);
     reader.readFloat("gamma", pedal.gamma, 0.1F, 10.0F);
+    // Dead zones (until 2026-10-13; the device's own software sets them now): older configs load, the keys are ignored.
+    reader.retired("deadzone_low");
+    reader.retired("saturation_high");
     reader.reportUnknownKeys();
-    if (pedal.saturationHigh <= pedal.deadzoneLow) {
-        errors.push_back("[" + section + "] saturation_high must be greater than deadzone_low");
-    }
 }
 
 }  // namespace
@@ -236,8 +234,8 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
                          tuning::kMaxRotationDeg);
         reader.readFloat("target_rotation_deg", steering.targetRotationDeg, tuning::kMinRotationDeg,
                          tuning::kMaxRotationDeg);
-        reader.readFloat("deadzone", steering.deadzone, 0.0F, tuning::kMaxSteeringDeadzone);
         reader.readBool("invert", steering.invert);
+        reader.retired("deadzone");   // the steering's dead zone (until 2026-10-13): ignored
         reader.reportUnknownKeys();
     }
     readPedal(ini, "throttle", config.mapper.throttle, config.mapper, errors);

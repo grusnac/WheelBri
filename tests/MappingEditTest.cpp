@@ -161,6 +161,18 @@ TEST(MappingEdit, RotationReadFromTheConfig) {
     EXPECT_TRUE(tuningProblem(model).empty());
 }
 
+// An older config's dead zones (gone since 2026-10-13: the devices' own software sets them) go when it is saved.
+TEST(MappingEdit, SavingDropsOldDeadzones) {
+    const std::string old = kConfig + "[throttle]\r\ndeadzone_low = 0.02\r\nsaturation_high = 0.98\r\n"
+                                      "[steering]\r\ndeadzone = 0.0\r\n";
+    const MappingModel model = mappingModel(load(old));
+    const MappingWriteResult written = writeMapping(old, model);
+    ASSERT_TRUE(written.error.empty()) << written.error;
+    EXPECT_EQ(written.text.find("deadzone"), std::string::npos) << written.text;
+    EXPECT_EQ(written.text.find("saturation_high"), std::string::npos) << written.text;
+    EXPECT_EQ(mappingModel(load(written.text)), model);
+}
+
 TEST(MappingEdit, WritesRotationOnlyWhereItChanged) {
     MappingModel model = mappingModel(load(kConfig));
     model.wheelRotationDeg = 180.0F;
@@ -169,7 +181,7 @@ TEST(MappingEdit, WritesRotationOnlyWhereItChanged) {
     ASSERT_TRUE(written.error.empty()) << written.error;
     EXPECT_NE(written.text.find("source_rotation_deg = 180\r\n"), std::string::npos) << written.text;
     EXPECT_NE(written.text.find("target_rotation_deg = 180\r\n"), std::string::npos) << written.text;
-    EXPECT_EQ(written.text.find("deadzone"), std::string::npos);   // dead zones are the rig's, never written here
+    EXPECT_EQ(written.text.find("deadzone"), std::string::npos);   // no dead zones: never written
     EXPECT_NE(written.text.find("; checked with --ui"), std::string::npos);   // comments kept
 
     const EmulatorConfig back = load(written.text);

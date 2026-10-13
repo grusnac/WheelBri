@@ -1,8 +1,6 @@
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/Rig.hpp"
 
-#include "wheelbri/AxisTuning.hpp"
-#include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceMatch.hpp"
 #include "wheelbri/MappingEdit.hpp"
 
@@ -43,17 +41,8 @@ std::string trim(std::string_view text) {
     return std::string(text.substr(first, text.find_last_not_of(" \t") - first + 1));
 }
 
-// "deadzone 3%" / "full 90%": the percentage as a fraction, or nullopt (then `error` says why) when it is not one.
-std::optional<float> percentPart(const std::string& part, const std::size_t keyLength, std::string& error) {
-    const auto number = tuning::parseNumber(std::string_view(part).substr(keyLength));
-    if (!number) {
-        error = "'" + part + "': expected a percentage, e.g. '" + part.substr(0, keyLength) + "5%'";
-        return std::nullopt;
-    }
-    return *number / 100.0F;
-}
-
-// "Gas | throttle | invert | deadzone 3% | full 90%" -> the control; problems go to `error`.
+// "Gas | throttle | invert" -> the control; problems go to `error`. An older rig's "deadzone 3%" / "full 90%" on an
+// axis is skipped (dead zones are the device's own software's since 2026-10-13).
 RigControl parseControl(const std::string& value, const bool axis, std::string& error) {
     RigControl control;
     std::vector<std::string> parts;
@@ -73,15 +62,12 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
         const std::string part = lower(parts[i]);
         if (part == "invert") {
             control.invert = true;
-        } else if (axis && part.rfind("deadzone ", 0) == 0) {
-            control.deadzone = percentPart(part, 9, error);
-        } else if (axis && part.rfind("full ", 0) == 0) {
-            control.full = percentPart(part, 5, error);
+        } else if (axis && (part.rfind("deadzone ", 0) == 0 || part.rfind("full ", 0) == 0)) {
+            continue;   // a dead zone of an older rig: ignored
         } else if (const auto role = parseRole(parts[i]); role && roleFits(*role, axis)) {
             control.role = *role;
         } else if (!parts[i].empty()) {
-            error = "'" + parts[i] + "' is not " + (axis ? "an axis role, 'invert', 'deadzone N%' or 'full N%'"
-                                                             : "a button role or 'invert'");
+            error = "'" + parts[i] + "' is not " + (axis ? "an axis role or 'invert'" : "a button role or 'invert'");
         }
     }
     // A name made by picking the role, written the way the role is named now ("D-pad up" -> "D-pad Up"; the paddles
@@ -90,23 +76,6 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
         (lower(control.label) == lower(roleLabel(control.role)) || lower(control.label) == roleName(control.role))) {
         control.label = roleLabel(control.role);
     }
-    // The dead zones after the role (the parts can come in any order): only where the role has them, in range.
-    if (control.deadzone || control.full) {
-        std::string problem;
-        if (!hasDeadzones(control.role)) {
-            problem = "dead zones are for steering, throttle, brake and clutch";
-        } else if (control.role == ControlRole::Steering) {
-            if (control.full) problem = "'full' is for pedals";
-            else problem = tuning::steeringDeadzoneProblem(*control.deadzone);
-        } else {
-            problem = tuning::pedalProblem(control.deadzone.value_or(0.0F), control.full.value_or(1.0F));
-        }
-        if (!problem.empty()) {
-            if (error.empty()) error = problem;
-            control.deadzone.reset();
-            control.full.reset();
-        }
-    }
     return control;
 }
 
@@ -114,8 +83,6 @@ std::string controlText(const RigControl& control) {
     std::string text = control.label;
     if (control.role != ControlRole::None) text += std::string(" | ") + roleName(control.role);
     if (control.invert) text += " | invert";
-    if (control.deadzone) text += " | deadzone " + tuning::formatPercent(*control.deadzone);
-    if (control.full) text += " | full " + tuning::formatPercent(*control.full);
     return text;
 }
 
@@ -197,8 +164,6 @@ bool axisDrivesButtons(const ControlRole role) { return isPedal(role) || role ==
 bool isPedal(const ControlRole role) {
     return role == ControlRole::Throttle || role == ControlRole::Brake || role == ControlRole::Clutch;
 }
-
-bool hasDeadzones(const ControlRole role) { return role == ControlRole::Steering || isPedal(role); }
 
 const RigDevice* Rig::find(const DeviceId& id) const {
     for (const RigDevice& device : devices) {
@@ -348,61 +313,11 @@ std::vector<std::string> buttonAxisProblems(const MapperConfig& mapper, const Ri
     return problems;
 }
 
-std::vector<std::string> applyRigDeadzones(MapperConfig& mapper, const Rig& rig, const std::string& sourceDeviceMatch) {
-    std::vector<std::string> notes;
-    const auto deviceFor = [&](const int number) { return rigDeviceFor(mapper, rig, sourceDeviceMatch, number); };
-    // The rig's control an emulated axis reads, or null.
-    const auto controlFor = [&](const int device, const int axis, const RigDevice*& owner) -> const RigControl* {
-        owner = deviceFor(device);
-        if (owner == nullptr || axis < 0 || static_cast<std::size_t>(axis) >= owner->axes.size()) return nullptr;
-        const RigControl& control = owner->axes[static_cast<std::size_t>(axis)];
-        return control.deadzone || control.full ? &control : nullptr;
-    };
-    const auto describe = [](const char* name, const RigControl& control, const RigDevice& owner, const int axis) {
-        const std::string label = control.label.empty() ? std::string() : "'" + control.label + "' ";
-        return std::string(name) + " <- " + label + "(axis " + std::to_string(axis) + " of " +
-               (owner.name.empty() ? deviceId(owner.id.vendorId, owner.id.productId) : owner.name) + "): ";
-    };
-
-    SteeringConfig& steering = mapper.steering;
-    const RigDevice* owner = nullptr;
-    if (const RigControl* control = controlFor(steering.sourceDevice, steering.sourceAxis, owner);
-        control != nullptr && control->deadzone) {
-        const std::string head = describe("steering", *control, *owner, steering.sourceAxis);
-        if (const std::string problem = tuning::steeringDeadzoneProblem(*control->deadzone); !problem.empty()) {
-            notes.push_back(head + "the rig's dead zone not used: " + problem);
-        } else {
-            steering.deadzone = *control->deadzone;
-            notes.push_back(head + "dead zone " + tuning::formatPercent(steering.deadzone) + " (the rig's)");
-        }
-    }
-    const std::array<std::pair<const char*, PedalConfig*>, 3> pedals = {
-        {{"throttle", &mapper.throttle}, {"brake", &mapper.brake}, {"clutch", &mapper.clutch}}};
-    for (const auto& [name, pedal] : pedals) {
-        const RigControl* control = controlFor(pedal->sourceDevice, pedal->sourceAxis, owner);
-        if (control == nullptr) continue;
-        const std::string head = describe(name, *control, *owner, pedal->sourceAxis);
-        const float deadzone = control->deadzone.value_or(pedal->deadzoneLow);
-        const float full = control->full.value_or(pedal->saturationHigh);
-        if (const std::string problem = tuning::pedalProblem(deadzone, full); !problem.empty()) {
-            notes.push_back(head + "the rig's dead zones not used: " + problem);
-            continue;
-        }
-        pedal->deadzoneLow = deadzone;
-        pedal->saturationHigh = full;
-        notes.push_back(head + "dead zone " + tuning::formatPercent(deadzone) + ", full " +
-                        tuning::formatPercent(full) + " (the rig's" +
-                        (control->deadzone && control->full ? ")" : "; the other the config's)"));
-    }
-    return notes;
-}
-
 std::string writeRig(const Rig& rig, const std::string& name) {
     const std::string nl = "\r\n";
     std::string text = "; WheelBri rig '" + name + "': the devices and what their controls are (the Rig tab" + nl +
-                       "; writes this). A control: name | role | invert (invert = released at the top of the axis), and for" + nl +
-                       "; steering and pedals their dead zones: deadzone N% (pedals: at the released end), full N% (pedals:" +
-                       nl + "; fully pressed from there on)." + nl;
+                       "; writes this). A control: name | role | invert (invert = released at the top of the axis)." + nl +
+                       "; No dead zones: set those in the device's own software." + nl;
     for (std::size_t i = 0; i < rig.devices.size(); ++i) {
         const RigDevice& device = rig.devices[i];
         text += nl + "[device_" + std::to_string(i + 1) + "]" + nl;
@@ -410,7 +325,7 @@ std::string writeRig(const Rig& rig, const std::string& name) {
         text += "id = " + deviceId(device.id.vendorId, device.id.productId) + nl;
         text += std::string("kind = ") + deviceKindName(device.kind) + nl;
         for (std::size_t a = 0; a < device.axes.size(); ++a) {
-            if (device.axes[a].defined() || device.axes[a].invert || device.axes[a].deadzone || device.axes[a].full) {
+            if (device.axes[a].defined() || device.axes[a].invert) {
                 text += "axis_" + std::to_string(a) + " = " + controlText(device.axes[a]) + nl;
             }
         }
@@ -468,24 +383,6 @@ std::optional<Rig> readRig(const std::filesystem::path& folder, const std::strin
 
 bool saveRig(const std::filesystem::path& folder, const std::string& name, const Rig& rig) {
     return writeFileReplacing(folder / (name + ".ini"), writeRig(rig, name));
-}
-
-std::string renameRig(const std::filesystem::path& folder, const std::string& oldName, const std::string& name) {
-    std::vector<std::string> others = listRigs(folder);
-    others.erase(std::remove_if(others.begin(), others.end(), [&](const std::string& n) { return lower(n) == lower(oldName); }),
-                 others.end());
-    if (const std::string problem = rigNameProblem(name, others); !problem.empty()) return problem;
-    std::error_code ec;
-    std::filesystem::rename(folder / (oldName + ".ini"), folder / (name + ".ini"), ec);
-    return ec ? ec.message() : std::string();
-}
-
-std::string rigNameProblem(const std::string& name, const std::vector<std::string>& existing) {
-    std::vector<ConfigEntry> entries;
-    for (const std::string& other : existing) entries.push_back({other, {}, false});
-    std::string problem = configNameProblem(name, entries);
-    if (const auto at = problem.find("config"); at != std::string::npos) problem.replace(at, 6, "rig");
-    return problem;
 }
 
 }  // namespace wheelbri
