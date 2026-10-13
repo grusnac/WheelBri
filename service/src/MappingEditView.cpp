@@ -379,7 +379,8 @@ void MappingEditView::onText(const std::string& text) {
             if (commitTyping()) field_ = Field::None;   // not usable: keep typing, the status says why
             return;
         } else if (((c >= '0' && c <= '9') || c == '.' || c == '%' || c == ' ' ||
-                    (field_ == Field::PerGame && (c == '/' || c == 'o' || c == 'f' || c == 'O' || c == 'F'))) &&
+                    ((field_ == Field::PerGame || field_ == Field::GameSteering) &&
+                     (c == '/' || c == 'o' || c == 'f' || c == 'O' || c == 'F'))) &&
                    typed_.size() < kMaxTyped) {
             typed_ += c;
         }
@@ -404,11 +405,12 @@ void MappingEditView::setRotationFromX(const float x) {
 
 std::string MappingEditView::fieldText(const Field field, const std::size_t index) const {
     switch (field) {
-        case Field::PerGame: {
+        case Field::PerGame:
+        case Field::GameSteering: {
+            // The rotation the game is played with: its own, else the Mapping tab's (one value, two places).
             const std::span<const GameProfile> games = gameProfiles();
             if (index >= games.size()) return {};
-            const std::optional<float> rotation = rotationWhileRunning(games[index], edit_.gameRotations);
-            return rotation ? formatGameRotation({false, *rotation}) : std::string("off");
+            return degrees(rotationWhileRunning(games[index], edit_.gameRotations).value_or(edit_.steeringRotationDeg));
         }
         case Field::GameSetting: {
             const std::span<const GameProfile> games = gameProfiles();
@@ -440,8 +442,8 @@ bool MappingEditView::commitTyping() {
     if (field_ == Field::None) return true;
     const std::optional<float> number = tuning::parseNumber(typed_);
     std::string problem;
-    if (field_ == Field::PerGame) {
-        // "180" or "off" for one game.
+    if (field_ == Field::PerGame || field_ == Field::GameSteering) {
+        // "180" or "off" for one game: Mapping's and Game config's steering rotation are the same value.
         const std::span<const GameProfile> games = gameProfiles();
         const std::optional<GameRotationOverride> parsed = parseGameRotation(typed_);
         if (!parsed) {
@@ -481,6 +483,7 @@ bool MappingEditView::commitTyping() {
                 if (problem.empty()) edit_.steeringRotationDeg = value;
                 break;
             case Field::PerGame:
+            case Field::GameSteering:
             case Field::GameSetting:
             case Field::FfbGain:
             case Field::None: break;
@@ -574,8 +577,12 @@ void MappingEditView::draw() {
 
     // The target (fixed inputs, picked with < >), then whose mapping onto it this is: WheelBri's default, or the
     // user's own saved one.
-    picker_.draw(4, 18, !locked_);
-    window_.text(372, 22, builtIn_ ? "mapping: default" : "mapping: your own", builtIn_ ? kDim : kCaution);
+    // The target is the Mapping tab's alone: the Game profiles page does not show it (its values are saved with the
+    // same mapping, so Default, Save and Revert stay).
+    if (page_ != Page::Games) {
+        picker_.draw(4, 18, !locked_);
+        window_.text(372, 22, builtIn_ ? "mapping: default" : "mapping: your own", builtIn_ ? kDim : kCaution);
+    }
     const bool canSave = loaded_ && dirty() && !locked_;
     // Default, Save and Revert stay at the right (as far from it as in the design).
     const float right = extraW();
@@ -784,11 +791,6 @@ constexpr float kGameX = 216;
 constexpr float kGameValueX = kGameX + 168;   // the values' fields, and the lines under them
 constexpr std::uint64_t kFileStateEveryMs = 2000;
 
-std::string upper(std::string text) {
-    for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-    return text;
-}
-
 std::string clockText(const std::uint64_t ms) {
     const std::uint64_t seconds = ms / 1000;
     char text[32];
@@ -840,14 +842,11 @@ void MappingEditView::drawGames() {
         const GameProfile& game = games[g];
         const bool on = g == picked;
         const bool runs = game.id == now_.id;
-        const bool fits = profileFitsTarget(game, targetName_);
         window_.fill(4, y, kGameListW, 18, on ? kHeading : kPanel);
-        window_.text(10, y + 5, fit(game.label, 16), on ? kDark : fits ? kText : kDim);
+        window_.text(10, y + 5, fit(game.label, 16), on ? kDark : kText);
         if (runs) {
             window_.fill(4 + kGameListW - 64, y + 3, 58, 12, kActive);
             window_.text(4 + kGameListW - 60, y + 5, "running", kDark);
-        } else if (!fits) {
-            window_.text(4 + kGameListW - 52, y + 5, game.target, on ? kDark : kDim);
         }
         const std::string id = game.id;
         hit(4, y, kGameListW, 18, [this, id] { selectGame(id); });
@@ -867,8 +866,10 @@ void MappingEditView::drawGames() {
     window_.fill(kGameX - 8, 42, 1, contentH() - 100, kPanel);
 
     // The picked game.
+    // Its three sections, in this order: mapping, force feedback, the game's own config.
     float top = drawGameProfile(picked, 46);
-    top = drawGameValues(picked, top + 10);
+    top = drawGameMapping(picked, top + 10);
+    top = drawGameFfb(picked, top + 10);
     drawGameSettings(picked, top + 10);
 
     const float hint = contentH() - 52;
@@ -886,7 +887,7 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
     const GameProfile& game = gameProfiles()[index];
     window_.text(kGameX, y, game.label, kHeading);
     window_.text(kGameX + static_cast<float>(game.label.size() + 2) * ui::kCharWidth, y,
-                 fit("program " + game.program + ", for the " + upper(game.target), gameChars() - game.label.size() - 2),
+                 fit("program " + game.program, gameChars() - game.label.size() - 2),
                  kDim);
     y += 16;
 
@@ -925,46 +926,32 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
                      kDim);
         y += 12;
     }
-    if (!profileFitsTarget(game, targetName_)) {
-        window_.text(kGameX, y,
-                     fit("This profile is for the " + upper(game.target) + ": not used with the " + upper(targetName_) +
-                             " target.",
-                         gameChars()),
-                     kCaution);
-        y += 12;
-    }
-
-    // What the profile changes from WheelBri's defaults.
-    y += 10;
-    window_.text(kGameX, y, "ITS PROFILE CHANGES", kHeading);
-    window_.text(kGameX + 160, y, "from WheelBri's defaults, built in", kDim);
-    y += 16;
-    const std::vector<GameProfileChange> changes = describeGameProfile(game);
-    if (changes.empty()) {
-        window_.text(kGameX, y, "nothing", kDim);
-        y += 12;
-    }
-    for (const GameProfileChange& change : changes) {
-        window_.text(kGameX, y, fit(change.what, 19), kText);
-        for (const std::string& line : wrap(change.value, gameChars() - 20, 2)) {
-            window_.text(kGameX + 160, y, line, kText);
-            y += 12;
-        }
-        for (const std::string& line : wrap(change.why, gameChars() - 20, 2)) {
-            window_.text(kGameX + 160, y, line, kDim);
-            y += 12;
-        }
-        y += 4;
-    }
     return y;
 }
 
-float MappingEditView::drawGameValues(const std::size_t index, float y) {
+// A section's heading on the Game profiles page: its name, and what it holds (dim).
+void MappingEditView::gameSection(const float y, const std::string& name, const std::string& about) {
+    window_.text(kGameX, y, name, kHeading);
+    window_.text(kGameX + 160, y, fit(about, gameChars() - 20), kDim);
+}
+
+float MappingEditView::drawGameMapping(const std::size_t index, float y) {
     const GameProfile& game = gameProfiles()[index];
     const std::string id = game.id;
-    window_.text(kGameX, y, "YOUR VALUES", kHeading);
-    window_.text(kGameX + 160, y, "while it runs, instead of the Mapping tab's (Default: the profile's)", kDim);
+    gameSection(y, "MAPPING", "how the rig's controls reach the game while it runs");
     y += 16;
+
+    // The profile's own remapping (built in): the pedals the game reads on other axes.
+    if (const std::string pedals = describeOverlay(game); !pedals.empty()) {
+        window_.text(kGameX, y, "Pedals", kText);
+        for (const std::string& line : wrap(pedals, valueChars(), 2)) {
+            window_.text(kGameValueX, y, line, kText);
+            y += 12;
+        }
+        window_.text(kGameValueX, y, fit("built into the profile: the game reads them on other axes", valueChars()),
+                     kDim);
+        y += 18;
+    }
 
     // Its steering rotation ([game_rotation]): the profile's, the user's own, or off (the Mapping tab's).
     const bool own = edit_.gameRotations.count(id) != 0;
@@ -972,9 +959,10 @@ float MappingEditView::drawGameValues(const std::size_t index, float y) {
     const bool rotationChanged = own != (saved_.gameRotations.count(id) != 0) ||
                                  (own && !(edit_.gameRotations.at(id) == saved_.gameRotations.at(id)));
     window_.text(kGameX, y + 4, "Steering rotation", kText);
-    const std::string rotationText = rotation ? formatGameRotation({false, *rotation}) : std::string("off");
-    drawField(kGameValueX, y, 80, Field::PerGame, rotationText, rotationChanged, index);
-    window_.text(kGameValueX + 84, y + 4, rotation ? "deg" : "", kDim);
+    // The degrees it is played with (Off: the Mapping tab's), the same value as Game config's steering rotation.
+    drawField(kGameValueX, y, 80, Field::PerGame, degrees(rotation.value_or(edit_.steeringRotationDeg)),
+              rotationChanged, index);
+    window_.text(kGameValueX + 84, y + 4, "deg", kDim);
     button(kGameValueX + 116, y, rotation ? "On" : "Off", [this, id, rotation, &game] {
         if (rotation) {
             edit_.gameRotations[id] = GameRotationOverride{true, {}};   // off: the Mapping tab's in this game too
@@ -986,7 +974,8 @@ float MappingEditView::drawGameValues(const std::size_t index, float y) {
     }, rotation.has_value(), !locked_, 48);
     button(kGameValueX + 168, y, "Default", [this, id] { edit_.gameRotations.erase(id); }, false, !locked_ && own, 72);
     y += 20;
-    std::string about = game.rotationDeg ? "profile: " + degrees(*game.rotationDeg) + " deg. " : std::string();
+    std::string about;
+    if (game.rotationDeg) about = "Profile: " + degrees(*game.rotationDeg) + " deg (" + game.rotationNote + "). ";
     if (rotation) {
         about += "Set your wheel's own software to " + degrees(*rotation) + " deg while you play it.";
     } else {
@@ -994,14 +983,21 @@ float MappingEditView::drawGameValues(const std::size_t index, float y) {
     }
     if (hasSteeringSetting(game)) {
         const float written = rotation.value_or(edit_.steeringRotationDeg);
-        about += " Written to the game's own settings: " + degrees(written) + " deg" +
+        about += " Game config's Save to file writes " + degrees(written) + " deg into the game's settings" +
                  (written >= 1000.0F ? " (it keeps 3 digits: 100 to 999)." : ".");
     }
-    for (const std::string& line : wrap(about, valueChars(), 2)) {
+    for (const std::string& line : wrap(about, valueChars(), 3)) {
         window_.text(kGameValueX, y, line, kDim);
         y += 12;
     }
-    y += 6;
+    return y;
+}
+
+float MappingEditView::drawGameFfb(const std::size_t index, float y) {
+    const GameProfile& game = gameProfiles()[index];
+    const std::string id = game.id;
+    gameSection(y, "FORCE FEEDBACK", "what WheelBri does to the game's forces while it runs");
+    y += 16;
 
     // Its force feedback gain ([game_ffb_gain]): WheelBri's, on the game's pushing forces.
     const bool ownGain = edit_.gameFfbGains.count(id) != 0;
@@ -1017,9 +1013,10 @@ float MappingEditView::drawGameValues(const std::size_t index, float y) {
     for (const std::string& line :
          wrap("Times its steering force and rumble, before the cap; its springs and dampers stay as they are. "
               "Profile: " +
-                  tuning::formatNumber(game.ffbGain.value_or(1.0F), 2) + ", from " +
+                  tuning::formatNumber(game.ffbGain.value_or(1.0F), 2) +
+                  (game.ffbNote.empty() ? std::string() : " (" + game.ffbNote + ")") + "; from " +
                   tuning::formatNumber(kFfbGainMin, 2) + " to " + tuning::formatNumber(kFfbGainMax, 2) + ".",
-              valueChars(), 2)) {
+              valueChars(), 3)) {
         window_.text(kGameValueX, y, line, kDim);
         y += 12;
     }
@@ -1028,34 +1025,42 @@ float MappingEditView::drawGameValues(const std::size_t index, float y) {
 
 float MappingEditView::drawGameSettings(const std::size_t index, float y) {
     const GameProfile& game = gameProfiles()[index];
-    if (game.settings.empty()) return y;
     const std::string id = game.id;
-    window_.text(kGameX, y, "ITS OWN SETTINGS", kHeading);
-    window_.text(kGameX + 160, y, "written into its settings file while it is closed", kDim);
+    if (game.settings.empty()) return y;   // nothing of its own to change: no Game config section at all
+    gameSection(y, "GAME CONFIG", "the game's own settings: written into its file only by Save to file");
+    y += 16;
+    window_.text(kGameX, y, fit(game.settingsNote, gameChars()), kDim);
     y += 16;
 
-    // What the file holds now against what the next Start writes (the saved values), read every 2 s.
-    const float steeringDeg = rotationWhileRunning(game, saved_.gameRotations).value_or(saved_.steeringRotationDeg);
-    const std::vector<GameSettingText> wanted = gameSettingTexts(game, saved_.gameSettings, steeringDeg);
-    std::string key = id;
+    // What the file holds now against the values below (as shown, saved or not), read every 2 s.
+    const GameFilePlace place = gameFilePlace(game);
+    const std::vector<GameSettingText> wanted = gameValues(game);
+    std::string key = id + "|" + pathToUtf8(place.root) + "|" + place.relative;
     for (const GameSettingText& value : wanted) key += "|" + value.name + "=" + value.text;
     const std::uint64_t nowMs = platform::nowMs();
     if (!fileState_ || key != fileStateKey_ || nowMs - fileStateReadMs_ >= kFileStateEveryMs) {
-        fileState_ = readGameSettingsState(platform::documentsFolder(), game.settingsFile, wanted);
+        fileState_ = readGameSettingsState(place.root, place.relative, wanted);
         fileStateKey_ = key;
         fileStateReadMs_ = nowMs;
     }
     const GameSettingsFileState& file = *fileState_;
-    window_.text(kGameX, y, "File", kText);
-    window_.text(kGameValueX, y, fit("Documents/" + game.settingsFile, valueChars()), kDim);
-    y += 12;
     using Status = GameSettingsFileState::Status;
+    window_.text(kGameX, y, "File", kText);
+    const std::string where = place.located           ? pathToUtf8(place.root / pathFromUtf8(place.relative))
+                              : !place.root.empty()   ? "Documents/" + game.settingsFile
+                                                      : game.settingsFile;
+    window_.text(kGameValueX, y, fit(where, valueChars()), place.located ? kText : kDim);
+    y += 12;
     std::string fileLine;
     Colour fileColour = kDim;
     switch (file.status) {
-        case Status::NotHere: fileLine = file.why; break;
+        case Status::NotHere:
+            fileLine = "not found here: Locate it";
+            fileColour = kCaution;
+            break;
         case Status::NoFile:
-            fileLine = "not there yet: start the game once; WheelBri sets them after it closes";
+            fileLine = place.located ? "no longer there: Locate it again"
+                                     : "not found: start the game once (it writes it), or Locate it";
             fileColour = kCaution;
             break;
         case Status::Unreadable:
@@ -1064,28 +1069,44 @@ float MappingEditView::drawGameSettings(const std::size_t index, float y) {
             break;
         case Status::Read:
             if (file.asSet()) {
-                fileLine = "as WheelBri sets them (your saved values)";
+                fileLine = "holds the values below";
                 fileColour = kActive;
             } else {
-                fileLine = "not as your saved values yet: written at the next Start, or when the game closes";
+                fileLine = "not the values below yet: Save to file writes them (game closed)";
                 fileColour = kCaution;
             }
             break;
     }
     window_.text(kGameValueX, y, fit(fileLine, valueChars()), fileColour);
-    y += 12;
-    if (const auto said = now_.settings.find(id); said != now_.settings.end()) {
-        window_.text(kGameValueX, y, fit("this session: " + said->second, valueChars()), kDim);
-        y += 12;
+    y += 16;
+    // The file found: Save to file. Not found yet: Locate it first (the button then says Save to file).
+    const bool found = file.status == Status::Read || file.status == Status::Unreadable;
+    if (found) {
+        button(kGameValueX, y, "Save to file", [this, index] { saveGameFile(index); }, !file.asSet(),
+               !locked_ && file.status == Status::Read, 120);
+        button(kGameValueX + 128, y, "Locate...", [this, index] { locateGameFile(index); }, false,
+               !locked_ && platform::canPickFile(), 88);
+        window_.text(kGameValueX + 224, y + 4, fit("keeps the original as .before-wheelbri", valueChars() - 28),
+                     kDim);
+    } else {
+        button(kGameValueX, y, "Locate file", [this, index] { locateGameFile(index); }, true,
+               !locked_ && platform::canPickFile(), 120);
+        const std::string name = pathToUtf8(pathFromUtf8(game.settingsFile).filename());
+        window_.text(kGameValueX + 128, y + 4,
+                     fit(platform::canPickFile() ? "find the game's " + name + " file; then Save to file"
+                                                 : "no file dialog on this system yet",
+                         valueChars() - 16),
+                     kDim);
     }
-    y += 6;
+    y += 22;
     if (file.status == Status::Read) window_.text(fileColumnX(), y - 2, "in the file", kDim);
     y += 10;
 
     for (std::size_t s = 0; s < game.settings.size() && s < kMaxGameSettings; ++s) {
         if (y > contentH() - 52 - 20) break;   // keep clear of the hint
         const GameSetting& setting = game.settings[s];
-        window_.text(kGameX, y + 4, fit(gameSettingLabel(setting.id), 19), kText);
+        // A "steering" setting is the steering rotation: named and edited as in Mapping above, one value.
+        window_.text(kGameX, y + 4, fit(setting.value ? gameSettingLabel(setting.id) : "steering rotation", 19), kText);
         const std::optional<std::string> inFile =
             s < file.entries.size() ? file.entries[s].inFile : std::optional<std::string>();
         // What the file holds, right: amber while it is not what the next Start writes.
@@ -1099,8 +1120,15 @@ float MappingEditView::drawGameSettings(const std::size_t index, float y) {
                 (setting.value ? ": profile " + tuning::formatNumber(*setting.value, 2) + ", 0 to 1"
                                : ": the steering rotation, in degrees"));
         if (!setting.value) {
-            // The steering rotation: the rotation above sets it.
-            window_.text(kGameValueX, y + 4, "= the steering rotation above, in degrees", kDim);
+            // The same value as Mapping's steering rotation: changing either changes both.
+            const bool ownRotation = edit_.gameRotations.count(id) != 0;
+            const bool rotationChanged =
+                ownRotation != (saved_.gameRotations.count(id) != 0) ||
+                (ownRotation && !(edit_.gameRotations.at(id) == saved_.gameRotations.at(id)));
+            const float deg = rotationWhileRunning(game, edit_.gameRotations).value_or(edit_.steeringRotationDeg);
+            drawField(kGameValueX, y, 80, Field::GameSteering, degrees(deg), rotationChanged, index);
+            window_.text(kGameValueX + 84, y + 4, "deg", kDim);
+            window_.text(kGameValueX + 248, y + 4, fit("same as in Mapping", 26), kDim);
             y += 20;
             continue;
         }
@@ -1127,6 +1155,107 @@ float MappingEditView::drawGameSettings(const std::size_t index, float y) {
         y += 20;
     }
     return y;
+}
+
+MappingEditView::GameFilePlace MappingEditView::gameFilePlace(const GameProfile& game) const {
+    // The one the user located (app state: game_file.<id>), else the profile's under Documents (Windows only).
+    if (const std::string located = readAppSetting(stateFile_, "game_file." + game.id); !located.empty()) {
+        const std::filesystem::path file = pathFromUtf8(located);
+        return {file.parent_path(), pathToUtf8(file.filename()), true};
+    }
+    return {platform::documentsFolder(), game.settingsFile, false};
+}
+
+std::vector<GameSettingText> MappingEditView::gameValues(const GameProfile& game) const {
+    // As shown (saved or not): the game's own rotation if it has one, else the Mapping tab's.
+    const float steeringDeg = rotationWhileRunning(game, edit_.gameRotations).value_or(edit_.steeringRotationDeg);
+    return gameSettingTexts(game, edit_.gameSettings, steeringDeg);
+}
+
+void MappingEditView::locateGameFile(const std::size_t index) {
+    const GameProfile& game = gameProfiles()[index];
+    const std::filesystem::path name = pathFromUtf8(game.settingsFile).filename();
+    std::filesystem::path start = platform::documentsFolder();
+    if (!start.empty()) {
+        // Its folder under Documents when that is there, else Documents.
+        std::error_code ec;
+        const std::filesystem::path folder = (start / pathFromUtf8(game.settingsFile)).parent_path();
+        if (std::filesystem::is_directory(folder, ec)) start = folder;
+    }
+    const std::optional<std::filesystem::path> picked =
+        platform::pickFile("Locate " + game.label + "'s settings file (" + pathToUtf8(name) + ")", start,
+                           pathToUtf8(name));
+    if (!picked) return;   // cancelled
+    // Only a file that holds the game's settings: every one of them found in it, once.
+    const std::vector<GameSettingText> values = gameValues(game);
+    const GameSettingsFileState state =
+        readGameSettingsState(picked->parent_path(), pathToUtf8(picked->filename()), values);
+    const bool all = state.status == GameSettingsFileState::Status::Read &&
+                     std::all_of(state.entries.begin(), state.entries.end(),
+                                 [](const GameSettingsFileState::Entry& e) { return e.inFile.has_value(); });
+    if (!all) {
+        status_ = "Not " + game.label + "'s settings file: " +
+                  (state.status == GameSettingsFileState::Status::Read ? std::string("its settings are not in it")
+                                                                       : state.why) + ".";
+        statusError_ = true;
+        WE_LOG_WARN(log(), "game settings: {}: {} is not its settings file", game.label, pathToUtf8(*picked));
+        return;
+    }
+    if (!writeAppSetting(stateFile_, "game_file." + game.id, pathToUtf8(*picked))) {
+        status_ = "Could not remember the file in " + pathToUtf8(stateFile_) + ".";
+        statusError_ = true;
+        return;
+    }
+    fileState_.reset();
+    status_ = "Found " + game.label + "'s settings file: Save to file writes the values into it.";
+    statusError_ = false;
+    WE_LOG_INFO(log(), "game settings: {}: settings file located: {}", game.label, pathToUtf8(*picked));
+}
+
+void MappingEditView::saveGameFile(const std::size_t index) {
+    const GameProfile& game = gameProfiles()[index];
+    // The game reads the file when it starts and writes its own values back when it ends: only with it closed.
+    if (const auto programs = platform::runningPrograms()) {
+        for (const RunningProgram& program : *programs) {
+            if (programName(program.name) == game.program) {
+                status_ = game.label + " is running: close it first, then Save to file.";
+                statusError_ = true;
+                return;
+            }
+        }
+    }
+    const GameFilePlace place = gameFilePlace(game);
+    const GameSettingsFileResult result = writeGameSettingsFile(place.root, place.relative, gameValues(game));
+    fileState_.reset();
+    using Outcome = GameSettingsFileResult::Outcome;
+    switch (result.outcome) {
+        case Outcome::Written: {
+            std::string written;
+            for (const GameSettingsEdit::Change& change : result.changes) {
+                written += (written.empty() ? "" : ", ") + change.name + " " + change.before + " -> " + change.after;
+            }
+            WE_LOG_INFO(log(), "game settings: {}: written to {}: {} (the original is kept as {})", game.label,
+                        pathToUtf8(result.file), written, pathToUtf8(result.backup));
+            status_ = "Written to " + game.label + "'s settings file.";
+            statusError_ = false;
+            break;
+        }
+        case Outcome::AsSet:
+            status_ = game.label + "'s settings file already holds these values.";
+            statusError_ = false;
+            break;
+        case Outcome::NoFile:
+            status_ = "No settings file there: start the game once, or Locate it.";
+            statusError_ = true;
+            break;
+        case Outcome::Refused:
+        case Outcome::Failed:
+            status_ = "Not written: " + result.why + ".";
+            statusError_ = true;
+            WE_LOG_WARN(log(), "game settings: {}: not written to {}: {}", game.label, pathToUtf8(result.file),
+                        result.why);
+            break;
+    }
 }
 
 std::string MappingEditView::axisName(const SourceRef& source) const {

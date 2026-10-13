@@ -60,7 +60,6 @@ public:
         std::string rotation;           // the rotation it steers with, when not the mapping's
         float ffbGain = 1.0F;
         std::string warning;
-        std::map<std::string, std::string> settings;   // by profile id: what happened to its own settings
     };
     void setGameNow(GameNow now) { now_ = std::move(now); }
 
@@ -99,10 +98,11 @@ private:
     enum class Mode { Idle, Pick, PickWheel, PickAlt };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
     enum class Slot { Axis, Hat, Button };
-    // A number field: the steering rotation, a game's own rotation (`fieldIndex_` = its gameProfiles() index), or
+    // A number field: the steering rotation, a game's own rotation (`fieldIndex_` = its gameProfiles() index; PerGame
+    // in its Mapping section, GameSteering in its Game config: two places, one value), or
     // a game's own setting (`fieldIndex_` = game index * kMaxGameSettings + the setting's index), or a game's force
     // feedback gain (`fieldIndex_` = its gameProfiles() index).
-    enum class Field { None, Rotation, PerGame, GameSetting, FfbGain };
+    enum class Field { None, Rotation, PerGame, GameSteering, GameSetting, FfbGain };
 
     struct Hit {
         float x, y, w, h;
@@ -184,10 +184,29 @@ private:
     void drawRotation(float y);
     // The Games page: the list of profiles, and the picked one's.
     void drawGames();
-    // The picked game from `y` (x from kGameX): what its profile changes, the user's values, its settings file.
+    // The picked game from `y` (x from kGameX): its name and whether it runs, then its three sections, each with what
+    // its profile does and the user's values for it: MAPPING (the pedals the profile remaps, the steering rotation),
+    // FORCE FEEDBACK (the gain), GAME CONFIG (the game's own settings and its settings file; left out when the profile
+    // has none). No target: that is the Mapping tab's.
     float drawGameProfile(std::size_t index, float y);
-    float drawGameValues(std::size_t index, float y);
+    float drawGameMapping(std::size_t index, float y);
+    float drawGameFfb(std::size_t index, float y);
     float drawGameSettings(std::size_t index, float y);
+    void gameSection(float y, const std::string& name, const std::string& about);
+    // A game's settings file: the one the user located (Locate: kept in the app state as game_file.<id>), else the
+    // profile's under Documents. As root + a relative path, for GameSettings' checks (no link, nothing outside root).
+    struct GameFilePlace {
+        std::filesystem::path root;
+        std::string relative;
+        bool located = false;
+    };
+    [[nodiscard]] GameFilePlace gameFilePlace(const GameProfile& game) const;
+    // Its values as the tab shows them (saved or not), as the game writes them.
+    [[nodiscard]] std::vector<GameSettingText> gameValues(const GameProfile& game) const;
+    // Locate: the system's Open dialog; a file that holds every one of the game's settings is remembered.
+    void locateGameFile(std::size_t index);
+    // Save to file: the values into the game's file (never while it runs), the original kept once.
+    void saveGameFile(std::size_t index);
     [[nodiscard]] std::size_t selectedGameIndex() const;
     // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
     void drawField(float x, float y, float w, Field field, const std::string& value, bool changed,

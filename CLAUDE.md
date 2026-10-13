@@ -311,21 +311,24 @@ rewrites on every build only when it changes); views keep their own top-row cont
     `writeGameSettingsFile`: the file under the Documents folder, no link followed (file, backup, folders: the service
     may run as Administrator), backup `<file>.before-wheelbri` written once from the bytes read, outcomes Written /
     AsSet / NoFile / Refused / Failed; `GameSettingsTest` covers it with temporary folders and damaged files).
-    `GameWatch` writes them (Windows, under `platform::documentsFolder()`) only while the game is not running: at
-    the first `check()` and when the game ends; it logs every change, and tries again at each check after a Failed
-    (said once per reason). The
+    Nothing writes them by itself (since 2026-10-13; `GameWatch` no longer does): the Game profiles tab's **Save to
+    file** (`MappingEditView::saveGameFile`, refused while the game's program runs, `platform::runningPrograms`) writes
+    the values shown; **Locate file** (`locateGameFile`, `platform::pickFile`: GetOpenFileNameW, comdlg32; none on
+    Linux, `canPickFile`) picks the file when it is not under Documents, kept only if it holds every setting, in
+    `app.ini` as `game_file.<id>` (`gameFilePlace`: that file's folder as root, else Documents). The
     app's Game profiles tab edits them: `MappingEditView` with `Page::Games` (the same `MappingModel`, Save and Revert
-    as the Mapping tab, which keeps only the general rotation): a list of `gameProfiles()`, and for the one picked
-    `describeGameProfile` (core `GameTab`), its rotation row (`Field::PerGame`, `[game_rotation]`, for every game; a
-    game with a "steering" setting, `hasSteeringSetting`, gets that rotation written), its gain row (`Field::FfbGain`,
-    `[game_ffb_gain] <game> = 0.25..4`, `gameFfbGain`: the user's, else the profile's, else 1; `GameWatch::check`
-    returns it for `FfbController::setGameGain`) and its settings rows (`Field::GameSetting`), with what the file
-    holds now (core `readGameSettingsState`: read-only, the writer's path and link checks, read every 2 s) against the
-    saved values. While a session runs the page is locked and shows the game that runs from `UiFrame`'s game fields
-    (`GameWatch::live`, `settingsStates`); the app (`updateGames`) switches the live view to the Game profiles tab and
-    picks the game when `UiFrame::gameStarts` changes with a game followed (core `GameTabFollower`: once per start,
-    reset at every Start; not while a name is typed in the Rig tab or a popup is open). The pedals: both ways use the
-    same file:
+    as the Mapping tab, which keeps only the general rotation; no target shown, the target is the Mapping tab's): a
+    list of `gameProfiles()`, and for the one picked three sections, MAPPING (the profile's pedal overlay, its rotation
+    row), FORCE FEEDBACK (its gain row), GAME CONFIG (its settings rows; left out when the profile has none): its rotation row
+    (`Field::PerGame`, `[game_rotation]`, for every game; a game with a "steering" setting, `hasSteeringSetting`, gets
+    that rotation written), its gain row (`Field::FfbGain`, `[game_ffb_gain] <game> = 0.25..4`, `gameFfbGain`: the
+    user's, else the profile's, else 1; `GameWatch::check` returns it for `FfbController::setGameGain`) and its settings
+    rows (`Field::GameSetting`), with what the file holds now (core `readGameSettingsState`: read-only, the writer's
+    path and link checks, read every 2 s) against the values shown. While a session runs the page is locked and shows
+    the game that runs from `UiFrame`'s game fields (`GameWatch::live`); the app (`updateGames`)
+    switches the live view to the Game profiles tab and picks the game when `UiFrame::gameStarts` changes with a game
+    followed (core `GameTabFollower`: once per start, reset at every Start; not while a name is typed in the Rig tab or
+    a popup is open). The pedals: both ways use the same file:
     - virtual G920 / wheelbri-uhid: the service routes the published pedals (`routePedals(device, overlay(device,
       profile))` → `PedalRoute`, `Pipeline::setPedalRoute`, atomic, applied to the packet only; `lastReport()` and
       telemetry stay as mapped). The device's pedal axes are fixed (y, rz, slider), so a profile that is not a

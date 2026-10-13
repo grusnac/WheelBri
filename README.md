@@ -188,23 +188,30 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** a few games need something changed (NFS 2015's pedals, NFS Payback's rotation, NFS Unbound's force
   feedback); everything about one game is in one place, with what WheelBri does for it and why.
-- **Use:** tab G. On the left the games that have a profile; pick one to see what its profile changes (and the
-  profile's reason), your own values for it, and (NFS Unbound) what its settings file holds now. Your values, saved
-  with the mapping (Save, Revert, Default as on the Mapping tab), from the next Start:
+- **Use:** tab G. On the left the games that have a profile; pick one to see it in three sections, each with what the
+  profile does (and why) and your own values: **Mapping** (the pedals the profile remaps, the steering rotation),
+  **Force feedback** (the gain), **Game config** (the game's own settings and what its settings file holds now;
+  left out for a game whose own settings WheelBri does not change). No target here: the target is the Mapping tab's.
+  Your values, saved with the mapping (Save, Revert, Default as on the Mapping tab), from the next Start:
   **Steering rotation**: type another (`180`), **On/Off** (Off = the Mapping tab's), or **Default** for the profile's;
   saved as `[game_rotation] nfspayback = 180 | off` (an older `360/180` reads as 180). Set the wheel's own software to
-  the same while you play that game, and back afterwards. A game that keeps its own rotation (NFS Unbound's `WheelMaxRotation`) gets that number
-  written into its file too. **Force feedback gain**: 0.25 to 4 or **Default**, on the game's pushing forces (steering
-  force, rumble) before the safety limits; saved as `[game_ffb_gain] nfsunbound = 3`. **Its own settings** (NFS
+  the same while you play that game, and back afterwards. A game that keeps its own rotation (NFS Unbound's
+  `WheelMaxRotation`) shows it again in Game config as **steering rotation**: one value in two places, so changing
+  either changes both, and Save to file writes it. **Force feedback gain**: 0.25 to 4 or **Default**, on the game's
+  pushing forces (steering force, rumble) before the safety limits; saved as `[game_ffb_gain] nfsunbound = 3`.
+  **Game config** (NFS
   Unbound's hidden wheel settings: force feedback, spring): 0 to 1 or **Default**, saved as
-  `[game_settings] nfsunbound.spring = 0.8`; WheelBri writes them into the game's settings file while the game is
-  closed (at Start and when it ends), keeping the original as `<file>.before-wheelbri`. The tab reads the file every
-  2 s and says whether it already holds your saved values; the column on the right is the value in the file (amber
-  until it is written). While WheelBri runs, the tab opens by itself when a game with a profile starts, on that
-  game, and says that it runs (pid, for how long, the rotation and gain in use, what happened to its settings); it
+  `[game_settings] nfsunbound.spring = 0.8`. WheelBri never writes them by itself: **Save to file** writes the values
+  shown into the game's settings file (refused while the game runs: it writes its own values back when it closes),
+  keeping the original as `<file>.before-wheelbri`. When the file is not where the profile says (Documents), the
+  button is **Locate file**: pick it in the Open dialog (it must hold the game's settings; remembered in `app.ini` as
+  `game_file.<id>`), and it becomes Save to file (**Locate...** picks another). Windows only for now (no file dialog
+  on Linux). The tab reads the file every 2 s and says whether it holds the values shown; the column on the right is
+  the value in the file (amber until it is written). While WheelBri runs, the tab opens by itself when a game with a
+  profile starts, on that game, and says that it runs (pid, for how long, the rotation and gain in use); it
   does so once per start, so you can go to another tab while you play. Values cannot be changed while it runs.
 - **Look:** the service log (`service.game` lines; `Game profiles tab: <game> started`); `config/games/<id>.ini`. Code:
-  core `GameProfiles`, `GameTab` (`GameTabFollower`, `describeGameProfile`), `GameSettings` (`readGameSettingsState`),
+  core `GameProfiles`, `GameTab` (`GameTabFollower`), `GameSettings` (`readGameSettingsState`),
   `service/src/GameWatch.cpp`, the Games page in `service/src/MappingEditView.cpp`.
 
 ### Game force feedback through the safety limiter
