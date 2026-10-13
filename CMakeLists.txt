@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(wheel_emulator
-    VERSION 0.9.5
+    VERSION 0.9.6
     DESCRIPTION "Presents your rig (a wheel and its accessories) to games as a wheel they support (e.g. Logitech G920)"
     LANGUAGES CXX)
 
