@@ -8,8 +8,18 @@ while WheelBri runs (otherwise games would see two wheels).
 
 Needs
 -----
-- Windows 11, 64-bit (build 22000 or later). Nothing else has to be installed first: the programs carry their own
-  runtime, and the drivers use what Windows already has (UMDF 2).
+- Windows 11, 64-bit (build 22000 or later), for everything. Nothing else has to be installed first: the programs
+  carry their own runtime, and the drivers use what Windows already has (UMDF 2).
+- Windows 7 SP1, 8.1 or 10, 64-bit: the in-game shim way only (Run as Shim: a dinput8.dll next to each game's .exe
+  presents your wheel to that game). The virtual G920 and hiding your rig need Windows 11, so the installer puts no
+  drivers and no WheelBri Helper there, and asks for no restart. Windows 7 needs two updates first:
+  - KB2999226, the Universal C Runtime (Windows Update installs it; the installer says when it is missing);
+  - Windows Management Framework 5.1 (KB3191566, needs .NET Framework 4.5.2 or newer), for PowerShell 5.1, which
+    the installer runs in (Setup.exe says when it is missing).
+  The folder installer\win7 of the WheelBri sources has two scripts for them (cmd and Windows PowerShell only):
+  download-prerequisites.cmd downloads all three from Microsoft into that folder (double-click it; on a Windows 10
+  or 11 PC if Windows 7 cannot reach Microsoft's servers), and install-prerequisites.cmd, on the Windows 7 PC,
+  installs what is missing: right-click it > Run as administrator, restart Windows, then run Setup.exe.
 - An account that can approve an Administrator prompt, once, to install (the drivers and the WheelBri Helper are
   installed system-wide). Playing needs no Administrator: any user of the PC can run WheelBri.
 - Your wheel and accessories, connected by USB. They can also be connected after installing.

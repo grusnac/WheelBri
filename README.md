@@ -242,6 +242,19 @@ a headline, why it was needed, how to use it, and where to look.
 - **Look:** `wheelbri-install-<date>.log` in the logs folder. Code: `installer/`, `scripts/make/package.ps1`,
   `scripts/make/clean-pc.ps1`.
 
+### Windows 7 to 10: the in-game shim only
+
+- **Why:** the virtual G920's driver needs Windows 11 (on Windows 7 it would need a kernel driver of ours, which
+  64-bit Windows 7 loads only in test-signing mode), but the in-game shim needs no driver at all.
+- **Use:** the same Setup.exe. Before Windows 11 it installs the app, the configs and the shim, without the drivers,
+  the WheelBri Helper or a restart; Windows 7 needs KB2999226 (the Universal C Runtime) and Windows Management
+  Framework 5.1 first (Setup says which is missing): in `installer/win7/`, `download-prerequisites.cmd` downloads
+  them (with .NET 4.5.2, which WMF 5.1 needs) into that folder and `install-prerequisites.cmd` installs them on the
+  Windows 7 PC (both cmd and Windows PowerShell 2.0 or newer only, so they run on Windows 7 itself). In the app, Run as stays Shim (its arrows are off).
+- **Look:** the app's log says `Windows build <N>` and `Run as: Shim only`. Code: `platform::windowsBuild`,
+  `ConfigPicker::virtualDeviceSupported` (build 22000), `installer/install.ps1` (`$withDrivers`), `Setup.cmd`.
+  Plan and status: `docs/windows7-plan.md`.
+
 ### Logs tab and one logs folder
 
 - **Why:** one place to see why something failed: the app's, the shim's, both drivers' and the WheelBri Helper's logs

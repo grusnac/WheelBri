@@ -9,6 +9,17 @@ set "HERE=%~dp0"
 set "POWERSHELL=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "POWERSHELL=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
 
+rem The installer needs PowerShell 5.1: Windows 10 and 11 have it, Windows 7 SP1 gets it with Windows Management
+rem Framework 5.1. Checked here, where any PowerShell (2.0 on Windows 7) can answer, before install.ps1 runs.
+"%POWERSHELL%" -NoProfile -Command "if ($PSVersionTable.PSVersion -lt [version]'5.1') { exit 1 }" >nul 2>&1
+if errorlevel 1 (
+    echo WheelBri's setup needs PowerShell 5.1, which this Windows does not have yet.
+    echo On Windows 7 SP1: install Windows Management Framework 5.1 ^(KB3191566, from Microsoft; it needs .NET
+    echo Framework 4.5 or newer^), restart Windows, then run this setup again.
+    pause
+    exit /b 1
+)
+
 if exist "%HERE%install.ps1" (
     "%POWERSHELL%" -NoProfile -ExecutionPolicy Bypass -File "%HERE%install.ps1" %*
     rem plain "exit /b" keeps install.ps1's exit code (%ERRORLEVEL% here would be read before it ran)

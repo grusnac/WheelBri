@@ -44,3 +44,9 @@ dist/
 driver/x64/
 driver/*.vcxproj.user
 driver/*/x64/
+
+# Windows 7 prerequisites downloaded next to installer/win7/download-prerequisites.ps1 (Microsoft's, never committed)
+installer/win7/*.msu
+installer/win7/*.zip
+installer/win7/*.part
+installer/win7/wmf-unpacked/

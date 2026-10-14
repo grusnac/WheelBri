@@ -2,6 +2,11 @@
 # Settings > Apps (to uninstall). Run it from the unpacked package (Setup.exe does that), as Administrator; it asks
 # for Administrator itself when needed. Running it again upgrades in place and keeps an edited config.
 #
+# Windows 11 (build 22000+) gets everything below. Windows 7 SP1 to Windows 10 get the in-game shim way only: the
+# virtual G920's driver needs Windows 11, so there are no drivers, no WheelBri Helper and no restart; the app and its
+# shim need the Universal C Runtime there (Windows 10 has it; Windows 7 with update KB2999226), and this script
+# PowerShell 5.1 (Windows 7: Windows Management Framework 5.1; Setup.cmd checks).
+#
 #   install.ps1                         install to C:\Program Files\WheelBri
 #   install.ps1 -InstallDir D:\wheelbri
 #   install.ps1 -NoDesktopShortcut
@@ -73,6 +78,8 @@ if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Pri
 
 $ErrorActionPreference = 'Stop'
 $package = $PSScriptRoot
+# The drivers (the virtual G920, the hiding filter) and the WheelBri Helper need Windows 11; before it, the shim only.
+$withDrivers = [Environment]::OSVersion.Version.Build -ge 22000
 $version = if (Test-Path -LiteralPath (Join-Path $package 'VERSION.txt')) { (Get-Content -LiteralPath (Join-Path $package 'VERSION.txt') -Raw).Trim() } else { '0.0.0' }
 # Every log in one folder, the user's %LOCALAPPDATA%\wheelbri\logs (the app and both drivers write there too): the
 # drivers run as LocalService, so it may write there, and HKLM\SOFTWARE\wheelbri LogFolder tells them where (the
@@ -139,18 +146,35 @@ try {
     Step 'checking this PC'
     $build = [Environment]::OSVersion.Version.Build
     if (-not [Environment]::Is64BitOperatingSystem) { Fail 'WheelBri needs 64-bit Windows.' }
-    if ($build -lt 22000) {
-        Fail "WheelBri needs Windows 11 (build 22000 or newer) for its virtual G920 driver; this is build $build."
+    if ($build -lt 7601) { Fail "WheelBri needs Windows 7 SP1 (build 7601) or newer; this is build $build." }
+    if ($withDrivers) {
+        Write-Host "    Windows build $build, 64-bit: fine"
+    } else {
+        Write-Host ("    Windows build $build, 64-bit: the in-game shim way only (the virtual G920 needs " +
+                    'Windows 11): no drivers, no WheelBri Helper')
+        # The app and its shim are built against the Universal C Runtime (ucrtbase.dll): in Windows 10, an update for
+        # Windows 7. Without it the app does not start and games cannot load the shim.
+        if (-not (Test-Path -LiteralPath (Join-Path $env:SystemRoot 'System32\ucrtbase.dll'))) {
+            Fail ('WheelBri needs the Universal C Runtime, which this Windows does not have yet: install update ' +
+                  'KB2999226 (Windows Update, or "Update for Universal C Runtime in Windows" from Microsoft), then ' +
+                  'run Setup again.')
+        }
+        Write-Host '    Universal C Runtime: there'
     }
-    Write-Host "    Windows build $build, 64-bit: fine"
-    foreach ($required in 'wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini',
-                          'config\g25-virtual-device.ini', 'config\g25-in-game-shim.ini', 'uninstall.ps1', 'Uninstall.cmd',
-                          'driver\common.ps1', 'driver\install-driver.ps1', 'driver\hide\install-hide.ps1') {
+    $requiredFiles = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920-virtual-device.ini',
+                       'config\g920-in-game-shim.ini', 'config\g25-virtual-device.ini', 'config\g25-in-game-shim.ini',
+                       'uninstall.ps1', 'Uninstall.cmd', 'driver\common.ps1', 'shim\dinput8.dll')
+    if ($withDrivers) { $requiredFiles += @('driver\install-driver.ps1', 'driver\hide\install-hide.ps1') }
+    foreach ($required in $requiredFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $package $required))) {
             Fail "the package is incomplete ($required is missing): unpack the whole package again."
         }
     }
-    foreach ($driver in 'x64\Release\wheelbri-g920\wheelbri-g920', 'hide\x64\Release\wheelbri-hide\wheelbri-hide') {
+    $driverFiles = @()
+    if ($withDrivers) {
+        $driverFiles = @('x64\Release\wheelbri-g920\wheelbri-g920', 'hide\x64\Release\wheelbri-hide\wheelbri-hide')
+    }
+    foreach ($driver in $driverFiles) {
         foreach ($extension in '.inf', '.cat', '.dll') {
             if (-not (Test-Path -LiteralPath (Join-Path $package "driver\$driver$extension"))) {
                 Fail "the package is incomplete (driver\$driver$extension is missing): unpack the whole package again."
@@ -183,11 +207,12 @@ try {
             Fail "$InstallDir is not empty and holds no WheelBri installation: choose an empty or new folder (-InstallDir)."
         }
     }
-    Write-Host ('    the hiding filter is only added now: the app puts it on the devices of your rig (Wheel setup) ' +
-                'the first time you press Start')
-
-    Write-Host ('    the drivers are signed with WheelBri''s own certificate (not Microsoft''s): it is added to the ' +
-                'certificates this PC trusts (the uninstaller can remove it)')
+    if ($withDrivers) {
+        Write-Host ('    the hiding filter is only added now: the app puts it on the devices of your rig (Wheel ' +
+                    'setup) the first time you press Start')
+        Write-Host ('    the drivers are signed with WheelBri''s own certificate (not Microsoft''s): it is added to ' +
+                    'the certificates this PC trusts (the uninstaller can remove it)')
+    }
 
     # --- 2. a running copy ----------------------------------------------------------------------------------------
     Step 'closing a running WheelBri'
@@ -229,7 +254,12 @@ try {
     $legacy = 'wheelemu'
     $legacyKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$legacy"
     $legacyInstall = (Get-ItemProperty -Path $legacyKey -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
-    $legacyDevices = @(Get-PnpDevice -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -like "SWD\$legacy\*" })
+    # Get-PnpDevice is Windows 8+ (that version needed Windows 11 anyway).
+    $legacyDevices = @()
+    if (Get-Command Get-PnpDevice -ErrorAction SilentlyContinue) {
+        $legacyDevices = @(Get-PnpDevice -ErrorAction SilentlyContinue |
+                           Where-Object { $_.InstanceId -like "SWD\$legacy\*" })
+    }
     if ($legacyInstall -or $legacyDevices.Count -gt 0 -or (Test-Path "HKLM:\SOFTWARE\$legacy")) {
         Step "removing the version from before the rename ($legacy)"
         foreach ($device in $legacyDevices) {
@@ -341,10 +371,11 @@ try {
     Step 'installing the drivers'
     $hidePending = $false   # the hiding filter is installed but Windows starts it only after a restart
     $hideCode = $null       # install-hide.ps1's exit code (the package)
-    $drivers = @(
+    if (-not $withDrivers) { Write-Host '    none on this Windows (the in-game shim way needs none)' }
+    $drivers = if (-not $withDrivers) { @() } else { @(
         @{ Name = 'virtual G920 (wheelbri-g920)'; Script = 'driver\install-driver.ps1'; Required = $true },
         @{ Name = 'hiding filter (wheelbri-hide)'; Script = 'driver\hide\install-hide.ps1'; Required = $false }
-    )
+    ) }
     foreach ($driver in $drivers) {
         Write-Host "  $($driver.Name)"
         $code = Run-Script (Join-Path $InstallDir $driver.Script)
@@ -368,9 +399,15 @@ try {
     # user), or the wheel not plugged in: the first Start does it, as before.
     # The WheelBri Helper: what lets the app run without Administrator (the virtual G920, hiding the rig). A service
     # running as LocalSystem from the install folder, started with Windows and restarted after a crash.
-    Write-Host '  WheelBri Helper (service)'
-    $helperProblem = Install-HelperService (Join-Path $InstallDir 'wheelbri-helper.exe')
-    if ($helperProblem) {
+    # Not on Windows before 11: it only serves the virtual G920 and the hiding filter, which are not there.
+    $helperProblem = $null
+    if ($withDrivers) {
+        Write-Host '  WheelBri Helper (service)'
+        $helperProblem = Install-HelperService (Join-Path $InstallDir 'wheelbri-helper.exe')
+    }
+    if (-not $withDrivers) {
+        # nothing to say: the line above says there are no drivers
+    } elseif ($helperProblem) {
         Warn ("    the WheelBri Helper is not running ($helperProblem): until it does, the app shows HELPER NOT " +
               'INSTALLED and the virtual G920 works only when WheelBri is started as Administrator')
     } else {
@@ -474,13 +511,21 @@ try {
 
     # --- 7. check -------------------------------------------------------------------------------------------------
     Step 'checking the installation'
-    $installed = pnputil /enum-drivers | Out-String
-    foreach ($inf in 'wheelbri-g920.inf', 'wheelbri-hide.inf') {
-        if ($installed -match [regex]::Escape($inf)) { Write-Host "    $inf installed" } else { Warn "    $inf is not listed by pnputil" }
+    if ($withDrivers) {
+        $installed = pnputil /enum-drivers | Out-String
+        foreach ($inf in 'wheelbri-g920.inf', 'wheelbri-hide.inf') {
+            if ($installed -match [regex]::Escape($inf)) { Write-Host "    $inf installed" }
+            else { Warn "    $inf is not listed by pnputil" }
+        }
+        $helper = Get-Service -Name 'WheelBriHelper' -ErrorAction SilentlyContinue
+        if ($helper -and $helper.Status -eq 'Running') { Write-Host '    WheelBri Helper running' }
+        else { Warn '    the WheelBri Helper service is not running (services.msc > WheelBri Helper > Start)' }
+    } else {
+        foreach ($file in 'wheelbri.exe', 'shim\dinput8.dll') {
+            if (Test-Path -LiteralPath (Join-Path $InstallDir $file)) { Write-Host "    $file there" }
+            else { Warn "    $file is missing" }
+        }
     }
-    $helper = Get-Service -Name 'WheelBriHelper' -ErrorAction SilentlyContinue
-    if ($helper -and $helper.Status -eq 'Running') { Write-Host '    WheelBri Helper running' }
-    else { Warn '    the WheelBri Helper service is not running (services.msc > WheelBri Helper > Start)' }
     $exitCode = 0
 } catch {
     if ($_.Exception.Message -notin @('stop', 'cancelled')) {
@@ -497,14 +542,20 @@ try {
             Write-Host 'Things to look at:' -ForegroundColor Yellow
             $warnings | ForEach-Object { Write-Host "  $($_.Trim())" -ForegroundColor Yellow }
         }
-        Write-Host 'Next: restart Windows (asked below), plug in your wheel, open "WheelBri" from the Start menu, set up'
-        Write-Host 'your rig (Rig tab) and press Start. joy.cpl then lists the G920, not your rig. To remove it: Start menu >'
-        Write-Host 'WheelBri > Uninstall WheelBri, or Settings > Apps > WheelBri > Uninstall.'
+        if ($withDrivers) {
+            Write-Host 'Next: restart Windows (asked below), plug in your wheel, open "WheelBri" from the Start'
+            Write-Host 'menu, set up your rig (Rig tab) and press Start. joy.cpl then lists the G920, not your rig.'
+            Write-Host 'To remove it: Start menu > WheelBri > Uninstall WheelBri, or Settings > Apps > WheelBri.'
+        } else {
+            Write-Host 'Next: plug in your wheel, open "WheelBri" from the Start menu and set up your rig (Rig tab).'
+            Write-Host 'On the Mapping tab press Games, Add game (the folder with the game''s .exe), then Start'
+            Write-Host 'before the game. To remove it: Start menu > WheelBri > Uninstall WheelBri.'
+        }
     }
     Write-Host "Log: $logFolder"
     # The restart question: only here, at the end of an install that worked (never in the app or the uninstaller).
     $restart = $false
-    if ($exitCode -eq 0 -and -not $Quiet) {
+    if ($exitCode -eq 0 -and -not $Quiet -and $withDrivers) {   # no drivers: nothing a restart would finish
         Write-Host ''
         if ($hidePending) {
             Write-Host 'A restart of Windows is needed: the filter that hides the rig from games starts only after it.' -ForegroundColor Yellow

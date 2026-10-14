@@ -5,7 +5,8 @@
 #   - Uninstall.cmd in the install folder (double-click);
 #   - Uninstall.cmd in the unpacked package: cleans up an installation whose folder is damaged or already deleted
 #     (drivers, certificate, shortcuts, entry), using the package's own driver scripts.
-# Logs and telemetry in %LOCALAPPDATA%\wheelbri\logs are left.
+# Logs and telemetry in %LOCALAPPDATA%\wheelbri\logs are left. Before Windows 11 the installer puts no drivers and no
+# Helper in (the in-game shim way only), so there is nothing of them to remove there.
 #
 #   uninstall.ps1                      asks to confirm, whether to keep the config and whether to remove the certificate
 #   uninstall.ps1 -KeepConfig          keep the config (copied to %LOCALAPPDATA%\wheelbri\config-backup)
@@ -129,6 +130,9 @@ function Run-Script([string]$path, [string[]]$arguments = @()) {
     return $LASTEXITCODE
 }
 
+# The drivers and the certificate exist only on Windows 11 (install.ps1 installs them only there).
+$withDrivers = [Environment]::OSVersion.Version.Build -ge 22000
+
 $exitCode = 1
 try {
     Write-Host 'WheelBri uninstall' -ForegroundColor Green
@@ -149,7 +153,7 @@ try {
             throw 'cancelled'
         }
         if ($folderOk -and -not $KeepConfig) { $KeepConfig = Ask 'Keep your settings (config\*.ini) for a later install?' $false }
-        if (-not $RemoveCertificate) {
+        if ($withDrivers -and -not $RemoveCertificate) {
             $RemoveCertificate = Ask 'Also remove the certificate the drivers were signed with from the trusted certificates?' $true
         }
     }
@@ -175,20 +179,27 @@ try {
         if (Remove-HelperService) { Write-Host '    removed the WheelBri Helper service' }
         else { Warn '    the WheelBri Helper service could not be removed: sc.exe delete WheelBriHelper (as Administrator)' }
     }
-    # A driver installer the app started at Start (it keeps running when the app closes): finished first.
-    if (-not (Wait-DriverInstallers)) { Warn '    a driver installer WheelBri started is still running after 2 minutes: removing anyway' }
-    $service = Join-Path $InstallDir 'wheelbri-service.exe'
-    if ($folderOk -and (Test-Path $service)) { & $service --unhide | Out-Null }   # no "hidden" setting left behind
+    if ($withDrivers) {
+        # A driver installer the app started at Start (it keeps running when the app closes): finished first.
+        if (-not (Wait-DriverInstallers)) {
+            Warn '    a driver installer WheelBri started is still running after 2 minutes: removing anyway'
+        }
+        $service = Join-Path $InstallDir 'wheelbri-service.exe'
+        if ($folderOk -and (Test-Path $service)) { & $service --unhide | Out-Null }   # no "hidden" setting left behind
+    }
     Write-Host "    $(if ($running.Count) { "closed $($running.Count)" } else { 'none running' })"
 
     # 2. Drivers: the filter first (the rig's devices go back to Windows' own driver), then the virtual devices'.
     Write-Host '[2/5] removing the drivers' -ForegroundColor Cyan
-    foreach ($script in 'hide\uninstall-hide.ps1', 'uninstall-driver.ps1') {
+    if (-not $withDrivers) { Write-Host '    none on this Windows (the in-game shim way only)' }
+    $driverScripts = @()
+    if ($withDrivers) { $driverScripts = @('hide\uninstall-hide.ps1', 'uninstall-driver.ps1') }
+    foreach ($script in $driverScripts) {
         $code = Run-Script (Join-Path $driverRoot $script)
         if ($code -ne 0) { Warn "    $script ended with exit code $code (see above)" }
     }
     $certificateRemoved = $false
-    if ($RemoveCertificate) {
+    if ($RemoveCertificate -and $withDrivers) {
         $code = Run-Script (Join-Path $driverRoot 'uninstall-driver.ps1') @('-RemoveCertificate')
         if ($code -ne 0) { Warn "    the certificate was not removed (exit code $code, see above)" } else { $certificateRemoved = $true }
     }
