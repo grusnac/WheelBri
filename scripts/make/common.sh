@@ -63,3 +63,18 @@ cmake_build() {
 service_exe() {
     if on_windows; then echo "$build_dir/service/wheelbri-service.exe"; else echo "$build_dir/service/wheelbri-service"; fi
 }
+
+# Whether MSYS2's 32-bit compiler (pacman -S mingw-w64-i686-gcc) is there, for the 32-bit shim.
+have_mingw32() { [ -x /mingw32/bin/i686-w64-mingw32-g++.exe ] || [ -x /mingw32/bin/g++.exe ]; }
+
+# Windows: the 32-bit shim too (shim-x86.sh, into <build dir>-x86), for 32-bit games. Without the 32-bit compiler it
+# only warns: everything else is built, and the app puts the 64-bit shim into 64-bit games as before.
+build_shim_x86() {
+    on_windows || return 0
+    if ! have_mingw32; then
+        warn "no 32-bit compiler: the 32-bit shim (for 32-bit games, e.g. NFS Carbon) is not built"
+        warn "  install it once: pacman -S mingw-w64-i686-gcc"
+        return 0
+    fi
+    bash "$root/scripts/make/shim-x86.sh" || fail "the 32-bit shim did not build"
+}

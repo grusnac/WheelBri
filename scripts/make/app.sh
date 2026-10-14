@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build everything (core, app, service, helper, shim, tests; configures the build tree the first time) and start the
+# Build everything (core, app, service, helper, shim, tests; configures the build tree the first time; on Windows also
+# the 32-bit shim, into build-x86, when MSYS2's 32-bit compiler is installed) and start the
 # app (wheelbri.exe: a window with Start, Stop and Open logs). --test runs the whole unit test suite between the two,
 # and starts nothing when a test fails. A development build starts as Administrator (through PowerShell, which asks),
 # so it does the privileged steps itself; --as-user starts it as you, as an installed WheelBri runs: then the WheelBri
@@ -27,6 +28,7 @@ while [ $# -gt 0 ]; do
 done
 
 cmake_build
+build_shim_x86
 if [ $tests -eq 1 ]; then
     say "running all unit tests..."
     ctest --test-dir "$build_dir" --output-on-failure || fail "tests failed: the app is not started"

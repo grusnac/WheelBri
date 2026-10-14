@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Full rebuild of the CMake parts: deletes the build tree, configures from scratch and builds everything.
+# Full rebuild of the CMake parts: deletes the build tree (and build-x86, the 32-bit shim's), configures from scratch
+# and builds everything.
 # Use it after changing compilers, CMake options or toolchains, or when an incremental build acts up.
 # (The drivers too: scripts/make/all.sh --clean.)
 #
@@ -15,10 +16,13 @@ safe_build_dir() {
     [ "$dir" != "/" ] && [ "$dir" != "$(cd ~ && pwd -P)" ] && [[ "$repo/" != "$dir"/* ]] && [[ ! "$dir" =~ ^/[a-zA-Z]/?$ ]]
 }
 [ -n "$build_dir" ] && safe_build_dir || fail "WE_BUILD_DIR ($build_dir) holds the repository or is a system folder: not deleting it"
-if [ -d "$build_dir" ]; then
-    say "deleting $build_dir..."
-    rm -rf "$build_dir" || fail "could not delete $build_dir (is wheelbri-service still running?)"
-fi
+for dir in "$build_dir" "${build_dir}-x86"; do   # and the 32-bit shim's tree (shim-x86.sh)
+    if [ -d "$dir" ]; then
+        say "deleting $dir..."
+        rm -rf "$dir" || fail "could not delete $dir (is wheelbri-service still running?)"
+    fi
+done
 configure
 cmake_build
+build_shim_x86
 ok "rebuilt: $(service_exe)"

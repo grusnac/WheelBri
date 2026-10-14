@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build everything on Windows: the CMake parts (core, service, shim, tests) and the drivers.
+# Build everything on Windows: the CMake parts (core, service, the 64- and 32-bit shim, tests) and the drivers.
 #
 #   scripts/make/all.sh             incremental
 #   scripts/make/all.sh --clean     full rebuild of everything (deletes the CMake build tree first)
