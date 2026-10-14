@@ -44,8 +44,8 @@ Settled with NFS 2015 and an R3 on Windows:
   own software to 180 too. The Game profiles tab changes it per game or turns it off (`[game_rotation]`).
   A profile can also say which ways a game works with (`[game] ways` and `ways_note`; left out, both): when the
   game starts in a session run the other way, the app tells you with a Windows notification and a popup, and the
-  status next to Start says so in red. NFS Payback works with the virtual device only (with the in-game shim it shows
-  a DirectX error): with Run as Shim, "NFS Payback needs the virtual device". The Game profiles tab shows it too.
+  status next to Start says so in red ("<game> NEEDS THE VIRTUAL DEVICE"). The Game profiles tab shows it too. No
+  built-in profile needs it so far: every profiled game was played both ways.
   A profile can also make a game's force feedback stronger (`[ffb] gain` and `note`): while the game runs, the
   service multiplies its pushing forces (steering force, rumble; not springs or dampers) by it before the safety
   limits, which still apply. NFS Unbound's (`nfsunbound.ini`) is 3: its force feedback is very light and the game

@@ -31,7 +31,7 @@ namespace wheelbri {
 //            "NFS <name>" (NFS 2015, NFS Heat), never "Need for Speed ...".
 //            ways = virtual / ways_note = why   (both or neither): the ways the game works with, virtual (the virtual
 //            device) and/or shim (the in-game shim), comma-separated; left out, both. A session run the other way
-//            tells the user when the game starts (wayAdvice): NFS Payback shows a DirectX error with the shim.
+//            tells the user when the game starts (wayAdvice).
 //   [pedals] throttle_axis / brake_axis / clutch_axis = x y z rx ry rz slider none   (only those that change)
 //   [steering] rotation_deg = 180 / note = why   (both or neither): a game whose own handling needs another
 //            steering rotation than usual (NFS Payback's cars understeer and turn in slowly). While the game runs the

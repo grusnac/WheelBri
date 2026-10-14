@@ -8,7 +8,7 @@
 
 namespace wheelbri {
 
-// A game that does not work the way the session runs ([game] ways in its profile: NFS Payback with the in-game shim):
+// A game that does not work the way the session runs ([game] ways in its profile, e.g. virtual only with the shim):
 // told once each time it starts, as a Windows notification and a popup in the app, and in red next to Start while it
 // runs. The session (GameWatch) feeds it every GameDetector poll; the app counts what it has shown (WayNoticeFollower).
 // The game's profile need not be for the session's target: the way is the game's, whatever wheel it is shown.

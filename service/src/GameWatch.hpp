@@ -47,10 +47,10 @@ public:
 
     // For the window's status, after "Running 1:23, ": the profile's label ("NFS 2015") while it is in use, else empty.
     [[nodiscard]] std::string status() const;
-    // For the window, in red: what the player should fix ("NFS PAYBACK NEEDS THE VIRTUAL DEVICE", "NFS 2015: RESET ITS
+    // For the window, in red: what the player should fix ("<GAME> NEEDS THE VIRTUAL DEVICE", "NFS 2015: RESET ITS
     // WHEEL CONTROLS"), or empty.
     [[nodiscard]] const std::string& warning() const { return wayWarning_.empty() ? warning_ : wayWarning_; }
-    // A game that does not work the way this session runs ([game] ways: NFS Payback with the shim): the advice while it
+    // A game that does not work the way this session runs ([game] ways, e.g. virtual only): the advice while it
     // runs, and how many times such a game started this session (the app tells the user once per start).
     [[nodiscard]] const std::optional<WayAdvice>& wayAdvice() const { return wayNotices_.current(); }
     [[nodiscard]] std::uint64_t wayNotices() const { return wayNotices_.count(); }

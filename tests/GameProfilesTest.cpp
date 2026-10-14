@@ -349,16 +349,12 @@ TEST(GameProfiles, WaysThatCannotBeReadAreProblems) {
               "[game] ways_note: at most 160 characters");
 }
 
-TEST(GameProfiles, NfsPaybackWorksOnlyWithTheVirtualDevice) {
-    const GameProfile* payback = gameProfileFor("NeedForSpeedPayback.exe");
-    ASSERT_NE(payback, nullptr);
-    EXPECT_TRUE(payback->virtualDevice);
-    EXPECT_FALSE(payback->shim);
-    EXPECT_FALSE(payback->waysNote.empty());
-    for (const char* both : {"NFS16.exe", "NeedForSpeedUnbound.exe"}) {   // played both ways (docs/games.md)
-        const GameProfile* game = gameProfileFor(both);
-        ASSERT_NE(game, nullptr) << both;
-        EXPECT_TRUE(game->virtualDevice && game->shim) << both;
+TEST(GameProfiles, EveryBuiltInGameWorksBothWays) {
+    // NFS 2015, NFS Payback (with the shim too since 2026-10-13) and NFS Unbound were played both ways
+    // (docs/games.md): no profile restricts its ways, so no session warns.
+    for (const GameProfile& game : gameProfiles()) {
+        EXPECT_TRUE(game.virtualDevice && game.shim) << game.id;
+        EXPECT_TRUE(game.waysNote.empty()) << game.id;
     }
 }
 

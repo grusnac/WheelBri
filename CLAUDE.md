@@ -72,7 +72,8 @@ Status (README.md has the full table):
   degrees only, an older "360/180" reads as 180). The steering axis always goes through 1:1 (no ratio since
   2026-10-13): the rotation is advice, so `GameWatch` (status, `service.game` log) tells the user to set the wheel's own
   software to it, and a game whose own settings follow the steering rotation gets it written there. A profile may also say which ways the game works with (`[game] ways` = virtual and/or shim + `ways_note`, both or
-  neither; left out, both): NFS Payback is virtual only (a DirectX error with the shim). Core `wayAdvice` and
+  neither; left out, both): no built-in profile uses it (NFS Payback, once thought virtual only, works with the shim,
+  2026-10-13). Core `wayAdvice` and
   `WayNotices` (fed by `GameWatch` from every `GameDetector` poll; a shim session is one that does not route the pedals)
   count each start of a game run the wrong way; the app (`WayNoticeFollower`) shows it once per start as a Windows
   notification (`UiWindow::notify`: Win32 notification-area balloon; none on X11) and a popup, and `GameWatch::warning`
