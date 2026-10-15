@@ -8,7 +8,7 @@
 
 namespace wheelbri {
 
-// The games the app put the in-game shim into (Run as Shim): each is a folder holding the game's .exe,
+// The games the app put the in-game shim into (Mode Shim): each is a folder holding the game's .exe,
 // where the shim is dinput8.dll plus its settings, wheelbri-shim.ini. The list lives in a small file of the app's
 // (shimGamesFile() in the service), one game per line, so the user never types a path: Add game picks the folder.
 struct ShimGame {

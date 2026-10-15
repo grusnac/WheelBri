@@ -428,7 +428,7 @@ private:
                     if (stopButton().hit(click)) stop();
                     continue;
                 }
-                // The shim's game (only with Run as Shim), where gamesRowX / gamesRowY put it.
+                // The shim's game (only with Mode Shim), where gamesRowX / gamesRowY put it.
                 if (showingMapping() && shimTarget() && !(editingMapping && mapping_->popupOpen()) &&
                     click.y >= gamesRowY() && click.y < gamesRowY() + kControlsHeight && click.x >= gamesRowX()) {
                     games_->onClick(click.x, click.y);

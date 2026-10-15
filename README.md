@@ -1,7 +1,7 @@
 # wheel-emulator
 
 Presents a DirectInput wheel (target hardware: **Moza R3**) to PC games as a wheel they support
-(the targets: **Logitech G920**, and the **Logitech G25** for games that know it and not the G920; the G29
+(the targets: **Logitech G920**, and the **Logitech G25** and **G27** for games that know them and not the G920; the G29
 profile was dropped on 2026-10-04, it is the same wheel as the G920 with more buttons), on Windows and on Linux
 (Proton). First target game: *Need for Speed (2015)*.
 
@@ -22,6 +22,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | 2 | Shim answers as a G920 using the service's state | **working in NFS 2015**: wheel, pedals, buttons, D-pad |
 | 3 | Game FFB → service (safety limiter, watchdog) → R3 | **working in NFS 2015**: constant, spring, damper, sine, square |
 | 4 | Linux virtual G920: `tools/uhid` (`wheelbri-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
+| G27 | The Logitech G27 as a third target (shim, Windows virtual device, Linux uhid): the G25's with its 23 buttons (046D:C29B) | built and unit-tested, **not yet tried in a game**; the button order is from users' reports: [docs/g27-target-plan.md](docs/g27-target-plan.md) |
 | G25 | The Logitech G25 as a second target (shim, Windows virtual device, Linux uhid): same layout and force feedback as the G920, its own identity (046D:C299) | built and unit-tested, **not yet tried in a game**; the button order is a guess: [docs/g25-target-plan.md](docs/g25-target-plan.md) |
 | 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelbri-service --virtual-g920`): wheel, pedals, buttons, force feedback, the rig hidden by our own filter (`wheelbri-hide`). Step 0 (a HIDMaestro bridge) and the virtual Xbox controller were removed on 2026-10-03. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
 
@@ -50,7 +51,7 @@ Settled with NFS 2015 and an R3 on Windows:
   service multiplies its pushing forces (steering force, rumble; not springs or dampers) by it before the safety
   limits, which still apply. NFS Unbound's (`nfsunbound.ini`) is 3: its force feedback is very light and the game
   has no setting for it;
-- the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/g920-virtual-device.ini`);
+- the R3's axes: steering 0, throttle 2, brake 5, clutch 6 (see `config/g920.ini`);
 - NFS 2015 unloads its effects between screens and never releases them, so the shim frees a slot on `Unload`.
 
 Still open:
@@ -95,7 +96,7 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** the add-on clutch pedal was recognised but the G920's clutch never moved: the configs mapped axis 3,
   while the pedal moves R3 axis 6 (found in `raw_a6` in the telemetry).
-- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920-virtual-device.ini` and `config/g920-in-game-shim.ini`. If it doesn't reach 100% at the floor, or doesn't
+- **Use:** plug the clutch into the R3 pedal set; `[clutch] axis = 6` in `config/g920.ini`. If it doesn't reach 100% at the floor, or doesn't
   return to 0%, set its range or dead zone in Pit House (WheelBri uses the axis as the device reports it). The game
   reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
@@ -106,7 +107,7 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** every game should see a G920 without anything copied into it, on any wheel; third-party virtual-device
   tools (HIDMaestro, ViGEm) are not allowed.
-- **Use:** **Run as** **Virtual** on the Mapping tab, then Start (no Administrator: the WheelBri Helper does
+- **Use:** **Mode** **Virtual** on the Mapping tab, then Start (no Administrator: the WheelBri Helper does
   it). Start installs the
   `wheelbri-g920` driver itself when Windows lacks it; Stop or closing the window removes the device.
 - **Look:** joy.cpl lists "Logitech G920 Driving Force Racing Wheel USB"; `wheelbri-driver-<date>-<NN>.log`, the service's
@@ -128,7 +129,7 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** a way that needs no driver: a `dinput8.dll` next to the game presents the rig as a G920 to that game only
   (also under Proton).
-- **Use:** **Run as** **Shim**, **Games (N)** next to Start: **Add game** (the folder with the game's `.exe`),
+- **Use:** **Mode** **Shim**, **Games (N)** next to Start: **Add game** (the folder with the game's `.exe`),
   pick it, Start. After the session the app asks whether to delete the shim from the game's folder. Settings: an
   optional `wheelbri-shim.ini` next to the DLL.
 - **32-bit games** (NFS Carbon and its era) load only a 32-bit DLL: the app reads the game's largest `.exe` and puts
@@ -181,7 +182,8 @@ a headline, why it was needed, how to use it, and where to look.
   **Save** writes your own mapping ("custom" then shows left of **Default**; hover it for why), **Default** goes back
   to WheelBri's. While running the same tab is the live view. The buttons are grouped by what they are: FACE (A, B,
   X, Y) and PADDLES in the left column, STICKS (LSB, RSB) and SYSTEM (Menu, View, Xbox) in the right, the SHIFTER's
-  gears below both (the G25: BLACK and PADDLES, WHEEL and RED, SHIFTER; `ButtonGroup` in its profile).
+  gears below both (the G25: BLACK and PADDLES, WHEEL and RED, SHIFTER; the G27: WHEEL and PADDLES, RED and
+  BLACK, SHIFTER; `ButtonGroup` in each profile).
   Every G920 input has one **role assignment** (its main source), and every G920 button can also have up to 8
   **secondary assignments** ("or"): buttons, or named axes (a pedal or a lever makes sense: one-sided) that press it
   past a threshold of their travel (25-75%, 50% by default), e.g. G920 X <- the wheel's X *or* a handbrake lever *or*
@@ -261,8 +263,8 @@ a headline, why it was needed, how to use it, and where to look.
   the WheelBri Helper or a restart; Windows 7 needs KB2999226 (the Universal C Runtime) and Windows Management
   Framework 5.1 first (Setup says which is missing): in `installer/win7/`, `download-prerequisites.cmd` downloads
   them (with .NET 4.5.2, which WMF 5.1 needs) into that folder and `install-prerequisites.cmd` installs them on the
-  Windows 7 PC (both cmd and Windows PowerShell 2.0 or newer only, so they run on Windows 7 itself). In the app, Run as stays Shim (its arrows are off).
-- **Look:** the app's log says `Windows build <N>` and `Run as: Shim only`. Code: `platform::windowsBuild`,
+  Windows 7 PC (both cmd and Windows PowerShell 2.0 or newer only, so they run on Windows 7 itself). In the app, Mode stays Shim (its arrows are off).
+- **Look:** the app's log says `Windows build <N>` and `Mode: Shim only`. Code: `platform::windowsBuild`,
   `ConfigPicker::virtualDeviceSupported` (build 22000), `installer/install.ps1` (`$withDrivers`), `Setup.cmd`.
   Plan and status: `docs/windows7-plan.md`.
 
@@ -381,7 +383,7 @@ cmake --build build-x86 --target wheelbri_shim     # -> build-x86/shim/dinput8.d
 
 The app does all of this from its Mapping tab (target G920 in-game shim, Games). By hand:
 
-1. Start the service and leave it running: `wheelbri-service --config config/g920-in-game-shim.ini`
+1. Start the service and leave it running: `wheelbri-service --config config/g920.ini`
    (add `--ui` to watch the mapping at the same time).
 2. Copy `dinput8.dll` next to the game's `.exe` (Linux/Proton: also `WINEDLLOVERRIDES="dinput8=n,b" %command%`).
    Optionally copy `config/wheelbri-shim.ini` there too; the defaults match the example service config.
@@ -449,22 +451,26 @@ USING THE WHEEL** in red and the log says so. Close the game with WheelBri runni
 in its controls settings.
 
 The top row of the Mapping tab (while stopped) has two pickers, each with `<` `>`: **Target**, the wheel WheelBri
-emulates (the **G920**, or the **G25** for games that know it and not the G920:
-[docs/g25-target-plan.md](docs/g25-target-plan.md); others come only when WheelBri supports them), and **Run as**:
+emulates (the **G920**, or the **G25** or **G27** for games that know them and not the G920:
+[docs/g25-target-plan.md](docs/g25-target-plan.md), [docs/g27-target-plan.md](docs/g27-target-plan.md); others come
+only when WheelBri supports them), and **Mode**:
 **Virtual** (WheelBri's driver, every game sees it, the rig is hidden) or **Shim** (`dinput8.dll` next to the game's
 `.exe`, nothing hidden, nothing created; Start writes the target into the game's `wheelbri-shim.ini`). A target is
 fixed: its axes, D-pad and buttons are what they are. What drives each of them is the mapping, and that is the user's:
-each target's built-in config (`config/g920-virtual-device.ini`, `config/g920-in-game-shim.ini`,
-`config/g25-virtual-device.ini`, `config/g25-in-game-shim.ini`, next to the program or one or two folders up) holds
-WheelBri's default mapping, used until you save your own on the Mapping tab
-(`%LOCALAPPDATA%\wheelbri\configs\my-g920-virtual-device.ini`, `my-g25-in-game-shim.ini`, ...). **Default** deletes
-yours. The target and the way are remembered (`%LOCALAPPDATA%\wheelbri\app.ini`, `[app] target`, `[app] way`). The
-virtual G25 needs a `wheelbri-g920` driver that binds `wheelbri\G25` too (one built since the G25 came):
+each target's built-in config, one for both modes (`config/g920.ini`, `config/g25.ini`, `config/g27.ini`, next to the
+program or one or two folders up), holds WheelBri's default mapping, used until you save your own on the Mapping tab
+(`%LOCALAPPDATA%\wheelbri\configs\my-g920.ini`, `my-g25.ini`, `my-g27.ini`), again for both modes: switching Mode
+never changes the mapping. **Default** deletes yours. A mapping saved when each mode had its own
+(`my-g920-virtual-device.ini`, `my-g920-in-game-shim.ini`, before 2026-10-15) becomes `my-g920.ini` once: the newer of
+the two (the older files are left as they are).
+The target and the way are remembered (`%LOCALAPPDATA%\wheelbri\app.ini`, `[app] target`, `[app] way`). The
+virtual G25 and G27 need a `wheelbri-g920` driver that binds `wheelbri\G25` and `wheelbri\G27` (one built since
+they came):
 `scripts/make/drivers.sh -Only g920 -Install` once. `--config FILE`
 (in a shortcut) starts with another config, and the other options below work too. `wheelbri-service --app` is the same window
 from a console (and on Linux).
 
-**Games** (only with **Run as** **Shim**): next to Start the app shows the game Start is for and a
+**Games** (only with **Mode** **Shim**): next to Start the app shows the game Start is for and a
 **Games (N)** button. It opens the games panel: every game the shim was put into, with its folder and whether the shim
 is there (shim in place / no shim / another dinput8.dll). Click a game to pick it; **Add game** opens Windows' folder
 window: choose the folder that holds the game's `.exe` and WheelBri copies the shim there (`dinput8.dll`, and
@@ -526,9 +532,9 @@ hidden.
 
 ```bash
 wheelbri-service --list                                          # connected joysticks
-wheelbri-service --config config/g920-virtual-device.ini --print     # live raw -> mapped -> G920 values
-wheelbri-service --config config/g920-virtual-device.ini --ui        # window: every axis/button, its G920 mapping, and game force feedback
-wheelbri-service --config config/g920-virtual-device.ini --ffb-test  # gentle spring / left / right / damper
+wheelbri-service --config config/g920.ini --print                # live raw -> mapped -> G920 values
+wheelbri-service --config config/g920.ini --ui                   # window: every axis/button, its G920 mapping, and game force feedback
+wheelbri-service --config config/g920.ini --ffb-test             # gentle spring / left / right / damper
 ```
 
 ## Logging

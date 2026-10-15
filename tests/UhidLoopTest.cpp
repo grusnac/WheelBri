@@ -26,7 +26,8 @@ TEST(UhidOptions, TheTargetIsAWheelWheelBriEmulates) {
     const auto g25 = parseOptions({"--target", "g25"});
     ASSERT_TRUE(g25.options) << g25.error;
     EXPECT_EQ(g25.options->target, "g25");
-    const auto bad = parseOptions({"--target", "g27"});
+    EXPECT_EQ(parseOptions({"--target", "g27"}).options->target, "g27");
+    const auto bad = parseOptions({"--target", "g29"});
     EXPECT_FALSE(bad.options);
     EXPECT_NE(bad.error.find("--target"), std::string::npos);
     EXPECT_FALSE(parseOptions({"--target"}).options);

@@ -329,7 +329,7 @@ void printUsage() {
         "usage: wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
         "                        [--stop-file FILE] [--virtual-g920 [--no-hide]] [--unhide] [--prepare-hide]\n"
         "                        [--telemetry-tab] [--ffb-tab]\n"
-        "  --config FILE  INI configuration (see config/g920-virtual-device.ini)\n"
+        "  --config FILE  INI configuration (see config/g920.ini)\n"
         "  --list         list joysticks and exit\n"
         "  --print        show live raw and mapped values\n"
         "  --ui           open a window showing how every axis and button maps to the emulated wheel\n"
@@ -1781,7 +1781,7 @@ int run(const Options& options) {
     return runSession(options, loaded, logFileOk, window.get());
 }
 
-// The config used when none is given: config/g920-virtual-device.ini (the target's default mapping) next to the program, or one or two
+// The config used when none is given: config/g920.ini (the target's default mapping) next to the program, or one or two
 // folders up (build/service/ in the source tree), or under the current folder.
 std::string defaultConfigPath() {
     const std::filesystem::path exe = platform::executablePath();
@@ -1791,7 +1791,7 @@ std::string defaultConfigPath() {
     }
     bases.push_back(std::filesystem::current_path());
     for (const auto& base : bases) {
-        const std::filesystem::path candidate = base / "config" / "g920-virtual-device.ini";
+        const std::filesystem::path candidate = base / "config" / "g920.ini";
         std::error_code ec;
         if (std::filesystem::is_regular_file(candidate, ec)) {
             return candidate.lexically_normal().string();

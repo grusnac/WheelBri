@@ -19,6 +19,9 @@ Moza R3 ─► wheelbri-service ─UDP 41329─► wheelbri-g920 driver ─HID�
   in the same INF) and the driver answers as VID 046D PID C299, "G25 Racing Wheel", with the same descriptor
   (`VirtualWheel` in `core/include/wheelbri/HidG920.hpp`). A driver installed before the G25 came has no entry for
   that id: install it again (`scripts/make/drivers.sh -Only g920 -Install`).
+- **G27:** the same with `wheelbri\G27` (VID 046D PID C29B, "G27 Racing Wheel"); its descriptor declares 23 buttons
+  instead of 19 (`g920ReportDescriptor(kG27Buttons)`, the report is the same size). A driver from before the G27 needs
+  installing again, as for the G25.
 - **Force feedback:** Windows' `pid.dll` turns DirectInput effects into HID PID reports; the driver answers
   the effect-block handshake and decodes them (`core/src/HidPid.cpp`, unit-tested) into the service's
   `FfbPacket`s. The service does not change.
@@ -75,7 +78,7 @@ Take the shim out of the game (`dinput8.dll` → `dinput8.dll.off`), do not run 
 Administrator:
 
 ```
-build\service\wheelbri-service.exe --config config\g920-virtual-device.ini --ui --virtual-g920
+build\service\wheelbri-service.exe --config config\g920.ini --ui --virtual-g920
 ```
 
 The service log says `virtual G920 G920_0 ready after … ms` and `hide: the rig is hidden from games`; joy.cpl

@@ -180,7 +180,7 @@ function Get-Shortcuts {
     return @($found | Sort-Object -Unique)
 }
 
-$diKeys = @(foreach ($ids in 'VID_046D&PID_C262', 'VID_046D&PID_C299') {   # the virtual G920 and G25
+$diKeys = @(foreach ($ids in 'VID_046D&PID_C262', 'VID_046D&PID_C299', 'VID_046D&PID_C29B') {   # virtual G920, G25, G27
     "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids"
     "HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids"
     "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\DirectInput\$ids"

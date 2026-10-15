@@ -145,7 +145,7 @@ TEST(DeviceProfile, G25EncodesLikeTheG920) {
 
 // The Mapping tab's button groups: every named button once, related ones together.
 TEST(ButtonLayout, EveryNamedButtonOnceInGroups) {
-    for (const DeviceProfileSpec& spec : {g920Spec(), g25Spec()}) {
+    for (const DeviceProfileSpec& spec : {g920Spec(), g25Spec(), g27Spec()}) {
         const DeviceProfile profile(spec);
         const ButtonLayout layout = layoutButtons(profile);
         std::vector<int> seen(profile.buttonCount(), 0);
@@ -170,7 +170,7 @@ TEST(ButtonLayout, G920FaceButtonsInOneColumnAndTheShifterBelow) {
         for (const ButtonCell& cell : layout.cells) {
             if (!cell.heading && cell.button == b) return cell;
         }
-        return ButtonCell{-1};
+        return ButtonCell{-1, 0.0F, false, {}, 0};
     };
     // A, B, X, Y: the left column, one under the other, under FACE.
     ASSERT_EQ(layout.cells.front(), (ButtonCell{0, 0.0F, true, "FACE", 0}));

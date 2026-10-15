@@ -15,14 +15,14 @@ Rig sampleRig() {
     wheel.name = "My Racing Wheel";
     wheel.id = {0x346E, 0x0005};
     wheel.kind = DeviceKind::Wheel;
-    wheel.axes[0] = {"Wheel", false};
+    wheel.axes[0] = {"Wheel", false, ""};
     wheel.buttons[13] = {"R paddle", false, "R Paddle"};
-    wheel.buttons[4] = {"D-pad Up", false};
+    wheel.buttons[4] = {"D-pad Up", false, ""};
     RigDevice pedals;
     pedals.name = "Pedals";
     pedals.id = {0x30B7, 0x1001};
     pedals.kind = DeviceKind::Pedals;
-    pedals.axes[1] = {"Gas", true};
+    pedals.axes[1] = {"Gas", true, ""};
     rig.devices = {wheel, pedals};
     return rig;
 }
@@ -60,7 +60,7 @@ TEST(Rig, ReportsBadLinesAndKeepsTheRest) {
         "[device_2]\nname = no id\n[other]\n");
     EXPECT_EQ(result.errors.size(), 6U);
     ASSERT_EQ(result.rig.devices.size(), 1U);
-    EXPECT_EQ(result.rig.devices[0].axes[0], (RigControl{"Wheel", false}));   // the name kept
+    EXPECT_EQ(result.rig.devices[0].axes[0], (RigControl{"Wheel", false, ""}));   // the name kept
     EXPECT_EQ(result.rig.devices[0].buttons[1], (RigControl{"A", false, "A"}));   // named as a choice: that choice
 }
 

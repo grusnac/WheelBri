@@ -124,8 +124,8 @@ foreach ($file in 'install.ps1', 'uninstall.ps1', 'Setup.cmd', 'Uninstall.cmd', 
 Set-Content -Path (Join-Path $stage 'VERSION.txt') -Value $version -Encoding ASCII
 
 # 3. What install.ps1 checks for must be there (the same list), so a package never fails on the user's PC.
-$expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini',
-              'config\g25-virtual-device.ini', 'config\g25-in-game-shim.ini', 'install.ps1', 'uninstall.ps1',
+$expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920.ini', 'config\g25.ini',
+              'config\g27.ini', 'install.ps1', 'uninstall.ps1',
               'Setup.cmd', 'Uninstall.cmd', 'README.txt', 'VERSION.txt', 'shim\dinput8.dll', 'shim\x86\dinput8.dll') +
             ($drivers | ForEach-Object { $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } })
 foreach ($file in $expected) {

@@ -1,6 +1,6 @@
 # The Logitech G25 as a target
 
-Status: built (2026-10-13), not yet tried in a game. Pick **Target < G25 >** on the Mapping tab; Run as Virtual or Shim
+Status: built (2026-10-13), not yet tried in a game. Pick **Target < G25 >** on the Mapping tab; Mode Virtual or Shim
 works as for the G920. What is still a guess, and how to check it, is under "Unverified".
 
 ## Why
@@ -28,8 +28,8 @@ One target among two, with the same machinery as the G920 (a target is a profile
 - **Profile**: `g25Spec()` (`core/src/DeviceProfile.cpp`, `makeProfile("g25")`, `target_profile = g25`): 046D:C299,
   "Logitech G25 Racing Wheel USB", 900 deg, 19 buttons (`kG25Buttons`, gears at `kG25FirstGear` = 8), pedals released
   at the top of the range. Its DirectInput layout is the G920's: wheel X, throttle Y, brake Rz, clutch Slider.
-- **Configs**: `config/g25-in-game-shim.ini`, `config/g25-virtual-device.ini` (WheelBri's default mapping onto the
-  G25); the user's own as `my-g25-*.ini`, as for the G920.
+- **Config**: `config/g25.ini`, both modes (WheelBri's default mapping onto the G25); the user's own as
+  `my-g25.ini`, as for the G920.
 - **Mapping tab**: Target `< G920 | G25 >` (`ConfigPicker`, `[app] target` in app.ini).
 - **Shim**: the shim already presents whatever `target_profile` says; at Start the app writes the target into the
   game's `wheelbri-shim.ini` (`setShimTarget`), keeping the user's other lines.

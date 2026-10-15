@@ -166,12 +166,43 @@ DeviceProfileSpec g25Spec() {
     return spec;
 }
 
+DeviceProfileSpec g27Spec() {
+    DeviceProfileSpec spec;
+    spec.identity.shortName = "G27";
+    spec.identity.vendorId = 0x046D;
+    spec.identity.productId = 0xC29B;
+    spec.identity.productName = "Logitech G27 Racing Wheel USB";
+    spec.identity.rotationDeg = 900.0F;
+    spec.steeringRange = {0, 65535};
+    spec.pedalRange = {0, 65535};
+    spec.pedalsReleasedAtMax = true;   // as the G25's
+    // kG27Buttons: from users' reports, unverified (docs/g27-target-plan.md).
+    spec.buttonNames = {
+        "Red 1",     "Red 2",     "Red 3",     "Red 4",     "R Paddle", "L Paddle", "R Wheel 1", "L Wheel 1",
+        "Gear 1",    "Gear 2",    "Gear 3",    "Gear 4",    "Gear 5",   "Gear 6",   "Gear R",
+        "Black 1",   "Black 2",   "Black 3",   "Black 4",
+        "R Wheel 2", "L Wheel 2", "R Wheel 3", "L Wheel 3",
+    };
+    using Place = ButtonGroup::Place;
+    spec.buttonGroups = {
+        {"WHEEL", {7, 6, 20, 19, 22, 21}, Place::Left},  // left and right, top to bottom
+        {"PADDLES", {5, 4}, Place::Left},                // L Paddle, R Paddle
+        {"RED", {0, 1, 2, 3}, Place::Right},             // the shifter's red buttons
+        {"BLACK", {15, 16, 17, 18}, Place::Right},       // the shifter's black buttons
+        {"SHIFTER", {8, 9, 10, 11, 12, 13, 14}, Place::Below},
+    };
+    return spec;
+}
+
 std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     if (name == "g920") {
         return std::make_unique<DeviceProfile>(g920Spec());
     }
     if (name == "g25") {
         return std::make_unique<DeviceProfile>(g25Spec());
+    }
+    if (name == "g27") {
+        return std::make_unique<DeviceProfile>(g27Spec());
     }
     return nullptr;
 }

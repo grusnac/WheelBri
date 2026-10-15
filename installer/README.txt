@@ -10,7 +10,7 @@ Needs
 -----
 - Windows 11, 64-bit (build 22000 or later), for everything. Nothing else has to be installed first: the programs
   carry their own runtime, and the drivers use what Windows already has (UMDF 2).
-- Windows 7 SP1, 8.1 or 10, 64-bit: the in-game shim way only (Run as Shim: a dinput8.dll next to each game's .exe
+- Windows 7 SP1, 8.1 or 10, 64-bit: the in-game shim way only (Mode Shim: a dinput8.dll next to each game's .exe
   presents your wheel to that game). The virtual G920 and hiding your rig need Windows 11, so the installer puts no
   drivers and no WheelBri Helper there, and asks for no restart. Windows 7 needs two updates first:
   - KB2999226, the Universal C Runtime (Windows Update installs it; the installer says when it is missing);

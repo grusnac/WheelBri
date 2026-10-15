@@ -26,7 +26,7 @@ constexpr Colour kHeading{120, 190, 255};
 constexpr Colour kDark{16, 18, 20};
 
 constexpr float kArrowWidth = 24;
-constexpr float kTargetWidth = 72;   // "G920", "G25"
+constexpr float kTargetWidth = 72;   // "G920", "G25", "G27"
 constexpr float kWayWidth = 80;      // "Virtual", "Shim"
 constexpr float kRowHeight = 16;
 
@@ -36,15 +36,30 @@ std::string ConfigPicker::name() const {
     return std::string(targetName(target_)) + (way_ == Way::VirtualDevice ? " virtual device" : " in-game shim");
 }
 
-const char* ConfigPicker::targetName(const Target target) { return target == Target::G25 ? "G25" : "G920"; }
+const char* ConfigPicker::targetName(const Target target) {
+    switch (target) {
+        case Target::G25: return "G25";
+        case Target::G27: return "G27";
+        case Target::G920: break;
+    }
+    return "G920";
+}
 
-const char* ConfigPicker::profileName(const Target target) { return target == Target::G25 ? "g25" : "g920"; }
+const char* ConfigPicker::profileName(const Target target) {
+    switch (target) {
+        case Target::G25: return "g25";
+        case Target::G27: return "g27";
+        case Target::G920: break;
+    }
+    return "g920";
+}
 
 const char* ConfigPicker::wayName(const Way way) { return way == Way::VirtualDevice ? "Virtual" : "Shim"; }
 
 std::optional<ConfigPicker::Target> ConfigPicker::parseTarget(const std::string_view profile) {
     if (profile == profileName(Target::G920)) return Target::G920;
     if (profile == profileName(Target::G25)) return Target::G25;
+    if (profile == profileName(Target::G27)) return Target::G27;
     return std::nullopt;
 }
 
@@ -54,9 +69,11 @@ std::optional<ConfigPicker::Way> ConfigPicker::parseWay(const std::string_view w
     return std::nullopt;
 }
 
-std::string ConfigPicker::builtInName(const Target target, const Way way) {
-    return std::string(profileName(target)) +
-           (way == Way::VirtualDevice ? "-virtual-device.ini" : "-in-game-shim.ini");
+std::string ConfigPicker::builtInName(const Target target) { return std::string(profileName(target)) + ".ini"; }
+
+std::array<std::string, 2> ConfigPicker::olderOwnNames(const Target target) {
+    const std::string profile = profileName(target);
+    return {"my-" + profile + "-virtual-device.ini", "my-" + profile + "-in-game-shim.ini"};
 }
 
 ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
@@ -69,12 +86,12 @@ ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
     }
     if (!settings_.virtualAvailable) {
         way_ = Way::Shim;   // app.ini keeps what it says
-        WE_LOG_INFO(log(), "Run as: Shim only (the virtual device needs Windows 11)");
+        WE_LOG_INFO(log(), "Mode: Shim only (the virtual device needs Windows 11)");
     }
     const std::string target = readAppSetting(settings_.stateFile, "target");
     target_ = parseTarget(target).value_or(Target::G920);
     if (!target.empty() && !parseTarget(target)) {
-        WE_LOG_WARN(log(), "[app] target = '{}' is not a wheel WheelBri emulates (g920, g25): the G920", target);
+        WE_LOG_WARN(log(), "[app] target = '{}' is not a wheel WheelBri emulates (g920, g25, g27): the G920", target);
     }
     refresh();
     WE_LOG_INFO(log(), "target {}; config {}", name(), selected_.empty() ? "(none)" : selected_);
@@ -90,7 +107,46 @@ std::filesystem::path ConfigPicker::ownPath() const {
     return settings_.userFolder / ("my-" + builtInName());
 }
 
+void ConfigPicker::adoptOlderOwn() {
+    // Once per target ([app] older_mapping_<target> = checked): Default deletes my-<target>.ini, and the older files
+    // must not bring it back.
+    const std::string key = std::string("older_mapping_") + profileName(target_);
+    if (!readAppSetting(settings_.stateFile, key).empty()) return;
+    std::error_code ec;
+    const std::filesystem::path own = ownPath();
+    if (std::filesystem::exists(own, ec)) {
+        static_cast<void>(writeAppSetting(settings_.stateFile, key, "checked"));
+        return;
+    }
+    // Both modes had their own mapping before: the newer of the two is the one for both now. The older files stay.
+    std::filesystem::path newest;
+    std::filesystem::file_time_type newestTime{};
+    for (const std::string& name : olderOwnNames(target_)) {
+        const std::filesystem::path older = settings_.userFolder / name;
+        if (!std::filesystem::is_regular_file(older, ec)) continue;
+        const auto time = std::filesystem::last_write_time(older, ec);
+        if (ec) continue;
+        if (newest.empty() || time > newestTime) {
+            newest = older;
+            newestTime = time;
+        }
+    }
+    if (newest.empty() || !std::filesystem::is_directory(settings_.userFolder, ec)) {
+        static_cast<void>(writeAppSetting(settings_.stateFile, key, "checked"));
+        return;
+    }
+    std::filesystem::copy_file(newest, own, ec);
+    if (ec) {
+        WE_LOG_WARN(log(), "cannot copy your mapping {} to {}: {}", newest.string(), own.string(), ec.message());
+        return;
+    }
+    WE_LOG_INFO(log(), "your mapping {} is now {}, for both modes (the older file is kept)", newest.string(),
+                own.string());
+    static_cast<void>(writeAppSetting(settings_.stateFile, key, "checked"));
+}
+
 void ConfigPicker::refresh() {
+    adoptOlderOwn();
     std::error_code ec;
     const std::filesystem::path own = ownPath();
     const std::filesystem::path builtIn = builtInPath();
@@ -157,34 +213,40 @@ bool ConfigPicker::onClick(const float x, const float y) {
 float ConfigPicker::draw(const float x0, const float y, const bool canChange) {
     hits_.clear();
     float x = x0;
-    // One picker: a label, <, the value, >. `step` null: nothing to go to (the arrows are drawn off).
+    // One picker: a label, <, the value, >. `back` (<) and `step` (>); `step` null: nothing to go to (the arrows are
+    // drawn off).
     const auto picker = [&](const char* label, const float labelWidth, const std::string& value, const float width,
-                            const std::function<void()>& step) {
+                            const std::function<void()>& back, const std::function<void()>& step) {
         window_.text(x, y + 4, label, kDim);
         x += labelWidth;
         const bool on = canChange && step != nullptr;
-        const auto arrow = [&](const char* glyph) {
+        const auto arrow = [&](const char* glyph, const std::function<void()>& action) {
             window_.fill(x, y, kArrowWidth, kRowHeight, on ? kPanel : kDark);
             window_.outline(x, y, kArrowWidth, kRowHeight, on ? kDim : kPanel);
             window_.text(x + (kArrowWidth - ui::kCharWidth) / 2, y + 4, glyph, on ? kText : kDim);
-            if (on) hits_.push_back({x, y, kArrowWidth, kRowHeight, step});
+            if (on) hits_.push_back({x, y, kArrowWidth, kRowHeight, action});
             x += kArrowWidth + 4;
         };
-        arrow("<");
+        arrow("<", back);
         window_.fill(x, y, width, kRowHeight, kStripe);
         window_.text(x + (width - static_cast<float>(value.size()) * ui::kCharWidth) / 2, y + 4, value,
                      canChange ? kHeading : kText);
         x += width + 4;
-        arrow(">");
+        arrow(">", step);
     };
-    // The target and the way: two of each, so either arrow goes to the other one.
-    const Target otherTarget = target_ == Target::G920 ? Target::G25 : Target::G920;
-    picker("Target", 64, targetName(target_), kTargetWidth, [this, otherTarget] { choose(otherTarget); });
+    // The targets in a ring (G920, G25, G27): < the one before, > the one after.
+    constexpr int kTargets = 3;
+    const int t = static_cast<int>(target_);
+    const auto previous = static_cast<Target>((t + kTargets - 1) % kTargets);
+    const auto next = static_cast<Target>((t + 1) % kTargets);
+    picker("Target", 64, targetName(target_), kTargetWidth, [this, previous] { choose(previous); },
+           [this, next] { choose(next); });
     x += 16;
+    // Two ways: either arrow goes to the other one.
     const Way other = way_ == Way::VirtualDevice ? Way::Shim : Way::VirtualDevice;
     std::function<void()> step;
     if (settings_.virtualAvailable) step = [this, other] { choose(other); };
-    picker("Run as", 56, wayName(way_), kWayWidth, step);
+    picker("Mode", 56, wayName(way_), kWayWidth, step, step);
     return x;
 }
 

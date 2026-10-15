@@ -198,8 +198,9 @@ void MappingEditView::save() {
     std::filesystem::create_directories(target.parent_path(), ec);
     std::string text;
     if (builtIn_) {
-        text = std::string("; WheelBri: your own mapping for the ") + picker_.name() +
-               " (the Mapping tab's Save; Default deletes it)\r\n";
+        text = std::string("; WheelBri: your own mapping for the ") +
+               ConfigPicker::targetName(picker_.target()) +
+               ", both modes (the Mapping tab's Save; Default deletes it)\r\n";
     }
     text += written.text;
     // Written next to it and then swapped in, so a full disk or a crash never leaves half a mapping.
@@ -576,7 +577,7 @@ void MappingEditView::draw() {
     const std::string target = profile_ != nullptr ? profile_->identity().shortName
                                                    : std::string(ConfigPicker::targetName(picker_.target()));
     // The top row: the title left; Default, Save and Revert right, left of the version (Version.hpp). The second row:
-    // Target and Run as left; with Run as Shim, the app draws the shim's game at its right (App: gamesRowX).
+    // Target and Mode left; with Mode Shim, the app draws the shim's game at its right (App: gamesRowX).
     const float revertX = canvasW() - kVersionReserve - 80;
     const float saveX = revertX - 8 - 80;
     const float defaultX = saveX - 8 - 104;
@@ -908,7 +909,7 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
     y += 16;
     // A game that works one way only ([game] ways): a session run the other way tells the user when it starts.
     if (!game.virtualDevice || !game.shim) {
-        const std::string only = game.shim ? "Run as Shim only" : "Run as Virtual only";
+        const std::string only = game.shim ? "Mode Shim only" : "Mode Virtual only";
         for (const std::string& line : wrap(only + ": " + game.waysNote + ".", gameChars(), 2)) {
             window_.text(kGameX, y, line, kCaution);
             y += 12;

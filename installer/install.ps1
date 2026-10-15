@@ -161,10 +161,9 @@ try {
         }
         Write-Host '    Universal C Runtime: there'
     }
-    $requiredFiles = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920-virtual-device.ini',
-                       'config\g920-in-game-shim.ini', 'config\g25-virtual-device.ini', 'config\g25-in-game-shim.ini',
-                       'uninstall.ps1', 'Uninstall.cmd', 'driver\common.ps1', 'shim\dinput8.dll',
-                       'shim\x86\dinput8.dll')
+    $requiredFiles = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920.ini',
+                       'config\g25.ini', 'config\g27.ini', 'uninstall.ps1', 'Uninstall.cmd', 'driver\common.ps1',
+                       'shim\dinput8.dll', 'shim\x86\dinput8.dll')
     if ($withDrivers) { $requiredFiles += @('driver\install-driver.ps1', 'driver\hide\install-hide.ps1') }
     foreach ($required in $requiredFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $package $required))) {
@@ -356,8 +355,11 @@ try {
         $copied++
     }
     Write-Host "    $copied files copied"
-    # The built-in configs' older names (one per target since 2026-10-04): the new ones replace them.
-    foreach ($old in 'moza-r3-as-g920.ini', 'moza-r3-as-g29.ini', 'rig-as-g920.ini', 'rig-as-g29.ini') {   # (the G29 is gone)
+    # The built-in configs' older names (for the rig since 2026-10-04, the G29 gone; one per mode until 2026-10-15): the
+    # new ones (g920.ini, g25.ini, g27.ini) replace them. Your own mappings are in %LOCALAPPDATA%, never here.
+    $olderConfigs = @('moza-r3-as-g920.ini', 'moza-r3-as-g29.ini', 'rig-as-g920.ini', 'rig-as-g29.ini') +
+                    @(foreach ($t in 'g920', 'g25', 'g27') { "$t-virtual-device.ini"; "$t-in-game-shim.ini" })
+    foreach ($old in $olderConfigs) {
         foreach ($file in (Join-Path $InstallDir "config\$old"), (Join-Path $InstallDir "config\$old.new")) {
             Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
         }

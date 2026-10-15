@@ -370,7 +370,7 @@ TEST(GameProfiles, AdviceOnlyForTheWayAGameDoesNotWorkWith) {
     ASSERT_TRUE(shim);
     EXPECT_EQ(shim->title, "NFS X needs the virtual device");
     EXPECT_EQ(shim->text, "NFS X does not work with the in-game shim (the shim crashes it). Close the game, Stop, set "
-                          "Run as to Virtual on the Mapping tab, and Start again.");
+                          "Mode to Virtual on the Mapping tab, and Start again.");
     game.shim = true;
     game.virtualDevice = false;
     game.waysNote = "it finds no virtual wheel";
@@ -379,7 +379,7 @@ TEST(GameProfiles, AdviceOnlyForTheWayAGameDoesNotWorkWith) {
     ASSERT_TRUE(virtualDevice);
     EXPECT_EQ(virtualDevice->title, "NFS X needs the in-game shim");
     EXPECT_EQ(virtualDevice->text, "NFS X does not work with the virtual device (it finds no virtual wheel). Close the "
-                                   "game, Stop, set Run as to Shim on the Mapping tab, and Start again.");
+                                   "game, Stop, set Mode to Shim on the Mapping tab, and Start again.");
 }
 
 }  // namespace

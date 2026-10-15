@@ -37,7 +37,7 @@ std::string writeProblem(const char* verb, const std::filesystem::path& file, co
 
 
 constexpr const char* kHeader =
-    "# WheelBri: the games the in-game shim was put into (the app's Mapping tab, Run as Shim).\n"
+    "# WheelBri: the games the in-game shim was put into (the app's Mapping tab, Mode Shim).\n"
     "# game<TAB>name<TAB>folder, selected<TAB>folder. Written by the app.\n";
 
 std::string lower(std::string text) {

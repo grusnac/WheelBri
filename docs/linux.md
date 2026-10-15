@@ -30,6 +30,9 @@ G25 keeps the Windows axis names (Proton has no hack for it) and sits on the vir
 the kernel's `hid-lg` would claim it and then refuse it, leaving it to no driver. Run `install-udev-rules.sh` again
 once, for its hidraw rule. Untried so far.
 
+The G27 ([g27-target-plan.md](g27-target-plan.md)): as the G25, with `--target g27` and
+`PROTON_ENABLE_HIDRAW=0x046D/0xC29B` (`0006:046D:C29B`); `install-udev-rules.sh` again once. Untried.
+
 ## Steam Deck: build it there from the repository
 
 The way to follow development: get the code with git, build it on the Deck, and after every change only
@@ -100,7 +103,7 @@ update brought a newer glibc (your files are not in it).
    their controls; then, in the Mapping tab, pick what drives each G920 input and **Save**. WheelBri's default
    mapping was made on Windows, and Linux numbers the R3's axes in another order (a pedal can land on the wrong
    target). Press Start and check that each pedal moves its own bar, then Stop and close the app. `wheelbri.sh` (Steam's launch option) uses the
-   mapping you saved (`~/.config/wheelbri/configs/my-g920-virtual-device.ini`).
+   mapping you saved (`~/.config/wheelbri/configs/my-g920.ini`).
 5. Force feedback on the R3 needs the kernel's driver for it: `hid-universal-pidff` (Linux 6.15 and later; it
    lists the R3). Check with `modinfo hid-universal-pidff`; `wheelbri-service --ffb-test` plays a short, gentle
    sequence on the wheel.

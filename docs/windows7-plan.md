@@ -19,8 +19,8 @@ have it). Without it the app does not start, and a game cannot load the shim.
 
 ## Steps
 
-1. **Run as: Shim only on Windows 7.** The app knows which Windows it runs on (build number); where the virtual
-   device cannot exist (before Windows 11, build 22000, as the driver's INF requires), Run as is fixed to Shim, the
+1. **Mode: Shim only on Windows 7.** The app knows which Windows it runs on (build number); where the virtual
+   device cannot exist (before Windows 11, build 22000, as the driver's INF requires), Mode is fixed to Shim, the
    Virtual button is greyed out with a tooltip ("needs Windows 11"), and an app.ini saying Virtual is read as Shim.
    Check that a shim session needs no privileged step (the Helper is not installed there). Unit tests for the
    choice.
@@ -43,7 +43,7 @@ have it). Without it the app does not start, and a game cannot load the shim.
 A Windows 7 SP1 x64 PC or VM (the R3 passed through over USB), fully updated, with WMF 5.1:
 
 - the installer on it: app, configs and shim in, no drivers, no Helper service;
-- the app: Run as Shim, Virtual greyed out; Add game; Start; a game (NFS 2015 runs on Windows 7) with steering,
+- the app: Mode Shim, Virtual greyed out; Add game; Start; a game (NFS 2015 runs on Windows 7) with steering,
   pedals, buttons and force feedback through the limiter; the shim's and the service's logs;
 - the uninstaller.
 

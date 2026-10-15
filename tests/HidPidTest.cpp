@@ -701,6 +701,24 @@ TEST(HidG920, InputReportPacksLikeARealG920) {
     EXPECT_EQ(clamped[4], 0x7F);   // 32767
 }
 
+// The G27's 23 buttons: the same descriptor and report, the button block declaring 23 buttons and 1 padding bit.
+TEST(HidG920, TheG27DeclaresAndSends23Buttons) {
+    const auto narrow = g920ReportDescriptor();
+    const auto wide = g920ReportDescriptor(kG27Buttons);
+    ASSERT_EQ(wide.size(), narrow.size());
+    const std::array<std::uint8_t, 22> buttons = {0x05, 0x09, 0x19, 0x01, 0x29, 0x17, 0x15, 0x00, 0x25, 0x01, 0x95,
+                                                  0x17, 0x75, 0x01, 0x81, 0x02, 0x95, 0x01, 0x75, 0x01, 0x81, 0x03};
+    EXPECT_TRUE(std::search(wide.begin(), wide.end(), buttons.begin(), buttons.end()) != wide.end());
+    std::size_t differences = 0;
+    for (std::size_t i = 0; i < wide.size(); ++i) differences += wide[i] != narrow[i] ? 1 : 0;
+    EXPECT_EQ(differences, 3U);   // Usage Maximum, Report Count, the padding's Report Count
+    EXPECT_EQ(g920ReportDescriptor(kG25Buttons).data(), narrow.data());
+    TargetReport report = g920Neutral();
+    report.buttons = (1U << 19) | (1U << 22) | (1U << 23);   // R Wheel 2, L Wheel 3, and one the G27 lacks
+    EXPECT_EQ(packG920Input(report, kG27Buttons)[11], 0x48);
+    EXPECT_EQ(packG920Input(report)[11], 0x00);   // the G920's 19: none of them
+}
+
 // The four axis usages in report order (steering, brake, clutch, throttle): each axis starts Usage Page (Generic
 // Desktop), Usage.
 std::vector<std::uint8_t> axisUsages(const std::span<const std::uint8_t> descriptor) {

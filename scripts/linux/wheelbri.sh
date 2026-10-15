@@ -15,7 +15,7 @@
 # From a terminal (Desktop Mode), without a game: starts, waits for Enter or Ctrl+C, stops.
 #   ./wheelbri.sh            (service with its --ui window)
 #
-# Options: --virtual / --shim, --target g920|g25 (the wheel the game sees; default: the app's Mapping tab Target,
+# Options: --virtual / --shim, --target g920|g25|g27 (the wheel the game sees; default: the app's Mapping tab Target,
 #          else the G920), --keep-shim (leave the shim in the game's folder afterwards, for testing),
 #          --game-folder DIR (where --shim puts it; default: the folder of the .exe in %command%),
 #          --ui / --no-ui (default: window only from a terminal), --config FILE (default: the mapping saved in
@@ -83,17 +83,27 @@ fi
 case "$target" in
     g920) wheel=G920; wheel_id=0x046D/0xC262 ;;
     g25) wheel=G25; wheel_id=0x046D/0xC299 ;;
-    *) echo "wheelbri.sh: --target $target: expected g920 or g25" >&2; exit 2 ;;
+    g27) wheel=G27; wheel_id=0x046D/0xC29B ;;
+    *) echo "wheelbri.sh: --target $target: expected g920, g25 or g27" >&2; exit 2 ;;
 esac
-# Default --config: the mapping you saved in the app's Mapping tab for this target (configs/my-<name>.ini), else
-# WheelBri's default one: the virtual wheel (uhid) or the in-game shim. The default was made on Windows; Linux numbers
-# the rig's axes in another order, so on Linux save your own (map it in the Mapping tab, then Save).
+# Default --config: the mapping you saved in the app's Mapping tab for this target (configs/my-<target>.ini, both
+# modes), else WheelBri's default one (<target>.ini). Before there was one for both modes (2026-10-15) each mode had
+# its own (my-<target>-virtual-device.ini, my-<target>-in-game-shim.ini): the newer of those, until the app has made
+# my-<target>.ini from it. The default was made on Windows; Linux numbers the rig's axes in another order, so on Linux
+# save your own (map it in the Mapping tab, then Save).
 if [ -z "$config" ]; then
-    [ "$mode" = shim ] && name=$target-in-game-shim.ini || name=$target-virtual-device.ini
-    if [ -f "$settings/configs/my-$name" ]; then
-        config="$settings/configs/my-$name"
+    own="$settings/configs/my-$target.ini"
+    if [ ! -f "$own" ]; then
+        own=""
+        for older in "$settings/configs/my-$target-virtual-device.ini" \
+                     "$settings/configs/my-$target-in-game-shim.ini"; do
+            if [ -f "$older" ] && { [ -z "$own" ] || [ "$older" -nt "$own" ]; }; then own=$older; fi
+        done
+    fi
+    if [ -n "$own" ]; then
+        config=$own
     else
-        config="$configs/$name"
+        config="$configs/$target.ini"
     fi
 fi
 
@@ -104,7 +114,8 @@ if [ -z "$hide" ]; then
           "$settings/app.ini" 2>/dev/null)
     if [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
         hide=$(awk -F= '{sub(/\r$/, "")} $1 ~ /^[ \t]*id[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/[ \t]/, "", $2); split($2, p, ":");
-                        virtual = toupper($2) == "046D:C262" || toupper($2) == "046D:C299"   # the virtual G920, G25
+                        virtual = toupper($2) == "046D:C262" || toupper($2) == "046D:C299" ||
+                                  toupper($2) == "046D:C29B"   # the virtual G920, G25, G27
                         if (length(p[1]) == 4 && length(p[2]) == 4 && !virtual)
                             printf "%s0x%s/0x%s", (n++ ? "," : ""), toupper(p[1]), toupper(p[2])}' "$settings/rigs/$rig.ini")
     fi

@@ -12,7 +12,7 @@ namespace wheelbri {
 // The mapping configs the app picks from. Built-in ones come with the program (config/*.ini next to it, except the
 // shim's wheelbri-shim.ini) and are the defaults: they are never changed. The user's own are made with New in a
 // per-user folder, as a copy of a built-in one whose file name they keep in their first lines
-// ("; made from: g920-virtual-device.ini"), so Reset can copy it again. The app remembers which one is picked in a small
+// ("; made from: g920.ini"), so Reset can copy it again. The app remembers which one is picked in a small
 // state file ([app] config = <path>).
 struct ConfigEntry {
     std::string name;              // the file name without .ini

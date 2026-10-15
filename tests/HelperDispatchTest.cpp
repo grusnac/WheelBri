@@ -196,7 +196,7 @@ TEST(HelperDispatch, AWheelWheelBriDoesNotEmulateNeverReachesTheSession) {
          {std::vector<std::string>{"g29"}, std::vector<std::string>{""}, std::vector<std::string>{"g25", "g25"}}) {
         const Answer answer = ask(Request{RequestType::CreateVirtualG920, 13, devices}, accepted(), &session);
         EXPECT_EQ(answer.reply.status, Status::Refused);
-        EXPECT_EQ(answer.reply.text, "CreateVirtualG920 takes one wheel: g920 or g25");
+        EXPECT_EQ(answer.reply.text, "CreateVirtualG920 takes one wheel: g920, g25 or g27");
     }
     EXPECT_TRUE(session.seen.empty());
 }

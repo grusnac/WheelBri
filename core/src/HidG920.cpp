@@ -1,6 +1,7 @@
 #include "wheelbri/HidG920.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 
 namespace wheelbri {
@@ -94,6 +95,36 @@ static_assert(kDescriptor[kBrakeUsageAt - 1] == 0x09 && kDescriptor[kBrakeUsageA
 static_assert(kDescriptor[kClutchUsageAt - 1] == 0x09 && kDescriptor[kClutchUsageAt] == 0x36,
               "clutch is Usage Slider");
 
+constexpr auto kDescriptorArray = [] {
+    std::array<std::uint8_t, sizeof(kDescriptor)> d{};
+    for (std::size_t i = 0; i < d.size(); ++i) d[i] = kDescriptor[i];
+    return d;
+}();
+
+// Where the button block starts: Usage Page Button, Usage Minimum 1, Usage Maximum 19, ..., Report Count 19, Report
+// Size 1, Input, then Report Count 5 (the padding bits); the descriptor's size when it is not there.
+constexpr std::size_t buttonBlockAt(const std::array<std::uint8_t, sizeof(kDescriptor)>& d) {
+    for (std::size_t i = 0; i + 21 < d.size(); ++i) {
+        if (d[i] == 0x05 && d[i + 1] == 0x09 && d[i + 2] == 0x19 && d[i + 3] == 0x01 && d[i + 4] == 0x29 &&
+            d[i + 5] == kG920Buttons && d[i + 10] == 0x95 && d[i + 11] == kG920Buttons && d[i + 16] == 0x95 &&
+            d[i + 17] == 24 - kG920Buttons) {
+            return i;
+        }
+    }
+    return d.size();
+}
+constexpr std::size_t kButtonBlockAt = buttonBlockAt(kDescriptorArray);
+static_assert(kButtonBlockAt < sizeof(kDescriptor), "the button block is where kWideDescriptor patches it");
+
+// The G27's: the same with 23 buttons and 1 padding bit, so the input report keeps its 3 button bytes.
+constexpr auto kWideDescriptor = [] {
+    auto d = kDescriptorArray;
+    d[kButtonBlockAt + 5] = static_cast<std::uint8_t>(kG27Buttons);    // Usage Maximum
+    d[kButtonBlockAt + 11] = static_cast<std::uint8_t>(kG27Buttons);   // Report Count
+    d[kButtonBlockAt + 17] = static_cast<std::uint8_t>(24 - kG27Buttons);
+    return d;
+}();
+
 constexpr auto kProtonDescriptor = [] {
     std::array<std::uint8_t, sizeof(kDescriptor)> d{};
     for (std::size_t i = 0; i < d.size(); ++i) {
@@ -117,6 +148,8 @@ constexpr VirtualWheel kVirtualWheels[] = {
      "Logitech G920 Driving Force Racing Wheel USB", kG920Buttons},
     {"g25", "wheelbri\\G25", "G25", kG25VendorId, kG25ProductId, "G25 Racing Wheel", "Logitech G25 Racing Wheel USB",
      kG25Buttons},
+    {"g27", "wheelbri\\G27", "G27", kG27VendorId, kG27ProductId, "G27 Racing Wheel", "Logitech G27 Racing Wheel USB",
+     kG27Buttons},
 };
 
 bool sameIgnoringCase(const std::string_view a, const std::string_view b) {
@@ -150,21 +183,26 @@ bool isVirtualWheelId(const std::uint16_t vendorId, const std::uint16_t productI
     return false;
 }
 
-std::span<const std::uint8_t> g920ReportDescriptor() { return kDescriptor; }
+std::span<const std::uint8_t> g920ReportDescriptor(const std::size_t buttons) {
+    if (buttons > kG920Buttons) return kWideDescriptor;
+    return kDescriptor;
+}
 
 std::span<const std::uint8_t> g920ProtonReportDescriptor() { return kProtonDescriptor; }
 
-std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport& report) {
+std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport& report, const std::size_t buttonCount) {
     std::array<std::uint8_t, kG920InputReportSize> out{};
     out[0] = kG920InputReportId;
     putAxis(out, 1, report.steering);
     putAxis(out, 3, report.throttle);   // Y
     putAxis(out, 5, report.brake);      // Rz
     putAxis(out, 7, report.clutch);     // Slider
-    const std::uint32_t buttons = report.buttons & ((1U << kG920Buttons) - 1U);   // 19 buttons, the shifter's included
+    // The descriptor's buttons only (19, the shifter's included; the G27's 23): the rest are padding bits.
+    const std::size_t count = std::min<std::size_t>(buttonCount > kG920Buttons ? kG27Buttons : kG920Buttons, 24);
+    const std::uint32_t buttons = report.buttons & ((1U << count) - 1U);
     out[9] = static_cast<std::uint8_t>(buttons & 0xFFU);
     out[10] = static_cast<std::uint8_t>((buttons >> 8U) & 0xFFU);
-    out[11] = static_cast<std::uint8_t>((buttons >> 16U) & 0x07U);
+    out[11] = static_cast<std::uint8_t>((buttons >> 16U) & 0xFFU);
     out[12] = report.hat >= 0 && report.hat <= 7 ? static_cast<std::uint8_t>(report.hat) : 8;   // 8 = centred
     return out;
 }

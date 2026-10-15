@@ -266,17 +266,25 @@ TEST(MappingEdit, ControlsUsedTwice) {
     ASSERT_EQ(twice.size(), 1U);
     EXPECT_EQ(twice[0], "button 13 of the wheel: role: G920 R Paddle, secondary of G920 B");
     // The built-in configs use every control once.
-    for (const char* name : {"g920-virtual-device.ini", "g920-in-game-shim.ini"}) {
+    for (const char* name : {"g920.ini"}) {
         const std::optional<std::string> text = readFileText(std::filesystem::path(WHEELBRI_CONFIG_DIR) / name);
         ASSERT_TRUE(text.has_value()) << name;
         EXPECT_TRUE(controlsUsedTwice(mappingModel(load(*text)), g920).empty()) << name;
     }
     const DeviceProfile g25(g25Spec());
-    for (const char* name : {"g25-virtual-device.ini", "g25-in-game-shim.ini"}) {
+    for (const char* name : {"g25.ini"}) {
         const std::optional<std::string> text = readFileText(std::filesystem::path(WHEELBRI_CONFIG_DIR) / name);
         ASSERT_TRUE(text.has_value()) << name;
         const EmulatorConfig config = load(*text);
         EXPECT_EQ(config.targetProfile, "g25") << name;
         EXPECT_TRUE(controlsUsedTwice(mappingModel(config), g25).empty()) << name;
+    }
+    const DeviceProfile g27(g27Spec());
+    for (const char* name : {"g27.ini"}) {
+        const std::optional<std::string> text = readFileText(std::filesystem::path(WHEELBRI_CONFIG_DIR) / name);
+        ASSERT_TRUE(text.has_value()) << name;
+        const EmulatorConfig config = load(*text);
+        EXPECT_EQ(config.targetProfile, "g27") << name;
+        EXPECT_TRUE(controlsUsedTwice(mappingModel(config), g27).empty()) << name;
     }
 }

@@ -150,11 +150,23 @@ inline constexpr std::size_t kG25FirstGear = 8;
 // real one, like the button order above. The 900 degrees are its full lock.
 [[nodiscard]] DeviceProfileSpec g25Spec();
 
+// The G27's buttons in native mode (046D:C29B): 23 (docs/g27-target-plan.md), the G25's 19 and 4 more on the wheel.
+// The gears are at 8..14 as on the G25 (Logitech's numbering); the rest is from users' reports of what games and
+// Logitech's Profiler show, not from Logitech, and unverified until a real G27 is captured: the shifter's 4 red buttons
+// 0..3, paddles R 4 and L 5, the wheel's top buttons R 6 and L 7, the shifter's 4 black buttons 15..18, then the
+// wheel's lower buttons R 19, L 20, R 21, L 22 (top to bottom).
+inline constexpr std::size_t kG27Buttons = 23;
+inline constexpr std::size_t kG27FirstGear = 8;
+
+// Logitech G27 Racing Wheel in native mode (046D:C29B): presented like the G25 (the same axes, pedals released at the
+// top, 900 degrees), with its 23 buttons. Its rev lights are not emulated (games drive them through Logitech's SDK).
+[[nodiscard]] DeviceProfileSpec g27Spec();
+
 // Config names of the built-in profiles, for messages: the wheels WheelBri emulates (a virtual device and the shim both
 // present them). A new target is a new profile here plus its support (driver, shim) first.
-inline constexpr std::string_view kKnownProfiles = "g920, g25";
+inline constexpr std::string_view kKnownProfiles = "g920, g25, g27";
 
-// Looks up a built-in profile by its config name ("g920", "g25"). Returns nullptr for unknown names.
+// Looks up a built-in profile by its config name ("g920", "g25", "g27"). Returns nullptr for unknown names.
 [[nodiscard]] std::unique_ptr<IDeviceProfile> makeProfile(std::string_view name);
 
 }  // namespace wheelbri

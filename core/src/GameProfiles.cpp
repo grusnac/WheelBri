@@ -322,7 +322,7 @@ std::optional<WayAdvice> wayAdvice(const GameProfile& game, const bool shim) {
     const std::string need = shim ? "the virtual device" : "the in-game shim";    // the one it works with
     return WayAdvice{game.label + " needs " + need,
                      game.label + " does not work with " + way + " (" + game.waysNote + "). Close the game, Stop, set "
-                     "Run as to " + (shim ? "Virtual" : "Shim") + " on the Mapping tab, and Start again."};
+                     "Mode to " + (shim ? "Virtual" : "Shim") + " on the Mapping tab, and Start again."};
 }
 
 bool profileFitsTarget(const GameProfile& profile, const std::string_view targetProfile) {

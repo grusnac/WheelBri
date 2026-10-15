@@ -12,7 +12,7 @@
 
 namespace wheelbri::service {
 
-// The app's games with the in-game shim, shown on the Mapping tab only with Run as Shim:
+// The app's games with the in-game shim, shown on the Mapping tab only with Mode Shim:
 // "Game <name> [Games (N)]". The button opens the games panel (over the window): every game with its folder and
 // whether the shim is there; a click on a game picks the one Start uses, Put shim / Remove shim and Forget (off the
 // list, files left) per game, and Add game

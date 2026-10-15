@@ -11,7 +11,7 @@ namespace wheelbri {
 namespace {
 
 TEST(VirtualWheel, OneIdentityPerTarget) {
-    ASSERT_EQ(virtualWheels().size(), 2U);
+    ASSERT_EQ(virtualWheels().size(), 3U);   // G920, G25, G27
     for (const VirtualWheel& wheel : virtualWheels()) {
         const auto profile = makeProfile(wheel.profile);
         ASSERT_NE(profile, nullptr) << wheel.profile;
@@ -33,6 +33,11 @@ TEST(VirtualWheel, FoundByProfileAndHardwareId) {
     EXPECT_EQ(virtualWheelForHardwareId("wheelbri\\G920"), virtualWheel("g920"));
     EXPECT_EQ(virtualWheelForHardwareId("wheelbri\\G2"), nullptr);
     EXPECT_EQ(virtualWheel("g29"), nullptr);
+    const VirtualWheel* g27 = virtualWheel("g27");
+    ASSERT_NE(g27, nullptr);
+    EXPECT_EQ(g27->productId, 0xC29B);
+    EXPECT_EQ(g27->buttons, 23U);
+    EXPECT_EQ(virtualWheelForHardwareId("wheelbri\\G27"), g27);
 }
 
 TEST(VirtualWheel, ItsIdsAreKnown) {
