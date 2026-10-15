@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -36,7 +37,7 @@ public:
     }
 };
 
-// Where the row's arrows are when it is drawn at (4, 18): "Target" (64) < value (72) >, 16, "Run as" (56) < (80) >.
+// Where the row's arrows are when it is drawn at (4, 18): "Target" (64) < value (72) >, 16, "Mode" (56) < (80) >.
 constexpr float kRowY = 22;
 constexpr float kTargetLeft = 80;
 constexpr float kTargetRight = 184;
@@ -51,8 +52,7 @@ protected:
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(builtIn());
         std::filesystem::create_directories(user());
-        for (const char* name :
-             {"g920-virtual-device.ini", "g920-in-game-shim.ini", "g25-virtual-device.ini", "g25-in-game-shim.ini"}) {
+        for (const char* name : {"g920.ini", "g25.ini", "g27.ini"}) {
             write(builtIn() / name, "[emulator]\n");
         }
     }
@@ -66,6 +66,13 @@ protected:
     [[nodiscard]] std::filesystem::path state() const { return dir_ / "app.ini"; }
     [[nodiscard]] ConfigPicker::Settings settings() const { return {builtIn(), user(), state()}; }
     [[nodiscard]] std::string setting(const std::string& key) const { return readAppSetting(state(), key); }
+    // The file's first line, the file closed again (Windows cannot delete a file that is open).
+    static std::string firstLine(const std::filesystem::path& path) {
+        std::ifstream in(path);
+        std::string line;
+        std::getline(in, line);
+        return line;
+    }
 
     RecordingWindow window_;
     std::filesystem::path dir_;
@@ -78,12 +85,15 @@ TEST(ConfigPickerNames, TargetsAndWays) {
     EXPECT_STREQ(ConfigPicker::targetName(Target::G25), "G25");
     EXPECT_STREQ(ConfigPicker::profileName(Target::G920), "g920");
     EXPECT_STREQ(ConfigPicker::profileName(Target::G25), "g25");
+    EXPECT_STREQ(ConfigPicker::targetName(Target::G27), "G27");
+    EXPECT_STREQ(ConfigPicker::profileName(Target::G27), "g27");
     EXPECT_STREQ(ConfigPicker::wayName(Way::VirtualDevice), "Virtual");
     EXPECT_STREQ(ConfigPicker::wayName(Way::Shim), "Shim");
-    EXPECT_EQ(ConfigPicker::builtInName(Target::G920, Way::VirtualDevice), "g920-virtual-device.ini");
-    EXPECT_EQ(ConfigPicker::builtInName(Target::G920, Way::Shim), "g920-in-game-shim.ini");
-    EXPECT_EQ(ConfigPicker::builtInName(Target::G25, Way::VirtualDevice), "g25-virtual-device.ini");
-    EXPECT_EQ(ConfigPicker::builtInName(Target::G25, Way::Shim), "g25-in-game-shim.ini");
+    EXPECT_EQ(ConfigPicker::builtInName(Target::G920), "g920.ini");   // one for both modes
+    EXPECT_EQ(ConfigPicker::builtInName(Target::G25), "g25.ini");
+    EXPECT_EQ(ConfigPicker::builtInName(Target::G27), "g27.ini");
+    EXPECT_EQ(ConfigPicker::olderOwnNames(Target::G25)[0], "my-g25-virtual-device.ini");
+    EXPECT_EQ(ConfigPicker::olderOwnNames(Target::G25)[1], "my-g25-in-game-shim.ini");
 }
 
 TEST(ConfigPickerNames, ParsesOnlyWhatTheAppWrites) {
@@ -91,6 +101,7 @@ TEST(ConfigPickerNames, ParsesOnlyWhatTheAppWrites) {
     using Way = ConfigPicker::Way;
     EXPECT_EQ(ConfigPicker::parseTarget("g920"), Target::G920);
     EXPECT_EQ(ConfigPicker::parseTarget("g25"), Target::G25);
+    EXPECT_EQ(ConfigPicker::parseTarget("g27"), Target::G27);
     for (const char* other : {"", "G25", "g29", "g25 ", "g920;"}) {
         EXPECT_FALSE(ConfigPicker::parseTarget(other)) << other;
     }
@@ -107,8 +118,8 @@ TEST_F(ConfigPickerFiles, WithNothingSavedItIsTheVirtualG920) {
     EXPECT_EQ(picker.name(), "G920 virtual device");
     EXPECT_STREQ(picker.profileName(), "g920");
     EXPECT_TRUE(picker.builtIn());
-    EXPECT_EQ(picker.selected(), (builtIn() / "g920-virtual-device.ini").string());
-    EXPECT_EQ(picker.ownPath(), user() / "my-g920-virtual-device.ini");
+    EXPECT_EQ(picker.selected(), (builtIn() / "g920.ini").string());
+    EXPECT_EQ(picker.ownPath(), user() / "my-g920.ini");
     EXPECT_EQ(setting("config"), picker.selected());   // the command line service and the next start read it
 }
 
@@ -120,7 +131,7 @@ TEST_F(ConfigPickerFiles, ReadsTheSavedTargetAndWay) {
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_FALSE(picker.virtualDevice());
     EXPECT_EQ(picker.name(), "G25 in-game shim");
-    EXPECT_EQ(picker.selected(), (builtIn() / "g25-in-game-shim.ini").string());
+    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
 }
 
 TEST_F(ConfigPickerFiles, UnknownSavedValuesAreTheVirtualG920) {
@@ -134,22 +145,22 @@ TEST_F(ConfigPickerFiles, UnknownSavedValuesAreTheVirtualG920) {
 
 TEST_F(ConfigPickerFiles, TheUsersOwnMappingWinsAndDefaultDropsIt) {
     ASSERT_TRUE(writeAppSetting(state(), "target", "g25"));
-    write(user() / "my-g25-virtual-device.ini", "[emulator]\ntarget_profile = g25\n");
+    write(user() / "my-g25.ini", "[emulator]\ntarget_profile = g25\n");
     ConfigPicker picker(window_, settings());
     EXPECT_FALSE(picker.builtIn());
-    EXPECT_EQ(picker.selected(), (user() / "my-g25-virtual-device.ini").string());
+    EXPECT_EQ(picker.selected(), (user() / "my-g25.ini").string());
     const std::uint64_t before = picker.changes();
     std::string error;
     ASSERT_TRUE(picker.dropOwnEdits(error)) << error;
     EXPECT_TRUE(picker.builtIn());
-    EXPECT_FALSE(std::filesystem::exists(user() / "my-g25-virtual-device.ini"));
-    EXPECT_EQ(picker.selected(), (builtIn() / "g25-virtual-device.ini").string());
+    EXPECT_FALSE(std::filesystem::exists(user() / "my-g25.ini"));
+    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
     EXPECT_GT(picker.changes(), before);
     EXPECT_TRUE(picker.dropOwnEdits(error));   // nothing to drop: still fine
 }
 
 TEST_F(ConfigPickerFiles, DefaultSaysWhenTheOwnMappingCannotGo) {
-    std::filesystem::create_directories(user() / "my-g920-virtual-device.ini" / "inside");   // a folder: not deletable
+    std::filesystem::create_directories(user() / "my-g920.ini" / "inside");   // a folder: not deletable
     ConfigPicker picker(window_, settings());
     std::string error;
     EXPECT_FALSE(picker.dropOwnEdits(error));
@@ -175,7 +186,7 @@ TEST_F(ConfigPickerFiles, TheArrowsSwitchTargetAndWayAndRememberThem) {
     EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
     EXPECT_EQ(setting("target"), "g25");
-    EXPECT_EQ(picker.selected(), (builtIn() / "g25-virtual-device.ini").string());
+    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
     EXPECT_GT(picker.changes(), before);
     EXPECT_FALSE(picker.onClick(kTargetRight, kRowY));   // the row is stale until it is drawn again
 
@@ -185,10 +196,18 @@ TEST_F(ConfigPickerFiles, TheArrowsSwitchTargetAndWayAndRememberThem) {
     EXPECT_TRUE(picker.onClick(kWayLeft, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_EQ(setting("way"), "shim");
-    EXPECT_EQ(picker.selected(), (builtIn() / "g25-in-game-shim.ini").string());
+    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
 
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // either arrow goes to the other target
+    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < the one before: G920
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // before the G920: round to the last, the G27
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G27);
+    EXPECT_EQ(setting("target"), "g27");
+    EXPECT_EQ(picker.selected(), (builtIn() / "g27.ini").string());
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > after the G27: round to the G920
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
     picker.draw(4, 18, true);
     EXPECT_TRUE(picker.onClick(kWayRight, kRowY));
@@ -207,7 +226,7 @@ TEST_F(ConfigPickerFiles, AStateFileThatCannotBeWrittenKeepsTheChoiceForNow) {
     picker.draw(4, 18, true);
     EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);   // chosen, only not remembered
-    EXPECT_EQ(picker.selected(), (builtIn() / "g25-virtual-device.ini").string());
+    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
     picker.draw(4, 18, true);
     EXPECT_TRUE(picker.onClick(kWayRight, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
@@ -238,9 +257,9 @@ TEST_F(ConfigPickerFiles, WithoutTheVirtualDeviceItIsShimOnly) {
     shimOnly.virtualAvailable = false;
     ConfigPicker picker(window_, shimOnly);   // nothing saved: Shim, not the virtual G920
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
-    EXPECT_EQ(picker.selected(), (builtIn() / "g920-in-game-shim.ini").string());
+    EXPECT_EQ(picker.selected(), (builtIn() / "g920.ini").string());
 
-    // Both Run as arrows are off; the target still changes.
+    // Both Mode arrows are off; the target still changes.
     picker.draw(4, 18, true);
     EXPECT_TRUE(window_.shows("Shim"));
     EXPECT_FALSE(picker.onClick(kWayLeft, kRowY));
@@ -248,7 +267,7 @@ TEST_F(ConfigPickerFiles, WithoutTheVirtualDeviceItIsShimOnly) {
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
-    EXPECT_EQ(picker.selected(), (builtIn() / "g25-in-game-shim.ini").string());
+    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
     EXPECT_TRUE(setting("way").empty());   // nothing written for the way
 }
 
@@ -274,4 +293,48 @@ TEST_F(ConfigPickerFiles, AClickBesideTheArrowsIsNotTheRows) {
 }
 
 }  // namespace
+// One mapping for both modes: switching Mode keeps the same file, the user's own included.
+TEST_F(ConfigPickerFiles, BothModesUseTheSameMapping) {
+    write(user() / "my-g920.ini", "[emulator]\n");
+    ConfigPicker picker(window_, settings());
+    const std::string virtualOne = picker.selected();
+    EXPECT_EQ(virtualOne, (user() / "my-g920.ini").string());
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kWayRight, kRowY));
+    EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
+    EXPECT_EQ(picker.selected(), virtualOne);
+}
+
+// Before 2026-10-15 each mode had its own mapping: the newer becomes the one for both, once; the older files stay.
+TEST_F(ConfigPickerFiles, TheNewerOlderMappingBecomesTheOneForBothModes) {
+    write(user() / "my-g920-virtual-device.ini", "virtual\n");
+    write(user() / "my-g920-in-game-shim.ini", "shim\n");
+    const auto now = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(user() / "my-g920-virtual-device.ini", now - std::chrono::hours(2));
+    std::filesystem::last_write_time(user() / "my-g920-in-game-shim.ini", now - std::chrono::hours(1));
+    ConfigPicker picker(window_, settings());
+    EXPECT_FALSE(picker.builtIn());
+    EXPECT_EQ(picker.selected(), (user() / "my-g920.ini").string());
+    EXPECT_EQ(firstLine(user() / "my-g920.ini"), "shim");   // the newer
+    EXPECT_TRUE(std::filesystem::exists(user() / "my-g920-virtual-device.ini"));   // never deleted
+    EXPECT_TRUE(std::filesystem::exists(user() / "my-g920-in-game-shim.ini"));
+
+    // Default drops my-g920.ini, and the older files do not bring it back.
+    std::string error;
+    ASSERT_TRUE(picker.dropOwnEdits(error)) << error;
+    EXPECT_TRUE(picker.builtIn());
+    const ConfigPicker again(window_, settings());
+    EXPECT_TRUE(again.builtIn());
+    EXPECT_FALSE(std::filesystem::exists(user() / "my-g920.ini"));
+}
+
+// An own mapping for both modes already there: the older files are not read.
+TEST_F(ConfigPickerFiles, AnOwnMappingForBothModesIsKept) {
+    write(user() / "my-g25.ini", "mine\n");
+    write(user() / "my-g25-in-game-shim.ini", "older\n");
+    ASSERT_TRUE(writeAppSetting(state(), "target", "g25"));
+    const ConfigPicker picker(window_, settings());
+    EXPECT_EQ(firstLine(user() / "my-g25.ini"), "mine");
+}
+
 }  // namespace wheelbri::service
