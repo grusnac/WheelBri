@@ -277,6 +277,21 @@ bool raiseThreadPriority(std::string& error) {
 
 const char* name() { return "Windows"; }
 
+std::uint32_t windowsBuild() {
+    // RtlGetVersion from ntdll: the real version (GetVersionEx says Windows 8 to a program without a manifest).
+    using GetVersion = LONG(WINAPI*)(OSVERSIONINFOW*);
+    static const std::uint32_t build = [] {
+        const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        const auto get = ntdll == nullptr ? nullptr
+                                          : reinterpret_cast<GetVersion>(
+                                                reinterpret_cast<void*>(GetProcAddress(ntdll, "RtlGetVersion")));
+        OSVERSIONINFOW info{};
+        info.dwOSVersionInfoSize = sizeof(info);
+        return get != nullptr && get(&info) == 0 ? static_cast<std::uint32_t>(info.dwBuildNumber) : 0U;
+    }();
+    return build;
+}
+
 std::filesystem::path systemFolder() {
     wchar_t folder[MAX_PATH] = {};
     const UINT size = GetSystemDirectoryW(folder, MAX_PATH);

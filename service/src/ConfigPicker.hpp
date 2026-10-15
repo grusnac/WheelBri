@@ -23,6 +23,8 @@ namespace wheelbri::service {
 // (config/g920-virtual-device.ini, config/g25-in-game-shim.ini, ...): the target's own inputs (fixed) and WheelBri's
 // default mapping of the rig onto them. The user's own mapping, once saved on the Mapping tab, goes to
 // <user configs>/my-<built-in name> and is used instead; "Default" deletes it.
+// Where the virtual device cannot exist (Windows before 11: its driver needs build 22000), Run as stays Shim and its
+// arrows are off; a saved "virtual" is read as Shim there and left in app.ini for a later Windows 11.
 class ConfigPicker {
 public:
     enum class Way { VirtualDevice, Shim };
@@ -32,7 +34,14 @@ public:
         std::filesystem::path builtInFolder;   // config/ next to the program
         std::filesystem::path userFolder;      // userConfigFolder()
         std::filesystem::path stateFile;       // appStateFile()
+        bool virtualAvailable = true;          // virtualDeviceSupported() on this PC
     };
+
+    // The first Windows build the virtual device's driver installs on (its INF: Windows 11).
+    static constexpr std::uint32_t kVirtualDeviceMinBuild = 22000;
+    // Whether the virtual device can exist on a PC with `windowsBuild` (platform::windowsBuild(); 0 = not Windows or
+    // unknown: Linux has its own virtual device, and an unknown Windows is given the benefit of the doubt).
+    [[nodiscard]] static bool virtualDeviceSupported(std::uint32_t windowsBuild);
 
     ConfigPicker(ui::UiWindow& window, Settings settings);
 

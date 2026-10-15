@@ -223,6 +223,47 @@ TEST_F(ConfigPickerFiles, WhileASessionRunsTheArrowsAreOff) {
     EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);
 }
 
+TEST(ConfigPickerNames, TheVirtualDeviceNeedsWindows11) {
+    EXPECT_FALSE(ConfigPicker::virtualDeviceSupported(7601));    // Windows 7 SP1
+    EXPECT_FALSE(ConfigPicker::virtualDeviceSupported(9600));    // Windows 8.1
+    EXPECT_FALSE(ConfigPicker::virtualDeviceSupported(19045));   // Windows 10 22H2
+    EXPECT_FALSE(ConfigPicker::virtualDeviceSupported(21999));
+    EXPECT_TRUE(ConfigPicker::virtualDeviceSupported(22000));    // Windows 11
+    EXPECT_TRUE(ConfigPicker::virtualDeviceSupported(26100));
+    EXPECT_TRUE(ConfigPicker::virtualDeviceSupported(0));        // not Windows (Linux: uhid), or unknown
+}
+
+TEST_F(ConfigPickerFiles, WithoutTheVirtualDeviceItIsShimOnly) {
+    ConfigPicker::Settings shimOnly = settings();
+    shimOnly.virtualAvailable = false;
+    ConfigPicker picker(window_, shimOnly);   // nothing saved: Shim, not the virtual G920
+    EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
+    EXPECT_EQ(picker.selected(), (builtIn() / "g920-in-game-shim.ini").string());
+
+    // Both Run as arrows are off; the target still changes.
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(window_.shows("Shim"));
+    EXPECT_FALSE(picker.onClick(kWayLeft, kRowY));
+    EXPECT_FALSE(picker.onClick(kWayRight, kRowY));
+    EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
+    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
+    EXPECT_EQ(picker.selected(), (builtIn() / "g25-in-game-shim.ini").string());
+    EXPECT_TRUE(setting("way").empty());   // nothing written for the way
+}
+
+TEST_F(ConfigPickerFiles, ASavedVirtualIsShimWhereItCannotRunAndStaysSaved) {
+    ASSERT_TRUE(writeAppSetting(state(), "way", "virtual"));
+    ConfigPicker::Settings shimOnly = settings();
+    shimOnly.virtualAvailable = false;
+    const ConfigPicker picker(window_, shimOnly);
+    EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
+    EXPECT_EQ(picker.name(), "G920 in-game shim");
+    EXPECT_EQ(setting("way"), "virtual");   // for the same app.ini on Windows 11 later
+    const ConfigPicker onWindows11(window_, settings());
+    EXPECT_EQ(onWindows11.way(), ConfigPicker::Way::VirtualDevice);
+}
+
 TEST_F(ConfigPickerFiles, AClickBesideTheArrowsIsNotTheRows) {
     ConfigPicker picker(window_, settings());
     picker.draw(4, 18, true);

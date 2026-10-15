@@ -124,6 +124,9 @@ void nameThisThread(const char* name);
 // Windows' System32 folder, from Windows itself (not from an environment variable a user could change); "/usr/bin"
 // elsewhere.
 [[nodiscard]] std::filesystem::path systemFolder();
+// Windows' build number as Windows itself says (7601 = Windows 7 SP1, 19045 = Windows 10 22H2, 22000+ = Windows 11),
+// not the compatibility value GetVersionEx gives a program without a manifest; 0 elsewhere or when it cannot tell.
+[[nodiscard]] std::uint32_t windowsBuild();
 
 // Windows: the process that owns IPv4 UDP port `port` (bound to 127.0.0.1 or any address): its id, 0 when no process
 // owns it (any more), nullopt when the system could not say. Elsewhere always nullopt. For SenderGate.

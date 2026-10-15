@@ -139,6 +139,7 @@ const char* name() {
 }
 
 std::filesystem::path systemFolder() { return "/usr/bin"; }
+std::uint32_t windowsBuild() { return 0; }
 
 std::optional<std::uint32_t> udpPortOwner(std::uint16_t /*port*/) { return std::nullopt; }
 

@@ -67,6 +67,10 @@ ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
     if (!way.empty() && !parseWay(way)) {
         WE_LOG_WARN(log(), "[app] way = '{}' is neither virtual nor shim: Virtual", way);
     }
+    if (!settings_.virtualAvailable) {
+        way_ = Way::Shim;   // app.ini keeps what it says
+        WE_LOG_INFO(log(), "Run as: Shim only (the virtual device needs Windows 11)");
+    }
     const std::string target = readAppSetting(settings_.stateFile, "target");
     target_ = parseTarget(target).value_or(Target::G920);
     if (!target.empty() && !parseTarget(target)) {
@@ -74,6 +78,10 @@ ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
     }
     refresh();
     WE_LOG_INFO(log(), "target {}; config {}", name(), selected_.empty() ? "(none)" : selected_);
+}
+
+bool ConfigPicker::virtualDeviceSupported(const std::uint32_t windowsBuild) {
+    return windowsBuild == 0 || windowsBuild >= kVirtualDeviceMinBuild;
 }
 
 std::filesystem::path ConfigPicker::builtInPath() const { return settings_.builtInFolder / builtInName(); }
@@ -113,6 +121,7 @@ bool ConfigPicker::dropOwnEdits(std::string& error) {
 }
 
 void ConfigPicker::choose(const Way way) {
+    if (way == Way::VirtualDevice && !settings_.virtualAvailable) return;   // the arrows are off: never asked
     way_ = way;
     if (!writeAppSetting(settings_.stateFile, "way", way == Way::Shim ? "shim" : "virtual")) {
         WE_LOG_WARN(log(), "cannot save the way in {}", settings_.stateFile.string());
@@ -173,7 +182,9 @@ float ConfigPicker::draw(const float x0, const float y, const bool canChange) {
     picker("Target", 64, targetName(target_), kTargetWidth, [this, otherTarget] { choose(otherTarget); });
     x += 16;
     const Way other = way_ == Way::VirtualDevice ? Way::Shim : Way::VirtualDevice;
-    picker("Run as", 56, wayName(way_), kWayWidth, [this, other] { choose(other); });
+    std::function<void()> step;
+    if (settings_.virtualAvailable) step = [this, other] { choose(other); };
+    picker("Run as", 56, wayName(way_), kWayWidth, step);
     return x;
 }
 
