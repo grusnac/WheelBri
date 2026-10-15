@@ -41,9 +41,20 @@ std::string trim(std::string_view text) {
     return std::string(text.substr(first, text.find_last_not_of(" \t") - first + 1));
 }
 
-// "Gas | invert" -> the control; problems go to `error`. `steering` is set when an older rig gave it the steering
-// role (its device is then the wheel). An older rig's role ("Gas | throttle") and "deadzone 3%" / "full 90%" on an axis
-// are skipped: a control has only a name since 2026-10-13 (a role-only control gets the role's name).
+// The choice (kAxisNames or kButtonNames, by the control's type) that `text` names, any case; empty if none.
+std::string choiceNamed(const std::string& text, const bool axis) {
+    const std::string wanted = lower(text);
+    const auto names =
+        axis ? std::span<const std::string_view>(kAxisNames) : std::span<const std::string_view>(kButtonNames);
+    for (const std::string_view name : names) {
+        if (lower(name) == wanted) return std::string(name);
+    }
+    return {};
+}
+
+// "Gas | throttle | invert" -> the control; problems go to `error`. `steering` is set when it is a Steering axis (its
+// device is then the wheel). An older rig's role ("| left paddle") is the choice it names now (L Paddle); an older
+// "deadzone 3%" / "full 90%" on an axis is skipped.
 RigControl parseControl(const std::string& value, const bool axis, std::string& error, bool& steering) {
     RigControl control;
     std::vector<std::string> parts;
@@ -65,26 +76,29 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
             control.invert = true;
             continue;
         }
-        if (!axis && part == "button") {   // the Button mark (also an older rig's button role)
-            control.button = true;
-            continue;
-        }
         if (axis && (part.rfind("deadzone ", 0) == 0 || part.rfind("full ", 0) == 0)) continue;   // older: ignored
+        std::string kind = choiceNamed(part, axis);
         const auto older = std::find_if(kOlderRoles.begin(), kOlderRoles.end(),
                                         [&part](const auto& role) { return role.first == part; });
-        if (older != kOlderRoles.end()) {
-            if (control.label.empty()) control.label = std::string(older->second);
-            if (axis && part == "steering") steering = true;
+        if (kind.empty() && older != kOlderRoles.end()) kind = choiceNamed(std::string(older->second), axis);
+        if (!kind.empty()) {
+            control.kind = kind;
+            if (axis && kind == "Steering") steering = true;
+        } else if (older != kOlderRoles.end()) {
+            // An older role this kind of control cannot be now: dropped, as before.
         } else if (!parts[i].empty()) {
-            error = "'" + parts[i] + "' is not " + (axis ? "'invert'" : "'button' or 'invert'");
+            error = "'" + parts[i] + "' is not 'invert' or what a" + (axis ? "n axis" : " button") +
+                    " can be (the Rig tab's It is)";
         }
     }
+    // Saved before 2026-10-15 (no choice kept then): a name that is a choice's is that choice.
+    if (control.kind.empty()) control.kind = choiceNamed(control.label, axis);
     return control;
 }
 
 std::string controlText(const RigControl& control) {
     std::string text = control.label;
-    if (control.button) text += text.empty() ? "| button" : " | button";
+    if (!control.kind.empty()) text += (text.empty() ? "| " : " | ") + lower(control.kind);
     if (control.invert) text += text.empty() ? "| invert" : " | invert";
     return text;
 }

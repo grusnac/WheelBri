@@ -28,8 +28,8 @@ namespace wheelbri::service {
 // PageUp / PageDown, Up / Down, Home / End. The bottom-left corner lists them (at most 6 lines; the mouse wheel over it
 // scrolls it; a line's click brings its section into view). With Detect on, touching a control on any device (pressing
 // a button, moving an axis well away from where it rested) opens its popup: type the name, or press one of the names it
-// offers ("It is": Steering, Throttle, A, Gear 1 ...: it fills in the name only when there is none; Button also marks
-// it a button, whatever the name), Enter. A pedal's rest position also says whether it is inverted. A device joins
+// offers ("It is": Steering, Throttle, A, Gear 1 ...: kept whatever the name becomes; it fills in the name only when
+// there is none, Button never), Enter. A pedal's rest position also says whether it is inverted. A device joins
 // the rig when one of its controls is named (the rig's devices are the ones
 // hidden from games, at most Rig::kMaxDevices); Forget takes one out. There are no dead zones: those belong in the
 // device's own software. There is one rig, a file in rigsFolder() (remembered in the app's state file, [app] rig; "My

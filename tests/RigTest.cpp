@@ -16,7 +16,7 @@ Rig sampleRig() {
     wheel.id = {0x346E, 0x0005};
     wheel.kind = DeviceKind::Wheel;
     wheel.axes[0] = {"Wheel", false};
-    wheel.buttons[13] = {"R paddle", false};
+    wheel.buttons[13] = {"R paddle", false, "R Paddle"};
     wheel.buttons[4] = {"D-pad Up", false};
     RigDevice pedals;
     pedals.name = "Pedals";
@@ -61,7 +61,7 @@ TEST(Rig, ReportsBadLinesAndKeepsTheRest) {
     EXPECT_EQ(result.errors.size(), 6U);
     ASSERT_EQ(result.rig.devices.size(), 1U);
     EXPECT_EQ(result.rig.devices[0].axes[0], (RigControl{"Wheel", false}));   // the name kept
-    EXPECT_EQ(result.rig.devices[0].buttons[1], (RigControl{"A", false}));
+    EXPECT_EQ(result.rig.devices[0].buttons[1], (RigControl{"A", false, "A"}));   // named as a choice: that choice
 }
 
 TEST(Rig, ConvertsToAndFromDeviceNames) {
@@ -70,7 +70,7 @@ TEST(Rig, ConvertsToAndFromDeviceNames) {
     EXPECT_EQ(labels.buttons[13], "R paddle");
     EXPECT_EQ(labels.vendorId, 0x346E);
     const RigDevice back = rigDeviceFrom(labels);
-    EXPECT_EQ(back.buttons[13], (RigControl{"R paddle", false}));
+    EXPECT_EQ(back.buttons[13].label, "R paddle");
 }
 
 TEST(Rig, FilesListAndSave) {
@@ -109,21 +109,19 @@ TEST(Rig, OldDeadzonesAreIgnoredAndNotWrittenAgain) {
                                "axis_3 = Clutch | clutch | deadzone lots\n");
     EXPECT_TRUE(old.errors.empty()) << old.errors.front();
     ASSERT_EQ(old.rig.devices.size(), 1U);
-    EXPECT_EQ(old.rig.devices[0].axes[1], (RigControl{"Gas", true}));
-    EXPECT_EQ(old.rig.devices[0].axes[2], (RigControl{"Brake", false}));   // in any order, any case
-    EXPECT_EQ(old.rig.devices[0].axes[3], (RigControl{"Clutch", false}));
+    EXPECT_EQ(old.rig.devices[0].axes[1], (RigControl{"Gas", true, "Throttle"}));
+    EXPECT_EQ(old.rig.devices[0].axes[2], (RigControl{"Brake", false, "Brake"}));   // in any order, any case
+    EXPECT_EQ(old.rig.devices[0].axes[3], (RigControl{"Clutch", false, "Clutch"}));
     const std::string text = writeRig(old.rig, "Mine");
     EXPECT_EQ(text.find("deadzone"), std::string::npos) << text;
     EXPECT_EQ(text.find("full "), std::string::npos) << text;
-    EXPECT_NE(text.find("axis_1 = Gas | invert\r\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("axis_1 = Gas | throttle | invert\r\n"), std::string::npos) << text;
     // On a button they were never allowed: still not.
     EXPECT_FALSE(load("[device_1]\nid = 30b7:1001\nbutton_1 = A | deadzone 3%\n").errors.empty());
 }
 
-// Roles are gone (since 2026-10-13: WheelBri does not guess what a control is for). An older rig's are read and
-// ignored: a control keeps its name (a role-only one gets the role's), a steering axis makes its device the wheel, and
-// saving it again leaves the roles out.
-TEST(Rig, OlderRolesAreIgnoredAndNotWrittenAgain) {
+// An older rig's roles are what its controls are now ("It is"), by today's names: kept, and written again.
+TEST(Rig, OlderRolesAreTheChoicesTheyNameNow) {
     const RigResult old = load(
         "[device_1]\nname = Moza R3\nid = 346e:0005\nkind = other\naxis_0 = Wheel | steering\n"
         "button_3 = Y | y\nbutton_4 = | d-pad up\nbutton_12 = Left paddle | left paddle\nbutton_0 = Hand | handbrake\n"
@@ -131,18 +129,20 @@ TEST(Rig, OlderRolesAreIgnoredAndNotWrittenAgain) {
     EXPECT_TRUE(old.errors.empty()) << old.errors.front();
     ASSERT_EQ(old.rig.devices.size(), 2U);
     const RigDevice& r3 = old.rig.devices[0];
-    EXPECT_EQ(r3.axes[0], (RigControl{"Wheel", false}));
-    EXPECT_EQ(r3.buttons[3], (RigControl{"Y", false}));
-    EXPECT_EQ(r3.buttons[4], (RigControl{"D Up", false}));            // a role only: the role's name
-    EXPECT_EQ(r3.buttons[12], (RigControl{"Left paddle", false}));    // the user's name as it was
-    EXPECT_EQ(r3.buttons[0], (RigControl{"Hand", false}));
-    EXPECT_EQ(r3.kind, DeviceKind::Wheel);                            // it had the steering axis
-    EXPECT_EQ(old.rig.devices[1].axes[1], (RigControl{"Gas", true}));
+    EXPECT_EQ(r3.axes[0], (RigControl{"Wheel", false, "Steering"}));
+    EXPECT_EQ(r3.buttons[3], (RigControl{"Y", false, "Y"}));
+    EXPECT_EQ(r3.buttons[4], (RigControl{"", false, "D Up"}));                  // no name: shown as D Up
+    EXPECT_EQ(r3.buttons[4].displayName(), "D Up");
+    EXPECT_EQ(r3.buttons[12], (RigControl{"Left paddle", false, "L Paddle"}));  // the user's name as it was
+    EXPECT_EQ(r3.buttons[0], (RigControl{"Hand", false, "Handbrake"}));
+    EXPECT_EQ(r3.kind, DeviceKind::Wheel);                                      // it had the steering axis
+    EXPECT_EQ(old.rig.devices[1].axes[1], (RigControl{"Gas", true, "Throttle"}));
     ASSERT_NE(old.rig.wheel(), nullptr);
     EXPECT_EQ(old.rig.wheel()->name, "Moza R3");
     const std::string text = writeRig(old.rig, "Mine");
-    for (const char* role : {"steering", "| y", "d-pad up\r", "left paddle\r", "throttle", "handbrake"}) {
-        EXPECT_EQ(text.find(role), std::string::npos) << role << "\n" << text;
+    for (const char* line : {"axis_0 = Wheel | steering\r", "button_4 = | d up\r",
+                             "button_12 = Left paddle | l paddle\r", "axis_1 = Gas | throttle | invert\r"}) {
+        EXPECT_NE(text.find(line), std::string::npos) << line << "\n" << text;
     }
     EXPECT_NE(text.find("kind = wheel\r\n"), std::string::npos) << text;
     EXPECT_EQ(load(text).rig, old.rig);
@@ -159,35 +159,24 @@ TEST(Rig, TheWheelIsTheFirstOfKindWheelElseTheFirst) {
     EXPECT_EQ(Rig{}.wheel(), nullptr);
 }
 
-// "It is: Button" marks a button and is not its name: with a name or without, it is kept, saved and read back.
-TEST(Rig, TheButtonMarkIsKeptWithOrWithoutAName) {
+// What a control is ("It is") is kept whatever its name: named, renamed, or with no name (shown as the choice).
+TEST(Rig, TheChoiceIsKeptWithOrWithoutAName) {
     Rig rig = sampleRig();
-    rig.devices[0].buttons[7] = {"Horn", false, true};
-    rig.devices[0].buttons[8] = {"", false, true};
+    rig.devices[0].buttons[7] = {"Horn", false, "Button"};
+    rig.devices[0].buttons[8] = {"", false, "A"};
     EXPECT_TRUE(rig.devices[0].buttons[8].defined());
     EXPECT_EQ(rig.devices[0].buttons[7].displayName(), "Horn");
-    EXPECT_EQ(rig.devices[0].buttons[8].displayName(), "Button");
+    EXPECT_EQ(rig.devices[0].buttons[8].displayName(), "A");
     const std::string text = writeRig(rig, "Mine");
     EXPECT_NE(text.find("button_7 = Horn | button\r\n"), std::string::npos) << text;
-    EXPECT_NE(text.find("button_8 = | button\r\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("button_8 = | a\r\n"), std::string::npos) << text;
     const RigResult back = load(text);
     EXPECT_TRUE(back.errors.empty()) << back.errors.front();
     EXPECT_EQ(back.rig, rig);
-    // The Mapping tab's names: an unnamed button shows as "Button".
-    EXPECT_EQ(labelsOf(back.rig.devices[0]).buttons[8], "Button");
+    // The Mapping tab's names: an unnamed control shows what it is.
+    EXPECT_EQ(labelsOf(back.rig.devices[0]).buttons[8], "A");
     EXPECT_EQ(labelsOf(back.rig.devices[0]).buttons[7], "Horn");
-}
-
-// A name is a name, "Button" too; the mark is only "| button" (an older rig's button role is the mark).
-TEST(Rig, OnlyBarButtonIsTheMark) {
-    const RigResult old = load("[device_1]\nid = 346e:0005\nbutton_2 = Button\nbutton_3 = | button\n"
-                               "button_4 = | d-pad up\n");
-    EXPECT_TRUE(old.errors.empty()) << old.errors.front();
-    ASSERT_EQ(old.rig.devices.size(), 1U);
-    EXPECT_EQ(old.rig.devices[0].buttons[2], (RigControl{"Button", false, false}));
-    EXPECT_EQ(old.rig.devices[0].buttons[3], (RigControl{"", false, true}));
-    EXPECT_EQ(old.rig.devices[0].buttons[4], (RigControl{"D Up", false, false}));   // the older role, as now named
-    // On an axis "button" is only an older rig's role: ignored, never the mark.
-    EXPECT_EQ(load("[device_1]\nid = 346e:0005\naxis_1 = Gas | button\n").rig.devices[0].axes[1],
-              (RigControl{"Gas", false, false}));
+    // Anything else after the name is a mistake.
+    EXPECT_FALSE(load("[device_1]\nid = 346e:0005\naxis_1 = Gas | horn\n").errors.empty());
+    EXPECT_FALSE(load("[device_1]\nid = 346e:0005\nbutton_1 = Gas | horn\n").errors.empty());
 }

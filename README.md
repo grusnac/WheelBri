@@ -145,9 +145,10 @@ a headline, why it was needed, how to use it, and where to look.
 - **Why:** WheelBri works with any wheel and accessories, so the user names each device and control, once.
 - **Use:** tab R: touch a control (Detect) and name it: type a name, or press one of the names the popup offers
   (**It is**: Steering, Throttle, Brake, Clutch, Handbrake for an axis; A, B, X, Y, Menu, View, RSB, LSB, Xbox, the
-  D-pad (D Up, D Right, D Down, D Left), the paddles, Shift up/down, Gear 1-7, Reverse for a button), which fills in
-  the name only when there is none (a name the control has is never replaced); Enter; **Save**. **Button** also marks
-  the control a button: typing or deleting the name keeps the mark (with no name it is shown as "Button").
+  D-pad (D Up, D Right, D Down, D Left), the paddles, Shift up/down, Gear 1-7, Reverse for a button); Enter; **Save**.
+  The choice picked stays lit whatever you do with the name (rename it, delete it; pressed again it is unpicked), and
+  it fills in the name only when there is none (never replacing one), except **Button**, whose name you type. A control
+  with no name shows its choice. Saved after the name (`Horn | button`, `| a`); WheelBri still maps nothing from it.
   A control is only a name: WheelBri does not guess what a control is for (every wheel is different), so the Mapping
   tab is where you say what drives what. One rig (no rig selector, New or Rename). Older rigs' roles (`Gas |
   throttle`) load and are ignored (a steering axis makes its device the wheel), and go when saved again. There is no
@@ -499,8 +500,8 @@ the WheelBri Helper service, or are done in the app when it was started as Admin
 The **Rig** tab (R) defines your **rig**: the devices you have (wheel, pedals, shifter, handbrake, button box) and
 what each control is. Every connected device is read at once. With **Detect** on (the default), press a button or move
 an axis (a pedal all the way) and its popup opens: type its name, or pick what it is (Steering, Throttle, Brake,
-Clutch, Handbrake, Axis; Button, D Up/Right/Down/Left, Shift up/down, Gear 1-7, Reverse: it fills in the name only when
-there is none), Enter. A pedal found resting at
+Clutch, Handbrake, Axis; Button, D Up/Right/Down/Left, Shift up/down, Gear 1-7, Reverse: kept while you rename it; it
+fills in the name only when there is none, Button never), Enter. A pedal found resting at
 the top of its axis is marked **Inverted**. Clicking an axis row or a button tile opens the same popup. Every connected
 device is shown at once (scroll for more); naming a control of a device adds it to the rig (at most 4 devices; **Forget**
 in the device list at the bottom left takes one out); give each a name. There is no "it is a wheel / pedals / ..." choice: the device

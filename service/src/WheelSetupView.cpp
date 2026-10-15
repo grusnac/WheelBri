@@ -523,11 +523,7 @@ void WheelSetupView::closeControl(const bool keep) {
     RigControl& control = popupAxis_ ? device->axes[static_cast<std::size_t>(popupIndex_)]
                                      : device->buttons[static_cast<std::size_t>(popupIndex_)];
     control = popupControl_;
-    if (!popupAxis_) {
-        control.invert = false;
-    } else {
-        control.button = false;
-    }
+    if (!popupAxis_) control.invert = false;
 }
 
 // --- input ----------------------------------------------------------------------------------------------------------
@@ -965,27 +961,22 @@ void WheelSetupView::drawControlPopup() {
     window_.text(left, kY + 62, "It is", kDim);
     float x = left + 60;
     float y = kY + 58;
-    // A name button fills in the name only while there is none (lit while the name is that): a name the control has,
-    // typed or picked, is never replaced. Button also marks the control a button (lit while marked; again: unmarked),
-    // which stays whatever the name becomes.
+    // A choice picks what the control is (lit while picked, whatever the name becomes; again: unpicked) and fills in
+    // the name while there is none (a name is never replaced), except Button, whose name the user types.
     const auto nameButton = [&](const std::string& name, const float width) {
         if (x + width > rolesRight) {
             x = rolesLeft;
             y += kRoleRow;
         }
-        const bool mark = !popupAxis_ && name == kButtonMark;
-        if (mark) {
-            x += button(x, y, name, [this, name] {
-                popupControl_.button = !popupControl_.button;
-                if (popupControl_.button && trimmed(popupControl_.label).empty()) popupControl_.label = name;
-            }, popupControl_.button, true, width) + kRoleGap;
-            return;
-        }
         x += button(x, y, name, [this, name] {
-            if (!trimmed(popupControl_.label).empty()) return;   // it has a name: kept
-            popupControl_.label = name;
-            popupControl_.button = false;   // named as something else: not the Button mark
-        }, lower(popupControl_.label) == lower(name), true, width) + kRoleGap;
+            if (popupControl_.kind == name) {   // again: unpicked (the name stays)
+                popupControl_.kind.clear();
+                return;
+            }
+            popupControl_.kind = name;
+            // The name too while there is none; never Button's (that name is the user's to type).
+            if (name != kButtonMark && trimmed(popupControl_.label).empty()) popupControl_.label = name;
+        }, popupControl_.kind == name, true, width) + kRoleGap;
     };
     for (const std::string_view name : popupAxis_ ? std::span<const std::string_view>(kAxisNames)
                                                   : std::span<const std::string_view>(kButtonNames)) {
