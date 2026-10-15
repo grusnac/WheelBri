@@ -61,7 +61,7 @@ constexpr float kSliderX = 132;
 constexpr float kSliderMinDeg = 90.0F;
 constexpr float kSliderMaxDeg = 1080.0F;
 constexpr float kSliderStepDeg = 10.0F;
-constexpr std::array<float, 6> kPresetsDeg = {180.0F, 360.0F, 540.0F, 720.0F, 900.0F, 1080.0F};
+constexpr std::array<float, 7> kPresetsDeg = {180.0F, 270.0F, 360.0F, 540.0F, 720.0F, 900.0F, 1080.0F};
 constexpr std::size_t kMaxTyped = 12;
 
 std::string fit(std::string text, const std::size_t chars) {
@@ -97,7 +97,7 @@ std::string readFile(const std::string& path) {
 DeviceId idOf(const DeviceLabels& labels) { return {labels.vendorId, labels.productId}; }
 
 // What a rig control is called in this tab: its name (empty when it has none: the caller says its number).
-std::string controlName(const RigControl& control) { return control.label; }
+std::string controlName(const RigControl& control) { return control.displayName(); }
 
 std::string deviceName(const DeviceLabels& labels) {
     return labels.name.empty() ? deviceId(labels.vendorId, labels.productId) : labels.name;
@@ -751,7 +751,7 @@ void MappingEditView::drawRotation(const float top) {
     float x = kSliderX + sliderW() + 112;
     for (const float preset : kPresetsDeg) {
         x += button(x, y, degrees(preset), [this, preset] { edit_.steeringRotationDeg = preset; },
-                    std::fabs(edit_.steeringRotationDeg - preset) < 0.5F, !locked_, 46) + 4;
+                    std::fabs(edit_.steeringRotationDeg - preset) < 0.5F, !locked_, 40) + 4;   // 7 fit in 960
     }
     window_.text(kSliderX, y + 20, "90", kDim);
     window_.text(kSliderX + sliderW() - 32, y + 20, "1080", kDim);

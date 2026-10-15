@@ -114,7 +114,7 @@ DeviceKind guessKind(const std::string& name) {
 
 // "Gas  (inverted)": the name, and whether the axis rests at +1.
 std::string describe(const RigControl& control) {
-    std::string text = control.label;
+    std::string text = control.displayName();
     if (control.invert) text += text.empty() ? "(inverted)" : "  (inverted)";
     return text;
 }
@@ -523,7 +523,11 @@ void WheelSetupView::closeControl(const bool keep) {
     RigControl& control = popupAxis_ ? device->axes[static_cast<std::size_t>(popupIndex_)]
                                      : device->buttons[static_cast<std::size_t>(popupIndex_)];
     control = popupControl_;
-    if (!popupAxis_) control.invert = false;
+    if (!popupAxis_) {
+        control.invert = false;
+    } else {
+        control.button = false;
+    }
 }
 
 // --- input ----------------------------------------------------------------------------------------------------------
@@ -847,7 +851,8 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
         char number[16];
         std::snprintf(number, sizeof(number), "%2d", source);
         window_.text(x + 4, ty + 5, number, down ? kDark : kDim);
-        window_.text(x + 26, ty + 5, fit(control.label, static_cast<std::size_t>((tileW - 26) / ui::kCharWidth)),
+        const auto chars = static_cast<std::size_t>((tileW - 26) / ui::kCharWidth);
+        window_.text(x + 26, ty + 5, fit(control.displayName(), chars),
                      down ? kDark : kText);
         hit(x, ty, tileW, kTileH, [this, id, source] { openControl(id, false, source, std::nullopt); });
     }
@@ -960,14 +965,27 @@ void WheelSetupView::drawControlPopup() {
     window_.text(left, kY + 62, "It is", kDim);
     float x = left + 60;
     float y = kY + 58;
-    // A name button only fills in the name (lit while the name is that); nothing else is kept.
+    // A name button fills in the name only while there is none (lit while the name is that): a name the control has,
+    // typed or picked, is never replaced. Button also marks the control a button (lit while marked; again: unmarked),
+    // which stays whatever the name becomes.
     const auto nameButton = [&](const std::string& name, const float width) {
         if (x + width > rolesRight) {
             x = rolesLeft;
             y += kRoleRow;
         }
-        x += button(x, y, name, [this, name] { popupControl_.label = name; }, lower(popupControl_.label) == lower(name),
-                    true, width) + kRoleGap;
+        const bool mark = !popupAxis_ && name == kButtonMark;
+        if (mark) {
+            x += button(x, y, name, [this, name] {
+                popupControl_.button = !popupControl_.button;
+                if (popupControl_.button && trimmed(popupControl_.label).empty()) popupControl_.label = name;
+            }, popupControl_.button, true, width) + kRoleGap;
+            return;
+        }
+        x += button(x, y, name, [this, name] {
+            if (!trimmed(popupControl_.label).empty()) return;   // it has a name: kept
+            popupControl_.label = name;
+            popupControl_.button = false;   // named as something else: not the Button mark
+        }, lower(popupControl_.label) == lower(name), true, width) + kRoleGap;
     };
     for (const std::string_view name : popupAxis_ ? std::span<const std::string_view>(kAxisNames)
                                                   : std::span<const std::string_view>(kButtonNames)) {
@@ -989,9 +1007,10 @@ void WheelSetupView::drawControlPopup() {
     const float by = kY + height - 26;
     button(left, by, "OK", [this] { closeControl(true); }, true, true, 80);
     button(left + 88, by, "Cancel", [this] { closeControl(false); }, false, true, 80);
+    // Clear empties the control and stays open: OK keeps it cleared (the control unnamed), Cancel keeps it as it was.
     button(left + 176, by, "Clear", [this] {
         popupControl_ = RigControl{};
-        closeControl(true);
+        editing_ = &popupControl_.label;   // ready to type a new name
     }, false, true, 80);
     window_.text(left + 270, by + 4, "Enter keeps it, Esc drops it.", kDim);
 }

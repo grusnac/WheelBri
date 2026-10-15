@@ -145,7 +145,9 @@ a headline, why it was needed, how to use it, and where to look.
 - **Why:** WheelBri works with any wheel and accessories, so the user names each device and control, once.
 - **Use:** tab R: touch a control (Detect) and name it: type a name, or press one of the names the popup offers
   (**It is**: Steering, Throttle, Brake, Clutch, Handbrake for an axis; A, B, X, Y, Menu, View, RSB, LSB, Xbox, the
-  D-pad, the paddles, Shift up/down, Gear 1-7, Reverse for a button), which only fills in the name; Enter; **Save**.
+  D-pad (D Up, D Right, D Down, D Left), the paddles, Shift up/down, Gear 1-7, Reverse for a button), which fills in
+  the name only when there is none (a name the control has is never replaced); Enter; **Save**. **Button** also marks
+  the control a button: typing or deleting the name keeps the mark (with no name it is shown as "Button").
   A control is only a name: WheelBri does not guess what a control is for (every wheel is different), so the Mapping
   tab is where you say what drives what. One rig (no rig selector, New or Rename). Older rigs' roles (`Gas |
   throttle`) load and are ignored (a steering axis makes its device the wheel), and go when saved again. There is no
@@ -188,13 +190,12 @@ a headline, why it was needed, how to use it, and where to look.
   refuses until it is fixed, and Start warns about it. A source pointing at a control the rig has not named is amber.
   There is no wheel line: the wheel (it plays force feedback) is the rig's first device of kind wheel, else its first
   device (an older config's `source_device` still names it).
-  **Steering rotation**: the game's full
-  lock (slider, typed degrees, or 180 / 360 / 540 / 720 / 900 / 1080). **Set your wheel's own software (Pit House for
-  Moza) to the same number**: WheelBri passes the wheel through 1:1 and never reads or sets the wheel's own settings,
-  so the wheel's end stop is the game's full lock only when they match. There is no separate wheel rotation (since
-  2026-10-13; an older config's `source_rotation_deg` is ignored and goes when saved). A game's own rotation (NFS
-  Payback: 180) is set in the Game profiles tab. Config key: `[steering] target_rotation_deg`. No dead zones: set them
-  in the devices' own software.
+  **Steering rotation**: the game's full lock (slider, typed degrees, or 180 / 270 / 360 / 540 / 720 / 900 / 1080).
+  **Set your wheel's own software (Pit House for Moza) to the same number**: WheelBri passes the wheel through 1:1 and
+  never reads or sets the wheel's own settings, so the wheel's end stop is the game's full lock only when they match.
+  There is no separate wheel rotation (since 2026-10-13; an older config's `source_rotation_deg` is ignored and goes
+  when saved). A game's own rotation (NFS Payback: 180) is set in the Game profiles tab. Config key: `[steering]
+  target_rotation_deg`. No dead zones: set them in the devices' own software.
 - **Look:** `%LOCALAPPDATA%\wheelbri\configs\my-g920-<target>.ini`; telemetry `raw_*` and `out_*` columns. Code: core
   `MappingEdit`, `AxisTuning`, `Mapper`, `service/src/MappingEditView.cpp`.
 
@@ -494,8 +495,9 @@ the WheelBri Helper service, or are done in the app when it was started as Admin
 
 The **Rig** tab (R) defines your **rig**: the devices you have (wheel, pedals, shifter, handbrake, button box) and
 what each control is. Every connected device is read at once. With **Detect** on (the default), press a button or move
-an axis (a pedal all the way) and its popup opens: type its name, pick what it is (Steering, Throttle, Brake, Clutch,
-Handbrake, Axis; Button, D-pad up/right/down/left, Shift up/down, Gear 1-7, Reverse), Enter. A pedal found resting at
+an axis (a pedal all the way) and its popup opens: type its name, or pick what it is (Steering, Throttle, Brake,
+Clutch, Handbrake, Axis; Button, D Up/Right/Down/Left, Shift up/down, Gear 1-7, Reverse: it fills in the name only when
+there is none), Enter. A pedal found resting at
 the top of its axis is marked **Inverted**. Clicking an axis row or a button tile opens the same popup. Every connected
 device is shown at once (scroll for more); naming a control of a device adds it to the rig (at most 4 devices; **Forget**
 in the device list at the bottom left takes one out); give each a name. There is no "it is a wheel / pedals / ..." choice: the device
