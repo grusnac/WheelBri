@@ -19,8 +19,8 @@ namespace {
 // when picked: read only to keep an older rig's controls named (a role is no longer kept).
 constexpr std::array<std::pair<std::string_view, std::string_view>, 32> kOlderRoles = {{
     {"steering", "Steering"},  {"throttle", "Throttle"},   {"brake", "Brake"},           {"clutch", "Clutch"},
-    {"handbrake", "Handbrake"}, {"axis", "Axis"},          {"button", "Button"},         {"d-pad up", "D-pad Up"},
-    {"d-pad right", "D-pad Right"}, {"d-pad down", "D-pad Down"}, {"d-pad left", "D-pad Left"},
+    {"handbrake", "Handbrake"}, {"axis", "Axis"},          {"button", "Button"},         {"d-pad up", "D Up"},
+    {"d-pad right", "D Right"}, {"d-pad down", "D Down"}, {"d-pad left", "D Left"},
     {"shift up", "Shift up"},  {"shift down", "Shift down"}, {"gear 1", "Gear 1"},        {"gear 2", "Gear 2"},
     {"gear 3", "Gear 3"},      {"gear 4", "Gear 4"},       {"gear 5", "Gear 5"},         {"gear 6", "Gear 6"},
     {"gear 7", "Gear 7"},      {"reverse", "Reverse"},     {"left paddle", "L Paddle"},  {"right paddle", "R Paddle"},
@@ -65,6 +65,10 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
             control.invert = true;
             continue;
         }
+        if (!axis && part == "button") {   // the Button mark (also an older rig's button role)
+            control.button = true;
+            continue;
+        }
         if (axis && (part.rfind("deadzone ", 0) == 0 || part.rfind("full ", 0) == 0)) continue;   // older: ignored
         const auto older = std::find_if(kOlderRoles.begin(), kOlderRoles.end(),
                                         [&part](const auto& role) { return role.first == part; });
@@ -72,7 +76,7 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
             if (control.label.empty()) control.label = std::string(older->second);
             if (axis && part == "steering") steering = true;
         } else if (!parts[i].empty()) {
-            error = "'" + parts[i] + "' is not 'invert'";
+            error = "'" + parts[i] + "' is not " + (axis ? "'invert'" : "'button' or 'invert'");
         }
     }
     return control;
@@ -80,7 +84,8 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
 
 std::string controlText(const RigControl& control) {
     std::string text = control.label;
-    if (control.invert) text += " | invert";
+    if (control.button) text += text.empty() ? "| button" : " | button";
+    if (control.invert) text += text.empty() ? "| invert" : " | invert";
     return text;
 }
 
@@ -191,7 +196,8 @@ const RigDevice* rigDeviceFor(const MapperConfig& mapper, const Rig& rig, const 
 std::string writeRig(const Rig& rig, const std::string& name) {
     const std::string nl = "\r\n";
     std::string text = "; WheelBri rig '" + name + "': the devices and what their controls are (the Rig tab" + nl +
-                       "; writes this). A control: name, or name | invert (released at the top of the axis)." + nl +
+                       "; writes this). A control: name, or name | invert (released at the top of the axis);" + nl +
+                       "; a button: name | button, or | button, when marked a button (\"It is\": Button)." + nl +
                        "; No dead zones: set those in the device's own software." + nl;
     for (std::size_t i = 0; i < rig.devices.size(); ++i) {
         const RigDevice& device = rig.devices[i];
@@ -218,7 +224,7 @@ DeviceLabels labelsOf(const RigDevice& device) {
     labels.productId = device.id.productId;
     labels.kind = device.kind;
     for (std::size_t i = 0; i < device.axes.size(); ++i) labels.axes[i] = device.axes[i].label;
-    for (std::size_t i = 0; i < device.buttons.size(); ++i) labels.buttons[i] = device.buttons[i].label;
+    for (std::size_t i = 0; i < device.buttons.size(); ++i) labels.buttons[i] = device.buttons[i].displayName();
     return labels;
 }
 

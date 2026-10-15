@@ -133,7 +133,7 @@ TEST(Rig, OlderRolesAreIgnoredAndNotWrittenAgain) {
     const RigDevice& r3 = old.rig.devices[0];
     EXPECT_EQ(r3.axes[0], (RigControl{"Wheel", false}));
     EXPECT_EQ(r3.buttons[3], (RigControl{"Y", false}));
-    EXPECT_EQ(r3.buttons[4], (RigControl{"D-pad Up", false}));        // a role only: the role's name
+    EXPECT_EQ(r3.buttons[4], (RigControl{"D Up", false}));            // a role only: the role's name
     EXPECT_EQ(r3.buttons[12], (RigControl{"Left paddle", false}));    // the user's name as it was
     EXPECT_EQ(r3.buttons[0], (RigControl{"Hand", false}));
     EXPECT_EQ(r3.kind, DeviceKind::Wheel);                            // it had the steering axis
@@ -157,4 +157,37 @@ TEST(Rig, TheWheelIsTheFirstOfKindWheelElseTheFirst) {
     rig.devices[1].kind = DeviceKind::Other;
     EXPECT_EQ(rig.wheel()->name, "Pedals");
     EXPECT_EQ(Rig{}.wheel(), nullptr);
+}
+
+// "It is: Button" marks a button and is not its name: with a name or without, it is kept, saved and read back.
+TEST(Rig, TheButtonMarkIsKeptWithOrWithoutAName) {
+    Rig rig = sampleRig();
+    rig.devices[0].buttons[7] = {"Horn", false, true};
+    rig.devices[0].buttons[8] = {"", false, true};
+    EXPECT_TRUE(rig.devices[0].buttons[8].defined());
+    EXPECT_EQ(rig.devices[0].buttons[7].displayName(), "Horn");
+    EXPECT_EQ(rig.devices[0].buttons[8].displayName(), "Button");
+    const std::string text = writeRig(rig, "Mine");
+    EXPECT_NE(text.find("button_7 = Horn | button\r\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("button_8 = | button\r\n"), std::string::npos) << text;
+    const RigResult back = load(text);
+    EXPECT_TRUE(back.errors.empty()) << back.errors.front();
+    EXPECT_EQ(back.rig, rig);
+    // The Mapping tab's names: an unnamed button shows as "Button".
+    EXPECT_EQ(labelsOf(back.rig.devices[0]).buttons[8], "Button");
+    EXPECT_EQ(labelsOf(back.rig.devices[0]).buttons[7], "Horn");
+}
+
+// A name is a name, "Button" too; the mark is only "| button" (an older rig's button role is the mark).
+TEST(Rig, OnlyBarButtonIsTheMark) {
+    const RigResult old = load("[device_1]\nid = 346e:0005\nbutton_2 = Button\nbutton_3 = | button\n"
+                               "button_4 = | d-pad up\n");
+    EXPECT_TRUE(old.errors.empty()) << old.errors.front();
+    ASSERT_EQ(old.rig.devices.size(), 1U);
+    EXPECT_EQ(old.rig.devices[0].buttons[2], (RigControl{"Button", false, false}));
+    EXPECT_EQ(old.rig.devices[0].buttons[3], (RigControl{"", false, true}));
+    EXPECT_EQ(old.rig.devices[0].buttons[4], (RigControl{"D Up", false, false}));   // the older role, as now named
+    // On an axis "button" is only an older rig's role: ignored, never the mark.
+    EXPECT_EQ(load("[device_1]\nid = 346e:0005\naxis_1 = Gas | button\n").rig.devices[0].axes[1],
+              (RigControl{"Gas", false, false}));
 }

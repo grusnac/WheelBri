@@ -23,26 +23,37 @@
 //   axis_0 = Wheel
 //   axis_2 = Gas | invert       ; invert: released at the top of the axis
 //   button_13 = R Paddle
+//   button_14 = Horn | button   ; marked a button ("It is": Button), named Horn
+//   button_15 = | button        ; marked a button, no name yet (shown as "Button")
 // A control has a name and nothing else: WheelBri does not know what a control is for (every wheel is different), so
-// nothing is mapped from the names. Rigs written before 2026-10-13 may have a role after the name ("Gas | throttle")
-// or "| deadzone 3% | full 90%" on an axis: read and ignored (a role-only control gets the role's name; a Steering axis
-// makes its device the wheel), and left out when the rig is saved again.
+// nothing is mapped from the names. The one mark is Button: it is kept whatever the name becomes (typed, deleted). Rigs
+// written before 2026-10-13 may have a role after the name ("Gas | throttle") or "| deadzone 3% | full 90%" on an
+// axis: read and ignored (a role-only control gets the role's name; a Steering axis makes its device the wheel; an
+// older button role is the Button mark), and left out when the rig is saved again.
 namespace wheelbri {
 
-// One-click names the Rig tab's control popup offers ("It is"): pressing one fills in the name, nothing more.
+// One-click names the Rig tab's control popup offers ("It is"): pressing one fills in the name when the control has
+// none (a name it has is never replaced); Button (kButtonMark) also marks the control a button.
 inline constexpr std::array<std::string_view, 6> kAxisNames = {
     "Steering", "Throttle", "Brake", "Clutch", "Handbrake", "Axis"};
 inline constexpr std::array<std::string_view, 27> kButtonNames = {
     "Button",   "Handbrake",   "A",          "B",          "X",        "Y",        "Menu",     "View",     "RSB",
-    "LSB",      "Xbox",        "D-pad Up",   "D-pad Right", "D-pad Down", "D-pad Left", "L Paddle", "R Paddle",
+    "LSB",      "Xbox",        "D Up",       "D Right",    "D Down",     "D Left",   "L Paddle", "R Paddle",
     "Shift up", "Shift down",  "Gear 1",     "Gear 2",     "Gear 3",   "Gear 4",   "Gear 5",   "Gear 6",   "Gear 7",
     "Reverse"};
+
+inline constexpr std::string_view kButtonMark = "Button";
 
 struct RigControl {
     std::string label;                  // what it says on the device (DeviceLabels::kMaxLabel characters at most)
     bool invert = false;                // an axis released (or centred) at +1 instead of -1
+    bool button = false;                // a button marked "Button" ("It is"), named or not
 
-    [[nodiscard]] bool defined() const { return !label.empty(); }
+    [[nodiscard]] bool defined() const { return !label.empty() || button; }
+    // What the app shows for it: its name, or "Button" for a button with none yet.
+    [[nodiscard]] std::string displayName() const {
+        return label.empty() && button ? std::string(kButtonMark) : label;
+    }
     friend bool operator==(const RigControl&, const RigControl&) = default;
 };
 
