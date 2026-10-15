@@ -245,6 +245,12 @@ void ShimGamesView::draw(const float x0, const float y, const bool canChange) {
 }
 
 void ShimGamesView::onPanelClick(const float x, const float y) {
+    // A click outside the panel closes it, and does nothing else (not Start, not a tab under it).
+    if (x < panelX_ || x >= panelX_ + panelW_ || y < panelY_ || y >= panelY_ + panelH_) {
+        panelHits_.clear();
+        panelOpen_ = false;
+        return;
+    }
     for (auto it = panelHits_.rbegin(); it != panelHits_.rend(); ++it) {
         if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
             const auto action = it->action;   // a copy: the list belongs to the last draw
@@ -263,6 +269,10 @@ void ShimGamesView::drawPanel() {
     if (states_.size() != list_.games.size()) refreshStates();
     const float rows = static_cast<float>(std::max<std::size_t>(list_.games.size(), 1));
     const float h = std::min(kPanelMaxH, 80 + rows * 22 + 30);
+    panelX_ = kPanelX;
+    panelY_ = kPanelY;
+    panelW_ = kPanelW;
+    panelH_ = h;
     window_.fill(kPanelX, kPanelY, kPanelW, h, kPopupColour);
     window_.outline(kPanelX, kPanelY, kPanelW, h, kHeading);
     const float left = kPanelX + 12;

@@ -113,5 +113,22 @@ TEST_F(ShimStart, ATargetThatCannotBeSetStopsStart) {
     EXPECT_FALSE(view.prepareStart("g29", error));   // and never a wheel WheelBri does not emulate
 }
 
+TEST_F(ShimStart, AClickOutsideTheGamesPanelClosesIt) {
+    listTheGame();
+    ShimGamesView view(window_, settings());
+    // Open it from the row's Games button (wherever it is on the 370-wide row).
+    for (float x = 0; x < 370 && !view.panelOpen(); x += 4) {
+        view.draw(0, 0, true);
+        view.onClick(x, 8);
+    }
+    ASSERT_TRUE(view.panelOpen());
+    view.drawPanel();
+    view.onPanelClick(60, 60);   // inside, on no button: stays open
+    EXPECT_TRUE(view.panelOpen());
+    view.drawPanel();
+    view.onPanelClick(5, 5);     // outside (above and left of it): closed
+    EXPECT_FALSE(view.panelOpen());
+}
+
 }  // namespace
 }  // namespace wheelbri::service

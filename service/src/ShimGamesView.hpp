@@ -37,6 +37,7 @@ public:
     [[nodiscard]] bool panelOpen() const { return panelOpen_; }
     void closePanel() { panelOpen_ = false; }
     void drawPanel();
+    // A click on it; outside it, the panel closes (as Close), and the click goes nowhere else.
     void onPanelClick(float x, float y);
 
     [[nodiscard]] bool hasGame() const { return !list_.selected.empty(); }
@@ -77,6 +78,7 @@ private:
     std::vector<Hit> panelHits_;
     std::vector<ShimState> states_;          // per game, while the panel is open
     bool panelOpen_ = false;
+    float panelX_ = 0, panelY_ = 0, panelW_ = 0, panelH_ = 0;   // the panel as last drawn: a click outside closes it
     ShimState state_ = ShimState::Missing;   // of the selected game
     std::uint64_t stateReadMs_ = 0;
     std::string problem_;
