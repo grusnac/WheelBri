@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -77,7 +78,66 @@ bool sameBytes(const std::filesystem::path& a, const std::filesystem::path& b) {
                       std::istreambuf_iterator<char>(fb));
 }
 
+// The whole file, or nothing when it is larger than `limit` or cannot be read.
+std::string readBytes(const std::filesystem::path& path, const std::uintmax_t limit) {
+    std::error_code ec;
+    const std::uintmax_t size = std::filesystem::file_size(path, ec);
+    if (ec || size > limit) return {};
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
 }  // namespace
+
+Architecture peArchitecture(const std::filesystem::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    unsigned char dos[64] = {};
+    if (!in.read(reinterpret_cast<char*>(dos), sizeof(dos)) || dos[0] != 'M' || dos[1] != 'Z') {
+        return Architecture::Unknown;
+    }
+    std::uint32_t peOffset = 0;   // e_lfanew, little-endian
+    for (int i = 3; i >= 0; --i) peOffset = (peOffset << 8U) | dos[0x3C + i];
+    unsigned char pe[6] = {};
+    in.seekg(static_cast<std::streamoff>(peOffset));
+    if (!in.read(reinterpret_cast<char*>(pe), sizeof(pe)) || pe[0] != 'P' || pe[1] != 'E' || pe[2] != 0 || pe[3] != 0) {
+        return Architecture::Unknown;
+    }
+    const unsigned machine = static_cast<unsigned>(pe[4]) | (static_cast<unsigned>(pe[5]) << 8U);
+    if (machine == 0x014C) return Architecture::X86;    // IMAGE_FILE_MACHINE_I386
+    if (machine == 0x8664) return Architecture::X64;    // IMAGE_FILE_MACHINE_AMD64
+    return Architecture::Unknown;
+}
+
+Architecture gameArchitecture(const std::filesystem::path& folder) {
+    Architecture architecture = Architecture::Unknown;
+    std::uintmax_t largest = 0;
+    forEachEntry(folder, [&](const std::filesystem::directory_entry& entry) {
+        std::error_code ec;
+        if (lower(pathToUtf8(entry.path().extension())) != ".exe" || !entry.is_regular_file(ec)) return;
+        const std::uintmax_t size = entry.file_size(ec);
+        if (ec || size < largest) return;
+        if (const Architecture found = peArchitecture(entry.path()); found != Architecture::Unknown) {
+            largest = size;
+            architecture = found;
+        }
+    });
+    return architecture;
+}
+
+bool isAsiLoader(const std::filesystem::path& dll) {
+    // Its export's name, in the export table. The loader is a few MB; anything over 64 MB is not it.
+    const std::string bytes = readBytes(dll, 64U * 1024U * 1024U);
+    return bytes.find("IsUltimateASILoader") != std::string::npos;
+}
+
+std::filesystem::path shimDllIn(const std::filesystem::path& folder) {
+    const std::filesystem::path dll = folder / kShimDll;
+    return regularFile(dll) && isAsiLoader(dll) ? folder / kShimDllHooked : dll;
+}
+
+std::filesystem::path shimSourceFor(const std::filesystem::path& folder, const ShimSources& sources) {
+    return gameArchitecture(folder) == Architecture::X86 ? sources.x86 : sources.x64;
+}
 
 ShimGameList readShimGames(const std::filesystem::path& file) {
     ShimGameList list;
@@ -161,7 +221,7 @@ const char* shimStateName(const ShimState state) {
 }
 
 ShimState shimState(const std::filesystem::path& folder, const std::filesystem::path& sourceDll) {
-    const std::filesystem::path dll = folder / kShimDll;
+    const std::filesystem::path dll = shimDllIn(folder);
     if (!regularFile(dll)) return ShimState::Missing;
     const bool haveSource = regularFile(sourceDll);
     const bool same = haveSource && sameBytes(dll, sourceDll);
@@ -178,7 +238,8 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
         return result;
     }
     if (!regularFile(sourceDll)) {
-        result.error = "WheelBri's dinput8.dll is missing (" +
+        const char* bits = gameArchitecture(folder) == Architecture::X86 ? "32-bit " : "";
+        result.error = std::string("WheelBri's ") + bits + "dinput8.dll is missing (" +
                        (sourceDll.empty() ? std::string("not found in shim/ next to the program")
                                           : pathToUtf8(sourceDll)) +
                        "): reinstall or build the shim";
@@ -191,12 +252,13 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
     }
     std::error_code ec;
     if (state != ShimState::Installed) {
-        std::filesystem::copy_file(sourceDll, folder / kShimDll, std::filesystem::copy_options::overwrite_existing, ec);
+        const std::filesystem::path target = shimDllIn(folder);
+        std::filesystem::copy_file(sourceDll, target, std::filesystem::copy_options::overwrite_existing, ec);
         if (ec) {
-            result.error = writeProblem("write", folder / kShimDll, ec, ": close the game and try again");
+            result.error = writeProblem("write", target, ec, ": close the game and try again");
             return result;
         }
-        result.changed.push_back(pathToUtf8(folder / kShimDll));
+        result.changed.push_back(pathToUtf8(target));
     }
     if (!regularFile(folder / kShimSettings) && regularFile(sourceSettings)) {
         std::filesystem::copy_file(sourceSettings, folder / kShimSettings, ec);
@@ -258,12 +320,12 @@ ShimResult removeShim(const std::filesystem::path& folder, const std::filesystem
     }
     std::error_code ec;
     if (state != ShimState::Missing) {
-        if (!std::filesystem::remove(folder / kShimDll, ec) || ec) {
-            result.error =
-                writeProblem("delete", folder / kShimDll, ec, ": is the game still running? Close it and try again");
+        const std::filesystem::path dll = shimDllIn(folder);   // never the ASI Loader itself
+        if (!std::filesystem::remove(dll, ec) || ec) {
+            result.error = writeProblem("delete", dll, ec, ": is the game still running? Close it and try again");
             return result;
         }
-        result.changed.push_back(pathToUtf8(folder / kShimDll));
+        result.changed.push_back(pathToUtf8(dll));
     }
     if (regularFile(folder / kShimSettings)) {
         if (!std::filesystem::remove(folder / kShimSettings, ec) || ec) {

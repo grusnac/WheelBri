@@ -366,9 +366,12 @@ private:
             return 1;
         }
         WE_LOG_INFO(log(), "app window open ({}); press Start", window_->describe());
+        const std::uint32_t windowsBuild = platform::windowsBuild();
+        if (windowsBuild != 0) WE_LOG_INFO(log(), "Windows build {}", windowsBuild);
         picker_ = std::make_unique<ConfigPicker>(
             *window_, ConfigPicker::Settings{settings_.builtInConfigFolder, settings_.userConfigFolder,
-                                             settings_.stateFile});
+                                             settings_.stateFile,
+                                             ConfigPicker::virtualDeviceSupported(windowsBuild)});
         setup_ = std::make_unique<WheelSetupView>(
             *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile});
         MappingView::setGamesTab(true);   // the live view's tab bar has the Game profiles tab too
@@ -376,7 +379,7 @@ private:
         idleTab_ = WheelSetupView::anyRig(rigsFolder()) ? IdleTab::Mapping : IdleTab::Setup;
         mapping_ = std::make_unique<MappingEditView>(*window_, rigsFolder(), settings_.stateFile, *picker_);
         games_ = std::make_unique<ShimGamesView>(
-            *window_, ShimGamesView::Settings{shimGamesFile(), settings_.shimDll, settings_.shimSettings});
+            *window_, ShimGamesView::Settings{shimGamesFile(), settings_.shimDlls, settings_.shimSettings});
         // The Logs tab while no session shows (stopped, starting): a view of its own, used for that page only.
         logsProfile_ = makeProfile("g920");
         logs_ = std::make_unique<MappingView>(*window_, std::string(), 0, 0, *logsProfile_, MapperConfig{});

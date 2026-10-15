@@ -155,6 +155,13 @@ Or the test binary directly:
 Outputs: `build/service/wheelbri-service.exe` (command line), `build/service/wheelbri.exe` (the app: window with
 Start / Stop, runs as the user; `asInvoker`) and `build/shim/dinput8.dll`; all linked statically on MinGW.
 
+The 32-bit shim for 32-bit games (→ `build-x86/shim/dinput8.dll`; only the shim, nothing else is 32-bit), on Windows
+with MSYS2's `mingw-w64-i686-gcc`:
+
+```bash
+scripts/make/shim-x86.sh
+```
+
 Windows shim cross-compiled from Linux/macOS with MinGW-w64 (→ `build-win/shim/dinput8.dll`):
 
 ```bash

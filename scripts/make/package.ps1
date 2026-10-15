@@ -7,7 +7,8 @@
 #   package.ps1 -NoSetupExe                only the folder and the zip
 #
 # Needs: build\service\wheelbri.exe, wheelbri-service.exe, wheelbri-helper.exe, build\shim\dinput8.dll
-# (scripts/make/app.sh --no-start) and the two driver packages (scripts/make/drivers.sh), all Release.
+# (scripts/make/app.sh --no-start), build-x86\shim\dinput8.dll (the 32-bit shim, scripts/make/shim-x86.sh) and the
+# two driver packages (scripts/make/drivers.sh), all Release.
 #
 # Exit codes: 0 built, 1 something is missing or wrong (the red line says what).
 
@@ -37,15 +38,24 @@ $programs = @(
     @{ From = "$build\service\wheelbri.exe";         To = 'wheelbri.exe' },
     @{ From = "$build\service\wheelbri-service.exe"; To = 'wheelbri-service.exe' },
     @{ From = "$build\service\wheelbri-helper.exe";  To = 'wheelbri-helper.exe' },
-    @{ From = "$build\shim\dinput8.dll";             To = 'shim\dinput8.dll' }
+    @{ From = "$build\shim\dinput8.dll";             To = 'shim\dinput8.dll' },
+    @{ From = "$build-x86\shim\dinput8.dll";         To = 'shim\x86\dinput8.dll' }   # for 32-bit games
 )
 foreach ($program in $programs) {
-    if (-not (Test-Path $program.From)) { Fail "missing $($program.From): run scripts/make/app.sh --no-start first." }
+    if (-not (Test-Path $program.From)) { Fail "missing $($program.From): run scripts/make/package.sh (builds all)." }
+}
+# Each for the processor its folder says: a 32-bit game cannot load a 64-bit DLL, nor the other way round.
+foreach ($program in $programs) {
+    $bytes = [IO.File]::ReadAllBytes($program.From)
+    $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+    $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
+    $want = if ($program.To -like 'shim\x86\*') { 0x014C } else { 0x8664 }
+    if ($machine -ne $want) { Fail ("$($program.From) is for machine 0x{0:X4}, not 0x{1:X4}." -f $machine, $want) }
 }
 # The programs must start on a PC without MSYS2: no MinGW runtime DLL may be imported (they link it statically).
 foreach ($program in $programs) {
     $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($program.From))
-    foreach ($dll in 'libstdc++-6.dll', 'libgcc_s_seh-1.dll', 'libwinpthread-1.dll') {
+    foreach ($dll in 'libstdc++-6.dll', 'libgcc_s_seh-1.dll', 'libgcc_s_dw2-1.dll', 'libwinpthread-1.dll') {
         if ($text.IndexOf($dll, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
             Fail "$($program.From) needs $dll at run time; it would not start on a PC without MSYS2 (rebuild: scripts/make/rebuild.sh)."
         }
@@ -116,7 +126,7 @@ Set-Content -Path (Join-Path $stage 'VERSION.txt') -Value $version -Encoding ASC
 # 3. What install.ps1 checks for must be there (the same list), so a package never fails on the user's PC.
 $expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920-virtual-device.ini', 'config\g920-in-game-shim.ini',
               'config\g25-virtual-device.ini', 'config\g25-in-game-shim.ini', 'install.ps1', 'uninstall.ps1',
-              'Setup.cmd', 'Uninstall.cmd', 'README.txt', 'VERSION.txt', 'shim\dinput8.dll') +
+              'Setup.cmd', 'Uninstall.cmd', 'README.txt', 'VERSION.txt', 'shim\dinput8.dll', 'shim\x86\dinput8.dll') +
             ($drivers | ForEach-Object { $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } })
 foreach ($file in $expected) {
     if (-not (Test-Path (Join-Path $stage $file))) { Fail "the package lacks $file (packaging bug)." }

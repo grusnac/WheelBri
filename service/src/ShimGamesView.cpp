@@ -51,8 +51,15 @@ std::string fit(std::string text, const std::size_t chars) {
 ShimGamesView::ShimGamesView(ui::UiWindow& window, Settings settings)
     : window_(window), settings_(std::move(settings)), list_(readShimGames(settings_.listFile)) {
     refreshState();
-    WE_LOG_INFO(log(), "shim games: {} in {}; WheelBri's shim {}", list_.games.size(), pathToUtf8(settings_.listFile),
-                settings_.sourceDll.empty() ? std::string("not found") : pathToUtf8(settings_.sourceDll));
+    const auto where = [](const std::filesystem::path& dll) {
+        return dll.empty() ? std::string("not found") : pathToUtf8(dll);
+    };
+    WE_LOG_INFO(log(), "shim games: {} in {}; WheelBri's shim: 64-bit {}, 32-bit {}", list_.games.size(),
+                pathToUtf8(settings_.listFile), where(settings_.sources.x64), where(settings_.sources.x86));
+}
+
+std::filesystem::path ShimGamesView::source(const std::filesystem::path& folder) const {
+    return shimSourceFor(folder, settings_.sources);
 }
 
 std::string ShimGamesView::selectedName() const {
@@ -63,7 +70,7 @@ std::string ShimGamesView::selectedName() const {
 }
 
 void ShimGamesView::refreshState() {
-    state_ = hasGame() ? shimState(list_.selected, settings_.sourceDll) : ShimState::Missing;
+    state_ = hasGame() ? shimState(list_.selected, source(list_.selected)) : ShimState::Missing;
     stateReadMs_ = platform::nowMs();
 }
 
@@ -75,7 +82,7 @@ void ShimGamesView::save() {
 
 void ShimGamesView::refreshStates() {
     states_.clear();
-    for (const ShimGame& game : list_.games) states_.push_back(shimState(game.folder, settings_.sourceDll));
+    for (const ShimGame& game : list_.games) states_.push_back(shimState(game.folder, source(game.folder)));
     refreshState();
 }
 
@@ -90,7 +97,7 @@ void ShimGamesView::pick(const std::size_t index) {
 void ShimGamesView::put(const std::size_t index) {
     if (index >= list_.games.size()) return;
     const ShimGame& game = list_.games[index];
-    const ShimResult result = installShim(game.folder, settings_.sourceDll, settings_.sourceSettings);
+    const ShimResult result = installShim(game.folder, source(game.folder), settings_.sourceSettings);
     if (!result.ok) {
         problem_ = "The shim could not be put into " + game.name + ": " + result.error + ".\n" + pathToUtf8(game.folder);
         WE_LOG_WARN(log(), "shim not put into {}: {}", pathToUtf8(game.folder), result.error);
@@ -112,7 +119,7 @@ void ShimGamesView::remove(const std::size_t index) {
 void ShimGamesView::forget(const std::size_t index) {
     if (index >= list_.games.size()) return;
     const ShimGame game = list_.games[index];
-    const ShimState state = shimState(game.folder, settings_.sourceDll);
+    const ShimState state = shimState(game.folder, source(game.folder));
     if (!removeShimGame(list_, index)) return;
     save();
     refreshStates();
@@ -136,7 +143,7 @@ void ShimGamesView::add() {
         problem_ = "Not added: " + problem + ".\n" + pathToUtf8(folder);
         return;
     }
-    const ShimResult result = installShim(folder, settings_.sourceDll, settings_.sourceSettings);
+    const ShimResult result = installShim(folder, source(folder), settings_.sourceSettings);
     if (!result.ok) {
         problem_ = "Not added: " + result.error + ".\n" + pathToUtf8(folder);
         WE_LOG_WARN(log(), "shim not put into {}: {}", pathToUtf8(folder), result.error);
@@ -156,7 +163,7 @@ bool ShimGamesView::prepareStart(const std::string& profile, std::string& error)
     }
     refreshState();
     if (state_ != ShimState::Installed) {
-        const ShimResult result = installShim(list_.selected, settings_.sourceDll, settings_.sourceSettings);
+        const ShimResult result = installShim(list_.selected, source(list_.selected), settings_.sourceSettings);
         refreshState();
         if (!result.ok) {
             error = "The shim could not be put into " + selectedName() + ": " + result.error + ".";
@@ -177,7 +184,7 @@ bool ShimGamesView::prepareStart(const std::string& profile, std::string& error)
 }
 
 bool ShimGamesView::removeFrom(const std::filesystem::path& folder, std::string& error) {
-    const ShimResult result = removeShim(folder, settings_.sourceDll);
+    const ShimResult result = removeShim(folder, source(folder));
     refreshState();
     if (!result.ok) {
         error = result.error;

@@ -22,7 +22,7 @@ class ShimGamesView {
 public:
     struct Settings {
         std::filesystem::path listFile;         // shimGamesFile()
-        std::filesystem::path sourceDll;        // WheelBri's dinput8.dll (shim\ next to the program, or build/shim)
+        ShimSources sources;                    // WheelBri's dinput8.dll, 64- and 32-bit (shimSourcesPath)
         std::filesystem::path sourceSettings;   // config/wheelbri-shim.ini
     };
 
@@ -67,6 +67,8 @@ private:
     void save();
     void refreshState();
     void refreshStates();   // every game's, for the panel
+    // WheelBri's dinput8.dll for the game in `folder` (32-bit for a 32-bit game).
+    [[nodiscard]] std::filesystem::path source(const std::filesystem::path& folder) const;
 
     ui::UiWindow& window_;
     Settings settings_;

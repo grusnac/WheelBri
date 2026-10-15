@@ -26,6 +26,31 @@ struct ShimGameList {
 // The shim's files in a game folder.
 inline constexpr const char* kShimDll = "dinput8.dll";
 inline constexpr const char* kShimSettings = "wheelbri-shim.ini";
+// The shim's name next to the Ultimate ASI Loader (ThirteenAG's, the dinput8.dll of the Widescreen Fixes Pack): the
+// loader takes the game's DirectInput calls and hands them to <its name>Hooked.dll when that file is there, in place
+// of Windows' dinput8.dll; the shim then goes on to Windows' own, as always.
+inline constexpr const char* kShimDllHooked = "dinput8Hooked.dll";
+
+// Which processor a Windows program or DLL is built for, from its PE header.
+enum class Architecture { Unknown, X86, X64 };
+[[nodiscard]] Architecture peArchitecture(const std::filesystem::path& file);
+// A game folder's: that of its largest .exe (the game itself; launchers and tools are smaller). Unknown when no .exe
+// can be read.
+[[nodiscard]] Architecture gameArchitecture(const std::filesystem::path& folder);
+
+// Whether `dll` is the Ultimate ASI Loader (it exports IsUltimateASILoader).
+[[nodiscard]] bool isAsiLoader(const std::filesystem::path& dll);
+// Where the shim is (or goes) in `folder`: dinput8Hooked.dll when its dinput8.dll is the Ultimate ASI Loader,
+// else dinput8.dll.
+[[nodiscard]] std::filesystem::path shimDllIn(const std::filesystem::path& folder);
+
+// WheelBri's two builds of the shim: a 32-bit game loads only a 32-bit DLL, a 64-bit game only a 64-bit one.
+struct ShimSources {
+    std::filesystem::path x64;   // shim\dinput8.dll (build/shim)
+    std::filesystem::path x86;   // shim\x86\dinput8.dll (build-x86/shim); empty when not built
+};
+// The one for the game in `folder` (gameArchitecture; x64 when it cannot tell).
+[[nodiscard]] std::filesystem::path shimSourceFor(const std::filesystem::path& folder, const ShimSources& sources);
 
 // Paths in the list file are UTF-8 (game folders often are not ASCII): pathToUtf8 / pathFromUtf8 (FileText.hpp).
 
@@ -42,9 +67,10 @@ bool removeShimGame(ShimGameList& list, std::size_t index);
 // Why `folder` cannot be a game folder ("" if it can): it must exist and hold at least one .exe.
 [[nodiscard]] std::string gameFolderProblem(const std::filesystem::path& folder);
 
+// Of the shim's file in the folder (shimDllIn: dinput8.dll, or dinput8Hooked.dll next to the ASI Loader).
 enum class ShimState {
     Installed,   // our dinput8.dll is there, the same as the one WheelBri has
-    Outdated,    // ours, but WheelBri has a newer one (Start replaces it)
+    Outdated,    // ours, but WheelBri has a newer one (Start replaces it); also ours built for the other processor
     Missing,     // no dinput8.dll
     Foreign,     // a dinput8.dll that is not ours (another mod): left alone
 };

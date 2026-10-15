@@ -2,6 +2,8 @@
 
 #include "SessionUi.hpp"
 
+#include "wheelbri/ShimGames.hpp"
+
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -23,7 +25,7 @@ struct AppSettings {
     std::filesystem::path stateFile;             // remembers the way (virtual device or shim) and the rig
     std::filesystem::path logFolder;     // the Logs tab's
     std::filesystem::path devicesFolder; // the Wheel setup tab's device names: <vid>-<pid>.ini
-    std::filesystem::path shimDll;       // WheelBri's dinput8.dll, put into games (target G920 in-game shim)
+    ShimSources shimDlls;                // WheelBri's dinput8.dll (64- and 32-bit), put into games (in-game shim)
     std::filesystem::path shimSettings;  // config/wheelbri-shim.ini, put next to it
     // Runs one session with the config at `configPath` ("" = the built-in defaults) until it is asked to stop
     // (blocking); returns its exit code. `virtualDevice`: the virtual G920 (rig hidden) rather than the in-game shim.

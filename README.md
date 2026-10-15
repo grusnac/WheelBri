@@ -131,8 +131,14 @@ a headline, why it was needed, how to use it, and where to look.
 - **Use:** **Run as** **Shim**, **Games (N)** next to Start: **Add game** (the folder with the game's `.exe`),
   pick it, Start. After the session the app asks whether to delete the shim from the game's folder. Settings: an
   optional `wheelbri-shim.ini` next to the DLL.
+- **32-bit games** (NFS Carbon and its era) load only a 32-bit DLL: the app reads the game's largest `.exe` and puts
+  in the 32-bit shim (`shim\x86\dinput8.dll`, built by `scripts/make/shim-x86.sh`) or the 64-bit one. Only the shim
+  is 32-bit; the app, the service and the drivers stay 64-bit.
+- **With the Ultimate ASI Loader** (ThirteenAG's `dinput8.dll`, as in the Widescreen Fixes Pack): the app leaves it
+  in place and puts the shim next to it as `dinput8Hooked.dll`, which the loader hands DirectInput to instead of
+  Windows' `dinput8.dll`. Install the pack first (its `dinput8.dll` and `scripts\`), then Add game.
 - **Look:** `wheelbri-shim-<date>-<NN>.log`; the list is `%LOCALAPPDATA%\wheelbri\shim-games.txt`. Code: `shim/`, core
-  `ShimGames`, `service/src/ShimGamesView.cpp`.
+  `ShimGames` (`gameArchitecture`, `shimDllIn`), `service/src/ShimGamesView.cpp`.
 
 ### Rig tab
 
@@ -343,6 +349,14 @@ cmake --build build-win     # -> build-win/shim/dinput8.dll
 
 On Windows natively (MSVC or MSYS2) the plain `cmake -S . -B build` also builds the shim (`WE_BUILD_SHIM`
 defaults to ON on Windows).
+
+```bash
+# The 32-bit shim, for 32-bit games (Windows: scripts/make/shim-x86.sh, MSYS2's mingw-w64-i686-gcc, which needs
+# /mingw32/bin first on PATH: the script sets it)
+cmake -S . -B build-x86 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw32.cmake \
+      -DCMAKE_BUILD_TYPE=Release -DWE_BUILD_SERVICE=OFF -DWE_BUILD_TESTS=OFF -DWE_BUILD_LOGI=OFF
+cmake --build build-x86 --target wheelbri_shim     # -> build-x86/shim/dinput8.dll
+```
 
 ## Phase 0: recording what the game does
 

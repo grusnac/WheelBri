@@ -50,7 +50,8 @@ protected:
     }
     [[nodiscard]] std::filesystem::path game() const { return dir_ / "Need for Speed Undercover"; }
     [[nodiscard]] ShimGamesView::Settings settings() const {
-        return {dir_ / "state" / "shim-games.txt", dir_ / "shim" / kShimDll, dir_ / "shim" / kShimSettings};
+        return {dir_ / "state" / "shim-games.txt", ShimSources{dir_ / "shim" / kShimDll, {}},
+                dir_ / "shim" / kShimSettings};
     }
     void listTheGame() const {
         ShimGameList list;

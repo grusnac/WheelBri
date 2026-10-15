@@ -209,5 +209,86 @@ TEST_F(ShimGamesFiles, GamesCanBeTakenOffTheList) {
     EXPECT_TRUE(readShimGames(dir_ / "list.txt").games.empty());
 }
 
+// A minimal PE file: "MZ", the PE header's offset at 0x3C, "PE\0\0" and the machine; `pad` bytes after it.
+std::string peFile(const unsigned machine, const std::size_t pad = 0) {
+    std::string bytes(64, '\0');
+    bytes[0] = 'M';
+    bytes[1] = 'Z';
+    bytes[0x3C] = 64;
+    bytes += std::string("PE\0\0", 4);
+    bytes += static_cast<char>(machine & 0xFFU);
+    bytes += static_cast<char>((machine >> 8U) & 0xFFU);
+    return bytes + std::string(pad, '\0');
+}
+
+TEST_F(ShimGamesFiles, ReadsWhichProcessorAProgramIsFor) {
+    write(game() / "a.exe", peFile(0x014C));
+    write(game() / "b.exe", peFile(0x8664));
+    write(game() / "c.exe", peFile(0xAA64));   // ARM64
+    EXPECT_EQ(peArchitecture(game() / "a.exe"), Architecture::X86);
+    EXPECT_EQ(peArchitecture(game() / "b.exe"), Architecture::X64);
+    EXPECT_EQ(peArchitecture(game() / "c.exe"), Architecture::Unknown);
+    EXPECT_EQ(peArchitecture(game() / "Game.exe"), Architecture::Unknown);   // "MZ" only
+    EXPECT_EQ(peArchitecture(game() / "none.exe"), Architecture::Unknown);
+}
+
+TEST_F(ShimGamesFiles, AGameIsWhatItsLargestExeIs) {
+    EXPECT_EQ(gameArchitecture(game()), Architecture::Unknown);   // Game.exe is not a real program
+    write(game() / "launcher.exe", peFile(0x8664));
+    write(game() / "NFSC.exe", peFile(0x014C, 1000));
+    EXPECT_EQ(gameArchitecture(game()), Architecture::X86);
+
+    const ShimSources sources{dir_ / "shim" / kShimDll, dir_ / "shim" / "x86" / kShimDll};
+    EXPECT_EQ(shimSourceFor(game(), sources), sources.x86);
+    write(game() / "NFSC.exe", peFile(0x8664, 1000));
+    EXPECT_EQ(shimSourceFor(game(), sources), sources.x64);
+    std::filesystem::remove(game() / "NFSC.exe");
+    std::filesystem::remove(game() / "launcher.exe");
+    EXPECT_EQ(shimSourceFor(game(), sources), sources.x64);   // cannot tell: 64-bit, as before
+}
+
+TEST_F(ShimGamesFiles, NextToTheAsiLoaderTheShimIsDinput8Hooked) {
+    const std::string loader = "MZ ... IsUltimateASILoader ... DirectInput8Create";
+    write(game() / kShimDll, loader);
+    EXPECT_TRUE(isAsiLoader(game() / kShimDll));
+    EXPECT_FALSE(isAsiLoader(sourceDll()));
+    EXPECT_EQ(shimDllIn(game()), game() / kShimDllHooked);
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Missing);   // not "another dinput8.dll"
+
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    ASSERT_TRUE(put.ok) << put.error;
+    EXPECT_EQ(read(game() / kShimDllHooked), "our shim v1");
+    EXPECT_EQ(read(game() / kShimDll), loader);   // the loader is never touched
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Installed);
+
+    write(sourceDll(), "our shim v2");
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Outdated);
+    ASSERT_TRUE(installShim(game(), sourceDll(), sourceSettings()).ok);
+    EXPECT_EQ(read(game() / kShimDllHooked), "our shim v2");
+
+    const ShimResult removed = removeShim(game(), sourceDll());
+    ASSERT_TRUE(removed.ok) << removed.error;
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimDllHooked));
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
+    EXPECT_EQ(read(game() / kShimDll), loader);
+}
+
+TEST_F(ShimGamesFiles, AnotherDinput8HookedIsLeftAlone) {
+    write(game() / kShimDll, "IsUltimateASILoader");
+    write(game() / kShimDllHooked, "someone else's");
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Foreign);
+    EXPECT_FALSE(installShim(game(), sourceDll(), sourceSettings()).ok);
+    EXPECT_EQ(read(game() / kShimDllHooked), "someone else's");
+}
+
+TEST_F(ShimGamesFiles, OurShimForTheOtherProcessorIsReplaced) {
+    // The 64-bit shim put into a 32-bit game before there was a 32-bit one: ours (its settings are there), outdated.
+    ASSERT_TRUE(installShim(game(), sourceDll(), sourceSettings()).ok);
+    write(dir_ / "x86.dll", "our 32-bit shim");
+    EXPECT_EQ(shimState(game(), dir_ / "x86.dll"), ShimState::Outdated);
+    ASSERT_TRUE(installShim(game(), dir_ / "x86.dll", sourceSettings()).ok);
+    EXPECT_EQ(read(game() / kShimDll), "our 32-bit shim");
+}
+
 }  // namespace
 }  // namespace wheelbri

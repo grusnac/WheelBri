@@ -32,4 +32,9 @@ if(MINGW)
     target_link_options(wheelbri_shim PRIVATE -static -static-libgcc -static-libstdc++)
     # Strip symbols from release builds; keep them for Debug/RelWithDebInfo so crash dumps stay useful.
     target_link_options(wheelbri_shim PRIVATE $<$<CONFIG:Release,MinSizeRel>:-s>)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        # 32-bit (cmake/toolchain-mingw32.cmake): the exports are __stdcall, decorated Proxy_X@N, while dinput8.def
+        # names them undecorated; the fixup links each to its decorated function (the exported names stay plain).
+        target_link_options(wheelbri_shim PRIVATE -Wl,--enable-stdcall-fixup)
+    endif()
 endif()

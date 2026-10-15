@@ -163,7 +163,8 @@ try {
     }
     $requiredFiles = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920-virtual-device.ini',
                        'config\g920-in-game-shim.ini', 'config\g25-virtual-device.ini', 'config\g25-in-game-shim.ini',
-                       'uninstall.ps1', 'Uninstall.cmd', 'driver\common.ps1', 'shim\dinput8.dll')
+                       'uninstall.ps1', 'Uninstall.cmd', 'driver\common.ps1', 'shim\dinput8.dll',
+                       'shim\x86\dinput8.dll')
     if ($withDrivers) { $requiredFiles += @('driver\install-driver.ps1', 'driver\hide\install-hide.ps1') }
     foreach ($required in $requiredFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $package $required))) {
@@ -521,7 +522,7 @@ try {
         if ($helper -and $helper.Status -eq 'Running') { Write-Host '    WheelBri Helper running' }
         else { Warn '    the WheelBri Helper service is not running (services.msc > WheelBri Helper > Start)' }
     } else {
-        foreach ($file in 'wheelbri.exe', 'shim\dinput8.dll') {
+        foreach ($file in 'wheelbri.exe', 'shim\dinput8.dll', 'shim\x86\dinput8.dll') {
             if (Test-Path -LiteralPath (Join-Path $InstallDir $file)) { Write-Host "    $file there" }
             else { Warn "    $file is missing" }
         }

@@ -47,6 +47,7 @@
 #include "wheelbri/WakePlanner.hpp"
 
 #include <algorithm>
+#include <initializer_list>
 #include <utility>
 #include <cmath>
 #include <functional>
@@ -504,7 +505,7 @@ struct TickStages {
 // A pass this long means the game gets no fresh input; it is logged at once, with where the time went.
 constexpr std::uint64_t kStallNs = 50 * platform::kNsPerMs;
 
-std::filesystem::path shimDllPath();
+wheelbri::ShimSources shimDllPaths();
 
 #if defined(_WIN32)
 // Windows: who may send game force feedback (S7; SenderGate.hpp). Any program of the user can send to 127.0.0.1:41330
@@ -513,7 +514,7 @@ std::filesystem::path shimDllPath();
 // through (the limiter still caps every force), with a warning.
 wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
     static const std::filesystem::path systemFolder = platform::systemFolder();
-    static const std::filesystem::path shimDll = shimDllPath();
+    static const wheelbri::ShimSources shimDlls = shimDllPaths();
     static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(30));
     const std::optional<std::uint32_t> pid = platform::udpPortOwner(port);
     if (!pid) {
@@ -549,7 +550,9 @@ wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
         static std::uint32_t acceptedPid = 0;
         static std::filesystem::path acceptedImage;
         if (*pid == acceptedPid && image == acceptedImage) return wheelbri::SenderVerdict::Accept;
-        const wheelbri::ShimState state = wheelbri::shimState(image.parent_path(), shimDll);
+        const std::filesystem::path folder = image.parent_path();
+        const wheelbri::ShimState state =
+            wheelbri::shimState(folder, wheelbri::shimSourceFor(folder, shimDlls));
         if (state == wheelbri::ShimState::Installed || state == wheelbri::ShimState::Outdated) {
             WE_LOG_DEBUG(log(), "ffb: sender {} (pid {}) is a game with WheelBri's shim", wheelbri::pathToUtf8(image),
                          *pid);
@@ -1797,17 +1800,28 @@ std::string defaultConfigPath() {
     return {};
 }
 
-// WheelBri's own dinput8.dll, which the app puts into games: shim\ next to the program (the installed package) or
-// build/shim/ (next to build/service/ in the source tree). Empty when there is none (Linux, or not built).
-std::filesystem::path shimDllPath() {
+// WheelBri's own dinput8.dll, which the app puts into games, 64-bit and 32-bit: shim\ and shim\x86\ next to the
+// program (the installed package), or build/shim/ and build-x86/shim/ (next to build/service/ in the source tree).
+// Each empty when there is none (Linux, or not built).
+wheelbri::ShimSources shimDllPaths() {
     const std::filesystem::path exe = platform::executablePath();
     if (exe.empty()) return {};
-    for (const std::filesystem::path& candidate :
-         {exe.parent_path() / "shim" / "dinput8.dll", exe.parent_path().parent_path() / "shim" / "dinput8.dll"}) {
-        std::error_code ec;
-        if (std::filesystem::is_regular_file(candidate, ec)) return candidate.lexically_normal();
-    }
-    return {};
+    const auto first = [](std::initializer_list<std::filesystem::path> candidates) {
+        for (const std::filesystem::path& candidate : candidates) {
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(candidate, ec)) return candidate.lexically_normal();
+        }
+        return std::filesystem::path();
+    };
+    const std::filesystem::path here = exe.parent_path();
+    const std::filesystem::path build = here.parent_path();   // build/ when the program is build/service/x.exe
+    wheelbri::ShimSources sources;
+    sources.x64 = first({here / "shim" / "dinput8.dll", build / "shim" / "dinput8.dll"});
+    std::filesystem::path x86Build = build.filename();   // build-x86/ (scripts/make/shim-x86.sh) next to build/
+    x86Build += "-x86";
+    sources.x86 =
+        first({here / "shim" / "x86" / "dinput8.dll", build.parent_path() / x86Build / "shim" / "dinput8.dll"});
+    return sources;
 }
 
 // The app: Start / Stop instead of a command line. Each Start reads the config again, so edits apply.
@@ -1861,7 +1875,7 @@ int runAppMode(Options options, const bool consoleLogging) {
     settings.stateFile = wheelbri::service::appStateFile();
     settings.logFolder = logFolderOf(loaded.config);
     settings.devicesFolder = wheelbri::service::deviceLabelsFolder();
-    settings.shimDll = shimDllPath();
+    settings.shimDlls = shimDllPaths();
     if (!settings.builtInConfigFolder.empty()) settings.shimSettings = settings.builtInConfigFolder / "wheelbri-shim.ini";
     settings.runSession = [options, logFileOk](wheelbri::service::UiHost& host, const std::string& configPath,
                                                const bool virtualDevice) {
