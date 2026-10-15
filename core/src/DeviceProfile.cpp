@@ -54,6 +54,53 @@ TargetReport DeviceProfile::encode(const WheelState& state) const {
     return report;
 }
 
+ButtonLayout layoutButtons(const IDeviceProfile& profile) {
+    ButtonLayout layout;
+    std::vector<ButtonGroup> groups = profile.buttonGroups();
+    // Named buttons no group has (and every one, without groups): Below, in number order.
+    std::vector<bool> placed(profile.buttonCount(), false);
+    for (ButtonGroup& group : groups) {
+        std::erase_if(group.buttons, [&](const std::size_t b) {
+            if (b >= placed.size() || placed[b] || profile.buttonName(b).empty()) return true;   // unknown or twice
+            placed[b] = true;
+            return false;
+        });
+    }
+    ButtonGroup rest{groups.empty() ? std::string() : std::string("OTHER"), {}, ButtonGroup::Place::Below};
+    for (std::size_t b = 0; b < placed.size(); ++b) {
+        if (!placed[b] && !profile.buttonName(b).empty()) rest.buttons.push_back(b);
+    }
+    if (!rest.buttons.empty()) groups.push_back(std::move(rest));
+
+    float columnY[2] = {0.0F, 0.0F};
+    const auto heading = [&](const int column, const float y, const std::string& name) {
+        if (name.empty()) return 0.0F;
+        layout.cells.push_back({column, y, true, name, 0});
+        return kButtonHeadingH;
+    };
+    for (const ButtonGroup& group : groups) {   // the columns first
+        if (group.place == ButtonGroup::Place::Below || group.buttons.empty()) continue;
+        const int column = group.place == ButtonGroup::Place::Left ? 0 : 1;
+        float& y = columnY[column];
+        y += heading(column, y, group.name);
+        for (const std::size_t b : group.buttons) {
+            layout.cells.push_back({column, y, false, {}, b});
+            y += kButtonRowH;
+        }
+    }
+    float y = std::max(columnY[0], columnY[1]);
+    for (const ButtonGroup& group : groups) {   // then below both, two a row
+        if (group.place != ButtonGroup::Place::Below || group.buttons.empty()) continue;
+        y += heading(0, y, group.name);
+        for (std::size_t i = 0; i < group.buttons.size(); ++i) {
+            layout.cells.push_back({static_cast<int>(i % 2), y, false, {}, group.buttons[i]});
+            if (i % 2 == 1 || i + 1 == group.buttons.size()) y += kButtonRowH;
+        }
+    }
+    layout.height = y;
+    return layout;
+}
+
 std::string_view DeviceProfile::buttonName(const std::size_t index) const {
     return index < spec_.buttonNames.size() ? std::string_view(spec_.buttonNames[index]) : std::string_view();
 }
@@ -80,6 +127,14 @@ DeviceProfileSpec g920Spec() {
         "A",      "B",      "X",      "Y",      "R Paddle", "L Paddle", "Menu", "View", "RSB", "LSB",
         "Xbox",   "",       "Gear 1", "Gear 2", "Gear 3",   "Gear 4",   "Gear 5", "Gear 6", "Gear R",
     };
+    using Place = ButtonGroup::Place;
+    spec.buttonGroups = {
+        {"FACE", {0, 1, 2, 3}, Place::Left},             // A, B, X, Y
+        {"PADDLES", {5, 4}, Place::Left},                // L Paddle, R Paddle
+        {"STICKS", {9, 8}, Place::Right},                // LSB, RSB
+        {"SYSTEM", {6, 7, 10}, Place::Right},            // Menu, View, Xbox
+        {"SHIFTER", {12, 13, 14, 15, 16, 17, 18}, Place::Below},
+    };
     return spec;
 }
 
@@ -99,6 +154,14 @@ DeviceProfileSpec g25Spec() {
         "Black 1", "Black 2", "Black 3", "Black 4", "R Paddle", "L Paddle", "R Wheel", "L Wheel",
         "Gear 1",  "Gear 2",  "Gear 3",  "Gear 4",  "Gear 5",   "Gear 6",   "Gear R",
         "Red 1",   "Red 2",   "Red 3",   "Red 4",
+    };
+    using Place = ButtonGroup::Place;
+    spec.buttonGroups = {
+        {"BLACK", {0, 1, 2, 3}, Place::Left},            // the shifter's black buttons
+        {"PADDLES", {5, 4}, Place::Left},                // L Paddle, R Paddle
+        {"WHEEL", {7, 6}, Place::Right},                 // L Wheel, R Wheel
+        {"RED", {15, 16, 17, 18}, Place::Right},         // the shifter's red buttons
+        {"SHIFTER", {8, 9, 10, 11, 12, 13, 14}, Place::Below},
     };
     return spec;
 }

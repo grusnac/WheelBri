@@ -178,7 +178,9 @@ a headline, why it was needed, how to use it, and where to look.
 - **Why:** the target (the G920) is fixed; which rig control drives each of its axes and buttons is the user's.
 - **Use:** tab M while stopped: click a G920 input and pick a rig control (there is no Auto-map: you decide);
   **Save** writes your own mapping ("custom" then shows left of **Default**; hover it for why), **Default** goes back
-  to WheelBri's. While running the same tab is the live view.
+  to WheelBri's. While running the same tab is the live view. The buttons are grouped by what they are: FACE (A, B,
+  X, Y) and PADDLES in the left column, STICKS (LSB, RSB) and SYSTEM (Menu, View, Xbox) in the right, the SHIFTER's
+  gears below both (the G25: BLACK and PADDLES, WHEEL and RED, SHIFTER; `ButtonGroup` in its profile).
   Every G920 input has one **role assignment** (its main source), and every G920 button can also have up to 8
   **secondary assignments** ("or"): buttons, or named axes (a pedal or a lever makes sense: one-sided) that press it
   past a threshold of their travel (25-75%, 50% by default), e.g. G920 X <- the wheel's X *or* a handbrake lever *or*

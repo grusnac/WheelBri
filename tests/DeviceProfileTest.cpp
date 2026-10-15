@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <vector>
 
 namespace wheelbri {
 namespace {
@@ -140,6 +141,67 @@ TEST(DeviceProfile, G25EncodesLikeTheG920) {
     EXPECT_EQ(report.clutch, 65535);     // released: the top
     EXPECT_EQ(report.hat, 3);
     EXPECT_EQ(report.buttons, (1U << kG25Buttons) - 1U);   // all 19, nothing above
+}
+
+// The Mapping tab's button groups: every named button once, related ones together.
+TEST(ButtonLayout, EveryNamedButtonOnceInGroups) {
+    for (const DeviceProfileSpec& spec : {g920Spec(), g25Spec()}) {
+        const DeviceProfile profile(spec);
+        const ButtonLayout layout = layoutButtons(profile);
+        std::vector<int> seen(profile.buttonCount(), 0);
+        for (const ButtonCell& cell : layout.cells) {
+            if (cell.heading) {
+                EXPECT_NE(cell.text, "OTHER") << spec.identity.shortName;   // the groups name them all
+                continue;
+            }
+            ASSERT_LT(cell.button, seen.size());
+            ++seen[cell.button];
+        }
+        for (std::size_t b = 0; b < seen.size(); ++b) {
+            EXPECT_EQ(seen[b], profile.buttonName(b).empty() ? 0 : 1) << spec.identity.shortName << " " << b;
+        }
+    }
+}
+
+TEST(ButtonLayout, G920FaceButtonsInOneColumnAndTheShifterBelow) {
+    const DeviceProfile profile(g920Spec());
+    const ButtonLayout layout = layoutButtons(profile);
+    const auto find = [&](const std::size_t b) {
+        for (const ButtonCell& cell : layout.cells) {
+            if (!cell.heading && cell.button == b) return cell;
+        }
+        return ButtonCell{-1};
+    };
+    // A, B, X, Y: the left column, one under the other, under FACE.
+    ASSERT_EQ(layout.cells.front(), (ButtonCell{0, 0.0F, true, "FACE", 0}));
+    for (std::size_t b = 0; b < 4; ++b) {
+        EXPECT_EQ(find(b).column, 0);
+        EXPECT_FLOAT_EQ(find(b).y, kButtonHeadingH + static_cast<float>(b) * kButtonRowH);
+    }
+    EXPECT_EQ(find(9).column, 1);   // LSB, RSB: right
+    EXPECT_EQ(find(8).column, 1);
+    // The gears below both columns, two a row: Gear 1 left, Gear 2 right on one row.
+    const ButtonCell gear1 = find(kG920FirstGear);
+    const ButtonCell gear2 = find(kG920FirstGear + 1);
+    EXPECT_EQ(gear1.column, 0);
+    EXPECT_EQ(gear2.column, 1);
+    EXPECT_FLOAT_EQ(gear1.y, gear2.y);
+    EXPECT_GT(gear1.y, find(5).y);   // below both paddles, the left column's last
+    EXPECT_GT(gear1.y, find(4).y);
+    EXPECT_FLOAT_EQ(layout.height, find(kG920FirstGear + 6).y + kButtonRowH);
+}
+
+// A profile without groups: its named buttons in number order, two a row, no heading.
+TEST(ButtonLayout, NoGroupsIsNumberOrder) {
+    DeviceProfileSpec spec = g920Spec();
+    spec.buttonGroups.clear();
+    const DeviceProfile profile(spec);
+    const ButtonLayout layout = layoutButtons(profile);
+    ASSERT_FALSE(layout.cells.empty());
+    EXPECT_FALSE(layout.cells.front().heading);
+    EXPECT_EQ(layout.cells[0].button, 0U);
+    EXPECT_EQ(layout.cells[1].button, 1U);
+    EXPECT_EQ(layout.cells[1].column, 1);
 }
 
 }  // namespace

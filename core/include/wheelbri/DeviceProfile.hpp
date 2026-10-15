@@ -51,6 +51,17 @@ struct TargetReport {
     friend bool operator==(const TargetReport&, const TargetReport&) = default;
 };
 
+// A group of a target's buttons as the Mapping tab shows them ("FACE": A, B, X, Y), in a column of its own (Left,
+// Right: groups stack down their column) or Below both columns (two buttons a row: the shifter's gears).
+struct ButtonGroup {
+    enum class Place { Left, Right, Below };
+    std::string name;
+    std::vector<std::size_t> buttons;   // target buttons (0-based), in the order shown
+    Place place = Place::Left;
+
+    friend bool operator==(const ButtonGroup&, const ButtonGroup&) = default;
+};
+
 // A wheel the emulator can impersonate. New targets (T300, G920, ...) are new implementations.
 class IDeviceProfile {
 public:
@@ -65,7 +76,29 @@ public:
     // How many buttons the emulated wheel reports (DirectInput's dwButtons, the HID report's button count), unnamed
     // gaps included: the G920's button 12 (1-based) exists but nothing presses it.
     [[nodiscard]] virtual std::size_t buttonCount() const { return 0; }
+    // How the Mapping tab groups its named buttons (related ones together); empty: in number order.
+    [[nodiscard]] virtual std::vector<ButtonGroup> buttonGroups() const { return {}; }
 };
+
+// Where each heading and named button goes on the Mapping tab: column 0 (left) or 1 (right), and its row from the top
+// of the grid. A heading row is short (kButtonHeadingH), a button row kButtonRowH. Every named button appears once: one
+// no group names goes Below, under "OTHER"; without groups, all are Below in number order (no heading).
+inline constexpr float kButtonRowH = 20.0F;
+inline constexpr float kButtonHeadingH = 14.0F;
+struct ButtonCell {
+    int column = 0;
+    float y = 0.0F;                 // from the top of the grid
+    bool heading = false;
+    std::string text;               // a heading's name
+    std::size_t button = 0;         // a button's index
+
+    friend bool operator==(const ButtonCell&, const ButtonCell&) = default;
+};
+struct ButtonLayout {
+    std::vector<ButtonCell> cells;
+    float height = 0.0F;            // of the whole grid
+};
+[[nodiscard]] ButtonLayout layoutButtons(const IDeviceProfile& profile);
 
 struct DeviceProfileSpec {
     DeviceIdentity identity;
@@ -73,6 +106,7 @@ struct DeviceProfileSpec {
     AxisRange pedalRange;
     bool pedalsReleasedAtMax = false;   // some wheels report a released pedal as the top of the range
     std::vector<std::string> buttonNames;  // index = target button, 0-based; "" = a button nothing presses
+    std::vector<ButtonGroup> buttonGroups; // the Mapping tab's groups (IDeviceProfile::buttonGroups)
 };
 
 // Data-driven profile: identity plus linear axis encodings.
@@ -84,6 +118,7 @@ public:
     [[nodiscard]] TargetReport encode(const WheelState& state) const override;
     [[nodiscard]] std::string_view buttonName(std::size_t index) const override;
     [[nodiscard]] std::size_t buttonCount() const override { return spec_.buttonNames.size(); }
+    [[nodiscard]] std::vector<ButtonGroup> buttonGroups() const override { return spec_.buttonGroups; }
 
 private:
     [[nodiscard]] std::int32_t encodePedal(float travel) const;

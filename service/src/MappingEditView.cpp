@@ -655,30 +655,27 @@ void MappingEditView::draw() {
     y += 16 + 4 * 20 + 12;
     window_.text(4, y, "BUTTONS", kHeading);
     window_.text(68, y, target + " button <- your control", kDim);
-    std::size_t cell = 0;
-    float gridEnd = y + 16;
-    bool gap = false;   // an unnamed button before this one: a new group (the G920's shifter) starts on its own row
-    for (std::size_t index = 0; index < edit_.buttons.size(); ++index) {
-        const std::string_view name = profile_->buttonName(index);
-        if (name.empty()) {
-            gap = cell > 0;
+    // Related buttons together (the profile's groups: FACE, PADDLES, STICKS, SYSTEM; the SHIFTER below both columns).
+    const ButtonLayout layout = layoutButtons(*profile_);
+    const float gridTop = y + 16;
+    for (const ButtonCell& cell : layout.cells) {
+        const float x = 4 + static_cast<float>(cell.column) * (478 + half);   // two columns across the canvas
+        const float row = gridTop + cell.y;
+        if (cell.heading) {
+            window_.text(x, row + 3, cell.text, kDim);
             continue;
         }
-        if (gap && cell % 2 != 0) ++cell;
-        gap = false;
-        const float x = 4 + static_cast<float>(cell % 2) * (478 + half);   // two columns across the canvas
-        const float row = y + 16 + static_cast<float>(cell / 2) * 20;
-        ++cell;
-        gridEnd = row + 16;
+        const std::size_t index = cell.button;
         char label[32];
-        std::snprintf(label, sizeof(label), "%2zu %.10s", index, std::string(name).c_str());
-        window_.text(x, row + 4, label, kText);
+        std::snprintf(label, sizeof(label), "%2zu %.10s", index, std::string(profile_->buttonName(index)).c_str());
+        window_.text(x + 8, row + 4, label, kText);
         // The first source (a button), "or" a second one (a button, or a one-sided axis past a threshold).
         const float quarter = half / 2;   // each column's fields share its extra width
         drawSource(x + 112, row, 206 + quarter, Slot::Button, index);
         window_.text(x + 322 + quarter, row + 4, "or", kDim);
         drawAltSource(x + 342 + quarter, row, 126 + quarter, index);
     }
+    const float gridEnd = gridTop + layout.height - 4;
 
     drawRotation(gridEnd + 14);
 
