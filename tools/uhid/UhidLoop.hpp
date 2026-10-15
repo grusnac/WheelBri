@@ -21,7 +21,7 @@ struct Options {
     std::string stopFile;
     std::string device = "/dev/uhid";
     int parentPid = 0;   // --parent: stop once this process is no longer our parent (0: never)
-    std::string target = "g920";   // --target: which wheel (VirtualWheel: g920 or g25)
+    std::string target = "g920";   // --target: which wheel (VirtualWheel: g920, g25 or g27)
 };
 
 struct ParsedOptions {
@@ -36,10 +36,11 @@ struct ParsedOptions {
 
 inline constexpr const char* kUsage =
     "usage: wheelbri-uhid [--state-port 41329] [--ffb-port 41330] [--stop-file PATH] [--device /dev/uhid]\n"
-    "                     [--parent PID] [--target g920|g25]\n"
-    "  A virtual Logitech G920 or G25 (uhid) fed by wheelbri-service; stops on Ctrl+C, SIGTERM, when\n"
+    "                     [--parent PID] [--target g920|g25|g27]\n"
+    "  A virtual Logitech G920, G25 or G27 (uhid) fed by wheelbri-service; stops on Ctrl+C, SIGTERM, when\n"
     "  --stop-file appears or when process PID (--parent, the app that started it) is gone.\n"
-    "  Proton games: PROTON_ENABLE_HIDRAW=0x046D/0xC262 (G920) or 0x046D/0xC299 (G25) in the launch options.";
+    "  Proton games: PROTON_ENABLE_HIDRAW=0x046D/0xC262 (G920), 0x046D/0xC299 (G25) or 0x046D/0xC29B (G27)\n"
+    "  in the launch options.";
 
 // The wheel's state into the device: each new state (sent when it changed, or as a keep-alive), an input report at
 // least every kKeepAliveMs, and after kStaleMs without a state the centred wheel and released pedals until states

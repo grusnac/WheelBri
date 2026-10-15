@@ -1,4 +1,4 @@
-// wheelbri-g920: a UMDF 2 HID minidriver presenting a Logitech G920 or G25 to Windows (Phase 5, plan B).
+// wheelbri-g920: a UMDF 2 HID minidriver presenting a Logitech G920, G25 or G27 to Windows (Phase 5, plan B).
 //
 // It does what the former HIDMaestro bridge (step 0) did, inside Windows' driver host:
 //   input  wheelbri-service --UDP 127.0.0.1:41329 (StatePacket)--> driver --> HID input report --> games
@@ -52,8 +52,9 @@ constexpr wchar_t kSerial[] = L"WHEELBRI0001";
 using Report = std::vector<std::uint8_t>;
 using Level = wheelbri::LogLevel;
 
-Report g920Report(const wheelbri::TargetReport& report) {
-    const auto packed = wheelbri::packG920Input(report);
+// `buttons`: the wheel's (VirtualWheel::buttons): 19, or the G27's 23.
+Report g920Report(const wheelbri::TargetReport& report, const std::size_t buttons = wheelbri::kG920Buttons) {
+    const auto packed = wheelbri::packG920Input(report, buttons);
     return Report(packed.begin(), packed.end());
 }
 
@@ -607,7 +608,7 @@ void Link::run(const SOCKET sock) {
                 }
                 lastState = now;
                 neutralSent = false;
-                publish(g920Report(packet->report));
+                publish(g920Report(packet->report, device_->wheel->buttons));
             }
         } else if (now - lastState > kStaleMs && !neutralSent) {
             if (receiving) {
@@ -692,7 +693,7 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             status = copyToRequest(request, &ctx->attributes, sizeof(HID_DEVICE_ATTRIBUTES));
             break;
         case IOCTL_HID_GET_REPORT_DESCRIPTOR: {
-            const auto descriptor = wheelbri::g920ReportDescriptor();
+            const auto descriptor = wheelbri::g920ReportDescriptor(ctx->wheel->buttons);
             status = copyToRequest(request, descriptor.data(), descriptor.size());
             break;
         }
@@ -834,7 +835,7 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     ctx->hidDescriptor.bNumDescriptors = 1;
     ctx->hidDescriptor.DescriptorList[0].bReportType = 0x22;
     ctx->hidDescriptor.DescriptorList[0].wReportLength = static_cast<USHORT>(
-        wheelbri::g920ReportDescriptor().size());
+        wheelbri::g920ReportDescriptor(wheel->buttons).size());
 
     WDF_IO_QUEUE_CONFIG queueConfig;
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchParallel);
