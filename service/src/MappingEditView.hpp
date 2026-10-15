@@ -31,7 +31,8 @@ namespace wheelbri::service {
 // It also draws the app's Game profiles tab (Page::Games), which edits the same mapping: the built-in game profiles
 // (GameProfiles.hpp) in a list, and for the one picked what its profile changes, the user's own values for it (its
 // steering rotation, force feedback gain and own settings: [game_rotation], [game_ffb_gain], [game_settings], saved
-// with the same Save) and what its settings file holds now. While a session runs it is shown locked, with the game that
+// in the same mapping as they change: that page has no Default, Save or Revert, which are the Mapping tab's) and what
+// its settings file holds now. While a session runs it is shown locked, with the game that
 // runs (setGameNow); the app switches to it and picks the game when a profiled game starts (GameTabFollower).
 class MappingEditView {
 public:
@@ -150,6 +151,9 @@ private:
     // A mapped source that the active rig has not named (the default was made for another rig).
     [[nodiscard]] bool missing(const SourceRef& source, bool axis) const;
     void save();
+    // The Game profiles page's values ([game_rotation], [game_settings], [game_ffb_gain]) differ from the saved ones.
+    [[nodiscard]] bool gameValuesChanged() const;
+    void saveGameValues();   // saves those alone, as they change
     void dropOwnEdits();
     void refreshDevices();
     [[nodiscard]] const RigControl* rigControl(const SourceRef& source, bool axis) const;

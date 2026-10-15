@@ -207,7 +207,8 @@ a headline, why it was needed, how to use it, and where to look.
   profile does (and why) and your own values: **Mapping** (the pedals the profile remaps, the steering rotation),
   **Force feedback** (the gain), **Game config** (the game's own settings and what its settings file holds now;
   left out for a game whose own settings WheelBri does not change). No target here: the target is the Mapping tab's.
-  Your values, saved with the mapping (Save, Revert, Default as on the Mapping tab), from the next Start:
+  Your values are saved in the mapping as you change them (this tab has no Default, Save or Revert: those are the
+  Mapping tab's, and its unsaved changes stay unsaved), used from the next Start:
   **Steering rotation**: type another (`180`), **On/Off** (Off = the Mapping tab's), or **Default** for the profile's;
   saved as `[game_rotation] nfspayback = 180 | off` (an older `360/180` reads as 180). Set the wheel's own software to
   the same while you play that game, and back afterwards. A game that keeps its own rotation (NFS Unbound's

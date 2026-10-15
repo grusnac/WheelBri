@@ -221,6 +221,31 @@ void MappingEditView::save() {
     statusError_ = false;
 }
 
+bool MappingEditView::gameValuesChanged() const {
+    return edit_.gameRotations != saved_.gameRotations || edit_.gameSettings != saved_.gameSettings ||
+           edit_.gameFfbGains != saved_.gameFfbGains;
+}
+
+// The Game profiles page has no Save: its values are saved as they change, and only they (the Mapping tab's unsaved
+// changes stay unsaved, still there to Save or Revert).
+void MappingEditView::saveGameValues() {
+    MappingModel pending = edit_;
+    edit_ = saved_;
+    edit_.gameRotations = pending.gameRotations;
+    edit_.gameSettings = pending.gameSettings;
+    edit_.gameFfbGains = pending.gameFfbGains;
+    save();   // saved_ is then this (or read again from the user's own file, made from the default)
+    if (statusError_) {
+        // Not saved: the value goes back to the saved one (not tried again every frame), and the page says why.
+        pending.gameRotations = saved_.gameRotations;
+        pending.gameSettings = saved_.gameSettings;
+        pending.gameFfbGains = saved_.gameFfbGains;
+    } else {
+        status_ = "Saved. The next Start uses it.";
+    }
+    edit_ = std::move(pending);
+}
+
 void MappingEditView::dropOwnEdits() {
     std::string error;
     if (!picker_.dropOwnEdits(error)) {
@@ -558,11 +583,12 @@ void MappingEditView::draw() {
     // Left of Default: "custom" while the user's own saved mapping is in use, nothing with WheelBri's default.
     constexpr std::string_view kCustom = "custom";
     const float customX = defaultX - 10 - static_cast<float>(kCustom.size()) * ui::kCharWidth;
-    if (!builtIn_) {
+    if (!builtIn_ && page_ != Page::Games) {
         window_.text(customX, 6, std::string(kCustom), kCaution);
         tip(customX - 4, 2, defaultX - customX, 16, "Your saved mapping, not the default.");
     }
-    const float titleEnd = builtIn_ ? defaultX : customX;
+    // The Game profiles page has no Default, Save or Revert: its subtitle reaches the version.
+    const float titleEnd = page_ == Page::Games ? revertX + 80 : builtIn_ ? defaultX : customX;
     const auto subtitle = [&](const float x, const std::string& text) {
         window_.text(x, 4, fit(text, static_cast<std::size_t>(std::max(0.0F, (titleEnd - 12 - x) / ui::kCharWidth))),
                      kDim);
@@ -575,12 +601,18 @@ void MappingEditView::draw() {
         subtitle(68, "what your controls do on the " + target);
     }
 
-    // The target (fixed inputs, picked with < >) and how it runs.
-    // The target is the Mapping tab's alone: the Game profiles page does not show it (its values are saved with the
-    // same mapping, so Default, Save and Revert stay).
-    if (page_ != Page::Games) {
-        picker_.draw(4, 18, !locked_);
+    // The target (fixed inputs, picked with < >) and how it runs, "custom", Default, Save and Revert: the Mapping tab's
+    // alone. The Game profiles page saves its own values as they change (saveGameValues).
+    if (page_ == Page::Games) {
+        if (!loaded_) {
+            window_.text(4, 60, fit(status_, 118 + extraChars()), kWarning);
+            return;
+        }
+        if (!locked_ && gameValuesChanged()) saveGameValues();
+        drawGames();
+        return;
     }
+    picker_.draw(4, 18, !locked_);
     const bool canSave = loaded_ && dirty() && !locked_;
     button(defaultX, 2, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
     button(saveX, 2, "Save", [this] { save(); }, canSave, canSave, 80);
@@ -591,10 +623,6 @@ void MappingEditView::draw() {
     }, false, canSave, 80);
     if (!loaded_) {
         window_.text(4, 60, fit(status_, 118 + extraChars()), kWarning);
-        return;
-    }
-    if (page_ == Page::Games) {
-        drawGames();
         return;
     }
 
@@ -866,13 +894,12 @@ void MappingEditView::drawGames() {
 
     const float hint = contentH() - 52;
     window_.text(4, hint,
-                 "Your values are saved with the mapping (Save) and used from the next Start; Default goes back to the "
+                 "Your values are saved as you change them and used from the next Start; Default goes back to the "
                  "profile's.",
                  kDim);
     window_.text(4, hint + 12, "While WheelBri runs they are shown, not changed.", kDim);
-    const std::string state = dirty() ? "unsaved changes" : "saved";
-    window_.text(4, hint + 28, fit(status_.empty() ? state : status_, 118 + extraChars()),
-                 statusError_ ? kWarning : status_.empty() ? (dirty() ? kCaution : kDim) : kActive);
+    window_.text(4, hint + 28, fit(status_.empty() ? std::string("saved") : status_, 118 + extraChars()),
+                 statusError_ ? kWarning : status_.empty() ? kDim : kActive);
 }
 
 float MappingEditView::drawGameProfile(const std::size_t index, float y) {
