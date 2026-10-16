@@ -52,11 +52,54 @@ foreach ($program in $programs) {
     $want = if ($program.To -like 'shim\x86\*') { 0x014C } else { 0x8664 }
     if ($machine -ne $want) { Fail ("$($program.From) is for machine 0x{0:X4}, not 0x{1:X4}." -f $machine, $want) }
 }
+# The DLLs a PE file imports (its import table; not delay-loaded ones): the names, as written.
+function Get-PeImports([string]$file) {
+    $bytes = [IO.File]::ReadAllBytes($file)
+    $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+    $sections = [BitConverter]::ToUInt16($bytes, $pe + 6)
+    $optional = $pe + 24
+    $optionalSize = [BitConverter]::ToUInt16($bytes, $pe + 20)
+    # The import directory (data directory 1): after 96 bytes of the optional header (PE32), 112 (PE32+).
+    $directories = if ([BitConverter]::ToUInt16($bytes, $optional) -eq 0x20B) { $optional + 112 } else { $optional + 96 }
+    $importRva = [BitConverter]::ToUInt32($bytes, $directories + 8)
+    if ($importRva -eq 0) { return @() }
+    $table = $optional + $optionalSize
+    # An address in the loaded image (RVA) to its place in the file, through the section that holds it.
+    $toOffset = {
+        param([uint32]$rva)
+        for ($i = 0; $i -lt $sections; $i++) {
+            $header = $table + 40 * $i
+            $size = [Math]::Max([BitConverter]::ToUInt32($bytes, $header + 8),
+                                [BitConverter]::ToUInt32($bytes, $header + 16))   # virtual size, raw size
+            $start = [BitConverter]::ToUInt32($bytes, $header + 12)
+            if ($rva -ge $start -and $rva -lt $start + $size) {
+                return [int]($rva - $start + [BitConverter]::ToUInt32($bytes, $header + 20))
+            }
+        }
+        return -1
+    }
+    $names = @()
+    $at = & $toOffset $importRva
+    while ($at -ge 0 -and $at + 20 -le $bytes.Length) {
+        $nameRva = [BitConverter]::ToUInt32($bytes, $at + 12)
+        if ($nameRva -eq 0) { break }   # the all-zero descriptor ends the table
+        $name = & $toOffset $nameRva
+        if ($name -lt 0) { break }
+        $end = $name
+        while ($end -lt $bytes.Length -and $bytes[$end] -ne 0) { $end++ }
+        $names += [Text.Encoding]::ASCII.GetString($bytes, $name, $end - $name)
+        $at += 20
+    }
+    return $names
+}
+
 # The programs must start on a PC without MSYS2: no MinGW runtime DLL may be imported (they link it statically).
+# Only the import table counts: the 32-bit static libgcc names libgcc_s_dw2-1.dll as text (it looks for it at start-up
+# and works without it), so searching the file for the name would refuse a good 32-bit shim.
 foreach ($program in $programs) {
-    $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($program.From))
+    $imports = Get-PeImports $program.From
     foreach ($dll in 'libstdc++-6.dll', 'libgcc_s_seh-1.dll', 'libgcc_s_dw2-1.dll', 'libwinpthread-1.dll') {
-        if ($text.IndexOf($dll, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        if ($imports -contains $dll) {
             Fail "$($program.From) needs $dll at run time; it would not start on a PC without MSYS2 (rebuild: scripts/make/rebuild.sh)."
         }
     }
