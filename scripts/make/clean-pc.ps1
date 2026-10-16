@@ -9,9 +9,12 @@
 #   clean-pc.ps1 -KeepData                keep %LOCALAPPDATA%\wheelbri (rigs, configs, app.ini, logs, telemetry) and
 #                                         C:\ProgramData\wheelbri (logs of older versions), and the old-named ones
 #   clean-pc.ps1 -GameFolder "D:\Games\Need for Speed"
-#                                         also take the shim out of a game folder (dinput8.dll / dinput8.dll.off when
-#                                         they are ours, wheelbri-shim.ini, wheelemu-shim.ini); several folders:
-#                                         comma-separated
+#                                         also take the shim out of a game folder the app does not list; several
+#                                         folders: comma-separated. The games the app put the shim into (its
+#                                         shim-games.txt) are cleaned without it. In each: dinput8.dll and
+#                                         dinput8Hooked.dll (its name next to the Ultimate ASI Loader), and their
+#                                         .off copies, when they are ours (another mod's, the ASI Loader included,
+#                                         stays), and wheelbri-shim.ini / wheelemu-shim.ini
 #   clean-pc.ps1 -KeepThirdParty          keep HidHide and HIDMaestro (drivers and devices), which the project used
 #                                         before it had its own drivers; by default they are removed too, so the PC
 #                                         has nothing left from any earlier version (-ThirdParty, the old switch, is
@@ -30,8 +33,9 @@
 # HKLM\SOFTWARE\wheelbri and \wheelemu (the hide setting); the installer's and uninstaller's copies in %TEMP% and
 # %SystemRoot%\Temp (wheelbri-setup-*, wheelbri-uninstall-*, and install logs written there when the logs folder was a
 # link);
-# DirectInput's entries for VID_046D&PID_C262 and PID_C299 (the G920's and G25's name and force feedback driver,
-# which the service writes; a real one gets them again when plugged in); the app's data folders unless -KeepData.
+# DirectInput's entries for VID_046D&PID_C262, PID_C299, PID_C29B and PID_C26E (the virtual G920's, G25's, G27's and
+# G923's name and force feedback driver, which the service writes; a real one gets them again when plugged in); the
+# shim in the games the app lists (and -GameFolder); the app's data folders unless -KeepData.
 # It never touches this repository (build\, dist\) or the WDK certificate in your own store that signs builds.
 #
 # Exit codes: 0 clean (yellow lines say what to look at, e.g. a restart), 1 failed or cancelled.
@@ -208,6 +212,23 @@ function Get-TempCopies {
     }) | Sort-Object -Unique
 }
 
+# The game folders the app put the shim into: "game<TAB>name<TAB>folder" lines of shim-games.txt (UTF-8) in the
+# user's data folder (both names). Read before the data folder goes; folders no longer there are skipped.
+function Get-ListedGameFolders {
+    $folders = @()
+    foreach ($name in $names) {
+        $list = Join-Path (Join-Path $UserLocalAppData $name) 'shim-games.txt'
+        if (-not (Test-Path -LiteralPath $list)) { continue }
+        foreach ($line in @([IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8))) {
+            $parts = $line.TrimEnd("`r") -split "`t"
+            if ($parts.Count -eq 3 -and $parts[0] -eq 'game' -and $parts[2] -and (Test-Path -LiteralPath $parts[2])) {
+                $folders += $parts[2].TrimEnd('\')
+            }
+        }
+    }
+    return $folders
+}
+
 # A shim file of ours: the DLL has "wheelbri" (or the old "wheelemu") in it.
 function Test-OurShim([string]$path) {
     try {
@@ -217,10 +238,13 @@ function Test-OurShim([string]$path) {
 }
 function Get-ShimFiles {
     $found = @()
-    foreach ($folder in $GameFolder) {
+    # The ones named on the command line and the app's list, each once (any case, as Windows compares them).
+    $folders = @(@($GameFolder) + @(Get-ListedGameFolders) | Group-Object { $_.ToLowerInvariant() } |
+                 ForEach-Object { $_.Group[0] })
+    foreach ($folder in $folders) {
         # -LiteralPath throughout: a folder name with [ or ] is not a wildcard.
         if (-not (Test-Path -LiteralPath $folder)) { Warn "game folder not found: $folder"; continue }
-        foreach ($name in 'dinput8.dll', 'dinput8.dll.off') {
+        foreach ($name in 'dinput8.dll', 'dinput8.dll.off', 'dinput8Hooked.dll', 'dinput8Hooked.dll.off') {
             $path = Join-Path $folder $name
             if ((Test-Path -LiteralPath $path) -and (Test-OurShim $path)) { $found += $path }
         }
@@ -430,8 +454,7 @@ try {
             Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
             if (Test-Path -LiteralPath $file) { Warn "could not remove $file (is the game running?)" } else { Write-Host "    removed $file" }
         }
-        if ($GameFolder.Count -eq 0) { Write-Host '    no game folder given (-GameFolder)' }
-        elseif ($shimFiles.Count -eq 0) { Write-Host '    none' }
+        if ($shimFiles.Count -eq 0) { Write-Host '    none (the app lists no game with the shim; others: -GameFolder)' }
 
         Step '[8/8] removing the app''s data (rigs, configs, logs, telemetry)'
         if ($KeepData) {
