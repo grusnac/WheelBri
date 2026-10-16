@@ -233,8 +233,8 @@ try {
             Remove-Item "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part" -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
-    # DirectInput's entries for the virtual G920 (C262), G25 (C299) and G27 (C29B).
-    foreach ($ids in 'VID_046D&PID_C262', 'VID_046D&PID_C299', 'VID_046D&PID_C29B') {
+    # DirectInput's entries for the virtual G920 (C262), G25 (C299), G27 (C29B) and G923 (C26E).
+    foreach ($ids in 'VID_046D&PID_C262', 'VID_046D&PID_C299', 'VID_046D&PID_C29B', 'VID_046D&PID_C26E') {
         foreach ($key in "HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids",
                          "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids",
                          "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\DirectInput\$ids") {

@@ -287,4 +287,10 @@ TEST(MappingEdit, ControlsUsedTwice) {
         EXPECT_EQ(config.targetProfile, "g27") << name;
         EXPECT_TRUE(controlsUsedTwice(mappingModel(config), g27).empty()) << name;
     }
+    const DeviceProfile g923(g923Spec());
+    const std::optional<std::string> text = readFileText(std::filesystem::path(WHEELBRI_CONFIG_DIR) / "g923.ini");
+    ASSERT_TRUE(text.has_value());
+    const EmulatorConfig config = load(*text);
+    EXPECT_EQ(config.targetProfile, "g923");
+    EXPECT_TRUE(controlsUsedTwice(mappingModel(config), g923).empty());
 }

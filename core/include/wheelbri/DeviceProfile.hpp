@@ -162,11 +162,24 @@ inline constexpr std::size_t kG27FirstGear = 8;
 // top, 900 degrees), with its 23 buttons. Its rev lights are not emulated (games drive them through Logitech's SDK).
 [[nodiscard]] DeviceProfileSpec g27Spec();
 
+// The G923 for Xbox and PC in PC mode (046D:C26E, docs/g923-target-plan.md): 24 buttons, the G920's 19 (the same
+// HID++ wheel family: Linux's hid-logitech-hidpp drives both with the G920's quirks) and the 5 the G920 lacks, after
+// them: Plus 19, Minus 20, Dial Right 21, Dial Left 22, Dial Enter 23. Logitech does not document the order: the
+// G920's part follows the G920, the last 5 the G29's order (+, -, dial right, dial left, enter); unverified until a
+// real G923 is captured.
+inline constexpr std::size_t kG923Buttons = 24;
+inline constexpr std::size_t kG923FirstGear = kG920FirstGear;
+
+// Logitech G923 Racing Wheel for Xbox One and PC in PC mode (046D:C26E; Xbox mode is C26D, which Logitech's driver or
+// Linux's xpad switches out of): presented like the G920 (the same axes, pedals released at the top, 900 degrees),
+// with its 24 buttons. Its rev lights and TrueForce are not emulated.
+[[nodiscard]] DeviceProfileSpec g923Spec();
+
 // Config names of the built-in profiles, for messages: the wheels WheelBri emulates (a virtual device and the shim both
 // present them). A new target is a new profile here plus its support (driver, shim) first.
-inline constexpr std::string_view kKnownProfiles = "g920, g25, g27";
+inline constexpr std::string_view kKnownProfiles = "g920, g25, g27, g923";
 
-// Looks up a built-in profile by its config name ("g920", "g25", "g27"). Returns nullptr for unknown names.
+// Looks up a built-in profile by its config name ("g920", "g25", "g27", "g923"). Returns nullptr for unknown names.
 [[nodiscard]] std::unique_ptr<IDeviceProfile> makeProfile(std::string_view name);
 
 }  // namespace wheelbri

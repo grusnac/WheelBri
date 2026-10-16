@@ -114,16 +114,31 @@ constexpr std::size_t buttonBlockAt(const std::array<std::uint8_t, sizeof(kDescr
     return d.size();
 }
 constexpr std::size_t kButtonBlockAt = buttonBlockAt(kDescriptorArray);
-static_assert(kButtonBlockAt < sizeof(kDescriptor), "the button block is where kWideDescriptor patches it");
+static_assert(kButtonBlockAt < sizeof(kDescriptor), "the button block is where descriptorWith patches it");
 
-// The G27's: the same with 23 buttons and 1 padding bit, so the input report keeps its 3 button bytes.
-constexpr auto kWideDescriptor = [] {
+// The descriptor with `buttons` buttons (19..24) and 24 - buttons padding bits, so the input report keeps its 3 button
+// bytes. With 24 there is no padding: its Input item (6 bytes: Report Count, Report Size, Input) becomes three global
+// items that change nothing (Report Size 1, Logical Minimum 0, Logical Maximum 1, as the buttons already set them), so
+// the descriptor keeps its size and no Input item has a Report Count of 0.
+constexpr std::array<std::uint8_t, sizeof(kDescriptor)> descriptorWith(const std::size_t buttons) {
     auto d = kDescriptorArray;
-    d[kButtonBlockAt + 5] = static_cast<std::uint8_t>(kG27Buttons);    // Usage Maximum
-    d[kButtonBlockAt + 11] = static_cast<std::uint8_t>(kG27Buttons);   // Report Count
-    d[kButtonBlockAt + 17] = static_cast<std::uint8_t>(24 - kG27Buttons);
+    d[kButtonBlockAt + 5] = static_cast<std::uint8_t>(buttons);    // Usage Maximum
+    d[kButtonBlockAt + 11] = static_cast<std::uint8_t>(buttons);   // Report Count
+    if (buttons < 24) {
+        d[kButtonBlockAt + 17] = static_cast<std::uint8_t>(24 - buttons);
+    } else {
+        constexpr std::uint8_t kNoPadding[] = {0x75, 0x01, 0x15, 0x00, 0x25, 0x01};
+        for (std::size_t i = 0; i < sizeof(kNoPadding); ++i) d[kButtonBlockAt + 16 + i] = kNoPadding[i];
+    }
     return d;
-}();
+}
+static_assert(kDescriptorArray[kButtonBlockAt + 18] == 0x75 && kDescriptorArray[kButtonBlockAt + 19] == 0x01 &&
+                  kDescriptorArray[kButtonBlockAt + 20] == 0x81 && kDescriptorArray[kButtonBlockAt + 21] == 0x03,
+              "the padding is Report Count, Report Size 1, Input Constant");
+
+constexpr auto kG27Descriptor = descriptorWith(kG27Buttons);     // 23 buttons, 1 padding bit
+constexpr auto kG923Descriptor = descriptorWith(kG923Buttons);   // 24 buttons, no padding
+static_assert(kG923Buttons == 24 && kG27Buttons < 24, "the virtual wheels' button counts fit 3 bytes");
 
 constexpr auto kProtonDescriptor = [] {
     std::array<std::uint8_t, sizeof(kDescriptor)> d{};
@@ -150,6 +165,8 @@ constexpr VirtualWheel kVirtualWheels[] = {
      kG25Buttons},
     {"g27", "wheelbri\\G27", "G27", kG27VendorId, kG27ProductId, "G27 Racing Wheel", "Logitech G27 Racing Wheel USB",
      kG27Buttons},
+    {"g923", "wheelbri\\G923", "G923", kG923VendorId, kG923ProductId, "G923 Racing Wheel for Xbox One and PC",
+     "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons},
 };
 
 bool sameIgnoringCase(const std::string_view a, const std::string_view b) {
@@ -184,7 +201,8 @@ bool isVirtualWheelId(const std::uint16_t vendorId, const std::uint16_t productI
 }
 
 std::span<const std::uint8_t> g920ReportDescriptor(const std::size_t buttons) {
-    if (buttons > kG920Buttons) return kWideDescriptor;
+    if (buttons >= kG923Buttons) return kG923Descriptor;
+    if (buttons > kG920Buttons) return kG27Descriptor;
     return kDescriptor;
 }
 
@@ -197,8 +215,10 @@ std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport&
     putAxis(out, 3, report.throttle);   // Y
     putAxis(out, 5, report.brake);      // Rz
     putAxis(out, 7, report.clutch);     // Slider
-    // The descriptor's buttons only (19, the shifter's included; the G27's 23): the rest are padding bits.
-    const std::size_t count = std::min<std::size_t>(buttonCount > kG920Buttons ? kG27Buttons : kG920Buttons, 24);
+    // The descriptor's buttons only (19, the shifter's included; the G27's 23, the G923's 24): the rest are padding.
+    const std::size_t count = buttonCount >= kG923Buttons ? kG923Buttons
+                              : buttonCount > kG920Buttons ? kG27Buttons
+                                                           : kG920Buttons;
     const std::uint32_t buttons = report.buttons & ((1U << count) - 1U);
     out[9] = static_cast<std::uint8_t>(buttons & 0xFFU);
     out[10] = static_cast<std::uint8_t>((buttons >> 8U) & 0xFFU);

@@ -113,7 +113,7 @@ Reply HelperSession::createVirtualG920(const Request& request) {
     const std::uint32_t seq = request.seq;
     const std::optional<std::string> name = requestVirtualWheel(request);   // checked by requestProblem
     const VirtualWheel* wheel = name ? virtualWheel(*name) : nullptr;
-    if (wheel == nullptr) return Reply{seq, Status::Refused, "CreateVirtualG920 takes one wheel: g920, g25 or g27"};
+    if (wheel == nullptr) return Reply{seq, Status::Refused, "CreateVirtualG920 takes one wheel: g920, g25, g27 or g923"};
     // Another wheel than this connection's: the one there goes first (one virtual wheel per session).
     if (g920_ && g920Wheel_ != wheel) {
         g920_.reset();

@@ -33,6 +33,10 @@ once, for its hidraw rule. Untried so far.
 The G27 ([g27-target-plan.md](g27-target-plan.md)): as the G25, with `--target g27` and
 `PROTON_ENABLE_HIDRAW=0x046D/0xC29B` (`0006:046D:C29B`); `install-udev-rules.sh` again once. Untried.
 
+The G923 for Xbox One and PC ([g923-target-plan.md](g923-target-plan.md)): as the G25, with `--target g923` and
+`PROTON_ENABLE_HIDRAW=0x046D/0xC26E` (`0006:046D:C26E`; on USB `hid-logitech-hidpp` would match it);
+`install-udev-rules.sh` again once. Untried.
+
 ## Steam Deck: build it there from the repository
 
 The way to follow development: get the code with git, build it on the Deck, and after every change only

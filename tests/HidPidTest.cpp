@@ -719,6 +719,34 @@ TEST(HidG920, TheG27DeclaresAndSends23Buttons) {
     EXPECT_EQ(packG920Input(report)[11], 0x00);   // the G920's 19: none of them
 }
 
+// The G923's 24 buttons: the same descriptor size and report, the button block declaring 24 buttons and no padding
+// (its Input item replaced by global items that change nothing).
+TEST(HidG920, TheG923DeclaresAndSends24Buttons) {
+    const auto narrow = g920ReportDescriptor();
+    const auto full = g920ReportDescriptor(kG923Buttons);
+    ASSERT_EQ(full.size(), narrow.size());
+    const std::array<std::uint8_t, 22> buttons = {0x05, 0x09, 0x19, 0x01, 0x29, 0x18, 0x15, 0x00, 0x25, 0x01, 0x95,
+                                                  0x18, 0x75, 0x01, 0x81, 0x02, 0x75, 0x01, 0x15, 0x00, 0x25, 0x01};
+    const auto at = std::search(full.begin(), full.end(), buttons.begin(), buttons.end());
+    ASSERT_TRUE(at != full.end());
+    EXPECT_EQ(at[22], 0x05);   // then the hat, as before: Usage Page Generic Desktop
+    EXPECT_EQ(at[23], 0x01);
+    // Input items (0x81): the 4 axes, the buttons and the hat; no padding.
+    std::size_t inputs = 0;
+    std::size_t narrowInputs = 0;
+    for (std::size_t i = 0; i < 120; ++i) {
+        inputs += full[i] == 0x81 ? 1 : 0;
+        narrowInputs += narrow[i] == 0x81 ? 1 : 0;
+    }
+    EXPECT_EQ(inputs + 1, narrowInputs);
+    TargetReport report = g920Neutral();
+    report.buttons = (1U << 19) | (1U << 23) | (1U << 24);   // Plus, Dial Enter, and one the G923 lacks
+    const auto packed = packG920Input(report, kG923Buttons);
+    EXPECT_EQ(packed[11], 0x88);
+    EXPECT_EQ(packed[12], 8);   // the hat byte untouched
+    EXPECT_EQ(packG920Input(report)[11], 0x00);   // the G920's 19: none of them
+}
+
 // The four axis usages in report order (steering, brake, clutch, throttle): each axis starts Usage Page (Generic
 // Desktop), Usage.
 std::vector<std::uint8_t> axisUsages(const std::span<const std::uint8_t> descriptor) {

@@ -219,7 +219,7 @@ std::string requestProblem(const Request& request) {
         return requestLogLevel(request) ? std::string() : "SetLogLevel takes one level: trace, debug, info or warn";
     }
     if (request.type == RequestType::CreateVirtualG920) {
-        return requestVirtualWheel(request) ? std::string() : "CreateVirtualG920 takes one wheel: g920, g25 or g27";
+        return requestVirtualWheel(request) ? std::string() : "CreateVirtualG920 takes one wheel: g920, g25, g27 or g923";
     }
     if (request.type != RequestType::PutHideFilter) {
         return request.devices.empty() ? std::string() : std::string(requestName(request.type)) + " takes no devices";

@@ -22,6 +22,9 @@ Moza R3 ─► wheelbri-service ─UDP 41329─► wheelbri-g920 driver ─HID�
 - **G27:** the same with `wheelbri\G27` (VID 046D PID C29B, "G27 Racing Wheel"); its descriptor declares 23 buttons
   instead of 19 (`g920ReportDescriptor(kG27Buttons)`, the report is the same size). A driver from before the G27 needs
   installing again, as for the G25.
+- **G923:** the same with `wheelbri\G923` (VID 046D PID C26E, the PC-mode ids of the G923 for Xbox One and PC,
+  "G923 Racing Wheel for Xbox One and PC"); its descriptor declares 24 buttons and no padding
+  (`g920ReportDescriptor(kG923Buttons)`, the same size). A driver from before the G923 needs installing again.
 - **Force feedback:** Windows' `pid.dll` turns DirectInput effects into HID PID reports; the driver answers
   the effect-block handshake and decodes them (`core/src/HidPid.cpp`, unit-tested) into the service's
   `FfbPacket`s. The service does not change.

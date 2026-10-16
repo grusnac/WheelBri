@@ -15,12 +15,12 @@ namespace wheelbri::service {
 
 // The top row of the app's Mapping tab: the target and how it runs, and so the config Start uses. Two pickers, each
 // with < >:
-//   - Target: the wheel WheelBri emulates: the Logitech G920, G25 or G27 (more come only when WheelBri supports them,
-//     never from the user);
+//   - Target: the wheel WheelBri emulates: the Logitech G920, G25, G27 or G923 (more come only when WheelBri supports
+//     them, never from the user);
 //   - Mode: Virtual (WheelBri's own driver, a device every game sees; Administrator; the rig is hidden) or Shim
 //     (dinput8.dll next to the game's .exe presents the rig's wheel as the target to that game only).
 // The choice is kept in the app's state file ([app] target, [app] way). Each target has one built-in config for both
-// modes (config/g920.ini, config/g25.ini, config/g27.ini): the target's own inputs (fixed) and WheelBri's default
+// modes (config/g920.ini, g25.ini, g27.ini, g923.ini): the target's own inputs (fixed) and WheelBri's default
 // mapping of the rig onto them. The user's own mapping, once saved on the Mapping tab, goes to
 // <user configs>/my-<target>.ini (both modes too) and is used instead; "Default" deletes it. Switching Mode never
 // changes the mapping.
@@ -29,7 +29,7 @@ namespace wheelbri::service {
 class ConfigPicker {
 public:
     enum class Way { VirtualDevice, Shim };
-    enum class Target { G920, G25, G27 };   // the Target arrows go through them in this order
+    enum class Target { G920, G25, G27, G923 };   // the Target arrows go through them in this order
 
     struct Settings {
         std::filesystem::path builtInFolder;   // config/ next to the program
@@ -83,8 +83,8 @@ public:
     // Deletes the user's own mapping for the target: the default again. False (and `error`) if it cannot.
     bool dropOwnEdits(std::string& error);
 
-    // Draws the row at (x, y): "Target" < G920 | G25 | G27 >, then "Mode" < Virtual | Shim >. `canChange` is false
-    // while a session runs or starts. Returns the x where the row ends.
+    // Draws the row at (x, y): "Target" < G920 | G25 | G27 | G923 >, then "Mode" < Virtual | Shim >. `canChange` is
+    // false while a session runs or starts. Returns the x where the row ends.
     float draw(float x, float y, bool canChange);
     // A click on the tab; true if it was on the row.
     bool onClick(float x, float y);

@@ -1,8 +1,8 @@
 # wheel-emulator
 
 Presents a DirectInput wheel (target hardware: **Moza R3**) to PC games as a wheel they support
-(the targets: **Logitech G920**, and the **Logitech G25** and **G27** for games that know them and not the G920; the G29
-profile was dropped on 2026-10-04, it is the same wheel as the G920 with more buttons), on Windows and on Linux
+(the targets: **Logitech G920** and its successor the **G923** (Xbox One and PC), and the **Logitech G25** and **G27**
+for games that know them and not the G920; the G29 profile was dropped on 2026-10-04, it is the same wheel as the G920 with more buttons), on Windows and on Linux
 (Proton). First target game: *Need for Speed (2015)*.
 
 ```
@@ -22,6 +22,7 @@ service is a native Linux process; named mappings do not cross that boundary, so
 | 2 | Shim answers as a G920 using the service's state | **working in NFS 2015**: wheel, pedals, buttons, D-pad |
 | 3 | Game FFB → service (safety limiter, watchdog) → R3 | **working in NFS 2015**: constant, spring, damper, sine, square |
 | 4 | Linux virtual G920: `tools/uhid` (`wheelbri-uhid`, kernel uhid) with the bridge's HID PID descriptor; Proton reads it raw (`PROTON_ENABLE_HIDRAW`), so no HID++ is needed | built and unit-tested, **not yet tried on a Steam Deck**; see [docs/linux.md](docs/linux.md) |
+| G923 | The Logitech G923 for Xbox One and PC as a fourth target (shim, Windows virtual device, Linux uhid): the G920 with Plus, Minus and the dial, 24 buttons (046D:C26E, PC mode) | built and unit-tested, **not yet tried in a game**; the order of the 5 new buttons is a guess: [docs/g923-target-plan.md](docs/g923-target-plan.md) |
 | G27 | The Logitech G27 as a third target (shim, Windows virtual device, Linux uhid): the G25's with its 23 buttons (046D:C29B) | built and unit-tested, **not yet tried in a game**; the button order is from users' reports: [docs/g27-target-plan.md](docs/g27-target-plan.md) |
 | G25 | The Logitech G25 as a second target (shim, Windows virtual device, Linux uhid): same layout and force feedback as the G920, its own identity (046D:C299) | built and unit-tested, **not yet tried in a game**; the button order is a guess: [docs/g25-target-plan.md](docs/g25-target-plan.md) |
 | 5 | Windows virtual G920 (every game, no DLL per game) | **working in NFS 2015 with our own driver** (`driver/`, UMDF 2, self-signed; `wheelbri-service --virtual-g920`): wheel, pedals, buttons, force feedback, the rig hidden by our own filter (`wheelbri-hide`). Step 0 (a HIDMaestro bridge) and the virtual Xbox controller were removed on 2026-10-03. Design: [docs/phase5-windows-virtual-device.md](docs/phase5-windows-virtual-device.md) |
@@ -183,7 +184,8 @@ a headline, why it was needed, how to use it, and where to look.
   to WheelBri's. While running the same tab is the live view. The buttons are grouped by what they are: FACE (A, B,
   X, Y) and PADDLES in the left column, STICKS (LSB, RSB) and SYSTEM (Menu, View, Xbox) in the right, the SHIFTER's
   gears below both (the G25: BLACK and PADDLES, WHEEL and RED, SHIFTER; the G27: WHEEL and PADDLES, RED and
-  BLACK, SHIFTER; `ButtonGroup` in each profile).
+  BLACK, SHIFTER; the G923: the G920's with PLUS MINUS on the left and DIAL on the right; `ButtonGroup` in each
+  profile).
   Every G920 input has one **role assignment** (its main source), and every G920 button can also have up to 8
   **secondary assignments** ("or"): buttons, or named axes (a pedal or a lever makes sense: one-sided) that press it
   past a threshold of their travel (25-75%, 50% by default), e.g. G920 X <- the wheel's X *or* a handbrake lever *or*
@@ -451,21 +453,22 @@ USING THE WHEEL** in red and the log says so. Close the game with WheelBri runni
 in its controls settings.
 
 The top row of the Mapping tab (while stopped) has two pickers, each with `<` `>`: **Target**, the wheel WheelBri
-emulates (the **G920**, or the **G25** or **G27** for games that know them and not the G920:
-[docs/g25-target-plan.md](docs/g25-target-plan.md), [docs/g27-target-plan.md](docs/g27-target-plan.md); others come
+emulates (the **G920**, the **G923** (Xbox One and PC: [docs/g923-target-plan.md](docs/g923-target-plan.md)), or the
+**G25** or **G27** for games that know them and not the G920: [docs/g25-target-plan.md](docs/g25-target-plan.md),
+[docs/g27-target-plan.md](docs/g27-target-plan.md); others come
 only when WheelBri supports them), and **Mode**:
 **Virtual** (WheelBri's driver, every game sees it, the rig is hidden) or **Shim** (`dinput8.dll` next to the game's
 `.exe`, nothing hidden, nothing created; Start writes the target into the game's `wheelbri-shim.ini`). A target is
 fixed: its axes, D-pad and buttons are what they are. What drives each of them is the mapping, and that is the user's:
-each target's built-in config, one for both modes (`config/g920.ini`, `config/g25.ini`, `config/g27.ini`, next to the
+each target's built-in config, one for both modes (`config/g920.ini`, `g25.ini`, `g27.ini`, `g923.ini`, next to the
 program or one or two folders up), holds WheelBri's default mapping, used until you save your own on the Mapping tab
-(`%LOCALAPPDATA%\wheelbri\configs\my-g920.ini`, `my-g25.ini`, `my-g27.ini`), again for both modes: switching Mode
+(`%LOCALAPPDATA%\wheelbri\configs\my-g920.ini`, `my-g25.ini`, `my-g27.ini`, `my-g923.ini`), again for both modes: switching Mode
 never changes the mapping. **Default** deletes yours. A mapping saved when each mode had its own
 (`my-g920-virtual-device.ini`, `my-g920-in-game-shim.ini`, before 2026-10-15) becomes `my-g920.ini` once: the newer of
 the two (the older files are left as they are).
 The target and the way are remembered (`%LOCALAPPDATA%\wheelbri\app.ini`, `[app] target`, `[app] way`). The
-virtual G25 and G27 need a `wheelbri-g920` driver that binds `wheelbri\G25` and `wheelbri\G27` (one built since
-they came):
+virtual G25, G27 and G923 need a `wheelbri-g920` driver that binds `wheelbri\G25`, `wheelbri\G27` and
+`wheelbri\G923` (one built since they came):
 `scripts/make/drivers.sh -Only g920 -Install` once. `--config FILE`
 (in a shortcut) starts with another config, and the other options below work too. `wheelbri-service --app` is the same window
 from a console (and on Linux).

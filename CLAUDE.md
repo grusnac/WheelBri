@@ -52,7 +52,8 @@ This file guides Claude when working in this repository.
 ## Project
 
 WheelBri makes the user's rig (a wheel and its accessories, defined in the Rig tab) look like a wheel it emulates: the
-Logitech G920, or the Logitech G25 or G27 for games that know them and not the G920 (the G29 profile was dropped:
+Logitech G920 or its successor the G923 (Xbox One and PC), or the Logitech G25 or G27 for games that know them and
+not the G920 (the G29 profile was dropped:
 the same wheel as the G920 with more buttons; WheelBri decides which targets exist, never the user), on Windows and
 Linux/Proton.
 First target game: Need for Speed (2015).
@@ -85,7 +86,8 @@ Status (README.md has the full table):
   conditions untouched) before `FfbSafetyLimiter`, so the cap and slew still hold. WheelBri never reads or sets the
   wheel's own software (no Moza SDK). The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
   throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
-- **Not yet verified**: the G27 target in any game (`docs/g27-target-plan.md`: like the G25, 23 buttons, the button
+- **Not yet verified**: the G923 target in any game (`docs/g923-target-plan.md`: the G920 with Plus, Minus and the
+  dial, 24 buttons, 046D:C26E; the order of those 5 is a guess); the G27 target in any game (`docs/g27-target-plan.md`: like the G25, 23 buttons, the button
   order from users' reports); the G25 target in any game (`docs/g25-target-plan.md`: built for the shim, the Windows
   virtual device and uhid; its button order other than the gears, and its axis letters, are a guess, the G920's layout);
   Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
@@ -417,7 +419,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     is fixed (the profile's axes, D-pad and buttons; never the user's to change), the **mapping** of the rig onto
     it is the user's. Each target has one built-in config for both modes, never changed, holding WheelBri's default
     mapping (the user's corrected mapping of 2026-10-04): `config/g920.ini` (also `defaultConfigPath()`, the command
-    line's default), `config/g25.ini`, `config/g27.ini` (`builtInName(target)`). The user's own is one for both modes
+    line's default), `config/g25.ini`, `config/g27.ini`, `config/g923.ini` (`builtInName(target)`). The user's own is one for both modes
     too (`my-<target>.ini`); the per-mode ones from before 2026-10-15 (`olderOwnNames`) are copied to it once, the
     newer winning, and never touched (`[app] older_mapping_<target>`).
     With Mode Shim, Start writes the target into the game's `wheelbri-shim.ini`
@@ -738,7 +740,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   when the game ends, `--keep-shim` leaves them for testing, `--virtual` takes a leftover out; never touches another
   mod's `dinput8.dll`, the same rule as `ShimGames`), udev rules,
   `package.sh` bundle).
-- `config/`: `g920.ini`, `g25.ini`, `g27.ini` (service: the target and its default mapping, both modes),
+- `config/`: `g920.ini`, `g25.ini`, `g27.ini`, `g923.ini` (service: the target and its default mapping, both modes),
   `wheelbri-shim.ini` (shim).
 - `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide),
   `future-functionalities.md` (worked-out ideas not built yet: RS Handbrake, G29; and the standard-user test still to

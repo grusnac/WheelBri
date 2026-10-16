@@ -2,8 +2,8 @@
 ; wheelbri-g920.inf: the virtual Logitech G920 of wheel-emulator (UMDF 2 HID minidriver).
 ;
 ; The device is a software device that wheelbri-service creates while it runs (--virtual-g920), with hardware
-; ID wheelbri\G920, or wheelbri\G25 / wheelbri\G27 for the virtual G25 / G27 (the same driver; the id decides which
-; wheel it is).
+; ID wheelbri\G920, or wheelbri\G25 / wheelbri\G27 / wheelbri\G923 for the virtual G25 / G27 / G923 (the same
+; driver; the id decides which wheel it is).
 ; Install: driver\install-driver.ps1 (Administrator).
 ; Needs Windows 11 (MsHidUmdf.inf, 22000+).
 ;
@@ -32,6 +32,7 @@ wheelbri-g920.dll=1
 %DeviceDesc%=WheelbriG920, wheelbri\G920
 %DeviceDescG25%=WheelbriG920, wheelbri\G25
 %DeviceDescG27%=WheelbriG920, wheelbri\G27
+%DeviceDescG923%=WheelbriG920, wheelbri\G923
 
 [WheelbriG920.NT]
 CopyFiles=UMDriverCopy
@@ -77,3 +78,4 @@ DiskName="WheelBri G920 driver"
 DeviceDesc="Logitech G920 Driving Force Racing Wheel USB (wheelbri)"
 DeviceDescG25="Logitech G25 Racing Wheel USB (wheelbri)"
 DeviceDescG27="Logitech G27 Racing Wheel USB (wheelbri)"
+DeviceDescG923="Logitech G923 Racing Wheel for Xbox One and PC (wheelbri)"

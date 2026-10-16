@@ -143,9 +143,37 @@ TEST(DeviceProfile, G25EncodesLikeTheG920) {
     EXPECT_EQ(report.buttons, (1U << kG25Buttons) - 1U);   // all 19, nothing above
 }
 
+// The G923 for Xbox and PC: the G920 (same axes, same first 19 buttons) with 5 more, its PC-mode ids.
+TEST(DeviceProfile, G923IsTheG920WithFiveMoreButtons) {
+    const auto profile = makeProfile("g923");
+    ASSERT_NE(profile, nullptr);
+    EXPECT_EQ(profile->identity().shortName, "G923");
+    EXPECT_EQ(profile->identity().vendorId, 0x046D);
+    EXPECT_EQ(profile->identity().productId, 0xC26E);
+    EXPECT_EQ(profile->identity().productName, "Logitech G923 Racing Wheel for Xbox One and PC");
+    ASSERT_EQ(profile->buttonCount(), kG923Buttons);
+    const DeviceProfile g920(g920Spec());
+    for (std::size_t b = 0; b < kG920Buttons; ++b) EXPECT_EQ(profile->buttonName(b), g920.buttonName(b)) << b;
+    EXPECT_EQ(profile->buttonName(kG923FirstGear), "Gear 1");
+    EXPECT_EQ(profile->buttonName(19), "Plus");
+    EXPECT_EQ(profile->buttonName(20), "Minus");
+    EXPECT_EQ(profile->buttonName(21), "Dial Right");
+    EXPECT_EQ(profile->buttonName(22), "Dial Left");
+    EXPECT_EQ(profile->buttonName(23), "Dial Enter");
+    WheelState state;
+    state.steering = 0.5F;
+    state.throttle = 0.25F;
+    state.buttons = 0xFFFFFFFFU;
+    const TargetReport g923Report = profile->encode(state);
+    const TargetReport g920Report = g920.encode(state);
+    EXPECT_EQ(g923Report.steering, g920Report.steering);
+    EXPECT_EQ(g923Report.throttle, g920Report.throttle);
+    EXPECT_EQ(g923Report.buttons, ((1U << kG923Buttons) - 1U) & ~(1U << 11));   // all 24 but the unused 12th
+}
+
 // The Mapping tab's button groups: every named button once, related ones together.
 TEST(ButtonLayout, EveryNamedButtonOnceInGroups) {
-    for (const DeviceProfileSpec& spec : {g920Spec(), g25Spec(), g27Spec()}) {
+    for (const DeviceProfileSpec& spec : {g920Spec(), g25Spec(), g27Spec(), g923Spec()}) {
         const DeviceProfile profile(spec);
         const ButtonLayout layout = layoutButtons(profile);
         std::vector<int> seen(profile.buttonCount(), 0);

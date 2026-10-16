@@ -1,4 +1,4 @@
-// wheelbri-g920: a UMDF 2 HID minidriver presenting a Logitech G920, G25 or G27 to Windows (Phase 5, plan B).
+// wheelbri-g920: a UMDF 2 HID minidriver presenting a Logitech G920, G25, G27 or G923 to Windows (Phase 5, plan B).
 //
 // It does what the former HIDMaestro bridge (step 0) did, inside Windows' driver host:
 //   input  wheelbri-service --UDP 127.0.0.1:41329 (StatePacket)--> driver --> HID input report --> games
@@ -7,9 +7,10 @@
 // Only one of them may run at a time (they share the ports).
 //
 // The device itself is created by wheelbri-service while it runs (a software device, see
-// service/src/VirtualG920.cpp); this INF-installed driver binds to it by hardware ID wheelbri\G920 or wheelbri\G25,
-// and that id decides which wheel it is (VirtualWheel, core/include/wheelbri/HidG920.hpp): its vendor and product ids
-// and its product string. Both have the same HID descriptor and input report.
+// service/src/VirtualG920.cpp); this INF-installed driver binds to it by hardware ID wheelbri\G920, \G25, \G27 or
+// \G923, and that id decides which wheel it is (VirtualWheel, core/include/wheelbri/HidG920.hpp): its vendor and
+// product ids and its product string. All have the same HID descriptor and input report (only the button count
+// differs).
 //
 // Structure follows Microsoft's vhidmini2 sample (UMDF 2): HID class requests arrive as IOCTLs on a
 // parallel queue; read requests wait on a manual queue until a state packet arrives.
@@ -52,7 +53,7 @@ constexpr wchar_t kSerial[] = L"WHEELBRI0001";
 using Report = std::vector<std::uint8_t>;
 using Level = wheelbri::LogLevel;
 
-// `buttons`: the wheel's (VirtualWheel::buttons): 19, or the G27's 23.
+// `buttons`: the wheel's (VirtualWheel::buttons): 19, the G27's 23 or the G923's 24.
 Report g920Report(const wheelbri::TargetReport& report, const std::size_t buttons = wheelbri::kG920Buttons) {
     const auto packed = wheelbri::packG920Input(report, buttons);
     return Report(packed.begin(), packed.end());

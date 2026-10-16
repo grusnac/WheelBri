@@ -122,7 +122,7 @@ std::optional<ConfigEntry> resetTemplateOf(const ConfigEntry& config, const std:
     std::string made = lower(configTemplateOf(*text));
     if (made.empty()) return std::nullopt;
     // Copies made before the built-in configs were renamed name the old files: for the rig (2026-10-04; the G29 is
-    // gone), then one per mode (until 2026-10-15). One per target now: g920.ini, g25.ini, g27.ini.
+    // gone), then one per mode (until 2026-10-15). One per target now: g920.ini, g25.ini, g27.ini, g923.ini.
     if (made == "moza-r3-as-g920.ini" || made == "moza-r3-as-g29.ini" || made == "rig-as-g920.ini" ||
         made == "rig-as-g29.ini") {
         made = "g920.ini";

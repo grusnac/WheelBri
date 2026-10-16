@@ -51,8 +51,10 @@ bool UhidG920::create() {
     std::memcpy(req.rd_data, descriptor.data(), descriptor.size());
     req.rd_size = static_cast<std::uint16_t>(descriptor.size());
     // The G920 on USB, as a real one: the kernel's Logitech driver (hid-logitech-hidpp) matches the ids, finds no
-    // HID++ reports in this descriptor and leaves the device to the generic HID driver. The G25 on the virtual bus:
-    // hid-lg would claim it on USB and then refuse it (not a real USB device), leaving it to no driver at all.
+    // HID++ reports in this descriptor and leaves the device to the generic HID driver. The G25 and G27 on the virtual
+    // bus: hid-lg would claim them on USB and then refuse them (not a real USB device), leaving them to no driver at
+    // all. The G923 there too: Proton's axis hack is for the G920's ids only, so it gets the Windows descriptor, and on
+    // the virtual bus no Logitech driver (hid-logitech-hidpp also matches 046D:C26E on USB) looks at it.
     req.bus = g920 ? 0x03 : 0x06;   // BUS_USB, BUS_VIRTUAL
     req.vendor = wheel_.vendorId;
     req.product = wheel_.productId;

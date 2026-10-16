@@ -11,7 +11,7 @@ namespace wheelbri {
 namespace {
 
 TEST(VirtualWheel, OneIdentityPerTarget) {
-    ASSERT_EQ(virtualWheels().size(), 3U);   // G920, G25, G27
+    ASSERT_EQ(virtualWheels().size(), 4U);   // G920, G25, G27, G923
     for (const VirtualWheel& wheel : virtualWheels()) {
         const auto profile = makeProfile(wheel.profile);
         ASSERT_NE(profile, nullptr) << wheel.profile;
@@ -38,11 +38,19 @@ TEST(VirtualWheel, FoundByProfileAndHardwareId) {
     EXPECT_EQ(g27->productId, 0xC29B);
     EXPECT_EQ(g27->buttons, 23U);
     EXPECT_EQ(virtualWheelForHardwareId("wheelbri\\G27"), g27);
+    const VirtualWheel* g923 = virtualWheel("g923");
+    ASSERT_NE(g923, nullptr);
+    EXPECT_EQ(g923->productId, 0xC26E);
+    EXPECT_EQ(g923->buttons, 24U);
+    EXPECT_EQ(g923->product, "G923 Racing Wheel for Xbox One and PC");
+    EXPECT_EQ(virtualWheelForHardwareId("wheelbri\\G923"), g923);
 }
 
 TEST(VirtualWheel, ItsIdsAreKnown) {
     EXPECT_TRUE(isVirtualWheelId(0x046D, 0xC262));
     EXPECT_TRUE(isVirtualWheelId(0x046D, 0xC299));
+    EXPECT_TRUE(isVirtualWheelId(0x046D, 0xC26E));
+    EXPECT_FALSE(isVirtualWheelId(0x046D, 0xC26D));   // a G923 in Xbox mode: a real one
     EXPECT_FALSE(isVirtualWheelId(0x046D, 0xC294));   // a G25 in Driving Force mode: a real one
     EXPECT_FALSE(isVirtualWheelId(0x346E, 0x0005));
 }

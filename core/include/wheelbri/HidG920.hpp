@@ -29,10 +29,14 @@ inline constexpr std::uint16_t kG25ProductId = 0xC299;
 // The virtual G27 (docs/g27-target-plan.md): the same descriptor and report with 23 buttons, a native-mode G27's ids.
 inline constexpr std::uint16_t kG27VendorId = 0x046D;
 inline constexpr std::uint16_t kG27ProductId = 0xC29B;
+// The virtual G923 for Xbox One and PC (docs/g923-target-plan.md): the same descriptor and report with 24 buttons and
+// no padding, the PC-mode ids (046D:C26E; Xbox mode, C26D, is an Xbox controller, not this).
+inline constexpr std::uint16_t kG923VendorId = 0x046D;
+inline constexpr std::uint16_t kG923ProductId = 0xC26E;
 inline constexpr std::uint8_t kG920InputReportId = 0x01;
 inline constexpr std::size_t kG920InputReportSize = 13;   // report ID + 4 axes x 2 + 3 button bytes + hat
 
-// The unique id ("uniq", EVIOCGUNIQ) wheelbri-uhid gives the Linux virtual wheel (G920 or G25). The service never
+// The unique id ("uniq", EVIOCGUNIQ) wheelbri-uhid gives the Linux virtual wheel (any target). The service never
 // lists a device with it as part of a rig: it would read its own output as input.
 inline constexpr const char* kG920VirtualUniq = "wheelbri-g920";
 
@@ -40,7 +44,7 @@ inline constexpr const char* kG920VirtualUniq = "wheelbri-g920";
 // identity each. The service creates the software device with the identity's hardware id (wheelbri\G920,
 // wheelbri\G25); the driver, bound to every one of them by its INF, answers with that identity's ids and names.
 struct VirtualWheel {
-    std::string_view profile;          // target_profile: "g920", "g25", "g27"
+    std::string_view profile;          // target_profile: "g920", "g25", "g27", "g923"
     std::string_view hardwareId;       // the software device's hardware id: wheelbri\G920
     std::string_view instancePrefix;   // its instance ids: G920_0 .. G920_3 (spares for a stuck one)
     std::uint16_t vendorId = 0;
@@ -50,14 +54,14 @@ struct VirtualWheel {
     std::size_t buttons = 0;           // DirectInput's OEMData button count
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
-// By target_profile ("g920", "g25", "g27"), or by a hardware id (any case); null when it is none of them.
+// By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.
 [[nodiscard]] const VirtualWheel* virtualWheel(std::string_view profile);
 [[nodiscard]] const VirtualWheel* virtualWheelForHardwareId(std::string_view hardwareId);
 // Whether vid:pid is one of the virtual wheels' ids (never hidden: games are meant to see it).
 [[nodiscard]] bool isVirtualWheelId(std::uint16_t vendorId, std::uint16_t productId);
 
-// `buttons`: the wheel's (VirtualWheel::buttons): the G920's and G25's 19, or the G27's 23 (the same report, the
-// button block declares 23 and 1 padding bit).
+// `buttons`: the wheel's (VirtualWheel::buttons): the G920's and G25's 19, the G27's 23 or the G923's 24 (the same
+// report; the button block declares 23 and 1 padding bit, or 24 and none).
 [[nodiscard]] std::span<const std::uint8_t> g920ReportDescriptor(std::size_t buttons = kG920Buttons);
 
 // The same descriptor for Proton (wheelbri-uhid): the input report is unchanged, only two axes are renamed, brake

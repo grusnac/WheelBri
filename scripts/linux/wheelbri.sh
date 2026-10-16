@@ -15,7 +15,7 @@
 # From a terminal (Desktop Mode), without a game: starts, waits for Enter or Ctrl+C, stops.
 #   ./wheelbri.sh            (service with its --ui window)
 #
-# Options: --virtual / --shim, --target g920|g25|g27 (the wheel the game sees; default: the app's Mapping tab Target,
+# Options: --virtual / --shim, --target g920|g25|g27|g923 (the wheel the game sees; default: the app's Mapping tab Target,
 #          else the G920), --keep-shim (leave the shim in the game's folder afterwards, for testing),
 #          --game-folder DIR (where --shim puts it; default: the folder of the .exe in %command%),
 #          --ui / --no-ui (default: window only from a terminal), --config FILE (default: the mapping saved in
@@ -84,7 +84,8 @@ case "$target" in
     g920) wheel=G920; wheel_id=0x046D/0xC262 ;;
     g25) wheel=G25; wheel_id=0x046D/0xC299 ;;
     g27) wheel=G27; wheel_id=0x046D/0xC29B ;;
-    *) echo "wheelbri.sh: --target $target: expected g920, g25 or g27" >&2; exit 2 ;;
+    g923) wheel=G923; wheel_id=0x046D/0xC26E ;;
+    *) echo "wheelbri.sh: --target $target: expected g920, g25, g27 or g923" >&2; exit 2 ;;
 esac
 # Default --config: the mapping you saved in the app's Mapping tab for this target (configs/my-<target>.ini, both
 # modes), else WheelBri's default one (<target>.ini). Before there was one for both modes (2026-10-15) each mode had
@@ -115,7 +116,7 @@ if [ -z "$hide" ]; then
     if [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
         hide=$(awk -F= '{sub(/\r$/, "")} $1 ~ /^[ \t]*id[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/[ \t]/, "", $2); split($2, p, ":");
                         virtual = toupper($2) == "046D:C262" || toupper($2) == "046D:C299" ||
-                                  toupper($2) == "046D:C29B"   # the virtual G920, G25, G27
+                                  toupper($2) == "046D:C29B" || toupper($2) == "046D:C26E"   # the virtual wheels
                         if (length(p[1]) == 4 && length(p[2]) == 4 && !virtual)
                             printf "%s0x%s/0x%s", (n++ ? "," : ""), toupper(p[1]), toupper(p[2])}' "$settings/rigs/$rig.ini")
     fi

@@ -194,6 +194,26 @@ DeviceProfileSpec g27Spec() {
     return spec;
 }
 
+DeviceProfileSpec g923Spec() {
+    DeviceProfileSpec spec = g920Spec();   // the same axes, ranges and first 19 buttons
+    spec.identity.shortName = "G923";
+    spec.identity.productId = 0xC26E;
+    spec.identity.productName = "Logitech G923 Racing Wheel for Xbox One and PC";
+    // kG923Buttons: the G920's, then the 5 the G920 lacks; the order is unverified (docs/g923-target-plan.md).
+    spec.buttonNames.insert(spec.buttonNames.end(), {"Plus", "Minus", "Dial Right", "Dial Left", "Dial Enter"});
+    using Place = ButtonGroup::Place;
+    spec.buttonGroups = {
+        {"FACE", {0, 1, 2, 3}, Place::Left},             // A, B, X, Y
+        {"PADDLES", {5, 4}, Place::Left},                // L Paddle, R Paddle
+        {"PLUS MINUS", {19, 20}, Place::Left},           // Plus, Minus
+        {"STICKS", {9, 8}, Place::Right},                // LSB, RSB
+        {"SYSTEM", {6, 7, 10}, Place::Right},            // Menu, View, Xbox
+        {"DIAL", {22, 21, 23}, Place::Right},            // Dial Left, Dial Right, Dial Enter
+        {"SHIFTER", {12, 13, 14, 15, 16, 17, 18}, Place::Below},
+    };
+    return spec;
+}
+
 std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     if (name == "g920") {
         return std::make_unique<DeviceProfile>(g920Spec());
@@ -203,6 +223,9 @@ std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     }
     if (name == "g27") {
         return std::make_unique<DeviceProfile>(g27Spec());
+    }
+    if (name == "g923") {
+        return std::make_unique<DeviceProfile>(g923Spec());
     }
     return nullptr;
 }

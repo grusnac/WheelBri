@@ -26,7 +26,7 @@ constexpr Colour kHeading{120, 190, 255};
 constexpr Colour kDark{16, 18, 20};
 
 constexpr float kArrowWidth = 24;
-constexpr float kTargetWidth = 72;   // "G920", "G25", "G27"
+constexpr float kTargetWidth = 72;   // "G920", "G25", "G27", "G923"
 constexpr float kWayWidth = 80;      // "Virtual", "Shim"
 constexpr float kRowHeight = 16;
 
@@ -40,6 +40,7 @@ const char* ConfigPicker::targetName(const Target target) {
     switch (target) {
         case Target::G25: return "G25";
         case Target::G27: return "G27";
+        case Target::G923: return "G923";
         case Target::G920: break;
     }
     return "G920";
@@ -49,6 +50,7 @@ const char* ConfigPicker::profileName(const Target target) {
     switch (target) {
         case Target::G25: return "g25";
         case Target::G27: return "g27";
+        case Target::G923: return "g923";
         case Target::G920: break;
     }
     return "g920";
@@ -60,6 +62,7 @@ std::optional<ConfigPicker::Target> ConfigPicker::parseTarget(const std::string_
     if (profile == profileName(Target::G920)) return Target::G920;
     if (profile == profileName(Target::G25)) return Target::G25;
     if (profile == profileName(Target::G27)) return Target::G27;
+    if (profile == profileName(Target::G923)) return Target::G923;
     return std::nullopt;
 }
 
@@ -91,7 +94,8 @@ ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
     const std::string target = readAppSetting(settings_.stateFile, "target");
     target_ = parseTarget(target).value_or(Target::G920);
     if (!target.empty() && !parseTarget(target)) {
-        WE_LOG_WARN(log(), "[app] target = '{}' is not a wheel WheelBri emulates (g920, g25, g27): the G920", target);
+        WE_LOG_WARN(log(), "[app] target = '{}' is not a wheel WheelBri emulates (g920, g25, g27, g923): the G920",
+                    target);
     }
     refresh();
     WE_LOG_INFO(log(), "target {}; config {}", name(), selected_.empty() ? "(none)" : selected_);
@@ -234,8 +238,8 @@ float ConfigPicker::draw(const float x0, const float y, const bool canChange) {
         x += width + 4;
         arrow(">", step);
     };
-    // The targets in a ring (G920, G25, G27): < the one before, > the one after.
-    constexpr int kTargets = 3;
+    // The targets in a ring (G920, G25, G27, G923): < the one before, > the one after.
+    constexpr int kTargets = 4;
     const int t = static_cast<int>(target_);
     const auto previous = static_cast<Target>((t + kTargets - 1) % kTargets);
     const auto next = static_cast<Target>((t + 1) % kTargets);
