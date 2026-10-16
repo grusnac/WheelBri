@@ -52,6 +52,14 @@ struct VirtualWheel {
     std::string_view product;          // the HID product string: "G920 Driving Force Racing Wheel USB"
     std::string_view oemName;          // DirectInput's name for it (OEMName): "Logitech G920 Driving Force Racing ..."
     std::size_t buttons = 0;           // DirectInput's OEMData button count
+    // Whether it also has Logitech's HID++ reports (long 0x11, very long 0x12) for G HUB (HidPp.hpp,
+    // docs/ghub-hidpp-plan.md). Its HID PID reports then sit kHidPpPidShift higher, out of their way.
+    bool hidpp = false;
+    std::uint8_t deviceType = 0;       // HID++ 0x0005's device type (0x0A: a steering wheel)
+    // Whether its axes are unsigned (0..65535, centred at 32768), as a real Logitech wheel's: Logitech's software reads
+    // them so (G HUB drew the virtual G923's signed wheel half a turn off, wrapping as it crossed the centre).
+    // packInputFor packs them to match. The others keep HIDMaestro's signed axes (-32768..32767), as tested in games.
+    bool unsignedAxes = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.
@@ -63,6 +71,23 @@ struct VirtualWheel {
 // `buttons`: the wheel's (VirtualWheel::buttons): the G920's and G25's 19, the G27's 23 or the G923's 24 (the same
 // report; the button block declares 23 and 1 padding bit, or 24 and none).
 [[nodiscard]] std::span<const std::uint8_t> g920ReportDescriptor(std::size_t buttons = kG920Buttons);
+
+// The wheel's own descriptor: g920ReportDescriptor(buttons), and for a wheel with HID++ (VirtualWheel::hidpp) that
+// with its HID PID report IDs kHidPpPidShift higher and two vendor collections after it (usage page 0xFF43: long
+// report 0x11, 19 bytes each way; very long 0x12, 63 bytes; the reports a G920 has, Linux's hid-logitech-hidpp says).
+[[nodiscard]] std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel);
+inline constexpr std::uint8_t kHidPpPidShift = 0x10;
+
+// Where a report the host sends goes, by its report ID: the wheel's HID PID (`id` as HidPid knows it), its HID++,
+// or neither.
+struct ReportRoute {
+    enum class To { Pid, HidPp, None };
+    To to = To::None;
+    std::uint8_t id = 0;
+};
+[[nodiscard]] ReportRoute routeReport(const VirtualWheel& wheel, std::uint8_t reportId);
+// The report ID on the wire for HidPid's `pidId` (a feature report the device answers).
+[[nodiscard]] std::uint8_t wirePidId(const VirtualWheel& wheel, std::uint8_t pidId);
 
 // The same descriptor for Proton (wheelbri-uhid): the input report is unchanged, only two axes are renamed, brake
 // Rz -> Z and clutch Slider -> Rz, which is the real G920's own HID layout. Proton's DirectInput has a hack for
@@ -76,6 +101,11 @@ struct VirtualWheel {
 // `buttons`: as for g920ReportDescriptor; the buttons past them are not sent.
 [[nodiscard]] std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport& report,
                                                                           std::size_t buttons = kG920Buttons);
+
+// The input report for the wheel's own descriptor (reportDescriptorFor): packG920Input, with the axes unsigned when
+// the wheel's are (VirtualWheel::unsignedAxes).
+[[nodiscard]] std::array<std::uint8_t, kG920InputReportSize> packInputFor(const VirtualWheel& wheel,
+                                                                          const TargetReport& report);
 
 // Centred wheel, released pedals, no buttons: what games see while no state arrives.
 [[nodiscard]] TargetReport g920Neutral();

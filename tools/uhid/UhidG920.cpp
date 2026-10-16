@@ -31,7 +31,28 @@ std::span<const std::uint8_t> withoutId(const std::uint8_t* data, std::size_t si
 }  // namespace
 
 UhidG920::UhidG920(Write write, HidPid::Sender ffb, Log log, const VirtualWheel& wheel)
-    : write_(std::move(write)), log_(log), wheel_(wheel), pid_(std::move(ffb), std::move(log)) {}
+    : write_(std::move(write)), log_(log), wheel_(wheel), pid_(std::move(ffb), std::move(log)) {
+    if (wheel_.hidpp) {
+        HidPp::Identity identity;
+        identity.name = std::string(wheel_.product);
+        identity.productId = wheel_.productId;
+        identity.unitId = 0x57420001;   // "WB" 0001, as the Windows driver's
+        identity.deviceType = wheel_.deviceType;
+        hidpp_ = std::make_unique<HidPp>(identity, log_);
+    }
+}
+
+void UhidG920::hidppRequest(const std::span<const std::uint8_t> report, const std::int64_t nowMs) {
+    if (!hidpp_) return;
+    const auto answer = hidpp_->handle(report, nowMs);
+    if (!answer) return;
+    uhid_event event{};
+    event.type = UHID_INPUT2;
+    const std::size_t n = std::min(answer->size(), sizeof(event.u.input2.data));
+    event.u.input2.size = static_cast<std::uint16_t>(n);
+    std::memcpy(event.u.input2.data, answer->data(), n);
+    write_(event);
+}
 
 bool UhidG920::create() {
     uhid_event event{};
@@ -43,7 +64,7 @@ bool UhidG920::create() {
     std::strncpy(reinterpret_cast<char*>(req.uniq), kG920VirtualUniq, sizeof(req.uniq) - 1);
     // Games read it through Proton's DirectInput: its G920 hack wants the G920's own axis names (see the header).
     const bool g920 = wheel_.profile == "g920";
-    const auto descriptor = g920 ? g920ProtonReportDescriptor() : g920ReportDescriptor(wheel_.buttons);
+    const auto descriptor = g920 ? g920ProtonReportDescriptor() : reportDescriptorFor(wheel_);
     if (descriptor.size() > sizeof(req.rd_data)) {
         log_(LogLevel::Error, "uhid: descriptor too large");
         return false;
@@ -74,7 +95,7 @@ void UhidG920::destroy() {
 }
 
 bool UhidG920::submit(const TargetReport& report, const bool force) {
-    const auto packed = packG920Input(report, wheel_.buttons);
+    const auto packed = packInputFor(wheel_, report);
     static_assert(packed.size() == std::tuple_size_v<decltype(last_)>);
     if (!force && haveLast_ && packed == last_) {
         return false;
@@ -141,15 +162,22 @@ void UhidG920::handle(const uhid_event& event, const std::int64_t nowMs) {
                 break;
             }
             const std::uint8_t id = out.data[0];
-            pid_.output(id, withoutId(out.data, size, id), nowMs);
+            const ReportRoute route = routeReport(wheel_, id);
+            if (route.to == ReportRoute::To::HidPp) {
+                hidppRequest(std::span<const std::uint8_t>(out.data, size), nowMs);
+            } else if (route.to == ReportRoute::To::Pid) {
+                pid_.output(route.id, withoutId(out.data, size, id), nowMs);
+            }
             break;
         }
         case UHID_GET_REPORT: {
             const auto& get = event.u.get_report;
             std::array<std::uint8_t, 64> buffer{};
             std::size_t size = 0;
-            if (get.rtype == UHID_FEATURE_REPORT) {
-                size = pid_.getFeature(get.rnum, buffer);
+            const ReportRoute route = routeReport(wheel_, static_cast<std::uint8_t>(get.rnum));
+            if (get.rtype == UHID_FEATURE_REPORT && route.to == ReportRoute::To::Pid) {
+                size = pid_.getFeature(route.id, buffer);
+                if (size > 0) buffer[0] = wirePidId(wheel_, route.id);
             } else if (get.rtype == UHID_INPUT_REPORT && get.rnum == kG920InputReportId && haveLast_) {
                 std::copy(last_.begin(), last_.end(), buffer.begin());
                 size = last_.size();
@@ -165,10 +193,17 @@ void UhidG920::handle(const uhid_event& event, const std::int64_t nowMs) {
             const auto& set = event.u.set_report;
             const std::size_t size = std::min<std::size_t>(set.size, sizeof(set.data));
             const auto data = withoutId(set.data, size, set.rnum);
-            if (set.rtype == UHID_FEATURE_REPORT) {
-                pid_.setFeature(set.rnum, data, nowMs);
-            } else if (set.rtype == UHID_OUTPUT_REPORT) {
-                pid_.output(set.rnum, data, nowMs);
+            const ReportRoute route = routeReport(wheel_, set.rnum);
+            if (set.rtype == UHID_OUTPUT_REPORT && route.to == ReportRoute::To::HidPp) {
+                std::array<std::uint8_t, HidPp::kVeryLongSize> asked{};
+                asked[0] = set.rnum;
+                const std::size_t n = std::min(data.size(), asked.size() - 1);
+                std::copy_n(data.begin(), n, asked.begin() + 1);
+                hidppRequest(std::span<const std::uint8_t>(asked.data(), n + 1), nowMs);
+            } else if (set.rtype == UHID_FEATURE_REPORT && route.to == ReportRoute::To::Pid) {
+                pid_.setFeature(route.id, data, nowMs);
+            } else if (set.rtype == UHID_OUTPUT_REPORT && route.to == ReportRoute::To::Pid) {
+                pid_.output(route.id, data, nowMs);
             }
             reply(UHID_SET_REPORT_REPLY, set.id, 0, nullptr, 0);
             break;

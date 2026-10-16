@@ -25,6 +25,9 @@ Moza R3 ─► wheelbri-service ─UDP 41329─► wheelbri-g920 driver ─HID�
 - **G923:** the same with `wheelbri\G923` (VID 046D PID C26E, the PC-mode ids of the G923 for Xbox One and PC,
   "G923 Racing Wheel for Xbox One and PC"); its descriptor declares 24 buttons and no padding
   (`g920ReportDescriptor(kG923Buttons)`, the same size). A driver from before the G923 needs installing again.
+  It also has HID++ for G HUB (`reportDescriptorFor`: two vendor collections, reports 0x11 and 0x12, answered by
+  core `HidPp` through the read queue, ahead of wheel states), so its HID PID reports are 0x10 higher; see
+  [docs/ghub-hidpp-plan.md](../docs/ghub-hidpp-plan.md). Every HID++ request goes to the driver's log.
 - **Force feedback:** Windows' `pid.dll` turns DirectInput effects into HID PID reports; the driver answers
   the effect-block handshake and decodes them (`core/src/HidPid.cpp`, unit-tested) into the service's
   `FfbPacket`s. The service does not change.

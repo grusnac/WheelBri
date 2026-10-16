@@ -1,5 +1,7 @@
 #include "wheelbri/HidG920.hpp"
 
+#include "wheelbri/HidPp.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -140,6 +142,69 @@ constexpr auto kG27Descriptor = descriptorWith(kG27Buttons);     // 23 buttons, 
 constexpr auto kG923Descriptor = descriptorWith(kG923Buttons);   // 24 buttons, no padding
 static_assert(kG923Buttons == 24 && kG27Buttons < 24, "the virtual wheels' button counts fit 3 bytes");
 
+// The HID++ collections (VirtualWheel::hidpp), after the joystick's: usage page 0xFF43, each a report of bytes both
+// ways. Physical range reset first (the PID block leaves one set).
+constexpr std::uint8_t kHidPpCollections[] = {
+    0x35, 0x00, 0x45, 0x00,                          // Physical Minimum 0, Maximum 0 (= the logical range)
+    0x06, 0x43, 0xFF, 0x0A, 0x02, 0x06, 0xA1, 0x01,  // Usage Page 0xFF43, Usage 0x0602, Collection (Application)
+    0x85, 0x11, 0x75, 0x08, 0x95, 0x13,              //   Report ID 0x11, 19 bytes
+    0x15, 0x00, 0x26, 0xFF, 0x00,                    //   0..255
+    0x0A, 0x02, 0x06, 0x81, 0x00,                    //   Input (Data, Array)
+    0x0A, 0x02, 0x06, 0x91, 0x00, 0xC0,              //   Output (Data, Array), End Collection
+    0x06, 0x43, 0xFF, 0x0A, 0x04, 0x06, 0xA1, 0x01,  // Usage Page 0xFF43, Usage 0x0604, Collection (Application)
+    0x85, 0x12, 0x75, 0x08, 0x95, 0x3F,              //   Report ID 0x12, 63 bytes
+    0x15, 0x00, 0x26, 0xFF, 0x00,
+    0x0A, 0x04, 0x06, 0x81, 0x00,
+    0x0A, 0x04, 0x06, 0x91, 0x00, 0xC0,
+};
+
+// `base` with its four axes unsigned: each "Logical Minimum -32768, Logical Maximum 32767" (16 00 80 26 FF 7F) becomes
+// "Logical Minimum 0, Logical Maximum 65535" (15 00 27 FF FF 00 00, the maximum in 4 bytes: in 2 it would read -1).
+constexpr std::uint8_t kSignedAxis[] = {0x16, 0x00, 0x80, 0x26, 0xFF, 0x7F};
+constexpr std::uint8_t kUnsignedAxis[] = {0x15, 0x00, 0x27, 0xFF, 0xFF, 0x00, 0x00};
+constexpr std::size_t kAxes = 4;
+
+template <std::size_t N>
+constexpr std::array<std::uint8_t, N + kAxes> withUnsignedAxes(const std::array<std::uint8_t, N>& base) {
+    std::array<std::uint8_t, N + kAxes> d{};
+    std::size_t out = 0;
+    std::size_t replaced = 0;
+    for (std::size_t i = 0; i < N;) {
+        bool match = replaced < kAxes && i + sizeof(kSignedAxis) <= N;
+        for (std::size_t k = 0; match && k < sizeof(kSignedAxis); ++k) match = base[i + k] == kSignedAxis[k];
+        if (match) {
+            for (const std::uint8_t b : kUnsignedAxis) d[out++] = b;
+            i += sizeof(kSignedAxis);
+            ++replaced;
+        } else {
+            d[out++] = base[i++];
+        }
+    }
+    return d;
+}
+
+// `base` with its HID PID report IDs (everything after the input report's 0x01) kHidPpPidShift higher, then the HID++
+// collections. Walks the descriptor's items so only Report ID items change.
+template <std::size_t N>
+constexpr std::array<std::uint8_t, N + sizeof(kHidPpCollections)> withHidPp(const std::array<std::uint8_t, N>& base) {
+    std::array<std::uint8_t, N + sizeof(kHidPpCollections)> d{};
+    for (std::size_t i = 0; i < N; ++i) d[i] = base[i];
+    for (std::size_t i = 0; i < N;) {
+        const std::uint8_t prefix = d[i];
+        if (prefix == 0xFE) {   // a long item: its size is the next byte
+            i += 3 + std::size_t{d[i + 1]};
+            continue;
+        }
+        const std::size_t size = (prefix & 3U) == 3U ? std::size_t{4} : std::size_t{prefix & 3U};
+        if (prefix == 0x85 && d[i + 1] != kG920InputReportId) {
+            d[i + 1] = static_cast<std::uint8_t>(d[i + 1] + kHidPpPidShift);
+        }
+        i += 1 + size;
+    }
+    for (std::size_t i = 0; i < sizeof(kHidPpCollections); ++i) d[N + i] = kHidPpCollections[i];
+    return d;
+}
+
 constexpr auto kProtonDescriptor = [] {
     std::array<std::uint8_t, sizeof(kDescriptor)> d{};
     for (std::size_t i = 0; i < d.size(); ++i) {
@@ -166,7 +231,7 @@ constexpr VirtualWheel kVirtualWheels[] = {
     {"g27", "wheelbri\\G27", "G27", kG27VendorId, kG27ProductId, "G27 Racing Wheel", "Logitech G27 Racing Wheel USB",
      kG27Buttons},
     {"g923", "wheelbri\\G923", "G923", kG923VendorId, kG923ProductId, "G923 Racing Wheel for Xbox One and PC",
-     "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons},
+     "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true},
 };
 
 bool sameIgnoringCase(const std::string_view a, const std::string_view b) {
@@ -208,6 +273,31 @@ std::span<const std::uint8_t> g920ReportDescriptor(const std::size_t buttons) {
 
 std::span<const std::uint8_t> g920ProtonReportDescriptor() { return kProtonDescriptor; }
 
+namespace {
+constexpr auto kG923HidPpDescriptor = withHidPp(withUnsignedAxes(kG923Descriptor));
+// Every axis rewritten: the last byte before the HID++ collections is the joystick's End Collection either way.
+static_assert(withUnsignedAxes(kG923Descriptor)[kG923Descriptor.size() + kAxes - 1] == 0xC0,
+              "all four axes became unsigned");
+}  // namespace
+
+std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
+    if (wheel.hidpp && wheel.buttons >= kG923Buttons) return kG923HidPpDescriptor;
+    return g920ReportDescriptor(wheel.buttons);
+}
+
+ReportRoute routeReport(const VirtualWheel& wheel, const std::uint8_t reportId) {
+    if (!wheel.hidpp) return {ReportRoute::To::Pid, reportId};
+    if (HidPp::isHidPpReport(reportId)) return {ReportRoute::To::HidPp, reportId};
+    if (reportId >= kHidPpPidShift + HidPp::kLongId) {   // 0x21..: HID PID's 0x11..
+        return {ReportRoute::To::Pid, static_cast<std::uint8_t>(reportId - kHidPpPidShift)};
+    }
+    return {};
+}
+
+std::uint8_t wirePidId(const VirtualWheel& wheel, const std::uint8_t pidId) {
+    return wheel.hidpp ? static_cast<std::uint8_t>(pidId + kHidPpPidShift) : pidId;
+}
+
 std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport& report, const std::size_t buttonCount) {
     std::array<std::uint8_t, kG920InputReportSize> out{};
     out[0] = kG920InputReportId;
@@ -224,6 +314,16 @@ std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport&
     out[10] = static_cast<std::uint8_t>((buttons >> 8U) & 0xFFU);
     out[11] = static_cast<std::uint8_t>((buttons >> 16U) & 0xFFU);
     out[12] = report.hat >= 0 && report.hat <= 7 ? static_cast<std::uint8_t>(report.hat) : 8;   // 8 = centred
+    return out;
+}
+
+std::array<std::uint8_t, kG920InputReportSize> packInputFor(const VirtualWheel& wheel, const TargetReport& report) {
+    auto out = packG920Input(report, wheel.buttons);
+    if (wheel.unsignedAxes) {
+        // packG920Input wrote value - 32768 as a signed 16-bit number: its bits are the value's with the top one
+        // flipped, so flipping it back gives the unsigned value (both clamped to 0..65535 alike).
+        for (const std::size_t at : {std::size_t{2}, std::size_t{4}, std::size_t{6}, std::size_t{8}}) out[at] ^= 0x80U;
+    }
     return out;
 }
 

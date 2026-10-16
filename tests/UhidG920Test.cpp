@@ -165,6 +165,37 @@ TEST(UhidG920, OutputReportsBecomeForceFeedback) {
     EXPECT_EQ(k.device.activeSlots(), 1U);
 }
 
+// The G923 has HID++ for G HUB (report 0x11): a request comes back as an input report. Its HID PID reports are 0x10
+// higher, so the same force feedback as the G920's arrives with 0x25, 0x21, 0x2A; feature reports answer 0x2x.
+TEST(UhidG920, TheG923AnswersHidppAndPlaysPidFromItsMovedReports) {
+    Kernel k(*virtualWheel("g923"));
+    ASSERT_TRUE(k.device.create());
+    EXPECT_EQ(k.written[0].u.create2.rd_size, reportDescriptorFor(*virtualWheel("g923")).size());
+    k.written.clear();
+    k.output("11FF001100005A" + std::string(26, '0'), 0);   // Root.getProtocolVersion, ping 0x5A
+    ASSERT_EQ(hex("11FF001100005A" + std::string(26, '0')).size(), HidPp::kLongSize);
+    ASSERT_EQ(k.written.size(), 1U);
+    ASSERT_EQ(k.written[0].type, UHID_INPUT2);
+    EXPECT_EQ(k.written[0].u.input2.size, HidPp::kLongSize);
+    EXPECT_EQ(k.written[0].u.input2.data[0], 0x11);
+    EXPECT_EQ(k.written[0].u.input2.data[4], 4);   // protocol 4.2
+    EXPECT_EQ(k.written[0].u.input2.data[5], 2);
+    EXPECT_EQ(k.written[0].u.input2.data[6], 0x5A);
+
+    k.output("2501A00F", 0);                                        // constant 4000, EBI 1
+    k.output("210101DC05000000000000FFFF04FF1F0000FFFFFFFF", 0);    // Set Effect EBI 1
+    k.output("2A010101", 1);                                        // start
+    bool playing = false;
+    for (const auto& p : k.packets) playing = playing || (p.kind == FfbPacket::Kind::SlotState && p.playing);
+    EXPECT_TRUE(playing);
+
+    k.written.clear();
+    k.getFeature(3, static_cast<std::uint8_t>(HidPid::kPool + kHidPpPidShift));
+    ASSERT_EQ(k.written.size(), 1U);
+    EXPECT_EQ(k.written[0].u.get_report_reply.err, 0);
+    EXPECT_EQ(k.written[0].u.get_report_reply.data[0], HidPid::kPool + kHidPpPidShift);
+}
+
 // The G25 plays the game's force feedback the same way, and its log names it.
 TEST(UhidG920, TheG25PlaysForceFeedbackAndSaysWhoItIs) {
     Kernel k(*virtualWheel("g25"));

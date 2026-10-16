@@ -3,12 +3,14 @@
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/HidG920.hpp"
 #include "wheelbri/HidPid.hpp"
+#include "wheelbri/HidPp.hpp"
 
 #include <linux/uhid.h>
 
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <set>
 #include <utility>
 #include <string>
@@ -69,11 +71,14 @@ public:
 
 private:
     void reply(std::uint32_t type, std::uint32_t id, std::uint16_t err, const std::uint8_t* data, std::size_t size);
+    // A HID++ request (VirtualWheel::hidpp): its answer goes back as an input report.
+    void hidppRequest(std::span<const std::uint8_t> report, std::int64_t nowMs);
 
     Write write_;
     Log log_;
     const VirtualWheel& wheel_;
     HidPid pid_;
+    std::unique_ptr<HidPp> hidpp_;   // for a wheel with HID++ only
     bool started_ = false;
     int openCount_ = 0;
     bool haveLast_ = false;

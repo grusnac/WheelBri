@@ -23,6 +23,7 @@
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/HidG920.hpp"
 #include "wheelbri/HidPid.hpp"
+#include "wheelbri/HidPp.hpp"
 #include "wheelbri/LogFileNames.hpp"
 #include "wheelbri/LogLevel.hpp"
 #include "wheelbri/StatePacket.hpp"
@@ -53,9 +54,9 @@ constexpr wchar_t kSerial[] = L"WHEELBRI0001";
 using Report = std::vector<std::uint8_t>;
 using Level = wheelbri::LogLevel;
 
-// `buttons`: the wheel's (VirtualWheel::buttons): 19, the G27's 23 or the G923's 24.
-Report g920Report(const wheelbri::TargetReport& report, const std::size_t buttons = wheelbri::kG920Buttons) {
-    const auto packed = wheelbri::packG920Input(report, buttons);
+// The input report for `wheel` (its buttons, and its axes unsigned when they are: packInputFor).
+Report g920Report(const wheelbri::TargetReport& report, const wheelbri::VirtualWheel& wheel) {
+    const auto packed = wheelbri::packInputFor(wheel, report);
     return Report(packed.begin(), packed.end());
 }
 
@@ -313,7 +314,7 @@ namespace {
 // The UDP side: state packets in, force feedback out, on its own thread.
 class Link {
 public:
-    explicit Link(DeviceContext* device) : device_(device), report_(g920Report(wheelbri::g920Neutral())) {}
+    explicit Link(DeviceContext* device);
     ~Link() { stop(); }
 
     bool start();
@@ -322,6 +323,11 @@ public:
 
     wheelbri::HidPid pid{[this](const wheelbri::FfbPacket& p) { sendFfb(p); },
                          [](const Level level, const std::string& s) { logLine(level, s); }};
+    // Logitech's HID++ for G HUB, on a wheel that has it (VirtualWheel::hidpp); null otherwise.
+    std::unique_ptr<wheelbri::HidPp> hidpp;
+
+    // A HID++ answer: an input report for the next read, before any state (and never dropped).
+    void reply(Report report);
 
     // The latest input report (neutral until the service sends state).
     Report latestReport() {
@@ -341,6 +347,7 @@ private:
     // waits. Kept in order, so a button pressed and released between two reads still reaches the game; when full,
     // the oldest goes (counted in the minute's line).
     static constexpr std::size_t kMaxPending = 8;
+    static constexpr std::size_t kMaxReplies = 64;   // HID++ answers waiting for a read
     static constexpr std::int64_t kCountsEveryMs = 60'000;
 
     struct Counts {
@@ -365,6 +372,7 @@ private:
     std::mutex reportLock_;     // report_, pending_, counts_; never held while a request is completed
     Report report_;
     std::deque<Report> pending_;
+    std::deque<Report> replies_;   // HID++ answers, handed out before states
     Counts counts_;
     std::int64_t countsSinceMs_ = 0;
     Throttle recvErrors_{60'000};
@@ -388,6 +396,36 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DeviceContext, GetDeviceContext)
 namespace {
 
 // Answers `request` with `report` (HID input report).
+void completeRead(WDFREQUEST request, const Report& report);
+
+Link::Link(DeviceContext* device)
+    : device_(device), report_(g920Report(wheelbri::g920Neutral(), *device->wheel)) {
+    const wheelbri::VirtualWheel* wheel = device->wheel;
+    if (wheel != nullptr && wheel->hidpp) {
+        wheelbri::HidPp::Identity identity;
+        identity.name = std::string(wheel->product);
+        identity.productId = wheel->productId;
+        identity.unitId = 0x57420001;   // "WB" 0001, like the HID serial number WHEELBRI0001
+        identity.deviceType = wheel->deviceType;
+        const auto toLog = [](const Level level, const std::string& line) { logLine(level, line); };
+        hidpp = std::make_unique<wheelbri::HidPp>(identity, toLog);
+    }
+}
+
+void Link::reply(Report report) {
+    WDFREQUEST request = nullptr;
+    {
+        std::lock_guard lock(reportLock_);
+        if (!NT_SUCCESS(WdfIoQueueRetrieveNextRequest(device_->readQueue, &request))) {
+            // The next read takes it. Bounded: a program that asks and never reads must not grow it without end.
+            if (replies_.size() == kMaxReplies) replies_.pop_front();
+            replies_.push_back(std::move(report));
+            return;
+        }
+    }
+    completeRead(request, report);
+}
+
 void completeRead(WDFREQUEST request, const Report& report) {
     WDFMEMORY memory;
     NTSTATUS status = WdfRequestRetrieveOutputMemory(request, &memory);
@@ -496,7 +534,10 @@ void Link::answerRead(const WDFREQUEST request) {
     Report report;
     {
         std::lock_guard lock(reportLock_);
-        if (pending_.empty()) {
+        if (!replies_.empty()) {
+            report = std::move(replies_.front());
+            replies_.pop_front();
+        } else if (pending_.empty()) {
             // Waits for the next state. Forwarded under the lock, so publish cannot miss it.
             const NTSTATUS status = WdfRequestForwardToIoQueue(request, device_->readQueue);
             if (NT_SUCCESS(status)) return;
@@ -609,7 +650,7 @@ void Link::run(const SOCKET sock) {
                 }
                 lastState = now;
                 neutralSent = false;
-                publish(g920Report(packet->report, device_->wheel->buttons));
+                publish(g920Report(packet->report, *device_->wheel));
             }
         } else if (now - lastState > kStaleMs && !neutralSent) {
             if (receiving) {
@@ -618,7 +659,7 @@ void Link::run(const SOCKET sock) {
             }
             receiving = false;
             neutralSent = true;
-            publish(g920Report(wheelbri::g920Neutral()));
+            publish(g920Report(wheelbri::g920Neutral(), *device_->wheel));
         }
         if (now - lastTick >= 10) {
             lastTick = now;
@@ -694,7 +735,7 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             status = copyToRequest(request, &ctx->attributes, sizeof(HID_DEVICE_ATTRIBUTES));
             break;
         case IOCTL_HID_GET_REPORT_DESCRIPTOR: {
-            const auto descriptor = wheelbri::g920ReportDescriptor(ctx->wheel->buttons);
+            const auto descriptor = wheelbri::reportDescriptorFor(*ctx->wheel);
             status = copyToRequest(request, descriptor.data(), descriptor.size());
             break;
         }
@@ -709,14 +750,23 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
         case IOCTL_UMDF_HID_SET_OUTPUT_REPORT:
             status = readWrittenReport(request, reportId, data);
             if (NT_SUCCESS(status)) {
-                ctx->link->pid.output(reportId, data, nowMs());
+                const wheelbri::ReportRoute route = wheelbri::routeReport(*ctx->wheel, reportId);
+                if (route.to == wheelbri::ReportRoute::To::HidPp && ctx->link->hidpp) {
+                    Report asked(data.size() + 1);
+                    asked[0] = reportId;
+                    std::copy(data.begin(), data.end(), asked.begin() + 1);
+                    if (auto answer = ctx->link->hidpp->handle(asked, nowMs())) ctx->link->reply(std::move(*answer));
+                } else if (route.to == wheelbri::ReportRoute::To::Pid) {
+                    ctx->link->pid.output(route.id, data, nowMs());
+                }
                 WdfRequestSetInformation(request, data.size() + 1);
             }
             break;
         case IOCTL_UMDF_HID_SET_FEATURE:
             status = readWrittenReport(request, reportId, data);
             if (NT_SUCCESS(status)) {
-                ctx->link->pid.setFeature(reportId, data, nowMs());
+                const wheelbri::ReportRoute route = wheelbri::routeReport(*ctx->wheel, reportId);
+                if (route.to == wheelbri::ReportRoute::To::Pid) ctx->link->pid.setFeature(route.id, data, nowMs());
                 WdfRequestSetInformation(request, data.size() + 1);
             }
             break;
@@ -732,8 +782,12 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
                 reportId = static_cast<const std::uint8_t*>(in)[0];
             }
             if (reportId == 0) reportId = static_cast<const std::uint8_t*>(out)[0];
+            const wheelbri::ReportRoute route = wheelbri::routeReport(*ctx->wheel, reportId);
             const std::size_t written =
-                ctx->link->pid.getFeature(reportId, std::span(static_cast<std::uint8_t*>(out), outSize));
+                route.to == wheelbri::ReportRoute::To::Pid
+                    ? ctx->link->pid.getFeature(route.id, std::span(static_cast<std::uint8_t*>(out), outSize))
+                    : 0;
+            if (written > 0) static_cast<std::uint8_t*>(out)[0] = wheelbri::wirePidId(*ctx->wheel, route.id);
             if (written == 0) {
                 status = STATUS_NOT_SUPPORTED;
             } else {
@@ -836,7 +890,7 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     ctx->hidDescriptor.bNumDescriptors = 1;
     ctx->hidDescriptor.DescriptorList[0].bReportType = 0x22;
     ctx->hidDescriptor.DescriptorList[0].wReportLength = static_cast<USHORT>(
-        wheelbri::g920ReportDescriptor(wheel->buttons).size());
+        wheelbri::reportDescriptorFor(*wheel).size());
 
     WDF_IO_QUEUE_CONFIG queueConfig;
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchParallel);

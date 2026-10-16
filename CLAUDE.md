@@ -291,6 +291,10 @@ rewrites on every build only when it changes); views keep their own top-row cont
     (joy.cpl 12) and the Driving Force Shifter's Gear 1-6 (12-17) and Gear R (18), as Logitech's shifter FAQ gives them
     (joy.cpl 13-19). Every target (shim, virtual device, uhid) reports all 19; `IDeviceProfile::buttonCount` counts
     the gap, and `encode` only passes named buttons.
+  - `HidPp` (`docs/ghub-hidpp-plan.md`): device-side HID++ 2.0 for G HUB on a `VirtualWheel` with `hidpp` (the G923
+    only): Root, FeatureSet, DeviceFwVersion, DeviceNameType, ForceFeedback 0x8123 (rotation and gain kept and logged,
+    not applied; effects acknowledged, not played). Its reports are 0x11/0x12, so that wheel's HID PID reports are
+    `kHidPpPidShift` higher (`reportDescriptorFor`, `routeReport`, `wirePidId`); `HidPid` itself is unchanged.
   - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT), the virtual
     G25's too: `VirtualWheel` (`virtualWheels()`, `virtualWheel("g25")`, `virtualWheelForHardwareId`) holds each
     wheel's identity (hardware id `wheelbri\G920` / `wheelbri\G25`, instance names, 046D:C262 / C299, product string,

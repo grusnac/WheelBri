@@ -36,6 +36,7 @@ add_executable(wheelbri_tests
     HelperStatusTest.cpp
     HidHideCliTest.cpp
     HidPidTest.cpp
+    HidPpTest.cpp
     InputReadStatsTest.cpp
     IniDocumentTest.cpp
     IniEditorTest.cpp
