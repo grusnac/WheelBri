@@ -112,9 +112,6 @@ inline constexpr std::uint32_t kReplyMagic = 0x52484557;     // "WEHR"
 // (HelperDispatch.hpp mayTakeTheLog).
 [[nodiscard]] bool isWheelBriProgram(std::string_view image);
 
-// Encoded, `request` fits in one message (kMaxMessage); a longer one is refused unread by the helper.
-[[nodiscard]] bool fitsInOneMessage(const Request& request);
-
 [[nodiscard]] const char* requestName(RequestType type);
 [[nodiscard]] const char* statusName(Status status);
 

@@ -70,6 +70,4 @@ private:
     State state_;
 };
 
-[[nodiscard]] std::string_view eventName(GameDetector::Event event);
-
 }  // namespace wheelbri

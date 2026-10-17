@@ -83,7 +83,7 @@ private:
     std::uint64_t pendingFromNs_ = 0;
 };
 
-// A UDP socket the game's force feedback (or the test clutch) arrives on.
+// A UDP socket the game's force feedback arrives on.
 class EmulatedSocket {
 public:
     explicit EmulatedSocket(bool waitable = true) : waitable_(waitable) {}

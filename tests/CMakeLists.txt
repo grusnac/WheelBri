@@ -60,7 +60,6 @@ add_executable(wheelbri_tests
     StartNeedsTest.cpp
     StatePacketTest.cpp
     TelemetryTest.cpp
-    TestClutchTest.cpp
     UdpLoopbackTest.cpp
     VirtualWheelTest.cpp
     WaitForTest.cpp

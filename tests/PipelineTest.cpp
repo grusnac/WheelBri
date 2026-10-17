@@ -2,7 +2,6 @@
 
 #include <gtest/gtest.h>
 
-#include <limits>
 #include <vector>
 
 namespace wheelbri {
@@ -98,33 +97,19 @@ TEST(Pipeline, LimitedSendingPublishesOnlyChangesAndKeepAlives) {
     pipeline.limitSending(2'000'000);   // at most 500 a second
 
     constexpr std::uint64_t kMs = 1'000'000;
-    ASSERT_TRUE(pipeline.tick(std::nullopt, 1 * kMs));    // first state: sent
-    ASSERT_TRUE(pipeline.tick(std::nullopt, 2 * kMs));    // unchanged: not sent
+    ASSERT_TRUE(pipeline.tick(1 * kMs));                  // first state: sent
+    ASSERT_TRUE(pipeline.tick(2 * kMs));                  // unchanged: not sent
     source.next.axes[0] = 0.5F;
-    ASSERT_TRUE(pipeline.tick(std::nullopt, 2 * kMs));    // changed, but within 2 ms: held
+    ASSERT_TRUE(pipeline.tick(2 * kMs));                  // changed, but within 2 ms: held
     EXPECT_NE(pipeline.lastReport(), publisher.packets.back().report);   // the UI still sees the newest
-    ASSERT_TRUE(pipeline.tick(std::nullopt, 3 * kMs));    // the held change goes out
+    ASSERT_TRUE(pipeline.tick(3 * kMs));                  // the held change goes out
     ASSERT_EQ(publisher.packets.size(), 2U);
     EXPECT_EQ(publisher.packets[1].sequence, 2U);         // numbered by packets sent, not by ticks
     EXPECT_EQ(publisher.packets[1].report, pipeline.lastReport());
-    ASSERT_TRUE(pipeline.tick(std::nullopt, 103 * kMs));  // 100 ms unchanged: a keep-alive
+    ASSERT_TRUE(pipeline.tick(103 * kMs));                // 100 ms unchanged: a keep-alive
     EXPECT_EQ(publisher.packets.size(), 3U);
     ASSERT_NE(pipeline.sendGate(), nullptr);
     EXPECT_EQ(pipeline.sendGate()->heldBack(), 1U);
-}
-
-TEST(Pipeline, TestClutchReplacesTheMappedClutch) {
-    FakeSource source;
-    RecordingPublisher publisher;
-    const Mapper mapper(MapperConfig{});
-    const DeviceProfile profile(g920Spec());
-    Pipeline pipeline(source, mapper, profile, publisher);
-
-    ASSERT_TRUE(pipeline.tick(1.0F));
-    EXPECT_FLOAT_EQ(pipeline.lastState().clutch, 1.0F);
-    EXPECT_EQ(pipeline.lastReport().clutch, 0);          // pressed = low end, like the other pedals
-    ASSERT_TRUE(pipeline.tick());
-    EXPECT_FLOAT_EQ(pipeline.lastState().clutch, 0.0F);  // no override: the mapped (absent) clutch
 }
 
 TEST(Pipeline, StopsWhenSourceDisconnects) {
@@ -194,18 +179,6 @@ TEST(Pipeline, InputChangedSaysWhetherAnyDeviceReportedSomethingNew) {
     EXPECT_FALSE(pipeline.inputChanged());
 }
 
-TEST(Pipeline, InputChangedIgnoresTheTestClutch) {
-    FakeSource wheel;
-    RecordingPublisher publisher;
-    const Mapper mapper(MapperConfig{});
-    const DeviceProfile profile(g920Spec());
-    Pipeline pipeline(wheel, mapper, profile, publisher);
-
-    ASSERT_TRUE(pipeline.tick());
-    ASSERT_TRUE(pipeline.tick(0.5F));
-    EXPECT_FALSE(pipeline.inputChanged());   // the clutch override comes over UDP, not from a device
-}
-
 TEST(Pipeline, InputChangedIsFalseWhenTheSourceIsLost) {
     FakeSource wheel;
     RecordingPublisher publisher;
@@ -239,17 +212,6 @@ TEST(Pipeline, PublishFailuresAreCountedAndTheLoopGoesOn) {
     ASSERT_TRUE(pipeline.tick());
     EXPECT_EQ(pipeline.publishFailures(), 2U);
     EXPECT_EQ(pipeline.sequence(), 2U);
-}
-
-// A test clutch value that is not a number never reaches the game as one: the encoder reads it as released.
-TEST(Pipeline, ANotANumberClutchOverrideIsReleased) {
-    FakeSource source;
-    RecordingPublisher publisher;
-    const Mapper mapper(MapperConfig{});
-    const DeviceProfile profile(g920Spec());
-    Pipeline pipeline(source, mapper, profile, publisher);
-    ASSERT_TRUE(pipeline.tick(std::numeric_limits<float>::quiet_NaN()));
-    EXPECT_EQ(pipeline.lastReport().clutch, 65535);   // G920: released = the top of the range
 }
 
 // Accessory slots in use with gaps (device 2 only): the empty ones are skipped, the used one is read.

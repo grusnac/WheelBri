@@ -69,13 +69,12 @@ std::string WakeStats::describe(const std::uint64_t windowNs) const {
     const double seconds = static_cast<double>(windowNs) / 1e9;
     char text[256];
     std::snprintf(text, sizeof(text),
-                  "%llu wake-ups in %.0f s (%.0f a second): wheel %llu, game force feedback %llu, test clutch %llu, "
-                  "timer %llu; work avg %.1f us, max %.1f us",
+                  "%llu wake-ups in %.0f s (%.0f a second): wheel %llu, game force feedback %llu, timer %llu; "
+                  "work avg %.1f us, max %.1f us",
                   static_cast<unsigned long long>(wakes_), seconds,
                   seconds > 0.0 ? static_cast<double>(wakes_) / seconds : 0.0,
                   static_cast<unsigned long long>(count(WakeReason::Wheel)),
                   static_cast<unsigned long long>(count(WakeReason::GameFfb)),
-                  static_cast<unsigned long long>(count(WakeReason::TestClutch)),
                   static_cast<unsigned long long>(count(WakeReason::Timer)),
                   wakes_ > 0 ? static_cast<double>(workTotalNs_) / static_cast<double>(wakes_) / 1000.0 : 0.0,
                   static_cast<double>(workMaxNs_) / 1000.0);

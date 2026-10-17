@@ -86,10 +86,12 @@ TEST(DeviceProfile, ValuesThatAreNotNumbersReadAsNeutral) {
     state.steering = std::numeric_limits<float>::quiet_NaN();
     state.throttle = std::numeric_limits<float>::infinity();
     state.brake = std::numeric_limits<float>::quiet_NaN();
+    state.clutch = std::numeric_limits<float>::quiet_NaN();
     const TargetReport report = profile.encode(state);
     EXPECT_EQ(report.steering, 32768);   // centred, not full left lock
     EXPECT_EQ(report.throttle, 65535);   // released (the G920 reports released at the top)
     EXPECT_EQ(report.brake, 65535);
+    EXPECT_EQ(report.clutch, 65535);
 }
 
 TEST(DeviceProfile, FactoryKnowsBuiltInProfiles) {

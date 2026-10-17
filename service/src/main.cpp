@@ -40,7 +40,6 @@
 #include "wheelbri/SenderGate.hpp"
 #include "wheelbri/ShimGames.hpp"
 #include "wheelbri/Telemetry.hpp"
-#include "wheelbri/TestClutch.hpp"
 #include "wheelbri/UdpLoopback.hpp"
 #include "wheelbri/WaitFor.hpp"
 #include "wheelbri/EventLoopControl.hpp"
@@ -472,8 +471,8 @@ void printLive(const wheelbri::Pipeline& pipeline) {
 
 // Where the time of one pass of the loop goes, to find the cause of a slow pass.
 struct TickStages {
-    enum Stage { Input, Pipeline, Ffb, Telemetry, Ui, kCount };
-    static constexpr std::array<const char*, kCount> kNames = {"wheel input", "state to game", "force feedback",
+    enum Stage { Pipeline, Ffb, Telemetry, Ui, kCount };
+    static constexpr std::array<const char*, kCount> kNames = {"wheel input and state to game", "force feedback",
                                                                 "telemetry", "window copy"};
     std::array<std::uint64_t, kCount> ns{};
 
@@ -821,8 +820,7 @@ struct DeviceSummary {
 int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
             const std::filesystem::path& logFolder, const bool logToFile, wheelbri::service::Wheel& source,
             const Accessories& accessories, const bool print, wheelbri::service::UiHost* const host,
-            const DeviceSummary& devices, std::optional<UiFrame>& lastFrame, const bool listenTestClutch,
-            const bool routePedals) {
+            const DeviceSummary& devices, std::optional<UiFrame>& lastFrame, const bool routePedals) {
     const auto profile = wheelbri::makeProfile(config.targetProfile);
     if (profile == nullptr) {
         WE_LOG_CRITICAL(log(), "unknown target_profile '{}' (known: {})", config.targetProfile,
@@ -844,19 +842,10 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     pipeline.setAccessories(accessories.sources());
     pipeline.limitSending(platform::kNsPerSecond / static_cast<std::uint64_t>(config.stateRateHz));
 
-    // Test clutch while no clutch pedal is connected: ClutchPackets on kTestClutchPort (TestClutch.hpp). A developer
-    // tool: not with the in-game shim, whose session starts only what the shim needs.
-    const auto clutchListener =
-        listenTestClutch ? wheelbri::UdpLoopbackListener::create(wheelbri::kTestClutchPort) : nullptr;
-    if (clutchListener != nullptr) {
-        WE_LOG_INFO(log(), "test clutch: listening on 127.0.0.1:{}", wheelbri::kTestClutchPort);
-    }
-    wheelbri::TestClutch testClutch;
     // Pedals pressed but the game never plays force feedback on the G920: it drives from another controller.
     wheelbri::GameUseWatch gameUse;
     // Force feedback loaded but none of it started while you drive (NFS 2015 at the start of a race): alt-tab.
     wheelbri::FfbIdleWatch ffbIdle;
-    bool testClutchOn = false;
 
     std::string ffbStatus;
     const auto gameFfb = GameFfb::open(config, source, ffbStatus);
@@ -902,7 +891,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     // The window's copy of the state, kWindowFramesPerSecond (60) times a second, as often as the window draws.
     const std::uint64_t frameEveryNs = wakeSettings.windowNs;
 
-    // The loop sleeps until the wheel, an accessory, the game's force feedback or the test clutch has something new
+    // The loop sleeps until the wheel, an accessory or the game's force feedback has something new
     // (platform::WaitSet), and wakes by itself only for what must run on time (core EventLoopControl, WakePlanner).
     // Whatever cannot notify it (a device DirectInput only polls, a socket the wait cannot take) still gets read at
     // every pass, and the loop then also polls every millisecond; everything else still wakes it at once.
@@ -937,9 +926,6 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         wakeReasons.push_back(reason);
     };
     if (gameFfb != nullptr) addSocket(gameFfb->socket(), wheelbri::WakeReason::GameFfb, "force feedback");
-    if (clutchListener != nullptr) {
-        addSocket(clutchListener->nativeSocket(), wheelbri::WakeReason::TestClutch, "test clutch");
-    }
 
     // The loop (wheel input, state to the game, force feedback, telemetry) runs on its own thread; the
     // window and old-file checks stay on this one. A window that Windows holds up (a game going full screen,
@@ -980,28 +966,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             const std::uint64_t tickStart = platform::nowNs();
             TickStages stages;
             std::uint64_t mark = tickStart;
-            std::optional<float> clutchOverride;
-            if (clutchListener != nullptr) {
-                std::array<std::uint8_t, 64> datagram{};
-                for (int i = 0; i < 64; ++i) {   // everything queued since the last tick; the newest wins
-                    const auto size = clutchListener->receive(datagram);
-                    if (!size) {
-                        break;
-                    }
-                    if (const auto pressed = wheelbri::ClutchPacket::decode(std::span(datagram).first(*size))) {
-                        testClutch.offer(*pressed, tickStart);
-                    }
-                }
-                clutchOverride = testClutch.active(tickStart);
-                if (clutchOverride.has_value() != testClutchOn) {
-                    testClutchOn = clutchOverride.has_value();
-                    WE_LOG_INFO(log(), testClutchOn
-                                           ? "test clutch: controlled by ClutchPackets, the mapped clutch is ignored"
-                                           : "test clutch: ended, the mapped clutch is used again");
-                }
-            }
-            stages.lap(TickStages::Input, mark);
-            if (!pipeline.tick(clutchOverride, tickStart)) {
+            if (!pipeline.tick(tickStart)) {
                 const int lost = pipeline.lostDevice();
                 WE_LOG_ERROR(log(), "{} lost after {} ticks (unplugged, or a USB reset?)",
                              lost <= 0 ? std::string("physical wheel")
@@ -1702,8 +1667,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     while (!gStop) {
         sessionStartMs = platform::nowMs();
         result = runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, accessories,
-                         options.print, host, devices, lastFrame, /*listenTestClutch=*/options.virtualG920,
-                         /*routePedals=*/options.virtualG920 || options.uhid);
+                         options.print, host, devices, lastFrame, /*routePedals=*/options.virtualG920 || options.uhid);
         if (result != kWheelLost || gStop) {
             break;
         }

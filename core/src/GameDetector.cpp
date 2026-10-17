@@ -90,17 +90,4 @@ GameDetector::Update GameDetector::poll(const std::optional<std::vector<RunningP
     return update;
 }
 
-std::string_view eventName(const GameDetector::Event event) {
-    switch (event) {
-        case GameDetector::Event::Started: return "started";
-        case GameDetector::Event::Ended: return "ended";
-        case GameDetector::Event::Switched: return "switched";
-        case GameDetector::Event::Restarted: return "restarted";
-        case GameDetector::Event::Others: return "others";
-        case GameDetector::Event::ListFailed: return "list failed";
-        case GameDetector::Event::ListBack: return "list back";
-    }
-    return "?";
-}
-
 }  // namespace wheelbri

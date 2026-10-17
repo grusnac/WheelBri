@@ -106,7 +106,6 @@ UDP ports (all 127.0.0.1):
 |---|---|---|
 | 41329 (`state_port`) | service → consumer | `StatePacket`, and `LogLevelPacket` (8 bytes, `WELV`) from the same socket; only one consumer at a time |
 | 41330 (`ffb_port`) | consumer → service | `FfbPacket` (game force feedback) |
-| 41331 | test tool → service | `ClutchPacket` test clutch (`TestClutch.hpp`) |
 
 ## Build and test
 
@@ -266,7 +265,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   - `RawInputState` (8 axes in [-1,1] exactly as the OS reports them) → `Mapper` → `WheelState`
     (target-agnostic: steering -1..1 over the *target* rotation, pedals 0..1) → `IDeviceProfile::encode`
     → `TargetReport` (the emulated device's own ranges) → `StatePacket` → `IStatePublisher`.
-  - `Pipeline::tick()` runs one pass of that chain (optionally with a clutch override, see `TestClutch`). The service
+  - `Pipeline::tick()` runs one pass of that chain. The service
     calls `limitSending` (`Pacing.hpp`, `StateSendGate`): a packet only when the state changed, at most `state_rate_hz`
     (default 500) a second, and a keep-alive every 100 ms (receivers call 1500 ms stale); `sequence()` counts packets
     sent.
@@ -390,9 +389,6 @@ rewrites on every build only when it changes); views keep their own top-row cont
     start NFS drove from the pad, the pad's buttons acted as its own (its right stick click is NFS's photo), and stick
     nudges did not change NFS's keyboard prompts. Do not add one back without asking. `HidHideCli` holds device-id
     string helpers (`HideFilter` uses them; HidHide itself is no longer used).
-  - `TestClutch`: a test clutch for when no pedal is connected. A test tool sends `ClutchPacket`s (12 bytes, magic
-    `WECL`, v1; `ClutchPacket::encode`) to 41331; the service uses that value instead of the mapped clutch until 1.5 s
-    after the last packet. (Its C# sender, ClutchProbe, went with the bridge.)
   - The rig (`Rig.hpp`): every device the user has (`[device_N]` name, id, kind: guessed from the name, no longer
     shown or chosen in the Rig tab; `Rig::wheel()` is the first device of kind wheel, else the first) and each
     control's name and invert, written `label | invert`. No roles (since 2026-10-13): the popup's "It is" buttons
@@ -443,11 +439,11 @@ rewrites on every build only when it changes); views keep their own top-row cont
     The shim's source is `AppSettings::shimDll` (`shim\dinput8.dll` next to the program, or `build/shim/`) and
     `shimSettings` (`config/wheelbri-shim.ini`).
   - A shim session starts only what the shim needs (README, "What Start runs"): no virtual G920, no hide filter, no
-    Administrator check (all keyed on `Options::virtualG920`), no test clutch listener (`runLoop(...,
-    listenTestClutch)`), and the Logs tab leaves out the driver rows (`MappingView::setShimMode`). The stale hide
-    check (`HideFilter::clearStale`) still runs: a leftover hide would keep the rig from the game. Keep this split
-    when adding components: anything for the virtual device only stays off with the shim. `ConfigLibrary.hpp` (listing, `; made from:` templates) is older and only reads what
-    earlier versions left. `MappingEditView` picks sources from the rig's controls.
+    Administrator check (all keyed on `Options::virtualG920`), and the Logs tab leaves out the driver rows
+    (`MappingView::setShimMode`). The stale hide check (`HideFilter::clearStale`) still runs: a leftover hide would keep
+    the rig from the game. Keep this split when adding components: anything for the virtual device only stays off with
+    the shim. `ConfigLibrary.hpp` (listing, `; made from:` templates) is older and only reads what earlier versions
+    left. `MappingEditView` picks sources from the rig's controls.
   - Config: `IniDocument` (minimal INI; `;`/`#` start a comment anywhere on a line) → `loadEmulatorConfig`,
     which collects *all* errors (unknown keys and sections, out-of-range values) instead of failing fast. When
     you add a config key, add it to the reader, `EmulatorConfig`, both `config/g920-*.ini` and `EmulatorConfigTest`.
@@ -536,8 +532,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
     keys are read as retired and ignored, so old configs still load) sleeps in `platform::WaitSet` (Windows:
     WaitForMultipleObjects on the devices' DirectInput notifications, `DinputReader::notification` /
     `Wheel::waitSource`, the sockets' events, WSAEventSelect, and a high-resolution timer; Linux: poll on the evdev and
-    socket descriptors) until the wheel, an accessory, the game's force feedback or the test clutch has something new,
-    and wakes by itself only for what must run on time (core `WakePlanner`: every 4 ms while forces play and for 100 ms
+    socket descriptors) until the wheel, an accessory or the game's force feedback has something new, and wakes by
+    itself only for what must run on time (core `WakePlanner`: every 4 ms while forces play and for 100 ms
     after a pass that found new input, 60 a second with a window, else 100 ms; never two passes closer than 0.5 ms).
     Its decisions (when to wake, what woke it, when to poll) are core `EventLoopControl`, which runLoop calls around
     each pass and wait. **Polling** (`EventLoopControl::polling()`, `PollReason`) is its fallback, never a separate
@@ -715,7 +711,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   for anything new; it only appears where old installs are found and removed (`$legacy` / `$names` in `install.ps1`,
   `uninstall.ps1`, `clean-pc.ps1`; `Remove-LegacyPackages` in `driver/common.ps1`; `moveFoldersFromOldName` in
   `ServiceLogging.cpp`, which moves `%LOCALAPPDATA%\wheelemu` to `wheelbri` on first start; old log names in
-  `Retention.cpp`; `wheelemu-shim.ini` as the shim's fallback). The wire tags (`WEMU`, `WEXP`, `WECL`) and the `WE_LOG_*`
+  `Retention.cpp`; `wheelemu-shim.ini` as the shim's fallback). The wire tags (`WEMU`, `WEXP`) and the `WE_LOG_*`
   macros keep their letters. `install.ps1` asks one question, at the end of a successful install: restart Windows now
   (default yes; `shutdown /r /t 2`; firmer wording when `install-hide.ps1` exited 2; none with `-Quiet`). Only the
   installer asks this, never the app or the uninstaller (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older install

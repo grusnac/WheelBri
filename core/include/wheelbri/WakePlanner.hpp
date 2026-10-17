@@ -17,8 +17,8 @@ namespace wheelbri {
 //     window draws);
 //   - for `recentInputNs` after a pass that found new input: every `recentInputEveryNs`, so a notification a driver
 //     loses now and then while the wheel moves delays that input by 4 ms at most, not by idleNs;
-//   - everything else (the 100 ms keep-alive to the game, the 500 ms force feedback watchdog, the test clutch
-//     running out, statistics, telemetry heartbeats, Stop): at least every `idleNs`.
+//   - everything else (the 100 ms keep-alive to the game, the 500 ms force feedback watchdog, statistics, telemetry
+//     heartbeats, Stop): at least every `idleNs`.
 // And never two passes closer than `minGapNs`, so a device or socket that signals without pause cannot spin the loop.
 // How often the windows (the app, --ui) draw, and so how often the loop hands them the state: 60, the user's choice
 // on 2026-10-08 (30 felt laggy). Only what changed reaches the screen (UiWindow keeps the last frame).
@@ -52,7 +52,7 @@ struct WakeState {
 [[nodiscard]] std::uint64_t floodGuardWaitNs(const WakeState& state, const WakeSettings& settings, std::uint64_t nowNs);
 
 // What woke the loop, counted for the log ("loop: ...").
-enum class WakeReason : std::uint8_t { Wheel, GameFfb, TestClutch, Timer, kCount };
+enum class WakeReason : std::uint8_t { Wheel, GameFfb, Timer, kCount };
 
 // What platform::WaitSet's result means: the reason registered for that source (`reasons[ready]`), else the timer
 // (ready < 0: the deadline; an index nothing was registered for counts as the timer too, never out of bounds).

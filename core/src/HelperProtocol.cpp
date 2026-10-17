@@ -255,10 +255,6 @@ bool isWheelBriProgram(const std::string_view image) {
     return name == "WHEELBRI.EXE" || name == "WHEELBRI-SERVICE.EXE";
 }
 
-bool fitsInOneMessage(const Request& request) {
-    return encode(request).size() <= kMaxMessage;
-}
-
 const char* requestName(const RequestType type) {
     switch (type) {
         case RequestType::Hello: return "Hello";

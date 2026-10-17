@@ -49,8 +49,7 @@ TEST(WakeStats, CountsByReasonAndDescribes) {
     EXPECT_EQ(stats.wakes(), 4U);
     EXPECT_EQ(stats.count(WakeReason::Wheel), 2U);
     EXPECT_EQ(stats.describe(2'000'000'000ULL),
-              "4 wake-ups in 2 s (2 a second): wheel 2, game force feedback 1, test clutch 0, timer 1; work avg 25.0 "
-              "us, max 40.0 us");
+              "4 wake-ups in 2 s (2 a second): wheel 2, game force feedback 1, timer 1; work avg 25.0 us, max 40.0 us");
     stats.reset();
     EXPECT_EQ(stats.wakes(), 0U);
 }
@@ -129,10 +128,10 @@ TEST(WakePlanner, FloodGuardWithAClockBehindThePassWaitsTheWholeGapAtMost) {
 // --- wakeReasonFor ---
 
 TEST(WakePlanner, WakeReasonForMapsIndexesAndTreatsTheRestAsTimer) {
-    const std::array<WakeReason, 3> reasons{WakeReason::Wheel, WakeReason::GameFfb, WakeReason::TestClutch};
+    const std::array<WakeReason, 3> reasons{WakeReason::Wheel, WakeReason::GameFfb, WakeReason::Wheel};
     EXPECT_EQ(wakeReasonFor(0, reasons), WakeReason::Wheel);
     EXPECT_EQ(wakeReasonFor(1, reasons), WakeReason::GameFfb);
-    EXPECT_EQ(wakeReasonFor(2, reasons), WakeReason::TestClutch);
+    EXPECT_EQ(wakeReasonFor(2, reasons), WakeReason::Wheel);    // an accessory counts as the wheel
     EXPECT_EQ(wakeReasonFor(3, reasons), WakeReason::Timer);    // past the end
     EXPECT_EQ(wakeReasonFor(-1, reasons), WakeReason::Timer);   // timed out
     EXPECT_EQ(wakeReasonFor(-2, reasons), WakeReason::Timer);   // the wait failed
@@ -225,7 +224,6 @@ TEST(NotificationCheck, OnlyTimerWakesWithNewInputCount) {
     for (int i = 0; i < 100; ++i) {
         EXPECT_FALSE(check.record(WakeReason::Wheel, true, kMs));          // the wheel's own notification
         EXPECT_FALSE(check.record(WakeReason::GameFfb, true, kMs));
-        EXPECT_FALSE(check.record(WakeReason::TestClutch, true, kMs));
         EXPECT_FALSE(check.record(WakeReason::Timer, false, kMs));         // timer, but nothing changed
     }
     EXPECT_EQ(check.missed(), 0U);
@@ -278,8 +276,7 @@ TEST(NotificationCheck, DefaultsAre20MissesIn10Seconds) {
 TEST(WakeStats, DescribesNoWakesAndAZeroWindowWithoutDividingByZero) {
     const WakeStats stats;
     EXPECT_EQ(stats.describe(0),
-              "0 wake-ups in 0 s (0 a second): wheel 0, game force feedback 0, test clutch 0, timer 0; work avg 0.0 "
-              "us, max 0.0 us");
+              "0 wake-ups in 0 s (0 a second): wheel 0, game force feedback 0, timer 0; work avg 0.0 us, max 0.0 us");
 }
 
 }  // namespace

@@ -164,13 +164,12 @@ TEST(HelperProtocol, AMessageOfExactlyTheLimitIsRead) {
     request.devices.push_back(std::string(room, 'A'));
     const auto bytes = encode(request);
     ASSERT_EQ(bytes.size(), kMaxMessage);
-    EXPECT_TRUE(fitsInOneMessage(request));
     std::string error;
     const auto decoded = decodeRequest(bytes, error);
     ASSERT_TRUE(decoded.has_value()) << error;
     EXPECT_EQ(decoded->devices.front().size(), room);
     request.devices.front().push_back('A');
-    EXPECT_FALSE(fitsInOneMessage(request));
+    EXPECT_EQ(encode(request).size(), kMaxMessage + 1);
 }
 
 TEST(HelperProtocol, EncodingKeepsAtMost255DevicesAndIdsOf65535Bytes) {

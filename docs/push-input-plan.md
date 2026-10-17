@@ -4,7 +4,9 @@ Status: done. Built on the branch `feature/push-input` (from `v0.8.1`), measured
 of a core instead of 8 %, `docs/cpu-measurements.md`) and merged into `main` on 2026-10-07. The same day the fixed
 loop was removed: `loop_mode` and `loop_hz` are ignored when an older config has them, and what this plan calls the
 fallback to `fixed` is now polling every millisecond inside the one loop (`EventLoopControl::polling()`), which still
-waits for everything that can notify it. The rest of this file is the plan as it was written.
+waits for everything that can notify it. The test clutch (UDP 41331) this plan mentions was removed on 2026-10-17
+(nothing sent it any more); the loop now waits for the wheel, accessories and the game's force feedback only. The rest
+of this file is the plan as it was written.
 
 ## Why
 
@@ -113,8 +115,8 @@ Checked for abuse from other programs (2026-10-07; any local program can send to
 - **A descriptor closed behind the wait's back** (Linux, POLLNVAL) is a failed wait: the loop falls back to the
   fixed rate instead of waking without pause. On Windows a closed handle already failed the wait.
 - **A wait that wakes for nothing again and again** gives up after 64 rounds and lets the loop run a pass.
-- Still open, older than the events loop: the test clutch port (41331) takes packets from any local program, with no
-  sender check; it only replaces the clutch while packets come.
+- (Was still open here: the test clutch port, 41331, took packets from any local program. The test clutch was removed
+  on 2026-10-17.)
 
 All of these run as scenarios on emulated devices (`tests/emulators`, `PushLoopTest`): latency of every change, wake
 counts, when and why it falls back. Not covered there: whether DirectInput and evdev really behave like the emulators;

@@ -20,7 +20,7 @@ Pipeline::Pipeline(IInputSource& source, const Mapper& mapper, const IDeviceProf
                 profile_.identity().vendorId, profile_.identity().productId);
 }
 
-bool Pipeline::tick(std::optional<float> clutchOverride, const std::uint64_t nowNs) {
+bool Pipeline::tick(const std::uint64_t nowNs) {
     const RawInputs previous = inputs_;   // a copy on the stack, no allocation
     inputChanged_ = false;                // until every device has been read
     if (!source_.poll(inputs_.devices[0])) {
@@ -39,9 +39,6 @@ bool Pipeline::tick(std::optional<float> clutchOverride, const std::uint64_t now
     }
     inputChanged_ = !(inputs_ == previous);
     state_ = mapper_.map(inputs_);
-    if (clutchOverride) {
-        state_.clutch = *clutchOverride;
-    }
     report_ = profile_.encode(state_);
     packet_.report = applyPedalRoute(report_, pedalRoute());
     if (!gate_ || gate_->shouldSend(packet_.report, nowNs)) {

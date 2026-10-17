@@ -44,9 +44,9 @@ public:
     }
 
 
-    // Returns false once the wheel or an accessory is gone (lostDevice() says which). `clutchOverride` (0..1 pressed), when set, replaces the
-    // mapped clutch: the test clutch while no clutch pedal is connected. `nowNs`: monotonic time, for limitSending.
-    bool tick(std::optional<float> clutchOverride = std::nullopt, std::uint64_t nowNs = 0);
+    // Returns false once the wheel or an accessory is gone (lostDevice() says which). `nowNs`: monotonic time, for
+    // limitSending.
+    bool tick(std::uint64_t nowNs = 0);
 
     [[nodiscard]] const RawInputState& lastRaw() const { return inputs_.devices[0]; }   // the wheel's
     [[nodiscard]] const RawInputs& lastInputs() const { return inputs_; }

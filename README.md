@@ -103,8 +103,7 @@ a headline, why it was needed, how to use it, and where to look.
   return to 0%, set its range or dead zone in Pit House (WheelBri uses the axis as the device reports it). The game
   reads it as the G920's Rz axis.
 - **Look:** `wheelbri-service --ui` (axis 6 shows "-> clutch", Clutch row 0–100%); `raw_a6`, `clutch` and
-  `out_clutch` in `telemetry-<date>-<NN>.log`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`). Without a pedal,
-  a test clutch can be sent over UDP (`core/include/wheelbri/TestClutch.hpp`).
+  `out_clutch` in `telemetry-<date>-<NN>.log`. Code: `Mapper::mapPedal` (`core/src/Mapper.cpp`).
 
 ### Virtual G920 (our own driver)
 
@@ -314,10 +313,10 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** polling the wheel 1000 times a second cost the loop about 8 % of a core, mostly on ticks with nothing new.
 - **Use:** nothing to set (the only loop since 2026-10-07; `loop_mode` and `loop_hz` in an older config are ignored):
-  the loop sleeps until the wheel, an accessory, the game's force feedback or the test clutch has something new, and
-  wakes by itself only for what must run on time (every 4 ms while forces play and for 100 ms after new input). A
-  device DirectInput can only poll, or notifications that miss input, make it also poll every millisecond, as the old
-  loop did, while it still wakes at once for everything else.
+  the loop sleeps until the wheel, an accessory or the game's force feedback has something new, and wakes by itself only
+  for what must run on time (every 4 ms while forces play and for 100 ms after new input). A device DirectInput can only
+  poll, or notifications that miss input, make it also poll every millisecond, as the old loop did, while it still wakes
+  at once for everything else.
 - **Look:** the service log's "running on events" line (or "running on events, and polling every 1 ms (why)") and, once
   a minute, "loop:": wake-ups by reason, events or polling, and the notifications missed or late. Measured in NFS
   2015: the loop thread at 2.3 % of a core instead of 8 % (`docs/cpu-measurements.md`). Code: core
@@ -510,7 +509,6 @@ WheelBri's (another mod) is never overwritten or deleted. The list is `%LOCALAPP
 | G920 driver check: installs `wheelbri-g920` (`driver\install-driver.ps1`) when Windows does not have it | yes | - |
 | Virtual G920 device (`wheelbri-g920` driver) and its DirectInput registry entries | yes | - |
 | Hide filter (`wheelbri-hide`): rig hidden from games | yes | - (the game must see the rig) |
-| Test clutch listener, UDP 41331 (developer tool) | yes | - |
 | Logs tab rows for the G920 driver and the hide filter | yes | - (emulator and game shim only) |
 
 `wheelbri.exe` runs as the user who starts it (`asInvoker`). With the virtual device, the privileged rows go through
@@ -718,7 +716,7 @@ decide where the Administrator writes or what it runs:
   game whose folder holds WheelBri's shim; the shim takes the wheel's state (41329) only from WheelBri. Other senders
   are ignored and named in the log. Every force still goes through the safety limiter. On Linux there is no such
   check. Not covered: the virtual G920's driver takes the wheel's state from any local sender (it runs as
-  LocalService and cannot look into the app's process), and the test clutch port (41331) has no check.
+  LocalService and cannot look into the app's process).
 - The driver signing certificate is made on the build PC (`driver\new-signing-cert.ps1`); the uninstaller removes, by
   thumbprint, only the certificates WheelBri recorded at install (`HKLM\SOFTWARE\wheelbri\SigningCertificates`) and the
   signers of WheelBri's own driver catalogs, in Windows' driver store or in the uninstaller's `driver\` folder (the

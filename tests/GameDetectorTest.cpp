@@ -192,16 +192,5 @@ TEST(GameDetector, LookAlikesAreNotTheGame) {
     EXPECT_EQ(detector.state().game, nullptr);
 }
 
-TEST(GameDetector, EventNames) {
-    EXPECT_EQ(eventName(Event::Started), "started");
-    EXPECT_EQ(eventName(Event::ListBack), "list back");
-    EXPECT_EQ(eventName(Event::Ended), "ended");
-    EXPECT_EQ(eventName(Event::Switched), "switched");
-    EXPECT_EQ(eventName(Event::Restarted), "restarted");
-    EXPECT_EQ(eventName(Event::Others), "others");
-    EXPECT_EQ(eventName(Event::ListFailed), "list failed");
-    EXPECT_EQ(eventName(static_cast<Event>(99)), "?");   // a value from a newer build in a log: not a crash
-}
-
 }  // namespace
 }  // namespace wheelbri
