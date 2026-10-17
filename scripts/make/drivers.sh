@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build (and optionally install) the UMDF drivers from the MSYS2 shell: runs drivers.ps1 in PowerShell.
-# Needs Visual Studio with the WDK (driver/README.md). Installing asks for Administrator.
+# Needs Visual Studio with the WDK (README.md, "Drivers"). Installing asks for Administrator.
 #
 #   scripts/make/drivers.sh                     build both (g920, hide), Release
 #   scripts/make/drivers.sh -Only g920          build one (g920 or hide)

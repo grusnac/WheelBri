@@ -138,7 +138,7 @@ inline constexpr std::size_t kG920FirstGear = 12;   // 0-based: Gear 1 .. Gear 6
 // Logitech protocol, which matters for Phase 3/4, not for DirectInput.
 [[nodiscard]] DeviceProfileSpec g920Spec();
 
-// The G25's buttons in native mode (046D:C299): 19, the shifter's included (docs/g25-target-plan.md). Logitech's own
+// The G25's buttons in native mode (046D:C299): 19, the shifter's included (README, "Targets"). Logitech's own
 // numbering puts the gears at 8..14 (0-based: Gear 1 .. Gear 6, then Gear R); the order of the other 12 (4 black and
 // 4 red shifter buttons, 2 paddles, 2 wheel buttons) is not documented and is a guess until a real G25 is captured.
 inline constexpr std::size_t kG25Buttons = 19;
@@ -150,7 +150,7 @@ inline constexpr std::size_t kG25FirstGear = 8;
 // real one, like the button order above. The 900 degrees are its full lock.
 [[nodiscard]] DeviceProfileSpec g25Spec();
 
-// The G27's buttons in native mode (046D:C29B): 23 (docs/g27-target-plan.md), the G25's 19 and 4 more on the wheel.
+// The G27's buttons in native mode (046D:C29B): 23 (README, "Targets"), the G25's 19 and 4 more on the wheel.
 // The gears are at 8..14 as on the G25 (Logitech's numbering); the rest is from users' reports of what games and
 // Logitech's Profiler show, not from Logitech, and unverified until a real G27 is captured: the shifter's 4 red buttons
 // 0..3, paddles R 4 and L 5, the wheel's top buttons R 6 and L 7, the shifter's 4 black buttons 15..18, then the
@@ -162,7 +162,7 @@ inline constexpr std::size_t kG27FirstGear = 8;
 // top, 900 degrees), with its 23 buttons. Its rev lights are not emulated (games drive them through Logitech's SDK).
 [[nodiscard]] DeviceProfileSpec g27Spec();
 
-// The G923 for Xbox and PC in PC mode (046D:C26E, docs/g923-target-plan.md): 24 buttons, the G920's 19 (the same
+// The G923 for Xbox and PC in PC mode (046D:C26E, README, "Targets"): 24 buttons, the G920's 19 (the same
 // HID++ wheel family: Linux's hid-logitech-hidpp drives both with the G920's quirks) and the 5 the G920 lacks, after
 // them: Plus 19, Minus 20, Dial Right 21, Dial Left 22, Dial Enter 23. Logitech does not document the order: the
 // G920's part follows the G920, the last 5 the G29's order (+, -, dial right, dial left, enter); unverified until a

@@ -5,7 +5,8 @@
 #   wheelbri/config/    the example configs
 #   wheelbri/shim/      dinput8.dll for --shim and the app's Games panel, and x86/dinput8.dll for 32-bit games,
 #                       when given
-#   wheelbri/           wheelbri.sh, install-udev-rules.sh, LINUX.md
+#   wheelbri/           wheelbri.sh, install-udev-rules.sh, README.md
+#   wheelbri/docs/      user-guide.md, games.md and images/ (laid out as in the repo, so the links between them work)
 #
 # spdlog is always built in (a system one would be a shared library the Deck does not have).
 # usage: scripts/linux/package.sh [--shim path/to/dinput8.dll] [--shim-x86 path/to/dinput8.dll] [-- cmake arguments]
@@ -44,7 +45,10 @@ cmake --install "$build" --prefix "$bundle"
 mkdir -p "$bundle/config"
 cp "$root"/config/*.ini "$bundle/config/"
 cp "$root/scripts/linux/wheelbri.sh" "$root/scripts/linux/install-udev-rules.sh" "$bundle/"
-cp "$root/docs/linux.md" "$bundle/LINUX.md"
+cp "$root/README.md" "$bundle/"
+mkdir -p "$bundle/docs"
+cp "$root/docs/user-guide.md" "$root/docs/games.md" "$bundle/docs/"
+if [ -d "$root/docs/images" ]; then cp -r "$root/docs/images" "$bundle/docs/"; fi
 if [ -n "$shim" ]; then
     mkdir -p "$bundle/shim"
     cp "$shim" "$bundle/shim/dinput8.dll"   # in shim/, as in the Windows package: where the app looks for it

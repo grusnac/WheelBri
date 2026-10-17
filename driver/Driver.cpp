@@ -339,7 +339,7 @@ public:
     // yet, else it waits in the read queue until the next state comes. Each state goes out once: until 2026-10-07
     // every state answered every read that came while it was being handed out, and the HID class sends its next read
     // as soon as one is answered, so one state could go round many times (half a core whatever the state rate,
-    // docs/cpu-measurements.md).
+    // measured with scripts/make/measure.sh).
     void answerRead(WDFREQUEST request);
 
 private:

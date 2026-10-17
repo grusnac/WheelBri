@@ -176,7 +176,7 @@ DeviceProfileSpec g27Spec() {
     spec.steeringRange = {0, 65535};
     spec.pedalRange = {0, 65535};
     spec.pedalsReleasedAtMax = true;   // as the G25's
-    // kG27Buttons: from users' reports, unverified (docs/g27-target-plan.md).
+    // kG27Buttons: from users' reports, unverified (README, "Targets").
     spec.buttonNames = {
         "Red 1",     "Red 2",     "Red 3",     "Red 4",     "R Paddle", "L Paddle", "R Wheel 1", "L Wheel 1",
         "Gear 1",    "Gear 2",    "Gear 3",    "Gear 4",    "Gear 5",   "Gear 6",   "Gear R",
@@ -199,7 +199,7 @@ DeviceProfileSpec g923Spec() {
     spec.identity.shortName = "G923";
     spec.identity.productId = 0xC26E;
     spec.identity.productName = "Logitech G923 Racing Wheel for Xbox One and PC";
-    // kG923Buttons: the G920's, then the 5 the G920 lacks; the order is unverified (docs/g923-target-plan.md).
+    // kG923Buttons: the G920's, then the 5 the G920 lacks; the order is unverified (README, "Targets").
     spec.buttonNames.insert(spec.buttonNames.end(), {"Plus", "Minus", "Dial Right", "Dial Left", "Dial Enter"});
     using Place = ButtonGroup::Place;
     spec.buttonGroups = {

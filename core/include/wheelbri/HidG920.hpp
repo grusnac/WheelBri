@@ -23,14 +23,14 @@ namespace wheelbri {
 // feature reads anyway (see HidPid). The input report has ID 1.
 inline constexpr std::uint16_t kG920VendorId = 0x046D;
 inline constexpr std::uint16_t kG920ProductId = 0xC262;
-// The virtual G25 (docs/g25-target-plan.md): the same descriptor and report as the virtual G920, a native-mode G25's
+// The virtual G25 (README, "Targets"): the same descriptor and report as the virtual G920, a native-mode G25's
 // ids (046D:C299, never the Driving Force mode's C294).
 inline constexpr std::uint16_t kG25VendorId = 0x046D;
 inline constexpr std::uint16_t kG25ProductId = 0xC299;
-// The virtual G27 (docs/g27-target-plan.md): the same descriptor and report with 23 buttons, a native-mode G27's ids.
+// The virtual G27 (README, "Targets"): the same descriptor and report with 23 buttons, a native-mode G27's ids.
 inline constexpr std::uint16_t kG27VendorId = 0x046D;
 inline constexpr std::uint16_t kG27ProductId = 0xC29B;
-// The virtual G923 for Xbox One and PC (docs/g923-target-plan.md): the same descriptor and report with 24 buttons and
+// The virtual G923 for Xbox One and PC (README, "Targets"): the same descriptor and report with 24 buttons and
 // no padding, the PC-mode ids (046D:C26E; Xbox mode, C26D, is an Xbox controller, not this).
 inline constexpr std::uint16_t kG923VendorId = 0x046D;
 inline constexpr std::uint16_t kG923ProductId = 0xC26E;
@@ -54,7 +54,7 @@ struct VirtualWheel {
     std::string_view oemName;          // DirectInput's name for it (OEMName): "Logitech G920 Driving Force Racing ..."
     std::size_t buttons = 0;           // DirectInput's OEMData button count
     // Whether it also has Logitech's HID++ reports (long 0x11, very long 0x12) for G HUB (HidPp.hpp,
-    // docs/ghub-hidpp-plan.md). Its HID PID reports then sit kHidPpPidShift higher, out of their way.
+    // README, "G HUB and HID++"). Its HID PID reports then sit kHidPpPidShift higher, out of their way.
     bool hidpp = false;
     std::uint8_t deviceType = 0;       // HID++ 0x0005's device type (0x0A: a steering wheel)
     // Whether its axes are unsigned (0..65535, centred at 32768), as a real Logitech wheel's: Logitech's software reads

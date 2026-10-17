@@ -162,10 +162,19 @@ foreach ($driver in $drivers) {
         if ($file.Extension -in '.inf', '.cat', '.dll') { Put $file.FullName (Join-Path $driver.Relative $file.Name) }
     }
 }
-foreach ($file in 'install.ps1', 'uninstall.ps1', 'Setup.cmd', 'Uninstall.cmd', 'README.txt') {
+foreach ($file in 'install.ps1', 'uninstall.ps1', 'Setup.cmd', 'Uninstall.cmd') {
     Put-Text (Join-Path $root "installer\$file") $file
 }
-# The Windows 7 prerequisites' scripts, as win7\ next to Setup.cmd (README.txt points there; install.ps1 does not copy
+# The user's guide and the games it was tried with, from docs/ (CRLF, for Notepad).
+foreach ($file in 'user-guide.md', 'games.md') {
+    Put-Text (Join-Path $root "docs\$file") $file
+}
+# The guide's screenshots, as images\ next to it (where it links them), when docs\images has any.
+$images = Join-Path $root 'docs\images'
+if (Test-Path $images) {
+    foreach ($file in Get-ChildItem $images -File -Filter '*.png') { Put $file.FullName "images\$($file.Name)" }
+}
+# The Windows 7 prerequisites' scripts, as win7\ next to Setup.cmd (user-guide.md points there; install.ps1 does not copy
 # them into the install folder). The updates they download from Microsoft are not shipped.
 $win7 = @(Get-ChildItem (Join-Path $root 'installer\win7') -File | Where-Object { $_.Extension -in '.cmd', '.ps1' })
 foreach ($file in $win7) { Put-Text $file.FullName "win7\$($file.Name)" }
@@ -173,7 +182,7 @@ Set-Content -Path (Join-Path $stage 'VERSION.txt') -Value $version -Encoding ASC
 
 # 3. Everything install.ps1 checks for ($requiredFiles, with the Windows 11 ones, and its $driverFiles: the same
 #    list, keep them in step) must be there, so a package never fails on the user's PC; then what only the package
-#    has (the installer itself, README.txt, VERSION.txt, win7\).
+#    has (the installer itself, user-guide.md, games.md, VERSION.txt, win7\).
 $expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe',
               'config\g25.ini', 'config\g27.ini', 'config\g920.ini', 'config\g923.ini', 'config\wheelbri-shim.ini',
               'uninstall.ps1', 'Uninstall.cmd', 'driver\common.ps1', 'shim\dinput8.dll', 'shim\x86\dinput8.dll',
@@ -181,7 +190,7 @@ $expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe',
               'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1') +
             @($drivers | ForEach-Object {
                 $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } }) +
-            @('install.ps1', 'Setup.cmd', 'README.txt', 'VERSION.txt',
+            @('install.ps1', 'Setup.cmd', 'user-guide.md', 'games.md', 'VERSION.txt',
               'win7\download-prerequisites.cmd', 'win7\download-prerequisites.ps1', 'win7\install-prerequisites.cmd')
 foreach ($file in $expected) {
     if (-not (Test-Path (Join-Path $stage $file))) { Fail "the package lacks $file (packaging bug)." }

@@ -1,5 +1,5 @@
 // wheelbri-helper.exe: the WheelBri Helper, a Windows service (WheelBriHelper, running as SYSTEM) that does the few
-// steps that need Administrator for the app, so the app can run as a standard user (docs/future-functionalities.md).
+// steps that need Administrator for the app, so the app can run as a standard user.
 //
 //   wheelbri-helper              run by the service manager (the installer registers it)
 //   wheelbri-helper --console    the same in this console, until Ctrl+C (Administrator; for development)

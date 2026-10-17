@@ -7,7 +7,7 @@
 
 source "$(dirname "$0")/common.sh"
 
-on_windows || fail "wheelbri-logi.dll is a Windows DLL: build it on Windows, or cross-compile (README, Build)"
+on_windows || fail "wheelbri-logi.dll is a Windows DLL: build it on Windows, or cross-compile (README, "Building")"
 cmake_build wheelbri_logi
 dll=$(cygpath -w "$root/$build_dir/logi/wheelbri-logi.dll")
 [ -f "$root/$build_dir/logi/wheelbri-logi.dll" ] || fail "no $build_dir/logi/wheelbri-logi.dll after the build"

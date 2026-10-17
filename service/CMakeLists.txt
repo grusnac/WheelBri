@@ -122,7 +122,7 @@ if(WE_SERVICE_PLATFORM STREQUAL "Windows")
 endif()
 
 # The WheelBri Helper (Windows only): a service running as SYSTEM that does the steps needing Administrator for the
-# app (docs/future-functionalities.md). Only core, wheelbri_privileged and Windows' libraries, not the app's objects.
+# app. Only core, wheelbri_privileged and Windows' libraries, not the app's objects.
 if(WE_SERVICE_PLATFORM STREQUAL "Windows")
     configure_file(app/wheelbri-helper.rc.in app/wheelbri-helper.rc @ONLY)
     set_source_files_properties("${WE_APP_BIN_DIR}/wheelbri-helper.rc" PROPERTIES

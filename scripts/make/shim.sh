@@ -102,7 +102,7 @@ if [ $off -eq 1 ]; then
     exit 0
 fi
 
-on_windows || fail "the shim is a Windows DLL: build it on Windows, or cross-compile (README, Build)"
+on_windows || fail "the shim is a Windows DLL: build it on Windows, or cross-compile (README, "Building")"
 has_exe "$game" || fail "no .exe in $game: pick the folder that holds the game's .exe"
 bits=$(game_bits "$game")
 if [ "$bits" = 32 ]; then

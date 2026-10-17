@@ -1,4 +1,4 @@
-# Builds wheelbri's UMDF drivers with MSBuild (Visual Studio + WDK, see driver/README.md) and optionally
+# Builds wheelbri's UMDF drivers with MSBuild (Visual Studio + WDK, see README.md, "Drivers") and optionally
 # installs them with their own install scripts. Works from any PowerShell: MSBuild is found with vswhere.
 #
 #   drivers.ps1                          build g920 and hide (Release)
@@ -38,7 +38,7 @@ function Find-MSBuild {
 }
 
 $msbuild = Find-MSBuild
-if (-not $msbuild) { Write-Host 'MSBuild not found: install Visual Studio with the WDK (driver/README.md).' -ForegroundColor Red; exit 1 }
+if (-not $msbuild) { Write-Host 'MSBuild not found: install Visual Studio with the WDK (README.md, "Drivers").' -ForegroundColor Red; exit 1 }
 Write-Host "msbuild: $msbuild" -ForegroundColor Cyan
 
 $target = if ($Clean) { 'Rebuild' } else { 'Build' }

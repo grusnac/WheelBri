@@ -7,9 +7,10 @@ This file guides Claude when working in this repository.
 - After every change, finish with **how to build it** and **how to test it** (what to run, what to look for,
   what a failure looks like), even when the change needs no rebuild (say so).
 - Build and test steps use the scripts in `scripts/make/` (`app.sh` builds everything and starts the app,
-  `app.sh --test` also runs every test first; `rebuild.sh`, `ui.sh`, `shim.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`, `measure.sh`; see `scripts/make/README.md`) as the shortcut
+  `app.sh --test` also runs every test first; `rebuild.sh`, `ui.sh`, `shim.sh`, `drivers.sh`, `all.sh`, `package.sh`, `clean-pc.sh`, `measure.sh`; each says what it does in its header comment) as the shortcut
   next to the full commands (next rule). When a new workflow keeps needing the same commands, add a script there
-  (sourcing `common.sh`) and list it in that README.
+  (sourcing `common.sh`) and list it below in "Build and test". The docs (README) never use these scripts: they give
+  the plain CMake commands, which work with any generator and toolchain.
 - **Every build or test step comes in two forms**: first the **full command(s)** that will run (exactly what the
   script does, so the user sees what happens), then the **shortcut**: the `scripts/make/` script that runs them.
   Example:
@@ -40,10 +41,10 @@ This file guides Claude when working in this repository.
   `git add` / `git commit`. Before giving them, check which branch the PC is on (`.git/HEAD`).
 - **Order of a reply after a change**: what changed, then build, test and what to check, and the git commands
   (`git add`, `git commit`, tags, push) always last, at the very end.
-- **When a functionality is finished** (it may take several commits), add one entry for it under
-  `## Functionalities` in README.md, in the commit that completes it, not before. Keep it short: a `###` headline,
-  then **Why** (the reason), **Use** (how to use it, settings) and **Look** (where to see it: UI, logs and
-  telemetry columns, code files). Ask the user whether a functionality is finished if it's unclear.
+- **When a functionality is finished** (it may take several commits), describe it in the commit that completes it,
+  not before: a few lines in `docs/user-guide.md` when players use it (with a screenshot from `docs/images/` for
+  a new screen: ask the user to take it), and the README status table when it changes what works. Ask the user
+  whether a functionality is finished if it is unclear.
 - Before guessing at a mapping or FFB problem, read the user's logs and telemetry
   (`%LOCALAPPDATA%\wheelbri\logs`: `wheelbri-service-<date>-<NN>.log`, `telemetry-<date>-<NN>.log`,
   `ffb-<date>-<NN>.log`, one file per run) and run `scripts/telemetry_summary.sh`. The `raw_a0`..`raw_a7` columns
@@ -86,12 +87,12 @@ Status (README.md has the full table):
   conditions untouched) before `FfbSafetyLimiter`, so the cap and slew still hold. WheelBri never reads or sets the
   wheel's own software (no Moza SDK). The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
   throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
-- **Not yet verified**: the G923 target in any game (`docs/g923-target-plan.md`: the G920 with Plus, Minus and the
-  dial, 24 buttons, 046D:C26E; the order of those 5 is a guess), nor its HID++ with G HUB
-  (`docs/ghub-hidpp-plan.md`: G HUB showed it ACTIVE on 2026-10-16; the unsigned axes and pedal layout since are
-  untried); the shim on Windows 7 (README, "Windows 7 to 10"); the G27 target in any game (`docs/g27-target-plan.md`: like the G25, 23 buttons, the button
-  order from users' reports); the G25 target in any game (`docs/g25-target-plan.md`: built for the shim, the Windows
-  virtual device and uhid; its button order other than the gears, and its axis letters, are a guess, the G920's layout);
+- **Not yet verified** (targets: README, "Targets"): the G923 target in any game (the G920 with
+  Plus, Minus and the dial, 24 buttons, 046D:C26E; the order of those 5 is a guess), nor its HID++ with G HUB (README,
+  "G HUB and HID++": G HUB showed it ACTIVE on 2026-10-16; the unsigned axes and pedal layout since are
+  untried); the shim on Windows 7 (user guide, "Install"); the G27 target in any game (like the G25, 23 buttons,
+  the button order from users' reports); the G25 target in any game (built for the shim, the Windows virtual device
+  and uhid; its button order other than the gears, and its axis letters, are a guess, the G920's layout);
   Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
   `Escape` calls are Logitech's rev lights (command 0: size 20, version 1, rpm 0..1, first light 0.01, redline 1),
@@ -116,7 +117,7 @@ CMake ≥ 3.24, C++20. spdlog 1.15.3 and GoogleTest 1.15.2 come in through Fetch
 configure). The service uses only the system's APIs and runs on Windows (DirectInput, Win32) and Linux (evdev,
 Xlib; skipped with a warning without libx11-dev). No SDL or other third-party library: do not add one back.
 
-The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `app.sh` (builds everything
+The scripts in `scripts/make/` wrap everything below (each script's header comment): `app.sh` (builds everything
 incrementally, configures the first time, then starts the app; `--test` runs the whole test suite first and starts
 nothing on a failure; `--no-start`; `--as-user` starts it as you, which needs `wheelbri-helper --console`; `--config
 FILE`), `rebuild.sh` (deletes `build/` and `build-x86/`, full rebuild), `ui.sh [config]`, `shim.sh [--off] <game
@@ -191,7 +192,7 @@ Windows shim cross-compiled from Linux/macOS with MinGW-w64 (→ `build-win/shim
 cmake -S . -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw64.cmake -DCMAKE_BUILD_TYPE=Release -DWE_BUILD_SERVICE=OFF -DWE_BUILD_TESTS=OFF
 ```
 
-Drivers (`driver/`, see `driver/README.md`) are built with Visual Studio + WDK, not MSYS2, from a Developer
+Drivers (`driver/`, see README.md, "Drivers") are built with Visual Studio + WDK, not MSYS2, from a Developer
 PowerShell, then installed from an Administrator PowerShell, e.g.:
 
 ```powershell
@@ -320,10 +321,11 @@ rewrites on every build only when it changes); views keep their own top-row cont
     the G920's plus Plus, Minus and the dial); each target (shim, virtual device, uhid) reports all of its own;
     `IDeviceProfile::buttonCount` counts the gap, and `encode` only passes named buttons. Specs: `g25Spec()`,
     `g27Spec()`, `g920Spec()`, `g923Spec()`, `makeProfile("g25" | "g27" | "g920" | "g923")`.
-  - `HidPp` (`docs/ghub-hidpp-plan.md`): device-side HID++ 2.0 for G HUB on a `VirtualWheel` with `hidpp` (the G923
-    only): Root, FeatureSet, DeviceFwVersion, DeviceNameType, ForceFeedback 0x8123 (rotation and gain kept and logged,
-    not applied; effects acknowledged, not played). Its reports are 0x11/0x12, so that wheel's HID PID reports are
-    `kHidPpPidShift` higher (`reportDescriptorFor`, `routeReport`, `wirePidId`); `HidPid` itself is unchanged.
+  - `HidPp` (README, "G HUB and HID++"): device-side HID++ 2.0 for G HUB on a `VirtualWheel` with
+    `hidpp` (the G923 only): Root, FeatureSet, DeviceFwVersion, DeviceNameType, ForceFeedback 0x8123 (rotation and
+    gain kept and logged, not applied; effects acknowledged, not played). Its reports are 0x11/0x12, so that wheel's
+    HID PID reports are `kHidPpPidShift` higher (`reportDescriptorFor`, `routeReport`, `wirePidId`); `HidPid` itself
+    is unchanged.
   - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT), and the other
     targets' too: `VirtualWheel` (`virtualWheels()` in Target order G25, G27, G920, G923; `virtualWheel("g25")`,
     `virtualWheelForHardwareId`) holds each wheel's identity (hardware id `wheelbri\G25` / `G27` / `G920` / `G923`,
@@ -476,7 +478,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     The shim's sources are `AppSettings::shimDlls` (`shimDllPaths()` in main.cpp: `shim\dinput8.dll` and
     `shim\x86\dinput8.dll` next to the program, or `build/shim/` and `build-x86/shim/`) and
     `shimSettings` (`config/wheelbri-shim.ini`).
-  - A shim session starts only what the shim needs (README, "What Start runs"): no virtual G920, no hide filter, no
+  - A shim session starts only what the shim needs: no virtual G920, no hide filter, no
     Administrator check (all keyed on `Options::virtualG920`), and the Logs tab leaves out the driver rows
     (`MappingView::setShimMode`). The stale hide check (`HideFilter::clearStale`) still runs: a leftover hide would keep
     the rig from the game. Keep this split when adding components: anything for the virtual device only stays off with
@@ -584,7 +586,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     logged once. Once a minute the "loop:" line gives the wake-ups by reason (`WakeStats`), events or polling, and the
     missed and late notifications; a wake-up 50 ms after its deadline and a pass of 50 ms or more are warned about.
     Anything on the loop that must happen regularly goes by the clock, never by counting passes (the window's copy,
-    `--print`, a lost wheel: 0.5 s of failed reads). Measurements: `docs/cpu-measurements.md`.
+    `--print`, a lost wheel: 0.5 s of failed reads). Measuring: `scripts/make/measure.sh`.
   - Phase 5 (`--virtual-g920`, Mode Virtual; as Administrator or through the WheelBri Helper, no shim in the game):
     `VirtualG920::create(wheel, ...)` creates the target's software device (`wheelbri\G25`, `G27`, `G920` or `G923`)
     for the `wheelbri-g920` driver while the service runs (Start first
@@ -647,7 +649,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   `wheelbri-logi-<date>-<NN>.log`, at `[logi] log_level` from `wheelbri-logi.ini` (`Settings.cpp`; `logi.sh` writes
   `debug`), else the app's level. Same rules as the shim inside the game: nothing in `DllMain`, lazy logging, no
   threads. Never ship Logitech's DLLs. `scripts/make/logi.sh` builds it and prints the registry commands.
-- `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
+- `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see README.md, "Drivers"):
   - `wheelbri-g920` (`Driver.cpp`): HID minidriver for every virtual wheel, G25 (046D:C299), G27 (C29B), G920
     (C262) or G923 (C26E): its INF binds `wheelbri\G25`, `\G27`, `\G920` and `\G923`, and `EvtDeviceAdd` reads the
     device's hardware id to pick the identity (`virtualWheelForHardwareId`; unknown = the G920). The service's
@@ -658,7 +660,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     sources. Logs to `wheelbri-driver-<date>-<NN>.log` in the user's logs folder (see below).
     Each state goes to Windows once (`Link::publish` / `answerRead`): a HID read gets the oldest state not handed out
     yet or waits for the next one (up to 8 kept in order, so quick presses are not lost); until 2026-10-07 each state
-    answered every read that came meanwhile, the suspected cause of half a core busy (`docs/cpu-measurements.md`). Once a minute the
+    answered every read that came meanwhile, the suspected cause of half a core busy (measured with `scripts/make/measure.sh`). Once a minute the
     log says how many states came and how the reads were answered ("input, last 60 s: ...").
   - `hide/` (`wheelbri-hide`): upper filter on the game-controller interfaces of each rig device: exactly the HID
     interfaces DirectInput lists as game controllers (`HideFilter::check` via `dinput::gameControllerPaths`,
@@ -702,7 +704,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     Driver threads close their sockets only after joining, and repeating socket errors are logged once a minute.
 - `service/helper/` (`wheelbri-helper.exe`, Windows only, namespace `wheelbri::helper`): the WheelBri Helper, a
   Windows service (`WheelBriHelper`, SYSTEM) that does the steps needing Administrator for the app so the app
-  runs as a standard user (README: "Running as a standard user"). `HelperServer`: the pipe
+  runs as a standard user. `HelperServer`: the pipe
   `\\.\pipe\wheelbri-helper` (DACL: SYSTEM, Administrators, interactive users without creating instances; first
   instance only, no remote clients), up to 4 connections each on a thread; a caller is accepted only as
   `wheelbri.exe` in the helper's own folder (opened, named by its handle, pid compared again), others may only say
@@ -751,7 +753,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   report 0x11 is too short for HID++ ("not enough values in hidpp report 17"); `UhidG920Test` keeps it so, or it
   would send HID++ commands that `HidPid` reads as force feedback. Steam's virtual pad is never hidden from a game
   (the user's rule, 2026-10-09): it is the only thing that controls the Steam Deck, so it always stays; no hiding of
-  it, no advice to turn Steam Input off (docs/linux.md, "Steam's virtual pad").
+  it, no advice to turn Steam Input off (README.md, "Linux and the Steam Deck").
 - `scripts/make/`: the build scripts (above); `common.sh` holds the shared helpers. `package.ps1` assembles the
   Windows installer package in `dist/windows/` (folder, zip, `WheelBri-<version>-setup.exe` made with IExpress,
   which is part of Windows); the version comes from `project(VERSION)` in `CMakeLists.txt`.
@@ -775,11 +777,11 @@ rewrites on every build only when it changes); views keep their own top-row cont
   DirectInput's G920 entries; the folder from
   Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelbri.exe` and no `install.ps1`, i.e. never a
   package; runs from a copy in `%SystemRoot%\Temp\wheelbri-uninstall-<guid>` that only Administrators may change; from the package it cleans up an install whose folder is gone), `Setup.cmd`
-  (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), `README.txt` (for the end user). The
+  (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), the package also carries `docs/user-guide.md` and `docs/games.md` (for the end user). The
   installed app runs the driver path by default (virtual wheel, rig hidden on every Start; Mode Shim on the Mapping
   tab switches); the shim ships in `shim\` (64-bit) and `shim\x86\` (32-bit). Windows 11 (build 22000+) gets
   everything; Windows 7 SP1 to 10 get the in-game shim way only (no drivers, no helper, no restart;
-  README, "Windows 7 to 10"), and `installer/win7/` (`download-prerequisites.cmd` / `.ps1`,
+  user guide, "Install"), and `installer/win7/` (`download-prerequisites.cmd` / `.ps1`,
   `install-prerequisites.cmd`: UCRT KB2999226, .NET 4.5.2, WMF 5.1) ships as `win7\` next to `Setup.cmd`. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
   driver scripts and the app's `ensureHideFilter` look there. Only Windows' own tools: no third-party installer.
   When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.
@@ -796,11 +798,13 @@ rewrites on every build only when it changes); views keep their own top-row cont
   `package.sh` bundle).
 - `config/`: `g920.ini`, `g25.ini`, `g27.ini`, `g923.ini` (service: the target and its default mapping, both modes),
   `wheelbri-shim.ini` (shim), `games/*.ini` (game profiles, compiled in: `nfs2015`, `nfspayback`, `nfsunbound`).
-- `docs/`: `linux.md` (Steam Deck guide),
-  `games.md` (games played with WheelBri), `g25-target-plan.md`, `g27-target-plan.md`, `g923-target-plan.md` (each
-  target's design and what is unverified), `ghub-hidpp-plan.md` (the G923's HID++ for G HUB),
-  `future-functionalities.md` (worked-out ideas not built yet: RS Shifter & Handbrake, G29; and the standard-user
-  test still to do), `cpu-measurements.md` (measure.sh rounds: what was measured, the numbers and what they showed; add new rounds there).
+- Docs: three for people, nothing else, each short, with defined sections and no clutter. `README.md` (what it is,
+  download, status, building with plain CMake commands, Linux and Steam Deck, a short developer section),
+  `docs/user-guide.md` (the main functions of the app, with screenshots from `docs/images/`, and troubleshooting;
+  shipped in the packages), `docs/games.md` (the games WheelBri was tested with; shipped too). Details that only
+  developers need belong in code comments and this file, not the docs.
+- Each target's ids, button counts and how sure the button order is are in README, "Targets"; the G923's HID++ for
+  G HUB in README, "G HUB and HID++".
 - `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` and `UhidLoopTest` on Linux, and
   service code that needs no device (`ConfigPickerTest`, `ShimGamesViewTest`, `AppLogLevelTest`, `UiCanvasTest`). Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest` and `WaitSetTest` (the service's
@@ -843,11 +847,12 @@ rewrites on every build only when it changes); views keep their own top-row cont
   G920 driver's with `SetThreadDescription`), so `measure.ps1` shows what costs what. Name new threads the same way.
 - Code on the loop (`Mapper::map`, `Pipeline::tick`, `DeviceProfile::encode`) must stay free of
   allocations and blocking calls.
-- **Logging** (full rules in `core/include/wheelbri/Logging.hpp` and README):
+- **Logging** (full rules in `core/include/wheelbri/Logging.hpp`):
   - Always log through the `WE_LOG_*` macros, never `printf`/`std::cout`. The exceptions are `--list`,
     `--print` and `--ffb-test` output, which are user interface.
   - Use one named logger per component, fetched via a function-local static `log()` helper. Component names
-    are dotted (`core.net`, `service.ffb`, `shim.device`); add new ones to the README list.
+    are dotted (`core.net`, `service.ffb`, `shim.device`); `grep -rn 'logging::get("'` lists the ones
+    in use.
   - Hot paths must use `logging::CallSampler` or `logging::RateLimiter` / `WE_LOG_*_LIMITED`.
   - Levels: trace (per call/tick), debug (decisions), info (lifecycle), warn (recoverable), error (feature
     broken), critical (process cannot continue).

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # On the Steam Deck (SteamOS, Arch Linux underneath), after every `git pull`: builds WheelBri in the wheelbri-build
 # Arch Linux container (scripts/linux/deck-setup.sh makes it, once), runs the unit tests, and installs it into
-# ~/wheelbri, where wheelbri.sh, the docs (LINUX.md) and Steam's launch option expect it:
+# ~/wheelbri, where wheelbri.sh, the docs (README.md, user-guide.md) and Steam's launch option expect it:
 #   ~/wheelbri/bin/       wheelbri (the app), wheelbri-service, wheelbri-uhid
 #   ~/wheelbri/config/    the example configs; one you edited is kept, the new one goes next to it as <name>.new
 #   ~/wheelbri/shim/      dinput8.dll (the game shim, for --shim and the app's Games panel), and x86/dinput8.dll for
 #                         32-bit games (NFS Carbon and its era)
-#   ~/wheelbri/           wheelbri.sh, install-udev-rules.sh, LINUX.md
+#   ~/wheelbri/           wheelbri.sh, install-udev-rules.sh, README.md
+#   ~/wheelbri/docs/      user-guide.md, games.md and images/ (as in the repo, so the links between them work)
 # The builds stay in the checkout (build-deck/, build-deck-shim/, build-deck-shim-x86/), so the next one only rebuilds
 # what changed.
 # Then it checks on SteamOS itself (outside the container) that every program finds its libraries.
@@ -111,7 +112,12 @@ if [ "$inside" = 1 ]; then
         chmod +x "$prefix/.$script.new"
         mv -f "$prefix/.$script.new" "$prefix/$script"
     done
-    cp -f "$root/docs/linux.md" "$prefix/LINUX.md"
+    cp -f "$root/README.md" "$prefix/README.md"   # the Linux and Steam Deck instructions are in it
+    mkdir -p "$prefix/docs"
+    cp -f "$root/docs/user-guide.md" "$root/docs/games.md" "$prefix/docs/"
+    if [ -d "$root/docs/images" ]; then cp -rf "$root/docs/images" "$prefix/docs/"; fi
+    # where earlier versions put the docs
+    rm -f "$prefix/LINUX.md" "$prefix/user-guide.md" "$prefix/games.md"
     if [ "$shim" = 1 ]; then
         # In shim/, as in the Windows package: where the app (Games > Add game) and wheelbri.sh look for it.
         mkdir -p "$prefix/shim/x86"

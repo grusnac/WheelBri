@@ -454,7 +454,7 @@ public:
             return true;
         }
         error = "no folder window here (kdialog or zenity): put the shim in with scripts/linux/wheelbri.sh --shim "
-                "(see docs/linux.md)";
+                "(see README.md, Linux)";
         return false;
     }
 
