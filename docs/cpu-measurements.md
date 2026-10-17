@@ -1,7 +1,12 @@
 # CPU measurements
 
-Measured with `scripts/make/measure.sh` (`measure.ps1`): one `perf-<date>-<time>.log` per round in the logs folder.
-"core %" is the share of one core (100 = one core busy); the PC has 16 logical processors.
+Measured with `scripts/make/measure.sh` (MSYS2 UCRT64), which opens `measure.ps1` in its own Administrator PowerShell
+window: `measure.sh [-Phase name] [-Game exe name without .exe] [-Seconds N]` (also `-IntervalMs`, `-Top`); keys M =
+new phase, Q = stop. One `perf-<date>-<time>.log` per round in the logs folder (`%LOCALAPPDATA%\wheelbri\logs`,
+left alone by housekeeping); `measure.sh` prints its `[perf.summary]` lines when the window closes.
+"core %" is the share of one core (100 = one core busy); the PC has 16 logical processors. The rounds below are
+historical data, each under its date; the code has changed since (each round says what it measured). Add new rounds
+at the end.
 
 ## 2026-10-07: the virtual G920's state rate (main, fixed 1 kHz loop)
 
@@ -10,7 +15,8 @@ packets (`state_rate_hz`) cuts it?
 
 **Setup:** branch `main` (with thread names and the `measure.ps1` fix), virtual device (G920 driver + hide filter in one
 `WUDFHost.exe`), NFS 2015 in its menu, hands off, about 4 to 9 minutes per round, `state_rate_hz` changed in the
-user's `my-g920-virtual-device.ini` between rounds. Packets a second = the service's `packet #` at Stop divided by the
+user's `my-g920-virtual-device.ini` between rounds (one file per mode then; one `my-g920.ini` for both modes since
+2026-10-15). Packets a second = the service's `packet #` at Stop divided by the
 session's length (Start to Stop, `wheelbri-service-<date>-<NN>.log`).
 
 | Round (perf log) | `state_rate_hz` | Packets a second | Receiver thread avg / peak | Driver host total | wheelbri.exe (loop) |
@@ -47,7 +53,8 @@ than N) and shows the fix working.
 
 ## 2026-10-07: the same round on `feature/push-input` (events loop)
 
-**Setup:** as above, `state_rate_hz` 500, `loop_mode = events` (the service logged "running on events" and never fell
+**Setup:** as above, `state_rate_hz` 500, `loop_mode = events` (a setting of that branch only; removed with the fixed
+loop the same day; the service logged "running on events" and never fell
 back: 0 notifications missed, 178 late in 9 minutes).
 
 | Round (perf log) | Loop | Packets a second | Receiver thread avg / peak | Driver host total | wheelbri.exe (loop) |

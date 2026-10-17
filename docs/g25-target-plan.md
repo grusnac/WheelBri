@@ -1,7 +1,9 @@
 # The Logitech G25 as a target
 
-Status: built (2026-10-13), not yet tried in a game. Pick **Target < G25 >** on the Mapping tab; Mode Virtual or Shim
-works as for the G920. What is still a guess, and how to check it, is under "Unverified".
+Status: built (2026-10-13) for the shim, the Windows virtual device and Linux `wheelbri-uhid`, unit-tested; **not yet
+tried in a game**, nor under Proton. Pick **Target G25** on the Mapping tab (the arrows go round G25, G27, G920, G923);
+Mode Virtual or Shim works as for the G920. Open: the button order other than the gears and the axis letters (a
+guess), a first game, Linux. Details under "Unverified".
 
 ## Why
 
@@ -23,14 +25,16 @@ wheel at all when they see 046D:C299. A G25 target lets the rig be that wheel, t
 
 ## How WheelBri presents it
 
-One target among two, with the same machinery as the G920 (a target is a profile, its configs and an identity):
+One target among two when it was built (four now: G25, G27, G920, G923), with the same machinery as the G920 (a
+target is a profile, its configs and an identity):
 
 - **Profile**: `g25Spec()` (`core/src/DeviceProfile.cpp`, `makeProfile("g25")`, `target_profile = g25`): 046D:C299,
   "Logitech G25 Racing Wheel USB", 900 deg, 19 buttons (`kG25Buttons`, gears at `kG25FirstGear` = 8), pedals released
   at the top of the range. Its DirectInput layout is the G920's: wheel X, throttle Y, brake Rz, clutch Slider.
 - **Config**: `config/g25.ini`, both modes (WheelBri's default mapping onto the G25); the user's own as
   `my-g25.ini`, as for the G920.
-- **Mapping tab**: Target `< G920 | G25 >` (`ConfigPicker`, `[app] target` in app.ini).
+- **Mapping tab**: Target `< G920 | G25 >` when built; now `G25, G27, G920, G923` in a ring (`ConfigPicker`,
+  `[app] target` in app.ini).
 - **Shim**: the shim already presents whatever `target_profile` says; at Start the app writes the target into the
   game's `wheelbri-shim.ini` (`setShimTarget`), keeping the user's other lines.
 - **Virtual device (Windows)**: the same driver (`wheelbri-g920`, its INF binds `wheelbri\G920` and `wheelbri\G25`) and
@@ -72,7 +76,7 @@ One target among two, with the same machinery as the G920 (a target is a profile
   `ShimGamesTest` (target in the shim's settings), `HelperProtocolTest` (`CreateVirtualG920` with a wheel),
   `UhidG920Test` / `UhidLoopTest` (the G25 on uhid), `MappingEditTest` (the G25 configs use each control once).
 - Windows: joy.cpl shows "Logitech G25 Racing Wheel USB", 4 axes, 19 buttons and the hat moving with the rig; the FFB
-  test in joy.cpl plays through the limiter; one G25 game end to end with telemetry and `ffb-<date>.csv`.
+  test in joy.cpl plays through the limiter; one G25 game end to end with telemetry and `ffb-<date>-<NN>.log`.
 - Linux: `evtest` on the uhid G25 (046D:C299 on bus 0006); a Proton game with `PROTON_ENABLE_HIDRAW=0x046D/0xC299`.
 
 ## Risks
@@ -81,4 +85,4 @@ One target among two, with the same machinery as the G920 (a target is a profile
   as with the G920.
 - Two virtual wheels at once are not possible: one target per session.
 - FFB feel: a game's G25-tuned forces were made for a weak geared wheel; the limiter's defaults stay as they are, and a
-  game profile gain can raise them.
+  game profile's gain can raise them (today's three profiles are for the G920 only: `profileFitsTarget`).

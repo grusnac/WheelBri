@@ -1,7 +1,9 @@
 # The Logitech G27 as a target
 
-Status: built (2026-10-15), not yet tried in a game. Pick **Target < G27 >** on the Mapping tab; Mode Virtual or Shim
-works as for the G920 and the G25. What is still unverified, and how to check it, is under "Unverified".
+Status: built (2026-10-15) for the shim, the Windows virtual device and Linux `wheelbri-uhid`, unit-tested; **not yet
+tried in a game**, nor under Proton. Pick **Target G27** on the Mapping tab (the arrows go round G25, G27, G920, G923);
+Mode Virtual or Shim works as for the G920 and the G25. Open: the button order other than the gears (from users'
+reports), whether games offer their G27 preset, its force feedback in a game. Details under "Unverified".
 
 ## Why
 
@@ -51,7 +53,8 @@ The same machinery as the G25 (docs/g25-target-plan.md):
   tab groups its buttons: WHEEL (left and right, top to bottom) and PADDLES, RED and BLACK, the SHIFTER below.
 - **Config**: `config/g27.ini`, both modes (WheelBri's default mapping: the G25's,
   with red and black in the G27's places; the 4 lower wheel buttons unmapped).
-- **Mapping tab**: Target `< G920 | G25 | G27 >`, the arrows going round.
+- **Mapping tab**: Target `< G920 | G25 | G27 >` when built, the arrows going round; now in the order G25, G27,
+  G920, G923.
 - **Shim**: unchanged; it presents whatever `target_profile` says.
 - **Virtual device (Windows)**: the same driver; its INF binds `wheelbri\G27` too, and `VirtualWheel` has the G27's
   identity. The report descriptor is the G920's with the button block declaring 23 buttons and 1 padding bit instead

@@ -14,10 +14,19 @@ folder, uninstall).
 
 A separate Logitech device (its own USB controller on PC; on console only through the Racing Adapter), not part of a
 G920: a sequential shifter or a handbrake (switch or analog). A real G920 has no handbrake input, so adding one to the
-emulated G920 would make it differ from a real one. Options when we get to it: map a rig handbrake to a G920 button,
-or emulate the RS Shifter & Handbrake as a second, separate device.
+emulated G920 would make it differ from a real one. Mapping a rig handbrake onto a target button already works (a
+button's secondary sources may be an axis past a threshold: `[buttons] target_N_or`). Not built: emulating the RS
+Shifter & Handbrake as a second, separate device, for games that know it.
+
+## Logitech wheel SDK registry entry
+
+Games built on Logitech's wheel SDK (NFS Payback) find Logitech's helper DLL through
+`HKCR\CLSID\{63BD165D-1584-4E75-AB56-08330350545F}\ServerBinary`; on the tested PC it named a removed Logitech Gaming
+Software DLL and the game ignored every wheel (`docs/games.md`). Not built: WheelBri checking that entry and pointing
+it at G HUB's installed DLL. Today the user does it by hand.
 
 ## G29 target
 
-Not supported now (the G920 is the one target). If it comes back: Logitech's Driving Force Shifter FAQ gives the G29's
-shifter as joy.cpl buttons 12-17 for gears 1-6 and 18 for reverse (the G920's are 13-18 and 19).
+Not supported now (the targets are the G25, G27, G920 and G923; the G29 profile was dropped on 2026-10-04: the same
+wheel as the G920 with more buttons). If it comes back: Logitech's Driving Force Shifter FAQ gives the G29's shifter
+as joy.cpl buttons 12-17 for gears 1-6 and 18 for reverse (the G920's are 13-18 and 19).

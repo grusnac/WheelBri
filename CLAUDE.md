@@ -87,14 +87,17 @@ Status (README.md has the full table):
   wheel's own software (no Moza SDK). The user's mapping is the same in every game. The tested wheel's axes as the service numbers them: steering 0,
   throttle 2, brake 5, clutch 6 (add-on clutch pedal, checked from telemetry).
 - **Not yet verified**: the G923 target in any game (`docs/g923-target-plan.md`: the G920 with Plus, Minus and the
-  dial, 24 buttons, 046D:C26E; the order of those 5 is a guess); the G27 target in any game (`docs/g27-target-plan.md`: like the G25, 23 buttons, the button
+  dial, 24 buttons, 046D:C26E; the order of those 5 is a guess), nor its HID++ with G HUB
+  (`docs/ghub-hidpp-plan.md`: G HUB showed it ACTIVE on 2026-10-16; the unsigned axes and pedal layout since are
+  untried); the shim on Windows 7 (README, "Windows 7 to 10"); the G27 target in any game (`docs/g27-target-plan.md`: like the G25, 23 buttons, the button
   order from users' reports); the G25 target in any game (`docs/g25-target-plan.md`: built for the shim, the Windows
   virtual device and uhid; its button order other than the gears, and its axis letters, are a guess, the G920's layout);
   Linux/Proton (Phase 4 `wheelbri-uhid` is unit-tested only, not
   tried on a Steam Deck); effect envelopes and ramps in a game (implemented, unit-tested); NFS's 20-byte Logitech
   `Escape` calls are Logitech's rev lights (command 0: size 20, version 1, rpm 0..1, first light 0.01, redline 1),
   not forwarded; no axis remapping call seen (2026-10-04..07 shim logs; the axis audit checks every session).
-- The G920's own FFB is HID++, not the classic Logitech protocol; the virtual G920 exposes HID PID instead.
+- The G920's own FFB is HID++, not the classic Logitech protocol; the virtual wheels expose HID PID instead (the
+  virtual G923 also answers HID++ for G HUB, core `HidPp`, but plays no HID++ effects).
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`, where the consumer is
 one of: the `dinput8.dll` shim in the game, the `wheelbri-g920` driver (Windows) or `wheelbri-uhid` (Linux). Use UDP loopback, not shared memory: under Proton
@@ -115,7 +118,11 @@ Xlib; skipped with a warning without libx11-dev). No SDL or other third-party li
 
 The scripts in `scripts/make/` wrap everything below (`scripts/make/README.md`): `app.sh` (builds everything
 incrementally, configures the first time, then starts the app; `--test` runs the whole test suite first and starts
-nothing on a failure; `--no-start`), `rebuild.sh` (deletes `build/`, full rebuild), `ui.sh [config]`, `shim.sh [--off] <game folder>`, `drivers.sh [-Install]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer), `clean-pc.sh [-KeepData]
+nothing on a failure; `--no-start`; `--as-user` starts it as you, which needs `wheelbri-helper --console`; `--config
+FILE`), `rebuild.sh` (deletes `build/` and `build-x86/`, full rebuild), `ui.sh [config]`, `shim.sh [--off] <game
+folder>` (32- or 64-bit shim by the game's largest .exe; `dinput8Hooked.dll` next to the Ultimate ASI Loader),
+`shim-x86.sh` (only the 32-bit shim), `logi.sh` (`wheelbri-logi.dll` and its registry commands), `drivers.sh [-Only
+g920|hide] [-Install] [-Clean]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer), `clean-pc.sh [-KeepData]
 [-GameFolder <folder>] [-KeepThirdParty] [-Yes]` (removes everything WheelBri put on the PC, HidHide and HIDMaestro
 included, for a fresh install; when the
 app, installer or drivers start leaving something new on the PC, add it to `clean-pc.ps1`).
@@ -156,16 +163,29 @@ Or the test binary directly:
 ```
 
 Outputs: `build/service/wheelbri-service.exe` (command line), `build/service/wheelbri.exe` (the app: window with
-Start / Stop, runs as the user; `asInvoker`) and `build/shim/dinput8.dll`; all linked statically on MinGW.
+Start / Stop, runs as the user; `asInvoker`), `build/service/wheelbri-helper.exe` (the WheelBri Helper),
+`build/shim/dinput8.dll` and `build/logi/wheelbri-logi.dll`; all linked statically on MinGW. On Linux:
+`build/service/wheelbri`, `build/service/wheelbri-service` and `build/tools/uhid/wheelbri-uhid`.
 
 The 32-bit shim for 32-bit games (→ `build-x86/shim/dinput8.dll`; only the shim, nothing else is 32-bit), on Windows
-with MSYS2's `mingw-w64-i686-gcc`:
+with MSYS2's `mingw-w64-i686-gcc` (`pacman -S mingw-w64-i686-gcc`, once), with `/mingw32/bin` first on PATH:
+
+```bash
+PATH="/mingw32/bin:$PATH" cmake -S . -B build-x86 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw32.cmake -DWE_BUILD_SERVICE=OFF -DWE_BUILD_TESTS=OFF -DWE_BUILD_LOGI=OFF
+```
+
+```bash
+PATH="/mingw32/bin:$PATH" cmake --build build-x86 --target wheelbri_shim
+```
+
+Shortcut:
 
 ```bash
 scripts/make/shim-x86.sh
 ```
 
-Windows shim cross-compiled from Linux/macOS with MinGW-w64 (→ `build-win/shim/dinput8.dll`):
+Windows shim cross-compiled from Linux/macOS with MinGW-w64 (→ `build-win/shim/dinput8.dll`, and
+`build-win/logi/wheelbri-logi.dll`, since `WE_BUILD_LOGI` stays ON):
 
 ```bash
 cmake -S . -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw64.cmake -DCMAKE_BUILD_TYPE=Release -DWE_BUILD_SERVICE=OFF -DWE_BUILD_TESTS=OFF
@@ -185,13 +205,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File driver\install-driver.ps1
 (same pattern for `driver\hide\wheelbri-hide.vcxproj` + `install-hide.ps1`).
 
 CMake options: `WE_BUILD_TESTS` (ON; skipped when cross-compiling), `WE_BUILD_SERVICE` (ON), `WE_BUILD_SHIM` (ON
-only on Windows targets), `WE_BUILD_LOGI` (ON only on 64-bit Windows targets), `WE_BUILD_UHID` (ON only on Linux).
+only on Windows targets), `WE_BUILD_LOGI` (ON on Windows targets; built only for 64-bit, a 32-bit target warns and
+skips it), `WE_BUILD_UHID` (ON only on Linux).
 Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra
 -Wpedantic` elsewhere. Keep new code free of warnings.
 
 Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
 [--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide]]
-[--unhide] [--prepare-hide] [--app] [--telemetry-tab] [--ffb-tab]`. `--app` opens the app's window (Start / Stop) from a console. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
+[--unhide] [--prepare-hide] [--app [--no-virtual-g920]] [--telemetry-tab] [--ffb-tab]` (`printUsage`; `--app` and
+`--no-virtual-g920` are parsed but not in the usage line). `--virtual-g920` is the config's `target_profile` (G25,
+G27, G920 or G923) through our driver on Windows, `wheelbri-uhid` on Linux. `--app` opens the app's window (Start /
+Stop) from a console, with `--virtual-g920` on Windows unless `--no-virtual-g920`. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
 (click, or R / M / G / L, T / F; in this order: Rig, Mapping, Game profiles (the app only, `MappingView::setGamesTab`),
 Logs, then Telemetry and Force feedback only with `--telemetry-tab` / `--ffb-tab`, never shown without them,
 `MappingView::setOptionalTabs`): **Mapping** (the axes rig -> G920, every rig axis, the D-pad, the G920 buttons written
@@ -277,7 +301,11 @@ rewrites on every build only when it changes); views keep their own top-row cont
     parameters, `HidPid` from HID PID reports) and `FfbSafetyLimiter` is the last stage before hardware. The
     limiter holds state (slew), so use one limiter per played effect. `FfbController` holds the limiters and
     the watchdog; `FfbUsage` summarises per-effect use for the UI and log; `WheelOutput` converts effects to
-    DirectInput/evdev units. The service plays on the wheel through `AsyncFfbSink`, a thread of its own at the loop's
+    DirectInput/evdev units. `FfbController` also fades a frozen push: a constant force the game leaves exactly as
+    it is for `frozen_force_s` (`FfbSafetyConfig::frozenForceSeconds`, default 2, 0 = never) fades out over
+    `kFrozenFadeNs` (0.5 s) with the periodic effects on top (a loading screen that keeps its last force; pushes
+    above `kFrozenPushAbove` 5%), springs and dampers stay, any change brings it back (`frozenFade()`); and
+    `setGameGain` (a game profile's `[ffb] gain`). The service plays on the wheel through `AsyncFfbSink`, a thread of its own at the loop's
     raised priority (the newest command per slot; `stopAll` first, then stops, constant, periodic, conditions, and
     anything that waited `kMaxWait` = 20 ms; a refused play is answered by the next `play` on that slot): a DirectInput
     call takes 4-15 ms on the R3 (27 ms to start an effect) and must not hold the loop. Every call is measured
@@ -288,16 +316,20 @@ rewrites on every build only when it changes); views keep their own top-row cont
     levels.
   - The G920 has 19 buttons (`kG920Buttons`, `g920Spec().buttonNames`, 0-based): the wheel's 11 (0-10), an unused 11
     (joy.cpl 12) and the Driving Force Shifter's Gear 1-6 (12-17) and Gear R (18), as Logitech's shifter FAQ gives them
-    (joy.cpl 13-19). Every target (shim, virtual device, uhid) reports all 19; `IDeviceProfile::buttonCount` counts
-    the gap, and `encode` only passes named buttons.
+    (joy.cpl 13-19). The G25 has 19 too (`kG25Buttons`), the G27 23 (`kG27Buttons`), the G923 24 (`kG923Buttons`:
+    the G920's plus Plus, Minus and the dial); each target (shim, virtual device, uhid) reports all of its own;
+    `IDeviceProfile::buttonCount` counts the gap, and `encode` only passes named buttons. Specs: `g25Spec()`,
+    `g27Spec()`, `g920Spec()`, `g923Spec()`, `makeProfile("g25" | "g27" | "g920" | "g923")`.
   - `HidPp` (`docs/ghub-hidpp-plan.md`): device-side HID++ 2.0 for G HUB on a `VirtualWheel` with `hidpp` (the G923
     only): Root, FeatureSet, DeviceFwVersion, DeviceNameType, ForceFeedback 0x8123 (rotation and gain kept and logged,
     not applied; effects acknowledged, not played). Its reports are 0x11/0x12, so that wheel's HID PID reports are
     `kHidPpPidShift` higher (`reportDescriptorFor`, `routeReport`, `wirePidId`); `HidPid` itself is unchanged.
-  - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT), the virtual
-    G25's too: `VirtualWheel` (`virtualWheels()`, `virtualWheel("g25")`, `virtualWheelForHardwareId`) holds each
-    wheel's identity (hardware id `wheelbri\G920` / `wheelbri\G25`, instance names, 046D:C262 / C299, product string,
-    DirectInput name, button count) and `isVirtualWheelId` keeps both out of hiding;
+  - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT), and the other
+    targets' too: `VirtualWheel` (`virtualWheels()` in Target order G25, G27, G920, G923; `virtualWheel("g25")`,
+    `virtualWheelForHardwareId`) holds each wheel's identity (hardware id `wheelbri\G25` / `G27` / `G920` / `G923`,
+    instance names, 046D:C299 / C29B / C262 / C26E, product string, DirectInput name, button count; the G923 also
+    `hidpp`, `unsignedAxes` and `logitechPedals`: HID brake Z, clutch Rz, with `directInputAxisEntries` keeping games
+    on Rz / Slider) and `isVirtualWheelId` keeps all four out of hiding;
     `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests. pid.dll sends
     type-specific parameters with effect block 0 and then the Set Effect naming the block: `HidPid` keeps them pending
     for that Set Effect and never applies them early (Windows sends reports twice, a new effect's parameters before
@@ -404,7 +436,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
     invert; the Mapping tab maps from it, by hand. A session takes the names it shows from the active rig, else from the older
     per-device files (`DeviceLabels.hpp`, `deviceLabelsFolder()`), which the first rig also imports. Mapping is not
     done in the rig.
-  - Several input devices: device 0 is the wheel (`source_device`; empty, as in the built-in `config/g920-*.ini`, = the active rig's wheel, `Rig::wheel()`, filled in by `loadForRun`; plays FFB), 1..3 are accessories
+  - Several input devices: device 0 is the wheel (`source_device`; empty, as in the built-in `config/<target>.ini`,
+    = the active rig's wheel, `Rig::wheel()`, filled in by `loadForRun`; plays FFB), 1..3 are accessories
     (`MapperConfig::accessories`, `DeviceId` vid:pid). Every source has a device next to its index
     (`sourceDevice`, `buttonDevice[]`, `HatButtons::devices`); in the INI a source is `N` (the wheel's) or `vid:pid/N`
     (`MappingEdit.hpp`: `parseSource` / `formatSource`; `readSource` in `EmulatorConfig.cpp` fills the accessories in
@@ -413,7 +446,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
     the Wheel setup tab stay the wheel's. `MappingModel` / `writeMapping` are what the Mapping tab edits and saves
     (IniEditor; default button lines removed). The service opens accessories by id (`openAccessories` in main.cpp).
   - The config Start uses (`service/src/ConfigPicker.cpp`, the top row of the idle Mapping tab): two pickers with
-    `<` `>`, Target (`targetName()`: G920 or G25; `profileName()` "g920" / "g25") and Mode (`wayName()`: Virtual
+    `<` `>`, Target (`ConfigPicker::Target` G25, G27, G920, G923 in a ring; `targetName()` "G920", `profileName()`
+    "g920"; an unknown `[app] target` falls back to the G920) and Mode (`wayName()`: Virtual
     or Shim; in the log "G25 virtual device" / "G920 in-game shim", `name()`) (`[app] target`, `[app] way` in
     `appStateFile()`, `app.ini`; `AppSettings::runSession(host, config, virtualDevice)`). Two layers: the **target**
     is fixed (the profile's axes, D-pad and buttons; never the user's to change), the **mapping** of the rig onto
@@ -432,11 +466,15 @@ rewrites on every build only when it changes); views keep their own top-row cont
     `game name folder` / `selected folder`, UTF-8 paths; not IniDocument, which cuts at `;` and `#`), `installShim` /
     `removeShim` / `shimState` (Installed, Outdated, Missing, Foreign: a `dinput8.dll` that is neither byte-identical to
     ours nor next to a `wheelbri-shim.ini` is another mod's and never touched), `gameFolderProblem` (needs an `.exe`).
-    `ShimGamesTest` covers it with temporary folders. UI: `service/src/ShimGamesView.cpp`, only with the target G920
-    in-game shim: "Game <name> [Games (N)]" next to Start, the games panel (pick, Add game through
+    The shim goes in as `dinput8Hooked.dll` when the folder's `dinput8.dll` is the Ultimate ASI Loader (`shimDllIn`,
+    `isAsiLoader`), and a 32-bit game (its largest .exe, `gameArchitecture` / `peArchitecture`) gets the 32-bit build
+    (`ShimSources`, `shimSourceFor`; ours built for the other processor counts as Outdated).
+    `ShimGamesTest` covers it with temporary folders. UI: `service/src/ShimGamesView.cpp`, on the Mapping tab only
+    with Mode Shim (any target): "Game <name> [Games (N)]" next to Start, the games panel (pick, Add game through
     `UiWindow::pickFolder`: IFileOpenDialog on Windows, `/usr/bin/kdialog` or `/usr/bin/zenity` on X11; Put / Remove shim; Forget = `removeShimGame`, list only), and the App's popups: "Would
     you like to delete the shim from the target folder?" after a shim session (not when the window closes), notices.
-    The shim's source is `AppSettings::shimDll` (`shim\dinput8.dll` next to the program, or `build/shim/`) and
+    The shim's sources are `AppSettings::shimDlls` (`shimDllPaths()` in main.cpp: `shim\dinput8.dll` and
+    `shim\x86\dinput8.dll` next to the program, or `build/shim/` and `build-x86/shim/`) and
     `shimSettings` (`config/wheelbri-shim.ini`).
   - A shim session starts only what the shim needs (README, "What Start runs"): no virtual G920, no hide filter, no
     Administrator check (all keyed on `Options::virtualG920`), and the Logs tab leaves out the driver rows
@@ -446,7 +484,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
     left. `MappingEditView` picks sources from the rig's controls.
   - Config: `IniDocument` (minimal INI; `;`/`#` start a comment anywhere on a line) → `loadEmulatorConfig`,
     which collects *all* errors (unknown keys and sections, out-of-range values) instead of failing fast. When
-    you add a config key, add it to the reader, `EmulatorConfig`, both `config/g920-*.ini` and `EmulatorConfigTest`.
+    you add a config key, add it to the reader, `EmulatorConfig`, the four `config/g25.ini`, `g27.ini`, `g920.ini`,
+    `g923.ini` and `EmulatorConfigTest`.
     A key written twice: the reader takes the last copy, and `IniEditor` edits that one (and drops the others).
     A value that comes from outside (a device's name from Windows or evdev) goes through `iniSafeValue` when
     written, so `;`, `#` or a line break cannot cut it or add lines.
@@ -458,7 +497,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
     one line per game FFB change and per call to the wheel), in the other logs' line format (`[date time] [info ]
     [telemetry     ] t_ms=... key=value ...`; values that do not apply are left out), each session appended after a
     `session started` line and its header lines (every session of one run in the same file), rolled over at local
-    midnight. `telemetryColumns()` lists the keys
+    midnight. Settings: `[telemetry]` (`TelemetryConfig.hpp`: `rate_hz`, `heartbeat_s`, `min_change`, `max_file_mb`
+    per file). `telemetryColumns()` lists the keys
     in order; when you add one, write it in `writeSample` and `telemetry_summary.sh` reads it by name; bump
     `kFormatVersion` (`Telemetry.cpp`, now "3": log lines; "2" was CSV) when a key changes meaning.
   - **Every file WheelBri writes is a log** in that line format: no CSV, no JSON (the user's rule, 2026-10-06), the
@@ -544,17 +584,20 @@ rewrites on every build only when it changes); views keep their own top-row cont
     logged once. Once a minute the "loop:" line gives the wake-ups by reason (`WakeStats`), events or polling, and the
     missed and late notifications; a wake-up 50 ms after its deadline and a pass of 50 ms or more are warned about.
     Anything on the loop that must happen regularly goes by the clock, never by counting passes (the window's copy,
-    `--print`, a lost wheel: 0.5 s of failed reads). Plan and measurements: `docs/push-input-plan.md`,
-    `docs/cpu-measurements.md`.
-  - Phase 5 (`--virtual-g920`, run as Administrator, no shim in the game): `VirtualG920`
-    creates the `wheelbri\G920` software device for the `wheelbri-g920` driver while the service runs (Start first
+    `--print`, a lost wheel: 0.5 s of failed reads). Measurements: `docs/cpu-measurements.md`.
+  - Phase 5 (`--virtual-g920`, Mode Virtual; as Administrator or through the WheelBri Helper, no shim in the game):
+    `VirtualG920::create(wheel, ...)` creates the target's software device (`wheelbri\G25`, `G27`, `G920` or `G923`)
+    for the `wheelbri-g920` driver while the service runs (Start first
     installs that driver with `install-driver.ps1` when Windows' driver store has no `wheelbri-g920.inf`,
     `ensureG920Driver` / `VirtualG920::driverState`; without it `create` fails at once with what to do, never
-    "restart Windows") and keeps
-    the DirectInput "driving" registry entry right (and Logitech's FFB entry out); `HideFilter` sets
+    "restart Windows") and keeps DirectInput's OEM entries for its vid:pid right while it exists (HKLM, and HKCU
+    unless in the helper: `DirectInputUserEntries` in the app): `OEMName`, `OEMData` (the "driving" type, buttons),
+    no `OEMForceFeedback` (Logitech's software registers one that only works with a real wheel; checked every 2 s)
+    and, for a `logitechPedals` wheel (the G923), the `Axes` entries, only in an `Axes` key that is WheelBri's;
+    `HideFilter` sets
     `HKLM\SOFTWARE\wheelbri\hide\AllowedPid` for the `wheelbri-hide` filter so only the service sees the rig.
     What is hidden is the active rig (Wheel setup), never a list of ids in the code: `rigHideTargets` (main.cpp)
-    reads its devices (skipping 046d:c262, `mayHide`), `ensureHideFilter` runs `install-hide.ps1 -Devices` for
+    reads its devices (skipping the four virtual wheels' ids, `hidhide::mayHide` / `isVirtualWheelId`), `ensureHideFilter` runs `install-hide.ps1 -Devices` for
     those without the filter, `HideFilter::check` reports each (Ready / NotInstalled / NeedsRestart /
     NotConnected) and the window shows "rig hidden (N of M devices)" or, in red, "NOT HIDDEN: <device>"; no rig
     = nothing hidden, said in the window. Our own filter only, no HidHide or other third-party tools;
@@ -567,10 +610,12 @@ rewrites on every build only when it changes); views keep their own top-row cont
     device's driver). Exceptions on the loop thread end the session instead of `std::terminate`.
 - `shim/` (`dinput8.dll`, Windows/Wine only, namespace `wheelbri::shim`): proxies `IDirectInput8A/W`,
   devices and effects. It is written once as templates over `AnsiTraits`/`WideTraits` (`Traits.hpp`).
-  Exports are renamed through `dinput8.def` (`Proxy_*`) so they don't clash with SDK declarations. The real
+  Exports are renamed through `dinput8.def` (`Proxy_*`) so they don't clash with SDK declarations (the 32-bit
+  build, `cmake/toolchain-mingw32.cmake`, links them with `--enable-stdcall-fixup`). The real
   DLL is loaded from the system directory on first use (`RealDInput.cpp`). Phase 2: the physical wheel
-  (matched by USB VID in `EnumDevices` and again in `CreateDevice` via `GetDeviceInfo`) is presented as the
-  target profile by `EmulatedDevice<T>`, which answers input calls from `StateFeed` (UDP receiver, neutral
+  (matched by USB VID, `source_vid`, default 346e, and optional `source_pid`, in `EnumDevices` and again in
+  `CreateDevice` via `GetDeviceInfo`) is presented as the target profile (`target_profile`: g25, g27, g920 or
+  g923; the app writes it at Start) by `EmulatedDevice<T>`, which answers input calls from `StateFeed` (UDP receiver, neutral
   state when stale, default after 1500 ms). Phase 3: its effects are `EmulatedEffect`s whose parameters
   `FfbForwarder` sends to the service (timing, keep-alives, every slot re-sent every 250 ms, stopped and free ones
   too, so a lost "stop" heals; each slot belongs to the device that created its effect and carries a ticket, so
@@ -603,12 +648,14 @@ rewrites on every build only when it changes); views keep their own top-row cont
   `debug`), else the app's level. Same rules as the shim inside the game: nothing in `DllMain`, lazy logging, no
   threads. Never ship Logitech's DLLs. `scripts/make/logi.sh` builds it and prints the registry commands.
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see `driver/README.md`):
-  - `wheelbri-g920` (`Driver.cpp`): HID minidriver for the virtual G920 (046D:C262) or G25 (046D:C299): its INF
-    binds `wheelbri\G920` and `wheelbri\G25`, and `EvtDeviceAdd` reads the device's hardware id to pick the identity
-    (`virtualWheelForHardwareId`; unknown = the G920). The service's `VirtualG920::create(wheel, ...)` creates the
-    software device with that id (the helper's `CreateVirtualG920` carries "g25"; none = the G920). Reads
-    `StatePacket`s on 41329, decodes HID PID output reports into `FfbPacket`s to 41330. Compiles core's `HidG920`, `HidPid`,
-    `StatePacket`, `FfbPacket` sources. Logs to `wheelbri-driver-<date>-<NN>.log` in the user's logs folder (see below).
+  - `wheelbri-g920` (`Driver.cpp`): HID minidriver for every virtual wheel, G25 (046D:C299), G27 (C29B), G920
+    (C262) or G923 (C26E): its INF binds `wheelbri\G25`, `\G27`, `\G920` and `\G923`, and `EvtDeviceAdd` reads the
+    device's hardware id to pick the identity (`virtualWheelForHardwareId`; unknown = the G920). The service's
+    `VirtualG920::create(wheel, ...)` creates the software device with that id (the helper's `CreateVirtualG920`
+    carries the profile name, g25 / g27 / g920 / g923, `requestVirtualWheel`; none = the G920). Reads
+    `StatePacket`s on 41329, decodes HID PID output reports into `FfbPacket`s to 41330, and answers HID++ for a
+    `hidpp` wheel (the G923, core `HidPp`). Compiles core's `HidG920`, `HidPid`, `HidPp`, `StatePacket`, `FfbPacket`
+    sources. Logs to `wheelbri-driver-<date>-<NN>.log` in the user's logs folder (see below).
     Each state goes to Windows once (`Link::publish` / `answerRead`): a HID read gets the oldest state not handed out
     yet or waits for the next one (up to 8 kept in order, so quick presses are not lost); until 2026-10-07 each state
     answered every read that came meanwhile, the suspected cause of half a core busy (`docs/cpu-measurements.md`). Once a minute the
@@ -618,7 +665,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
     `hidhide::instanceIdOfHidPath`; not compatible ids: many wheels are multi-axis controllers without
     `HID_DEVICE_SYSTEM_GAME`, and the registry gave none). Device-agnostic, no ids in the INF or driver. The INF's
     only hardware id, `WHEELBRI_HIDE_FILTER`, belongs to no device, so Windows never puts it on anything by itself
-    (when it matched compatible ids it went onto the virtual G920; the driver also never hides 046D:C262; DriverVer
+    (when it matched compatible ids it went onto the virtual G920; the driver also never hides a virtual wheel, `kVirtualWheelIds`: 046D:C299, C29B,
+    C262, C26E; DriverVer
     is fixed at 01/01/2001). `install-hide.ps1 -Devices <instance ids or vid:pid>` puts it on those interfaces with
     SetupAPI `DiInstallDevice`, taking it from the INF's class driver list (`SPDIT_CLASSDRIVER`, inline C#). Only the process in `AllowedPid` may open a filtered interface. Replaces
     HidHide. Fails open: a missing or unreadable setting, or an `AllowedPid` whose process is gone (or whose start
@@ -631,7 +679,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     exits 2 when the filter is set on a device but runs only after a restart; without `-Devices` it only adds the
     package (and takes it off every device). The installer then runs the installed `wheelbri-service --prepare-hide`,
     which does what Start does (`ensureHideFilter` for the saved rig: the game controllers DirectInput lists, never
-    046d:c262; USB ids by compatible id missed the Moza R3), so after a reinstall the first Start does not have to.
+    a virtual wheel; USB ids by compatible id missed the Moza R3), so after a reinstall the first Start does not have to.
     With the wheel off at install, the first Start does it (never the app on its own: the user's rule, 2026-10-06,
     nothing privileged happens without pressing Start). During Start the session tells the app what takes long
     (`UiHost::step`: hiding, waiting for the wheel), shown after "Starting"; for `kStepFirstHide` the app also shows a
@@ -653,7 +701,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     function results in `@(...)` before `.Count`: Windows PowerShell 5.1 gives no `.Count` for a single CIM object.
     Driver threads close their sockets only after joining, and repeating socket errors are logged once a minute.
 - `service/helper/` (`wheelbri-helper.exe`, Windows only, namespace `wheelbri::helper`): the WheelBri Helper, a
-  Windows service (`WheelBriHelper`, SYSTEM) that will do the steps needing Administrator for the app so the app
+  Windows service (`WheelBriHelper`, SYSTEM) that does the steps needing Administrator for the app so the app
   runs as a standard user (README: "Running as a standard user"). `HelperServer`: the pipe
   `\\.\pipe\wheelbri-helper` (DACL: SYSTEM, Administrators, interactive users without creating instances; first
   instance only, no remote clients), up to 4 connections each on a thread; a caller is accepted only as
@@ -683,18 +731,21 @@ rewrites on every build only when it changes); views keep their own top-row cont
   (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
   raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. Its descriptor is `g920ProtonReportDescriptor` (same report,
   clutch Usage Z, throttle Usage Rz): Proton's DirectInput has a hack for 046D:C262 (Z -> Rz, Rz -> Slider), and
-  with the Windows descriptor NFS read the clutch as throttle (2026-10-08). `--target g25` (the service passes the
-  config's target): the Windows descriptor, 046D:C299 on `BUS_VIRTUAL` (on USB the kernel's `hid-lg` claims C299 and
-  then refuses a device not really on USB), `PROTON_ENABLE_HIDRAW=0x046D/0xC299`. `UhidG920` holds the uhid protocol
+  with the Windows descriptor NFS read the clutch as throttle (2026-10-08); the G920 is on `BUS_USB`. `--target
+  g25|g27|g920|g923` (default g920; the service passes the config's target): the others get
+  `reportDescriptorFor(wheel, DescriptorFor::Linux)` on `BUS_VIRTUAL` (on USB the kernel's `hid-lg` claims the G25
+  and G27 and then refuses a device not really on USB, and `hid-logitech-hidpp` matches the G923),
+  `PROTON_ENABLE_HIDRAW=0x046D/<its pid>`; the G923 also answers HID++ (`HidPp`). `UhidG920` holds the uhid protocol
   with no file descriptors so
   `UhidG920Test` covers it; `UhidLoop` (`UhidLoopTest`) holds the command line (ports checked) and `InputFeed`
   (newest state, a keep-alive 100 ms after the last report written, neutral after 1.5 s); `main.cpp` is the fd/UDP
   loop: it waits on /dev/uhid and the state socket (`UdpLoopbackReceiver::nativeSocket`) and reads every queued uhid
   event per wake (the kernel queues 32). It marks the device `uniq = kG920VirtualUniq`; the evdev listing
   (`WheelEvdev.cpp`) leaves such a device out, so the service never reads its own output (and Steam Input's virtual
-  pads, 28de:11ff, copies of other controllers). The app's Start with the target "G920 virtual device" starts it on
+  pads, 28de:11ff, copies of other controllers). The app's Start with Mode Virtual starts it on
   Linux (`--virtual-g920` there, `Options::uhid`, `service/src/UhidProcess.cpp`: next to the program or
-  build/tools/uhid/, `--stop-file` in the log folder and `--parent <app pid>` so it goes when the app is killed; one
+  build/tools/uhid/, `--stop-file` in the log folder, `--parent <app pid>` so it goes when the app is killed, and
+  `--target`; one
   already running, wheelbri.sh's, is used and left alone). `wheelbri.sh` sees an app session through the service's
   `SingleInstance` lock (`flock`). The kernel's `hid-logitech-hidpp` claims 046D:C262 and gives up because output
   report 0x11 is too short for HID++ ("not enough values in hidpp report 17"); `UhidG920Test` keeps it so, or it
@@ -711,8 +762,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
   for anything new; it only appears where old installs are found and removed (`$legacy` / `$names` in `install.ps1`,
   `uninstall.ps1`, `clean-pc.ps1`; `Remove-LegacyPackages` in `driver/common.ps1`; `moveFoldersFromOldName` in
   `ServiceLogging.cpp`, which moves `%LOCALAPPDATA%\wheelemu` to `wheelbri` on first start; old log names in
-  `Retention.cpp`; `wheelemu-shim.ini` as the shim's fallback). The wire tags (`WEMU`, `WEXP`) and the `WE_LOG_*`
-  macros keep their letters. `install.ps1` asks one question, at the end of a successful install: restart Windows now
+  `Retention.cpp`; `wheelemu-shim.ini` as the shim's fallback). The wire tags (`WEMU`, `WEFB`, `WELV`) and the
+  `WE_LOG_*` macros keep their letters. `install.ps1` asks one question, at the end of a successful install: restart Windows now
   (default yes; `shutdown /r /t 2`; firmer wording when `install-hide.ps1` exited 2; none with `-Quiet`). Only the
   installer asks this, never the app or the uninstaller (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older install
   (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the two driver install scripts (wheelbri-g920, wheelbri-hide), registers and starts the WheelBri Helper service (`WheelBriHelper`,
@@ -725,8 +776,11 @@ rewrites on every build only when it changes); views keep their own top-row cont
   Settings > Apps' `InstallLocation`; deletes it only when it holds `wheelbri.exe` and no `install.ps1`, i.e. never a
   package; runs from a copy in `%SystemRoot%\Temp\wheelbri-uninstall-<guid>` that only Administrators may change; from the package it cleans up an install whose folder is gone), `Setup.cmd`
   (Setup.exe's bootstrap: unzips and runs `install.ps1`, waiting for it), `README.txt` (for the end user). The
-  installed app runs the driver path by default (virtual G920, rig hidden on every Start; "G920 in-game shim" on
-  the Mapping tab switches); the shim ships in `shim\`. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
+  installed app runs the driver path by default (virtual wheel, rig hidden on every Start; Mode Shim on the Mapping
+  tab switches); the shim ships in `shim\` (64-bit) and `shim\x86\` (32-bit). Windows 11 (build 22000+) gets
+  everything; Windows 7 SP1 to 10 get the in-game shim way only (no drivers, no helper, no restart;
+  README, "Windows 7 to 10"), and `installer/win7/` (`download-prerequisites.cmd` / `.ps1`,
+  `install-prerequisites.cmd`: UCRT KB2999226, .NET 4.5.2, WMF 5.1) ships as `win7\` next to `Setup.cmd`. The package mirrors the repo layout (`driver\...\x64\Release\<name>\`), because the
   driver scripts and the app's `ensureHideFilter` look there. Only Windows' own tools: no third-party installer.
   When a new file must ship, add it to `package.ps1` and to the required list in `install.ps1`.
 - `scripts/`: `telemetry_summary.sh` (bash + awk, reads telemetry columns by name); `linux/` (`deck-setup.sh` makes the
@@ -741,11 +795,14 @@ rewrites on every build only when it changes); views keep their own top-row cont
   mod's `dinput8.dll`, the same rule as `ShimGames`), udev rules,
   `package.sh` bundle).
 - `config/`: `g920.ini`, `g25.ini`, `g27.ini`, `g923.ini` (service: the target and its default mapping, both modes),
-  `wheelbri-shim.ini` (shim).
-- `docs/`: `phase5-windows-virtual-device.md` (Phase 5 design and step 0 lessons), `linux.md` (Steam Deck guide),
-  `future-functionalities.md` (worked-out ideas not built yet: RS Handbrake, G29; and the standard-user test still to
-  do), `push-input-plan.md` (the service loop from polling to Windows' notifications: merged into main on 2026-10-07), `cpu-measurements.md` (measure.sh rounds: what was measured, the numbers and what they showed; add new rounds there).
-- `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` on Linux. Use fakes of the interfaces
+  `wheelbri-shim.ini` (shim), `games/*.ini` (game profiles, compiled in: `nfs2015`, `nfspayback`, `nfsunbound`).
+- `docs/`: `linux.md` (Steam Deck guide),
+  `games.md` (games played with WheelBri), `g25-target-plan.md`, `g27-target-plan.md`, `g923-target-plan.md` (each
+  target's design and what is unverified), `ghub-hidpp-plan.md` (the G923's HID++ for G HUB),
+  `future-functionalities.md` (worked-out ideas not built yet: RS Shifter & Handbrake, G29; and the standard-user
+  test still to do), `cpu-measurements.md` (measure.sh rounds: what was measured, the numbers and what they showed; add new rounds there).
+- `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` and `UhidLoopTest` on Linux, and
+  service code that needs no device (`ConfigPickerTest`, `ShimGamesViewTest`, `AppLogLevelTest`, `UiCanvasTest`). Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest` and `WaitSetTest` (the service's
   `platform::WaitSet` with loopback sockets, a pipe or an event), `FolderWatchTest` (inotify on a temporary folder),
   `DeviceWatchTest` (real thread, fake lister) and `HelperProbeTest` (real thread, fake check); linked when
@@ -818,11 +875,11 @@ rewrites on every build only when it changes); views keep their own top-row cont
     (aggregation, `EnumDevicesBySemantics`, `DllGetClassObject`, `EnumCreatedEffectObjects`) is logged
     with a warning on purpose.
 - FFB safety: rigs are often direct drive. Every force the service sends to hardware must go through
-  `FfbSafetyLimiter` (in `FfbController`, which also has a watchdog); keep the defaults conservative. A game that
-  crashes while using the virtual G920 sends nothing more and the driver cannot tell: `HidPid` stops keep-alives
-  after 10 s without a report while a pushing force (constant, ramp, periodic) plays, so the service's watchdog
-  stops it (springs and dampers keep going; the next report brings everything back)
-  (`max_magnitude` 0.8, slew limit). A condition whose dead band covers the whole travel is sent empty (the R3 drove
+  `FfbSafetyLimiter` (in `FfbController`, which also has a watchdog); keep the defaults conservative
+  (`max_magnitude` 0.8, `max_slew_per_second` 50, `frozen_force_s` 2: a push the game leaves unchanged that long fades out).
+  A game that crashes while using the virtual G920 sends nothing more and the driver cannot tell: `HidPid` stops
+  keep-alives after 10 s without a report while a pushing force (constant, ramp, periodic) plays, so the service's
+  watchdog stops it (springs and dampers keep going; the next report brings everything back). A condition whose dead band covers the whole travel is sent empty (the R3 drove
   itself to full lock with one), and a saturation of 0 (which the R3 reads as "no limit") gets the cap. Game effects reach the service as `FfbPacket`s (shim, driver or
   uhid). The only way around the limiter is the opt-in `force_feedback = passthrough` in `wheelbri-shim.ini`;
   keep it opt-in and don't add others.

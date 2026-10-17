@@ -1,7 +1,12 @@
 # The Logitech G923 (Xbox One and PC) as a target
 
-Status: built (2026-10-15), not yet tried in a game. Pick **Target < G923 >** on the Mapping tab; Mode Virtual or
-Shim works as for the other targets. What is still unverified, and how to check it, is under "Unverified".
+Status: built (2026-10-15) for the shim, the Windows virtual device and Linux `wheelbri-uhid`, unit-tested; **not yet
+tried in a game**, nor under Proton. Since then the virtual G923 also answers G HUB's HID++ (2026-10-16), reports
+unsigned axes (2026-10-16) and, on Windows, its pedals in Logitech's HID layout with DirectInput axis entries that keep
+games reading brake Rz and clutch Slider (2026-10-17): `docs/ghub-hidpp-plan.md`. G HUB saw it once (2026-10-16,
+before the axis and pedal changes); none of the later changes has been tried. Pick **Target G923** on the Mapping tab
+(the arrows go round G25, G27, G920, G923); Mode Virtual or Shim works as for the other targets. Open: the order of
+Plus, Minus and the dial, a first game, the pedals in games and G HUB. Details under "Unverified".
 
 ## Why
 
@@ -45,14 +50,20 @@ The same machinery as the G27 (docs/g27-target-plan.md):
 
 - **Profile**: `g923Spec()` (`core/src/DeviceProfile.cpp`, `makeProfile("g923")`, `target_profile = g923`): the
   G920's (axes, ranges, first 19 buttons) with 046D:C26E, "Logitech G923 Racing Wheel for Xbox One and PC" and 24
-  buttons (`kG923Buttons`). The Mapping tab groups them: FACE, PADDLES, PLUS MINUS on the left; STICKS, SYSTEM, DIAL
-  on the right; the SHIFTER below.
+  buttons (`kG923Buttons`); since 2026-10-16 its virtual device's axes are unsigned (`VirtualWheel::unsignedAxes`, for
+  G HUB; DirectInput scales either range the same). The Mapping tab groups them: FACE, PADDLES, PLUS MINUS on the
+  left; STICKS, SYSTEM, DIAL on the right; the SHIFTER below.
 - **Config**: `config/g923.ini`, both modes: the G920's default mapping; Plus, Minus and the dial unmapped.
-- **Mapping tab**: Target `< G920 | G25 | G27 | G923 >`, the arrows going round.
+- **Mapping tab**: Target `< G920 | G25 | G27 | G923 >` when built, the arrows going round; now in the order G25,
+  G27, G920, G923.
 - **Shim**: unchanged; it presents whatever `target_profile` says.
 - **Virtual device (Windows)**: the same driver; its INF binds `wheelbri\G923` too (reinstall the driver), and
   `VirtualWheel` has the G923's identity. The descriptor is the G920's with 24 buttons; the 6 bytes of the padding's
-  Input item become global items that change nothing, so the descriptor keeps its size.
+  Input item become global items that change nothing, so the descriptor keeps its size. Since 2026-10-16 it also
+  carries HID++'s reports 0x11 and 0x12 for G HUB, with its HID PID reports 0x10 higher; since 2026-10-17, on Windows,
+  its pedals are reported as a real Logitech wheel's (brake Z, clutch Rz) and the service writes DirectInput's
+  `OEM\VID_046D&PID_C26E\Axes` entries while it runs so games still read brake Rz and clutch Slider; the uninstaller
+  and clean-pc remove only the entries WheelBri marked (`docs/ghub-hidpp-plan.md`).
 - **Virtual device (Linux)**: `wheelbri-uhid --target g923`, on the virtual bus like the G25 and G27
   (`0006:046D:C26E`): Proton's axis hack is for the G920's ids only, and on the virtual bus `hid-logitech-hidpp`
   (which matches C26E on USB) does not look at it. Proton games with `PROTON_ENABLE_HIDRAW=0x046D/0xC26E`
@@ -66,6 +77,8 @@ The same machinery as the G27 (docs/g27-target-plan.md):
 - That games accept the virtual G923 as a G923 and offer their preset; some may look for Logitech's own software or
   TrueForce and treat it as a plain wheel.
 - Its force feedback in a G923-aware game (through HID PID / the shim).
+- With Mode Virtual on Windows: that games still read brake and clutch right through the DirectInput axis entries
+  (joy.cpl: brake on Z Rotation, clutch on the slider), and that G HUB shows the dial and pedals right.
 
 ## Sources
 

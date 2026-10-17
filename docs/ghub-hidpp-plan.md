@@ -1,7 +1,11 @@
 # The virtual G923 in Logitech G HUB (HID++)
 
-Status: built (2026-10-16) for the G923 target only, unit-tested, **not yet tried with G HUB**. Games are not meant to
-notice any of it.
+Status: built for the G923 target only (Windows driver and `wheelbri-uhid`), unit-tested (`HidPpTest`,
+`VirtualWheelTest`, `UhidG920Test`). HID++ was tried once with G HUB on Windows (2026-10-16, "What G HUB did" below):
+G HUB took the wheel as ACTIVE. Built after that try and **not yet tried**: unsigned axes (the dial fix, 2026-10-16)
+and Logitech's pedal layout with DirectInput axis entries (2026-10-17). Open: whether G HUB's dial and pedals are right
+now and games still read the pedals right, more HID++ features, who wins for G HUB's force feedback, HID++ effects
+(listed under "What is open"). Games are not meant to notice any of it.
 
 ## Why G HUB shows it "Inactive"
 
