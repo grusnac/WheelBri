@@ -90,6 +90,13 @@ ShimConfig load(const logging::Logger& log) {
             }
         }
     };
+    if (const auto v = value("game_axes")) {
+        if (*v == "wheelbri") {
+            config.gameAxesFromApp = true;
+        } else {
+            problems.push_back("game_axes = '" + *v + "': only the app writes it (wheelbri)");
+        }
+    }
     readAxis("throttle_axis", config.throttleAxis);
     readAxis("brake_axis", config.brakeAxis);
     readAxis("clutch_axis", config.clutchAxis);
@@ -179,7 +186,11 @@ const ShimConfig& shimConfig() {
         wchar_t exe[MAX_PATH] = {};
         const DWORD length = GetModuleFileNameW(nullptr, exe, MAX_PATH);
         const GameProfile* const game = length > 0 && length < MAX_PATH ? gameProfileFor(toUtf8(exe)) : nullptr;
-        if (game != nullptr && !profileFitsTarget(*game, config.targetProfile)) {
+        if (game != nullptr && config.gameAxesFromApp) {
+            WE_LOG_INFO(log, "game profile {} ({}): WheelBri wrote this game's pedal axes into wheelbri-shim.ini "
+                             "(game_axes = wheelbri), used as they are",
+                        game->id, game->label);
+        } else if (game != nullptr && !profileFitsTarget(*game, config.targetProfile)) {
             WE_LOG_INFO(log, "game profile {} ({}) is for the {}, the target is {}: not used", game->id, game->label,
                         game->target, config.targetProfile);
         } else if (game != nullptr) {

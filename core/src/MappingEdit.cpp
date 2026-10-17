@@ -9,6 +9,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <map>
 #include <set>
 #include <vector>
 
@@ -203,6 +204,7 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     model.gameRotations = config.gameRotations;
     model.gameSettings = config.gameSettings;
     model.gameFfbGains = config.gameFfbGains;
+    model.gameTunings = config.gameTunings;
     return model;
 }
 
@@ -323,6 +325,16 @@ std::string tuningProblem(const MappingModel& model) {
             return game + " gain: from " + tuning::formatNumber(kFfbGainMin) + " to " + tuning::formatNumber(kFfbGainMax);
         }
     }
+    for (const auto& [game, tuning] : model.gameTunings) {
+        // Every value as the config reader would take it back: written out and read again, it must come back the same.
+        GameTuning back;
+        for (const auto& [key, value] : tuningLines(tuning)) {
+            if (std::string problem = applyTuningKey(back, key, value, MapperConfig::kMaxTargetButtons);
+                !problem.empty()) {
+                return game + " " + key + ": " + problem;
+            }
+        }
+    }
     for (const auto& [game, values] : model.gameSettings) {
         for (const auto& [setting, value] : values) {
             if (!(value >= kGameSettingMin && value <= kGameSettingMax)) {
@@ -426,6 +438,30 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
         const std::optional<std::string> line = before.get("game_ffb_gain", game);
         const std::optional<float> current = line ? tuning::parseNumber(*line) : std::nullopt;
         if (!current || !same(*current, gain)) ini.set("game_ffb_gain", game, tuning::formatNumber(gain));
+    }
+    // [game_tuning]: one line per value the user set; a line no longer set goes.
+    {
+        std::map<std::string, std::string> lines;
+        for (const auto& [game, tuning] : model.gameTunings) {
+            for (auto& [key, value] : tuningLines(tuning)) lines[game + "." + key] = std::move(value);
+        }
+        if (const auto old = sections.find("game_tuning"); old != sections.end()) {
+            for (const auto& [key, value] : old->second) {
+                if (lines.count(key) == 0) ini.remove("game_tuning", key);
+            }
+        }
+        // A line that already says the same value (as "0.80" for 0.8) keeps its text.
+        const auto sameValue = [](const std::string& key, const std::string& line, const std::string& value) {
+            const std::size_t dot = key.find('.');
+            GameTuning read;
+            if (!applyTuningKey(read, key.substr(dot + 1), line, MapperConfig::kMaxTargetButtons).empty()) return false;
+            const auto back = tuningLines(read);
+            return back.size() == 1 && back.front().second == value;
+        };
+        for (const auto& [key, value] : lines) {
+            const std::optional<std::string> line = before.get("game_tuning", key);
+            if (!line || !sameValue(key, *line, value)) ini.set("game_tuning", key, value);
+        }
     }
     for (std::size_t i = 0; i < kAxisSections.size(); ++i) {
         ini.set(kAxisSections[i], "axis", formatSource(normal(model.axes[i])));

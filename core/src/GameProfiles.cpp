@@ -326,7 +326,7 @@ std::optional<WayAdvice> wayAdvice(const GameProfile& game, const bool shim) {
 }
 
 bool profileFitsTarget(const GameProfile& profile, const std::string_view targetProfile) {
-    return profile.target == lower(targetProfile);
+    return profile.target.empty() || profile.target == lower(targetProfile);   // empty: a game the user added
 }
 
 JoystickLayout overlay(JoystickLayout base, const GameProfile& profile) {

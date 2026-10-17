@@ -38,7 +38,8 @@ bool Pipeline::tick(const std::uint64_t nowNs) {
         }
     }
     inputChanged_ = !(inputs_ == previous);
-    state_ = mapper_.map(inputs_);
+    const Mapper* const game = gameMapper();
+    state_ = (game != nullptr ? *game : mapper_).map(inputs_);
     report_ = profile_.encode(state_);
     packet_.report = applyPedalRoute(report_, pedalRoute());
     if (!gate_ || gate_->shouldSend(packet_.report, nowNs)) {

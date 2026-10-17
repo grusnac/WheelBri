@@ -897,5 +897,123 @@ TEST(FfbFrozenPush, AClockGoingBackIsNoFreeze) {
     EXPECT_EQ(controller.frozenFade(), 1.0F);
 }
 
+// A game's own values (GameTuning.hpp): each kind of effect times its own gain, conditions too, all still capped.
+TEST(FfbController, GameTuningScalesEachKindOfEffect) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());   // gain 1, cap 0.5, fast slew
+    std::array<float, kFfbGroupCount> gains{};
+    gains.fill(1.0F);
+    gains[static_cast<std::size_t>(FfbGroup::Constant)] = 2.0F;
+    gains[static_cast<std::size_t>(FfbGroup::Periodic)] = 0.0F;   // vibration off
+    gains[static_cast<std::size_t>(FfbGroup::Damper)] = 4.0F;
+    controller.setGameTuning(gains, safety(), false, true);
+    FfbEffect push;
+    push.constantLevel = 0.1F;
+    FfbEffect rumble;
+    rumble.type = FfbEffectType::Sine;
+    rumble.periodic.magnitude = 0.2F;
+    rumble.periodic.periodMs = 50.0F;
+    FfbEffect damper;
+    damper.type = FfbEffectType::Damper;
+    damper.condition.positiveCoefficient = 0.1F;
+    damper.condition.negativeCoefficient = 0.1F;
+    damper.condition.positiveSaturation = 1.0F;
+    damper.condition.negativeSaturation = 1.0F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.onPacket(slotPacket(1, true, rumble), 0);
+    controller.onPacket(slotPacket(2, true, damper), 0);
+    controller.update(0);
+    controller.update(100 * kMs);
+    EXPECT_NEAR(controller.slot(0).sent->constantLevel, 0.2F, 1e-4F);
+    EXPECT_NEAR(controller.slot(1).sent->periodic.magnitude, 0.0F, 1e-6F);
+    EXPECT_NEAR(controller.slot(2).sent->condition.positiveCoefficient, 0.4F, 1e-4F);
+    // Four times a strong damper: the limiter's cap still holds.
+    damper.condition.positiveCoefficient = 0.9F;
+    damper.condition.negativeCoefficient = 0.9F;
+    controller.onPacket(slotPacket(2, true, damper), 110 * kMs);
+    controller.update(200 * kMs);
+    EXPECT_LE(controller.slot(2).sent->condition.positiveCoefficient, 1.0F);
+    EXPECT_LE(controller.slot(2).sent->condition.positiveSaturation, 0.5F + 1e-5F);   // the force: at most the cap
+    EXPECT_LE(std::abs(controller.slot(0).sent->constantLevel), 0.5F);
+}
+
+// The limits only go down: a cap above the mapping's (or not a number) is the mapping's; a lower one holds.
+TEST(FfbController, GameTuningNeverRaisesTheLimits) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());   // cap 0.5
+    std::array<float, kFfbGroupCount> gains{};
+    gains.fill(1.0F);
+    FfbSafetyConfig wanted = safety();
+    wanted.maxMagnitude = 1.0F;
+    wanted.maxSlewPerSecond = 1e9F;
+    controller.setGameTuning(gains, wanted, false, true);
+    EXPECT_FLOAT_EQ(controller.safety().maxMagnitude, 0.5F);
+    EXPECT_FLOAT_EQ(controller.safety().maxSlewPerSecond, 1000.0F);
+    wanted.maxMagnitude = std::numeric_limits<float>::quiet_NaN();
+    wanted.masterGain = std::numeric_limits<float>::quiet_NaN();
+    controller.setGameTuning(gains, wanted, false, true);
+    EXPECT_FLOAT_EQ(controller.safety().maxMagnitude, 0.5F);
+    EXPECT_FLOAT_EQ(controller.safety().masterGain, 1.0F);
+    FfbEffect push;
+    push.constantLevel = 0.9F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.update(0);
+    controller.update(100 * kMs);
+    EXPECT_FLOAT_EQ(controller.slot(0).sent->constantLevel, 0.5F);
+    wanted.maxMagnitude = 0.25F;   // lower: holds
+    wanted.masterGain = 1.0F;
+    controller.setGameTuning(gains, wanted, false, true);
+    controller.update(200 * kMs);
+    EXPECT_FLOAT_EQ(controller.slot(0).sent->constantLevel, 0.25F);
+    // Gains out of range are clamped to 0..4 (NaN: as asked).
+    gains[0] = 99.0F;
+    gains[1] = std::numeric_limits<float>::quiet_NaN();
+    controller.setGameTuning(gains, wanted, false, true);
+    EXPECT_FLOAT_EQ(controller.groupGains()[0], kGameEffectGainMax);
+    EXPECT_FLOAT_EQ(controller.groupGains()[1], 1.0F);
+}
+
+// Turned the other way: pushes, offsets and a spring's centre flip; effects off stops everything and on brings back
+// what the game still wants.
+TEST(FfbController, GameTuningFlipsAndTurnsOff) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());
+    std::array<float, kFfbGroupCount> gains{};
+    gains.fill(1.0F);
+    FfbEffect push;
+    push.constantLevel = 0.2F;
+    FfbEffect spring;
+    spring.type = FfbEffectType::Spring;
+    spring.condition.center = 0.1F;
+    spring.condition.positiveCoefficient = 0.3F;
+    spring.condition.negativeCoefficient = 0.1F;
+    spring.condition.positiveSaturation = 0.4F;
+    spring.condition.negativeSaturation = 0.2F;
+    controller.setGameTuning(gains, safety(), true, true);
+    EXPECT_TRUE(controller.flipped());
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.onPacket(slotPacket(1, true, spring), 0);
+    controller.update(0);
+    controller.update(100 * kMs);
+    EXPECT_NEAR(controller.slot(0).sent->constantLevel, -0.2F, 1e-4F);
+    EXPECT_NEAR(controller.slot(1).sent->condition.center, -0.1F, 1e-4F);
+    EXPECT_NEAR(controller.slot(1).sent->condition.positiveCoefficient, 0.1F, 1e-4F);
+    EXPECT_NEAR(controller.slot(1).sent->condition.negativeCoefficient, 0.3F, 1e-4F);
+
+    controller.setGameTuning(gains, safety(), false, false);
+    controller.update(200 * kMs);
+    EXPECT_FALSE(controller.slot(0).playing);
+    EXPECT_FALSE(controller.slot(1).playing);
+    EXPECT_TRUE(controller.slot(0).wanted);   // the game still wants it
+    FfbPacket keepAlive;
+    keepAlive.kind = FfbPacket::Kind::KeepAlive;
+    controller.onPacket(keepAlive, 250 * kMs);
+    controller.setGameTuning(gains, safety(), false, true);
+    controller.update(300 * kMs);
+    EXPECT_TRUE(controller.slot(0).playing);
+    controller.update(400 * kMs);   // a restarted push ramps up from 0, as a new one does
+    EXPECT_NEAR(controller.slot(0).sent->constantLevel, 0.2F, 1e-4F);
+}
+
 }  // namespace
 }  // namespace wheelbri

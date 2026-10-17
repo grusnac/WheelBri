@@ -204,7 +204,7 @@ void readPedal(const IniDocument& ini, const std::string& section, PedalConfig& 
 
 }  // namespace
 
-EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
+EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<const GameProfile> userGames) {
     EmulatorConfigResult result;
     EmulatorConfig& config = result.config;
     std::vector<std::string>& errors = result.errors;
@@ -343,6 +343,28 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         }
     }
 
+    // [game_tuning] <game id>.<key> = value (GameTuning.hpp).
+    for (const auto& [section, keys] : ini.sections()) {
+        if (section != "game_tuning") continue;
+        for (const auto& [key, value] : keys) {
+            const std::size_t dot = key.find('.');
+            const std::string gameId = key.substr(0, dot);
+            bool known = false;
+            for (const GameProfile& game : gameProfiles()) known = known || game.id == gameId;
+            for (const GameProfile& game : userGames) known = known || game.id == gameId;
+            if (!known || dot == std::string::npos) {
+                errors.push_back("[game_tuning] " + key + ": no game " + gameId +
+                                 " (expected <game>.<key>, e.g. nfsunbound.ffb_spring)");
+                continue;
+            }
+            GameTuning& tuning = config.gameTunings[gameId];
+            const std::string problem =
+                applyTuningKey(tuning, key.substr(dot + 1), value, MapperConfig::kMaxTargetButtons);
+            if (!problem.empty()) errors.push_back("[game_tuning] " + key + " = '" + value + "': " + problem);
+            if (tuning.empty()) config.gameTunings.erase(gameId);
+        }
+    }
+
     if (config.ffbPort == config.statePort) {
         errors.push_back("[emulator] ffb_port must differ from state_port");
         config.ffbPort = kDefaultFfbPort;
@@ -402,7 +424,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
                                                          "brake",    "clutch",        "buttons",     "button_labels",
                                                          "axis_labels", "hat",        "ffb",         "logging",
                                                          "telemetry", "retention",    "game_rotation",
-                                                         "game_settings", "game_ffb_gain"};
+                                                         "game_settings", "game_ffb_gain", "game_tuning"};
     for (const auto& [section, keys] : ini.sections()) {
         if (kKnownSections.count(section) == 0) {
             errors.push_back("unknown section [" + section + "]");

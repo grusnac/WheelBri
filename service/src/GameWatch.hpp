@@ -5,6 +5,7 @@
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameRotation.hpp"
 #include "wheelbri/GameSettings.hpp"
+#include "wheelbri/GameTuning.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -13,6 +14,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace wheelbri::service {
 
@@ -30,20 +32,32 @@ namespace wheelbri::service {
 // written here: the user saves them into the game's file from the Game profiles tab (Save to file).
 // For the app's Game profiles tab it also says which game runs (live: profile id, pid, since when, how many starts).
 // Called from the session's window thread every 2 s (a few milliseconds; never on the service loop); not thread-safe.
+// The games the user added (GameTuning.hpp, parseUserGames) from games.ini in the user's settings folder; its problems
+// are logged. Empty when there is no file.
+[[nodiscard]] std::vector<GameProfile> loadUserGames();
+
 class GameWatch {
 public:
     // `routePedals`: the session publishes to the virtual G920 or wheelbri-uhid (the service applies profiles); false
     // for the in-game shim (the shim does). `mapping`: the session's own rotation in degrees ([steering]);
     // `overrides`: the user's per-game rotations ([game_rotation]). Logs the built-in profiles' problems, if any.
-    GameWatch(std::string_view targetProfile, bool routePedals, float mapping, GameRotations overrides,
-              GameFfbGains gains = {});
+    // `session`: the target, the way, the mapping's [ffb] and the user's per-game values (GameTuning.hpp);
+    // `userGames`: the games the user added (games.ini), followed like the built-in profiles.
+    GameWatch(GameSessionConfig session, float mapping, GameRotations overrides, std::vector<GameProfile> userGames);
 
     struct Decision {
         PedalRoute route;           // Pipeline::setPedalRoute
-        float ffbGain = 1.0F;       // FfbController::setGameGain: 1 = the game's forces as it asks
+        GameFfb ffb;                // FfbController::setGameTuning: the mapping's [ffb] with the game's laid over it
+        // The game whose own mapping (pedal invert / curve, buttons) the pipeline should use; empty: the mapping's.
+        std::string mapperGame;
+        const GameTuning* tuning = nullptr;   // its values (owned by this GameWatch), when mapperGame is set
     };
     // One look: what the pipeline should use now.
     Decision check();
+    // The user changed the per-game values while the session runs (the Game profiles tab saves them as they change):
+    // the next check() uses them. `tunings`: [game_tuning]; `overrides`: [game_rotation]; `legacyGains`:
+    // [game_ffb_gain].
+    void setValues(GameTunings tunings, GameRotations overrides, GameFfbGains legacyGains);
 
     // For the window's status, after "Running 1:23, ": the profile's label ("NFS 2015") while it is in use, else empty.
     [[nodiscard]] std::string status() const;
@@ -60,11 +74,12 @@ public:
 
     // For the app's Game profiles tab: the game followed now, while its profile is in use.
     struct Live {
-        std::string id;              // its profile's id; empty: none
+        std::string id;              // its id (a built-in profile's or a game the user added); empty: none
         std::uint32_t pid = 0;
         std::uint64_t sinceMs = 0;   // platform::nowMs() when it started being followed
         std::uint64_t starts = 0;    // profiled games started (followed) this session: the tab follows each new one
         float ffbGain = 1.0F;        // the gain in use for it
+        bool profileApplies = false; // its built-in profile is in use (it fits the target)
     };
     [[nodiscard]] Live live() const;
 
@@ -78,6 +93,8 @@ private:
     void sayFfbGain();
     [[nodiscard]] std::string describeFollowed() const;
 
+    GameSessionConfig session_;
+    std::vector<GameProfile> games_;   // the built-in profiles, then the user's games: what detector_ follows
     GameDetector detector_;
     std::string target_;
     bool routePedals_;
@@ -85,7 +102,7 @@ private:
     GameRotations overrides_;
     std::optional<float> applied_;              // what the last check() said
     float ffbGain_ = 1.0F;                      // the same for the force feedback gain
-    GameFfbGains ffbGains_;                     // the user's [game_ffb_gain]
+    std::string tunedGame_;                     // the game whose own values were said in the log last
     std::uint64_t starts_ = 0;                                 // Live::starts
     std::uint64_t followedSinceMs_ = 0;                        // Live::sinceMs
     const GameProfile* unroutable_ = nullptr;   // a profile the device cannot apply, said once

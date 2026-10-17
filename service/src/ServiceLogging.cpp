@@ -97,6 +97,8 @@ std::string defaultLogFile() {
 #endif
 }
 
+std::filesystem::path userGamesFile() { return appStateFile().parent_path() / "games.ini"; }
+
 std::filesystem::path userSettingsFolder() {
 #if defined(_WIN32)
     return envPath("LOCALAPPDATA") / "wheelbri";

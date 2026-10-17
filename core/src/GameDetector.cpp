@@ -36,7 +36,7 @@ void GameDetector::follow(const RunningGame* const running) {
         state_.pid = running->pid;
         state_.program = running->program;
     }
-    state_.profileApplies = state_.game != nullptr && state_.game->target == target_;
+    state_.profileApplies = state_.game != nullptr && profileFitsTarget(*state_.game, target_);
 }
 
 GameDetector::Update GameDetector::poll(const std::optional<std::vector<RunningProgram>>& programs) {

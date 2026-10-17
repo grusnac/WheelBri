@@ -233,5 +233,29 @@ TEST(Pipeline, AccessorySlotsWithGapsAreSkipped) {
     EXPECT_EQ(pipeline.lastInputs().devices[1], RawInputState{});
 }
 
+// A game's own mapping (GameTuning.hpp, tunedMapper) is used while it is set, then the mapping's again.
+TEST(Pipeline, GameMapperIsUsedWhileSet) {
+    FakeSource source;
+    RecordingPublisher publisher;
+    MapperConfig config;
+    config.throttle.sourceAxis = 1;
+    const Mapper mapper(config);
+    MapperConfig inverted = config;
+    inverted.throttle.invert = true;
+    const Mapper game(inverted);
+    const DeviceProfile profile(g920Spec());
+    Pipeline pipeline(source, mapper, profile, publisher);
+    source.next.axes[1] = 1.0F;   // pressed for the mapping, released for the game's
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FLOAT_EQ(pipeline.lastState().throttle, 1.0F);
+    pipeline.setGameMapper(&game);
+    EXPECT_EQ(pipeline.gameMapper(), &game);
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FLOAT_EQ(pipeline.lastState().throttle, 0.0F);
+    pipeline.setGameMapper(nullptr);
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FLOAT_EQ(pipeline.lastState().throttle, 1.0F);
+}
+
 }  // namespace
 }  // namespace wheelbri

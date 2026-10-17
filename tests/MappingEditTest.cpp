@@ -445,3 +445,41 @@ TEST(MappingEdit, UnreadableLinesAreWrittenAgain) {
     // One button ref given straight, with spaces around it (the list reader trims them first).
     EXPECT_EQ(parseButtonRef("  5  "), (ButtonRef{{{}, 5}, false, false, 0.5F}));
 }
+
+// [game_tuning]: the user's values are written one line each, an unchanged line keeps its text ("0.80" for 0.8), a value
+// no longer set loses its line, and writing again changes nothing.
+TEST(MappingEdit, WritesGameTuning) {
+    const std::string base = kConfig + "[game_tuning]\r\nnfsunbound.ffb_spring = 0.80   ; mine\r\n"
+                                       "nfs2015.brake_invert = true\r\n";
+    const auto parsed = IniDocument::parse(base);
+    ASSERT_TRUE(parsed.errors.empty());
+    MappingModel model = mappingModel(loadEmulatorConfig(parsed.document).config);
+    ASSERT_EQ(model.gameTunings.size(), 2U);
+    model.gameTunings.erase("nfs2015");
+    GameTuning& unbound = model.gameTunings["nfsunbound"];
+    unbound.ffbGains[static_cast<std::size_t>(FfbGroup::Constant)] = 3.0F;
+    unbound.ffbCap = 0.6F;
+    unbound.buttons[4] = {{}, 13};
+    const MappingWriteResult written = writeMapping(base, model);
+    ASSERT_TRUE(written.error.empty()) << written.error;
+    const std::string& text = written.text;
+    EXPECT_NE(text.find("nfsunbound.ffb_spring = 0.80   ; mine\r\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.ffb_constant = 3"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.ffb_cap = 0.6"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.button_4 = 13"), std::string::npos) << text;
+    EXPECT_EQ(text.find("nfs2015.brake_invert"), std::string::npos) << text;
+    EXPECT_EQ(writeMapping(text, model).text, text);
+    const auto again = IniDocument::parse(text);
+    EXPECT_EQ(mappingModel(loadEmulatorConfig(again.document).config).gameTunings, model.gameTunings);
+}
+
+// tuningProblem refuses a value the config reader would refuse (NaN, out of range), so Save never writes one.
+TEST(MappingEdit, RefusesBadGameTuning) {
+    MappingModel model = mappingModel(load(kConfig));
+    model.gameTunings["nfs2015"].ffbGains[0] = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_FALSE(tuningProblem(model).empty());
+    model.gameTunings["nfs2015"].ffbGains[0] = 4.5F;
+    EXPECT_NE(tuningProblem(model).find("nfs2015 ffb_constant"), std::string::npos) << tuningProblem(model);
+    model.gameTunings["nfs2015"].ffbGains[0] = 2.0F;
+    EXPECT_EQ(tuningProblem(model), "");
+}

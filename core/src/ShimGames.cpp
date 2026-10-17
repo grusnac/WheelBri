@@ -313,6 +313,69 @@ ShimResult setShimTarget(const std::filesystem::path& folder, const std::string&
     return result;
 }
 
+ShimResult setShimGameAxes(const std::filesystem::path& folder, const std::optional<JoystickLayout>& axes) {
+    ShimResult result;
+    if (axes && !isValid(*axes)) {
+        result.error = "two pedals on one axis, a pedal on x (the wheel), or the throttle or brake on none";
+        return result;
+    }
+    std::error_code ec;
+    if (folder.empty() || !std::filesystem::is_directory(folder, ec)) {
+        result.error = "the game folder " + pathToUtf8(folder) + " is not there";
+        return result;
+    }
+    const std::filesystem::path file = folder / kShimSettings;
+    if (std::filesystem::is_directory(file, ec)) {
+        result.error = pathToUtf8(file) + " is a folder, not the shim's settings";
+        return result;
+    }
+    const std::optional<std::string> text = regularFile(file) ? readFileText(file) : std::optional<std::string>("");
+    if (!text) {
+        result.error = "cannot read " + pathToUtf8(file);
+        return result;
+    }
+    const IniDocument before = IniDocument::parse(*text).document;
+    const bool ours = before.get("shim", kShimGameAxesKey) == std::string(kShimGameAxesByWheelBri);
+    if (!axes && !ours) {
+        result.ok = true;   // nothing of ours there
+        return result;
+    }
+    IniEditor editor(*text);
+    if (axes) {
+        editor.set("shim", "throttle_axis", std::string(axisName(axes->throttle)));
+        editor.set("shim", "brake_axis", std::string(axisName(axes->brake)));
+        editor.set("shim", "clutch_axis", std::string(axisName(axes->clutch)));
+        editor.set("shim", kShimGameAxesKey, kShimGameAxesByWheelBri);
+    } else {
+        for (const char* key : {"throttle_axis", "brake_axis", "clutch_axis", kShimGameAxesKey}) {
+            editor.remove("shim", key);
+        }
+    }
+    if (editor.text() == *text) {
+        result.ok = true;
+        return result;
+    }
+    if (!writeFileReplacing(file, editor.text())) {
+        result.error = "cannot write " + pathToUtf8(file) + ": close the game and try again";
+        return result;
+    }
+    result.changed.push_back(pathToUtf8(file));
+    result.ok = true;
+    return result;
+}
+
+const GameProfile* gameInFolder(const std::filesystem::path& folder, const std::span<const GameProfile> games) {
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        const std::string name = programName(pathToUtf8(it->path().filename()));
+        for (const GameProfile& game : games) {
+            if (game.program == name) return &game;
+        }
+    }
+    return nullptr;
+}
+
 ShimResult removeShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll) {
     ShimResult result;
     const ShimState state = shimState(folder, sourceDll);

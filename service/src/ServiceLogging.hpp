@@ -25,6 +25,8 @@ namespace wheelbri::service {
 
 // The app's state file (which config is picked): app.ini in the folder above those two.
 [[nodiscard]] std::filesystem::path appStateFile();
+// The games the user added in the Game profiles tab (GameTuning.hpp): games.ini next to app.ini.
+[[nodiscard]] std::filesystem::path userGamesFile();
 
 // The games the in-game shim was put into (the app, target G920 in-game shim; ShimGames.hpp): shim-games.txt next
 // to app.ini, per user like every other setting.

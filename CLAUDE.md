@@ -365,7 +365,31 @@ rewrites on every build only when it changes); views keep their own top-row cont
     (`gameProfileProblems()`, logged by the service and the shim; `GameProfilesTest` fails on any). A game without a
     file is never named (nothing in the log or the window). `nfs2015.ini` (brake y, clutch rz, throttle slider),
     `nfspayback.ini` (`[steering]` 180) and `nfsunbound.ini` (`[ffb]` gain 3, `[game_settings]`) exist, all checked
-    with `g920` only. A profile may set the game's own settings (`[game_settings]` file / note / `<id> = <game's name> <0..1 | steering>`):
+    with `g920` only. The user's own values per game are core `GameTuning` (`[game_tuning] <game>.<key>` in the
+    mapping file: pedal axes the game reads, pedal invert / curve, force feedback strength, a gain per kind of effect
+    (`FfbGroup`: constant, periodic, spring, damper, friction, inertia, 0..4), cap and slew **lower only**, fade,
+    invert, game effects, per-game buttons; `resolveGameFfb` lays profile, `[game_ffb_gain]` and tuning in that order
+    and never raises a limit) and the games the user added (`parseUserGames`, `games.ini`, target empty = every
+    target). In a session (since round 2, 2026-10-18) core `decideGame` (pure, tested) gives `GameWatch` the pedal
+    route (the profile's layout, then the user's axes; the virtual device only), the resolved `GameFfb` (taken by
+    the loop with `try_lock`: `FfbController::setGameTuning`, per-kind gains, flip, effects on/off, limits lower
+    only) and, when the game changes pedal invert / curve or buttons, a per-game `Mapper` (`tunedMapper`, made on
+    the window thread, kept for the session, `Pipeline::setGameMapper`). Mode Shim: at Start the app writes the
+    game's axes into its `wheelbri-shim.ini` (`setShimGameAxes`, `game_axes = wheelbri`, and takes them out again;
+    the shim then skips its profile's pedal overlay). The Game profiles tab (round 3, `MappingEditView`) lists the
+    built-in profiles and the user's games (Add game: `platform::pickFile` for the .exe, writes `games.ini`; Remove
+    drops the game and its values) with sub-tabs Axes (rotation, the game's pedal axes with < >, pedal invert /
+    curve), Force feedback (strength, per-kind gains, cap / slew lower only, fade, flip, effects), Buttons (a per-game
+    source per target button: `Slot::GameButton` in the picker, nothing greyed) and Game file; every value has
+    Default and is saved as it changes. Live tuning (round 4): the page stays editable while a session runs
+    (`MappingEditView::editable`; Add / Remove game and Game file's Save stay locked); the session's window thread
+    watches the config file's write time and reads the per-game sections again (`GameWatch::setValues`, then a
+    check at once), so force feedback, pedal invert / curve, buttons (a new per-game `Mapper` per set of values) and
+    virtual-device pedal routes change while the game runs; Mode Shim's pedal axes wait for the next Start. The
+    Force feedback sub-tab shows per kind of effect the strongest asked and sent force (`GameNow::asked/sent`, from
+    the frame's `FfbController` slots). A session started on WheelBri's default mapping does not see the user's own
+    file (the page says so).
+    A profile may set the game's own settings (`[game_settings]` file / note / `<id> = <game's name> <0..1 | steering>`):
     core `GameSettings` (`gameSettingTexts`: the user's `[game_settings] <game>.<id>` value, else the profile's;
     "steering" = the game's steering rotation; `editFrostbiteSettings`: Frostbite `FBCHUNKS` files, each name found
     by its own entry's length fields, exactly once, only same-length values written, any problem = nothing written;

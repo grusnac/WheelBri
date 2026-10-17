@@ -64,7 +64,7 @@ struct GameProfile {
     std::string id;        // the file's name without .ini: "nfs2015"
     std::string label;     // [game] label, shown as it is in the window's status and the log: "NFS 2015"
     std::string program;   // the game's program file, lower case: "nfs16.exe"
-    std::string target;    // the target profile it was checked with, lower case: "g920"
+    std::string target;    // the target profile it was checked with, lower case: "g920"; empty: every target
     bool virtualDevice = true;   // [game] ways: it works with the virtual device
     bool shim = true;            //              and with the in-game shim
     std::string waysNote;        // [game] ways_note: why not the other way, in a sentence (set with ways only)
@@ -121,7 +121,8 @@ struct WayAdvice {
 };
 [[nodiscard]] std::optional<WayAdvice> wayAdvice(const GameProfile& game, bool shim);
 
-// True when the profile is for this target profile (any case).
+// True when the profile is for this target profile (any case), or for every target (a game the user added, whose
+// target is empty: GameTuning.hpp).
 [[nodiscard]] bool profileFitsTarget(const GameProfile& profile, std::string_view targetProfile);
 
 // The sieve: `base` with every pedal axis the profile sets put in its place; everything else as in `base`.

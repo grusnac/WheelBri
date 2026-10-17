@@ -6,9 +6,11 @@
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/GameSettings.hpp"
+#include "wheelbri/GameTuning.hpp"
 #include "wheelbri/MappingEdit.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -55,12 +57,18 @@ public:
     // What the running session says about games, for the Games page (UiFrame's game fields).
     struct GameNow {
         bool session = false;           // a session runs: games are looked for every 2 s
-        std::string id;                 // the profile in use now; empty: none runs
+        std::string id;                 // the known game running now; empty: none runs
+        bool profileApplies = false;    // its built-in profile is in use
         std::uint32_t pid = 0;
         std::uint64_t forMs = 0;
         std::string rotation;           // the rotation it steers with, when not the mapping's
         float ffbGain = 1.0F;
         std::string warning;
+        // The game's force feedback now, per kind of effect (GameTuning.hpp FfbGroup): the strongest it asks and what
+        // reaches the wheel (after the gains and the limits), 0..1. `ffbLive`: the session has force feedback.
+        bool ffbLive = false;
+        std::array<float, kFfbGroupCount> asked{};
+        std::array<float, kFfbGroupCount> sent{};
     };
     void setGameNow(GameNow now) { now_ = std::move(now); }
 
@@ -94,18 +102,30 @@ public:
     // A number field is being typed in: letters are not the window's shortcuts then, Escape stops typing.
     [[nodiscard]] bool editingText() const { return field_ != Field::None; }
     [[nodiscard]] bool dirty() const { return loaded_ && edit_ != saved_; }
+    // Can be edited now: anything while no session runs; the Game profiles page's values also while one does (the
+    // session reads them again when they are saved: live tuning).
+    [[nodiscard]] bool editable() const { return !locked_ || page_ == Page::Games; }
     // A popup (pick a source, the wheel) covers the tab: the window's own controls on it wait.
     [[nodiscard]] bool popupOpen() const { return mode_ != Mode::Idle; }
 
 private:
     enum class Mode { Idle, Pick, PickAlt };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
-    enum class Slot { Axis, Hat, Button };
+    // GameButton: a target button's source while the picked game runs (its own value, GameTuning.hpp).
+    enum class Slot { Axis, Hat, Button, GameButton };
     // A number field: the steering rotation, a game's own rotation (`fieldIndex_` = its gameProfiles() index; PerGame
     // in its Mapping section, GameSteering in its Game config: two places, one value), or
     // a game's own setting (`fieldIndex_` = game index * kMaxGameSettings + the setting's index), or a game's force
     // feedback gain (`fieldIndex_` = its gameProfiles() index).
-    enum class Field { None, Rotation, PerGame, GameSteering, GameSetting, FfbGain };
+    // Tuning: one of the picked game's own numbers (`fieldIndex_` = a TuningField).
+    enum class Field { None, Rotation, PerGame, GameSteering, GameSetting, FfbGain, Tuning };
+    // The numbers of a game's own values (GameTuning.hpp) that are typed in.
+    enum class TuningField : std::size_t {
+        ThrottleCurve, BrakeCurve, ClutchCurve, Strength, Constant, Periodic, Spring, Damper, Friction, Inertia, Cap,
+        Slew, Fade
+    };
+    // The Game profiles page's sub-tabs for the picked game.
+    enum class GameTab { Axes, Ffb, Buttons, File };
 
     struct Hit {
         float x, y, w, h;
@@ -192,8 +212,27 @@ private:
     // has none). No target: that is the Mapping tab's.
     float drawGameProfile(std::size_t index, float y);
     float drawGameMapping(std::size_t index, float y);
-    float drawGameFfb(std::size_t index, float y);
     float drawGameSettings(std::size_t index, float y);
+    // The sub-tabs' own parts: the pedal axes the game reads and the pedals' invert and curve (Axes), the force
+    // feedback (Ffb), the buttons (Buttons); each value with Default (back to the mapping's or the profile's).
+    float drawGamePedals(std::size_t index, float y);
+    float drawGameForces(std::size_t index, float y);
+    float drawGameButtons(std::size_t index, float y);
+    // The picked game's own values (created when one is set; dropped when none is left).
+    [[nodiscard]] const GameTuning* tuningOf(const std::string& id) const;
+    GameTuning& tuningFor(const std::string& id);
+    void dropEmptyTuning(const std::string& id);
+    [[nodiscard]] bool tuningChanged(const std::string& id) const;
+    // The force feedback the picked game gets now (shown values): the mapping's [ffb] with its profile and own values.
+    [[nodiscard]] GameFfb gameFfbOf(const GameProfile& game) const;
+    // Add game: the system's Open dialog for its .exe; Remove: one the user added (and its own values).
+    void addGame();
+    void removeGame(const std::string& id);
+    void reloadGames();
+    [[nodiscard]] bool userGame(const std::string& id) const;
+    // A picker's source for what is picked, and setting it (GameButton: the picked game's own value).
+    [[nodiscard]] SourceRef pickedSource() const;
+    void setPicked(const SourceRef& source);
     void gameSection(float y, const std::string& name, const std::string& about);
     // A game's settings file: the one the user located (Locate: kept in the app state as game_file.<id>), else the
     // profile's under Documents. As root + a relative path, for GameSettings' checks (no link, nothing outside root).
@@ -251,6 +290,7 @@ private:
     Slot pickKind_ = Slot::Axis;
     std::size_t pickIndex_ = 0;
     bool locked_ = false;
+    std::string sessionPath_;   // the config the running session was started with (path_ at setLocked(true))
     std::string status_;
     bool statusError_ = false;
 
@@ -263,6 +303,15 @@ private:
 
     Page page_ = Page::Mapping;
     std::string selectedGame_;   // the Games page's game (a profile id); empty: the first
+    GameTab gameTab_ = GameTab::Axes;
+    // The games the page lists: the built-in profiles, then the ones the user added (games.ini, userGames_).
+    std::vector<GameProfile> games_;
+    std::vector<GameProfile> userGames_;
+    // The mapping's own values the game's are laid over (read with it): [ffb], and each pedal's curve.
+    FfbSafetyConfig baseFfb_;
+    bool baseFfbInvert_ = false;
+    bool baseGameFfb_ = true;
+    std::array<float, 3> baseCurve_{1.0F, 1.0F, 1.0F};
     GameNow now_;
     // The picked game's settings file as last read (at most every 2 s, and when the game or the saved values change).
     std::optional<GameSettingsFileState> fileState_;

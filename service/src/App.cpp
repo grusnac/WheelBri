@@ -1,4 +1,5 @@
 #include "App.hpp"
+#include "GameWatch.hpp"
 #include "PrivilegedSteps.hpp"
 
 #include "ConfigPicker.hpp"
@@ -590,11 +591,23 @@ private:
             if (const auto frame = host_.latest()) {
                 now.session = true;
                 now.id = frame->gameId;
+                now.profileApplies = frame->gameProfileApplies;
                 now.pid = frame->gamePid;
                 now.forMs = frame->gameForMs;
                 now.rotation = frame->gameRotation;
                 now.ffbGain = frame->gameFfbGain;
                 now.warning = frame->gameWarning;
+                // What the game asks of each kind of effect and what reaches the wheel: the tab's live bars.
+                if (frame->ffb) {
+                    now.ffbLive = true;
+                    for (std::size_t i = 0; i < frame->ffb->slotCount(); ++i) {
+                        const FfbController::SlotView slot = frame->ffb->slot(i);
+                        if (!slot.playing || !slot.sent) continue;
+                        const auto g = static_cast<std::size_t>(ffbGroupOf(slot.requested.type));
+                        now.asked[g] = std::max(now.asked[g], std::min(1.0F, std::abs(ffbStrength(slot.requested))));
+                        now.sent[g] = std::max(now.sent[g], std::min(1.0F, std::abs(ffbStrength(*slot.sent))));
+                    }
+                }
                 // A game that does not work the way this session runs: told once per start, by Windows (seen over the
                 // game) and in the app (when the user comes back to it).
                 if (wayFollower_.onFrame(frame->gameWayNotices) && !frame->gameWayTitle.empty()) {
@@ -708,7 +721,7 @@ private:
         bool configRead = false;
         if (const std::string path = picker_->selected(); !path.empty()) {
             if (const auto text = readFileText(pathFromUtf8(path))) {
-                config = loadEmulatorConfig(IniDocument::parse(*text).document).config;
+                config = loadEmulatorConfig(IniDocument::parse(*text).document, loadUserGames()).config;
                 configRead = true;
             }
         }
@@ -759,6 +772,47 @@ private:
                 state_ == State::Starting || state_ == State::Running};
     }
 
+    // The in-game shim: the pedal axes of the picked game as the user set them for it (the Game profiles tab), over its
+    // profile's, written into its wheelbri-shim.ini; WheelBri's lines taken out again when the user set none.
+    bool shimGameAxes(std::string& error) {
+        EmulatorConfig config;
+        if (const std::string path = picker_->selected(); !path.empty()) {
+            if (const auto text = readFileText(pathFromUtf8(path))) {
+                config = loadEmulatorConfig(IniDocument::parse(*text).document, loadUserGames()).config;
+            }
+        }
+        std::vector<GameProfile> games(gameProfiles().begin(), gameProfiles().end());
+        for (GameProfile& game : loadUserGames()) games.push_back(std::move(game));
+        const std::filesystem::path folder = games_->selectedFolder();
+        const GameProfile* const game = gameInFolder(folder, games);
+        std::optional<JoystickLayout> axes;
+        const std::string target = picker_->profileName();
+        if (game != nullptr) {
+            const auto tuning = config.gameTunings.find(game->id);
+            if (tuning != config.gameTunings.end() &&
+                std::any_of(tuning->second.pedalAxes.begin(), tuning->second.pedalAxes.end(),
+                            [](const auto& axis) { return axis.has_value(); })) {
+                JoystickLayout layout = layoutFor(target, 0);
+                if (profileFitsTarget(*game, target)) layout = overlay(layout, *game);
+                axes = tunedLayout(layout, tuning->second);
+            }
+        }
+        const ShimResult result = setShimGameAxes(folder, axes);
+        if (!result.ok) {
+            error = "The pedal axes for " + games_->selectedName() + " could not be set: " + result.error + ".";
+            return false;
+        }
+        for (const std::string& file : result.changed) {
+            if (axes) {
+                WE_LOG_INFO(log(), "shim: {}'s pedal axes (your own for it): throttle {} brake {} clutch {} in {}",
+                            game->label, axisName(axes->throttle), axisName(axes->brake), axisName(axes->clutch), file);
+            } else {
+                WE_LOG_INFO(log(), "shim: WheelBri's pedal axes taken out of {} (none set for the game)", file);
+            }
+        }
+        return true;
+    }
+
     void start() {
         if (running() || popup_ || games_->panelOpen() || !rigReady()) return;
         // The in-game shim: the picked game must have it (put in, or replaced by a newer one, now).
@@ -766,6 +820,11 @@ private:
         if (shimTarget()) {
             std::string error;
             if (!games_->prepareStart(picker_->profileName(), error)) {
+                WE_LOG_WARN(log(), "Start: {}", error);
+                notice("Cannot start", error);
+                return;
+            }
+            if (!shimGameAxes(error)) {
                 WE_LOG_WARN(log(), "Start: {}", error);
                 notice("Cannot start", error);
                 return;

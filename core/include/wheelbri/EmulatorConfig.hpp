@@ -3,6 +3,7 @@
 #include "wheelbri/Ffb.hpp"
 #include "wheelbri/GameRotation.hpp"
 #include "wheelbri/GameSettings.hpp"
+#include "wheelbri/GameTuning.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LogConfig.hpp"
 #include "wheelbri/MapperConfig.hpp"
@@ -11,6 +12,7 @@
 #include "wheelbri/WheelState.hpp"
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -38,6 +40,9 @@ struct EmulatorConfig {
     // [game_ffb_gain] <profile id> = 0.25..4: the game's pushing forces times this while it runs, instead of its game
     // profile's [ffb] gain (GameSettings.hpp).
     GameFfbGains gameFfbGains;
+    // [game_tuning] <game id>.<key> = value: the user's own values per game (GameTuning.hpp), for a built-in profile
+    // or a game the user added.
+    GameTunings gameTunings;
     FfbSafetyConfig ffb;
     logging::LogConfig logging;
     TelemetryConfig telemetry;
@@ -49,6 +54,9 @@ struct EmulatorConfigResult {
     std::vector<std::string> errors;            // unknown keys and invalid values; defaults are kept for these
 };
 
-[[nodiscard]] EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini);
+// `userGames`: the games the user added (GameTuning.hpp's parseUserGames), which [game_tuning] may name besides the
+// built-in profiles.
+[[nodiscard]] EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini,
+                                                      std::span<const GameProfile> userGames = {});
 
 }  // namespace wheelbri

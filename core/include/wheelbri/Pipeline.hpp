@@ -44,6 +44,12 @@ public:
     }
 
 
+    // The mapping while a game with its own values runs (GameTuning.hpp, tunedMapper): used instead of the one given
+    // to the constructor until set back to null. Safe from another thread; the next tick uses it. The mapper must stay
+    // alive until the pipeline no longer ticks (the service keeps every one it made for the whole session).
+    void setGameMapper(const Mapper* mapper) { gameMapper_.store(mapper, std::memory_order_release); }
+    [[nodiscard]] const Mapper* gameMapper() const { return gameMapper_.load(std::memory_order_acquire); }
+
     // Returns false once the wheel or an accessory is gone (lostDevice() says which). `nowNs`: monotonic time, for
     // limitSending.
     bool tick(std::uint64_t nowNs = 0);
@@ -74,6 +80,7 @@ private:
     WheelState state_;
     TargetReport report_;
     StatePacket packet_;
+    std::atomic<const Mapper*> gameMapper_{nullptr};
     std::atomic<std::uint32_t> pedalRoute_{0x00020100U};   // PedalRoute packed: straight through
     std::uint64_t publishFailures_ = 0;
     std::optional<StateSendGate> gate_;

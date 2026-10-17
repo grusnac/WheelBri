@@ -27,6 +27,7 @@ add_executable(wheelbri_tests
     FileTextTest.cpp
     GameDetectorTest.cpp
     GameProfilesTest.cpp
+    GameTuningTest.cpp
     GameRotationTest.cpp
     GameSettingsTest.cpp
     GameTabTest.cpp

@@ -5,6 +5,7 @@
 #include "wheelbri/GameRotation.hpp"
 #include "wheelbri/MapperConfig.hpp"
 #include "wheelbri/Rig.hpp"
+#include "wheelbri/SourceRef.hpp"
 
 #include <array>
 #include <optional>
@@ -19,19 +20,7 @@
 // A session opens every accessory its sources name (MapperConfig::accessories, at most kMaxAccessories).
 namespace wheelbri {
 
-// A control on a device: `device` empty = the wheel. `index` is an axis or a button, kUnmapped for none.
-struct SourceRef {
-    DeviceId device;
-    int index = kUnmapped;
-
-    [[nodiscard]] bool mapped() const { return index >= 0; }
-    friend bool operator==(const SourceRef&, const SourceRef&) = default;
-};
-
-// "2", "-1" or "044f:b696/2" (hex ids, 1 to 4 digits each); nullopt if it is none of those.
-[[nodiscard]] std::optional<SourceRef> parseSource(std::string_view text);
-// The other way: "-1" for nothing, "2" on the wheel, "044f:b696/2" on an accessory.
-[[nodiscard]] std::string formatSource(const SourceRef& source);
+// SourceRef, parseSource and formatSource: SourceRef.hpp.
 // One of a target button's secondary sources ([buttons] target_N_or, MapperConfig::buttonSecondary): a button as
 // above, or an axis
 //   axis 5 > 50%                       the wheel's axis 5, pressed past half its travel
@@ -89,6 +78,8 @@ struct MappingModel {
     GameSettingOverrides gameSettings;
     // [game_ffb_gain]: the user's own force feedback gain per game; a game left out uses its profile's.
     GameFfbGains gameFfbGains;
+    // [game_tuning]: the user's own values per game (GameTuning.hpp); a game left out changes nothing.
+    GameTunings gameTunings;
 
     friend bool operator==(const MappingModel&, const MappingModel&) = default;
 };

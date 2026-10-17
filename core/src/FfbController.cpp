@@ -34,6 +34,16 @@ const char* typeName(const FfbEffectType type) {
 
 bool closeTo(const float a, const float b) { return std::abs(a - b) < 1e-3F; }
 
+std::uint64_t frozenNsFor(const float frozen) {
+    // Not a number: the default; negative: never.
+    const float seconds =
+        std::isfinite(frozen) ? std::clamp(frozen, 0.0F, 3600.0F) : FfbSafetyConfig{}.frozenForceSeconds;
+    return static_cast<std::uint64_t>(static_cast<double>(seconds) * 1e9);
+}
+
+// `wanted` lowered to `base` (and to the base when not a number): a game can only make the limits stricter.
+float lowered(const float wanted, const float base) { return std::isfinite(wanted) ? std::min(wanted, base) : base; }
+
 template <std::size_t... I>
 std::array<FfbSafetyLimiter, sizeof...(I)> makeLimiters(const FfbSafetyConfig& safety, std::index_sequence<I...>) {
     return {((void)I, FfbSafetyLimiter(safety))...};
@@ -43,15 +53,12 @@ std::array<FfbSafetyLimiter, sizeof...(I)> makeLimiters(const FfbSafetyConfig& s
 
 FfbController::FfbController(IFfbSink& sink, const FfbSafetyConfig& safety, const Timing timing)
     : sink_(sink),
+      baseSafety_(safety),
       safety_(safety),
       timing_(timing),
       limiters_(makeLimiters(safety, std::make_index_sequence<IFfbSink::kMaxSlots>{})),
       usage_(safety) {
-    const float frozen = safety.frozenForceSeconds;
-    // Not a number: the default; negative: never.
-    const float seconds =
-        std::isfinite(frozen) ? std::clamp(frozen, 0.0F, 3600.0F) : FfbSafetyConfig{}.frozenForceSeconds;
-    frozenNs_ = static_cast<std::uint64_t>(static_cast<double>(seconds) * 1e9);
+    frozenNs_ = frozenNsFor(safety.frozenForceSeconds);
 }
 
 bool FfbController::differs(const FfbEffect& a, const FfbEffect& b) {
@@ -173,6 +180,74 @@ FfbEffect FfbController::withGameGain(const FfbEffect& effect, const float gain)
     return out;
 }
 
+void FfbController::setGameTuning(const std::array<float, kFfbGroupCount>& gains, const FfbSafetyConfig& safety,
+                                  const bool flip, const bool effects) {
+    std::array<float, kFfbGroupCount> clamped{};
+    for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
+        clamped[g] = std::isfinite(gains[g]) ? std::clamp(gains[g], 0.0F, kGameEffectGainMax) : 1.0F;
+    }
+    FfbSafetyConfig next = baseSafety_;
+    next.masterGain = std::isfinite(safety.masterGain) ? std::clamp(safety.masterGain, 0.0F, 1.0F)
+                                                       : baseSafety_.masterGain;
+    next.maxMagnitude = std::max(0.0F, lowered(safety.maxMagnitude, baseSafety_.maxMagnitude));
+    next.maxSlewPerSecond = std::max(0.0F, lowered(safety.maxSlewPerSecond, baseSafety_.maxSlewPerSecond));
+    next.frozenForceSeconds = std::isfinite(safety.frozenForceSeconds) ? safety.frozenForceSeconds
+                                                                       : baseSafety_.frozenForceSeconds;
+    const bool limitsChanged = next.masterGain != safety_.masterGain || next.maxMagnitude != safety_.maxMagnitude ||
+                               next.maxSlewPerSecond != safety_.maxSlewPerSecond ||
+                               next.frozenForceSeconds != safety_.frozenForceSeconds;
+    if (!limitsChanged && clamped == groupGains_ && flip == flip_ && effects == effects_) return;
+    if (limitsChanged) {
+        safety_ = next;
+        for (FfbSafetyLimiter& limiter : limiters_) limiter.setConfig(safety_);
+        usage_.setSafety(safety_);
+        frozenNs_ = frozenNsFor(safety_.frozenForceSeconds);
+    }
+    WE_LOG_INFO(log(), "ffb: game tuning: constant {:.2f}, periodic {:.2f}, spring {:.2f}, damper {:.2f}, friction "
+                       "{:.2f}, inertia {:.2f}; strength {:.2f}, cap {:.2f}, slew {:.1f}/s, fade {:.1f} s{}{}",
+                clamped[0], clamped[1], clamped[2], clamped[3], clamped[4], clamped[5], safety_.masterGain,
+                safety_.maxMagnitude, safety_.maxSlewPerSecond, static_cast<double>(safety_.frozenForceSeconds),
+                flip ? ", turned the other way" : "", effects ? "" : ", the game's force feedback OFF");
+    groupGains_ = clamped;
+    flip_ = flip;
+    effects_ = effects;
+}
+
+FfbEffect FfbController::tuned(const FfbEffect& effect, const std::array<float, kFfbGroupCount>& gains,
+                               const float pushFade, const bool flip) {
+    FfbEffect out = effect;
+    const float gain = gains[static_cast<std::size_t>(ffbGroupOf(effect.type))];
+    switch (effect.type) {
+        case FfbEffectType::Constant:
+            out.constantLevel = effect.constantLevel * gain * pushFade;
+            if (flip) out.constantLevel = -out.constantLevel;
+            break;
+        case FfbEffectType::Sine:
+        case FfbEffectType::Square:
+        case FfbEffectType::Triangle:
+        case FfbEffectType::SawtoothUp:
+        case FfbEffectType::SawtoothDown:
+            out.periodic.magnitude = effect.periodic.magnitude * gain * pushFade;
+            out.periodic.offset = effect.periodic.offset * gain * pushFade;
+            if (flip) out.periodic.offset = -out.periodic.offset;
+            break;
+        case FfbEffectType::Spring:
+        case FfbEffectType::Damper:
+        case FfbEffectType::Friction:
+        case FfbEffectType::Inertia:
+            // Stronger or weaker resistance; the limiter still caps the coefficients.
+            out.condition.positiveCoefficient = effect.condition.positiveCoefficient * gain;
+            out.condition.negativeCoefficient = effect.condition.negativeCoefficient * gain;
+            if (flip) {
+                out.condition.center = -effect.condition.center;
+                std::swap(out.condition.positiveCoefficient, out.condition.negativeCoefficient);
+                std::swap(out.condition.positiveSaturation, out.condition.negativeSaturation);
+            }
+            break;
+    }
+    return out;
+}
+
 void FfbController::update(const std::uint64_t nowNs) {
     if (lastPacketNs_ && !watchdogTripped_ && nowNs - *lastPacketNs_ > timing_.watchdogNs) {
         watchdogTripped_ = true;
@@ -193,7 +268,9 @@ void FfbController::update(const std::uint64_t nowNs) {
     std::size_t active = 0;
     for (std::size_t i = 0; i < slots_.size(); ++i) {
         Slot& slot = slots_[i];
-        if (!slot.wanted) {
+        // The game's force feedback turned off for this game: nothing plays; the slots stay as the game left them,
+        // so turning it on again plays them.
+        if (!slot.wanted || !effects_) {
             if (slot.playing) {
                 sink_.stop(i);
                 slot.playing = false;
@@ -213,7 +290,10 @@ void FfbController::update(const std::uint64_t nowNs) {
         }
         const float dt = starting ? 0.0F : static_cast<float>(nowNs - slot.lastUpdateNs) / 1e9F;
         slot.lastUpdateNs = nowNs;
-        const FfbEffect limited = limiters_[i].apply(withGameGain(slot.requested, gameGain_ * fade), dt);
+        std::array<float, kFfbGroupCount> gains = groupGains_;
+        gains[static_cast<std::size_t>(FfbGroup::Constant)] *= gameGain_;
+        gains[static_cast<std::size_t>(FfbGroup::Periodic)] *= gameGain_;
+        const FfbEffect limited = limiters_[i].apply(tuned(slot.requested, gains, fade, flip_), dt);
         if (!starting && slot.lastSent && !differs(limited, *slot.lastSent)) {
             continue;
         }
@@ -248,7 +328,8 @@ float FfbController::frozenFadeAt(const std::uint64_t nowNs) {
     if (frozenNs_ > 0) {
         for (const Slot& slot : slots_) {
             if (!slot.wanted || slot.requested.type != FfbEffectType::Constant) continue;
-            const float push = std::abs(slot.requested.constantLevel * slot.requested.gain * gameGain_);
+            const float push = std::abs(slot.requested.constantLevel * slot.requested.gain * gameGain_ *
+                                        groupGains_[static_cast<std::size_t>(FfbGroup::Constant)]);
             if (!(push > kFrozenPushAbove) || nowNs < slot.pushSinceNs || nowNs - slot.pushSinceNs < frozenNs_) {
                 continue;
             }

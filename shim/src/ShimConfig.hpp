@@ -52,6 +52,9 @@ struct ShimConfig {
     std::optional<ObjectGuid> brakeAxis;
     std::optional<ObjectGuid> clutchAxis;
     bool invertPedals = false;
+    // [shim] game_axes = wheelbri: the app wrote the axes above for this game (its profile's and the user's own, the
+    // Game profiles tab; core ShimGames setShimGameAxes): the game's profile is not laid over them again.
+    bool gameAxesFromApp = false;
     // The game profile of the game the shim is in (gameProfiles(), never freed), when it has one for targetProfile and
     // its layout is valid; null otherwise.
     const GameProfile* gameProfile = nullptr;

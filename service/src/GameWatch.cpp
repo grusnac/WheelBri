@@ -1,6 +1,7 @@
 #include "GameWatch.hpp"
 
 #include "Platform.hpp"
+#include "ServiceLogging.hpp"
 
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/FileText.hpp"
@@ -42,10 +43,47 @@ std::string upper(const std::string_view text) {
 
 }  // namespace
 
-GameWatch::GameWatch(const std::string_view targetProfile, const bool routePedals, const float mapping,
-                     GameRotations overrides, GameFfbGains gains)
-    : detector_(targetProfile), target_(lower(targetProfile)), routePedals_(routePedals), mapping_(mapping),
-      overrides_(std::move(overrides)), ffbGains_(std::move(gains)), wayNotices_(!routePedals) {
+namespace {
+
+std::vector<GameProfile> allGames(std::vector<GameProfile> userGames) {
+    std::vector<GameProfile> games(gameProfiles().begin(), gameProfiles().end());
+    for (GameProfile& game : userGames) {
+        // A game the user added that has a built-in profile too is that profile (Add game refuses it; a hand edit).
+        bool known = false;
+        for (const GameProfile& builtIn : games) {
+            known = known || builtIn.program == game.program || builtIn.id == game.id;
+        }
+        if (known) {
+            WE_LOG_WARN(log(), "game: {} ({}) from games.ini has a built-in profile: the built-in one is used",
+                        game.label, game.program);
+        } else {
+            games.push_back(std::move(game));
+        }
+    }
+    return games;
+}
+
+}  // namespace
+
+std::vector<GameProfile> loadUserGames() {
+    const std::filesystem::path file = userGamesFile();
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(file, ec)) return {};
+    const std::optional<std::string> text = readFileText(file);
+    if (!text) {
+        WE_LOG_WARN(log(), "game: cannot read {}", pathToUtf8(file));
+        return {};
+    }
+    UserGamesResult result = parseUserGames(*text);
+    for (const std::string& problem : result.problems) WE_LOG_WARN(log(), "game: {}: {}", pathToUtf8(file), problem);
+    return std::move(result.games);
+}
+
+GameWatch::GameWatch(GameSessionConfig session, const float mapping, GameRotations overrides,
+                     std::vector<GameProfile> userGames)
+    : session_(std::move(session)), games_(allGames(std::move(userGames))),
+      detector_(session_.target, 2, games_), target_(lower(session_.target)), routePedals_(session_.routePedals),
+      mapping_(mapping), overrides_(std::move(overrides)), wayNotices_(!session_.routePedals) {
     for (const std::string& problem : gameProfileProblems()) {
         WE_LOG_ERROR(log(), "game profile {}: not used", problem);
     }
@@ -98,18 +136,27 @@ void GameWatch::sayRotation() {
 }
 
 void GameWatch::sayFfbGain() {
+    // The steering force's gain: what the Game profiles tab showed before per-kind gains.
     const GameDetector::State& state = detector_.state();
-    const float next =
-        state.game != nullptr && state.profileApplies ? gameFfbGain(*state.game, ffbGains_) : 1.0F;
+    const GameDecision decision = decideGame(state.game, state.profileApplies, session_);
+    const float next = decision.ffb.gains[static_cast<std::size_t>(FfbGroup::Constant)];
+    const std::string tuned = decision.tuning != nullptr ? state.game->id : std::string();
+    if (tuned != tunedGame_) {
+        if (!tuned.empty()) {
+            WE_LOG_INFO(log(), "game: {} plays with your own values for it (the Game profiles tab, [game_tuning])",
+                        state.game->label);
+        } else if (!tunedGame_.empty()) {
+            WE_LOG_INFO(log(), "game: the mapping's own values again");
+        }
+        tunedGame_ = tuned;
+    }
     if (next == ffbGain_) return;
-    if (next != 1.0F) {
-        const bool own = ffbGains_.count(state.game->id) != 0;
-        WE_LOG_INFO(log(), "game: {}'s force feedback {} times stronger while it runs ({}); the cap and the slew limit "
-                           "still apply, its springs and dampers stay as they are",
-                    state.game->label, tuning::formatNumber(next),
-                    own ? std::string("your mapping's [game_ffb_gain]") : state.game->ffbNote);
+    if (next != 1.0F && state.game != nullptr) {
+        WE_LOG_INFO(log(), "game: {}'s steering force {} times what it asks while it runs; the cap and the slew limit "
+                           "still apply",
+                    state.game->label, tuning::formatNumber(next));
     } else {
-        WE_LOG_INFO(log(), "game: the games' force feedback as they ask again");
+        WE_LOG_INFO(log(), "game: the games' steering force as they ask again");
     }
     ffbGain_ = next;
 }
@@ -119,8 +166,11 @@ GameWatch::Live GameWatch::live() const {
     live.starts = starts_;
     live.ffbGain = ffbGain_;
     const GameDetector::State& state = detector_.state();
-    if (state.game == nullptr || !state.profileApplies) return live;
+    // Any game WheelBri knows (a built-in profile, also one for another target, or one the user added): the Game
+    // profiles tab shows it running and its values can be changed while it runs.
+    if (state.game == nullptr) return live;
     live.id = state.game->id;
+    live.profileApplies = state.profileApplies;
     live.pid = state.pid;
     live.sinceMs = followedSinceMs_;
     return live;
@@ -136,7 +186,7 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
         switch (event) {
             case GameDetector::Event::Started:
                 followedSinceMs_ = platform::nowMs();
-                if (state.profileApplies) ++starts_;
+                ++starts_;
                 WE_LOG_INFO(log(), "game: {} started: {}", state.game->label, describeFollowed());
                 break;
             case GameDetector::Event::Ended:
@@ -144,7 +194,7 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
                 break;
             case GameDetector::Event::Switched:
                 followedSinceMs_ = platform::nowMs();
-                if (state.profileApplies) ++starts_;
+                ++starts_;
                 WE_LOG_INFO(log(), "game: {} ended, {} runs: {}", update.previous->label, state.game->label,
                             describeFollowed());
                 break;
@@ -179,6 +229,12 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
     }
 }
 
+void GameWatch::setValues(GameTunings tunings, GameRotations overrides, GameFfbGains legacyGains) {
+    session_.tunings = std::move(tunings);
+    session_.legacyGains = std::move(legacyGains);
+    overrides_ = std::move(overrides);
+}
+
 GameWatch::Decision GameWatch::check() {
     const GameDetector::Update update = detector_.poll(platform::runningPrograms());
     logEvents(update);
@@ -191,20 +247,15 @@ GameWatch::Decision GameWatch::check() {
     const GameDetector::State& state = detector_.state();
     const bool active = state.game != nullptr && state.profileApplies;
 
-    PedalRoute route;   // straight through
-    if (active && routePedals_) {
-        const JoystickLayout device = layoutFor(target_, 0);
-        if (const std::optional<PedalRoute> routed = routePedals(device, overlay(device, *state.game))) {
-            route = *routed;
-            unroutable_ = nullptr;
-        } else if (unroutable_ != state.game) {
-            unroutable_ = state.game;
-            WE_LOG_ERROR(log(), "game profile {} ({}) cannot be applied to the virtual {}: its pedal axes are not the "
-                                "device's (y, rz, slider); pedals left as they are",
-                         state.game->id, describeOverlay(*state.game), target_);
-        }
+    const GameDecision decision = decideGame(state.game, state.profileApplies, session_);
+    if (!decision.unroutable) {
+        unroutable_ = nullptr;
+    } else if (unroutable_ != state.game && state.game != nullptr) {
+        unroutable_ = state.game;
+        WE_LOG_ERROR(log(), "game {} cannot have its pedal axes on the virtual {}: they must be the device's (y, rz, "
+                            "slider), each once; pedals left as they are",
+                     state.game->label, target_);
     }
-
     if (active && state.game->id == "nfs2015") {
         checkNfs2015Bindings();
     } else {
@@ -213,7 +264,14 @@ GameWatch::Decision GameWatch::check() {
     }
     sayRotation();
     sayFfbGain();
-    return Decision{route, ffbGain_};
+    Decision out;
+    out.route = decision.route;
+    out.ffb = decision.ffb;
+    if (decision.tuning != nullptr && changesMapping(*decision.tuning)) {
+        out.mapperGame = state.game->id;
+        out.tuning = decision.tuning;
+    }
+    return out;
 }
 
 void GameWatch::checkNfs2015Bindings() {

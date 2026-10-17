@@ -67,6 +67,7 @@ struct FfbSafetyConfig {
     // A constant push the game leaves exactly as it is this long (seconds) fades out, with the periodic effects on
     // top: a game that paused (loading screen) but keeps sending its last force. 0 = never (FfbController).
     float frozenForceSeconds = 2.0F;
+    friend bool operator==(const FfbSafetyConfig&, const FfbSafetyConfig&) = default;
 };
 
 // Last stage before the physical wheel: applies the user gain and protects against jolts.
@@ -77,6 +78,10 @@ public:
 
     [[nodiscard]] FfbEffect apply(const FfbEffect& requested, float dtSeconds);
     void reset() { lastConstant_ = 0.0F; }
+    // Other limits from now on (a game's own, FfbController::setGameTuning), checked as the constructor does; the
+    // constant force slews on from where it is.
+    void setConfig(const FfbSafetyConfig& config);
+    [[nodiscard]] const FfbSafetyConfig& config() const { return config_; }
 
 private:
     [[nodiscard]] float limitConstant(float requested, float dtSeconds);

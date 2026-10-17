@@ -382,6 +382,40 @@ TEST(EmulatorConfig, ReportsBadGameFfbGains) {
     EXPECT_FLOAT_EQ(ends.config.gameFfbGains.at("nfsunbound"), 0.25F);
 }
 
+// [game_tuning]: a built-in game's values are read; an unknown game, a key without a game and bad values are reported
+// and left out.
+TEST(EmulatorConfig, ReadsGameTuning) {
+    const auto result = load("[game_tuning]\nnfs2015.throttle_axis = slider\nnfsunbound.ffb_spring = 0.8\n"
+                             "nfsunbound.ffb_cap = 2\nnfs1999.ffb_spring = 1\nffb_spring = 1\nnfspayback.colour = red\n");
+    ASSERT_EQ(result.config.gameTunings.count("nfs2015"), 1U);
+    EXPECT_EQ(result.config.gameTunings.at("nfs2015").pedalAxes[0], ObjectGuid::Slider);
+    EXPECT_FLOAT_EQ(*result.config.gameTunings.at("nfsunbound").ffbGains[static_cast<std::size_t>(FfbGroup::Spring)],
+                    0.8F);
+    EXPECT_FALSE(result.config.gameTunings.at("nfsunbound").ffbCap.has_value());
+    EXPECT_EQ(result.config.gameTunings.count("nfspayback"), 0U);   // nothing valid: no entry
+    EXPECT_TRUE(containsError(result, "[game_tuning] nfsunbound.ffb_cap = '2': expected a number from 0 to 1"));
+    EXPECT_TRUE(containsError(result, "[game_tuning] nfs1999.ffb_spring: no game nfs1999"));
+    EXPECT_TRUE(containsError(result, "[game_tuning] ffb_spring: no game"));
+    EXPECT_TRUE(containsError(result, "[game_tuning] nfspayback.colour = 'red': unknown key"));
+    EXPECT_EQ(result.errors.size(), 4U);
+}
+
+// A game the user added is known to [game_tuning] only when it is passed in.
+TEST(EmulatorConfig, GameTuningForAUserGame) {
+    const auto parsed = IniDocument::parse("[game_tuning]\nexcalibur.ffb_damper = 0.5\n");
+    ASSERT_TRUE(parsed.errors.empty());
+    EXPECT_FALSE(loadEmulatorConfig(parsed.document).errors.empty());
+    GameProfile excalibur;
+    excalibur.id = "excalibur";
+    excalibur.label = "Excalibur";
+    excalibur.program = "excalibur.exe";
+    const std::vector<GameProfile> users{excalibur};
+    const auto result = loadEmulatorConfig(parsed.document, users);
+    EXPECT_TRUE(result.errors.empty());
+    EXPECT_FLOAT_EQ(*result.config.gameTunings.at("excalibur").ffbGains[static_cast<std::size_t>(FfbGroup::Damper)],
+                    0.5F);
+}
+
 // [game_rotation]: an unknown game and a rotation that is not one.
 TEST(EmulatorConfig, ReportsBadGameRotations) {
     const auto result = load("[game_rotation]\nnfs1999 = 180\nnfs2015 = sideways\nnfsunbound = off\n");
@@ -403,7 +437,7 @@ TEST(EmulatorConfig, InvalidFlushLevelFallsBackToWarn) {
 TEST(EmulatorConfig, KnownSectionsAndCommentsOnlyAreNoError) {
     const auto result = load("; only a comment\n[emulator]\n[steering]\n[throttle]\n[brake]\n[clutch]\n[buttons]\n"
                              "[button_labels]\n[axis_labels]\n[hat]\n[ffb]\n[logging]\n[telemetry]\n[retention]\n"
-                             "[game_rotation]\n[game_settings]\n[game_ffb_gain]\n");
+                             "[game_rotation]\n[game_settings]\n[game_ffb_gain]\n[game_tuning]\n");
     EXPECT_TRUE(result.errors.empty()) << result.errors.front();
 }
 

@@ -62,7 +62,10 @@ float FfbUsage::TypeStats::wheelAverage() const {
     return playNs == 0 ? 0.0F : static_cast<float>(wheelStrengthNs / static_cast<double>(playNs));
 }
 
-FfbUsage::FfbUsage(const FfbSafetyConfig& safety) : safety_(safety) {
+FfbUsage::FfbUsage(const FfbSafetyConfig& safety) { setSafety(safety); }
+
+void FfbUsage::setSafety(const FfbSafetyConfig& safety) {
+    safety_ = safety;
     // As FfbSafetyLimiter does: a value that is not a number is its default (NaN would also pass std::clamp).
     const FfbSafetyConfig defaults;
     if (!std::isfinite(safety_.masterGain)) safety_.masterGain = defaults.masterGain;

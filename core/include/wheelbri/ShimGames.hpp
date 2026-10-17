@@ -1,8 +1,12 @@
 #pragma once
 
+#include "wheelbri/EmulatedJoystick.hpp"
 #include "wheelbri/FileText.hpp"
+#include "wheelbri/GameProfiles.hpp"
 
 #include <filesystem>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -97,6 +101,18 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
 // not a target, a missing folder, a folder in the file's place, an unreadable file. The app does it at Start, for the
 // target picked on the Mapping tab.
 ShimResult setShimTarget(const std::filesystem::path& folder, const std::string& profile);
+// The pedal axes WheelBri lays out for the game in `folder` (its profile's, with the user's own axes for it: the Game
+// profiles tab, GameTuning.hpp), as [shim] throttle_axis / brake_axis / clutch_axis with game_axes = wheelbri, which
+// tells the shim to use them as they are (not lay the game's profile over them again). nullopt takes those lines out
+// again, but only when game_axes = wheelbri says WheelBri wrote them: axes the user wrote are never touched. Refused
+// for a layout the shim would refuse (isValid). Nothing is written when the file says it already. The app does it at Start.
+ShimResult setShimGameAxes(const std::filesystem::path& folder, const std::optional<JoystickLayout>& axes);
+// The game whose program is in `folder` (the first of `games`), or null.
+[[nodiscard]] const GameProfile* gameInFolder(const std::filesystem::path& folder, std::span<const GameProfile> games);
+// The key setShimGameAxes writes with the axes, and its value.
+inline constexpr const char* kShimGameAxesKey = "game_axes";
+inline constexpr const char* kShimGameAxesByWheelBri = "wheelbri";
+
 // Deletes what installShim put there: dinput8.dll (only ours) and wheelbri-shim.ini.
 ShimResult removeShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll);
 

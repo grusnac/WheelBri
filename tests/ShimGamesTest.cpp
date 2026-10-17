@@ -90,6 +90,51 @@ TEST_F(ShimGamesFiles, TheTargetIsSetInTheShimsSettings) {
     EXPECT_TRUE(again.changed.empty());
 }
 
+// A game's own pedal axes (the Game profiles tab) go into its wheelbri-shim.ini with game_axes = wheelbri, and come out
+// again when none are set; axes the user wrote (no game_axes) are never taken out.
+TEST_F(ShimGamesFiles, TheGamesAxesAreWrittenAndTakenOut) {
+    write(game() / kShimSettings, "[shim]\ntarget_profile = g920\n");
+    JoystickLayout axes;
+    axes.throttle = ObjectGuid::Slider;
+    axes.brake = ObjectGuid::YAxis;
+    axes.clutch = ObjectGuid::RzAxis;
+    const ShimResult set = setShimGameAxes(game(), axes);
+    ASSERT_TRUE(set.ok) << set.error;
+    EXPECT_EQ(set.changed.size(), 1U);
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\nthrottle_axis = slider\nbrake_axis = y\n"
+                                            "clutch_axis = rz\ngame_axes = wheelbri\n");
+    EXPECT_TRUE(setShimGameAxes(game(), axes).changed.empty());   // already so
+    const ShimResult out = setShimGameAxes(game(), std::nullopt);
+    ASSERT_TRUE(out.ok) << out.error;
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");
+
+    const std::string mine = "[shim]\nthrottle_axis = z   ; my own\n";
+    write(game() / kShimSettings, mine);
+    const ShimResult untouched = setShimGameAxes(game(), std::nullopt);
+    ASSERT_TRUE(untouched.ok);
+    EXPECT_TRUE(untouched.changed.empty());
+    EXPECT_EQ(read(game() / kShimSettings), mine);
+
+    axes.brake = ObjectGuid::Slider;   // two pedals on one axis: the shim would refuse it
+    EXPECT_FALSE(setShimGameAxes(game(), axes).ok);
+    EXPECT_EQ(read(game() / kShimSettings), mine);
+}
+
+TEST_F(ShimGamesFiles, TheGameInAFolderIsFoundByItsProgram) {
+    GameProfile other;
+    other.id = "other";
+    other.program = "other.exe";
+    GameProfile mine;
+    mine.id = "mine";
+    mine.program = "game.exe";   // the fixture's Game.exe, matched without case
+    const std::vector<GameProfile> games{other, mine};
+    const GameProfile* const found = gameInFolder(game(), games);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->id, "mine");
+    EXPECT_EQ(gameInFolder(game(), std::span<const GameProfile>(games.data(), 1)), nullptr);
+    EXPECT_EQ(gameInFolder(dir_ / "not there", games), nullptr);
+}
+
 TEST_F(ShimGamesFiles, TheTargetMakesTheSettingsWhenMissing) {
     ASSERT_TRUE(setShimTarget(game(), "g920").ok);
     EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");

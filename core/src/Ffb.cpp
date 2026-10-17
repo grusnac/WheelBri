@@ -80,6 +80,12 @@ FfbSafetyLimiter::FfbSafetyLimiter(const FfbSafetyConfig& config) : config_(conf
                  config_.maxMagnitude, config_.maxSlewPerSecond);
 }
 
+void FfbSafetyLimiter::setConfig(const FfbSafetyConfig& config) {
+    const float last = lastConstant_;
+    *this = FfbSafetyLimiter(config);
+    lastConstant_ = last;
+}
+
 FfbEffect FfbSafetyLimiter::apply(const FfbEffect& input, const float dtSeconds) {
     // Every field finite and in its range before anything else (packets come from other processes).
     FfbEffect requested = input;

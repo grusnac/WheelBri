@@ -4,6 +4,7 @@
 #include "wheelbri/Ffb.hpp"
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/FfbUsage.hpp"
+#include "wheelbri/GameTuning.hpp"
 
 #include <array>
 #include <cstdint>
@@ -58,6 +59,22 @@ public:
     // `effect` with the game gain applied, as update() hands it to the limiter.
     [[nodiscard]] static FfbEffect withGameGain(const FfbEffect& effect, float gain);
 
+    // The running game's own values (GameTuning.hpp, resolveGameFfb): a gain per kind of effect (0 = that kind off,
+    // up to kGameEffectGainMax; constant and periodic also times setGameGain's), the limits while it runs, whether the
+    // forces are turned the other way than the mapping's ([ffb] invert is the wheel's own, so this is a flip on top of
+    // it), and whether the game's force feedback plays at all. The limits can only be lowered: a cap or slew above the
+    // ones this controller was made with is the constructor's, a value that is not a number too. Cheap when nothing
+    // changed; allocation-free (the service loop calls it). Takes effect at the next update().
+    void setGameTuning(const std::array<float, kFfbGroupCount>& gains, const FfbSafetyConfig& safety, bool flip,
+                       bool effects);
+    [[nodiscard]] const std::array<float, kFfbGroupCount>& groupGains() const { return groupGains_; }
+    [[nodiscard]] bool flipped() const { return flip_; }
+    [[nodiscard]] bool effectsOn() const { return effects_; }
+    // `effect` as update() hands it to the limiter: times its kind's gain (constant and periodic also times
+    // `pushFade`), turned the other way when `flip`.
+    [[nodiscard]] static FfbEffect tuned(const FfbEffect& effect, const std::array<float, kFfbGroupCount>& gains,
+                                         float pushFade, bool flip);
+
     [[nodiscard]] const Stats& stats() const { return stats_; }
 
     // How long a frozen push takes to fade out, and the smallest push (of full scale) that counts as one.
@@ -111,13 +128,17 @@ private:
     [[nodiscard]] static bool differs(const FfbEffect& a, const FfbEffect& b);
 
     IFfbSink& sink_;
-    FfbSafetyConfig safety_;
+    FfbSafetyConfig baseSafety_;   // the mapping's: a game's limits never go above these
+    FfbSafetyConfig safety_;       // in force now
     Timing timing_;
     std::array<Slot, IFfbSink::kMaxSlots> slots_{};
     // One per slot; an array, so copying the controller (the window's frame, 60 times a second) allocates nothing.
     std::array<FfbSafetyLimiter, IFfbSink::kMaxSlots> limiters_;
     std::optional<std::uint64_t> lastPacketNs_;
     float gameGain_ = 1.0F;
+    std::array<float, kFfbGroupCount> groupGains_{1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+    bool flip_ = false;
+    bool effects_ = true;
     std::uint64_t frozenNs_ = 0;            // from safety_.frozenForceSeconds; 0 = never
     float frozenFade_ = 1.0F;
     bool watchdogTripped_ = false;

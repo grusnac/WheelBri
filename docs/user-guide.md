@@ -88,23 +88,36 @@ Do not use both Modes for one game. With a wheel that is not a Moza, set `source
 
 ## Game profiles
 
-Some games need a change, and WheelBri applies it by itself while they run: NFS 2015 (its pedals), NFS Payback (180
-degrees) and NFS Unbound (stronger force feedback and its hidden wheel settings). Profiles work **with Target G920
-only**.
+Everything that can differ from game to game is set here, for one game at a time. A few games come with a built-in
+profile that WheelBri applies by itself while they run: NFS 2015 (its pedals), NFS Payback (180 degrees) and NFS
+Unbound (stronger force feedback and its hidden wheel settings). Built-in profiles work **with Target G920 only**; your
+own values work with every Target.
 
 ![Game profiles tab](images/game-profiles.png)
 
-The **Game profiles** tab shows what each profile does and lets you change its rotation, its force feedback gain and,
-for NFS Unbound, the game's own wheel settings (**Save to file**, with the game closed). Changes apply from the next
-Start.
+1. Pick the game on the left, or press **Add game...** and choose its `.exe` (WheelBri finds it by that name while it
+   runs). **Remove** takes a game you added off the list.
+2. Set what you want in its sub-tabs; **Default** next to a value goes back to the profile's or the Mapping tab's:
+   - **Axes**: the steering rotation, the axis the game reads each pedal from, and each pedal's invert and curve.
+     In Mode Virtual the pedals can only be swapped among Y, Rz and Slider.
+   - **Force feedback**: overall strength, a gain per kind of effect (steering force, vibration, spring, damper,
+     friction, inertia: 0 turns it off, up to 4), a lower cap or slew limit, the frozen-push fade, turning the forces
+     the other way, or no force feedback at all.
+   - **Buttons**: another control for any button, for this game only.
+   - **Game file** (NFS Unbound): the game's own hidden wheel settings, written with **Save to file** (game
+     closed).
+
+Values are saved as you change them. **While the game runs you can change them too**: they apply at once (the Force
+feedback sub-tab then shows, per kind of effect, what the game asks in blue and what reaches the wheel in green).
+Pedal axes in Mode Shim and new games take effect at the next Start.
 
 ## Force feedback
 
 Every force goes through safety limits first. The defaults are cautious: 70% overall strength, never more than 80% of
 what the wheel can do, no sudden jumps, and a push the game leaves unchanged for 2 seconds (a loading screen) fades out.
 
-To change them, edit `[ffb]` in your mapping file, `%LOCALAPPDATA%\wheelbri\configs\my-<target>.ini` (it exists once
-you saved a mapping), and press Start again:
+For one game, use the Game profiles tab. For every game, edit `[ffb]` in your mapping file,
+`%LOCALAPPDATA%\wheelbri\configs\my-<target>.ini` (it exists once you saved a mapping), and press Start again:
 
 | Setting | Default | |
 |---|---|---|

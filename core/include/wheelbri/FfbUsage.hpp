@@ -43,6 +43,8 @@ public:
     };
 
     explicit FfbUsage(const FfbSafetyConfig& safety);
+    // The limits in force from now on (a game's own): what "capped" is measured against.
+    void setSafety(const FfbSafetyConfig& safety);
 
     // `dtNs` since the last call (capped at 100 ms, so a sleeping PC does not count as play time);
     // `gameActive`: the game is sending force feedback (it has, and has not gone quiet).

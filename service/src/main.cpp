@@ -54,6 +54,7 @@
 #include <array>
 #include <chrono>
 #include <atomic>
+#include <map>
 #include <csignal>
 #include <cstdio>
 #include <ctime>
@@ -429,7 +430,9 @@ LoadedConfig loadConfig(const std::string& path) {
     text << file.rdbuf();
     result.text = text.str();
     const auto parsed = wheelbri::IniDocument::parse(result.text);
-    auto loaded = wheelbri::loadEmulatorConfig(parsed.document);
+    // The games the user added may have [game_tuning] lines too.
+    const std::vector<wheelbri::GameProfile> userGames = wheelbri::service::loadUserGames();
+    auto loaded = wheelbri::loadEmulatorConfig(parsed.document, userGames);
     result.config = std::move(loaded.config);
     result.problems = parsed.errors;
     result.problems.insert(result.problems.end(), loaded.errors.begin(), loaded.errors.end());
@@ -579,7 +582,10 @@ public:
     // Returns nullptr (and says why) when game force feedback is off or cannot run; input still works.
     static std::unique_ptr<GameFfb> open(const wheelbri::EmulatorConfig& config, wheelbri::service::Wheel& wheel,
                                          std::string& status) {
-        if (!config.gameFfb) {
+        // Off for every game, unless a game's own values turn it on for that game.
+        bool anyGameOn = false;
+        for (const auto& [game, tuning] : config.gameTunings) anyGameOn = anyGameOn || tuning.ffbEffects == true;
+        if (!config.gameFfb && !anyGameOn) {
             status = "off ([ffb] game_effects = false)";
             WE_LOG_INFO(log(), "game force feedback off ([ffb] game_effects = false)");
             return nullptr;
@@ -666,6 +672,10 @@ public:
     [[nodiscard]] const wheelbri::FfbController& controller() const { return *controller_; }
     // A game profile's force feedback gain (FfbController::setGameGain); cheap when it does not change.
     void setGameGain(const float gain) { controller_->setGameGain(gain); }
+    // The running game's own values (GameTuning.hpp); `flip`: turned the other way than the mapping's [ffb] invert.
+    void setGameTuning(const wheelbri::GameFfb& game, const bool flip) {
+        controller_->setGameTuning(game.gains, game.safety, flip, game.effects);
+    }
     // The socket the game's packets arrive on (the loop waits for it).
     [[nodiscard]] std::intptr_t socket() const { return listener_->nativeSocket(); }
 
@@ -849,8 +859,20 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
 
     std::string ffbStatus;
     const auto gameFfb = GameFfb::open(config, source, ffbStatus);
-    // A game profile's force feedback gain ([ffb] gain): set by the window thread's GameWatch, read by the loop.
-    std::atomic<float> gameFfbGain{1.0F};
+    // The running game's force feedback (its profile's gain and the user's own values, GameTuning.hpp): set by the
+    // window thread's GameWatch, taken by the loop when it changed (try_lock: the loop never waits for it).
+    struct SharedGameFfb {
+        std::mutex mutex;
+        wheelbri::GameFfb ffb;
+        std::uint64_t version = 0;
+    } sharedGameFfb;
+    sharedGameFfb.ffb = wheelbri::resolveGameFfb(config.ffb, config.ffbInvert, config.gameFfb, nullptr, std::nullopt,
+                                                 nullptr);
+    sharedGameFfb.version = 1;
+    std::uint64_t takenGameFfb = 0;
+    // The mapping while a game with its own values runs (pedal invert / curve, buttons): one Mapper per game, made by
+    // the window thread and kept for the whole session (the loop may still hold the last one).
+    std::map<std::string, std::unique_ptr<wheelbri::Mapper>> gameMappers;
     const auto telemetry = openTelemetry(config, configPath, configText, source);
     if (gameFfb != nullptr) {
         gameFfb->setTelemetry(telemetry.get());
@@ -978,7 +1000,11 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             stages.lap(TickStages::Pipeline, mark);
             ++ticks;
             if (gameFfb != nullptr) {
-                gameFfb->setGameGain(gameFfbGain.load(std::memory_order_relaxed));
+                if (std::unique_lock lock(sharedGameFfb.mutex, std::try_to_lock);
+                    lock.owns_lock() && sharedGameFfb.version != takenGameFfb) {
+                    takenGameFfb = sharedGameFfb.version;
+                    gameFfb->setGameTuning(sharedGameFfb.ffb, sharedGameFfb.ffb.invert != config.ffbInvert);
+                }
                 gameFfb->pump(platform::nowNs());
             }
             if (gameFfb != nullptr) {
@@ -1185,10 +1211,25 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         std::uint64_t lastGameCheckNs = 0;
         bool gameChecked = false;
         // Game profiles: applied here for the virtual G920 / wheelbri-uhid, by the shim itself for the in-game shim.
-        wheelbri::service::GameWatch gameWatch(
-            config.targetProfile, routePedals,
-            config.mapper.steering.targetRotationDeg,
-            config.gameRotations, config.gameFfbGains);
+        wheelbri::GameSessionConfig gameSession;
+        gameSession.target = config.targetProfile;
+        gameSession.routePedals = routePedals;
+        gameSession.ffb = config.ffb;
+        gameSession.ffbInvert = config.ffbInvert;
+        gameSession.gameFfb = config.gameFfb;
+        gameSession.legacyGains = config.gameFfbGains;
+        gameSession.tunings = config.gameTunings;
+        wheelbri::service::GameWatch gameWatch(std::move(gameSession), config.mapper.steering.targetRotationDeg,
+                                               config.gameRotations, wheelbri::service::loadUserGames());
+        // The per-game values as last read, and when the config file was written then (read again when it changes).
+        wheelbri::GameTunings gameTunings = config.gameTunings;
+        wheelbri::GameRotations gameRotations = config.gameRotations;
+        wheelbri::GameFfbGains gameLegacyGains = config.gameFfbGains;
+        std::filesystem::file_time_type configWritten{};
+        if (!configPath.empty()) {
+            std::error_code ec;
+            configWritten = std::filesystem::last_write_time(wheelbri::pathFromUtf8(configPath), ec);
+        }
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
             const std::uint64_t now = platform::nowNs();
@@ -1199,13 +1240,68 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                     gStop = true;
                 }
                 housekeeping.pump();
+                // The per-game values changed (the Game profiles tab saves them as they change, also while the
+                // session runs): read them again and use them at once. Only the per-game sections: everything else
+                // in the file waits for the next Start.
+                if (!configPath.empty()) {
+                    std::error_code ec;
+                    const auto written = std::filesystem::last_write_time(wheelbri::pathFromUtf8(configPath), ec);
+                    if (!ec && written != configWritten) {
+                        configWritten = written;
+                        if (const auto text = wheelbri::readFileText(wheelbri::pathFromUtf8(configPath))) {
+                            const auto parsed = wheelbri::IniDocument::parse(*text);
+                            auto loaded =
+                                wheelbri::loadEmulatorConfig(parsed.document, wheelbri::service::loadUserGames());
+                            if (loaded.config.gameTunings != gameTunings ||
+                                loaded.config.gameRotations != gameRotations ||
+                                loaded.config.gameFfbGains != gameLegacyGains) {
+                                gameTunings = loaded.config.gameTunings;
+                                gameRotations = loaded.config.gameRotations;
+                                gameLegacyGains = loaded.config.gameFfbGains;
+                                gameWatch.setValues(gameTunings, gameRotations, gameLegacyGains);
+                                WE_LOG_INFO(log(), "game: your per-game values changed in {}: in use now",
+                                            configPath);
+                                gameChecked = false;   // look now, not in up to 2 s
+                            }
+                        }
+                    }
+                }
                 if (!gameChecked || now - lastGameCheckNs >= kGameCheckNs) {
                     lastGameCheckNs = now;
                     gameChecked = true;
                     try {
                         const auto decision = gameWatch.check();
                         pipeline.setPedalRoute(decision.route);
-                        gameFfbGain.store(decision.ffbGain, std::memory_order_relaxed);   // a game's [ffb] gain
+                        {
+                            const std::lock_guard lock(sharedGameFfb.mutex);
+                            if (!(sharedGameFfb.ffb == decision.ffb)) {
+                                sharedGameFfb.ffb = decision.ffb;
+                                ++sharedGameFfb.version;
+                            }
+                        }
+                        // The game's own mapping (made once per game, kept for the session), else the mapping's.
+                        const wheelbri::Mapper* gameMapper = nullptr;
+                        if (!decision.mapperGame.empty() && decision.tuning != nullptr) {
+                            // One per game and set of values: a change made while it runs gets a new one (the loop
+                            // may still use the old one, so none is ever thrown away during the session).
+                            std::string key = decision.mapperGame;
+                            for (const auto& [name, value] : wheelbri::tuningLines(*decision.tuning)) {
+                                key += "|" + name + "=" + value;
+                            }
+                            auto& made = gameMappers[key];
+                            if (made == nullptr) {
+                                std::vector<std::string> problems;
+                                made = std::make_unique<wheelbri::Mapper>(
+                                    wheelbri::tunedMapper(config.mapper, *decision.tuning, &problems));
+                                for (const std::string& problem : problems) {
+                                    WE_LOG_WARN(log(), "game {}: {}", decision.mapperGame, problem);
+                                }
+                                WE_LOG_INFO(log(), "game {}: its own pedal and button values are in use",
+                                            decision.mapperGame);
+                            }
+                            gameMapper = made.get();
+                        }
+                        if (pipeline.gameMapper() != gameMapper) pipeline.setGameMapper(gameMapper);
                     } catch (const std::exception& e) {   // never ends the session; the pedals stay as they are
                         WE_LOG_WARN(log(), "game: looking for known games failed: {}", e.what());
                     }
@@ -1244,6 +1340,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             {
                 const wheelbri::service::GameWatch::Live live = gameWatch.live();
                 frame->gameId = live.id;
+                frame->gameProfileApplies = live.profileApplies;
                 frame->gamePid = live.pid;
                 const std::uint64_t nowMs = platform::nowMs();
                 frame->gameForMs = live.id.empty() || nowMs < live.sinceMs ? 0 : nowMs - live.sinceMs;
