@@ -36,7 +36,7 @@ struct ParsedOptions {
 
 inline constexpr const char* kUsage =
     "usage: wheelbri-uhid [--state-port 41329] [--ffb-port 41330] [--stop-file PATH] [--device /dev/uhid]\n"
-    "                     [--parent PID] [--target g920|g25|g27|g923]\n"
+    "                     [--parent PID] [--target g25|g27|g920|g923]\n"
     "  A virtual Logitech G25, G27, G920 or G923 (uhid) fed by wheelbri-service; stops on Ctrl+C, SIGTERM, when\n"
     "  --stop-file appears or when process PID (--parent, the app that started it) is gone.\n"
     "  Proton games: PROTON_ENABLE_HIDRAW=0x046D/0xC262 (G920), 0x046D/0xC299 (G25), 0x046D/0xC29B (G27) or\n"

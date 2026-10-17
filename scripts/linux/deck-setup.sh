@@ -5,7 +5,7 @@
 # Arch Linux distrobox container (distrobox and podman come with SteamOS 3.5 and later; nothing on SteamOS itself
 # changes):
 #   wheelbri-build   Arch Linux with base-devel (GCC), CMake, Ninja, git, libx11 (the app's window) and mingw-w64-gcc
-#                    (the game shim, dinput8.dll), from pacman.
+#                    (the game shim, dinput8.dll: 64-bit and 32-bit, both in that package), from pacman.
 # The container is pinned to the day Arch still shipped SteamOS's own glibc version (the Arch Linux Archive), so the
 # programs it builds load on SteamOS itself, outside the container: today's Arch is usually ahead of SteamOS.
 # Your home folder is shared with it: the checkout and ~/wheelbri are the same files inside and out.
@@ -100,7 +100,7 @@ say "what the container has:"
 # shellcheck disable=SC2016  # expanded in the container, not here
 distrobox enter "$container" -- sh -c \
     'gcc --version | head -1; cmake --version | head -1; echo "ninja $(ninja --version)"; git --version;
-     x86_64-w64-mingw32-g++ --version | head -1; ldd --version | head -1'
+     x86_64-w64-mingw32-g++ --version | head -1; i686-w64-mingw32-g++ --version | head -1; ldd --version | head -1'
 
 ok "ready. Build and install WheelBri with: bash scripts/linux/deck-build.sh"
 if [ ! -e /etc/udev/rules.d/70-wheelbri.rules ]; then

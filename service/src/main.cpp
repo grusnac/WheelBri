@@ -1802,8 +1802,8 @@ std::string defaultConfigPath() {
 }
 
 // WheelBri's own dinput8.dll, which the app puts into games, 64-bit and 32-bit: shim\ and shim\x86\ next to the
-// program (the installed package), or build/shim/ and build-x86/shim/ (next to build/service/ in the source tree).
-// Each empty when there is none (Linux, or not built).
+// program (the Windows package), shim/ and shim/x86/ next to bin/ (the Linux bundle: bin/wheelbri), or build/shim/
+// and build-x86/shim/ (next to build/service/ in the source tree). Each empty when there is none (not built).
 wheelbri::ShimSources shimDllPaths() {
     const std::filesystem::path exe = platform::executablePath();
     if (exe.empty()) return {};
@@ -1820,8 +1820,8 @@ wheelbri::ShimSources shimDllPaths() {
     sources.x64 = first({here / "shim" / "dinput8.dll", build / "shim" / "dinput8.dll"});
     std::filesystem::path x86Build = build.filename();   // build-x86/ (scripts/make/shim-x86.sh) next to build/
     x86Build += "-x86";
-    sources.x86 =
-        first({here / "shim" / "x86" / "dinput8.dll", build.parent_path() / x86Build / "shim" / "dinput8.dll"});
+    sources.x86 = first({here / "shim" / "x86" / "dinput8.dll", build / "shim" / "x86" / "dinput8.dll",
+                         build.parent_path() / x86Build / "shim" / "dinput8.dll"});
     return sources;
 }
 

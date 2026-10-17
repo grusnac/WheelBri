@@ -1,13 +1,15 @@
 # Linux and Steam Deck
 
-The Moza R3 as a Logitech G920 for Proton games (NFS 2015) on Linux: the Steam Deck, or any x86-64
-distribution. `wheelbri-service` reads the R3 and plays force feedback on it, as on Windows. The game sees the
-G920 in one of two ways:
+Your rig (here the Moza R3) as a Logitech G25, G27, G920 or G923 for Proton games (NFS 2015) on Linux: the Steam
+Deck, or any x86-64 distribution. The app's Target picks the wheel (G25, G27, G920, G923; the G920 when none is
+chosen), `wheelbri.sh --target` too. `wheelbri-service` reads the rig and plays force feedback on it, as on Windows,
+through the same safety limiter. The game sees the wheel in one of two ways (the G920 below; the others after the
+table):
 
 | | `--virtual` (uhid, default) | `--shim` |
 |---|---|---|
 | What | `wheelbri-uhid`: a virtual G920 for the whole system, through the kernel's uhid (Phase 4; the Linux counterpart of `driver/wheelbri-g920`) | `dinput8.dll` in the game folder answers as a G920 (Phases 2 and 3, as on Windows) |
-| Game folder | a WheelBri shim left there is taken out | `dinput8.dll` and `wheelbri-shim.ini` put in before the game, taken out after it (`--keep-shim` leaves them) |
+| Game folder | a WheelBri shim left there is taken out | `dinput8.dll` and `wheelbri-shim.ini` put in before the game, taken out after it (`--keep-shim` leaves them); the 32-bit `dinput8.dll` for a 32-bit game, `dinput8Hooked.dll` next to the Ultimate ASI Loader |
 | Launch option | `PROTON_ENABLE_HIDRAW=0x046D/0xC262 SDL_GAMECONTROLLER_IGNORE_DEVICES=0xVVVV/0xPPPP %command%` (your rig's ids, comma separated; the R3: `0x346E/0x0005`) | `WINEDLLOVERRIDES="dinput8=n,b" %command%` |
 | Once | `install-udev-rules.sh` (sudo) | nothing |
 
@@ -58,15 +60,16 @@ Once (Desktop Mode, Konsole):
    git switch steam-deck
    ```
 
-4. The build tools: pacman's base-devel, cmake, ninja, git, libx11 and mingw-w64-gcc in the container (several
-   minutes and ~1 GB the first time; nothing is installed on SteamOS itself):
+4. The build tools: pacman's base-devel, cmake, ninja, git, libx11 and mingw-w64-gcc (the shims, 64-bit and
+   32-bit) in the container (several minutes and ~1 GB the first time; nothing is installed on SteamOS itself):
 
    ```
    bash scripts/linux/deck-setup.sh
    ```
 
 5. Build, test and install into `~/wheelbri` (the first build downloads spdlog and GoogleTest and takes a few
-   minutes; later ones only rebuild what changed):
+   minutes; later ones only rebuild what changed). It builds the app, the service, `wheelbri-uhid` and both shims
+   (`shim/dinput8.dll`, and `shim/x86/dinput8.dll` for 32-bit games), and runs the tests side by side:
 
    ```
    bash scripts/linux/deck-build.sh
@@ -81,7 +84,7 @@ After every change: close WheelBri and the game, then
 cd ~/WheelBri && git pull && bash scripts/linux/deck-build.sh
 ```
 
-`deck-build.sh` options: `--no-tests` (faster), `--no-shim` (no `dinput8.dll`), `--clean` (from scratch),
+`deck-build.sh` options: `--no-tests` (faster), `--no-shim` (neither `dinput8.dll`), `--clean` (from scratch),
 `--prefix DIR`. A config you edited in `~/wheelbri/config` is kept; the new version goes next to it as `<name>.new`.
 `deck-setup.sh --recreate` makes the container again if it ever breaks, or when `deck-build.sh` says a SteamOS
 update brought a newer glibc (your files are not in it).
@@ -94,10 +97,11 @@ update brought a newer glibc (your files are not in it).
    tar -xzf wheelbri-linux-x86_64.tar.gz -C ~
    ```
 
-   That gives `~/wheelbri` with `bin/`, `config/`, `shim/dinput8.dll` (for the shim way), `wheelbri.sh`,
+   That gives `~/wheelbri` with `bin/` (`wheelbri`, the app; `wheelbri-service`; `wheelbri-uhid`), `config/`,
+   `shim/dinput8.dll` and `shim/x86/dinput8.dll` (the shim way: 64-bit and 32-bit games), `wheelbri.sh`,
    `install-udev-rules.sh` and this file.
 2. `sudo` needs a password; if you never set one: `passwd`.
-3. Let your user create the virtual G920, games open it, and the service use the R3:
+3. Let your user create the virtual wheel, games open it, and the service use the R3:
 
    ```
    ~/wheelbri/install-udev-rules.sh
@@ -128,7 +132,10 @@ and stops both when it ends (`--virtual` says the same explicitly). For the shim
 ```
 
 `--shim` puts `dinput8.dll` and `wheelbri-shim.ini` into the game's folder before the game starts and takes them
-out when it ends. The folder is the one of the `.exe` at the end of `%command%`; a game Steam starts through a
+out when it ends, as the app's Games panel does: a 32-bit game (its largest `.exe` is 32-bit, e.g. NFS Carbon) gets
+the 32-bit `shim/x86/dinput8.dll`, and next to the Ultimate ASI Loader (a `dinput8.dll` other mods use) the shim goes
+in as `dinput8Hooked.dll`, which the loader then loads; the loader itself is never touched.
+The folder is the one of the `.exe` at the end of `%command%`; a game Steam starts through a
 launcher has none (NFS 2015 starts as `steam2ea://launchgame/1262540...`, through the EA app), so then it is the
 game's Steam install folder, found from its app id (`AppId=` in `%command%`) in Steam's libraries. `--game-folder
 DIR` names another. With the EA app, Proton may count the game as running until the EA app closes too, so the shim
@@ -142,10 +149,11 @@ own settings is used and kept. If Steam kills the game hard, the shim stays unti
 Without Steam, from Konsole: `~/wheelbri/wheelbri.sh` starts both (the service with its window) and stops them
 when you press Enter; start the game with the launch option it prints.
 
-From the app (`~/wheelbri/bin/wheelbri`): Start with the target "G920 virtual device" (Mapping tab) starts
-`wheelbri-uhid` too and Stop removes it; the game still needs the launch options above (or `wheelbri.sh %command%`,
-which then uses the app's session instead of starting its own). With the target "G920 in-game shim", the Games
-button next to Start puts `dinput8.dll` into a game's folder (KDE's or GNOME's folder window).
+From the app (`~/wheelbri/bin/wheelbri`): Start with Mode Virtual (next to Target, Mapping tab) starts
+`wheelbri-uhid` for the target too and Stop removes it; the game still needs the launch options above (or
+`wheelbri.sh %command%`, which then uses the app's session instead of starting its own, and the app's Target). With
+Mode Shim, the Games button next to Start puts the shim into a game's folder (KDE's or GNOME's folder window), the
+same way as `--shim`.
 
 Logs: `~/.local/state/wheelbri/` (service, `wheelbri-uhid`, `wheelbri.sh`, telemetry, and the shim: under Proton it
 writes there too, not into the game's Wine prefix).
@@ -185,8 +193,11 @@ On any x86-64 Linux with CMake, a C++20 compiler and the X11 headers (`libx11-de
 ```
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-ctest --test-dir build
+ctest --test-dir build -j "$(nproc)"
 ```
 
-The bundle above comes from `scripts/linux/package.sh --shim dinput8.dll` (the C++ runtime and spdlog linked
-in; it needs only libX11 and the kernel, so it runs on SteamOS as is).
+The shims are Windows DLLs, built with MinGW-w64 (`cmake/toolchain-mingw64.cmake` for 64-bit games,
+`cmake/toolchain-mingw32.cmake` for 32-bit ones, each with `-DWE_BUILD_SERVICE=OFF -DWE_BUILD_TESTS=OFF`; the 32-bit
+one also `-DWE_BUILD_LOGI=OFF`). The bundle above comes from
+`scripts/linux/package.sh --shim build-win/shim/dinput8.dll --shim-x86 build-win-x86/shim/dinput8.dll` (the C++
+runtime and spdlog linked in; it needs only libX11 and the kernel, so it runs on SteamOS as is).

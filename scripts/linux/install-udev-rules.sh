@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Once per machine (Steam Deck: set a password first with `passwd`, sudo needs it):
-#  - lets the logged-in user create the virtual G920 (/dev/uhid) without root;
-#  - lets games open the virtual G920 raw (its /dev/hidraw node), which Proton needs for its force feedback;
+#  - lets the logged-in user create the virtual wheel (G25, G27, G920 or G923: /dev/uhid) without root;
+#  - lets games open the virtual wheel raw (its /dev/hidraw node), which Proton needs for its force feedback;
 #  - lets wheelbri-service read the rig's wheel and accessories and play force feedback (their /dev/input/event nodes);
 #  - loads the uhid module at every boot;
 #  - lets that user run the service's input and force feedback threads above normal priority (nice -10, as Windows'
@@ -30,7 +30,7 @@ if [ "${1:-}" = "--remove" ]; then
 fi
 
 sudo tee "$rules" >/dev/null <<'RULES'
-# wheel-emulator (scripts/linux/install-udev-rules.sh)
+# WheelBri (scripts/linux/install-udev-rules.sh)
 # wheelbri-uhid creates the virtual G25, G27, G920 or G923 through uhid: allow the user at the seat.
 KERNEL=="uhid", MODE="0660", TAG+="uaccess"
 # Games (Proton with PROTON_ENABLE_HIDRAW=0x046D/0xC262) open the G920 raw for its force feedback; the virtual G25
@@ -44,7 +44,7 @@ SUBSYSTEM=="hidraw", KERNELS=="0006:046D:C26E.*", MODE="0660", TAG+="uaccess"
 SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_JOYSTICK}=="1", MODE="0660", TAG+="uaccess"
 RULES
 echo uhid | sudo tee "$modules" >/dev/null
-printf '# wheel-emulator (scripts/linux/install-udev-rules.sh): wheelbri-service may raise its threads to nice -10\n%s - nice -10\n' \
+printf '# WheelBri (scripts/linux/install-udev-rules.sh): wheelbri-service may raise its threads to nice -10\n%s - nice -10\n' \
     "$user" | sudo tee "$limits" >/dev/null
 
 sudo modprobe uhid

@@ -4,15 +4,17 @@
 # ~/wheelbri, where wheelbri.sh, the docs (LINUX.md) and Steam's launch option expect it:
 #   ~/wheelbri/bin/       wheelbri (the app), wheelbri-service, wheelbri-uhid
 #   ~/wheelbri/config/    the example configs; one you edited is kept, the new one goes next to it as <name>.new
-#   ~/wheelbri/shim/      dinput8.dll (the game shim, for --shim and the app's Games panel)
+#   ~/wheelbri/shim/      dinput8.dll (the game shim, for --shim and the app's Games panel), and x86/dinput8.dll for
+#                         32-bit games (NFS Carbon and its era)
 #   ~/wheelbri/           wheelbri.sh, install-udev-rules.sh, LINUX.md
-# The builds stay in the checkout (build-deck/, build-deck-shim/), so the next one only rebuilds what changed.
+# The builds stay in the checkout (build-deck/, build-deck-shim/, build-deck-shim-x86/), so the next one only rebuilds
+# what changed.
 # Then it checks on SteamOS itself (outside the container) that every program finds its libraries.
 #
 # usage: scripts/linux/deck-build.sh [--no-tests] [--no-shim] [--clean] [--prefix DIR]
 #   --no-tests   skip the unit tests (faster)
-#   --no-shim    skip dinput8.dll (MinGW)
-#   --clean      build from scratch (delete build-deck/ and build-deck-shim/ first)
+#   --no-shim    skip the dinput8.dll files (MinGW, 64-bit and 32-bit)
+#   --clean      build from scratch (delete build-deck/, build-deck-shim/ and build-deck-shim-x86/ first)
 #   --prefix     install somewhere else than ~/wheelbri
 
 set -eu
@@ -21,6 +23,7 @@ container=wheelbri-build
 root=$(cd "$(dirname "$0")/../.." && pwd)
 build="$root/build-deck"
 shim_build="$root/build-deck-shim"
+shim_build_x86="$root/build-deck-shim-x86"
 
 say()  { printf '\033[36m%s\033[0m\n' "$*"; }
 ok()   { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -40,7 +43,7 @@ while [ $# -gt 0 ]; do
         --no-shim) shim=0; args+=("$1") ;;
         --clean) clean=1; args+=("$1") ;;
         --prefix) shift; [ $# -gt 0 ] || fail "--prefix needs a folder"; prefix=$1; args+=(--prefix "$1") ;;
-        *) sed -n '2,17p' "$0"; exit 2 ;;
+        *) sed -n '2,19p' "$0"; exit 2 ;;
     esac
     shift
 done
@@ -50,7 +53,7 @@ if [ "$inside" = 1 ]; then
     cd "$root"
     if [ "$clean" = 1 ]; then
         say "building from scratch"
-        rm -rf "$build" "$shim_build"
+        rm -rf "$build" "$shim_build" "$shim_build_x86"
     fi
     jobs=$(nproc)
     test_switch=OFF
@@ -65,7 +68,7 @@ if [ "$inside" = 1 ]; then
     cmake --build "$build" -j "$jobs"
     if [ "$tests" = 1 ]; then
         say "unit tests"
-        ctest --test-dir "$build" --output-on-failure   # one at a time: some tests use fixed UDP ports
+        ctest --test-dir "$build" --output-on-failure -j "$jobs"   # side by side: every UDP test picks its own port
     fi
 
     if [ "$shim" = 1 ]; then
@@ -74,6 +77,12 @@ if [ "$inside" = 1 ]; then
             -DCMAKE_TOOLCHAIN_FILE="$root/cmake/toolchain-mingw64.cmake" \
             -DWE_BUILD_SERVICE=OFF -DWE_BUILD_TESTS=OFF -DFETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER >/dev/null
         cmake --build "$shim_build" -j "$jobs"
+        say "the 32-bit game shim (dinput8.dll for 32-bit games, MinGW i686)"
+        cmake -S "$root" -B "$shim_build_x86" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$root/cmake/toolchain-mingw32.cmake" \
+            -DWE_BUILD_SERVICE=OFF -DWE_BUILD_TESTS=OFF -DWE_BUILD_LOGI=OFF \
+            -DFETCHCONTENT_TRY_FIND_PACKAGE_MODE=NEVER >/dev/null
+        cmake --build "$shim_build_x86" -j "$jobs" --target wheelbri_shim
     fi
 
     say "installing into $prefix"
@@ -105,8 +114,9 @@ if [ "$inside" = 1 ]; then
     cp -f "$root/docs/linux.md" "$prefix/LINUX.md"
     if [ "$shim" = 1 ]; then
         # In shim/, as in the Windows package: where the app (Games > Add game) and wheelbri.sh look for it.
-        mkdir -p "$prefix/shim"
+        mkdir -p "$prefix/shim/x86"
         cp -f "$shim_build/shim/dinput8.dll" "$prefix/shim/dinput8.dll"
+        cp -f "$shim_build_x86/shim/dinput8.dll" "$prefix/shim/x86/dinput8.dll"   # for 32-bit games
         rm -f "$prefix/dinput8.dll"   # where versions before 2026-10-09 put it
     fi
     exit 0

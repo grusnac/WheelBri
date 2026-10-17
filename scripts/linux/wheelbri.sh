@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Linux / Steam Deck: starts everything for a game with your rig as a G920 (or a G25), and stops it again.
+# Linux / Steam Deck: starts everything for a game with your rig as a G25, G27, G920 or G923, and stops it again.
 #
 # Two ways for the game to see the wheel:
 #   --virtual (default)  wheelbri-uhid makes a virtual wheel for the whole system (Phase 4); the game reads it raw
@@ -7,7 +7,9 @@
 #                        A WheelBri shim left in the game's folder (--keep-shim) is taken out first.
 #   --shim               the dinput8.dll proxy answers as the wheel inside the game: dinput8.dll and wheelbri-shim.ini
 #                        are put into the game's folder (the one with the .exe in %command%) before it starts and
-#                        taken out when it ends; WINEDLLOVERRIDES makes Proton load it.
+#                        taken out when it ends; WINEDLLOVERRIDES makes Proton load it. As the app does: the 32-bit
+#                        dinput8.dll for a 32-bit game (shim/x86/), and dinput8Hooked.dll next to the Ultimate ASI
+#                        Loader (a dinput8.dll mods use), which then loads it.
 #
 # As a Steam launch option (works in Game Mode; the game's own exit stops everything):
 #   /home/deck/wheelbri/wheelbri.sh %command%
@@ -15,7 +17,7 @@
 # From a terminal (Desktop Mode), without a game: starts, waits for Enter or Ctrl+C, stops.
 #   ./wheelbri.sh            (service with its --ui window)
 #
-# Options: --virtual / --shim, --target g920|g25|g27|g923 (the wheel the game sees; default: the app's Mapping tab Target,
+# Options: --virtual / --shim, --target g25|g27|g920|g923 (the game's wheel; default: the app's Mapping tab Target,
 #          else the G920), --keep-shim (leave the shim in the game's folder afterwards, for testing),
 #          --game-folder DIR (where --shim puts it; default: the folder of the .exe in %command%),
 #          --ui / --no-ui (default: window only from a terminal), --config FILE (default: the mapping saved in
@@ -34,6 +36,7 @@ if [ -x "$here/bin/wheelbri-service" ]; then
     uhid="$here/bin/wheelbri-uhid"
     configs="$here/config"
     shim_dlls=("$here/shim/dinput8.dll" "$here/dinput8.dll")
+    shim_dlls_x86=("$here/shim/x86/dinput8.dll")
 else
     root=$(cd "$here/../.." && pwd)
     build="$root/build"   # the Steam Deck's deck-build.sh builds in build-deck/
@@ -42,6 +45,7 @@ else
     uhid="$build/tools/uhid/wheelbri-uhid"
     configs="$root/config"
     shim_dlls=("$root/build-deck-shim/shim/dinput8.dll" "$root/build-win/shim/dinput8.dll")
+    shim_dlls_x86=("$root/build-deck-shim-x86/shim/dinput8.dll" "$root/build-win-x86/shim/dinput8.dll")
 fi
 
 mode=uhid
@@ -72,12 +76,17 @@ while [ $# -gt 0 ]; do
 done
 [ -z "$ui" ] && { [ ${#game[@]} -eq 0 ] && ui=1 || ui=0; }
 settings="${XDG_CONFIG_HOME:-$HOME/.config}/wheelbri"
-# Default --target: the app's Mapping tab Target (app.ini [app] target), else the G920.
+# A key of app.ini's [app] (the app's choices), read as the app reads it: the last line wins, comments and spaces go.
 # The app writes its files with Windows line ends (CRLF), on Linux too: each line loses its \r first.
+app_setting() {
+    awk -F= -v key="$1" '{sub(/\r$/, "")} /^\[/{app = ($0 ~ /^\[app\][ \t]*$/); next}
+        app {k = $1; gsub(/^[ \t]+|[ \t]+$/, "", k)
+             if (k == key) {v = substr($0, index($0, "=") + 1); sub(/[;#].*/, "", v); gsub(/^[ \t]+|[ \t]+$/, "", v)}}
+        END {print v}' "$settings/app.ini" 2>/dev/null
+}
+# Default --target: the app's Mapping tab Target (app.ini [app] target), else the G920.
 if [ -z "$target" ]; then
-    target=$(awk -F= '{sub(/\r$/, "")} /^\[/{app = ($0 ~ /^\[app\]/); next}
-                      app && $1 ~ /^[ \t]*target[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' \
-             "$settings/app.ini" 2>/dev/null)
+    target=$(app_setting target)
     [ -n "$target" ] || target=g920
 fi
 case "$target" in
@@ -109,10 +118,8 @@ if [ -z "$config" ]; then
 fi
 
 # Default --hide: every device of the active rig (app.ini [app] rig, then id = vvvv:pppp in rigs/<rig>.ini).
-# The app writes its files with Windows line ends (CRLF), on Linux too: each line loses its \r first.
 if [ -z "$hide" ]; then
-    rig=$(awk -F= '{sub(/\r$/, "")} /^\[/{app = ($0 ~ /^\[app\]/); next} app && $1 ~ /^[ \t]*rig[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' \
-          "$settings/app.ini" 2>/dev/null)
+    rig=$(app_setting rig)
     if [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
         hide=$(awk -F= '{sub(/\r$/, "")} $1 ~ /^[ \t]*id[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/[ \t]/, "", $2); split($2, p, ":");
                         virtual = toupper($2) == "046D:C262" || toupper($2) == "046D:C299" ||
@@ -202,19 +209,63 @@ find_game_folder() {
     printf '%s\n' "$found"
 }
 
-shim_dll=
-for candidate in "${shim_dlls[@]}"; do
-    if [ -f "$candidate" ]; then shim_dll=$candidate; break; fi
-done
+# The first of these files that is there (nothing when none is).
+first_file() {
+    local candidate
+    for candidate in "$@"; do
+        if [ -f "$candidate" ]; then printf '%s\n' "$candidate"; return; fi
+    done
+}
+shim_dll_x64=$(first_file "${shim_dlls[@]}")
+shim_dll_x86=$(first_file "${shim_dlls_x86[@]}")
+
+# A Windows program's processor, from its PE header: 014c (32-bit), 8664 (64-bit), nothing for anything else.
+pe_machine() {
+    local file=$1 offset
+    [ "$(head -c 2 "$file" 2>/dev/null)" = MZ ] || return 0
+    offset=$(od -An -tu4 -j60 -N4 "$file" 2>/dev/null | tr -d ' \n')
+    [ -n "$offset" ] || return 0
+    [ "$(od -An -tx1 -j"$offset" -N4 "$file" 2>/dev/null | tr -d ' \n')" = 50450000 ] || return 0   # "PE\0\0"
+    od -An -tx2 -j$((offset + 4)) -N2 "$file" 2>/dev/null | tr -d ' \n'
+}
+
+# 32 or 64: the game's .exe in the folder (the largest one, as the app decides); 64 when none says.
+game_bits() {
+    local exe size largest=-1 bits=64 machine
+    for exe in "$1"/*.[eE][xX][eE]; do
+        [ -f "$exe" ] || continue
+        size=$(stat -c %s "$exe" 2>/dev/null) || continue
+        [ "$size" -ge "$largest" ] || continue
+        machine=$(pe_machine "$exe")
+        case "$machine" in
+            014c) bits=32; largest=$size ;;
+            8664) bits=64; largest=$size ;;
+        esac
+    done
+    echo "$bits"
+}
+
+# The name the shim takes in the folder: dinput8.dll, or dinput8Hooked.dll when the folder's dinput8.dll is the
+# Ultimate ASI Loader (it loads dinput8Hooked.dll in turn; its own file is never touched).
+shim_name_in() {
+    if [ -f "$1/dinput8.dll" ] && grep -qa IsUltimateASILoader "$1/dinput8.dll" 2>/dev/null; then
+        echo dinput8Hooked.dll
+    else
+        echo dinput8.dll
+    fi
+}
+
+shim_dll=         # WheelBri's dinput8.dll this run put in (the 64-bit or the 32-bit one)
 shim_folder=      # where this run put the shim; empty: nothing to take out
-shim_put_dll=0    # this run put (or found its own) dinput8.dll there
+shim_target=      # the file it went to there (dinput8.dll or dinput8Hooked.dll)
+shim_put_dll=0    # this run put (or found its own) shim there
 shim_put_ini=0    # this run put wheelbri-shim.ini there
 
-# Puts dinput8.dll and wheelbri-shim.ini into the game's folder. Never touches another mod's dinput8.dll: one that is
-# neither ours (byte for byte) nor next to a wheelbri-shim.ini (an older WheelBri shim). A wheelbri-shim.ini already
-# there (your own settings) is used as it is.
+# Puts the shim and wheelbri-shim.ini into the game's folder, as the app's Games panel does. Never touches another
+# mod's dll: one that is neither ours (byte for byte) nor next to a wheelbri-shim.ini (an older WheelBri shim). A
+# wheelbri-shim.ini already there (your own settings) is used as it is.
 put_shim() {
-    local folder dll ini
+    local folder dll ini bits name
     folder=$(find_game_folder)
     if [ -z "$folder" ]; then
         say "--shim: no game folder (no .exe and no Steam app id in the game's command): pass --game-folder DIR, or put dinput8.dll there yourself"
@@ -222,17 +273,29 @@ put_shim() {
         return 0   # from a terminal without a game: the shim may already be in place
     fi
     [ -d "$folder" ] || { say "--shim: $folder is not a folder"; return 1; }
-    [ -n "$shim_dll" ] || { say "--shim: dinput8.dll not found (${shim_dlls[*]}): build or install it first"; return 1; }
-    dll="$folder/dinput8.dll"
+    bits=$(game_bits "$folder")
+    if [ "$bits" = 32 ]; then
+        shim_dll=$shim_dll_x86
+        [ -n "$shim_dll" ] || {
+            say "--shim: the game is 32-bit; no 32-bit dinput8.dll (${shim_dlls_x86[*]}): build or install it first"
+            return 1
+        }
+    else
+        shim_dll=$shim_dll_x64
+        [ -n "$shim_dll" ] || { say "--shim: no dinput8.dll (${shim_dlls[*]}): build or install it first"; return 1; }
+    fi
+    name=$(shim_name_in "$folder")
+    dll="$folder/$name"
     ini="$folder/wheelbri-shim.ini"
     if [ -e "$dll" ] && ! cmp -s "$shim_dll" "$dll" && [ ! -e "$ini" ]; then
         say "--shim: $dll belongs to another mod (not WheelBri's): left alone, nothing put in; remove it first"
         return 1
     fi
     if ! cmp -s "$shim_dll" "$dll" 2>/dev/null; then
-        cp -f "$shim_dll" "$dll" || { say "--shim: cannot copy dinput8.dll into $folder"; return 1; }
+        cp -f "$shim_dll" "$dll" || { say "--shim: cannot copy $name into $folder"; return 1; }
     fi
     shim_folder=$folder
+    shim_target=$dll
     shim_put_dll=1
     if [ ! -e "$ini" ]; then
         if cp "$shim_ini" "$ini"; then
@@ -249,7 +312,7 @@ put_shim() {
         [ "$own" = "$target" ] ||
             say "--shim: WARNING: your $ini presents the $own, not the $target: set target_profile = $target there"
     fi
-    say "shim put into $folder"
+    say "shim put into $folder ($bits-bit, as $name)"
     return 0
 }
 
@@ -261,8 +324,8 @@ take_shim_out() {
         return 0
     fi
     local removed=
-    if [ "$shim_put_dll" = 1 ] && cmp -s "$shim_dll" "$shim_folder/dinput8.dll"; then
-        rm -f "$shim_folder/dinput8.dll" && removed="dinput8.dll"
+    if [ "$shim_put_dll" = 1 ] && cmp -s "$shim_dll" "$shim_target"; then
+        rm -f "$shim_target" && removed=$(basename "$shim_target")
     fi
     if [ "$shim_put_ini" = 1 ] && cmp -s "$shim_ini" "$shim_folder/wheelbri-shim.ini"; then
         rm -f "$shim_folder/wheelbri-shim.ini" && removed="$removed${removed:+, }wheelbri-shim.ini"
@@ -272,20 +335,23 @@ take_shim_out() {
 }
 
 # --virtual: a WheelBri shim left in the game's folder (--keep-shim, or put in by hand) is taken out, so the game
-# finds only the virtual wheel. Ours means: identical to this dinput8.dll, or next to a wheelbri-shim.ini (an older
-# WheelBri shim). Another mod's dinput8.dll stays; a wheelbri-shim.ini with your own settings stays too.
+# finds only the virtual wheel. Ours means: identical to one of our dinput8.dll files, or next to a wheelbri-shim.ini
+# (an older WheelBri shim). Another mod's dll stays (the ASI Loader too); a wheelbri-shim.ini with your own settings
+# stays too.
 remove_leftover_shim() {
-    local folder removed=
+    local folder removed= dll ini
     folder=$(find_game_folder)
     [ -n "$folder" ] && [ -d "$folder" ] || return 0
-    local dll="$folder/dinput8.dll" ini="$folder/wheelbri-shim.ini"
-    if [ -e "$dll" ] && { { [ -n "$shim_dll" ] && cmp -s "$shim_dll" "$dll"; } || [ -e "$ini" ]; }; then
-        rm -f "$dll" && removed="dinput8.dll"
+    dll="$folder/$(shim_name_in "$folder")"
+    ini="$folder/wheelbri-shim.ini"
+    if [ -e "$dll" ] && { { [ -n "$shim_dll_x64" ] && cmp -s "$shim_dll_x64" "$dll"; } ||
+                          { [ -n "$shim_dll_x86" ] && cmp -s "$shim_dll_x86" "$dll"; } || [ -e "$ini" ]; }; then
+        rm -f "$dll" && removed=$(basename "$dll")
     fi
     if [ -e "$ini" ] && { cmp -s "$configs/wheelbri-shim.ini" "$ini" || cmp -s "$shim_ini" "$ini"; }; then
         rm -f "$ini" && removed="$removed${removed:+, }wheelbri-shim.ini"
     elif [ -e "$ini" ] && [ -n "$removed" ]; then
-        say "--virtual: kept your own $ini (no effect without dinput8.dll)"
+        say "--virtual: kept your own $ini (no effect without the shim)"
     fi
     [ -n "$removed" ] && say "--virtual: took the shim out of $folder ($removed)"
     return 0
