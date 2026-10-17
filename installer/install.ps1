@@ -90,10 +90,11 @@ $transcript = $false
 
 $warnings = New-Object System.Collections.Generic.List[string]
 $step = 0
+$stepCount = 7   # the numbered steps below, 1 to 7 (2b, which not every install has, is part of step 2)
 function Step([string]$text) {
     $script:step++
     Write-Host ''
-    Write-Host "[$script:step/7] $text" -ForegroundColor Cyan
+    Write-Host "[$script:step/$script:stepCount] $text" -ForegroundColor Cyan
 }
 function Fail([string]$text) {
     Write-Host ''
@@ -161,11 +162,16 @@ try {
         }
         Write-Host '    Universal C Runtime: there'
     }
-    $requiredFiles = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920.ini',
-                       'config\g25.ini', 'config\g27.ini', 'config\g923.ini', 'uninstall.ps1', 'Uninstall.cmd',
-                       'driver\common.ps1',
+    # The same list as scripts/make/package.ps1's $expected (keep them in step). The driver scripts: the installs below,
+    # and the removals the uninstaller runs from the install folder.
+    $requiredFiles = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe',
+                       'config\g25.ini', 'config\g27.ini', 'config\g920.ini', 'config\g923.ini',
+                       'config\wheelbri-shim.ini', 'uninstall.ps1', 'Uninstall.cmd', 'driver\common.ps1',
                        'shim\dinput8.dll', 'shim\x86\dinput8.dll')
-    if ($withDrivers) { $requiredFiles += @('driver\install-driver.ps1', 'driver\hide\install-hide.ps1') }
+    if ($withDrivers) {
+        $requiredFiles += @('driver\install-driver.ps1', 'driver\uninstall-driver.ps1',
+                            'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1')
+    }
     foreach ($required in $requiredFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $package $required))) {
             Fail "the package is incomplete ($required is missing): unpack the whole package again."
@@ -209,8 +215,8 @@ try {
         }
     }
     if ($withDrivers) {
-        Write-Host ('    the hiding filter is only added now: the app puts it on the devices of your rig (Wheel ' +
-                    'setup) the first time you press Start')
+        Write-Host ('    the hiding filter is only added now: the app puts it on the devices of your rig (the Rig ' +
+                    'tab) the first time you press Start')
         Write-Host ('    the drivers are signed with WheelBri''s own certificate (not Microsoft''s): it is added to ' +
                     'the certificates this PC trusts (the uninstaller can remove it)')
     }
@@ -262,7 +268,7 @@ try {
                            Where-Object { $_.InstanceId -like "SWD\$legacy\*" })
     }
     if ($legacyInstall -or $legacyDevices.Count -gt 0 -or (Test-Path "HKLM:\SOFTWARE\$legacy")) {
-        Step "removing the version from before the rename ($legacy)"
+        Write-Host "    removing the version from before the rename ($legacy)"   # part of step 2: not numbered
         foreach ($device in $legacyDevices) {
             pnputil /remove-device "$($device.InstanceId)" | Out-Null
             $code = $LASTEXITCODE
@@ -317,6 +323,12 @@ try {
             $target = Join-Path $InstallDir "config\$($ini.Name)"
             if (-not (Test-Path -LiteralPath $target)) { Copy-Item -LiteralPath $ini.FullName -Destination $target }
         }
+        # Its wheelbri-shim.ini from shim\, where versions before 2026-10-17 put it (see below).
+        $oldShim = Join-Path $previous 'shim\wheelbri-shim.ini'
+        $target = Join-Path $InstallDir 'config\wheelbri-shim.ini'
+        if ((Test-Path -LiteralPath $oldShim -PathType Leaf) -and -not (Test-Path -LiteralPath $target)) {
+            Copy-Item -LiteralPath $oldShim -Destination $target
+        }
         Write-Host "    an earlier install is in ${previous}: its settings are carried over, the folder is removed below"
     }
     # installed-files.txt: every file the installer put in the folder (relative paths), so that removing it deletes
@@ -334,13 +346,29 @@ try {
         Get-ChildItem -LiteralPath (Join-Path $InstallDir 'config') -Filter '*.ini' -ErrorAction SilentlyContinue |
             ForEach-Object { [void]$listed.Add("config\$($_.Name)") }   # the carried-over settings
     }
+    # wheelbri-shim.ini was in shim\ until 2026-10-17, where the app never looked (it reads config\wheelbri-shim.ini):
+    # an earlier install's copy moves to config\ unless one is there, and is then kept like any edited config below.
+    $oldShimSettings = Join-Path $InstallDir 'shim\wheelbri-shim.ini'
+    $shimSettings = Join-Path $InstallDir 'config\wheelbri-shim.ini'
+    if ((Test-Path -LiteralPath $oldShimSettings -PathType Leaf) -and -not (Test-Path -LiteralPath $shimSettings)) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir 'config') | Out-Null
+        Move-Item -LiteralPath $oldShimSettings -Destination $shimSettings
+        Write-Host '    moved shim\wheelbri-shim.ini to config\, where the app reads it'
+    }
     $sourceRoot = (Resolve-Path -LiteralPath $package).Path.TrimEnd('\')
     $copied = 0
+    # default-configs.txt: the SHA-256 of each default config\*.ini of this version ("config\<name><TAB><hash>"),
+    # so that the uninstaller tells the configs the user changed (kept, never deleted) from the defaults.
+    $defaultConfigs = @()
     foreach ($file in Get-ChildItem -LiteralPath $sourceRoot -Recurse -File) {
         $relative = $file.FullName.Substring($sourceRoot.Length + 1)
         if ($relative -in @('Setup.cmd', 'install.ps1')) { continue }   # the installer stays in the package
+        if ($relative -like 'win7\*') { continue }   # Windows 7's prerequisites, for before the install
         $target = Join-Path $InstallDir $relative
         New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
+        if ($relative -like 'config\*.ini') {
+            $defaultConfigs += "$relative`t$((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash)"
+        }
         # An edited config stays: the new default goes next to it as .new.
         if ($relative -like 'config\*.ini' -and (Test-Path -LiteralPath $target)) {
             [void]$listed.Add($relative)
@@ -356,6 +384,9 @@ try {
         $copied++
     }
     Write-Host "    $copied files copied"
+    $defaultsRecord = Join-Path $InstallDir 'default-configs.txt'
+    Set-Content -LiteralPath $defaultsRecord -Value $defaultConfigs -Encoding UTF8
+    [void]$listed.Add('default-configs.txt')
     # The built-in configs' older names (for the rig since 2026-10-04, the G29 gone; one per mode until 2026-10-15): the
     # new ones (g920.ini, g25.ini, g27.ini, g923.ini) replace them. Your own mappings are in %LOCALAPPDATA%, never here.
     $olderConfigs = @('moza-r3-as-g920.ini', 'moza-r3-as-g29.ini', 'rig-as-g920.ini', 'rig-as-g29.ini') +

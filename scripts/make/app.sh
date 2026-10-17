@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Build everything (core, app, service, helper, shim, tests; configures the build tree the first time; on Windows also
-# the 32-bit shim, into build-x86, when MSYS2's 32-bit compiler is installed) and start the
-# app (wheelbri.exe: a window with Start, Stop and Open logs). --test runs the whole unit test suite between the two,
-# and starts nothing when a test fails. A development build starts as Administrator (through PowerShell, which asks),
-# so it does the privileged steps itself; --as-user starts it as you, as an installed WheelBri runs: then the WheelBri
-# Helper must run (wheelbri-helper.exe --console from an Administrator shell, for this build folder).
+# Build everything (core, app, service, helper, shim, tests, and on Windows wheelbri-logi.dll; configures the build tree
+# the first time; on Windows also the 32-bit shim, into build-x86, when MSYS2's 32-bit compiler is installed) and start
+# the app (wheelbri.exe: a window with tabs and Start / Stop; the O key opens the logs folder). --test runs the whole
+# unit test suite between the two, and starts nothing when a test fails. A development build starts as Administrator
+# (through PowerShell, which asks), so it does the privileged steps itself; --as-user starts it as you, as an installed
+# WheelBri runs: then the WheelBri Helper must run (wheelbri-helper.exe --console from an Administrator shell, for this
+# build folder).
 #
 #   scripts/make/app.sh                               build everything, start as Administrator
 #   scripts/make/app.sh --test                        build everything, run all tests, then start

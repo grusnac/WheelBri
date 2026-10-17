@@ -1,5 +1,5 @@
 // wheelbri-hide: hides the rig (the wheel and every accessory the Wheel setup tab defined) from games while
-// wheelbri-service presents the virtual G920.
+// wheelbri-service presents a virtual wheel (G25, G27, G920 or G923).
 // Our replacement for HidHide (third-party), built the same way as our G920 driver: UMDF 2, user mode, signed
 // with the certificate trusted on this PC; no kernel code of ours, no test mode.
 //
@@ -461,8 +461,12 @@ void noteDecision(const ULONG pid, const ULONG allowed, const bool refused) {
     }
 }
 
-// Per device: never hide the virtual wheel (046D:C262, C299), even if the filter ended up on it (Windows put it there
-// by itself once): hiding it would hide the wheel games are meant to see.
+// Per device: never hide a virtual wheel, even if the filter ended up on it (Windows put it there by itself once):
+// hiding it would hide the wheel games are meant to see. The hardware ids of the four (kVirtualWheels in
+// core/src/HidG920.cpp): G25, G27, G920, G923.
+constexpr const char* kVirtualWheelIds[] = {"VID_046D&PID_C299", "VID_046D&PID_C29B", "VID_046D&PID_C262",
+                                            "VID_046D&PID_C26E"};
+
 struct DeviceContext {
     bool neverHide;
 };
@@ -512,9 +516,11 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     const std::string id = hardwareId(init);
     std::string upper = id;
     for (char& c : upper) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c);
-    // The virtual G920 or G25 (VirtualWheel in core): ours, never hidden.
-    const bool virtualG920 =
-        upper.find("VID_046D&PID_C262") != std::string::npos || upper.find("VID_046D&PID_C299") != std::string::npos;
+    // One of the virtual wheels (VirtualWheel in core): ours, never hidden.
+    const bool virtualWheel = std::any_of(std::begin(kVirtualWheelIds), std::end(kVirtualWheelIds),
+                                          [&upper](const char* const wheelId) {
+                                              return upper.find(wheelId) != std::string::npos;
+                                          });
 
     WDF_OBJECT_ATTRIBUTES attributes;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, DeviceContext);
@@ -524,11 +530,11 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
         logLine(Level::Error, "WdfDeviceCreate failed on " + id + ": " + std::to_string(status));
         return status;
     }
-    deviceContext(device)->neverHide = virtualG920;
+    deviceContext(device)->neverHide = virtualWheel;
     // No queues: everything but opening the device goes straight to the HID class driver below.
-    if (virtualG920) {
+    if (virtualWheel) {
         logLine(Level::Warn, "attached to " + id +
-                                 ", the virtual wheel: never hidden (this filter does not belong there; reinstall "
+                                 ", a virtual wheel: never hidden (this filter does not belong there; reinstall "
                                  "WheelBri to take it off)");
     } else {
         logLine(Level::Info,

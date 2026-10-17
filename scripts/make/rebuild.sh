@@ -19,7 +19,7 @@ safe_build_dir() {
 for dir in "$build_dir" "${build_dir}-x86"; do   # and the 32-bit shim's tree (shim-x86.sh)
     if [ -d "$dir" ]; then
         say "deleting $dir..."
-        rm -rf "$dir" || fail "could not delete $dir (is wheelbri-service still running?)"
+        rm -rf "$dir" || fail "could not delete $dir (is wheelbri.exe or wheelbri-service still running?)"
     fi
 done
 configure

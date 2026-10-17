@@ -1,7 +1,8 @@
-# Installs wheelbri's G920 driver (build it first, see README.md). Administrator. Secure Boot and test
-# mode stay as they are: the package is signed with a certificate made on this PC by the WDK build
-# (WDKTestCert, or WheelBri's own from new-signing-cert.ps1), which this script adds to the machine's trusted Root and
-# TrustedPublisher stores (its thumbprint recorded in HKLM\SOFTWARE\wheelbri\SigningCertificates for the uninstall).
+# Installs wheelbri-g920, the one driver package behind all four virtual wheels (G25, G27, G920, G923; build it first,
+# see README.md). Administrator. Secure Boot and test mode stay as they are: the package is signed with a
+# certificate made on this PC by the WDK build (WDKTestCert, or WheelBri's own from new-signing-cert.ps1), which this
+# script adds to the machine's trusted Root and TrustedPublisher stores (its thumbprint recorded in
+# HKLM\SOFTWARE\wheelbri\SigningCertificates for the uninstall).
 #
 #   install-driver.ps1                 Release build
 #   install-driver.ps1 -Configuration Debug
@@ -56,7 +57,7 @@ try {
         Stop-WithError 'pnputil reported success, but Windows does not list wheelbri-g920.inf as installed.'
     }
     Write-Host ''
-    Write-Host 'Installed. Press Start in WheelBri (or run wheelbri-service --virtual-g920 as Administrator) to create the G920.' -ForegroundColor Green
+    Write-Host 'Installed. Press Start in WheelBri (or run wheelbri-service --virtual-g920 as Administrator) to create the virtual wheel.' -ForegroundColor Green
     $exitCode = 0
 } catch {
     Write-Host "install-driver.ps1 failed: $($_.Exception.Message)" -ForegroundColor Red

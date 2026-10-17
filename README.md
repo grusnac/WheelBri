@@ -1,9 +1,10 @@
 # wheel-emulator
 
 Presents a DirectInput wheel (target hardware: **Moza R3**) to PC games as a wheel they support
-(the targets: **Logitech G920** and its successor the **G923** (Xbox One and PC), and the **Logitech G25** and **G27**
-for games that know them and not the G920; the G29 profile was dropped on 2026-10-04, it is the same wheel as the G920 with more buttons), on Windows and on Linux
-(Proton). First target game: *Need for Speed (2015)*.
+(the targets, in the app's order: the **Logitech G25** and **G27** for games that know them and not the G920, the
+**Logitech G920**, and its successor the **G923** (Xbox One and PC); the G29 profile was dropped on 2026-10-04, it is
+the same wheel as the G920 with more buttons), on Windows and on Linux (Proton). First target game:
+*Need for Speed (2015)*.
 
 ```
 Moza R3 ──DirectInput / evdev──► wheelbri-service ──UDP 127.0.0.1──► dinput8.dll shim (inside the game)
@@ -415,13 +416,18 @@ limited only by Pit House), `off` disables force feedback. If forces pull the wr
 
 ## Installing on another PC
 
-`scripts/make/package.sh` builds everything in Release and makes `dist/windows/WheelBri-<version>-setup.exe` (plus
-the same files as a folder and a zip). On a Windows 11 PC with nothing of it, run the setup and approve the
-Administrator prompt (the only one: the app itself runs as the user); at the end it asks whether to restart Windows now (default yes), which makes sure every driver
-is in use (the hiding filter often starts only after a restart). It installs **WheelBri** to `C:\Program Files\WheelBri`, the three
-drivers (trusting the drivers' certificate on that PC), a Start menu folder (the app and "Uninstall WheelBri"), the WheelBri Helper service and a
-Settings > Apps entry that uninstalls it all. The app hides the rig (every device in the Rig tab) from games on every Start. The
-log is `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log` (every log, the drivers' too, is in that one folder); `installer/README.txt` is the end user's guide.
+`scripts/make/package.sh` builds everything in Release and makes `dist/windows/WheelBri-<version>-setup.exe` (plus the
+same files as a folder and a zip). On a Windows 11 PC with nothing of it, run the setup and approve the Administrator
+prompt (the only one: the app itself runs as the user); at the end it asks whether to restart Windows now (default yes),
+which makes sure every driver is in use (the hiding filter often starts only after a restart). It installs **WheelBri**
+to `C:\Program Files\WheelBri`, the two drivers (`wheelbri-g920`, the virtual wheel for every target, and
+`wheelbri-hide`; trusting the drivers' certificate on that PC), a Start menu folder (the app and "Uninstall WheelBri"),
+the WheelBri Helper service and a Settings > Apps entry that uninstalls it all (Windows 7 SP1 to 10: the app and the
+shim only, no drivers or Helper). The uninstaller never removes `%LOCALAPPDATA%\wheelbri` (mappings, rigs, logs); with
+`-Quiet` (Settings > Apps' quiet uninstall) it moves the configs changed in the install folder to
+`%LOCALAPPDATA%\wheelbri\config-backup-<date>-<time>` instead of deleting them. The app hides the rig (every device in
+the Rig tab) from games on every Start. The log is `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log` (every
+log, the drivers' too, is in that one folder); `installer/README.txt` is the end user's guide.
 
 ## The app
 
@@ -457,9 +463,9 @@ USING THE WHEEL** in red and the log says so. Close the game with WheelBri runni
 in its controls settings.
 
 The top row of the Mapping tab (while stopped) has two pickers, each with `<` `>`: **Target**, the wheel WheelBri
-emulates (the **G920**, the **G923** (Xbox One and PC: [docs/g923-target-plan.md](docs/g923-target-plan.md)), or the
-**G25** or **G27** for games that know them and not the G920: [docs/g25-target-plan.md](docs/g25-target-plan.md),
-[docs/g27-target-plan.md](docs/g27-target-plan.md); others come
+emulates, in this order: the **G25** or **G27** for games that know them and not the G920
+([docs/g25-target-plan.md](docs/g25-target-plan.md), [docs/g27-target-plan.md](docs/g27-target-plan.md)), the **G920**,
+or the **G923** (Xbox One and PC: [docs/g923-target-plan.md](docs/g923-target-plan.md)); others come
 only when WheelBri supports them), and **Mode**:
 **Virtual** (WheelBri's driver, every game sees it, the rig is hidden) or **Shim** (`dinput8.dll` next to the game's
 `.exe`, nothing hidden, nothing created; Start writes the target into the game's `wheelbri-shim.ini`). A target is
@@ -713,8 +719,11 @@ decide where the Administrator writes or what it runs:
   are ignored and named in the log. Every force still goes through the safety limiter. On Linux there is no such
   check. Not covered: the virtual G920's driver takes the wheel's state from any local sender (it runs as
   LocalService and cannot look into the app's process), and the test clutch port (41331) has no check.
-- The driver signing certificate is made on the build PC (`driver\new-signing-cert.ps1`); the uninstaller removes only
-  the certificates WheelBri recorded (`HKLM\SOFTWARE\wheelbri\SigningCertificates`).
+- The driver signing certificate is made on the build PC (`driver\new-signing-cert.ps1`); the uninstaller removes, by
+  thumbprint, only the certificates WheelBri recorded at install (`HKLM\SOFTWARE\wheelbri\SigningCertificates`) and the
+  signers of WheelBri's own driver catalogs, in Windows' driver store or in the uninstaller's `driver\` folder (the
+  install folder's or the package's; `driver\common.ps1` `Get-SigningThumbprints`); never a certificate found by its
+  name.
 
 ## Licence note
 

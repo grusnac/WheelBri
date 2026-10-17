@@ -3,11 +3,17 @@
 #
 # usage: scripts/telemetry_summary.sh [FILE | FOLDER] [--all]
 #
-# FILE is a telemetry-YYYY-MM-DD-NN.log (NN: the app's run; also .log.xz / .log.gz, and the older daily
-# telemetry-YYYY-MM-DD.log). With a FOLDER (default: the service's log folder) the newest run is used (the latest day,
-# then the highest NN). By default the last session of that run is summarised; --all summarises every session of the
-# run together. The matching ffb-*.log next to it is read too: the game's force feedback changes and the delay of
-# every call the service made to the wheel (kind=wheel_* lines).
+# FILE is a telemetry-YYYY-MM-DD-NN.log (NN: the app's run; also compressed by the log housekeeping as .log.xz,
+# .log.gz or .log.zst, and the older daily telemetry-YYYY-MM-DD.log). Day archives (wheelbri-logs-<date>.7z or .zip,
+# which the housekeeping writes with 7-Zip or zip) are not read: unpack them first and pass the folder or file.
+# With a FOLDER the newest run is used (the latest day, then the highest NN). The default FOLDER is the app's log
+# folder: %LOCALAPPDATA%\wheelbri\logs on Windows, ~/Library/Logs/wheelbri on macOS,
+# ${XDG_STATE_HOME:-$HOME/.local/state}/wheelbri on Linux. Telemetry written elsewhere (a [telemetry] directory in
+# the config) is not found on its own: pass that directory as FOLDER.
+# By default the last session of that run is summarised; --all summarises every session of the run together.
+# The ffb file of the same run next to it (ffb-YYYY-MM-DD-NN.log, compressed or not) is read too: the game's force
+# feedback changes and the delay of every call the service made to the wheel (kind=wheel_* lines). It is used only
+# when its "session started" lines are the telemetry file's (the same sessions); otherwise a warning says why not.
 #
 # The files are logs like the others: "[date time] [info ] [telemetry     ] t_ms=... key=value ...". Rows are the
 # lines whose message starts with t_ms=; "session started" lines start a session.
@@ -22,17 +28,20 @@ target=""
 for arg in "$@"; do
     case "$arg" in
         --all) all=1 ;;
-        -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         --*) echo "unknown option: $arg" >&2; exit 2 ;;
         *) target="$arg" ;;
     esac
 done
 
+# The app's log folder (service/src/ServiceLogging.cpp, logsFolder).
 default_folder() {
     if [[ -n "${LOCALAPPDATA:-}" ]]; then
         local folder="$LOCALAPPDATA/wheelbri/logs"
         if command -v cygpath >/dev/null 2>&1; then folder="$(cygpath -u "$folder")"; fi
         echo "$folder"
+    elif [[ "$(uname -s)" == Darwin ]]; then
+        echo "$HOME/Library/Logs/wheelbri"
     else
         echo "${XDG_STATE_HOME:-$HOME/.local/state}/wheelbri"
     fi
@@ -41,7 +50,8 @@ default_folder() {
 path="${target:-$(default_folder)}"
 if [[ -d "$path" ]]; then
     # The day, then the run's number as a number (-10 after -09, -100 after -99); an old daily file is number 0.
-    newest="$(ls -1 "$path" 2>/dev/null | grep -E '^telemetry-[0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9]+)?\.log(\.xz|\.gz)?$' |
+    newest="$(ls -1 "$path" 2>/dev/null |
+        grep -E '^telemetry-[0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9]+)?\.log(\.xz|\.gz|\.zst)?$' |
         awk '{ n = $0; sub(/^telemetry-/, "", n); day = substr(n, 1, 10); run = 0
                if (substr(n, 11, 1) == "-") { run = substr(n, 12); sub(/\..*$/, "", run) }
                printf "%s %09d %s\n", day, run, $0 }' | sort | tail -n 1 | cut -d' ' -f3 || true)"
@@ -61,11 +71,15 @@ read_text() {
     case "$1" in
         *.xz) xz -dc -- "$1" ;;
         *.gz) gzip -dc -- "$1" ;;
+        *.zst) zstd -dc -q --long=27 -- "$1" ;;   # --long=27: the window Housekeeping compresses with
         *) cat -- "$1" ;;
     esac
 }
 
 sessions_in() { read_text "$1" | grep -c '\] session started ' || true; }
+
+# The file's "session started ..." messages, one per line (what follows "[date time] [level] [component] ").
+session_starts() { read_text "$1" | tr -d '\r' | grep -o '\] session started .*$' | sed 's/^\] //' || true; }
 
 # Shared awk: reading a line's key=value pairs, session selection, sorting and percentiles.
 read -r -d '' AWK_COMMON <<'AWK' || true
@@ -259,8 +273,23 @@ END {
 
 dir="$(dirname "$path")"
 base="$(basename "$path")"
-ffb="$dir/${base/telemetry-/ffb-}"
-[[ -f "$ffb" ]] || exit 0
+# The run's ffb file: the same name with ffb- for telemetry-, compressed or not (the housekeeping may have compressed
+# only one of the two so far).
+stem="${base/telemetry-/ffb-}"
+stem="${stem%.xz}"; stem="${stem%.gz}"; stem="${stem%.zst}"
+ffb=""
+for candidate in "$dir/$stem" "$dir/$stem.xz" "$dir/$stem.gz" "$dir/$stem.zst"; do
+    if [[ -f "$candidate" ]]; then ffb="$candidate"; break; fi
+done
+[[ -n "$ffb" ]] || exit 0
+# The name alone does not prove it is the same run (a file copied in, or one of the two cut short by max_file_mb):
+# both files start every session with the same "session started" line, so they must have the same ones.
+if [[ "$(session_starts "$ffb")" != "$(session_starts "$path")" ]]; then
+    echo "" >&2
+    echo "WARNING: $(basename "$ffb") does not have the same \"session started\" lines as $(basename "$path")" \
+        "(not the same run, or one of them stopped at max_file_mb): its force feedback is not summarised" >&2
+    exit 0
+fi
 ffbCount="$(sessions_in "$ffb")"
 [[ "$ffbCount" -gt 0 ]] || exit 0
 

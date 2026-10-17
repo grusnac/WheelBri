@@ -62,8 +62,14 @@ foreach ($name in $Only) {
         if ($LASTEXITCODE) { Write-Host "$name install failed" -ForegroundColor Red; exit 1 }
     } else {
         # One Administrator window per driver; it closes when done (never waits for Enter). On failure the end of
-        # the installer's own log is shown here instead.
-        $command = "& '$installer' -Configuration $Configuration; exit `$LASTEXITCODE"
+        # the installer's own log is shown here instead. -LogFolder: this user's logs folder, where that log is
+        # looked for below; without it the installer would use the elevated account's %LOCALAPPDATA% (another one
+        # when a different Administrator signs in). When that folder (or the one above it) is a link, the
+        # installers write to %SystemRoot%\Temp instead.
+        $logFolder = Join-Path $env:LOCALAPPDATA 'wheelbri\logs'
+        $quoted = { param($text) "'" + ($text -replace "'", "''") + "'" }
+        $command = "& $(& $quoted $installer) -Configuration $Configuration -LogFolder $(& $quoted $logFolder); " +
+                   "exit `$LASTEXITCODE"
         try {
             $p = Start-Process powershell.exe -Verb RunAs -PassThru -Wait `
                 -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"$command`""
@@ -71,8 +77,11 @@ foreach ($name in $Only) {
             Write-Host "$name install was not started (Administrator refused?)" -ForegroundColor Red; exit 1
         }
         if ($p.ExitCode -ne 0) {
-            $log = Join-Path $env:LOCALAPPDATA "wheelbri\logs\$($drivers[$name].Log)$(Get-Date -Format yyyy-MM-dd).log"
-            if (Test-Path -LiteralPath $log) {
+            $logName = "$($drivers[$name].Log)$(Get-Date -Format yyyy-MM-dd).log"
+            $log = @((Join-Path $logFolder $logName), (Join-Path $env:SystemRoot "Temp\$logName") |
+                Where-Object { Test-Path -LiteralPath $_ } |
+                Sort-Object { (Get-Item -LiteralPath $_).LastWriteTime } -Descending) | Select-Object -First 1
+            if ($log) {
                 Write-Host "the end of $log :"
                 Get-Content -LiteralPath $log -Tail 25 | ForEach-Object { Write-Host "  $_" }
             }

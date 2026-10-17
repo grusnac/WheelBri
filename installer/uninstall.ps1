@@ -5,13 +5,17 @@
 #   - Uninstall.cmd in the install folder (double-click);
 #   - Uninstall.cmd in the unpacked package: cleans up an installation whose folder is damaged or already deleted
 #     (drivers, certificate, shortcuts, entry), using the package's own driver scripts.
-# Logs and telemetry in %LOCALAPPDATA%\wheelbri\logs are left. Before Windows 11 the installer puts no drivers and no
-# Helper in (the in-game shim way only), so there is nothing of them to remove there.
+# The user's own data in %LOCALAPPDATA%\wheelbri (mappings, rigs, app settings, logs and telemetry) is never removed.
+# Before Windows 11 the installer puts no drivers and no Helper in (the in-game shim way only), so there is nothing of
+# them to remove there.
 #
 #   uninstall.ps1                      asks to confirm, whether to keep the config and whether to remove the certificate
 #   uninstall.ps1 -KeepConfig          keep the config (copied to %LOCALAPPDATA%\wheelbri\config-backup)
 #   uninstall.ps1 -RemoveCertificate   also remove the drivers' certificate
-#   uninstall.ps1 -Quiet               no questions (removes the config, keeps the certificate unless -RemoveCertificate)
+#   uninstall.ps1 -Quiet               no questions (Settings > Apps' quiet uninstall): the configs in the install
+#                                      folder that were changed after install are moved to
+#                                      %LOCALAPPDATA%\wheelbri\config-backup-<yyyy-MM-dd-HHmmss>, never deleted; the
+#                                      certificate stays unless -RemoveCertificate
 #   uninstall.ps1 -InstallDir D:\x     the install folder (default: the one Settings > Apps records)
 #
 # Exit codes: 0 removed (warnings listed at the end), 1 failed or cancelled.
@@ -130,6 +134,82 @@ function Run-Script([string]$path, [string[]]$arguments = @()) {
     return $LASTEXITCODE
 }
 
+# DirectInput's OEM entries WheelBri writes while a virtual wheel exists (service/src/VirtualG920.cpp
+# writeDirectInputEntries), under Joystick\OEM\<ids> in HKLM and HKCU: OEMName (the name below, kVirtualWheels'
+# oemName in core/src/HidG920.cpp), OEMData, and for the G923 an Axes key marked with a "WheelBri" value. A real
+# Logitech wheel has entries under the same ids (Windows', Logitech's software's): those stay. By target: G25, G27,
+# G920, G923.
+$oemNames = [ordered]@{
+    'VID_046D&PID_C299' = 'Logitech G25 Racing Wheel USB'
+    'VID_046D&PID_C29B' = 'Logitech G27 Racing Wheel USB'
+    'VID_046D&PID_C262' = 'Logitech G920 Driving Force Racing Wheel USB'
+    'VID_046D&PID_C26E' = 'Logitech G923 Racing Wheel for Xbox One and PC'
+}
+# What of one OEM key is WheelBri's, from what is in it: OEMName and OEMData when OEMName is the name WheelBri writes
+# (the app removes OEMData at stop and leaves OEMName), the Axes key when it has the "WheelBri" value. The key itself
+# goes only when nothing else is left in it (Remove-OemEntries). No registry here, so it is tested on its own.
+function Get-OemRemoval([string]$oemName, [string]$ourName, [bool]$axesMarked) {
+    $values = @()
+    if ($oemName -and $oemName -ceq $ourName) { $values = @('OEMName', 'OEMData') }
+    return [pscustomobject]@{ Values = $values; Axes = $axesMarked }
+}
+# Removes WheelBri's OEM entries under <key> (Get-OemRemoval) and the key when it is then empty. Returns what went.
+function Remove-OemEntries([string]$key, [string]$ourName) {
+    $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
+    if (-not $item) { return @() }
+    $axes = Get-Item -LiteralPath "$key\Axes" -ErrorAction SilentlyContinue
+    $marked = [bool]($axes -and (@($axes.GetValueNames()) -contains 'WheelBri'))
+    $removal = Get-OemRemoval ([string]$item.GetValue('OEMName')) $ourName $marked
+    $removed = @()
+    foreach ($value in $removal.Values) {
+        if (@($item.GetValueNames()) -contains $value) {
+            Remove-ItemProperty -LiteralPath $key -Name $value -Force -ErrorAction SilentlyContinue
+            $removed += $value
+        }
+    }
+    if ($removal.Axes) {
+        Remove-Item -LiteralPath "$key\Axes" -Recurse -Force -ErrorAction SilentlyContinue
+        $removed += 'Axes'
+    }
+    $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
+    if ($removed.Count -gt 0 -and $item -and $item.ValueCount -eq 0 -and $item.SubKeyCount -eq 0) {
+        Remove-Item -LiteralPath $key -Force -ErrorAction SilentlyContinue
+        $removed += '(the key, left empty)'
+    }
+    return $removed
+}
+
+# The configs in <installDir>\config that the user changed: each *.ini whose SHA-256 is not the one install.ps1
+# recorded for the default it put there (default-configs.txt); every *.ini when there is no record (an install from
+# before it), since nothing then tells the defaults apart. The defaults' .ini.new copies are not counted.
+function Get-EditedConfigs([string]$installDir) {
+    $config = Join-Path $installDir 'config'
+    if (-not (Test-Path -LiteralPath $config -PathType Container)) { return @() }
+    $record = Join-Path $installDir 'default-configs.txt'
+    $defaults = @{}
+    if (Test-Path -LiteralPath $record -PathType Leaf) {
+        foreach ($line in @(Get-Content -LiteralPath $record)) {
+            $parts = @($line -split "`t")
+            if ($parts.Count -eq 2) { $defaults[$parts[0].Trim()] = $parts[1].Trim() }
+        }
+    }
+    return @(Get-ChildItem -LiteralPath $config -File -Force | Where-Object { $_.Extension -ieq '.ini' } |
+        Where-Object {
+            $known = $defaults["config\$($_.Name)"]
+            -not $known -or (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash -ne $known
+        })
+}
+# Moves <files> into a new <localAppData>\wheelbri\config-backup-<yyyy-MM-dd-HHmmss> and returns that folder. Stops
+# (throws) when one cannot be moved, before the program folder is removed.
+function Move-ConfigsToBackup($files, [string]$localAppData, [datetime]$now) {
+    $backup = Join-Path $localAppData ('wheelbri\config-backup-' + $now.ToString('yyyy-MM-dd-HHmmss'))
+    New-Item -ItemType Directory -Force -Path $backup -ErrorAction Stop | Out-Null
+    foreach ($file in $files) {
+        Move-Item -LiteralPath $file.FullName -Destination (Join-Path $backup $file.Name) -Force -ErrorAction Stop
+    }
+    return $backup
+}
+
 # The drivers and the certificate exist only on Windows 11 (install.ps1 installs them only there).
 $withDrivers = [Environment]::OSVersion.Version.Build -ge 22000
 
@@ -226,19 +306,19 @@ try {
             Remove-Item 'HKLM:\SOFTWARE\wheelbri' -Force -ErrorAction SilentlyContinue
         }
     }
-    # The drivers' UMDF registrations (some removals leave them) and DirectInput's entries for the G920 the app writes
-    # (its name and type; a real G920 gets them again when plugged in). HKCU: the account this runs as.
+    # The drivers' UMDF registrations (some removals leave them).
     foreach ($name in 'wheelbri', 'wheelemu') {
         foreach ($part in 'hide', 'g920') {
             Remove-Item "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part" -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
-    # DirectInput's entries for the virtual G920 (C262), G25 (C299), G27 (C29B) and G923 (C26E).
-    foreach ($ids in 'VID_046D&PID_C262', 'VID_046D&PID_C299', 'VID_046D&PID_C29B', 'VID_046D&PID_C26E') {
-        foreach ($key in "HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids",
-                         "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids",
-                         "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\DirectInput\$ids") {
-            Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue
+    # DirectInput's OEM entries WheelBri wrote for its virtual G25, G27, G920 and G923 ($oemNames), and only those: a
+    # real Logitech wheel's stay. HKCU: the account this runs as.
+    foreach ($ids in $oemNames.Keys) {
+        foreach ($hive in 'HKLM:\SYSTEM', 'HKCU:\System') {
+            $key = "$hive\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids"
+            $removed = @(Remove-OemEntries $key $oemNames[$ids])
+            if ($removed.Count -gt 0) { Write-Host "    $key`: removed $($removed -join ', ')" }
         }
     }
     # The same two under the project's old name (wheelemu, before the rename), if an upgrade left them.
@@ -246,9 +326,20 @@ try {
     Remove-Item 'HKLM:\SOFTWARE\wheelemu' -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host '    done'
 
-    # 4. Config, if asked to keep it.
+    # 4. Config: kept if asked; with -Quiet (no one to ask) the changed ones are moved to a backup, never deleted.
     Write-Host '[4/5] settings' -ForegroundColor Cyan
-    if ($folderOk -and $KeepConfig) {
+    if ($folderOk -and $Quiet -and -not $KeepConfig) {
+        $edited = @(Get-EditedConfigs $InstallDir)
+        if ($edited.Count -gt 0) {
+            $backup = Move-ConfigsToBackup $edited $env:LOCALAPPDATA (Get-Date)
+            $names = ($edited | ForEach-Object { $_.Name }) -join ', '
+            $which = if (Test-Path -LiteralPath (Join-Path $InstallDir 'default-configs.txt')) { 'changed configs' }
+                     else { 'configs (this install recorded no defaults to tell changed ones by)' }
+            Warn "    moved your $which to $backup`: $names"
+        } else {
+            Write-Host '    none changed: removed with the program'
+        }
+    } elseif ($folderOk -and $KeepConfig) {
         $config = Join-Path $InstallDir 'config'
         if (Test-Path -LiteralPath $config -PathType Container) {
             $backup = Join-Path $env:LOCALAPPDATA 'wheelbri\config-backup'   # the user's folder, like every setting

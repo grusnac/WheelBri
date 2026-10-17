@@ -33,10 +33,13 @@
 # HKLM\SOFTWARE\wheelbri and \wheelemu (the hide setting); the installer's and uninstaller's copies in %TEMP% and
 # %SystemRoot%\Temp (wheelbri-setup-*, wheelbri-uninstall-*, and install logs written there when the logs folder was a
 # link);
-# DirectInput's entries for VID_046D&PID_C262, PID_C299, PID_C29B and PID_C26E (the virtual G920's, G25's, G27's and
-# G923's name and force feedback driver, which the service writes; a real one gets them again when plugged in); the
-# shim in the games the app lists (and -GameFolder); the app's data folders unless -KeepData.
-# It never touches this repository (build\, dist\) or the WDK certificate in your own store that signs builds.
+# DirectInput's OEM entries the service writes for the virtual G25, G27, G920 and G923 (VID_046D&PID_C299, C29B, C262,
+# C26E): OEMName and OEMData where OEMName is WheelBri's name for that wheel, the Axes key where it carries WheelBri's
+# mark, and the OEM key only when that leaves it empty, so a real Logitech wheel's entries stay; the shim in the games
+# the app lists (and -GameFolder); the app's data folders unless -KeepData.
+# It never touches this repository (build\, dist\) or the WDK certificate in your own store that signs builds. It
+# does not change Logitech's wheel SDK entry: if it still names wheelbri-logi.dll (scripts/make/logi.sh), it says so
+# and prints the command that points it back at G HUB's library.
 #
 # Exit codes: 0 clean (yellow lines say what to look at, e.g. a restart), 1 failed or cancelled.
 
@@ -184,12 +187,69 @@ function Get-Shortcuts {
     return @($found | Sort-Object -Unique)
 }
 
-# The virtual G25, G27, G920 and G923.
-$diKeys = @(foreach ($ids in 'VID_046D&PID_C262', 'VID_046D&PID_C299', 'VID_046D&PID_C29B', 'VID_046D&PID_C26E') {
-    "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids"
-    "HKLM:\SYSTEM\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids"
-    "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\DirectInput\$ids"
-})
+# DirectInput's OEM entries the service writes while a virtual wheel exists (service/src/VirtualG920.cpp
+# writeDirectInputEntries), under Joystick\OEM\<ids> in HKLM and HKCU: OEMName (the name below, kVirtualWheels'
+# oemName in core/src/HidG920.cpp), OEMData, and for the G923 an Axes key marked with a "WheelBri" value. A real
+# Logitech wheel has entries under the same ids: those stay. By target: G25, G27, G920, G923. (The same as
+# installer/uninstall.ps1.)
+$oemNames = [ordered]@{
+    'VID_046D&PID_C299' = 'Logitech G25 Racing Wheel USB'
+    'VID_046D&PID_C29B' = 'Logitech G27 Racing Wheel USB'
+    'VID_046D&PID_C262' = 'Logitech G920 Driving Force Racing Wheel USB'
+    'VID_046D&PID_C26E' = 'Logitech G923 Racing Wheel for Xbox One and PC'
+}
+# What of one OEM key is WheelBri's: OEMName and OEMData when OEMName is the name WheelBri writes, the Axes key when it
+# has the "WheelBri" value. The key itself goes only when nothing else is left in it (Remove-OemEntries).
+function Get-OemRemoval([string]$oemName, [string]$ourName, [bool]$axesMarked) {
+    $values = @()
+    if ($oemName -and $oemName -ceq $ourName) { $values = @('OEMName', 'OEMData') }
+    return [pscustomobject]@{ Values = $values; Axes = $axesMarked }
+}
+# WheelBri's entries found under each OEM key: objects with Key, Name (ours for that id) and What (what would go).
+function Get-OurOemEntries {
+    foreach ($ids in $oemNames.Keys) {
+        foreach ($hive in 'HKCU:\System', 'HKLM:\SYSTEM') {
+            $key = "$hive\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids"
+            $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
+            if (-not $item) { continue }
+            $axes = Get-Item -LiteralPath "$key\Axes" -ErrorAction SilentlyContinue
+            $marked = [bool]($axes -and (@($axes.GetValueNames()) -contains 'WheelBri'))
+            $removal = Get-OemRemoval ([string]$item.GetValue('OEMName')) $oemNames[$ids] $marked
+            $what = @($removal.Values | Where-Object { @($item.GetValueNames()) -contains $_ })
+            if ($removal.Axes) { $what += 'Axes' }
+            if ($what.Count -gt 0) { [pscustomobject]@{ Key = $key; Name = $oemNames[$ids]; What = $what } }
+        }
+    }
+}
+# Removes WheelBri's OEM entries under <key> (Get-OemRemoval) and the key when it is then empty. Returns what went.
+function Remove-OemEntries([string]$key, [string]$ourName) {
+    $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
+    if (-not $item) { return @() }
+    $axes = Get-Item -LiteralPath "$key\Axes" -ErrorAction SilentlyContinue
+    $marked = [bool]($axes -and (@($axes.GetValueNames()) -contains 'WheelBri'))
+    $removal = Get-OemRemoval ([string]$item.GetValue('OEMName')) $ourName $marked
+    $removed = @()
+    foreach ($value in $removal.Values) {
+        if (@($item.GetValueNames()) -contains $value) {
+            Remove-ItemProperty -LiteralPath $key -Name $value -Force -ErrorAction SilentlyContinue
+            $removed += $value
+        }
+    }
+    if ($removal.Axes) {
+        Remove-Item -LiteralPath "$key\Axes" -Recurse -Force -ErrorAction SilentlyContinue
+        $removed += 'Axes'
+    }
+    $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
+    if ($removed.Count -gt 0 -and $item -and $item.ValueCount -eq 0 -and $item.SubKeyCount -eq 0) {
+        Remove-Item -LiteralPath $key -Force -ErrorAction SilentlyContinue
+        $removed += '(the key, left empty)'
+    }
+    return $removed
+}
+# Logitech's wheel SDK entry, which scripts/make/logi.sh tells you to point at wheelbri-logi.dll: never changed here
+# (G HUB's library path depends on its version), only reported with the command that points it back.
+$logiKey = 'HKLM:\SOFTWARE\Classes\CLSID\{63BD165D-1584-4E75-AB56-08330350545F}\ServerBinary'
+$logiGhub = 'C:\Program Files\Logi\wheel_sdk\9_1_1\logi_steering_wheel_x64.dll'   # logi.sh's "back to G HUB's"
 $otherKeys = @(foreach ($name in $names) {
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$name"; "HKLM:\SOFTWARE\$name"
     # The UMDF host's registration of each driver (UmdfService in the INFs), left behind by some removals.
@@ -262,6 +322,8 @@ Write-Host ''
 Write-Host 'Looking for what WheelBri left on this PC...'
 
 $helperService = Get-Service -Name 'WheelBriHelper' -ErrorAction SilentlyContinue
+# Legacy sweep: wheelbri-bridge, ClutchProbe and FfbProbe were tools/vbridge's, which is gone; a copy left running
+# from an old checkout is still closed.
 $processes = @(Get-Process -Name (@(foreach ($name in $names) { $name; "$name-service"; "$name-bridge"; "$name-helper" }) +
                                  @('ClutchProbe', 'FfbProbe')) -ErrorAction SilentlyContinue)
 $allDevices = @(Get-PnpDevice -ErrorAction SilentlyContinue)   # present and not present (half-removed ones too)
@@ -302,7 +364,11 @@ $certificates = @(foreach ($store in 'Root', 'TrustedPublisher') {
 })
 $tempCopies = @(Get-TempCopies)
 $shortcuts = @(Get-Shortcuts)
-$keys = @(($diKeys + $otherKeys) | Where-Object { Test-Path $_ })
+$keys = @($otherKeys | Where-Object { Test-Path $_ })
+$oemEntries = @(Get-OurOemEntries)
+$logiItem = Get-Item -LiteralPath $logiKey -ErrorAction SilentlyContinue
+$logiServer = if ($logiItem) { [string]$logiItem.GetValue('') } else { '' }
+$logiOurs = $logiServer -match '(wheelbri|wheelemu)-logi\.dll'
 $shimFiles = @(Get-ShimFiles)
 $dataFolders = @()
 if (-not $KeepData) {
@@ -322,6 +388,7 @@ $plan += $installFolders | ForEach-Object { "folder      $_" }
 $plan += $shortcuts | ForEach-Object { "shortcut    $_" }
 $plan += $tempCopies | ForEach-Object { "temp copy   $_" }
 $plan += $keys | ForEach-Object { "registry    $_" }
+$plan += $oemEntries | ForEach-Object { "registry    $($_.Key): $($_.What -join ', ') (WheelBri's)" }
 $plan += $shimFiles | ForEach-Object { "game shim   $_" }
 $plan += $dataFolders | ForEach-Object { "data        $_" }
 if ($ThirdParty) {
@@ -343,6 +410,19 @@ if (-not $ThirdParty -and ($thirdDevices.Count + $thirdPackages.Count) -gt 0) {
     $thirdDevices | ForEach-Object { Write-Host "  device $($_.InstanceId) ($($_.FriendlyName))" -ForegroundColor Yellow }
 }
 if ($KeepData) { Write-Host "Kept (-KeepData): $UserLocalAppData\wheelbri, $env:ProgramData\wheelbri (and the old-named ones)" }
+if ($logiOurs) {
+    $lines = @("Not changed: Logitech's wheel SDK entry still names WheelBri's stand-in (scripts/make/logi.sh):",
+               "  $logiKey = $logiServer",
+               "  Point it back at G HUB's library (Administrator PowerShell; the path is logi.sh's, check that it is",
+               "  your G HUB's version):",
+               "    reg add `"$($logiKey -replace '^HKLM:', 'HKLM')`" /ve /t REG_SZ /d `"$logiGhub`" /f")
+    $found = @(Get-ChildItem 'C:\Program Files\Logi\wheel_sdk' -Recurse -Filter 'logi_steering_wheel_x64.dll' `
+                   -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    if ($found.Count -gt 0) { $lines += "  G HUB's wheel SDK libraries on this PC: $($found -join '; ')" }
+    elseif (-not (Test-Path -LiteralPath $logiGhub)) { $lines += "  (no $logiGhub on this PC: use G HUB's own)" }
+    Write-Host ''
+    $lines | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+}
 
 $exitCode = 1
 $go = $plan.Count -gt 0
@@ -447,7 +527,15 @@ try {
             Remove-Item $key -Recurse -Force -ErrorAction SilentlyContinue
             if (Test-Path $key) { Warn "could not remove $key" } else { Write-Host "    removed $key" }
         }
-        if ($keys.Count -eq 0) { Write-Host '    none' }
+        # DirectInput: only WheelBri's values and Axes key (a real Logitech wheel's entries stay).
+        foreach ($entry in $oemEntries) {
+            $removed = @(Remove-OemEntries $entry.Key $entry.Name)
+            if ($removed.Count -gt 0) { Write-Host "    $($entry.Key): removed $($removed -join ', ')" }
+            if (@(Get-OurOemEntries | Where-Object { $_.Key -eq $entry.Key }).Count -gt 0) {
+                Warn "could not remove WheelBri's entries in $($entry.Key)"
+            }
+        }
+        if (($keys.Count + $oemEntries.Count) -eq 0) { Write-Host '    none' }
 
         Step '[7/8] taking the shim out of game folders'
         foreach ($file in $shimFiles) {
@@ -481,6 +569,9 @@ try {
             Write-Host 'Things to look at:' -ForegroundColor Yellow
             $warnings | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
         }
+    }
+    if ($logiOurs) {
+        Write-Host "Logitech's wheel SDK entry still names $logiServer (not changed, see above)" -ForegroundColor Yellow
     }
     Write-Host "log: $log"
     try { Stop-Transcript | Out-Null } catch { }

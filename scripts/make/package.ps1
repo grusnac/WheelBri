@@ -148,9 +148,10 @@ function Put-Text([string]$from, [string]$to) {
 }
 
 foreach ($program in $programs) { Put $program.From $program.To }
-Put-Text (Join-Path $root 'config\wheelbri-shim.ini') 'shim\wheelbri-shim.ini'
+# The configs, wheelbri-shim.ini with them: the app copies <install>\config\wheelbri-shim.ini into a game with the shim
+# (service/src/main.cpp shimSettings, core/src/ShimGames.cpp installShim).
 foreach ($ini in Get-ChildItem (Join-Path $root 'config') -Filter '*.ini') {
-    if ($ini.Name -ne 'wheelbri-shim.ini') { Put-Text $ini.FullName "config\$($ini.Name)" }
+    Put-Text $ini.FullName "config\$($ini.Name)"
 }
 foreach ($script in 'driver\common.ps1', 'driver\install-driver.ps1', 'driver\uninstall-driver.ps1',
                     'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1') {
@@ -164,13 +165,24 @@ foreach ($driver in $drivers) {
 foreach ($file in 'install.ps1', 'uninstall.ps1', 'Setup.cmd', 'Uninstall.cmd', 'README.txt') {
     Put-Text (Join-Path $root "installer\$file") $file
 }
+# The Windows 7 prerequisites' scripts, as win7\ next to Setup.cmd (README.txt points there; install.ps1 does not copy
+# them into the install folder). The updates they download from Microsoft are not shipped.
+$win7 = @(Get-ChildItem (Join-Path $root 'installer\win7') -File | Where-Object { $_.Extension -in '.cmd', '.ps1' })
+foreach ($file in $win7) { Put-Text $file.FullName "win7\$($file.Name)" }
 Set-Content -Path (Join-Path $stage 'VERSION.txt') -Value $version -Encoding ASCII
 
-# 3. What install.ps1 checks for must be there (the same list), so a package never fails on the user's PC.
-$expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe', 'config\g920.ini', 'config\g25.ini',
-              'config\g27.ini', 'config\g923.ini', 'install.ps1', 'uninstall.ps1',
-              'Setup.cmd', 'Uninstall.cmd', 'README.txt', 'VERSION.txt', 'shim\dinput8.dll', 'shim\x86\dinput8.dll') +
-            ($drivers | ForEach-Object { $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } })
+# 3. Everything install.ps1 checks for ($requiredFiles, with the Windows 11 ones, and its $driverFiles: the same
+#    list, keep them in step) must be there, so a package never fails on the user's PC; then what only the package
+#    has (the installer itself, README.txt, VERSION.txt, win7\).
+$expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe',
+              'config\g25.ini', 'config\g27.ini', 'config\g920.ini', 'config\g923.ini', 'config\wheelbri-shim.ini',
+              'uninstall.ps1', 'Uninstall.cmd', 'driver\common.ps1', 'shim\dinput8.dll', 'shim\x86\dinput8.dll',
+              'driver\install-driver.ps1', 'driver\uninstall-driver.ps1',
+              'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1') +
+            @($drivers | ForEach-Object {
+                $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } }) +
+            @('install.ps1', 'Setup.cmd', 'README.txt', 'VERSION.txt',
+              'win7\download-prerequisites.cmd', 'win7\download-prerequisites.ps1', 'win7\install-prerequisites.cmd')
 foreach ($file in $expected) {
     if (-not (Test-Path (Join-Path $stage $file))) { Fail "the package lacks $file (packaging bug)." }
 }

@@ -90,12 +90,15 @@ try {
     }
 
     # "346e:0004,30b7:1001" (one argument from the app) or several arguments: the USB ids, checked.
+    # The virtual wheels games are meant to see (046D and these products; kVirtualWheels in core/src/HidG920.cpp:
+    # G25, G27, G920, G923) never get the filter.
+    $virtualWheels = @('C299', 'C29B', 'C262', 'C26E')
     $wanted = @()
     foreach ($text in @($Devices | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
         # The app gives the exact interfaces (HID instance ids of the game controllers DirectInput lists).
         if ($text -match '^HID\\VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})') {
-            if ($Matches[1] -eq '046D' -and $Matches[2] -in 'C262', 'C299') {
-                Write-Host "skipping ${text}: that is the virtual wheel games are meant to see" -ForegroundColor Yellow
+            if ($Matches[1] -eq '046D' -and $Matches[2] -in $virtualWheels) {
+                Write-Host "skipping ${text}: that is a virtual wheel games are meant to see" -ForegroundColor Yellow
                 continue
             }
             $wanted += [pscustomobject]@{ Vendor = $Matches[1].ToUpper(); Product = $Matches[2].ToUpper(); Text = $text; Instance = $text }
@@ -105,8 +108,8 @@ try {
             Stop-WithError "-Devices: '$text' is not a USB id like 346e:0004 or a HID instance id like HID\VID_346E&PID_0004&MI_02\..."
         }
         $id = [pscustomobject]@{ Vendor = $Matches[1].ToUpper(); Product = $Matches[2].ToUpper(); Text = $text.ToLower(); Instance = '' }
-        if ($id.Vendor -eq '046D' -and $id.Product -in 'C262', 'C299') {
-            Write-Host "skipping $($id.Text): that is the virtual wheel games are meant to see" -ForegroundColor Yellow
+        if ($id.Vendor -eq '046D' -and $id.Product -in $virtualWheels) {
+            Write-Host "skipping $($id.Text): that is a virtual wheel games are meant to see" -ForegroundColor Yellow
             continue
         }
         $wanted += $id
@@ -118,7 +121,7 @@ try {
     $removed = Remove-LegacyPackages 'wheelbri-hide'
     if ($wanted.Count -eq 0) {
         # The installer: a fresh copy, off every device an older copy is on (an older one could even have been put
-        # on the virtual G920 by Windows itself). The app puts it back on the rig's devices at the next Start.
+        # on a virtual wheel by Windows itself). The app puts it back on the rig's devices at the next Start.
         $removed += Remove-InstalledPackages 'wheelbri-hide'
     }
     if ($removed -gt 0) {

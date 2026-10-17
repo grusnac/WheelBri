@@ -54,8 +54,9 @@ Slider: `...\Joystick\OEM\VID_046D&PID_C26E\Axes\<n>`, value `Attributes` (DIOBJ
 page, usage), `<n>` the DirectInput axis (5 Rz <- HID Z, 6 Slider <- HID Rz, 2 Z <- HID Slider which the wheel lacks).
 That `<n>` is the DirectInput axis is read from a published registry fix that swaps Z and Rz this way; Microsoft
 documents the structure, not the numbering. The entries carry a `WheelBri` value: an Axes key without it (Logitech's
-software, for a real wheel) is left alone and the log says so; ours is removed at stop (and by uninstall / clean-pc
-with the whole key). wheelbri-uhid (Linux) keeps the games' layout: Proton reads no such entries.
+software, for a real wheel) is left alone and the log says so; ours is removed at stop, and by uninstall / clean-pc
+only when it carries that value (OEMName / OEMData only when OEMName is WheelBri's, the OEM key only if then empty).
+wheelbri-uhid (Linux) keeps the games' layout: Proton reads no such entries.
 
 Check: joy.cpl (Game Controllers > Properties) should show the brake on "Z Rotation" and the clutch on the slider, as
 before; G HUB's pedal page should show each pedal as itself.

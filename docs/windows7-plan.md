@@ -24,7 +24,7 @@ have it). Without it the app does not start, and a game cannot load the shim.
    Virtual button is greyed out with a tooltip ("needs Windows 11"), and an app.ini saying Virtual is read as Shim.
    Check that a shim session needs no privileged step (the Helper is not installed there). Unit tests for the
    choice.
-2. **Installer on Windows 7.** `install.ps1` refuses anything before build 22000 today. New: Windows 7 SP1 (build
+2. **Installer on Windows 7** (done: `install.ps1` accepts 64-bit Windows from build 7601 on). Windows 7 SP1 (build
    7601) to Windows 10 install the app, the configs and the shim, without the drivers, the hiding filter and the
    WheelBri Helper; the uninstaller copes with them missing. Checks first, with what to do:
    - KB2999226 (the Universal C Runtime: `ucrtbase.dll` in System32);

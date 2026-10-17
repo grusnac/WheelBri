@@ -9,9 +9,12 @@ Moza R3 ─► wheelbri-service ─UDP 41329─► wheelbri-g920 driver ─HID�
                   └────────UDP 41330─────────────┘  the game's force feedback (HID PID, decoded in the driver)
 ```
 
-- **Device:** created by `wheelbri-service --virtual-g920` while it runs (a Windows software device,
-  `SWD\wheelbri\G920_0`), removed when it stops or crashes. If an earlier one is stuck half-removed (a
-  program held it), the service uses a spare identity (`G920_1` … `G920_3`) instead of needing a restart.
+- **One package, four wheels:** the one `wheelbri-g920` package serves every virtual wheel (G25, G27, G920, G923,
+  one hardware id each in the same INF); the sections below say what each one answers as.
+- **Device:** created by `wheelbri-service --virtual-g920` while it runs (a Windows software device:
+  `SWD\wheelbri\G25_0`, `G27_0`, `G920_0` or `G923_0`, for the target wheel), removed when it stops or crashes. If an
+  earlier one is stuck half-removed (a program held it), the service uses a spare identity (`G920_1` … `G920_3`, and
+  the same for the others) instead of needing a restart.
 - **Identity:** VID 046D PID C262, "G920 Driving Force Racing Wheel USB", the same HID report descriptor the
   HIDMaestro bridge used (axes X, Y, Rz, Slider carrying wheel, throttle, brake and clutch as a real G920 does, 19 buttons (the wheel's 11, the Driving Force Shifter's gears 1-6 and reverse at 13-19), hat, HID PID force feedback). The
   service writes the DirectInput "driving" entry and removes Logitech's foreign force feedback entry.
@@ -102,8 +105,9 @@ the other interfaces). No device ids are in the driver or the scripts: the INF's
 controllers' compatible ids, Windows put it on the virtual G920), and `install-hide.ps1 -Devices` puts it on exactly
 the interfaces it is given (HID instance ids, or `vid:pid` by hand), taking it from the INF's models for the class
 like Device Manager's "Have disk" (SetupAPI `DiInstallDevice`).
-The app passes the rig's devices at Start; the virtual G920 (046d:c262) is never touched, and the filter never
-hides it even if it ends up on it. When a program opens a filtered interface, the filter checks
+The app passes the rig's devices at Start; the virtual wheels (046d:c299 G25, 046d:c29b G27, 046d:c262 G920,
+046d:c26e G923) are never touched: `install-hide.ps1` skips them, and the filter never hides them even if it ends up
+on one. When a program opens a filtered interface, the filter checks
 `HKLM\SOFTWARE\wheelbri\hide` `AllowedPid`: while the service runs it holds the service's process id and everyone
 else is refused (so DirectInput, SDL and games do not see the device); 0 or missing lets everyone in. It fails
 open: if that process is gone (the service crashed or was killed) or the id now belongs to another program
@@ -134,10 +138,11 @@ Remove: `driver\hide\uninstall-hide.ps1` (those devices go back to Windows' own 
 `wheelbri-hide-install-<date>.log`. The window lists rig devices the filter is not running on.  Stop the service with
 Ctrl+C (close the game and Steam first). Driver log: `wheelbri-driver-<date>-<NN>.log` in the same folder.
 
-Both drivers run as LocalService. The app (as Administrator) lets LocalService write in the user's
-`%LOCALAPPDATA%\wheelbri\logs` and names it in `HKLM\SOFTWARE\wheelbri` `LogFolder`, which the drivers read for every
-line; the installer does the same. Until then (and if that folder cannot be written) they write to
-`C:\ProgramData\wheelbri\logs`, which the app moves into the user's folder at its next start. They also use that
+Both drivers run as LocalService. The app (as Administrator, or through the WheelBri Helper when it runs as a
+standard user) lets LocalService write in the user's `%LOCALAPPDATA%\wheelbri\logs` and names it in
+`HKLM\SOFTWARE\wheelbri` `LogFolder`, which the drivers read for every line; the installer and `install-hide.ps1` do
+the same. Until then (and if that folder cannot be written) they write to `C:\ProgramData\wheelbri\logs`, which the
+app moves into the user's folder at its next start. They also use that
 fallback when `LogFolder` is not a plain local folder (it, or a folder above it, is a junction or symbolic link, or it
 does not exist), and never write to a log file that is a link or has other names (hard links): the user owns that
 folder and must not be able to point LocalService's writes elsewhere.

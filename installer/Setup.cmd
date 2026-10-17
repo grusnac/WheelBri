@@ -15,7 +15,8 @@ rem Framework 5.1. Checked here, where any PowerShell (2.0 on Windows 7) can ans
 if errorlevel 1 (
     echo WheelBri's setup needs PowerShell 5.1, which this Windows does not have yet.
     echo On Windows 7 SP1: install Windows Management Framework 5.1 ^(KB3191566, from Microsoft; it needs .NET
-    echo Framework 4.5 or newer^), restart Windows, then run this setup again.
+    echo Framework 4.5.2 or newer^), restart Windows, then run this setup again. The folder win7 in the package
+    echo ^(WheelBri-^<version^>.zip^) has scripts that download and install them: see README.txt there.
     pause
     exit /b 1
 )

@@ -167,9 +167,9 @@ function Get-DevicesUsing([string]$name) {
     return @($present | Where-Object { $using -contains $_.InstanceId })
 }
 
-# The virtual devices the app creates (SWD\wheelbri\G920_<n>; SWD\wheelemu\... from before the rename) and the HID
-# devices under them, present or not: after a crash, or a G920 Windows kept half-removed, they stay listed (Device
-# Manager > Show hidden devices). Children first. Returns how many could not be removed.
+# The virtual wheels the app creates (SWD\wheelbri\G25_<n>, G27_<n>, G920_<n>, G923_<n>; SWD\wheelemu\... from before
+# the rename) and the HID devices under them, present or not: after a crash, or a wheel Windows kept half-removed, they
+# stay listed (Device Manager > Show hidden devices). Children first. Returns how many could not be removed.
 function Remove-VirtualDevices {
     $all = @(Get-PnpDevice -ErrorAction SilentlyContinue)
     $ours = @($all | Where-Object { $_.InstanceId -like 'SWD\wheelbri\*' -or $_.InstanceId -like 'SWD\wheelemu\*' })
@@ -218,7 +218,7 @@ function Wait-DriverInstallers([int]$seconds = 120) {
 
 # The WheelBri Helper: a Windows service (LocalSystem) running wheelbri-helper.exe from the install folder, which does
 # the steps needing Administrator for the app, so the app runs as a standard user. Stopping it removes the virtual
-# G920 it made and shows the rig again (it undoes what every connected app set up).
+# wheel it made (G25, G27, G920 or G923) and shows the rig again (it undoes what every connected app set up).
 $script:HelperService = 'WheelBriHelper'
 
 # Stops the helper service if there is one (and waits up to 20 s). Returns $true when it existed.
@@ -262,7 +262,7 @@ function Install-HelperService([string]$exe) {
             return "cannot register the service: $($_.Exception.Message)"
         }
     }
-    sc.exe description $script:HelperService ('Lets WheelBri create its virtual G920 and hide your rig from games ' +
+    sc.exe description $script:HelperService ('Lets WheelBri create its virtual wheel and hide your rig from games ' +
         'without running as Administrator.') | Out-Null
     # Restarted 5 s after a crash (twice), then after a minute; the count resets after a day.
     sc.exe failure $script:HelperService reset= 86400 actions= restart/5000/restart/5000/restart/60000 | Out-Null

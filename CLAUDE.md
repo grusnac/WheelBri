@@ -719,7 +719,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   macros keep their letters. `install.ps1` asks one question, at the end of a successful install: restart Windows now
   (default yes; `shutdown /r /t 2`; firmer wording when `install-hide.ps1` exited 2; none with `-Quiet`). Only the
   installer asks this, never the app or the uninstaller (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older install
-  (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the three driver install scripts, registers and starts the WheelBri Helper service (`WheelBriHelper`,
+  (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the two driver install scripts (wheelbri-g920, wheelbri-hide), registers and starts the WheelBri Helper service (`WheelBriHelper`,
   `Install-HelperService` in `driver/common.ps1`; the uninstaller and `clean-pc.ps1` remove it first with
   `Remove-HelperService`), shortcuts, Settings > Apps entry, Start
   menu folder with the app and "Uninstall WheelBri", closes at once after a success (only a failure waits for Enter), log in
