@@ -231,7 +231,7 @@ constexpr VirtualWheel kVirtualWheels[] = {
     {"g27", "wheelbri\\G27", "G27", kG27VendorId, kG27ProductId, "G27 Racing Wheel", "Logitech G27 Racing Wheel USB",
      kG27Buttons},
     {"g923", "wheelbri\\G923", "G923", kG923VendorId, kG923ProductId, "G923 Racing Wheel for Xbox One and PC",
-     "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true},
+     "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, true},
 };
 
 bool sameIgnoringCase(const std::string_view a, const std::string_view b) {
@@ -274,14 +274,25 @@ std::span<const std::uint8_t> g920ReportDescriptor(const std::size_t buttons) {
 std::span<const std::uint8_t> g920ProtonReportDescriptor() { return kProtonDescriptor; }
 
 namespace {
-constexpr auto kG923HidPpDescriptor = withHidPp(withUnsignedAxes(kG923Descriptor));
+// The G923's pedals as a real one reports them in HID (VirtualWheel::logitechPedals): brake Z, clutch Rz (the same
+// two usages the Proton descriptor renames).
+constexpr auto withLogitechPedals(std::array<std::uint8_t, sizeof(kDescriptor)> d) {
+    d[kBrakeUsageAt] = 0x32;    // Z
+    d[kClutchUsageAt] = 0x35;   // Rz
+    return d;
+}
+constexpr auto kG923HidPpDescriptor = withHidPp(withUnsignedAxes(withLogitechPedals(kG923Descriptor)));
+constexpr auto kG923HidPpLinuxDescriptor = withHidPp(withUnsignedAxes(kG923Descriptor));
 // Every axis rewritten: the last byte before the HID++ collections is the joystick's End Collection either way.
 static_assert(withUnsignedAxes(kG923Descriptor)[kG923Descriptor.size() + kAxes - 1] == 0xC0,
               "all four axes became unsigned");
 }  // namespace
 
-std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
-    if (wheel.hidpp && wheel.buttons >= kG923Buttons) return kG923HidPpDescriptor;
+std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel, const DescriptorFor where) {
+    if (wheel.hidpp && wheel.buttons >= kG923Buttons) {
+        if (wheel.logitechPedals && where == DescriptorFor::Windows) return kG923HidPpDescriptor;
+        return kG923HidPpLinuxDescriptor;
+    }
     return g920ReportDescriptor(wheel.buttons);
 }
 
@@ -315,6 +326,15 @@ std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport&
     out[11] = static_cast<std::uint8_t>((buttons >> 16U) & 0xFFU);
     out[12] = report.hat >= 0 && report.hat <= 7 ? static_cast<std::uint8_t>(report.hat) : 8;   // 8 = centred
     return out;
+}
+
+std::vector<DirectInputAxisEntry> directInputAxisEntries(const VirtualWheel& wheel) {
+    if (!wheel.logitechPedals) return {};
+    // dwFlags DIDOI_ASPECTPOSITION (0x100); usage page Generic Desktop (1).
+    const auto entry = [](const int instance, const std::uint8_t usage) {
+        return DirectInputAxisEntry{instance, {0x00, 0x01, 0x00, 0x00, 0x01, 0x00, usage, 0x00}};
+    };
+    return {entry(2, 0x36), entry(5, 0x32), entry(6, 0x35)};   // Z <- Slider (none), Rz <- Z, Slider <- Rz
 }
 
 std::array<std::uint8_t, kG920InputReportSize> packInputFor(const VirtualWheel& wheel, const TargetReport& report) {

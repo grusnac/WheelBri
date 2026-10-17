@@ -170,7 +170,7 @@ TEST(UhidG920, OutputReportsBecomeForceFeedback) {
 TEST(UhidG920, TheG923AnswersHidppAndPlaysPidFromItsMovedReports) {
     Kernel k(*virtualWheel("g923"));
     ASSERT_TRUE(k.device.create());
-    EXPECT_EQ(k.written[0].u.create2.rd_size, reportDescriptorFor(*virtualWheel("g923")).size());
+    EXPECT_EQ(k.written[0].u.create2.rd_size, reportDescriptorFor(*virtualWheel("g923"), DescriptorFor::Linux).size());
     k.written.clear();
     k.output("11FF001100005A" + std::string(26, '0'), 0);   // Root.getProtocolVersion, ping 0x5A
     ASSERT_EQ(hex("11FF001100005A" + std::string(26, '0')).size(), HidPp::kLongSize);

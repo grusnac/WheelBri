@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace wheelbri {
 
@@ -60,6 +61,12 @@ struct VirtualWheel {
     // them so (G HUB drew the virtual G923's signed wheel half a turn off, wrapping as it crossed the centre).
     // packInputFor packs them to match. The others keep HIDMaestro's signed axes (-32768..32767), as tested in games.
     bool unsignedAxes = false;
+    // Whether its pedals are reported in HID as a real Logitech wheel's are (brake Z, clutch Rz), for Logitech's
+    // software, which reads them by HID usage (G HUB took the brake on Rz for the clutch). Games keep reading them
+    // where they always did (brake Rz, clutch Slider) through DirectInput's axis entries for the wheel
+    // (directInputAxisEntries), which the service writes while the wheel exists. Windows only: wheelbri-uhid keeps the
+    // games' layout (Proton has no such entries).
+    bool logitechPedals = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.
@@ -75,7 +82,19 @@ struct VirtualWheel {
 // The wheel's own descriptor: g920ReportDescriptor(buttons), and for a wheel with HID++ (VirtualWheel::hidpp) that
 // with its HID PID report IDs kHidPpPidShift higher and two vendor collections after it (usage page 0xFF43: long
 // report 0x11, 19 bytes each way; very long 0x12, 63 bytes; the reports a G920 has, Linux's hid-logitech-hidpp says).
-[[nodiscard]] std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel);
+enum class DescriptorFor { Windows, Linux };
+[[nodiscard]] std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel,
+                                                              DescriptorFor where = DescriptorFor::Windows);
+
+// DirectInput's per-device axis entries for a wheel with logitechPedals: OEM\VID_xxxx&PID_xxxx\Axes\<instance>,
+// value "Attributes" = DIOBJECTATTRIBUTES (dwFlags, wUsagePage, wUsage; 8 bytes, little-endian): the DirectInput axis
+// <instance> (0 X, 1 Y, 2 Z, 5 Rz, 6 Slider) is fed by that HID usage. Rz <- HID Z (the brake), Slider <- HID Rz (the
+// clutch), and Z <- HID Slider, which the wheel does not have, so the brake is not also seen on Z. Empty for others.
+struct DirectInputAxisEntry {
+    int instance = 0;
+    std::array<std::uint8_t, 8> attributes{};
+};
+[[nodiscard]] std::vector<DirectInputAxisEntry> directInputAxisEntries(const VirtualWheel& wheel);
 inline constexpr std::uint8_t kHidPpPidShift = 0x10;
 
 // Where a report the host sends goes, by its report ID: the wheel's HID PID (`id` as HidPid knows it), its HID++,

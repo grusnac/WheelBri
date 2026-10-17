@@ -204,7 +204,7 @@ TEST(HidPpDescriptor, TheG923HasHidPpReportsAndItsPidMovedUp) {
     ASSERT_NE(g923, nullptr);
     ASSERT_TRUE(g923->hidpp);
     const auto plain = g920ReportDescriptor(g923->buttons);
-    const auto withHidPp = reportDescriptorFor(*g923);
+    const auto withHidPp = reportDescriptorFor(*g923, DescriptorFor::Linux);   // the games' pedal layout
     ASSERT_GT(withHidPp.size(), plain.size());
     const auto bits = reportBits(withHidPp);
     // HID++: 19 and 63 bytes each way, after the report ID.
@@ -241,6 +241,45 @@ TEST(HidPpDescriptor, TheG923HasHidPpReportsAndItsPidMovedUp) {
         }
     }
     EXPECT_EQ(axes, 4);
+}
+
+// On Windows the G923 reports its pedals as a real Logitech wheel does (brake Z, clutch Rz) for G HUB: the only
+// difference from the Linux descriptor, two Usage items.
+TEST(HidPpDescriptor, OnWindowsTheG923HasLogitechsPedalLayout) {
+    const VirtualWheel& g923 = *virtualWheel("g923");
+    ASSERT_TRUE(g923.logitechPedals);
+    const auto windows = items(reportDescriptorFor(g923, DescriptorFor::Windows));
+    const auto onLinux = items(reportDescriptorFor(g923, DescriptorFor::Linux));
+    ASSERT_EQ(windows.size(), onLinux.size());
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> changed;
+    for (std::size_t i = 0; i < windows.size(); ++i) {
+        if (windows[i] != onLinux[i]) {
+            EXPECT_EQ(windows[i].first, 0x09) << i;   // a Usage
+            changed.emplace_back(onLinux[i].second, windows[i].second);
+        }
+    }
+    // Rz -> Z, Slider -> Rz.
+    const std::vector<std::pair<std::uint32_t, std::uint32_t>> expected = {{0x35, 0x32}, {0x36, 0x35}};
+    EXPECT_EQ(changed, expected);
+}
+
+// Games still read the brake on Rz and the clutch on Slider: DirectInput's axis entries say which HID usage feeds
+// each DirectInput axis (Z gets the Slider usage, which the wheel lacks, so nothing).
+TEST(HidPpDescriptor, DirectInputAxisEntriesPutThePedalsBack) {
+    const auto entries = directInputAxisEntries(*virtualWheel("g923"));
+    ASSERT_EQ(entries.size(), 3U);
+    const std::map<int, std::uint8_t> usageOf = {{entries[0].instance, entries[0].attributes[6]},
+                                                 {entries[1].instance, entries[1].attributes[6]},
+                                                 {entries[2].instance, entries[2].attributes[6]}};
+    EXPECT_EQ(usageOf.at(5), 0x32);   // Rz <- HID Z (the brake)
+    EXPECT_EQ(usageOf.at(6), 0x35);   // Slider <- HID Rz (the clutch)
+    EXPECT_EQ(usageOf.at(2), 0x36);   // Z <- HID Slider (none)
+    for (const auto& entry : entries) {
+        EXPECT_EQ(entry.attributes[0], 0x00);
+        EXPECT_EQ(entry.attributes[1], 0x01);   // DIDOI_ASPECTPOSITION
+        EXPECT_EQ(entry.attributes[4], 0x01);   // Generic Desktop
+    }
+    for (const char* name : {"g920", "g25", "g27"}) EXPECT_TRUE(directInputAxisEntries(*virtualWheel(name)).empty());
 }
 
 // The G923's axes are unsigned (a real Logitech wheel's are; G HUB drew the signed ones half a turn off): the same

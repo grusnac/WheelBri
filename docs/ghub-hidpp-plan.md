@@ -44,6 +44,22 @@ the driver and `wheelbri-uhid` both use them. The G920's, G25's and G27's descri
   G923's axes are unsigned (`VirtualWheel::unsignedAxes`, `packInputFor`); games read them through DirectInput, which
   scales either range the same. The other targets keep the signed axes they were tested with.
 
+## The pedals (brake shown as the clutch)
+
+G HUB reads the pedals by HID usage as a real Logitech wheel reports them: throttle Y, brake **Z**, clutch **Rz**. The
+virtual wheel reported them as games read a G920 on Windows (brake Rz, clutch Slider), so G HUB showed the brake as the
+clutch. On Windows the G923 now reports the real layout (`VirtualWheel::logitechPedals`), and the service writes
+DirectInput's per-device axis entries while the wheel exists, so games still get the brake on Rz and the clutch on
+Slider: `...\Joystick\OEM\VID_046D&PID_C26E\Axes\<n>`, value `Attributes` (DIOBJECTATTRIBUTES: flags, usage
+page, usage), `<n>` the DirectInput axis (5 Rz <- HID Z, 6 Slider <- HID Rz, 2 Z <- HID Slider which the wheel lacks).
+That `<n>` is the DirectInput axis is read from a published registry fix that swaps Z and Rz this way; Microsoft
+documents the structure, not the numbering. The entries carry a `WheelBri` value: an Axes key without it (Logitech's
+software, for a real wheel) is left alone and the log says so; ours is removed at stop (and by uninstall / clean-pc
+with the whole key). wheelbri-uhid (Linux) keeps the games' layout: Proton reads no such entries.
+
+Check: joy.cpl (Game Controllers > Properties) should show the brake on "Z Rotation" and the clutch on the slider, as
+before; G HUB's pedal page should show each pedal as itself.
+
 ## What G HUB's settings can and cannot do
 
 WheelBri passes the steering axis through 1:1: its rotation (`target_rotation_deg`) is what it tells games and shows,
@@ -54,7 +70,7 @@ uploads. Until then, and until the user chooses who wins, nothing G HUB sets is 
 
 ## What is open
 
-- **Whether the dial is right now** with the unsigned axes (untried).
+- **Whether the dial and the pedals are right now** in G HUB, and the pedals still right in games (untried).
 - **More features:** the real G923 lists 0x807A rev lights, 0x80A3, 0x80D0, 0x8120, 0x8127 besides 0x8123; G HUB went
   active without them.
 - **Who wins** for G HUB's force feedback (spring, strength): WheelBri's `[ffb]` or G HUB. Not decided.
