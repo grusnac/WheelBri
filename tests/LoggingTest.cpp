@@ -1,4 +1,5 @@
 #include "wheelbri/Logging.hpp"
+#include "wheelbri/LocalDate.hpp"
 #include "wheelbri/LogFiles.hpp"
 
 #include <gtest/gtest.h>
@@ -7,7 +8,9 @@
 #include <fstream>
 #include <sstream>
 #include <system_error>
+#include <string>
 #include <thread>
+#include <vector>
 
 namespace wheelbri {
 namespace {
@@ -112,6 +115,90 @@ TEST(Logging, UnwritableFileFallsBackToConsole) {
     logging::shutdown();
     std::error_code ignored;
     std::filesystem::remove(blocker, ignored);
+}
+
+// A listener (the app's warning counter) gets every message logged after it was added, with its level and
+// component; with no file and no console the messages still go somewhere (stderr), and a level or flush level that
+// is not a level is warn.
+TEST(Logging, ListenersGetMessagesAndNothingConfiguredStillLogs) {
+    logging::LogConfig config;
+    config.level = "loud";
+    config.flushLevel = "sometimes";
+    config.console = false;
+    config.periodicFlush = true;
+    EXPECT_TRUE(logging::init(config, ""));   // no file asked for: nothing failed
+    EXPECT_EQ(logging::currentLogFile(), "");
+    EXPECT_EQ(logging::currentLevel(), spdlog::level::warn);
+    struct Heard {
+        spdlog::level::level_enum level;
+        std::string component;
+        std::string message;
+    };
+    std::vector<Heard> heard;
+    const auto logger = logging::get("test.listened");
+    logging::addListener([&heard](const spdlog::level::level_enum level, const std::string& component,
+                                  const std::string& message) { heard.push_back({level, component, message}); });
+    WE_LOG_WARN(logger, "a warning {}", 1);
+    WE_LOG_INFO(logger, "below the level");
+    WE_LOG_ERROR(logging::get("test.later"), "from a logger made after the listener");
+    logging::shutdown();
+    ASSERT_EQ(heard.size(), 2U);
+    EXPECT_EQ(heard[0].level, spdlog::level::warn);
+    EXPECT_EQ(heard[0].component, "test.listened");
+    EXPECT_EQ(heard[0].message, "a warning 1");
+    EXPECT_EQ(heard[1].component, "test.later");
+}
+
+// The config's own file wins over the program's default one; with the day's numbers used up the file is the old
+// daily name instead, so logging never stops for want of a number.
+TEST(Logging, TheConfigsFileWinsAndNoFreeNumberFallsBackToTheDailyName) {
+    const auto dir = std::filesystem::temp_directory_path() / "wheelbri-logging-ownfile";
+    std::error_code ignored;
+    std::filesystem::remove_all(dir, ignored);
+    std::filesystem::create_directories(dir);
+    const std::string today = localDate(WallClock::now());
+    std::ofstream(dir / ("own-" + today + "-99999.log")) << "the last number";
+    logfiles::forgetRun();   // this run has no number for today yet: the next free one would be 100000
+    logging::LogConfig config;
+    config.filePath = (dir / "own.log").string();
+    config.console = true;
+    config.level = "warn";
+    config.periodicFlush = false;
+    ASSERT_TRUE(logging::init(config, (dir / "default.log").string()));
+    const std::string file = logging::currentLogFile();
+    WE_LOG_WARN(logging::get("test.own"), "into the daily file");
+    logging::shutdown();
+    logfiles::forgetRun();
+    EXPECT_EQ(std::filesystem::path(file), dir / ("own-" + today + ".log"));
+    EXPECT_NE(readFile(file).find("into the daily file"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(dir / ("default-" + today + "-01.log")));
+    std::filesystem::remove_all(dir, ignored);
+}
+
+// A sampler with no "every N" logs only its first calls.
+TEST(CallSampler, WithoutEveryNOnlyTheFirstCalls) {
+    logging::CallSampler sampler(2, 0);
+    std::vector<std::uint64_t> logged;
+    for (int i = 0; i < 10; ++i) {
+        if (const auto call = sampler.next(); call != 0) logged.push_back(call);
+    }
+    EXPECT_EQ(logged, (std::vector<std::uint64_t>{1, 2}));
+}
+
+// The level is set by name only for real level names.
+TEST(LogConfig, SetLevelTakesOnlyLevelNames) {
+    logging::LogConfig config;
+    config.console = false;
+    config.periodicFlush = false;
+    ASSERT_TRUE(logging::init(config, ""));
+    EXPECT_TRUE(logging::setLevel("error"));
+    EXPECT_EQ(logging::currentLevel(), spdlog::level::err);
+    EXPECT_TRUE(logging::setLevel("warn"));
+    EXPECT_EQ(logging::currentLevel(), spdlog::level::warn);
+    EXPECT_FALSE(logging::setLevel("WARN"));
+    EXPECT_FALSE(logging::setLevel(""));
+    EXPECT_EQ(logging::currentLevel(), spdlog::level::warn);
+    logging::shutdown();
 }
 
 }  // namespace

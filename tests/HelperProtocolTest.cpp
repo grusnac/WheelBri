@@ -361,3 +361,22 @@ TEST(HelperProtocol, EveryNameAndUnknownOnes) {
     for (const auto& [status, name] : statuses) EXPECT_STREQ(statusName(status), name);
     EXPECT_STREQ(statusName(static_cast<Status>(99)), "unknown");
 }
+
+// A request with the wrong arguments (an older or a broken app) is refused with what the request takes.
+TEST(HelperProtocol, WrongArgumentsSayWhatTheRequestTakes) {
+    EXPECT_EQ(requestProblem(Request{RequestType::Hello, 1, {"loud"}}), "Hello takes nothing but the app's log level");
+    EXPECT_EQ(requestProblem(Request{RequestType::Hello, 1, {"debug"}}), "");
+    EXPECT_EQ(requestProblem(Request{RequestType::Hello, 1, {"debug", "info"}}),
+              "Hello takes nothing but the app's log level");
+    EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {}}),
+              "SetLogLevel takes one level: trace, debug, info or warn");
+    EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {"warning"}}),
+              "SetLogLevel takes one level: trace, debug, info or warn");
+    EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {"info"}}), "");
+    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualG920, 1, {"g29"}}),
+              "CreateVirtualG920 takes one wheel: g25, g27, g920 or g923");
+    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualG920, 1, {"g25", "g27"}}),
+              "CreateVirtualG920 takes one wheel: g25, g27, g920 or g923");
+    EXPECT_EQ(requestProblem(Request{RequestType::ShowRig, 1, {kMoza}}), "ShowRig takes no devices");
+    EXPECT_EQ(requestProblem(Request{RequestType::ShareLogFolder, 1, {""}}), "ShareLogFolder takes no devices");
+}

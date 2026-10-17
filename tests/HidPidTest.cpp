@@ -1024,5 +1024,302 @@ TEST(HidPid, UnclaimedUpdatesFollowTheirEffectWhenTheOrderChanges) {
     }
 }
 
+// Set Effect for block `ebi`: PID type, duration and start delay in ms (0xFFFF: none), axes byte and direction
+// (0..32767 = 0..360 degrees; 0x1FFF = 90, along +X), full gain.
+std::vector<std::uint8_t> setEffect(const int ebi, const int type, const int durationMs, const int delayMs = 0xFFFF,
+                                    const int axes = 0x04, const int direction = 0x1FFF) {
+    std::vector<std::uint8_t> d(21, 0);
+    d[0] = static_cast<std::uint8_t>(ebi);
+    d[1] = static_cast<std::uint8_t>(type);
+    d[2] = static_cast<std::uint8_t>(durationMs & 0xFF);
+    d[3] = static_cast<std::uint8_t>(durationMs >> 8);
+    d[8] = static_cast<std::uint8_t>(delayMs & 0xFF);
+    d[9] = static_cast<std::uint8_t>(delayMs >> 8);
+    d[10] = 0xFF;
+    d[11] = 0xFF;
+    d[12] = static_cast<std::uint8_t>(axes);
+    d[13] = static_cast<std::uint8_t>(direction & 0xFF);
+    d[14] = static_cast<std::uint8_t>(direction >> 8);
+    return d;
+}
+
+// The slot packet last sent for slot `slot` (playing or not), or nullptr.
+const FfbPacket* lastFor(const Recorder& r, const std::uint8_t slot) {
+    for (auto it = r.packets.rbegin(); it != r.packets.rend(); ++it) {
+        if (it->kind == FfbPacket::Kind::SlotState && it->slot == slot) return &*it;
+    }
+    return nullptr;
+}
+
+// Every PID effect type a game can create plays as the service's own; the custom force (12) and a block without a
+// type are not played (the service has no such effect).
+TEST(HidPid, EveryPidTypePlaysAsTheServicesType) {
+    const std::pair<int, FfbEffectType> types[] = {
+        {1, FfbEffectType::Constant},    {2, FfbEffectType::Constant},     {3, FfbEffectType::Square},
+        {4, FfbEffectType::Sine},        {5, FfbEffectType::Triangle},     {6, FfbEffectType::SawtoothUp},
+        {7, FfbEffectType::SawtoothDown}, {8, FfbEffectType::Spring},      {9, FfbEffectType::Damper},
+        {10, FfbEffectType::Inertia},    {11, FfbEffectType::Friction}};
+    for (const auto& [pidType, type] : types) {
+        Recorder r;
+        r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+        r.pid.output(HidPid::kSetEffect, setEffect(1, pidType, 0xFFFF), 0);
+        r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+        const FfbPacket* const p = r.lastPlaying();
+        ASSERT_NE(p, nullptr) << pidType;
+        EXPECT_EQ(p->effect.type, type) << pidType;
+    }
+    for (const int pidType : {0, 12, 200}) {
+        Recorder r;
+        r.pid.output(HidPid::kSetEffect, setEffect(1, pidType, 0xFFFF), 0);
+        r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+        r.pid.tick(10);
+        EXPECT_EQ(r.lastPlaying(), nullptr) << pidType;
+        EXPECT_EQ(r.pid.activeSlots(), 0U);
+    }
+}
+
+// A duration of 0 is "until stopped" like 0xFFFF, and a start delay of 0xFFFF is none: the effect plays at once and
+// keeps playing.
+TEST(HidPid, DurationZeroPlaysUntilStopped) {
+    Recorder r;
+    r.pid.output(HidPid::kSetConstant, hex("00A00F"), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 0, 0xFFFF), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    for (std::int64_t t = 10; t <= 60'000; t += 1000) {
+        r.pid.output(HidPid::kDeviceGain, hex("FF"), t);   // the game is still there
+        r.pid.tick(t);
+    }
+    ASSERT_NE(lastFor(r, 0), nullptr);
+    EXPECT_TRUE(lastFor(r, 0)->playing);
+    EXPECT_NEAR(lastFor(r, 0)->effect.constantLevel, 0.4F, 1e-3F);
+}
+
+// A start delay holds the effect back that long after its start; a Set Effect that only changes the delay or only
+// the duration of a block is said in the log.
+TEST(HidPid, AStartDelayHoldsTheEffectBack) {
+    Recorder r;
+    r.pid.output(HidPid::kSetConstant, hex("00A00F"), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 1000, 0), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 1000, 300), 0);   // the delay only
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    r.pid.tick(100);
+    EXPECT_EQ(r.lastPlaying(), nullptr);
+    r.pid.tick(310);
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    r.pid.tick(1290);
+    EXPECT_TRUE(lastFor(r, 0)->playing);
+    r.pid.tick(1310);   // 300 ms delay + 1000 ms: over
+    EXPECT_FALSE(lastFor(r, 0)->playing);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 2000, 300), 1400);   // the duration only
+    const auto said = [&r](const std::string& part) {
+        return std::count_if(r.logs.begin(), r.logs.end(),
+                             [&part](const std::string& s) { return s.find(part) != std::string::npos; });
+    };
+    EXPECT_EQ(said("starts 300 ms after its start"), 2);
+    EXPECT_EQ(said(": 2000 ms"), 1);
+}
+
+// A periodic effect pointing left (direction 270 degrees) is the same wave turned round: phase + 180, offset flipped,
+// magnitude kept.
+TEST(HidPid, APeriodicEffectPointingLeftIsTurnedRound) {
+    Recorder r;
+    r.pid.output(HidPid::kSetPeriodic, hex("008813E803282364000000"), 0);   // 0.5, offset 0.1, 90 degrees, 100 ms
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 4, 0xFFFF, 0xFFFF, 0x04, 0x5FFF), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    const FfbPacket* const p = r.lastPlaying();
+    ASSERT_NE(p, nullptr);
+    EXPECT_NEAR(p->effect.periodic.magnitude, 0.5F, 1e-3F);
+    EXPECT_NEAR(p->effect.periodic.offset, -0.1F, 1e-3F);
+    EXPECT_NEAR(p->effect.periodic.phaseDeg, 270.0F, 0.1F);
+    EXPECT_NEAR(p->effect.periodic.periodMs, 100.0F, 1e-3F);
+}
+
+// A ramp's start and end changed while it plays, with no Set Effect after them: they still reach the ramp.
+TEST(HidPid, AnUnclaimedRampUpdateReachesTheRamp) {
+    Recorder r;
+    r.pid.output(HidPid::kSetRamp, hex("0078EC8813"), 0);   // -5000 -> 5000
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 2, 0xFFFF), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, 0.0F, 1e-3F);   // no duration: the mean
+    r.pid.output(HidPid::kSetRamp, hex("00D007A00F"), 100);              // 2000 -> 4000
+    r.pid.tick(100 + HidPid::kPendingMs);
+    EXPECT_NEAR(r.lastPlaying()->effect.constantLevel, 0.3F, 1e-3F);
+}
+
+// More unclaimed updates in a run than blocks of their kind: the nearest goes to the block, the others are dropped
+// (never put on an effect of another kind).
+TEST(HidPid, MoreUnclaimedUpdatesThanBlocksTheNearestLands) {
+    Recorder r;
+    r.pid.output(HidPid::kSetConstant, hex("00A00F"), 0);   // 0.4
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 0xFFFF), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    r.pid.output(HidPid::kSetCondition, hex("000F000028232823102710270000"), 1);   // a spring, block 2
+    r.pid.output(HidPid::kSetEffect, setEffect(2, 8, 0xFFFF), 1);
+    r.pid.output(HidPid::kEffectOperation, hex("020101"), 1);
+    r.pid.output(HidPid::kSetConstant, hex("00E803"), 100);   // 0.1
+    r.pid.output(HidPid::kSetConstant, hex("003C0F"), 101);   // 0.39
+    r.pid.output(HidPid::kSetConstant, hex("002823"), 102);   // 0.9
+    r.pid.tick(100 + HidPid::kPendingMs);
+    ASSERT_NE(lastFor(r, 0), nullptr);
+    EXPECT_NEAR(lastFor(r, 0)->effect.constantLevel, 0.39F, 1e-3F);
+    ASSERT_NE(lastFor(r, 1), nullptr);
+    EXPECT_EQ(lastFor(r, 1)->effect.type, FfbEffectType::Spring);
+    EXPECT_NEAR(lastFor(r, 1)->effect.condition.positiveCoefficient, 0.9F, 1e-3F);
+}
+
+// A spring's Set Effect drops an envelope sent just before it (a condition has none) but leaves another kind's
+// parameters waiting for their own Set Effect.
+TEST(HidPid, AConditionsSetEffectLeavesOtherKindsWaiting) {
+    Recorder r;
+    r.pid.output(HidPid::kSetConstant, hex("00A00F"), 0);                       // 0.4, for block 1
+    r.pid.output(HidPid::kSetEnvelope, hex("0000000000F4010000F4010000"), 0);  // attack from 0 over 500 ms
+    r.pid.output(HidPid::kSetCondition, hex("000F000028232823102710270000"), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(2, 8, 0xFFFF), 0);              // the spring
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 0xFFFF), 0);              // the constant
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("020101"), 0);
+    const FfbPacket* const constant = lastFor(r, 1);   // block 1 got the second slot (block 2 came first)
+    ASSERT_NE(constant, nullptr);
+    EXPECT_EQ(constant->effect.type, FfbEffectType::Constant);
+    EXPECT_NEAR(constant->effect.constantLevel, 0.4F, 1e-3F);   // no attack: the envelope went with the spring
+    const FfbPacket* const spring = lastFor(r, 0);
+    ASSERT_NE(spring, nullptr);
+    EXPECT_EQ(spring->effect.type, FfbEffectType::Spring);
+    EXPECT_NEAR(spring->effect.condition.positiveCoefficient, 0.9F, 1e-3F);
+}
+
+// "Start solo" for a block that is already playing: the others stop, it keeps playing.
+TEST(HidPid, StartSoloOfAPlayingBlockStopsTheOthers) {
+    Recorder r;
+    r.pid.output(HidPid::kSetConstant, hex("00A00F"), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 0xFFFF), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(2, 9, 0xFFFF), 1);
+    r.pid.output(HidPid::kEffectOperation, hex("020101"), 1);
+    ASSERT_EQ(r.pid.activeSlots(), 2U);
+    r.pid.output(HidPid::kEffectOperation, hex("010201"), 2);
+    EXPECT_EQ(r.pid.activeSlots(), 1U);
+    EXPECT_TRUE(lastFor(r, 0)->playing);
+    EXPECT_FALSE(lastFor(r, 1)->playing);
+}
+
+// A block freed after the driver stopped everything (the service already knows nothing plays): no stop is sent for
+// it again.
+TEST(HidPid, FreeingABlockAfterStopAllSendsNothingMore) {
+    Recorder r;
+    r.pid.output(HidPid::kSetConstant, hex("00A00F"), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 0xFFFF), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    r.pid.stopAll(5);
+    ASSERT_EQ(r.packets.back().kind, FfbPacket::Kind::StopAll);
+    r.packets.clear();
+    r.pid.output(HidPid::kBlockFree, hex("01"), 6);
+    EXPECT_TRUE(r.packets.empty());
+    EXPECT_EQ(r.pid.activeSlots(), 0U);
+}
+
+// A game turning a playing block into another kind of effect (Set Effect with a new type): the same slot plays the
+// new kind with its own parameters.
+TEST(HidPid, ABlockChangingTypeWhilePlayingPlaysTheNewType) {
+    Recorder r;
+    r.pid.output(HidPid::kSetConstant, hex("00A00F"), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 0xFFFF), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    ASSERT_EQ(r.lastPlaying()->effect.type, FfbEffectType::Constant);
+    r.pid.output(HidPid::kSetPeriodic, hex("008813E803282364000000"), 10);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 3, 0xFFFF), 10);
+    const FfbPacket* const p = lastFor(r, 0);
+    ASSERT_NE(p, nullptr);
+    EXPECT_TRUE(p->playing);
+    EXPECT_EQ(p->effect.type, FfbEffectType::Square);
+    EXPECT_NEAR(p->effect.periodic.magnitude, 0.5F, 1e-3F);
+    EXPECT_EQ(r.pid.activeSlots(), 1U);
+}
+
+// Friction and inertia, like springs and dampers, only resist: a silent game holding them keeps its keep-alives.
+TEST(HidPid, FrictionAndInertiaAloneAreKeptAliveWhileTheGameIsSilent) {
+    for (const int pidType : {10, 11}) {
+        Recorder r;
+        r.pid.output(HidPid::kSetCondition, hex("000F000028232823041004100000"), 0);
+        r.pid.output(HidPid::kSetEffect, setEffect(1, pidType, 0xFFFF), 0);
+        r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+        for (std::int64_t t = 10; t < 3 * HidPid::kGameQuietMs; t += 10) r.pid.tick(t);
+        EXPECT_FALSE(r.pid.gameQuiet()) << pidType;
+        r.packets.clear();
+        r.pid.tick(3 * HidPid::kGameQuietMs + 300);
+        EXPECT_FALSE(r.packets.empty()) << pidType;
+    }
+}
+
+// The trace shows what is sent for a slot, not only what the game reported.
+TEST(HidPid, TheTraceShowsSlotChanges) {
+    Recorder r;
+    r.pid.enableTrace(50);
+    r.pid.output(HidPid::kSetConstant, hex("00A00F"), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 0xFFFF), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    bool traced = false;
+    for (const std::string& line : r.logs) {
+        traced = traced || line.find("-> slot 0 type 0 on level 0.400") != std::string::npos;
+    }
+    EXPECT_TRUE(traced);
+}
+
+// Counters for the driver's log: reports handled and packets sent.
+TEST(HidPid, CountsReportsAndPackets) {
+    Recorder r;
+    EXPECT_EQ(r.pid.reportsHandled(), 0U);
+    EXPECT_EQ(r.pid.packetsSent(), 0U);
+    r.pid.output(HidPid::kSetConstant, hex("00A00F"), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 0xFFFF), 0);
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    EXPECT_EQ(r.pid.reportsHandled(), 4U);
+    EXPECT_EQ(r.pid.packetsSent(), r.packets.size());
+    EXPECT_GT(r.pid.packetsSent(), 0U);
+}
+
+// While tracing, a refresh that repeats what was sent and the keep-alives are not traced as slot changes; a real
+// change is.
+TEST(HidPid, TheTraceLeavesOutRefreshesAndKeepAlives) {
+    Recorder r;
+    r.pid.enableTrace(1000);
+    r.pid.output(HidPid::kSetConstant, hex("00A00F"), 0);
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 1, 0xFFFF), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    const auto slotLines = [&r] {
+        return std::count_if(r.logs.begin(), r.logs.end(),
+                             [](const std::string& s) { return s.find("-> slot") != std::string::npos; });
+    };
+    const auto started = slotLines();   // the block getting its slot (off), then its start (on)
+    ASSERT_GE(started, 1);
+    const std::size_t before = r.packets.size();
+    for (std::int64_t t = 10; t <= 600; t += 10) r.pid.tick(t);
+    EXPECT_GT(r.packets.size(), before);   // refreshes and keep-alives went out
+    EXPECT_EQ(slotLines(), started);
+    r.pid.output(HidPid::kSetConstant, hex("01E803"), 610);   // 0.1 for block 1
+    EXPECT_EQ(slotLines(), started + 1);
+    r.pid.output(HidPid::kDeviceControl, hex("04"), 620);     // reset: a stop of everything, not a slot line
+    EXPECT_EQ(r.packets.back().kind, FfbPacket::Kind::StopAll);
+    EXPECT_EQ(slotLines(), started + 1);
+}
+
+// A game that falls silent while a periodic force (a rumble) plays: like a constant force, the keep-alives stop so
+// the service stops it.
+TEST(HidPid, ASilentGameWithAPeriodicForceStopsKeepAlives) {
+    Recorder r;
+    r.pid.output(HidPid::kSetPeriodic, hex("008813000000006400000000"), 0);   // 0.5, 100 ms
+    r.pid.output(HidPid::kSetEffect, setEffect(1, 4, 0xFFFF), 0);
+    r.pid.output(HidPid::kEffectOperation, hex("010101"), 0);
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    for (std::int64_t t = 10; t <= HidPid::kGameQuietMs + 100; t += 10) r.pid.tick(t);
+    EXPECT_TRUE(r.pid.gameQuiet());
+    r.packets.clear();
+    for (std::int64_t t = HidPid::kGameQuietMs + 110; t < HidPid::kGameQuietMs + 1000; t += 10) r.pid.tick(t);
+    EXPECT_TRUE(r.packets.empty());
+}
+
 }  // namespace
 }  // namespace wheelbri

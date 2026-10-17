@@ -222,7 +222,7 @@ void ShimGamesView::draw(const float x0, const float y, const bool canChange) {
     window_.fill(fieldX, y, kFieldWidth, kRowHeight, kStripe);
     const auto chars = static_cast<std::size_t>((kFieldWidth - 10) / ui::kCharWidth);
     if (!hasGame()) {
-        window_.text(fieldX + 5, y + 4, fit("no game yet: Games, Add game", chars), kCaution);
+        window_.text(fieldX + 5, y + 4, fit("no game: Games, Add game", chars), kCaution);
     } else {
         const bool missing = state_ == ShimState::Missing;
         const bool foreign = state_ == ShimState::Foreign;

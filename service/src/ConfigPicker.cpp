@@ -94,7 +94,7 @@ ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
     const std::string target = readAppSetting(settings_.stateFile, "target");
     target_ = parseTarget(target).value_or(Target::G920);
     if (!target.empty() && !parseTarget(target)) {
-        WE_LOG_WARN(log(), "[app] target = '{}' is not a wheel WheelBri emulates (g920, g25, g27, g923): the G920",
+        WE_LOG_WARN(log(), "[app] target = '{}' is not a wheel WheelBri emulates (g25, g27, g920, g923): the G920",
                     target);
     }
     refresh();
@@ -238,7 +238,7 @@ float ConfigPicker::draw(const float x0, const float y, const bool canChange) {
         x += width + 4;
         arrow(">", step);
     };
-    // The targets in a ring (G920, G25, G27, G923): < the one before, > the one after.
+    // The targets in a ring (G25, G27, G920, G923): < the one before, > the one after.
     constexpr int kTargets = 4;
     const int t = static_cast<int>(target_);
     const auto previous = static_cast<Target>((t + kTargets - 1) % kTargets);

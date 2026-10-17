@@ -20,7 +20,10 @@ namespace wheelbri {
 //  * if the shim goes quiet for `watchdogNs` (game crashed, paused, or lost the device) every effect is
 //    stopped, and stays stopped until the game sends it again;
 //  * a slot is re-sent to the sink at most every `minUpdateNs` unless it starts or stops, so a slewing
-//    constant force cannot flood the driver.
+//    constant force cannot flood the driver;
+//  * a constant push the game leaves exactly as it is for `frozenForceSeconds` (FfbSafetyConfig) fades out over
+//    `kFrozenFadeNs`, with every periodic effect on top: a game on a loading screen that keeps sending its last
+//    force (NFS 2015: 83% and a rumble for 21 s). Springs and dampers stay. Any change brings the forces back.
 class FfbController {
 public:
     struct Timing {
@@ -56,6 +59,12 @@ public:
     [[nodiscard]] static FfbEffect withGameGain(const FfbEffect& effect, float gain);
 
     [[nodiscard]] const Stats& stats() const { return stats_; }
+
+    // How long a frozen push takes to fade out, and the smallest push (of full scale) that counts as one.
+    static constexpr std::uint64_t kFrozenFadeNs = 500'000'000;
+    static constexpr float kFrozenPushAbove = 0.05F;
+    // What the game's pushing forces are multiplied by now: 1, down to 0 while a frozen push fades (last update()).
+    [[nodiscard]] float frozenFade() const { return frozenFade_; }
 
     // Read-only view of one slot, for displays: what the game asked for and what reached the wheel.
     struct SlotView {
@@ -93,7 +102,11 @@ private:
         std::optional<FfbEffect> lastSent;
         std::uint64_t lastSentNs = 0;
         std::uint64_t lastUpdateNs = 0;      // for the limiter's slew step
+        std::uint64_t pushSinceNs = 0;       // when the game last changed this slot's push (type, level, gain)
     };
+
+    // The fade for frozen pushes at `nowNs` (1 = none), logging when it starts and ends.
+    [[nodiscard]] float frozenFadeAt(std::uint64_t nowNs);
 
     [[nodiscard]] static bool differs(const FfbEffect& a, const FfbEffect& b);
 
@@ -105,6 +118,8 @@ private:
     std::array<FfbSafetyLimiter, IFfbSink::kMaxSlots> limiters_;
     std::optional<std::uint64_t> lastPacketNs_;
     float gameGain_ = 1.0F;
+    std::uint64_t frozenNs_ = 0;            // from safety_.frozenForceSeconds; 0 = never
+    float frozenFade_ = 1.0F;
     bool watchdogTripped_ = false;
     Stats stats_;
     FfbUsage usage_;

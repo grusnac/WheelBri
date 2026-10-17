@@ -1,4 +1,5 @@
 #include "wheelbri/GameProfiles.hpp"
+#include "wheelbri/GameSettings.hpp"
 #include "wheelbri/HidG920.hpp"
 
 #include <gtest/gtest.h>
@@ -380,6 +381,65 @@ TEST(GameProfiles, AdviceOnlyForTheWayAGameDoesNotWorkWith) {
     EXPECT_EQ(virtualDevice->title, "NFS X needs the in-game shim");
     EXPECT_EQ(virtualDevice->text, "NFS X does not work with the virtual device (it finds no virtual wheel). Close the "
                                    "game, Stop, set Mode to Shim on the Mapping tab, and Start again.");
+}
+
+// [game_settings] lines a profile author may get wrong: ids with digits, capitals or too long; names with spaces,
+// symbols or too long; several spaces before the value; a value below 0; only a note. Each is a problem.
+TEST(GameProfiles, GameSettingLinesAreCheckedStrictly) {
+    const auto parse = [](const std::string& settings) {
+        return parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n[game_settings]\n"
+                                     "file = G/settings\nnote = Why.\n" + settings);
+    };
+    const ParsedGameProfile good = parse("tyre_force = Wheel_Tire.Forces2   0.25\n" + std::string("a = ") +
+                                         std::string(64, 'W') + " 1\n");
+    ASSERT_TRUE(good.profile.has_value()) << good.problems.front();
+    ASSERT_EQ(good.profile->settings.size(), 2U);
+    EXPECT_EQ(findGameSetting(*good.profile, "tyre_force")->name, "Wheel_Tire.Forces2");
+    EXPECT_EQ(findGameSetting(*good.profile, "tyre_force")->value, 0.25F);
+    for (const std::string& bad :
+         {std::string("spring2 = WheelX 0.5\n"), std::string(25, 'a') + " = WheelX 0.5\n",
+          std::string("a = ") + std::string(65, 'W') + " 1\n", std::string("a = Wheel-X 0.5\n"),
+          std::string("a = WheelX -0.5\n"), std::string("a = WheelX   \n"), std::string("a = WheelX\t0.5\n"),
+          std::string("a = WheelX 0.5x\n")}) {
+        EXPECT_FALSE(parse(bad).profile.has_value()) << bad;
+    }
+    EXPECT_TRUE(parse(std::string(24, 'a') + " = WheelX 0.5\n").profile.has_value());   // 24 is the longest id
+    // A note alone (no file, no setting) is still the three-go-together problem.
+    const ParsedGameProfile noteOnly =
+        parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n[game_settings]\nnote = Why.\n");
+    ASSERT_FALSE(noteOnly.profile.has_value());
+    EXPECT_EQ(noteOnly.problems.front(), "[game_settings] file, note and at least one setting go together");
+}
+
+// [game] program must be a bare file name: a path or an empty value is a problem (it would never match a process).
+TEST(GameProfiles, ProgramIsAFileNameNotAPath) {
+    for (const char* program : {"games/x.exe", "C:\\Games\\x.exe", ""}) {
+        const ParsedGameProfile parsed = parseGameProfile(
+            "x", std::string("[game]\nlabel = NFS X\nprogram = ") + program + "\ntarget = g920\n");
+        EXPECT_FALSE(parsed.profile.has_value()) << program;
+    }
+}
+
+// rotation_deg that is not a number, and a ways list with tabs (a hand-aligned file).
+TEST(GameProfiles, RotationMustBeANumberAndWaysTakeTabs) {
+    const ParsedGameProfile word = parseGameProfile(
+        "x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n[steering]\nrotation_deg = wide\nnote = Why.\n");
+    ASSERT_FALSE(word.profile.has_value());
+    EXPECT_EQ(word.problems.front(), "[steering] rotation_deg = 'wide': expected a number");
+    const ParsedGameProfile tabs =
+        parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\nways = virtual\t,\tshim\t\n");
+    ASSERT_TRUE(tabs.profile.has_value()) << tabs.problems.front();
+    EXPECT_TRUE(tabs.profile->virtualDevice && tabs.profile->shim);
+}
+
+// A route whose throttle or brake slot is not a pedal (a corrupted route): straight through, never an index past
+// the three pedals.
+TEST(GameProfiles, NotARouteInAnySlotIsStraightThrough) {
+    EXPECT_EQ(applyPedalRoute(pedals(), PedalRoute{{0, 3, 1}}), pedals());
+    EXPECT_EQ(applyPedalRoute(pedals(), PedalRoute{{0, 1, 255}}), pedals());
+    TargetReport swapped = pedals();
+    std::swap(swapped.throttle, swapped.brake);
+    EXPECT_EQ(applyPedalRoute(pedals(), PedalRoute{{1, 0, 2}}), swapped);
 }
 
 }  // namespace

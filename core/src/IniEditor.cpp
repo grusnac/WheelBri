@@ -36,7 +36,9 @@ IniEditor::Line IniEditor::parseLine(std::string text, const std::string& sectio
     const auto comment = content.find_first_of(";#");
     if (comment != std::string_view::npos) content = content.substr(0, comment);
     const std::string stripped = trim(content);
-    if (stripped.size() >= 3 && stripped.front() == '[' && stripped.back() == ']') {
+    // A header as IniDocument reads one: "[ ]" (no name) is not one, and leaves the line in the section it is in.
+    if (stripped.size() >= 3 && stripped.front() == '[' && stripped.back() == ']' &&
+        !trim(std::string_view(stripped).substr(1, stripped.size() - 2)).empty()) {
         line.header = true;
         line.section = trim(std::string_view(stripped).substr(1, stripped.size() - 2));
     } else if (const auto equals = stripped.find('='); equals != std::string::npos) {

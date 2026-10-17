@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+#include <vector>
+
 namespace wheelbri::hidhide {
 namespace {
 
@@ -113,6 +116,110 @@ TEST(HidHideCli, NeverHidesTheVirtualG920) {
     EXPECT_FALSE(mayHide({0x046D, 0xC299}));   // the virtual G25
     EXPECT_FALSE(mayHide({}));
     EXPECT_EQ(deviceIdText({0x346E, 0x0004}), "346e:0004");
+}
+
+namespace {
+
+// One container with the devices given (JSON text), as --dev-gaming prints them.
+std::string container(const std::string& devices) {
+    return R"([ { "friendlyName" : "X" , "devices" : [ )" + devices + " ] } ]";
+}
+
+std::string device(const std::string& path, const std::string& gaming = "true") {
+    return R"({ "present" : true , "gamingDevice" : )" + gaming + R"( , "deviceInstancePath" : ")" + path + R"(" })";
+}
+
+}  // namespace
+
+// Every JSON escape HidHideCLI may print, in a field we do not read and in the path we do: read, not an error.
+TEST(HidHideCli, ReadsEveryStringEscape) {
+    const std::string json = R"([ { "friendlyName" : "a\"b\\c\/d\n\t\r\b\f\u0041\u20ac\?" , "devices" : [ )" +
+                             device(R"(HID\\VID_346E&PID_0005\\1\u0026)") + " ] } ]";
+    const auto found = gamingDevicesOf(json, "346E");
+    ASSERT_EQ(found.size(), 1U);
+    EXPECT_EQ(found[0], "HID\\VID_346E&PID_0005\\1&");   // \u0026 is '&'
+    const std::string euro = container(device(R"(HID\\VID_346E&PID_0005\\\u20ac)"));
+    ASSERT_EQ(gamingDevicesOf(euro, "346E").size(), 1U);
+    EXPECT_EQ(gamingDevicesOf(euro, "346E")[0], "HID\\VID_346E&PID_0005\\\xE2\x82\xAC");   // three UTF-8 bytes
+}
+
+// Output cut off or garbled (HidHideCLI killed, a pipe closed early): nothing is chosen, nothing throws.
+TEST(HidHideCli, CutOrGarbledOutputGivesNothing) {
+    const std::string good = container(device(R"(HID\\VID_346E&PID_0005\\1)"));
+    ASSERT_EQ(gamingDevicesOf(good, "346E").size(), 1U);
+    for (std::size_t length = 0; length < good.size(); ++length) {
+        EXPECT_TRUE(gamingDevicesOf(good.substr(0, length), "346E").empty()) << good.substr(0, length);
+    }
+    for (const std::string& bad : {
+             good + " ]",                                               // text after the document
+             good + "x",
+             std::string(R"([ { "devices" "x" } ])"),                   // no colon
+             std::string(R"([ { "devices" : [ ] ])"),                   // no closing brace
+             std::string(R"([ { devices : [ ] } ])"),                   // a key without quotes
+             std::string(R"([ { "a" : 1 } )"),                          // no closing bracket
+             std::string(R"([ { "a" : @ } ])"),                         // not a value
+             std::string(R"([ "\u12" ])"),                              // a short \u escape
+             std::string("[ \"abc\\"),                                  // cut inside an escape
+             std::string("[ \"\\u1"),                                    // cut inside a \u escape
+         }) {
+        EXPECT_TRUE(gamingDevicesOf(bad, "346E").empty()) << bad;
+        EXPECT_TRUE(describeDevicesOf(bad, "346E").empty()) << bad;
+    }
+}
+
+// Nesting deeper than any real output (a broken or hostile program): refused, without running out of stack.
+TEST(HidHideCli, VeryDeepNestingIsRefused) {
+    const std::string deep = std::string(40, '[') + std::string(40, ']');
+    EXPECT_TRUE(gamingDevicesOf(deep, "346E").empty());
+    const std::string fine = "[" + std::string(30, '[') + std::string(30, ']') + "]";
+    EXPECT_TRUE(gamingDevicesOf(fine, "346E").empty());   // read, but no devices in it
+    EXPECT_TRUE(gamingDevicesOf(std::string(100000, '['), "346E").empty());
+}
+
+// Shapes other than HidHideCLI's: a root object, containers without a device list, paths that are not strings,
+// gamingDevice missing or not a bool, numbers of every form, empty objects and arrays. Only real gaming devices count.
+TEST(HidHideCli, OnlyWellFormedGamingDevicesCount) {
+    EXPECT_TRUE(gamingDevicesOf(R"({ "devices" : [ ] })", "346E").empty());
+    const std::string mixed =
+        R"([ { } , [ ] , { "devices" : { } } , { "devices" : [ { } , )"
+        R"({ "deviceInstancePath" : 3 , "gamingDevice" : true } , )"
+        R"({ "deviceInstancePath" : "HID\\VID_346E&PID_0001\\a" } , )"
+        R"({ "deviceInstancePath" : "HID\\VID_346E&PID_0002\\a" , "gamingDevice" : "true" } , )"
+        R"({ "deviceInstancePath" : "HID\\VID_346E&PID_0003\\a" , "gamingDevice" : null , "n" : -1.5e+3 } , )"
+        R"({ "deviceInstancePath" : "HID\\VID_346E&PID_0004\\a" , "gamingDevice" : true , "n" : 2E-1 } , )"
+        R"({ "deviceInstancePath" : "hid\\vid_346e&pid_0004\\A" , "gamingDevice" : true } ] } ])";
+    const auto found = gamingDevicesOf(mixed, "346E");
+    ASSERT_EQ(found.size(), 1U);   // the same path in another case is the same device
+    EXPECT_EQ(found[0], "HID\\VID_346E&PID_0004\\a");
+    const auto described = describeDevicesOf(mixed, "346e");
+    ASSERT_EQ(described.size(), 5U);
+    EXPECT_EQ(described[0], "HID\\VID_346E&PID_0001\\a (gamingDevice ?, present ?)");   // missing: '?'
+    EXPECT_EQ(described[1], "HID\\VID_346E&PID_0002\\a (gamingDevice true, present ?)");   // a string, as written
+    EXPECT_EQ(described[2], "HID\\VID_346E&PID_0003\\a (gamingDevice , present ?)");      // null: nothing
+    EXPECT_TRUE(describeDevicesOf(mixed, std::string(200, 'A')).empty());   // a needle longer than any path
+}
+
+// Instance ids and paths in the forms Windows uses: mixed-case hex, a path without the \\?\ prefix or GUID, and
+// ids that only look like HID ones.
+TEST(HidHideCli, ReadsIdsAndPathsInEveryCase) {
+    EXPECT_EQ(hidDeviceIdOf(R"(HID\VID_aBcD&PID_00fF\x)"), (DeviceId{0xABCD, 0x00FF}));
+    EXPECT_FALSE(hidDeviceIdOf(R"(HID\VID_346E&PIX_0004\X)").has_value());
+    EXPECT_FALSE(hidDeviceIdOf(R"(HID\VID_346E&PID_00G4\X)").has_value());
+    EXPECT_FALSE(hidDeviceIdOf(R"(HID\VID_346E&PID_000)").has_value());   // cut short
+    EXPECT_EQ(instanceIdOfHidPath(R"(hid#vid_346e&pid_0005#7&1)"), R"(HID\VID_346E&PID_0005\7&1)");
+    EXPECT_EQ(instanceIdOfHidPath(R"(\\?\hi)"), "");
+    EXPECT_EQ(instanceIdOfHidPath(R"(\\?)"), "");
+    EXPECT_FALSE(isGameController({"HID_DEVICE_UP:0002"}));   // shorter than the simulation prefix
+    EXPECT_TRUE(isGameController({"HID_DEVICE", "HID_DEVICE_UP:0001_U:0005"}));
+    EXPECT_EQ(neverHiddenUsage({"HID_DEVICE_UP:000C"}), "");   // too short for the prefix
+    EXPECT_TRUE(containsIgnoreCase("abc", ""));
+    EXPECT_FALSE(containsIgnoreCase("ab", "abc"));
+}
+
+// HidHideCLI's list output: lines without two quotes are skipped; a last line without a line end still counts.
+TEST(HidHideCli, QuotedValuesSkipLinesWithoutAPair) {
+    EXPECT_EQ(quotedValues("\"a\"\n\none \" quote\n\"\"\n--x \"b\""), (std::vector<std::string>{"a", "", "b"}));
+    EXPECT_TRUE(quotedValues("").empty());
 }
 
 }  // namespace wheelbri::hidhide

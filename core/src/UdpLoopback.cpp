@@ -160,6 +160,18 @@ sockaddr_in loopbackAddress(const std::uint16_t port) {
     return address;
 }
 
+// The local port `socket` is bound to (the one the system chose when asked for port 0); 0 if it cannot tell.
+std::uint16_t boundPort(const NativeSocket socket) {
+    sockaddr_in address{};
+#ifdef _WIN32
+    int size = sizeof(address);
+#else
+    socklen_t size = sizeof(address);
+#endif
+    if (::getsockname(socket, reinterpret_cast<sockaddr*>(&address), &size) != 0) return 0;
+    return ntohs(address.sin_port);
+}
+
 // Owns one UDP socket plus the Winsock session it needs on Windows.
 class UdpSocket {
 public:
@@ -291,7 +303,8 @@ std::unique_ptr<UdpLoopbackReceiver> UdpLoopbackReceiver::create(const std::uint
                      errorText(lastError()));
         return nullptr;
     }
-    WE_LOG_INFO(log(), "receiver listening on 127.0.0.1:{}", port);
+    if (const std::uint16_t bound = boundPort(impl->socket.get()); bound != 0) impl->port = bound;   // create(0)
+    WE_LOG_INFO(log(), "receiver listening on 127.0.0.1:{}", impl->port);
     return std::unique_ptr<UdpLoopbackReceiver>(new UdpLoopbackReceiver(std::move(impl)));
 }
 
@@ -351,7 +364,7 @@ std::unique_ptr<UdpLoopbackListener> UdpLoopbackListener::create(const std::uint
         WE_LOG_ERROR(log(), "listener: cannot bind 127.0.0.1:{} (already in use?): {}", port, errorText(lastError()));
         return nullptr;
     }
-    WE_LOG_INFO(log(), "listener on 127.0.0.1:{}", port);
+    WE_LOG_INFO(log(), "listener on 127.0.0.1:{}", boundPort(impl->socket.get()));
     return std::unique_ptr<UdpLoopbackListener>(new UdpLoopbackListener(std::move(impl)));
 }
 
@@ -361,6 +374,10 @@ std::optional<std::size_t> UdpLoopbackListener::receive(const std::span<std::uin
 }
 
 void UdpLoopbackReceiver::setSenderFilter(SenderFilter filter) { impl_->filter = std::move(filter); }
+
+std::uint16_t UdpLoopbackReceiver::localPort() const { return boundPort(impl_->socket.get()); }
+
+std::uint16_t UdpLoopbackListener::localPort() const { return boundPort(impl_->socket.get()); }
 
 std::intptr_t UdpLoopbackReceiver::nativeSocket() const { return static_cast<std::intptr_t>(impl_->socket.get()); }
 

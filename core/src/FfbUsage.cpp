@@ -63,6 +63,10 @@ float FfbUsage::TypeStats::wheelAverage() const {
 }
 
 FfbUsage::FfbUsage(const FfbSafetyConfig& safety) : safety_(safety) {
+    // As FfbSafetyLimiter does: a value that is not a number is its default (NaN would also pass std::clamp).
+    const FfbSafetyConfig defaults;
+    if (!std::isfinite(safety_.masterGain)) safety_.masterGain = defaults.masterGain;
+    if (!std::isfinite(safety_.maxMagnitude)) safety_.maxMagnitude = defaults.maxMagnitude;
     safety_.masterGain = std::clamp(safety_.masterGain, 0.0F, 1.0F);
     safety_.maxMagnitude = std::clamp(safety_.maxMagnitude, 0.0F, 1.0F);
 }

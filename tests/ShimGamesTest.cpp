@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cctype>
 #include <fstream>
 #include <string>
 
@@ -99,7 +100,7 @@ TEST_F(ShimGamesFiles, TheTargetMustBeAWheelWheelBriEmulates) {
     for (const char* bad : {"", "g29", "G25", "g25 "}) {
         const ShimResult result = setShimTarget(game(), bad);
         EXPECT_FALSE(result.ok) << bad;
-        EXPECT_NE(result.error.find("g920, g25"), std::string::npos) << result.error;
+        EXPECT_NE(result.error.find("g25, g27, g920, g923"), std::string::npos) << result.error;
         EXPECT_TRUE(result.changed.empty());
     }
     EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");   // untouched
@@ -288,6 +289,216 @@ TEST_F(ShimGamesFiles, OurShimForTheOtherProcessorIsReplaced) {
     EXPECT_EQ(shimState(game(), dir_ / "x86.dll"), ShimState::Outdated);
     ASSERT_TRUE(installShim(game(), dir_ / "x86.dll", sourceSettings()).ok);
     EXPECT_EQ(read(game() / kShimDll), "our 32-bit shim");
+}
+
+// A damaged or foreign program file (cut short, not MZ, the PE header past its end or misspelt) is never mistaken
+// for a 32- or 64-bit game.
+TEST_F(ShimGamesFiles, ACutOrDamagedProgramIsOfNoKnownProcessor) {
+    std::string notMz = peFile(0x014C);
+    notMz[1] = 'X';
+    write(game() / "notmz.exe", notMz);
+    write(game() / "short.exe", peFile(0x014C).substr(0, 40));   // shorter than the DOS header
+    std::string pastEnd = peFile(0x014C);
+    pastEnd[0x3C] = 0x7F;                                         // the PE header would start past the end
+    write(game() / "pastend.exe", pastEnd);
+    std::string badSignature = peFile(0x014C);
+    badSignature[65] = 'X';                                       // "PX\0\0"
+    write(game() / "badsig.exe", badSignature);
+    std::string notZeroed = peFile(0x014C);
+    notZeroed[66] = 'x';                                          // "PEx\0"
+    write(game() / "pex.exe", notZeroed);
+    std::string notZeroed2 = peFile(0x014C);
+    notZeroed2[67] = 'x';                                         // "PE\0x"
+    write(game() / "pe0x.exe", notZeroed2);
+    std::string notPe = peFile(0x014C);
+    notPe[64] = 'Q';                                              // "QE\0\0"
+    write(game() / "qe.exe", notPe);
+    for (const char* name : {"notmz.exe", "short.exe", "pastend.exe", "badsig.exe", "pex.exe", "pe0x.exe", "qe.exe"}) {
+        EXPECT_EQ(peArchitecture(game() / name), Architecture::Unknown) << name;
+    }
+    EXPECT_EQ(gameArchitecture(game()), Architecture::Unknown);
+}
+
+// Only regular .exe files count, in any case, and the largest decides even when a smaller one is listed after it.
+TEST_F(ShimGamesFiles, TheLargestRealExeDecidesInAnyCase) {
+    std::filesystem::create_directories(game() / "Tools.exe");      // a folder named like a program: not one
+    write(game() / "GAME32.EXE", peFile(0x014C, 4000));             // upper case: still a program
+    write(game() / "small1.exe", peFile(0x8664));
+    write(game() / "small2.exe", peFile(0x8664, 10));
+    write(game() / "readme.txt", peFile(0x8664, 9000));             // not a program, however large
+    EXPECT_EQ(gameArchitecture(game()), Architecture::X86);
+    EXPECT_EQ(gameArchitecture(dir_ / "no such folder"), Architecture::Unknown);
+}
+
+// A dinput8.dll over 64 MB is not read whole to look for the ASI Loader's export: it is not the loader.
+TEST_F(ShimGamesFiles, AHugeDllIsNotTakenForTheAsiLoader) {
+    write(game() / kShimDll, "IsUltimateASILoader");
+    std::filesystem::resize_file(game() / kShimDll, 65ULL * 1024 * 1024);   // sparse: no disk used
+    EXPECT_FALSE(isAsiLoader(game() / kShimDll));
+    EXPECT_EQ(shimDllIn(game()), game() / kShimDll);
+    EXPECT_FALSE(isAsiLoader(game() / "missing.dll"));
+}
+
+// A folder named dinput8.dll is no shim: the state is Missing and installing says it cannot write there.
+TEST_F(ShimGamesFiles, AFolderNamedDinput8CannotBeReplaced) {
+    std::filesystem::create_directories(game() / kShimDll / "inside");
+    EXPECT_EQ(shimDllIn(game()), game() / kShimDll);
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Missing);
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    EXPECT_FALSE(put.ok);
+    EXPECT_NE(put.error.find("cannot write"), std::string::npos) << put.error;
+    EXPECT_NE(put.error.find("close the game and try again"), std::string::npos) << put.error;
+    EXPECT_TRUE(put.changed.empty());
+    EXPECT_TRUE(std::filesystem::is_directory(game() / kShimDll / "inside"));
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
+}
+
+// A folder named wheelbri-shim.ini: the DLL goes in, the settings cannot, and the result says which file failed.
+TEST_F(ShimGamesFiles, AFolderInTheSettingsPlaceStopsTheInstall) {
+    std::filesystem::create_directories(game() / kShimSettings);
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    EXPECT_FALSE(put.ok);
+    EXPECT_NE(put.error.find(kShimSettings), std::string::npos) << put.error;
+    ASSERT_EQ(put.changed.size(), 1U);
+    EXPECT_EQ(read(game() / kShimDll), "our shim v1");
+    EXPECT_TRUE(std::filesystem::is_directory(game() / kShimSettings));
+}
+
+// Without WheelBri's own wheelbri-shim.ini to copy, only the DLL goes in.
+TEST_F(ShimGamesFiles, NoSourceSettingsPutsOnlyTheDll) {
+    const ShimResult put = installShim(game(), sourceDll(), dir_ / "shim" / "missing.ini");
+    ASSERT_TRUE(put.ok) << put.error;
+    ASSERT_EQ(put.changed.size(), 1U);
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
+    // With no settings next to it, our own DLL is still ours: it is byte-identical.
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Installed);
+}
+
+// WheelBri's own DLL missing (not built, or not installed): installing says so, naming the 32-bit one for a
+// 32-bit game; nothing is written.
+TEST_F(ShimGamesFiles, AMissingSourceDllIsSaidAndNothingWritten) {
+    ShimResult put = installShim(game(), {}, sourceSettings());
+    EXPECT_FALSE(put.ok);
+    EXPECT_NE(put.error.find("not found in shim/"), std::string::npos) << put.error;
+    put = installShim(game(), dir_ / "shim" / "gone.dll", sourceSettings());
+    EXPECT_FALSE(put.ok);
+    EXPECT_NE(put.error.find("gone.dll"), std::string::npos) << put.error;
+    EXPECT_EQ(put.error.find("32-bit"), std::string::npos) << put.error;
+    write(game() / "NFSC.exe", peFile(0x014C, 100));
+    put = installShim(game(), dir_ / "shim" / "gone.dll", sourceSettings());
+    EXPECT_NE(put.error.find("32-bit dinput8.dll is missing"), std::string::npos) << put.error;
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimDll));
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
+}
+
+// A folder that is not a game folder (no .exe, or not there) gets nothing.
+TEST_F(ShimGamesFiles, NoShimIntoAFolderWithoutAGame) {
+    const ShimResult put = installShim(dir_ / "shim", sourceDll(), sourceSettings());
+    EXPECT_FALSE(put.ok);
+    EXPECT_NE(put.error.find("no .exe"), std::string::npos) << put.error;
+    EXPECT_NE(gameFolderProblem({}), "");
+    std::filesystem::create_directories(dir_ / "tools" / "setup.exe");   // only a folder named like a program
+    EXPECT_NE(gameFolderProblem(dir_ / "tools"), "");
+    EXPECT_NE(gameFolderProblem(game() / "Game.exe"), "");               // a file, not a folder
+}
+
+// When WheelBri's own DLL cannot be found, a dinput8.dll with our settings next to it still counts as ours
+// (installed); one without them is another mod's.
+TEST_F(ShimGamesFiles, WithoutTheSourceOurSettingsSayWhoseDllItIs) {
+    write(game() / kShimDll, "some build of ours");
+    EXPECT_EQ(shimState(game(), dir_ / "missing.dll"), ShimState::Foreign);
+    write(game() / kShimSettings, "[shim]\n");
+    EXPECT_EQ(shimState(game(), dir_ / "missing.dll"), ShimState::Installed);
+    EXPECT_EQ(shimState(game(), {}), ShimState::Installed);
+}
+
+// Removing where there is no DLL: only our settings go; with nothing there it is a success that changed nothing.
+TEST_F(ShimGamesFiles, RemovingWithNoDllTakesOnlyTheSettings) {
+    write(game() / kShimSettings, "[shim]\n");
+    ShimResult removed = removeShim(game(), sourceDll());
+    ASSERT_TRUE(removed.ok) << removed.error;
+    ASSERT_EQ(removed.changed.size(), 1U);
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
+    removed = removeShim(game(), sourceDll());
+    EXPECT_TRUE(removed.ok);
+    EXPECT_TRUE(removed.changed.empty());
+    EXPECT_TRUE(std::filesystem::exists(game() / "Game.exe"));
+}
+
+// Every state has a name for the games panel.
+TEST(ShimGamesNames, EveryStateIsNamed) {
+    EXPECT_STREQ(shimStateName(ShimState::Installed), "shim in place");
+    EXPECT_STREQ(shimStateName(ShimState::Outdated), "shim outdated");
+    EXPECT_STREQ(shimStateName(ShimState::Missing), "no shim");
+    EXPECT_STREQ(shimStateName(ShimState::Foreign), "another dinput8.dll");
+}
+
+// A list file edited by hand: CRLF, comments, blank lines and lines of the wrong shape are skipped; the same folder
+// twice (in another case) is one game; a selection that is not listed falls back to the first game.
+TEST_F(ShimGamesFiles, AHandEditedListIsReadSafely) {
+    const auto file = dir_ / "shim-games.txt";
+    const std::string folder = pathToUtf8(game());
+    std::string upper = folder;
+    for (char& c : upper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    write(file, "# comment\r\n\r\ngame\tOnly two\r\ngame\tEmpty\t\r\nwhat\tever\r\n"
+                "selected\ttoo\tmany\r\ngame\tFirst\t" + folder + "\r\ngame\tAgain\t" + upper +
+                "\r\ngame\tSecond\t" + pathToUtf8(dir_ / "Other") + "\r\nselected\t" + pathToUtf8(dir_ / "Gone") +
+                "\r\n");
+    const ShimGameList list = readShimGames(file);
+    ASSERT_EQ(list.games.size(), 2U);
+    EXPECT_EQ(list.games[0].name, "First");
+    EXPECT_EQ(list.games[0].folder, game());
+    EXPECT_EQ(list.games[1].name, "Second");
+    EXPECT_EQ(list.selected, game());   // "Gone" is not in the list
+}
+
+// A folder picked with a trailing separator, a drive's root, a Linux folder with a tab (the list's separator) in its
+// name: the name shown stays one field and the folder comes back whole after a restart.
+TEST_F(ShimGamesFiles, FolderNamesBecomeOneFieldNames) {
+    ShimGameList list;
+    EXPECT_EQ(addShimGame(list, dir_ / "Trailing" / ""), 0U);
+    EXPECT_EQ(list.games[0].name, "Trailing");
+    EXPECT_EQ(list.games[0].folder, dir_ / "Trailing");
+    EXPECT_EQ(addShimGame(list, std::filesystem::path("/")), 1U);
+#ifdef _WIN32
+    EXPECT_EQ(list.games[1].name, "\\");   // Windows writes the root with its own separator
+#else
+    EXPECT_EQ(list.games[1].name, "/");
+#endif
+    EXPECT_EQ(addShimGame(list, dir_ / "Tab\tName"), 2U);
+    EXPECT_EQ(list.games[2].name, "Tab Name");
+    ASSERT_TRUE(writeShimGames(dir_ / "list.txt", list));
+    const ShimGameList back = readShimGames(dir_ / "list.txt");
+    ASSERT_EQ(back.games.size(), 3U);
+    EXPECT_EQ(back.games[2].name, "Tab Name");
+    EXPECT_EQ(back.games[2].folder, dir_ / "Tab\tName");
+    EXPECT_EQ(back.selected, dir_ / "Tab\tName");
+}
+
+// A game folder whose name is not ASCII round-trips through the list as UTF-8.
+TEST_F(ShimGamesFiles, NonAsciiFoldersRoundTrip) {
+    const auto folder = dir_ / pathFromUtf8("Spiele \xC3\xBC\xE2\x82\xAC \xE6\xB8\xB8\xE6\x88\x8F");
+    std::filesystem::create_directories(folder);
+    write(folder / "Game.exe", "MZ");
+    ShimGameList list;
+    addShimGame(list, folder);
+    ASSERT_TRUE(writeShimGames(dir_ / "list.txt", list));
+    const ShimGameList back = readShimGames(dir_ / "list.txt");
+    ASSERT_EQ(back.games.size(), 1U);
+    EXPECT_EQ(back.games[0].folder, folder);
+    EXPECT_EQ(back.games[0].name, "Spiele \xC3\xBC\xE2\x82\xAC \xE6\xB8\xB8\xE6\x88\x8F");
+    ASSERT_TRUE(installShim(folder, sourceDll(), sourceSettings()).ok);
+    EXPECT_EQ(shimState(folder, sourceDll()), ShimState::Installed);
+}
+
+// The list cannot be written where a folder holds its name: false, nothing replaced.
+TEST_F(ShimGamesFiles, AListThatCannotBeWrittenSaysSo) {
+    std::filesystem::create_directories(dir_ / "list.txt");
+    ShimGameList list;
+    addShimGame(list, game());
+    EXPECT_FALSE(writeShimGames(dir_ / "list.txt", list));
+    EXPECT_TRUE(std::filesystem::is_directory(dir_ / "list.txt"));
+    EXPECT_TRUE(readShimGames(dir_ / "list.txt").games.empty());   // a folder reads as an empty list
 }
 
 }  // namespace

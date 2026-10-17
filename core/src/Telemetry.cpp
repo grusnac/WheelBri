@@ -324,7 +324,9 @@ void TelemetryRecorder::appendStamp(std::string& line, const WallClock::time_poi
 void TelemetryRecorder::appendTimes(std::string& line, const WallClock::time_point wall, const std::uint64_t nowNs,
                                     const char* component) {
     appendStamp(line, wall, component);
-    appendf(line, "t_ms=%.1f", static_cast<double>(nowNs - *startNs_) / 1e6);
+    // A time before the first one (as advance() takes it) is 0, never an unsigned wrap-around.
+    const std::uint64_t sinceStart = nowNs >= *startNs_ ? nowNs - *startNs_ : 0;
+    appendf(line, "t_ms=%.1f", static_cast<double>(sinceStart) / 1e6);
 }
 
 bool TelemetryRecorder::changed(const TelemetrySample& sample, const std::string& exact) const {

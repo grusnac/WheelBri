@@ -450,5 +450,137 @@ TEST(UhidG920, AnUnsupportedReportIsLoggedOnce) {
               1);
 }
 
+uhid_event setReport(const std::uint32_t id, const std::uint8_t rnum, const std::uint8_t rtype,
+                     const std::vector<std::uint8_t>& data) {
+    uhid_event e{};
+    e.type = UHID_SET_REPORT;
+    e.u.set_report.id = id;
+    e.u.set_report.rnum = rnum;
+    e.u.set_report.rtype = rtype;
+    e.u.set_report.size = static_cast<std::uint16_t>(data.size());
+    std::memcpy(e.u.set_report.data, data.data(), data.size());
+    return e;
+}
+
+// The G923's HID++ requests can also come as SET_REPORT (hidraw's HIDIOCSOUTPUT), with or without the report ID
+// first; a request too short for HID++ is not answered; a G920 PID id below the moved range goes nowhere.
+TEST(UhidG920, TheG923TakesHidppBySetReportAndIgnoresStrayReports) {
+    Kernel k(*virtualWheel("g923"));
+    ASSERT_TRUE(k.device.create());
+    k.written.clear();
+    const auto request = hex("11FF001100005A" + std::string(26, '0'));
+    k.device.handle(setReport(1, 0x11, UHID_OUTPUT_REPORT, request), 0);   // with the ID
+    ASSERT_EQ(k.written.size(), 2U);
+    EXPECT_EQ(k.written[0].type, UHID_INPUT2);
+    EXPECT_EQ(k.written[0].u.input2.data[6], 0x5A);
+    EXPECT_EQ(k.written[1].type, UHID_SET_REPORT_REPLY);
+    k.written.clear();
+    const std::vector<std::uint8_t> noId(request.begin() + 1, request.end());
+    k.device.handle(setReport(2, 0x11, UHID_OUTPUT_REPORT, noId), 0);      // without it: the same answer
+    ASSERT_EQ(k.written.size(), 2U);
+    EXPECT_EQ(k.written[0].u.input2.data[0], 0x11);
+    EXPECT_EQ(k.written[0].u.input2.data[6], 0x5A);
+
+    k.written.clear();
+    k.output("11FF", 0);         // too short for HID++: no answer
+    k.output("1501A00F", 0);     // the G920's PID id: not one the G923 has
+    EXPECT_TRUE(k.written.empty());
+    EXPECT_TRUE(k.packets.empty());
+    k.device.handle(setReport(3, 0x15, UHID_OUTPUT_REPORT, hex("1501A00F")), 0);
+    k.device.handle(setReport(4, 0x11, UHID_FEATURE_REPORT, request), 0);   // HID++ as a feature: not HID++
+    k.device.handle(setReport(5, 0x15, UHID_FEATURE_REPORT, hex("1501")), 0);
+    EXPECT_TRUE(k.packets.empty());
+    ASSERT_EQ(k.written.size(), 3U);   // only the three replies
+    for (const uhid_event& e : k.written) EXPECT_EQ(e.type, UHID_SET_REPORT_REPLY);
+
+    k.written.clear();
+    k.getFeature(6, 0x11);       // a HID++ id as a feature: not supported, still answered
+    ASSERT_EQ(k.written.size(), 1U);
+    EXPECT_EQ(k.written[0].u.get_report_reply.err, EIO);
+}
+
+// A SET_REPORT of a kind the device has no use for (an input report) is answered and changes nothing.
+TEST(UhidG920, ASetInputReportIsAnsweredAndIgnored) {
+    Kernel k;
+    ASSERT_TRUE(k.device.create());
+    k.written.clear();
+    k.device.handle(setReport(9, 0x1A, UHID_INPUT_REPORT, hex("1A010101")), 0);
+    ASSERT_EQ(k.written.size(), 1U);
+    EXPECT_EQ(k.written[0].type, UHID_SET_REPORT_REPLY);
+    EXPECT_EQ(k.written[0].u.set_report_reply.id, 9U);
+    EXPECT_TRUE(k.packets.empty());
+}
+
+// Get-report requests for reports the device does not serve: an output report, an input report under another ID,
+// a report type the kernel may add later. Each is answered with an error and named once in the log.
+TEST(UhidG920, UnservedGetReportsAreAnsweredWithAnError) {
+    Kernel k;
+    ASSERT_TRUE(k.device.create());
+    k.logs.clear();
+    k.written.clear();
+    const auto get = [&k](const std::uint32_t id, const std::uint8_t rnum, const std::uint8_t rtype) {
+        uhid_event e{};
+        e.type = UHID_GET_REPORT;
+        e.u.get_report.id = id;
+        e.u.get_report.rnum = rnum;
+        e.u.get_report.rtype = rtype;
+        k.device.handle(e, 0);
+        return k.written.back().u.get_report_reply;
+    };
+    EXPECT_EQ(get(1, 0x1A, UHID_OUTPUT_REPORT).err, EIO);
+    EXPECT_EQ(get(2, kG920InputReportId + 1, UHID_INPUT_REPORT).err, EIO);
+    EXPECT_EQ(get(3, 0x01, 0x7F).err, EIO);
+    const auto said = [&k](const std::string& text) {
+        return std::any_of(k.logs.begin(), k.logs.end(), [&](const std::string& l) { return l.find(text) == 0; });
+    };
+    EXPECT_TRUE(said("uhid: get output report 26"));
+    EXPECT_TRUE(said("uhid: get input report " + std::to_string(kG920InputReportId + 1)));
+    EXPECT_TRUE(said("uhid: get ? report 1"));
+}
+
+// Two programs have the wheel open (the game and a tester): one closing leaves the game's forces playing.
+TEST(UhidG920, ACloseWhileAnotherProgramReadsKeepsTheForces) {
+    Kernel k;
+    ASSERT_TRUE(k.device.create());
+    uhid_event e{};
+    e.type = UHID_OPEN;
+    k.device.handle(e, 0);
+    k.device.handle(e, 0);
+    k.output("1501A00F", 0);
+    k.output("110101DC05000000000000FFFF04FF1F0000FFFFFFFF", 0);
+    k.output("1A010101", 1);
+    ASSERT_EQ(k.device.activeSlots(), 1U);
+    e.type = UHID_CLOSE;
+    k.device.handle(e, 2);
+    EXPECT_EQ(k.device.openCount(), 1);
+    EXPECT_EQ(k.device.activeSlots(), 1U);
+    k.device.handle(e, 3);
+    EXPECT_EQ(k.device.activeSlots(), 0U);
+    k.device.handle(e, 4);   // a close with nothing open and nothing playing
+    EXPECT_EQ(k.device.openCount(), 0);
+}
+
+// A report submitted before create() (the loop's first state arrives early) is sent, not taken for a repeat.
+TEST(UhidG920, TheFirstSubmitIsAlwaysSent) {
+    Kernel k;
+    EXPECT_TRUE(k.device.submit(g920Neutral(), false));
+    EXPECT_FALSE(k.device.submit(g920Neutral(), false));
+    EXPECT_TRUE(k.device.submit(g920Neutral(), true));
+    EXPECT_EQ(k.written.size(), 2U);
+}
+
+// An empty SET_REPORT (a program probing the device): answered, nothing decoded.
+TEST(UhidG920, AnEmptySetReportIsAnswered) {
+    Kernel k;
+    ASSERT_TRUE(k.device.create());
+    k.written.clear();
+    k.device.handle(setReport(4, 0x15, UHID_FEATURE_REPORT, {}), 0);
+    k.device.handle(setReport(5, 0x15, UHID_OUTPUT_REPORT, {}), 0);
+    ASSERT_EQ(k.written.size(), 2U);
+    EXPECT_EQ(k.written[1].u.set_report_reply.id, 5U);
+    EXPECT_EQ(k.written[1].u.set_report_reply.err, 0);
+    EXPECT_TRUE(k.packets.empty());
+}
+
 }  // namespace
 }  // namespace wheelbri::uhid

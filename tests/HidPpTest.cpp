@@ -169,6 +169,124 @@ TEST(HidPp, VeryLongRequestsGetVeryLongAnswersAndOthersNone) {
     EXPECT_FALSE(w.hidpp.handle(shortOne, 0).has_value());
 }
 
+
+// A request of only its header (a host that sends no parameters): every function reads the missing ones as 0.
+TEST(HidPp, RequestsWithoutParametersReadZeros) {
+    Wheel w;
+    const auto bare = [&w](const std::uint8_t index, const std::uint8_t function) {
+        const std::vector<std::uint8_t> request = {0x11, 0xFF, index, static_cast<std::uint8_t>(function << 4U | 1U)};
+        const auto answer = w.hidpp.handle(request, 0);
+        return answer ? *answer : std::vector<std::uint8_t>{};
+    };
+    auto answer = bare(0, 0);   // getFeature(0x0000): Root, at index 0
+    ASSERT_EQ(answer.size(), HidPp::kLongSize);
+    EXPECT_EQ(answer[2], 0);
+    EXPECT_EQ(answer[4], 0);
+    EXPECT_EQ(bare(0, 1)[6], 0);                          // ping without its byte
+    EXPECT_EQ((bare(1, 1)[4] << 8U) | bare(1, 1)[5], 0);  // getFeatureId(0): Root
+    EXPECT_EQ(bare(2, 1)[5], 'W');                        // getFwInfo(0)
+    EXPECT_EQ(bare(3, 1)[4], 'G');                        // getDeviceName(0)
+    EXPECT_EQ(bare(4, 2)[4], 1);                          // an effect with no bytes still gets a slot
+    EXPECT_EQ(bare(4, 3)[2], 4);                          // its state: acknowledged
+    EXPECT_EQ(bare(4, 6)[5], HidPp::kErrInvalidArgument); // aperture 0: refused
+    EXPECT_EQ(w.hidpp.rotationDeg(), 900);
+    bare(4, 8);                                           // gains 0
+    EXPECT_EQ(w.hidpp.gain(), 0.0F);
+    EXPECT_EQ(w.hidpp.requests(), 10U);
+    bool asked = false;
+    for (const std::string& line : w.lines) asked = asked || line.find("Root") != std::string::npos;
+    EXPECT_TRUE(asked);
+}
+
+// Functions a feature does not have get "invalid function", each feature on its own.
+TEST(HidPp, EveryFeatureRefusesFunctionsItDoesNotHave) {
+    Wheel w;
+    EXPECT_EQ(w.ask(1, 2)[5], HidPp::kErrInvalidFunction);
+    EXPECT_EQ(w.ask(2, 2)[5], HidPp::kErrInvalidFunction);
+    EXPECT_EQ(w.ask(3, 3)[5], HidPp::kErrInvalidFunction);
+    const auto answer = w.ask(4, 9);
+    EXPECT_EQ(answer[2], 0xFF);
+    EXPECT_EQ(answer[3], 4);
+    EXPECT_EQ(answer[5], HidPp::kErrInvalidFunction);
+    w.ask(4, 9);
+    int mentions = 0;   // said in the log once
+    for (const std::string& line : w.lines) mentions += line.find("function 9") != std::string::npos ? 1 : 0;
+    EXPECT_EQ(mentions, 1);
+}
+
+// The name asked from past its end is out of range; from its very end it is empty (nothing more to read).
+TEST(HidPp, TheNameFromPastItsEnd) {
+    Wheel w;
+    const auto size = static_cast<std::uint8_t>(std::string("G923 Racing Wheel for Xbox One and PC").size());
+    const auto atEnd = w.ask(3, 1, {size});
+    EXPECT_EQ(atEnd[2], 3);
+    EXPECT_EQ(atEnd[4], 0);
+    EXPECT_EQ(w.ask(3, 1, {static_cast<std::uint8_t>(size + 1)})[5], HidPp::kErrOutOfRange);
+}
+
+// G HUB's rotation range is 40..2520 degrees: both ends are taken, one past either is refused.
+TEST(HidPp, RotationLimitsAreInclusive) {
+    Wheel w;
+    EXPECT_EQ(w.ask(4, 6, {0x00, 40})[2], 4);
+    EXPECT_EQ(w.hidpp.rotationDeg(), 40);
+    EXPECT_EQ(w.ask(4, 6, {0x09, 0xD8})[2], 4);   // 2520
+    EXPECT_EQ(w.hidpp.rotationDeg(), 2520);
+    EXPECT_EQ(w.ask(4, 6, {0x00, 39})[5], HidPp::kErrInvalidArgument);
+    EXPECT_EQ(w.ask(4, 6, {0x09, 0xD9})[5], HidPp::kErrInvalidArgument);   // 2521
+    EXPECT_EQ(w.hidpp.rotationDeg(), 2520);
+}
+
+// Freed effects are acknowledged; slots handed out stay within the wheel's 64 however many are uploaded.
+TEST(HidPp, EffectSlotsStayInRangeAndFreesAreAcknowledged) {
+    Wheel w;
+    for (int i = 0; i < 200; ++i) {
+        const std::uint8_t slot = w.ask(4, 2, {0x01})[4];
+        EXPECT_GE(slot, 1);
+        EXPECT_LE(slot, HidPp::kEffectSlots);
+    }
+    EXPECT_EQ(w.ask(4, 4, {3})[2], 4);
+    bool freed = false;
+    for (const std::string& line : w.lines) freed = freed || line.find("effect freed") != std::string::npos;
+    EXPECT_TRUE(freed);
+}
+
+// Only sub ids 0x80..0x83 are HID++ 1.0 register access; the next one is a feature index this wheel lacks.
+TEST(HidPp, Hidpp10RangeEndsAt0x83) {
+    Wheel w;
+    EXPECT_EQ(w.ask(0x80, 0)[2], 0x8F);
+    EXPECT_EQ(w.ask(0x83, 0)[2], 0x8F);
+    const auto past = w.ask(0x84, 0);
+    EXPECT_EQ(past[2], 0xFF);
+    EXPECT_EQ(past[5], HidPp::kErrInvalidFeatureIndex);
+    EXPECT_EQ(w.ask(0x7F, 0)[5], HidPp::kErrInvalidFeatureIndex);
+}
+
+// Without a log or a settings callback (the driver may give none) every request is still answered and kept.
+TEST(HidPp, WorksWithoutALogOrSettings) {
+    HidPp hidpp{HidPp::Identity{"G923", 0xC26E, 1, 0x0A}, HidPp::Logger{}};
+    const auto ask = [&hidpp](const std::uint8_t index, const std::uint8_t function,
+                              const std::vector<std::uint8_t>& params) {
+        std::vector<std::uint8_t> request(HidPp::kLongSize, 0);
+        request[0] = HidPp::kLongId;
+        request[1] = 0xFF;
+        request[2] = index;
+        request[3] = static_cast<std::uint8_t>(function << 4U | 1U);
+        for (std::size_t i = 0; i < params.size(); ++i) request[4 + i] = params[i];
+        return *hidpp.handle(request, 0);
+    };
+    EXPECT_EQ(ask(0, 0, {0x12, 0x34})[4], 0);   // not there, and no log to say so
+    EXPECT_EQ(ask(0, 0, {0x81, 0x23})[4], 4);
+    EXPECT_EQ(ask(4, 0, {})[4], HidPp::kEffectSlots);
+    EXPECT_EQ(ask(4, 2, {1, 2})[4], 1);
+    EXPECT_EQ(ask(4, 6, {0x01, 0x68})[2], 4);   // 360
+    EXPECT_EQ(hidpp.rotationDeg(), 360);
+    ask(4, 8, {0xFF, 0xFF, 0, 0});
+    EXPECT_FLOAT_EQ(hidpp.gain(), 1.0F);
+    EXPECT_EQ(ask(4, 9, {})[5], HidPp::kErrInvalidFunction);
+    EXPECT_EQ(ask(0x81, 0, {})[2], 0x8F);
+    EXPECT_EQ(hidpp.requests(), 8U);
+}
+
 // The descriptor's items: (prefix, value) in order.
 std::vector<std::pair<std::uint8_t, std::uint32_t>> items(const std::span<const std::uint8_t> d) {
     std::vector<std::pair<std::uint8_t, std::uint32_t>> out;

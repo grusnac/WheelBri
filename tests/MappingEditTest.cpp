@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 using namespace wheelbri;
 
 namespace {
@@ -293,4 +295,153 @@ TEST(MappingEdit, ControlsUsedTwice) {
     const EmulatorConfig config = load(*text);
     EXPECT_EQ(config.targetProfile, "g923");
     EXPECT_TRUE(controlsUsedTwice(mappingModel(config), g923).empty());
+}
+
+// Ids and sources as a hand edit may break them: too many hex digits, a missing half, a non-hex digit, an index
+// below -1 or below 0 on an accessory.
+TEST(MappingEdit, RejectsMalformedIdsAndSources) {
+    for (const char* bad : {"12345:1", ":1", "1:", "g:1", "1:-1", "346e:0005:1", " 346e:0005", "0000:0000"}) {
+        EXPECT_FALSE(parseDeviceId(bad).has_value()) << bad;
+    }
+    EXPECT_EQ(parseDeviceId("1:0"), (DeviceId{1, 0}));   // only both zero is the empty id
+    for (const char* bad : {"-2", "1:1/-1", "1:1/x", "1:1/", "/3", "2 ", "+2", "99999999999"}) {
+        EXPECT_FALSE(parseSource(bad).has_value()) << bad;
+    }
+}
+
+// A secondary list hand-aligned with tabs, and one that names "-1" only once: read as written.
+TEST(MappingEdit, SecondaryListsTakeTabs) {
+    EXPECT_EQ(parseButtonRefs("\t4\t,\t5 "), (std::vector<ButtonRef>{{{{}, 4}, false, false, 0.5F},
+                                                                      {{{}, 5}, false, false, 0.5F}}));
+    EXPECT_EQ(parseButtonRefs("  -1  "), std::vector<ButtonRef>{});
+    EXPECT_FALSE(parseButtonRefs("-1, -1, 4").has_value());
+    EXPECT_FALSE(parseButtonRef("axis 3 > 50% inverted").has_value());   // the threshold comes last
+    EXPECT_FALSE(parseButtonRef("1:1/axis -1").has_value());
+    // Unmapped entries in a list being written are left out.
+    EXPECT_EQ(formatButtonRefs({ButtonRef{}, {{{}, 3}, false, false, 0.5F}, ButtonRef{}}), "3");
+    EXPECT_EQ(formatButtonRefs({ButtonRef{}}), "-1");
+}
+
+// A device number that is not an accessory slot (negative, past the last, an empty slot) reads as nothing.
+TEST(MappingEdit, UnknownDeviceNumbersAreNothing) {
+    MapperConfig mapper;
+    mapper.accessories[0] = {1, 1};
+    EXPECT_EQ(sourceOf(mapper, 1, 3), (SourceRef{{1, 1}, 3}));
+    EXPECT_EQ(sourceOf(mapper, -1, 3), SourceRef{});
+    EXPECT_EQ(sourceOf(mapper, 2, 3), SourceRef{});   // empty slot
+    EXPECT_EQ(sourceOf(mapper, 4, 3), SourceRef{});   // past kMaxAccessories
+}
+
+// Uses past the known names (a future profile with more axes or hat directions) still read as something.
+TEST(MappingEdit, DescribesUsesPastTheKnownNames) {
+    const DeviceProfile g920(g920Spec());
+    EXPECT_EQ(describeUse({ControlUse::Kind::Axis, 7}, g920), "Role: G920 axis");
+    EXPECT_EQ(describeUse({ControlUse::Kind::Hat, 4}, g920), "Role: G920 D-pad");
+    EXPECT_EQ(describeUse({ControlUse::Kind::Hat, 3}, g920), "Role: G920 D-pad Left");
+    EXPECT_EQ(describeUse({ControlUse::Kind::Axis, MappingModel::kClutch}, g920), "Role: G920 clutch");
+}
+
+// Values that must never be saved, NaN among them (every comparison with it is false, so a plain range check lets
+// it through): an axis threshold, a game's gain, a game setting. A game rotation that is off is not checked.
+TEST(MappingEdit, RefusesOutOfRangeAndNotANumberValues) {
+    const MappingModel good = mappingModel(load(kConfig));
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+
+    MappingModel model = good;
+    model.secondaries[2] = {{{{}, 1}, true, false, nan}};
+    EXPECT_NE(tuningProblem(model).find("button 2: an axis presses it between 5% and 95%"), std::string::npos)
+        << tuningProblem(model);
+    EXPECT_FALSE(writeMapping(kConfig, model).error.empty());
+    model.secondaries[2] = {{{{}, 1}, true, false, 0.04F}};
+    EXPECT_FALSE(tuningProblem(model).empty());
+    model.secondaries[2] = {{{{}, 1}, false, false, nan}};   // a button's threshold is never used
+    EXPECT_TRUE(tuningProblem(model).empty());
+    model.secondaries[2] = {{{{}, 1}, true, false, 0.95F}};
+    EXPECT_TRUE(tuningProblem(model).empty());
+
+    model = good;
+    model.gameFfbGains["nfs2015"] = nan;
+    EXPECT_EQ(tuningProblem(model), "nfs2015 gain: from 0.25 to 4");
+    model.gameFfbGains["nfs2015"] = 4.01F;
+    EXPECT_FALSE(tuningProblem(model).empty());
+
+    model = good;
+    model.gameSettings["nfsunbound"]["spring"] = nan;
+    EXPECT_EQ(tuningProblem(model), "nfsunbound.spring: from 0 to 1");
+    model.gameSettings["nfsunbound"]["spring"] = -0.5F;
+    EXPECT_FALSE(tuningProblem(model).empty());
+
+    model = good;
+    model.gameRotations["nfs2015"] = {true, nan};   // off: its degrees mean nothing
+    EXPECT_TRUE(tuningProblem(model).empty());
+    model.gameRotations["nfs2015"] = {false, nan};
+    EXPECT_NE(tuningProblem(model).rfind("nfs2015: ", 0), std::string::npos);
+}
+
+// Lines for games the user no longer sets go when saving, even a hand-written key with no dot; lines that already
+// say the value (in another spelling: "1.0" for 1, "0.80" for 0.8) are left as written, comments and all.
+TEST(MappingEdit, GameLinesAreDroppedOrKeptAsWritten) {
+    const std::string base = kConfig +
+                             "[game_settings]\r\nnfsunbound.spring = 0.80   ; mine\r\nnfsunbound = 1\r\n"
+                             "[game_ffb_gain]\r\nnfsunbound = 2.0  ; strong\r\nnfs2015 = 1\r\n"
+                             "[game_rotation]\r\nnfs2015 = 360/180\r\nnfspayback = 270  ; tight\r\n";
+    const auto parsed = IniDocument::parse(base);
+    ASSERT_TRUE(parsed.errors.empty());
+    MappingModel model = mappingModel(loadEmulatorConfig(parsed.document).config);
+    model.gameFfbGains.erase("nfs2015");
+    const MappingWriteResult written = writeMapping(base, model);
+    ASSERT_TRUE(written.error.empty()) << written.error;
+    const std::string& text = written.text;
+    EXPECT_NE(text.find("nfsunbound.spring = 0.80   ; mine\r\n"), std::string::npos) << text;
+    EXPECT_EQ(text.find("nfsunbound = 1\r\n"), std::string::npos) << text;   // no dot: not a setting
+    EXPECT_NE(text.find("nfsunbound = 2.0  ; strong\r\n"), std::string::npos) << text;
+    EXPECT_EQ(text.find("nfs2015 = 1\r\n"), std::string::npos) << text;      // no longer set
+    EXPECT_NE(text.find("nfs2015 = 180\r\n"), std::string::npos) << text;    // the older pair as the one number
+    EXPECT_NE(text.find("nfspayback = 270  ; tight\r\n"), std::string::npos) << text;
+    EXPECT_EQ(writeMapping(text, model).text, text);   // and saving again changes nothing
+}
+
+// An inverted pedal set back to normal: its "invert = true" line (here in a second [clutch] section, as a hand edit
+// may leave it) becomes false, not left saying true; a pedal newly inverted gets the line.
+TEST(MappingEdit, InvertIsWrittenOverAnExistingLineOnly) {
+    MappingModel model = mappingModel(load(kConfig + "[clutch]\r\ninvert = true\r\n"));
+    ASSERT_TRUE(model.invert[MappingModel::kClutch]);
+    model.invert[MappingModel::kClutch] = false;
+    model.invert[MappingModel::kBrake] = true;
+    const std::string text = writeMapping(kConfig + "[clutch]\r\ninvert = true\r\n", model).text;
+    const EmulatorConfig back = load(text);
+    EXPECT_FALSE(back.mapper.clutch.invert);
+    EXPECT_TRUE(back.mapper.brake.invert);
+    const std::size_t first = text.find("invert = true");
+    ASSERT_NE(first, std::string::npos) << text;
+    EXPECT_EQ(text.find("invert = true", first + 1), std::string::npos) << text;   // the brake's only
+}
+
+// Lines the reader could not read (a hand edit) are written again with the model's value, not kept; a game setting
+// of a known game that the user no longer sets goes; an unmapped secondary in the model is not written.
+TEST(MappingEdit, UnreadableLinesAreWrittenAgain) {
+    const std::string base = kConfig +
+                             "[game_rotation]\r\nnfs2015 = sideways\r\n"
+                             "[game_settings]\r\nnfsunbound.spring = lots\r\nnfsunbound.force_feedback = 1\r\n"
+                             "[game_ffb_gain]\r\nnfs2015 = strong\r\n";
+    MappingModel model = mappingModel(load(kConfig));
+    model.gameRotations["nfs2015"] = {false, 270.0F};
+    model.gameSettings["nfsunbound"]["spring"] = 0.7F;
+    model.gameFfbGains["nfs2015"] = 2.0F;
+    model.secondaries[1] = {ButtonRef{}, {{{}, 9}, false, false, 0.5F}};
+    model.steeringRotationDeg = 540.0F;
+    const MappingWriteResult written = writeMapping(base + "[steering]\r\ntarget_rotation_deg = wide\r\n", model);
+    ASSERT_TRUE(written.error.empty()) << written.error;
+    const auto parsed = IniDocument::parse(written.text);
+    ASSERT_TRUE(parsed.errors.empty());
+    const EmulatorConfigResult back = loadEmulatorConfig(parsed.document);
+    ASSERT_TRUE(back.errors.empty()) << back.errors.front();
+    EXPECT_FLOAT_EQ(back.config.mapper.steering.targetRotationDeg, 540.0F);
+    EXPECT_EQ(back.config.gameRotations.at("nfs2015"), (GameRotationOverride{false, 270.0F}));
+    EXPECT_FLOAT_EQ(back.config.gameSettings.at("nfsunbound").at("spring"), 0.7F);
+    EXPECT_EQ(back.config.gameSettings.at("nfsunbound").count("force_feedback"), 0U);
+    EXPECT_FLOAT_EQ(back.config.gameFfbGains.at("nfs2015"), 2.0F);
+    EXPECT_NE(written.text.find("target_1_or = 9\r\n"), std::string::npos) << written.text;
+    // One button ref given straight, with spaces around it (the list reader trims them first).
+    EXPECT_EQ(parseButtonRef("  5  "), (ButtonRef{{{}, 5}, false, false, 0.5F}));
 }

@@ -34,7 +34,8 @@ void InputReadStats::recordRead(const std::uint64_t startNs, const std::uint64_t
 }
 
 bool InputReadStats::due(const std::uint64_t nowNs) const {
-    return started_ && reads_ > 0 && nowNs - windowStartNs_ >= kWindowNs;
+    // A time before the window (a read timed on another thread before logReads() restarted it) is not a minute later.
+    return started_ && reads_ > 0 && nowNs >= windowStartNs_ && nowNs - windowStartNs_ >= kWindowNs;
 }
 
 std::string InputReadStats::summary(const std::uint64_t nowNs) const {

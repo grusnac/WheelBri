@@ -85,7 +85,7 @@ case "$target" in
     g25) wheel=G25; wheel_id=0x046D/0xC299 ;;
     g27) wheel=G27; wheel_id=0x046D/0xC29B ;;
     g923) wheel=G923; wheel_id=0x046D/0xC26E ;;
-    *) echo "wheelbri.sh: --target $target: expected g920, g25, g27 or g923" >&2; exit 2 ;;
+    *) echo "wheelbri.sh: --target $target: expected g25, g27, g920 or g923" >&2; exit 2 ;;
 esac
 # Default --config: the mapping you saved in the app's Mapping tab for this target (configs/my-<target>.ini, both
 # modes), else WheelBri's default one (<target>.ini). Before there was one for both modes (2026-10-15) each mode had

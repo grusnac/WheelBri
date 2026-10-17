@@ -10,6 +10,7 @@
 #include <functional>
 #include <mutex>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -45,7 +46,7 @@ public:
             if (throwOther_) throw 7;
             helper::HelperState state;
             state.kind = kind_;
-            state.version = "0.9.0";
+            state.version = version_;
             return state;
         };
     }
@@ -76,6 +77,10 @@ public:
         const std::lock_guard<std::mutex> lock(mutex_);
         kind_ = kind;
     }
+    void answerVersion(const std::string& version) {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        version_ = version;
+    }
     void throwStd() {
         const std::lock_guard<std::mutex> lock(mutex_);
         throwStd_ = true;
@@ -95,6 +100,7 @@ private:
     bool throwStd_ = false;
     bool throwOther_ = false;
     Kind kind_ = Kind::Accepted;
+    std::string version_ = "0.9.0";
 };
 
 TEST(HelperProbe, ChecksOnceAtStart) {
@@ -126,6 +132,21 @@ TEST(HelperProbe, ARequestAfterTheGapChecksAgainAndTakesTheNewAnswer) {
     probe.request();
     ASSERT_TRUE(eventually([&] { return probe.checks() == 2; }));
     EXPECT_EQ(probe.latest().kind, Kind::NotRunning);
+}
+
+// The helper was updated meanwhile: the same answer from a newer version is taken (the Logs tab shows the version).
+TEST(HelperProbe, ANewerHelperWithTheSameAnswerIsTaken) {
+    FakeCheck fake;
+    HelperProbe probe(fake.check(), 0);
+    ASSERT_TRUE(eventually([&] { return probe.checks() == 1; }));
+    fake.answerVersion("0.9.1");
+    probe.request();
+    ASSERT_TRUE(eventually([&] { return probe.checks() == 2; }));
+    EXPECT_EQ(probe.latest().kind, Kind::Accepted);
+    EXPECT_EQ(probe.latest().version, "0.9.1");
+    probe.request();   // the same again: still taken, nothing else changes
+    ASSERT_TRUE(eventually([&] { return probe.checks() == 3; }));
+    EXPECT_EQ(probe.latest().version, "0.9.1");
 }
 
 TEST(HelperProbe, ARequestWithinTheGapIsIgnored) {

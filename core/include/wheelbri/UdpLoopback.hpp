@@ -74,6 +74,10 @@ public:
     using SenderFilter = std::function<bool(std::uint16_t senderPort)>;
     void setSenderFilter(SenderFilter filter);
 
+    // The port it listens on: `port` from create(), or the one the system chose for create(0) (tests use that, so
+    // that tests running side by side never share a port). 0 if it cannot tell.
+    [[nodiscard]] std::uint16_t localPort() const;
+
     // The socket itself (a SOCKET on Windows, a file descriptor elsewhere), for waiting until a state arrives
     // (wheelbri-uhid's poll). Owned by this object.
     [[nodiscard]] std::intptr_t nativeSocket() const;
@@ -115,6 +119,9 @@ public:
     // sender's UDP port on 127.0.0.1, to tell who sent it.
     [[nodiscard]] std::optional<std::size_t> receive(std::span<std::uint8_t> buffer,
                                                      std::uint16_t* senderPort = nullptr);
+
+    // The port it listens on (the system's choice for create(0), as UdpLoopbackReceiver::localPort).
+    [[nodiscard]] std::uint16_t localPort() const;
 
     // The socket itself (a SOCKET on Windows, a file descriptor elsewhere), for waiting until a datagram arrives
     // (the service's event loop, platform::WaitSet). Owned by this object.

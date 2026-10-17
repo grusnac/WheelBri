@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <stdexcept>
 #include <string>
 
 namespace wheelbri {
@@ -73,6 +74,83 @@ TEST(FileText, PathsRoundTripAndBadUtf8IsEmpty) {
     EXPECT_TRUE(pathFromUtf8("cut \xE2\x82").empty());
     EXPECT_TRUE(pathFromUtf8("surrogate \xED\xA0\x80").empty());
     EXPECT_FALSE(pathFromUtf8("emoji \xF0\x9F\x8F\x81").empty());
+}
+
+// Every way a byte sequence is not UTF-8 is refused: overlong forms, code points past U+10FFFF, a lead byte that
+// cannot start one, a continuation byte where a character starts, a character cut by the next one.
+TEST(FileText, EveryKindOfBadUtf8IsRefused) {
+    for (const char* bad : {"\xE0\x80\xAF", "\xF0\x80\x80\xAF", "\xF4\x90\x80\x80", "\xF5\x80\x80\x80",
+                            "\xC1\xBF", "\x80", "\xC3\x28", "\xE2\x28\xA1", "\xF0\x9F\x8F"}) {
+        EXPECT_TRUE(pathFromUtf8(std::string("x") + bad + "y").empty()) << pathToUtf8(bad);
+    }
+    // The edges that are valid: the last code point, the first 3- and 4-byte ones, just around the surrogates.
+    for (const char* good : {"\xF4\x8F\xBF\xBF", "\xE0\xA0\x80", "\xF0\x90\x80\x80", "\xED\x9F\xBF", "\xEE\x80\x80"}) {
+        EXPECT_FALSE(pathFromUtf8(std::string("x") + good).empty()) << good;
+    }
+}
+
+TEST(FileText, TruncatingToNothingOrAtAnAsciiByte) {
+    EXPECT_EQ(truncateUtf8("abc", 0), "");
+    EXPECT_EQ(truncateUtf8("\xC3\xA9", 0), "");
+    EXPECT_EQ(truncateUtf8("ab\xC3\xA9", 2), "ab");
+    EXPECT_EQ(truncateUtf8("", 0), "");
+}
+
+// Something that is not a regular file (a device) is never read as a file.
+TEST(FileText, ADeviceIsNotAFile) {
+    EXPECT_FALSE(readFileText("/dev/null").has_value());
+    EXPECT_FALSE(readFileText("").has_value());
+}
+
+// A link where the file goes is replaced by the file, never followed: the file it pointed to is untouched.
+TEST_F(FileTextFiles, ALinkIsReplacedNotFollowed) {
+    std::ofstream(dir_ / "elsewhere.ini") << "the user's";
+    std::error_code ec;
+    std::filesystem::create_symlink(dir_ / "elsewhere.ini", dir_ / "app.ini", ec);
+    // Windows makes links only for Administrators or in Developer Mode.
+    if (ec) GTEST_SKIP() << "links cannot be made here: " << ec.message();
+    ASSERT_TRUE(writeFileReplacing(dir_ / "app.ini", "new"));
+    EXPECT_FALSE(std::filesystem::is_symlink(dir_ / "app.ini"));
+    EXPECT_EQ(readFileText(dir_ / "app.ini").value_or(""), "new");
+    EXPECT_EQ(readFileText(dir_ / "elsewhere.ini").value_or(""), "the user's");
+}
+
+// A leftover <file>.tmp (an earlier attempt that died) is replaced; one that is a link is removed, not followed.
+TEST_F(FileTextFiles, ALeftoverTemporaryFileIsReplaced) {
+    std::ofstream(dir_ / "a.ini.tmp") << "half";
+    ASSERT_TRUE(writeFileReplacing(dir_ / "a.ini", "whole"));
+    EXPECT_EQ(readFileText(dir_ / "a.ini").value_or(""), "whole");
+    EXPECT_FALSE(std::filesystem::exists(dir_ / "a.ini.tmp"));
+    std::ofstream(dir_ / "target") << "keep me";
+    std::error_code ec;
+    std::filesystem::create_symlink(dir_ / "target", dir_ / "a.ini.tmp", ec);
+    if (ec) GTEST_SKIP() << "links cannot be made here: " << ec.message();
+    ASSERT_TRUE(writeFileReplacing(dir_ / "a.ini", "again"));
+    EXPECT_EQ(readFileText(dir_ / "target").value_or(""), "keep me");
+    EXPECT_EQ(readFileText(dir_ / "a.ini").value_or(""), "again");
+}
+
+// A folder whose name is not ASCII is made and written into.
+TEST_F(FileTextFiles, NonAsciiFoldersAreMade) {
+    const auto file = dir_ / pathFromUtf8("Jeux \xC3\xA9t\xC3\xA9") / pathFromUtf8("\xE6\xB8\xB8\xE6\x88\x8F.ini");
+    ASSERT_TRUE(writeFileReplacing(file, "x"));
+    EXPECT_EQ(readFileText(file).value_or(""), "x");
+}
+
+// A visitor that throws for one entry (a name it cannot convert) skips that entry; the others are still listed.
+TEST_F(FileTextFiles, AnEntryThatThrowsIsSkipped) {
+    for (const char* name : {"a", "b", "c"}) std::ofstream(dir_ / name) << name;
+    std::set<std::string> seen;
+    forEachEntry(dir_, [&seen](const std::filesystem::directory_entry& entry) {
+        const std::string name = entry.path().filename().string();
+        if (name == "b") throw std::runtime_error("cannot convert");
+        seen.insert(name);
+    });
+    EXPECT_EQ(seen, (std::set<std::string>{"a", "c"}));
+    int calls = 0;
+    forEachEntry({}, [&calls](const std::filesystem::directory_entry&) { ++calls; });
+    forEachEntry(dir_ / "a", [&calls](const std::filesystem::directory_entry&) { ++calls; });   // a file
+    EXPECT_EQ(calls, 0);
 }
 
 }  // namespace

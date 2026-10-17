@@ -242,7 +242,10 @@ a headline, why it was needed, how to use it, and where to look.
 
 - **Why:** rigs are often direct drive: no game force may reach the wheel unchecked.
 - **Use:** automatic on both targets. `[ffb] master_gain`, `max_magnitude` (0.8), `max_slew_per_second` (50) in the config;
-  `[ffb] invert = true` if forces pull the wrong way. The forces stop when the game goes quiet (500 ms).
+  `[ffb] invert = true` if forces pull the wrong way. The forces stop when the game goes quiet (500 ms). A constant
+  push the game leaves exactly as it is for `[ffb] frozen_force_s` (2 s; 0 = never) fades out over half a second, with
+  its rumble: NFS 2015 on a loading screen kept sending 83% and kicks for 21 s. Springs and dampers stay; the next
+  change brings the forces back. The service log says when ("ffb: the game has held a ... push unchanged").
 - **Look:** `ffb-<date>-<NN>.log` (`kind=wheel_*` lines: the delay of every call to the wheel); the service log's `ffb delay`
   table (with the usage table, every 10 minutes and at the end); the Force feedback tab (`--ffb-tab`). Code: core
   `FfbController`, `FfbSafetyLimiter` (`Ffb.cpp`), `AsyncFfbSink` (the wheel's calls on their own raised-priority

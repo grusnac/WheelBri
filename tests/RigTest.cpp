@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <fstream>
 
 using namespace wheelbri;
@@ -179,4 +180,119 @@ TEST(Rig, TheChoiceIsKeptWithOrWithoutAName) {
     // Anything else after the name is a mistake.
     EXPECT_FALSE(load("[device_1]\nid = 346e:0005\naxis_1 = Gas | horn\n").errors.empty());
     EXPECT_FALSE(load("[device_1]\nid = 346e:0005\nbutton_1 = Gas | horn\n").errors.empty());
+}
+
+// Hand-edited values the Rig tab would never write: each reported, the rest of the device still read.
+TEST(Rig, ReportsBadIdsKindsAndControlNumbers) {
+    const RigResult result = load("[device_1]\nid = 346e:0005\nkind = joystick\naxis_x = a\naxis_ = b\naxis_0007 = c\n"
+                                  "axis_8 = d\nbutton_64 = e\naxis_007 = Gas\n"
+                                  "[device_2]\nid = nope\nname = Pedals\n");
+    ASSERT_EQ(result.errors.size(), 8U);
+    EXPECT_EQ(result.errors[0], "[device_1] axis_ = 'b': no such axis (0..7)");
+    EXPECT_EQ(result.errors[1], "[device_1] axis_0007 = 'c': no such axis (0..7)");   // four digits: not read
+    EXPECT_EQ(result.errors[5], "[device_1] kind = 'joystick': expected wheel, pedals, shifter, handbrake, button box "
+                                "or other");
+    EXPECT_EQ(result.errors[6], "[device_2] id = 'nope': expected vvvv:pppp (hex)");
+    EXPECT_EQ(result.errors[7], "[device_2] has no id: left out");
+    ASSERT_EQ(result.rig.devices.size(), 1U);
+    EXPECT_EQ(result.rig.devices[0].kind, DeviceKind::Other);
+    EXPECT_EQ(result.rig.devices[0].axes[7].label, "Gas");   // leading zeros are fine
+}
+
+// A control name typed too long by hand: cut to what the name field holds, and reported.
+TEST(Rig, CutsTooLongControlNames) {
+    const RigResult result = load("[device_1]\nid = 346e:0005\nbutton_2 = A much too long name | invert\n");
+    ASSERT_EQ(result.errors.size(), 1U);
+    EXPECT_NE(result.errors[0].find("at most 12 characters"), std::string::npos);
+    EXPECT_EQ(result.rig.devices[0].buttons[2], (RigControl{"A much too l", true, ""}));
+}
+
+// An older role a button cannot have now ("| steering") is dropped without an error, and an empty part ("a | | b")
+// is not a mistake.
+TEST(Rig, OlderRolesThatNoLongerFitAndEmptyPartsAreDropped) {
+    const RigResult result = load("[device_1]\nid = 346e:0005\nbutton_1 = Wheel | steering\naxis_2 = Gas | | invert\n");
+    EXPECT_TRUE(result.errors.empty()) << result.errors.front();
+    EXPECT_EQ(result.rig.devices[0].buttons[1], (RigControl{"Wheel", false, ""}));
+    EXPECT_EQ(result.rig.devices[0].axes[2], (RigControl{"Gas", true, ""}));
+    EXPECT_EQ(result.rig.devices[0].kind, DeviceKind::Other);   // only a Steering *axis* makes it the wheel
+}
+
+// The same device twice (a copied section), and more devices than a rig holds: left out, each said once.
+TEST(Rig, DuplicateAndExtraDevicesAreLeftOut) {
+    std::string text;
+    for (int i = 1; i <= 6; ++i) {
+        const int product = i == 2 ? 1 : i;   // device_2 repeats device_1's id
+        text += "[device_" + std::to_string(i) + "]\nid = 1234:000" + std::to_string(product) + "\n";
+    }
+    const RigResult result = load(text);
+    ASSERT_EQ(result.errors.size(), 2U);
+    EXPECT_EQ(result.errors[0], "[device_2] 1234:0001 is in the rig twice: left out");
+    EXPECT_EQ(result.errors[1], "[device_6]: at most 4 devices in a rig: left out");
+    ASSERT_EQ(result.rig.devices.size(), Rig::kMaxDevices);
+    EXPECT_EQ(result.rig.devices.back().id, (DeviceId{0x1234, 0x0005}));
+}
+
+// An inverted axis with no name and nothing picked is still written (else the invert is lost) and reads back.
+TEST(Rig, AnUnnamedInvertedAxisSurvivesSaving) {
+    Rig rig;
+    RigDevice pedals;
+    pedals.id = {0x30B7, 0x1001};
+    pedals.axes[3].invert = true;
+    pedals.buttons[5].invert = true;   // an inverted button with nothing else is nothing
+    rig.devices = {pedals};
+    const std::string text = writeRig(rig, "Mine");
+    EXPECT_NE(text.find("axis_3 = | invert\r\n"), std::string::npos) << text;
+    EXPECT_EQ(text.find("button_5"), std::string::npos) << text;
+    const RigResult back = load(text);
+    EXPECT_TRUE(back.errors.empty()) << back.errors.front();
+    EXPECT_TRUE(back.rig.devices[0].axes[3].invert);
+}
+
+// The mapping's device numbers: 0 is the wheel (by source_device, else the rig's wheel), 1..3 its accessories.
+TEST(Rig, FindsTheDeviceAMappingNumberReads) {
+    Rig rig = sampleRig();
+    MapperConfig mapper;
+    mapper.accessories[0] = {0x30B7, 0x1001};
+    mapper.accessories[1] = {0x0EB7, 0x0001};   // not in the rig
+    EXPECT_EQ(rigDeviceFor(mapper, rig, "", 0), &rig.devices[0]);
+    EXPECT_EQ(rigDeviceFor(mapper, rig, "pedals", 0), &rig.devices[1]);       // part of the name, any case
+    EXPECT_EQ(rigDeviceFor(mapper, rig, "346e:0005", 0), &rig.devices[0]);    // or the id
+    EXPECT_EQ(rigDeviceFor(mapper, rig, "Fanatec", 0), nullptr);              // a wheel not in the rig
+    EXPECT_EQ(rigDeviceFor(mapper, rig, "", 1), &rig.devices[1]);
+    EXPECT_EQ(rigDeviceFor(mapper, rig, "", 2), nullptr);   // an accessory the rig does not have
+    EXPECT_EQ(rigDeviceFor(mapper, rig, "", 3), nullptr);   // an empty slot
+    EXPECT_EQ(rigDeviceFor(mapper, rig, "", 4), nullptr);   // past the slots
+    EXPECT_EQ(rigDeviceFor(mapper, rig, "", -1), nullptr);
+    // The editable lookup finds the same device, and can change it.
+    RigDevice* pedals = rig.find({0x30B7, 0x1001});
+    ASSERT_NE(pedals, nullptr);
+    pedals->name = "Renamed";
+    EXPECT_EQ(rig.devices[1].name, "Renamed");
+    EXPECT_EQ(rig.find({0x1111, 0x2222}), nullptr);
+}
+
+// The rigs folder: only .ini files (any case of the extension), not folders or other files; a missing rig is
+// nothing, not an empty rig; a non-ASCII name works.
+TEST(Rig, ListsOnlyRigFilesAndReadsNothingForAMissingOne) {
+    const auto dir = std::filesystem::temp_directory_path() / "wheelbri-Rig-ListsOnlyRigFiles";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / "folder.ini");
+    std::ofstream(dir / "notes.txt") << "x";
+    std::ofstream(dir / "Upper.INI") << "[device_1]\nid = 346e:0005\n";
+    const std::string unicode = "Rig \xC3\xA9t\xC3\xA9";   // "Rig été"
+    ASSERT_TRUE(saveRig(dir, unicode, sampleRig()));
+    EXPECT_EQ(listRigs(dir), (std::vector<std::string>{unicode, "Upper"}));
+    std::vector<std::string> errors{"stale"};
+    EXPECT_FALSE(readRig(dir, "gone", errors).has_value());
+    const auto read = readRig(dir, unicode, errors);
+    ASSERT_TRUE(read.has_value());
+    EXPECT_TRUE(errors.empty());
+    EXPECT_EQ(*read, sampleRig());
+    // A rig file with a broken line: the parser's errors come first, then the rig's.
+    std::ofstream(dir / "broken.ini", std::ios::trunc) << "[device_1\n[device_1]\nid = 346e:0005\ncolour = red\n";
+    ASSERT_TRUE(readRig(dir, "broken", errors).has_value());
+    ASSERT_EQ(errors.size(), 2U);
+    EXPECT_EQ(errors[0], "line 1: malformed section header");
+    EXPECT_EQ(errors[1], "[device_1] colour = 'red': unknown key");
+    std::filesystem::remove_all(dir);
 }

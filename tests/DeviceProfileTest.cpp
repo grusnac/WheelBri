@@ -232,5 +232,93 @@ TEST(ButtonLayout, NoGroupsIsNumberOrder) {
     EXPECT_EQ(layout.cells[1].column, 1);
 }
 
+
+// A made-up target with more than 32 named buttons (a button box profile): only the first 32 can reach the game
+// (TargetReport carries 32), and building its mask does not shift past 32 bits.
+TEST(DeviceProfile, NamesPast32ButtonsAreIgnoredInTheMask) {
+    DeviceProfileSpec spec = g920Spec();
+    spec.buttonNames.assign(40, "B");
+    spec.buttonGroups.clear();
+    const DeviceProfile profile(spec);
+    EXPECT_EQ(profile.buttonCount(), 40U);
+    WheelState state;
+    state.buttons = 0xFFFFFFFFU;
+    EXPECT_EQ(profile.encode(state).buttons, 0xFFFFFFFFU);
+    EXPECT_EQ(profile.buttonName(39), "B");
+    EXPECT_EQ(profile.buttonName(40), "");
+}
+
+// Groups written by hand with mistakes: a button the target does not have, one listed twice, an unnamed one, a group
+// left empty by that, a group without a name, and a named button no group lists (it goes under OTHER).
+TEST(ButtonLayout, BadGroupEntriesAreDroppedAndTheRestGoUnderOther) {
+    DeviceProfileSpec spec;
+    spec.buttonNames = {"A", "B", "", "D", "E"};
+    using Place = ButtonGroup::Place;
+    spec.buttonGroups = {
+        {"ONE", {0, 9, 0, 2}, Place::Left},   // 9: no such button; 0 twice; 2: unnamed
+        {"GONE", {9, 2}, Place::Right},       // nothing left: no heading
+        {"", {1}, Place::Right},              // no name: no heading
+        {"LOW", {}, Place::Below},            // empty from the start
+    };
+    const DeviceProfile profile(spec);
+    const ButtonLayout layout = layoutButtons(profile);
+    const std::vector<ButtonCell> expected = {
+        {0, 0.0F, true, "ONE", 0},
+        {0, kButtonHeadingH, false, {}, 0},
+        {1, 0.0F, false, {}, 1},
+        {0, kButtonHeadingH + kButtonRowH, true, "OTHER", 0},
+        {0, 2.0F * kButtonHeadingH + kButtonRowH, false, {}, 3},
+        {1, 2.0F * kButtonHeadingH + kButtonRowH, false, {}, 4},
+    };
+    EXPECT_EQ(layout.cells, expected);
+    EXPECT_FLOAT_EQ(layout.height, 2.0F * kButtonHeadingH + 2.0F * kButtonRowH);
+}
+
+// A target without any named button (a bare profile): nothing to lay out.
+TEST(ButtonLayout, NoNamedButtonsIsEmpty) {
+    DeviceProfileSpec spec;
+    spec.buttonNames = {"", ""};
+    const DeviceProfile profile(spec);
+    const ButtonLayout layout = layoutButtons(profile);
+    EXPECT_TRUE(layout.cells.empty());
+    EXPECT_FLOAT_EQ(layout.height, 0.0F);
+}
+
+// The comparisons the tests and the window's change detection rely on: every field counts.
+TEST(DeviceProfile, ReportsAndCellsCompareEveryField) {
+    const TargetReport base{1, 2, 3, 4, 5U, 6};
+    EXPECT_EQ(base, (TargetReport{1, 2, 3, 4, 5U, 6}));
+    EXPECT_FALSE(base == (TargetReport{0, 2, 3, 4, 5U, 6}));
+    EXPECT_FALSE(base == (TargetReport{1, 0, 3, 4, 5U, 6}));
+    EXPECT_FALSE(base == (TargetReport{1, 2, 0, 4, 5U, 6}));
+    EXPECT_FALSE(base == (TargetReport{1, 2, 3, 0, 5U, 6}));
+    EXPECT_FALSE(base == (TargetReport{1, 2, 3, 4, 0U, 6}));
+    EXPECT_FALSE(base == (TargetReport{1, 2, 3, 4, 5U, 0}));
+
+    const ButtonCell cell{1, 2.0F, false, "x", 3};
+    EXPECT_FALSE(cell == (ButtonCell{0, 2.0F, false, "x", 3}));
+    EXPECT_FALSE(cell == (ButtonCell{1, 1.0F, false, "x", 3}));
+    EXPECT_FALSE(cell == (ButtonCell{1, 2.0F, true, "x", 3}));
+    EXPECT_FALSE(cell == (ButtonCell{1, 2.0F, false, "y", 3}));
+    EXPECT_FALSE(cell == (ButtonCell{1, 2.0F, false, "x", 4}));
+
+    const Guid a = DeviceIdentity{"G920", 0x046D, 0xC262, "", 900.0F}.directInputProductGuid();
+    EXPECT_EQ(toString(a), "{C262046D-0000-0000-0000-504944564944}");
+    Guid b = a;
+    EXPECT_EQ(a, b);
+    b.data1 = 0;
+    EXPECT_FALSE(a == b);
+    b = a;
+    b.data2 = 1;
+    EXPECT_FALSE(a == b);
+    b = a;
+    b.data3 = 1;
+    EXPECT_FALSE(a == b);
+    b = a;
+    b.data4[7] = 0;
+    EXPECT_FALSE(a == b);
+    EXPECT_EQ(toString(b), "{C262046D-0000-0000-0000-504944564900}");
+}
+
 }  // namespace
 }  // namespace wheelbri

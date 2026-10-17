@@ -270,6 +270,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini) {
         reader.readFloat("master_gain", config.ffb.masterGain, 0.0F, 1.0F);
         reader.readFloat("max_magnitude", config.ffb.maxMagnitude, 0.0F, 1.0F);
         reader.readFloat("max_slew_per_second", config.ffb.maxSlewPerSecond, 0.0F, 1000.0F);
+        reader.readFloat("frozen_force_s", config.ffb.frozenForceSeconds, 0.0F, 60.0F);
         reader.readBool("invert", config.ffbInvert);
         reader.readBool("game_effects", config.gameFfb);
         reader.reportUnknownKeys();

@@ -177,7 +177,7 @@ inline constexpr std::size_t kG923FirstGear = kG920FirstGear;
 
 // Config names of the built-in profiles, for messages: the wheels WheelBri emulates (a virtual device and the shim both
 // present them). A new target is a new profile here plus its support (driver, shim) first.
-inline constexpr std::string_view kKnownProfiles = "g920, g25, g27, g923";
+inline constexpr std::string_view kKnownProfiles = "g25, g27, g920, g923";
 
 // Looks up a built-in profile by its config name ("g920", "g25", "g27", "g923"). Returns nullptr for unknown names.
 [[nodiscard]] std::unique_ptr<IDeviceProfile> makeProfile(std::string_view name);

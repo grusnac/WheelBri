@@ -46,7 +46,13 @@ FfbController::FfbController(IFfbSink& sink, const FfbSafetyConfig& safety, cons
       safety_(safety),
       timing_(timing),
       limiters_(makeLimiters(safety, std::make_index_sequence<IFfbSink::kMaxSlots>{})),
-      usage_(safety) {}
+      usage_(safety) {
+    const float frozen = safety.frozenForceSeconds;
+    // Not a number: the default; negative: never.
+    const float seconds =
+        std::isfinite(frozen) ? std::clamp(frozen, 0.0F, 3600.0F) : FfbSafetyConfig{}.frozenForceSeconds;
+    frozenNs_ = static_cast<std::uint64_t>(static_cast<double>(seconds) * 1e9);
+}
 
 bool FfbController::differs(const FfbEffect& a, const FfbEffect& b) {
     return a.type != b.type || !closeTo(a.gain, b.gain) || !closeTo(a.constantLevel, b.constantLevel) ||
@@ -87,6 +93,12 @@ void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs)
         return;
     }
     Slot& slot = slots_[packet.slot];
+    // A new push, or one the game changed (a restart with the same push is not a change: still frozen).
+    const FfbEffect& next = packet.effect;
+    if (!slot.loaded || next.type != slot.requested.type || !closeTo(next.gain, slot.requested.gain) ||
+        !closeTo(next.constantLevel, slot.requested.constantLevel)) {
+        slot.pushSinceNs = nowNs;
+    }
     if (slot.wanted != packet.playing) {
         WE_LOG_DEBUG(log(), "ffb: slot {} {} {}", packet.slot, packet.playing ? "starts" : "stops",
                      typeName(packet.effect.type));
@@ -177,6 +189,7 @@ void FfbController::update(const std::uint64_t nowNs) {
         }
     }
 
+    const float fade = frozenFadeAt(nowNs);
     std::size_t active = 0;
     for (std::size_t i = 0; i < slots_.size(); ++i) {
         Slot& slot = slots_[i];
@@ -200,7 +213,7 @@ void FfbController::update(const std::uint64_t nowNs) {
         }
         const float dt = starting ? 0.0F : static_cast<float>(nowNs - slot.lastUpdateNs) / 1e9F;
         slot.lastUpdateNs = nowNs;
-        const FfbEffect limited = limiters_[i].apply(withGameGain(slot.requested, gameGain_), dt);
+        const FfbEffect limited = limiters_[i].apply(withGameGain(slot.requested, gameGain_ * fade), dt);
         if (!starting && slot.lastSent && !differs(limited, *slot.lastSent)) {
             continue;
         }
@@ -226,6 +239,38 @@ void FfbController::update(const std::uint64_t nowNs) {
     const std::uint64_t dt = lastUsageNs_ && nowNs > *lastUsageNs_ ? nowNs - *lastUsageNs_ : 0;
     lastUsageNs_ = nowNs;
     usage_.record(dt, lastPacketNs_.has_value() && !watchdogTripped_, samples);
+}
+
+float FfbController::frozenFadeAt(const std::uint64_t nowNs) {
+    // The constant push frozen longest: the game paused its physics and kept sending the last force.
+    std::optional<std::uint64_t> frozenAt;
+    float level = 0.0F;
+    if (frozenNs_ > 0) {
+        for (const Slot& slot : slots_) {
+            if (!slot.wanted || slot.requested.type != FfbEffectType::Constant) continue;
+            const float push = std::abs(slot.requested.constantLevel * slot.requested.gain * gameGain_);
+            if (!(push > kFrozenPushAbove) || nowNs < slot.pushSinceNs || nowNs - slot.pushSinceNs < frozenNs_) {
+                continue;
+            }
+            const std::uint64_t at = slot.pushSinceNs + frozenNs_;
+            if (!frozenAt || at < *frozenAt) {
+                frozenAt = at;
+                level = push;
+            }
+        }
+    }
+    const float fade = frozenAt ? std::clamp(1.0F - static_cast<float>(nowNs - *frozenAt) /
+                                                        static_cast<float>(kFrozenFadeNs), 0.0F, 1.0F)
+                                : 1.0F;
+    if (fade < 1.0F && frozenFade_ == 1.0F) {
+        WE_LOG_INFO(log(), "ffb: the game has held a {:.0f}% push unchanged for {:.1f} s (paused, loading?): the "
+                           "pushing forces fade out (springs and dampers stay); back when the game changes it",
+                    std::min(level, 1.0F) * 100.0F, static_cast<double>(frozenNs_) / 1e9);
+    } else if (fade == 1.0F && frozenFade_ < 1.0F) {
+        WE_LOG_INFO(log(), "ffb: the game changed its push again: forces back");
+    }
+    frozenFade_ = fade;
+    return fade;
 }
 
 void FfbController::stopAll() {

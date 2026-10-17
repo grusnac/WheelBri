@@ -95,5 +95,38 @@ TEST(Nfs2015Settings, InputNames) {
     EXPECT_EQ(nfs2015WheelInputName(-1), "not a wheel input");
 }
 
+// The accelerator bound but the brake bound nowhere (a profile edited by hand, or cut short): unreadable, not "as
+// expected" with half the answer.
+TEST(Nfs2015Settings, ABrakeBoundNowhereIsUnreadable) {
+    std::string text = profile(1, 24, 25);
+    std::string kept;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        const std::size_t end = text.find('\n', at) + 1;
+        const std::string line = text.substr(at, end - at);
+        if (line.find("ConceptBrake.") == std::string::npos) kept += line;
+        at = end;
+    }
+    const Nfs2015WheelBindings bindings = checkNfs2015Settings(kept);
+    EXPECT_EQ(bindings.verdict, Verdict::Unreadable);
+    EXPECT_EQ(bindings.accelerate, 24);
+    EXPECT_FALSE(bindings.brake.has_value());
+}
+
+// Values with junk after the number, blank lines and a lone '\r' line around the keys: read strictly.
+TEST(Nfs2015Settings, ValuesAreReadStrictly) {
+    EXPECT_EQ(checkNfs2015Settings("\r\n\n\r\nGstInput.CustomControlsWheel 0\r\n").verdict, Verdict::Defaults);
+    EXPECT_EQ(checkNfs2015Settings("GstInput.CustomControlsWheel 0x\r\n").verdict, Verdict::Unreadable);
+    EXPECT_EQ(checkNfs2015Settings("GstInput.CustomControlsWheel  0\r\n").verdict, Verdict::Unreadable);
+    EXPECT_EQ(checkNfs2015Settings("GstInput.CustomControlsWheel \r\n").verdict, Verdict::Unreadable);
+    EXPECT_EQ(checkNfs2015Settings("GstInput.CustomControlsWheel\r\n").verdict, Verdict::Unreadable);
+    std::string text = profile(1, 24, 25);
+    const std::string line = "GstKeyBinding.racevehicle.ConceptMoveFB.2.button 24\r\n";
+    text.replace(text.find(line), line.size(), "GstKeyBinding.racevehicle.ConceptMoveFB.2.button 24.0\r\n");
+    EXPECT_EQ(checkNfs2015Settings(text).verdict, Verdict::Unreadable);
+    EXPECT_EQ(nfs2015WheelInputName(-40), "not a wheel input");
+    EXPECT_EQ(nfs2015WheelInputName(1000), "input 1000");
+}
+
 }  // namespace
 }  // namespace wheelbri

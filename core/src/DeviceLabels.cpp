@@ -115,6 +115,20 @@ DeviceLabelsResult loadDeviceLabels(const IniDocument& ini) {
     }
     readLabels(ini, "axis_labels", "axis_", labels.axes, result.errors);
     readLabels(ini, "button_labels", "button_", labels.buttons, result.errors);
+    // A typo ("[devcie]", "nmae = ...") must be reported like the labels' unknown keys, not silently dropped.
+    for (const auto& [section, keys] : ini.sections()) {
+        if (section == "device") {
+            for (const auto& [key, value] : keys) {
+                if (key != "name" && key != "id" && key != "kind") {
+                    result.errors.push_back("[device] unknown key '" + key + "'");
+                }
+            }
+        } else if (section.empty()) {
+            if (!keys.empty()) result.errors.push_back("keys found before the first [section]");
+        } else if (section != "axis_labels" && section != "button_labels") {
+            result.errors.push_back("unknown section [" + section + "]");
+        }
+    }
     return result;
 }
 

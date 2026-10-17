@@ -83,7 +83,7 @@ TEST(EmulatorConfig, ReadsEverySection) {
         "[clutch]\naxis = -1\n"
         "[buttons]\ntarget_0 = 7\ntarget_1 = -1\n"
         "[hat]\nup = 4\nright = 5\ndown = 6\nleft = 7\n"
-        "[ffb]\nmaster_gain = 0.6\nmax_magnitude = 0.7\nmax_slew_per_second = 40\ninvert = true\n"
+        "[ffb]\nmaster_gain = 0.6\nmax_magnitude = 0.7\nmax_slew_per_second = 40\nfrozen_force_s = 3.5\ninvert = true\n"
         "game_effects = false\n");
     ASSERT_TRUE(result.errors.empty()) << result.errors.front();
 
@@ -104,6 +104,7 @@ TEST(EmulatorConfig, ReadsEverySection) {
     EXPECT_EQ(config.mapper.hatButtons.left, 7);
     EXPECT_FLOAT_EQ(config.ffb.masterGain, 0.6F);
     EXPECT_FLOAT_EQ(config.ffb.maxSlewPerSecond, 40.0F);
+    EXPECT_FLOAT_EQ(config.ffb.frozenForceSeconds, 3.5F);
     EXPECT_TRUE(config.ffbInvert);
     EXPECT_EQ(config.ffbPort, 50001);
     EXPECT_FALSE(config.gameFfb);
@@ -261,6 +262,160 @@ TEST(EmulatorConfig, ButtonSecondaryLists) {
     EXPECT_EQ(mapper.buttonSecondary[2][2], (ButtonSource{1, 3, true, false, 0.6F}));
     EXPECT_FALSE(mapper.buttonSecondary[2][3].mapped());
     EXPECT_FALSE(mapper.buttonSecondary[0][0].mapped());   // refused: none
+}
+
+// Numbers as a hand edit may leave them: trailing junk, a sign where none fits, too big for an int, an exponent.
+// Each is reported and the default kept.
+TEST(EmulatorConfig, RejectsMalformedNumbers) {
+    const auto result = load("[emulator]\nstate_port = 41329x\nffb_port = 99999999999999999999\n"
+                             "state_rate_hz = 1e3\n[ffb]\nmaster_gain = 0.5.1\nmax_magnitude = -0.1\n"
+                             "max_slew_per_second = 1000.5\n[telemetry]\nrate_hz = 0\nmin_change = 0.05 \n");
+    for (const char* key : {"state_port = '41329x'", "ffb_port = '99999999999999999999'", "state_rate_hz = '1e3'",
+                            "master_gain = '0.5.1'", "max_magnitude = '-0.1'", "max_slew_per_second = '1000.5'",
+                            "rate_hz = '0'"}) {
+        EXPECT_TRUE(containsError(result, key)) << key;
+    }
+    EXPECT_EQ(result.errors.size(), 7U);   // "0.05 " is trimmed by the reader: fine
+    EXPECT_EQ(result.config.statePort, kDefaultStatePort);
+    EXPECT_EQ(result.config.ffbPort, kDefaultFfbPort);
+    EXPECT_FLOAT_EQ(result.config.ffb.maxMagnitude, FfbSafetyConfig{}.maxMagnitude);   // the cap is never lifted
+    EXPECT_FLOAT_EQ(result.config.telemetry.minChange, 0.05F);
+}
+
+// The limits themselves are allowed (the ranges are inclusive).
+TEST(EmulatorConfig, AcceptsTheEndsOfEachRange) {
+    const auto result = load("[emulator]\nstate_port = 1024\nffb_port = 65535\n[ffb]\nmax_magnitude = 0\n"
+                             "max_slew_per_second = 1000\n");
+    ASSERT_TRUE(result.errors.empty()) << result.errors.front();
+    EXPECT_EQ(result.config.statePort, 1024);
+    EXPECT_EQ(result.config.ffbPort, 65535);
+    EXPECT_FLOAT_EQ(result.config.ffb.maxMagnitude, 0.0F);
+}
+
+// frozen_force_s: 0 (never) to 60 s; missing, the default 2 s; beyond the range or not a number, reported.
+TEST(EmulatorConfig, ReadsHowLongAFrozenPushMayLast) {
+    EXPECT_FLOAT_EQ(load("").config.ffb.frozenForceSeconds, 2.0F);
+    for (const char* value : {"0", "60"}) {
+        const auto result = load((std::string("[ffb]\nfrozen_force_s = ") + value + "\n").c_str());
+        EXPECT_TRUE(result.errors.empty()) << value;
+    }
+    for (const char* value : {"-1", "61", "nan", "soon"}) {
+        const auto result = load((std::string("[ffb]\nfrozen_force_s = ") + value + "\n").c_str());
+        EXPECT_TRUE(containsError(result, "frozen_force_s")) << value;
+        EXPECT_FLOAT_EQ(result.config.ffb.frozenForceSeconds, 2.0F) << value;
+    }
+}
+
+// Every spelling of a yes/no setting, and one that is neither (reported, the default kept).
+TEST(EmulatorConfig, ReadsEverySpellingOfABool) {
+    EXPECT_TRUE(load("[ffb]\ninvert = yes\n").config.ffbInvert);
+    EXPECT_TRUE(load("[ffb]\ninvert = 1\n").config.ffbInvert);
+    EXPECT_TRUE(load("[ffb]\ninvert = true\n").config.ffbInvert);
+    EXPECT_FALSE(load("[ffb]\ngame_effects = no\n").config.gameFfb);
+    EXPECT_FALSE(load("[ffb]\ngame_effects = 0\n").config.gameFfb);
+    EXPECT_FALSE(load("[ffb]\ngame_effects = false\n").config.gameFfb);
+    const auto bad = load("[ffb]\ninvert = True\ngame_effects = maybe\n");   // the words are lower case
+    EXPECT_TRUE(containsError(bad, "[ffb] invert = 'True': expected true or false"));
+    EXPECT_TRUE(containsError(bad, "[ffb] game_effects = 'maybe'"));
+    EXPECT_FALSE(bad.config.ffbInvert);
+    EXPECT_EQ(bad.config.gameFfb, EmulatorConfig{}.gameFfb);
+}
+
+// A source past the device's axes or buttons: reported, not read as some other control.
+TEST(EmulatorConfig, RejectsSourcesPastTheLastControl) {
+    const auto result = load("[throttle]\naxis = 8\n[buttons]\ntarget_1 = 64\n[hat]\nleft = 99\n");
+    EXPECT_TRUE(containsError(result, "[throttle] axis = '8': expected -1, 0..7"));
+    EXPECT_TRUE(containsError(result, "[buttons] target_1 = '64'"));
+    EXPECT_TRUE(containsError(result, "[hat] left = '99'"));
+    EXPECT_EQ(result.config.mapper.throttle.sourceAxis, MapperConfig{}.throttle.sourceAxis);
+}
+
+// A target button's secondary list naming a fourth accessory: refused whole (no half-read list), reported.
+TEST(EmulatorConfig, SecondarySourcesOnTooManyAccessoriesAreRefused) {
+    const auto result = load("[buttons]\ntarget_0 = 1:1/0\ntarget_1 = 1:2/0\ntarget_2 = 1:3/0\n"
+                             "target_3_or = 5, 1:4/0\n");
+    ASSERT_EQ(result.errors.size(), 1U);
+    EXPECT_NE(result.errors[0].find("[buttons] target_3_or = '5, 1:4/0': at most 3 accessories"), std::string::npos)
+        << result.errors[0];
+    EXPECT_FALSE(result.config.mapper.buttonSecondary[3][0].mapped());
+}
+
+// An axis name typed too long: cut to what the window shows, and reported.
+TEST(EmulatorConfig, CutsTooLongAxisLabels) {
+    const auto result = load("[axis_labels]\naxis_3 = Handbrake lever\n");
+    EXPECT_TRUE(containsError(result, "[axis_labels] axis_3 = 'Handbrake lever': at most 12 characters"));
+    EXPECT_EQ(result.config.mapper.sourceAxisLabels[3], "Handbrake le");
+}
+
+// [game_settings]: a key with no dot, an unknown game, an unknown setting, the steering-driven one, values out of
+// range or not numbers. Each reported; good ones read.
+TEST(EmulatorConfig, ReportsEveryKindOfBadGameSetting) {
+    const auto result = load("[game_settings]\nnfsunbound = 0.5\nnfs1999.spring = 0.5\nnfsunbound.horn = 0.5\n"
+                             "nfsunbound.rotation = 0.5\nnfsunbound.spring = 1.5\nnfsunbound.force_feedback = lots\n"
+                             "nfsunbound.spring = -0.0001\nnfs1999 = 0.5\n");
+    EXPECT_TRUE(containsError(result, "[game_settings] nfsunbound: NFS Unbound has no such setting"));
+    EXPECT_TRUE(containsError(result, "[game_settings] nfs1999.spring: no built-in game profile nfs1999"));
+    EXPECT_TRUE(containsError(result, "[game_settings] nfsunbound.horn: NFS Unbound has no such setting"));
+    EXPECT_TRUE(containsError(result, "[game_settings] nfsunbound.rotation: follows the steering rotation"));
+    EXPECT_TRUE(containsError(result, "nfsunbound.force_feedback = 'lots': expected a number from 0 to 1"));
+    EXPECT_TRUE(containsError(result, "nfsunbound.spring = '-0.0001'"));   // the last of the two counts
+    EXPECT_TRUE(containsError(result, "[game_settings] nfs1999: no built-in game profile nfs1999"));
+    EXPECT_EQ(result.errors.size(), 7U);
+    EXPECT_TRUE(result.config.gameSettings.empty());
+    const auto good = load("[game_settings]\nnfsunbound.spring = 1\nnfsunbound.force_feedback = 0\n");
+    ASSERT_TRUE(good.errors.empty()) << good.errors.front();
+    EXPECT_FLOAT_EQ(good.config.gameSettings.at("nfsunbound").at("spring"), 1.0F);
+    EXPECT_FLOAT_EQ(good.config.gameSettings.at("nfsunbound").at("force_feedback"), 0.0F);
+}
+
+// [game_ffb_gain]: an unknown game, a gain outside 0.25..4 or not a number. The ends are allowed.
+TEST(EmulatorConfig, ReportsBadGameFfbGains) {
+    const auto result = load("[game_ffb_gain]\nnfs1999 = 1\nnfs2015 = 4.5\nnfsunbound = strong\nnfspayback = 0.2\n");
+    EXPECT_TRUE(containsError(result, "[game_ffb_gain] nfs1999: no built-in game profile"));
+    EXPECT_TRUE(containsError(result, "[game_ffb_gain] nfs2015 = '4.5': expected a number from 0.25 to 4"));
+    EXPECT_TRUE(containsError(result, "[game_ffb_gain] nfsunbound = 'strong'"));
+    EXPECT_TRUE(containsError(result, "[game_ffb_gain] nfspayback = '0.2'"));
+    EXPECT_TRUE(result.config.gameFfbGains.empty());
+    const auto ends = load("[game_ffb_gain]\nnfs2015 = 4\nnfsunbound = 0.25\n");
+    ASSERT_TRUE(ends.errors.empty()) << ends.errors.front();
+    EXPECT_FLOAT_EQ(ends.config.gameFfbGains.at("nfs2015"), 4.0F);
+    EXPECT_FLOAT_EQ(ends.config.gameFfbGains.at("nfsunbound"), 0.25F);
+}
+
+// [game_rotation]: an unknown game and a rotation that is not one.
+TEST(EmulatorConfig, ReportsBadGameRotations) {
+    const auto result = load("[game_rotation]\nnfs1999 = 180\nnfs2015 = sideways\nnfsunbound = off\n");
+    EXPECT_TRUE(containsError(result, "[game_rotation] nfs1999: no built-in game profile"));
+    EXPECT_TRUE(containsError(result, "[game_rotation] nfs2015 = 'sideways': expected degrees (180) or off"));
+    EXPECT_EQ(result.errors.size(), 2U);
+    ASSERT_EQ(result.config.gameRotations.count("nfsunbound"), 1U);
+    EXPECT_TRUE(result.config.gameRotations.at("nfsunbound").off);
+}
+
+// A bad flush level falls back to warn, like a bad level.
+TEST(EmulatorConfig, InvalidFlushLevelFallsBackToWarn) {
+    const auto result = load("[logging]\nflush_level = always\n");
+    EXPECT_TRUE(containsError(result, "[logging] flush_level = 'always': expected a log level"));
+    EXPECT_EQ(result.config.logging.flushLevel, "warn");
+}
+
+// Comments before the first header are no keys, and every section the reader knows is known (all empty here).
+TEST(EmulatorConfig, KnownSectionsAndCommentsOnlyAreNoError) {
+    const auto result = load("; only a comment\n[emulator]\n[steering]\n[throttle]\n[brake]\n[clutch]\n[buttons]\n"
+                             "[button_labels]\n[axis_labels]\n[hat]\n[ffb]\n[logging]\n[telemetry]\n[retention]\n"
+                             "[game_rotation]\n[game_settings]\n[game_ffb_gain]\n");
+    EXPECT_TRUE(result.errors.empty()) << result.errors.front();
+}
+
+// A config saved by Notepad (BOM, CRLF, comments after values, tabs): the same as the plain one.
+TEST(EmulatorConfig, ReadsAWindowsSavedFileLikeAPlainOne) {
+    const auto windows = load("\xEF\xBB\xBF[emulator]\r\ntarget_profile = g29\t; the old one\r\n[ffb]\r\n"
+                              "\tmaster_gain\t=\t0.7 # quieter\r\ninvert = true\r\n");
+    const auto plain = load("[emulator]\ntarget_profile = g29\n[ffb]\nmaster_gain = 0.7\ninvert = true\n");
+    ASSERT_TRUE(windows.errors.empty()) << windows.errors.front();
+    EXPECT_EQ(windows.config.targetProfile, plain.config.targetProfile);
+    EXPECT_FLOAT_EQ(windows.config.ffb.masterGain, plain.config.ffb.masterGain);
+    EXPECT_EQ(windows.config.ffbInvert, plain.config.ffbInvert);
 }
 
 }  // namespace

@@ -44,7 +44,8 @@ IniDocument::ParseResult IniDocument::parse(const std::string_view text) {
         }
 
         if (line.front() == '[') {
-            if (line.back() != ']' || line.size() < 3) {
+            // "[ ]" too: an empty name would put the keys below it before the first section.
+            if (line.back() != ']' || trim(line.substr(1, line.size() - 2)).empty()) {
                 result.errors.push_back("line " + std::to_string(lineNumber) + ": malformed section header");
                 continue;
             }

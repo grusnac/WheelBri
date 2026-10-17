@@ -5,7 +5,9 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <system_error>
+#include <vector>
 
 namespace wheelbri {
 namespace {
@@ -111,6 +113,72 @@ TEST_F(RetentionFolder, UndatedFilesUseTheirLastWriteDay) {
     fs::last_write_time(dir_ / "wheelbri-service.log",
                         fs::file_time_type::clock::now() - std::chrono::hours(24 * 30));
     EXPECT_EQ(filesBefore(dir_, localDate(WallClock::now()), true).size(), 1U);
+}
+
+// Dates that are not dates: the wrong length or separators, month or day out of range, numbers that run on. None is
+// a date, so a file named so falls back to its last-write day instead of a made-up one.
+TEST(LocalDate, RejectsWhatIsNotACalendarDate) {
+    for (const char* bad : {"2026-00-10", "2026-13-10", "2026-09-00", "2026-09-32", "2026/09/30", "2026-09/30",
+                            "2026-9-30", "2026-09-301", "", "abcd-ef-gh"}) {
+        EXPECT_EQ(addDays(bad, 1), std::nullopt) << bad;
+        EXPECT_EQ(startOfDay(bad), std::nullopt) << bad;
+    }
+    EXPECT_EQ(findDate("x-12026-09-30.log"), std::nullopt);    // inside a longer number
+    EXPECT_EQ(findDate("x-202609301.log"), std::nullopt);      // nine digits: not a format 1 date
+    EXPECT_EQ(findDate("x-20261301.log"), std::nullopt);       // month 13
+    EXPECT_EQ(findDate("x-2026-09-3"), std::nullopt);          // cut short at the end
+    EXPECT_EQ(findDate("x-2026"), std::nullopt);
+    EXPECT_EQ(findDate("x-2026-0a-30-20260930.log"), "2026-09-30");   // a later good one is found
+}
+
+// Upper case (Windows names), every component's prefix and the old wheelemu names are WheelBri's; names that only
+// look alike are not.
+TEST(Retention, KnowsEveryComponentAndNothingElse) {
+    for (const char* ours : {"WheelBri-Service-2026-09-30-01.LOG", "wheelbri-uhid-2026-09-30-01.log",
+                             "wheelbri-sh-2026-09-30-01.log", "wheelbri-sh.log", "wheelbri-logs-2026-09-30.zip",
+                             "wheelemu-driver-2026-09-30.log", "TELEMETRY-2026-09-30-01.log"}) {
+        EXPECT_TRUE(isManagedFile(ours)) << ours;
+    }
+    for (const char* theirs : {"wheelbri-shortcut-2026-09-30.lnk", "wheelbri.ini", "app.ini", "my-g920.ini",
+                               "wheelbriservice-2026-09-30.log", "xwheelbri-service-2026-09-30.log",
+                               "telemetry.log", "ffb.log", "perf-2026-09-30-142501.log", "wheelbri-", ""}) {
+        EXPECT_FALSE(isManagedFile(theirs)) << theirs;
+    }
+    for (const char* archive : {"x.7z", "x.ZIP", "x.log.xz", "x.log.zst", "x.log.gz"}) {
+        EXPECT_TRUE(isArchive(archive)) << archive;
+    }
+    for (const char* plain : {"x.log", "x.gzip", "xz", ""}) {
+        EXPECT_FALSE(isArchive(plain)) << plain;
+    }
+    EXPECT_STREQ(toString(OldFilesAction::Keep), "keep");
+    EXPECT_STREQ(toString(OldFilesAction::Delete), "delete");
+    EXPECT_STREQ(toString(OldFilesAction::Archive), "archive");
+}
+
+// A file whose day cannot be read (gone meanwhile) is today's: never removed by mistake.
+TEST(Retention, AnUnknownDayIsToday) {
+    EXPECT_EQ(fileDay("/nonexistent-wheelbri-folder/wheelbri-service.log"), localDate(WallClock::now()));
+    EXPECT_EQ(fileDay("/nonexistent-wheelbri-folder/ffb-2026-09-01-02.log"), "2026-09-01");
+}
+
+// A folder that is not there gives nothing; folders named like logs and other programs' files with dates are never
+// listed; a name that is not ASCII is read and kept.
+TEST_F(RetentionFolder, NeverListsWhatIsNotWheelBrisOwnFile) {
+    EXPECT_TRUE(filesBefore(dir_ / "missing", "2026-09-30", true).empty());
+    fs::create_directories(dir_ / "wheelbri-service-2026-09-01.log");      // a folder, not a log
+    touch("notes-2026-09-01.txt");
+    touch("game-2026-09-01.log");
+    touch("wheelbri-shortcut-2026-09-01.lnk");
+    touch("telemetry-\xC3\xBC-2026-09-01-01.log");                          // a letter that is not ASCII
+    touch("WHEELBRI-SHIM-2026-09-01-01.LOG");
+    touch("ffb-2026-09-01-01.log");
+    const auto old = filesBefore(dir_, "2026-09-30", true);
+    ASSERT_EQ(old.size(), 1U);
+    const auto& files = old.at("2026-09-01");
+    std::vector<std::string> names;
+    for (const auto& file : files) names.push_back(file.filename().string());
+    EXPECT_EQ(names, (std::vector<std::string>{"WHEELBRI-SHIM-2026-09-01-01.LOG", "ffb-2026-09-01-01.log",
+                                               "telemetry-\xC3\xBC-2026-09-01-01.log"}));
 }
 
 }  // namespace

@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <vector>
 
 namespace wheelbri {
@@ -218,6 +219,56 @@ TEST(Pipeline, InputChangedIsFalseWhenTheSourceIsLost) {
     wheel.connected = false;
     EXPECT_FALSE(pipeline.tick());
     EXPECT_FALSE(pipeline.inputChanged());
+}
+
+class FailingPublisher final : public IStatePublisher {
+public:
+    bool publish(const StatePacket& /*packet*/) override { return false; }
+};
+
+// The consumer's socket refuses the datagram (nobody listens, a full buffer): the tick goes on, the failure is counted
+// and the packets are still numbered, so a consumer that comes back sees the gap.
+TEST(Pipeline, PublishFailuresAreCountedAndTheLoopGoesOn) {
+    FakeSource source;
+    FailingPublisher publisher;
+    const Mapper mapper(MapperConfig{});
+    const DeviceProfile profile(g920Spec());
+    Pipeline pipeline(source, mapper, profile, publisher);
+    EXPECT_EQ(pipeline.sendGate(), nullptr);   // every tick publishes without limitSending
+    ASSERT_TRUE(pipeline.tick());
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(pipeline.publishFailures(), 2U);
+    EXPECT_EQ(pipeline.sequence(), 2U);
+}
+
+// A test clutch value that is not a number never reaches the game as one: the encoder reads it as released.
+TEST(Pipeline, ANotANumberClutchOverrideIsReleased) {
+    FakeSource source;
+    RecordingPublisher publisher;
+    const Mapper mapper(MapperConfig{});
+    const DeviceProfile profile(g920Spec());
+    Pipeline pipeline(source, mapper, profile, publisher);
+    ASSERT_TRUE(pipeline.tick(std::numeric_limits<float>::quiet_NaN()));
+    EXPECT_EQ(pipeline.lastReport().clutch, 65535);   // G920: released = the top of the range
+}
+
+// Accessory slots in use with gaps (device 2 only): the empty ones are skipped, the used one is read.
+TEST(Pipeline, AccessorySlotsWithGapsAreSkipped) {
+    FakeSource wheel;
+    FakeSource box;
+    RecordingPublisher publisher;
+    MapperConfig config;
+    config.buttonMap[0] = 1;
+    config.buttonDevice[0] = 2;
+    const Mapper mapper(config);
+    const DeviceProfile profile(g920Spec());
+    Pipeline pipeline(wheel, mapper, profile, publisher);
+    pipeline.setAccessories({nullptr, &box, nullptr});
+    box.next.buttons = 1U << 1;
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(pipeline.lastReport().buttons & 1U, 1U);
+    EXPECT_EQ(pipeline.lastInputs().devices[2].buttons, 1U << 1);
+    EXPECT_EQ(pipeline.lastInputs().devices[1], RawInputState{});
 }
 
 }  // namespace

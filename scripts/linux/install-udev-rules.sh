@@ -31,7 +31,7 @@ fi
 
 sudo tee "$rules" >/dev/null <<'RULES'
 # wheel-emulator (scripts/linux/install-udev-rules.sh)
-# wheelbri-uhid creates the virtual G920, G25, G27 or G923 through uhid: allow the user at the seat.
+# wheelbri-uhid creates the virtual G25, G27, G920 or G923 through uhid: allow the user at the seat.
 KERNEL=="uhid", MODE="0660", TAG+="uaccess"
 # Games (Proton with PROTON_ENABLE_HIDRAW=0x046D/0xC262) open the G920 raw for its force feedback; the virtual G25
 # (0x046D/0xC299), G27 (0x046D/0xC29B) and G923 (0x046D/0xC26E) are on the virtual bus (0006), where the kernel's

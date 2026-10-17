@@ -40,5 +40,15 @@ TEST(TestClutch, CountsFor1500MsAfterTheLastPacket) {
     EXPECT_FLOAT_EQ(*clutch.active(3'000'000'000), 1.0F);
 }
 
+// A packet from a newer ClutchProbe (another version) is not read as this one.
+TEST(ClutchPacket, RejectsAnotherVersion) {
+    auto newer = kQuarter;
+    newer[4] = 0x02;
+    EXPECT_FALSE(ClutchPacket::decode(newer).has_value());
+    auto highByte = kQuarter;
+    highByte[5] = 0x01;
+    EXPECT_FALSE(ClutchPacket::decode(highByte).has_value());
+}
+
 }  // namespace
 }  // namespace wheelbri

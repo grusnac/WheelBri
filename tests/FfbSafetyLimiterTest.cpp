@@ -141,5 +141,157 @@ TEST(FfbSafetyLimiter, InvalidConfigIsClamped) {
     EXPECT_NEAR(limiter.apply(constant(1.0F), 1.0F).constantLevel, 0.0F, kTolerance);
 }
 
+// Every type name, for the window, the log and telemetry; a type this build does not know shows as "?".
+TEST(FfbEffectType, EveryTypeHasAShortName) {
+    EXPECT_STREQ(ffbTypeName(FfbEffectType::Constant), "constant");
+    EXPECT_STREQ(ffbTypeName(FfbEffectType::Spring), "spring");
+    EXPECT_STREQ(ffbTypeName(FfbEffectType::Damper), "damper");
+    EXPECT_STREQ(ffbTypeName(FfbEffectType::Friction), "friction");
+    EXPECT_STREQ(ffbTypeName(FfbEffectType::Inertia), "inertia");
+    EXPECT_STREQ(ffbTypeName(FfbEffectType::Sine), "sine");
+    EXPECT_STREQ(ffbTypeName(FfbEffectType::Square), "square");
+    EXPECT_STREQ(ffbTypeName(FfbEffectType::Triangle), "triangle");
+    EXPECT_STREQ(ffbTypeName(FfbEffectType::SawtoothUp), "saw up");
+    EXPECT_STREQ(ffbTypeName(FfbEffectType::SawtoothDown), "saw down");
+    EXPECT_STREQ(ffbTypeName(static_cast<FfbEffectType>(77)), "?");
+}
+
+TEST(FfbEffectType, ConditionsAreTheFourThatResist) {
+    EXPECT_TRUE(isConditionEffect(FfbEffectType::Spring));
+    EXPECT_TRUE(isConditionEffect(FfbEffectType::Damper));
+    EXPECT_TRUE(isConditionEffect(FfbEffectType::Friction));
+    EXPECT_TRUE(isConditionEffect(FfbEffectType::Inertia));
+    EXPECT_FALSE(isConditionEffect(FfbEffectType::Constant));
+    EXPECT_FALSE(isConditionEffect(FfbEffectType::Sine));
+    EXPECT_FALSE(isConditionEffect(FfbEffectType::SawtoothDown));
+}
+
+// The strength the window shows: signed for a constant, the larger coefficient of a condition, the magnitude of a
+// periodic effect, each times its own gain.
+TEST(FfbEffectType, StrengthFoldsInTheEffectGain) {
+    FfbEffect push = constant(-0.5F);
+    push.gain = 0.5F;
+    EXPECT_FLOAT_EQ(ffbStrength(push), -0.25F);
+    FfbEffect friction;
+    friction.type = FfbEffectType::Friction;
+    friction.condition.positiveCoefficient = 0.2F;
+    friction.condition.negativeCoefficient = -0.6F;
+    EXPECT_FLOAT_EQ(ffbStrength(friction), 0.6F);
+    FfbEffect saw;
+    saw.type = FfbEffectType::SawtoothUp;
+    saw.periodic.magnitude = 0.4F;
+    saw.gain = 0.5F;
+    EXPECT_FLOAT_EQ(ffbStrength(saw), 0.2F);
+}
+
+// Each config value that is not a number falls back to its own default; the others stay as given.
+TEST(FfbSafetyLimiter, EachNotANumberConfigValueFallsBackOnItsOwn) {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    FfbSafetyLimiter capNan({0.5F, nan, 1000.0F});   // the default cap 0.8, the given gain 0.5
+    EXPECT_NEAR(capNan.apply(constant(1.0F), 1.0F).constantLevel, 0.5F, kTolerance);
+    EXPECT_NEAR(capNan.apply(constant(4.0F), 1.0F).constantLevel, 0.8F, kTolerance);
+    FfbSafetyLimiter slewInf({1.0F, 0.6F, inf});      // an infinite slew is no slew limit: the default 50/s instead
+    EXPECT_NEAR(slewInf.apply(constant(1.0F), 0.001F).constantLevel, 0.05F, kTolerance);
+    FfbSafetyLimiter gainNan({nan, 0.6F, 1000.0F});   // the default gain 1
+    EXPECT_NEAR(gainNan.apply(constant(0.3F), 1.0F).constantLevel, 0.3F, kTolerance);
+}
+
+// A negative slew limit (a typo in the config) is clamped to 0 on its own: the constant force cannot move at all.
+TEST(FfbSafetyLimiter, ANegativeSlewLimitHoldsTheForceAtZero) {
+    FfbSafetyLimiter limiter({1.0F, 0.8F, -5.0F});
+    for (int i = 0; i < 10; ++i) {
+        EXPECT_EQ(limiter.apply(constant(1.0F), 0.1F).constantLevel, 0.0F);
+    }
+}
+
+// The step is clamped too: a non-finite, negative or huge time step from a stalled loop never lets the force jump
+// further than one second's worth of slew.
+TEST(FfbSafetyLimiter, OddTimeStepsDoNotBypassTheSlewLimit) {
+    FfbSafetyLimiter limiter({1.0F, 1.0F, 0.5F});
+    EXPECT_EQ(limiter.apply(constant(1.0F), std::numeric_limits<float>::quiet_NaN()).constantLevel, 0.0F);
+    EXPECT_EQ(limiter.apply(constant(1.0F), -3.0F).constantLevel, 0.0F);
+    EXPECT_NEAR(limiter.apply(constant(1.0F), 1e9F).constantLevel, 0.5F, kTolerance);
+    EXPECT_NEAR(limiter.apply(constant(1.0F), std::numeric_limits<float>::infinity()).constantLevel, 0.5F,
+                kTolerance);   // inf is not a number of seconds: no step
+}
+
+// Every condition type is capped the same way, and coefficients past the full range are clamped to it.
+TEST(FfbSafetyLimiter, EveryConditionTypeIsCapped) {
+    for (const FfbEffectType type :
+         {FfbEffectType::Spring, FfbEffectType::Damper, FfbEffectType::Friction, FfbEffectType::Inertia}) {
+        FfbSafetyLimiter limiter({1.0F, 0.6F, 50.0F});
+        FfbEffect condition;
+        condition.type = type;
+        condition.condition.positiveCoefficient = 3.0F;
+        condition.condition.negativeCoefficient = -3.0F;
+        condition.condition.positiveSaturation = 1.0F;
+        condition.condition.negativeSaturation = -1.0F;   // negative: as "no limit", so the cap
+        condition.condition.center = 5.0F;
+        condition.condition.deadband = -1.0F;
+        const FfbEffect limited = limiter.apply(condition, 0.001F);
+        EXPECT_EQ(limited.type, type);
+        EXPECT_FLOAT_EQ(limited.condition.positiveCoefficient, 1.0F);
+        EXPECT_FLOAT_EQ(limited.condition.negativeCoefficient, -1.0F);
+        EXPECT_NEAR(limited.condition.positiveSaturation, 0.6F, kTolerance);
+        EXPECT_NEAR(limited.condition.negativeSaturation, 0.6F, kTolerance);
+        EXPECT_FLOAT_EQ(limited.condition.center, 1.0F);
+        EXPECT_FLOAT_EQ(limited.condition.deadband, 0.0F);
+        EXPECT_FLOAT_EQ(limited.gain, 1.0F);
+    }
+}
+
+// Every periodic type is capped the same way; a negative magnitude (never meant: magnitudes are 0..1) is no wave, and
+// the offset alone still stays under the cap. Phase and period are kept (the period within its range).
+TEST(FfbSafetyLimiter, EveryPeriodicTypeIsCapped) {
+    for (const FfbEffectType type : {FfbEffectType::Sine, FfbEffectType::Square, FfbEffectType::Triangle,
+                                     FfbEffectType::SawtoothUp, FfbEffectType::SawtoothDown}) {
+        FfbSafetyLimiter limiter({1.0F, 0.5F, 50.0F});
+        FfbEffect wave;
+        wave.type = type;
+        wave.periodic = {-0.9F, -2.0F, 0.0F, 450.0F};
+        const FfbEffect limited = limiter.apply(wave, 0.001F);
+        EXPECT_EQ(limited.type, type);
+        EXPECT_FLOAT_EQ(limited.periodic.magnitude, 0.0F);
+        EXPECT_NEAR(limited.periodic.offset, -0.5F, kTolerance);
+        EXPECT_FLOAT_EQ(limited.periodic.periodMs, 1.0F);
+        EXPECT_FLOAT_EQ(limited.periodic.phaseDeg, 450.0F);
+        wave.periodic = {3.0F, 1.0F, 1e6F, -90.0F};
+        const FfbEffect strong = limiter.apply(wave, 0.001F);
+        EXPECT_NEAR(strong.periodic.magnitude, 0.5F, kTolerance);
+        EXPECT_NEAR(strong.periodic.offset, 0.0F, kTolerance);   // the magnitude took the whole cap
+        EXPECT_FLOAT_EQ(strong.periodic.periodMs, 65535.0F);
+    }
+}
+
+// The per-effect gain is clamped to 0..1: a gain above 1 cannot make an effect stronger than asked.
+TEST(FfbSafetyLimiter, EffectGainAboveOneIsOne) {
+    FfbSafetyLimiter limiter({1.0F, 1.0F, 1000.0F});
+    FfbEffect push = constant(0.3F);
+    push.gain = 4.0F;
+    EXPECT_NEAR(limiter.apply(push, 1.0F).constantLevel, 0.3F, kTolerance);
+    push.gain = -1.0F;
+    EXPECT_NEAR(limiter.apply(push, 1.0F).constantLevel, 0.0F, kTolerance);
+}
+
+// An effect type this build does not know (a newer or broken sender) must not pass its numbers to the wheel
+// unlimited: it leaves the limiter with no force at all.
+TEST(FfbSafetyLimiter, AnUnknownEffectTypeIsNoForce) {
+    FfbSafetyLimiter limiter({1.0F, 0.5F, 50.0F});
+    FfbEffect unknown;
+    unknown.type = static_cast<FfbEffectType>(42);
+    unknown.constantLevel = 5.0F;
+    unknown.condition = {0.0F, 0.0F, 4.0F, 4.0F, 3.0F, 3.0F};
+    unknown.periodic = {6.0F, 6.0F, 50.0F, 0.0F};
+    const FfbEffect limited = limiter.apply(unknown, 1.0F);
+    EXPECT_EQ(limited.constantLevel, 0.0F);
+    EXPECT_EQ(limited.condition.positiveCoefficient, 0.0F);
+    EXPECT_EQ(limited.condition.negativeCoefficient, 0.0F);
+    EXPECT_EQ(limited.condition.positiveSaturation, 0.0F);
+    EXPECT_EQ(limited.condition.negativeSaturation, 0.0F);
+    EXPECT_EQ(limited.periodic.magnitude, 0.0F);
+    EXPECT_EQ(limited.periodic.offset, 0.0F);
+}
+
 }  // namespace
 }  // namespace wheelbri

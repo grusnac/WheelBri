@@ -17,7 +17,7 @@ namespace wheelbri::shim {
 //   emulate = true             ; false = Phase 0 behaviour: log and pass every device through unchanged
 //   source_vid = 346e          ; USB vendor id of the rig's wheel to replace (hex, the Rig tab's vid:pid)
 //   source_pid = any           ; or a hex product id
-//   target_profile = g920      ; g920, g25, g27 or g923 (the app sets it at Start, from the Mapping tab's Target)
+//   target_profile = g920      ; g25, g27, g920 or g923 (the app sets it at Start, from the Mapping tab's Target)
 //   state_port = 41329         ; must match the service's state_port
 //   stale_after_ms = 1500      ; no packet for this long = wheel centred, pedals released (the last
 //                              ; input is held until then, so a short service hiccup is not felt)

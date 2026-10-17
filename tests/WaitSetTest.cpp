@@ -25,8 +25,6 @@ namespace {
 using platform::WaitSet;
 
 constexpr std::uint64_t kMs = 1'000'000;
-constexpr std::uint16_t kPortA = 41995;
-constexpr std::uint16_t kPortB = 41996;
 
 void sendOne(const std::uint16_t port) {
     const auto sender = UdpLoopbackSender::create(port);
@@ -57,7 +55,7 @@ TEST(WaitSet, NothingToWaitForTimesOutAtTheDeadline) {
 
 TEST(WaitSet, ADeadlineAlreadyPassedReturnsAtOnce) {
     WaitSet set;
-    const auto listener = UdpLoopbackListener::create(kPortA);
+    const auto listener = UdpLoopbackListener::create(0);
     ASSERT_NE(listener, nullptr);
     ASSERT_EQ(set.addSocket(listener->nativeSocket()), 0);
     const std::uint64_t start = platform::nowNs();
@@ -81,31 +79,39 @@ TEST(WaitSet, InvalidSourcesAreRefused) {
 
 TEST(WaitSet, ADatagramWakesWithItsSocketsIndex) {
     WaitSet set;
-    const auto a = UdpLoopbackListener::create(kPortA);
-    const auto b = UdpLoopbackListener::create(kPortB);
+    // A port the system chooses: tests running side by side never share one.
+    const auto a = UdpLoopbackListener::create(0);
+    ASSERT_NE(a, nullptr);
+    const std::uint16_t portA = a->localPort();
+    // A port the system chooses: tests running side by side never share one.
+    const auto b = UdpLoopbackListener::create(0);
+    ASSERT_NE(b, nullptr);
+    const std::uint16_t portB = b->localPort();
     ASSERT_NE(a, nullptr);
     ASSERT_NE(b, nullptr);
     ASSERT_EQ(set.addSocket(a->nativeSocket()), 0);
     ASSERT_EQ(set.addSocket(b->nativeSocket()), 1);
     EXPECT_EQ(set.size(), 2);
 
-    sendOne(kPortB);
+    sendOne(portB);
     EXPECT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 1);   // the second one
     drain(*b);
 
-    sendOne(kPortA);
+    sendOne(portA);
     EXPECT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 0);
     drain(*a);
 }
 
 TEST(WaitSet, ADatagramSentDuringTheWaitWakesIt) {
     WaitSet set;
-    const auto listener = UdpLoopbackListener::create(kPortA);
+    // A port the system chooses: tests running side by side never share one.
+    const auto listener = UdpLoopbackListener::create(0);
     ASSERT_NE(listener, nullptr);
+    const std::uint16_t portA = listener->localPort();
     ASSERT_EQ(set.addSocket(listener->nativeSocket()), 0);
-    std::thread later([] {
+    std::thread later([portA] {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        sendOne(kPortA);
+        sendOne(portA);
     });
     const std::uint64_t start = platform::nowNs();
     const int ready = set.waitUntil(start + 2000 * kMs);
@@ -118,11 +124,13 @@ TEST(WaitSet, ADatagramSentDuringTheWaitWakesIt) {
 
 TEST(WaitSet, NoWakeAfterEverythingWasRead) {
     WaitSet set;
-    const auto listener = UdpLoopbackListener::create(kPortA);
+    // A port the system chooses: tests running side by side never share one.
+    const auto listener = UdpLoopbackListener::create(0);
     ASSERT_NE(listener, nullptr);
+    const std::uint16_t portA = listener->localPort();
     ASSERT_EQ(set.addSocket(listener->nativeSocket()), 0);
-    sendOne(kPortA);
-    sendOne(kPortA);
+    sendOne(portA);
+    sendOne(portA);
     ASSERT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 0);
     drain(*listener);
     EXPECT_EQ(set.waitUntil(platform::nowNs() + 20 * kMs), WaitSet::kTimedOut);   // no stale wake-up
@@ -130,11 +138,13 @@ TEST(WaitSet, NoWakeAfterEverythingWasRead) {
 
 TEST(WaitSet, ADatagramLeftUnreadWakesAgain) {
     WaitSet set;
-    const auto listener = UdpLoopbackListener::create(kPortA);
+    // A port the system chooses: tests running side by side never share one.
+    const auto listener = UdpLoopbackListener::create(0);
     ASSERT_NE(listener, nullptr);
+    const std::uint16_t portA = listener->localPort();
     ASSERT_EQ(set.addSocket(listener->nativeSocket()), 0);
-    sendOne(kPortA);
-    sendOne(kPortA);
+    sendOne(portA);
+    sendOne(portA);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));   // both queued
     ASSERT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 0);
     ASSERT_TRUE(readOne(*listener));                               // only one of the two
@@ -145,7 +155,7 @@ TEST(WaitSet, ADatagramLeftUnreadWakesAgain) {
 
 TEST(WaitSet, ASignalledEventWakesWithItsIndex) {
     WaitSet set;
-    const auto listener = UdpLoopbackListener::create(kPortA);
+    const auto listener = UdpLoopbackListener::create(0);
     ASSERT_NE(listener, nullptr);
     ASSERT_EQ(set.addSocket(listener->nativeSocket()), 0);
 #if defined(_WIN32)
@@ -178,16 +188,18 @@ TEST(WaitSet, ASignalledEventWakesWithItsIndex) {
 TEST(WaitSet, AnEmptyDatagramWakesAndDoesNotHideTheOnesBehindIt) {
     // Any local program can send an empty datagram to the force feedback port: it must not hide a real one.
     WaitSet set;
-    const auto listener = UdpLoopbackListener::create(kPortA);
+    // A port the system chooses: tests running side by side never share one.
+    const auto listener = UdpLoopbackListener::create(0);
     ASSERT_NE(listener, nullptr);
+    const std::uint16_t portA = listener->localPort();
     ASSERT_EQ(set.addSocket(listener->nativeSocket()), 0);
     {
-        const auto sender = UdpLoopbackSender::create(kPortA);
+        const auto sender = UdpLoopbackSender::create(portA);
         ASSERT_NE(sender, nullptr);
         const std::array<std::uint8_t, 1> none{};
         ASSERT_TRUE(sender->send(std::span<const std::uint8_t>(none).first(0)));
     }
-    sendOne(kPortA);
+    sendOne(portA);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     const std::uint64_t start = platform::nowNs();
     EXPECT_EQ(set.waitUntil(start + 1000 * kMs), 0);
@@ -205,14 +217,20 @@ TEST(WaitSet, AnEmptyDatagramWakesAndDoesNotHideTheOnesBehindIt) {
 
 TEST(WaitSet, SeveralReadyGiveTheFirst) {
     WaitSet set;
-    const auto a = UdpLoopbackListener::create(kPortA);
-    const auto b = UdpLoopbackListener::create(kPortB);
+    // A port the system chooses: tests running side by side never share one.
+    const auto a = UdpLoopbackListener::create(0);
+    ASSERT_NE(a, nullptr);
+    const std::uint16_t portA = a->localPort();
+    // A port the system chooses: tests running side by side never share one.
+    const auto b = UdpLoopbackListener::create(0);
+    ASSERT_NE(b, nullptr);
+    const std::uint16_t portB = b->localPort();
     ASSERT_NE(a, nullptr);
     ASSERT_NE(b, nullptr);
     ASSERT_EQ(set.addSocket(a->nativeSocket()), 0);
     ASSERT_EQ(set.addSocket(b->nativeSocket()), 1);
-    sendOne(kPortB);
-    sendOne(kPortA);
+    sendOne(portB);
+    sendOne(portA);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     EXPECT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 0);
     drain(*a);

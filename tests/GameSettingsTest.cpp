@@ -446,5 +446,66 @@ TEST_F(GameSettingsFile, StateOfWhatCannotBeRead) {
     EXPECT_EQ(readGameSettingsState(root_, path, kStronger).status, Status::Unreadable);
 }
 
+// Entries that only look like settings: a name inside the header, a value with control bytes in it. Neither is read
+// or written.
+TEST(GameSettings, NamesInTheHeaderAndUnprintableValuesDoNotCount) {
+    std::string header = std::string("FBCHUNKS", 8) + std::string(1, '\0');   // "KS" and a 0 inside the header
+    putEntry(header, "KS", "0.5");
+    EXPECT_EQ(frostbiteSetting(header, "KS"), "0.5");   // the entry, not the header's bytes
+    std::string bytes = unboundFile();
+    putEntry(bytes, "WheelOdd", std::string("0.5\x01", 4));
+    EXPECT_FALSE(frostbiteSetting(bytes, "WheelOdd").has_value());
+    putEntry(bytes, "WheelHigh", std::string("0.5\x80", 4));   // a byte past ASCII
+    EXPECT_FALSE(frostbiteSetting(bytes, "WheelHigh").has_value());
+    const GameSettingsEdit edit = editFrostbiteSettings(bytes, std::vector<GameSettingText>{{"WheelOdd", "1.00"}});
+    ASSERT_EQ(edit.problems.size(), 1U);
+    EXPECT_EQ(edit.problems[0], "WheelOdd: not in the file");
+    EXPECT_TRUE(edit.bytes.empty());
+}
+
+// Several problems at once are all said, joined, and nothing is written.
+TEST_F(GameSettingsFile, EveryProblemIsSaid) {
+    ASSERT_TRUE(writeFileReplacing(file(), unboundFile()));
+    const GameSettingsFileResult result =
+        write({{"WheelNothing", "1.000000"}, {"WheelFFBMagnitude", "1.0"}, {"WheelOther", "1"}});
+    EXPECT_EQ(result.outcome, GameSettingsFileResult::Outcome::Refused);
+    EXPECT_EQ(result.why.find("WheelNothing: not in the file; WheelFFBMagnitude: 1.0 is not as long"), 0U)
+        << result.why;
+    EXPECT_NE(result.why.find("; WheelOther: not in the file"), std::string::npos) << result.why;
+    EXPECT_EQ(readFileText(file()).value_or(""), unboundFile());
+}
+
+// A "." on the way is refused like "..": the path must name the file one way only.
+TEST_F(GameSettingsFile, ADotInThePathIsRefused) {
+    ASSERT_TRUE(writeFileReplacing(file(), unboundFile()));
+    const GameSettingsFileResult result = writeGameSettingsFile(root_, "Game/./settings/PROFILEOPTIONS", kStronger);
+    EXPECT_EQ(result.outcome, GameSettingsFileResult::Outcome::Refused);
+    EXPECT_EQ(result.why, "the path leaves the settings folder");
+    EXPECT_EQ(readFileText(file()).value_or(""), unboundFile());
+}
+
+// The backup cannot be made (its temporary name is taken by a folder that is not empty): nothing is changed.
+TEST_F(GameSettingsFile, NoBackupNoChange) {
+    ASSERT_TRUE(writeFileReplacing(file(), unboundFile()));
+    std::filesystem::create_directories(backup().string() + ".tmp/busy");
+    const GameSettingsFileResult result = write(kStronger);
+    EXPECT_EQ(result.outcome, GameSettingsFileResult::Outcome::Failed);
+    EXPECT_EQ(result.why, "cannot keep a copy of the file as it was");
+    EXPECT_EQ(readFileText(file()).value_or(""), unboundFile());
+    EXPECT_FALSE(std::filesystem::exists(backup()));
+}
+
+// The file cannot be replaced (as when the game holds it): Failed, the file as it was, the backup kept for next time.
+TEST_F(GameSettingsFile, AFileThatCannotBeReplacedIsLeftAsItWas) {
+    ASSERT_TRUE(writeFileReplacing(file(), unboundFile()));
+    std::filesystem::create_directories(file().string() + ".tmp/busy");
+    const GameSettingsFileResult result = write(kStronger);
+    EXPECT_EQ(result.outcome, GameSettingsFileResult::Outcome::Failed);
+    EXPECT_EQ(result.why, "cannot write it (the game may have it open)");
+    EXPECT_EQ(readFileText(file()).value_or(""), unboundFile());
+    EXPECT_EQ(readFileText(backup()).value_or(""), unboundFile());
+    EXPECT_TRUE(result.changes.empty());
+}
+
 }  // namespace
 }  // namespace wheelbri

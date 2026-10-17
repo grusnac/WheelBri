@@ -89,3 +89,12 @@ TEST(GameRotation, OlderPairSavedAsOneNumber) {
     EXPECT_NE(written.find("nfspayback = 180"), std::string::npos) << written;
     EXPECT_EQ(written.find("360"), std::string::npos) << written;
 }
+
+// Tabs around the value (a hand-aligned file), in any case: read like spaces.
+TEST(GameRotation, TabsAreSpacing) {
+    EXPECT_EQ(parseGameRotation("\t270\t"), (GameRotationOverride{false, 270.0F}));
+    EXPECT_EQ(parseGameRotation("\tOff\t"), (GameRotationOverride{true, {}}));
+    EXPECT_EQ(parseGameRotation("540\t/\t180"), (GameRotationOverride{false, 180.0F}));
+    EXPECT_FALSE(parseGameRotation("\t").has_value());
+    EXPECT_EQ(formatGameRotation({false, 270.5F}), "270.5");
+}

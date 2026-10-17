@@ -51,11 +51,13 @@ bool sameFolder(const std::filesystem::path& a, const std::filesystem::path& b) 
     return lower(pathToUtf8(a.lexically_normal())) == lower(pathToUtf8(b.lexically_normal()));
 }
 
-std::vector<std::string> split(const std::string& line) {
+// The tab-separated fields of `line`, at most `maxParts`: the last one keeps the rest of the line, tabs and all (a
+// folder's name may hold a tab on Linux).
+std::vector<std::string> split(const std::string& line, const std::size_t maxParts) {
     std::vector<std::string> parts;
     std::size_t start = 0;
     while (true) {
-        const std::size_t tab = line.find('\t', start);
+        const std::size_t tab = parts.size() + 1 < maxParts ? line.find('\t', start) : std::string::npos;
         parts.push_back(line.substr(start, tab == std::string::npos ? std::string::npos : tab - start));
         if (tab == std::string::npos) break;
         start = tab + 1;
@@ -146,15 +148,15 @@ ShimGameList readShimGames(const std::filesystem::path& file) {
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line.empty() || line.front() == '#') continue;
-        const std::vector<std::string> parts = split(line);
+        const std::vector<std::string> parts = split(line, 3);   // the folder is the rest of the line
         if (parts[0] == "game" && parts.size() == 3 && !parts[2].empty()) {
             const std::filesystem::path folder = pathFromUtf8(parts[2]);
             if (folder.empty()) continue;   // not valid UTF-8 (edited by hand in another code page): skipped
             const bool known = std::any_of(list.games.begin(), list.games.end(),
                                            [&](const ShimGame& g) { return sameFolder(g.folder, folder); });
             if (!known) list.games.push_back({parts[1], folder});
-        } else if (parts[0] == "selected" && parts.size() == 2) {
-            list.selected = pathFromUtf8(parts[1]);
+        } else if (parts[0] == "selected" && parts.size() >= 2) {
+            list.selected = pathFromUtf8(line.substr(parts[0].size() + 1));
         }
     }
     // A selection that is not in the list is no selection; no selection = the first game.

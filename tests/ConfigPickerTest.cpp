@@ -187,39 +187,47 @@ TEST_F(ConfigPickerFiles, TheArrowsSwitchTargetAndWayAndRememberThem) {
     EXPECT_TRUE(window_.shows("Virtual"));
     const std::uint64_t before = picker.changes();
 
-    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
-    EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
-    EXPECT_EQ(setting("target"), "g25");
-    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
+    // The ring, left to right: G25, G27, G920, G923. It starts at the G920.
+    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > the one after: the G923
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);
+    EXPECT_EQ(setting("target"), "g923");
+    EXPECT_EQ(picker.selected(), (builtIn() / "g923.ini").string());
     EXPECT_GT(picker.changes(), before);
     EXPECT_FALSE(picker.onClick(kTargetRight, kRowY));   // the row is stale until it is drawn again
 
     window_.begin({});
     picker.draw(4, 18, true);
-    EXPECT_TRUE(window_.shows("G25"));
+    EXPECT_TRUE(window_.shows("G923"));
     EXPECT_TRUE(picker.onClick(kWayLeft, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_EQ(setting("way"), "shim");
-    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
+    EXPECT_EQ(picker.selected(), (builtIn() / "g923.ini").string());
 
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < the one before: G920
-    EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
+    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > after the G923: round to the first, the G25
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
+    EXPECT_EQ(setting("target"), "g25");
+    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // before the G920: round to the last, the G923
-    EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);
-    EXPECT_EQ(setting("target"), "g923");
-    EXPECT_EQ(picker.selected(), (builtIn() / "g923.ini").string());
-    picker.draw(4, 18, true);
-    EXPECT_TRUE(window_.shows("G923"));
-    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < the one before: the G27
+    EXPECT_TRUE(window_.shows("G25"));
+    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > the one after: the G27
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G27);
     EXPECT_EQ(picker.selected(), (builtIn() / "g27.ini").string());
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > the one after: the G923
+    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > the one after: the G920
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
+    EXPECT_EQ(picker.selected(), (builtIn() / "g920.ini").string());
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < the one before: the G27
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G27);
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < the one before: the G25
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < before the G25: round to the last, the G923
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > after the G923: round to the G920
+    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < the one before: the G920
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
     picker.draw(4, 18, true);
     EXPECT_TRUE(picker.onClick(kWayRight, kRowY));
@@ -237,8 +245,8 @@ TEST_F(ConfigPickerFiles, AStateFileThatCannotBeWrittenKeepsTheChoiceForNow) {
     ConfigPicker picker(window_, settings());
     picker.draw(4, 18, true);
     EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
-    EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);   // chosen, only not remembered
-    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);   // chosen, only not remembered
+    EXPECT_EQ(picker.selected(), (builtIn() / "g923.ini").string());
     picker.draw(4, 18, true);
     EXPECT_TRUE(picker.onClick(kWayRight, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
@@ -278,8 +286,8 @@ TEST_F(ConfigPickerFiles, WithoutTheVirtualDeviceItIsShimOnly) {
     EXPECT_FALSE(picker.onClick(kWayRight, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
-    EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
-    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);
+    EXPECT_EQ(picker.selected(), (builtIn() / "g923.ini").string());
     EXPECT_TRUE(setting("way").empty());   // nothing written for the way
 }
 

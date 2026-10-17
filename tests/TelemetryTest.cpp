@@ -15,6 +15,7 @@ namespace {
 namespace fs = std::filesystem;
 
 constexpr std::uint64_t kMs = 1'000'000;
+constexpr std::uint64_t kSecond = 1000 * kMs;
 
 class NullSink : public IFfbSink {
 public:
@@ -411,6 +412,262 @@ TEST_F(TelemetryTest, StopsAtMaxFileSize) {
     const auto path = dir_ / "telemetry-2026-09-30-01.log";
     EXPECT_LE(fs::file_size(path), 1024U * 1024U + 128U);
     EXPECT_EQ(count(lines(path, true), "stopped: max_file_mb reached"), 1U);
+}
+
+// The day's numbers are used up (a file numbered 99999 is there): no file is made, and open says why.
+TEST_F(TelemetryTest, NoFreeNumberForTheDayIsAnError) {
+    fs::create_directories(dir_);
+    std::ofstream(dir_ / "telemetry-2026-09-30-99999.log") << "the last number";
+    std::string error;
+    EXPECT_EQ(TelemetryRecorder::open(TelemetryConfig{}, dir_, at(10, 0, 0), {}, error), nullptr);
+    EXPECT_NE(error.find("no free number"), std::string::npos) << error;
+    EXPECT_FALSE(fs::exists(dir_ / "ffb-2026-09-30-01.log"));
+}
+
+// The keys telemetry_summary.sh reads by name: in their order, and every key a row carries is one of them.
+TEST_F(TelemetryTest, TheColumnsListEveryKeyInOrder) {
+    const std::vector<std::string> columns = telemetryColumns();
+    ASSERT_EQ(columns.size(), 3U + RawInputState::kMaxAxes + 19U + IFfbSink::kMaxSlots * 4U + 2U);
+    EXPECT_EQ(columns[0], "time");
+    EXPECT_EQ(columns[1], "t_ms");
+    EXPECT_EQ(columns[2], "seq");
+    EXPECT_EQ(columns[3], "raw_a0");
+    EXPECT_EQ(columns[3 + RawInputState::kMaxAxes], "raw_buttons");
+    EXPECT_EQ(columns[columns.size() - 3], "s" + std::to_string(IFfbSink::kMaxSlots - 1) + "_out");
+    EXPECT_EQ(columns[columns.size() - 2], "period_us");
+    EXPECT_EQ(columns.back(), "work_us");
+
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    NullSink sink;
+    FfbController controller(sink, FfbSafetyConfig{});
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::SlotState;
+    packet.slot = 0;
+    packet.playing = true;
+    controller.onPacket(packet, 0);
+    controller.update(0);
+    TelemetrySample sample;
+    sample.ffb = &controller;
+    recorder->writeSample(sample);
+    recorder.reset();
+    const auto data = lines(dir_ / "telemetry-2026-09-30-01.log");
+    ASSERT_EQ(data.size(), 1U);
+    std::istringstream words(message(data[0]));
+    for (std::string word; words >> word;) {
+        const std::string key = word.substr(0, word.find('='));
+        EXPECT_NE(std::find(columns.begin(), columns.end(), key), columns.end()) << key;
+    }
+}
+
+// Each mapped pedal and each value the game sees makes a row on its own, even when nothing else moved.
+TEST_F(TelemetryTest, EachMappedAndReportedValueMakesARow) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    std::uint64_t t = 0;
+    const auto next = [&] {
+        t += 20 * kMs;
+        sample.nowNs = t;
+        recorder->writeSample(sample);
+    };
+    next();                                  // the first row
+    sample.state.throttle = 0.5F;
+    next();
+    sample.state.brake = 0.5F;
+    next();
+    sample.state.clutch = 0.5F;
+    next();
+    sample.report.steering = 1000;           // only what the game sees: a mapping change
+    next();
+    sample.report.throttle = 1000;
+    next();
+    sample.report.brake = 1000;
+    next();
+    sample.report.clutch = 1000;
+    next();
+    sample.report.clutch = 1002;             // two counts: below the threshold (min_change on 16 bits)
+    next();
+    EXPECT_EQ(recorder->rowsWritten(), 8U);
+    EXPECT_EQ(recorder->rowsSkipped(), 1U);
+}
+
+// Force feedback slots as they are: wanted but not playing yet (nothing sent to the wheel: no sN_out), the watchdog
+// tripped after the game went quiet, and no packet at all yet (no ffb_age_ms).
+TEST_F(TelemetryTest, SlotsAndTheWatchdogAsTheyAre) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    NullSink sink;
+    FfbController controller(sink, FfbSafetyConfig{});
+    TelemetrySample sample;
+    sample.ffb = &controller;
+    recorder->writeSample(sample);           // no packet yet
+
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::SlotState;
+    packet.slot = 2;
+    packet.playing = true;
+    packet.effect.type = FfbEffectType::Spring;
+    controller.onPacket(packet, 100 * kMs);  // not updated yet: wanted, not playing
+    sample.nowNs = 100 * kMs;
+    recorder->writeSample(sample);
+
+    controller.update(100 * kMs);
+    controller.update(2000 * kMs);           // 1.9 s without a packet: the watchdog stops everything
+    sample.nowNs = 2000 * kMs;
+    recorder->writeSample(sample);
+    recorder.reset();
+
+    const auto data = lines(dir_ / "telemetry-2026-09-30-01.log");
+    ASSERT_EQ(data.size(), 3U);
+    EXPECT_EQ(value(data[0], "ffb_packets"), "0");
+    EXPECT_EQ(value(data[0], "ffb_age_ms"), "");
+    EXPECT_EQ(value(data[0], "ffb_watchdog"), "0");
+    EXPECT_EQ(value(data[1], "s2_type"), "spring");
+    EXPECT_EQ(value(data[1], "s2_state"), "w");
+    EXPECT_EQ(value(data[1], "s2_out"), "");
+    EXPECT_EQ(value(data[1], "ffb_age_ms"), "0");
+    EXPECT_EQ(value(data[2], "ffb_watchdog"), "1");
+    EXPECT_EQ(value(data[2], "ffb_age_ms"), "1900");
+}
+
+// heartbeat_s = 0: nothing that has not changed is ever written again.
+TEST_F(TelemetryTest, NoHeartbeatWhenItIsZero) {
+    TelemetryConfig config;
+    config.heartbeatSeconds = 0;
+    auto recorder = open(at(10, 0, 0), config);
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    for (int i = 0; i <= 200; ++i) {   // 4 s still
+        sample.nowNs = static_cast<std::uint64_t>(i) * 20 * kMs;
+        recorder->writeSample(sample);
+    }
+    EXPECT_EQ(recorder->rowsWritten(), 1U);
+}
+
+// A packet naming a slot past the last one (a damaged or newer sender) is written each time, never indexed.
+TEST_F(TelemetryTest, APacketForASlotPastTheLastIsWrittenEachTime) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::SlotState;
+    packet.slot = static_cast<std::uint8_t>(IFfbSink::kMaxSlots);
+    recorder->writeFfbPacket(0, packet);
+    recorder->writeFfbPacket(kMs, packet);
+    EXPECT_EQ(recorder->ffbRowsWritten(), 2U);
+    recorder.reset();
+    const auto data = lines(dir_ / "ffb-2026-09-30-01.log");
+    ASSERT_EQ(data.size(), 2U);
+    EXPECT_EQ(value(data[0], "slot"), std::to_string(IFfbSink::kMaxSlots));
+}
+
+// A stop the wheel refused: kind wheel_stop with its slot, ok=0 and no effect type.
+TEST_F(TelemetryTest, ARefusedStopIsWrittenAsSuch) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    AsyncFfbSink::Applied applied;
+    applied.kind = AsyncFfbSink::Applied::Kind::Stop;
+    applied.slot = 4;
+    applied.ok = false;
+    recorder->writeFfbApplied(kMs, applied);
+    recorder.reset();
+    const auto data = lines(dir_ / "ffb-2026-09-30-01.log");
+    ASSERT_EQ(data.size(), 1U);
+    EXPECT_EQ(value(data[0], "kind"), "wheel_stop");
+    EXPECT_EQ(value(data[0], "slot"), "4");
+    EXPECT_EQ(value(data[0], "ok"), "0");
+    EXPECT_EQ(value(data[0], "type"), "");
+}
+
+// A stray program flooding the force feedback port: one malformed line a second at most, saying how many were left
+// out before it.
+TEST_F(TelemetryTest, MalformedPacketsAreNotedOnceASecond) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    recorder->noteMalformedFfb(1 * kMs, 3);
+    for (int i = 0; i < 50; ++i) recorder->noteMalformedFfb((2 + static_cast<std::uint64_t>(i)) * kMs, 3);
+    recorder->noteMalformedFfb(1500 * kMs, 70000);
+    recorder.reset();
+    const auto data = lines(dir_ / "ffb-2026-09-30-01.log");
+    ASSERT_EQ(data.size(), 2U);
+    EXPECT_EQ(value(data[0], "skipped_before"), "0");
+    EXPECT_EQ(value(data[1], "skipped_before"), "50");
+    EXPECT_EQ(value(data[1], "bytes"), "70000");
+}
+
+// A time stamp earlier than the session's first (a packet stamped before the first row was written): its t_ms is 0,
+// never a wrapped-around unsigned number.
+TEST_F(TelemetryTest, ATimeBeforeTheFirstIsZeroNotWrapped) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    sample.nowNs = 100 * kMs;
+    recorder->writeSample(sample);
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::SlotState;
+    recorder->writeFfbPacket(50 * kMs, packet);
+    recorder.reset();
+    const auto data = lines(dir_ / "ffb-2026-09-30-01.log");
+    ASSERT_EQ(data.size(), 1U);
+    EXPECT_EQ(value(data[0], "t_ms"), "0.0") << data[0];
+    EXPECT_EQ(data[0].rfind("[2026-09-30 10:00:00.000] ", 0), 0U) << data[0];
+}
+
+// The folder is gone at midnight (a file in its place): the new day's rows are dropped, retried once a minute, and
+// written again once the folder can be made; the earlier day's file keeps its rows.
+TEST_F(TelemetryTest, ANewDayThatCannotBeOpenedIsRetriedEveryMinute) {
+    auto recorder = open(at(23, 59, 59, 900));
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    sample.nowNs = 0;
+    recorder->writeSample(sample);
+    recorder->writeFfbPacket(10 * kMs, FfbPacket{});
+    const fs::path oldDay = recorder->samplesPath();
+    const fs::path aside = dir_.string() + "-aside";
+    fs::remove_all(aside);
+    std::error_code moved;
+    fs::rename(dir_, aside, moved);   // Windows refuses to move a folder whose files are open (the old day's are)
+    if (moved) {
+        recorder.reset();
+        GTEST_SKIP() << "the log folder cannot be moved while its files are open here: " << moved.message();
+    }
+    std::ofstream(dir_.string()) << "a file where the folder should be";
+
+    sample.raw.axes[0] = 0.5F;
+    sample.nowNs = 1 * kSecond;                 // 00:00:00.900: the new day, its files cannot be made
+    recorder->writeSample(sample);
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::StopAll;
+    recorder->writeFfbPacket(sample.nowNs, packet);
+    sample.raw.axes[0] = 0.6F;
+    sample.nowNs = 30 * kSecond;                // half a minute later: not tried again yet
+    recorder->writeSample(sample);
+    sample.raw.axes[0] = 0.7F;
+    sample.nowNs = 62 * kSecond;                // a minute later: tried again, still a file there
+    recorder->writeSample(sample);
+    EXPECT_TRUE(fs::is_regular_file(dir_));
+
+    fs::remove(dir_);
+    sample.raw.axes[0] = 0.8F;
+    sample.nowNs = 90 * kSecond;                // not yet a minute after the last try
+    recorder->writeSample(sample);
+    sample.raw.axes[0] = 0.9F;
+    sample.nowNs = 125 * kSecond;               // 00:02:04.900: written again
+    recorder->writeSample(sample);
+    EXPECT_EQ(recorder->day(), "2026-10-01");
+    EXPECT_EQ(recorder->samplesPath().parent_path(), dir_);
+    const fs::path newDay = recorder->samplesPath();
+    recorder.reset();
+
+    const auto before = lines(aside / oldDay.filename());
+    ASSERT_EQ(before.size(), 1U);
+    const auto after = lines(newDay);
+    ASSERT_EQ(after.size(), 1U);
+    EXPECT_EQ(value(after[0], "raw_a0"), "0.9000");
+    EXPECT_EQ(after[0].rfind("[2026-10-01 00:02:04.900] ", 0), 0U) << after[0];
+    EXPECT_EQ(count(lines(newDay, true), "session started 2026-09-30 23:59:59, continued"), 1U);
+    std::error_code ec;
+    fs::remove_all(aside, ec);
 }
 
 }  // namespace

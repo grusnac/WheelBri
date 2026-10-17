@@ -109,5 +109,49 @@ TEST(DiEffect, EnvelopeUnits) {
     EXPECT_NEAR(di::envelope(20000, 0, 0, 0).attackLevel, 1.0F, 1e-5F);   // clamped
 }
 
+// An effect with a known duration and an attack but no fade (DIENVELOPE with dwFadeTime 0): it holds its level to
+// the end.
+TEST(FfbShape, AKnownDurationWithoutFadeHoldsToTheEnd) {
+    FfbShape shape;
+    shape.envelope = envelope(0.0F, 100.0F, 0.0F, 0.0F);
+    EXPECT_NEAR(shapeAt(constant(0.6F), shape, 50.0, 1000.0).constantLevel, 0.3F, 1e-5F);
+    EXPECT_NEAR(shapeAt(constant(0.6F), shape, 999.0, 1000.0).constantLevel, 0.6F, 1e-5F);
+}
+
+// A ramp with a duration of 0 (no time to go anywhere) plays at its mean level, as one without a duration does.
+TEST(FfbShape, ARampWithNoDurationPlaysItsMean) {
+    FfbShape shape;
+    shape.rampEndLevel = 0.8F;
+    EXPECT_NEAR(shapeAt(constant(0.2F), shape, 100.0, 0.0).constantLevel, 0.5F, 1e-5F);
+    EXPECT_NEAR(shapeAt(constant(0.2F), shape, -5.0, 1000.0).constantLevel, 0.2F, 1e-5F);   // before the start
+}
+
+// No condition (spring, damper, friction, inertia) has an envelope or a ramp: each comes back as it was.
+TEST(FfbShape, NoConditionTypeIsShaped) {
+    FfbShape shape;
+    shape.envelope = envelope(0.0F, 100.0F, 0.0F, 100.0F);
+    shape.rampEndLevel = 1.0F;
+    for (const FfbEffectType type :
+         {FfbEffectType::Spring, FfbEffectType::Damper, FfbEffectType::Friction, FfbEffectType::Inertia}) {
+        FfbEffect condition;
+        condition.type = type;
+        condition.condition.positiveCoefficient = 0.7F;
+        EXPECT_EQ(shapeAt(condition, shape, 50.0, 1000.0), condition);
+    }
+    FfbEffect sine;   // a periodic effect with only a ramp (which it ignores): unchanged too
+    sine.type = FfbEffectType::Sine;
+    sine.periodic.magnitude = 0.4F;
+    FfbShape rampOnly;
+    rampOnly.rampEndLevel = 1.0F;
+    EXPECT_EQ(shapeAt(sine, rampOnly, 50.0, 1000.0), sine);
+}
+
+// A constant level above full scale (a sender that did not clamp) comes out of the envelope at full scale at most.
+TEST(FfbShape, AnEnvelopeNeverGoesPastFullScale) {
+    FfbShape shape;
+    shape.envelope = envelope(0.5F, 100.0F, 0.0F, 0.0F);
+    EXPECT_NEAR(shapeAt(constant(-3.0F), shape, 500.0, kUntilStopped).constantLevel, -1.0F, 1e-5F);
+}
+
 }  // namespace
 }  // namespace wheelbri

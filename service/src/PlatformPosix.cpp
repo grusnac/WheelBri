@@ -170,8 +170,9 @@ std::optional<std::vector<RunningProgram>> runningPrograms() {
         // Started through Wine by hand ("wine64 game.exe"): the program is the next word. Proton's processes name
         // themselves by their Windows path.
         const std::string loader = programName(program);
+        // Each word ends with a NUL, so a loader alone ("wine64\0") leaves an empty second word: it stays the program.
         if ((loader == "wine" || loader == "wine64" || loader == "wine-preloader" || loader == "wine64-preloader") &&
-            words.size() > 1) {
+            words.size() > 1 && !words[1].empty()) {
             program = words[1];
         }
         if (program.empty()) continue;

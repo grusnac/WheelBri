@@ -127,6 +127,15 @@ FfbEffect FfbSafetyLimiter::apply(const FfbEffect& input, const float dtSeconds)
             limited.periodic = limitPeriodic(scaled);
             break;
         }
+        default: {
+            // A type this build does not know (a newer or broken sender): no force, never its numbers unlimited.
+            const FfbEffectType type = requested.type;
+            limited = FfbEffect{};
+            limited.type = type;
+            limited.condition.positiveSaturation = 0.0F;
+            limited.condition.negativeSaturation = 0.0F;
+            break;
+        }
     }
     return limited;
 }

@@ -17,6 +17,13 @@
 #include <unistd.h>
 #include <vector>
 
+#include <array>
+#include <fcntl.h>
+#include <signal.h>
+#include <spawn.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+
 namespace wheelbri::service::platform {
 namespace {
 
@@ -215,11 +222,12 @@ TEST(PlatformPosix, RunningProgramsListsThisOne) {
 #if defined(__linux__)
     ASSERT_TRUE(programs.has_value());
     ASSERT_FALSE(programs->empty());
+    // This process, by its pid: other test processes of the same program may run beside it (ctest -j).
     bool found = false;
     for (const RunningProgram& program : *programs) {
-        if (programName(program.name) == "wheelbri_tests") {
+        if (program.pid == static_cast<std::uint32_t>(::getpid())) {
             found = true;
-            EXPECT_EQ(program.pid, static_cast<std::uint32_t>(::getpid()));
+            EXPECT_EQ(programName(program.name), "wheelbri_tests");
         }
         EXPECT_FALSE(program.name.empty());
     }
@@ -228,6 +236,129 @@ TEST(PlatformPosix, RunningProgramsListsThisOne) {
     EXPECT_FALSE(programs.has_value());   // cannot list here: game detection says so, the pedals never move
 #endif
     EXPECT_TRUE(documentsFolder().empty());
+}
+
+#if defined(__linux__)
+// A program started with posix_spawn under the command line `argv` (argv[0] need not be the program's file).
+// With `input` >= 0 that descriptor is its standard input.
+pid_t spawnAs(const char* const file, std::vector<std::string> argv, const int input = -1) {
+    std::vector<char*> args;
+    for (std::string& arg : argv) args.push_back(arg.data());
+    args.push_back(nullptr);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    if (input >= 0) posix_spawn_file_actions_adddup2(&actions, input, 0);
+    pid_t pid = -1;
+    char* const noEnvironment[] = {nullptr};
+    const int result = posix_spawn(&pid, file, &actions, nullptr, args.data(), noEnvironment);
+    posix_spawn_file_actions_destroy(&actions);
+    return result == 0 ? pid : -1;
+}
+
+// The state letter in /proc/<pid>/stat ('Z' for a zombie), or 0.
+char processState(const pid_t pid) {
+    std::ifstream stat("/proc/" + std::to_string(pid) + "/stat");
+    std::string line;
+    std::getline(stat, line);
+    const std::size_t paren = line.rfind(')');
+    return paren != std::string::npos && paren + 2 < line.size() ? line[paren + 2] : '\0';
+}
+
+// A game started through Wine by hand ("wine64 C:\...\NFS16.exe"): the program is the word after the loader, so the
+// game's profile is found; a loader with nothing after it is listed as itself.
+TEST(PlatformPosix, AGameStartedThroughWineIsNamedByItsExe) {
+    const auto folder = tempFolder("wine");
+    const auto game = folder / "NFS16.exe";
+    ASSERT_EQ(::mkfifo(game.c_str(), 0600), 0);   // cat blocks opening it: a process that stays until killed
+    const pid_t wine = spawnAs("/bin/cat", {"wine64", game.string()});
+    std::array<int, 2> feed{-1, -1};   // the bare loader reads it: it waits until the test closes it
+    ASSERT_EQ(::pipe2(feed.data(), O_CLOEXEC), 0);
+    const pid_t bare = spawnAs("/bin/cat", {"wine-preloader"}, feed[0]);
+    ASSERT_GT(wine, 0);
+    ASSERT_GT(bare, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const auto programs = runningPrograms();
+    ::kill(wine, SIGKILL);
+    ::kill(bare, SIGKILL);
+    ::waitpid(wine, nullptr, 0);
+    ::waitpid(bare, nullptr, 0);
+    ::close(feed[0]);
+    ::close(feed[1]);
+    std::filesystem::remove_all(folder);
+    ASSERT_TRUE(programs.has_value());
+    std::string wineName;
+    std::string bareName;
+    for (const RunningProgram& program : *programs) {
+        if (program.pid == static_cast<std::uint32_t>(wine)) wineName = program.name;
+        if (program.pid == static_cast<std::uint32_t>(bare)) bareName = program.name;
+    }
+    EXPECT_EQ(wineName, game.string());
+    EXPECT_EQ(programName(wineName), "nfs16.exe");
+    EXPECT_EQ(bareName, "wine-preloader");
+}
+
+// A process that has ended but is not reaped yet (a zombie) has no command line: it is not listed.
+TEST(PlatformPosix, AZombieIsNotARunningProgram) {
+    const pid_t child = spawnAs("/bin/true", {"/bin/true"});
+    ASSERT_GT(child, 0);
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (processState(child) != 'Z' && std::chrono::steady_clock::now() < until) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_EQ(processState(child), 'Z');
+    const auto programs = runningPrograms();
+    ::waitpid(child, nullptr, 0);
+    ASSERT_TRUE(programs.has_value());
+    for (const RunningProgram& program : *programs) EXPECT_NE(program.pid, static_cast<std::uint32_t>(child));
+}
+
+// A thread name longer than the kernel keeps (15 characters) is cut, not refused; no name at all is ignored.
+TEST(PlatformPosix, ThreadNamesAreCutToWhatTheKernelKeeps) {
+    std::string named;
+    std::thread([&named] {
+        nameThisThread(nullptr);   // nothing happens
+        nameThisThread("wheelbri a rather long role");
+        std::ifstream comm("/proc/self/task/" + std::to_string(::gettid()) + "/comm");
+        std::getline(comm, named);
+    }).join();
+    EXPECT_EQ(named, "wheelbri a rath");
+}
+#endif
+
+// No XDG_RUNTIME_DIR at all (a session without one, e.g. over ssh): the lock goes to /tmp.
+TEST(PlatformPosix, NoRuntimeFolderFallsBackToTmp) {
+    const char* old = std::getenv("XDG_RUNTIME_DIR");
+    const std::string saved = old != nullptr ? old : "";
+    unsetenv("XDG_RUNTIME_DIR");
+    std::string error;
+    const std::string name = "wheelbri-unset-" + std::to_string(::getpid());
+    auto lock = SingleInstance::acquire(name, error);
+    if (old != nullptr) setenv("XDG_RUNTIME_DIR", saved.c_str(), 1);
+    ASSERT_NE(lock, nullptr) << error;
+    const auto file = std::filesystem::path("/tmp") / (name + "-" + std::to_string(::getuid()) + ".lock");
+    EXPECT_TRUE(std::filesystem::exists(file));
+    lock.reset();
+    std::filesystem::remove(file);
+}
+
+// A child let go (release): no exit code is known any more and destroying the object leaves it running.
+TEST(PlatformPosix, AReleasedChildIsLeftAlone) {
+    const auto folder = tempFolder("released");
+    const auto marker = folder / "finished";
+    std::string error;
+    {
+        auto child = ChildProcess::start({"/bin/sh", "-c", "sleep 0.2; touch '" + marker.string() + "'"}, error);
+        ASSERT_NE(child, nullptr) << error;
+        child->release();
+        EXPECT_EQ(child->poll(), -1);
+        child->kill();   // not ours any more: nothing happens
+    }
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!std::filesystem::exists(marker) && std::chrono::steady_clock::now() < until) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    EXPECT_TRUE(std::filesystem::exists(marker));
+    std::filesystem::remove_all(folder);
 }
 
 }  // namespace

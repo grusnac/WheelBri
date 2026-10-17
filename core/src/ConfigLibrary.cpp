@@ -234,6 +234,9 @@ std::string readAppSetting(const std::filesystem::path& stateFile, const std::st
         while (!v.empty() && (v.back() == ' ' || v.back() == '\t' || v.back() == '\r')) v.remove_suffix(1);
         return v;
     };
+    // The last match, as IniDocument reads a key written twice: writeAppSetting (IniEditor, which matches the exact
+    // case) adds "config" after a hand-written "Config", and the value just written must be the one read back.
+    std::string found;
     bool inApp = false;
     std::string_view rest(*text);
     while (!rest.empty()) {
@@ -250,10 +253,10 @@ std::string readAppSetting(const std::filesystem::path& stateFile, const std::st
         const std::size_t equals = line.find('=');
         if (!inApp || equals == std::string_view::npos) continue;
         if (lower(std::string(trim(line.substr(0, equals)))) == lower(key)) {
-            return std::string(trim(line.substr(equals + 1)));
+            found = std::string(trim(line.substr(equals + 1)));
         }
     }
-    return {};
+    return found;
 }
 
 bool writeAppSetting(const std::filesystem::path& stateFile, const std::string& key, const std::string& value) {
@@ -263,6 +266,9 @@ bool writeAppSetting(const std::filesystem::path& stateFile, const std::string& 
         return false;   // there but unreadable for now (another program has it): writing would lose its other settings
     }
     IniEditor ini(text.value_or("; WheelBri app state: what was picked in the app. Safe to delete.\n"));
+    // Replaced, never kept: IniEditor would keep "rig = Desk #2" when setting "Desk" (it reads '#' as a comment, so
+    // the two look the same to it), and readAppSetting reads values raw.
+    ini.remove("app", key);
     ini.set("app", key, value);
     return writeText(stateFile, ini.text());
 }

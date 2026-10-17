@@ -223,13 +223,14 @@ void putAxis(std::array<std::uint8_t, kG920InputReportSize>& out, std::size_t at
     out[at + 1] = static_cast<std::uint8_t>(static_cast<std::uint16_t>(v) >> 8U);
 }
 
+// In the order the app's Target arrows show them (ConfigPicker::Target).
 constexpr VirtualWheel kVirtualWheels[] = {
-    {"g920", "wheelbri\\G920", "G920", kG920VendorId, kG920ProductId, "G920 Driving Force Racing Wheel USB",
-     "Logitech G920 Driving Force Racing Wheel USB", kG920Buttons},
     {"g25", "wheelbri\\G25", "G25", kG25VendorId, kG25ProductId, "G25 Racing Wheel", "Logitech G25 Racing Wheel USB",
      kG25Buttons},
     {"g27", "wheelbri\\G27", "G27", kG27VendorId, kG27ProductId, "G27 Racing Wheel", "Logitech G27 Racing Wheel USB",
      kG27Buttons},
+    {"g920", "wheelbri\\G920", "G920", kG920VendorId, kG920ProductId, "G920 Driving Force Racing Wheel USB",
+     "Logitech G920 Driving Force Racing Wheel USB", kG920Buttons},
     {"g923", "wheelbri\\G923", "G923", kG923VendorId, kG923ProductId, "G923 Racing Wheel for Xbox One and PC",
      "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, true},
 };

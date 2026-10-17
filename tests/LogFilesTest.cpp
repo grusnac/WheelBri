@@ -86,6 +86,17 @@ TEST(LogFileNames, TheNextNumberIsOneMoreThanTheHighestOfThatDay) {
     EXPECT_FALSE(hasIndex(names, "wheelbri-service", "2026-10-07", 4));
 }
 
+// A date with its dashes in the wrong place or a character just outside the digits ('/', ':') is no date.
+TEST(LogFileNames, CharactersNextToTheDigitsAreNotDigits) {
+    EXPECT_FALSE(isDateText("2026-10x08"));
+    EXPECT_FALSE(isDateText("2026x10-08"));
+    EXPECT_FALSE(isDateText("2026-10-0/"));
+    EXPECT_FALSE(isDateText("2026-10-0:"));
+    EXPECT_FALSE(partsOf("a-2026-10-0:-01.log", "a").has_value());
+    EXPECT_EQ(newestOf({"a-2026-10-08-02.log", "a-2026-10-08-01.log.xz", "a-2026-10-07-05.log"}, "a"),
+              "a-2026-10-08-02.log");   // older ones after the newest do not replace it
+}
+
 TEST(LogFileNames, TheNewestIsTheLatestDayThenTheHighestNumber) {
     EXPECT_EQ(newestOf({"a-2026-10-07-09.log", "a-2026-10-08-02.log", "a-2026-10-08-10.log", "a-2026-10-08-03.log"}, "a"),
               "a-2026-10-08-10.log");   // 10 after 03, not as text

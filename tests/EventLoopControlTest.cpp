@@ -195,5 +195,55 @@ TEST(EventLoopControl, WhilePollingMissesAreNotCounted) {
     EXPECT_EQ(control.missedNotifications(), 0U);
 }
 
+// A pass timed before the last new input (a clock that stepped back): the input is not "recent", the loop goes idle.
+TEST(EventLoopControl, APassBeforeTheLastInputIsNotRecentInput) {
+    EventLoopControl control;
+    control.afterPass(passAt(10 * kMs, true));
+    EXPECT_EQ(control.deadlineNs(), 14 * kMs);
+    control.afterPass(passAt(5 * kMs));
+    EXPECT_EQ(control.deadlineNs(), 105 * kMs);
+}
+
+// The timer finds new input twice before the notification: the first pending miss stands and one late notification
+// settles it.
+TEST(EventLoopControl, ASecondTimerPassWhileANotificationIsPendingKeepsTheFirst) {
+    EventLoopControl control;
+    control.afterPass(passAt(0));
+    (void)control.afterWait(kWaitTimedOut, kReasons, 4 * kMs);
+    control.afterPass(passAt(4 * kMs, true));
+    (void)control.afterWait(kWaitTimedOut, kReasons, 4 * kMs + 400'000);   // the timer again, still in time
+    control.afterPass(passAt(4 * kMs + 400'000, true));
+    (void)control.afterWait(kWheel, kReasons, 4 * kMs + 900'000);          // 0.9 ms after the first: late
+    EXPECT_EQ(control.lateNotifications(), 1U);
+    EXPECT_EQ(control.missedNotifications(), 0U);
+}
+
+// A wake timed before the pass that left a notification pending (clock trouble) cannot be its late notification.
+TEST(EventLoopControl, AWakeTimedBeforeThePendingPassIsNotLate) {
+    EventLoopControl control;
+    control.afterPass(passAt(0));
+    (void)control.afterWait(kWaitTimedOut, kReasons, 4 * kMs);
+    control.afterPass(passAt(4 * kMs, true));
+    (void)control.afterWait(kWheel, kReasons, 3 * kMs);
+    EXPECT_EQ(control.lateNotifications(), 0U);
+    EXPECT_EQ(control.missedNotifications(), 1U);
+}
+
+// Polling started for another reason while a miss was pending: the miss is counted but does not start polling
+// again (the reason stays the first one).
+TEST(EventLoopControl, AMissDecidedWhileAlreadyPollingKeepsTheReason) {
+    EventLoopControl::Settings settings;
+    settings.missThreshold = 1;
+    EventLoopControl control(settings);
+    control.afterPass(passAt(0));
+    (void)control.afterWait(kWaitTimedOut, kReasons, 4 * kMs);
+    control.afterPass(passAt(4 * kMs, true));
+    control.pollBecause(PollReason::SocketNotWaitable);
+    const EventLoopControl::Woke woke = control.afterWait(kWaitTimedOut, kReasons, 10 * kMs);
+    EXPECT_FALSE(woke.startedPolling);
+    EXPECT_EQ(control.missedNotifications(), 1U);
+    EXPECT_EQ(control.pollReason(), PollReason::SocketNotWaitable);
+}
+
 }  // namespace
 }  // namespace wheelbri

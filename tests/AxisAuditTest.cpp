@@ -105,5 +105,46 @@ TEST(AxisAudit, CountsFromSeveralThreads) {
     EXPECT_EQ(audit.totalCalls(), 4000U);
 }
 
+// An Escape whose size field disagrees with the bytes passed, or whose first light or redline is not a number (a game
+// writing garbage): not rev lights.
+TEST(AxisAudit, RevLightsWithABadSizeFieldOrABadLightAreRefused) {
+    auto wrongSize = kNfs2015Lights;
+    wrongSize[0] = 0x18;
+    EXPECT_FALSE(decodeRevLights(0, wrongSize).has_value());
+    auto badFirst = kNfs2015Lights;   // first light = +infinity
+    badFirst[12] = 0x00;
+    badFirst[13] = 0x00;
+    badFirst[14] = 0x80;
+    badFirst[15] = 0x7f;
+    EXPECT_FALSE(decodeRevLights(0, badFirst).has_value());
+    auto badRedline = kNfs2015Lights;   // redline = NaN
+    badRedline[18] = 0xc0;
+    badRedline[19] = 0x7f;
+    EXPECT_FALSE(decodeRevLights(0, badRedline).has_value());
+}
+
+// Every rule of the input-module list: Logitech's prefixes and names anywhere in the file name, SDL and XInput.
+TEST(AxisAudit, InputModulesByEveryRule) {
+    for (const char* name : {"LGSTrayHook.dll", "lg_ffb.dll", "Game_GHub_Bridge.dll", "MyLogitechPlugin.dll",
+                             "SteeringWheelSDK.dll", "sdl3.dll", "xinputuap.dll", "WINUSB.DLL"}) {
+        EXPECT_TRUE(isInputModule(name)) << name;
+    }
+    for (const char* name : {"", "lg.dll", "hid.dll.mui", "game_sdl.dll", "dinput.dll.bak"}) {
+        EXPECT_FALSE(isInputModule(name)) << name;
+    }
+}
+
+// Several kinds that could remap: all named, in the order first seen.
+TEST(AxisAudit, NamesEveryKindThatCouldRemap) {
+    AxisAudit audit;
+    audit.record("SetActionMap", AxisAudit::Risk::CouldRemap);
+    audit.record("EnumObjects", AxisAudit::Risk::None);
+    audit.record("SetProperty DIPROP_APPDATA", AxisAudit::Risk::CouldRemap);
+    EXPECT_EQ(audit.couldRemapCalls(), 2U);
+    EXPECT_EQ(audit.summary(),
+              "3 calls of 3 kinds; COULD REMAP AXES: SetActionMap x1, SetProperty DIPROP_APPDATA x1. Kinds: "
+              "SetActionMap x1, EnumObjects x1, SetProperty DIPROP_APPDATA x1");
+}
+
 }  // namespace
 }  // namespace wheelbri

@@ -34,3 +34,14 @@ TEST(GameUseWatch, QuietWhileTheGameSendsOrNoPedalIsPressed) {
     EXPECT_FALSE(paused.update(0, true, 0).has_value());
     EXPECT_FALSE(paused.update(600'000, true, 0).has_value());
 }
+
+// Two passes of the loop within the same millisecond, or a clock that went back, add no pedal time.
+TEST(GameUseWatch, NoTimePassingAddsNoPedalTime) {
+    GameUseWatch watch;
+    EXPECT_FALSE(watch.update(5'000, true, 0).has_value());
+    for (int i = 0; i < 100'000; ++i) {
+        EXPECT_FALSE(watch.update(5'000, true, 0).has_value());
+    }
+    EXPECT_FALSE(watch.update(1'000, true, 0).has_value());
+    EXPECT_FALSE(watch.warning());
+}

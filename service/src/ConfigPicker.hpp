@@ -15,7 +15,7 @@ namespace wheelbri::service {
 
 // The top row of the app's Mapping tab: the target and how it runs, and so the config Start uses. Two pickers, each
 // with < >:
-//   - Target: the wheel WheelBri emulates: the Logitech G920, G25, G27 or G923 (more come only when WheelBri supports
+//   - Target: the wheel WheelBri emulates: the Logitech G25, G27, G920 or G923 (more come only when WheelBri supports
 //     them, never from the user);
 //   - Mode: Virtual (WheelBri's own driver, a device every game sees; Administrator; the rig is hidden) or Shim
 //     (dinput8.dll next to the game's .exe presents the rig's wheel as the target to that game only).
@@ -29,7 +29,7 @@ namespace wheelbri::service {
 class ConfigPicker {
 public:
     enum class Way { VirtualDevice, Shim };
-    enum class Target { G920, G25, G27, G923 };   // the Target arrows go through them in this order
+    enum class Target { G25, G27, G920, G923 };   // the Target arrows go through them in this order
 
     struct Settings {
         std::filesystem::path builtInFolder;   // config/ next to the program

@@ -305,8 +305,9 @@ std::string tuningProblem(const MappingModel& model) {
                    " secondary sources";
         }
         for (const ButtonRef& alt : model.secondaries[t]) {
+            // Written as "in range" so that NaN (every comparison false) is refused too, as for the gains below.
             if (alt.mapped() && alt.axis &&
-                (alt.threshold < kMinButtonThreshold - 1e-4F || alt.threshold > kMaxButtonThreshold + 1e-4F)) {
+                !(alt.threshold >= kMinButtonThreshold - 1e-4F && alt.threshold <= kMaxButtonThreshold + 1e-4F)) {
                 return "button " + std::to_string(t) + ": an axis presses it between " +
                        tuning::formatPercent(kMinButtonThreshold) + " and " +
                        tuning::formatPercent(kMaxButtonThreshold);

@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <limits>
+#include <string>
 #include <vector>
 
 namespace wheelbri {
@@ -167,6 +169,134 @@ TEST(FfbUsage, ControllerRecordsWhatPlays) {
     EXPECT_EQ(usage.type(FfbEffectType::Constant).playNs, 99 * kMs);   // from the second tick on
     EXPECT_FLOAT_EQ(usage.type(FfbEffectType::Constant).askedPeak, 0.4F);
     EXPECT_GT(usage.gameNs(), 0U);
+}
+
+// Coefficients beyond full scale (a game asking for more than there is) count as capped, on either side.
+TEST(FfbUsage, ConditionCoefficientsBeyondTheRangeCountAsCapped) {
+    FfbUsage usage(safety());
+    std::array<FfbUsage::SlotSample, 1> slots{};
+    FfbEffect strong = spring(0.5F);
+    strong.condition.positiveCoefficient = 1.5F;
+    slots[0] = {true, strong, spring(1.0F)};
+    usage.record(10 * kMs, true, slots);
+    strong.condition.positiveCoefficient = 0.5F;
+    strong.condition.negativeCoefficient = -1.5F;
+    slots[0] = {true, strong, spring(1.0F)};
+    usage.record(10 * kMs, true, slots);
+    slots[0] = {true, spring(0.9F), spring(0.9F)};   // within the range: not capped
+    usage.record(10 * kMs, true, slots);
+    EXPECT_EQ(usage.type(FfbEffectType::Spring).cappedNs, 20 * kMs);
+    EXPECT_EQ(usage.type(FfbEffectType::Spring).slewNs, 0U);   // only a constant force slews
+}
+
+// A periodic effect whose offset would take it past the cap, or whose magnitude alone does, counts as capped.
+TEST(FfbUsage, PeriodicOffsetOrMagnitudePastTheCapCountsAsCapped) {
+    FfbUsage usage(safety(1.0F, 0.8F));
+    std::array<FfbUsage::SlotSample, 1> slots{};
+    FfbEffect sine;
+    sine.type = FfbEffectType::Sine;
+    sine.periodic.magnitude = 0.5F;
+    sine.periodic.offset = -0.4F;   // 0.9 in all
+    slots[0] = {true, sine, sine};
+    usage.record(10 * kMs, true, slots);
+    sine.periodic.magnitude = 0.9F;
+    sine.periodic.offset = 0.0F;
+    slots[0] = {true, sine, sine};
+    usage.record(10 * kMs, true, slots);
+    sine.periodic.magnitude = 0.5F;
+    sine.periodic.offset = 0.2F;
+    slots[0] = {true, sine, sine};
+    usage.record(10 * kMs, true, slots);
+    EXPECT_EQ(usage.type(FfbEffectType::Sine).cappedNs, 20 * kMs);
+}
+
+// A config that is not a number is counted against the limiter's defaults, the cap the wheel really had.
+TEST(FfbUsage, NotANumberConfigCountsAgainstTheDefaultCap) {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    FfbUsage usage(safety(nan, nan));
+    std::array<FfbUsage::SlotSample, 1> slots{};
+    slots[0] = {true, constant(0.9F), constant(0.8F)};   // above the default cap 0.8
+    usage.record(10 * kMs, true, slots);
+    slots[0] = {true, constant(0.7F), constant(0.7F)};
+    usage.record(10 * kMs, true, slots);
+    EXPECT_EQ(usage.type(FfbEffectType::Constant).cappedNs, 10 * kMs);
+    EXPECT_EQ(usage.type(FfbEffectType::Constant).slewNs, 0U);
+}
+
+// Nothing played yet: averages are 0, the table shows dashes, the histogram says so.
+TEST(FfbUsage, NothingPlayedYet) {
+    const FfbUsage usage(safety());
+    EXPECT_TRUE(usage.empty());
+    EXPECT_TRUE(usage.usedTypes().empty());
+    EXPECT_EQ(usage.type(FfbEffectType::Damper).askedAverage(), 0.0F);
+    EXPECT_EQ(usage.type(FfbEffectType::Damper).wheelAverage(), 0.0F);
+    const std::string row = usage.tableRow(FfbEffectType::Constant);
+    EXPECT_NE(row.find("0:00:00"), std::string::npos);
+    EXPECT_NE(row.find(" 0%"), std::string::npos);    // share of no game time
+    EXPECT_EQ(row.substr(row.size() - 1), "-");       // no slew to tell
+    EXPECT_EQ(usage.histogramLine(), "constant force strength the game asked for: none yet");
+}
+
+// Slew is only a constant force's: another type's row has a dash there, its capped share a number.
+TEST(FfbUsage, OnlyTheConstantRowHasASlewShare) {
+    FfbUsage usage(safety());
+    std::array<FfbUsage::SlotSample, 1> slots{};
+    slots[0] = {true, spring(0.5F), spring(0.5F)};
+    usage.record(10 * kMs, false, slots);   // the game not (yet) counted as active: share 0
+    const std::string row = usage.tableRow(FfbEffectType::Spring);
+    EXPECT_EQ(row.substr(row.size() - 1), "-");
+    EXPECT_NE(row.find("0%"), std::string::npos);
+    EXPECT_EQ(usage.gameNs(), 0U);
+    EXPECT_EQ(usage.anyForceNs(), 10 * kMs);
+}
+
+// More slots than the controller has (a caller with a bigger array): their time counts, their starts cannot be told.
+TEST(FfbUsage, SlotsBeyondTheControllersCountTimeButNotStarts) {
+    FfbUsage usage(safety());
+    std::array<FfbUsage::SlotSample, IFfbSink::kMaxSlots + 2> slots{};
+    slots[IFfbSink::kMaxSlots] = {true, spring(0.4F), spring(0.4F)};
+    usage.record(10 * kMs, true, slots);
+    slots[IFfbSink::kMaxSlots].playing = false;
+    usage.record(10 * kMs, true, slots);
+    EXPECT_EQ(usage.type(FfbEffectType::Spring).starts, 0U);
+    EXPECT_EQ(usage.type(FfbEffectType::Spring).playNs, 10 * kMs);
+    const auto used = usage.usedTypes();
+    ASSERT_EQ(used.size(), 1U);
+    EXPECT_EQ(used[0], FfbEffectType::Spring);
+}
+
+// A sample of a type this build does not know is left out (no index past the table).
+TEST(FfbUsage, AnUnknownTypeIsLeftOut) {
+    FfbUsage usage(safety());
+    std::array<FfbUsage::SlotSample, 1> slots{};
+    FfbEffect unknown = constant(0.5F);
+    unknown.type = static_cast<FfbEffectType>(FfbUsage::kTypes + 3);
+    slots[0] = {true, unknown, unknown};
+    usage.record(10 * kMs, true, slots);
+    EXPECT_TRUE(usage.empty());
+    EXPECT_TRUE(usage.usedTypes().empty());
+    EXPECT_EQ(usage.gameNs(), 10 * kMs);
+}
+
+// A constant force that is not a number (never meant) does not land in the histogram or the peaks.
+TEST(FfbUsage, NotANumberStrengthCountsAsNone) {
+    FfbUsage usage(safety());
+    std::array<FfbUsage::SlotSample, 1> slots{};
+    slots[0] = {true, constant(std::numeric_limits<float>::quiet_NaN()), constant(0.0F)};
+    usage.record(10 * kMs, true, slots);
+    EXPECT_EQ(usage.type(FfbEffectType::Constant).askedPeak, 0.0F);
+    EXPECT_EQ(usage.type(FfbEffectType::Constant).playNs, 10 * kMs);
+}
+
+// Two slots of one type, the first already capped: the type counts as capped for that time once.
+TEST(FfbUsage, OneCappedSlotOfATypeIsEnough) {
+    FfbUsage usage(safety(1.0F, 0.8F));
+    std::array<FfbUsage::SlotSample, 2> slots{};
+    slots[0] = {true, constant(0.95F), constant(0.8F)};
+    slots[1] = {true, constant(0.2F), constant(0.2F)};
+    usage.record(10 * kMs, true, slots);
+    EXPECT_EQ(usage.type(FfbEffectType::Constant).cappedNs, 10 * kMs);
+    EXPECT_EQ(usage.type(FfbEffectType::Constant).playNs, 10 * kMs);
 }
 
 }  // namespace

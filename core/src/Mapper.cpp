@@ -29,10 +29,13 @@ bool isValidDevice(const int device) {
     return device >= 0 && static_cast<std::size_t>(device) < kMaxInputDevices;
 }
 
-// The axis' value, or nullopt for an axis that is not mapped (or out of range).
+// The axis' value, or nullopt for an axis that is not mapped (or out of range) or reads NaN: std::clamp lets NaN
+// through, so it would reach WheelState (steering -1..1, pedals 0..1) and everything that reads it.
 std::optional<float> axisValue(const RawInputs& inputs, const int device, const int axis) {
     if (!isValidDevice(device) || !isValidAxis(axis)) return std::nullopt;
-    return inputs.devices[static_cast<std::size_t>(device)].axes[static_cast<std::size_t>(axis)];
+    const float value = inputs.devices[static_cast<std::size_t>(device)].axes[static_cast<std::size_t>(axis)];
+    if (std::isnan(value)) return std::nullopt;
+    return value;
 }
 
 bool buttonDown(const RawInputs& inputs, const int device, const int button) {

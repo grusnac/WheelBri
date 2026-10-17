@@ -1,4 +1,4 @@
-// wheelbri-g920: a UMDF 2 HID minidriver presenting a Logitech G920, G25, G27 or G923 to Windows (Phase 5, plan B).
+// wheelbri-g920: a UMDF 2 HID minidriver presenting a Logitech G25, G27, G920 or G923 to Windows (Phase 5, plan B).
 //
 // It does what the former HIDMaestro bridge (step 0) did, inside Windows' driver host:
 //   input  wheelbri-service --UDP 127.0.0.1:41329 (StatePacket)--> driver --> HID input report --> games

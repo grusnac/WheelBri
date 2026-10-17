@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <limits>
+
 namespace wheelbri {
 namespace {
 
@@ -259,4 +262,209 @@ TEST(Mapper, AnInvertedAxisCountsFromWhereItRests) {
     EXPECT_NE(mapper.map(inputs).buttons & (1U << 2), 0U);
 }
 
+}  // namespace wheelbri
+
+namespace wheelbri {
+namespace {
+
+// An axis that reads NaN (a broken driver, a bad float from an accessory): steering centred, pedals released, never NaN
+// in the WheelState the window, telemetry and the encoders read.
+TEST(MapperAxes, NotANumberReadsAsRest) {
+    MapperConfig config;
+    config.throttle.sourceAxis = 1;
+    config.brake.sourceAxis = 2;
+    config.brake.invert = true;
+    config.clutch.sourceAxis = 3;
+    config.clutch.gamma = 2.0F;
+    const Mapper mapper(config);
+    RawInputState raw;
+    raw.axes.fill(std::numeric_limits<float>::quiet_NaN());
+    const WheelState state = mapper.map(raw);
+    EXPECT_EQ(state.steering, 0.0F);
+    EXPECT_EQ(state.throttle, 0.0F);
+    EXPECT_EQ(state.brake, 0.0F);
+    EXPECT_EQ(state.clutch, 0.0F);
+}
+
+// Infinity and values past the ends (a driver that overshoots its declared range): clamped to the ends.
+TEST(MapperAxes, InfinityAndOvershootAreClampedToTheEnds) {
+    MapperConfig config = pedalConfig();
+    config.brake.invert = true;
+    const Mapper mapper(config);
+    RawInputState raw;
+    raw.axes[0] = std::numeric_limits<float>::infinity();
+    raw.axes[1] = 7.0F;
+    raw.axes[2] = -std::numeric_limits<float>::infinity();
+    raw.axes[3] = -3.0F;
+    const WheelState state = mapper.map(raw);
+    EXPECT_EQ(state.steering, 1.0F);
+    EXPECT_EQ(state.throttle, 1.0F);
+    EXPECT_EQ(state.brake, 1.0F);    // inverted: -inf is the pressed end
+    EXPECT_EQ(state.clutch, 0.0F);
+}
+
+// Inverted, gamma-curved pedals at both ends: exactly 0 released and exactly 1 pressed, whatever the curve.
+TEST(MapperPedals, InvertedCurvedPedalHitsBothEndsExactly) {
+    for (const float gamma : {0.3F, 1.0F, 2.5F}) {
+        MapperConfig config = pedalConfig();
+        config.throttle.invert = true;
+        config.throttle.gamma = gamma;
+        const Mapper mapper(config);
+        EXPECT_EQ(mapper.map(withAxis(1, 1.0F)).throttle, 0.0F) << gamma;
+        EXPECT_EQ(mapper.map(withAxis(1, -1.0F)).throttle, 1.0F) << gamma;
+        const float half = mapper.map(withAxis(1, 0.0F)).throttle;
+        EXPECT_NEAR(half, std::pow(0.5F, gamma), kTolerance) << gamma;
+    }
+}
+
+// A config whose axis or device number is outside what the service reads (hand-edited, or from a newer version):
+// the control stays at rest instead of reading past the arrays.
+TEST(MapperAxes, OutOfRangeAxisOrDeviceStaysAtRest) {
+    MapperConfig config;
+    config.steering.sourceAxis = static_cast<int>(RawInputState::kMaxAxes);   // warned about, stays centred
+    config.throttle.sourceAxis = 1;
+    config.throttle.sourceDevice = static_cast<int>(kMaxInputDevices);
+    config.brake.sourceAxis = 2;
+    config.brake.sourceDevice = -1;
+    config.clutch.sourceAxis = -5;
+    const Mapper mapper(config);
+    RawInputs inputs;
+    for (RawInputState& device : inputs.devices) device.axes.fill(1.0F);
+    const WheelState state = mapper.map(inputs);
+    EXPECT_EQ(state.steering, 0.0F);
+    EXPECT_EQ(state.throttle, 0.0F);
+    EXPECT_EQ(state.brake, 0.0F);
+    EXPECT_EQ(state.clutch, 0.0F);
+
+    MapperConfig unmapped;
+    unmapped.steering.sourceAxis = kUnmapped;
+    EXPECT_EQ(Mapper(unmapped).map(withAxis(0, 1.0F)).steering, 0.0F);
+}
+
+// Source buttons 32..63 (a button box) can drive target buttons; numbers past 63, negative ones, or on a device the
+// session does not read press nothing.
+TEST(MapperButtons, HighSourceButtonsAndOutOfRangeNumbers) {
+    MapperConfig config;
+    config.buttonMap[0] = 63;
+    config.buttonMap[1] = 64;
+    config.buttonMap[2] = 40;
+    config.buttonDevice[2] = static_cast<int>(kMaxInputDevices);
+    config.buttonMap[3] = 3;
+    config.buttonDevice[3] = -1;
+    config.buttonSecondary[4][0] = ButtonSource{0, 70, false, false, 0.5F};
+    config.buttonSecondary[5][0] = ButtonSource{9, 1, false, false, 0.5F};
+    config.buttonMap[4] = kUnmapped;
+    config.buttonMap[5] = kUnmapped;
+    const Mapper mapper(config);
+    RawInputState raw;
+    raw.buttons = ~std::uint64_t{0};
+    const std::uint32_t buttons = mapper.map(raw).buttons;
+    EXPECT_NE(buttons & (1U << 0), 0U);   // source 63
+    EXPECT_EQ(buttons & (1U << 1), 0U);   // 64: past the source buttons
+    EXPECT_EQ(buttons & (1U << 2), 0U);   // device 4: not read
+    EXPECT_EQ(buttons & (1U << 3), 0U);   // device -1
+    EXPECT_EQ(buttons & (1U << 4), 0U);   // secondary button 70
+    EXPECT_EQ(buttons & (1U << 5), 0U);   // secondary on device 9
+    EXPECT_NE(buttons & (1U << 31), 0U);  // the last target button, identity
+}
+
+// A secondary axis source on an axis that does not exist reads as resting: never pressed, inverted or not.
+TEST(MapperButtons, AxisSecondaryOnAMissingAxisNeverPresses) {
+    MapperConfig config;
+    config.buttonMap[6] = kUnmapped;
+    config.buttonMap[7] = kUnmapped;
+    config.buttonSecondary[6][0] = ButtonSource{0, 12, true, false, 0.1F};   // axis 12: there is no such axis
+    config.buttonSecondary[7][0] = ButtonSource{0, 12, true, true, 0.1F};
+    config.buttonSecondary[7][1] = ButtonSource{0, 2, true, false, 0.5F};    // NaN axis: released
+    const Mapper mapper(config);
+    RawInputState raw;
+    raw.axes[2] = std::numeric_limits<float>::quiet_NaN();
+    const std::uint32_t buttons = mapper.map(raw).buttons;
+    EXPECT_EQ(buttons & (1U << 6), 0U);
+    EXPECT_EQ(buttons & (1U << 7), 0U);
+    raw.axes[2] = 1.0F;                   // the lever pulled, then NaN: released, not stuck pressed
+    EXPECT_NE(mapper.map(raw).buttons & (1U << 7), 0U);
+    raw.axes[2] = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_EQ(mapper.map(raw).buttons & (1U << 7), 0U);
+}
+
+// A D-pad from buttons with only some directions mapped, one of them also a target button (warned about at start).
+TEST(MapperHat, PartialDpadFromButtons) {
+    MapperConfig config;
+    config.hatButtons.left = 3;   // only left; it also drives target 3 (identity)
+    const Mapper mapper(config);
+    const WheelState state = mapper.map(withButtons(1U << 3));
+    EXPECT_EQ(state.hat, 6);
+    EXPECT_NE(state.buttons & (1U << 3), 0U);
+    EXPECT_EQ(mapper.map(withButtons(0)).hat, kHatCentered);
+
+    MapperConfig downOnly;
+    downOnly.hatButtons.down = 40;
+    EXPECT_EQ(Mapper(downOnly).map(withButtons(1ULL << 40)).hat, 4);
+    MapperConfig rightOnly;
+    rightOnly.hatButtons.right = 1;
+    EXPECT_EQ(Mapper(rightOnly).map(withButtons(1U << 1)).hat, 2);
+}
+
+// Checking mapped axes against what the devices have: a device number outside the session, or an unknown count,
+// is not checked; one axis is spelled "axis", an accessory by its number.
+TEST(MapperDevices, MissingAxesSkipsUnknownDevicesAndSpellsCounts) {
+    MapperConfig config;
+    config.steering.sourceAxis = 1;              // the wheel has 1 axis
+    config.throttle.sourceAxis = 0;
+    config.throttle.sourceDevice = 7;            // not a device the session reads
+    config.brake.sourceAxis = 0;
+    config.brake.sourceDevice = -1;
+    config.clutch.sourceAxis = 4;
+    config.clutch.sourceDevice = 3;              // accessory 3 has 4 axes
+    std::array<int, kMaxInputDevices> counts{1, -1, -1, 4};
+    const auto problems = missingMappedAxes(config, counts);
+    ASSERT_EQ(problems.size(), 2U);
+    EXPECT_EQ(problems[0], "steering: axis 1 of the wheel, which has 1 axis");
+    EXPECT_EQ(problems[1], "clutch: axis 4 of accessory 3, which has 4 axes");
+}
+
+TEST(MapperConfig, AccessoriesEndAtTheFirstEmptySlotAndIdsAreCompared) {
+    MapperConfig config;
+    EXPECT_EQ(config.accessoryCount(), 0U);
+    config.accessories[0] = {0x0000, 0x0001};    // vendor 0 but a product: not empty
+    EXPECT_FALSE(config.accessories[0].empty());
+    config.accessories[1] = {0x044F, 0x0000};
+    config.accessories[2] = {0x1234, 0x5678};
+    EXPECT_EQ(config.accessoryCount(), 3U);       // all three used
+    config.accessories[1] = {};
+    EXPECT_EQ(config.accessoryCount(), 1U);
+    EXPECT_EQ(config.accessories[1], DeviceId{});
+    EXPECT_FALSE(config.accessories[0] == config.accessories[2]);
+
+    const ButtonSource a{1, 2, true, false, 0.5F};
+    EXPECT_EQ(a, (ButtonSource{1, 2, true, false, 0.5F}));
+    EXPECT_FALSE(a == (ButtonSource{2, 2, true, false, 0.5F}));
+    EXPECT_FALSE(a == (ButtonSource{1, 3, true, false, 0.5F}));
+    EXPECT_FALSE(a == (ButtonSource{1, 2, false, false, 0.5F}));
+    EXPECT_FALSE(a == (ButtonSource{1, 2, true, true, 0.5F}));
+    EXPECT_FALSE(a == (ButtonSource{1, 2, true, false, 0.6F}));
+
+    HatButtons hat;
+    EXPECT_FALSE(hat.any());
+    hat.down = 0;
+    EXPECT_TRUE(hat.any());
+}
+
+// RawInputState compares every field: a hat or button change alone counts as new input (Pipeline::inputChanged).
+TEST(MapperConfig, RawInputStateComparesEveryField) {
+    RawInputState a;
+    RawInputState b;
+    EXPECT_EQ(a, b);
+    b.buttons = 1;
+    EXPECT_FALSE(a == b);
+    b = a;
+    b.hat = 0;
+    EXPECT_FALSE(a == b);
+    b = a;
+    b.axes[7] = 0.5F;
+    EXPECT_FALSE(a == b);
+}
+
+}  // namespace
 }  // namespace wheelbri

@@ -441,8 +441,9 @@ void logEffectiveConfig(const wheelbri::EmulatorConfig& config) {
                        "game_effects={} ffb_invert={}",
                 config.sourceDeviceMatch, config.targetProfile, config.statePort, config.ffbPort, config.stateRateHz,
                 config.gameFfb, config.ffbInvert);
-    WE_LOG_DEBUG(log(), "ffb gain={:.2f} max_magnitude={:.2f} max_slew={:.1f}/s", config.ffb.masterGain,
-                 config.ffb.maxMagnitude, config.ffb.maxSlewPerSecond);
+    WE_LOG_DEBUG(log(), "ffb gain={:.2f} max_magnitude={:.2f} max_slew={:.1f}/s frozen_force_s={:.1f}",
+                 config.ffb.masterGain, config.ffb.maxMagnitude, config.ffb.maxSlewPerSecond,
+                 config.ffb.frozenForceSeconds);
 }
 
 void listDevices(wheelbri::service::WheelBackend& backend) {

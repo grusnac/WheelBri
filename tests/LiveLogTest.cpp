@@ -121,5 +121,110 @@ TEST_F(LiveLogFiles, ReadsOnlyTheTailOfABigFile) {
     EXPECT_EQ(log.lines().front().message.rfind("line ", 0), 0U);   // the cut first line was dropped
 }
 
+// Lines that only look like log lines: an unclosed or empty bracket, a bracket that is not a time, a level the
+// parser does not know (read as a driver line), a thread bracket that is not one, a source location not at the end.
+TEST(LiveLog, LinesThatOnlyLookLikeLogLines) {
+    EXPECT_EQ(parseLogLine("[2026-10-02 10:00:00.000 no close", 0).message, "[2026-10-02 10:00:00.000 no close");
+    EXPECT_EQ(parseLogLine("[] empty", 0).message, "[] empty");
+    EXPECT_EQ(parseLogLine("[12:00] short stamp", 0).time, "");
+    EXPECT_EQ(parseLogLine("[2026/10/02 10:00:00.000] slashes", 0).time, "");
+    EXPECT_EQ(parseLogLine("\t [2026-10-02 10:00:00.000] tabs \t", 0).message, "tabs");
+    EXPECT_EQ(parseLogLine("", 0).message, "");
+
+    const auto odd = parseLogLine("[2026-10-02 10:00:00.000] [notice] a warning here", 2);
+    EXPECT_EQ(odd.level, LiveLogLevel::Warn);   // no level known: read from the words
+    EXPECT_EQ(odd.message, "[notice] a warning here");
+    EXPECT_EQ(parseLogLine("[2026-10-02 10:00:00.000] Open FAILED: 5", 0).level, LiveLogLevel::Error);
+    EXPECT_EQ(parseLogLine("[2026-10-02 10:00:00.000] [critical] [svc] [tid 1 ] gone", 0).level, LiveLogLevel::Error);
+    EXPECT_EQ(parseLogLine("[2026-10-02 10:00:00.000] [info ] [svc] [tid 1 ] x  (A.cpp:1)", 0).message, "x");
+
+    const auto noThread = parseLogLine("[2026-10-02 10:00:00.000] [info ] [svc] [not a thread] text", 0);
+    EXPECT_EQ(noThread.logger, "svc");
+    EXPECT_EQ(noThread.message, "[not a thread] text");
+    const auto noLogger = parseLogLine("[2026-10-02 10:00:00.000] [info ] plain", 0);
+    EXPECT_TRUE(noLogger.logger.empty());
+    EXPECT_EQ(noLogger.message, "plain");
+    const auto noSource = parseLogLine("[2026-10-02 10:00:00.000] [info ] [svc] [tid 1 ] see  (manual) later", 0);
+    EXPECT_EQ(noSource.message, "see  (manual) later");   // not at the end: part of the message
+}
+
+// A file that becomes shorter (cut, or replaced by a new one) is read again from its tail; blank lines are skipped.
+TEST_F(LiveLogFiles, AFileThatShrinksIsReadAgain) {
+    append("a.log", "[2026-10-02 10:00:00.000] first of a long line\n");
+    LiveLog log;
+    log.setFile(0, dir_ / "a.log");
+    ASSERT_TRUE(log.poll());
+    std::ofstream(dir_ / "a.log", std::ios::binary | std::ios::trunc) << "\n\n[2026-10-02 11:00:00.000] new\n";
+    ASSERT_TRUE(log.poll());
+    ASSERT_EQ(log.lines().size(), 2U);
+    EXPECT_EQ(log.lines().back().message, "new");
+    std::filesystem::remove(dir_ / "a.log");
+    EXPECT_FALSE(log.poll());   // gone: nothing, no error
+}
+
+// Following another file (the next day's) starts over at its tail; the same path again changes nothing; an empty
+// path stops following.
+TEST_F(LiveLogFiles, TheFileFollowedCanChangeOrStop) {
+    append("day1.log", "[2026-10-02 23:59:59.000] day one\n");
+    append("day2.log", "[2026-10-03 00:00:01.000] day two\n");
+    LiveLog log;
+    log.setFile(0, dir_ / "day1.log");
+    ASSERT_TRUE(log.poll());
+    log.setFile(0, dir_ / "day1.log");     // the same: nothing read again
+    EXPECT_FALSE(log.poll());
+    log.setFile(0, dir_ / "day2.log");
+    ASSERT_TRUE(log.poll());
+    EXPECT_EQ(log.lines().back().message, "day two");
+    log.setFile(0, {});
+    log.setFile(5, {});                    // never followed: nothing to stop
+    append("day2.log", "[2026-10-03 00:00:02.000] unseen\n");
+    EXPECT_FALSE(log.poll());
+    EXPECT_EQ(log.lines().size(), 2U);
+}
+
+// Only the newest kMaxLines are kept; added() still counts every line.
+TEST_F(LiveLogFiles, OnlyTheNewestLinesAreKept) {
+    LiveLog log;
+    log.setFile(0, dir_ / "many.log");
+    append("many.log", "start\n");
+    ASSERT_TRUE(log.poll());
+    std::string text;
+    for (std::size_t i = 0; i < LiveLog::kMaxLines + 10; ++i) text += "l" + std::to_string(i) + "\n";
+    append("many.log", text);
+    ASSERT_TRUE(log.poll());
+    EXPECT_EQ(log.lines().size(), LiveLog::kMaxLines);
+    EXPECT_EQ(log.lines().front().message, "l10");
+    EXPECT_EQ(log.added(), LiveLog::kMaxLines + 11);
+}
+
+// A big file whose tail has no line end at all (a binary file): nothing from the cut start is shown, and what
+// comes after the next line end is.
+TEST_F(LiveLogFiles, ATailWithoutALineEndShowsNothingUntilOne) {
+    append("binary.log", std::string(LiveLog::kInitialTailBytes + 1000, 'x'));
+    LiveLog log;
+    log.setFile(0, dir_ / "binary.log");
+    EXPECT_FALSE(log.poll());
+    append("binary.log", "\n[2026-10-02 10:00:00.000] after\n");
+    ASSERT_TRUE(log.poll());
+    ASSERT_EQ(log.lines().size(), 1U);
+    EXPECT_EQ(log.lines().front().message, "after");
+}
+
+// More than kMaxReadBytes written at once is read over several polls, none of it lost.
+TEST_F(LiveLogFiles, AHugeWriteIsReadOverSeveralPolls) {
+    LiveLog log;
+    log.setFile(0, dir_ / "huge.log");
+    append("huge.log", "start\n");
+    ASSERT_TRUE(log.poll());
+    const std::string line(1000, 'y');
+    std::string text;
+    for (int i = 0; i < 1200; ++i) text += line + "\n";   // about 1.2 MB
+    append("huge.log", text);
+    int polls = 0;
+    while (log.poll()) ++polls;
+    EXPECT_GE(polls, 3);
+    EXPECT_EQ(log.added(), 1201U);
+}
+
 }  // namespace
 }  // namespace wheelbri

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstring>
+#include <limits>
 
 namespace wheelbri {
 namespace {
@@ -245,6 +246,174 @@ TEST(JoystickLayout, AxisNames) {
     EXPECT_EQ(parseAxisName("none"), std::optional<ObjectGuid>(ObjectGuid::Any));
     EXPECT_EQ(parseAxisName("Z"), std::nullopt);
     EXPECT_EQ(axisName(ObjectGuid::ZAxis), "z");
+}
+
+// Before the game sets a data format there is nothing to write (GetDeviceState fails), and a buffer of the wrong
+// size is refused rather than written past.
+TEST(EmulatedJoystick, NoStateWithoutAFormatOrWithTheWrongSize) {
+    EmulatedJoystick joystick(g920());
+    std::vector<std::uint8_t> state(80, 0xCD);
+    EXPECT_FALSE(joystick.writeState(sampleReport(), state));
+    EXPECT_EQ(joystick.formatOffset(0), std::nullopt);
+    EXPECT_EQ(state[0], 0xCD);
+    ASSERT_EQ(joystick.setDataFormat(joystickFormat(), 80), EmulatedJoystick::FormatResult::Ok);
+    std::vector<std::uint8_t> small(79, 0xCD);
+    EXPECT_FALSE(joystick.writeState(sampleReport(), small));
+    std::vector<std::uint8_t> big(81, 0xCD);
+    EXPECT_FALSE(joystick.writeState(sampleReport(), big));
+    EXPECT_EQ(small[0], 0xCD);
+}
+
+// A hat value the profile never makes (8 and up, or below -1, from a corrupt report): the POV reads centred.
+TEST(EmulatedJoystick, HatOutOfRangeReadsCentred) {
+    const EmulatedJoystick joystick(g920());
+    const std::size_t pov = joystick.objects().size() - 1;
+    TargetReport report = sampleReport();
+    for (const std::int8_t hat : {std::int8_t{8}, std::int8_t{100}, std::int8_t{-2}, kHatCentered}) {
+        report.hat = hat;
+        EXPECT_EQ(joystick.valueOf(pov, report), di::kPovCentered) << static_cast<int>(hat);
+    }
+    report.hat = 7;
+    EXPECT_EQ(joystick.valueOf(pov, report), 31500U);
+}
+
+// Report values outside 0..65535 (the profile never makes them, a hand-made one could): axes stay inside the game's
+// range, pedals too after the inversion.
+TEST(EmulatedJoystick, OutOfRangeReportValuesStayInTheGamesRange) {
+    JoystickLayout layout = g920();
+    layout.invertPedals = true;
+    EmulatedJoystick joystick(layout);
+    joystick.setRange(0, {-100, 100});
+    joystick.setRange(1, {0, 255});
+    TargetReport report;
+    report.steering = std::numeric_limits<std::int32_t>::max();
+    report.throttle = std::numeric_limits<std::int32_t>::min();
+    EXPECT_EQ(static_cast<std::int32_t>(joystick.valueOf(0, report)), 100);
+    EXPECT_EQ(joystick.valueOf(1, report), 255U);   // below 0 = 0, inverted = 65535: the top of 0..255
+    report.steering = -5;
+    report.throttle = 70000;
+    EXPECT_EQ(static_cast<std::int32_t>(joystick.valueOf(0, report)), -100);
+    EXPECT_EQ(joystick.valueOf(1, report), 0U);
+}
+
+// A target with more buttons than DirectInput's DIJOYSTATE2 format offers the game: 32 at most.
+TEST(EmulatedJoystick, ButtonsCappedAt32) {
+    const EmulatedJoystick joystick(layoutFor("g920", 40));
+    EXPECT_EQ(joystick.buttonCount(), 32U);
+    EXPECT_EQ(joystick.objects().back().guid, ObjectGuid::Pov);
+}
+
+// Format entries that ask for something this device has not: a second POV (optional: reads centred, required: the
+// format fails), a force-feedback actuator other than the wheel, an explicit position aspect, an entry with no kind.
+TEST(EmulatedJoystick, FormatEntriesByKindActuatorAndAspect) {
+    EmulatedJoystick joystick(g920());
+    const std::vector<FormatEntry> entries = {
+        {ObjectGuid::Any, 0, di::kAxis | di::kAnyInstance | di::kFfActuator, 0},   // only the wheel actuates
+        {ObjectGuid::Any, 4, di::kAxis | di::kAnyInstance | di::kFfActuator | di::kOptional, 0},   // no second
+        {ObjectGuid::YAxis, 8, di::kAnyInstance, di::kAspectPosition},   // no kind bits, position aspect
+        {ObjectGuid::Any, 12, di::kPov | di::kAnyInstance, 0},
+        {ObjectGuid::Any, 16, di::kPov | kAnyOptional, 0},   // a second POV by kind: centred
+        {ObjectGuid::Pov, 20, di::kPov | kAnyOptional, 0},
+    };
+    ASSERT_EQ(joystick.setDataFormat(entries, 24), EmulatedJoystick::FormatResult::Ok);
+    EXPECT_EQ(joystick.formatOffset(0), std::optional<std::uint32_t>(0));
+    EXPECT_EQ(joystick.formatOffset(1), std::optional<std::uint32_t>(8));
+    std::vector<std::uint8_t> state(24, 0xCD);
+    ASSERT_TRUE(joystick.writeState(sampleReport(), state));
+    EXPECT_EQ(readI32(state, 0), 65535);
+    EXPECT_EQ(readI32(state, 4), 0);   // nothing there: zero
+    EXPECT_EQ(readU32(state, 12), 9000U);
+    EXPECT_EQ(readU32(state, 16), di::kPovCentered);
+    EXPECT_EQ(readU32(state, 20), di::kPovCentered);
+
+    const std::vector<FormatEntry> twoPovs = {{ObjectGuid::Pov, 0, di::kPov | di::kAnyInstance, 0},
+                                              {ObjectGuid::Pov, 4, di::kPov | di::kAnyInstance, 0}};
+    EXPECT_EQ(joystick.setDataFormat(twoPovs, 8), EmulatedJoystick::FormatResult::InvalidParam);
+    EXPECT_TRUE(joystick.hasDataFormat());   // a failed format keeps the one before
+    EXPECT_EQ(joystick.dataSize(), 24U);
+}
+
+// Optional POV entries the device cannot fill but that are misplaced (unaligned, past the data, or straddling its
+// end): nothing is written there, so they cannot write past the game's buffer.
+TEST(EmulatedJoystick, MisplacedMissingPovsAreNotWritten) {
+    EmulatedJoystick joystick(g920());
+    const std::vector<FormatEntry> entries = {
+        {ObjectGuid::Pov, 0, di::kPov | kAnyOptional, 0},    // the real one
+        {ObjectGuid::Pov, 6, di::kPov | kAnyOptional, 0},    // unaligned
+        {ObjectGuid::Pov, 8, di::kPov | kAnyOptional, 0},    // straddles the end (10 bytes)
+        {ObjectGuid::Pov, 0xFFFFFFFCU, di::kPov | kAnyOptional, 0},   // far past it
+        {ObjectGuid::Button, 4, di::kButton | kAnyOptional, 0},
+        {ObjectGuid::ZAxis, 8, di::kAxis | kAnyOptional, 0},   // not on this device, not a POV: ignored
+    };
+    ASSERT_EQ(joystick.setDataFormat(entries, 10), EmulatedJoystick::FormatResult::Ok);
+    std::vector<std::uint8_t> state(10, 0xCD);
+    ASSERT_TRUE(joystick.writeState(sampleReport(), state));
+    EXPECT_EQ(readU32(state, 0), 9000U);
+    EXPECT_EQ(state[4], di::kButtonDown);
+    for (std::size_t i = 5; i < state.size(); ++i) EXPECT_EQ(state[i], 0) << i;
+}
+
+// An axis at an unaligned offset is refused (DirectInput requires DWORD alignment); a button may sit anywhere.
+TEST(EmulatedJoystick, UnalignedAxisFailsTheFormatButAButtonDoesNot) {
+    EmulatedJoystick joystick(g920());
+    EXPECT_EQ(joystick.setDataFormat({{ObjectGuid::XAxis, 2, di::kAxis | di::kAnyInstance, 0}}, 8),
+              EmulatedJoystick::FormatResult::InvalidParam);
+    EXPECT_EQ(joystick.setDataFormat({{ObjectGuid::Button, 7, di::kButton | di::kAnyInstance, 0}}, 8),
+              EmulatedJoystick::FormatResult::Ok);
+    EXPECT_EQ(joystick.setDataFormat({{ObjectGuid::Button, 8, di::kButton | di::kAnyInstance, 0}}, 8),
+              EmulatedJoystick::FormatResult::InvalidParam);
+}
+
+// Lookups for objects the device does not have (GetProperty / GetObjectInfo on a stranger's offset, id or usage).
+TEST(EmulatedJoystick, LookupsForMissingObjects) {
+    EmulatedJoystick joystick(g920());
+    EXPECT_EQ(joystick.objectById(di::kAbsAxis | di::makeInstance(9)), std::nullopt);
+    EXPECT_EQ(joystick.objectById(di::kPov | di::makeInstance(1)), std::nullopt);
+    EXPECT_EQ(joystick.objectByUsage(0x01, 0x32), std::nullopt);   // Z: not on this device
+    EXPECT_EQ(joystick.objectByUsage(0x02, 0x30), std::nullopt);   // X's usage on another page
+    EXPECT_EQ(joystick.objectByUsage(0x09, 11), std::optional<std::size_t>(14));   // Button 11
+    EXPECT_EQ(joystick.objectAtOffset(8), std::nullopt);           // native Z: absent
+    // With a format, an object the format left out is not at its native offset any more.
+    ASSERT_EQ(joystick.setDataFormat({{ObjectGuid::XAxis, 4, di::kAxis | di::kAnyInstance, 0}}, 8),
+              EmulatedJoystick::FormatResult::Ok);
+    EXPECT_EQ(joystick.objectAtOffset(4), std::optional<std::size_t>(0));
+    EXPECT_EQ(joystick.objectAtOffset(0), std::nullopt);
+    EXPECT_EQ(joystick.objectAtOffset(20), std::nullopt);   // the brake: not in the format
+    EXPECT_EQ(joystick.reportedOffset(2), 20U);             // still listed at its native offset
+}
+
+// Buffered input with a format that leaves objects out: only the formatted ones produce changes.
+TEST(EmulatedJoystick, DiffSkipsObjectsTheFormatLeftOut) {
+    EmulatedJoystick joystick(g920());
+    ASSERT_EQ(joystick.setDataFormat({{ObjectGuid::XAxis, 0, di::kAxis | di::kAnyInstance, 0}}, 4),
+              EmulatedJoystick::FormatResult::Ok);
+    TargetReport before = sampleReport();
+    TargetReport after = before;
+    after.brake = 0;
+    after.buttons = 0;
+    after.hat = 0;
+    EXPECT_TRUE(joystick.diff(before, after).empty());
+    after.steering = 0;
+    const auto changes = joystick.diff(before, after);
+    ASSERT_EQ(changes.size(), 1U);
+    EXPECT_EQ(changes[0].offset, 0U);
+    EXPECT_EQ(changes[0].data, 0U);
+}
+
+TEST(JoystickLayout, NamesOfAxesThatAreNotAxes) {
+    EXPECT_EQ(axisName(ObjectGuid::Any), "none");
+    EXPECT_EQ(axisName(ObjectGuid::Pov), "none");
+    EXPECT_EQ(parseAxisName(""), std::nullopt);
+    EXPECT_EQ(parseAxisName("x"), std::optional<ObjectGuid>(ObjectGuid::XAxis));
+    JoystickLayout layout;
+    layout.clutch = ObjectGuid::Pov;   // not an axis
+    EXPECT_FALSE(isValid(layout));
+    layout = JoystickLayout{};
+    layout.clutch = ObjectGuid::XAxis;   // the wheel's
+    EXPECT_FALSE(isValid(layout));
+    layout = JoystickLayout{};
+    layout.clutch = ObjectGuid::YAxis;   // the throttle's
+    EXPECT_FALSE(isValid(layout));
 }
 
 }  // namespace

@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+#include <string>
+
 using namespace wheelbri;
 
 TEST(AxisTuning, ParsesTypedNumbers) {
@@ -34,4 +37,26 @@ TEST(AxisTuning, Ranges) {
     EXPECT_TRUE(tuning::rotationProblem(2520.0F).empty());
     EXPECT_FALSE(tuning::rotationProblem(89.0F).empty());
     EXPECT_FALSE(tuning::rotationProblem(3000.0F).empty());
+}
+
+// Numbers as people type them: tabs around, a unit with a space, digits only after the point, a lone "-" or ".".
+TEST(AxisTuning, ParsesEdgesOfTypedNumbers) {
+    EXPECT_EQ(tuning::parseNumber("\t900\t"), 900.0F);
+    EXPECT_EQ(tuning::parseNumber("\t540 \tdeg "), 540.0F);
+    EXPECT_EQ(tuning::parseNumber("7."), 7.0F);
+    EXPECT_EQ(tuning::parseNumber("-.5%"), -0.5F);
+    for (const char* bad : {"-", ".", "-.", "\t", "deg%", "% "}) {
+        EXPECT_FALSE(tuning::parseNumber(bad).has_value()) << bad;
+    }
+    // Too big for a float: from_chars refuses it rather than giving infinity.
+    EXPECT_FALSE(tuning::parseNumber(std::string(60, '9')).has_value());
+}
+
+// Whole numbers at zero decimals have no point to trim; a value that is not a number is never a rotation.
+TEST(AxisTuning, FormatsWholeNumbersAndRefusesNonNumbers) {
+    EXPECT_EQ(tuning::formatNumber(2.6F, 0), "3");
+    EXPECT_EQ(tuning::formatNumber(-0.4F, 0), "0");
+    EXPECT_EQ(tuning::formatNumber(1.5F, 3), "1.5");
+    EXPECT_FALSE(tuning::rotationProblem(std::numeric_limits<float>::quiet_NaN()).empty());
+    EXPECT_FALSE(tuning::rotationProblem(std::numeric_limits<float>::infinity()).empty());
 }

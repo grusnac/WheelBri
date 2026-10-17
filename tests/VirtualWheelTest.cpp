@@ -11,7 +11,7 @@ namespace wheelbri {
 namespace {
 
 TEST(VirtualWheel, OneIdentityPerTarget) {
-    ASSERT_EQ(virtualWheels().size(), 4U);   // G920, G25, G27, G923
+    ASSERT_EQ(virtualWheels().size(), 4U);   // G25, G27, G920, G923
     for (const VirtualWheel& wheel : virtualWheels()) {
         const auto profile = makeProfile(wheel.profile);
         ASSERT_NE(profile, nullptr) << wheel.profile;
@@ -96,6 +96,31 @@ TEST(VirtualWheel, NothingElseIsAVirtualWheel) {
     EXPECT_EQ(virtualWheel("G920"), nullptr);   // config names are lower case
     EXPECT_FALSE(isVirtualWheelId(0x046E, 0xC262));
     EXPECT_FALSE(isVirtualWheelId(0, 0));
+}
+
+// A hat value no wheel reports (8 and up, or below -1, from a corrupt report): the HID hat reads centred (8).
+TEST(VirtualWheel, AHatOutOfRangeIsPackedCentred) {
+    TargetReport report = g920Neutral();
+    for (const std::int8_t hat : {std::int8_t{8}, std::int8_t{100}, std::int8_t{-5}, kHatCentered}) {
+        report.hat = hat;
+        EXPECT_EQ(packG920Input(report)[12], 8) << static_cast<int>(hat);
+    }
+    report.hat = 7;
+    EXPECT_EQ(packG920Input(report)[12], 7);
+}
+
+// The descriptor for wheels the table may get later: HID++ with fewer than the G923's buttons has no HID++
+// descriptor (the plain one for its buttons); one without Logitech's pedal layout gets the games' layout on Windows.
+TEST(VirtualWheel, DescriptorsForOtherCombinations) {
+    VirtualWheel small = *virtualWheel("g923");
+    small.buttons = kG920Buttons;
+    EXPECT_EQ(reportDescriptorFor(small, DescriptorFor::Windows).data(), g920ReportDescriptor(kG920Buttons).data());
+    VirtualWheel gamesPedals = *virtualWheel("g923");
+    gamesPedals.logitechPedals = false;
+    EXPECT_EQ(reportDescriptorFor(gamesPedals, DescriptorFor::Windows).data(),
+              reportDescriptorFor(*virtualWheel("g923"), DescriptorFor::Linux).data());
+    EXPECT_NE(reportDescriptorFor(*virtualWheel("g923"), DescriptorFor::Windows).data(),
+              reportDescriptorFor(*virtualWheel("g923"), DescriptorFor::Linux).data());
 }
 
 }  // namespace

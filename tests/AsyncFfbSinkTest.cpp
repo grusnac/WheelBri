@@ -325,3 +325,125 @@ TEST(FfbDelayStats, SharesWithin) {
     EXPECT_NEAR(stats.shareWithin(FfbDelayStats::Group::Constant, 50), 1.0, 1e-9);
     EXPECT_EQ(stats.shareWithin(FfbDelayStats::Group::Stop, 5), 0.0);
 }
+
+// Slot numbers past the last one (a caller's bug): a play is refused, a stop ignored, the wheel is not called.
+TEST(AsyncFfbSink, SlotsPastTheLastAreRefused) {
+    auto log = std::make_shared<SlowSink::Log>();
+    AsyncFfbSink sink(std::make_unique<SlowSink>(log));
+    EXPECT_FALSE(sink.play(IFfbSink::kMaxSlots, constant(0.5F)));
+    sink.stop(IFfbSink::kMaxSlots);
+    sink.stop(1000);
+    sink.flush();
+    EXPECT_TRUE(log->take().empty());
+}
+
+// A sink created without a wheel behind it (none could be opened) can still be destroyed: there is nothing to stop.
+TEST(AsyncFfbSink, OneWithoutAWheelCanBeDestroyed) {
+    { const AsyncFfbSink sink(nullptr); }
+    SUCCEED();
+}
+
+// Two stops of everything while the wheel is busy are one call, not two.
+TEST(AsyncFfbSink, StopAllTwiceWhileBusyIsOneCall) {
+    auto log = std::make_shared<SlowSink::Log>();
+    log->holdCalls(true);
+    AsyncFfbSink sink(std::make_unique<SlowSink>(log));
+    sink.play(7, constant(0.1F));
+    log->waitForFirstCall();
+    sink.stopAll();
+    sink.stopAll();
+    log->holdCalls(false);
+    sink.flush();
+    EXPECT_EQ(log->take(), (std::vector<std::string>{"play 7 0.100000", "stopAll"}));
+}
+
+// Two commands of the same kind waiting: the one that waited longer goes first, whatever its slot number. (Queued in
+// the order they should come out, so a slow machine that lets them all wait past kMaxWait gives the same order.)
+TEST(AsyncFfbSink, OfTheSameKindTheOlderGoesFirst) {
+    auto log = std::make_shared<SlowSink::Log>();
+    log->holdCalls(true);
+    AsyncFfbSink sink(std::make_unique<SlowSink>(log));
+    sink.play(7, constant(0.1F));
+    log->waitForFirstCall();
+    sink.stop(6);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    sink.stop(2);
+    sink.play(1, constant(0.2F));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    sink.play(5, constant(0.5F));
+    log->holdCalls(false);
+    sink.flush();
+    EXPECT_EQ(log->take(), (std::vector<std::string>{"play 7 0.100000", "stop 6", "stop 2", "play 1 0.200000",
+                                                     "play 5 0.500000"}));
+}
+
+// The wheel refusing a play while a stop for that slot already waits: the stop settles it, nothing to report.
+TEST(AsyncFfbSink, ARefusalWithAStopWaitingIsNotReported) {
+    auto log = std::make_shared<SlowSink::Log>();
+    log->refuse = true;
+    log->holdCalls(true);
+    AsyncFfbSink sink(std::make_unique<SlowSink>(log));
+    sink.play(4, constant(0.5F));
+    log->waitForFirstCall();
+    sink.stop(4);
+    log->holdCalls(false);
+    sink.flush();
+    EXPECT_EQ(sink.failures(), 1U);
+    EXPECT_EQ(log->take(), (std::vector<std::string>{"play 4 0.500000", "stop 4"}));
+    log->setRefuse(false);
+    EXPECT_TRUE(sink.play(4, constant(0.6F)));
+}
+
+// The wheel refusing a play while a stop of everything waits: the stop settles it, nothing to report.
+TEST(AsyncFfbSink, ARefusalWithAStopAllWaitingIsNotReported) {
+    auto log = std::make_shared<SlowSink::Log>();
+    log->refuse = true;
+    log->holdCalls(true);
+    AsyncFfbSink sink(std::make_unique<SlowSink>(log));
+    sink.play(4, constant(0.5F));
+    log->waitForFirstCall();
+    sink.stopAll();
+    log->holdCalls(false);
+    sink.flush();
+    EXPECT_EQ(log->take(), (std::vector<std::string>{"play 4 0.500000", "stopAll"}));
+    log->setRefuse(false);
+    EXPECT_TRUE(sink.play(4, constant(0.6F)));
+}
+
+// Every group has its name; one this build does not know shows as "?". Stops of one slot and of all are stops.
+TEST(FfbDelayStats, GroupsAndNames) {
+    EXPECT_STREQ(FfbDelayStats::groupName(FfbDelayStats::Group::Constant), "constant");
+    EXPECT_STREQ(FfbDelayStats::groupName(FfbDelayStats::Group::Periodic), "periodic");
+    EXPECT_STREQ(FfbDelayStats::groupName(FfbDelayStats::Group::Condition), "spring etc.");
+    EXPECT_STREQ(FfbDelayStats::groupName(FfbDelayStats::Group::Stop), "stops");
+    EXPECT_STREQ(FfbDelayStats::groupName(static_cast<FfbDelayStats::Group>(9)), "?");
+    AsyncFfbSink::Applied a;
+    a.type = FfbEffectType::Triangle;
+    EXPECT_EQ(FfbDelayStats::groupOf(a), FfbDelayStats::Group::Periodic);
+    a.type = FfbEffectType::Inertia;
+    EXPECT_EQ(FfbDelayStats::groupOf(a), FfbDelayStats::Group::Condition);
+    a.kind = AsyncFfbSink::Applied::Kind::Stop;
+    EXPECT_EQ(FfbDelayStats::groupOf(a), FfbDelayStats::Group::Stop);
+    a.kind = AsyncFfbSink::Applied::Kind::StopAll;
+    EXPECT_EQ(FfbDelayStats::groupOf(a), FfbDelayStats::Group::Stop);
+}
+
+// A call slower than the last bucket (a wheel's driver stuck for 80 ms) counts, outside every share.
+TEST(FfbDelayStats, CallsSlowerThanTheLastBucketCount) {
+    FfbDelayStats stats;
+    EXPECT_FALSE(stats.any());
+    AsyncFfbSink::Applied a;
+    a.type = FfbEffectType::Sine;
+    a.waitUs = 0xFFFFFFFFU;   // the longest wait there is: no overflow in the total
+    a.callUs = 0xFFFFFFFFU;
+    stats.record(a);
+    a.waitUs = 0;
+    a.callUs = 1'000;
+    stats.record(a);
+    EXPECT_TRUE(stats.any());
+    EXPECT_EQ(stats.count(FfbDelayStats::Group::Periodic), 2U);
+    EXPECT_NEAR(stats.shareWithin(FfbDelayStats::Group::Periodic, 50), 0.5, 1e-9);
+    EXPECT_NEAR(stats.shareWithin(FfbDelayStats::Group::Periodic, 1), 0.5, 1e-9);
+    EXPECT_NEAR(stats.shareWithin(FfbDelayStats::Group::Periodic, 0), 0.0, 1e-9);
+    EXPECT_NE(stats.line(FfbDelayStats::Group::Periodic).find("periodic"), std::string::npos);
+}

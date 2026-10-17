@@ -31,8 +31,11 @@ std::optional<StatePacket> pollWithTimeout(IStateReceiver& receiver) {
 }
 
 TEST(UdpLoopback, ReceiverGetsNewestPacket) {
-    const auto receiver = UdpLoopbackReceiver::create(kTestPort);
-    const auto publisher = UdpLoopbackPublisher::create(kTestPort);
+    // A port the system chooses: tests running side by side never share one.
+    const auto receiver = UdpLoopbackReceiver::create(0);
+    ASSERT_NE(receiver, nullptr);
+    const std::uint16_t port = receiver->localPort();
+    const auto publisher = UdpLoopbackPublisher::create(port);
     ASSERT_NE(receiver, nullptr);
     ASSERT_NE(publisher, nullptr);
 
@@ -58,9 +61,11 @@ TEST(UdpLoopback, PublishingWithoutReceiverIsHarmless) {
 }
 
 TEST(UdpLoopback, RawDatagramsArriveInOrder) {
-    constexpr std::uint16_t kPort = 41998;
-    const auto listener = UdpLoopbackListener::create(kPort);
-    const auto sender = UdpLoopbackSender::create(kPort);
+    // A port the system chooses: tests running side by side never share one.
+    const auto listener = UdpLoopbackListener::create(0);
+    ASSERT_NE(listener, nullptr);
+    const std::uint16_t port = listener->localPort();
+    const auto sender = UdpLoopbackSender::create(port);
     ASSERT_NE(listener, nullptr);
     ASSERT_NE(sender, nullptr);
 
@@ -89,9 +94,11 @@ TEST(UdpLoopback, RawDatagramsArriveInOrder) {
 }
 
 TEST(UdpLoopback, PollReadsAtMostItsCapAndTheRestWaits) {
-    constexpr std::uint16_t kPort = 41997;
-    const auto receiver = UdpLoopbackReceiver::create(kPort);
-    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    // A port the system chooses: tests running side by side never share one.
+    const auto receiver = UdpLoopbackReceiver::create(0);
+    ASSERT_NE(receiver, nullptr);
+    const std::uint16_t port = receiver->localPort();
+    const auto publisher = UdpLoopbackPublisher::create(port);
     ASSERT_NE(receiver, nullptr);
     ASSERT_NE(publisher, nullptr);
     constexpr std::uint32_t kSent = 160;   // well within the socket buffer (Linux keeps about 270 of these)
@@ -117,9 +124,11 @@ TEST(UdpLoopback, PollReadsAtMostItsCapAndTheRestWaits) {
 }
 
 TEST(UdpLoopback, SenderFilterDropsRefusedSenders) {
-    constexpr std::uint16_t kPort = 41996;
-    const auto receiver = UdpLoopbackReceiver::create(kPort);
-    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    // A port the system chooses: tests running side by side never share one.
+    const auto receiver = UdpLoopbackReceiver::create(0);
+    ASSERT_NE(receiver, nullptr);
+    const std::uint16_t port = receiver->localPort();
+    const auto publisher = UdpLoopbackPublisher::create(port);
     ASSERT_NE(receiver, nullptr);
     ASSERT_NE(publisher, nullptr);
     std::vector<std::uint16_t> senders;
@@ -138,11 +147,12 @@ TEST(UdpLoopback, SenderFilterDropsRefusedSenders) {
 }
 
 TEST(UdpLoopback, TheReceiverTakesTheServicesLogLevelBesideTheStates) {
-    constexpr std::uint16_t kPort = 41994;
-    const auto receiver = UdpLoopbackReceiver::create(kPort);
-    const auto publisher = UdpLoopbackPublisher::create(kPort);
-    const auto sender = UdpLoopbackSender::create(kPort);
+    // A port the system chooses: tests running side by side never share one.
+    const auto receiver = UdpLoopbackReceiver::create(0);
     ASSERT_NE(receiver, nullptr);
+    const std::uint16_t port = receiver->localPort();
+    const auto publisher = UdpLoopbackPublisher::create(port);
+    const auto sender = UdpLoopbackSender::create(port);
     ASSERT_NE(publisher, nullptr);
     ASSERT_NE(sender, nullptr);
     EXPECT_FALSE(receiver->takeLogLevel().has_value());
@@ -170,9 +180,11 @@ TEST(UdpLoopback, TheReceiverTakesTheServicesLogLevelBesideTheStates) {
 }
 
 TEST(UdpLoopback, ListenerTellsTheSendersPort) {
-    constexpr std::uint16_t kPort = 41995;
-    const auto listener = UdpLoopbackListener::create(kPort);
-    const auto sender = UdpLoopbackSender::create(kPort);
+    // A port the system chooses: tests running side by side never share one.
+    const auto listener = UdpLoopbackListener::create(0);
+    ASSERT_NE(listener, nullptr);
+    const std::uint16_t port = listener->localPort();
+    const auto sender = UdpLoopbackSender::create(port);
     ASSERT_NE(listener, nullptr);
     ASSERT_NE(sender, nullptr);
     const std::array<std::uint8_t, 1> byte = {7};
@@ -187,7 +199,7 @@ TEST(UdpLoopback, ListenerTellsTheSendersPort) {
     }
     ASSERT_TRUE(size.has_value());
     EXPECT_NE(from, 0);
-    EXPECT_NE(from, kPort);
+    EXPECT_NE(from, port);
 }
 StatePacket withSequence(const std::uint32_t sequence) {
     StatePacket packet;
@@ -199,9 +211,11 @@ StatePacket withSequence(const std::uint32_t sequence) {
 // A restarted service counts from 1 again, and packets may be lost: the receiver hands over what came last, in
 // arrival order, never holding on to the old, higher numbers.
 TEST(UdpLoopback, ARestartedServiceAndLostPacketsAreFollowed) {
-    constexpr std::uint16_t kPort = 41993;
-    const auto receiver = UdpLoopbackReceiver::create(kPort);
-    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    // A port the system chooses: tests running side by side never share one.
+    const auto receiver = UdpLoopbackReceiver::create(0);
+    ASSERT_NE(receiver, nullptr);
+    const std::uint16_t port = receiver->localPort();
+    const auto publisher = UdpLoopbackPublisher::create(port);
     ASSERT_NE(receiver, nullptr);
     ASSERT_NE(publisher, nullptr);
     ASSERT_TRUE(publisher->publish(withSequence(100)));
@@ -215,10 +229,12 @@ TEST(UdpLoopback, ARestartedServiceAndLostPacketsAreFollowed) {
 }
 
 TEST(UdpLoopback, MalformedDatagramsAreDroppedAndTheGoodOnesKept) {
-    constexpr std::uint16_t kPort = 41992;
-    const auto receiver = UdpLoopbackReceiver::create(kPort);
-    const auto sender = UdpLoopbackSender::create(kPort);
-    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    // A port the system chooses: tests running side by side never share one.
+    const auto receiver = UdpLoopbackReceiver::create(0);
+    ASSERT_NE(receiver, nullptr);
+    const std::uint16_t port = receiver->localPort();
+    const auto sender = UdpLoopbackSender::create(port);
+    const auto publisher = UdpLoopbackPublisher::create(port);
     ASSERT_NE(receiver, nullptr);
     ASSERT_NE(sender, nullptr);
     ASSERT_NE(publisher, nullptr);
@@ -239,26 +255,120 @@ TEST(UdpLoopback, MalformedDatagramsAreDroppedAndTheGoodOnesKept) {
     EXPECT_EQ(latest->sequence, 8U);
 }
 
+// Damaged states from a stray program or an older build: cut short, one byte too long, the wrong magic, far too
+// large for the receiver's buffer (read cut), a log level packet cut or padded. None is taken as a state or a
+// level, each is read out of the socket, and the good state after them gets through.
+TEST(UdpLoopback, ShortLongAndForeignDatagramsAreNeverStates) {
+    // A port the system chooses: tests running side by side never share one.
+    const auto receiver = UdpLoopbackReceiver::create(0);
+    ASSERT_NE(receiver, nullptr);
+    const std::uint16_t port = receiver->localPort();
+    const auto sender = UdpLoopbackSender::create(port);
+    ASSERT_NE(receiver, nullptr);
+    ASSERT_NE(sender, nullptr);
+    const auto good = encode(withSequence(9));
+    const std::vector<std::uint8_t> whole(good.begin(), good.end());
+    std::vector<std::uint8_t> shortOne(whole.begin(), whole.end() - 1);
+    std::vector<std::uint8_t> longOne = whole;
+    longOne.push_back(0);
+    std::vector<std::uint8_t> wrongMagic = whole;
+    wrongMagic[0] = 'X';
+    std::vector<std::uint8_t> huge = whole;
+    huge.resize(1000, 0xAB);                  // the first 33 bytes are a good state: still not one
+    const auto level = encode(LogLevelPacket{LogLevel::Debug});
+    std::vector<std::uint8_t> levelShort(level.begin(), level.end() - 1);
+    std::vector<std::uint8_t> levelLong(level.begin(), level.end());
+    levelLong.push_back(0);
+    std::vector<std::uint8_t> levelWrongMagic(level.begin(), level.end());
+    levelWrongMagic[0] = 'X';
+    std::vector<std::uint8_t> empty;
+    for (const auto* bytes : {&shortOne, &longOne, &wrongMagic, &huge, &levelShort, &levelLong, &levelWrongMagic,
+                              &empty}) {
+        ASSERT_TRUE(sender->send(*bytes));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_FALSE(receiver->pollLatest().has_value());
+#ifdef _WIN32
+    EXPECT_EQ(receiver->lastPoll().read, 7U);   // Windows drops the huge one (WSAEMSGSIZE, skipped, not read)
+#else
+    EXPECT_EQ(receiver->lastPoll().read, 8U);   // elsewhere it is read cut short
+#endif
+    EXPECT_FALSE(receiver->lastPoll().capped);
+    EXPECT_FALSE(receiver->takeLogLevel().has_value());
+
+    ASSERT_TRUE(sender->send(whole));
+    const auto latest = pollWithTimeout(*receiver);
+    ASSERT_TRUE(latest.has_value());
+    EXPECT_EQ(latest->sequence, 9U);
+}
+
+// A datagram larger than UDP allows cannot be sent: send says so, nothing arrives, and the next one goes through.
+TEST(UdpLoopback, AnOversizedDatagramIsRefusedBySend) {
+    // A port the system chooses: tests running side by side never share one.
+    const auto listener = UdpLoopbackListener::create(0);
+    ASSERT_NE(listener, nullptr);
+    const std::uint16_t port = listener->localPort();
+    const auto sender = UdpLoopbackSender::create(port);
+    ASSERT_NE(listener, nullptr);
+    ASSERT_NE(sender, nullptr);
+    const std::vector<std::uint8_t> tooLarge(70000, 1);
+    EXPECT_FALSE(sender->send(tooLarge));
+    EXPECT_FALSE(sender->send(tooLarge));   // again: rate-limited warning, same answer
+    std::array<std::uint8_t, 16> buffer{};
+    EXPECT_FALSE(listener->receive(buffer).has_value());
+    const std::array<std::uint8_t, 2> small{4, 2};
+    ASSERT_TRUE(sender->send(small));
+    std::optional<std::size_t> size;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (!size && std::chrono::steady_clock::now() < deadline) {
+        size = listener->receive(buffer);
+        if (!size) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(size.has_value());
+    EXPECT_EQ(*size, 2U);
+    EXPECT_EQ(buffer[0], 4);
+}
+
+// Several gaps in a row (a busy PC dropping datagrams): every newer state is still handed over, in order.
+TEST(UdpLoopback, RepeatedGapsAreFollowed) {
+    // A port the system chooses: tests running side by side never share one.
+    const auto receiver = UdpLoopbackReceiver::create(0);
+    ASSERT_NE(receiver, nullptr);
+    const std::uint16_t port = receiver->localPort();
+    const auto publisher = UdpLoopbackPublisher::create(port);
+    ASSERT_NE(receiver, nullptr);
+    ASSERT_NE(publisher, nullptr);
+    for (const std::uint32_t sequence : {1U, 5U, 9U, 20U, 21U}) {
+        ASSERT_TRUE(publisher->publish(withSequence(sequence)));
+        const auto packet = pollWithTimeout(*receiver);
+        ASSERT_TRUE(packet.has_value());
+        EXPECT_EQ(packet->sequence, sequence);
+        EXPECT_EQ(packet->report.steering, static_cast<std::int32_t>(sequence));
+    }
+}
+
 TEST(UdpLoopback, ASecondReceiverOnTheSamePortIsRefused) {
-    constexpr std::uint16_t kPort = 41991;
-    const auto first = UdpLoopbackReceiver::create(kPort);
+    // A port the system chooses: tests running side by side never share one.
+    const auto first = UdpLoopbackReceiver::create(0);
     ASSERT_NE(first, nullptr);
-    EXPECT_EQ(UdpLoopbackReceiver::create(kPort), nullptr);   // a second wheelbri-uhid, or the shim in a game
-    EXPECT_EQ(UdpLoopbackListener::create(kPort), nullptr);
+    const std::uint16_t port = first->localPort();
+    EXPECT_EQ(UdpLoopbackReceiver::create(port), nullptr);   // a second wheelbri-uhid, or the shim in a game
+    EXPECT_EQ(UdpLoopbackListener::create(port), nullptr);
 }
 
 TEST(UdpLoopback, TheReceiversSocketCanBeWaitedOn) {
-    constexpr std::uint16_t kPort = 41990;
-    const auto receiver = UdpLoopbackReceiver::create(kPort);
+    // A port the system chooses: tests running side by side never share one.
+    const auto receiver = UdpLoopbackReceiver::create(0);
     ASSERT_NE(receiver, nullptr);
 #ifdef _WIN32
     EXPECT_NE(receiver->nativeSocket(), static_cast<std::intptr_t>(~static_cast<std::uintptr_t>(0)));
 #else
+    const std::uint16_t port = receiver->localPort();
     const int fd = static_cast<int>(receiver->nativeSocket());
     ASSERT_GE(fd, 0);
     pollfd pfd{fd, POLLIN, 0};
     EXPECT_EQ(::poll(&pfd, 1, 0), 0);   // nothing yet
-    const auto publisher = UdpLoopbackPublisher::create(kPort);
+    const auto publisher = UdpLoopbackPublisher::create(port);
     ASSERT_NE(publisher, nullptr);
     ASSERT_TRUE(publisher->publish(withSequence(1)));
     pfd.revents = 0;

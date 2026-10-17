@@ -201,3 +201,183 @@ TEST(ConfigLibrary, WindowsDeviceNamesAreRefused) {
         EXPECT_TRUE(configNameProblem(name, {}).empty()) << name;
     }
 }
+
+// Names that would be a problem on Windows or in the list: spaces or dots at either end, Windows' device names with
+// an extension, characters outside the allowed set.
+TEST(ConfigLibrary, ChecksTheEndsAndDeviceNamesMore) {
+    for (const char* name : {"trail ", ".lead", "con.ini.bak", "COM7", "lpt0.x", "a\xC3\xA9", "tab\there", "a+b"}) {
+        EXPECT_FALSE(configNameProblem(name, {}).empty()) << name;
+    }
+    for (const char* name : {"com-", "lptx", "comb", "a.b", "(x)_y-z", "com"}) {
+        EXPECT_TRUE(configNameProblem(name, {}).empty()) << name;
+    }
+    EXPECT_EQ(configNameProblem(std::string(kMaxConfigName, 'a'), {}), "");   // exactly the longest allowed
+}
+
+// A template saved with LF line ends: the new config's own lines use LF too.
+TEST(ConfigLibrary, NewTextUsesTheTemplatesLfLineEnds) {
+    const std::string text = newConfigText("Rally", "a.ini", kOther);
+    EXPECT_EQ(text.find('\r'), std::string::npos);
+    EXPECT_NE(text.find("; made from: a.ini\n\n" + kOther), std::string::npos);
+}
+
+// The "made from" line as a user's editor may leave it: after a BOM, with a tab at the end, after a '#' comment,
+// at the very end of a file with no line end; nothing for an empty or blank file.
+TEST(ConfigLibrary, FindsTheTemplateLineHoweverTheFileWasSaved) {
+    EXPECT_EQ(configTemplateOf("\xEF\xBB\xBF; made from: a.ini\r\n"), "a.ini");
+    EXPECT_EQ(configTemplateOf("# notes\n; made from: b.ini\t \n"), "b.ini");
+    EXPECT_EQ(configTemplateOf("; first\n; made from: c.ini"), "c.ini");
+    EXPECT_EQ(configTemplateOf("; made from: \n"), "");
+    EXPECT_EQ(configTemplateOf(""), "");
+    EXPECT_EQ(configTemplateOf("\n\r\n  \t\n"), "");
+    EXPECT_EQ(configTemplateOf("key = 1\n; made from: a.ini\n"), "");   // after a key: not the header any more
+}
+
+// A user's folder may hold anything: folders and other files named like configs, upper-case extensions, a file of
+// their own called wheelbri-shim (only the built-in folder's is the shim's).
+TEST_F(ConfigLibraryFiles, ListsOnlyConfigFiles) {
+    std::filesystem::create_directories(user() / "folder.ini");
+    write(user() / "Upper.INI", kOther);
+    write(user() / "wheelbri-shim.ini", kOther);
+    write(user() / "readme.md", "x");
+    write(builtIn() / "WheelBri-Shim-old.ini", "[shim]\n");   // the shim's, whatever the case
+    write(user() / "Caf\xC3\xA9.ini", kOther);                  // a name typed before names were checked
+    const auto configs = list();
+    std::vector<std::string> names;
+    for (const ConfigEntry& config : configs) names.push_back(config.name + (config.builtIn ? "*" : ""));
+    EXPECT_EQ(names, (std::vector<std::string>{"a-other*", "g920*", "Caf\xC3\xA9", "Upper", "wheelbri-shim"}));
+}
+
+// Copies made from each older built-in name all reset to today's g920.ini; a user's own g920.ini is never the
+// template, and a template named in the file but not installed is nothing.
+TEST_F(ConfigLibraryFiles, ResetTemplateRecognisesEveryOlderName) {
+    std::filesystem::create_directories(user());
+    write(user() / "g27.ini", kOther);   // the user's own, never a template
+    for (const char* older : {"moza-r3-as-g29.ini", "rig-as-g920.ini", "RIG-AS-G29.INI", "g920.ini"}) {
+        write(user() / "Old.ini", newConfigText("Old", older, kG920));
+        const auto configs = list();
+        const auto old =
+            std::find_if(configs.begin(), configs.end(), [](const ConfigEntry& c) { return c.name == "Old"; });
+        ASSERT_NE(old, configs.end());
+        const auto from = resetTemplateOf(*old, configs);
+        ASSERT_TRUE(from.has_value()) << older;
+        EXPECT_TRUE(from->builtIn) << older;
+        EXPECT_EQ(from->path, builtIn() / "g920.ini") << older;
+    }
+    write(user() / "Old.ini", newConfigText("Old", "g27.ini", kG920));
+    const auto configs = list();
+    const ConfigEntry old{"Old", user() / "Old.ini", false};
+    EXPECT_FALSE(resetTemplateOf(old, configs).has_value());
+    // Built in, or gone since the list was made: nothing to reset to.
+    EXPECT_FALSE(resetTemplateOf(configs[1], configs).has_value());
+    EXPECT_FALSE(resetTemplateOf({"Gone", user() / "Gone.ini", false}, configs).has_value());
+}
+
+// New: the built-in deleted after the list was made, a file of that name made meanwhile (by hand, or another copy
+// of the app), and a user folder that cannot be made (a file is in its place). Each fails with a reason, and
+// nothing is overwritten.
+TEST_F(ConfigLibraryFiles, NewFailsCleanly) {
+    const auto configs = list();
+    const ConfigEntry gone{"gone", builtIn() / "gone.ini", true};
+    ConfigResult result = createConfig(user(), "Rally", gone, configs);
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.error.rfind("cannot read ", 0), 0U) << result.error;
+
+    std::filesystem::create_directories(user());
+    write(user() / "Rally.ini", "mine");
+    result = createConfig(user(), "Rally", configs[1], configs);   // `configs` was listed before it was made
+    EXPECT_FALSE(result.ok);
+    EXPECT_NE(result.error.find("already exists"), std::string::npos) << result.error;
+    EXPECT_EQ(read(user() / "Rally.ini"), "mine");
+    result = createConfigWithText(user(), "Rally", configs[1], "[x]\n", configs);
+    EXPECT_FALSE(result.ok);
+    EXPECT_NE(result.error.find("already exists"), std::string::npos) << result.error;
+    EXPECT_EQ(read(user() / "Rally.ini"), "mine");
+
+    const std::filesystem::path blocked = dir_ / "blocked";
+    write(blocked, "a file where the folder should be");
+    result = createConfig(blocked, "Rally", configs[1], configs);
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.error.rfind("cannot write ", 0), 0U) << result.error;
+    result = createConfigWithText(blocked, "Rally", configs[1], "[x]\n", configs);
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.error.rfind("cannot write ", 0), 0U) << result.error;
+    EXPECT_EQ(read(blocked), "a file where the folder should be");
+
+    // A bad name is refused before anything is read or written.
+    result = createConfigWithText(user(), "con", configs[1], "[x]\n", configs);
+    EXPECT_FALSE(result.ok);
+    EXPECT_FALSE(std::filesystem::exists(user() / "con.ini"));
+}
+
+// Reset: the config deleted since the list was made, its built-in deleted, or the file held where it cannot be
+// replaced. Each fails with a reason and the config is left as it was.
+TEST_F(ConfigLibraryFiles, ResetFailsCleanly) {
+    const auto configs = list();
+    ASSERT_TRUE(createConfig(user(), "Rally", configs[1], configs).ok);
+    const auto withRally = list();
+    const ConfigEntry rally = withRally.back();
+    const std::string fresh = read(rally.path);
+
+    // Its built-in is gone from disk (but still in the list).
+    std::filesystem::rename(builtIn() / "g920.ini", dir_ / "g920.ini.away");
+    ConfigResult result = resetConfig(rally, withRally);
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.error.rfind("cannot read ", 0), 0U) << result.error;
+    std::filesystem::rename(dir_ / "g920.ini.away", builtIn() / "g920.ini");
+
+    // The temporary file's name is taken by a folder with something in it: the write fails, the config stays.
+    write(rally.path, fresh + "; my change\n");
+    std::filesystem::create_directories(user() / "Rally.ini.tmp" / "busy");
+    result = resetConfig(rally, withRally);
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.error.rfind("cannot write ", 0), 0U) << result.error;
+    EXPECT_EQ(read(rally.path), fresh + "; my change\n");
+    std::filesystem::remove_all(user() / "Rally.ini.tmp");
+
+    // The config itself deleted since the list was made.
+    std::filesystem::remove(rally.path);
+    result = resetConfig(rally, withRally);
+    EXPECT_FALSE(result.ok);
+    EXPECT_EQ(result.error.rfind("cannot read ", 0), 0U) << result.error;
+    EXPECT_FALSE(std::filesystem::exists(rally.path));
+}
+
+// app.ini as a user may have edited it: CRLF, indented lines, comments, a section header in another case or
+// missing its ']', lines without '=', other sections with the same keys. Only [app] counts.
+TEST_F(ConfigLibraryFiles, ReadsAppSettingsFromAHandEditedFile) {
+    const auto state = dir_ / "app.ini";
+    write(state, "config = before any section\r\n[other]\r\nrig = Not this\r\n  ; [app]\r\n\t[ App ]\r\n"
+                 "no equals sign\r\n\t RIG\t=\t Desk \t\r\n# rig = commented\r\n[ignored\r\nconfig = x");
+    EXPECT_EQ(readAppSetting(state, "rig"), "Desk");
+    EXPECT_EQ(readAppSetting(state, "config"), "");   // "[ignored" ends [app]: it is no section of ours
+    write(state, "[app]\nrig =\n");
+    EXPECT_EQ(readAppSetting(state, "rig"), "");
+    write(state, "");
+    EXPECT_EQ(readAppSetting(state, "rig"), "");
+}
+
+// Write then read gives what was written: also over a value that only differs after a '#' or ';' (which the
+// editor would take for a comment), and over a hand-written key or section in another case.
+TEST_F(ConfigLibraryFiles, AppSettingsReadBackWhatWasWritten) {
+    const auto state = dir_ / "app.ini";
+    ASSERT_TRUE(writeAppSetting(state, "rig", "Desk #2"));
+    ASSERT_TRUE(writeAppSetting(state, "rig", "Desk"));
+    EXPECT_EQ(readAppSetting(state, "rig"), "Desk");
+    ASSERT_TRUE(writeAppSetting(state, "rig", "Desk;old"));
+    ASSERT_TRUE(writeAppSetting(state, "rig", "Desk"));
+    EXPECT_EQ(readAppSetting(state, "rig"), "Desk");
+
+    write(state, "[App]\r\nConfig = old.ini\r\nway = shim\r\n");
+    ASSERT_TRUE(writeConfigSelection(state, "new.ini"));
+    EXPECT_EQ(readConfigSelection(state), "new.ini");
+    EXPECT_EQ(readAppSetting(state, "way"), "shim");   // the rest of the file is kept
+    EXPECT_NE(read(state).find("\r\n"), std::string::npos);   // and its line ends
+
+    // A key written twice by hand: the last counts, as everywhere else; saving leaves one.
+    write(state, "[app]\nrig = A\nrig = B\n");
+    EXPECT_EQ(readAppSetting(state, "rig"), "B");
+    ASSERT_TRUE(writeAppSetting(state, "rig", "C"));
+    EXPECT_EQ(readAppSetting(state, "rig"), "C");
+    EXPECT_EQ(read(state).find("rig = A"), std::string::npos);
+}

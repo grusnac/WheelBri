@@ -145,3 +145,44 @@ TEST(LogiSdk, NewestVersionFolder) {
     const std::vector<std::string> none{"logs", ""};
     EXPECT_EQ(newestVersionFolder(none), "");
 }
+
+// A call logged with fewer argument registers than the function takes (a short capture): only those are shown.
+TEST(LogiSdk, FormatsOnlyTheArgumentsGiven) {
+    const std::array<std::int64_t, 2> two{0, 5};
+    EXPECT_EQ(formatCall(*findFunction("LogiPlaySpringForce"), two), "LogiPlaySpringForce(index 0, offset 5%)");
+    EXPECT_EQ(formatCall(*findFunction("LogiPlaySpringForce"), std::span<const std::int64_t>{}),
+              "LogiPlaySpringForce()");
+    const std::array<std::int64_t, 1> on{0x7f01};   // true in the low byte
+    EXPECT_EQ(formatCall(*findFunction("LogiSteeringInitialize"), on), "LogiSteeringInitialize(ignore XInput true)");
+    EXPECT_EQ(formatResult(*findFunction("LogiGetState"), 0x1f2e3d), "0x1f2e3d");
+}
+
+// Numbers the SDK has no name for, below and above the known ones, are said as numbers.
+TEST(LogiSdk, UnknownConstantsAreNumbers) {
+    EXPECT_EQ(modelName(-5), "unknown -5");
+    EXPECT_EQ(periodicTypeName(99), "unknown 99");
+    EXPECT_EQ(deviceTypeName(-2), "unknown -2");
+    EXPECT_EQ(forceTypeName(1000000), "unknown 1000000");
+}
+
+// Every switch of the properties the other way round from DecodesControllerProperties.
+TEST(LogiSdk, DescribesPropertiesTheOtherWayRound) {
+    std::array<std::uint8_t, kPropertiesSize> bytes{};
+    bytes[16] = 1;   // default spring on
+    bytes[33] = 1;   // game settings allowed
+    const auto p = decodeProperties(bytes);
+    ASSERT_TRUE(p.has_value());
+    EXPECT_EQ(describe(*p), "force off, overall gain 0%, spring gain 0%, damper gain 0%, default spring on at 0%, "
+                            "combined pedals no, wheel range 0 deg, game settings off (allowed yes)");
+}
+
+// G HUB's version folders as a disk may hold them: a trailing or leading '_', a part too big for a number, and
+// versions with fewer parts.
+TEST(LogiSdk, NewestVersionFolderSkipsMalformedNames) {
+    const std::vector<std::string> names{"1_", "_1", "99999999999_0", "9_9", "10", "10_0_0_1", "10_0_0_1"};
+    EXPECT_EQ(newestVersionFolder(names), "10_0_0_1");
+    const std::vector<std::string> shorter{"9_9", "10"};
+    EXPECT_EQ(newestVersionFolder(shorter), "10");   // by number, part by part
+    const std::vector<std::string> bad{"1_", "_1", "99999999999_0", "-1"};
+    EXPECT_EQ(newestVersionFolder(bad), "");
+}

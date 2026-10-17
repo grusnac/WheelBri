@@ -84,3 +84,70 @@ TEST(IniEditor, SafeValuesKeepEverythingButCommentsAndControls) {
     EXPECT_EQ(wheelbri::iniSafeValue("Button Box #2; v1\r\n"), "Button Box  2  v1  ");
     EXPECT_EQ(wheelbri::iniSafeValue("MOZA R3 (Base)"), "MOZA R3 (Base)");
 }
+
+// "[ ]" is no header (as the reader says): a key set in [a] after it stays in [a], and reads back there.
+TEST(IniEditor, AHeaderWithoutANameIsNoSection) {
+    IniEditor ini("[a]\nx = 1\n[ ]\ny = 2\n");
+    EXPECT_FALSE(ini.hasSection(""));
+    ini.set("a", "y", "3");
+    EXPECT_EQ(ini.text(), "[a]\nx = 1\n[ ]\ny = 3\n");
+    EXPECT_EQ(IniDocument::parse(ini.text()).document.get("a", "y"), "3");
+}
+
+// An empty value and a number are different values; so are "1" and "1abc" (not a number at all).
+TEST(IniEditor, EmptyAndNotQuiteNumbersAreChanges) {
+    IniEditor ini("[a]\nx = 0\ny =\nz = 1abc\n");
+    ini.set("a", "x", "");
+    ini.set("a", "y", "0");
+    ini.set("a", "z", "1");
+    EXPECT_EQ(ini.text(), "[a]\nx = \ny = 0\nz = 1\n");
+}
+
+// A file with no line end after its last line, or no text at all: edited and given line ends.
+TEST(IniEditor, NoFinalLineEndAndEmptyText) {
+    IniEditor last("[a]\nx = 1");
+    last.set("a", "y", "2");
+    EXPECT_EQ(last.text(), "[a]\nx = 1\ny = 2\n");
+    IniEditor empty("");
+    EXPECT_EQ(empty.text(), "");
+    empty.set("c", "k", "v");
+    EXPECT_EQ(empty.text(), "[c]\nk = v\n");   // no blank line before the first section
+    IniEditor title("");
+    title.prepend("; title");
+    EXPECT_EQ(title.text(), "; title\n");
+}
+
+// A new section after a file that already ends with a blank line: no second blank line.
+TEST(IniEditor, NewSectionAfterABlankLineAddsNoOther) {
+    IniEditor ini("[a]\r\nx = 1\r\n\r\n");
+    ini.set("c", "k", "v");
+    EXPECT_EQ(ini.text(), "[a]\r\nx = 1\r\n\r\n[c]\r\nk = v\r\n");
+}
+
+// A carriage return alone in a value would end the line for some editors: it becomes a space too.
+TEST(IniEditor, ACarriageReturnInAValueStaysOnItsLine) {
+    IniEditor ini("[a]\n");
+    ini.set("a", "x", "one\rtwo");
+    EXPECT_EQ(ini.text(), "[a]\nx = one two\n");
+}
+
+// Write then read gives the same: every value set is what the reader gets, CRLF and BOM files included, a key in a
+// section that appears twice included.
+TEST(IniEditor, RoundTripsThroughTheReader) {
+    IniEditor ini("\xEF\xBB\xBF; mine\r\n[a]\r\nx = 1 ; one\r\n[b]\r\n[a]\r\ny = 2\r\n");
+    ini.set("a", "x", "10");
+    ini.set("a", "y", "P\xC3\xA9" "dale gauche");
+    ini.set("a", "z", "");
+    ini.set("b", "w", "4");
+    ini.set("new", "k", std::string(5000, 'v'));
+    const auto parsed = IniDocument::parse(ini.text());
+    ASSERT_TRUE(parsed.errors.empty());
+    EXPECT_EQ(parsed.document.get("a", "x"), "10");
+    EXPECT_EQ(parsed.document.get("a", "y"), "P\xC3\xA9" "dale gauche");
+    EXPECT_EQ(parsed.document.get("a", "z"), "");
+    EXPECT_EQ(parsed.document.get("b", "w"), "4");
+    EXPECT_EQ(parsed.document.get("new", "k"), std::string(5000, 'v'));
+    EXPECT_EQ(ini.text().rfind("\xEF\xBB\xBF", 0), 0U);
+    EXPECT_EQ(ini.text().find("\n\n"), std::string::npos);   // every line end is CRLF
+    EXPECT_EQ(IniEditor(ini.text()).text(), ini.text());     // and reading it again changes nothing
+}
