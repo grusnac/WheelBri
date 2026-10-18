@@ -1240,7 +1240,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                     gStop = true;
                 }
                 housekeeping.pump();
-                // The per-game values changed (the Game profiles tab saves them as they change, also while the
+                // The per-game values changed (the Games tab saves them as they change, also while the
                 // session runs): read them again and use them at once. Only the per-game sections: everything else
                 // in the file waits for the next Start.
                 if (!configPath.empty()) {

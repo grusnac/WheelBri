@@ -7,12 +7,12 @@
 #include <string>
 #include <string_view>
 
-// The app's Game profiles tab (service MappingEditView, its Games page): the built-in game profiles (GameProfiles.hpp),
+// The app's Games tab (service MappingEditView, its Games page): the built-in game profiles (GameProfiles.hpp),
 // each in three sections (mapping, force feedback, game config) with the user's own values for them. The portable
 // parts are here so they are unit-tested.
 namespace wheelbri {
 
-// Which game the Game profiles tab shows when a session reports that a profiled game started. The session counts every
+// Which game the Games tab shows when a session reports that a profiled game started. The session counts every
 // time it starts following a profiled game (UiFrame::gameStarts, GameWatch); the app calls onFrame with each frame's
 // count and the game followed now. It answers once per start: the tab switches to that game when the game starts, and
 // the user is free to go to another tab while it runs.

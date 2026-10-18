@@ -276,6 +276,32 @@ TEST(ButtonLayout, BadGroupEntriesAreDroppedAndTheRestGoUnderOther) {
     EXPECT_FLOAT_EQ(layout.height, 2.0F * kButtonHeadingH + 2.0F * kButtonRowH);
 }
 
+// A folded group is its heading alone, one button row tall, in its column (a Below group's in column 0); the groups
+// after it move up; a group without a name never folds.
+TEST(ButtonLayout, AFoldedGroupIsOneRow) {
+    DeviceProfileSpec spec;
+    spec.buttonNames = {"A", "B", "C", "D", "E", "F"};
+    using Place = ButtonGroup::Place;
+    spec.buttonGroups = {
+        {"ONE", {0, 1}, Place::Left},
+        {"TWO", {2}, Place::Left},
+        {"", {3}, Place::Right},
+        {"LOW", {4, 5}, Place::Below},
+    };
+    const DeviceProfile profile(spec);
+    const ButtonLayout layout = layoutButtons(profile, [](const ButtonGroup& group) { return group.name != "TWO"; });
+    const std::vector<ButtonCell> expected = {
+        {0, 0.0F, true, "ONE", 0, true},
+        {0, kButtonRowH, true, "TWO", 0},
+        {0, kButtonRowH + kButtonHeadingH, false, {}, 2},
+        {1, 0.0F, false, {}, 3},
+        {0, 2.0F * kButtonRowH + kButtonHeadingH, true, "LOW", 0, true},
+    };
+    EXPECT_EQ(layout.cells, expected);
+    EXPECT_FLOAT_EQ(layout.height, 3.0F * kButtonRowH + kButtonHeadingH);
+    EXPECT_EQ(layoutButtons(profile, {}).cells, layoutButtons(profile).cells);   // null: nothing folds
+}
+
 // A target without any named button (a bare profile): nothing to lay out.
 TEST(ButtonLayout, NoNamedButtonsIsEmpty) {
     DeviceProfileSpec spec;
@@ -303,6 +329,7 @@ TEST(DeviceProfile, ReportsAndCellsCompareEveryField) {
     EXPECT_FALSE(cell == (ButtonCell{1, 2.0F, true, "x", 3}));
     EXPECT_FALSE(cell == (ButtonCell{1, 2.0F, false, "y", 3}));
     EXPECT_FALSE(cell == (ButtonCell{1, 2.0F, false, "x", 4}));
+    EXPECT_FALSE(cell == (ButtonCell{1, 2.0F, false, "x", 3, true}));
 
     const Guid a = DeviceIdentity{"G920", 0x046D, 0xC262, "", 900.0F}.directInputProductGuid();
     EXPECT_EQ(toString(a), "{C262046D-0000-0000-0000-504944564944}");

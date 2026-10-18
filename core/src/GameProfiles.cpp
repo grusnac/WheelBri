@@ -3,6 +3,7 @@
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/IniDocument.hpp"
 
+#include <algorithm>
 #include <mutex>
 
 namespace wheelbri {
@@ -160,6 +161,24 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                     }
                 } else if (key == "ways_note") {
                     profile.waysNote = value;
+                } else if (key == "not_for") {
+                    profile.notFor.clear();
+                    std::string_view rest = value;
+                    while (!rest.empty()) {
+                        const std::size_t comma = rest.find(',');
+                        std::string one = lower(rest.substr(0, comma));
+                        one.erase(0, one.find_first_not_of(' '));
+                        one.erase(one.find_last_not_of(' ') + 1);
+                        if (makeProfile(one) == nullptr) {
+                            result.problems.push_back("[game] not_for = '" + value + "': '" + one +
+                                                      "' is not a target (" + std::string(kKnownProfiles) + ")");
+                        } else {
+                            profile.notFor.push_back(one);
+                        }
+                        rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
+                    }
+                } else if (key == "not_for_note") {
+                    profile.notForNote = value;
                 } else {
                     result.problems.push_back("[game] " + key + ": unknown key");
                 }
@@ -248,6 +267,14 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
         result.problems.push_back("[game] program must be the game's program file name, e.g. nfs16.exe");
     }
     if (profile.target.empty()) result.problems.push_back("[game] target is missing (e.g. g920)");
+    if (profile.notFor.empty() != profile.notForNote.empty()) {
+        result.problems.push_back("[game] not_for and not_for_note go together: the targets and what goes wrong");
+    } else if (profile.notForNote.size() > kMaxNote) {
+        result.problems.push_back("[game] not_for_note: at most " + std::to_string(kMaxNote) + " characters");
+    } else if (std::find(profile.notFor.begin(), profile.notFor.end(), profile.target) != profile.notFor.end()) {
+        result.problems.push_back("[game] not_for: the target it was checked with (" + profile.target +
+                                  ") cannot be one it does not support");
+    }
     // The note says why the game does not work the other way: only with ways, and only when it leaves one out.
     const bool restricted = !profile.virtualDevice || !profile.shim;
     if (waysSet && !restricted && !profile.waysNote.empty()) {
@@ -316,10 +343,22 @@ const GameProfile* gameProfileFor(const std::string_view nameOrPath, const std::
     return nullptr;
 }
 
+std::optional<std::string> targetAdvice(const GameProfile& game, const std::string_view target) {
+    const std::string wanted = lower(target);
+    if (std::find(game.notFor.begin(), game.notFor.end(), wanted) == game.notFor.end()) return std::nullopt;
+    const auto upper = [](std::string text) {
+        for (char& c : text) c = c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
+        return text;
+    };
+    std::string text = game.label + " does not support the " + upper(wanted) + ": " + game.notForNote + ".";
+    if (!game.target.empty()) text += " Use the " + upper(game.target) + " for it (Mapping tab, Target).";
+    return text;
+}
+
 std::optional<WayAdvice> wayAdvice(const GameProfile& game, const bool shim) {
     if (shim ? game.shim : game.virtualDevice) return std::nullopt;
-    const std::string way = shim ? "the in-game shim" : "the virtual device";     // the session's, which fails
-    const std::string need = shim ? "the virtual device" : "the in-game shim";    // the one it works with
+    const std::string way = shim ? "Mode Shim" : "Mode Virtual";     // the session's, which fails
+    const std::string need = shim ? "Mode Virtual" : "Mode Shim";    // the one it works with
     return WayAdvice{game.label + " needs " + need,
                      game.label + " does not work with " + way + " (" + game.waysNote + "). Close the game, Stop, set "
                      "Mode to " + (shim ? "Virtual" : "Shim") + " on the Mapping tab, and Start again."};

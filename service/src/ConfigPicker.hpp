@@ -49,7 +49,7 @@ public:
     [[nodiscard]] Way way() const { return way_; }
     [[nodiscard]] Target target() const { return target_; }
     [[nodiscard]] bool virtualDevice() const { return way_ == Way::VirtualDevice; }
-    // "G920 virtual device", "G25 in-game shim": for the log and the status.
+    // "G920 Mode Virtual", "G25 Mode Shim": for the log and the status.
     [[nodiscard]] std::string name() const;
     // The target's short name ("G920", "G25") and config name ("g920", "g25": target_profile, the shim's settings),
     // and the way's ("Virtual", "Shim"), as the row shows them.
@@ -87,6 +87,8 @@ public:
     // drawn off and nothing changes them: no click (not even on arrows drawn before the lock), no choose.
     void setLocked(const bool locked) { locked_ = locked; }
     [[nodiscard]] bool locked() const { return locked_; }
+    // The arrows' choice, from elsewhere on the Mapping tab (its "Back to the G920"); nothing while locked.
+    void useTarget(const Target target) { choose(target); }
 
     // Draws the row at (x, y): "Target" < G920 | G25 | G27 | G923 >, then "Mode" < Virtual | Shim >. `canChange` is
     // false while a session runs or starts. Returns the x where the row ends.

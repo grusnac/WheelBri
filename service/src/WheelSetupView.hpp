@@ -2,9 +2,11 @@
 
 #include <algorithm>
 
+#include "HoverText.hpp"
 #include "UiWindow.hpp"
 #include "Wheel.hpp"
 
+#include "wheelbri/ControlFold.hpp"
 #include "wheelbri/RelistTimer.hpp"
 #include "wheelbri/Rig.hpp"
 #include "wheelbri/WheelState.hpp"
@@ -79,6 +81,10 @@ public:
     // Every frame: where the mouse is (panel pixels) and whether the left button is held, to drag the devices' scroll
     // bar (a press on it comes through onClick first).
     void onPointer(float x, float y, bool leftDown);
+    // Every frame: where the mouse is for the hover text (`inside` false: it left the window), and the hover text
+    // itself, drawn last (over the tab bar too).
+    void setHover(float x, float y, bool inside) { hover_.setHover(x, y, inside); }
+    void drawHoverText() const;
     // WindowInput::text while a name is typed (printable characters, kBackspace, kEnter).
     void onText(const std::string& text);
     // WindowInput::keys: Escape stops typing, or closes the popup; PageUp / PageDown, Up / Down, Home / End scroll the
@@ -126,8 +132,19 @@ private:
     [[nodiscard]] std::vector<DeviceId> listedDevices() const;
     // The button tiles a section shows: what the device has, or (not read now) up to its last named button.
     [[nodiscard]] int tileCount(const DeviceId& id) const;
+    // What a section lists: once a device has a named control, only its named axes and buttons, the others folded
+    // into one line each ("4 axes not named (1, 3, 4, 7)  [Show all]"); every one with Show all (showAll_, for the
+    // tab, until Named only) or while the device has no name yet.
+    struct Listed {
+        ControlFold axes;
+        ControlFold buttons;
+        bool folds = false;   // the device has a named control (Show all / Named only applies)
+    };
+    [[nodiscard]] Listed listed(const DeviceId& id) const;
+    // That line at `y` (kFoldRow tall): `text`, and Show all (`showAll`) or Named only.
+    void drawFoldLine(float y, const std::string& text, bool showAll);
     [[nodiscard]] bool connected(const DeviceId& id) const;
-    // "Online" (connected) or "Offline"; "-" for a device the running session does not read (not known then).
+    // "Connected" or "Not connected"; "-" for a device the running session does not read (not known then).
     [[nodiscard]] std::string statusText(const DeviceId& id) const;
     [[nodiscard]] std::string systemName(const DeviceId& id) const;
     // What the device reports (0 = none, -1 = not known: then all are shown).
@@ -139,7 +156,12 @@ private:
     void loadRigs();
     void activate(const std::string& name);
     void save();
-    void revert();
+    // Save as you change: once a change is done (no name being typed, no popup open) the rig is written, and the rig
+    // before it goes on the undo list (at most kMaxUndo). Not saved: the status says why, not tried again until the
+    // next change.
+    void autoSave();
+    // Undo: drops a change that could not be saved, else goes back to the rig before the last change (saved again).
+    void undo();
     // The device the control popup is for (focus_), in the edited rig, or null.
     [[nodiscard]] RigDevice* focusDevice();
     [[nodiscard]] const RigDevice* focusDevice() const;
@@ -191,6 +213,8 @@ private:
     std::uint64_t sessionPreviousButtons_ = 0;
     DeviceId focus_;           // the device whose control the popup shows (the one last touched or clicked)
     bool detect_ = true;
+    HoverText hover_;          // the explanations, under the mouse (Detect, Save, Show all...)
+    bool showAll_ = false;     // the unnamed controls too (Show all), for every device
     float scroll_ = 0;         // the devices' area, scrolled down this many pixels
     float scrollMost_ = 0;     // ...at most (from the last draw)
     float scrollRoom_ = 1;     // ...the area's height (from the last draw)
@@ -217,6 +241,10 @@ private:
     bool rigSaved_ = false;
     Rig saved_;
     Rig edit_;
+    static constexpr std::size_t kMaxUndo = 50;
+    std::vector<Rig> undo_;            // the saved rigs before each change, oldest first
+    bool undoing_ = false;             // the next save is an Undo's: nothing goes on the list
+    std::optional<Rig> notSaved_;      // the change that could not be saved (not tried again)
     std::string status_;
     bool statusError_ = false;
 

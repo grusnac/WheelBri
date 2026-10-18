@@ -1,4 +1,5 @@
 #include "WheelSetupView.hpp"
+#include "UiStyle.hpp"
 
 #include "Platform.hpp"
 #include "Version.hpp"
@@ -31,7 +32,7 @@ constexpr Colour kPanel{44, 48, 56};
 constexpr Colour kStripe{30, 33, 39};
 constexpr Colour kPopup{36, 40, 48};
 constexpr Colour kText{222, 226, 232};
-constexpr Colour kDim{120, 126, 136};
+constexpr Colour kDim = style::kDim;
 constexpr Colour kHeading{120, 190, 255};
 constexpr Colour kActive{64, 190, 100};
 constexpr Colour kWarning{214, 72, 64};
@@ -57,6 +58,7 @@ constexpr float kTileW = 114;                  // at least: more columns in a wi
 constexpr float kTileH = 30;
 constexpr float kTileStepY = 33;
 constexpr float kSectionGap = 14;
+constexpr float kFoldRow = 24;                 // a line for the unnamed controls (Show all / Named only)
 constexpr float kListRow = 18;                 // a line of the bottom-left list
 constexpr float kListW = 470;                  // the list's width (the hints right of it)
 constexpr float kAxisBarX = 440;               // an axis row: the description left of it, the value right of it
@@ -335,8 +337,8 @@ int WheelSetupView::tileCount(const DeviceId& id) const {
 }
 
 std::string WheelSetupView::statusText(const DeviceId& id) const {
-    if (connected(id)) return "Online";
-    return fromSession_ ? "-" : "Offline";
+    if (connected(id)) return "Connected";
+    return fromSession_ ? "-" : "Not connected";
 }
 
 bool WheelSetupView::connected(const DeviceId& id) const {
@@ -401,7 +403,7 @@ void WheelSetupView::loadRigs() {
             if (edit_.devices.size() < Rig::kMaxDevices) edit_.devices.push_back(rigDeviceFrom(labels));
         }
         edit_.devices.reserve(Rig::kMaxDevices);
-        status_ = "No rig yet: touch each control and say what it is, then Save.";
+        status_ = "No rig yet: touch each control and say what it is (saved as you go).";
         statusError_ = false;
         WE_LOG_INFO(log(), "wheel setup: no rig yet ({} device(s) named before)", edit_.devices.size());
     }
@@ -451,13 +453,43 @@ void WheelSetupView::save() {
     WE_LOG_INFO(log(), "wheel setup: saved rig '{}' ({} device(s))", rigName_, edit_.devices.size());
 }
 
-void WheelSetupView::revert() {
-    edit_ = saved_;
-    edit_.devices.reserve(Rig::kMaxDevices);
+void WheelSetupView::autoSave() {
+    if (edit_ == saved_ || popup_ != Popup::None || editing_ != nullptr || fromSession_) return;
+    if (notSaved_ && *notSaved_ == edit_) return;   // said why already: not again
+    const Rig before = saved_;
+    const bool wasSaved = rigSaved_;
+    const bool undoing = std::exchange(undoing_, false);
+    save();
+    if (statusError_ || edit_ != saved_) {
+        notSaved_ = edit_;
+        return;
+    }
+    notSaved_.reset();
+    if (undoing) {
+        status_ = "Undone and saved.";
+    } else if (wasSaved) {
+        undo_.push_back(before);
+        if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
+    }
+}
+
+void WheelSetupView::undo() {
     popup_ = Popup::None;
     editing_ = nullptr;
-    status_ = "Changes dropped.";
-    statusError_ = false;
+    if (edit_ != saved_) {   // a change that could not be saved: dropped
+        edit_ = saved_;
+        edit_.devices.reserve(Rig::kMaxDevices);
+        notSaved_.reset();
+        status_ = "Change dropped.";
+        statusError_ = false;
+        return;
+    }
+    if (undo_.empty()) return;
+    edit_ = undo_.back();
+    edit_.devices.reserve(Rig::kMaxDevices);
+    undo_.pop_back();
+    undoing_ = true;   // autoSave writes it, without putting it on the list again
+    WE_LOG_INFO(log(), "wheel setup: undo ({} more)", undo_.size());
 }
 
 RigDevice* WheelSetupView::focusDevice() { return focus_.empty() ? nullptr : edit_.find(focus_); }
@@ -489,7 +521,7 @@ void WheelSetupView::forget(const DeviceId& id) {
                                        [&id](const RigDevice& device) { return device.id == id; }),
                         edit_.devices.end());
     if (edit_.devices.size() != before) {
-        status_ = "Forgot " + idText(id) + " and its names: Save to keep that, Revert to bring it back.";
+        status_ = "Forgot " + idText(id) + " and its names (saved): Undo brings it back.";
         statusError_ = false;
         WE_LOG_INFO(log(), "wheel setup: {} taken out of the rig", idText(id));
     }
@@ -678,6 +710,8 @@ float WheelSetupView::bottomPanelHeight() const {
 
 void WheelSetupView::draw() {
     hits_.clear();
+    hover_.clear();
+    autoSave();
     drawHeader();
     const float bottomTop = contentHeight() - bottomPanelHeight();
     window_.fill(0, bottomTop - 6, window_.width(), 1, kPanel);
@@ -694,10 +728,18 @@ void WheelSetupView::drawHeader() {
     constexpr float kSaveWidth = 56;
     const float kRevertX = window_.width() - kVersionReserve - kRevertWidth;
     const float kSaveX = kRevertX - 6 - kSaveWidth;
-    const std::string state = !rigSaved_ ? "not saved yet" : dirty() ? "unsaved changes" : "saved";
-    window_.text(kSaveX - 4 - static_cast<float>(state.size()) * ui::kCharWidth, 6, state, dirty() ? kCaution : kDim);
-    button(kSaveX, 2, "Save", [this] { save(); }, dirty(), dirty(), kSaveWidth);
-    button(kRevertX, 2, "Revert", [this] { revert(); }, false, rigSaved_ && dirty(), kRevertWidth);
+    // Saved as you change it: where Save was, whether it is; Undo instead of Revert.
+    const bool unsaved = edit_ != saved_;
+    const std::string state = unsaved ? "not saved" : !rigSaved_ ? "nothing named yet" : "saved";
+    window_.text(kSaveX + kSaveWidth - static_cast<float>(state.size()) * ui::kCharWidth, 6, state,
+                 unsaved ? kWarning : kDim);
+    hover_.add(kSaveX + kSaveWidth - static_cast<float>(state.size()) * ui::kCharWidth, 2,
+               static_cast<float>(state.size()) * ui::kCharWidth, 16,
+               unsaved ? "This change could not be saved: the line at the bottom right says why. Undo drops it."
+                       : "Every change is saved at once; the Mapping tab maps the rig's controls onto the Target. No "
+                         "dead zones here: set them in the device's own software (Pit House for Moza).");
+    button(kRevertX, 2, "Undo", [this] { undo(); }, false, unsaved || !undo_.empty(), kRevertWidth);
+    hover_.add(kRevertX, 2, kRevertWidth, 16, "Goes back one change, as many times as you like.");
 
     // The second row: what the tab shows, and Detect (at the right).
     const std::vector<DeviceId> shown = shownDevices();
@@ -710,18 +752,55 @@ void WheelSetupView::drawHeader() {
                      : std::to_string(connected) +
                            " connected; touch a control (or click it) to name it. Scroll for more devices.",
                  connected == 0 && !fromSession_ ? kCaution : kDim);
-    button(800 + extraW(), 22, detect_ ? "Detect: on" : "Detect: off", [this] {
+    // Detect: a switch, drawn as a checkbox.
+    style::checkbox(window_, 800 + extraW(), 22, 156, "Detect", detect_, true);
+    hit(800 + extraW(), 22, 156, 16, [this] {
         detect_ = !detect_;
         for (Open& d : open_) d.restTaken = false;   // where everything rests now
-    }, detect_, true, 156);
+    });
+    hover_.add(800 + extraW(), 22, 156, 16,
+               detect_ ? "On: touch a control on any device (a button, an axis, a pedal all the way) and its popup "
+                         "opens; named ones only light up. Off: click a control to name it."
+                       : "Off: click a control to name it. On: touching a control opens its popup.");
+}
+
+WheelSetupView::Listed WheelSetupView::listed(const DeviceId& id) const {
+    const RigDevice* const device = edit_.find(id);
+    std::vector<bool> axes(static_cast<std::size_t>(kAxes), false);
+    std::vector<bool> buttons(static_cast<std::size_t>(std::max(0, tileCount(id))), false);
+    bool any = false;
+    if (device != nullptr) {
+        for (std::size_t a = 0; a < axes.size(); ++a) any = (axes[a] = device->axes[a].defined()) || any;
+        for (std::size_t b = 0; b < buttons.size(); ++b) any = (buttons[b] = device->buttons[b].defined()) || any;
+    }
+    Listed list;
+    list.folds = any;
+    list.axes = foldUnnamed(axes, any && !showAll_);
+    list.buttons = foldUnnamed(buttons, any && !showAll_);
+    return list;
 }
 
 float WheelSetupView::sectionHeight(const DeviceId& id) const {
-    const int tiles = tileCount(id);
+    const Listed list = listed(id);
+    const auto tiles = static_cast<int>(list.buttons.shown.size());
     const int columns = tileColumns();
     const float buttonRows = static_cast<float>((tiles + columns - 1) / columns);
-    return kSectionHead + static_cast<float>(kAxes) * kAxisRow + kButtonsHead +
-           (tiles == 0 ? 12.0F : buttonRows * kTileStepY) + kSectionGap;
+    const int lines = (list.axes.hidden.empty() ? 0 : 1) + (list.buttons.hidden.empty() ? 0 : 1) +
+                      (list.folds && showAll_ ? 1 : 0);
+    const auto foldLines = static_cast<float>(lines);
+    return kSectionHead + static_cast<float>(list.axes.shown.size()) * kAxisRow + kButtonsHead +
+           (tiles == 0 ? 12.0F : buttonRows * kTileStepY) + foldLines * kFoldRow + kSectionGap;
+}
+
+void WheelSetupView::drawFoldLine(const float y, const std::string& text, const bool showAll) {
+    const float w = window_.width() - kBarW - 8;
+    window_.outline(2, y + 1, w, kFoldRow - 4, kPanel);
+    window_.text(8, y + 7, fit(text, static_cast<std::size_t>((w - 120) / ui::kCharWidth)), kDim);
+    button(w - 100, y + 3, showAll ? "Show all" : "Named only", [this, showAll] { showAll_ = showAll; }, false, true,
+           96);
+    hover_.add(w - 100, y + 3, 96, 16,
+               showAll ? "Lists every axis and button of every device, named or not."
+                       : "Lists only the named axes and buttons of a device that has any.");
 }
 
 void WheelSetupView::drawDevices(const float top, const float bottom) {
@@ -796,14 +875,16 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
     const int axes = axisCount(id);
     const float barX = kAxisBarX + extraW() / 3;
     const float barW = kAxisBarW + extraW() * 2 / 3;
-    const auto textChars = static_cast<std::size_t>((barX - 28) / ui::kCharWidth);
-    for (int axis = 0; axis < kAxes; ++axis, y += kAxisRow) {
+    const auto textChars = static_cast<std::size_t>((barX - 52) / ui::kCharWidth);
+    const Listed list = listed(id);
+    for (std::size_t row = 0; row < list.axes.shown.size(); ++row, y += kAxisRow) {
+        const int axis = list.axes.shown[row];
         if (!visible(y - 3, kAxisRow)) continue;
-        if (axis % 2 == 0) window_.fill(0, y - 3, window_.width() - kBarW - 4, kAxisRow - 1, kStripe);
+        if (row % 2 == 0) window_.fill(0, y - 3, window_.width() - kBarW - 4, kAxisRow - 1, kStripe);
         const RigControl control = device != nullptr ? device->axes[static_cast<std::size_t>(axis)] : RigControl{};
         const std::string text = describe(control);
-        window_.text(4, y, "ax" + std::to_string(axis), kDim);
-        window_.text(36, y, text.empty() ? "(not defined)" : fit(text, textChars - 2), text.empty() ? kDim : kText);
+        window_.text(4, y, "Axis " + std::to_string(axis), kDim);
+        window_.text(60, y, text.empty() ? "(not named)" : fit(text, textChars - 2), text.empty() ? kDim : kText);
         hit(0, y - 3, window_.width() - kBarW - 4, kAxisRow - 1,
             [this, id, axis] { openControl(id, true, axis, std::nullopt); });
         if (live && axes > 0 && axis >= axes) {
@@ -820,14 +901,23 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
         std::snprintf(value, sizeof(value), "%+.3f", static_cast<double>(v));
         window_.text(barX + barW + 12, y, live ? value : "-", kDim);   // offline: no value
     }
+    if (!list.axes.hidden.empty()) {
+        const std::size_t n = list.axes.hidden.size();
+        if (visible(y - 3, kFoldRow)) {
+            drawFoldLine(y - 3, std::to_string(n) + (n == 1 ? " axis" : " axes") + " not named (" +
+                                    indexRanges(list.axes.hidden) + ")", true);
+        }
+        y += kFoldRow;
+    }
 
     // The buttons it has, as tiles (as many per row as fit); click one to say what it is. Not read now: the named
     // ones, as saved.
-    const int tiles = tileCount(id);
+    const auto tiles = static_cast<int>(list.buttons.shown.size());
     if (visible(y, 12)) {
+        style::headingBand(window_, 0, y + 2, window_.width() - kBarW - 4);
         window_.text(4, y + 2, "BUTTONS", kHeading);
         window_.text(68, y + 2,
-                     tiles == 0 ? (live ? "none on this device" : "none named")
+                     tiles == 0 ? (live && list.buttons.hidden.empty() ? "none on this device" : "none named")
                      : live     ? "press one (it lights up); click one to say what it is"
                                 : "click one to say what it is",
                      kDim);
@@ -836,9 +926,10 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
     const int columns = tileColumns();
     const float stepX = (window_.width() - 8 - kBarW - 4) / static_cast<float>(columns);
     const float tileW = stepX - 4;
-    for (int source = 0; source < tiles; ++source) {
-        const float x = 4 + static_cast<float>(source % columns) * stepX;
-        const float ty = y + static_cast<float>(source / columns) * kTileStepY;
+    for (int tile = 0; tile < tiles; ++tile) {
+        const int source = list.buttons.shown[static_cast<std::size_t>(tile)];
+        const float x = 4 + static_cast<float>(tile % columns) * stepX;
+        const float ty = y + static_cast<float>(tile / columns) * kTileStepY;
         if (!visible(ty, kTileH)) continue;
         const bool down = buttonDown(id, source);
         const RigControl control = device != nullptr ? device->buttons[static_cast<std::size_t>(source)] : RigControl{};
@@ -852,11 +943,26 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
                      down ? kDark : kText);
         hit(x, ty, tileW, kTileH, [this, id, source] { openControl(id, false, source, std::nullopt); });
     }
+    y += tiles == 0 ? 12.0F : static_cast<float>((tiles + columns - 1) / columns) * kTileStepY;
+    if (!list.buttons.hidden.empty()) {
+        const std::size_t n = list.buttons.hidden.size();
+        if (visible(y, kFoldRow)) {
+            drawFoldLine(y, std::to_string(n) + (n == 1 ? " button" : " buttons") + " not named (" +
+                                indexRanges(list.buttons.hidden) + ")" +
+                                (detect_ ? ": press one to name it" : ": turn Detect on and press one to name it"),
+                         true);
+        }
+        y += kFoldRow;
+    }
+    if (list.folds && showAll_ && visible(y, kFoldRow)) {
+        drawFoldLine(y, "Every axis and button, named or not", false);
+    }
 }
 
 void WheelSetupView::drawDeviceList(const float top) {
+    style::headingBand(window_, 0, top, kListW);
     window_.text(4, top, "DEVICES", kHeading);
-    window_.text(16 + 36 * ui::kCharWidth, top, "Status", kDim);
+    window_.text(16 + 35 * ui::kCharWidth, top, "Status", kDim);
     float y = top + 16;
     const std::vector<DeviceId> listed = listedDevices();
     if (listed.empty()) window_.text(4, y + 4, "none: plug in a game controller", kCaution);
@@ -878,13 +984,15 @@ void WheelSetupView::drawDeviceList(const float top) {
         const std::string name = device != nullptr ? device->name : systemName(id);
         window_.text(16, y + 4, fit(name, 24), connected ? kText : kDim);
         window_.text(16 + 25 * ui::kCharWidth, y + 4, idText(id), kDim);
-        window_.text(16 + 36 * ui::kCharWidth, y + 4, statusText(id), connected ? kActive : kCaution);
+        window_.text(16 + 35 * ui::kCharWidth, y + 4, statusText(id), connected ? kActive : kCaution);
         // Clicking its line brings its section into view.
         if (std::find(shown.begin(), shown.end(), id) != shown.end()) {
             hit(4, y, kListW - 72, kListRow, [this, id] { reveal_ = id; });
         }
         if (device != nullptr && !fromSession_) {
             button(kListW - 64, y, "Forget", [this, id] { forget(id); }, false, true, 64);
+            hover_.add(kListW - 64, y, 64, 16,
+                       "Takes the device out of the rig, with its names (Undo brings it back).");
         }
         y += kListRow;
     }
@@ -902,13 +1010,8 @@ void WheelSetupView::drawHints(const float x, const float top) {
         }
         y += 2;
     };
-    say(detect_ ? "Detect is on: touch a new button or axis (a pedal all the way) on any device; named ones only "
-                  "light up. Or click any axis or button to name it."
-                : "Click any axis or button to name it (or turn Detect on and just touch it).",
-        kDim, 2);
-    say("Save keeps the rig; the Mapping tab maps its controls onto the G920. No dead zones here: set them in the "
-        "device's own software (Pit House).",
-        kDim, 2);
+    // One line of what to do; the rest is hover text (Detect, Save, Show all, Forget).
+    say(detect_ ? "Touch a control to name it, or click it." : "Click a control to name it.", kDim, 1);
     if (lastPressed_ >= 0) {
         const RigDevice* const device = edit_.find(lastPressedDevice_);
         const std::string label =
@@ -918,6 +1021,11 @@ void WheelSetupView::drawHints(const float x, const float top) {
             kHeading, 1);
     }
     if (!status_.empty()) say(status_, statusError_ ? kWarning : kActive, 2);
+}
+
+void WheelSetupView::drawHoverText() const {
+    if (popup_ != Popup::None) return;   // the popup covers the tab
+    hover_.draw(window_, window_.width(), contentHeight());
 }
 
 void WheelSetupView::drawControlPopup() {

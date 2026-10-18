@@ -71,9 +71,9 @@ public:
     MappingView& operator=(const MappingView&) = delete;
 
     // The panel's tabs, switched with the buttons along the bottom (or M / G / R / L, and T / F when shown), in this
-    // order: Rig, Mapping, Game profiles (the app only: setGamesTab), Logs, then Telemetry and Force feedback only when
+    // order: Rig, Mapping, Games (the app only: setGamesTab), Logs, then Telemetry and Force feedback only when
     // the program was started with --telemetry-tab / --ffb-tab (setOptionalTabs); without them those two never show.
-    // The Rig tab (WheelSetup) and the Game profiles tab are drawn by the window (WheelSetupView, MappingEditView's
+    // The Rig tab (WheelSetup) and the Games tab are drawn by the window (WheelSetupView, MappingEditView's
     // Games page); this view then draws only the tab bar.
     enum class Tab { Mapping, Logs, Telemetry, ForceFeedback, WheelSetup, Games };
 
@@ -93,7 +93,7 @@ public:
 
     // Whether the Telemetry and Force feedback tabs exist (--telemetry-tab, --ffb-tab); set once at start.
     static void setOptionalTabs(bool telemetry, bool forceFeedback);
-    // Whether the Game profiles tab exists: the app's window has it, the command line service's --ui window does not.
+    // Whether the Games tab exists: the app's window has it, the command line service's --ui window does not.
     static void setGamesTab(bool games);
     // The tabs shown, left to right.
     [[nodiscard]] static std::vector<Tab> visibleTabs();
@@ -212,7 +212,7 @@ private:
 
     // One line of the Logs tab: a part of wheel-emulator and today's log file it writes.
     struct ComponentLog {
-        const char* name;               // "Emulator", "G920 driver"
+        const char* name;               // "WheelBri", "G920 driver"
         const char* what;               // what it is
         std::filesystem::path folder;   // where its files are
         std::string file;               // today's file name, empty if it has written none today

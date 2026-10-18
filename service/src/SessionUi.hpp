@@ -55,7 +55,7 @@ struct UiFrame {
     std::string game;                             // the known game followed (GameWatch::status), empty when none
     std::string gameWarning;                      // what the player should fix for it (GameWatch::warning), or empty
     std::string gameRotation;                     // the rotation it steers with, when not the mapping's (GameWatch)
-    // For the app's Game profiles tab (GameWatch::live).
+    // For the app's Games tab (GameWatch::live).
     std::string gameId;                           // the known game running now, empty when none
     bool gameProfileApplies = false;              // its built-in profile is in use (it fits the target)
     std::uint32_t gamePid = 0;

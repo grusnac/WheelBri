@@ -36,7 +36,7 @@ namespace wheelbri {
 //   [steering] rotation_deg = 180 / note = why   (both or neither): a game whose own handling needs another
 //            steering rotation than usual (NFS Payback's cars understeer and turn in slowly). While the game runs the
 //            service steers with it, wheel and game both at that number (GameRotation.hpp), unless the user's mapping
-//            says otherwise for that game ([game_rotation], set in the Game profiles tab). WheelBri never reads or
+//            says otherwise for that game ([game_rotation], set in the Games tab). WheelBri never reads or
 //            sets the wheel's own software: the log and the window say to set it to the same number.
 //   [ffb]    gain = 3 / note = why   (both or neither, gain kFfbGainMin..kFfbGainMax): a game whose own force feedback
 //            is too light to feel (NFS Unbound asks for 5% of full scale on average). While the game runs the
@@ -45,9 +45,9 @@ namespace wheelbri {
 //            FfbSafetyLimiter: the user's gain, the cap (max_magnitude) and the slew limit still apply.
 //   [game_settings] file = <path under the user's Documents folder> / note = why / <id> = <the game's name> <value>
 //            (file, note and at least one setting go together; at most kMaxGameSettings): the game's own settings that
-//            the user writes into the game's settings file from the Game profiles tab (GameSettings.hpp; NFS Unbound
+//            the user writes into the game's settings file from the Games tab (GameSettings.hpp; NFS Unbound
 //            keeps its wheel force feedback settings there and shows none of them in its menus). <id> is lower case
-//            (spring), the user's name for it in the Game profiles tab and in [game_settings] <game>.<id> = value;
+//            (spring), the user's name for it in the Games tab and in [game_settings] <game>.<id> = value;
 //            <value> is a number from kGameSettingMin to kGameSettingMax, or "steering" for the steering rotation the
 //            game is played with (not changed by the user here: it follows the mapping's rotation for that game).
 struct GameSetting {
@@ -68,6 +68,10 @@ struct GameProfile {
     bool virtualDevice = true;   // [game] ways: it works with the virtual device
     bool shim = true;            //              and with the in-game shim
     std::string waysNote;        // [game] ways_note: why not the other way, in a sentence (set with ways only)
+    // [game] not_for = g923: targets the game does not support (it reads them as some other wheel); not_for_note: what
+    // goes wrong then, in a sentence. Set together; checked in the game, not guessed.
+    std::vector<std::string> notFor;
+    std::string notForNote;
     std::optional<ObjectGuid> throttleAxis;   // [pedals]: unset = the default
     std::optional<ObjectGuid> brakeAxis;
     std::optional<ObjectGuid> clutchAxis;
@@ -112,7 +116,7 @@ struct ParsedGameProfile {
                                                 std::span<const GameProfile> profiles = gameProfiles());
 
 // What to tell the user when `game` starts in a session run a way it does not work with (`shim`: the in-game shim; else
-// the virtual device): a short title for the notification ("NFS Payback needs the virtual device") and what to do;
+// the virtual device): a short title for the notification ("NFS Payback needs Mode Virtual") and what to do;
 // nullopt when the game works that way.
 struct WayAdvice {
     std::string title;
@@ -120,6 +124,11 @@ struct WayAdvice {
     friend bool operator==(const WayAdvice&, const WayAdvice&) = default;
 };
 [[nodiscard]] std::optional<WayAdvice> wayAdvice(const GameProfile& game, bool shim);
+
+// What to tell the user when `game` is played as `target` (the Mapping tab's Target, "g923") and it does not support
+// that wheel ([game] not_for): "NFS Unbound does not support the G923: ... Use the G920 for it (Mapping tab, Target)."
+// nullopt when it does (or nothing is known against it).
+[[nodiscard]] std::optional<std::string> targetAdvice(const GameProfile& game, std::string_view target);
 
 // True when the profile is for this target profile (any case), or for every target (a game the user added, whose
 // target is empty: GameTuning.hpp).

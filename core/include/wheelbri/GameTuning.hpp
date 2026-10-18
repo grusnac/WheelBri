@@ -15,7 +15,7 @@
 #include <string_view>
 #include <vector>
 
-// The user's own values for one game (the Game profiles tab), laid over the Mapping tab and the game's profile while
+// The user's own values for one game (the Games tab), laid over the Mapping tab and the game's profile while
 // that game runs. Kept per mapping (my-<target>.ini), since buttons and axes belong to a target:
 //   [game_tuning]
 //   nfs2015.throttle_axis = slider     ; the axis the game reads the pedal from: x y z rx ry rz slider (clutch: none)
@@ -118,7 +118,7 @@ struct GameDecision {
 // `game` null: no game runs. `profileApplies`: its built-in values fit the target (profileFitsTarget).
 [[nodiscard]] GameDecision decideGame(const GameProfile* game, bool profileApplies, const GameSessionConfig& config);
 
-// Games the user added (the Game profiles tab's Add game), kept in games.ini next to app.ini:
+// Games the user added (the Games tab's Add game), kept in games.ini next to app.ini:
 //   [game.excalibur]
 //   label = Excalibur
 //   program = excalibur.exe

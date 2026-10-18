@@ -3,7 +3,7 @@
 #   wheelbri/bin/       wheelbri (the app), wheelbri-service, wheelbri-uhid (C++ runtime linked in; they need only
 #                       libX11 and the kernel: the wheel through evdev, the window through X11/XWayland)
 #   wheelbri/config/    the example configs
-#   wheelbri/shim/      dinput8.dll for --shim and the app's Games panel, and x86/dinput8.dll for 32-bit games,
+#   wheelbri/shim/      dinput8.dll for --shim and the app's Games tab, and x86/dinput8.dll for 32-bit games,
 #                       when given
 #   wheelbri/           wheelbri.sh, install-udev-rules.sh, README.md
 #   wheelbri/docs/      user-guide.md, games.md and images/ (laid out as in the repo, so the links between them work)

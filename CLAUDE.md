@@ -76,7 +76,14 @@ Status (README.md has the full table):
   2026-10-13): the rotation is advice, so `GameWatch` (status, `service.game` log) tells the user to set the wheel's own
   software to it, and a game whose own settings follow the steering rotation gets it written there. A profile may also say which ways the game works with (`[game] ways` = virtual and/or shim + `ways_note`, both or
   neither; left out, both): no built-in profile uses it (NFS Payback, once thought virtual only, works with the shim,
-  2026-10-13). Core `wayAdvice` and
+  2026-10-13).
+  `[game] not_for` + `not_for_note` (both or neither) list targets the game does not support (NFS Unbound: g923,
+  checked 2026-10-18); core `targetAdvice` says so on the Games page (an amber box, "! not G923" in the list)
+  and the app's session bar (next to Start: target - mode - game, green while running, amber for such a game; a
+  click goes to the Mapping tab). A click on the greyed Start opens "Before Start" (App `showChecklist`). Toasts:
+  `MappingEditView::takeToast`, `ShimGamesView::takeToast` (App `toast`, 3 s above the bar). The Games tab and the Game
+  row name a known game by its profile (`ShimGamesView::Settings::gameLabel`: "NFS Unbound (Excalibur)").
+  Core `wayAdvice` and
   `WayNotices` (fed by `GameWatch` from every `GameDetector` poll; a shim session is one that does not route the pedals)
   count each start of a game run the wrong way; the app (`WayNoticeFollower`) shows it once per start as a Windows
   notification (`UiWindow::notify`: Win32 notification-area balloon; none on X11) and a popup, and `GameWatch::warning`
@@ -217,7 +224,7 @@ Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list]
 `--no-virtual-g920` are parsed but not in the usage line). `--virtual-g920` is the config's `target_profile` (G25,
 G27, G920 or G923) through our driver on Windows, `wheelbri-uhid` on Linux. `--app` opens the app's window (Start /
 Stop) from a console, with `--virtual-g920` on Windows unless `--no-virtual-g920`. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
-(click, or R / M / G / L, T / F; in this order: Rig, Mapping, Game profiles (the app only, `MappingView::setGamesTab`),
+(click, or R / M / G / L, T / F; in this order: Rig, Mapping, Games (the app only, `MappingView::setGamesTab`),
 Logs, then Telemetry and Force feedback only with `--telemetry-tab` / `--ffb-tab`, never shown without them,
 `MappingView::setOptionalTabs`): **Mapping** (the axes rig -> G920, every rig axis, the D-pad, the G920 buttons written
 `G920 <n> <name> <- Rig <n> <name>` and the wheel's own buttons `Rig <n> <name>` from `[button_labels]`), **Logs** (one
@@ -376,7 +383,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     only) and, when the game changes pedal invert or buttons, a per-game `Mapper` (`tunedMapper`, made on
     the window thread, kept for the session, `Pipeline::setGameMapper`). Mode Shim: at Start the app writes the
     game's axes into its `wheelbri-shim.ini` (`setShimGameAxes`, `game_axes = wheelbri`, and takes them out again;
-    the shim then skips its profile's pedal overlay). The Game profiles tab (round 3, `MappingEditView`) lists the
+    the shim then skips its profile's pedal overlay). The Games tab (round 3, `MappingEditView`) lists the
     built-in profiles and the user's games (Add game: `platform::pickFile` for the .exe, writes `games.ini`; Remove
     drops the game and its values) with sub-tabs Axes (one AXES section: steering degrees, each pedal's axis with
     < > and Normal / Inverted, each row starting from the profile (G920 only) or the Mapping tab, "comes from"),
@@ -398,13 +405,13 @@ rewrites on every build only when it changes); views keep their own top-row cont
     Documents folder, no link followed (file, backup, folders: the service may run as Administrator), backup
     `<file>.before-wheelbri` written once from the bytes read, outcomes Written / AsSet / NoFile / Refused / Failed;
     `GameSettingsTest` covers it with temporary folders and damaged files). Nothing writes them by itself (since
-    2026-10-13; `GameWatch` no longer does): the Game profiles tab's **Save to file** (`MappingEditView::saveGameFile`,
+    2026-10-13; `GameWatch` no longer does): the Games tab's **Save to file** (`MappingEditView::saveGameFile`,
     refused while the game's program runs, `platform::runningPrograms`) writes the values shown; **Locate file**
     (`locateGameFile`, `platform::pickFile`: GetOpenFileNameW, comdlg32; none on Linux, `canPickFile`) picks the file
     when it is not under Documents, kept only if it holds every setting, in `app.ini` as `game_file.<id>`
-    (`gameFilePlace`: that file's folder as root, else Documents). The app's Game profiles tab edits them:
-    `MappingEditView` with `Page::Games` (the same `MappingModel`, Save and Revert as the Mapping tab, which keeps only
-    the general rotation; no target shown, the target is the Mapping tab's): a list of `gameProfiles()`, and for the one
+    (`gameFilePlace`: that file's folder as root, else Documents). The app's Games tab edits them:
+    `MappingEditView` with `Page::Games` (the same `MappingModel` as the Mapping tab, saved as it changes, which keeps
+    only the general rotation; the target is the Mapping tab's): a list of `gameProfiles()`, and for the one
     picked three sections, MAPPING (the profile's pedal overlay, its rotation row), FORCE FEEDBACK (its gain row), GAME
     CONFIG (its settings rows; left out when the profile has none): its rotation row (`Field::PerGame`,
     `[game_rotation]`, for every game; a game with a "steering" setting, `hasSteeringSetting`, gets that rotation
@@ -413,7 +420,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     (`Field::GameSetting`), with what the file holds now (core `readGameSettingsState`: read-only, the writer's path and
     link checks, read every 2 s) against the values shown. While a session runs the page is locked and shows the game
     that runs from `UiFrame`'s game fields (`GameWatch::live`); the app (`updateGames`) switches the live view to the
-    Game profiles tab and picks the game when `UiFrame::gameStarts` changes with a game followed (core
+    Games tab and picks the game when `UiFrame::gameStarts` changes with a game followed (core
     `GameTabFollower`: once per start, reset at every Start; not while a name is typed in the Rig tab or a popup is
     open). The pedals: both ways use the same file:
     - virtual G920 / wheelbri-uhid: the service routes the published pedals (`routePedals(device, overlay(device,
@@ -463,7 +470,25 @@ rewrites on every build only when it changes); views keep their own top-row cont
     any device opens its popup and scrolls to its section; the rest position taken after ~20 reads gives a pedal's
     invert; the Mapping tab maps from it, by hand. A session takes the names it shows from the active rig, else from the older
     per-device files (`DeviceLabels.hpp`, `deviceLabelsFolder()`), which the first rig also imports. Mapping is not
-    done in the rig.
+    done in the rig. Once a device has a named control its section lists only the named ones (core `foldUnnamed`,
+    `indexRanges`: "4 axes not named (1, 3, 4, 7)"); Show all / Named only (`showAll_`) switch it for every device.
+    The Mapping page folds a button group with nothing mapped into one line with Show (core `layoutButtons`' `fold`,
+    `ButtonCell::folded`; `shownGroups_`, until the app closes).
+    Each tab keeps one status line at the bottom; the explanations are hover text (`HoverText`: areas of the last
+    draw, the one under the mouse in a wrapped box, at most 64 x 6; the Rig tab's own `hover_`, MappingEditView's
+    `tip` drawn with `HoverText::drawBox`).
+    Plain words (round 64): "Axis 0", "(not named)", "Connected" / "Not connected" on the Rig tab; "WheelBri" for the
+    app's log on the Logs tab and the live log's component as its last part ("devices", `shortLogger`); the Modes as
+    "Mode Virtual" / "Mode Shim" in the log and the notices (`ConfigPicker::name`, core `wayAdvice`).
+    Save as you change (round 65): the Rig and Mapping tabs have no Save or Revert. `autoSave` (at the start of each
+    draw) writes a finished change (no typing, dragging, popup or picker open) and puts the state before it on
+    `undo_` (50 at most; the Mapping tab's starts again with another Target); Undo drops a change that could not be
+    saved, else goes back one and saves that. A change that cannot be saved (a control used twice, a file that cannot
+    be written) says why in the status and is not tried again until the next change (`notSaved_`).
+    `MappingAutoSaveTest` drives the Mapping tab through clicks (the test binary compiles MappingEditView.cpp).
+    The look (round 67, `UiStyle.hpp`, namespace `style`): one colour per meaning (blue selected or an action, green
+    fine, amber check this, red broken), the dim text brighter (`style::kDim`, every view's `kDim`), a band behind
+    each section heading (`headingBand`), and switches drawn as checkboxes (`checkbox`: Detect, Hot swap, Wrap).
   - Several input devices: device 0 is the wheel (`source_device`; empty, as in the built-in `config/<target>.ini`,
     = the active rig's wheel, `Rig::wheel()`, filled in by `loadForRun`; plays FFB), 1..3 are accessories
     (`MapperConfig::accessories`, `DeviceId` vid:pid). Every source has a device next to its index
@@ -476,7 +501,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   - The config Start uses (`service/src/ConfigPicker.cpp`, the top row of the idle Mapping tab): two pickers with
     `<` `>`, Target (`ConfigPicker::Target` G25, G27, G920, G923 in a ring; `targetName()` "G920", `profileName()`
     "g920"; an unknown `[app] target` falls back to the G920) and Mode (`wayName()`: Virtual
-    or Shim; in the log "G25 virtual device" / "G920 in-game shim", `name()`) (`[app] target`, `[app] way` in
+    or Shim; in the log "G25 Mode Virtual" / "G920 Mode Shim", `name()`) (`[app] target`, `[app] way` in
     `appStateFile()`, `app.ini`; `AppSettings::runSession(host, config, virtualDevice)`). Two layers: the **target**
     is fixed (the profile's axes, D-pad and buttons; never the user's to change), the **mapping** of the rig onto
     it is the user's. Each target has one built-in config for both modes, never changed, holding WheelBri's default
@@ -485,7 +510,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     too (`my-<target>.ini`); the per-mode ones from before 2026-10-15 (`olderOwnNames`) are copied to it once, the
     newer winning, and never touched (`[app] older_mapping_<target>`).
     With Mode Shim, Start writes the target into the game's `wheelbri-shim.ini`
-    (`setShimTarget` in core `ShimGames`, the user's other lines kept). The Mapping tab's Save writes the user's own as
+    (`setShimTarget` in core `ShimGames`, the user's other lines kept). The Mapping tab's saves write the user's own as
     `userConfigFolder()/my-<built-in name>` (`%LOCALAPPDATA%\wheelbri\configs`), used instead; "Default" deletes it.
     The rig no longer rewrites a mapping (no rigMapping); it gives the sources' names, the wheel when `source_device`
     is empty. A source the active rig has not named shows "not in the rig" (`MappingEditView::missing`).
@@ -497,18 +522,29 @@ rewrites on every build only when it changes); views keep their own top-row cont
     The shim goes in as `dinput8Hooked.dll` when the folder's `dinput8.dll` is the Ultimate ASI Loader (`shimDllIn`,
     `isAsiLoader`), and a 32-bit game (its largest .exe, `gameArchitecture` / `peArchitecture`) gets the 32-bit build
     (`ShimSources`, `shimSourceFor`; ours built for the other processor counts as Outdated).
-    `ShimGamesTest` covers it with temporary folders. UI: `service/src/ShimGamesView.cpp`, on the Mapping tab only
-    with Mode Shim (any target): "Game <name> [Games (N)]" next to Start, the games panel (pick, Add game through
-    `UiWindow::pickFolder`: IFileOpenDialog on Windows, `/usr/bin/kdialog` or `/usr/bin/zenity` on X11; Put / Remove shim; Forget = `removeShimGame`, list only), and the App's popups: "Would
+    `ShimGamesTest` covers it with temporary folders. UI: `service/src/ShimGamesView.cpp` is the folders model
+    (`folders`, `stateAt`, `targetAt`, `folderOf`, `put`/`remove`/`forget`, `chooseFolder`/`addFolder`: no shim put in;
+    folders through `UiWindow::pickFolder`: IFileOpenDialog on Windows, `/usr/bin/kdialog` or `/usr/bin/zenity` on
+    X11) and the Mapping tab's row "Game <names> [Games]" (Mode Shim only; the button calls `Settings::openGames`, App
+    `openGamesTab`). There is no game to pick (round 66): Start (`prepareStart`) readies every listed folder (put in,
+    replaced, or put back; another mod's DLL left out) with the target and the game's axes; the app sees which game
+    runs (UiFrame `gameId`). Start needs one game listed. Core `ShimWatch`: a known game running 2 minutes
+    (`kQuietMs`) without the shim heard from (an FfbPacket, or a `wheelbri-shim` log written since Start) is told once
+    per start (notification and popup, App `watchShim`); at Stop, a session whose shim was heard asks what to do with
+    the shims (App `atStopShims`, a popup checkbox "Don't ask again" kept as `shim_at_stop` = ask | keep | delete in
+    app.ini, `ShimGamesView::atStop`; the Games tab's Ask again). The Games tab (`MappingEditView` Games page, round
+    61) shows each game once (built in, yours, then listed folders WheelBri knows no game in, with "Add as your
+    game..."), a folder tag, and the FOLDER section (`drawGameFolder`: Put / Remove shim, Forget folder, Choose
+    folder...); `shim-games.txt` and `games.ini` are unchanged. The App's popups: "Would
     you like to delete the shim from the target folder?" after a shim session (not when the window closes), notices.
     The shim's sources are `AppSettings::shimDlls` (`shimDllPaths()` in main.cpp: `shim\dinput8.dll` and
     `shim\x86\dinput8.dll` next to the program, or `build/shim/` and `build-x86/shim/`) and
-    `shimSettings` (`config/wheelbri-shim.ini`). Hot swap (the panel's switch, `app.ini` `shim_hot_swap`, on by
+    `shimSettings` (`config/wheelbri-shim.ini`). Hot swap (the Games tab's switch, `app.ini` `shim_hot_swap`, on by
     default): while stopped in Mode Shim, App `hotSwapShims` calls `ShimGamesView::swapShims` when the target, the
     list or the switch changes (`changes()`): every listed game whose folder has our shim (Installed or Outdated)
     gets `setShimTarget` and its pedal axes (`setShimGameAxes`); a game without it, or another mod's DLL, is not
     touched. Target and Mode are fixed from Start to Stop: `ConfigPicker::setLocked` (a locked picker ignores clicks,
-    even on arrows of an earlier draw, and `choose`). The Game profiles page shows the Target and Mode as text
+    even on arrows of an earlier draw, and `choose`). The Games page shows the Target and Mode as text
     (changed on the Mapping page only); the live view's header shows the session's (`MappingView::setSessionLine`).
   - A shim session starts only what the shim needs: no virtual G920, no hide filter, no
     Administrator check (all keyed on `Options::virtualG920`), and the Logs tab leaves out the driver rows

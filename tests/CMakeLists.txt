@@ -12,6 +12,7 @@ add_executable(wheelbri_tests
     AxisTuningTest.cpp
     ChangeCounterTest.cpp
     ConfigLibraryTest.cpp
+    ControlFoldTest.cpp
     DailyLogFileTest.cpp
     DeviceLabelsTest.cpp
     DeviceProfileTest.cpp
@@ -58,6 +59,7 @@ add_executable(wheelbri_tests
     RigTest.cpp
     SenderGateTest.cpp
     ShimGamesTest.cpp
+    ShimWatchTest.cpp
     StartNeedsTest.cpp
     StatePacketTest.cpp
     TelemetryTest.cpp
@@ -79,10 +81,17 @@ target_compile_definitions(wheelbri_tests PRIVATE WHEELBRI_CONFIG_DIR="${PROJECT
 # FolderWatch and DeviceChanges (device notices), and DeviceWatch with a fake lister.
 if(TARGET wheelbri_privileged)
     target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp FolderWatchTest.cpp DeviceWatchTest.cpp HelperProbeTest.cpp
-        AppLogLevelTest.cpp UiCanvasTest.cpp ConfigPickerTest.cpp ShimGamesViewTest.cpp
+        AppLogLevelTest.cpp UiCanvasTest.cpp ConfigPickerTest.cpp ShimGamesViewTest.cpp HoverTextTest.cpp
+        MappingAutoSaveTest.cpp
         ${PROJECT_SOURCE_DIR}/service/src/DeviceChanges.cpp ${PROJECT_SOURCE_DIR}/service/src/DeviceWatch.cpp
         ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp ${PROJECT_SOURCE_DIR}/service/src/AppLogLevel.cpp
-        ${PROJECT_SOURCE_DIR}/service/src/ConfigPicker.cpp ${PROJECT_SOURCE_DIR}/service/src/ShimGamesView.cpp)
+        ${PROJECT_SOURCE_DIR}/service/src/ConfigPicker.cpp ${PROJECT_SOURCE_DIR}/service/src/ShimGamesView.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/HoverText.cpp ${PROJECT_SOURCE_DIR}/service/src/MappingEditView.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/GameWatch.cpp ${PROJECT_SOURCE_DIR}/service/src/ServiceLogging.cpp)
+    # MappingEditView shows the version (Version.hpp): the build's own, generated (service/CMakeLists.txt).
+    target_compile_definitions(wheelbri_tests PRIVATE WHEELBRI_VERSION="${PROJECT_VERSION}")
+    target_include_directories(wheelbri_tests PRIVATE "${PROJECT_BINARY_DIR}/service/generated")
+    add_dependencies(wheelbri_tests wheelbri_build_info)
     target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/service/src)
     target_link_libraries(wheelbri_tests PRIVATE wheelbri_privileged)
     # Linux: the single-instance lock and child processes with real files and processes (PlatformPosix.cpp).

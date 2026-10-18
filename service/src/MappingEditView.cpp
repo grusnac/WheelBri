@@ -1,5 +1,7 @@
 #include "MappingEditView.hpp"
+#include "UiStyle.hpp"
 #include "GameWatch.hpp"
+#include "HoverText.hpp"
 
 #include "Platform.hpp"
 #include "ServiceLogging.hpp"
@@ -30,6 +32,12 @@ namespace wheelbri::service {
 
 namespace {
 
+// "G923" from "g923": a target's config name as the window shows it.
+std::string upperName(std::string name) {
+    for (char& c : name) c = c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
+    return name;
+}
+
 const logging::Logger& log() {
     static const logging::Logger logger = logging::get("service.mapping");
     return logger;
@@ -42,7 +50,7 @@ constexpr Colour kPanel{44, 48, 56};
 constexpr Colour kStripe{30, 33, 39};
 constexpr Colour kPopup{36, 40, 48};
 constexpr Colour kText{222, 226, 232};
-constexpr Colour kDim{120, 126, 136};
+constexpr Colour kDim = style::kDim;
 constexpr Colour kHeading{120, 190, 255};
 constexpr Colour kActive{64, 190, 100};
 constexpr Colour kWarning{214, 72, 64};
@@ -136,6 +144,13 @@ void MappingEditView::refreshDevices() {
 }
 
 void MappingEditView::load() {
+    // Another Target: its own mapping, its own undo list.
+    if (const int target = static_cast<int>(picker_.target()); target != undoTarget_) {
+        undo_.clear();
+        undoTarget_ = target;
+    }
+    notSaved_.reset();
+    undoing_ = false;
     mode_ = Mode::Idle;
     field_ = Field::None;
     dragging_ = false;
@@ -175,7 +190,7 @@ void MappingEditView::load() {
         statusError_ = true;
     } else {
         status_ = !builtIn_ ? "Your own mapping (saved). Default goes back to WheelBri's."
-                            : "WheelBri's default mapping. Change a source and Save to keep your own.";
+                            : "WheelBri's default mapping. Change a source: it is saved as your own.";
         statusError_ = false;
     }
     WE_LOG_INFO(log(), "mapping: editing {}", path_);
@@ -207,7 +222,7 @@ void MappingEditView::save() {
     if (builtIn_) {
         text = std::string("; WheelBri: your own mapping for the ") +
                ConfigPicker::targetName(picker_.target()) +
-               ", both modes (the Mapping tab's Save; Default deletes it)\r\n";
+               ", both modes (written by the Mapping tab; Default deletes it)\r\n";
     }
     text += written.text;
     // Written next to it and then swapped in, so a full disk or a crash never leaves half a mapping.
@@ -227,6 +242,44 @@ void MappingEditView::save() {
     }
     status_ = "Saved. The next Start uses it.";
     statusError_ = false;
+    toast_ = page_ == Page::Games ? std::string() : "Mapping saved";   // the Games page says its own
+}
+
+void MappingEditView::autoSave() {
+    if (!loaded_ || locked_ || !dirty()) return;
+    if (field_ != Field::None || dragging_ || mode_ != Mode::Idle) return;   // the change is not done yet
+    if (notSaved_ && *notSaved_ == edit_) return;                           // said why already: not again
+    const MappingModel before = saved_;
+    const bool undoing = std::exchange(undoing_, false);
+    save();
+    if (statusError_ || dirty()) {   // not saved (or read back differently): not tried again until the next change
+        notSaved_ = edit_;
+        return;
+    }
+    notSaved_.reset();
+    toast_.clear();   // every change saves: no message for each
+    status_ = undoing ? "Undone and saved." : "Saved. Start uses it.";
+    if (!undoing) {
+        undo_.push_back(before);
+        if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
+    }
+}
+
+void MappingEditView::undo() {
+    if (!loaded_ || locked_) return;
+    field_ = Field::None;
+    if (dirty()) {   // a change that could not be saved: dropped
+        edit_ = saved_;
+        notSaved_.reset();
+        status_ = "Change dropped.";
+        statusError_ = false;
+        return;
+    }
+    if (undo_.empty()) return;
+    edit_ = undo_.back();
+    undo_.pop_back();
+    undoing_ = true;   // autoSave writes it, without putting it on the list again
+    WE_LOG_INFO(log(), "mapping: undo ({} more)", undo_.size());
 }
 
 bool MappingEditView::gameValuesChanged() const {
@@ -234,7 +287,7 @@ bool MappingEditView::gameValuesChanged() const {
            edit_.gameFfbGains != saved_.gameFfbGains || edit_.gameTunings != saved_.gameTunings;
 }
 
-// The Game profiles page has no Save: its values are saved as they change, and only they (the Mapping tab's unsaved
+// The Games page has no Save: its values are saved as they change, and only they (the Mapping tab's unsaved
 // changes stay unsaved, still there to Save or Revert).
 void MappingEditView::saveGameValues() {
     MappingModel pending = edit_;
@@ -252,6 +305,7 @@ void MappingEditView::saveGameValues() {
         pending.gameTunings = saved_.gameTunings;
     } else {
         status_ = locked_ && path_ == sessionPath_ ? "Saved: in use now." : "Saved. The next Start uses it.";
+        toast_ = locked_ && path_ == sessionPath_ ? "Saved: in use now" : "Saved";
     }
     edit_ = std::move(pending);
 }
@@ -266,6 +320,7 @@ void MappingEditView::dropOwnEdits() {
     update();
     status_ = "Your own mapping is gone: WheelBri's default mapping again.";
     statusError_ = false;
+    toast_ = "Back to WheelBri's mapping";
 }
 
 // --- devices and sources ---------------------------------------------------------------------------------------
@@ -355,7 +410,7 @@ SourceRef& MappingEditView::slot(const Slot kind, const std::size_t index) {
 // --- input -------------------------------------------------------------------------------------------------------
 
 void MappingEditView::setLocked(const bool locked) {
-    // Called every frame. A session that starts ends what the Mapping tab was editing; the Game profiles page's values
+    // Called every frame. A session that starts ends what the Mapping tab was editing; the Games page's values
     // stay editable while it runs (live tuning).
     if (locked && !locked_) {
         sessionPath_ = path_;   // the mapping the session reads its per-game values from
@@ -373,7 +428,7 @@ void MappingEditView::onClick(const float x, const float y) {
         field_ = Field::None;
     }
     clickX_ = x;
-    // The Target and Mode row at the top: the Mapping page's only (the Game profiles page shows them, never changes
+    // The Target and Mode row at the top: the Mapping page's only (the Games page shows them, never changes
     // them), and never while a session runs.
     if (mode_ == Mode::Idle && page_ == Page::Mapping && !locked_ && picker_.onClick(x, y)) return;
     for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
@@ -637,6 +692,7 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
 void MappingEditView::draw() {
     hits_.clear();
     tips_.clear();
+    if (page_ == Page::Mapping) autoSave();
     const std::string target = profile_ != nullptr ? profile_->identity().shortName
                                                    : std::string(ConfigPicker::targetName(picker_.target()));
     // The top row: the title left; Default, Save and Revert right, left of the version (Version.hpp). The second row:
@@ -651,22 +707,25 @@ void MappingEditView::draw() {
         window_.text(customX, 6, std::string(kCustom), kCaution);
         tip(customX - 4, 2, defaultX - customX, 16, "Your saved mapping, not the default.");
     }
-    // The Game profiles page has no Default, Save or Revert: its subtitle reaches the version.
+    // The Games page has no Default, Save or Revert: its subtitle reaches the version.
     const float titleEnd = page_ == Page::Games ? revertX + 80 : builtIn_ ? defaultX : customX;
     const auto subtitle = [&](const float x, const std::string& text) {
         window_.text(x, 4, fit(text, static_cast<std::size_t>(std::max(0.0F, (titleEnd - 12 - x) / ui::kCharWidth))),
                      kDim);
     };
     if (page_ == Page::Games) {
-        window_.text(4, 4, "GAME PROFILES", kHeading);
-        subtitle(116, "the games WheelBri changes something for, and your own values for them");
+        window_.text(4, 4, "GAMES", kHeading);
+        subtitle(52, "every game: your own values for it and, for Mode Shim, its folder and the shim there");
     } else {
         window_.text(4, 4, "MAPPING", kHeading);
-        subtitle(68, "what your controls do on the " + target);
+        // EDIT: this page changes the mapping (while a session runs the tab shows the LIVE view instead).
+        window_.fill(66, 2, 40, 12, kPanel);
+        window_.text(70, 4, "EDIT", kText);
+        subtitle(114, "what your controls do on the " + target);
     }
 
     // The target (fixed inputs, picked with < >) and how it runs, "custom", Default, Save and Revert: the Mapping tab's
-    // alone. The Game profiles page saves its own values as they change (saveGameValues).
+    // alone. The Games page saves its own values as they change (saveGameValues).
     if (page_ == Page::Games) {
         // Which Target and Mode the values below are for (each target keeps its own): shown here, changed on the
         // Mapping tab only, and never from Start to Stop.
@@ -678,12 +737,38 @@ void MappingEditView::draw() {
         window_.text(modeX, 22, "Mode", kDim);
         window_.text(modeX + 5 * ui::kCharWidth, 22, way, kHeading);
         const float noteX = modeX + static_cast<float>(6 + way.size()) * ui::kCharWidth + 16;
+        // Hot swap (Mode Shim): the shims in the games' folders follow the Target as soon as it changes.
+        const float swapW = 132;
+        const float swapX = canvasW() - 4 - swapW;
+        // What Stop does with the shims once the user said "Don't ask again" (App: the question at Stop), and the way
+        // back to the question; left of Hot swap.
+        float noteEnd = swapX;
+        if (shims_ != nullptr && shims_->atStop() != ShimGamesView::AtStop::Ask) {
+            const float askW = 96;
+            const float askX = swapX - 8 - askW;
+            const std::string said = shims_->atStop() == ShimGamesView::AtStop::Keep ? "At Stop: the shims stay"
+                                                                                     : "At Stop: shims deleted";
+            const float saidX = askX - 8 - static_cast<float>(said.size()) * ui::kCharWidth;
+            window_.text(saidX, 22, said, kDim);
+            button(askX, 18, "Ask again", [this] { shims_->setAtStop(ShimGamesView::AtStop::Ask); }, false, true, askW);
+            tip(askX, 18, askW, 16, "Stop asks again what to do with the shims in the games' folders.");
+            noteEnd = saidX;
+        }
         window_.text(noteX, 22,
                      fit(locked_ ? "fixed while running" : "change them on the Mapping tab (M)",
-                         static_cast<std::size_t>(std::max(0.0F, canvasW() - noteX - 4) / ui::kCharWidth)),
+                         static_cast<std::size_t>(std::max(0.0F, noteEnd - noteX - 12) / ui::kCharWidth)),
                      locked_ ? kActive : kDim);
+        if (shims_ != nullptr) {
+            const bool on = shims_->hotSwap();
+            style::checkbox(window_, swapX, 18, swapW, "Hot swap", on, !locked_);
+            if (!locked_) hit(swapX, 18, swapW, 16, [this, on] { shims_->setHotSwap(!on); });
+            tip(swapX, 18, swapW, 16,
+                "On: when the Target changes (Mode Shim), every game folder with the shim in it gets the new Target at "
+                "once. Off: they get it at Start.");
+        }
         if (!loaded_) {
             window_.text(4, 60, fit(status_, 118 + extraChars()), kWarning);
+            window_.text(4, 80, "Pick another Target on the Mapping tab (M).", kDim);
             return;
         }
         if (editable() && gameValuesChanged()) saveGameValues();
@@ -694,16 +779,28 @@ void MappingEditView::draw() {
         return;
     }
     picker_.draw(4, 18, !locked_);
-    const bool canSave = loaded_ && dirty() && !locked_;
+    // Saved as you change it: where Save was, whether it is ("saved", or "not saved" in red); Undo instead of Revert.
     button(defaultX, 2, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
-    button(saveX, 2, "Save", [this] { save(); }, canSave, canSave, 80);
-    button(revertX, 2, "Revert", [this] {
-        edit_ = saved_;
-        status_ = "Changes dropped.";
-        statusError_ = false;
-    }, false, canSave, 80);
+    const bool unsaved = loaded_ && dirty();
+    const std::string saveState = unsaved ? "not saved" : "saved";
+    window_.text(saveX + 80 - static_cast<float>(saveState.size()) * ui::kCharWidth, 6, saveState,
+                 unsaved ? kWarning : kDim);
+    tip(saveX, 2, 80, 16,
+        unsaved ? "This change could not be saved: the line at the bottom says why. Undo drops it."
+                : "Every change is saved at once; Start uses what you see. Accessories it uses must be plugged in to "
+                  "start.");
+    const bool canUndo = loaded_ && !locked_ && (unsaved || !undo_.empty());
+    button(revertX, 2, "Undo", [this] { undo(); }, false, canUndo, 80);
+    tip(revertX, 2, 80, 16, "Goes back one change, as many times as you like (until the Target changes).");
+    tip(defaultX, 2, 104, 16, "Deletes your own mapping for this Target: WheelBri's default mapping again.");
     if (!loaded_) {
         window_.text(4, 60, fit(status_, 118 + extraChars()), kWarning);
+        // A way out: another target with < > above, or straight back to the G920 (the one every build has).
+        window_.text(4, 80, "Pick another Target with < > above, or:", kDim);
+        if (picker_.target() != ConfigPicker::Target::G920) {
+            button(4 + 42 * ui::kCharWidth, 76, "Back to the G920",
+                   [this] { picker_.useTarget(ConfigPicker::Target::G920); }, false, !locked_, 152);
+        }
         return;
     }
 
@@ -718,8 +815,10 @@ void MappingEditView::draw() {
     }
 
     // Axes, left; D-pad, right.
+    style::headingBand(window_, 0, y, canvasW());
     window_.text(4, y, "AXES", kHeading);
     window_.text(48, y, "click a source to pick another", kDim);
+    tip(4, y - 2, 290, 12, "Sources are the rig's controls, named in the Rig tab: click one to pick what drives it.");
     // The axes' and the D-pad's source fields share what a wider window adds.
     const float half = extraW() / 2;
     window_.text(620 + half, y, "D-PAD", kHeading);
@@ -728,20 +827,45 @@ void MappingEditView::draw() {
         window_.text(4, row + 4, kAxisNames[i], kText);
         drawSource(80, row, 420 + half, Slot::Axis, i);
         button(508 + half, row, "Invert", [this, i] { edit_.invert[i] = !edit_.invert[i]; }, edit_.invert[i], true, 70);
+        tip(508 + half, row, 70, 16, "The axis the other way round: for a pedal that reads pressed at rest.");
         window_.text(620 + half, row + 4, kHatNames[i], kText);
         drawSource(668 + half, row, 288 + half, Slot::Hat, i);
     }
 
     // The target's buttons (the ones its profile names; the others are not seen by games).
     y += 16 + 4 * 20 + 12;
+    style::headingBand(window_, 0, y, canvasW());
     window_.text(4, y, "BUTTONS", kHeading);
     window_.text(68, y, target + " button <- your control", kDim);
+    tip(4, y - 2, 340, 12,
+        "Each " + target + " button and the control that presses it; \"or\": a second one (a button, or an axis past a "
+        "point, such as a handbrake lever).");
     // Related buttons together (the profile's groups: FACE, PADDLES, STICKS, SYSTEM; the SHIFTER below both columns).
-    const ButtonLayout layout = layoutButtons(*profile_);
+    // A group with nothing mapped is one line with Show (a G920 without a shifter: no Gear rows).
+    const ButtonLayout layout = layoutButtons(*profile_, [this](const ButtonGroup& group) {
+        if (std::find(shownGroups_.begin(), shownGroups_.end(), group.name) != shownGroups_.end()) return false;
+        return std::none_of(group.buttons.begin(), group.buttons.end(), [this](const std::size_t b) {
+            return b < edit_.buttons.size() && (edit_.buttons[b].mapped() || !edit_.secondaries[b].empty());
+        });
+    });
+    const std::vector<ButtonGroup> groups = profile_->buttonGroups();
     const float gridTop = y + 16;
     for (const ButtonCell& cell : layout.cells) {
         const float x = 4 + static_cast<float>(cell.column) * (478 + half);   // two columns across the canvas
         const float row = gridTop + cell.y;
+        if (cell.folded) {
+            const bool below = std::any_of(groups.begin(), groups.end(), [&cell](const ButtonGroup& group) {
+                return group.name == cell.text && group.place == ButtonGroup::Place::Below;
+            });
+            const float w = below ? canvasW() - 8 : 470 + half;
+            window_.outline(x, row, w, 18, kPanel);
+            window_.text(x + 6, row + 5, cell.text, kDim);
+            window_.text(x + 6 + static_cast<float>(cell.text.size() + 2) * ui::kCharWidth, row + 5, "nothing mapped",
+                         kDim);
+            const std::string name = cell.text;
+            button(x + w - 62, row + 1, "Show", [this, name] { shownGroups_.push_back(name); }, false, true, 58);
+            continue;
+        }
         if (cell.heading) {
             window_.text(x, row + 3, cell.text, kDim);
             continue;
@@ -760,13 +884,9 @@ void MappingEditView::draw() {
 
     drawRotation(gridEnd + 14);
 
-    const float hint = contentH() - 52;
-    window_.text(4, hint, "Sources are the rig's controls (named in the Rig tab): click one to pick what drives it.",
-                 kDim);
-    window_.text(4, hint + 12, "Save writes the config; Start uses it. Accessories must be plugged in to start.",
-                 kDim);
-    const std::string state = dirty() ? "unsaved changes" : "saved";
-    window_.text(4, hint + 28, fit(status_.empty() ? state : status_, 118 + extraChars()),
+    // One status line; the explanations are hover text (the headings, saved, Undo, Default, Invert).
+    const std::string state = dirty() ? "not saved" : "saved";
+    window_.text(4, contentH() - 24, fit(status_.empty() ? state : status_, 118 + extraChars()),
                  statusError_ ? kWarning : status_.empty() ? (dirty() ? kCaution : kDim) : kActive);
 
     popupTips_ = tips_.size();   // a popup's own tips come after the tab's (which it covers)
@@ -784,18 +904,7 @@ void MappingEditView::drawTooltip() {
     const std::size_t first = mode_ != Mode::Idle ? popupTips_ : 0;
     for (auto it = tips_.rbegin(); it != tips_.rend() - static_cast<std::ptrdiff_t>(first); ++it) {
         if (hoverX_ < it->x || hoverX_ >= it->x + it->w || hoverY_ < it->y || hoverY_ >= it->y + it->h) continue;
-        const float kMaxW = canvasW() - 20;
-        const std::string text = fit(it->text, static_cast<std::size_t>((kMaxW - 12) / ui::kCharWidth));
-        const float w = static_cast<float>(text.size()) * ui::kCharWidth + 12;
-        constexpr float h = 18;
-        // Below and right of the pointer; moved in at the window's right edge, above the pointer at the bottom.
-        float x = std::min(hoverX_ + 12, canvasW() - w - 2);
-        float y = hoverY_ + 18;
-        if (y + h > contentH() - 2) y = hoverY_ - h - 6;
-        x = std::max(x, 2.0F);
-        window_.fill(x, y, w, h, kDark);
-        window_.outline(x, y, w, h, kHeading);
-        window_.text(x + 6, y + 5, text, kText);
+        HoverText::drawBox(window_, hoverX_, hoverY_, it->text, canvasW(), contentH());   // wrapped, a few lines
         return;
     }
 }
@@ -832,6 +941,7 @@ void MappingEditView::drawEntry(const float x, const float y, const float w, con
 
 void MappingEditView::drawRotation(const float top) {
     float y = top;
+    style::headingBand(window_, 0, y, canvasW());
     window_.text(4, y, "STEERING ROTATION", kHeading);
     window_.text(148, y, "full lock to full lock, in degrees", kDim);
 
@@ -873,9 +983,9 @@ void MappingEditView::drawRotation(const float top) {
         y += 12;
     }
 
-    // A game can have its own (NFS Payback: 180): the Game profiles tab.
+    // A game can have its own (NFS Payback: 180): the Games tab.
     y += 4;
-    window_.text(4, y, "A game can steer with its own rotation (NFS Payback: 180): the Game profiles tab (G) sets it.",
+    window_.text(4, y, "A game can steer with its own rotation (NFS Payback: 180): the Games tab (G) sets it.",
                  kDim);
 }
 
@@ -904,6 +1014,7 @@ void MappingEditView::selectGame(const std::string& id) {
         if (game.id == id) {
             if (selectedGame_ != id) field_ = Field::None;
             selectedGame_ = id;
+            selectedFolderOnly_.clear();
             return;
         }
     }
@@ -933,85 +1044,212 @@ void MappingEditView::drawGames() {
     }
     const std::size_t picked = selectedGameIndex();
 
-    // The list: the built-in profiles, then the games the user added; the one that runs now in green.
-    window_.text(4, y, "PROFILES", kHeading);
+    // The list: the built-in profiles, the games the user added, then the folders of games WheelBri does not know; the
+    // one that runs now in green. Each says what is in its folder.
+    refreshGameFolders();
+    style::headingBand(window_, 0, y, kGameListW + 4);
+    window_.text(4, y, "GAMES", kHeading);
     y += 16;
+    const auto folderTag = [this](const std::size_t folder, ui::Colour& colour) {
+        const ShimState state = shims_->stateAt(folder);
+        colour = state == ShimState::Foreign ? kWarning : state == ShimState::Missing ? kDim : kActive;
+        return state == ShimState::Foreign   ? std::string("other mod")
+               : state == ShimState::Missing ? std::string("no shim")
+                                             : "shim " + shims_->targetAt(folder);
+    };
     for (std::size_t g = 0; g < games.size(); ++g) {
         if (y > contentH() - 150) break;   // keep the buttons and the hint clear
         const GameProfile& game = games[g];
-        const bool on = g == picked;
+        const bool on = g == picked && selectedFolderOnly_.empty();
         const bool runs = game.id == now_.id;
+        const auto folder = gameFolders_.find(game.id);
+        const bool hasFolder = shims_ != nullptr && folder != gameFolders_.end();
+        // A game that does not support the target says so in the list too (amber).
+        const bool unfit = targetAdvice(game, targetName_).has_value();
         window_.fill(4, y, kGameListW, 18, on ? kHeading : kPanel);
-        window_.text(10, y + 5, fit(game.label, 15), on ? kDark : kText);
+        window_.text(10, y + 5, fit(game.label, 12), on ? kDark : kText);
         if (runs) {
             window_.fill(4 + kGameListW - 64, y + 3, 58, 12, kActive);
             window_.text(4 + kGameListW - 60, y + 5, "running", kDark);
         } else {
-            const std::string tag = userGame(game.id) ? "yours" : "built in";
+            ui::Colour colour = kDim;
+            std::string tag = userGame(game.id) ? "yours" : "built in";
+            if (unfit) {
+                tag = "! not " + upperName(targetName_);
+                colour = kCaution;
+            } else if (hasFolder) {
+                tag = folderTag(folder->second, colour);
+            }
             window_.text(4 + kGameListW - 6 - static_cast<float>(tag.size()) * ui::kCharWidth, y + 5, tag,
-                         on ? kDark : kDim);
+                         on ? kDark : colour);
         }
         const std::string id = game.id;
         hit(4, y, kGameListW, 18, [this, id] { selectGame(id); });
         y += 22;
     }
+    for (const std::size_t folder : otherFolders_) {
+        if (y > contentH() - 150 || shims_ == nullptr || folder >= shims_->folders().size()) break;
+        const ShimGame& entry = shims_->folders()[folder];
+        const bool on = selectedFolderOnly_ == entry.folder;
+        window_.fill(4, y, kGameListW, 18, on ? kHeading : kStripe);
+        window_.text(10, y + 5, fit(entry.name, 12), on ? kDark : kText);
+        ui::Colour colour = kDim;
+        const std::string tag = folderTag(folder, colour);
+        window_.text(4 + kGameListW - 6 - static_cast<float>(tag.size()) * ui::kCharWidth, y + 5, tag,
+                     on ? kDark : colour);
+        const std::filesystem::path path = entry.folder;
+        hit(4, y, kGameListW, 18, [this, path] {
+            selectedFolderOnly_ = path;
+            field_ = Field::None;
+        });
+        y += 22;
+    }
     y += 4;
     button(4, y, "Add game...", [this] { addGame(); }, false, !locked_ && platform::canPickFile(), 104);
+    tip(4, y, 104, 16,
+        platform::canPickFile()
+            ? "Pick a game's .exe: WheelBri finds the game by that name while it runs, and its folder joins the list "
+              "(no shim put in)."
+            : "No file window here yet: add games in games.ini next to app.ini.");
     const std::string pickedId = games[picked].id;
-    button(4 + 112, y, "Remove", [this, pickedId] { removeGame(pickedId); }, false, !locked_ && userGame(pickedId),
-           84);
+    button(4 + 112, y, "Remove", [this, pickedId] { removeGame(pickedId); }, false,
+           !locked_ && userGame(pickedId) && selectedFolderOnly_.empty(), 84);
+    tip(4 + 112, y, 84, 16, "Takes a game you added off the list, with its own values. Built-in games stay.");
     y += 22;
-    const char* const addLines[] = {"Add game: pick its .exe;", "WheelBri finds it by that", "name while it runs.",
-                                    "Every value here is its", "own; Default: back to", "the Mapping tab's."};
-    const char* const noDialog[] = {"No file dialog here yet:", "add games in games.ini", "next to app.ini.", "",
-                                    "Default: back to the", "Mapping tab's."};
-    for (const char* line : platform::canPickFile() ? addLines : noDialog) {
-        window_.text(4, y, line, kDim);
-        y += 12;
-    }
     window_.fill(kGameX - 8, 42, 1, contentH() - 100, kPanel);
 
-    // The picked game: its name and whether it runs, its sub-tabs, then the one shown.
-    float top = drawGameProfile(picked, 46);
-    const GameProfile& game = games[picked];
-    if (gameTab_ == GameTab::File && game.settings.empty()) gameTab_ = GameTab::Axes;
-    float x = kGameX;
-    const auto tab = [&](const GameTab which, const char* label) {
-        x += button(x, top + 4, label, [this, which] { gameTab_ = which; }, gameTab_ == which, true) + 6;
-    };
-    tab(GameTab::Axes, "Axes");
-    tab(GameTab::Ffb, "Force feedback");
-    tab(GameTab::Buttons, "Buttons");
-    if (!game.settings.empty()) tab(GameTab::File, "Game file");
-    top += 28;
-    switch (gameTab_) {
-        case GameTab::Axes: drawGameAxes(picked, top); break;
-        case GameTab::Ffb: drawGameForces(picked, top); break;
-        case GameTab::Buttons: drawGameButtons(picked, top); break;
-        case GameTab::File: drawGameSettings(picked, top); break;
+    // A folder whose game WheelBri does not know: its folder and the shim there, and Add as your game for its values.
+    std::optional<std::size_t> otherFolder;
+    if (!selectedFolderOnly_.empty() && shims_ != nullptr) {
+        for (const std::size_t folder : otherFolders_) {
+            if (shims_->folders()[folder].folder == selectedFolderOnly_) otherFolder = folder;
+        }
+        if (!otherFolder) selectedFolderOnly_.clear();
+    }
+    if (otherFolder) {
+        const ShimGame& entry = shims_->folders()[*otherFolder];
+        window_.text(kGameX, 46, entry.name, kHeading);
+        const std::string unknown =
+            "WheelBri does not know the game in this folder: add it as yours to set its values.";
+        window_.text(kGameX, 62, fit(unknown, gameChars()), kDim);
+        float top = drawGameFolder(nullptr, otherFolder, 80);
+        button(kGameX, top + 4, "Add as your game...", [this, entry] { addGame(entry.folder); }, false,
+               !locked_ && platform::canPickFile(), 168);
+    } else {
+        // The picked game: its name and whether it runs, its folder, its sub-tabs, then the one shown.
+        float top = drawGameProfile(picked, 46);
+        const GameProfile& game = games[picked];
+        const auto folder = gameFolders_.find(game.id);
+        top = drawGameFolder(&game, folder != gameFolders_.end() ? std::optional<std::size_t>(folder->second)
+                                                                 : std::nullopt,
+                             top);
+        if (gameTab_ == GameTab::File && game.settings.empty()) gameTab_ = GameTab::Axes;
+        float x = kGameX;
+        const auto tab = [&](const GameTab which, const char* label) {
+            x += button(x, top + 4, label, [this, which] { gameTab_ = which; }, gameTab_ == which, true) + 6;
+        };
+        tab(GameTab::Axes, "Axes");
+        tab(GameTab::Ffb, "Force feedback");
+        tab(GameTab::Buttons, "Buttons");
+        if (!game.settings.empty()) tab(GameTab::File, "Game file");
+        top += 28;
+        switch (gameTab_) {
+            case GameTab::Axes: drawGameAxes(picked, top); break;
+            case GameTab::Ffb: drawGameForces(picked, top); break;
+            case GameTab::Buttons: drawGameButtons(picked, top); break;
+            case GameTab::File: drawGameSettings(picked, top); break;
+        }
     }
 
-    const float hint = contentH() - 52;
-    window_.text(4, hint,
-                 locked_ ? "Your values are saved as you change them."
-                         : "Your values are saved as you change them and used from the next Start.",
-                 kDim);
-    if (!locked_) {
-        window_.text(4, hint + 12, "While WheelBri runs they can be changed too: they apply at once.", kDim);
+    // One status line: what was just done, else when the values apply.
+    const float status = contentH() - 24;
+    if (!status_.empty()) {
+        window_.text(4, status, fit(status_, 118 + extraChars()), statusError_ ? kWarning : kActive);
+    } else if (!locked_) {
+        window_.text(4, status, "Saved as you change them: used from the next Start, or at once while WheelBri runs.",
+                     kDim);
     } else if (path_ == sessionPath_) {
-        window_.text(4, hint + 12,
+        window_.text(4, status,
                      fit("Running: changes apply at once (pedal axes in Mode Shim, and Add game: from the next Start).",
                          118 + extraChars()),
                      kActive);
     } else {
-        window_.text(4, hint + 12,
+        window_.text(4, status,
                      fit("Running with WheelBri's default mapping: your changes are kept in your own mapping and used "
                          "from the next Start.",
                          118 + extraChars()),
                      kCaution);
     }
-    window_.text(4, hint + 28, fit(status_.empty() ? std::string("saved") : status_, 118 + extraChars()),
-                 statusError_ ? kWarning : status_.empty() ? kDim : kActive);
+}
+
+void MappingEditView::refreshGameFolders() {
+    if (shims_ == nullptr) return;
+    shims_->refresh();
+    const std::uint64_t now = platform::nowMs();
+    if (now - gameFoldersReadMs_ < 2000 && gameFoldersCount_ == shims_->folders().size() + games_.size()) return;
+    gameFoldersReadMs_ = now;
+    gameFoldersCount_ = shims_->folders().size() + games_.size();
+    gameFolders_.clear();
+    otherFolders_.clear();
+    for (std::size_t f = 0; f < shims_->folders().size(); ++f) {
+        const GameProfile* const known = gameInFolder(shims_->folders()[f].folder, games_);
+        if (known == nullptr) {
+            otherFolders_.push_back(f);
+        } else if (gameFolders_.count(known->id) == 0) {
+            gameFolders_[known->id] = f;
+        }
+    }
+}
+
+float MappingEditView::drawGameFolder(const GameProfile* const game, const std::optional<std::size_t> folder, float y) {
+    if (shims_ == nullptr) return y;
+    const bool shimMode = picker_.way() == ConfigPicker::Way::Shim;
+    style::headingBand(window_, kGameX - 4, y + 4, canvasW() - kGameX);
+    window_.text(kGameX, y + 4, "FOLDER", kHeading);
+    const float x = kGameX + 64;
+    if (!folder || *folder >= shims_->folders().size()) {
+        // No folder yet: only Mode Shim needs one (the shim goes there).
+        window_.text(x, y + 4,
+                     fit(shimMode ? "none yet: Mode Shim puts its shim in the game's folder"
+                                  : "none needed in Mode Virtual (Mode Shim puts its shim there)",
+                         gameChars() - 26),
+                     shimMode ? kCaution : kDim);
+        // The folder window starts next to the last listed game's folder (games are often side by side).
+        const std::filesystem::path start =
+            shims_->folders().empty() ? std::filesystem::path() : shims_->folders().back().folder.parent_path();
+        button(canvasW() - 4 - 152, y, "Choose folder...", [this, game, start] { shims_->chooseFolder(game, start); },
+               false, !locked_, 152);
+        return y + 24;
+    }
+    const std::size_t index = *folder;
+    const ShimGame& entry = shims_->folders()[index];
+    const ShimState state = shims_->stateAt(index);
+    const std::string stateText = state == ShimState::Installed ? "shim in place"
+                                  : state == ShimState::Outdated ? "older shim (Start replaces it)"
+                                  : state == ShimState::Foreign  ? "another mod's dinput8.dll: Start leaves it"
+                                                                 : "no shim (Start puts it in)";
+    const std::string target = shims_->targetAt(index);
+    const std::string presents =
+        (state == ShimState::Installed || state == ShimState::Outdated) && !target.empty()
+            ? ", presents the " + upperName(target)
+            : std::string();
+    const std::size_t pathChars = gameChars() > 60 ? gameChars() - 52 : 8;
+    window_.text(x, y + 4, fit(pathToUtf8(entry.folder), pathChars), kDim);
+    const float stateX = x + static_cast<float>(pathChars + 2) * ui::kCharWidth;
+    window_.text(stateX, y + 4, stateText + presents,
+                 state == ShimState::Foreign ? kWarning : state == ShimState::Missing ? kDim : kActive);
+    tip(x, y, static_cast<float>(pathChars) * ui::kCharWidth, 16, pathToUtf8(entry.folder));
+    y += 20;
+    // What to do with it: put the shim in or take it out, take the folder off the list.
+    float bx = x;
+    if (state == ShimState::Missing || state == ShimState::Outdated) {
+        bx += button(bx, y, "Put shim", [this, index] { shims_->put(index); }, false, !locked_, 96) + 6;
+    } else if (state == ShimState::Installed) {
+        bx += button(bx, y, "Remove shim", [this, index] { shims_->remove(index); }, false, !locked_, 112) + 6;
+    }
+    button(bx, y, "Forget folder", [this, index] { shims_->forget(index); }, false, !locked_, 120);
+    tip(bx, y, 120, 16, "Takes the folder off the list; its files stay as they are.");
+    return y + 24;
 }
 
 float MappingEditView::drawGameProfile(const std::size_t index, float y) {
@@ -1028,6 +1266,21 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
             window_.text(kGameX, y, line, kCaution);
             y += 12;
         }
+    }
+
+    // A game that does not support the target ([game] not_for): what goes wrong and what to use, in an amber box. The
+    // target is changed on the Mapping tab only.
+    if (const auto advice = targetAdvice(game, targetName_)) {
+        const std::vector<std::string> lines = wrap("! " + *advice, gameChars() - 2, 3);
+        const float boxH = 8 + 12 * static_cast<float>(lines.size());
+        window_.fill(kGameX, y, canvasW() - kGameX - 4, boxH, kStripe);
+        window_.outline(kGameX, y, canvasW() - kGameX - 4, boxH, kCaution);
+        float line = y + 5;
+        for (const std::string& text : lines) {
+            window_.text(kGameX + 8, line, text, kCaution);
+            line += 12;
+        }
+        y += boxH + 6;
     }
 
     // Now: the game that runs (while a session does), else how it is found.
@@ -1069,8 +1322,9 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
     return y;
 }
 
-// A section's heading on the Game profiles page: its name, and what it holds (dim).
+// A section's heading on the Games page: its name, and what it holds (dim).
 void MappingEditView::gameSection(const float y, const std::string& name, const std::string& about) {
+    style::headingBand(window_, kGameX - 4, y, canvasW() - kGameX);
     window_.text(kGameX, y, name, kHeading);
     window_.text(kGameX + 160, y, fit(about, gameChars() - 20), kDim);
 }
@@ -1270,10 +1524,23 @@ void MappingEditView::reloadGames() {
     }
 }
 
-void MappingEditView::addGame() {
+void MappingEditView::addGame(const std::filesystem::path& start) {
     const std::optional<std::filesystem::path> picked =
-        platform::pickFile("Add a game: pick its program (.exe)", {}, "");
+        platform::pickFile("Add a game: pick its program (.exe)", start, "");
     if (!picked) return;   // cancelled
+    // Its folder joins the game folders (for Mode Shim; no shim put in until Put shim or Start).
+    const auto addFolder = [this, &picked] {
+        if (shims_ == nullptr) return;
+        for (const ShimGame& entry : shims_->folders()) {
+            std::error_code ec;
+            if (std::filesystem::equivalent(entry.folder, picked->parent_path(), ec)) return;   // listed already
+        }
+        std::string problem;
+        if (!shims_->addFolder(picked->parent_path(), problem)) {
+            WE_LOG_WARN(log(), "games: {}'s folder not added: {}", pathToUtf8(picked->parent_path()), problem);
+        }
+        gameFoldersReadMs_ = 0;
+    };
     const std::string program = programName(pathToUtf8(picked->filename()));
     if (program.size() < 5 || program.compare(program.size() - 4, 4, ".exe") != 0) {
         status_ = "Not added: pick the game's program, a .exe file.";
@@ -1282,6 +1549,7 @@ void MappingEditView::addGame() {
     }
     for (const GameProfile& game : games_) {
         if (game.program == program) {
+            addFolder();
             selectGame(game.id);
             status_ = game.label + " is in the list already (" + program + ").";
             statusError_ = false;
@@ -1313,6 +1581,7 @@ void MappingEditView::addGame() {
     }
     WE_LOG_INFO(log(), "games: added {} ({}) to {}", game.label, game.program, pathToUtf8(file));
     reloadGames();
+    addFolder();
     selectGame(id);
     gameTab_ = GameTab::Axes;
     status_ = game.label + " added: WheelBri finds " + program + " while it runs. Set its own values here.";
@@ -1964,7 +2233,7 @@ void MappingEditView::drawAltPicker() {
     y = kPopupY + 112;
     const float kEntryW = kChipW;
     if (devices_.empty()) {
-        window_.text(left, y, "The rig has no devices yet: define them in the Rig tab and Save.", kCaution);
+        window_.text(left, y, "The rig has no devices yet: define them in the Rig tab.", kCaution);
     }
     const ControlUse self{ControlUse::Kind::Secondary, target};
     for (const DeviceLabels* const entry : order) {
@@ -2062,7 +2331,7 @@ void MappingEditView::drawPicker() {
     const int kColumns = popupColumns();   // more columns in a wider window
     const float kEntryW = entryW(kColumns);
     if (devices_.empty()) {
-        window_.text(left, y, "The rig has no devices yet: define them in the Rig tab and Save.", kCaution);
+        window_.text(left, y, "The rig has no devices yet: define them in the Rig tab.", kCaution);
     }
     for (const DeviceLabels* const entry : order) {
         const DeviceLabels& device = *entry;

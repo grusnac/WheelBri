@@ -54,7 +54,7 @@ TEST(WayNotices, AShimSessionTellsOncePerStartOfAVirtualOnlyGame) {
 
     shim.poll(running({"Payback.exe"}));
     ASSERT_TRUE(shim.notices.current());
-    EXPECT_EQ(shim.notices.current()->title, "NFS Payback needs the virtual device");
+    EXPECT_EQ(shim.notices.current()->title, "NFS Payback needs Mode Virtual");
     EXPECT_EQ(shim.notices.count(), 1U);
     shim.poll(running({"Payback.exe"}));   // still running: no new notice
     EXPECT_EQ(shim.notices.count(), 1U);
@@ -83,7 +83,7 @@ TEST(WayNotices, TheVirtualDeviceTellsAboutAShimOnlyGameWhateverItsTarget) {
     virtualDevice.poll(running({}));
     virtualDevice.poll(running({"old.exe"}));   // its profile is for the G25, the session's target the G920
     ASSERT_TRUE(virtualDevice.notices.current());
-    EXPECT_EQ(virtualDevice.notices.current()->title, "Old needs the in-game shim");
+    EXPECT_EQ(virtualDevice.notices.current()->title, "Old needs Mode Shim");
     EXPECT_EQ(virtualDevice.notices.count(), 1U);
 }
 

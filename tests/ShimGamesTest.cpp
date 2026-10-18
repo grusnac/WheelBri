@@ -90,7 +90,7 @@ TEST_F(ShimGamesFiles, TheTargetIsSetInTheShimsSettings) {
     EXPECT_TRUE(again.changed.empty());
 }
 
-// A game's own pedal axes (the Game profiles tab) go into its wheelbri-shim.ini with game_axes = wheelbri, and come out
+// A game's own pedal axes (the Games tab) go into its wheelbri-shim.ini with game_axes = wheelbri, and come out
 // again when none are set; axes the user wrote (no game_axes) are never taken out.
 TEST_F(ShimGamesFiles, TheGamesAxesAreWrittenAndTakenOut) {
     write(game() / kShimSettings, "[shim]\ntarget_profile = g920\n");

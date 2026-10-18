@@ -1,4 +1,5 @@
 #include "ConfigPicker.hpp"
+#include "UiStyle.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/Logging.hpp"
@@ -21,7 +22,7 @@ using Colour = ui::Colour;
 constexpr Colour kPanel{44, 48, 56};
 constexpr Colour kStripe{30, 33, 39};
 constexpr Colour kText{222, 226, 232};
-constexpr Colour kDim{120, 126, 136};
+constexpr Colour kDim = style::kDim;
 constexpr Colour kHeading{120, 190, 255};
 constexpr Colour kDark{16, 18, 20};
 
@@ -33,7 +34,7 @@ constexpr float kRowHeight = 16;
 }  // namespace
 
 std::string ConfigPicker::name() const {
-    return std::string(targetName(target_)) + (way_ == Way::VirtualDevice ? " virtual device" : " in-game shim");
+    return std::string(targetName(target_)) + (way_ == Way::VirtualDevice ? " Mode Virtual" : " Mode Shim");
 }
 
 const char* ConfigPicker::targetName(const Target target) {
@@ -89,7 +90,7 @@ ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
     }
     if (!settings_.virtualAvailable) {
         way_ = Way::Shim;   // app.ini keeps what it says
-        WE_LOG_INFO(log(), "Mode: Shim only (the virtual device needs Windows 11)");
+        WE_LOG_INFO(log(), "Mode: Shim only (Mode Virtual needs Windows 11)");
     }
     const std::string target = readAppSetting(settings_.stateFile, "target");
     target_ = parseTarget(target).value_or(Target::G920);

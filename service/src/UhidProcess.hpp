@@ -1,7 +1,7 @@
 #pragma once
 
 // Linux: the virtual G920 for a session of the app, wheelbri-uhid (tools/uhid), a program of its own because it is
-// the same one scripts/linux/wheelbri.sh starts. The app starts it with Start (target "G920 virtual device") and
+// the same one scripts/linux/wheelbri.sh starts. The app starts it with Start (target "G920 Mode Virtual") and
 // stops it with Stop; one already running (wheelbri.sh's) is used and left alone.
 
 #include "Platform.hpp"

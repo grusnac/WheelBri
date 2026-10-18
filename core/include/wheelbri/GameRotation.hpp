@@ -13,7 +13,7 @@
 // the wheel's own software (Pit House for Moza) must be set to the same number, by the user (WheelBri never reads or
 // sets it); the app and the log say so. A game whose own settings follow the steering rotation gets it written there
 // (GameSettings.hpp). The user's mapping can change it per game, or turn it off ([game_rotation] in the config, set in
-// the Game profiles tab):
+// the Games tab):
 //   [game_rotation]
 //   nfspayback = 180        ; 180 in this game
 //   nfspayback = off        ; the mapping's own rotation in this game too

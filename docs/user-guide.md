@@ -8,7 +8,7 @@ work but are untried.
 - [Set up your rig](#set-up-your-rig)
 - [Map it to the Target](#map-it-to-the-target)
 - [Play](#play)
-- [Game profiles](#game-profiles)
+- [Games](#games)
 - [Force feedback](#force-feedback)
 - [Logs](#logs)
 - [Uninstall](#uninstall)
@@ -38,16 +38,20 @@ To upgrade, run the new setup: your rig, mappings and settings stay.
 
 ## Set up your rig
 
-Open **WheelBri**. The tabs are along the bottom (Rig, Mapping, Game profiles, Logs; press R, M, G, L), with the status,
-**Start** and **Stop** at the right.
+Open **WheelBri**. The tabs are along the bottom (Rig, Mapping, Games, Logs; press R, M, G, L), with the status,
+**Start** and **Stop** at the right. Point at a button (Detect, Undo, Show all...) to see what it does.
 
 ![Rig tab with a control's popup open](images/rig.png)
 
-1. With **Detect: on**, touch a control: turn the wheel, press a pedal **all the way**, press a button. Its popup opens.
+1. With **Detect** ticked, touch a control: turn the wheel, press a pedal **all the way**, press a button. Its
+   popup opens.
 2. Give it a **Name** or pick what it **is** (Steering, Throttle, Brake, Clutch, a button...). For a pedal that rests at
    the top, **Inverted** is set for you.
 3. Press **OK**. Repeat for every control you use.
-4. Name each device, then press **Save**.
+4. Name each device. Every change is saved at once; **Undo** goes back one change at a time.
+
+Once a device has a named control, only its named axes and buttons are listed; the others fold into one line each
+("4 axes not named (1, 3, 4, 7)"). **Show all** lists every control again, **Named only** folds them back.
 
 The device with the Steering axis is the wheel; it plays the force feedback. WheelBri has no dead zones: set those, and
 the wheel's rotation, in the wheel's own software (Pit House for Moza).
@@ -58,13 +62,20 @@ the wheel's rotation, in the wheel's own software (Pit House for Moza).
 
 1. Pick the **Target** and the **Mode** with `<` and `>` at the top (from Start until Stop they cannot change).
 2. Check each of the Target's axes, D-pad and buttons comes from the right control: click a source to change it. A
-   button can have an extra source ("or"), for example a handbrake lever.
+   button can have an extra source ("or"), for example a handbrake lever. A group with nothing mapped (the
+   **Shifter** without a shifter) is one line: **Show** opens it.
 3. Set **Steering rotation** to the game's full lock, and set your wheel's own software to **the same number**.
-4. Press **Save**. **Default** goes back to WheelBri's mapping.
+4. Every change is saved at once and Start uses what you see. **Undo** goes back one change at a time,
+   **Default** to WheelBri's mapping.
 
 ## Play
 
 Press **Start** before you start the game, and **Stop** when you are done. The status shows `Running`.
+
+Next to Start, on every tab, the bar shows what Start runs: Target, Mode and (Mode Shim) the game, green while it
+runs, amber when the game does not support the Target. Click it to go to the Mapping tab. When Start is greyed out,
+click it: a list says what is done and what is still to do. The Mapping tab is marked EDIT while stopped and LIVE
+while running; after a hot swap or a shim put in, a short green message says what happened.
 
 **Mode Virtual** (Windows 11)
 
@@ -75,35 +86,46 @@ Press **Start** before you start the game, and **Stop** when you are done. The s
 
 **Mode Shim**
 
-![The Games panel in Mode Shim](images/games.png)
-
-1. Press **Games**, then **Add game**, and choose the folder with the game's `.exe`. WheelBri puts the right shim there
-   (32 or 64-bit, next to the Ultimate ASI Loader if you have it) and never overwrites another mod's `dinput8.dll`.
-2. Click the game to pick it, close the panel and press **Start**.
+1. On the **Games** tab (G), add your games: pick a game and press **Choose folder...** (or **Add game...** for a
+   game WheelBri does not know), and choose the folder with the game's `.exe`. Start needs at least one game.
+2. Press **Start**. Every listed game's folder gets the right shim (32 or 64-bit, next to the Ultimate ASI Loader if
+   you have it), set to the Target; another mod's `dinput8.dll` is never overwritten (that game is left out). There
+   is no game to pick: start any of them, and the bar next to Start shows the one WheelBri sees running.
 3. Start the game and pick the Logitech wheel.
-4. At **Stop**, choose whether to delete the shim from the game folder.
+4. If a game runs for 2 minutes without a word from the shim, WheelBri says so (a Windows notification and a
+   popup): the emulation is stalled, or the shim is not in that game's folder. Check its folder on the Games tab,
+   then restart the game.
+5. At **Stop** (after a session where the shim worked), choose whether to delete the shims from the games' folders.
+   With **Don't ask again** your answer is kept; **Ask again** on the Games tab brings the question back.
 
-**Hot swap** (the Games panel, on by default): when you change the Target in Mode Shim, every game whose folder has
-the shim gets the new Target (each shows its own next to "shim in place"); games without the shim are left alone. Off:
-only the picked game, at Start. Restart a game that was running to get the new Target.
+The Mapping tab's **Game** row lists the games; its **Games** button opens the Games tab.
+
+**Hot swap** (the switch at the top right of the Games tab, on by default): when you change the Target in Mode Shim,
+every game whose folder has the shim gets the new Target (its FOLDER section says which wheel it presents, the list
+says "shim g923"); games without the shim are left alone. Off: they get it at Start. Restart a game that
+was running to get the new Target.
 
 Do not use both Modes for one game. With a wheel that is not a Moza, set `source_vid` in the game folder's
 `wheelbri-shim.ini` to your wheel's vendor id (the first 4 characters of its `vid:pid` in the Rig tab).
 
-## Game profiles
+## Games
 
 Everything that can differ from game to game is set here, for one game at a time. A few games come with a built-in
 profile that WheelBri applies by itself while they run: NFS 2015 (its pedals), NFS Payback (180 degrees) and NFS
 Unbound (stronger force feedback and its hidden wheel settings). Built-in profiles work **with Target G920 only**; your
 own values work with every Target.
 
-![Game profiles tab](images/game-profiles.png)
+![Games tab](images/games.png)
 
 The top of this tab shows the Target and the Mode the values are for (each Target keeps its own values); change them
 on the Mapping tab, while WheelBri is stopped. While it runs the Mapping tab shows them in its header.
 
-1. Pick the game on the left, or press **Add game...** and choose its `.exe` (WheelBri finds it by that name while it
-   runs). **Remove** takes a game you added off the list.
+1. Pick the game on the left. Every game is listed once: the built-in ones, the ones you added, and game folders with
+   the shim that WheelBri does not know (by folder name, with **Add as your game...**). The tag says what is in its
+   folder (`shim g920`, `no shim`, `other mod`), or `! not G923` when the game does not support the Target;
+   `running` the one WheelBri sees now. **Add game...** picks a game's `.exe` (WheelBri finds it by that name
+   while it runs; its folder joins the list, no shim put in). **Remove** takes a game you added off the list.
+   **FOLDER**: see [Play](#play), Mode Shim. **Forget folder** takes the folder off the list and leaves its files.
 2. Set what you want in its sub-tabs; **Default** next to a value goes back to the profile's or the Mapping tab's:
    - **Axes**: the steering rotation, and for each pedal the axis the game reads it from and Normal / Inverted.
      Each row starts from the game's profile or your Mapping tab. In Mode Virtual the pedals can only be swapped
@@ -126,7 +148,7 @@ Pedal axes in Mode Shim and new games take effect at the next Start.
 Every force goes through safety limits first. The defaults are cautious: 70% overall strength, never more than 80% of
 what the wheel can do, no sudden jumps, and a push the game leaves unchanged for 2 seconds (a loading screen) fades out.
 
-For one game, use the Game profiles tab. For every game, edit `[ffb]` in your mapping file,
+For one game, use the Games tab. For every game, edit `[ffb]` in your mapping file,
 `%LOCALAPPDATA%\wheelbri\configs\my-<target>.ini` (it exists once you saved a mapping), and press Start again:
 
 | Setting | Default | |
@@ -152,7 +174,7 @@ with the Target, the Mode, the game and what you saw. Set Level back to warn aft
 
 ## Uninstall
 
-1. In Mode Shim, remove the shim from your games first (Games, **Remove shim**).
+1. In Mode Shim, remove the shim from your games first (Games tab, **Remove shim**).
 2. Start menu > WheelBri > Uninstall WheelBri (or Settings > Apps), and answer its questions.
 
 Your rig, mappings and logs in `%LOCALAPPDATA%\wheelbri` are kept; delete that folder for a clean start.
@@ -165,8 +187,8 @@ Look at the Logs tab first: a failed Start says why there, in red.
 
 | Status | What to do |
 |---|---|
-| `NO RIG` / `NO WHEEL IN THE RIG` | Name your controls in the Rig tab and Save. |
-| `NO MAPPING` | Map the Target's inputs in the Mapping tab and Save. |
+| `NO RIG` / `NO WHEEL IN THE RIG` | Name your controls in the Rig tab. |
+| `NO MAPPING` | Map the Target's inputs in the Mapping tab. |
 | `NOT CONNECTED: <names>` | Switch on or plug in those devices. |
 | `HELPER NOT INSTALLED` | See below. |
 
@@ -182,8 +204,8 @@ Look at the Logs tab first: a failed Start says why there, in red.
 **The game sees no wheel.**
 - Press Start **before** starting the game, and check the status says `Running`.
 - Mode Virtual: Win+R, `joy.cpl` must list the Target and not your rig.
-- Mode Shim: the game must say "shim in place" in the Games panel, and a `wheelbri-shim-...` log must appear when the
-  game starts. With a non-Moza wheel, check `source_vid` (see [Play](#play)).
+- Mode Shim: the game's FOLDER section on the Games tab must say "shim in place", and a `wheelbri-shim-...` log
+  must appear when the game starts. With a non-Moza wheel, check `source_vid` (see [Play](#play)).
 - NFS Payback needs Logitech G HUB: see [games.md](games.md#nfs-payback).
 
 **The game sees two wheels.** In Mode Virtual the app should say "rig hidden"; "NOT HIDDEN" names the device it could
@@ -197,7 +219,7 @@ the game again and pick the Logitech wheel.
 the wheel's software; check `game_effects = true`; try `--ffb-test` ([Force feedback](#force-feedback)).
 
 **Force feedback too strong, too weak or the wrong way.** Change `master_gain` or `invert`
-([Force feedback](#force-feedback)), or the game's gain in the Game profiles tab. Check the wheel's own strength too.
+([Force feedback](#force-feedback)), or the game's gain in the Games tab. Check the wheel's own strength too.
 
 **The pedals are wrong.** In the Rig tab press each pedal all the way: its bar must go from released to pressed, else
 toggle **Inverted**. In the Mapping tab check Throttle, Brake and Clutch come from the right controls. A pedal that does

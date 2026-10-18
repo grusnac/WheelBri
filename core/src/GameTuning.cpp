@@ -275,7 +275,7 @@ UserGamesResult parseUserGames(const std::string_view text) {
 }
 
 std::string formatUserGames(const std::span<const GameProfile> games) {
-    std::string text = "; WheelBri: the games you added in the Game profiles tab (Add game). Written by the app.\n";
+    std::string text = "; WheelBri: the games you added in the Games tab (Add game). Written by the app.\n";
     for (const GameProfile& game : games) {
         text += "\n[game." + game.id + "]\nlabel = " + iniSafeValue(game.label) + "\nprogram = " +
                 iniSafeValue(game.program) + "\n";

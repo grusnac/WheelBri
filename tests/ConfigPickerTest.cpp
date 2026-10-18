@@ -119,7 +119,7 @@ TEST_F(ConfigPickerFiles, WithNothingSavedItIsTheVirtualG920) {
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
     EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);
     EXPECT_TRUE(picker.virtualDevice());
-    EXPECT_EQ(picker.name(), "G920 virtual device");
+    EXPECT_EQ(picker.name(), "G920 Mode Virtual");
     EXPECT_STREQ(picker.profileName(), "g920");
     EXPECT_TRUE(picker.builtIn());
     EXPECT_EQ(picker.selected(), (builtIn() / "g920.ini").string());
@@ -134,7 +134,7 @@ TEST_F(ConfigPickerFiles, ReadsTheSavedTargetAndWay) {
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_FALSE(picker.virtualDevice());
-    EXPECT_EQ(picker.name(), "G25 in-game shim");
+    EXPECT_EQ(picker.name(), "G25 Mode Shim");
     EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
 }
 
@@ -318,7 +318,7 @@ TEST_F(ConfigPickerFiles, ASavedVirtualIsShimWhereItCannotRunAndStaysSaved) {
     shimOnly.virtualAvailable = false;
     const ConfigPicker picker(window_, shimOnly);
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
-    EXPECT_EQ(picker.name(), "G920 in-game shim");
+    EXPECT_EQ(picker.name(), "G920 Mode Shim");
     EXPECT_EQ(setting("way"), "virtual");   // for the same app.ini on Windows 11 later
     const ConfigPicker onWindows11(window_, settings());
     EXPECT_EQ(onWindows11.way(), ConfigPicker::Way::VirtualDevice);

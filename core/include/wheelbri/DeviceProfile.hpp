@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -91,6 +92,7 @@ struct ButtonCell {
     bool heading = false;
     std::string text;               // a heading's name
     std::size_t button = 0;         // a button's index
+    bool folded = false;            // a heading standing for its whole group (folded: one kButtonRowH row)
 
     friend bool operator==(const ButtonCell&, const ButtonCell&) = default;
 };
@@ -98,7 +100,10 @@ struct ButtonLayout {
     std::vector<ButtonCell> cells;
     float height = 0.0F;            // of the whole grid
 };
-[[nodiscard]] ButtonLayout layoutButtons(const IDeviceProfile& profile);
+// `fold` says which named groups show as their heading alone (one kButtonRowH row, `folded`, in its column; a Below
+// group's in column 0): the Mapping tab folds a group with nothing mapped. Null: none.
+[[nodiscard]] ButtonLayout layoutButtons(const IDeviceProfile& profile,
+                                         const std::function<bool(const ButtonGroup&)>& fold = {});
 
 struct DeviceProfileSpec {
     DeviceIdentity identity;

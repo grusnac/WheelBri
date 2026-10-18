@@ -137,14 +137,14 @@ void GameWatch::sayRotation() {
 }
 
 void GameWatch::sayFfbGain() {
-    // The steering force's gain: what the Game profiles tab showed before per-kind gains.
+    // The steering force's gain: what the Games tab showed before per-kind gains.
     const GameDetector::State& state = detector_.state();
     const GameDecision decision = decideGame(state.game, state.profileApplies, session_);
     const float next = decision.ffb.gains[static_cast<std::size_t>(FfbGroup::Constant)];
     const std::string tuned = decision.tuning != nullptr ? state.game->id : std::string();
     if (tuned != tunedGame_) {
         if (!tuned.empty()) {
-            WE_LOG_INFO(log(), "game: {} plays with your own values for it (the Game profiles tab, [game_tuning])",
+            WE_LOG_INFO(log(), "game: {} plays with your own values for it (the Games tab, [game_tuning])",
                         state.game->label);
         } else if (!tunedGame_.empty()) {
             WE_LOG_INFO(log(), "game: the mapping's own values again");

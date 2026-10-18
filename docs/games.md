@@ -25,7 +25,7 @@ and are applied by themselves while the game runs.
 ## NFS Payback
 
 - **Set up:** install Logitech G HUB, and set your wheel's software to **180** degrees for this game.
-- **Profile:** 180 degrees while the game runs (change it in the Game profiles tab).
+- **Profile:** 180 degrees while the game runs (change it in the Games tab).
 - **Known:** the game reads wheels through Logitech's SDK, which loads the helper DLL named in the registry. On some PCs
   that entry still points at the old, removed Logitech Gaming Software, and the game then ignores every wheel. Point it
   at G HUB's DLL from an Administrator PowerShell with the game closed (use the version folder you have):
@@ -45,12 +45,14 @@ and are applied by themselves while the game runs.
 
 ## NFS Unbound
 
-- **Set up:** before the first race, with the game closed: Game profiles tab, NFS Unbound, **Save to file** (**Locate
+- **Set up:** before the first race, with the game closed: Games tab, NFS Unbound, **Save to file** (**Locate
   file** first if the file is not under Documents).
 - **Profile:** the game's wheel settings are hidden in its settings file and very light by default; the profile writes
   force feedback 1.0, spring 0.8 and the steering rotation there (the original is kept as
   `PROFILEOPTIONS.before-wheelbri`), and multiplies its steering force by 3.
 - **Known:** the game quits without stopping its forces; WheelBri stops them half a second later.
+- **Target:** use the G920. As a G923 the game falls back to a layout for wheels it does not know (A opens the friend
+  list); WheelBri says so on the Games tab and in the bar next to Start.
 
 ## Not yet tried
 

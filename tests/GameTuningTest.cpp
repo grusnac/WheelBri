@@ -18,7 +18,7 @@ GameTuning tuned(const std::string& key, const std::string& value, std::string* 
 
 }  // namespace
 
-// Every key the Game profiles tab writes is read back.
+// Every key the Games tab writes is read back.
 TEST(GameTuning, ReadsEveryKey) {
     GameTuning t;
     const std::vector<std::pair<std::string, std::string>> lines = {

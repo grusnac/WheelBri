@@ -369,18 +369,18 @@ TEST(GameProfiles, AdviceOnlyForTheWayAGameDoesNotWorkWith) {
     EXPECT_FALSE(wayAdvice(game, false));   // the virtual device: fine
     const std::optional<WayAdvice> shim = wayAdvice(game, true);
     ASSERT_TRUE(shim);
-    EXPECT_EQ(shim->title, "NFS X needs the virtual device");
-    EXPECT_EQ(shim->text, "NFS X does not work with the in-game shim (the shim crashes it). Close the game, Stop, set "
-                          "Mode to Virtual on the Mapping tab, and Start again.");
+    EXPECT_EQ(shim->title, "NFS X needs Mode Virtual");
+    EXPECT_EQ(shim->text, "NFS X does not work with Mode Shim (the shim crashes it). Close the game, Stop, set Mode "
+                          "to Virtual on the Mapping tab, and Start again.");
     game.shim = true;
     game.virtualDevice = false;
     game.waysNote = "it finds no virtual wheel";
     EXPECT_FALSE(wayAdvice(game, true));
     const std::optional<WayAdvice> virtualDevice = wayAdvice(game, false);
     ASSERT_TRUE(virtualDevice);
-    EXPECT_EQ(virtualDevice->title, "NFS X needs the in-game shim");
-    EXPECT_EQ(virtualDevice->text, "NFS X does not work with the virtual device (it finds no virtual wheel). Close the "
-                                   "game, Stop, set Mode to Shim on the Mapping tab, and Start again.");
+    EXPECT_EQ(virtualDevice->title, "NFS X needs Mode Shim");
+    EXPECT_EQ(virtualDevice->text, "NFS X does not work with Mode Virtual (it finds no virtual wheel). Close the game, "
+                                   "Stop, set Mode to Shim on the Mapping tab, and Start again.");
 }
 
 // [game_settings] lines a profile author may get wrong: ids with digits, capitals or too long; names with spaces,
@@ -443,4 +443,39 @@ TEST(GameProfiles, NotARouteInAnySlotIsStraightThrough) {
 }
 
 }  // namespace
+// [game] not_for: the targets a game does not support, with what goes wrong; targetAdvice says it for those only.
+TEST(GameProfiles, NotForSaysWhichTargetsTheGameDoesNotSupport) {
+    const ParsedGameProfile parsed = parseGameProfile(
+        "racer", "[game]\nlabel = Racer\nprogram = racer.exe\ntarget = g920\nnot_for = G923, g25\n"
+                 "not_for_note = its buttons do other things\n");
+    ASSERT_TRUE(parsed.profile.has_value()) << (parsed.problems.empty() ? "" : parsed.problems.front());
+    EXPECT_EQ(parsed.profile->notFor, (std::vector<std::string>{"g923", "g25"}));
+    EXPECT_EQ(targetAdvice(*parsed.profile, "g923"),
+              "Racer does not support the G923: its buttons do other things. Use the G920 for it (Mapping tab, "
+              "Target).");
+    EXPECT_TRUE(targetAdvice(*parsed.profile, "G25").has_value());
+    EXPECT_FALSE(targetAdvice(*parsed.profile, "g920").has_value());
+    EXPECT_FALSE(targetAdvice(*parsed.profile, "g27").has_value());
+}
+
+TEST(GameProfiles, NotForProblems) {
+    const auto problems = [](const std::string& extra) {
+        return parseGameProfile("racer", "[game]\nlabel = Racer\nprogram = racer.exe\ntarget = g920\n" + extra)
+            .problems;
+    };
+    EXPECT_FALSE(problems("not_for = g923\n").empty());                        // without its note
+    EXPECT_FALSE(problems("not_for_note = something\n").empty());              // a note without targets
+    EXPECT_FALSE(problems("not_for = g29\nnot_for_note = something\n").empty());   // not a target
+    EXPECT_FALSE(problems("not_for = g920\nnot_for_note = something\n").empty());  // the one it was checked with
+    EXPECT_TRUE(problems("not_for = g923\nnot_for_note = something\n").empty());
+}
+
+// The built-in NFS Unbound profile: checked as a G923 (it falls back to an unknown wheel's layout).
+TEST(GameProfiles, NfsUnboundIsNotForTheG923) {
+    const GameProfile* const unbound = gameProfileFor("NeedForSpeedUnbound.exe");
+    ASSERT_NE(unbound, nullptr);
+    EXPECT_TRUE(targetAdvice(*unbound, "g923").has_value());
+    EXPECT_FALSE(targetAdvice(*unbound, "g920").has_value());
+}
+
 }  // namespace wheelbri

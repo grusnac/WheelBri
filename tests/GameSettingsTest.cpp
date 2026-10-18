@@ -136,7 +136,7 @@ TEST(GameSettings, ValuesComeFromTheUserThenTheProfile) {
     EXPECT_EQ(texts, expected);
     EXPECT_EQ(gameSettingLabel("force_feedback"), "force feedback");
 
-    // Its rotation is set per game (the Game profiles tab, [game_rotation]) and written as WheelMaxRotation.
+    // Its rotation is set per game (the Games tab, [game_rotation]) and written as WheelMaxRotation.
     EXPECT_TRUE(hasSteeringSetting(*unbound));
     EXPECT_FALSE(hasSteeringSetting(*gameProfileFor("NeedForSpeedPayback.exe")));
     EXPECT_FALSE(rotationWhileRunning(*unbound, {}).has_value());   // none of its own: the mapping's is written
@@ -364,7 +364,7 @@ TEST_F(GameSettingsFile, LinksAreNotFollowed) {
     if (ec) GTEST_SKIP() << "links cannot be made here: " << ec.message();
     EXPECT_EQ(write(kStronger).outcome, GameSettingsFileResult::Outcome::Refused);
     EXPECT_EQ(readFileText(elsewhere).value_or(""), unboundFile());
-    // Nor read through by the Game profiles tab.
+    // Nor read through by the Games tab.
     EXPECT_EQ(readGameSettingsState(root_, "Game/settings/PROFILEOPTIONS", kStronger).status,
               GameSettingsFileState::Status::Unreadable);
 
@@ -390,7 +390,7 @@ TEST_F(GameSettingsFile, LinksAreNotFollowed) {
               GameSettingsFileState::Status::Unreadable);
 }
 
-// The Game profiles tab reads what the file holds now, with the writer's checks, and never changes it.
+// The Games tab reads what the file holds now, with the writer's checks, and never changes it.
 TEST_F(GameSettingsFile, StateSaysWhatTheFileHolds) {
     using Status = GameSettingsFileState::Status;
     const std::string path = "Game/settings/PROFILEOPTIONS";

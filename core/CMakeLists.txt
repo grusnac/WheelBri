@@ -4,6 +4,7 @@ add_library(wheelbri_core STATIC
     src/AxisAudit.cpp
     src/ChangeCounter.cpp
     src/ConfigLibrary.cpp
+    src/ControlFold.cpp
     src/DailyLogFile.cpp
     src/DeviceMatch.cpp
     src/DeviceLabels.cpp
@@ -51,6 +52,7 @@ add_library(wheelbri_core STATIC
     src/Rig.cpp
     src/SenderGate.cpp
     src/ShimGames.cpp
+    src/ShimWatch.cpp
     src/StartNeeds.cpp
     src/StatePacket.cpp
     src/Telemetry.cpp

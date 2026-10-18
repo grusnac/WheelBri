@@ -29,8 +29,8 @@ namespace wheelbri::service {
 // the wheel's own software must be set to it while the game runs, and the window shows it.
 // A game with a force feedback gain (its profile's [ffb] gain: NFS Unbound) gets it while it runs: check() returns it
 // for the service's FfbController, and the log says so. A game's own settings (its profile's [game_settings]) are never
-// written here: the user saves them into the game's file from the Game profiles tab (Save to file).
-// For the app's Game profiles tab it also says which game runs (live: profile id, pid, since when, how many starts).
+// written here: the user saves them into the game's file from the Games tab (Save to file).
+// For the app's Games tab it also says which game runs (live: profile id, pid, since when, how many starts).
 // Called from the session's window thread every 2 s (a few milliseconds; never on the service loop); not thread-safe.
 // The games the user added (GameTuning.hpp, parseUserGames) from games.ini in the user's settings folder; its problems
 // are logged. Empty when there is no file.
@@ -54,7 +54,7 @@ public:
     };
     // One look: what the pipeline should use now.
     Decision check();
-    // The user changed the per-game values while the session runs (the Game profiles tab saves them as they change):
+    // The user changed the per-game values while the session runs (the Games tab saves them as they change):
     // the next check() uses them. `tunings`: [game_tuning]; `overrides`: [game_rotation]; `legacyGains`:
     // [game_ffb_gain].
     void setValues(GameTunings tunings, GameRotations overrides, GameFfbGains legacyGains);
@@ -72,7 +72,7 @@ public:
     // deg"), else empty: the wheel's own software must be set to it while the game runs.
     [[nodiscard]] std::string rotationStatus() const;
 
-    // For the app's Game profiles tab: the game followed now, while its profile is in use.
+    // For the app's Games tab: the game followed now, while its profile is in use.
     struct Live {
         std::string id;              // its id (a built-in profile's or a game the user added); empty: none
         std::uint32_t pid = 0;

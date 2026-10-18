@@ -583,8 +583,9 @@ try {
             Write-Host 'To remove it: Start menu > WheelBri > Uninstall WheelBri, or Settings > Apps > WheelBri.'
         } else {
             Write-Host 'Next: plug in your wheel, open "WheelBri" from the Start menu and set up your rig (Rig tab).'
-            Write-Host 'On the Mapping tab press Games, Add game (the folder with the game''s .exe), then Start'
-            Write-Host 'before the game. To remove it: Start menu > WheelBri > Uninstall WheelBri.'
+            Write-Host 'On the Games tab pick your game, press Choose folder... (the folder with its .exe) and'
+            Write-Host 'Use for Start, then press Start before the game. To remove it: Start menu > WheelBri >'
+            Write-Host 'Uninstall WheelBri.'
         }
     }
     Write-Host "Log: $logFolder"

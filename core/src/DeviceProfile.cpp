@@ -54,7 +54,7 @@ TargetReport DeviceProfile::encode(const WheelState& state) const {
     return report;
 }
 
-ButtonLayout layoutButtons(const IDeviceProfile& profile) {
+ButtonLayout layoutButtons(const IDeviceProfile& profile, const std::function<bool(const ButtonGroup&)>& fold) {
     ButtonLayout layout;
     std::vector<ButtonGroup> groups = profile.buttonGroups();
     // Named buttons no group has (and every one, without groups): Below, in number order.
@@ -72,6 +72,7 @@ ButtonLayout layoutButtons(const IDeviceProfile& profile) {
     }
     if (!rest.buttons.empty()) groups.push_back(std::move(rest));
 
+    const auto folded = [&fold](const ButtonGroup& group) { return !group.name.empty() && fold && fold(group); };
     float columnY[2] = {0.0F, 0.0F};
     const auto heading = [&](const int column, const float y, const std::string& name) {
         if (name.empty()) return 0.0F;
@@ -82,6 +83,11 @@ ButtonLayout layoutButtons(const IDeviceProfile& profile) {
         if (group.place == ButtonGroup::Place::Below || group.buttons.empty()) continue;
         const int column = group.place == ButtonGroup::Place::Left ? 0 : 1;
         float& y = columnY[column];
+        if (folded(group)) {
+            layout.cells.push_back({column, y, true, group.name, 0, true});
+            y += kButtonRowH;
+            continue;
+        }
         y += heading(column, y, group.name);
         for (const std::size_t b : group.buttons) {
             layout.cells.push_back({column, y, false, {}, b});
@@ -91,6 +97,11 @@ ButtonLayout layoutButtons(const IDeviceProfile& profile) {
     float y = std::max(columnY[0], columnY[1]);
     for (const ButtonGroup& group : groups) {   // then below both, two a row
         if (group.place != ButtonGroup::Place::Below || group.buttons.empty()) continue;
+        if (folded(group)) {
+            layout.cells.push_back({0, y, true, group.name, 0, true});
+            y += kButtonRowH;
+            continue;
+        }
         y += heading(0, y, group.name);
         for (std::size_t i = 0; i < group.buttons.size(); ++i) {
             layout.cells.push_back({static_cast<int>(i % 2), y, false, {}, group.buttons[i]});

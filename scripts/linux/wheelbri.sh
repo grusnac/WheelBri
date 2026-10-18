@@ -261,7 +261,7 @@ shim_target=      # the file it went to there (dinput8.dll or dinput8Hooked.dll)
 shim_put_dll=0    # this run put (or found its own) shim there
 shim_put_ini=0    # this run put wheelbri-shim.ini there
 
-# Puts the shim and wheelbri-shim.ini into the game's folder, as the app's Games panel does. Never touches another
+# Puts the shim and wheelbri-shim.ini into the game's folder, as the app's Games tab does. Never touches another
 # mod's dll: one that is neither ours (byte for byte) nor next to a wheelbri-shim.ini (an older WheelBri shim). A
 # wheelbri-shim.ini already there (your own settings) is used as it is.
 put_shim() {

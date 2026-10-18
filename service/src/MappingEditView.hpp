@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ConfigPicker.hpp"
+#include "ShimGamesView.hpp"
 #include "UiWindow.hpp"
 
 #include "wheelbri/DeviceLabels.hpp"
@@ -18,6 +19,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace wheelbri::service {
@@ -30,7 +32,7 @@ namespace wheelbri::service {
 // other settings kept), Revert drops unsaved changes, Default drops the saved mapping. A source the rig has not named
 // shows "not in the rig". The live view (the session's Mapping tab) shows the result once started.
 //
-// It also draws the app's Game profiles tab (Page::Games), which edits the same mapping: the built-in game profiles
+// It also draws the app's Games tab (Page::Games), which edits the same mapping: the built-in game profiles
 // (GameProfiles.hpp) in a list, and for the one picked what its profile changes, the user's own values for it (its
 // steering rotation, force feedback gain and own settings: [game_rotation], [game_ffb_gain], [game_settings], saved
 // in the same mapping as they change: that page has no Default, Save or Revert, which are the Mapping tab's) and what
@@ -53,6 +55,9 @@ public:
     [[nodiscard]] Page page() const { return page_; }
     // The game the Games page shows (a profile id); an unknown one is ignored.
     void selectGame(const std::string& id);
+    // The game folders for Mode Shim (the App's): the Games page shows each game's folder and its shim, and the
+    // folders of games WheelBri does not know.
+    void setShimGames(ShimGamesView* shims) { shims_ = shims; }
 
     // What the running session says about games, for the Games page (UiFrame's game fields).
     struct GameNow {
@@ -102,14 +107,16 @@ public:
     // A number field is being typed in: letters are not the window's shortcuts then, Escape stops typing.
     [[nodiscard]] bool editingText() const { return field_ != Field::None; }
     [[nodiscard]] bool dirty() const { return loaded_ && edit_ != saved_; }
-    // Can be edited now: anything while no session runs; the Game profiles page's values also while one does (the
+    // Can be edited now: anything while no session runs; the Games page's values also while one does (the
     // session reads them again when they are saved: live tuning).
     [[nodiscard]] bool editable() const { return !locked_ || page_ == Page::Games; }
     // A popup (pick a source, the wheel) covers the tab: the window's own controls on it wait.
+    // A short message after something was done ("Mapping saved"): taken once, the app shows it for a few seconds.
+    [[nodiscard]] std::string takeToast() { return std::exchange(toast_, std::string()); }
     [[nodiscard]] bool popupOpen() const { return mode_ != Mode::Idle; }
 
 private:
-    // AddButton: the Game profiles page's Add button... popup (the target's buttons, then Pick for the one chosen).
+    // AddButton: the Games page's Add button... popup (the target's buttons, then Pick for the one chosen).
     enum class Mode { Idle, Pick, PickAlt, AddButton };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
     // GameButton: a target button's source while the picked game runs (its own value, GameTuning.hpp).
@@ -124,7 +131,7 @@ private:
     enum class TuningField : std::size_t {
         Strength, Constant, Periodic, Spring, Damper, Friction, Inertia, Cap, Slew, Fade
     };
-    // The Game profiles page's sub-tabs for the picked game.
+    // The Games page's sub-tabs for the picked game.
     enum class GameTab { Axes, Ffb, Buttons, File };
 
     struct Hit {
@@ -171,7 +178,13 @@ private:
     // A mapped source that the active rig has not named (the default was made for another rig).
     [[nodiscard]] bool missing(const SourceRef& source, bool axis) const;
     void save();
-    // The Game profiles page's values ([game_rotation], [game_settings], [game_ffb_gain]) differ from the saved ones.
+    // Save as you change (the Mapping page): once a change is done (no typing, dragging or picker open), it is
+    // written, and the mapping before it goes on the undo list (at most kMaxUndo). Not saved (a control used twice,
+    // a file that cannot be written): the status says why, and it is not tried again until the next change.
+    void autoSave();
+    // Undo: drops a change that could not be saved, else goes back to the mapping before the last one (saved again).
+    void undo();
+    // The Games page's values ([game_rotation], [game_settings], [game_ffb_gain]) differ from the saved ones.
     [[nodiscard]] bool gameValuesChanged() const;
     void saveGameValues();   // saves those alone, as they change
     void dropOwnEdits();
@@ -227,8 +240,15 @@ private:
     [[nodiscard]] bool tuningChanged(const std::string& id) const;
     // The force feedback the picked game gets now (shown values): the mapping's [ffb] with its profile and own values.
     [[nodiscard]] GameFfb gameFfbOf(const GameProfile& game) const;
-    // Add game: the system's Open dialog for its .exe; Remove: one the user added (and its own values).
-    void addGame();
+    // Add game...: the system's file window for the game's .exe (starting in `start`); a game WheelBri does not know
+    // becomes the user's (games.ini) and its folder joins the shim folders (no shim put in).
+    void addGame(const std::filesystem::path& start = {});
+    // The picked game's FOLDER section (Games page): its folder, the shim there and what to do with it; `game` null
+    // for a folder whose game WheelBri does not know. Returns the y below it.
+    float drawGameFolder(const GameProfile* game, std::optional<std::size_t> folder, float y);
+    // Which listed folder holds each game (by id) and which folders hold none (read again every 2 s at most).
+    void refreshGameFolders();
+    // Remove: a game the user added (and its own values); its folder stays listed.
     void removeGame(const std::string& id);
     void reloadGames();
     [[nodiscard]] bool userGame(const std::string& id) const;
@@ -285,6 +305,11 @@ private:
     std::unique_ptr<IDeviceProfile> profile_;
     MappingModel saved_;
     MappingModel edit_;
+    static constexpr std::size_t kMaxUndo = 50;
+    std::vector<MappingModel> undo_;           // the saved mappings before each change, oldest first
+    int undoTarget_ = -1;                      // the Target they are for (another Target: the list starts again)
+    bool undoing_ = false;                     // the next save is an Undo's: nothing goes on the list
+    std::optional<MappingModel> notSaved_;     // the change that could not be saved (not tried again)
     std::vector<DeviceLabels> devices_;
     std::uint64_t devicesReadMs_ = 0;
 
@@ -294,6 +319,7 @@ private:
     bool locked_ = false;
     std::string sessionPath_;   // the config the running session was started with (path_ at setLocked(true))
     std::string status_;
+    std::string toast_;
     bool statusError_ = false;
 
     std::string targetName_ = "g920";   // [emulator] target_profile: which games' advice fits
@@ -304,6 +330,14 @@ private:
     float clickX_ = 0.0F;     // where the click being answered is (the slider's press)
 
     Page page_ = Page::Mapping;
+    ShimGamesView* shims_ = nullptr;
+    std::map<std::string, std::size_t> gameFolders_;   // game id -> its folder's index in shims_->folders()
+    std::vector<std::size_t> otherFolders_;            // folders with no known game in them
+    std::uint64_t gameFoldersReadMs_ = 0;
+    std::size_t gameFoldersCount_ = 0;
+    // The Mapping page's button groups shown although nothing in them is mapped (their Show), until the app closes.
+    std::vector<std::string> shownGroups_;
+    std::filesystem::path selectedFolderOnly_;         // the Games page shows that folder (its game is not known)
     std::string selectedGame_;   // the Games page's game (a profile id); empty: the first
     GameTab gameTab_ = GameTab::Axes;
     // The games the page lists: the built-in profiles, then the ones the user added (games.ini, userGames_).

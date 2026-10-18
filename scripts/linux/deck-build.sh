@@ -4,7 +4,7 @@
 # ~/wheelbri, where wheelbri.sh, the docs (README.md, user-guide.md) and Steam's launch option expect it:
 #   ~/wheelbri/bin/       wheelbri (the app), wheelbri-service, wheelbri-uhid
 #   ~/wheelbri/config/    the example configs; one you edited is kept, the new one goes next to it as <name>.new
-#   ~/wheelbri/shim/      dinput8.dll (the game shim, for --shim and the app's Games panel), and x86/dinput8.dll for
+#   ~/wheelbri/shim/      dinput8.dll (the game shim, for --shim and the app's Games tab), and x86/dinput8.dll for
 #                         32-bit games (NFS Carbon and its era)
 #   ~/wheelbri/           wheelbri.sh, install-udev-rules.sh, README.md
 #   ~/wheelbri/docs/      user-guide.md, games.md and images/ (as in the repo, so the links between them work)

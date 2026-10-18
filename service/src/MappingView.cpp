@@ -1,4 +1,5 @@
 #include "MappingView.hpp"
+#include "UiStyle.hpp"
 
 #include "AppLogLevel.hpp"
 #include "HelperProbe.hpp"
@@ -37,7 +38,7 @@ using Colour = ui::Colour;
 constexpr Colour kBackground{22, 24, 28};
 constexpr Colour kPanel{44, 48, 56};
 constexpr Colour kText{222, 226, 232};
-constexpr Colour kDim{120, 126, 136};
+constexpr Colour kDim = style::kDim;
 constexpr Colour kHeading{120, 190, 255};
 constexpr Colour kActive{64, 190, 100};
 constexpr Colour kWarning{214, 72, 64};
@@ -301,10 +302,18 @@ void MappingView::drawHeader() {
         text(window_, x, 16, sessionLine_.c_str(), kActive);
         room = std::min(room, static_cast<std::size_t>(std::max(0.0F, x - 16) / ui::kCharWidth));
     }
+    // LIVE: the running session's view (stopped, the tab is the EDIT page), at the second line's start.
+    float x = 4;
+    if (tab_ == Tab::Mapping) {
+        window_.fill(2, 14, 40, 12, kActive);
+        text(window_, 6, 16, "LIVE", kDark);
+        x = 48;
+        room = room > 6 ? room - 6 : 0;
+    }
     if (devices_.empty()) {
-        text(window_, 4, 16, std::string("Move every control and check where it lands.").substr(0, room).c_str(), kDim);
+        text(window_, x, 16, std::string("Move every control and check where it lands.").substr(0, room).c_str(), kDim);
     } else {
-        text(window_, 4, 16, devices_.substr(0, room).c_str(), devicesWarning_ ? kWarning : kDim);
+        text(window_, x, 16, devices_.substr(0, room).c_str(), devicesWarning_ ? kWarning : kDim);
     }
 }
 
@@ -763,6 +772,14 @@ void MappingView::trackLastPressed(const std::uint64_t sourceButtons) {
 namespace {
 
 // Keeps both ends of a long path: "C:\Users\...\logs\telemetry-2026-09-30-01.log".
+// A logger's name as the live log shows it: its last part, at most 13 characters ("service.devices": "devices").
+std::string shortLogger(const std::string& logger) {
+    const std::size_t dot = logger.rfind('.');
+    std::string name = dot == std::string::npos ? logger : logger.substr(dot + 1);
+    if (name.size() > 13) name = name.substr(0, 12) + ".";
+    return name;
+}
+
 std::string shortenMiddle(const std::string& value, const std::size_t maxChars) {
     if (value.size() <= maxChars || maxChars < 8) {
         return value;
@@ -852,9 +869,8 @@ void MappingView::refreshLogFiles() {
         const char* stem;       // its files are <stem>-<date>-<NN>.log, one per run (LogFiles.hpp)
     };
     static constexpr Source kSources[] = {
-        {"Emulator", "service and app: reads the rig, maps, plays FFB", false,
-         "wheelbri-service"},
-        {"Game shim", "dinput8.dll next to the game (Phases 2-3)", false, "wheelbri-shim"},
+        {"WheelBri", "the app: rig, mapping, force feedback", false, "wheelbri-service"},
+        {"Game shim", "dinput8.dll next to the game (Mode Shim)", false, "wheelbri-shim"},
         {"G920 driver", "the virtual G920 (wheelbri-g920)", true, "wheelbri-driver"},
         {"Hide filter", "hides the rig from games (wheelbri-hide)", true, "wheelbri-hide"},
         // The WheelBri Helper (a service) writes into the connected user's folder (HelperLog), the same one.
@@ -940,6 +956,7 @@ void MappingView::drawLogs() {
     text(window_, x, y, "app, game shim, drivers, installers and telemetry all write to this one folder", kDim);
 
     y = kLogRowsTop - 14;
+    style::headingBand(window_, 0, y, canvasW());
     text(window_, 4, y, "COMPONENT", kHeading);
     text(window_, x, y, "LATEST LOG (ONE PER RUN)", kHeading);
     text(window_, x + 36 * 8, y, "SIZE, LAST WRITTEN", kHeading);
@@ -960,17 +977,17 @@ void MappingView::drawLogs() {
         y += kLogRowHeight;
     }
 
-    // What the emulator records besides its log: the Telemetry tab.
+    // What the emulator records besides its log (the Telemetry tab when it shows), and what happened to old files: one
+    // line.
     y += 10;
-    text(window_, 4, y, "Telemetry", kText);
-    text(window_, x, y,
-         gTelemetryTab ? "the recorded telemetry files and the latest events are on the Telemetry tab (T)"
-                       : "recorded to telemetry-<date>-<NN>.log and ffb-<date>-<NN>.log, NN = this run (O opens the folder)",
-         kDim);
-    y += kLogRowHeight;
-    text(window_, 4, y, "Old files", kText);
-    if (!files_.oldFiles.empty()) {
-        text(window_, x, y, shortenMiddle(files_.oldFiles, kPathChars).c_str(),
+    text(window_, 4, y, "Recordings", kText);
+    const std::string recorded = gTelemetryTab ? "telemetry and force feedback: Telemetry tab (T)"
+                                               : "telemetry and force feedback, a file each per run";
+    text(window_, x, y, recorded.c_str(), kDim);
+    if (!files_.oldFiles.empty()) {   // after it: what was done with old files ("3 files older than 7 days deleted")
+        const float oldX = x + static_cast<float>(recorded.size() + 3) * 8;
+        const std::size_t room = kPathChars > recorded.size() + 3 ? kPathChars - recorded.size() - 3 : 0;
+        text(window_, oldX, y, shortenMiddle("old files: " + files_.oldFiles, room).c_str(),
              files_.oldFilesFailed ? kWarning : kText);
     }
     drawLiveLog(y + 24);
@@ -1007,15 +1024,13 @@ void MappingView::drawLiveLog(const float top) {
     liveScroll_ = std::min(liveScroll_, liveMostScroll());
 
     fill(window_, 0, top - 8, canvasW(), 1, kPanel);
+    style::headingBand(window_, 0, top, canvasW());
     text(window_, 4, top, "LIVE LOG", kHeading);
     // Word wrap (W): long messages on several rows instead of off the side.
     wrapW_ = 96;
     wrapX_ = canvasW() - 4 - wrapW_;
     wrapY_ = top - 3;
-    fill(window_, wrapX_, wrapY_, wrapW_, 14, liveWrap_ ? kHeading : kPanel);
-    const char* const wrapLabel = liveWrap_ ? "Wrap: on (W)" : "Wrap: off (W)";
-    text(window_, wrapX_ + (wrapW_ - static_cast<float>(std::strlen(wrapLabel)) * 8) / 2, top, wrapLabel,
-         liveWrap_ ? kDark : kText);
+    style::checkbox(window_, wrapX_, wrapY_ - 1, wrapW_, "Wrap (W)", liveWrap_, true);
     // The log level (V, the app only): warn, info, debug, trace and round again, for every component. Warnings and
     // errors are always written. Lit while it writes more than warnings, so a forgotten trace shows.
     levelW_ = 0;
@@ -1093,7 +1108,7 @@ void MappingView::drawLiveLog(const float top) {
         text(window_, 4, y, head, kDim);
         const char* name = source < components_.size() ? components_[source].name : "?";
         text(window_, 4 + 9 * 8, y, name, kComponentColours[source % kComponentColours.size()]);
-        text(window_, 4 + 21 * 8, y, shortenMiddle(line.logger, 13).c_str(), kDim);
+        text(window_, 4 + 21 * 8, y, shortLogger(line.logger).c_str(), kDim);
         const Colour colour = line.level == LiveLogLevel::Error   ? kWarning
                               : line.level == LiveLogLevel::Warn  ? kUnlabelled
                               : line.level == LiveLogLevel::Debug || line.level == LiveLogLevel::Trace ? kDim
@@ -1136,7 +1151,7 @@ const char* tabLabel(const MappingView::Tab tab) {
     using Tab = MappingView::Tab;
     switch (tab) {
         case Tab::Mapping: return "Mapping (M)";
-        case Tab::Games: return "Game profiles (G)";
+        case Tab::Games: return "Games (G)";
         case Tab::WheelSetup: return "Rig (R)";
         case Tab::Logs: return "Logs (L)";
         case Tab::Telemetry: return "Telemetry (T)";

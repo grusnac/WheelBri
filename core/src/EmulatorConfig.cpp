@@ -314,7 +314,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
                 errors.push_back("[game_settings] " + key + ": " + game->label + " has no such setting");
             } else if (!setting->value) {
                 errors.push_back("[game_settings] " + key + ": follows the steering rotation (the game's rotation "
-                                 "in the Game profiles tab), not set here");
+                                 "in the Games tab), not set here");
             } else if (!number || *number < kGameSettingMin || *number > kGameSettingMax) {
                 errors.push_back("[game_settings] " + key + " = '" + value + "': expected a number from " +
                                  tuning::formatNumber(kGameSettingMin) + " to " +
