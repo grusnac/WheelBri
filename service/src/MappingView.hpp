@@ -125,6 +125,9 @@ public:
     void setFiles(FilesDisplay files) { files_ = std::move(files); }
     // The target G920 in-game shim: the Logs tab leaves out the virtual device's parts (G920 driver, hide filter),
     // which do not run then.
+    // "Target G923   Mode Shim   fixed while running": what the session runs as, at the right of the second header
+    // line (the Mapping tab).
+    void setSessionLine(std::string line) { sessionLine_ = std::move(line); }
     void setShimMode(const bool shim) {
         if (shim != shimMode_) filesCheckedMs_ = 0;   // the components list again at once
         shimMode_ = shim;
@@ -221,6 +224,7 @@ private:
     // Looked up at most once a second (files appear while a session runs and change at midnight).
     std::uint64_t filesCheckedMs_ = 0;
     bool shimMode_ = false;
+    std::string sessionLine_;
     // The warnings and errors in today's helper log (the Helper row turns to the warning colour).
     LogLevelCounter helperLevels_;
 

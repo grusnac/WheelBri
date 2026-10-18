@@ -84,7 +84,6 @@ std::string applyTuningKey(GameTuning& tuning, const std::string_view key, const
             return {};
         }
         if (key == pedal + "_invert") return boolean(tuning.pedalInvert[p], value);
-        if (key == pedal + "_curve") return number(tuning.pedalCurve[p], value, kPedalCurveMin, kPedalCurveMax);
     }
     if (key == "ffb_strength") return number(tuning.ffbStrength, value, 0.0F, 1.0F);
     for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
@@ -120,7 +119,6 @@ std::vector<std::pair<std::string, std::string>> tuningLines(const GameTuning& t
         const std::string pedal(kTuningPedals[p]);
         if (tuning.pedalAxes[p]) lines.emplace_back(pedal + "_axis", std::string(axisName(*tuning.pedalAxes[p])));
         if (tuning.pedalInvert[p]) lines.emplace_back(pedal + "_invert", flag(*tuning.pedalInvert[p]));
-        if (tuning.pedalCurve[p]) lines.emplace_back(pedal + "_curve", tuning::formatNumber(*tuning.pedalCurve[p]));
     }
     if (tuning.ffbStrength) lines.emplace_back("ffb_strength", tuning::formatNumber(*tuning.ffbStrength));
     for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
@@ -171,7 +169,6 @@ MapperConfig tunedMapper(const MapperConfig& base, const GameTuning& tuning, std
     PedalConfig* const pedals[3] = {&out.throttle, &out.brake, &out.clutch};
     for (std::size_t p = 0; p < 3; ++p) {
         if (tuning.pedalInvert[p]) pedals[p]->invert = *tuning.pedalInvert[p];
-        if (tuning.pedalCurve[p]) pedals[p]->gamma = std::clamp(*tuning.pedalCurve[p], kPedalCurveMin, kPedalCurveMax);
     }
     for (const auto& [target, source] : tuning.buttons) {
         if (target < 0 || static_cast<std::size_t>(target) >= MapperConfig::kMaxTargetButtons) continue;
@@ -199,7 +196,7 @@ MapperConfig tunedMapper(const MapperConfig& base, const GameTuning& tuning, std
 
 bool changesMapping(const GameTuning& tuning) {
     for (std::size_t p = 0; p < 3; ++p) {
-        if (tuning.pedalInvert[p] || tuning.pedalCurve[p]) return true;
+        if (tuning.pedalInvert[p]) return true;
     }
     return !tuning.buttons.empty();
 }

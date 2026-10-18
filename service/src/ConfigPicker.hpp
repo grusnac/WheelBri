@@ -83,6 +83,11 @@ public:
     // Deletes the user's own mapping for the target: the default again. False (and `error`) if it cannot.
     bool dropOwnEdits(std::string& error);
 
+    // From Start until Stop the Target and the Mode cannot change: the app sets it every frame. Locked, the arrows are
+    // drawn off and nothing changes them: no click (not even on arrows drawn before the lock), no choose.
+    void setLocked(const bool locked) { locked_ = locked; }
+    [[nodiscard]] bool locked() const { return locked_; }
+
     // Draws the row at (x, y): "Target" < G920 | G25 | G27 | G923 >, then "Mode" < Virtual | Shim >. `canChange` is
     // false while a session runs or starts. Returns the x where the row ends.
     float draw(float x, float y, bool canChange);
@@ -105,6 +110,7 @@ private:
     ui::UiWindow& window_;
     Settings settings_;
     std::vector<Hit> hits_;
+    bool locked_ = false;
     Way way_ = Way::VirtualDevice;
     Target target_ = Target::G920;
     std::string selected_;

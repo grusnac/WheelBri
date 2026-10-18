@@ -168,8 +168,6 @@ void MappingEditView::load() {
     baseFfb_ = result.config.ffb;
     baseFfbInvert_ = result.config.ffbInvert;
     baseGameFfb_ = result.config.gameFfb;
-    baseCurve_ = {result.config.mapper.throttle.gamma, result.config.mapper.brake.gamma,
-                  result.config.mapper.clutch.gamma};
     loaded_ = true;
     if (!parsed.errors.empty() || !result.errors.empty()) {
         status_ = "The config has problems (Start lists them): " +
@@ -363,7 +361,7 @@ void MappingEditView::setLocked(const bool locked) {
         sessionPath_ = path_;   // the mapping the session reads its per-game values from
         if (page_ != Page::Games) field_ = Field::None;
         dragging_ = false;
-        if (pickKind_ != Slot::GameButton) mode_ = Mode::Idle;
+        if (pickKind_ != Slot::GameButton && mode_ != Mode::AddButton) mode_ = Mode::Idle;
     }
     locked_ = locked;
 }
@@ -375,7 +373,9 @@ void MappingEditView::onClick(const float x, const float y) {
         field_ = Field::None;
     }
     clickX_ = x;
-    if (mode_ == Mode::Idle && picker_.onClick(x, y)) return;   // the row at the top
+    // The Target and Mode row at the top: the Mapping page's only (the Game profiles page shows them, never changes
+    // them), and never while a session runs.
+    if (mode_ == Mode::Idle && page_ == Page::Mapping && !locked_ && picker_.onClick(x, y)) return;
     for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
         if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
             const auto action = it->action;   // a copy: the list belongs to the last draw
@@ -435,7 +435,9 @@ std::string MappingEditView::fieldText(const Field field, const std::size_t inde
             // The rotation the game is played with: its own, else the Mapping tab's (one value, two places).
             const std::span<const GameProfile> games = games_;
             if (index >= games.size()) return {};
-            return degrees(rotationWhileRunning(games[index], edit_.gameRotations).value_or(edit_.steeringRotationDeg));
+            return degrees(rotationWhileRunning(games[index], edit_.gameRotations,
+                                                profileFitsTarget(games[index], targetName_))
+                               .value_or(edit_.steeringRotationDeg));
         }
         case Field::GameSetting: {
             const std::span<const GameProfile> games = games_;
@@ -456,17 +458,8 @@ std::string MappingEditView::fieldText(const Field field, const std::size_t inde
             if (picked >= games_.size()) return {};
             const GameProfile& game = games_[picked];
             const GameFfb ffb = gameFfbOf(game);
-            const GameTuning* const own = tuningOf(game.id);
             const auto t = static_cast<TuningField>(index);
             switch (t) {
-                case TuningField::ThrottleCurve:
-                case TuningField::BrakeCurve:
-                case TuningField::ClutchCurve: {
-                    const std::size_t p = index;
-                    return tuning::formatNumber(own != nullptr && own->pedalCurve[p] ? *own->pedalCurve[p]
-                                                                                     : baseCurve_[p],
-                                                2);
-                }
                 case TuningField::Strength: return tuning::formatNumber(ffb.safety.masterGain, 2);
                 case TuningField::Cap: return tuning::formatNumber(ffb.safety.maxMagnitude, 2);
                 case TuningField::Slew: return tuning::formatNumber(ffb.safety.maxSlewPerSecond, 1);
@@ -527,9 +520,9 @@ bool MappingEditView::commitTyping() {
     } else if (field_ == Field::Tuning) {
         // One of the picked game's own numbers: checked as the config reader checks it ([game_tuning]).
         const std::size_t picked = selectedGameIndex();
-        static constexpr std::array<const char*, 13> kKeys = {
-            "throttle_curve", "brake_curve", "clutch_curve", "ffb_strength", "ffb_constant", "ffb_periodic",
-            "ffb_spring", "ffb_damper", "ffb_friction", "ffb_inertia", "ffb_cap", "ffb_slew", "ffb_fade_s"};
+        static constexpr std::array<const char*, 10> kKeys = {
+            "ffb_strength", "ffb_constant", "ffb_periodic", "ffb_spring", "ffb_damper",
+            "ffb_friction", "ffb_inertia",  "ffb_cap",      "ffb_slew",   "ffb_fade_s"};
         if (picked < games_.size() && fieldIndex_ < kKeys.size()) {
             const std::string id = games_[picked].id;
             GameTuning trial = tuningOf(id) != nullptr ? *tuningOf(id) : GameTuning{};
@@ -675,6 +668,20 @@ void MappingEditView::draw() {
     // The target (fixed inputs, picked with < >) and how it runs, "custom", Default, Save and Revert: the Mapping tab's
     // alone. The Game profiles page saves its own values as they change (saveGameValues).
     if (page_ == Page::Games) {
+        // Which Target and Mode the values below are for (each target keeps its own): shown here, changed on the
+        // Mapping tab only, and never from Start to Stop.
+        const std::string target = ConfigPicker::targetName(picker_.target());
+        const std::string way = ConfigPicker::wayName(picker_.way());
+        window_.text(4, 22, "Target", kDim);
+        window_.text(4 + 7 * ui::kCharWidth, 22, target, kHeading);
+        const float modeX = 4 + static_cast<float>(8 + target.size()) * ui::kCharWidth + 16;
+        window_.text(modeX, 22, "Mode", kDim);
+        window_.text(modeX + 5 * ui::kCharWidth, 22, way, kHeading);
+        const float noteX = modeX + static_cast<float>(6 + way.size()) * ui::kCharWidth + 16;
+        window_.text(noteX, 22,
+                     fit(locked_ ? "fixed while running" : "change them on the Mapping tab (M)",
+                         static_cast<std::size_t>(std::max(0.0F, canvasW() - noteX - 4) / ui::kCharWidth)),
+                     locked_ ? kActive : kDim);
         if (!loaded_) {
             window_.text(4, 60, fit(status_, 118 + extraChars()), kWarning);
             return;
@@ -683,6 +690,7 @@ void MappingEditView::draw() {
         drawGames();
         popupTips_ = tips_.size();
         if (mode_ == Mode::Pick) drawPicker();
+        if (mode_ == Mode::AddButton) drawAddButton();
         return;
     }
     picker_.draw(4, 18, !locked_);
@@ -977,10 +985,7 @@ void MappingEditView::drawGames() {
     if (!game.settings.empty()) tab(GameTab::File, "Game file");
     top += 28;
     switch (gameTab_) {
-        case GameTab::Axes:
-            top = drawGameMapping(picked, top);
-            drawGamePedals(picked, top + 10);
-            break;
+        case GameTab::Axes: drawGameAxes(picked, top); break;
         case GameTab::Ffb: drawGameForces(picked, top); break;
         case GameTab::Buttons: drawGameButtons(picked, top); break;
         case GameTab::File: drawGameSettings(picked, top); break;
@@ -1068,65 +1073,6 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
 void MappingEditView::gameSection(const float y, const std::string& name, const std::string& about) {
     window_.text(kGameX, y, name, kHeading);
     window_.text(kGameX + 160, y, fit(about, gameChars() - 20), kDim);
-}
-
-float MappingEditView::drawGameMapping(const std::size_t index, float y) {
-    const GameProfile& game = games_[index];
-    const std::string id = game.id;
-    gameSection(y, "MAPPING", "how the rig's controls reach the game while it runs");
-    y += 16;
-
-    // The profile's own remapping (built in): the pedals the game reads on other axes.
-    if (const std::string pedals = describeOverlay(game); !pedals.empty()) {
-        window_.text(kGameX, y, "Pedals", kText);
-        for (const std::string& line : wrap(pedals, valueChars(), 2)) {
-            window_.text(kGameValueX, y, line, kText);
-            y += 12;
-        }
-        window_.text(kGameValueX, y, fit("built into the profile: the game reads them on other axes", valueChars()),
-                     kDim);
-        y += 18;
-    }
-
-    // Its steering rotation ([game_rotation]): the profile's, the user's own, or off (the Mapping tab's).
-    const bool own = edit_.gameRotations.count(id) != 0;
-    const std::optional<float> rotation = rotationWhileRunning(game, edit_.gameRotations);
-    const bool rotationChanged = own != (saved_.gameRotations.count(id) != 0) ||
-                                 (own && !(edit_.gameRotations.at(id) == saved_.gameRotations.at(id)));
-    window_.text(kGameX, y + 4, "Steering rotation", kText);
-    // The degrees it is played with (Off: the Mapping tab's), the same value as Game config's steering rotation.
-    drawField(kGameValueX, y, 80, Field::PerGame, degrees(rotation.value_or(edit_.steeringRotationDeg)),
-              rotationChanged, index);
-    window_.text(kGameValueX + 84, y + 4, "deg", kDim);
-    button(kGameValueX + 116, y, rotation ? "On" : "Off", [this, id, rotation, &game] {
-        if (rotation) {
-            edit_.gameRotations[id] = GameRotationOverride{true, {}};   // off: the Mapping tab's in this game too
-        } else if (game.rotationDeg) {
-            edit_.gameRotations.erase(id);                               // back to the profile's
-        } else {
-            edit_.gameRotations[id] = GameRotationOverride{false, edit_.steeringRotationDeg};
-        }
-    }, rotation.has_value(), editable(), 48);
-    button(kGameValueX + 168, y, "Default", [this, id] { edit_.gameRotations.erase(id); }, false, editable() && own,
-           72);
-    y += 20;
-    std::string about;
-    if (game.rotationDeg) about = "Profile: " + degrees(*game.rotationDeg) + " deg (" + game.rotationNote + "). ";
-    if (rotation) {
-        about += "Set your wheel's own software to " + degrees(*rotation) + " deg while you play it.";
-    } else {
-        about += "Off: the Mapping tab's rotation (" + degrees(edit_.steeringRotationDeg) + " deg, your wheel's too).";
-    }
-    if (hasSteeringSetting(game)) {
-        const float written = rotation.value_or(edit_.steeringRotationDeg);
-        about += " Game config's Save to file writes " + degrees(written) + " deg into the game's settings" +
-                 (written >= 1000.0F ? " (it keeps 3 digits: 100 to 999)." : ".");
-    }
-    for (const std::string& line : wrap(about, valueChars(), 3)) {
-        window_.text(kGameValueX, y, line, kDim);
-        y += 12;
-    }
-    return y;
 }
 
 float MappingEditView::drawGameSettings(const std::size_t index, float y) {
@@ -1231,7 +1177,8 @@ float MappingEditView::drawGameSettings(const std::size_t index, float y) {
             const bool rotationChanged =
                 ownRotation != (saved_.gameRotations.count(id) != 0) ||
                 (ownRotation && !(edit_.gameRotations.at(id) == saved_.gameRotations.at(id)));
-            const float deg = rotationWhileRunning(game, edit_.gameRotations).value_or(edit_.steeringRotationDeg);
+            const float deg = rotationWhileRunning(game, edit_.gameRotations, profileFitsTarget(game, targetName_))
+                                   .value_or(edit_.steeringRotationDeg);
             drawField(kGameValueX, y, 80, Field::GameSteering, degrees(deg), rotationChanged, index);
             window_.text(kGameValueX + 84, y + 4, "deg", kDim);
             window_.text(kGameValueX + 248, y + 4, fit("same as in Mapping", 26), kDim);
@@ -1424,6 +1371,12 @@ void MappingEditView::setPicked(const SourceRef& source) {
     const std::string id = games_[picked].id;
     if (source == edit_.buttons[pickIndex_]) {
         // The mapping's own: no value of the game's needed.
+        const GameTuning* const own = tuningOf(id);
+        if (own == nullptr || own->buttons.count(static_cast<int>(pickIndex_)) == 0) {
+            status_ = "Button " + std::to_string(pickIndex_) + " " + std::string(profile_->buttonName(pickIndex_)) +
+                      " already comes from that control in the Mapping tab: nothing added.";
+            statusError_ = false;
+        }
         tuningFor(id).buttons.erase(static_cast<int>(pickIndex_));
         dropEmptyTuning(id);
     } else {
@@ -1431,25 +1384,59 @@ void MappingEditView::setPicked(const SourceRef& source) {
     }
 }
 
-float MappingEditView::drawGamePedals(const std::size_t index, float y) {
+float MappingEditView::drawGameAxes(const std::size_t index, float y) {
     const GameProfile& game = games_[index];
     const std::string id = game.id;
     const GameTuning* const own = tuningOf(id);
     const GameTuning* const saved = saved_.gameTunings.count(id) != 0 ? &saved_.gameTunings.at(id) : nullptr;
     const std::string target = profile_ != nullptr ? profile_->identity().shortName : targetName_;
-    gameSection(y, "GAME'S PEDALS", "the axis of the " + target + " the game reads each pedal from");
+    gameSection(y, "AXES", "what the game reads; starts from its profile and your Mapping tab");
     y += 16;
+    // The columns: name, the axis the game reads, its direction, the degrees (steering), Default, where it comes from.
+    const float axisX = kGameValueX - 52;
+    const float directionX = axisX + 136;
+    const float degreesX = directionX + 96;
+    const float defaultX = degreesX + 72;
+    const float fromX = defaultX + 80;
+    window_.text(axisX, y, "game reads", kDim);
+    window_.text(directionX, y, "direction", kDim);
+    window_.text(degreesX, y, "degrees", kDim);
+    window_.text(fromX, y, "comes from", kDim);
+    y += 14;
+    const auto from = [&](const float rowY, const bool mine, const std::string& source) {
+        window_.text(fromX, rowY + 4, fit(mine ? "yours" : source, valueChars() - 40), mine ? kCaution : kDim);
+    };
+
+    // Steering: the wheel's axis (games read it there), and the rotation the game is played with ([game_rotation]):
+    // yours, else the profile's, else the Mapping tab's. The wheel's own software must be set to the same.
+    window_.text(kGameX, y + 4, "Steering", kText);
+    window_.fill(axisX, y, 128, 16, kStripe);
+    window_.text(axisX + 6, y + 4, "x, the wheel", kDim);
+    const bool ownRotation = edit_.gameRotations.count(id) != 0;
     const bool fits = profileFitsTarget(game, targetName_);
+    const std::optional<float> rotation = rotationWhileRunning(game, edit_.gameRotations, fits);
+    const bool rotationChanged = ownRotation != (saved_.gameRotations.count(id) != 0) ||
+                                 (ownRotation && !(edit_.gameRotations.at(id) == saved_.gameRotations.at(id)));
+    const float degreesNow = rotation.value_or(edit_.steeringRotationDeg);
+    drawField(degreesX, y, 64, Field::PerGame, degrees(degreesNow), rotationChanged, index);
+    button(defaultX, y, "Default", [this, id] { edit_.gameRotations.erase(id); }, false, editable() && ownRotation,
+           72);
+    from(y, ownRotation, fits && game.rotationDeg ? "profile" : "Mapping tab");
+    y += 20;
+
+    // Pedals: the axis the game reads each one from (the profile's layout over the target's, then yours), and its
+    // direction (the Mapping tab's invert, then yours).
     const JoystickLayout device = layoutFor(targetName_, 0);
     const JoystickLayout profileLayout = fits ? overlay(device, game) : device;
     const JoystickLayout shown = own != nullptr ? tunedLayout(profileLayout, *own) : profileLayout;
     const std::array<ObjectGuid, 3> axes = {shown.throttle, shown.brake, shown.clutch};
+    const std::array<ObjectGuid, 3> deviceAxes = {device.throttle, device.brake, device.clutch};
     const std::array<ObjectGuid, 3> profileAxes = {profileLayout.throttle, profileLayout.brake, profileLayout.clutch};
     for (std::size_t p = 0; p < 3; ++p) {
         window_.text(kGameX, y + 4, kPedalNames[p], kText);
-        const bool mine = own != nullptr && own->pedalAxes[p].has_value();
-        const bool changed = mine != (saved != nullptr && saved->pedalAxes[p].has_value()) ||
-                             (mine && saved != nullptr && saved->pedalAxes[p] != own->pedalAxes[p]);
+        const bool ownAxis = own != nullptr && own->pedalAxes[p].has_value();
+        const bool axisChanged = ownAxis != (saved != nullptr && saved->pedalAxes[p].has_value()) ||
+                                 (ownAxis && saved != nullptr && saved->pedalAxes[p] != own->pedalAxes[p]);
         // < and > go through the axes (the clutch also through none).
         const auto step = [this, id, p, axes](const int by) {
             std::vector<ObjectGuid> choices(kPedalAxes.begin(), kPedalAxes.end());
@@ -1459,63 +1446,55 @@ float MappingEditView::drawGamePedals(const std::size_t index, float y) {
             const auto n = static_cast<int>(choices.size());
             tuningFor(id).pedalAxes[p] = choices[static_cast<std::size_t>(((i + by) % n + n) % n)];
         };
-        button(kGameValueX, y, "<", [step] { step(-1); }, false, editable(), 24);
-        window_.fill(kGameValueX + 28, y, 72, 16, kStripe);
-        window_.outline(kGameValueX + 28, y, 72, 16, changed ? kCaution : kPanel);
-        window_.text(kGameValueX + 34, y + 4, std::string(wheelbri::axisName(axes[p])), mine ? kText : kDim);
-        button(kGameValueX + 104, y, ">", [step] { step(1); }, false, editable(), 24);
-        button(kGameValueX + 136, y, "Default", [this, id, p] {
+        button(axisX, y, "<", [step] { step(-1); }, false, editable(), 24);
+        window_.fill(axisX + 28, y, 72, 16, kStripe);
+        window_.outline(axisX + 28, y, 72, 16, axisChanged ? kCaution : kPanel);
+        window_.text(axisX + 34, y + 4, std::string(wheelbri::axisName(axes[p])), kText);
+        button(axisX + 104, y, ">", [step] { step(1); }, false, editable(), 24);
+        const bool ownInvert = own != nullptr && own->pedalInvert[p].has_value();
+        const bool invert = ownInvert ? *own->pedalInvert[p] : edit_.invert[p + 1];
+        button(directionX, y, invert ? "Inverted" : "Normal", [this, id, p, invert] {
+            tuningFor(id).pedalInvert[p] = !invert;
+        }, invert, editable(), 88);
+        button(defaultX, y, "Default", [this, id, p] {
             tuningFor(id).pedalAxes[p].reset();
+            tuningFor(id).pedalInvert[p].reset();
             dropEmptyTuning(id);
-        }, false, editable() && mine, 72);
-        window_.text(kGameValueX + 216, y + 4,
-                     fit(std::string(fits && profileAxes[p] != (p == 0   ? device.throttle
-                                                                 : p == 1 ? device.brake
-                                                                          : device.clutch)
-                                         ? "profile: "
-                                         : "default: ") +
-                             std::string(wheelbri::axisName(profileAxes[p])),
-                         valueChars() - 27),
-                     kDim);
+        }, false, editable() && (ownAxis || ownInvert), 72);
+        from(y, ownAxis || ownInvert, fits && profileAxes[p] != deviceAxes[p] ? "profile" : "Mapping tab");
         y += 20;
     }
-    // In Mode Virtual the virtual wheel has three pedal axes; other axes need Mode Shim.
-    if (picker_.virtualDevice() && !routePedals(device, shown)) {
-        for (const std::string& line : wrap("Mode Virtual: the virtual " + target + " has only y, rz and slider "
-                                            "for pedals, each once; these are used in Mode Shim only.",
-                                            gameChars(), 2)) {
-            window_.text(kGameX, y, line, kCaution);
+    y += 6;
+    window_.text(axisX, y, fit("Default: back to where it came from. Amber: yours, for this game.", valueChars() + 6),
+                 kDim);
+    y += 12;
+    window_.text(axisX, y,
+                 fit("How they feel (dead zones, curves): your rig's own software.",
+                     valueChars() + 6),
+                 kDim);
+    y += 12;
+    if (rotation && std::fabs(*rotation - edit_.steeringRotationDeg) >= 0.5F) {
+        window_.text(axisX, y,
+                     fit("Set your wheel's own software to " + degrees(*rotation) + " deg while you play this game.",
+                         valueChars() + 6),
+                     kCaution);
+        y += 12;
+    }
+    // Two pedals on one axis, or (Mode Virtual) an axis the virtual wheel has not: said, and what happens then.
+    if (!isValid(shown)) {
+        window_.text(axisX, y, fit("Two pedals on one axis: pick another axis for one of them (not used until then).",
+                                   valueChars() + 6),
+                     kWarning);
+        y += 12;
+    } else if (picker_.virtualDevice() && !routePedals(device, shown)) {
+        for (const std::string& line : wrap("Mode Virtual: the virtual " + target + " has only y, rz and slider for "
+                                            "pedals, each once; these are used in Mode Shim only.",
+                                            valueChars() + 6, 2)) {
+            window_.text(axisX, y, line, kCaution);
             y += 12;
         }
     }
-    y += 8;
-
-    gameSection(y, "YOUR PEDALS", "this game only; the rest as in the Mapping tab");
-    y += 16;
-    for (std::size_t p = 0; p < 3; ++p) {
-        window_.text(kGameX, y + 4, kPedalNames[p], kText);
-        const bool ownInvert = own != nullptr && own->pedalInvert[p].has_value();
-        const bool invert = ownInvert ? *own->pedalInvert[p] : edit_.invert[p + 1];
-        button(kGameValueX, y, invert ? "Inverted" : "Normal", [this, id, p, invert] {
-            tuningFor(id).pedalInvert[p] = !invert;
-        }, ownInvert, editable(), 88);
-        const bool ownCurve = own != nullptr && own->pedalCurve[p].has_value();
-        const bool curveChanged = ownCurve != (saved != nullptr && saved->pedalCurve[p].has_value()) ||
-                                  (ownCurve && saved != nullptr && saved->pedalCurve[p] != own->pedalCurve[p]);
-        window_.text(kGameValueX + 100, y + 4, "curve", kDim);
-        drawField(kGameValueX + 148, y, 56, Field::Tuning,
-                  tuning::formatNumber(ownCurve ? *own->pedalCurve[p] : baseCurve_[p], 2), curveChanged, p);
-        button(kGameValueX + 212, y, "Default", [this, id, p] {
-            tuningFor(id).pedalInvert[p].reset();
-            tuningFor(id).pedalCurve[p].reset();
-            dropEmptyTuning(id);
-        }, false, editable() && (ownInvert || ownCurve), 72);
-        y += 20;
-    }
-    window_.text(kGameValueX, y, fit("curve: 1 as it is, below 1 quicker at first, above 1 slower (0.1 to 10)",
-                                     valueChars()),
-                 kDim);
-    return y + 12;
+    return y;
 }
 
 float MappingEditView::drawGameForces(const std::size_t index, float y) {
@@ -1617,53 +1596,164 @@ float MappingEditView::drawGameForces(const std::size_t index, float y) {
 }
 
 float MappingEditView::drawGameButtons(const std::size_t index, float y) {
+    // Only the buttons changed for this game, under the target's own groups (in the Mapping tab's order); Add button...
+    // adds one. Each target keeps its own (my-<target>.ini), so this is the shown target's list.
     const GameProfile& game = games_[index];
     const std::string id = game.id;
     const GameTuning* const own = tuningOf(id);
     const std::string target = profile_ != nullptr ? profile_->identity().shortName : targetName_;
-    gameSection(y, "BUTTONS", target + " button <- your control, this game only (dim: as in the Mapping tab)");
+    gameSection(y, "BUTTONS", "only the ones you change for this game; the rest: Mapping tab");
     y += 16;
     if (profile_ == nullptr) return y;
+
+    // The changed buttons, group by group; one in no group (or with no groups at all) at the end.
+    struct Group {
+        std::string name;
+        std::vector<std::size_t> buttons;
+    };
+    std::vector<Group> groups;
+    std::vector<bool> shown(profile_->buttonCount(), false);
+    const auto changed = [own](const std::size_t b) {
+        return own != nullptr && own->buttons.count(static_cast<int>(b)) != 0;
+    };
+    for (const ButtonGroup& group : profile_->buttonGroups()) {
+        Group mine{group.name, {}};
+        for (const std::size_t b : group.buttons) {
+            if (b < shown.size() && !shown[b] && changed(b)) {
+                mine.buttons.push_back(b);
+                shown[b] = true;
+            }
+        }
+        if (!mine.buttons.empty()) groups.push_back(std::move(mine));
+    }
+    Group rest{profile_->buttonGroups().empty() ? std::string() : std::string("OTHER"), {}};
+    for (std::size_t b = 0; b < shown.size(); ++b) {
+        if (!shown[b] && changed(b)) rest.buttons.push_back(b);
+    }
+    if (!rest.buttons.empty()) groups.push_back(std::move(rest));
+
+    const float labelW = 120;
+    const float removeW = 72;
+    const float fieldW = std::floor((canvasW() - kGameX - 4 - labelW - removeW - 16) / 2);
+    const float mappingX = kGameX + labelW;
+    const float gameX = mappingX + fieldW + 8;
+    const auto chars = static_cast<std::size_t>((fieldW - 12) / ui::kCharWidth);
+    if (groups.empty()) {
+        window_.text(kGameX, y + 4, "No button changed for this game: every " + target +
+                                        " button comes from the Mapping tab.", kDim);
+        y += 24;
+    } else {
+        window_.text(kGameX, y, target + " button", kDim);
+        window_.text(mappingX, y, "Mapping tab", kDim);
+        window_.text(gameX, y, "this game", kDim);
+        y += 14;
+    }
+    const float bottom = contentH() - 52 - 64;   // room for Add button... and the notes under it
+    std::size_t hidden = 0;
+    for (const Group& group : groups) {
+        if (!group.name.empty()) {
+            if (y > bottom) {
+                hidden += group.buttons.size();
+                continue;
+            }
+            window_.text(kGameX, y + 4, group.name, kDim);
+            y += kButtonHeadingH;
+        }
+        for (const std::size_t b : group.buttons) {
+            if (y > bottom) {
+                ++hidden;
+                continue;
+            }
+            char label[32];
+            std::snprintf(label, sizeof(label), "%2zu %.10s", b, std::string(profile_->buttonName(b)).c_str());
+            window_.text(kGameX + 4, y + 4, label, kText);
+            // What the Mapping tab gives it: shown, not changed here.
+            const SourceRef mapped = edit_.buttons[b];
+            window_.fill(mappingX, y, fieldW, 16, kStripe);
+            window_.text(mappingX + 6, y + 4, fit(describe(mapped, false), chars), kDim);
+            if (mapped.mapped()) tip(mappingX, y, fieldW, 16, describeFull(mapped, false));
+            // This game's: amber, click to change it.
+            const SourceRef source = own->buttons.at(static_cast<int>(b));
+            window_.fill(gameX, y, fieldW, 16, kStripe);
+            window_.outline(gameX, y, fieldW, 16, kCaution);
+            window_.text(gameX + 6, y + 4, fit(source.mapped() ? describe(source, false) : "nothing", chars),
+                         source.mapped() ? kText : kDim);
+            if (source.mapped()) tip(gameX, y, fieldW, 16, describeFull(source, false));
+            if (editable()) {
+                hit(gameX, y, fieldW, 16, [this, b] {
+                    mode_ = Mode::Pick;
+                    pickKind_ = Slot::GameButton;
+                    pickIndex_ = b;
+                });
+            }
+            button(gameX + fieldW + 8, y, "Remove", [this, id, b] {
+                tuningFor(id).buttons.erase(static_cast<int>(b));
+                dropEmptyTuning(id);
+            }, false, editable(), removeW);
+            y += kButtonRowH;
+        }
+    }
+    if (hidden > 0) {
+        window_.text(kGameX, y + 4, std::to_string(hidden) + " more not shown: a bigger window shows them.", kCaution);
+        y += 16;
+    }
+    y += 8;
+    const std::size_t named = layoutButtons(*profile_).cells.size();
+    button(mappingX, y, "Add button...", [this] { mode_ = Mode::AddButton; }, false, editable() && named > 0, 120);
+    window_.text(mappingX + 132, y + 4, "pick a " + target + " button, then the control for it", kDim);
+    y += 28;
+    window_.text(mappingX, y, "Click a \"this game\" field to change it. Remove: back to the Mapping tab.", kDim);
+    window_.text(mappingX, y + 12, "Grouped as in the Mapping tab. Each target keeps its own list.", kDim);
+    return y + 24;
+}
+
+void MappingEditView::drawAddButton() {
+    hit(0, 0, canvasW(), contentH(), [] {});   // clicks outside the popup do nothing
+    window_.fill(kPopupX, kPopupY, popupW(), popupH(), kPopup);
+    window_.outline(kPopupX, kPopupY, popupW(), popupH(), kHeading);
+    const float left = kPopupX + 12;
+    const std::size_t picked = selectedGameIndex();
+    if (profile_ == nullptr || picked >= games_.size()) {
+        mode_ = Mode::Idle;
+        return;
+    }
+    const GameProfile& game = games_[picked];
+    const GameTuning* const own = tuningOf(game.id);
+    const std::string target = profile_->identity().shortName;
+    window_.text(left, kPopupY + 10, "Add button: which " + target + " button should come from another control in " +
+                                         game.label + "?", kHeading);
+    button(kPopupX + popupW() - 100, kPopupY + 6, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 88);
+    window_.text(left, kPopupY + 32, "Then pick its control (or nothing). Amber: already yours for this game.", kDim);
+
+    // The target's buttons where the Mapping tab has them: two columns of groups, the shifter's gears below.
     const ButtonLayout layout = layoutButtons(*profile_);
-    const float columnW = (canvasW() - kGameX - 4) / 2;
+    const float columnW = (popupW() - 24) / 2;
+    const float top = kPopupY + 56;
     for (const ButtonCell& cell : layout.cells) {
-        const float x = kGameX + static_cast<float>(cell.column) * columnW;
-        const float row = y + cell.y;
-        if (row > contentH() - 52 - 20) break;
+        const float x = left + static_cast<float>(cell.column) * columnW;
+        const float y = top + cell.y;
+        if (y > kPopupY + popupH() - 24) break;
         if (cell.heading) {
-            window_.text(x, row + 3, cell.text, kDim);
+            window_.text(x, y + 3, cell.text, kDim);
             continue;
         }
         const std::size_t b = cell.button;
-        char label[32];
-        std::snprintf(label, sizeof(label), "%2zu %.10s", b, std::string(profile_->buttonName(b)).c_str());
-        window_.text(x + 4, row + 4, label, kText);
-        std::optional<SourceRef> ownSource;
-        if (own != nullptr) {
-            if (const auto it = own->buttons.find(static_cast<int>(b)); it != own->buttons.end()) ownSource = it->second;
-        }
-        const bool mine = ownSource.has_value();
-        const SourceRef source = ownSource.value_or(edit_.buttons[b]);
-        const float fieldX = x + 120;
-        const float fieldW = columnW - 120 - 84;
-        window_.fill(fieldX, row, fieldW, 16, kStripe);
-        window_.outline(fieldX, row, fieldW, 16, mine && tuningChanged(id) ? kCaution : kPanel);
-        window_.text(fieldX + 6, row + 4, fit(describe(source, false), static_cast<std::size_t>((fieldW - 12) / 8)),
-                     mine ? kText : kDim);
-        if (source.mapped()) tip(fieldX, row, fieldW, 16, describeFull(source, false));
-        if (editable()) {
-            hit(fieldX, row, fieldW, 16, [this, b] {
-                mode_ = Mode::Pick;
-                pickKind_ = Slot::GameButton;
-                pickIndex_ = b;
-            });
-        }
-        button(fieldX + fieldW + 4, row, "Default", [this, id, b] {
-            tuningFor(id).buttons.erase(static_cast<int>(b));
-            dropEmptyTuning(id);
-        }, false, editable() && mine, 72);
+        const bool mine = own != nullptr && own->buttons.count(static_cast<int>(b)) != 0;
+        const float w = columnW - 12;
+        window_.fill(x, y, w, 16, kPanel);
+        if (mine) window_.outline(x, y, w, 16, kCaution);
+        const std::string text =
+            std::to_string(b) + " " + std::string(profile_->buttonName(b)) + (mine ? "  yours" : "");
+        window_.text(x + 4, y + 4, fit(text, static_cast<std::size_t>((w - 8) / ui::kCharWidth)),
+                     mine ? kCaution : kText);
+        tip(x, y, w, 16, "Mapping tab: " + (edit_.buttons[b].mapped() ? describeFull(edit_.buttons[b], false)
+                                                                      : std::string("nothing")));
+        hit(x, y, w, 16, [this, b] {
+            mode_ = Mode::Pick;
+            pickKind_ = Slot::GameButton;
+            pickIndex_ = b;
+        });
     }
-    return y + layout.height;
 }
 
 MappingEditView::GameFilePlace MappingEditView::gameFilePlace(const GameProfile& game) const {
@@ -1677,7 +1767,8 @@ MappingEditView::GameFilePlace MappingEditView::gameFilePlace(const GameProfile&
 
 std::vector<GameSettingText> MappingEditView::gameValues(const GameProfile& game) const {
     // As shown (saved or not): the game's own rotation if it has one, else the Mapping tab's.
-    const float steeringDeg = rotationWhileRunning(game, edit_.gameRotations).value_or(edit_.steeringRotationDeg);
+    const float steeringDeg = rotationWhileRunning(game, edit_.gameRotations, profileFitsTarget(game, targetName_))
+                                  .value_or(edit_.steeringRotationDeg);
     return gameSettingTexts(game, edit_.gameSettings, steeringDeg);
 }
 

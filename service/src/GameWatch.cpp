@@ -109,8 +109,9 @@ std::string GameWatch::describeFollowed() const {
 
 std::optional<float> GameWatch::currentRotation() const {
     const GameDetector::State& state = detector_.state();
-    if (state.game == nullptr || !state.profileApplies) return std::nullopt;
-    std::optional<float> rotation = rotationWhileRunning(*state.game, overrides_);
+    if (state.game == nullptr) return std::nullopt;
+    // The user's own rotation for the game on every target; its profile's only when the profile fits the target.
+    std::optional<float> rotation = rotationWhileRunning(*state.game, overrides_, state.profileApplies);
     // The mapping has it already: nothing to say.
     if (rotation && std::fabs(*rotation - mapping_) < 0.5F) return std::nullopt;
     return rotation;

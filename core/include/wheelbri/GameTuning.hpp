@@ -19,7 +19,7 @@
 // that game runs. Kept per mapping (my-<target>.ini), since buttons and axes belong to a target:
 //   [game_tuning]
 //   nfs2015.throttle_axis = slider     ; the axis the game reads the pedal from: x y z rx ry rz slider (clutch: none)
-//   nfs2015.brake_invert = true        ; pedals: <pedal>_invert = true|false, <pedal>_curve = 0.1..10 (gamma)
+//   nfs2015.brake_invert = true        ; pedals: <pedal>_invert = true|false (how they feel: the rig's own software)
 //   nfsunbound.ffb_constant = 3        ; force feedback per kind of effect, 0..4: constant (steering force),
 //                                      ;   periodic (vibration), spring, damper, friction, inertia
 //   nfsunbound.ffb_strength = 0.6      ; the overall strength instead of [ffb] master_gain, 0..1
@@ -43,8 +43,6 @@ inline constexpr std::size_t kFfbGroupCount = 6;
 [[nodiscard]] FfbGroup ffbGroupOf(FfbEffectType type);
 
 inline constexpr float kGameEffectGainMax = 4.0F;   // 0 (that kind off) .. 4 (four times what the game asks)
-inline constexpr float kPedalCurveMin = 0.1F;       // as [throttle] gamma
-inline constexpr float kPedalCurveMax = 10.0F;
 
 // Pedal 0 throttle, 1 brake, 2 clutch.
 inline constexpr std::array<std::string_view, 3> kTuningPedals{"throttle", "brake", "clutch"};
@@ -52,7 +50,6 @@ inline constexpr std::array<std::string_view, 3> kTuningPedals{"throttle", "brak
 struct GameTuning {
     std::array<std::optional<ObjectGuid>, 3> pedalAxes;   // the axis the game reads each pedal from
     std::array<std::optional<bool>, 3> pedalInvert;
-    std::array<std::optional<float>, 3> pedalCurve;
     std::optional<float> ffbStrength;
     std::array<std::optional<float>, kFfbGroupCount> ffbGains;
     std::optional<float> ffbCap;
@@ -91,12 +88,12 @@ struct GameFfb {
                                      const GameProfile* game, std::optional<float> legacyGain,
                                      const GameTuning* tuning);
 
-// The mapping while the game runs: `base` with its pedals' invert and curve and its buttons as `tuning` says. A button
-// whose source is on an accessory `base` does not read (the session opened only those) is left as it is, and said in
+// The mapping while the game runs: `base` with its pedals' invert and its buttons as `tuning` says. A button whose
+// source is on an accessory `base` does not read (the session opened only those) is left as it is, and said in
 // `problems` (may be null).
 [[nodiscard]] MapperConfig tunedMapper(const MapperConfig& base, const GameTuning& tuning,
                                        std::vector<std::string>* problems);
-// True when `tuning` changes the mapping (pedal invert or curve, buttons): a tuned mapper is needed.
+// True when `tuning` changes the mapping (pedal invert, buttons): a tuned mapper is needed.
 [[nodiscard]] bool changesMapping(const GameTuning& tuning);
 // The axes the game reads its pedals from: `layout` with the tuning's axes laid over it.
 [[nodiscard]] JoystickLayout tunedLayout(JoystickLayout layout, const GameTuning& tuning);

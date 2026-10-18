@@ -39,8 +39,9 @@ using GameRotations = std::map<std::string, GameRotationOverride>;
 // "180 deg".
 [[nodiscard]] std::string describeRotation(float deg);
 
-// The rotation while `game` runs: the user's line for it, else the profile's; nullopt: the mapping's own (no rotation
-// in the profile, or the user's line says off).
-[[nodiscard]] std::optional<float> rotationWhileRunning(const GameProfile& game, const GameRotations& overrides);
+// The rotation while `game` runs: the user's line for it, else the profile's (only when `profileApplies`: the profile
+// fits the target); nullopt: the mapping's own (no rotation in the profile, or the user's line says off).
+[[nodiscard]] std::optional<float> rotationWhileRunning(const GameProfile& game, const GameRotations& overrides,
+                                                        bool profileApplies = true);
 
 }  // namespace wheelbri

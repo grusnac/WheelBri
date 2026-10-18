@@ -109,7 +109,8 @@ public:
     [[nodiscard]] bool popupOpen() const { return mode_ != Mode::Idle; }
 
 private:
-    enum class Mode { Idle, Pick, PickAlt };
+    // AddButton: the Game profiles page's Add button... popup (the target's buttons, then Pick for the one chosen).
+    enum class Mode { Idle, Pick, PickAlt, AddButton };
     // What a pick is for: one of the four axes, a D-pad direction, a target button.
     // GameButton: a target button's source while the picked game runs (its own value, GameTuning.hpp).
     enum class Slot { Axis, Hat, Button, GameButton };
@@ -121,8 +122,7 @@ private:
     enum class Field { None, Rotation, PerGame, GameSteering, GameSetting, FfbGain, Tuning };
     // The numbers of a game's own values (GameTuning.hpp) that are typed in.
     enum class TuningField : std::size_t {
-        ThrottleCurve, BrakeCurve, ClutchCurve, Strength, Constant, Periodic, Spring, Damper, Friction, Inertia, Cap,
-        Slew, Fade
+        Strength, Constant, Periodic, Spring, Damper, Friction, Inertia, Cap, Slew, Fade
     };
     // The Game profiles page's sub-tabs for the picked game.
     enum class GameTab { Axes, Ffb, Buttons, File };
@@ -189,6 +189,8 @@ private:
 
     void drawSource(float x, float y, float w, Slot kind, std::size_t index);
     void drawPicker();
+    // The Buttons sub-tab's Add button...: the target's buttons in its own groups; one opens the picker for it.
+    void drawAddButton();
     // A target button's secondary sources (MappingModel::secondaries): its field (the first, "+N" more), and its
     // picker (the rig's buttons and its named axes, each toggled; an axis' threshold).
     void drawAltSource(float x, float y, float w, std::size_t index);
@@ -211,11 +213,11 @@ private:
     // FORCE FEEDBACK (the gain), GAME CONFIG (the game's own settings and its settings file; left out when the profile
     // has none). No target: that is the Mapping tab's.
     float drawGameProfile(std::size_t index, float y);
-    float drawGameMapping(std::size_t index, float y);
     float drawGameSettings(std::size_t index, float y);
-    // The sub-tabs' own parts: the pedal axes the game reads and the pedals' invert and curve (Axes), the force
-    // feedback (Ffb), the buttons (Buttons); each value with Default (back to the mapping's or the profile's).
-    float drawGamePedals(std::size_t index, float y);
+    // The sub-tabs' own parts: one AXES section (steering rotation; each pedal's axis the game reads and its
+    // direction; Axes), the force feedback (Ffb), the buttons (Buttons); each value with Default (back to where it
+    // came from: the game's profile or the Mapping tab).
+    float drawGameAxes(std::size_t index, float y);
     float drawGameForces(std::size_t index, float y);
     float drawGameButtons(std::size_t index, float y);
     // The picked game's own values (created when one is set; dropped when none is left).
@@ -307,11 +309,10 @@ private:
     // The games the page lists: the built-in profiles, then the ones the user added (games.ini, userGames_).
     std::vector<GameProfile> games_;
     std::vector<GameProfile> userGames_;
-    // The mapping's own values the game's are laid over (read with it): [ffb], and each pedal's curve.
+    // The mapping's own values the game's are laid over (read with it): [ffb].
     FfbSafetyConfig baseFfb_;
     bool baseFfbInvert_ = false;
     bool baseGameFfb_ = true;
-    std::array<float, 3> baseCurve_{1.0F, 1.0F, 1.0F};
     GameNow now_;
     // The picked game's settings file as last read (at most every 2 s, and when the game or the saved values change).
     std::optional<GameSettingsFileState> fileState_;

@@ -294,10 +294,17 @@ void MappingView::drawHeader() {
         line[std::min(headerChars_ + (shimMode_ ? 0 : extraChars()), sizeof(line) - 1)] = '\0';
     }
     text(window_, 4, 4, line, kHeading);
+    // The second line: the devices (or the hint), and on the Mapping tab what the session runs as at its right end.
+    std::size_t room = 118 + extraChars();
+    if (tab_ == Tab::Mapping && !sessionLine_.empty()) {
+        const float x = window_.width() - 4 - static_cast<float>(sessionLine_.size()) * ui::kCharWidth;
+        text(window_, x, 16, sessionLine_.c_str(), kActive);
+        room = std::min(room, static_cast<std::size_t>(std::max(0.0F, x - 16) / ui::kCharWidth));
+    }
     if (devices_.empty()) {
-        text(window_, 4, 16, "Move every control and check where it lands.", kDim);
+        text(window_, 4, 16, std::string("Move every control and check where it lands.").substr(0, room).c_str(), kDim);
     } else {
-        text(window_, 4, 16, devices_.substr(0, 118 + extraChars()).c_str(), devicesWarning_ ? kWarning : kDim);
+        text(window_, 4, 16, devices_.substr(0, room).c_str(), devicesWarning_ ? kWarning : kDim);
     }
 }
 

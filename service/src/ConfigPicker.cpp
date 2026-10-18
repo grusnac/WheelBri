@@ -181,6 +181,7 @@ bool ConfigPicker::dropOwnEdits(std::string& error) {
 }
 
 void ConfigPicker::choose(const Way way) {
+    if (locked_) return;
     if (way == Way::VirtualDevice && !settings_.virtualAvailable) return;   // the arrows are off: never asked
     way_ = way;
     if (!writeAppSetting(settings_.stateFile, "way", way == Way::Shim ? "shim" : "virtual")) {
@@ -190,6 +191,7 @@ void ConfigPicker::choose(const Way way) {
 }
 
 void ConfigPicker::choose(const Target target) {
+    if (locked_) return;
     target_ = target;
     if (!writeAppSetting(settings_.stateFile, "target", profileName(target))) {
         WE_LOG_WARN(log(), "cannot save the target in {}", settings_.stateFile.string());
@@ -203,6 +205,10 @@ void ConfigPicker::chosen() {
 }
 
 bool ConfigPicker::onClick(const float x, const float y) {
+    if (locked_) {   // a session runs: also the arrows of a draw from before it started do nothing
+        hits_.clear();
+        return false;
+    }
     for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
         if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
             const auto action = it->action;   // a copy: the list belongs to the last draw
@@ -214,8 +220,9 @@ bool ConfigPicker::onClick(const float x, const float y) {
     return false;
 }
 
-float ConfigPicker::draw(const float x0, const float y, const bool canChange) {
+float ConfigPicker::draw(const float x0, const float y, const bool canChangeNow) {
     hits_.clear();
+    const bool canChange = canChangeNow && !locked_;
     float x = x0;
     // One picker: a label, <, the value, >. `back` (<) and `step` (>); `step` null: nothing to go to (the arrows are
     // drawn off).

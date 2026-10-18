@@ -366,54 +366,56 @@ rewrites on every build only when it changes); views keep their own top-row cont
     file is never named (nothing in the log or the window). `nfs2015.ini` (brake y, clutch rz, throttle slider),
     `nfspayback.ini` (`[steering]` 180) and `nfsunbound.ini` (`[ffb]` gain 3, `[game_settings]`) exist, all checked
     with `g920` only. The user's own values per game are core `GameTuning` (`[game_tuning] <game>.<key>` in the
-    mapping file: pedal axes the game reads, pedal invert / curve, force feedback strength, a gain per kind of effect
+    mapping file: pedal axes the game reads, pedal invert (no curves: how the rig feels is its own software's), force feedback strength, a gain per kind of effect
     (`FfbGroup`: constant, periodic, spring, damper, friction, inertia, 0..4), cap and slew **lower only**, fade,
     invert, game effects, per-game buttons; `resolveGameFfb` lays profile, `[game_ffb_gain]` and tuning in that order
     and never raises a limit) and the games the user added (`parseUserGames`, `games.ini`, target empty = every
     target). In a session (since round 2, 2026-10-18) core `decideGame` (pure, tested) gives `GameWatch` the pedal
     route (the profile's layout, then the user's axes; the virtual device only), the resolved `GameFfb` (taken by
     the loop with `try_lock`: `FfbController::setGameTuning`, per-kind gains, flip, effects on/off, limits lower
-    only) and, when the game changes pedal invert / curve or buttons, a per-game `Mapper` (`tunedMapper`, made on
+    only) and, when the game changes pedal invert or buttons, a per-game `Mapper` (`tunedMapper`, made on
     the window thread, kept for the session, `Pipeline::setGameMapper`). Mode Shim: at Start the app writes the
     game's axes into its `wheelbri-shim.ini` (`setShimGameAxes`, `game_axes = wheelbri`, and takes them out again;
     the shim then skips its profile's pedal overlay). The Game profiles tab (round 3, `MappingEditView`) lists the
     built-in profiles and the user's games (Add game: `platform::pickFile` for the .exe, writes `games.ini`; Remove
-    drops the game and its values) with sub-tabs Axes (rotation, the game's pedal axes with < >, pedal invert /
-    curve), Force feedback (strength, per-kind gains, cap / slew lower only, fade, flip, effects), Buttons (a per-game
-    source per target button: `Slot::GameButton` in the picker, nothing greyed) and Game file; every value has
-    Default and is saved as it changes. Live tuning (round 4): the page stays editable while a session runs
-    (`MappingEditView::editable`; Add / Remove game and Game file's Save stay locked); the session's window thread
-    watches the config file's write time and reads the per-game sections again (`GameWatch::setValues`, then a
-    check at once), so force feedback, pedal invert / curve, buttons (a new per-game `Mapper` per set of values) and
-    virtual-device pedal routes change while the game runs; Mode Shim's pedal axes wait for the next Start. The
-    Force feedback sub-tab shows per kind of effect the strongest asked and sent force (`GameNow::asked/sent`, from
-    the frame's `FfbController` slots). A session started on WheelBri's default mapping does not see the user's own
-    file (the page says so).
-    A profile may set the game's own settings (`[game_settings]` file / note / `<id> = <game's name> <0..1 | steering>`):
-    core `GameSettings` (`gameSettingTexts`: the user's `[game_settings] <game>.<id>` value, else the profile's;
-    "steering" = the game's steering rotation; `editFrostbiteSettings`: Frostbite `FBCHUNKS` files, each name found
-    by its own entry's length fields, exactly once, only same-length values written, any problem = nothing written;
-    `writeGameSettingsFile`: the file under the Documents folder, no link followed (file, backup, folders: the service
-    may run as Administrator), backup `<file>.before-wheelbri` written once from the bytes read, outcomes Written /
-    AsSet / NoFile / Refused / Failed; `GameSettingsTest` covers it with temporary folders and damaged files).
-    Nothing writes them by itself (since 2026-10-13; `GameWatch` no longer does): the Game profiles tab's **Save to
-    file** (`MappingEditView::saveGameFile`, refused while the game's program runs, `platform::runningPrograms`) writes
-    the values shown; **Locate file** (`locateGameFile`, `platform::pickFile`: GetOpenFileNameW, comdlg32; none on
-    Linux, `canPickFile`) picks the file when it is not under Documents, kept only if it holds every setting, in
-    `app.ini` as `game_file.<id>` (`gameFilePlace`: that file's folder as root, else Documents). The
-    app's Game profiles tab edits them: `MappingEditView` with `Page::Games` (the same `MappingModel`, Save and Revert
-    as the Mapping tab, which keeps only the general rotation; no target shown, the target is the Mapping tab's): a
-    list of `gameProfiles()`, and for the one picked three sections, MAPPING (the profile's pedal overlay, its rotation
-    row), FORCE FEEDBACK (its gain row), GAME CONFIG (its settings rows; left out when the profile has none): its rotation row
-    (`Field::PerGame`, `[game_rotation]`, for every game; a game with a "steering" setting, `hasSteeringSetting`, gets
-    that rotation written), its gain row (`Field::FfbGain`, `[game_ffb_gain] <game> = 0.25..4`, `gameFfbGain`: the
-    user's, else the profile's, else 1; `GameWatch::check` returns it for `FfbController::setGameGain`) and its settings
-    rows (`Field::GameSetting`), with what the file holds now (core `readGameSettingsState`: read-only, the writer's
-    path and link checks, read every 2 s) against the values shown. While a session runs the page is locked and shows
-    the game that runs from `UiFrame`'s game fields (`GameWatch::live`); the app (`updateGames`)
-    switches the live view to the Game profiles tab and picks the game when `UiFrame::gameStarts` changes with a game
-    followed (core `GameTabFollower`: once per start, reset at every Start; not while a name is typed in the Rig tab or
-    a popup is open). The pedals: both ways use the same file:
+    drops the game and its values) with sub-tabs Axes (one AXES section: steering degrees, each pedal's axis with
+    < > and Normal / Inverted, each row starting from the profile (G920 only) or the Mapping tab, "comes from"),
+    Force feedback (strength, per-kind gains, cap / slew lower only, fade, flip, effects), Buttons (only the buttons
+    changed for the game, under the target's `buttonGroups` in their order; Add button... opens `Mode::AddButton`, the
+    target's `layoutButtons` grid, then the picker with `Slot::GameButton`, nothing greyed; Remove drops one) and Game
+    file; every value has Default (Buttons: Remove) and is saved as it changes. Live tuning (round 4): the page
+    stays editable while a session runs (`MappingEditView::editable`; Add / Remove game and Game file's Save stay
+    locked); the session's window thread watches the config file's write time and reads the per-game sections again
+    (`GameWatch::setValues`, then a check at once), so force feedback, pedal invert, buttons (a new per-game `Mapper`
+    per set of values) and virtual-device pedal routes change while the game runs; Mode Shim's pedal axes wait for the
+    next Start. The Force feedback sub-tab shows per kind of effect the strongest asked and sent force
+    (`GameNow::asked/sent`, from the frame's `FfbController` slots). A session started on WheelBri's default mapping
+    does not see the user's own file (the page says so). A profile may set the game's own settings (`[game_settings]`
+    file / note / `<id> = <game's name> <0..1 | steering>`): core `GameSettings` (`gameSettingTexts`: the user's
+    `[game_settings] <game>.<id>` value, else the profile's; "steering" = the game's steering rotation;
+    `editFrostbiteSettings`: Frostbite `FBCHUNKS` files, each name found by its own entry's length fields, exactly once,
+    only same-length values written, any problem = nothing written; `writeGameSettingsFile`: the file under the
+    Documents folder, no link followed (file, backup, folders: the service may run as Administrator), backup
+    `<file>.before-wheelbri` written once from the bytes read, outcomes Written / AsSet / NoFile / Refused / Failed;
+    `GameSettingsTest` covers it with temporary folders and damaged files). Nothing writes them by itself (since
+    2026-10-13; `GameWatch` no longer does): the Game profiles tab's **Save to file** (`MappingEditView::saveGameFile`,
+    refused while the game's program runs, `platform::runningPrograms`) writes the values shown; **Locate file**
+    (`locateGameFile`, `platform::pickFile`: GetOpenFileNameW, comdlg32; none on Linux, `canPickFile`) picks the file
+    when it is not under Documents, kept only if it holds every setting, in `app.ini` as `game_file.<id>`
+    (`gameFilePlace`: that file's folder as root, else Documents). The app's Game profiles tab edits them:
+    `MappingEditView` with `Page::Games` (the same `MappingModel`, Save and Revert as the Mapping tab, which keeps only
+    the general rotation; no target shown, the target is the Mapping tab's): a list of `gameProfiles()`, and for the one
+    picked three sections, MAPPING (the profile's pedal overlay, its rotation row), FORCE FEEDBACK (its gain row), GAME
+    CONFIG (its settings rows; left out when the profile has none): its rotation row (`Field::PerGame`,
+    `[game_rotation]`, for every game; a game with a "steering" setting, `hasSteeringSetting`, gets that rotation
+    written), its gain row (`Field::FfbGain`, `[game_ffb_gain] <game> = 0.25..4`, `gameFfbGain`: the user's, else the
+    profile's, else 1; `GameWatch::check` returns it for `FfbController::setGameGain`) and its settings rows
+    (`Field::GameSetting`), with what the file holds now (core `readGameSettingsState`: read-only, the writer's path and
+    link checks, read every 2 s) against the values shown. While a session runs the page is locked and shows the game
+    that runs from `UiFrame`'s game fields (`GameWatch::live`); the app (`updateGames`) switches the live view to the
+    Game profiles tab and picks the game when `UiFrame::gameStarts` changes with a game followed (core
+    `GameTabFollower`: once per start, reset at every Start; not while a name is typed in the Rig tab or a popup is
+    open). The pedals: both ways use the same file:
     - virtual G920 / wheelbri-uhid: the service routes the published pedals (`routePedals(device, overlay(device,
       profile))` → `PedalRoute`, `Pipeline::setPedalRoute`, atomic, applied to the packet only; `lastReport()` and
       telemetry stay as mapped). The device's pedal axes are fixed (y, rz, slider), so a profile that is not a
@@ -501,7 +503,13 @@ rewrites on every build only when it changes); views keep their own top-row cont
     you like to delete the shim from the target folder?" after a shim session (not when the window closes), notices.
     The shim's sources are `AppSettings::shimDlls` (`shimDllPaths()` in main.cpp: `shim\dinput8.dll` and
     `shim\x86\dinput8.dll` next to the program, or `build/shim/` and `build-x86/shim/`) and
-    `shimSettings` (`config/wheelbri-shim.ini`).
+    `shimSettings` (`config/wheelbri-shim.ini`). Hot swap (the panel's switch, `app.ini` `shim_hot_swap`, on by
+    default): while stopped in Mode Shim, App `hotSwapShims` calls `ShimGamesView::swapShims` when the target, the
+    list or the switch changes (`changes()`): every listed game whose folder has our shim (Installed or Outdated)
+    gets `setShimTarget` and its pedal axes (`setShimGameAxes`); a game without it, or another mod's DLL, is not
+    touched. Target and Mode are fixed from Start to Stop: `ConfigPicker::setLocked` (a locked picker ignores clicks,
+    even on arrows of an earlier draw, and `choose`). The Game profiles page shows the Target and Mode as text
+    (changed on the Mapping page only); the live view's header shows the session's (`MappingView::setSessionLine`).
   - A shim session starts only what the shim needs: no virtual G920, no hide filter, no
     Administrator check (all keyed on `Options::virtualG920`), and the Logs tab leaves out the driver rows
     (`MappingView::setShimMode`). The stale hide check (`HideFilter::clearStale`) still runs: a leftover hide would keep

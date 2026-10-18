@@ -42,12 +42,13 @@ std::string formatGameRotation(const GameRotationOverride& value) {
 
 std::string describeRotation(const float deg) { return tuning::formatNumber(deg) + " deg"; }
 
-std::optional<float> rotationWhileRunning(const GameProfile& game, const GameRotations& overrides) {
+std::optional<float> rotationWhileRunning(const GameProfile& game, const GameRotations& overrides,
+                                         const bool profileApplies) {
     if (const auto it = overrides.find(game.id); it != overrides.end()) {
         if (it->second.off) return std::nullopt;
         return it->second.deg;
     }
-    return game.rotationDeg;
+    return profileApplies ? game.rotationDeg : std::nullopt;
 }
 
 }  // namespace wheelbri

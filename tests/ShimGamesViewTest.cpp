@@ -2,6 +2,7 @@
 // brought up to date, and the target written into the game's wheelbri-shim.ini; each refusal says why.
 
 #include "ShimGamesView.hpp"
+#include "wheelbri/ConfigLibrary.hpp"
 
 #include <gtest/gtest.h>
 
@@ -53,7 +54,7 @@ protected:
     [[nodiscard]] std::filesystem::path game() const { return dir_ / "Need for Speed Undercover"; }
     [[nodiscard]] ShimGamesView::Settings settings() const {
         return {dir_ / "state" / "shim-games.txt", ShimSources{dir_ / "shim" / kShimDll, {}},
-                dir_ / "shim" / kShimSettings};
+                dir_ / "shim" / kShimSettings, {}};
     }
     void listTheGame() const {
         ShimGameList list;
@@ -226,7 +227,7 @@ protected:
     }
     [[nodiscard]] ShimGamesView::Settings settings() const {
         return {listFile(), ShimSources{dir_ / "shim" / kShimDll, dir_ / "shim" / "x86" / kShimDll},
-                dir_ / "shim" / kShimSettings};
+                dir_ / "shim" / kShimSettings, {}};
     }
     [[nodiscard]] std::filesystem::path listFile() const { return dir_ / "state" / "shim-games.txt"; }
     void listGames(const std::vector<std::filesystem::path>& folders) const {
@@ -509,15 +510,15 @@ TEST_F(ShimPanel, ManyGamesStayInsideThePanel) {
     EXPECT_LT(rows, 40);   // the 748-tall design has room for about 27
     const RecordingWindow::Text* folder = window_.findAt(194);   // the first game's folder
     ASSERT_NE(folder, nullptr);
-    EXPECT_EQ(folder->value.size(), 46U);
-    EXPECT_EQ(folder->value.substr(44), "..");
+    EXPECT_EQ(folder->value.size(), 39U);   // room left for the state and the wheel its shim presents
+    EXPECT_EQ(folder->value.substr(37), "..");
 
     window_.setCanvas(1200, 1000);   // 240 wider: 30 more characters of the folder; taller: more rows
     drawPanel(view);
     EXPECT_GT(window_.count("Forget"), rows);
     folder = window_.findAt(194);
     ASSERT_NE(folder, nullptr);
-    EXPECT_EQ(folder->value.size(), 76U);
+    EXPECT_EQ(folder->value.size(), 69U);
 }
 
 // Deleting the shim after a session: another mod's DLL is refused with the reason; ours goes.
@@ -546,6 +547,89 @@ TEST_F(ShimPanel, AListThatCannotBeSavedDoesNotStopThePick) {
     ASSERT_TRUE(clickPanel(view, "Second"));
     EXPECT_EQ(view.selectedFolder(), second);
     EXPECT_TRUE(std::filesystem::is_directory(listFile()));
+}
+
+// Hot swap: the shims in the listed folders that have one (current or older) get the target and the pedal axes given
+// for their folder; a listed game without the shim and another mod's dinput8.dll are left as they are; the panel shows
+// each shim's target.
+TEST_F(ShimPanel, SwapShimsChangesOnlyTheFoldersWithTheShim) {
+    const auto current = makeGame("Current");
+    const auto older = makeGame("Older");
+    const auto none = makeGame("None");
+    const auto foreign = makeGame("Foreign");
+    write(foreign / kShimDll, "another mod");
+    listGames({current, older, none, foreign});
+    ShimGamesView view(window_, settings());
+    ASSERT_TRUE(installShim(current, dir_ / "shim" / kShimDll, dir_ / "shim" / kShimSettings).ok);
+    ASSERT_TRUE(installShim(older, dir_ / "shim" / kShimDll, dir_ / "shim" / kShimSettings).ok);
+    write(older / kShimDll, "our older shim");   // ours (next to its settings), not WheelBri's current one
+    ASSERT_EQ(shimState(older, dir_ / "shim" / kShimDll), ShimState::Outdated);
+
+    std::vector<std::filesystem::path> asked;
+    JoystickLayout swapped = layoutFor("g923", 0);
+    std::swap(swapped.throttle, swapped.brake);
+    const std::vector<std::string> problems = view.swapShims("g923", [&](const std::filesystem::path& folder) {
+        asked.push_back(folder);
+        return folder == current ? std::optional<JoystickLayout>(swapped) : std::nullopt;
+    });
+    EXPECT_TRUE(problems.empty());
+    EXPECT_EQ(asked, (std::vector<std::filesystem::path>{current, older}));
+    const auto settingsOf = [](const std::filesystem::path& folder) {
+        std::ifstream in(folder / kShimSettings, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    };
+    EXPECT_NE(settingsOf(current).find("target_profile = g923"), std::string::npos);
+    EXPECT_NE(settingsOf(current).find("game_axes = wheelbri"), std::string::npos);
+    EXPECT_NE(settingsOf(older).find("target_profile = g923"), std::string::npos);
+    EXPECT_EQ(settingsOf(older).find("game_axes"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(none / kShimSettings));      // no shim there: nothing written
+    EXPECT_FALSE(std::filesystem::exists(foreign / kShimSettings));   // another mod's: never touched
+    std::ifstream mod(foreign / kShimDll, std::ios::binary);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(mod), {}), "another mod");
+
+    openPanel(view);
+    drawPanel(view);
+    EXPECT_EQ(window_.count("g923"), 2);
+}
+
+// A folder whose shim settings cannot be written is said, by game, and the others are swapped all the same.
+TEST_F(ShimPanel, ASwapThatFailsIsSaidAndTheOthersGoOn) {
+    const auto broken = makeGame("Broken");
+    const auto fine = makeGame("Fine");
+    listGames({broken, fine});
+    ShimGamesView view(window_, settings());
+    ASSERT_TRUE(installShim(broken, dir_ / "shim" / kShimDll, dir_ / "shim" / kShimSettings).ok);
+    ASSERT_TRUE(installShim(fine, dir_ / "shim" / kShimDll, dir_ / "shim" / kShimSettings).ok);
+    std::filesystem::remove(broken / kShimSettings);
+    std::filesystem::create_directories(broken / kShimSettings);   // a folder where the settings go
+    const std::vector<std::string> problems = view.swapShims("g25", {});
+    ASSERT_EQ(problems.size(), 1U);
+    EXPECT_EQ(problems[0].rfind("Broken: ", 0), 0U) << problems[0];
+    std::ifstream in(fine / kShimSettings, std::ios::binary);
+    EXPECT_NE(std::string(std::istreambuf_iterator<char>(in), {}).find("target_profile = g25"), std::string::npos);
+}
+
+// The switch: on unless turned off, kept in app.ini; turning it on again (and every change to the list) counts as a
+// change, so the app swaps the shims then.
+TEST_F(ShimPanel, HotSwapSwitchIsKept) {
+    const auto game = makeGame("Game");
+    listGames({game});
+    ShimGamesView::Settings kept = settings();
+    kept.stateFile = dir_ / "state" / "app.ini";
+    ShimGamesView view(window_, kept);
+    EXPECT_TRUE(view.hotSwap());
+    openPanel(view);
+    std::uint64_t before = view.changes();
+    ASSERT_TRUE(clickPanel(view, "Hot swap: on"));
+    EXPECT_FALSE(view.hotSwap());
+    EXPECT_EQ(readAppSetting(kept.stateFile, "shim_hot_swap"), "off");
+    EXPECT_FALSE(ShimGamesView(window_, kept).hotSwap());   // kept for the next run
+    ASSERT_TRUE(clickPanel(view, "Hot swap: off"));
+    EXPECT_TRUE(view.hotSwap());
+    EXPECT_GT(view.changes(), before);
+    before = view.changes();
+    ASSERT_TRUE(clickPanel(view, "Put shim"));
+    EXPECT_GT(view.changes(), before);
 }
 
 }  // namespace

@@ -51,6 +51,15 @@ TEST(GameRotation, TheUsersLineWinsOverTheProfile) {
     EXPECT_EQ(rotationWhileRunning(plain, mine), 540.0F);                // a game without one too
 }
 
+// A profile for another target: its rotation is not used; the user's own line for the game still is.
+TEST(GameRotation, AProfileForAnotherTargetGivesNoRotation) {
+    const GameProfile payback = game("nfspayback", 180.0F);
+    GameRotations mine;
+    EXPECT_FALSE(rotationWhileRunning(payback, mine, false).has_value());
+    mine["nfspayback"] = {false, 270.0F};
+    EXPECT_EQ(rotationWhileRunning(payback, mine, false), 270.0F);
+}
+
 TEST(GameRotation, ConfigReadsAndRefuses) {
     const EmulatorConfigResult good = load("[game_rotation]\nnfspayback = 360/180\n");
     ASSERT_TRUE(good.errors.empty()) << good.errors.front();

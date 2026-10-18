@@ -23,7 +23,7 @@ TEST(GameTuning, ReadsEveryKey) {
     GameTuning t;
     const std::vector<std::pair<std::string, std::string>> lines = {
         {"throttle_axis", "slider"}, {"brake_axis", "Y"},        {"clutch_axis", "none"},  {"brake_invert", "true"},
-        {"clutch_curve", "1.5"},     {"ffb_strength", "0.6"},    {"ffb_constant", "3"},    {"ffb_periodic", "0"},
+        {"clutch_invert", "false"},  {"ffb_strength", "0.6"},    {"ffb_constant", "3"},    {"ffb_periodic", "0"},
         {"ffb_spring", "0.8"},       {"ffb_damper", "1"},        {"ffb_friction", "4"},    {"ffb_inertia", "0.5"},
         {"ffb_cap", "0.6"},          {"ffb_slew", "30"},         {"ffb_fade_s", "0"},      {"ffb_invert", "false"},
         {"ffb_effects", "off"},      {"button_4", "13"},         {"button_18", "30b7:1001/2"}};
@@ -33,7 +33,7 @@ TEST(GameTuning, ReadsEveryKey) {
     EXPECT_EQ(t.pedalAxes[2], ObjectGuid::Any);
     EXPECT_EQ(t.pedalInvert[1], true);
     EXPECT_FALSE(t.pedalInvert[0].has_value());
-    EXPECT_FLOAT_EQ(*t.pedalCurve[2], 1.5F);
+    EXPECT_EQ(t.pedalInvert[2], false);
     EXPECT_FLOAT_EQ(*t.ffbStrength, 0.6F);
     EXPECT_FLOAT_EQ(*t.ffbGains[static_cast<std::size_t>(FfbGroup::Constant)], 3.0F);
     EXPECT_FLOAT_EQ(*t.ffbGains[static_cast<std::size_t>(FfbGroup::Periodic)], 0.0F);
@@ -56,8 +56,8 @@ TEST(GameTuning, RefusesBadValues) {
     EXPECT_EQ(why, "expected x, y, z, rx, ry, rz, slider or none");
     EXPECT_TRUE(tuned("brake_invert", "maybe", &why).empty());
     EXPECT_EQ(why, "expected true or false");
-    EXPECT_TRUE(tuned("brake_curve", "0.05", &why).empty());
-    EXPECT_EQ(why, "expected a number from 0.1 to 10");
+    EXPECT_TRUE(tuned("brake_curve", "1.5", &why).empty());   // how a pedal feels: the rig's own software
+    EXPECT_EQ(why, "unknown key");
     EXPECT_TRUE(tuned("ffb_constant", "4.5", &why).empty());
     EXPECT_EQ(why, "expected a number from 0 to 4");
     EXPECT_TRUE(tuned("ffb_spring", "-1", &why).empty());
@@ -78,7 +78,7 @@ TEST(GameTuning, LinesRoundTrip) {
     GameTuning t;
     t.pedalAxes = {ObjectGuid::Slider, ObjectGuid::YAxis, ObjectGuid::RzAxis};
     t.pedalInvert[0] = true;
-    t.pedalCurve[1] = 1.4F;
+    t.pedalInvert[2] = false;
     t.ffbStrength = 0.65F;
     t.ffbGains[static_cast<std::size_t>(FfbGroup::Damper)] = 0.5F;
     t.ffbCap = 0.7F;
@@ -209,7 +209,7 @@ TEST(GameTuning, GameIdForAProgram) {
     EXPECT_EQ(gameIdFor("---.exe"), "");
 }
 
-// The game's mapping: pedal invert and curve, and buttons from the wheel or an accessory the mapping reads; one on a
+// The game's mapping: pedal invert, and buttons from the wheel or an accessory the mapping reads; one on a
 // device it does not read stays as mapped and is said.
 TEST(GameTuning, TunedMapper) {
     MapperConfig base;
@@ -217,7 +217,6 @@ TEST(GameTuning, TunedMapper) {
     base.accessories[0] = {0x30b7, 0x1001};
     GameTuning tuning;
     tuning.pedalInvert[1] = true;
-    tuning.pedalCurve[1] = 1.5F;
     tuning.buttons[4] = {{}, 13};
     tuning.buttons[5] = {{0x30b7, 0x1001}, 2};
     tuning.buttons[6] = {{0x044f, 0xb696}, 1};   // not in the mapping
@@ -225,7 +224,7 @@ TEST(GameTuning, TunedMapper) {
     std::vector<std::string> problems;
     const MapperConfig out = tunedMapper(base, tuning, &problems);
     EXPECT_TRUE(out.brake.invert);
-    EXPECT_FLOAT_EQ(out.brake.gamma, 1.5F);
+    EXPECT_FLOAT_EQ(out.brake.gamma, 1.0F);   // as mapped: the game's values never change how a pedal feels
     EXPECT_EQ(out.brake.sourceAxis, 5);
     EXPECT_FALSE(out.throttle.invert);
     EXPECT_EQ(out.buttonMap[4], 13);

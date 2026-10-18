@@ -262,6 +262,27 @@ TEST_F(ConfigPickerFiles, WhileASessionRunsTheArrowsAreOff) {
     EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);
 }
 
+// From Start until Stop (the app locks it): the arrows of a draw from before Start do nothing, a draw while locked has
+// none even when asked for them, and choosing does nothing either. After Stop they work again.
+TEST_F(ConfigPickerFiles, LockedFromStartToStopNothingChanges) {
+    ConfigPicker picker(window_, settings());
+    picker.draw(4, 18, true);   // drawn before Start: arrows on
+    picker.setLocked(true);
+    EXPECT_TRUE(picker.locked());
+    EXPECT_FALSE(picker.onClick(kTargetRight, kRowY));
+    picker.draw(4, 18, true);
+    EXPECT_FALSE(picker.onClick(kTargetRight, kRowY));
+    EXPECT_FALSE(picker.onClick(kWayRight, kRowY));
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
+    EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);
+    EXPECT_TRUE(setting("target").empty());
+
+    picker.setLocked(false);   // Stop
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);
+}
+
 TEST(ConfigPickerNames, TheVirtualDeviceNeedsWindows11) {
     EXPECT_FALSE(ConfigPicker::virtualDeviceSupported(7601));    // Windows 7 SP1
     EXPECT_FALSE(ConfigPicker::virtualDeviceSupported(9600));    // Windows 8.1

@@ -56,7 +56,7 @@ the wheel's rotation, in the wheel's own software (Pit House for Moza).
 
 ![Mapping tab](images/mapping.png)
 
-1. Pick the **Target** and the **Mode** with `<` and `>` at the top.
+1. Pick the **Target** and the **Mode** with `<` and `>` at the top (from Start until Stop they cannot change).
 2. Check each of the Target's axes, D-pad and buttons comes from the right control: click a source to change it. A
    button can have an extra source ("or"), for example a handbrake lever.
 3. Set **Steering rotation** to the game's full lock, and set your wheel's own software to **the same number**.
@@ -83,6 +83,10 @@ Press **Start** before you start the game, and **Stop** when you are done. The s
 3. Start the game and pick the Logitech wheel.
 4. At **Stop**, choose whether to delete the shim from the game folder.
 
+**Hot swap** (the Games panel, on by default): when you change the Target in Mode Shim, every game whose folder has
+the shim gets the new Target (each shows its own next to "shim in place"); games without the shim are left alone. Off:
+only the picked game, at Start. Restart a game that was running to get the new Target.
+
 Do not use both Modes for one game. With a wheel that is not a Moza, set `source_vid` in the game folder's
 `wheelbri-shim.ini` to your wheel's vendor id (the first 4 characters of its `vid:pid` in the Rig tab).
 
@@ -95,15 +99,21 @@ own values work with every Target.
 
 ![Game profiles tab](images/game-profiles.png)
 
+The top of this tab shows the Target and the Mode the values are for (each Target keeps its own values); change them
+on the Mapping tab, while WheelBri is stopped. While it runs the Mapping tab shows them in its header.
+
 1. Pick the game on the left, or press **Add game...** and choose its `.exe` (WheelBri finds it by that name while it
    runs). **Remove** takes a game you added off the list.
 2. Set what you want in its sub-tabs; **Default** next to a value goes back to the profile's or the Mapping tab's:
-   - **Axes**: the steering rotation, the axis the game reads each pedal from, and each pedal's invert and curve.
-     In Mode Virtual the pedals can only be swapped among Y, Rz and Slider.
+   - **Axes**: the steering rotation, and for each pedal the axis the game reads it from and Normal / Inverted.
+     Each row starts from the game's profile or your Mapping tab. In Mode Virtual the pedals can only be swapped
+     among Y, Rz and Slider. How they feel (dead zones, curves) is set in your rig's own software.
    - **Force feedback**: overall strength, a gain per kind of effect (steering force, vibration, spring, damper,
      friction, inertia: 0 turns it off, up to 4), a lower cap or slew limit, the frozen-push fade, turning the forces
      the other way, or no force feedback at all.
-   - **Buttons**: another control for any button, for this game only.
+   - **Buttons**: only the buttons you change for this game, grouped as in the Mapping tab. **Add button...** shows
+     the Target's buttons: pick one, then the control for it (or nothing). Click a row's control to change it;
+     **Remove** gives the button back to the Mapping tab. Each Target keeps its own list.
    - **Game file** (NFS Unbound): the game's own hidden wheel settings, written with **Save to file** (game
      closed).
 

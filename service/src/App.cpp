@@ -32,6 +32,7 @@
 #include <mutex>
 #include <functional>
 #include <optional>
+#include <span>
 #include <thread>
 
 namespace wheelbri::service {
@@ -380,7 +381,8 @@ private:
         idleTab_ = WheelSetupView::anyRig(rigsFolder()) ? IdleTab::Mapping : IdleTab::Setup;
         mapping_ = std::make_unique<MappingEditView>(*window_, rigsFolder(), settings_.stateFile, *picker_);
         games_ = std::make_unique<ShimGamesView>(
-            *window_, ShimGamesView::Settings{shimGamesFile(), settings_.shimDlls, settings_.shimSettings});
+            *window_, ShimGamesView::Settings{shimGamesFile(), settings_.shimDlls, settings_.shimSettings,
+                                                settings_.stateFile});
         // The Logs tab while no session shows (stopped, starting): a view of its own, used for that page only.
         logsProfile_ = makeProfile("g920");
         logs_ = std::make_unique<MappingView>(*window_, std::string(), 0, 0, *logsProfile_, MapperConfig{});
@@ -505,8 +507,10 @@ private:
             updateStartNeeds();
             logs_->setShimMode(shimTarget());   // the Logs tab while stopped follows the target
             updateSetup();
+            picker_->setLocked(state_ != State::Stopped);    // Target and Mode: from Start until Stop, fixed
             mapping_->setLocked(state_ != State::Stopped);   // the way and the mapping stay as Start found them
             updateGames();
+            hotSwapShims();
             mapping_->setPage(showingGames() ? MappingEditView::Page::Games : MappingEditView::Page::Mapping);
             if (showingEditor()) mapping_->update();
             if (std::string problem; games_->takeProblem(problem)) notice("Games with the shim", problem);
@@ -772,31 +776,76 @@ private:
                 state_ == State::Starting || state_ == State::Running};
     }
 
-    // The in-game shim: the pedal axes of the picked game as the user set them for it (the Game profiles tab), over its
-    // profile's, written into its wheelbri-shim.ini; WheelBri's lines taken out again when the user set none.
-    bool shimGameAxes(std::string& error) {
+    // The in-game shim: the pedal axes of the game in `folder` as the user set them for it (the Game profiles tab),
+    // over its profile's for `target`; nullopt when the user set none (WheelBri's lines come out, the shim lays the
+    // profile itself).
+    [[nodiscard]] static std::optional<JoystickLayout> shimAxesFor(const std::filesystem::path& folder,
+                                                                  const EmulatorConfig& config,
+                                                                  std::span<const GameProfile> games,
+                                                                  const std::string& target) {
+        const GameProfile* const game = gameInFolder(folder, games);
+        if (game == nullptr) return std::nullopt;
+        const auto tuning = config.gameTunings.find(game->id);
+        if (tuning == config.gameTunings.end() ||
+            std::none_of(tuning->second.pedalAxes.begin(), tuning->second.pedalAxes.end(),
+                         [](const auto& axis) { return axis.has_value(); })) {
+            return std::nullopt;
+        }
+        JoystickLayout layout = layoutFor(target, 0);
+        if (profileFitsTarget(*game, target)) layout = overlay(layout, *game);
+        const JoystickLayout axes = tunedLayout(layout, tuning->second);
+        if (!isValid(axes)) {
+            // Two pedals on one axis (the Game profiles tab says so): the shim's own layout until fixed.
+            WE_LOG_WARN(log(), "shim: {}'s pedal axes put two pedals on one axis: not used (Game profiles tab)",
+                        game->label);
+            return std::nullopt;
+        }
+        return axes;
+    }
+
+    // The mapping's per-game values (the config Start uses) and every game WheelBri knows (built in and the user's).
+    struct ShimInputs {
         EmulatorConfig config;
+        std::vector<GameProfile> games;
+    };
+    [[nodiscard]] ShimInputs shimInputs() const {
+        ShimInputs inputs;
+        std::vector<GameProfile> userGames = loadUserGames();
         if (const std::string path = picker_->selected(); !path.empty()) {
             if (const auto text = readFileText(pathFromUtf8(path))) {
-                config = loadEmulatorConfig(IniDocument::parse(*text).document, loadUserGames()).config;
+                inputs.config = loadEmulatorConfig(IniDocument::parse(*text).document, userGames).config;
             }
         }
-        std::vector<GameProfile> games(gameProfiles().begin(), gameProfiles().end());
-        for (GameProfile& game : loadUserGames()) games.push_back(std::move(game));
-        const std::filesystem::path folder = games_->selectedFolder();
-        const GameProfile* const game = gameInFolder(folder, games);
-        std::optional<JoystickLayout> axes;
+        inputs.games.assign(gameProfiles().begin(), gameProfiles().end());
+        for (GameProfile& game : userGames) inputs.games.push_back(std::move(game));
+        return inputs;
+    }
+
+    // Hot swap: while stopped in Mode Shim, the shims in the games' folders follow the target as soon as it (or the
+    // list, or the switch) changes. Called every frame; does something only on a change.
+    void hotSwapShims() {
+        if (!shimTarget() || state_ != State::Stopped || !games_->hotSwap()) return;
         const std::string target = picker_->profileName();
-        if (game != nullptr) {
-            const auto tuning = config.gameTunings.find(game->id);
-            if (tuning != config.gameTunings.end() &&
-                std::any_of(tuning->second.pedalAxes.begin(), tuning->second.pedalAxes.end(),
-                            [](const auto& axis) { return axis.has_value(); })) {
-                JoystickLayout layout = layoutFor(target, 0);
-                if (profileFitsTarget(*game, target)) layout = overlay(layout, *game);
-                axes = tunedLayout(layout, tuning->second);
-            }
-        }
+        const std::string key = target + "|" + std::to_string(games_->changes());
+        if (key == hotSwapKey_) return;
+        hotSwapKey_ = key;
+        const ShimInputs inputs = shimInputs();
+        const std::vector<std::string> problems =
+            games_->swapShims(target, [&inputs, &target](const std::filesystem::path& folder) {
+                return shimAxesFor(folder, inputs.config, inputs.games, target);
+            });
+        if (problems.empty() || popup_) return;
+        std::string text = "These games' shims could not be set to the " + std::string(picker_->name()) + ":\n";
+        for (const std::string& line : problems) text += "  " + line + "\n";
+        notice("Hot swap", text);
+    }
+
+    // The in-game shim: the picked game's pedal axes (shimAxesFor) written into its wheelbri-shim.ini at Start.
+    bool shimGameAxes(std::string& error) {
+        const ShimInputs inputs = shimInputs();
+        const std::filesystem::path folder = games_->selectedFolder();
+        const std::optional<JoystickLayout> axes =
+            shimAxesFor(folder, inputs.config, inputs.games, picker_->profileName());
         const ShimResult result = setShimGameAxes(folder, axes);
         if (!result.ok) {
             error = "The pedal axes for " + games_->selectedName() + " could not be set: " + result.error + ".";
@@ -805,7 +854,8 @@ private:
         for (const std::string& file : result.changed) {
             if (axes) {
                 WE_LOG_INFO(log(), "shim: {}'s pedal axes (your own for it): throttle {} brake {} clutch {} in {}",
-                            game->label, axisName(axes->throttle), axisName(axes->brake), axisName(axes->clutch), file);
+                            games_->selectedName(), axisName(axes->throttle), axisName(axes->brake),
+                            axisName(axes->clutch), file);
             } else {
                 WE_LOG_INFO(log(), "shim: WheelBri's pedal axes taken out of {} (none set for the game)", file);
             }
@@ -898,6 +948,9 @@ private:
                 view_->setAccessories(info->accessories);
                 view_->setHeaderChars(sessionGame_.empty() ? kHeaderChars : kHeaderCharsShim);
                 view_->setShimMode(!sessionGame_.empty());
+                view_->setSessionLine(std::string("Target ") + ConfigPicker::targetName(picker_->target()) +
+                                      "   Mode " + ConfigPicker::wayName(picker_->way()) +
+                                      "   fixed while running");
                 // Start: the tab showing while it came up (the logs, unless changed); the wheel back after a loss:
                 // the tab that was showing.
                 view_->setTab(hadView                           ? previousTab
@@ -1199,6 +1252,7 @@ private:
     std::optional<Notice> pendingWayNotice_;  // shown as a popup once no other popup is open
     std::filesystem::path sessionGame_;       // the game a shim session was started for
     std::string sessionGameName_;
+    std::string hotSwapKey_;   // the target and the games list (changes) the shims were last swapped for
     std::optional<Popup> popup_;
     bool quitting_ = false;                   // the window was closed: stop, then end
     std::unique_ptr<IDeviceProfile> logsProfile_;   // logs_ needs one; it shows no mapping

@@ -2,6 +2,9 @@
 
 #include "Platform.hpp"
 
+#include "wheelbri/ConfigLibrary.hpp"
+#include "wheelbri/FileText.hpp"
+#include "wheelbri/IniDocument.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <algorithm>
@@ -50,6 +53,7 @@ std::string fit(std::string text, const std::size_t chars) {
 
 ShimGamesView::ShimGamesView(ui::UiWindow& window, Settings settings)
     : window_(window), settings_(std::move(settings)), list_(readShimGames(settings_.listFile)) {
+    if (!settings_.stateFile.empty()) hotSwap_ = readAppSetting(settings_.stateFile, "shim_hot_swap") != "off";
     refreshState();
     const auto where = [](const std::filesystem::path& dll) {
         return dll.empty() ? std::string("not found") : pathToUtf8(dll);
@@ -74,7 +78,45 @@ void ShimGamesView::refreshState() {
     stateReadMs_ = platform::nowMs();
 }
 
+std::vector<std::string> ShimGamesView::swapShims(const std::string& target, const AxesFor& axesFor) {
+    std::vector<std::string> problems;
+    for (const ShimGame& game : list_.games) {
+        const ShimState state = shimState(game.folder, source(game.folder));
+        if (state != ShimState::Installed && state != ShimState::Outdated) continue;   // no shim of ours there
+        const ShimResult result = setShimTarget(game.folder, target);
+        if (!result.ok) {
+            WE_LOG_WARN(log(), "shim hot swap: {} ({}) not set to the {}: {}", game.name, pathToUtf8(game.folder),
+                        target, result.error);
+            problems.push_back(game.name + ": " + result.error);
+            continue;
+        }
+        for (const std::string& file : result.changed) {
+            WE_LOG_INFO(log(), "shim hot swap: {} now presents the {} ({})", game.name, target, file);
+        }
+        const std::optional<JoystickLayout> axes = axesFor ? axesFor(game.folder) : std::nullopt;
+        const ShimResult written = setShimGameAxes(game.folder, axes);
+        if (!written.ok) {
+            WE_LOG_WARN(log(), "shim hot swap: {}'s pedal axes not set: {}", game.name, written.error);
+            problems.push_back(game.name + ": its pedal axes: " + written.error);
+            continue;
+        }
+        for (const std::string& file : written.changed) {
+            if (axes) {
+                WE_LOG_INFO(log(), "shim hot swap: {}'s pedal axes for the {}: throttle {} brake {} clutch {} ({})",
+                            game.name, target, axisName(axes->throttle), axisName(axes->brake),
+                            axisName(axes->clutch), file);
+            } else {
+                WE_LOG_INFO(log(), "shim hot swap: WheelBri's pedal axes taken out of {} (none set for the game)",
+                            file);
+            }
+        }
+    }
+    targets_.clear();   // the panel reads them again
+    return problems;
+}
+
 void ShimGamesView::save() {
+    ++changes_;
     if (!writeShimGames(settings_.listFile, list_)) {
         WE_LOG_WARN(log(), "cannot save the shim games in {}", pathToUtf8(settings_.listFile));
     }
@@ -82,7 +124,13 @@ void ShimGamesView::save() {
 
 void ShimGamesView::refreshStates() {
     states_.clear();
-    for (const ShimGame& game : list_.games) states_.push_back(shimState(game.folder, source(game.folder)));
+    targets_.clear();
+    for (const ShimGame& game : list_.games) {
+        states_.push_back(shimState(game.folder, source(game.folder)));
+        const auto text = readFileText(game.folder / kShimSettings);
+        targets_.push_back(text ? IniDocument::parse(*text).document.get("shim", "target_profile").value_or("g920")
+                                : std::string());
+    }
     refreshState();
 }
 
@@ -103,6 +151,7 @@ void ShimGamesView::put(const std::size_t index) {
         WE_LOG_WARN(log(), "shim not put into {}: {}", pathToUtf8(game.folder), result.error);
     }
     for (const std::string& file : result.changed) WE_LOG_INFO(log(), "shim: wrote {}", file);
+    ++changes_;   // a new shim in a folder presents the default target: hot swap sets it
     refreshStates();
 }
 
@@ -192,6 +241,7 @@ bool ShimGamesView::removeFrom(const std::filesystem::path& folder, std::string&
         return false;
     }
     for (const std::string& file : result.changed) WE_LOG_INFO(log(), "shim: deleted {}", file);
+    ++changes_;
     return true;
 }
 
@@ -266,7 +316,7 @@ void ShimGamesView::drawPanel() {
     const float kPanelW = window_.width() - 2 * kPanelX;
     const float kPanelMaxH = window_.height() - kPanelY - 48;
     const auto extraChars = static_cast<std::size_t>(std::max(0.0F, kPanelW - 912) / ui::kCharWidth);
-    if (states_.size() != list_.games.size()) refreshStates();
+    if (states_.size() != list_.games.size() || targets_.size() != list_.games.size()) refreshStates();
     const float rows = static_cast<float>(std::max<std::size_t>(list_.games.size(), 1));
     const float h = std::min(kPanelMaxH, 80 + rows * 22 + 30);
     panelX_ = kPanelX;
@@ -277,7 +327,6 @@ void ShimGamesView::drawPanel() {
     window_.outline(kPanelX, kPanelY, kPanelW, h, kHeading);
     const float left = kPanelX + 12;
     window_.text(left, kPanelY + 10, "GAMES WITH THE SHIM", kHeading);
-    window_.text(left + 168, kPanelY + 10, "Start runs the one picked; Add game puts the shim in a game folder", kDim);
     const auto button = [&](const float bx, const float by, const float w, const std::string& label,
                             std::function<void()> action) {
         window_.fill(bx, by, w, kRowHeight, kPanel);
@@ -286,6 +335,26 @@ void ShimGamesView::drawPanel() {
         panelHits_.push_back({bx, by, w, kRowHeight, std::move(action)});
     };
     button(kPanelX + kPanelW - 196, kPanelY + 6, 92, "Add game", [this] { add(); });
+    // Hot swap: on (blue), the shims in the games' folders follow the Mapping tab's target.
+    const float swapX = kPanelX + kPanelW - 196 - 8 - 132;
+    window_.text(left + 168, kPanelY + 10,
+                 fit("Start runs the one picked; Add game puts the shim in",
+                     static_cast<std::size_t>(std::max(0.0F, swapX - 8 - (left + 168)) / ui::kCharWidth)),
+                 kDim);
+    window_.fill(swapX, kPanelY + 6, 132, kRowHeight, hotSwap_ ? kHeading : kPanel);
+    window_.outline(swapX, kPanelY + 6, 132, kRowHeight, hotSwap_ ? kHeading : kDim);
+    const std::string swapLabel = hotSwap_ ? "Hot swap: on" : "Hot swap: off";
+    window_.text(swapX + (132 - static_cast<float>(swapLabel.size()) * ui::kCharWidth) / 2, kPanelY + 10, swapLabel,
+                 hotSwap_ ? kDark : kText);
+    panelHits_.push_back({swapX, kPanelY + 6, 132, kRowHeight, [this] {
+        hotSwap_ = !hotSwap_;
+        if (hotSwap_) ++changes_;   // on again: swapped to the target now
+        if (!settings_.stateFile.empty()) {
+            writeAppSetting(settings_.stateFile, "shim_hot_swap", hotSwap_ ? "on" : "off");
+        }
+        WE_LOG_INFO(log(), "shim: hot swap {}", hotSwap_ ? "on (the games' shims follow the target)"
+                                                       : "off (only the picked game's shim, at Start)");
+    }});
     button(kPanelX + kPanelW - 100, kPanelY + 6, 88, "Close", [this] { panelOpen_ = false; });
 
     float y = kPanelY + 36;
@@ -304,9 +373,16 @@ void ShimGamesView::drawPanel() {
         panelHits_.push_back({left, y, kPanelW - 24 - 210, 18, [this, i] { pick(i); }});
         window_.text(left + 6, y + 5, fit(game.name, 18), on ? kDark : kText);
         // The folder gets what a wider window adds.
-        window_.text(left + 158, y + 5, fit(pathToUtf8(game.folder), 46 + extraChars), on ? kDark : kDim);
-        window_.text(left + 548 + static_cast<float>(extraChars) * ui::kCharWidth, y + 5, shimStateName(state),
-                     on ? kDark : stateColour);
+        window_.text(left + 158, y + 5, fit(pathToUtf8(game.folder), 39 + extraChars), on ? kDark : kDim);
+        // The state, then the wheel the shim presents, left of Forget.
+        const float stateX = left + 484 + static_cast<float>(extraChars) * ui::kCharWidth;
+        const std::string stateText = shimStateName(state);
+        window_.text(stateX, y + 5, stateText, on ? kDark : stateColour);
+        if ((state == ShimState::Installed || state == ShimState::Outdated) && i < targets_.size()) {
+            // The wheel its shim presents.
+            window_.text(stateX + static_cast<float>(stateText.size() + 2) * ui::kCharWidth, y + 5, targets_[i],
+                         on ? kDark : kDim);
+        }
         button(kPanelX + kPanelW - 210, y + 1, 74, "Forget", [this, i] { forget(i); });
         if (state == ShimState::Missing || state == ShimState::Outdated) {
             button(kPanelX + kPanelW - 130, y + 1, 110, "Put shim", [this, i] { put(i); });
@@ -316,7 +392,9 @@ void ShimGamesView::drawPanel() {
         y += 22;
     }
     window_.text(left, kPanelY + h - 20,
-                 "Click a game to pick it. Remove shim deletes WheelBri's files there; Forget takes it off the list only.",
+                 hotSwap_ ? "Hot swap on: the shims in these folders present the Mapping tab's target. Click a game to "
+                            "pick it."
+                          : "Hot swap off: only the picked game's shim is set to the target, at Start.",
                  kDim);
 }
 
