@@ -27,7 +27,7 @@ add_library(wheelbri_core STATIC
     src/GameTuning.cpp
     src/GameTab.cpp
     src/GameUseWatch.cpp
-    src/HidG920.cpp
+    src/HidWheelDevice.cpp
     src/HelperDispatch.cpp
     src/HelperProtocol.cpp
     src/HelperStatus.cpp

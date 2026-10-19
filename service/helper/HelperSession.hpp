@@ -1,7 +1,7 @@
 #pragma once
 
 #include "wheelbri/HelperDispatch.hpp"
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HelperProtocol.hpp"
 
 #include <filesystem>
@@ -10,7 +10,7 @@
 #include <string>
 
 namespace wheelbri::service {
-class VirtualG920;
+class VirtualWheelDevice;
 }
 
 namespace wheelbri::helper {
@@ -43,11 +43,11 @@ public:
     [[nodiscard]] Reply handle(const Request& request) override;
 
 private:
-    Reply createVirtualG920(const Request& request);
+    Reply createVirtualWheel(const Request& request);
     Reply hideRig(std::uint32_t seq);
     Reply showRig(std::uint32_t seq);
     Reply putHideFilter(const Request& request);
-    Reply installG920Driver(std::uint32_t seq);
+    Reply installWheelDriver(std::uint32_t seq);
     Reply shareLogFolder(std::uint32_t seq);
     Reply setLogLevel(const Request& request);
     void showRigIfOurs();
@@ -60,8 +60,8 @@ private:
     std::uint32_t pid_ = 0;
     int scriptLevels_;
     Cancelled cancelled_;
-    std::unique_ptr<service::VirtualG920> g920_;
-    const VirtualWheel* g920Wheel_ = nullptr;   // which one g920_ is
+    std::unique_ptr<service::VirtualWheelDevice> device_;
+    const VirtualWheel* deviceWheel_ = nullptr;   // which one device_ is
     bool hid_ = false;
     std::filesystem::path logFolder_;   // the caller's, checked by shareLogFolder
 };

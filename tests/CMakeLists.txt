@@ -111,9 +111,9 @@ if(TARGET wheelbri_privileged)
     endif()
 endif()
 
-# The Linux virtual G920's uhid protocol (tools/uhid), tested without /dev/uhid.
+# The Linux virtual wheel's uhid protocol (tools/uhid), tested without /dev/uhid.
 if(WE_LINUX)
-    target_sources(wheelbri_tests PRIVATE UhidG920Test.cpp UhidLoopTest.cpp ${PROJECT_SOURCE_DIR}/tools/uhid/UhidG920.cpp
+    target_sources(wheelbri_tests PRIVATE UhidWheelTest.cpp UhidLoopTest.cpp ${PROJECT_SOURCE_DIR}/tools/uhid/UhidWheel.cpp
         ${PROJECT_SOURCE_DIR}/tools/uhid/UhidLoop.cpp)
     target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/tools/uhid)
 endif()

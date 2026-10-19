@@ -100,7 +100,7 @@ TEST(UhidOptions, ParentIsAProcessIdAboveInit) {
 
 struct Device {
     std::vector<uhid_event> written;
-    UhidG920 g920{[this](const uhid_event& e) { written.push_back(e); return true; }, [](const FfbPacket&) {},
+    UhidWheel g920{[this](const uhid_event& e) { written.push_back(e); return true; }, [](const FfbPacket&) {},
                   [](LogLevel, const std::string&) {}};
 
     Device() {
@@ -123,13 +123,13 @@ struct Device {
 StatePacket state(const std::int32_t steering, const std::uint32_t sequence = 1) {
     StatePacket p;
     p.sequence = sequence;
-    p.report = g920Neutral();
+    p.report = neutralReport();
     p.report.steering = steering;
     return p;
 }
 
 std::vector<std::uint8_t> packed(const TargetReport& r) {
-    const auto a = packG920Input(r);
+    const auto a = packWheelInput(r);
     return {a.begin(), a.end()};
 }
 
@@ -175,9 +175,9 @@ TEST(UhidInputFeed, After1500MsWithoutStatesTheWheelGoesNeutralOnce) {
     EXPECT_EQ(d.lastInput(), packed(state(60000).report));
     EXPECT_EQ(feed.update(std::nullopt, 1501, d.g920), InputFeed::Change::Stale);
     EXPECT_FALSE(feed.receiving());
-    EXPECT_EQ(d.lastInput(), packed(g920Neutral()));
+    EXPECT_EQ(d.lastInput(), packed(neutralReport()));
     EXPECT_EQ(feed.update(std::nullopt, 1700, d.g920), InputFeed::Change::None);   // said once; keep-alive goes on
-    EXPECT_EQ(d.lastInput(), packed(g920Neutral()));
+    EXPECT_EQ(d.lastInput(), packed(neutralReport()));
     EXPECT_EQ(feed.update(state(20000, 9), 1800, d.g920), InputFeed::Change::Receiving);   // back
     EXPECT_EQ(d.lastInput(), packed(state(20000).report));
 }
@@ -188,7 +188,7 @@ TEST(UhidInputFeed, NeverAnyStateIsNeverCalledStale) {
     for (std::int64_t t = 0; t <= 5000; t += 100) {
         EXPECT_EQ(feed.update(std::nullopt, t, d.g920), InputFeed::Change::None) << t;
     }
-    EXPECT_EQ(d.lastInput(), packed(g920Neutral()));   // keep-alives of the neutral report
+    EXPECT_EQ(d.lastInput(), packed(neutralReport()));   // keep-alives of the neutral report
     EXPECT_GE(d.inputs(), 50U);
 }
 

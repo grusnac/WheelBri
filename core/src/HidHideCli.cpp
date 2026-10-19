@@ -1,6 +1,6 @@
 #include "wheelbri/HidHideCli.hpp"
 
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 
 #include <algorithm>
 #include <charconv>

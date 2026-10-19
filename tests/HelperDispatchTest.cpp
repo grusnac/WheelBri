@@ -172,19 +172,19 @@ TEST(HelperDispatch, ARequestTheRulesRefuseIsRefusedAndTheConnectionStays) {
 TEST(HelperDispatch, AnAllowedRequestGoesToTheSessionAndItsReplyBack) {
     FakeSession session;
     session.reply = Reply{999, Status::Ok, "SWD\\wheelbri\\G920_0"};   // whatever seq it puts: the request's goes back
-    const Answer answer = ask(Request{RequestType::CreateVirtualG920, 11, {}}, accepted(), &session);
+    const Answer answer = ask(Request{RequestType::CreateVirtualWheel, 11, {}}, accepted(), &session);
     ASSERT_EQ(session.seen.size(), 1U);
-    EXPECT_EQ(session.seen[0].type, RequestType::CreateVirtualG920);
+    EXPECT_EQ(session.seen[0].type, RequestType::CreateVirtualWheel);
     EXPECT_EQ(answer.reply.seq, 11U);
     EXPECT_EQ(answer.reply.status, Status::Ok);
     EXPECT_EQ(answer.reply.text, "SWD\\wheelbri\\G920_0");
     EXPECT_TRUE(answer.keepOpen);
-    EXPECT_EQ(answer.type, RequestType::CreateVirtualG920);
+    EXPECT_EQ(answer.type, RequestType::CreateVirtualWheel);
 }
 
-TEST(HelperDispatch, CreateVirtualG920ReachesTheSessionWithItsWheel) {
+TEST(HelperDispatch, CreateVirtualWheelReachesTheSessionWithItsWheel) {
     FakeSession session;
-    const Answer answer = ask(Request{RequestType::CreateVirtualG920, 12, {"g25"}}, accepted(), &session);
+    const Answer answer = ask(Request{RequestType::CreateVirtualWheel, 12, {"g25"}}, accepted(), &session);
     ASSERT_EQ(session.seen.size(), 1U);
     EXPECT_EQ(session.seen[0].devices, std::vector<std::string>{"g25"});
     EXPECT_EQ(answer.reply.status, Status::Ok);
@@ -194,9 +194,9 @@ TEST(HelperDispatch, AWheelWheelBriDoesNotEmulateNeverReachesTheSession) {
     FakeSession session;
     for (const std::vector<std::string>& devices :
          {std::vector<std::string>{"g29"}, std::vector<std::string>{""}, std::vector<std::string>{"g25", "g25"}}) {
-        const Answer answer = ask(Request{RequestType::CreateVirtualG920, 13, devices}, accepted(), &session);
+        const Answer answer = ask(Request{RequestType::CreateVirtualWheel, 13, devices}, accepted(), &session);
         EXPECT_EQ(answer.reply.status, Status::Refused);
-        EXPECT_EQ(answer.reply.text, "CreateVirtualG920 takes one wheel: g25, g27, g920 or g923");
+        EXPECT_EQ(answer.reply.text, "CreateVirtualWheel takes one wheel: g25, g27, g920 or g923");
     }
     EXPECT_TRUE(session.seen.empty());
 }
@@ -213,7 +213,7 @@ TEST(HelperDispatch, EveryStatusTheSessionGivesGoesBackAsItIs) {
     FakeSession session;
     for (const Status status : {Status::Ok, Status::Refused, Status::Failed, Status::Pending, Status::Unsupported}) {
         session.reply = Reply{0, status, "text"};
-        const Answer answer = ask(Request{RequestType::InstallG920Driver, 1, {}}, accepted(), &session);
+        const Answer answer = ask(Request{RequestType::InstallWheelDriver, 1, {}}, accepted(), &session);
         EXPECT_EQ(answer.reply.status, status);
         EXPECT_EQ(answer.reply.text, "text");
         EXPECT_TRUE(answer.keepOpen);
@@ -231,19 +231,19 @@ TEST(HelperDispatch, NoSessionIsAFailureNotACrash) {
 TEST(HelperDispatch, ASessionThatThrowsIsAFailureAndTheHelperGoesOn) {
     FakeSession session;
     session.behaviour = FakeSession::Behaviour::ThrowStd;
-    Answer answer = ask(Request{RequestType::CreateVirtualG920, 9, {}}, accepted(), &session);
+    Answer answer = ask(Request{RequestType::CreateVirtualWheel, 9, {}}, accepted(), &session);
     EXPECT_EQ(answer.reply.status, Status::Failed);
     EXPECT_EQ(answer.reply.text, "the helper failed: the disk is on fire");
     EXPECT_EQ(answer.reply.seq, 9U);
     EXPECT_TRUE(answer.keepOpen);
 
     session.behaviour = FakeSession::Behaviour::ThrowOther;
-    answer = ask(Request{RequestType::CreateVirtualG920, 10, {}}, accepted(), &session);
+    answer = ask(Request{RequestType::CreateVirtualWheel, 10, {}}, accepted(), &session);
     EXPECT_EQ(answer.reply.status, Status::Failed);
     EXPECT_EQ(answer.reply.text, "the helper failed (an unknown error)");
 
     session.behaviour = FakeSession::Behaviour::Answer;   // and the next request is served again
-    answer = ask(Request{RequestType::CreateVirtualG920, 11, {}}, accepted(), &session);
+    answer = ask(Request{RequestType::CreateVirtualWheel, 11, {}}, accepted(), &session);
     EXPECT_EQ(answer.reply.status, Status::Ok);
 }
 

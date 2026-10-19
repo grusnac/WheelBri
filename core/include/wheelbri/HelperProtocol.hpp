@@ -37,12 +37,12 @@ inline constexpr std::size_t kMaxText = 2000;      // a reply's text (cut at a U
 
 enum class RequestType : std::uint8_t {
     Hello = 1,              // first on every connection: the reply's text is the helper's version
-    CreateVirtualG920 = 2,  // the virtual wheel's software device (and the DirectInput entries), for this connection
-    RemoveVirtualG920 = 3,
+    CreateVirtualWheel = 2,  // the virtual wheel's software device (and the DirectInput entries), for this connection
+    RemoveVirtualWheel = 3,
     HideRig = 4,            // only the caller's process may open the filtered devices (AllowedPid = caller)
     ShowRig = 5,            // clears that again
     PutHideFilter = 6,      // devices: the HID interfaces to put wheelbri-hide on (then waits for it to start)
-    InstallG920Driver = 7,  // when Windows' driver store has none
+    InstallWheelDriver = 7,  // when Windows' driver store has none
     ShareLogFolder = 8,     // lets the drivers write into the caller's own log folder
     SetLogLevel = 9,        // devices: one app log level (trace, debug, info, warn) for the drivers and the helper
 };
@@ -57,7 +57,7 @@ enum class Status : std::uint8_t {
 
 // The body's strings ("devices"): PutHideFilter's HID interfaces; SetLogLevel's one level; a Hello may carry the
 // app's log level as its one string (the helper takes it for its own log; an older helper ignores it); and
-// CreateVirtualG920 may name the wheel, "g920" or "g25" (none: the G920, as an older app asks).
+// CreateVirtualWheel may name the wheel, "g920" or "g25" (none: the G920, as an older app asks).
 struct Request {
     RequestType type = RequestType::Hello;
     std::uint32_t seq = 0;              // echoed in the reply
@@ -89,7 +89,7 @@ inline constexpr std::uint32_t kReplyMagic = 0x52484557;     // "WEHR"
 [[nodiscard]] std::string requestProblem(const Request& request);
 [[nodiscard]] bool isKnown(RequestType type);
 
-// The wheel a CreateVirtualG920 asks for ("g920", "g25"): its one string, or "g920" when it has none. Nullopt for
+// The wheel a CreateVirtualWheel asks for ("g920", "g25"): its one string, or "g920" when it has none. Nullopt for
 // anything else (requestProblem refuses it).
 [[nodiscard]] std::optional<std::string> requestVirtualWheel(const Request& request);
 

@@ -1,15 +1,15 @@
 # Builds wheelbri's UMDF drivers with MSBuild (Visual Studio + WDK, see README.md, "Drivers") and optionally
 # installs them with their own install scripts. Works from any PowerShell: MSBuild is found with vswhere.
 #
-#   drivers.ps1                          build g920 and hide (Release)
-#   drivers.ps1 -Only g920               build one
+#   drivers.ps1                          build wheel and hide (Release)
+#   drivers.ps1 -Only wheel              build one (wheel: the virtual wheel, all targets; g920 is its old name)
 #   drivers.ps1 -Install                 build, then install (asks for Administrator)
 #   drivers.ps1 -Clean                   rebuild from scratch
 #   drivers.ps1 -Configuration Debug
 
 param(
     [string]$Configuration = 'Release',
-    [string[]]$Only = @('g920', 'hide'),
+    [string[]]$Only = @('wheel', 'hide'),
     [switch]$Install,
     [switch]$Clean
 )
@@ -17,12 +17,17 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 $drivers = [ordered]@{
-    g920 = @{ Project = 'driver\wheelbri-g920.vcxproj';      Installer = 'driver\install-driver.ps1'; Log = 'wheelbri-driver-install-' }
+    wheel = @{ Project = 'driver\wheelbri-wheel.vcxproj'; Installer = 'driver\install-driver.ps1'
+               Log = 'wheelbri-driver-install-' }
     hide = @{ Project = 'driver\hide\wheelbri-hide.vcxproj'; Installer = 'driver\hide\install-hide.ps1'; Log = 'wheelbri-hide-install-' }
 }
-$Only = $Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ }
+$Only = $Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ } |
+    ForEach-Object { if ($_ -eq 'g920') { 'wheel' } else { $_ } }   # the wheel driver's old name still works
 foreach ($name in $Only) {
-    if (-not $drivers.Contains($name)) { Write-Host "unknown driver '$name' (g920, hide)" -ForegroundColor Red; exit 2 }
+    if (-not $drivers.Contains($name)) {
+        Write-Host "unknown driver '$name' (wheel, hide)" -ForegroundColor Red
+        exit 2
+    }
 }
 
 function Find-MSBuild {

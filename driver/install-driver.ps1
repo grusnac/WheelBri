@@ -1,4 +1,4 @@
-# Installs wheelbri-g920, the one driver package behind all four virtual wheels (G25, G27, G920, G923; build it first,
+# Installs wheelbri-wheel, the one driver package behind all four virtual wheels (G25, G27, G920, G923; build it first,
 # see README.md). Administrator. Secure Boot and test mode stay as they are: the package is signed with a
 # certificate made on this PC by the WDK build (WDKTestCert, or WheelBri's own from new-signing-cert.ps1), which this
 # script adds to the machine's trusted Root and TrustedPublisher stores (its thumbprint recorded in
@@ -8,7 +8,8 @@
 #   install-driver.ps1 -Configuration Debug
 #
 # Exit codes: 0 installed (a yellow line says when Windows wants a restart), 1 failed (the red line says why).
-# The app runs it by itself at Start when Windows has no wheelbri-g920 driver (see ensureG920Driver in main.cpp).
+# The app runs it by itself at Start when Windows has no wheelbri-wheel driver (see ensureWheelDriver in main.cpp).
+# It removes the same driver under its older names first (wheelbri-g920 until 2026-10-19; Get-LegacyNames).
 
 # -LogFolder <folder>: its log in that folder (the WheelBri Helper, which runs as SYSTEM, gives the user's).
 param([string]$Configuration = 'Release', [string]$LogFolder = '')
@@ -49,15 +50,15 @@ try {
 $exitCode = 1
 try {
     # The new package first: without a build, nothing old is removed (the script stops here, Windows keeps what it has).
-    $inf = Find-BuiltPackage $PSScriptRoot 'wheelbri-g920' $Configuration
-    Add-PackageCertificate $inf 'wheelbri-g920'
-    Remove-LegacyPackages 'wheelbri-g920' | Out-Null
-    Invoke-Pnputil @('/add-driver', $inf.FullName, '/install') 'installing wheelbri-g920' | Out-Null
-    if (@(Get-InstalledPackages 'wheelbri-g920').Count -eq 0) {
-        Stop-WithError 'pnputil reported success, but Windows does not list wheelbri-g920.inf as installed.'
+    $inf = Find-BuiltPackage $PSScriptRoot 'wheelbri-wheel' $Configuration
+    Add-PackageCertificate $inf 'wheelbri-wheel'
+    Remove-LegacyPackages 'wheelbri-wheel' | Out-Null
+    Invoke-Pnputil @('/add-driver', $inf.FullName, '/install') 'installing wheelbri-wheel' | Out-Null
+    if (@(Get-InstalledPackages 'wheelbri-wheel').Count -eq 0) {
+        Stop-WithError 'pnputil reported success, but Windows does not list wheelbri-wheel.inf as installed.'
     }
     Write-Host ''
-    Write-Host 'Installed. Press Start in WheelBri (or run wheelbri-service --virtual-g920 as Administrator) to create the virtual wheel.' -ForegroundColor Green
+    Write-Host 'Installed. Press Start in WheelBri (or run wheelbri-service --virtual-wheel as Administrator) to create the virtual wheel.' -ForegroundColor Green
     $exitCode = 0
 } catch {
     Write-Host "install-driver.ps1 failed: $($_.Exception.Message)" -ForegroundColor Red

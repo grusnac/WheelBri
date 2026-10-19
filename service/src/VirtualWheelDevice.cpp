@@ -1,9 +1,9 @@
-#include "VirtualG920.hpp"
+#include "VirtualWheelDevice.hpp"
 
 #include "Platform.hpp"
 
 #include "wheelbri/DeviceProfile.hpp"
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/Logging.hpp"
 
 #ifdef _WIN32
@@ -29,7 +29,7 @@ namespace wheelbri::service {
 namespace {
 
 const logging::Logger& log() {
-    static const logging::Logger logger = logging::get("service.g920");
+    static const logging::Logger logger = logging::get("service.driver");
     return logger;
 }
 
@@ -88,9 +88,9 @@ VOID WINAPI onCreated(HSWDEVICE_, HRESULT result, PVOID context, PCWSTR instance
 
 // --- Has Windows a driver for it? ---
 
-// What Start says when Windows has no wheelbri-g920 driver (the app tries to install it first, see main.cpp).
+// What Start says when Windows has no wheelbri-wheel driver (the app tries to install it first, see main.cpp).
 constexpr char kDriverMissing[] =
-    "the virtual G920's driver (wheelbri-g920) is not installed: install it once from an Administrator PowerShell "
+    "the virtual wheel's driver (wheelbri-wheel) is not installed: install it once from an Administrator PowerShell "
     "(driver\\install-driver.ps1, or scripts/make/drivers.sh -Install); WheelBri's installer does it too";
 
 // The problem code Windows shows for the device in Device Manager (0: none or not found).
@@ -304,7 +304,7 @@ void removeForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const Virt
 
 }  // namespace
 
-struct VirtualG920::Impl {
+struct VirtualWheelDevice::Impl {
     const VirtualWheel* wheel = nullptr;
     SwDeviceCloseFn close = nullptr;
     HSWDEVICE_ device = nullptr;
@@ -332,13 +332,15 @@ struct VirtualG920::Impl {
 
 // Windows keeps one key per driver package in its store: SYSTEM\DriverDatabase\DriverPackages\<inf>_<arch>_<hash>
 // (what pnputil /add-driver adds and /delete-driver removes). Readable without Administrator.
-VirtualG920::DriverState VirtualG920::driverState() {
+VirtualWheelDevice::DriverState VirtualWheelDevice::driverState() {
     HKEY key = nullptr;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\DriverDatabase\\DriverPackages", 0,
                       KEY_ENUMERATE_SUB_KEYS | KEY_WOW64_64KEY, &key) != ERROR_SUCCESS) {
         return DriverState::Unknown;
     }
-    constexpr wchar_t kPrefix[] = L"wheelbri-g920.inf_";
+    // Only wheelbri-wheel: the same driver under its old name (wheelbri-g920, until 2026-10-19) counts as missing, so
+    // Start installs the new one, which removes the old (install-driver.ps1).
+    constexpr wchar_t kPrefix[] = L"wheelbri-wheel.inf_";
     DriverState state = DriverState::Missing;
     for (DWORD index = 0;; ++index) {
         wchar_t name[256];
@@ -359,7 +361,7 @@ VirtualG920::DriverState VirtualG920::driverState() {
     return state;
 }
 
-std::unique_ptr<VirtualG920> VirtualG920::create(const VirtualWheel& wheel, std::string& error,
+std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWheel& wheel, std::string& error,
                                                  const std::function<bool()>& cancelled, const bool userHive) {
     const auto stopNow = [&cancelled] { return cancelled && cancelled(); };
     const HMODULE cfg = LoadLibraryW(L"cfgmgr32.dll");
@@ -480,12 +482,12 @@ std::unique_ptr<VirtualG920> VirtualG920::create(const VirtualWheel& wheel, std:
                 error = std::string(kDriverMissing) + " (Windows found no driver for " + id + ")";
                 return nullptr;
             }
-            // The driver is there but has no entry for this wheel: an older wheelbri-g920 (from before the G25).
+            // The driver is there but has no entry for this wheel: an older build (from before that wheel).
             if (problem == kProblemFailedInstall && wheel.profile != "g920") {
                 swClose(device);
                 writeDirectInputEntries(false, roots(userHive), wheel);
-                error = "the installed wheelbri-g920 driver is older than the " + label +
-                        ": install the new one (scripts/make/drivers.sh -Only g920 -Install, or WheelBri's installer)";
+                error = "the installed wheelbri-wheel driver is older than the " + label +
+                        ": install the new one (scripts/make/drivers.sh -Only wheel -Install, or WheelBri's installer)";
                 return nullptr;
             }
             WE_LOG_WARN(log(), "{} {} has no game-controller driver{} (an earlier one is probably stuck "
@@ -519,7 +521,7 @@ std::unique_ptr<VirtualG920> VirtualG920::create(const VirtualWheel& wheel, std:
                 WE_LOG_ERROR(log(), "virtual {}: the registry watcher stopped: {}", raw->wheel->instancePrefix, e.what());
             }
         });
-        return std::unique_ptr<VirtualG920>(new VirtualG920(std::move(impl)));
+        return std::unique_ptr<VirtualWheelDevice>(new VirtualWheelDevice(std::move(impl)));
     }
     writeDirectInputEntries(false, roots(userHive), wheel);   // written for an identity that then never got its driver
     error = "every identity of the " + label + " is stuck: restart Windows" +
@@ -573,11 +575,11 @@ DirectInputUserEntries::~DirectInputUserEntries() {
 
 namespace wheelbri::service {
 
-struct VirtualG920::Impl {
+struct VirtualWheelDevice::Impl {
     std::string instanceId;
 };
 
-VirtualG920::DriverState VirtualG920::driverState() {
+VirtualWheelDevice::DriverState VirtualWheelDevice::driverState() {
     return DriverState::Unknown;
 }
 
@@ -585,7 +587,7 @@ struct DirectInputUserEntries::Impl {};
 DirectInputUserEntries::DirectInputUserEntries(const VirtualWheel&) {}
 DirectInputUserEntries::~DirectInputUserEntries() = default;
 
-std::unique_ptr<VirtualG920> VirtualG920::create(const VirtualWheel&, std::string& error,
+std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWheel&, std::string& error,
                                                  const std::function<bool()>&, bool) {
     error = "the virtual wheel exists on Windows only";
     return nullptr;
@@ -597,8 +599,8 @@ std::unique_ptr<VirtualG920> VirtualG920::create(const VirtualWheel&, std::strin
 
 namespace wheelbri::service {
 
-VirtualG920::VirtualG920(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
-VirtualG920::~VirtualG920() = default;
-const std::string& VirtualG920::instanceId() const { return impl_->instanceId; }
+VirtualWheelDevice::VirtualWheelDevice(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
+VirtualWheelDevice::~VirtualWheelDevice() = default;
+const std::string& VirtualWheelDevice::instanceId() const { return impl_->instanceId; }
 
 }  // namespace wheelbri::service

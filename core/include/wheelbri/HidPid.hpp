@@ -19,7 +19,7 @@
 
 namespace wheelbri {
 
-// HID PID force feedback, device side: what a virtual wheel with a PID descriptor (HidG920.hpp) receives
+// HID PID force feedback, device side: what a virtual wheel with a PID descriptor (HidWheelDevice.hpp) receives
 // from Windows' pid.dll when a game plays DirectInput effects, turned into the service's FfbPackets. The
 // C++ counterpart of the old bridge's PidForwarder.cs (checked against the same reports), plus the effect
 // block allocation the device itself must answer (HIDMaestro's driver did that for the bridge):

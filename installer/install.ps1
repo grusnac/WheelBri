@@ -22,7 +22,7 @@
 #   - files in the install folder (listed in its installed-files.txt: the uninstaller removes those, not the whole
 #     folder; an -InstallDir that is not empty and holds no WheelBri install is refused); Start menu (and desktop)
 #     shortcut "WheelBri"; an uninstall entry
-#   - two driver packages (pnputil): the virtual G920 (wheelbri-g920) and the
+#   - two driver packages (pnputil): the virtual wheel (wheelbri-wheel: G25, G27, G920, G923) and the
 #     filter that hides the rig from games (wheelbri-hide). When the user's saved settings name a rig (a reinstall
 #     that kept them), wheelbri-service --prepare-hide puts it on that rig's plugged-in devices here, before the
 #     restart, so the first Start is instant; otherwise the app puts it on them at the first Start
@@ -179,7 +179,7 @@ try {
     }
     $driverFiles = @()
     if ($withDrivers) {
-        $driverFiles = @('x64\Release\wheelbri-g920\wheelbri-g920', 'hide\x64\Release\wheelbri-hide\wheelbri-hide')
+        $driverFiles = @('x64\Release\wheelbri-wheel\wheelbri-wheel', 'hide\x64\Release\wheelbri-hide\wheelbri-hide')
     }
     foreach ($driver in $driverFiles) {
         foreach ($extension in '.inf', '.cat', '.dll') {
@@ -408,7 +408,7 @@ try {
     $hideCode = $null       # install-hide.ps1's exit code (the package)
     if (-not $withDrivers) { Write-Host '    none on this Windows (the in-game shim way needs none)' }
     $drivers = if (-not $withDrivers) { @() } else { @(
-        @{ Name = 'virtual G920 (wheelbri-g920)'; Script = 'driver\install-driver.ps1'; Required = $true },
+        @{ Name = 'virtual wheel (wheelbri-wheel)'; Script = 'driver\install-driver.ps1'; Required = $true },
         @{ Name = 'hiding filter (wheelbri-hide)'; Script = 'driver\hide\install-hide.ps1'; Required = $false }
     ) }
     foreach ($driver in $drivers) {
@@ -548,7 +548,7 @@ try {
     Step 'checking the installation'
     if ($withDrivers) {
         $installed = pnputil /enum-drivers | Out-String
-        foreach ($inf in 'wheelbri-g920.inf', 'wheelbri-hide.inf') {
+        foreach ($inf in 'wheelbri-wheel.inf', 'wheelbri-hide.inf') {
             if ($installed -match [regex]::Escape($inf)) { Write-Host "    $inf installed" }
             else { Warn "    $inf is not listed by pnputil" }
         }

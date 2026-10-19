@@ -15,8 +15,8 @@
 #
 # What it measures, every sample:
 #   - each process: wheelbri.exe, wheelbri-service.exe, wheelbri-helper.exe, the driver hosts that load WheelBri's
-#     drivers (WUDFHost.exe with wheelbri-g920.dll = the virtual G920, with wheelbri-hide.dll = the hide filter; one
-#     host may carry both: "WUDFHost:g920-driver+hide-filter", its threads tell them apart), the
+#     drivers (WUDFHost.exe with wheelbri-wheel.dll = the virtual wheel, with wheelbri-hide.dll = the hide filter; one
+#     host may carry both: "WUDFHost:wheel-driver+hide-filter", its threads tell them apart), the
 #     game (-Game) and this script itself: CPU as Task Manager shows it (share of the whole PC) and as a share of one
 #     core, memory (working set, private), handles, threads, GDI and USER objects;
 #   - each thread of those processes: CPU (share of one core), priority, state and wait reason, name (when the
@@ -110,7 +110,8 @@ function Get-HostLabel($process) {
     try {
         $modules = @($process.Modules | ForEach-Object { $_.ModuleName.ToLower() })
         $parts = @()
-        if ($modules -contains 'wheelbri-g920.dll') { $parts += 'g920-driver' }
+        $wheel = $modules -contains 'wheelbri-wheel.dll' -or $modules -contains 'wheelbri-g920.dll'   # g920: old name
+        if ($wheel) { $parts += 'wheel-driver' }
         if ($modules -contains 'wheelbri-hide.dll') { $parts += 'hide-filter' }
         if ($parts.Count -gt 0) { $label = 'WUDFHost:' + ($parts -join '+') }
     } catch { $label = '' }

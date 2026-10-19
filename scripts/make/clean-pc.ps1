@@ -22,7 +22,7 @@
 #
 # What it removes: the WheelBri Helper service (WheelBriHelper); running WheelBri processes; the virtual devices
 # (SWD\wheelbri\..., SWD\wheelemu\...) and the HID devices under them, including ones Windows keeps half-removed;
-# the driver packages under both names (the hide filter first, then g920); every device our drivers are on (found
+# the driver packages under both names (hide filter, then wheel driver); every device our drivers are on (found
 # by their driver description, so also when the package is already gone: the rig's devices with the hide filter,
 # whatever they are) is reinstalled on Windows' own driver; the drivers' UMDF registrations (WUDF\Services); the certificates that signed our driver packages (by
 # thumbprint: recorded at install in HKLM\SOFTWARE\wheelbri\SigningCertificates, or read from the signed catalogs of
@@ -128,7 +128,8 @@ function Step([string]$text) { Write-Host $text -ForegroundColor Cyan }
 
 $names = @('wheelbri', 'wheelemu')   # the name, and the project's old name (before the rename)
 # Removal order: the hide filter on the rig's devices first.
-$ourInfs = @(foreach ($part in 'hide', 'g920') { foreach ($name in $names) { "$name-$part.inf" } })
+# The wheel driver was <name>-g920 until 2026-10-19, <name>-wheel since.
+$ourInfs = @(foreach ($part in 'hide', 'wheel', 'g920') { foreach ($name in $names) { "$name-$part.inf" } })
 function Test-ThirdPartyName([string]$text) { return $text -match 'hidhide|hidmaestro' }
 
 # Installed driver packages: objects with Driver (oemNN.inf) and Original (the package's own .inf name). DISM's view
@@ -187,9 +188,9 @@ function Get-Shortcuts {
     return @($found | Sort-Object -Unique)
 }
 
-# DirectInput's OEM entries the service writes while a virtual wheel exists (service/src/VirtualG920.cpp
+# DirectInput's OEM entries the service writes while a virtual wheel exists (service/src/VirtualWheelDevice.cpp
 # writeDirectInputEntries), under Joystick\OEM\<ids> in HKLM and HKCU: OEMName (the name below, kVirtualWheels'
-# oemName in core/src/HidG920.cpp), OEMData, and for the G923 an Axes key marked with a "WheelBri" value. A real
+# oemName in core/src/HidWheelDevice.cpp), OEMData, and for the G923 an Axes key marked with a "WheelBri" value. A real
 # Logitech wheel has entries under the same ids: those stay. By target: G25, G27, G920, G923. (The same as
 # installer/uninstall.ps1.)
 $oemNames = [ordered]@{
@@ -253,7 +254,9 @@ $logiGhub = 'C:\Program Files\Logi\wheel_sdk\9_1_1\logi_steering_wheel_x64.dll' 
 $otherKeys = @(foreach ($name in $names) {
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$name"; "HKLM:\SOFTWARE\$name"
     # The UMDF host's registration of each driver (UmdfService in the INFs), left behind by some removals.
-    foreach ($part in 'hide', 'g920') { "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part" }
+    foreach ($part in 'hide', 'wheel', 'g920') {
+        "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part"
+    }
 })
 
 # The installer's unpacked package and the uninstaller's copy (Setup.cmd, uninstall.ps1), left in %TEMP%.

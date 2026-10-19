@@ -3,7 +3,7 @@
 #include "AppLogLevel.hpp"
 #include "HideFilter.hpp"
 #include "Platform.hpp"
-#include "VirtualG920.hpp"
+#include "VirtualWheelDevice.hpp"
 
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/Logging.hpp"
@@ -31,13 +31,13 @@ class DirectSteps final : public PrivilegedSteps {
 public:
     ~DirectSteps() override {
         showRig();
-        removeVirtualG920();
+        removeVirtualWheel();
     }
 
     [[nodiscard]] const char* how() const override { return "as Administrator"; }
 
-    bool installG920Driver(const Cancelled& cancelled, std::string& message) override {
-        return privileged::installG920Driver(kDriverScriptLevels, {}, cancelled, message);   // the user's own logs
+    bool installWheelDriver(const Cancelled& cancelled, std::string& message) override {
+        return privileged::installWheelDriver(kDriverScriptLevels, {}, cancelled, message);   // the user's own logs
     }
 
     privileged::HideSetup putHideFilter(const std::vector<std::string>& install,
@@ -46,20 +46,20 @@ public:
         return privileged::putHideFilter(install, interfaces, kDriverScriptLevels, {}, cancelled, message);
     }
 
-    bool createVirtualG920(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
+    bool createVirtualWheel(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
                            std::string& error) override {
-        if (g920_ && g920Wheel_ != &wheel) removeVirtualG920();   // another wheel than the one there: that one goes
-        if (!g920_) g920_ = VirtualG920::create(wheel, error, cancelled);
-        if (!g920_) return false;
-        g920Wheel_ = &wheel;
-        instanceId = g920_->instanceId();
+        if (device_ && deviceWheel_ != &wheel) removeVirtualWheel();   // another wheel than the one there: it goes
+        if (!device_) device_ = VirtualWheelDevice::create(wheel, error, cancelled);
+        if (!device_) return false;
+        deviceWheel_ = &wheel;
+        instanceId = device_->instanceId();
         return true;
     }
 
-    void removeVirtualG920() override {
-        if (!g920_) return;
-        WE_LOG_INFO(log(), "removing the virtual wheel {}", g920_->instanceId());
-        g920_.reset();
+    void removeVirtualWheel() override {
+        if (!device_) return;
+        WE_LOG_INFO(log(), "removing the virtual wheel {}", device_->instanceId());
+        device_.reset();
     }
 
     bool hideRig(std::string& message) override {
@@ -87,8 +87,8 @@ public:
     }
 
 private:
-    std::unique_ptr<VirtualG920> g920_;
-    const VirtualWheel* g920Wheel_ = nullptr;   // which wheel g920_ is
+    std::unique_ptr<VirtualWheelDevice> device_;
+    const VirtualWheel* deviceWheel_ = nullptr;   // which wheel device_ is
     std::unique_ptr<HideFilter> hider_;
 };
 
@@ -103,14 +103,14 @@ public:
 
     ~HelperSteps() override {
         showRig();
-        removeVirtualG920();
+        removeVirtualWheel();
         client_->close();
     }
 
     [[nodiscard]] const char* how() const override { return "through the WheelBri Helper"; }
 
-    bool installG920Driver(const Cancelled& cancelled, std::string& message) override {
-        return ask(helper::RequestType::InstallG920Driver, {}, kLongMs, cancelled, message) == helper::Status::Ok;
+    bool installWheelDriver(const Cancelled& cancelled, std::string& message) override {
+        return ask(helper::RequestType::InstallWheelDriver, {}, kLongMs, cancelled, message) == helper::Status::Ok;
     }
 
     privileged::HideSetup putHideFilter(const std::vector<std::string>& install,
@@ -133,32 +133,32 @@ public:
         }
     }
 
-    bool createVirtualG920(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
+    bool createVirtualWheel(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
                            std::string& error) override {
         // The G920 as an older helper knows it (no wheel named); the G25 by name (an older helper refuses that).
         std::vector<std::string> named;
         if (wheel.profile != "g920") named.emplace_back(wheel.profile);
-        if (ask(helper::RequestType::CreateVirtualG920, named, kCreateMs, cancelled, error) != helper::Status::Ok) {
+        if (ask(helper::RequestType::CreateVirtualWheel, named, kCreateMs, cancelled, error) != helper::Status::Ok) {
             return false;
         }
         instanceId = error;   // the reply's text is its instance id
         error.clear();
-        g920_ = instanceId;
+        device_ = instanceId;
         userEntries_ = std::make_unique<DirectInputUserEntries>(wheel);
         WE_LOG_INFO(log(), "virtual {} {} ready (created by the WheelBri Helper)", wheel.instancePrefix, instanceId);
         return true;
     }
 
-    void removeVirtualG920() override {
-        if (g920_.empty()) return;
-        WE_LOG_INFO(log(), "removing the virtual wheel {}", g920_);
+    void removeVirtualWheel() override {
+        if (device_.empty()) return;
+        WE_LOG_INFO(log(), "removing the virtual wheel {}", device_);
         std::string message;
-        if (connected() && ask(helper::RequestType::RemoveVirtualG920, {}, kShortMs, {}, message) != helper::Status::Ok) {
+        if (connected() && ask(helper::RequestType::RemoveVirtualWheel, {}, kShortMs, {}, message) != helper::Status::Ok) {
             WE_LOG_WARN(log(), "the WheelBri Helper did not remove the virtual wheel: {} (it does when this app ends)",
                         message);
         }
         userEntries_.reset();
-        g920_.clear();
+        device_.clear();
     }
 
     bool hideRig(std::string& message) override {
@@ -225,7 +225,7 @@ private:
         const std::optional<helper::Reply> reply = client_->call(type, devices, timeoutMs, error, cancelled);
         if (!reply) {
             connected_ = false;   // the helper undoes everything of this connection now
-            g920_.clear();
+            device_.clear();
             userEntries_.reset();
             hidden_ = false;
             text = error;
@@ -237,7 +237,7 @@ private:
 
     std::unique_ptr<helper::HelperClient> client_;
     bool connected_ = true;
-    std::string g920_;   // its instance id while there
+    std::string device_;   // its instance id while there
     std::unique_ptr<DirectInputUserEntries> userEntries_;
     bool hidden_ = false;
 };
@@ -289,7 +289,7 @@ std::unique_ptr<PrivilegedSteps> PrivilegedSteps::open(Problem& problem, std::st
     return std::make_unique<HelperSteps>(std::move(client));
 #else
     problem = Problem::NoHelper;
-    message = "not running as root (the virtual G920 is for Windows only)";
+    message = "not running as root (the virtual wheel is for Windows only)";
     return nullptr;
 #endif
 }

@@ -1,5 +1,6 @@
-# Removes wheelbri-g920, the one driver package behind all four virtual wheels (G25, G27, G920, G923), and the virtual
-# wheel devices left on this PC (and, with -RemoveCertificate, the certificate the install trusted).
+# Removes wheelbri-wheel (and wheelbri-g920, its name until 2026-10-19), the one driver package behind all four
+# virtual wheels (G25, G27, G920, G923), and the virtual wheel devices left on this PC (and, with -RemoveCertificate,
+# the certificate the install trusted).
 # Administrator. Stop wheelbri-service first.
 #
 # -RemoveCertificate refuses while wheelbri-hide is installed: it is signed with the same
@@ -22,13 +23,15 @@ Assert-Admin
 # under the project's old name (before the rename to wheelbri).
 $thumbprints = @()
 if ($RemoveCertificate) {
-    $thumbprints = @(Get-SigningThumbprints @('wheelbri-g920', 'wheelbri-hide', 'wheelemu-g920', 'wheelemu-hide') @($PSScriptRoot))
+    $names = @('wheelbri-wheel', 'wheelbri-g920', 'wheelbri-hide', 'wheelemu-g920', 'wheelemu-hide')
+    $thumbprints = @(Get-SigningThumbprints $names @($PSScriptRoot))
 }
 
 # The virtual wheels first (also ones a crash left behind), then the package.
 if ((Remove-VirtualDevices) -gt 0) { Write-Host 'Some virtual devices are still listed (see above); they go after a restart.' -ForegroundColor Yellow }
-Remove-InstalledPackages 'wheelbri-g920' | Out-Null
-Remove-LegacyPackages 'wheelbri-g920' | Out-Null
+Remove-InstalledPackages 'wheelbri-wheel' | Out-Null
+Remove-LegacyPackages 'wheelbri-wheel' | Out-Null
+if (@(Get-InstalledPackages 'wheelbri-wheel').Count -gt 0) { Stop-WithError 'wheelbri-wheel is still installed.' }
 if (@(Get-InstalledPackages 'wheelbri-g920').Count -gt 0) { Stop-WithError 'wheelbri-g920 is still installed.' }
 
 if ($RemoveCertificate) {

@@ -177,9 +177,9 @@ TEST(DeviceProfile, G923IsTheG920WithFiveMoreButtons) {
     state.throttle = 0.25F;
     state.buttons = 0xFFFFFFFFU;
     const TargetReport g923Report = profile->encode(state);
-    const TargetReport g920Report = g920.encode(state);
-    EXPECT_EQ(g923Report.steering, g920Report.steering);
-    EXPECT_EQ(g923Report.throttle, g920Report.throttle);
+    const TargetReport wheelReport = g920.encode(state);
+    EXPECT_EQ(g923Report.steering, wheelReport.steering);
+    EXPECT_EQ(g923Report.throttle, wheelReport.throttle);
     EXPECT_EQ(g923Report.buttons, ((1U << kG923Buttons) - 1U) & ~(1U << 11));   // all 24 but the unused 12th
 }
 

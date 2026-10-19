@@ -2,7 +2,7 @@
 
 #include "HideFilter.hpp"
 #include "Platform.hpp"
-#include "VirtualG920.hpp"
+#include "VirtualWheelDevice.hpp"
 
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/Logging.hpp"
@@ -33,8 +33,8 @@ const logging::Logger& hideLog() {
     return logger;
 }
 
-const logging::Logger& g920Log() {
-    static const logging::Logger logger = logging::get("service.g920");
+const logging::Logger& wheelDriverLog() {
+    static const logging::Logger logger = logging::get("service.driver");
     return logger;
 }
 
@@ -143,19 +143,20 @@ std::vector<std::string> withLogFolder(std::vector<std::string> arguments, const
 
 }  // namespace
 
-bool installG920Driver(const int levelsAbove, const std::filesystem::path& logFolder, const Cancelled& cancelled,
+bool installWheelDriver(const int levelsAbove, const std::filesystem::path& logFolder, const Cancelled& cancelled,
                        std::string& message) {
-    if (VirtualG920::driverState() != VirtualG920::DriverState::Missing) return true;
+    if (VirtualWheelDevice::driverState() != VirtualWheelDevice::DriverState::Missing) return true;
     const std::filesystem::path script = findDriverScript(
         std::filesystem::path("driver") / "install-driver.ps1",
-        std::filesystem::path("driver") / "x64" / "Release" / "wheelbri-g920" / "wheelbri-g920.inf", levelsAbove);
+        std::filesystem::path("driver") / "x64" / "Release" / "wheelbri-wheel" / "wheelbri-wheel.inf", levelsAbove);
     if (script.empty()) {
-        message = "the virtual G920's driver (wheelbri-g920) is not installed and no built package was found next to "
+        message = "the virtual wheel's driver (wheelbri-wheel) is not installed and no built package was found next to "
                   "the program (build and install it once: scripts/make/drivers.sh -Install)";
-        WE_LOG_ERROR(g920Log(), "g920: {}", message);
+        WE_LOG_ERROR(wheelDriverLog(), "wheel driver: {}", message);
         return false;
     }
-    WE_LOG_INFO(g920Log(), "g920: the virtual G920's driver (wheelbri-g920) is not installed: installing it now ({})",
+    WE_LOG_INFO(wheelDriverLog(), "wheel driver: the virtual wheel's driver (wheelbri-wheel) is not installed: "
+                                  "installing it now ({})",
                 script.string());
     bool started = false;
     std::string error;
@@ -163,7 +164,7 @@ bool installG920Driver(const int levelsAbove, const std::filesystem::path& logFo
                                                     cancelled, started, error);
     if (!started) {
         message = "cannot run the driver installer: " + error;
-        WE_LOG_ERROR(g920Log(), "g920: {}", message);
+        WE_LOG_ERROR(wheelDriverLog(), "wheel driver: {}", message);
         return false;
     }
     if (cancelled && cancelled()) {
@@ -176,16 +177,16 @@ bool installG920Driver(const int levelsAbove, const std::filesystem::path& logFo
                          : "failed (exit code " + std::to_string(*exit) + ")") +
                   " (its log: wheelbri-driver-install-<date>.log in the logs folder; or run " + script.string() +
                   " yourself as Administrator)";
-        WE_LOG_ERROR(g920Log(), "g920: {}", message);
+        WE_LOG_ERROR(wheelDriverLog(), "wheel driver: {}", message);
         return false;
     }
-    if (VirtualG920::driverState() == VirtualG920::DriverState::Missing) {
-        message = "the driver installer ended without error, but Windows still does not list wheelbri-g920 (its log: "
+    if (VirtualWheelDevice::driverState() == VirtualWheelDevice::DriverState::Missing) {
+        message = "the driver installer ended without error, but Windows still does not list wheelbri-wheel (its log: "
                   "wheelbri-driver-install-<date>.log in the logs folder)";
-        WE_LOG_ERROR(g920Log(), "g920: {}", message);
+        WE_LOG_ERROR(wheelDriverLog(), "wheel driver: {}", message);
         return false;
     }
-    WE_LOG_INFO(g920Log(), "g920: the virtual G920's driver (wheelbri-g920) is installed");
+    WE_LOG_INFO(wheelDriverLog(), "wheel driver: the virtual wheel's driver (wheelbri-wheel) is installed");
     return true;
 }
 
@@ -336,8 +337,8 @@ std::optional<int> runDriverScript(const std::filesystem::path&, const std::vect
     return std::nullopt;
 }
 
-bool installG920Driver(int, const std::filesystem::path&, const Cancelled&, std::string& message) {
-    message = "the virtual G920's driver is for Windows only";
+bool installWheelDriver(int, const std::filesystem::path&, const Cancelled&, std::string& message) {
+    message = "the virtual wheel's driver is for Windows only";
     return false;
 }
 

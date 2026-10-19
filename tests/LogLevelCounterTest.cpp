@@ -41,7 +41,7 @@ TEST(LogLevelCounter, CountsWarningsAndErrorsAndKeepsTheLatest) {
     TempFile file;
     file.append(line("info ", "helper: listening"));
     file.append(line("warning", "helper: refused a caller", "09:00:00.000"));
-    file.append(line("error", "helper: CreateVirtualG920 for pid 1: failed: x", "09:30:00.000"));
+    file.append(line("error", "helper: CreateVirtualWheel for pid 1: failed: x", "09:30:00.000"));
     file.append(line("critical", "helper: the pipe exists already", "10:00:00.000"));
     file.append(line("debug", "detail"));
     LogLevelCounter counter;

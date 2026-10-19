@@ -1,4 +1,4 @@
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 
 #include "wheelbri/HidPp.hpp"
 
@@ -196,7 +196,7 @@ constexpr std::array<std::uint8_t, N + sizeof(kHidPpCollections)> withHidPp(cons
             continue;
         }
         const std::size_t size = (prefix & 3U) == 3U ? std::size_t{4} : std::size_t{prefix & 3U};
-        if (prefix == 0x85 && d[i + 1] != kG920InputReportId) {
+        if (prefix == 0x85 && d[i + 1] != kWheelInputReportId) {
             d[i + 1] = static_cast<std::uint8_t>(d[i + 1] + kHidPpPidShift);
         }
         i += 1 + size;
@@ -215,7 +215,7 @@ constexpr auto kProtonDescriptor = [] {
     return d;
 }();
 
-void putAxis(std::array<std::uint8_t, kG920InputReportSize>& out, std::size_t at, std::int32_t value) {
+void putAxis(std::array<std::uint8_t, kWheelInputReportSize>& out, std::size_t at, std::int32_t value) {
     // In 64 bits: value - 32768 overflows for values near INT32_MIN.
     const auto v = static_cast<std::int16_t>(
         std::clamp<std::int64_t>(static_cast<std::int64_t>(value) - 32768, -32768, 32767));
@@ -266,7 +266,7 @@ bool isVirtualWheelId(const std::uint16_t vendorId, const std::uint16_t productI
     return false;
 }
 
-std::span<const std::uint8_t> g920ReportDescriptor(const std::size_t buttons) {
+std::span<const std::uint8_t> wheelReportDescriptor(const std::size_t buttons) {
     if (buttons >= kG923Buttons) return kG923Descriptor;
     if (buttons > kG920Buttons) return kG27Descriptor;
     return kDescriptor;
@@ -327,7 +327,7 @@ std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel, con
         if (wheel.logitechPedals && where == DescriptorFor::Windows) return kG923HidPpDescriptor;
         return kG923HidPpLinuxDescriptor;
     }
-    return g920ReportDescriptor(wheel.buttons);
+    return wheelReportDescriptor(wheel.buttons);
 }
 
 ReportRoute routeReport(const VirtualWheel& wheel, const std::uint8_t reportId) {
@@ -343,9 +343,10 @@ std::uint8_t wirePidId(const VirtualWheel& wheel, const std::uint8_t pidId) {
     return wheel.hidpp ? static_cast<std::uint8_t>(pidId + kHidPpPidShift) : pidId;
 }
 
-std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport& report, const std::size_t buttonCount) {
-    std::array<std::uint8_t, kG920InputReportSize> out{};
-    out[0] = kG920InputReportId;
+std::array<std::uint8_t, kWheelInputReportSize> packWheelInput(const TargetReport& report,
+                                                                const std::size_t buttonCount) {
+    std::array<std::uint8_t, kWheelInputReportSize> out{};
+    out[0] = kWheelInputReportId;
     putAxis(out, 1, report.steering);
     putAxis(out, 3, report.throttle);   // Y
     putAxis(out, 5, report.brake);      // Rz
@@ -372,9 +373,9 @@ std::vector<DirectInputAxisEntry> directInputAxisEntries(const VirtualWheel& whe
 }
 
 InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report, const DescriptorFor where) {
-    auto packed = packG920Input(report, wheel.buttons);
+    auto packed = packWheelInput(report, wheel.buttons);
     if (wheel.unsignedAxes) {
-        // packG920Input wrote value - 32768 as a signed 16-bit number: its bits are the value's with the top one
+        // packWheelInput wrote value - 32768 as a signed 16-bit number: its bits are the value's with the top one
         // flipped, so flipping it back gives the unsigned value (both clamped to 0..65535 alike).
         for (const std::size_t at : {std::size_t{2}, std::size_t{4}, std::size_t{6}, std::size_t{8}}) {
             packed[at] ^= 0x80U;
@@ -391,7 +392,7 @@ InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report, 
     }
     // Report ID and four axes (9 bytes), the fifth axis (2), then the buttons and the hat.
     std::copy(packed.begin(), packed.begin() + 9, out.bytes.begin());
-    std::array<std::uint8_t, kG920InputReportSize> fifth{};
+    std::array<std::uint8_t, kWheelInputReportSize> fifth{};
     putAxis(fifth, 1, combinedPedals(report));
     out.bytes[9] = fifth[1];
     out.bytes[10] = fifth[2];
@@ -400,7 +401,7 @@ InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report, 
     return out;
 }
 
-TargetReport g920Neutral() {
+TargetReport neutralReport() {
     TargetReport r;
     r.steering = 32768;
     r.throttle = 65535;

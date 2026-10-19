@@ -9,7 +9,7 @@
 #include "Wheel.hpp"
 
 #include "wheelbri/EvdevLayout.hpp"
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/WheelOutput.hpp"
 
@@ -400,7 +400,7 @@ public:
             ::close(fd);
         }
         if (own > 0) {
-            WE_LOG_DEBUG(inputLog(), "{} WheelBri virtual G920(s) left out (wheelbri-uhid's own)", own);
+            WE_LOG_DEBUG(inputLog(), "{} WheelBri virtual wheel(s) left out (wheelbri-uhid's own)", own);
         }
         if (steamPads > 0) {
             WE_LOG_DEBUG(inputLog(), "{} Steam virtual pad(s) left out (28de:11ff: Steam Input's copy of another "
@@ -428,11 +428,11 @@ public:
     [[nodiscard]] std::string describe() const override { return "evdev"; }
 
 private:
-    // wheelbri-uhid's virtual G920 (kG920VirtualUniq): a rig built from it, or a session reading it as the wheel,
+    // wheelbri-uhid's virtual G920 (kVirtualWheelUniq): a rig built from it, or a session reading it as the wheel,
     // would feed the service its own output.
     static bool isOwnVirtualDevice(const int fd) {
         char uniq[64] = {};
-        return ioctl(fd, EVIOCGUNIQ(sizeof(uniq) - 1), uniq) >= 0 && std::strcmp(uniq, kG920VirtualUniq) == 0;
+        return ioctl(fd, EVIOCGUNIQ(sizeof(uniq) - 1), uniq) >= 0 && std::strcmp(uniq, kVirtualWheelUniq) == 0;
     }
 
     // Steam Input's virtual Xbox pad (28de:11ff, made through uinput): a copy of another controller (the Steam Deck's

@@ -40,7 +40,7 @@ Claude outputs/
 # Packages: Linux bundle (scripts/linux/package.sh), Windows installer (scripts/make/package.sh)
 dist/
 
-# Driver build output (driver/wheelbri-g920.vcxproj)
+# Driver build output (driver/wheelbri-wheel.vcxproj; wheelbri-g920 before 2026-10-19)
 driver/x64/
 driver/*.vcxproj.user
 driver/*/x64/

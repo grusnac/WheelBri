@@ -106,7 +106,7 @@ foreach ($program in $programs) {
 }
 
 $drivers = @(
-    @{ Name = 'wheelbri-g920'; Folder = 'driver' },
+    @{ Name = 'wheelbri-wheel'; Folder = 'driver' },
     @{ Name = 'wheelbri-hide'; Folder = 'driver\hide' }
 )
 $signers = @{}

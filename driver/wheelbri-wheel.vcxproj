@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- wheelbri-g920: UMDF 2 HID minidriver (see Driver.cpp and README.md). Needs Visual Studio 2026 with the
-     Windows Driver Kit. Build: msbuild driver\wheelbri-g920.vcxproj /p:Configuration=Release /p:Platform=x64
+<!-- wheelbri-wheel: UMDF 2 HID minidriver for every virtual wheel (G25, G27, G920, G923; wheelbri-g920 until
+     2026-10-19) (see Driver.cpp and README.md). Needs Visual Studio 2026 with the
+     Windows Driver Kit. Build: msbuild driver\wheelbri-wheel.vcxproj /p:Configuration=Release /p:Platform=x64
      Layout follows Microsoft's vhidmini2 UMDF 2 sample (Windows-driver-samples, MIT). -->
 <Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
@@ -15,7 +16,7 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{6F3C2A58-2D57-4C1B-9A0E-7B7E2E9D6A11}</ProjectGuid>
-    <RootNamespace>wheelbri_g920</RootNamespace>
+    <RootNamespace>wheelbri_wheel</RootNamespace>
     <UMDF_VERSION_MAJOR>2</UMDF_VERSION_MAJOR>
     <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
     <Platform Condition="'$(Platform)' == ''">x64</Platform>
@@ -32,7 +33,7 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
-    <TargetName>wheelbri-g920</TargetName>
+    <TargetName>wheelbri-wheel</TargetName>
     <!-- Test-signed with a certificate made for this PC (WDKTestCert); install-driver.ps1 trusts it. -->
     <SignMode>TestSign</SignMode>
   </PropertyGroup>
@@ -64,13 +65,13 @@
   <ItemGroup>
     <ClCompile Include="Driver.cpp" />
     <ClCompile Include="..\core\src\FfbPacket.cpp" />
-    <ClCompile Include="..\core\src\HidG920.cpp" />
+    <ClCompile Include="..\core\src\HidWheelDevice.cpp" />
     <ClCompile Include="..\core\src\HidPid.cpp" />
     <ClCompile Include="..\core\src\HidPp.cpp" />
     <ClCompile Include="..\core\src\StatePacket.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <Inf Include="wheelbri-g920.inx" />
+    <Inf Include="wheelbri-wheel.inx" />
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

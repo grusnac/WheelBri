@@ -1,7 +1,7 @@
 #include "wheelbri/HelperProtocol.hpp"
 
 #include "wheelbri/FileText.hpp"
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidHideCli.hpp"
 
 #include <algorithm>
@@ -218,9 +218,9 @@ std::string requestProblem(const Request& request) {
     if (request.type == RequestType::SetLogLevel) {
         return requestLogLevel(request) ? std::string() : "SetLogLevel takes one level: trace, debug, info or warn";
     }
-    if (request.type == RequestType::CreateVirtualG920) {
+    if (request.type == RequestType::CreateVirtualWheel) {
         return requestVirtualWheel(request) ? std::string()
-                                            : "CreateVirtualG920 takes one wheel: g25, g27, g920 or g923";
+                                            : "CreateVirtualWheel takes one wheel: g25, g27, g920 or g923";
     }
     if (request.type != RequestType::PutHideFilter) {
         return request.devices.empty() ? std::string() : std::string(requestName(request.type)) + " takes no devices";
@@ -258,12 +258,12 @@ bool isWheelBriProgram(const std::string_view image) {
 const char* requestName(const RequestType type) {
     switch (type) {
         case RequestType::Hello: return "Hello";
-        case RequestType::CreateVirtualG920: return "CreateVirtualG920";
-        case RequestType::RemoveVirtualG920: return "RemoveVirtualG920";
+        case RequestType::CreateVirtualWheel: return "CreateVirtualWheel";
+        case RequestType::RemoveVirtualWheel: return "RemoveVirtualWheel";
         case RequestType::HideRig: return "HideRig";
         case RequestType::ShowRig: return "ShowRig";
         case RequestType::PutHideFilter: return "PutHideFilter";
-        case RequestType::InstallG920Driver: return "InstallG920Driver";
+        case RequestType::InstallWheelDriver: return "InstallWheelDriver";
         case RequestType::ShareLogFolder: return "ShareLogFolder";
         case RequestType::SetLogLevel: return "SetLogLevel";
     }

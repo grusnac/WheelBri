@@ -90,7 +90,7 @@ try {
     }
 
     # "346e:0004,30b7:1001" (one argument from the app) or several arguments: the USB ids, checked.
-    # The virtual wheels games are meant to see (046D and these products; kVirtualWheels in core/src/HidG920.cpp:
+    # The virtual wheels games are meant to see (046D and these products; kVirtualWheels in core/src/HidWheelDevice.cpp:
     # G25, G27, G920, G923) never get the filter.
     $virtualWheels = @('C299', 'C29B', 'C262', 'C26E')
     $wanted = @()

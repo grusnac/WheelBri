@@ -15,7 +15,7 @@
 #include "Platform.hpp"
 #include "ServiceLogging.hpp"
 #include "SessionUi.hpp"
-#include "VirtualG920.hpp"
+#include "VirtualWheelDevice.hpp"
 #ifndef _WIN32
 #include "UhidProcess.hpp"
 #endif
@@ -30,7 +30,7 @@
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/FfbIdleWatch.hpp"
 #include "wheelbri/GameUseWatch.hpp"
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidHideCli.hpp"
 #include "wheelbri/LogLevelPacket.hpp"
 #include "wheelbri/Logging.hpp"
@@ -110,13 +110,13 @@ struct Options {
     bool ffbTest = false;
     std::string oldFiles;                       // --old-files: overrides [retention] old_files
     std::string stopFile;                       // --stop-file: stop when this file appears
-    bool virtualG920 = false;                   // --virtual-g920: our own driver's G920 (driver/)
-    bool uhid = false;                          // Linux --virtual-g920: wheelbri-uhid's G920 (tools/uhid)
+    bool virtualDevice = false;                   // --virtual-wheel: our own driver's G920 (driver/)
+    bool uhid = false;                          // Linux --virtual-wheel: wheelbri-uhid's G920 (tools/uhid)
     bool hide = true;                           // --no-hide: leave the real wheel visible to games
     bool unhide = false;                        // --unhide: make the real wheel visible again and exit
     bool prepareHide = false;                   // --prepare-hide: put the hide filter on the saved rig's devices, exit
     bool app = false;                           // --app: the window with Start / Stop (always in wheelbri.exe)
-    bool noVirtualG920 = false;                 // --no-virtual-g920: the app without its virtual G920
+    bool noVirtualDevice = false;                 // --no-virtual-wheel: the app without its virtual G920
     bool telemetryTab = false;                  // --telemetry-tab: show the Telemetry tab (hidden otherwise)
     bool ffbTab = false;                        // --ffb-tab: show the Force feedback tab (hidden otherwise)
 };
@@ -132,7 +132,7 @@ std::vector<wheelbri::service::HideFilter::Target> rigHideTargets(std::string& r
     if (!rig) return targets;
     for (const wheelbri::RigDevice& device : rig->devices) {
         if (!wheelbri::hidhide::mayHide(device.id)) {
-            WE_LOG_WARN(log(), "hide: '{}' ({}) is in the rig but is never hidden (the virtual G920, or no id)",
+            WE_LOG_WARN(log(), "hide: '{}' ({}) is in the rig but is never hidden (the virtual wheel, or no id)",
                         device.name, wheelbri::hidhide::deviceIdText(device.id));
             continue;
         }
@@ -141,22 +141,22 @@ std::vector<wheelbri::service::HideFilter::Target> rigHideTargets(std::string& r
     return targets;
 }
 
-// With --virtual-g920 (Start in the app): the virtual G920 needs wheelbri's G920 driver. When Windows does not have it
+// With --virtual-wheel (Start in the app): the virtual G920 needs wheelbri's G920 driver. When Windows does not have it
 // (a fresh PC, after clean-pc, or the driver was uninstalled), Start installs it now with driver\install-driver.ps1,
 // from the package built in this source tree or installed with the program (driver/x64/Release); the service runs as
-// Administrator for --virtual-g920 anyway. When that is not possible, VirtualG920::create says what is missing.
-void ensureG920Driver(wheelbri::service::PrivilegedSteps& steps) {
+// Administrator for --virtual-wheel anyway. When that is not possible, VirtualWheelDevice::create says what is missing.
+void ensureWheelDriver(wheelbri::service::PrivilegedSteps& steps) {
     std::string message;
-    (void)steps.installG920Driver([] { return gStop.load(); }, message);
+    (void)steps.installWheelDriver([] { return gStop.load(); }, message);
 }
 
 using privileged::HideSetup;
 
-// With --virtual-g920 (Start in the app): wheelbri's hide filter on every connected device of the rig, put there now
+// With --virtual-wheel (Start in the app): wheelbri's hide filter on every connected device of the rig, put there now
 // if it is not yet, so Start alone leaves games only the G920. Which devices: the rig's ids, nothing else
 // (install-hide.ps1 -Devices with the HID instance ids of their game controllers, as DirectInput lists them). It
 // installs from the package built in this source tree or installed with the program (driver/hide/x64/Release); the
-// service runs as Administrator for --virtual-g920 anyway. Done before the wheel is opened: a device takes the filter
+// service runs as Administrator for --virtual-wheel anyway. Done before the wheel is opened: a device takes the filter
 // only when Windows restarts it, which nothing may hold it open for (on 2026-10-05 the session opened the wheel a
 // second after the installer and the filter never started: "NOT HIDDEN ... restart Windows"). So this waits, opening
 // nothing, until every device runs the filter, restarting a device itself when Windows does not (HideFilter::
@@ -327,7 +327,7 @@ bool stopRequested() {
 void printUsage() {
     std::puts(
         "usage: wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
-        "                        [--stop-file FILE] [--virtual-g920 [--no-hide]] [--unhide] [--prepare-hide]\n"
+        "                        [--stop-file FILE] [--virtual-wheel [--no-hide]] [--unhide] [--prepare-hide]\n"
         "                        [--telemetry-tab] [--ffb-tab]\n"
         "  --config FILE  INI configuration (see config/g920.ini)\n"
         "  --list         list joysticks and exit\n"
@@ -335,7 +335,7 @@ void printUsage() {
         "  --ui           open a window showing how every axis and button maps to the emulated wheel\n"
         "  --ffb-test     play a short, gentle force feedback sequence on the wheel and exit\n"
         "  --stop-file FILE  stop cleanly when FILE appears (it is deleted then; also at start)\n"
-        "  --virtual-g920 while running, a virtual wheel for every game (the config's target_profile: G25,\n"
+        "  --virtual-wheel while running, a virtual wheel for every game (the config's target_profile: G25,\n"
         "                 G27, G920 or G923) through wheelbri's own driver\n"
         "                 (driver\\install-driver.ps1 once; Administrator; not with the shim);\n"
         "                 the real wheel is hidden from games meanwhile by wheelbri's own filter\n"
@@ -345,7 +345,7 @@ void printUsage() {
         "  --unhide       after a crash: make the real wheel visible to games again and exit\n"
         "  --prepare-hide put the hide filter on the saved rig's devices and exit (the installer; Administrator)\n"
         "  --app          a window with Start / Stop instead of running at once (what wheelbri.exe\n"
-        "                 does); on Windows it starts with --virtual-g920 unless --no-virtual-g920\n"
+        "                 does); on Windows it starts with --virtual-wheel unless --no-virtual-wheel\n"
         "  --telemetry-tab, --ffb-tab\n"
         "                 show the window's Telemetry / Force feedback tab (hidden without these)\n"
         "  --old-files delete|archive|keep\n"
@@ -368,16 +368,16 @@ bool parseOptions(const int argc, char** argv, Options& options) {
             options.ui = true;
         } else if (arg == "--ffb-test") {
             options.ffbTest = true;
-        } else if (arg == "--virtual-g920") {
+        } else if (arg == "--virtual-wheel" || arg == "--virtual-g920") {   // --virtual-g920: its old name
 #ifdef _WIN32
-            options.virtualG920 = true;
+            options.virtualDevice = true;
 #else
             options.uhid = true;   // Linux: wheelbri-uhid, started and stopped with the session
 #endif
         } else if (arg == "--app") {
             options.app = true;
-        } else if (arg == "--no-virtual-g920") {
-            options.noVirtualG920 = true;
+        } else if (arg == "--no-virtual-wheel" || arg == "--no-virtual-g920") {
+            options.noVirtualDevice = true;
         } else if (arg == "--telemetry-tab") {
             options.telemetryTab = true;
         } else if (arg == "--ffb-tab") {
@@ -567,8 +567,8 @@ wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
     }
     std::uint64_t suppressed = 0;
     if (limiter.allow(suppressed)) {
-        WE_LOG_WARN(log(), "ffb: ignoring force feedback from {} (pid {}, port {}): only the virtual G920's driver and "
-                           "games with WheelBri's shim may send it ({} similar suppressed)",
+        WE_LOG_WARN(log(), "ffb: ignoring force feedback from {} (pid {}, port {}): only the virtual wheel's driver "
+                           "and games with WheelBri's shim may send it ({} similar suppressed)",
                     image.empty() ? std::string("an unknown program") : wheelbri::pathToUtf8(image), *pid, port,
                     suppressed);
     }
@@ -821,7 +821,7 @@ void updateTelemetryFiles(wheelbri::service::TelemetryFiles& files, const wheelb
     files.ffbRows = recorder->ffbRowsWritten();
 }
 
-// What the window says about the virtual devices (--virtual-g920), see SessionInfo::devices.
+// What the window says about the virtual devices (--virtual-wheel), see SessionInfo::devices.
 struct DeviceSummary {
     std::string text;
     bool warning = false;
@@ -1538,19 +1538,19 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     // The virtual G920 and hiding the rig need Administrator: this process's own when it is elevated, else the
     // WheelBri Helper's (a standard user).
     std::unique_ptr<wheelbri::service::PrivilegedSteps> steps;
-    if (options.virtualG920) {
+    if (options.virtualDevice) {
         wheelbri::service::PrivilegedSteps::Problem problem{};
         std::string problemText;
         steps = wheelbri::service::PrivilegedSteps::open(problem, problemText);
         if (steps == nullptr) {
-            WE_LOG_CRITICAL(log(), "{}: the virtual G920 and hiding the rig need Administrator or the WheelBri "
+            WE_LOG_CRITICAL(log(), "{}: the virtual wheel and hiding the rig need Administrator or the WheelBri "
                                    "Helper: {}",
                             problem == wheelbri::service::PrivilegedSteps::Problem::NoHelper ? "HELPER NOT INSTALLED"
                                                                                              : "HELPER REFUSED",
                             problemText);
             return 1;
         }
-        WE_LOG_INFO(log(), "the virtual G920 and hiding the rig: {}", steps->how());
+        WE_LOG_INFO(log(), "the virtual wheel and hiding the rig: {}", steps->how());
         steps->shareLogFolder();
         steps->setDriverLogLevel(wheelbri::service::AppLogLevel::shared().current());
     }
@@ -1574,8 +1574,8 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     // The rig hidden from games while the session runs: every device the Wheel setup tab defined.
     std::string rigName;
     const auto hideTargets = rigHideTargets(rigName);
-    if (steps != nullptr) ensureG920Driver(*steps);
-    if (options.virtualG920 && options.hide && !gStop) {
+    if (steps != nullptr) ensureWheelDriver(*steps);
+    if (options.virtualDevice && options.hide && !gStop) {
         if (hideTargets.empty()) {
             WE_LOG_WARN(log(), "hide: no rig yet{}: nothing is hidden from games (define the devices in the Rig tab)",
                         rigName.empty() ? "" : " ('" + rigName + "' lists no device)");
@@ -1671,18 +1671,18 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     bool g920 = false;
     if (steps != nullptr) {
         if (virtualWheel == nullptr) {
-            WE_LOG_CRITICAL(log(), "--virtual-g920: no virtual device for target_profile '{}'", config.targetProfile);
+            WE_LOG_CRITICAL(log(), "--virtual-wheel: no virtual device for target_profile '{}'", config.targetProfile);
             return 1;
         }
         std::string error;
-        std::string g920Id;
-        g920 = steps->createVirtualG920(*virtualWheel, cancelled, g920Id, error);
+        std::string wheelId;
+        g920 = steps->createVirtualWheel(*virtualWheel, cancelled, wheelId, error);
         if (!g920) {
             if (cancelled()) {
                 WE_LOG_INFO(log(), "stopped while the virtual {} was being created", wheelName);
                 return 0;
             }
-            WE_LOG_CRITICAL(log(), "--virtual-g920: {}", error);
+            WE_LOG_CRITICAL(log(), "--virtual-wheel: {}", error);
             return 1;
         }
     }
@@ -1764,7 +1764,8 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     while (!gStop) {
         sessionStartMs = platform::nowMs();
         result = runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, accessories,
-                         options.print, host, devices, lastFrame, /*routePedals=*/options.virtualG920 || options.uhid);
+                         options.print, host, devices, lastFrame,
+                         /*routePedals=*/options.virtualDevice || options.uhid);
         if (result != kWheelLost || gStop) {
             break;
         }
@@ -1822,11 +1823,11 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     }
     if (steps != nullptr) {
         steps->showRig();
-        steps->removeVirtualG920();
+        steps->removeVirtualWheel();
     }
 #ifndef _WIN32
     if (uhid != nullptr && !uhid->running()) {
-        WE_LOG_ERROR(log(), "virtual G920: wheelbri-uhid ended during the session (its log says why)");
+        WE_LOG_ERROR(log(), "virtual wheel: wheelbri-uhid ended during the session (its log says why)");
     }
 #endif
     return result;
@@ -1902,9 +1903,9 @@ int runAppMode(Options options, const bool consoleLogging) {
         }
     }
 #ifdef _WIN32
-    options.virtualG920 = !options.noVirtualG920;
+    options.virtualDevice = !options.noVirtualDevice;
 #else
-    options.uhid = !options.noVirtualG920;
+    options.uhid = !options.noVirtualDevice;
 #endif
     options.print = false;
     const LoadedConfig loaded = loadForRun(options);
@@ -1945,7 +1946,7 @@ int runAppMode(Options options, const bool consoleLogging) {
         Options run = options;
         run.configPath = configPath;   // the config the Mapping tab shows
 #ifdef _WIN32
-        run.virtualG920 = virtualDevice;   // the Mapping tab's target: G920 virtual device or G920 in-game shim
+        run.virtualDevice = virtualDevice;   // the Mapping tab's target: G920 virtual device or G920 in-game shim
 #else
         run.uhid = virtualDevice;   // Linux: the session starts wheelbri-uhid for the virtual G920
 #endif

@@ -43,9 +43,9 @@ enum class HideSetup {
 // %LOCALAPPDATA%\wheelbri\logs, right when the app runs them as the user's Administrator; the WheelBri Helper runs as
 // SYSTEM, whose %LOCALAPPDATA% nobody looks at, and gives the caller's folder (or ProgramData's).
 
-// The virtual G920's driver (wheelbri-g920) installed when Windows has none (driver\install-driver.ps1). True when
-// it is there afterwards (or was already); else `message` says why not.
-bool installG920Driver(int levelsAbove, const std::filesystem::path& logFolder, const Cancelled& cancelled,
+// The virtual wheel's driver (wheelbri-wheel, all four targets) installed when Windows has none
+// (driver\install-driver.ps1). True when it is there afterwards (or was already); else `message` says why not.
+bool installWheelDriver(int levelsAbove, const std::filesystem::path& logFolder, const Cancelled& cancelled,
                        std::string& message);
 
 // wheelbri-hide put on `install` (HID interface instance ids; install-hide.ps1 -Devices, which skips those that have

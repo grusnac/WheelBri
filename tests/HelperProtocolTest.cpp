@@ -236,19 +236,19 @@ TEST(HelperProtocol, KnownTypesAreExactlyHelloToSetLogLevel) {
     EXPECT_EQ(requestProblem(Request{static_cast<RequestType>(0), 1, {}}), "unknown request 0");
 }
 
-TEST(HelperProtocol, CreateVirtualG920MayNameTheWheel) {
-    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualG920, 1, {}}), "");   // an older app: the G920
-    EXPECT_EQ(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {}}), "g920");
-    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualG920, 1, {"g25"}}), "");
-    EXPECT_EQ(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {"g25"}}), "g25");
-    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualG920, 1, {kMoza}}), "");
-    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualG920, 1, {"g25", "g920"}}), "");
-    EXPECT_FALSE(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {"G25"}}));   // names are lower case
-    EXPECT_FALSE(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {""}}));
-    EXPECT_EQ(requestVirtualWheel(Request{RequestType::CreateVirtualG920, 1, {"g920"}}), "g920");   // named: the same
+TEST(HelperProtocol, CreateVirtualWheelMayNameTheWheel) {
+    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {}}), "");   // an older app: the G920
+    EXPECT_EQ(requestVirtualWheel(Request{RequestType::CreateVirtualWheel, 1, {}}), "g920");
+    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {"g25"}}), "");
+    EXPECT_EQ(requestVirtualWheel(Request{RequestType::CreateVirtualWheel, 1, {"g25"}}), "g25");
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {kMoza}}), "");
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {"g25", "g920"}}), "");
+    EXPECT_FALSE(requestVirtualWheel(Request{RequestType::CreateVirtualWheel, 1, {"G25"}}));   // names are lower case
+    EXPECT_FALSE(requestVirtualWheel(Request{RequestType::CreateVirtualWheel, 1, {""}}));
+    EXPECT_EQ(requestVirtualWheel(Request{RequestType::CreateVirtualWheel, 1, {"g920"}}), "g920");   // named: the same
     // On the wire: the wheel travels as the request's one string.
     std::string error;
-    const auto back = decodeRequest(encode(Request{RequestType::CreateVirtualG920, 7, {"g25"}}), error);
+    const auto back = decodeRequest(encode(Request{RequestType::CreateVirtualWheel, 7, {"g25"}}), error);
     ASSERT_TRUE(back) << error;
     EXPECT_EQ(back->devices, std::vector<std::string>{"g25"});
     EXPECT_EQ(requestVirtualWheel(*back), "g25");
@@ -257,7 +257,7 @@ TEST(HelperProtocol, CreateVirtualG920MayNameTheWheel) {
 TEST(HelperProtocol, EveryOtherRequestButPutHideFilterTakesNoDevices) {
     for (int type = 2; type <= 8; ++type) {   // Hello and SetLogLevel take a level (below)
         const auto requestType = static_cast<RequestType>(type);
-        if (requestType == RequestType::PutHideFilter || requestType == RequestType::CreateVirtualG920) continue;
+        if (requestType == RequestType::PutHideFilter || requestType == RequestType::CreateVirtualWheel) continue;
         EXPECT_EQ(requestProblem(Request{requestType, 1, {}}), "") << type;
         EXPECT_EQ(requestProblem(Request{requestType, 1, {kMoza}}),
                   std::string(requestName(requestType)) + " takes no devices");
@@ -342,12 +342,12 @@ TEST(HelperProtocol, WheelBriProgramInAnyFolder) {
 TEST(HelperProtocol, EveryNameAndUnknownOnes) {
     const std::pair<RequestType, const char*> requests[] = {
         {RequestType::Hello, "Hello"},
-        {RequestType::CreateVirtualG920, "CreateVirtualG920"},
-        {RequestType::RemoveVirtualG920, "RemoveVirtualG920"},
+        {RequestType::CreateVirtualWheel, "CreateVirtualWheel"},
+        {RequestType::RemoveVirtualWheel, "RemoveVirtualWheel"},
         {RequestType::HideRig, "HideRig"},
         {RequestType::ShowRig, "ShowRig"},
         {RequestType::PutHideFilter, "PutHideFilter"},
-        {RequestType::InstallG920Driver, "InstallG920Driver"},
+        {RequestType::InstallWheelDriver, "InstallWheelDriver"},
         {RequestType::ShareLogFolder, "ShareLogFolder"},
         {RequestType::SetLogLevel, "SetLogLevel"},
     };
@@ -372,10 +372,10 @@ TEST(HelperProtocol, WrongArgumentsSayWhatTheRequestTakes) {
     EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {"warning"}}),
               "SetLogLevel takes one level: trace, debug, info or warn");
     EXPECT_EQ(requestProblem(Request{RequestType::SetLogLevel, 1, {"info"}}), "");
-    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualG920, 1, {"g29"}}),
-              "CreateVirtualG920 takes one wheel: g25, g27, g920 or g923");
-    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualG920, 1, {"g25", "g27"}}),
-              "CreateVirtualG920 takes one wheel: g25, g27, g920 or g923");
+    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {"g29"}}),
+              "CreateVirtualWheel takes one wheel: g25, g27, g920 or g923");
+    EXPECT_EQ(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {"g25", "g27"}}),
+              "CreateVirtualWheel takes one wheel: g25, g27, g920 or g923");
     EXPECT_EQ(requestProblem(Request{RequestType::ShowRig, 1, {kMoza}}), "ShowRig takes no devices");
     EXPECT_EQ(requestProblem(Request{RequestType::ShareLogFolder, 1, {""}}), "ShareLogFolder takes no devices");
 }

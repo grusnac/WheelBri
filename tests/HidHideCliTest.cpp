@@ -110,7 +110,7 @@ TEST(HidHideCli, TurnsDirectInputPathsIntoInstanceIds) {
     EXPECT_EQ(instanceIdOfHidPath(""), "");
 }
 
-TEST(HidHideCli, NeverHidesTheVirtualG920) {
+TEST(HidHideCli, NeverHidesTheVirtualWheel) {
     EXPECT_TRUE(mayHide({0x346E, 0x0004}));
     EXPECT_FALSE(mayHide({0x046D, 0xC262}));
     EXPECT_FALSE(mayHide({0x046D, 0xC299}));   // the virtual G25

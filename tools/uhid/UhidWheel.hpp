@@ -1,7 +1,7 @@
 #pragma once
 
 #include "wheelbri/DeviceProfile.hpp"
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidPid.hpp"
 #include "wheelbri/HidPp.hpp"
 
@@ -31,13 +31,13 @@ namespace wheelbri::uhid {
 //
 // No file descriptors here: `write` sends one uhid_event to the kernel and handle() takes the ones it sends
 // back, so the protocol is unit-tested without /dev/uhid.
-class UhidG920 {
+class UhidWheel {
 public:
     using Write = std::function<bool(const uhid_event&)>;
     using Log = HidPid::Logger;   // a line and its level
 
     // `wheel`: which one (virtualWheel("g920"), virtualWheel("g25")); static, so it outlives this.
-    UhidG920(Write write, HidPid::Sender ffb, Log log, const VirtualWheel& wheel = *virtualWheel("g920"));
+    UhidWheel(Write write, HidPid::Sender ffb, Log log, const VirtualWheel& wheel = *virtualWheel("g920"));
 
     // "Logitech G25 Racing Wheel USB": its device name, as the shim reports it.
     [[nodiscard]] std::string_view name() const { return wheel_.oemName; }

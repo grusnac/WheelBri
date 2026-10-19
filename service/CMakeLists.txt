@@ -21,7 +21,7 @@ endif()
 add_library(wheelbri_privileged STATIC
     src/HideFilter.cpp
     src/Privileged.cpp
-    src/VirtualG920.cpp)
+    src/VirtualWheelDevice.cpp)
 target_link_libraries(wheelbri_privileged PUBLIC wheelbri_core)
 if(WE_SERVICE_PLATFORM STREQUAL "Windows")
     target_sources(wheelbri_privileged PRIVATE src/DinputDevice.cpp src/PlatformWin32.cpp)

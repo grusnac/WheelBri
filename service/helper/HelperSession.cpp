@@ -2,7 +2,7 @@
 
 #include "HideFilter.hpp"
 #include "Privileged.hpp"
-#include "VirtualG920.hpp"
+#include "VirtualWheelDevice.hpp"
 
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/Logging.hpp"
@@ -80,9 +80,9 @@ HelperSession::HelperSession(void* const process, void* const token, const int s
 }
 
 HelperSession::~HelperSession() {
-    if (g920_) {
-        WE_LOG_INFO(log(), "helper: pid {} is gone: removing its virtual G920", pid_);
-        g920_.reset();
+    if (device_) {
+        WE_LOG_INFO(log(), "helper: pid {} is gone: removing its virtual wheel", pid_);
+        device_.reset();
     }
     showRigIfOurs();
     if (token_ != nullptr) CloseHandle(static_cast<HANDLE>(token_));
@@ -91,17 +91,17 @@ HelperSession::~HelperSession() {
 
 Reply HelperSession::handle(const Request& request) {
     switch (request.type) {
-        case RequestType::CreateVirtualG920: return createVirtualG920(request);
-        case RequestType::RemoveVirtualG920:
-            if (g920_) {
-                g920_.reset();
+        case RequestType::CreateVirtualWheel: return createVirtualWheel(request);
+        case RequestType::RemoveVirtualWheel:
+            if (device_) {
+                device_.reset();
                 WE_LOG_INFO(log(), "helper: virtual wheel removed for pid {}", pid_);
             }
             return Reply{request.seq, Status::Ok, {}};
         case RequestType::HideRig: return hideRig(request.seq);
         case RequestType::ShowRig: return showRig(request.seq);
         case RequestType::PutHideFilter: return putHideFilter(request);
-        case RequestType::InstallG920Driver: return installG920Driver(request.seq);
+        case RequestType::InstallWheelDriver: return installWheelDriver(request.seq);
         case RequestType::ShareLogFolder: return shareLogFolder(request.seq);
         case RequestType::SetLogLevel: return setLogLevel(request);
         case RequestType::Hello: break;
@@ -109,26 +109,26 @@ Reply HelperSession::handle(const Request& request) {
     return Reply{request.seq, Status::Unsupported, "not a request for a session"};
 }
 
-Reply HelperSession::createVirtualG920(const Request& request) {
+Reply HelperSession::createVirtualWheel(const Request& request) {
     const std::uint32_t seq = request.seq;
     const std::optional<std::string> name = requestVirtualWheel(request);   // checked by requestProblem
     const VirtualWheel* wheel = name ? virtualWheel(*name) : nullptr;
     if (wheel == nullptr) {
-        return Reply{seq, Status::Refused, "CreateVirtualG920 takes one wheel: g25, g27, g920 or g923"};
+        return Reply{seq, Status::Refused, "CreateVirtualWheel takes one wheel: g25, g27, g920 or g923"};
     }
     // Another wheel than this connection's: the one there goes first (one virtual wheel per session).
-    if (g920_ && g920Wheel_ != wheel) {
-        g920_.reset();
-        WE_LOG_INFO(log(), "helper: virtual {} removed for pid {} (it asks for the {} now)", g920Wheel_->instancePrefix,
-                    pid_, wheel->instancePrefix);
+    if (device_ && deviceWheel_ != wheel) {
+        device_.reset();
+        WE_LOG_INFO(log(), "helper: virtual {} removed for pid {} (it asks for the {} now)",
+                    deviceWheel_->instancePrefix, pid_, wheel->instancePrefix);
     }
-    if (g920_) return Reply{seq, Status::Ok, g920_->instanceId()};
+    if (device_) return Reply{seq, Status::Ok, device_->instanceId()};
     std::string error;
-    g920_ = service::VirtualG920::create(*wheel, error, cancelled_, /*userHive=*/false);
-    if (!g920_) return Reply{seq, Status::Failed, error};
-    g920Wheel_ = wheel;
-    WE_LOG_INFO(log(), "helper: virtual {} {} created for pid {}", wheel->instancePrefix, g920_->instanceId(), pid_);
-    return Reply{seq, Status::Ok, g920_->instanceId()};
+    device_ = service::VirtualWheelDevice::create(*wheel, error, cancelled_, /*userHive=*/false);
+    if (!device_) return Reply{seq, Status::Failed, error};
+    deviceWheel_ = wheel;
+    WE_LOG_INFO(log(), "helper: virtual {} {} created for pid {}", wheel->instancePrefix, device_->instanceId(), pid_);
+    return Reply{seq, Status::Ok, device_->instanceId()};
 }
 
 Reply HelperSession::hideRig(const std::uint32_t seq) {
@@ -177,9 +177,9 @@ Reply HelperSession::putHideFilter(const Request& request) {
     return Reply{request.seq, Status::Failed, message};
 }
 
-Reply HelperSession::installG920Driver(const std::uint32_t seq) {
+Reply HelperSession::installWheelDriver(const std::uint32_t seq) {
     std::string message;
-    return service::privileged::installG920Driver(scriptLevels_, scriptLogFolder(), cancelled_, message)
+    return service::privileged::installWheelDriver(scriptLevels_, scriptLogFolder(), cancelled_, message)
                ? Reply{seq, Status::Ok, {}}
                : Reply{seq, Status::Failed, message};
 }

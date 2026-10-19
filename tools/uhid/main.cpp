@@ -10,11 +10,11 @@
 // (raw HID for the G920, so its force feedback works; 0x046D/0xC299 for the G25; the rig hidden from the game).
 // scripts/linux/wheelbri.sh does all of this. Needs access to /dev/uhid (scripts/linux/install-udev-rules.sh, once).
 
-#include "UhidG920.hpp"
+#include "UhidWheel.hpp"
 #include "UhidLoop.hpp"
 
 #include "wheelbri/FfbPacket.hpp"
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/StatePacket.hpp"
 #include "wheelbri/UdpLoopback.hpp"
@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
     };
 
     const wheelbri::VirtualWheel& wheel = *wheelbri::virtualWheel(o.target);   // checked by parseOptions
-    wheelbri::uhid::UhidG920 device(writeEvent, sendFfb, logLine, wheel);
+    wheelbri::uhid::UhidWheel device(writeEvent, sendFfb, logLine, wheel);
     if (!device.create()) {
         WE_LOG_CRITICAL(log(), "the kernel refused the virtual {}", device.label());
         ::close(fd);
@@ -263,6 +263,6 @@ int main(int argc, char** argv) {
     device.stopForces(nowMs());
     device.destroy();
     ::close(fd);
-    WE_LOG_INFO(log(), "virtual G920 removed");
+    WE_LOG_INFO(log(), "virtual wheel removed");
     return 0;
 }

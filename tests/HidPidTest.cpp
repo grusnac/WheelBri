@@ -1,4 +1,4 @@
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidPid.hpp"
 
 #include <gtest/gtest.h>
@@ -668,7 +668,7 @@ TEST(HidPid, EachLineHasTheLevelItBelongsTo) {
     EXPECT_EQ(full.levelOf("pid: new effect refused"), LogLevel::Warn);
 }
 
-TEST(HidG920, InputReportPacksLikeARealG920) {
+TEST(HidWheelDevice, InputReportPacksLikeARealG920) {
     TargetReport report;
     report.steering = 65535;   // full right
     report.throttle = 0;       // throttle pressed
@@ -676,13 +676,13 @@ TEST(HidG920, InputReportPacksLikeARealG920) {
     report.clutch = 32768;
     report.buttons = 0x5FF | (1U << 12) | (1U << 18) | (1U << 20);   // Gear 1, Gear R, and one the G920 lacks
     report.hat = 2;
-    const auto bytes = packG920Input(report);
+    const auto bytes = packWheelInput(report);
     // Wheel X, throttle Y (pressed: -32768), brake Rz (released: 32767), clutch Slider (half: 0).
-    const std::array<std::uint8_t, kG920InputReportSize> expected = {
+    const std::array<std::uint8_t, kWheelInputReportSize> expected = {
         0x01, 0xFF, 0x7F, 0x00, 0x80, 0xFF, 0x7F, 0x00, 0x00, 0xFF, 0x15, 0x04, 0x02};
     EXPECT_EQ(bytes, expected);
-    EXPECT_EQ(packG920Input(g920Neutral())[12], 8);   // hat centred
-    const auto descriptor = g920ReportDescriptor();
+    EXPECT_EQ(packWheelInput(neutralReport())[12], 8);   // hat centred
+    const auto descriptor = wheelReportDescriptor();
     ASSERT_EQ(descriptor.size(), 1150U);
     // The button block: Usage 1..19, 19 one-bit fields, then 5 constant padding bits before the hat.
     const std::array<std::uint8_t, 22> buttons = {0x05, 0x09, 0x19, 0x01, 0x29, 0x13, 0x15, 0x00, 0x25, 0x01, 0x95,
@@ -694,7 +694,7 @@ TEST(HidG920, InputReportPacksLikeARealG920) {
     TargetReport extreme;
     extreme.steering = std::numeric_limits<std::int32_t>::min();
     extreme.throttle = std::numeric_limits<std::int32_t>::max();
-    const auto clamped = packG920Input(extreme);
+    const auto clamped = packWheelInput(extreme);
     EXPECT_EQ(clamped[1], 0x00);
     EXPECT_EQ(clamped[2], 0x80);   // -32768
     EXPECT_EQ(clamped[3], 0xFF);
@@ -702,9 +702,9 @@ TEST(HidG920, InputReportPacksLikeARealG920) {
 }
 
 // The G27's 23 buttons: the same descriptor and report, the button block declaring 23 buttons and 1 padding bit.
-TEST(HidG920, TheG27DeclaresAndSends23Buttons) {
-    const auto narrow = g920ReportDescriptor();
-    const auto wide = g920ReportDescriptor(kG27Buttons);
+TEST(HidWheelDevice, TheG27DeclaresAndSends23Buttons) {
+    const auto narrow = wheelReportDescriptor();
+    const auto wide = wheelReportDescriptor(kG27Buttons);
     ASSERT_EQ(wide.size(), narrow.size());
     const std::array<std::uint8_t, 22> buttons = {0x05, 0x09, 0x19, 0x01, 0x29, 0x17, 0x15, 0x00, 0x25, 0x01, 0x95,
                                                   0x17, 0x75, 0x01, 0x81, 0x02, 0x95, 0x01, 0x75, 0x01, 0x81, 0x03};
@@ -712,18 +712,18 @@ TEST(HidG920, TheG27DeclaresAndSends23Buttons) {
     std::size_t differences = 0;
     for (std::size_t i = 0; i < wide.size(); ++i) differences += wide[i] != narrow[i] ? 1 : 0;
     EXPECT_EQ(differences, 3U);   // Usage Maximum, Report Count, the padding's Report Count
-    EXPECT_EQ(g920ReportDescriptor(kG25Buttons).data(), narrow.data());
-    TargetReport report = g920Neutral();
+    EXPECT_EQ(wheelReportDescriptor(kG25Buttons).data(), narrow.data());
+    TargetReport report = neutralReport();
     report.buttons = (1U << 19) | (1U << 22) | (1U << 23);   // R Wheel 2, L Wheel 3, and one the G27 lacks
-    EXPECT_EQ(packG920Input(report, kG27Buttons)[11], 0x48);
-    EXPECT_EQ(packG920Input(report)[11], 0x00);   // the G920's 19: none of them
+    EXPECT_EQ(packWheelInput(report, kG27Buttons)[11], 0x48);
+    EXPECT_EQ(packWheelInput(report)[11], 0x00);   // the G920's 19: none of them
 }
 
 // The G923's 24 buttons: the same descriptor size and report, the button block declaring 24 buttons and no padding
 // (its Input item replaced by global items that change nothing).
-TEST(HidG920, TheG923DeclaresAndSends24Buttons) {
-    const auto narrow = g920ReportDescriptor();
-    const auto full = g920ReportDescriptor(kG923Buttons);
+TEST(HidWheelDevice, TheG923DeclaresAndSends24Buttons) {
+    const auto narrow = wheelReportDescriptor();
+    const auto full = wheelReportDescriptor(kG923Buttons);
     ASSERT_EQ(full.size(), narrow.size());
     const std::array<std::uint8_t, 22> buttons = {0x05, 0x09, 0x19, 0x01, 0x29, 0x18, 0x15, 0x00, 0x25, 0x01, 0x95,
                                                   0x18, 0x75, 0x01, 0x81, 0x02, 0x75, 0x01, 0x15, 0x00, 0x25, 0x01};
@@ -739,12 +739,12 @@ TEST(HidG920, TheG923DeclaresAndSends24Buttons) {
         narrowInputs += narrow[i] == 0x81 ? 1 : 0;
     }
     EXPECT_EQ(inputs + 1, narrowInputs);
-    TargetReport report = g920Neutral();
+    TargetReport report = neutralReport();
     report.buttons = (1U << 19) | (1U << 23) | (1U << 24);   // Plus, Dial Enter, and one the G923 lacks
-    const auto packed = packG920Input(report, kG923Buttons);
+    const auto packed = packWheelInput(report, kG923Buttons);
     EXPECT_EQ(packed[11], 0x88);
     EXPECT_EQ(packed[12], 8);   // the hat byte untouched
-    EXPECT_EQ(packG920Input(report)[11], 0x00);   // the G920's 19: none of them
+    EXPECT_EQ(packWheelInput(report)[11], 0x00);   // the G920's 19: none of them
 }
 
 // The four axis usages in report order (steering, brake, clutch, throttle): each axis starts Usage Page (Generic
@@ -759,8 +759,8 @@ std::vector<std::uint8_t> axisUsages(const std::span<const std::uint8_t> descrip
     return usages;
 }
 
-TEST(HidG920, ProtonDescriptorOnlyRenamesClutchAndThrottle) {
-    const auto windows = g920ReportDescriptor();
+TEST(HidWheelDevice, ProtonDescriptorOnlyRenamesClutchAndThrottle) {
+    const auto windows = wheelReportDescriptor();
     const auto proton = g920ProtonReportDescriptor();
     ASSERT_EQ(proton.size(), windows.size());
     std::size_t differences = 0;

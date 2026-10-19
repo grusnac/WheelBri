@@ -220,10 +220,10 @@ TEST(HelperPipe, WheelBriSaysHelloAndThenAsks) {
     ASSERT_TRUE(reply.has_value()) << error;
     EXPECT_EQ(reply->status, Status::Ok);
     EXPECT_EQ(reply->text, kVersion);
-    reply = call(client, RequestType::CreateVirtualG920, error);
+    reply = call(client, RequestType::CreateVirtualWheel, error);
     ASSERT_TRUE(reply.has_value()) << error;
     EXPECT_EQ(reply->status, Status::Ok);
-    EXPECT_EQ(reply->text, "done CreateVirtualG920");
+    EXPECT_EQ(reply->text, "done CreateVirtualWheel");
     EXPECT_EQ(server.record().madeNow(), 1);
     EXPECT_EQ(server.record().requestsNow(), 1U);   // Hello never reaches the session
 }
@@ -364,7 +364,7 @@ TEST(HelperPipe, ASessionThatThrowsFailsTheRequestAndTheHelperGoesOn) {
         const std::lock_guard<std::mutex> lock(server.record().mutex);
         server.record().throwOnRequest = true;
     }
-    auto reply = call(client, RequestType::InstallG920Driver, error);
+    auto reply = call(client, RequestType::InstallWheelDriver, error);
     ASSERT_TRUE(reply.has_value()) << error;
     EXPECT_EQ(reply->status, Status::Failed);
     EXPECT_EQ(reply->text, "the helper failed: session broke");
@@ -372,7 +372,7 @@ TEST(HelperPipe, ASessionThatThrowsFailsTheRequestAndTheHelperGoesOn) {
         const std::lock_guard<std::mutex> lock(server.record().mutex);
         server.record().throwOnRequest = false;
     }
-    reply = call(client, RequestType::InstallG920Driver, error);
+    reply = call(client, RequestType::InstallWheelDriver, error);
     ASSERT_TRUE(reply.has_value()) << error;
     EXPECT_EQ(reply->status, Status::Ok);
 }
@@ -397,7 +397,7 @@ TEST(HelperPipe, ClosingTheConnectionEndsItsSession) {
     HelperClient client(server.name());
     std::string error;
     ASSERT_EQ(client.connect(error), HelperClient::Connect::Ok) << error;
-    ASSERT_TRUE(call(client, RequestType::CreateVirtualG920, error).has_value()) << error;
+    ASSERT_TRUE(call(client, RequestType::CreateVirtualWheel, error).has_value()) << error;
     EXPECT_EQ(server.record().destroyedNow(), 0);
     client.close();   // Stop in the app, or the app crashing: the helper undoes what it set up
     EXPECT_TRUE(eventually([&] { return server.record().destroyedNow() == 1; }));

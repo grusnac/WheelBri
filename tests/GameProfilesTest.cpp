@@ -1,6 +1,6 @@
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameSettings.hpp"
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 
 #include <gtest/gtest.h>
 
@@ -94,7 +94,7 @@ TEST(GameProfiles, Nfs2015OnTheVirtualG920) {
     EXPECT_EQ(moved.hat, 2);
 
     // Packed as the G920's input report: Y (bytes 3-4) carries the brake, Rz (5-6) the clutch, Slider (7-8) the gas.
-    const auto bytes = packG920Input(moved);
+    const auto bytes = packWheelInput(moved);
     const auto axis = [&](const std::size_t at) {
         return static_cast<std::int16_t>(static_cast<std::uint16_t>(bytes[at] | (bytes[at + 1] << 8U)));
     };

@@ -69,7 +69,7 @@ function Add-PackageCertificate($inf, [string]$name) {
     Write-Host "trusted on this PC: $($certificate.Subject) ($($certificate.Thumbprint))"
 }
 
-# The thumbprints of the certificates that signed our driver packages <names> (e.g. 'wheelbri-g920'): the ones
+# The thumbprints of the certificates that signed our driver packages <names> (e.g. 'wheelbri-wheel'): the ones
 # recorded at install (above), the signers of the installed packages' catalogs (in Windows' driver store, so look
 # before removing the packages) and the signers of the catalogs under <folders> (a package's or install folder's
 # driver\, the repository's). Never a certificate found by its name: other drivers on this PC may be test-signed too.
@@ -138,24 +138,37 @@ function Get-InstalledPackages([string]$name) {
     return $found
 }
 
-# The same driver under the project's old name (wheelemu-<x>.inf, before the rename to wheelbri on 2026-10-03): removed
-# before the new one goes on, so two hiding filters never sit on a rig device (the old one would also count as "the
-# filter is there" while reading a setting nothing writes any more, so the device would stay visible). Returns how many.
-function Remove-LegacyPackages([string]$name) {
-    $legacy = $name -replace '^wheelbri-', 'wheelemu-'
-    $packages = @(Get-InstalledPackages $legacy)
-    foreach ($package in $packages) {
-        Write-Host "removing $package ($legacy.inf, the old name of $name)"
-        Invoke-Pnputil @('/delete-driver', $package, '/uninstall', '/force') "removing $package" | Out-Null
-    }
-    return $packages.Count
+# The driver's older names: wheelemu-<x> (the project before the rename to wheelbri on 2026-10-03), and for the virtual
+# wheel wheelbri-g920 / wheelemu-g920 (it was named after its first wheel until 2026-10-19, wheelbri-wheel since).
+function Get-LegacyNames([string]$name) {
+    $names = @($name -replace '^wheelbri-', 'wheelemu-')
+    if ($name -eq 'wheelbri-wheel') { $names += @('wheelbri-g920', 'wheelemu-g920') }
+    return @($names | Where-Object { $_ -ne $name } | Select-Object -Unique)
 }
 
-# The devices (HIDClass, present) whose driver is one of the installed copies of <name>.inf (or its old wheelemu
-# name): for wheelbri-hide, the devices that have the filter, whatever they are.
+# The same driver under an older name (Get-LegacyNames): removed before the new one goes on, so two hiding filters
+# never sit on a rig device (the old one would also count as "the filter is there" while reading a setting nothing
+# writes any more, so the device would stay visible), and two packages never claim the same virtual wheel. Returns how
+# many.
+function Remove-LegacyPackages([string]$name) {
+    $count = 0
+    foreach ($legacy in (Get-LegacyNames $name)) {
+        $packages = @(Get-InstalledPackages $legacy)
+        foreach ($package in $packages) {
+            Write-Host "removing $package ($legacy.inf, the old name of $name)"
+            Invoke-Pnputil @('/delete-driver', $package, '/uninstall', '/force') "removing $package" | Out-Null
+        }
+        $count += $packages.Count
+    }
+    return $count
+}
+
+# The devices (HIDClass, present) whose driver is one of the installed copies of <name>.inf (or of an older name,
+# Get-LegacyNames): for wheelbri-hide, the devices that have the filter, whatever they are.
 function Get-DevicesUsing([string]$name) {
-    $legacy = $name -replace '^wheelbri-', 'wheelemu-'
-    $published = @(@(Get-InstalledPackages $name) + @(Get-InstalledPackages $legacy) | ForEach-Object { $_.ToLower() })
+    $all = @(Get-InstalledPackages $name)
+    foreach ($legacy in (Get-LegacyNames $name)) { $all += @(Get-InstalledPackages $legacy) }
+    $published = @($all | ForEach-Object { $_.ToLower() })
     if ($published.Count -eq 0) { return @() }
     # One property query for all of them (one per device is slow).
     $present = @(Get-PnpDevice -PresentOnly -Class HIDClass -ErrorAction SilentlyContinue)

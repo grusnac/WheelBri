@@ -134,9 +134,9 @@ function Run-Script([string]$path, [string[]]$arguments = @()) {
     return $LASTEXITCODE
 }
 
-# DirectInput's OEM entries WheelBri writes while a virtual wheel exists (service/src/VirtualG920.cpp
+# DirectInput's OEM entries WheelBri writes while a virtual wheel exists (service/src/VirtualWheelDevice.cpp
 # writeDirectInputEntries), under Joystick\OEM\<ids> in HKLM and HKCU: OEMName (the name below, kVirtualWheels'
-# oemName in core/src/HidG920.cpp), OEMData, and for the G923 an Axes key marked with a "WheelBri" value. A real
+# oemName in core/src/HidWheelDevice.cpp), OEMData, and for the G923 an Axes key marked with a "WheelBri" value. A real
 # Logitech wheel has entries under the same ids (Windows', Logitech's software's): those stay. By target: G25, G27,
 # G920, G923.
 $oemNames = [ordered]@{
@@ -308,7 +308,7 @@ try {
     }
     # The drivers' UMDF registrations (some removals leave them).
     foreach ($name in 'wheelbri', 'wheelemu') {
-        foreach ($part in 'hide', 'g920') {
+        foreach ($part in 'hide', 'wheel', 'g920') {   # g920: the wheel driver's name until 2026-10-19
             Remove-Item "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part" -Recurse -Force -ErrorAction SilentlyContinue
         }
     }

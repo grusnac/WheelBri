@@ -1,4 +1,4 @@
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidPp.hpp"
 
 #include <gtest/gtest.h>
@@ -323,7 +323,7 @@ TEST(HidPpDescriptor, TheG923HasHidPpReportsAndItsPidMovedUp) {
     const VirtualWheel* g923 = virtualWheel("g923");
     ASSERT_NE(g923, nullptr);
     ASSERT_TRUE(g923->hidpp);
-    const auto plain = g920ReportDescriptor(g923->buttons);
+    const auto plain = wheelReportDescriptor(g923->buttons);
     const auto withHidPp = reportDescriptorFor(*g923, DescriptorFor::Linux);   // the games' pedal layout
     ASSERT_GT(withHidPp.size(), plain.size());
     const auto bits = reportBits(withHidPp);
@@ -336,7 +336,7 @@ TEST(HidPpDescriptor, TheG923HasHidPpReportsAndItsPidMovedUp) {
     const auto plainBits = reportBits(plain);
     EXPECT_EQ((bits.at({0x01, 0x80})), (plainBits.at({0x01, 0x80})));
     for (const auto& [key, size] : plainBits) {
-        if (key.first == kG920InputReportId) continue;
+        if (key.first == kWheelInputReportId) continue;
         const std::pair<std::uint8_t, std::uint8_t> moved{static_cast<std::uint8_t>(key.first + kHidPpPidShift),
                                                           key.second};
         ASSERT_TRUE(bits.count(moved)) << int(key.first);
@@ -349,7 +349,7 @@ TEST(HidPpDescriptor, TheG923HasHidPpReportsAndItsPidMovedUp) {
     int axes = 0;
     for (std::size_t i = 0; i < before.size(); ++i) {
         const auto [prefix, value] = before[i];
-        if (prefix == 0x85 && value != kG920InputReportId) {
+        if (prefix == 0x85 && value != kWheelInputReportId) {
             EXPECT_EQ(after[i], std::make_pair(prefix, value + kHidPpPidShift)) << i;
         } else if (prefix == 0x16 && value == 0x8000) {   // Logical Minimum -32768 (an axis)
             EXPECT_EQ(after[i], std::make_pair(std::uint8_t{0x15}, std::uint32_t{0})) << i;
@@ -407,7 +407,7 @@ TEST(HidPpDescriptor, DirectInputAxisEntriesPutThePedalsBack) {
 TEST(HidPpDescriptor, TheG923PacksItsAxesUnsigned) {
     const VirtualWheel& g923 = *virtualWheel("g923");
     ASSERT_TRUE(g923.unsignedAxes);
-    TargetReport report = g920Neutral();   // centred, pedals released (65535)
+    TargetReport report = neutralReport();   // centred, pedals released (65535)
     report.buttons = 1U << 23;            // Dial Enter
     const auto bytes = packInputFor(g923, report);
     EXPECT_EQ(bytes[1], 0x00);   // steering 32768: 0x8000, little-endian
@@ -421,7 +421,7 @@ TEST(HidPpDescriptor, TheG923PacksItsAxesUnsigned) {
     for (const char* name : {"g920", "g25", "g27"}) {
         const VirtualWheel& wheel = *virtualWheel(name);
         EXPECT_FALSE(wheel.unsignedAxes) << name;
-        const auto plain = packG920Input(report, wheel.buttons);
+        const auto plain = packWheelInput(report, wheel.buttons);
         const InputReport packed = packInputFor(wheel, report, DescriptorFor::Linux);   // the G25's fifth axis: Windows
         ASSERT_EQ(packed.size, plain.size()) << name;
         EXPECT_TRUE(std::equal(plain.begin(), plain.end(), packed.bytes.begin())) << name;
@@ -435,7 +435,7 @@ TEST(HidPpDescriptor, G25HasCombinedPedalsOnWindows) {
     EXPECT_TRUE(g25.combinedPedals);
     for (const char* name : {"g920", "g27", "g923"}) EXPECT_FALSE(virtualWheel(name)->combinedPedals) << name;
     const auto windows = reportDescriptorFor(g25, DescriptorFor::Windows);
-    const auto g920 = g920ReportDescriptor(kG920Buttons);
+    const auto g920 = wheelReportDescriptor(kG920Buttons);
     ASSERT_EQ(windows.size(), g920.size() + 16);
     // The axes' usages in order: X, Y, Rz (brake), Z (clutch), Slider (combined).
     std::vector<std::uint8_t> usages;
@@ -446,11 +446,11 @@ TEST(HidPpDescriptor, G25HasCombinedPedalsOnWindows) {
     // Everything after the axes as the G920's.
     EXPECT_TRUE(std::equal(g920.begin() + 72, g920.end(), windows.begin() + 88));
 
-    TargetReport report = g920Neutral();
+    TargetReport report = neutralReport();
     report.buttons = 1U << 18;
     InputReport packed = packInputFor(g25, report);
     ASSERT_EQ(packed.size, kMaxInputReportSize);
-    const auto plain = packG920Input(report, kG920Buttons);
+    const auto plain = packWheelInput(report, kG920Buttons);
     EXPECT_TRUE(std::equal(plain.begin(), plain.begin() + 9, packed.bytes.begin()));   // id and the four axes
     EXPECT_TRUE(std::equal(plain.begin() + 9, plain.end(), packed.bytes.begin() + 11));  // buttons, hat
     const auto fifth = [&packed] {
@@ -464,7 +464,7 @@ TEST(HidPpDescriptor, G25HasCombinedPedalsOnWindows) {
     report.brake = 0;                    // full brake
     packed = packInputFor(g25, report);
     EXPECT_EQ(fifth(), 32767);           // the top
-    EXPECT_EQ(packInputFor(g25, report, DescriptorFor::Linux).size, kG920InputReportSize);
+    EXPECT_EQ(packInputFor(g25, report, DescriptorFor::Linux).size, kWheelInputReportSize);
 }
 
 TEST(HidPpDescriptor, WheelsWithoutHidPpKeepTheirDescriptor) {
@@ -473,10 +473,10 @@ TEST(HidPpDescriptor, WheelsWithoutHidPpKeepTheirDescriptor) {
         ASSERT_NE(wheel, nullptr);
         EXPECT_FALSE(wheel->hidpp) << name;
         if (std::string_view(name) != "g25") {   // the G25's clutch is Z on Windows (G25ClutchIsZOnWindows)
-            EXPECT_EQ(reportDescriptorFor(*wheel).data(), g920ReportDescriptor(wheel->buttons).data()) << name;
+            EXPECT_EQ(reportDescriptorFor(*wheel).data(), wheelReportDescriptor(wheel->buttons).data()) << name;
         }
         EXPECT_EQ(reportDescriptorFor(*wheel, DescriptorFor::Linux).data(),
-                  g920ReportDescriptor(wheel->buttons).data())
+                  wheelReportDescriptor(wheel->buttons).data())
             << name;
         EXPECT_EQ(routeReport(*wheel, 0x11).to, ReportRoute::To::Pid) << name;   // PID's Set Effect, as always
         EXPECT_EQ(routeReport(*wheel, 0x11).id, 0x11) << name;
@@ -491,7 +491,7 @@ TEST(HidPpDescriptor, G25ClutchIsZOnWindows) {
     const VirtualWheel& g25 = *virtualWheel("g25");
     EXPECT_TRUE(g25.clutchOnZ);
     const auto windows = reportDescriptorFor(g25, DescriptorFor::Windows);
-    const auto g920 = g920ReportDescriptor(kG920Buttons);
+    const auto g920 = wheelReportDescriptor(kG920Buttons);
     constexpr std::size_t kFourAxesEnd = 72;   // the report's id and its four axes
     ASSERT_GE(windows.size(), kFourAxesEnd);
     std::vector<std::size_t> differ;

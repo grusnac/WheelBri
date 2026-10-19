@@ -1,8 +1,8 @@
-// The Linux virtual G920's uhid protocol (tools/uhid), without /dev/uhid: events in, events out.
+// The Linux virtual wheel's uhid protocol (tools/uhid), without /dev/uhid: events in, events out.
 
-#include "UhidG920.hpp"
+#include "UhidWheel.hpp"
 
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 
 #include <gtest/gtest.h>
 
@@ -29,7 +29,7 @@ struct Kernel {
     std::vector<uhid_event> written;
     std::vector<FfbPacket> packets;
     std::vector<std::string> logs;
-    UhidG920 device;
+    UhidWheel device;
 
     explicit Kernel(const VirtualWheel& wheel = *virtualWheel("g920"))
         : device{[this](const uhid_event& e) { written.push_back(e); return true; },
@@ -67,7 +67,7 @@ struct Kernel {
     }
 };
 
-TEST(UhidG920, CreatesALogitechG25OnTheVirtualBusWithTheWindowsDescriptor) {
+TEST(UhidWheel, CreatesALogitechG25OnTheVirtualBusWithTheWindowsDescriptor) {
     Kernel k(*virtualWheel("g25"));
     ASSERT_TRUE(k.device.create());
     ASSERT_EQ(k.written.size(), 2U);
@@ -76,15 +76,15 @@ TEST(UhidG920, CreatesALogitechG25OnTheVirtualBusWithTheWindowsDescriptor) {
     EXPECT_EQ(create.product, 0xC299U);
     EXPECT_EQ(create.bus, 0x06);   // BUS_VIRTUAL: hid-lg would claim (and then refuse) a USB 046D:C299
     EXPECT_STREQ(reinterpret_cast<const char*>(create.name), "Logitech G25 Racing Wheel USB");
-    EXPECT_STREQ(reinterpret_cast<const char*>(create.uniq), kG920VirtualUniq);   // the service never reads it
-    const auto descriptor = g920ReportDescriptor();   // Proton has no G25 hack: X, Y, Rz, Slider as on Windows
+    EXPECT_STREQ(reinterpret_cast<const char*>(create.uniq), kVirtualWheelUniq);   // the service never reads it
+    const auto descriptor = wheelReportDescriptor();   // Proton has no G25 hack: X, Y, Rz, Slider as on Windows
     ASSERT_EQ(create.rd_size, descriptor.size());
     EXPECT_EQ(std::memcmp(create.rd_data, descriptor.data(), descriptor.size()), 0);
     EXPECT_EQ(k.device.label(), "G25");
     EXPECT_EQ(k.device.name(), "Logitech G25 Racing Wheel USB");
 }
 
-TEST(UhidG920, CreatesALogitechG920WithTheProtonDescriptor) {
+TEST(UhidWheel, CreatesALogitechG920WithTheProtonDescriptor) {
     Kernel k;
     ASSERT_TRUE(k.device.create());
     ASSERT_EQ(k.written.size(), 2U);
@@ -100,18 +100,18 @@ TEST(UhidG920, CreatesALogitechG920WithTheProtonDescriptor) {
 
     const auto& input = k.written[1];   // centred wheel, released pedals at once
     EXPECT_EQ(input.type, UHID_INPUT2);
-    const auto neutral = packG920Input(g920Neutral());
+    const auto neutral = packWheelInput(neutralReport());
     ASSERT_EQ(input.u.input2.size, neutral.size());
     EXPECT_EQ(std::memcmp(input.u.input2.data, neutral.data(), neutral.size()), 0);
 }
 
-TEST(UhidG920, InputOnlyWhenChangedUnlessForced) {
+TEST(UhidWheel, InputOnlyWhenChangedUnlessForced) {
     Kernel k;
     k.device.create();
     const std::size_t before = k.written.size();
-    k.device.submit(g920Neutral(), false);
+    k.device.submit(neutralReport(), false);
     EXPECT_EQ(k.written.size(), before);
-    TargetReport turned = g920Neutral();
+    TargetReport turned = neutralReport();
     turned.steering = 40000;
     k.device.submit(turned, false);
     EXPECT_EQ(k.written.size(), before + 1);
@@ -119,7 +119,7 @@ TEST(UhidG920, InputOnlyWhenChangedUnlessForced) {
     EXPECT_EQ(k.written.size(), before + 2);
 }
 
-TEST(UhidG920, FeatureReportsAreAnswered) {
+TEST(UhidWheel, FeatureReportsAreAnswered) {
     Kernel k;
     k.device.create();
     k.written.clear();
@@ -149,7 +149,7 @@ TEST(UhidG920, FeatureReportsAreAnswered) {
 
 // Wine's dinput (no device-managed pool in this descriptor): parameters and Set Effect with its own block
 // numbers, then Effect Operation; the service gets a playing constant force.
-TEST(UhidG920, OutputReportsBecomeForceFeedback) {
+TEST(UhidWheel, OutputReportsBecomeForceFeedback) {
     Kernel k;
     k.device.create();
     k.output("1501A00F", 0);                                        // constant 4000, EBI 1
@@ -167,7 +167,7 @@ TEST(UhidG920, OutputReportsBecomeForceFeedback) {
 
 // The G923 has HID++ for G HUB (report 0x11): a request comes back as an input report. Its HID PID reports are 0x10
 // higher, so the same force feedback as the G920's arrives with 0x25, 0x21, 0x2A; feature reports answer 0x2x.
-TEST(UhidG920, TheG923AnswersHidppAndPlaysPidFromItsMovedReports) {
+TEST(UhidWheel, TheG923AnswersHidppAndPlaysPidFromItsMovedReports) {
     Kernel k(*virtualWheel("g923"));
     ASSERT_TRUE(k.device.create());
     EXPECT_EQ(k.written[0].u.create2.rd_size, reportDescriptorFor(*virtualWheel("g923"), DescriptorFor::Linux).size());
@@ -197,7 +197,7 @@ TEST(UhidG920, TheG923AnswersHidppAndPlaysPidFromItsMovedReports) {
 }
 
 // The G25 plays the game's force feedback the same way, and its log names it.
-TEST(UhidG920, TheG25PlaysForceFeedbackAndSaysWhoItIs) {
+TEST(UhidWheel, TheG25PlaysForceFeedbackAndSaysWhoItIs) {
     Kernel k(*virtualWheel("g25"));
     ASSERT_TRUE(k.device.create());
     uhid_event e{};
@@ -222,16 +222,16 @@ TEST(UhidG920, TheG25PlaysForceFeedbackAndSaysWhoItIs) {
     EXPECT_TRUE(said("uhid: virtual G25 stopped by the kernel"));
     EXPECT_EQ(k.device.activeSlots(), 0U);   // the last close stopped its forces
     // Its input reports are the G920's report (the same descriptor on Windows).
-    TargetReport report = g920Neutral();
+    TargetReport report = neutralReport();
     report.buttons = 1U << kG25FirstGear;
     k.written.clear();
     ASSERT_TRUE(k.device.submit(report, false));
     ASSERT_EQ(k.written.size(), 1U);
-    const auto packed = packG920Input(report);
+    const auto packed = packWheelInput(report);
     EXPECT_EQ(std::memcmp(k.written[0].u.input2.data, packed.data(), packed.size()), 0);
 }
 
-TEST(UhidG920, OpenAndCloseAreCounted) {
+TEST(UhidWheel, OpenAndCloseAreCounted) {
     Kernel k;
     uhid_event e{};
     e.type = UHID_START;
@@ -246,7 +246,7 @@ TEST(UhidG920, OpenAndCloseAreCounted) {
 }
 
 // The game exits or crashes: the kernel closes its handle, and its forces stop at once.
-TEST(UhidG920, TheLastCloseStopsTheGamesForces) {
+TEST(UhidWheel, TheLastCloseStopsTheGamesForces) {
     Kernel k;
     k.device.create();
     uhid_event e{};
@@ -313,7 +313,7 @@ std::size_t hidppReportLength(const std::span<const std::uint8_t> descriptor, co
 // sends HID++ commands to the device, which HidPid would take for the game's force feedback. It gives up (and leaves
 // the device to the generic HID driver: "not enough values in hidpp report 17") when one of them is there but shorter
 // than HID++ needs (hidpp_validate_device): keep it so whenever the descriptor changes.
-TEST(UhidG920, TheKernelsHidppDriverLeavesTheDeviceAlone) {
+TEST(UhidWheel, TheKernelsHidppDriverLeavesTheDeviceAlone) {
     const auto descriptor = g920ProtonReportDescriptor();
     constexpr std::array<std::pair<std::uint8_t, std::size_t>, 3> kHidppReports{{
         {0x10, 7},    // HIDPP_REPORT_SHORT_LENGTH
@@ -331,19 +331,19 @@ TEST(UhidG920, TheKernelsHidppDriverLeavesTheDeviceAlone) {
 }
 
 // The service's evdev listing leaves a device with this uniq out (WheelEvdev.cpp): it must be what uhid sets.
-TEST(UhidG920, MarksItselfSoTheServiceNeverReadsItAsARig) {
+TEST(UhidWheel, MarksItselfSoTheServiceNeverReadsItAsARig) {
     Kernel k;
     ASSERT_TRUE(k.device.create());
-    EXPECT_STREQ(reinterpret_cast<const char*>(k.written[0].u.create2.uniq), kG920VirtualUniq);
+    EXPECT_STREQ(reinterpret_cast<const char*>(k.written[0].u.create2.uniq), kVirtualWheelUniq);
     EXPECT_STREQ(reinterpret_cast<const char*>(k.written[0].u.create2.phys), "wheelbri");
 }
 
-TEST(UhidG920, ARefusedCreateIsReported) {
-    UhidG920 device{[](const uhid_event&) { return false; }, [](const FfbPacket&) {}, [](LogLevel, const std::string&) {}};
+TEST(UhidWheel, ARefusedCreateIsReported) {
+    UhidWheel device{[](const uhid_event&) { return false; }, [](const FfbPacket&) {}, [](LogLevel, const std::string&) {}};
     EXPECT_FALSE(device.create());
 }
 
-TEST(UhidG920, StopAndDestroy) {
+TEST(UhidWheel, StopAndDestroy) {
     Kernel k;
     k.device.create();
     uhid_event e{};
@@ -357,7 +357,7 @@ TEST(UhidG920, StopAndDestroy) {
     EXPECT_EQ(k.written.back().type, UHID_DESTROY);
 }
 
-TEST(UhidG920, CloseWithoutOpenNeverGoesNegative) {
+TEST(UhidWheel, CloseWithoutOpenNeverGoesNegative) {
     Kernel k;
     uhid_event e{};
     e.type = UHID_CLOSE;
@@ -367,13 +367,13 @@ TEST(UhidG920, CloseWithoutOpenNeverGoesNegative) {
 }
 
 // Some programs read the input report through a get-report request instead of waiting for it.
-TEST(UhidG920, TheInputReportCanBeAskedFor) {
+TEST(UhidWheel, TheInputReportCanBeAskedFor) {
     Kernel k;
     const auto getInput = [&k](std::uint32_t id) {
         uhid_event e{};
         e.type = UHID_GET_REPORT;
         e.u.get_report.id = id;
-        e.u.get_report.rnum = kG920InputReportId;
+        e.u.get_report.rnum = kWheelInputReportId;
         e.u.get_report.rtype = UHID_INPUT_REPORT;
         k.device.handle(e, 0);
         return k.written.back().u.get_report_reply;
@@ -384,18 +384,18 @@ TEST(UhidG920, TheInputReportCanBeAskedFor) {
     EXPECT_EQ(reply.size, 0U);
 
     k.device.create();
-    TargetReport turned = g920Neutral();
+    TargetReport turned = neutralReport();
     turned.steering = 50000;
     k.device.submit(turned, false);
     reply = getInput(8);
     EXPECT_EQ(reply.err, 0);
-    const auto expected = packG920Input(turned);
+    const auto expected = packWheelInput(turned);
     ASSERT_EQ(reply.size, expected.size());
     EXPECT_EQ(std::memcmp(reply.data, expected.data(), expected.size()), 0);
 }
 
 // Output reports may also come as SET_REPORT (hidraw's HIDIOCSOUTPUT): the same force feedback, and an answer.
-TEST(UhidG920, OutputReportsBySetReportAlsoBecomeForceFeedback) {
+TEST(UhidWheel, OutputReportsBySetReportAlsoBecomeForceFeedback) {
     Kernel k;
     k.device.create();
     const auto setOutput = [&k](std::uint32_t id, const std::string& bytes) {
@@ -419,7 +419,7 @@ TEST(UhidG920, OutputReportsBySetReportAlsoBecomeForceFeedback) {
     EXPECT_EQ(k.device.activeSlots(), 1U);
 }
 
-TEST(UhidG920, AnEmptyOrOversizedOutputReportIsHarmless) {
+TEST(UhidWheel, AnEmptyOrOversizedOutputReportIsHarmless) {
     Kernel k;
     k.device.create();
     const std::size_t before = k.written.size();
@@ -437,7 +437,7 @@ TEST(UhidG920, AnEmptyOrOversizedOutputReportIsHarmless) {
     EXPECT_EQ(k.written.size(), before);
 }
 
-TEST(UhidG920, AnUnsupportedReportIsLoggedOnce) {
+TEST(UhidWheel, AnUnsupportedReportIsLoggedOnce) {
     Kernel k;
     k.device.create();
     k.logs.clear();
@@ -464,7 +464,7 @@ uhid_event setReport(const std::uint32_t id, const std::uint8_t rnum, const std:
 
 // The G923's HID++ requests can also come as SET_REPORT (hidraw's HIDIOCSOUTPUT), with or without the report ID
 // first; a request too short for HID++ is not answered; a G920 PID id below the moved range goes nowhere.
-TEST(UhidG920, TheG923TakesHidppBySetReportAndIgnoresStrayReports) {
+TEST(UhidWheel, TheG923TakesHidppBySetReportAndIgnoresStrayReports) {
     Kernel k(*virtualWheel("g923"));
     ASSERT_TRUE(k.device.create());
     k.written.clear();
@@ -500,7 +500,7 @@ TEST(UhidG920, TheG923TakesHidppBySetReportAndIgnoresStrayReports) {
 }
 
 // A SET_REPORT of a kind the device has no use for (an input report) is answered and changes nothing.
-TEST(UhidG920, ASetInputReportIsAnsweredAndIgnored) {
+TEST(UhidWheel, ASetInputReportIsAnsweredAndIgnored) {
     Kernel k;
     ASSERT_TRUE(k.device.create());
     k.written.clear();
@@ -513,7 +513,7 @@ TEST(UhidG920, ASetInputReportIsAnsweredAndIgnored) {
 
 // Get-report requests for reports the device does not serve: an output report, an input report under another ID,
 // a report type the kernel may add later. Each is answered with an error and named once in the log.
-TEST(UhidG920, UnservedGetReportsAreAnsweredWithAnError) {
+TEST(UhidWheel, UnservedGetReportsAreAnsweredWithAnError) {
     Kernel k;
     ASSERT_TRUE(k.device.create());
     k.logs.clear();
@@ -528,18 +528,18 @@ TEST(UhidG920, UnservedGetReportsAreAnsweredWithAnError) {
         return k.written.back().u.get_report_reply;
     };
     EXPECT_EQ(get(1, 0x1A, UHID_OUTPUT_REPORT).err, EIO);
-    EXPECT_EQ(get(2, kG920InputReportId + 1, UHID_INPUT_REPORT).err, EIO);
+    EXPECT_EQ(get(2, kWheelInputReportId + 1, UHID_INPUT_REPORT).err, EIO);
     EXPECT_EQ(get(3, 0x01, 0x7F).err, EIO);
     const auto said = [&k](const std::string& text) {
         return std::any_of(k.logs.begin(), k.logs.end(), [&](const std::string& l) { return l.find(text) == 0; });
     };
     EXPECT_TRUE(said("uhid: get output report 26"));
-    EXPECT_TRUE(said("uhid: get input report " + std::to_string(kG920InputReportId + 1)));
+    EXPECT_TRUE(said("uhid: get input report " + std::to_string(kWheelInputReportId + 1)));
     EXPECT_TRUE(said("uhid: get ? report 1"));
 }
 
 // Two programs have the wheel open (the game and a tester): one closing leaves the game's forces playing.
-TEST(UhidG920, ACloseWhileAnotherProgramReadsKeepsTheForces) {
+TEST(UhidWheel, ACloseWhileAnotherProgramReadsKeepsTheForces) {
     Kernel k;
     ASSERT_TRUE(k.device.create());
     uhid_event e{};
@@ -561,16 +561,16 @@ TEST(UhidG920, ACloseWhileAnotherProgramReadsKeepsTheForces) {
 }
 
 // A report submitted before create() (the loop's first state arrives early) is sent, not taken for a repeat.
-TEST(UhidG920, TheFirstSubmitIsAlwaysSent) {
+TEST(UhidWheel, TheFirstSubmitIsAlwaysSent) {
     Kernel k;
-    EXPECT_TRUE(k.device.submit(g920Neutral(), false));
-    EXPECT_FALSE(k.device.submit(g920Neutral(), false));
-    EXPECT_TRUE(k.device.submit(g920Neutral(), true));
+    EXPECT_TRUE(k.device.submit(neutralReport(), false));
+    EXPECT_FALSE(k.device.submit(neutralReport(), false));
+    EXPECT_TRUE(k.device.submit(neutralReport(), true));
     EXPECT_EQ(k.written.size(), 2U);
 }
 
 // An empty SET_REPORT (a program probing the device): answered, nothing decoded.
-TEST(UhidG920, AnEmptySetReportIsAnswered) {
+TEST(UhidWheel, AnEmptySetReportIsAnswered) {
     Kernel k;
     ASSERT_TRUE(k.device.create());
     k.written.clear();

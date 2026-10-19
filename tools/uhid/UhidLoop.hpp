@@ -1,9 +1,9 @@
 #pragma once
 
-// wheelbri-uhid's decisions besides the uhid protocol (UhidG920), without file descriptors or clocks so
+// wheelbri-uhid's decisions besides the uhid protocol (UhidWheel), without file descriptors or clocks so
 // UhidLoopTest covers them: the command line, and what goes to the virtual G920 when (InputFeed).
 
-#include "UhidG920.hpp"
+#include "UhidWheel.hpp"
 
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/StatePacket.hpp"
@@ -56,7 +56,7 @@ public:
 
     // One pass of the loop: `packet` is the newest state read since the last pass, if any. Says when states start
     // coming and when they stopped (for the log).
-    Change update(const std::optional<StatePacket>& packet, std::int64_t nowMs, UhidG920& device);
+    Change update(const std::optional<StatePacket>& packet, std::int64_t nowMs, UhidWheel& device);
 
     // Milliseconds until update() has something to send without a new state (keep-alive, going neutral); >= 0.
     [[nodiscard]] std::int64_t msUntilDue(std::int64_t nowMs) const;
@@ -69,7 +69,7 @@ private:
     bool neutralSent_ = true;   // create() sends the neutral report
     std::int64_t lastState_;
     std::int64_t lastInput_ = 0;
-    TargetReport current_ = g920Neutral();
+    TargetReport current_ = neutralReport();
 };
 
 }  // namespace wheelbri::uhid

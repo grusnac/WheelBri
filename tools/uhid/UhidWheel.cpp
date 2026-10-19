@@ -1,6 +1,6 @@
-#include "UhidG920.hpp"
+#include "UhidWheel.hpp"
 
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -30,7 +30,7 @@ std::span<const std::uint8_t> withoutId(const std::uint8_t* data, std::size_t si
 
 }  // namespace
 
-UhidG920::UhidG920(Write write, HidPid::Sender ffb, Log log, const VirtualWheel& wheel)
+UhidWheel::UhidWheel(Write write, HidPid::Sender ffb, Log log, const VirtualWheel& wheel)
     : write_(std::move(write)), log_(log), wheel_(wheel), pid_(std::move(ffb), std::move(log)) {
     if (wheel_.hidpp) {
         HidPp::Identity identity;
@@ -42,7 +42,7 @@ UhidG920::UhidG920(Write write, HidPid::Sender ffb, Log log, const VirtualWheel&
     }
 }
 
-void UhidG920::hidppRequest(const std::span<const std::uint8_t> report, const std::int64_t nowMs) {
+void UhidWheel::hidppRequest(const std::span<const std::uint8_t> report, const std::int64_t nowMs) {
     if (!hidpp_) return;
     const auto answer = hidpp_->handle(report, nowMs);
     if (!answer) return;
@@ -54,14 +54,14 @@ void UhidG920::hidppRequest(const std::span<const std::uint8_t> report, const st
     write_(event);
 }
 
-bool UhidG920::create() {
+bool UhidWheel::create() {
     uhid_event event{};
     event.type = UHID_CREATE2;
     auto& req = event.u.create2;
     const std::size_t nameSize = std::min(wheel_.oemName.size(), sizeof(req.name) - 1);
     std::memcpy(req.name, wheel_.oemName.data(), nameSize);
     std::strncpy(reinterpret_cast<char*>(req.phys), "wheelbri", sizeof(req.phys) - 1);
-    std::strncpy(reinterpret_cast<char*>(req.uniq), kG920VirtualUniq, sizeof(req.uniq) - 1);
+    std::strncpy(reinterpret_cast<char*>(req.uniq), kVirtualWheelUniq, sizeof(req.uniq) - 1);
     // Games read it through Proton's DirectInput: its G920 hack wants the G920's own axis names (see the header).
     const bool g920 = wheel_.profile == "g920";
     const auto descriptor = g920 ? g920ProtonReportDescriptor() : reportDescriptorFor(wheel_, DescriptorFor::Linux);
@@ -84,17 +84,17 @@ bool UhidG920::create() {
     if (!write_(event)) {
         return false;
     }
-    submit(g920Neutral(), true);
+    submit(neutralReport(), true);
     return true;
 }
 
-void UhidG920::destroy() {
+void UhidWheel::destroy() {
     uhid_event event{};
     event.type = UHID_DESTROY;
     write_(event);
 }
 
-bool UhidG920::submit(const TargetReport& report, const bool force) {
+bool UhidWheel::submit(const TargetReport& report, const bool force) {
     const InputReport packed = packInputFor(wheel_, report, DescriptorFor::Linux);
     if (!force && haveLast_ && packed == last_) {
         return false;
@@ -109,7 +109,7 @@ bool UhidG920::submit(const TargetReport& report, const bool force) {
     return true;
 }
 
-void UhidG920::reply(const std::uint32_t type, const std::uint32_t id, const std::uint16_t err,
+void UhidWheel::reply(const std::uint32_t type, const std::uint32_t id, const std::uint16_t err,
                      const std::uint8_t* data, const std::size_t size) {
     uhid_event event{};
     event.type = type;
@@ -128,7 +128,7 @@ void UhidG920::reply(const std::uint32_t type, const std::uint32_t id, const std
     write_(event);
 }
 
-void UhidG920::handle(const uhid_event& event, const std::int64_t nowMs) {
+void UhidWheel::handle(const uhid_event& event, const std::int64_t nowMs) {
     switch (event.type) {
         case UHID_START:
             started_ = true;
@@ -177,7 +177,7 @@ void UhidG920::handle(const uhid_event& event, const std::int64_t nowMs) {
             if (get.rtype == UHID_FEATURE_REPORT && route.to == ReportRoute::To::Pid) {
                 size = pid_.getFeature(route.id, buffer);
                 if (size > 0) buffer[0] = wirePidId(wheel_, route.id);
-            } else if (get.rtype == UHID_INPUT_REPORT && get.rnum == kG920InputReportId && haveLast_) {
+            } else if (get.rtype == UHID_INPUT_REPORT && get.rnum == kWheelInputReportId && haveLast_) {
                 std::copy(last_.bytes.begin(), last_.bytes.begin() + static_cast<std::ptrdiff_t>(last_.size),
                           buffer.begin());
                 size = last_.size;

@@ -1,4 +1,5 @@
-// wheelbri-g920: a UMDF 2 HID minidriver presenting a Logitech G25, G27, G920 or G923 to Windows (Phase 5, plan B).
+// wheelbri-wheel (wheelbri-g920 until 2026-10-19): a UMDF 2 HID minidriver presenting a Logitech G25, G27, G920 or
+// G923 to Windows (Phase 5, plan B).
 //
 // It does what the former HIDMaestro bridge (step 0) did, inside Windows' driver host:
 //   input  wheelbri-service --UDP 127.0.0.1:41329 (StatePacket)--> driver --> HID input report --> games
@@ -7,10 +8,10 @@
 // Only one of them may run at a time (they share the ports).
 //
 // The device itself is created by wheelbri-service while it runs (a software device, see
-// service/src/VirtualG920.cpp); this INF-installed driver binds to it by hardware ID wheelbri\G920, \G25, \G27 or
-// \G923, and that id decides which wheel it is (VirtualWheel, core/include/wheelbri/HidG920.hpp): its vendor and
-// product ids and its product string. All have the same HID descriptor and input report (only the button count
-// differs).
+// service/src/VirtualWheelDevice.cpp); this INF-installed driver binds to it by hardware ID wheelbri\G920, \G25,
+// \G27 or \G923, and that id decides which wheel it is (VirtualWheel, core/include/wheelbri/HidWheelDevice.hpp): its
+// vendor and product ids and its product string. All have the same HID descriptor and input report (only the button
+// count differs).
 //
 // Structure follows Microsoft's vhidmini2 sample (UMDF 2): HID class requests arrive as IOCTLs on a
 // parallel queue; read requests wait on a manual queue until a state packet arrives.
@@ -21,7 +22,7 @@
 #include <hidport.h>        // $(DDK_INC_PATH)\wdm
 
 #include "wheelbri/FfbPacket.hpp"
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidPid.hpp"
 #include "wheelbri/HidPp.hpp"
 #include "wheelbri/LogFileNames.hpp"
@@ -55,7 +56,7 @@ using Report = std::vector<std::uint8_t>;
 using Level = wheelbri::LogLevel;
 
 // The input report for `wheel` (its buttons, and its axes unsigned when they are: packInputFor).
-Report g920Report(const wheelbri::TargetReport& report, const wheelbri::VirtualWheel& wheel) {
+Report wheelReport(const wheelbri::TargetReport& report, const wheelbri::VirtualWheel& wheel) {
     const wheelbri::InputReport packed = wheelbri::packInputFor(wheel, report);
     return Report(packed.bytes.begin(), packed.bytes.begin() + static_cast<std::ptrdiff_t>(packed.size));
 }
@@ -274,7 +275,7 @@ void logLine(const wheelbri::LogLevel level, const std::string& text) {
     } else if (!reportedFailure) {
         reportedFailure = true;   // only DebugView can show this one
         char why[160];
-        std::snprintf(why, sizeof(why), "wheelbri-g920: cannot write its log (error %lu)\r\n", GetLastError());
+        std::snprintf(why, sizeof(why), "wheelbri-wheel: cannot write its log (error %lu)\r\n", GetLastError());
         OutputDebugStringA(why);
     }
 }
@@ -399,7 +400,7 @@ namespace {
 void completeRead(WDFREQUEST request, const Report& report);
 
 Link::Link(DeviceContext* device)
-    : device_(device), report_(g920Report(wheelbri::g920Neutral(), *device->wheel)) {
+    : device_(device), report_(wheelReport(wheelbri::neutralReport(), *device->wheel)) {
     const wheelbri::VirtualWheel* wheel = device->wheel;
     if (wheel != nullptr && wheel->hidpp) {
         wheelbri::HidPp::Identity identity;
@@ -628,7 +629,7 @@ void Link::run(const SOCKET sock) {
     if (const HMODULE kernel = GetModuleHandleW(L"kernel32.dll"); kernel != nullptr) {
         if (const auto setDescription =
                 reinterpret_cast<SetDescription>(reinterpret_cast<void*>(GetProcAddress(kernel, "SetThreadDescription")))) {
-            setDescription(GetCurrentThread(), L"wheelbri-g920 state receiver");
+            setDescription(GetCurrentThread(), L"wheelbri-wheel state receiver");
         }
     }
     logLine(Level::Info, "listening for wheelbri-service on 127.0.0.1:41329, force feedback to 127.0.0.1:41330");
@@ -650,7 +651,7 @@ void Link::run(const SOCKET sock) {
                 }
                 lastState = now;
                 neutralSent = false;
-                publish(g920Report(packet->report, *device_->wheel));
+                publish(wheelReport(packet->report, *device_->wheel));
             }
         } else if (now - lastState > kStaleMs && !neutralSent) {
             if (receiving) {
@@ -659,7 +660,7 @@ void Link::run(const SOCKET sock) {
             }
             receiving = false;
             neutralSent = true;
-            publish(g920Report(wheelbri::g920Neutral(), *device_->wheel));
+            publish(wheelReport(wheelbri::neutralReport(), *device_->wheel));
         }
         if (now - lastTick >= 10) {
             lastTick = now;
@@ -943,7 +944,7 @@ extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT driverObject, PUNICODE_STRING reg
     const std::string built;
 #endif
     logLine(NT_SUCCESS(status) ? Level::Info : Level::Error,
-            NT_SUCCESS(status) ? "wheelbri-g920 driver loaded" + built
+            NT_SUCCESS(status) ? "wheelbri-wheel driver loaded" + built
                                : "WdfDriverCreate failed: " + std::to_string(status));
     if (!NT_SUCCESS(status)) WSACleanup();   // no driver object, so no cleanup callback either
     return status;

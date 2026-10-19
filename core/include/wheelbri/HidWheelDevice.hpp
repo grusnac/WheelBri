@@ -34,16 +34,16 @@ inline constexpr std::uint16_t kG27ProductId = 0xC29B;
 // no padding, the PC-mode ids (046D:C26E; Xbox mode, C26D, is an Xbox controller, not this).
 inline constexpr std::uint16_t kG923VendorId = 0x046D;
 inline constexpr std::uint16_t kG923ProductId = 0xC26E;
-inline constexpr std::uint8_t kG920InputReportId = 0x01;
-inline constexpr std::size_t kG920InputReportSize = 13;   // report ID + 4 axes x 2 + 3 button bytes + hat
+inline constexpr std::uint8_t kWheelInputReportId = 0x01;
+inline constexpr std::size_t kWheelInputReportSize = 13;   // report ID + 4 axes x 2 + 3 button bytes + hat
 // A wheel with combined pedals (VirtualWheel::combinedPedals) has a fifth axis after the fourth: 15 bytes.
-inline constexpr std::size_t kMaxInputReportSize = kG920InputReportSize + 2;
+inline constexpr std::size_t kMaxInputReportSize = kWheelInputReportSize + 2;
 
 // The unique id ("uniq", EVIOCGUNIQ) wheelbri-uhid gives the Linux virtual wheel (any target). The service never
 // lists a device with it as part of a rig: it would read its own output as input.
-inline constexpr const char* kG920VirtualUniq = "wheelbri-g920";
+inline constexpr const char* kVirtualWheelUniq = "wheelbri-wheel";
 
-// The wheels WheelBri's driver (wheelbri-g920) can be: the descriptor and input report here for all of them, another
+// The wheels WheelBri's driver (wheelbri-wheel) can be: the descriptor and input report here for all of them, another
 // identity each. The service creates the software device with the identity's hardware id (wheelbri\G920,
 // wheelbri\G25); the driver, bound to every one of them by its INF, answers with that identity's ids and names.
 struct VirtualWheel {
@@ -89,9 +89,9 @@ struct VirtualWheel {
 
 // `buttons`: the wheel's (VirtualWheel::buttons): the G920's and G25's 19, the G27's 23 or the G923's 24 (the same
 // report; the button block declares 23 and 1 padding bit, or 24 and none).
-[[nodiscard]] std::span<const std::uint8_t> g920ReportDescriptor(std::size_t buttons = kG920Buttons);
+[[nodiscard]] std::span<const std::uint8_t> wheelReportDescriptor(std::size_t buttons = kG920Buttons);
 
-// The wheel's own descriptor: g920ReportDescriptor(buttons), and for a wheel with HID++ (VirtualWheel::hidpp) that
+// The wheel's own descriptor: wheelReportDescriptor(buttons), and for a wheel with HID++ (VirtualWheel::hidpp) that
 // with its HID PID report IDs kHidPpPidShift higher and two vendor collections after it (usage page 0xFF43: long
 // report 0x11, 19 bytes each way; very long 0x12, 63 bytes; the reports a G920 has, Linux's hid-logitech-hidpp says).
 enum class DescriptorFor { Windows, Linux };
@@ -129,9 +129,9 @@ struct ReportRoute {
 
 // The input report for `report` (G920 ranges: steering 0..65535 centred at 32768, pedals 0..65535 with
 // 65535 = released, buttons bit n, hat -1 or 0..7): wheel X, throttle Y, brake Rz, clutch Slider.
-// `buttons`: as for g920ReportDescriptor; the buttons past them are not sent.
-[[nodiscard]] std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport& report,
-                                                                          std::size_t buttons = kG920Buttons);
+// `buttons`: as for wheelReportDescriptor; the buttons past them are not sent.
+[[nodiscard]] std::array<std::uint8_t, kWheelInputReportSize> packWheelInput(const TargetReport& report,
+                                                                             std::size_t buttons = kG920Buttons);
 
 // An input report of up to kMaxInputReportSize bytes: `size` of them used.
 struct InputReport {
@@ -141,13 +141,13 @@ struct InputReport {
     [[nodiscard]] std::uint8_t operator[](const std::size_t at) const { return bytes[at]; }
     friend bool operator==(const InputReport&, const InputReport&) = default;
 };
-// The input report for the wheel's own descriptor (reportDescriptorFor(wheel, where)): packG920Input, with the axes
+// The input report for the wheel's own descriptor (reportDescriptorFor(wheel, where)): packWheelInput, with the axes
 // unsigned when the wheel's are (VirtualWheel::unsignedAxes) and, on Windows, the combined pedals after the fourth
 // axis when it has them (VirtualWheel::combinedPedals: 15 bytes; else 13).
 [[nodiscard]] InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report,
                                        DescriptorFor where = DescriptorFor::Windows);
 
 // Centred wheel, released pedals, no buttons: what games see while no state arrives.
-[[nodiscard]] TargetReport g920Neutral();
+[[nodiscard]] TargetReport neutralReport();
 
 }  // namespace wheelbri

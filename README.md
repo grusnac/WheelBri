@@ -102,12 +102,12 @@ The 32-bit one is the [32-bit shim](#the-32-bit-shim) commands with `build-win-x
 
 ### Drivers
 
-Mode Virtual on Windows 11 uses two UMDF 2 drivers: `wheelbri-g920` (the virtual wheel, all four targets) and
+Mode Virtual on Windows 11 uses two UMDF 2 drivers: `wheelbri-wheel` (the virtual wheel, all four targets) and
 `wheelbri-hide` (hides the rig from games while WheelBri runs). They need Visual Studio with *Desktop development with
 C++*, the Spectre-mitigated libraries, the Windows SDK and the WDK. From a **Developer PowerShell for VS**:
 
 ```powershell
-msbuild driver\wheelbri-g920.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild driver\wheelbri-wheel.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
 ```powershell
@@ -222,7 +222,7 @@ Logs are in `~/.local/state/wheelbri/` (the app's Logs tab shows them).
 | `core/` | portable library: mapping, target profiles, force feedback limiter, config, wire format, telemetry (no OS headers) |
 | `service/` | the app and `wheelbri-service` (reads the rig, plays force feedback, the window); `helper/`: the WheelBri Helper service |
 | `shim/` | `dinput8.dll`, a DirectInput proxy that answers as the target inside one game |
-| `driver/` | the UMDF drivers `wheelbri-g920` and `hide/` (`wheelbri-hide`) with their install scripts |
+| `driver/` | the UMDF drivers `wheelbri-wheel` and `hide/` (`wheelbri-hide`) with their install scripts |
 | `tools/uhid/` | `wheelbri-uhid`, the virtual wheel for Linux (kernel uhid) |
 | `logi/` | `wheelbri-logi.dll`, a logging stand-in for Logitech's wheel SDK helper |
 | `installer/`, `scripts/` | the Windows installer, Linux scripts, packaging |
@@ -233,7 +233,7 @@ Logs are in `~/.local/state/wheelbri/` (the app's Logs tab shows them).
 
 ```
 rig ──DirectInput / evdev──► wheelbri-service ──UDP 127.0.0.1──► one consumer, which the game sees as the target:
-          map · encode · FFB safety      41329 state ►         Mode Virtual: wheelbri-g920 driver or wheelbri-uhid
+          map · encode · FFB safety      41329 state ►         Mode Virtual: wheelbri-wheel driver or wheelbri-uhid
                                          ◄ 41330 game FFB      Mode Shim:    dinput8.dll next to the game's .exe
 ```
 
@@ -291,5 +291,5 @@ the wheel as active. The unsigned axes and pedal layout added since are untried.
 ## Licence
 
 Nothing is copied from GIMX (GPLv3); `tools/uhid` is written from the kernel's `linux/uhid.h`, the HID descriptor
-comes from HIDMaestro's builder (MIT, noted in `core/src/HidG920.cpp`) and HID++ from its public description.
+comes from HIDMaestro's builder (MIT, noted in `core/src/HidWheelDevice.cpp`) and HID++ from its public description.
 WheelBri never ships Logitech's files.

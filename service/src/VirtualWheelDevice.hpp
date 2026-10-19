@@ -10,9 +10,9 @@ struct VirtualWheel;
 
 namespace wheelbri::service {
 
-// The virtual wheel served by our own driver (driver/, Phase 5 plan B): a G920 or a G25 (VirtualWheel, HidG920.hpp),
-// created while the service runs (--virtual-g920) and removed when it stops, including a crash: it is a Windows
-// "software device" tied to this process.
+// The virtual wheel served by our own driver (driver/, Phase 5 plan B): a G920 or a G25 (VirtualWheel,
+// HidWheelDevice.hpp), created while the service runs (--virtual-wheel) and removed when it stops, including a crash:
+// it is a Windows "software device" tied to this process.
 //
 // On Windows it also keeps DirectInput's registry entries for its ids (VID_046D&PID_C262, PID_C299) right: the name and
 // the "driving" device type the shim reports, and no foreign force feedback driver (Logitech's software registers one
@@ -20,9 +20,9 @@ namespace wheelbri::service {
 //
 // If a program still held an earlier one when it was removed, Windows may not give a new one at the same identity a
 // driver until it restarts; then a spare identity is used, as the bridge does.
-class VirtualG920 {
+class VirtualWheelDevice {
 public:
-    // Whether Windows has our driver package (wheelbri-g920.inf in its driver store). Unknown when that cannot be
+    // Whether Windows has our driver package (wheelbri-wheel.inf in its driver store). Unknown when that cannot be
     // read (or not Windows): then create() just tries.
     enum class DriverState { Installed, Missing, Unknown };
     [[nodiscard]] static DriverState driverState();
@@ -31,19 +31,19 @@ public:
     // `cancelled`: checked while waiting for Windows (Stop pressed): then null, "cancelled".
     // `userHive`: also the user's DirectInput entries (HKCU); false in the WheelBri Helper, where HKCU is SYSTEM's.
     // `wheel`: which one (virtualWheel("g920"), virtualWheel("g25")); it must outlive this (the table is static).
-    [[nodiscard]] static std::unique_ptr<VirtualG920> create(const VirtualWheel& wheel, std::string& error,
+    [[nodiscard]] static std::unique_ptr<VirtualWheelDevice> create(const VirtualWheel& wheel, std::string& error,
                                                              const std::function<bool()>& cancelled = {},
                                                              bool userHive = true);
-    ~VirtualG920();
+    ~VirtualWheelDevice();
 
-    VirtualG920(const VirtualG920&) = delete;
-    VirtualG920& operator=(const VirtualG920&) = delete;
+    VirtualWheelDevice(const VirtualWheelDevice&) = delete;
+    VirtualWheelDevice& operator=(const VirtualWheelDevice&) = delete;
 
     [[nodiscard]] const std::string& instanceId() const;
 
 private:
     struct Impl;
-    explicit VirtualG920(std::unique_ptr<Impl> impl);
+    explicit VirtualWheelDevice(std::unique_ptr<Impl> impl);
     std::unique_ptr<Impl> impl_;
 };
 

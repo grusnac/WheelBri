@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the service and open its mapping window: the quick check after a mapping or config change.
-# Close the window to stop. Extra arguments go to the service (e.g. --virtual-g920, needs Administrator).
+# Close the window to stop. Extra arguments go to the service (e.g. --virtual-wheel, needs Administrator).
 #
 #   scripts/make/ui.sh                                    config/g920.ini
 #   scripts/make/ui.sh config/g25.ini --print

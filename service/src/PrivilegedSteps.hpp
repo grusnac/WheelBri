@@ -2,7 +2,7 @@
 
 #include "Privileged.hpp"
 
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/LogLevel.hpp"
 
 #include <functional>
@@ -38,15 +38,15 @@ public:
     // "as Administrator" or "through the WheelBri Helper" (the log).
     [[nodiscard]] virtual const char* how() const = 0;
 
-    virtual bool installG920Driver(const Cancelled& cancelled, std::string& message) = 0;
+    virtual bool installWheelDriver(const Cancelled& cancelled, std::string& message) = 0;
     [[nodiscard]] virtual privileged::HideSetup putHideFilter(const std::vector<std::string>& install,
                                                               const std::vector<std::string>& interfaces,
                                                               const Cancelled& cancelled, std::string& message) = 0;
-    // The virtual wheel (`wheel`: the G920 or the G25), there until removeVirtualG920 or the end of this object.
+    // The virtual wheel (`wheel`: the G920 or the G25), there until removeVirtualWheel or the end of this object.
     // `instanceId`: Windows' id for it.
-    virtual bool createVirtualG920(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
+    virtual bool createVirtualWheel(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
                                    std::string& error) = 0;
-    virtual void removeVirtualG920() = 0;
+    virtual void removeVirtualWheel() = 0;
     // Only this process may open the rig's filtered devices, until showRig or the end of this object.
     virtual bool hideRig(std::string& message) = 0;
     virtual void showRig() = 0;

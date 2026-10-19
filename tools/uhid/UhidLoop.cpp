@@ -87,7 +87,7 @@ ParsedOptions parseOptions(const std::vector<std::string>& args) {
 }
 
 InputFeed::Change InputFeed::update(const std::optional<StatePacket>& packet, const std::int64_t nowMs,
-                                    UhidG920& device) {
+                                    UhidWheel& device) {
     Change change = Change::None;
     if (packet) {
         if (!receiving_) {
@@ -108,7 +108,7 @@ InputFeed::Change InputFeed::update(const std::optional<StatePacket>& packet, co
         }
         receiving_ = false;
         neutralSent_ = true;
-        current_ = g920Neutral();
+        current_ = neutralReport();
         device.submit(current_, true);
         lastInput_ = nowMs;
     } else if (nowMs - lastInput_ >= kKeepAliveMs) {

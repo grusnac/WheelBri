@@ -871,7 +871,7 @@ void MappingView::refreshLogFiles() {
     static constexpr Source kSources[] = {
         {"WheelBri", "the app: rig, mapping, force feedback", false, "wheelbri-service"},
         {"Game shim", "dinput8.dll next to the game (Mode Shim)", false, "wheelbri-shim"},
-        {"G920 driver", "the virtual G920 (wheelbri-g920)", true, "wheelbri-driver"},
+        {"Wheel driver", "the virtual wheel, every target (wheelbri-wheel)", true, "wheelbri-driver"},
         {"Hide filter", "hides the rig from games (wheelbri-hide)", true, "wheelbri-hide"},
         // The WheelBri Helper (a service) writes into the connected user's folder (HelperLog), the same one.
         {"Helper", "the Administrator steps for the app (WheelBri Helper)", true, "wheelbri-helper"},

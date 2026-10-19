@@ -74,7 +74,7 @@ std::unique_ptr<UhidProcess> UhidProcess::start(const std::filesystem::path& sto
         }
         platform::sleepMs(50);
     }
-    WE_LOG_INFO(log(), "virtual G920 created: {} (pid of this program {})", pathToUtf8(program), ::getpid());
+    WE_LOG_INFO(log(), "virtual wheel created: {} (pid of this program {})", pathToUtf8(program), ::getpid());
     return std::unique_ptr<UhidProcess>(new UhidProcess(std::move(child), stopFile, "wheelbri-uhid"));
 }
 
@@ -92,7 +92,7 @@ UhidProcess::~UhidProcess() {
         WE_LOG_WARN(log(), "wheelbri-uhid did not stop within 3 s: killing it");
         child_->kill();
     } else {
-        WE_LOG_INFO(log(), "virtual G920 removed (wheelbri-uhid stopped)");
+        WE_LOG_INFO(log(), "virtual wheel removed (wheelbri-uhid stopped)");
     }
     std::error_code ec;
     std::filesystem::remove(stopFile_, ec);

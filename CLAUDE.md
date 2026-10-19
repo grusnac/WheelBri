@@ -108,7 +108,7 @@ Status (README.md has the full table):
   virtual G923 also answers HID++ for G HUB, core `HidPp`, but plays no HID++ effects).
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`, where the consumer is
-one of: the `dinput8.dll` shim in the game, the `wheelbri-g920` driver (Windows) or `wheelbri-uhid` (Linux). Use UDP loopback, not shared memory: under Proton
+one of: the `dinput8.dll` shim in the game, the `wheelbri-wheel` driver (Windows) or `wheelbri-uhid` (Linux). Use UDP loopback, not shared memory: under Proton
 the shim runs inside Wine and the service is a native Linux process, and named mappings don't cross that boundary.
 
 UDP ports (all 127.0.0.1):
@@ -130,7 +130,7 @@ nothing on a failure; `--no-start`; `--as-user` starts it as you, which needs `w
 FILE`), `rebuild.sh` (deletes `build/` and `build-x86/`, full rebuild), `ui.sh [config]`, `shim.sh [--off] <game
 folder>` (32- or 64-bit shim by the game's largest .exe; `dinput8Hooked.dll` next to the Ultimate ASI Loader),
 `shim-x86.sh` (only the 32-bit shim), `logi.sh` (`wheelbri-logi.dll` and its registry commands), `drivers.sh [-Only
-g920|hide] [-Install] [-Clean]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer), `clean-pc.sh [-KeepData]
+wheel|hide] [-Install] [-Clean]`, `all.sh [--clean]`, `package.sh [--no-build]` (the installer), `clean-pc.sh [-KeepData]
 [-GameFolder <folder>] [-KeepThirdParty] [-Yes]` (removes everything WheelBri put on the PC, HidHide and HIDMaestro
 included, for a fresh install; when the
 app, installer or drivers start leaving something new on the PC, add it to `clean-pc.ps1`).
@@ -203,7 +203,7 @@ Drivers (`driver/`, see README.md, "Drivers") are built with Visual Studio + WDK
 PowerShell, then installed from an Administrator PowerShell, e.g.:
 
 ```powershell
-msbuild driver\wheelbri-g920.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild driver\wheelbri-wheel.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
 ```powershell
@@ -219,16 +219,16 @@ Warnings: `/W4 /permissive-` on MSVC, `-Wall -Wextra
 -Wpedantic` elsewhere. Keep new code free of warnings.
 
 Service CLI (`service/src/main.cpp`): `wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test]
-[--old-files delete|archive|keep] [--stop-file FILE] [--virtual-g920 [--no-hide]]
-[--unhide] [--prepare-hide] [--app [--no-virtual-g920]] [--telemetry-tab] [--ffb-tab]` (`printUsage`; `--app` and
-`--no-virtual-g920` are parsed but not in the usage line). `--virtual-g920` is the config's `target_profile` (G25,
+[--old-files delete|archive|keep] [--stop-file FILE] [--virtual-wheel [--no-hide]]
+[--unhide] [--prepare-hide] [--app [--no-virtual-wheel]] [--telemetry-tab] [--ffb-tab]` (`printUsage`; `--app` and
+`--no-virtual-wheel` are parsed but not in the usage line). `--virtual-wheel` is the config's `target_profile` (G25,
 G27, G920 or G923) through our driver on Windows, `wheelbri-uhid` on Linux. `--app` opens the app's window (Start /
-Stop) from a console, with `--virtual-g920` on Windows unless `--no-virtual-g920`. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
+Stop) from a console, with `--virtual-wheel` on Windows unless `--no-virtual-wheel`. `--ui` opens a window (`service/src/MappingView.cpp`, also the app's live view) with tabs along the bottom
 (click, or R / M / G / L, T / F; in this order: Rig, Mapping, Games (the app only, `MappingView::setGamesTab`),
 Logs, then Telemetry and Force feedback only with `--telemetry-tab` / `--ffb-tab`, never shown without them,
 `MappingView::setOptionalTabs`): **Mapping** (the axes rig -> G920, every rig axis, the D-pad, the G920 buttons written
 `G920 <n> <name> <- Rig <n> <name>` and the wheel's own buttons `Rig <n> <name>` from `[button_labels]`), **Logs** (one
-line per component: emulator, game shim, G920 driver, hide filter, helper, each in its own colour,
+line per component: emulator, game shim, wheel driver, hide filter, helper, each in its own colour,
 with today's file, size, age, click opens its folder; the helper's line says what `HelperProbe` last heard from the
 WheelBri Helper (core `describeHelper`) and turns to the warning colour when today's helper log has warnings or errors
 (core `LogLevelCounter`); then a scrollable live log of all those files merged:
@@ -335,8 +335,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
     gain kept and logged, not applied; effects acknowledged, not played). Its reports are 0x11/0x12, so that wheel's
     HID PID reports are `kHidPpPidShift` higher (`reportDescriptorFor`, `routeReport`, `wirePidId`); `HidPid` itself
     is unchanged.
-  - `HidG920` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT), and the other
-    targets' too: `VirtualWheel` (`virtualWheels()` in Target order G25, G27, G920, G923; `virtualWheel("g25")`,
+  - `HidWheelDevice` is the virtual G920's HID descriptor and input report (from HIDMaestro's builder, MIT), and the
+    other targets' too: `VirtualWheel` (`virtualWheels()` in Target order G25, G27, G920, G923; `virtualWheel("g25")`,
     `virtualWheelForHardwareId`) holds each wheel's identity (hardware id `wheelbri\G25` / `G27` / `G920` / `G923`,
     instance names, 046D:C299 / C29B / C262 / C26E, product string, DirectInput name, button count; the G923 also
     `hidpp`, `unsignedAxes` and `logitechPedals`: HID brake Z, clutch Rz, with `directInputAxisEntries` keeping games
@@ -450,7 +450,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
       permutation of them is refused for it (logged once, pedals left).
     - in-game shim: the shim knows its game (`GetModuleFileNameW`), and `ShimConfig::layout()` is the sieve of three
       layers: the target's defaults, `wheelbri-shim.ini`'s *_axis, the game profile (if it fits the shim's target and
-      the result is valid). The service then routes nothing (`runLoop(..., routePedals = virtualG920 || uhid)`).
+      the result is valid). The service then routes nothing (`runLoop(..., routePedals = virtualDevice || uhid)`).
     `GameDetector` (portable, every branch in `GameDetectorTest`, profiles passed in so tests cover two games) decides
     which profiled game the service follows: at once on start; dropped only after 2 misses in a row (a restart under
     a new pid keeps it, `Restarted`); with two profiled games the followed one stays (none followed: profile order),
@@ -575,7 +575,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     even on arrows of an earlier draw, and `choose`). The Games page shows the Target and Mode as text
     (changed on the Mapping page only); the live view's header shows the session's (`MappingView::setSessionLine`).
   - A shim session starts only what the shim needs: no virtual G920, no hide filter, no
-    Administrator check (all keyed on `Options::virtualG920`), and the Logs tab leaves out the driver rows
+    Administrator check (all keyed on `Options::virtualDevice`), and the Logs tab leaves out the driver rows
     (`MappingView::setShimMode`). The stale hide check (`HideFilter::clearStale`) still runs: a leftover hide would keep
     the rig from the game. Keep this split when adding components: anything for the virtual device only stays off with
     the shim. `ConfigLibrary.hpp` (listing, `; made from:` templates) is older and only reads what earlier versions
@@ -651,18 +651,18 @@ rewrites on every build only when it changes); views keep their own top-row cont
   - The wheel behind `Wheel.hpp` (`WheelDinput.cpp` DirectInput + `DinputReader`, `WheelEvdev.cpp` evdev),
     numbering inputs as the service always has (`DinputReader`, core `EvdevLayout`) and sending the same force
     feedback numbers as before (core `WheelOutput`).
-  - `Privileged.hpp` (library `wheelbri_privileged`, with `HideFilter`, `VirtualG920`, `DinputDevice` and the platform
-    file): every step that needs Administrator, with explicit inputs (nothing read from the user's settings):
+  - `Privileged.hpp` (library `wheelbri_privileged`, with `HideFilter`, `VirtualWheelDevice`, `DinputDevice` and the
+    platform file): every step that needs Administrator, with explicit inputs (nothing read from the user's settings):
     `findDriverScript` (next to the program and up to N folders above, never a drive's root), `runDriverScript`,
-    `installG920Driver`, `putHideFilter` (install-hide.ps1, then `HideFilter::waitUntilStarted`), `writeAllowedPid`,
-    `allowOnly(process)`. The app calls them directly when elevated (`ensureG920Driver`, `ensureHideFilter` in
+    `installWheelDriver`, `putHideFilter` (install-hide.ps1, then `HideFilter::waitUntilStarted`), `writeAllowedPid`,
+    `allowOnly(process)`. The app calls them directly when elevated (`ensureWheelDriver`, `ensureHideFilter` in
     main.cpp); the helper calls them for a standard-user app. New privileged steps go there, and into the helper.
   - `PrivilegedSteps.hpp`: the session's privileged steps as one interface, opened once per session
     (`PrivilegedSteps::open`): `DirectSteps` when the process is elevated (calls `privileged::` itself), else
     `HelperSteps` through the WheelBri Helper (`HelperClient`, one connection for the session, the server must be
     `wheelbri-helper.exe` next to this program; the user's HKCU DirectInput entries are kept here by
     `DirectInputUserEntries`). Neither: the session fails with "HELPER NOT INSTALLED" / "HELPER REFUSED". `runSession`,
-    `ensureHideFilter`, `ensureG920Driver` and `--prepare-hide` only go through it.
+    `ensureHideFilter`, `ensureWheelDriver` and `--prepare-hide` only go through it.
   - OS helpers in `Platform.hpp` (clock, sleep (a high-resolution timer on Windows), thread priority, child process in
     a kill-on-close job, `SingleInstance` lock so only one session runs per computer, console close handler,
     `isElevated`); `FfbSelfTest` (`--ffb-test`); `Housekeeping` (retention, pumped from the loop); `MappingView`
@@ -683,11 +683,12 @@ rewrites on every build only when it changes); views keep their own top-row cont
     missed and late notifications; a wake-up 50 ms after its deadline and a pass of 50 ms or more are warned about.
     Anything on the loop that must happen regularly goes by the clock, never by counting passes (the window's copy,
     `--print`, a lost wheel: 0.5 s of failed reads). Measuring: `scripts/make/measure.sh`.
-  - Phase 5 (`--virtual-g920`, Mode Virtual; as Administrator or through the WheelBri Helper, no shim in the game):
-    `VirtualG920::create(wheel, ...)` creates the target's software device (`wheelbri\G25`, `G27`, `G920` or `G923`)
-    for the `wheelbri-g920` driver while the service runs (Start first
-    installs that driver with `install-driver.ps1` when Windows' driver store has no `wheelbri-g920.inf`,
-    `ensureG920Driver` / `VirtualG920::driverState`; without it `create` fails at once with what to do, never
+  - Phase 5 (`--virtual-wheel`, Mode Virtual; as Administrator or through the WheelBri Helper, no shim in the game):
+    `VirtualWheelDevice::create(wheel, ...)` creates the target's software device (`wheelbri\G25`, `G27`, `G920` or
+    `G923`) for the `wheelbri-wheel` driver while the service runs (Start first installs that driver with
+    `install-driver.ps1` when Windows' driver store has no `wheelbri-wheel.inf`; the old `wheelbri-g920` counts as none
+    and `install-driver.ps1` removes it, `Get-LegacyNames` in `driver/common.ps1`;
+    `ensureWheelDriver` / `VirtualWheelDevice::driverState`; without it `create` fails at once with what to do, never
     "restart Windows") and keeps DirectInput's OEM entries for its vid:pid right while it exists (HKLM, and HKCU
     unless in the helper: `DirectInputUserEntries` in the app): `OEMName`, `OEMData` (the "driving" type, buttons),
     no `OEMForceFeedback` (Logitech's software registers one that only works with a real wheel; checked every 2 s)
@@ -748,18 +749,18 @@ rewrites on every build only when it changes); views keep their own top-row cont
   `debug`), else the app's level. Same rules as the shim inside the game: nothing in `DllMain`, lazy logging, no
   threads. Never ship Logitech's DLLs. `scripts/make/logi.sh` builds it and prints the registry commands.
 - `driver/` (Windows, UMDF 2, self-signed test certificate, built with VS + WDK; see README.md, "Drivers"):
-  - `wheelbri-g920` (`Driver.cpp`): HID minidriver for every virtual wheel, G25 (046D:C299), G27 (C29B), G920
-    (C262) or G923 (C26E): its INF binds `wheelbri\G25`, `\G27`, `\G920` and `\G923`, and `EvtDeviceAdd` reads the
-    device's hardware id to pick the identity (`virtualWheelForHardwareId`; unknown = the G920). The service's
-    `VirtualG920::create(wheel, ...)` creates the software device with that id (the helper's `CreateVirtualG920`
-    carries the profile name, g25 / g27 / g920 / g923, `requestVirtualWheel`; none = the G920). Reads
-    `StatePacket`s on 41329, decodes HID PID output reports into `FfbPacket`s to 41330, and answers HID++ for a
-    `hidpp` wheel (the G923, core `HidPp`). Compiles core's `HidG920`, `HidPid`, `HidPp`, `StatePacket`, `FfbPacket`
-    sources. Logs to `wheelbri-driver-<date>-<NN>.log` in the user's logs folder (see below).
-    Each state goes to Windows once (`Link::publish` / `answerRead`): a HID read gets the oldest state not handed out
-    yet or waits for the next one (up to 8 kept in order, so quick presses are not lost); until 2026-10-07 each state
-    answered every read that came meanwhile, the suspected cause of half a core busy (measured with `scripts/make/measure.sh`). Once a minute the
-    log says how many states came and how the reads were answered ("input, last 60 s: ...").
+  - `wheelbri-wheel` (`Driver.cpp`; `wheelbri-g920` until 2026-10-19): HID minidriver for every virtual wheel, G25
+    (046D:C299), G27 (C29B), G920 (C262) or G923 (C26E): its INF binds `wheelbri\G25`, `\G27`, `\G920` and `\G923`, and
+    `EvtDeviceAdd` reads the device's hardware id to pick the identity (`virtualWheelForHardwareId`; unknown = the
+    G920). The service's `VirtualWheelDevice::create(wheel, ...)` creates the software device with that id (the helper's
+    `CreateVirtualWheel` carries the profile name, g25 / g27 / g920 / g923, `requestVirtualWheel`; none = the G920).
+    Reads `StatePacket`s on 41329, decodes HID PID output reports into `FfbPacket`s to 41330, and answers HID++ for a
+    `hidpp` wheel (the G923, core `HidPp`). Compiles core's `HidWheelDevice`, `HidPid`, `HidPp`, `StatePacket`,
+    `FfbPacket` sources. Logs to `wheelbri-driver-<date>-<NN>.log` in the user's logs folder (see below). Each state
+    goes to Windows once (`Link::publish` / `answerRead`): a HID read gets the oldest state not handed out yet or waits
+    for the next one (up to 8 kept in order, so quick presses are not lost); until 2026-10-07 each state answered every
+    read that came meanwhile, the suspected cause of half a core busy (measured with `scripts/make/measure.sh`). Once a
+    minute the log says how many states came and how the reads were answered ("input, last 60 s: ...").
   - `hide/` (`wheelbri-hide`): upper filter on the game-controller interfaces of each rig device: exactly the HID
     interfaces DirectInput lists as game controllers (`HideFilter::check` via `dinput::gameControllerPaths`,
     `hidhide::instanceIdOfHidPath`; not compatible ids: many wheels are multi-axis controllers without
@@ -787,7 +788,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
     The app runs `install-hide.ps1 -NoRestart` and restarts a device that waits for it at once
     (`waitUntilStarted(..., restartAfterMs = 0)`): pnputil /restart-device refused there (exit 50) and the script then
     waited 15 s, the app 6 s more (36 + 6 s on 2026-10-06). The script's lines carry their time. The WheelBri Helper (SYSTEM) passes the
-    caller's logs folder to the install scripts (`-LogFolder`, `privileged::installG920Driver` / `putHideFilter`;
+    caller's logs folder to the install scripts (`-LogFolder`, `privileged::installWheelDriver` / `putHideFilter`;
     ProgramData's before ShareLogFolder): their own `%LOCALAPPDATA%` would be SYSTEM's, and install-hide.ps1 also sets
     HKLM LogFolder from it. The hide driver logs each program that opens the wheel or is refused by name
     (`NtQuerySystemInformation`, as `processImage`), once per program until the hiding changes.
@@ -828,27 +829,27 @@ rewrites on every build only when it changes); views keep their own top-row cont
   and looks for driver scripts only next to itself (3 folders up with `--console`). Links core, `wheelbri_privileged`
   and Windows libraries, not the app's objects.
 - `tools/uhid/` (C++, Linux only, `WE_BUILD_UHID`): Phase 4, `wheelbri-uhid`. The same virtual G920 as `driver/`
-  (`core` `HidG920` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read it
-  raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. Its descriptor is `g920ProtonReportDescriptor` (same report,
+  (`core` `HidWheelDevice` descriptor, `HidPid` device-side PID decoding) through the kernel's uhid; Proton games read
+  it raw with `PROTON_ENABLE_HIDRAW=0x046D/0xC262`. Its descriptor is `g920ProtonReportDescriptor` (same report,
   clutch Usage Z, throttle Usage Rz): Proton's DirectInput has a hack for 046D:C262 (Z -> Rz, Rz -> Slider), and
   with the Windows descriptor NFS read the clutch as throttle (2026-10-08); the G920 is on `BUS_USB`. `--target
   g25|g27|g920|g923` (default g920; the service passes the config's target): the others get
   `reportDescriptorFor(wheel, DescriptorFor::Linux)` on `BUS_VIRTUAL` (on USB the kernel's `hid-lg` claims the G25
   and G27 and then refuses a device not really on USB, and `hid-logitech-hidpp` matches the G923),
-  `PROTON_ENABLE_HIDRAW=0x046D/<its pid>`; the G923 also answers HID++ (`HidPp`). `UhidG920` holds the uhid protocol
+  `PROTON_ENABLE_HIDRAW=0x046D/<its pid>`; the G923 also answers HID++ (`HidPp`). `UhidWheel` holds the uhid protocol
   with no file descriptors so
-  `UhidG920Test` covers it; `UhidLoop` (`UhidLoopTest`) holds the command line (ports checked) and `InputFeed`
+  `UhidWheelTest` covers it; `UhidLoop` (`UhidLoopTest`) holds the command line (ports checked) and `InputFeed`
   (newest state, a keep-alive 100 ms after the last report written, neutral after 1.5 s); `main.cpp` is the fd/UDP
   loop: it waits on /dev/uhid and the state socket (`UdpLoopbackReceiver::nativeSocket`) and reads every queued uhid
-  event per wake (the kernel queues 32). It marks the device `uniq = kG920VirtualUniq`; the evdev listing
+  event per wake (the kernel queues 32). It marks the device `uniq = kVirtualWheelUniq`; the evdev listing
   (`WheelEvdev.cpp`) leaves such a device out, so the service never reads its own output (and Steam Input's virtual
   pads, 28de:11ff, copies of other controllers). The app's Start with Mode Virtual starts it on
-  Linux (`--virtual-g920` there, `Options::uhid`, `service/src/UhidProcess.cpp`: next to the program or
+  Linux (`--virtual-wheel` there, `Options::uhid`, `service/src/UhidProcess.cpp`: next to the program or
   build/tools/uhid/, `--stop-file` in the log folder, `--parent <app pid>` so it goes when the app is killed, and
   `--target`; one
   already running, wheelbri.sh's, is used and left alone). `wheelbri.sh` sees an app session through the service's
   `SingleInstance` lock (`flock`). The kernel's `hid-logitech-hidpp` claims 046D:C262 and gives up because output
-  report 0x11 is too short for HID++ ("not enough values in hidpp report 17"); `UhidG920Test` keeps it so, or it
+  report 0x11 is too short for HID++ ("not enough values in hidpp report 17"); `UhidWheelTest` keeps it so, or it
   would send HID++ commands that `HidPid` reads as force feedback. Steam's virtual pad is never hidden from a game
   (the user's rule, 2026-10-09): it is the only thing that controls the Steam Deck, so it always stays; no hiding of
   it, no advice to turn Steam Input off (README.md, "Linux and the Steam Deck").
@@ -866,7 +867,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   `WE_LOG_*` macros keep their letters. `install.ps1` asks one question, at the end of a successful install: restart Windows now
   (default yes; `shutdown /r /t 2`; firmer wording when `install-hide.ps1` exited 2; none with `-Quiet`). Only the
   installer asks this, never the app or the uninstaller (self-elevating; checks, closes a running copy, copies to `%ProgramFiles%\WheelBri` and moves an older install
-  (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the two driver install scripts (wheelbri-g920, wheelbri-hide), registers and starts the WheelBri Helper service (`WheelBriHelper`,
+  (from before the rename too: its program files, Settings > Apps entry, devices and drivers go, its config stays), runs the two driver install scripts (wheelbri-wheel, wheelbri-hide), registers and starts the WheelBri Helper service (`WheelBriHelper`,
   `Install-HelperService` in `driver/common.ps1`; the uninstaller and `clean-pc.ps1` remove it first with
   `Remove-HelperService`), shortcuts, Settings > Apps entry, Start
   menu folder with the app and "Uninstall WheelBri", closes at once after a success (only a failure waits for Enter), log in
@@ -903,7 +904,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   developers need belong in code comments and this file, not the docs.
 - Each target's ids, button counts and how sure the button order is are in README, "Targets"; the G923's HID++ for
   G HUB in README, "G HUB and HID++".
-- `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidG920Test` and `UhidLoopTest` on Linux, and
+- `tests/`: GoogleTest for `core/` (`wheelbri_tests`), plus `UhidWheelTest` and `UhidLoopTest` on Linux, and
   service code that needs no device (`ConfigPickerTest`, `ShimGamesViewTest`, `AppLogLevelTest`, `UiCanvasTest`). Use fakes of the interfaces
   (see `PipelineTest.cpp`), not real devices or sockets, except `UdpLoopbackTest` and `WaitSetTest` (the service's
   `platform::WaitSet` with loopback sockets, a pipe or an event), `FolderWatchTest` (inotify on a temporary folder),
@@ -942,7 +943,7 @@ rewrites on every build only when it changes); views keep their own top-row cont
   `kConstant` constants, `#pragma once`, `[[nodiscard]]` on queries, `const` parameters in definitions,
   float literals as `1.0F`. Headers in `core/include/wheelbri/`, included as `"wheelbri/X.hpp"`.
 - Every thread WheelBri starts is named (`platform::nameThisThread("wheelbri <role>")` first thing on the thread; the
-  G920 driver's with `SetThreadDescription`), so `measure.ps1` shows what costs what. Name new threads the same way.
+  wheel driver's with `SetThreadDescription`), so `measure.ps1` shows what costs what. Name new threads the same way.
 - Code on the loop (`Mapper::map`, `Pipeline::tick`, `DeviceProfile::encode`) must stay free of
   allocations and blocking calls.
 - **Logging** (full rules in `core/include/wheelbri/Logging.hpp`):

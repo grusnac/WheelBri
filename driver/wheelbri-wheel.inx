@@ -1,9 +1,9 @@
 ;
-; wheelbri-g920.inf: the virtual Logitech G920 of wheel-emulator (UMDF 2 HID minidriver).
+; wheelbri-wheel.inf: WheelBri's virtual wheel, a Logitech G25, G27, G920 or G923 (UMDF 2 HID minidriver).
 ;
-; The device is a software device that wheelbri-service creates while it runs (--virtual-g920), with hardware
-; ID wheelbri\G920, or wheelbri\G25 / wheelbri\G27 / wheelbri\G923 for the virtual G25 / G27 / G923 (the same
-; driver; the id decides which wheel it is).
+; The device is a software device that wheelbri-service creates while it runs (--virtual-wheel), with hardware
+; ID wheelbri\G25, wheelbri\G27, wheelbri\G920 or wheelbri\G923: one driver for all of them, the id decides which
+; wheel it is. Called wheelbri-g920 until 2026-10-19; install-driver.ps1 removes that package.
 ; Install: driver\install-driver.ps1 (Administrator).
 ; Needs Windows 11 (MsHidUmdf.inf, 22000+).
 ;
@@ -13,7 +13,7 @@ Class=HIDClass
 ClassGuid={745a17a0-74d3-11d0-b6fe-00a0c90f57da}
 Provider=%Provider%
 DriverVer=
-CatalogFile=wheelbri-g920.cat
+CatalogFile=wheelbri-wheel.cat
 PnpLockdown=1
 
 [DestinationDirs]
@@ -23,58 +23,58 @@ DefaultDestDir = 13
 1=%DiskName%,,,
 
 [SourceDisksFiles]
-wheelbri-g920.dll=1
+wheelbri-wheel.dll=1
 
 [Manufacturer]
 %Provider%=Wheelbri,NT$ARCH$.10.0...22000
 
 [Wheelbri.NT$ARCH$.10.0...22000]
-%DeviceDesc%=WheelbriG920, wheelbri\G920
-%DeviceDescG25%=WheelbriG920, wheelbri\G25
-%DeviceDescG27%=WheelbriG920, wheelbri\G27
-%DeviceDescG923%=WheelbriG920, wheelbri\G923
+%DeviceDesc%=WheelbriWheel, wheelbri\G920
+%DeviceDescG25%=WheelbriWheel, wheelbri\G25
+%DeviceDescG27%=WheelbriWheel, wheelbri\G27
+%DeviceDescG923%=WheelbriWheel, wheelbri\G923
 
-[WheelbriG920.NT]
+[WheelbriWheel.NT]
 CopyFiles=UMDriverCopy
 Include=MsHidUmdf.inf
 Needs=MsHidUmdf.NT
 Include=WUDFRD.inf
 Needs=WUDFRD_LowerFilter.NT
 
-[WheelbriG920.NT.hw]
+[WheelbriWheel.NT.hw]
 Include=MsHidUmdf.inf
 Needs=MsHidUmdf.NT.hw
 Include=WUDFRD.inf
 Needs=WUDFRD_LowerFilter.NT.hw
 
-[WheelbriG920.NT.Services]
+[WheelbriWheel.NT.Services]
 Include=MsHidUmdf.inf
 Needs=MsHidUmdf.NT.Services
 Include=WUDFRD.inf
 Needs=WUDFRD_LowerFilter.NT.Services
 
-[WheelbriG920.NT.Filters]
+[WheelbriWheel.NT.Filters]
 Include=WUDFRD.inf
 Needs=WUDFRD_LowerFilter.NT.Filters
 
-[WheelbriG920.NT.Wdf]
-UmdfService="wheelbri_g920", WheelbriG920_Install
-UmdfServiceOrder=wheelbri_g920
+[WheelbriWheel.NT.Wdf]
+UmdfService="wheelbri_wheel", WheelbriWheel_Install
+UmdfServiceOrder=wheelbri_wheel
 UmdfKernelModeClientPolicy=AllowKernelModeClients
 UmdfFileObjectPolicy=AllowNullAndUnknownFileObjects
 UmdfMethodNeitherAction=Copy
 UmdfFsContextUsePolicy=CanUseFsContext2
 
-[WheelbriG920_Install]
+[WheelbriWheel_Install]
 UmdfLibraryVersion=$UMDFVERSION$
-ServiceBinary="%13%\wheelbri-g920.dll"
+ServiceBinary="%13%\wheelbri-wheel.dll"
 
 [UMDriverCopy]
-wheelbri-g920.dll
+wheelbri-wheel.dll
 
 [Strings]
 Provider="WheelBri"
-DiskName="WheelBri G920 driver"
+DiskName="WheelBri wheel driver"
 DeviceDesc="Logitech G920 Driving Force Racing Wheel USB (wheelbri)"
 DeviceDescG25="Logitech G25 Racing Wheel USB (wheelbri)"
 DeviceDescG27="Logitech G27 Racing Wheel USB (wheelbri)"

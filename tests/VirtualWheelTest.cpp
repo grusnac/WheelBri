@@ -1,5 +1,5 @@
 #include "wheelbri/DeviceProfile.hpp"
-#include "wheelbri/HidG920.hpp"
+#include "wheelbri/HidWheelDevice.hpp"
 
 #include <gtest/gtest.h>
 
@@ -100,13 +100,13 @@ TEST(VirtualWheel, NothingElseIsAVirtualWheel) {
 
 // A hat value no wheel reports (8 and up, or below -1, from a corrupt report): the HID hat reads centred (8).
 TEST(VirtualWheel, AHatOutOfRangeIsPackedCentred) {
-    TargetReport report = g920Neutral();
+    TargetReport report = neutralReport();
     for (const std::int8_t hat : {std::int8_t{8}, std::int8_t{100}, std::int8_t{-5}, kHatCentered}) {
         report.hat = hat;
-        EXPECT_EQ(packG920Input(report)[12], 8) << static_cast<int>(hat);
+        EXPECT_EQ(packWheelInput(report)[12], 8) << static_cast<int>(hat);
     }
     report.hat = 7;
-    EXPECT_EQ(packG920Input(report)[12], 7);
+    EXPECT_EQ(packWheelInput(report)[12], 7);
 }
 
 // The descriptor for wheels the table may get later: HID++ with fewer than the G923's buttons has no HID++
@@ -114,7 +114,7 @@ TEST(VirtualWheel, AHatOutOfRangeIsPackedCentred) {
 TEST(VirtualWheel, DescriptorsForOtherCombinations) {
     VirtualWheel small = *virtualWheel("g923");
     small.buttons = kG920Buttons;
-    EXPECT_EQ(reportDescriptorFor(small, DescriptorFor::Windows).data(), g920ReportDescriptor(kG920Buttons).data());
+    EXPECT_EQ(reportDescriptorFor(small, DescriptorFor::Windows).data(), wheelReportDescriptor(kG920Buttons).data());
     VirtualWheel gamesPedals = *virtualWheel("g923");
     gamesPedals.logitechPedals = false;
     EXPECT_EQ(reportDescriptorFor(gamesPedals, DescriptorFor::Windows).data(),

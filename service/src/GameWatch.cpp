@@ -103,7 +103,7 @@ std::string GameWatch::describeFollowed() const {
     const std::string overlay = describeOverlay(*state.game);
     if (overlay.empty()) return text + ": game profile " + state.game->id + " (no pedal changes)";
     text += ": game profile " + state.game->id + " laid over the defaults (" + overlay + ")";
-    return text + (routePedals_ ? ": the virtual G920's pedals are routed to match"
+    return text + (routePedals_ ? ": the virtual wheel's pedals are routed to match"
                                 : ": the shim in the game applies it, the service leaves the pedals alone");
 }
 
