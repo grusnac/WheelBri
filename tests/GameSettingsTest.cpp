@@ -220,8 +220,9 @@ TEST(GameSettings, FfbGainComesFromTheUserThenTheProfile) {
     const GameProfile* const payback = gameProfileFor("NeedForSpeedPayback.exe");
     ASSERT_NE(unbound, nullptr);
     ASSERT_NE(payback, nullptr);
-    EXPECT_EQ(gameFfbGain(*unbound, {}), 1.0F);   // no built-in profile changes the strength: as the game asks
-    EXPECT_EQ(gameFfbGain(*payback, {}), 1.0F);
+    EXPECT_EQ(gameFfbGain(*unbound, {}), 1.0F);   // no gain in its profile: as the game asks
+    EXPECT_EQ(gameFfbGain(*payback, {}), 3.0F);   // its profile's
+    EXPECT_EQ(gameFfbGain(*payback, {{"nfspayback", 1.0F}}), 1.0F);   // the user's own wins
     EXPECT_EQ(gameFfbGain(*unbound, {{"nfsunbound", 2.0F}}), 2.0F);
 
     const EmulatorConfigResult good = load("[game_ffb_gain]\nnfsunbound = 2.5\n");

@@ -1893,6 +1893,21 @@ float MappingEditView::drawGameForces(const std::size_t index, float y) {
         y += 12;
     }
     y += 4;
+    // What the game's own profile changes here (NFS Payback: its pushing forces x3, the Steering force and Vibration
+    // rows), so it is not only a number below.
+    if (game.ffbGain.has_value()) {
+        const std::string times = tuning::formatNumber(*game.ffbGain, 2);   // e.g. "3"
+        const bool overridden = own != nullptr && (own->ffbGains[static_cast<std::size_t>(FfbGroup::Constant)] ||
+                                                   own->ffbGains[static_cast<std::size_t>(FfbGroup::Periodic)]);
+        const std::string line =
+            "Its game profile: Steering force and Vibration x" + times + " (" + game.ffbNote + ")" +
+            (overridden ? "; your own values below replace it" : "; Default below goes back to it");
+        for (const std::string& part : wrap(line, gameChars(), 2)) {
+            window_.text(gameX(), y, part, kCaution);
+            y += 12;
+        }
+        y += 4;
+    }
     const auto row = [&](const std::string& label, const TuningField field, const std::string& value,
                          const bool mine, const std::string& about, std::function<void()> reset) {
         window_.text(gameX(), y + 4, label, kText);

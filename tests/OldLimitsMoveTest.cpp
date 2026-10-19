@@ -104,6 +104,13 @@ protected:
         view.update();
         view.draw();
     }
+    bool click(MappingEditView& view, const std::string& value) {
+        frame(view);
+        const RecordingWindow::Text* const text = window_.startingWith(value);
+        if (text == nullptr) return false;
+        view.onClick(text->x + 1, text->y + 1);
+        return true;
+    }
 
     RecordingWindow window_;
     std::filesystem::path dir_;
@@ -150,6 +157,21 @@ TEST_F(OldLimitsMove, ValuesTheUserChoseStay) {
     frame(view);
     EXPECT_EQ(readFileText(own()).value_or(""), mine);
     EXPECT_EQ(window_.startingWith("Force feedback: strength and cap are now"), nullptr);
+}
+
+// A game profile's own force feedback gain (NFS Payback's x3) is said in its Force feedback sub-tab, not only shown as
+// the Steering force and Vibration numbers.
+TEST_F(OldLimitsMove, AProfilesGainIsSaidOnItsForceFeedbackTab) {
+    std::ofstream(own(), std::ios::binary) << "[emulator]\n[ffb]\nmaster_gain = 1.0\nmax_magnitude = 1.0\n";
+    ConfigPicker picker(window_, settings());
+    MappingEditView view(window_, dir_ / "rigs", dir_ / "app.ini", picker);
+    view.setPage(MappingEditView::Page::Games);
+    ASSERT_TRUE(click(view, "NFS Payback"));
+    ASSERT_TRUE(click(view, "Force feedback"));
+    frame(view);
+    EXPECT_NE(window_.startingWith("Its game profile: Steering force and Vibration x3 ("), nullptr);
+    ASSERT_NE(window_.startingWith("Steering force"), nullptr);
+    EXPECT_NE(window_.startingWith("the profile's; constant force"), nullptr);   // the row says whose 3 it is
 }
 
 }  // namespace

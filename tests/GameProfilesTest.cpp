@@ -265,11 +265,16 @@ TEST(GameProfiles, FfbGain) {
     EXPECT_FALSE(parse("[ffb]\nstrength = 2\n").profile.has_value());
 }
 
-// Every game plays its force feedback as it sends it: no built-in profile changes the strength (the wheel's own app
-// sets how strong). The user can still raise one game's in the Games tab.
-TEST(GameProfiles, NoBuiltInProfileChangesTheForceFeedbackStrength) {
+// Only NFS Payback's profile changes the force feedback strength (x3 on its pushing forces); every other game plays
+// it as it sends it (the wheel's own app sets how strong). The user can change any game's in the Games tab.
+TEST(GameProfiles, OnlyPaybackChangesTheForceFeedbackStrength) {
     for (const GameProfile& profile : gameProfiles()) {
-        EXPECT_FALSE(profile.ffbGain.has_value()) << profile.id;
+        if (profile.id == "nfspayback") {
+            EXPECT_EQ(profile.ffbGain, 3.0F);
+            EXPECT_FALSE(profile.ffbNote.empty());
+        } else {
+            EXPECT_FALSE(profile.ffbGain.has_value()) << profile.id;
+        }
     }
     const GameProfile* const unbound =
         gameProfileFor("D:\\Steam\\steamapps\\common\\Excalibur\\NeedForSpeedUnbound.exe");
