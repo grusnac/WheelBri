@@ -687,7 +687,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
     `VirtualWheelDevice::create(wheel, ...)` creates the target's software device (`wheelbri\G25`, `G27`, `G920` or
     `G923`) for the `wheelbri-wheel` driver while the service runs (Start first installs that driver with
     `install-driver.ps1` when Windows' driver store has no `wheelbri-wheel.inf`; the old `wheelbri-g920` counts as none
-    and `install-driver.ps1` removes it, `Get-LegacyNames` in `driver/common.ps1`;
+    and `install-driver.ps1` removes it, `Get-LegacyNames` in `driver/common.ps1`; both install scripts also remove
+    their own earlier copies, `Remove-OlderCopies`, except one a device still uses;
     `ensureWheelDriver` / `VirtualWheelDevice::driverState`; without it `create` fails at once with what to do, never
     "restart Windows") and keeps DirectInput's OEM entries for its vid:pid right while it exists (HKLM, and HKCU
     unless in the helper: `DirectInputUserEntries` in the app): `OEMName`, `OEMData` (the "driving" type, buttons),

@@ -53,10 +53,12 @@ try {
     $inf = Find-BuiltPackage $PSScriptRoot 'wheelbri-wheel' $Configuration
     Add-PackageCertificate $inf 'wheelbri-wheel'
     Remove-LegacyPackages 'wheelbri-wheel' | Out-Null
-    Invoke-Pnputil @('/add-driver', $inf.FullName, '/install') 'installing wheelbri-wheel' | Out-Null
+    $published = Add-Package $inf 'wheelbri-wheel' $true 'installing wheelbri-wheel'
     if (@(Get-InstalledPackages 'wheelbri-wheel').Count -eq 0) {
         Stop-WithError 'pnputil reported success, but Windows does not list wheelbri-wheel.inf as installed.'
     }
+    # The earlier builds' copies (the devices are on the new one now; one still in use stays).
+    Remove-OlderCopies 'wheelbri-wheel' $published | Out-Null
     Write-Host ''
     Write-Host 'Installed. Press Start in WheelBri (or run wheelbri-service --virtual-wheel as Administrator) to create the virtual wheel.' -ForegroundColor Green
     $exitCode = 0

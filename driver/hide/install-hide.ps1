@@ -128,7 +128,7 @@ try {
         Invoke-Pnputil @('/scan-devices') 'rescanning devices' | Out-Null   # the devices back on their own driver first
     }
     # Added to Windows' driver store only (no /install): no device has its hardware id, so it never goes on by itself.
-    Invoke-Pnputil @('/add-driver', $inf.FullName) 'adding wheelbri-hide to Windows' | Out-Null
+    $published = Add-Package $inf 'wheelbri-hide' $false 'adding wheelbri-hide to Windows'
     Write-Host ''
     if ($wanted.Count -eq 0) {
         Write-Host 'Package added. The app puts the filter on the rig''s devices (Wheel setup) when you press Start.' -ForegroundColor Green
@@ -353,6 +353,8 @@ public static class HideInstall {
             $exitCode = 0
         }
     }
+    # The earlier builds' copies: one a device still runs is refused and stays (the next install takes it).
+    Remove-OlderCopies 'wheelbri-hide' $published | Out-Null
 } catch {
     Write-Host "install-hide.ps1 failed: $($_.Exception.Message)" -ForegroundColor Red
 } finally {

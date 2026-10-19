@@ -27,6 +27,53 @@ function Invoke-Pnputil([string[]]$arguments, [string]$what) {
     return $code
 }
 
+# Adds the built package <inf> (pnputil /add-driver, with /install when <install>) and stops the script unless pnputil
+# ended well. Returns its published name in Windows' driver store (oemNN.inf): the copy of <name>.inf that is new
+# there, or, when the very same package was there already, the one pnputil names. Empty when neither says.
+function Add-Package($inf, [string]$name, [bool]$install, [string]$what) {
+    $before = @(Get-InstalledPackages $name | ForEach-Object { $_.ToLower() })
+    $arguments = @('/add-driver', $inf.FullName)
+    if ($install) { $arguments += '/install' }
+    $lines = @(& pnputil @arguments)
+    $code = $LASTEXITCODE
+    $lines | ForEach-Object { Write-Host $_ }
+    if ($script:PnputilOk -notcontains $code) {
+        Stop-WithError "$what failed: pnputil $($arguments -join ' ') exited with $code"
+    }
+    if ($code -eq 3010) { Write-Host "$what needs a restart of Windows to take effect." -ForegroundColor Yellow }
+    $after = @(Get-InstalledPackages $name | ForEach-Object { $_.ToLower() })
+    $new = @($after | Where-Object { $before -notcontains $_ })
+    if ($new.Count -eq 1) { return $new[0] }
+    foreach ($line in $lines) {
+        if ($line -match '(oem\d+\.inf)' -and ($after -contains $Matches[1].ToLower())) { return $Matches[1].ToLower() }
+    }
+    return ''
+}
+
+# Every installed copy of <name>.inf but <keep>: each build is a new package and pnputil keeps them all, so earlier
+# installs pile up in Windows' driver store. Plain /delete-driver: pnputil refuses a copy a device still uses, and
+# that one stays (said; a later install takes it). Nothing when <keep> is not known. Returns how many went.
+function Remove-OlderCopies([string]$name, [string]$keep) {
+    if (-not $keep) {
+        Write-Host "older copies of $name.inf left as they are (which one is new is not known)" -ForegroundColor Yellow
+        return 0
+    }
+    $removed = 0
+    foreach ($package in @(Get-InstalledPackages $name)) {
+        if ($package.ToLower() -eq $keep.ToLower()) { continue }
+        $lines = @(& pnputil /delete-driver $package)
+        if ($LASTEXITCODE -eq 0) {
+            $removed++
+            Write-Host "removed $package (an older copy of $name.inf)"
+        } else {
+            $lines | ForEach-Object { Write-Host $_ }
+            Write-Host "kept $package (an older copy of $name.inf, still in use?): pnputil exited with $LASTEXITCODE" `
+                -ForegroundColor Yellow
+        }
+    }
+    return $removed
+}
+
 # The built package <name>.inf + <name>.cat under <folder>\x64\<Configuration>, or stop.
 function Find-BuiltPackage([string]$folder, [string]$name, [string]$configuration) {
     $out = Join-Path $folder "x64\$configuration"
