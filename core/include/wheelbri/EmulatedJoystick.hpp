@@ -50,7 +50,8 @@ enum class ObjectGuid : std::uint8_t {
 };
 
 // What an object reports from the TargetReport.
-enum class Control : std::uint8_t { Steering, Throttle, Brake, Clutch, Button, Pov };
+// Combined: the throttle and the brake on one axis (combinedPedals in DeviceProfile.hpp), the G25's.
+enum class Control : std::uint8_t { Steering, Throttle, Brake, Clutch, Combined, Button, Pov };
 
 struct EmulatedObject {
     ObjectGuid guid = ObjectGuid::Other;
@@ -82,11 +83,14 @@ struct JoystickLayout {
     ObjectGuid throttle = ObjectGuid::YAxis;
     ObjectGuid brake = ObjectGuid::RzAxis;
     ObjectGuid clutch = ObjectGuid::Slider;     // ObjectGuid::Any = the device has no clutch axis
+    // The combined pedals' axis (Any: none). Left out when a pedal is on that axis (wheelbri-shim.ini, a game profile).
+    ObjectGuid combined = ObjectGuid::Any;
     bool invertPedals = false;                  // flip pressed/released on top of the profile's encoding
     std::size_t buttonCount = 11;
 };
 
-// Built-in layout for a profile name: the G920 and the G25 have the same (the G25's is unverified).
+// Built-in layout for a profile name: throttle Y, brake Rz, clutch Slider; the G25's clutch on Z and combined pedals
+// on Slider (layoutFor).
 [[nodiscard]] JoystickLayout layoutFor(std::string_view profile, std::size_t buttonCount);
 // False if two controls share an axis or a pedal uses X (the wheel).
 [[nodiscard]] bool isValid(const JoystickLayout& layout);

@@ -82,7 +82,8 @@ target_compile_definitions(wheelbri_tests PRIVATE WHEELBRI_CONFIG_DIR="${PROJECT
 if(TARGET wheelbri_privileged)
     target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp FolderWatchTest.cpp DeviceWatchTest.cpp HelperProbeTest.cpp
         AppLogLevelTest.cpp UiCanvasTest.cpp ConfigPickerTest.cpp ShimGamesViewTest.cpp HoverTextTest.cpp
-        MappingAutoSaveTest.cpp
+        MappingAutoSaveTest.cpp GamesListWidthTest.cpp GameFileSeenTest.cpp
+        GameRemoveTest.cpp
         ${PROJECT_SOURCE_DIR}/service/src/DeviceChanges.cpp ${PROJECT_SOURCE_DIR}/service/src/DeviceWatch.cpp
         ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp ${PROJECT_SOURCE_DIR}/service/src/AppLogLevel.cpp
         ${PROJECT_SOURCE_DIR}/service/src/ConfigPicker.cpp ${PROJECT_SOURCE_DIR}/service/src/ShimGamesView.cpp

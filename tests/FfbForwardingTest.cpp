@@ -487,7 +487,7 @@ TEST(DiEffect, PeriodicDirectionAndPhase) {
 // DICONDITION values out of DirectInput's ranges are clamped: a negative dead band is none, one past 10000 is all.
 TEST(DiEffect, ConditionValuesOutOfRangeAreClamped) {
     const FfbEffect wild =
-        di::condition(FfbEffectType::Friction, -30000, 20000, -20000, 40000, 40000, -500, 0xFFFFFFFFU);
+        di::condition(FfbEffectType::Friction, -30000, 20000, -20000, 40000, 40000, -500, 40000U);
     EXPECT_EQ(wild.type, FfbEffectType::Friction);
     EXPECT_FLOAT_EQ(wild.condition.center, -1.0F);
     EXPECT_FLOAT_EQ(wild.condition.positiveCoefficient, 1.0F);
@@ -497,7 +497,30 @@ TEST(DiEffect, ConditionValuesOutOfRangeAreClamped) {
     EXPECT_FLOAT_EQ(wild.condition.deadband, 0.0F);
     EXPECT_FLOAT_EQ(wild.gain, 1.0F);
     EXPECT_FLOAT_EQ(di::condition(FfbEffectType::Inertia, 0, 0, 0, 0, 0, 20000, 0).condition.deadband, 1.0F);
-    EXPECT_FLOAT_EQ(di::constantForce(std::numeric_limits<std::int32_t>::min(), 1.0F, 0).constantLevel, -1.0F);
+}
+
+// GRID (2008) passes lMagnitude = -2147483648 while racing: garbage, not a force. It and any value far outside
+// DirectInput's ranges give no force instead of a full push; a little over full scale is still clamped.
+TEST(DiEffect, ValuesFarOutOfRangeGiveNoForce) {
+    constexpr auto kMin = std::numeric_limits<std::int32_t>::min();
+    constexpr auto kMax = std::numeric_limits<std::int32_t>::max();
+    EXPECT_TRUE(di::isGarbage(kMin));
+    EXPECT_TRUE(di::isGarbage(100001));
+    EXPECT_FALSE(di::isGarbage(-100000));
+    EXPECT_FALSE(di::isGarbage(10000));
+    EXPECT_FLOAT_EQ(di::constantForce(kMin, 1.0F, 10000).constantLevel, 0.0F);
+    EXPECT_FLOAT_EQ(di::constantForce(kMin, -1.0F, 10000).constantLevel, 0.0F);
+    EXPECT_FLOAT_EQ(di::constantForce(kMax, 1.0F, 10000).constantLevel, 0.0F);
+    EXPECT_FLOAT_EQ(di::constantForce(-12000, 1.0F, 10000).constantLevel, -1.0F);
+    EXPECT_FLOAT_EQ(di::constantForce(5000, 1.0F, 0xFFFFFFFFU).gain, 0.0F);
+    const FfbEffect wave = di::periodic(FfbEffectType::Sine, 0x80000000U, kMin, 0, 100000, 1.0F, 10000);
+    EXPECT_FLOAT_EQ(wave.periodic.magnitude, 0.0F);
+    EXPECT_FLOAT_EQ(wave.periodic.offset, 0.0F);
+    const FfbEffect spring = di::condition(FfbEffectType::Spring, kMin, kMax, kMin, 0xFFFFFFFFU, 10000, 0, 10000);
+    EXPECT_FLOAT_EQ(spring.condition.center, 0.0F);
+    EXPECT_FLOAT_EQ(spring.condition.positiveCoefficient, 0.0F);
+    EXPECT_FLOAT_EQ(spring.condition.negativeCoefficient, 0.0F);
+    EXPECT_FLOAT_EQ(spring.condition.positiveSaturation, 0.0F);
 }
 
 // A game changing any one parameter of an effect while it plays (a spring's centre, a sine's period): the change

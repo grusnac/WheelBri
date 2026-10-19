@@ -324,8 +324,10 @@ rewrites on every build only when it changes); views keep their own top-row cont
     levels.
   - The G920 has 19 buttons (`kG920Buttons`, `g920Spec().buttonNames`, 0-based): the wheel's 11 (0-10), an unused 11
     (joy.cpl 12) and the Driving Force Shifter's Gear 1-6 (12-17) and Gear R (18), as Logitech's shifter FAQ gives them
-    (joy.cpl 13-19). The G25 has 19 too (`kG25Buttons`), the G27 23 (`kG27Buttons`), the G923 24 (`kG923Buttons`:
-    the G920's plus Plus, Minus and the dial); each target (shim, virtual device, uhid) reports all of its own;
+    (joy.cpl 13-19). The G25 has 19 too (`kG25Buttons`; round 73: red 0-3, paddles R 4 / L 5, wheel R 6 / L 7,
+    gears 8-14, black diamond 15-18 top/left/bottom/right, as games of its time saw it; sources in README, "Targets";
+    `config/g25.ini` maps a rim's A/B/X/Y to black bottom/right/left/top), the G27 23 (`kG27Buttons`), the G923 24
+    (`kG923Buttons`: the G920's plus Plus, Minus and the dial); each target (shim, virtual device, uhid) reports all of its own;
     `IDeviceProfile::buttonCount` counts the gap, and `encode` only passes named buttons. Specs: `g25Spec()`,
     `g27Spec()`, `g920Spec()`, `g923Spec()`, `makeProfile("g25" | "g27" | "g920" | "g923")`.
   - `HidPp` (README, "G HUB and HID++"): device-side HID++ 2.0 for G HUB on a `VirtualWheel` with
@@ -338,7 +340,13 @@ rewrites on every build only when it changes); views keep their own top-row cont
     `virtualWheelForHardwareId`) holds each wheel's identity (hardware id `wheelbri\G25` / `G27` / `G920` / `G923`,
     instance names, 046D:C299 / C29B / C262 / C26E, product string, DirectInput name, button count; the G923 also
     `hidpp`, `unsignedAxes` and `logitechPedals`: HID brake Z, clutch Rz, with `directInputAxisEntries` keeping games
-    on Rz / Slider) and `isVirtualWheelId` keeps all four out of hiding;
+    on Rz / Slider; the G25 `clutchOnZ` and `combinedPedals` (rounds 72, 74): on Windows its clutch is HID Z and a
+    fifth axis, Slider, carries `combinedPedals()` (DeviceProfile.hpp: the middle at rest, down with the throttle, up
+    with the brake), so its input report is 15 bytes (`InputReport`, `packInputFor(wheel, report, where)`;
+    `kMaxInputReportSize`); the shim's G25 `layoutFor` matches (`JoystickLayout::combined`, `Control::Combined`,
+    left out when a pedal is moved onto its axis). Race Driver: GRID's G25 preset reads Slider 0 as combined pedals:
+    a released clutch there was a held brake, nothing there (0) a held throttle) and `isVirtualWheelId` keeps all four
+    out of hiding;
     `HidPid` is device-side HID PID decoding. Both are shared by `driver/`, `tools/uhid` and the tests. pid.dll sends
     type-specific parameters with effect block 0 and then the Set Effect naming the block: `HidPid` keeps them pending
     for that Set Effect and never applies them early (Windows sends reports twice, a new effect's parameters before
@@ -362,7 +370,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
   - `LiveLog`: follows the components' log files (tail on first read, then what is appended) and parses
     spdlog and `[time] text` lines for the Logs tab; `LiveLogTest` covers it with temporary files.
   - Game profiles (`GameProfiles`), the exception and not the rule. The defaults (the target's own layout:
-    `layoutFor`, a real G920's throttle Y, brake Rz, clutch Slider) are the base for every game. A game that needs
+    `layoutFor`, a real G920's throttle Y, brake Rz, clutch Slider; the G25's clutch Z) are the base for every game.
+    A game that needs
     something else gets `config/games/<id>.ini` holding ONLY what it changes: `[game]` label / program (file name) /
     target (the target it was checked with), `[pedals]` throttle_axis / brake_axis / clutch_axis (x y z rx ry rz slider
     none), only the keys that differ. It is laid over the defaults like a sieve (`overlay`: a key set replaces the
@@ -409,7 +418,18 @@ rewrites on every build only when it changes); views keep their own top-row cont
     refused while the game's program runs, `platform::runningPrograms`) writes the values shown; **Locate file**
     (`locateGameFile`, `platform::pickFile`: GetOpenFileNameW, comdlg32; none on Linux, `canPickFile`) picks the file
     when it is not under Documents, kept only if it holds every setting, in `app.ini` as `game_file.<id>`
-    (`gameFilePlace`: that file's folder as root, else Documents). The app's Games tab edits them:
+    (`gameFilePlace`: that file's folder as root, else the file the game was seen writing, else Documents). Which file
+    is the game's (round 69): not by its contents (NFS Heat's PROFILEOPTIONS holds the same eight Wheel* entries) nor
+    its install folder (Unbound installs in "Excalibur"); when a known game ends (`setGameNow` sees its id go,
+    `learnGameFile`, not while its program still runs), core `settingsFilesWrittenBetween` looks for the file it
+    wrote while it ran (`*/settings/PROFILEOPTIONS` in every Documents folder, and the located one); exactly one is
+    kept as `game_file_seen.<id>`. A located file is `confirmed` when the game was seen writing it or it is where
+    the profile says (`settingsFileFits`); otherwise the Game file sub-tab says so in amber and Save to file writes
+    on the second press only (`saveAnyway_`). Tests: `GameSettingsTest`, `GameFileSeenTest`.
+    Remove (`removeGame`, round 71): a game the user added leaves `games.ini` with its values (stopped only by that
+    save's own error, never by an error shown earlier) and its folder leaves `shim-games.txt` (`ShimGamesView::forget`,
+    files left) unless WheelBri's shim is in it (`GameRemoveTest`).
+    The app's Games tab edits them:
     `MappingEditView` with `Page::Games` (the same `MappingModel` as the Mapping tab, saved as it changes, which keeps
     only the general rotation; the target is the Mapping tab's): a list of `gameProfiles()`, and for the one
     picked three sections, MAPPING (the profile's pedal overlay, its rotation row), FORCE FEEDBACK (its gain row), GAME
@@ -425,7 +445,8 @@ rewrites on every build only when it changes); views keep their own top-row cont
     open). The pedals: both ways use the same file:
     - virtual G920 / wheelbri-uhid: the service routes the published pedals (`routePedals(device, overlay(device,
       profile))` → `PedalRoute`, `Pipeline::setPedalRoute`, atomic, applied to the packet only; `lastReport()` and
-      telemetry stay as mapped). The device's pedal axes are fixed (y, rz, slider), so a profile that is not a
+      telemetry stay as mapped). The device's pedal axes are fixed (y, rz, slider; the G25's y, rz, z), so a
+      profile that is not a
       permutation of them is refused for it (logged once, pedals left).
     - in-game shim: the shim knows its game (`GetModuleFileNameW`), and `ShimConfig::layout()` is the sieve of three
       layers: the target's defaults, `wheelbri-shim.ini`'s *_axis, the game profile (if it fits the shim's target and
@@ -458,7 +479,9 @@ rewrites on every build only when it changes); views keep their own top-row cont
     string helpers (`HideFilter` uses them; HidHide itself is no longer used).
   - The rig (`Rig.hpp`): every device the user has (`[device_N]` name, id, kind: guessed from the name, no longer
     shown or chosen in the Rig tab; `Rig::wheel()` is the first device of kind wheel, else the first) and each
-    control's name and invert, written `label | invert`. No roles (since 2026-10-13): the popup's "It is" buttons
+    control's name and what it is, written `label | kind` (no invert since 2026-10-19: an older `| invert` is read and
+    ignored; which way an axis reads is the Mapping tab's Invert, a secondary axis' its Inverted on the threshold
+    row). No roles (since 2026-10-13): the popup's "It is" buttons
     (`kAxisNames`, `kButtonNames`) only fill in the name; an older rig's `| role` is read and ignored (`kOlderRoles`:
     a role-only control gets the role's name, a steering axis makes its device kind wheel) and not written again;
     one rig, `<name>.ini` in `rigsFolder()` (`%LOCALAPPDATA%\wheelbri\rigs`, "My rig" when first saved), named in
@@ -467,8 +490,9 @@ rewrites on every build only when it changes); views keep their own top-row cont
     one as saved: its named controls, `tileCount`) and every other connected device shown at once (one scrolled
     section each, `shownDevices`; the bottom-left list `listedDevices`, with Forget); a device joins the rig when one of its controls is named (`addFocusDevice`: the rig's devices
     are what the hide filter hides, so connected devices are never added by themselves). Detect: a touched control on
-    any device opens its popup and scrolls to its section; the rest position taken after ~20 reads gives a pedal's
-    invert; the Mapping tab maps from it, by hand. A session takes the names it shows from the active rig, else from the older
+    any device opens its popup and scrolls to its section; the rest position taken after ~20 reads is shown in the
+    popup ("released at the top, so Invert it on the Mapping tab"); the Mapping tab maps from it, by
+    hand. A session takes the names it shows from the active rig, else from the older
     per-device files (`DeviceLabels.hpp`, `deviceLabelsFolder()`), which the first rig also imports. Mapping is not
     done in the rig. Once a device has a named control its section lists only the named ones (core `foldUnnamed`,
     `indexRanges`: "4 axes not named (1, 3, 4, 7)"); Show all / Named only (`showAll_`) switch it for every device.
@@ -535,7 +559,11 @@ rewrites on every build only when it changes); views keep their own top-row cont
     app.ini, `ShimGamesView::atStop`; the Games tab's Ask again). The Games tab (`MappingEditView` Games page, round
     61) shows each game once (built in, yours, then listed folders WheelBri knows no game in, with "Add as your
     game..."), a folder tag, and the FOLDER section (`drawGameFolder`: Put / Remove shim, Forget folder, Choose
-    folder...); `shim-games.txt` and `games.ini` are unchanged. The App's popups: "Would
+    folder...); `shim-games.txt` and `games.ini` are unchanged. The list's width (round 69): `gameListW()` from
+    `kGameListMinW` (196) to `maxGameListW()` (half the canvas, the game's side at least `kGameSideMinW`), dragged by
+    the bar right of it (`pressListBar`, `onPointer`; a double-click fits the longest name and tag) and kept as
+    `games_list_width` in app.ini; the game's side starts at `gameX()` and its texts fit `gameChars()`, which a wider
+    list makes smaller (`GamesListWidthTest`). The App's popups: "Would
     you like to delete the shim from the target folder?" after a shim session (not when the window closes), notices.
     The shim's sources are `AppSettings::shimDlls` (`shimDllPaths()` in main.cpp: `shim\dinput8.dll` and
     `shim\x86\dinput8.dll` next to the program, or `build/shim/` and `build-x86/shim/`) and
@@ -690,7 +718,9 @@ rewrites on every build only when it changes); views keep their own top-row cont
   `FfbForwarder` sends to the service (timing, keep-alives, every slot re-sent every 250 ms, stopped and free ones
   too, so a lost "stop" heals; each slot belongs to the device that created its effect and carries a ticket, so
   one device's Unacquire, Release or reset leaves another's effects alone and a stale effect cannot touch a reused
-  slot; the DLL pins itself on the first export call); in that mode the physical device is opened
+  slot; the DLL pins itself on the first export call; a constant force's magnitude and direction as the game
+  passed them are logged when they change, the first 300 times, `logRawConstant`); in that mode the physical
+  device is opened
   non-exclusively because the service owns its force feedback. Other devices stay `ProxyDevice<T>`
   (log and forward). Settings: optional `wheelbri-shim.ini` next to the DLL (`ShimConfig`). Once a minute (and at
   release) `StateFeed` logs an `input:` line (core `InputReadStats`): how often the game reads (NFS: ~90/s), packets per

@@ -159,19 +159,22 @@ DeviceProfileSpec g25Spec() {
     spec.steeringRange = {0, 65535};
     spec.pedalRange = {0, 65535};
     spec.pedalsReleasedAtMax = true;   // Logitech's pedals of that time report released as the top of the range
-    // Gears 1-6 and reverse at 8..14 (Logitech's numbering); the rest is a guess (kG25Buttons): the shifter's 4 black
-    // buttons, the paddles, the wheel's two buttons, then the shifter's 4 red buttons.
+    // As games of its time saw it on Windows (Logitech's driver), from several sources (README, "Targets"): the
+    // shifter's 4 red buttons 0-3 (left to right), the paddles 4 (right) and 5 (left), the wheel's two buttons
+    // 6 (right) and 7 (left), gears 1-6 and reverse 8-14 (Logitech's own numbering; in sequential mode the shifter
+    // presses 8 and 9), the shifter's 4 black buttons 15-18 (its diamond: top, left, bottom, right). The D-pad is a
+    // hat.
     spec.buttonNames = {
-        "Black 1", "Black 2", "Black 3", "Black 4", "R Paddle", "L Paddle", "R Wheel", "L Wheel",
-        "Gear 1",  "Gear 2",  "Gear 3",  "Gear 4",  "Gear 5",   "Gear 6",   "Gear R",
-        "Red 1",   "Red 2",   "Red 3",   "Red 4",
+        "Red 1",  "Red 2",  "Red 3",  "Red 4",  "R Paddle", "L Paddle", "R Wheel", "L Wheel",
+        "Gear 1", "Gear 2", "Gear 3", "Gear 4", "Gear 5",   "Gear 6",   "Gear R",
+        "Blk top", "Blk left", "Blk bottom", "Blk right",
     };
     using Place = ButtonGroup::Place;
     spec.buttonGroups = {
-        {"BLACK", {0, 1, 2, 3}, Place::Left},            // the shifter's black buttons
+        {"RED", {0, 1, 2, 3}, Place::Left},              // the shifter's red buttons, left to right
         {"PADDLES", {5, 4}, Place::Left},                // L Paddle, R Paddle
         {"WHEEL", {7, 6}, Place::Right},                 // L Wheel, R Wheel
-        {"RED", {15, 16, 17, 18}, Place::Right},         // the shifter's red buttons
+        {"BLACK", {15, 16, 17, 18}, Place::Right},       // the shifter's black diamond
         {"SHIFTER", {8, 9, 10, 11, 12, 13, 14}, Place::Below},
     };
     return spec;

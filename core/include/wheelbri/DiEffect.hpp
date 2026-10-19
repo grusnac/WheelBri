@@ -13,6 +13,16 @@
 
 namespace wheelbri::di {
 
+// Largest magnitude, offset, coefficient, saturation or gain still read as a (clamped) value: ten times
+// DirectInput's full scale. Anything beyond is not a force the game meant: GRID (2008) passes
+// lMagnitude = -2147483648 (what x86 makes of a float that is NaN or out of range) and that must not
+// become a full push. Such values give 0 instead.
+inline constexpr std::int64_t kGarbageAbove = 100000;
+
+[[nodiscard]] constexpr bool isGarbage(const std::int64_t value) {
+    return value > kGarbageAbove || value < -kGarbageAbove;
+}
+
 // DIEFF_* coordinate systems.
 inline constexpr std::uint32_t kCartesian = 0x10;
 inline constexpr std::uint32_t kPolar = 0x20;

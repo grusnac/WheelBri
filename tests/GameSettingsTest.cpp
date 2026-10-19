@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <random>
@@ -273,6 +274,23 @@ TEST(GameSettings, DamagedFilesAreSafe) {
     }
 }
 
+// A located settings file must be the game's: the same file name in folders of the same names (letter case aside),
+// wherever Documents is; NFS Heat's PROFILEOPTIONS is not NFS Unbound's.
+TEST(GameSettingsFileFits, OnlyTheGamesOwnFolder) {
+    const std::string unbound = "Need For Speed(TM) Unbound/settings/PROFILEOPTIONS";
+    const std::filesystem::path docs = std::filesystem::path("C:") / "Users" / "me" / "Documents";
+    EXPECT_TRUE(settingsFileFits(docs / "Need For Speed(TM) Unbound" / "settings" / "PROFILEOPTIONS", unbound));
+    EXPECT_TRUE(settingsFileFits(std::filesystem::path("D:") / "OneDrive" / "Documents" / "need for speed(tm) unbound" /
+                                     "Settings" / "profileoptions",
+                                 unbound));
+    EXPECT_FALSE(settingsFileFits(docs / "Need for Speed Heat" / "settings" / "PROFILEOPTIONS", unbound));
+    EXPECT_FALSE(settingsFileFits(docs / "Need For Speed(TM) Unbound" / "PROFILEOPTIONS", unbound));
+    EXPECT_FALSE(
+        settingsFileFits(docs / "Need For Speed(TM) Unbound" / "settings" / "PROFILEOPTIONS_profile", unbound));
+    EXPECT_FALSE(settingsFileFits("PROFILEOPTIONS", unbound));
+    EXPECT_FALSE(settingsFileFits(docs / "x", ""));
+}
+
 // --- the file on disk (writeGameSettingsFile) ---------------------------------------------------------------------
 
 class GameSettingsFile : public ::testing::Test {
@@ -505,6 +523,76 @@ TEST_F(GameSettingsFile, AFileThatCannotBeReplacedIsLeftAsItWas) {
     EXPECT_EQ(readFileText(file()).value_or(""), unboundFile());
     EXPECT_EQ(readFileText(backup()).value_or(""), unboundFile());
     EXPECT_TRUE(result.changes.empty());
+}
+
+// --- which file the game wrote (settingsFilesWrittenBetween) ------------------------------------------------------
+
+// The game's file is the one written while it ran, whatever its folder is called; NFS Heat's (same name, same
+// settings, not written then) is not; two written then cannot be told apart.
+TEST_F(GameSettingsFile, TheFileWrittenWhileTheGameRanIsItsOwn) {
+    const std::string unbound = "Need For Speed(TM) Unbound/settings/PROFILEOPTIONS";
+    const std::filesystem::path docs = root_ / "Documents";
+    const auto put = [&docs](const std::string& folder) {
+        const std::filesystem::path file = docs / folder / "settings" / "PROFILEOPTIONS";
+        std::filesystem::create_directories(file.parent_path());
+        EXPECT_TRUE(writeFileReplacing(file, unboundFile()));
+        return file;
+    };
+    const auto now = std::filesystem::file_time_type::clock::now();
+    const auto from = now - std::chrono::minutes(30);
+    const std::filesystem::path heat = put("Need for Speed Heat");
+    std::filesystem::last_write_time(heat, now - std::chrono::hours(5));
+    const std::filesystem::path renamed = put("NFS Unbound (moved)");
+    std::filesystem::last_write_time(renamed, now - std::chrono::minutes(1));
+    std::filesystem::create_directories(docs / "Other game");   // no settings file in it
+    put("Need For Speed(TM) Unbound");
+    std::filesystem::last_write_time(docs / unbound, now - std::chrono::hours(6));
+
+    std::vector<std::filesystem::path> written = settingsFilesWrittenBetween(docs, unbound, {}, from, now);
+    ASSERT_EQ(written.size(), 1U);
+    EXPECT_TRUE(sameSettingsFile(written.front(), renamed));
+
+    // Heat ran at the same time: two files, not told apart.
+    std::filesystem::last_write_time(heat, now - std::chrono::minutes(2));
+    EXPECT_EQ(settingsFilesWrittenBetween(docs, unbound, {}, from, now).size(), 2U);
+    std::filesystem::last_write_time(heat, now - std::chrono::hours(5));
+
+    // The located file counts once, wherever it is.
+    EXPECT_EQ(settingsFilesWrittenBetween(docs, unbound, renamed, from, now).size(), 1U);
+    const std::filesystem::path elsewhere = root_ / "D" / "PROFILEOPTIONS";
+    std::filesystem::create_directories(elsewhere.parent_path());
+    ASSERT_TRUE(writeFileReplacing(elsewhere, unboundFile()));
+    std::filesystem::last_write_time(elsewhere, now - std::chrono::minutes(1));
+    std::filesystem::last_write_time(renamed, now - std::chrono::hours(1));
+    written = settingsFilesWrittenBetween(docs, unbound, elsewhere, from, now);
+    ASSERT_EQ(written.size(), 1U);
+    EXPECT_TRUE(sameSettingsFile(written.front(), elsewhere));
+
+    // Nothing written while it ran (or no Documents folder here): none.
+    std::filesystem::last_write_time(elsewhere, now - std::chrono::hours(1));
+    EXPECT_TRUE(settingsFilesWrittenBetween(docs, unbound, elsewhere, from, now).empty());
+    EXPECT_TRUE(settingsFilesWrittenBetween({}, unbound, {}, from, now).empty());
+}
+
+TEST_F(GameSettingsFile, LinksAreNotTakenForTheGamesFile) {
+    const std::filesystem::path real = root_ / "real";
+    ASSERT_TRUE(writeFileReplacing(real, unboundFile()));
+    std::error_code ec;
+    std::filesystem::create_symlink(real, file(), ec);
+    if (ec) GTEST_SKIP() << "links cannot be made here: " << ec.message();
+    const auto now = std::filesystem::file_time_type::clock::now();
+    EXPECT_TRUE(settingsFilesWrittenBetween(root_, "Game/settings/PROFILEOPTIONS", {}, now - std::chrono::hours(1),
+                                            now + std::chrono::hours(1))
+                    .empty());
+}
+
+TEST(GameSettingsFileFits, SameFileLetterCaseAside) {
+    EXPECT_TRUE(sameSettingsFile(std::filesystem::path("C:") / "Docs" / "NFS" / "PROFILEOPTIONS",
+                                 std::filesystem::path("c:") / "docs" / "nfs" / "profileoptions"));
+    EXPECT_TRUE(sameSettingsFile(std::filesystem::path("C:") / "Docs" / "x" / ".." / "PROFILEOPTIONS",
+                                 std::filesystem::path("C:") / "Docs" / "PROFILEOPTIONS"));
+    EXPECT_FALSE(sameSettingsFile(std::filesystem::path("C:") / "Docs" / "Heat" / "PROFILEOPTIONS",
+                                  std::filesystem::path("C:") / "Docs" / "Unbound" / "PROFILEOPTIONS"));
 }
 
 }  // namespace

@@ -10,8 +10,16 @@ namespace {
 constexpr float kFull = 10000.0F;
 constexpr double kPi = 3.14159265358979323846;
 
-float signedUnit(const std::int32_t value) { return std::clamp(static_cast<float>(value) / kFull, -1.0F, 1.0F); }
-float unsignedUnit(const std::uint32_t value) { return std::clamp(static_cast<float>(value) / kFull, 0.0F, 1.0F); }
+// A value a little over full scale is clamped; one far outside it is garbage and gives no force (see
+// isGarbage in the header).
+float signedUnit(const std::int32_t value) {
+    if (isGarbage(value)) return 0.0F;
+    return std::clamp(static_cast<float>(value) / kFull, -1.0F, 1.0F);
+}
+float unsignedUnit(const std::uint32_t value) {
+    if (isGarbage(value)) return 0.0F;
+    return std::clamp(static_cast<float>(value) / kFull, 0.0F, 1.0F);
+}
 
 }  // namespace
 

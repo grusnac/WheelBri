@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <string>
 #include <utility>
 
 namespace wheelbri::shim {
@@ -152,6 +153,36 @@ float EmulatedEffect::directionAlongWheel() const {
     return di::directionAlongX(flags_, direction_.front());
 }
 
+void EmulatedEffect::logRawConstant(const FfbEffect& converted) {
+    DICONSTANTFORCE constant{};
+    readTypeSpecific(typeSpecific_, 0, constant);
+    const long magnitude = constant.lMagnitude;
+    const long direction = direction_.empty() ? 0 : direction_.front();
+    if (haveRaw_ && magnitude == lastRawMagnitude_ && direction == lastRawDirection_) return;
+    haveRaw_ = true;
+    lastRawMagnitude_ = magnitude;
+    lastRawDirection_ = direction;
+    if (di::isGarbage(magnitude) && !warnedGarbage_) {
+        warnedGarbage_ = true;
+        WE_LOG_WARN(log(), "{}: the game passed a constant force magnitude of {}, far outside -10000..10000 (not a "
+                           "force it meant); WheelBri plays no force for it (Race Driver: GRID does this with "
+                           "VSync off: turn VSync on)",
+                    label_, magnitude);
+    }
+    if (rawChanges_ > kMaxRawChanges) return;
+    if (++rawChanges_ > kMaxRawChanges) {
+        WE_LOG_DEBUG(log(), "{}: constant force: more changes of what the game passes are not logged", label_);
+        return;
+    }
+    std::string directions;
+    for (const LONG component : direction_) directions += (directions.empty() ? "" : ",") + std::to_string(component);
+    WE_LOG_DEBUG(log(), "{}: constant force as passed: magnitude={} direction=[{}] ({}, {} axes) gain={} -> "
+                        "level={:+.3f}",
+                 label_, magnitude, directions,
+                 (flags_ & DIEFF_CARTESIAN) != 0 ? "cartesian" : (flags_ & DIEFF_POLAR) != 0 ? "polar" : "spherical",
+                 axes_.size(), gain_, converted.constantLevel);
+}
+
 FfbEffect EmulatedEffect::toFfb() const {
     const float direction = directionAlongWheel();
     switch (effectType_) {
@@ -258,6 +289,9 @@ HRESULT EmulatedEffect::SetParameters(LPCDIEFFECT effect, const DWORD flags) {
         }
 
         const FfbEffect converted = toFfb();
+        if (converted.type == FfbEffectType::Constant && typeSpecific_.size() == sizeof(DICONSTANTFORCE)) {
+            logRawConstant(converted);
+        }
         // SetParameters downloads the effect unless told not to (DIEP_NODOWNLOAD).
         if ((flags & DIEP_NODOWNLOAD) == 0 && !ensureSlot()) {
             return DIERR_DEVICEFULL;

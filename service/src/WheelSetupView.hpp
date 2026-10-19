@@ -31,8 +31,8 @@ namespace wheelbri::service {
 // scrolls it; a line's click brings its section into view). With Detect on, touching a control on any device (pressing
 // a button, moving an axis well away from where it rested) opens its popup: type the name, or press one of the names it
 // offers ("It is": Steering, Throttle, A, Gear 1 ...: kept whatever the name becomes; it fills in the name only when
-// there is none, Button never), Enter. A pedal's rest position also says whether it is inverted. A device joins
-// the rig when one of its controls is named (the rig's devices are the ones
+// there is none, Button never), Enter. The popup says where a pedal rested (Invert is the Mapping tab's). A device
+// joins the rig when one of its controls is named (the rig's devices are the ones
 // hidden from games, at most Rig::kMaxDevices); Forget takes one out. There are no dead zones: those belong in the
 // device's own software. There is one rig, a file in rigsFolder() (remembered in the app's state file, [app] rig; "My
 // rig" when it is first saved); it is what the Mapping tab maps from. It maps nothing itself. With a session running it

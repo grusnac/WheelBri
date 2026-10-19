@@ -248,11 +248,31 @@ rig ──DirectInput / evdev──► wheelbri-service ──UDP 127.0.0.1─�
 
 ### Targets
 
-All four use the G920's DirectInput layout (wheel X, throttle Y, brake Rz, clutch Slider) and 900 degrees.
+All four use the G920's DirectInput layout (wheel X, throttle Y, brake Rz, clutch Slider) and 900 degrees, except
+the G25: its clutch is on Z, and Slider is its combined pedals axis (in the middle at rest, down with the throttle, up
+with the brake), on Windows in both modes. Race Driver: GRID's own G25 preset reads Slider 0 as combined pedals (its
+lower half throttle, its upper half brake): with the clutch there, at rest at the top, the brake was held down (the car
+reversed by itself); with nothing there (0, the bottom), the throttle was (the car could not back up).
+(Logitech's own driver, in Logitech Gaming Software 5.10's `WmJoyHid.inf`, names the G25's axes X wheel, Y combined
+pedals, Z accelerator, Rz brake, Slider clutch, 19 buttons: ours follows what that era's games read instead.)
+
+Race Driver: GRID's force feedback needs VSync on (or the frame rate capped). With VSync off at 144 Hz it passed a
+constant force of -2147483648 (a broken number, not a force) for the whole race: no force feedback, and a full
+push before WheelBri treated such values as none. With VSync on it sends real forces, about 90 updates a second.
+The shim warns once when a game passes such a value.
+
+The G25's buttons are in the order games of its time saw on Windows: the shifter's red buttons 0-3 (left to right),
+right paddle 4, left paddle 5, the wheel's right and left buttons 6 and 7, gears 1-6 and reverse 8-14 (sequential mode
+presses 8 and 9), the shifter's black diamond 15-18 (top, left, bottom, right), the D-pad a hat. Sources: Logitech
+support ("Programming the G25 Shifter positions": gears 8-14), Race Driver: GRID's G25 preset (paddles 4/5, gears,
+menu Select 17 and Back 18), GIMX's G25 configuration for Windows (red 0-3, wheel buttons 6/7, black 15-18), G27
+reports from DiRT Rally 2.0 and American Truck Simulator users (the same order), a G25 read through Unity (gears,
+sequential). The default mapping (`config/g25.ini`) puts an Xbox-style rim's A, B, X, Y on the black diamond
+(bottom, right, left, top), the menu buttons of that era's games.
 
 | Target | Ids | Buttons | Button order |
 |---|---|---|---|
-| G25 | 046D:C299 | 19 | gears from Logitech, the rest **a guess** |
+| G25 | 046D:C299 | 19 | **from several sources** (above), not checked on a real G25 |
 | G27 | 046D:C29B | 23 | gears from Logitech, the rest **from users' reports** |
 | G920 | 046D:C262 | 19 | **tested** |
 | G923 | 046D:C26E | 24 | 0-18 as the G920, 19-23 **a guess**; unsigned axes and HID++ for G HUB |

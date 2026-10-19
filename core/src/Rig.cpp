@@ -52,9 +52,9 @@ std::string choiceNamed(const std::string& text, const bool axis) {
     return {};
 }
 
-// "Gas | throttle | invert" -> the control; problems go to `error`. `steering` is set when it is a Steering axis (its
-// device is then the wheel). An older rig's role ("| left paddle") is the choice it names now (L Paddle); an older
-// "deadzone 3%" / "full 90%" on an axis is skipped.
+// "Gas | throttle" -> the control (an older "| invert" is ignored); problems go to `error`. `steering` is set when it
+// is a Steering axis (its device is then the wheel). An older rig's role ("| left paddle") is the choice it names now
+// (L Paddle); an older "deadzone 3%" / "full 90%" on an axis is skipped.
 RigControl parseControl(const std::string& value, const bool axis, std::string& error, bool& steering) {
     RigControl control;
     std::vector<std::string> parts;
@@ -72,10 +72,7 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
     }
     for (std::size_t i = 1; i < parts.size(); ++i) {
         const std::string part = lower(parts[i]);
-        if (part == "invert") {
-            control.invert = true;
-            continue;
-        }
+        if (part == "invert") continue;   // older (before 2026-10-19): the Mapping tab's Invert counts
         if (axis && (part.rfind("deadzone ", 0) == 0 || part.rfind("full ", 0) == 0)) continue;   // older: ignored
         std::string kind = choiceNamed(part, axis);
         const auto older = std::find_if(kOlderRoles.begin(), kOlderRoles.end(),
@@ -87,7 +84,7 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
         } else if (older != kOlderRoles.end()) {
             // An older role this kind of control cannot be now: dropped, as before.
         } else if (!parts[i].empty()) {
-            error = "'" + parts[i] + "' is not 'invert' or what a" + (axis ? "n axis" : " button") +
+            error = "'" + parts[i] + "' is not what a" + (axis ? "n axis" : " button") +
                     " can be (the Rig tab's It is)";
         }
     }
@@ -99,7 +96,6 @@ RigControl parseControl(const std::string& value, const bool axis, std::string& 
 std::string controlText(const RigControl& control) {
     std::string text = control.label;
     if (!control.kind.empty()) text += (text.empty() ? "| " : " | ") + lower(control.kind);
-    if (control.invert) text += text.empty() ? "| invert" : " | invert";
     return text;
 }
 
@@ -210,9 +206,9 @@ const RigDevice* rigDeviceFor(const MapperConfig& mapper, const Rig& rig, const 
 std::string writeRig(const Rig& rig, const std::string& name) {
     const std::string nl = "\r\n";
     std::string text = "; WheelBri rig '" + name + "': the devices and what their controls are (the Rig tab" + nl +
-                       "; writes this). A control: name, or name | invert (released at the top of the axis);" + nl +
-                       "; a button: name | button, or | button, when marked a button (\"It is\": Button)." + nl +
-                       "; No dead zones: set those in the device's own software." + nl;
+                       "; writes this). A control: name | what it is (\"It is\": throttle, a, button...), or" + nl +
+                       "; one of them. No dead zones and no inverting here: dead zones are the device's own" + nl +
+                       "; software's, which way an axis reads is the Mapping tab's Invert." + nl;
     for (std::size_t i = 0; i < rig.devices.size(); ++i) {
         const RigDevice& device = rig.devices[i];
         text += nl + "[device_" + std::to_string(i + 1) + "]" + nl;
@@ -220,7 +216,7 @@ std::string writeRig(const Rig& rig, const std::string& name) {
         text += "id = " + deviceId(device.id.vendorId, device.id.productId) + nl;
         text += std::string("kind = ") + deviceKindName(device.kind) + nl;
         for (std::size_t a = 0; a < device.axes.size(); ++a) {
-            if (device.axes[a].defined() || device.axes[a].invert) {
+            if (device.axes[a].defined()) {
                 text += "axis_" + std::to_string(a) + " = " + controlText(device.axes[a]) + nl;
             }
         }

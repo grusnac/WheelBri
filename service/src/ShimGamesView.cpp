@@ -239,7 +239,7 @@ void ShimGamesView::setHotSwap(const bool on) {
     if (hotSwap_) ++changes_;   // on again: swapped to the target now
     if (!settings_.stateFile.empty()) writeAppSetting(settings_.stateFile, "shim_hot_swap", hotSwap_ ? "on" : "off");
     WE_LOG_INFO(log(), "shim: hot swap {}", hotSwap_ ? "on (the games' shims follow the target)"
-                                                   : "off (only the picked game's shim, at Start)");
+                                                   : "off (the games' shims get the target at Start)");
 }
 
 void ShimGamesView::refresh(const bool now) {

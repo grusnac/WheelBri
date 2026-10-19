@@ -114,12 +114,8 @@ DeviceKind guessKind(const std::string& name) {
     return DeviceKind::Other;
 }
 
-// "Gas  (inverted)": the name, and whether the axis rests at +1.
-std::string describe(const RigControl& control) {
-    std::string text = control.displayName();
-    if (control.invert) text += text.empty() ? "(inverted)" : "  (inverted)";
-    return text;
-}
+// What a control is called (its name, or what it is).
+std::string describe(const RigControl& control) { return control.displayName(); }
 
 }  // namespace
 
@@ -540,7 +536,6 @@ void WheelSetupView::openControl(const DeviceId& id, const bool axis, const int 
     popupControl_ = device == nullptr ? RigControl{}
                     : axis           ? device->axes[static_cast<std::size_t>(index)]
                                      : device->buttons[static_cast<std::size_t>(index)];
-    if (axis && rest && !popupControl_.defined()) popupControl_.invert = *rest > 0.5F;   // a pedal resting at the top
     editing_ = &popupControl_.label;   // ready to type
     editingMax_ = DeviceLabels::kMaxLabel;
 }
@@ -555,7 +550,6 @@ void WheelSetupView::closeControl(const bool keep) {
     RigControl& control = popupAxis_ ? device->axes[static_cast<std::size_t>(popupIndex_)]
                                      : device->buttons[static_cast<std::size_t>(popupIndex_)];
     control = popupControl_;
-    if (!popupAxis_) control.invert = false;
 }
 
 // --- input ----------------------------------------------------------------------------------------------------------
@@ -1093,15 +1087,15 @@ void WheelSetupView::drawControlPopup() {
 
     y += kRoleRow + 6;
     if (popupAxis_) {
-        button(left, y, "Inverted", [this] { popupControl_.invert = !popupControl_.invert; }, popupControl_.invert, true,
-               90);
-        std::string note = "inverted: released (or centred) at +1 instead of -1";
+        // Which way round it reads is the Mapping tab's (its Invert); here only where it rested, for a pedal.
+        std::string note = "Which way round: the Mapping tab's Invert for the axis this one drives.";
         if (popupRest_) {
             char rest[64];
-            std::snprintf(rest, sizeof(rest), "it rested at %+.2f when it was found", static_cast<double>(*popupRest_));
-            note = std::string(rest) + (*popupRest_ > 0.5F ? ": a pedal released at the top, so inverted" : "");
+            std::snprintf(rest, sizeof(rest), "It rested at %+.2f when it was found", static_cast<double>(*popupRest_));
+            note = std::string(rest) + (*popupRest_ > 0.5F ? ": released at the top, so Invert it on the Mapping tab."
+                                                           : ".");
         }
-        window_.text(left + 100, y + 4, note, kDim);
+        window_.text(left, y + 4, note, kDim);
     }
     const float by = kY + height - 26;
     button(left, by, "OK", [this] { closeControl(true); }, true, true, 80);
@@ -1114,20 +1108,20 @@ void WheelSetupView::drawControlPopup() {
     window_.text(left + 270, by + 4, "Enter keeps it, Esc drops it.", kDim);
 }
 
-// The live value: steering from the centre, a pedal's travel from its released end (-1, or +1 when inverted).
+// The live value: steering from the centre, a pedal's travel from its released end (where it rested when found).
 void WheelSetupView::drawPopupAxisBar(const float x, const float y, const float width) {
     const float v = std::clamp(axisValue(focus_, popupIndex_), -1.0F, 1.0F);
     const float half = width / 2;
     const float centre = x + half;
     window_.fill(x, y, width, 10, kPanel);
-    // A pedal or lever (found resting at an end, or inverted): its travel; anything else from the centre.
-    const bool pedal = popupControl_.invert || (popupRest_ && std::fabs(*popupRest_) > 0.5F);
+    // A pedal or lever (found resting at an end): its travel; anything else from the centre.
+    const bool pedal = popupRest_ && std::fabs(*popupRest_) > 0.5F;
     if (!pedal) {
         window_.fill(v >= 0 ? centre : centre + half * v, y, half * std::abs(v), 10, kActive);
         window_.fill(centre, y - 1, 1, 12, kCentre);
         return;
     }
-    const bool inverted = popupControl_.invert;
+    const bool inverted = *popupRest_ > 0.5F;   // released at the top
     const float travel = inverted ? (1.0F - v) / 2 : (v + 1.0F) / 2;
     window_.fill(inverted ? x + width * (1.0F - travel) : x, y, width * travel, 10, kActive);
 }

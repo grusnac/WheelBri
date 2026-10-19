@@ -60,16 +60,44 @@ TEST(EmulatedJoystick, G920Layout) {
     EXPECT_EQ(joystick.objects()[1].guid, ObjectGuid::YAxis);   // throttle
 }
 
-TEST(EmulatedJoystick, G25LayoutIsTheG920sWithItsButtons) {
+// The G920's with its buttons, the clutch on Z and combined pedals on Slider: Race Driver: GRID reads a G25's Slider 0
+// as combined pedals (lower half throttle, upper half brake), where a released clutch was a held brake and nothing
+// there (0) a held throttle.
+TEST(EmulatedJoystick, G25LayoutHasItsClutchOnZAndCombinedPedals) {
     const JoystickLayout layout = layoutFor("g25", kG25Buttons);
     EXPECT_TRUE(isValid(layout));
     EXPECT_EQ(layout.throttle, ObjectGuid::YAxis);
     EXPECT_EQ(layout.brake, ObjectGuid::RzAxis);
-    EXPECT_EQ(layout.clutch, ObjectGuid::Slider);
+    EXPECT_EQ(layout.clutch, ObjectGuid::ZAxis);
+    EXPECT_EQ(layoutFor("g920", kG920Buttons).clutch, ObjectGuid::Slider);
+    EXPECT_EQ(layoutFor("g27", kG27Buttons).clutch, ObjectGuid::Slider);
+    EXPECT_EQ(layout.combined, ObjectGuid::Slider);
+    EXPECT_EQ(layoutFor("g920", kG920Buttons).combined, ObjectGuid::Any);
     const EmulatedJoystick joystick(layout);
-    EXPECT_EQ(joystick.axisCount(), 4U);
+    EXPECT_EQ(joystick.axisCount(), 5U);
     EXPECT_EQ(joystick.buttonCount(), 19U);   // the gears and the shifter's 8 buttons too
     EXPECT_EQ(joystick.povCount(), 1U);
+
+    // In c_dfDIJoystick2's layout: the clutch at Z (offset 8), nothing on slider 0 (offset 24).
+    EmulatedJoystick g25(layout);
+    ASSERT_EQ(g25.setDataFormat(joystickFormat(), 80), EmulatedJoystick::FormatResult::Ok);
+    std::vector<std::uint8_t> state(80, 0xCD);
+    ASSERT_TRUE(g25.writeState(sampleReport(), state));
+    EXPECT_EQ(readI32(state, 8), 32768);    // Z = clutch
+    EXPECT_EQ(readI32(state, 24), 0);       // slider 0 = combined pedals: full throttle, brake released: the bottom
+    TargetReport released = sampleReport();
+    released.throttle = 65535;
+    released.brake = 65535;
+    ASSERT_TRUE(g25.writeState(released, state));
+    EXPECT_EQ(readI32(state, 24), 32767);   // both released: the middle
+    released.brake = 0;
+    ASSERT_TRUE(g25.writeState(released, state));
+    EXPECT_EQ(readI32(state, 24), 65535);   // full brake: the top
+
+    // A pedal moved onto Slider (wheelbri-shim.ini, a game profile): the combined pedals give way.
+    JoystickLayout moved = layout;
+    moved.clutch = ObjectGuid::Slider;
+    EXPECT_EQ(EmulatedJoystick(moved).axisCount(), 4U);
 }
 
 TEST(EmulatedJoystick, StandardJoystickFormat) {

@@ -16,14 +16,14 @@ Rig sampleRig() {
     wheel.name = "My Racing Wheel";
     wheel.id = {0x346E, 0x0005};
     wheel.kind = DeviceKind::Wheel;
-    wheel.axes[0] = {"Wheel", false, ""};
-    wheel.buttons[13] = {"R paddle", false, "R Paddle"};
-    wheel.buttons[4] = {"D-pad Up", false, ""};
+    wheel.axes[0] = {"Wheel", ""};
+    wheel.buttons[13] = {"R paddle", "R Paddle"};
+    wheel.buttons[4] = {"D-pad Up", ""};
     RigDevice pedals;
     pedals.name = "Pedals";
     pedals.id = {0x30B7, 0x1001};
     pedals.kind = DeviceKind::Pedals;
-    pedals.axes[1] = {"Gas", true, ""};
+    pedals.axes[1] = {"Gas", ""};
     rig.devices = {wheel, pedals};
     return rig;
 }
@@ -45,7 +45,7 @@ TEST(Rig, OfferedNamesFitTheNameField) {
 TEST(Rig, WritesAndReadsBack) {
     const Rig rig = sampleRig();
     const std::string text = writeRig(rig, "Mine");
-    EXPECT_NE(text.find("axis_1 = Gas | invert\r\n"), std::string::npos);
+    EXPECT_NE(text.find("axis_1 = Gas\r\n"), std::string::npos);
     EXPECT_NE(text.find("button_4 = D-pad Up\r\n"), std::string::npos);
     const RigResult back = load(text);
     EXPECT_TRUE(back.errors.empty()) << back.errors.front();
@@ -61,8 +61,8 @@ TEST(Rig, ReportsBadLinesAndKeepsTheRest) {
         "[device_2]\nname = no id\n[other]\n");
     EXPECT_EQ(result.errors.size(), 6U);
     ASSERT_EQ(result.rig.devices.size(), 1U);
-    EXPECT_EQ(result.rig.devices[0].axes[0], (RigControl{"Wheel", false, ""}));   // the name kept
-    EXPECT_EQ(result.rig.devices[0].buttons[1], (RigControl{"A", false, "A"}));   // named as a choice: that choice
+    EXPECT_EQ(result.rig.devices[0].axes[0], (RigControl{"Wheel", ""}));   // the name kept
+    EXPECT_EQ(result.rig.devices[0].buttons[1], (RigControl{"A", "A"}));   // named as a choice: that choice
 }
 
 TEST(Rig, ConvertsToAndFromDeviceNames) {
@@ -110,13 +110,13 @@ TEST(Rig, OldDeadzonesAreIgnoredAndNotWrittenAgain) {
                                "axis_3 = Clutch | clutch | deadzone lots\n");
     EXPECT_TRUE(old.errors.empty()) << old.errors.front();
     ASSERT_EQ(old.rig.devices.size(), 1U);
-    EXPECT_EQ(old.rig.devices[0].axes[1], (RigControl{"Gas", true, "Throttle"}));
-    EXPECT_EQ(old.rig.devices[0].axes[2], (RigControl{"Brake", false, "Brake"}));   // in any order, any case
-    EXPECT_EQ(old.rig.devices[0].axes[3], (RigControl{"Clutch", false, "Clutch"}));
+    EXPECT_EQ(old.rig.devices[0].axes[1], (RigControl{"Gas", "Throttle"}));
+    EXPECT_EQ(old.rig.devices[0].axes[2], (RigControl{"Brake", "Brake"}));   // in any order, any case
+    EXPECT_EQ(old.rig.devices[0].axes[3], (RigControl{"Clutch", "Clutch"}));
     const std::string text = writeRig(old.rig, "Mine");
     EXPECT_EQ(text.find("deadzone"), std::string::npos) << text;
     EXPECT_EQ(text.find("full "), std::string::npos) << text;
-    EXPECT_NE(text.find("axis_1 = Gas | throttle | invert\r\n"), std::string::npos) << text;
+    EXPECT_NE(text.find("axis_1 = Gas | throttle\r\n"), std::string::npos) << text;   // its invert left out
     // On a button they were never allowed: still not.
     EXPECT_FALSE(load("[device_1]\nid = 30b7:1001\nbutton_1 = A | deadzone 3%\n").errors.empty());
 }
@@ -130,19 +130,19 @@ TEST(Rig, OlderRolesAreTheChoicesTheyNameNow) {
     EXPECT_TRUE(old.errors.empty()) << old.errors.front();
     ASSERT_EQ(old.rig.devices.size(), 2U);
     const RigDevice& r3 = old.rig.devices[0];
-    EXPECT_EQ(r3.axes[0], (RigControl{"Wheel", false, "Steering"}));
-    EXPECT_EQ(r3.buttons[3], (RigControl{"Y", false, "Y"}));
-    EXPECT_EQ(r3.buttons[4], (RigControl{"", false, "D Up"}));                  // no name: shown as D Up
+    EXPECT_EQ(r3.axes[0], (RigControl{"Wheel", "Steering"}));
+    EXPECT_EQ(r3.buttons[3], (RigControl{"Y", "Y"}));
+    EXPECT_EQ(r3.buttons[4], (RigControl{"", "D Up"}));                  // no name: shown as D Up
     EXPECT_EQ(r3.buttons[4].displayName(), "D Up");
-    EXPECT_EQ(r3.buttons[12], (RigControl{"Left paddle", false, "L Paddle"}));  // the user's name as it was
-    EXPECT_EQ(r3.buttons[0], (RigControl{"Hand", false, "Handbrake"}));
+    EXPECT_EQ(r3.buttons[12], (RigControl{"Left paddle", "L Paddle"}));  // the user's name as it was
+    EXPECT_EQ(r3.buttons[0], (RigControl{"Hand", "Handbrake"}));
     EXPECT_EQ(r3.kind, DeviceKind::Wheel);                                      // it had the steering axis
-    EXPECT_EQ(old.rig.devices[1].axes[1], (RigControl{"Gas", true, "Throttle"}));
+    EXPECT_EQ(old.rig.devices[1].axes[1], (RigControl{"Gas", "Throttle"}));
     ASSERT_NE(old.rig.wheel(), nullptr);
     EXPECT_EQ(old.rig.wheel()->name, "Moza R3");
     const std::string text = writeRig(old.rig, "Mine");
     for (const char* line : {"axis_0 = Wheel | steering\r", "button_4 = | d up\r",
-                             "button_12 = Left paddle | l paddle\r", "axis_1 = Gas | throttle | invert\r"}) {
+                             "button_12 = Left paddle | l paddle\r", "axis_1 = Gas | throttle\r"}) {
         EXPECT_NE(text.find(line), std::string::npos) << line << "\n" << text;
     }
     EXPECT_NE(text.find("kind = wheel\r\n"), std::string::npos) << text;
@@ -163,8 +163,8 @@ TEST(Rig, TheWheelIsTheFirstOfKindWheelElseTheFirst) {
 // What a control is ("It is") is kept whatever its name: named, renamed, or with no name (shown as the choice).
 TEST(Rig, TheChoiceIsKeptWithOrWithoutAName) {
     Rig rig = sampleRig();
-    rig.devices[0].buttons[7] = {"Horn", false, "Button"};
-    rig.devices[0].buttons[8] = {"", false, "A"};
+    rig.devices[0].buttons[7] = {"Horn", "Button"};
+    rig.devices[0].buttons[8] = {"", "A"};
     EXPECT_TRUE(rig.devices[0].buttons[8].defined());
     EXPECT_EQ(rig.devices[0].buttons[7].displayName(), "Horn");
     EXPECT_EQ(rig.devices[0].buttons[8].displayName(), "A");
@@ -204,7 +204,7 @@ TEST(Rig, CutsTooLongControlNames) {
     const RigResult result = load("[device_1]\nid = 346e:0005\nbutton_2 = A much too long name | invert\n");
     ASSERT_EQ(result.errors.size(), 1U);
     EXPECT_NE(result.errors[0].find("at most 12 characters"), std::string::npos);
-    EXPECT_EQ(result.rig.devices[0].buttons[2], (RigControl{"A much too l", true, ""}));
+    EXPECT_EQ(result.rig.devices[0].buttons[2], (RigControl{"A much too l", ""}));
 }
 
 // An older role a button cannot have now ("| steering") is dropped without an error, and an empty part ("a | | b")
@@ -212,8 +212,8 @@ TEST(Rig, CutsTooLongControlNames) {
 TEST(Rig, OlderRolesThatNoLongerFitAndEmptyPartsAreDropped) {
     const RigResult result = load("[device_1]\nid = 346e:0005\nbutton_1 = Wheel | steering\naxis_2 = Gas | | invert\n");
     EXPECT_TRUE(result.errors.empty()) << result.errors.front();
-    EXPECT_EQ(result.rig.devices[0].buttons[1], (RigControl{"Wheel", false, ""}));
-    EXPECT_EQ(result.rig.devices[0].axes[2], (RigControl{"Gas", true, ""}));
+    EXPECT_EQ(result.rig.devices[0].buttons[1], (RigControl{"Wheel", ""}));
+    EXPECT_EQ(result.rig.devices[0].axes[2], (RigControl{"Gas", ""}));
     EXPECT_EQ(result.rig.devices[0].kind, DeviceKind::Other);   // only a Steering *axis* makes it the wheel
 }
 
@@ -232,20 +232,16 @@ TEST(Rig, DuplicateAndExtraDevicesAreLeftOut) {
     EXPECT_EQ(result.rig.devices.back().id, (DeviceId{0x1234, 0x0005}));
 }
 
-// An inverted axis with no name and nothing picked is still written (else the invert is lost) and reads back.
-TEST(Rig, AnUnnamedInvertedAxisSurvivesSaving) {
-    Rig rig;
-    RigDevice pedals;
-    pedals.id = {0x30B7, 0x1001};
-    pedals.axes[3].invert = true;
-    pedals.buttons[5].invert = true;   // an inverted button with nothing else is nothing
-    rig.devices = {pedals};
-    const std::string text = writeRig(rig, "Mine");
-    EXPECT_NE(text.find("axis_3 = | invert\r\n"), std::string::npos) << text;
-    EXPECT_EQ(text.find("button_5"), std::string::npos) << text;
-    const RigResult back = load(text);
-    EXPECT_TRUE(back.errors.empty()) << back.errors.front();
-    EXPECT_TRUE(back.rig.devices[0].axes[3].invert);
+// An older rig's "| invert" (before 2026-10-19: the Mapping tab's Invert is the one that counts) is read without an
+// error, ignored, and not written again; an axis with nothing else is then nothing.
+TEST(Rig, AnOlderInvertIsIgnored) {
+    const RigResult old = load("[device_1]\nid = 30b7:1001\naxis_1 = Gas | invert\naxis_3 = | invert\n");
+    EXPECT_TRUE(old.errors.empty()) << old.errors.front();
+    EXPECT_EQ(old.rig.devices[0].axes[1], (RigControl{"Gas", ""}));
+    EXPECT_FALSE(old.rig.devices[0].axes[3].defined());
+    const std::string text = writeRig(old.rig, "Mine");
+    EXPECT_EQ(text.find("| invert"), std::string::npos) << text;
+    EXPECT_EQ(text.find("axis_3"), std::string::npos) << text;
 }
 
 // The mapping's device numbers: 0 is the wheel (by source_device, else the rig's wheel), 1..3 its accessories.

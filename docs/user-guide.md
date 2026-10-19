@@ -45,8 +45,8 @@ Open **WheelBri**. The tabs are along the bottom (Rig, Mapping, Games, Logs; pre
 
 1. With **Detect** ticked, touch a control: turn the wheel, press a pedal **all the way**, press a button. Its
    popup opens.
-2. Give it a **Name** or pick what it **is** (Steering, Throttle, Brake, Clutch, a button...). For a pedal that rests at
-   the top, **Inverted** is set for you.
+2. Give it a **Name** or pick what it **is** (Steering, Throttle, Brake, Clutch, a button...). Which way an axis
+   reads is set on the Mapping tab (**Invert**); the popup says when a pedal rests at the top.
 3. Press **OK**. Repeat for every control you use.
 4. Name each device. Every change is saved at once; **Undo** goes back one change at a time.
 
@@ -124,12 +124,18 @@ on the Mapping tab, while WheelBri is stopped. While it runs the Mapping tab sho
    the shim that WheelBri does not know (by folder name, with **Add as your game...**). The tag says what is in its
    folder (`shim g920`, `no shim`, `other mod`), or `! not G923` when the game does not support the Target;
    `running` the one WheelBri sees now. **Add game...** picks a game's `.exe` (WheelBri finds it by that name
-   while it runs; its folder joins the list, no shim put in). **Remove** takes a game you added off the list.
+   while it runs; its folder joins the list, no shim put in). **Remove** takes a game you added off the list,
+   with its own values and the folder Add game listed (its files stay; when WheelBri's shim is in it, the folder
+   stays listed until you press **Remove shim** and **Forget folder**).
    **FOLDER**: see [Play](#play), Mode Shim. **Forget folder** takes the folder off the list and leaves its files.
+   A name too long for the list ends in `..` (point at it for the whole name). Drag the bar between the list and the
+   game to make the list wider or narrower, or double-click the bar to fit the longest name; the width is kept for
+   the next start.
 2. Set what you want in its sub-tabs; **Default** next to a value goes back to the profile's or the Mapping tab's:
    - **Axes**: the steering rotation, and for each pedal the axis the game reads it from and Normal / Inverted.
      Each row starts from the game's profile or your Mapping tab. In Mode Virtual the pedals can only be swapped
-     among Y, Rz and Slider. How they feel (dead zones, curves) is set in your rig's own software.
+     among Y, Rz and Slider (Y, Rz and Z on the G25). How they feel (dead zones, curves) is set in your rig's own
+     software.
    - **Force feedback**: overall strength, a gain per kind of effect (steering force, vibration, spring, damper,
      friction, inertia: 0 turns it off, up to 4), a lower cap or slew limit, the frozen-push fade, turning the forces
      the other way, or no force feedback at all.
@@ -137,7 +143,10 @@ on the Mapping tab, while WheelBri is stopped. While it runs the Mapping tab sho
      the Target's buttons: pick one, then the control for it (or nothing). Click a row's control to change it;
      **Remove** gives the button back to the Mapping tab. Each Target keeps its own list.
    - **Game file** (NFS Unbound): the game's own hidden wheel settings, written with **Save to file** (game
-     closed).
+     closed). WheelBri knows the game's file for sure once it has seen the game write it: play the game once while
+     WheelBri runs (it writes its file when it ends). A file found with **Locate...** that the game has not been seen
+     writing says so in amber, and **Save to file** then asks first (press it again to write anyway): another game
+     can keep a file of the same name with the same settings (NFS Heat's for NFS Unbound).
 
 Values are saved as you change them. **While the game runs you can change them too**: they apply at once (the Force
 feedback sub-tab then shows, per kind of effect, what the game asks in blue and what reaches the wheel in green).
@@ -221,8 +230,8 @@ the wheel's software; check `game_effects = true`; try `--ffb-test` ([Force feed
 **Force feedback too strong, too weak or the wrong way.** Change `master_gain` or `invert`
 ([Force feedback](#force-feedback)), or the game's gain in the Games tab. Check the wheel's own strength too.
 
-**The pedals are wrong.** In the Rig tab press each pedal all the way: its bar must go from released to pressed, else
-toggle **Inverted**. In the Mapping tab check Throttle, Brake and Clutch come from the right controls. A pedal that does
+**The pedals are wrong.** In the Mapping tab check Throttle, Brake and Clutch come from the right controls, and press
+each pedal: one that reads pressed at rest needs **Invert** on its row. A pedal that does
 not reach 100%: set its range in the pedals' own software.
 
 **`HELPER NOT INSTALLED`.** Win+R, `services.msc`, start "WheelBri Helper"; or run the setup again. Mode Shim does not

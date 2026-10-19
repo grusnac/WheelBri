@@ -56,8 +56,8 @@ using Level = wheelbri::LogLevel;
 
 // The input report for `wheel` (its buttons, and its axes unsigned when they are: packInputFor).
 Report g920Report(const wheelbri::TargetReport& report, const wheelbri::VirtualWheel& wheel) {
-    const auto packed = wheelbri::packInputFor(wheel, report);
-    return Report(packed.begin(), packed.end());
+    const wheelbri::InputReport packed = wheelbri::packInputFor(wheel, report);
+    return Report(packed.bytes.begin(), packed.bytes.begin() + static_cast<std::ptrdiff_t>(packed.size));
 }
 
 // ---------------------------------------------------------------------------------------------------

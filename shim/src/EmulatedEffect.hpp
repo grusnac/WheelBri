@@ -51,6 +51,8 @@ private:
     ~EmulatedEffect() = default;
 
     [[nodiscard]] FfbEffect toFfb() const;
+    // Logs a constant force's magnitude and direction as the game passed them, when they changed. Caller holds mutex_.
+    void logRawConstant(const FfbEffect& converted);
     // Its envelope (attack / fade) and a ramp's end level, which FfbForwarder applies as it plays.
     [[nodiscard]] FfbShape toShape() const;
     // A slot for this effect ("downloaded"), taking a free one if Unload or a device reset gave the last one back.
@@ -86,6 +88,15 @@ private:
     std::vector<std::uint8_t> typeSpecific_;
 
     logging::CallSampler setSampler_{20, 500};
+    // What the game passed for a constant force, logged each time it changes (the first kMaxRawChanges times): its
+    // magnitude and first direction as given, before they become a level. A game may say how strong a force is in
+    // more than the magnitude (Race Driver: GRID's level was at full every frame).
+    static constexpr int kMaxRawChanges = 300;
+    long lastRawMagnitude_ = 0;
+    long lastRawDirection_ = 0;
+    bool haveRaw_ = false;
+    int rawChanges_ = 0;
+    bool warnedGarbage_ = false;   // a magnitude far outside -10000..10000 was reported (once)
     logging::CallSampler startStopSampler_{20, 500};
     // Games call an effect from several threads (input and force feedback). Recursive: SetParameters(DIEP_START)
     // calls Start.

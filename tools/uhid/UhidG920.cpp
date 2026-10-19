@@ -95,8 +95,7 @@ void UhidG920::destroy() {
 }
 
 bool UhidG920::submit(const TargetReport& report, const bool force) {
-    const auto packed = packInputFor(wheel_, report);
-    static_assert(packed.size() == std::tuple_size_v<decltype(last_)>);
+    const InputReport packed = packInputFor(wheel_, report, DescriptorFor::Linux);
     if (!force && haveLast_ && packed == last_) {
         return false;
     }
@@ -104,8 +103,8 @@ bool UhidG920::submit(const TargetReport& report, const bool force) {
     haveLast_ = true;
     uhid_event event{};
     event.type = UHID_INPUT2;
-    event.u.input2.size = static_cast<std::uint16_t>(packed.size());
-    std::memcpy(event.u.input2.data, packed.data(), packed.size());
+    event.u.input2.size = static_cast<std::uint16_t>(packed.size);
+    std::memcpy(event.u.input2.data, packed.bytes.data(), packed.size);
     write_(event);
     return true;
 }
@@ -179,8 +178,9 @@ void UhidG920::handle(const uhid_event& event, const std::int64_t nowMs) {
                 size = pid_.getFeature(route.id, buffer);
                 if (size > 0) buffer[0] = wirePidId(wheel_, route.id);
             } else if (get.rtype == UHID_INPUT_REPORT && get.rnum == kG920InputReportId && haveLast_) {
-                std::copy(last_.begin(), last_.end(), buffer.begin());
-                size = last_.size();
+                std::copy(last_.bytes.begin(), last_.bytes.begin() + static_cast<std::ptrdiff_t>(last_.size),
+                          buffer.begin());
+                size = last_.size;
             }
             if (size == 0 && unsupported_.emplace(get.rtype, get.rnum).second) {   // once each: some poll it
                 log_(LogLevel::Warn, "uhid: get " + std::string(reportType(get.rtype)) + " report " +

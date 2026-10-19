@@ -75,7 +75,8 @@ public:
         std::array<float, kFfbGroupCount> asked{};
         std::array<float, kFfbGroupCount> sent{};
     };
-    void setGameNow(GameNow now) { now_ = std::move(now); }
+    // Also learns each game's settings file: when a known game ends, the one it wrote while it ran (learnGameFile).
+    void setGameNow(GameNow now);
 
     // `rigsFolder` / `stateFile`: the rig the Wheel setup tab made (its active one, [app] rig), whose controls are
     // the sources.
@@ -169,9 +170,25 @@ private:
     }
     // The game full lock slider: 400 wide in the design, half of the extra width more.
     [[nodiscard]] float sliderW() const { return 400 + extraW() / 2; }
+    // The Games page: the list on the left (its width dragged by the bar right of it, kept in app.ini as
+    // games_list_width), the picked game right of it from gameX(), its values' fields from gameValueX(). The list is
+    // kGameListMinW wide at least; at most half the canvas, and never so wide that the game's side has less than
+    // kGameSideMinW.
+    static constexpr float kGameListMinW = 196;
+    static constexpr float kGameSideMinW = 616;
+    [[nodiscard]] float maxGameListW() const {
+        return std::max(kGameListMinW, std::min(canvasW() / 2 - 24, canvasW() - 24 - kGameSideMinW));
+    }
+    [[nodiscard]] float gameListW() const { return std::clamp(gameListW_, kGameListMinW, maxGameListW()); }
+    [[nodiscard]] float gameX() const { return gameListW() + 20; }
+    [[nodiscard]] float gameValueX() const { return gameX() + 168; }
+    // What a wider list takes from the game's side, in characters.
+    [[nodiscard]] std::size_t listChars() const {
+        return static_cast<std::size_t>((gameListW() - kGameListMinW) / 8.0F);
+    }
     // The Games page: characters right of the list, from the values' column, and where a file value goes.
-    [[nodiscard]] std::size_t gameChars() const { return 92 + extraChars(); }
-    [[nodiscard]] std::size_t valueChars() const { return 71 + extraChars(); }
+    [[nodiscard]] std::size_t gameChars() const { return 92 + extraChars() - listChars(); }
+    [[nodiscard]] std::size_t valueChars() const { return 71 + extraChars() - listChars(); }
     [[nodiscard]] float fileColumnX() const { return window_.width() - 4 - 13 * 8; }
 
     void load();
@@ -221,7 +238,11 @@ private:
     void drawRotation(float y);
     // The Games page: the list of profiles, and the picked one's.
     void drawGames();
-    // The picked game from `y` (x from kGameX): its name and whether it runs, then its three sections, each with what
+    // The Games list's bar was pressed (clickX_): starts dragging it, or on a second press fits the list.
+    void pressListBar();
+    // Writes the list's width to app.ini (games_list_width).
+    void keepListWidth();
+    // The picked game from `y` (x from gameX()): its name and whether it runs, then its three sections, each with what
     // its profile does and the user's values for it: MAPPING (the pedals the profile remaps, the steering rotation),
     // FORCE FEEDBACK (the gain), GAME CONFIG (the game's own settings and its settings file; left out when the profile
     // has none). No target: that is the Mapping tab's.
@@ -256,20 +277,29 @@ private:
     [[nodiscard]] SourceRef pickedSource() const;
     void setPicked(const SourceRef& source);
     void gameSection(float y, const std::string& name, const std::string& about);
-    // A game's settings file: the one the user located (Locate: kept in the app state as game_file.<id>), else the
-    // profile's under Documents. As root + a relative path, for GameSettings' checks (no link, nothing outside root).
+    // A game's settings file: the one the user located (Locate: kept in the app state as game_file.<id>; not when
+    // the game was seen writing another), else the one the game was seen writing (game_file_seen.<id>), else the
+    // profile's under Documents. As root + a relative
+    // path, for GameSettings' checks (no link, nothing outside root). `confirmed`: the game was seen writing it, or it
+    // is where the game's profile says (settingsFileFits); otherwise Save to file asks first (it may be another
+    // game's: NFS Heat's file holds NFS Unbound's settings too).
     struct GameFilePlace {
         std::filesystem::path root;
         std::string relative;
         bool located = false;
+        bool confirmed = true;
     };
     [[nodiscard]] GameFilePlace gameFilePlace(const GameProfile& game) const;
     // Its values as the tab shows them (saved or not), as the game writes them.
     [[nodiscard]] std::vector<GameSettingText> gameValues(const GameProfile& game) const;
-    // Locate: the system's Open dialog; a file that holds every one of the game's settings is remembered.
+    // Locate: the system's Open dialog; a file that holds every one of the game's settings is remembered (one the game
+    // was not seen writing too, not confirmed).
     void locateGameFile(std::size_t index);
-    // Save to file: the values into the game's file (never while it runs), the original kept once.
+    // Save to file: the values into the game's file (never while it runs), the original kept once. A file not
+    // confirmed is written on the second press only.
     void saveGameFile(std::size_t index);
+    // The game `id` ended (it ran since `since`): the settings file it wrote then is its own (game_file_seen.<id>).
+    void learnGameFile(const std::string& id, std::filesystem::file_time_type since);
     [[nodiscard]] std::size_t selectedGameIndex() const;
     // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
     void drawField(float x, float y, float w, Field field, const std::string& value, bool changed,
@@ -327,6 +357,16 @@ private:
     std::size_t fieldIndex_ = 0;
     std::string typed_;
     bool dragging_ = false;   // the slider, from a press on it until the left button is let go
+    // The Games list's width: as the user left it (app.ini games_list_width, read at the first draw of the page);
+    // dragged by its bar from a press on it until the left button is let go, then kept; a second press within
+    // kDoubleClickMs fits the list to its longest name and tag.
+    static constexpr std::uint64_t kDoubleClickMs = 400;
+    float gameListW_ = kGameListMinW;
+    bool gameListRead_ = false;
+    bool listDragging_ = false;
+    float listGrab_ = 0.0F;            // the press's distance from the list's right edge
+    std::uint64_t gripPressMs_ = 0;    // the last press on the bar
+    float fitListW_ = kGameListMinW;   // what the longest name and tag need (the last draw's)
     float clickX_ = 0.0F;     // where the click being answered is (the slider's press)
 
     Page page_ = Page::Mapping;
@@ -349,6 +389,9 @@ private:
     bool baseGameFfb_ = true;
     GameNow now_;
     // The picked game's settings file as last read (at most every 2 s, and when the game or the saved values change).
+    std::string watchedGame_;                           // the known game running (GameNow::id), to see it end
+    std::filesystem::file_time_type watchedSince_{};    // since when it runs (file times), a little before
+    std::string saveAnyway_;                            // the file not confirmed that Save to file was pressed for
     std::optional<GameSettingsFileState> fileState_;
     std::string fileStateKey_;
     std::uint64_t fileStateReadMs_ = 0;

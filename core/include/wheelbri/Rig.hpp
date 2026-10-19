@@ -21,7 +21,7 @@
 //   id = 346e:0005
 //   kind = wheel
 //   axis_0 = Wheel
-//   axis_2 = Gas | invert       ; invert: released at the top of the axis
+//   axis_2 = Gas | throttle           ; "It is": Throttle, named Gas
 //   button_13 = R Paddle | r paddle   ; "It is": R Paddle, named R Paddle
 //   button_14 = Horn | button         ; "It is": Button, named Horn
 //   button_15 = | a                   ; "It is": A, no name yet (shown as "A")
@@ -30,7 +30,8 @@
 // is where the user says what drives what. A control named exactly like a choice, with none picked (a rig saved before
 // 2026-10-15), reads as that choice. Rigs written before 2026-10-13 may have a role after the name ("Gas | throttle",
 // read as the choice it names now) or "| deadzone 3% | full 90%" on an axis (ignored, left out when saved again); a
-// Steering axis makes its device the wheel.
+// Steering axis makes its device the wheel. Rigs written before 2026-10-19 may say "| invert" on an axis: ignored (the
+// Mapping tab's Invert is the one that counts), left out when saved again.
 namespace wheelbri {
 
 // What a control is: the Rig tab's control popup offers these ("It is"). Pressing one picks it (again: unpicks it),
@@ -48,7 +49,6 @@ inline constexpr std::string_view kButtonMark = "Button";
 
 struct RigControl {
     std::string label;                  // what it says on the device (DeviceLabels::kMaxLabel characters at most)
-    bool invert = false;                // an axis released (or centred) at +1 instead of -1
     std::string kind;                   // what it is: one of kAxisNames / kButtonNames as written there, or empty
 
     [[nodiscard]] bool defined() const { return !label.empty() || !kind.empty(); }

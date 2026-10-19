@@ -52,6 +52,14 @@ struct TargetReport {
     friend bool operator==(const TargetReport&, const TargetReport&) = default;
 };
 
+// The combined pedals axis of a target whose pedals rest at the top of the range (a G25's, Logitech's "Combined
+// pedals"): the middle at rest, the throttle pulls it down and the brake pushes it up (both pressed: they cancel), as
+// Race Driver: GRID's G25 preset reads Slider 0 (its lower half throttle, its upper half brake). 0..65535.
+[[nodiscard]] constexpr std::int32_t combinedPedals(const TargetReport& report) {
+    const std::int64_t value = (std::int64_t{65535} + report.throttle - report.brake) / 2;
+    return static_cast<std::int32_t>(value < 0 ? 0 : value > 65535 ? 65535 : value);
+}
+
 // A group of a target's buttons as the Mapping tab shows them ("FACE": A, B, X, Y), in a column of its own (Left,
 // Right: groups stack down their column) or Below both columns (two buttons a row: the shifter's gears).
 struct ButtonGroup {

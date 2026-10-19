@@ -36,6 +36,8 @@ inline constexpr std::uint16_t kG923VendorId = 0x046D;
 inline constexpr std::uint16_t kG923ProductId = 0xC26E;
 inline constexpr std::uint8_t kG920InputReportId = 0x01;
 inline constexpr std::size_t kG920InputReportSize = 13;   // report ID + 4 axes x 2 + 3 button bytes + hat
+// A wheel with combined pedals (VirtualWheel::combinedPedals) has a fifth axis after the fourth: 15 bytes.
+inline constexpr std::size_t kMaxInputReportSize = kG920InputReportSize + 2;
 
 // The unique id ("uniq", EVIOCGUNIQ) wheelbri-uhid gives the Linux virtual wheel (any target). The service never
 // lists a device with it as part of a rig: it would read its own output as input.
@@ -67,6 +69,16 @@ struct VirtualWheel {
     // (directInputAxisEntries), which the service writes while the wheel exists. Windows only: wheelbri-uhid keeps the
     // games' layout (Proton has no such entries).
     bool logitechPedals = false;
+    // Whether its clutch is HID Z (DirectInput's Z axis) instead of Slider, on Windows. The G25: Race Driver: GRID's
+    // own G25 preset (ActionMap/actionMapPreset1.xml) reads Slider 0 as combined pedals (its lower half throttle, its
+    // upper half brake), so a released clutch there, at the top of its range as Logitech's pedals rest, was a brake
+    // held down (the car reversed by itself). Throttle Y and brake Rz stay where that preset reads them.
+    bool clutchOnZ = false;
+    // Whether it also has a combined pedals axis on Slider (a fifth axis, after the clutch; combinedPedals in
+    // DeviceProfile.hpp), on Windows: a G25 with Logitech's driver has one, and Race Driver: GRID's G25 preset reads
+    // it on Slider 0 (lower half throttle, upper half brake). Without it Slider 0 read 0, the bottom: the throttle held
+    // down (the car could not back up); with the clutch there, the top: the brake held down. It rests in the middle.
+    bool combinedPedals = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.
@@ -121,10 +133,19 @@ struct ReportRoute {
 [[nodiscard]] std::array<std::uint8_t, kG920InputReportSize> packG920Input(const TargetReport& report,
                                                                           std::size_t buttons = kG920Buttons);
 
-// The input report for the wheel's own descriptor (reportDescriptorFor): packG920Input, with the axes unsigned when
-// the wheel's are (VirtualWheel::unsignedAxes).
-[[nodiscard]] std::array<std::uint8_t, kG920InputReportSize> packInputFor(const VirtualWheel& wheel,
-                                                                          const TargetReport& report);
+// An input report of up to kMaxInputReportSize bytes: `size` of them used.
+struct InputReport {
+    std::array<std::uint8_t, kMaxInputReportSize> bytes{};
+    std::size_t size = 0;
+    [[nodiscard]] std::span<const std::uint8_t> view() const { return {bytes.data(), size}; }
+    [[nodiscard]] std::uint8_t operator[](const std::size_t at) const { return bytes[at]; }
+    friend bool operator==(const InputReport&, const InputReport&) = default;
+};
+// The input report for the wheel's own descriptor (reportDescriptorFor(wheel, where)): packG920Input, with the axes
+// unsigned when the wheel's are (VirtualWheel::unsignedAxes) and, on Windows, the combined pedals after the fourth
+// axis when it has them (VirtualWheel::combinedPedals: 15 bytes; else 13).
+[[nodiscard]] InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report,
+                                       DescriptorFor where = DescriptorFor::Windows);
 
 // Centred wheel, released pedals, no buttons: what games see while no state arrives.
 [[nodiscard]] TargetReport g920Neutral();

@@ -51,7 +51,12 @@ void putU32(std::span<std::uint8_t> out, const std::uint32_t offset, const std::
 JoystickLayout layoutFor(const std::string_view profile, const std::size_t buttonCount) {
     JoystickLayout layout;
     layout.buttonCount = buttonCount;
-    static_cast<void>(profile);   // the G920 and the G25 share one: throttle Y, brake Rz, clutch Slider
+    // Throttle Y, brake Rz, clutch Slider; the G25's clutch on Z, as its virtual device has it
+    // (VirtualWheel::clutchOnZ: Race Driver: GRID reads a G25's Slider 0 as combined pedals).
+    if (profile == "g25") {
+        layout.clutch = ObjectGuid::ZAxis;
+        layout.combined = ObjectGuid::Slider;   // as its virtual device (VirtualWheel::combinedPedals)
+    }
     return layout;
 }
 
@@ -102,6 +107,11 @@ EmulatedJoystick::EmulatedJoystick(const JoystickLayout& layout) : invertPedals_
                               {layout.brake, Control::Brake, "Brake"}};
     if (layout.clutch != ObjectGuid::Any) {
         axes.push_back({layout.clutch, Control::Clutch, "Clutch"});
+    }
+    if (layout.combined != ObjectGuid::Any && axisInfo(layout.combined) != nullptr &&
+        layout.combined != ObjectGuid::XAxis && layout.combined != layout.throttle &&
+        layout.combined != layout.brake && layout.combined != layout.clutch) {
+        axes.push_back({layout.combined, Control::Combined, "Combined pedals"});
     }
     // HID devices list (and number) their axes in usage order: X, Y, Z, Rx, Ry, Rz, Slider.
     std::sort(axes.begin(), axes.end(),
@@ -284,6 +294,7 @@ std::uint32_t EmulatedJoystick::valueOf(const std::size_t index, const TargetRep
         case Control::Throttle: return scaled(pedal(report.throttle));
         case Control::Brake: return scaled(pedal(report.brake));
         case Control::Clutch: return scaled(pedal(report.clutch));
+        case Control::Combined: return scaled(combinedPedals(report));
         case Control::Button: return ((report.buttons >> object.buttonIndex) & 1U) != 0 ? di::kButtonDown : 0;
         case Control::Pov:
             return report.hat >= 0 && report.hat < 8 ? static_cast<std::uint32_t>(report.hat) * 4500U

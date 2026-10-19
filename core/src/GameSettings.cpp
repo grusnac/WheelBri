@@ -311,4 +311,74 @@ GameSettingsFileState readGameSettingsState(const std::filesystem::path& root, c
     return state;
 }
 
+bool settingsFileFits(const std::filesystem::path& file, const std::string_view settingsFile) {
+    const auto lowerText = [](std::string text) {
+        for (char& ch : text) ch = ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch - 'A' + 'a') : ch;
+        return text;
+    };
+    std::vector<std::string> wanted;   // its parts from the file up: PROFILEOPTIONS, settings, the game's folder
+    for (const auto& part : pathFromUtf8(std::string(settingsFile))) {
+        if (!part.empty()) wanted.insert(wanted.begin(), lowerText(pathToUtf8(part)));
+    }
+    if (wanted.empty()) return false;
+    std::filesystem::path at = file;
+    for (const std::string& part : wanted) {
+        if (at.empty() || !at.has_filename() || lowerText(pathToUtf8(at.filename())) != part) return false;
+        at = at.parent_path();
+    }
+    return true;
+}
+
+std::vector<std::filesystem::path> settingsFilesWrittenBetween(const std::filesystem::path& documents,
+                                                               const std::string_view settingsFile,
+                                                               const std::filesystem::path& located,
+                                                               const std::filesystem::file_time_type from,
+                                                               const std::filesystem::file_time_type to) {
+    std::vector<std::filesystem::path> found;
+    const auto consider = [&found, from, to](const std::filesystem::path& file) {
+        std::error_code ec;
+        const std::filesystem::file_status status = std::filesystem::symlink_status(file, ec);
+        if (ec || !std::filesystem::is_regular_file(status)) return;   // a link is never followed
+        const std::filesystem::file_time_type written = std::filesystem::last_write_time(file, ec);
+        if (ec || written < from || written > to) return;
+        for (const std::filesystem::path& other : found) {
+            if (sameSettingsFile(other, file)) return;
+        }
+        found.push_back(file);
+    };
+    // The settings file's path below its top folder ("settings/PROFILEOPTIONS"): in every folder of Documents.
+    std::filesystem::path below;
+    bool top = true;
+    for (const auto& part : pathFromUtf8(std::string(settingsFile))) {
+        if (part.empty()) continue;
+        if (!top) below /= part;
+        top = false;
+    }
+    if (!documents.empty() && !below.empty()) {
+        std::error_code ec;
+        const auto options = std::filesystem::directory_options::skip_permission_denied;
+        for (std::filesystem::directory_iterator it(documents, options, ec);
+             !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+            std::error_code statusError;
+            if (it->is_directory(statusError) && !it->is_symlink(statusError)) consider(it->path() / below);
+        }
+    }
+    if (!located.empty()) consider(located);
+    return found;
+}
+
+bool sameSettingsFile(const std::filesystem::path& a, const std::filesystem::path& b) {
+    std::error_code ec;
+    if (std::filesystem::exists(a, ec) && std::filesystem::exists(b, ec)) {
+        const bool same = std::filesystem::equivalent(a, b, ec);
+        if (!ec) return same;
+    }
+    const auto lowerText = [](std::string text) {
+        for (char& ch : text) ch = ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch - 'A' + 'a') : ch;
+        return text;
+    };
+    return lowerText(pathToUtf8(a.lexically_normal().make_preferred())) ==
+           lowerText(pathToUtf8(b.lexically_normal().make_preferred()));
+}
+
 }  // namespace wheelbri

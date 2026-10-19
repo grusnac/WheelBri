@@ -83,7 +83,7 @@ private:
     int openCount_ = 0;
     bool haveLast_ = false;
     std::set<std::pair<std::uint32_t, std::uint32_t>> unsupported_;   // get-report kinds already logged
-    std::array<std::uint8_t, kG920InputReportSize> last_{};
+    InputReport last_{};
 };
 
 }  // namespace wheelbri::uhid

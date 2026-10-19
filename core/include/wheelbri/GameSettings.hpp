@@ -124,6 +124,26 @@ struct GameSettingsFileState {
     // Read, and every value already as WheelBri would write it.
     [[nodiscard]] bool asSet() const;
 };
+// Whether `file` is where the game's profile says its settings file is (`settingsFile`, relative to Documents, as
+// "Need For Speed(TM) Unbound/settings/PROFILEOPTIONS"): the same file name in folders of the same names, letter
+// case aside, wherever Documents is. Only a first guess: the folder is the game's own choice (not its install folder:
+// NFS Unbound installs in "Excalibur"), and another game's file can have the same name and the same settings (NFS
+// Heat's PROFILEOPTIONS holds NFS Unbound's eight Wheel* entries too), so the contents cannot tell them apart.
+[[nodiscard]] bool settingsFileFits(const std::filesystem::path& file, std::string_view settingsFile);
+
+// What tells a game's file for sure: the game writes it when it ends. The files that may be the game's settings file
+// (in every folder of `documents`, the file `settingsFile` names below its top folder: "*/settings/PROFILEOPTIONS";
+// and `located`, the one the user located; empty: none) last written between `from` and `to`, each once. Called when
+// the game has ended, with the time it ran: one file is the one it wrote; none or several, it cannot be told.
+[[nodiscard]] std::vector<std::filesystem::path> settingsFilesWrittenBetween(const std::filesystem::path& documents,
+                                                                             std::string_view settingsFile,
+                                                                             const std::filesystem::path& located,
+                                                                             std::filesystem::file_time_type from,
+                                                                             std::filesystem::file_time_type to);
+// Whether `a` and `b` are the same file: the same file on disk when both are there, else the same path (letter case
+// aside, as Windows sees it).
+[[nodiscard]] bool sameSettingsFile(const std::filesystem::path& a, const std::filesystem::path& b);
+
 [[nodiscard]] GameSettingsFileState readGameSettingsState(const std::filesystem::path& root, std::string_view relative,
                                                           std::span<const GameSettingText> values);
 

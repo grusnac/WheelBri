@@ -126,6 +126,16 @@ TEST(DeviceProfile, G25ButtonsHaveTheGearsAtLogitechsNumbers) {
     EXPECT_TRUE(profile.buttonName(kG25Buttons).empty());
 }
 
+// The real G25's order as games of its time saw it on Windows (README, "Targets"): red 0-3, paddles 4 right / 5
+// left, wheel buttons 6 right / 7 left, gears 8-14, the black diamond 15-18 (top, left, bottom, right).
+TEST(DeviceProfile, G25ButtonsAreTheRealOnes) {
+    const DeviceProfile profile(g25Spec());
+    const char* const expected[] = {"Red 1",  "Red 2",  "Red 3",  "Red 4",  "R Paddle", "L Paddle", "R Wheel",
+                                    "L Wheel", "Gear 1", "Gear 2", "Gear 3", "Gear 4",   "Gear 5",   "Gear 6",
+                                    "Gear R", "Blk top", "Blk left", "Blk bottom", "Blk right"};
+    for (std::size_t i = 0; i < kG25Buttons; ++i) EXPECT_EQ(profile.buttonName(i), expected[i]) << i;
+}
+
 TEST(DeviceProfile, G25EncodesLikeTheG920) {
     const DeviceProfile g25(g25Spec());
     const DeviceProfile g920(g920Spec());

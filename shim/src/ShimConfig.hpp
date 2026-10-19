@@ -25,7 +25,7 @@ namespace wheelbri::shim {
 //                              ; passthrough = straight to the wheel's driver; off = no force feedback
 //   ffb_port = 41330           ; must match ffb_port in the service config
 //   throttle_axis = y          ; DirectInput axis per pedal: x y z rx ry rz slider (clutch also: none).
-//   brake_axis = rz            ;   Defaults: the target's, y / rz / slider for the G920 and the G25.
+//   brake_axis = rz            ;   Defaults: the target's: y / rz / slider (the G25's clutch: z).
 //   clutch_axis = slider
 //   invert_pedals = false      ; true = pressed and released swapped for all pedals
 //
