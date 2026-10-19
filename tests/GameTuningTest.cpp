@@ -110,7 +110,7 @@ TEST(GameTuning, ResolveWithoutAGameIsTheMapping) {
     base.masterGain = 0.7F;
     const GameFfb ffb = resolveGameFfb(base, true, false, nullptr, std::nullopt, nullptr);
     EXPECT_FLOAT_EQ(ffb.safety.masterGain, 0.7F);
-    EXPECT_FLOAT_EQ(ffb.safety.maxMagnitude, 0.8F);
+    EXPECT_FLOAT_EQ(ffb.safety.maxMagnitude, 1.0F);
     for (const float gain : ffb.gains) EXPECT_FLOAT_EQ(gain, 1.0F);
     EXPECT_TRUE(ffb.invert);
     EXPECT_FALSE(ffb.effects);

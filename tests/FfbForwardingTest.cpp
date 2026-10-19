@@ -751,7 +751,7 @@ TEST(FfbFrozenPush, ALoadingScreenThatKeepsSendingItsLastPushFadesOut) {
         controller.update(now);
     }
     EXPECT_FLOAT_EQ(controller.frozenFade(), 1.0F);
-    EXPECT_NEAR(sentTo(controller, 0).constantLevel, 0.8F, 1e-4F);   // the cap, not the fade
+    EXPECT_NEAR(sentTo(controller, 0).constantLevel, 0.83F, 1e-4F);   // all it asks (under the cap), not faded
     for (std::uint64_t now = 1'910 * kMs; now <= 2'250 * kMs; now += 10 * kMs) {
         sendAll(now);
         controller.update(now);

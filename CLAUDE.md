@@ -978,8 +978,13 @@ rewrites on every build only when it changes); views keep their own top-row cont
     (aggregation, `EnumDevicesBySemantics`, `DllGetClassObject`, `EnumCreatedEffectObjects`) is logged
     with a warning on purpose.
 - FFB safety: rigs are often direct drive. Every force the service sends to hardware must go through
-  `FfbSafetyLimiter` (in `FfbController`, which also has a watchdog); keep the defaults conservative
-  (`max_magnitude` 0.8, `max_slew_per_second` 50, `frozen_force_s` 2: a push the game leaves unchanged that long fades out).
+  `FfbSafetyLimiter` (in `FfbController`, which also has a watchdog). The strength is set in the wheel's own app
+  (Pit House and the like), so WheelBri passes all of it: `master_gain` 1.0, `max_magnitude` 1.0
+  (`FfbLimits.hpp`); keep the guards: `max_slew_per_second` 50, `frozen_force_s` 2 (a push the game leaves unchanged
+  that long fades out), the watchdog, DiEffect's "not a force" values. Every user's own config (`my-*.ini`) with exactly
+  the older 0.7/0.8 is moved to 1/1 when the Mapping tab loads (`movedFromOldLimits`; a game's `ffb_strength` 0.7 or
+  `ffb_cap` 0.8 goes with them), logged and told in the status line; any other values are the user's choice and stay.
+  No built-in game profile changes the strength (`[ffb] gain`); per-game gains are the user's, in the Games tab.
   A game that crashes while using the virtual G920 sends nothing more and the driver cannot tell: `HidPid` stops
   keep-alives after 10 s without a report while a pushing force (constant, ramp, periodic) plays, so the service's
   watchdog stops it (springs and dampers keep going; the next report brings everything back). A condition whose dead band covers the whole travel is sent empty (the R3 drove

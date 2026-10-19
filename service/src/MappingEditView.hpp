@@ -253,6 +253,9 @@ private:
     // came from: the game's profile or the Mapping tab).
     float drawGameAxes(std::size_t index, float y);
     float drawGameForces(std::size_t index, float y);
+    // Moves every one of the user's own mappings (my-*.ini) still at WheelBri's older force limits (0.7 / 0.8) to
+    // 1.0 / 1.0 (FfbLimits.hpp); how many it moved.
+    int moveOldLimits();
     float drawGameButtons(std::size_t index, float y);
     // The picked game's own values (created when one is set; dropped when none is left).
     [[nodiscard]] const GameTuning* tuningOf(const std::string& id) const;

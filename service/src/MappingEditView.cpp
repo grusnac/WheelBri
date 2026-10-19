@@ -11,6 +11,7 @@
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceMatch.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
+#include "wheelbri/FfbLimits.hpp"
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameRotation.hpp"
@@ -167,6 +168,8 @@ void MappingEditView::load() {
         statusError_ = true;
         return;
     }
+    // WheelBri's older force limits (0.70 / 0.80) in the user's own files: now 1 / 1, the wheel's app sets how strong.
+    const int movedLimits = moveOldLimits();
     fileText_ = readFile(path_);
     if (fileText_.empty()) {
         status_ = "Cannot read " + path_;
@@ -195,6 +198,12 @@ void MappingEditView::load() {
                             : "WheelBri's default mapping. Change a source: it is saved as your own.";
         statusError_ = false;
     }
+    if (movedLimits > 0 && !statusError_) {
+        status_ = "Force feedback: strength and cap are now 1.00 (were 0.70 / 0.80) in " +
+                  std::to_string(movedLimits) + (movedLimits == 1 ? " mapping" : " mappings") +
+                  ". Set how strong in the wheel's own app (Pit House); lower it there before the next race.";
+    }
+    if (movedLimits > 0) toast_ = "Force limits now 1.00 / 1.00";
     WE_LOG_INFO(log(), "mapping: editing {}", path_);
 }
 
@@ -1876,6 +1885,14 @@ float MappingEditView::drawGameForces(const std::size_t index, float y) {
                     ? "running: blue what the game asks, green what reaches the wheel; changes apply at once"
                     : "times what the game asks; the cap and the slew limit always apply");
     y += 16;
+    // How strong is the wheel's own app's to say, for every game; WheelBri passes all the game asks.
+    constexpr const char* kStrength = "How strong: set it in your wheel's own app (Moza Pit House, Fanatec, Simucube, "
+                                      "Thrustmaster, Logitech G HUB). WheelBri passes all of what the game asks.";
+    for (const std::string& line : wrap(kStrength, gameChars(), 2)) {
+        window_.text(gameX(), y, line, kDim);
+        y += 12;
+    }
+    y += 4;
     const auto row = [&](const std::string& label, const TuningField field, const std::string& value,
                          const bool mine, const std::string& about, std::function<void()> reset) {
         window_.text(gameX(), y + 4, label, kText);
@@ -1962,6 +1979,33 @@ float MappingEditView::drawGameForces(const std::size_t index, float y) {
            },
            "Off: no force feedback from this game at all");
     return y;
+}
+
+int MappingEditView::moveOldLimits() {
+    // Every one of the user's own mappings (my-*.ini, the older per-mode ones too), not only the shown target's.
+    const std::filesystem::path folder = picker_.ownPath().parent_path();
+    std::error_code ec;
+    if (folder.empty() || !std::filesystem::is_directory(folder, ec)) return 0;
+    int moved = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(folder, ec)) {
+        const std::filesystem::path file = entry.path();
+        const std::string name = pathToUtf8(file.filename());
+        if (!entry.is_regular_file(ec) || name.rfind("my-", 0) != 0 || file.extension() != ".ini") continue;
+        const std::optional<std::string> text = readFileText(file);
+        if (!text) continue;
+        const std::optional<std::string> next = movedFromOldLimits(*text);
+        if (!next) continue;
+        if (!writeFileReplacing(file, *next)) {
+            WE_LOG_WARN(log(), "mapping: cannot write {}: its force limits stay at the older 0.70 / 0.80",
+                        pathToUtf8(file));
+            continue;
+        }
+        WE_LOG_INFO(log(), "mapping: force limits in {} moved from the older strength 0.70, cap 0.80 to {:.2f}, "
+                           "{:.2f}: the wheel's own app sets how strong",
+                    pathToUtf8(file), kWheelAppMasterGain, kWheelAppMaxMagnitude);
+        ++moved;
+    }
+    return moved;
 }
 
 float MappingEditView::drawGameButtons(const std::size_t index, float y) {

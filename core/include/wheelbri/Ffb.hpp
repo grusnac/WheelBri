@@ -61,8 +61,8 @@ struct FfbEffect {
 [[nodiscard]] float ffbStrength(const FfbEffect& effect);
 
 struct FfbSafetyConfig {
-    float masterGain = 1.0F;            // user strength setting, 0..1
-    float maxMagnitude = 0.8F;          // hard cap for a direct-drive wheel, 0..1
+    float masterGain = 1.0F;            // 0..1; the strength itself is set in the wheel's own app (FfbLimits.hpp)
+    float maxMagnitude = 1.0F;          // hard cap, 0..1: 1 = all the game asks; the wheel's app sets the strength
     float maxSlewPerSecond = 50.0F;     // constant force may move at most this much full-scale per second
     // A constant push the game leaves exactly as it is this long (seconds) fades out, with the periodic effects on
     // top: a game that paused (loading screen) but keeps sending its last force. 0 = never (FfbController).

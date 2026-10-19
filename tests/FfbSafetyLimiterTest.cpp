@@ -188,9 +188,9 @@ TEST(FfbEffectType, StrengthFoldsInTheEffectGain) {
 TEST(FfbSafetyLimiter, EachNotANumberConfigValueFallsBackOnItsOwn) {
     const float nan = std::numeric_limits<float>::quiet_NaN();
     const float inf = std::numeric_limits<float>::infinity();
-    FfbSafetyLimiter capNan({0.5F, nan, 1000.0F});   // the default cap 0.8, the given gain 0.5
+    FfbSafetyLimiter capNan({0.5F, nan, 1000.0F});   // the default cap 1, the given gain 0.5
     EXPECT_NEAR(capNan.apply(constant(1.0F), 1.0F).constantLevel, 0.5F, kTolerance);
-    EXPECT_NEAR(capNan.apply(constant(4.0F), 1.0F).constantLevel, 0.8F, kTolerance);
+    EXPECT_NEAR(capNan.apply(constant(4.0F), 1.0F).constantLevel, 1.0F, kTolerance);
     FfbSafetyLimiter slewInf({1.0F, 0.6F, inf});      // an infinite slew is no slew limit: the default 50/s instead
     EXPECT_NEAR(slewInf.apply(constant(1.0F), 0.001F).constantLevel, 0.05F, kTolerance);
     FfbSafetyLimiter gainNan({nan, 0.6F, 1000.0F});   // the default gain 1

@@ -240,8 +240,9 @@ rig ──DirectInput / evdev──► wheelbri-service ──UDP 127.0.0.1─�
 - **Pipeline:** raw axes → `Mapper` → `WheelState` → the target's `IDeviceProfile::encode` → `StatePacket` (33 bytes,
   magic `WEMU`). Code on this loop allocates nothing and never blocks.
 - **UDP loopback, not shared memory:** under Proton the shim lives in Wine and the service is a Linux process.
-- **Force feedback safety:** every force to the wheel goes through `FfbSafetyLimiter` (`max_magnitude` 0.8, slew limit)
-  and a watchdog that stops forces when the game goes quiet for 500 ms. Never add a way around it.
+- **Force feedback safety:** every force to the wheel goes through `FfbSafetyLimiter` (slew limit; no cap of its
+  own: the strength is set in the wheel's own app, such as Moza Pit House) and a watchdog that stops forces when the
+  game goes quiet for 500 ms. Never add a way around it.
 - **Logging:** spdlog through the `WE_LOG_*` macros, one dotted logger per component (rules in
   `core/include/wheelbri/Logging.hpp`). Logs and telemetry go to `%LOCALAPPDATA%\wheelbri\logs` or
   `~/.local/state/wheelbri`.

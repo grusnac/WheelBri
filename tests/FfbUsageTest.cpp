@@ -215,7 +215,7 @@ TEST(FfbUsage, NotANumberConfigCountsAgainstTheDefaultCap) {
     const float nan = std::numeric_limits<float>::quiet_NaN();
     FfbUsage usage(safety(nan, nan));
     std::array<FfbUsage::SlotSample, 1> slots{};
-    slots[0] = {true, constant(0.9F), constant(0.8F)};   // above the default cap 0.8
+    slots[0] = {true, constant(1.5F), constant(1.0F)};   // above the default cap 1
     usage.record(10 * kMs, true, slots);
     slots[0] = {true, constant(0.7F), constant(0.7F)};
     usage.record(10 * kMs, true, slots);

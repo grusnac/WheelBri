@@ -265,13 +265,16 @@ TEST(GameProfiles, FfbGain) {
     EXPECT_FALSE(parse("[ffb]\nstrength = 2\n").profile.has_value());
 }
 
-TEST(GameProfiles, NfsUnboundGetsStrongerForceFeedback) {
+// Every game plays its force feedback as it sends it: no built-in profile changes the strength (the wheel's own app
+// sets how strong). The user can still raise one game's in the Games tab.
+TEST(GameProfiles, NoBuiltInProfileChangesTheForceFeedbackStrength) {
+    for (const GameProfile& profile : gameProfiles()) {
+        EXPECT_FALSE(profile.ffbGain.has_value()) << profile.id;
+    }
     const GameProfile* const unbound =
         gameProfileFor("D:\\Steam\\steamapps\\common\\Excalibur\\NeedForSpeedUnbound.exe");
     ASSERT_NE(unbound, nullptr);
     EXPECT_EQ(unbound->label, "NFS Unbound");
-    EXPECT_EQ(unbound->ffbGain, 3.0F);
-    EXPECT_FALSE(unbound->ffbNote.empty());
     EXPECT_EQ(describeOverlay(*unbound), "");   // its pedals are a G920's
     EXPECT_FALSE(unbound->rotationDeg.has_value());
 }

@@ -154,16 +154,26 @@ Pedal axes in Mode Shim and new games take effect at the next Start.
 
 ## Force feedback
 
-Every force goes through safety limits first. The defaults are cautious: 70% overall strength, never more than 80% of
-what the wheel can do, no sudden jumps, and a push the game leaves unchanged for 2 seconds (a loading screen) fades out.
+**How strong the force feedback is, you set in your wheel's own app**, the same for every game: Moza Pit House
+(maximum output torque, game force feedback intensity), Fanatec's tuning menu, Simucube True Drive, Thrustmaster's
+control panel, Logitech G HUB. WheelBri passes all of what the game asks.
+
+Every force still goes through safety limits: no sudden jumps, a push the game leaves unchanged for 2 seconds (a loading
+screen) fades out, all forces stop when the game goes quiet, and a value that is not a force (Race Driver: GRID with
+VSync off) plays nothing.
+
+Mappings you saved earlier with WheelBri's older, cautious limits (70% strength, at most 80%) are moved to the new
+ones (1 and 1) when the app opens, all of them at once; the status line says so. **Turn the strength down in the
+wheel's app before the first race after that**: forces get about 1.4 times stronger. Other values you set yourself
+stay as they are.
 
 For one game, use the Games tab. For every game, edit `[ffb]` in your mapping file,
 `%LOCALAPPDATA%\wheelbri\configs\my-<target>.ini` (it exists once you saved a mapping), and press Start again:
 
 | Setting | Default | |
 |---|---|---|
-| `master_gain` | 0.7 | overall strength |
-| `max_magnitude` | 0.8 | the hard cap; raise only with care |
+| `master_gain` | 1.0 | overall strength; set it in the wheel's app instead |
+| `max_magnitude` | 1.0 | the hard cap (1 = none of WheelBri's own) |
 | `invert` | false | `true` if forces pull the wrong way |
 | `game_effects` | true | `false` turns game force feedback off |
 
@@ -227,8 +237,8 @@ the game again and pick the Logitech wheel.
 **No force feedback, but the wheel works.** Alt+Tab if the status says so; check force feedback is on in the game and in
 the wheel's software; check `game_effects = true`; try `--ffb-test` ([Force feedback](#force-feedback)).
 
-**Force feedback too strong, too weak or the wrong way.** Change `master_gain` or `invert`
-([Force feedback](#force-feedback)), or the game's gain in the Games tab. Check the wheel's own strength too.
+**Force feedback too strong, too weak or the wrong way.** Set the strength in the wheel's own app (Pit House for a
+Moza); for one game, its gain in the Games tab; `invert` if it pulls the wrong way ([Force feedback](#force-feedback)).
 
 **The pedals are wrong.** In the Mapping tab check Throttle, Brake and Clutch come from the right controls, and press
 each pedal: one that reads pressed at rest needs **Invert** on its row. A pedal that does

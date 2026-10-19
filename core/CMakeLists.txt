@@ -17,6 +17,7 @@ add_library(wheelbri_core STATIC
     src/Ffb.cpp
     src/FfbController.cpp
     src/FfbIdleWatch.cpp
+    src/FfbLimits.cpp
     src/FfbPacket.cpp
     src/FfbUsage.cpp
     src/GameDetector.cpp
