@@ -22,7 +22,8 @@ Releases: <https://github.com/grusnac/WheelBri/releases>
 | Part | State |
 |---|---|
 | Target G920 on Windows 11, Mode Virtual and Mode Shim | **working** in four Need for Speed games ([docs/games.md](docs/games.md)) |
-| Targets G25, G27, G923 | built and unit-tested, **not yet tried in a game**; button orders partly guessed ([Targets](#targets)) |
+| Target G25 on Windows 11, Mode Virtual and Mode Shim | **working** in Race Driver: GRID ([docs/games.md](docs/games.md)); its centring spring untried |
+| Targets G27, G923 | built and unit-tested, **not yet tried in a game**; button orders partly guessed ([Targets](#targets)) |
 | G HUB with the virtual G923 | tried once; later changes untried ([G HUB and HID++](#g-hub-and-hid)) |
 | Linux (`wheelbri-uhid`, the shim under Proton) | built and unit-tested, **not yet tried on a Steam Deck** |
 | Windows 7 to 10 | built, **not yet tried** |
