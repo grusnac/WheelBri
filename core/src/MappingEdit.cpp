@@ -1,6 +1,7 @@
 #include "wheelbri/MappingEdit.hpp"
 
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/CentringSpring.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/IniEditor.hpp"
 
@@ -201,6 +202,7 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     model.hat = {sourceOf(mapper, hat.devices[0], hat.up), sourceOf(mapper, hat.devices[1], hat.right),
                  sourceOf(mapper, hat.devices[2], hat.down), sourceOf(mapper, hat.devices[3], hat.left)};
     model.steeringRotationDeg = mapper.steering.targetRotationDeg;
+    model.centringSpringPercent = config.centringSpringPercent;
     model.gameRotations = config.gameRotations;
     model.gameSettings = config.gameSettings;
     model.gameFfbGains = config.gameFfbGains;
@@ -301,6 +303,10 @@ std::string tuningProblem(const MappingModel& model) {
     if (std::string problem = tuning::rotationProblem(model.steeringRotationDeg); !problem.empty()) {
         return "steering rotation: " + problem;
     }
+    // Written as "in range" so that NaN is refused too.
+    if (!(model.centringSpringPercent >= 0.0F && model.centringSpringPercent <= kCentringSpringMaxPercent)) {
+        return "centring spring: from 0 (off) to " + tuning::formatNumber(kCentringSpringMaxPercent) + "%";
+    }
     for (std::size_t t = 0; t < model.secondaries.size(); ++t) {
         if (model.secondaries[t].size() > MapperConfig::kMaxSecondaries) {
             return "button " + std::to_string(t) + ": at most " + std::to_string(MapperConfig::kMaxSecondaries) +
@@ -394,6 +400,7 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     };
     // The defaults as the config reader has them (MapperConfig.hpp).
     number("steering", "target_rotation_deg", model.steeringRotationDeg, SteeringConfig{}.targetRotationDeg);
+    number("ffb", "centring_spring", model.centringSpringPercent, EmulatorConfig{}.centringSpringPercent);
     // [game_rotation]: one line per game the user set; a line for a game no longer set goes.
     const auto& sections = before.sections();
     if (const auto old = sections.find("game_rotation"); old != sections.end()) {

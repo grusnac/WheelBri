@@ -86,7 +86,7 @@ private:
 
     void run();
     [[nodiscard]] bool hasWork() const;   // under mutex_
-    [[nodiscard]] std::size_t pickNext(Clock::time_point now) const;   // under mutex_; kMaxSlots: none
+    [[nodiscard]] std::size_t pickNext(Clock::time_point now) const;   // under mutex_; kWheelSlots: none
     void record(const Applied& applied);   // under mutex_
     void queue(std::size_t slot, Command command, const FfbEffect& effect);   // under mutex_
 
@@ -95,8 +95,8 @@ private:
     std::mutex mutex_;
     std::condition_variable wake_;   // a command or quit
     std::condition_variable idle_;   // the worker has nothing left to do
-    std::array<Pending, kMaxSlots> pending_{};
-    std::array<bool, kMaxSlots> refused_{};   // the last play on that slot failed, not reported yet
+    std::array<Pending, kWheelSlots> pending_{};
+    std::array<bool, kWheelSlots> refused_{};   // the last play on that slot failed, not reported yet
     bool stopAllPending_ = false;
     Clock::time_point stopAllSince_;
     bool busy_ = false;

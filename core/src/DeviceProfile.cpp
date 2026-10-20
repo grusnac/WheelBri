@@ -156,6 +156,7 @@ DeviceProfileSpec g25Spec() {
     spec.identity.productId = 0xC299;
     spec.identity.productName = "Logitech G25 Racing Wheel USB";
     spec.identity.rotationDeg = 900.0F;
+    spec.identity.centringSpring = true;   // Logitech's software had one for it (CentringSpring.hpp)
     spec.steeringRange = {0, 65535};
     spec.pedalRange = {0, 65535};
     spec.pedalsReleasedAtMax = true;   // Logitech's pedals of that time report released as the top of the range
@@ -187,6 +188,7 @@ DeviceProfileSpec g27Spec() {
     spec.identity.productId = 0xC29B;
     spec.identity.productName = "Logitech G27 Racing Wheel USB";
     spec.identity.rotationDeg = 900.0F;
+    spec.identity.centringSpring = true;   // Logitech's software had one for it (CentringSpring.hpp)
     spec.steeringRange = {0, 65535};
     spec.pedalRange = {0, 65535};
     spec.pedalsReleasedAtMax = true;   // as the G25's

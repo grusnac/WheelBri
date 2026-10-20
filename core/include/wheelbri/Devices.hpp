@@ -21,7 +21,12 @@ public:
 // Plays force feedback on the physical wheel. Slots let a game run several effects at once.
 class IFfbSink {
 public:
+    // The game's effects: slots 0 to kMaxSlots - 1 (what the shim, the virtual wheel's driver and the game share).
     static constexpr std::size_t kMaxSlots = 8;
+    // One more on the wheel, WheelBri's own: the target's centring spring (FfbController::setCentringSpring), which
+    // no game can stop or overwrite. A sink takes slots 0 to kWheelSlots - 1.
+    static constexpr std::size_t kCentringSpringSlot = kMaxSlots;
+    static constexpr std::size_t kWheelSlots = kMaxSlots + 1;
 
     virtual ~IFfbSink() = default;
 

@@ -326,12 +326,14 @@ TEST(FfbDelayStats, SharesWithin) {
     EXPECT_EQ(stats.shareWithin(FfbDelayStats::Group::Stop, 5), 0.0);
 }
 
-// Slot numbers past the last one (a caller's bug): a play is refused, a stop ignored, the wheel is not called.
+// Slot numbers past the last one (a caller's bug): a play is refused, a stop ignored, the wheel is not called. The
+// last one is the centring spring's (IFfbSink::kCentringSpringSlot), after the game's.
 TEST(AsyncFfbSink, SlotsPastTheLastAreRefused) {
     auto log = std::make_shared<SlowSink::Log>();
     AsyncFfbSink sink(std::make_unique<SlowSink>(log));
-    EXPECT_FALSE(sink.play(IFfbSink::kMaxSlots, constant(0.5F)));
-    sink.stop(IFfbSink::kMaxSlots);
+    EXPECT_EQ(IFfbSink::kCentringSpringSlot + 1, IFfbSink::kWheelSlots);
+    EXPECT_FALSE(sink.play(IFfbSink::kWheelSlots, constant(0.5F)));
+    sink.stop(IFfbSink::kWheelSlots);
     sink.stop(1000);
     sink.flush();
     EXPECT_TRUE(log->take().empty());

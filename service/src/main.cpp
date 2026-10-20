@@ -613,6 +613,11 @@ public:
             }
         });
         ffb->controller_ = std::make_unique<wheelbri::FfbController>(*ffb->sink_, config.ffb);
+        // The target's centring spring, if its own software had one (the G25's and G27's: CentringSpring.hpp).
+        if (const auto target = wheelbri::makeProfile(config.targetProfile);
+            target != nullptr && target->identity().centringSpring) {
+            ffb->controller_->setCentringSpring(config.centringSpringPercent);
+        }
 #if defined(_WIN32)
         wheelbri::SenderGate::Settings gate;
         gate.acceptUnknown = true;   // the lookup failing must not take a game's force feedback away

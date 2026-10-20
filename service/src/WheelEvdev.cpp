@@ -304,7 +304,7 @@ private:
     int fd_;
     std::bitset<FF_CNT> features_;
     bool invert_;
-    std::array<Slot, kMaxSlots> slots_{};
+    std::array<Slot, kWheelSlots> slots_{};   // the game's and the centring spring's
 };
 
 // --- the wheel ----------------------------------------------------------------------------------------

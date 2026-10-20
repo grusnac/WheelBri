@@ -1,5 +1,6 @@
 #include "wheelbri/FfbController.hpp"
 
+#include "wheelbri/CentringSpring.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/Logging.hpp"
 
@@ -57,6 +58,7 @@ FfbController::FfbController(IFfbSink& sink, const FfbSafetyConfig& safety, cons
       safety_(safety),
       timing_(timing),
       limiters_(makeLimiters(safety, std::make_index_sequence<IFfbSink::kMaxSlots>{})),
+      springLimiter_(safety),
       usage_(safety) {
     frozenNs_ = frozenNsFor(safety.frozenForceSeconds);
 }
@@ -200,6 +202,7 @@ void FfbController::setGameTuning(const std::array<float, kFfbGroupCount>& gains
     if (limitsChanged) {
         safety_ = next;
         for (FfbSafetyLimiter& limiter : limiters_) limiter.setConfig(safety_);
+        springLimiter_.setConfig(safety_);
         usage_.setSafety(safety_);
         frozenNs_ = frozenNsFor(safety_.frozenForceSeconds);
     }
@@ -308,6 +311,7 @@ void FfbController::update(const std::uint64_t nowNs) {
         }
     }
     stats_.activeSlots = active;
+    updateCentringSpring();
 
     std::array<FfbUsage::SlotSample, IFfbSink::kMaxSlots> samples{};
     for (std::size_t i = 0; i < slots_.size(); ++i) {
@@ -354,12 +358,54 @@ float FfbController::frozenFadeAt(const std::uint64_t nowNs) {
     return fade;
 }
 
+void FfbController::setCentringSpring(const float percent) {
+    const float clamped = std::isfinite(percent) ? std::clamp(percent, 0.0F, kCentringSpringMaxPercent) : 0.0F;
+    springRefused_ = false;
+    if (clamped == springPercent_) return;
+    if (clamped > 0.0F) {
+        WE_LOG_INFO(log(), "ffb: centring spring {:.0f}% (the target's own, as its driver had it): a spring around the "
+                           "centre on top of the game's forces, through the limiter",
+                    clamped);
+    } else {
+        WE_LOG_INFO(log(), "ffb: centring spring off");
+    }
+    springPercent_ = clamped;
+}
+
+void FfbController::updateCentringSpring() {
+    if (springPercent_ <= 0.0F || springRefused_) {
+        if (springPlaying_) {
+            sink_.stop(IFfbSink::kCentringSpringSlot);
+            springPlaying_ = false;
+            springSent_.reset();
+        }
+        return;
+    }
+    // A condition: the limiter keeps no state for it, so dt does not matter.
+    const FfbEffect limited = springLimiter_.apply(centringSpringEffect(springPercent_), 0.0F);
+    if (springPlaying_ && springSent_ && !differs(limited, *springSent_)) return;
+    ++stats_.plays;
+    if (sink_.play(IFfbSink::kCentringSpringSlot, limited)) {
+        springPlaying_ = true;
+        springSent_ = limited;
+        return;
+    }
+    ++stats_.playFailures;
+    springRefused_ = true;   // not every tick: the wheel said no
+    springPlaying_ = false;
+    springSent_.reset();
+    WE_LOG_WARN(log(), "ffb: the wheel refused the centring spring ({:.0f}%): none until the next Start",
+                springPercent_);
+}
+
 void FfbController::stopAll() {
     sink_.stopAll();
     for (std::size_t i = 0; i < slots_.size(); ++i) {
         slots_[i] = Slot{};
         limiters_[i].reset();
     }
+    springPlaying_ = false;   // stopped with the rest; the next update() plays it again
+    springSent_.reset();
 }
 
 }  // namespace wheelbri

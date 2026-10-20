@@ -10,6 +10,7 @@ add_executable(wheelbri_tests
     AsyncFfbSinkTest.cpp
     AxisAuditTest.cpp
     AxisTuningTest.cpp
+    CentringSpringTest.cpp
     ChangeCounterTest.cpp
     ConfigLibraryTest.cpp
     ControlFoldTest.cpp

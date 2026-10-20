@@ -75,6 +75,15 @@ public:
     [[nodiscard]] static FfbEffect tuned(const FfbEffect& effect, const std::array<float, kFfbGroupCount>& gains,
                                          float pushFade, bool flip);
 
+    // The target's centring spring (CentringSpring.hpp), 0 to 100 percent; 0 = none. Played on the wheel in a slot
+    // of its own (IFfbSink::kCentringSpringSlot) through a limiter of its own with the limits in force (a game's lower
+    // strength or cap too), whatever the game sends: its watchdog, "stop all" and force feedback turned off for a
+    // game leave it playing, as Logitech's driver did. Allocation-free; takes effect at the next update(). A wheel that
+    // refuses it is not asked again until this is called again.
+    void setCentringSpring(float percent);
+    [[nodiscard]] float centringSpring() const { return springPercent_; }
+    [[nodiscard]] bool centringSpringPlaying() const { return springPlaying_; }
+
     [[nodiscard]] const Stats& stats() const { return stats_; }
 
     // How long a frozen push takes to fade out, and the smallest push (of full scale) that counts as one.
@@ -122,6 +131,9 @@ private:
         std::uint64_t pushSinceNs = 0;       // when the game last changed this slot's push (type, level, gain)
     };
 
+    // Plays, updates or stops the centring spring (update()).
+    void updateCentringSpring();
+
     // The fade for frozen pushes at `nowNs` (1 = none), logging when it starts and ends.
     [[nodiscard]] float frozenFadeAt(std::uint64_t nowNs);
 
@@ -141,6 +153,11 @@ private:
     bool effects_ = true;
     std::uint64_t frozenNs_ = 0;            // from safety_.frozenForceSeconds; 0 = never
     float frozenFade_ = 1.0F;
+    float springPercent_ = 0.0F;
+    bool springPlaying_ = false;
+    bool springRefused_ = false;
+    std::optional<FfbEffect> springSent_;
+    FfbSafetyLimiter springLimiter_;
     bool watchdogTripped_ = false;
     Stats stats_;
     FfbUsage usage_;

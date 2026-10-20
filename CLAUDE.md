@@ -313,7 +313,11 @@ rewrites on every build only when it changes); views keep their own top-row cont
     it is for `frozen_force_s` (`FfbSafetyConfig::frozenForceSeconds`, default 2, 0 = never) fades out over
     `kFrozenFadeNs` (0.5 s) with the periodic effects on top (a loading screen that keeps its last force; pushes
     above `kFrozenPushAbove` 5%), springs and dampers stay, any change brings it back (`frozenFade()`); and
-    `setGameGain` (a game profile's `[ffb] gain`). The service plays on the wheel through `AsyncFfbSink`, a thread of its own at the loop's
+    `setGameGain` (a game profile's `[ffb] gain`). `setCentringSpring` (`CentringSpring.hpp`, `[ffb] centring_spring`
+    0-100 in the mapping, only for a target with `DeviceIdentity::centringSpring`: the G25 and G27, as Logitech's
+    software had it) plays a spring around the centre in the wheel's extra slot `IFfbSink::kCentringSpringSlot` (sinks
+    take `kWheelSlots`, the game's `kMaxSlots` plus that one) through a limiter of its own, whatever the game sends. The
+    service plays on the wheel through `AsyncFfbSink`, a thread of its own at the loop's
     raised priority (the newest command per slot; `stopAll` first, then stops, constant, periodic, conditions, and
     anything that waited `kMaxWait` = 20 ms; a refused play is answered by the next `play` on that slot): a DirectInput
     call takes 4-15 ms on the R3 (27 ms to start an effect) and must not hold the loop. Every call is measured

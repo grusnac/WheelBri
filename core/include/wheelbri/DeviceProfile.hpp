@@ -30,6 +30,10 @@ struct DeviceIdentity {
     std::uint16_t productId = 0;
     std::string productName;            // what DirectInput reports as tszProductName
     float rotationDeg = 900.0F;
+    // Whether the wheel's own Windows software had a centring spring for force feedback games (Logitech Profiler and
+    // Logitech Gaming Software for the G25 and G27: "Enable Centering Spring in Force Feedback Games" and "Centering
+    // Spring Strength", 0 to 100%): the Mapping tab then offers it ([ffb] centring_spring, CentringSpring.hpp).
+    bool centringSpring = false;
 
     // DirectInput's guidProduct for HID devices: {PIDVID-0000-0000-0000-504944564944} ("PIDVID").
     [[nodiscard]] Guid directInputProductGuid() const;

@@ -402,7 +402,7 @@ private:
     bool axisFound_ = false;
     bool ready_ = false;
     std::set<FfbEffectType> supported_;
-    std::array<Slot, kMaxSlots> slots_{};
+    std::array<Slot, kWheelSlots> slots_{};   // the game's and the centring spring's
 };
 
 // --- the wheel ----------------------------------------------------------------------------------------

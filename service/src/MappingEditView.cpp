@@ -8,6 +8,7 @@
 #include "Version.hpp"
 
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/CentringSpring.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceMatch.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
@@ -76,6 +77,10 @@ constexpr float kSliderMinDeg = 90.0F;
 constexpr float kSliderMaxDeg = 1080.0F;
 constexpr float kSliderStepDeg = 10.0F;
 constexpr std::array<float, 7> kPresetsDeg = {180.0F, 270.0F, 360.0F, 540.0F, 720.0F, 900.0F, 1080.0F};
+// The centring spring's usual values (percent; 0 = off); any whole number from 0 to 100 can be typed.
+constexpr std::array<float, 6> kSpringPresets = {0.0F, 10.0F, 25.0F, 50.0F, 75.0F, 100.0F};
+
+std::string percent(const float value) { return tuning::formatNumber(value) + "%"; }
 constexpr std::size_t kMaxTyped = 12;
 
 std::string fit(std::string text, const std::size_t chars) {
@@ -530,6 +535,7 @@ std::string MappingEditView::fieldText(const Field field, const std::size_t inde
                                         : std::string();
         }
         case Field::Rotation: return degrees(edit_.steeringRotationDeg);
+        case Field::CentringSpring: return tuning::formatNumber(edit_.centringSpringPercent);
         case Field::Tuning: {
             const std::size_t picked = selectedGameIndex();
             if (picked >= games_.size()) return {};
@@ -629,6 +635,14 @@ bool MappingEditView::commitTyping() {
             case Field::Rotation:
                 problem = tuning::rotationProblem(value);
                 if (problem.empty()) edit_.steeringRotationDeg = value;
+                break;
+            case Field::CentringSpring:
+                if (value < 0.0F || value > kCentringSpringMaxPercent) {
+                    problem = "the centring spring goes from 0 (off) to " +
+                              tuning::formatNumber(kCentringSpringMaxPercent) + "%";
+                } else {
+                    edit_.centringSpringPercent = std::round(value);   // whole percent, as Logitech's slider
+                }
                 break;
             case Field::PerGame:
             case Field::GameSteering:
@@ -1009,6 +1023,33 @@ void MappingEditView::drawRotation(const float top) {
     y += 4;
     window_.text(4, y, "A game can steer with its own rotation (NFS Payback: 180): the Games tab (G) sets it.",
                  kDim);
+
+    if (profile_ != nullptr && profile_->identity().centringSpring) drawCentringSpring(y + 18);
+}
+
+void MappingEditView::drawCentringSpring(const float top) {
+    // The target's own (Logitech's software for the G25 and G27): a spring to the centre in every game, on top of the
+    // game's forces. 0 is off (the checkbox unticked).
+    float y = top;
+    const std::string target(profile_->identity().shortName);
+    style::headingBand(window_, 0, y, canvasW());
+    window_.text(4, y, "CENTRING SPRING", kHeading);
+    window_.text(140, y, "the " + target + "'s own, in every game: pulls the wheel to the centre", kDim);
+    tip(4, y - 2, 600, 12,
+        "As Logitech's software for the " + target + " had it (\"Enable Centering Spring in Force Feedback Games\", "
+        "0 to 100%): a spring around the centre on top of the game's forces, whatever the game sends (Race Driver: "
+        "GRID sends none, so the wheel stays where it was left). 0 = off. Takes effect at the next Start.");
+    y += 16;
+    window_.text(4, y + 4, "Strength", kText);
+    const bool changed = edit_.centringSpringPercent != saved_.centringSpringPercent;
+    drawField(kSliderX, y, 64, Field::CentringSpring, tuning::formatNumber(edit_.centringSpringPercent), changed);
+    window_.text(kSliderX + 68, y + 4, "%", kDim);
+    float x = kSliderX + 92;
+    for (const float preset : kSpringPresets) {
+        const std::string label = preset == 0.0F ? "Off" : percent(preset);
+        x += button(x, y, label, [this, preset] { edit_.centringSpringPercent = preset; },
+                    std::fabs(edit_.centringSpringPercent - preset) < 0.5F, !locked_, 48) + 4;
+    }
 }
 
 // --- the Games page ---------------------------------------------------------------------------------------------

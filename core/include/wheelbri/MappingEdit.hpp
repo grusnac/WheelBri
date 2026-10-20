@@ -71,6 +71,9 @@ struct MappingModel {
     // [steering] target_rotation_deg: the steering rotation, the game's full lock and what the wheel's own software
     // must be set to (the axis goes through 1:1). An older file's source_rotation_deg goes when saved.
     float steeringRotationDeg = 900.0F;
+    // [ffb] centring_spring: the target's centring spring, 0 to 100 percent, 0 = off (CentringSpring.hpp); the
+    // Mapping tab shows it only for a target that had one (the G25 and G27).
+    float centringSpringPercent = 0.0F;
     // [game_rotation]: the user's own rotation per game profile (GameRotation.hpp); a game left out uses its profile's.
     GameRotations gameRotations;
     // [game_settings]: the user's own values for games' own settings (GameSettings.hpp); a setting left out uses its

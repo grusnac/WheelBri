@@ -50,7 +50,7 @@ void AsyncFfbSink::queue(const std::size_t slot, const Command command, const Ff
 }
 
 bool AsyncFfbSink::play(const std::size_t slot, const FfbEffect& effect) {
-    if (slot >= kMaxSlots) {
+    if (slot >= kWheelSlots) {
         return false;
     }
     bool accepted = true;
@@ -71,7 +71,7 @@ bool AsyncFfbSink::play(const std::size_t slot, const FfbEffect& effect) {
 }
 
 void AsyncFfbSink::stop(const std::size_t slot) {
-    if (slot >= kMaxSlots) {
+    if (slot >= kWheelSlots) {
         return;
     }
     {
@@ -126,9 +126,9 @@ bool AsyncFfbSink::hasWork() const {
 }
 
 std::size_t AsyncFfbSink::pickNext(const Clock::time_point now) const {
-    std::size_t best = kMaxSlots;
+    std::size_t best = kWheelSlots;
     int bestRank = std::numeric_limits<int>::max();
-    for (std::size_t slot = 0; slot < kMaxSlots; ++slot) {
+    for (std::size_t slot = 0; slot < kWheelSlots; ++slot) {
         const Pending& pending = pending_[slot];
         if (pending.command == Command::None) continue;
         // Waited long enough: first, whatever it is (no effect starves behind a ramping constant force).
@@ -179,7 +179,7 @@ void AsyncFfbSink::run() {
             continue;
         }
         const std::size_t slot = pickNext(Clock::now());
-        if (slot == kMaxSlots) {
+        if (slot == kWheelSlots) {
             continue;
         }
         const Pending pending = std::exchange(pending_[slot], Pending{});

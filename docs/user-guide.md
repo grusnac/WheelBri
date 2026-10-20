@@ -65,6 +65,9 @@ the wheel's rotation, in the wheel's own software (Pit House for Moza).
    button can have an extra source ("or"), for example a handbrake lever. A group with nothing mapped (the
    **Shifter** without a shifter) is one line: **Show** opens it.
 3. Set **Steering rotation** to the game's full lock, and set your wheel's own software to **the same number**.
+   With the **G25** or **G27** as Target, **Centring spring** below it is that wheel's own (Logitech's software had
+   it: "Enable Centering Spring in Force Feedback Games", 0 to 100%): a spring to the centre on top of the game's
+   forces, in every game. Off by default; Race Driver: GRID needs it, as it sends no centring of its own.
 4. Every change is saved at once and Start uses what you see. **Undo** goes back one change at a time,
    **Default** to WheelBri's mapping.
 
@@ -176,6 +179,7 @@ For one game, use the Games tab. For every game, edit `[ffb]` in your mapping fi
 | `max_magnitude` | 1.0 | the hard cap (1 = none of WheelBri's own) |
 | `invert` | false | `true` if forces pull the wrong way |
 | `game_effects` | true | `false` turns game force feedback off |
+| `centring_spring` | 0 | G25 and G27 only: their centring spring, 0 (off) to 100% (the Mapping tab sets it) |
 
 To test the wheel, press Stop in the app and run in a Command Prompt:
 

@@ -2,6 +2,7 @@
 #include "wheelbri/EmulatorConfig.hpp"
 
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/CentringSpring.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/MappingEdit.hpp"
 
@@ -273,6 +274,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         reader.readFloat("frozen_force_s", config.ffb.frozenForceSeconds, 0.0F, 60.0F);
         reader.readBool("invert", config.ffbInvert);
         reader.readBool("game_effects", config.gameFfb);
+        reader.readFloat("centring_spring", config.centringSpringPercent, 0.0F, kCentringSpringMaxPercent);
         reader.reportUnknownKeys();
     }
 

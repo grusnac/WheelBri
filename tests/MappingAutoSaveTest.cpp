@@ -178,5 +178,34 @@ TEST_F(MappingAutoSave, UndoGoesBackOneChangeAtATime) {
     EXPECT_TRUE(same(window_.buttonColour("Invert"), kOn));
 }
 
+// The G25 shows its centring spring under the rotation (Logitech's software had one for it); a preset is saved to
+// [ffb] centring_spring in the user's own file, and the row fits above the status line with every button group shown.
+// The G920 shows none.
+TEST_F(MappingAutoSave, TheG25ShowsItsCentringSpring) {
+    // Every G25 button mapped, the shifter's too: every group shown, the tallest the tab gets.
+    {
+        std::ofstream g25(dir_ / "config" / "g25.ini", std::ios::binary);
+        g25 << "[emulator]\ntarget_profile = g25\n[buttons]\n";
+        for (int b = 0; b < 19; ++b) g25 << "target_" << b << " = " << b << "\n";
+    }
+    ConfigPicker picker(window_, settings());
+    MappingEditView view(window_, dir_ / "rigs", dir_ / "app.ini", picker);
+    frame(view);
+    EXPECT_EQ(window_.find("CENTRING SPRING"), nullptr);   // the G920: none
+
+    picker.useTarget(ConfigPicker::Target::G25);
+    frame(view);
+    const RecordingWindow::Text* heading = window_.find("CENTRING SPRING");
+    ASSERT_NE(heading, nullptr);
+    EXPECT_LT(heading->y + 32, window_.height() - 30 - 24);   // its row above the status line at the bottom
+    EXPECT_TRUE(same(window_.buttonColour("Off"), kOn));
+
+    ASSERT_TRUE(click(view, "25%"));
+    frame(view);
+    EXPECT_TRUE(same(window_.buttonColour("25%"), kOn));
+    const std::string written = read(picker.ownPath());
+    EXPECT_NE(written.find("centring_spring = 25"), std::string::npos) << written;
+}
+
 }  // namespace
 }  // namespace wheelbri::service

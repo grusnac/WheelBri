@@ -207,7 +207,7 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
          {format,
           "keys: kind slot / stopall = what the game sent (every effect parameter); kind wheel_play / wheel_stop / "
           "wheel_stopall = a call made to the wheel: ok = it accepted it, wait_us = queued before the call, call_us "
-          "= the wheel's driver"}},
+          "= the wheel's driver; wheel slot 8 = the target's centring spring (WheelBri's own, not the game's)"}},
     };
     std::string line;
     for (const Target& target : targets) {

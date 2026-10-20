@@ -29,6 +29,9 @@ struct EmulatorConfig {
     bool gameFfb = true;                         // play the game's force feedback (sent by the shim)
     int stateRateHz = 500;                       // at most this many state packets a second, only when it changed
     bool ffbInvert = false;                    // flip force direction if the wheel pulls the wrong way
+    // [ffb] centring_spring = 0..100: the target's centring spring in percent, 0 = off (CentringSpring.hpp). Played
+    // only for a target that had one (DeviceIdentity::centringSpring: the G25 and G27).
+    float centringSpringPercent = 0.0F;
 
     MapperConfig mapper;
     // [game_rotation] <profile id> = 180 | off: the steering rotation while that game runs, instead of the

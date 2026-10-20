@@ -127,7 +127,7 @@ private:
     // a game's own setting (`fieldIndex_` = game index * kMaxGameSettings + the setting's index), or a game's force
     // feedback gain (`fieldIndex_` = its gameProfiles() index).
     // Tuning: one of the picked game's own numbers (`fieldIndex_` = a TuningField).
-    enum class Field { None, Rotation, PerGame, GameSteering, GameSetting, FfbGain, Tuning };
+    enum class Field { None, Rotation, CentringSpring, PerGame, GameSteering, GameSetting, FfbGain, Tuning };
     // The numbers of a game's own values (GameTuning.hpp) that are typed in.
     enum class TuningField : std::size_t {
         Strength, Constant, Periodic, Spring, Damper, Friction, Inertia, Cap, Slew, Fade
@@ -305,6 +305,7 @@ private:
     void learnGameFile(const std::string& id, std::filesystem::file_time_type since);
     [[nodiscard]] std::size_t selectedGameIndex() const;
     // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
+    void drawCentringSpring(float top);   // the target's centring spring (G25, G27), below the rotation
     void drawField(float x, float y, float w, Field field, const std::string& value, bool changed,
                    std::size_t index = 0);
     [[nodiscard]] std::string fieldText(Field field, std::size_t index) const;
