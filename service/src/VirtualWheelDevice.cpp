@@ -261,11 +261,11 @@ void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives, cons
             continue;
         }
         if (on) {
-            // The name, and the device type the shim reports: JOY_HWS_ISCARCTRL | HASPOV, 19 buttons (the shifter's too).
-            const BYTE data[8] = {0x42, 0, 0, 0, static_cast<BYTE>(wheel.buttons), 0, 0, 0};
+            // The name, and its hat and buttons (a car controller but for the G25: directInputOemData).
+            const std::array<std::uint8_t, 8> data = directInputOemData(wheel);
             RegSetValueExW(key, L"OEMName", 0, REG_SZ, reinterpret_cast<const BYTE*>(name.c_str()),
                            static_cast<DWORD>((name.size() + 1) * sizeof(wchar_t)));
-            RegSetValueExW(key, L"OEMData", 0, REG_BINARY, data, sizeof(data));
+            RegSetValueExW(key, L"OEMData", 0, REG_BINARY, data.data(), static_cast<DWORD>(data.size()));
         } else {
             RegDeleteValueW(key, L"OEMData");
         }

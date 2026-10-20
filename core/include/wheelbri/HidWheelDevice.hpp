@@ -107,6 +107,16 @@ struct DirectInputAxisEntry {
     std::array<std::uint8_t, 8> attributes{};
 };
 [[nodiscard]] std::vector<DirectInputAxisEntry> directInputAxisEntries(const VirtualWheel& wheel);
+
+// DirectInput's OEMData for the wheel (OEM\VID_xxxx&PID_xxxx, 8 bytes: JOYREGHWSETTINGS' dwFlags, then dwNumButtons):
+// JOY_HWS_HASPOV (0x02) and its buttons, plus JOY_HWS_ISCARCTRL (0x40) for all but a wheel with clutchOnZ. With
+// that flag DirectInput relabels the axes of a wheel that has HID Z: Race Driver: GRID got the virtual G25's HID Y
+// (the throttle) as Slider 0 and HID Z (the clutch) as Y, so a released throttle was a brake held down and the car
+// reversed (2026-10-19); the axis entries did not change that. Without it each axis keeps its own (the shim's
+// layout, as tested in GRID; DirectInput then calls it a joystick, which GRID does not mind).
+inline constexpr std::uint8_t kJoyHwsHasPov = 0x02;
+inline constexpr std::uint8_t kJoyHwsIsCarCtrl = 0x40;
+[[nodiscard]] std::array<std::uint8_t, 8> directInputOemData(const VirtualWheel& wheel);
 inline constexpr std::uint8_t kHidPpPidShift = 0x10;
 
 // Where a report the host sends goes, by its report ID: the wheel's HID PID (`id` as HidPid knows it), its HID++,

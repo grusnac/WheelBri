@@ -372,6 +372,11 @@ std::vector<DirectInputAxisEntry> directInputAxisEntries(const VirtualWheel& whe
     return {entry(2, 0x36), entry(5, 0x32), entry(6, 0x35)};   // Z <- Slider (none), Rz <- Z, Slider <- Rz
 }
 
+std::array<std::uint8_t, 8> directInputOemData(const VirtualWheel& wheel) {
+    const std::uint8_t flags = wheel.clutchOnZ ? kJoyHwsHasPov : kJoyHwsHasPov | kJoyHwsIsCarCtrl;
+    return {flags, 0, 0, 0, static_cast<std::uint8_t>(wheel.buttons), 0, 0, 0};
+}
+
 InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report, const DescriptorFor where) {
     auto packed = packWheelInput(report, wheel.buttons);
     if (wheel.unsignedAxes) {

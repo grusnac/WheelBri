@@ -506,6 +506,20 @@ TEST(HidPpDescriptor, G25ClutchIsZOnWindows) {
     for (const char* name : {"g920", "g27", "g923"}) EXPECT_FALSE(virtualWheel(name)->clutchOnZ) << name;
 }
 
+// DirectInput's OEMData: the G25 is no car controller (with JOY_HWS_ISCARCTRL DirectInput gave GRID its throttle as
+// Slider 0 and its clutch as Y: directInputOemData), the others are; a hat and their buttons for all.
+TEST(HidPpDescriptor, OnlyTheG25IsNoCarControllerForDirectInput) {
+    const auto g25 = directInputOemData(*virtualWheel("g25"));
+    const std::array<std::uint8_t, 8> expected = {kJoyHwsHasPov, 0, 0, 0, 19, 0, 0, 0};
+    EXPECT_EQ(g25, expected);
+    for (const char* name : {"g920", "g27", "g923"}) {
+        const VirtualWheel& wheel = *virtualWheel(name);
+        const auto data = directInputOemData(wheel);
+        EXPECT_EQ(data[0], kJoyHwsHasPov | kJoyHwsIsCarCtrl) << name;
+        EXPECT_EQ(data[4], wheel.buttons) << name;
+    }
+}
+
 TEST(HidPpDescriptor, TheG923RoutesByReportId) {
     const VirtualWheel& g923 = *virtualWheel("g923");
     EXPECT_EQ(routeReport(g923, 0x11).to, ReportRoute::To::HidPp);
