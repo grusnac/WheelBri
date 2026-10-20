@@ -304,6 +304,19 @@ private:
     std::uint64_t suppressed_ = 0;
 };
 
+// ", N more since the last line" for a Throttle's skipped lines, or nothing. Built with plain appends: the same text
+// as one expression with a ?: of temporaries crashed the driver host (wheelbri-wheel.dll built 2026-10-19 with
+// MSVC 14.51): the receive warning's string came out with its text over its own pointer (two dumps, 21:26 and 22:24).
+std::string moreSince(const std::uint64_t skipped) {
+    std::string out;
+    if (skipped > 0) {
+        out = ", ";
+        out += std::to_string(skipped);
+        out += " more since the last line";
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------------------------------
 
 }  // namespace
@@ -581,13 +594,17 @@ void Link::logCounts(const std::int64_t now) {
 bool Link::receiveFailed(const int received) {
     (void)received;
     const int error = WSAGetLastError();
-    if (error == WSAETIMEDOUT) return true;   // nothing this time: the normal case
+    // Nothing this time: the normal case. A receive timeout can also end as WSA_IO_PENDING (997), seen twice on
+    // 2026-10-19 in the middle of a game; it is a timeout too, not a broken socket.
+    if (error == WSAETIMEDOUT || error == WSA_IO_PENDING) return true;
     if (stop_) return false;
     const std::int64_t now = nowMs();
     if (recvErrors_.allow(now)) {
-        const auto skipped = recvErrors_.takeSuppressed();
-        logLine(Level::Warn, "receiving from wheelbri-service failed (" + std::to_string(error) + ")" +
-                (skipped > 0 ? ", " + std::to_string(skipped) + " more since the last line" : std::string()));
+        std::string line = "receiving from wheelbri-service failed (";
+        line += std::to_string(error);
+        line += ")";
+        line += moreSince(recvErrors_.takeSuppressed());
+        logLine(Level::Warn, line);
     }
     if (error == WSAENOTSOCK || error == WSAEINVAL) return false;   // the socket is gone: nothing to wait for
     Sleep(5);   // not a busy loop on a persistent error
@@ -615,10 +632,11 @@ void Link::sendFfb(const wheelbri::FfbPacket& packet) {
         // Normal while the service is not running (nothing listens on 41330): say so once a minute.
         const int error = WSAGetLastError();
         if (sendErrors_.allow(nowMs())) {
-            const auto skipped = sendErrors_.takeSuppressed();
-            logLine(Level::Warn, "force feedback to wheelbri-service not sent (" + std::to_string(error) +
-                    "; is the service running?)" +
-                    (skipped > 0 ? ", " + std::to_string(skipped) + " more since the last line" : std::string()));
+            std::string line = "force feedback to wheelbri-service not sent (";
+            line += std::to_string(error);
+            line += "; is the service running?)";
+            line += moreSince(sendErrors_.takeSuppressed());
+            logLine(Level::Warn, line);
         }
     }
 }
