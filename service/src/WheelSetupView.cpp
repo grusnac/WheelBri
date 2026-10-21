@@ -28,16 +28,15 @@ const logging::Logger& log() {
 using Colour = ui::Colour;
 
 // The same colours as the rest of the window (MappingView.cpp, App.cpp).
-constexpr Colour kPanel{44, 48, 56};
-constexpr Colour kStripe{30, 33, 39};
-constexpr Colour kPopup{36, 40, 48};
-constexpr Colour kText{222, 226, 232};
+constexpr Colour kPanel = style::kPanel;
+constexpr Colour kStripe = style::kField;
+constexpr Colour kText = style::kText;
 constexpr Colour kDim = style::kDim;
-constexpr Colour kHeading{120, 190, 255};
-constexpr Colour kActive{64, 190, 100};
-constexpr Colour kWarning{214, 72, 64};
-constexpr Colour kCaution{206, 164, 58};
-constexpr Colour kDark{16, 18, 20};
+constexpr Colour kHeading = style::kHeading;
+constexpr Colour kActive = style::kActive;
+constexpr Colour kWarning = style::kWarning;
+constexpr Colour kCaution = style::kCaution;
+constexpr Colour kDark = style::kDark;
 constexpr Colour kCentre{160, 164, 172};
 
 constexpr int kAxes = static_cast<int>(RawInputState::kMaxAxes);
@@ -458,12 +457,17 @@ void WheelSetupView::autoSave() {
     save();
     if (statusError_ || edit_ != saved_) {
         notSaved_ = edit_;
+        afterSave_.clear();   // the status says why it was not saved
         return;
     }
     notSaved_.reset();
+    const std::string said = std::exchange(afterSave_, {});
     if (undoing) {
         status_ = "Undone and saved.";
-    } else if (wasSaved) {
+    } else if (!said.empty()) {
+        status_ = said;   // what the change was (Forget), rather than the usual "Saved the rig"
+    }
+    if (!undoing && wasSaved) {
         undo_.push_back(before);
         if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
     }
@@ -517,7 +521,9 @@ void WheelSetupView::forget(const DeviceId& id) {
                                        [&id](const RigDevice& device) { return device.id == id; }),
                         edit_.devices.end());
     if (edit_.devices.size() != before) {
-        status_ = "Forgot " + idText(id) + " and its names (saved): Undo brings it back.";
+        // Said once it is saved (autoSave), so the save's own line does not replace it.
+        afterSave_ = "Forgot " + idText(id) + " and its names (saved): Undo brings it back.";
+        status_ = afterSave_;
         statusError_ = false;
         WE_LOG_INFO(log(), "wheel setup: {} taken out of the rig", idText(id));
     }
@@ -634,10 +640,7 @@ void WheelSetupView::hit(const float x, const float y, const float w, const floa
 float WheelSetupView::button(const float x, const float y, const std::string& label, std::function<void()> action,
                              const bool on, const bool enabled, const float width) {
     const float w = width > 0 ? width : static_cast<float>(label.size()) * ui::kCharWidth + 14;
-    window_.fill(x, y, w, 16, !enabled ? kDark : on ? kHeading : kPanel);
-    window_.outline(x, y, w, 16, enabled ? (on ? kHeading : kDim) : kPanel);
-    const float textX = x + (w - static_cast<float>(label.size()) * ui::kCharWidth) / 2;
-    window_.text(textX, y + 4, label, !enabled ? kDim : on ? kDark : kText);
+    style::button(window_, x, y, w, 16, label, on, enabled);
     if (enabled) hit(x, y, w, 16, std::move(action));
     return w;
 }
@@ -645,8 +648,8 @@ float WheelSetupView::button(const float x, const float y, const std::string& la
 void WheelSetupView::drawNameField(const float x, const float y, std::string& name, const std::size_t maxChars) {
     const float width = static_cast<float>(maxChars) * ui::kCharWidth + 16;
     const bool editing = editing_ == &name;
-    window_.fill(x, y, width, 16, editing ? kDark : kPanel);
-    window_.outline(x, y, width, 16, editing ? kHeading : kDim);
+    window_.fill(x, y, width, 16, kStripe);
+    window_.outline(x, y, width, 16, editing ? kHeading : style::kFieldEdge);
     const std::string shown = name + (editing && (platform::nowMs() / 500) % 2 == 0 ? "_" : "");
     window_.text(x + 6, y + 4, shown.empty() ? "(none)" : shown, name.empty() && !editing ? kDim : kText);
     hit(x, y, width, 16, [this, &name, maxChars] {
@@ -760,7 +763,17 @@ void WheelSetupView::drawHeader() {
 
 WheelSetupView::Listed WheelSetupView::listed(const DeviceId& id) const {
     const RigDevice* const device = edit_.find(id);
-    std::vector<bool> axes(static_cast<std::size_t>(kAxes), false);
+    // The axes the device has (all of them when that is not known: unplugged, or not the session's wheel), and any
+    // named beyond those: a button box shows no axes.
+    const int reported = axisCount(id);
+    std::size_t axisRows = reported >= 0 ? static_cast<std::size_t>(std::min(reported, kAxes))
+                                         : static_cast<std::size_t>(kAxes);
+    if (device != nullptr) {
+        for (std::size_t a = axisRows; a < static_cast<std::size_t>(kAxes); ++a) {
+            if (device->axes[a].defined()) axisRows = a + 1;
+        }
+    }
+    std::vector<bool> axes(axisRows, false);
     std::vector<bool> buttons(static_cast<std::size_t>(std::max(0, tileCount(id))), false);
     bool any = false;
     if (device != nullptr) {
@@ -881,7 +894,7 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
         window_.text(60, y, text.empty() ? "(not named)" : fit(text, textChars - 2), text.empty() ? kDim : kText);
         hit(0, y - 3, window_.width() - kBarW - 4, kAxisRow - 1,
             [this, id, axis] { openControl(id, true, axis, std::nullopt); });
-        if (live && axes > 0 && axis >= axes) {
+        if (live && axes >= 0 && axis >= axes) {
             window_.text(barX, y, "(this device has no axis " + std::to_string(axis) + ")", kDim);
             continue;
         }
@@ -909,8 +922,8 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
     const auto tiles = static_cast<int>(list.buttons.shown.size());
     if (visible(y, 12)) {
         style::headingBand(window_, 0, y + 2, window_.width() - kBarW - 4);
-        window_.text(4, y + 2, "BUTTONS", kHeading);
-        window_.text(68, y + 2,
+        window_.text(8, y + 2, "BUTTONS", kHeading);
+        window_.text(76, y + 2,
                      tiles == 0 ? (live && list.buttons.hidden.empty() ? "none on this device" : "none named")
                      : live     ? "press one (it lights up); click one to say what it is"
                                 : "click one to say what it is",
@@ -955,7 +968,7 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
 
 void WheelSetupView::drawDeviceList(const float top) {
     style::headingBand(window_, 0, top, kListW);
-    window_.text(4, top, "DEVICES", kHeading);
+    window_.text(8, top, "DEVICES", kHeading);
     window_.text(16 + 35 * ui::kCharWidth, top, "Status", kDim);
     float y = top + 16;
     const std::vector<DeviceId> listed = listedDevices();
@@ -1041,7 +1054,7 @@ void WheelSetupView::drawControlPopup() {
     const float kY = std::floor(std::max(40.0F, std::min(130 + (window_.height() - kHeight) / 2,
                                                          contentHeight() - height - 4)));
     hit(0, 0, window_.width(), contentHeight(), [] {});   // clicks outside the popup do nothing
-    window_.fill(kX, kY, kW, height, kPopup);
+    window_.fill(kX, kY, kW, height, style::kBox);
     window_.outline(kX, kY, kW, height, kHeading);
     const float left = kX + 16;
     const RigDevice* const device = focusDevice();

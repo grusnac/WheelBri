@@ -452,5 +452,54 @@ TEST(EmulatorConfig, ReadsAWindowsSavedFileLikeAPlainOne) {
     EXPECT_EQ(windows.config.ffbInvert, plain.config.ffbInvert);
 }
 
+// Integers past either end of their range are refused, and the default kept.
+TEST(EmulatorConfig, IntegersOutsideTheirRange) {
+    for (const char* text : {"[emulator]\nstate_rate_hz = 2001\n", "[emulator]\nstate_rate_hz = 9\n",
+                             "[emulator]\nstate_rate_hz = 99999999999\n", "[emulator]\nstate_rate_hz = 50hz\n"}) {
+        const auto result = load(text);
+        EXPECT_TRUE(containsError(result, "state_rate_hz")) << text;
+        EXPECT_EQ(result.config.stateRateHz, 500) << text;
+    }
+}
+
+// [game_tuning] for a game the user added is read like a built-in game's; a key without a dot names no setting, even
+// when the part before it is a game.
+TEST(EmulatorConfig, GameTuningForUserGamesAndKeysWithoutADot) {
+    GameProfile mine;
+    mine.id = "excalibur";
+    mine.label = "Excalibur";
+    mine.program = "excalibur.exe";
+    const std::vector<GameProfile> games{mine};
+    const auto parsed = IniDocument::parse("[game_tuning]\nexcalibur.ffb_spring = 0.5\nexcalibur = 1\n");
+    ASSERT_TRUE(parsed.errors.empty());
+    const auto result = loadEmulatorConfig(parsed.document, games);
+    ASSERT_EQ(result.errors.size(), 1U);
+    EXPECT_NE(result.errors[0].find("[game_tuning] excalibur: no game excalibur"), std::string::npos)
+        << result.errors[0];
+    ASSERT_EQ(result.config.gameTunings.count("excalibur"), 1U);
+    EXPECT_FLOAT_EQ(*result.config.gameTunings.at("excalibur").ffbGains[static_cast<std::size_t>(FfbGroup::Spring)],
+                    0.5F);
+    EXPECT_TRUE(containsError(load("[game_tuning]\nexcalibur.ffb_spring = 0.5\n"), "no game excalibur"));
+}
+
+// [game_rotation] names a built-in profile or a game the user added (the Games tab sets it for either); any other name
+// is a problem.
+TEST(EmulatorConfig, GameRotationForAGameTheUserAdded) {
+    const auto parsed = IniDocument::parse("[game_rotation]\nheat = 360\nnfspayback = off\nnone = 180\n");
+    GameProfile heat;
+    heat.id = "heat";
+    heat.label = "NFS Heat";
+    heat.program = "needforspeedheat.exe";
+    const std::vector<GameProfile> userGames{heat};
+    const EmulatorConfigResult result = loadEmulatorConfig(parsed.document, userGames);
+    ASSERT_EQ(result.errors.size(), 1U);
+    EXPECT_NE(result.errors[0].find("[game_rotation] none"), std::string::npos) << result.errors[0];
+    ASSERT_EQ(result.config.gameRotations.count("heat"), 1U);
+    EXPECT_FLOAT_EQ(result.config.gameRotations.at("heat").deg, 360.0F);
+    EXPECT_TRUE(result.config.gameRotations.at("nfspayback").off);
+    // Without the user's games, heat is no game.
+    EXPECT_EQ(loadEmulatorConfig(parsed.document).errors.size(), 2U);
+}
+
 }  // namespace
 }  // namespace wheelbri

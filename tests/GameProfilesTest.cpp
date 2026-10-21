@@ -450,6 +450,34 @@ TEST(GameProfiles, NotARouteInAnySlotIsStraightThrough) {
     EXPECT_EQ(applyPedalRoute(pedals(), PedalRoute{{1, 0, 2}}), swapped);
 }
 
+// More edge cases of a profile file: a setting alone (no file, no note) is the go-together problem; ids and names with
+// a character past 'z' ('~', '{') are refused like any other; a not_for_note longer than a window line is a problem.
+TEST(GameProfiles, MoreProblemsAreFound) {
+    const std::string head = "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n";
+    const ParsedGameProfile settingOnly = parseGameProfile("x", head + "[game_settings]\nspring = WheelX 0.5\n");
+    ASSERT_FALSE(settingOnly.profile.has_value());
+    EXPECT_EQ(settingOnly.problems.front(), "[game_settings] file, note and at least one setting go together");
+    const std::string settings = "[game_settings]\nfile = G/settings\nnote = Why.\n";
+    for (const char* bad : {"spring~ = WheelX 0.5\n", "spring = Wheel~X 0.5\n", "spring = Wheel{X 0.5\n"}) {
+        EXPECT_FALSE(parseGameProfile("x", head + settings + bad).profile.has_value()) << bad;
+    }
+    const ParsedGameProfile longNote = parseGameProfile(
+        "x", head + "not_for = g923\nnot_for_note = " + std::string(161, 'n') + "\n");
+    ASSERT_FALSE(longNote.profile.has_value());
+    EXPECT_EQ(longNote.problems.front(), "[game] not_for_note: at most 160 characters");
+    EXPECT_TRUE(parseGameProfile("x", head + "not_for = g923\nnot_for_note = " + std::string(160, 'n') + "\n")
+                    .profile.has_value());
+}
+
+// A game the user added has no target of its own: the advice says what goes wrong and stops there.
+TEST(GameProfiles, AdviceWithoutATargetToUseInstead) {
+    GameProfile game;
+    game.label = "Racer";
+    game.notFor = {"g923"};
+    game.notForNote = "its buttons do other things";
+    EXPECT_EQ(targetAdvice(game, "G923"), "Racer does not support the G923: its buttons do other things.");
+}
+
 }  // namespace
 // [game] not_for: the targets a game does not support, with what goes wrong; targetAdvice says it for those only.
 TEST(GameProfiles, NotForSaysWhichTargetsTheGameDoesNotSupport) {

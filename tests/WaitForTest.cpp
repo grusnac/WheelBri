@@ -83,7 +83,6 @@ TEST(WaitFor, OnlyTheTimeReallyWaitedCountsTowardsTheTimeout) {
 }
 
 TEST(WaitFor, ASleepThatEndsAtOnceStillMovesOn) {
-    FakeClock clock;
     int sleeps = 0;
     std::uint64_t waited = 0;
     const auto outcome = waitFor({100, 50}, [] { return false; }, [] { return false; },
@@ -95,7 +94,6 @@ TEST(WaitFor, ASleepThatEndsAtOnceStillMovesOn) {
 
 TEST(WaitFor, ASleepThatOverranCountsOnlyWhatWasAsked) {
     // Windows let a 250 ms sleep last 400 ms: the wait counts 250 (never beyond the timeout because of it).
-    FakeClock clock;
     std::uint64_t waited = 0;
     int sleeps = 0;
     const auto outcome = waitFor({1'000, 250}, [] { return false; }, [] { return false; },
@@ -115,7 +113,6 @@ TEST(WaitFor, AZeroIntervalAsksEveryMillisecond) {
 }
 
 TEST(WaitFor, TheLastSleepIsCutToTheTimeout) {
-    FakeClock clock;
     std::vector<std::uint64_t> asked;
     const auto outcome = waitFor({600, 250}, [] { return false; }, [] { return false; },
                                  [&](const std::uint64_t ms) -> std::uint64_t { asked.push_back(ms); return ms; });

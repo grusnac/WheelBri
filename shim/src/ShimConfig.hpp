@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace wheelbri::shim {
 
@@ -75,7 +76,17 @@ struct ShimConfig {
     }
 };
 
+// Whether the game's profile (`game`: the one for the game's program, null when it has none) is laid over `config`'s
+// layout, and why not: the app already wrote the game's axes (game_axes = wheelbri), the profile is for another target,
+// or with this file's axes it would put two pedals on one axis or a pedal on x.
+enum class GameProfileUse { NoProfile, AxesFromApp, OtherTarget, Clashes, Used };
+[[nodiscard]] GameProfileUse gameProfileUse(const ShimConfig& config, const GameProfile* game);
+
 // Loads the file on first use (never from DllMain) and logs what it used.
 [[nodiscard]] const ShimConfig& shimConfig();
+
+// The settings in `text` (the file's contents) over the defaults; each value it cannot use is added to `problems`
+// and its default kept. What shimConfig() reads the file with.
+[[nodiscard]] ShimConfig parseShimConfig(const std::string& text, std::vector<std::string>& problems);
 
 }  // namespace wheelbri::shim

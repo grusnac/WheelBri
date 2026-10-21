@@ -87,10 +87,6 @@ bool runForOutput(const std::vector<std::string>& argv, std::string& output, int
     return true;
 }
 
-// The X server went away (logout, XWayland restarted): every Xlib call on the display is off from then on, and the
-// window reports itself closed so the session stops cleanly.
-std::atomic<bool> gDisplayLost{false};
-
 // Position of the lowest set bit of a colour mask, and how many bits it has.
 struct Channel {
     int shift = 0;
@@ -148,7 +144,7 @@ public:
         : display_(display), logicalWidth_(logicalWidth), logicalHeight_(logicalHeight) {}
 
     ~X11Window() override {
-        if (gDisplayLost) return;   // the connection is gone: nothing to free on the server, and no call may touch it
+        if (lost_) return;   // the connection is gone: nothing to free on the server, and no call may touch it
         if (font_ != nullptr) XFreeFont(display_, font_);
         if (pixmap_ != 0) XFreePixmap(display_, pixmap_);
         if (gc_ != nullptr) XFreeGC(display_, gc_);
@@ -158,6 +154,9 @@ public:
 
     X11Window(const X11Window&) = delete;
     X11Window& operator=(const X11Window&) = delete;
+
+    // Set when this window's X connection broke (XSetIOErrorExitHandler's data).
+    [[nodiscard]] std::atomic<bool>* lostFlag() { return &lost_; }
 
     bool create(const std::string& title, int width, int height, std::string& error) {
         const int screen = DefaultScreen(display_);
@@ -226,12 +225,12 @@ public:
     }
 
     WindowInput pump() override {
-        if (gDisplayLost) {
+        if (lost_) {
             WindowInput input;
             input.close = true;
             return input;
         }
-        while (!gDisplayLost && XPending(display_) > 0) {
+        while (!lost_ && XPending(display_) > 0) {
             XEvent event;
             XNextEvent(display_, &event);
             switch (event.type) {
@@ -336,7 +335,7 @@ public:
             }
         }
         WindowInput input;
-        input.close = closed_ || gDisplayLost;
+        input.close = closed_ || lost_;
         input.keys.swap(keys_);
         input.text.swap(text_);
         input.clicks.swap(clicks_);
@@ -353,7 +352,7 @@ public:
     [[nodiscard]] bool visible() const override { return mapped_ && !obscured_; }
 
     void begin(const Colour background) override {
-        if (gDisplayLost) return;
+        if (lost_) return;
         const int width = std::max(1, width_);
         const int height = std::max(1, height_);
         if (pixmap_ == 0 || width != pixmapWidth_ || height != pixmapHeight_) {
@@ -370,7 +369,7 @@ public:
     }
 
     void fill(const float x, const float y, const float w, const float h, const Colour colour) override {
-        if (w <= 0.0F || h <= 0.0F || gDisplayLost || pixmap_ == 0) {
+        if (w <= 0.0F || h <= 0.0F || lost_ || pixmap_ == 0) {
             return;
         }
         const int left = px(x);
@@ -391,7 +390,7 @@ public:
     }
 
     void text(const float x, const float y, const std::string_view value, const Colour colour) override {
-        if (font_ == nullptr || value.empty() || gDisplayLost || pixmap_ == 0) {
+        if (font_ == nullptr || value.empty() || lost_ || pixmap_ == 0) {
             return;
         }
         XSetForeground(display_, gc_, pixel(colour));
@@ -410,7 +409,7 @@ public:
     }
 
     void present() override {
-        if (gDisplayLost) return;
+        if (lost_) return;
         copyToWindow();
         XFlush(display_);
     }
@@ -540,6 +539,9 @@ private:
     }
 
     Display* display_;
+    // The X server went away (logout, XWayland restarted): every Xlib call on this display is off from then on, and
+    // the window reports itself closed so the session stops cleanly.
+    std::atomic<bool> lost_{false};
     int logicalWidth_;
     int logicalHeight_;
     Window window_ = 0;
@@ -592,7 +594,6 @@ std::unique_ptr<UiWindow> openWindow(const std::string& title, const int logical
     // The connection itself broke. Xlib then ends the process unless an exit handler (libX11 1.7+) returns.
     XSetIOErrorHandler([](Display*) -> int {
         WE_LOG_CRITICAL(log(), "the X display went away");
-        gDisplayLost = true;
         return 0;
     });
     Display* const display = XOpenDisplay(nullptr);
@@ -603,12 +604,14 @@ std::unique_ptr<UiWindow> openWindow(const std::string& title, const int logical
                     : std::string("cannot connect to the X display ") + name;
         return nullptr;
     }
-#ifdef WE_HAVE_XIO_EXIT_HANDLER
-    // Returning from here keeps the process alive: the window says closed and the session stops and cleans up.
-    XSetIOErrorExitHandler(
-        display, [](Display*, void*) { gDisplayLost = true; }, nullptr);
-#endif
     auto window = std::make_unique<X11Window>(display, logicalWidth, logicalHeight);
+#ifdef WE_HAVE_XIO_EXIT_HANDLER
+    // Returning from here keeps the process alive: the window says closed and the session stops and cleans up. Only
+    // this window's connection is lost: a window opened later, on a display that works, is not.
+    XSetIOErrorExitHandler(
+        display, [](Display*, void* lost) { static_cast<std::atomic<bool>*>(lost)->store(true); },
+        window->lostFlag());
+#endif
     if (!window->create(title, windowWidth, windowHeight, error)) {
         return nullptr;
     }

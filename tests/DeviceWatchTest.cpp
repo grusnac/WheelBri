@@ -388,5 +388,18 @@ TEST(DeviceWatch, TheSystemOptionsFollowWhetherThereAreNotices) {
               RelistTimer::Settings::withoutNotifications().safetyMs);
 }
 
+#if defined(__linux__)
+// The app's own lister on this machine: the system's backend, started on the first call and kept for the next; what
+// it lists is whatever is plugged in (here possibly nothing), never "cannot read".
+TEST(DeviceWatch, TheSystemListerStartsTheBackendOnce) {
+    const DeviceWatch::Lister lister = DeviceWatch::systemLister();
+    const auto first = lister();
+    const auto second = lister();
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+    EXPECT_EQ(first->size(), second->size());
+}
+#endif
+
 }  // namespace
 }  // namespace wheelbri::service

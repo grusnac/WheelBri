@@ -50,16 +50,15 @@ const logging::Logger& log() {
 using Colour = ui::Colour;
 
 // The same colours as the rest of the window (App.cpp, WheelSetupView.cpp).
-constexpr Colour kPanel{44, 48, 56};
-constexpr Colour kStripe{30, 33, 39};
-constexpr Colour kPopup{36, 40, 48};
-constexpr Colour kText{222, 226, 232};
+constexpr Colour kPanel = style::kPanel;
+constexpr Colour kStripe = style::kField;
+constexpr Colour kText = style::kText;
 constexpr Colour kDim = style::kDim;
-constexpr Colour kHeading{120, 190, 255};
-constexpr Colour kActive{64, 190, 100};
-constexpr Colour kWarning{214, 72, 64};
-constexpr Colour kCaution{206, 164, 58};
-constexpr Colour kDark{16, 18, 20};
+constexpr Colour kHeading = style::kHeading;
+constexpr Colour kActive = style::kActive;
+constexpr Colour kWarning = style::kWarning;
+constexpr Colour kCaution = style::kCaution;
+constexpr Colour kDark = style::kDark;
 
 constexpr std::uint64_t kDevicesEveryMs = 2000;
 constexpr std::array<const char*, 4> kAxisNames = {"Steering", "Throttle", "Brake", "Clutch"};
@@ -128,6 +127,24 @@ MappingEditView::MappingEditView(ui::UiWindow& window, std::filesystem::path rig
                                  ConfigPicker& picker)
     : window_(window), rigsFolder_(std::move(rigsFolder)), stateFile_(std::move(stateFile)), picker_(picker) {}
 
+std::optional<std::filesystem::path> MappingEditView::pickFile(const std::string& title,
+                                                              const std::filesystem::path& folder,
+                                                              const std::string& fileName) const {
+    return system_.pickFile ? system_.pickFile(title, folder, fileName) : platform::pickFile(title, folder, fileName);
+}
+
+bool MappingEditView::canPickFile() const { return system_.canPickFile ? system_.canPickFile() : platform::canPickFile(); }
+
+std::filesystem::path MappingEditView::documentsFolder() const {
+    return system_.documentsFolder ? system_.documentsFolder() : platform::documentsFolder();
+}
+
+std::optional<std::vector<RunningProgram>> MappingEditView::runningPrograms() const {
+    return system_.runningPrograms ? system_.runningPrograms() : platform::runningPrograms();
+}
+
+std::uint64_t MappingEditView::nowMs() const { return system_.nowMs ? system_.nowMs() : platform::nowMs(); }
+
 // --- state ----------------------------------------------------------------------------------------------------
 
 void MappingEditView::update() {
@@ -136,7 +153,7 @@ void MappingEditView::update() {
         load();
         return;
     }
-    if (devicesReadMs_ == 0 || platform::nowMs() - devicesReadMs_ >= kDevicesEveryMs) {
+    if (devicesReadMs_ == 0 || nowMs() - devicesReadMs_ >= kDevicesEveryMs) {
         refreshDevices();   // the names and the devices the sources are picked from
     }
 }
@@ -148,7 +165,7 @@ void MappingEditView::refreshDevices() {
     rig_ = rigName_.empty() ? Rig{} : readRig(rigsFolder_, rigName_, errors).value_or(Rig{});
     devices_.clear();
     for (const RigDevice& device : rig_.devices) devices_.push_back(wheelbri::labelsOf(device));
-    devicesReadMs_ = platform::nowMs();
+    devicesReadMs_ = nowMs();
 }
 
 void MappingEditView::load() {
@@ -671,10 +688,7 @@ void MappingEditView::hit(const float x, const float y, const float w, const flo
 float MappingEditView::button(const float x, const float y, const std::string& label, std::function<void()> action,
                               const bool on, const bool enabled, const float width) {
     const float w = width > 0 ? width : static_cast<float>(label.size()) * ui::kCharWidth + 14;
-    window_.fill(x, y, w, 16, !enabled ? kDark : on ? kHeading : kPanel);
-    window_.outline(x, y, w, 16, enabled ? (on ? kHeading : kDim) : kPanel);
-    const float textX = x + (w - static_cast<float>(label.size()) * ui::kCharWidth) / 2;
-    window_.text(textX, y + 4, label, !enabled ? kDim : on ? kDark : kText);
+    style::button(window_, x, y, w, 16, label, on, enabled);
     if (enabled) hit(x, y, w, 16, std::move(action));
     return w;
 }
@@ -682,8 +696,8 @@ float MappingEditView::button(const float x, const float y, const std::string& l
 void MappingEditView::drawField(const float x, const float y, const float w, const Field field,
                                 const std::string& value, const bool changed, const std::size_t index) {
     const bool typing = field_ == field && fieldIndex_ == index;
-    window_.fill(x, y, w, 16, typing ? kDark : kStripe);
-    window_.outline(x, y, w, 16, typing ? kHeading : changed ? kCaution : kPanel);
+    window_.fill(x, y, w, 16, kStripe);
+    window_.outline(x, y, w, 16, typing ? kHeading : changed ? kCaution : style::kFieldEdge);
     const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
     if (typing) {
         const std::string shown = typed_ + "_";
@@ -709,7 +723,7 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
                                       index})
                         : EntryState{};
     window_.fill(x, y, w, 16, kStripe);
-    window_.outline(x, y, w, 16, state.twice ? kWarning : changed ? kCaution : kPanel);
+    window_.outline(x, y, w, 16, state.twice ? kWarning : changed ? kCaution : style::kFieldEdge);
     if (state.twice) {
         tip(x, y, w, 16, state.tip);
     } else if (source.mapped()) {
@@ -852,7 +866,7 @@ void MappingEditView::draw() {
 
     // Axes, left; D-pad, right.
     style::headingBand(window_, 0, y, canvasW());
-    window_.text(4, y, "AXES", kHeading);
+    window_.text(8, y, "AXES", kHeading);
     window_.text(48, y, "click a source to pick another", kDim);
     tip(4, y - 2, 290, 12, "Sources are the rig's controls, named in the Rig tab: click one to pick what drives it.");
     // The axes' and the D-pad's source fields share what a wider window adds.
@@ -871,8 +885,8 @@ void MappingEditView::draw() {
     // The target's buttons (the ones its profile names; the others are not seen by games).
     y += 16 + 4 * 20 + 12;
     style::headingBand(window_, 0, y, canvasW());
-    window_.text(4, y, "BUTTONS", kHeading);
-    window_.text(68, y, target + " button <- your control", kDim);
+    window_.text(8, y, "BUTTONS", kHeading);
+    window_.text(76, y, target + " button <- your control", kDim);
     tip(4, y - 2, 340, 12,
         "Each " + target + " button and the control that presses it; \"or\": a second one (a button, or an axis past a "
         "point, such as a handbrake lever).");
@@ -978,8 +992,8 @@ void MappingEditView::drawEntry(const float x, const float y, const float w, con
 void MappingEditView::drawRotation(const float top) {
     float y = top;
     style::headingBand(window_, 0, y, canvasW());
-    window_.text(4, y, "STEERING ROTATION", kHeading);
-    window_.text(148, y, "full lock to full lock, in degrees", kDim);
+    window_.text(8, y, "STEERING ROTATION", kHeading);
+    window_.text(160, y, "full lock to full lock, in degrees", kDim);
 
     // The steering rotation: the slider (90 to 1080), the typed number (up to 2520) and the usual values.
     y += 16;
@@ -1033,7 +1047,7 @@ void MappingEditView::drawCentringSpring(const float top) {
     float y = top;
     const std::string target(profile_->identity().shortName);
     style::headingBand(window_, 0, y, canvasW());
-    window_.text(4, y, "CENTRING SPRING", kHeading);
+    window_.text(8, y, "CENTRING SPRING", kHeading);
     window_.text(140, y, "the " + target + "'s own, in every game: pulls the wheel to the centre", kDim);
     tip(4, y - 2, 600, 12,
         "As Logitech's software for the " + target + " had it (\"Enable Centering Spring in Force Feedback Games\", "
@@ -1069,7 +1083,7 @@ std::string clockText(const std::uint64_t ms) {
 }  // namespace
 
 void MappingEditView::pressListBar() {
-    const std::uint64_t now = platform::nowMs();
+    const std::uint64_t now = nowMs();
     if (gripPressMs_ != 0 && now - gripPressMs_ < kDoubleClickMs) {   // the second press: fit the longest name
         gripPressMs_ = 0;
         listDragging_ = false;
@@ -1149,11 +1163,11 @@ void MappingEditView::drawGames() {
         if (name.size() > chars) tip(4, rowY, listW, 18, name + " (" + tag + ")");
     };
     style::headingBand(window_, 0, y, gameListW() + 4);
-    window_.text(4, y, "GAMES", kHeading);
+    window_.text(8, y, "GAMES", kHeading);
     y += 16;
     const auto folderTag = [this](const std::size_t folder, ui::Colour& colour) {
         const ShimState state = shims_->stateAt(folder);
-        colour = state == ShimState::Foreign ? kWarning : state == ShimState::Missing ? kDim : kActive;
+        colour = state == ShimState::Foreign ? kWarning : state == ShimState::Missing ? style::kFaint : kActive;
         return state == ShimState::Foreign   ? std::string("other mod")
                : state == ShimState::Missing ? std::string("no shim")
                                              : "shim " + shims_->targetAt(folder);
@@ -1173,7 +1187,7 @@ void MappingEditView::drawGames() {
             window_.text(4 + listW - 60, y + 5, "running", kDark);
             drawName(y, game.label, 58, "running", on ? kDark : kText);
         } else {
-            ui::Colour colour = kDim;
+            ui::Colour colour = style::kFaint;
             std::string tag = userGame(game.id) ? "yours" : "built in";
             if (unfit) {
                 tag = "! not " + upperName(targetName_);
@@ -1194,7 +1208,7 @@ void MappingEditView::drawGames() {
         const ShimGame& entry = shims_->folders()[folder];
         const bool on = selectedFolderOnly_ == entry.folder;
         window_.fill(4, y, listW, 18, on ? kHeading : kStripe);
-        ui::Colour colour = kDim;
+        ui::Colour colour = style::kFaint;
         const std::string tag = folderTag(folder, colour);
         const float tagW = static_cast<float>(tag.size()) * ui::kCharWidth;
         window_.text(4 + listW - 6 - tagW, y + 5, tag, on ? kDark : colour);
@@ -1207,9 +1221,9 @@ void MappingEditView::drawGames() {
         y += 22;
     }
     y += 4;
-    button(4, y, "Add game...", [this] { addGame(); }, false, !locked_ && platform::canPickFile(), 104);
+    button(4, y, "Add game...", [this] { addGame(); }, false, !locked_ && canPickFile(), 104);
     tip(4, y, 104, 16,
-        platform::canPickFile()
+        canPickFile()
             ? "Pick a game's .exe: WheelBri finds the game by that name while it runs, and its folder joins the list "
               "(no shim put in)."
             : "No file window here yet: add games in games.ini next to app.ini.");
@@ -1224,10 +1238,11 @@ void MappingEditView::drawGames() {
         const float barH = contentH() - 100;
         const bool active = listDragging_ || (hoverInside_ && hoverX_ >= barX && hoverX_ < barX + 9 &&
                                               hoverY_ >= 42 && hoverY_ < 42 + barH);
-        window_.fill(barX + 4, 42, 1, barH, active ? kHeading : kPanel);
+        window_.fill(barX, 42, 9, barH, style::kSplit);
+        window_.outline(barX, 42, 9, barH, active ? kHeading : style::kSplitEdge);
         const float midY = 42 + std::floor(barH / 2);
         for (const float dy : {-8.0F, 0.0F, 8.0F}) {
-            window_.fill(barX + 2, midY + dy - 2, 5, 3, active ? kHeading : kDim);
+            window_.fill(barX + 4, midY + dy - 1, 2, 2, active ? kHeading : kDim);
         }
         hit(barX, 42, 9, barH, [this] { pressListBar(); });
         tip(barX, 42, 9, barH, "Drag to make the games list wider or narrower; double-click to fit its longest name.");
@@ -1249,7 +1264,7 @@ void MappingEditView::drawGames() {
         window_.text(gameX(), 62, fit(unknown, gameChars()), kDim);
         float top = drawGameFolder(nullptr, otherFolder, 80);
         button(gameX(), top + 4, "Add as your game...", [this, entry] { addGame(entry.folder); }, false,
-               !locked_ && platform::canPickFile(), 168);
+               !locked_ && canPickFile(), 168);
     } else {
         // The picked game: its name and whether it runs, its folder, its sub-tabs, then the one shown.
         float top = drawGameProfile(picked, 46);
@@ -1300,7 +1315,7 @@ void MappingEditView::drawGames() {
 void MappingEditView::refreshGameFolders() {
     if (shims_ == nullptr) return;
     shims_->refresh();
-    const std::uint64_t now = platform::nowMs();
+    const std::uint64_t now = nowMs();
     if (now - gameFoldersReadMs_ < 2000 && gameFoldersCount_ == shims_->folders().size() + games_.size()) return;
     gameFoldersReadMs_ = now;
     gameFoldersCount_ = shims_->folders().size() + games_.size();
@@ -1320,7 +1335,7 @@ float MappingEditView::drawGameFolder(const GameProfile* const game, const std::
     if (shims_ == nullptr) return y;
     const bool shimMode = picker_.way() == ConfigPicker::Way::Shim;
     style::headingBand(window_, gameX() - 4, y + 4, canvasW() - gameX());
-    window_.text(gameX(), y + 4, "FOLDER", kHeading);
+    window_.text(gameX() + 4, y + 4, "FOLDER", kHeading);
     const float x = gameX() + 64;
     if (!folder || *folder >= shims_->folders().size()) {
         // No folder yet: only Mode Shim needs one (the shim goes there).
@@ -1388,7 +1403,7 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
     if (const auto advice = targetAdvice(game, targetName_)) {
         const std::vector<std::string> lines = wrap("! " + *advice, gameChars() - 2, 3);
         const float boxH = 8 + 12 * static_cast<float>(lines.size());
-        window_.fill(gameX(), y, canvasW() - gameX() - 4, boxH, kStripe);
+        window_.fill(gameX(), y, canvasW() - gameX() - 4, boxH, style::kCautionBack);
         window_.outline(gameX(), y, canvasW() - gameX() - 4, boxH, kCaution);
         float line = y + 5;
         for (const std::string& text : lines) {
@@ -1440,7 +1455,7 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
 // A section's heading on the Games page: its name, and what it holds (dim).
 void MappingEditView::gameSection(const float y, const std::string& name, const std::string& about) {
     style::headingBand(window_, gameX() - 4, y, canvasW() - gameX());
-    window_.text(gameX(), y, name, kHeading);
+    window_.text(gameX() + 4, y, name, kHeading);
     window_.text(gameX() + 160, y, fit(about, gameChars() - 20), kDim);
 }
 
@@ -1458,11 +1473,11 @@ float MappingEditView::drawGameSettings(const std::size_t index, float y) {
     const std::vector<GameSettingText> wanted = gameValues(game);
     std::string key = id + "|" + pathToUtf8(place.root) + "|" + place.relative;
     for (const GameSettingText& value : wanted) key += "|" + value.name + "=" + value.text;
-    const std::uint64_t nowMs = platform::nowMs();
-    if (!fileState_ || key != fileStateKey_ || nowMs - fileStateReadMs_ >= kFileStateEveryMs) {
+    const std::uint64_t readNow = nowMs();
+    if (!fileState_ || key != fileStateKey_ || readNow - fileStateReadMs_ >= kFileStateEveryMs) {
         fileState_ = readGameSettingsState(place.root, place.relative, wanted);
         fileStateKey_ = key;
-        fileStateReadMs_ = nowMs;
+        fileStateReadMs_ = readNow;
     }
     const GameSettingsFileState& file = *fileState_;
     using Status = GameSettingsFileState::Status;
@@ -1516,15 +1531,15 @@ float MappingEditView::drawGameSettings(const std::size_t index, float y) {
         button(gameValueX(), y, "Save to file", [this, index] { saveGameFile(index); }, !file.asSet(),
                !locked_ && file.status == Status::Read, 120);
         button(gameValueX() + 128, y, "Locate...", [this, index] { locateGameFile(index); }, false,
-               !locked_ && platform::canPickFile(), 88);
+               !locked_ && canPickFile(), 88);
         window_.text(gameValueX() + 224, y + 4, fit("keeps the original as .before-wheelbri", valueChars() - 28),
                      kDim);
     } else {
         button(gameValueX(), y, "Locate file", [this, index] { locateGameFile(index); }, true,
-               !locked_ && platform::canPickFile(), 120);
+               !locked_ && canPickFile(), 120);
         const std::string name = pathToUtf8(pathFromUtf8(game.settingsFile).filename());
         window_.text(gameValueX() + 128, y + 4,
-                     fit(platform::canPickFile() ? "find the game's " + name + " file; then Save to file"
+                     fit(canPickFile() ? "find the game's " + name + " file; then Save to file"
                                                  : "no file dialog on this system yet",
                          valueChars() - 16),
                      kDim);
@@ -1636,7 +1651,10 @@ GameFfb MappingEditView::gameFfbOf(const GameProfile& game) const {
 }
 
 bool MappingEditView::userGame(const std::string& id) const {
-    return std::any_of(userGames_.begin(), userGames_.end(), [&id](const GameProfile& g) { return g.id == id; });
+    // One in games.ini with a built-in profile's id (a hand edit) is that profile, not the user's (reloadGames).
+    const auto same = [&id](const GameProfile& g) { return g.id == id; };
+    return std::any_of(userGames_.begin(), userGames_.end(), same) &&
+           std::none_of(gameProfiles().begin(), gameProfiles().end(), same);
 }
 
 void MappingEditView::reloadGames() {
@@ -1652,7 +1670,7 @@ void MappingEditView::reloadGames() {
 
 void MappingEditView::addGame(const std::filesystem::path& start) {
     const std::optional<std::filesystem::path> picked =
-        platform::pickFile("Add a game: pick its program (.exe)", start, "");
+        pickFile("Add a game: pick its program (.exe)", start, "");
     if (!picked) return;   // cancelled
     // Its folder joins the game folders (for Mode Shim; no shim put in until Put shim or Start).
     const auto addFolder = [this, &picked] {
@@ -1691,9 +1709,8 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
     for (int n = 2; taken(id); ++n) id = base + std::to_string(n);
     GameProfile game;
     game.id = id;
-    std::string label = pathToUtf8(picked->stem());
-    if (label.size() > 20) label.resize(20);
-    game.label = label;
+    // At most 20 bytes (a label's length, GameProfiles.hpp), never half a character (a name like "Pokémon").
+    game.label = truncateUtf8(pathToUtf8(picked->stem()), 20);
     game.program = program;
     std::vector<GameProfile> next = userGames_;
     next.push_back(game);
@@ -1725,9 +1742,13 @@ void MappingEditView::removeGame(const std::string& id) {
         }
     }
     if (label.empty()) return;   // a built-in profile: never removed
-    // Its own values go first (saved as they change), so the mapping never names a game that is gone. (Only this
-    // save's result stops it: an error the page showed before, for something else, does not.)
+    // Its own values go first (saved as they change), so the mapping never names a game that is gone: the config
+    // would then have a problem (a [game_rotation] line for no game). (Only this save's result stops it: an error the
+    // page showed before, for something else, does not.)
     edit_.gameTunings.erase(id);
+    edit_.gameRotations.erase(id);
+    edit_.gameFfbGains.erase(id);
+    edit_.gameSettings.erase(id);
     if (gameValuesChanged()) {
         saveGameValues();
         if (statusError_) {
@@ -1864,7 +1885,7 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
         };
         button(axisX, y, "<", [step] { step(-1); }, false, editable(), 24);
         window_.fill(axisX + 28, y, 72, 16, kStripe);
-        window_.outline(axisX + 28, y, 72, 16, axisChanged ? kCaution : kPanel);
+        window_.outline(axisX + 28, y, 72, 16, axisChanged ? kCaution : style::kFieldEdge);
         window_.text(axisX + 34, y + 4, std::string(wheelbri::axisName(axes[p])), kText);
         button(axisX + 104, y, ">", [step] { step(1); }, false, editable(), 24);
         const bool ownInvert = own != nullptr && own->pedalInvert[p].has_value();
@@ -2186,7 +2207,7 @@ float MappingEditView::drawGameButtons(const std::size_t index, float y) {
 
 void MappingEditView::drawAddButton() {
     hit(0, 0, canvasW(), contentH(), [] {});   // clicks outside the popup do nothing
-    window_.fill(kPopupX, kPopupY, popupW(), popupH(), kPopup);
+    window_.fill(kPopupX, kPopupY, popupW(), popupH(), style::kBox);
     window_.outline(kPopupX, kPopupY, popupW(), popupH(), kHeading);
     const float left = kPopupX + 12;
     const std::size_t picked = selectedGameIndex();
@@ -2244,7 +2265,7 @@ MappingEditView::GameFilePlace MappingEditView::gameFilePlace(const GameProfile&
         // One the game never wrote gives way to the one it did (NFS Heat's, located for NFS Unbound by mistake).
         if (confirmed || seen.empty()) return {file.parent_path(), pathToUtf8(file.filename()), true, confirmed};
     }
-    const std::filesystem::path documents = platform::documentsFolder();
+    const std::filesystem::path documents = documentsFolder();
     if (!seen.empty() && !(!documents.empty() && sameSettingsFile(pathFromUtf8(seen),
                                                                   documents / pathFromUtf8(game.settingsFile)))) {
         const std::filesystem::path file = pathFromUtf8(seen);
@@ -2268,7 +2289,7 @@ void MappingEditView::learnGameFile(const std::string& id, const std::filesystem
     const auto game = std::find_if(games_.begin(), games_.end(), [&id](const GameProfile& g) { return g.id == id; });
     if (game == games_.end() || game->settings.empty() || game->settingsFile.empty()) return;
     // Still running (the session stopped, not the game): it writes its file when it ends, not yet.
-    if (const auto programs = platform::runningPrograms()) {
+    if (const auto programs = runningPrograms()) {
         for (const RunningProgram& program : *programs) {
             if (programName(program.name) == game->program) return;
         }
@@ -2276,7 +2297,7 @@ void MappingEditView::learnGameFile(const std::string& id, const std::filesystem
     const std::string located = readAppSetting(stateFile_, "game_file." + id);
     const std::filesystem::path locatedFile = located.empty() ? std::filesystem::path() : pathFromUtf8(located);
     const std::vector<std::filesystem::path> written =
-        settingsFilesWrittenBetween(platform::documentsFolder(), game->settingsFile, locatedFile, since,
+        settingsFilesWrittenBetween(documentsFolder(), game->settingsFile, locatedFile, since,
                                     std::filesystem::file_time_type::clock::now() + std::chrono::seconds(5));
     if (written.size() != 1) {
         WE_LOG_INFO(log(), "game settings: {} ended; {} settings files written while it ran: none taken as its own",
@@ -2304,7 +2325,7 @@ std::vector<GameSettingText> MappingEditView::gameValues(const GameProfile& game
 void MappingEditView::locateGameFile(const std::size_t index) {
     const GameProfile& game = games_[index];
     const std::filesystem::path name = pathFromUtf8(game.settingsFile).filename();
-    std::filesystem::path start = platform::documentsFolder();
+    std::filesystem::path start = documentsFolder();
     if (!start.empty()) {
         // Its folder under Documents when that is there, else Documents.
         std::error_code ec;
@@ -2312,7 +2333,7 @@ void MappingEditView::locateGameFile(const std::size_t index) {
         if (std::filesystem::is_directory(folder, ec)) start = folder;
     }
     const std::optional<std::filesystem::path> picked =
-        platform::pickFile("Locate " + game.label + "'s settings file (" + pathToUtf8(name) + ")", start,
+        pickFile("Locate " + game.label + "'s settings file (" + pathToUtf8(name) + ")", start,
                            pathToUtf8(name));
     if (!picked) return;   // cancelled
     // Only a file that holds the game's settings: every one of them found in it, once.
@@ -2354,7 +2375,7 @@ void MappingEditView::locateGameFile(const std::size_t index) {
 void MappingEditView::saveGameFile(const std::size_t index) {
     const GameProfile& game = games_[index];
     // The game reads the file when it starts and writes its own values back when it ends: only with it closed.
-    if (const auto programs = platform::runningPrograms()) {
+    if (const auto programs = runningPrograms()) {
         for (const RunningProgram& program : *programs) {
             if (programName(program.name) == game.program) {
                 status_ = game.label + " is running: close it first, then Save to file.";
@@ -2434,7 +2455,7 @@ void MappingEditView::drawAltSource(const float x, const float y, const float w,
         return entryState({ref.source, ref.axis}, self).twice;
     });
     window_.fill(x, y, w, 16, kStripe);
-    window_.outline(x, y, w, 16, twice ? kWarning : changed ? kCaution : kPanel);
+    window_.outline(x, y, w, 16, twice ? kWarning : changed ? kCaution : style::kFieldEdge);
     // The first, and how many more: "Hand > 50% +2".
     const std::string more = list.size() > 1 ? " +" + std::to_string(list.size() - 1) : std::string();
     const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
@@ -2458,7 +2479,7 @@ void MappingEditView::drawAltSource(const float x, const float y, const float w,
 
 void MappingEditView::drawAltPicker() {
     hit(0, 0, canvasW(), contentH(), [] {});   // clicks outside the popup do nothing
-    window_.fill(kPopupX, kPopupY, popupW(), popupH(), kPopup);
+    window_.fill(kPopupX, kPopupY, popupW(), popupH(), style::kBox);
     window_.outline(kPopupX, kPopupY, popupW(), popupH(), kHeading);
     const float left = kPopupX + 12;
     const std::size_t target = pickIndex_;
@@ -2575,7 +2596,7 @@ void MappingEditView::drawAltPicker() {
 
 void MappingEditView::drawPicker() {
     hit(0, 0, canvasW(), contentH(), [] {});   // clicks outside the popup do nothing
-    window_.fill(kPopupX, kPopupY, popupW(), popupH(), kPopup);
+    window_.fill(kPopupX, kPopupY, popupW(), popupH(), style::kBox);
     window_.outline(kPopupX, kPopupY, popupW(), popupH(), kHeading);
     const bool axis = pickKind_ == Slot::Axis;
     const bool forGame = pickKind_ == Slot::GameButton;

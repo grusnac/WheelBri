@@ -1038,5 +1038,109 @@ TEST(FfbController, GameTuningFlipsAndTurnsOff) {
     EXPECT_NEAR(controller.slot(0).sent->constantLevel, 0.2F, 1e-4F);
 }
 
+// The game gain makes pushing forces stronger: a constant's level, a periodic effect's magnitude and offset; the
+// effects that only resist (spring, damper, friction, inertia) are left as they are.
+TEST(FfbController, GameGainScalesOnlyThePushingForces) {
+    FfbEffect effect;
+    effect.constantLevel = 0.2F;
+    effect.periodic.magnitude = 0.3F;
+    effect.periodic.offset = -0.1F;
+    effect.condition.positiveCoefficient = 0.4F;
+    effect.type = FfbEffectType::Constant;
+    FfbEffect out = FfbController::withGameGain(effect, 2.0F);
+    EXPECT_FLOAT_EQ(out.constantLevel, 0.4F);
+    EXPECT_FLOAT_EQ(out.periodic.magnitude, 0.3F);
+    for (const FfbEffectType type : {FfbEffectType::Sine, FfbEffectType::Square, FfbEffectType::Triangle,
+                                     FfbEffectType::SawtoothUp, FfbEffectType::SawtoothDown}) {
+        effect.type = type;
+        out = FfbController::withGameGain(effect, 2.0F);
+        EXPECT_FLOAT_EQ(out.periodic.magnitude, 0.6F) << ffbTypeName(type);
+        EXPECT_FLOAT_EQ(out.periodic.offset, -0.2F) << ffbTypeName(type);
+        EXPECT_FLOAT_EQ(out.constantLevel, 0.2F) << ffbTypeName(type);
+    }
+    for (const FfbEffectType type : {FfbEffectType::Spring, FfbEffectType::Damper, FfbEffectType::Friction,
+                                     FfbEffectType::Inertia}) {
+        effect.type = type;
+        EXPECT_EQ(FfbController::withGameGain(effect, 2.0F), effect) << ffbTypeName(type);
+    }
+}
+
+// The game changing only its effect's gain is a new push: the frozen-push clock starts again.
+TEST(FfbFrozenPush, AChangedGainIsANewPush) {
+    RecordingSink sink;
+    FfbController controller(sink, nfsSafety(), kPatientWatchdog);
+    FfbEffect push;
+    push.constantLevel = 0.7F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.update(2'500 * kMs);
+    EXPECT_EQ(controller.frozenFade(), 0.0F);
+    push.gain = 0.9F;
+    controller.onPacket(slotPacket(0, true, push), 2'600 * kMs);
+    controller.update(2'600 * kMs);
+    EXPECT_EQ(controller.frozenFade(), 1.0F);
+}
+
+// Two pushes frozen at once: the fade follows the one frozen first, whichever slot it is in.
+TEST(FfbFrozenPush, TheFirstFrozenPushSetsTheFade) {
+    for (const bool firstInSlotZero : {true, false}) {
+        RecordingSink sink;
+        FfbController controller(sink, nfsSafety(), kPatientWatchdog);
+        FfbEffect push;
+        push.constantLevel = 0.7F;
+        controller.onPacket(slotPacket(firstInSlotZero ? 0 : 1, true, push), 0);              // frozen at 2.0 s
+        controller.onPacket(slotPacket(firstInSlotZero ? 1 : 0, true, push), 1'000 * kMs);    // frozen at 3.0 s
+        controller.update(3'100 * kMs);   // the first: 1.1 s past, faded out; the second only 0.1 s (0.8)
+        EXPECT_EQ(controller.frozenFade(), 0.0F) << firstInSlotZero;
+    }
+}
+
+// A game's own limits that only change the slew rate, or only the fade time, are applied; a fade time that is not a
+// number keeps the configured one.
+TEST(FfbController, GameTuningChangesOneLimitAtATime) {
+    RecordingSink sink;
+    FfbSafetyConfig base = safety();
+    base.frozenForceSeconds = 2.0F;
+    FfbController controller(sink, base);
+    std::array<float, kFfbGroupCount> gains{};
+    gains.fill(1.0F);
+    FfbSafetyConfig slower = base;
+    slower.maxSlewPerSecond = 10.0F;
+    controller.setGameTuning(gains, slower, false, true);
+    EXPECT_FLOAT_EQ(controller.safety().maxSlewPerSecond, 10.0F);
+    FfbSafetyConfig quicker = base;
+    quicker.frozenForceSeconds = 0.5F;
+    controller.setGameTuning(gains, quicker, false, true);
+    EXPECT_FLOAT_EQ(controller.safety().maxSlewPerSecond, base.maxSlewPerSecond);
+    EXPECT_FLOAT_EQ(controller.safety().frozenForceSeconds, 0.5F);
+    FfbSafetyConfig nonsense = base;
+    nonsense.frozenForceSeconds = std::numeric_limits<float>::quiet_NaN();
+    controller.setGameTuning(gains, nonsense, false, true);
+    EXPECT_FLOAT_EQ(controller.safety().frozenForceSeconds, 2.0F);
+}
+
+// Turned the other way: a periodic effect's offset changes sign, its magnitude does not.
+TEST(FfbController, FlippingTurnsAPeriodicOffset) {
+    std::array<float, kFfbGroupCount> gains{};
+    gains.fill(1.0F);
+    FfbEffect sine;
+    sine.type = FfbEffectType::Sine;
+    sine.periodic.magnitude = 0.3F;
+    sine.periodic.offset = 0.1F;
+    const FfbEffect out = FfbController::tuned(sine, gains, 1.0F, true);
+    EXPECT_FLOAT_EQ(out.periodic.offset, -0.1F);
+    EXPECT_FLOAT_EQ(out.periodic.magnitude, 0.3F);
+}
+
+// A centring spring that is not a number is off, never a spring of undefined strength.
+TEST(FfbController, ANonsenseCentringSpringIsOff) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());
+    controller.setCentringSpring(30.0F);
+    controller.setCentringSpring(std::numeric_limits<float>::quiet_NaN());
+    EXPECT_EQ(controller.centringSpring(), 0.0F);
+    controller.setCentringSpring(std::numeric_limits<float>::infinity());
+    EXPECT_EQ(controller.centringSpring(), 0.0F);
+}
+
 }  // namespace
 }  // namespace wheelbri

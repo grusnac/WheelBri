@@ -125,6 +125,18 @@ TEST_F(AppLogLevelTest, WithoutTheAppItIsThisProcesssOwnLevel) {
     EXPECT_EQ(level.current(), LogLevel::Warn);
 }
 
+// Set before start (no state file): the level is applied even when it is the default one, and nothing is written.
+TEST_F(AppLogLevelTest, ASetBeforeStartAppliesEvenTheDefaultAndWritesNothing) {
+    AppLogLevel level;
+    logging::setLevel("debug");
+    level.set(kDefaultAppLogLevel);
+    EXPECT_TRUE(level.started());
+    EXPECT_EQ(level.changes(), 1U);
+    EXPECT_EQ(level.current(), kDefaultAppLogLevel);
+    EXPECT_EQ(logging::currentLevel(), spdlog::level::warn);
+    EXPECT_FALSE(std::filesystem::exists(stateFile_));
+}
+
 TEST_F(AppLogLevelTest, TheProcessHasOne) {
     EXPECT_EQ(&AppLogLevel::shared(), &AppLogLevel::shared());
 }

@@ -12,6 +12,11 @@
 #include <thread>
 #include <vector>
 
+#ifndef _WIN32
+#include <cstdlib>
+#include <unistd.h>
+#endif
+
 namespace wheelbri {
 namespace {
 
@@ -21,6 +26,40 @@ std::string readFile(const std::filesystem::path& path) {
     text << file.rdbuf();
     return text.str();
 }
+
+// For a test that sets logging up and shuts it down: the loggers that already exist are put back as they were when
+// it ends (their sinks and level, and in spdlog's registry). Code keeps its logger in a function-local static
+// (`log()`, fetched once): without this, init() points those loggers at this test's file and shutdown() drops them
+// from the registry, so every later test that captures a component's lines (LogLinesCapture) misses them, depending
+// on which tests ran before.
+class LoggersKept {
+public:
+    LoggersKept() {
+        spdlog::apply_all([this](const logging::Logger& logger) {
+            kept_.push_back({logger, logger->sinks(), logger->level()});
+        });
+    }
+    ~LoggersKept() {
+        for (const Kept& kept : kept_) {
+            kept.logger->sinks() = kept.sinks;
+            kept.logger->set_level(kept.level);
+            if (spdlog::get(kept.logger->name()) != kept.logger) {
+                spdlog::drop(kept.logger->name());   // one made after the shutdown under the same name
+                spdlog::register_logger(kept.logger);
+            }
+        }
+    }
+    LoggersKept(const LoggersKept&) = delete;
+    LoggersKept& operator=(const LoggersKept&) = delete;
+
+private:
+    struct Kept {
+        logging::Logger logger;
+        std::vector<spdlog::sink_ptr> sinks;
+        spdlog::level::level_enum level;
+    };
+    std::vector<Kept> kept_;
+};
 
 TEST(Logging, DatedFileNames) {
     EXPECT_EQ(logging::datedFileName("wheelbri-service.log", "2026-09-30"), "wheelbri-service-2026-09-30.log");
@@ -60,6 +99,7 @@ TEST(LogConfig, LevelNames) {
 }
 
 TEST(Logging, WritesComponentLevelMessageAndSourceToFile) {
+    const LoggersKept kept;   // put back the loggers other tests use
     const auto path = std::filesystem::temp_directory_path() / "wheelbri-logging-test" / "test.log";
     std::error_code ignored;
     std::filesystem::remove_all(path.parent_path(), ignored);
@@ -104,6 +144,7 @@ TEST(Logging, WritesComponentLevelMessageAndSourceToFile) {
 }
 
 TEST(Logging, UnwritableFileFallsBackToConsole) {
+    const LoggersKept kept;   // put back the loggers other tests use
     logging::LogConfig config;
     config.console = false;
     config.periodicFlush = false;
@@ -121,6 +162,7 @@ TEST(Logging, UnwritableFileFallsBackToConsole) {
 // component; with no file and no console the messages still go somewhere (stderr), and a level or flush level that
 // is not a level is warn.
 TEST(Logging, ListenersGetMessagesAndNothingConfiguredStillLogs) {
+    const LoggersKept kept;   // put back the loggers other tests use
     logging::LogConfig config;
     config.level = "loud";
     config.flushLevel = "sometimes";
@@ -152,6 +194,7 @@ TEST(Logging, ListenersGetMessagesAndNothingConfiguredStillLogs) {
 // The config's own file wins over the program's default one; with the day's numbers used up the file is the old
 // daily name instead, so logging never stops for want of a number.
 TEST(Logging, TheConfigsFileWinsAndNoFreeNumberFallsBackToTheDailyName) {
+    const LoggersKept kept;   // put back the loggers other tests use
     const auto dir = std::filesystem::temp_directory_path() / "wheelbri-logging-ownfile";
     std::error_code ignored;
     std::filesystem::remove_all(dir, ignored);
@@ -187,6 +230,7 @@ TEST(CallSampler, WithoutEveryNOnlyTheFirstCalls) {
 
 // The level is set by name only for real level names.
 TEST(LogConfig, SetLevelTakesOnlyLevelNames) {
+    const LoggersKept kept;   // put back the loggers other tests use
     logging::LogConfig config;
     config.console = false;
     config.periodicFlush = false;
@@ -200,6 +244,35 @@ TEST(LogConfig, SetLevelTakesOnlyLevelNames) {
     EXPECT_EQ(logging::currentLevel(), spdlog::level::warn);
     logging::shutdown();
 }
+
+#ifndef _WIN32
+// A log file named without a folder goes in the current folder, no folder made for it. In a child process, whose
+// current folder and logging can change without touching the tests'.
+TEST(LoggingDeathTest, ABareFileNameIsWrittenWhereWeAre) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    const auto dir = std::filesystem::temp_directory_path() / "wheelbri-logging-bare";
+    std::error_code ignored;
+    std::filesystem::remove_all(dir, ignored);
+    std::filesystem::create_directories(dir);
+    const std::string folder = dir.string();
+    EXPECT_EXIT(
+        {
+            logging::LogConfig config;
+            config.console = false;
+            const bool ok = ::chdir(folder.c_str()) == 0 && logging::init(config, "bare.log");
+            WE_LOG_INFO(logging::get("test.bare"), "here");
+            logging::shutdown();
+            std::exit(ok ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
+    bool found = false;
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        found = found || entry.path().filename().string().rfind("bare", 0) == 0;
+    }
+    EXPECT_TRUE(found);
+    std::filesystem::remove_all(dir, ignored);
+}
+#endif
 
 }  // namespace
 }  // namespace wheelbri

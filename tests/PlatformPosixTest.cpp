@@ -297,6 +297,46 @@ TEST(PlatformPosix, AGameStartedThroughWineIsNamedByItsExe) {
     EXPECT_EQ(bareName, "wine-preloader");
 }
 
+// Every name Wine's loader goes by ("wine", "wine64", "wine-preloader", "wine64-preloader") hands the name on to the
+// program after it; a command line longer than what is read (8 KiB) is cut, never read on.
+TEST(PlatformPosix, EveryWineLoaderNameAndALongCommandLine) {
+    const auto folder = tempFolder("loaders");
+    std::array<int, 2> feed{-1, -1};   // the long one's `cat` reads it: it waits until the test closes it
+    ASSERT_EQ(::pipe2(feed.data(), O_CLOEXEC), 0);
+    const auto gameA = folder / "a.exe";   // FIFOs: cat blocks opening them, so each process stays until killed
+    const auto gameB = folder / "b.exe";
+    ASSERT_EQ(::mkfifo(gameA.c_str(), 0600), 0);
+    ASSERT_EQ(::mkfifo(gameB.c_str(), 0600), 0);
+    const pid_t wine = spawnAs("/bin/cat", {"/usr/bin/wine", gameA.string()});
+    const pid_t preloader = spawnAs("/bin/cat", {"wine64-preloader", gameB.string()});
+    const std::string longName(9000, 'x');
+    const pid_t longOne = spawnAs("/bin/cat", {longName}, feed[0]);
+    ASSERT_GT(wine, 0);
+    ASSERT_GT(preloader, 0);
+    ASSERT_GT(longOne, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const auto programs = runningPrograms();
+    for (const pid_t pid : {wine, preloader, longOne}) {
+        ::kill(pid, SIGKILL);
+        ::waitpid(pid, nullptr, 0);
+    }
+    ::close(feed[0]);
+    ::close(feed[1]);
+    std::filesystem::remove_all(folder);
+    ASSERT_TRUE(programs.has_value());
+    std::string wineName;
+    std::string preloaderName;
+    std::string longOneName;
+    for (const RunningProgram& program : *programs) {
+        if (program.pid == static_cast<std::uint32_t>(wine)) wineName = program.name;
+        if (program.pid == static_cast<std::uint32_t>(preloader)) preloaderName = program.name;
+        if (program.pid == static_cast<std::uint32_t>(longOne)) longOneName = program.name;
+    }
+    EXPECT_EQ(wineName, gameA.string());
+    EXPECT_EQ(preloaderName, gameB.string());
+    EXPECT_EQ(longOneName, std::string(8192, 'x'));
+}
+
 // A process that has ended but is not reaped yet (a zombie) has no command line: it is not listed.
 TEST(PlatformPosix, AZombieIsNotARunningProgram) {
     const pid_t child = spawnAs("/bin/true", {"/bin/true"});

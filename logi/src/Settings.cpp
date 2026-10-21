@@ -14,11 +14,16 @@ namespace wheelbri::logi {
 namespace {
 
 Settings read() {
-    Settings result;
     const std::filesystem::path file = std::filesystem::path(gamelog::dllDirectory()) / L"wheelbri-logi.ini";
     const std::optional<std::string> text = readFileText(file);
-    if (!text) return result;
-    IniDocument::ParseResult ini = IniDocument::parse(*text);
+    return text ? parseSettings(*text) : Settings{};
+}
+
+}  // namespace
+
+Settings parseSettings(const std::string& text) {
+    Settings result;
+    IniDocument::ParseResult ini = IniDocument::parse(text);
     for (std::string& error : ini.errors) result.problems.push_back("wheelbri-logi.ini: " + std::move(error));
     for (const auto& [section, keys] : ini.document.sections()) {
         if (section != "logi") {
@@ -42,8 +47,6 @@ Settings read() {
     }
     return result;
 }
-
-}  // namespace
 
 const Settings& settings() {
     static std::once_flag once;

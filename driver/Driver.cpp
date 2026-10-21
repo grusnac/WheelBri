@@ -264,8 +264,13 @@ void logLine(const wheelbri::LogLevel level, const std::string& text) {
     SYSTEMTIME now;
     GetLocalTime(&now);
     char line[1024];
-    std::snprintf(line, sizeof(line), "[%04u-%02u-%02u %02u:%02u:%02u.%03u] [%s] %s\r\n", now.wYear, now.wMonth,
-                  now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds, levelText(level), text.c_str());
+    const int length = std::snprintf(line, sizeof(line), "[%04u-%02u-%02u %02u:%02u:%02u.%03u] [%s] %s\r\n", now.wYear,
+                                     now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds,
+                                     levelText(level), text.c_str());
+    if (length < 0 || static_cast<std::size_t>(length) >= sizeof(line)) {
+        // Cut to fit: it still ends as a line (with "..."), or the next line would be glued to it in the file.
+        std::memcpy(line + sizeof(line) - 6, "...\r\n", 6);
+    }
     OutputDebugStringA(line);
     std::lock_guard lock(g_logLock);
     static bool reportedFailure = false;

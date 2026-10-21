@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <iterator>
 
 namespace wheelbri::shim {
@@ -129,7 +130,10 @@ std::string toUtf8(const WCHAR* text, const std::size_t maxChars) {
     return result;
 }
 
-std::string toUtf8(const CHAR* text) { return text == nullptr ? "(null)" : text; }
+std::string toUtf8(const CHAR* text, const std::size_t maxChars) {
+    // Bounded as the wide one: an ANSI name is a MAX_PATH array the game may not have ended.
+    return text == nullptr ? "(null)" : std::string(text, strnlen(text, maxChars));
+}
 
 std::string guidToString(const GUID& guid) {
     return format("{%08lX-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X}", guid.Data1, guid.Data2, guid.Data3,

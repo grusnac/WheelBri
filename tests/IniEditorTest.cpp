@@ -151,3 +151,11 @@ TEST(IniEditor, RoundTripsThroughTheReader) {
     EXPECT_EQ(ini.text().find("\n\n"), std::string::npos);   // every line end is CRLF
     EXPECT_EQ(IniEditor(ini.text()).text(), ini.text());     // and reading it again changes nothing
 }
+
+// A line that opens a header but never closes it ("[ffb" by hand) is no header: a key set later lands in the section
+// before it, and the line stays as written.
+TEST(IniEditor, AnUnclosedHeaderIsNoHeader) {
+    IniEditor ini("[a]\nx = 1\n[ffb\n");
+    ini.set("a", "y", "2");
+    EXPECT_EQ(ini.text(), "[a]\nx = 1\ny = 2\n[ffb\n");
+}

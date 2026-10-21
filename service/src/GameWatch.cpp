@@ -80,8 +80,8 @@ std::vector<GameProfile> loadUserGames() {
 }
 
 GameWatch::GameWatch(GameSessionConfig session, const float mapping, GameRotations overrides,
-                     std::vector<GameProfile> userGames)
-    : session_(std::move(session)), games_(allGames(std::move(userGames))),
+                     std::vector<GameProfile> userGames, System system)
+    : system_(std::move(system)), session_(std::move(session)), games_(allGames(std::move(userGames))),
       detector_(session_.target, 2, games_), target_(lower(session_.target)), routePedals_(session_.routePedals),
       mapping_(mapping), overrides_(std::move(overrides)), wayNotices_(!session_.routePedals) {
     for (const std::string& problem : gameProfileProblems()) {
@@ -93,7 +93,8 @@ std::string GameWatch::describeFollowed() const {
     const GameDetector::State& state = detector_.state();
     if (state.game == nullptr) return {};
     // Where it runs from (Windows: the full path, so a stray program with the same name shows; Linux: as listed).
-    std::string where = pathToUtf8(platform::processImage(state.pid));
+    std::string where =
+        pathToUtf8(system_.processImage ? system_.processImage(state.pid) : platform::processImage(state.pid));
     if (where.empty()) where = state.program;
     std::string text = state.game->label + " (pid " + std::to_string(state.pid) + ", " + where + ")";
     if (!state.profileApplies) {
@@ -237,7 +238,8 @@ void GameWatch::setValues(GameTunings tunings, GameRotations overrides, GameFfbG
 }
 
 GameWatch::Decision GameWatch::check() {
-    const GameDetector::Update update = detector_.poll(platform::runningPrograms());
+    const GameDetector::Update update =
+        detector_.poll(system_.runningPrograms ? system_.runningPrograms() : platform::runningPrograms());
     logEvents(update);
     const std::uint64_t notices = wayNotices_.count();
     wayNotices_.update(update, detector_.state());
@@ -276,7 +278,8 @@ GameWatch::Decision GameWatch::check() {
 }
 
 void GameWatch::checkNfs2015Bindings() {
-    const std::filesystem::path documents = platform::documentsFolder();
+    const std::filesystem::path documents =
+        system_.documentsFolder ? system_.documentsFolder() : platform::documentsFolder();
     if (documents.empty()) return;   // not on Windows: not checked
     const std::filesystem::path file = documents / "Need For Speed" / "settings" / "PROFILEOPTIONS_profile";
     std::error_code error;

@@ -444,5 +444,18 @@ TEST(JoystickLayout, NamesOfAxesThatAreNotAxes) {
     EXPECT_FALSE(isValid(layout));
 }
 
+// The combined pedals take an axis of their own only: not one that is no axis (Any, a button's guid), not the wheel's
+// X, and not any pedal's: then the device has the three pedals and the wheel alone.
+TEST(EmulatedJoystick, CombinedPedalsNeedAFreeAxis) {
+    JoystickLayout layout = layoutFor("g25", kG920Buttons);
+    ASSERT_EQ(EmulatedJoystick(layout).axisCount(), 5U);
+    for (const ObjectGuid taken : {ObjectGuid::Any, ObjectGuid::Button, ObjectGuid::XAxis, layout.throttle,
+                                   layout.brake, layout.clutch}) {
+        JoystickLayout other = layout;
+        other.combined = taken;
+        EXPECT_EQ(EmulatedJoystick(other).axisCount(), 4U) << static_cast<int>(taken);
+    }
+}
+
 }  // namespace
 }  // namespace wheelbri

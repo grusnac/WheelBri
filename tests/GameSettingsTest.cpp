@@ -596,5 +596,71 @@ TEST(GameSettingsFileFits, SameFileLetterCaseAside) {
                                   std::filesystem::path("C:") / "Docs" / "Unbound" / "PROFILEOPTIONS"));
 }
 
+// A value with the DEL byte (0x7F) at its end is not printable either: not read, never written.
+TEST(GameSettings, TheDeleteByteIsNotPrintable) {
+    std::string bytes = unboundFile();
+    putEntry(bytes, "WheelDel", std::string("0.5\x7F", 4));
+    EXPECT_FALSE(frostbiteSetting(bytes, "WheelDel").has_value());
+    putEntry(bytes, "WheelTilde", "0.5~");   // the last printable byte
+    EXPECT_EQ(frostbiteSetting(bytes, "WheelTilde"), "0.5~");
+}
+
+// A settings file that is there but cannot be read (no permission): Failed (try again later), not Refused, and the
+// file as it was.
+TEST_F(GameSettingsFile, AFileThatCannotBeReadIsAFailure) {
+    ASSERT_TRUE(writeFileReplacing(file(), unboundFile()));
+    std::filesystem::permissions(file(), std::filesystem::perms::none);
+    if (readFileText(file()).has_value()) {   // Administrator / root, or Windows: still readable
+        std::filesystem::permissions(file(), std::filesystem::perms::owner_all);
+        GTEST_SKIP() << "the file stays readable here";
+    }
+    const GameSettingsFileResult result = write(kStronger);
+    std::filesystem::permissions(file(), std::filesystem::perms::owner_all);
+    EXPECT_EQ(result.outcome, GameSettingsFileResult::Outcome::Failed);
+    EXPECT_EQ(result.why, "cannot read it");
+    EXPECT_EQ(readFileText(file()).value_or(""), unboundFile());
+}
+
+// The settings path with a slash at its end, or a file whose path is shorter than the settings path: compared part
+// by part, the empty part ignored; never a match past the root.
+TEST(GameSettingsFileFits, TrailingSlashesAndShortPaths) {
+    const std::filesystem::path docs = std::filesystem::path("/") / "Docs";
+    EXPECT_TRUE(settingsFileFits(docs / "Game" / "settings" / "PROFILEOPTIONS", "Game/settings/PROFILEOPTIONS/"));
+    EXPECT_FALSE(settingsFileFits(std::filesystem::path("/") / "PROFILEOPTIONS", "Game/settings/PROFILEOPTIONS"));
+    EXPECT_FALSE(settingsFileFits(std::filesystem::path("PROFILEOPTIONS"), "settings/PROFILEOPTIONS"));
+}
+
+// Which file the game wrote: one written after the game stopped is not it; a settings path of one part (no folder of
+// its own) is only looked for where it was located; a folder reached through a link is never searched; a file that
+// is not there is never the same as one that is.
+TEST_F(GameSettingsFile, WrittenBetweenEdges) {
+    const std::filesystem::path docs = root_ / "Documents";
+    const std::filesystem::path game = docs / "Game" / "settings" / "PROFILEOPTIONS";
+    std::filesystem::create_directories(game.parent_path());
+    ASSERT_TRUE(writeFileReplacing(game, unboundFile()));
+    const auto now = std::filesystem::file_time_type::clock::now();
+    std::filesystem::last_write_time(game, now);
+    EXPECT_TRUE(settingsFilesWrittenBetween(docs, "Game/settings/PROFILEOPTIONS", {}, now - std::chrono::hours(2),
+                                            now - std::chrono::hours(1))
+                    .empty());   // written after the game stopped
+    EXPECT_EQ(settingsFilesWrittenBetween(docs, "Game/settings/PROFILEOPTIONS/", {}, now - std::chrono::hours(1),
+                                          now + std::chrono::hours(1))
+                  .size(),
+              1U);   // a slash at the end changes nothing
+    EXPECT_TRUE(settingsFilesWrittenBetween(docs, "PROFILEOPTIONS", {}, now - std::chrono::hours(1),
+                                            now + std::chrono::hours(1))
+                    .empty());   // one part: no folder below Documents to look in
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(docs / "Game", docs / "Linked", ec);
+    if (!ec) {
+        EXPECT_EQ(settingsFilesWrittenBetween(docs, "Game/settings/PROFILEOPTIONS", {}, now - std::chrono::hours(1),
+                                              now + std::chrono::hours(1))
+                      .size(),
+                  1U);   // the link to the same folder is not searched
+    }
+    EXPECT_FALSE(sameSettingsFile(game, docs / "Other" / "PROFILEOPTIONS"));
+    EXPECT_FALSE(sameSettingsFile(docs / "Other" / "PROFILEOPTIONS", game));
+}
+
 }  // namespace
 }  // namespace wheelbri

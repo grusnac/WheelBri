@@ -9,6 +9,12 @@
 #include <sstream>
 #include <system_error>
 
+#ifndef _WIN32
+#include <csignal>
+#include <cstdlib>
+#include <sys/resource.h>
+#endif
+
 namespace wheelbri {
 namespace {
 
@@ -669,6 +675,158 @@ TEST_F(TelemetryTest, ANewDayThatCannotBeOpenedIsRetriedEveryMinute) {
     std::error_code ec;
     fs::remove_all(aside, ec);
 }
+
+// The mapped steering alone moving (the physical wheel's reading the same, a game profile's curve, say) is a change:
+// a row, like any other value.
+TEST_F(TelemetryTest, TheMappedValuesAloneMakeRows) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    recorder->writeSample(sample);
+    for (float* value : {&sample.state.steering, &sample.state.throttle, &sample.state.brake, &sample.state.clutch}) {
+        sample.nowNs += 20 * kMs;
+        *value = 0.5F;
+        recorder->writeSample(sample);
+    }
+    EXPECT_EQ(recorder->rowsWritten(), 5U);
+    EXPECT_EQ(recorder->rowsSkipped(), 0U);
+}
+
+// A slot the game stopped that still plays on the wheel (until the next update) is shown as playing only ("p"); a
+// sample taken before the last packet's time has an age of 0, never a wrapped number.
+TEST_F(TelemetryTest, AStoppedSlotStillPlayingAndAPacketFromTheFuture) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    NullSink sink;
+    FfbController controller(sink, FfbSafetyConfig{});
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::SlotState;
+    packet.slot = 1;
+    packet.playing = true;
+    packet.effect.type = FfbEffectType::Constant;
+    controller.onPacket(packet, 10 * kMs);
+    controller.update(10 * kMs);                 // playing on the wheel
+    packet.playing = false;
+    controller.onPacket(packet, 200 * kMs);      // the game stops it; not applied yet
+    TelemetrySample sample;
+    sample.ffb = &controller;
+    sample.nowNs = 100 * kMs;                    // before the last packet's time
+    recorder->writeSample(sample);
+    recorder.reset();
+    const auto data = lines(dir_ / "telemetry-2026-09-30-01.log");
+    ASSERT_EQ(data.size(), 1U);
+    EXPECT_EQ(value(data[0], "s1_state"), "p") << data[0];
+    EXPECT_EQ(value(data[0], "ffb_age_ms"), "0") << data[0];
+}
+
+// The samples' file got its number but the force feedback file has none left for the day: open says why, and no
+// half-open recorder is handed out.
+TEST_F(TelemetryTest, NoNumberForTheFfbFileIsAnError) {
+    fs::create_directories(dir_);
+    std::ofstream(dir_ / "telemetry-2026-09-30-99998.log") << "an earlier run";
+    std::ofstream(dir_ / "ffb-2026-09-30-99999.log") << "the last number";
+    std::string error;
+    EXPECT_EQ(TelemetryRecorder::open(TelemetryConfig{}, dir_, at(10, 0, 0), {}, error), nullptr);
+    EXPECT_NE(error.find("no free number for ffb-2026-09-30"), std::string::npos) << error;
+}
+
+// The run's file is there but cannot be opened for writing (made read-only meanwhile): open says which file and
+// why, rather than recording into nothing.
+TEST_F(TelemetryTest, ARunFileThatCannotBeOpenedIsAnError) {
+    auto first = open(at(10, 0, 0));
+    ASSERT_NE(first, nullptr);
+    const fs::path samples = first->samplesPath();
+    first.reset();
+    fs::permissions(samples, fs::perms::owner_read);
+    if (std::ofstream(samples, std::ios::app).good()) {   // Administrator / root: still writable
+        fs::permissions(samples, fs::perms::owner_all);
+        GTEST_SKIP() << "the file stays writable here";
+    }
+    std::string error;
+    EXPECT_EQ(TelemetryRecorder::open(TelemetryConfig{}, dir_, at(11, 0, 0), {}, error), nullptr);   // same run
+    fs::permissions(samples, fs::perms::owner_all);
+    EXPECT_NE(error.find("cannot open"), std::string::npos) << error;
+    EXPECT_NE(error.find(samples.filename().string()), std::string::npos) << error;
+}
+
+// The PC slept over two midnights while the folder could not be written: the missing day is skipped (never written
+// under the wrong date) and the rows go to the day they belong to once the folder is back.
+TEST_F(TelemetryTest, TwoMidnightsWithoutAFolderLandOnTheRightDay) {
+    auto recorder = open(at(23, 59, 59, 900));
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    recorder->writeSample(sample);
+    const fs::path aside = dir_.string() + "-aside";
+    fs::remove_all(aside);
+    std::error_code moved;
+    fs::rename(dir_, aside, moved);
+    if (moved) {
+        recorder.reset();
+        GTEST_SKIP() << "the log folder cannot be moved while its files are open here: " << moved.message();
+    }
+    std::ofstream(dir_.string()) << "a file where the folder should be";
+    constexpr std::uint64_t kDay = 24ULL * 3600 * kSecond;
+    sample.raw.axes[0] = 0.5F;
+    sample.nowNs = kDay + kSecond;              // 2026-10-02 00:00:00.900: dropped
+    recorder->writeSample(sample);
+    fs::remove(dir_);
+    sample.raw.axes[0] = 0.6F;
+    sample.nowNs = kDay + 125 * kSecond;        // two minutes later: the folder is back
+    recorder->writeSample(sample);
+    EXPECT_EQ(recorder->day(), "2026-10-02");
+    const fs::path newDay = recorder->samplesPath();
+    recorder.reset();
+    EXPECT_FALSE(fs::exists(dir_ / "telemetry-2026-10-01-01.log"));
+    const auto rows = lines(newDay);
+    ASSERT_EQ(rows.size(), 1U);
+    EXPECT_EQ(value(rows[0], "raw_a0"), "0.6000");
+    fs::remove_all(aside);
+}
+
+#ifndef _WIN32
+// The disk fills up (here: the process may not write files past a size): writing stops on that file for the day,
+// with an error in the log; the service goes on, and nothing past the limit is written. Run in a child process,
+// whose limit can be lowered without touching the tests'.
+void recordUntilTheDiskIsFull(const fs::path& dir, const rlim_t bytes) {
+    std::signal(SIGXFSZ, SIG_IGN);   // a write past the limit fails (EFBIG) instead of ending the process
+    rlimit before{};
+    ::getrlimit(RLIMIT_FSIZE, &before);
+    rlimit small = before;
+    small.rlim_cur = bytes;
+    ::setrlimit(RLIMIT_FSIZE, &small);
+    std::string error;
+    TelemetryConfig config;
+    config.onlyChanges = false;
+    auto recorder = TelemetryRecorder::open(config, dir, at(10, 0, 0), {"source: test wheel"}, error);
+    bool fine = recorder != nullptr;
+    if (recorder) {
+        TelemetrySample sample;
+        FfbPacket packet;
+        packet.kind = FfbPacket::Kind::SlotState;
+        for (int i = 0; i < 2000; ++i) {   // ~400 bytes a row: far past the limit, and flushed every second
+            sample.nowNs = static_cast<std::uint64_t>(i) * 20 * kMs;
+            sample.raw.axes[0] = static_cast<float>(i % 2);
+            recorder->writeSample(sample);
+            packet.effect.constantLevel = static_cast<float>(i % 2);
+            recorder->writeFfbPacket(sample.nowNs, packet);
+        }
+        const fs::path samples = recorder->samplesPath();
+        const fs::path ffb = recorder->ffbPath();
+        recorder.reset();
+        fine = fs::file_size(samples) <= bytes && fs::file_size(ffb) <= bytes;
+    }
+    ::setrlimit(RLIMIT_FSIZE, &before);   // back, for whatever the process writes as it exits
+    std::exit(fine ? 0 : 1);
+}
+
+TEST_F(TelemetryTest, AFullDiskStopsTheFileNotTheService) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    EXPECT_EXIT(recordUntilTheDiskIsFull(dir_, 6000), ::testing::ExitedWithCode(0), "");      // during the rows
+    fs::remove_all(dir_);
+    logfiles::forgetRun();
+    EXPECT_EXIT(recordUntilTheDiskIsFull(dir_, 100), ::testing::ExitedWithCode(0), "");       // in the header
+}
+#endif
 
 }  // namespace
 }  // namespace wheelbri

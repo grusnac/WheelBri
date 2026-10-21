@@ -172,5 +172,22 @@ TEST(LogLevelCounter, NoFileCountsNothing) {
     EXPECT_FALSE(counter.poll());
 }
 
+// A file that cannot be read (no permission) counts nothing yet, and is counted once it can be read.
+TEST(LogLevelCounter, AFileThatCannotBeReadIsCountedOnceItCanBe) {
+    TempFile file;
+    file.append(line("warning", "now"));
+    std::filesystem::permissions(file.path(), std::filesystem::perms::none);
+    if (std::ifstream(file.path()).good()) {
+        std::filesystem::permissions(file.path(), std::filesystem::perms::owner_all);
+        GTEST_SKIP() << "the file stays readable here";
+    }
+    LogLevelCounter counter;
+    counter.setFile(file.path());
+    EXPECT_FALSE(counter.poll());
+    std::filesystem::permissions(file.path(), std::filesystem::perms::owner_all);
+    EXPECT_TRUE(counter.poll());
+    EXPECT_EQ(counter.count().warnings, 1U);
+}
+
 }  // namespace
 }  // namespace wheelbri

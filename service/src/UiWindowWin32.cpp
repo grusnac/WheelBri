@@ -33,7 +33,12 @@ namespace wheelbri::service::ui {
 namespace {
 
 constexpr wchar_t kClassName[] = L"wheelbri-ui";
-constexpr wchar_t kFontFace[] = L"Consolas";
+// The text's font: Cascadia Mono (Windows Terminal's, with Windows 11) for its larger, clearer letters; Consolas
+// where it is not installed.
+constexpr wchar_t kFontFace[] = L"Cascadia Mono";
+constexpr wchar_t kFallbackFace[] = L"Consolas";
+// The letters' size (em) in logical pixels: capitals fill the 8-pixel line, descenders hang below it.
+constexpr float kFontEm = 11.5F;
 
 std::string hex(const HRESULT value) {
     char text[16];
@@ -571,10 +576,10 @@ private:
             advances_[i] = canvasX(left + kCharWidth) - canvasX(left);
         }
         SetTextColor(buffer_, rgbRef(c.colour));
-        // The font's cell is 12 logical pixels tall from y - 2: bigger letters than the 8-pixel line they were
-        // laid out on, centred on it (rows are 11..16 apart, so they still don't touch).
-        ExtTextOutW(buffer_, canvasX(c.x), canvasY(c.y - 2.0F), 0, nullptr, wide.c_str(), static_cast<UINT>(wide.size()),
-                    advances_.data());
+        // On the baseline at the bottom of the 8-pixel line the layout put it on: the capitals fill the line,
+        // descenders hang below (rows are 11..16 apart, so they still don't touch).
+        ExtTextOutW(buffer_, canvasX(c.x), canvasY(c.y + kCharHeight), 0, nullptr, wide.c_str(),
+                    static_cast<UINT>(wide.size()), advances_.data());
     }
 
     void makeBuffer(const int width, const int height) {
@@ -595,7 +600,7 @@ private:
         }
         previousBitmap_ = SelectObject(buffer_, bitmap_);
         SetBkMode(buffer_, TRANSPARENT);
-        SetTextAlign(buffer_, TA_TOP | TA_LEFT | TA_NOUPDATECP);
+        SetTextAlign(buffer_, TA_BASELINE | TA_LEFT | TA_NOUPDATECP);
         bufferWidth_ = width;
         bufferHeight_ = height;
         fontScale_ = -1.0F;   // select the font into the new DC
@@ -615,15 +620,32 @@ private:
         }
     }
 
-    // A monospaced font whose cell matches the 8 x 12 grid at the current scale.
+    // A monospaced font of kFontEm at the current scale, its own width (narrower than the 8-pixel grid, which
+    // drawText keeps): Cascadia Mono, or Consolas when Windows has no Cascadia Mono.
+    [[nodiscard]] HFONT createFont(const wchar_t* face) const {
+        return CreateFontW(-std::max(6L, std::lround(kFontEm * box_.scale)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                           DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                           FIXED_PITCH | FF_MODERN, face);
+    }
+
     void updateFont() {
         if (font_ != nullptr && std::abs(fontScale_ - box_.scale) < 0.001F) {
             return;
         }
-        const HFONT font = CreateFontW(std::max(6L, std::lround(12.0F * box_.scale)),   // cell height
-                                       std::max(3L, std::lround(7.0F * box_.scale)),    // average width
-                                       0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_TT_PRECIS,
-                                       CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, kFontFace);
+        HFONT font = createFont(kFontFace);
+        if (font != nullptr) {
+            // Windows gives another font when the face is not installed: check which one it chose.
+            const HGDIOBJ before = SelectObject(buffer_, font);
+            wchar_t chosen[LF_FACESIZE] = {};
+            GetTextFaceW(buffer_, LF_FACESIZE, chosen);
+            SelectObject(buffer_, before);
+            if (lstrcmpiW(chosen, kFontFace) != 0) {
+                DeleteObject(font);
+                font = createFont(kFallbackFace);
+            }
+        } else {
+            font = createFont(kFallbackFace);
+        }
         if (font == nullptr) {
             return;   // keep the previous font (or the system one)
         }

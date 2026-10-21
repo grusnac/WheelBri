@@ -88,3 +88,17 @@ TEST(FfbLimits, MovingAConfigChangesOnlyTheTwoKeys) {
     EXPECT_FLOAT_EQ(added.ffb.masterGain, 1.0F);
     EXPECT_FLOAT_EQ(added.ffb.maxMagnitude, 1.0F);
 }
+
+// A limit with something after the number, or one that is not finite, is not the older pair; a game's value that is
+// not a number (or has something after it) is left alone when the pair moves.
+TEST(FfbLimits, OnlyWholeFiniteNumbersAreTheOlderPair) {
+    EXPECT_FALSE(movedFromOldLimits("[ffb]\nmaster_gain = 0.7x\nmax_magnitude = 0.8\n").has_value());
+    EXPECT_FALSE(movedFromOldLimits("[ffb]\nmaster_gain = inf\nmax_magnitude = 0.8\n").has_value());
+    EXPECT_FALSE(movedFromOldLimits("[ffb]\nmaster_gain = 0.7\nmax_magnitude = nan\n").has_value());
+    const std::optional<std::string> moved = movedFromOldLimits(
+        "[ffb]\nmaster_gain = 0.7\nmax_magnitude = 0.8\n[game_tuning]\nnfs2015.ffb_strength = 0.7x\n"
+        "nfsheat.ffb_cap = high\n");
+    ASSERT_TRUE(moved.has_value());
+    EXPECT_NE(moved->find("nfs2015.ffb_strength = 0.7x"), std::string::npos) << *moved;
+    EXPECT_NE(moved->find("nfsheat.ffb_cap = high"), std::string::npos) << *moved;
+}

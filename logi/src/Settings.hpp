@@ -17,4 +17,7 @@ struct Settings {
 
 [[nodiscard]] const Settings& settings();
 
+// The settings in `text` (the file's contents); what settings() reads the file with.
+[[nodiscard]] Settings parseSettings(const std::string& text);
+
 }  // namespace wheelbri::logi

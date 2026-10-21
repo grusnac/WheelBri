@@ -181,5 +181,35 @@ TEST_F(RetentionFolder, NeverListsWhatIsNotWheelBrisOwnFile) {
                                                "telemetry-\xC3\xBC-2026-09-01-01.log"}));
 }
 
+// Every component's log is recognised under both names the project has had, and only with the dash that
+// ends the component ("wheelbri-shimmy" is still the shim's; "wheelbri-shx" is no one's).
+TEST(Retention, EveryComponentUnderBothNames) {
+    for (const char* project : {"wheelbri", "wheelemu", "WheelBri"}) {
+        for (const char* component : {"-service-", "-shim-", "-bridge-", "-logs-", "-driver-", "-hide-", "-install-",
+                                      "-uhid-", "-helper-", "-logi-", "-sh.", "-sh-"}) {
+            const std::string name = std::string(project) + component + "2026-09-30.log";
+            EXPECT_TRUE(isManagedFile(name)) << name;
+        }
+        EXPECT_FALSE(isManagedFile(std::string(project) + "-shx-2026-09-30.log"));
+        EXPECT_FALSE(isManagedFile(std::string(project) + "-unknown-2026-09-30.log"));
+    }
+    EXPECT_TRUE(isManagedFile("ffb-2026-09-30-01.log"));
+}
+
+// A value outside the enum (a corrupt setting cast in) still has a name, never a crash.
+TEST(Retention, AnUnknownActionHasAName) {
+    EXPECT_STREQ(toString(static_cast<OldFilesAction>(99)), "?");
+    EXPECT_EQ(parseOldFilesAction(""), std::nullopt);
+    EXPECT_EQ(parseOldFilesAction("Keep"), std::nullopt);   // the INI's words are lower case
+}
+
+// A date at the very end of a name, a dash in the wrong place or a letter in the day: found only when it is a date.
+TEST(LocalDate, DatesAtTheEdgesOfAName) {
+    EXPECT_EQ(findDate("20261001"), "2026-10-01");              // eight digits that end the text
+    EXPECT_EQ(findDate("log-2026-10x01.log"), std::nullopt);    // not a dash before the day
+    EXPECT_EQ(findDate("log-2026-10-x1.log"), std::nullopt);    // not a digit in the day
+    EXPECT_EQ(findDate("log-2026-10-0"), std::nullopt);          // cut short
+}
+
 }  // namespace
 }  // namespace wheelbri

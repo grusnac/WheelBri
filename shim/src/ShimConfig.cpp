@@ -27,9 +27,6 @@ std::optional<std::uint32_t> parseHex(const std::string& text) {
 }
 
 ShimConfig load(const logging::Logger& log) {
-    ShimConfig config;
-    config.statePort = kDefaultStatePort;
-
     std::wstring path = dllDirectory() + L"wheelbri-shim.ini";
     std::ifstream file(path.c_str());
     if (!file) {
@@ -40,12 +37,36 @@ ShimConfig load(const logging::Logger& log) {
     }
     if (!file) {
         WE_LOG_INFO(log, "no '{}', using defaults", toUtf8(path.c_str()));
-        return config;
+        std::vector<std::string> none;
+        return parseShimConfig({}, none);
     }
     std::stringstream text;
     text << file.rdbuf();
-    const auto parsed = IniDocument::parse(text.str());
-    std::vector<std::string> problems = parsed.errors;
+    std::vector<std::string> problems;
+    ShimConfig config = parseShimConfig(text.str(), problems);
+    for (const std::string& problem : problems) {
+        WE_LOG_ERROR(log, "wheelbri-shim.ini: {} (default kept)", problem);
+    }
+    WE_LOG_INFO(log, "loaded '{}'", toUtf8(path.c_str()));
+    return config;
+}
+
+}  // namespace
+
+const char* toString(const FfbMode mode) {
+    switch (mode) {
+        case FfbMode::Service: return "service";
+        case FfbMode::Passthrough: return "passthrough";
+        case FfbMode::Off: return "off";
+    }
+    return "?";
+}
+
+ShimConfig parseShimConfig(const std::string& text, std::vector<std::string>& problems) {
+    ShimConfig config;
+    config.statePort = kDefaultStatePort;
+    const auto parsed = IniDocument::parse(text);
+    problems.insert(problems.end(), parsed.errors.begin(), parsed.errors.end());
 
     const auto value = [&](const char* key) { return parsed.document.get("shim", key); };
     const auto readBool = [&](const char* key, bool& out) {
@@ -146,22 +167,16 @@ ShimConfig load(const logging::Logger& log) {
         config.brakeAxis.reset();
         config.clutchAxis.reset();
     }
-    for (const std::string& problem : problems) {
-        WE_LOG_ERROR(log, "wheelbri-shim.ini: {} (default kept)", problem);
-    }
-    WE_LOG_INFO(log, "loaded '{}'", toUtf8(path.c_str()));
     return config;
 }
 
-}  // namespace
-
-const char* toString(const FfbMode mode) {
-    switch (mode) {
-        case FfbMode::Service: return "service";
-        case FfbMode::Passthrough: return "passthrough";
-        case FfbMode::Off: return "off";
-    }
-    return "?";
+GameProfileUse gameProfileUse(const ShimConfig& config, const GameProfile* const game) {
+    if (game == nullptr) return GameProfileUse::NoProfile;
+    if (config.gameAxesFromApp) return GameProfileUse::AxesFromApp;
+    if (!profileFitsTarget(*game, config.targetProfile)) return GameProfileUse::OtherTarget;
+    ShimConfig withGame = config;
+    withGame.gameProfile = game;
+    return isValid(withGame.layout(0)) ? GameProfileUse::Used : GameProfileUse::Clashes;
 }
 
 const ShimConfig& shimConfig() {
@@ -186,21 +201,23 @@ const ShimConfig& shimConfig() {
         wchar_t exe[MAX_PATH] = {};
         const DWORD length = GetModuleFileNameW(nullptr, exe, MAX_PATH);
         const GameProfile* const game = length > 0 && length < MAX_PATH ? gameProfileFor(toUtf8(exe)) : nullptr;
-        if (game != nullptr && config.gameAxesFromApp) {
-            WE_LOG_INFO(log, "game profile {} ({}): WheelBri wrote this game's pedal axes into wheelbri-shim.ini "
-                             "(game_axes = wheelbri), used as they are",
-                        game->id, game->label);
-        } else if (game != nullptr && !profileFitsTarget(*game, config.targetProfile)) {
-            WE_LOG_INFO(log, "game profile {} ({}) is for the {}, the target is {}: not used", game->id, game->label,
-                        game->target, config.targetProfile);
-        } else if (game != nullptr) {
-            ShimConfig withGame = config;
-            withGame.gameProfile = game;
-            if (!isValid(withGame.layout(0))) {
+        switch (gameProfileUse(config, game)) {
+            case GameProfileUse::NoProfile: break;
+            case GameProfileUse::AxesFromApp:
+                WE_LOG_INFO(log, "game profile {} ({}): WheelBri wrote this game's pedal axes into wheelbri-shim.ini "
+                                 "(game_axes = wheelbri), used as they are",
+                            game->id, game->label);
+                break;
+            case GameProfileUse::OtherTarget:
+                WE_LOG_INFO(log, "game profile {} ({}) is for the {}, the target is {}: not used", game->id,
+                            game->label, game->target, config.targetProfile);
+                break;
+            case GameProfileUse::Clashes:
                 WE_LOG_ERROR(log, "game profile {} ({}) over this file's axes puts two pedals on one axis or a pedal "
                                   "on x: not used",
                              game->id, describeOverlay(*game));
-            } else {
+                break;
+            case GameProfileUse::Used: {
                 config.gameProfile = game;
                 const JoystickLayout used = config.layout(0);
                 WE_LOG_INFO(log, "game profile {} ({}) laid over the defaults: {}; axes now throttle={} brake={} "
@@ -213,6 +230,7 @@ const ShimConfig& shimConfig() {
                                      "are used",
                                 game->id);
                 }
+                break;
             }
         }
         if (config.emulate && config.forceFeedback == FfbMode::Passthrough) {

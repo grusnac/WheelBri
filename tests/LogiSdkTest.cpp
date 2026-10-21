@@ -186,3 +186,18 @@ TEST(LogiSdk, NewestVersionFolderSkipsMalformedNames) {
     const std::vector<std::string> bad{"1_", "_1", "99999999999_0", "-1"};
     EXPECT_EQ(newestVersionFolder(bad), "");
 }
+
+// Every function of the SDK can be written to the log with any arguments and any result, each argument by its kind
+// (numbers, flags, addresses, the SDK's names): never empty, always starting with the function's name.
+TEST(LogiSdk, EveryFunctionAndEveryKindFormats) {
+    for (const std::int64_t value : {std::int64_t{0}, std::int64_t{1}, std::int64_t{-1}, std::int64_t{0x7fffffff}}) {
+        const std::array<std::int64_t, 4> args{value, value, value, value};
+        for (const Function& f : functions()) {
+            const std::string call = formatCall(f, args);
+            EXPECT_EQ(call.rfind(std::string(f.name) + "(", 0), 0U) << call;
+            EXPECT_EQ(call.back(), ')') << call;
+            EXPECT_FALSE(formatResult(f, value).empty()) << f.name;
+        }
+    }
+    EXPECT_EQ(formatCall(*findFunction("LogiPlaySpringForce"), {}), "LogiPlaySpringForce()");   // no arguments given
+}

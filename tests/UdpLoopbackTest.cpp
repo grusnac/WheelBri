@@ -6,12 +6,14 @@
 
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <optional>
 #include <thread>
 #include <vector>
 
 #ifndef _WIN32
 #include <poll.h>
+#include <sys/resource.h>
 #endif
 
 namespace wheelbri {
@@ -379,6 +381,42 @@ TEST(UdpLoopback, TheReceiversSocketCanBeWaitedOn) {
     EXPECT_EQ(::poll(&pfd, 1, 0), 0);   // read: quiet again
 #endif
 }
+
+// Port 0 is no destination: every send says it failed (rather than claiming a state was sent), again and again
+// (the warning is rate-limited, the answer is not).
+TEST(UdpLoopback, SendingToPortZeroFails) {
+    const auto publisher = UdpLoopbackPublisher::create(0);
+    ASSERT_NE(publisher, nullptr);
+    EXPECT_FALSE(publisher->publish(withSequence(1)));
+    EXPECT_FALSE(publisher->publish(withSequence(2)));
+    EXPECT_FALSE(publisher->publishLogLevel(LogLevel::Debug));
+    const auto sender = UdpLoopbackSender::create(0);
+    ASSERT_NE(sender, nullptr);
+    const std::array<std::uint8_t, 4> bytes{1, 2, 3, 4};
+    EXPECT_FALSE(sender->send(bytes));
+}
+
+#ifndef _WIN32
+// Out of sockets (the process's file limit reached): every kind says so with nullptr instead of handing out an
+// object without a socket. Run in a child process, whose limit can be lowered without touching the tests'.
+TEST(UdpLoopbackDeathTest, NoSocketsLeftMeansNoObject) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    EXPECT_EXIT(
+        {
+            rlimit before{};
+            ::getrlimit(RLIMIT_NOFILE, &before);
+            rlimit none = before;
+            none.rlim_cur = 0;   // no new descriptor at all
+            ::setrlimit(RLIMIT_NOFILE, &none);
+            const bool refused = UdpLoopbackPublisher::create(0) == nullptr &&
+                                 UdpLoopbackReceiver::create(0) == nullptr &&
+                                 UdpLoopbackSender::create(0) == nullptr && UdpLoopbackListener::create(0) == nullptr;
+            ::setrlimit(RLIMIT_NOFILE, &before);   // back, for whatever the process writes as it exits
+            std::exit(refused ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
+}
+#endif
 
 }  // namespace
 }  // namespace wheelbri

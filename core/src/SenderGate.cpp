@@ -12,11 +12,11 @@ namespace {
 bool isSeparator(const char c) { return c == '\\' || c == '/'; }
 
 // UTF-8, '/' as '\', ASCII letters in lower case, no trailing separator: enough to compare Windows paths. A network
-// share keeps its leading "\\" (MinGW's lexically_normal makes it one separator: a folder on this drive).
+// share keeps its leading "\\" (MinGW's lexically_normal makes it one separator: a folder on this drive); more than
+// two separators at the start are still a share, as Windows reads them, on every system alike.
 std::string folded(const std::filesystem::path& path) {
     const std::string original = pathToUtf8(path);
-    const bool share = original.size() > 2 && isSeparator(original[0]) && isSeparator(original[1]) &&
-                       !isSeparator(original[2]);
+    const bool share = original.size() > 2 && isSeparator(original[0]) && isSeparator(original[1]);
     const std::string raw = pathToUtf8(path.lexically_normal());
     std::string text;
     text.reserve(raw.size());

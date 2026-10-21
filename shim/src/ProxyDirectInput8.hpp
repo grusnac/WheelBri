@@ -242,11 +242,15 @@ private:
                 ++context->accepted;  // most games stop enumerating at the device they chose
             }
             if (instance != nullptr) {
+                // A DirectX 3 DIDEVICEINSTANCE ends after the product name: guidFFDriver and the usage are not there.
+                const bool full = instance->dwSize >= sizeof(typename T::DeviceInstance);
                 WE_LOG_INFO(detail::directInputLog(),
-                            "  device '{}' instance={} product={} type={} ffDriver={} usage={:x}/{:x} -> game {}",
+                            "  device '{}' instance={} product={} type={}{} -> game {}",
                             toUtf8(instance->tszProductName), guidToString(instance->guidInstance),
                             describeGuid(instance->guidProduct), describeDevType(instance->dwDevType),
-                            guidToString(instance->guidFFDriver), instance->wUsagePage, instance->wUsage,
+                            full ? fmt::format(" ffDriver={} usage={:x}/{:x}", guidToString(instance->guidFFDriver),
+                                               instance->wUsagePage, instance->wUsage)
+                                 : std::string(),
                             next == DIENUM_STOP ? "STOPPED here (picked this one?)" : "continued");
             }
             return next;

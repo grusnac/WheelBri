@@ -19,12 +19,10 @@ const logging::Logger& log() {
 using Colour = ui::Colour;
 
 // The same colours as the rest of the window (App.cpp, MappingEditView.cpp, WheelSetupView.cpp).
-constexpr Colour kPanel{44, 48, 56};
-constexpr Colour kStripe{30, 33, 39};
-constexpr Colour kText{222, 226, 232};
+constexpr Colour kStripe = style::kField;
+constexpr Colour kText = style::kText;
 constexpr Colour kDim = style::kDim;
-constexpr Colour kHeading{120, 190, 255};
-constexpr Colour kDark{16, 18, 20};
+constexpr Colour kHeading = style::kHeading;
 
 constexpr float kArrowWidth = 24;
 constexpr float kTargetWidth = 72;   // "G920", "G25", "G27", "G923"
@@ -233,8 +231,7 @@ float ConfigPicker::draw(const float x0, const float y, const bool canChangeNow)
         x += labelWidth;
         const bool on = canChange && step != nullptr;
         const auto arrow = [&](const char* glyph, const std::function<void()>& action) {
-            window_.fill(x, y, kArrowWidth, kRowHeight, on ? kPanel : kDark);
-            window_.outline(x, y, kArrowWidth, kRowHeight, on ? kDim : kPanel);
+            window_.outline(x, y, kArrowWidth, kRowHeight, on ? style::kFrame : style::kRule);
             window_.text(x + (kArrowWidth - ui::kCharWidth) / 2, y + 4, glyph, on ? kText : kDim);
             if (on) hits_.push_back({x, y, kArrowWidth, kRowHeight, action});
             x += kArrowWidth + 4;

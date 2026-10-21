@@ -226,5 +226,41 @@ TEST_F(LiveLogFiles, AHugeWriteIsReadOverSeveralPolls) {
     EXPECT_EQ(log.added(), 1201U);
 }
 
+// A stamp is taken only with every separator in place: each one wrong on its own makes it a plain line; a logger
+// with no thread after it is still the logger.
+TEST(LiveLog, EverySeparatorOfTheStampCounts) {
+    for (const char* stamp : {"[2026-10/02 10:00:00.000] x", "[2026-10-02_10:00:00.000] x",
+                              "[2026-10-02 10.00:00.000] x", "[2026-10-02 10:00.00.000] x"}) {
+        const LiveLogLine line = parseLogLine(stamp, 0);
+        EXPECT_EQ(line.time, "") << stamp;
+        EXPECT_EQ(line.message, stamp);
+    }
+    const LiveLogLine bare = parseLogLine("[2026-10-02 10:00:00.000] [warn] [svc] last words", 0);
+    EXPECT_EQ(bare.logger, "svc");
+    EXPECT_EQ(bare.level, LiveLogLevel::Warn);
+    EXPECT_EQ(bare.message, "last words");
+}
+
+// A file that cannot be opened (no permission) is passed over without an error, the others still read; once it can
+// be read again, it is.
+TEST_F(LiveLogFiles, AFileThatCannotBeOpenedIsPassedOver) {
+    append("a.log", "[2026-10-02 10:00:01.000] a1\n");
+    append("b.log", "[2026-10-02 10:00:02.000] b1\n");
+    std::filesystem::permissions(dir_ / "a.log", std::filesystem::perms::none);
+    if (std::ifstream(dir_ / "a.log").good()) {
+        std::filesystem::permissions(dir_ / "a.log", std::filesystem::perms::owner_all);
+        GTEST_SKIP() << "the file stays readable here";
+    }
+    LiveLog log;
+    log.setFile(0, dir_ / "a.log");
+    log.setFile(1, dir_ / "b.log");
+    ASSERT_TRUE(log.poll());
+    ASSERT_EQ(log.lines().size(), 1U);
+    EXPECT_EQ(log.lines()[0].message, "b1");
+    std::filesystem::permissions(dir_ / "a.log", std::filesystem::perms::owner_all);
+    ASSERT_TRUE(log.poll());
+    EXPECT_EQ(log.lines().back().message, "a1");
+}
+
 }  // namespace
 }  // namespace wheelbri

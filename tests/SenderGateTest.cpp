@@ -164,5 +164,12 @@ TEST(SenderGate, AClockThatGoesBackStartsANewLookupWindow) {
     EXPECT_EQ(system.lookups, 2);
 }
 
+// Three separators at the start: Windows reads the first two as a share's (an empty server name), so does this; it is
+// never taken for a folder on this drive.
+TEST(SenderRules, ThreeLeadingSeparatorsStayAShare) {
+    EXPECT_TRUE(sameFolder("\\\\\\Games", "\\\\Games"));
+    EXPECT_FALSE(sameFolder("\\\\\\Games", "\\Games"));
+}
+
 }  // namespace
 }  // namespace wheelbri

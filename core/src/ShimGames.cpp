@@ -256,6 +256,15 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
     if (state != ShimState::Installed) {
         const std::filesystem::path target = shimDllIn(folder);
         std::filesystem::copy_file(sourceDll, target, std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec && regularFile(target)) {
+            // Some standard libraries (MinGW's libstdc++) refuse to copy over an existing file even when asked to:
+            // take the old one away first (a game that has it loaded keeps it locked, and that error is reported).
+            std::error_code removeEc;
+            if (std::filesystem::remove(target, removeEc)) {
+                ec.clear();
+                std::filesystem::copy_file(sourceDll, target, ec);
+            }
+        }
         if (ec) {
             result.error = writeProblem("write", target, ec, ": close the game and try again");
             return result;

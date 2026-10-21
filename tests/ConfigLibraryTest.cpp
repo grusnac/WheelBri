@@ -381,3 +381,20 @@ TEST_F(ConfigLibraryFiles, AppSettingsReadBackWhatWasWritten) {
     EXPECT_EQ(readAppSetting(state, "rig"), "C");
     EXPECT_EQ(read(state).find("rig = A"), std::string::npos);
 }
+
+// The folder for the user's configs cannot be looked into (no permission): New says it cannot write there, and why.
+TEST_F(ConfigLibraryFiles, AFolderThatCannotBeUsedSaysWhy) {
+    const auto configs = list();
+    std::filesystem::create_directories(user());
+    std::filesystem::permissions(user(), std::filesystem::perms::none);
+    std::error_code probe;
+    std::filesystem::directory_iterator it(user(), probe);
+    if (!probe) {   // Administrator / root, or Windows: still usable
+        std::filesystem::permissions(user(), std::filesystem::perms::owner_all);
+        GTEST_SKIP() << "the folder stays readable here";
+    }
+    const ConfigResult made = createConfig(user(), "Rally", configs[1], configs);
+    std::filesystem::permissions(user(), std::filesystem::perms::owner_all);
+    EXPECT_FALSE(made.ok);
+    EXPECT_EQ(made.error.rfind("cannot write", 0), 0U) << made.error;
+}

@@ -48,16 +48,16 @@ const logging::Logger& log() {
 }
 
 // The same colours as the live view (MappingView.cpp).
-constexpr ui::Colour kBackground{22, 24, 28};
-constexpr ui::Colour kPanel{44, 48, 56};
-constexpr ui::Colour kText{222, 226, 232};
+constexpr ui::Colour kBackground = style::kBackground;
+constexpr ui::Colour kPanel = style::kPanel;
+constexpr ui::Colour kText = style::kText;
 constexpr ui::Colour kDim = style::kDim;
-constexpr ui::Colour kHeading{120, 190, 255};
-constexpr ui::Colour kActive{64, 190, 100};
-constexpr ui::Colour kWarning{214, 72, 64};
-constexpr ui::Colour kPopup{36, 40, 48};
-constexpr ui::Colour kCaution{206, 164, 58};
-constexpr ui::Colour kDark{16, 18, 20};
+constexpr ui::Colour kHeading = style::kHeading;
+constexpr ui::Colour kActive = style::kActive;
+constexpr ui::Colour kWarning = style::kWarning;
+constexpr ui::Colour kPopup = style::kPopup;
+constexpr ui::Colour kCaution = style::kCaution;
+constexpr ui::Colour kDark = style::kDark;
 
 // Window layout, in logical pixels: the panel (the tabs) fills the window's canvas, which is at least the design size
 // (kWidth x kHeight) and grows with the window (UiWindow.hpp). Every tab has the controls at the right end of the tab
@@ -292,11 +292,13 @@ struct Button {
     }
 
     void draw(ui::UiWindow& window, const bool highlight) const {
-        window.fill(x, y, w, h, enabled ? (highlight ? kActive : kPanel) : kDark);
-        window.outline(x, y, w, h, enabled ? kHeading : kPanel);
-        const float textWidth = static_cast<float>(std::string_view(label).size()) * ui::kCharWidth;
-        window.text(x + (w - textWidth) / 2, y + (h - ui::kCharHeight) / 2, label,
-                    enabled ? (highlight ? kDark : kText) : kDim);
+        if (enabled && highlight) {
+            window.fill(x, y, w, h, kActive);
+            const float textWidth = static_cast<float>(std::string_view(label).size()) * ui::kCharWidth;
+            window.text(x + (w - textWidth) / 2, y + (h - ui::kCharHeight) / 2, label, kDark);
+            return;
+        }
+        style::button(window, x, y, w, h, label, false, enabled);
     }
 };
 
@@ -744,7 +746,7 @@ private:
 
     // The tab bar while no session shows, where the live view has its own.
     void drawIdleTabs() {
-        window_->fill(0, tabBarTop(), window_->width(), 1, kPanel);
+        window_->fill(0, tabBarTop(), window_->width(), 1, style::kRule);
         for (const IdleTabButton& button : idleTabButtons()) {
             const bool active = button.tab == idleTab_;
             window_->fill(button.x, buttonsY(), button.w, MappingView::kTabHeight, active ? kHeading : kPanel);
@@ -929,7 +931,10 @@ private:
                 return;
             }
             sessionShim_ = true;
-            shimStartedFileTime_ = std::filesystem::file_time_type::clock::now();
+            // Whole seconds: on Windows (MinGW's libstdc++) a file's write time comes in whole seconds, cut down,
+            // so a shim log written in Start's own second would read as older than Start and not count.
+            shimStartedFileTime_ =
+                std::chrono::floor<std::chrono::seconds>(std::filesystem::file_time_type::clock::now());
         }
         everRan_ = false;
         settings_.clearStop();
@@ -1016,8 +1021,9 @@ private:
         }
         if (running() && sessionDone_) {
             session_.join();
-            lastResult_ = exitCode_.load();
             const bool wasStopping = state_ == State::Stopping;
+            // A session the user stopped is not a failed Start, whatever its code (the log says "stopped" too).
+            lastResult_ = wasStopping ? 0 : exitCode_.load();
             state_ = State::Stopped;
             idleTab_ = showingSetup()                                                 ? IdleTab::Setup
                        : showingGames()                                                ? IdleTab::Games
@@ -1025,7 +1031,7 @@ private:
                                                                                        : IdleTab::Logs;
             view_.reset();
             info_.reset();
-            if (lastResult_ == 0 || wasStopping) {
+            if (lastResult_ == 0) {
                 WE_LOG_INFO(log(), "the service stopped");
             } else {
                 WE_LOG_WARN(log(), "the service could not run (exit code {}); the lines above say why", *lastResult_);
@@ -1265,8 +1271,8 @@ private:
             chipX_ = statusX - 12 - w;
             chipW_ = w;
             const bool live = state_ == State::Running || state_ == State::Starting;
-            const ui::Colour edge = bar.gameWarning ? kCaution : live ? kActive : kPanel;
-            window_->fill(chipX_, buttonsY(), w, MappingView::kTabHeight, kDark);
+            const ui::Colour edge = bar.gameWarning ? kCaution : live ? kActive : style::kFieldEdge;
+            window_->fill(chipX_, buttonsY(), w, MappingView::kTabHeight, style::kField);
             window_->outline(chipX_, buttonsY(), w, MappingView::kTabHeight, edge);
             window_->text(chipX_ + 6, tabBarTop() + 10, chip,
                           bar.gameWarning ? kCaution : live ? kActive : kHeading);
@@ -1437,7 +1443,7 @@ private:
 
     void drawPopup() {
         const float h = popupHeight();
-        window_->fill(popupX(), popupY(), kPopupW, h, kPopup);
+        window_->fill(popupX(), popupY(), kPopupW, h, style::kBox);
         window_->outline(popupX(), popupY(), kPopupW, h, kHeading);
         window_->text(popupX() + 16, popupY() + 12, popup_->title, popup_->warning ? kWarning : kHeading);
         float y = popupY() + 34;

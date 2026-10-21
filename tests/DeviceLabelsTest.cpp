@@ -176,3 +176,21 @@ TEST_F(DeviceLabelsFolder, AMissingFolderListsNothing) {
     EXPECT_TRUE(listDeviceLabels(dir_ / "plain").empty());
     EXPECT_TRUE(listDeviceLabels({}).empty());
 }
+
+// A device file that cannot be read (no permission) is left out; the others are still offered.
+TEST_F(DeviceLabelsFolder, AnUnreadableFileIsLeftOut) {
+    write("346e-0005.ini", writeDeviceLabels("", named("wheel", 0x346E, 0x0005)));
+    write("044f-b696.ini", writeDeviceLabels("", named("Pedals", 0x044F, 0xB696)));
+    std::filesystem::permissions(dir_ / "044f-b696.ini", std::filesystem::perms::none);
+    const bool readable = std::ifstream(dir_ / "044f-b696.ini").good();
+    const std::vector<DeviceLabels> found = listDeviceLabels(dir_);
+    std::filesystem::permissions(dir_ / "044f-b696.ini", std::filesystem::perms::owner_all);
+    if (readable) GTEST_SKIP() << "the file stays readable here";
+    ASSERT_EQ(found.size(), 1U);
+    EXPECT_EQ(found[0].name, "wheel");
+}
+
+// A kind outside the enum (a corrupt value cast in) is named "other", never undefined.
+TEST(DeviceLabels, AnUnknownKindIsOther) {
+    EXPECT_STREQ(deviceKindName(static_cast<DeviceKind>(99)), "other");
+}

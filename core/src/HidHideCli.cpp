@@ -23,6 +23,15 @@ struct Value {
     std::vector<Value> items;                          // array
     std::vector<std::pair<std::string, Value>> fields; // object
 
+    // Declared here, defined below where Value is complete: a std::pair holding a Value cannot be destroyed (or
+    // copied) inside Value's own definition, and clang says so.
+    Value();
+    Value(const Value&);
+    Value(Value&&) noexcept;
+    Value& operator=(const Value&);
+    Value& operator=(Value&&) noexcept;
+    ~Value();
+
     [[nodiscard]] const Value* field(std::string_view name) const {
         for (const auto& [key, value] : fields) {
             if (key == name) return &value;
@@ -30,6 +39,13 @@ struct Value {
         return nullptr;
     }
 };
+
+Value::Value() = default;
+Value::Value(const Value&) = default;
+Value::Value(Value&&) noexcept = default;
+Value& Value::operator=(const Value&) = default;
+Value& Value::operator=(Value&&) noexcept = default;
+Value::~Value() = default;
 
 class Reader {
 public:

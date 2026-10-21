@@ -546,5 +546,116 @@ TEST_F(ShimGamesFiles, AListThatCannotBeWrittenSaysSo) {
     EXPECT_TRUE(readShimGames(dir_ / "list.txt").games.empty());   // a folder reads as an empty list
 }
 
+// The game's axes are refused, like the target, where there is no game folder, a folder holds the settings' name,
+// the settings cannot be read or cannot be replaced; nothing is written in any of those.
+TEST_F(ShimGamesFiles, TheGamesAxesSayWhyTheyCannotBeWritten) {
+    const JoystickLayout axes;
+    EXPECT_NE(setShimGameAxes(dir_ / "not installed", axes).error.find("is not there"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(dir_ / "not installed"));
+    EXPECT_FALSE(setShimGameAxes({}, axes).ok);
+    EXPECT_FALSE(setShimGameAxes({}, std::nullopt).ok);   // even taking them out needs the folder
+
+    std::filesystem::create_directories(game() / kShimSettings / "inside");
+    EXPECT_NE(setShimGameAxes(game(), axes).error.find("is a folder"), std::string::npos);
+    std::filesystem::remove_all(game() / kShimSettings);
+
+    write(game() / kShimSettings, "[shim]\ntarget_profile = g920\n");
+    std::filesystem::create_directories(game() / (std::string(kShimSettings) + ".tmp") / "busy");
+    const ShimResult blocked = setShimGameAxes(game(), axes);
+    EXPECT_FALSE(blocked.ok);
+    EXPECT_NE(blocked.error.find("cannot write"), std::string::npos);
+    EXPECT_TRUE(blocked.changed.empty());
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");
+    std::filesystem::remove_all(game() / (std::string(kShimSettings) + ".tmp"));
+
+    std::filesystem::permissions(game() / kShimSettings, std::filesystem::perms::none);
+    if (!std::ifstream(game() / kShimSettings).good()) {   // not when Administrator / root, or on Windows
+        const ShimResult unread = setShimGameAxes(game(), axes);
+        EXPECT_NE(unread.error.find("cannot read"), std::string::npos);
+    }
+    std::filesystem::permissions(game() / kShimSettings, std::filesystem::perms::owner_all);
+}
+
+// No settings file yet: the axes make one; taking out axes that were never there writes nothing.
+TEST_F(ShimGamesFiles, TheGamesAxesMakeTheSettingsWhenMissing) {
+    EXPECT_TRUE(setShimGameAxes(game(), std::nullopt).changed.empty());
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
+    const ShimResult made = setShimGameAxes(game(), JoystickLayout{});
+    ASSERT_TRUE(made.ok) << made.error;
+    EXPECT_EQ(read(game() / kShimSettings),
+              "[shim]\nthrottle_axis = y\nbrake_axis = rz\nclutch_axis = slider\ngame_axes = wheelbri\n");
+}
+
+// Folders beside the game's .exe (a subfolder named like a program) are never taken for the program.
+TEST_F(ShimGamesFiles, AFolderIsNeverTheGamesProgram) {
+    std::filesystem::remove(game() / "Game.exe");
+    std::filesystem::create_directories(game() / "game.exe");
+    GameProfile mine;
+    mine.id = "mine";
+    mine.program = "game.exe";
+    const std::vector<GameProfile> games{mine};
+    EXPECT_EQ(gameInFolder(game(), games), nullptr);
+    EXPECT_EQ(gameFolderProblem(game()), "no .exe in that folder: pick the folder that holds the game's .exe");
+}
+
+// A value outside the enum still has a name.
+TEST(ShimGamesNames, AnUnknownStateHasAName) {
+    EXPECT_STREQ(shimStateName(static_cast<ShimState>(99)), "?");
+}
+
+// A game folder Windows (or the system) does not let WheelBri write to: putting the shim in and taking it out say
+// what to do instead of only the system's words, and leave the folder as it was.
+TEST_F(ShimGamesFiles, AProtectedFolderSaysWhatToDo) {
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    ASSERT_TRUE(put.ok) << put.error;
+    write(sourceDll(), "our shim v2");   // outdated: installing again must write
+    // As under Program Files: neither the folder nor its files may be written by the user.
+    std::filesystem::permissions(game() / kShimDll, std::filesystem::perms::owner_read);
+    std::filesystem::permissions(game(), std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec);
+    const bool writable = std::ofstream(game() / "probe.txt").good() ||
+                          std::ofstream(game() / kShimDll, std::ios::app).good();
+    if (writable) {   // Administrator / root, or Windows: the folder is not protected here
+        std::filesystem::permissions(game(), std::filesystem::perms::owner_all);
+        std::filesystem::permissions(game() / kShimDll, std::filesystem::perms::owner_all);
+        GTEST_SKIP() << "the folder stays writable here";
+    }
+    const ShimResult again = installShim(game(), sourceDll(), sourceSettings());
+    const ShimResult out = removeShim(game(), sourceDll());
+    std::filesystem::permissions(game(), std::filesystem::perms::owner_all);
+    std::filesystem::permissions(game() / kShimDll, std::filesystem::perms::owner_all);
+    EXPECT_FALSE(again.ok);
+    EXPECT_NE(again.error.find("Windows does not let WheelBri write"), std::string::npos) << again.error;
+    EXPECT_FALSE(out.ok);
+    EXPECT_NE(out.error.find("Windows does not let WheelBri delete"), std::string::npos) << out.error;
+    EXPECT_EQ(read(game() / kShimDll), "our shim v1");
+    EXPECT_TRUE(std::filesystem::exists(game() / kShimSettings));
+}
+
+// The same for the settings alone: no DLL left, the settings cannot be deleted, or made.
+TEST_F(ShimGamesFiles, ProtectedSettingsSayWhatToDo) {
+    write(game() / kShimSettings, "[shim]\n");
+    std::filesystem::permissions(game(), std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec);
+    if (std::ofstream(game() / "probe.txt").good()) {
+        std::filesystem::permissions(game(), std::filesystem::perms::owner_all);
+        GTEST_SKIP() << "the folder stays writable here";
+    }
+    const ShimResult out = removeShim(game(), sourceDll());
+    std::filesystem::permissions(game(), std::filesystem::perms::owner_all);
+    EXPECT_FALSE(out.ok);
+    EXPECT_NE(out.error.find("delete"), std::string::npos) << out.error;
+    EXPECT_TRUE(std::filesystem::exists(game() / kShimSettings));
+
+    // Settings that cannot be made after the DLL went in: said, and the DLL that went in is reported changed.
+    std::filesystem::remove(game() / kShimSettings);
+    std::filesystem::permissions(game(), std::filesystem::perms::owner_all);
+    write(game() / kShimDll, "our shim v1");   // already in place: only the settings are missing
+    std::filesystem::permissions(game(), std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec);
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    std::filesystem::permissions(game(), std::filesystem::perms::owner_all);
+    EXPECT_FALSE(put.ok);
+    EXPECT_NE(put.error.find("Windows does not let WheelBri write"), std::string::npos) << put.error;
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
+}
+
 }  // namespace
 }  // namespace wheelbri

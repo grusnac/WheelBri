@@ -378,4 +378,46 @@ TEST_F(ConfigPickerFiles, AnOwnMappingForBothModesIsKept) {
     EXPECT_EQ(firstLine(user() / "my-g25.ini"), "mine");
 }
 
+
+// Two older per-mode mappings: the newer one becomes the one for both modes, whichever of the two it is.
+TEST_F(ConfigPickerFiles, TheNewerOfTwoOlderMappingsInEitherOrder) {
+    for (const bool virtualNewer : {true, false}) {
+        std::filesystem::remove_all(user());
+        std::filesystem::create_directories(user());
+        std::filesystem::remove(state());
+        const auto names = ConfigPicker::olderOwnNames(ConfigPicker::Target::G920);
+        write(user() / names[0], "; virtual\n");
+        write(user() / names[1], "; shim\n");
+        const auto now = std::filesystem::file_time_type::clock::now();
+        std::filesystem::last_write_time(user() / names[0], now - std::chrono::hours(virtualNewer ? 1 : 2));
+        std::filesystem::last_write_time(user() / names[1], now - std::chrono::hours(virtualNewer ? 2 : 1));
+        ConfigPicker picker(window_, settings());
+        EXPECT_EQ(firstLine(picker.ownPath()), virtualNewer ? "; virtual" : "; shim");
+    }
+}
+
+#if !defined(_WIN32)
+// The older mapping cannot be copied (a dangling link where my-g920.ini goes): said in the log, tried again next time.
+TEST_F(ConfigPickerFiles, AnOlderMappingThatCannotBeCopied) {
+    const auto names = ConfigPicker::olderOwnNames(ConfigPicker::Target::G920);
+    write(user() / names[0], "; virtual\n");
+    std::filesystem::create_symlink(dir_ / "nowhere" / "file", user() / "my-g920.ini");
+    ConfigPicker picker(window_, settings());
+    EXPECT_TRUE(picker.builtIn());
+    EXPECT_EQ(setting("older_mapping_g920"), "");
+}
+#endif
+
+// While locked, choosing a target from elsewhere (Back to the G920) does nothing; nor does a Mode arrow.
+TEST_F(ConfigPickerFiles, LockedNothingChoosesATarget) {
+    ConfigPicker picker(window_, settings());
+    picker.useTarget(ConfigPicker::Target::G25);
+    picker.draw(4, 18, true);
+    picker.setLocked(true);
+    picker.useTarget(ConfigPicker::Target::G920);
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
+    EXPECT_FALSE(picker.onClick(kWayLeft + 2, kRowY));
+    EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);
+}
+
 }  // namespace wheelbri::service

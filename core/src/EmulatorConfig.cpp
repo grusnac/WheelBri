@@ -278,12 +278,14 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         reader.reportUnknownKeys();
     }
 
-    // [game_rotation] <game profile id> = 180 | off (an older "360/180" reads as 180).
+    // [game_rotation] <game id> = 180 | off (an older "360/180" reads as 180): a built-in profile's or a game the user
+    // added (the Games tab sets it for either).
     for (const auto& [section, keys] : ini.sections()) {
         if (section != "game_rotation") continue;
         for (const auto& [key, value] : keys) {
             bool known = false;
             for (const GameProfile& game : gameProfiles()) known = known || game.id == key;
+            for (const GameProfile& game : userGames) known = known || game.id == key;
             const std::optional<GameRotationOverride> parsed = parseGameRotation(value);
             if (!known) {
                 errors.push_back("[game_rotation] " + key + ": no built-in game profile of that name");

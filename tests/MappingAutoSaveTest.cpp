@@ -4,6 +4,7 @@
 
 #include "ConfigPicker.hpp"
 #include "MappingEditView.hpp"
+#include "UiStyle.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
 
@@ -67,7 +68,7 @@ public:
     }
 };
 
-constexpr ui::Colour kOn{120, 190, 255};   // a pressed button (MappingEditView's kHeading)
+constexpr ui::Colour kOn = style::kHeading;   // a pressed button (MappingEditView's kHeading)
 bool same(const std::optional<ui::Colour> a, const ui::Colour b) {
     return a && a->r == b.r && a->g == b.g && a->b == b.b;
 }

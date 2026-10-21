@@ -54,6 +54,8 @@ TEST(GameTuning, RefusesBadValues) {
     EXPECT_EQ(why, "expected x, y, z, rx, ry, rz or slider");   // only the clutch may be left out
     EXPECT_TRUE(tuned("clutch_axis", "w", &why).empty());
     EXPECT_EQ(why, "expected x, y, z, rx, ry, rz, slider or none");
+    EXPECT_TRUE(tuned("clutch_axis", "Rz2", &why).empty());   // a digit is not lowered, and no axis has one
+    EXPECT_EQ(why, "expected x, y, z, rx, ry, rz, slider or none");
     EXPECT_TRUE(tuned("brake_invert", "maybe", &why).empty());
     EXPECT_EQ(why, "expected true or false");
     EXPECT_TRUE(tuned("brake_curve", "1.5", &why).empty());   // how a pedal feels: the rig's own software
@@ -298,4 +300,70 @@ TEST(GameTuning, DecideGame) {
     d = decideGame(nullptr, false, session);
     EXPECT_EQ(d.tuning, nullptr);
     for (const float gain : d.ffb.gains) EXPECT_FLOAT_EQ(gain, 1.0F);
+}
+
+// Every word for true and false the INI files take, and only those.
+TEST(GameTuning, EveryWordForTrueAndFalse) {
+    for (const char* yes : {"true", "on", "yes", "1"}) EXPECT_EQ(tuned("ffb_invert", yes).ffbInvert, true) << yes;
+    for (const char* no : {"false", "off", "no", "0"}) EXPECT_EQ(tuned("ffb_invert", no).ffbInvert, false) << no;
+    for (const char* other : {"True", "2", "", " on"}) {
+        std::string why;
+        EXPECT_FALSE(tuned("ffb_invert", other, &why).ffbInvert.has_value()) << other;
+        EXPECT_EQ(why, "expected true or false");
+    }
+}
+
+// A button key must be a whole, non-negative number below the target's button count; a target with no buttons
+// says 0 to 0, never a wrapped count.
+TEST(GameTuning, ButtonKeysAreWholeNumbersInRange) {
+    std::string why;
+    for (const char* key : {"button_3x", "button_-1", "button_", "button_+3", "button_99999999999"}) {
+        EXPECT_TRUE(tuned(key, "2", &why).buttons.empty()) << key;
+        EXPECT_EQ(why, "no such button on the target (0 to 18)") << key;
+    }
+    GameTuning none;
+    EXPECT_EQ(applyTuningKey(none, "button_0", "2", 0), "no such button on the target (0 to 0)");
+    EXPECT_TRUE(none.buttons.empty());
+}
+
+// A tuning holding a button number out of the mapping's range (a hand-edited app.ini) is skipped, never written past
+// the mapping's buttons; without a problem list the device that is not read is skipped silently.
+TEST(GameTuning, TunedMapperSkipsWhatItCannotPlace) {
+    MapperConfig base;
+    GameTuning tuning;
+    tuning.buttons[-1] = {{}, 3};
+    tuning.buttons[static_cast<int>(MapperConfig::kMaxTargetButtons)] = {{}, 3};
+    tuning.buttons[2] = {{0x044f, 0xb696}, 1};   // a device the mapping does not read
+    const MapperConfig out = tunedMapper(base, tuning, nullptr);
+    EXPECT_EQ(out.buttonMap, base.buttonMap);
+    EXPECT_EQ(out.buttonDevice, base.buttonDevice);
+}
+
+// The old [game_ffb_gain] value counts for a game with a profile or values of its own, after the profile.
+TEST(GameTuning, DecideGameTakesTheOldGain) {
+    GameProfile nfs;
+    nfs.id = "nfs2015";
+    nfs.label = "NFS 2015";
+    nfs.program = "nfs16.exe";
+    nfs.target = "g920";
+    GameSessionConfig session;
+    session.target = "g920";
+    session.legacyGains["nfs2015"] = 1.5F;
+    EXPECT_FLOAT_EQ(decideGame(&nfs, true, session).ffb.gains[0], 1.5F);
+    EXPECT_FLOAT_EQ(decideGame(&nfs, false, session).ffb.gains[0], 1.0F);   // not its target, no values of its own
+}
+
+// A user's game whose id is empty, or not as an id is written (upper case, a character past 'z'), is refused.
+TEST(GameTuning, UserGameIdsAreChecked) {
+    for (const char* section : {"[game.]", "[game.A]", "[game.a~]", "[game.a-b]"}) {
+        const UserGamesResult result = parseUserGames(std::string(section) + "\nlabel = X\nprogram = x.exe\n");
+        EXPECT_TRUE(result.games.empty()) << section;
+        ASSERT_EQ(result.problems.size(), 1U) << section;
+        EXPECT_NE(result.problems[0].find("the id must be"), std::string::npos) << result.problems[0];
+    }
+    const UserGamesResult noProgram = parseUserGames("[game.x]\nlabel = X\n");
+    EXPECT_NE(noProgram.problems.at(0).find("needs a label and a program"), std::string::npos);
+    const UserGamesResult noLabel = parseUserGames("[game.x]\nprogram = x.exe\n");
+    EXPECT_NE(noLabel.problems.at(0).find("needs a label and a program"), std::string::npos);
+    EXPECT_EQ(gameIdFor("Game~{|}.exe"), "game");
 }

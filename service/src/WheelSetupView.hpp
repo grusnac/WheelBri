@@ -247,6 +247,7 @@ private:
     std::optional<Rig> notSaved_;      // the change that could not be saved (not tried again)
     std::string status_;
     bool statusError_ = false;
+    std::string afterSave_;            // the status once the change is saved (Forget's), instead of the usual one
 
     Popup popup_ = Popup::None;
     bool popupAxis_ = false;

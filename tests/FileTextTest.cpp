@@ -4,9 +4,17 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
+
+#ifndef _WIN32
+#include <csignal>
+#include <cstdlib>
+#include <sys/resource.h>
+#include <unistd.h>
+#endif
 
 namespace wheelbri {
 namespace {
@@ -152,6 +160,74 @@ TEST_F(FileTextFiles, AnEntryThatThrowsIsSkipped) {
     forEachEntry(dir_ / "a", [&calls](const std::filesystem::directory_entry&) { ++calls; });   // a file
     EXPECT_EQ(calls, 0);
 }
+
+// A file that cannot be read (no permission) is nothing, not an empty text.
+TEST_F(FileTextFiles, AFileThatCannotBeOpenedIsNothing) {
+    const auto file = dir_ / "a.ini";
+    ASSERT_TRUE(writeFileReplacing(file, "secret"));
+    std::filesystem::permissions(file, std::filesystem::perms::none);
+    if (std::ifstream(file).good()) {
+        std::filesystem::permissions(file, std::filesystem::perms::owner_all);
+        GTEST_SKIP() << "the file stays readable here";
+    }
+    EXPECT_FALSE(readFileText(file).has_value());
+    std::filesystem::permissions(file, std::filesystem::perms::owner_all);
+}
+
+// A folder that cannot be written to: the write says it failed and leaves no file behind.
+TEST_F(FileTextFiles, AFolderThatCannotBeWrittenToFails) {
+    const auto file = dir_ / "a.ini";
+    ASSERT_TRUE(writeFileReplacing(file, "original"));
+    std::filesystem::permissions(dir_, std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec);
+    if (std::ofstream(dir_ / "probe").good()) {
+        std::filesystem::permissions(dir_, std::filesystem::perms::owner_all);
+        GTEST_SKIP() << "the folder stays writable here";
+    }
+    EXPECT_FALSE(writeFileReplacing(file, "new"));
+    std::filesystem::permissions(dir_, std::filesystem::perms::owner_all);
+    EXPECT_EQ(readFileText(file).value_or(""), "original");
+    EXPECT_FALSE(std::filesystem::exists(dir_ / "a.ini.tmp"));
+}
+
+#ifndef _WIN32
+// A bare file name (no folder): written in the current folder, no folder made for it. In a child process, whose
+// current folder can be changed without touching the tests'.
+TEST_F(FileTextFiles, ABareFileNameIsWrittenWhereWeAre) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    const std::string dir = dir_.string();
+    EXPECT_EXIT(
+        {
+            const bool ok = ::chdir(dir.c_str()) == 0 && writeFileReplacing("bare.ini", "text") &&
+                            readFileText("bare.ini") == std::optional<std::string>("text");
+            std::exit(ok ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
+    EXPECT_EQ(readFileText(dir_ / "bare.ini").value_or(""), "text");
+}
+
+// The disk fills up while writing (here: the process may not write files past a size): the write fails, the
+// original stays as it was and the half-written temporary file is removed.
+TEST_F(FileTextFiles, AFullDiskKeepsTheOriginal) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    const auto file = dir_ / "a.ini";
+    ASSERT_TRUE(writeFileReplacing(file, "original"));
+    EXPECT_EXIT(
+        {
+            std::signal(SIGXFSZ, SIG_IGN);
+            rlimit before{};
+            ::getrlimit(RLIMIT_FSIZE, &before);
+            rlimit small = before;
+            small.rlim_cur = 1000;
+            ::setrlimit(RLIMIT_FSIZE, &small);
+            const bool refused = !writeFileReplacing(file, std::string(100000, 'x'));
+            ::setrlimit(RLIMIT_FSIZE, &before);
+            std::exit(refused ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
+    EXPECT_EQ(readFileText(file).value_or(""), "original");
+    EXPECT_FALSE(std::filesystem::exists(dir_ / "a.ini.tmp"));
+}
+#endif
 
 }  // namespace
 }  // namespace wheelbri

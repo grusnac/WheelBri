@@ -531,5 +531,32 @@ TEST(HidPpDescriptor, TheG923RoutesByReportId) {
     EXPECT_EQ(wirePidId(g923, 0x12), 0x22);   // Block Load
 }
 
+// The descriptor and the report follow every flag together, not one alone: the clutch on Z without combined pedals
+// (the clutch moved, no fifth axis); either flag on a wheel with other than the G920's buttons (none of the G25's
+// layout); combined pedals without the clutch on Z (the plain layout).
+TEST(HidPpDescriptor, TheG25LayoutNeedsAllItsFlags) {
+    VirtualWheel wheel = *virtualWheel("g25");
+    const TargetReport report = neutralReport();
+    wheel.combinedPedals = false;
+    const auto clutchOnZ = reportDescriptorFor(wheel, DescriptorFor::Windows);
+    EXPECT_EQ(clutchOnZ.size(), wheelReportDescriptor(kG920Buttons).size());
+    EXPECT_FALSE(std::equal(clutchOnZ.begin(), clutchOnZ.end(), wheelReportDescriptor(kG920Buttons).begin()));
+    EXPECT_EQ(packInputFor(wheel, report).size, kWheelInputReportSize);
+
+    wheel = *virtualWheel("g25");
+    wheel.buttons = kG920Buttons + 4;
+    const auto other = reportDescriptorFor(wheel, DescriptorFor::Windows);
+    const auto plain = wheelReportDescriptor(wheel.buttons);
+    EXPECT_TRUE(std::equal(other.begin(), other.end(), plain.begin(), plain.end()));
+    EXPECT_EQ(packInputFor(wheel, report).size, packWheelInput(report, wheel.buttons).size());
+
+    wheel = *virtualWheel("g25");
+    wheel.clutchOnZ = false;
+    const auto noZ = reportDescriptorFor(wheel, DescriptorFor::Windows);
+    const auto g920 = wheelReportDescriptor(kG920Buttons);
+    EXPECT_TRUE(std::equal(noZ.begin(), noZ.end(), g920.begin(), g920.end()));
+    EXPECT_EQ(packInputFor(wheel, report).size, kWheelInputReportSize);
+}
+
 }  // namespace
 }  // namespace wheelbri

@@ -1,15 +1,17 @@
 #include "HoverText.hpp"
 
+#include "UiStyle.hpp"
+
 #include <algorithm>
 #include <utility>
 
 namespace wheelbri::service {
 namespace {
 
-constexpr ui::Colour kBox{36, 40, 48};
-constexpr ui::Colour kEdge{120, 190, 255};
-constexpr ui::Colour kText{222, 226, 232};
-constexpr float kLineH = 12;
+constexpr ui::Colour kBox = style::kPopup;
+constexpr ui::Colour kEdge = style::kHeading;
+constexpr ui::Colour kText = style::kText;
+constexpr float kLineH = 14;
 
 }  // namespace
 
@@ -43,8 +45,8 @@ void HoverText::drawBox(ui::UiWindow& window, const float x, const float y, cons
     if (shown.empty()) return;
     std::size_t longest = 0;
     for (const std::string& line : shown) longest = std::max(longest, line.size());
-    const float w = static_cast<float>(longest) * ui::kCharWidth + 12;
-    const float h = static_cast<float>(shown.size()) * kLineH + 7;
+    const float w = static_cast<float>(longest) * ui::kCharWidth + 16;
+    const float h = static_cast<float>(shown.size()) * kLineH + 8;
     // Below and right of the pointer; moved in at the right edge, above the pointer at the bottom.
     float left = std::min(x + 12, canvasW - w - 2);
     float top = y + 18;
@@ -54,7 +56,7 @@ void HoverText::drawBox(ui::UiWindow& window, const float x, const float y, cons
     window.fill(left, top, w, h, kBox);
     window.outline(left, top, w, h, kEdge);
     for (std::size_t i = 0; i < shown.size(); ++i) {
-        window.text(left + 6, top + 5 + static_cast<float>(i) * kLineH, shown[i], kText);
+        window.text(left + 8, top + 6 + static_cast<float>(i) * kLineH, shown[i], kText);
     }
 }
 

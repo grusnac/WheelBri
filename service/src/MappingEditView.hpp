@@ -6,6 +6,7 @@
 
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameSettings.hpp"
 #include "wheelbri/GameTuning.hpp"
 #include "wheelbri/MappingEdit.hpp"
@@ -115,6 +116,19 @@ public:
     // A short message after something was done ("Mapping saved"): taken once, the app shows it for a few seconds.
     [[nodiscard]] std::string takeToast() { return std::exchange(toast_, std::string()); }
     [[nodiscard]] bool popupOpen() const { return mode_ != Mode::Idle; }
+
+    // What the tab asks the system: the Open dialog (platform::pickFile, canPickFile), the Documents folder, the
+    // running programs and the clock. Each one left empty is the system's own; the tests give their own.
+    struct System {
+        std::function<std::optional<std::filesystem::path>(const std::string& title, const std::filesystem::path& folder,
+                                                           const std::string& fileName)>
+            pickFile;
+        std::function<bool()> canPickFile;
+        std::function<std::filesystem::path()> documentsFolder;
+        std::function<std::optional<std::vector<RunningProgram>>()> runningPrograms;
+        std::function<std::uint64_t()> nowMs;
+    };
+    void setSystem(System system) { system_ = std::move(system); }
 
 private:
     // AddButton: the Games page's Add button... popup (the target's buttons, then Pick for the one chosen).
@@ -316,8 +330,17 @@ private:
     float button(float x, float y, const std::string& label, std::function<void()> action, bool on = false,
                  bool enabled = true, float width = 0);
     void hit(float x, float y, float w, float h, std::function<void()> action);
+    // System's members, or the system's own.
+    [[nodiscard]] std::optional<std::filesystem::path> pickFile(const std::string& title,
+                                                                const std::filesystem::path& folder,
+                                                                const std::string& fileName) const;
+    [[nodiscard]] bool canPickFile() const;
+    [[nodiscard]] std::filesystem::path documentsFolder() const;
+    [[nodiscard]] std::optional<std::vector<RunningProgram>> runningPrograms() const;
+    [[nodiscard]] std::uint64_t nowMs() const;
 
     ui::UiWindow& window_;
+    System system_;
     std::filesystem::path rigsFolder_;
     std::filesystem::path stateFile_;
     std::string rigName_;

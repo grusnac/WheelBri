@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -43,7 +44,15 @@ public:
     // `overrides`: the user's per-game rotations ([game_rotation]). Logs the built-in profiles' problems, if any.
     // `session`: the target, the way, the mapping's [ffb] and the user's per-game values (GameTuning.hpp);
     // `userGames`: the games the user added (games.ini), followed like the built-in profiles.
-    GameWatch(GameSessionConfig session, float mapping, GameRotations overrides, std::vector<GameProfile> userGames);
+    // What it asks the system: the running programs, a process's program file and the Documents folder (platform::).
+    // Each one left empty is the system's own; the tests give their own.
+    struct System {
+        std::function<std::optional<std::vector<RunningProgram>>()> runningPrograms;
+        std::function<std::filesystem::path(std::uint32_t pid)> processImage;
+        std::function<std::filesystem::path()> documentsFolder;
+    };
+    GameWatch(GameSessionConfig session, float mapping, GameRotations overrides, std::vector<GameProfile> userGames,
+              System system = {});
 
     struct Decision {
         PedalRoute route;           // Pipeline::setPedalRoute
@@ -93,6 +102,7 @@ private:
     void sayFfbGain();
     [[nodiscard]] std::string describeFollowed() const;
 
+    System system_;
     GameSessionConfig session_;
     std::vector<GameProfile> games_;   // the built-in profiles, then the user's games: what detector_ follows
     GameDetector detector_;

@@ -89,5 +89,45 @@ TEST(HoverText, TheBoxStaysInsideTheCanvas) {
     EXPECT_EQ(window.texts.size(), 3U);                      // 64 + 64 + 22
 }
 
+
+// Under the mouse: inside an area's width but above or below it is not in it; draw() draws the box of the one under the
+// mouse and nothing when there is none.
+TEST(HoverText, DrawShowsOnlyWhatIsUnderTheMouse) {
+    HoverText hover;
+    hover.add(10, 10, 100, 20, "here");
+    BoxWindow window;
+    hover.setHover(50, 5, true);   // above it
+    hover.draw(window, 960, 700);
+    EXPECT_TRUE(window.texts.empty());
+    hover.setHover(50, 35, true);   // below it
+    hover.draw(window, 960, 700);
+    EXPECT_TRUE(window.texts.empty());
+    hover.setHover(50, 15, true);
+    hover.draw(window, 960, 700);
+    EXPECT_EQ(window.texts, (std::vector<std::string>{"here"}));
+    hover.clear();
+    EXPECT_EQ(hover.size(), 0U);
+}
+
+// Nothing to show (no text, or a canvas too narrow for a line): no box.
+TEST(HoverText, NoBoxForNothing) {
+    BoxWindow window;
+    HoverText::drawBox(window, 10, 10, "", 960, 700);
+    EXPECT_TRUE(window.boxes.empty());
+    EXPECT_TRUE(HoverText::lines("abc", 2).empty());
+}
+
+// Exactly six lines: the last is whole, no ".."; a text that starts with a space is cut at the width (no line of
+// nothing); a word longer than a line is cut in it.
+TEST(HoverText, LineEdges) {
+    const std::vector<std::string> six = HoverText::lines("aaa bbb ccc ddd eee fff", 3);
+    ASSERT_EQ(six.size(), 6U);
+    EXPECT_EQ(six.back(), "fff");
+    const std::vector<std::string> spaced = HoverText::lines(" abcdefgh", 4);
+    ASSERT_FALSE(spaced.empty());
+    EXPECT_EQ(spaced.front(), " abc");
+    EXPECT_EQ(HoverText::lines("abcdefgh", 4), (std::vector<std::string>{"abcd", "efgh"}));
+}
+
 }  // namespace
 }  // namespace wheelbri::service

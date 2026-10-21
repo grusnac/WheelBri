@@ -222,4 +222,19 @@ TEST(HidHideCli, QuotedValuesSkipLinesWithoutAPair) {
     EXPECT_TRUE(quotedValues("").empty());
 }
 
+// A document that is not a list (a number ending the text, an object): nothing found; ids with characters that are
+// not hex digits on either side of the range are refused; each game controller id counts on its own.
+TEST(HidHideCli, MoreShapesThatAreRefusedOrTaken) {
+    EXPECT_TRUE(gamingDevicesOf("5", "346E").empty());
+    EXPECT_TRUE(gamingDevicesOf("{ }", "346E").empty());
+    for (const char* id : {R"(HID\VID_34!E&PID_0004\X)", R"(HID\VID_34gE&PID_0004\X)", R"(HID\VID_34GE&PID_0004\X)",
+                           R"(HID\VID_346E&PID_00~4\X)", R"(HID\VID_346E-PID_0004\X)"}) {
+        EXPECT_FALSE(hidDeviceIdOf(id).has_value()) << id;
+    }
+    EXPECT_TRUE(isGameController({"HID_DEVICE_UP:0001_U:0004"}));
+    EXPECT_TRUE(isGameController({"HID_DEVICE_UP:0001_U:0005"}));
+    EXPECT_TRUE(isGameController({"HID_DEVICE_UP:0001_U:0008"}));
+    EXPECT_FALSE(isGameController({"HID_DEVICE_UP:0002"}));   // shorter than the simulation prefix
+}
+
 }  // namespace wheelbri::hidhide

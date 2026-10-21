@@ -6,26 +6,54 @@
 
 namespace wheelbri::service::style {
 
-// The window's look, shared by its views. One colour per meaning: blue selected or an action, green fine, amber check
-// this, red broken; the rest grey.
-inline constexpr ui::Colour kDim{150, 156, 166};        // help, units, labels (bright enough to read)
-inline constexpr ui::Colour kHeading{120, 190, 255};
-inline constexpr ui::Colour kBand{32, 36, 44};          // behind a section's heading
-inline constexpr ui::Colour kText{222, 226, 232};
-inline constexpr ui::Colour kFrame{70, 76, 86};         // a checkbox's frame
+// The window's look, shared by every view (round 74, from the UX sketches): a near-black background, flat
+// mid-grey rows, darker fields with a thin edge, buttons drawn as a grey outline only, and one colour per meaning:
+// blue selected or an action, green fine, amber check this, red broken; the rest grey. Views take their colours
+// from here (their own kX constants are aliases), so the look changes in one place.
+inline constexpr ui::Colour kBackground{22, 24, 28};
+inline constexpr ui::Colour kPanel{42, 46, 54};         // a row, an unselected tab, a bar's track
+inline constexpr ui::Colour kRule{44, 48, 56};          // a separating line; a greyed button's edge
+inline constexpr ui::Colour kField{34, 37, 43};         // behind a value (field, source, session chip)
+inline constexpr ui::Colour kFieldEdge{51, 56, 66};     // a field's edge
+inline constexpr ui::Colour kBand{32, 36, 43};          // behind a section's heading
+inline constexpr ui::Colour kBox{29, 32, 38};           // a framed box (checklist, dialog body)
+inline constexpr ui::Colour kPopup{44, 49, 58};         // a popup, a tooltip
+inline constexpr ui::Colour kFrame{90, 96, 106};        // a button's edge, a checkbox's frame
+inline constexpr ui::Colour kSplit{34, 38, 46};         // the bar between a list and its page
+inline constexpr ui::Colour kSplitEdge{58, 63, 72};
+
+inline constexpr ui::Colour kText{212, 214, 218};
+inline constexpr ui::Colour kDim{168, 173, 182};        // help, units, labels (bright enough to read)
+inline constexpr ui::Colour kFaint{138, 143, 152};      // tags at a row's right, greyed labels
+inline constexpr ui::Colour kHeading{108, 182, 255};    // blue: selected, an action, headings
+inline constexpr ui::Colour kActive{61, 187, 92};       // green: fine, running
+inline constexpr ui::Colour kCaution{224, 160, 32};     // amber: check this, yours
+inline constexpr ui::Colour kCautionBack{42, 36, 22};   // behind an amber notice
+inline constexpr ui::Colour kWarning{232, 86, 76};      // red: broken
+inline constexpr ui::Colour kDark{16, 18, 20};          // text on a blue or green fill
 
 // A section's heading band: a darker strip across `w` behind the heading text at (x + 6, y), with a blue edge at its
 // left. Draw it before the heading.
 inline void headingBand(ui::UiWindow& window, const float x, const float y, const float w) {
-    window.fill(x, y - 3, w, 14, kBand);
-    window.fill(x, y - 3, 2, 14, kHeading);
+    window.fill(x, y - 4, w, 16, kBand);
+    window.fill(x, y - 4, 3, 16, kHeading);
+}
+
+// A button: a grey outline on whatever is behind it, the label in the text colour; `on` fills it blue with dark
+// text; greyed (not `enabled`) the edge and label fade. The caller adds the click.
+inline void button(ui::UiWindow& window, const float x, const float y, const float w, const float h,
+                   const std::string_view label, const bool on, const bool enabled) {
+    if (on && enabled) window.fill(x, y, w, h, kHeading);
+    window.outline(x, y, w, h, !enabled ? kRule : on ? kHeading : kFrame);
+    const float textX = x + (w - static_cast<float>(label.size()) * ui::kCharWidth) / 2;
+    window.text(textX, y + (h - ui::kCharHeight) / 2, label, !enabled ? kFaint : on ? kDark : kText);
 }
 
 // A switch as a checkbox: its frame (x, y, w, 16), the box at its left (filled when `on`) and `label`. Greyed when
 // not `enabled`. The caller adds the click.
 inline void checkbox(ui::UiWindow& window, const float x, const float y, const float w, const std::string_view label,
                      const bool on, const bool enabled) {
-    window.outline(x, y, w, 16, kFrame);
+    window.outline(x, y, w, 16, enabled ? kFrame : kRule);
     window.outline(x + 5, y + 3, 10, 10, enabled ? kHeading : kFrame);
     if (on) window.fill(x + 7, y + 5, 6, 6, enabled ? kHeading : kFrame);
     window.text(x + 22, y + 4, label, enabled ? kText : kDim);

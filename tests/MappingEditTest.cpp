@@ -492,3 +492,51 @@ TEST(MappingEdit, RefusesBadGameTuning) {
     model.gameTunings["nfs2015"].ffbGains[0] = 2.0F;
     EXPECT_EQ(tuningProblem(model), "");
 }
+
+// Game lines the base does not have yet are added; lines with another value, or one the reader cannot read, are
+// replaced; a secondary list that changed is written again.
+TEST(MappingEdit, GameLinesAreAddedAndReplaced) {
+    const std::string base = kConfig +
+                             "[buttons]\r\ntarget_1_or = 9\r\n"
+                             "[game_settings]\r\nnfsunbound.spring = 0.5\r\n"
+                             "[game_tuning]\r\nnfsunbound.ffb_spring = 0.5\r\nnfsunbound.ffb_cap = lots\r\n";
+    MappingModel model = mappingModel(load(kConfig));
+    model.gameRotations["nfspayback"] = {false, 180.0F};               // no line yet
+    model.gameSettings["nfsunbound"]["spring"] = 0.7F;                 // another value
+    model.gameSettings["nfsunbound"]["force_feedback"] = 0.9F;         // no line yet
+    model.gameTunings["nfsunbound"].ffbGains[static_cast<std::size_t>(FfbGroup::Spring)] = 0.8F;   // another value
+    model.gameTunings["nfsunbound"].ffbCap = 0.6F;                     // over a line that cannot be read
+    model.secondaries[1] = {{{{}, 10}, false, false, 0.5F}};           // 9 before
+    const MappingWriteResult written = writeMapping(base, model);
+    ASSERT_TRUE(written.error.empty()) << written.error;
+    const std::string& text = written.text;
+    EXPECT_NE(text.find("nfspayback = 180"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.spring = 0.7"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.force_feedback = 0.9"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.ffb_spring = 0.8"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.ffb_cap = 0.6"), std::string::npos) << text;
+    EXPECT_NE(text.find("target_1_or = 10"), std::string::npos) << text;
+    EXPECT_EQ(text.find("lots"), std::string::npos) << text;
+    EXPECT_EQ(writeMapping(text, model).text, text);
+}
+
+// An axis used twice, and a control on an accessory used twice, are named as such; an empty secondary is no use.
+TEST(MappingEdit, AxesAndAccessoriesUsedTwiceAreNamed) {
+    MappingModel model = mappingModel(load(kConfig));
+    const DeviceProfile g920(g920Spec());
+    model.buttons[5] = model.buttons[6] = model.buttons[7] = model.buttons[13] = {};
+    model.secondaries[0] = {ButtonRef{}, {{{}, 2}, true, false, 0.5F}};   // the throttle's axis presses A too
+    model.secondaries[1] = {{{{0x30B7, 0x1001}, 3}, false, false, 0.5F}};
+    model.secondaries[3] = {{{{0x30B7, 0x1001}, 3}, false, false, 0.5F}};
+    const std::vector<std::string> twice = controlsUsedTwice(model, g920);
+    ASSERT_EQ(twice.size(), 2U);
+    EXPECT_EQ(twice[0], "axis 2 of the wheel: role: G920 throttle, secondary of G920 A");
+    EXPECT_EQ(twice[1], "button 3 of 30b7:1001: secondary of G920 B, secondary of G920 Y");
+}
+
+// A centring spring below 0 is refused, like one past the top or not a number.
+TEST(MappingEdit, ANegativeCentringSpringIsRefused) {
+    MappingModel model = mappingModel(load(kConfig));
+    model.centringSpringPercent = -1.0F;
+    EXPECT_EQ(tuningProblem(model).rfind("centring spring: from 0 (off) to ", 0), 0U) << tuningProblem(model);
+}

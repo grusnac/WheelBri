@@ -66,7 +66,8 @@ if(WE_BUILD_UHID)
     endif()
 endif()
 
-if(WE_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
+# Cross builds run their tests only through an emulator (Wine for MinGW: -DCMAKE_CROSSCOMPILING_EMULATOR=wine).
+if(WE_BUILD_TESTS AND (NOT CMAKE_CROSSCOMPILING OR CMAKE_CROSSCOMPILING_EMULATOR))
     enable_testing()
     add_subdirectory(tests)
 endif()

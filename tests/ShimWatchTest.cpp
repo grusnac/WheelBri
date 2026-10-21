@@ -47,5 +47,15 @@ TEST(ShimWatch, HeardOnceNeverWarns) {
     EXPECT_TRUE(watch.update(kQuiet, "nfs2015", 1, false));
 }
 
+// The game started again between two looks (the same game, a new start count, never seen closed): a new wait.
+TEST(ShimWatch, ARestartSeenOnlyByItsCountWaitsAgain) {
+    ShimWatch watch;
+    watch.update(0, "nfs2015", 1, false);
+    ASSERT_TRUE(watch.update(kQuiet, "nfs2015", 1, false));
+    EXPECT_FALSE(watch.update(kQuiet + 20, "nfs2015", 2, false));
+    EXPECT_FALSE(watch.update(2 * kQuiet, "nfs2015", 2, false));
+    EXPECT_TRUE(watch.update(kQuiet + 20 + kQuiet, "nfs2015", 2, false));
+}
+
 }  // namespace
 }  // namespace wheelbri

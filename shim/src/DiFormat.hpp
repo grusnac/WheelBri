@@ -11,7 +11,7 @@ namespace wheelbri::shim {
 
 // At most `maxChars` characters (game strings may not be terminated inside their MAX_PATH buffers).
 [[nodiscard]] std::string toUtf8(const WCHAR* text, std::size_t maxChars = MAX_PATH);
-[[nodiscard]] std::string toUtf8(const CHAR* text);
+[[nodiscard]] std::string toUtf8(const CHAR* text, std::size_t maxChars = MAX_PATH);
 
 [[nodiscard]] std::string guidToString(const GUID& guid);
 [[nodiscard]] std::string describeGuid(const GUID& guid);          // "GUID_ConstantForce {...}" when known

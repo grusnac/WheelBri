@@ -216,6 +216,7 @@ std::unique_ptr<UdpLoopbackPublisher> UdpLoopbackPublisher::create(const std::ui
 }
 
 bool UdpLoopbackPublisher::publish(const StatePacket& packet) {
+    if (impl_->destination.sin_port == 0) return false;   // port 0 is no destination (Windows "sends" there anyway)
     const auto bytes = encode(packet);
     const auto sent = ::sendto(impl_->socket.get(), reinterpret_cast<const char*>(bytes.data()),
                                static_cast<int>(bytes.size()), 0,
@@ -231,6 +232,7 @@ bool UdpLoopbackPublisher::publish(const StatePacket& packet) {
 }
 
 bool UdpLoopbackPublisher::publishLogLevel(const LogLevel level) {
+    if (impl_->destination.sin_port == 0) return false;
     const auto bytes = encode(LogLevelPacket{level});
     const auto sent = ::sendto(impl_->socket.get(), reinterpret_cast<const char*>(bytes.data()),
                                static_cast<int>(bytes.size()), 0,
@@ -330,6 +332,7 @@ std::unique_ptr<UdpLoopbackSender> UdpLoopbackSender::create(const std::uint16_t
 }
 
 bool UdpLoopbackSender::send(const std::span<const std::uint8_t> bytes) {
+    if (impl_->port == 0) return false;   // port 0 is no destination (Windows "sends" there anyway)
     const auto sent = ::sendto(impl_->socket.get(), reinterpret_cast<const char*>(bytes.data()),
                                static_cast<int>(bytes.size()), 0,
                                reinterpret_cast<const sockaddr*>(&impl_->destination), sizeof(impl_->destination));

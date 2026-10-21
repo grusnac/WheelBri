@@ -236,12 +236,18 @@ std::vector<std::string>& migrationNotes() {
     return notes;
 }
 
-// `folder` with its "wheelbri" component named the old way (the folder the old version used).
+// `folder` with its last "wheelbri" component named the old way (the folder the old version used). Only that one: an
+// earlier "wheelbri" in the path (a user called wheelbri) is someone's folder, not the project's.
 std::filesystem::path oldNameOf(const std::filesystem::path& folder) {
-    std::filesystem::path result;
-    for (const std::filesystem::path& part : folder) {
-        result /= part == kName ? std::filesystem::path(kOldName) : part;
+    std::vector<std::filesystem::path> parts(folder.begin(), folder.end());
+    for (auto part = parts.rbegin(); part != parts.rend(); ++part) {
+        if (*part == kName) {
+            *part = kOldName;
+            break;
+        }
     }
+    std::filesystem::path result;
+    for (const std::filesystem::path& part : parts) result /= part;
     return result;
 }
 

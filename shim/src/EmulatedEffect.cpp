@@ -249,9 +249,11 @@ HRESULT EmulatedEffect::SetParameters(LPCDIEFFECT effect, const DWORD flags) {
             (effect->cAxes > kMaxAxes || (effect->cAxes != 0 && effect->rgdwAxes == nullptr))) {
             return DIERR_INVALIDPARAM;
         }
+        // How many directions the game passes: one per axis, the axes it sets in this call or the ones it set before.
+        const DWORD axisCount = (flags & DIEP_AXES) != 0 ? effect->cAxes : static_cast<DWORD>(axes_.size());
+        const DWORD directionCount = effect->cAxes != 0 ? effect->cAxes : axisCount;
         if ((flags & DIEP_DIRECTION) != 0) {
-            const DWORD count = effect->cAxes != 0 ? effect->cAxes : static_cast<DWORD>(axes_.size());
-            if (count > kMaxAxes || (count != 0 && effect->rglDirection == nullptr)) {
+            if (directionCount > kMaxAxes || (directionCount != 0 && effect->rglDirection == nullptr)) {
                 return DIERR_INVALIDPARAM;
             }
         }
@@ -273,8 +275,7 @@ HRESULT EmulatedEffect::SetParameters(LPCDIEFFECT effect, const DWORD flags) {
             axes_.assign(effect->rgdwAxes, effect->rgdwAxes + effect->cAxes);
         }
         if ((flags & DIEP_DIRECTION) != 0) {
-            const DWORD count = effect->cAxes != 0 ? effect->cAxes : static_cast<DWORD>(axes_.size());
-            direction_.assign(effect->rglDirection, effect->rglDirection + count);
+            direction_.assign(effect->rglDirection, effect->rglDirection + directionCount);
         }
         if ((flags & DIEP_ENVELOPE) != 0) {
             if (effect->lpEnvelope != nullptr) {

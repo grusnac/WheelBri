@@ -2,7 +2,9 @@
 // brought up to date, and the target written into the game's wheelbri-shim.ini; each refusal says why.
 
 #include "ShimGamesView.hpp"
+#include "UiStyle.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
+#include "wheelbri/EmulatedJoystick.hpp"
 
 #include <gtest/gtest.h>
 
@@ -246,10 +248,10 @@ public:
 };
 
 bool sameColour(const ui::Colour a, const ui::Colour b) { return a.r == b.r && a.g == b.g && a.b == b.b; }
-constexpr ui::Colour kWarningColour{214, 72, 64};
-constexpr ui::Colour kCautionColour{206, 164, 58};
-constexpr ui::Colour kHeadingColour{120, 190, 255};
-constexpr ui::Colour kTextColour{222, 226, 232};
+constexpr ui::Colour kWarningColour = style::kWarning;
+constexpr ui::Colour kCautionColour = style::kCaution;
+constexpr ui::Colour kHeadingColour = style::kHeading;
+constexpr ui::Colour kTextColour = style::kText;
 
 class ShimFolders : public ::testing::Test {
 protected:
@@ -676,6 +678,137 @@ TEST_F(ShimFolders, KnownGamesShowTheirNameAndActionsSayWhatTheyDid) {
     EXPECT_EQ(view.takeToast(), "Hot swap: 1 game presents the G923");
     EXPECT_TRUE(view.swapShims("g923", {}).empty());   // nothing changed: no message
     EXPECT_TRUE(view.takeToast().empty());
+}
+
+
+// Without WheelBri's shim at all (sources not found) the view still lists and says so; put fails with why.
+TEST_F(ShimFolders, NoShimToPutIn) {
+    const auto game = makeGame("Heat");
+    listGames({game});
+    ShimGamesView::Settings without = settings();
+    without.sources = ShimSources{};
+    ShimGamesView view(window_, without);
+    view.put(0);
+    std::string problem;
+    ASSERT_TRUE(view.takeProblem(problem));
+    EXPECT_NE(problem.find("could not be put into"), std::string::npos) << problem;
+    std::vector<std::filesystem::path> prepared;
+    std::string error;
+    EXPECT_FALSE(view.prepareStart("g920", {}, prepared, error));
+    EXPECT_NE(error.find("The shim could not be put into"), std::string::npos) << error;
+}
+
+// put, remove and forget for a folder that is not listed do nothing.
+TEST_F(ShimFolders, IndexesOutOfTheListDoNothing) {
+    ShimGamesView view(window_, settings());
+    view.put(3);
+    view.remove(3);
+    view.forget(3);
+    std::string problem;
+    EXPECT_FALSE(view.takeProblem(problem));
+    EXPECT_EQ(view.changes(), 0U);
+}
+
+// Forgetting a folder with an older shim of ours says it is still there.
+TEST_F(ShimFolders, ForgettingAnOlderShim) {
+    const auto game = makeGame("Heat");
+    write(game / kShimDll, "an older shim");
+    write(game / kShimSettings, "[shim]\n");
+    listGames({game});
+    ShimGamesView view(window_, settings());
+    view.forget(0);
+    std::string problem;
+    ASSERT_TRUE(view.takeProblem(problem));
+    EXPECT_NE(problem.find("WheelBri's shim is still in its folder"), std::string::npos) << problem;
+}
+
+// Without a state file the hot swap and the at-Stop choice change for this run only.
+TEST_F(ShimFolders, NoStateFile) {
+    ShimGamesView view(window_, settings());
+    view.setHotSwap(false);
+    view.setAtStop(ShimGamesView::AtStop::Keep);
+    EXPECT_FALSE(view.hotSwap());
+    EXPECT_EQ(view.atStop(), ShimGamesView::AtStop::Keep);
+}
+
+// A game whose name is its folder's: shown once, not "Heat (Heat)"; the row lists one game without a count.
+TEST_F(ShimFolders, AGameNamedAsItsFolder) {
+    const auto game = makeGame("Heat");
+    listGames({game});
+    ShimGamesView::Settings named = settings();
+    named.gameLabel = [](const std::filesystem::path&) { return std::string("Heat"); };
+    ShimGamesView view(window_, named);
+    EXPECT_EQ(view.displayName(view.folders()[0]), "Heat");
+    view.draw(0, 0, true);
+    EXPECT_NE(window_.find("Heat"), nullptr);
+}
+
+// folderOf: the first listed folder with the game's program; none.
+TEST_F(ShimFolders, FolderOfAGame) {
+    const auto one = makeGame("One", "one.exe");
+    const auto two = makeGame("Two", "two.exe");
+    listGames({one, two});
+    ShimGamesView view(window_, settings());
+    EXPECT_EQ(view.folderOf(known("two.exe")), std::optional<std::size_t>(1));
+    EXPECT_EQ(view.folderOf(known("three.exe")), std::nullopt);
+}
+
+// Hot swap: a game whose pedal axes were set gets them taken out when it has none now; axes that cannot be written
+// are said, the others swapped all the same.
+TEST_F(ShimFolders, HotSwapPedalAxes) {
+    const auto game = makeGame("Heat");
+    write(game / kShimDll, "our shim");
+    write(game / kShimSettings, "[shim]\ntarget_profile = g920\ngame_axes = wheelbri\nthrottle_axis = y\n"
+                                "brake_axis = rz\nclutch_axis = slider\n");
+    listGames({game});
+    ShimGamesView view(window_, settings());
+    EXPECT_TRUE(view.swapShims("g920", [](const std::filesystem::path&) { return std::nullopt; }).empty());
+    {
+        std::ifstream in(game / kShimSettings, std::ios::binary);
+        const std::string text{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+        EXPECT_EQ(text.find("game_axes"), std::string::npos) << text;
+    }
+    // The target already as asked (nothing written for it), the axes not writable: said.
+    std::filesystem::create_directories(game / (std::string(kShimSettings) + ".tmp") / "x");
+    const std::vector<std::string> problems = view.swapShims(
+        "g920", [](const std::filesystem::path&) { return std::optional<JoystickLayout>(layoutFor("g920", 0)); });
+    ASSERT_EQ(problems.size(), 1U);
+    EXPECT_NE(problems[0].find("its pedal axes"), std::string::npos) << problems[0];
+    // At Start the same is a reason not to start.
+    std::vector<std::filesystem::path> prepared;
+    std::string error;
+    EXPECT_FALSE(view.prepareStart(
+        "g920", [](const std::filesystem::path&) { return std::optional<JoystickLayout>(layoutFor("g920", 0)); },
+        prepared, error));
+    EXPECT_NE(error.find("The pedal axes for"), std::string::npos) << error;
+}
+
+// Start with the game's pedal axes written; two folders with other mods' DLLs: none can take the shim.
+TEST_F(ShimFolders, StartWritesTheAxesAndOtherModsAreCounted) {
+    const auto game = makeGame("Heat");
+    listGames({game});
+    {
+        ShimGamesView view(window_, settings());
+        std::vector<std::filesystem::path> prepared;
+        std::string error;
+        ASSERT_TRUE(view.prepareStart(
+            "g920", [](const std::filesystem::path&) { return std::optional<JoystickLayout>(layoutFor("g920", 0)); },
+            prepared, error))
+            << error;
+        std::ifstream in(game / kShimSettings, std::ios::binary);
+        const std::string text{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+        EXPECT_NE(text.find("game_axes"), std::string::npos) << text;
+    }
+    const auto a = makeGame("A");
+    const auto b = makeGame("B");
+    write(a / kShimDll, "another mod");
+    write(b / kShimDll, "another mod");
+    listGames({a, b});
+    ShimGamesView view(window_, settings());
+    std::vector<std::filesystem::path> prepared;
+    std::string error;
+    EXPECT_FALSE(view.prepareStart("g920", {}, prepared, error));
+    EXPECT_NE(error.find("and the others hold"), std::string::npos) << error;
 }
 
 }  // namespace

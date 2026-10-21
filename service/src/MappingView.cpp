@@ -35,20 +35,20 @@ constexpr std::size_t kMaxSourceButtons = 64;
 
 using Colour = ui::Colour;
 
-constexpr Colour kBackground{22, 24, 28};
-constexpr Colour kPanel{44, 48, 56};
-constexpr Colour kText{222, 226, 232};
+constexpr Colour kBackground = style::kBackground;
+constexpr Colour kPanel = style::kPanel;
+constexpr Colour kText = style::kText;
 constexpr Colour kDim = style::kDim;
-constexpr Colour kHeading{120, 190, 255};
-constexpr Colour kActive{64, 190, 100};
-constexpr Colour kWarning{214, 72, 64};
-constexpr Colour kUnlabelled{206, 164, 58};
-constexpr Colour kDark{16, 18, 20};
+constexpr Colour kHeading = style::kHeading;
+constexpr Colour kActive = style::kActive;
+constexpr Colour kWarning = style::kWarning;
+constexpr Colour kUnlabelled = style::kCaution;
+constexpr Colour kDark = style::kDark;
 constexpr Colour kCentre{160, 164, 172};
 
 // One colour per component, the same in the file list and the live log (index = its line in the list).
 constexpr std::array<Colour, 5> kComponentColours = {{
-    {120, 190, 255},   // Emulator: blue
+    {108, 182, 255},   // Emulator: blue (style::kHeading)
     {236, 152, 72},    // Game shim: orange
     {186, 140, 255},   // G920 driver: purple
     {80, 204, 190},    // Hide filter: teal
@@ -820,11 +820,12 @@ namespace {
 // "12 KB, written 3 min ago".
 std::string describeFile(const std::filesystem::path& path) {
     std::error_code ec;
+    // Each call's error is checked on its own: a folder named like a log has a write time but no size, and the
+    // second call would otherwise clear the first one's error ("0 KB").
     const auto bytes = std::filesystem::file_size(path, ec);
+    if (ec) return "cannot read it: " + ec.message();
     const auto written = std::filesystem::last_write_time(path, ec);
-    if (ec) {
-        return "cannot read it: " + ec.message();
-    }
+    if (ec) return "cannot read it: " + ec.message();
     const auto ageS = std::chrono::duration_cast<std::chrono::seconds>(
                           std::filesystem::file_time_type::clock::now() - written)
                           .count();
@@ -957,7 +958,7 @@ void MappingView::drawLogs() {
 
     y = kLogRowsTop - 14;
     style::headingBand(window_, 0, y, canvasW());
-    text(window_, 4, y, "COMPONENT", kHeading);
+    text(window_, 8, y, "COMPONENT", kHeading);
     text(window_, x, y, "LATEST LOG (ONE PER RUN)", kHeading);
     text(window_, x + 36 * 8, y, "SIZE, LAST WRITTEN", kHeading);
     y = kLogRowsTop;
@@ -1025,7 +1026,7 @@ void MappingView::drawLiveLog(const float top) {
 
     fill(window_, 0, top - 8, canvasW(), 1, kPanel);
     style::headingBand(window_, 0, top, canvasW());
-    text(window_, 4, top, "LIVE LOG", kHeading);
+    text(window_, 8, top, "LIVE LOG", kHeading);
     // Word wrap (W): long messages on several rows instead of off the side.
     wrapW_ = 96;
     wrapX_ = canvasW() - 4 - wrapW_;
