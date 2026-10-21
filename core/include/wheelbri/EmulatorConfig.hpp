@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/Ffb.hpp"
 #include "wheelbri/GameRotation.hpp"
 #include "wheelbri/GameSettings.hpp"
@@ -32,6 +33,9 @@ struct EmulatorConfig {
     // [ffb] centring_spring = 0..100: the target's centring spring in percent, 0 = off (CentringSpring.hpp). Played
     // only for a target that had one (DeviceIdentity::centringSpring: the G25 and G27).
     float centringSpringPercent = 0.0F;
+    // [buttons] order = driver | native: the order the target's buttons reach the game in (ButtonOrder,
+    // DeviceProfile.hpp); native only for a target that has one (the G25 and G27), others ignore it.
+    ButtonOrder buttonOrder = ButtonOrder::Driver;
 
     MapperConfig mapper;
     // [game_rotation] <profile id> = 180 | off: the steering rotation while that game runs, instead of the

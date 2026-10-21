@@ -60,17 +60,19 @@ TEST(EmulatedJoystick, G920Layout) {
     EXPECT_EQ(joystick.objects()[1].guid, ObjectGuid::YAxis);   // throttle
 }
 
-// The G920's with its buttons, the clutch on Z and combined pedals on Slider: Race Driver: GRID reads a G25's Slider 0
-// as combined pedals (lower half throttle, upper half brake), where a released clutch was a held brake and nothing
-// there (0) a held throttle.
-TEST(EmulatedJoystick, G25LayoutHasItsClutchOnZAndCombinedPedals) {
+// The G25's and G27's: combined pedals on Slider 0 and the clutch on Slider 1, as Logitech's driver gives them: Race
+// Driver: GRID reads a G25's Slider 0 as combined pedals (lower half throttle, upper half brake), where a released
+// clutch was a held brake and nothing there (0) a held throttle; Assetto Corsa Competizione reads the clutch on
+// Slider 1.
+TEST(EmulatedJoystick, G25LayoutHasCombinedPedalsAndItsClutchOnSlider1) {
     const JoystickLayout layout = layoutFor("g25", kG25Buttons);
     EXPECT_TRUE(isValid(layout));
     EXPECT_EQ(layout.throttle, ObjectGuid::YAxis);
     EXPECT_EQ(layout.brake, ObjectGuid::RzAxis);
-    EXPECT_EQ(layout.clutch, ObjectGuid::ZAxis);
+    EXPECT_EQ(layout.clutch, ObjectGuid::Slider1);
     EXPECT_EQ(layoutFor("g920", kG920Buttons).clutch, ObjectGuid::Slider);
-    EXPECT_EQ(layoutFor("g27", kG27Buttons).clutch, ObjectGuid::Slider);
+    EXPECT_EQ(layoutFor("g27", kG27Buttons).clutch, ObjectGuid::Slider1);
+    EXPECT_EQ(layoutFor("g27", kG27Buttons).combined, ObjectGuid::Slider);
     EXPECT_EQ(layout.combined, ObjectGuid::Slider);
     EXPECT_EQ(layoutFor("g920", kG920Buttons).combined, ObjectGuid::Any);
     const EmulatedJoystick joystick(layout);
@@ -78,12 +80,22 @@ TEST(EmulatedJoystick, G25LayoutHasItsClutchOnZAndCombinedPedals) {
     EXPECT_EQ(joystick.buttonCount(), 19U);   // the gears and the shifter's 8 buttons too
     EXPECT_EQ(joystick.povCount(), 1U);
 
-    // In c_dfDIJoystick2's layout: the clutch at Z (offset 8), nothing on slider 0 (offset 24).
+    // Both Sliders carry GUID_Slider, Slider 0 (the combined pedals) first, as DirectInput numbers them.
+    EXPECT_EQ(joystick.objects()[3].guid, ObjectGuid::Slider);
+    EXPECT_EQ(joystick.objects()[3].control, Control::Combined);
+    EXPECT_EQ(joystick.objects()[4].guid, ObjectGuid::Slider);
+    EXPECT_EQ(joystick.objects()[4].control, Control::Clutch);
+    EXPECT_EQ(joystick.objects()[4].nativeOffset, 28U);
+    EXPECT_EQ(parseAxisName("slider1"), ObjectGuid::Slider1);
+
+    // In c_dfDIJoystick2's layout: the combined pedals on slider 0 (offset 24), the clutch on slider 1 (offset 28),
+    // nothing on Z (offset 8).
     EmulatedJoystick g25(layout);
     ASSERT_EQ(g25.setDataFormat(joystickFormat(), 80), EmulatedJoystick::FormatResult::Ok);
     std::vector<std::uint8_t> state(80, 0xCD);
     ASSERT_TRUE(g25.writeState(sampleReport(), state));
-    EXPECT_EQ(readI32(state, 8), 32768);    // Z = clutch
+    EXPECT_EQ(readI32(state, 28), 32768);   // slider 1 = clutch
+    EXPECT_EQ(readI32(state, 8), 0);        // Z: none
     EXPECT_EQ(readI32(state, 24), 0);       // slider 0 = combined pedals: full throttle, brake released: the bottom
     TargetReport released = sampleReport();
     released.throttle = 65535;

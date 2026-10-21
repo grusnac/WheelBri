@@ -319,7 +319,9 @@ private:
     void learnGameFile(const std::string& id, std::filesystem::file_time_type since);
     [[nodiscard]] std::size_t selectedGameIndex() const;
     // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
-    void drawCentringSpring(float top);   // the target's centring spring (G25, G27), below the rotation
+    // The target's centring spring and button order (G25, G27), below the rotation; each returns where it ends.
+    float drawCentringSpring(float top);
+    float drawButtonOrder(float top);
     void drawField(float x, float y, float w, Field field, const std::string& value, bool changed,
                    std::size_t index = 0);
     [[nodiscard]] std::string fieldText(Field field, std::size_t index) const;

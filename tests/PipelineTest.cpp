@@ -88,6 +88,36 @@ TEST(Pipeline, PedalRouteMovesOnlyThePublishedPedals) {
     EXPECT_EQ(publisher.packets.back().report, pipeline.lastReport());
 }
 
+// [buttons] order = native: the G25's buttons are published in its own HID order; the window and telemetry keep them as
+// named. A target without a native order (the G920) ignores it.
+TEST(Pipeline, NativeButtonOrderMovesOnlyThePublishedButtons) {
+    FakeSource source;
+    RecordingPublisher publisher;
+    MapperConfig config;
+    config.buttonMap.fill(kUnmapped);
+    config.buttonMap[17] = 0;   // Blk bottom <- source button 0
+    config.buttonMap[0] = 1;    // Red 1 <- source button 1
+    const Mapper mapper(config);
+    const DeviceProfile g25(g25Spec());
+    Pipeline pipeline(source, mapper, g25, publisher);
+    EXPECT_FALSE(pipeline.nativeButtons());
+
+    source.next.buttons = 0b11;
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report.buttons, (1U << 17) | 1U);   // the driver's order, as named
+
+    pipeline.setButtonOrder(ButtonOrder::Native);
+    EXPECT_TRUE(pipeline.nativeButtons());
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report.buttons, 1U | (1U << 11));   // Blk bottom 0, Red 1 11
+    EXPECT_EQ(pipeline.lastReport().buttons, (1U << 17) | 1U);
+
+    const DeviceProfile g920(g920Spec());
+    Pipeline other(source, mapper, g920, publisher);
+    other.setButtonOrder(ButtonOrder::Native);
+    EXPECT_FALSE(other.nativeButtons());
+}
+
 TEST(Pipeline, LimitedSendingPublishesOnlyChangesAndKeepAlives) {
     FakeSource source;
     RecordingPublisher publisher;

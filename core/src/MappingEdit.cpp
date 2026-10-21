@@ -203,6 +203,7 @@ MappingModel mappingModel(const EmulatorConfig& config) {
                  sourceOf(mapper, hat.devices[2], hat.down), sourceOf(mapper, hat.devices[3], hat.left)};
     model.steeringRotationDeg = mapper.steering.targetRotationDeg;
     model.centringSpringPercent = config.centringSpringPercent;
+    model.buttonOrder = config.buttonOrder;
     model.gameRotations = config.gameRotations;
     model.gameSettings = config.gameSettings;
     model.gameFfbGains = config.gameFfbGains;
@@ -401,6 +402,12 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     // The defaults as the config reader has them (MapperConfig.hpp).
     number("steering", "target_rotation_deg", model.steeringRotationDeg, SteeringConfig{}.targetRotationDeg);
     number("ffb", "centring_spring", model.centringSpringPercent, EmulatorConfig{}.centringSpringPercent);
+    // [buttons] order: left alone when the file already says it (or, with no line, when it is the default).
+    {
+        const std::optional<std::string> line = before.get("buttons", "order");
+        const std::optional<ButtonOrder> current = line ? parseButtonOrder(*line) : EmulatorConfig{}.buttonOrder;
+        if (current != model.buttonOrder) ini.set("buttons", "order", std::string(toString(model.buttonOrder)));
+    }
     // [game_rotation]: one line per game the user set; a line for a game no longer set goes.
     const auto& sections = before.sections();
     if (const auto old = sections.find("game_rotation"); old != sections.end()) {

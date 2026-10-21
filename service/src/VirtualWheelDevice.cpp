@@ -193,63 +193,29 @@ std::vector<HKEY> roots(const bool userHive) {
     return userHive ? std::vector<HKEY>{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE} : std::vector<HKEY>{HKEY_LOCAL_MACHINE};
 }
 
-// The wheel's DirectInput axis entries (directInputAxisEntries: games read the G923's HID brake Z and clutch Rz on Rz
-// and Slider, as before). Only in an Axes key that is WheelBri's (its "WheelBri" value) or not there yet: one
-// Logitech's software made for a real wheel is left alone (said once). Removed again only when it is WheelBri's.
-void writeAxisEntries(const bool on, HKEY root, const std::wstring& path, const VirtualWheel& wheel) {
-    const std::vector<DirectInputAxisEntry> entries = directInputAxisEntries(wheel);
-    if (entries.empty()) return;
+// The Axes key WheelBri wrote for the G923 until round 93 (HidWheelDevice.hpp: no wheel has axis entries now): removed
+// whenever the wheel's entries are written or cleared, but only when it is WheelBri's (its "WheelBri" value), so one
+// Logitech's software made for a real wheel is left alone.
+void removeOwnAxisEntries(HKEY root, const std::wstring& path, const VirtualWheel& wheel) {
     const std::wstring axesPath = path + L"\\Axes";
-    const char* hive = root == HKEY_CURRENT_USER ? "HKCU" : "HKLM";
     HKEY axes = nullptr;
-    if (RegOpenKeyExW(root, axesPath.c_str(), 0, KEY_READ, &axes) == ERROR_SUCCESS) {
-        DWORD subkeys = 0;
-        RegQueryInfoKeyW(axes, nullptr, nullptr, nullptr, &subkeys, nullptr, nullptr, nullptr, nullptr, nullptr,
-                         nullptr, nullptr);
-        const bool ours = RegQueryValueExW(axes, L"WheelBri", nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
-        RegCloseKey(axes);
-        if (!ours && subkeys > 0) {
-            static bool said = false;
-            if (!said) {
-                said = true;
-                WE_LOG_WARN(log(), "DirectInput: {} has axis entries for the {} that are not WheelBri's (Logitech's "
-                                   "software?): left as they are, so games may read its pedals on other axes",
-                            hive, wheel.instancePrefix);
-            }
-            return;
-        }
-        if (!on) {
-            HKEY oem = nullptr;
-            if (RegOpenKeyExW(root, path.c_str(), 0, KEY_ALL_ACCESS, &oem) == ERROR_SUCCESS) {
-                RegDeleteTreeW(oem, L"Axes");
-                RegCloseKey(oem);
-            }
-            return;
-        }
-    } else if (!on) {
-        return;
-    }
-    if (RegCreateKeyExW(root, axesPath.c_str(), 0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &axes, nullptr) !=
-        ERROR_SUCCESS) {
-        WE_LOG_WARN(log(), "DirectInput: cannot write the {}'s axis entries in {}: games may read its brake as the "
-                           "clutch", wheel.instancePrefix, hive);
-        return;
-    }
-    const DWORD mark = 1;
-    RegSetValueExW(axes, L"WheelBri", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&mark), sizeof(mark));
-    for (const DirectInputAxisEntry& entry : entries) {
-        HKEY axis = nullptr;
-        const std::wstring name = std::to_wstring(entry.instance);
-        if (RegCreateKeyExW(axes, name.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &axis, nullptr) ==
-            ERROR_SUCCESS) {
-            RegSetValueExW(axis, L"Attributes", 0, REG_BINARY, entry.attributes.data(),
-                           static_cast<DWORD>(entry.attributes.size()));
-            RegCloseKey(axis);
-        }
-    }
+    if (RegOpenKeyExW(root, axesPath.c_str(), 0, KEY_READ, &axes) != ERROR_SUCCESS) return;
+    const bool ours = RegQueryValueExW(axes, L"WheelBri", nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
     RegCloseKey(axes);
-    WE_LOG_INFO(log(), "DirectInput: {} axis entries for the {} in {} (brake on Rz, clutch on Slider for games)",
-                entries.size(), wheel.instancePrefix, hive);
+    if (!ours) return;
+    HKEY oem = nullptr;
+    if (RegOpenKeyExW(root, path.c_str(), 0, KEY_ALL_ACCESS, &oem) != ERROR_SUCCESS) return;
+    const LSTATUS status = RegDeleteTreeW(oem, L"Axes");
+    RegCloseKey(oem);
+    const char* hive = root == HKEY_CURRENT_USER ? "HKCU" : "HKLM";
+    if (status == ERROR_SUCCESS) {
+        WE_LOG_INFO(log(), "DirectInput: removed WheelBri's old axis entries for the {} from {}", wheel.instancePrefix,
+                    hive);
+    } else {
+        WE_LOG_WARN(log(), "DirectInput: cannot remove WheelBri's old axis entries for the {} from {} (error {}): "
+                           "games may read its pedals on the wrong axes",
+                    wheel.instancePrefix, hive, status);
+    }
 }
 
 void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
@@ -261,7 +227,7 @@ void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives, cons
             continue;
         }
         if (on) {
-            // The name, and its hat and buttons (a car controller but for the G25: directInputOemData).
+            // The name, and its hat and buttons (a car controller but for the G25 and G27: directInputOemData).
             const std::array<std::uint8_t, 8> data = directInputOemData(wheel);
             RegSetValueExW(key, L"OEMName", 0, REG_SZ, reinterpret_cast<const BYTE*>(name.c_str()),
                            static_cast<DWORD>((name.size() + 1) * sizeof(wchar_t)));
@@ -270,7 +236,7 @@ void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives, cons
             RegDeleteValueW(key, L"OEMData");
         }
         RegCloseKey(key);
-        writeAxisEntries(on, root, path, wheel);
+        removeOwnAxisEntries(root, path, wheel);
     }
 }
 

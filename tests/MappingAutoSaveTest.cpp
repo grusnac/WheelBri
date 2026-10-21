@@ -15,6 +15,7 @@
 #include <iterator>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace wheelbri::service {
@@ -206,6 +207,36 @@ TEST_F(MappingAutoSave, TheG25ShowsItsCentringSpring) {
     EXPECT_TRUE(same(window_.buttonColour("25%"), kOn));
     const std::string written = read(picker.ownPath());
     EXPECT_NE(written.find("centring_spring = 25"), std::string::npos) << written;
+}
+
+// The G25 and G27 show their button order under the centring spring; Native is saved to [buttons] order in the user's
+// own file, and the row fits above the status line with every button group shown (the G27's, the most buttons). The
+// G920 shows none.
+TEST_F(MappingAutoSave, TheG25AndG27ShowTheirButtonOrder) {
+    for (const auto& [name, count] : {std::pair<std::string, int>{"g25", 19}, {"g27", 23}}) {
+        std::ofstream file(dir_ / "config" / (name + ".ini"), std::ios::binary);
+        file << "[emulator]\ntarget_profile = " << name << "\n[buttons]\n";
+        for (int b = 0; b < count; ++b) file << "target_" << b << " = " << b << "\n";
+    }
+    ConfigPicker picker(window_, settings());
+    MappingEditView view(window_, dir_ / "rigs", dir_ / "app.ini", picker);
+    frame(view);
+    EXPECT_EQ(window_.find("BUTTON ORDER"), nullptr);   // the G920: none
+
+    for (const ConfigPicker::Target target : {ConfigPicker::Target::G27, ConfigPicker::Target::G25}) {
+        picker.useTarget(target);
+        frame(view);
+        const RecordingWindow::Text* heading = window_.find("BUTTON ORDER");
+        ASSERT_NE(heading, nullptr);
+        EXPECT_LT(heading->y + 32, window_.height() - 30 - 24);   // its row above the status line at the bottom
+        EXPECT_TRUE(same(window_.buttonColour("Logitech driver"), kOn));
+    }
+
+    ASSERT_TRUE(click(view, "Native"));   // the G25's
+    frame(view);
+    EXPECT_TRUE(same(window_.buttonColour("Native"), kOn));
+    const std::string written = read(picker.ownPath());
+    EXPECT_NE(written.find("order = native"), std::string::npos) << written;
 }
 
 }  // namespace

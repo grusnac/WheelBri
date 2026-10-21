@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <string_view>
+
 #include <limits>
 #include <vector>
 
@@ -262,6 +264,64 @@ TEST(DeviceProfile, NamesPast32ButtonsAreIgnoredInTheMask) {
 
 // Groups written by hand with mistakes: a button the target does not have, one listed twice, an unnamed one, a group
 // left empty by that, a group without a name, and a named button no group lists (it goes under OTHER).
+// The G25's and G27's native button order (ButtonOrder::Native): each named button to its place in the wheel's own HID
+// order, every place once; the G920 and G923 have none and keep their buttons.
+TEST(DeviceProfile, G25AndG27HaveANativeButtonOrder) {
+    for (const char* name : {"g920", "g923"}) {
+        const auto profile = makeProfile(name);
+        EXPECT_FALSE(profile->hasNativeButtonOrder()) << name;
+        EXPECT_EQ(profile->nativeButtons(0x5A5A5U), 0x5A5A5U) << name;
+    }
+    for (const char* name : {"g25", "g27"}) {
+        SCOPED_TRACE(name);
+        const auto profile = makeProfile(name);
+        ASSERT_TRUE(profile->hasNativeButtonOrder());
+        const std::size_t count = profile->buttonCount();
+        const std::uint32_t all = (1U << count) - 1U;
+        EXPECT_EQ(profile->nativeButtons(all), all);   // a permutation: every button somewhere, none twice
+        const auto native = [&profile](const std::size_t named) {
+            const std::uint32_t bits = profile->nativeButtons(1U << named);
+            EXPECT_EQ(bits & (bits - 1U), 0U) << named;   // one button each
+            for (std::size_t i = 0; i < 32; ++i) {
+                if (bits == (1U << i)) return i;
+            }
+            return std::size_t{99};
+        };
+        // The black diamond first: bottom, left, right, top (ACC's preset: A, X, B, Y as on its G920 preset).
+        if (std::string_view(name) == "g25") {
+            EXPECT_EQ(profile->buttonName(17), "Blk bottom");
+        }
+        EXPECT_EQ(native(17), 0U);
+        EXPECT_EQ(native(16), 1U);
+        EXPECT_EQ(native(18), 2U);
+        EXPECT_EQ(native(15), 3U);
+        EXPECT_EQ(native(4), 4U);    // R Paddle
+        EXPECT_EQ(native(5), 5U);    // L Paddle
+        EXPECT_EQ(native(6), 6U);    // R Wheel
+        EXPECT_EQ(native(7), 7U);    // L Wheel
+        EXPECT_EQ(native(1), 8U);    // Red 2, 3, 4, 1
+        EXPECT_EQ(native(2), 9U);
+        EXPECT_EQ(native(3), 10U);
+        EXPECT_EQ(native(0), 11U);
+        for (std::size_t gear = 0; gear < 6; ++gear) EXPECT_EQ(native(kG25FirstGear + gear), 12U + gear);
+        EXPECT_EQ(native(kG25FirstGear + 6), std::string_view(name) == "g25" ? 18U : 22U);   // reverse
+    }
+    const auto g27 = makeProfile("g27");
+    EXPECT_EQ(g27->nativeButtons(1U << 19), 1U << 18);   // R Wheel 2
+    EXPECT_EQ(g27->nativeButtons(1U << 21), 1U << 19);   // R Wheel 3
+    EXPECT_EQ(g27->nativeButtons(1U << 20), 1U << 20);   // L Wheel 2
+    EXPECT_EQ(g27->nativeButtons(1U << 22), 1U << 21);   // L Wheel 3
+}
+
+TEST(DeviceProfile, ButtonOrderNames) {
+    EXPECT_EQ(toString(ButtonOrder::Driver), "driver");
+    EXPECT_EQ(toString(ButtonOrder::Native), "native");
+    EXPECT_EQ(parseButtonOrder("driver"), ButtonOrder::Driver);
+    EXPECT_EQ(parseButtonOrder("native"), ButtonOrder::Native);
+    EXPECT_EQ(parseButtonOrder("Native"), std::nullopt);
+    EXPECT_EQ(parseButtonOrder(""), std::nullopt);
+}
+
 TEST(ButtonLayout, BadGroupEntriesAreDroppedAndTheRestGoUnderOther) {
     DeviceProfileSpec spec;
     spec.buttonNames = {"A", "B", "", "D", "E"};

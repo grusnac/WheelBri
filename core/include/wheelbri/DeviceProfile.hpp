@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -64,6 +65,15 @@ struct TargetReport {
     return static_cast<std::int32_t>(value < 0 ? 0 : value > 65535 ? 65535 : value);
 }
 
+// The order a target's buttons reach the game in ([buttons] order). Driver: as Logitech's Windows driver of their time
+// (Logitech Profiler, Logitech Gaming Software) numbers the G25's and G27's, the order the Mapping tab names them in
+// and what games of that time read (Race Driver: GRID's G25 preset). Native: as the wheel itself numbers them in HID,
+// with no Logitech driver (Linux), which newer games' presets read (Assetto Corsa Competizione's G25 and G27 presets).
+// Only a target that has a native order of its own (IDeviceProfile::hasNativeButtonOrder) offers it.
+enum class ButtonOrder : std::uint8_t { Driver, Native };
+[[nodiscard]] std::string_view toString(ButtonOrder order);           // "driver", "native"
+[[nodiscard]] std::optional<ButtonOrder> parseButtonOrder(std::string_view text);
+
 // A group of a target's buttons as the Mapping tab shows them ("FACE": A, B, X, Y), in a column of its own (Left,
 // Right: groups stack down their column) or Below both columns (two buttons a row: the shifter's gears).
 struct ButtonGroup {
@@ -91,6 +101,11 @@ public:
     [[nodiscard]] virtual std::size_t buttonCount() const { return 0; }
     // How the Mapping tab groups its named buttons (related ones together); empty: in number order.
     [[nodiscard]] virtual std::vector<ButtonGroup> buttonGroups() const { return {}; }
+    // Whether its buttons have a native order besides the one they are named in (ButtonOrder::Native).
+    [[nodiscard]] virtual bool hasNativeButtonOrder() const { return false; }
+    // `buttons` (bit n = target button n, as named) in the native order: what the game gets with ButtonOrder::Native.
+    // Unchanged for a target without one. No allocations (the 1 kHz loop calls it).
+    [[nodiscard]] virtual std::uint32_t nativeButtons(const std::uint32_t buttons) const { return buttons; }
 };
 
 // Where each heading and named button goes on the Mapping tab: column 0 (left) or 1 (right), and its row from the top
@@ -124,6 +139,9 @@ struct DeviceProfileSpec {
     bool pedalsReleasedAtMax = false;   // some wheels report a released pedal as the top of the range
     std::vector<std::string> buttonNames;  // index = target button, 0-based; "" = a button nothing presses
     std::vector<ButtonGroup> buttonGroups; // the Mapping tab's groups (IDeviceProfile::buttonGroups)
+    // The native order (ButtonOrder::Native): index = target button as named, value = its button in the wheel's own
+    // HID order (0-based). Empty: none. Must be a permutation of 0..buttonNames.size() - 1.
+    std::vector<std::uint8_t> nativeButtonOrder;
 };
 
 // Data-driven profile: identity plus linear axis encodings.
@@ -136,12 +154,15 @@ public:
     [[nodiscard]] std::string_view buttonName(std::size_t index) const override;
     [[nodiscard]] std::size_t buttonCount() const override { return spec_.buttonNames.size(); }
     [[nodiscard]] std::vector<ButtonGroup> buttonGroups() const override { return spec_.buttonGroups; }
+    [[nodiscard]] bool hasNativeButtonOrder() const override { return !spec_.nativeButtonOrder.empty(); }
+    [[nodiscard]] std::uint32_t nativeButtons(std::uint32_t buttons) const override;
 
 private:
     [[nodiscard]] std::int32_t encodePedal(float travel) const;
 
     DeviceProfileSpec spec_;
     std::uint32_t buttonMask_ = 0;   // the named buttons: only they reach the game
+    std::array<std::uint8_t, 32> native_{};   // spec_.nativeButtonOrder, for nativeButtons (identity past it)
 };
 
 // The G920's buttons with the Driving Force Shifter: 11 on the wheel, an unused 12th, then the shifter's gears 1-6 and
@@ -155,23 +176,27 @@ inline constexpr std::size_t kG920FirstGear = 12;   // 0-based: Gear 1 .. Gear 6
 // Logitech protocol, which matters for Phase 3/4, not for DirectInput.
 [[nodiscard]] DeviceProfileSpec g920Spec();
 
-// The G25's buttons in native mode (046D:C299): 19, the shifter's included (README, "Targets"). Logitech's own
-// numbering puts the gears at 8..14 (0-based: Gear 1 .. Gear 6, then Gear R); the order of the other 12 (4 black and
-// 4 red shifter buttons, 2 paddles, 2 wheel buttons) is not documented and is a guess until a real G25 is captured.
+// The G25's buttons (046D:C299): 19, the shifter's included (README, "Targets"), named in the order Logitech's Windows
+// driver gives them (ButtonOrder::Driver): the shifter's red buttons 0..3 (left to right), paddles R 4 and L 5, the
+// wheel's buttons R 6 and L 7, gears 1-6 and reverse 8..14, the shifter's black diamond 15..18 (top, left, bottom,
+// right). Its native order (ButtonOrder::Native, the wheel's own HID order): black bottom, left, right, top 0..3,
+// paddles and wheel buttons as above, red 2, 3, 4, 1 at 8..11, gears 12..17, reverse 18. Both from GIMX's G25 and G27
+// configurations for Windows and for Linux (facts only, nothing copied: GPLv3) and a G27's HID descriptor; the
+// diamond's native order matches Assetto Corsa Competizione's G25 preset (A, X, B, Y as on its G920 preset). Not
+// checked on a real G25.
 inline constexpr std::size_t kG25Buttons = 19;
 inline constexpr std::size_t kG25FirstGear = 8;
 
 // Logitech G25 Racing Wheel in native mode (046D:C299, after the mode switch a real one gets from Logitech's driver).
-// The axes are presented like the G920's (wheel X, throttle Y, brake Rz, clutch Slider, released pedals at the top of
-// the range), which is also what a G25 with separate pedals is reported to show in DirectInput; unverified against a
-// real one, like the button order above. The 900 degrees are its full lock.
+// The axes as Logitech's driver presents a G25 with separate pedals to games (Assetto Corsa Competizione's G25 preset:
+// wheel X, throttle Y, brake Rz, clutch Slider 1; Race Driver: GRID's: combined pedals on Slider 0), released pedals at
+// the top of the range; the virtual device and the shim present it so (VirtualWheel::combinedPedals, layoutFor). The
+// 900 degrees are its full lock.
 [[nodiscard]] DeviceProfileSpec g25Spec();
 
-// The G27's buttons in native mode (046D:C29B): 23 (README, "Targets"), the G25's 19 and 4 more on the wheel.
-// The gears are at 8..14 as on the G25 (Logitech's numbering); the rest is from users' reports of what games and
-// Logitech's Profiler show, not from Logitech, and unverified until a real G27 is captured: the shifter's 4 red buttons
-// 0..3, paddles R 4 and L 5, the wheel's top buttons R 6 and L 7, the shifter's 4 black buttons 15..18, then the
-// wheel's lower buttons R 19, L 20, R 21, L 22 (top to bottom).
+// The G27's buttons (046D:C29B): 23 (README, "Targets"), the G25's 19 in the same places and 4 more on the wheel,
+// R 19, L 20, R 21, L 22 (top to bottom; which of each side's lower buttons is which is not confirmed). Native order:
+// the G25's, except reverse 22 and the wheel's lower buttons R 18, 19, L 20, 21. From the same sources as the G25's.
 inline constexpr std::size_t kG27Buttons = 23;
 inline constexpr std::size_t kG27FirstGear = 8;
 

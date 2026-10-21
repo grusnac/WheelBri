@@ -18,6 +18,22 @@ std::int32_t lerp(const AxisRange& range, const float fraction) {
     return static_cast<std::int32_t>(std::lround(range.min + span * static_cast<double>(fraction)));
 }
 
+// The G25's and G27's native button order (DeviceProfileSpec::nativeButtonOrder, kG25Buttons, kG27Buttons): for each
+// button as named (Logitech's driver's order), its place in the wheel's own HID order.
+const std::vector<std::uint8_t> kG25NativeOrder = {
+    11, 8, 9, 10,                    // Red 1-4 (red 2, 3, 4, 1 natively)
+    4, 5, 6, 7,                      // R Paddle, L Paddle, R Wheel, L Wheel: the same
+    12, 13, 14, 15, 16, 17, 18,      // Gear 1-6, Gear R
+    3, 1, 0, 2,                      // Blk top, left, bottom, right (bottom, left, right, top natively)
+};
+const std::vector<std::uint8_t> kG27NativeOrder = {
+    11, 8, 9, 10,
+    4, 5, 6, 7,
+    12, 13, 14, 15, 16, 17, 22,      // reverse after the wheel's lower buttons
+    3, 1, 0, 2,
+    18, 20, 19, 21,                  // R Wheel 2, L Wheel 2, R Wheel 3, L Wheel 3
+};
+
 }  // namespace
 
 std::string toString(const Guid& guid) {
@@ -36,10 +52,31 @@ Guid DeviceIdentity::directInputProductGuid() const {
     return guid;
 }
 
+std::string_view toString(const ButtonOrder order) { return order == ButtonOrder::Native ? "native" : "driver"; }
+
+std::optional<ButtonOrder> parseButtonOrder(const std::string_view text) {
+    if (text == "driver") return ButtonOrder::Driver;
+    if (text == "native") return ButtonOrder::Native;
+    return std::nullopt;
+}
+
 DeviceProfile::DeviceProfile(DeviceProfileSpec spec) : spec_(std::move(spec)) {
     for (std::size_t i = 0; i < spec_.buttonNames.size() && i < 32; ++i) {
         if (!spec_.buttonNames[i].empty()) buttonMask_ |= 1U << i;
     }
+    for (std::size_t i = 0; i < native_.size(); ++i) {
+        const bool given = i < spec_.nativeButtonOrder.size() && spec_.nativeButtonOrder[i] < native_.size();
+        native_[i] = given ? spec_.nativeButtonOrder[i] : static_cast<std::uint8_t>(i);
+    }
+}
+
+std::uint32_t DeviceProfile::nativeButtons(const std::uint32_t buttons) const {
+    if (spec_.nativeButtonOrder.empty()) return buttons;
+    std::uint32_t out = 0;
+    for (std::size_t i = 0; i < native_.size(); ++i) {
+        if ((buttons >> i) & 1U) out |= 1U << native_[i];
+    }
+    return out;
 }
 
 TargetReport DeviceProfile::encode(const WheelState& state) const {
@@ -164,7 +201,7 @@ DeviceProfileSpec g25Spec() {
     // shifter's 4 red buttons 0-3 (left to right), the paddles 4 (right) and 5 (left), the wheel's two buttons
     // 6 (right) and 7 (left), gears 1-6 and reverse 8-14 (Logitech's own numbering; in sequential mode the shifter
     // presses 8 and 9), the shifter's 4 black buttons 15-18 (its diamond: top, left, bottom, right). The D-pad is a
-    // hat.
+    // hat. The native order (kG25Buttons) besides it.
     spec.buttonNames = {
         "Red 1",  "Red 2",  "Red 3",  "Red 4",  "R Paddle", "L Paddle", "R Wheel", "L Wheel",
         "Gear 1", "Gear 2", "Gear 3", "Gear 4", "Gear 5",   "Gear 6",   "Gear R",
@@ -178,6 +215,7 @@ DeviceProfileSpec g25Spec() {
         {"BLACK", {15, 16, 17, 18}, Place::Right},       // the shifter's black diamond
         {"SHIFTER", {8, 9, 10, 11, 12, 13, 14}, Place::Below},
     };
+    spec.nativeButtonOrder = kG25NativeOrder;
     return spec;
 }
 
@@ -207,6 +245,7 @@ DeviceProfileSpec g27Spec() {
         {"BLACK", {15, 16, 17, 18}, Place::Right},       // the shifter's black buttons
         {"SHIFTER", {8, 9, 10, 11, 12, 13, 14}, Place::Below},
     };
+    spec.nativeButtonOrder = kG27NativeOrder;
     return spec;
 }
 

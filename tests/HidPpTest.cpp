@@ -363,43 +363,21 @@ TEST(HidPpDescriptor, TheG923HasHidPpReportsAndItsPidMovedUp) {
     EXPECT_EQ(axes, 4);
 }
 
-// On Windows the G923 reports its pedals as a real Logitech wheel does (brake Z, clutch Rz) for G HUB: the only
-// difference from the Linux descriptor, two Usage items.
-TEST(HidPpDescriptor, OnWindowsTheG923HasLogitechsPedalLayout) {
+// The G923 reports the games' axes on Windows as on Linux (throttle Y, brake Rz, clutch Slider, as the G920's): no HID
+// Z, which DirectInput relabels on a car controller (in ACC gas was the clutch, brake the throttle, clutch the brake
+// while the G923 had Logitech's brake Z and clutch Rz, 2026-10-21).
+TEST(HidPpDescriptor, TheG923HasTheGamesAxesOnWindows) {
     const VirtualWheel& g923 = *virtualWheel("g923");
-    ASSERT_TRUE(g923.logitechPedals);
-    const auto windows = items(reportDescriptorFor(g923, DescriptorFor::Windows));
-    const auto onLinux = items(reportDescriptorFor(g923, DescriptorFor::Linux));
-    ASSERT_EQ(windows.size(), onLinux.size());
-    std::vector<std::pair<std::uint32_t, std::uint32_t>> changed;
-    for (std::size_t i = 0; i < windows.size(); ++i) {
-        if (windows[i] != onLinux[i]) {
-            EXPECT_EQ(windows[i].first, 0x09) << i;   // a Usage
-            changed.emplace_back(onLinux[i].second, windows[i].second);
-        }
+    const auto windows = reportDescriptorFor(g923, DescriptorFor::Windows);
+    EXPECT_EQ(windows.data(), reportDescriptorFor(g923, DescriptorFor::Linux).data());
+    std::vector<std::uint32_t> usages;
+    for (const auto& [prefix, value] : items(windows)) {
+        if (prefix == 0x09 && usages.size() < 8) usages.push_back(value);   // the first Usages: the joystick's axes
     }
-    // Rz -> Z, Slider -> Rz.
-    const std::vector<std::pair<std::uint32_t, std::uint32_t>> expected = {{0x35, 0x32}, {0x36, 0x35}};
-    EXPECT_EQ(changed, expected);
-}
-
-// Games still read the brake on Rz and the clutch on Slider: DirectInput's axis entries say which HID usage feeds
-// each DirectInput axis (Z gets the Slider usage, which the wheel lacks, so nothing).
-TEST(HidPpDescriptor, DirectInputAxisEntriesPutThePedalsBack) {
-    const auto entries = directInputAxisEntries(*virtualWheel("g923"));
-    ASSERT_EQ(entries.size(), 3U);
-    const std::map<int, std::uint8_t> usageOf = {{entries[0].instance, entries[0].attributes[6]},
-                                                 {entries[1].instance, entries[1].attributes[6]},
-                                                 {entries[2].instance, entries[2].attributes[6]}};
-    EXPECT_EQ(usageOf.at(5), 0x32);   // Rz <- HID Z (the brake)
-    EXPECT_EQ(usageOf.at(6), 0x35);   // Slider <- HID Rz (the clutch)
-    EXPECT_EQ(usageOf.at(2), 0x36);   // Z <- HID Slider (none)
-    for (const auto& entry : entries) {
-        EXPECT_EQ(entry.attributes[0], 0x00);
-        EXPECT_EQ(entry.attributes[1], 0x01);   // DIDOI_ASPECTPOSITION
-        EXPECT_EQ(entry.attributes[4], 0x01);   // Generic Desktop
-    }
-    for (const char* name : {"g920", "g25", "g27"}) EXPECT_TRUE(directInputAxisEntries(*virtualWheel(name)).empty());
+    ASSERT_GE(usages.size(), 5U);
+    const std::vector<std::uint32_t> axes(usages.begin() + 1, usages.begin() + 5);   // after Usage Joystick
+    EXPECT_EQ(axes, (std::vector<std::uint32_t>{0x30, 0x31, 0x35, 0x36}));          // X, Y, Rz, Slider
+    EXPECT_EQ(directInputOemData(g923)[0], kJoyHwsHasPov | kJoyHwsIsCarCtrl);   // as the G920: harmless without Z
 }
 
 // The G923's axes are unsigned (a real Logitech wheel's are; G HUB drew the signed ones half a turn off): the same
@@ -422,49 +400,60 @@ TEST(HidPpDescriptor, TheG923PacksItsAxesUnsigned) {
         const VirtualWheel& wheel = *virtualWheel(name);
         EXPECT_FALSE(wheel.unsignedAxes) << name;
         const auto plain = packWheelInput(report, wheel.buttons);
-        const InputReport packed = packInputFor(wheel, report, DescriptorFor::Linux);   // the G25's fifth axis: Windows
+        const InputReport packed = packInputFor(wheel, report, DescriptorFor::Linux);   // a fifth axis: Windows only
         ASSERT_EQ(packed.size, plain.size()) << name;
         EXPECT_TRUE(std::equal(plain.begin(), plain.end(), packed.bytes.begin())) << name;
     }
 }
 
-// The virtual G25 on Windows: the clutch on Z and a fifth axis, the combined pedals on Slider (VirtualWheel::
-// combinedPedals), after the clutch in the report: in the middle at rest, down with the throttle, up with the brake.
-TEST(HidPpDescriptor, G25HasCombinedPedalsOnWindows) {
-    const VirtualWheel& g25 = *virtualWheel("g25");
-    EXPECT_TRUE(g25.combinedPedals);
-    for (const char* name : {"g920", "g27", "g923"}) EXPECT_FALSE(virtualWheel(name)->combinedPedals) << name;
-    const auto windows = reportDescriptorFor(g25, DescriptorFor::Windows);
-    const auto g920 = wheelReportDescriptor(kG920Buttons);
-    ASSERT_EQ(windows.size(), g920.size() + 16);
-    // The axes' usages in order: X, Y, Rz (brake), Z (clutch), Slider (combined).
-    std::vector<std::uint8_t> usages;
-    for (std::size_t i = 8; i + 3 < 88; ++i) {   // past the joystick's own Usage Page, Usage, Collection, Report ID
-        if (windows[i] == 0x05 && windows[i + 1] == 0x01 && windows[i + 2] == 0x09) usages.push_back(windows[i + 3]);
-    }
-    EXPECT_EQ(usages, (std::vector<std::uint8_t>{0x30, 0x31, 0x35, 0x32, 0x36}));
-    // Everything after the axes as the G920's.
-    EXPECT_TRUE(std::equal(g920.begin() + 72, g920.end(), windows.begin() + 88));
+// The virtual G25 and G27 on Windows (VirtualWheel::combinedPedals): wheel X, throttle Y, brake Rz, the combined
+// pedals on Slider 0 (in the middle at rest, down with the throttle, up with the brake) and the clutch on Slider 1, a
+// fifth axis after them, as Logitech's driver gives them to games (GRID's G25 preset, ACC's G25 and G27 presets).
+TEST(HidPpDescriptor, G25AndG27HaveCombinedPedalsAndTheClutchOnSlider1OnWindows) {
+    for (const char* name : {"g920", "g923"}) EXPECT_FALSE(virtualWheel(name)->combinedPedals) << name;
+    for (const char* name : {"g25", "g27"}) {
+        SCOPED_TRACE(name);
+        const VirtualWheel& wheel = *virtualWheel(name);
+        EXPECT_TRUE(wheel.combinedPedals);
+        const auto windows = reportDescriptorFor(wheel, DescriptorFor::Windows);
+        const auto plainDescriptor = wheelReportDescriptor(wheel.buttons);
+        ASSERT_EQ(windows.size(), plainDescriptor.size() + 16);
+        // The axes' usages in order: X, Y, Rz (brake), Slider (combined), Slider (clutch).
+        std::vector<std::uint8_t> usages;
+        for (std::size_t i = 8; i + 3 < 88; ++i) {   // past the joystick's own Usage Page, Usage, Collection, Report ID
+            if (windows[i] == 0x05 && windows[i + 1] == 0x01 && windows[i + 2] == 0x09) {
+                usages.push_back(windows[i + 3]);
+            }
+        }
+        EXPECT_EQ(usages, (std::vector<std::uint8_t>{0x30, 0x31, 0x35, 0x36, 0x36}));
+        // Everything before the fifth axis and after the axes as the wheel's own.
+        EXPECT_TRUE(std::equal(plainDescriptor.begin(), plainDescriptor.begin() + 72, windows.begin()));
+        EXPECT_TRUE(std::equal(plainDescriptor.begin() + 72, plainDescriptor.end(), windows.begin() + 88));
+        EXPECT_EQ(reportDescriptorFor(wheel, DescriptorFor::Linux).data(), plainDescriptor.data());
 
-    TargetReport report = neutralReport();
-    report.buttons = 1U << 18;
-    InputReport packed = packInputFor(g25, report);
-    ASSERT_EQ(packed.size, kMaxInputReportSize);
-    const auto plain = packWheelInput(report, kG920Buttons);
-    EXPECT_TRUE(std::equal(plain.begin(), plain.begin() + 9, packed.bytes.begin()));   // id and the four axes
-    EXPECT_TRUE(std::equal(plain.begin() + 9, plain.end(), packed.bytes.begin() + 11));  // buttons, hat
-    const auto fifth = [&packed] {
-        return static_cast<std::int16_t>(packed[9] | (packed[10] << 8));   // signed, as the other axes
-    };
-    EXPECT_EQ(fifth(), -1);              // released pedals: the middle (32767)
-    report.throttle = 0;                 // full throttle
-    packed = packInputFor(g25, report);
-    EXPECT_EQ(fifth(), -32768);          // the bottom
-    report.throttle = 65535;
-    report.brake = 0;                    // full brake
-    packed = packInputFor(g25, report);
-    EXPECT_EQ(fifth(), 32767);           // the top
-    EXPECT_EQ(packInputFor(g25, report, DescriptorFor::Linux).size, kWheelInputReportSize);
+        TargetReport report = neutralReport();
+        report.buttons = 1U << 18;
+        report.clutch = 1000;
+        InputReport packed = packInputFor(wheel, report);
+        ASSERT_EQ(packed.size, kMaxInputReportSize);
+        const auto plain = packWheelInput(report, wheel.buttons);
+        EXPECT_TRUE(std::equal(plain.begin(), plain.begin() + 7, packed.bytes.begin()));     // id, wheel, Y, Rz
+        EXPECT_EQ(packed[9], plain[7]);                                                         // the clutch: Slider 1
+        EXPECT_EQ(packed[10], plain[8]);
+        EXPECT_TRUE(std::equal(plain.begin() + 9, plain.end(), packed.bytes.begin() + 11));  // buttons, hat
+        const auto slider0 = [&packed] {
+            return static_cast<std::int16_t>(packed[7] | (packed[8] << 8));   // signed, as the other axes
+        };
+        EXPECT_EQ(slider0(), -1);            // released pedals: the middle (32767)
+        report.throttle = 0;                 // full throttle
+        packed = packInputFor(wheel, report);
+        EXPECT_EQ(slider0(), -32768);        // the bottom
+        report.throttle = 65535;
+        report.brake = 0;                    // full brake
+        packed = packInputFor(wheel, report);
+        EXPECT_EQ(slider0(), 32767);         // the top
+        EXPECT_EQ(packInputFor(wheel, report, DescriptorFor::Linux).size, kWheelInputReportSize);
+    }
 }
 
 TEST(HidPpDescriptor, WheelsWithoutHidPpKeepTheirDescriptor) {
@@ -472,7 +461,7 @@ TEST(HidPpDescriptor, WheelsWithoutHidPpKeepTheirDescriptor) {
         const VirtualWheel* wheel = virtualWheel(name);
         ASSERT_NE(wheel, nullptr);
         EXPECT_FALSE(wheel->hidpp) << name;
-        if (std::string_view(name) != "g25") {   // the G25's clutch is Z on Windows (G25ClutchIsZOnWindows)
+        if (!wheel->combinedPedals) {   // the G25's and G27's two Sliders (G25AndG27HaveCombinedPedals...)
             EXPECT_EQ(reportDescriptorFor(*wheel).data(), wheelReportDescriptor(wheel->buttons).data()) << name;
         }
         EXPECT_EQ(reportDescriptorFor(*wheel, DescriptorFor::Linux).data(),
@@ -484,35 +473,16 @@ TEST(HidPpDescriptor, WheelsWithoutHidPpKeepTheirDescriptor) {
     }
 }
 
-// The virtual G25's clutch is HID Z on Windows (VirtualWheel::clutchOnZ): in its four axes, the only difference from
-// the G920's descriptor is that one byte (the combined pedals come after them: G25HasCombinedPedalsOnWindows). On
-// Linux it stays Slider (Proton, untried).
-TEST(HidPpDescriptor, G25ClutchIsZOnWindows) {
-    const VirtualWheel& g25 = *virtualWheel("g25");
-    EXPECT_TRUE(g25.clutchOnZ);
-    const auto windows = reportDescriptorFor(g25, DescriptorFor::Windows);
-    const auto g920 = wheelReportDescriptor(kG920Buttons);
-    constexpr std::size_t kFourAxesEnd = 72;   // the report's id and its four axes
-    ASSERT_GE(windows.size(), kFourAxesEnd);
-    std::vector<std::size_t> differ;
-    for (std::size_t i = 0; i < kFourAxesEnd; ++i) {
-        if (windows[i] != g920[i]) differ.push_back(i);
-    }
-    ASSERT_EQ(differ.size(), 1U);
-    EXPECT_EQ(g920[differ[0] - 1], 0x09);   // a Usage item
-    EXPECT_EQ(g920[differ[0]], 0x36);       // Slider
-    EXPECT_EQ(windows[differ[0]], 0x32);    // Z
-    EXPECT_EQ(reportDescriptorFor(g25, DescriptorFor::Linux).data(), g920.data());
-    for (const char* name : {"g920", "g27", "g923"}) EXPECT_FALSE(virtualWheel(name)->clutchOnZ) << name;
-}
-
-// DirectInput's OEMData: the G25 is no car controller (with JOY_HWS_ISCARCTRL DirectInput gave GRID its throttle as
-// Slider 0 and its clutch as Y: directInputOemData), the others are; a hat and their buttons for all.
-TEST(HidPpDescriptor, OnlyTheG25IsNoCarControllerForDirectInput) {
+// DirectInput's OEMData: the G25 and G27 are no car controllers (with JOY_HWS_ISCARCTRL DirectInput gave GRID the
+// G25's throttle as Slider 0 and its clutch as Y: directInputOemData), the others are; a hat and their buttons for all.
+TEST(HidPpDescriptor, TheG25AndG27AreNoCarControllersForDirectInput) {
     const auto g25 = directInputOemData(*virtualWheel("g25"));
     const std::array<std::uint8_t, 8> expected = {kJoyHwsHasPov, 0, 0, 0, 19, 0, 0, 0};
     EXPECT_EQ(g25, expected);
-    for (const char* name : {"g920", "g27", "g923"}) {
+    const auto g27 = directInputOemData(*virtualWheel("g27"));
+    EXPECT_EQ(g27[0], kJoyHwsHasPov);
+    EXPECT_EQ(g27[4], 23);
+    for (const char* name : {"g920", "g923"}) {
         const VirtualWheel& wheel = *virtualWheel(name);
         const auto data = directInputOemData(wheel);
         EXPECT_EQ(data[0], kJoyHwsHasPov | kJoyHwsIsCarCtrl) << name;
@@ -531,31 +501,24 @@ TEST(HidPpDescriptor, TheG923RoutesByReportId) {
     EXPECT_EQ(wirePidId(g923, 0x12), 0x22);   // Block Load
 }
 
-// The descriptor and the report follow every flag together, not one alone: the clutch on Z without combined pedals
-// (the clutch moved, no fifth axis); either flag on a wheel with other than the G920's buttons (none of the G25's
-// layout); combined pedals without the clutch on Z (the plain layout).
-TEST(HidPpDescriptor, TheG25LayoutNeedsAllItsFlags) {
+// The descriptor and the report follow the flag and the button count together: without combined pedals the G25 is
+// the plain layout; with them on a wheel with other than the G25's or G27's buttons, too (none of their layout).
+TEST(HidPpDescriptor, TheCombinedPedalsLayoutNeedsTheFlagAndTheButtons) {
     VirtualWheel wheel = *virtualWheel("g25");
     const TargetReport report = neutralReport();
     wheel.combinedPedals = false;
-    const auto clutchOnZ = reportDescriptorFor(wheel, DescriptorFor::Windows);
-    EXPECT_EQ(clutchOnZ.size(), wheelReportDescriptor(kG920Buttons).size());
-    EXPECT_FALSE(std::equal(clutchOnZ.begin(), clutchOnZ.end(), wheelReportDescriptor(kG920Buttons).begin()));
+    const auto plainG25 = reportDescriptorFor(wheel, DescriptorFor::Windows);
+    const auto g920 = wheelReportDescriptor(kG920Buttons);
+    EXPECT_TRUE(std::equal(plainG25.begin(), plainG25.end(), g920.begin(), g920.end()));
     EXPECT_EQ(packInputFor(wheel, report).size, kWheelInputReportSize);
+    EXPECT_EQ(directInputOemData(wheel)[0], kJoyHwsHasPov | kJoyHwsIsCarCtrl);
 
     wheel = *virtualWheel("g25");
-    wheel.buttons = kG920Buttons + 4;
+    wheel.buttons = kG920Buttons + 2;
     const auto other = reportDescriptorFor(wheel, DescriptorFor::Windows);
     const auto plain = wheelReportDescriptor(wheel.buttons);
     EXPECT_TRUE(std::equal(other.begin(), other.end(), plain.begin(), plain.end()));
     EXPECT_EQ(packInputFor(wheel, report).size, packWheelInput(report, wheel.buttons).size());
-
-    wheel = *virtualWheel("g25");
-    wheel.clutchOnZ = false;
-    const auto noZ = reportDescriptorFor(wheel, DescriptorFor::Windows);
-    const auto g920 = wheelReportDescriptor(kG920Buttons);
-    EXPECT_TRUE(std::equal(noZ.begin(), noZ.end(), g920.begin(), g920.end()));
-    EXPECT_EQ(packInputFor(wheel, report).size, kWheelInputReportSize);
 }
 
 }  // namespace

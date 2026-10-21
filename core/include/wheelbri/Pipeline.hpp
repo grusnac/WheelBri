@@ -44,6 +44,14 @@ public:
     }
 
 
+    // The order the target's buttons reach the game in ([buttons] order, ButtonOrder): Native publishes them through
+    // IDeviceProfile::nativeButtons. lastReport() keeps them as named (what the window and telemetry show). Safe from
+    // another thread; the next tick uses it.
+    void setButtonOrder(const ButtonOrder order) {
+        nativeButtons_.store(order == ButtonOrder::Native && profile_.hasNativeButtonOrder(),
+                             std::memory_order_relaxed);
+    }
+    [[nodiscard]] bool nativeButtons() const { return nativeButtons_.load(std::memory_order_relaxed); }
     // The mapping while a game with its own values runs (GameTuning.hpp, tunedMapper): used instead of the one given
     // to the constructor until set back to null. Safe from another thread; the next tick uses it. The mapper must stay
     // alive until the pipeline no longer ticks (the service keeps every one it made for the whole session).
@@ -81,6 +89,7 @@ private:
     TargetReport report_;
     StatePacket packet_;
     std::atomic<const Mapper*> gameMapper_{nullptr};
+    std::atomic<bool> nativeButtons_{false};
     std::atomic<std::uint32_t> pedalRoute_{0x00020100U};   // PedalRoute packed: straight through
     std::uint64_t publishFailures_ = 0;
     std::optional<StateSendGate> gate_;

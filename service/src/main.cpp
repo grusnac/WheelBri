@@ -855,6 +855,11 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     const wheelbri::Mapper mapper(config.mapper);
     wheelbri::Pipeline pipeline(source, mapper, *profile, *publisher);
     pipeline.setAccessories(accessories.sources());
+    // The G25's and G27's buttons in their native order if the mapping says so ([buttons] order).
+    pipeline.setButtonOrder(config.buttonOrder);
+    if (pipeline.nativeButtons()) {
+        WE_LOG_INFO(log(), "buttons: the {}'s native order ([buttons] order = native)", profile->identity().shortName);
+    }
     pipeline.limitSending(platform::kNsPerSecond / static_cast<std::uint64_t>(config.stateRateHz));
 
     // Pedals pressed but the game never plays force feedback on the G920: it drives from another controller.

@@ -1038,10 +1038,36 @@ void MappingEditView::drawRotation(const float top) {
     window_.text(4, y, "A game can steer with its own rotation (NFS Payback: 180): the Games tab (G) sets it.",
                  kDim);
 
-    if (profile_ != nullptr && profile_->identity().centringSpring) drawCentringSpring(y + 18);
+    y += 18;
+    if (profile_ != nullptr && profile_->identity().centringSpring) y = drawCentringSpring(y);
+    if (profile_ != nullptr && profile_->hasNativeButtonOrder()) drawButtonOrder(y);
 }
 
-void MappingEditView::drawCentringSpring(const float top) {
+float MappingEditView::drawButtonOrder(const float top) {
+    // The order the target's buttons reach the game in (ButtonOrder): as Logitech's driver numbered them, or the
+    // wheel's own HID order, which newer games' presets read. This tab names them in the driver's order either way.
+    float y = top;
+    const std::string target(profile_->identity().shortName);
+    style::headingBand(window_, 0, y, canvasW());
+    window_.text(4, y, "BUTTON ORDER", kHeading);
+    window_.text(140, y, "the order the game gets the " + target + "'s buttons in", kDim);
+    tip(4, y - 2, 600, 12,
+        "Logitech driver: as Logitech's Windows software numbered the " + target + "'s buttons, which games of its "
+        "time read (Race Driver: GRID). Native: the wheel's own order, without Logitech's driver, which newer games' "
+        "presets read (Assetto Corsa Competizione). The buttons keep their names here. Takes effect at the next "
+        "Start.");
+    y += 16;
+    window_.text(4, y + 4, "Order", kText);
+    float x = kSliderX;
+    for (const ButtonOrder order : {ButtonOrder::Driver, ButtonOrder::Native}) {
+        const std::string label = order == ButtonOrder::Driver ? "Logitech driver" : "Native";
+        x += button(x, y, label, [this, order] { edit_.buttonOrder = order; }, edit_.buttonOrder == order, !locked_,
+                    136) + 4;
+    }
+    return y + 20;
+}
+
+float MappingEditView::drawCentringSpring(const float top) {
     // The target's own (Logitech's software for the G25 and G27): a spring to the centre in every game, on top of the
     // game's forces. 0 is off (the checkbox unticked).
     float y = top;
@@ -1064,6 +1090,7 @@ void MappingEditView::drawCentringSpring(const float top) {
         x += button(x, y, label, [this, preset] { edit_.centringSpringPercent = preset; },
                     std::fabs(edit_.centringSpringPercent - preset) < 0.5F, !locked_, 48) + 4;
     }
+    return y + 20;
 }
 
 // --- the Games page ---------------------------------------------------------------------------------------------

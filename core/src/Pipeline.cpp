@@ -42,6 +42,7 @@ bool Pipeline::tick(const std::uint64_t nowNs) {
     state_ = (game != nullptr ? *game : mapper_).map(inputs_);
     report_ = profile_.encode(state_);
     packet_.report = applyPedalRoute(report_, pedalRoute());
+    if (nativeButtons()) packet_.report.buttons = profile_.nativeButtons(packet_.report.buttons);
     if (!gate_ || gate_->shouldSend(packet_.report, nowNs)) {
         ++packet_.sequence;
         if (!publisher_.publish(packet_)) {

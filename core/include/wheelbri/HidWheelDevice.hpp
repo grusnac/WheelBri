@@ -36,7 +36,7 @@ inline constexpr std::uint16_t kG923VendorId = 0x046D;
 inline constexpr std::uint16_t kG923ProductId = 0xC26E;
 inline constexpr std::uint8_t kWheelInputReportId = 0x01;
 inline constexpr std::size_t kWheelInputReportSize = 13;   // report ID + 4 axes x 2 + 3 button bytes + hat
-// A wheel with combined pedals (VirtualWheel::combinedPedals) has a fifth axis after the fourth: 15 bytes.
+// A wheel with combined pedals (VirtualWheel::combinedPedals) has a fifth axis (its clutch) after the fourth: 15 bytes.
 inline constexpr std::size_t kMaxInputReportSize = kWheelInputReportSize + 2;
 
 // The unique id ("uniq", EVIOCGUNIQ) wheelbri-uhid gives the Linux virtual wheel (any target). The service never
@@ -63,21 +63,13 @@ struct VirtualWheel {
     // them so (G HUB drew the virtual G923's signed wheel half a turn off, wrapping as it crossed the centre).
     // packInputFor packs them to match. The others keep HIDMaestro's signed axes (-32768..32767), as tested in games.
     bool unsignedAxes = false;
-    // Whether its pedals are reported in HID as a real Logitech wheel's are (brake Z, clutch Rz), for Logitech's
-    // software, which reads them by HID usage (G HUB took the brake on Rz for the clutch). Games keep reading them
-    // where they always did (brake Rz, clutch Slider) through DirectInput's axis entries for the wheel
-    // (directInputAxisEntries), which the service writes while the wheel exists. Windows only: wheelbri-uhid keeps the
-    // games' layout (Proton has no such entries).
-    bool logitechPedals = false;
-    // Whether its clutch is HID Z (DirectInput's Z axis) instead of Slider, on Windows. The G25: Race Driver: GRID's
-    // own G25 preset (ActionMap/actionMapPreset1.xml) reads Slider 0 as combined pedals (its lower half throttle, its
-    // upper half brake), so a released clutch there, at the top of its range as Logitech's pedals rest, was a brake
-    // held down (the car reversed by itself). Throttle Y and brake Rz stay where that preset reads them.
-    bool clutchOnZ = false;
-    // Whether it also has a combined pedals axis on Slider (a fifth axis, after the clutch; combinedPedals in
-    // DeviceProfile.hpp), on Windows: a G25 with Logitech's driver has one, and Race Driver: GRID's G25 preset reads
-    // it on Slider 0 (lower half throttle, upper half brake). Without it Slider 0 read 0, the bottom: the throttle held
-    // down (the car could not back up); with the clutch there, the top: the brake held down. It rests in the middle.
+    // Whether, on Windows, it has the axes Logitech's driver gives a G25 or G27 with separate pedals: wheel X, throttle
+    // Y, brake Rz, then two Sliders, the combined pedals (combinedPedals in DeviceProfile.hpp: in the middle at rest,
+    // down with the throttle, up with the brake) on Slider 0 and the clutch on Slider 1 (a fifth axis; the input report
+    // has the combined pedals where the others have the clutch, and the clutch after them). Race Driver: GRID's G25
+    // preset (ActionMap/actionMapPreset1.xml) reads Slider 0 as combined pedals: without it Slider 0 read 0, the
+    // throttle held down; with the clutch there, at the top as Logitech's pedals rest, the brake held down (the car
+    // reversed by itself). Assetto Corsa Competizione's G25 and G27 presets read the clutch on Slider 1.
     bool combinedPedals = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
@@ -98,22 +90,19 @@ enum class DescriptorFor { Windows, Linux };
 [[nodiscard]] std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel,
                                                               DescriptorFor where = DescriptorFor::Windows);
 
-// DirectInput's per-device axis entries for a wheel with logitechPedals: OEM\VID_xxxx&PID_xxxx\Axes\<instance>,
-// value "Attributes" = DIOBJECTATTRIBUTES (dwFlags, wUsagePage, wUsage; 8 bytes, little-endian): the DirectInput axis
-// <instance> (0 X, 1 Y, 2 Z, 5 Rz, 6 Slider) is fed by that HID usage. Rz <- HID Z (the brake), Slider <- HID Rz (the
-// clutch), and Z <- HID Slider, which the wheel does not have, so the brake is not also seen on Z. Empty for others.
-struct DirectInputAxisEntry {
-    int instance = 0;
-    std::array<std::uint8_t, 8> attributes{};
-};
-[[nodiscard]] std::vector<DirectInputAxisEntry> directInputAxisEntries(const VirtualWheel& wheel);
+// No wheel has DirectInput axis entries (OEM\VID_xxxx&PID_xxxx\Axes) any more: until round 93 the G923 reported its
+// brake on HID Z and clutch on Rz (a real one's layout, for G HUB) and had entries to move them back for games, but
+// with JOY_HWS_ISCARCTRL DirectInput relabels a wheel with HID Z (Y as Slider, Z as Y) and the entries did not undo it:
+// in ACC gas was the clutch, brake the throttle, clutch the brake (2026-10-21). Every wheel now reports the games'
+// layout (throttle Y, brake Rz, clutch Slider; the G25 and G27 their two Sliders) and has no HID Z. The service
+// removes the Axes keys it wrote before (the ones with its "WheelBri" value).
 
 // DirectInput's OEMData for the wheel (OEM\VID_xxxx&PID_xxxx, 8 bytes: JOYREGHWSETTINGS' dwFlags, then dwNumButtons):
-// JOY_HWS_HASPOV (0x02) and its buttons, plus JOY_HWS_ISCARCTRL (0x40) for all but a wheel with clutchOnZ. With
-// that flag DirectInput relabels the axes of a wheel that has HID Z: Race Driver: GRID got the virtual G25's HID Y
-// (the throttle) as Slider 0 and HID Z (the clutch) as Y, so a released throttle was a brake held down and the car
-// reversed (2026-10-19); the axis entries did not change that. Without it each axis keeps its own (the shim's
-// layout, as tested in GRID; DirectInput then calls it a joystick, which GRID does not mind).
+// JOY_HWS_HASPOV (0x02) and its buttons, plus JOY_HWS_ISCARCTRL (0x40) for all but a wheel with combinedPedals (the
+// G25 and G27). With that flag DirectInput relabelled the axes of the virtual G25 when its clutch was HID Z: Race
+// Driver: GRID got its HID Y (the throttle) as Slider 0 and HID Z (the clutch) as Y, so a released throttle was a
+// brake held down and the car reversed (2026-10-19). Without it each axis keeps its own (the shim's layout, as tested
+// in GRID; DirectInput then calls it a joystick, which GRID does not mind).
 inline constexpr std::uint8_t kJoyHwsHasPov = 0x02;
 inline constexpr std::uint8_t kJoyHwsIsCarCtrl = 0x40;
 [[nodiscard]] std::array<std::uint8_t, 8> directInputOemData(const VirtualWheel& wheel);
@@ -152,8 +141,8 @@ struct InputReport {
     friend bool operator==(const InputReport&, const InputReport&) = default;
 };
 // The input report for the wheel's own descriptor (reportDescriptorFor(wheel, where)): packWheelInput, with the axes
-// unsigned when the wheel's are (VirtualWheel::unsignedAxes) and, on Windows, the combined pedals after the fourth
-// axis when it has them (VirtualWheel::combinedPedals: 15 bytes; else 13).
+// unsigned when the wheel's are (VirtualWheel::unsignedAxes) and, on Windows, for a wheel with combined pedals
+// (VirtualWheel::combinedPedals) those as the fourth axis and the clutch as a fifth after it (15 bytes; else 13).
 [[nodiscard]] InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report,
                                        DescriptorFor where = DescriptorFor::Windows);
 

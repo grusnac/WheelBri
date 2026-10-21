@@ -226,13 +226,13 @@ void putAxis(std::array<std::uint8_t, kWheelInputReportSize>& out, std::size_t a
 // In the order the app's Target arrows show them (ConfigPicker::Target).
 constexpr VirtualWheel kVirtualWheels[] = {
     {"g25", "wheelbri\\G25", "G25", kG25VendorId, kG25ProductId, "G25 Racing Wheel", "Logitech G25 Racing Wheel USB",
-     kG25Buttons, false, 0, false, false, true, true},
+     kG25Buttons, false, 0, false, true},
     {"g27", "wheelbri\\G27", "G27", kG27VendorId, kG27ProductId, "G27 Racing Wheel", "Logitech G27 Racing Wheel USB",
-     kG27Buttons},
+     kG27Buttons, false, 0, false, true},
     {"g920", "wheelbri\\G920", "G920", kG920VendorId, kG920ProductId, "G920 Driving Force Racing Wheel USB",
      "Logitech G920 Driving Force Racing Wheel USB", kG920Buttons},
     {"g923", "wheelbri\\G923", "G923", kG923VendorId, kG923ProductId, "G923 Racing Wheel for Xbox One and PC",
-     "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, true},
+     "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true},
 };
 
 bool sameIgnoringCase(const std::string_view a, const std::string_view b) {
@@ -275,58 +275,44 @@ std::span<const std::uint8_t> wheelReportDescriptor(const std::size_t buttons) {
 std::span<const std::uint8_t> g920ProtonReportDescriptor() { return kProtonDescriptor; }
 
 namespace {
-// The G923's pedals as a real one reports them in HID (VirtualWheel::logitechPedals): brake Z, clutch Rz (the same
-// two usages the Proton descriptor renames).
-constexpr auto withLogitechPedals(std::array<std::uint8_t, sizeof(kDescriptor)> d) {
-    d[kBrakeUsageAt] = 0x32;    // Z
-    d[kClutchUsageAt] = 0x35;   // Rz
-    return d;
-}
-constexpr auto kG923HidPpDescriptor = withHidPp(withUnsignedAxes(withLogitechPedals(kG923Descriptor)));
-constexpr auto kG923HidPpLinuxDescriptor = withHidPp(withUnsignedAxes(kG923Descriptor));
+// The G923's: the games' axes (throttle Y, brake Rz, clutch Slider, as the G920's), unsigned, with HID++.
+constexpr auto kG923HidPpDescriptor = withHidPp(withUnsignedAxes(kG923Descriptor));
 // Every axis rewritten: the last byte before the HID++ collections is the joystick's End Collection either way.
 static_assert(withUnsignedAxes(kG923Descriptor)[kG923Descriptor.size() + kAxes - 1] == 0xC0,
               "all four axes became unsigned");
 }  // namespace
 
 namespace {
-// The clutch as Usage Z instead of Slider (VirtualWheel::clutchOnZ): the input report is the same, the fourth axis is
-// the clutch either way.
-constexpr auto kClutchOnZDescriptor = [] {
-    auto d = kDescriptorArray;
-    d[kClutchUsageAt] = 0x32;   // Z
-    return d;
-}();
 // Each axis is 16 bytes (Usage Page, Usage, Logical Minimum, Logical Maximum, Report Count, Report Size, Input); the
 // fourth starts 3 bytes before its Usage value and ends where the buttons start.
 constexpr std::size_t kAxisItemBytes = 16;
 constexpr std::size_t kFourthAxisAt = kClutchUsageAt - 3;
 static_assert(kDescriptor[kFourthAxisAt] == 0x05 && kDescriptor[kFourthAxisAt + kAxisItemBytes - 2] == 0x81,
               "the fourth axis is one 16-byte block, its Input item last");
-// The G25's (VirtualWheel::clutchOnZ and combinedPedals): the clutch on Z, then a fifth axis, the combined pedals on
-// Slider, right after it (so after the clutch in the input report).
-constexpr auto kCombinedPedalsDescriptor = [] {
-    std::array<std::uint8_t, sizeof(kDescriptor) + kAxisItemBytes> d{};
+// `base` with a fifth axis, a copy of the fourth (Slider), right after it (VirtualWheel::combinedPedals): two Sliders,
+// Slider 0 the combined pedals and Slider 1 the clutch (DirectInput numbers Sliders in the descriptor's order).
+template <std::size_t N>
+constexpr std::array<std::uint8_t, N + kAxisItemBytes> withCombinedPedals(const std::array<std::uint8_t, N>& base) {
+    std::array<std::uint8_t, N + kAxisItemBytes> d{};
     const std::size_t after = kFourthAxisAt + kAxisItemBytes;
-    for (std::size_t i = 0; i < after; ++i) d[i] = kClutchOnZDescriptor[i];
-    for (std::size_t i = 0; i < kAxisItemBytes; ++i) d[after + i] = kDescriptor[kFourthAxisAt + i];   // Slider
-    for (std::size_t i = after; i < sizeof(kDescriptor); ++i) d[i + kAxisItemBytes] = kClutchOnZDescriptor[i];
+    for (std::size_t i = 0; i < after; ++i) d[i] = base[i];
+    for (std::size_t i = 0; i < kAxisItemBytes; ++i) d[after + i] = base[kFourthAxisAt + i];
+    for (std::size_t i = after; i < N; ++i) d[i + kAxisItemBytes] = base[i];
     return d;
-}();
-static_assert(kCombinedPedalsDescriptor[kClutchUsageAt] == 0x32 &&
-                  kCombinedPedalsDescriptor[kClutchUsageAt + kAxisItemBytes] == 0x36,
-              "the clutch is Z, the combined pedals Slider");
+}
+constexpr auto kG25CombinedDescriptor = withCombinedPedals(kDescriptorArray);
+constexpr auto kG27CombinedDescriptor = withCombinedPedals(kG27Descriptor);
+static_assert(kG25CombinedDescriptor[kClutchUsageAt] == 0x36 &&
+                  kG25CombinedDescriptor[kClutchUsageAt + kAxisItemBytes] == 0x36,
+              "the combined pedals Slider 0, the clutch Slider 1");
 }  // namespace
 
 std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel, const DescriptorFor where) {
-    if (wheel.clutchOnZ && where == DescriptorFor::Windows && wheel.buttons == kG920Buttons) {
-        if (wheel.combinedPedals) return kCombinedPedalsDescriptor;
-        return kClutchOnZDescriptor;
+    if (wheel.combinedPedals && where == DescriptorFor::Windows) {
+        if (wheel.buttons == kG920Buttons) return kG25CombinedDescriptor;
+        if (wheel.buttons == kG27Buttons) return kG27CombinedDescriptor;
     }
-    if (wheel.hidpp && wheel.buttons >= kG923Buttons) {
-        if (wheel.logitechPedals && where == DescriptorFor::Windows) return kG923HidPpDescriptor;
-        return kG923HidPpLinuxDescriptor;
-    }
+    if (wheel.hidpp && wheel.buttons >= kG923Buttons) return kG923HidPpDescriptor;
     return wheelReportDescriptor(wheel.buttons);
 }
 
@@ -363,17 +349,8 @@ std::array<std::uint8_t, kWheelInputReportSize> packWheelInput(const TargetRepor
     return out;
 }
 
-std::vector<DirectInputAxisEntry> directInputAxisEntries(const VirtualWheel& wheel) {
-    if (!wheel.logitechPedals) return {};
-    // dwFlags DIDOI_ASPECTPOSITION (0x100); usage page Generic Desktop (1).
-    const auto entry = [](const int instance, const std::uint8_t usage) {
-        return DirectInputAxisEntry{instance, {0x00, 0x01, 0x00, 0x00, 0x01, 0x00, usage, 0x00}};
-    };
-    return {entry(2, 0x36), entry(5, 0x32), entry(6, 0x35)};   // Z <- Slider (none), Rz <- Z, Slider <- Rz
-}
-
 std::array<std::uint8_t, 8> directInputOemData(const VirtualWheel& wheel) {
-    const std::uint8_t flags = wheel.clutchOnZ ? kJoyHwsHasPov : kJoyHwsHasPov | kJoyHwsIsCarCtrl;
+    const std::uint8_t flags = wheel.combinedPedals ? kJoyHwsHasPov : kJoyHwsHasPov | kJoyHwsIsCarCtrl;
     return {flags, 0, 0, 0, static_cast<std::uint8_t>(wheel.buttons), 0, 0, 0};
 }
 
@@ -387,20 +364,23 @@ InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report, 
         }
     }
     InputReport out;
-    // The combined pedals sit in the descriptor that has them only (reportDescriptorFor: Windows, the G25).
-    const bool combined = wheel.combinedPedals && wheel.clutchOnZ && where == DescriptorFor::Windows &&
-                          wheel.buttons == kG920Buttons;
+    // The combined pedals sit in the descriptor that has them only (reportDescriptorFor: Windows, the G25 and G27).
+    const bool combined = wheel.combinedPedals && where == DescriptorFor::Windows &&
+                          (wheel.buttons == kG920Buttons || wheel.buttons == kG27Buttons);
     if (!combined) {
         std::copy(packed.begin(), packed.end(), out.bytes.begin());
         out.size = packed.size();
         return out;
     }
-    // Report ID and four axes (9 bytes), the fifth axis (2), then the buttons and the hat.
-    std::copy(packed.begin(), packed.begin() + 9, out.bytes.begin());
-    std::array<std::uint8_t, kWheelInputReportSize> fifth{};
-    putAxis(fifth, 1, combinedPedals(report));
-    out.bytes[9] = fifth[1];
-    out.bytes[10] = fifth[2];
+    // Report ID and three axes (7 bytes), the combined pedals (Slider 0), the clutch (Slider 1), then the buttons and
+    // the hat. Axes are signed here (no wheel with combined pedals has unsignedAxes).
+    std::copy(packed.begin(), packed.begin() + 7, out.bytes.begin());
+    std::array<std::uint8_t, kWheelInputReportSize> combined4{};
+    putAxis(combined4, 1, combinedPedals(report));
+    out.bytes[7] = combined4[1];
+    out.bytes[8] = combined4[2];
+    out.bytes[9] = packed[7];    // the clutch, where packWheelInput put it
+    out.bytes[10] = packed[8];
     std::copy(packed.begin() + 9, packed.end(), out.bytes.begin() + 11);
     out.size = kMaxInputReportSize;
     return out;

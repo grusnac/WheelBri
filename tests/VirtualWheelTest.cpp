@@ -110,17 +110,11 @@ TEST(VirtualWheel, AHatOutOfRangeIsPackedCentred) {
 }
 
 // The descriptor for wheels the table may get later: HID++ with fewer than the G923's buttons has no HID++
-// descriptor (the plain one for its buttons); one without Logitech's pedal layout gets the games' layout on Windows.
+// descriptor (the plain one for its buttons).
 TEST(VirtualWheel, DescriptorsForOtherCombinations) {
     VirtualWheel small = *virtualWheel("g923");
     small.buttons = kG920Buttons;
     EXPECT_EQ(reportDescriptorFor(small, DescriptorFor::Windows).data(), wheelReportDescriptor(kG920Buttons).data());
-    VirtualWheel gamesPedals = *virtualWheel("g923");
-    gamesPedals.logitechPedals = false;
-    EXPECT_EQ(reportDescriptorFor(gamesPedals, DescriptorFor::Windows).data(),
-              reportDescriptorFor(*virtualWheel("g923"), DescriptorFor::Linux).data());
-    EXPECT_NE(reportDescriptorFor(*virtualWheel("g923"), DescriptorFor::Windows).data(),
-              reportDescriptorFor(*virtualWheel("g923"), DescriptorFor::Linux).data());
 }
 
 }  // namespace

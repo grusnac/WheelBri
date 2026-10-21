@@ -426,6 +426,19 @@ TEST(MappingEdit, InvertIsWrittenOverAnExistingLineOnly) {
     EXPECT_EQ(text.find("invert = true", first + 1), std::string::npos) << text;   // the brake's only
 }
 
+// [buttons] order: written when it is not what the file says (no line: the driver's order), and read back.
+TEST(MappingEdit, ButtonOrderIsWrittenWhenItChanges) {
+    MappingModel model = mappingModel(load(kConfig));
+    EXPECT_EQ(model.buttonOrder, ButtonOrder::Driver);
+    EXPECT_EQ(writeMapping(kConfig, model).text.find("order ="), std::string::npos);   // the default: no line
+    model.buttonOrder = ButtonOrder::Native;
+    const std::string text = writeMapping(kConfig, model).text;
+    EXPECT_NE(text.find("order = native"), std::string::npos) << text;
+    EXPECT_EQ(load(text).buttonOrder, ButtonOrder::Native);
+    model.buttonOrder = ButtonOrder::Driver;
+    EXPECT_EQ(load(writeMapping(text, model).text).buttonOrder, ButtonOrder::Driver);
+}
+
 // Lines the reader could not read (a hand edit) are written again with the model's value, not kept; a game setting
 // of a known game that the user no longer sets goes; an unmapped secondary in the model is not written.
 TEST(MappingEdit, UnreadableLinesAreWrittenAgain) {

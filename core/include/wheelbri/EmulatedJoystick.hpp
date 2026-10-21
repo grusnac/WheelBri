@@ -45,8 +45,10 @@ inline constexpr std::uint32_t kPovCentered = 0xFFFFFFFF;
 }  // namespace di
 
 // Which GUID a DirectInput object (or a data format entry) carries. `Any` = no GUID given.
+// Slider1 is a layout's second Slider (DIJOYSTATE2's rglSlider[1]): its object carries Slider (GUID_Slider), as format
+// entries for it do.
 enum class ObjectGuid : std::uint8_t {
-    Any, XAxis, YAxis, ZAxis, RxAxis, RyAxis, RzAxis, Slider, Button, Key, Pov, Other
+    Any, XAxis, YAxis, ZAxis, RxAxis, RyAxis, RzAxis, Slider, Button, Key, Pov, Other, Slider1
 };
 
 // What an object reports from the TargetReport.
@@ -89,12 +91,12 @@ struct JoystickLayout {
     std::size_t buttonCount = 11;
 };
 
-// Built-in layout for a profile name: throttle Y, brake Rz, clutch Slider; the G25's clutch on Z and combined pedals
-// on Slider (layoutFor).
+// Built-in layout for a profile name: throttle Y, brake Rz, clutch Slider; the G25's and G27's combined pedals on
+// Slider 0 and clutch on Slider 1 (Slider1), as their virtual devices (VirtualWheel::combinedPedals).
 [[nodiscard]] JoystickLayout layoutFor(std::string_view profile, std::size_t buttonCount);
 // False if two controls share an axis or a pedal uses X (the wheel).
 [[nodiscard]] bool isValid(const JoystickLayout& layout);
-// "x", "y", "z", "rx", "ry", "rz", "slider"; "none" gives ObjectGuid::Any. nullopt for anything else.
+// "x", "y", "z", "rx", "ry", "rz", "slider", "slider1"; "none" gives ObjectGuid::Any. nullopt for anything else.
 [[nodiscard]] std::optional<ObjectGuid> parseAxisName(std::string_view name);
 [[nodiscard]] std::string_view axisName(ObjectGuid guid);
 

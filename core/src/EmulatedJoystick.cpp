@@ -28,7 +28,7 @@ struct AxisInfo {
 constexpr AxisInfo kAxes[] = {
     {ObjectGuid::XAxis, "x", 0, 0x30},   {ObjectGuid::YAxis, "y", 4, 0x31},   {ObjectGuid::ZAxis, "z", 8, 0x32},
     {ObjectGuid::RxAxis, "rx", 12, 0x33}, {ObjectGuid::RyAxis, "ry", 16, 0x34}, {ObjectGuid::RzAxis, "rz", 20, 0x35},
-    {ObjectGuid::Slider, "slider", 24, 0x36},
+    {ObjectGuid::Slider, "slider", 24, 0x36},   {ObjectGuid::Slider1, "slider1", 28, 0x36},
 };
 
 const AxisInfo* axisInfo(const ObjectGuid guid) {
@@ -51,11 +51,12 @@ void putU32(std::span<std::uint8_t> out, const std::uint32_t offset, const std::
 JoystickLayout layoutFor(const std::string_view profile, const std::size_t buttonCount) {
     JoystickLayout layout;
     layout.buttonCount = buttonCount;
-    // Throttle Y, brake Rz, clutch Slider; the G25's clutch on Z, as its virtual device has it
-    // (VirtualWheel::clutchOnZ: Race Driver: GRID reads a G25's Slider 0 as combined pedals).
-    if (profile == "g25") {
-        layout.clutch = ObjectGuid::ZAxis;
-        layout.combined = ObjectGuid::Slider;   // as its virtual device (VirtualWheel::combinedPedals)
+    // Throttle Y, brake Rz, clutch Slider; the G25's and G27's combined pedals on Slider 0 and clutch on Slider 1, as
+    // their virtual devices have them (VirtualWheel::combinedPedals: Race Driver: GRID reads a G25's Slider 0 as
+    // combined pedals, Assetto Corsa Competizione its clutch on Slider 1).
+    if (profile == "g25" || profile == "g27") {
+        layout.clutch = ObjectGuid::Slider1;
+        layout.combined = ObjectGuid::Slider;
     }
     return layout;
 }
@@ -113,13 +114,16 @@ EmulatedJoystick::EmulatedJoystick(const JoystickLayout& layout) : invertPedals_
         layout.combined != layout.brake && layout.combined != layout.clutch) {
         axes.push_back({layout.combined, Control::Combined, "Combined pedals"});
     }
-    // HID devices list (and number) their axes in usage order: X, Y, Z, Rx, Ry, Rz, Slider.
-    std::sort(axes.begin(), axes.end(),
-              [](const Axis& a, const Axis& b) { return axisInfo(a.guid)->usage < axisInfo(b.guid)->usage; });
+    // HID devices list (and number) their axes in usage order: X, Y, Z, Rx, Ry, Rz, Slider (Slider 0, then 1).
+    std::sort(axes.begin(), axes.end(), [](const Axis& a, const Axis& b) {
+        const AxisInfo* const x = axisInfo(a.guid);
+        const AxisInfo* const y = axisInfo(b.guid);
+        return x->usage != y->usage ? x->usage < y->usage : x->offset < y->offset;
+    });
     for (std::size_t i = 0; i < axes.size(); ++i) {
         const AxisInfo* const info = axisInfo(axes[i].guid);
         EmulatedObject object;
-        object.guid = axes[i].guid;
+        object.guid = axes[i].guid == ObjectGuid::Slider1 ? ObjectGuid::Slider : axes[i].guid;   // both GUID_Slider
         object.control = axes[i].control;
         object.typeId = di::kAbsAxis | di::makeInstance(static_cast<std::uint32_t>(i)) |
                         (axes[i].control == Control::Steering ? di::kFfActuator : 0);
