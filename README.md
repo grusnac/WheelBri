@@ -250,18 +250,25 @@ rig ──DirectInput / evdev──► wheelbri-service ──UDP 127.0.0.1─�
 
 ### Targets
 
-All four use the G920's DirectInput layout (wheel X, throttle Y, brake Rz, clutch Slider) and 900 degrees, except
-the G25: its clutch is on Z, and Slider is its combined pedals axis (in the middle at rest, down with the throttle, up
-with the brake), on Windows in both modes. Race Driver: GRID's own G25 preset reads Slider 0 as combined pedals (its
-lower half throttle, its upper half brake): with the clutch there, at rest at the top, the brake was held down (the car
-reversed by itself); with nothing there (0, the bottom), the throttle was (the car could not back up).
+All four use 900 degrees and the G920's DirectInput layout (wheel X, throttle Y, brake Rz, clutch Slider), except
+the G25 and G27 on Windows (both modes): wheel X, throttle Y, brake Rz, their combined pedals on Slider 0 (in the
+middle at rest, down with the throttle, up with the brake) and the clutch on Slider 1, as Assetto Corsa Competizione's
+G25 and G27 presets read them (clutch: axis 7, Slider 1). Race Driver: GRID's own G25 preset reads Slider 0 as combined
+pedals (its lower half throttle, its upper half brake): with the clutch there, at rest at the top, the brake was held
+down (the car reversed by itself); with nothing there (0, the bottom), the throttle was (the car could not back up).
 (Logitech's own driver, in Logitech Gaming Software 5.10's `WmJoyHid.inf`, names the G25's axes X wheel, Y combined
-pedals, Z accelerator, Rz brake, Slider clutch, 19 buttons: ours follows what that era's games read instead.)
+pedals, Z accelerator, Rz brake, Slider clutch, 19 buttons: ours follows what games' presets read instead.) Until
+2026-10-21 the G25's clutch was on Z and the G27's on Slider 0.
 
 Race Driver: GRID's force feedback needs VSync on (or the frame rate capped). With VSync off at 144 Hz it passed a
 constant force of -2147483648 (a broken number, not a force) for the whole race: no force feedback, and a full
 push before WheelBri treated such values as none. With VSync on it sends real forces, about 90 updates a second.
-The shim warns once when a game passes such a value.
+The shim warns once when a game passes such a value. In Mode Virtual the number never reaches WheelBri: Windows' HID
+PID driver clamps it to a full push first (2026-10-21, VSync off at 300 Hz: nothing but 0 and -100% for minutes, the
+wheel pulled to one side and let go every few seconds). So a constant force at exactly full scale while the game has
+sent no force between none and full for 2 s plays as none, in both modes (`[ffb] ignore_lone_full_push`, on by
+default; the service warns when it starts). A full push among real forces still plays: with VSync on, GRID's 604 full
+pushes in 40 minutes all came within a moment of others.
 
 The G25's buttons are in the order games of its time saw on Windows: the shifter's red buttons 0-3 (left to right),
 right paddle 4, left paddle 5, the wheel's right and left buttons 6 and 7, gears 1-6 and reverse 8-14 (sequential mode
@@ -270,12 +277,22 @@ support ("Programming the G25 Shifter positions": gears 8-14), Race Driver: GRID
 menu Select 17 and Back 18), GIMX's G25 configuration for Windows (red 0-3, wheel buttons 6/7, black 15-18), G27
 reports from DiRT Rally 2.0 and American Truck Simulator users (the same order), a G25 read through Unity (gears,
 sequential). The default mapping (`config/g25.ini`) puts an Xbox-style rim's A, B, X, Y on the black diamond
-(bottom, right, left, top), the menu buttons of that era's games.
+(bottom, right, left, top), the menu buttons of that era's games. The G27 has the same and its wheel's lower buttons
+19-22.
+
+A real G25 or G27 without Logitech's driver (Linux, or Windows without it) numbers its buttons in its own HID order
+instead, which newer games' presets read (Assetto Corsa Competizione's G25 and G27 presets bind 0-11 and nothing at the
+gears): the black diamond 0-3 (bottom, left, right, top), paddles 4/5, wheel buttons 6/7, red 8-11 (red 2, 3, 4, 1),
+gears 12-17, reverse 18 (G25) or 22 (G27, its wheel's lower buttons 18-21). The Mapping tab's **Button order**
+(`[buttons] order = driver | native`, G25 and G27 only) picks which one the game gets; the Mapping tab names the
+buttons in the driver's order either way. Sources: GIMX's G25 and G27 configurations for Windows and for Linux side
+by side (facts only; GIMX is GPLv3 and nothing is copied) and a G27's HID descriptor; ACC's presets bind the native
+diamond as A, X, B, Y, as its G920 preset binds the G920's A, B, X, Y. Neither order checked on a real wheel.
 
 | Target | Ids | Buttons | Button order |
 |---|---|---|---|
-| G25 | 046D:C299 | 19 | **from several sources** (above), not checked on a real G25 |
-| G27 | 046D:C29B | 23 | gears from Logitech, the rest **from users' reports** |
+| G25 | 046D:C299 | 19 | **from several sources** (above), native order too; not checked on a real G25 |
+| G27 | 046D:C29B | 23 | the G25's, its wheel's lower buttons 19-22 **from GIMX**; native order too |
 | G920 | 046D:C262 | 19 | **tested** |
 | G923 | 046D:C26E | 24 | 0-18 as the G920, 19-23 **a guess**; unsigned axes and HID++ for G HUB |
 
@@ -287,7 +304,10 @@ To fix an order: `g25Spec()`, `g27Spec()`, `g923Spec()` in `core/src/DeviceProfi
 With Target G923 and Mode Virtual the virtual wheel answers G HUB's HID++ 2.0 (`core/include/wheelbri/HidPp.hpp`,
 written from the public description): Root, FeatureSet, firmware version, name and ForceFeedback (0x8123). Rotation
 and gain are logged, **not applied**; effects G HUB uploads are **not played**. Tried once (2026-10-16): G HUB showed
-the wheel as active. The unsigned axes and pedal layout added since are untried.
+the wheel as active. The unsigned axes added since are untried. The pedals are in the games' layout (throttle Y, brake
+Rz, clutch Slider, as the G920's), not a real G923's (brake Z, clutch Rz), so G HUB shows them in the wrong places:
+with a real G923's layout DirectInput relabelled them for games (in ACC gas was the clutch, brake the throttle, clutch
+the brake), and the registry entries meant to undo that did not.
 
 ## Licence
 

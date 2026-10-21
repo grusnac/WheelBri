@@ -67,6 +67,10 @@ struct FfbSafetyConfig {
     // A constant push the game leaves exactly as it is this long (seconds) fades out, with the periodic effects on
     // top: a game that paused (loading screen) but keeps sending its last force. 0 = never (FfbController).
     float frozenForceSeconds = 2.0F;
+    // A constant force at exactly full scale while the game has sent no force in between for 2 s plays as none
+    // (FfbController, "lone full push"): Race Driver: GRID's broken value, which Windows' force feedback driver turns
+    // into a full push before WheelBri sees it (Mode Virtual). false = every full push plays.
+    bool ignoreLoneFullPush = true;
     friend bool operator==(const FfbSafetyConfig&, const FfbSafetyConfig&) = default;
 };
 

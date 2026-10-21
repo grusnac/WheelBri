@@ -24,7 +24,15 @@ namespace wheelbri {
 //    constant force cannot flood the driver;
 //  * a constant push the game leaves exactly as it is for `frozenForceSeconds` (FfbSafetyConfig) fades out over
 //    `kFrozenFadeNs`, with every periodic effect on top: a game on a loading screen that keeps sending its last
-//    force (NFS 2015: 83% and a rumble for 21 s). Springs and dampers stay. Any change brings the forces back.
+//    force (NFS 2015: 83% and a rumble for 21 s). Springs and dampers stay. Any change brings the forces back;
+//  * a constant force at exactly full scale (either way) while the game has sent no constant force between none and
+//    full for `kRealForceWithinNs` is a "lone full push" and plays as none (FfbSafetyConfig::ignoreLoneFullPush).
+//    Race Driver: GRID (2008) sometimes passes lMagnitude = -2147483648 instead of its force (VSync off at 144 Hz or
+//    more: 2026-10-19; at 300 Hz with VSync off: 2026-10-21, a stream of nothing but 0 and -100% for minutes). The shim
+//    sees that number and drops it (DiEffect.hpp, isGarbage), but in Mode Virtual Windows' HID PID driver clamps it to
+//    -10000 first, and the wheel's driver gets a full push like any other. A real stream has every value in between
+//    (GRID with VSync on: 170,000 values in 40 minutes, 0.35% of them full, all within a moment of others), so a full
+//    push that comes with them still plays.
 class FfbController {
 public:
     struct Timing {
@@ -37,6 +45,7 @@ public:
         std::uint64_t plays = 0;             // sink.play calls
         std::uint64_t playFailures = 0;
         std::uint64_t watchdogStops = 0;
+        std::uint64_t loneFullPushes = 0;    // full pushes played as none (no real force around them)
         std::size_t activeSlots = 0;
     };
 
@@ -92,6 +101,16 @@ public:
     // What the game's pushing forces are multiplied by now: 1, down to 0 while a frozen push fades (last update()).
     [[nodiscard]] float frozenFade() const { return frozenFade_; }
 
+    // A lone full push: a constant level this close to full scale (either way)...
+    static constexpr float kFullScaleAt = 0.9995F;
+    // ...while the game's last constant force between none and full (a real one) is older than this, or never came.
+    static constexpr std::uint64_t kRealForceWithinNs = 2'000'000'000;
+    // Whether the game's full pushes play as none now (since its last real force is too old).
+    [[nodiscard]] bool ignoringLoneFullPush() const { return ignoringLoneFullPush_; }
+    // `effect` as the controller keeps it: a lone full push (`realForceRecent` false) becomes no push; anything else is
+    // left as it is.
+    [[nodiscard]] static FfbEffect screened(const FfbEffect& effect, bool realForceRecent);
+
     // Read-only view of one slot, for displays: what the game asked for and what reached the wheel.
     struct SlotView {
         bool wanted = false;                 // the game wants it playing
@@ -134,6 +153,9 @@ private:
     // Plays, updates or stops the centring spring (update()).
     void updateCentringSpring();
 
+    // The game's constant force as it will play: a lone full push screened out (onPacket), with the log and stats.
+    [[nodiscard]] FfbEffect screenFullPush(const FfbEffect& effect, std::uint64_t nowNs);
+
     // The fade for frozen pushes at `nowNs` (1 = none), logging when it starts and ends.
     [[nodiscard]] float frozenFadeAt(std::uint64_t nowNs);
 
@@ -153,6 +175,8 @@ private:
     bool effects_ = true;
     std::uint64_t frozenNs_ = 0;            // from safety_.frozenForceSeconds; 0 = never
     float frozenFade_ = 1.0F;
+    std::optional<std::uint64_t> lastRealForceNs_;   // the game's last constant force between none and full
+    bool ignoringLoneFullPush_ = false;
     float springPercent_ = 0.0F;
     bool springPlaying_ = false;
     bool springRefused_ = false;

@@ -103,7 +103,7 @@ void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs)
     }
     Slot& slot = slots_[packet.slot];
     // A new push, or one the game changed (a restart with the same push is not a change: still frozen).
-    const FfbEffect& next = packet.effect;
+    const FfbEffect next = screenFullPush(packet.effect, nowNs);
     if (!slot.loaded || next.type != slot.requested.type || !closeTo(next.gain, slot.requested.gain) ||
         !closeTo(next.constantLevel, slot.requested.constantLevel)) {
         slot.pushSinceNs = nowNs;
@@ -114,7 +114,46 @@ void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs)
     }
     slot.wanted = packet.playing;
     slot.loaded = true;
-    slot.requested = packet.effect;
+    slot.requested = next;
+}
+
+FfbEffect FfbController::screened(const FfbEffect& effect, const bool realForceRecent) {
+    const bool full = std::abs(effect.constantLevel) >= kFullScaleAt;
+    if (realForceRecent || effect.type != FfbEffectType::Constant || !full) return effect;
+    FfbEffect out = effect;
+    out.constantLevel = 0.0F;
+    return out;
+}
+
+FfbEffect FfbController::screenFullPush(const FfbEffect& effect, const std::uint64_t nowNs) {
+    if (effect.type != FfbEffectType::Constant) return effect;
+    const float push = std::abs(effect.constantLevel);
+    if (push > 0.0F && push < kFullScaleAt) {
+        // A real force: every full push from now on (for kRealForceWithinNs) is believed.
+        lastRealForceNs_ = nowNs;
+        if (ignoringLoneFullPush_) {
+            ignoringLoneFullPush_ = false;
+            WE_LOG_INFO(log(), "ffb: the game sends real forces again: its full pushes play as asked");
+        }
+        return effect;
+    }
+    if (!(push >= kFullScaleAt) || !safety_.ignoreLoneFullPush) return effect;
+    const bool recent =
+        lastRealForceNs_ && nowNs >= *lastRealForceNs_ && nowNs - *lastRealForceNs_ <= kRealForceWithinNs;
+    if (recent) return effect;
+    ++stats_.loneFullPushes;
+    if (!ignoringLoneFullPush_) {
+        ignoringLoneFullPush_ = true;
+        static logging::RateLimiter limiter(std::chrono::minutes(1));
+        WE_LOG_WARN_LIMITED(log(), limiter,
+                            "ffb: the game asks for a full {} push with no real force for {:.0f} s around it: not a "
+                            "force (Race Driver: GRID passes a broken number that Windows turns into a full push), "
+                            "played as none until it sends forces between none and full again ([ffb] "
+                            "ignore_lone_full_push = false turns this off)",
+                            effect.constantLevel < 0.0F ? "left" : "right",
+                            static_cast<double>(kRealForceWithinNs) / 1e9);
+    }
+    return screened(effect, false);
 }
 
 bool FfbController::lasting(const FfbEffectType type) {

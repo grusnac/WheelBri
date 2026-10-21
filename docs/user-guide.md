@@ -68,6 +68,10 @@ the wheel's rotation, in the wheel's own software (Pit House for Moza).
    With the **G25** or **G27** as Target, **Centring spring** below it is that wheel's own (Logitech's software had
    it: "Enable Centering Spring in Force Feedback Games", 0 to 100%): a spring to the centre on top of the game's
    forces, in every game. Off by default; Race Driver: GRID needs it, as it sends no centring of its own.
+   **Button order** under it says which numbering the game gets the G25's or G27's buttons in: **Logitech driver**
+   (the default, as Logitech's Windows software numbered them: games of that time, such as Race Driver: GRID) or
+   **Native** (the wheel's own, without Logitech's driver: newer games' presets, such as Assetto Corsa
+   Competizione's). The Mapping tab names the buttons the same way either way.
 4. Every change is saved at once and Start uses what you see. **Undo** goes back one change at a time,
    **Default** to WheelBri's mapping.
 
@@ -163,7 +167,7 @@ control panel, Logitech G HUB. WheelBri passes all of what the game asks.
 
 Every force still goes through safety limits: no sudden jumps, a push the game leaves unchanged for 2 seconds (a loading
 screen) fades out, all forces stop when the game goes quiet, and a value that is not a force (Race Driver: GRID with
-VSync off) plays nothing.
+VSync off, which Windows turns into a full push) plays nothing.
 
 Mappings you saved earlier with WheelBri's older, cautious limits (70% strength, at most 80%) are moved to the new
 ones (1 and 1) when the app opens, all of them at once; the status line says so. **Turn the strength down in the

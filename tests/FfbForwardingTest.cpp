@@ -161,7 +161,7 @@ TEST(FfbController, ConstantForceRampsAndIsRateLimited) {
     config.maxSlewPerSecond = 10.0F;   // full scale in 100 ms
     FfbController controller(sink, config);
     FfbEffect push;
-    push.constantLevel = 1.0F;
+    push.constantLevel = 0.99F;   // above the cap (a full push alone would be GRID's broken value: FfbLoneFullPush)
     controller.onPacket(slotPacket(0, true, push), 0);
     controller.update(0);
     ASSERT_EQ(sink.plays.size(), 1U);
@@ -331,7 +331,7 @@ TEST(FfbController, ATypeChangeOnAPlayingSlotStartsSoftAgain) {
     config.maxSlewPerSecond = 10.0F;
     FfbController controller(sink, config);
     FfbEffect push;
-    push.constantLevel = 1.0F;
+    push.constantLevel = 0.99F;
     controller.onPacket(slotPacket(0, true, push), 0);
     controller.update(0);
     controller.update(200 * kMs);
@@ -907,6 +907,98 @@ TEST(FfbFrozenPush, ThePushIsMeasuredAsItWouldReachTheWheel) {
     halved.onPacket(slotPacket(0, true, push), 0);
     halved.update(3'000 * kMs);
     EXPECT_EQ(halved.frozenFade(), 1.0F);
+}
+
+// --- a lone full push (Race Driver: GRID, 2026-10-21 18:46: VSync off at 300 Hz, Mode Virtual) -------------------
+
+// GRID's stream as the driver got it: nothing but 0 and -100% (its -2147483648, clamped by Windows' PID driver), a
+// packet every 11 ms for a minute. Not one full push reaches the wheel, and the stream is said to be ignored.
+TEST(FfbLoneFullPush, GridsBrokenStreamPlaysAsNone) {
+    RecordingSink sink;
+    FfbController controller(sink, nfsSafety(), kPatientWatchdog);
+    FfbEffect push;
+    for (std::uint64_t now = 0; now <= 60'000 * kMs; now += 11 * kMs) {
+        push.constantLevel = (now / (500 * kMs)) % 3 == 0 ? 0.0F : -1.0F;
+        controller.onPacket(slotPacket(0, true, push), now);
+        controller.update(now);
+        ASSERT_EQ(sentTo(controller, 0).constantLevel, 0.0F) << now / kMs << " ms";
+    }
+    EXPECT_TRUE(controller.ignoringLoneFullPush());
+    EXPECT_GT(controller.stats().loneFullPushes, 0U);
+    EXPECT_EQ(controller.slot(0).requested.constantLevel, 0.0F);   // what it keeps: no push
+}
+
+// GRID with VSync on: real forces all the way, and now and then a full one among them (a wall, a kerb). Those play.
+TEST(FfbLoneFullPush, AFullPushAmongRealForcesPlays) {
+    RecordingSink sink;
+    FfbController controller(sink, nfsSafety(), kPatientWatchdog);
+    FfbEffect push;
+    for (std::uint64_t now = 0; now <= 1'000 * kMs; now += 11 * kMs) {
+        push.constantLevel = -0.2F - 0.001F * static_cast<float>(now / kMs % 50);
+        controller.onPacket(slotPacket(0, true, push), now);
+        controller.update(now);
+    }
+    push.constantLevel = 1.0F;
+    controller.onPacket(slotPacket(0, true, push), 1'011 * kMs);
+    controller.update(1'011 * kMs);
+    EXPECT_FLOAT_EQ(sentTo(controller, 0).constantLevel, 1.0F);
+    push.constantLevel = -1.0F;
+    controller.onPacket(slotPacket(0, true, push), 2'900 * kMs);   // 1.9 s after the last real force: still believed
+    controller.update(2'900 * kMs);
+    EXPECT_FLOAT_EQ(sentTo(controller, 0).constantLevel, -1.0F);
+    EXPECT_FALSE(controller.ignoringLoneFullPush());
+    EXPECT_EQ(controller.stats().loneFullPushes, 0U);
+}
+
+// A full push more than 2 s after the last real force is lone; the next real force believes full pushes again.
+TEST(FfbLoneFullPush, RealForcesBringFullPushesBack) {
+    RecordingSink sink;
+    FfbController controller(sink, nfsSafety(), kPatientWatchdog);
+    FfbEffect push;
+    push.constantLevel = 0.3F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    push.constantLevel = 1.0F;
+    controller.onPacket(slotPacket(0, true, push), 2'001 * kMs);
+    controller.update(2'001 * kMs);
+    EXPECT_EQ(sentTo(controller, 0).constantLevel, 0.0F);
+    EXPECT_TRUE(controller.ignoringLoneFullPush());
+    push.constantLevel = 0.4F;
+    controller.onPacket(slotPacket(0, true, push), 2'100 * kMs);
+    push.constantLevel = 1.0F;
+    controller.onPacket(slotPacket(0, true, push), 2'111 * kMs);
+    controller.update(2'111 * kMs);
+    EXPECT_FALSE(controller.ignoringLoneFullPush());
+    EXPECT_FLOAT_EQ(sentTo(controller, 0).constantLevel, 1.0F);
+}
+
+// Only the constant force at full scale: 99.9% is a real force, and other effects at full strength are left alone.
+TEST(FfbLoneFullPush, OnlyAConstantForceAtFullScaleIsScreened) {
+    FfbEffect push;
+    push.constantLevel = -0.999F;
+    EXPECT_FLOAT_EQ(FfbController::screened(push, false).constantLevel, -0.999F);
+    push.constantLevel = -1.0F;
+    EXPECT_EQ(FfbController::screened(push, false).constantLevel, 0.0F);
+    EXPECT_FLOAT_EQ(FfbController::screened(push, true).constantLevel, -1.0F);
+    FfbEffect sine;
+    sine.type = FfbEffectType::Sine;
+    sine.periodic.magnitude = 1.0F;
+    sine.constantLevel = 1.0F;   // not its force: a periodic effect's is its magnitude
+    EXPECT_EQ(FfbController::screened(sine, false), sine);
+}
+
+// ignore_lone_full_push = false: GRID's stream plays as the game sends it.
+TEST(FfbLoneFullPush, SwitchedOffEveryFullPushPlays) {
+    RecordingSink sink;
+    FfbSafetyConfig safety = nfsSafety();
+    safety.ignoreLoneFullPush = false;
+    FfbController controller(sink, safety, kPatientWatchdog);
+    FfbEffect push;
+    push.constantLevel = -1.0F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.update(0);
+    controller.update(100 * kMs);   // past the soft start
+    EXPECT_FLOAT_EQ(sentTo(controller, 0).constantLevel, -1.0F);
+    EXPECT_FALSE(controller.ignoringLoneFullPush());
 }
 
 // A clock that goes back (another time source after a restart) is no frozen push.

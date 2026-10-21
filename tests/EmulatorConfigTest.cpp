@@ -306,6 +306,25 @@ TEST(EmulatorConfig, ReadsHowLongAFrozenPushMayLast) {
     }
 }
 
+// ignore_lone_full_push: true by default (GRID's broken value plays as none); false plays every full push.
+TEST(EmulatorConfig, ReadsWhetherALoneFullPushIsIgnored) {
+    EXPECT_TRUE(load("").config.ffb.ignoreLoneFullPush);
+    EXPECT_FALSE(load("[ffb]\nignore_lone_full_push = false\n").config.ffb.ignoreLoneFullPush);
+    const auto result = load("[ffb]\nignore_lone_full_push = sometimes\n");
+    EXPECT_TRUE(containsError(result, "ignore_lone_full_push"));
+    EXPECT_TRUE(result.config.ffb.ignoreLoneFullPush);
+}
+
+// [buttons] order: driver (the default) or native; anything else is reported and the default kept.
+TEST(EmulatorConfig, ReadsTheButtonOrder) {
+    EXPECT_EQ(load("").config.buttonOrder, ButtonOrder::Driver);
+    EXPECT_EQ(load("[buttons]\norder = native\n").config.buttonOrder, ButtonOrder::Native);
+    EXPECT_EQ(load("[buttons]\norder = driver ; as Logitech's driver\n").config.buttonOrder, ButtonOrder::Driver);
+    const auto result = load("[buttons]\norder = hid\n");
+    EXPECT_TRUE(containsError(result, "order")) << (result.errors.empty() ? "" : result.errors[0]);
+    EXPECT_EQ(result.config.buttonOrder, ButtonOrder::Driver);
+}
+
 // Every spelling of a yes/no setting, and one that is neither (reported, the default kept).
 TEST(EmulatorConfig, ReadsEverySpellingOfABool) {
     EXPECT_TRUE(load("[ffb]\ninvert = yes\n").config.ffbInvert);

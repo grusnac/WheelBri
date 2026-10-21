@@ -251,6 +251,13 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
             reader.readButtonSources("target_" + std::to_string(target) + "_or", config.mapper.buttonSecondary[target],
                                      config.mapper);
         }
+        std::string order(toString(config.buttonOrder));
+        reader.readString("order", order);
+        if (const auto parsed = parseButtonOrder(order)) {
+            config.buttonOrder = *parsed;
+        } else {
+            errors.push_back("[buttons] order = '" + order + "': expected driver or native");
+        }
         reader.reportUnknownKeys();
     }
     // [button_labels] button_N / [axis_labels] axis_N = what that control is called on the wheel (display only).
@@ -272,6 +279,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         reader.readFloat("max_magnitude", config.ffb.maxMagnitude, 0.0F, 1.0F);
         reader.readFloat("max_slew_per_second", config.ffb.maxSlewPerSecond, 0.0F, 1000.0F);
         reader.readFloat("frozen_force_s", config.ffb.frozenForceSeconds, 0.0F, 60.0F);
+        reader.readBool("ignore_lone_full_push", config.ffb.ignoreLoneFullPush);
         reader.readBool("invert", config.ffbInvert);
         reader.readBool("game_effects", config.gameFfb);
         reader.readFloat("centring_spring", config.centringSpringPercent, 0.0F, kCentringSpringMaxPercent);

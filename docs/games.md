@@ -59,9 +59,11 @@ and are applied by themselves while the game runs.
 
 - **Target:** **G25** (the game has its own G25 preset: wheel X, throttle Y, brake Rz, its combined pedals on Slider 0).
   Both modes work; Mode Shim needs the 32-bit shim (the game is 32-bit).
-- **Set up:** VSync on in the game (or the frame rate capped): with VSync off at 144 Hz it sends a broken force (no
-  force feedback). The game sends no centring of its own and turns the wheel's off: set the G25's **Centring spring**
-  on the Mapping tab (Logitech's software had the same setting; untried yet).
+- **Set up:** VSync on in the game (or the frame rate capped): with VSync off at 144 Hz or more it sends a broken force
+  (no force feedback). WheelBri plays that as none in both modes (before 2026-10-21, in Mode Virtual it pulled the
+  wheel to one side every few seconds). A fresh install starts with VSync off at the screen's highest refresh rate.
+  The game sends no centring of its own and turns the wheel's off: set the G25's **Centring spring** on the Mapping
+  tab (Logitech's software had the same setting; untried yet).
 - **Buttons (its G25 preset):** Instant Replay is Red 3; in the replay the wheel and pedals rewind and fast forward,
   and pause, cameras and Jump In (the Flashback) are keys only (F1, F7/F8, F12).
 - **Known:** Alt+Tab in fullscreen crashes the game during a race (its own Direct3D 9 code writes to a graphics
