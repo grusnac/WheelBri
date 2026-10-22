@@ -340,6 +340,48 @@ TEST_F(LiveView, ShadowViewLightsWhatTheGameSees) {
     }
 }
 
+// The G27 has its own picture: its 23 buttons each by the game's number in either order (the six wheel buttons
+// three a side, R / L Wheel 2 and 3 faint: nothing drives them in g27.ini), the shifter without the G25's H knob.
+TEST_F(LiveView, ShadowViewHasEveryG27ButtonByTheGamesNumber) {
+    profile_ = makeProfile("g27");
+    std::ifstream in(std::filesystem::path(WHEELBRI_CONFIG_DIR) / "g27.ini", std::ios::binary);
+    std::stringstream text;
+    text << in.rdbuf();
+    const MapperConfig mapper = loadEmulatorConfig(IniDocument::parse(text.str()).document).config.mapper;
+    for (const ButtonOrder order : {ButtonOrder::Driver, ButtonOrder::Native}) {
+        auto view = makeView(8, 40, mapper);
+        view->showShadow(true);
+        view->setButtonOrder(order);
+        draw(*view);
+        ASSERT_TRUE(view->showingShadow());
+        for (std::size_t b = 0; b < 23; ++b) {
+            const std::string number = std::to_string(gameButtonNumber(*profile_, order, b));
+            bool drawn = false;
+            for (const auto& t : window_.last.texts) drawn = drawn || (t.value == number && t.y > 60);
+            EXPECT_TRUE(drawn) << "button " << b << " (" << number << ")\n" << window_.dump();
+        }
+    }
+    for (const char* name : {"R Wheel 2", "L Wheel 2", "R Wheel 3", "L Wheel 3"}) {
+        EXPECT_TRUE(hasIn(window_, name, style::kFaint)) << name << "\n" << window_.dump();
+    }
+    EXPECT_TRUE(hasIn(window_, "Cam", style::kText));       // L Wheel 1 <- the rim's Cam
+    EXPECT_TRUE(hasIn(window_, "Start", style::kText));     // Black 1
+    EXPECT_FALSE(window_.has("H"));                          // no H / sequential knob on the G27
+    EXPECT_TRUE(window_.has("L Wheel 3", true) && window_.has("Gear R, R Wheel 2", true)) << window_.dump();
+    bool listed = false;   // the last of "Nothing drives" fits too (the list wraps to four lines)
+    for (const auto& t : window_.last.texts) listed = listed || (t.x > 600 && t.value.find("L Wheel 3") != std::string::npos);
+    EXPECT_TRUE(listed) << window_.dump();
+
+    // A press lights it: R Wheel 1 (driver 7) dark on green.
+    auto view = makeView(8, 40, mapper);
+    view->showShadow(true);
+    TargetReport report;
+    report.buttons = 1U << 6;
+    draw(*view, {}, {}, report);
+    EXPECT_TRUE(hasIn(window_, "7", style::kDark)) << window_.dump();
+    EXPECT_TRUE(window_.has("R            -> 7 R Wheel 1")) << window_.dump();
+}
+
 // The amber mark on the rim follows the steering arc: at full lock left it sits at the arc's left end (150 degrees
 // left of the top), not wherever 450 degrees would put it; centred, at the top.
 TEST_F(LiveView, ShadowViewRimMarkFollowsTheArc) {

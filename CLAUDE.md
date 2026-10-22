@@ -152,7 +152,7 @@ Warnings: `-Wall -Wextra -Wpedantic` (`/W4 /permissive-` on MSVC).
     (`UiStyle.hpp`); tests compare against `style::`, not literals.
   - Shapes (`UiWindow::fillPolygon`, `fillEllipse`, `fillRing`) are drawn as rows of `fill()` (core `ShapeSpans`), so
     every window and test fake draws them. The Mapping tab's Shadow view (`ShadowView.cpp`) draws the target with them;
-    only the G25 has a picture (`ShadowView::hasPicture`), the others show the List view.
+    the G25 and the G27 have pictures (`ShadowView::hasPicture`), the others show the List view.
 - **`service/helper/`**: the WheelBri Helper, a SYSTEM Windows service reached over a pipe, so the app runs as a
   standard user.
 - **`shim/`**: proxies `IDirectInput8A/W`, written once as templates over `AnsiTraits` / `WideTraits`.

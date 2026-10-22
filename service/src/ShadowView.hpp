@@ -6,6 +6,7 @@
 #include "wheelbri/ShapeSpans.hpp"
 #include "wheelbri/WheelState.hpp"
 
+#include "UiStyle.hpp"
 #include "UiWindow.hpp"
 
 #include <array>
@@ -23,10 +24,10 @@ namespace wheelbri::service {
 // control nothing drives is faint. On the right, what is pressed now ("yours -> target"). It shows what the game
 // gets (the mapped report), not the rig's raw input: the List view (MappingView's live page) has that.
 //
-// Only the G25 has a picture so far (hasPicture); MappingView shows its List view for the other targets.
+// The G25 and the G27 have pictures (hasPicture); MappingView shows its List view for the other targets.
 class ShadowView {
 public:
-    // Whether `profile` has a picture here: the G25 (its 19 buttons, README "Targets").
+    // Whether `profile` has a picture here: the G25 (its 19 buttons) or the G27 (its 23; README "Targets").
     [[nodiscard]] static bool hasPicture(const IDeviceProfile& profile);
 
     // Draws into `window` (not owned; it must outlive the view).
@@ -74,7 +75,8 @@ private:
     void drawList(const WheelState& state, const TargetReport& report, float listX);
 
     // Colours by state: lit, a control at rest (`idle`), one nothing drives.
-    [[nodiscard]] ui::Colour controlColour(std::size_t target, std::uint32_t pressed, ui::Colour idle) const;
+    [[nodiscard]] ui::Colour controlColour(std::size_t target, std::uint32_t pressed, ui::Colour idle,
+                                           ui::Colour off = style::kShadowOff) const;
     [[nodiscard]] ui::Colour labelColour(std::size_t target, std::uint32_t pressed) const;
 
     // The rig's name for a source: its label, else "Rig 37" / "<accessory> 4"; `axis` for an axis.
@@ -90,6 +92,7 @@ private:
     MapperConfig mapper_;
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories_{};
     ButtonOrder order_ = ButtonOrder::Driver;
+    bool g27_ = false;             // the G27's picture (else the G25's)
     float offY_ = 0.0F;
     std::vector<ShapePoint> points_;   // a shape's corners (kept: drawing allocates nothing once grown)
 };

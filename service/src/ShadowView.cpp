@@ -16,16 +16,22 @@ using ui::Colour;
 
 constexpr float kPi = 3.14159265F;
 
-// The G25's buttons as named (DeviceProfile.hpp, g25Spec): Driver order, 0-based.
+// The G25's and G27's buttons as named (DeviceProfile.hpp, g25Spec, g27Spec): Driver order, 0-based. 0..18 are the
+// same on both; the G27 adds its wheel's lower buttons 19..22.
 constexpr std::size_t kRed1 = 0;            // red 1-4: 0..3, left to right
 constexpr std::size_t kRPaddle = 4;
 constexpr std::size_t kLPaddle = 5;
-constexpr std::size_t kRWheel = 6;
-constexpr std::size_t kLWheel = 7;
+constexpr std::size_t kRWheel = 6;           // the G27's R Wheel 1
+constexpr std::size_t kLWheel = 7;           // the G27's L Wheel 1
 constexpr std::size_t kGear1 = 8;           // gears 1-6: 8..13, reverse 14
 constexpr std::size_t kGearR = 14;
-constexpr std::size_t kBlkTop = 15;         // the black diamond: top, left, bottom, right 15..18
-constexpr std::size_t kButtons = 19;
+constexpr std::size_t kBlkTop = 15;         // the black diamond: top, left, bottom, right 15..18 (G27: Black 1-4)
+constexpr std::size_t kRWheel2 = 19;        // the G27 only
+constexpr std::size_t kLWheel2 = 20;
+constexpr std::size_t kRWheel3 = 21;
+constexpr std::size_t kLWheel3 = 22;
+constexpr std::size_t kG25Buttons = 19;
+constexpr std::size_t kG27Buttons = 23;
 
 // The picture is laid out on the design's coordinates (the sketches': its heading at y 54); draw() moves it to `top`.
 constexpr float kDesignTop = 54.0F;
@@ -58,11 +64,13 @@ std::string cut(std::string value, const std::size_t chars) {
 }  // namespace
 
 bool ShadowView::hasPicture(const IDeviceProfile& profile) {
-    return profile.identity().shortName == "G25" && profile.buttonCount() == kButtons;
+    const std::string& name = profile.identity().shortName;
+    return (name == "G25" && profile.buttonCount() == kG25Buttons) ||
+           (name == "G27" && profile.buttonCount() == kG27Buttons);
 }
 
 ShadowView::ShadowView(ui::UiWindow& window, const IDeviceProfile& profile, const MapperConfig& mapper)
-    : window_(window), profile_(profile), mapper_(mapper) {}
+    : window_(window), profile_(profile), mapper_(mapper), g27_(profile.identity().shortName == "G27") {}
 
 // --- what a control is called ---------------------------------------------------------------------------------------
 
@@ -129,9 +137,10 @@ float ShadowView::steeringDegrees(const WheelState& state) const {
     return std::clamp(state.steering, -1.0F, 1.0F) * mapper_.steering.targetRotationDeg * 0.5F;
 }
 
-Colour ShadowView::controlColour(const std::size_t target, const std::uint32_t pressed, const Colour idle) const {
+Colour ShadowView::controlColour(const std::size_t target, const std::uint32_t pressed, const Colour idle,
+                                 const Colour off) const {
     if (bit(pressed, target)) return style::kActive;
-    return driven(target) ? idle : style::kShadowOff;
+    return driven(target) ? idle : off;
 }
 
 Colour ShadowView::labelColour(const std::size_t target, const std::uint32_t pressed) const {
@@ -220,50 +229,63 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed)
     const float R = kWheelR;
     const auto at = [&](const float x, const float y) { return ShapePoint{cx + x * R, cy + y * R}; };
 
-    // The paddles: half-moon blades behind the red buttons, nearly upright (the top leaning in a little), the round
-    // side out, their tips rounded off as on the real one. Drawn first: the spokes and buttons are in front of them.
-    // A blade is its middle line (bowed outwards) with a half width that swells from the tips' to the middle's, and a
-    // half circle closing each tip.
+    // The paddles: half-moon blades behind the red buttons (the G27's: Wheel 1), nearly upright (the top leaning in a
+    // little), the round side out, with rounded tips. Drawn first: the spokes and buttons are in front of them. A blade
+    // is its middle line (bowed outwards) with edges offset square to it by a half width that swells from the tips' to
+    // the middle's; each tip is a half circle of exactly the tip's half width, turned along the blade, so it runs on
+    // from the edges. The G27's are longer and wider, with their number on the top part (above Wheel 2).
     std::array<ShapePoint, 2> paddleNumber{};
     for (const auto& [target, side] : {std::pair{kLPaddle, -1.0F}, std::pair{kRPaddle, 1.0F}}) {
         const ShapePoint centre = at(side * 0.62F, 0.05F);
-        const float tipHalf = 0.05F * R;                 // the rounded tips' radius
-        const float midHalf = 0.08F * R;                 // half the blade's width at its middle
-        const float length = 0.78F * R - 2 * tipHalf;    // between the tips' centres (the caps make up the rest)
+        const float tipHalf = (g27_ ? 0.09F : 0.05F) * R;
+        const float midHalf = (g27_ ? 0.10F : 0.08F) * R;
+        const float length = (g27_ ? 1.0F : 0.78F) * R - 2 * tipHalf;   // between the tips' centres
+        const float numberAt = g27_ ? 0.06F : 0.22F;                     // along the blade, from its top
         const float tilt = 5.0F * kPi / 180.0F;
-        constexpr int kSteps = 24;
-        constexpr int kCapSteps = 8;
+        constexpr int kSteps = 32;
+        constexpr int kCapSteps = 12;
         // A point of the blade's own frame (x outwards, y down, from `centre`) on the window.
         const auto place = [&](const float lx, const float ly) {
             const float xr = lx * std::cos(tilt) + ly * std::sin(tilt);
             const float yr = -lx * std::sin(tilt) + ly * std::cos(tilt);
             return ShapePoint{centre.x + side * xr, centre.y + yr};
         };
-        const auto middle = [&](const float u) { return 0.125F * R * std::sin(kPi * u) - 0.09F * R; };
+        const float bow = 0.125F * R;
+        const auto middle = [&](const float u) {
+            return ShapePoint{bow * std::sin(kPi * u) - 0.09F * R, -length / 2 + length * u};
+        };
+        const auto tangent = [&](const float u) {   // along the blade, downwards
+            const float dx = bow * kPi * std::cos(kPi * u);
+            const float n = std::hypot(dx, length);
+            return ShapePoint{dx / n, length / n};
+        };
         const auto half = [&](const float u) { return tipHalf + (midHalf - tipHalf) * std::sin(kPi * u); };
-        const auto along = [&](const float u) { return -length / 2 + length * u; };
+        const auto edge = [&](const float u, const float sign) {   // +1 the outer edge, -1 the inner
+            const ShapePoint m = middle(u);
+            const ShapePoint t = tangent(u);
+            return place(m.x + sign * t.y * half(u), m.y - sign * t.x * half(u));
+        };
+        // A tip: the half circle round its centre, from one edge's normal round the end to the other. `from` -1 (the
+        // top): from the inner edge, up over the end, to the outer; +1 (the bottom): from the outer, under, to the inner.
+        const auto cap = [&](const float u, const float from) {
+            const ShapePoint m = middle(u);
+            const ShapePoint t = tangent(u);
+            const ShapePoint n{t.y, -t.x};   // the outward normal
+            for (int i = 0; i <= kCapSteps; ++i) {
+                const float a = kPi * static_cast<float>(i) / kCapSteps;
+                const float dx = from * (n.x * std::cos(a) + t.x * std::sin(a));
+                const float dy = from * (n.y * std::cos(a) + t.y * std::sin(a));
+                points_.push_back(place(m.x + dx * tipHalf, m.y + dy * tipHalf));
+            }
+        };
         points_.clear();
-        // The top tip: a half circle from the inner edge over to the outer one.
-        for (int i = 0; i <= kCapSteps; ++i) {
-            const float a = kPi + kPi * static_cast<float>(i) / kCapSteps;
-            points_.push_back(place(middle(0) + tipHalf * std::cos(a), along(0) + tipHalf * std::sin(a)));
-        }
-        for (int i = 1; i < kSteps; ++i) {   // the outer edge down
-            const float u = static_cast<float>(i) / kSteps;
-            points_.push_back(place(middle(u) + half(u), along(u)));
-        }
-        // The bottom tip: from the outer edge round under to the inner one.
-        for (int i = 0; i <= kCapSteps; ++i) {
-            const float a = kPi * static_cast<float>(i) / kCapSteps;
-            points_.push_back(place(middle(1) + tipHalf * std::cos(a), along(1) + tipHalf * std::sin(a)));
-        }
-        for (int i = kSteps - 1; i > 0; --i) {   // the inner edge back up
-            const float u = static_cast<float>(i) / kSteps;
-            points_.push_back(place(middle(u) - half(u), along(u)));
-        }
+        cap(0, -1);   // the top tip: from the inner edge, over the end, to the outer one
+        for (int i = 1; i < kSteps; ++i) points_.push_back(edge(static_cast<float>(i) / kSteps, 1));   // outer, down
+        cap(1, 1);    // the bottom tip: from the outer edge, under the end, to the inner one
+        for (int i = kSteps - 1; i > 0; --i) points_.push_back(edge(static_cast<float>(i) / kSteps, -1));   // inner, up
         window_.fillPolygon(points_, controlColour(target, pressed, style::kShadowEdge));
-        // Its number on the blade's upper part, on the middle line.
-        const ShapePoint number = place(middle(0.22F), along(0.22F));
+        const ShapePoint m = middle(numberAt);
+        const ShapePoint number = place(m.x, m.y);
         paddleNumber[target == kLPaddle ? 0 : 1] = {number.x + side * 2, number.y};
     }
 
@@ -279,45 +301,92 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed)
     annularArc(cx, cy, R + 14, R + 8, 0, turned, style::kActive);
     annularArc(cx, cy, R, R * 0.87F, turned - 4, turned + 4, style::kCaution);
 
-    // Three drilled steel spokes: left, right and straight down.
-    for (const float side : {-1.0F, 1.0F}) {
-        polygon({at(side * 0.30F, -0.10F), at(side * 0.90F, -0.02F), at(side * 0.90F, 0.16F), at(side * 0.30F, 0.18F)},
-                style::kSteel);
-        for (const float hx : {0.40F, 0.62F, 0.84F}) {
-            const ShapePoint hole = at(side * hx, 0.10F);
+    if (g27_) {
+        // The G27: brushed aluminium spokes, no holes; the side ones wide pods for three buttons, one straight down.
+        for (const float side : {-1.0F, 1.0F}) {
+            polygon({at(side * 0.30F, -0.20F), at(side * 0.80F, -0.30F), at(side * 0.90F, -0.12F),
+                     at(side * 0.90F, 0.22F), at(side * 0.80F, 0.38F), at(side * 0.30F, 0.24F)},
+                    style::kSteel);
+        }
+        polygon({at(-0.12F, 0.30F), at(0.12F, 0.30F), at(0.15F, 0.90F), at(-0.15F, 0.90F)}, style::kSteel);
+        // The hub, with the ten rev lights across its top: the game's output, never lit here.
+        const float hubY = cy + R * 0.02F;
+        window_.fillEllipse(cx, hubY, R * 0.36F + 1, R * 0.36F + 1, style::kShadowEdge);
+        window_.fillEllipse(cx, hubY, R * 0.36F, R * 0.36F, style::kShadow);
+        for (int i = 0; i < 10; ++i) {
+            const float a = (-45.0F + static_cast<float>(i) * 10.0F) * kPi / 180.0F;
+            window_.fillEllipse(cx + std::sin(a) * R * 0.27F, hubY - std::cos(a) * R * 0.27F, R * 0.025F, R * 0.025F,
+                                style::kShadowDeep);
+        }
+        window_.fillEllipse(cx, cy + R * 0.06F, R * 0.13F, R * 0.13F, style::kShadowDeep);
+    } else {
+        // The G25: three drilled steel spokes, left, right and straight down.
+        for (const float side : {-1.0F, 1.0F}) {
+            polygon({at(side * 0.30F, -0.10F), at(side * 0.90F, -0.02F), at(side * 0.90F, 0.16F),
+                     at(side * 0.30F, 0.18F)},
+                    style::kSteel);
+            for (const float hx : {0.40F, 0.62F, 0.84F}) {
+                const ShapePoint hole = at(side * hx, 0.10F);
+                window_.fillEllipse(hole.x, hole.y, R * 0.028F, R * 0.028F, style::kShadowDeep);
+            }
+        }
+        polygon({at(-0.11F, 0.30F), at(0.11F, 0.30F), at(0.14F, 0.90F), at(-0.14F, 0.90F)}, style::kSteel);
+        for (int k = 0; k < 3; ++k) {
+            const ShapePoint hole = at(0, 0.48F + static_cast<float>(k) * 0.13F);
             window_.fillEllipse(hole.x, hole.y, R * 0.028F, R * 0.028F, style::kShadowDeep);
         }
+        // The hub: round, six bolts, the centre cap.
+        const float hubY = cy + R * 0.04F;
+        window_.fillEllipse(cx, hubY, R * 0.34F + 1, R * 0.34F + 1, style::kShadowEdge);
+        window_.fillEllipse(cx, hubY, R * 0.34F, R * 0.34F, style::kShadow);
+        for (int i = 0; i < 6; ++i) {
+            const float a = (30.0F + static_cast<float>(i) * 60.0F) * kPi / 180.0F;
+            window_.fillEllipse(cx + std::cos(a) * R * 0.25F, hubY + std::sin(a) * R * 0.25F, R * 0.025F, R * 0.025F,
+                                style::kShadowDeep);
+        }
+        window_.fillEllipse(cx, hubY, R * 0.14F, R * 0.14F, style::kShadowDeep);
     }
-    polygon({at(-0.11F, 0.30F), at(0.11F, 0.30F), at(0.14F, 0.90F), at(-0.14F, 0.90F)}, style::kSteel);
-    for (int k = 0; k < 3; ++k) {
-        const ShapePoint hole = at(0, 0.48F + static_cast<float>(k) * 0.13F);
-        window_.fillEllipse(hole.x, hole.y, R * 0.028F, R * 0.028F, style::kShadowDeep);
-    }
-    // The hub: round, six bolts, the centre cap.
-    const float hubY = cy + R * 0.04F;
-    window_.fillEllipse(cx, hubY, R * 0.34F + 1, R * 0.34F + 1, style::kShadowEdge);
-    window_.fillEllipse(cx, hubY, R * 0.34F, R * 0.34F, style::kShadow);
-    for (int i = 0; i < 6; ++i) {
-        const float a = (30.0F + static_cast<float>(i) * 60.0F) * kPi / 180.0F;
-        window_.fillEllipse(cx + std::cos(a) * R * 0.25F, hubY + std::sin(a) * R * 0.25F, R * 0.025F, R * 0.025F,
-                            style::kShadowDeep);
-    }
-    window_.fillEllipse(cx, hubY, R * 0.14F, R * 0.14F, style::kShadowDeep);
 
-    // The two red thumb buttons, low on the side spokes; then the paddles' numbers (in front of the spokes).
-    for (const auto& [target, side] : {std::pair{kLWheel, -1.0F}, std::pair{kRWheel, 1.0F}}) {
-        const ShapePoint p = at(side * 0.62F, 0.05F);
-        window_.fillEllipse(p.x, p.y, R * 0.085F, R * 0.085F, controlColour(target, pressed, style::kShadowRed));
-        numberOn(p.x, p.y, target, bit(pressed, target));
+    // The red wheel buttons, with their labels outside the rim, level with them. The G25: one a side, low on the side
+    // spoke. The G27: three a side in a column on the spoke near the rim, Wheel 2 above Wheel 1 and Wheel 3 below.
+    struct WheelButton {
+        std::size_t target;
+        float side;
+        float x;
+        float y;
+    };
+    std::array<WheelButton, 6> buttons{};
+    std::size_t count = 0;
+    for (const float side : {-1.0F, 1.0F}) {
+        const bool left = side < 0;
+        if (g27_) {
+            buttons[count++] = {left ? kLWheel2 : kRWheel2, side, 0.66F, -0.17F};
+            buttons[count++] = {left ? kLWheel : kRWheel, side, 0.66F, 0.05F};
+            buttons[count++] = {left ? kLWheel3 : kRWheel3, side, 0.66F, 0.27F};
+        } else {
+            buttons[count++] = {left ? kLWheel : kRWheel, side, 0.62F, 0.05F};
+        }
     }
+    const float buttonR = (g27_ ? 0.075F : 0.085F) * R;
+    for (std::size_t i = 0; i < count; ++i) {
+        const WheelButton& b = buttons[i];
+        const ShapePoint p = at(b.side * b.x, b.y);
+        window_.fillEllipse(p.x, p.y, buttonR, buttonR,
+                            controlColour(b.target, pressed, style::kShadowRed, style::kShadowRedOff));
+        numberOn(p.x, p.y, b.target, bit(pressed, b.target));
+        const std::string name = cut(label(b.target), 12);
+        if (b.side < 0) {
+            textLeftOf(cx - R - 24, p.y - 4, name, labelColour(b.target, pressed));
+        } else {
+            window_.text(cx + R + 30, p.y - 4, name, labelColour(b.target, pressed));
+        }
+    }
+    // The paddles' numbers (in front of the spokes) and their labels, above the buttons'.
     numberOn(paddleNumber[0].x, paddleNumber[0].y, kLPaddle, bit(pressed, kLPaddle));
     numberOn(paddleNumber[1].x, paddleNumber[1].y, kRPaddle, bit(pressed, kRPaddle));
-
-    // Labels outside the wheel: the paddles above, the thumb buttons level with them; the steering at the top.
-    textLeftOf(cx - R - 24, cy - R * 0.30F, cut(label(kLPaddle), 12), labelColour(kLPaddle, pressed));
-    window_.text(cx + R + 30, cy - R * 0.30F, cut(label(kRPaddle), 12), labelColour(kRPaddle, pressed));
-    textLeftOf(cx - R - 24, cy + R * 0.05F - 4, cut(label(kLWheel), 12), labelColour(kLWheel, pressed));
-    window_.text(cx + R + 30, cy + R * 0.05F - 4, cut(label(kRWheel), 12), labelColour(kRWheel, pressed));
+    const float paddleLabelY = cy - R * (g27_ ? 0.42F : 0.30F);
+    textLeftOf(cx - R - 24, paddleLabelY, cut(label(kLPaddle), 12), labelColour(kLPaddle, pressed));
+    window_.text(cx + R + 30, paddleLabelY, cut(label(kRPaddle), 12), labelColour(kRPaddle, pressed));
     char line[48];
     std::snprintf(line, sizeof(line), "%s %+.0f deg", cut(axisLabel(PedalConfig{mapper_.steering.sourceAxis,
                                                                                 mapper_.steering.sourceDevice},
@@ -434,7 +503,7 @@ void ShadowView::drawShifter(const std::uint32_t pressed, const std::int8_t hat)
     for (std::size_t k = 0; k < 4; ++k) {
         const std::size_t target = kRed1 + k;
         const float bx = mid + (static_cast<float>(k) - 1.5F) * kStep;
-        window_.fillEllipse(bx, ry, 13, 13, controlColour(target, pressed, style::kShadowRed));
+        window_.fillEllipse(bx, ry, 13, 13, controlColour(target, pressed, style::kShadowRed, style::kShadowRedOff));
         numberOn(bx, ry, target, bit(pressed, target));
         textCentred(bx, ry + 18, cut(label(target), 7), labelColour(target, pressed));
     }
@@ -480,10 +549,12 @@ void ShadowView::drawShifter(const std::uint32_t pressed, const std::int8_t hat)
     } else {
         window_.fillEllipse(knob.x - 4, knob.y - 5, 5, 5, style::kShadowKnobTop);
     }
-    // The H / sequential knob: not an input the game sees (dim).
-    window_.fillEllipse(x + 306, y + 30, 11, 11, style::kShadowEdge);
-    window_.fillEllipse(x + 306, y + 30, 10, 10, style::kShadowDeep);
-    window_.text(x + 302, y + 46, "H", style::kFaint);
+    // The G25's H / sequential knob: not an input the game sees (dim). The G27 has none.
+    if (!g27_) {
+        window_.fillEllipse(x + 306, y + 30, 11, 11, style::kShadowEdge);
+        window_.fillEllipse(x + 306, y + 30, 10, 10, style::kShadowDeep);
+        window_.text(x + 302, y + 46, "H", style::kFaint);
+    }
 }
 
 // --- the list -------------------------------------------------------------------------------------------------------
@@ -558,9 +629,9 @@ void ShadowView::drawList(const WheelState& state, const TargetReport& report, c
     if (y + 34 <= bottom) {
         window_.text(listX, y + 6, "Nothing drives:", style::kDim);
         const std::string text = idle.empty() ? std::string("(every button is mapped)") : idle;
-        // Wrapped at commas into the list's width, two lines at most.
+        // Wrapped at commas into the list's width, four lines at most.
         std::size_t start = 0;
-        for (int line = 0; line < 2 && start < text.size(); ++line) {
+        for (int line = 0; line < 4 && start < text.size(); ++line) {
             std::size_t end = std::min(text.size(), start + chars);
             if (end < text.size()) {
                 const std::size_t comma = text.rfind(", ", end);

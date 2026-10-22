@@ -42,6 +42,7 @@ inline constexpr ui::Colour kSteel{58, 63, 74};         // spokes, pedal faces
 inline constexpr ui::Colour kShadowControl{66, 72, 84}; // a control something drives, at rest
 inline constexpr ui::Colour kShadowOff{36, 39, 46};     // a control nothing drives (sunk into the panel)
 inline constexpr ui::Colour kShadowRed{128, 50, 50};    // a red button at rest
+inline constexpr ui::Colour kShadowRedOff{70, 44, 48};  // a red button nothing drives
 inline constexpr ui::Colour kShadowBlack{24, 26, 30};   // a black button at rest
 inline constexpr ui::Colour kShadowKnob{30, 32, 38};    // the gear knob
 inline constexpr ui::Colour kShadowKnobTop{64, 68, 78}; // its highlight
