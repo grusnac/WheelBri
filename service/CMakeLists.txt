@@ -43,6 +43,7 @@ add_library(wheelbri_service_objects OBJECT
     src/HelperProbe.cpp
     src/Housekeeping.cpp
     src/MappingView.cpp
+    src/ShadowView.cpp
     src/PrivilegedSteps.cpp
     src/ServiceLogging.cpp
     src/Wheel.cpp

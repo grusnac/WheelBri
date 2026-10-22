@@ -9,7 +9,9 @@
 #include "UiStyle.hpp"
 
 #include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LocalDate.hpp"
 #include "wheelbri/Logging.hpp"
 
@@ -18,6 +20,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <thread>
 
@@ -170,6 +173,7 @@ TEST_F(LiveView, TargetButtonsShowTheGamesNumbers) {
     mapper.sourceButtonLabels[34] = "R";
     auto view = makeView(8, 40, mapper);
     view->setTab(MappingView::Tab::Mapping);
+    view->showShadow(false);   // the List view (the G25 starts with its Shadow view)
     RawInputs inputs;
     draw(*view, inputs);
     inputs.devices[0].buttons = 1ULL << 34;
@@ -188,6 +192,187 @@ TEST_F(LiveView, TargetButtonsShowTheGamesNumbers) {
     EXPECT_TRUE(window_.has("Last pressed: G25 6 R Wheel <- Rig 34 R")) << window_.dump();
     EXPECT_TRUE(window_.has("G25 11 Red 1    <- --", true)) << window_.dump();   // Red 1 is native 11
     EXPECT_TRUE(window_.has("G25 button (native, from 0)", true)) << window_.dump();
+}
+
+// --- the Shadow view (ShadowView.cpp) -------------------------------------------------------------------------------
+
+// The shipped G25 config's mapping (config/g25.ini): the Moza rim's labels on the G25's buttons, no shifter mapped.
+MapperConfig g25Mapping() {
+    std::ifstream in(std::filesystem::path(WHEELBRI_CONFIG_DIR) / "g25.ini", std::ios::binary);
+    std::stringstream text;
+    text << in.rdbuf();
+    return loadEmulatorConfig(IniDocument::parse(text.str()).document).config.mapper;
+}
+
+bool sameColour(const ui::Colour a, const ui::Colour b) { return a.r == b.r && a.g == b.g && a.b == b.b; }
+
+// A text drawn exactly `value` (not part of a longer one) in `colour`.
+bool hasIn(const ScriptedWindow& window, const std::string& value, const ui::Colour colour) {
+    for (const auto& t : window.last.texts) {
+        if (t.value == value && sameColour(t.colour, colour)) return true;
+    }
+    return false;
+}
+
+// The G25 starts on its Shadow view (the picture), with the Shadow / List switch in the header; the List view is the
+// rig's axes and buttons as before. Clicks and S switch, and the choice holds for the next session's view. A target
+// with no picture (the G920) has no switch and always shows the list.
+TEST_F(LiveView, ShadowViewIsTheG25sFirstView) {
+    profile_ = makeProfile("g25");
+    auto view = makeView(8, 40, g25Mapping());
+    view->showShadow(true);
+    draw(*view);
+    EXPECT_TRUE(view->showingShadow());
+    EXPECT_TRUE(window_.has("SHADOW")) << window_.dump();
+    EXPECT_TRUE(window_.has("PRESSED NOW"));
+    EXPECT_TRUE(window_.has("Shadow"));
+    EXPECT_TRUE(window_.has("List"));
+    EXPECT_FALSE(window_.has("AXES"));
+    EXPECT_GT(window_.last.rects.size(), 500U);   // the shapes, drawn row by row
+
+    ASSERT_TRUE(clickOn(*view, "List"));
+    draw(*view);
+    EXPECT_FALSE(view->showingShadow());
+    EXPECT_TRUE(window_.has("AXES"));
+    EXPECT_FALSE(window_.has("PRESSED NOW"));
+    auto next = makeView(8, 40, g25Mapping());   // the next session's view: still the list
+    EXPECT_FALSE(next->showingShadow());
+    view->onKey('s');
+    EXPECT_TRUE(view->showingShadow());
+    view->onKey('l');   // S only on the Mapping tab
+    view->onKey('s');
+    EXPECT_TRUE(view->showingShadow());
+    view->onKey('m');
+    ASSERT_TRUE(clickOn(*view, "Shadow"));
+    EXPECT_TRUE(view->showingShadow());
+
+    profile_ = makeProfile("g920");
+    auto g920 = makeView();
+    g920->onKey('s');
+    draw(*g920);
+    EXPECT_FALSE(g920->showingShadow());
+    EXPECT_TRUE(window_.has("AXES"));
+    EXPECT_FALSE(window_.has("Shadow"));
+}
+
+// Every one of the G25's 19 buttons has its place on the picture: each number the game knows drawn once on a
+// button, in either order (driver from 1, native from 0). Beside them the rig's labels (g25.ini's Moza rim), and the
+// G25's own names where a control has none: Red 2 (rig 37 has no label), the gears (nothing drives them: faint).
+TEST_F(LiveView, ShadowViewHasEveryG25ButtonByTheGamesNumber) {
+    profile_ = makeProfile("g25");
+    for (const ButtonOrder order : {ButtonOrder::Driver, ButtonOrder::Native}) {
+        auto view = makeView(8, 40, g25Mapping());
+        view->showShadow(true);
+        view->setButtonOrder(order);
+        draw(*view);
+        for (std::size_t b = 0; b < kG25Buttons; ++b) {
+            const std::string number = std::to_string(gameButtonNumber(*profile_, order, b));
+            int drawn = 0;
+            for (const auto& t : window_.last.texts) {
+                if (t.value == number && t.y > 60) ++drawn;   // on the picture (not the header's)
+            }
+            EXPECT_GE(drawn, 1) << "button " << b << " (" << number << ")\n" << window_.dump();
+        }
+    }
+    // The labels beside them.
+    for (const char* label : {"Radio", "Home", "Start", "Cam", "R", "L paddle", "R paddle", "Y", "X", "A", "B"}) {
+        EXPECT_TRUE(hasIn(window_, label, style::kText)) << label << "\n" << window_.dump();
+    }
+    EXPECT_TRUE(hasIn(window_, "Red 2", style::kText));   // driven by rig 37, which has no label
+    for (const char* gear : {"1", "2", "3", "4", "5", "6", "R"}) {
+        EXPECT_TRUE(hasIn(window_, gear, style::kFaint)) << gear;   // nothing drives the gears by default
+    }
+    EXPECT_TRUE(window_.has("Gear 1, Gear 2", true)) << window_.dump();   // named in "Nothing drives"
+    EXPECT_TRUE(window_.has("Gas pedal") && window_.has("Brake pedal") && window_.has("Clutch pedal"));
+}
+
+// What the game sees pressed lights up: the button (its number dark on green), the D-pad's arm, the pedals' fill by
+// how far, the steering arc and degrees; the list on the right says what drives each, yours first.
+TEST_F(LiveView, ShadowViewLightsWhatTheGameSees) {
+    profile_ = makeProfile("g25");
+    MapperConfig mapper = g25Mapping();
+    mapper.buttonMap[11] = 4;                        // Gear 4 <- a shifter's button 4 (no label)
+    mapper.buttonDevice[11] = 1;
+    mapper.steering.targetRotationDeg = 900.0F;
+    auto view = makeView(8, 40, mapper);
+    std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories{};
+    accessories[0].name = "Shifter";
+    accessories[0].vendorId = 0x1234;
+    accessories[0].productId = 2;
+    view->setAccessories(accessories);
+    view->showShadow(true);
+    WheelState state;
+    state.steering = 120.0F / 450.0F;
+    state.brake = 0.85F;
+    state.clutch = 1.0F;
+    TargetReport report;
+    report.buttons = (1U << 5) | (1U << 17) | (1U << 11);   // L Paddle, Blk bottom, Gear 4
+    report.hat = 2;                                          // right
+    draw(*view, {}, state, report);
+
+    EXPECT_TRUE(hasIn(window_, "6", style::kDark)) << window_.dump();    // L Paddle (driver 6) lit
+    EXPECT_TRUE(hasIn(window_, "18", style::kDark));                     // Blk bottom (driver 18) lit
+    EXPECT_TRUE(hasIn(window_, "12", style::kActive));                   // Gear 4's number on the knob
+    EXPECT_TRUE(hasIn(window_, "L paddle", style::kActive));
+    EXPECT_TRUE(hasIn(window_, "A", style::kActive));
+    EXPECT_TRUE(hasIn(window_, "Right", style::kActive));                // the D-pad's right arm
+    EXPECT_TRUE(hasIn(window_, "85%", style::kActive));
+    EXPECT_TRUE(hasIn(window_, "100%", style::kActive));
+    EXPECT_TRUE(hasIn(window_, "0%", style::kDim));                      // the throttle at rest
+    EXPECT_TRUE(window_.has("Wheel +120 deg")) << window_.dump();
+    EXPECT_TRUE(window_.has("Steering +120 deg", true));
+    EXPECT_TRUE(window_.has("L paddle     -> 6 L Paddle")) << window_.dump();
+    EXPECT_TRUE(window_.has("A            -> 18 Blk bottom"));
+    EXPECT_TRUE(window_.has("Shifter 4    -> 12 Gear 4"));   // an unlabelled source: its device and number
+    EXPECT_TRUE(window_.has("Right        -> Hat right"));
+    EXPECT_TRUE(window_.has("Brake pedal  -> Brake 85%"));
+    bool green = false;
+    for (const auto& r : window_.last.rects) green = green || (r.filled && sameColour(r.colour, style::kActive));
+    EXPECT_TRUE(green);
+
+    // Nothing pressed: the list says so, and nothing is green.
+    draw(*view);
+    EXPECT_TRUE(window_.has("nothing (press a button, a pedal, turn)"));
+    for (const auto& r : window_.last.rects) {
+        if (r.y > 40) {
+            EXPECT_FALSE(sameColour(r.colour, style::kActive)) << r.x << "," << r.y;
+        }
+    }
+}
+
+// The amber mark on the rim follows the steering arc: at full lock left it sits at the arc's left end (150 degrees
+// left of the top), not wherever 450 degrees would put it; centred, at the top.
+TEST_F(LiveView, ShadowViewRimMarkFollowsTheArc) {
+    profile_ = makeProfile("g25");
+    MapperConfig mapper = g25Mapping();
+    mapper.steering.targetRotationDeg = 900.0F;
+    auto view = makeView(8, 40, mapper);
+    view->showShadow(true);
+    const auto markCentre = [&](const float steering) {
+        WheelState state;
+        state.steering = steering;
+        draw(*view, {}, state);
+        float sx = 0;
+        float sy = 0;
+        float n = 0;
+        for (const auto& r : window_.last.rects) {
+            if (r.filled && sameColour(r.colour, style::kCaution)) {
+                sx += (r.x + r.w / 2) * r.w;
+                sy += r.y * r.w;
+                n += r.w;
+            }
+        }
+        EXPECT_GT(n, 0.0F);
+        return std::pair{sx / n, sy / n};
+    };
+    const auto [cx0, cy0] = markCentre(0.0F);       // the top: straight above the hub
+    const auto [lx, ly] = markCentre(-1.0F);        // full lock left: lower left, 150 degrees round
+    const auto [hx, hy] = markCentre(-0.5F);        // half way: 75 degrees left
+    EXPECT_NEAR(cx0, 260.0F, 2.0F);
+    EXPECT_LT(lx, 260.0F - 40.0F);
+    EXPECT_GT(ly, cy0 + 150.0F);                    // below the hub's height
+    EXPECT_LT(hx, 260.0F - 80.0F);
+    EXPECT_LT(hy, ly);                              // half way is higher up than full lock
 }
 
 TEST_F(LiveView, MappingTabShowsEverySource) {

@@ -53,6 +53,7 @@ add_library(wheelbri_core STATIC
     src/Retention.cpp
     src/Rig.cpp
     src/SenderGate.cpp
+    src/ShapeSpans.cpp
     src/ShimGames.cpp
     src/ShimWatch.cpp
     src/StartNeeds.cpp

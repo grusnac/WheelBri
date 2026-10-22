@@ -32,6 +32,21 @@ inline constexpr ui::Colour kCautionBack{42, 36, 22};   // behind an amber notic
 inline constexpr ui::Colour kWarning{232, 86, 76};      // red: broken
 inline constexpr ui::Colour kDark{16, 18, 20};          // text on a blue or green fill
 
+// The Mapping tab's Shadow view (ShadowView.hpp): the target drawn as flat shapes, a shade or two off the background;
+// what is pressed lights in kActive, a control nothing drives sinks to kShadowOff.
+inline constexpr ui::Colour kShadow{52, 57, 67};        // the device's body, the rim
+inline constexpr ui::Colour kShadowEdge{70, 76, 88};    // its edges; a paddle at rest
+inline constexpr ui::Colour kShadowDeep{36, 40, 47};    // holes, bolts, the gate's slots
+inline constexpr ui::Colour kShadowPanel{46, 50, 59};   // the shifter's button panel and boot
+inline constexpr ui::Colour kSteel{58, 63, 74};         // spokes, pedal faces
+inline constexpr ui::Colour kShadowControl{66, 72, 84}; // a control something drives, at rest
+inline constexpr ui::Colour kShadowOff{36, 39, 46};     // a control nothing drives (sunk into the panel)
+inline constexpr ui::Colour kShadowRed{128, 50, 50};    // a red button at rest
+inline constexpr ui::Colour kShadowBlack{24, 26, 30};   // a black button at rest
+inline constexpr ui::Colour kShadowKnob{30, 32, 38};    // the gear knob
+inline constexpr ui::Colour kShadowKnobTop{64, 68, 78}; // its highlight
+inline constexpr ui::Colour kActiveDeep{28, 104, 52};   // holes in a lit pedal
+
 // A section's heading band: a darker strip across `w` behind the heading text at (x + 6, y), with a blue edge at its
 // left. Draw it before the heading.
 inline void headingBand(ui::UiWindow& window, const float x, const float y, const float w) {

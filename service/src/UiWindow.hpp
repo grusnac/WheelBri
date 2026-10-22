@@ -1,11 +1,14 @@
 #pragma once
 
+#include "wheelbri/ShapeSpans.hpp"
+
 #include <functional>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -131,6 +134,24 @@ public:
     virtual void text(float x, float y, std::string_view value, Colour colour) = 0; // top-left of the first cell
     virtual void present() = 0;
 
+    // Filled shapes (the Mapping tab's pictures), drawn as rows of fill() one window pixel tall (pixelSize()), so
+    // every window, the tests' recording ones included, draws them with what it already has (core ShapeSpans.hpp).
+    // A polygon is filled even-odd; a ring is the circle of radius `outer` less the one of radius `inner`.
+    void fillPolygon(const std::span<const ShapePoint> points, const Colour colour) {
+        polygonSpans(points, pixelSize(), spans_);
+        fillSpans(colour);
+    }
+    void fillEllipse(const float cx, const float cy, const float rx, const float ry, const Colour colour) {
+        ellipseSpans(cx, cy, rx, ry, pixelSize(), spans_);
+        fillSpans(colour);
+    }
+    void fillRing(const float cx, const float cy, const float outer, const float inner, const Colour colour) {
+        ringSpans(cx, cy, outer, inner, pixelSize(), spans_);
+        fillSpans(colour);
+    }
+    // How many logical pixels one window pixel is (1 / the scale): the rows the shapes above are drawn in.
+    [[nodiscard]] virtual float pixelSize() const { return 1.0F; }
+
     // Opens a folder in the system's file manager. False and `error` set if that failed.
     virtual bool openFolder(const std::filesystem::path& folder, std::string& error) = 0;
 
@@ -157,6 +178,12 @@ public:
     void onQueryEndSession(std::function<void()> handler) { queryEndSession_ = std::move(handler); }
 
 protected:
+    void fillSpans(const Colour colour) {
+        const float row = pixelSize();
+        for (const ShapeSpan& span : spans_) fill(span.x, span.y, span.w, row, colour);
+    }
+
+    std::vector<ShapeSpan> spans_;   // the last shape's rows (kept, so drawing a shape allocates nothing)
     std::function<void()> endSession_;
     std::function<void()> queryEndSession_;
     float originX_ = 0.0F;

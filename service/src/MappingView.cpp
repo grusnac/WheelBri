@@ -70,6 +70,7 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
       profile_(profile),
       mapper_(mapper),
       target_(profile.identity().shortName.empty() ? std::string("target") : profile.identity().shortName) {
+    if (ShadowView::hasPicture(profile_)) shadow_ = std::make_unique<ShadowView>(window_, profile_, mapper_);
 #if defined(_WIN32)
     // The app's window is open: say Hello to the WheelBri Helper now (on its own thread), so the helper writes what it
     // kept since boot into this user's logs folder and the Logs tab knows how it is.
@@ -149,6 +150,8 @@ void MappingView::onKey(const char key) {
         tab_ = Tab::Telemetry;
     } else if (key == 'r') {
         tab_ = Tab::WheelSetup;
+    } else if (key == 's' && tab_ == Tab::Mapping && shadow_) {
+        showShadow(!gShowShadow);
     } else if (tab_ == Tab::Logs) {
         const auto page = static_cast<long long>(std::max<std::size_t>(liveRows_ - 1, 1));
         if (key == ui::kPageUp) scrollLiveLog(page);
@@ -267,7 +270,9 @@ void MappingView::draw(const RawInputs& inputs, const WheelState& state, const T
         return;
     }
     if (tab_ != Tab::Logs) drawHeader();   // the Logs page starts at the top (the Mapping tab has the header)
-    if (tab_ == Tab::Mapping) {
+    if (tab_ == Tab::Mapping && showingShadow()) {
+        shadow_->draw(state, report, 38);   // the target drawn, what the game sees lit
+    } else if (tab_ == Tab::Mapping) {
         // What is mapped to what: the axes and pedals (rig -> G920), every rig axis, the D-pad, the buttons.
         drawAxes(inputs, state, report, 34);
         drawRawAxes(raw, 128);
@@ -309,6 +314,16 @@ void MappingView::drawHeader() {
         text(window_, 6, 16, "LIVE", kDark);
         x = 48;
         room = room > 6 ? room - 6 : 0;
+        if (shadow_) {
+            // The view switch right of LIVE: Shadow (the picture) or List (every rig axis and button).
+            style::button(window_, ShadowView::kSwitchX, ShadowView::kSwitchY, ShadowView::kSwitchShadowW,
+                          ShadowView::kSwitchH, "Shadow", gShowShadow, true);
+            style::button(window_, ShadowView::kSwitchX + ShadowView::kSwitchShadowW + ShadowView::kSwitchGap,
+                          ShadowView::kSwitchY, ShadowView::kSwitchListW, ShadowView::kSwitchH, "List", !gShowShadow, true);
+            x = ShadowView::kSwitchEnd + 8;
+            const auto used = static_cast<std::size_t>((x - 48) / ui::kCharWidth);
+            room = room > used ? room - used : 0;
+        }
     }
     if (devices_.empty()) {
         text(window_, x, 16, std::string("Move every control and check where it lands.").substr(0, room).c_str(), kDim);
@@ -1195,7 +1210,23 @@ void MappingView::drawTabs() {
     }
 }
 
+void MappingView::showShadow(const bool on) {
+    gShowShadow = on;
+    WE_LOG_INFO(log(), "Mapping tab: {} view", on ? "Shadow" : "List");
+}
+
 void MappingView::onClick(const float x, const float y) {
+    if (tab_ == Tab::Mapping && shadow_ && y >= ShadowView::kSwitchY && y < ShadowView::kSwitchY + ShadowView::kSwitchH) {
+        if (x >= ShadowView::kSwitchX && x < ShadowView::kSwitchX + ShadowView::kSwitchShadowW) {
+            showShadow(true);
+            return;
+        }
+        const float listX = ShadowView::kSwitchX + ShadowView::kSwitchShadowW + ShadowView::kSwitchGap;
+        if (x >= listX && x < listX + ShadowView::kSwitchListW) {
+            showShadow(false);
+            return;
+        }
+    }
     const float kBarTop = canvasH() - kTabBarHeight;
     if (y >= kBarTop + 4 && y < kBarTop + 24) {
         float left = kTabLeft;

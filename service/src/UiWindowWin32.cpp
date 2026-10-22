@@ -234,6 +234,9 @@ public:
         frame_.fill(x + originX_, y + originY_, w, h, rgbOf(colour));   // recorded on the canvas, origin applied
     }
 
+    // One window pixel in logical pixels: the shapes' rows (UiWindow::fillPolygon), as sharp as the window shows.
+    [[nodiscard]] float pixelSize() const override { return box_.scale > 0.0F ? 1.0F / box_.scale : 1.0F; }
+
     void outline(const float x, const float y, const float w, const float h, const Colour colour) override {
         const float line = 1.0F / box_.scale * static_cast<float>(std::max(1L, std::lround(box_.scale)));
         fill(x, y, w, line, colour);

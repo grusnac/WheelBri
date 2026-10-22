@@ -60,6 +60,7 @@ add_executable(wheelbri_tests
     RetentionTest.cpp
     RigTest.cpp
     SenderGateTest.cpp
+    ShapeSpansTest.cpp
     ShimGamesTest.cpp
     ShimWatchTest.cpp
     StartNeedsTest.cpp
@@ -186,6 +187,7 @@ if(TARGET wheelbri_privileged)
         ${PROJECT_SOURCE_DIR}/service/src/HoverText.cpp
         ${PROJECT_SOURCE_DIR}/service/src/MappingEditView.cpp
         ${PROJECT_SOURCE_DIR}/service/src/MappingView.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/ShadowView.cpp
         ${PROJECT_SOURCE_DIR}/service/src/PrivilegedSteps.cpp
         ${PROJECT_SOURCE_DIR}/service/src/ServiceLogging.cpp
         ${PROJECT_SOURCE_DIR}/service/src/ShimGamesView.cpp

@@ -9,6 +9,7 @@
 
 #include "wheelbri/WheelState.hpp"
 
+#include "ShadowView.hpp"
 #include "UiWindow.hpp"
 
 #include <algorithm>
@@ -148,10 +149,21 @@ public:
     void setHeaderChars(const std::size_t chars) { headerChars_ = chars; }
     void setAccessories(const std::array<DeviceLabels, MapperConfig::kMaxAccessories>& accessories) {
         accessories_ = accessories;
+        if (shadow_) shadow_->setAccessories(accessories);
     }
     // [buttons] order: the target's buttons show by the numbers the game sees them by (gameButtonNumber): Logitech's
     // driver counts from 1 ("Button 7"), the native order from 0. The INI's target_N stays 0-based, as named.
-    void setButtonOrder(const ButtonOrder order) { buttonOrder_ = order; }
+    void setButtonOrder(const ButtonOrder order) {
+        buttonOrder_ = order;
+        if (shadow_) shadow_->setButtonOrder(order);
+    }
+
+    // The Mapping tab's two views while running: Shadow (the target drawn, ShadowView.hpp) or List (every rig axis and
+    // button next to what the target reports). Shadow only for a target with a picture (ShadowView::hasPicture), and
+    // then the first one shown; the choice holds for the app's run (every session's view starts with it). S or the
+    // header's Shadow / List buttons switch.
+    [[nodiscard]] bool showingShadow() const { return shadow_ != nullptr && gShowShadow; }
+    void showShadow(bool on);
 
     // Draws the panel (between the window's begin() and present()); `inputs.devices[0]` is the wheel.
     void draw(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
@@ -192,6 +204,8 @@ private:
     [[nodiscard]] const std::string& sourceLabel(int source) const;
 
     ui::UiWindow& window_;
+    std::unique_ptr<ShadowView> shadow_;   // null: no picture for this target
+    static inline bool gShowShadow = true;   // the view chosen last (held for the app's run)
     std::string sourceName_;
     std::size_t headerChars_ = 50;
     int sourceAxes_;
