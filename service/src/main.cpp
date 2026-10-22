@@ -904,6 +904,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         info.buttons = source.buttons();
         info.targetProfile = config.targetProfile;
         info.mapper = config.mapper;
+        info.buttonOrder = config.buttonOrder;
         info.accessories = accessories.labels;
         info.files.logFolder = logFolder;
         info.files.logToFile = logToFile;

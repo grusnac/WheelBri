@@ -504,7 +504,7 @@ TEST_F(EditView, PickingTheDpadAndAButton) {
     ASSERT_TRUE(click("Cancel"));
     ASSERT_TRUE(click("Moza R3: B13"));   // R Paddle
     frame();
-    EXPECT_TRUE(window_.hasPart("What drives button 4 "));
+    EXPECT_TRUE(window_.hasPart("What drives button 5 "));
     ASSERT_TRUE(click("5 K5"));   // the button box
     frame();
     EXPECT_TRUE(window_.hasPart(": K5"));
@@ -1194,9 +1194,9 @@ TEST_F(EditView, TheButtonsSubTab) {
     view_->onClick(2, 2);   // outside: nothing
     ASSERT_TRUE(click("Cancel"));
     ASSERT_TRUE(click("Add button..."));
-    ASSERT_TRUE(click("0 A"));
+    ASSERT_TRUE(click("1 A"));
     frame();
-    EXPECT_TRUE(window_.hasPart("What drives button 0 A in NFS 2015?"));
+    EXPECT_TRUE(window_.hasPart("What drives button 1 A in NFS 2015?"));
     EXPECT_TRUE(window_.hasPart("For this game only"));
     ASSERT_TRUE(click("0 B0"));   // what the Mapping tab gives it: nothing added
     frame();
@@ -1204,7 +1204,7 @@ TEST_F(EditView, TheButtonsSubTab) {
     EXPECT_TRUE(window_.hasPart("No button changed for this game"));
 
     ASSERT_TRUE(click("Add button..."));
-    ASSERT_TRUE(click("0 A"));
+    ASSERT_TRUE(click("1 A"));
     ASSERT_TRUE(click("1 B1"));
     frame();
     EXPECT_TRUE(window_.has("this game"));
@@ -1213,7 +1213,7 @@ TEST_F(EditView, TheButtonsSubTab) {
     // The Add popup marks it as yours.
     ASSERT_TRUE(click("Add button..."));
     frame();
-    EXPECT_TRUE(window_.has("0 A  yours"));
+    EXPECT_TRUE(window_.has("1 A  yours"));
     ASSERT_TRUE(click("Cancel"));
     // Its field: the picker again; the Mapping tab's own control takes the game's value away.
     ASSERT_TRUE(click("Moza R3: B1"));
@@ -1226,7 +1226,7 @@ TEST_F(EditView, TheButtonsSubTab) {
     EXPECT_TRUE(window_.hasPart("No button changed for this game"));
 
     ASSERT_TRUE(click("Add button..."));
-    ASSERT_TRUE(click("1 B"));
+    ASSERT_TRUE(click("2 B"));
     ASSERT_TRUE(click("2 B2"));
     ASSERT_TRUE(click("Remove", 1));   // the row's (the first is the list's Remove game)
     frame();
@@ -2125,9 +2125,9 @@ TEST_F(EditView, AGamesButtonsOneByOne) {
     games();
     EXPECT_TRUE(window_.has("nothing"));
     ASSERT_TRUE(click("Add button..."));
-    ASSERT_TRUE(click("3 Y"));
+    ASSERT_TRUE(click("4 Y"));
     games();
-    EXPECT_TRUE(window_.hasPart("What drives button 3 Y in NFS 2015?"));
+    EXPECT_TRUE(window_.hasPart("What drives button 4 Y in NFS 2015?"));
     ASSERT_TRUE(click("5 B5"));
     games();
     EXPECT_NE(own().find("nfs2015.button_3 = 5"), std::string::npos) << own();

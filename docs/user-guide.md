@@ -72,6 +72,10 @@ the wheel's rotation, in the wheel's own software (Pit House for Moza).
    (the default, as Logitech's Windows software numbered them: games of that time, such as Race Driver: GRID) or
    **Native** (the wheel's own, without Logitech's driver: newer games' presets, such as Assetto Corsa
    Competizione's). The Mapping tab names the buttons the same way either way.
+   The Target's buttons show by **the numbers the game uses**, the way the real Logitech wheel numbers them: from 1
+   with **Logitech driver** (as joy.cpl and games show them: when DiRT Rally 2.0 asks for "Button 7", that is the
+   G25's 7 R Wheel), from 0 with **Native** (the wheel's own order). Press a button on your rim and **Last pressed**
+   says which one the game gets. The rig's buttons and the INI's `target_N` still count from 0.
 4. Every change is saved at once and Start uses what you see. **Undo** goes back one change at a time,
    **Default** to WheelBri's mapping.
 

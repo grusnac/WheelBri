@@ -27,6 +27,8 @@ struct SessionInfo {
     int buttons = 0;
     std::string targetProfile;  // "g920"
     MapperConfig mapper;
+    // [buttons] order: which numbers the game sees the target's buttons by (the Mapping tab shows those).
+    ButtonOrder buttonOrder = ButtonOrder::Driver;
     // The accessories the mapping reads (device 1, 2, 3; empty ids = none), named from the Wheel setup tab.
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories{};
     FilesDisplay files;

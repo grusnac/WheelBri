@@ -160,6 +160,36 @@ TEST_F(LiveView, TabsAndKeys) {
 // The Mapping tab: every axis with its source (the wheel's, an accessory's, none), the rig's axes it has and not, the
 // D-pad, the target's buttons (from nothing, an accessory, two sources) and the rig's (pressed: mapped green, unmapped
 // red); the last pressed button and where it went.
+// The target's buttons by the numbers the game sees: with Logitech driver order from 1 (DiRT Rally 2.0 asks for
+// "Button 7", the G25's R Wheel, 6 as named); with the native order the wheel's own HID number, from 0.
+TEST_F(LiveView, TargetButtonsShowTheGamesNumbers) {
+    profile_ = makeProfile("g25");
+    MapperConfig mapper;
+    for (std::size_t t = 0; t < mapper.buttonMap.size(); ++t) mapper.buttonMap[t] = -1;
+    mapper.buttonMap[6] = 34;   // R Wheel <- the rim's R
+    mapper.sourceButtonLabels[34] = "R";
+    auto view = makeView(8, 40, mapper);
+    view->setTab(MappingView::Tab::Mapping);
+    RawInputs inputs;
+    draw(*view, inputs);
+    inputs.devices[0].buttons = 1ULL << 34;
+    draw(*view, inputs);
+    EXPECT_TRUE(window_.has("Last pressed: G25 7 R Wheel <- Rig 34 R")) << window_.dump();
+    EXPECT_TRUE(window_.has("G25  7 R Wheel  <- Rig 34 R", true)) << window_.dump();
+    EXPECT_TRUE(window_.has("G25 button (from 1, as games show it)", true)) << window_.dump();
+
+    auto native = makeView(8, 40, mapper);
+    native->setTab(MappingView::Tab::Mapping);
+    native->setButtonOrder(ButtonOrder::Native);
+    inputs.devices[0].buttons = 0;
+    draw(*native, inputs);
+    inputs.devices[0].buttons = 1ULL << 34;
+    draw(*native, inputs);
+    EXPECT_TRUE(window_.has("Last pressed: G25 6 R Wheel <- Rig 34 R")) << window_.dump();
+    EXPECT_TRUE(window_.has("G25 11 Red 1    <- --", true)) << window_.dump();   // Red 1 is native 11
+    EXPECT_TRUE(window_.has("G25 button (native, from 0)", true)) << window_.dump();
+}
+
 TEST_F(LiveView, MappingTabShowsEverySource) {
     auto view = makeView();
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories{};
@@ -194,7 +224,7 @@ TEST_F(LiveView, MappingTabShowsEverySource) {
     // Buttons pressed: 0 (two targets), 4 (D-pad right and a target), 12 (D-pad up), 15 (nothing... 15 is target 15).
     inputs.devices[0].buttons = 1ULL;
     draw(*view, inputs, state, report);
-    EXPECT_TRUE(window_.has("Last pressed: G920 0 A <- Rig 0 Cross  (and others)")) << window_.dump();
+    EXPECT_TRUE(window_.has("Last pressed: G920 1 A <- Rig 0 Cross  (and others)")) << window_.dump();
     inputs.devices[0].buttons = 1ULL | (1ULL << 4);
     draw(*view, inputs, state, report);
     EXPECT_TRUE(window_.has("Last pressed: G920 D-pad right <- Rig 4  (and a button: check [buttons])")) << window_.dump();
@@ -434,7 +464,7 @@ TEST_F(LiveView, TelemetryTabEvents) {
     controller.onPacket(packet, 4'000'000);
     controller.update(5'000'000);
     draw(*view, inputs, state, report, ffb);
-    for (const std::string text : {"Rig 0 Cross pressed -> G920 0 A", "Rig 12 pressed -> G920 D-pad up",
+    for (const std::string text : {"Rig 0 Cross pressed -> G920 1 A", "Rig 12 pressed -> G920 D-pad up",
                                    "Rig 19 pressed -> nothing (not mapped)", "Rig 19 released", "G920 D-pad up",
                                    "G920 D-pad centred", "Throttle pressed", "Throttle released (deepest 90%)",
                                    "slot 0 constant starts", "slot 0 constant stops", "Rig 0 Cross"}) {

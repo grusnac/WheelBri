@@ -225,6 +225,9 @@ private:
     [[nodiscard]] const DeviceLabels* wheelLabels() const;
     [[nodiscard]] const DeviceLabels* labelsOf(const SourceRef& source) const;
     // "Moza R3: A": the device and the control's name (its number when it has none).
+    // Target button `b` (as named) by the number the game sees it by with the chosen Button order: from 1 as
+    // Logitech's driver counts, from 0 in the native order (gameButtonNumber). The INI's target_N stays `b`.
+    [[nodiscard]] int gameNumber(std::size_t b) const;
     [[nodiscard]] std::string describe(const SourceRef& source, bool axis) const;
     // The hover text: name and number ("Moza R3: 'A', button 0").
     [[nodiscard]] std::string describeFull(const SourceRef& source, bool axis) const;

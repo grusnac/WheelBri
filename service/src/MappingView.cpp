@@ -487,10 +487,14 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
     const std::string heading = target_ + " BUTTONS";
     text(window_, 4, kTop, heading.c_str(), kHeading);
     const float subtitleX = 4 + static_cast<float>(heading.size() + 1) * 8;
-    const std::string subtitle = target_ + " number name <- rig number name   (INI: [buttons] target_N = rig number)";
+    // The target's numbers are the game's (gameButtonNumber); the INI's target_N stays as named, from 0.
+    const std::string subtitle =
+        buttonOrder_ == ButtonOrder::Native && profile_.hasNativeButtonOrder()
+            ? target_ + " button (native, from 0) name <- rig number name   (INI: target_N, Logitech's order)"
+            : target_ + " button (from 1, as games show it) name <- rig number name   (INI: target_N, N = button - 1)";
     text(window_, subtitleX, kTop, subtitle.c_str(), kDim);
 
-    // Every cell reads "G920  6 Menu     <- Rig 35 Start": three columns across the canvas (316 wide in the design:
+    // Every cell reads "G920  7 Menu     <- Rig 35 Start": three columns across the canvas (316 wide in the design:
     // 39 characters after the 3-pixel margin; more in a wider window).
     constexpr int kColumns = 3;
     const float kWidth = (canvasW() - 8 - 2 * (kColumns - 1)) / kColumns;
@@ -511,13 +515,14 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
         const int source = mapper_.buttonMap[target];
 
         const std::string label(name.substr(0, 8));
+        const int number = gameButtonNumber(profile_, buttonOrder_, target);   // as the game numbers it
         if (source < 0) {
-            std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- --", target_.c_str(), target, label.c_str());
+            std::snprintf(cellText, sizeof(cellText), "%s %2d %-8s <- --", target_.c_str(), number, label.c_str());
         } else if (mapper_.buttonDevice[target] == 0) {
-            std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- Rig %2d %s", target_.c_str(), target,
+            std::snprintf(cellText, sizeof(cellText), "%s %2d %-8s <- Rig %2d %s", target_.c_str(), number,
                           label.c_str(), source, sourceLabel(source).c_str());
         } else {
-            std::snprintf(cellText, sizeof(cellText), "%s %2zu %-8s <- %s", target_.c_str(), target, label.c_str(),
+            std::snprintf(cellText, sizeof(cellText), "%s %2d %-8s <- %s", target_.c_str(), number, label.c_str(),
                           sourceText(mapper_.buttonDevice[target], source, false, 20 + (chars - 39)).c_str());
         }
 
@@ -584,7 +589,7 @@ void MappingView::drawFooter(const float top) {
         const auto index = static_cast<std::size_t>(lastPressedSource_);
         const int target = sourceToTarget_[index];
         const char* const hatDirection = sourceHatDirection_[index];
-        // Same pattern as the cells: "G920 6 Menu <- Rig 35 Start".
+        // Same pattern as the cells: "G920 7 Menu <- Rig 35 Start".
         const std::string& name = sourceLabel(lastPressedSource_);
         char button[40];
         std::snprintf(button, sizeof(button), name.empty() ? "Rig %d" : "Rig %d %s", lastPressedSource_, name.c_str());
@@ -594,7 +599,8 @@ void MappingView::drawFooter(const float top) {
             text(window_, 4, kTop, line, target >= 0 ? kUnlabelled : kText);
         } else if (target >= 0) {
             const std::string_view targetName = profile_.buttonName(static_cast<std::size_t>(target));
-            std::snprintf(line, sizeof(line), "Last pressed: %s %d %.*s <- %s%s", target_.c_str(), target,
+            std::snprintf(line, sizeof(line), "Last pressed: %s %d %.*s <- %s%s", target_.c_str(),
+                          gameButtonNumber(profile_, buttonOrder_, static_cast<std::size_t>(target)),
                           static_cast<int>(targetName.size()), targetName.empty() ? "" : targetName.data(), button,
                           sourceTargetCount_[index] > 1 ? "  (and others)" : "");
             text(window_, 4, kTop, line, kText);
@@ -761,8 +767,14 @@ void MappingView::trackLastPressed(const std::uint64_t sourceButtons) {
     for (int source = 0; source < static_cast<int>(kMaxSourceButtons); ++source) {
         if (((newlyPressed >> source) & 1ULL) != 0) {
             lastPressedSource_ = source;
-            WE_LOG_DEBUG(log(), "rig button {} pressed -> {} target {}", source, target_,
-                         sourceToTarget_[static_cast<std::size_t>(source)]);
+            // target: the INI's target_N (0-based, as named); the game shows it as the second number.
+            const int target = sourceToTarget_[static_cast<std::size_t>(source)];
+            if (target >= 0) {
+                WE_LOG_DEBUG(log(), "rig button {} pressed -> {} target {} (button {} in the game)", source, target_,
+                             target, gameButtonNumber(profile_, buttonOrder_, static_cast<std::size_t>(target)));
+            } else {
+                WE_LOG_DEBUG(log(), "rig button {} pressed -> {} target {}", source, target_, target);
+            }
         }
     }
 }
@@ -1313,7 +1325,9 @@ void MappingView::trackEvents(const RawInputState& raw, const WheelState& state,
             text += " pressed -> " + target_ + " D-pad " + sourceHatDirection_[index];
         } else if (target >= 0) {
             const std::string_view targetName = profile_.buttonName(static_cast<std::size_t>(target));
-            text += " pressed -> " + target_ + " " + std::to_string(target) + " " + std::string(targetName);
+            text += " pressed -> " + target_ + " " +
+                    std::to_string(gameButtonNumber(profile_, buttonOrder_, static_cast<std::size_t>(target))) + " " +
+                    std::string(targetName);
         } else {
             text += " pressed -> nothing (not mapped)";
         }

@@ -60,6 +60,16 @@ std::optional<ButtonOrder> parseButtonOrder(const std::string_view text) {
     return std::nullopt;
 }
 
+int gameButtonNumber(const IDeviceProfile& profile, const ButtonOrder order, const std::size_t index) {
+    if (index >= 32) return -1;
+    if (order != ButtonOrder::Native || !profile.hasNativeButtonOrder()) return static_cast<int>(index) + 1;
+    const std::uint32_t native = profile.nativeButtons(1U << index);
+    for (int bit = 0; bit < 32; ++bit) {
+        if ((native >> bit) & 1U) return bit;
+    }
+    return -1;
+}
+
 DeviceProfile::DeviceProfile(DeviceProfileSpec spec) : spec_(std::move(spec)) {
     for (std::size_t i = 0; i < spec_.buttonNames.size() && i < 32; ++i) {
         if (!spec_.buttonNames[i].empty()) buttonMask_ |= 1U << i;

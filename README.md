@@ -296,6 +296,11 @@ diamond as A, X, B, Y, as its G920 preset binds the G920's A, B, X, Y. Neither o
 | G920 | 046D:C262 | 19 | **tested** |
 | G923 | 046D:C26E | 24 | 0-18 as the G920, 19-23 **a guess**; unsigned axes and HID++ for G HUB |
 
+The orders above count from 0, as the code and the INI's `target_N` do. The app shows the Target's buttons by the
+numbers the game sees (`gameButtonNumber`): from 1 in the driver's order, as Logitech's driver, joy.cpl and games
+count them (DiRT Rally 2.0's G25 preset asks for "Button 7" for the handbrake: R Wheel, 6 above), from 0 in the native
+order.
+
 To fix an order: `g25Spec()`, `g27Spec()`, `g923Spec()` in `core/src/DeviceProfile.cpp` and the matching
 `config/*.ini`.
 

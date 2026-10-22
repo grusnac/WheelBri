@@ -108,6 +108,12 @@ public:
     [[nodiscard]] virtual std::uint32_t nativeButtons(const std::uint32_t buttons) const { return buttons; }
 };
 
+// The number a game shows for target button `index` (0-based, as named), the way the real wheel numbers it there.
+// ButtonOrder::Driver (and every target without a native order): Logitech's driver counts from 1, as joy.cpl and
+// games' presets show it ("Button 7"), so index + 1. ButtonOrder::Native: the button's place in the wheel's own HID
+// order, from 0, as it reads without Logitech's driver. -1 for an index past 31.
+[[nodiscard]] int gameButtonNumber(const IDeviceProfile& profile, ButtonOrder order, std::size_t index);
+
 // Where each heading and named button goes on the Mapping tab: column 0 (left) or 1 (right), and its row from the top
 // of the grid. A heading row is short (kButtonHeadingH), a button row kButtonRowH. Every named button appears once: one
 // no group names goes Below, under "OTHER"; without groups, all are Below in number order (no heading).

@@ -408,6 +408,10 @@ std::string MappingEditView::deviceText(const SourceRef& source) const {
                                    : deviceId(source.device.vendorId, source.device.productId);
 }
 
+int MappingEditView::gameNumber(const std::size_t b) const {
+    return gameButtonNumber(*profile_, edit_.buttonOrder, b);
+}
+
 std::string MappingEditView::describe(const SourceRef& source, const bool axis) const {
     if (!source.mapped()) return "(nothing)";
     const std::string number = (axis ? "axis " : "button ") + std::to_string(source.index);
@@ -922,7 +926,8 @@ void MappingEditView::draw() {
         }
         const std::size_t index = cell.button;
         char label[32];
-        std::snprintf(label, sizeof(label), "%2zu %.10s", index, std::string(profile_->buttonName(index)).c_str());
+        std::snprintf(label, sizeof(label), "%2d %.10s", gameNumber(index),
+                      std::string(profile_->buttonName(index)).c_str());
         window_.text(x + 8, row + 4, label, kText);
         // The first source (a button), "or" a second one (a button, or a one-sided axis past a threshold).
         const float quarter = half / 2;   // each column's fields share its extra width
@@ -1054,7 +1059,8 @@ float MappingEditView::drawButtonOrder(const float top) {
     tip(4, y - 2, 600, 12,
         "Logitech driver: as Logitech's Windows software numbered the " + target + "'s buttons, which games of its "
         "time read (Race Driver: GRID). Native: the wheel's own order, without Logitech's driver, which newer games' "
-        "presets read (Assetto Corsa Competizione). The buttons keep their names here. Takes effect at the next "
+        "presets read (Assetto Corsa Competizione). The buttons keep their names here; their numbers are the game's: "
+        "from 1 with Logitech driver (as joy.cpl and games show them), from 0 with Native. Takes effect at the next "
         "Start.");
     y += 16;
     window_.text(4, y + 4, "Order", kText);
@@ -1837,7 +1843,8 @@ void MappingEditView::setPicked(const SourceRef& source) {
         // The mapping's own: no value of the game's needed.
         const GameTuning* const own = tuningOf(id);
         if (own == nullptr || own->buttons.count(static_cast<int>(pickIndex_)) == 0) {
-            status_ = "Button " + std::to_string(pickIndex_) + " " + std::string(profile_->buttonName(pickIndex_)) +
+            status_ = "Button " + std::to_string(gameNumber(pickIndex_)) + " " +
+                      std::string(profile_->buttonName(pickIndex_)) +
                       " already comes from that control in the Mapping tab: nothing added.";
             statusError_ = false;
         }
@@ -2186,7 +2193,8 @@ float MappingEditView::drawGameButtons(const std::size_t index, float y) {
                 continue;
             }
             char label[32];
-            std::snprintf(label, sizeof(label), "%2zu %.10s", b, std::string(profile_->buttonName(b)).c_str());
+            std::snprintf(label, sizeof(label), "%2d %.10s", gameNumber(b),
+                          std::string(profile_->buttonName(b)).c_str());
             window_.text(gameX() + 4, y + 4, label, kText);
             // What the Mapping tab gives it: shown, not changed here.
             const SourceRef mapped = edit_.buttons[b];
@@ -2268,7 +2276,7 @@ void MappingEditView::drawAddButton() {
         window_.fill(x, y, w, 16, kPanel);
         if (mine) window_.outline(x, y, w, 16, kCaution);
         const std::string text =
-            std::to_string(b) + " " + std::string(profile_->buttonName(b)) + (mine ? "  yours" : "");
+            std::to_string(gameNumber(b)) + " " + std::string(profile_->buttonName(b)) + (mine ? "  yours" : "");
         window_.text(x + 4, y + 4, fit(text, static_cast<std::size_t>((w - 8) / ui::kCharWidth)),
                      mine ? kCaution : kText);
         tip(x, y, w, 16, "Mapping tab: " + (edit_.buttons[b].mapped() ? describeFull(edit_.buttons[b], false)
@@ -2629,7 +2637,7 @@ void MappingEditView::drawPicker() {
     const bool forGame = pickKind_ == Slot::GameButton;
     const std::string what = pickKind_ == Slot::Axis ? kAxisNames[pickIndex_]
                              : pickKind_ == Slot::Hat ? std::string("D-pad ") + kHatNames[pickIndex_]
-                                                      : "button " + std::to_string(pickIndex_) + " " +
+                                                      : "button " + std::to_string(gameNumber(pickIndex_)) + " " +
                                                             std::string(profile_->buttonName(pickIndex_)) +
                                                             (forGame ? " in " + games_[selectedGameIndex()].label
                                                                      : std::string());

@@ -150,6 +150,7 @@ public:
         view_->setFiles(info.files);
         view_->setDevices(info.devices, info.devicesWarning);
         view_->setAccessories(info.accessories);
+        view_->setButtonOrder(info.buttonOrder);
         return true;
     }
 
@@ -1000,6 +1001,7 @@ private:
                 view_->setFiles(info->files);
                 view_->setDevices(info->devices, info->devicesWarning);
                 view_->setAccessories(info->accessories);
+                view_->setButtonOrder(info->buttonOrder);
                 view_->setHeaderChars(sessionShim_ ? kHeaderCharsShim : kHeaderChars);
                 view_->setShimMode(sessionShim_);
                 view_->setSessionLine(std::string("Target ") + ConfigPicker::targetName(picker_->target()) +

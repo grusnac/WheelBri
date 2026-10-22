@@ -313,6 +313,29 @@ TEST(DeviceProfile, G25AndG27HaveANativeButtonOrder) {
     EXPECT_EQ(g27->nativeButtons(1U << 22), 1U << 21);   // L Wheel 3
 }
 
+// The number a game shows: Logitech's driver counts from 1 (DiRT Rally 2.0's "Button 7" is the G25's R Wheel, 6 as
+// named); the native order counts from 0, the wheel's own HID order.
+TEST(DeviceProfile, GameButtonNumbers) {
+    const auto g25 = makeProfile("g25");
+    EXPECT_EQ(gameButtonNumber(*g25, ButtonOrder::Driver, 6), 7);    // R Wheel: DiRT Rally 2.0's handbrake
+    EXPECT_EQ(gameButtonNumber(*g25, ButtonOrder::Driver, 0), 1);    // Red 1
+    EXPECT_EQ(gameButtonNumber(*g25, ButtonOrder::Driver, 18), 19);  // Blk right
+    EXPECT_EQ(gameButtonNumber(*g25, ButtonOrder::Native, 6), 6);    // R Wheel: the same place, from 0
+    EXPECT_EQ(gameButtonNumber(*g25, ButtonOrder::Native, 17), 0);   // Blk bottom comes first natively
+    EXPECT_EQ(gameButtonNumber(*g25, ButtonOrder::Native, 0), 11);   // Red 1
+    EXPECT_EQ(gameButtonNumber(*g25, ButtonOrder::Native, 14), 18);  // Gear R
+    const auto g27 = makeProfile("g27");
+    EXPECT_EQ(gameButtonNumber(*g27, ButtonOrder::Native, 22), 21);  // L Wheel 3
+    EXPECT_EQ(gameButtonNumber(*g27, ButtonOrder::Driver, 22), 23);
+    // No native order of its own: always Logitech's numbers, whatever the setting says.
+    const auto g920 = makeProfile("g920");
+    EXPECT_EQ(gameButtonNumber(*g920, ButtonOrder::Driver, 0), 1);   // A
+    EXPECT_EQ(gameButtonNumber(*g920, ButtonOrder::Native, 0), 1);
+    EXPECT_EQ(gameButtonNumber(*g920, ButtonOrder::Driver, 18), 19); // Gear R
+    EXPECT_EQ(gameButtonNumber(*g25, ButtonOrder::Driver, 32), -1);
+    EXPECT_EQ(gameButtonNumber(*g25, ButtonOrder::Native, 32), -1);
+}
+
 TEST(DeviceProfile, ButtonOrderNames) {
     EXPECT_EQ(toString(ButtonOrder::Driver), "driver");
     EXPECT_EQ(toString(ButtonOrder::Native), "native");
