@@ -33,6 +33,15 @@ constexpr std::size_t kLWheel3 = 22;
 constexpr std::size_t kG25Buttons = 19;
 constexpr std::size_t kG27Buttons = 23;
 
+// The G920's (g920Spec): A B X Y 0..3, the paddles as above, Menu, View, RSB, LSB, Xbox 6..10, gears 1-6 and R 12..18.
+constexpr std::size_t kMenu = 6;
+constexpr std::size_t kView = 7;
+constexpr std::size_t kRsb = 8;
+constexpr std::size_t kLsb = 9;
+constexpr std::size_t kXbox = 10;
+constexpr std::size_t kG920Gear1 = 12;
+constexpr std::size_t kG920Buttons = 19;
+
 // The picture is laid out on the design's coordinates (the sketches': its heading at y 54); draw() moves it to `top`.
 constexpr float kDesignTop = 54.0F;
 
@@ -40,6 +49,11 @@ constexpr float kDesignTop = 54.0F;
 constexpr float kWheelX = 260.0F;
 constexpr float kWheelY = 222.0F;
 constexpr float kWheelR = 122.0F;
+// The G920's Driving Force Shifter: a box with the gate in its boot, no buttons.
+constexpr float kDfsX = 560.0F;
+constexpr float kDfsY = 400.0F;
+constexpr float kDfsW = 260.0F;
+constexpr float kDfsH = 250.0F;
 // Pedals.
 constexpr float kPedalsX = 30.0F;
 constexpr float kPedalsY = 412.0F;
@@ -61,16 +75,97 @@ std::string cut(std::string value, const std::size_t chars) {
     return value;
 }
 
+// --- the G920's face, in the wheel's units (R = 1, x right, y down from its centre) --------------------------------
+
+// Points along the rim's inside on the right, from height y0 down to y1 (the face's parts run under the rim).
+void rimPoints(std::vector<ShapePoint>& out, const float y0, const float y1) {
+    constexpr float kR = 0.94F;
+    constexpr int kSteps = 8;
+    for (int k = 0; k <= kSteps; ++k) {
+        const float y = y0 + (y1 - y0) * static_cast<float>(k) / kSteps;
+        out.push_back({std::sqrt(kR * kR - y * y), y});
+    }
+}
+
+// A right half (top to bottom) and its mirror image: the whole outline, clockwise.
+std::vector<ShapePoint> mirrored(const std::vector<ShapePoint>& half) {
+    std::vector<ShapePoint> all = half;
+    for (auto it = half.rbegin(); it != half.rend(); ++it) all.push_back({-it->x, it->y});
+    return all;
+}
+
+// Corners rounded off: each round cuts every corner of the closed outline at a quarter and three quarters of its
+// sides (Chaikin), three rounds leave smooth curves.
+std::vector<ShapePoint> rounded(std::vector<ShapePoint> points) {
+    for (int round = 0; round < 3; ++round) {
+        std::vector<ShapePoint> next;
+        next.reserve(points.size() * 2);
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            const ShapePoint a = points[i];
+            const ShapePoint b = points[(i + 1) % points.size()];
+            next.push_back({0.75F * a.x + 0.25F * b.x, 0.75F * a.y + 0.25F * b.y});
+            next.push_back({0.25F * a.x + 0.75F * b.x, 0.25F * a.y + 0.75F * b.y});
+        }
+        points = std::move(next);
+    }
+    return points;
+}
+
+// The black console the buttons sit on: wide at the sides, raised over the D-pad and A B X Y, a brow in the middle
+// for the rev lights, a chin below for the Xbox button. Its outer ends curve in (hollow) from the top edge down to
+// the rim, where the paddles show above them; every corner rounded.
+const std::vector<ShapePoint>& g920Console() {
+    static const std::vector<ShapePoint> outline = [] {
+        std::vector<ShapePoint> half = {{0.0F, -0.50F}, {0.09F, -0.495F}, {0.16F, -0.47F}, {0.21F, -0.42F},
+                                        {0.25F, -0.37F}, {0.45F, -0.36F}};
+        for (int a = 0; a <= 90; a += 10) {
+            const float rad = static_cast<float>(a) * kPi / 180.0F;
+            half.push_back({0.88F - 0.38F * std::cos(rad), -0.36F + 0.34F * std::sin(rad)});
+        }
+        rimPoints(half, -0.02F, 0.14F);
+        half.insert(half.end(), {{0.70F, 0.17F}, {0.48F, 0.19F}, {0.38F, 0.25F}, {0.30F, 0.33F}, {0.20F, 0.40F},
+                                 {0.10F, 0.44F}, {0.0F, 0.45F}});
+        return rounded(mirrored(half));
+    }();
+    return outline;
+}
+
+// The brow's panel over the hub, where the rev lights are.
+const std::vector<ShapePoint>& g920Brow() {
+    static const std::vector<ShapePoint> outline = rounded(mirrored(
+        {{0.0F, -0.47F}, {0.08F, -0.465F}, {0.14F, -0.445F}, {0.18F, -0.405F}, {0.16F, -0.38F}, {0.0F, -0.38F}}));
+    return outline;
+}
+
+// The right side spoke (brushed aluminium), under the console's outer end into the rim.
+const std::vector<ShapePoint>& g920SideSpoke() {
+    static const std::vector<ShapePoint> outline = [] {
+        std::vector<ShapePoint> points = {{0.30F, 0.10F}};
+        rimPoints(points, 0.06F, 0.34F);
+        points.push_back({0.45F, 0.31F});
+        return points;
+    }();
+    return outline;
+}
+
 }  // namespace
 
 bool ShadowView::hasPicture(const IDeviceProfile& profile) {
     const std::string& name = profile.identity().shortName;
     return (name == "G25" && profile.buttonCount() == kG25Buttons) ||
-           (name == "G27" && profile.buttonCount() == kG27Buttons);
+           (name == "G27" && profile.buttonCount() == kG27Buttons) ||
+           (name == "G920" && profile.buttonCount() == kG920Buttons);
 }
 
 ShadowView::ShadowView(ui::UiWindow& window, const IDeviceProfile& profile, const MapperConfig& mapper)
-    : window_(window), profile_(profile), mapper_(mapper), g27_(profile.identity().shortName == "G27") {}
+    : window_(window), profile_(profile), mapper_(mapper) {
+    const std::string& name = profile.identity().shortName;
+    if (name == "G27") picture_ = Picture::G27;
+    if (name == "G920") {
+        picture_ = Picture::G920;
+        gear1_ = kG920Gear1;
+    }
+}
 
 // --- what a control is called ---------------------------------------------------------------------------------------
 
@@ -116,8 +211,15 @@ std::string ShadowView::label(const std::size_t target) const {
         if (!rig.empty()) return rig;
     }
     // None: the target's own name; a gear is just its number (or R) on the gate.
-    if (target >= kGear1 && target <= kGearR) return target == kGearR ? "R" : std::to_string(target - kGear1 + 1);
+    if (target >= gear1_ && target <= gear1_ + 6) return target == gear1_ + 6 ? "R" : std::to_string(target - gear1_ + 1);
     return std::string(profile_.buttonName(target));
+}
+
+std::string ShadowView::printed(const std::size_t target) const {
+    if (picture_ != Picture::G920) return {};
+    if (target <= 3 || target == kRsb || target == kLsb) return std::string(profile_.buttonName(target));   // A B X Y
+    if (target >= gear1_ && target <= gear1_ + 6) return target == gear1_ + 6 ? "R" : std::to_string(target - gear1_ + 1);
+    return {};   // View, Menu, Xbox: symbols; the paddles: nothing
 }
 
 std::string ShadowView::axisLabel(const PedalConfig& pedal, const char* const fallback) const {
@@ -197,6 +299,50 @@ void ShadowView::numberOn(const float x, const float y, const std::size_t target
                  pressed ? style::kDark : (driven(target) ? style::kText : style::kFaint));
 }
 
+void ShadowView::printedOn(const float x, const float y, const std::size_t target, const bool pressed,
+                           const Colour under) {
+    const Colour ink = pressed ? style::kDark : (driven(target) ? style::kText : style::kFaint);
+    if (target == kView) {   // two overlapping windows
+        window_.fill(x - 5, y - 4, 6, 5, ink);
+        window_.fill(x - 4, y - 3, 4, 3, under);
+        window_.fill(x - 1, y - 1, 6, 5, ink);
+        window_.fill(x, y, 4, 3, under);
+    } else if (target == kMenu) {   // three lines
+        for (const float k : {-3.0F, 0.0F, 3.0F}) window_.fill(x - 4, y + k - 1, 9, 1.6F, ink);
+    } else if (target == kXbox) {   // the sphere with its X
+        window_.fillEllipse(x, y, 6, 6, ink);
+        for (const float d : {1.0F, -1.0F}) {
+            constexpr float kW = 0.7F;
+            polygon({{x - 4 - kW, y - d * (4 - kW)}, {x - 4 + kW, y - d * (4 + kW)}, {x + 4 + kW, y + d * (4 - kW)},
+                     {x + 4 - kW, y + d * (4 + kW)}},
+                    under);
+        }
+    } else {
+        const std::string text = printed(target);
+        if (!text.empty()) textCentred(x, y - 4, text, ink);
+    }
+}
+
+void ShadowView::dpad(const float x, const float y, const float arm, const float half, const std::int8_t hat,
+                      const Colour colour) {
+    polygon({{x - half, y - half - arm}, {x + half, y - half - arm}, {x + half, y - half}, {x + half + arm, y - half},
+             {x + half + arm, y + half}, {x + half, y + half}, {x + half, y + half + arm}, {x - half, y + half + arm},
+             {x - half, y + half}, {x - half - arm, y + half}, {x - half - arm, y - half}, {x - half, y - half}},
+            colour);
+    // Hat 0..7 clockwise from up: the arms it presses (a diagonal lights two).
+    if (hat == 7 || hat == 0 || hat == 1) window_.fill(x - half, y - half - arm, half * 2, arm, style::kActive);
+    if (hat >= 1 && hat <= 3) window_.fill(x + half, y - half, arm, half * 2, style::kActive);
+    if (hat >= 3 && hat <= 5) window_.fill(x - half, y + half, half * 2, arm, style::kActive);
+    if (hat >= 5 && hat <= 7) window_.fill(x - half - arm, y - half, arm, half * 2, style::kActive);
+}
+
+void ShadowView::wheelShape(const std::vector<ShapePoint>& unit, const float cx, const float cy, const float r,
+                            const Colour colour) {
+    points_.clear();
+    for (const ShapePoint& p : unit) points_.push_back({cx + p.x * r, cy + p.y * r});
+    window_.fillPolygon(points_, colour);
+}
+
 void ShadowView::textLeftOf(const float rightX, const float y, const std::string& value, const Colour colour) {
     window_.text(rightX - static_cast<float>(value.size()) * ui::kCharWidth, y, value, colour);
 }
@@ -212,36 +358,43 @@ void ShadowView::draw(const WheelState& state, const TargetReport& report, const
     const float listX = std::max(kListX, window_.width() - kListW - 4);
     style::headingBand(window_, 0, Y(54), listX - 10);
     window_.text(6, Y(54), "SHADOW", style::kHeading);
-    window_.text(62, Y(54), "your labels beside, the game's numbers on the buttons", style::kDim);
+    window_.text(62, Y(54),
+                 picture_ == Picture::G920 ? "your labels beside, the G920's own print on the buttons"
+                                           : "your labels beside, the game's numbers on the buttons",
+                 style::kDim);
     style::headingBand(window_, listX, Y(54), window_.width() - listX);
     window_.text(listX + 6, Y(54), "PRESSED NOW", style::kHeading);
     window_.text(listX + 102, Y(54), "yours -> " + profile_.identity().shortName, style::kDim);
 
-    drawWheel(state, report.buttons);
+    drawWheel(state, report.buttons, report.hat);
     drawPedals(state);
-    drawShifter(report.buttons, report.hat);
+    if (picture_ == Picture::G920) {
+        drawDrivingForceShifter(report.buttons);
+    } else {
+        drawShifter(report.buttons, report.hat);
+    }
     drawList(state, report, listX);
 }
 
-void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed) {
+void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed, const std::int8_t hat) {
     const float cx = kWheelX;
     const float cy = Y(kWheelY);
     const float R = kWheelR;
     const auto at = [&](const float x, const float y) { return ShapePoint{cx + x * R, cy + y * R}; };
 
     // The paddles: half-moon blades behind the red buttons (the G27's: Wheel 1), nearly upright (the top leaning in a
-    // little), the round side out, with rounded tips. Drawn first: the spokes and buttons are in front of them. A blade
+    // little; the G920's upright), the round side out, with rounded tips. Drawn first: the spokes and buttons are in front of them. A blade
     // is its middle line (bowed outwards) with edges offset square to it by a half width that swells from the tips' to
     // the middle's; each tip is a half circle of exactly the tip's half width, turned along the blade, so it runs on
-    // from the edges. The G27's are longer and wider, with their number on the top part (above Wheel 2).
+    // from the edges. Both wheels' are long and wide, with their number on the top part (on the G27: above Wheel 2).
     std::array<ShapePoint, 2> paddleNumber{};
     for (const auto& [target, side] : {std::pair{kLPaddle, -1.0F}, std::pair{kRPaddle, 1.0F}}) {
         const ShapePoint centre = at(side * 0.62F, 0.05F);
-        const float tipHalf = (g27_ ? 0.09F : 0.05F) * R;
-        const float midHalf = (g27_ ? 0.10F : 0.08F) * R;
-        const float length = (g27_ ? 1.0F : 0.78F) * R - 2 * tipHalf;   // between the tips' centres
-        const float numberAt = g27_ ? 0.06F : 0.22F;                     // along the blade, from its top
-        const float tilt = 5.0F * kPi / 180.0F;
+        const float tipHalf = 0.09F * R;
+        const float midHalf = 0.10F * R;
+        const float length = 1.0F * R - 2 * tipHalf;   // between the tips' centres
+        const float numberAt = 0.06F;                  // along the blade, from its top
+        const float tilt = (picture_ == Picture::G920 ? 0.0F : 5.0F) * kPi / 180.0F;
         constexpr int kSteps = 32;
         constexpr int kCapSteps = 12;
         // A point of the blade's own frame (x outwards, y down, from `centre`) on the window.
@@ -289,6 +442,8 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed)
         paddleNumber[target == kLPaddle ? 0 : 1] = {number.x + side * 2, number.y};
     }
 
+    if (picture_ == Picture::G920) drawG920Face(cx, cy, R);   // its spokes and console run under the rim
+
     // The rim (leather), its stitching, the steering arc round it and the mark where the rim's top is now.
     window_.fillRing(cx, cy, R, R * 0.87F, style::kShadow);
     window_.fillRing(cx, cy, R * 0.935F + 0.5F, R * 0.935F - 0.5F, style::kShadowEdge);
@@ -301,7 +456,9 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed)
     annularArc(cx, cy, R + 14, R + 8, 0, turned, style::kActive);
     annularArc(cx, cy, R, R * 0.87F, turned - 4, turned + 4, style::kCaution);
 
-    if (g27_) {
+    if (picture_ == Picture::G920) {
+        drawG920Buttons(cx, cy, R, pressed, hat);
+    } else if (picture_ == Picture::G27) {
         // The G27: brushed aluminium spokes, no holes; the side ones wide pods for three buttons, one straight down.
         for (const float side : {-1.0F, 1.0F}) {
             polygon({at(side * 0.30F, -0.20F), at(side * 0.80F, -0.30F), at(side * 0.90F, -0.12F),
@@ -347,7 +504,7 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed)
         window_.fillEllipse(cx, hubY, R * 0.14F, R * 0.14F, style::kShadowDeep);
     }
 
-    // The red wheel buttons, with their labels outside the rim, level with them. The G25: one a side, low on the side
+    // The red wheel buttons (none on the G920), with their labels outside the rim, level with them. The G25: one a side, low on the side
     // spoke. The G27: three a side in a column on the spoke near the rim, Wheel 2 above Wheel 1 and Wheel 3 below.
     struct WheelButton {
         std::size_t target;
@@ -359,7 +516,8 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed)
     std::size_t count = 0;
     for (const float side : {-1.0F, 1.0F}) {
         const bool left = side < 0;
-        if (g27_) {
+        if (picture_ == Picture::G920) break;
+        if (picture_ == Picture::G27) {
             buttons[count++] = {left ? kLWheel2 : kRWheel2, side, 0.66F, -0.17F};
             buttons[count++] = {left ? kLWheel : kRWheel, side, 0.66F, 0.05F};
             buttons[count++] = {left ? kLWheel3 : kRWheel3, side, 0.66F, 0.27F};
@@ -367,7 +525,7 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed)
             buttons[count++] = {left ? kLWheel : kRWheel, side, 0.62F, 0.05F};
         }
     }
-    const float buttonR = (g27_ ? 0.075F : 0.085F) * R;
+    const float buttonR = (picture_ == Picture::G27 ? 0.075F : 0.085F) * R;
     for (std::size_t i = 0; i < count; ++i) {
         const WheelButton& b = buttons[i];
         const ShapePoint p = at(b.side * b.x, b.y);
@@ -381,10 +539,13 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed)
             window_.text(cx + R + 30, p.y - 4, name, labelColour(b.target, pressed));
         }
     }
-    // The paddles' numbers (in front of the spokes) and their labels, above the buttons'.
-    numberOn(paddleNumber[0].x, paddleNumber[0].y, kLPaddle, bit(pressed, kLPaddle));
-    numberOn(paddleNumber[1].x, paddleNumber[1].y, kRPaddle, bit(pressed, kRPaddle));
-    const float paddleLabelY = cy - R * (g27_ ? 0.42F : 0.30F);
+    // The paddles' numbers (in front of the spokes; the G920's have nothing printed) and their labels, above the
+    // buttons'.
+    if (picture_ != Picture::G920) {
+        numberOn(paddleNumber[0].x, paddleNumber[0].y, kLPaddle, bit(pressed, kLPaddle));
+        numberOn(paddleNumber[1].x, paddleNumber[1].y, kRPaddle, bit(pressed, kRPaddle));
+    }
+    const float paddleLabelY = cy - R * 0.42F;   // level with the paddles' numbers
     textLeftOf(cx - R - 24, paddleLabelY, cut(label(kLPaddle), 12), labelColour(kLPaddle, pressed));
     window_.text(cx + R + 30, paddleLabelY, cut(label(kRPaddle), 12), labelColour(kRPaddle, pressed));
     char line[48];
@@ -414,33 +575,49 @@ void ShadowView::drawPedals(const WheelState& state) {
     const std::array<Pedal, 3> pedals = {{{&mapper_.clutch, state.clutch, "Clutch"},
                                           {&mapper_.brake, state.brake, "Brake"},
                                           {&mapper_.throttle, state.throttle, "Throttle"}}};
+    const bool g920 = picture_ == Picture::G920;
     for (std::size_t i = 0; i < pedals.size(); ++i) {
         const Pedal& pedal = pedals[i];
-        const float px = x + kGap + static_cast<float>(i) * (kPedalW + kGap);
-        const float top = y + 36;
-        constexpr float kFaceH = kH - 92;
+        float px = x + kGap + static_cast<float>(i) * (kPedalW + kGap);
+        float pw = kPedalW;
+        float top = y + 36;
+        float faceH = kH - 92;
+        if (g920 && i == 2) {   // the G920's throttle: taller and narrower
+            px += 8;
+            pw -= 16;
+            top -= 12;
+            faceH += 12;
+        }
         const float v = std::clamp(pedal.value, 0.0F, 1.0F);
         const bool used = pedal.config->sourceAxis >= 0;
-        window_.fill(px + kPedalW / 2 - 6, top + kFaceH - 6, 12, 40, style::kShadowEdge);   // the arm
-        roundedRect(px, top, kPedalW, kFaceH, 30, used ? style::kSteel : style::kShadowOff);   // the round-topped face
-        if (v > 0.0F) {
-            const float fh = kFaceH * v;
-            roundedRect(px, top + kFaceH - fh, kPedalW, fh, fh > 60 ? 30 : 6, style::kActive);
-        }
-        // The face's rows of holes (green where it is lit).
-        for (int r = 0; r < 5; ++r) {
-            for (int c = 0; c < 3; ++c) {
-                const float hx = px + 20 + static_cast<float>(c) * 19;
-                const float hy = top + 26 + static_cast<float>(r) * 19;
-                const bool lit = v > 0.0F && hy > top + kFaceH - kFaceH * v;
-                window_.fillEllipse(hx, hy, 3.2F, 3.2F, lit ? style::kActiveDeep : style::kShadowDeep);
+        const float litFrom = top + faceH - faceH * v;
+        window_.fill(px + pw / 2 - 6, top + faceH - 6, 12, 40, style::kShadowEdge);   // the arm
+        if (g920) {
+            // Squarer faces with short ribs across them (green where it is lit).
+            roundedRect(px, top, pw, faceH, 10, used ? style::kSteel : style::kShadowOff);
+            if (v > 0.0F) roundedRect(px, litFrom, pw, faceH * v, faceH * v > 20 ? 10 : 3, style::kActive);
+            for (int r = 0; r < 7; ++r) {
+                const float ry = top + 14 + static_cast<float>(r) * (faceH - 24) / 6;
+                window_.fill(px + 12, ry, pw - 24, 3, v > 0.0F && ry > litFrom ? style::kActiveDeep : style::kShadowDeep);
+            }
+        } else {
+            roundedRect(px, top, pw, faceH, 30, used ? style::kSteel : style::kShadowOff);   // the round-topped face
+            if (v > 0.0F) roundedRect(px, litFrom, pw, faceH * v, faceH * v > 60 ? 30 : 6, style::kActive);
+            // The face's rows of holes (green where it is lit).
+            for (int r = 0; r < 5; ++r) {
+                for (int c = 0; c < 3; ++c) {
+                    const float hx = px + 20 + static_cast<float>(c) * 19;
+                    const float hy = top + 26 + static_cast<float>(r) * 19;
+                    window_.fillEllipse(hx, hy, 3.2F, 3.2F,
+                                        v > 0.0F && hy > litFrom ? style::kActiveDeep : style::kShadowDeep);
+                }
             }
         }
         const Colour colour = v > 0.0F ? style::kActive : (used ? style::kText : style::kFaint);
-        textCentred(px + kPedalW / 2, top - 18, cut(axisLabel(*pedal.config, pedal.name), 12), colour);
+        textCentred(px + pw / 2, top - 18, cut(axisLabel(*pedal.config, pedal.name), 12), colour);
         char percent[8];
         std::snprintf(percent, sizeof(percent), "%.0f%%", static_cast<double>(v * 100.0F));
-        textCentred(px + kPedalW / 2, y + kH - 28, percent, v > 0.0F ? style::kActive : style::kDim);
+        textCentred(px + pw / 2, y + kH - 28, percent, v > 0.0F ? style::kActive : style::kDim);
     }
 }
 
@@ -478,20 +655,11 @@ void ShadowView::drawShifter(const std::uint32_t pressed, const std::int8_t hat)
     const float dy = y + 158;
     constexpr float kArm = 17;
     constexpr float kHalf = 8;
-    polygon({{dx - kHalf, dy - kHalf - kArm}, {dx + kHalf, dy - kHalf - kArm}, {dx + kHalf, dy - kHalf},
-             {dx + kHalf + kArm, dy - kHalf}, {dx + kHalf + kArm, dy + kHalf}, {dx + kHalf, dy + kHalf},
-             {dx + kHalf, dy + kHalf + kArm}, {dx - kHalf, dy + kHalf + kArm}, {dx - kHalf, dy + kHalf},
-             {dx - kHalf - kArm, dy + kHalf}, {dx - kHalf - kArm, dy - kHalf}, {dx - kHalf, dy - kHalf}},
-            style::kShadowControl);
-    // Hat 0..7 clockwise from up: the arms it presses (a diagonal lights two).
+    dpad(dx, dy, kArm, kHalf, hat, style::kShadowControl);
     const bool up = hat == 7 || hat == 0 || hat == 1;
     const bool right = hat >= 1 && hat <= 3;
     const bool down = hat >= 3 && hat <= 5;
     const bool left = hat >= 5 && hat <= 7;
-    if (up) window_.fill(dx - kHalf, dy - kHalf - kArm, kHalf * 2, kArm, style::kActive);
-    if (right) window_.fill(dx + kHalf, dy - kHalf, kArm, kHalf * 2, style::kActive);
-    if (down) window_.fill(dx - kHalf, dy + kHalf, kHalf * 2, kArm, style::kActive);
-    if (left) window_.fill(dx - kHalf - kArm, dy - kHalf, kArm, kHalf * 2, style::kActive);
     const auto hatColour = [](const bool on) { return on ? style::kActive : style::kDim; };
     window_.text(dx + 30, dy - kHalf - kArm, cut(hatLabel(0), 12), hatColour(up));
     window_.text(dx + 30, dy - 4, cut(hatLabel(1), 12), hatColour(right));
@@ -550,11 +718,148 @@ void ShadowView::drawShifter(const std::uint32_t pressed, const std::int8_t hat)
         window_.fillEllipse(knob.x - 4, knob.y - 5, 5, 5, style::kShadowKnobTop);
     }
     // The G25's H / sequential knob: not an input the game sees (dim). The G27 has none.
-    if (!g27_) {
+    if (picture_ == Picture::G25) {
         window_.fillEllipse(x + 306, y + 30, 11, 11, style::kShadowEdge);
         window_.fillEllipse(x + 306, y + 30, 10, 10, style::kShadowDeep);
         window_.text(x + 302, y + 46, "H", style::kFaint);
     }
+}
+
+// --- the G920 -------------------------------------------------------------------------------------------------------
+
+void ShadowView::drawG920Face(const float cx, const float cy, const float r) {
+    // Three brushed-aluminium spokes (left, right, and one flaring straight down) carrying the black console; open
+    // gaps between the spokes below it. All of them run under the rim.
+    wheelShape(g920SideSpoke(), cx, cy, r, style::kAluminium);
+    points_.clear();
+    for (const ShapePoint& p : g920SideSpoke()) points_.push_back({cx - p.x * r, cy + p.y * r});
+    window_.fillPolygon(points_, style::kAluminium);
+    polygon({{cx - 0.11F * r, cy + 0.36F * r}, {cx + 0.11F * r, cy + 0.36F * r}, {cx + 0.13F * r, cy + 0.66F * r},
+             {cx + 0.24F * r, cy + 0.92F * r}, {cx - 0.24F * r, cy + 0.92F * r}, {cx - 0.13F * r, cy + 0.66F * r}},
+            style::kAluminium);
+    wheelShape(g920Console(), cx, cy, r, style::kShadowConsole);
+    // The brow with the ten rev lights (the game's output: never lit here).
+    wheelShape(g920Brow(), cx, cy, r, style::kShadowDeep);
+    for (int i = 0; i < 10; ++i) {
+        const float lx = -0.135F + static_cast<float>(i) * 0.03F;
+        window_.fillEllipse(cx + lx * r, cy + (-0.425F + 0.6F * lx * lx) * r, r * 0.012F, r * 0.012F,
+                            style::kShadowEdge);
+    }
+    // The hub cap with the G.
+    window_.fillEllipse(cx, cy + 0.04F * r, r * 0.12F, r * 0.12F, style::kShadowEdge);
+    window_.fillEllipse(cx, cy + 0.04F * r, r * 0.105F, r * 0.105F, style::kShadowDeep);
+    window_.text(cx - 4, cy + 0.04F * r - 4, "G", style::kFaint);
+}
+
+void ShadowView::drawG920Buttons(const float cx, const float cy, const float r, const std::uint32_t pressed,
+                                 const std::int8_t hat) {
+    const auto at = [&](const float x, const float y) { return ShapePoint{cx + x * r, cy + y * r}; };
+    const float leftX = cx - r - 24;    // labels outside the rim, right-aligned on the left
+    const float rightX = cx + r + 30;
+
+    // The D-pad on the left; "D-pad" beside it (its directions are the hat's, named in the list).
+    const ShapePoint d = at(-0.38F, -0.13F);
+    dpad(d.x, d.y, 0.075F * r, 0.045F * r, hat, style::kShadowKnob);
+    textLeftOf(leftX, d.y - 4, "D-pad", hat >= 0 && hat < 8 ? style::kActive : style::kDim);
+
+    // A B X Y on the right in Xbox's colours, the letters on them; their labels in a row beside.
+    struct Face {
+        std::size_t target;
+        float x;
+        float y;
+        Colour idle;
+    };
+    const ShapePoint f = at(0.38F, -0.13F);
+    const std::array<Face, 4> faces = {{{3, 0, -0.11F, style::kFaceY}, {2, -0.11F, 0, style::kFaceX},
+                                        {1, 0.11F, 0, style::kFaceB}, {0, 0, 0.11F, style::kFaceA}}};
+    for (const Face& face : faces) {
+        const float x = f.x + face.x * r;
+        const float y = f.y + face.y * r;
+        const Colour colour = controlColour(face.target, pressed, face.idle);
+        window_.fillEllipse(x, y, 0.055F * r, 0.055F * r, colour);
+        printedOn(x, y, face.target, bit(pressed, face.target), colour);
+    }
+    float x = rightX;
+    for (std::size_t t = 0; t < 4; ++t) {   // A B X Y
+        const std::string name = cut(label(t), 5);
+        window_.text(x, f.y - 4, name, labelColour(t, pressed));
+        x += static_cast<float>(name.size() + 1) * ui::kCharWidth;
+    }
+
+    // View and Menu under them, LSB and RSB (wide, for their print) out by the rim, the Xbox button on the chin.
+    struct Spot {
+        std::size_t target;
+        float x;
+        float y;
+        float rx;
+        float ry;
+    };
+    const std::array<Spot, 5> spots = {{{kView, -0.22F, 0.21F, 0.05F, 0.05F}, {kMenu, 0.22F, 0.21F, 0.05F, 0.05F},
+                                        {kLsb, -0.56F, 0.07F, 0.115F, 0.06F}, {kRsb, 0.56F, 0.07F, 0.115F, 0.06F},
+                                        {kXbox, 0, 0.30F, 0.065F, 0.065F}}};
+    for (const Spot& spot : spots) {
+        const ShapePoint p = at(spot.x, spot.y);
+        const Colour colour = controlColour(spot.target, pressed, style::kShadowKnob);
+        window_.fillEllipse(p.x, p.y, spot.rx * r + 1, spot.ry * r + 1, style::kShadowEdge);
+        window_.fillEllipse(p.x, p.y, spot.rx * r, spot.ry * r, colour);
+        printedOn(p.x, p.y, spot.target, bit(pressed, spot.target), colour);
+        const std::string name = cut(label(spot.target), 12);
+        if (spot.target == kXbox) {
+            textCentred(p.x, cy + 0.36F * r, name, labelColour(spot.target, pressed));
+        } else if (spot.x < 0) {
+            textLeftOf(leftX, p.y - 4, name, labelColour(spot.target, pressed));
+        } else {
+            window_.text(rightX, p.y - 4, name, labelColour(spot.target, pressed));
+        }
+    }
+}
+
+void ShadowView::drawDrivingForceShifter(const std::uint32_t pressed) {
+    // The Driving Force Shifter: a small box, the stick in a round boot, no buttons.
+    const float x = kDfsX;
+    const float y = Y(kDfsY);
+    roundedRect(x - 1, y - 1, kDfsW + 2, kDfsH + 2, 23, style::kShadowEdge);
+    roundedRect(x, y, kDfsW, kDfsH, 22, style::kShadow);
+    const float bcx = x + kDfsW / 2;
+    const float bcy = y + kDfsH / 2 + 4;
+    constexpr float kBoot = 96;
+    window_.fillEllipse(bcx, bcy, kBoot + 1, kBoot + 1, style::kShadowEdge);
+    window_.fillEllipse(bcx, bcy, kBoot, kBoot, style::kShadowPanel);
+    const std::array<float, 4> cols = {bcx - 54, bcx - 18, bcx + 18, bcx + 54};
+    const float gateTop = bcy - 50;
+    const float gateBottom = bcy + 50;
+    window_.fill(cols[0] - 3.5F, bcy - 3.5F, cols[3] - cols[0] + 7, 7, style::kShadowDeep);
+    for (std::size_t i = 0; i < cols.size(); ++i) {
+        const float from = i == 3 ? bcy : gateTop;   // reverse: down only, right of 6
+        window_.fill(cols[i] - 3.5F, from - 3.5F, 7, gateBottom - from + 7, style::kShadowDeep);
+    }
+    // Gears 1, 3, 5 up; 2, 4, 6 down; R down at the right: each slot with its gear printed; beside it only a rig
+    // label (the slot already says which gear).
+    const std::array<ShapePoint, 7> slots = {{{cols[0], gateTop}, {cols[0], gateBottom}, {cols[1], gateTop},
+                                              {cols[1], gateBottom}, {cols[2], gateTop}, {cols[2], gateBottom},
+                                              {cols[3], gateBottom}}};
+    std::optional<std::size_t> engaged;
+    for (std::size_t g = 0; g < slots.size(); ++g) {
+        const std::size_t target = gear1_ + g;
+        const ShapePoint slot = slots[g];
+        if (bit(pressed, target) && !engaged) engaged = g;
+        const Colour colour = controlColour(target, pressed, style::kShadowControl);
+        window_.fillEllipse(slot.x, slot.y, 10, 10, colour);
+        printedOn(slot.x, slot.y, target, bit(pressed, target), colour);
+        const std::string rig = sourceLabel(mapper_.buttonDevice[target], mapper_.buttonMap[target], false);
+        if (!rig.empty()) {
+            textCentred(slot.x, slot.y < bcy ? slot.y - 24 : slot.y + 14, cut(rig, 4), labelColour(target, pressed));
+        }
+    }
+    const ShapePoint knob = engaged ? slots[*engaged] : ShapePoint{(cols[1] + cols[2]) / 2, bcy};
+    window_.fillEllipse(knob.x, knob.y, 16, 16, engaged ? style::kActive : style::kShadowEdge);
+    window_.fillEllipse(knob.x, knob.y, 14, 14, style::kShadowKnob);
+    if (engaged) {
+        textCentred(knob.x, knob.y - 4, printed(gear1_ + *engaged), style::kActive);   // the engaged gear on the knob
+    } else {
+        window_.fillEllipse(knob.x - 4, knob.y - 5, 5, 5, style::kShadowKnobTop);
+    }
+    textCentred(bcx, y + kDfsH + 8, "Driving Force Shifter", style::kDim);
 }
 
 // --- the list -------------------------------------------------------------------------------------------------------
@@ -644,10 +949,12 @@ void ShadowView::drawList(const WheelState& state, const TargetReport& report, c
         }
     }
     const float legendY = window_.height() - 28 - 32;   // above the tab bar
+    const std::string onIt =
+        picture_ == Picture::G920 ? std::string("what the G920 has printed there.")
+        : order_ == ButtonOrder::Native && profile_.hasNativeButtonOrder() ? std::string("its number in the native order, from 0.")
+                                                                           : std::string("its number in Logitech's driver, from 1.");
     window_.text(4, legendY,
-                 "Beside a control: your rig's label (Rig tab), else the " + target + "'s own name. On it: its number in " +
-                     (order_ == ButtonOrder::Native && profile_.hasNativeButtonOrder() ? "the native order, from 0."
-                                                                                     : "Logitech's driver, from 1."),
+                 "Beside a control: your rig's label (Rig tab), else the " + target + "'s own name. On it: " + onIt,
                  style::kDim);
     window_.text(4, legendY + 12, "Faint: nothing drives it. S or the List button: every rig axis and button.",
                  style::kDim);

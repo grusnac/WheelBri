@@ -88,13 +88,14 @@ runs, amber when the game does not support the Target. Click it to go to the Map
 click it: a list says what is done and what is still to do. The Mapping tab is marked EDIT while stopped and LIVE
 while running; after a hot swap or a shim put in, a short green message says what happened.
 
-**Shadow view** (Target G25 or G27). While running, the Mapping tab draws the Target (wheel, pedals and shifter) and lights
+**Shadow view** (Target G25, G27 or G920). While running, the Mapping tab draws the Target (wheel, pedals and shifter) and lights
 every control the game sees pressed: the buttons, the D-pad, the gear the knob is in, the pedals filling up as you
 press them and an arc for how far the wheel is turned. On each button is its number as the game numbers it (from 1
 with the Logitech driver order, from 0 with the native one: the Mapping tab's Button order); beside it the label you
-gave the control that drives it in the Rig tab, or the wheel's own name (Red 2, the gears) if that control has none. A
-faint control has nothing driving it. On the right, what is pressed now, yours first. **List** (or S) switches to
-every rig axis and button, **Shadow** back; the other targets show the list.
+gave the control that drives it in the Rig tab, or the wheel's own name (Red 2, the gears) if that control has none. On
+the G920 each button shows what is printed on the real one instead of a number (A B X Y, LSB / RSB, the View, Menu and
+Xbox symbols, the shifter's gears); the paddles show nothing. A faint control has nothing driving it. On the right, what is pressed now, yours first. **List** (or S) switches to
+every rig axis and button, **Shadow** back; the G923 shows the list.
 
 ![The Shadow view](images/shadow.png)
 

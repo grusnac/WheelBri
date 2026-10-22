@@ -48,6 +48,7 @@ protected:
         profile_ = makeProfile("g920");
         MappingView::setOptionalTabs(false, false);
         MappingView::setGamesTab(false);
+        MappingView::startOnShadow(false);   // the List view (the G920 has a picture too); Shadow tests ask for it
     }
     void TearDown() override {
         MappingView::setOptionalTabs(false, false);
@@ -216,7 +217,7 @@ bool hasIn(const ScriptedWindow& window, const std::string& value, const ui::Col
 
 // The G25 starts on its Shadow view (the picture), with the Shadow / List switch in the header; the List view is the
 // rig's axes and buttons as before. Clicks and S switch, and the choice holds for the next session's view. A target
-// with no picture (the G920) has no switch and always shows the list.
+// with no picture (the G923) has no switch and always shows the list.
 TEST_F(LiveView, ShadowViewIsTheG25sFirstView) {
     profile_ = makeProfile("g25");
     auto view = makeView(8, 40, g25Mapping());
@@ -246,11 +247,11 @@ TEST_F(LiveView, ShadowViewIsTheG25sFirstView) {
     ASSERT_TRUE(clickOn(*view, "Shadow"));
     EXPECT_TRUE(view->showingShadow());
 
-    profile_ = makeProfile("g920");
-    auto g920 = makeView();
-    g920->onKey('s');
-    draw(*g920);
-    EXPECT_FALSE(g920->showingShadow());
+    profile_ = makeProfile("g923");
+    auto g923 = makeView();
+    g923->onKey('s');
+    draw(*g923);
+    EXPECT_FALSE(g923->showingShadow());
     EXPECT_TRUE(window_.has("AXES"));
     EXPECT_FALSE(window_.has("Shadow"));
 }
@@ -380,6 +381,56 @@ TEST_F(LiveView, ShadowViewHasEveryG27ButtonByTheGamesNumber) {
     draw(*view, {}, {}, report);
     EXPECT_TRUE(hasIn(window_, "7", style::kDark)) << window_.dump();
     EXPECT_TRUE(window_.has("R            -> 7 R Wheel 1")) << window_.dump();
+}
+
+// The G920 has its own picture: on each button what the real one has printed there (A B X Y, LSB / RSB, the gears;
+// View, Menu and Xbox as symbols), never the game's numbers; beside them the rig's labels (g920.ini's Moza rim), the
+// G920's own name where a control has none (Xbox: rig 37 has no label); the Driving Force Shifter's gears faint
+// (nothing drives them by default) with no names repeated beside them.
+TEST_F(LiveView, ShadowViewShowsTheG920sOwnPrint) {
+    std::ifstream in(std::filesystem::path(WHEELBRI_CONFIG_DIR) / "g920.ini", std::ios::binary);
+    std::stringstream text;
+    text << in.rdbuf();
+    const MapperConfig mapper = loadEmulatorConfig(IniDocument::parse(text.str()).document).config.mapper;
+    auto view = makeView(8, 40, mapper);
+    view->showShadow(true);
+    draw(*view);
+    ASSERT_TRUE(view->showingShadow());
+    EXPECT_TRUE(window_.has("your labels beside, the G920's own print on the buttons")) << window_.dump();
+    EXPECT_TRUE(window_.has("Driving Force Shifter"));
+    const auto onPicture = [&](const std::string& value) {
+        int n = 0;
+        for (const auto& t : window_.last.texts) n += (t.value == value && t.y > 60 && t.x < 560) ? 1 : 0;
+        return n;
+    };
+    for (const char* print : {"LSB", "RSB"}) EXPECT_GE(onPicture(print), 1) << print << "\n" << window_.dump();
+    for (const char* letter : {"A", "B", "X", "Y"}) EXPECT_GE(onPicture(letter), 2) << letter;   // on it and beside
+    for (const char* number : {"7", "8", "9", "10", "11"}) {   // Menu, View, RSB, LSB, Xbox: no numbers on them
+        EXPECT_EQ(onPicture(number), 0) << number << "\n" << window_.dump();
+    }
+    for (const char* gear : {"1", "2", "3", "4", "5", "6", "R"}) {
+        int faint = 0;
+        for (const auto& t : window_.last.texts) faint += (t.value == gear && t.x >= 560 && sameColour(t.colour, style::kFaint)) ? 1 : 0;
+        EXPECT_EQ(faint, 1) << gear << "\n" << window_.dump();   // printed in its slot, not repeated beside it
+    }
+    for (const char* label : {"Cam", "R", "Radio", "Start", "L paddle", "R paddle"}) {
+        EXPECT_TRUE(hasIn(window_, label, style::kText)) << label << "\n" << window_.dump();
+    }
+    EXPECT_TRUE(hasIn(window_, "Xbox", style::kText)) << window_.dump();   // rig 37 drives it, unlabelled
+    EXPECT_TRUE(window_.has("On it: what the G920 has printed there.", true)) << window_.dump();
+
+    // Presses light: A and LSB dark on green, the D-pad's "D-pad", gear 3 on the knob; the list keeps the numbers.
+    TargetReport report;
+    report.buttons = (1U << 0) | (1U << 9) | (1U << 14);   // A, LSB, Gear 3
+    report.hat = 6;                                          // left
+    draw(*view, {}, {}, report);
+    EXPECT_TRUE(hasIn(window_, "A", style::kDark)) << window_.dump();
+    EXPECT_TRUE(hasIn(window_, "LSB", style::kDark));
+    EXPECT_TRUE(hasIn(window_, "3", style::kActive));
+    EXPECT_TRUE(hasIn(window_, "D-pad", style::kActive));
+    EXPECT_TRUE(hasIn(window_, "Cam", style::kActive));
+    EXPECT_TRUE(window_.has("Cam          -> 10 LSB")) << window_.dump();
+    EXPECT_TRUE(window_.has("A            -> 1 A"));
 }
 
 // The amber mark on the rim follows the steering arc: at full lock left it sits at the arc's left end (150 degrees

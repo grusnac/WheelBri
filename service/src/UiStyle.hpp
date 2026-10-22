@@ -47,6 +47,13 @@ inline constexpr ui::Colour kShadowBlack{24, 26, 30};   // a black button at res
 inline constexpr ui::Colour kShadowKnob{30, 32, 38};    // the gear knob
 inline constexpr ui::Colour kShadowKnobTop{64, 68, 78}; // its highlight
 inline constexpr ui::Colour kActiveDeep{28, 104, 52};   // holes in a lit pedal
+inline constexpr ui::Colour kShadowConsole{48, 52, 61}; // the G920's black button console
+inline constexpr ui::Colour kAluminium{84, 90, 102};    // the G920's brushed spokes
+// The G920's A B X Y at rest: Xbox's green, red, blue and yellow, dimmed to sit in the picture.
+inline constexpr ui::Colour kFaceA{33, 77, 38};
+inline constexpr ui::Colour kFaceB{82, 33, 33};
+inline constexpr ui::Colour kFaceX{33, 55, 88};
+inline constexpr ui::Colour kFaceY{88, 77, 33};
 
 // A section's heading band: a darker strip across `w` behind the heading text at (x + 6, y), with a blue edge at its
 // left. Draw it before the heading.

@@ -164,6 +164,8 @@ public:
     // header's Shadow / List buttons switch.
     [[nodiscard]] bool showingShadow() const { return shadow_ != nullptr && gShowShadow; }
     void showShadow(bool on);
+    // The view a target with a picture starts on, for every view from now (tests start each on the List view).
+    static void startOnShadow(const bool on) { gShowShadow = on; }
 
     // Draws the panel (between the window's begin() and present()); `inputs.devices[0]` is the wheel.
     void draw(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
