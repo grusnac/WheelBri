@@ -621,15 +621,6 @@ TEST(FfbController, TheSameGameGainAgainChangesNothing) {
     EXPECT_FLOAT_EQ(controller.gameGain(), 2.0F);
 }
 
-// The game gain leaves an effect of a type this build does not know as it is (the limiter then gives it no force).
-TEST(FfbController, GameGainLeavesAnUnknownTypeAlone) {
-    FfbEffect unknown;
-    unknown.type = static_cast<FfbEffectType>(42);
-    unknown.constantLevel = 0.3F;
-    unknown.periodic.magnitude = 0.3F;
-    EXPECT_EQ(FfbController::withGameGain(unknown, 3.0F), unknown);
-}
-
 // An effect type this build does not know, from a newer or broken sender: what reaches the wheel is no force.
 TEST(FfbController, AnUnknownEffectTypeReachesTheWheelAsNoForce) {
     RecordingSink sink;
@@ -1128,33 +1119,6 @@ TEST(FfbController, GameTuningFlipsAndTurnsOff) {
     EXPECT_TRUE(controller.slot(0).playing);
     controller.update(400 * kMs);   // a restarted push ramps up from 0, as a new one does
     EXPECT_NEAR(controller.slot(0).sent->constantLevel, 0.2F, 1e-4F);
-}
-
-// The game gain makes pushing forces stronger: a constant's level, a periodic effect's magnitude and offset; the
-// effects that only resist (spring, damper, friction, inertia) are left as they are.
-TEST(FfbController, GameGainScalesOnlyThePushingForces) {
-    FfbEffect effect;
-    effect.constantLevel = 0.2F;
-    effect.periodic.magnitude = 0.3F;
-    effect.periodic.offset = -0.1F;
-    effect.condition.positiveCoefficient = 0.4F;
-    effect.type = FfbEffectType::Constant;
-    FfbEffect out = FfbController::withGameGain(effect, 2.0F);
-    EXPECT_FLOAT_EQ(out.constantLevel, 0.4F);
-    EXPECT_FLOAT_EQ(out.periodic.magnitude, 0.3F);
-    for (const FfbEffectType type : {FfbEffectType::Sine, FfbEffectType::Square, FfbEffectType::Triangle,
-                                     FfbEffectType::SawtoothUp, FfbEffectType::SawtoothDown}) {
-        effect.type = type;
-        out = FfbController::withGameGain(effect, 2.0F);
-        EXPECT_FLOAT_EQ(out.periodic.magnitude, 0.6F) << ffbTypeName(type);
-        EXPECT_FLOAT_EQ(out.periodic.offset, -0.2F) << ffbTypeName(type);
-        EXPECT_FLOAT_EQ(out.constantLevel, 0.2F) << ffbTypeName(type);
-    }
-    for (const FfbEffectType type : {FfbEffectType::Spring, FfbEffectType::Damper, FfbEffectType::Friction,
-                                     FfbEffectType::Inertia}) {
-        effect.type = type;
-        EXPECT_EQ(FfbController::withGameGain(effect, 2.0F), effect) << ffbTypeName(type);
-    }
 }
 
 // The game changing only its effect's gain is a new push: the frozen-push clock starts again.

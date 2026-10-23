@@ -65,8 +65,6 @@ public:
     // the game asks; clamped to kFfbGainMin..kFfbGainMax. Takes effect at the next update().
     void setGameGain(float gain);
     [[nodiscard]] float gameGain() const { return gameGain_; }
-    // `effect` with the game gain applied, as update() hands it to the limiter.
-    [[nodiscard]] static FfbEffect withGameGain(const FfbEffect& effect, float gain);
 
     // The running game's own values (GameTuning.hpp, resolveGameFfb): a gain per kind of effect (0 = that kind off,
     // up to kGameEffectGainMax; constant and periodic also times setGameGain's), the limits while it runs, whether the

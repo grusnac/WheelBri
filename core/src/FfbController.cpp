@@ -198,29 +198,6 @@ void FfbController::setGameGain(const float gain) {
     gameGain_ = clamped;
 }
 
-FfbEffect FfbController::withGameGain(const FfbEffect& effect, const float gain) {
-    FfbEffect out = effect;
-    switch (effect.type) {
-        case FfbEffectType::Constant:
-            out.constantLevel = effect.constantLevel * gain;
-            break;
-        case FfbEffectType::Sine:
-        case FfbEffectType::Square:
-        case FfbEffectType::Triangle:
-        case FfbEffectType::SawtoothUp:
-        case FfbEffectType::SawtoothDown:
-            out.periodic.magnitude = effect.periodic.magnitude * gain;
-            out.periodic.offset = effect.periodic.offset * gain;
-            break;
-        case FfbEffectType::Spring:
-        case FfbEffectType::Damper:
-        case FfbEffectType::Friction:
-        case FfbEffectType::Inertia:
-            break;   // they only resist: a stronger one only feels heavy
-    }
-    return out;
-}
-
 void FfbController::setGameTuning(const std::array<float, kFfbGroupCount>& gains, const FfbSafetyConfig& safety,
                                   const bool flip, const bool effects) {
     std::array<float, kFfbGroupCount> clamped{};
