@@ -94,7 +94,10 @@ std::optional<ButtonRef> parseButtonRef(const std::string_view text) {
         const auto percent = tuning::parseNumber(tail.substr(gt + 1));
         if (!percent) return std::nullopt;
         ref.threshold = *percent / 100.0F;
-        if (ref.threshold < kMinButtonThreshold - 1e-4F || ref.threshold > kMaxButtonThreshold + 1e-4F) return std::nullopt;
+        if (!(ref.threshold >= kMinButtonThreshold - 1e-4F && ref.threshold <= kMaxButtonThreshold + 1e-4F)) {
+            return std::nullopt;
+        }
+        ref.threshold = std::clamp(ref.threshold, kMinButtonThreshold, kMaxButtonThreshold);
         tail = tail.substr(0, gt);
     }
     if (const std::size_t inv = tail.find("inverted"); inv != std::string_view::npos) {

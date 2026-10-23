@@ -42,8 +42,9 @@ struct ButtonRef {
 // The list: "-1" or empty is none; nullopt when any item is not a source (or is -1 among others).
 [[nodiscard]] std::optional<std::vector<ButtonRef>> parseButtonRefs(std::string_view text);
 [[nodiscard]] std::string formatButtonRefs(const std::vector<ButtonRef>& refs);
-inline constexpr float kMinButtonThreshold = 0.05F;
-inline constexpr float kMaxButtonThreshold = 0.95F;
+// The whole travel: 0% presses the button as soon as the axis leaves where it rests, 100% only at its end.
+inline constexpr float kMinButtonThreshold = 0.0F;
+inline constexpr float kMaxButtonThreshold = 1.0F;
 
 // "vvvv:pppp" as source_device takes it, or nullopt if `text` is not exactly a USB id (e.g. "346e", "Racing Wheel").
 [[nodiscard]] std::optional<DeviceId> parseDeviceId(std::string_view text);
