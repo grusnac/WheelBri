@@ -150,12 +150,18 @@ std::uint32_t Mapper::mapButtons(const RawInputs& inputs) const {
             }
             // An axis: its travel from where it rests; pressed from the threshold, released kAxisButtonRelease below
             // it, so a lever resting right at the threshold does not flicker. Every axis is followed (not only until
-            // one source is down), so each latch stays right.
+            // one source is down), so each latch stays right. Near the rest (0% .. 5%) a press needs some travel and
+            // a release all of it back: a 0% threshold is "moved at all", never "pressed at rest".
             const std::optional<float> raw = axisValue(inputs, alt.device, alt.index);
             const float v = std::clamp(raw.value_or(alt.invert ? 1.0F : -1.0F), -1.0F, 1.0F);
             const float travel = alt.invert ? (1.0F - v) * 0.5F : (v + 1.0F) * 0.5F;
             bool& latched = axisDown_[i][s];
-            latched = latched ? travel >= alt.threshold - kAxisButtonRelease : travel >= alt.threshold;
+            const float releaseAt = alt.threshold - kAxisButtonRelease;
+            if (latched) {
+                latched = releaseAt > 0.0F ? travel >= releaseAt : travel > 0.0F;
+            } else {
+                latched = alt.threshold > 0.0F ? travel >= alt.threshold : travel > 0.0F;
+            }
             down = down || latched;
         }
         if (down) target |= 1U << i;

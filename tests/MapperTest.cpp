@@ -250,6 +250,34 @@ TEST(Mapper, ManySecondariesEachAxisWithItsOwnRelease) {
     EXPECT_TRUE(x());
 }
 
+// The whole travel: 0% is pressed as soon as the axis moves (never at rest) and released only back at rest; 100% only
+// at its end, released 5% below.
+TEST(Mapper, AxisThresholdsAtBothEnds) {
+    MapperConfig config;
+    config.buttonMap[2] = kUnmapped;
+    config.buttonMap[3] = kUnmapped;
+    config.buttonSecondary[2][0] = ButtonSource{0, 5, true, false, 0.0F};
+    config.buttonSecondary[3][0] = ButtonSource{0, 6, true, false, 1.0F};
+    const Mapper mapper(config);
+    RawInputs inputs;
+    inputs.devices[0].axes[5] = -1.0F;   // at rest
+    inputs.devices[0].axes[6] = -1.0F;
+    const auto pressed = [&](const int b) { return (mapper.map(inputs).buttons & (1U << b)) != 0; };
+    EXPECT_FALSE(pressed(2));
+    inputs.devices[0].axes[5] = -0.98F;   // 1%: moved
+    EXPECT_TRUE(pressed(2));
+    inputs.devices[0].axes[5] = -1.0F;    // back at rest
+    EXPECT_FALSE(pressed(2));
+    inputs.devices[0].axes[6] = 0.98F;    // 99%: not yet
+    EXPECT_FALSE(pressed(3));
+    inputs.devices[0].axes[6] = 1.0F;     // the end
+    EXPECT_TRUE(pressed(3));
+    inputs.devices[0].axes[6] = 0.92F;    // 96%: still pressed (released below 95%)
+    EXPECT_TRUE(pressed(3));
+    inputs.devices[0].axes[6] = 0.8F;     // 90%
+    EXPECT_FALSE(pressed(3));
+}
+
 TEST(Mapper, AnInvertedAxisCountsFromWhereItRests) {
     MapperConfig config;
     config.buttonMap[2] = kUnmapped;
