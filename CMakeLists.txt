@@ -19,12 +19,23 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 else()
     set(WE_LINUX OFF)
 endif()
+option(WE_BUILD_FUZZ    "Build wheelbri_fuzz, the parsers under libFuzzer (Clang only)" OFF)
 option(WE_BUILD_UHID    "Build wheelbri-uhid, the virtual G920 for Linux"  ${WE_LINUX})
 
 if(MSVC)
     add_compile_options(/W4 /permissive-)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# wheelbri_fuzz (tests/fuzz): everything built for libFuzzer's coverage, with the address and undefined behaviour
+# checks, so a fuzz run finds what a normal build would only do wrong quietly.
+if(WE_BUILD_FUZZ)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "WE_BUILD_FUZZ needs Clang (libFuzzer): CXX=clang++")
+    endif()
+    add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined)
+    add_link_options(-fsanitize=address,undefined)
 endif()
 
 include(FetchContent)

@@ -124,7 +124,14 @@ include(GoogleTest)
 gtest_discover_tests(wheelbri_tests)
 
 # --- coverage: core ---
-target_sources(wheelbri_tests PRIVATE EqualityTest.cpp)
+target_sources(wheelbri_tests PRIVATE EqualityTest.cpp RobustnessTest.cpp fuzz/FuzzTargets.cpp)
+
+# The same targets under libFuzzer, to search far longer than RobustnessTest does (Clang only).
+if(WE_BUILD_FUZZ)
+    add_executable(wheelbri_fuzz fuzz/FuzzMain.cpp fuzz/FuzzTargets.cpp)
+    target_link_libraries(wheelbri_fuzz PRIVATE wheelbri_core)
+    target_link_options(wheelbri_fuzz PRIVATE -fsanitize=fuzzer)
+endif()
 # wheelbri-uhid run as a program, a plain file standing in for /dev/uhid (UhidMainTest).
 if(WE_LINUX AND TARGET wheelbri-uhid)
     target_sources(wheelbri_tests PRIVATE UhidMainTest.cpp)
