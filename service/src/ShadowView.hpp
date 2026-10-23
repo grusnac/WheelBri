@@ -71,9 +71,11 @@ private:
     void roundedRect(float x, float y, float w, float h, float r, ui::Colour colour);
     void annularArc(float cx, float cy, float outer, float inner, float fromDeg, float toDeg, ui::Colour colour);
     void numberOn(float x, float y, std::size_t target, bool pressed);
-    // The G920's print on a button: its letters, or View's, Menu's and Xbox's symbols drawn small; `under` is the
-    // button's own colour (the symbols' cut-outs).
-    void printedOn(float x, float y, std::size_t target, bool pressed, ui::Colour under);
+    // The G920's print on a button in `ink`: its letters, or View's, Menu's and Xbox's symbols drawn small; `under`
+    // is the button's own colour (the symbols' cut-outs).
+    void printedOn(float x, float y, std::size_t target, ui::Colour ink, ui::Colour under);
+    // The print's colour: dark on a lit button, `idle` on a driven one, faint on one nothing drives.
+    [[nodiscard]] ui::Colour inkOn(std::size_t target, std::uint32_t pressed, ui::Colour idle = style::kText) const;
     // A D-pad (a cross) centred at x, y: arms `arm` long and 2 * `half` wide, those `hat` presses lit.
     void dpad(float x, float y, float arm, float half, std::int8_t hat, ui::Colour colour);
     // A closed outline in the wheel's own units (R = 1, from its centre) placed on the wheel at cx, cy.

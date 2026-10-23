@@ -405,6 +405,8 @@ TEST_F(LiveView, ShadowViewShowsTheG920sOwnPrint) {
     };
     for (const char* print : {"LSB", "RSB"}) EXPECT_GE(onPicture(print), 1) << print << "\n" << window_.dump();
     for (const char* letter : {"A", "B", "X", "Y"}) EXPECT_GE(onPicture(letter), 2) << letter;   // on it and beside
+    EXPECT_TRUE(hasIn(window_, "Y", style::kLetterY)) << window_.dump();   // black buttons, letters in Xbox's colours
+    EXPECT_TRUE(hasIn(window_, "LSB", style::kDark));                      // dark print on the light keycap
     for (const char* number : {"7", "8", "9", "10", "11"}) {   // Menu, View, RSB, LSB, Xbox: no numbers on them
         EXPECT_EQ(onPicture(number), 0) << number << "\n" << window_.dump();
     }
