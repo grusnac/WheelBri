@@ -159,6 +159,11 @@ ButtonLayout layoutButtons(const IDeviceProfile& profile, const std::function<bo
     return layout;
 }
 
+int DeviceProfile::coreButton(const CoreButton button) const {
+    const auto index = static_cast<std::size_t>(button);
+    return index < spec_.coreButtons.size() ? spec_.coreButtons[index] : -1;
+}
+
 std::string_view DeviceProfile::buttonName(const std::size_t index) const {
     return index < spec_.buttonNames.size() ? std::string_view(spec_.buttonNames[index]) : std::string_view();
 }
@@ -193,6 +198,7 @@ DeviceProfileSpec g920Spec() {
         {"SYSTEM", {6, 7, 10}, Place::Right},            // Menu, View, Xbox
         {"SHIFTER", {12, 13, 14, 15, 16, 17, 18}, Place::Below},
     };
+    spec.coreButtons = {0, 1, 2, 3, 5, 4};   // A, B, X, Y, L Paddle, R Paddle
     return spec;
 }
 
@@ -226,6 +232,8 @@ DeviceProfileSpec g25Spec() {
         {"SHIFTER", {8, 9, 10, 11, 12, 13, 14}, Place::Below},
     };
     spec.nativeButtonOrder = kG25NativeOrder;
+    // An Xbox-style rim's A, B, X, Y on the black diamond by place (bottom 17, right 18, left 16, top 15); paddles.
+    spec.coreButtons = {17, 18, 16, 15, 5, 4};
     return spec;
 }
 
@@ -256,6 +264,7 @@ DeviceProfileSpec g27Spec() {
         {"SHIFTER", {8, 9, 10, 11, 12, 13, 14}, Place::Below},
     };
     spec.nativeButtonOrder = kG27NativeOrder;
+    spec.coreButtons = {17, 18, 16, 15, 5, 4};   // as the G25's: Black 1-4 are its diamond's top, left, bottom, right
     return spec;
 }
 

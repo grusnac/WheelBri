@@ -85,6 +85,15 @@ struct ButtonGroup {
     friend bool operator==(const ButtonGroup&, const ButtonGroup&) = default;
 };
 
+// The buttons every target has and the Rig maps by itself (AutoMap.hpp): an Xbox-style rim's face buttons and the
+// paddles. The G920 and G923 name them so; the G25 and G27 have no A, B, X, Y: an Xbox-style rim's go on the shifter's
+// black diamond by place (A bottom, B right, X left, Y top), as games of their time used it for menus.
+enum class CoreButton : std::uint8_t { A, B, X, Y, LPaddle, RPaddle };
+inline constexpr std::size_t kCoreButtonCount = 6;
+// What the Rig tab calls them ("It is", Rig.hpp's kButtonNames), in CoreButton's order.
+inline constexpr std::array<std::string_view, kCoreButtonCount> kCoreButtonKinds = {"A", "B", "X", "Y", "L Paddle",
+                                                                                   "R Paddle"};
+
 // A wheel the emulator can impersonate. New targets (T300, G920, ...) are new implementations.
 class IDeviceProfile {
 public:
@@ -106,6 +115,8 @@ public:
     // `buttons` (bit n = target button n, as named) in the native order: what the game gets with ButtonOrder::Native.
     // Unchanged for a target without one. No allocations (the 1 kHz loop calls it).
     [[nodiscard]] virtual std::uint32_t nativeButtons(const std::uint32_t buttons) const { return buttons; }
+    // The target button (0-based, as named) of a core button, or -1 when it has none.
+    [[nodiscard]] virtual int coreButton(CoreButton /*button*/) const { return -1; }
 };
 
 // The number a game shows for target button `index` (0-based, as named), the way the real wheel numbers it there.
@@ -148,6 +159,8 @@ struct DeviceProfileSpec {
     // The native order (ButtonOrder::Native): index = target button as named, value = its button in the wheel's own
     // HID order (0-based). Empty: none. Must be a permutation of 0..buttonNames.size() - 1.
     std::vector<std::uint8_t> nativeButtonOrder;
+    // The target button of each CoreButton (IDeviceProfile::coreButton), in CoreButton's order; -1: none.
+    std::array<int, kCoreButtonCount> coreButtons = {-1, -1, -1, -1, -1, -1};
 };
 
 // Data-driven profile: identity plus linear axis encodings.
@@ -162,6 +175,7 @@ public:
     [[nodiscard]] std::vector<ButtonGroup> buttonGroups() const override { return spec_.buttonGroups; }
     [[nodiscard]] bool hasNativeButtonOrder() const override { return !spec_.nativeButtonOrder.empty(); }
     [[nodiscard]] std::uint32_t nativeButtons(std::uint32_t buttons) const override;
+    [[nodiscard]] int coreButton(CoreButton button) const override;
 
 private:
     [[nodiscard]] std::int32_t encodePedal(float travel) const;
