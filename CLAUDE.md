@@ -152,7 +152,7 @@ Warnings: `-Wall -Wextra -Wpedantic` (`/W4 /permissive-` on MSVC).
     (`UiStyle.hpp`); tests compare against `style::`, not literals.
   - Shapes (`UiWindow::fillPolygon`, `fillEllipse`, `fillRing`) are drawn as rows of `fill()` (core `ShapeSpans`), so
     every window and test fake draws them. The Mapping tab's Shadow view (`ShadowView.cpp`) draws the target with them;
-    the G25, the G27 and the G920 have pictures (`ShadowView::hasPicture`), the G923 shows the List view.
+    every target has a picture (`ShadowView::hasPicture`), drawn from Logitech's own photos of the real wheel.
 - **`service/helper/`**: the WheelBri Helper, a SYSTEM Windows service reached over a pipe, so the app runs as a
   standard user.
 - **`shim/`**: proxies `IDirectInput8A/W`, written once as templates over `AnsiTraits` / `WideTraits`.

@@ -216,8 +216,8 @@ bool hasIn(const ScriptedWindow& window, const std::string& value, const ui::Col
 }
 
 // The G25 starts on its Shadow view (the picture), with the Shadow / List switch in the header; the List view is the
-// rig's axes and buttons as before. Clicks and S switch, and the choice holds for the next session's view. A target
-// with no picture (the G923) has no switch and always shows the list.
+// rig's axes and buttons as before. Clicks and S switch, and the choice holds for the next session's view. Every
+// target has a picture.
 TEST_F(LiveView, ShadowViewIsTheG25sFirstView) {
     profile_ = makeProfile("g25");
     auto view = makeView(8, 40, g25Mapping());
@@ -247,13 +247,9 @@ TEST_F(LiveView, ShadowViewIsTheG25sFirstView) {
     ASSERT_TRUE(clickOn(*view, "Shadow"));
     EXPECT_TRUE(view->showingShadow());
 
-    profile_ = makeProfile("g923");
-    auto g923 = makeView();
-    g923->onKey('s');
-    draw(*g923);
-    EXPECT_FALSE(g923->showingShadow());
-    EXPECT_TRUE(window_.has("AXES"));
-    EXPECT_FALSE(window_.has("Shadow"));
+    for (const char* target : {"g25", "g27", "g920", "g923"}) {
+        EXPECT_TRUE(ShadowView::hasPicture(*makeProfile(target))) << target;
+    }
 }
 
 // Every one of the G25's 19 buttons has its place on the picture: each number the game knows drawn once on a
@@ -433,6 +429,46 @@ TEST_F(LiveView, ShadowViewShowsTheG920sOwnPrint) {
     EXPECT_TRUE(hasIn(window_, "Cam", style::kActive));
     EXPECT_TRUE(window_.has("Cam          -> 10 LSB")) << window_.dump();
     EXPECT_TRUE(window_.has("A            -> 1 A"));
+}
+
+// The G923 (Xbox and PC) is the G920's picture with its own: the Plus / Minus rocker (+ and - on it) and the dial
+// round Enter, each with its label beside the rim (faint: g923.ini maps nothing to them); presses light them.
+TEST_F(LiveView, ShadowViewHasTheG923sRockerAndDial) {
+    profile_ = makeProfile("g923");
+    std::ifstream in(std::filesystem::path(WHEELBRI_CONFIG_DIR) / "g923.ini", std::ios::binary);
+    std::stringstream text;
+    text << in.rdbuf();
+    MapperConfig mapper = loadEmulatorConfig(IniDocument::parse(text.str()).document).config.mapper;
+    auto view = makeView(8, 40, mapper);
+    view->showShadow(true);
+    draw(*view);
+    ASSERT_TRUE(view->showingShadow());
+    EXPECT_TRUE(window_.has("your labels beside, the G923's own print on the buttons")) << window_.dump();
+    EXPECT_TRUE(window_.has("Driving Force Shifter"));
+    for (const char* print : {"+", "-", "LSB", "RSB"}) {
+        bool drawn = false;
+        for (const auto& t : window_.last.texts) drawn = drawn || (t.value == print && t.y > 60 && t.x < 560);
+        EXPECT_TRUE(drawn) << print << "\n" << window_.dump();
+    }
+    for (const char* name : {"Plus", "Minus", "Dial Right", "Dial Left", "Dial Enter"}) {
+        EXPECT_TRUE(hasIn(window_, name, style::kFaint)) << name << "\n" << window_.dump();
+    }
+    EXPECT_TRUE(hasIn(window_, "Cam", style::kText));   // LSB <- the rim's Cam, as on the G920
+
+    // Plus, Dial Left and Enter pressed: the + dark on green, their names green, green on the dial.
+    for (const auto& [target, source] : {std::pair{19, 50}, std::pair{20, 51}, std::pair{22, 52}, std::pair{23, 53}}) {
+        mapper.buttonMap[static_cast<std::size_t>(target)] = source;   // rig buttons with no label: the G923's names
+        mapper.buttonDevice[static_cast<std::size_t>(target)] = 0;
+    }
+    auto mapped = makeView(8, 40, mapper);
+    mapped->showShadow(true);
+    TargetReport report;
+    report.buttons = (1U << 19) | (1U << 22) | (1U << 23);
+    draw(*mapped, {}, {}, report);
+    EXPECT_TRUE(hasIn(window_, "+", style::kDark)) << window_.dump();
+    EXPECT_TRUE(hasIn(window_, "-", style::kText));   // Minus: driven now, not pressed
+    for (const char* name : {"Plus", "Dial Left", "Dial Enter"}) EXPECT_TRUE(hasIn(window_, name, style::kActive)) << name;
+    EXPECT_TRUE(hasIn(window_, "Dial Right", style::kFaint));
 }
 
 // The amber mark on the rim follows the steering arc: at full lock left it sits at the arc's left end (150 degrees

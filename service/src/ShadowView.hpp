@@ -12,6 +12,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -25,11 +26,12 @@ namespace wheelbri::service {
 // nothing drives is faint. On the right, what is pressed now ("yours -> target"). It shows what the game
 // gets (the mapped report), not the rig's raw input: the List view (MappingView's live page) has that.
 //
-// The G25, the G27 and the G920 have pictures (hasPicture); MappingView shows its List view for the others (the G923).
+// Every target has a picture (hasPicture), drawn from Logitech's front views of the real wheel; MappingView keeps its
+// List view for a profile without one.
 class ShadowView {
 public:
-    // Whether `profile` has a picture here: the G25 (its 19 buttons), the G27 (its 23) or the G920 (its 19; README
-    // "Targets").
+    // Whether `profile` has a picture here: the G25 (its 19 buttons), the G27 (its 23), the G920 (its 19) or the G923
+    // (its 24; README "Targets").
     [[nodiscard]] static bool hasPicture(const IDeviceProfile& profile);
 
     // Draws into `window` (not owned; it must outlive the view).
@@ -87,6 +89,9 @@ private:
     void drawFace(float cx, float cy, float r);       // the spokes and hub, under the rim
     void drawG920Face(float cx, float cy, float r);
     void drawG920Buttons(float cx, float cy, float r, std::uint32_t pressed, std::int8_t hat);
+    // The G923's own: the Plus / Minus rocker and the dial round its Enter button (`at` places on the face).
+    void drawG923Extras(const std::function<ShapePoint(float, float)>& at, float r, float leftX, float rightX,
+                        std::uint32_t pressed);
     void drawPedals(const WheelState& state);
     void drawShifter(std::uint32_t pressed, std::int8_t hat);
     void drawDrivingForceShifter(std::uint32_t pressed);   // the G920's: the gate alone
@@ -110,7 +115,9 @@ private:
     MapperConfig mapper_;
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories_{};
     ButtonOrder order_ = ButtonOrder::Driver;
-    enum class Picture { G25, G27, G920 };
+    enum class Picture { G25, G27, G920, G923 };
+    // The Xbox wheels: the G920 and the G923 share a body, their buttons' own print, the Driving Force Shifter.
+    [[nodiscard]] bool xbox() const { return picture_ == Picture::G920 || picture_ == Picture::G923; }
     Picture picture_ = Picture::G25;
     std::size_t gear1_ = 8;        // Gear 1's target button (Gear 2..6 and R follow): the G920's 12
     float offY_ = 0.0F;

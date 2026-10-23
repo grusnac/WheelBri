@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <optional>
 #include <tuple>
 
@@ -41,6 +42,13 @@ constexpr std::size_t kLsb = 9;
 constexpr std::size_t kXbox = 10;
 constexpr std::size_t kG920Gear1 = 12;
 constexpr std::size_t kG920Buttons = 19;
+// The G923 (Xbox and PC): the G920's 0..18, then its Plus / Minus rocker and the dial (g923Spec).
+constexpr std::size_t kPlus = 19;
+constexpr std::size_t kMinus = 20;
+constexpr std::size_t kDialRight = 21;
+constexpr std::size_t kDialLeft = 22;
+constexpr std::size_t kDialEnter = 23;
+constexpr std::size_t kG923Buttons = 24;
 
 // The picture is laid out on the design's coordinates (the sketches': its heading at y 54); draw() moves it to `top`.
 constexpr float kDesignTop = 54.0F;
@@ -168,15 +176,16 @@ bool ShadowView::hasPicture(const IDeviceProfile& profile) {
     const std::string& name = profile.identity().shortName;
     return (name == "G25" && profile.buttonCount() == kG25Buttons) ||
            (name == "G27" && profile.buttonCount() == kG27Buttons) ||
-           (name == "G920" && profile.buttonCount() == kG920Buttons);
+           (name == "G920" && profile.buttonCount() == kG920Buttons) ||
+           (name == "G923" && profile.buttonCount() == kG923Buttons);
 }
 
 ShadowView::ShadowView(ui::UiWindow& window, const IDeviceProfile& profile, const MapperConfig& mapper)
     : window_(window), profile_(profile), mapper_(mapper) {
     const std::string& name = profile.identity().shortName;
     if (name == "G27") picture_ = Picture::G27;
-    if (name == "G920") {
-        picture_ = Picture::G920;
+    if (name == "G920" || name == "G923") {
+        picture_ = name == "G920" ? Picture::G920 : Picture::G923;
         gear1_ = kG920Gear1;
     }
 }
@@ -230,8 +239,10 @@ std::string ShadowView::label(const std::size_t target) const {
 }
 
 std::string ShadowView::printed(const std::size_t target) const {
-    if (picture_ != Picture::G920) return {};
+    if (!xbox()) return {};
     if (target <= 3 || target == kRsb || target == kLsb) return std::string(profile_.buttonName(target));   // A B X Y
+    if (picture_ == Picture::G923 && target == kPlus) return "+";
+    if (picture_ == Picture::G923 && target == kMinus) return "-";
     if (target >= gear1_ && target <= gear1_ + 6) return target == gear1_ + 6 ? "R" : std::to_string(target - gear1_ + 1);
     return {};   // View, Menu, Xbox: symbols; the paddles: nothing
 }
@@ -377,8 +388,8 @@ void ShadowView::draw(const WheelState& state, const TargetReport& report, const
     style::headingBand(window_, 0, Y(54), listX - 10);
     window_.text(6, Y(54), "SHADOW", style::kHeading);
     window_.text(62, Y(54),
-                 picture_ == Picture::G920 ? "your labels beside, the G920's own print on the buttons"
-                                           : "your labels beside, the game's numbers on the buttons",
+                 xbox() ? "your labels beside, the " + profile_.identity().shortName + "'s own print on the buttons"
+                        : std::string("your labels beside, the game's numbers on the buttons"),
                  style::kDim);
     style::headingBand(window_, listX, Y(54), window_.width() - listX);
     window_.text(listX + 6, Y(54), "PRESSED NOW", style::kHeading);
@@ -386,7 +397,7 @@ void ShadowView::draw(const WheelState& state, const TargetReport& report, const
 
     drawWheel(state, report.buttons, report.hat);
     drawPedals(state);
-    if (picture_ == Picture::G920) {
+    if (xbox()) {
         drawDrivingForceShifter(report.buttons);
     } else {
         drawShifter(report.buttons, report.hat);
@@ -415,7 +426,7 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed,
         const float midHalf = (g25 ? 0.11F : 0.10F) * R;
         const float length = (g25 ? 0.80F : 1.0F) * R - 2 * tipHalf;   // between the tips' centres
         const float numberAt = g25 ? 0.14F : 0.06F;                    // along the blade, from its top
-        const float tilt = (picture_ == Picture::G920 ? 0.0F : 5.0F) * kPi / 180.0F;
+        const float tilt = (xbox() ? 0.0F : 5.0F) * kPi / 180.0F;
         constexpr int kSteps = 32;
         constexpr int kCapSteps = 12;
         // A point of the blade's own frame (x outwards, y down, from `centre`) on the window.
@@ -477,7 +488,7 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed,
     annularArc(cx, cy, R + 14, R + 8, 0, turned, style::kActive);
     annularArc(cx, cy, R, R * 0.87F, turned - 4, turned + 4, style::kCaution);
 
-    if (picture_ == Picture::G920) {
+    if (xbox()) {
         drawG920Buttons(cx, cy, R, pressed, hat);
     }
 
@@ -495,7 +506,7 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed,
     std::size_t count = 0;
     for (const float side : {-1.0F, 1.0F}) {
         const bool left = side < 0;
-        if (picture_ == Picture::G920) break;
+        if (xbox()) break;
         if (picture_ == Picture::G27) {
             buttons[count++] = {left ? kLWheel2 : kRWheel2, side, 0.61F, -0.09F};
             buttons[count++] = {left ? kLWheel : kRWheel, side, 0.61F, 0.04F};
@@ -526,7 +537,7 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed,
     }
     // The paddles' numbers (in front of the spokes; the G920's have nothing printed) and their labels, above the
     // buttons'.
-    if (picture_ != Picture::G920) {
+    if (!xbox()) {
         numberOn(paddleNumber[0].x, paddleNumber[0].y, kLPaddle, bit(pressed, kLPaddle));
         numberOn(paddleNumber[1].x, paddleNumber[1].y, kRPaddle, bit(pressed, kRPaddle));
     }
@@ -560,7 +571,7 @@ void ShadowView::drawPedals(const WheelState& state) {
     const std::array<Pedal, 3> pedals = {{{&mapper_.clutch, state.clutch, "Clutch"},
                                           {&mapper_.brake, state.brake, "Brake"},
                                           {&mapper_.throttle, state.throttle, "Throttle"}}};
-    const bool g920 = picture_ == Picture::G920;
+    const bool g920 = xbox();   // the G920's pedals (the G923's alike)
     for (std::size_t i = 0; i < pedals.size(); ++i) {
         const Pedal& pedal = pedals[i];
         float px = x + kGap + static_cast<float>(i) * (kPedalW + kGap);
@@ -713,7 +724,7 @@ void ShadowView::drawShifter(const std::uint32_t pressed, const std::int8_t hat)
 // --- the G920 -------------------------------------------------------------------------------------------------------
 
 void ShadowView::drawFace(const float cx, const float cy, const float r) {
-    if (picture_ == Picture::G920) {
+    if (xbox()) {
         drawG920Face(cx, cy, r);
         return;
     }
@@ -758,8 +769,17 @@ void ShadowView::drawG920Face(const float cx, const float cy, const float r) {
     // As the real one (Logitech's front view): the brushed plate and bottom spoke, the black wings over the plate's
     // top, and the hub over both: a dark ring of six bolts round the glossy cap with the G. No rev lights: the G920
     // has none. Everything runs under the rim.
-    wheelShape(g920Plate(), cx, cy, r, style::kAluminium);
+    // The G923's (Logitech's Xbox front view): the same body, its plate dark brushed, ten rev lights over the hub.
+    const bool g923 = picture_ == Picture::G923;
+    wheelShape(g920Plate(), cx, cy, r, g923 ? style::kSteel : style::kAluminium);
     wheelShape(g920Wings(), cx, cy, r, style::kShadowConsole);
+    if (g923) {
+        for (int i = 0; i < 10; ++i) {   // the game's output: never lit here
+            const float a = (-27.0F + static_cast<float>(i) * 6.0F) * kPi / 180.0F;
+            window_.fillEllipse(cx + std::sin(a) * 0.355F * kFace * r, cy + (0.04F - 0.355F * std::cos(a)) * kFace * r,
+                                0.017F * r, 0.017F * r, style::kShadowEdge);
+        }
+    }
     const float hubY = cy + 0.04F * kFace * r;
     window_.fillEllipse(cx, hubY, 0.30F * kFace * r + 1, 0.30F * kFace * r + 1, style::kShadowEdge);
     window_.fillEllipse(cx, hubY, 0.30F * kFace * r, 0.30F * kFace * r, style::kShadowDeep);
@@ -822,8 +842,12 @@ void ShadowView::drawG920Buttons(const float cx, const float cy, const float r, 
         float w;
         float h;
     };
-    const std::array<Key, 4> keys = {{{kView, -0.44F, 0.07F, 0.115F, 0.12F}, {kMenu, 0.44F, 0.07F, 0.115F, 0.12F},
-                                      {kLsb, -0.58F, 0.24F, 0.25F, 0.11F}, {kRsb, 0.58F, 0.24F, 0.25F, 0.11F}}};
+    const bool g923 = picture_ == Picture::G923;   // black keys with light print, LSB / RSB further out
+    const float keyY = g923 ? 0.09F : 0.07F;
+    const float stickX = g923 ? 0.70F : 0.58F;
+    const float stickY = g923 ? 0.19F : 0.24F;
+    const std::array<Key, 4> keys = {{{kView, -0.44F, keyY, 0.115F, 0.12F}, {kMenu, 0.44F, keyY, 0.115F, 0.12F},
+                                      {kLsb, -stickX, stickY, 0.25F, 0.11F}, {kRsb, stickX, stickY, 0.25F, 0.11F}}};
     for (const Key& key : keys) {
         const ShapePoint c = at(key.x, key.y);
         const float x0 = c.x - key.w * r / 2;
@@ -844,9 +868,11 @@ void ShadowView::drawG920Buttons(const float cx, const float cy, const float r, 
             points_.push_back({0.8F * a.x + 0.2F * b.x, 0.8F * a.y + 0.2F * b.y});
             points_.push_back({0.2F * a.x + 0.8F * b.x, 0.2F * a.y + 0.8F * b.y});
         }
-        const Colour colour = controlColour(key.target, pressed, style::kShadowKey);
+        const Colour colour = controlColour(key.target, pressed, g923 ? style::kShadowBlack : style::kShadowKey);
         window_.fillPolygon(points_, colour);
-        printedOn(c.x, c.y, key.target, driven(key.target) || bit(pressed, key.target) ? style::kDark : style::kFaint,
+        printedOn(c.x, c.y, key.target,
+                  g923 ? inkOn(key.target, pressed)
+                       : (driven(key.target) || bit(pressed, key.target) ? style::kDark : style::kFaint),
                   colour);
         const std::string name = cut(label(key.target), 12);
         if (key.x < 0) {
@@ -864,6 +890,55 @@ void ShadowView::drawG920Buttons(const float cx, const float cy, const float r, 
     window_.fillEllipse(xb.x, xb.y, 0.065F * r, 0.065F * r, colour);
     printedOn(xb.x, xb.y, kXbox, inkOn(kXbox, pressed), colour);
     textCentred(xb.x, xb.y + 0.09F * r, cut(label(kXbox), 12), labelColour(kXbox, pressed));
+    if (g923) drawG923Extras(at, r, leftX, rightX, pressed);
+}
+
+void ShadowView::drawG923Extras(const std::function<ShapePoint(float, float)>& at, const float r, const float leftX,
+                                const float rightX, const std::uint32_t pressed) {
+    const float cy = at(0, 0).y;
+    // The Plus / Minus rocker, low on the left: a round button split across, + on top, - below, in a black housing;
+    // the same size as the dial and level with it.
+    constexpr float kLowY = 0.42F;
+    constexpr float kHousing = 0.15F;
+    const ShapePoint pm = at(-0.33F, kLowY);
+    const float pmR = 0.10F * r;
+    window_.fillEllipse(pm.x, pm.y, kHousing * r, kHousing * r, style::kShadowBlack);
+    window_.fillEllipse(pm.x, pm.y, pmR + 1, pmR + 1, style::kShadowEdge);
+    for (const auto& [target, sign] : {std::pair{kPlus, -1.0F}, std::pair{kMinus, 1.0F}}) {
+        points_.clear();   // the half disc: the top half for Plus, the bottom for Minus
+        for (int i = 0; i <= 16; ++i) {
+            const float a = kPi * static_cast<float>(i) / 16;
+            points_.push_back({pm.x + std::cos(a) * pmR, pm.y + sign * (std::sin(a) * pmR)});
+        }
+        const Colour colour = controlColour(target, pressed, style::kShadowKnob);
+        window_.fillPolygon(points_, colour);
+        textCentred(pm.x, pm.y + sign * 0.05F * r - 4, printed(target), inkOn(target, pressed));
+    }
+    window_.fill(pm.x - pmR, pm.y - 0.75F, pmR * 2, 1.5F, style::kShadowBlack);   // the split
+    textLeftOf(leftX, cy + 0.30F * r - 4, cut(label(kPlus), 12), labelColour(kPlus, pressed));
+    textLeftOf(leftX, cy + 0.41F * r - 4, cut(label(kMinus), 12), labelColour(kMinus, pressed));
+
+    // The dial, low on the right: a toothed ring (its left half lights for Dial Left, its right half for Dial Right)
+    // round the Enter button.
+    const ShapePoint dl = at(0.33F, kLowY);
+    window_.fillEllipse(dl.x, dl.y, kHousing * r, kHousing * r, style::kShadowBlack);
+    for (int i = 0; i < 14; ++i) {
+        const float a = (static_cast<float>(i) + 0.5F) * 2 * kPi / 14;
+        const std::size_t target = std::sin(a) < 0 ? kDialLeft : kDialRight;
+        window_.fillEllipse(dl.x + std::sin(a) * 0.123F * r, dl.y - std::cos(a) * 0.123F * r, 0.025F * r, 0.025F * r,
+                            controlColour(target, pressed, style::kShadowControl));
+    }
+    window_.fillEllipse(dl.x, dl.y, 0.10F * r + 1, 0.10F * r + 1, style::kShadowEdge);
+    window_.fillEllipse(dl.x, dl.y, 0.10F * r, 0.10F * r, style::kShadowBlack);
+    const Colour enter = controlColour(kDialEnter, pressed, style::kShadowKnob);
+    window_.fillEllipse(dl.x, dl.y, 0.075F * r, 0.075F * r, enter);
+    const Colour ink = inkOn(kDialEnter, pressed);   // the Enter arrow: down the right, back to the left
+    window_.fill(dl.x + 2, dl.y - 4, 1.6F, 5, ink);
+    window_.fill(dl.x - 3, dl.y + 0.4F, 6.6F, 1.6F, ink);
+    polygon({{dl.x - 5, dl.y + 1.2F}, {dl.x - 2, dl.y - 1.6F}, {dl.x - 2, dl.y + 4}}, ink);
+    window_.text(rightX, cy + 0.30F * r - 4, cut(label(kDialEnter), 12), labelColour(kDialEnter, pressed));
+    window_.text(rightX, cy + 0.41F * r - 4, cut(label(kDialRight), 12), labelColour(kDialRight, pressed));
+    window_.text(rightX, cy + 0.52F * r - 4, cut(label(kDialLeft), 12), labelColour(kDialLeft, pressed));
 }
 
 void ShadowView::drawDrivingForceShifter(const std::uint32_t pressed) {
@@ -1002,7 +1077,7 @@ void ShadowView::drawList(const WheelState& state, const TargetReport& report, c
     }
     const float legendY = window_.height() - 28 - 32;   // above the tab bar
     const std::string onIt =
-        picture_ == Picture::G920 ? std::string("what the G920 has printed there.")
+        xbox() ? "what the " + target + " has printed there."
         : order_ == ButtonOrder::Native && profile_.hasNativeButtonOrder() ? std::string("its number in the native order, from 0.")
                                                                            : std::string("its number in Logitech's driver, from 1.");
     window_.text(4, legendY,
