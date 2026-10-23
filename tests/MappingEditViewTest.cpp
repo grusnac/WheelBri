@@ -186,13 +186,18 @@ Rig testRig() {
     for (const int b : {0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 21, 22, 34, 35, 37}) {
         wheel.buttons[static_cast<std::size_t>(b)] = {"B" + std::to_string(b), "Button"};
     }
+    // What the Rig maps by itself (AutoMap.hpp): an Xbox-style face, the D-pad as four buttons, the paddles.
+    const std::array<std::pair<int, const char*>, 10> core = {{{0, "A"}, {1, "B"}, {2, "X"}, {3, "Y"}, {4, "D Up"},
+                                                                {5, "D Right"}, {6, "D Down"}, {7, "D Left"},
+                                                                {12, "L Paddle"}, {13, "R Paddle"}}};
+    for (const auto& [b, kind] : core) wheel.buttons[static_cast<std::size_t>(b)].kind = kind;
     rig.devices.push_back(wheel);
     RigDevice pedals;
     pedals.name = "Pedals";
     pedals.id = kPedalsId;
     pedals.kind = DeviceKind::Pedals;
-    pedals.axes[0] = {"Left", "Clutch"};
-    pedals.axes[1] = {"Right", "Throttle"};
+    pedals.axes[0] = {"Left", ""};   // named only: the wheel's Clutch and Throttle are the ones the Rig maps
+    pedals.axes[1] = {"Right", ""};
     pedals.buttons[0] = {"Pb0", "Button"};
     rig.devices.push_back(pedals);
     RigDevice box;
@@ -231,6 +236,17 @@ protected:
         home_.reset();
         std::error_code ec;
         std::filesystem::remove_all(dir_, ec);
+    }
+
+    // config/g920.ini as it was before from_rig (2026-10-23): the Moza R3's numbers written out, every unlisted button
+    // the wheel's of the same number. For the tests of what the tab does with any mapping's sources.
+    void useOlderDefault() {
+        std::string text = "[emulator]\nsource_device =\ntarget_profile = g920\n[steering]\naxis = 0\n[throttle]\n"
+                           "axis = 2\n[brake]\naxis = 5\n[clutch]\naxis = 6\n[buttons]\ntarget_4 = 13\ntarget_5 = 12\n"
+                           "target_6 = 35\ntarget_7 = 22\ntarget_8 = 34\ntarget_9 = 21\ntarget_10 = 37\n";
+        for (int t = 11; t < 32; ++t) text += "target_" + std::to_string(t) + " = -1\n";
+        text += "[hat]\nup = 4\nright = 5\ndown = 6\nleft = 7\n";
+        write(dir_ / "config" / "g920.ini", text);
     }
 
     // The rig saved and made the active one.
@@ -336,6 +352,7 @@ protected:
 
 // Without a rig the tab says so and still shows the default mapping; with a rig that has no devices it says that.
 TEST_F(EditView, SaysWhenThereIsNoRig) {
+    useOlderDefault();
     open();
     frame();
     EXPECT_TRUE(window_.hasPart("No rig yet"));
@@ -349,6 +366,7 @@ TEST_F(EditView, SaysWhenThereIsNoRig) {
 
 // With the rig, sources show the device and the control's name; a source the rig has not named says so in amber.
 TEST_F(EditView, SourcesAreNamedFromTheRig) {
+    useOlderDefault();
     Rig rig = testRig();
     rig.devices[0].axes[6] = {};   // the clutch's axis not named
     useRig(rig);
@@ -442,6 +460,7 @@ TEST_F(EditView, AControlUsedElsewhereIsGreyed) {
 // A control used twice (an older mapping) is red, says where in its hover text, and is not saved; Undo drops the
 // change. A change that could not be saved is not tried again every frame.
 TEST_F(EditView, AControlUsedTwiceIsNotSaved) {
+    useOlderDefault();
     useRig(testRig());
     open();
     frame();
@@ -479,6 +498,7 @@ TEST_F(EditView, AControlUsedTwiceIsNotSaved) {
 
 // Two and more controls used twice: the status counts the others.
 TEST_F(EditView, SeveralControlsUsedTwiceAreCounted) {
+    useOlderDefault();
     useRig(testRig());
     std::string text = read(dir_ / "config" / "g920.ini");
     text.replace(text.find("axis = 5"), 8, "axis = 2");
@@ -510,9 +530,34 @@ TEST_F(EditView, PickingTheDpadAndAButton) {
     EXPECT_TRUE(window_.hasPart(": K5"));
 }
 
+// from_rig (the built-in mapping): the steering, pedals, D-pad, A, B, X, Y and paddles come from what the rig's controls
+// are, each marked RIG; picking a source makes it the user's, a line in the file, while the others stay without one.
+TEST_F(EditView, TheRigMapsTheCoreInputs) {
+    useRig(testRig());
+    open();
+    frame();
+    EXPECT_TRUE(window_.has("Moza R3: Wheel"));
+    EXPECT_TRUE(window_.has("Moza R3: Gas"));
+    EXPECT_TRUE(window_.has("Moza R3: B0"));          // A
+    EXPECT_FALSE(window_.has("Moza R3: B35"));        // a Button: Menu is the user's to map
+    EXPECT_EQ(window_.count("RIG"), 14U);             // 4 axes, 4 D-pad directions, A, B, X, Y, 2 paddles
+    ASSERT_TRUE(click("Moza R3: B13"));               // R Paddle
+    frame();
+    ASSERT_TRUE(click("5 K5"));                       // the button box
+    nowMs_ += 2000;
+    frame();
+    EXPECT_EQ(window_.count("RIG"), 13U);
+    const std::string text = read(picker_->ownPath());
+    EXPECT_NE(text.find("from_rig = true"), std::string::npos) << text;
+    EXPECT_NE(text.find("target_4 = 1234:0002/5"), std::string::npos) << text;
+    EXPECT_EQ(text.find("target_0 ="), std::string::npos) << text;
+    EXPECT_EQ(text.find("\naxis ="), std::string::npos) << text;
+}
+
 // The popup lists as many devices as fit: a button box with 64 named buttons fills it, the shifter after it is left
 // out on the smallest canvas; a bigger canvas has more columns.
 TEST_F(EditView, ThePickerFitsTheCanvas) {
+    useOlderDefault();
     Rig rig = testRig();
     for (std::size_t b = 0; b < MapperConfig::kMaxSourceButtons; ++b) {
         rig.devices[0].buttons[b] = {"B" + std::to_string(b), ""};
@@ -532,6 +577,7 @@ TEST_F(EditView, ThePickerFitsTheCanvas) {
 
 // Invert, the folded button groups (Show) and the steering rotation: slider (press, drag, let go), presets, typed.
 TEST_F(EditView, InvertShowAndTheRotation) {
+    useOlderDefault();
     useRig(testRig());
     open();
     frame();
@@ -711,6 +757,7 @@ TEST_F(EditView, AMappingThatCannotBeWritten) {
 // The mapping names a device for the wheel that the rig does not have: every rig device is then an accessory, and
 // a mapping with more than three accessories is not saved (writeMapping says why).
 TEST_F(EditView, AWheelTheRigDoesNotHave) {
+    useOlderDefault();
     Rig rig = testRig();
     rig.devices[3].buttons[0] = {"G1", ""};
     useRig(rig);
@@ -907,6 +954,7 @@ TEST_F(EditView, SecondarySources) {
 
 // A secondary the rig has not named shows in amber; one used twice is red; with no rig the popup says so.
 TEST_F(EditView, SecondariesThatCannotBeUsed) {
+    useOlderDefault();
     std::string text = read(dir_ / "config" / "g920.ini");
     text += "\n[buttons]\ntarget_0_or = 13, 40, axis 2 > 50%\n";
     write(userConfigFolder() / "my-g920.ini", text);
@@ -2004,6 +2052,7 @@ TEST_F(EditView, WhatIsInUseForTheRunningGame) {
 // NFS 2015's pedals from its profile: each pedal's own axis and direction set apart, Default for each; an axis no
 // pedal can take (x, from the file) starts < > from the first; the Mapping tab's Invert shows here.
 TEST_F(EditView, PedalValuesOneByOne) {
+    useOlderDefault();
     useRig(testRig());
     std::string text = read(dir_ / "config" / "g920.ini");
     text.replace(text.find("[throttle]\naxis = 2"), 0, "");
@@ -2221,6 +2270,7 @@ TEST_F(EditView, OlderLimitsThatCannotBeMoved) {
 
 // The pickers when the rig has no devices, or when the wheel the mapping names is not in it.
 TEST_F(EditView, PickersWithoutTheWheel) {
+    useOlderDefault();
     open();
     ASSERT_TRUE(click("the wheel: axis 0"));
     frame();
@@ -2268,6 +2318,7 @@ TEST_F(EditView, TheSecondaryPickerFitsTheCanvas) {
 // A device the rig gives no name: its id instead; a control named only by what it is: its number in the hover text;
 // a source from a device the rig does not have: that device's id.
 TEST_F(EditView, NamesFromWhatTheRigHas) {
+    useOlderDefault();
     Rig rig = testRig();
     rig.devices[1].name.clear();
     rig.devices[0].axes[0] = {"", "Steering"};
@@ -2406,6 +2457,7 @@ TEST_F(EditView, AnUnsavedChangeAfterATypingComplaint) {
 // A group with only a secondary mapped is shown (not folded); a folded group in a column (the paddles, nothing on
 // them) is as wide as its column.
 TEST_F(EditView, FoldedAndShownGroups) {
+    useOlderDefault();
     useRig(testRig());
     std::string text = read(dir_ / "config" / "g920.ini");
     text.replace(text.find("target_4 = 13"), 13, "target_4 = -1");
@@ -2421,6 +2473,7 @@ TEST_F(EditView, FoldedAndShownGroups) {
 
 // One control used by three: the tip names the two others; in a picker for a fourth, it says where it is used twice.
 TEST_F(EditView, AControlUsedByThree) {
+    useOlderDefault();
     useRig(testRig());
     std::string text = read(dir_ / "config" / "g920.ini");
     text.replace(text.find("axis = 5"), 8, "axis = 2");

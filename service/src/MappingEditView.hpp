@@ -233,6 +233,9 @@ private:
     [[nodiscard]] std::string describeFull(const SourceRef& source, bool axis) const;
     [[nodiscard]] std::string deviceText(const SourceRef& source) const;
     [[nodiscard]] SourceRef& slot(Slot kind, std::size_t index);
+    // Whether that input follows the Rig (from_rig, AutoMap.hpp): its source is what the Rig gives it, saved as no
+    // line.
+    [[nodiscard]] bool followsRig(Slot kind, std::size_t index) const;
 
     void drawSource(float x, float y, float w, Slot kind, std::size_t index);
     void drawPicker();
@@ -350,6 +353,7 @@ private:
     std::filesystem::path stateFile_;
     std::string rigName_;
     Rig rig_;
+    std::vector<std::string> rigNotices_;   // what the Rig could not map (followRig), said in the status line
     ConfigPicker& picker_;
     std::vector<Hit> hits_;
     std::vector<Tip> tips_;

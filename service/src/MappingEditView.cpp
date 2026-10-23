@@ -7,6 +7,7 @@
 #include "ServiceLogging.hpp"
 #include "Version.hpp"
 
+#include "wheelbri/AutoMap.hpp"
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/CentringSpring.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
@@ -166,6 +167,11 @@ void MappingEditView::refreshDevices() {
     devices_.clear();
     for (const RigDevice& device : rig_.devices) devices_.push_back(wheelbri::labelsOf(device));
     devicesReadMs_ = nowMs();
+    // What the Rig maps by itself follows it: another "It is" shows at once (it is never a line of the file).
+    if (loaded_ && profile_ != nullptr) {
+        rigNotices_ = followRig(saved_, rig_, *profile_);
+        (void)followRig(edit_, rig_, *profile_);
+    }
 }
 
 void MappingEditView::load() {
@@ -206,6 +212,7 @@ void MappingEditView::load() {
     profile_ = makeProfile(result.config.targetProfile);
     if (profile_ == nullptr) profile_ = makeProfile("g920");
     saved_ = mappingModel(result.config);
+    rigNotices_ = followRig(saved_, rig_, *profile_);
     edit_ = saved_;
     baseFfb_ = result.config.ffb;
     baseFfbInvert_ = result.config.ffbInvert;
@@ -219,6 +226,10 @@ void MappingEditView::load() {
         status_ = !builtIn_ ? "Your own mapping (saved). Default goes back to WheelBri's."
                             : "WheelBri's default mapping. Change a source: it is saved as your own.";
         statusError_ = false;
+    }
+    if (!statusError_ && !rigNotices_.empty()) {
+        status_ += " From the Rig: " + rigNotices_.front() +
+                   (rigNotices_.size() > 1 ? " (+" + std::to_string(rigNotices_.size() - 1) + " more)" : "") + ".";
     }
     if (movedLimits > 0 && !statusError_) {
         status_ = "Force feedback: strength and cap are now 1.00 (were 0.70 / 0.80) in " +
@@ -442,6 +453,18 @@ SourceRef& MappingEditView::slot(const Slot kind, const std::size_t index) {
         case Slot::GameButton: break;   // GameButton: pickedSource / setPicked
     }
     return edit_.buttons[index];
+}
+
+bool MappingEditView::followsRig(const Slot kind, const std::size_t index) const {
+    if (!edit_.fromRig) return false;
+    const AutoInputs& autos = edit_.autoInputs;
+    switch (kind) {
+        case Slot::Axis: return index < autos.axes.size() && autos.axes[index];
+        case Slot::Hat: return index < autos.hat.size() && autos.hat[index];
+        case Slot::Button: return index < autos.buttons.size() && autos.buttons[index];
+        case Slot::GameButton: break;
+    }
+    return false;
 }
 
 // --- input -------------------------------------------------------------------------------------------------------
@@ -713,12 +736,17 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
                         : EntryState{};
     window_.fill(x, y, w, 16, kStripe);
     window_.outline(x, y, w, 16, state.twice ? kWarning : changed ? kCaution : style::kFieldEdge);
+    // From the Rig (what the control "is"): RIG at the right; picking a source makes it the user's.
+    const bool rigs = source.mapped() && followsRig(kind, index);
     if (state.twice) {
         tip(x, y, w, 16, state.tip);
     } else if (source.mapped()) {
-        tip(x, y, w, 16, describeFull(source, kind == Slot::Axis));
+        tip(x, y, w, 16, describeFull(source, kind == Slot::Axis) + (rigs ? ". From the Rig: what it is there" : ""));
     }
-    const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
+    constexpr std::string_view kRigTag = "RIG";
+    const float tagW = rigs ? static_cast<float>(kRigTag.size() + 1) * ui::kCharWidth : 0.0F;
+    if (rigs) window_.text(x + w - 6 - tagW + ui::kCharWidth, y + 4, std::string(kRigTag), kHeading);
+    const auto chars = static_cast<std::size_t>(std::max(0.0F, w - 12 - tagW) / ui::kCharWidth);
     window_.text(x + 6, y + 4, fit(describe(source, kind == Slot::Axis), chars),
                  missing(source, kind == Slot::Axis) ? kCaution : source.mapped() ? kText : kDim);
     hit(x, y, w, 16, [this, kind, index] {
@@ -1819,6 +1847,11 @@ SourceRef MappingEditView::pickedSource() const {
 void MappingEditView::setPicked(const SourceRef& source) {
     if (pickKind_ != Slot::GameButton) {
         slot(pickKind_, pickIndex_) = source;
+        // Picked: the user's own from now on, written in the file, no longer the Rig's.
+        AutoInputs& autos = edit_.autoInputs;
+        if (pickKind_ == Slot::Axis) autos.axes[pickIndex_] = false;
+        if (pickKind_ == Slot::Hat) autos.hat[pickIndex_] = false;
+        if (pickKind_ == Slot::Button && pickIndex_ < autos.buttons.size()) autos.buttons[pickIndex_] = false;
         return;
     }
     const std::size_t picked = selectedGameIndex();
