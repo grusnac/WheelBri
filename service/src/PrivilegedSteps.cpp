@@ -247,22 +247,22 @@ private:
 }  // namespace
 
 bool PrivilegedSteps::available() {
+#ifdef _WIN32
     static const bool elevated = platform::isElevated();
     if (elevated) return true;
-#ifdef _WIN32
     // Waiting 1 ms for a free instance: there is one, or all are busy (ERROR_SEM_TIMEOUT); no pipe at all is
     // ERROR_FILE_NOT_FOUND. Nothing connects.
     const std::wstring name(helper::kPipeName.begin(), helper::kPipeName.end());
     return WaitNamedPipeW(name.c_str(), 1) || GetLastError() != ERROR_FILE_NOT_FOUND;
 #else
-    return false;
+    return true;   // away from Windows the process always counts as elevated (platform::isElevated)
 #endif
 }
 
 std::unique_ptr<PrivilegedSteps> PrivilegedSteps::open(Problem& problem, std::string& message) {
     problem = Problem::None;
-    if (platform::isElevated()) return std::make_unique<DirectSteps>();
 #ifdef _WIN32
+    if (platform::isElevated()) return std::make_unique<DirectSteps>();
     auto client = std::make_unique<helper::HelperClient>();
     std::string error;
     const std::string folder = pathToUtf8(platform::executablePath().parent_path());
@@ -288,9 +288,8 @@ std::unique_ptr<PrivilegedSteps> PrivilegedSteps::open(Problem& problem, std::st
                 client->serverImage());
     return std::make_unique<HelperSteps>(std::move(client));
 #else
-    problem = Problem::NoHelper;
-    message = "not running as root (the virtual wheel is for Windows only)";
-    return nullptr;
+    static_cast<void>(message);
+    return std::make_unique<DirectSteps>();   // away from Windows the process always counts as elevated
 #endif
 }
 
