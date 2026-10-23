@@ -141,7 +141,7 @@ private:
     // a game's own setting (`fieldIndex_` = game index * kMaxGameSettings + the setting's index), or a game's force
     // feedback gain (`fieldIndex_` = its gameProfiles() index).
     // Tuning: one of the picked game's own numbers (`fieldIndex_` = a TuningField).
-    enum class Field { None, Rotation, CentringSpring, PerGame, GameSteering, GameSetting, FfbGain, Tuning };
+    enum class Field { None, Rotation, CentringSpring, PerGame, GameSteering, GameSetting, Tuning };
     // The numbers of a game's own values (GameTuning.hpp) that are typed in.
     enum class TuningField : std::size_t {
         Strength, Constant, Periodic, Spring, Damper, Friction, Inertia, Cap, Slew, Fade

@@ -50,8 +50,6 @@ public:
     void refresh(bool now = false);
     [[nodiscard]] ShimState stateAt(std::size_t index) const;
     [[nodiscard]] std::string targetAt(std::size_t index) const;   // its target_profile ("g923"), "" without one
-    // The folder of `game` (the first listed one with its program in it), or nullopt.
-    [[nodiscard]] std::optional<std::size_t> folderOf(const GameProfile& game) const;
     // What the Games tab does with a folder: put the shim in, delete it, take the folder off the list (files left).
     // What goes wrong is a problem (takeProblem), what is done a short message (takeToast).
     void put(std::size_t index);

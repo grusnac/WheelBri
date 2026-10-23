@@ -550,11 +550,6 @@ std::string MappingEditView::fieldText(const Field field, const std::size_t inde
             const std::optional<float> value = gameSettingValue(games[g], games[g].settings[s], edit_.gameSettings);
             return value ? tuning::formatNumber(*value, 2) : std::string();
         }
-        case Field::FfbGain: {
-            const std::span<const GameProfile> games = games_;
-            return index < games.size() ? tuning::formatNumber(gameFfbGain(games[index], edit_.gameFfbGains), 2)
-                                        : std::string();
-        }
         case Field::Rotation: return degrees(edit_.steeringRotationDeg);
         case Field::CentringSpring: return tuning::formatNumber(edit_.centringSpringPercent);
         case Field::Tuning: {
@@ -612,15 +607,6 @@ bool MappingEditView::commitTyping() {
         } else if (g < games.size() && s < games[g].settings.size()) {
             edit_.gameSettings[games[g].id][games[g].settings[s].id] = *number;
         }
-    } else if (field_ == Field::FfbGain) {
-        // A game's force feedback gain: the game's pushing forces times this while it runs.
-        const std::span<const GameProfile> games = games_;
-        if (!number || *number < kFfbGainMin || *number > kFfbGainMax) {
-            problem = "'" + typed_ + "': expected a number from " + tuning::formatNumber(kFfbGainMin) + " to " +
-                      tuning::formatNumber(kFfbGainMax);
-        } else if (fieldIndex_ < games.size()) {
-            edit_.gameFfbGains[games[fieldIndex_].id] = *number;
-        }
     } else if (field_ == Field::Tuning) {
         // One of the picked game's own numbers: checked as the config reader checks it ([game_tuning]).
         const std::size_t picked = selectedGameIndex();
@@ -668,7 +654,6 @@ bool MappingEditView::commitTyping() {
             case Field::PerGame:
             case Field::GameSteering:
             case Field::GameSetting:
-            case Field::FfbGain:
             case Field::Tuning:
             case Field::None: break;
         }

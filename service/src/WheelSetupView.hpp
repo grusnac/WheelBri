@@ -123,7 +123,6 @@ private:
     bool refreshDevices(bool force);
     void openConnected();
     void detect(Open& device);
-    [[nodiscard]] Open* openFor(const DeviceId& id);
     [[nodiscard]] const Open* openFor(const DeviceId& id) const;
     // The devices shown, in this order: the rig's (rig order; unplugged ones too, as saved), then the other
     // connected ones.
@@ -164,7 +163,6 @@ private:
     void undo();
     // The device the control popup is for (focus_), in the edited rig, or null.
     [[nodiscard]] RigDevice* focusDevice();
-    [[nodiscard]] const RigDevice* focusDevice() const;
     RigDevice* addFocusDevice();                          // added to the rig if it is not in it (null: rig full)
     void forget(const DeviceId& id);                      // out of the rig, with its names (Revert brings it back)
 

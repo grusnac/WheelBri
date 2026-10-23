@@ -201,13 +201,6 @@ void WheelSetupView::openConnected() {
     }
 }
 
-WheelSetupView::Open* WheelSetupView::openFor(const DeviceId& id) {
-    for (Open& device : open_) {
-        if (idOf(device.info) == id) return &device;
-    }
-    return nullptr;
-}
-
 const WheelSetupView::Open* WheelSetupView::openFor(const DeviceId& id) const {
     for (const Open& device : open_) {
         if (idOf(device.info) == id) return &device;
@@ -494,7 +487,6 @@ void WheelSetupView::undo() {
 
 RigDevice* WheelSetupView::focusDevice() { return focus_.empty() ? nullptr : edit_.find(focus_); }
 
-const RigDevice* WheelSetupView::focusDevice() const { return focus_.empty() ? nullptr : edit_.find(focus_); }
 
 RigDevice* WheelSetupView::addFocusDevice() {
     if (RigDevice* const device = focusDevice()) return device;

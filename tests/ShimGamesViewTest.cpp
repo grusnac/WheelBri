@@ -425,7 +425,7 @@ TEST_F(ShimFolders, AFolderWithAnotherModIsListedAndLeftAlone) {
     EXPECT_NE(problem.find("not WheelBri's"), std::string::npos) << problem;
 }
 
-// Choose folder for a game WheelBri knows: the folder must have its program; then folderOf finds it.
+// Choose folder for a game WheelBri knows: the folder must have its program; then it is listed.
 TEST_F(ShimFolders, ChooseFolderForAKnownGameWantsItsProgram) {
     const GameProfile game = known("known.exe");
     const auto other = makeGame("Other");
@@ -435,13 +435,13 @@ TEST_F(ShimFolders, ChooseFolderForAKnownGameWantsItsProgram) {
     std::string problem;
     ASSERT_TRUE(view.takeProblem(problem));
     EXPECT_EQ(problem.rfind("Not added: known.exe is not in that folder", 0), 0U) << problem;
-    EXPECT_FALSE(view.folderOf(game).has_value());
+    EXPECT_TRUE(view.folders().empty());
 
     const auto right = makeGame("Known", "known.exe");
     window_.pickAnswer = right;
     EXPECT_TRUE(view.chooseFolder(&game, {}));
-    ASSERT_TRUE(view.folderOf(game).has_value());
-    EXPECT_EQ(view.folders()[*view.folderOf(game)].folder, right);
+    ASSERT_EQ(view.folders().size(), 1U);
+    EXPECT_EQ(view.folders()[0].folder, right);
 }
 
 // Adding a folder puts it at the end of the list, and a folder that is not a game's is refused.
@@ -741,16 +741,6 @@ TEST_F(ShimFolders, AGameNamedAsItsFolder) {
     EXPECT_EQ(view.displayName(view.folders()[0]), "Heat");
     view.draw(0, 0, true);
     EXPECT_NE(window_.find("Heat"), nullptr);
-}
-
-// folderOf: the first listed folder with the game's program; none.
-TEST_F(ShimFolders, FolderOfAGame) {
-    const auto one = makeGame("One", "one.exe");
-    const auto two = makeGame("Two", "two.exe");
-    listGames({one, two});
-    ShimGamesView view(window_, settings());
-    EXPECT_EQ(view.folderOf(known("two.exe")), std::optional<std::size_t>(1));
-    EXPECT_EQ(view.folderOf(known("three.exe")), std::nullopt);
 }
 
 // Hot swap: a game whose pedal axes were set gets them taken out when it has none now; axes that cannot be written

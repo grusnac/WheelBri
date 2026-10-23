@@ -254,14 +254,6 @@ std::string ShimGamesView::targetAt(const std::size_t index) const {
     return index < targets_.size() ? targets_[index] : std::string();
 }
 
-std::optional<std::size_t> ShimGamesView::folderOf(const GameProfile& game) const {
-    const std::array<GameProfile, 1> one{game};
-    for (std::size_t i = 0; i < list_.games.size(); ++i) {
-        if (gameInFolder(list_.games[i].folder, one) != nullptr) return i;
-    }
-    return std::nullopt;
-}
-
 bool ShimGamesView::prepareStart(const std::string& profile, const AxesFor& axesFor,
                                  std::vector<std::filesystem::path>& prepared, std::string& error) {
     prepared.clear();
