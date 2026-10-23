@@ -243,6 +243,8 @@ TEST(UhidWheel, OpenAndCloseAreCounted) {
     e.type = UHID_CLOSE;
     k.device.handle(e, 0);
     EXPECT_EQ(k.device.openCount(), 0);
+    k.device.handle(e, 0);   // a close without an open: never below 0
+    EXPECT_EQ(k.device.openCount(), 0);
 }
 
 // The game exits or crashes: the kernel closes its handle, and its forces stop at once.
@@ -355,15 +357,6 @@ TEST(UhidWheel, StopAndDestroy) {
     EXPECT_FALSE(k.device.started());
     k.device.destroy();
     EXPECT_EQ(k.written.back().type, UHID_DESTROY);
-}
-
-TEST(UhidWheel, CloseWithoutOpenNeverGoesNegative) {
-    Kernel k;
-    uhid_event e{};
-    e.type = UHID_CLOSE;
-    k.device.handle(e, 0);
-    k.device.handle(e, 0);
-    EXPECT_EQ(k.device.openCount(), 0);
 }
 
 // Some programs read the input report through a get-report request instead of waiting for it.

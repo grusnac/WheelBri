@@ -99,16 +99,20 @@ TEST(PlatformPosix, ALockThatCannotBeCreatedSaysWhere) {
         << error;
 }
 
-TEST(PlatformPosix, AnEmptyRuntimeFolderFallsBackToTmp) {
-    RuntimeFolder runtime("");
-    std::string error;
-    const std::string name = "wheelbri-test-" + std::to_string(::getpid());
-    auto lock = SingleInstance::acquire(name, error);
-    ASSERT_NE(lock, nullptr) << error;
-    const auto file = std::filesystem::path("/tmp") / (name + "-" + std::to_string(::getuid()) + ".lock");
-    EXPECT_TRUE(std::filesystem::exists(file));
-    lock.reset();
-    std::filesystem::remove(file);
+// An empty XDG_RUNTIME_DIR, or none at all (a session without one, e.g. over ssh): the lock goes to /tmp.
+TEST(PlatformPosix, NoRuntimeFolderFallsBackToTmp) {
+    for (const bool unset : {false, true}) {
+        RuntimeFolder runtime("");
+        if (unset) unsetenv("XDG_RUNTIME_DIR");   // put back by `runtime`
+        std::string error;
+        const std::string name = "wheelbri-test-" + std::to_string(::getpid()) + (unset ? "-unset" : "-empty");
+        auto lock = SingleInstance::acquire(name, error);
+        ASSERT_NE(lock, nullptr) << error;
+        const auto file = std::filesystem::path("/tmp") / (name + "-" + std::to_string(::getuid()) + ".lock");
+        EXPECT_TRUE(std::filesystem::exists(file)) << unset;
+        lock.reset();
+        std::filesystem::remove(file);
+    }
 }
 
 // --- ChildProcess ---
@@ -364,22 +368,6 @@ TEST(PlatformPosix, ThreadNamesAreCutToWhatTheKernelKeeps) {
     EXPECT_EQ(named, "wheelbri a rath");
 }
 #endif
-
-// No XDG_RUNTIME_DIR at all (a session without one, e.g. over ssh): the lock goes to /tmp.
-TEST(PlatformPosix, NoRuntimeFolderFallsBackToTmp) {
-    const char* old = std::getenv("XDG_RUNTIME_DIR");
-    const std::string saved = old != nullptr ? old : "";
-    unsetenv("XDG_RUNTIME_DIR");
-    std::string error;
-    const std::string name = "wheelbri-unset-" + std::to_string(::getpid());
-    auto lock = SingleInstance::acquire(name, error);
-    if (old != nullptr) setenv("XDG_RUNTIME_DIR", saved.c_str(), 1);
-    ASSERT_NE(lock, nullptr) << error;
-    const auto file = std::filesystem::path("/tmp") / (name + "-" + std::to_string(::getuid()) + ".lock");
-    EXPECT_TRUE(std::filesystem::exists(file));
-    lock.reset();
-    std::filesystem::remove(file);
-}
 
 // A child let go (release): no exit code is known any more and destroying the object leaves it running.
 TEST(PlatformPosix, AReleasedChildIsLeftAlone) {

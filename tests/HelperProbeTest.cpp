@@ -197,22 +197,20 @@ TEST(HelperProbe, ARequestWhileALaterCheckRunsIsNotQueued) {
     EXPECT_EQ(fake.calls(), 2);
 }
 
+// A check that throws (a std::exception, with its text, or anything else): a failure, and the probe goes on.
 TEST(HelperProbe, ACheckThatThrowsIsAFailureAndTheProbeGoesOn) {
-    FakeCheck fake;
-    fake.throwStd();
-    HelperProbe probe(fake.check(), 0);
-    ASSERT_TRUE(eventually([&] { return probe.checks() == 1; }));
-    EXPECT_EQ(probe.latest().kind, Kind::Failed);
-    EXPECT_EQ(probe.latest().detail, "pipe on fire");
-}
-
-TEST(HelperProbe, ACheckThatThrowsSomethingElseIsAFailureToo) {
-    FakeCheck fake;
-    fake.throwOther();
-    HelperProbe probe(fake.check(), 0);
-    ASSERT_TRUE(eventually([&] { return probe.checks() == 1; }));
-    EXPECT_EQ(probe.latest().kind, Kind::Failed);
-    EXPECT_EQ(probe.latest().detail, "an unknown error");
+    for (const bool standard : {true, false}) {
+        FakeCheck fake;
+        if (standard) {
+            fake.throwStd();
+        } else {
+            fake.throwOther();
+        }
+        HelperProbe probe(fake.check(), 0);
+        ASSERT_TRUE(eventually([&] { return probe.checks() == 1; }));
+        EXPECT_EQ(probe.latest().kind, Kind::Failed);
+        EXPECT_EQ(probe.latest().detail, standard ? "pipe on fire" : "an unknown error");
+    }
 }
 
 TEST(HelperProbe, NoCheckAtAllIsNotChecked) {

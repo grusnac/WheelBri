@@ -258,28 +258,19 @@ TEST(DeviceWatch, ALatestListSurvivesALaterFailureUntilItWorksAgain) {
     EXPECT_EQ(names(watch.latest()), std::vector<std::string>{"Moza R3"});   // the last good list is kept
 }
 
+// A lister that throws (a std::exception or anything else): unavailable, and the watch keeps trying.
 TEST(DeviceWatch, AListerThatThrowsCountsAsUnavailableAndTheWatchLives) {
-    FakeLister fake;
-    fake.answer(FakeLister::Answer::Throws);
-    ChangeCounter changes;
-    DeviceWatch watch(fake.lister(), changes, fast());
-    watch.setActive(true);
-    ASSERT_TRUE(eventually([&] { return watch.unavailable(); }));
-    ASSERT_TRUE(eventually([&] { return fake.calls() >= 2; }));   // the thread is still running: it tries again
-    fake.answer(FakeLister::Answer::Devices);
-    EXPECT_TRUE(eventually([&] { return watch.latest().has_value() && !watch.unavailable(); }));
-}
-
-TEST(DeviceWatch, AListerThatThrowsAnythingElseCountsAsUnavailableToo) {
-    FakeLister fake;
-    fake.answer(FakeLister::Answer::ThrowsSomethingElse);
-    ChangeCounter changes;
-    DeviceWatch watch(fake.lister(), changes, fast());
-    watch.setActive(true);
-    ASSERT_TRUE(eventually([&] { return watch.unavailable(); }));
-    ASSERT_TRUE(eventually([&] { return fake.calls() >= 2; }));   // still running
-    fake.answer(FakeLister::Answer::Devices);
-    EXPECT_TRUE(eventually([&] { return watch.latest().has_value() && !watch.unavailable(); }));
+    for (const auto answer : {FakeLister::Answer::Throws, FakeLister::Answer::ThrowsSomethingElse}) {
+        FakeLister fake;
+        fake.answer(answer);
+        ChangeCounter changes;
+        DeviceWatch watch(fake.lister(), changes, fast());
+        watch.setActive(true);
+        ASSERT_TRUE(eventually([&] { return watch.unavailable(); }));
+        ASSERT_TRUE(eventually([&] { return fake.calls() >= 2; }));   // the thread is still running: it tries again
+        fake.answer(FakeLister::Answer::Devices);
+        EXPECT_TRUE(eventually([&] { return watch.latest().has_value() && !watch.unavailable(); }));
+    }
 }
 
 TEST(DeviceWatch, NoListerAtAllIsUnavailable) {

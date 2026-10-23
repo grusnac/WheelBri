@@ -272,27 +272,6 @@ TEST(EvdevLayout, ButtonsBeyond64AreIgnoredSafely) {
     EXPECT_EQ(state.buttons, 1ULL);   // button 0 only
 }
 
-TEST(EvdevLayout, EventsOutsideTheDeviceAreIgnored) {
-    evdev::Layout layout(wheelCaps());
-    RawInputState before;
-    layout.fill(before);
-    EXPECT_FALSE(layout.apply(evdev::kEvKey, -1, 1));
-    EXPECT_FALSE(layout.apply(evdev::kEvKey, evdev::kKeyCount, 1));
-    EXPECT_FALSE(layout.apply(evdev::kEvKey, 30, 1));                 // KEY_A: not one of its buttons
-    EXPECT_FALSE(layout.apply(evdev::kEvAbs, -1, 100));
-    EXPECT_FALSE(layout.apply(evdev::kEvAbs, evdev::kAbsCount, 100));
-    EXPECT_FALSE(layout.apply(evdev::kEvAbs, 0x01, 100));             // ABS_Y: not one of its axes
-    EXPECT_FALSE(layout.apply(0x02, 0x00, 5));                       // EV_REL
-    EXPECT_FALSE(layout.apply(evdev::kEvSyn, 0, 0));                 // SYN_REPORT
-    RawInputState after;
-    layout.fill(after);
-    EXPECT_EQ(after.axes, before.axes);
-    EXPECT_EQ(after.buttons, before.buttons);
-    EXPECT_EQ(after.hat, before.hat);
-    EXPECT_EQ(layout.axisValue(-1), 0);
-    EXPECT_EQ(layout.axisValue(layout.axes()), 0);
-}
-
 TEST(EvdevLayout, OnlyTheFirstEightAxesAreFilled) {
     evdev::Capabilities caps;
     caps.keys.set(0x120);
@@ -598,10 +577,12 @@ TEST(EvdevLayout, EventsForUnknownCodesAreIgnored) {
     EXPECT_FALSE(layout.apply(evdev::kEvKey, -1, 1));
     EXPECT_FALSE(layout.apply(evdev::kEvKey, evdev::kKeyCount, 1));
     EXPECT_FALSE(layout.apply(evdev::kEvKey, 0x130, 1));   // a key it does not have
+    EXPECT_FALSE(layout.apply(evdev::kEvKey, 30, 1));      // KEY_A: not one of its buttons
     EXPECT_FALSE(layout.apply(evdev::kEvAbs, -1, 5));
     EXPECT_FALSE(layout.apply(evdev::kEvAbs, evdev::kAbsCount, 5));
     EXPECT_FALSE(layout.apply(evdev::kEvAbs, 0x01, 5));    // Y: not declared
     EXPECT_FALSE(layout.apply(evdev::kEvSyn, 0, 0));       // SYN_REPORT is not a drop
+    EXPECT_FALSE(layout.apply(0x02, 0x00, 5));             // EV_REL
     EXPECT_FALSE(layout.apply(0x7F, 0, 0));
     RawInputState after;
     layout.fill(after);

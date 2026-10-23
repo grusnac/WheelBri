@@ -37,16 +37,6 @@ TEST(HelperProtocol, RequestLayout) {
     EXPECT_EQ(bytes, expected);
 }
 
-TEST(HelperProtocol, ReplyRoundTrip) {
-    std::string error;
-    const auto bytes = encode(Reply{42, Status::Pending, "close the Game Controllers window"});
-    const auto reply = decodeReply(bytes, error);
-    ASSERT_TRUE(reply.has_value()) << error;
-    EXPECT_EQ(reply->seq, 42U);
-    EXPECT_EQ(reply->status, Status::Pending);
-    EXPECT_EQ(reply->text, "close the Game Controllers window");
-}
-
 TEST(HelperProtocol, ReplyTextIsCut) {
     std::string error;
     const auto reply = decodeReply(encode(Reply{1, Status::Failed, std::string(5000, 'x')}), error);
@@ -218,7 +208,16 @@ TEST(HelperProtocol, RefusesBrokenReplies) {
     EXPECT_EQ(error, "protocol version 257, expected 1");
 }
 
-TEST(HelperProtocol, EveryStatusAndAnEmptyTextRoundTrip) {
+TEST(HelperProtocol, RepliesRoundTrip) {
+    {
+        std::string error;
+        const auto reply = decodeReply(encode(Reply{42, Status::Pending, "close the Game Controllers window"}), error);
+        ASSERT_TRUE(reply.has_value()) << error;
+        EXPECT_EQ(reply->seq, 42U);
+        EXPECT_EQ(reply->status, Status::Pending);
+        EXPECT_EQ(reply->text, "close the Game Controllers window");
+    }
+    // Every status, and an empty text.
     for (const Status status : {Status::Ok, Status::Refused, Status::Failed, Status::Pending, Status::Unsupported}) {
         std::string error;
         const auto reply = decodeReply(encode(Reply{9, status, {}}), error);

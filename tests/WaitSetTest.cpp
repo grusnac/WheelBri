@@ -77,18 +77,16 @@ TEST(WaitSet, InvalidSourcesAreRefused) {
     EXPECT_EQ(set.size(), 0);
 }
 
+// Each socket wakes with its own index; with several ready, the first, and the others are not lost by that.
 TEST(WaitSet, ADatagramWakesWithItsSocketsIndex) {
     WaitSet set;
-    // A port the system chooses: tests running side by side never share one.
+    // Ports the system chooses: tests running side by side never share one.
     const auto a = UdpLoopbackListener::create(0);
     ASSERT_NE(a, nullptr);
     const std::uint16_t portA = a->localPort();
-    // A port the system chooses: tests running side by side never share one.
     const auto b = UdpLoopbackListener::create(0);
     ASSERT_NE(b, nullptr);
     const std::uint16_t portB = b->localPort();
-    ASSERT_NE(a, nullptr);
-    ASSERT_NE(b, nullptr);
     ASSERT_EQ(set.addSocket(a->nativeSocket()), 0);
     ASSERT_EQ(set.addSocket(b->nativeSocket()), 1);
     EXPECT_EQ(set.size(), 2);
@@ -100,6 +98,14 @@ TEST(WaitSet, ADatagramWakesWithItsSocketsIndex) {
     sendOne(portA);
     EXPECT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 0);
     drain(*a);
+
+    sendOne(portB);
+    sendOne(portA);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 0);
+    drain(*a);
+    EXPECT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 1);   // b's datagram was not lost by waking for a
+    drain(*b);
 }
 
 TEST(WaitSet, ADatagramSentDuringTheWaitWakesIt) {
@@ -213,29 +219,6 @@ TEST(WaitSet, AnEmptyDatagramWakesAndDoesNotHideTheOnesBehindIt) {
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(*second, 4U);
     EXPECT_EQ(set.waitUntil(platform::nowNs() + 20 * kMs), WaitSet::kTimedOut);
-}
-
-TEST(WaitSet, SeveralReadyGiveTheFirst) {
-    WaitSet set;
-    // A port the system chooses: tests running side by side never share one.
-    const auto a = UdpLoopbackListener::create(0);
-    ASSERT_NE(a, nullptr);
-    const std::uint16_t portA = a->localPort();
-    // A port the system chooses: tests running side by side never share one.
-    const auto b = UdpLoopbackListener::create(0);
-    ASSERT_NE(b, nullptr);
-    const std::uint16_t portB = b->localPort();
-    ASSERT_NE(a, nullptr);
-    ASSERT_NE(b, nullptr);
-    ASSERT_EQ(set.addSocket(a->nativeSocket()), 0);
-    ASSERT_EQ(set.addSocket(b->nativeSocket()), 1);
-    sendOne(portB);
-    sendOne(portA);
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    EXPECT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 0);
-    drain(*a);
-    EXPECT_EQ(set.waitUntil(platform::nowNs() + 1000 * kMs), 1);   // b's datagram was not lost by waking for a
-    drain(*b);
 }
 
 #if !defined(_WIN32)

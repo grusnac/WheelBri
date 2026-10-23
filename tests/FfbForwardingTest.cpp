@@ -53,14 +53,6 @@ TEST(FfbPacket, RejectsGarbage) {
     EXPECT_FALSE(decodeFfbPacket(bytes).has_value());
 }
 
-TEST(FfbPacket, NonFiniteNumbersBecomeZero) {
-    FfbPacket packet;
-    packet.effect.constantLevel = std::numeric_limits<float>::quiet_NaN();
-    const auto decoded = decodeFfbPacket(encode(packet));
-    ASSERT_TRUE(decoded.has_value());
-    EXPECT_EQ(decoded->effect.constantLevel, 0.0F);
-}
-
 // --- DirectInput parameters ------------------------------------------------------------------------
 
 TEST(DiEffect, DirectionAlongX) {
@@ -430,8 +422,8 @@ TEST(FfbPacket, RejectsAnotherVersionAndUnknownKinds) {
     EXPECT_FALSE(decodeFfbPacket(longer).has_value());
 }
 
-// Every field of every effect type survives the trip; infinities become 0 like NaN does.
-TEST(FfbPacket, EveryFieldRoundTripsAndInfinitiesBecomeZero) {
+// Every field of every effect type survives the trip; NaN and infinities become 0.
+TEST(FfbPacket, EveryFieldRoundTripsAndNonFiniteNumbersBecomeZero) {
     FfbPacket packet;
     packet.kind = FfbPacket::Kind::SlotState;
     packet.slot = 7;
@@ -449,10 +441,12 @@ TEST(FfbPacket, EveryFieldRoundTripsAndInfinitiesBecomeZero) {
 
     packet.effect.periodic.magnitude = std::numeric_limits<float>::infinity();
     packet.effect.condition.center = -std::numeric_limits<float>::infinity();
+    packet.effect.constantLevel = std::numeric_limits<float>::quiet_NaN();
     const auto infinite = decodeFfbPacket(encode(packet));
     ASSERT_TRUE(infinite.has_value());
     EXPECT_EQ(infinite->effect.periodic.magnitude, 0.0F);
     EXPECT_EQ(infinite->effect.condition.center, 0.0F);
+    EXPECT_EQ(infinite->effect.constantLevel, 0.0F);
 }
 
 // An effect without any coordinate flag (rglDirection unused): all of it acts on the wheel.
