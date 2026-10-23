@@ -691,8 +691,10 @@ TEST(HelperLogFile, TheSameFolderAgainKeepsOneFile) {
     log.write(spdlog::level::info, "helper.test", "moved");
     EXPECT_NE(readAll(files.front()).find("second"), std::string::npos);
     EXPECT_EQ(readAll(files.front()).find("moved"), std::string::npos);
+    log.attachUser(nullptr, L"");   // lets go of the last file (the log lives as long as the program), so it can go
     std::error_code ec;
-    std::filesystem::remove_all(logs, ec);
+    std::filesystem::remove_all(base, ec);
+    EXPECT_FALSE(std::filesystem::exists(base));   // nothing left behind in %TEMP% run after run (the pid names it)
 }
 
 TEST(HelperLogFile, WithoutATokenOrAFolderNothingOpens) {

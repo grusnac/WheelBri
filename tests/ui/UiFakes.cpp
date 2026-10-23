@@ -264,6 +264,14 @@ public:
         config.console = false;
         config.periodicFlush = false;
         logging::init(config, (folder_ / "wheelbri-service.log").string());
+        // Windows: the components' loggers (function statics, made from here on) hold the file open until the
+        // program ends, so TearDown cannot delete the folder. At exit, after they are gone (handlers registered
+        // before them run after them), it can.
+        folderAtExit() = folder_;
+        std::atexit([] {
+            std::error_code ec;
+            std::filesystem::remove_all(folderAtExit(), ec);
+        });
     }
     void TearDown() override {
         logging::shutdown();
@@ -272,6 +280,11 @@ public:
     }
 
 private:
+    static std::filesystem::path& folderAtExit() {
+        static std::filesystem::path* path = new std::filesystem::path();   // never destroyed: used at exit
+        return *path;
+    }
+
     std::filesystem::path folder_;
 };
 
