@@ -105,10 +105,11 @@ std::vector<ShapePoint> rounded(std::vector<ShapePoint> points, const int rounds
     return points;
 }
 
-// Sized down by kFace, and kept inside `reach` (the rim's outer edge: what runs under the rim stops there).
-std::vector<ShapePoint> placed(std::vector<ShapePoint> points, const float reach = 0.98F) {
+// Sized by `scale` (the G920's kFace), and kept inside `reach` (the rim's outer edge: what runs under the rim stops
+// there).
+std::vector<ShapePoint> placed(std::vector<ShapePoint> points, const float scale = kFace, const float reach = 0.98F) {
     for (ShapePoint& p : points) {
-        p = {p.x * kFace, p.y * kFace};
+        p = {p.x * scale, p.y * scale};
         const float d = std::hypot(p.x, p.y);
         if (d > reach) p = {p.x * reach / d, p.y * reach / d};
     }
@@ -126,6 +127,32 @@ const std::vector<ShapePoint>& g920Plate() {
 }
 
 // The black console over the plate's top: two wings (the D-pad's, A B X Y's), dipping between them over the hub.
+// The G25's spokes (Logitech's front view): one brushed plate, no holes: an oval round the hub, slim side spokes
+// straight out to the rim, curving down underneath into the bottom spoke, which narrows to a waist and widens a little
+// into the rim.
+const std::vector<ShapePoint>& g25Spokes() {
+    static const std::vector<ShapePoint> outline = placed(
+        rounded(mirrored({{0.0F, -0.34F}, {0.15F, -0.33F}, {0.28F, -0.25F}, {0.40F, -0.13F}, {0.70F, -0.12F},
+                          {1.0F, -0.15F}, {1.0F, 0.12F}, {0.70F, 0.10F}, {0.42F, 0.11F}, {0.32F, 0.20F},
+                          {0.24F, 0.32F}, {0.15F, 0.48F}, {0.13F, 0.60F}, {0.15F, 0.80F}, {0.18F, 1.0F},
+                          {0.0F, 1.0F}}),
+                2),
+        1.0F);
+    return outline;
+}
+
+// The G27's (Logitech's front view): brushed side spokes straight out, sweeping down into the rim underneath; a
+// slim bottom spoke.
+const std::vector<ShapePoint>& g27Spokes() {
+    static const std::vector<ShapePoint> outline = placed(
+        rounded(mirrored({{0.0F, -0.19F}, {0.40F, -0.19F}, {0.60F, -0.18F}, {1.0F, -0.20F}, {1.0F, 0.42F},
+                          {0.62F, 0.38F}, {0.50F, 0.26F}, {0.40F, 0.20F}, {0.24F, 0.22F}, {0.14F, 0.32F},
+                          {0.12F, 0.45F}, {0.12F, 0.75F}, {0.14F, 1.0F}, {0.0F, 1.0F}}),
+                2),
+        1.0F);
+    return outline;
+}
+
 const std::vector<ShapePoint>& g920Wings() {
     static const std::vector<ShapePoint> outline = placed(rounded(
         mirrored({{0.0F, -0.33F}, {0.10F, -0.34F}, {0.20F, -0.38F}, {0.30F, -0.41F}, {0.45F, -0.42F},
@@ -374,17 +401,20 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed,
     const auto at = [&](const float x, const float y) { return ShapePoint{cx + x * R, cy + y * R}; };
 
     // The paddles: half-moon blades behind the red buttons (the G27's: Wheel 1), nearly upright (the top leaning in a
-    // little; the G920's upright), the round side out, with rounded tips. Drawn first: the spokes and buttons are in front of them. A blade
-    // is its middle line (bowed outwards) with edges offset square to it by a half width that swells from the tips' to
-    // the middle's; each tip is a half circle of exactly the tip's half width, turned along the blade, so it runs on
-    // from the edges. Both wheels' are long and wide, with their number on the top part (on the G27: above Wheel 2).
+    // little; the G920's upright), the round side out, with rounded tips. Drawn first: the spokes and buttons are in
+    // front of them. A blade is its middle line (bowed outwards) with edges offset square to it by a half width that
+    // swells from the tips' to the middle's; each tip is a half circle of exactly the tip's half width, turned along
+    // the blade, so it runs on from the edges. The G27's and G920's are long and wide, the G25's smaller (as the real
+    // one); the number on the top part (on the G27: above Wheel 2; the G920's carry none).
     std::array<ShapePoint, 2> paddleNumber{};
     for (const auto& [target, side] : {std::pair{kLPaddle, -1.0F}, std::pair{kRPaddle, 1.0F}}) {
-        const ShapePoint centre = at(side * 0.62F, 0.05F);
-        const float tipHalf = 0.09F * R;
-        const float midHalf = 0.10F * R;
-        const float length = 1.0F * R - 2 * tipHalf;   // between the tips' centres
-        const float numberAt = 0.06F;                  // along the blade, from its top
+        // The G25's (Logitech's front view): smaller, with slimmer tips, from above the side spoke to just below it.
+        const bool g25 = picture_ == Picture::G25;
+        const ShapePoint centre = at(side * (g25 ? 0.55F : 0.62F), g25 ? -0.07F : 0.05F);
+        const float tipHalf = (g25 ? 0.05F : 0.09F) * R;
+        const float midHalf = (g25 ? 0.11F : 0.10F) * R;
+        const float length = (g25 ? 0.80F : 1.0F) * R - 2 * tipHalf;   // between the tips' centres
+        const float numberAt = g25 ? 0.14F : 0.06F;                    // along the blade, from its top
         const float tilt = (picture_ == Picture::G920 ? 0.0F : 5.0F) * kPi / 180.0F;
         constexpr int kSteps = 32;
         constexpr int kCapSteps = 12;
@@ -394,7 +424,7 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed,
             const float yr = -lx * std::sin(tilt) + ly * std::cos(tilt);
             return ShapePoint{centre.x + side * xr, centre.y + yr};
         };
-        const float bow = 0.125F * R;
+        const float bow = (g25 ? 0.10F : 0.125F) * R;
         const auto middle = [&](const float u) {
             return ShapePoint{bow * std::sin(kPi * u) - 0.09F * R, -length / 2 + length * u};
         };
@@ -433,7 +463,7 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed,
         paddleNumber[target == kLPaddle ? 0 : 1] = {number.x + side * 2, number.y};
     }
 
-    if (picture_ == Picture::G920) drawG920Face(cx, cy, R);   // its spokes and console run under the rim
+    drawFace(cx, cy, R);   // the spokes run under the rim
 
     // The rim (leather), its stitching, the steering arc round it and the mark where the rim's top is now.
     window_.fillRing(cx, cy, R, R * 0.87F, style::kShadow);
@@ -449,54 +479,12 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed,
 
     if (picture_ == Picture::G920) {
         drawG920Buttons(cx, cy, R, pressed, hat);
-    } else if (picture_ == Picture::G27) {
-        // The G27: brushed aluminium spokes, no holes; the side ones wide pods for three buttons, one straight down.
-        for (const float side : {-1.0F, 1.0F}) {
-            polygon({at(side * 0.30F, -0.20F), at(side * 0.80F, -0.30F), at(side * 0.90F, -0.12F),
-                     at(side * 0.90F, 0.22F), at(side * 0.80F, 0.38F), at(side * 0.30F, 0.24F)},
-                    style::kSteel);
-        }
-        polygon({at(-0.12F, 0.30F), at(0.12F, 0.30F), at(0.15F, 0.90F), at(-0.15F, 0.90F)}, style::kSteel);
-        // The hub, with the ten rev lights across its top: the game's output, never lit here.
-        const float hubY = cy + R * 0.02F;
-        window_.fillEllipse(cx, hubY, R * 0.36F + 1, R * 0.36F + 1, style::kShadowEdge);
-        window_.fillEllipse(cx, hubY, R * 0.36F, R * 0.36F, style::kShadow);
-        for (int i = 0; i < 10; ++i) {
-            const float a = (-45.0F + static_cast<float>(i) * 10.0F) * kPi / 180.0F;
-            window_.fillEllipse(cx + std::sin(a) * R * 0.27F, hubY - std::cos(a) * R * 0.27F, R * 0.025F, R * 0.025F,
-                                style::kShadowDeep);
-        }
-        window_.fillEllipse(cx, cy + R * 0.06F, R * 0.13F, R * 0.13F, style::kShadowDeep);
-    } else {
-        // The G25: three drilled steel spokes, left, right and straight down.
-        for (const float side : {-1.0F, 1.0F}) {
-            polygon({at(side * 0.30F, -0.10F), at(side * 0.90F, -0.02F), at(side * 0.90F, 0.16F),
-                     at(side * 0.30F, 0.18F)},
-                    style::kSteel);
-            for (const float hx : {0.40F, 0.62F, 0.84F}) {
-                const ShapePoint hole = at(side * hx, 0.10F);
-                window_.fillEllipse(hole.x, hole.y, R * 0.028F, R * 0.028F, style::kShadowDeep);
-            }
-        }
-        polygon({at(-0.11F, 0.30F), at(0.11F, 0.30F), at(0.14F, 0.90F), at(-0.14F, 0.90F)}, style::kSteel);
-        for (int k = 0; k < 3; ++k) {
-            const ShapePoint hole = at(0, 0.48F + static_cast<float>(k) * 0.13F);
-            window_.fillEllipse(hole.x, hole.y, R * 0.028F, R * 0.028F, style::kShadowDeep);
-        }
-        // The hub: round, six bolts, the centre cap.
-        const float hubY = cy + R * 0.04F;
-        window_.fillEllipse(cx, hubY, R * 0.34F + 1, R * 0.34F + 1, style::kShadowEdge);
-        window_.fillEllipse(cx, hubY, R * 0.34F, R * 0.34F, style::kShadow);
-        for (int i = 0; i < 6; ++i) {
-            const float a = (30.0F + static_cast<float>(i) * 60.0F) * kPi / 180.0F;
-            window_.fillEllipse(cx + std::cos(a) * R * 0.25F, hubY + std::sin(a) * R * 0.25F, R * 0.025F, R * 0.025F,
-                                style::kShadowDeep);
-        }
-        window_.fillEllipse(cx, hubY, R * 0.14F, R * 0.14F, style::kShadowDeep);
     }
 
-    // The red wheel buttons (none on the G920), with their labels outside the rim, level with them. The G25: one a side, low on the side
-    // spoke. The G27: three a side in a column on the spoke near the rim, Wheel 2 above Wheel 1 and Wheel 3 below.
+    // The red wheel buttons (none on the G920), with their labels outside the rim, level with them, placed as in
+    // Logitech's front views. The G25: one a side on the side spoke, round in a black ring. The G27: three red bars a
+    // side on the spoke's black strip near the rim, Wheel 2 above Wheel 1 and Wheel 3 below. Both a little bigger than
+    // the real ones, for their numbers.
     struct WheelButton {
         std::size_t target;
         float side;
@@ -509,19 +497,25 @@ void ShadowView::drawWheel(const WheelState& state, const std::uint32_t pressed,
         const bool left = side < 0;
         if (picture_ == Picture::G920) break;
         if (picture_ == Picture::G27) {
-            buttons[count++] = {left ? kLWheel2 : kRWheel2, side, 0.66F, -0.17F};
-            buttons[count++] = {left ? kLWheel : kRWheel, side, 0.66F, 0.05F};
-            buttons[count++] = {left ? kLWheel3 : kRWheel3, side, 0.66F, 0.27F};
+            buttons[count++] = {left ? kLWheel2 : kRWheel2, side, 0.61F, -0.09F};
+            buttons[count++] = {left ? kLWheel : kRWheel, side, 0.61F, 0.04F};
+            buttons[count++] = {left ? kLWheel3 : kRWheel3, side, 0.61F, 0.17F};
         } else {
-            buttons[count++] = {left ? kLWheel : kRWheel, side, 0.62F, 0.05F};
+            buttons[count++] = {left ? kLWheel : kRWheel, side, 0.53F, -0.01F};
         }
     }
-    const float buttonR = (picture_ == Picture::G27 ? 0.075F : 0.085F) * R;
     for (std::size_t i = 0; i < count; ++i) {
         const WheelButton& b = buttons[i];
         const ShapePoint p = at(b.side * b.x, b.y);
-        window_.fillEllipse(p.x, p.y, buttonR, buttonR,
-                            controlColour(b.target, pressed, style::kShadowRed, style::kShadowRedOff));
+        const Colour colour = controlColour(b.target, pressed, style::kShadowRed, style::kShadowRedOff);
+        if (picture_ == Picture::G27) {
+            // Red bars, wider than tall (sized for the number), on the spoke's black strip.
+            roundedRect(p.x - 0.09F * R, p.y - 0.05F * R, 0.18F * R, 0.10F * R, 3, colour);
+        } else {
+            // The G25's: round, in a black ring.
+            window_.fillEllipse(p.x, p.y, 0.095F * R, 0.095F * R, style::kShadowBlack);
+            window_.fillEllipse(p.x, p.y, 0.075F * R, 0.075F * R, colour);
+        }
         numberOn(p.x, p.y, b.target, bit(pressed, b.target));
         const std::string name = cut(label(b.target), 12);
         if (b.side < 0) {
@@ -717,6 +711,48 @@ void ShadowView::drawShifter(const std::uint32_t pressed, const std::int8_t hat)
 }
 
 // --- the G920 -------------------------------------------------------------------------------------------------------
+
+void ShadowView::drawFace(const float cx, const float cy, const float r) {
+    if (picture_ == Picture::G920) {
+        drawG920Face(cx, cy, r);
+        return;
+    }
+    if (picture_ == Picture::G27) {
+        // Logitech's front view: the brushed spokes; a black strip at each side spoke's end for the three red
+        // buttons; the hub a black disc ringed by six bolts; the ten rev lights above it (the game's output: never
+        // lit here).
+        wheelShape(g27Spokes(), cx, cy, r, style::kAluminium);
+        for (const float side : {-1.0F, 1.0F}) {
+            roundedRect(cx + side * 0.61F * r - 0.12F * r, cy - 0.17F * r, 0.24F * r, 0.42F * r, 5, style::kShadowBlack);
+        }
+        const float hubY = cy + 0.02F * r;
+        window_.fillEllipse(cx, hubY, 0.27F * r + 1, 0.27F * r + 1, style::kShadowEdge);
+        window_.fillEllipse(cx, hubY, 0.27F * r, 0.27F * r, style::kShadowBlack);
+        for (int i = 0; i < 6; ++i) {   // silver bolts round the black hub
+            const float a = (90.0F + static_cast<float>(i) * 60.0F) * kPi / 180.0F;
+            window_.fillEllipse(cx + std::cos(a) * 0.20F * r, hubY - std::sin(a) * 0.20F * r, 0.03F * r, 0.03F * r,
+                                style::kShadowKnobTop);
+        }
+        roundedRect(cx - 0.22F * r, cy - 0.29F * r, 0.44F * r, 0.08F * r, 3, style::kShadowBlack);
+        for (int i = 0; i < 10; ++i) {
+            const float lx = -0.18F + static_cast<float>(i) * 0.04F;
+            window_.fillEllipse(cx + lx * r, cy - 0.25F * r, 0.014F * r, 0.014F * r, style::kShadowEdge);
+        }
+        return;
+    }
+    // The G25 (Logitech's front view): one brushed plate, no holes; the hub a grey disc with six black bolts round
+    // the black centre cap, a little above the wheel's centre.
+    wheelShape(g25Spokes(), cx, cy, r, style::kAluminium);
+    const float hubY = cy - 0.06F * r;
+    window_.fillEllipse(cx, hubY, 0.26F * r + 1, 0.26F * r + 1, style::kShadowEdge);
+    window_.fillEllipse(cx, hubY, 0.26F * r, 0.26F * r, style::kShadowControl);
+    for (int i = 0; i < 6; ++i) {
+        const float a = (90.0F + static_cast<float>(i) * 60.0F) * kPi / 180.0F;
+        window_.fillEllipse(cx + std::cos(a) * 0.19F * r, hubY - std::sin(a) * 0.19F * r, 0.035F * r, 0.035F * r,
+                            style::kShadowBlack);
+    }
+    window_.fillEllipse(cx, hubY, 0.10F * r, 0.10F * r, style::kShadowBlack);
+}
 
 void ShadowView::drawG920Face(const float cx, const float cy, const float r) {
     // As the real one (Logitech's front view): the brushed plate and bottom spoke, the black wings over the plate's

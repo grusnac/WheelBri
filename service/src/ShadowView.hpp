@@ -84,7 +84,8 @@ private:
     void textCentred(float x, float y, const std::string& value, ui::Colour colour);
 
     void drawWheel(const WheelState& state, std::uint32_t pressed, std::int8_t hat);
-    void drawG920Face(float cx, float cy, float r);   // under the rim
+    void drawFace(float cx, float cy, float r);       // the spokes and hub, under the rim
+    void drawG920Face(float cx, float cy, float r);
     void drawG920Buttons(float cx, float cy, float r, std::uint32_t pressed, std::int8_t hat);
     void drawPedals(const WheelState& state);
     void drawShifter(std::uint32_t pressed, std::int8_t hat);
