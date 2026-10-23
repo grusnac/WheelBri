@@ -28,7 +28,11 @@ TEST(DeviceLabels, ParsesKinds) {
     EXPECT_FALSE(parseDeviceKind("joystick").has_value());
 }
 
-TEST(DeviceLabels, WritesAndReadsBack) {
+// A whole file as the older Wheel setup tab wrote it: every part read back.
+TEST(DeviceLabels, ReadsAWholeFile) {
+    const auto loaded = load("; WheelBri device\n[device]\nname = My pedals\nid = 044f:b696\nkind = pedals\n"
+                             "[axis_labels]\naxis_2 = Gas\n[button_labels]\nbutton_13 = R paddle\n");
+    EXPECT_TRUE(loaded.errors.empty());
     DeviceLabels labels;
     labels.name = "My pedals";
     labels.vendorId = 0x044F;
@@ -36,22 +40,7 @@ TEST(DeviceLabels, WritesAndReadsBack) {
     labels.kind = DeviceKind::Pedals;
     labels.axes[2] = "Gas";
     labels.buttons[13] = "R paddle";
-    const std::string text = writeDeviceLabels("", labels);
-    const auto loaded = load(text);
-    EXPECT_TRUE(loaded.errors.empty());
     EXPECT_EQ(loaded.labels, labels);
-    // Saving the same labels again changes nothing.
-    EXPECT_EQ(writeDeviceLabels(text, labels), text);
-}
-
-TEST(DeviceLabels, KeepsCommentsAndDropsClearedLabels) {
-    DeviceLabels labels;
-    labels.buttons[3] = "Y";
-    std::string text = writeDeviceLabels("; my notes\n", labels);
-    labels.buttons[3].clear();
-    text = writeDeviceLabels(text, labels);
-    EXPECT_NE(text.find("; my notes"), std::string::npos);
-    EXPECT_EQ(text.find("button_3"), std::string::npos);
 }
 
 TEST(DeviceLabels, ReportsBadValues) {
@@ -78,14 +67,6 @@ TEST(DeviceLabels, IdsAreReadStrictly) {
     EXPECT_EQ(load("[device]\nid = -1:0005\n").errors.size(), 1U);
     EXPECT_EQ(load("[device]\nid = 0x46:c262\n").errors.size(), 1U);
     EXPECT_EQ(load("[device]\nid = 046d:c262x\n").errors.size(), 1U);
-}
-
-TEST(DeviceLabels, ANameWithACommentCharacterSurvivesSaving) {
-    DeviceLabels labels;
-    labels.name = "Shifter #1";
-    labels.vendorId = 0x046D;
-    labels.productId = 0xC262;
-    EXPECT_EQ(load(writeDeviceLabels("", labels)).labels.name, "Shifter  1");
 }
 
 // A hand-edited file with a typo in a key or a section name: reported, not silently dropped.
@@ -137,28 +118,25 @@ protected:
     std::filesystem::path dir_;
 };
 
-DeviceLabels named(const std::string& name, const std::uint16_t vendor, const std::uint16_t product) {
-    DeviceLabels labels;
-    labels.name = name;
-    labels.vendorId = vendor;
-    labels.productId = product;
-    return labels;
+// A device file as the older Wheel setup tab wrote it.
+std::string named(const std::string& name, const std::uint16_t vendor, const std::uint16_t product) {
+    return "[device]\nname = " + name + "\nid = " + deviceId(vendor, product) + "\n";
 }
 
 }  // namespace
 
 // The Mapping tab's sources: only .ini files with an id, sorted by name (any case), then by id.
 TEST_F(DeviceLabelsFolder, ListsDevicesWithAnIdSortedByName) {
-    write("346e-0005.ini", writeDeviceLabels("", named("wheel", 0x346E, 0x0005)));
-    write("044f-b696.ini", writeDeviceLabels("", named("Pedals", 0x044F, 0xB696)));
-    write("1234-0002.ini", writeDeviceLabels("", named("pedals", 0x1234, 0x0002)));
-    write("1234-0001.ini", writeDeviceLabels("", named("Pedals", 0x1234, 0x0001)));
+    write("346e-0005.ini", named("wheel", 0x346E, 0x0005));
+    write("044f-b696.ini", named("Pedals", 0x044F, 0xB696));
+    write("1234-0002.ini", named("pedals", 0x1234, 0x0002));
+    write("1234-0001.ini", named("Pedals", 0x1234, 0x0001));
     write("noid.ini", "[device]\nname = no id\n");                    // no id: not offered
     write("zero.ini", "[device]\nname = zero\nid = 0000:0000\n");     // the empty id: not offered
     write("half.ini", "[device]\nname = half\nid = 0000:0001\n");     // vendor 0 alone is still an id
-    write("notes.txt", writeDeviceLabels("", named("txt", 0x1111, 0x2222)));   // not an .ini
+    write("notes.txt", named("txt", 0x1111, 0x2222));   // not an .ini
     std::filesystem::create_directories(dir_ / "folder.ini");                  // a folder, not a file
-    write(std::filesystem::path(u8"pédales-ü.ini"), writeDeviceLabels("", named("Ume", 0x0EB7, 0x0001)));
+    write(std::filesystem::path(u8"pédales-ü.ini"), named("Ume", 0x0EB7, 0x0001));
     const std::vector<DeviceLabels> found = listDeviceLabels(dir_);
     ASSERT_EQ(found.size(), 6U);
     EXPECT_EQ(found[0].name, "half");
@@ -179,8 +157,8 @@ TEST_F(DeviceLabelsFolder, AMissingFolderListsNothing) {
 
 // A device file that cannot be read (no permission) is left out; the others are still offered.
 TEST_F(DeviceLabelsFolder, AnUnreadableFileIsLeftOut) {
-    write("346e-0005.ini", writeDeviceLabels("", named("wheel", 0x346E, 0x0005)));
-    write("044f-b696.ini", writeDeviceLabels("", named("Pedals", 0x044F, 0xB696)));
+    write("346e-0005.ini", named("wheel", 0x346E, 0x0005));
+    write("044f-b696.ini", named("Pedals", 0x044F, 0xB696));
     std::filesystem::permissions(dir_ / "044f-b696.ini", std::filesystem::perms::none);
     const bool readable = std::ifstream(dir_ / "044f-b696.ini").good();
     const std::vector<DeviceLabels> found = listDeviceLabels(dir_);

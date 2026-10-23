@@ -11,13 +11,13 @@ namespace wheelbri::service {
 // Per-user log location: %LOCALAPPDATA%\wheelbri\logs, ~/.local/state/wheelbri (XDG) or ~/Library/Logs/wheelbri.
 [[nodiscard]] std::string defaultLogFile();
 
-// Where the Wheel setup tab saves what each device is and what its controls are called (DeviceLabels.hpp, one
-// <vid>-<pid>.ini per device): %LOCALAPPDATA%\wheelbri\devices, ~/.config/wheelbri/devices (XDG) or
-// ~/Library/Application Support/wheelbri/devices. Per user, so saving needs no Administrator.
+// Where the older Wheel setup tab kept what each device is and what its controls are called (DeviceLabels.hpp, one
+// <vid>-<pid>.ini per device), still read where no rig names a device: %LOCALAPPDATA%\wheelbri\devices,
+// ~/.config/wheelbri/devices (XDG) or ~/Library/Application Support/wheelbri/devices. Nothing writes there now.
 [[nodiscard]] std::filesystem::path deviceLabelsFolder();
 
-// Where the app's New puts the user's own mapping configs (ConfigLibrary.hpp): %LOCALAPPDATA%\wheelbri\configs,
-// ~/.config/wheelbri/configs (XDG) or ~/Library/Application Support/wheelbri/configs.
+// Where the Mapping tab saves the user's own mapping (my-<target>.ini, ConfigPicker.hpp):
+// %LOCALAPPDATA%\wheelbri\configs, ~/.config/wheelbri/configs (XDG) or ~/Library/Application Support/wheelbri/configs.
 [[nodiscard]] std::filesystem::path userConfigFolder();
 
 // Where the Wheel setup tab keeps the rigs (Rig.hpp, <name>.ini): ...\wheelbri\rigs.

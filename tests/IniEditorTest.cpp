@@ -52,15 +52,6 @@ TEST(IniEditor, RemovesAKeyAndKeepsCrlfAndBom) {
     EXPECT_EQ(ini.text(), "\xEF\xBB\xBF[a]\r\ny = 2\r\n");
 }
 
-TEST(IniEditor, PrependsATitleOnce) {
-    IniEditor ini("[a]\nx = 1\n");
-    ini.prepend("; title");
-    ini.prepend("; title");
-    EXPECT_EQ(ini.text(), "; title\n[a]\nx = 1\n");
-    EXPECT_TRUE(ini.hasSection("a"));
-    EXPECT_FALSE(ini.hasSection("b"));
-}
-
 TEST(IniEditor, AKeyWrittenTwiceIsEditedWhereTheReaderLooks) {
     // The reader takes the last copy; the editor used to change the first, so the edit was lost.
     IniEditor ini("[a]\nx = 1\ny = 2\nx = 3\n");
@@ -88,7 +79,6 @@ TEST(IniEditor, SafeValuesKeepEverythingButCommentsAndControls) {
 // "[ ]" is no header (as the reader says): a key set in [a] after it stays in [a], and reads back there.
 TEST(IniEditor, AHeaderWithoutANameIsNoSection) {
     IniEditor ini("[a]\nx = 1\n[ ]\ny = 2\n");
-    EXPECT_FALSE(ini.hasSection(""));
     ini.set("a", "y", "3");
     EXPECT_EQ(ini.text(), "[a]\nx = 1\n[ ]\ny = 3\n");
     EXPECT_EQ(IniDocument::parse(ini.text()).document.get("a", "y"), "3");
@@ -112,9 +102,6 @@ TEST(IniEditor, NoFinalLineEndAndEmptyText) {
     EXPECT_EQ(empty.text(), "");
     empty.set("c", "k", "v");
     EXPECT_EQ(empty.text(), "[c]\nk = v\n");   // no blank line before the first section
-    IniEditor title("");
-    title.prepend("; title");
-    EXPECT_EQ(title.text(), "; title\n");
 }
 
 // A new section after a file that already ends with a blank line: no second blank line.

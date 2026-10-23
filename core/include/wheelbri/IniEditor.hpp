@@ -19,10 +19,6 @@ public:
     void set(const std::string& section, const std::string& key, const std::string& value);
     // Removes the key's line, if there is one.
     void remove(const std::string& section, const std::string& key);
-    // Whether the text has this section (even an empty one).
-    [[nodiscard]] bool hasSection(const std::string& section) const;
-    // Puts `line` (a comment) first, unless the text already starts with it.
-    void prepend(const std::string& line);
 
     [[nodiscard]] std::string text() const;
 

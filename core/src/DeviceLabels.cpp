@@ -45,19 +45,6 @@ void readLabels(const IniDocument& ini, const std::string& section, const std::s
     }
 }
 
-template <std::size_t N>
-void writeLabels(IniEditor& ini, const std::string& section, const std::string& prefix,
-                 const std::array<std::string, N>& labels) {
-    for (std::size_t i = 0; i < N; ++i) {
-        const std::string key = prefix + std::to_string(i);
-        if (labels[i].empty()) {
-            ini.remove(section, key);
-        } else {
-            ini.set(section, key, labels[i]);
-        }
-    }
-}
-
 }  // namespace
 
 const char* deviceKindName(const DeviceKind kind) {
@@ -130,17 +117,6 @@ DeviceLabelsResult loadDeviceLabels(const IniDocument& ini) {
         }
     }
     return result;
-}
-
-std::string writeDeviceLabels(const std::string_view base, const DeviceLabels& labels) {
-    IniEditor ini(base);
-    ini.prepend("; WheelBri device: what it is and what its controls are called (the Rig tab writes this)");
-    ini.set("device", "name", iniSafeValue(labels.name));   // from Windows or evdev: may hold ';' or '#'
-    ini.set("device", "id", deviceId(labels.vendorId, labels.productId));
-    ini.set("device", "kind", deviceKindName(labels.kind));
-    writeLabels(ini, "axis_labels", "axis_", labels.axes);
-    writeLabels(ini, "button_labels", "button_", labels.buttons);
-    return ini.text();
 }
 
 std::vector<DeviceLabels> listDeviceLabels(const std::filesystem::path& folder) {

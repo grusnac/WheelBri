@@ -79,11 +79,6 @@ std::ptrdiff_t IniEditor::find(const std::string& section, const std::string& ke
     return -1;
 }
 
-bool IniEditor::hasSection(const std::string& section) const {
-    return std::any_of(lines_.begin(), lines_.end(),
-                       [&](const Line& line) { return line.header && line.section == section; });
-}
-
 void IniEditor::set(const std::string& section, const std::string& key, const std::string& rawValue) {
     // A line break in a value would end the line and start another (a new key, or a [section]).
     std::string value = rawValue;
@@ -125,11 +120,6 @@ void IniEditor::set(const std::string& section, const std::string& key, const st
 // Every copy of the key: one left behind would become the value the reader uses.
 void IniEditor::remove(const std::string& section, const std::string& key) {
     for (auto at = find(section, key); at >= 0; at = find(section, key)) lines_.erase(lines_.begin() + at);
-}
-
-void IniEditor::prepend(const std::string& line) {
-    if (!lines_.empty() && lines_.front().text == line) return;
-    lines_.insert(lines_.begin(), parseLine(line, ""));
 }
 
 std::string IniEditor::text() const {

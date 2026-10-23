@@ -59,8 +59,6 @@ struct DeviceLabelsResult {
 };
 
 [[nodiscard]] DeviceLabelsResult loadDeviceLabels(const IniDocument& ini);
-// `base` (the file as it was, or empty) with the labels written in; comments and anything else in it are kept.
-[[nodiscard]] std::string writeDeviceLabels(std::string_view base, const DeviceLabels& labels);
 // Every device named in `folder` (its <vid>-<pid>.ini files that read without errors and have an id), sorted by
 // name: what the Mapping tab offers as sources.
 [[nodiscard]] std::vector<DeviceLabels> listDeviceLabels(const std::filesystem::path& folder);

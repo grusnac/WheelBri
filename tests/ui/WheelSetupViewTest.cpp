@@ -125,14 +125,9 @@ TEST_F(RigTab, NoBackendSaysItCannotRead) {
 
 // The first rig starts from the names given per device before (older Wheel setup files).
 TEST_F(RigTab, FirstRigImportsOlderDeviceNames) {
-    DeviceLabels labels;
-    labels.name = "Old wheel";
-    labels.vendorId = 0x346e;
-    labels.productId = 0x0005;
-    labels.axes[0] = "Wheel";
     std::filesystem::create_directories(dir_ / "devices");
-    std::ofstream(dir_ / "devices" / deviceLabelsFileName(labels.vendorId, labels.productId))
-        << writeDeviceLabels("", labels);
+    std::ofstream(dir_ / "devices" / deviceLabelsFileName(0x346e, 0x0005))
+        << "[device]\nname = Old wheel\nid = 346e:0005\n[axis_labels]\naxis_0 = Wheel\n";
     WheelSetupView view(window_, settings());
     frame(view);
     EXPECT_TRUE(window_.has("Old wheel")) << window_.dump();
