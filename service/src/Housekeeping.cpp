@@ -187,6 +187,10 @@ std::optional<Archiver> findArchiver(const std::string& preference) {
 Housekeeping::Housekeeping(RetentionConfig config, std::vector<std::filesystem::path> folders)
     : config_(std::move(config)), folders_(std::move(folders)) {}
 
+Housekeeping::Housekeeping(RetentionConfig config, std::vector<std::filesystem::path> folders, Archiver archiver)
+    : config_(std::move(config)), folders_(std::move(folders)), archiver_(std::move(archiver)),
+      archiverSearched_(true) {}
+
 Housekeeping::~Housekeeping() {
     abortRunning();
 }

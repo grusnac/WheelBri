@@ -296,6 +296,24 @@ TEST_F(HousekeepingTest, InfoZipMakesOneZipPerDay) {
                                              (logs_() / "ffb-2020-01-01-01.log").string() + "\n");
 }
 
+// Windows' own tar.exe (bsdtar): one .zip per day, made inside the folder (-C) so the archive holds bare file names.
+TEST_F(HousekeepingTest, WindowsTarMakesOneZipPerDay) {
+    tool("tar.exe", "  out=\"$4\"; dir=\"$6\"; shift 6\n  cd \"$dir\" && cat \"$@\" > \"$out\"\n");
+    write(logs_() / "ffb-2020-01-01-01.log", "f");
+    write(logs_() / "telemetry-2020-01-01-01.log", "t");
+    Housekeeping keeping(config(OldFilesAction::Archive, "zip"), {logs_()},
+                         Archiver{Archiver::Kind::WindowsZip, bin_() / "tar.exe"});
+    keeping.run(WallClock::now());
+    pumpUntilIdle(keeping);
+    EXPECT_FALSE(keeping.failed());
+    EXPECT_EQ(keeping.status(), "archived with zip after 2 days (1 day(s) archived)");
+    EXPECT_EQ(read(logs_() / "wheelbri-logs-2020-01-01.zip"), "ft");
+    EXPECT_FALSE(fs::exists(logs_() / "ffb-2020-01-01-01.log"));
+    EXPECT_EQ(read(bin_() / "tar.exe.args"), "-a -c -f " + (logs_() / "wheelbri-logs-2020-01-01.zip").string() +
+                                                 " -C " + logs_().string() +
+                                                 " ffb-2020-01-01-01.log telemetry-2020-01-01-01.log\n");
+}
+
 // xz, zstd and gzip compress each file next to itself with their own options; the originals then go. Empty files
 // (an archive of 0 bytes) are fine.
 TEST_F(HousekeepingTest, PerFileCompressorsCompressEachFile) {

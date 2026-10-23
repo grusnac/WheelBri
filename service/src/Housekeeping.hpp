@@ -37,6 +37,8 @@ struct Archiver {
 class Housekeeping {
 public:
     Housekeeping(RetentionConfig config, std::vector<std::filesystem::path> folders);
+    // With `archiver` used as it is, never searched for (the tests: Windows' tar.exe on any computer).
+    Housekeeping(RetentionConfig config, std::vector<std::filesystem::path> folders, Archiver archiver);
     ~Housekeeping();
 
     Housekeeping(const Housekeeping&) = delete;
