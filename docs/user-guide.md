@@ -65,11 +65,12 @@ the wheel's rotation, in the wheel's own software (Pit House for Moza).
 ![Mapping tab](images/mapping.png)
 
 1. Pick the **Target** and the **Mode** with `<` and `>` at the top (from Start until Stop they cannot change).
-2. Check each of the Target's axes, D-pad and buttons comes from the right control: click a source to change it.
-   **RIG** beside a source: it comes from what the control is in the Rig tab; pick another and it is yours. Which
-   way a pedal reads is always yours: tick **Invert** if it is pressed at rest. A
-   button can have an extra source ("or"), for example a handbrake lever. A group with nothing mapped (the
-   **Shifter** without a shifter) is one line: **Show** opens it.
+2. Check each of the Target's axes, D-pad and buttons comes from the right control: click a source to change it. **RIG**
+   beside a source: it comes from what the control is in the Rig tab; pick another and it is yours. Which way a pedal
+   reads is always yours: tick **Invert** if it is pressed at rest. A button can have an extra source ("or"), for
+   example a handbrake lever: it presses the button past the point of its travel you set with the slider or type in,
+   from 0% (as soon as it moves) to 100% (only at its end). A group with nothing mapped (the **Shifter** without a
+   shifter) is one line: **Show** opens it.
 3. Set **Steering rotation** to the game's full lock, and set your wheel's own software to **the same number**.
    With the **G25** or **G27** as Target, **Centring spring** below it is that wheel's own (Logitech's software had
    it: "Enable Centering Spring in Force Feedback Games", 0 to 100%): a spring to the centre on top of the game's
