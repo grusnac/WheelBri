@@ -31,7 +31,7 @@
 #include "wheelbri/FfbIdleWatch.hpp"
 #include "wheelbri/GameUseWatch.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
-#include "wheelbri/HidHideCli.hpp"
+#include "wheelbri/HideIds.hpp"
 #include "wheelbri/LogLevelPacket.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/MappingEdit.hpp"
@@ -131,12 +131,12 @@ std::vector<wheelbri::service::HideFilter::Target> rigHideTargets(std::string& r
     const auto rig = wheelbri::readRig(wheelbri::service::rigsFolder(), rigName, errors);
     if (!rig) return targets;
     for (const wheelbri::RigDevice& device : rig->devices) {
-        if (!wheelbri::hidhide::mayHide(device.id)) {
+        if (!wheelbri::hideids::mayHide(device.id)) {
             WE_LOG_WARN(log(), "hide: '{}' ({}) is in the rig but is never hidden (the virtual wheel, or no id)",
-                        device.name, wheelbri::hidhide::deviceIdText(device.id));
+                        device.name, wheelbri::hideids::deviceIdText(device.id));
             continue;
         }
-        targets.push_back({device.id, device.name.empty() ? wheelbri::hidhide::deviceIdText(device.id) : device.name});
+        targets.push_back({device.id, device.name.empty() ? wheelbri::hideids::deviceIdText(device.id) : device.name});
     }
     return targets;
 }

@@ -6,7 +6,7 @@
 #include "DinputDevice.hpp"
 #endif
 
-#include "wheelbri/HidHideCli.hpp"
+#include "wheelbri/HideIds.hpp"
 #include "wheelbri/Logging.hpp"
 
 #ifdef _WIN32
@@ -79,7 +79,7 @@ std::string joined(const std::vector<std::string>& items) {
 
 bool listsIgnoreCase(const std::vector<std::string>& items, std::string_view wanted) {
     for (const std::string& item : items) {
-        if (hidhide::equalsIgnoreCase(item, wanted)) return true;
+        if (hideids::equalsIgnoreCase(item, wanted)) return true;
     }
     return false;
 }
@@ -204,8 +204,8 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
     // device reports: a multi-axis controller (many wheels are) has no compatible id that says "game controller" and the
     // registry does not give compatible ids here. A vendor tool's other interfaces are never listed.
     for (const std::string& path : dinput::gameControllerPaths()) {
-        const std::string id = hidhide::instanceIdOfHidPath(path);
-        const auto usb = hidhide::hidDeviceIdOf(id);
+        const std::string id = hideids::instanceIdOfHidPath(path);
+        const auto usb = hideids::hidDeviceIdOf(id);
         if (!usb) continue;
         Check* entry = nullptr;
         for (Check& c : checks) {
@@ -225,8 +225,8 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
         // description ("... (wheelbri: hidden from games ...)"; "wheelemu" before the rename).
         const std::vector<std::string> description = devNodeStrings(node, kDriverDesc);
         const std::vector<std::string> filters = devNodeStrings(node, kUpperFilters);
-        const bool ourDriver = !description.empty() && (hidhide::containsIgnoreCase(description.front(), "wheelbri") ||
-                                                        hidhide::containsIgnoreCase(description.front(), "wheelemu"));
+        const bool ourDriver = !description.empty() && (hideids::containsIgnoreCase(description.front(), "wheelbri") ||
+                                                        hideids::containsIgnoreCase(description.front(), "wheelemu"));
         if (!listsIgnoreCase(filters, "WUDFRd") || !ourDriver) {
             state = State::NotInstalled;
             detail = "no wheelbri-hide on " + id + ": driver '" + joined(description) + "', upper filters " + joined(filters);
@@ -255,7 +255,7 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
     }
     if (!quiet) {
         for (const Check& c : checks) {
-            const std::string what = "'" + c.target.name + "' (" + hidhide::deviceIdText(c.target.id) + ")";
+            const std::string what = "'" + c.target.name + "' (" + hideids::deviceIdText(c.target.id) + ")";
             if (c.state == State::Ready) {
                 std::string list;
                 for (const std::string& i : c.interfaces) list += (list.empty() ? "" : ", ") + i;
@@ -279,7 +279,7 @@ std::string HideFilter::interfaceProblem(const std::string& instanceId) {
     if (CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
         return instanceId + " is not connected";
     }
-    if (const std::string usage = hidhide::neverHiddenUsage(devNodeStrings(node, kCompatibleIds)); !usage.empty()) {
+    if (const std::string usage = hideids::neverHiddenUsage(devNodeStrings(node, kCompatibleIds)); !usage.empty()) {
         return instanceId + " is " + usage + ": never hidden";
     }
     return {};

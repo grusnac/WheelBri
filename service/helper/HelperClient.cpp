@@ -3,7 +3,7 @@
 #include "Platform.hpp"
 
 #include "wheelbri/FileText.hpp"
-#include "wheelbri/HidHideCli.hpp"
+#include "wheelbri/HideIds.hpp"
 
 #include <windows.h>
 
@@ -87,7 +87,7 @@ HelperClient::Connect HelperClient::connect(std::string& error, const std::strin
                 serverImage_ = pathToUtf8(service::platform::processImage(pid));
             }
             if (!expectedFolder.empty() &&
-                !hidhide::equalsIgnoreCase(serverImage_, expectedFolder + "\\wheelbri-helper.exe")) {
+                !hideids::equalsIgnoreCase(serverImage_, expectedFolder + "\\wheelbri-helper.exe")) {
                 error = "the helper's pipe belongs to " + (serverImage_.empty() ? std::string("a program Windows will not name")
                                                                                 : serverImage_) +
                         ", not to " + expectedFolder + "\\wheelbri-helper.exe";

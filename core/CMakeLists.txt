@@ -32,7 +32,7 @@ add_library(wheelbri_core STATIC
     src/HelperDispatch.cpp
     src/HelperProtocol.cpp
     src/HelperStatus.cpp
-    src/HidHideCli.cpp
+    src/HideIds.cpp
     src/HidPid.cpp
     src/HidPp.cpp
     src/IniDocument.cpp

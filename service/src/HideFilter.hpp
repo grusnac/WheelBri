@@ -55,7 +55,7 @@ public:
                                                int restartAfterMs = 6'000);
 
     // Empty when `instanceId` is a HID interface present now that is not a keyboard, mouse, system or consumer control
-    // or digitizer (hidhide::neverHiddenUsage on its compatible ids); else why it must not get the filter. The helper
+    // or digitizer (hideids::neverHiddenUsage on its compatible ids); else why it must not get the filter. The helper
     // checks every interface it is asked to hide with this (and with helper::hideDeviceProblem), whatever the app said.
     [[nodiscard]] static std::string interfaceProblem(const std::string& instanceId);
 

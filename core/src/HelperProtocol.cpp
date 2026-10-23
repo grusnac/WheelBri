@@ -2,7 +2,7 @@
 
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
-#include "wheelbri/HidHideCli.hpp"
+#include "wheelbri/HideIds.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -201,9 +201,9 @@ std::string hideDeviceProblem(const std::string_view id) {
         second == first + 1 || second + 1 == id.size()) {
         return "not a device instance id (three parts: HID\\<hardware>\\<instance>)";
     }
-    const auto usb = hidhide::hidDeviceIdOf(id);
+    const auto usb = hideids::hidDeviceIdOf(id);
     if (!usb) return "not a HID device with a vendor and product id";
-    if (!hidhide::mayHide(*usb)) return "the virtual wheel (G920, G25) is never hidden";
+    if (!hideids::mayHide(*usb)) return "the virtual wheel (G920, G25) is never hidden";
     return {};
 }
 
