@@ -21,6 +21,7 @@
 #endif
 #include "Wheel.hpp"
 
+#include "wheelbri/AutoMap.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
@@ -1436,6 +1437,13 @@ LoadedConfig loadForRun(const Options& options) {
             if (wheel != nullptr && !wheel->id.empty()) {
                 loaded.config.sourceDeviceMatch = wheelbri::deviceId(wheel->id.vendorId, wheel->id.productId);
             }
+        }
+    }
+    // [emulator] from_rig: the steering, pedals, D-pad and core buttons the mapping leaves out come from what the rig's
+    // controls are (AutoMap.hpp); what the rig cannot give is said, and left unmapped.
+    if (rig) {
+        for (const std::string& notice : wheelbri::applyRig(loaded.config, *rig)) {
+            loaded.warnings.push_back("from the rig: " + notice);
         }
     }
     // A control is used once (one input's assignment or one button's secondary): an older mapping that uses one

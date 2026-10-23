@@ -13,6 +13,7 @@
 #include "Version.hpp"
 #include "WheelSetupView.hpp"
 
+#include "wheelbri/AutoMap.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/FileText.hpp"
@@ -799,6 +800,7 @@ private:
             std::vector<std::string> errors;
             rig = readRig(rigsFolder(), name, errors);
         }
+        if (rig) (void)applyRig(config, *rig);   // from_rig: what the rig maps by itself counts (AutoMap.hpp)
         rigName_ = rig ? readAppSetting(settings_.stateFile, "rig") : std::string();
         rigDevices_ = rig ? rig->devices.size() : 0;
         const StartNeeds needs = startNeeds(config, rig ? &*rig : nullptr);
