@@ -24,10 +24,6 @@ std::optional<float> numberOf(const IniDocument& ini, const std::string& key) {
 
 }  // namespace
 
-bool hasOldLimits(const FfbSafetyConfig& safety) {
-    return near(safety.masterGain, kOldMasterGain) && near(safety.maxMagnitude, kOldMaxMagnitude);
-}
-
 std::string withWheelAppLimits(const std::string_view iniText) {
     IniEditor ini(iniText);
     ini.set("ffb", "master_gain", "1.0");

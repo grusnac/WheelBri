@@ -27,18 +27,13 @@ namespace wheelbri {
 // By game profile id, then setting id: the user's own values.
 using GameSettingOverrides = std::map<std::string, std::map<std::string, float>>;
 
-// The user's own force feedback gain per game ([game_ffb_gain] <game profile id> = kFfbGainMin..kFfbGainMax, set in
-// the Games tab): instead of the profile's [ffb] gain (FfbController::setGameGain).
+// The user's own force feedback gain per game from older configs ([game_ffb_gain] <game profile id> =
+// kFfbGainMin..kFfbGainMax): still read, and taken into the game's own tuning (GameTuning.hpp, legacyGains).
 using GameFfbGains = std::map<std::string, float>;
-// The gain while `game` runs: the user's, else the profile's, else 1 (the game's forces as it asks).
-[[nodiscard]] float gameFfbGain(const GameProfile& game, const GameFfbGains& gains);
 
 // The value `setting` gets: the user's, else the profile's; nullopt for a "steering" setting.
 [[nodiscard]] std::optional<float> gameSettingValue(const GameProfile& game, const GameSetting& setting,
                                                     const GameSettingOverrides& overrides);
-// True when one of the game's settings is "steering" (the game keeps its own steering rotation): its rotation is set
-// per game in the Games tab like a profile's [steering] rotation.
-[[nodiscard]] bool hasSteeringSetting(const GameProfile& game);
 // The profile's setting with this id, or null.
 [[nodiscard]] const GameSetting* findGameSetting(const GameProfile& game, std::string_view id);
 // "spring" -> "spring", "force_feedback" -> "force feedback": for the window.

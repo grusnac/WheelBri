@@ -60,18 +60,6 @@ std::optional<float> gameSettingValue(const GameProfile& game, const GameSetting
     return setting.value;
 }
 
-float gameFfbGain(const GameProfile& game, const GameFfbGains& gains) {
-    if (const auto own = gains.find(game.id); own != gains.end()) return own->second;
-    return game.ffbGain.value_or(1.0F);
-}
-
-bool hasSteeringSetting(const GameProfile& game) {
-    for (const GameSetting& setting : game.settings) {
-        if (!setting.value) return true;
-    }
-    return false;
-}
-
 const GameSetting* findGameSetting(const GameProfile& game, const std::string_view id) {
     for (const GameSetting& setting : game.settings) {
         if (setting.id == id) return &setting;

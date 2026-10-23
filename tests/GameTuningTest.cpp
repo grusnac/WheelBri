@@ -103,7 +103,6 @@ TEST(GameTuning, EffectTypesFallIntoGroups) {
     EXPECT_EQ(ffbGroupOf(FfbEffectType::SawtoothDown), FfbGroup::Periodic);
     EXPECT_EQ(ffbGroupOf(FfbEffectType::Spring), FfbGroup::Spring);
     EXPECT_EQ(ffbGroupOf(FfbEffectType::Inertia), FfbGroup::Inertia);
-    EXPECT_EQ(ffbGroupKey(FfbGroup::Friction), "friction");
 }
 
 // No game: the mapping's [ffb] as it is, every kind at 1.

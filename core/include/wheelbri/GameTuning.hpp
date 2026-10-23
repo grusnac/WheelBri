@@ -37,8 +37,6 @@ namespace wheelbri {
 // The kinds of effect a game's force feedback gain is set for, in the order of the window and the keys.
 enum class FfbGroup : std::uint8_t { Constant, Periodic, Spring, Damper, Friction, Inertia };
 inline constexpr std::size_t kFfbGroupCount = 6;
-// "constant", "periodic", ...: the key after ffb_.
-[[nodiscard]] std::string_view ffbGroupKey(FfbGroup group);
 // The group an effect type belongs to (sine, square, triangle and the saws are periodic).
 [[nodiscard]] FfbGroup ffbGroupOf(FfbEffectType type);
 

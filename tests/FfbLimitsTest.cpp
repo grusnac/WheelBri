@@ -31,7 +31,6 @@ TEST(FfbLimits, TheDefaultsPassNearlyAllTheGameAsks) {
     EXPECT_FLOAT_EQ(defaults.maxMagnitude, 1.0F);   // all the game asks: the wheel's app sets how strong
     EXPECT_GT(defaults.maxSlewPerSecond, 0.0F);      // the jolt guard stays
     EXPECT_GT(defaults.frozenForceSeconds, 0.0F);    // and the frozen push fade
-    EXPECT_FALSE(hasOldLimits(defaults));
 }
 
 TEST(FfbLimits, EveryShippedConfigHasTheNewLimits) {
@@ -42,13 +41,6 @@ TEST(FfbLimits, EveryShippedConfigHasTheNewLimits) {
         EXPECT_FLOAT_EQ(config.ffb.masterGain, kWheelAppMasterGain) << name;
         EXPECT_FLOAT_EQ(config.ffb.maxMagnitude, kWheelAppMaxMagnitude) << name;
     }
-}
-
-TEST(FfbLimits, OldLimitsAreTheExactPairOnly) {
-    EXPECT_TRUE(hasOldLimits({0.7F, 0.8F, 50.0F, 2.0F}));
-    EXPECT_FALSE(hasOldLimits({0.7F, 0.6F, 50.0F, 2.0F}));   // the user lowered the cap: their choice
-    EXPECT_FALSE(hasOldLimits({0.5F, 0.8F, 50.0F, 2.0F}));
-    EXPECT_FALSE(hasOldLimits({1.0F, 1.0F, 50.0F, 2.0F}));
 }
 
 // A user's own config moves to the new limits and keeps everything else, comments and CRLF included.
@@ -63,7 +55,6 @@ TEST(FfbLimits, MovingAConfigChangesOnlyTheTwoKeys) {
     EXPECT_FLOAT_EQ(config.ffb.maxMagnitude, 1.0F);
     EXPECT_FLOAT_EQ(config.ffb.maxSlewPerSecond, 30.0F);
     EXPECT_TRUE(config.ffbInvert);
-    EXPECT_FALSE(hasOldLimits(config.ffb));
     // Opening a config: only the exact older pair is moved; anything else is the user's own choice.
     const std::optional<std::string> fromOld = movedFromOldLimits(old);
     ASSERT_TRUE(fromOld.has_value());

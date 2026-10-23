@@ -138,8 +138,6 @@ TEST(GameSettings, ValuesComeFromTheUserThenTheProfile) {
     EXPECT_EQ(gameSettingLabel("force_feedback"), "force feedback");
 
     // Its rotation is set per game (the Games tab, [game_rotation]) and written as WheelMaxRotation.
-    EXPECT_TRUE(hasSteeringSetting(*unbound));
-    EXPECT_FALSE(hasSteeringSetting(*gameProfileFor("NeedForSpeedPayback.exe")));
     EXPECT_FALSE(rotationWhileRunning(*unbound, {}).has_value());   // none of its own: the mapping's is written
     const GameRotations mine540 = {{"nfsunbound", GameRotationOverride{false, 540.0F}}};
     const std::optional<float> perGame = rotationWhileRunning(*unbound, mine540);
@@ -214,17 +212,8 @@ TEST(GameSettings, MappingWritesAndDropsLines) {
     EXPECT_FALSE(writeMapping(written, model).error.empty());
 }
 
-// The game's force feedback gain: the profile's [ffb] gain unless the user set one ([game_ffb_gain]).
-TEST(GameSettings, FfbGainComesFromTheUserThenTheProfile) {
-    const GameProfile* const unbound = gameProfileFor("NeedForSpeedUnbound.exe");
-    const GameProfile* const payback = gameProfileFor("NeedForSpeedPayback.exe");
-    ASSERT_NE(unbound, nullptr);
-    ASSERT_NE(payback, nullptr);
-    EXPECT_EQ(gameFfbGain(*unbound, {}), 1.0F);   // no gain in its profile: as the game asks
-    EXPECT_EQ(gameFfbGain(*payback, {}), 3.0F);   // its profile's
-    EXPECT_EQ(gameFfbGain(*payback, {{"nfspayback", 1.0F}}), 1.0F);   // the user's own wins
-    EXPECT_EQ(gameFfbGain(*unbound, {{"nfsunbound", 2.0F}}), 2.0F);
-
+// An older config's own force feedback gain per game ([game_ffb_gain]): read in range, refused outside it.
+TEST(GameSettings, OlderGameFfbGainsAreRead) {
     const EmulatorConfigResult good = load("[game_ffb_gain]\nnfsunbound = 2.5\n");
     ASSERT_TRUE(good.errors.empty()) << good.errors.front();
     EXPECT_EQ(good.config.gameFfbGains.at("nfsunbound"), 2.5F);

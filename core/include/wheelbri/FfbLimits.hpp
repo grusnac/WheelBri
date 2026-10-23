@@ -22,9 +22,6 @@ inline constexpr float kWheelAppMaxMagnitude = 1.0F;
 inline constexpr float kOldMasterGain = 0.7F;
 inline constexpr float kOldMaxMagnitude = 0.8F;
 
-// The older limits, gain 0.7 and cap 0.8, as written by WheelBri's configs before the wheel's app set the strength.
-[[nodiscard]] bool hasOldLimits(const FfbSafetyConfig& safety);
-
 // The INI text with [ffb] master_gain = 1.0 and max_magnitude = 1.0; every other line as it was.
 [[nodiscard]] std::string withWheelAppLimits(std::string_view iniText);
 

@@ -49,7 +49,6 @@ std::string lower(std::string_view text) {
 
 }  // namespace
 
-std::string_view ffbGroupKey(const FfbGroup group) { return kGroupKeys[static_cast<std::size_t>(group)]; }
 
 FfbGroup ffbGroupOf(const FfbEffectType type) {
     switch (type) {
