@@ -9,6 +9,8 @@
 #include "wheelbri/StatePacket.hpp"
 #include "wheelbri/UdpLoopback.hpp"
 
+#include "UhidTestLock.hpp"
+
 #include <gtest/gtest.h>
 
 #include <linux/uhid.h>
@@ -115,6 +117,7 @@ protected:
     }
     void TearDown() override { fs::remove_all(dir_); }
 
+    UhidTestLock lock_;   // first member: held from before SetUp until after TearDown
     fs::path dir_;
 };
 

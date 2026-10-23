@@ -8,6 +8,7 @@
 #include "UhidProcess.hpp"
 
 #include "Platform.hpp"
+#include "UhidTestLock.hpp"
 
 #include <gtest/gtest.h>
 
@@ -55,6 +56,7 @@ protected:
         return line;
     }
 
+    UhidTestLock lock_;   // first member: held from before SetUp until after TearDown
     fs::path dir_;
     fs::path fake_;
 };
