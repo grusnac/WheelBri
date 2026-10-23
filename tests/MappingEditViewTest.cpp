@@ -530,8 +530,9 @@ TEST_F(EditView, PickingTheDpadAndAButton) {
     EXPECT_TRUE(window_.hasPart(": K5"));
 }
 
-// from_rig (the built-in mapping): the steering, pedals, D-pad, A, B, X, Y and paddles come from what the rig's controls
-// are, each marked RIG; picking a source makes it the user's, a line in the file, while the others stay without one.
+// from_rig (the built-in mapping): the steering, pedals, D-pad, A, B, X, Y and paddles come from what the rig's
+// controls are, each marked RIG; picking a source makes it the user's, a line in the file, while the others stay
+// without one.
 TEST_F(EditView, TheRigMapsTheCoreInputs) {
     useRig(testRig());
     open();
@@ -898,6 +899,77 @@ TEST_F(EditView, TheRigIsReadAgainEveryTwoSeconds) {
 
 // --- secondary sources ("or") ---------------------------------------------------------------------------------------
 
+// The secondary popup: AXES (one a row, each with the slider of the travel it presses past, greyed until the axis is
+// added), then BUTTONS. The slider pressed at its ends (0%, 100%) and dragged; a typed number from 0 to 100 (whole
+// percent; past 100 refused).
+TEST_F(EditView, AnAxisThresholdFromZeroToAHundred) {
+    useRig(testRig());
+    open();
+    frame();
+    ASSERT_TRUE(click("(nothing)", 1));
+    frame();
+    // The popup's headings: drawn last (the tab under it has its own AXES and BUTTONS).
+    const auto lastOf = [&](const std::string& value) -> const Window::Text* {
+        const Window::Text* found = nullptr;
+        for (const auto& t : window_.texts) {
+            if (t.value == value) found = &t;
+        }
+        return found;
+    };
+    const Window::Text* const axes = lastOf("AXES");
+    const Window::Text* const buttons = lastOf("BUTTONS");
+    ASSERT_NE(axes, nullptr);
+    ASSERT_NE(buttons, nullptr);
+    EXPECT_LT(axes->y, buttons->y);
+    const Window::Text* hand = window_.find("axis 3 Hand");
+    ASSERT_NE(hand, nullptr);
+    EXPECT_LT(hand->y, buttons->y);   // the axes above the buttons
+    // The text drawn on the Hand row, `value` (its slider's ends, its field).
+    const auto onRow = [&](const std::string& value) -> const Window::Text* {
+        for (const auto& t : window_.texts) {
+            if (t.value == value && std::fabs(t.y - window_.find("axis 3 Hand")->y) < 1.0F) return &t;
+        }
+        return nullptr;
+    };
+    ASSERT_NE(onRow("--"), nullptr);   // not added: greyed, nothing to set
+    ASSERT_TRUE(click("axis 3 Hand"));   // added: its row comes alive at 50%
+    frame();
+    ASSERT_NE(onRow("50%"), nullptr);
+    const float zeroX = onRow("0%")->x;
+    const float zeroY = onRow("0%")->y;
+    const float hundredX = onRow("100%")->x;
+    view_->onClick(zeroX + 22, zeroY);   // the slider's left end
+    view_->onPointer(zeroX + 22, 0, false);
+    frame();
+    EXPECT_TRUE(window_.has("Hand > 0%"));
+    view_->onClick(zeroX + 24, zeroY);
+    view_->onPointer(hundredX + 400, 0, true);   // dragged past its right end
+    view_->onPointer(hundredX + 400, 0, false);
+    frame();
+    EXPECT_TRUE(window_.has("Hand > 100%"));
+    int found = 0;   // the second "100%" on the row: the field (the first is the slider's end)
+    for (const auto& t : window_.texts) {
+        if (t.value == "100%" && std::fabs(t.y - zeroY) < 1.0F && ++found == 2) view_->onClick(t.x + 1, t.y + 1);
+    }
+    ASSERT_EQ(found, 2);
+    type(std::string(4, ui::kBackspace) + "101" + std::string(1, ui::kEnter));
+    frame();
+    EXPECT_TRUE(window_.hasPart("Not changed: an axis presses a button from 0%"));
+    type(std::string(3, ui::kBackspace) + "37" + std::string(1, ui::kEnter));
+    frame();
+    EXPECT_TRUE(window_.has("Hand > 37%"));
+    // Its Inverted, on its own row.
+    const Window::Text* inverted = nullptr;
+    for (const auto& t : window_.texts) {
+        if (t.value == "Inverted" && std::fabs(t.y - zeroY) < 1.0F) inverted = &t;
+    }
+    ASSERT_NE(inverted, nullptr);
+    view_->onClick(inverted->x + 1, inverted->y + 1);
+    ASSERT_TRUE(click("Done"));
+    frame();
+    EXPECT_NE(own().find("axis 3 inverted > 37%"), std::string::npos) << own();
+}
+
 // A target button's secondaries: buttons and axes toggled in their popup, an axis' threshold and direction, at most 8,
 // cleared all at once; the field shows the first and how many more.
 TEST_F(EditView, SecondarySources) {
@@ -908,18 +980,14 @@ TEST_F(EditView, SecondarySources) {
     frame();
     ASSERT_TRUE(window_.hasPart("What else presses"));
     EXPECT_TRUE(window_.hasPart("0 of 8."));
-    ASSERT_TRUE(click("axis 3 Hand"));   // an axis: its threshold row next
+    ASSERT_TRUE(click("axis 3 Hand"));   // an axis: its row's slider and field come alive
     frame();
-    EXPECT_TRUE(window_.hasPart("pressed past"));
-    ASSERT_TRUE(click("25%"));
-    ASSERT_TRUE(click("Inverted"));
+    ASSERT_TRUE(click("50%"));   // the threshold typed: any whole percent of the travel
+    type(std::string(3, ui::kBackspace) + "25" + std::string(1, ui::kEnter));
+    frame();
     ASSERT_TRUE(click("0 K0"));
     ASSERT_TRUE(click("1 K1"));
     frame();
-    // The axis chip picks it for the threshold row again.
-    ASSERT_TRUE(click("Hand > 25%"));
-    frame();
-    EXPECT_TRUE(window_.hasPart("pressed past"));
     ASSERT_TRUE(click("Done"));
     frame();
     EXPECT_TRUE(window_.has("Hand > 25% +2"));
