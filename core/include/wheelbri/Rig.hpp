@@ -98,10 +98,6 @@ struct RigResult {
 // Reads <folder>/<name>.ini; nullopt if it cannot be read. `errors` gets what was wrong in it.
 [[nodiscard]] std::optional<Rig> readRig(const std::filesystem::path& folder, const std::string& name,
                                          std::vector<std::string>& errors);
-// The rig's device that mapping device `number` reads (0: the wheel, found by `sourceDeviceMatch` as
-// [emulator] source_device takes it, empty = the rig's wheel; 1..3: mapper.accessories), or null.
-[[nodiscard]] const RigDevice* rigDeviceFor(const MapperConfig& mapper, const Rig& rig,
-                                            const std::string& sourceDeviceMatch, int number);
 // Writes it (making the folder); false if it cannot be written.
 bool saveRig(const std::filesystem::path& folder, const std::string& name, const Rig& rig);
 

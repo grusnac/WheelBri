@@ -470,14 +470,6 @@ TEST_F(ShimGamesFiles, RemovingWithNoDllTakesOnlyTheSettings) {
     EXPECT_TRUE(std::filesystem::exists(game() / "Game.exe"));
 }
 
-// Every state has a name for the games panel.
-TEST(ShimGamesNames, EveryStateIsNamed) {
-    EXPECT_STREQ(shimStateName(ShimState::Installed), "shim in place");
-    EXPECT_STREQ(shimStateName(ShimState::Outdated), "shim outdated");
-    EXPECT_STREQ(shimStateName(ShimState::Missing), "no shim");
-    EXPECT_STREQ(shimStateName(ShimState::Foreign), "another dinput8.dll");
-}
-
 // A list file edited by hand: CRLF, comments, blank lines and lines of the wrong shape are skipped; the same folder
 // twice (in another case) is one game; a selection that is not listed falls back to the first game.
 TEST_F(ShimGamesFiles, AHandEditedListIsReadSafely) {
@@ -596,11 +588,6 @@ TEST_F(ShimGamesFiles, AFolderIsNeverTheGamesProgram) {
     const std::vector<GameProfile> games{mine};
     EXPECT_EQ(gameInFolder(game(), games), nullptr);
     EXPECT_EQ(gameFolderProblem(game()), "no .exe in that folder: pick the folder that holds the game's .exe");
-}
-
-// A value outside the enum still has a name.
-TEST(ShimGamesNames, AnUnknownStateHasAName) {
-    EXPECT_STREQ(shimStateName(static_cast<ShimState>(99)), "?");
 }
 
 // A game folder Windows (or the system) does not let WheelBri write to: putting the shim in and taking it out say

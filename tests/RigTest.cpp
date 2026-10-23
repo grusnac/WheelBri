@@ -244,22 +244,9 @@ TEST(Rig, AnOlderInvertIsIgnored) {
     EXPECT_EQ(text.find("axis_3"), std::string::npos) << text;
 }
 
-// The mapping's device numbers: 0 is the wheel (by source_device, else the rig's wheel), 1..3 its accessories.
-TEST(Rig, FindsTheDeviceAMappingNumberReads) {
+// The editable lookup finds a device by id, and can change it.
+TEST(Rig, FindsADeviceById) {
     Rig rig = sampleRig();
-    MapperConfig mapper;
-    mapper.accessories[0] = {0x30B7, 0x1001};
-    mapper.accessories[1] = {0x0EB7, 0x0001};   // not in the rig
-    EXPECT_EQ(rigDeviceFor(mapper, rig, "", 0), &rig.devices[0]);
-    EXPECT_EQ(rigDeviceFor(mapper, rig, "pedals", 0), &rig.devices[1]);       // part of the name, any case
-    EXPECT_EQ(rigDeviceFor(mapper, rig, "346e:0005", 0), &rig.devices[0]);    // or the id
-    EXPECT_EQ(rigDeviceFor(mapper, rig, "Fanatec", 0), nullptr);              // a wheel not in the rig
-    EXPECT_EQ(rigDeviceFor(mapper, rig, "", 1), &rig.devices[1]);
-    EXPECT_EQ(rigDeviceFor(mapper, rig, "", 2), nullptr);   // an accessory the rig does not have
-    EXPECT_EQ(rigDeviceFor(mapper, rig, "", 3), nullptr);   // an empty slot
-    EXPECT_EQ(rigDeviceFor(mapper, rig, "", 4), nullptr);   // past the slots
-    EXPECT_EQ(rigDeviceFor(mapper, rig, "", -1), nullptr);
-    // The editable lookup finds the same device, and can change it.
     RigDevice* pedals = rig.find({0x30B7, 0x1001});
     ASSERT_NE(pedals, nullptr);
     pedals->name = "Renamed";

@@ -189,20 +189,6 @@ RigResult loadRig(const IniDocument& ini) {
     return result;
 }
 
-const RigDevice* rigDeviceFor(const MapperConfig& mapper, const Rig& rig, const std::string& sourceDeviceMatch,
-                              const int number) {
-    if (number == 0) {
-        if (sourceDeviceMatch.empty()) return rig.wheel();
-        for (const RigDevice& device : rig.devices) {
-            if (deviceMatches(device.name, device.id.vendorId, device.id.productId, sourceDeviceMatch)) return &device;
-        }
-        return nullptr;
-    }
-    if (number < 0 || static_cast<std::size_t>(number) > mapper.accessories.size()) return nullptr;
-    const DeviceId& id = mapper.accessories[static_cast<std::size_t>(number - 1)];
-    return id.empty() ? nullptr : rig.find(id);
-}
-
 std::string writeRig(const Rig& rig, const std::string& name) {
     const std::string nl = "\r\n";
     std::string text = "; WheelBri rig '" + name + "': the devices and what their controls are (the Rig tab" + nl +

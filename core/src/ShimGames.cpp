@@ -212,16 +212,6 @@ std::string gameFolderProblem(const std::filesystem::path& folder) {
     return exe ? std::string() : "no .exe in that folder: pick the folder that holds the game's .exe";
 }
 
-const char* shimStateName(const ShimState state) {
-    switch (state) {
-        case ShimState::Installed: return "shim in place";
-        case ShimState::Outdated: return "shim outdated";
-        case ShimState::Missing: return "no shim";
-        case ShimState::Foreign: return "another dinput8.dll";
-    }
-    return "?";
-}
-
 ShimState shimState(const std::filesystem::path& folder, const std::filesystem::path& sourceDll) {
     const std::filesystem::path dll = shimDllIn(folder);
     if (!regularFile(dll)) return ShimState::Missing;

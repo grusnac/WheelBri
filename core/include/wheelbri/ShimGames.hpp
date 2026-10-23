@@ -78,7 +78,6 @@ enum class ShimState {
     Missing,     // no dinput8.dll
     Foreign,     // a dinput8.dll that is not ours (another mod): left alone
 };
-[[nodiscard]] const char* shimStateName(ShimState state);
 
 // What is in `folder`, compared with WheelBri's own dinput8.dll at `sourceDll` (when that is missing, any
 // dinput8.dll next to a wheelbri-shim.ini counts as ours and installed). A dinput8.dll is ours when it is the same file
