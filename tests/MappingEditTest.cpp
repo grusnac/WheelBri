@@ -172,7 +172,9 @@ TEST(MappingEdit, ButtonSecondSourcesParseAndFormat) {
     EXPECT_EQ(parseButtonRef("axis 3 > 40%"), (ButtonRef{{{}, 3}, true, false, 0.4F}));
     EXPECT_EQ(parseButtonRef(" 30b7:1001/axis 3 inverted > 60% "), (ButtonRef{{{0x30B7, 0x1001}, 3}, true, true, 0.6F}));
     EXPECT_EQ(parseButtonRef("axis 2"), (ButtonRef{{{}, 2}, true, false, 0.5F}));   // 50% when left out
-    for (const char* bad : {"axis", "axis x", "axis 9", "axis 2 > 100%", "axis 2 > 1%", "axis 2 > lots", "x/axis 1",
+    EXPECT_EQ(parseButtonRef("axis 2 > 0%"), (ButtonRef{{{}, 2}, true, false, 0.0F}));     // the whole travel
+    EXPECT_EQ(parseButtonRef("axis 2 > 100%"), (ButtonRef{{{}, 2}, true, false, 1.0F}));
+    for (const char* bad : {"axis", "axis x", "axis 9", "axis 2 > 101%", "axis 2 > -1%", "axis 2 > lots", "x/axis 1",
                             "30b7:1001axis 1", "button"}) {
         EXPECT_FALSE(parseButtonRef(bad).has_value()) << bad;
     }
@@ -220,8 +222,14 @@ TEST(MappingEdit, SecondariesWriteAndReadBack) {
 
     model.secondaries[2].clear();
     EXPECT_EQ(writeMapping(written.text, model).text.find("target_2_or"), std::string::npos);
-    model.secondaries[2] = {{{{}, 1}, true, false, 0.99F}};
+    model.secondaries[2] = {{{{}, 1}, true, false, 1.01F}};
     EXPECT_FALSE(writeMapping(kConfig, model).error.empty());   // threshold out of range
+    // The whole travel: 0% and 100% are written and read back.
+    model.secondaries[2] = {{{{}, 1}, true, false, 0.0F}, {{{}, 2}, true, false, 1.0F}};
+    const MappingWriteResult ends = writeMapping(kConfig, model);
+    ASSERT_TRUE(ends.error.empty()) << ends.error;
+    EXPECT_NE(ends.text.find("target_2_or = axis 1 > 0%, axis 2 > 100%"), std::string::npos) << ends.text;
+    EXPECT_EQ(mappingModel(load(ends.text)).secondaries[2], model.secondaries[2]);
     model.secondaries[2].clear();
     for (int i = 0; i < 9; ++i) model.secondaries[2].push_back({{{}, 40 + i}, false, false, 0.5F});
     EXPECT_FALSE(writeMapping(kConfig, model).error.empty());   // 9: at most 8
@@ -354,14 +362,16 @@ TEST(MappingEdit, RefusesOutOfRangeAndNotANumberValues) {
 
     MappingModel model = good;
     model.secondaries[2] = {{{{}, 1}, true, false, nan}};
-    EXPECT_NE(tuningProblem(model).find("button 2: an axis presses it between 5% and 95%"), std::string::npos)
+    EXPECT_NE(tuningProblem(model).find("button 2: an axis presses it between 0% and 100%"), std::string::npos)
         << tuningProblem(model);
     EXPECT_FALSE(writeMapping(kConfig, model).error.empty());
-    model.secondaries[2] = {{{{}, 1}, true, false, 0.04F}};
+    model.secondaries[2] = {{{{}, 1}, true, false, -0.01F}};
     EXPECT_FALSE(tuningProblem(model).empty());
+    model.secondaries[2] = {{{{}, 1}, true, false, 0.0F}};
+    EXPECT_TRUE(tuningProblem(model).empty());
     model.secondaries[2] = {{{{}, 1}, false, false, nan}};   // a button's threshold is never used
     EXPECT_TRUE(tuningProblem(model).empty());
-    model.secondaries[2] = {{{{}, 1}, true, false, 0.95F}};
+    model.secondaries[2] = {{{{}, 1}, true, false, 1.0F}};
     EXPECT_TRUE(tuningProblem(model).empty());
 
     model = good;
