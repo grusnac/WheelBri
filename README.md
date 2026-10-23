@@ -276,9 +276,8 @@ presses 8 and 9), the shifter's black diamond 15-18 (top, left, bottom, right), 
 support ("Programming the G25 Shifter positions": gears 8-14), Race Driver: GRID's G25 preset (paddles 4/5, gears,
 menu Select 17 and Back 18), GIMX's G25 configuration for Windows (red 0-3, wheel buttons 6/7, black 15-18), G27
 reports from DiRT Rally 2.0 and American Truck Simulator users (the same order), a G25 read through Unity (gears,
-sequential). The default mapping (`config/g25.ini`) puts an Xbox-style rim's A, B, X, Y on the black diamond
-(bottom, right, left, top), the menu buttons of that era's games. The G27 has the same and its wheel's lower buttons
-19-22.
+sequential). The Rig's A, B, X, Y (what a control "is") go on the black diamond (bottom, right, left, top), the menu
+buttons of that era's games. The G27 has the same and its wheel's lower buttons 19-22.
 
 A real G25 or G27 without Logitech's driver (Linux, or Windows without it) numbers its buttons in its own HID order
 instead, which newer games' presets read (Assetto Corsa Competizione's G25 and G27 presets bind 0-11 and nothing at the

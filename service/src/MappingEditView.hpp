@@ -141,7 +141,7 @@ private:
     // a game's own setting (`fieldIndex_` = game index * kMaxGameSettings + the setting's index), or a game's force
     // feedback gain (`fieldIndex_` = its gameProfiles() index).
     // Tuning: one of the picked game's own numbers (`fieldIndex_` = a TuningField).
-    enum class Field { None, Rotation, CentringSpring, PerGame, GameSteering, GameSetting, Tuning };
+    enum class Field { None, Rotation, CentringSpring, PerGame, GameSteering, GameSetting, Tuning, Threshold };
     // The numbers of a game's own values (GameTuning.hpp) that are typed in.
     enum class TuningField : std::size_t {
         Strength, Constant, Periodic, Spring, Damper, Friction, Inertia, Cap, Slew, Fade
@@ -335,6 +335,11 @@ private:
     // Applies what was typed: false (and the reason in the status) when it is not a usable value.
     bool commitTyping();
     void setRotationFromX(float x);
+    // The secondary popup's axis being dragged (altFocus_): its threshold from where the pointer is on its row's
+    // slider (whole percent).
+    void setThresholdFromX(float x);
+    // The picked button's secondary `index` when it is an axis, or null.
+    [[nodiscard]] ButtonRef* axisSecondary(std::size_t index);
     float button(float x, float y, const std::string& label, std::function<void()> action, bool on = false,
                  bool enabled = true, float width = 0);
     void hit(float x, float y, float w, float h, std::function<void()> action);
@@ -393,6 +398,9 @@ private:
     std::size_t fieldIndex_ = 0;
     std::string typed_;
     bool dragging_ = false;   // the slider, from a press on it until the left button is let go
+    bool thresholdDragging_ = false;   // the secondary popup's threshold slider, the same way
+    float thresholdSliderX_ = 0;       // where the axis rows' sliders were drawn last (their pointer maths)
+    float thresholdSliderW_ = 1;
     // The Games list's width: as the user left it (app.ini games_list_width, read at the first draw of the page);
     // dragged by its bar from a press on it until the left button is let go, then kept; a second press within
     // kDoubleClickMs fits the list to its longest name and tag.

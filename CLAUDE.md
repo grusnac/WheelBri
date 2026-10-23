@@ -136,7 +136,9 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
 
 ## Decided: do not add back
 
-- Dead zones, Auto-map or roles, a steering ratio (always 1:1), a virtual Xbox controller.
+- Dead zones, a steering ratio (always 1:1), a virtual Xbox controller.
+- Auto-map beyond the core inputs (`AutoMap.hpp`: steering, pedals, D-pad, A/B/X/Y, paddles, from the Rig's "It is"):
+  every other button is the user's to map; Invert is never taken from the Rig.
 - HidHide, ViGEm, HIDMaestro or any third-party runtime tool or driver.
 - Any SDK for the wheel's own software: WheelBri never reads or sets it.
 - Hiding Steam's virtual pad on the Deck, or advising to turn Steam Input off.

@@ -185,6 +185,7 @@ void MappingEditView::load() {
     mode_ = Mode::Idle;
     field_ = Field::None;
     dragging_ = false;
+    thresholdDragging_ = false;
     path_ = picker_.selected();
     loaded_ = false;
     profile_.reset();
@@ -291,7 +292,7 @@ void MappingEditView::save() {
 
 void MappingEditView::autoSave() {
     if (!loaded_ || locked_ || !dirty()) return;
-    if (field_ != Field::None || dragging_ || mode_ != Mode::Idle) return;   // the change is not done yet
+    if (field_ != Field::None || dragging_ || thresholdDragging_ || mode_ != Mode::Idle) return;   // not done yet
     if (notSaved_ && *notSaved_ == edit_) return;                           // said why already: not again
     const MappingModel before = saved_;
     const bool undoing = std::exchange(undoing_, false);
@@ -476,6 +477,7 @@ void MappingEditView::setLocked(const bool locked) {
         sessionPath_ = path_;   // the mapping the session reads its per-game values from
         if (page_ != Page::Games) field_ = Field::None;
         dragging_ = false;
+        thresholdDragging_ = false;
         if (pickKind_ != Slot::GameButton && mode_ != Mode::AddButton) mode_ = Mode::Idle;
     }
     locked_ = locked;
@@ -539,6 +541,14 @@ void MappingEditView::onPointer(const float x, const float /*y*/, const bool lef
         keepListWidth();
         return;
     }
+    if (thresholdDragging_) {
+        if (!leftDown || locked_ || mode_ != Mode::PickAlt) {
+            thresholdDragging_ = false;
+            return;
+        }
+        setThresholdFromX(x);
+        return;
+    }
     if (!dragging_) return;
     if (!leftDown || locked_ || mode_ != Mode::Idle) {
         dragging_ = false;
@@ -552,6 +562,19 @@ void MappingEditView::setRotationFromX(const float x) {
     const float value = kSliderMinDeg + t * (kSliderMaxDeg - kSliderMinDeg);
     edit_.steeringRotationDeg =
         std::clamp(std::round(value / kSliderStepDeg) * kSliderStepDeg, kSliderMinDeg, kSliderMaxDeg);
+}
+
+ButtonRef* MappingEditView::axisSecondary(const std::size_t index) {
+    if (pickIndex_ >= edit_.secondaries.size()) return nullptr;
+    std::vector<ButtonRef>& list = edit_.secondaries[pickIndex_];
+    return index < list.size() && list[index].axis ? &list[index] : nullptr;
+}
+
+void MappingEditView::setThresholdFromX(const float x) {
+    ButtonRef* const focused = axisSecondary(altFocus_);
+    if (focused == nullptr) return;
+    const float t = std::clamp((x - thresholdSliderX_) / thresholdSliderW_, 0.0F, 1.0F);
+    focused->threshold = std::round(t * 100.0F) / 100.0F;
 }
 
 std::string MappingEditView::fieldText(const Field field, const std::size_t index) const {
@@ -575,6 +598,10 @@ std::string MappingEditView::fieldText(const Field field, const std::size_t inde
         }
         case Field::Rotation: return degrees(edit_.steeringRotationDeg);
         case Field::CentringSpring: return tuning::formatNumber(edit_.centringSpringPercent);
+        case Field::Threshold: {
+            const ButtonRef* const focused = const_cast<MappingEditView*>(this)->axisSecondary(index);
+            return focused != nullptr ? tuning::formatNumber(focused->threshold * 100.0F) : std::string();
+        }
         case Field::Tuning: {
             const std::size_t picked = selectedGameIndex();
             if (picked >= games_.size()) return {};
@@ -672,6 +699,14 @@ bool MappingEditView::commitTyping() {
                               tuning::formatNumber(kCentringSpringMaxPercent) + "%";
                 } else {
                     edit_.centringSpringPercent = std::round(value);   // whole percent, as Logitech's slider
+                }
+                break;
+            case Field::Threshold:
+                // The whole travel, in whole percent (as the slider sets it).
+                if (!(value >= kMinButtonThreshold * 100.0F && value <= kMaxButtonThreshold * 100.0F)) {
+                    problem = "an axis presses a button from 0% (as soon as it moves) to 100% (at its end)";
+                } else if (ButtonRef* const focused = axisSecondary(fieldIndex_)) {
+                    focused->threshold = std::round(value) / 100.0F;
                 }
                 break;
             case Field::PerGame:
@@ -2544,10 +2579,10 @@ void MappingEditView::drawAltPicker() {
     button(left, kPopupY + 28, "(clear all)", [&list] { list.clear(); }, false, !list.empty(), 100);
     window_.text(left + 112, kPopupY + 32,
                  std::to_string(list.size()) + " of " + std::to_string(max) +
-                     ". Click a control below to add or remove it; click an axis here for its threshold.",
+                     ". Click a control below to add or remove it; an axis' row sets where it presses.",
                  kDim);
 
-    // The ones it has, as chips (an axis' chip picks it for the threshold row; at most 8, so two rows of 5 or one).
+    // The ones it has, as chips (at most 8, so two rows of 5 or one).
     const int kColumns = popupColumns();
     const float kChipW = entryW(kColumns);
     const auto chipsPerRow = static_cast<std::size_t>(kColumns);
@@ -2555,92 +2590,150 @@ void MappingEditView::drawAltPicker() {
     for (std::size_t i = 0; i < list.size(); ++i) {
         const float x = left + static_cast<float>(i % chipsPerRow) * (kChipW + 4);
         const float y = kPopupY + 48 + static_cast<float>(i / chipsPerRow) * 18;
-        const bool focused = list[i].axis && i == altFocus_;
-        window_.fill(x, y, kChipW, 16, focused ? kHeading : kStripe);
+        window_.fill(x, y, kChipW, 16, kStripe);
         window_.outline(x, y, kChipW, 16, kHeading);
         window_.text(x + 4, y + 4, fit(shortAlt(list[i]), static_cast<std::size_t>((kChipW - 8) / ui::kCharWidth)),
-                     focused ? kDark : kText);
+                     kText);
         tip(x, y, kChipW, 16, list[i].axis ? describeAlt(list[i]) : describeFull(list[i].source, false));
-        if (list[i].axis) hit(x, y, kChipW, 16, [this, i] { altFocus_ = i; });
     }
-    // An axis presses it past a threshold of its travel (from where it rests).
-    float y = kPopupY + 88;
-    if (altFocus_ < list.size() && list[altFocus_].axis) {
-        ButtonRef& focused = list[altFocus_];
-        window_.text(left, y + 4, fit(axisName(focused.source), 16) + " pressed past", kDim);
-        float x = left + 248;
-        for (const float threshold : {0.25F, 0.4F, 0.5F, 0.6F, 0.75F}) {
-            x += button(x, y, tuning::formatPercent(threshold), [&focused, threshold] {
-                focused.threshold = threshold;
-            }, std::fabs(focused.threshold - threshold) < 0.001F, true, 52) + 4;
-        }
-        window_.text(x + 8, y + 4, "of its travel", kDim);
-        // Which way round it reads (a lever released at the top): here, not in the rig.
-        const float invertX = x + 8 + 14 * ui::kCharWidth;
-        button(invertX, y, "Inverted", [&focused] { focused.invert = !focused.invert; }, focused.invert, true, 88);
-        tip(invertX, y, 88, 16, "On: the axis rests at the top (+1) and is pressed towards the bottom.");
-    }
-
     const DeviceLabels* const wheel = wheelLabels();
     std::vector<const DeviceLabels*> order;
     if (wheel != nullptr) order.push_back(wheel);
     for (const DeviceLabels& device : devices_) {
         if (&device != wheel) order.push_back(&device);
     }
-    y = kPopupY + 112;
+    float y = kPopupY + 88;
     const float kEntryW = kChipW;
+    const float bottom = kPopupY + popupH() - 40;   // the last row ends above the note at the bottom
     if (devices_.empty()) {
         window_.text(left, y, "The rig has no devices yet: define them in the Rig tab.", kCaution);
     }
     const ControlUse self{ControlUse::Kind::Secondary, target};
-    for (const DeviceLabels* const entry : order) {
-        const DeviceLabels& device = *entry;
-        if (y > kPopupY + popupH() - 30) break;
-        const RigDevice* const rigDevice = rig_.find(idOf(device));
-        if (rigDevice == nullptr) continue;
-        const bool isWheel = wheel != nullptr && idOf(device) == idOf(*wheel);
-        window_.text(left, y, fit(deviceName(device), 40) + "  " + deviceId(device.vendorId, device.productId) + "  " +
-                                  (isWheel ? "(the wheel)" : deviceKindName(device.kind)),
+    // A control's entry: pressed, it is added (an axis: its row's slider comes alive) or, when it is one already,
+    // taken off.
+    const auto entryAt = [&](const float x, const float entryY, const RigDevice& rigDevice, const bool isWheel,
+                             const bool axis, const std::size_t index) {
+        const SourceRef source{isWheel ? DeviceId{} : rigDevice.id, static_cast<int>(index)};
+        EntryState state = entryState({source, axis}, self);
+        if (!state.mine && !state.taken && list.size() >= max) {
+            state.taken = true;   // full: nothing more is added
+            state.tip = "At most " + std::to_string(max) + " secondary assignments per button";
+        }
+        const RigControl& control = axis ? rigDevice.axes[index] : rigDevice.buttons[index];
+        const ButtonRef ref{source, axis, false, 0.5F};
+        drawEntry(x, entryY, kEntryW, (axis ? "axis " : "") + std::to_string(index) + " " + controlName(control), state,
+                  [this, &list, ref, mine = state.mine] {
+                      const auto same = [&ref](const ButtonRef& b) {
+                          return b.axis == ref.axis && b.source == ref.source;
+                      };
+                      if (mine) {
+                          list.erase(std::remove_if(list.begin(), list.end(), same), list.end());
+                          altFocus_ = 0;
+                          return;
+                      }
+                      list.push_back(ref);
+                      if (ref.axis) altFocus_ = list.size() - 1;
+                  });
+        return source;
+    };
+    // Each device's name line inside a section.
+    const auto deviceLine = [&](const DeviceLabels& device, const bool isWheel) {
+        window_.text(left + 8, y + 2,
+                     fit(deviceName(device), 40) + "  " + deviceId(device.vendorId, device.productId) + "  " +
+                         (isWheel ? "(the wheel)" : deviceKindName(device.kind)),
                      kText);
         y += 14;
-        int column = 0;
-        const auto entryAt = [&](const bool axis, const std::size_t index, const RigControl& control) {
-            const SourceRef source{isWheel ? DeviceId{} : idOf(device), static_cast<int>(index)};
-            EntryState state = entryState({source, axis}, self);
-            if (!state.mine && !state.taken && list.size() >= max) {
-                state.taken = true;   // full: nothing more is added
-                state.tip = "At most " + std::to_string(max) + " secondary assignments per button";
-            }
-            const float x = left + static_cast<float>(column) * (kEntryW + 4);
-            const std::string name = controlName(control);
-            const ButtonRef ref{source, axis, false, 0.5F};   // which way round: Inverted on its threshold row
-            drawEntry(x, y, kEntryW, (axis ? "axis " : "") + std::to_string(index) + " " + name, state,
-                      [this, &list, ref, mine = state.mine] {
-                          const auto same = [&ref](const ButtonRef& b) {
-                              return b.axis == ref.axis && b.source == ref.source;
-                          };
-                          if (mine) {
-                              list.erase(std::remove_if(list.begin(), list.end(), same), list.end());
-                              altFocus_ = 0;
-                              return;
-                          }
-                          list.push_back(ref);
-                          if (ref.axis) altFocus_ = list.size() - 1;   // its threshold next
-                      });
-            if (++column == kColumns) {
-                column = 0;
-                y += 18;
-            }
-        };
-        for (std::size_t b = 0; b < rigDevice->buttons.size(); ++b) {
-            if (rigDevice->buttons[b].defined()) entryAt(false, b, rigDevice->buttons[b]);
+    };
+
+    // AXES: every device's named axes, one a row: its entry, then the slider of the travel it presses past (0% as
+    // soon as it moves, 100% only at its end), the number typed in, and which way round it reads. Live once the axis
+    // is added; greyed before.
+    window_.text(left, y + 2, "AXES", kHeading);
+    y += 16;
+    thresholdSliderX_ = left + kEntryW + 12 + 24;
+    thresholdSliderW_ = std::max(100.0F, popupW() - 24 - (kEntryW + 12) - 24 - 38 - 56 - 8 - 88 - 8);
+    for (const DeviceLabels* const entry : order) {
+        const RigDevice* const rigDevice = rig_.find(idOf(*entry));
+        if (rigDevice == nullptr) continue;
+        if (std::none_of(rigDevice->axes.begin(), rigDevice->axes.end(),
+                         [](const RigControl& c) { return c.defined(); })) {
+            continue;
         }
-        // Every named axis: a pedal or a handbrake lever is what makes sense (one-sided), the user knows which.
+        if (y > bottom) break;
+        const bool isWheel = wheel != nullptr && idOf(*entry) == idOf(*wheel);
+        deviceLine(*entry, isWheel);
         for (std::size_t a = 0; a < rigDevice->axes.size(); ++a) {
-            if (rigDevice->axes[a].defined()) entryAt(true, a, rigDevice->axes[a]);
+            if (!rigDevice->axes[a].defined() || y > bottom) continue;
+            const SourceRef source = entryAt(left, y, *rigDevice, isWheel, true, a);
+            std::size_t mine = list.size();
+            for (std::size_t i = 0; i < list.size(); ++i) {
+                if (list[i].axis && list[i].source == source) mine = i;
+            }
+            const bool live = mine < list.size();
+            const float sliderX = thresholdSliderX_;
+            const float sliderW = thresholdSliderW_;
+            const float threshold = live ? std::clamp(list[mine].threshold, 0.0F, 1.0F) : 0.0F;
+            window_.text(sliderX - 24, y + 4, "0%", kDim);
+            window_.fill(sliderX, y + 6, sliderW, 4, live ? kStripe : kPanel);
+            if (live) {
+                window_.fill(sliderX, y + 6, threshold * sliderW, 4, kHeading);
+                window_.fill(sliderX + threshold * sliderW - 3, y + 1, 6, 14, kText);
+                hit(sliderX - 4, y, sliderW + 8, 16, [this, mine] {
+                    altFocus_ = mine;
+                    setThresholdFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
+                    thresholdDragging_ = true;
+                });
+                tip(sliderX - 4, y, sliderW + 8, 16,
+                    "0%: pressed as soon as it moves; 100%: only at its end. Released 5% below (at rest near 0%).");
+            } else {
+                tip(sliderX - 4, y, sliderW + 8, 16, "Press the axis on the left to add it, then set where it presses");
+            }
+            const float valueX = sliderX + sliderW + 6;
+            window_.text(valueX, y + 4, "100%", kDim);
+            if (live) {
+                drawField(valueX + 38, y, 56, Field::Threshold, tuning::formatPercent(list[mine].threshold), false,
+                          mine);
+            } else {
+                window_.fill(valueX + 38, y, 56, 16, kPanel);
+                window_.text(valueX + 44, y + 4, "--", kDim);
+            }
+            // Which way round it reads (a lever released at the top): here, not in the rig.
+            const float invertX = valueX + 38 + 56 + 8;
+            button(invertX, y, "Inverted", [&list, mine] {
+                if (mine < list.size()) list[mine].invert = !list[mine].invert;
+            }, live && list[mine].invert, live, 88);
+            if (live) tip(invertX, y, 88, 16, "On: the axis rests at the top (+1) and is pressed towards the bottom.");
+            y += 18;
         }
-        if (column != 0) y += 18;
-        y += 8;
+        y += 4;
+    }
+
+    // BUTTONS: every device's named buttons, a grid each.
+    y += 4;
+    window_.text(left, y + 2, "BUTTONS", kHeading);
+    y += 16;
+    for (const DeviceLabels* const entry : order) {
+        const RigDevice* const rigDevice = rig_.find(idOf(*entry));
+        if (rigDevice == nullptr) continue;
+        if (std::none_of(rigDevice->buttons.begin(), rigDevice->buttons.end(),
+                         [](const RigControl& c) { return c.defined(); })) {
+            continue;
+        }
+        if (y > bottom) break;
+        const bool isWheel = wheel != nullptr && idOf(*entry) == idOf(*wheel);
+        deviceLine(*entry, isWheel);
+        std::size_t shown = 0;
+        for (std::size_t b = 0; b < rigDevice->buttons.size(); ++b) {
+            if (!rigDevice->buttons[b].defined()) continue;
+            const float entryY = y + static_cast<float>(shown / static_cast<std::size_t>(kColumns)) * 18;
+            if (entryY <= bottom) {
+                (void)entryAt(left + static_cast<float>(shown % static_cast<std::size_t>(kColumns)) * (kEntryW + 4),
+                              entryY, *rigDevice, isWheel, false, b);
+            }
+            ++shown;
+        }
+        y += static_cast<float>((shown + static_cast<std::size_t>(kColumns) - 1) / static_cast<std::size_t>(kColumns)) *
+                 18 + 4;
     }
     window_.text(left, kPopupY + popupH() - 20,
                  "Greyed: used elsewhere (hover to see where). Axes: a pedal or a lever, pressed past the threshold.",

@@ -47,6 +47,10 @@ Open **WheelBri**. The tabs are along the bottom (Rig, Mapping, Games, Logs; pre
    popup opens.
 2. Give it a **Name** or pick what it **is** (Steering, Throttle, Brake, Clutch, a button...). Which way an axis
    reads is set on the Mapping tab (**Invert**); the popup says when a pedal rests at the top.
+   What it **is** maps it by itself: **Steering**, **Throttle**, **Brake**, **Clutch**, the D-pad (**D Up**,
+   **D Right**, **D Down**, **D Left**), **A**, **B**, **X**, **Y** and the paddles go to the Target's own, on every
+   Target (the G25 and G27 have no A, B, X, Y: those go on the shifter's black buttons, A bottom, B right, X left, Y
+   top). Pick each of them for one control only. Every other button you map yourself in the Mapping tab.
 3. Press **OK**. Repeat for every control you use.
 4. Name each device. Every change is saved at once; **Undo** goes back one change at a time.
 
@@ -61,7 +65,9 @@ the wheel's rotation, in the wheel's own software (Pit House for Moza).
 ![Mapping tab](images/mapping.png)
 
 1. Pick the **Target** and the **Mode** with `<` and `>` at the top (from Start until Stop they cannot change).
-2. Check each of the Target's axes, D-pad and buttons comes from the right control: click a source to change it. A
+2. Check each of the Target's axes, D-pad and buttons comes from the right control: click a source to change it.
+   **RIG** beside a source: it comes from what the control is in the Rig tab; pick another and it is yours. Which
+   way a pedal reads is always yours: tick **Invert** if it is pressed at rest. A
    button can have an extra source ("or"), for example a handbrake lever. A group with nothing mapped (the
    **Shifter** without a shifter) is one line: **Show** opens it.
 3. Set **Steering rotation** to the game's full lock, and set your wheel's own software to **the same number**.
