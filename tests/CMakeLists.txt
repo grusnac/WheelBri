@@ -8,6 +8,7 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(wheelbri_tests
     AsyncFfbSinkTest.cpp
+    AutoMapTest.cpp
     AxisAuditTest.cpp
     AxisTuningTest.cpp
     CentringSpringTest.cpp

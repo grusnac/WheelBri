@@ -27,6 +27,25 @@ TEST(EmulatorConfig, EmptyFileGivesDefaults) {
     EXPECT_EQ(result.config.stateRateHz, 500);
 }
 
+// from_rig: the inputs with no line follow the Rig (AutoMap.hpp), nothing is mapped until it fills them.
+TEST(EmulatorConfig, ReadsFromRig) {
+    EXPECT_FALSE(load("").config.fromRig);
+    const auto result =
+        load("[emulator]\nfrom_rig = true\n[brake]\naxis = 3\n[buttons]\ntarget_2 = -1\n[hat]\nleft = 9\n");
+    EXPECT_TRUE(result.errors.empty());
+    const EmulatorConfig& config = result.config;
+    EXPECT_TRUE(config.fromRig);
+    EXPECT_EQ(config.autoInputs.axes, (std::array<bool, 4>{true, true, false, true}));
+    EXPECT_EQ(config.autoInputs.hat, (std::array<bool, 4>{true, true, true, false}));
+    EXPECT_TRUE(config.autoInputs.buttons[0]);
+    EXPECT_FALSE(config.autoInputs.buttons[2]);
+    EXPECT_EQ(config.mapper.steering.sourceAxis, kUnmapped);
+    EXPECT_EQ(config.mapper.brake.sourceAxis, 3);
+    EXPECT_EQ(config.mapper.buttonMap[0], kUnmapped);
+    EXPECT_EQ(config.mapper.hatButtons.left, 9);
+    EXPECT_TRUE(containsError(load("[emulator]\nfrom_rig = maybe\n"), "from_rig"));
+}
+
 TEST(EmulatorConfig, ReadsTheG25Target) {
     const auto result = load("[emulator]\ntarget_profile = g25\n");
     EXPECT_TRUE(result.errors.empty());

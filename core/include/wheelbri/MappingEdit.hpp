@@ -62,6 +62,11 @@ struct MappingModel {
     static constexpr std::size_t kSteering = 0, kThrottle = 1, kBrake = 2, kClutch = 3;
 
     std::string sourceDevice;                 // [emulator] source_device: the wheel (it plays force feedback)
+    // [emulator] from_rig (EmulatorConfig::fromRig) and the inputs that follow the Rig (AutoMap.hpp): their sources
+    // here are what the Rig gives them (followRig), and they are written with no line. Picking a source for one makes
+    // it the user's (its flag goes).
+    bool fromRig = false;
+    AutoInputs autoInputs;
     std::array<SourceRef, 4> axes;            // steering, throttle, brake, clutch
     std::array<bool, 4> invert{};             // the same order
     std::array<SourceRef, MapperConfig::kMaxTargetButtons> buttons;
@@ -127,7 +132,9 @@ struct MappingWriteResult {
 // Writes `model` into the config text `base` (refused with tuningProblem's reason). A number is written only when it
 // differs from what the file says (or, with no line, from the default), so an unchanged mapping keeps its text. A
 // source on the wheel's own id (when source_device is a USB id) is written as the wheel's; a button left at its
-// default (target N <- the wheel's button N) loses its line.
+// default (target N <- the wheel's button N) loses its line. With fromRig: an input that follows the Rig has no line,
+// and any other is written, -1 included (a missing line would make it follow the Rig, or for a button that is not a
+// core button, be unmapped).
 [[nodiscard]] MappingWriteResult writeMapping(std::string_view base, const MappingModel& model);
 
 }  // namespace wheelbri

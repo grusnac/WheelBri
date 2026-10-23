@@ -1,5 +1,6 @@
 add_library(wheelbri_core STATIC
     src/AsyncFfbSink.cpp
+    src/AutoMap.cpp
     src/AxisTuning.cpp
     src/AxisAudit.cpp
     src/CentringSpring.cpp

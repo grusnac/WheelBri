@@ -73,6 +73,16 @@ struct ButtonSource {
     friend bool operator==(const ButtonSource&, const ButtonSource&) = default;
 };
 
+// Which of the emulated wheel's inputs follow the Rig (AutoMap.hpp) instead of a line of the mapping: those a mapping
+// with [emulator] from_rig = true leaves out. Steering, throttle, brake, clutch; D-pad up, right, down, left; the
+// target buttons (only the target's core buttons get a source from the Rig, the others stay unmapped).
+struct AutoInputs {
+    std::array<bool, 4> axes{};
+    std::array<bool, 4> hat{};
+    std::array<bool, 32> buttons{};
+    friend bool operator==(const AutoInputs&, const AutoInputs&) = default;
+};
+
 struct MapperConfig {
     static constexpr std::size_t kMaxTargetButtons = 32;
     static constexpr std::size_t kMaxSourceButtons = 64;   // source buttons the mapping can use (0..63)

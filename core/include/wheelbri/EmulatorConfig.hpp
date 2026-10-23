@@ -37,6 +37,13 @@ struct EmulatorConfig {
     // DeviceProfile.hpp); native only for a target that has one (the G25 and G27), others ignore it.
     ButtonOrder buttonOrder = ButtonOrder::Driver;
 
+    // [emulator] from_rig = true: the steering, pedals, D-pad and core buttons (CoreButton) a line here leaves out
+    // come from the Rig (what each control "is", AutoMap.hpp: applyRig fills them in), and target buttons with no line
+    // are unmapped. false (a mapping written before 2026-10-23): a button with no line is the wheel's button of the
+    // same number, the steering the wheel's axis 0, and the Rig is not read.
+    bool fromRig = false;
+    AutoInputs autoInputs;   // with fromRig: the inputs with no line (MapperConfig.hpp)
+
     MapperConfig mapper;
     // [game_rotation] <profile id> = 180 | off: the steering rotation while that game runs, instead of the
     // game profile's own (GameRotation.hpp). A game left out uses its profile's, if it has one.

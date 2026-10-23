@@ -221,11 +221,26 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         reader.readInt("ffb_port", ffbPort, 1024, 65535);
         config.ffbPort = static_cast<std::uint16_t>(ffbPort);
         reader.readInt("state_rate_hz", config.stateRateHz, 10, 2000);
+        reader.readBool("from_rig", config.fromRig);
         // The fixed-rate loop's settings (until 2026-10-07; the loop now waits for events and polls only when it must,
         // EventLoopControl): users' own configs still have them, so they load and are ignored.
         reader.retired("loop_mode");
         reader.retired("loop_hz");
         reader.reportUnknownKeys();
+    }
+    if (config.fromRig) {
+        // Nothing is mapped unless a line or the Rig says so (applyRig, AutoMap.hpp).
+        config.mapper.steering.sourceAxis = kUnmapped;
+        config.mapper.buttonMap.fill(kUnmapped);
+        static constexpr std::array<const char*, 4> kAxisSections = {"steering", "throttle", "brake", "clutch"};
+        static constexpr std::array<const char*, 4> kHatKeys = {"up", "right", "down", "left"};
+        for (std::size_t i = 0; i < kAxisSections.size(); ++i) {
+            config.autoInputs.axes[i] = !ini.get(kAxisSections[i], "axis").has_value();
+            config.autoInputs.hat[i] = !ini.get("hat", kHatKeys[i]).has_value();
+        }
+        for (std::size_t t = 0; t < config.autoInputs.buttons.size(); ++t) {
+            config.autoInputs.buttons[t] = !ini.get("buttons", "target_" + std::to_string(t)).has_value();
+        }
     }
     {
         SectionReader reader(ini, "steering", errors);

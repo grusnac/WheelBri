@@ -186,6 +186,8 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     const MapperConfig& mapper = config.mapper;
     MappingModel model;
     model.sourceDevice = config.sourceDeviceMatch;
+    model.fromRig = config.fromRig;
+    model.autoInputs = config.autoInputs;
     model.axes = {sourceOf(mapper, mapper.steering.sourceDevice, mapper.steering.sourceAxis),
                   sourceOf(mapper, mapper.throttle.sourceDevice, mapper.throttle.sourceAxis),
                   sourceOf(mapper, mapper.brake.sourceDevice, mapper.brake.sourceAxis),
@@ -384,6 +386,11 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     const IniDocument before = IniDocument::parse(base).document;
     IniEditor ini(base);
     ini.set("emulator", "source_device", model.sourceDevice);
+    if (model.fromRig) {
+        ini.set("emulator", "from_rig", "true");
+    } else if (before.get("emulator", "from_rig")) {
+        ini.set("emulator", "from_rig", "false");
+    }
     // Dead zones are gone (since 2026-10-13: the devices' own software sets them): an older file's lines go.
     ini.remove("steering", "deadzone");
     // So is the wheel's separate rotation (since 2026-10-13: the axis goes through 1:1).
@@ -477,8 +484,13 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
             if (!line || !sameValue(key, *line, value)) ini.set("game_tuning", key, value);
         }
     }
+    const AutoInputs& autos = model.autoInputs;
     for (std::size_t i = 0; i < kAxisSections.size(); ++i) {
-        ini.set(kAxisSections[i], "axis", formatSource(normal(model.axes[i])));
+        if (model.fromRig && autos.axes[i]) {
+            ini.remove(kAxisSections[i], "axis");   // follows the Rig
+        } else {
+            ini.set(kAxisSections[i], "axis", formatSource(normal(model.axes[i])));
+        }
         // false is the default: written only over a line that is there already.
         if (model.invert[i] || before.get(kAxisSections[i], "invert")) {
             ini.set(kAxisSections[i], "invert", model.invert[i] ? "true" : "false");
@@ -487,8 +499,8 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     for (std::size_t target = 0; target < model.buttons.size(); ++target) {
         const SourceRef source = normal(model.buttons[target]);
         const std::string key = "target_" + std::to_string(target);
-        if (source == SourceRef{{}, static_cast<int>(target)}) {
-            ini.remove("buttons", key);   // the default
+        if (model.fromRig ? autos.buttons[target] : source == SourceRef{{}, static_cast<int>(target)}) {
+            ini.remove("buttons", key);   // the default: follows the Rig, or (an older mapping) the same number
         } else {
             ini.set("buttons", key, formatSource(source));
         }
@@ -507,7 +519,9 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     static constexpr std::array<const char*, 4> kHatKeys = {"up", "right", "down", "left"};
     for (std::size_t i = 0; i < kHatKeys.size(); ++i) {
         const SourceRef source = normal(model.hat[i]);
-        if (source.mapped()) {
+        if (model.fromRig && autos.hat[i]) {
+            ini.remove("hat", kHatKeys[i]);   // follows the Rig
+        } else if (source.mapped() || model.fromRig) {
             ini.set("hat", kHatKeys[i], formatSource(source));
         } else {
             ini.remove("hat", kHatKeys[i]);

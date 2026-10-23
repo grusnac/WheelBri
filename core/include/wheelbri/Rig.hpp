@@ -26,12 +26,13 @@
 //   button_14 = Horn | button         ; "It is": Button, named Horn
 //   button_15 = | a                   ; "It is": A, no name yet (shown as "A")
 // A control has a name and what it is ("It is", one of the choices the Rig tab offers: kAxisNames, kButtonNames), each
-// kept whatever the other becomes. WheelBri still maps nothing from either (every wheel is different): the Mapping tab
-// is where the user says what drives what. A control named exactly like a choice, with none picked (a rig saved before
-// 2026-10-15), reads as that choice. Rigs written before 2026-10-13 may have a role after the name ("Gas | throttle",
-// read as the choice it names now) or "| deadzone 3% | full 90%" on an axis (ignored, left out when saved again); a
-// Steering axis makes its device the wheel. Rigs written before 2026-10-19 may say "| invert" on an axis: ignored (the
-// Mapping tab's Invert is the one that counts), left out when saved again.
+// kept whatever the other becomes. What a control is maps the inputs every target has (AutoMap.hpp: steering, pedals,
+// D-pad, A, B, X, Y and the paddles); everything else the user maps on the Mapping tab. A control named exactly like a
+// choice, with none picked (a rig saved before 2026-10-15), reads as that choice. Rigs written before 2026-10-13 may
+// have a role after the name ("Gas | throttle", read as the choice it names now) or "| deadzone 3% | full 90%" on an
+// axis (ignored, left out when saved again); a Steering axis makes its device the wheel. Rigs written before
+// 2026-10-19 may say "| invert" on an axis: ignored (the Mapping tab's Invert is the one that counts), left out when
+// saved again.
 namespace wheelbri {
 
 // What a control is: the Rig tab's control popup offers these ("It is"). Pressing one picks it (again: unpicks it),
