@@ -280,15 +280,11 @@ TEST(MappingEdit, ControlsUsedTwice) {
         const EmulatorConfig config = load(*text);
         EXPECT_EQ(config.targetProfile, "g25") << name;
         EXPECT_TRUE(controlsUsedTwice(mappingModel(config), g25).empty()) << name;
-        // An Xbox-style rim's A, B, X, Y (rig buttons 0-3) drive the G25's black diamond: A bottom (17), B right (18),
-        // X left (16), Y top (15); the paddles stay on 4 (right) and 5 (left).
-        const auto& map = config.mapper.buttonMap;
-        EXPECT_EQ(map[17], 0);
-        EXPECT_EQ(map[18], 1);
-        EXPECT_EQ(map[16], 2);
-        EXPECT_EQ(map[15], 3);
-        EXPECT_EQ(map[4], 13);
-        EXPECT_EQ(map[5], 12);
+        // Every input comes from the Rig (AutoMapTest: A, B, X, Y on the black diamond): nothing of one wheel's here.
+        EXPECT_TRUE(config.fromRig);
+        for (const int source : config.mapper.buttonMap) EXPECT_EQ(source, kUnmapped);
+        EXPECT_EQ(config.mapper.steering.sourceAxis, kUnmapped);
+        EXPECT_FALSE(config.mapper.hatButtons.any());
     }
     const DeviceProfile g27(g27Spec());
     for (const char* name : {"g27.ini"}) {

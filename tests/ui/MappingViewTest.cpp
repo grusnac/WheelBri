@@ -197,12 +197,38 @@ TEST_F(LiveView, TargetButtonsShowTheGamesNumbers) {
 
 // --- the Shadow view (ShadowView.cpp) -------------------------------------------------------------------------------
 
-// The shipped G25 config's mapping (config/g25.ini): the Moza rim's labels on the G25's buttons, no shifter mapped.
-MapperConfig g25Mapping() {
-    std::ifstream in(std::filesystem::path(WHEELBRI_CONFIG_DIR) / "g25.ini", std::ios::binary);
+// A shipped config (config/<target>.ini) with a Moza R3 rim mapped as those configs did before from_rig (2026-10-23):
+// the rim's numbers written out (`buttons`: target, rig button; every other target unmapped), its labels, no shifter.
+MapperConfig mozaRimMapping(const char* target, std::initializer_list<std::pair<int, int>> buttons) {
+    std::ifstream in(std::filesystem::path(WHEELBRI_CONFIG_DIR) / (std::string(target) + ".ini"), std::ios::binary);
     std::stringstream text;
     text << in.rdbuf();
+    text << "\n[emulator]\nfrom_rig = false\n[steering]\naxis = 0\n[throttle]\naxis = 2\n[brake]\naxis = 5\n[clutch]\n"
+            "axis = 6\n[hat]\nup = 4\nright = 5\ndown = 6\nleft = 7\n[button_labels]\nbutton_0 = A\nbutton_1 = B\n"
+            "button_2 = X\nbutton_3 = Y\nbutton_4 = Up\nbutton_5 = Right\nbutton_6 = Down\nbutton_7 = Left\n"
+            "button_12 = L paddle\nbutton_13 = R paddle\nbutton_21 = Cam\nbutton_22 = Radio\nbutton_24 = Home\n"
+            "button_34 = R\nbutton_35 = Start\n[axis_labels]\naxis_0 = Wheel\naxis_2 = Gas pedal\n"
+            "axis_5 = Brake pedal\naxis_6 = Clutch pedal\n[buttons]\n";
+    for (int t = 0; t < 32; ++t) {
+        int source = kUnmapped;
+        for (const auto& [target_, rig] : buttons) {
+            if (target_ == t) source = rig;
+        }
+        text << "target_" << t << " = " << source << "\n";
+    }
     return loadEmulatorConfig(IniDocument::parse(text.str()).document).config.mapper;
+}
+
+// The G25's: the Moza rim's labels on the G25's buttons (A, B, X, Y on the black diamond), no shifter mapped.
+MapperConfig g25Mapping() {
+    return mozaRimMapping("g25", {{0, 22}, {1, 37}, {2, 24}, {3, 35}, {4, 13}, {5, 12}, {6, 34}, {7, 21}, {15, 3},
+                                  {16, 2}, {17, 0}, {18, 1}});
+}
+
+// The G920's (and the G923's first 19): A, B, X, Y the rim's, the paddles, Menu, View, the sticks and Xbox.
+MapperConfig g920Mapping(const char* target) {
+    return mozaRimMapping(target, {{0, 0}, {1, 1}, {2, 2}, {3, 3}, {4, 13}, {5, 12}, {6, 35}, {7, 22}, {8, 34},
+                                   {9, 21}, {10, 37}});
 }
 
 bool sameColour(const ui::Colour a, const ui::Colour b) { return a.r == b.r && a.g == b.g && a.b == b.b; }
@@ -341,10 +367,8 @@ TEST_F(LiveView, ShadowViewLightsWhatTheGameSees) {
 // three a side, R / L Wheel 2 and 3 faint: nothing drives them in g27.ini), the shifter without the G25's H knob.
 TEST_F(LiveView, ShadowViewHasEveryG27ButtonByTheGamesNumber) {
     profile_ = makeProfile("g27");
-    std::ifstream in(std::filesystem::path(WHEELBRI_CONFIG_DIR) / "g27.ini", std::ios::binary);
-    std::stringstream text;
-    text << in.rdbuf();
-    const MapperConfig mapper = loadEmulatorConfig(IniDocument::parse(text.str()).document).config.mapper;
+    const MapperConfig mapper = mozaRimMapping("g27", {{0, 0}, {1, 1}, {2, 2}, {3, 3}, {4, 13}, {5, 12}, {6, 34},
+                                                       {7, 21}, {15, 35}, {16, 22}, {17, 24}, {18, 37}});
     for (const ButtonOrder order : {ButtonOrder::Driver, ButtonOrder::Native}) {
         auto view = makeView(8, 40, mapper);
         view->showShadow(true);
@@ -384,10 +408,7 @@ TEST_F(LiveView, ShadowViewHasEveryG27ButtonByTheGamesNumber) {
 // G920's own name where a control has none (Xbox: rig 37 has no label); the Driving Force Shifter's gears faint
 // (nothing drives them by default) with no names repeated beside them.
 TEST_F(LiveView, ShadowViewShowsTheG920sOwnPrint) {
-    std::ifstream in(std::filesystem::path(WHEELBRI_CONFIG_DIR) / "g920.ini", std::ios::binary);
-    std::stringstream text;
-    text << in.rdbuf();
-    const MapperConfig mapper = loadEmulatorConfig(IniDocument::parse(text.str()).document).config.mapper;
+    const MapperConfig mapper = g920Mapping("g920");
     auto view = makeView(8, 40, mapper);
     view->showShadow(true);
     draw(*view);
@@ -435,10 +456,7 @@ TEST_F(LiveView, ShadowViewShowsTheG920sOwnPrint) {
 // round Enter, each with its label beside the rim (faint: g923.ini maps nothing to them); presses light them.
 TEST_F(LiveView, ShadowViewHasTheG923sRockerAndDial) {
     profile_ = makeProfile("g923");
-    std::ifstream in(std::filesystem::path(WHEELBRI_CONFIG_DIR) / "g923.ini", std::ios::binary);
-    std::stringstream text;
-    text << in.rdbuf();
-    MapperConfig mapper = loadEmulatorConfig(IniDocument::parse(text.str()).document).config.mapper;
+    MapperConfig mapper = g920Mapping("g923");
     auto view = makeView(8, 40, mapper);
     view->showShadow(true);
     draw(*view);
