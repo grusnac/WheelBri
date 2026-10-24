@@ -48,13 +48,21 @@ enum class HideSetup {
 bool installWheelDriver(int levelsAbove, const std::filesystem::path& logFolder, const Cancelled& cancelled,
                        std::string& message);
 
-// wheelbri-hide put on `install` (HID interface instance ids; install-hide.ps1 -Devices, which skips those that have
-// it already), then waits, opening nothing, until every one of `interfaces` runs it (HideFilter::waitUntilStarted:
-// Windows restarts each device, or this does after a few seconds). `message`: what to tell the user when it is not
-// Running.
+// wheelbri-hide put on `install` (HID interface instance ids), then waits, opening nothing, until every one of
+// `interfaces` runs it (HideFilter::waitUntilStarted: Windows restarts each device, or this does after a few seconds).
+// An interface with our driver whose filter a Stop took out gets it back in its stack and restarts (fast, no
+// installer); any other goes through install-hide.ps1 -Devices (which skips those that have it already). `message`:
+// what to tell the user when it is not Running.
 [[nodiscard]] HideSetup putHideFilter(const std::vector<std::string>& install, const std::vector<std::string>& interfaces,
                                       int levelsAbove, const std::filesystem::path& logFolder,
                                       const Cancelled& cancelled, std::string& message);
+
+// wheelbri-hide out of the stack of each of `interfaces` that has it (only those with our driver; the driver stays,
+// so the next putHideFilter is fast), each restarted without it so its host (WUDFHost) no longer handles the wheel's
+// reports. Running: off and restarted; NothingToDo: none had it; Waiting: off, but a device could not be restarted
+// yet (`message` says who refused; it stops when the device restarts: replug it); Failed: not changed (`message`).
+[[nodiscard]] HideSetup takeHideFilterOff(const std::vector<std::string>& interfaces, const Cancelled& cancelled,
+                                          std::string& message);
 
 // HKLM\SOFTWARE\wheelbri\hide: AllowedPid (+ AllowedPidStart, the process's creation time, so a reused id is not
 // let in). `processStart` 0 with `pid` 0 (everyone again).

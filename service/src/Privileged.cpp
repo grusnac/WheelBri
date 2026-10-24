@@ -195,8 +195,24 @@ HideSetup putHideFilter(const std::vector<std::string>& install, const std::vect
                         std::string& message) {
     if (interfaces.empty()) return HideSetup::NothingToDo;
     int restartAfterMs = 6'000;   // a filter put on earlier: Windows may still restart the device by itself
-    if (!install.empty()) {
-        const std::string devices = joined(install);
+    // Our driver there already (a Stop took the filter out): back in the stack, no installer.
+    std::vector<std::string> toInstall;
+    std::vector<std::string> relisted;
+    for (const std::string& id : install) {
+        if (!HideFilter::hasOurDriver(id)) {
+            toInstall.push_back(id);
+            continue;
+        }
+        bool changed = false;
+        if (const std::string problem = HideFilter::setFilterListed(id, true, changed); !problem.empty()) {
+            message = problem;
+            WE_LOG_ERROR(hideLog(), "hide: {}", message);
+            return HideSetup::Failed;
+        }
+        if (changed) relisted.push_back(id);
+    }
+    if (!toInstall.empty()) {
+        const std::string devices = joined(toInstall);
         const std::filesystem::path script = findDriverScript(
             std::filesystem::path("driver") / "hide" / "install-hide.ps1",
             std::filesystem::path("driver") / "hide" / "x64" / "Release" / "wheelbri-hide" / "wheelbri-hide.inf",
@@ -239,6 +255,20 @@ HideSetup putHideFilter(const std::vector<std::string>& install, const std::vect
     }
     // Windows loads the filter when it restarts the device: a few seconds, with nothing of ours holding it.
     std::string why;
+    if (!relisted.empty()) {
+        WE_LOG_INFO(hideLog(), "hide: restarting {} with wheelbri-hide", joined(relisted));
+        if (!HideFilter::restartNow(relisted, 15'000, cancelled, why)) {
+            if (cancelled && cancelled()) {
+                message = "stopped";
+                return HideSetup::Waiting;
+            }
+            message = "the filter is on, but Windows has not restarted the device with it yet: " + why +
+                      ". Close what uses the wheel (its maker's software, Steam, the Game Controllers window) or unplug "
+                      "it and plug it in again, then press Start again";
+            WE_LOG_ERROR(hideLog(), "hide: {}", message);
+            return HideSetup::Waiting;
+        }
+    }
     if (HideFilter::waitUntilStarted(interfaces, 25'000, cancelled, why, restartAfterMs)) {
         WE_LOG_INFO(hideLog(), "hide: wheelbri-hide runs on every connected device of the rig");
         return HideSetup::Running;
@@ -251,6 +281,32 @@ HideSetup putHideFilter(const std::vector<std::string>& install, const std::vect
               ". Close what uses the wheel (its maker's software, Steam, the Game Controllers window) or unplug it and "
               "plug it in again, then press Start again";
     WE_LOG_ERROR(hideLog(), "hide: {}", message);
+    return HideSetup::Waiting;
+}
+
+HideSetup takeHideFilterOff(const std::vector<std::string>& interfaces, const Cancelled& cancelled,
+                            std::string& message) {
+    std::vector<std::string> changedIds;
+    for (const std::string& id : interfaces) {
+        if (!HideFilter::hasOurDriver(id)) continue;   // unplugged, or never had it: nothing to take off
+        bool changed = false;
+        if (const std::string problem = HideFilter::setFilterListed(id, false, changed); !problem.empty()) {
+            message = problem;
+            WE_LOG_ERROR(hideLog(), "hide: {}", message);
+            return HideSetup::Failed;
+        }
+        if (changed) changedIds.push_back(id);
+    }
+    if (changedIds.empty()) return HideSetup::NothingToDo;
+    std::string why;
+    if (HideFilter::restartNow(changedIds, 10'000, cancelled, why)) {
+        WE_LOG_INFO(hideLog(), "hide: wheelbri-hide is out of the rig's devices {} until the next Start",
+                    joined(changedIds));
+        return HideSetup::Running;
+    }
+    message = "the hide filter is off, but Windows has not restarted the wheel without it yet: " + why +
+              ". It keeps costing CPU until the wheel restarts: close what uses it, or unplug it and plug it in again";
+    WE_LOG_WARN(hideLog(), "hide: {}", message);
     return HideSetup::Waiting;
 }
 
@@ -344,6 +400,12 @@ bool installWheelDriver(int, const std::filesystem::path&, const Cancelled&, std
 
 HideSetup putHideFilter(const std::vector<std::string>&, const std::vector<std::string>& interfaces, int,
                         const std::filesystem::path&, const Cancelled&, std::string& message) {
+    if (interfaces.empty()) return HideSetup::NothingToDo;
+    message = "the hide filter is for Windows only (" + joined(interfaces) + ")";
+    return HideSetup::Failed;
+}
+
+HideSetup takeHideFilterOff(const std::vector<std::string>& interfaces, const Cancelled&, std::string& message) {
     if (interfaces.empty()) return HideSetup::NothingToDo;
     message = "the hide filter is for Windows only (" + joined(interfaces) + ")";
     return HideSetup::Failed;

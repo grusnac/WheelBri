@@ -84,6 +84,20 @@ bool listsIgnoreCase(const std::vector<std::string>& items, std::string_view wan
     return false;
 }
 
+// Ours: our INF's driver description ("... (wheelbri: hidden from games ...)"; "wheelemu" before the rename).
+bool ourDriver(const DEVINST node) {
+    const std::vector<std::string> description = devNodeStrings(node, kDriverDesc);
+    return !description.empty() && (hideids::containsIgnoreCase(description.front(), "wheelbri") ||
+                                    hideids::containsIgnoreCase(description.front(), "wheelemu"));
+}
+
+bool locate(const std::string& instanceId, DEVINST& node) {
+    const std::wstring wide(instanceId.begin(), instanceId.end());   // device instance ids are ASCII
+    return CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS;
+}
+
+constexpr std::string_view kReflector = "WUDFRd";   // what every user-mode filter shows as in the upper filters
+
 }  // namespace
 
 const char* HideFilter::stateName(const State state) {
@@ -198,7 +212,7 @@ bool HideFilter::waitUntilStarted(const std::vector<std::string>& interfaces, co
 
 std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targets, const bool quiet) {
     std::vector<Check> checks;
-    for (const Target& target : targets) checks.push_back({target, State::NotConnected, {}, "not connected", {}});
+    for (const Target& target : targets) checks.push_back({target, State::NotConnected, {}, "not connected", {}, {}});
 
     // The game-controller interfaces are exactly what DirectInput lists (what games see), whatever HID usage the
     // device reports: a multi-axis controller (many wheels are) has no compatible id that says "game controller" and the
@@ -225,11 +239,16 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
         // description ("... (wheelbri: hidden from games ...)"; "wheelemu" before the rename).
         const std::vector<std::string> description = devNodeStrings(node, kDriverDesc);
         const std::vector<std::string> filters = devNodeStrings(node, kUpperFilters);
-        const bool ourDriver = !description.empty() && (hideids::containsIgnoreCase(description.front(), "wheelbri") ||
-                                                        hideids::containsIgnoreCase(description.front(), "wheelemu"));
-        if (!listsIgnoreCase(filters, "WUDFRd") || !ourDriver) {
+        const bool ours = ourDriver(node);
+        if (!listsIgnoreCase(filters, kReflector) || !ours) {
             state = State::NotInstalled;
-            detail = "no wheelbri-hide on " + id + ": driver '" + joined(description) + "', upper filters " + joined(filters);
+            if (ours) {
+                entry->detached.push_back(id);
+                detail = "wheelbri-hide is out of " + id + "'s stack (a Stop took it out): Start puts it back";
+            } else {
+                detail = "no wheelbri-hide on " + id + ": driver '" + joined(description) + "', upper filters " +
+                         joined(filters);
+            }
         } else {
             // Listed in the registry is not running: after the driver is switched, Windows may load the new stack
             // only when the interface restarts (something still had it open). Until then nothing is hidden.
@@ -283,6 +302,85 @@ std::string HideFilter::interfaceProblem(const std::string& instanceId) {
         return instanceId + " is " + usage + ": never hidden";
     }
     return {};
+}
+
+bool HideFilter::hasOurDriver(const std::string& instanceId) {
+    DEVINST node = 0;
+    return locate(instanceId, node) && ourDriver(node);
+}
+
+std::string HideFilter::setFilterListed(const std::string& instanceId, const bool listed, bool& changed) {
+    changed = false;
+    DEVINST node = 0;
+    if (!locate(instanceId, node)) return instanceId + " is not connected";
+    if (!ourDriver(node)) return instanceId + " does not run wheelbri-hide's driver: its filters are left alone";
+    const std::vector<std::string> filters = devNodeStrings(node, kUpperFilters);
+    if (listsIgnoreCase(filters, kReflector) == listed) return {};   // as wanted already
+    std::wstring value;   // REG_MULTI_SZ: each one and its zero, then one more
+    for (const std::string& filter : filters) {
+        if (hideids::equalsIgnoreCase(filter, kReflector)) continue;
+        value.append(filter.begin(), filter.end());   // driver service names are ASCII
+        value.push_back(L'\0');
+    }
+    if (listed) {
+        value.append(kReflector.begin(), kReflector.end());
+        value.push_back(L'\0');
+    }
+    CONFIGRET result = CR_SUCCESS;
+    if (value.empty()) {
+        result = CM_Set_DevNode_Registry_PropertyW(node, CM_DRP_UPPERFILTERS, nullptr, 0, 0);   // none left
+    } else {
+        value.push_back(L'\0');
+        result = CM_Set_DevNode_Registry_PropertyW(node, CM_DRP_UPPERFILTERS, value.data(),
+                                                   static_cast<ULONG>(value.size() * sizeof(wchar_t)), 0);
+    }
+    if (result != CR_SUCCESS) {
+        return "cannot write " + instanceId + "'s upper filters (CM_Set_DevNode_Registry_Property " +
+               std::to_string(result) + ")";
+    }
+    changed = true;
+    WE_LOG_INFO(log(), "hide: wheelbri-hide {} {}'s stack (from its next restart)", listed ? "back in" : "out of",
+                instanceId);
+    return {};
+}
+
+bool HideFilter::restartNow(const std::vector<std::string>& interfaces, const int timeoutMs,
+                            const std::function<bool()>& cancelled, std::string& why) {
+    constexpr int kStepMs = 100;
+    constexpr int kRetryEveryMs = 1'000;   // a program that refused may have let go meanwhile (Windows asked it to)
+    std::vector<std::string> toRestart = interfaces;
+    int nextTryMs = 0;
+    for (int waited = 0; waited <= timeoutMs; waited += kStepMs) {
+        if (waited >= nextTryMs && !toRestart.empty()) {
+            nextTryMs = waited + kRetryEveryMs;
+            std::vector<std::string> refused;
+            for (const std::string& id : toRestart) {
+                std::string reason;
+                if (restartNode(id, reason)) {
+                    WE_LOG_INFO(log(), "hide: restarting {}", id);
+                } else {
+                    refused.push_back(id);
+                    why = id + ": " + reason;
+                    WE_LOG_DEBUG(log(), "hide: cannot restart {} yet: {}", id, reason);
+                }
+            }
+            toRestart = std::move(refused);
+        }
+        bool allBack = toRestart.empty();
+        for (const std::string& id : interfaces) allBack = allBack && nodeState(id) == NodeState::Running;
+        if (allBack) {
+            WE_LOG_INFO(log(), "hide: the rig's devices are back after {:.1f} s", static_cast<double>(waited) / 1000.0);
+            return true;
+        }
+        if (cancelled && cancelled()) {
+            why = "stopped";
+            return false;
+        }
+        Sleep(kStepMs);
+    }
+    if (why.empty()) why = "Windows did not set it up again in time";
+    WE_LOG_WARN(log(), "hide: not every device restarted: {}", why);
+    return false;
 }
 
 bool HideFilter::hide() {
@@ -349,7 +447,7 @@ bool HideFilter::waitUntilStarted(const std::vector<std::string>&, int, const st
 
 std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targets, bool) {
     std::vector<Check> checks;
-    for (const Target& target : targets) checks.push_back({target, State::NotConnected, {}, "not on Windows", {}});
+    for (const Target& target : targets) checks.push_back({target, State::NotConnected, {}, "not on Windows", {}, {}});
     return checks;
 }
 const char* HideFilter::stateName(const State state) {
@@ -357,6 +455,15 @@ const char* HideFilter::stateName(const State state) {
 }
 std::string HideFilter::interfaceProblem(const std::string& instanceId) {
     return instanceId + ": the hide filter is for Windows only";
+}
+bool HideFilter::hasOurDriver(const std::string&) { return false; }
+std::string HideFilter::setFilterListed(const std::string& instanceId, bool, bool& changed) {
+    changed = false;
+    return instanceId + ": the hide filter is for Windows only";
+}
+bool HideFilter::restartNow(const std::vector<std::string>&, int, const std::function<bool()>&, std::string& why) {
+    why = "not on Windows";
+    return false;
 }
 bool HideFilter::hide() { return false; }
 void HideFilter::restore() {}

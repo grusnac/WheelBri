@@ -16,6 +16,10 @@ namespace wheelbri::service {
 // open it; 0 or missing = everyone. So hiding is one registry value, written while the service runs.
 // Which devices get the filter comes from the rig, never from a list of ids in the code: install-hide.ps1 -Devices
 // puts it on exactly those (the INF matches any game controller, but Windows never picks it by itself).
+// The filter is in the wheel's stack only while a Mode Virtual session runs: being a user-mode filter, every report
+// the wheel sends to every program that has it open goes through its host (WUDFHost), about half a core on a Moza R3
+// (2026-10-24), even when nothing is hidden. So Stop takes it out of the stack (setFilterListed false + restartNow)
+// and Start puts it back the same way, without the installer, once the interface has our driver.
 // Windows only; elsewhere check() says nothing is connected and hide() does nothing.
 class HideFilter {
 public:
@@ -36,6 +40,7 @@ public:
         std::vector<std::string> interfaces;   // the device's game-controller interfaces (instance ids)
         std::string detail;                    // why it is not Ready (the log's words)
         std::vector<std::string> otherInterfaces;   // its other HID collections, with their compatible ids (the log)
+        std::vector<std::string> detached;          // interfaces with our driver whose filter was taken out (Stop)
     };
 
     // Where wheelbri-hide stands on each device of `targets`. `quiet`: no log lines (for polling).
@@ -58,6 +63,20 @@ public:
     // or digitizer (hideids::neverHiddenUsage on its compatible ids); else why it must not get the filter. The helper
     // checks every interface it is asked to hide with this (and with helper::hideDeviceProblem), whatever the app said.
     [[nodiscard]] static std::string interfaceProblem(const std::string& instanceId);
+
+    // Whether `instanceId` (present now) runs our INF's driver, which install-hide.ps1 put on it once, with or without
+    // the filter in its stack.
+    [[nodiscard]] static bool hasOurDriver(const std::string& instanceId);
+    // The filter in (`listed`) or out of the interface's stack as the registry says it (its upper filters, WUDFRd);
+    // Windows goes by it when the interface restarts (restartNow). Only on an interface with our driver: any other
+    // (a vendor's own user-mode filter also shows as WUDFRd) is never touched. Empty on success, `changed` true when
+    // something was written; else why not.
+    [[nodiscard]] static std::string setFilterListed(const std::string& instanceId, bool listed, bool& changed);
+    // Restarts every interface in `interfaces` now (removed, so programs that registered for it let go, then set up
+    // again; tried again every second while one refuses) and waits until each is back and started, up to `timeoutMs`.
+    // False with `why` (who refused, as Windows says it). `cancelled`: Stop.
+    [[nodiscard]] static bool restartNow(const std::vector<std::string>& interfaces, int timeoutMs,
+                                         const std::function<bool()>& cancelled, std::string& why);
 
     HideFilter() = default;
     ~HideFilter();
