@@ -507,12 +507,19 @@ TEST_F(AppRun, StopWhileStarting) {
 // The hide filter put on the rig for the first time: a popup says so while it lasts, and goes by itself.
 TEST_F(AppRun, FirstHidePopup) {
     setUpRig();
+    std::ofstream(settings_.stateFile) << "[app]\nrig = My rig\nway = shim\ntarget = g25\n";
     listGame();
     plugWheel();
     session_.mode = FakeSession::Mode::FirstHide;
     waitFor("Ready", false);
     once([this](ScriptedWindow&) { return clickStart(); });
     waitFor("Hiding your wheel from games: first time only");
+    check([](ScriptedWindow& w) {
+        // Information, not a warning: a blue title; it names the Target games will see.
+        EXPECT_EQ(w.find("Hiding your wheel from games: first time only")->colour.r, style::kHeading.r);
+        EXPECT_TRUE(w.has("G25. This happens once", true)) << w.dump();
+        EXPECT_FALSE(w.has(" G25.", true)) << w.dump();   // a line never starts with the space it broke at
+    });
     once([this](ScriptedWindow&) {
         session_.hideDone = true;
         return uitest::nothing();

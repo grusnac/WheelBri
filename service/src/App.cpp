@@ -1443,9 +1443,10 @@ private:
             std::string paragraph = text.substr(start, end - start);
             while (paragraph.size() > kPopupChars) {
                 std::size_t cut = paragraph.rfind(' ', kPopupChars);
-                if (cut == std::string::npos || cut == 0) cut = kPopupChars;
+                const bool atSpace = cut != std::string::npos && cut != 0;   // else a word longer than the line
+                if (!atSpace) cut = kPopupChars;
                 lines.push_back(paragraph.substr(0, cut));
-                paragraph = paragraph.substr(cut == kPopupChars ? cut : cut + 1);
+                paragraph = paragraph.substr(atSpace ? cut + 1 : cut);   // the space it broke at goes
             }
             lines.push_back(paragraph);
             start = end + 1;
@@ -1462,10 +1463,11 @@ private:
         if (first && !firstHideNoticed_ && !popup_) {
             firstHideNoticed_ = true;
             notice("Hiding your wheel from games: first time only",
-                   "WheelBri is putting its filter on your rig, so that games see only the G920. This happens once per "
+                   "WheelBri is putting its filter on your rig, so that games see only the " +
+                       std::string(ConfigPicker::targetName(picker_->target())) + ". This happens once per "
                    "installation and can take up to a minute; meanwhile Windows reconnects the wheel, so it may "
                    "disappear for a moment. Please do not unplug it or press Stop.\nStart goes on by itself when it is "
-                   "done; the next Starts are quick.");
+                   "done; the next Starts are quick.", false);
             firstHidePopup_ = true;
         }
         if (firstHidePopup_ && (!popup_ || !first)) {
@@ -1474,8 +1476,9 @@ private:
         }
     }
 
-    void notice(const std::string& title, const std::string& text) {
-        popup_ = Popup{title, wrap(text), "OK", "", [] { return true; }, nullptr, true, {}, false};
+    // A popup with OK: `warning` (the title in red) for what went wrong or needs doing, else (blue) for information.
+    void notice(const std::string& title, const std::string& text, const bool warning = true) {
+        popup_ = Popup{title, wrap(text), "OK", "", [] { return true; }, nullptr, warning, {}, false};
     }
 
     // The end of a shim session that worked: what to do with the shims in the games' folders. Asked, with "Don't ask
