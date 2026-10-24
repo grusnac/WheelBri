@@ -68,6 +68,10 @@ constexpr std::array<const char*, 4> kHatNames = {"Up", "Right", "Down", "Left"}
 
 // The popups: 24 in from the sides and 56 from the top; as wide and tall as the canvas allows (popupW, popupH), their
 // entries in more columns when wider (popupColumns).
+// Between a row's label and its field, everywhere on the tab: one and a half characters.
+constexpr float kLabelGap = 12;
+// A button row's label: its number and at most 10 characters of its name ("24 Dial Enter").
+constexpr std::size_t kButtonLabelChars = 3 + 10;
 constexpr float kPopupX = 24;
 constexpr float kPopupY = 56;
 
@@ -943,11 +947,11 @@ void MappingEditView::draw() {
     for (std::size_t i = 0; i < kAxisNames.size(); ++i) {
         const float row = y + 16 + static_cast<float>(i) * 20;
         window_.text(4, row + 4, kAxisNames[i], kText);
-        drawSource(80, row, 420 + half, Slot::Axis, i);
+        drawSource(4 + 8 * ui::kCharWidth + kLabelGap, row, 420 + half, Slot::Axis, i);   // "Steering"
         button(508 + half, row, "Invert", [this, i] { edit_.invert[i] = !edit_.invert[i]; }, edit_.invert[i], true, 70);
         tip(508 + half, row, 70, 16, "The axis the other way round: for a pedal that reads pressed at rest.");
         window_.text(620 + half, row + 4, kHatNames[i], kText);
-        drawSource(668 + half, row, 288 + half, Slot::Hat, i);
+        drawSource(620 + half + 5 * ui::kCharWidth + kLabelGap, row, 284 + half, Slot::Hat, i);   // "Right"
     }
 
     // The target's buttons (the ones its profile names; the others are not seen by games).
@@ -993,19 +997,20 @@ void MappingEditView::draw() {
         std::snprintf(label, sizeof(label), "%2d %.10s", gameNumber(index),
                       std::string(profile_->buttonName(index)).c_str());
         window_.text(x + 8, row + 4, label, kText);
+        const float fieldX = x + 8 + static_cast<float>(kButtonLabelChars) * ui::kCharWidth + kLabelGap;
         // The first source (a button), "or" a second one (a button, or a one-sided axis past a threshold). With no
         // second one the source takes the row and a faint "+ or" at its end opens the same popup (blue while the
         // pointer is on the row), so 13 empty "(nothing)" fields don't crowd the tab.
         const float quarter = half / 2;   // each column's fields share its extra width
         const bool hasAlt = !edit_.secondaries[index].empty() || edit_.secondaries[index] != saved_.secondaries[index];
         if (hasAlt) {
-            drawSource(x + 112, row, 206 + quarter, Slot::Button, index);
+            drawSource(fieldX, row, 194 + quarter, Slot::Button, index);
             window_.text(x + 322 + quarter, row + 4, "or", kDim);
             drawAltSource(x + 342 + quarter, row, 126 + quarter, index);
         } else {
             const float end = x + 468 + half;   // where the "or" field would end
             const float plusW = 4 * ui::kCharWidth + 8;
-            drawSource(x + 112, row, end - plusW - 4 - (x + 112), Slot::Button, index);
+            drawSource(fieldX, row, end - plusW - 4 - fieldX, Slot::Button, index);
             const bool onRow = hoverInside_ && hoverY_ >= row && hoverY_ < row + 16 && hoverX_ >= x && hoverX_ < end;
             window_.text(end - plusW + 4, row + 4, "+ or", onRow ? kHeading : style::kFaint);
             tip(end - plusW, row, plusW, 16,
