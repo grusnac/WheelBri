@@ -2641,6 +2641,21 @@ TEST_F(EditView, TypingADegreesValue) {
     EXPECT_TRUE(window_.hasPart("expected a number from 0 to 1"));
 }
 
+// Under the steering rotation, one line says to set the wheel's own software to the same; why, and that a game can
+// have its own rotation, is its hover text.
+TEST_F(EditView, TheRotationReminderIsOneLine) {
+    useRig(testRig());
+    open();
+    frame();
+    const Window::Text* const reminder = window_.holding("deg in your wheel's own software too (Pit House for Moza).");
+    ASSERT_NE(reminder, nullptr);
+    EXPECT_TRUE(sameColour(reminder->colour, style::kCaution));
+    EXPECT_FALSE(window_.hasPart("A game can steer with its own rotation"));
+    view_->setHover(reminder->x + 8, reminder->y + 2, true);
+    frame();
+    EXPECT_TRUE(window_.hasPart("passes the wheel through 1:1"));
+}
+
 // A drag of the slider ends when a session starts or a popup opens.
 TEST_F(EditView, TheSliderDragEnds) {
     useRig(testRig());
@@ -2654,7 +2669,7 @@ TEST_F(EditView, TheSliderDragEnds) {
     view_->setLocked(false);
     frame();
     EXPECT_TRUE(window_.has("90"));
-    EXPECT_FALSE(window_.hasPart("Set your wheel's own software (Pit House for Moza) to 1080"));
+    EXPECT_FALSE(window_.hasPart("Set 1080 deg in your wheel's own software too"));
 }
 
 // A typing complaint answered by the same value while the change still cannot be saved: the status line is the

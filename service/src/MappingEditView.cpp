@@ -1107,23 +1107,17 @@ void MappingEditView::drawRotation(const float top) {
     window_.text(kSliderX, y + 20, "90", kDim);
     window_.text(kSliderX + sliderW() - 32, y + 20, "1080", kDim);
 
-    // WheelBri passes the wheel through 1:1: the wheel's own software sets where its end stop is.
+    // WheelBri passes the wheel through 1:1: the wheel's own software sets where its end stop is. One line; why, and
+    // that a game can have its own rotation (the Games tab), in its hover text.
     y += 34;
-    for (const std::string& line : wrap("Set your wheel's own software (Pit House for Moza) to " +
-                                            degrees(edit_.steeringRotationDeg) +
-                                            " deg too: WheelBri passes the wheel through 1:1 and never changes that "
-                                            "setting, so the wheel's end stop is the game's full lock.",
-                                        118 + extraChars(), 2)) {
-        window_.text(4, y, line, kCaution);
-        y += 12;
-    }
+    const std::string reminder = "Set " + degrees(edit_.steeringRotationDeg) +
+                                 " deg in your wheel's own software too (Pit House for Moza).";
+    window_.text(4, y, fit(reminder, 118 + extraChars()), kCaution);
+    tip(0, y - 2, static_cast<float>(reminder.size()) * ui::kCharWidth + 8, 12,
+        "WheelBri passes the wheel through 1:1 and never changes that setting, so the wheel's end stop is the game's "
+        "full lock. A game can steer with its own rotation (NFS Payback: 180): the Games tab (G) sets it.");
 
-    // A game can have its own (NFS Payback: 180): the Games tab.
-    y += 4;
-    window_.text(4, y, "A game can steer with its own rotation (NFS Payback: 180): the Games tab (G) sets it.",
-                 kDim);
-
-    y += 18;
+    y += 30;
     if (profile_ != nullptr && profile_->identity().centringSpring) y = drawCentringSpring(y);
     if (profile_ != nullptr && profile_->hasNativeButtonOrder()) drawButtonOrder(y);
 }
@@ -1955,6 +1949,8 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
     const float defaultX = degreesX + 72;
     const float fromX = defaultX + 80;
     window_.text(axisX, y, "game reads", kDim);
+    tip(axisX - 2, y - 2, 10 * ui::kCharWidth + 4, 12,
+        "The axis the game reads each pedal from. How they feel (dead zones, curves): your rig's own software.");
     window_.text(directionX, y, "direction", kDim);
     window_.text(degreesX, y, "degrees", kDim);
     window_.text(fromX, y, "comes from", kDim);
@@ -2022,11 +2018,6 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
     }
     y += 6;
     window_.text(axisX, y, fit("Default: back to where it came from. Violet: yours, for this game.", valueChars() + 6),
-                 kDim);
-    y += 12;
-    window_.text(axisX, y,
-                 fit("How they feel (dead zones, curves): your rig's own software.",
-                     valueChars() + 6),
                  kDim);
     y += 12;
     if (rotation && std::fabs(*rotation - edit_.steeringRotationDeg) >= 0.5F) {
