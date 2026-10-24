@@ -33,7 +33,7 @@ const std::vector<GameProfile>& table() {
 Programs only(std::vector<RunningProgram> programs) {
     programs.push_back({1, "explorer.exe"});
     programs.push_back({2, "steam.exe"});
-    programs.push_back({3, "Z:\\games\\NeedForSpeedHeat.exe"});   // works as a real G920: never named
+    programs.push_back({3, "Z:\\games\\NFS14.exe"});   // works as a real G920: never named
     return programs;
 }
 const Programs kNothing = only({});
@@ -69,9 +69,9 @@ TEST(GameDetector, Nfs2015StartsAtOnceWithItsPedals) {
 
 TEST(GameDetector, AGameThatWorksAsARealG920IsNeverNamed) {
     GameDetector detector = detectorFor();
-    EXPECT_TRUE(events(detector, kNothing).empty());   // kNothing holds NFS Heat: not in any table
+    EXPECT_TRUE(events(detector, kNothing).empty());   // kNothing holds NFS14.exe: not in any table
     EXPECT_EQ(detector.state().game, nullptr);
-    GameDetector real("g920");   // the real table: NFS 2015, NFS Payback, NFS Unbound
+    GameDetector real("g920");   // the real table: NFS 2015, NFS Heat, NFS Payback, NFS Unbound
     EXPECT_TRUE(real.poll(kNothing).events.empty());
     EXPECT_EQ(real.poll(kNfs).events, std::vector<Event>{Event::Started});
 }

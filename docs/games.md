@@ -7,7 +7,7 @@ The games WheelBri was tested with, and what each needs. Rig: Moza R3 base and p
 |---|---|---|---|
 | [NFS 2015](#nfs-2015) | Virtual, Shim | works | pedal remap |
 | [NFS Payback](#nfs-payback) | Virtual, Shim | works; needs Logitech G HUB | 180 degrees |
-| [NFS Heat](#nfs-heat) | Virtual | works | none |
+| [NFS Heat](#nfs-heat) | Virtual, Shim | works | not for the G923 |
 | [NFS Unbound](#nfs-unbound) | Virtual, Shim | works; force feedback being tuned | gain 3, its hidden settings |
 | [Race Driver: GRID](#race-driver-grid) | Virtual, Shim | works as a **G25**; crashes on Alt+Tab in fullscreen | none |
 
@@ -42,7 +42,10 @@ and are applied by themselves while the game runs.
 
 - **Set up:** nothing; no Logitech software needed. Played at 360 degrees.
 - **Known:** its force feedback is light (rarely over 30%): raise the game's or the wheel's strength. It can stop until
-  you Alt+Tab, as in NFS 2015. Mode Shim and the clutch are untried.
+  you Alt+Tab, as in NFS 2015. The clutch is untried.
+- **Target:** use the G920. The game came out before the G923 and has no layout for it: as a G923 the D-pad does
+  nothing (2026-10-24, Mode Shim; real G923 owners report the same). WheelBri says so on the Games tab and in the bar
+  next to Start.
 
 ## NFS Unbound
 

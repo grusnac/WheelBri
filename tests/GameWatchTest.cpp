@@ -120,10 +120,10 @@ protected:
 // The games the user added: none without games.ini; its games when it is there; its problems leave the bad ones out.
 TEST_F(GameWatchTest, LoadUserGames) {
     EXPECT_TRUE(loadUserGames().empty());
-    write(userGamesFile(), "[game.heat]\nlabel = NFS Heat\nprogram = NeedForSpeedHeat.exe\n[game.BAD]\nlabel = x\n");
+    write(userGamesFile(), "[game.rivals]\nlabel = NFS Rivals\nprogram = NFS14.exe\n[game.BAD]\nlabel = x\n");
     const std::vector<GameProfile> games = loadUserGames();
     ASSERT_EQ(games.size(), 1U);
-    EXPECT_EQ(games[0].id, "heat");
+    EXPECT_EQ(games[0].id, "rivals");
 }
 
 // Nothing runs: no status, no warning, no rotation, no live game; the pipeline gets the defaults.
@@ -283,13 +283,13 @@ TEST_F(GameWatchTest, TheProgramsCannotBeListed) {
 
 // Games the user added are followed like the profiles; one with a built-in profile's program or id is that profile.
 TEST_F(GameWatchTest, GamesTheUserAdded) {
-    std::vector<GameProfile> added = {userGame("heat", "needforspeedheat.exe"), userGame("copy", "nfs16.exe"),
+    std::vector<GameProfile> added = {userGame("rivals", "nfs14.exe"), userGame("copy", "nfs16.exe"),
                                       userGame("nfs2015", "other.exe")};
     GameWatch watch(session(), 900.0F, {}, added, system());
-    run(5, "NeedForSpeedHeat.exe");
+    run(5, "NFS14.exe");
     static_cast<void>(watch.check());
-    EXPECT_EQ(watch.live().id, "heat");
-    EXPECT_EQ(watch.status(), "heat");
+    EXPECT_EQ(watch.live().id, "rivals");
+    EXPECT_EQ(watch.status(), "rivals");
     run(6, "other.exe");   // not followed: its id is a built-in profile's
     twice(watch);
     EXPECT_EQ(watch.live().id, "");

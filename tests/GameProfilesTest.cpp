@@ -190,8 +190,8 @@ TEST(GameProfiles, ProgramMatching) {
     EXPECT_EQ(programName("C:\\Games\\"), "");
     EXPECT_EQ(gameProfileFor("Z:\\home\\deck\\NFS16.exe"), &nfs2015());
     for (const char* other : {"", "nfs16", "nfs16.exe.bak", "notnfs16.exe", "nfs16.exe ", "C:\\nfs16.exe\\x.exe",
-                              "NeedForSpeedHeat.exe"}) {
-        EXPECT_EQ(gameProfileFor(other), nullptr) << other;   // Heat works with the defaults: no profile
+                              "NFS14.exe"}) {
+        EXPECT_EQ(gameProfileFor(other), nullptr) << other;   // a game without a profile
     }
 }
 
@@ -210,8 +210,7 @@ TEST(GameProfiles, RunningGamesInProfileOrderOncePerGame) {
     EXPECT_EQ(games[0].program, "A.exe");
     EXPECT_EQ(games[1].game->label, "B");
     EXPECT_TRUE(findRunningGames({}).empty());
-    EXPECT_EQ(findRunningGames(std::vector<RunningProgram>{{1, "NFS16.exe"}, {2, "NeedForSpeedHeat.exe"}}).size(),
-              1U);
+    EXPECT_EQ(findRunningGames(std::vector<RunningProgram>{{1, "NFS16.exe"}, {2, "NFS14.exe"}}).size(), 1U);
 }
 
 
@@ -359,7 +358,7 @@ TEST(GameProfiles, WaysThatCannotBeReadAreProblems) {
 }
 
 TEST(GameProfiles, EveryBuiltInGameWorksBothWays) {
-    // NFS 2015, NFS Payback (with the shim too since 2026-10-13) and NFS Unbound were played both ways
+    // NFS 2015, NFS Payback (with the shim too since 2026-10-13), NFS Heat and NFS Unbound were played both ways
     // (docs/games.md): no profile restricts its ways, so no session warns.
     for (const GameProfile& game : gameProfiles()) {
         EXPECT_TRUE(game.virtualDevice && game.shim) << game.id;
@@ -512,6 +511,20 @@ TEST(GameProfiles, NfsUnboundIsNotForTheG923) {
     ASSERT_NE(unbound, nullptr);
     EXPECT_TRUE(targetAdvice(*unbound, "g923").has_value());
     EXPECT_FALSE(targetAdvice(*unbound, "g920").has_value());
+}
+
+// The built-in NFS Heat profile: checked as a G923 (the D-pad does nothing) and as a G920 (it works); it changes
+// nothing else.
+TEST(GameProfiles, NfsHeatIsNotForTheG923) {
+    const GameProfile* const heat = gameProfileFor("D:\\Games\\Need for Speed Heat\\NeedForSpeedHeat.exe");
+    ASSERT_NE(heat, nullptr);
+    EXPECT_EQ(heat->label, "NFS Heat");
+    EXPECT_EQ(targetAdvice(*heat, "G923"), "NFS Heat does not support the G923: it has no layout for that wheel, so "
+                                           "the D-pad does nothing. Use the G920 for it (Mapping tab, Target).");
+    EXPECT_FALSE(targetAdvice(*heat, "g920").has_value());
+    EXPECT_TRUE(describeOverlay(*heat).empty());
+    EXPECT_FALSE(heat->rotationDeg || heat->ffbGain);
+    EXPECT_TRUE(heat->settings.empty());
 }
 
 }  // namespace wheelbri

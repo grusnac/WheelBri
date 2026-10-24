@@ -1815,23 +1815,23 @@ TEST_F(EditView, LearningTheGamesFile) {
 // with the game when it is removed.
 TEST_F(EditView, AnAddedGamesRotation) {
     useRig(testRig());
-    write(userGamesFile(), "[game.heat]\nlabel = NFS Heat\nprogram = needforspeedheat.exe\n");
+    write(userGamesFile(), "[game.shift]\nlabel = NFS Shift\nprogram = shift.exe\n");
     open();
     games();
-    ASSERT_TRUE(click("NFS Heat"));
+    ASSERT_TRUE(click("NFS Shift"));
     ASSERT_TRUE(clickRight("Steering", 1));   // its degrees (after "x, the wheel")
     type(std::string(4, ui::kBackspace) + "360" + std::string(1, ui::kEnter));
     frame();
-    EXPECT_NE(own().find("heat = 360"), std::string::npos) << own();
+    EXPECT_NE(own().find("shift = 360"), std::string::npos) << own();
     open();   // the next start reads it back
     games();
     EXPECT_FALSE(window_.hasPart("The config has problems")) << status();
-    ASSERT_TRUE(click("NFS Heat"));
+    ASSERT_TRUE(click("NFS Shift"));
     frame();
     EXPECT_TRUE(window_.has("360"));
     ASSERT_TRUE(click("Remove"));
     frame();
-    EXPECT_EQ(own().find("heat = 360"), std::string::npos) << own();
+    EXPECT_EQ(own().find("shift = 360"), std::string::npos) << own();
     open();
     games();
     EXPECT_FALSE(window_.hasPart("The config has problems")) << status();
@@ -1870,18 +1870,18 @@ TEST_F(EditView, AddingAGame) {
     EXPECT_EQ(shims_->folders().size(), 1U);
 
     // New games: a folder that is listed, one that cannot be (no .exe in it), a name already taken, a long name.
-    const std::filesystem::path heat = dir_ / "Games" / "Heat" / "NeedForSpeedHeat.exe";
-    write(heat, "MZ");
-    fileAnswers_.push_back(heat);
+    const std::filesystem::path shift = dir_ / "Games" / "Shift" / "NeedForSpeedShift.exe";
+    write(shift, "MZ");
+    fileAnswers_.push_back(shift);
     ASSERT_TRUE(click("Add game..."));
     frame();
-    EXPECT_TRUE(window_.hasPart("NeedForSpeedHeat added: WheelBri finds needforspeedheat.exe while it runs"));
-    EXPECT_NE(read(userGamesFile()).find("[game.needforspeedheat]"), std::string::npos) << read(userGamesFile());
+    EXPECT_TRUE(window_.hasPart("NeedForSpeedShift added: WheelBri finds needforspeedshift.exe while it runs"));
+    EXPECT_NE(read(userGamesFile()).find("[game.needforspeedshift]"), std::string::npos) << read(userGamesFile());
     EXPECT_TRUE(window_.has("yours") || window_.hasPart("no shim"));
-    fileAnswers_.push_back(dir_ / "Nowhere" / "need-for-speed-heat.exe");   // the same id: another; no folder listed
+    fileAnswers_.push_back(dir_ / "Nowhere" / "need-for-speed-shift.exe");   // the same id: another; no folder listed
     ASSERT_TRUE(click("Add game..."));
     frame();
-    EXPECT_NE(read(userGamesFile()).find("[game.needforspeedheat2]"), std::string::npos) << read(userGamesFile());
+    EXPECT_NE(read(userGamesFile()).find("[game.needforspeedshift2]"), std::string::npos) << read(userGamesFile());
     const std::filesystem::path longName = dir_ / "Games" / "abcdefghijklmnopqrs\xc3\x89tu.exe";
     fileAnswers_.push_back(longName);
     ASSERT_TRUE(click("Add game..."));
@@ -1913,13 +1913,13 @@ TEST_F(EditView, RemovingAGame) {
     useRig(testRig());
     write(dir_ / "shim" / kShimDll, "our shim");
     write(dir_ / "shim" / kShimSettings, "[shim]\n");
-    write(userGamesFile(), "[game.heat]\nlabel = NFS Heat\nprogram = heat.exe\n[game.rivals]\nlabel = NFS Rivals\n"
+    write(userGamesFile(), "[game.shift]\nlabel = NFS Shift\nprogram = shift.exe\n[game.rivals]\nlabel = NFS Rivals\n"
                            "program = rivals.exe\n");
-    write(dir_ / "Games" / "Heat" / "heat.exe", "MZ");
+    write(dir_ / "Games" / "Shift" / "shift.exe", "MZ");
     write(dir_ / "Games" / "Rivals" / "rivals.exe", "MZ");
     open(true);
     std::string problem;
-    ASSERT_TRUE(shims_->addFolder(dir_ / "Games" / "Heat", problem)) << problem;
+    ASSERT_TRUE(shims_->addFolder(dir_ / "Games" / "Shift", problem)) << problem;
     ASSERT_TRUE(shims_->addFolder(dir_ / "Games" / "Rivals", problem)) << problem;
     shims_->put(1);   // the shim in Rivals' folder
     games();
@@ -1927,11 +1927,11 @@ TEST_F(EditView, RemovingAGame) {
     ASSERT_NE(remove, nullptr);
     EXPECT_TRUE(sameColour(remove->colour, style::kFaint));   // a built-in profile is picked: never removed
 
-    ASSERT_TRUE(click("NFS Heat"));
+    ASSERT_TRUE(click("NFS Shift"));
     ASSERT_TRUE(click("Remove"));
     frame();
-    EXPECT_TRUE(window_.has("NFS Heat removed, with its own values."));
-    EXPECT_EQ(read(userGamesFile()).find("heat"), std::string::npos);
+    EXPECT_TRUE(window_.has("NFS Shift removed, with its own values."));
+    EXPECT_EQ(read(userGamesFile()).find("shift"), std::string::npos);
     EXPECT_EQ(shims_->folders().size(), 1U);   // its folder went too
 
     ASSERT_TRUE(click("NFS Rivals"));
@@ -1941,10 +1941,10 @@ TEST_F(EditView, RemovingAGame) {
     EXPECT_EQ(shims_->folders().size(), 1U);
 
     // games.ini cannot be written.
-    write(userGamesFile(), "[game.heat]\nlabel = NFS Heat\nprogram = heat.exe\n");
+    write(userGamesFile(), "[game.shift]\nlabel = NFS Shift\nprogram = shift.exe\n");
     open(true);
     games();
-    ASSERT_TRUE(click("NFS Heat"));
+    ASSERT_TRUE(click("NFS Shift"));
     frame();
     std::filesystem::remove(userGamesFile());
     std::filesystem::create_directories(userGamesFile() / "x");
@@ -1956,12 +1956,12 @@ TEST_F(EditView, RemovingAGame) {
 
     // Its values cannot be saved: it stays.
     std::filesystem::remove_all(userGamesFile());
-    write(userGamesFile(), "[game.heat]\nlabel = NFS Heat\nprogram = heat.exe\n");
-    std::string text = read(dir_ / "config" / "g920.ini") + "\n[game_tuning]\nheat.ffb_strength = 0.5\n";
+    write(userGamesFile(), "[game.shift]\nlabel = NFS Shift\nprogram = shift.exe\n");
+    std::string text = read(dir_ / "config" / "g920.ini") + "\n[game_tuning]\nshift.ffb_strength = 0.5\n";
     write(userConfigFolder() / "my-g920.ini", text);
     open(true);
     games();
-    ASSERT_TRUE(click("NFS Heat"));
+    ASSERT_TRUE(click("NFS Shift"));
     frame();
     std::filesystem::remove_all(userConfigFolder());
     write(userConfigFolder(), "a file where the folder should be");
@@ -1969,7 +1969,7 @@ TEST_F(EditView, RemovingAGame) {
     ASSERT_NE(again, nullptr);
     view_->onClick(again->x + 1, again->y + 1);
     frame();
-    EXPECT_NE(read(userGamesFile()).find("heat"), std::string::npos);
+    EXPECT_NE(read(userGamesFile()).find("shift"), std::string::npos);
 }
 
 // The FOLDER section and the list's folders: none yet (Mode Shim needs one, Mode Virtual does not), Choose folder...
@@ -2257,7 +2257,7 @@ TEST_F(EditView, TheListsBarPressedTwiceSlowly) {
 // it is shown, Remove is off; with two folders of one game only the first counts.
 TEST_F(EditView, AnUnknownFolderPickedThenForgotten) {
     useRig(testRig());
-    write(userGamesFile(), "[game.heat]\nlabel = NFS Heat\nprogram = heat.exe\n");
+    write(userGamesFile(), "[game.shift]\nlabel = NFS Shift\nprogram = shift.exe\n");
     write(dir_ / "shim" / kShimDll, "our shim");
     write(dir_ / "Games" / "Other" / "other.exe", "MZ");
     write(dir_ / "Games" / "NFS" / "nfs16.exe", "MZ");
@@ -2268,7 +2268,7 @@ TEST_F(EditView, AnUnknownFolderPickedThenForgotten) {
     ASSERT_TRUE(shims_->addFolder(dir_ / "Games" / "NFS", problem)) << problem;
     ASSERT_TRUE(shims_->addFolder(dir_ / "Games" / "NFS copy", problem)) << problem;
     games();
-    ASSERT_TRUE(click("NFS Heat"));
+    ASSERT_TRUE(click("NFS Shift"));
     ASSERT_TRUE(click("Other"));
     games();
     const Window::Text* const remove = window_.find("Remove");
@@ -2283,7 +2283,7 @@ TEST_F(EditView, AnUnknownFolderPickedThenForgotten) {
     nowMs_ += 2000;
     games();
     EXPECT_FALSE(window_.hasPart("does not know the game"));
-    EXPECT_TRUE(window_.has("program heat.exe"));
+    EXPECT_TRUE(window_.has("program shift.exe"));
     ASSERT_TRUE(click("NFS 2015"));
     games();
     EXPECT_TRUE(window_.hasPart("NFS"));   // its first folder
@@ -2442,15 +2442,15 @@ TEST_F(EditView, AddingAGameWithoutFolders) {
 TEST_F(EditView, RemovingAGameWithAnOlderShim) {
     useRig(testRig());
     write(dir_ / "shim" / kShimDll, "our shim");
-    write(userGamesFile(), "[game.heat]\nlabel = NFS Heat\nprogram = heat.exe\n");
-    write(dir_ / "Games" / "Heat" / "heat.exe", "MZ");
-    write(dir_ / "Games" / "Heat" / kShimDll, "an older shim");
-    write(dir_ / "Games" / "Heat" / kShimSettings, "[shim]\n");
+    write(userGamesFile(), "[game.shift]\nlabel = NFS Shift\nprogram = shift.exe\n");
+    write(dir_ / "Games" / "Shift" / "shift.exe", "MZ");
+    write(dir_ / "Games" / "Shift" / kShimDll, "an older shim");
+    write(dir_ / "Games" / "Shift" / kShimSettings, "[shim]\n");
     open(true);
     std::string problem;
-    ASSERT_TRUE(shims_->addFolder(dir_ / "Games" / "Heat", problem)) << problem;
+    ASSERT_TRUE(shims_->addFolder(dir_ / "Games" / "Shift", problem)) << problem;
     games();
-    ASSERT_TRUE(click("NFS Heat"));
+    ASSERT_TRUE(click("NFS Shift"));
     ASSERT_TRUE(click("Remove"));
     games();
     EXPECT_TRUE(window_.hasPart("Its folder stays listed"));

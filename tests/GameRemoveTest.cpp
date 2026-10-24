@@ -97,11 +97,11 @@ protected:
         home_.emplace(dir_);
         std::filesystem::create_directories(userGamesFile().parent_path());
         std::ofstream(userGamesFile(), std::ios::binary)
-            << "[game.needforspeedheat]\nlabel = NeedForSpeedHeat\nprogram = needforspeedheat.exe\n";
+            << "[game.needforspeedshift]\nlabel = NeedForSpeedShift\nprogram = needforspeedshift.exe\n";
         // Its folder, on the list as Add game puts it.
-        folder_ = dir_ / "games" / "Need for Speed Heat";
+        folder_ = dir_ / "games" / "Need for Speed Shift";
         std::filesystem::create_directories(folder_);
-        std::ofstream(folder_ / "NeedForSpeedHeat.exe", std::ios::binary) << "MZ";
+        std::ofstream(folder_ / "NeedForSpeedShift.exe", std::ios::binary) << "MZ";
         ShimGameList list;
         addShimGame(list, folder_);
         ASSERT_TRUE(writeShimGames(listFile(), list));
@@ -150,17 +150,17 @@ TEST_F(GameRemove, RemoveWorksAfterAnErrorAndTakesItsFolderOffTheList) {
     ASSERT_NE(window_.startingWith("The config has problems"), nullptr);   // an error on the page already
     ASSERT_TRUE(click(view, "NeedForSpeed"));   // its row (the name may be cut)
     ASSERT_TRUE(click(view, "Remove"));
-    EXPECT_EQ(read(userGamesFile()).find("needforspeedheat"), std::string::npos);
+    EXPECT_EQ(read(userGamesFile()).find("needforspeedshift"), std::string::npos);
     frame(view);
-    EXPECT_NE(window_.startingWith("NeedForSpeedHeat removed"), nullptr);
+    EXPECT_NE(window_.startingWith("NeedForSpeedShift removed"), nullptr);
     // Not in the list any more, as a game or as a folder; its files are still there.
     for (const RecordingWindow::Text& text : window_.texts) {
-        if (text.value.rfind("NeedForSpeedHeat removed", 0) == 0) continue;   // the status line
-        EXPECT_NE(text.value.rfind("NeedForSpeedH", 0), 0U) << text.value;
+        if (text.value.rfind("NeedForSpeedShift removed", 0) == 0) continue;   // the status line
+        EXPECT_NE(text.value.rfind("NeedForSpeedS", 0), 0U) << text.value;
     }
     EXPECT_EQ(window_.startingWith("Need for Speed"), nullptr);
     EXPECT_TRUE(shims.folders().empty());
-    EXPECT_TRUE(std::filesystem::exists(folder_ / "NeedForSpeedHeat.exe"));
+    EXPECT_TRUE(std::filesystem::exists(folder_ / "NeedForSpeedShift.exe"));
 }
 
 TEST_F(GameRemove, AFolderWithTheShimInItStaysListed) {
@@ -176,10 +176,10 @@ TEST_F(GameRemove, AFolderWithTheShimInItStaysListed) {
     frame(view);
     ASSERT_TRUE(click(view, "NeedForSpeed"));   // its row (the name may be cut)
     ASSERT_TRUE(click(view, "Remove"));
-    EXPECT_EQ(read(userGamesFile()).find("needforspeedheat"), std::string::npos);
+    EXPECT_EQ(read(userGamesFile()).find("needforspeedshift"), std::string::npos);
     EXPECT_EQ(shims.folders().size(), 1U);
     frame(view);
-    EXPECT_NE(window_.startingWith("NeedForSpeedHeat removed, with its own values. Its folder stays listed"), nullptr);
+    EXPECT_NE(window_.startingWith("NeedForSpeedShift removed, with its own values. Its folder stays listed"), nullptr);
 }
 
 }  // namespace
