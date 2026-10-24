@@ -62,15 +62,15 @@ constexpr ui::Colour kDark = style::kDark;
 
 // Window layout, in logical pixels: the panel (the tabs) fills the window's canvas, which is at least the design size
 // (kWidth x kHeight) and grows with the window (UiWindow.hpp). Every tab has the controls at the right end of the tab
-// bar, which is at the bottom: the status (ready, what is missing, running...), then Start and Stop, as tall as the tab
-// buttons, kept at the right edge (App::startX, stopX, tabBarTop). The shim's games row is on the Mapping tab only, in
+// bar, which is at the bottom: the status (ready, what is missing, running...), then Start (Stop while a session runs),
+// as tall as the tab buttons, kept at the right edge (App::startX, stopX, tabBarTop). The shim's games row is on the Mapping tab only, in
 // its top row.
 constexpr float kWidth = MappingView::kWidth;
 constexpr float kViewTop = 0;
 constexpr float kHeight = MappingView::kHeight;
 constexpr float kControlsY = 0;            // the top row: the shim's games
 constexpr float kControlsHeight = 16;
-constexpr float kButtonWidth = 68;
+constexpr float kButtonWidth = 68;         // Start (Stop while a session runs): one button, at the right end
 constexpr float kGamesX = 220;              // the live view: the shim's games ("Game < name > Games (N)"), 370 wide
 constexpr float kGamesWidth = 370;
 constexpr float kGamesEditorY = 18;         // the Mapping tab's editor: its second row, at the right edge
@@ -435,16 +435,19 @@ private:
                     onPopupClick(click);
                     continue;
                 }
-                // Start and Stop, at the tab bar's right end on every tab; not over the editor's popups.
+                // Start / Stop, at the tab bar's right end on every tab; not over the editor's popups.
                 if (!(editingMapping && mapping_->popupOpen()) &&
                     click.y >= buttonsY() + kViewTop && click.y < buttonsY() + kViewTop + MappingView::kTabHeight &&
                     click.x >= startX()) {
-                    if (startButton().hit(click)) {
-                        start();
-                    } else if (state_ == State::Stopped && click.x < startX() + kButtonWidth) {
-                        showChecklist();   // the greyed Start: what it still needs
+                    if (state_ == State::Stopped) {
+                        if (startButton().hit(click)) {
+                            start();
+                        } else if (click.x < startX() + kButtonWidth) {
+                            showChecklist();   // the greyed Start: what it still needs
+                        }
+                    } else if (stopButton().hit(click)) {
+                        stop();
                     }
-                    if (stopButton().hit(click)) stop();
                     continue;
                 }
                 // The session bar: to the tab where the target, the mode and the game are set.
@@ -597,9 +600,10 @@ private:
         return view_ == nullptr ? window_->width() - 4 - kGamesWidth : kGamesX;
     }
     [[nodiscard]] float gamesRowY() const { return view_ == nullptr ? kGamesEditorY : kControlsY; }
-    [[nodiscard]] float buttonsY() const { return tabBarTop() + 4; }   // Start and Stop, level with the tab buttons
+    [[nodiscard]] float buttonsY() const { return tabBarTop() + 4; }   // Start / Stop, level with the tab buttons
+    // Start and Stop are one button (Start while stopped, Stop from Starting to Stopped), at the bar's right end.
     [[nodiscard]] float stopX() const { return window_->width() - 4 - kButtonWidth; }
-    [[nodiscard]] float startX() const { return stopX() - 4 - kButtonWidth; }
+    [[nodiscard]] float startX() const { return stopX(); }
     [[nodiscard]] float popupX() const { return std::floor((window_->width() - kPopupW) / 2); }
     [[nodiscard]] float popupY() const { return std::floor(200 + (window_->height() - kHeight) / 2); }
 
@@ -1281,8 +1285,20 @@ private:
             window_->text(chipX_ + 6, tabBarTop() + 10, chip,
                           bar.gameWarning ? kCaution : live ? kActive : kHeading);
         }
-        startButton().draw(*window_, false);
-        stopButton().draw(*window_, false);
+        if (state_ == State::Stopped) {
+            const Button start = startButton();
+            start.draw(*window_, start.enabled);   // filled green when it can run
+        } else {
+            const Button stop = stopButton();
+            if (stop.enabled) {
+                window_->outline(stop.x, stop.y, stop.w, stop.h, kWarning);
+                const float textW = static_cast<float>(std::string_view(stop.label).size()) * ui::kCharWidth;
+                window_->text(stop.x + (stop.w - textW) / 2, stop.y + (stop.h - ui::kCharHeight) / 2, stop.label,
+                              kWarning);
+            } else {
+                stop.draw(*window_, false);   // Stopping: greyed
+            }
+        }
         drawToast();
     }
 

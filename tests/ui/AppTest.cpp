@@ -254,10 +254,11 @@ protected:
         EXPECT_FALSE(window_.timedOut) << "timed out at: " << window_.timedOutAt << "\n" << window_.dump();
         return result;
     }
-    [[nodiscard]] float startX() const { return window_.width() - 4 - 68 - 4 - 68; }
+    // Start and Stop are one button at the bar's right end: Start while stopped, Stop while a session runs.
+    [[nodiscard]] float startX() const { return window_.width() - 4 - 68; }
     [[nodiscard]] float barY() const { return window_.height() - 28 + 4 + 8; }
     ui::WindowInput clickStart() const { return uitest::click(startX() + 10, barY()); }
-    ui::WindowInput clickStop() const { return uitest::click(window_.width() - 4 - 68 + 10, barY()); }
+    ui::WindowInput clickStop() const { return uitest::click(startX() + 10, barY()); }
 
     std::unique_ptr<UserFolders> folders_;
     std::filesystem::path root_;
@@ -334,12 +335,16 @@ TEST_F(AppRun, ShimStartRunStop) {
     once([this](ScriptedWindow&) { return clickStart(); });
     waitFor("Running ");
     check([&game](ScriptedWindow& w) {
+        EXPECT_FALSE(w.has("Start")) << w.dump();   // the same button is Stop now, in red
+        ASSERT_NE(w.find("Stop"), nullptr);
+        EXPECT_EQ(w.find("Stop")->colour.r, style::kWarning.r);
         EXPECT_TRUE(std::filesystem::exists(game / kShimDll));
         EXPECT_TRUE(w.has("LIVE LOG")) << w.dump();   // Start shows the logs at once
     });
     press("m");
     waitFor("Target G920   Mode Shim   fixed while running");
-    check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("G920 - Shim")) << w.dump(); });   // no room for the game here
+    // One button for Start and Stop leaves the bar room for the game too.
+    check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("G920 - Shim - waiting for a game")) << w.dump(); });
     // A profiled game starts: the Games tab opens on it; its name and rotation in the status.
     once([this](ScriptedWindow&) {
         session_.setFrame([](UiFrame& f) {
