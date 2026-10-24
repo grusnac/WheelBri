@@ -1276,10 +1276,14 @@ private:
                     colour = kWarning;
                 }
                 break;
-            case State::Stopping:
-                status = "Stopping " + clock((now - stoppingSince_) / platform::kNsPerSecond);
+            case State::Stopping: {
+                // What Stop still does (the hide filter out of the wheel's stack), so it does not look stuck.
+                const std::string step = host_.currentStep();
+                status = "Stopping " + clock((now - stoppingSince_) / platform::kNsPerSecond) +
+                         (step.empty() ? std::string() : ": " + step);
                 colour = kCaution;
                 break;
+            }
         }
         // Between the last tab button and Start: what is left of the bar (3 tabs while stopped, up to 5 while running).
         const float tabsEnd = view_ != nullptr ? MappingView::tabsEnd()

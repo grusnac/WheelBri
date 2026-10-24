@@ -171,9 +171,13 @@ HideSetup ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Targ
     std::vector<std::string> install;   // no filter yet: the installer puts it on
     std::vector<std::string> all; // every connected game-controller interface of the rig
     std::string waitingNames;     // set but not started (put on earlier, by the installer for example)
+    bool backIn = true;           // every one without the filter has our driver: a Stop took the filter out
     for (const HideFilter::Check& c : HideFilter::check(targets)) {
         for (const std::string& id : c.interfaces) all.push_back(id);
         if (c.state == HideFilter::State::NotInstalled) {
+            for (const std::string& id : c.interfaces) {
+                backIn = backIn && std::find(c.detached.begin(), c.detached.end(), id) != c.detached.end();
+            }
             // The exact interfaces DirectInput lists for it (the script skips those that have the filter already).
             install.insert(install.end(), c.interfaces.begin(), c.interfaces.end());
         } else if (c.state == HideFilter::State::NeedsRestart) {
@@ -183,7 +187,9 @@ HideSetup ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Targ
     if (all.empty()) return HideSetup::NothingToDo;
     if (install.empty() && waitingNames.empty()) return HideSetup::Running;   // every connected device runs it already
     if (say) {
-        say(install.empty() ? std::string("Windows restarts the wheel") : std::string(wheelbri::service::kStepFirstHide));
+        say(install.empty() ? std::string("Windows restarts the wheel")
+            : backIn        ? std::string("restarting the wheel with the hide filter")
+                            : std::string(wheelbri::service::kStepFirstHide));
     }
     std::string message;
     const HideSetup result = steps.putHideFilter(install, all, [] { return gStop.load(); }, message);
@@ -195,6 +201,44 @@ HideSetup ensureHideFilter(const std::vector<wheelbri::service::HideFilter::Targ
     (void)say;
     return HideSetup::NothingToDo;
 #endif
+}
+
+// The rig's game-controller interfaces that are connected (`listedOnly`: only those with the filter in their stack).
+std::vector<std::string> hideInterfaces(const std::vector<wheelbri::service::HideFilter::Target>& targets,
+                                        const bool listedOnly) {
+    using wheelbri::service::HideFilter;
+    std::vector<std::string> interfaces;
+    for (const HideFilter::Check& c : HideFilter::check(targets, /*quiet=*/true)) {
+        if (listedOnly && c.state != HideFilter::State::Ready && c.state != HideFilter::State::NeedsRestart) continue;
+        for (const std::string& id : c.interfaces) {
+            const bool out = std::find(c.detached.begin(), c.detached.end(), id) != c.detached.end();
+            if (!listedOnly || !out) interfaces.push_back(id);
+        }
+    }
+    return interfaces;
+}
+
+// Mode Shim, at Start: the hide filter out of the rig's stack when it is still in (a session that crashed, a WheelBri
+// from before Stop took it out), before the wheel is opened (its restart would be refused). Only then is the
+// Administrator part needed; without it the filter stays (logged).
+void takeLeftoverHideFilterOff(const std::vector<wheelbri::service::HideFilter::Target>& targets,
+                               wheelbri::service::UiHost* const host) {
+    if (targets.empty()) return;
+    const std::vector<std::string> interfaces = hideInterfaces(targets, /*listedOnly=*/true);
+    if (interfaces.empty()) return;
+    WE_LOG_INFO(log(), "hide: the hide filter is still in the rig's stack: taking it off (Mode Shim needs none)");
+    wheelbri::service::PrivilegedSteps::Problem problem{};
+    std::string message;
+    const auto steps = wheelbri::service::PrivilegedSteps::open(problem, message);
+    if (steps == nullptr) {
+        WE_LOG_WARN(log(), "hide: the hide filter stays in the rig's stack (it costs CPU): {}", message);
+        return;
+    }
+    if (host != nullptr) host->step("taking the hide filter off the wheel");
+    if (steps->takeHideFilterOff(interfaces, [] { return gStop.load(); }, message) == HideSetup::Waiting) {
+        WE_LOG_WARN(log(), "hide: {}", message);
+    }
+    if (host != nullptr) host->step({});
 }
 
 // The device in the active rig (the Wheel setup tab's, [app] rig in the app's state file), if it is in it.
@@ -1540,6 +1584,12 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             return 1;
         }
         const HideSetup result = ensureHideFilter(targets, *steps);
+        if (result == HideSetup::Running) {
+            // Set up for the first Start; out of the stack until then (it costs CPU while it is in), so that Start
+            // only puts it back in.
+            std::string message;
+            (void)steps->takeHideFilterOff(hideInterfaces(targets, /*listedOnly=*/false), {}, message);
+        }
         std::puts(result == HideSetup::Running   ? "the rig's devices are hidden from games whenever WheelBri runs"
                   : result == HideSetup::Waiting ? "the filter is on; it starts after the restart of Windows"
                   : result == HideSetup::NothingToDo
@@ -1599,11 +1649,20 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             WE_LOG_WARN(log(), "hide: no rig yet{}: nothing is hidden from games (define the devices in the Rig tab)",
                         rigName.empty() ? "" : " ('" + rigName + "' lists no device)");
         } else {
-            (void)ensureHideFilter(hideTargets, *steps, [host](const std::string& what) {
+            const HideSetup hidden = ensureHideFilter(hideTargets, *steps, [host](const std::string& what) {
                 if (host != nullptr) host->step(what);
             });
+            // Never Running with the rig in sight of games: a game would take the real wheel next to the target.
+            if ((hidden == HideSetup::Waiting || hidden == HideSetup::Failed) && !gStop) {
+                WE_LOG_CRITICAL(log(), "hide: the rig is NOT HIDDEN from games, so the session does not start (the "
+                                       "hide lines above say why): close what uses the wheel, or unplug it and plug "
+                                       "it in again, then press Start again");
+                return 1;
+            }
         }
     }
+    // Mode Shim needs no filter: one left in the rig's stack (a crash, an older WheelBri) costs CPU for nothing.
+    if (!options.virtualDevice && !gStop) takeLeftoverHideFilterOff(hideTargets, host);
     if (cancelled()) {
         WE_LOG_INFO(log(), "stopped before the session started");
         return 0;
@@ -1732,7 +1791,11 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         if (any) {
             std::string message;
             rigHidden = steps->hideRig(message);
-            if (!rigHidden) WE_LOG_ERROR(log(), "hide: {}", message);
+            if (!rigHidden) {
+                WE_LOG_CRITICAL(log(), "hide: the rig is NOT HIDDEN from games, so the session does not start: {}",
+                                message);
+                return 1;
+            }
         }
     }
     // One line for the window: what games will see besides the G920, and what is missing.
@@ -1841,6 +1904,20 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         WE_LOG_INFO(log(), "the wheel is back after {:.1f} s: carrying on", static_cast<double>(waitedMs) / 1000.0);
     }
     if (steps != nullptr) {
+        // Out of the rig's stack until the next Start: every report of the wheel goes through the filter's host while
+        // it is in. Nothing of ours may hold the wheel meanwhile (its restart would be refused), and the rig stays
+        // hidden until it is out.
+        source.reset();
+        accessories.close();
+        if (options.hide && !hideTargets.empty()) {
+            if (host != nullptr) host->step("taking the hide filter off the wheel");
+            std::string message;
+            if (steps->takeHideFilterOff(hideInterfaces(hideTargets, /*listedOnly=*/false), {}, message) ==
+                HideSetup::Waiting) {
+                WE_LOG_WARN(log(), "hide: {}", message);
+            }
+            if (host != nullptr) host->step({});
+        }
         steps->showRig();
         steps->removeVirtualWheel();
     }
