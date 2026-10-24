@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace wheelbri::service {
 class VirtualWheelDevice;
@@ -15,8 +16,9 @@ class VirtualWheelDevice;
 
 namespace wheelbri::helper {
 
-// What one accepted connection has asked the helper for, and its undoing: the virtual G920 it created is removed
-// and the rig is shown again (if this connection hid it) when the session ends, which is when the pipe closes (Stop,
+// What one accepted connection has asked the helper for, and its undoing: the virtual G920 it created is removed,
+// the rig is shown again (if this connection hid it) and the hide filter goes out of the interfaces this connection
+// put it in (and did not take it out of) when the session ends, which is when the pipe closes (Stop,
 // the app crashing, logoff) or the helper stops. One thread at a time (the connection's).
 //
 // Each request is checked by requestProblem before it gets here; this checks again what only Windows can tell (an
@@ -47,6 +49,7 @@ private:
     Reply hideRig(std::uint32_t seq);
     Reply showRig(std::uint32_t seq);
     Reply putHideFilter(const Request& request);
+    Reply takeHideFilterOff(const Request& request);
     Reply installWheelDriver(std::uint32_t seq);
     Reply shareLogFolder(std::uint32_t seq);
     Reply setLogLevel(const Request& request);
@@ -63,6 +66,7 @@ private:
     std::unique_ptr<service::VirtualWheelDevice> device_;
     const VirtualWheel* deviceWheel_ = nullptr;   // which one device_ is
     bool hid_ = false;
+    std::vector<std::string> filterOn_;   // interfaces PutHideFilter put the filter in, until TakeHideFilterOff
     std::filesystem::path logFolder_;   // the caller's, checked by shareLogFolder
 };
 

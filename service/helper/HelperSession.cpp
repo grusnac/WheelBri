@@ -11,6 +11,7 @@
 #include <aclapi.h>
 #include <shlobj.h>
 
+#include <algorithm>
 #include <cwctype>
 #include <filesystem>
 #include <optional>
@@ -85,6 +86,11 @@ HelperSession::~HelperSession() {
         device_.reset();
     }
     showRigIfOurs();
+    if (!filterOn_.empty()) {
+        WE_LOG_INFO(log(), "helper: pid {} is gone: taking the hide filter off the rig", pid_);
+        std::string message;
+        (void)service::privileged::takeHideFilterOff(filterOn_, {}, message);
+    }
     if (token_ != nullptr) CloseHandle(static_cast<HANDLE>(token_));
     CloseHandle(static_cast<HANDLE>(process_));
 }
@@ -101,6 +107,7 @@ Reply HelperSession::handle(const Request& request) {
         case RequestType::HideRig: return hideRig(request.seq);
         case RequestType::ShowRig: return showRig(request.seq);
         case RequestType::PutHideFilter: return putHideFilter(request);
+        case RequestType::TakeHideFilterOff: return takeHideFilterOff(request);
         case RequestType::InstallWheelDriver: return installWheelDriver(request.seq);
         case RequestType::ShareLogFolder: return shareLogFolder(request.seq);
         case RequestType::SetLogLevel: return setLogLevel(request);
@@ -167,8 +174,35 @@ Reply HelperSession::putHideFilter(const Request& request) {
     }
     std::string message;
     // The script skips the interfaces that have the filter already; then all of them are waited for.
-    switch (service::privileged::putHideFilter(request.devices, request.devices, scriptLevels_, scriptLogFolder(),
-                                               cancelled_, message)) {
+    const service::privileged::HideSetup result = service::privileged::putHideFilter(
+        request.devices, request.devices, scriptLevels_, scriptLogFolder(), cancelled_, message);
+    if (result == service::privileged::HideSetup::Running || result == service::privileged::HideSetup::Waiting) {
+        for (const std::string& id : request.devices) {
+            if (std::find(filterOn_.begin(), filterOn_.end(), id) == filterOn_.end()) filterOn_.push_back(id);
+        }
+    }
+    switch (result) {
+        case service::privileged::HideSetup::Running:
+        case service::privileged::HideSetup::NothingToDo: return Reply{request.seq, Status::Ok, {}};
+        case service::privileged::HideSetup::Waiting: return Reply{request.seq, Status::Pending, message};
+        case service::privileged::HideSetup::Failed: break;
+    }
+    return Reply{request.seq, Status::Failed, message};
+}
+
+// Only interfaces with wheelbri-hide's own driver are changed (privileged::takeHideFilterOff); unplugged ones are
+// left as they are.
+Reply HelperSession::takeHideFilterOff(const Request& request) {
+    std::string message;
+    const service::privileged::HideSetup result =
+        service::privileged::takeHideFilterOff(request.devices, cancelled_, message);
+    if (result != service::privileged::HideSetup::Failed) {
+        std::erase_if(filterOn_, [&request](const std::string& id) {
+            return std::find(request.devices.begin(), request.devices.end(), id) != request.devices.end();
+        });
+        WE_LOG_INFO(log(), "helper: hide filter taken off for pid {}", pid_);
+    }
+    switch (result) {
         case service::privileged::HideSetup::Running:
         case service::privileged::HideSetup::NothingToDo: return Reply{request.seq, Status::Ok, {}};
         case service::privileged::HideSetup::Waiting: return Reply{request.seq, Status::Pending, message};

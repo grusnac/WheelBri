@@ -42,6 +42,12 @@ public:
     [[nodiscard]] virtual privileged::HideSetup putHideFilter(const std::vector<std::string>& install,
                                                               const std::vector<std::string>& interfaces,
                                                               const Cancelled& cancelled, std::string& message) = 0;
+    // wheelbri-hide out of the stacks of `interfaces` (privileged::takeHideFilterOff): Stop, so its host no longer
+    // handles every report of the wheel. What putHideFilter put in and this did not take out goes at the end of this
+    // object (through the helper: when the connection closes).
+    [[nodiscard]] virtual privileged::HideSetup takeHideFilterOff(const std::vector<std::string>& interfaces,
+                                                                  const Cancelled& cancelled,
+                                                                  std::string& message) = 0;
     // The virtual wheel (`wheel`: the G920 or the G25), there until removeVirtualWheel or the end of this object.
     // `instanceId`: Windows' id for it.
     virtual bool createVirtualWheel(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,

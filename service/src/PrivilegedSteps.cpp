@@ -8,6 +8,8 @@
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/Logging.hpp"
 
+#include <algorithm>
+
 #ifdef _WIN32
 #include "HelperClient.hpp"
 
@@ -26,12 +28,28 @@ const logging::Logger& log() {
 // Driver scripts next to the program and up to this many folders above (build/service/ in the source tree).
 constexpr int kDriverScriptLevels = 3;
 
+// `list` with each of `ids` once.
+void remember(std::vector<std::string>& list, const std::vector<std::string>& ids) {
+    for (const std::string& id : ids) {
+        if (std::find(list.begin(), list.end(), id) == list.end()) list.push_back(id);
+    }
+}
+
+// `list` without `ids`.
+void forget(std::vector<std::string>& list, const std::vector<std::string>& ids) {
+    std::erase_if(list, [&ids](const std::string& id) { return std::find(ids.begin(), ids.end(), id) != ids.end(); });
+}
+
 // As Administrator: the steps themselves, in this process (as WheelBri always did).
 class DirectSteps final : public PrivilegedSteps {
 public:
     ~DirectSteps() override {
         showRig();
         removeVirtualWheel();
+        if (!filterOn_.empty()) {
+            std::string message;
+            (void)takeHideFilterOff(filterOn_, {}, message);
+        }
     }
 
     [[nodiscard]] const char* how() const override { return "as Administrator"; }
@@ -43,7 +61,19 @@ public:
     privileged::HideSetup putHideFilter(const std::vector<std::string>& install,
                                         const std::vector<std::string>& interfaces, const Cancelled& cancelled,
                                         std::string& message) override {
-        return privileged::putHideFilter(install, interfaces, kDriverScriptLevels, {}, cancelled, message);
+        const privileged::HideSetup result =
+            privileged::putHideFilter(install, interfaces, kDriverScriptLevels, {}, cancelled, message);
+        if (result == privileged::HideSetup::Running || result == privileged::HideSetup::Waiting) {
+            remember(filterOn_, interfaces);
+        }
+        return result;
+    }
+
+    privileged::HideSetup takeHideFilterOff(const std::vector<std::string>& interfaces, const Cancelled& cancelled,
+                                            std::string& message) override {
+        const privileged::HideSetup result = privileged::takeHideFilterOff(interfaces, cancelled, message);
+        if (result != privileged::HideSetup::Failed) forget(filterOn_, interfaces);
+        return result;
     }
 
     bool createVirtualWheel(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
@@ -90,6 +120,7 @@ private:
     std::unique_ptr<VirtualWheelDevice> device_;
     const VirtualWheel* deviceWheel_ = nullptr;   // which wheel device_ is
     std::unique_ptr<HideFilter> hider_;
+    std::vector<std::string> filterOn_;   // interfaces putHideFilter put the filter in, until takeHideFilterOff
 };
 
 #ifdef _WIN32
@@ -129,6 +160,25 @@ public:
                 return privileged::HideSetup::Waiting;
             default:
                 WE_LOG_ERROR(log(), "hide: the WheelBri Helper could not hide the rig: {}", message);
+                return privileged::HideSetup::Failed;
+        }
+    }
+
+    privileged::HideSetup takeHideFilterOff(const std::vector<std::string>& interfaces, const Cancelled& cancelled,
+                                            std::string& message) override {
+        if (interfaces.empty()) return privileged::HideSetup::NothingToDo;
+        switch (ask(helper::RequestType::TakeHideFilterOff, interfaces, kCreateMs, cancelled, message)) {
+            case helper::Status::Ok: return privileged::HideSetup::Running;
+            case helper::Status::Pending:
+                WE_LOG_WARN(log(), "hide: {}", message);
+                return privileged::HideSetup::Waiting;
+            case helper::Status::Unsupported:
+                message = "this WheelBri Helper is older and leaves the hide filter on (it costs CPU while the wheel "
+                          "is plugged in): install WheelBri again to update it";
+                WE_LOG_WARN(log(), "hide: {}", message);
+                return privileged::HideSetup::Failed;
+            default:
+                WE_LOG_WARN(log(), "hide: the WheelBri Helper could not take the hide filter off: {}", message);
                 return privileged::HideSetup::Failed;
         }
     }
