@@ -19,15 +19,27 @@ const logging::Logger& log() {
 using Colour = ui::Colour;
 
 // The same colours as the rest of the window (App.cpp, MappingEditView.cpp, WheelSetupView.cpp).
-constexpr Colour kStripe = style::kField;
 constexpr Colour kText = style::kText;
 constexpr Colour kDim = style::kDim;
-constexpr Colour kHeading = style::kHeading;
 
-constexpr float kArrowWidth = 24;
-constexpr float kTargetWidth = 72;   // "G920", "G25", "G27", "G923"
-constexpr float kWayWidth = 80;      // "Virtual", "Shim"
 constexpr float kRowHeight = 16;
+constexpr float kTargetWidth = 52;   // a Target button: "G920", "G25", "G27", "G923"
+constexpr float kWayWidth = 72;      // a Mode button: "Virtual", "Shim"
+
+// What each Target is for (its button's hover text).
+std::string targetAbout(const ConfigPicker::Target target) {
+    switch (target) {
+        case ConfigPicker::Target::G25:
+            return "G25: for older games (Race Driver: GRID). Its button order and centring spring are set below.";
+        case ConfigPicker::Target::G27:
+            return "G27: for older games. Its button order and centring spring are set below.";
+        case ConfigPicker::Target::G920:
+            return "G920: the Xbox wheel, WheelBri's default and the one tried most in games.";
+        case ConfigPicker::Target::G923:
+            return "G923: the G920's successor.";
+    }
+    return {};
+}
 
 }  // namespace
 
@@ -181,7 +193,7 @@ bool ConfigPicker::dropOwnEdits(std::string& error) {
 
 void ConfigPicker::choose(const Way way) {
     if (locked_) return;
-    if (way == Way::VirtualDevice && !settings_.virtualAvailable) return;   // the arrows are off: never asked
+    if (way == Way::VirtualDevice && !settings_.virtualAvailable) return;   // Virtual is greyed: never asked
     way_ = way;
     if (!writeAppSetting(settings_.stateFile, "way", way == Way::Shim ? "shim" : "virtual")) {
         WE_LOG_WARN(log(), "cannot save the way in {}", settings_.stateFile.string());
@@ -204,7 +216,7 @@ void ConfigPicker::chosen() {
 }
 
 bool ConfigPicker::onClick(const float x, const float y) {
-    if (locked_) {   // a session runs: also the arrows of a draw from before it started do nothing
+    if (locked_) {   // a session runs: also the buttons of a draw from before it started do nothing
         hits_.clear();
         return false;
     }
@@ -219,44 +231,45 @@ bool ConfigPicker::onClick(const float x, const float y) {
     return false;
 }
 
-float ConfigPicker::draw(const float x0, const float y, const bool canChangeNow) {
+float ConfigPicker::draw(const float x0, const float y, const bool canChangeNow, const TipSink& tip) {
     hits_.clear();
     const bool canChange = canChangeNow && !locked_;
     float x = x0;
-    // One picker: a label, <, the value, >. `back` (<) and `step` (>); `step` null: nothing to go to (the arrows are
-    // drawn off).
-    const auto picker = [&](const char* label, const float labelWidth, const std::string& value, const float width,
-                            const std::function<void()>& back, const std::function<void()>& step) {
-        window_.text(x, y + 4, label, kDim);
-        x += labelWidth;
-        const bool on = canChange && step != nullptr;
-        const auto arrow = [&](const char* glyph, const std::function<void()>& action) {
-            window_.outline(x, y, kArrowWidth, kRowHeight, on ? style::kFrame : style::kRule);
-            window_.text(x + (kArrowWidth - ui::kCharWidth) / 2, y + 4, glyph, on ? kText : kDim);
-            if (on) hits_.push_back({x, y, kArrowWidth, kRowHeight, action});
-            x += kArrowWidth + 4;
-        };
-        arrow("<", back);
-        window_.fill(x, y, width, kRowHeight, kStripe);
-        window_.text(x + (width - static_cast<float>(value.size()) * ui::kCharWidth) / 2, y + 4, value,
-                     canChange ? kHeading : kText);
-        x += width + 4;
-        arrow(">", step);
+    // One button of a row, side by side with the next (their edges overlap): filled blue when chosen, outlined when
+    // it can be chosen, greyed when not (`available` false, or nothing can change now: the chosen one then keeps a
+    // grey fill, so what runs still shows).
+    const auto segment = [&](const char* label, const float w, const bool chosen, const bool available,
+                             const std::string& about, const std::function<void()>& action) {
+        const bool on = canChange && available;
+        if (chosen && !on) {
+            window_.fill(x, y, w, kRowHeight, style::kPanel);
+            window_.outline(x, y, w, kRowHeight, style::kFrame);
+            const float textX = x + (w - static_cast<float>(std::string_view(label).size()) * ui::kCharWidth) / 2;
+            window_.text(textX, y + 4, label, kText);
+        } else {
+            style::button(window_, x, y, w, kRowHeight, label, chosen, on);
+        }
+        if (on && !chosen) hits_.push_back({x, y, w, kRowHeight, action});
+        if (tip) tip(x, y, w, kRowHeight, canChangeNow && !locked_ ? about : about + " Fixed while WheelBri runs.");
+        x += w - 1;
     };
-    // The targets in a ring (G25, G27, G920, G923): < the one before, > the one after.
-    constexpr int kTargets = 4;
-    const int t = static_cast<int>(target_);
-    const auto previous = static_cast<Target>((t + kTargets - 1) % kTargets);
-    const auto next = static_cast<Target>((t + 1) % kTargets);
-    picker("Target", 64, targetName(target_), kTargetWidth, [this, previous] { choose(previous); },
-           [this, next] { choose(next); });
-    x += 16;
-    // Two ways: either arrow goes to the other one.
-    const Way other = way_ == Way::VirtualDevice ? Way::Shim : Way::VirtualDevice;
-    std::function<void()> step;
-    if (settings_.virtualAvailable) step = [this, other] { choose(other); };
-    picker("Mode", 56, wayName(way_), kWayWidth, step, step);
-    return x;
+    window_.text(x, y + 4, "Target", kDim);
+    x += 64;
+    for (const Target t : {Target::G25, Target::G27, Target::G920, Target::G923}) {
+        segment(targetName(t), kTargetWidth, t == target_, true, targetAbout(t), [this, t] { choose(t); });
+    }
+    x += 1 + 16;
+    window_.text(x, y + 4, "Mode", kDim);
+    x += 48;
+    segment(wayName(Way::VirtualDevice), kWayWidth, way_ == Way::VirtualDevice, settings_.virtualAvailable,
+            settings_.virtualAvailable
+                ? "Virtual: a virtual wheel every game sees; your rig is hidden while WheelBri runs (Windows 11)."
+                : "Mode Virtual needs Windows 11: its driver installs from build 22000.",
+            [this] { choose(Way::VirtualDevice); });
+    segment(wayName(Way::Shim), kWayWidth, way_ == Way::Shim, true,
+            "Shim: a dinput8.dll next to each game on the Games tab shows the Target to that game only.",
+            [this] { choose(Way::Shim); });
+    return x + 1 + 4;
 }
 
 }  // namespace wheelbri::service

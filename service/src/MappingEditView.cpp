@@ -898,7 +898,9 @@ void MappingEditView::draw() {
         if (mode_ == Mode::AddButton) drawAddButton();
         return;
     }
-    picker_.draw(4, 18, !locked_);
+    picker_.draw(4, 18, !locked_, [this](const float x, const float y, const float w, const float h, std::string text) {
+        tip(x, y, w, h, std::move(text));
+    });
     // Saved as you change it: where Save was, whether it is ("saved", or "not saved" in red); Undo instead of Revert.
     button(defaultX, 2, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
     const bool unsaved = loaded_ && dirty();
@@ -915,10 +917,10 @@ void MappingEditView::draw() {
     tip(defaultX, 2, 104, 16, "Deletes your own mapping for this Target: WheelBri's default mapping again.");
     if (!loaded_) {
         window_.text(4, 60, fit(status_, 118 + extraChars()), kWarning);
-        // A way out: another target with < > above, or straight back to the G920 (the one every build has).
-        window_.text(4, 80, "Pick another Target with < > above, or:", kDim);
+        // A way out: another target above, or straight back to the G920 (the one every build has).
+        window_.text(4, 80, "Pick another Target above, or:", kDim);
         if (picker_.target() != ConfigPicker::Target::G920) {
-            button(4 + 42 * ui::kCharWidth, 76, "Back to the G920",
+            button(4 + 32 * ui::kCharWidth, 76, "Back to the G920",
                    [this] { picker_.useTarget(ConfigPicker::Target::G920); }, false, !locked_, 152);
         }
         return;

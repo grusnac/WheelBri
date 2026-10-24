@@ -13,8 +13,8 @@
 
 namespace wheelbri::service {
 
-// The top row of the app's Mapping tab: the target and how it runs, and so the config Start uses. Two pickers, each
-// with < >:
+// The top row of the app's Mapping tab: the target and how it runs, and so the config Start uses. Two rows of buttons
+// (segmented: every choice shown, the chosen one filled, one click picks another):
 //   - Target: the wheel WheelBri emulates: the Logitech G25, G27, G920 or G923 (more come only when WheelBri supports
 //     them, never from the user);
 //   - Mode: Virtual (WheelBri's own driver, a device every game sees; Administrator; the rig is hidden) or Shim
@@ -24,12 +24,13 @@ namespace wheelbri::service {
 // mapping of the rig onto them. The user's own mapping, once saved on the Mapping tab, goes to
 // <user configs>/my-<target>.ini (both modes too) and is used instead; "Default" deletes it. Switching Mode never
 // changes the mapping.
-// Where the virtual device cannot exist (Windows before 11: its driver needs build 22000), Mode stays Shim and its
-// arrows are off; a saved "virtual" is read as Shim there and left in app.ini for a later Windows 11.
+// Where the virtual device cannot exist (Windows before 11: its driver needs build 22000), Mode stays Shim and Virtual
+// is greyed (its hover text says why); a saved "virtual" is read as Shim there and left in app.ini for a later
+// Windows 11.
 class ConfigPicker {
 public:
     enum class Way { VirtualDevice, Shim };
-    enum class Target { G25, G27, G920, G923 };   // the Target arrows go through them in this order
+    enum class Target { G25, G27, G920, G923 };   // the Target buttons, left to right
 
     struct Settings {
         std::filesystem::path builtInFolder;   // config/ next to the program
@@ -83,16 +84,20 @@ public:
     // Deletes the user's own mapping for the target: the default again. False (and `error`) if it cannot.
     bool dropOwnEdits(std::string& error);
 
-    // From Start until Stop the Target and the Mode cannot change: the app sets it every frame. Locked, the arrows are
-    // drawn off and nothing changes them: no click (not even on arrows drawn before the lock), no choose.
+    // From Start until Stop the Target and the Mode cannot change: the app sets it every frame. Locked, the buttons are
+    // drawn greyed (the chosen ones still marked) and nothing changes them: no click (not even on buttons drawn before
+    // the lock), no choose.
     void setLocked(const bool locked) { locked_ = locked; }
     [[nodiscard]] bool locked() const { return locked_; }
-    // The arrows' choice, from elsewhere on the Mapping tab (its "Back to the G920"); nothing while locked.
+    // A target chosen from elsewhere on the Mapping tab (its "Back to the G920"); nothing while locked.
     void useTarget(const Target target) { choose(target); }
 
-    // Draws the row at (x, y): "Target" < G920 | G25 | G27 | G923 >, then "Mode" < Virtual | Shim >. `canChange` is
-    // false while a session runs or starts. Returns the x where the row ends.
-    float draw(float x, float y, bool canChange);
+    // Where a button's hover text goes (x, y, w, h, text): the Mapping tab's own tooltips.
+    using TipSink = std::function<void(float, float, float, float, std::string)>;
+    // Draws the row at (x, y): "Target" [G25|G27|G920|G923], then "Mode" [Virtual|Shim]; each button says what it is
+    // in its hover text (to `tip`, when given), a greyed one why. `canChange` is false while a session runs or starts.
+    // Returns the x where the row ends.
+    float draw(float x, float y, bool canChange, const TipSink& tip = {});
     // A click on the tab; true if it was on the row.
     bool onClick(float x, float y);
 
@@ -104,7 +109,7 @@ private:
 
     // my-<target>.ini from the older per-mode files (olderOwnNames), once per target.
     void adoptOlderOwn();
-    // The other way or target (the arrows), kept in the state file; it stays chosen when that cannot be written.
+    // Another way or target (its button), kept in the state file; it stays chosen when that cannot be written.
     void choose(Way way);
     void choose(Target target);
     void chosen();   // after either: the config again, and the log

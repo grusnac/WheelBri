@@ -1914,7 +1914,7 @@ TEST_F(EditView, GameFolders) {
     EXPECT_TRUE(window_.hasPart("none needed in Mode Virtual"));
     ASSERT_TRUE(picker_->way() == ConfigPicker::Way::VirtualDevice);
     view_->setPage(MappingEditView::Page::Mapping);
-    ASSERT_TRUE(click(">", 1));   // Mode: Shim
+    ASSERT_TRUE(click("Shim"));   // Mode: Shim
     games();
     EXPECT_TRUE(window_.hasPart("none yet: Mode Shim puts its shim in the game's folder"));
 
@@ -2654,6 +2654,21 @@ TEST_F(EditView, TheRotationReminderIsOneLine) {
     view_->setHover(reminder->x + 8, reminder->y + 2, true);
     frame();
     EXPECT_TRUE(window_.hasPart("passes the wheel through 1:1"));
+}
+
+// The Target and Mode buttons say what they are in the tab's hover text.
+TEST_F(EditView, TheTargetButtonsExplainThemselves) {
+    useRig(testRig());
+    open();
+    frame();
+    const Window::Text* const g25 = window_.find("G25");
+    ASSERT_NE(g25, nullptr);
+    view_->setHover(g25->x + 2, g25->y + 2, true);
+    frame();
+    EXPECT_TRUE(window_.hasPart("for older games"));
+    EXPECT_TRUE(click("G25"));
+    frame();
+    EXPECT_EQ(picker_->target(), ConfigPicker::Target::G25);
 }
 
 // A drag of the slider ends when a session starts or a popup opens.

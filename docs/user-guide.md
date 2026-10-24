@@ -65,7 +65,8 @@ the wheel's rotation, in the wheel's own software (Pit House for Moza).
 
 ![Mapping tab](images/mapping.png)
 
-1. Pick the **Target** and the **Mode** with `<` and `>` at the top (from Start until Stop they cannot change).
+1. Pick the **Target** and the **Mode** with their buttons at the top; point at one to see what it is for (from Start
+   until Stop they cannot change).
 2. Check each of the Target's axes, D-pad and buttons comes from the right control: click a source to change it. **RIG**
    beside a source: it comes from what the control is in the Rig tab; pick another and it is yours. Which way a pedal
    reads is always yours: tick **Invert** if it is pressed at rest. A button can have an extra source ("or": **+ or** at

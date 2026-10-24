@@ -1,5 +1,5 @@
 // The Mapping tab's top row (service/src/ConfigPicker.cpp): the target and the way, which config Start uses, what is
-// remembered in app.ini, and the clicks on its arrows. Drawn on a window that only records.
+// remembered in app.ini, and the clicks on its buttons. Drawn on a window that only records.
 
 #include "ConfigPicker.hpp"
 
@@ -37,12 +37,15 @@ public:
     }
 };
 
-// Where the row's arrows are when it is drawn at (4, 18): "Target" (64) < value (72) >, 16, "Mode" (56) < (80) >.
+// Where the row's buttons are when it is drawn at (4, 18): "Target" (64), G25 G27 G920 G923 (52 each, edges shared),
+// 16, "Mode" (48), Virtual Shim (72 each); a point inside each.
 constexpr float kRowY = 22;
-constexpr float kTargetLeft = 80;
-constexpr float kTargetRight = 184;
-constexpr float kWayLeft = 284;
-constexpr float kWayRight = 396;
+constexpr float kG25X = 88;
+constexpr float kG27X = 139;
+constexpr float kG920X = 190;
+constexpr float kG923X = 241;
+constexpr float kVirtualX = 357;
+constexpr float kShimX = 428;
 
 class ConfigPickerFiles : public ::testing::Test {
 protected:
@@ -179,58 +182,51 @@ TEST_F(ConfigPickerFiles, WithoutConfigsNothingIsSelected) {
     EXPECT_TRUE(setting("config").empty());   // an empty selection is not written
 }
 
-TEST_F(ConfigPickerFiles, TheArrowsSwitchTargetAndWayAndRememberThem) {
+// Every Target and Mode is a button: one click picks it, the chosen one is filled (not clickable), and it is
+// remembered; each says what it is in its hover text.
+TEST_F(ConfigPickerFiles, TheButtonsSwitchTargetAndWayAndRememberThem) {
     ConfigPicker picker(window_, settings());
-    const float end = picker.draw(4, 18, true);
-    EXPECT_FLOAT_EQ(end, 412);   // after the last arrow and its gap
-    EXPECT_TRUE(window_.shows("G920"));
-    EXPECT_TRUE(window_.shows("Virtual"));
+    std::vector<std::string> tips;
+    const float end = picker.draw(4, 18, true, [&tips](float, float, float, float, std::string text) {
+        tips.push_back(std::move(text));
+    });
+    EXPECT_FLOAT_EQ(end, 484);   // after the last button and its gap
+    for (const char* name : {"G25", "G27", "G920", "G923", "Virtual", "Shim"}) EXPECT_TRUE(window_.shows(name)) << name;
+    ASSERT_EQ(tips.size(), 6U);
+    EXPECT_NE(tips[0].find("G25: for older games"), std::string::npos);
+    EXPECT_NE(tips[4].find("every game sees"), std::string::npos);
     const std::uint64_t before = picker.changes();
+    EXPECT_FALSE(picker.onClick(kG920X, kRowY));   // the chosen one: nothing to do
 
-    // The ring, left to right: G25, G27, G920, G923. It starts at the G920.
-    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > the one after: the G923
+    EXPECT_TRUE(picker.onClick(kG923X, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);
     EXPECT_EQ(setting("target"), "g923");
     EXPECT_EQ(picker.selected(), (builtIn() / "g923.ini").string());
     EXPECT_GT(picker.changes(), before);
-    EXPECT_FALSE(picker.onClick(kTargetRight, kRowY));   // the row is stale until it is drawn again
+    EXPECT_FALSE(picker.onClick(kG25X, kRowY));   // the row is stale until it is drawn again
 
     window_.begin({});
     picker.draw(4, 18, true);
-    EXPECT_TRUE(window_.shows("G923"));
-    EXPECT_TRUE(picker.onClick(kWayLeft, kRowY));
+    EXPECT_TRUE(picker.onClick(kShimX, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_EQ(setting("way"), "shim");
     EXPECT_EQ(picker.selected(), (builtIn() / "g923.ini").string());
 
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > after the G923: round to the first, the G25
+    EXPECT_TRUE(picker.onClick(kG25X, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
     EXPECT_EQ(setting("target"), "g25");
     EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
     picker.draw(4, 18, true);
-    EXPECT_TRUE(window_.shows("G25"));
-    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > the one after: the G27
+    EXPECT_TRUE(picker.onClick(kG27X, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G27);
     EXPECT_EQ(picker.selected(), (builtIn() / "g27.ini").string());
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));   // > the one after: the G920
+    EXPECT_TRUE(picker.onClick(kG920X, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
     EXPECT_EQ(picker.selected(), (builtIn() / "g920.ini").string());
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < the one before: the G27
-    EXPECT_EQ(picker.target(), ConfigPicker::Target::G27);
-    picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < the one before: the G25
-    EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
-    picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < before the G25: round to the last, the G923
-    EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);
-    picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetLeft, kRowY));   // < the one before: the G920
-    EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
-    picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kWayRight, kRowY));
+    EXPECT_TRUE(picker.onClick(kVirtualX, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);
     EXPECT_EQ(setting("way"), "virtual");
 
@@ -244,42 +240,42 @@ TEST_F(ConfigPickerFiles, AStateFileThatCannotBeWrittenKeepsTheChoiceForNow) {
     std::filesystem::create_directories(state() / "inside");   // a folder where app.ini goes: never written
     ConfigPicker picker(window_, settings());
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
+    EXPECT_TRUE(picker.onClick(kG923X, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);   // chosen, only not remembered
     EXPECT_EQ(picker.selected(), (builtIn() / "g923.ini").string());
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kWayRight, kRowY));
+    EXPECT_TRUE(picker.onClick(kShimX, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_TRUE(std::filesystem::is_directory(state() / "inside"));
 }
 
-TEST_F(ConfigPickerFiles, WhileASessionRunsTheArrowsAreOff) {
+TEST_F(ConfigPickerFiles, WhileASessionRunsTheButtonsAreOff) {
     ConfigPicker picker(window_, settings());
     picker.draw(4, 18, false);
-    EXPECT_FALSE(picker.onClick(kTargetRight, kRowY));
-    EXPECT_FALSE(picker.onClick(kWayRight, kRowY));
+    EXPECT_FALSE(picker.onClick(kG923X, kRowY));
+    EXPECT_FALSE(picker.onClick(kShimX, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
     EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);
 }
 
-// From Start until Stop (the app locks it): the arrows of a draw from before Start do nothing, a draw while locked has
+// From Start until Stop (the app locks it): the buttons of a draw from before Start do nothing, a draw while locked has
 // none even when asked for them, and choosing does nothing either. After Stop they work again.
 TEST_F(ConfigPickerFiles, LockedFromStartToStopNothingChanges) {
     ConfigPicker picker(window_, settings());
-    picker.draw(4, 18, true);   // drawn before Start: arrows on
+    picker.draw(4, 18, true);   // drawn before Start: buttons on
     picker.setLocked(true);
     EXPECT_TRUE(picker.locked());
-    EXPECT_FALSE(picker.onClick(kTargetRight, kRowY));
+    EXPECT_FALSE(picker.onClick(kG923X, kRowY));
     picker.draw(4, 18, true);
-    EXPECT_FALSE(picker.onClick(kTargetRight, kRowY));
-    EXPECT_FALSE(picker.onClick(kWayRight, kRowY));
+    EXPECT_FALSE(picker.onClick(kG923X, kRowY));
+    EXPECT_FALSE(picker.onClick(kShimX, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
     EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);
     EXPECT_TRUE(setting("target").empty());
 
     picker.setLocked(false);   // Stop
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
+    EXPECT_TRUE(picker.onClick(kG923X, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);
 }
 
@@ -300,13 +296,17 @@ TEST_F(ConfigPickerFiles, WithoutTheVirtualDeviceItIsShimOnly) {
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_EQ(picker.selected(), (builtIn() / "g920.ini").string());
 
-    // Both Mode arrows are off; the target still changes.
-    picker.draw(4, 18, true);
+    // Virtual is greyed, its hover text says why; the target still changes.
+    std::vector<std::string> tips;
+    picker.draw(4, 18, true,
+                [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
     EXPECT_TRUE(window_.shows("Shim"));
-    EXPECT_FALSE(picker.onClick(kWayLeft, kRowY));
-    EXPECT_FALSE(picker.onClick(kWayRight, kRowY));
+    ASSERT_EQ(tips.size(), 6U);
+    EXPECT_EQ(tips[4], "Mode Virtual needs Windows 11: its driver installs from build 22000.");
+    EXPECT_FALSE(picker.onClick(kVirtualX, kRowY));
+    EXPECT_FALSE(picker.onClick(kShimX, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
-    EXPECT_TRUE(picker.onClick(kTargetRight, kRowY));
+    EXPECT_TRUE(picker.onClick(kG923X, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);
     EXPECT_EQ(picker.selected(), (builtIn() / "g923.ini").string());
     EXPECT_TRUE(setting("way").empty());   // nothing written for the way
@@ -324,11 +324,11 @@ TEST_F(ConfigPickerFiles, ASavedVirtualIsShimWhereItCannotRunAndStaysSaved) {
     EXPECT_EQ(onWindows11.way(), ConfigPicker::Way::VirtualDevice);
 }
 
-TEST_F(ConfigPickerFiles, AClickBesideTheArrowsIsNotTheRows) {
+TEST_F(ConfigPickerFiles, AClickBesideTheButtonsIsNotTheRows) {
     ConfigPicker picker(window_, settings());
     picker.draw(4, 18, true);
-    EXPECT_FALSE(picker.onClick(130, kRowY));   // on the value, between the arrows
-    EXPECT_FALSE(picker.onClick(kTargetRight, 60));
+    EXPECT_FALSE(picker.onClick(30, kRowY));    // on the "Target" label
+    EXPECT_FALSE(picker.onClick(kG923X, 60));
     EXPECT_FALSE(picker.onClick(500, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
 }
@@ -341,7 +341,7 @@ TEST_F(ConfigPickerFiles, BothModesUseTheSameMapping) {
     const std::string virtualOne = picker.selected();
     EXPECT_EQ(virtualOne, (user() / "my-g920.ini").string());
     picker.draw(4, 18, true);
-    EXPECT_TRUE(picker.onClick(kWayRight, kRowY));
+    EXPECT_TRUE(picker.onClick(kShimX, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_EQ(picker.selected(), virtualOne);
 }
@@ -408,7 +408,8 @@ TEST_F(ConfigPickerFiles, AnOlderMappingThatCannotBeCopied) {
 }
 #endif
 
-// While locked, choosing a target from elsewhere (Back to the G920) does nothing; nor does a Mode arrow.
+// While locked, choosing a target from elsewhere (Back to the G920) does nothing; nor does a Mode button. The buttons
+// are greyed then, the chosen ones still marked, and their hover text says they are fixed.
 TEST_F(ConfigPickerFiles, LockedNothingChoosesATarget) {
     ConfigPicker picker(window_, settings());
     picker.useTarget(ConfigPicker::Target::G25);
@@ -416,8 +417,13 @@ TEST_F(ConfigPickerFiles, LockedNothingChoosesATarget) {
     picker.setLocked(true);
     picker.useTarget(ConfigPicker::Target::G920);
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G25);
-    EXPECT_FALSE(picker.onClick(kWayLeft + 2, kRowY));
+    EXPECT_FALSE(picker.onClick(kShimX, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);
+    std::vector<std::string> tips;
+    picker.draw(4, 18, true,
+                [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
+    ASSERT_FALSE(tips.empty());
+    EXPECT_NE(tips[0].find("Fixed while WheelBri runs."), std::string::npos);
 }
 
 }  // namespace wheelbri::service
