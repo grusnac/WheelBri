@@ -985,8 +985,8 @@ void MappingView::drawLogs() {
 
     y = kLogRowsTop - 14;
     style::headingBand(window_, 0, y, canvasW());
-    text(window_, 8, y, "COMPONENT", kHeading);
-    text(window_, x, y, "LATEST LOG (ONE PER RUN)", kHeading);
+    style::heading(window_, 8, y, "COMPONENT");
+    style::heading(window_, x, y, "LATEST LOG (ONE PER RUN)");
     text(window_, x + 36 * 8, y, "SIZE, LAST WRITTEN", kHeading);
     y = kLogRowsTop;
     for (const ComponentLog& component : components_) {
@@ -1053,7 +1053,7 @@ void MappingView::drawLiveLog(const float top) {
 
     fill(window_, 0, top - 8, canvasW(), 1, kPanel);
     style::headingBand(window_, 0, top, canvasW());
-    text(window_, 8, top, "LIVE LOG", kHeading);
+    style::heading(window_, 8, top, "LIVE LOG");
     // Word wrap (W): long messages on several rows instead of off the side.
     wrapW_ = 96;
     wrapX_ = canvasW() - 4 - wrapW_;

@@ -129,6 +129,7 @@ public:
         }
         releaseBuffer();
         if (font_ != nullptr) DeleteObject(font_);
+        if (boldFont_ != nullptr) DeleteObject(boldFont_);
         if (window_ != nullptr) {
             SetWindowLongPtrW(window_, GWLP_USERDATA, 0);
             DestroyWindow(window_);
@@ -252,6 +253,13 @@ public:
             return;
         }
         frame_.text(x + originX_, y + originY_, value, rgbOf(colour));
+    }
+
+    void heading(const float x, const float y, const std::string_view value, const Colour colour) override {
+        if (value.empty()) {
+            return;
+        }
+        frame_.text(x + originX_, y + originY_, value, rgbOf(colour), true);
     }
 
     void present() override {
@@ -581,10 +589,13 @@ private:
             advances_[i] = canvasX(left + kCharWidth) - canvasX(left);
         }
         SetTextColor(buffer_, rgbRef(c.colour));
+        const bool strong = c.kind == DrawList::Command::Kind::Strong && boldFont_ != nullptr;
+        if (strong) SelectObject(buffer_, boldFont_);
         // On the baseline at the bottom of the 8-pixel line the layout put it on: the capitals fill the line,
         // descenders hang below (rows are 11..16 apart, so they still don't touch).
         ExtTextOutW(buffer_, canvasX(c.x), canvasY(c.y + kCharHeight), 0, nullptr, wide.c_str(),
                     static_cast<UINT>(wide.size()), advances_.data());
+        if (strong) SelectObject(buffer_, font_);
     }
 
     void makeBuffer(const int width, const int height) {
@@ -626,9 +637,9 @@ private:
     }
 
     // A monospaced font of kFontEm at the current scale, its own width (narrower than the 8-pixel grid, which
-    // drawText keeps): Cascadia Mono, or Consolas when Windows has no Cascadia Mono.
-    [[nodiscard]] HFONT createFont(const wchar_t* face) const {
-        return CreateFontW(-std::max(6L, std::lround(kFontEm * box_.scale)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    // drawText keeps): Cascadia Mono, or Consolas when Windows has no Cascadia Mono. `weight`: FW_BOLD for headings.
+    [[nodiscard]] HFONT createFont(const wchar_t* face, const int weight = FW_NORMAL) const {
+        return CreateFontW(-std::max(6L, std::lround(kFontEm * box_.scale)), 0, 0, 0, weight, FALSE, FALSE, FALSE,
                            DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                            FIXED_PITCH | FF_MODERN, face);
     }
@@ -637,6 +648,7 @@ private:
         if (font_ != nullptr && std::abs(fontScale_ - box_.scale) < 0.001F) {
             return;
         }
+        const wchar_t* face = kFontFace;
         HFONT font = createFont(kFontFace);
         if (font != nullptr) {
             // Windows gives another font when the face is not installed: check which one it chose.
@@ -646,9 +658,11 @@ private:
             SelectObject(buffer_, before);
             if (lstrcmpiW(chosen, kFontFace) != 0) {
                 DeleteObject(font);
+                face = kFallbackFace;
                 font = createFont(kFallbackFace);
             }
         } else {
+            face = kFallbackFace;
             font = createFont(kFallbackFace);
         }
         if (font == nullptr) {
@@ -659,6 +673,9 @@ private:
         if (font_ != nullptr) DeleteObject(font_);
         font_ = font;
         fontScale_ = box_.scale;
+        // The headings' bold of the same face and size (none: they are drawn in the regular one).
+        if (boldFont_ != nullptr) DeleteObject(boldFont_);
+        boldFont_ = createFont(face, FW_BOLD);
     }
 
     int logicalWidth_;
@@ -670,6 +687,7 @@ private:
     HGDIOBJ previousBitmap_ = nullptr;
     HGDIOBJ previousFont_ = nullptr;
     HFONT font_ = nullptr;
+    HFONT boldFont_ = nullptr;
     float fontScale_ = -1.0F;
     int bufferWidth_ = 0;
     int bufferHeight_ = 0;

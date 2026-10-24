@@ -25,7 +25,7 @@ inline constexpr ui::Colour kSplitEdge{58, 63, 72};
 inline constexpr ui::Colour kText{212, 214, 218};
 inline constexpr ui::Colour kDim{168, 173, 182};        // help, units, labels (bright enough to read)
 inline constexpr ui::Colour kFaint{138, 143, 152};      // tags at a row's right, greyed labels
-inline constexpr ui::Colour kHeading{108, 182, 255};    // blue: selected, an action, headings
+inline constexpr ui::Colour kHeading{108, 182, 255};    // blue: selected, an action, page titles
 inline constexpr ui::Colour kActive{61, 187, 92};       // green: fine, running
 inline constexpr ui::Colour kCaution{224, 160, 32};     // amber: check this, yours
 inline constexpr ui::Colour kCautionBack{42, 36, 22};   // behind an amber notice
@@ -62,6 +62,12 @@ inline constexpr ui::Colour kLetterY{215, 200, 70};
 inline void headingBand(ui::UiWindow& window, const float x, const float y, const float w) {
     window.fill(x, y - 4, w, 16, kBand);
     window.fill(x, y - 4, 3, 16, kHeading);
+}
+
+// A section's heading text on its band: bold, in the text colour (the band's blue edge marks the section, so blue
+// keeps meaning selected or an action).
+inline void heading(ui::UiWindow& window, const float x, const float y, const std::string_view label) {
+    window.heading(x, y, label, kText);
 }
 
 // A button: a grey outline on whatever is behind it, the label in the text colour; `on` fills it blue with dark

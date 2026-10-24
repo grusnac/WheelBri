@@ -61,5 +61,18 @@ TEST(DrawList, SwapKeepsWhatWasOnScreen) {
     EXPECT_EQ(shown.commands()[1].text, "a");
 }
 
+// A heading (bold) is another picture than the same text in the regular font.
+TEST(DrawList, BoldIsNotTheSameText) {
+    DrawList regular;
+    DrawList bold;
+    regular.begin({0, 0, 0});
+    bold.begin({0, 0, 0});
+    regular.text(1, 2, "AXES", {9, 9, 9});
+    bold.text(1, 2, "AXES", {9, 9, 9}, true);
+    EXPECT_EQ(bold.commands()[0].kind, DrawList::Command::Kind::Strong);
+    EXPECT_EQ(regular.commands()[0].kind, DrawList::Command::Kind::Text);
+    EXPECT_FALSE(regular.sameAs(bold));
+}
+
 }  // namespace
 }  // namespace wheelbri

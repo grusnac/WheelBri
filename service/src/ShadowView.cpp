@@ -386,13 +386,13 @@ void ShadowView::draw(const WheelState& state, const TargetReport& report, const
     offY_ = top - kDesignTop;
     const float listX = std::max(kListX, window_.width() - kListW - 4);
     style::headingBand(window_, 0, Y(54), listX - 10);
-    window_.text(6, Y(54), "SHADOW", style::kHeading);
+    style::heading(window_, 6, Y(54), "SHADOW");
     window_.text(62, Y(54),
                  xbox() ? "your labels beside, the " + profile_.identity().shortName + "'s own print on the buttons"
                         : std::string("your labels beside, the game's numbers on the buttons"),
                  style::kDim);
     style::headingBand(window_, listX, Y(54), window_.width() - listX);
-    window_.text(listX + 6, Y(54), "PRESSED NOW", style::kHeading);
+    style::heading(window_, listX + 6, Y(54), "PRESSED NOW");
     window_.text(listX + 102, Y(54), "yours -> " + profile_.identity().shortName, style::kDim);
 
     drawWheel(state, report.buttons, report.hat);

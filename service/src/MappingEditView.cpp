@@ -918,7 +918,7 @@ void MappingEditView::draw() {
 
     // Axes, left; D-pad, right.
     style::headingBand(window_, 0, y, canvasW());
-    window_.text(8, y, "AXES", kHeading);
+    style::heading(window_, 8, y, "AXES");
     window_.text(48, y, "click a source to pick another", kDim);
     tip(4, y - 2, 290, 12, "Sources are the rig's controls, named in the Rig tab: click one to pick what drives it.");
     // The axes' and the D-pad's source fields share what a wider window adds.
@@ -937,7 +937,7 @@ void MappingEditView::draw() {
     // The target's buttons (the ones its profile names; the others are not seen by games).
     y += 16 + 4 * 20 + 12;
     style::headingBand(window_, 0, y, canvasW());
-    window_.text(8, y, "BUTTONS", kHeading);
+    style::heading(window_, 8, y, "BUTTONS");
     window_.text(76, y, target + " button <- your control", kDim);
     tip(4, y - 2, 340, 12,
         "Each " + target + " button and the control that presses it; \"or\": a second one (a button, or an axis past a "
@@ -1063,7 +1063,7 @@ void MappingEditView::drawEntry(const float x, const float y, const float w, con
 void MappingEditView::drawRotation(const float top) {
     float y = top;
     style::headingBand(window_, 0, y, canvasW());
-    window_.text(8, y, "STEERING ROTATION", kHeading);
+    style::heading(window_, 8, y, "STEERING ROTATION");
     window_.text(160, y, "full lock to full lock, in degrees", kDim);
 
     // The steering rotation: the slider (90 to 1080), the typed number (up to 2520) and the usual values.
@@ -1120,7 +1120,7 @@ float MappingEditView::drawButtonOrder(const float top) {
     float y = top;
     const std::string target(profile_->identity().shortName);
     style::headingBand(window_, 0, y, canvasW());
-    window_.text(4, y, "BUTTON ORDER", kHeading);
+    style::heading(window_, 4, y, "BUTTON ORDER");
     window_.text(140, y, "the order the game gets the " + target + "'s buttons in", kDim);
     tip(4, y - 2, 600, 12,
         "Logitech driver: as Logitech's Windows software numbered the " + target + "'s buttons, which games of its "
@@ -1145,7 +1145,7 @@ float MappingEditView::drawCentringSpring(const float top) {
     float y = top;
     const std::string target(profile_->identity().shortName);
     style::headingBand(window_, 0, y, canvasW());
-    window_.text(8, y, "CENTRING SPRING", kHeading);
+    style::heading(window_, 8, y, "CENTRING SPRING");
     window_.text(140, y, "the " + target + "'s own, in every game: pulls the wheel to the centre", kDim);
     tip(4, y - 2, 600, 12,
         "As Logitech's software for the " + target + " had it (\"Enable Centering Spring in Force Feedback Games\", "
@@ -1262,7 +1262,7 @@ void MappingEditView::drawGames() {
         if (name.size() > chars) tip(4, rowY, listW, 18, name + " (" + tag + ")");
     };
     style::headingBand(window_, 0, y, gameListW() + 4);
-    window_.text(8, y, "GAMES", kHeading);
+    style::heading(window_, 8, y, "GAMES");
     y += 16;
     const auto folderTag = [this](const std::size_t folder, ui::Colour& colour) {
         const ShimState state = shims_->stateAt(folder);
@@ -1434,7 +1434,7 @@ float MappingEditView::drawGameFolder(const GameProfile* const game, const std::
     if (shims_ == nullptr) return y;
     const bool shimMode = picker_.way() == ConfigPicker::Way::Shim;
     style::headingBand(window_, gameX() - 4, y + 4, canvasW() - gameX());
-    window_.text(gameX() + 4, y + 4, "FOLDER", kHeading);
+    style::heading(window_, gameX() + 4, y + 4, "FOLDER");
     const float x = gameX() + 64;
     if (!folder || *folder >= shims_->folders().size()) {
         // No folder yet: only Mode Shim needs one (the shim goes there).
@@ -1554,7 +1554,7 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
 // A section's heading on the Games page: its name, and what it holds (dim).
 void MappingEditView::gameSection(const float y, const std::string& name, const std::string& about) {
     style::headingBand(window_, gameX() - 4, y, canvasW() - gameX());
-    window_.text(gameX() + 4, y, name, kHeading);
+    style::heading(window_, gameX() + 4, y, name);
     window_.text(gameX() + 160, y, fit(about, gameChars() - 20), kDim);
 }
 

@@ -132,6 +132,11 @@ public:
     virtual void fill(float x, float y, float w, float h, Colour colour) = 0;
     virtual void outline(float x, float y, float w, float h, Colour colour) = 0;   // 1 logical pixel wide
     virtual void text(float x, float y, std::string_view value, Colour colour) = 0; // top-left of the first cell
+    // A section's heading: the same cells as text(), in bold where the window can (Windows: a bold font; X11: drawn
+    // twice a pixel apart). Elsewhere (the tests' windows) it is text().
+    virtual void heading(const float x, const float y, const std::string_view value, const Colour colour) {
+        text(x, y, value, colour);
+    }
     virtual void present() = 0;
 
     // Filled shapes (the Mapping tab's pictures), drawn as rows of fill() one window pixel tall (pixelSize()), so

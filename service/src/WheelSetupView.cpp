@@ -914,7 +914,7 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
     const auto tiles = static_cast<int>(list.buttons.shown.size());
     if (visible(y, 12)) {
         style::headingBand(window_, 0, y + 2, window_.width() - kBarW - 4);
-        window_.text(8, y + 2, "BUTTONS", kHeading);
+        style::heading(window_, 8, y + 2, "BUTTONS");
         window_.text(76, y + 2,
                      tiles == 0 ? (live && list.buttons.hidden.empty() ? "none on this device" : "none named")
                      : live     ? "press one (it lights up); click one to say what it is"
@@ -960,7 +960,7 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
 
 void WheelSetupView::drawDeviceList(const float top) {
     style::headingBand(window_, 0, top, kListW);
-    window_.text(8, top, "DEVICES", kHeading);
+    style::heading(window_, 8, top, "DEVICES");
     window_.text(16 + 35 * ui::kCharWidth, top, "Status", kDim);
     float y = top + 16;
     const std::vector<DeviceId> listed = listedDevices();

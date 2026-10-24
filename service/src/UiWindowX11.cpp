@@ -411,6 +411,13 @@ public:
         }
     }
 
+    // Bold without a bold font (the server's fixed fonts seldom have one at every size): drawn twice, one window
+    // pixel apart.
+    void heading(const float x, const float y, const std::string_view value, const Colour colour) override {
+        text(x, y, value, colour);
+        text(x + pixelSize(), y, value, colour);
+    }
+
     void present() override {
         if (lost_) return;
         copyToWindow();

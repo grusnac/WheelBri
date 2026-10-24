@@ -1020,6 +1020,18 @@ TEST_F(EditView, SecondarySources) {
     EXPECT_FALSE(view_->popupOpen());
 }
 
+// Section headings are in the text colour (drawn bold by the real windows): blue means selected or an action.
+TEST_F(EditView, HeadingsAreTextColoured) {
+    useRig(testRig());
+    open();
+    frame();
+    for (const char* name : {"AXES", "BUTTONS", "STEERING ROTATION"}) {
+        const Window::Text* const heading = window_.find(name);
+        ASSERT_NE(heading, nullptr) << name;
+        EXPECT_TRUE(sameColour(heading->colour, style::kText)) << name;
+    }
+}
+
 // A button with no second source shows a faint "+ or" at its row's end instead of an empty field; it turns blue while
 // the pointer is on the row. Once it has one, the row shows "or" and the field again.
 TEST_F(EditView, AnEmptyOrIsAPlus) {

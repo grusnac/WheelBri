@@ -20,7 +20,7 @@ public:
     using Rgb = std::array<std::uint8_t, 3>;
 
     struct Command {
-        enum class Kind : std::uint8_t { Fill, Text };
+        enum class Kind : std::uint8_t { Fill, Text, Strong };   // Strong: a text in bold (a heading)
         Kind kind = Kind::Fill;
         float x = 0.0F;
         float y = 0.0F;
@@ -43,8 +43,8 @@ public:
         c.h = h;
         c.text.clear();
     }
-    void text(const float x, const float y, const std::string_view value, const Rgb colour) {
-        Command& c = next(Command::Kind::Text, x, y, colour);
+    void text(const float x, const float y, const std::string_view value, const Rgb colour, const bool strong = false) {
+        Command& c = next(strong ? Command::Kind::Strong : Command::Kind::Text, x, y, colour);
         c.w = 0.0F;
         c.h = 0.0F;
         c.text.assign(value);
