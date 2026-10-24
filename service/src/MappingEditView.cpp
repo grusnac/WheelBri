@@ -509,10 +509,27 @@ void MappingEditView::onKey(const char key) {
         field_ = Field::None;   // Escape while typing: drop what was typed
         return;
     }
+    if (mode_ == Mode::PickAlt && !altFind_.empty()) {
+        altFind_.clear();   // the find box first, then the popup
+        altScroll_ = 0;
+        return;
+    }
     mode_ = Mode::Idle;
 }
 
 void MappingEditView::onText(const std::string& text) {
+    if (field_ == Field::None && mode_ == Mode::PickAlt) {
+        // The secondary popup's find box: printable characters, Backspace; Enter does nothing.
+        for (const char c : text) {
+            if (c == ui::kBackspace) {
+                if (!altFind_.empty()) altFind_.pop_back();
+            } else if (c >= ' ' && c <= '~' && altFind_.size() < 24) {
+                altFind_ += c;
+            }
+        }
+        altScroll_ = 0;
+        return;
+    }
     if (field_ == Field::None) return;
     for (const char c : text) {
         if (c == ui::kBackspace) {
@@ -994,11 +1011,7 @@ void MappingEditView::draw() {
             window_.text(end - plusW + 4, row + 4, "+ or", onRow ? kHeading : style::kFaint);
             tip(end - plusW, row, plusW, 16,
                 "Add a second control that presses it too: a button, or a lever past a point");
-            hit(end - plusW, row, plusW, 16, [this, index] {
-                mode_ = Mode::PickAlt;
-                pickIndex_ = index;
-                altFocus_ = 0;
-            });
+            hit(end - plusW, row, plusW, 16, [this, index] { openAltPicker(index); });
         }
     }
     const float gridEnd = gridTop + layout.height - 4;
@@ -2576,11 +2589,17 @@ void MappingEditView::drawAltSource(const float x, const float y, const float w,
         tip(x, y, w, 16, (twice ? "A control here is used twice (red in the picker). " : "") +
                              std::string("Also pressed by: ") + all);
     }
-    hit(x, y, w, 16, [this, index] {
-        mode_ = Mode::PickAlt;
-        pickIndex_ = index;
-        altFocus_ = 0;
-    });
+    hit(x, y, w, 16, [this, index] { openAltPicker(index); });
+}
+
+void MappingEditView::openAltPicker(const std::size_t index) {
+    mode_ = Mode::PickAlt;
+    pickIndex_ = index;
+    altFocus_ = 0;
+    altFind_.clear();
+    altScroll_ = 0;
+    altFlashUntilMs_ = 0;
+    altNoteUntilMs_ = 0;
 }
 
 void MappingEditView::drawAltPicker() {
@@ -2588,25 +2607,36 @@ void MappingEditView::drawAltPicker() {
     window_.fill(kPopupX, kPopupY, popupW(), popupH(), style::kBox);
     window_.outline(kPopupX, kPopupY, popupW(), popupH(), kHeading);
     const float left = kPopupX + 12;
+    const float right = kPopupX + popupW() - 12;
     const std::size_t target = pickIndex_;
     const std::string targetName = profile_->identity().shortName + " " + std::string(profile_->buttonName(target));
-    window_.text(left, kPopupY + 10, "What else presses " + targetName + "? Its secondary assignments:", kHeading);
+    window_.text(left, kPopupY + 10, "What else presses " + targetName + "?", kHeading);
     button(kPopupX + popupW() - 100, kPopupY + 6, "Done", [this] { mode_ = Mode::Idle; }, false, true, 88);
     std::vector<ButtonRef>& list = edit_.secondaries[target];
     const std::size_t max = MapperConfig::kMaxSecondaries;
-    button(left, kPopupY + 28, "(clear all)", [&list] { list.clear(); }, false, !list.empty(), 100);
-    window_.text(left + 112, kPopupY + 32,
-                 std::to_string(list.size()) + " of " + std::to_string(max) +
-                     ". Click a control below to add or remove it; an axis' row sets where it presses.",
-                 kDim);
 
-    // The ones it has, as chips (at most 8, so two rows of 5 or one).
+    // How to pick: press it on the rig (the app reads the devices meanwhile), or type to find it; and clear all.
+    const std::string how = "Press a control on your rig, or find it:";
+    window_.text(left, kPopupY + 32, how, kDim);
+    const float findX = left + static_cast<float>(how.size() + 1) * ui::kCharWidth;
+    const float findW = 24 * ui::kCharWidth + 12;
+    window_.fill(findX, kPopupY + 28, findW, 16, kStripe);
+    window_.outline(findX, kPopupY + 28, findW, 16, field_ == Field::None ? kHeading : style::kFieldEdge);
+    window_.text(findX + 6, kPopupY + 32, altFind_ + (field_ == Field::None ? "_" : ""), kText);
+    tip(findX, kPopupY + 28, findW, 16,
+        "Type a number or a name: only the controls holding it are listed. Esc clears it.");
+    button(findX + findW + 12, kPopupY + 28, "(clear all)", [&list] { list.clear(); }, false, !list.empty(), 100);
+
+    // The ones it has, as chips after "Has N of 8." (at most 8: one or two rows).
+    const std::string has = "Has " + std::to_string(list.size()) + " of " + std::to_string(max) + ".";
+    window_.text(left, kPopupY + 52, has, kDim);
     const int kColumns = popupColumns();
     const float kChipW = entryW(kColumns);
-    const auto chipsPerRow = static_cast<std::size_t>(kColumns);
+    const float chipsX = left + static_cast<float>(has.size() + 1) * ui::kCharWidth;
+    const auto chipsPerRow = static_cast<std::size_t>(std::max(1.0F, std::floor((right - chipsX + 4) / (kChipW + 4))));
     if (altFocus_ >= list.size()) altFocus_ = 0;
     for (std::size_t i = 0; i < list.size(); ++i) {
-        const float x = left + static_cast<float>(i % chipsPerRow) * (kChipW + 4);
+        const float x = chipsX + static_cast<float>(i % chipsPerRow) * (kChipW + 4);
         const float y = kPopupY + 48 + static_cast<float>(i / chipsPerRow) * 18;
         window_.fill(x, y, kChipW, 16, kStripe);
         window_.outline(x, y, kChipW, 16, kHeading);
@@ -2620,15 +2650,40 @@ void MappingEditView::drawAltPicker() {
     for (const DeviceLabels& device : devices_) {
         if (&device != wheel) order.push_back(&device);
     }
-    float y = kPopupY + 88;
-    const float kEntryW = kChipW;
-    const float bottom = kPopupY + popupH() - 40;   // the last row ends above the note at the bottom
+    // The list scrolls (the mouse wheel, onScroll): `vy` is where a row would be unscrolled, `y` where it is drawn.
+    // Rows outside [listTop, bottom] are not drawn, and counted for the line at the bottom.
+    const float listTop = kPopupY + 88;
+    const float bottom = kPopupY + popupH() - 40;   // the last row ends above the line at the bottom
+    float vy = listTop;
+    std::size_t above = 0;
+    std::size_t below = 0;
+    const auto shown = [&](const float rowVy) {
+        const float y = rowVy - altScroll_;
+        if (y < listTop) return false;
+        return y <= bottom;
+    };
+    const auto count = [&](const float rowVy) {
+        if (rowVy - altScroll_ < listTop) {
+            ++above;
+        } else if (rowVy - altScroll_ > bottom) {
+            ++below;
+        }
+    };
     if (devices_.empty()) {
-        window_.text(left, y, "The rig has no devices yet: define them in the Rig tab.", kCaution);
+        window_.text(left, listTop, "The rig has no devices yet: define them in the Rig tab.", kCaution);
     }
+    // What the find box keeps: an entry whose text holds it (any case), or every entry of a device whose name does.
+    std::string find = altFind_;
+    std::transform(find.begin(), find.end(), find.begin(), [](const unsigned char c) { return std::tolower(c); });
+    const auto holds = [&find](std::string text) {
+        if (find.empty()) return true;
+        std::transform(text.begin(), text.end(), text.begin(), [](const unsigned char c) { return std::tolower(c); });
+        return text.find(find) != std::string::npos;
+    };
     const ControlUse self{ControlUse::Kind::Secondary, target};
+    const std::uint64_t now = nowMs();
     // A control's entry: pressed, it is added (an axis: its row's slider comes alive) or, when it is one already,
-    // taken off.
+    // taken off. The control last touched on the rig flashes green.
     const auto entryAt = [&](const float x, const float entryY, const RigDevice& rigDevice, const bool isWheel,
                              const bool axis, const std::size_t index) {
         const SourceRef source{isWheel ? DeviceId{} : rigDevice.id, static_cast<int>(index)};
@@ -2639,7 +2694,7 @@ void MappingEditView::drawAltPicker() {
         }
         const RigControl& control = axis ? rigDevice.axes[index] : rigDevice.buttons[index];
         const ButtonRef ref{source, axis, false, 0.5F};
-        drawEntry(x, entryY, kEntryW, (axis ? "axis " : "") + std::to_string(index) + " " + controlName(control), state,
+        drawEntry(x, entryY, kChipW, (axis ? "axis " : "") + std::to_string(index) + " " + controlName(control), state,
                   [this, &list, ref, mine = state.mine] {
                       const auto same = [&ref](const ButtonRef& b) {
                           return b.axis == ref.axis && b.source == ref.source;
@@ -2652,36 +2707,75 @@ void MappingEditView::drawAltPicker() {
                       list.push_back(ref);
                       if (ref.axis) altFocus_ = list.size() - 1;
                   });
+        if (now < altFlashUntilMs_ && altFlash_ == source && altFlashAxis_ == axis) {
+            window_.outline(x - 1, entryY - 1, kChipW + 2, 18, kActive);
+            window_.outline(x - 2, entryY - 2, kChipW + 4, 20, kActive);
+        }
         return source;
     };
-    // Each device's name line inside a section.
-    const auto deviceLine = [&](const DeviceLabels& device, const bool isWheel) {
-        window_.text(left + 8, y + 2,
-                     fit(deviceName(device), 40) + "  " + deviceId(device.vendorId, device.productId) + "  " +
-                         (isWheel ? "(the wheel)" : deviceKindName(device.kind)),
-                     kText);
-        y += 14;
+    const auto entryText = [this](const RigControl& control, const bool axis, const std::size_t index) {
+        return (axis ? "axis " : "") + std::to_string(index) + " " + controlName(control);
     };
+    // Each device's name line inside a section: its name as long as the popup allows.
+    const auto deviceLine = [&](const DeviceLabels& device, const bool isWheel) {
+        const std::string tail = "  " + deviceId(device.vendorId, device.productId) + "  " +
+                                 (isWheel ? "(the wheel)" : deviceKindName(device.kind));
+        const auto room = static_cast<std::size_t>((right - left - 8) / ui::kCharWidth);
+        if (shown(vy)) {
+            window_.text(left + 8, vy - altScroll_ + 2,
+                         fit(deviceName(device), room > tail.size() + 8 ? room - tail.size() : 8) + tail, kText);
+        }
+        vy += 14;
+    };
+    const auto deviceHolds = [&](const DeviceLabels& device) { return !find.empty() && holds(deviceName(device)); };
 
     // AXES: every device's named axes, one a row: its entry, then the slider of the travel it presses past (0% as
     // soon as it moves, 100% only at its end), the number typed in, and which way round it reads. Live once the axis
     // is added; greyed before.
-    window_.text(left, y + 2, "AXES", kHeading);
-    y += 16;
-    thresholdSliderX_ = left + kEntryW + 12 + 24;
-    thresholdSliderW_ = std::max(100.0F, popupW() - 24 - (kEntryW + 12) - 24 - 38 - 56 - 8 - 88 - 8);
+    // A section with nothing the find box keeps is left out, heading and all.
+    const auto anyKept = [&](const bool axis) {
+        for (const DeviceLabels* const entry : order) {
+            const RigDevice* const rigDevice = rig_.find(idOf(*entry));
+            if (rigDevice == nullptr) continue;
+            const bool wholeDevice = deviceHolds(*entry);
+            const std::span<const RigControl> controls =
+                axis ? std::span<const RigControl>(rigDevice->axes) : std::span<const RigControl>(rigDevice->buttons);
+            for (std::size_t i = 0; i < controls.size(); ++i) {
+                if (controls[i].defined() && (wholeDevice || holds(entryText(controls[i], axis, i)))) return true;
+            }
+        }
+        return false;
+    };
+    const bool anyAxes = anyKept(true);
+    const bool anyButtons = anyKept(false);
+    std::size_t matches = 0;
+    if (anyAxes) {
+        if (shown(vy)) style::heading(window_, left, vy - altScroll_ + 2, "AXES");
+        vy += 16;
+    }
+    thresholdSliderX_ = left + kChipW + 12 + 24;
+    thresholdSliderW_ = std::max(100.0F, popupW() - 24 - (kChipW + 12) - 24 - 38 - 56 - 8 - 88 - 8);
     for (const DeviceLabels* const entry : order) {
         const RigDevice* const rigDevice = rig_.find(idOf(*entry));
         if (rigDevice == nullptr) continue;
-        if (std::none_of(rigDevice->axes.begin(), rigDevice->axes.end(),
-                         [](const RigControl& c) { return c.defined(); })) {
-            continue;
+        const bool wholeDevice = deviceHolds(*entry);
+        std::vector<std::size_t> axes;
+        for (std::size_t a = 0; a < rigDevice->axes.size(); ++a) {
+            if (rigDevice->axes[a].defined() && (wholeDevice || holds(entryText(rigDevice->axes[a], true, a)))) {
+                axes.push_back(a);
+            }
         }
-        if (y > bottom) break;
+        if (axes.empty()) continue;
         const bool isWheel = wheel != nullptr && idOf(*entry) == idOf(*wheel);
         deviceLine(*entry, isWheel);
-        for (std::size_t a = 0; a < rigDevice->axes.size(); ++a) {
-            if (!rigDevice->axes[a].defined() || y > bottom) continue;
+        for (const std::size_t a : axes) {
+            ++matches;
+            if (!shown(vy)) {
+                count(vy);
+                vy += 18;
+                continue;
+            }
+            const float y = vy - altScroll_;
             const SourceRef source = entryAt(left, y, *rigDevice, isWheel, true, a);
             std::size_t mine = list.size();
             for (std::size_t i = 0; i < list.size(); ++i) {
@@ -2721,41 +2815,112 @@ void MappingEditView::drawAltPicker() {
                 if (mine < list.size()) list[mine].invert = !list[mine].invert;
             }, live && list[mine].invert, live, 88);
             if (live) tip(invertX, y, 88, 16, "On: the axis rests at the top (+1) and is pressed towards the bottom.");
-            y += 18;
+            vy += 18;
         }
-        y += 4;
+        vy += 4;
     }
 
     // BUTTONS: every device's named buttons, a grid each.
-    y += 4;
-    window_.text(left, y + 2, "BUTTONS", kHeading);
-    y += 16;
+    if (anyButtons) {
+        if (anyAxes) vy += 4;
+        if (shown(vy)) style::heading(window_, left, vy - altScroll_ + 2, "BUTTONS");
+        vy += 16;
+    }
     for (const DeviceLabels* const entry : order) {
         const RigDevice* const rigDevice = rig_.find(idOf(*entry));
         if (rigDevice == nullptr) continue;
-        if (std::none_of(rigDevice->buttons.begin(), rigDevice->buttons.end(),
-                         [](const RigControl& c) { return c.defined(); })) {
-            continue;
+        const bool wholeDevice = deviceHolds(*entry);
+        std::vector<std::size_t> buttons;
+        for (std::size_t b = 0; b < rigDevice->buttons.size(); ++b) {
+            if (rigDevice->buttons[b].defined() && (wholeDevice || holds(entryText(rigDevice->buttons[b], false, b)))) {
+                buttons.push_back(b);
+            }
         }
-        if (y > bottom) break;
+        if (buttons.empty()) continue;
         const bool isWheel = wheel != nullptr && idOf(*entry) == idOf(*wheel);
         deviceLine(*entry, isWheel);
-        std::size_t shown = 0;
-        for (std::size_t b = 0; b < rigDevice->buttons.size(); ++b) {
-            if (!rigDevice->buttons[b].defined()) continue;
-            const float entryY = y + static_cast<float>(shown / static_cast<std::size_t>(kColumns)) * 18;
-            if (entryY <= bottom) {
-                (void)entryAt(left + static_cast<float>(shown % static_cast<std::size_t>(kColumns)) * (kEntryW + 4),
-                              entryY, *rigDevice, isWheel, false, b);
+        const auto columns = static_cast<std::size_t>(kColumns);
+        for (std::size_t n = 0; n < buttons.size(); ++n) {
+            ++matches;
+            const float rowVy = vy + static_cast<float>(n / columns) * 18;
+            if (shown(rowVy)) {
+                (void)entryAt(left + static_cast<float>(n % columns) * (kChipW + 4), rowVy - altScroll_, *rigDevice,
+                              isWheel, false, buttons[n]);
+            } else {
+                count(rowVy);
             }
-            ++shown;
         }
-        y += static_cast<float>((shown + static_cast<std::size_t>(kColumns) - 1) / static_cast<std::size_t>(kColumns)) *
-                 18 + 4;
+        vy += static_cast<float>((buttons.size() + columns - 1) / columns) * 18 + 4;
     }
-    window_.text(left, kPopupY + popupH() - 20,
-                 "Greyed: used elsewhere (hover to see where). Axes: a pedal or a lever, pressed past the threshold.",
-                 kDim);
+    if (!find.empty() && matches == 0) {
+        window_.text(left, listTop + 18, "No control holds \"" + altFind_ + "\".", kCaution);
+    }
+    // How far it can scroll: the list's height less the room it has.
+    altScrollMax_ = std::max(0.0F, vy - (bottom + 18));
+    altScroll_ = std::clamp(altScroll_, 0.0F, altScrollMax_);
+
+    // The line at the bottom, on its own: a rig touch's note for a moment, else what is out of view, else the note.
+    std::string line;
+    ui::Colour colour = kDim;
+    if (now < altNoteUntilMs_) {
+        line = altNote_;
+        colour = altNoteOk_ ? kActive : kCaution;
+    } else if (above > 0 || below > 0) {
+        line = (below > 0 ? std::to_string(below) + " more below" : std::string()) +
+               (above > 0 && below > 0 ? ", " : "") + (above > 0 ? std::to_string(above) + " above" : std::string()) +
+               ": scroll with the mouse wheel. Greyed: used elsewhere (hover to see where).";
+        colour = kCaution;
+    } else {
+        line = "Greyed: used elsewhere (hover to see where). Axes: a pedal or a lever, pressed past the threshold.";
+    }
+    window_.text(left, kPopupY + popupH() - 20, fit(line, static_cast<std::size_t>((right - left) / ui::kCharWidth)),
+                 colour);
+}
+
+void MappingEditView::onScroll(const int notches) {
+    if (mode_ != Mode::PickAlt) return;
+    altScroll_ = std::clamp(altScroll_ - static_cast<float>(notches) * 54.0F, 0.0F, altScrollMax_);
+}
+
+void MappingEditView::onRigTouch(const DeviceId& device, const bool axis, const int index) {
+    if (!wantsRigTouches() || profile_ == nullptr || index < 0) return;
+    const DeviceLabels* const wheel = wheelLabels();
+    const bool isWheel = wheel != nullptr && idOf(*wheel) == device;
+    const RigDevice* const rigDevice = rig_.find(device);
+    const auto i = static_cast<std::size_t>(index);
+    const std::uint64_t now = nowMs();
+    const auto note = [&](std::string text, const bool ok) {
+        altNote_ = std::move(text);
+        altNoteOk_ = ok;
+        altNoteUntilMs_ = now + 3000;
+    };
+    const bool named =
+        rigDevice != nullptr && (axis ? i < rigDevice->axes.size() && rigDevice->axes[i].defined()
+                                      : i < rigDevice->buttons.size() && rigDevice->buttons[i].defined());
+    if (!named) {
+        note(std::string(axis ? "That axis" : "That button") + " has no name in the Rig tab yet: name it there first.",
+             false);
+        return;
+    }
+    const SourceRef source{isWheel ? DeviceId{} : device, index};
+    const RigControl& control = axis ? rigDevice->axes[i] : rigDevice->buttons[i];
+    const std::string name = (axis ? "axis " : "") + std::to_string(index) + " " + controlName(control);
+    altFlash_ = source;
+    altFlashAxis_ = axis;
+    altFlashUntilMs_ = now + 1500;
+    std::vector<ButtonRef>& list = edit_.secondaries[pickIndex_];
+    const EntryState state = entryState({source, axis}, ControlUse{ControlUse::Kind::Secondary, pickIndex_});
+    if (state.mine) {
+        note(name + ": already here (click it to take it off).", true);
+    } else if (state.taken) {
+        note(name + ": used elsewhere (" + state.tip + ").", false);
+    } else if (list.size() >= MapperConfig::kMaxSecondaries) {
+        note("At most " + std::to_string(MapperConfig::kMaxSecondaries) + " secondary assignments per button.", false);
+    } else {
+        list.push_back(ButtonRef{source, axis, false, 0.5F});
+        if (axis) altFocus_ = list.size() - 1;
+        note("Added " + name + ".", true);
+    }
 }
 
 void MappingEditView::drawPicker() {

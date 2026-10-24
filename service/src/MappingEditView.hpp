@@ -106,8 +106,16 @@ public:
         hoverY_ = y;
         hoverInside_ = inside;
     }
-    // A number field is being typed in: letters are not the window's shortcuts then, Escape stops typing.
-    [[nodiscard]] bool editingText() const { return field_ != Field::None; }
+    // A number field is being typed in, or the secondary popup's find box (it takes what is typed while it is open):
+    // letters are not the window's shortcuts then, Escape stops typing (clears the find box, then closes the popup).
+    [[nodiscard]] bool editingText() const { return field_ != Field::None || mode_ == Mode::PickAlt; }
+    // The mouse wheel (notches, > 0 = up): scrolls the secondary popup's list.
+    void onScroll(int notches);
+    // The secondary popup wants the rig's controls as they are touched (the app reads the devices meanwhile, as the
+    // Rig tab does) and onRigTouch gets each one: a named control is added to the button's secondaries (never taken
+    // off: only a click does that), and its entry flashes; anything else says why not.
+    [[nodiscard]] bool wantsRigTouches() const { return mode_ == Mode::PickAlt && !locked_; }
+    void onRigTouch(const DeviceId& device, bool axis, int index);
     [[nodiscard]] bool dirty() const { return loaded_ && edit_ != saved_; }
     // Can be edited now: anything while no session runs; the Games page's values also while one does (the
     // session reads them again when they are saved: live tuning).
@@ -246,6 +254,7 @@ private:
     // picker (the rig's buttons and its named axes, each toggled; an axis' threshold).
     void drawAltSource(float x, float y, float w, std::size_t index);
     void drawAltPicker();
+    void openAltPicker(std::size_t index);
     [[nodiscard]] std::string describeAlt(const ButtonRef& alt) const;
     [[nodiscard]] std::string axisName(const SourceRef& source) const;
     // "Horn", "Lever > 50%": its rig name, or "axis N".
@@ -368,6 +377,17 @@ private:
     float hoverY_ = 0.0F;
     bool hoverInside_ = false;
     std::size_t altFocus_ = 0;   // the secondary whose threshold the picker edits (when it is an axis)
+    std::string altFind_;        // the secondary popup's find box: only entries holding it are listed
+    float altScroll_ = 0;        // how far its list is scrolled down (logical pixels)
+    float altScrollMax_ = 0;     // ...at most (from the last draw)
+    // The last control touched on the rig while it was open: its entry flashes until altFlashUntilMs_; altNote_ says
+    // what happened (added, or why not), in green or amber, until altNoteUntilMs_.
+    SourceRef altFlash_{};
+    bool altFlashAxis_ = false;
+    std::uint64_t altFlashUntilMs_ = 0;
+    std::string altNote_;
+    bool altNoteOk_ = true;
+    std::uint64_t altNoteUntilMs_ = 0;
 
     std::uint64_t seenChanges_ = ~0ULL;
     std::string path_;

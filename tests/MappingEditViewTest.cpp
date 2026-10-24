@@ -1080,6 +1080,99 @@ TEST_F(EditView, AnEmptyOrIsAPlus) {
     EXPECT_TRUE(window_.has("K0"));
 }
 
+// The secondary popup's find box takes what is typed while it is open: only the entries holding it (any case) are
+// listed. Escape clears it first, then closes the popup.
+TEST_F(EditView, TheSecondaryPopupFinds) {
+    useRig(testRig());
+    open();
+    frame();
+    ASSERT_TRUE(click("+ or"));
+    frame();
+    EXPECT_TRUE(view_->editingText());   // letters are not the window's shortcuts while it is open
+    EXPECT_TRUE(window_.has("1 K1"));
+    type("k3");
+    frame();
+    EXPECT_TRUE(window_.has("k3_"));
+    EXPECT_TRUE(window_.has("3 K3"));
+    EXPECT_TRUE(window_.has("37 K37"));
+    EXPECT_FALSE(window_.has("1 K1"));
+    EXPECT_FALSE(window_.has("axis 3 Hand"));
+    EXPECT_EQ(window_.count("AXES"), 1U);   // the tab's own only: the popup's AXES has nothing to list
+    type(std::string(1, ui::kBackspace) + std::string(1, ui::kBackspace) + "HAND");
+    frame();
+    EXPECT_TRUE(window_.has("axis 3 Hand"));
+    EXPECT_FALSE(window_.has("3 K3"));
+    type("zz");
+    frame();
+    EXPECT_TRUE(window_.hasPart("No control holds \"HANDzz\"."));
+    view_->onKey(ui::kEscape);
+    frame();
+    EXPECT_TRUE(view_->popupOpen());
+    EXPECT_TRUE(window_.has("1 K1"));
+    view_->onKey(ui::kEscape);
+    frame();
+    EXPECT_FALSE(view_->popupOpen());
+}
+
+// What does not fit the popup scrolls (the mouse wheel), and the line at the bottom says how many are out of view;
+// the button box's name is shown whole.
+TEST_F(EditView, TheSecondaryPopupScrolls) {
+    useRig(testRig());
+    open();
+    frame();
+    ASSERT_TRUE(click("+ or"));
+    frame();
+    EXPECT_TRUE(window_.hasPart("Button box with a very long name indeed, longer than forty"));
+    ASSERT_TRUE(window_.hasPart(" more below: scroll with the mouse wheel."));
+    EXPECT_FALSE(window_.has("63 K63"));
+    for (int i = 0; i < 20; ++i) view_->onScroll(-1);
+    frame();
+    EXPECT_TRUE(window_.has("63 K63"));
+    EXPECT_FALSE(window_.hasPart("more below"));
+    ASSERT_TRUE(click("63 K63"));
+    frame();
+    EXPECT_TRUE(window_.hasPart("Has 1 of 8."));
+    for (int i = 0; i < 20; ++i) view_->onScroll(1);   // back to the top
+    frame();
+    EXPECT_TRUE(window_.hasPart(" more below"));
+}
+
+// A control touched on the rig while the popup is open: a named one is added (an axis with its row alive) and says so,
+// touched again it stays; one with no name in the Rig tab says to name it there.
+TEST_F(EditView, TheSecondaryPopupTakesTouches) {
+    Rig rig = testRig();
+    rig.devices[2].buttons[63] = {};   // the box's last button has no name
+    useRig(rig);
+    open();
+    frame();
+    EXPECT_FALSE(view_->wantsRigTouches());
+    ASSERT_TRUE(click("+ or"));
+    frame();
+    ASSERT_TRUE(view_->wantsRigTouches());
+    view_->onRigTouch(kBoxId, false, 37);
+    frame();
+    EXPECT_TRUE(window_.hasPart("Added 37 K37."));
+    EXPECT_TRUE(window_.hasPart("Has 1 of 8."));
+    view_->onRigTouch(kBoxId, false, 37);
+    frame();
+    EXPECT_TRUE(window_.hasPart("37 K37: already here"));
+    EXPECT_TRUE(window_.hasPart("Has 1 of 8."));
+    view_->onRigTouch(kWheelId, true, 3);   // the wheel's Hand lever
+    frame();
+    EXPECT_TRUE(window_.hasPart("Added axis 3 Hand."));
+    EXPECT_TRUE(window_.has("50%"));
+    view_->onRigTouch(kBoxId, false, 63);
+    frame();
+    EXPECT_TRUE(window_.hasPart("has no name in the Rig tab yet"));
+    EXPECT_TRUE(window_.hasPart("Has 2 of 8."));
+    nowMs_ += 4000;   // the note goes after a few seconds
+    frame();
+    EXPECT_FALSE(window_.hasPart("has no name"));
+    ASSERT_TRUE(click("Done"));
+    frame();
+    EXPECT_TRUE(window_.has("K37 +1"));
+}
+
 // A secondary the rig has not named shows in amber; one used twice is red; with no rig the popup says so.
 TEST_F(EditView, SecondariesThatCannotBeUsed) {
     useOlderDefault();
