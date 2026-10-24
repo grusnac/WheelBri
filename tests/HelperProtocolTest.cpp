@@ -227,10 +227,10 @@ TEST(HelperProtocol, RepliesRoundTrip) {
     }
 }
 
-TEST(HelperProtocol, KnownTypesAreExactlyHelloToSetLogLevel) {
+TEST(HelperProtocol, KnownTypesAreExactlyHelloToTakeHideFilterOff) {
     EXPECT_FALSE(isKnown(static_cast<RequestType>(0)));
-    for (int type = 1; type <= 9; ++type) EXPECT_TRUE(isKnown(static_cast<RequestType>(type))) << type;
-    EXPECT_FALSE(isKnown(static_cast<RequestType>(10)));
+    for (int type = 1; type <= 10; ++type) EXPECT_TRUE(isKnown(static_cast<RequestType>(type))) << type;
+    EXPECT_FALSE(isKnown(static_cast<RequestType>(11)));
     EXPECT_FALSE(isKnown(static_cast<RequestType>(255)));
     EXPECT_EQ(requestProblem(Request{static_cast<RequestType>(0), 1, {}}), "unknown request 0");
 }
@@ -253,7 +253,7 @@ TEST(HelperProtocol, CreateVirtualWheelMayNameTheWheel) {
     EXPECT_EQ(requestVirtualWheel(*back), "g25");
 }
 
-TEST(HelperProtocol, EveryOtherRequestButPutHideFilterTakesNoDevices) {
+TEST(HelperProtocol, EveryOtherRequestButTheHideFilterOnesTakesNoDevices) {
     for (int type = 2; type <= 8; ++type) {   // Hello and SetLogLevel take a level (below)
         const auto requestType = static_cast<RequestType>(type);
         if (requestType == RequestType::PutHideFilter || requestType == RequestType::CreateVirtualWheel) continue;
@@ -377,4 +377,19 @@ TEST(HelperProtocol, WrongArgumentsSayWhatTheRequestTakes) {
               "CreateVirtualWheel takes one wheel: g25, g27, g920 or g923");
     EXPECT_EQ(requestProblem(Request{RequestType::ShowRig, 1, {kMoza}}), "ShowRig takes no devices");
     EXPECT_EQ(requestProblem(Request{RequestType::ShareLogFolder, 1, {""}}), "ShareLogFolder takes no devices");
+}
+
+// TakeHideFilterOff: the same rules as PutHideFilter (HID interfaces, never a virtual wheel, 1..kMaxDevices of them).
+TEST(HelperProtocol, TakeHideFilterOffTakesTheInterfacesLikePutHideFilter) {
+    EXPECT_STREQ(requestName(RequestType::TakeHideFilterOff), "TakeHideFilterOff");
+    EXPECT_EQ(requestProblem(Request{RequestType::TakeHideFilterOff, 1, {kMoza}}), "");
+    EXPECT_EQ(requestProblem(Request{RequestType::TakeHideFilterOff, 1, {}}), "TakeHideFilterOff without devices");
+    const std::vector<std::string> tooMany(kMaxDevices + 1, kMoza);
+    EXPECT_EQ(requestProblem(Request{RequestType::TakeHideFilterOff, 1, tooMany}),
+              "more than " + std::to_string(kMaxDevices) + " devices in one TakeHideFilterOff");
+    EXPECT_NE(requestProblem(Request{RequestType::TakeHideFilterOff, 1, {kMoza, "C:\\Windows\\evil.exe"}}), "");
+    EXPECT_NE(requestProblem(Request{RequestType::TakeHideFilterOff, 1, {R"(HID\VID_046D&PID_C262\1&2&0&0000)"}}), "");
+    const Request back = roundTrip(Request{RequestType::TakeHideFilterOff, 9, {kMoza}});
+    EXPECT_EQ(back.type, RequestType::TakeHideFilterOff);
+    EXPECT_EQ(back.devices, std::vector<std::string>{kMoza});
 }

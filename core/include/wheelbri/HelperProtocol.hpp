@@ -19,11 +19,12 @@ namespace wheelbri::helper {
 //
 // Safety, kept by the helper whatever the request says:
 // - HideRig always names the caller's own process (the pipe tells the helper who it is), never one from the request.
-// - PutHideFilter only takes HID interface instance ids, never a virtual wheel (046D:C262, C299); the helper checks
-//   again that each is present and a game controller before it puts the filter on.
+// - PutHideFilter and TakeHideFilterOff only take HID interface instance ids, never a virtual wheel (046D:C262, C299);
+//   the helper checks again that each is present and a game controller before it changes anything.
 // - No paths, no file names, no command lines: the helper reads none of the user's files and runs only its own
 //   scripts from its install folder.
-// - When the pipe closes (Stop, crash, logoff) the helper removes the virtual wheel and shows the rig again.
+// - When the pipe closes (Stop, crash, logoff) the helper removes the virtual wheel, shows the rig again and takes the
+//   filter off the interfaces this connection put it on.
 
 // \\.\pipe\wheelbri-helper
 inline constexpr std::string_view kPipeName = R"(\\.\pipe\wheelbri-helper)";
@@ -31,7 +32,7 @@ inline constexpr std::uint16_t kVersion = 1;
 
 inline constexpr std::size_t kHeaderSize = 12;
 inline constexpr std::size_t kMaxMessage = 8192;   // either way; anything longer is refused unread
-inline constexpr std::size_t kMaxDevices = 16;     // interfaces in one PutHideFilter
+inline constexpr std::size_t kMaxDevices = 16;     // interfaces in one PutHideFilter or TakeHideFilterOff
 inline constexpr std::size_t kMaxIdLength = 200;   // one instance id
 inline constexpr std::size_t kMaxText = 2000;      // a reply's text (cut at a UTF-8 boundary when longer)
 
@@ -45,6 +46,7 @@ enum class RequestType : std::uint8_t {
     InstallWheelDriver = 7,  // when Windows' driver store has none
     ShareLogFolder = 8,     // lets the drivers write into the caller's own log folder
     SetLogLevel = 9,        // devices: one app log level (trace, debug, info, warn) for the drivers and the helper
+    TakeHideFilterOff = 10,  // devices: the HID interfaces to take wheelbri-hide off (each restarts without it)
 };
 
 enum class Status : std::uint8_t {
@@ -55,13 +57,13 @@ enum class Status : std::uint8_t {
     Unsupported = 4,  // a request type this helper does not know (an older helper)
 };
 
-// The body's strings ("devices"): PutHideFilter's HID interfaces; SetLogLevel's one level; a Hello may carry the
-// app's log level as its one string (the helper takes it for its own log; an older helper ignores it); and
-// CreateVirtualWheel may name the wheel, "g920" or "g25" (none: the G920, as an older app asks).
+// The body's strings ("devices"): PutHideFilter's and TakeHideFilterOff's HID interfaces; SetLogLevel's one level; a
+// Hello may carry the app's log level as its one string (the helper takes it for its own log; an older helper ignores
+// it); and CreateVirtualWheel may name the wheel, "g920" or "g25" (none: the G920, as an older app asks).
 struct Request {
     RequestType type = RequestType::Hello;
     std::uint32_t seq = 0;              // echoed in the reply
-    std::vector<std::string> devices;   // PutHideFilter, SetLogLevel, Hello (see above)
+    std::vector<std::string> devices;   // PutHideFilter, TakeHideFilterOff, SetLogLevel, Hello (see above)
 };
 
 struct Reply {

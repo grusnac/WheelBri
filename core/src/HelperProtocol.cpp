@@ -177,7 +177,7 @@ std::optional<Reply> decodeReply(std::span<const std::uint8_t> bytes, std::strin
 bool isKnown(const RequestType type) {
     const auto value = static_cast<std::uint8_t>(type);
     return value >= static_cast<std::uint8_t>(RequestType::Hello) &&
-           value <= static_cast<std::uint8_t>(RequestType::SetLogLevel);
+           value <= static_cast<std::uint8_t>(RequestType::TakeHideFilterOff);
 }
 
 std::optional<LogLevel> requestLogLevel(const Request& request) {
@@ -222,12 +222,13 @@ std::string requestProblem(const Request& request) {
         return requestVirtualWheel(request) ? std::string()
                                             : "CreateVirtualWheel takes one wheel: g25, g27, g920 or g923";
     }
-    if (request.type != RequestType::PutHideFilter) {
+    if (request.type != RequestType::PutHideFilter && request.type != RequestType::TakeHideFilterOff) {
         return request.devices.empty() ? std::string() : std::string(requestName(request.type)) + " takes no devices";
     }
-    if (request.devices.empty()) return "PutHideFilter without devices";
+    const std::string name = requestName(request.type);
+    if (request.devices.empty()) return name + " without devices";
     if (request.devices.size() > kMaxDevices) {
-        return "more than " + std::to_string(kMaxDevices) + " devices in one PutHideFilter";
+        return "more than " + std::to_string(kMaxDevices) + " devices in one " + name;
     }
     for (const std::string& id : request.devices) {
         if (std::string problem = hideDeviceProblem(id); !problem.empty()) return problem;
@@ -266,6 +267,7 @@ const char* requestName(const RequestType type) {
         case RequestType::InstallWheelDriver: return "InstallWheelDriver";
         case RequestType::ShareLogFolder: return "ShareLogFolder";
         case RequestType::SetLogLevel: return "SetLogLevel";
+        case RequestType::TakeHideFilterOff: return "TakeHideFilterOff";
     }
     return "unknown";
 }
