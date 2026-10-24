@@ -510,25 +510,25 @@ void MappingEditView::onKey(const char key) {
         field_ = Field::None;   // Escape while typing: drop what was typed
         return;
     }
-    if (mode_ == Mode::PickAlt && !altFind_.empty()) {
-        altFind_.clear();   // the find box first, then the popup
-        altScroll_ = 0;
+    if ((mode_ == Mode::PickAlt || mode_ == Mode::Pick) && !findText_.empty()) {
+        findText_.clear();   // the find box first, then the popup
+        listScroll_ = 0;
         return;
     }
     mode_ = Mode::Idle;
 }
 
 void MappingEditView::onText(const std::string& text) {
-    if (field_ == Field::None && mode_ == Mode::PickAlt) {
+    if (field_ == Field::None && (mode_ == Mode::PickAlt || mode_ == Mode::Pick)) {
         // The secondary popup's find box: printable characters, Backspace; Enter does nothing.
         for (const char c : text) {
             if (c == ui::kBackspace) {
-                if (!altFind_.empty()) altFind_.pop_back();
-            } else if (c >= ' ' && c <= '~' && altFind_.size() < 24) {
-                altFind_ += c;
+                if (!findText_.empty()) findText_.pop_back();
+            } else if (c >= ' ' && c <= '~' && findText_.size() < 24) {
+                findText_ += c;
             }
         }
-        altScroll_ = 0;
+        listScroll_ = 0;
         return;
     }
     if (field_ == Field::None) return;
@@ -802,11 +802,7 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
     const auto chars = static_cast<std::size_t>(std::max(0.0F, w - 12 - tagW) / ui::kCharWidth);
     window_.text(x + 6, y + 4, fit(describe(source, kind == Slot::Axis), chars),
                  missing(source, kind == Slot::Axis) ? kCaution : source.mapped() ? kText : kDim);
-    hit(x, y, w, 16, [this, kind, index] {
-        mode_ = Mode::Pick;
-        pickKind_ = kind;
-        pickIndex_ = index;
-    });
+    hit(x, y, w, 16, [this, kind, index] { openPicker(kind, index); });
 }
 
 void MappingEditView::draw() {
@@ -2287,11 +2283,7 @@ float MappingEditView::drawGameButtons(const std::size_t index, float y) {
                          source.mapped() ? kText : kDim);
             if (source.mapped()) tip(gameColumnX, y, fieldW, 16, describeFull(source, false));
             if (editable()) {
-                hit(gameColumnX, y, fieldW, 16, [this, b] {
-                    mode_ = Mode::Pick;
-                    pickKind_ = Slot::GameButton;
-                    pickIndex_ = b;
-                });
+                hit(gameColumnX, y, fieldW, 16, [this, b] { openPicker(Slot::GameButton, b); });
             }
             button(gameColumnX + fieldW + 8, y, "Remove", [this, id, b] {
                 tuningFor(id).buttons.erase(static_cast<int>(b));
@@ -2359,11 +2351,7 @@ void MappingEditView::drawAddButton() {
                      mine ? kMine : kText);
         tip(x, y, w, 16, "Mapping tab: " + (edit_.buttons[b].mapped() ? describeFull(edit_.buttons[b], false)
                                                                       : std::string("nothing")));
-        hit(x, y, w, 16, [this, b] {
-            mode_ = Mode::Pick;
-            pickKind_ = Slot::GameButton;
-            pickIndex_ = b;
-        });
+        hit(x, y, w, 16, [this, b] { openPicker(Slot::GameButton, b); });
     }
 }
 
@@ -2586,14 +2574,24 @@ void MappingEditView::drawAltSource(const float x, const float y, const float w,
     hit(x, y, w, 16, [this, index] { openAltPicker(index); });
 }
 
+void MappingEditView::openPicker(const Slot kind, const std::size_t index) {
+    mode_ = Mode::Pick;
+    pickKind_ = kind;
+    pickIndex_ = index;
+    findText_.clear();
+    listScroll_ = 0;
+    touchFlashUntilMs_ = 0;
+    touchNoteUntilMs_ = 0;
+}
+
 void MappingEditView::openAltPicker(const std::size_t index) {
     mode_ = Mode::PickAlt;
     pickIndex_ = index;
     altFocus_ = 0;
-    altFind_.clear();
-    altScroll_ = 0;
-    altFlashUntilMs_ = 0;
-    altNoteUntilMs_ = 0;
+    findText_.clear();
+    listScroll_ = 0;
+    touchFlashUntilMs_ = 0;
+    touchNoteUntilMs_ = 0;
 }
 
 void MappingEditView::drawAltPicker() {
@@ -2616,7 +2614,7 @@ void MappingEditView::drawAltPicker() {
     const float findW = 24 * ui::kCharWidth + 12;
     window_.fill(findX, kPopupY + 28, findW, 16, kStripe);
     window_.outline(findX, kPopupY + 28, findW, 16, field_ == Field::None ? kHeading : style::kFieldEdge);
-    window_.text(findX + 6, kPopupY + 32, altFind_ + (field_ == Field::None ? "_" : ""), kText);
+    window_.text(findX + 6, kPopupY + 32, findText_ + (field_ == Field::None ? "_" : ""), kText);
     tip(findX, kPopupY + 28, findW, 16,
         "Type a number or a name: only the controls holding it are listed. Esc clears it.");
     button(findX + findW + 12, kPopupY + 28, "(clear all)", [&list] { list.clear(); }, false, !list.empty(), 100);
@@ -2652,14 +2650,14 @@ void MappingEditView::drawAltPicker() {
     std::size_t above = 0;
     std::size_t below = 0;
     const auto shown = [&](const float rowVy) {
-        const float y = rowVy - altScroll_;
+        const float y = rowVy - listScroll_;
         if (y < listTop) return false;
         return y <= bottom;
     };
     const auto count = [&](const float rowVy) {
-        if (rowVy - altScroll_ < listTop) {
+        if (rowVy - listScroll_ < listTop) {
             ++above;
-        } else if (rowVy - altScroll_ > bottom) {
+        } else if (rowVy - listScroll_ > bottom) {
             ++below;
         }
     };
@@ -2667,7 +2665,7 @@ void MappingEditView::drawAltPicker() {
         window_.text(left, listTop, "The rig has no devices yet: define them in the Rig tab.", kCaution);
     }
     // What the find box keeps: an entry whose text holds it (any case), or every entry of a device whose name does.
-    std::string find = altFind_;
+    std::string find = findText_;
     std::transform(find.begin(), find.end(), find.begin(), [](const unsigned char c) { return std::tolower(c); });
     const auto holds = [&find](std::string text) {
         if (find.empty()) return true;
@@ -2701,7 +2699,7 @@ void MappingEditView::drawAltPicker() {
                       list.push_back(ref);
                       if (ref.axis) altFocus_ = list.size() - 1;
                   });
-        if (now < altFlashUntilMs_ && altFlash_ == source && altFlashAxis_ == axis) {
+        if (now < touchFlashUntilMs_ && touchFlash_ == source && touchFlashAxis_ == axis) {
             window_.outline(x - 1, entryY - 1, kChipW + 2, 18, kActive);
             window_.outline(x - 2, entryY - 2, kChipW + 4, 20, kActive);
         }
@@ -2716,7 +2714,7 @@ void MappingEditView::drawAltPicker() {
                                  (isWheel ? "(the wheel)" : deviceKindName(device.kind));
         const auto room = static_cast<std::size_t>((right - left - 8) / ui::kCharWidth);
         if (shown(vy)) {
-            window_.text(left + 8, vy - altScroll_ + 2,
+            window_.text(left + 8, vy - listScroll_ + 2,
                          fit(deviceName(device), room > tail.size() + 8 ? room - tail.size() : 8) + tail, kText);
         }
         vy += 14;
@@ -2744,7 +2742,7 @@ void MappingEditView::drawAltPicker() {
     const bool anyButtons = anyKept(false);
     std::size_t matches = 0;
     if (anyAxes) {
-        if (shown(vy)) style::heading(window_, left, vy - altScroll_ + 2, "AXES");
+        if (shown(vy)) style::heading(window_, left, vy - listScroll_ + 2, "AXES");
         vy += 16;
     }
     thresholdSliderX_ = left + kChipW + 12 + 24;
@@ -2769,7 +2767,7 @@ void MappingEditView::drawAltPicker() {
                 vy += 18;
                 continue;
             }
-            const float y = vy - altScroll_;
+            const float y = vy - listScroll_;
             const SourceRef source = entryAt(left, y, *rigDevice, isWheel, true, a);
             std::size_t mine = list.size();
             for (std::size_t i = 0; i < list.size(); ++i) {
@@ -2817,7 +2815,7 @@ void MappingEditView::drawAltPicker() {
     // BUTTONS: every device's named buttons, a grid each.
     if (anyButtons) {
         if (anyAxes) vy += 4;
-        if (shown(vy)) style::heading(window_, left, vy - altScroll_ + 2, "BUTTONS");
+        if (shown(vy)) style::heading(window_, left, vy - listScroll_ + 2, "BUTTONS");
         vy += 16;
     }
     for (const DeviceLabels* const entry : order) {
@@ -2838,7 +2836,7 @@ void MappingEditView::drawAltPicker() {
             ++matches;
             const float rowVy = vy + static_cast<float>(n / columns) * 18;
             if (shown(rowVy)) {
-                (void)entryAt(left + static_cast<float>(n % columns) * (kChipW + 4), rowVy - altScroll_, *rigDevice,
+                (void)entryAt(left + static_cast<float>(n % columns) * (kChipW + 4), rowVy - listScroll_, *rigDevice,
                               isWheel, false, buttons[n]);
             } else {
                 count(rowVy);
@@ -2847,18 +2845,18 @@ void MappingEditView::drawAltPicker() {
         vy += static_cast<float>((buttons.size() + columns - 1) / columns) * 18 + 4;
     }
     if (!find.empty() && matches == 0) {
-        window_.text(left, listTop + 18, "No control holds \"" + altFind_ + "\".", kCaution);
+        window_.text(left, listTop + 18, "No control holds \"" + findText_ + "\".", kCaution);
     }
     // How far it can scroll: the list's height less the room it has.
-    altScrollMax_ = std::max(0.0F, vy - (bottom + 18));
-    altScroll_ = std::clamp(altScroll_, 0.0F, altScrollMax_);
+    listScrollMax_ = std::max(0.0F, vy - (bottom + 18));
+    listScroll_ = std::clamp(listScroll_, 0.0F, listScrollMax_);
 
     // The line at the bottom, on its own: a rig touch's note for a moment, else what is out of view, else the note.
     std::string line;
     ui::Colour colour = kDim;
-    if (now < altNoteUntilMs_) {
-        line = altNote_;
-        colour = altNoteOk_ ? kActive : kCaution;
+    if (now < touchNoteUntilMs_) {
+        line = touchNote_;
+        colour = touchNoteOk_ ? kActive : kCaution;
     } else if (above > 0 || below > 0) {
         line = (below > 0 ? std::to_string(below) + " more below" : std::string()) +
                (above > 0 && below > 0 ? ", " : "") + (above > 0 ? std::to_string(above) + " above" : std::string()) +
@@ -2872,8 +2870,8 @@ void MappingEditView::drawAltPicker() {
 }
 
 void MappingEditView::onScroll(const int notches) {
-    if (mode_ != Mode::PickAlt) return;
-    altScroll_ = std::clamp(altScroll_ - static_cast<float>(notches) * 54.0F, 0.0F, altScrollMax_);
+    if (mode_ != Mode::PickAlt && mode_ != Mode::Pick) return;
+    listScroll_ = std::clamp(listScroll_ - static_cast<float>(notches) * 54.0F, 0.0F, listScrollMax_);
 }
 
 void MappingEditView::onRigTouch(const DeviceId& device, const bool axis, const int index) {
@@ -2884,10 +2882,17 @@ void MappingEditView::onRigTouch(const DeviceId& device, const bool axis, const 
     const auto i = static_cast<std::size_t>(index);
     const std::uint64_t now = nowMs();
     const auto note = [&](std::string text, const bool ok) {
-        altNote_ = std::move(text);
-        altNoteOk_ = ok;
-        altNoteUntilMs_ = now + 3000;
+        touchNote_ = std::move(text);
+        touchNoteOk_ = ok;
+        touchNoteUntilMs_ = now + 3000;
     };
+    // The source picker takes an axis for an axis, a button for the rest.
+    if (mode_ == Mode::Pick && axis != (pickKind_ == Slot::Axis)) {
+        note(std::string(axis ? "That was an axis" : "That was a button") + ": " + pickWhat() + " takes " +
+                 (axis ? "a button." : "an axis."),
+             false);
+        return;
+    }
     const bool named =
         rigDevice != nullptr && (axis ? i < rigDevice->axes.size() && rigDevice->axes[i].defined()
                                       : i < rigDevice->buttons.size() && rigDevice->buttons[i].defined());
@@ -2899,9 +2904,21 @@ void MappingEditView::onRigTouch(const DeviceId& device, const bool axis, const 
     const SourceRef source{isWheel ? DeviceId{} : device, index};
     const RigControl& control = axis ? rigDevice->axes[i] : rigDevice->buttons[i];
     const std::string name = (axis ? "axis " : "") + std::to_string(index) + " " + controlName(control);
-    altFlash_ = source;
-    altFlashAxis_ = axis;
-    altFlashUntilMs_ = now + 1500;
+    touchFlash_ = source;
+    touchFlashAxis_ = axis;
+    touchFlashUntilMs_ = now + 1500;
+    if (mode_ == Mode::Pick) {
+        // Picked and closed, as a click on it; one used elsewhere only flashes.
+        const EntryState state =
+            pickKind_ == Slot::GameButton ? EntryState{} : entryState({source, axis}, pickUse());
+        if (state.taken && !state.mine) {
+            note(name + ": used elsewhere (" + state.tip + "): clear it there first.", false);
+            return;
+        }
+        setPicked(source);
+        mode_ = Mode::Idle;
+        return;
+    }
     std::vector<ButtonRef>& list = edit_.secondaries[pickIndex_];
     const EntryState state = entryState({source, axis}, ControlUse{ControlUse::Kind::Secondary, pickIndex_});
     if (state.mine) {
@@ -2917,35 +2934,52 @@ void MappingEditView::onRigTouch(const DeviceId& device, const bool axis, const 
     }
 }
 
+ControlUse MappingEditView::pickUse() const {
+    return {pickKind_ == Slot::Axis  ? ControlUse::Kind::Axis
+            : pickKind_ == Slot::Hat ? ControlUse::Kind::Hat
+                                     : ControlUse::Kind::Button,
+            pickIndex_};
+}
+
+std::string MappingEditView::pickWhat() const {
+    if (pickKind_ == Slot::Axis) return kAxisNames[pickIndex_];
+    if (pickKind_ == Slot::Hat) return std::string("D-pad ") + kHatNames[pickIndex_];
+    std::string what = "button " + std::to_string(gameNumber(pickIndex_)) + " " +
+                       std::string(profile_ != nullptr ? profile_->buttonName(pickIndex_) : std::string_view());
+    if (pickKind_ == Slot::GameButton && selectedGameIndex() < games_.size()) {
+        what += " in " + games_[selectedGameIndex()].label;
+    }
+    return what;
+}
+
 void MappingEditView::drawPicker() {
     hit(0, 0, canvasW(), contentH(), [] {});   // clicks outside the popup do nothing
     window_.fill(kPopupX, kPopupY, popupW(), popupH(), style::kBox);
     window_.outline(kPopupX, kPopupY, popupW(), popupH(), kHeading);
     const bool axis = pickKind_ == Slot::Axis;
     const bool forGame = pickKind_ == Slot::GameButton;
-    const std::string what = pickKind_ == Slot::Axis ? kAxisNames[pickIndex_]
-                             : pickKind_ == Slot::Hat ? std::string("D-pad ") + kHatNames[pickIndex_]
-                                                      : "button " + std::to_string(gameNumber(pickIndex_)) + " " +
-                                                            std::string(profile_->buttonName(pickIndex_)) +
-                                                            (forGame ? " in " + games_[selectedGameIndex()].label
-                                                                     : std::string());
     const float left = kPopupX + 12;
-    window_.text(left, kPopupY + 10, "What drives " + what + "?", kHeading);
+    const float right = kPopupX + popupW() - 12;
+    window_.text(left, kPopupY + 10, "What drives " + pickWhat() + "?", kHeading);
     const SourceRef current = pickedSource();
-    // What is being picked, as usesOf names it: a control used anywhere else is greyed (its use in a tooltip).
-    const ControlUse self{pickKind_ == Slot::Axis  ? ControlUse::Kind::Axis
-                          : pickKind_ == Slot::Hat ? ControlUse::Kind::Hat
-                                                   : ControlUse::Kind::Button,
-                          pickIndex_};
+    const ControlUse self = pickUse();
     button(kPopupX + popupW() - 100, kPopupY + 6, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 88);
-    window_.text(left + 140, kPopupY + 32,
-                 forGame ? "For this game only: any control, also one the Mapping tab uses elsewhere."
-                         : "Greyed: used elsewhere (hover to see where); clear it there first.",
-                 kDim);
     button(left, kPopupY + 28, "(nothing)", [this] {
         setPicked({});
         mode_ = Mode::Idle;
     }, !current.mapped(), true, 120);
+
+    // How to pick: press it on the rig (the app reads the devices meanwhile), or type to find it.
+    const std::string how = axis ? "Move an axis on your rig, or find it:" : "Press a button on your rig, or find it:";
+    const float howX = left + 132;
+    window_.text(howX, kPopupY + 32, how, kDim);
+    const float findX = howX + static_cast<float>(how.size() + 1) * ui::kCharWidth;
+    const float findW = 24 * ui::kCharWidth + 12;
+    window_.fill(findX, kPopupY + 28, findW, 16, kStripe);
+    window_.outline(findX, kPopupY + 28, findW, 16, kHeading);
+    window_.text(findX + 6, kPopupY + 32, findText_ + "_", kText);
+    tip(findX, kPopupY + 28, findW, 16,
+        "Type a number or a name: only the controls holding it are listed. Esc clears it.");
 
     const DeviceLabels* const wheel = wheelLabels();
     // The wheel first, then the accessories.
@@ -2954,58 +2988,125 @@ void MappingEditView::drawPicker() {
     for (const DeviceLabels& device : devices_) {
         if (&device != wheel) order.push_back(&device);
     }
-    float y = kPopupY + 54;
     const int kColumns = popupColumns();   // more columns in a wider window
+    const auto columns = static_cast<std::size_t>(kColumns);
     const float kEntryW = entryW(kColumns);
+    // The list scrolls (the mouse wheel): `vy` is where a row would be unscrolled; rows outside [listTop, bottom] are
+    // not drawn, and counted for the line at the bottom.
+    const float listTop = kPopupY + 54;
+    const float bottom = kPopupY + popupH() - 40;
+    float vy = listTop;
+    std::size_t above = 0;
+    std::size_t below = 0;
+    const auto shown = [&](const float rowVy) {
+        const float y = rowVy - listScroll_;
+        return y >= listTop && y <= bottom;
+    };
+    const auto count = [&](const float rowVy) {
+        if (rowVy - listScroll_ < listTop) {
+            ++above;
+        } else if (rowVy - listScroll_ > bottom) {
+            ++below;
+        }
+    };
     if (devices_.empty()) {
-        window_.text(left, y, "The rig has no devices yet: define them in the Rig tab.", kCaution);
+        window_.text(left, listTop, "The rig has no devices yet: define them in the Rig tab.", kCaution);
     }
+    std::string find = findText_;
+    std::transform(find.begin(), find.end(), find.begin(), [](const unsigned char c) { return std::tolower(c); });
+    const auto holds = [&find](std::string text) {
+        if (find.empty()) return true;
+        std::transform(text.begin(), text.end(), text.begin(), [](const unsigned char c) { return std::tolower(c); });
+        return text.find(find) != std::string::npos;
+    };
+    const std::uint64_t now = nowMs();
+    std::size_t matches = 0;
     for (const DeviceLabels* const entry : order) {
         const DeviceLabels& device = *entry;
-        if (y > kPopupY + popupH() - 30) break;
         const bool isWheel = wheel != nullptr && idOf(device) == idOf(*wheel);
-        window_.text(left, y, fit(deviceName(device), 40) + "  " + deviceId(device.vendorId, device.productId) + "  " +
-                                  (isWheel ? "(the wheel)" : deviceKindName(device.kind)),
-                     kText);
-        y += 14;
-        int column = 0;
-        const std::size_t count = axis ? device.axes.size() : device.buttons.size();
-        for (std::size_t index = 0; index < count; ++index) {
-            const RigDevice* const rigDevice = rig_.find(idOf(device));
-            const RigControl* const control =
-                rigDevice == nullptr ? nullptr : axis ? &rigDevice->axes[index] : &rigDevice->buttons[index];
-            if (control == nullptr || !control->defined()) continue;
+        const RigDevice* const rigDevice = rig_.find(idOf(device));
+        const bool wholeDevice = !find.empty() && holds(deviceName(device));
+        // The device's named controls of the kind picked, those the find box keeps.
+        std::vector<std::size_t> kept;
+        bool anyDefined = false;
+        if (rigDevice != nullptr) {
+            const std::size_t n = axis ? rigDevice->axes.size() : rigDevice->buttons.size();
+            for (std::size_t index = 0; index < n; ++index) {
+                const RigControl& control = axis ? rigDevice->axes[index] : rigDevice->buttons[index];
+                if (!control.defined()) continue;
+                anyDefined = true;
+                if (wholeDevice || holds(std::to_string(index) + " " + controlName(control))) kept.push_back(index);
+            }
+        }
+        if (kept.empty() && (!find.empty() || anyDefined)) continue;   // nothing of it to list
+        const std::string tail = "  " + deviceId(device.vendorId, device.productId) + "  " +
+                                 (isWheel ? "(the wheel)" : deviceKindName(device.kind));
+        const auto room = static_cast<std::size_t>((right - left) / ui::kCharWidth);
+        if (shown(vy)) {
+            window_.text(left, vy - listScroll_,
+                         fit(deviceName(device), room > tail.size() + 8 ? room - tail.size() : 8) + tail, kText);
+        }
+        vy += 14;
+        if (kept.empty()) {
+            if (shown(vy)) {
+                window_.text(left, vy - listScroll_,
+                             axis ? "no axis named: name them in the Rig tab"
+                                  : "no button named: name them in the Rig tab",
+                             kDim);
+            }
+            vy += 14 + 8;
+            continue;
+        }
+        for (std::size_t n = 0; n < kept.size(); ++n) {
+            ++matches;
+            const std::size_t index = kept[n];
+            const float rowVy = vy + static_cast<float>(n / columns) * 18;
+            if (!shown(rowVy)) {
+                count(rowVy);
+                continue;
+            }
+            const RigControl& control = axis ? rigDevice->axes[index] : rigDevice->buttons[index];
             const SourceRef source{isWheel ? DeviceId{} : idOf(device), static_cast<int>(index)};
-            const float x = left + static_cast<float>(column) * (kEntryW + 4);
+            const float x = left + static_cast<float>(n % columns) * (kEntryW + 4);
+            const float y = rowVy - listScroll_;
             // For one game a control may be used again (it swaps for that game): nothing greyed then.
             EntryState state = forGame ? EntryState{} : entryState({source, axis}, self);
             state.mine = forGame ? source == current : state.mine || source == current;
-            const std::string text = std::to_string(index) + " " +
-                                     controlName(*control);
-            drawEntry(x, y, kEntryW, text, state, [this, source] {
+            drawEntry(x, y, kEntryW, std::to_string(index) + " " + controlName(control), state, [this, source] {
                 setPicked(source);   // which way round stays the row's Invert
                 mode_ = Mode::Idle;
             });
-            if (++column == kColumns) {
-                column = 0;
-                y += 18;
+            if (now < touchFlashUntilMs_ && touchFlash_ == source && touchFlashAxis_ == axis) {
+                window_.outline(x - 1, y - 1, kEntryW + 2, 18, kActive);
+                window_.outline(x - 2, y - 2, kEntryW + 4, 20, kActive);
             }
         }
-        const RigDevice* const rigDevice = rig_.find(idOf(device));
-        const bool anyDefined =
-            rigDevice != nullptr &&
-            (axis ? std::any_of(rigDevice->axes.begin(), rigDevice->axes.end(), [](const RigControl& c) { return c.defined(); })
-                  : std::any_of(rigDevice->buttons.begin(), rigDevice->buttons.end(),
-                                [](const RigControl& c) { return c.defined(); }));
-        if (column == 0 && !anyDefined) {
-            window_.text(left, y, axis ? "no axis named: name them in the Rig tab" : "no button named: name them in the Rig tab",
-                         kDim);
-            y += 14;
-        } else if (column != 0) {
-            y += 18;
-        }
-        y += 8;
+        vy += static_cast<float>((kept.size() + columns - 1) / columns) * 18 + 8;
     }
+    if (!find.empty() && matches == 0) {
+        window_.text(left, listTop, "No control holds \"" + findText_ + "\".", kCaution);
+    }
+    listScrollMax_ = std::max(0.0F, vy - (bottom + 18));
+    listScroll_ = std::clamp(listScroll_, 0.0F, listScrollMax_);
+
+    // The line at the bottom: a rig touch's note for a moment, else what is out of view, else what greyed means.
+    std::string line;
+    ui::Colour colour = kDim;
+    const std::string greyed = forGame ? "For this game only: any control, also one the Mapping tab uses elsewhere."
+                                       : "Greyed: used elsewhere (hover to see where); clear it there first.";
+    if (now < touchNoteUntilMs_) {
+        line = touchNote_;
+        colour = touchNoteOk_ ? kActive : kCaution;
+    } else if (above > 0 || below > 0) {
+        line = (below > 0 ? std::to_string(below) + " more below" : std::string()) +
+               (above > 0 && below > 0 ? ", " : "") + (above > 0 ? std::to_string(above) + " above" : std::string()) +
+               ": scroll with the mouse wheel. " + greyed;
+        colour = kCaution;
+    } else {
+        line = greyed;
+    }
+    window_.text(left, kPopupY + popupH() - 20, fit(line, static_cast<std::size_t>((right - left) / ui::kCharWidth)),
+                 colour);
 }
 
 }  // namespace wheelbri::service

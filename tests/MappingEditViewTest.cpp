@@ -457,6 +457,57 @@ TEST_F(EditView, AControlUsedElsewhereIsGreyed) {
     EXPECT_FALSE(window_.hasPart("Sources are the rig's controls"));
 }
 
+// The source picker as the secondary popup: a find box (typing filters, Escape clears it, then closes), a list that
+// scrolls with the line at the bottom saying what is out of view, and controls touched on the rig: the right kind,
+// named and free is picked (the popup closes); the wrong kind, an unnamed one or one used elsewhere says why.
+TEST_F(EditView, TheSourcePickerFindsScrollsAndTakesTouches) {
+    Rig rig = testRig();
+    for (std::size_t b = 0; b < MapperConfig::kMaxSourceButtons; ++b) {   // more than the popup holds
+        rig.devices[1].buttons[b] = {"P" + std::to_string(b), ""};
+        rig.devices[3].buttons[b] = {"S" + std::to_string(b), ""};
+    }
+    rig.devices[2].buttons[63] = {};   // the box's last button has no name
+    useRig(rig);
+    open();
+    ASSERT_TRUE(click("Moza R3: B13"));   // R Paddle
+    frame();
+    EXPECT_TRUE(view_->editingText());
+    EXPECT_TRUE(view_->wantsRigTouches());
+    ASSERT_TRUE(window_.hasPart(" more below: scroll with the mouse wheel."));
+    EXPECT_FALSE(window_.has("63 S63"));
+    for (int i = 0; i < 40; ++i) view_->onScroll(-1);
+    frame();
+    EXPECT_TRUE(window_.has("63 S63"));
+    EXPECT_TRUE(window_.hasPart(" above: scroll with the mouse wheel."));
+    type("k4");
+    frame();
+    EXPECT_TRUE(window_.has("4 K4"));
+    EXPECT_TRUE(window_.has("41 K41"));
+    EXPECT_FALSE(window_.has("1 K1"));
+    EXPECT_FALSE(window_.hasPart("more below"));
+    view_->onKey(ui::kEscape);   // clears the find box
+    frame();
+    EXPECT_TRUE(view_->popupOpen());
+    EXPECT_TRUE(window_.has("1 K1"));
+    // Touches.
+    view_->onRigTouch(kWheelId, true, 3);   // an axis, for a button
+    frame();
+    EXPECT_TRUE(window_.hasPart("That was an axis: button 5 R Paddle takes a button."));
+    view_->onRigTouch(kBoxId, false, 63);
+    frame();
+    EXPECT_TRUE(window_.hasPart("has no name in the Rig tab yet"));
+    view_->onRigTouch(kWheelId, false, 1);   // the G920 B's
+    frame();
+    EXPECT_TRUE(view_->popupOpen());
+    EXPECT_TRUE(window_.hasPart("1 B1: used elsewhere"));
+    EXPECT_TRUE(window_.hasPart("clear it there first."));
+    view_->onRigTouch(kBoxId, false, 7);
+    frame();
+    EXPECT_FALSE(view_->popupOpen());
+    EXPECT_TRUE(window_.has("Button box with a very long name indeed, longer than forty: K7") ||
+                window_.hasPart(": K7"));
+}
+
 // A control used twice (an older mapping) is red, says where in its hover text, and is not saved; Undo drops the
 // change. A change that could not be saved is not tried again every frame.
 TEST_F(EditView, AControlUsedTwiceIsNotSaved) {
