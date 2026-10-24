@@ -95,6 +95,8 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
   - Privileged steps: `privileged::` (`Privileged.hpp`); `PrivilegedSteps` calls them directly when elevated, else via
     the WheelBri Helper.
   - Mode Shim starts nothing only the virtual device needs (no virtual wheel, no hide filter); keep that split.
+  - The hide filter is in the rig's stack only while Mode Virtual runs (a user-mode filter costs ~half a core on every
+    report): Start puts it in and is not Running until the rig is hidden; Stop takes it out (`takeHideFilterOff`).
   - UI via `UiWindow.hpp` (`UiWindowWin32.cpp` / `UiWindowX11.cpp`). Views lay out from `UiWindow::width()` /
     `height()` every frame, never 960 / 748. Colours only from `style::` (`UiStyle.hpp`); tests compare to `style::`,
     not literals.

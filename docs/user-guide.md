@@ -120,8 +120,11 @@ every rig axis and button, **Shadow** back.
 
 1. Close the wheel maker's software if it holds the wheel.
 2. Press **Start**. The first time, the rig is hidden from games ("first time only", up to a minute; do not unplug
-   anything).
+   anything). Every Start, Windows reconnects the wheel once to hide it; **Running** means it is hidden and the
+   Target is there, so start the game only then. If it cannot be hidden, Start fails and the Logs tab says what holds
+   the wheel.
 3. Start the game and pick the Logitech wheel in its controller settings.
+4. **Stop** reconnects the wheel once more, without the hiding filter (it costs CPU while it is there).
 
 **Mode Shim**
 
@@ -268,9 +271,9 @@ Look at the Logs tab first: a failed Start says why there, in red.
   must appear when the game starts. With a non-Moza wheel, check `source_vid` (see [Play](#play)).
 - NFS Payback needs Logitech G HUB: see [games.md](games.md#nfs-payback).
 
-**The game sees two wheels.** In Mode Virtual the app should say "rig hidden"; "NOT HIDDEN" names the device it could
-not hide. Close the wheel maker's software and the game, replug the device (or restart Windows) and Start again. In Mode
-Shim nothing is hidden: pick the Logitech wheel.
+**The game sees two wheels.** In Mode Virtual the app should say "rig hidden"; when it cannot hide a device, Start
+fails and the Logs tab names it. Close the wheel maker's software and the game, replug the device and Start again. In
+Mode Shim nothing is hidden: pick the Logitech wheel.
 
 **The game drives from an Xbox pad or the keyboard.** Close the game with WheelBri running, unplug the gamepad, start
 the game again and pick the Logitech wheel.
