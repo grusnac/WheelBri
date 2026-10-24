@@ -1047,7 +1047,8 @@ void MappingView::drawLiveLog(const float top) {
     liveHScroll_ = std::min(liveHScroll_, liveLongest_ > liveMessageChars_ ? liveLongest_ - liveMessageChars_ : 0);
 
     const float listTop = top + 14;
-    const float listBottom = canvasH() - 34 - (sideways ? kBarThickness + 2 : 0);   // more rows in a taller window
+    // More rows in a taller window; the app's notice (bottomReserve) sits above the tab bar.
+    const float listBottom = canvasH() - 34 - window_.bottomReserve() - (sideways ? kBarThickness + 2 : 0);
     liveRows_ = static_cast<std::size_t>(std::max(1.0F, (listBottom - listTop) / kLineHeight));
     liveScroll_ = std::min(liveScroll_, liveMostScroll());
 
@@ -1466,7 +1467,7 @@ void MappingView::drawTelemetry() {
          kDim);
     constexpr float kLineHeight = 11;
     const float listTop = y + 14;
-    const float listBottom = canvasH() - 34;   // more rows in a taller window
+    const float listBottom = canvasH() - 34 - window_.bottomReserve();   // more rows in a taller window
     const auto fit = static_cast<std::size_t>(std::max(1.0F, (listBottom - listTop) / kLineHeight));
     if (events_.empty()) {
         text(window_, 4, listTop, "nothing yet: press a button or a pedal", kDim);
@@ -1501,7 +1502,8 @@ void MappingView::drawForceFeedback(const FfbDisplay& ffb) {
     text(window_, 124, y, "effects starting and stopping since this window opened, newest at the bottom", kDim);
     constexpr float kLineHeight = 11;
     const float listTop = y + 14;
-    const auto fit = static_cast<std::size_t>(std::max(1.0F, (canvasH() - 34 - listTop) / kLineHeight));
+    const auto fit =
+        static_cast<std::size_t>(std::max(1.0F, (canvasH() - 34 - window_.bottomReserve() - listTop) / kLineHeight));
     std::vector<const TelemetryEvent*> shown;
     for (auto it = events_.rbegin(); it != events_.rend() && shown.size() < fit; ++it) {
         if (it->kind == kEventFfb) shown.push_back(&*it);

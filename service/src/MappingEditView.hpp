@@ -169,7 +169,8 @@ private:
 
     [[nodiscard]] float canvasW() const { return window_.width(); }
     [[nodiscard]] float canvasH() const { return window_.height(); }
-    [[nodiscard]] float contentH() const { return window_.height() - 30; }   // the tab bar is below
+    // The tab bar is below, and the app's notice above it when there is one.
+    [[nodiscard]] float contentH() const { return window_.height() - 30 - window_.bottomReserve(); }
     // What the canvas has beyond the 960 the tab was designed for, in pixels and in characters.
     [[nodiscard]] float extraW() const { return std::max(0.0F, window_.width() - 960.0F); }
     [[nodiscard]] std::size_t extraChars() const { return static_cast<std::size_t>(extraW() / 8.0F); }

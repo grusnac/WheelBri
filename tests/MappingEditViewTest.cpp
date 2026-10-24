@@ -1020,6 +1020,26 @@ TEST_F(EditView, SecondarySources) {
     EXPECT_FALSE(view_->popupOpen());
 }
 
+// The app's notice above the tab bar (UiWindow::bottomReserve): the tab's status line moves up out of its way.
+TEST_F(EditView, RoomForTheAppsNotice) {
+    useRig(testRig());
+    open();
+    // The lowest text at the left edge: the status line.
+    const auto lowest = [this] {
+        float y = 0;
+        for (const auto& t : window_.texts) {
+            if (t.x == 4) y = std::max(y, t.y);
+        }
+        return y;
+    };
+    frame();
+    const float y = lowest();
+    ASSERT_GT(y, 600.0F);
+    window_.setBottomReserve(26);
+    frame();
+    EXPECT_FLOAT_EQ(lowest(), y - 26);
+}
+
 // Section headings are in the text colour (drawn bold by the real windows): blue means selected or an action.
 TEST_F(EditView, HeadingsAreTextColoured) {
     useRig(testRig());

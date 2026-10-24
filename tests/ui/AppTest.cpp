@@ -279,6 +279,7 @@ TEST_F(AppRun, FirstStartWithoutRig) {
     waitFor(kNoRig);
     check([](ScriptedWindow& w) {
         EXPECT_EQ(w.find(kNoRig)->colour.r, style::kWarning.r);
+        EXPECT_TRUE(w.has("No rig yet: name your controls in the Rig tab (R).")) << w.dump();
         EXPECT_TRUE(w.has("RIG"));   // the Rig tab's heading
     });
     once([this](ScriptedWindow&) { return clickStart(); });
@@ -555,11 +556,22 @@ TEST_F(AppRun, RigNotConnected) {
     once([this](ScriptedWindow&) { return clickStart(); });
     waitFor("Devices: switch on or plug in Moza R3", true);
     clickWhenShown("OK");
+    // The notice above the tab bar says it as what to do; its What's missing opens the same list.
+    waitFor("Moza R3 is not connected: switch it on or plug it in.", false);
+    clickWhenShown("What's missing");
+    waitFor("Devices: switch on or plug in Moza R3", true);
+    clickWhenShown("OK");
     once([this](ScriptedWindow&) {
         plugWheel();
         return uitest::nothing();
     });
     waitFor("Ready", false, 600);
+    check([](ScriptedWindow& w) {
+        EXPECT_FALSE(w.has("What's missing")) << w.dump();   // nothing blocks Start: no notice
+        const auto* const start = w.find("Start");
+        ASSERT_NE(start, nullptr);
+        EXPECT_EQ(start->colour.r, style::kDark.r);   // on the green of a Start that can run
+    });
     EXPECT_EQ(run(), 0);
 }
 

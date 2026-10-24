@@ -121,6 +121,11 @@ public:
     [[nodiscard]] float width() const { return canvasWidth_; }
     [[nodiscard]] float height() const { return canvasHeight_; }
 
+    // Room the app keeps for a notice just above its tab bar (0: none). The views end their content that much higher,
+    // so the notice covers nothing; the app sets it each frame before they draw.
+    [[nodiscard]] float bottomReserve() const { return bottomReserve_; }
+    void setBottomReserve(const float h) { bottomReserve_ = h; }
+
     // Where (0, 0) of the draw calls below is on the canvas, so a panel can be drawn anywhere unchanged.
     void setOrigin(const float x, const float y) {
         originX_ = x;
@@ -193,6 +198,7 @@ protected:
     std::function<void()> queryEndSession_;
     float originX_ = 0.0F;
     float originY_ = 0.0F;
+    float bottomReserve_ = 0.0F;
     float canvasWidth_ = 960.0F;
     float canvasHeight_ = 748.0F;
 };

@@ -98,7 +98,8 @@ private:
     // The canvas beyond the design's width (pixels, characters), and the height above the tab bar.
     [[nodiscard]] float extraW() const { return std::max(0.0F, window_.width() - static_cast<float>(kWidth)); }
     [[nodiscard]] std::size_t extraChars() const { return static_cast<std::size_t>(extraW() / 8.0F); }
-    [[nodiscard]] float contentHeight() const { return window_.height() - 30; }   // the tab bar is below
+    // The tab bar is below, and the app's notice above it when there is one.
+    [[nodiscard]] float contentHeight() const { return window_.height() - 30 - window_.bottomReserve(); }
     enum class Popup { None, Control };
 
     struct Hit {

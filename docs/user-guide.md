@@ -38,8 +38,9 @@ To upgrade, run the new setup: your rig, mappings and settings stay.
 
 ## Set up your rig
 
-Open **WheelBri**. The tabs are along the bottom (Rig, Mapping, Games, Logs; press R, M, G, L), with the status,
-**Start** and **Stop** at the right. Point at a button (Detect, Undo, Show all...) to see what it does.
+Open **WheelBri**. The tabs are along the bottom (Rig, Mapping, Games, Logs; press R, M, G, L), with the status
+and **Start** at the right (it turns into **Stop** while WheelBri runs). Point at a button (Detect, Undo, Show
+all...) to see what it does.
 
 ![Rig tab with a control's popup open](images/rig.png)
 
@@ -88,11 +89,14 @@ the wheel's rotation, in the wheel's own software (Pit House for Moza).
 
 ## Play
 
-Press **Start** before you start the game, and **Stop** when you are done. The status shows `Running`.
+Press **Start** before you start the game, and **Stop** (the same button) when you are done. The status shows
+`Running`. Start is green when it can run.
 
 Next to Start, on every tab, the bar shows what Start runs: Target, Mode and (Mode Shim) the game, green while it
 runs, amber when the game does not support the Target. Click it to go to the Mapping tab. When Start is greyed out,
-click it: a list says what is done and what is still to do. The Mapping tab is marked EDIT while stopped and LIVE
+a red notice above the tabs says what to do; click Start or the notice's **What's missing** for a list of what is
+done and what is still to do. While running, the same notice says what is wrong (a device unplugged, the game not
+using the wheel). The Mapping tab is marked EDIT while stopped and LIVE
 while running; after a hot swap or a shim put in, a short green message says what happened.
 
 **Shadow view** (every Target). While running, the Mapping tab draws the Target (wheel, pedals and shifter) and lights
@@ -233,7 +237,7 @@ Your rig, mappings and logs in `%LOCALAPPDATA%\wheelbri` are kept; delete that f
 
 Look at the Logs tab first: a failed Start says why there, in red.
 
-**Start is greyed out.** The status says why:
+**Start is greyed out.** The notice above the tabs and the status say why:
 
 | Status | What to do |
 |---|---|
