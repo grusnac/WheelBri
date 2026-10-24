@@ -178,6 +178,9 @@ private:
     // The device the control popup is for (focus_), in the edited rig, or null.
     [[nodiscard]] RigDevice* focusDevice();
     RigDevice* addFocusDevice();                          // added to the rig if it is not in it (null: rig full)
+    // The control (not the popup's own) that is `kind` now, when only one may be (isAutoKind): "Pedals axis 1 Gas";
+    // empty when none is.
+    [[nodiscard]] std::string kindTakenBy(const std::string& kind) const;
     void forget(const DeviceId& id);                      // out of the rig, with its names (Revert brings it back)
 
     // The control popup, for a control of `id`.
@@ -267,6 +270,7 @@ private:
     bool popupAxis_ = false;
     int popupIndex_ = -1;
     RigControl popupControl_;
+    std::size_t popupHover_ = 0;   // the popup's hover areas start here (the tab's come before them)
     std::optional<float> popupRest_;
     std::string* editing_ = nullptr;
     std::size_t editingMax_ = DeviceLabels::kMaxLabel;

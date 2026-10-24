@@ -20,6 +20,16 @@ void forEachAutoInput(AutoMapping& out, const IDeviceProfile& profile, const Tak
 
 }  // namespace
 
+bool isAutoKind(const std::string_view kind) {
+    const auto in = [kind](const auto& kinds) {
+        for (const std::string_view k : kinds) {
+            if (k == kind) return true;
+        }
+        return false;
+    };
+    return !kind.empty() && (in(kAutoAxisKinds) || in(kAutoHatKinds) || in(kCoreButtonKinds));
+}
+
 AutoMapping autoMapping(const Rig& rig, const IDeviceProfile& profile, const DeviceId& wheel) {
     AutoMapping out;
     forEachAutoInput(out, profile, [&](const std::string_view kind, const bool axis, SourceRef& into) {

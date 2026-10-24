@@ -234,3 +234,13 @@ TEST(AutoMap, TheMappingTabWritesOnlyWhatTheUserPicked) {
     EXPECT_EQ(back.axes, model.axes);
     EXPECT_EQ(back.autoInputs, model.autoInputs);
 }
+
+// Only the kinds the Rig maps by itself are one control's at most.
+TEST(AutoMap, WhichKindsAreOneControlsOnly) {
+    for (const char* kind : {"Steering", "Throttle", "Brake", "Clutch", "D Up", "D Left", "A", "Y", "R Paddle"}) {
+        EXPECT_TRUE(isAutoKind(kind)) << kind;
+    }
+    for (const char* kind : {"", "Handbrake", "Axis", "Button", "Horn", "throttle"}) {
+        EXPECT_FALSE(isAutoKind(kind)) << kind;
+    }
+}

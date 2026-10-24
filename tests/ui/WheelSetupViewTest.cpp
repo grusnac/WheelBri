@@ -260,6 +260,43 @@ TEST_F(RigTab, AxisPopupShowsWhereItRested) {
     EXPECT_EQ(rig.devices[0].kind, DeviceKind::Shifter);
 }
 
+// A kind only one control may be (Throttle, A, D Up...): taken by another control, its role button says so (an amber
+// line, its hover text), picked here a line says OK moves it; OK moves it (the other control keeps its name).
+TEST_F(RigTab, ATakenKindMovesHere) {
+    FakeDevices::shared().add("Pedals", 0x2222, 0x0002, 4, 0);
+    Rig rig;
+    rig.devices.push_back(rigDevice("Pedals", 0x2222, 0x0002));
+    rig.devices[0].axes[1] = {"Gas", "Throttle"};
+    writeRig(rig);
+    std::ofstream(dir_ / "app.ini") << "[app]\nrig = My rig\n";
+    WheelSetupView view(window_, settings());
+    settle(view);
+    ASSERT_TRUE(clickOn(view, "Show all"));
+    ASSERT_TRUE(clickOn(view, "Axis 2"));
+    ASSERT_TRUE(window_.has("Axis 2 on Pedals", true)) << window_.dump();
+    EXPECT_FALSE(window_.has("now: OK moves it here.", true));
+    const auto* const throttle = window_.find("Throttle");
+    ASSERT_NE(throttle, nullptr);
+    view.setHover(throttle->x + 2, throttle->y + 2, true);
+    frame(view);
+    EXPECT_TRUE(window_.has("Throttle is Pedals axis 1 Gas now", true)) << window_.dump();
+    view.setHover(0, 0, false);
+    ASSERT_TRUE(clickOn(view, "Throttle"));
+    EXPECT_TRUE(window_.has("Throttle is Pedals axis 1 Gas now: OK moves it here.")) << window_.dump();
+    ASSERT_TRUE(clickOn(view, "OK"));
+    const Rig saved = savedRig();
+    ASSERT_EQ(saved.devices.size(), 1U);
+    EXPECT_EQ(saved.devices[0].axes[2].kind, "Throttle");
+    EXPECT_EQ(saved.devices[0].axes[1].kind, "");      // moved away...
+    EXPECT_EQ(saved.devices[0].axes[1].label, "Gas");  // ...its name kept
+    // A kind any number of controls may be (Handbrake) says nothing of the kind.
+    ASSERT_TRUE(clickOn(view, "Axis 3"));
+    ASSERT_TRUE(clickOn(view, "Handbrake"));
+    EXPECT_FALSE(window_.has("now: OK moves it here.", true));
+    ASSERT_TRUE(clickOn(view, "OK"));
+    EXPECT_EQ(savedRig().devices[0].axes[3].kind, "Handbrake");
+}
+
 // The button popup: "Button" never fills in the name; Clear empties the control and keeps the popup open; Cancel
 // keeps it as it was; OK after Clear leaves the control unnamed.
 TEST_F(RigTab, ButtonPopupChoicesClearAndCancel) {

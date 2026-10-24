@@ -51,7 +51,8 @@ all...) to see what it does.
    What it **is** maps it by itself: **Steering**, **Throttle**, **Brake**, **Clutch**, the D-pad (**D Up**,
    **D Right**, **D Down**, **D Left**), **A**, **B**, **X**, **Y** and the paddles go to the Target's own, on every
    Target (the G25 and G27 have no A, B, X, Y: those go on the shifter's black buttons, A bottom, B right, X left, Y
-   top). Pick each of them for one control only. Every other button you map yourself in the Mapping tab.
+   top). Each of them is one control's only: picked for another control, it moves there (an amber line under it
+   says which control has it now). Every other button you map yourself in the Mapping tab.
 3. Press **OK**. Repeat for every control you use.
 4. Name each device. Every change is saved at once; **Undo** goes back one change at a time.
 

@@ -32,6 +32,10 @@ struct AutoMapping {
 inline constexpr std::array<std::string_view, 4> kAutoAxisKinds = {"Steering", "Throttle", "Brake", "Clutch"};
 inline constexpr std::array<std::string_view, 4> kAutoHatKinds = {"D Up", "D Right", "D Down", "D Left"};
 
+// Whether `kind` is one the Rig maps by itself (an axis kind, a D-pad one, a core button's): only one control of a rig
+// may be it (on two, neither is used), so the Rig tab moves it rather than giving it to a second control.
+[[nodiscard]] bool isAutoKind(std::string_view kind);
+
 // A kind on exactly one control of the rig maps; on two or more, none of them does (a notice says so). A source on
 // `wheel` (the device the mapping calls the wheel) has an empty device; one on a device without an id is not used.
 [[nodiscard]] AutoMapping autoMapping(const Rig& rig, const IDeviceProfile& profile, const DeviceId& wheel);

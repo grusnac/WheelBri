@@ -4,6 +4,7 @@
 #include "Platform.hpp"
 #include "Version.hpp"
 
+#include "wheelbri/AutoMap.hpp"
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceLabels.hpp"
@@ -577,6 +578,41 @@ void WheelSetupView::closeControl(const bool keep) {
     RigControl& control = popupAxis_ ? device->axes[static_cast<std::size_t>(popupIndex_)]
                                      : device->buttons[static_cast<std::size_t>(popupIndex_)];
     control = popupControl_;
+    // A kind only one control may be (the Rig maps it by itself) moves here: the other control keeps its name.
+    if (!isAutoKind(control.kind)) return;
+    for (RigDevice& other : edit_.devices) {
+        const auto take = [&](auto& controls) {
+            for (std::size_t i = 0; i < controls.size(); ++i) {
+                if (&controls[i] == &control || controls[i].kind != control.kind) continue;
+                WE_LOG_INFO(log(), "wheel setup: {} moved from {} {} to {}", control.kind, idText(other.id), i,
+                            idText(focus_));
+                controls[i].kind.clear();
+            }
+        };
+        if (popupAxis_) {
+            take(other.axes);
+        } else {
+            take(other.buttons);
+        }
+    }
+}
+
+std::string WheelSetupView::kindTakenBy(const std::string& kind) const {
+    if (!isAutoKind(kind)) return {};
+    for (const RigDevice& device : edit_.devices) {
+        const auto find = [&](const auto& controls, const char* what) -> std::string {
+            for (std::size_t i = 0; i < controls.size(); ++i) {
+                if (controls[i].kind != kind) continue;
+                if (device.id == focus_ && static_cast<int>(i) == popupIndex_) continue;   // the popup's own
+                return device.name + " " + what + " " + std::to_string(i) +
+                       (controls[i].label.empty() ? std::string() : " " + controls[i].label);
+            }
+            return {};
+        };
+        const std::string found = popupAxis_ ? find(device.axes, "axis") : find(device.buttons, "button");
+        if (!found.empty()) return found;
+    }
+    return {};
 }
 
 // --- input ----------------------------------------------------------------------------------------------------------
@@ -1052,8 +1088,8 @@ void WheelSetupView::drawHints(const float x, const float top) {
 }
 
 void WheelSetupView::drawHoverText() const {
-    if (popup_ != Popup::None) return;   // the popup covers the tab
-    hover_.draw(window_, window_.width(), contentHeight());
+    // With the popup open only its own (it covers the tab, whose areas come before them).
+    hover_.draw(window_, window_.width(), contentHeight(), popup_ != Popup::None ? popupHover_ : 0);
 }
 
 void WheelSetupView::drawControlPopup() {
@@ -1070,11 +1106,15 @@ void WheelSetupView::drawControlPopup() {
     const auto perRow = static_cast<std::size_t>(std::max(1.0F, std::floor((rolesRight - rolesLeft + kRoleGap) /
                                                                              (kRoleW + kRoleGap))));
     const auto roleRows = static_cast<float>((roleCount + perRow - 1) / perRow);
-    const float height = 58 + roleRows * kRoleRow + 6 + (popupAxis_ ? 24.0F : 0.0F) + 30;
+    // A kind another control is now (only one may be): a line says OK moves it here.
+    const std::string taken = kindTakenBy(popupControl_.kind);
+    const float height =
+        58 + roleRows * kRoleRow + 6 + (popupAxis_ ? 24.0F : 0.0F) + (taken.empty() ? 0.0F : 20.0F) + 30;
     // Below the header when there is room; never past the tab bar.
     const float kY = std::floor(std::max(40.0F, std::min(130 + (window_.height() - kHeight) / 2,
                                                          contentHeight() - height - 4)));
     hit(0, 0, window_.width(), contentHeight(), [] {});   // clicks outside the popup do nothing
+    popupHover_ = hover_.size();
     window_.fill(kX, kY, kW, height, style::kBox);
     window_.outline(kX, kY, kW, height, kHeading);
     const float left = kX + 16;
@@ -1104,6 +1144,11 @@ void WheelSetupView::drawControlPopup() {
             x = rolesLeft;
             y += kRoleRow;
         }
+        // A kind another control is (only one may be): an amber line under it, and its hover text says so.
+        if (const std::string other = name == popupControl_.kind ? std::string() : kindTakenBy(name); !other.empty()) {
+            window_.fill(x + 6, y + 13, width - 12, 1, kCaution);
+            hover_.add(x, y, width, 16, name + " is " + other + " now: picking it here moves it here.");
+        }
         x += button(x, y, name, [this, name] {
             if (popupControl_.kind == name) {   // again: unpicked (the name stays)
                 popupControl_.kind.clear();
@@ -1120,6 +1165,10 @@ void WheelSetupView::drawControlPopup() {
     }
 
     y += kRoleRow + 6;
+    if (!taken.empty()) {
+        window_.text(left, y + 4, fit(popupControl_.kind + " is " + taken + " now: OK moves it here.", 90), kCaution);
+        y += 20;
+    }
     if (popupAxis_) {
         // Which way round it reads is the Mapping tab's (its Invert); here only where it rested, for a pedal.
         std::string note = "Which way round: the Mapping tab's Invert for the axis this one drives.";
