@@ -169,6 +169,33 @@ TEST_F(RigTab, DetectNamesAButtonAndSaves) {
     EXPECT_FALSE(view.editingText());
 }
 
+// Listening (for the Mapping tab's secondary popup): every button pressed and axis moved is kept for takeTouches,
+// named or not, once each, and Detect opens no popup; not listening, nothing is kept.
+TEST_F(RigTab, ListeningKeepsTouches) {
+    const auto wheel = FakeDevices::shared().add("Moza R3 Racing Wheel", 0x346e, 0x0005, 8, 16);
+    WheelSetupView view(window_, settings());
+    view.setListening(true);
+    for (int i = 0; i < 22; ++i) view.update(nullptr);
+    EXPECT_TRUE(view.takeTouches().empty());
+    press(wheel, 5);
+    move(wheel, 2, 0.9F);
+    view.update(nullptr);
+    view.update(nullptr);   // held: not again
+    const std::vector<WheelSetupView::Touch> touches = view.takeTouches();
+    ASSERT_EQ(touches.size(), 2U);
+    EXPECT_EQ(touches[0].device, (DeviceId{0x346e, 0x0005}));
+    EXPECT_FALSE(touches[0].axis);
+    EXPECT_EQ(touches[0].index, 5);
+    EXPECT_TRUE(touches[1].axis);
+    EXPECT_EQ(touches[1].index, 2);
+    EXPECT_FALSE(view.editingText());   // no Detect popup meanwhile
+    EXPECT_TRUE(view.takeTouches().empty());
+    view.setListening(false);
+    press(wheel, 6);
+    view.update(nullptr);
+    EXPECT_TRUE(view.takeTouches().empty());
+}
+
 // A name is at most 12 characters; Escape in the popup drops what was typed.
 TEST_F(RigTab, EscapeDropsTheName) {
     const auto pedals = FakeDevices::shared().add("Pedals", 0x1234, 0x0001, 3, 0);

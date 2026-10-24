@@ -1148,6 +1148,48 @@ TEST_F(AppRun, UnsavedMappingAndOpenPicker) {
     std::filesystem::remove(settings_.userConfigFolder);
 }
 
+// The Mapping tab's secondary popup open, stopped: a button pressed on the rig is added to it (the app reads the
+// devices as the Rig tab does meanwhile); typing goes to its find box, not to the tabs' keys.
+TEST_F(AppRun, SecondaryPopupTakesTheRigsTouches) {
+    setUpRig();
+    {
+        std::vector<std::string> errors;
+        Rig rig = readRig(rigsFolder(), "My rig", errors).value_or(Rig{});
+        rig.devices[0].buttons[1].label = "Horn";
+        ASSERT_TRUE(saveRig(rigsFolder(), "My rig", rig));
+    }
+    listGame();
+    const auto wheel = plugWheel();
+    waitFor("Ready", false);
+    press("m");
+    then("the Mapping tab", [](ScriptedWindow& w) { return w.has("+ or") || w.has("Show"); });
+    once([](ScriptedWindow& w) { return w.has("+ or") ? uitest::nothing() : clickText(w, "Show"); });
+    clickWhenShown("+ or");
+    waitFor("What else presses", true);
+    once([](ScriptedWindow&) {   // a key arrives as a key and as typed text: the find box takes it, not the Games tab
+        ui::WindowInput input = uitest::keys("g");
+        input.text = "g";
+        return input;
+    });
+    waitFor("g_", false);
+    check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("What else presses", true)) << w.dump(); });
+    press(std::string(1, ui::kEscape));   // clears it
+    // Pressed and let go every few frames until it is added (the devices are listed, opened and settled first).
+    int frames = 0;
+    then(
+        "added", [](ScriptedWindow& w) { return w.has("Added 1 Horn.", false); },
+        [&wheel, &frames](ScriptedWindow&) {
+            const bool down = (++frames / 4) % 2 == 1;
+            FakeDevices::shared().change(wheel, [down](FakeDevice& d) {
+                d.raw.buttons = down ? d.raw.buttons | (1ULL << 1) : d.raw.buttons & ~(1ULL << 1);
+            });
+            return uitest::nothing();
+        },
+        1200);
+    check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("Has 1 of 8.", true)) << w.dump(); });
+    EXPECT_EQ(run(), 0);
+}
+
 // The session ends by itself with an error code after Stop was pressed: just "stopped"; a rig of two devices is
 // counted in Before Start; clicks between Start and Stop, below the tab buttons, on the session bar while a session
 // starts.

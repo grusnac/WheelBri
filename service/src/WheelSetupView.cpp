@@ -246,6 +246,17 @@ void WheelSetupView::update(const SessionWheel* const session) {
     for (Open& device : open_) detect(device);
 }
 
+void WheelSetupView::setListening(const bool on) {
+    if (on == listening_) return;
+    listening_ = on;
+    touches_.clear();
+    // Detect starts again from where each control rests now.
+    for (Open& device : open_) {
+        device.restTaken = false;
+        device.settleFrames = 0;
+    }
+}
+
 void WheelSetupView::detect(Open& device) {
     if (!device.haveRaw) return;
     const RawInputState& raw = device.raw;
@@ -254,6 +265,7 @@ void WheelSetupView::detect(Open& device) {
         device.settleFrames = 0;
         device.rest = raw;
         device.armed.fill(true);
+        device.touchArmed.fill(true);
         device.previousButtons = raw.buttons;
         device.restTaken = true;
         return;
@@ -287,6 +299,23 @@ void WheelSetupView::detect(Open& device) {
         const float distance = std::abs(raw.axes[a] - device.rest.axes[a]);
         if (!device.armed[a] && distance < kBack) device.armed[a] = true;
         if (device.armed[a] && distance > kTrigger && moved < 0 && !defined(true, axis)) moved = axis;
+    }
+    if (listening_) {
+        // For the Mapping tab: every button newly pressed, every axis moved as far as Detect needs (once, until it is
+        // back where it rested). Detect itself waits: this tab does not show.
+        for (int source = 0; pressed != 0 && source < kButtons; ++source) {
+            if (((pressed >> source) & 1U) != 0) touches_.push_back({id, false, source});
+        }
+        for (int axis = 0; axis < kAxes; ++axis) {
+            const auto a = static_cast<std::size_t>(axis);
+            const float distance = std::abs(raw.axes[a] - device.rest.axes[a]);
+            if (!device.touchArmed[a] && distance < kBack) device.touchArmed[a] = true;
+            if (device.touchArmed[a] && distance > kTrigger) {
+                device.touchArmed[a] = false;
+                touches_.push_back({id, true, axis});
+            }
+        }
+        return;
     }
     if (!detect_ || popup_ != Popup::None) return;
     if (newButton >= 0) {

@@ -531,6 +531,7 @@ private:
             if (setup) setup_->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
             setup_->setHover(input.pointer.x, input.pointer.y - kViewTop, setup && input.pointerInside);
             if (setup && input.wheel != 0 && !popup_) setup_->onScroll(input.wheel);   // the Rig tab's devices
+            if (editingMapping && input.wheel != 0 && !popup_) mapping_->onScroll(input.wheel);   // a popup's list
             if (view_ != nullptr && input.wheel != 0) view_->onScroll(input.wheel);
             if (view_ == nullptr && idleTab_ == IdleTab::Logs && input.wheel != 0) logs_->onScroll(input.wheel);
             // The live log's scroll bars: dragged with the mouse, and the sideways wheel.
@@ -724,9 +725,21 @@ private:
     // stopping, when the session may be opening or closing the wheel.
     void updateSetup() {
         if (!showingSetup()) {
+            // The Mapping tab's secondary popup: the Rig tab's reading of the devices, for the controls touched on the
+            // rig (stopped only: running, the session has them).
+            if (state_ == State::Stopped && showingEditor() && mapping_->wantsRigTouches()) {
+                setup_->setListening(true);
+                setup_->update(nullptr);
+                for (const WheelSetupView::Touch& touch : setup_->takeTouches()) {
+                    mapping_->onRigTouch(touch.device, touch.axis, touch.index);
+                }
+                return;
+            }
+            setup_->setListening(false);
             if (state_ == State::Stopped) setup_->releaseWheel();   // not kept open while nobody looks
             return;
         }
+        setup_->setListening(false);
         if (state_ == State::Stopped) {
             setup_->update(nullptr);
         } else if (info_) {

@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace wheelbri::service {
@@ -75,6 +76,17 @@ public:
     // Closes the devices the tab reads itself (before a session opens them).
     void releaseWheel();
 
+    // Listening: the tab reads the devices (update) while another tab shows, for the Mapping tab's secondary popup;
+    // every control touched (a button pressed, an axis moved as far as Detect needs) is kept for takeTouches, named
+    // or not, and Detect opens no popup meanwhile. Off: nothing is kept.
+    struct Touch {
+        DeviceId device;
+        bool axis = false;
+        int index = 0;
+    };
+    void setListening(bool on);
+    [[nodiscard]] std::vector<Touch> takeTouches() { return std::exchange(touches_, {}); }
+
     void onClick(float x, float y);
     // Mouse wheel notches (> 0 = up): scrolls the devices, or the device list when the mouse is over it.
     void onScroll(int notches);
@@ -114,6 +126,7 @@ private:
         RawInputState raw;
         RawInputState rest;                 // where it was when Detect was armed (or it was opened)
         std::array<bool, RawInputState::kMaxAxes> armed{};   // an axis triggers Detect once, then waits to go back
+        std::array<bool, RawInputState::kMaxAxes> touchArmed{};   // the same for a touch while listening
         std::uint64_t previousButtons = 0;
         bool haveRaw = false;
         bool restTaken = false;
@@ -212,6 +225,8 @@ private:
     std::uint64_t sessionPreviousButtons_ = 0;
     DeviceId focus_;           // the device whose control the popup shows (the one last touched or clicked)
     bool detect_ = true;
+    bool listening_ = false;
+    std::vector<Touch> touches_;   // what was touched while listening, not taken yet
     HoverText hover_;          // the explanations, under the mouse (Detect, Save, Show all...)
     bool showAll_ = false;     // the unnamed controls too (Show all), for every device
     float scroll_ = 0;         // the devices' area, scrolled down this many pixels
