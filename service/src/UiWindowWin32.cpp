@@ -37,8 +37,10 @@ constexpr wchar_t kClassName[] = L"wheelbri-ui";
 // where it is not installed.
 constexpr wchar_t kFontFace[] = L"Cascadia Mono";
 constexpr wchar_t kFallbackFace[] = L"Consolas";
-// The letters' size (em) in logical pixels: capitals fill the 8-pixel line, descenders hang below it.
-constexpr float kFontEm = 11.5F;
+// The letters' size (em) in logical pixels: capitals fill the 8-pixel line (Cascadia's reach half a pixel above it),
+// descenders hang below it. Cascadia Mono is 0.59 em wide, so the letters fill 7.3 of the 8-pixel cell: at 11.5 they
+// filled 6.7 and the text looked spaced out.
+constexpr float kFontEm = 12.5F;
 
 std::string hex(const HRESULT value) {
     char text[16];
