@@ -1313,7 +1313,7 @@ TEST_F(EditView, TheGamesList) {
     open();
     games();
     EXPECT_TRUE(window_.has("GAMES"));
-    EXPECT_EQ(window_.count("built in"), 3U);
+    EXPECT_EQ(window_.count("built in"), 4U);
     EXPECT_TRUE(window_.has("program nfs16.exe"));
     EXPECT_TRUE(window_.hasPart("While WheelBri runs (Start) it finds the game"));
     EXPECT_TRUE(window_.has("Axes"));
@@ -2411,7 +2411,7 @@ TEST_F(EditView, AnAddedGameThatIsABuiltInProfile) {
     games();
     EXPECT_FALSE(window_.has("Copy"));
     EXPECT_FALSE(window_.has("Payback"));
-    EXPECT_EQ(window_.count("built in"), 3U);   // not "yours": the built-in profile is the one used
+    EXPECT_EQ(window_.count("built in"), 4U);   // not "yours": the built-in profile is the one used
     ASSERT_TRUE(click("NFS Payback"));
     games();
     const Window::Text* const remove = window_.find("Remove");

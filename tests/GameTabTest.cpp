@@ -34,12 +34,13 @@ TEST(GameTabFollower, ANewSessionCountsAgain) {
     EXPECT_FALSE(follower.onFrame(0, "nfs2015"));             // its count is still 0: no start seen
 }
 
-// A profile exists because its game needs something changed: every built-in one changes at least one thing.
+// A profile exists because its game needs something changed, or a target it does not support said (NFS Heat): every
+// built-in one does at least one of them.
 TEST(GameTab, TheBuiltInProfilesChangeSomething) {
     for (const GameProfile& game : gameProfiles()) {
         const bool changes = !describeOverlay(game).empty() || game.rotationDeg.has_value() ||
-                             game.ffbGain.has_value() || !game.settings.empty();
-        EXPECT_TRUE(changes) << game.id << " changes nothing: why a profile?";
+                             game.ffbGain.has_value() || !game.settings.empty() || !game.notFor.empty();
+        EXPECT_TRUE(changes) << game.id << " changes nothing and advises nothing: why a profile?";
     }
 }
 

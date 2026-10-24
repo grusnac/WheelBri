@@ -39,7 +39,7 @@ TEST(GameProfiles, EveryBuiltInFileParsesCleanly) {
         EXPECT_EQ(gameProfileFor(profile.program), &profile) << profile.id;
         // A profile is the exception: it changes something or gives advice, or it should not exist.
         EXPECT_TRUE(!describeOverlay(profile).empty() || profile.rotationDeg.has_value() ||
-                    profile.ffbGain.has_value() || !profile.settings.empty())
+                    profile.ffbGain.has_value() || !profile.settings.empty() || !profile.notFor.empty())
             << profile.id;
     }
 }
