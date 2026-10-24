@@ -116,7 +116,7 @@ public:
     // A picker wants the rig's controls as they are touched (the app reads the devices meanwhile, as the Rig tab does)
     // and onRigTouch gets each one. The secondary popup adds a named control to the button's secondaries (never takes
     // one off: only a click does that) and flashes its entry; the source picker picks it and closes, unless it is used
-    // elsewhere (its entry flashes). Anything else says why not.
+    // elsewhere (its entry flashes: a click moves it). Anything else says why not.
     [[nodiscard]] bool wantsRigTouches() const {
         return (mode_ == Mode::PickAlt || mode_ == Mode::Pick) && !locked_;
     }
@@ -262,6 +262,8 @@ private:
     void openAltPicker(std::size_t index);
     // Opens the source picker for `kind` `index` (find box, scroll and notes from the start).
     void openPicker(Slot kind, std::size_t index);
+    // The source picker's choice of a control used elsewhere: taken from every other use, then picked.
+    void moveHere(const SourceRef& source);
     // What the source picker picks for, as usesOf names it.
     [[nodiscard]] ControlUse pickUse() const;
     // What it picks for, said: "Throttle", "D-pad Up", "button 1 A" (" in NFS 2015" for one game).
@@ -271,9 +273,10 @@ private:
     // "Horn", "Lever > 50%": its rig name, or "axis N".
     [[nodiscard]] std::string shortAlt(const ButtonRef& alt) const;
     [[nodiscard]] EntryState entryState(const ControlRef& control, const ControlUse& self) const;
-    // A picker's entry for a rig control: highlighted when `state.mine`, greyed (no click, a tooltip) when taken.
+    // A picker's entry for a rig control: highlighted when `state.mine`, greyed (a tooltip) when taken: no click,
+    // unless `takenClicks` (the source picker: a click moves it here).
     void drawEntry(float x, float y, float w, const std::string& text, const EntryState& state,
-                   std::function<void()> action);
+                   std::function<void()> action, bool takenClicks = false);
     void tip(float x, float y, float w, float h, std::string text);
     // The STEERING ROTATION section from `y`: the rotation, and that the wheel's own software must match it.
     void drawRotation(float y);

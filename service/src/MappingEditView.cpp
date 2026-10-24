@@ -1062,14 +1062,14 @@ MappingEditView::EntryState MappingEditView::entryState(const ControlRef& contro
 }
 
 void MappingEditView::drawEntry(const float x, const float y, const float w, const std::string& text,
-                                const EntryState& state, std::function<void()> action) {
+                                const EntryState& state, std::function<void()> action, const bool takenClicks) {
     const bool greyed = state.taken && !state.mine;
     window_.fill(x, y, w, 16, state.mine ? kHeading : greyed ? kDark : kPanel);
     if (state.twice) window_.outline(x, y, w, 16, kWarning);
     const auto chars = static_cast<std::size_t>((w - 8) / ui::kCharWidth);
     window_.text(x + 4, y + 4, fit(text, chars), state.mine ? kDark : greyed ? kDim : kText);
     if (!state.tip.empty()) tip(x, y, w, 16, state.tip);
-    if (!greyed && action) hit(x, y, w, 16, std::move(action));
+    if ((!greyed || takenClicks) && action) hit(x, y, w, 16, std::move(action));
 }
 
 void MappingEditView::drawRotation(const float top) {
@@ -2908,11 +2908,11 @@ void MappingEditView::onRigTouch(const DeviceId& device, const bool axis, const 
     touchFlashAxis_ = axis;
     touchFlashUntilMs_ = now + 1500;
     if (mode_ == Mode::Pick) {
-        // Picked and closed, as a click on it; one used elsewhere only flashes.
+        // Picked and closed, as a click on it; one used elsewhere only flashes (a click moves it: never a press).
         const EntryState state =
             pickKind_ == Slot::GameButton ? EntryState{} : entryState({source, axis}, pickUse());
         if (state.taken && !state.mine) {
-            note(name + ": used elsewhere (" + state.tip + "): clear it there first.", false);
+            note(name + ": used elsewhere (" + state.tip + "): click it to move it here.", false);
             return;
         }
         setPicked(source);
@@ -2950,6 +2950,39 @@ std::string MappingEditView::pickWhat() const {
         what += " in " + games_[selectedGameIndex()].label;
     }
     return what;
+}
+
+void MappingEditView::moveHere(const SourceRef& source) {
+    if (profile_ == nullptr) return;
+    const bool axis = pickKind_ == Slot::Axis;
+    const ControlUse self = pickUse();
+    AutoInputs& autos = edit_.autoInputs;
+    for (const ControlUse& use : usesOf(edit_, *profile_, {source, axis})) {
+        if (use == self) continue;
+        const std::size_t i = use.index;
+        switch (use.kind) {
+            case ControlUse::Kind::Axis:
+                edit_.axes[i] = {};
+                autos.axes[i] = false;   // taken away on purpose: the Rig does not give it back
+                break;
+            case ControlUse::Kind::Hat:
+                edit_.hat[i] = {};
+                autos.hat[i] = false;
+                break;
+            case ControlUse::Kind::Button:
+                edit_.buttons[i] = {};
+                if (i < autos.buttons.size()) autos.buttons[i] = false;
+                break;
+            case ControlUse::Kind::Secondary: {
+                std::vector<ButtonRef>& list = edit_.secondaries[i];
+                list.erase(std::remove_if(list.begin(), list.end(),
+                                          [&](const ButtonRef& b) { return b.axis == axis && b.source == source; }),
+                           list.end());
+                break;
+            }
+        }
+    }
+    setPicked(source);
 }
 
 void MappingEditView::drawPicker() {
@@ -3069,13 +3102,22 @@ void MappingEditView::drawPicker() {
             const SourceRef source{isWheel ? DeviceId{} : idOf(device), static_cast<int>(index)};
             const float x = left + static_cast<float>(n % columns) * (kEntryW + 4);
             const float y = rowVy - listScroll_;
-            // For one game a control may be used again (it swaps for that game): nothing greyed then.
+            // For one game a control may be used again (it swaps for that game): nothing greyed then. Used elsewhere:
+            // greyed, and a click moves it here (taken from the other use).
             EntryState state = forGame ? EntryState{} : entryState({source, axis}, self);
             state.mine = forGame ? source == current : state.mine || source == current;
-            drawEntry(x, y, kEntryW, std::to_string(index) + " " + controlName(control), state, [this, source] {
-                setPicked(source);   // which way round stays the row's Invert
-                mode_ = Mode::Idle;
-            });
+            const bool moves = state.taken && !state.mine;
+            if (moves) state.tip += ". Click to move it here.";
+            drawEntry(x, y, kEntryW, std::to_string(index) + " " + controlName(control), state,
+                      [this, source, moves] {
+                          if (moves) {
+                              moveHere(source);
+                          } else {
+                              setPicked(source);   // which way round stays the row's Invert
+                          }
+                          mode_ = Mode::Idle;
+                      },
+                      true);
             if (now < touchFlashUntilMs_ && touchFlash_ == source && touchFlashAxis_ == axis) {
                 window_.outline(x - 1, y - 1, kEntryW + 2, 18, kActive);
                 window_.outline(x - 2, y - 2, kEntryW + 4, 20, kActive);
@@ -3093,7 +3135,7 @@ void MappingEditView::drawPicker() {
     std::string line;
     ui::Colour colour = kDim;
     const std::string greyed = forGame ? "For this game only: any control, also one the Mapping tab uses elsewhere."
-                                       : "Greyed: used elsewhere (hover to see where); clear it there first.";
+                                       : "Greyed: used elsewhere (hover to see where); a click moves it here.";
     if (now < touchNoteUntilMs_) {
         line = touchNote_;
         colour = touchNoteOk_ ? kActive : kCaution;

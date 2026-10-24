@@ -430,9 +430,9 @@ TEST_F(EditView, PickingASourceForAnAxis) {
     EXPECT_TRUE(window_.has("(nothing)"));
 }
 
-// A control used elsewhere is greyed in the picker (no click) with where in its hover text; the one picked now is
-// highlighted.
-TEST_F(EditView, AControlUsedElsewhereIsGreyed) {
+// A control used elsewhere is greyed in the picker with where in its hover text, and a click moves it here (taken from
+// the other use); the one picked now is highlighted.
+TEST_F(EditView, AControlUsedElsewhereIsGreyedAndMoves) {
     useRig(testRig());
     open();
     ASSERT_TRUE(click("Moza R3: Wheel"));
@@ -443,9 +443,7 @@ TEST_F(EditView, AControlUsedElsewhereIsGreyed) {
     view_->setHover(gas->x, gas->y, true);
     frame();
     EXPECT_TRUE(window_.hasPart("Throttle"));
-    view_->onClick(gas->x + 1, gas->y + 1);   // greyed: nothing
-    frame();
-    EXPECT_TRUE(view_->popupOpen());
+    EXPECT_TRUE(window_.hasPart("Click to move it here."));
     const Window::Text* const mine = window_.find("0 Wheel");
     ASSERT_NE(mine, nullptr);
     EXPECT_TRUE(sameColour(mine->colour, style::kDark));
@@ -455,6 +453,13 @@ TEST_F(EditView, AControlUsedElsewhereIsGreyed) {
     view_->setHover(300, 50, true);   // over the AXES heading under the popup
     frame();
     EXPECT_FALSE(window_.hasPart("Sources are the rig's controls"));
+    // A click on the greyed one moves it here: the throttle has nothing then.
+    view_->setHover(0, 0, false);
+    ASSERT_TRUE(click("2 Gas"));
+    frame();
+    EXPECT_FALSE(view_->popupOpen());
+    EXPECT_TRUE(window_.has("Moza R3: Gas"));
+    EXPECT_EQ(window_.count("Moza R3: Gas"), 1U);   // on the steering's row only
 }
 
 // The source picker as the secondary popup: a find box (typing filters, Escape clears it, then closes), a list that
@@ -500,12 +505,29 @@ TEST_F(EditView, TheSourcePickerFindsScrollsAndTakesTouches) {
     frame();
     EXPECT_TRUE(view_->popupOpen());
     EXPECT_TRUE(window_.hasPart("1 B1: used elsewhere"));
-    EXPECT_TRUE(window_.hasPart("clear it there first."));
+    EXPECT_TRUE(window_.hasPart("click it to move it here."));
     view_->onRigTouch(kBoxId, false, 7);
     frame();
     EXPECT_FALSE(view_->popupOpen());
     EXPECT_TRUE(window_.has("Button box with a very long name indeed, longer than forty: K7") ||
                 window_.hasPart(": K7"));
+}
+
+// Moving a control here takes it from a secondary too.
+TEST_F(EditView, MovingHereTakesItFromASecondary) {
+    useOlderDefault();
+    std::string text = read(dir_ / "config" / "g920.ini");
+    text += "\n[buttons]\ntarget_0_or = 21\n";
+    write(userConfigFolder() / "my-g920.ini", text);
+    useRig(testRig());
+    open();
+    frame();
+    ASSERT_TRUE(window_.hasPart("B21"));   // A's "or"
+    ASSERT_TRUE(click("Moza R3: B13"));   // R Paddle
+    ASSERT_TRUE(click("21 B21"));         // greyed: A's secondary; moved here
+    frame();
+    EXPECT_FALSE(view_->popupOpen());
+    EXPECT_EQ(own().find("target_0_or"), std::string::npos) << own();
 }
 
 // A control used twice (an older mapping) is red, says where in its hover text, and is not saved; Undo drops the
@@ -569,9 +591,7 @@ TEST_F(EditView, PickingTheDpadAndAButton) {
     ASSERT_TRUE(click("Moza R3: B4"));   // D-pad Up
     frame();
     EXPECT_TRUE(window_.has("What drives D-pad Up?"));
-    ASSERT_TRUE(click("1 B1"));   // B1 is the G920's B: greyed
-    frame();
-    EXPECT_TRUE(view_->popupOpen());
+    EXPECT_TRUE(window_.hasPart("1 B1"));   // B1 is the G920's B: greyed (a click would move it here)
     ASSERT_TRUE(click("Cancel"));
     ASSERT_TRUE(click("Moza R3: B13"));   // R Paddle
     frame();
