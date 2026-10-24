@@ -906,7 +906,7 @@ TEST_F(EditView, AnAxisThresholdFromZeroToAHundred) {
     useRig(testRig());
     open();
     frame();
-    ASSERT_TRUE(click("(nothing)", 1));
+    ASSERT_TRUE(click("+ or"));
     frame();
     // The popup's headings: drawn last (the tab under it has its own AXES and BUTTONS).
     const auto lastOf = [&](const std::string& value) -> const Window::Text* {
@@ -976,7 +976,7 @@ TEST_F(EditView, SecondarySources) {
     useRig(testRig());
     open();
     frame();
-    ASSERT_TRUE(click("(nothing)", 1));   // the first button row's "or"
+    ASSERT_TRUE(click("+ or"));   // the first button row's "or" (none yet)
     frame();
     ASSERT_TRUE(window_.hasPart("What else presses"));
     EXPECT_TRUE(window_.hasPart("0 of 8."));
@@ -1018,6 +1018,34 @@ TEST_F(EditView, SecondarySources) {
     view_->onKey(ui::kEscape);
     frame();
     EXPECT_FALSE(view_->popupOpen());
+}
+
+// A button with no second source shows a faint "+ or" at its row's end instead of an empty field; it turns blue while
+// the pointer is on the row. Once it has one, the row shows "or" and the field again.
+TEST_F(EditView, AnEmptyOrIsAPlus) {
+    useRig(testRig());
+    open();
+    frame();
+    const std::size_t plusses = window_.count("+ or");
+    EXPECT_GT(plusses, 0U);
+    EXPECT_FALSE(window_.has("or"));
+    const Window::Text* plus = window_.find("+ or");
+    ASSERT_NE(plus, nullptr);
+    EXPECT_TRUE(sameColour(plus->colour, style::kFaint));
+    view_->setHover(plus->x - 200, plus->y, true);   // on its row, left of it
+    frame();
+    plus = window_.find("+ or");
+    ASSERT_NE(plus, nullptr);
+    EXPECT_TRUE(sameColour(plus->colour, style::kHeading));
+    view_->setHover(0, 0, false);
+    ASSERT_TRUE(click("+ or"));
+    frame();
+    ASSERT_TRUE(click("0 K0"));
+    ASSERT_TRUE(click("Done"));
+    frame();
+    EXPECT_EQ(window_.count("+ or"), plusses - 1);
+    EXPECT_TRUE(window_.has("or"));
+    EXPECT_TRUE(window_.has("K0"));
 }
 
 // A secondary the rig has not named shows in amber; one used twice is red; with no rig the popup says so.
@@ -2377,8 +2405,10 @@ TEST_F(EditView, TheSecondaryPickerFitsTheCanvas) {
     }
     useRig(rig);
     open();
-    ASSERT_TRUE(click("(nothing)", 1));
+    ASSERT_TRUE(click("Show"));   // a group with nothing mapped is folded: open it for its rows
+    ASSERT_TRUE(click("+ or"));
     frame();
+    EXPECT_TRUE(window_.hasPart("What else presses"));
     EXPECT_FALSE(window_.hasPart("Shifter  1234:0003"));
 }
 

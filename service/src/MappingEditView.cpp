@@ -977,11 +977,29 @@ void MappingEditView::draw() {
         std::snprintf(label, sizeof(label), "%2d %.10s", gameNumber(index),
                       std::string(profile_->buttonName(index)).c_str());
         window_.text(x + 8, row + 4, label, kText);
-        // The first source (a button), "or" a second one (a button, or a one-sided axis past a threshold).
+        // The first source (a button), "or" a second one (a button, or a one-sided axis past a threshold). With no
+        // second one the source takes the row and a faint "+ or" at its end opens the same popup (blue while the
+        // pointer is on the row), so 13 empty "(nothing)" fields don't crowd the tab.
         const float quarter = half / 2;   // each column's fields share its extra width
-        drawSource(x + 112, row, 206 + quarter, Slot::Button, index);
-        window_.text(x + 322 + quarter, row + 4, "or", kDim);
-        drawAltSource(x + 342 + quarter, row, 126 + quarter, index);
+        const bool hasAlt = !edit_.secondaries[index].empty() || edit_.secondaries[index] != saved_.secondaries[index];
+        if (hasAlt) {
+            drawSource(x + 112, row, 206 + quarter, Slot::Button, index);
+            window_.text(x + 322 + quarter, row + 4, "or", kDim);
+            drawAltSource(x + 342 + quarter, row, 126 + quarter, index);
+        } else {
+            const float end = x + 468 + half;   // where the "or" field would end
+            const float plusW = 4 * ui::kCharWidth + 8;
+            drawSource(x + 112, row, end - plusW - 4 - (x + 112), Slot::Button, index);
+            const bool onRow = hoverInside_ && hoverY_ >= row && hoverY_ < row + 16 && hoverX_ >= x && hoverX_ < end;
+            window_.text(end - plusW + 4, row + 4, "+ or", onRow ? kHeading : style::kFaint);
+            tip(end - plusW, row, plusW, 16,
+                "Add a second control that presses it too: a button, or a lever past a point");
+            hit(end - plusW, row, plusW, 16, [this, index] {
+                mode_ = Mode::PickAlt;
+                pickIndex_ = index;
+                altFocus_ = 0;
+            });
+        }
     }
     const float gridEnd = gridTop + layout.height - 4;
 
