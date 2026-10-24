@@ -615,7 +615,12 @@ private:
     [[nodiscard]] float stopX() const { return window_->width() - 4 - kButtonWidth; }
     [[nodiscard]] float startX() const { return stopX(); }
     [[nodiscard]] float popupX() const { return std::floor((window_->width() - kPopupW) / 2); }
-    [[nodiscard]] float popupY() const { return std::floor(200 + (window_->height() - kHeight) / 2); }
+    // A popup's top: 200 down (more in a taller window), higher when that would take it past the tab bar.
+    [[nodiscard]] float popupY() const {
+        const float wanted = 200 + (window_->height() - kHeight) / 2;
+        const float lowest = tabBarTop() - (popup_ ? popupHeight() : 0.0F) - 8;
+        return std::floor(std::max(8.0F, std::min(wanted, lowest)));
+    }
 
     // Whether the Wheel setup tab shows: the live view's tab while a session runs, the idle page's otherwise.
     [[nodiscard]] bool showingSetup() const {
@@ -1504,20 +1509,24 @@ private:
             }
             case ShimGamesView::AtStop::Ask: break;
         }
+        // The folders, at most kListed of them (a long list would push the answers out of the window).
+        constexpr std::size_t kListed = 6;
         std::string where;
-        for (const std::filesystem::path& folder : folders) where += pathToUtf8(folder) + "\n";
-        popup_ = Popup{"The session stopped.",
-                       wrap("Would you like to delete the shim from the games' folders?\n" + where + "(" +
-                            std::string(kShimDll) + ", " + kShimSettings + ". Kept, they are ready for the next " +
-                            "Start; a game started without WheelBri running then sees a wheel that does not move.)"),
-                       "Yes, delete them",
-                       "No, keep them",
+        for (std::size_t i = 0; i < folders.size() && i < kListed; ++i) where += "  " + pathToUtf8(folders[i]) + "\n";
+        if (folders.size() > kListed) where += "  and " + std::to_string(folders.size() - kListed) + " more\n";
+        popup_ = Popup{"Delete the shims from the games' folders?",
+                       wrap("The session stopped. Kept, the shims are ready for the next Start; a game started "
+                            "without WheelBri running then sees a wheel that does not move.\n" +
+                            where + "(" + std::string(kShimDll) + " and " + kShimSettings + " in each)"),
+                       "Delete them",
+                       "Keep them",
                        [this, removeAll] {
                            if (popup_->checked) games_->setAtStop(ShimGamesView::AtStop::Delete);
                            std::string problems;
                            if (removeAll(problems)) return true;
-                           popup_->lines = wrap("Not deleted:\n" + problems);   // Yes again to retry
+                           popup_->lines = wrap("Not deleted:\n" + problems);
                            popup_->warning = true;
+                           popup_->yes = "Try again";
                            return false;
                        },
                        [this] {
@@ -1538,10 +1547,12 @@ private:
                 !popup_->check.empty()};
     }
     [[nodiscard]] Button popupYes() const {
-        return {popupX() + 16, popupY() + popupHeight() - 26, 150, 18, popup_->yes.c_str(), true};
+        // With a second answer, the first (yes: it acts) at the right; the second (no: Escape) at the left.
+        const float x = popupX() + 16 + (popup_->no.empty() ? 0.0F : 158.0F);
+        return {x, popupY() + popupHeight() - 26, 150, 18, popup_->yes.c_str(), true};
     }
     [[nodiscard]] Button popupNo() const {
-        return {popupX() + 16 + 158, popupY() + popupHeight() - 26, 150, 18, popup_->no.c_str(), !popup_->no.empty()};
+        return {popupX() + 16, popupY() + popupHeight() - 26, 150, 18, popup_->no.c_str(), !popup_->no.empty()};
     }
 
     void answerPopup(const bool yes) {

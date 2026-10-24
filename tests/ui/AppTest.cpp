@@ -326,7 +326,7 @@ TEST_F(AppRun, FirstStartWithoutRig) {
 // Mode Shim with a rig and a listed game: Ready; the session bar says what Start runs; Start puts the shim in the
 // game's folder and runs the session (the Logs tab at once), which shows itself; the status follows the frames; the
 // Games tab opens when a profiled game starts; Stop ends it and, the shim having been heard, asks about the shims:
-// "Yes, delete them" with "Don't ask again" deletes them and is remembered.
+// "Delete them" with "Don't ask again" deletes them and is remembered.
 TEST_F(AppRun, ShimStartRunStop) {
     setUpRig();
     const auto game = listGame();
@@ -419,11 +419,11 @@ TEST_F(AppRun, ShimStartRunStop) {
     once([](ScriptedWindow& w) { return clickText(w, "G920 - Shim", true); });
     waitFor("LIVE", false);
     once([this](ScriptedWindow&) { return clickStop(); });
-    waitFor("The session stopped.");
+    waitFor("Delete the shims from the games' folders?");
     once([](ScriptedWindow& w) { return clickText(w, "Don't ask again", true); });
-    clickWhenShown("Yes, delete them");
+    clickWhenShown("Delete them");
     then("stopped, shim deleted", [&game](ScriptedWindow& w) {
-        return !w.has("The session stopped.") && !std::filesystem::exists(game / kShimDll);
+        return !w.has("Delete the shims from the games' folders?") && !std::filesystem::exists(game / kShimDll);
     });
     check([this](ScriptedWindow&) { EXPECT_EQ(readAppSetting(settings_.stateFile, "shim_at_stop"), "delete"); });
     // The next Start and Stop: deleted without asking.
@@ -434,7 +434,7 @@ TEST_F(AppRun, ShimStartRunStop) {
     waitFor("Ready", false);
     check([&game](ScriptedWindow& w) {
         EXPECT_FALSE(std::filesystem::exists(game / kShimDll));
-        EXPECT_FALSE(w.has("The session stopped."));
+        EXPECT_FALSE(w.has("Delete the shims from the games' folders?"));
     });
     EXPECT_EQ(run(), 0);
     EXPECT_EQ(session_.runs, 2);
@@ -500,7 +500,7 @@ TEST_F(AppRun, StopWhileStarting) {
     waitFor(": waiting for the wheel");
     once([this](ScriptedWindow&) { return clickStop(); });
     waitFor("Ready", false);
-    check([](ScriptedWindow& w) { EXPECT_FALSE(w.has("The session stopped.")); });
+    check([](ScriptedWindow& w) { EXPECT_FALSE(w.has("Delete the shims from the games' folders?")); });
     EXPECT_EQ(run(), 0);
 }
 
@@ -919,10 +919,12 @@ TEST_F(AppRun, SessionBarGameAdvice) {
     EXPECT_EQ(run(), 0);
 }
 
-// The shim heard from through its log (no force feedback yet): at Stop the app asks; "No, keep them" with "Don't
-// ask again" keeps them and is remembered (the next Stop keeps them without asking). A long folder name wraps.
+// The shim heard from through its log (no force feedback yet): at Stop the app asks; "Keep them" with "Don't
+// ask again" keeps them and is remembered (the next Stop keeps them without asking). A long folder name wraps; of 8
+// folders 6 are listed and "and 2 more"; Keep (Escape's answer) is at the left of Delete.
 TEST_F(AppRun, ShimsKeptAtStop) {
     setUpRig();
+    for (int i = 1; i <= 7; ++i) listGame("Game " + std::to_string(i));
     const auto game = listGame(std::string(90, 'N'));   // a folder name longer than a popup line
     plugWheel();
     waitFor("Ready", false);
@@ -939,13 +941,19 @@ TEST_F(AppRun, ShimsKeptAtStop) {
     });
     pumps(150);   // the log is looked for every 2 s
     once([this](ScriptedWindow&) { return clickStop(); });
-    waitFor("The session stopped.");
+    waitFor("Delete the shims from the games' folders?");
+    check([](ScriptedWindow& w) {
+        EXPECT_TRUE(w.has("  and 2 more")) << w.dump();
+        ASSERT_NE(w.find("Keep them"), nullptr);
+        ASSERT_NE(w.find("Delete them"), nullptr);
+        EXPECT_LT(w.find("Keep them")->x, w.find("Delete them")->x);
+    });
     once([](ScriptedWindow& w) { return clickText(w, "Don't ask again", true); });
     once([](ScriptedWindow& w) { return clickText(w, "Don't ask again", true); });   // off again
     once([](ScriptedWindow& w) { return clickText(w, "Don't ask again", true); });   // and on
     once([](ScriptedWindow&) { return uitest::click(1, 1); });   // outside the buttons: nothing
-    clickWhenShown("No, keep them");
-    then("asked", [](ScriptedWindow& w) { return !w.has("The session stopped."); });
+    clickWhenShown("Keep them");
+    then("asked", [](ScriptedWindow& w) { return !w.has("Delete the shims from the games' folders?"); });
     check([this, &game](ScriptedWindow&) {
         EXPECT_EQ(readAppSetting(settings_.stateFile, "shim_at_stop"), "keep");
         EXPECT_TRUE(std::filesystem::exists(game / kShimDll));
@@ -962,7 +970,7 @@ TEST_F(AppRun, ShimsKeptAtStop) {
     once([this](ScriptedWindow&) { return clickStop(); });   // already stopping: nothing more
     waitFor("Ready", false);
     check([&game](ScriptedWindow& w) {
-        EXPECT_FALSE(w.has("The session stopped."));
+        EXPECT_FALSE(w.has("Delete the shims from the games' folders?"));
         EXPECT_TRUE(std::filesystem::exists(game / kShimDll));
     });
     EXPECT_EQ(run(), 0);
@@ -984,16 +992,16 @@ TEST_F(AppRun, ShimsNotDeleted) {
     once([this](ScriptedWindow&) { return clickStart(); });
     waitFor("Running ");
     once([this](ScriptedWindow&) { return clickStop(); });
-    waitFor("The session stopped.");
+    waitFor("Delete the shims from the games' folders?");
     once([&game](ScriptedWindow&) {
         std::ofstream(game / kShimDll, std::ios::binary) << "replaced by another mod";
         std::filesystem::remove(game / kShimSettings);   // no longer ours: left alone
         return uitest::nothing();
     });
     once([](ScriptedWindow& w) { return clickText(w, "Don't ask again", true); });   // remembered: delete
-    clickWhenShown("Yes, delete them");
+    clickWhenShown("Delete them");
     waitFor("Not deleted:", true);
-    clickWhenShown("Yes, delete them");
+    clickWhenShown("Try again");   // the same answer, said as what it does now
     waitFor("Not deleted:", true);
     once([](ScriptedWindow& w) { return clickText(w, "Don't ask again", true); });   // unticked: No changes nothing
     press(std::string(1, ui::kEscape));
