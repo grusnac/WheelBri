@@ -166,7 +166,8 @@ on the Mapping tab, while WheelBri is stopped. While it runs the Mapping tab sho
    A name too long for the list ends in `..` (point at it for the whole name). Drag the bar between the list and the
    game to make the list wider or narrower, or double-click the bar to fit the longest name; the width is kept for
    the next start.
-2. Set what you want in its sub-tabs; **Default** next to a value goes back to the profile's or the Mapping tab's:
+2. Set what you want in its sub-tabs; **Default** next to a value goes back to the profile's or the Mapping tab's
+   (yours are in violet, as everywhere in WheelBri):
    - **Axes**: the steering rotation, and for each pedal the axis the game reads it from and Normal / Inverted.
      Each row starts from the game's profile or your Mapping tab. In Mode Virtual the pedals can only be swapped
      among Y, Rz and Slider (Y, Rz and Z on the G25). How they feel (dead zones, curves) is set in your rig's own

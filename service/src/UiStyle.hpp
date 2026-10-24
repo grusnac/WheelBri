@@ -8,8 +8,8 @@ namespace wheelbri::service::style {
 
 // The window's look, shared by every view (round 74, from the UX sketches): a near-black background, flat
 // mid-grey rows, darker fields with a thin edge, buttons drawn as a grey outline only, and one colour per meaning:
-// blue selected or an action, green fine, amber check this, red broken; the rest grey. Views take their colours
-// from here (their own kX constants are aliases), so the look changes in one place.
+// blue selected or an action, green fine, amber check this, red broken, violet yours; the rest grey. Views take their
+// colours from here (their own kX constants are aliases), so the look changes in one place.
 inline constexpr ui::Colour kBackground{22, 24, 28};
 inline constexpr ui::Colour kPanel{42, 46, 54};         // a row, an unselected tab, a bar's track
 inline constexpr ui::Colour kRule{44, 48, 56};          // a separating line; a greyed button's edge
@@ -29,6 +29,7 @@ inline constexpr ui::Colour kHeading{108, 182, 255};    // blue: selected, an ac
 inline constexpr ui::Colour kActive{61, 187, 92};       // green: fine, running
 inline constexpr ui::Colour kCaution{224, 160, 32};     // amber: check this, yours
 inline constexpr ui::Colour kCautionBack{42, 36, 22};   // behind an amber notice
+inline constexpr ui::Colour kMine{180, 140, 255};       // violet: yours (a value you changed, or set for one game)
 inline constexpr ui::Colour kWarning{232, 86, 76};      // red: broken
 inline constexpr ui::Colour kWarningBack{46, 27, 28};   // behind a red notice
 inline constexpr ui::Colour kDark{16, 18, 20};          // text on a blue or green fill

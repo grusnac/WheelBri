@@ -723,7 +723,8 @@ TEST_F(EditView, DefaultDropsTheOwnMapping) {
     ASSERT_TRUE(click("Invert"));
     frame();
     ASSERT_TRUE(std::filesystem::exists(picker_->ownPath()));
-    EXPECT_TRUE(window_.has("custom"));
+    ASSERT_TRUE(window_.has("custom"));
+    EXPECT_TRUE(sameColour(window_.find("custom")->colour, style::kMine));   // violet: yours
     ASSERT_TRUE(click("Default"));
     frame();
     EXPECT_FALSE(std::filesystem::exists(picker_->ownPath()));
@@ -1346,7 +1347,8 @@ TEST_F(EditView, TheAxesSubTab) {
     ASSERT_TRUE(click("Normal"));
     frame();
     EXPECT_NE(own().find("nfspayback.throttle_invert = true"), std::string::npos) << own();
-    EXPECT_TRUE(window_.has("yours"));
+    ASSERT_TRUE(window_.has("yours"));
+    EXPECT_TRUE(sameColour(window_.find("yours")->colour, style::kMine));   // violet: yours, for this game
     ASSERT_TRUE(click("Default", 1));
     frame();
     EXPECT_EQ(own().find("nfspayback.throttle_invert"), std::string::npos) << own();

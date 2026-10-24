@@ -59,6 +59,7 @@ constexpr Colour kHeading = style::kHeading;
 constexpr Colour kActive = style::kActive;
 constexpr Colour kWarning = style::kWarning;
 constexpr Colour kCaution = style::kCaution;
+constexpr Colour kMine = style::kMine;
 constexpr Colour kDark = style::kDark;
 
 constexpr std::uint64_t kDevicesEveryMs = 2000;
@@ -761,7 +762,7 @@ void MappingEditView::drawField(const float x, const float y, const float w, con
                                 const std::string& value, const bool changed, const std::size_t index) {
     const bool typing = field_ == field && fieldIndex_ == index;
     window_.fill(x, y, w, 16, kStripe);
-    window_.outline(x, y, w, 16, typing ? kHeading : changed ? kCaution : style::kFieldEdge);
+    window_.outline(x, y, w, 16, typing ? kHeading : changed ? kMine : style::kFieldEdge);
     const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
     if (typing) {
         const std::string shown = typed_ + "_";
@@ -787,7 +788,7 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
                                       index})
                         : EntryState{};
     window_.fill(x, y, w, 16, kStripe);
-    window_.outline(x, y, w, 16, state.twice ? kWarning : changed ? kCaution : style::kFieldEdge);
+    window_.outline(x, y, w, 16, state.twice ? kWarning : changed ? kMine : style::kFieldEdge);
     // From the Rig (what the control "is"): RIG at the right; picking a source makes it the user's.
     const bool rigs = source.mapped() && followsRig(kind, index);
     if (state.twice) {
@@ -823,7 +824,7 @@ void MappingEditView::draw() {
     constexpr std::string_view kCustom = "custom";
     const float customX = defaultX - 10 - static_cast<float>(kCustom.size()) * ui::kCharWidth;
     if (!builtIn_ && page_ != Page::Games) {
-        window_.text(customX, 6, std::string(kCustom), kCaution);
+        window_.text(customX, 6, std::string(kCustom), kMine);
         tip(customX - 4, 2, defaultX - customX, 16, "Your saved mapping, not the default.");
     }
     // The Games page has no Default, Save or Revert: its subtitle reaches the version.
@@ -1088,7 +1089,7 @@ void MappingEditView::drawRotation(const float top) {
     window_.fill(kSliderX, y + 6, filled, 4, locked_ ? kDim : kHeading);
     window_.fill(kSliderX + filled - 3, y + 1, 6, 14, locked_ ? kDim : kText);
     window_.outline(kSliderX, y + 6, sliderW(), 4,
-                    edit_.steeringRotationDeg != saved_.steeringRotationDeg ? kCaution : kPanel);
+                    edit_.steeringRotationDeg != saved_.steeringRotationDeg ? kMine : kPanel);
     if (!locked_) {
         hit(kSliderX - 4, y, sliderW() + 8, 16, [this] {
             setRotationFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
@@ -1959,7 +1960,7 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
     window_.text(fromX, y, "comes from", kDim);
     y += 14;
     const auto from = [&](const float rowY, const bool mine, const std::string& source) {
-        window_.text(fromX, rowY + 4, fit(mine ? "yours" : source, valueChars() - 40), mine ? kCaution : kDim);
+        window_.text(fromX, rowY + 4, fit(mine ? "yours" : source, valueChars() - 40), mine ? kMine : kDim);
     };
 
     // Steering: the wheel's axis (games read it there), and the rotation the game is played with ([game_rotation]):
@@ -2003,7 +2004,7 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
         };
         button(axisX, y, "<", [step] { step(-1); }, false, editable(), 24);
         window_.fill(axisX + 28, y, 72, 16, kStripe);
-        window_.outline(axisX + 28, y, 72, 16, axisChanged ? kCaution : style::kFieldEdge);
+        window_.outline(axisX + 28, y, 72, 16, axisChanged ? kMine : style::kFieldEdge);
         window_.text(axisX + 34, y + 4, std::string(wheelbri::axisName(axes[p])), kText);
         button(axisX + 104, y, ">", [step] { step(1); }, false, editable(), 24);
         const bool ownInvert = own != nullptr && own->pedalInvert[p].has_value();
@@ -2020,7 +2021,7 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
         y += 20;
     }
     y += 6;
-    window_.text(axisX, y, fit("Default: back to where it came from. Amber: yours, for this game.", valueChars() + 6),
+    window_.text(axisX, y, fit("Default: back to where it came from. Violet: yours, for this game.", valueChars() + 6),
                  kDim);
     y += 12;
     window_.text(axisX, y,
@@ -2285,10 +2286,10 @@ float MappingEditView::drawGameButtons(const std::size_t index, float y) {
             window_.fill(mappingX, y, fieldW, 16, kStripe);
             window_.text(mappingX + 6, y + 4, fit(describe(mapped, false), chars), kDim);
             if (mapped.mapped()) tip(mappingX, y, fieldW, 16, describeFull(mapped, false));
-            // This game's: amber, click to change it.
+            // This game's: violet (yours), click to change it.
             const SourceRef source = own->buttons.at(static_cast<int>(b));
             window_.fill(gameColumnX, y, fieldW, 16, kStripe);
-            window_.outline(gameColumnX, y, fieldW, 16, kCaution);
+            window_.outline(gameColumnX, y, fieldW, 16, kMine);
             window_.text(gameColumnX + 6, y + 4, fit(source.mapped() ? describe(source, false) : "nothing", chars),
                          source.mapped() ? kText : kDim);
             if (source.mapped()) tip(gameColumnX, y, fieldW, 16, describeFull(source, false));
@@ -2340,7 +2341,7 @@ void MappingEditView::drawAddButton() {
     window_.text(left, kPopupY + 10, "Add button: which " + target + " button should come from another control in " +
                                          game.label + "?", kHeading);
     button(kPopupX + popupW() - 100, kPopupY + 6, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 88);
-    window_.text(left, kPopupY + 32, "Then pick its control (or nothing). Amber: already yours for this game.", kDim);
+    window_.text(left, kPopupY + 32, "Then pick its control (or nothing). Violet: already yours for this game.", kDim);
 
     // The target's buttons where the Mapping tab has them: two columns of groups, the shifter's gears below.
     const ButtonLayout layout = layoutButtons(*profile_);
@@ -2358,11 +2359,11 @@ void MappingEditView::drawAddButton() {
         const bool mine = own != nullptr && own->buttons.count(static_cast<int>(b)) != 0;
         const float w = columnW - 12;
         window_.fill(x, y, w, 16, kPanel);
-        if (mine) window_.outline(x, y, w, 16, kCaution);
+        if (mine) window_.outline(x, y, w, 16, kMine);
         const std::string text =
             std::to_string(gameNumber(b)) + " " + std::string(profile_->buttonName(b)) + (mine ? "  yours" : "");
         window_.text(x + 4, y + 4, fit(text, static_cast<std::size_t>((w - 8) / ui::kCharWidth)),
-                     mine ? kCaution : kText);
+                     mine ? kMine : kText);
         tip(x, y, w, 16, "Mapping tab: " + (edit_.buttons[b].mapped() ? describeFull(edit_.buttons[b], false)
                                                                       : std::string("nothing")));
         hit(x, y, w, 16, [this, b] {
@@ -2574,7 +2575,7 @@ void MappingEditView::drawAltSource(const float x, const float y, const float w,
         return entryState({ref.source, ref.axis}, self).twice;
     });
     window_.fill(x, y, w, 16, kStripe);
-    window_.outline(x, y, w, 16, twice ? kWarning : changed ? kCaution : style::kFieldEdge);
+    window_.outline(x, y, w, 16, twice ? kWarning : changed ? kMine : style::kFieldEdge);
     // The first, and how many more: "Hand > 50% +2".
     const std::string more = list.size() > 1 ? " +" + std::to_string(list.size() - 1) : std::string();
     const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
