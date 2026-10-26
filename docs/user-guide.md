@@ -106,7 +106,9 @@ While WheelBri runs, the Mapping tab shows the Target as the game sees it: the r
 pictures, with its pedals and shifter, every control lit while the game gets it pressed. It shows what the game
 receives after your mapping, so it is the place to check a mapping in action.
 
-![The Shadow view](images/shadow.png)
+![The Shadow view with Target G920](images/shadow-g920.png)
+
+![The Shadow view with Target G25](images/shadow-g25.png)
 
 - **Buttons** light while pressed. On each is its number as the game counts it (from 1 in Logitech driver order, from
   0 in Native); on the G920 and G923, what is printed on the real button instead (A B X Y, LSB / RSB, View, Menu,
