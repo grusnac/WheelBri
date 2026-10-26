@@ -237,14 +237,15 @@ TEST(UhidWheel, TheG25PlaysForceFeedbackAndSaysWhoItIs) {
     EXPECT_TRUE(said("uhid: a program closed the virtual G25 (0 left)"));
     EXPECT_TRUE(said("uhid: virtual G25 stopped by the kernel"));
     EXPECT_EQ(k.device.activeSlots(), 0U);   // the last close stopped its forces
-    // Its input reports are the G920's report (the same descriptor on Windows).
+    // Its input reports are the Windows ones (the same descriptor, with the combined pedals and the clutch).
     TargetReport report = neutralReport();
     report.buttons = 1U << kG25FirstGear;
     k.written.clear();
     ASSERT_TRUE(k.device.submit(report, false));
     ASSERT_EQ(k.written.size(), 1U);
-    const auto packed = packWheelInput(report);
-    EXPECT_EQ(std::memcmp(k.written[0].u.input2.data, packed.data(), packed.size()), 0);
+    const InputReport packed = packInputFor(*virtualWheel("g25"), report);
+    ASSERT_EQ(k.written[0].u.input2.size, packed.size);
+    EXPECT_EQ(std::memcmp(k.written[0].u.input2.data, packed.bytes.data(), packed.size), 0);
 }
 
 TEST(UhidWheel, OpenAndCloseAreCounted) {
