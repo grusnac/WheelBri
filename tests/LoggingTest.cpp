@@ -75,7 +75,11 @@ TEST(RateLimiter, AllowsOncePerIntervalAndCountsDrops) {
     EXPECT_FALSE(limiter.allow(suppressed));
     EXPECT_FALSE(limiter.allow(suppressed));
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    // Past the interval by the clock: on Windows sleep_for can return early (this one once took under 50 ms).
+    const auto past = std::chrono::steady_clock::now() + std::chrono::milliseconds(60);
+    while (std::chrono::steady_clock::now() < past) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
     EXPECT_TRUE(limiter.allow(suppressed));
     EXPECT_EQ(suppressed, 2U);
 }
