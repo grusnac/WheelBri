@@ -263,21 +263,21 @@ bool ShimGamesView::prepareStart(const std::string& profile, const AxesFor& axes
     }
     std::vector<std::string> others;
     for (const ShimGame& game : list_.games) {
-        const ShimState state = shimState(game.folder, source(game.folder));
-        if (state == ShimState::Foreign) {   // another mod's dinput8.dll: never touched
-            WE_LOG_WARN(log(), "shim: {} left out: its dinput8.dll is another mod's ({})", game.name,
-                        pathToUtf8(game.folder));
+        // Put in, replaced when older, another mod's DLL chained; nothing written when all is in place.
+        const ShimResult result = installShim(game.folder, source(game.folder), settings_.sourceSettings);
+        if (!result.ok && result.leftAlone) {   // another mod's DLL that cannot be chained: never touched
+            WE_LOG_WARN(log(), "shim: {} left out: {} ({})", game.name, result.error, pathToUtf8(game.folder));
             others.push_back(game.name);
             continue;
         }
-        if (state != ShimState::Installed) {
-            const ShimResult result = installShim(game.folder, source(game.folder), settings_.sourceSettings);
-            if (!result.ok) {
-                error = "The shim could not be put into " + displayName(game) + ": " + result.error + ".";
-                WE_LOG_WARN(log(), "shim: {}", error);
-                return false;
-            }
-            for (const std::string& file : result.changed) WE_LOG_INFO(log(), "shim: wrote {}", file);
+        if (!result.ok) {
+            error = "The shim could not be put into " + displayName(game) + ": " + result.error + ".";
+            WE_LOG_WARN(log(), "shim: {}", error);
+            return false;
+        }
+        for (const std::string& file : result.changed) WE_LOG_INFO(log(), "shim: wrote {}", file);
+        if (shimChained(game.folder)) {
+            WE_LOG_INFO(log(), "shim: {} is chained: DirectInput goes on to {}", game.name, kShimChainDll);
         }
         // The wheel it presents: the target picked on the Mapping tab; and the game's own pedal axes.
         const ShimResult target = setShimTarget(game.folder, profile);
@@ -304,7 +304,7 @@ bool ShimGamesView::prepareStart(const std::string& profile, const AxesFor& axes
     if (prepared.empty()) {
         error = "No game folder can take the shim: " + others.front() +
                 (others.size() > 1 ? " and the others hold" : " holds") +
-                " another mod's dinput8.dll (WheelBri never replaces it).";
+                " another mod's dinput8.dll that WheelBri cannot chain (see the log).";
         return false;
     }
     WE_LOG_INFO(log(), "shim: ready in {} game folder(s), presenting the {}", prepared.size(), profile);

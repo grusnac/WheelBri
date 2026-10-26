@@ -103,21 +103,37 @@ TEST_F(ShimStart, AnInstalledShimKeepsTheUsersSettingsButTheTarget) {
     EXPECT_EQ(read(game() / kShimSettings), "[shim]\nsource_vid = 30b7 ; mine\ntarget_profile = g25\n");
 }
 
-// A folder with another mod's dinput8.dll is left out; when it is the only one, Start cannot go on.
-TEST_F(ShimStart, AnotherModsDllIsLeftOut) {
+// Another mod's dinput8.dll is chained at Start: the shim in its place, the mod's renamed to dinput8-chain.dll.
+TEST_F(ShimStart, AnotherModsDllIsChained) {
     listTheGame();
     write(game() / kShimDll, "someone else's proxy");
     ShimGamesView view(window_, settings());
     std::string error;
+    ASSERT_TRUE(prepare(view, "g25", error)) << error;
+    EXPECT_EQ(read(game() / kShimDll), "our shim");
+    EXPECT_EQ(read(game() / kShimChainDll), "someone else's proxy");
+    const std::string settingsText = read(game() / kShimSettings);
+    EXPECT_NE(settingsText.find("chain = dinput8-chain.dll"), std::string::npos) << settingsText;
+    EXPECT_NE(settingsText.find("target_profile = g25"), std::string::npos) << settingsText;
+    EXPECT_EQ(prepared_, std::vector<std::filesystem::path>{game()});
+}
+
+// A mod's DLL that cannot be chained is left out; when it is the only folder, Start cannot go on.
+TEST_F(ShimStart, AModThatCannotBeChainedIsLeftOut) {
+    listTheGame();
+    write(game() / kShimDll, "someone else's proxy");
+    std::filesystem::create_directories(game() / kShimChainDll);   // a folder where the chain would go
+    ShimGamesView view(window_, settings());
+    std::string error;
     EXPECT_FALSE(prepare(view, "g25", error));
-    EXPECT_NE(error.find("another mod's dinput8.dll"), std::string::npos) << error;
+    EXPECT_NE(error.find("cannot chain"), std::string::npos) << error;
     EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));   // nothing written next to it
     EXPECT_EQ(read(game() / kShimDll), "someone else's proxy");
     EXPECT_TRUE(prepared_.empty());
 }
 
 // Every listed folder is readied (one whose shim was deleted gets it back), presenting the target, with the pedal axes
-// given for it; another mod's folder is skipped and the rest go on.
+// given for it; another mod's folder is chained.
 TEST_F(ShimStart, EveryListedFolderIsReady) {
     const auto second = dir_ / "Second";
     const auto modded = dir_ / "Modded";
@@ -139,13 +155,13 @@ TEST_F(ShimStart, EveryListedFolderIsReady) {
                                   },
                                   prepared_, error))
         << error;
-    EXPECT_EQ(prepared_, (std::vector<std::filesystem::path>{game(), second}));
+    EXPECT_EQ(prepared_, (std::vector<std::filesystem::path>{game(), second, modded}));
     EXPECT_EQ(asked, prepared_);
     EXPECT_EQ(read(game() / kShimDll), "our shim");
     EXPECT_EQ(read(second / kShimDll), "our shim");
     EXPECT_NE(read(second / kShimSettings).find("target_profile = g923"), std::string::npos);
-    EXPECT_EQ(read(modded / kShimDll), "another mod");
-    EXPECT_FALSE(std::filesystem::exists(modded / kShimSettings));
+    EXPECT_EQ(read(modded / kShimDll), "our shim");
+    EXPECT_EQ(read(modded / kShimChainDll), "another mod");
     // Deleted from one: the next Start puts it back.
     std::filesystem::remove(second / kShimDll);
     ASSERT_TRUE(prepare(view, "g923", error)) << error;

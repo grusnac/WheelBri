@@ -90,22 +90,31 @@ enum class ShimState {
     Installed,   // our dinput8.dll is there, the same as the one WheelBri has
     Outdated,    // ours, but WheelBri has a newer one (Start replaces it); also ours built for the other processor
     Missing,     // no dinput8.dll
-    Foreign,     // a dinput8.dll that is not ours (another mod): left alone
+    Foreign,     // a dinput8.dll that is not ours (another mod): Start chains it (installShim)
 };
 
 // What is in `folder`, compared with WheelBri's own dinput8.dll at `sourceDll` (when that is missing, any
 // dinput8.dll next to a wheelbri-shim.ini counts as ours and installed). A dinput8.dll is ours when it is the same file
-// as `sourceDll`, exports IsWheelBriShim (isWheelBriShim), or has wheelbri-shim.ini next to it (older shims).
+// as `sourceDll`, exports IsWheelBriShim (isWheelBriShim), or has a wheelbri-shim.ini without chain next to it (older
+// shims, which have no mark; a shim that chains has it, so a DLL without it there is a mod's update over our shim).
 [[nodiscard]] ShimState shimState(const std::filesystem::path& folder, const std::filesystem::path& sourceDll);
 
 struct ShimResult {
     bool ok = false;
     std::string error;                 // why not, for the window and the log
-    std::vector<std::string> changed;  // the files written or deleted
+    std::vector<std::string> changed;  // the files written, renamed or deleted
+    bool leftAlone = false;            // not ok: another mod's DLL that cannot be chained, left as it was
 };
 
-// Puts the shim into `folder`: copies `sourceDll` (replacing ours, never a foreign one) and `sourceSettings` when no
-// wheelbri-shim.ini is there yet (the user's edits stay). Fails while the game runs (Windows locks the DLL).
+// Whether the shim in `folder` hands DirectInput on to another mod's DLL: dinput8-chain.dll is there.
+[[nodiscard]] bool shimChained(const std::filesystem::path& folder);
+
+// Puts the shim into `folder`: copies `sourceDll` (replacing ours) and `sourceSettings` when no wheelbri-shim.ini is
+// there yet (the user's edits stay). Another mod's DLL in the shim's place is chained: renamed to dinput8-chain.dll
+// (one there already, from before the mod was updated, becomes dinput8-chain.dll.old), the shim put in its place and
+// [shim] chain = dinput8-chain.dll written. One built for the other processor than the game is left alone
+// (`leftAlone`): it could not run in the game anyway. With dinput8-chain.dll there, chain is written when the file has
+// none. Fails while the game runs (Windows locks the DLL); a failed chain puts the mod's DLL back.
 ShimResult installShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll,
                        const std::filesystem::path& sourceSettings);
 // Makes the shim in `folder` present `profile` ("g920", "g25"): [shim] target_profile in its wheelbri-shim.ini, the
@@ -126,7 +135,8 @@ ShimResult setShimGameAxes(const std::filesystem::path& folder, const std::optio
 inline constexpr const char* kShimGameAxesKey = "game_axes";
 inline constexpr const char* kShimGameAxesByWheelBri = "wheelbri";
 
-// Deletes what installShim put there: dinput8.dll (only ours) and wheelbri-shim.ini.
+// Deletes what installShim put there: dinput8.dll (only ours) and wheelbri-shim.ini, and gives a chained mod its
+// place back (dinput8-chain.dll renamed to the shim's name; a .old is left).
 ShimResult removeShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll);
 
 }  // namespace wheelbri

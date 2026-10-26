@@ -2027,7 +2027,7 @@ TEST_F(EditView, GameFolders) {
     shims_->refresh(true);
     nowMs_ += 2000;
     games();
-    EXPECT_TRUE(window_.hasPart("another mod's dinput8.dll: Start leaves it"));
+    EXPECT_TRUE(window_.hasPart("another mod's dinput8.dll: Start chains it"));
     EXPECT_TRUE(window_.has("other mod"));
 
     // A folder whose game WheelBri does not know: listed after the games; Add as your game... from there.

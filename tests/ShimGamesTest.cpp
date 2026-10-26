@@ -220,12 +220,54 @@ TEST_F(ShimGamesFiles, TheTargetSaysWhenTheFileCannotBeRead) {
     EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");
 }
 
-TEST_F(ShimGamesFiles, AnotherModsDllIsLeftAlone) {
+// Another mod's dinput8.dll is chained: renamed aside, the shim in its place hands DirectInput on to it; removing the
+// shim gives the mod its place back.
+TEST_F(ShimGamesFiles, AnotherModsDllIsChained) {
     write(game() / kShimDll, "someone else's proxy");
     EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Foreign);
-    EXPECT_FALSE(installShim(game(), sourceDll(), sourceSettings()).ok);
-    EXPECT_FALSE(removeShim(game(), sourceDll()).ok);
+    EXPECT_FALSE(removeShim(game(), sourceDll()).ok);   // not ours to delete
+    EXPECT_FALSE(shimChained(game()));
+
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    ASSERT_TRUE(put.ok) << put.error;
+    EXPECT_EQ(read(game() / kShimDll), "our shim v1");
+    EXPECT_EQ(read(game() / kShimChainDll), "someone else's proxy");
+    EXPECT_NE(read(game() / kShimSettings).find("chain = dinput8-chain.dll"), std::string::npos);
+    EXPECT_TRUE(shimChained(game()));
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Installed);
+
+    const ShimResult removed = removeShim(game(), sourceDll());
+    ASSERT_TRUE(removed.ok) << removed.error;
     EXPECT_EQ(read(game() / kShimDll), "someone else's proxy");
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimChainDll));
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
+}
+
+// The mod updated over our shim: its new DLL is chained, the one before kept as .old.
+TEST_F(ShimGamesFiles, AModUpdatedOverTheShimIsChainedAgain) {
+    write(game() / kShimDll, "mod v1");
+    ASSERT_TRUE(installShim(game(), sourceDll(), sourceSettings()).ok);
+    write(game() / kShimDll, "mod v2");   // no mark, and the settings chain: the mod's, not an older shim of ours
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Foreign);
+
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    ASSERT_TRUE(put.ok) << put.error;
+    EXPECT_EQ(read(game() / kShimDll), "our shim v1");
+    EXPECT_EQ(read(game() / kShimChainDll), "mod v2");
+    EXPECT_EQ(read(game() / (std::string(kShimChainDll) + ".old")), "mod v1");
+}
+
+// Settings without the chain line next to a chained shim (written by hand, or a step that failed) get it back.
+TEST_F(ShimGamesFiles, AChainedShimGetsItsChainLine) {
+    write(game() / kShimDll, "our shim v1");
+    write(game() / kShimChainDll, "someone else's proxy");
+    write(game() / kShimSettings, "[shim]\ntarget_profile = g25\n");
+    ASSERT_TRUE(installShim(game(), sourceDll(), sourceSettings()).ok);
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g25\nchain = dinput8-chain.dll\n");
+
+    write(game() / kShimSettings, "[shim]\nchain = mine.dll\n");   // one set by hand is kept
+    ASSERT_TRUE(installShim(game(), sourceDll(), sourceSettings()).ok);
+    EXPECT_EQ(read(game() / kShimSettings), "[shim]\nchain = mine.dll\n");
 }
 
 TEST_F(ShimGamesFiles, LinesThatAreNotUtf8AreSkipped) {
@@ -293,6 +335,19 @@ TEST_F(ShimGamesFiles, AGameIsWhatItsLargestExeIs) {
     EXPECT_EQ(shimSourceFor(game(), sources), sources.x64);   // cannot tell: 64-bit, as before
 }
 
+// A mod's DLL built for the other processor could not run in the game: left as it is, nothing written.
+TEST_F(ShimGamesFiles, AModForTheOtherProcessorIsLeftAlone) {
+    write(game() / "NFSC.exe", peFile(0x014C, 100));   // a 32-bit game
+    write(game() / kShimDll, peFile(0x8664));           // a 64-bit mod
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    EXPECT_FALSE(put.ok);
+    EXPECT_TRUE(put.leftAlone);
+    EXPECT_NE(put.error.find("other processor"), std::string::npos) << put.error;
+    EXPECT_EQ(read(game() / kShimDll), peFile(0x8664));
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimChainDll));
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
+}
+
 TEST_F(ShimGamesFiles, NextToTheAsiLoaderTheShimIsDinput8Hooked) {
     const std::string loader = "MZ ... IsUltimateASILoader ... DirectInput8Create";
     write(game() / kShimDll, loader);
@@ -319,12 +374,20 @@ TEST_F(ShimGamesFiles, NextToTheAsiLoaderTheShimIsDinput8Hooked) {
     EXPECT_EQ(read(game() / kShimDll), loader);
 }
 
-TEST_F(ShimGamesFiles, AnotherDinput8HookedIsLeftAlone) {
+// Next to the ASI Loader, another mod's dinput8Hooked.dll is chained the same way; the loader is never touched.
+TEST_F(ShimGamesFiles, AnotherDinput8HookedIsChained) {
     write(game() / kShimDll, "IsUltimateASILoader");
     write(game() / kShimDllHooked, "someone else's");
     EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Foreign);
-    EXPECT_FALSE(installShim(game(), sourceDll(), sourceSettings()).ok);
+    ASSERT_TRUE(installShim(game(), sourceDll(), sourceSettings()).ok);
+    EXPECT_EQ(read(game() / kShimDllHooked), "our shim v1");
+    EXPECT_EQ(read(game() / kShimChainDll), "someone else's");
+    EXPECT_EQ(read(game() / kShimDll), "IsUltimateASILoader");
+
+    ASSERT_TRUE(removeShim(game(), sourceDll()).ok);
     EXPECT_EQ(read(game() / kShimDllHooked), "someone else's");
+    EXPECT_EQ(read(game() / kShimDll), "IsUltimateASILoader");
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimChainDll));
 }
 
 TEST_F(ShimGamesFiles, OurMarkSaysTheDllIsOurs) {

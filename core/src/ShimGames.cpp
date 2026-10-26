@@ -230,15 +230,48 @@ std::string gameFolderProblem(const std::filesystem::path& folder) {
     return exe ? std::string() : "no .exe in that folder: pick the folder that holds the game's .exe";
 }
 
+namespace {
+
+// The [shim] chain the settings in `folder` give ("" when none, or no file).
+std::string settingsChain(const std::filesystem::path& folder) {
+    const std::filesystem::path file = folder / kShimSettings;
+    if (!regularFile(file)) return {};
+    const std::optional<std::string> text = readFileText(file);
+    return text ? IniDocument::parse(*text).document.get("shim", kShimChainKey).value_or("") : std::string();
+}
+
+// Writes [shim] chain = dinput8-chain.dll into the settings in `folder` (made when missing), the other lines kept.
+bool writeChain(const std::filesystem::path& folder, ShimResult& result) {
+    const std::filesystem::path file = folder / kShimSettings;
+    const std::optional<std::string> text = regularFile(file) ? readFileText(file) : std::optional<std::string>("");
+    if (!text) {
+        result.error = "cannot read " + pathToUtf8(file);
+        return false;
+    }
+    IniEditor editor(*text);
+    editor.set("shim", kShimChainKey, kShimChainDll);
+    if (!writeFileReplacing(file, editor.text())) {
+        result.error = "cannot write " + pathToUtf8(file) + ": close the game and try again";
+        return false;
+    }
+    result.changed.push_back(pathToUtf8(file));
+    return true;
+}
+
+}  // namespace
+
 ShimState shimState(const std::filesystem::path& folder, const std::filesystem::path& sourceDll) {
     const std::filesystem::path dll = shimDllIn(folder);
     if (!regularFile(dll)) return ShimState::Missing;
     const bool haveSource = regularFile(sourceDll);
     const bool same = haveSource && sameBytes(dll, sourceDll);
     if (same) return ShimState::Installed;
-    if (!isWheelBriShim(dll) && !regularFile(folder / kShimSettings)) return ShimState::Foreign;
+    const bool olderOfOurs = regularFile(folder / kShimSettings) && settingsChain(folder).empty();
+    if (!isWheelBriShim(dll) && !olderOfOurs) return ShimState::Foreign;
     return haveSource ? ShimState::Outdated : ShimState::Installed;
 }
+
+bool shimChained(const std::filesystem::path& folder) { return regularFile(folder / kShimChainDll); }
 
 ShimResult installShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll,
                        const std::filesystem::path& sourceSettings) {
@@ -256,11 +289,54 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
         return result;
     }
     const ShimState state = shimState(folder, sourceDll);
-    if (state == ShimState::Foreign) {
-        result.error = "the game folder already has a dinput8.dll that is not WheelBri's (another mod?): left alone";
-        return result;
-    }
     std::error_code ec;
+    const std::filesystem::path chain = folder / kShimChainDll;
+    // Another mod's DLL where the shim goes: it moves aside to dinput8-chain.dll, the shim hands DirectInput to it.
+    std::filesystem::path chainedFrom;
+    std::filesystem::path keptOld;
+    if (state == ShimState::Foreign) {
+        const std::filesystem::path theirs = shimDllIn(folder);
+        const Architecture theirBits = peArchitecture(theirs);
+        const Architecture gameBits = gameArchitecture(folder);
+        if (theirBits != Architecture::Unknown && gameBits != Architecture::Unknown && theirBits != gameBits) {
+            result.error = "its " + pathToUtf8(theirs.filename()) + " is another mod's, built for the other processor "
+                           "than the game (it cannot run there): left alone";
+            result.leftAlone = true;
+            return result;
+        }
+        if (std::filesystem::exists(chain, ec) && !regularFile(chain)) {
+            result.error = pathToUtf8(chain) + " is not a file: another mod's DLL cannot be chained, left alone";
+            result.leftAlone = true;
+            return result;
+        }
+        if (regularFile(chain)) {   // the mod was updated over our shim: the one chained before is kept as .old
+            const std::filesystem::path old = folder / (std::string(kShimChainDll) + ".old");
+            std::filesystem::rename(chain, old, ec);
+            if (ec) {
+                result.error = writeProblem("rename", chain, ec, ": close the game and try again");
+                return result;
+            }
+            result.changed.push_back(pathToUtf8(old));
+            keptOld = old;
+        }
+        std::filesystem::rename(theirs, chain, ec);
+        if (ec) {
+            result.error = writeProblem("rename", theirs, ec, ": close the game and try again");
+            std::error_code undoEc;
+            if (!keptOld.empty()) std::filesystem::rename(keptOld, chain, undoEc);
+            return result;
+        }
+        result.changed.push_back(pathToUtf8(chain));
+        chainedFrom = theirs;
+    }
+    // A failed step after the rename gives the mod its place back.
+    const auto undoChain = [&] {
+        if (chainedFrom.empty()) return;
+        std::error_code undoEc;
+        if (regularFile(chainedFrom)) std::filesystem::remove(chainedFrom, undoEc);
+        std::filesystem::rename(chain, chainedFrom, undoEc);
+        if (!keptOld.empty()) std::filesystem::rename(keptOld, chain, undoEc);
+    };
     if (state != ShimState::Installed) {
         const std::filesystem::path target = shimDllIn(folder);
         std::filesystem::copy_file(sourceDll, target, std::filesystem::copy_options::overwrite_existing, ec);
@@ -275,6 +351,7 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
         }
         if (ec) {
             result.error = writeProblem("write", target, ec, ": close the game and try again");
+            undoChain();
             return result;
         }
         result.changed.push_back(pathToUtf8(target));
@@ -283,9 +360,15 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
         std::filesystem::copy_file(sourceSettings, folder / kShimSettings, ec);
         if (ec) {
             result.error = writeProblem("write", folder / kShimSettings, ec, "");
+            undoChain();
             return result;
         }
         result.changed.push_back(pathToUtf8(folder / kShimSettings));
+    }
+    // The shim follows the chain only when its settings say so (a hand-set chain is kept).
+    if (regularFile(chain) && settingsChain(folder).empty() && !writeChain(folder, result)) {
+        undoChain();
+        return result;
     }
     result.ok = true;
     return result;
@@ -401,10 +484,19 @@ ShimResult removeShim(const std::filesystem::path& folder, const std::filesystem
         return result;
     }
     std::error_code ec;
+    const std::filesystem::path dll = shimDllIn(folder);   // never the ASI Loader itself
     if (state != ShimState::Missing) {
-        const std::filesystem::path dll = shimDllIn(folder);   // never the ASI Loader itself
         if (!std::filesystem::remove(dll, ec) || ec) {
             result.error = writeProblem("delete", dll, ec, ": is the game still running? Close it and try again");
+            return result;
+        }
+        result.changed.push_back(pathToUtf8(dll));
+    }
+    if (shimChained(folder)) {   // the mod we chained gets its place back
+        std::filesystem::rename(folder / kShimChainDll, dll, ec);
+        if (ec) {
+            const std::string yourself = ": rename it to " + pathToUtf8(dll.filename()) + " yourself";
+            result.error = writeProblem("rename", folder / kShimChainDll, ec, yourself.c_str());
             return result;
         }
         result.changed.push_back(pathToUtf8(dll));

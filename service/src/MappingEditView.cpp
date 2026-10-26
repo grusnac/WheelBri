@@ -1524,7 +1524,7 @@ float MappingEditView::drawGameFolder(const GameProfile* const game, const std::
     const ShimState state = shims_->stateAt(index);
     const std::string stateText = state == ShimState::Installed ? "shim in place"
                                   : state == ShimState::Outdated ? "older shim (Start replaces it)"
-                                  : state == ShimState::Foreign  ? "another mod's dinput8.dll: Start leaves it"
+                                  : state == ShimState::Foreign  ? "another mod's dinput8.dll: Start chains it"
                                                                  : "no shim (Start puts it in)";
     const std::string target = shims_->targetAt(index);
     const std::string presents =
