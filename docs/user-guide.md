@@ -6,6 +6,7 @@ How to set up your rig, map it to a Logitech wheel and play. Installing: [README
 - [Set up your rig](#set-up-your-rig)
 - [Map it to the Target](#map-it-to-the-target)
 - [Play](#play)
+- [Shadow view](#shadow-view)
 - [Games tab](#games-tab)
 - [Linux and the Steam Deck](#linux-and-the-steam-deck)
 - [Force feedback](#force-feedback)
@@ -62,7 +63,8 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
   marks.
 
 The Target's buttons show **the numbers the game uses**: from 1 in Logitech driver order (as `joy.cpl` and games
-count), from 0 in Native. **Last pressed** says which one the game gets. Details: [targets.md](targets.md).
+count), from 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) while running. Details:
+[targets.md](targets.md).
 
 **Default** goes back to WheelBri's mapping.
 
@@ -98,11 +100,32 @@ restart a running game to get it. With a wheel that is not a Moza, set `source_v
 `wheelbri-shim.ini` to your wheel's vendor id (the first 4 characters of its `vid:pid` in the Rig tab). Do not use
 both Modes for one game.
 
-**Shadow view**: while running, the Mapping tab draws the Target and lights every control the game sees pressed, with
-the game's number (or, on the G920 and G923, what is printed on the real button) and your label. **List** (S) shows
-every rig axis and button instead.
+## Shadow view
+
+While WheelBri runs, the Mapping tab shows the Target as the game sees it: the real wheel drawn from Logitech's own
+pictures, with its pedals and shifter, every control lit while the game gets it pressed. It shows what the game
+receives after your mapping, so it is the place to check a mapping in action.
 
 ![The Shadow view](images/shadow.png)
+
+- **Buttons** light while pressed. On each is its number as the game counts it (from 1 in Logitech driver order, from
+  0 in Native); on the G920 and G923, what is printed on the real button instead (A B X Y, LSB / RSB, View, Menu,
+  Xbox, the G923's + and -), and nothing on their paddles.
+- **Beside each button**: the label you gave its control in the Rig tab, or the wheel's own name (Red 2, a gear) when
+  the control has none.
+- **Faint** controls have nothing mapped to them: the quick way to spot what is left to map.
+- **Steering**: an arc round the rim grows as you turn, reaching its end at full lock; a mark shows where the rim's top
+  is.
+- **Pedals** fill as you press them; the **D-pad** lights its arms.
+- **Shifter**: the knob sits in the gear the game sees engaged (G25 and G27 with their button panel; G920 and G923
+  with the Driving Force Shifter's gate).
+- **G923 dial**: its left or right teeth light as it turns.
+- **Pressed now**, on the right: every control pressed at this moment, as "your control -> the Target's".
+
+**Shadow** / **List** in the Mapping tab's header (or **S**) switch views. **List** shows every axis and button of
+your rig as it reads them, next to what the Target reports, with **Last pressed** naming the Target's button you
+pressed last and what drives it ("G920 7 Menu <- Rig 35 Start"). Use it when a control does nothing in the Shadow view:
+List shows whether the rig sees it at all.
 
 ## Games tab
 
