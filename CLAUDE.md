@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repo.
+Guidance for Claude Code in this repo. Folder rules load on their own when their files are touched:
+`driver/CLAUDE.md`, `tests/CLAUDE.md`, `.claude/rules/` (`in-game-dll.md` shim/logi, `ui.md`, `powershell.md`).
+Planning work in one of those areas before opening its files → read its rule file first.
 
 ## Working with the user
 
