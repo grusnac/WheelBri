@@ -92,8 +92,8 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
   `.claude/rules/in-game-dll.md`.
 - **`driver/`** (UMDF 2): virtual wheel minidriver + rig hide filter; details in `driver/CLAUDE.md`.
 - **`tools/uhid/`**: `wheelbri-uhid`, Linux virtual wheel via kernel uhid; Proton reads it with `PROTON_ENABLE_HIDRAW`.
-- **`installer/`, `scripts/make/package.ps1`**: Windows package in `dist/windows/` (IExpress). A new shipped file goes
-  in `package.ps1` and `install.ps1`'s required list.
+- **`installer/`, `scripts/make/package.ps1`**: Windows package. A new shipped file goes in `package.ps1` and
+  `install.ps1`'s required list.
 - **`tests/`**: GoogleTest + `wheelbri_ui_tests`; details in `tests/CLAUDE.md`.
   - A loop change comes with a scenario in `tests/emulators/PushEmulators.hpp` (`PushLoopTest`); the rig's loop stays
     in step with `runLoop`.
@@ -145,5 +145,4 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
 - **Security when elevated:** nothing under `%LOCALAPPDATA%\wheelbri` may choose a privileged action; config paths
   must be inside the user's folders (`isInsideUserFolders`); helper programs from fixed system places, never PATH;
   links refused.
-- **PowerShell 5.1:** wrap function results in `@(...)` before `.Count`.
 - **Licence:** nothing copied from GIMX (GPLv3); flag it before ever doing that.
