@@ -16,7 +16,7 @@
 namespace wheelbri {
 
 // HID++ 2.0, device side: what Logitech's software (G HUB) asks a Logitech wheel over its vendor reports, answered for
-// a virtual wheel that has them (VirtualWheel::hidpp, README, "G HUB and HID++"). Written from the
+// a virtual wheel that has them (VirtualWheel::hidpp, docs/targets.md). Written from the
 // protocol's public description (Logitech's HID++ 2.0 documents, MIT-licensed tools); nothing is copied from GPL code.
 //
 // A request and its answer are one report each, the same size: long (report ID 0x11, 20 bytes) or very long (0x12, 64

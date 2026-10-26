@@ -1,5 +1,5 @@
 # Installs wheelbri-wheel, the one driver package behind all four virtual wheels (G25, G27, G920, G923; build it first,
-# see README.md). Administrator. Secure Boot and test mode stay as they are: the package is signed with a
+# see docs\building.md). Administrator. Secure Boot and test mode stay as they are: the package is signed with a
 # certificate made on this PC by the WDK build (WDKTestCert, or WheelBri's own from new-signing-cert.ps1), which this
 # script adds to the machine's trusted Root and TrustedPublisher stores (its thumbprint recorded in
 # HKLM\SOFTWARE\wheelbri\SigningCertificates for the uninstall).

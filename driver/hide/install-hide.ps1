@@ -1,5 +1,5 @@
 # Puts wheelbri-hide, the filter that hides the rig from games while wheelbri-service runs, on the rig's devices
-# (build it first, see ..\README.md). Administrator; close the rig's own software (the wheel maker's tool) and games
+# (build it first, see docs\building.md). Administrator; close the rig's own software (the wheel maker's tool) and games
 # first: each device restarts once. Secure Boot and test mode stay as they are: the package is signed with a
 # certificate made on this PC by the WDK build (WDKTestCert, or WheelBri's own from ..\new-signing-cert.ps1), which this
 # script adds to the machine's trusted Root and TrustedPublisher stores (thumbprint recorded, see ..\common.ps1).
