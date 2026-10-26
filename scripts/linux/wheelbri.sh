@@ -9,7 +9,8 @@
 #                        are put into the game's folder (the one with the .exe in %command%) before it starts and
 #                        taken out when it ends; WINEDLLOVERRIDES makes Proton load it. As the app does: the 32-bit
 #                        dinput8.dll for a 32-bit game (shim/x86/), and dinput8Hooked.dll next to the Ultimate ASI
-#                        Loader (a dinput8.dll mods use), which then loads it.
+#                        Loader (a dinput8.dll mods use), which then loads it. Another mod's dinput8.dll is chained:
+#                        renamed to dinput8-chain.dll, the shim hands DirectInput on to it; given back afterwards.
 #
 # As a Steam launch option (works in Game Mode; the game's own exit stops everything):
 #   /home/deck/wheelbri/wheelbri.sh %command%
@@ -255,15 +256,51 @@ shim_name_in() {
     fi
 }
 
+chain_name=dinput8-chain.dll   # another mod's dll, chained (core ShimGames.hpp: kShimChainDll)
+chain_line="chain = $chain_name"
+
+# Whether the settings file $1 sets [shim] chain.
+ini_has_chain() {
+    [ -f "$1" ] && awk -F= '{sub(/\r$/, "")} /^\[/{shim = ($0 ~ /^\[shim\]/); next}
+                          shim && $1 ~ /^[ \t]*chain[ \t]*$/ {found = 1} END {exit !found}' "$1" 2>/dev/null
+}
+
+# Whether $1 (a dll in game folder $2) is a WheelBri shim: one of ours byte for byte, our mark (the IsWheelBriShim
+# export), or an older shim without the mark: next to a wheelbri-shim.ini without chain (a shim that chains has the
+# mark, so a dll without it there is a mod's update over our shim).
+is_our_shim() {
+    { [ -n "$shim_dll_x64" ] && cmp -s "$shim_dll_x64" "$1"; } ||
+        { [ -n "$shim_dll_x86" ] && cmp -s "$shim_dll_x86" "$1"; } ||
+        grep -qa IsWheelBriShim "$1" 2>/dev/null ||
+        { [ -e "$2/wheelbri-shim.ini" ] && ! ini_has_chain "$2/wheelbri-shim.ini"; }
+}
+
+# Adds chain = dinput8-chain.dll to [shim] in the settings file $1, unless it sets chain already.
+add_chain_line() {
+    ini_has_chain "$1" && return 0
+    if grep -q '^\[shim\]' "$1" 2>/dev/null; then
+        sed -i "0,/^\[shim\]/s//[shim]\n$chain_line/" "$1"
+    else
+        printf '[shim]\n%s\n' "$chain_line" >>"$1"
+    fi
+}
+
+# Whether the settings file $1 is WheelBri's own ($2), give or take the chain line put_shim added.
+same_settings() {
+    cmp -s "$2" "$1" || cmp -s "$2" <(grep -v -x -F "$chain_line" "$1")
+}
+
 shim_dll=         # WheelBri's dinput8.dll this run put in (the 64-bit or the 32-bit one)
 shim_folder=      # where this run put the shim; empty: nothing to take out
 shim_target=      # the file it went to there (dinput8.dll or dinput8Hooked.dll)
 shim_put_dll=0    # this run put (or found its own) shim there
 shim_put_ini=0    # this run put wheelbri-shim.ini there
+shim_chained=0    # this run chained another mod's dll (renamed to dinput8-chain.dll)
 
-# Puts the shim and wheelbri-shim.ini into the game's folder, as the app's Games tab does. Never touches another
-# mod's dll: one that is neither ours (byte for byte) nor next to a wheelbri-shim.ini (an older WheelBri shim). A
-# wheelbri-shim.ini already there (your own settings) is used as it is.
+# Puts the shim and wheelbri-shim.ini into the game's folder, as the app's Games tab does. Another mod's dll in its
+# place (not is_our_shim) is chained: renamed to dinput8-chain.dll (one there from before becomes .old), and the
+# settings get chain = dinput8-chain.dll; one built for the other processor than the game is left alone, nothing put in.
+# A wheelbri-shim.ini already there (your own settings) is used as it is (the chain line added when chaining).
 put_shim() {
     local folder dll ini bits name
     folder=$(find_game_folder)
@@ -287,12 +324,34 @@ put_shim() {
     name=$(shim_name_in "$folder")
     dll="$folder/$name"
     ini="$folder/wheelbri-shim.ini"
-    if [ -e "$dll" ] && ! cmp -s "$shim_dll" "$dll" && [ ! -e "$ini" ]; then
-        say "--shim: $dll belongs to another mod (not WheelBri's): left alone, nothing put in; remove it first"
-        return 1
+    if [ -e "$dll" ] && ! is_our_shim "$dll" "$folder"; then
+        local theirs
+        case "$(pe_machine "$dll")" in
+            014c) theirs=32 ;;
+            8664) theirs=64 ;;
+            *) theirs=$bits ;;
+        esac
+        if [ "$theirs" != "$bits" ]; then
+            say "--shim: $dll is another mod's, built for the other processor than the game: left alone, nothing put in"
+            return 1
+        fi
+        if [ -e "$folder/$chain_name" ] && [ ! -f "$folder/$chain_name" ]; then
+            say "--shim: $folder/$chain_name is not a file: another mod's $name cannot be chained, nothing put in"
+            return 1
+        fi
+        if [ -f "$folder/$chain_name" ]; then   # the mod was updated over our shim: the one chained before kept
+            mv -f "$folder/$chain_name" "$folder/$chain_name.old" || { say "--shim: cannot rename $chain_name"; return 1; }
+        fi
+        mv "$dll" "$folder/$chain_name" || { say "--shim: cannot rename $name to $chain_name"; return 1; }
+        shim_chained=1
+        say "--shim: another mod's $name chained: renamed to $chain_name, the shim hands DirectInput on to it"
     fi
     if ! cmp -s "$shim_dll" "$dll" 2>/dev/null; then
-        cp -f "$shim_dll" "$dll" || { say "--shim: cannot copy $name into $folder"; return 1; }
+        if ! cp -f "$shim_dll" "$dll"; then
+            say "--shim: cannot copy $name into $folder"
+            [ "$shim_chained" = 1 ] && mv "$folder/$chain_name" "$dll"   # the mod gets its place back
+            return 1
+        fi
     fi
     shim_folder=$folder
     shim_target=$dll
@@ -303,7 +362,7 @@ put_shim() {
         else
             say "--shim: cannot copy wheelbri-shim.ini into $folder: the shim uses its defaults (a G920)"
         fi
-    elif cmp -s "$shim_ini" "$ini"; then
+    elif same_settings "$ini" "$shim_ini"; then
         shim_put_ini=1   # WheelBri's own settings, left from an earlier --keep-shim: ours to take out
     else
         say "--shim: using your own $ini (kept afterwards)"
@@ -311,6 +370,9 @@ put_shim() {
         own=$(shim_target_of "$ini")
         [ "$own" = "$target" ] ||
             say "--shim: WARNING: your $ini presents the $own, not the $target: set target_profile = $target there"
+    fi
+    if [ -f "$folder/$chain_name" ] && [ -e "$ini" ]; then   # the shim follows the chain only when told to
+        add_chain_line "$ini" || say "--shim: cannot add '$chain_line' to $ini: the mod is not used"
     fi
     say "shim put into $folder ($bits-bit, as $name)"
     return 0
@@ -327,7 +389,10 @@ take_shim_out() {
     if [ "$shim_put_dll" = 1 ] && cmp -s "$shim_dll" "$shim_target"; then
         rm -f "$shim_target" && removed=$(basename "$shim_target")
     fi
-    if [ "$shim_put_ini" = 1 ] && cmp -s "$shim_ini" "$shim_folder/wheelbri-shim.ini"; then
+    if [ -n "$removed" ] && [ -f "$shim_folder/$chain_name" ]; then   # the chained mod gets its place back
+        mv "$shim_folder/$chain_name" "$shim_target" && removed="$removed, $chain_name given back"
+    fi
+    if [ "$shim_put_ini" = 1 ] && same_settings "$shim_folder/wheelbri-shim.ini" "$shim_ini"; then
         rm -f "$shim_folder/wheelbri-shim.ini" && removed="$removed${removed:+, }wheelbri-shim.ini"
     fi
     say "shim taken out of $shim_folder (${removed:-nothing to remove})"
@@ -335,20 +400,21 @@ take_shim_out() {
 }
 
 # --virtual: a WheelBri shim left in the game's folder (--keep-shim, or put in by hand) is taken out, so the game
-# finds only the virtual wheel. Ours means: identical to one of our dinput8.dll files, or next to a wheelbri-shim.ini
-# (an older WheelBri shim). Another mod's dll stays (the ASI Loader too); a wheelbri-shim.ini with your own settings
-# stays too.
+# finds only the virtual wheel. Ours means is_our_shim. Another mod's dll stays (the ASI Loader too), a chained one
+# gets its place back; a wheelbri-shim.ini with your own settings stays too.
 remove_leftover_shim() {
     local folder removed= dll ini
     folder=$(find_game_folder)
     [ -n "$folder" ] && [ -d "$folder" ] || return 0
     dll="$folder/$(shim_name_in "$folder")"
     ini="$folder/wheelbri-shim.ini"
-    if [ -e "$dll" ] && { { [ -n "$shim_dll_x64" ] && cmp -s "$shim_dll_x64" "$dll"; } ||
-                          { [ -n "$shim_dll_x86" ] && cmp -s "$shim_dll_x86" "$dll"; } || [ -e "$ini" ]; }; then
+    if [ -e "$dll" ] && is_our_shim "$dll" "$folder"; then
         rm -f "$dll" && removed=$(basename "$dll")
     fi
-    if [ -e "$ini" ] && { cmp -s "$configs/wheelbri-shim.ini" "$ini" || cmp -s "$shim_ini" "$ini"; }; then
+    if [ -n "$removed" ] && [ -f "$folder/$chain_name" ]; then
+        mv "$folder/$chain_name" "$dll" && removed="$removed, $chain_name given back"
+    fi
+    if [ -e "$ini" ] && { same_settings "$ini" "$configs/wheelbri-shim.ini" || same_settings "$ini" "$shim_ini"; }; then
         rm -f "$ini" && removed="$removed${removed:+, }wheelbri-shim.ini"
     elif [ -e "$ini" ] && [ -n "$removed" ]; then
         say "--virtual: kept your own $ini (no effect without the shim)"
@@ -365,7 +431,7 @@ session_running() {
 
 start() {
     rm -f "$service_stop" "$uhid_stop"
-    # The game's folder first: a refused shim (another mod's dinput8.dll) starts nothing.
+    # The game's folder first: a refused shim (another mod's dinput8.dll that cannot be chained) starts nothing.
     if [ "$mode" = shim ]; then
         put_shim || return 1
     else
