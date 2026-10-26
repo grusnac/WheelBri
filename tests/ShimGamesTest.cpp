@@ -327,6 +327,25 @@ TEST_F(ShimGamesFiles, AnotherDinput8HookedIsLeftAlone) {
     EXPECT_EQ(read(game() / kShimDllHooked), "someone else's");
 }
 
+TEST_F(ShimGamesFiles, OurMarkSaysTheDllIsOurs) {
+    write(game() / kShimDll, "MZ ... IsWheelBriShim ... DirectInput8Create");   // an older build of ours, no settings
+    EXPECT_TRUE(isWheelBriShim(game() / kShimDll));
+    EXPECT_FALSE(isWheelBriShim(game() / "Game.exe"));
+    EXPECT_FALSE(isWheelBriShim(game() / "missing.dll"));
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Outdated);
+    EXPECT_EQ(shimState(game(), dir_ / "missing.dll"), ShimState::Installed);
+
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    ASSERT_TRUE(put.ok) << put.error;
+    EXPECT_EQ(read(game() / kShimDll), "our shim v1");
+}
+
+TEST_F(ShimGamesFiles, WithoutOurMarkOrSettingsTheDllIsAnotherMods) {
+    write(game() / kShimDll, "MZ ... DirectInput8Create");
+    EXPECT_FALSE(isWheelBriShim(game() / kShimDll));
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Foreign);
+}
+
 TEST_F(ShimGamesFiles, OurShimForTheOtherProcessorIsReplaced) {
     // The 64-bit shim put into a 32-bit game before there was a 32-bit one: ours (its settings are there), outdated.
     ASSERT_TRUE(installShim(game(), sourceDll(), sourceSettings()).ok);

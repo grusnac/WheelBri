@@ -132,6 +132,12 @@ bool isAsiLoader(const std::filesystem::path& dll) {
     return bytes.find("IsUltimateASILoader") != std::string::npos;
 }
 
+bool isWheelBriShim(const std::filesystem::path& dll) {
+    // The export's name, in the export table. The shim is well under 64 MB; anything bigger is not it.
+    const std::string bytes = readBytes(dll, 64U * 1024U * 1024U);
+    return bytes.find(kShimMarkExport) != std::string::npos;
+}
+
 std::filesystem::path shimDllIn(const std::filesystem::path& folder) {
     const std::filesystem::path dll = folder / kShimDll;
     return regularFile(dll) && isAsiLoader(dll) ? folder / kShimDllHooked : dll;
@@ -218,7 +224,7 @@ ShimState shimState(const std::filesystem::path& folder, const std::filesystem::
     const bool haveSource = regularFile(sourceDll);
     const bool same = haveSource && sameBytes(dll, sourceDll);
     if (same) return ShimState::Installed;
-    if (!regularFile(folder / kShimSettings)) return ShimState::Foreign;
+    if (!isWheelBriShim(dll) && !regularFile(folder / kShimSettings)) return ShimState::Foreign;
     return haveSource ? ShimState::Outdated : ShimState::Installed;
 }
 

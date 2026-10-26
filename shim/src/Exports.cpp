@@ -138,6 +138,11 @@ LPCDIDATAFORMAT WINAPI Proxy_GetdfDIJoystick() {
     });
 }
 
+// WheelBri's mark: the app looks for this export's name to tell its own dinput8.dll from another mod's (ShimGames.hpp).
+BOOL WINAPI Proxy_IsWheelBriShim() {
+    return TRUE;
+}
+
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     // Keep DllMain trivial: no logging, no LoadLibrary, no threads (loader lock). Work starts on the first export call.
     switch (reason) {

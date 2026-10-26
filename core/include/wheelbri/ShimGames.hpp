@@ -44,6 +44,10 @@ enum class Architecture { Unknown, X86, X64 };
 
 // Whether `dll` is the Ultimate ASI Loader (it exports IsUltimateASILoader).
 [[nodiscard]] bool isAsiLoader(const std::filesystem::path& dll);
+// Whether `dll` is WheelBri's shim: it exports IsWheelBriShim (shims from before that export are told by the
+// wheelbri-shim.ini next to them, see shimState).
+inline constexpr const char* kShimMarkExport = "IsWheelBriShim";
+[[nodiscard]] bool isWheelBriShim(const std::filesystem::path& dll);
 // Where the shim is (or goes) in `folder`: dinput8Hooked.dll when its dinput8.dll is the Ultimate ASI Loader,
 // else dinput8.dll.
 [[nodiscard]] std::filesystem::path shimDllIn(const std::filesystem::path& folder);
@@ -81,7 +85,7 @@ enum class ShimState {
 
 // What is in `folder`, compared with WheelBri's own dinput8.dll at `sourceDll` (when that is missing, any
 // dinput8.dll next to a wheelbri-shim.ini counts as ours and installed). A dinput8.dll is ours when it is the same file
-// as `sourceDll` or has wheelbri-shim.ini next to it.
+// as `sourceDll`, exports IsWheelBriShim (isWheelBriShim), or has wheelbri-shim.ini next to it (older shims).
 [[nodiscard]] ShimState shimState(const std::filesystem::path& folder, const std::filesystem::path& sourceDll);
 
 struct ShimResult {

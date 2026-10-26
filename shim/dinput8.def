@@ -6,3 +6,4 @@ EXPORTS
     DllRegisterServer   = Proxy_DllRegisterServer   PRIVATE
     DllUnregisterServer = Proxy_DllUnregisterServer PRIVATE
     GetdfDIJoystick     = Proxy_GetdfDIJoystick
+    IsWheelBriShim      = Proxy_IsWheelBriShim      PRIVATE
