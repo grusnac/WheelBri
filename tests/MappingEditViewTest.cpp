@@ -2029,6 +2029,17 @@ TEST_F(EditView, GameFolders) {
     games();
     EXPECT_TRUE(window_.hasPart("another mod's dinput8.dll: Start chains it"));
     EXPECT_TRUE(window_.has("other mod"));
+    // Chained from here too, and given back.
+    ASSERT_TRUE(click("Chain mod"));
+    games();
+    nowMs_ += 2000;
+    games();
+    EXPECT_TRUE(window_.hasPart("shim in place, chained to another mod's DLL, presents the G920"));
+    EXPECT_TRUE(window_.has("shim g920 +mod"));
+    ASSERT_TRUE(click("Remove shim"));
+    nowMs_ += 2000;
+    games();
+    EXPECT_TRUE(window_.hasPart("another mod's dinput8.dll: Start chains it"));
 
     // A folder whose game WheelBri does not know: listed after the games; Add as your game... from there.
     ASSERT_TRUE(shims_->addFolder(dir_ / "Games" / "Other", problem)) << problem;

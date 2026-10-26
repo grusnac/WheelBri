@@ -108,6 +108,9 @@ struct ShimResult {
 
 // Whether the shim in `folder` hands DirectInput on to another mod's DLL: dinput8-chain.dll is there.
 [[nodiscard]] bool shimChained(const std::filesystem::path& folder);
+// Why another mod's DLL in the shim's place in `folder` cannot be chained ("" when it can): "built for the other
+// processor" (than the game: it could not run there), or "dinput8-chain.dll is not a file".
+[[nodiscard]] std::string chainProblem(const std::filesystem::path& folder);
 
 // Puts the shim into `folder`: copies `sourceDll` (replacing ours) and `sourceSettings` when no wheelbri-shim.ini is
 // there yet (the user's edits stay). Another mod's DLL in the shim's place is chained: renamed to dinput8-chain.dll

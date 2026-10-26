@@ -1335,10 +1335,17 @@ void MappingEditView::drawGames() {
     y += 16;
     const auto folderTag = [this](const std::size_t folder, ui::Colour& colour) {
         const ShimState state = shims_->stateAt(folder);
-        colour = state == ShimState::Foreign ? kWarning : state == ShimState::Missing ? style::kFaint : kActive;
-        return state == ShimState::Foreign   ? std::string("other mod")
-               : state == ShimState::Missing ? std::string("no shim")
-                                             : "shim " + shims_->targetAt(folder);
+        if (state == ShimState::Foreign) {   // amber only when Start cannot chain it
+            colour = shims_->chainProblemAt(folder).empty() ? kDim : kWarning;
+            return std::string("other mod");
+        }
+        if (state == ShimState::Missing) {
+            colour = style::kFaint;
+            return std::string("no shim");
+        }
+        colour = kActive;
+        return "shim " + shims_->targetAt(folder) +
+               (shims_->chainedAt(folder) ? " +mod" : shims_->asiLoaderAt(folder) ? " +ASI" : "");
     };
     for (std::size_t g = 0; g < games.size(); ++g) {
         if (y > contentH() - 150) break;   // keep the buttons and the hint clear
@@ -1522,10 +1529,19 @@ float MappingEditView::drawGameFolder(const GameProfile* const game, const std::
     const std::size_t index = *folder;
     const ShimGame& entry = shims_->folders()[index];
     const ShimState state = shims_->stateAt(index);
-    const std::string stateText = state == ShimState::Installed ? "shim in place"
-                                  : state == ShimState::Outdated ? "older shim (Start replaces it)"
-                                  : state == ShimState::Foreign  ? "another mod's dinput8.dll: Start chains it"
-                                                                 : "no shim (Start puts it in)";
+    const bool ours = state == ShimState::Installed || state == ShimState::Outdated;
+    const bool chained = ours && shims_->chainedAt(index);
+    const std::string chainProblem = state == ShimState::Foreign ? shims_->chainProblemAt(index) : std::string();
+    const std::string where = chained ? ", chained to another mod's DLL"
+                              : ours && shims_->asiLoaderAt(index) ? " next to the ASI Loader"
+                                                                   : "";
+    const std::string stateText =
+        state == ShimState::Installed  ? "shim in place" + where
+        : state == ShimState::Outdated ? "older shim" + where + " (Start replaces it)"
+        : state == ShimState::Foreign  ? (chainProblem.empty()
+                                              ? std::string("another mod's dinput8.dll: Start chains it")
+                                              : "another mod's dinput8.dll (" + chainProblem + "): Start leaves it")
+                                       : "no shim (Start puts it in)";
     const std::string target = shims_->targetAt(index);
     const std::string presents =
         (state == ShimState::Installed || state == ShimState::Outdated) && !target.empty()
@@ -1535,14 +1551,25 @@ float MappingEditView::drawGameFolder(const GameProfile* const game, const std::
     window_.text(x, y + 4, fit(pathToUtf8(entry.folder), pathChars), kDim);
     const float stateX = x + static_cast<float>(pathChars + 2) * ui::kCharWidth;
     window_.text(stateX, y + 4, stateText + presents,
-                 state == ShimState::Foreign ? kWarning : state == ShimState::Missing ? kDim : kActive);
+                 !chainProblem.empty() ? kWarning : state == ShimState::Missing || state == ShimState::Foreign ? kDim
+                                                                                                             : kActive);
     tip(x, y, static_cast<float>(pathChars) * ui::kCharWidth, 16, pathToUtf8(entry.folder));
+    if (chained) {
+        tip(stateX, y, static_cast<float>((stateText + presents).size()) * ui::kCharWidth, 16,
+            "DirectInput goes: game -> WheelBri's shim -> dinput8-chain.dll (the mod) -> Windows.");
+    }
     y += 20;
     // What to do with it: put the shim in or take it out, take the folder off the list.
     float bx = x;
     if (state == ShimState::Missing || state == ShimState::Outdated) {
         bx += button(bx, y, "Put shim", [this, index] { shims_->put(index); }, false, !locked_, 96) + 6;
+    } else if (state == ShimState::Foreign && chainProblem.empty()) {
+        tip(bx, y, 96, 16,
+            "Renames the mod's dinput8.dll to dinput8-chain.dll and puts WheelBri's shim in front of it. Remove shim "
+            "undoes it.");
+        bx += button(bx, y, "Chain mod", [this, index] { shims_->put(index); }, false, !locked_, 96) + 6;
     } else if (state == ShimState::Installed) {
+        if (chained) tip(bx, y, 112, 16, "Deletes WheelBri's shim and gives the mod its dinput8.dll back.");
         bx += button(bx, y, "Remove shim", [this, index] { shims_->remove(index); }, false, !locked_, 112) + 6;
     }
     button(bx, y, "Forget folder", [this, index] { shims_->forget(index); }, false, !locked_, 120);

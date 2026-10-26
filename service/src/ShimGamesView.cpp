@@ -142,9 +142,15 @@ void ShimGamesView::save() {
 void ShimGamesView::refreshStates() {
     states_.clear();
     targets_.clear();
+    asiLoaders_.clear();
+    chained_.clear();
+    chainProblems_.clear();
     statesReadMs_ = platform::nowMs();
     for (const ShimGame& game : list_.games) {
         states_.push_back(shimState(game.folder, source(game.folder)));
+        asiLoaders_.push_back(shimDllIn(game.folder) != game.folder / kShimDll);
+        chained_.push_back(shimChained(game.folder));
+        chainProblems_.push_back(states_.back() == ShimState::Foreign ? chainProblem(game.folder) : std::string());
         const auto text = readFileText(game.folder / kShimSettings);
         targets_.push_back(text ? IniDocument::parse(*text).document.get("shim", "target_profile").value_or("g920")
                                 : std::string());
@@ -252,6 +258,16 @@ ShimState ShimGamesView::stateAt(const std::size_t index) const {
 
 std::string ShimGamesView::targetAt(const std::size_t index) const {
     return index < targets_.size() ? targets_[index] : std::string();
+}
+
+bool ShimGamesView::asiLoaderAt(const std::size_t index) const {
+    return index < asiLoaders_.size() && asiLoaders_[index];
+}
+
+bool ShimGamesView::chainedAt(const std::size_t index) const { return index < chained_.size() && chained_[index]; }
+
+std::string ShimGamesView::chainProblemAt(const std::size_t index) const {
+    return index < chainProblems_.size() ? chainProblems_[index] : std::string();
 }
 
 bool ShimGamesView::prepareStart(const std::string& profile, const AxesFor& axesFor,

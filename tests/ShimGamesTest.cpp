@@ -224,6 +224,7 @@ TEST_F(ShimGamesFiles, TheTargetSaysWhenTheFileCannotBeRead) {
 // shim gives the mod its place back.
 TEST_F(ShimGamesFiles, AnotherModsDllIsChained) {
     write(game() / kShimDll, "someone else's proxy");
+    EXPECT_EQ(chainProblem(game()), "");
     EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Foreign);
     EXPECT_FALSE(removeShim(game(), sourceDll()).ok);   // not ours to delete
     EXPECT_FALSE(shimChained(game()));
@@ -343,6 +344,7 @@ TEST_F(ShimGamesFiles, AModForTheOtherProcessorIsLeftAlone) {
     EXPECT_FALSE(put.ok);
     EXPECT_TRUE(put.leftAlone);
     EXPECT_NE(put.error.find("other processor"), std::string::npos) << put.error;
+    EXPECT_EQ(chainProblem(game()), "built for the other processor");
     EXPECT_EQ(read(game() / kShimDll), peFile(0x8664));
     EXPECT_FALSE(std::filesystem::exists(game() / kShimChainDll));
     EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));

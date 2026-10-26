@@ -273,6 +273,18 @@ ShimState shimState(const std::filesystem::path& folder, const std::filesystem::
 
 bool shimChained(const std::filesystem::path& folder) { return regularFile(folder / kShimChainDll); }
 
+std::string chainProblem(const std::filesystem::path& folder) {
+    const Architecture theirBits = peArchitecture(shimDllIn(folder));
+    const Architecture gameBits = gameArchitecture(folder);
+    if (theirBits != Architecture::Unknown && gameBits != Architecture::Unknown && theirBits != gameBits) {
+        return "built for the other processor";
+    }
+    std::error_code ec;
+    const std::filesystem::path chain = folder / kShimChainDll;
+    if (std::filesystem::exists(chain, ec) && !regularFile(chain)) return std::string(kShimChainDll) + " is not a file";
+    return {};
+}
+
 ShimResult installShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll,
                        const std::filesystem::path& sourceSettings) {
     ShimResult result;
@@ -296,16 +308,9 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
     std::filesystem::path keptOld;
     if (state == ShimState::Foreign) {
         const std::filesystem::path theirs = shimDllIn(folder);
-        const Architecture theirBits = peArchitecture(theirs);
-        const Architecture gameBits = gameArchitecture(folder);
-        if (theirBits != Architecture::Unknown && gameBits != Architecture::Unknown && theirBits != gameBits) {
-            result.error = "its " + pathToUtf8(theirs.filename()) + " is another mod's, built for the other processor "
-                           "than the game (it cannot run there): left alone";
-            result.leftAlone = true;
-            return result;
-        }
-        if (std::filesystem::exists(chain, ec) && !regularFile(chain)) {
-            result.error = pathToUtf8(chain) + " is not a file: another mod's DLL cannot be chained, left alone";
+        if (const std::string problem = chainProblem(folder); !problem.empty()) {
+            result.error = "its " + pathToUtf8(theirs.filename()) + " is another mod's that cannot be chained (" +
+                           problem + "): left alone";
             result.leftAlone = true;
             return result;
         }

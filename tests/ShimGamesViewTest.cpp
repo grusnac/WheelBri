@@ -479,6 +479,34 @@ TEST_F(ShimFolders, AddFolderAddsItToTheList) {
     EXPECT_EQ(view.folders().size(), 2U);
 }
 
+// What the Games tab shows besides the state: next to the ASI Loader, chained, and why a mod cannot be chained.
+TEST_F(ShimFolders, TheStatesSayAsiLoaderChainAndWhyNot) {
+    const auto asi = makeGame("Asi");
+    write(asi / kShimDll, "IsUltimateASILoader");
+    const auto modded = makeGame("Modded");
+    write(modded / kShimDll, "another mod");
+    const auto blocked = makeGame("Blocked");
+    write(blocked / kShimDll, "another mod");
+    std::filesystem::create_directories(blocked / kShimChainDll);
+    listGames({asi, modded, blocked});
+    ShimGamesView view(window_, settings());
+    view.refresh(true);
+    EXPECT_TRUE(view.asiLoaderAt(0));
+    EXPECT_FALSE(view.asiLoaderAt(1));
+    EXPECT_EQ(view.chainProblemAt(1), "");
+    EXPECT_EQ(view.chainProblemAt(2), "dinput8-chain.dll is not a file");
+
+    view.put(0);
+    view.put(1);
+    view.refresh(true);
+    EXPECT_EQ(view.stateAt(0), ShimState::Installed);
+    EXPECT_TRUE(view.asiLoaderAt(0));
+    EXPECT_FALSE(view.chainedAt(0));
+    EXPECT_EQ(view.stateAt(1), ShimState::Installed);
+    EXPECT_TRUE(view.chainedAt(1));
+    EXPECT_FALSE(view.chainedAt(9));   // past the end
+}
+
 // Put and remove do what they say and the states follow: no shim, ours, ours outdated; another mod's DLL is left.
 TEST_F(ShimFolders, PutAndRemoveChangeTheState) {
     const auto missing = makeGame("Missing");
