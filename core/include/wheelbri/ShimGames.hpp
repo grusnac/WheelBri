@@ -8,6 +8,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace wheelbri {
@@ -34,6 +35,15 @@ inline constexpr const char* kShimSettings = "wheelbri-shim.ini";
 // loader takes the game's DirectInput calls and hands them to <its name>Hooked.dll when that file is there, in place
 // of Windows' dinput8.dll; the shim then goes on to Windows' own, as always.
 inline constexpr const char* kShimDllHooked = "dinput8Hooked.dll";
+// Another mod's dinput8.dll (not the ASI Loader), chained: WheelBri renames it to dinput8-chain.dll, puts the shim in
+// its place and writes [shim] chain = dinput8-chain.dll; the shim then hands DirectInput to it instead of to Windows'
+// own, and the mod hands it on to Windows'.
+inline constexpr const char* kShimChainDll = "dinput8-chain.dll";
+inline constexpr const char* kShimChainKey = "chain";
+// Whether `name` ([shim] chain) is a DLL the shim may load: a bare file name in the game's folder (printable ASCII,
+// none of \ / : * ? " < > | ~, so no folder, drive or short name), ending in .dll, at most 64 characters, and none of
+// the shim's own names (dinput8.dll, dinput8Hooked.dll).
+[[nodiscard]] bool validChainName(std::string_view name);
 
 // Which processor a Windows program or DLL is built for, from its PE header.
 enum class Architecture { Unknown, X86, X64 };

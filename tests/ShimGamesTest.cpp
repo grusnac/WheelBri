@@ -346,6 +346,26 @@ TEST_F(ShimGamesFiles, WithoutOurMarkOrSettingsTheDllIsAnotherMods) {
     EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Foreign);
 }
 
+TEST(ShimChain, TheChainIsABareDllNameInTheGameFolder) {
+    EXPECT_TRUE(validChainName(kShimChainDll));
+    EXPECT_TRUE(validChainName("ReShade 64.DLL"));
+    EXPECT_FALSE(validChainName(""));
+    EXPECT_FALSE(validChainName(".dll"));
+    EXPECT_FALSE(validChainName("dinput8.dll"));      // the shim's own names
+    EXPECT_FALSE(validChainName("DInput8.DLL"));
+    EXPECT_FALSE(validChainName("dinput8Hooked.dll"));
+    EXPECT_FALSE(validChainName("dinput8.dll."));     // Windows would open dinput8.dll
+    EXPECT_FALSE(validChainName("dinput8.dll "));
+    EXPECT_FALSE(validChainName("DINPUT~1.DLL"));     // a short name can be any file
+    EXPECT_FALSE(validChainName("..\\x.dll"));
+    EXPECT_FALSE(validChainName("mods/x.dll"));
+    EXPECT_FALSE(validChainName("C:x.dll"));
+    EXPECT_FALSE(validChainName("x.exe"));
+    EXPECT_FALSE(validChainName("x\tdll.dll"));
+    EXPECT_FALSE(validChainName("\xc3\xa9.dll"));
+    EXPECT_FALSE(validChainName(std::string(61, 'a') + ".dll"));
+}
+
 TEST_F(ShimGamesFiles, OurShimForTheOtherProcessorIsReplaced) {
     // The 64-bit shim put into a 32-bit game before there was a 32-bit one: ours (its settings are there), outdated.
     ASSERT_TRUE(installShim(game(), sourceDll(), sourceSettings()).ok);

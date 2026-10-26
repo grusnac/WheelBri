@@ -29,6 +29,8 @@ namespace wheelbri::shim {
 //   brake_axis = rz            ;   Defaults: the target's: y / rz / slider (the G25's clutch: z).
 //   clutch_axis = slider
 //   invert_pedals = false      ; true = pressed and released swapped for all pedals
+//   chain = dinput8-chain.dll  ; another mod's dinput8.dll the app chained: DirectInput goes to it (it goes on to
+//                              ; Windows'); unset = straight to Windows' own (validChainName, core ShimGames.hpp)
 //
 // The pedal axes are a sieve of three layers: the target's defaults, then any *_axis set here, then the game profile of
 // the game the shim is loaded into, if it has one for this target (GameProfiles.hpp, config/games/*.ini): what the game
@@ -56,6 +58,8 @@ struct ShimConfig {
     // [shim] game_axes = wheelbri: the app wrote the axes above for this game (its profile's and the user's own, the
     // Games tab; core ShimGames setShimGameAxes): the game's profile is not laid over them again.
     bool gameAxesFromApp = false;
+    // [shim] chain: the DLL in the game's folder DirectInput goes to (RealDInput.hpp); empty = Windows' own.
+    std::string chain;
     // The game profile of the game the shim is in (gameProfiles(), never freed), when it has one for targetProfile and
     // its layout is valid; null otherwise.
     const GameProfile* gameProfile = nullptr;

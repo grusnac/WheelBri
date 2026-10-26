@@ -6,6 +6,7 @@
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/IniDocument.hpp"
+#include "wheelbri/ShimGames.hpp"
 
 #include <charconv>
 #include <fstream>
@@ -116,6 +117,14 @@ ShimConfig parseShimConfig(const std::string& text, std::vector<std::string>& pr
             config.gameAxesFromApp = true;
         } else {
             problems.push_back("game_axes = '" + *v + "': only the app writes it (wheelbri)");
+        }
+    }
+    if (const auto v = value(kShimChainKey); v && !v->empty()) {
+        if (validChainName(*v)) {
+            config.chain = *v;
+        } else {
+            problems.push_back(std::string(kShimChainKey) + " = '" + *v + "': expected a DLL's file name in the game's "
+                               "folder, like " + kShimChainDll);
         }
     }
     readAxis("throttle_axis", config.throttleAxis);

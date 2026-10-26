@@ -138,6 +138,18 @@ bool isWheelBriShim(const std::filesystem::path& dll) {
     return bytes.find(kShimMarkExport) != std::string::npos;
 }
 
+bool validChainName(const std::string_view name) {
+    if (name.size() < 5 || name.size() > 64) return false;
+    for (const char c : name) {
+        const auto u = static_cast<unsigned char>(c);
+        if (u < 0x20 || u > 0x7E || std::string_view("\\/:*?\"<>|~").find(c) != std::string_view::npos) return false;
+    }
+    // Ends in .dll exactly: Windows drops trailing dots and spaces, so "dinput8.dll." would be the shim itself.
+    const std::string low = lower(std::string(name));
+    if (!low.ends_with(".dll")) return false;
+    return low != lower(kShimDll) && low != lower(kShimDllHooked);
+}
+
 std::filesystem::path shimDllIn(const std::filesystem::path& folder) {
     const std::filesystem::path dll = folder / kShimDll;
     return regularFile(dll) && isAsiLoader(dll) ? folder / kShimDllHooked : dll;

@@ -18,9 +18,10 @@ const wheelbri::logging::Logger& log() {
     return instance;
 }
 
-// Every export can be the first call into the DLL; none may run without the real DLL.
+// Every export can be the first call into the DLL; none may run without the real DLL. A call that comes back in from
+// inside a call to the real DLL (a chained mod that loaded "dinput8.dll" by name: RealCall) goes to Windows' own.
 const RealDInput* requireReal(const char* caller) {
-    const RealDInput* const real = realDInput();
+    const RealDInput* const real = RealCall::inside() ? systemDInput() : realDInput();
     if (real == nullptr) {
         WE_LOG_CRITICAL(log(), "{}: real dinput8.dll unavailable, returning DIERR_NOTINITIALIZED", caller);
     }
@@ -42,6 +43,13 @@ void pinThisModule() {
     }
 }
 
+// Calls `fn` (a real DLL's entry point) marked as a call into the real DLL (RealCall).
+template <typename Fn, typename... Args>
+auto callReal(const Fn fn, Args... args) {
+    const RealCall call;
+    return fn(args...);
+}
+
 }  // namespace
 
 using wheelbri::shim::guarded;
@@ -52,13 +60,20 @@ HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE instance, DWORD version, REFII
                                         LPUNKNOWN outer) {
     return guarded("Proxy_DirectInput8Create", [&]() -> HRESULT {
         pinThisModule();
+        if (RealCall::inside()) {
+            // The chained mod calling back in: Windows' own, unwrapped (the game gets our wrapper around the mod's).
+            WE_LOG_DEBUG(log(), "DirectInput8Create from inside the chained DLL: to Windows' own, unwrapped");
+            const RealDInput* const system = requireReal("DirectInput8Create");
+            return system != nullptr ? callReal(system->directInput8Create, instance, version, riid, out, outer)
+                                     : DIERR_NOTINITIALIZED;
+        }
         WE_LOG_INFO(log(), "DirectInput8Create(version 0x{:x}, {}, outer={})", version, describeGuid(riid),
                     static_cast<void*>(outer));
         const RealDInput* const real = requireReal("DirectInput8Create");
         if (real == nullptr) {
             return DIERR_NOTINITIALIZED;
         }
-        const HRESULT result = real->directInput8Create(instance, version, riid, out, outer);
+        const HRESULT result = callReal(real->directInput8Create, instance, version, riid, out, outer);
         if (FAILED(result) || out == nullptr || *out == nullptr) {
             WE_LOG_ERROR(log(), "real DirectInput8Create -> {}", describeHresult(result));
             return result;
@@ -96,7 +111,7 @@ HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE instance, DWORD version, REFII
 HRESULT WINAPI Proxy_DllCanUnloadNow() {
     return guarded("Proxy_DllCanUnloadNow", [&]() -> HRESULT {
         const RealDInput* const real = requireReal("DllCanUnloadNow");
-        return real != nullptr && real->dllCanUnloadNow != nullptr ? real->dllCanUnloadNow() : S_FALSE;
+        return real != nullptr && real->dllCanUnloadNow != nullptr ? callReal(real->dllCanUnloadNow) : S_FALSE;
     });
 }
 
@@ -111,7 +126,7 @@ HRESULT WINAPI Proxy_DllGetClassObject(REFCLSID clsid, REFIID riid, LPVOID* out)
         if (real == nullptr || real->dllGetClassObject == nullptr) {
             return CLASS_E_CLASSNOTAVAILABLE;
         }
-        return real->dllGetClassObject(clsid, riid, out);
+        return callReal(real->dllGetClassObject, clsid, riid, out);
     });
 }
 
@@ -119,7 +134,7 @@ HRESULT WINAPI Proxy_DllRegisterServer() {
     return guarded("Proxy_DllRegisterServer", [&]() -> HRESULT {
         WE_LOG_WARN(log(), "DllRegisterServer called on the proxy");
         const RealDInput* const real = requireReal("DllRegisterServer");
-        return real != nullptr && real->dllRegisterServer != nullptr ? real->dllRegisterServer() : E_FAIL;
+        return real != nullptr && real->dllRegisterServer != nullptr ? callReal(real->dllRegisterServer) : E_FAIL;
     });
 }
 
@@ -127,14 +142,14 @@ HRESULT WINAPI Proxy_DllUnregisterServer() {
     return guarded("Proxy_DllUnregisterServer", [&]() -> HRESULT {
         WE_LOG_WARN(log(), "DllUnregisterServer called on the proxy");
         const RealDInput* const real = requireReal("DllUnregisterServer");
-        return real != nullptr && real->dllUnregisterServer != nullptr ? real->dllUnregisterServer() : E_FAIL;
+        return real != nullptr && real->dllUnregisterServer != nullptr ? callReal(real->dllUnregisterServer) : E_FAIL;
     });
 }
 
 LPCDIDATAFORMAT WINAPI Proxy_GetdfDIJoystick() {
     return wheelbri::shim::guardedOr<LPCDIDATAFORMAT>(nullptr, "Proxy_GetdfDIJoystick", [&]() -> LPCDIDATAFORMAT {
         const RealDInput* const real = requireReal("GetdfDIJoystick");
-        return real != nullptr && real->getdfDIJoystick != nullptr ? real->getdfDIJoystick() : nullptr;
+        return real != nullptr && real->getdfDIJoystick != nullptr ? callReal(real->getdfDIJoystick) : nullptr;
     });
 }
 

@@ -43,6 +43,7 @@ TEST(ShimConfigFile, EmptyKeepsTheDefaults) {
     EXPECT_FALSE(config.invertPedals);
     EXPECT_FALSE(config.gameAxesFromApp);
     EXPECT_EQ(config.gameProfile, nullptr);
+    EXPECT_TRUE(config.chain.empty());
 }
 
 // Every key set to a value it takes.
@@ -61,7 +62,8 @@ TEST(ShimConfigFile, EveryKeyRead) {
                                      "brake_axis = ry\n"
                                      "clutch_axis = none\n"
                                      "invert_pedals = yes\n"
-                                     "game_axes = wheelbri\n",
+                                     "game_axes = wheelbri\n"
+                                     "chain = dinput8-chain.dll\n",
                                      problems);
     EXPECT_TRUE(problems.empty()) << (problems.empty() ? "" : problems.front());
     EXPECT_FALSE(config.emulate);
@@ -77,6 +79,20 @@ TEST(ShimConfigFile, EveryKeyRead) {
     EXPECT_TRUE(config.clutchAxis.has_value());
     EXPECT_TRUE(config.invertPedals);
     EXPECT_TRUE(config.gameAxesFromApp);
+    EXPECT_EQ(config.chain, "dinput8-chain.dll");
+}
+
+// A chain that is not a bare DLL name next to the shim is refused: DirectInput goes to Windows' own.
+TEST(ShimConfigFile, AChainThatIsNoDllNameIsRefused) {
+    for (const char* bad : {"..\\x.dll", "C:\\mods\\x.dll", "dinput8.dll", "x.exe"}) {
+        std::vector<std::string> problems;
+        const ShimConfig config = parsed(std::string("[shim]\nchain = ") + bad + "\n", problems);
+        EXPECT_EQ(problems.size(), 1U) << bad;
+        EXPECT_TRUE(config.chain.empty()) << bad;
+    }
+    std::vector<std::string> problems;
+    EXPECT_TRUE(parsed("[shim]\nchain =\n", problems).chain.empty());
+    EXPECT_TRUE(problems.empty());
 }
 
 // The other spellings each switch takes.

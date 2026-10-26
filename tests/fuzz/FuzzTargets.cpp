@@ -23,6 +23,7 @@
 #include "wheelbri/LogiSdk.hpp"
 #include "wheelbri/MappingEdit.hpp"
 #include "wheelbri/Rig.hpp"
+#include "wheelbri/ShimGames.hpp"
 #include "wheelbri/StatePacket.hpp"
 
 #include <algorithm>
@@ -166,6 +167,13 @@ void runOne(const std::span<const std::uint8_t> input) {
             CHECK(finite(di::periodic(FfbEffectType::Sine, static_cast<std::uint32_t>(v[0]), v[1],
                                       static_cast<std::uint32_t>(v[2]), static_cast<std::uint32_t>(v[3]), dir,
                                       static_cast<std::uint32_t>(v[4]))));
+            break;
+        }
+        case 12: {   // [shim] chain from a wheelbri-shim.ini: never a path, never the shim's own name
+            if (validChainName(text)) {
+                CHECK(text.find_first_of("\\/:") == std::string_view::npos);
+                CHECK(text.size() <= 64);
+            }
             break;
         }
     }
