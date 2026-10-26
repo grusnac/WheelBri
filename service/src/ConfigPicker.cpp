@@ -133,7 +133,7 @@ ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
     }
     if (!settings_.virtualAvailable) {
         way_ = Way::Shim;   // app.ini keeps what it says
-        WE_LOG_INFO(log(), "Mode: Shim only (Mode Virtual needs Windows 11)");
+        WE_LOG_INFO(log(), "Mode: Shim only (Mode Virtual needs {})", windowsName(kVirtualDeviceMinBuild));
     }
     const std::string target = readAppSetting(settings_.stateFile, "target");
     target_ = parseTarget(target).value_or(Target::G920);
@@ -147,6 +147,15 @@ ConfigPicker::ConfigPicker(ui::UiWindow& window, Settings settings)
 
 bool ConfigPicker::virtualDeviceSupported(const std::uint32_t windowsBuild) {
     return windowsBuild == 0 || windowsBuild >= kVirtualDeviceMinBuild;
+}
+
+std::string ConfigPicker::windowsName(const std::uint32_t windowsBuild) {
+    if (windowsBuild == 0) return {};
+    if (windowsBuild < 9200) return "Windows 7";
+    if (windowsBuild < 9600) return "Windows 8";
+    if (windowsBuild < 10240) return "Windows 8.1";
+    if (windowsBuild < 22000) return "Windows 10";
+    return "Windows 11";
 }
 
 std::filesystem::path ConfigPicker::builtInPath() const { return settings_.builtInFolder / builtInName(); }
@@ -356,14 +365,21 @@ float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const
     x += 1 + 16;
     window_.text(x, y + 4, "Mode", kDim);
     x += 48;
-    segment(wayName(Way::VirtualDevice), kWayWidth, way_ == Way::VirtualDevice, settings_.virtualAvailable,
-            settings_.virtualAvailable
-                ? "Virtual: a virtual wheel every game sees; your rig is hidden while WheelBri runs (Windows 11)."
-                : "Mode Virtual needs Windows 11: its driver installs from build 22000.",
-            [this] { choose(Way::VirtualDevice); });
-    segment(wayName(Way::Shim), kWayWidth, way_ == Way::Shim, true,
-            "Shim: a dinput8.dll next to each game on the Games tab shows the Target to that game only.",
-            [this] { choose(Way::Shim); });
+    if (settings_.virtualAvailable) {
+        segment(wayName(Way::VirtualDevice), kWayWidth, way_ == Way::VirtualDevice, true,
+                "Virtual: a virtual wheel every game sees; your rig is hidden while WheelBri runs.",
+                [this] { choose(Way::VirtualDevice); });
+        segment(wayName(Way::Shim), kWayWidth, way_ == Way::Shim, true,
+                "Shim: a dinput8.dll next to each game on the Games tab shows the Target to that game only.",
+                [this] { choose(Way::Shim); });
+    } else {
+        // No Virtual button at all: Shim alone, chosen and locked.
+        const std::string windows = settings_.windowsName.empty() ? "this Windows" : settings_.windowsName;
+        segment(wayName(Way::Shim), kWayWidth, true, false,
+                "On " + windows + ", only Mode Shim is available: Mode Virtual's driver needs " +
+                    windowsName(kVirtualDeviceMinBuild) + ".",
+                [] {});
+    }
     const float rowEnd = x + 1 + 4;
     if (hasButtonOrders(target_)) {
         // A second row under Target (the first one's right end is the shim's game, App: gamesRowX).

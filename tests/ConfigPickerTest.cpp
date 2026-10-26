@@ -293,6 +293,17 @@ TEST(ConfigPickerNames, TheVirtualDeviceNeedsWindows11) {
     EXPECT_TRUE(ConfigPicker::virtualDeviceSupported(0));        // not Windows (Linux: uhid), or unknown
 }
 
+TEST(ConfigPickerNames, WindowsByItsBuild) {
+    EXPECT_EQ(ConfigPicker::windowsName(0), "");
+    EXPECT_EQ(ConfigPicker::windowsName(7601), "Windows 7");
+    EXPECT_EQ(ConfigPicker::windowsName(9200), "Windows 8");
+    EXPECT_EQ(ConfigPicker::windowsName(9600), "Windows 8.1");
+    EXPECT_EQ(ConfigPicker::windowsName(10240), "Windows 10");
+    EXPECT_EQ(ConfigPicker::windowsName(19045), "Windows 10");
+    EXPECT_EQ(ConfigPicker::windowsName(22000), "Windows 11");
+    EXPECT_EQ(ConfigPicker::windowsName(26100), "Windows 11");
+}
+
 TEST_F(ConfigPickerFiles, WithoutTheVirtualDeviceItIsShimOnly) {
     ConfigPicker::Settings shimOnly = settings();
     shimOnly.virtualAvailable = false;
@@ -300,13 +311,14 @@ TEST_F(ConfigPickerFiles, WithoutTheVirtualDeviceItIsShimOnly) {
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
     EXPECT_EQ(picker.selected(), (builtIn() / "g920.ini").string());
 
-    // Virtual is greyed, its hover text says why; the target still changes.
+    // No Virtual button: Shim alone, locked, its hover text says why; the target still changes.
     std::vector<std::string> tips;
     picker.draw(4, 18, true,
                 [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
     EXPECT_TRUE(window_.shows("Shim"));
-    ASSERT_EQ(tips.size(), 6U);
-    EXPECT_EQ(tips[4], "Mode Virtual needs Windows 11: its driver installs from build 22000.");
+    EXPECT_FALSE(window_.shows("Virtual"));
+    ASSERT_EQ(tips.size(), 5U);
+    EXPECT_EQ(tips[4], "On this Windows, only Mode Shim is available: Mode Virtual's driver needs Windows 11.");
     EXPECT_FALSE(picker.onClick(kVirtualX, kRowY));
     EXPECT_FALSE(picker.onClick(kShimX, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
@@ -314,6 +326,19 @@ TEST_F(ConfigPickerFiles, WithoutTheVirtualDeviceItIsShimOnly) {
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G923);
     EXPECT_EQ(picker.selected(), (builtIn() / "g923.ini").string());
     EXPECT_TRUE(setting("way").empty());   // nothing written for the way
+}
+
+TEST_F(ConfigPickerFiles, TheShimOnlyHoverTextNamesThisWindows) {
+    ConfigPicker::Settings onWindows7 = settings();
+    onWindows7.virtualAvailable = false;
+    onWindows7.windowsName = ConfigPicker::windowsName(7601);
+    ConfigPicker picker(window_, onWindows7);
+    std::vector<std::string> tips;
+    picker.draw(4, 18, false,
+                [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
+    ASSERT_EQ(tips.size(), 5U);
+    EXPECT_EQ(tips[4], "On Windows 7, only Mode Shim is available: Mode Virtual's driver needs Windows 11. "
+                       "Fixed while WheelBri runs.");
 }
 
 TEST_F(ConfigPickerFiles, ASavedVirtualIsShimWhereItCannotRunAndStaysSaved) {

@@ -33,9 +33,9 @@ namespace wheelbri::service {
 //     file and [app] renumbered_<target> = pending says its buttons' game numbers changed (the Mapping tab marks
 //     them until each is changed or "Got it"). Kept in [app] order_<target>; a my-<target>.ini that said
 //     order = native before there were two (2026-10-26) becomes the Native mapping once (adoptOlderOrder).
-// Where the virtual device cannot exist (Windows before 11: its driver needs build 22000), Mode stays Shim and Virtual
-// is greyed (its hover text says why); a saved "virtual" is read as Shim there and left in app.ini for a later
-// Windows 11.
+// Where the virtual device cannot exist (a Windows older than its driver, kVirtualDeviceMinBuild), the Mode row has no
+// Virtual button: only Shim, chosen and locked, its hover text saying which Windows this is and why; a saved "virtual"
+// is read as Shim there and left in app.ini for a later Windows that has it.
 class ConfigPicker {
 public:
     enum class Way { VirtualDevice, Shim };
@@ -46,6 +46,7 @@ public:
         std::filesystem::path userFolder;      // userConfigFolder()
         std::filesystem::path stateFile;       // appStateFile()
         bool virtualAvailable = true;          // virtualDeviceSupported() on this PC
+        std::string windowsName;               // windowsName() of this PC, for the Shim-only hover text
     };
 
     // The first Windows build the virtual device's driver installs on (its INF: Windows 11).
@@ -53,6 +54,9 @@ public:
     // Whether the virtual device can exist on a PC with `windowsBuild` (platform::windowsBuild(); 0 = not Windows or
     // unknown: Linux has its own virtual device, and an unknown Windows is given the benefit of the doubt).
     [[nodiscard]] static bool virtualDeviceSupported(std::uint32_t windowsBuild);
+    // The Windows a build number is, as people name it ("Windows 7", "Windows 8.1", "Windows 10"); empty for 0 (not
+    // Windows, or unknown).
+    [[nodiscard]] static std::string windowsName(std::uint32_t windowsBuild);
 
     ConfigPicker(ui::UiWindow& window, Settings settings);
 

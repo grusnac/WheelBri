@@ -19,6 +19,7 @@ Two choices decide how WheelBri works:
   older ones, or games whose presets know only those.
 - **Mode**: **Virtual** creates the Target as a virtual wheel every game sees and hides your rig while WheelBri runs;
   use it unless a game needs otherwise. **Shim** puts a `dinput8.dll` next to one game, for older DirectInput games.
+  On a Windows too old for Virtual's driver there is no Virtual button: Shim is locked, and its hover text says why.
 
 The tabs are along the bottom: Rig, Mapping, Games, Logs (keys R, M, G, L), with the status and **Start** / **Stop**
 at the right. Point at any button to see what it does. Every change is saved at once; **Undo** goes back one change at

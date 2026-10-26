@@ -382,7 +382,8 @@ private:
         picker_ = std::make_unique<ConfigPicker>(
             *window_, ConfigPicker::Settings{settings_.builtInConfigFolder, settings_.userConfigFolder,
                                              settings_.stateFile,
-                                             ConfigPicker::virtualDeviceSupported(windowsBuild)});
+                                             ConfigPicker::virtualDeviceSupported(windowsBuild),
+                                             ConfigPicker::windowsName(windowsBuild)});
         setup_ = std::make_unique<WheelSetupView>(
             *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile});
         MappingView::setGamesTab(true);   // the live view's tab bar has the Games tab too
