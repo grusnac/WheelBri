@@ -547,4 +547,19 @@ TEST_F(ConfigPickerFiles, AnOlderNativeMappingBecomesTheNativeOne) {
     EXPECT_FALSE(std::filesystem::exists(user() / "my-g27-native.ini"));
 }
 
+// The Order row says what each choice means: the label and both buttons have hover text.
+TEST_F(ConfigPickerFiles, TheOrderRowExplainsItself) {
+    ASSERT_TRUE(writeAppSetting(state(), "target", "g25"));
+    ConfigPicker picker(window_, settings());
+    std::vector<std::string> tips;
+    picker.draw(4, 18, true,
+                [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
+    const auto has = [&tips](const std::string& start) {
+        return std::any_of(tips.begin(), tips.end(), [&start](const std::string& t) { return t.rfind(start, 0) == 0; });
+    };
+    EXPECT_TRUE(has("Which numbers the game gets the G25's buttons by."));
+    EXPECT_TRUE(has("Logitech driver: the game numbers the G25's buttons as Logitech's Windows driver did"));
+    EXPECT_TRUE(has("Native: the game numbers the G25's buttons as the wheel itself reports them"));
+}
+
 }  // namespace wheelbri::service

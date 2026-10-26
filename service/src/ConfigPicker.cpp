@@ -371,15 +371,22 @@ float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const
         x = x0;
         y += kRowHeight + 2;
         window_.text(x, y + 4, "Order", kDim);
+        if (tip) {
+            tip(x, y, 60, kRowHeight,
+                "Which numbers the game gets the " + target + "'s buttons by. Each order keeps its own mapping. "
+                "Takes effect at the next Start.");
+        }
         x += 64;
         segment("Logitech driver", kOrderWidth, order_ == ButtonOrder::Driver, true,
-                "Logitech driver: the " + target + "'s buttons as Logitech's Windows software numbered them (from 1, "
-                "as joy.cpl shows them), which games of its time read (Race Driver: GRID). Its own mapping.",
+                "Logitech driver: the game numbers the " + target + "'s buttons as Logitech's Windows driver did "
+                "(Button 1, 2, ... as joy.cpl shows them). For games of its time and presets made with that driver "
+                "(Race Driver: GRID, DiRT Rally 2.0). Has its own mapping.",
                 [this] { choose(ButtonOrder::Driver); });
         segment("Native", kOrderWidth, order_ == ButtonOrder::Native, true,
-                "Native: the " + target + "'s own order (from 0), without Logitech's driver, which newer games' "
-                "presets read (Assetto Corsa Competizione). Its own mapping: the first time, a copy of your Logitech "
-                "driver one.",
+                "Native: the game numbers the " + target + "'s buttons as the wheel itself reports them, without "
+                "Logitech's driver (from 0, in another order). For presets that expect that (Assetto Corsa "
+                "Competizione). Has its own mapping: the first time, a copy of your Logitech driver one, its "
+                "buttons marked to check.",
                 [this] { choose(ButtonOrder::Native); });
     }
     return rowEnd;
