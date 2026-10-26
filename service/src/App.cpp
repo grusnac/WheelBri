@@ -980,6 +980,7 @@ private:
         startedAt_ = platform::nowNs();
         const std::string config = picker_->selected();
         const bool virtualDevice = picker_->virtualDevice();
+        const ButtonOrder order = picker_->buttonOrder();
         if (mapping_->dirty()) {
             WE_LOG_WARN(log(), "the Mapping tab has unsaved changes: Start uses the config as saved");
         }
@@ -995,11 +996,11 @@ private:
         wayFollower_.reset();
         pendingWayNotice_.reset();
         idleTab_ = IdleTab::Logs;  // the logs at once: the session writes them while it comes up
-        session_ = std::thread([this, config, virtualDevice] {
+        session_ = std::thread([this, config, virtualDevice, order] {
             platform::nameThisThread("wheelbri session");
             int result = 1;
             try {
-                result = settings_.runSession(host_, config, virtualDevice);
+                result = settings_.runSession(host_, config, virtualDevice, order);
             } catch (const std::exception& e) {
                 WE_LOG_CRITICAL(log(), "the service stopped on an error: {}", e.what());
             } catch (...) {

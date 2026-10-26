@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -218,8 +219,11 @@ void MappingEditView::load() {
     profile_ = makeProfile(result.config.targetProfile);
     if (profile_ == nullptr) profile_ = makeProfile("g920");
     saved_ = mappingModel(result.config);
+    // The order is the top row's (each has its own file; WheelBri's default serves both): saved with the mapping.
+    if (profile_->hasNativeButtonOrder()) saved_.buttonOrder = picker_.buttonOrder();
     rigNotices_ = followRig(saved_, rig_, *profile_);
     edit_ = saved_;
+    readRenumbered();
     baseFfb_ = result.config.ffb;
     baseFfbInvert_ = result.config.ffbInvert;
     baseGameFfb_ = result.config.gameFfb;
@@ -272,6 +276,7 @@ void MappingEditView::save() {
     if (builtIn_) {
         text = std::string("; WheelBri: your own mapping for the ") +
                ConfigPicker::targetName(picker_.target()) +
+               (picker_.buttonOrder() == ButtonOrder::Native ? " with Native button order" : "") +
                ", both modes (written by the Mapping tab; Default deletes it)\r\n";
     }
     text += written.text;
@@ -288,6 +293,7 @@ void MappingEditView::save() {
         update();
     } else {
         fileText_ = written.text;
+        dropChangedRenumbered(saved_, edit_);
         saved_ = edit_;
     }
     status_ = "Saved. The next Start uses it.";
@@ -358,6 +364,62 @@ void MappingEditView::saveGameValues() {
         toast_ = locked_ && path_ == sessionPath_ ? "Saved: in use now" : "Saved";
     }
     edit_ = std::move(pending);
+}
+
+void MappingEditView::readRenumbered() {
+    renumbered_.clear();
+    if (profile_ == nullptr || !profile_->hasNativeButtonOrder() || picker_.buttonOrder() != ButtonOrder::Native) {
+        return;
+    }
+    const std::string key = ConfigPicker::renumberedKey(picker_.target());
+    const std::string kept = readAppSetting(stateFile_, key);
+    if (kept == "pending") {
+        // Just copied: every button the copy maps, whose number the game sees changed with the order.
+        for (std::size_t b = 0; b < profile_->buttonCount() && b < edit_.buttons.size(); ++b) {
+            const bool mapped = edit_.buttons[b].mapped() || !edit_.secondaries[b].empty();
+            if (mapped && gameButtonNumber(*profile_, ButtonOrder::Driver, b) !=
+                              gameButtonNumber(*profile_, ButtonOrder::Native, b)) {
+                renumbered_.push_back(b);
+            }
+        }
+        writeRenumbered();
+        return;
+    }
+    std::size_t at = 0;
+    while (at < kept.size()) {
+        const std::size_t end = std::min(kept.find(',', at), kept.size());
+        std::size_t b = 0;
+        const char* const first = kept.data() + at;
+        const char* const last = kept.data() + end;
+        const auto [stop, error] = std::from_chars(first, last, b);
+        if (error == std::errc() && stop == last && b < profile_->buttonCount() && !renumbered(b)) {
+            renumbered_.push_back(b);
+        }
+        at = end + 1;
+    }
+    std::sort(renumbered_.begin(), renumbered_.end());
+}
+
+void MappingEditView::writeRenumbered() {
+    std::string list;
+    for (const std::size_t b : renumbered_) list += (list.empty() ? "" : ",") + std::to_string(b);
+    if (!writeAppSetting(stateFile_, ConfigPicker::renumberedKey(picker_.target()), list)) {
+        WE_LOG_WARN(log(), "mapping: cannot save the marked buttons in {}", pathToUtf8(stateFile_));
+    }
+}
+
+void MappingEditView::dropChangedRenumbered(const MappingModel& before, const MappingModel& after) {
+    const auto changed = [&](const std::size_t b) {
+        return before.buttons[b] != after.buttons[b] || before.secondaries[b] != after.secondaries[b];
+    };
+    const auto kept = std::remove_if(renumbered_.begin(), renumbered_.end(), changed);
+    if (kept == renumbered_.end()) return;
+    renumbered_.erase(kept, renumbered_.end());
+    writeRenumbered();
+}
+
+bool MappingEditView::renumbered(const std::size_t b) const {
+    return std::find(renumbered_.begin(), renumbered_.end(), b) != renumbered_.end();
 }
 
 void MappingEditView::dropOwnEdits() {
@@ -927,7 +989,7 @@ void MappingEditView::draw() {
     }
 
     // No wheel line: there is one rig, and its wheel is device 0 (Rig::wheel, or the config's source_device).
-    float y = 44;
+    float y = 28 + picker_.rowsHeight();   // under the top rows (Target and Mode; Order for the G25 and G27)
     if (rig_.devices.empty()) {
         window_.text(4, y,
                      rigName_.empty() ? "No rig yet: define your devices and their controls in the Rig tab first."
@@ -962,6 +1024,21 @@ void MappingEditView::draw() {
     tip(4, y - 2, 340, 12,
         "Each " + target + " button and the control that presses it; \"or\": a second one (a button, or an axis past a "
         "point, such as a handbrake lever).");
+    if (!renumbered_.empty()) {
+        // Copied from the Logitech driver mapping: the game numbers the amber rows by another number now.
+        const float gotItW = 72;
+        const float gotItX = canvasW() - 4 - gotItW;
+        const float noteX = 76 + static_cast<float>(target.size() + 24) * ui::kCharWidth;
+        window_.text(noteX, y,
+                     fit("copied from Logitech driver: amber numbers are new, check them",
+                         static_cast<std::size_t>(std::max(0.0F, gotItX - 8 - noteX) / ui::kCharWidth)),
+                     kCaution);
+        button(gotItX, y - 4, "Got it", [this] {
+            renumbered_.clear();
+            writeRenumbered();
+        }, false, !locked_, gotItW);
+        tip(gotItX, y - 4, gotItW, 16, "The numbers are checked: the amber marks go.");
+    }
     // Related buttons together (the profile's groups: FACE, PADDLES, STICKS, SYSTEM; the SHIFTER below both columns).
     // A group with nothing mapped is one line with Show (a G920 without a shifter: no Gear rows).
     const ButtonLayout layout = layoutButtons(*profile_, [this](const ButtonGroup& group) {
@@ -996,7 +1073,14 @@ void MappingEditView::draw() {
         char label[32];
         std::snprintf(label, sizeof(label), "%2d %.10s", gameNumber(index),
                       std::string(profile_->buttonName(index)).c_str());
-        window_.text(x + 8, row + 4, label, kText);
+        const bool marked = renumbered(index);
+        window_.text(x + 8, row + 4, label, marked ? kCaution : kText);
+        if (marked) {
+            tip(x + 8, row, static_cast<float>(kButtonLabelChars) * ui::kCharWidth, 16,
+                "Button " + std::to_string(gameButtonNumber(*profile_, ButtonOrder::Driver, index)) +
+                    " with Logitech driver, " + std::to_string(gameNumber(index)) +
+                    " with Native: check the game's control for it. Changing this row takes the mark off.");
+        }
         const float fieldX = x + 8 + static_cast<float>(kButtonLabelChars) * ui::kCharWidth + kLabelGap;
         // The first source (a button), "or" a second one (a button, or a one-sided axis past a threshold). With no
         // second one the source takes the row and a faint "+ or" at its end opens the same popup (blue while the
@@ -1121,33 +1205,7 @@ void MappingEditView::drawRotation(const float top) {
         "full lock. A game can steer with its own rotation (NFS Payback: 180): the Games tab (G) sets it.");
 
     y += 30;
-    if (profile_ != nullptr && profile_->identity().centringSpring) y = drawCentringSpring(y);
-    if (profile_ != nullptr && profile_->hasNativeButtonOrder()) drawButtonOrder(y);
-}
-
-float MappingEditView::drawButtonOrder(const float top) {
-    // The order the target's buttons reach the game in (ButtonOrder): as Logitech's driver numbered them, or the
-    // wheel's own HID order, which newer games' presets read. This tab names them in the driver's order either way.
-    float y = top;
-    const std::string target(profile_->identity().shortName);
-    style::headingBand(window_, 0, y, canvasW());
-    style::heading(window_, 4, y, "BUTTON ORDER");
-    window_.text(140, y, "the order the game gets the " + target + "'s buttons in", kDim);
-    tip(4, y - 2, 600, 12,
-        "Logitech driver: as Logitech's Windows software numbered the " + target + "'s buttons, which games of its "
-        "time read (Race Driver: GRID). Native: the wheel's own order, without Logitech's driver, which newer games' "
-        "presets read (Assetto Corsa Competizione). The buttons keep their names here; their numbers are the game's: "
-        "from 1 with Logitech driver (as joy.cpl and games show them), from 0 with Native. Takes effect at the next "
-        "Start.");
-    y += 16;
-    window_.text(4, y + 4, "Order", kText);
-    float x = kSliderX;
-    for (const ButtonOrder order : {ButtonOrder::Driver, ButtonOrder::Native}) {
-        const std::string label = order == ButtonOrder::Driver ? "Logitech driver" : "Native";
-        x += button(x, y, label, [this, order] { edit_.buttonOrder = order; }, edit_.buttonOrder == order, !locked_,
-                    136) + 4;
-    }
-    return y + 20;
+    if (profile_ != nullptr && profile_->identity().centringSpring) drawCentringSpring(y);
 }
 
 float MappingEditView::drawCentringSpring(const float top) {

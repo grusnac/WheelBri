@@ -2038,7 +2038,7 @@ int runAppMode(Options options, const bool consoleLogging) {
     settings.shimDlls = shimDllPaths();
     if (!settings.builtInConfigFolder.empty()) settings.shimSettings = settings.builtInConfigFolder / "wheelbri-shim.ini";
     settings.runSession = [options, logFileOk](wheelbri::service::UiHost& host, const std::string& configPath,
-                                               const bool virtualDevice) {
+                                               const bool virtualDevice, const wheelbri::ButtonOrder order) {
         Options run = options;
         run.configPath = configPath;   // the config the Mapping tab shows
 #ifdef _WIN32
@@ -2046,7 +2046,10 @@ int runAppMode(Options options, const bool consoleLogging) {
 #else
         run.uhid = virtualDevice;   // Linux: the session starts wheelbri-uhid for the virtual G920
 #endif
-        const LoadedConfig fresh = loadForRun(run);
+        LoadedConfig fresh = loadForRun(run);
+        // The Mapping tab's Order picks the file (my-g25.ini, my-g25-native.ini) and wins over its [buttons] order:
+        // WheelBri's default g25.ini serves both.
+        fresh.config.buttonOrder = order;
         return runSession(run, fresh, logFileOk, &host);
     };
     settings.requestStop = [] { gStop = true; };

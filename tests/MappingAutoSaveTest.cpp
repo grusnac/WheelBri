@@ -7,9 +7,12 @@
 #include "UiStyle.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
+#include "wheelbri/DeviceProfile.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -26,6 +29,7 @@ public:
     struct Text {
         float x, y;
         std::string value;
+        ui::Colour colour;
     };
     struct Fill {
         float x, y, w, h;
@@ -41,8 +45,8 @@ public:
         fills.push_back({x, y, w, h, colour});
     }
     void outline(float, float, float, float, ui::Colour) override {}
-    void text(const float x, const float y, const std::string_view value, ui::Colour) override {
-        texts.push_back({x, y, std::string(value)});
+    void text(const float x, const float y, const std::string_view value, const ui::Colour colour) override {
+        texts.push_back({x, y, std::string(value), colour});
     }
     void present() override {}
     bool openFolder(const std::filesystem::path&, std::string&) override { return false; }
@@ -209,34 +213,101 @@ TEST_F(MappingAutoSave, TheG25ShowsItsCentringSpring) {
     EXPECT_NE(written.find("centring_spring = 25"), std::string::npos) << written;
 }
 
-// The G25 and G27 show their button order under the centring spring; Native is saved to [buttons] order in the user's
-// own file, and the row fits above the status line with every button group shown (the G27's, the most buttons). The
-// G920 shows none.
-TEST_F(MappingAutoSave, TheG25AndG27ShowTheirButtonOrder) {
-    for (const auto& [name, count] : {std::pair<std::string, int>{"g25", 19}, {"g27", 23}}) {
-        std::ofstream file(dir_ / "config" / (name + ".ini"), std::ios::binary);
-        file << "[emulator]\ntarget_profile = " << name << "\n[buttons]\n";
-        for (int b = 0; b < count; ++b) file << "target_" << b << " = " << b << "\n";
-    }
+// The G25 and G27 pick their button order on the top row (no section of its own below); each order has its own
+// mapping: a change with Native goes to my-g25-native.ini, with order = native, WheelBri's default untouched.
+TEST_F(MappingAutoSave, TheG25AndG27PickTheirButtonOrderOnTheTopRow) {
+    std::ofstream(dir_ / "config" / "g25.ini", std::ios::binary) << "[emulator]\ntarget_profile = g25\n";
+    std::ofstream(dir_ / "config" / "g27.ini", std::ios::binary) << "[emulator]\ntarget_profile = g27\n";
     ConfigPicker picker(window_, settings());
     MappingEditView view(window_, dir_ / "rigs", dir_ / "app.ini", picker);
     frame(view);
-    EXPECT_EQ(window_.find("BUTTON ORDER"), nullptr);   // the G920: none
+    EXPECT_EQ(window_.find("Logitech driver"), nullptr);   // the G920: one order
 
     for (const ConfigPicker::Target target : {ConfigPicker::Target::G27, ConfigPicker::Target::G25}) {
         picker.useTarget(target);
         frame(view);
-        const RecordingWindow::Text* heading = window_.find("BUTTON ORDER");
-        ASSERT_NE(heading, nullptr);
-        EXPECT_LT(heading->y + 32, window_.height() - 30 - 24);   // its row above the status line at the bottom
+        EXPECT_EQ(window_.find("BUTTON ORDER"), nullptr);
         EXPECT_TRUE(same(window_.buttonColour("Logitech driver"), kOn));
     }
 
     ASSERT_TRUE(click(view, "Native"));   // the G25's
     frame(view);
     EXPECT_TRUE(same(window_.buttonColour("Native"), kOn));
+    EXPECT_EQ(picker.ownPath().filename(), "my-g25-native.ini");
+    ASSERT_TRUE(click(view, "Invert"));   // the steering axis
+    frame(view);
     const std::string written = read(picker.ownPath());
     EXPECT_NE(written.find("order = native"), std::string::npos) << written;
+    EXPECT_NE(written.find("with Native button order"), std::string::npos) << written;
+    EXPECT_FALSE(std::filesystem::exists(dir_ / "configs" / "my-g25.ini"));
+    EXPECT_EQ(read(dir_ / "config" / "g25.ini"), "[emulator]\ntarget_profile = g25\n");
+}
+
+// The user's Logitech driver mapping copied for Native: its mapped buttons' numbers changed, so their rows are amber
+// and a note says so; changing a row takes its mark off, "Got it" all of them; kept in app.ini until then.
+TEST_F(MappingAutoSave, ACopiedNativeMappingMarksTheRenumberedButtons) {
+    std::ofstream(dir_ / "config" / "g25.ini", std::ios::binary) << "[emulator]\ntarget_profile = g25\n";
+    std::ofstream(dir_ / "configs" / "my-g25.ini", std::ios::binary)
+        << "[emulator]\ntarget_profile = g25\nfrom_rig = true\n[buttons]\ntarget_0 = 3\ntarget_15 = 7\n";
+    ASSERT_TRUE(writeAppSetting(dir_ / "app.ini", "target", "g25"));
+    ConfigPicker picker(window_, settings());
+    MappingEditView view(window_, dir_ / "rigs", dir_ / "app.ini", picker);
+    const auto g25 = makeProfile("g25");
+    ASSERT_NE(g25, nullptr);
+    const auto label = [&g25](const ButtonOrder order, const std::size_t b) {
+        char text[32];
+        std::snprintf(text, sizeof(text), "%2d %.10s", gameButtonNumber(*g25, order, b),
+                      std::string(g25->buttonName(b)).c_str());
+        return std::string(text);
+    };
+    const auto colourOf = [this](const std::string& value) -> std::optional<ui::Colour> {
+        const RecordingWindow::Text* text = window_.find(value);
+        if (text == nullptr) return std::nullopt;
+        return text->colour;
+    };
+    const auto noted = [this] {
+        return std::any_of(window_.texts.begin(), window_.texts.end(), [](const RecordingWindow::Text& text) {
+            return text.value.rfind("copied from Logitech driver", 0) == 0;
+        });
+    };
+    frame(view);
+    EXPECT_TRUE(same(colourOf(label(ButtonOrder::Driver, 0)), style::kText));
+    EXPECT_FALSE(noted());
+
+    picker.useButtonOrder(ButtonOrder::Native);
+    frame(view);
+    EXPECT_EQ(readAppSetting(dir_ / "app.ini", "renumbered_g25"), "0,15");
+    EXPECT_TRUE(noted());
+    EXPECT_TRUE(same(colourOf(label(ButtonOrder::Native, 0)), style::kCaution));
+    EXPECT_TRUE(same(colourOf(label(ButtonOrder::Native, 15)), style::kCaution));
+    EXPECT_TRUE(same(colourOf(label(ButtonOrder::Native, 1)), style::kText));   // nothing mapped there
+
+    // Kept: a new view (the next start) shows them too.
+    MappingEditView again(window_, dir_ / "rigs", dir_ / "app.ini", picker);
+    frame(again);
+    EXPECT_TRUE(same(colourOf(label(ButtonOrder::Native, 15)), style::kCaution));
+
+    // Red 1's row changed (unmapped): its mark goes, the other stays.
+    const auto source = std::find_if(window_.texts.begin(), window_.texts.end(), [](const RecordingWindow::Text& t) {
+        return t.value.find("button 3") != std::string::npos;
+    });
+    ASSERT_NE(source, window_.texts.end());
+    view.onClick(source->x + 1, source->y + 1);
+    frame(view);
+    const auto nothing = std::find_if(window_.texts.rbegin(), window_.texts.rend(),   // the popup's: drawn last
+                                      [](const RecordingWindow::Text& t) { return t.value == "(nothing)"; });
+    ASSERT_NE(nothing, window_.texts.rend());
+    view.onClick(nothing->x + 1, nothing->y + 1);
+    frame(view);
+    EXPECT_EQ(readAppSetting(dir_ / "app.ini", "renumbered_g25"), "15");
+    EXPECT_FALSE(same(colourOf(label(ButtonOrder::Native, 0)), style::kCaution));   // its group folded: not shown
+    EXPECT_TRUE(noted());
+
+    ASSERT_TRUE(click(view, "Got it"));
+    frame(view);
+    EXPECT_TRUE(readAppSetting(dir_ / "app.ini", "renumbered_g25").empty());
+    EXPECT_FALSE(noted());
+    EXPECT_TRUE(same(colourOf(label(ButtonOrder::Native, 15)), style::kText));
 }
 
 }  // namespace

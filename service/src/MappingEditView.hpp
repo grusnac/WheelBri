@@ -234,6 +234,13 @@ private:
     void saveGameValues();   // saves those alone, as they change
     void dropOwnEdits();
     void refreshDevices();
+    // The buttons whose game number changed when the user's Logitech driver mapping was copied for Native
+    // ([app] renumbered_<target>, ConfigPicker): "pending" becomes the mapped ones, then a row's mark goes when it
+    // is changed, all of them with "Got it".
+    void readRenumbered();
+    void writeRenumbered();
+    void dropChangedRenumbered(const MappingModel& before, const MappingModel& after);
+    [[nodiscard]] bool renumbered(std::size_t b) const;
     [[nodiscard]] const RigControl* rigControl(const SourceRef& source, bool axis) const;
 
     [[nodiscard]] const DeviceLabels* wheelLabels() const;
@@ -349,9 +356,8 @@ private:
     void learnGameFile(const std::string& id, std::filesystem::file_time_type since);
     [[nodiscard]] std::size_t selectedGameIndex() const;
     // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
-    // The target's centring spring and button order (G25, G27), below the rotation; each returns where it ends.
+    // The target's centring spring (G25, G27), below the rotation; returns where it ends.
     float drawCentringSpring(float top);
-    float drawButtonOrder(float top);
     void drawField(float x, float y, float w, Field field, const std::string& value, bool changed,
                    std::size_t index = 0);
     [[nodiscard]] std::string fieldText(Field field, std::size_t index) const;
@@ -416,6 +422,7 @@ private:
     static constexpr std::size_t kMaxUndo = 50;
     std::vector<MappingModel> undo_;           // the saved mappings before each change, oldest first
     int undoTarget_ = -1;                      // the Target they are for (another Target: the list starts again)
+    std::vector<std::size_t> renumbered_;      // readRenumbered: rows marked "number changed", ascending
     bool undoing_ = false;                     // the next save is an Undo's: nothing goes on the list
     std::optional<MappingModel> notSaved_;     // the change that could not be saved (not tried again)
     std::vector<DeviceLabels> devices_;

@@ -80,8 +80,8 @@ struct MappingModel {
     // [ffb] centring_spring: the target's centring spring, 0 to 100 percent, 0 = off (CentringSpring.hpp); the
     // Mapping tab shows it only for a target that had one (the G25 and G27).
     float centringSpringPercent = 0.0F;
-    // [buttons] order: the order the target's buttons reach the game in (ButtonOrder); the Mapping tab shows it only
-    // for a target that has a native order (the G25 and G27).
+    // [buttons] order: the order the target's buttons reach the game in (ButtonOrder); the Mapping tab sets it from
+    // its top row's Order (ConfigPicker: each order has its own file) for a target with a native order (G25, G27).
     ButtonOrder buttonOrder = ButtonOrder::Driver;
     // [game_rotation]: the user's own rotation per game profile (GameRotation.hpp); a game left out uses its profile's.
     GameRotations gameRotations;

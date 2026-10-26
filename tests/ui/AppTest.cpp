@@ -62,6 +62,7 @@ public:
     std::atomic<bool> release{false};
     std::atomic<int> runs{0};
     std::atomic<bool> lastVirtual{false};
+    std::atomic<ButtonOrder> lastOrder{ButtonOrder::Driver};
     std::atomic<int> stopsRequested{0};
     std::atomic<int> frameDelayMs{5};
 
@@ -75,9 +76,10 @@ public:
         edit(info_);
     }
 
-    int run(UiHost& host, const std::string&, const bool virtualDevice) {
+    int run(UiHost& host, const std::string&, const bool virtualDevice, const ButtonOrder order) {
         ++runs;
         lastVirtual = virtualDevice;
+        lastOrder = order;
         switch (mode.load()) {
             case Mode::FailsAtOnce: return exitCode;
             case Mode::Throws: throw std::runtime_error("broken on purpose");
@@ -176,8 +178,9 @@ protected:
         settings_.devicesFolder = deviceLabelsFolder();
         settings_.shimDlls = ShimSources{root_ / "shim" / kShimDll, root_ / "shim" / "x86" / kShimDll};
         settings_.shimSettings = root_ / "builtin" / kShimSettings;
-        settings_.runSession = [this](UiHost& host, const std::string& config, const bool virtualDevice) {
-            return session_.run(host, config, virtualDevice);
+        settings_.runSession = [this](UiHost& host, const std::string& config, const bool virtualDevice,
+                                      const ButtonOrder order) {
+            return session_.run(host, config, virtualDevice, order);
         };
         settings_.requestStop = [this] {
             ++session_.stopsRequested;

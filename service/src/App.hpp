@@ -2,6 +2,7 @@
 
 #include "SessionUi.hpp"
 
+#include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/ShimGames.hpp"
 
 #include <filesystem>
@@ -29,8 +30,9 @@ struct AppSettings {
     std::filesystem::path shimSettings;  // config/wheelbri-shim.ini, put next to it
     // Runs one session with the config at `configPath` ("" = the built-in defaults) until it is asked to stop
     // (blocking); returns its exit code. `virtualDevice`: the virtual G920 (rig hidden) rather than the in-game shim.
+    // `order`: the Mapping tab's button order (ConfigPicker::buttonOrder), used instead of the file's [buttons] order.
     // Called on the app's session thread.
-    std::function<int(UiHost& host, const std::string& configPath, bool virtualDevice)> runSession;
+    std::function<int(UiHost& host, const std::string& configPath, bool virtualDevice, ButtonOrder order)> runSession;
     // Asks the running session to stop (from the window's thread).
     std::function<void()> requestStop;
     // Clears that request before the next Start.

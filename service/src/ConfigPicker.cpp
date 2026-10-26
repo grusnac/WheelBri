@@ -2,6 +2,9 @@
 #include "UiStyle.hpp"
 
 #include "wheelbri/ConfigLibrary.hpp"
+#include "wheelbri/FileText.hpp"
+#include "wheelbri/IniDocument.hpp"
+#include "wheelbri/IniEditor.hpp"
 #include "wheelbri/Logging.hpp"
 
 #include <system_error>
@@ -25,14 +28,16 @@ constexpr Colour kDim = style::kDim;
 constexpr float kRowHeight = 16;
 constexpr float kTargetWidth = 52;   // a Target button: "G920", "G25", "G27", "G923"
 constexpr float kWayWidth = 72;      // a Mode button: "Virtual", "Shim"
+constexpr float kOrderWidth = 128;   // an Order button: "Logitech driver", "Native"
 
 // What each Target is for (its button's hover text).
 std::string targetAbout(const ConfigPicker::Target target) {
     switch (target) {
         case ConfigPicker::Target::G25:
-            return "G25: for older games (Race Driver: GRID). Its button order and centring spring are set below.";
+            return "G25: for older games (Race Driver: GRID). Its button order is picked under Target, its centring "
+                   "spring below.";
         case ConfigPicker::Target::G27:
-            return "G27: for older games. Its button order and centring spring are set below.";
+            return "G27: for older games. Its button order is picked under Target, its centring spring below.";
         case ConfigPicker::Target::G920:
             return "G920: the Xbox wheel, WheelBri's default and the one tried most in games.";
         case ConfigPicker::Target::G923:
@@ -41,10 +46,38 @@ std::string targetAbout(const ConfigPicker::Target target) {
     return {};
 }
 
+// The file's [buttons] order (Driver when it has none or cannot be read).
+ButtonOrder fileOrder(const std::filesystem::path& path) {
+    const auto text = readFileText(path);
+    if (!text) return ButtonOrder::Driver;
+    const auto line = IniDocument::parse(*text).document.get("buttons", "order");
+    return line ? parseButtonOrder(*line).value_or(ButtonOrder::Driver) : ButtonOrder::Driver;
+}
+
+// `from` written to `to` with [buttons] order = `order`, everything else as it was. False if it cannot be.
+bool copyWithOrder(const std::filesystem::path& from, const std::filesystem::path& to, const ButtonOrder order) {
+    const auto text = readFileText(from);
+    if (!text) return false;
+    IniEditor editor(*text);
+    editor.set("buttons", "order", std::string(toString(order)));
+    return writeFileReplacing(to, editor.text());
+}
+
 }  // namespace
 
 std::string ConfigPicker::name() const {
-    return std::string(targetName(target_)) + (way_ == Way::VirtualDevice ? " Mode Virtual" : " Mode Shim");
+    return std::string(targetName(target_)) + (order_ == ButtonOrder::Native ? " Native" : "") +
+           (way_ == Way::VirtualDevice ? " Mode Virtual" : " Mode Shim");
+}
+
+bool ConfigPicker::hasButtonOrders(const Target target) { return target == Target::G25 || target == Target::G27; }
+
+std::string ConfigPicker::ownName(const Target target, const ButtonOrder order) {
+    return "my-" + std::string(profileName(target)) + (order == ButtonOrder::Native ? "-native" : "") + ".ini";
+}
+
+std::string ConfigPicker::renumberedKey(const Target target) {
+    return std::string("renumbered_") + profileName(target);
 }
 
 const char* ConfigPicker::targetName(const Target target) {
@@ -118,9 +151,7 @@ bool ConfigPicker::virtualDeviceSupported(const std::uint32_t windowsBuild) {
 
 std::filesystem::path ConfigPicker::builtInPath() const { return settings_.builtInFolder / builtInName(); }
 
-std::filesystem::path ConfigPicker::ownPath() const {
-    return settings_.userFolder / ("my-" + builtInName());
-}
+std::filesystem::path ConfigPicker::ownPath() const { return settings_.userFolder / ownName(target_, order_); }
 
 void ConfigPicker::adoptOlderOwn() {
     // Once per target ([app] older_mapping_<target> = checked): Default deletes my-<target>.ini, and the older files
@@ -128,7 +159,7 @@ void ConfigPicker::adoptOlderOwn() {
     const std::string key = std::string("older_mapping_") + profileName(target_);
     if (!readAppSetting(settings_.stateFile, key).empty()) return;
     std::error_code ec;
-    const std::filesystem::path own = ownPath();
+    const std::filesystem::path own = settings_.userFolder / ownName(target_, ButtonOrder::Driver);
     if (std::filesystem::exists(own, ec)) {
         static_cast<void>(writeAppSetting(settings_.stateFile, key, "checked"));
         return;
@@ -160,8 +191,42 @@ void ConfigPicker::adoptOlderOwn() {
     static_cast<void>(writeAppSetting(settings_.stateFile, key, "checked"));
 }
 
+void ConfigPicker::adoptOlderOrder() {
+    if (!hasButtonOrders(target_)) return;
+    const std::string key = std::string("order_") + profileName(target_);
+    if (!readAppSetting(settings_.stateFile, key).empty()) return;
+    const std::filesystem::path driver = settings_.userFolder / ownName(target_, ButtonOrder::Driver);
+    const std::filesystem::path native = settings_.userFolder / ownName(target_, ButtonOrder::Native);
+    std::error_code ec;
+    ButtonOrder order = ButtonOrder::Driver;
+    if (std::filesystem::is_regular_file(driver, ec) && fileOrder(driver) == ButtonOrder::Native) {
+        // The user's mapping was made for Native: it is the Native one now, and the Logitech driver one starts as a
+        // copy of it (its numbers as Logitech's driver gives them).
+        if (!std::filesystem::exists(native, ec) && !copyWithOrder(driver, native, ButtonOrder::Native)) {
+            WE_LOG_WARN(log(), "cannot copy your mapping {} to {}", driver.string(), native.string());
+            return;   // tried again next time
+        }
+        if (!copyWithOrder(driver, driver, ButtonOrder::Driver)) {
+            WE_LOG_WARN(log(), "cannot set order = driver in {}", driver.string());
+        }
+        order = ButtonOrder::Native;
+        WE_LOG_INFO(log(), "your {} mapping said order = native: it is now {} (Native)", targetName(target_),
+                    native.string());
+    }
+    static_cast<void>(writeAppSetting(settings_.stateFile, key, std::string(toString(order))));
+}
+
+void ConfigPicker::readOrder() {
+    order_ = ButtonOrder::Driver;
+    if (!hasButtonOrders(target_)) return;
+    const std::string kept = readAppSetting(settings_.stateFile, std::string("order_") + profileName(target_));
+    order_ = parseButtonOrder(kept).value_or(ButtonOrder::Driver);
+}
+
 void ConfigPicker::refresh() {
     adoptOlderOwn();
+    adoptOlderOrder();
+    readOrder();
     std::error_code ec;
     const std::filesystem::path own = ownPath();
     const std::filesystem::path builtIn = builtInPath();
@@ -184,6 +249,10 @@ bool ConfigPicker::dropOwnEdits(std::string& error) {
         error = "cannot delete " + own.string() + ": " + ec.message();
         WE_LOG_WARN(log(), "{}", error);
         return false;
+    }
+    // Its buttons' numbers no longer need checking: the default has none of the user's.
+    if (order_ == ButtonOrder::Native) {
+        static_cast<void>(writeAppSetting(settings_.stateFile, renumberedKey(target_), ""));
     }
     WE_LOG_INFO(log(), "own mapping dropped ({}): {} uses the default {} again", own.string(), name(),
                 builtInPath().string());
@@ -210,6 +279,30 @@ void ConfigPicker::choose(const Target target) {
     chosen();
 }
 
+void ConfigPicker::choose(const ButtonOrder order) {
+    if (locked_ || !hasButtonOrders(target_) || order == order_) return;
+    const std::filesystem::path driver = settings_.userFolder / ownName(target_, ButtonOrder::Driver);
+    const std::filesystem::path native = settings_.userFolder / ownName(target_, ButtonOrder::Native);
+    std::error_code ec;
+    // The first Native: the user's own Logitech driver mapping goes with them, its buttons' game numbers changed.
+    if (order == ButtonOrder::Native && !std::filesystem::exists(native, ec) &&
+        std::filesystem::is_regular_file(driver, ec)) {
+        if (copyWithOrder(driver, native, ButtonOrder::Native)) {
+            static_cast<void>(writeAppSetting(settings_.stateFile, renumberedKey(target_), "pending"));
+            WE_LOG_INFO(log(), "your {} mapping copied for Native: {}", targetName(target_), native.string());
+        } else {
+            WE_LOG_WARN(log(), "cannot copy your mapping {} to {}: Native starts from the default", driver.string(),
+                        native.string());
+        }
+    }
+    if (!writeAppSetting(settings_.stateFile, std::string("order_") + profileName(target_),
+                         std::string(toString(order)))) {
+        WE_LOG_WARN(log(), "cannot save the button order in {}", settings_.stateFile.string());
+    }
+    ++changes_;   // another mapping even when both are WheelBri's default (the same file)
+    chosen();
+}
+
 void ConfigPicker::chosen() {
     refresh();
     WE_LOG_INFO(log(), "target {}; config {}", name(), selected_.empty() ? "(none)" : selected_);
@@ -231,7 +324,9 @@ bool ConfigPicker::onClick(const float x, const float y) {
     return false;
 }
 
-float ConfigPicker::draw(const float x0, const float y, const bool canChangeNow, const TipSink& tip) {
+float ConfigPicker::rowsHeight() const { return hasButtonOrders(target_) ? 2 * kRowHeight + 2 : kRowHeight; }
+
+float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const TipSink& tip) {
     hits_.clear();
     const bool canChange = canChangeNow && !locked_;
     float x = x0;
@@ -269,7 +364,25 @@ float ConfigPicker::draw(const float x0, const float y, const bool canChangeNow,
     segment(wayName(Way::Shim), kWayWidth, way_ == Way::Shim, true,
             "Shim: a dinput8.dll next to each game on the Games tab shows the Target to that game only.",
             [this] { choose(Way::Shim); });
-    return x + 1 + 4;
+    const float rowEnd = x + 1 + 4;
+    if (hasButtonOrders(target_)) {
+        // A second row under Target (the first one's right end is the shim's game, App: gamesRowX).
+        const std::string target = targetName(target_);
+        x = x0;
+        y += kRowHeight + 2;
+        window_.text(x, y + 4, "Order", kDim);
+        x += 64;
+        segment("Logitech driver", kOrderWidth, order_ == ButtonOrder::Driver, true,
+                "Logitech driver: the " + target + "'s buttons as Logitech's Windows software numbered them (from 1, "
+                "as joy.cpl shows them), which games of its time read (Race Driver: GRID). Its own mapping.",
+                [this] { choose(ButtonOrder::Driver); });
+        segment("Native", kOrderWidth, order_ == ButtonOrder::Native, true,
+                "Native: the " + target + "'s own order (from 0), without Logitech's driver, which newer games' "
+                "presets read (Assetto Corsa Competizione). Its own mapping: the first time, a copy of your Logitech "
+                "driver one.",
+                [this] { choose(ButtonOrder::Native); });
+    }
+    return rowEnd;
 }
 
 }  // namespace wheelbri::service

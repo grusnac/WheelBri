@@ -46,6 +46,10 @@ constexpr float kG920X = 190;
 constexpr float kG923X = 241;
 constexpr float kVirtualX = 357;
 constexpr float kShimX = 428;
+// For the G25 and G27, a second row 18 lower: "Order" (64), Logitech driver and Native (128 each).
+constexpr float kOrderRowY = kRowY + 18;
+constexpr float kDriverOrderX = 130;
+constexpr float kNativeOrderX = 260;
 
 class ConfigPickerFiles : public ::testing::Test {
 protected:
@@ -424,6 +428,123 @@ TEST_F(ConfigPickerFiles, LockedNothingChoosesATarget) {
                 [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
     ASSERT_FALSE(tips.empty());
     EXPECT_NE(tips[0].find("Fixed while WheelBri runs."), std::string::npos);
+}
+
+TEST(ConfigPickerNames, ButtonOrders) {
+    using Target = ConfigPicker::Target;
+    EXPECT_TRUE(ConfigPicker::hasButtonOrders(Target::G25));
+    EXPECT_TRUE(ConfigPicker::hasButtonOrders(Target::G27));
+    EXPECT_FALSE(ConfigPicker::hasButtonOrders(Target::G920));
+    EXPECT_FALSE(ConfigPicker::hasButtonOrders(Target::G923));
+    EXPECT_EQ(ConfigPicker::ownName(Target::G25, ButtonOrder::Driver), "my-g25.ini");
+    EXPECT_EQ(ConfigPicker::ownName(Target::G25, ButtonOrder::Native), "my-g25-native.ini");
+    EXPECT_EQ(ConfigPicker::ownName(Target::G27, ButtonOrder::Native), "my-g27-native.ini");
+    EXPECT_EQ(ConfigPicker::renumberedKey(Target::G27), "renumbered_g27");
+}
+
+// Each order of the G25 has its own mapping: Native's own file is my-g25-native.ini, WheelBri's default serves both;
+// the order is kept per target in app.ini and shown on the row only for the G25 and G27.
+TEST_F(ConfigPickerFiles, EachButtonOrderHasItsOwnMapping) {
+    ConfigPicker picker(window_, settings());
+    picker.draw(4, 18, true);
+    EXPECT_FALSE(window_.shows("Order"));   // the G920: one order
+    EXPECT_EQ(picker.rowsHeight(), 16);
+    picker.useButtonOrder(ButtonOrder::Native);
+    EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Driver);
+
+    picker.useTarget(ConfigPicker::Target::G25);
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(window_.shows("Order"));
+    EXPECT_TRUE(window_.shows("Logitech driver"));
+    EXPECT_EQ(picker.rowsHeight(), 34);   // two rows: the first's right end stays free for the shim's game
+    EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Driver);
+    EXPECT_EQ(setting("order_g25"), "driver");
+    EXPECT_TRUE(picker.onClick(kNativeOrderX, kOrderRowY));
+    EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Native);
+    EXPECT_EQ(setting("order_g25"), "native");
+    EXPECT_EQ(picker.name(), "G25 Native Mode Virtual");
+    EXPECT_EQ(picker.ownPath(), user() / "my-g25-native.ini");
+    EXPECT_TRUE(picker.builtIn());   // nothing of the user's: the default, Start sets the order
+    EXPECT_EQ(picker.selected(), (builtIn() / "g25.ini").string());
+    EXPECT_TRUE(setting("renumbered_g25").empty());   // nothing copied, nothing to check
+
+    write(user() / "my-g25-native.ini", "[buttons]\norder = native\n");
+    picker.refresh();
+    EXPECT_FALSE(picker.builtIn());
+    EXPECT_EQ(picker.selected(), (user() / "my-g25-native.ini").string());
+
+    picker.useTarget(ConfigPicker::Target::G27);   // its own order
+    EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Driver);
+    picker.useTarget(ConfigPicker::Target::G25);
+    EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Native);
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kDriverOrderX, kOrderRowY));
+    EXPECT_EQ(picker.ownPath(), user() / "my-g25.ini");
+    EXPECT_TRUE(picker.builtIn());
+
+    picker.setLocked(true);   // from Start to Stop: fixed
+    picker.useButtonOrder(ButtonOrder::Native);
+    EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Driver);
+}
+
+// The first Native with the user's own Logitech driver mapping: a copy of it, order = native, its numbers to check;
+// a later Native keeps its own file. Default drops Native's alone and its marks.
+TEST_F(ConfigPickerFiles, TheFirstNativeCopiesTheDriverMapping) {
+    ASSERT_TRUE(writeAppSetting(state(), "target", "g25"));
+    write(user() / "my-g25.ini", "; mine\n[buttons]\ntarget_0 = 3\n");
+    ConfigPicker picker(window_, settings());
+    picker.useButtonOrder(ButtonOrder::Native);
+    const std::filesystem::path native = user() / "my-g25-native.ini";
+    ASSERT_TRUE(std::filesystem::exists(native));
+    std::ifstream in(native, std::ios::binary);
+    const std::string copied{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    in.close();
+    EXPECT_NE(copied.find("; mine"), std::string::npos) << copied;
+    EXPECT_NE(copied.find("target_0 = 3"), std::string::npos) << copied;
+    EXPECT_NE(copied.find("order = native"), std::string::npos) << copied;
+    EXPECT_EQ(setting("renumbered_g25"), "pending");
+    EXPECT_FALSE(picker.builtIn());
+    EXPECT_EQ(picker.selected(), native.string());
+    EXPECT_EQ(firstLine(user() / "my-g25.ini"), "; mine");   // the driver one as it was
+
+    // Again: Native's own stays as it is.
+    write(native, "[buttons]\norder = native\ntarget_0 = 9\n");
+    ASSERT_TRUE(writeAppSetting(state(), "renumbered_g25", ""));
+    picker.useButtonOrder(ButtonOrder::Driver);
+    picker.useButtonOrder(ButtonOrder::Native);
+    EXPECT_EQ(firstLine(native), "[buttons]");
+    EXPECT_TRUE(setting("renumbered_g25").empty());
+
+    ASSERT_TRUE(writeAppSetting(state(), "renumbered_g25", "0"));
+    std::string error;
+    ASSERT_TRUE(picker.dropOwnEdits(error)) << error;
+    EXPECT_FALSE(std::filesystem::exists(native));
+    EXPECT_TRUE(std::filesystem::exists(user() / "my-g25.ini"));
+    EXPECT_TRUE(setting("renumbered_g25").empty());
+    EXPECT_TRUE(picker.builtIn());
+}
+
+// A my-g25.ini from before there were two (order = native in it) becomes the Native mapping once: copied, Native
+// picked, its own line back to driver. One without the line stays Logitech driver.
+TEST_F(ConfigPickerFiles, AnOlderNativeMappingBecomesTheNativeOne) {
+    ASSERT_TRUE(writeAppSetting(state(), "target", "g25"));
+    write(user() / "my-g25.ini", "[buttons]\ntarget_0 = 3\norder = native\n");
+    write(user() / "my-g27.ini", "[buttons]\ntarget_0 = 3\n");
+    ConfigPicker picker(window_, settings());
+    EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Native);
+    EXPECT_EQ(setting("order_g25"), "native");
+    EXPECT_EQ(picker.selected(), (user() / "my-g25-native.ini").string());
+    EXPECT_TRUE(setting("renumbered_g25").empty());   // made for Native: its numbers are right
+    std::ifstream in(user() / "my-g25.ini", std::ios::binary);
+    const std::string driver{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    in.close();
+    EXPECT_NE(driver.find("order = driver"), std::string::npos) << driver;
+    EXPECT_NE(driver.find("target_0 = 3"), std::string::npos) << driver;
+
+    picker.useTarget(ConfigPicker::Target::G27);
+    EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Driver);
+    EXPECT_EQ(setting("order_g27"), "driver");
+    EXPECT_FALSE(std::filesystem::exists(user() / "my-g27-native.ini"));
 }
 
 }  // namespace wheelbri::service
