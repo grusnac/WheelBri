@@ -77,20 +77,8 @@ Next: [User guide](docs/user-guide.md).
    modinfo hid-universal-pidff
    ```
 
-4. Open the app (`~/wheelbri/bin/wheelbri`) and set up the rig ([User guide](docs/user-guide.md)). Linux numbers the
-   axes differently from Windows: check the mapping.
-
-5. Set the game's Steam launch option (Properties > Launch Options):
-
-   ```
-   /home/deck/wheelbri/wheelbri.sh %command%
-   ```
-
-   For Mode Shim: `wheelbri.sh --shim %command%`. Use your own home folder if it is not `/home/deck`.
-
-`wheelbri.sh` starts WheelBri before the game and stops it after, in Game Mode too. Its options go before `%command%`:
-`--target g25|g27|g920|g923`, `--config FILE`, `--hide VID/PID,...`, `--game-folder DIR`, `--keep-shim`,
-`--ui`/`--no-ui`; `--help` explains them.
+Next: [User guide](docs/user-guide.md), then [Linux and the Steam Deck](docs/user-guide.md#linux-and-the-steam-deck)
+for the game's Steam launch option.
 
 **Uninstall:** `~/wheelbri/install-udev-rules.sh --remove`, then delete `~/wheelbri`, and for a clean start
 `~/.config/wheelbri` and `~/.local/state/wheelbri`.

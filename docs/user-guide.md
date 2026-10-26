@@ -7,6 +7,7 @@ How to set up your rig, map it to a Logitech wheel and play. Installing: [README
 - [Map it to the Target](#map-it-to-the-target)
 - [Play](#play)
 - [Games tab](#games-tab)
+- [Linux and the Steam Deck](#linux-and-the-steam-deck)
 - [Force feedback](#force-feedback)
 - [Logs](#logs)
 - [Troubleshooting](#troubleshooting)
@@ -68,7 +69,8 @@ count), from 0 in Native. **Last pressed** says which one the game gets. Details
 ## Play
 
 Press **Start** before the game, and **Stop** when done. Start the game only once the status says **Running**: by
-then everything is ready. On Linux the Steam launch option (`wheelbri.sh`) starts and stops WheelBri with the game.
+then everything is ready. On Linux the game's Steam launch option does this for you
+([Linux and the Steam Deck](#linux-and-the-steam-deck)).
 
 The bar next to Start shows the Target, the Mode and, in Mode Shim, the game, in amber when the game does not support
 the Target. When Start is greyed out, the red notice above the tabs says why; **What's missing** lists what is left.
@@ -122,6 +124,38 @@ NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, you
 
 Values apply at once, even while the game runs (the Force feedback sub-tab then shows what the game asks in blue and
 what reaches the wheel in green). Pedal axes in Mode Shim and new games apply at the next Start.
+
+## Linux and the Steam Deck
+
+Set up the rig and the mapping in the app first (`~/wheelbri/bin/wheelbri`), as above, and save the mapping: Linux
+numbers the axes differently from Windows, so WheelBri's default mapping (made on Windows) needs checking. Then let
+Steam start WheelBri with the game: in the game's **Properties > Launch Options**, put
+
+```
+/home/deck/wheelbri/wheelbri.sh %command%
+```
+
+(with your own home folder if it is not `/home/deck`). `wheelbri.sh` starts WheelBri before the game and stops it when
+the game ends, in Game Mode too. If the app (Start) or `wheelbri-service` is already running, it uses that session
+and leaves it running.
+
+Options go between `wheelbri.sh` and `%command%`, e.g.
+`/home/deck/wheelbri/wheelbri.sh --target g25 --shim %command%`:
+
+| Option | Default | What it does |
+|---|---|---|
+| `--virtual` | yes | Mode Virtual: `wheelbri-uhid` creates the virtual wheel; the game reads it raw (Proton's `PROTON_ENABLE_HIDRAW`) and your rig is hidden from it. A WheelBri shim left in the game's folder is taken out first. |
+| `--shim` | | Mode Shim: puts `dinput8.dll` (32 or 64-bit, as the game's `.exe`; `dinput8Hooked.dll` next to the Ultimate ASI Loader) and `wheelbri-shim.ini` into the game's folder before it starts and takes them out after. Refuses a folder with another mod's `dinput8.dll`. |
+| `--target g25\|g27\|g920\|g923` | the app's Mapping tab Target, else G920 | The Logitech wheel the game sees. |
+| `--config FILE` | your saved mapping for the Target (`~/.config/wheelbri/configs/my-<target>.ini`), else WheelBri's default | The mapping to use. |
+| `--hide VID/PID[,VID/PID...]` | every device of your rig (Rig tab) | Devices hidden from the game in Mode Virtual, e.g. `--hide 0x346E/0x0005` for a Moza R3. Steam's own pad is never hidden. |
+| `--game-folder DIR` | the folder of the game's `.exe` in `%command%`, else its Steam install folder | Where `--shim` puts the shim. Needed when the game starts through a launcher that hides the real folder. |
+| `--keep-shim` | | Leaves the shim in the game's folder after the game ends (for testing). |
+| `--ui` / `--no-ui` | window only when run from a terminal | Shows the WheelBri window while the game runs, or not. |
+| `--help` | | Prints these options. |
+
+From a terminal (Desktop Mode) without `%command%`, `wheelbri.sh` starts WheelBri and waits for Enter or Ctrl+C to
+stop it. Logs: `~/.local/state/wheelbri/`.
 
 ## Force feedback
 
