@@ -1,8 +1,22 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repo. Folder rules load on their own when their files are touched:
-`driver/CLAUDE.md`, `tests/CLAUDE.md`, `.claude/rules/` (`in-game-dll.md` shim/logi, `ui.md`, `powershell.md`).
-Planning work in one of those areas before opening its files → read its rule file first.
+Guidance for Claude Code in this repo.
+
+## Area rules
+
+Some rules live in area files that load on their own only once a file there is touched. When a task involves an area
+below (planning, answering, building, running, editing), read its file **before** doing that, unless it is already
+loaded. Read only the section you need (`grep -n '^#'` first).
+
+| When the task involves… | Read first |
+|---|---|
+| Building, installing or changing the drivers; the hide filter driver | `driver/CLAUDE.md` |
+| Shim or logi code, the 32-bit build, anything running inside the game | `.claude/rules/in-game-dll.md` |
+| Windows, views, layout, colours, shapes, Shadow view, UI tests | `.claude/rules/ui.md` |
+| Writing or running tests, fuzzing, uhid tests | `tests/CLAUDE.md` |
+| PowerShell scripts, installer, packaging | `.claude/rules/powershell.md` |
+
+A new area file gets a row here.
 
 ## Working with the user
 
