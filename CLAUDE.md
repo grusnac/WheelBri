@@ -49,13 +49,7 @@ PATH="/mingw32/bin:$PATH" cmake -S . -B build-x86 -G Ninja -DCMAKE_BUILD_TYPE=Re
 PATH="/mingw32/bin:$PATH" cmake --build build-x86 --target wheelbri_shim
 ```
 
-Drivers: build with VS + WDK in a Developer PowerShell, install from an Administrator PowerShell
-(`driver\hide\wheelbri-hide.vcxproj` + `install-hide.ps1` likewise):
-
-```powershell
-msbuild driver\wheelbri-wheel.vcxproj /p:Configuration=Release /p:Platform=x64
-powershell -NoProfile -ExecutionPolicy Bypass -File driver\install-driver.ps1
-```
+Drivers (VS + WDK, PowerShell): `driver/CLAUDE.md`.
 
 `scripts/make/`: `app.sh` (incremental build + start app; `--test` runs all tests first and starts nothing on a failure,
 `--no-start`, `--as-user` needs `wheelbri-helper --console`, `--config FILE`), `rebuild.sh` (clean rebuild), `ui.sh`
@@ -108,9 +102,7 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
   target via `EmulatedDevice<T>` (state from `StateFeed`); game effects → service via `FfbForwarder`; other devices
   stay `ProxyDevice<T>`.
 - **`logi/`**: logging pass-through for Logitech's Steering Wheel SDK helper DLL. Never ship Logitech's DLLs.
-- **`driver/`** (UMDF 2, VS + WDK): `wheelbri-wheel` = HID minidriver for every virtual wheel, picked by hardware id;
-  `hide/` (`wheelbri-hide`) = upper filter hiding the rig from all but the service's `AllowedPid`, fails open. Both
-  share core's `HidWheelDevice`, `HidPid`, `HidPp`, `StatePacket`.
+- **`driver/`** (UMDF 2): virtual wheel minidriver + rig hide filter; details in `driver/CLAUDE.md`.
 - **`tools/uhid/`**: `wheelbri-uhid`, Linux virtual wheel via kernel uhid; Proton reads it with `PROTON_ENABLE_HIDRAW`.
 - **`installer/`, `scripts/make/package.ps1`**: Windows package in `dist/windows/` (IExpress). A new shipped file goes
   in `package.ps1` and `install.ps1`'s required list.
