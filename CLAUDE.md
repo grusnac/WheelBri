@@ -21,10 +21,11 @@ A new area file gets a row here.
 ## Working with the user
 
 - `scripts/make/*.sh`: build/test shortcuts; each header says what it does. A new one sources `common.sh` and goes in
-  the list below. README never uses them (plain CMake there).
+  the list below. The docs never use them (plain CMake in `docs/building.md`).
 - Driver steps: PowerShell. Everything else: MSYS2 UCRT64, repo root.
-- User docs: a few lines in `docs/user-guide.md`; a new screen needs a screenshot in `docs/images/` (ask the user to
-  take it). README status: its status table.
+- Docs: install (Windows and Linux sections) and status in `README.md`; usage in `docs/user-guide.md`; per game in
+  `docs/games.md`; target layouts in `docs/targets.md`; build in `docs/building.md`. Short, current facts only, no
+  dated history. A new screen needs a screenshot in `docs/images/` (ask the user to take it).
 - Logs: `%LOCALAPPDATA%\wheelbri\logs` (`wheelbri-service-*`, `telemetry-*`, `ffb-*`, one file per run);
   `scripts/telemetry_summary.sh` sums them up. `raw_a0`..`raw_a7` = which axis a control moves.
 
@@ -33,9 +34,10 @@ A new area file gets a row here.
 Makes the user's rig (wheel + accessories, Rig tab) look like a Logitech wheel to games, Windows and Linux/Proton.
 Targets: G920 (default), G923, G25, G27; the user cannot add targets.
 
-- README: status table, "Targets" (ids, button counts, button-order certainty), "G HUB and HID++" (G923).
-- Verified: direct drive wheel, NFS 2015, Windows, via shim and via virtual G920.
-- Not verified: G923/G25/G27 in a game, Linux/Proton on Steam Deck, shim on Windows 7.
+- Verified (Windows 11, Moza R3): all four targets in Mode Virtual in ACC and DiRT Rally 2.0; G920 in NFS games and
+  G25 in Race Driver: GRID, both Modes; ACC under Proton on Linux.
+- Not verified: Steam Deck, Windows 7 to 10, button orders on real Logitech wheels.
+- Mode Shim is for older DirectInput games only; ACC, DiRT Rally 2.0 and games using Logitech's SDK DLL don't take it.
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`. Consumer: `dinput8.dll` shim in
 the game (Mode Shim), `wheelbri-wheel` driver (Windows, Mode Virtual) or `wheelbri-uhid` (Linux). UDP, not shared
