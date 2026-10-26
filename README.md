@@ -281,13 +281,16 @@ sequential). The Rig's A, B, X, Y (what a control "is") go on the black diamond 
 buttons of that era's games. The G27 has the same and its wheel's lower buttons 19-22.
 
 A real G25 or G27 without Logitech's driver (Linux, or Windows without it) numbers its buttons in its own HID order
-instead, which newer games' presets read (Assetto Corsa Competizione's G25 and G27 presets bind 0-11 and nothing at the
-gears): the black diamond 0-3 (bottom, left, right, top), paddles 4/5, wheel buttons 6/7, red 8-11 (red 2, 3, 4, 1),
-gears 12-17, reverse 18 (G25) or 22 (G27, its wheel's lower buttons 18-21). The Mapping tab's **Button order**
-(`[buttons] order = driver | native`, G25 and G27 only) picks which one the game gets; the Mapping tab names the
-buttons in the driver's order either way. Sources: GIMX's G25 and G27 configurations for Windows and for Linux side
-by side (facts only; GIMX is GPLv3 and nothing is copied) and a G27's HID descriptor; ACC's presets bind the native
-diamond as A, X, B, Y, as its G920 preset binds the G920's A, B, X, Y. Neither order checked on a real wheel.
+instead, which newer games' presets read (Assetto Corsa Competizione's G25 and G27 presets bind 0-11 and nothing at
+the gears): the black diamond 0-3 (bottom, left, right, top), paddles 4/5, wheel buttons 6/7, red 8-11 (red 2, 3, 4,
+1), gears 12-17, reverse 18 (G25) or 22 (G27, its wheel's lower buttons 18-21). The Mapping tab's **Order** (under
+Target; G25 and G27 only) picks which one the game gets, and each order has its own whole mapping (`my-g25.ini`,
+`my-g25-native.ini`; the order is kept in `app.ini`, and the file's `[buttons] order` follows it for the command line
+service). The first Native copies the user's Logitech driver mapping and marks its buttons in amber: their numbers
+changed. The Mapping tab names the buttons in the driver's order either way. Sources: GIMX's G25 and G27
+configurations for Windows and for Linux side by side (facts only; GIMX is GPLv3 and nothing is copied) and a G27's
+HID descriptor; ACC's presets bind the native diamond as A, X, B, Y, as its G920 preset binds the G920's A, B, X, Y.
+Neither order checked on a real wheel.
 
 | Target | Ids | Buttons | Button order |
 |---|---|---|---|
