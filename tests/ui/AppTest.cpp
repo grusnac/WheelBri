@@ -800,12 +800,13 @@ TEST_F(AppRun, HotSwap) {
     EXPECT_EQ(run(), 0);
 }
 
-// Start refused: every listed game holds another mod's dinput8.dll.
-TEST_F(AppRun, StartRefusedForAnotherModsDll) {
+// Start refused: every listed game holds another mod's dinput8.dll that cannot be chained.
+TEST_F(AppRun, StartRefusedForAModThatCannotBeChained) {
     setUpRig();
     plugWheel();
     const auto game = listGame();
     std::ofstream(game / kShimDll, std::ios::binary) << "someone else's dll";
+    std::filesystem::create_directories(game / kShimChainDll);   // a folder where the chain would go
     waitFor("Ready", false);
     once([this](ScriptedWindow&) { return clickStart(); });
     waitFor("Cannot start");

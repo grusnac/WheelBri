@@ -421,8 +421,9 @@ TEST_F(ShimFolders, ChooseFolderRefusesWhatIsNotAGameFolder) {
     EXPECT_EQ(view.stateAt(0), ShimState::Missing);
 }
 
-// A folder with another mod's dinput8.dll is listed as it is (the Games tab marks it "other mod") and left alone.
-TEST_F(ShimFolders, AFolderWithAnotherModIsListedAndLeftAlone) {
+// A folder with another mod's dinput8.dll is listed as it is (the Games tab marks it "other mod"); Put shim (Chain
+// mod) chains it.
+TEST_F(ShimFolders, AFolderWithAnotherModIsListedThenChained) {
     const auto modded = makeGame("Modded");
     write(modded / kShimDll, "someone else's proxy");
     window_.pickAnswer = modded;
@@ -431,14 +432,18 @@ TEST_F(ShimFolders, AFolderWithAnotherModIsListedAndLeftAlone) {
     view.refresh(true);
     ASSERT_EQ(view.folders().size(), 1U);
     EXPECT_EQ(view.stateAt(0), ShimState::Foreign);
-    std::ifstream in(modded / kShimDll, std::ios::binary);
-    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()),
-              "someone else's proxy");
+    {   // closed again before Chain mod: Windows does not rename a file that is open
+        std::ifstream in(modded / kShimDll, std::ios::binary);
+        EXPECT_EQ(std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()),
+                  "someone else's proxy");
+    }
     EXPECT_FALSE(std::filesystem::exists(modded / kShimSettings));
-    view.put(0);   // Put shim refuses it
+    view.put(0);   // Chain mod
     std::string problem;
-    ASSERT_TRUE(view.takeProblem(problem));
-    EXPECT_NE(problem.find("not WheelBri's"), std::string::npos) << problem;
+    EXPECT_FALSE(view.takeProblem(problem)) << problem;
+    view.refresh(true);
+    EXPECT_EQ(view.stateAt(0), ShimState::Installed);
+    EXPECT_TRUE(view.chainedAt(0));
 }
 
 // Choose folder for a game WheelBri knows: the folder must have its program; then it is listed.
@@ -817,7 +822,8 @@ TEST_F(ShimFolders, HotSwapPedalAxes) {
     EXPECT_NE(error.find("The pedal axes for"), std::string::npos) << error;
 }
 
-// Start with the game's pedal axes written; two folders with other mods' DLLs: none can take the shim.
+// Start with the game's pedal axes written; two folders with other mods' DLLs that cannot be chained: none can take
+// the shim.
 TEST_F(ShimFolders, StartWritesTheAxesAndOtherModsAreCounted) {
     const auto game = makeGame("Heat");
     listGames({game});
@@ -835,8 +841,10 @@ TEST_F(ShimFolders, StartWritesTheAxesAndOtherModsAreCounted) {
     }
     const auto a = makeGame("A");
     const auto b = makeGame("B");
-    write(a / kShimDll, "another mod");
-    write(b / kShimDll, "another mod");
+    for (const auto& folder : {a, b}) {
+        write(folder / kShimDll, "another mod");
+        std::filesystem::create_directories(folder / kShimChainDll);   // a folder where the chain would go
+    }
     listGames({a, b});
     ShimGamesView view(window_, settings());
     std::vector<std::filesystem::path> prepared;

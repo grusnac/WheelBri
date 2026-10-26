@@ -279,8 +279,14 @@ bool ShimGamesView::prepareStart(const std::string& profile, const AxesFor& axes
     }
     std::vector<std::string> others;
     for (const ShimGame& game : list_.games) {
-        // Put in, replaced when older, another mod's DLL chained; nothing written when all is in place.
-        const ShimResult result = installShim(game.folder, source(game.folder), settings_.sourceSettings);
+        // Put in, replaced when older, another mod's DLL chained; a chained one checked for its chain line. A shim
+        // in place is left as it is (its settings are setShimTarget's below).
+        const ShimState state = shimState(game.folder, source(game.folder));
+        ShimResult result;
+        result.ok = true;
+        if (state != ShimState::Installed || shimChained(game.folder)) {
+            result = installShim(game.folder, source(game.folder), settings_.sourceSettings);
+        }
         if (!result.ok && result.leftAlone) {   // another mod's DLL that cannot be chained: never touched
             WE_LOG_WARN(log(), "shim: {} left out: {} ({})", game.name, result.error, pathToUtf8(game.folder));
             others.push_back(game.name);
