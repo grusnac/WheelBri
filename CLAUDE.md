@@ -56,8 +56,7 @@ DLL), `drivers.sh`, `all.sh`, `package.sh` (installer), `clean-pc.sh` (removes a
 - Performance: measure with `measure.sh`, don't add counters to the app.
 
 Options: `WE_BUILD_TESTS`, `WE_BUILD_SERVICE`, `WE_BUILD_SHIM` (Windows), `WE_BUILD_LOGI` (Windows x64),
-`WE_BUILD_UHID` (Linux), `WE_BUILD_FUZZ` (`wheelbri_fuzz`, Clang only, `CXX=clang++`; whole build gets address +
-UB checks; run `build/tests/wheelbri_fuzz -max_total_time=600 <corpus folder>`).
+`WE_BUILD_UHID` (Linux), `WE_BUILD_FUZZ` (`wheelbri_fuzz`, Clang only; see `tests/CLAUDE.md`).
 
 Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage in `printUsage`,
 `service/src/main.cpp`), `wheelbri-helper.exe`, `build/shim/dinput8.dll`, `build/logi/wheelbri-logi.dll`,
@@ -95,14 +94,11 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
 - **`tools/uhid/`**: `wheelbri-uhid`, Linux virtual wheel via kernel uhid; Proton reads it with `PROTON_ENABLE_HIDRAW`.
 - **`installer/`, `scripts/make/package.ps1`**: Windows package in `dist/windows/` (IExpress). A new shipped file goes
   in `package.ps1` and `install.ps1`'s required list.
-- **`tests/`**: GoogleTest with fakes (see `PipelineTest.cpp`) + `wheelbri_ui_tests` (scripted window).
+- **`tests/`**: GoogleTest + `wheelbri_ui_tests`; details in `tests/CLAUDE.md`.
   - A loop change comes with a scenario in `tests/emulators/PushEmulators.hpp` (`PushLoopTest`); the rig's loop stays
     in step with `runLoop`.
-  - Windows-only code: tested in the Windows binary, or under Wine from Linux.
   - Every reader of data WheelBri doesn't control (configs, profiles, datagrams, HID reports, DirectInput values) is a
-    target in `tests/fuzz/FuzzTargets.cpp`: `RobustnessTest` feeds fixed inputs every build, `wheelbri_fuzz` searches
-    longer. New reader → new target.
-  - Tests running a `wheelbri-uhid` take `UhidTestLock` (`ctest -j` must not run two at once).
+    target in `tests/fuzz/FuzzTargets.cpp`. New reader → new target.
 
 ## Checklists
 
