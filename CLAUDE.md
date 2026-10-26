@@ -42,12 +42,7 @@ ctest --test-dir build                                    # -R Mapper for some
 ./build/tests/wheelbri_tests --gtest_filter='Pipeline.*'
 ```
 
-32-bit shim (only the shim is ever 32-bit; needs `pacman -S mingw-w64-i686-gcc` once):
-
-```bash
-PATH="/mingw32/bin:$PATH" cmake -S . -B build-x86 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw32.cmake -DWE_BUILD_SERVICE=OFF -DWE_BUILD_TESTS=OFF -DWE_BUILD_LOGI=OFF
-PATH="/mingw32/bin:$PATH" cmake --build build-x86 --target wheelbri_shim
-```
+32-bit shim (only the shim is ever 32-bit): `.claude/rules/in-game-dll.md`.
 
 Drivers (VS + WDK, PowerShell): `driver/CLAUDE.md`.
 
@@ -98,10 +93,9 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
     fake draws them. Mapping tab's Shadow view (`ShadowView.cpp`) draws the target with them; every target has a
     picture (`ShadowView::hasPicture`) drawn from Logitech's photos of the real wheel.
 - **`service/helper/`**: WheelBri Helper, SYSTEM Windows service over a pipe, so the app runs as a standard user.
-- **`shim/`**: proxies `IDirectInput8A/W`, templates over `AnsiTraits` / `WideTraits`. Physical wheel shown as the
-  target via `EmulatedDevice<T>` (state from `StateFeed`); game effects → service via `FfbForwarder`; other devices
-  stay `ProxyDevice<T>`.
-- **`logi/`**: logging pass-through for Logitech's Steering Wheel SDK helper DLL. Never ship Logitech's DLLs.
+- **`shim/`**: `dinput8.dll` proxy in the game showing the rig as the target. **`logi/`**: logging pass-through for
+  Logitech's Steering Wheel SDK helper DLL; never ship Logitech's DLLs. Both run inside the game:
+  `.claude/rules/in-game-dll.md`.
 - **`driver/`** (UMDF 2): virtual wheel minidriver + rig hide filter; details in `driver/CLAUDE.md`.
 - **`tools/uhid/`**: `wheelbri-uhid`, Linux virtual wheel via kernel uhid; Proton reads it with `PROTON_ENABLE_HIDRAW`.
 - **`installer/`, `scripts/make/package.ps1`**: Windows package in `dist/windows/` (IExpress). A new shipped file goes
@@ -152,9 +146,6 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
 - **Logging** (full rules: `Logging.hpp`): only `WE_LOG_*`, one dotted logger per component, never printf; hot paths
   use `CallSampler` / `RateLimiter`; default level warn; every file WheelBri writes is a log in that line format (no
   CSV, no JSON); one file per run `<stem>-<date>-<NN>.log`; one folder for all logs (`logsFolder()`), no other.
-- **Shim and logi** (inside the game process): `DllMain` only `DisableThreadLibraryCalls` + the detach hook; logging
-  starts lazily; no threads; every line flushed; nothing throws into the game (`guarded()` / `guardedOr()`);
-  singletons never destroyed; link statically, never link `dinput8`.
 - **FFB safety** (rigs often direct drive): every force to hardware goes through `FfbSafetyLimiter` + watchdog. Keep
   the guards: slew 50/s, frozen-force fade, DiEffect's "not a force" values. Only bypass: opt-in
   `force_feedback = passthrough` in `wheelbri-shim.ini`; add no others.
