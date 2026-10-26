@@ -1,7 +1,13 @@
-# Builds the Windows installer (WheelBri-<version>-setup.exe and its zip, scripts/make/package.ps1) and the Linux
-# bundle (wheelbri-linux-x86_64.tar.gz, scripts/linux/package.sh) on every push to main, every pull request and by
-# hand (Actions > Installers > Run workflow). A v<version> tag also publishes both as a GitHub release; the tag must
-# match project(... VERSION) in CMakeLists.txt.
+# WheelBri's pipeline, in four stages (each a job of its own on the run's page):
+#
+#   1. Build and test      Windows (MSYS2 UCRT64) and Linux, Release, all tests; the results on each job's summary
+#   2. Windows installer   the drivers (VS + WDK), then WheelBri-<version>-setup.exe and its zip (package.ps1),
+#                          from the programs stage 1 built and tested
+#   3. Linux bundle        wheelbri-linux-x86_64.tar.gz (scripts/linux/package.sh), with stage 1's Windows shims
+#   4. Release             only for a v<version> tag: both installers as a GitHub release
+#
+# Runs on every push to main, every pull request and by hand (Actions > Installers > Run workflow). A tag must match
+# project(... VERSION) in CMakeLists.txt.
 #
 # Driver signing: with the secrets DRIVER_SIGNING_PFX (the .pfx, base64) and DRIVER_SIGNING_PFX_PASSWORD every build
 # signs with that one certificate; without them each run makes its own (driver\new-signing-cert.ps1). The installer
@@ -24,65 +30,170 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  windows:
-    runs-on: windows-2022   # Visual Studio 2022 with the WDK (WindowsUserModeDriver10.0) and IExpress
+  # ---------------------------------------------------------------------------------------------------------------
+  test-windows:
+    name: 1 · Build and test (Windows)
+    runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out
+        uses: actions/checkout@v4
 
-      - name: Tag matches the version
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          version=$(sed -nE 's/^[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -n 1)
-          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME, CMakeLists.txt says $version"; exit 1; }
-
-      - name: Signing certificate
-        shell: powershell
-        env:
-          PFX: ${{ secrets.DRIVER_SIGNING_PFX }}
-          PFX_PASSWORD: ${{ secrets.DRIVER_SIGNING_PFX_PASSWORD }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:PFX) {
-              $file = Join-Path $env:RUNNER_TEMP 'signing.pfx'
-              [IO.File]::WriteAllBytes($file, [Convert]::FromBase64String($env:PFX))
-              $password = ConvertTo-SecureString "$env:PFX_PASSWORD" -AsPlainText -Force
-              Import-PfxCertificate -FilePath $file -CertStoreLocation Cert:\CurrentUser\My -Password $password | Out-Null
-              Remove-Item $file
-          }
-          # Reuses the imported certificate (same subject), else makes one; writes driver\signing-certificate.props.
-          & .\driver\new-signing-cert.ps1 | Out-Null
-          exit $LASTEXITCODE
-
-      - name: Drivers
-        shell: powershell
-        run: |
-          & .\scripts\make\drivers.ps1
-          exit $LASTEXITCODE
-
-      - uses: msys2/setup-msys2@v2
+      - name: Install MSYS2 UCRT64 (64-bit) and MINGW32 (32-bit shim) compilers
+        uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
           update: false
-          path-type: inherit   # package.sh calls powershell.exe
+          path-type: inherit
           install: >-
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-i686-gcc
 
-      - name: Build
+      - name: Configure (Release, with tests)
         shell: msys2 {0}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release > /dev/null
+
+      - name: Build app, service, helper, shim and tests
+        shell: msys2 {0}
+        run: cmake --build build
+
+      - name: Build the 32-bit shim
+        shell: msys2 {0}
+        run: WE_CMAKE_ARGS=-DWE_BUILD_TESTS=OFF bash scripts/make/shim-x86.sh
+
+      - name: Run the tests
+        shell: msys2 {0}
+        run: ctest --test-dir build -j 4 --output-on-failure --output-junit ctest-results.xml
+
+      - name: Test report
+        if: ${{ !cancelled() }}
+        run: python .github/scripts/test-summary.py build/ctest-results.xml "Tests on Windows"
+
+      - name: Keep the test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-windows
+          path: build/ctest-results.xml
+          if-no-files-found: ignore
+
+      # What stage 2 packages and stage 3 puts in the Linux bundle: the programs that were just tested.
+      - name: Keep the programs for packaging
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-programs
+          if-no-files-found: error
+          path: |
+            build/service/wheelbri.exe
+            build/service/wheelbri-service.exe
+            build/service/wheelbri-helper.exe
+            build/shim/dinput8.dll
+            build-x86/shim/dinput8.dll
+
+  # ---------------------------------------------------------------------------------------------------------------
+  test-linux:
+    name: 1 · Build and test (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install the X11 headers and Ninja
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWE_BUILD_TESTS=OFF > /dev/null
-          cmake --build build --target wheelbri wheelbri-service wheelbri-helper wheelbri_shim
-          WE_CMAKE_ARGS=-DWE_BUILD_TESTS=OFF bash scripts/make/shim-x86.sh
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libx11-dev ninja-build > /dev/null
 
-      - name: Package
-        shell: msys2 {0}
-        run: bash scripts/make/package.sh --no-build
+      - name: Configure (Release, with tests)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release > /dev/null
 
-      - uses: actions/upload-artifact@v4
+      - name: Build app, service, wheelbri-uhid and tests
+        run: cmake --build build
+
+      - name: Run the tests
+        run: ctest --test-dir build -j 4 --output-on-failure --output-junit ctest-results.xml
+
+      - name: Test report
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/test-summary.py build/ctest-results.xml "Tests on Linux"
+
+      - name: Keep the test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-linux
+          path: build/ctest-results.xml
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------------------------------------------
+  package-windows:
+    name: 2 · Windows installer
+    needs: [test-windows, test-linux]
+    runs-on: windows-2022   # Visual Studio 2022 with the WDK (WindowsUserModeDriver10.0) and IExpress
+    defaults:
+      run:
+        shell: powershell   # Windows PowerShell 5.1, which the scripts target
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          $text = Get-Content CMakeLists.txt -Raw
+          if ($text -notmatch '(?s)project\s*\(.*?VERSION\s+(\d+\.\d+\.\d+)') { Write-Output '::error::no VERSION'; exit 1 }
+          if ("v$($Matches[1])" -ne $env:GITHUB_REF_NAME) {
+              Write-Output "::error::tag $env:GITHUB_REF_NAME, CMakeLists.txt says $($Matches[1])"; exit 1
+          }
+
+      - name: Get the tested programs from stage 1
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-programs
+
+      - name: Signing certificate for the drivers
+        env:
+          PFX: ${{ secrets.DRIVER_SIGNING_PFX }}
+          PFX_PASSWORD: ${{ secrets.DRIVER_SIGNING_PFX_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:PFX) {
+              Write-Output 'using the certificate from DRIVER_SIGNING_PFX'
+              $file = Join-Path $env:RUNNER_TEMP 'signing.pfx'
+              [IO.File]::WriteAllBytes($file, [Convert]::FromBase64String($env:PFX))
+              $password = ConvertTo-SecureString "$env:PFX_PASSWORD" -AsPlainText -Force
+              Import-PfxCertificate -FilePath $file -CertStoreLocation Cert:\CurrentUser\My -Password $password | Out-Null
+              Remove-Item $file
+          } else {
+              Write-Output 'no DRIVER_SIGNING_PFX secret: a certificate for this run only'
+          }
+          # Reuses the imported certificate (same subject), else makes one; writes driver\signing-certificate.props.
+          & .\driver\new-signing-cert.ps1 | Out-Null
+          exit $LASTEXITCODE
+
+      - name: Build and sign the drivers (wheelbri-wheel, wheelbri-hide)
+        run: |
+          & .\scripts\make\drivers.ps1
+          exit $LASTEXITCODE
+
+      - name: Assemble the package, zip and Setup.exe
+        run: |
+          & .\scripts\make\package.ps1 -BuildDir build
+          exit $LASTEXITCODE
+
+      - name: Summary
+        run: |
+          $lines = @('## 📦 Windows installer', '', '| File | Size |', '|---|---:|')
+          foreach ($file in Get-ChildItem dist\windows -File) {
+              $lines += '| {0} | {1:N1} MB |' -f $file.Name, ($file.Length / 1MB)
+          }
+          $signer = (Get-AuthenticodeSignature (Get-ChildItem driver -Recurse -Filter wheelbri-wheel.cat |
+              Select-Object -First 1).FullName).SignerCertificate
+          $lines += '', "Drivers signed by ``$($signer.Subject)`` (``$($signer.Thumbprint)``)"
+          $lines -join "`n" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      - name: Keep the installer
+        uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           if-no-files-found: error
@@ -90,62 +201,82 @@ jobs:
             dist/windows/WheelBri-*-setup.exe
             dist/windows/WheelBri-*.zip
 
-      # The shims for the Linux bundle (Proton games load the Windows DLL): the same files as in the Windows package.
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-shims
-          if-no-files-found: error
-          path: |
-            build/shim/dinput8.dll
-            build-x86/shim/dinput8.dll
-
-  linux:
-    needs: windows
-    runs-on: ubuntu-24.04
+  # ---------------------------------------------------------------------------------------------------------------
+  package-linux:
+    name: 3 · Linux bundle
+    needs: [test-windows, test-linux]
+    runs-on: ubuntu-24.04   # the bundle needs glibc 2.39 or newer
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out
+        uses: actions/checkout@v4
 
-      - name: Packages
+      - name: Install the X11 headers
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq libx11-dev > /dev/null
 
-      - uses: actions/download-artifact@v4
+      - name: Get the Windows shims from stage 1 (for Proton games)
+        uses: actions/download-artifact@v4
         with:
-          name: windows-shims
-          path: shims
+          name: windows-programs
+          path: windows
 
-      - name: Build and package
+      - name: Build (static C++ runtime) and assemble the bundle
         run: |
-          bash scripts/linux/package.sh --shim shims/build/shim/dinput8.dll \
-              --shim-x86 shims/build-x86/shim/dinput8.dll > package.log 2>&1 || { grep -iE 'error|warning: x11' package.log; exit 1; }
-          # Without the X11 headers CMake skips the service quietly: the bundle must have all three programs.
-          for program in wheelbri wheelbri-service wheelbri-uhid; do
-              [ -x "dist/wheelbri/bin/$program" ] || { echo "::error::the bundle lacks bin/$program"; exit 1; }
+          bash scripts/linux/package.sh --shim windows/build/shim/dinput8.dll \
+              --shim-x86 windows/build-x86/shim/dinput8.dll > package.log 2>&1 || { cat package.log; exit 1; }
+          grep '^built' package.log
+
+      # Without the X11 headers CMake skips the service quietly: the bundle must have all three programs.
+      - name: Check the bundle
+        run: |
+          for file in bin/wheelbri bin/wheelbri-service bin/wheelbri-uhid shim/dinput8.dll shim/x86/dinput8.dll; do
+              [ -e "dist/wheelbri/$file" ] || { echo "::error::the bundle lacks $file"; exit 1; }
           done
 
-      - uses: actions/upload-artifact@v4
+      - name: Summary
+        run: |
+          {
+              echo '## 🐧 Linux bundle'
+              echo
+              echo '| File | Size |'
+              echo '|---|---:|'
+              echo "| wheelbri-linux-x86_64.tar.gz | $(du -h dist/wheelbri-linux-x86_64.tar.gz | cut -f1) |"
+              echo
+              echo "Needs $(objdump -T dist/wheelbri/bin/* | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1) or newer."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the bundle
+        uses: actions/upload-artifact@v4
         with:
           name: linux-installer
           if-no-files-found: error
           path: dist/wheelbri-linux-x86_64.tar.gz
 
+  # ---------------------------------------------------------------------------------------------------------------
   release:
+    name: 4 · Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, linux]
+    needs: [package-windows, package-linux]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Get both installers
+        uses: actions/download-artifact@v4
         with:
           pattern: '*-installer'
           merge-multiple: true
           path: out
 
-      - name: GitHub release
+      - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" \
               --title "WheelBri ${GITHUB_REF_NAME#v}" --generate-notes
+          {
+              echo "## 🚀 Released [WheelBri ${GITHUB_REF_NAME#v}]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME)"
+              echo
+              for file in out/*; do echo "- $(basename "$file")"; done
+          } >> "$GITHUB_STEP_SUMMARY"
