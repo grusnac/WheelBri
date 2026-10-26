@@ -62,9 +62,11 @@ jobs:
         shell: msys2 {0}
         run: WE_CMAKE_ARGS=-DWE_BUILD_TESTS=OFF bash scripts/make/shim-x86.sh
 
+      # One test at a time, as on the PC: the tests share fixed ports and temp folders (ShimTestSupport.hpp,
+      # RetentionTest.cpp), so parallel ones (ctest -j) trip over each other.
       - name: Run the tests
         shell: msys2 {0}
-        run: ctest --test-dir build -j 4 --output-on-failure --output-junit ctest-results.xml
+        run: ctest --test-dir build --output-on-failure --output-junit ctest-results.xml
 
       - name: Test report
         if: ${{ !cancelled() }}
@@ -111,7 +113,7 @@ jobs:
         run: cmake --build build
 
       - name: Run the tests
-        run: ctest --test-dir build -j 4 --output-on-failure --output-junit ctest-results.xml
+        run: ctest --test-dir build --output-on-failure --output-junit ctest-results.xml
 
       - name: Test report
         if: ${{ !cancelled() }}
