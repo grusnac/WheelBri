@@ -31,7 +31,7 @@ namespace wheelbri::service {
 class ShadowView {
 public:
     // Whether `profile` has a picture here: the G25 (its 19 buttons), the G27 (its 23), the G920 (its 19) or the G923
-    // (its 24; README "Targets").
+    // (its 24; docs/targets.md).
     [[nodiscard]] static bool hasPicture(const IDeviceProfile& profile);
 
     // Draws into `window` (not owned; it must outlive the view).

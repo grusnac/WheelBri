@@ -128,7 +128,7 @@ TEST(DeviceProfile, G25ButtonsHaveTheGearsAtLogitechsNumbers) {
     EXPECT_TRUE(profile.buttonName(kG25Buttons).empty());
 }
 
-// The real G25's order as games of its time saw it on Windows (README, "Targets"): red 0-3, paddles 4 right / 5
+// The real G25's order as games of its time saw it on Windows (docs/targets.md): red 0-3, paddles 4 right / 5
 // left, wheel buttons 6 right / 7 left, gears 8-14, the black diamond 15-18 (top, left, bottom, right).
 TEST(DeviceProfile, G25ButtonsAreTheRealOnes) {
     const DeviceProfile profile(g25Spec());
