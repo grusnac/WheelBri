@@ -86,12 +86,7 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
   - Mode Shim starts nothing only the virtual device needs (no virtual wheel, no hide filter); keep that split.
   - The hide filter is in the rig's stack only while Mode Virtual runs (a user-mode filter costs ~half a core on every
     report): Start puts it in and is not Running until the rig is hidden; Stop takes it out (`takeHideFilterOff`).
-  - UI via `UiWindow.hpp` (`UiWindowWin32.cpp` / `UiWindowX11.cpp`). Views lay out from `UiWindow::width()` /
-    `height()` every frame, never 960 / 748. Colours only from `style::` (`UiStyle.hpp`); tests compare to `style::`,
-    not literals.
-  - Shapes (`fillPolygon`, `fillEllipse`, `fillRing`) are rows of `fill()` (core `ShapeSpans`), so every window and
-    fake draws them. Mapping tab's Shadow view (`ShadowView.cpp`) draws the target with them; every target has a
-    picture (`ShadowView::hasPicture`) drawn from Logitech's photos of the real wheel.
+  - UI via `UiWindow.hpp` (`UiWindowWin32.cpp` / `UiWindowX11.cpp`); rules in `.claude/rules/ui.md`.
 - **`service/helper/`**: WheelBri Helper, SYSTEM Windows service over a pipe, so the app runs as a standard user.
 - **`shim/`**: `dinput8.dll` proxy in the game showing the rig as the target. **`logi/`**: logging pass-through for
   Logitech's Steering Wheel SDK helper DLL; never ship Logitech's DLLs. Both run inside the game:
