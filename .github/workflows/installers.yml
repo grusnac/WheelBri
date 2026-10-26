@@ -1,0 +1,151 @@
+# Builds the Windows installer (WheelBri-<version>-setup.exe and its zip, scripts/make/package.ps1) and the Linux
+# bundle (wheelbri-linux-x86_64.tar.gz, scripts/linux/package.sh) on every push to main, every pull request and by
+# hand (Actions > Installers > Run workflow). A v<version> tag also publishes both as a GitHub release; the tag must
+# match project(... VERSION) in CMakeLists.txt.
+#
+# Driver signing: with the secrets DRIVER_SIGNING_PFX (the .pfx, base64) and DRIVER_SIGNING_PFX_PASSWORD every build
+# signs with that one certificate; without them each run makes its own (driver\new-signing-cert.ps1). The installer
+# trusts whichever certificate signed the package, so both install; the drivers are test-signed either way.
+
+name: Installers
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-2022   # Visual Studio 2022 with the WDK (WindowsUserModeDriver10.0) and IExpress
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(sed -nE 's/^[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -n 1)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME, CMakeLists.txt says $version"; exit 1; }
+
+      - name: Signing certificate
+        shell: powershell
+        env:
+          PFX: ${{ secrets.DRIVER_SIGNING_PFX }}
+          PFX_PASSWORD: ${{ secrets.DRIVER_SIGNING_PFX_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:PFX) {
+              $file = Join-Path $env:RUNNER_TEMP 'signing.pfx'
+              [IO.File]::WriteAllBytes($file, [Convert]::FromBase64String($env:PFX))
+              $password = ConvertTo-SecureString "$env:PFX_PASSWORD" -AsPlainText -Force
+              Import-PfxCertificate -FilePath $file -CertStoreLocation Cert:\CurrentUser\My -Password $password | Out-Null
+              Remove-Item $file
+          }
+          # Reuses the imported certificate (same subject), else makes one; writes driver\signing-certificate.props.
+          & .\driver\new-signing-cert.ps1 | Out-Null
+          exit $LASTEXITCODE
+
+      - name: Drivers
+        shell: powershell
+        run: |
+          & .\scripts\make\drivers.ps1
+          exit $LASTEXITCODE
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          path-type: inherit   # package.sh calls powershell.exe
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-i686-gcc
+
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DWE_BUILD_TESTS=OFF > /dev/null
+          cmake --build build --target wheelbri wheelbri-service wheelbri-helper wheelbri_shim
+          WE_CMAKE_ARGS=-DWE_BUILD_TESTS=OFF bash scripts/make/shim-x86.sh
+
+      - name: Package
+        shell: msys2 {0}
+        run: bash scripts/make/package.sh --no-build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          if-no-files-found: error
+          path: |
+            dist/windows/WheelBri-*-setup.exe
+            dist/windows/WheelBri-*.zip
+
+      # The shims for the Linux bundle (Proton games load the Windows DLL): the same files as in the Windows package.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-shims
+          if-no-files-found: error
+          path: |
+            build/shim/dinput8.dll
+            build-x86/shim/dinput8.dll
+
+  linux:
+    needs: windows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libx11-dev > /dev/null
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-shims
+          path: shims
+
+      - name: Build and package
+        run: |
+          bash scripts/linux/package.sh --shim shims/build/shim/dinput8.dll \
+              --shim-x86 shims/build-x86/shim/dinput8.dll > package.log 2>&1 || { grep -iE 'error|warning: x11' package.log; exit 1; }
+          # Without the X11 headers CMake skips the service quietly: the bundle must have all three programs.
+          for program in wheelbri wheelbri-service wheelbri-uhid; do
+              [ -x "dist/wheelbri/bin/$program" ] || { echo "::error::the bundle lacks bin/$program"; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-installer
+          if-no-files-found: error
+          path: dist/wheelbri-linux-x86_64.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-installer'
+          merge-multiple: true
+          path: out
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" \
+              --title "WheelBri ${GITHUB_REF_NAME#v}" --generate-notes
