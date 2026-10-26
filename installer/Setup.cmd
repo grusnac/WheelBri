@@ -16,7 +16,7 @@ if errorlevel 1 (
     echo WheelBri's setup needs PowerShell 5.1, which this Windows does not have yet.
     echo On Windows 7 SP1: install Windows Management Framework 5.1 ^(KB3191566, from Microsoft; it needs .NET
     echo Framework 4.5.2 or newer^), restart Windows, then run this setup again. The folder win7 in the package
-    echo ^(WheelBri-^<version^>.zip^) has scripts that download and install them: see user-guide.md there.
+    echo ^(WheelBri-^<version^>.zip^) has scripts that download and install them: see README.md there.
     pause
     exit /b 1
 )
