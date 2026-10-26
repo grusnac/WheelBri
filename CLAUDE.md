@@ -7,10 +7,10 @@ Guidance for Claude Code in this repo.
 - `scripts/make/*.sh`: build/test shortcuts; each header says what it does. A new one sources `common.sh` and goes in
   the list below. README never uses them (plain CMake there).
 - Driver steps: PowerShell. Everything else: MSYS2 UCRT64, repo root.
-- Finished feature players use: a few lines in `docs/user-guide.md`; a new screen needs a screenshot in `docs/images/`
-  (ask the user to take it). Update README's status table when what works changes.
-- Mapping/FFB problem: before guessing, read `%LOCALAPPDATA%\wheelbri\logs` (`wheelbri-service-*`, `telemetry-*`,
-  `ffb-*`, one file per run) and run `scripts/telemetry_summary.sh`. `raw_a0`..`raw_a7` = which axis a control moves.
+- User docs: a few lines in `docs/user-guide.md`; a new screen needs a screenshot in `docs/images/` (ask the user to
+  take it). README status: its status table.
+- Logs: `%LOCALAPPDATA%\wheelbri\logs` (`wheelbri-service-*`, `telemetry-*`, `ffb-*`, one file per run);
+  `scripts/telemetry_summary.sh` sums them up. `raw_a0`..`raw_a7` = which axis a control moves.
 
 ## Project
 
