@@ -14,7 +14,8 @@
 #                                         shim-games.txt) are cleaned without it. In each: dinput8.dll and
 #                                         dinput8Hooked.dll (its name next to the Ultimate ASI Loader), and their
 #                                         .off copies, when they are ours (another mod's, the ASI Loader included,
-#                                         stays), and wheelbri-shim.ini / wheelemu-shim.ini
+#                                         stays), and wheelbri-shim.ini / wheelemu-shim.ini; a mod the app chained
+#                                         (dinput8-chain.dll) gets its name back (a dinput8-chain.dll.old stays)
 #   clean-pc.ps1 -KeepThirdParty          keep HidHide and HIDMaestro (drivers and devices), which the project used
 #                                         before it had its own drivers; by default they are removed too, so the PC
 #                                         has nothing left from any earlier version (-ThirdParty, the old switch, is
@@ -299,11 +300,15 @@ function Test-OurShim([string]$path) {
         return @($names | Where-Object { $text.Contains($_) }).Count -gt 0
     } catch { return $false }
 }
+# The game folders to clean: the ones named on the command line and the app's list, each once (any case, as Windows
+# compares them).
+function Get-GameFoldersToClean {
+    return @(@($GameFolder) + @(Get-ListedGameFolders) | Group-Object { $_.ToLowerInvariant() } |
+             ForEach-Object { $_.Group[0] })
+}
 function Get-ShimFiles {
     $found = @()
-    # The ones named on the command line and the app's list, each once (any case, as Windows compares them).
-    $folders = @(@($GameFolder) + @(Get-ListedGameFolders) | Group-Object { $_.ToLowerInvariant() } |
-                 ForEach-Object { $_.Group[0] })
+    $folders = Get-GameFoldersToClean
     foreach ($folder in $folders) {
         # -LiteralPath throughout: a folder name with [ or ] is not a wildcard.
         if (-not (Test-Path -LiteralPath $folder)) { Warn "game folder not found: $folder"; continue }
@@ -315,6 +320,25 @@ function Get-ShimFiles {
             $ini = Join-Path $folder "$name-shim.ini"
             if (Test-Path -LiteralPath $ini) { $found += $ini }
         }
+    }
+    return $found
+}
+
+# Another mod's dll the app chained: dinput8-chain.dll, to be renamed back once our shim is out (dinput8Hooked.dll
+# next to the Ultimate ASI Loader, else dinput8.dll), as the app's Remove shim does.
+function Get-ChainedMods {
+    $found = @()
+    foreach ($folder in (Get-GameFoldersToClean)) {
+        $chain = Join-Path $folder 'dinput8-chain.dll'
+        if (-not (Test-Path -LiteralPath $chain -PathType Leaf)) { continue }
+        $loader = Join-Path $folder 'dinput8.dll'
+        $asi = $false
+        if (Test-Path -LiteralPath $loader -PathType Leaf) {
+            try { $asi = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($loader)).Contains('IsUltimateASILoader') }
+            catch { $asi = $false }
+        }
+        $to = Join-Path $folder $(if ($asi) { 'dinput8Hooked.dll' } else { 'dinput8.dll' })
+        $found += [pscustomobject]@{ From = $chain; To = $to }
     }
     return $found
 }
@@ -373,6 +397,7 @@ $logiItem = Get-Item -LiteralPath $logiKey -ErrorAction SilentlyContinue
 $logiServer = if ($logiItem) { [string]$logiItem.GetValue('') } else { '' }
 $logiOurs = $logiServer -match '(wheelbri|wheelemu)-logi\.dll'
 $shimFiles = @(Get-ShimFiles)
+$chainedMods = @(Get-ChainedMods)
 $dataFolders = @()
 if (-not $KeepData) {
     $dataFolders = @(foreach ($name in $names) { (Join-Path $UserLocalAppData $name); (Join-Path $env:ProgramData $name) }) |
@@ -393,6 +418,7 @@ $plan += $tempCopies | ForEach-Object { "temp copy   $_" }
 $plan += $keys | ForEach-Object { "registry    $_" }
 $plan += $oemEntries | ForEach-Object { "registry    $($_.Key): $($_.What -join ', ') (WheelBri's)" }
 $plan += $shimFiles | ForEach-Object { "game shim   $_" }
+$plan += $chainedMods | ForEach-Object { "chained mod $($_.From): back to $(Split-Path -Leaf $_.To)" }
 $plan += $dataFolders | ForEach-Object { "data        $_" }
 if ($ThirdParty) {
     $plan += $thirdDevices | ForEach-Object { "3rd party   device $($_.InstanceId) ($($_.FriendlyName))" }
@@ -545,7 +571,15 @@ try {
             Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
             if (Test-Path -LiteralPath $file) { Warn "could not remove $file (is the game running?)" } else { Write-Host "    removed $file" }
         }
-        if ($shimFiles.Count -eq 0) { Write-Host '    none (the app lists no game with the shim; others: -GameFolder)' }
+        foreach ($mod in $chainedMods) {
+            if (Test-Path -LiteralPath $mod.To) { Warn "$($mod.To) is still there: $($mod.From) left as it is"; continue }
+            Move-Item -LiteralPath $mod.From -Destination $mod.To -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $mod.To) { Write-Host "    gave the mod back: $($mod.To)" }
+            else { Warn "could not rename $($mod.From) (is the game running?)" }
+        }
+        if (($shimFiles.Count + $chainedMods.Count) -eq 0) {
+            Write-Host '    none (the app lists no game with the shim; others: -GameFolder)'
+        }
 
         Step '[8/8] removing the app''s data (rigs, configs, logs, telemetry)'
         if ($KeepData) {

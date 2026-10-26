@@ -91,7 +91,10 @@ the Target. When Start is greyed out, the red notice above the tabs says why; **
 1. On the Games tab, add your games: pick one and press **Choose folder...** (or **Add game...** for one WheelBri does
    not know), and choose the folder with its `.exe`.
 2. Press **Start**. Each listed game gets the right shim (32 or 64-bit, next to the Ultimate ASI Loader if present).
-   Another mod's `dinput8.dll` is never overwritten; that game is left out.
+   Another mod's `dinput8.dll` (a Widescreen Fix, ReShade) is chained, never overwritten: it is renamed to
+   `dinput8-chain.dll`, the shim goes in its place and hands DirectInput on to it, so the mod keeps working. **Remove
+   shim** gives it its name back. Only a mod built for the other processor than the game is left alone (that game is
+   left out).
 3. Start the game and pick the Logitech wheel. If it runs 2 minutes without a word from the shim, WheelBri warns you:
    check its folder on the Games tab and restart the game.
 4. At **Stop**, choose whether to delete the shims from the games' folders.
@@ -137,7 +140,8 @@ List shows whether the rig sees it at all.
 Values for one game at a time, kept per Target. A few games have a built-in profile applied while they run (NFS 2015,
 NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, your own values with every Target.
 
-1. Pick the game on the left. Tags show what is in its folder (`shim g920`, `no shim`, `other mod`), `! not G923`
+1. Pick the game on the left. Tags show what is in its folder (`shim g920`, `+ASI` next to the ASI Loader, `+mod`
+   chained to another mod, `no shim`, `other mod`: **Chain mod** chains it now), `! not G923`
    when the game does not support the Target, `running` for the one WheelBri sees now. **Add game...** picks a game's
    `.exe`; **Remove** takes one you added off the list (its files stay).
 2. Set its sub-tabs; **Default** goes back to the profile's or the Mapping tab's value (yours show in violet):
@@ -171,7 +175,7 @@ Options go between `wheelbri.sh` and `%command%`, e.g.
 | Option | Default | What it does |
 |---|---|---|
 | `--virtual` | yes | Mode Virtual: `wheelbri-uhid` creates the virtual wheel; the game reads it raw (Proton's `PROTON_ENABLE_HIDRAW`) and your rig is hidden from it. A WheelBri shim left in the game's folder is taken out first. |
-| `--shim` | | Mode Shim: puts `dinput8.dll` (32 or 64-bit, as the game's `.exe`; `dinput8Hooked.dll` next to the Ultimate ASI Loader) and `wheelbri-shim.ini` into the game's folder before it starts and takes them out after. Refuses a folder with another mod's `dinput8.dll`. |
+| `--shim` | | Mode Shim: puts `dinput8.dll` (32 or 64-bit, as the game's `.exe`; `dinput8Hooked.dll` next to the Ultimate ASI Loader) and `wheelbri-shim.ini` into the game's folder before it starts and takes them out after. Another mod's `dinput8.dll` is chained (as Start in the app does) and given back after; one built for the other processor is refused. |
 | `--target g25\|g27\|g920\|g923` | the app's Mapping tab Target, else G920 | The Logitech wheel the game sees. |
 | `--config FILE` | your saved mapping for the Target (`~/.config/wheelbri/configs/my-<target>.ini`), else WheelBri's default | The mapping to use. |
 | `--hide VID/PID[,VID/PID...]` | every device of your rig (Rig tab) | Devices hidden from the game in Mode Virtual, e.g. `--hide 0x346E/0x0005` for a Moza R3. Steam's own pad is never hidden. |
@@ -275,4 +279,5 @@ Target's id (G920: `046d:c262`) in `~/steam-<appid>.log`.
 
 **Two wheels in the game.** Save the rig in the Rig tab (only its devices are hidden), or pass `--hide 0x346E/0x0005`.
 
-**`--shim` refuses ("belongs to another mod").** The game folder has another mod's `dinput8.dll`: use Mode Virtual.
+**`--shim` refuses ("another mod's, built for the other processor").** That mod's `dinput8.dll` cannot run in the
+game anyway: remove it, or use Mode Virtual.
