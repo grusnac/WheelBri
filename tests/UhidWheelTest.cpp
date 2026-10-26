@@ -67,6 +67,8 @@ struct Kernel {
     }
 };
 
+// Its descriptor is the Windows one, the combined pedals' Slider 0 and the clutch's Slider 1 included: Proton's
+// dinput numbers Sliders as Windows does, and ACC's G25 preset reads the clutch on Slider 1 (2026-10-26).
 TEST(UhidWheel, CreatesALogitechG25OnTheVirtualBusWithTheWindowsDescriptor) {
     Kernel k(*virtualWheel("g25"));
     ASSERT_TRUE(k.device.create());
@@ -77,11 +79,25 @@ TEST(UhidWheel, CreatesALogitechG25OnTheVirtualBusWithTheWindowsDescriptor) {
     EXPECT_EQ(create.bus, 0x06);   // BUS_VIRTUAL: hid-lg would claim (and then refuse) a USB 046D:C299
     EXPECT_STREQ(reinterpret_cast<const char*>(create.name), "Logitech G25 Racing Wheel USB");
     EXPECT_STREQ(reinterpret_cast<const char*>(create.uniq), kVirtualWheelUniq);   // the service never reads it
-    const auto descriptor = wheelReportDescriptor();   // Proton has no G25 hack: X, Y, Rz, Slider as on Windows
+    // Proton has no G25 hack: X, Y, Rz, Slider (combined pedals), Slider (clutch) as on Windows.
+    const auto descriptor = reportDescriptorFor(*virtualWheel("g25"));
+    ASSERT_EQ(descriptor.size(), wheelReportDescriptor().size() + 16);   // the fifth axis
     ASSERT_EQ(create.rd_size, descriptor.size());
     EXPECT_EQ(std::memcmp(create.rd_data, descriptor.data(), descriptor.size()), 0);
     EXPECT_EQ(k.device.label(), "G25");
     EXPECT_EQ(k.device.name(), "Logitech G25 Racing Wheel USB");
+
+    // The input report matches it: 15 bytes, the clutch after the combined pedals.
+    k.written.clear();
+    TargetReport report = neutralReport();
+    report.clutch = 1000;
+    ASSERT_TRUE(k.device.submit(report, false));
+    ASSERT_EQ(k.written.size(), 1U);
+    const auto& input = k.written[0].u.input2;
+    ASSERT_EQ(input.size, kMaxInputReportSize);
+    const auto plain = packWheelInput(report);
+    EXPECT_EQ(input.data[9], plain[7]);   // the clutch: Slider 1
+    EXPECT_EQ(input.data[10], plain[8]);
 }
 
 TEST(UhidWheel, CreatesALogitechG920WithTheProtonDescriptor) {
@@ -170,7 +186,7 @@ TEST(UhidWheel, OutputReportsBecomeForceFeedback) {
 TEST(UhidWheel, TheG923AnswersHidppAndPlaysPidFromItsMovedReports) {
     Kernel k(*virtualWheel("g923"));
     ASSERT_TRUE(k.device.create());
-    EXPECT_EQ(k.written[0].u.create2.rd_size, reportDescriptorFor(*virtualWheel("g923"), DescriptorFor::Linux).size());
+    EXPECT_EQ(k.written[0].u.create2.rd_size, reportDescriptorFor(*virtualWheel("g923")).size());
     k.written.clear();
     k.output("11FF001100005A" + std::string(26, '0'), 0);   // Root.getProtocolVersion, ping 0x5A
     ASSERT_EQ(hex("11FF001100005A" + std::string(26, '0')).size(), HidPp::kLongSize);

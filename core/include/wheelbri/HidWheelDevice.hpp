@@ -63,13 +63,14 @@ struct VirtualWheel {
     // them so (G HUB drew the virtual G923's signed wheel half a turn off, wrapping as it crossed the centre).
     // packInputFor packs them to match. The others keep HIDMaestro's signed axes (-32768..32767), as tested in games.
     bool unsignedAxes = false;
-    // Whether, on Windows, it has the axes Logitech's driver gives a G25 or G27 with separate pedals: wheel X, throttle
-    // Y, brake Rz, then two Sliders, the combined pedals (combinedPedals in DeviceProfile.hpp: in the middle at rest,
-    // down with the throttle, up with the brake) on Slider 0 and the clutch on Slider 1 (a fifth axis; the input report
-    // has the combined pedals where the others have the clutch, and the clutch after them). Race Driver: GRID's G25
-    // preset (ActionMap/actionMapPreset1.xml) reads Slider 0 as combined pedals: without it Slider 0 read 0, the
-    // throttle held down; with the clutch there, at the top as Logitech's pedals rest, the brake held down (the car
-    // reversed by itself). Assetto Corsa Competizione's G25 and G27 presets read the clutch on Slider 1.
+    // Whether it has the axes Logitech's driver gives a G25 or G27 with separate pedals (Windows and Linux): wheel X,
+    // throttle Y, brake Rz, then two Sliders, the combined pedals (combinedPedals in DeviceProfile.hpp: in the middle
+    // at rest, down with the throttle, up with the brake) on Slider 0 and the clutch on Slider 1 (a fifth axis; the
+    // input report has the combined pedals where the others have the clutch, and the clutch after them). Race Driver:
+    // GRID's G25 preset (ActionMap/actionMapPreset1.xml) reads Slider 0 as combined pedals: without it Slider 0 read 0,
+    // the throttle held down; with the clutch there, at the top as Logitech's pedals rest, the brake held down (the car
+    // reversed by itself). Assetto Corsa Competizione's G25 and G27 presets read the clutch on Slider 1 (on Linux too:
+    // with the clutch on Slider 0 there, ACC under Proton had no clutch, 2026-10-26).
     bool combinedPedals = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
@@ -85,10 +86,9 @@ struct VirtualWheel {
 
 // The wheel's own descriptor: wheelReportDescriptor(buttons), and for a wheel with HID++ (VirtualWheel::hidpp) that
 // with its HID PID report IDs kHidPpPidShift higher and two vendor collections after it (usage page 0xFF43: long
-// report 0x11, 19 bytes each way; very long 0x12, 63 bytes; the reports a G920 has, Linux's hid-logitech-hidpp says).
-enum class DescriptorFor { Windows, Linux };
-[[nodiscard]] std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel,
-                                                              DescriptorFor where = DescriptorFor::Windows);
+// report 0x11, 19 bytes each way; very long 0x12, 63 bytes; the reports a G920 has, Linux's hid-logitech-hidpp says);
+// for a wheel with combined pedals (VirtualWheel::combinedPedals) the fifth axis. The same on Windows and Linux.
+[[nodiscard]] std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel);
 
 // No wheel has DirectInput axis entries (OEM\VID_xxxx&PID_xxxx\Axes) any more: until round 93 the G923 reported its
 // brake on HID Z and clutch on Rz (a real one's layout, for G HUB) and had entries to move them back for games, but
@@ -140,11 +140,10 @@ struct InputReport {
     [[nodiscard]] std::uint8_t operator[](const std::size_t at) const { return bytes[at]; }
     friend bool operator==(const InputReport&, const InputReport&) = default;
 };
-// The input report for the wheel's own descriptor (reportDescriptorFor(wheel, where)): packWheelInput, with the axes
-// unsigned when the wheel's are (VirtualWheel::unsignedAxes) and, on Windows, for a wheel with combined pedals
+// The input report for the wheel's own descriptor (reportDescriptorFor(wheel)): packWheelInput, with the axes
+// unsigned when the wheel's are (VirtualWheel::unsignedAxes) and, for a wheel with combined pedals
 // (VirtualWheel::combinedPedals) those as the fourth axis and the clutch as a fifth after it (15 bytes; else 13).
-[[nodiscard]] InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report,
-                                       DescriptorFor where = DescriptorFor::Windows);
+[[nodiscard]] InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report);
 
 // Centred wheel, released pedals, no buttons: what games see while no state arrives.
 [[nodiscard]] TargetReport neutralReport();

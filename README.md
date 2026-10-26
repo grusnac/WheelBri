@@ -251,14 +251,15 @@ rig ──DirectInput / evdev──► wheelbri-service ──UDP 127.0.0.1─�
 ### Targets
 
 All four use 900 degrees and the G920's DirectInput layout (wheel X, throttle Y, brake Rz, clutch Slider), except
-the G25 and G27 on Windows (both modes): wheel X, throttle Y, brake Rz, their combined pedals on Slider 0 (in the
+the G25 and G27 (both modes, both systems): wheel X, throttle Y, brake Rz, their combined pedals on Slider 0 (in the
 middle at rest, down with the throttle, up with the brake) and the clutch on Slider 1, as Assetto Corsa Competizione's
 G25 and G27 presets read them (clutch: axis 7, Slider 1). Race Driver: GRID's own G25 preset reads Slider 0 as combined
 pedals (its lower half throttle, its upper half brake): with the clutch there, at rest at the top, the brake was held
 down (the car reversed by itself); with nothing there (0, the bottom), the throttle was (the car could not back up).
 (Logitech's own driver, in Logitech Gaming Software 5.10's `WmJoyHid.inf`, names the G25's axes X wheel, Y combined
 pedals, Z accelerator, Rz brake, Slider clutch, 19 buttons: ours follows what games' presets read instead.) Until
-2026-10-21 the G25's clutch was on Z and the G27's on Slider 0.
+2026-10-21 the G25's clutch was on Z and the G27's on Slider 0; until 2026-10-26 both had it on Slider 0 on Linux (ACC
+under Proton had no clutch).
 
 Race Driver: GRID's force feedback needs VSync on (or the frame rate capped). With VSync off at 144 Hz it passed a
 constant force of -2147483648 (a broken number, not a force) for the whole race: no force feedback, and a full

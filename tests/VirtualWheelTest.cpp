@@ -114,7 +114,7 @@ TEST(VirtualWheel, AHatOutOfRangeIsPackedCentred) {
 TEST(VirtualWheel, DescriptorsForOtherCombinations) {
     VirtualWheel small = *virtualWheel("g923");
     small.buttons = kG920Buttons;
-    EXPECT_EQ(reportDescriptorFor(small, DescriptorFor::Windows).data(), wheelReportDescriptor(kG920Buttons).data());
+    EXPECT_EQ(reportDescriptorFor(small).data(), wheelReportDescriptor(kG920Buttons).data());
 }
 
 }  // namespace

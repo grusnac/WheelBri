@@ -307,8 +307,8 @@ static_assert(kG25CombinedDescriptor[kClutchUsageAt] == 0x36 &&
               "the combined pedals Slider 0, the clutch Slider 1");
 }  // namespace
 
-std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel, const DescriptorFor where) {
-    if (wheel.combinedPedals && where == DescriptorFor::Windows) {
+std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
+    if (wheel.combinedPedals) {
         if (wheel.buttons == kG920Buttons) return kG25CombinedDescriptor;
         if (wheel.buttons == kG27Buttons) return kG27CombinedDescriptor;
     }
@@ -354,7 +354,7 @@ std::array<std::uint8_t, 8> directInputOemData(const VirtualWheel& wheel) {
     return {flags, 0, 0, 0, static_cast<std::uint8_t>(wheel.buttons), 0, 0, 0};
 }
 
-InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report, const DescriptorFor where) {
+InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) {
     auto packed = packWheelInput(report, wheel.buttons);
     if (wheel.unsignedAxes) {
         // packWheelInput wrote value - 32768 as a signed 16-bit number: its bits are the value's with the top one
@@ -364,9 +364,8 @@ InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report, 
         }
     }
     InputReport out;
-    // The combined pedals sit in the descriptor that has them only (reportDescriptorFor: Windows, the G25 and G27).
-    const bool combined = wheel.combinedPedals && where == DescriptorFor::Windows &&
-                          (wheel.buttons == kG920Buttons || wheel.buttons == kG27Buttons);
+    // The combined pedals sit in the descriptor that has them only (reportDescriptorFor: the G25 and G27).
+    const bool combined = wheel.combinedPedals && (wheel.buttons == kG920Buttons || wheel.buttons == kG27Buttons);
     if (!combined) {
         std::copy(packed.begin(), packed.end(), out.bytes.begin());
         out.size = packed.size();
