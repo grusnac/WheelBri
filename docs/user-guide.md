@@ -128,10 +128,11 @@ receives after your mapping, so it is the place to check a mapping in action.
 - **G923 dial**: its left or right teeth light as it turns.
 - **Pressed now**, on the right: every control pressed at this moment, as "your control -> the Target's".
 
-**Shadow** / **List** in the Mapping tab's header (or **S**) switch views. **List** shows every axis and button of
-your rig as it reads them, next to what the Target reports, with **Last pressed** naming the Target's button you
-pressed last and what drives it ("G920 7 Menu <- Rig 35 Start"). Use it when a control does nothing in the Shadow view:
-List shows whether the rig sees it at all.
+**Shadow** / **List** in the Mapping tab's header (or **S**) switch views. **List** shows every axis of your rig as
+it reads them, next to what the Target reports, and only the mapped buttons (the Target's and the rig's), with **Last
+pressed** naming the Target's button you pressed last and what drives it ("G920 7 Menu <- Rig 35 Start"). Use it when a
+control does nothing in the Shadow view: Last pressed also names an unmapped button, so List shows whether the rig sees
+it at all.
 
 ## Games tab
 
