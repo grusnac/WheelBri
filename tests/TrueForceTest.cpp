@@ -175,9 +175,9 @@ TEST(TrueForceDevice, StartAndStopAnswerWithStatusAndSetTheSession) {
     EXPECT_EQ(s[4], 0x02);
     EXPECT_EQ(s[5], 0x44);
     EXPECT_EQ(s[8], 0x03);
-    EXPECT_EQ(s[9], 0x00);   // steering 0x8000, centred
-    EXPECT_EQ(s[10], 0x80);
-    EXPECT_EQ(s[12], 0x80);
+    EXPECT_EQ(s[9], 0x00);   // steering centred: signed 0
+    EXPECT_EQ(s[10], 0x00);
+    EXPECT_EQ(s[12], 0x00);
     EXPECT_EQ((std::vector<std::uint8_t>{s.begin() + 17, s.begin() + 33}),
               (std::vector<std::uint8_t>{0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x80, 0x07, 0x00, 0x00, 0x1D, 0x95, 0x00,
                                          0x00, 0x1D, 0x95}));
@@ -224,7 +224,7 @@ TEST(TrueForceDevice, SteeringReportsOnlyInASessionAtMostOnceAMillisecond) {
     ASSERT_EQ(start.size(), 1U);
     EXPECT_EQ(start[0][9], 1000 & 0xFF);         // the kept position
     EXPECT_EQ(start[0][11], 0x00);                // before it: centred 0x8000
-    EXPECT_EQ(start[0][12], 0x80);
+    EXPECT_EQ(start[0][12], 0x00);
     EXPECT_EQ(start[0][13], 5000 & 0xFF);         // the clock, in microseconds
     EXPECT_EQ(start[0][14], 5000 >> 8);
     EXPECT_FALSE(d.device.steering(2000, 5900));   // the start's status went out under 1 ms ago
@@ -233,16 +233,16 @@ TEST(TrueForceDevice, SteeringReportsOnlyInASessionAtMostOnceAMillisecond) {
     EXPECT_EQ((*s)[4], 0x02);
     EXPECT_EQ((*s)[5], 0x10);                     // the host's last sequence
     EXPECT_EQ((*s)[9], 0xFF);
-    EXPECT_EQ((*s)[10], 0xFF);
+    EXPECT_EQ((*s)[10], 0x7F);                    // signed: 65535 - 32768
     EXPECT_EQ((*s)[11], 1000 & 0xFF);             // the one in the status before (2000 never went out)
-    EXPECT_EQ((*s)[12], 1000 >> 8);
+    EXPECT_EQ((*s)[12], (1000 >> 8) | 0x80);
     EXPECT_FALSE(d.device.steering(-5, 6500));
     const auto later = d.device.steering(-5, 7000);
     ASSERT_TRUE(later);
     EXPECT_EQ((*later)[9], 0x00);
-    EXPECT_EQ((*later)[10], 0x00);
+    EXPECT_EQ((*later)[10], 0x80);                // 0: full left, -32768
     EXPECT_EQ((*later)[11], 0xFF);
-    EXPECT_EQ((*later)[12], 0xFF);
+    EXPECT_EQ((*later)[12], 0x7F);
 }
 
 // Every status ends in its checksum at 33: the bytes from the type through it sum to 0.

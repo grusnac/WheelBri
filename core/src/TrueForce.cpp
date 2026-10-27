@@ -235,8 +235,9 @@ TrueForceDevice::Report TrueForceDevice::status(const std::uint8_t type, const s
     Report r = blank(type, seq);
     putU16(r, 6, countdown_--);
     r[8] = 0x03;
-    putU16(r, 9, position_);
-    putU16(r, 11, sent_);
+    // Signed, centre 0 (0x8000 read back as full left lock in ACC, 2026-10-27): the steering's top bit flipped.
+    putU16(r, 9, static_cast<std::uint16_t>(position_ ^ 0x8000U));
+    putU16(r, 11, static_cast<std::uint16_t>(sent_ ^ 0x8000U));
     sent_ = position_;
     putU32(r, 13, static_cast<std::uint32_t>(nowUs));
     putU32(r, 17, at17);

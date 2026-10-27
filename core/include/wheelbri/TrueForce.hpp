@@ -102,8 +102,8 @@ namespace wheelbri {
 //   03 s / 04 s     -> status 02 (03 starts the session, 04 stops it)
 //   01 s .. (stream)-> status 02
 //   09, 0b, 0c, ... -> nothing
-// A status report: [4] type, [5] s, [6..7] a counter counting down, [8] 03, [9..10] the steering (0..65535, centre
-// 0x8000), [11..12] the steering in the status before, [13..16] a clock in microseconds, [17..20] 00 00 00 80
+// A status report: [4] type, [5] s, [6..7] a counter counting down, [8] 03, [9..10] the steering (signed, 0 = centre
+// as -32768..32767), [11..12] the steering in the status before, [13..16] a clock in microseconds, [17..20] 00 00 00 80
 // for type 02, [21..32] constants seen in every capture, [33] the checksum. Every answer ends in one (seal: its
 // bytes from [4] sum to 0); the counters are guesses.
 // While a session runs, a new steering value also sends a status 02 (steering()), at most one a millisecond, so the
