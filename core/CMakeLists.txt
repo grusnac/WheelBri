@@ -60,6 +60,7 @@ add_library(wheelbri_core STATIC
     src/StartNeeds.cpp
     src/StatePacket.cpp
     src/Telemetry.cpp
+    src/TrueForce.cpp
     src/UdpLoopback.cpp
     src/WaitFor.cpp
     src/EventLoopControl.cpp

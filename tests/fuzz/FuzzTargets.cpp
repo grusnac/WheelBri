@@ -17,6 +17,7 @@
 #include "wheelbri/HelperProtocol.hpp"
 #include "wheelbri/HidPid.hpp"
 #include "wheelbri/HidPp.hpp"
+#include "wheelbri/TrueForce.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LogFileNames.hpp"
 #include "wheelbri/LogLevelPacket.hpp"
@@ -174,6 +175,23 @@ void runOne(const std::span<const std::uint8_t> input) {
                 CHECK(text.find_first_of("\\/:") == std::string_view::npos);
                 CHECK(text.size() <= 64);
             }
+            break;
+        }
+        case 13: {   // what a game or G HUB writes to the TrueForce interface (the driver's input)
+            TrueForceDevice device([](LogLevel, const std::string&) {});
+            std::size_t i = 0;
+            std::int64_t now = 0;
+            while (i < bytes.size()) {
+                const std::size_t len = std::min<std::size_t>(bytes.size() - i, 1 + bytes[i] % 70);
+                for (const auto& answer : device.output(bytes.subspan(i, len), now += bytes[i] % 8)) {
+                    CHECK(answer.size() == kTrueForceReportSize && answer[0] == kTrueForceReportId);
+                }
+                if (const auto status = device.steering(bytes[i] * 300 - 9000, now)) {
+                    CHECK(status->size() == kTrueForceReportSize);
+                }
+                i += len;
+            }
+            device.finish(now);
             break;
         }
     }

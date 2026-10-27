@@ -1,0 +1,143 @@
+#pragma once
+
+#include "wheelbri/LogLevel.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <optional>
+#include <mutex>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace wheelbri {
+
+struct VirtualWheel;
+
+// Logitech TrueForce, device side: a real G923 has it on its own USB interface (interface 2), a vendor collection
+// (usage page 0xFFFD, usage 0xFD01) with report 0x01, 63 bytes each way. Logitech's TrueForce SDK
+// (trueforce_sdk_x64.dll, from G HUB) finds it with SetupDi + HidD_GetAttributes + HidP_GetCaps and pairs it with the
+// wheel by container id, then streams packets to it ([01 00 00 00, type, sequence, payload], type 0x01 the ~1 kHz
+// torque + texture stream). Written from public protocol descriptions; nothing is copied from GPL code.
+//
+// The virtual wheel's input report already is 0x01, so the interface is a second software device: the wheel's
+// hardware id + kTrueForceIdSuffix (wheelbri\G923_TF), in the wheel's container ([emulator] trueforce_probe). It
+// answers as a real wheel (TrueForceDevice) and logs what it is sent (TrueForceLog); it plays nothing yet.
+inline constexpr std::string_view kTrueForceIdSuffix = "_TF";
+inline constexpr std::uint8_t kTrueForceReportId = 0x01;
+inline constexpr std::size_t kTrueForceReportSize = 64;   // with the report ID
+
+// "wheelbri\G923_TF" for a wheel with TrueForce (VirtualWheel::trueForce); empty for one without.
+[[nodiscard]] std::string trueForceHardwareId(const VirtualWheel& wheel);
+// The wheel whose TrueForce interface `hardwareId` is (any case); null when it is none.
+[[nodiscard]] const VirtualWheel* trueForceWheelForHardwareId(std::string_view hardwareId);
+[[nodiscard]] std::span<const std::uint8_t> trueForceReportDescriptor();
+
+// The service sends its state here too (the same StatePacket as to the wheel) while the probe is on: the TrueForce
+// device reports the steering from it. Its own port, as the wheel's (41329) takes one reader only.
+inline constexpr std::uint16_t kTrueForceStatePort = 41331;
+
+// What a host sends the TrueForce interface, for the log: the first kFirstShown packets of each type in hex, then
+// every kSummaryMs a line of counts per type (for the stream, also its bytes 10/11: new samples, window flag).
+// For the stream also its force: cur (bytes 6..7, offset binary, 0x8000 = none) as -1..1, its range, mean size and
+// how often it changed side, and the texture samples' peak.
+// Thread-safe: the driver's writes come on a parallel queue.
+class TrueForceLog {
+public:
+    using Logger = std::function<void(LogLevel, const std::string&)>;
+    static constexpr int kFirstShown = 3;
+    static constexpr std::int64_t kSummaryMs = 10'000;
+
+    explicit TrueForceLog(Logger log) : log_(std::move(log)) {}
+    TrueForceLog(const TrueForceLog&) = delete;
+    TrueForceLog& operator=(const TrueForceLog&) = delete;
+
+    // `report`: as written, report ID first.
+    void output(std::span<const std::uint8_t> report, std::int64_t nowMs);
+    // The counts since the last summary, and the totals (the device goes away).
+    void finish(std::int64_t nowMs);
+
+private:
+    // Not a TrueForce packet: a wrong report ID or too short to have a type.
+    static constexpr int kOdd = 256;
+
+    void summarise(std::int64_t nowMs);
+    void noteStream(std::span<const std::uint8_t> report);
+
+    Logger log_;
+    std::mutex lock_;
+    std::array<int, 257> shown_{};
+    std::map<int, std::uint64_t> period_;
+    std::map<std::pair<std::uint8_t, std::uint8_t>, std::uint64_t> streamFlags_;
+    // The stream's force (cur, bytes 6..7) and texture (the new samples at the window's end) this period, as -1..1.
+    struct Stream {
+        double curMin = 1;
+        double curMax = -1;
+        double curAbsSum = 0;
+        std::uint64_t curCount = 0;
+        std::uint64_t flips = 0;   // cur crossing from one side to the other (beyond kFlipAt)
+        int side = 0;
+        double texturePeak = 0;
+        std::uint64_t samples = 0;
+    } stream_;
+    std::map<int, std::uint64_t> total_;
+    std::int64_t periodStartMs_ = -1;
+};
+
+}  // namespace wheelbri
+
+namespace wheelbri {
+
+// The TrueForce interface's answers, as a real wheel gives them (from captures of G HUB with a direct-drive wheel,
+// which shares the protocol with the G923). Bytes after the [01 00 00 00] header, s = the host's sequence:
+//   05 s idx        -> 05 s idx 09 idx <f32 value>        a parameter's current value (parameter())
+//   07 s            -> 07 s 06, then six slots <n 01 flag>
+//   06 s ..         -> status of type 10, ff ff ff ff at 17..20
+//   0e s <f32 deg>  -> status of types 11 and 14, the range at 17..20 (operating range, logged)
+//   03 s / 04 s     -> status 02 (03 starts the session, 04 stops it)
+//   01 s .. (stream)-> status 02
+//   09, 0b, 0c, ... -> nothing
+// A status report: [4] type, [5] s, [6..7] a counter counting down, [8] 03, [9..10] the steering (0..65535, centre
+// 0x8000), [11..12] the steering in the status before, [13..16] a clock in microseconds, [17..20] 00 00 00 80
+// for type 02, [21..32] constants seen in every capture, [33] the checksum. Every answer ends in one (seal: its
+// bytes from [4] sum to 0); the counters are guesses.
+// While a session runs, a new steering value also sends a status 02 (steering()), at most one a millisecond, so the
+// game reads the wheel even when it streams nothing. Thread-safe: writes and state come on different threads.
+class TrueForceDevice {
+public:
+    using Report = std::vector<std::uint8_t>;   // an input report for the host: kTrueForceReportSize, report ID first
+    static constexpr std::int64_t kStatusEveryUs = 1000;
+
+    explicit TrueForceDevice(TrueForceLog::Logger log);
+
+    // What the host wrote (report ID first): its answers, in order (none for most stream-less packets).
+    [[nodiscard]] std::vector<Report> output(std::span<const std::uint8_t> report, std::int64_t nowUs);
+    // The steering from the service's state (0..65535, clamped): a status report when a session runs and the last one
+    // went out at least kStatusEveryUs ago.
+    [[nodiscard]] std::optional<Report> steering(std::int32_t value, std::int64_t nowUs);
+    void finish(std::int64_t nowUs) { log_.finish(nowUs / 1000); }
+    [[nodiscard]] bool running() const;
+    // A parameter's value as a real wheel reports it (0 for one not seen in captures).
+    [[nodiscard]] static float parameter(std::uint8_t index);
+
+private:
+    // `at17`: bytes 17..20, 00 00 00 80 for a plain status.
+    Report status(std::uint8_t type, std::uint8_t seq, std::int64_t nowUs, std::uint32_t at17 = 0x80000000U);
+
+    TrueForceLog::Logger say_;
+    TrueForceLog log_;
+    mutable std::mutex lock_;
+    bool running_ = false;
+    std::uint16_t position_ = 0x8000;
+    std::uint16_t sent_ = 0x8000;   // the steering in the last status: its [11..12] (the host works out the speed)
+    std::uint16_t countdown_ = 0xC000;
+    std::uint8_t lastSeq_ = 0;
+    std::int64_t lastStatusUs_ = -1;
+};
+
+}  // namespace wheelbri

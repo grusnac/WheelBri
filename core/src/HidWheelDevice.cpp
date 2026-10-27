@@ -232,7 +232,7 @@ constexpr VirtualWheel kVirtualWheels[] = {
     {"g920", "wheelbri\\G920", "G920", kG920VendorId, kG920ProductId, "G920 Driving Force Racing Wheel USB",
      "Logitech G920 Driving Force Racing Wheel USB", kG920Buttons},
     {"g923", "wheelbri\\G923", "G923", kG923VendorId, kG923ProductId, "G923 Racing Wheel for Xbox One and PC",
-     "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true},
+     "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, false, true},
 };
 
 bool sameIgnoringCase(const std::string_view a, const std::string_view b) {
