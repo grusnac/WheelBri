@@ -195,7 +195,7 @@ public:
         instanceId = error;   // the reply's text is its instance id
         error.clear();
         device_ = instanceId;
-        userEntries_ = std::make_unique<DirectInputUserEntries>(wheel);
+        userEntries_ = std::make_unique<DirectInputUserEntries>(wheel, trueForceProbe && wheel.trueForce);
         WE_LOG_INFO(log(), "virtual {} {} ready (created by the WheelBri Helper)", wheel.instancePrefix, instanceId);
         return true;
     }
