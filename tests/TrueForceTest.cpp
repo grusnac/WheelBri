@@ -222,7 +222,7 @@ TEST(TrueForceDevice, SteeringReportsOnlyInASessionAtMostOnceAMillisecond) {
     EXPECT_FALSE(d.device.steering(1000, 0));   // no session: nothing, but the position is kept
     const auto start = d.send({0x03, 0x10}, 5000);
     ASSERT_EQ(start.size(), 1U);
-    EXPECT_EQ(start[0][9], 1000 & 0xFF);         // the kept position
+    EXPECT_EQ(start[0][9], 0x18);                 // the kept position: 32768 - 1000 = 0x7C18
     EXPECT_EQ(start[0][11], 0x00);                // before it: centred 0x8000
     EXPECT_EQ(start[0][12], 0x00);
     EXPECT_EQ(start[0][13], 5000 & 0xFF);         // the clock, in microseconds
@@ -232,17 +232,17 @@ TEST(TrueForceDevice, SteeringReportsOnlyInASessionAtMostOnceAMillisecond) {
     ASSERT_TRUE(s);
     EXPECT_EQ((*s)[4], 0x02);
     EXPECT_EQ((*s)[5], 0x10);                     // the host's last sequence
-    EXPECT_EQ((*s)[9], 0xFF);
-    EXPECT_EQ((*s)[10], 0x7F);                    // signed: 65535 - 32768
-    EXPECT_EQ((*s)[11], 1000 & 0xFF);             // the one in the status before (2000 never went out)
-    EXPECT_EQ((*s)[12], (1000 >> 8) | 0x80);
+    EXPECT_EQ((*s)[9], 0x01);                     // full right: 32768 - 65535 = -32767
+    EXPECT_EQ((*s)[10], 0x80);
+    EXPECT_EQ((*s)[11], 0x18);                    // the one in the status before (2000 never went out)
+    EXPECT_EQ((*s)[12], 0x7C);
     EXPECT_FALSE(d.device.steering(-5, 6500));
     const auto later = d.device.steering(-5, 7000);
     ASSERT_TRUE(later);
-    EXPECT_EQ((*later)[9], 0x00);
-    EXPECT_EQ((*later)[10], 0x80);                // 0: full left, -32768
-    EXPECT_EQ((*later)[11], 0xFF);
-    EXPECT_EQ((*later)[12], 0x7F);
+    EXPECT_EQ((*later)[9], 0xFF);                 // full left: 32767
+    EXPECT_EQ((*later)[10], 0x7F);
+    EXPECT_EQ((*later)[11], 0x01);
+    EXPECT_EQ((*later)[12], 0x80);
 }
 
 // Every status ends in its checksum at 33: the bytes from the type through it sum to 0.
