@@ -9,6 +9,7 @@ add_library(wheelbri_shim SHARED
     src/Exports.cpp
     src/FfbForwarder.cpp
     src/LogFolder.cpp
+    src/LogiHook.cpp
     src/ModuleWatch.cpp
     src/ProxyEffect.cpp
     src/RealDInput.cpp

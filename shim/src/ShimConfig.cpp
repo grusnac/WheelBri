@@ -82,6 +82,7 @@ ShimConfig parseShimConfig(const std::string& text, std::vector<std::string>& pr
         }
     };
     readBool("emulate", config.emulate);
+    readBool("logi_log", config.logiLog);
     if (const auto v = value("force_feedback")) {
         if (*v == "service" || *v == "true") {
             config.forceFeedback = FfbMode::Service;
@@ -194,9 +195,9 @@ const ShimConfig& shimConfig() {
     std::call_once(once, [] {
         const logging::Logger log = logger("shim.config");
         config = load(log);
-        WE_LOG_INFO(log, "emulate={} source={:04x}:{} target_profile={} state_port={} stale_after_ms={} "
+        WE_LOG_INFO(log, "emulate={} logi_log={} source={:04x}:{} target_profile={} state_port={} stale_after_ms={} "
                          "force_feedback={} ffb_port={}",
-                    config.emulate, config.sourceVendorId,
+                    config.emulate, config.logiLog, config.sourceVendorId,
                     config.sourceProductId ? fmt::format("{:04x}", *config.sourceProductId) : std::string("any"),
                     config.targetProfile, config.statePort, config.staleAfterMs, toString(config.forceFeedback),
                     config.ffbPort);
