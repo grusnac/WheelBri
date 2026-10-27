@@ -69,6 +69,7 @@
     <ClCompile Include="..\core\src\HidPid.cpp" />
     <ClCompile Include="..\core\src\HidPp.cpp" />
     <ClCompile Include="..\core\src\StatePacket.cpp" />
+    <ClCompile Include="..\core\src\TrueForce.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Inf Include="wheelbri-wheel.inx" />

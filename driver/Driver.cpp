@@ -28,6 +28,7 @@
 #include "wheelbri/LogFileNames.hpp"
 #include "wheelbri/LogLevel.hpp"
 #include "wheelbri/StatePacket.hpp"
+#include "wheelbri/TrueForce.hpp"
 
 #include <algorithm>
 #include <array>
@@ -289,6 +290,11 @@ std::int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+std::int64_t nowUs() {
+    using std::chrono::microseconds;
+    return std::chrono::duration_cast<microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 // At most one line per `periodMs` for a repeating problem; `suppressed` counts the lines skipped in between.
 class Throttle {
 public:
@@ -398,6 +404,43 @@ private:
     Throttle sendErrors_{60'000};
 };
 
+// The wheel's TrueForce interface (TrueForce.hpp, wheelbri\G923_TF): its answers to the host, and the steering from
+// the service's state (127.0.0.1:41331) as status reports while a session runs. No force feedback yet.
+class TrueForceLink {
+public:
+    explicit TrueForceLink(DeviceContext* device);
+    ~TrueForceLink() { stop(); }
+
+    // Takes the host's writes one a millisecond (pace) and listens for the service's state. Never fails the device:
+    // without the state the status reports keep the wheel centred.
+    void start();
+    void stop();
+    // What the host wrote, report ID first.
+    void output(std::span<const std::uint8_t> report);
+    // A read: answered at once with the oldest waiting answer, else it waits in the read queue for the next one.
+    void answerRead(WDFREQUEST request);
+    void finish() { tf_.finish(nowUs()); }
+
+private:
+    static constexpr std::size_t kMaxReplies = 64;
+
+    void reply(Report report);
+    void run(SOCKET sock);
+    void pace();
+    void closeSocket();
+
+    DeviceContext* device_;
+    wheelbri::TrueForceDevice tf_;
+    SOCKET socket_ = INVALID_SOCKET;
+    std::thread thread_;
+    std::thread pacer_;
+    std::atomic<bool> stop_{false};
+    std::mutex lock_;   // replies_, and the read queue with it
+    std::deque<Report> replies_;
+    static constexpr int kAnswersShown = 12;
+    int shownAnswers_ = 0;
+};
+
 }  // namespace
 
 struct DeviceContext {
@@ -405,9 +448,11 @@ struct DeviceContext {
     const wheelbri::VirtualWheel* wheel;   // which wheel this device is (by its hardware id)
     WCHAR product[64];               // the wheel's HID product string, 0-terminated
     WDFQUEUE readQueue;              // manual: IOCTL_HID_READ_REPORT waits here for the next state
+    WDFQUEUE writeQueue;             // manual, TrueForce interface only: writes wait for their millisecond
     HID_DEVICE_ATTRIBUTES attributes;
     HID_DESCRIPTOR hidDescriptor;
     Link* link;                      // owned; deleted in the device's cleanup callback
+    TrueForceLink* trueForce;        // owned; only on the wheel's TrueForce interface, which has no link
 };
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DeviceContext, GetDeviceContext)
@@ -739,8 +784,188 @@ NTSTATUS getString(WDFREQUEST request, const DeviceContext* ctx) {
     }
 }
 
+TrueForceLink::TrueForceLink(DeviceContext* device)
+    : device_(device), tf_([](const Level level, const std::string& line) { logLine(level, line); }) {}
+
+void TrueForceLink::start() {
+    stop();
+    stop_ = false;
+    try {
+        pacer_ = std::thread([this] { pace(); });
+    } catch (const std::exception& e) {
+        logLine(Level::Error, std::string("trueforce: no pacing thread (") + e.what() + "): writes wait forever");
+    }
+    socket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    sockaddr_in local{};
+    local.sin_family = AF_INET;
+    local.sin_port = htons(wheelbri::kTrueForceStatePort);
+    local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    const DWORD timeoutMs = 5;   // wakes for stop requests
+    const auto* timeout = reinterpret_cast<const char*>(&timeoutMs);
+    if (socket_ == INVALID_SOCKET || bind(socket_, reinterpret_cast<sockaddr*>(&local), sizeof(local)) != 0 ||
+        setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, timeout, sizeof(timeoutMs)) != 0) {
+        logLine(Level::Warn, "trueforce: cannot listen on 127.0.0.1:41331 (" + std::to_string(WSAGetLastError()) +
+                                 "): its status reports keep the wheel centred");
+        closeSocket();
+        return;
+    }
+    try {
+        thread_ = std::thread([this, sock = socket_] { run(sock); });
+    } catch (const std::exception& e) {
+        logLine(Level::Warn, std::string("trueforce: no state thread (") + e.what() + ")");
+        closeSocket();
+    }
+}
+
+void TrueForceLink::stop() {
+    stop_ = true;
+    if (thread_.joinable()) thread_.join();
+    if (pacer_.joinable()) pacer_.join();
+    closeSocket();
+}
+
+void TrueForceLink::closeSocket() {
+    if (socket_ != INVALID_SOCKET) closesocket(socket_);
+    socket_ = INVALID_SOCKET;
+}
+
+void TrueForceLink::output(const std::span<const std::uint8_t> report) {
+    for (Report& answer : tf_.output(report, nowUs())) reply(std::move(answer));
+}
+
+void TrueForceLink::reply(Report report) {
+    WDFREQUEST request = nullptr;
+    {
+        std::lock_guard lock(lock_);
+        const bool waiting = NT_SUCCESS(WdfIoQueueRetrieveNextRequest(device_->readQueue, &request));
+        if (shownAnswers_ < kAnswersShown) {
+            ++shownAnswers_;
+            char text[96];
+            std::snprintf(text, sizeof(text), "trueforce: answer %02x seq %02x, checksum %02x: %s", report[4], report[5],
+                          report[4] == 0x05 ? report[13] : report[4] == 0x07 ? report[25] : report[33],
+                          waiting ? "to a waiting read" : "queued (no read waiting)");
+            logLine(Level::Info, text);
+        }
+        if (!waiting) {
+            if (replies_.size() == kMaxReplies) replies_.pop_front();
+            replies_.push_back(std::move(report));
+            return;
+        }
+    }
+    completeRead(request, report);
+}
+
+void TrueForceLink::answerRead(const WDFREQUEST request) {
+    Report answer;
+    {
+        std::lock_guard lock(lock_);
+        if (replies_.empty()) {
+            const NTSTATUS status = WdfRequestForwardToIoQueue(request, device_->readQueue);
+            if (!NT_SUCCESS(status)) WdfRequestComplete(request, status);
+            return;
+        }
+        answer = std::move(replies_.front());
+        replies_.pop_front();
+    }
+    completeRead(request, answer);
+}
+
+// One write a millisecond, as the wheel's interrupt endpoint takes them: writes completed at once let the host stream
+// 14000 packets a second (2026-10-27), each answered with a status. A high-resolution timer (Windows 10 1803+; the
+// driver needs 11) wakes this thread every millisecond to take the next write from the write queue.
+void TrueForceLink::pace() {
+    HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (timer == nullptr) {
+        logLine(Level::Warn, "trueforce: no high-resolution timer (" + std::to_string(GetLastError()) +
+                                 "): writes paced by Sleep(1)");
+    }
+    while (!stop_) {
+        if (timer != nullptr) {
+            LARGE_INTEGER due;
+            due.QuadPart = -10'000;   // 1 ms, relative, in 100 ns units
+            if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
+                WaitForSingleObject(timer, 50);
+            } else {
+                Sleep(1);
+            }
+        } else {
+            Sleep(1);
+        }
+        WDFREQUEST request = nullptr;
+        if (!NT_SUCCESS(WdfIoQueueRetrieveNextRequest(device_->writeQueue, &request))) continue;
+        std::uint8_t reportId = 0;
+        std::span<const std::uint8_t> data;
+        NTSTATUS status = readWrittenReport(request, reportId, data);
+        if (NT_SUCCESS(status)) {
+            Report sent(data.size() + 1);
+            sent[0] = reportId;
+            std::copy(data.begin(), data.end(), sent.begin() + 1);
+            output(sent);
+            WdfRequestSetInformation(request, data.size() + 1);
+        }
+        WdfRequestComplete(request, status);
+    }
+    if (timer != nullptr) CloseHandle(timer);
+}
+
+void TrueForceLink::run(const SOCKET sock) {
+    logLine(Level::Info, "trueforce: listening for wheelbri-service on 127.0.0.1:41331");
+    std::array<std::uint8_t, 256> buffer{};
+    while (!stop_) {
+        const int received = recv(sock, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+        if (received <= 0) {
+            const int error = WSAGetLastError();
+            if (error == WSAETIMEDOUT || error == WSA_IO_PENDING) continue;
+            if (stop_ || error == WSAENOTSOCK || error == WSAEINVAL) break;
+            Sleep(5);
+            continue;
+        }
+        const auto packet = wheelbri::decodeStatePacket(std::span(buffer.data(), static_cast<std::size_t>(received)));
+        if (!packet) continue;
+        if (auto status = tf_.steering(packet->report.steering, nowUs())) reply(std::move(*status));
+    }
+}
+
+// The wheel's TrueForce interface (TrueForce.hpp): its descriptor and strings; what the host writes and reads goes
+// through its TrueForceLink.
+void trueForceControl(DeviceContext* ctx, WDFREQUEST request, const ULONG code) {
+    NTSTATUS status = STATUS_NOT_SUPPORTED;
+    switch (code) {
+        case IOCTL_HID_GET_DEVICE_DESCRIPTOR:
+            status = copyToRequest(request, &ctx->hidDescriptor, ctx->hidDescriptor.bLength);
+            break;
+        case IOCTL_HID_GET_DEVICE_ATTRIBUTES:
+            status = copyToRequest(request, &ctx->attributes, sizeof(HID_DEVICE_ATTRIBUTES));
+            break;
+        case IOCTL_HID_GET_REPORT_DESCRIPTOR: {
+            const auto descriptor = wheelbri::trueForceReportDescriptor();
+            status = copyToRequest(request, descriptor.data(), descriptor.size());
+            break;
+        }
+        case IOCTL_HID_GET_STRING:
+            status = getString(request, ctx);
+            break;
+        case IOCTL_HID_READ_REPORT:
+            ctx->trueForce->answerRead(request);   // completes it now or with the next answer
+            return;
+        case IOCTL_HID_WRITE_REPORT:
+        case IOCTL_UMDF_HID_SET_OUTPUT_REPORT:
+            // Taken one a millisecond by TrueForceLink::pace, which completes it.
+            status = WdfRequestForwardToIoQueue(request, ctx->writeQueue);
+            if (NT_SUCCESS(status)) return;
+            break;
+        default:
+            break;
+    }
+    WdfRequestComplete(request, status);
+}
+
 VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULONG code) {
     DeviceContext* ctx = GetDeviceContext(WdfIoQueueGetDevice(queue));
+    if (ctx->trueForce != nullptr) {
+        trueForceControl(ctx, request, code);
+        return;
+    }
     NTSTATUS status = STATUS_NOT_IMPLEMENTED;
     const bool needsLink = code == IOCTL_HID_WRITE_REPORT || code == IOCTL_UMDF_HID_SET_OUTPUT_REPORT ||
                            code == IOCTL_UMDF_HID_SET_FEATURE || code == IOCTL_UMDF_HID_GET_FEATURE ||
@@ -838,11 +1063,16 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
 // Powered up: start listening. Powered down (device being removed): stop before the queues go away.
 NTSTATUS EvtDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE) {
     DeviceContext* ctx = GetDeviceContext(device);
+    if (ctx->trueForce != nullptr) {
+        ctx->trueForce->start();
+        return STATUS_SUCCESS;
+    }
     return ctx->link != nullptr && ctx->link->start() ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
 
 NTSTATUS EvtDeviceD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE) {
     DeviceContext* ctx = GetDeviceContext(device);
+    if (ctx->trueForce != nullptr) ctx->trueForce->stop();
     if (ctx->link != nullptr) ctx->link->stop();
     return STATUS_SUCCESS;
 }
@@ -851,6 +1081,14 @@ VOID EvtDeviceCleanup(WDFOBJECT object) {
     DeviceContext* ctx = GetDeviceContext(static_cast<WDFDEVICE>(object));
     delete ctx->link;
     ctx->link = nullptr;
+    if (ctx->trueForce != nullptr) {
+        ctx->trueForce->finish();
+        delete ctx->trueForce;
+        ctx->trueForce = nullptr;
+    ctx->writeQueue = nullptr;
+        logLine(Level::Info, "virtual TrueForce interface removed");
+        return;
+    }
     logLine(Level::Info, "virtual " + (ctx->wheel != nullptr ? std::string(ctx->wheel->instancePrefix) : "wheel") +
                              " removed");
 }
@@ -872,7 +1110,10 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     // Which wheel: by the hardware id the service gave the software device. An unknown one (an older service, or a
     // hand-made device) is the G920, as before there were two.
     const std::string id = hardwareId(init);
-    const wheelbri::VirtualWheel* wheel = wheelbri::virtualWheelForHardwareId(id);
+    // wheelbri\G923_TF: that wheel's TrueForce interface (TrueForce.hpp), a device of its own.
+    const wheelbri::VirtualWheel* trueForceOf = wheelbri::trueForceWheelForHardwareId(id);
+    const wheelbri::VirtualWheel* wheel =
+        trueForceOf != nullptr ? trueForceOf : wheelbri::virtualWheelForHardwareId(id);
     if (wheel == nullptr) {
         logLine(Level::Warn, "hardware id '" + id + "' is not a known wheel: presenting the G920");
         wheel = wheelbri::virtualWheel("g920");
@@ -896,6 +1137,7 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     ctx->device = device;
     ctx->wheel = wheel;
     ctx->link = nullptr;
+    ctx->trueForce = nullptr;
     RtlZeroMemory(ctx->product, sizeof(ctx->product));
     for (std::size_t i = 0; i < wheel->product.size() && i + 1 < std::size(ctx->product); ++i) {
         ctx->product[i] = static_cast<WCHAR>(wheel->product[i]);
@@ -914,7 +1156,8 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
     ctx->hidDescriptor.bNumDescriptors = 1;
     ctx->hidDescriptor.DescriptorList[0].bReportType = 0x22;
     ctx->hidDescriptor.DescriptorList[0].wReportLength = static_cast<USHORT>(
-        wheelbri::reportDescriptorFor(*wheel).size());
+        trueForceOf != nullptr ? wheelbri::trueForceReportDescriptor().size()
+                               : wheelbri::reportDescriptorFor(*wheel).size());
 
     WDF_IO_QUEUE_CONFIG queueConfig;
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchParallel);
@@ -932,6 +1175,17 @@ NTSTATUS EvtDeviceAdd(WDFDRIVER, PWDFDEVICE_INIT init) {
         return status;
     }
 
+    if (trueForceOf != nullptr) {
+        WDF_IO_QUEUE_CONFIG_INIT(&queueConfig, WdfIoQueueDispatchManual);
+        status = WdfIoQueueCreate(device, &queueConfig, WDF_NO_OBJECT_ATTRIBUTES, &ctx->writeQueue);
+        if (!NT_SUCCESS(status)) {
+            logLine(Level::Error, "trueforce write queue: " + std::to_string(status));
+            return status;
+        }
+        ctx->trueForce = new TrueForceLink(ctx);
+        logLine(Level::Info, "virtual " + std::string(wheel->instancePrefix) + " TrueForce interface added (" + id + ")");
+        return STATUS_SUCCESS;
+    }
     ctx->link = new Link(ctx);
     char ids[16];
     std::snprintf(ids, sizeof(ids), "%04X PID %04X", wheel->vendorId, wheel->productId);
