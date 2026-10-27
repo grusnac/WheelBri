@@ -25,7 +25,7 @@ G920 only, by themselves while the game runs.
 
 ## DiRT Rally 2.0
 
-- **Set up:** pick the Target's preset in the game's controls. G25 and G27: **Order: Logitech driver** (its G25
+- **Set up:** pick the Target's preset in the game's controls. G25 and G27: **Order: Logitech** (its G25
   handbrake "Button 7" is R Wheel).
 - **Mode Shim:** not supported by the game; use Mode Virtual.
 
@@ -69,7 +69,7 @@ G920 only, by themselves while the game runs.
 
 ## Race Driver: GRID
 
-- **Target:** **G25**, Order Logitech driver (the game has its own G25 preset). Mode Shim uses the 32-bit shim.
+- **Target:** **G25**, Order Logitech (the game has its own G25 preset). Mode Shim uses the 32-bit shim.
 - **Set up:** VSync on (or the frame rate capped): above about 144 Hz the game sends a broken force, which WheelBri
   plays as none. The game sends no centring and turns the wheel's off: set the G25's **Centring spring** on the
   Mapping tab.

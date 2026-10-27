@@ -58,12 +58,12 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
 
 - **Centring spring**: that wheel's own spring to the centre on top of the game's forces, 0 to 100% (off by default).
   For games that send no centring of their own, such as Race Driver: GRID.
-- **Order**: how the game numbers the buttons. **Logitech driver** (default) for games of that era; **Native** for
+- **Order**: how the game numbers the buttons. **Logitech** (default) for games of that era; **Native** for
   newer games' presets, such as ACC's. Each order has its own mapping. The first Native mapping starts as a copy of
   the other with its buttons in amber: their numbers changed, so check them against the game; **Got it** clears the
   marks.
 
-The Target's buttons show **the numbers the game uses**: from 1 in Logitech driver order (as `joy.cpl` and games
+The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games
 count), from 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) while running. Details:
 [targets.md](targets.md).
 
@@ -114,7 +114,7 @@ receives after your mapping, so it is the place to check a mapping in action.
 
 ![The Shadow view with Target G25](images/shadow-g25.png)
 
-- **Buttons** light while pressed. On each is its number as the game counts it (from 1 in Logitech driver order, from
+- **Buttons** light while pressed. On each is its number as the game counts it (from 1 in Logitech order, from
   0 in Native); on the G920 and G923, what is printed on the real button instead (A B X Y, LSB / RSB, View, Menu,
   Xbox, the G923's + and -), and nothing on their paddles.
 - **Beside each button**: the label you gave its control in the Rig tab, or the wheel's own name (Red 2, a gear) when

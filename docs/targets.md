@@ -30,7 +30,7 @@ middle, go down with the throttle and up with the brake, as Race Driver: GRID's 
 The Mapping tab's **Order** picks one; each order keeps its own mapping (`my-g25.ini`, `my-g25-native.ini`; the
 choice is in `app.ini` and in the file's `[buttons] order` for the command-line service).
 
-**Logitech driver** (default): as games of that era saw a G25 on Windows.
+**Logitech** (default): as games of that era saw a G25 on Windows with Logitech's driver.
 
 | Buttons | What |
 |---|---|
@@ -65,7 +65,7 @@ HID descriptor. ACC binds the native diamond as A, X, B, Y, as its G920 preset b
 
 ## Button numbers in the app
 
-The app shows the Target's buttons as the game numbers them (`gameButtonNumber`): from 1 with Logitech driver, as
+The app shows the Target's buttons as the game numbers them (`gameButtonNumber`): from 1 with Logitech, as
 Logitech's driver, `joy.cpl` and games count (DiRT Rally 2.0's G25 handbrake "Button 7" is 6 above, R Wheel); from 0
 with Native. The rig's buttons and `target_N` count from 0.
 
