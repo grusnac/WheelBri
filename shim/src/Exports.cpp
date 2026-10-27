@@ -167,6 +167,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     switch (reason) {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(instance);
+            armLogiHook();   // the game's GetProcAddress import only (LogiHook.hpp)
             break;
         case DLL_PROCESS_DETACH:
             onDllDetach(reserved != nullptr);

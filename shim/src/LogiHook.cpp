@@ -1,6 +1,7 @@
 #include "LogiHook.hpp"
 
 #include "Guard.hpp"
+#include "ShimConfig.hpp"
 #include "ShimLogging.hpp"
 
 #include "wheelbri/Logging.hpp"
@@ -50,6 +51,7 @@ std::mutex gMutex;
 
 using GetProcAddressFn = FARPROC(WINAPI*)(HMODULE, LPCSTR);
 GetProcAddressFn gRealGetProcAddress = nullptr;
+int gArmed = 0;   // imports of GetProcAddress pointed at the hook (armLogiHook)
 
 }  // namespace
 
@@ -229,7 +231,15 @@ FARPROC wrap(const char* name, const FARPROC real) {
     for (std::size_t i = 0; i < gCount; ++i) {
         if (gWrapped[i].real == reinterpret_cast<void*>(real)) return reinterpret_cast<FARPROC>(gCode + i * kThunkSize);
     }
-    if (gCode == nullptr || gCount == kMaxWrapped) return real;
+    if (gCode == nullptr) {
+        gCode = static_cast<unsigned char*>(
+            VirtualAlloc(nullptr, kMaxWrapped * kThunkSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+        if (gCode == nullptr) {
+            WE_LOG_ERROR(log(), "logi_log: no memory for the wrappers ({})", GetLastError());
+            return real;
+        }
+    }
+    if (gCount == kMaxWrapped) return real;
     Wrapped& w = gWrapped[gCount];
     w.real = reinterpret_cast<void*>(real);
     std::snprintf(w.name, sizeof(w.name), "%s", name);
@@ -255,6 +265,8 @@ FARPROC WINAPI hookedGetProcAddress(const HMODULE module, const LPCSTR name) {
     const FARPROC real = gRealGetProcAddress(module, name);
     if (real == nullptr || IS_INTRESOURCE(name)) return real;
     return guardedOr(real, "hookedGetProcAddress", [&] {
+        // Armed in every game the shim is in (armLogiHook); only logi_log wraps anything.
+        if (!shimConfig().logiLog) return real;
         std::lock_guard lock(gMutex);
         return isLogitechSdk(module) ? wrap(name, real) : real;
     });
@@ -277,6 +289,7 @@ int patchImports(const HMODULE module) {
             if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
             const auto* byName = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
             if (std::strcmp(reinterpret_cast<const char*>(byName->Name), "GetProcAddress") != 0) continue;
+            if (slots->u1.Function == names->u1.AddressOfData) continue;   // not bound yet: installLogiHook retries
             DWORD old = 0;
             if (!VirtualProtect(&slots->u1.Function, sizeof(slots->u1.Function), PAGE_READWRITE, &old)) continue;
             if (gRealGetProcAddress == nullptr) {
@@ -292,29 +305,27 @@ int patchImports(const HMODULE module) {
 
 }  // namespace
 
+void armLogiHook() noexcept {
+    // Loader lock: only the import table is touched (VirtualProtect), nothing logged, nothing allocated.
+    gArmed = patchImports(GetModuleHandleW(nullptr));
+}
+
 void installLogiHook() {
     static std::once_flag once;
     std::call_once(once, [] {
-        guardedVoid("installLogiHook", [] {
-            gCode = static_cast<unsigned char*>(
-                VirtualAlloc(nullptr, kMaxWrapped * kThunkSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
-            if (gCode == nullptr) {
-                WE_LOG_ERROR(log(), "logi_log: no memory for the wrappers ({})", GetLastError());
-                return;
-            }
-            const HMODULE game = GetModuleHandleW(nullptr);
-            const int patched = patchImports(game);
-            if (patched == 0 || gRealGetProcAddress == nullptr) {
-                WE_LOG_WARN(log(), "logi_log: the game's .exe imports no GetProcAddress: nothing is wrapped");
-                return;
-            }
-            WE_LOG_INFO(log(), "logi_log: on ({} import(s) of GetProcAddress in the game's .exe); Logitech SDK calls "
-                               "are logged here (component shim.logi)", patched);
-        });
+        if (gArmed == 0) gArmed = patchImports(GetModuleHandleW(nullptr));
+        if (gArmed == 0 || gRealGetProcAddress == nullptr) {
+            WE_LOG_WARN(log(), "logi_log: the game's .exe imports no GetProcAddress: nothing is wrapped");
+            return;
+        }
+        WE_LOG_INFO(log(), "logi_log: on since the game loaded the shim ({} import(s) of GetProcAddress); Logitech "
+                           "SDK calls are logged here (component shim.logi)", gArmed);
     });
 }
 
 #else
+
+void armLogiHook() noexcept {}
 
 void installLogiHook() {
     static std::once_flag once;

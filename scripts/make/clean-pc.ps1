@@ -334,7 +334,11 @@ function Get-ChainedMods {
         $loader = Join-Path $folder 'dinput8.dll'
         $asi = $false
         if (Test-Path -LiteralPath $loader -PathType Leaf) {
-            try { $asi = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($loader)).Contains('IsUltimateASILoader') }
+            # WheelBri's shim has the loader's export name too (it looks for it): its own mark says it is ours.
+            try {
+                $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($loader))
+                $asi = $text.Contains('IsUltimateASILoader') -and -not $text.Contains('IsWheelBriShim')
+            }
             catch { $asi = $false }
         }
         $to = Join-Path $folder $(if ($asi) { 'dinput8Hooked.dll' } else { 'dinput8.dll' })
