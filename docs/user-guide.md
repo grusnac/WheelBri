@@ -27,15 +27,20 @@ a time.
 
 ## Set up your rig
 
-![Rig tab with a control's popup open](images/rig.png)
+![Rig tab: a Moza R3 with its axes and buttons named](images/rig-base.png)
 
 1. With **Detect** on, touch a control: turn the wheel, press a pedal **all the way**, press a button. Its popup opens.
 2. Give it a **Name** and pick what it **is** (Steering, Throttle, Brake, Clutch, a button...), then **OK**.
 3. Repeat for every control you use, and name each device.
 
+![The popup for an axis](images/rig-axis-mapping.png)
+
+![The popup for a button](images/rig-button-mapping.png)
+
 What a control **is** maps it by itself on every Target: Steering, the pedals, the D-pad, **A**, **B**, **X**, **Y**
-and the paddles (on the G25 and G27, A B X Y go on the shifter's black buttons). Each belongs to one control: picked
-for another, it moves there. Every other button you map yourself.
+and the paddles (on the G25 and G27, A B X Y go on the shifter's black buttons). Each belongs to one control: a choice
+underlined in amber is another control's already (point at it to see whose), and picking it moves it here. Every other
+button you map yourself.
 
 Once a device has named controls, the unnamed ones fold into one line; **Show all** / **Named only** switch.
 
@@ -44,11 +49,17 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
 
 ## Map it to the Target
 
-![Mapping tab](images/mapping.png)
+![Mapping tab with Target G27](images/mapping-base.png)
 
 1. Pick the **Target** and **Mode** at the top (locked while running).
 2. Check each axis, D-pad direction and button comes from the right control. Click a source to change it: move the
-   control on your rig, or type to find it. **RIG** next to a source means it comes from the Rig tab.
+   control on your rig, or type to find it. **RIG** next to a source means it comes from the Rig tab. Greyed sources
+   are used elsewhere (point at one to see where); clicking one moves it here.
+
+   ![Picking what drives Steering](images/mapping-axis.png)
+
+   ![Picking what drives a button](images/mapping-buttons.png)
+
 3. Tick **Invert** for a pedal that reads pressed at rest (never automatic).
 4. **+ or** gives a button a second source, e.g. a handbrake lever: it presses the button past the point you set,
    from 0% (as soon as it moves) to 100% (only at its end).
@@ -110,9 +121,7 @@ While WheelBri runs, the Mapping tab shows the Target as the game sees it: the r
 pictures, with its pedals and shifter, every control lit while the game gets it pressed. It shows what the game
 receives after your mapping, so it is the place to check a mapping in action.
 
-![The Shadow view with Target G920](images/shadow-g920.png)
-
-![The Shadow view with Target G25](images/shadow-g25.png)
+![The Shadow view with Target G923, running](images/shadow-view.png)
 
 - **Buttons** light while pressed. On each is its number as the game counts it (from 1 in Logitech order, from
   0 in Native); on the G920 and G923, what is printed on the real button instead (A B X Y, LSB / RSB, View, Menu,
@@ -136,7 +145,7 @@ it at all.
 
 ## Games tab
 
-![Games tab](images/games.png)
+![Games tab, Axes sub-tab](images/games-axis.png)
 
 Values for one game at a time, kept per Target. A few games have a built-in profile applied while they run (NFS 2015,
 NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, your own values with every Target.
@@ -150,7 +159,24 @@ NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, you
      only be swapped among the Target's own pedal axes.
    - **Force feedback**: overall strength, a gain per effect (0 off, up to 4), a lower cap or slew limit, the
      frozen-push fade, reversed forces, or none at all.
+
+     ![Force feedback sub-tab](images/games-ffb.png)
+
    - **Buttons**: only the buttons you change for this game; **Remove** gives one back to the Mapping tab.
+
+     ![Buttons sub-tab, nothing changed yet](images/games-buttons-base.png)
+
+     **Add button...** asks which Target button to change, then the control for it: any control, even one the
+     Mapping tab uses elsewhere.
+
+     ![Picking the Target's button](images/games-buttons-selection.png)
+
+     ![Picking the control for it in this game](images/games-buttons-rempping.png)
+
+     The button then shows both sources: the Mapping tab's and, in violet, this game's.
+
+     ![A button changed for this game](images/games-buttons-rempping-done.png)
+
    - **Game file** (NFS Unbound): writes the game's hidden wheel settings with **Save to file** (game closed).
 
 Values apply at once, even while the game runs (the Force feedback sub-tab then shows what the game asks in blue and
@@ -220,6 +246,8 @@ Linux:
 ```
 
 ## Logs
+
+![Logs tab](images/logs.png)
 
 The **Logs** tab shows what every part of WheelBri does; **O** opens the folder (`%LOCALAPPDATA%\wheelbri\logs` or
 `~/.local/state/wheelbri`). Logs older than 2 days are deleted.
