@@ -42,6 +42,7 @@ add_executable(wheelbri_tests
     HideIdsTest.cpp
     HidPidTest.cpp
     HidPpTest.cpp
+    HidPpFfbTest.cpp
     InputReadStatsTest.cpp
     IniDocumentTest.cpp
     IniEditorTest.cpp

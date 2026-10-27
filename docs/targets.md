@@ -76,7 +76,8 @@ To change an order: `g25Spec()`, `g27Spec()`, `g923Spec()` in `core/src/DevicePr
 
 With Target G923 in Mode Virtual the virtual wheel answers G HUB's HID++ 2.0 (`core/include/wheelbri/HidPp.hpp`,
 written from the public description): Root, FeatureSet, firmware version, name and ForceFeedback (0x8123). G HUB shows
-the wheel as active. Rotation and gain it sets are logged, **not applied**; effects it uploads are **not played**.
+the wheel as active. Rotation it sets is logged, **not applied**. Effects sent over 0x8123 (by G HUB or Logitech's
+force feedback driver) are played on the rig, scaled by the gain G HUB sets (`HidPpFfb.hpp`).
 
 The pedals are in games' layout (throttle Y, brake Rz, clutch Slider), not a real G923's (brake Z, clutch Rz), so G HUB
 shows them in the wrong places. With a real G923's layout DirectInput relabelled them for games (in ACC gas became the
@@ -86,5 +87,10 @@ clutch), and the registry entries meant to undo that did not.
 
 `[emulator] trueforce_probe = true` (off by default) gives the virtual G923 its TrueForce interface: a second device
 in the wheel's container, usage page `0xFFFD`, report `0x01` (`core/include/wheelbri/TrueForce.hpp`). It answers
-the game's set-up as a real wheel and reports the steering (state on 127.0.0.1:41331). The game's force through it is
-not played yet: no force feedback in a game that uses TrueForce. Driver log lines start `trueforce:`.
+the game's set-up as a real wheel and reports the steering (state on 127.0.0.1:41331). Driver log lines start
+`trueforce:`.
+
+A TrueForce game's force does not use that interface on a G923: it goes DirectInput -> Logitech's force feedback
+driver -> HID++ 0x8123. So with the probe on WheelBri leaves G HUB's `OEMForceFeedback` entry for the wheel in place
+(without it, it removes the entry and Windows' HID PID driver takes the effects). The service log says whether the
+entry is there.

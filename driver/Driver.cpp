@@ -25,6 +25,7 @@
 #include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidPid.hpp"
 #include "wheelbri/HidPp.hpp"
+#include "wheelbri/HidPpFfb.hpp"
 #include "wheelbri/LogFileNames.hpp"
 #include "wheelbri/LogLevel.hpp"
 #include "wheelbri/StatePacket.hpp"
@@ -350,6 +351,8 @@ public:
                          [](const Level level, const std::string& s) { logLine(level, s); }};
     // Logitech's HID++ for G HUB, on a wheel that has it (VirtualWheel::hidpp); null otherwise.
     std::unique_ptr<wheelbri::HidPp> hidpp;
+    // Its 0x8123 effects played (HidPpFfb.hpp): Logitech's force feedback driver sends a TrueForce game's force so.
+    std::unique_ptr<wheelbri::HidPpFfb> hidppFfb;
 
     // A HID++ answer: an input report for the next read, before any state (and never dropped).
     void reply(Report report);
@@ -473,6 +476,9 @@ Link::Link(DeviceContext* device)
         identity.deviceType = wheel->deviceType;
         const auto toLog = [](const Level level, const std::string& line) { logLine(level, line); };
         hidpp = std::make_unique<wheelbri::HidPp>(identity, toLog);
+        const auto toService = [this](const wheelbri::FfbPacket& p) { sendFfb(p); };
+        hidppFfb = std::make_unique<wheelbri::HidPpFfb>(toService, toLog);
+        hidpp->setForceFeedback(hidppFfb.get());
     }
 }
 
@@ -733,10 +739,12 @@ void Link::run(const SOCKET sock) {
         if (now - lastTick >= 10) {
             lastTick = now;
             pid.tick(now);
+            if (hidppFfb) hidppFfb->tick(now);
         }
         logCounts(now);
     }
     pid.stopAll(nowMs());
+    if (hidppFfb) hidppFfb->stopAll(nowMs());
     logLine(Level::Info, "stopped: " + std::to_string(pid.reportsHandled()) +
                              " force feedback reports from the game, " +
             std::to_string(pid.packetsSent()) + " packets to the service");

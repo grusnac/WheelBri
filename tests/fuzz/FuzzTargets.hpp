@@ -9,7 +9,7 @@
 
 namespace wheelbri::fuzz {
 
-inline constexpr std::uint8_t kTargets = 14;
+inline constexpr std::uint8_t kTargets = 15;
 
 // A promise broken by an input (a decoded packet that does not encode back, a force that is not a number).
 struct Broken : std::runtime_error {

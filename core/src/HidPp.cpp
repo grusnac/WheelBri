@@ -1,5 +1,7 @@
 #include "wheelbri/HidPp.hpp"
 
+#include "wheelbri/HidPpFfb.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <utility>
@@ -65,13 +67,28 @@ std::string HidPp::hex(const std::span<const std::uint8_t> bytes) {
     return text;
 }
 
+void HidPp::showCall(const std::uint8_t function, const std::string& what, const Params in) {
+    if (!log_) return;
+    int& shown = shown_[function & 0x0FU];
+    const bool full = shown < kShownCalls;
+    if (full) ++shown;
+    const bool last = full && shown == kShownCalls;
+    log_(full ? LogLevel::Info : LogLevel::Debug,
+         "hid++: force feedback " + what + ": " + hex(in) + (last ? " (the next ones at debug)" : ""));
+}
+
 void HidPp::note(const std::uint8_t featureIndex, const std::uint8_t function, const std::string& what) {
     if (!log_) return;
     if (seen_.emplace(featureIndex, function).second) log_(LogLevel::Info, "hid++: " + what);
 }
 
+void HidPp::setForceFeedback(HidPpFfb* ffb) {
+    std::lock_guard lock(mutex_);
+    ffb_ = ffb;
+}
+
 std::optional<std::vector<std::uint8_t>> HidPp::handle(const std::span<const std::uint8_t> report,
-                                                       const std::int64_t /*nowMs*/) {
+                                                       const std::int64_t nowMs) {
     if (report.size() < 4 || !isHidPpReport(report[0])) return std::nullopt;
     const std::size_t size = report[0] == kLongId ? kLongSize : kVeryLongSize;
     std::vector<std::uint8_t> reply(size, 0);
@@ -81,6 +98,7 @@ std::optional<std::vector<std::uint8_t>> HidPp::handle(const std::span<const std
     const Params in = report.subspan(4);
     std::lock_guard lock(mutex_);
     ++requests_;
+    nowMs_ = nowMs;
     if (log_) log_(LogLevel::Debug, "hid++ in:  " + hex(report));
     if (featureIndex >= 0x80 && featureIndex <= 0x83) {
         // HID++ 1.0 register access: this wheel speaks 2.0 only. 1.0's error says so.
@@ -223,21 +241,25 @@ std::optional<std::uint8_t> HidPp::forceFeedback(const std::uint8_t function, co
         case 1:   // reset all
             note(index, function, "force feedback: reset all");
             nextSlot_ = 1;
+            if (ffb_ != nullptr) ffb_->resetAll(nowMs_);
             return std::nullopt;
-        case 2:   // download an effect: answered with its slot; not played
-            if (log_) {
-                log_(LogLevel::Info, "hid++: force feedback effect uploaded (not played by WheelBri): " + hex(in));
+        case 2:   // download an effect: answered with its slot
+            showCall(function, "effect downloaded", in);
+            if (ffb_ != nullptr) {
+                out[0] = ffb_->download(in, nowMs_);
+                return out[0] == 0 ? std::optional<std::uint8_t>(kErrOutOfRange) : std::nullopt;
             }
             out[0] = nextSlot_;
             nextSlot_ = static_cast<std::uint8_t>(nextSlot_ % (kEffectSlots - 1) + 1);
             return std::nullopt;
-        case 3:   // an effect's state (play, stop, pause)
-        case 4: {   // destroy an effect
-            const std::string what = function == 3 ? "effect state" : "effect freed";
-            const auto head = in.first(std::min<std::size_t>(4, in.size()));
-            note(index, function, "force feedback: " + what + " (not played by WheelBri): " + hex(head));
+        case 3:   // an effect's state (play, stop, pause): [0] slot [1] state
+            showCall(function, "effect state", in.first(std::min<std::size_t>(2, in.size())));
+            if (ffb_ != nullptr && in.size() >= 2) ffb_->setState(in[0], in[1], nowMs_);
             return std::nullopt;
-        }
+        case 4:   // destroy an effect: [0] slot
+            showCall(function, "effect freed", in.first(std::min<std::size_t>(1, in.size())));
+            if (ffb_ != nullptr && !in.empty()) ffb_->destroy(in[0], nowMs_);
+            return std::nullopt;
         case 5:   // get aperture: the rotation in degrees
             putBe16(out, 0, static_cast<std::uint16_t>(rotationDeg_));
             return std::nullopt;
@@ -261,6 +283,7 @@ std::optional<std::uint8_t> HidPp::forceFeedback(const std::uint8_t function, co
                 log_(LogLevel::Info, "hid++: force feedback gain set to " + std::to_string(percent) + "% (boost " +
                                          std::to_string(boost_) + "; not applied)");
             }
+            if (ffb_ != nullptr) ffb_->setGain(static_cast<float>(gain_) / 65535.0F, nowMs_);
             if (settings_) settings_(rotationDeg_, static_cast<float>(gain_) / 65535.0F);
             return std::nullopt;
         default:

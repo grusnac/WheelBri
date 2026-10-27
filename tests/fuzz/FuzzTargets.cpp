@@ -17,6 +17,7 @@
 #include "wheelbri/HelperProtocol.hpp"
 #include "wheelbri/HidPid.hpp"
 #include "wheelbri/HidPp.hpp"
+#include "wheelbri/HidPpFfb.hpp"
 #include "wheelbri/TrueForce.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LogFileNames.hpp"
@@ -31,6 +32,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace wheelbri::fuzz {
 namespace {
@@ -192,6 +194,33 @@ void runOne(const std::span<const std::uint8_t> input) {
                 i += len;
             }
             device.finish(now);
+            break;
+        }
+        case 14: {   // HID++ 0x8123 effects from Logitech's force feedback driver: every packet sent on is finite
+            HidPpFfb ffb(
+                [](const FfbPacket& p) {
+                    CHECK(std::isfinite(p.effect.constantLevel) && std::isfinite(p.effect.gain) &&
+                          std::isfinite(p.effect.periodic.phaseDeg));
+                    CHECK(p.slot < HidPpFfb::kServiceSlots);
+                },
+                [](LogLevel, const std::string&) {});
+            HidPp pp({"G923", 0xC26E, 1, 0x0A}, [](LogLevel, const std::string&) {});
+            pp.setForceFeedback(&ffb);
+            std::size_t i = 0;
+            std::int64_t now = 0;
+            while (i < bytes.size()) {
+                const std::size_t len = std::min<std::size_t>(bytes.size() - i, 1 + bytes[i] % 70);
+                std::vector<std::uint8_t> report(bytes.begin() + static_cast<std::ptrdiff_t>(i),
+                                                 bytes.begin() + static_cast<std::ptrdiff_t>(i + len));
+                if (report.size() >= 3) {
+                    report[0] = HidPp::kLongId;
+                    report[2] = 4;   // always ForceFeedback
+                }
+                (void)pp.handle(report, now += bytes[i] % 20);
+                ffb.tick(now);
+                i += len;
+            }
+            ffb.stopAll(now);
             break;
         }
     }
