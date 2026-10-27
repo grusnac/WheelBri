@@ -221,13 +221,13 @@ TEST_F(MappingAutoSave, TheG25AndG27PickTheirButtonOrderOnTheTopRow) {
     ConfigPicker picker(window_, settings());
     MappingEditView view(window_, dir_ / "rigs", dir_ / "app.ini", picker);
     frame(view);
-    EXPECT_EQ(window_.find("Logitech driver"), nullptr);   // the G920: one order
+    EXPECT_EQ(window_.find("Logitech"), nullptr);   // the G920: one order
 
     for (const ConfigPicker::Target target : {ConfigPicker::Target::G27, ConfigPicker::Target::G25}) {
         picker.useTarget(target);
         frame(view);
         EXPECT_EQ(window_.find("BUTTON ORDER"), nullptr);
-        EXPECT_TRUE(same(window_.buttonColour("Logitech driver"), kOn));
+        EXPECT_TRUE(same(window_.buttonColour("Logitech"), kOn));
     }
 
     ASSERT_TRUE(click(view, "Native"));   // the G25's
@@ -267,7 +267,7 @@ TEST_F(MappingAutoSave, ACopiedNativeMappingMarksTheRenumberedButtons) {
     };
     const auto noted = [this] {
         return std::any_of(window_.texts.begin(), window_.texts.end(), [](const RecordingWindow::Text& text) {
-            return text.value.rfind("copied from Logitech driver", 0) == 0;
+            return text.value.rfind("copied from Logitech", 0) == 0;
         });
     };
     frame(view);

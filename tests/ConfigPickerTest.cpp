@@ -480,7 +480,7 @@ TEST_F(ConfigPickerFiles, EachButtonOrderHasItsOwnMapping) {
     picker.useTarget(ConfigPicker::Target::G25);
     picker.draw(4, 18, true);
     EXPECT_TRUE(window_.shows("Order"));
-    EXPECT_TRUE(window_.shows("Logitech driver"));
+    EXPECT_TRUE(window_.shows("Logitech"));
     EXPECT_EQ(picker.rowsHeight(), 34);   // two rows: the first's right end stays free for the shim's game
     EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Driver);
     EXPECT_EQ(setting("order_g25"), "driver");
@@ -583,8 +583,8 @@ TEST_F(ConfigPickerFiles, TheOrderRowExplainsItself) {
         return std::any_of(tips.begin(), tips.end(), [&start](const std::string& t) { return t.rfind(start, 0) == 0; });
     };
     EXPECT_TRUE(has("Which numbers the game gets the G25's buttons by."));
-    EXPECT_TRUE(has("Logitech driver: the game numbers the G25's buttons as Logitech's Windows driver did"));
-    EXPECT_TRUE(has("Native: the game numbers the G25's buttons as the wheel itself reports them"));
+    EXPECT_TRUE(has("Numbered as with Logitech's driver, from 1."));
+    EXPECT_TRUE(has("Numbered as the wheel reports them, from 0."));
 }
 
 }  // namespace wheelbri::service

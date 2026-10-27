@@ -1030,7 +1030,7 @@ void MappingEditView::draw() {
         const float gotItX = canvasW() - 4 - gotItW;
         const float noteX = 76 + static_cast<float>(target.size() + 24) * ui::kCharWidth;
         window_.text(noteX, y,
-                     fit("copied from Logitech driver: amber numbers are new, check them",
+                     fit("copied from Logitech: amber numbers are new, check them",
                          static_cast<std::size_t>(std::max(0.0F, gotItX - 8 - noteX) / ui::kCharWidth)),
                      kCaution);
         button(gotItX, y - 4, "Got it", [this] {
@@ -1078,7 +1078,7 @@ void MappingEditView::draw() {
         if (marked) {
             tip(x + 8, row, static_cast<float>(kButtonLabelChars) * ui::kCharWidth, 16,
                 "Button " + std::to_string(gameButtonNumber(*profile_, ButtonOrder::Driver, index)) +
-                    " with Logitech driver, " + std::to_string(gameNumber(index)) +
+                    " with Logitech, " + std::to_string(gameNumber(index)) +
                     " with Native: check the game's control for it. Changing this row takes the mark off.");
         }
         const float fieldX = x + 8 + static_cast<float>(kButtonLabelChars) * ui::kCharWidth + kLabelGap;

@@ -28,7 +28,7 @@ constexpr Colour kDim = style::kDim;
 constexpr float kRowHeight = 16;
 constexpr float kTargetWidth = 52;   // a Target button: "G920", "G25", "G27", "G923"
 constexpr float kWayWidth = 72;      // a Mode button: "Virtual", "Shim"
-constexpr float kOrderWidth = 128;   // an Order button: "Logitech driver", "Native"
+constexpr float kOrderWidth = 128;   // an Order button: "Logitech", "Native"
 
 // What each Target is for (its button's hover text).
 std::string targetAbout(const ConfigPicker::Target target) {
@@ -393,16 +393,11 @@ float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const
                 "Takes effect at the next Start.");
         }
         x += 64;
-        segment("Logitech driver", kOrderWidth, order_ == ButtonOrder::Driver, true,
-                "Logitech driver: the game numbers the " + target + "'s buttons as Logitech's Windows driver did "
-                "(Button 1, 2, ... as joy.cpl shows them). For games of its time and presets made with that driver "
-                "(Race Driver: GRID, DiRT Rally 2.0). Has its own mapping.",
+        segment("Logitech", kOrderWidth, order_ == ButtonOrder::Driver, true,
+                "Numbered as with Logitech's driver, from 1. For most games.",
                 [this] { choose(ButtonOrder::Driver); });
         segment("Native", kOrderWidth, order_ == ButtonOrder::Native, true,
-                "Native: the game numbers the " + target + "'s buttons as the wheel itself reports them, without "
-                "Logitech's driver (from 0, in another order). For presets that expect that (Assetto Corsa "
-                "Competizione). Has its own mapping: the first time, a copy of your Logitech driver one, its "
-                "buttons marked to check.",
+                "Numbered as the wheel reports them, from 0. For games that expect it (ACC).",
                 [this] { choose(ButtonOrder::Native); });
     }
     return rowEnd;
