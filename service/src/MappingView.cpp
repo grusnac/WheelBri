@@ -110,6 +110,21 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
             }
         }
     }
+    // A wheel button that is only a secondary source (target_N_or) reaches its target too (after the main sources, so
+    // a main source stays the one named).
+    for (std::size_t target = 0; target < mapper_.buttonMap.size(); ++target) {
+        if (profile_.buttonName(target).empty()) continue;
+        for (const ButtonSource& secondary : mapper_.buttonSecondary[target]) {
+            if (!secondary.mapped() || secondary.axis || secondary.device != 0 ||
+                static_cast<std::size_t>(secondary.index) >= kMaxSourceButtons) {
+                continue;
+            }
+            const auto index = static_cast<std::size_t>(secondary.index);
+            if (sourceTargetCount_[index]++ == 0) {
+                sourceToTarget_[index] = static_cast<int>(target);
+            }
+        }
+    }
 }
 
 namespace {
@@ -516,11 +531,12 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
     constexpr float kHeight = 13;
     const std::size_t chars = std::clamp<std::size_t>(static_cast<std::size_t>((kWidth - 3) / 8), 39, 120);
     char cellText[128];
-    // Only the buttons the target names (the G920's 11 and the shifter's 7; its unused 12th is left out); room for 9 rows.
+    // Only the buttons the target names (the G920's 11 and the shifter's 7; its unused 12th is left out) and that
+    // something feeds (a main or a secondary source), packed; room for 9 rows.
     std::size_t cell = 0;
     for (std::size_t target = 0; target < mapper_.buttonMap.size(); ++target) {
         const std::string_view name = profile_.buttonName(target);
-        if (name.empty()) {
+        if (name.empty() || (mapper_.buttonMap[target] < 0 && !mapper_.buttonSecondary[target][0].mapped())) {
             continue;
         }
         const float x = 4 + static_cast<float>(cell % kColumns) * (kWidth + 2);
@@ -555,42 +571,49 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
         const Colour colour = pressed ? kDark : (source < 0 ? kDim : kText);
         text(window_, x + 3, y + 3, cellText, colour);
     }
+    if (cell == 0) {
+        const std::string none = "(no " + target_ + " button is mapped)";
+        text(window_, 4, kTop + 14, none.c_str(), kDim);
+    }
 }
 
 void MappingView::drawSourceButtons(const std::uint64_t sourceButtons, const float top) {
     const float kTop = top;
     text(window_, 4, kTop, "RIG BUTTONS", kHeading);
-    const std::string legend =
-        "pressed: green = reaches a " + target_ + " button or the D-pad, red = goes nowhere";
+    const std::string legend = "only the ones that reach a " + target_ + " button or the D-pad; pressed = green";
     text(window_, 100, kTop, legend.c_str(), kDim);
 
-    // Every cell reads "Rig 35 Start": the rig button only (where it goes is in the panel above). Eight columns
-    // across the canvas: 116 wide in the design, 14 characters after the margin; more in a wider window.
+    // Every cell reads "Rig 35 Start": the rig button only (where it goes is in the panel above), only the mapped ones,
+    // packed. Eight columns across the canvas: 116 wide in the design, 14 characters after the margin; more in a
+    // wider window.
     constexpr int kColumns = 8;
     const float kWidth = (canvasW() - 8 - 3 * (kColumns - 1)) / kColumns;
     constexpr float kHeight = 13;
     const std::size_t chars = std::max<std::size_t>(14, static_cast<std::size_t>((kWidth - 4) / 8));
     char line[80];
+    int cell = 0;
     for (int source = 0; source < sourceButtons_; ++source) {
         const auto index = static_cast<std::size_t>(source);
-        const float x = 4 + static_cast<float>(source % kColumns) * (kWidth + 3);
-        const float y = kTop + 12 + static_cast<float>(source / kColumns) * (kHeight + 2);
-        const bool pressed = ((sourceButtons >> source) & 1ULL) != 0;
         const int target = sourceToTarget_[index];
         const char* const hatDirection = sourceHatDirection_[index];
-
-        Colour background = kPanel;
-        if (pressed) {
-            background = hatDirection != nullptr || target >= 0 ? kActive : kWarning;
+        if (target < 0 && hatDirection == nullptr) {
+            continue;   // goes nowhere: left out
         }
-        fill(window_, x, y, kWidth, kHeight, background);
-        const Colour foreground = pressed ? kDark : (target >= 0 || hatDirection != nullptr ? kText : kDim);
+        const float x = 4 + static_cast<float>(cell % kColumns) * (kWidth + 3);
+        const float y = kTop + 12 + static_cast<float>(cell / kColumns) * (kHeight + 2);
+        ++cell;
+        const bool pressed = ((sourceButtons >> source) & 1ULL) != 0;
+
+        fill(window_, x, y, kWidth, kHeight, pressed ? kActive : kPanel);
+        const Colour foreground = pressed ? kDark : kText;
 
         std::snprintf(line, sizeof(line), "Rig %d %s", source, sourceLabel(source).c_str());
         text(window_, x + 2, y + 3, std::string(line).substr(0, chars).c_str(), foreground);
     }
     if (sourceButtons_ == 0) {
         text(window_, 4, kTop + 14, "(the device reports no buttons)", kDim);
+    } else if (cell == 0) {
+        text(window_, 4, kTop + 14, "(no rig button is mapped)", kDim);
     }
 }
 

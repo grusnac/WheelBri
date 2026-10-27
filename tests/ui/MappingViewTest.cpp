@@ -162,8 +162,8 @@ TEST_F(LiveView, TabsAndKeys) {
 }
 
 // The Mapping tab: every axis with its source (the wheel's, an accessory's, none), the rig's axes it has and not, the
-// D-pad, the target's buttons (from nothing, an accessory, two sources) and the rig's (pressed: mapped green, unmapped
-// red); the last pressed button and where it went.
+// D-pad, the target's buttons (from an accessory, two sources; from nothing left out) and the rig's (only the mapped
+// ones); the last pressed button and where it went, an unmapped one too.
 // The target's buttons by the numbers the game sees: with Logitech driver order from 1 (DiRT Rally 2.0 asks for
 // "Button 7", the G25's R Wheel, 6 as named); with the native order the wheel's own HID number, from 0.
 TEST_F(LiveView, TargetButtonsShowTheGamesNumbers) {
@@ -191,7 +191,8 @@ TEST_F(LiveView, TargetButtonsShowTheGamesNumbers) {
     inputs.devices[0].buttons = 1ULL << 34;
     draw(*native, inputs);
     EXPECT_TRUE(window_.has("Last pressed: G25 6 R Wheel <- Rig 34 R")) << window_.dump();
-    EXPECT_TRUE(window_.has("G25 11 Red 1    <- --", true)) << window_.dump();   // Red 1 is native 11
+    EXPECT_TRUE(window_.has("G25  6 R Wheel  <- Rig 34 R", true)) << window_.dump();
+    EXPECT_FALSE(window_.has("Red 1", true)) << window_.dump();   // fed by nothing: left out
     EXPECT_TRUE(window_.has("G25 button (native, from 0)", true)) << window_.dump();
 }
 
@@ -555,6 +556,11 @@ TEST_F(LiveView, MappingTabShowsEverySource) {
     }
     EXPECT_TRUE(window_.has("<- Pedals 7 Clip", true)) << window_.dump();
     EXPECT_TRUE(window_.has("+", true));
+    // Only what is mapped: B (fed by nothing) and rig button 19 (reaches nothing) are left out; button 12 (the D-pad
+    // only) stays.
+    EXPECT_FALSE(window_.has("G920  2 B", true)) << window_.dump();
+    EXPECT_FALSE(window_.has("Rig 19", true)) << window_.dump();
+    EXPECT_TRUE(window_.has("Rig 12", true)) << window_.dump();
     // Buttons pressed: 0 (two targets), 4 (D-pad right and a target), 12 (D-pad up), 15 (nothing... 15 is target 15).
     inputs.devices[0].buttons = 1ULL;
     draw(*view, inputs, state, report);
@@ -578,6 +584,34 @@ TEST_F(LiveView, MappingTabShowsEverySource) {
     view->setSessionLine("");
     draw(*view, inputs, state, report);
     EXPECT_TRUE(window_.has("Move every control and check where it lands.", true));
+}
+
+// Nothing mapped: both button panels say so.
+TEST_F(LiveView, NoButtonMappedSaysSo) {
+    MapperConfig none;
+    for (std::size_t t = 0; t < none.buttonMap.size(); ++t) none.buttonMap[t] = -1;
+    none.hatButtons = {};
+    auto view = makeView(6, 20, none);
+    draw(*view);
+    EXPECT_TRUE(window_.has("(no G920 button is mapped)")) << window_.dump();
+    EXPECT_TRUE(window_.has("(no rig button is mapped)")) << window_.dump();
+    EXPECT_FALSE(window_.has("<- --", true)) << window_.dump();
+}
+
+// A rig button that is only a secondary source (target_N_or) counts as mapped: shown, and where it goes.
+TEST_F(LiveView, SecondaryOnlyRigButtonIsMapped) {
+    MapperConfig mapper;
+    for (std::size_t t = 0; t < mapper.buttonMap.size(); ++t) mapper.buttonMap[t] = -1;
+    mapper.hatButtons = {};
+    mapper.buttonSecondary[2][0].index = 5;   // X <- Rig 5, as a secondary only
+    auto view = makeView(6, 20, mapper);
+    RawInputs inputs;
+    draw(*view, inputs);
+    EXPECT_TRUE(window_.has("Rig 5", true)) << window_.dump();
+    EXPECT_TRUE(window_.has("G920  3 X", true)) << window_.dump();
+    inputs.devices[0].buttons = 1ULL << 5;
+    draw(*view, inputs);
+    EXPECT_TRUE(window_.has("Last pressed: G920 3 X <- Rig 5")) << window_.dump();
 }
 
 // A device with no buttons says so; out-of-range counts are clamped; a wider window has room for longer lines.

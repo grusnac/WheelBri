@@ -159,7 +159,7 @@ public:
     }
 
     // The Mapping tab's two views while running: Shadow (the target drawn, ShadowView.hpp) or List (every rig axis and
-    // button next to what the target reports). Shadow only for a target with a picture (ShadowView::hasPicture), and
+    // the mapped buttons, the target's and the rig's, next to what the target reports). Shadow only for a target with a picture (ShadowView::hasPicture), and
     // then the first one shown; the choice holds for the app's run (every session's view starts with it). S or the
     // header's Shadow / List buttons switch.
     [[nodiscard]] bool showingShadow() const { return shadow_ != nullptr && gShowShadow; }
