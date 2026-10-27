@@ -94,3 +94,7 @@ A TrueForce game's force does not use that interface on a G923: it goes DirectIn
 driver -> HID++ 0x8123. So with the probe on WheelBri leaves G HUB's `OEMForceFeedback` entry for the wheel in place
 (without it, it removes the entry and Windows' HID PID driver takes the effects). The service log says whether the
 entry is there.
+
+To see what a game asks Logitech's SDK (ACC in TrueForce mode reads the wheel through `trueforce_sdk_x64.dll`), put
+the 64-bit shim in its folder with `emulate = false` and `logi_log = true` in `wheelbri-shim.ini`: every SDK call, its
+arguments and results go to `wheelbri-shim-*.log` (`shim/src/LogiHook.hpp`).

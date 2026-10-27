@@ -12,6 +12,8 @@ paths:
 - `shim/` proxies `IDirectInput8A/W`, templates over `AnsiTraits` / `WideTraits`. Physical wheel shown as the target
   via `EmulatedDevice<T>` (state from `StateFeed`); game effects → service via `FfbForwarder`; other devices stay
   `ProxyDevice<T>`.
+- `LogiHook` (`logi_log`): patches the game .exe's import of `GetProcAddress` and wraps Logitech SDK functions with an
+  asm stub (x64 MinGW only); installed at the first `DirectInput8Create`.
 - `DllMain` only `DisableThreadLibraryCalls` + the detach hook; logging starts lazily; no threads; every line flushed;
   nothing throws into the game (`guarded()` / `guardedOr()`); singletons never destroyed; link statically, never link
   `dinput8`.
