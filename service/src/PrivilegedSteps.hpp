@@ -50,8 +50,9 @@ public:
                                                                   std::string& message) = 0;
     // The virtual wheel (`wheel`: the G920 or the G25), there until removeVirtualWheel or the end of this object.
     // `instanceId`: Windows' id for it.
-    virtual bool createVirtualWheel(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
-                                   std::string& error) = 0;
+    // `trueForceProbe`: also its TrueForce interface, when it has one (TrueForce.hpp).
+    virtual bool createVirtualWheel(const VirtualWheel& wheel, bool trueForceProbe, const Cancelled& cancelled,
+                                    std::string& instanceId, std::string& error) = 0;
     virtual void removeVirtualWheel() = 0;
     // Only this process may open the rig's filtered devices, until showRig or the end of this object.
     virtual bool hideRig(std::string& message) = 0;

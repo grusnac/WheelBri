@@ -41,6 +41,7 @@
 #include "wheelbri/SenderGate.hpp"
 #include "wheelbri/ShimGames.hpp"
 #include "wheelbri/Telemetry.hpp"
+#include "wheelbri/TrueForce.hpp"
 #include "wheelbri/UdpLoopback.hpp"
 #include "wheelbri/WaitFor.hpp"
 #include "wheelbri/EventLoopControl.hpp"
@@ -877,6 +878,21 @@ struct DeviceSummary {
     bool warning = false;
 };
 
+// The state to its reader and, with the TrueForce probe, to the virtual G923's TrueForce interface too (TrueForce.hpp).
+class TeePublisher final : public wheelbri::IStatePublisher {
+public:
+    TeePublisher(wheelbri::IStatePublisher& first, wheelbri::IStatePublisher* second)
+        : first_(first), second_(second) {}
+    bool publish(const wheelbri::StatePacket& packet) override {
+        if (second_ != nullptr) (void)second_->publish(packet);
+        return first_.publish(packet);
+    }
+
+private:
+    wheelbri::IStatePublisher& first_;
+    wheelbri::IStatePublisher* second_;
+};
+
 int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
             const std::filesystem::path& logFolder, const bool logToFile, wheelbri::service::Wheel& source,
             const Accessories& accessories, const bool print, wheelbri::service::UiHost* const host,
@@ -892,13 +908,23 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         WE_LOG_CRITICAL(log(), "cannot publish state, the game shim would receive nothing");
         return 1;
     }
+    std::unique_ptr<wheelbri::UdpLoopbackPublisher> trueForceState;
+    if (const wheelbri::VirtualWheel* wheel = wheelbri::virtualWheel(config.targetProfile);
+        config.trueForceProbe && wheel != nullptr && wheel->trueForce) {
+        trueForceState = wheelbri::UdpLoopbackPublisher::create(wheelbri::kTrueForceStatePort);
+        if (trueForceState) {
+            WE_LOG_INFO(log(), "trueforce: the state goes to the TrueForce interface too (127.0.0.1:{})",
+                        wheelbri::kTrueForceStatePort);
+        }
+    }
+    TeePublisher statePublisher(*publisher, trueForceState.get());
 
     // The app's log level to whatever reads the state (the shim, the virtual G920's driver, wheelbri-uhid): its own
     // packet, from the same socket (LogLevelPacket.hpp).
     wheelbri::LogLevelBeacon levelBeacon;
 
     const wheelbri::Mapper mapper(config.mapper);
-    wheelbri::Pipeline pipeline(source, mapper, *profile, *publisher);
+    wheelbri::Pipeline pipeline(source, mapper, *profile, statePublisher);
     pipeline.setAccessories(accessories.sources());
     // The G25's and G27's buttons in their native order if the mapping says so ([buttons] order).
     pipeline.setButtonOrder(config.buttonOrder);
@@ -1754,7 +1780,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         }
         std::string error;
         std::string wheelId;
-        g920 = steps->createVirtualWheel(*virtualWheel, cancelled, wheelId, error);
+        g920 = steps->createVirtualWheel(*virtualWheel, config.trueForceProbe, cancelled, wheelId, error);
         if (!g920) {
             if (cancelled()) {
                 WE_LOG_INFO(log(), "stopped while the virtual {} was being created", wheelName);

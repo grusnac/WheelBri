@@ -76,10 +76,10 @@ public:
         return result;
     }
 
-    bool createVirtualWheel(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
-                           std::string& error) override {
+    bool createVirtualWheel(const VirtualWheel& wheel, const bool trueForceProbe, const Cancelled& cancelled,
+                            std::string& instanceId, std::string& error) override {
         if (device_ && deviceWheel_ != &wheel) removeVirtualWheel();   // another wheel than the one there: it goes
-        if (!device_) device_ = VirtualWheelDevice::create(wheel, error, cancelled);
+        if (!device_) device_ = VirtualWheelDevice::create(wheel, error, cancelled, true, trueForceProbe);
         if (!device_) return false;
         deviceWheel_ = &wheel;
         instanceId = device_->instanceId();
@@ -183,11 +183,12 @@ public:
         }
     }
 
-    bool createVirtualWheel(const VirtualWheel& wheel, const Cancelled& cancelled, std::string& instanceId,
-                           std::string& error) override {
+    bool createVirtualWheel(const VirtualWheel& wheel, const bool trueForceProbe, const Cancelled& cancelled,
+                            std::string& instanceId, std::string& error) override {
         // The G920 as an older helper knows it (no wheel named); the G25 by name (an older helper refuses that).
         std::vector<std::string> named;
         if (wheel.profile != "g920") named.emplace_back(wheel.profile);
+        if (trueForceProbe && wheel.trueForce) named.emplace_back(helper::kTrueForceProbe);
         if (ask(helper::RequestType::CreateVirtualWheel, named, kCreateMs, cancelled, error) != helper::Status::Ok) {
             return false;
         }

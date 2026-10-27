@@ -5,11 +5,13 @@
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/Logging.hpp"
+#include "wheelbri/TrueForce.hpp"
 
 #ifdef _WIN32
 
 #include <windows.h>
 #include <cfgmgr32.h>
+#include <objbase.h>
 #include <cwchar>
 #include <cwctype>
 
@@ -268,6 +270,49 @@ void removeForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const Virt
     }
 }
 
+// The wheel's TrueForce interface (TrueForce.hpp): its own software device in the wheel's container, since the
+// TrueForce SDK pairs a wheel's interfaces by container. Spare identities as for the wheel. Null when it could not be
+// made; the wheel does not depend on it.
+HSWDEVICE_ createTrueForce(SwDeviceCreateFn swCreate, SwDeviceCloseFn swClose, const VirtualWheel& wheel,
+                           const GUID& container, std::string& instanceId) {
+    std::wstring hardwareIds = widen(trueForceHardwareId(wheel));
+    hardwareIds.push_back(L'\0');
+    const std::wstring description = widen(wheel.oemName) + L" TrueForce (wheelbri)";
+    const std::wstring name = widen(wheel.instancePrefix) + widen(kTrueForceIdSuffix);
+    for (const std::wstring& instance : {name + L"_0", name + L"_1", name + L"_2", name + L"_3"}) {
+        SwDeviceCreateInfo info{};
+        info.cbSize = sizeof(info);
+        info.pszInstanceId = instance.c_str();
+        info.pszzHardwareIds = hardwareIds.c_str();
+        info.pContainerId = &container;
+        info.CapabilityFlags = kRemovable | kSilentInstall | kDriverRequired;
+        info.pszDeviceDescription = description.c_str();
+        auto* wait = new CreateWait;   // leaked if Windows never answers, as for the wheel
+        HSWDEVICE_ device = nullptr;
+        const HRESULT hr = swCreate(L"wheelbri", L"HTREE\\ROOT\\0", &info, 0, nullptr, onCreated, wait, &device);
+        if (FAILED(hr)) {
+            delete wait;
+            WE_LOG_WARN(log(), "trueforce: SwDeviceCreate {} failed (0x{:08X})", narrow(instance),
+                        static_cast<unsigned long>(hr));
+            continue;
+        }
+        bool finished = false;
+        HRESULT result = E_PENDING;
+        {
+            std::unique_lock guard(wait->lock);
+            finished = wait->done.wait_for(guard, std::chrono::seconds(15), [wait] { return wait->finished; });
+            result = wait->result;
+            instanceId = narrow(wait->instanceId);
+        }
+        if (finished) delete wait;
+        if (finished && SUCCEEDED(result)) return device;
+        WE_LOG_WARN(log(), "trueforce: {} was not set up (0x{:08X}): is the driver new enough?", narrow(instance),
+                    static_cast<unsigned long>(result));
+        swClose(device);
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 struct VirtualWheelDevice::Impl {
@@ -276,6 +321,8 @@ struct VirtualWheelDevice::Impl {
     HSWDEVICE_ device = nullptr;
     std::string instanceId;
     bool userHive = true;
+    HSWDEVICE_ trueForceDevice = nullptr;   // its TrueForce interface, when asked for and made
+    std::string trueForceId;
     std::thread watcher;
     std::mutex lock;
     std::condition_variable wake;
@@ -288,6 +335,10 @@ struct VirtualWheelDevice::Impl {
         }
         wake.notify_all();
         if (watcher.joinable()) watcher.join();
+        if (trueForceDevice != nullptr && close != nullptr) {
+            close(trueForceDevice);
+            WE_LOG_INFO(log(), "virtual {} TrueForce {} removed", wheel->instancePrefix, trueForceId);
+        }
         if (device != nullptr && close != nullptr) {
             close(device);
             WE_LOG_INFO(log(), "virtual {} {} removed", wheel->instancePrefix, instanceId);
@@ -328,7 +379,8 @@ VirtualWheelDevice::DriverState VirtualWheelDevice::driverState() {
 }
 
 std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWheel& wheel, std::string& error,
-                                                 const std::function<bool()>& cancelled, const bool userHive) {
+                                                 const std::function<bool()>& cancelled, const bool userHive,
+                                                 const bool trueForce) {
     const auto stopNow = [&cancelled] { return cancelled && cancelled(); };
     const HMODULE cfg = LoadLibraryW(L"cfgmgr32.dll");
     const auto swCreate =
@@ -351,6 +403,9 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
     const std::wstring description = widen(wheel.oemName) + L" (wheelbri)";
     const std::wstring wheelName = widen(wheel.instancePrefix);   // "G920", "G25"
     const std::string label = "virtual " + std::string(wheel.instancePrefix);
+    // The wheel and its TrueForce interface share a container (one physical device to Windows and the SDK).
+    GUID container{};
+    const bool withTrueForce = trueForce && wheel.trueForce && SUCCEEDED(CoCreateGuid(&container));
     for (const std::wstring& instance : {wheelName + L"_0", wheelName + L"_1", wheelName + L"_2", wheelName + L"_3"}) {
         if (stopNow()) {
             error = "cancelled";
@@ -361,6 +416,7 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
         info.pszInstanceId = instance.c_str();
         info.pszzHardwareIds = hardwareIds.c_str();
         info.CapabilityFlags = kRemovable | kSilentInstall | kDriverRequired;
+        if (withTrueForce) info.pContainerId = &container;
         info.pszDeviceDescription = description.c_str();
         // Heap-allocated: if Windows never answers, its late callback must not touch a dead stack frame.
         auto* wait = new CreateWait;
@@ -472,6 +528,14 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
         impl->device = device;
         impl->instanceId = id;
         impl->userHive = userHive;
+        if (withTrueForce) {
+            impl->trueForceDevice = createTrueForce(swCreate, swClose, wheel, container, impl->trueForceId);
+            if (impl->trueForceDevice != nullptr) {
+                WE_LOG_INFO(log(), "{} TrueForce interface {} created", label, impl->trueForceId);
+            } else {
+                WE_LOG_WARN(log(), "{}: no TrueForce interface, the wheel works without it", label);
+            }
+        }
         Impl* raw = impl.get();
         impl->watcher = std::thread([raw] {
             platform::nameThisThread("wheelbri g920 watch");
@@ -554,7 +618,7 @@ DirectInputUserEntries::DirectInputUserEntries(const VirtualWheel&) {}
 DirectInputUserEntries::~DirectInputUserEntries() = default;
 
 std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWheel&, std::string& error,
-                                                 const std::function<bool()>&, bool) {
+                                                 const std::function<bool()>&, bool, bool) {
     error = "the virtual wheel exists on Windows only";
     return nullptr;
 }
