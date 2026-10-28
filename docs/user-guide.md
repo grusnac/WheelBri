@@ -233,6 +233,9 @@ For one game use the Games tab. For every game, edit `[ffb]` in your mapping fil
 | `centring_spring` | 0 | G25 and G27: their centring spring, 0 to 100% |
 | `ignore_lone_full_push` | true | a full push with no other forces for 2 s plays as none (Race Driver: GRID) |
 
+**TrueForce** (Target G923, Windows): `[emulator] trueforce = true` in the same file lets games that use Logitech's
+TrueForce (ACC) drive your wheel with it. Off by default. What it needs: [Games](games.md#assetto-corsa-competizione).
+
 To test the wheel, press Stop and run (Windows, Command Prompt):
 
 ```

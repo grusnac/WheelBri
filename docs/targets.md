@@ -83,12 +83,13 @@ The pedals are in games' layout (throttle Y, brake Rz, clutch Slider), not a rea
 shows them in the wrong places. With a real G923's layout DirectInput relabelled them for games (in ACC gas became the
 clutch), and the registry entries meant to undo that did not.
 
-## TrueForce (G923), in progress
+## TrueForce (G923)
 
-`[emulator] trueforce_probe = true` (off by default) gives the virtual G923 its TrueForce interface: a second device
-in the wheel's container, usage page `0xFFFD`, report `0x01` (`core/include/wheelbri/TrueForce.hpp`). It answers
-the game's set-up as a real wheel and reports the steering (state on 127.0.0.1:41331) over `target_rotation_deg`,
-the wheel's own rotation, whatever range the game sets. Driver log lines start `trueforce:`.
+`[emulator] trueforce = true` (off by default; `trueforce_probe` until 2026-10-28) gives the virtual G923 its
+TrueForce interface: a second device in the wheel's container, usage page `0xFFFD`, report `0x01`
+(`core/include/wheelbri/TrueForce.hpp`). It answers the game's set-up as a real wheel and reports the steering
+(state on 127.0.0.1:41331) over `target_rotation_deg`, the wheel's own rotation, whatever range the game sets. Driver
+log lines start `trueforce:` (each packet and the 10 s summaries at log level debug).
 
 The force of a game in TrueForce mode (ACC: `logiTrueForceSetTorqueKF`) comes on that interface: Logitech's SDK
 streams it as type `0x01` packets (about 640 a second), bytes 6..7 the motor torque target. It needs the full-scale
@@ -99,10 +100,10 @@ G923 applies itself, plays alongside as a damper in slot 6: without it a direct-
 The texture (the packets' sample window) is not played yet.
 
 Games that use DirectInput on a G923 go through Logitech's force feedback driver -> HID++ 0x8123 (ACC also reads
-and sets the range through its Escape). So with the probe on WheelBri registers that driver for the virtual G923:
+and sets the range through its Escape). So with `trueforce` on WheelBri registers that driver for the virtual G923:
 when the `OEMForceFeedback` entry is missing or names another driver, it writes the entry Logitech's software writes
 (`core/include/wheelbri/LogitechFfbDriver.hpp`, with a `WheelBri` value). This needs Logitech's driver installed
-(it comes with G HUB). Without the probe the entry goes and Windows' HID PID driver takes
+(it comes with G HUB). Without it the entry goes and Windows' HID PID driver takes
 the effects. The service log says which driver the wheel has.
 
 To see what a game asks Logitech's SDK (ACC in TrueForce mode reads the wheel through `trueforce_sdk_x64.dll`), put
