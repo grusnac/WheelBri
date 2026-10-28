@@ -98,9 +98,12 @@ the game profile's gain like any other effect. The damping the game sets (`0x0c`
 G923 applies itself, plays alongside as a damper in slot 6: without it a direct-drive wheel swings from lock to lock.
 The texture (the packets' sample window) is not played yet.
 
-Games that use DirectInput on a G923 go through Logitech's force feedback driver -> HID++ 0x8123. So with the probe
-on WheelBri leaves G HUB's `OEMForceFeedback` entry for the wheel in place (without it, it removes the entry and
-Windows' HID PID driver takes the effects). The service log says whether the entry is there.
+Games that use DirectInput on a G923 go through Logitech's force feedback driver -> HID++ 0x8123 (ACC also reads
+and sets the range through its Escape). So with the probe on WheelBri registers that driver for the virtual G923:
+when the `OEMForceFeedback` entry is missing or names another driver, it writes the entry Logitech's software writes
+(`core/include/wheelbri/LogitechFfbDriver.hpp`, with a `WheelBri` value). This needs Logitech's driver installed
+(it comes with G HUB). Without the probe the entry goes and Windows' HID PID driver takes
+the effects. The service log says which driver the wheel has.
 
 To see what a game asks Logitech's SDK (ACC in TrueForce mode reads the wheel through `trueforce_sdk_x64.dll`), put
 the 64-bit shim in its folder with `emulate = false` and `logi_log = true` in `wheelbri-shim.ini`: every SDK call, its
