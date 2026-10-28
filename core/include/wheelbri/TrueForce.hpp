@@ -42,8 +42,9 @@ inline constexpr std::size_t kTrueForceReportSize = 64;   // with the report ID
 // device reports the steering from it. Its own port, as the wheel's (41329) takes one reader only.
 inline constexpr std::uint16_t kTrueForceStatePort = 41331;
 
-// What a host sends the TrueForce interface, for the log: the first kFirstShown packets of each type in hex, then
-// every kSummaryMs a line of counts per type (for the stream, also its bytes 10/11: new samples, window flag).
+// What a host sends the TrueForce interface, for the log: every packet in hex but the stream's (its first kFirstShown,
+// then one every kStreamShownMs), and every kSummaryMs a line of counts per type (for the stream, also its bytes 10/11:
+// new samples, window flag).
 // For the stream also its force: cur (bytes 6..7, offset binary, 0x8000 = none) as -1..1, its range, mean size and
 // how often it changed side, and the texture samples' peak.
 // Thread-safe: the driver's writes come on a parallel queue.
@@ -51,7 +52,9 @@ class TrueForceLog {
 public:
     using Logger = std::function<void(LogLevel, const std::string&)>;
     static constexpr int kFirstShown = 3;
+    static constexpr std::int64_t kStreamShownMs = 250;   // a stream packet logged raw this often
     static constexpr std::int64_t kSummaryMs = 10'000;
+    static constexpr std::int64_t kPinnedMs = 1'000;   // the stream's force at full this long: logged once, raw
 
     explicit TrueForceLog(Logger log) : log_(std::move(log)) {}
     TrueForceLog(const TrueForceLog&) = delete;
@@ -67,7 +70,7 @@ private:
     static constexpr int kOdd = 256;
 
     void summarise(std::int64_t nowMs);
-    void noteStream(std::span<const std::uint8_t> report);
+    void noteStream(std::span<const std::uint8_t> report, std::int64_t nowMs);
 
     Logger log_;
     std::mutex lock_;
@@ -87,6 +90,16 @@ private:
     } stream_;
     std::map<int, std::uint64_t> total_;
     std::int64_t periodStartMs_ = -1;
+    std::int64_t pinnedSinceMs_ = -1;
+    std::int64_t lastStreamShownMs_ = -1;
+    bool pinnedShown_ = false;
+    static constexpr std::size_t kHistory = 40;   // the stream's last cur values, logged when it hits its limit
+    std::array<std::pair<std::int64_t, int>, kHistory> history_ = [] {
+        std::array<std::pair<std::int64_t, int>, kHistory> a{};
+        a.fill({-1, 0});
+        return a;
+    }();
+    std::size_t historyNext_ = 0;
 };
 
 }  // namespace wheelbri
@@ -102,40 +115,49 @@ namespace wheelbri {
 //   03 s / 04 s     -> status 02 (03 starts the session, 04 stops it)
 //   01 s .. (stream)-> status 02
 //   09, 0b, 0c, ... -> nothing
-// A status report: [4] type, [5] s, [6..7] a counter counting down, [8] 03, [9..10] the steering (signed, 0 = centre,
-// + = left), [11..12] the steering in the status before, [13..16] a clock in microseconds, [17..20] 00 00 00 80
-// for type 02, [21..32] constants seen in every capture, [33] the checksum. Every answer ends in one (seal: its
-// bytes from [4] sum to 0); the counters are guesses.
+// A status report, as Logitech's DLL (1.3.12) parses it: [4] type, [5] s, [6..8] the wheel's position in counts
+// (24-bit; centre = half of [22..24]), [9..12] 00 80 00 80, [13..16] a clock in microseconds, [17..20] the speed in
+// counts a second (int32 + 0x80000000), [22..24] the count range (491520 = 2700 degrees at 65536 a turn: p4 * p5),
+// [25..32] the full-scale torque, two int32 + 0x80000000 (2.2 Nm), [33] the checksum. Every answer ends in one
+// (seal: its bytes from [4] sum to 0). The DLL's angle = -(position - centre) / 65536 turns, + = left: a right turn
+// counts up.
 // While a session runs, a new steering value also sends a status 02 (steering()), at most one a millisecond, so the
 // game reads the wheel even when it streams nothing. Thread-safe: writes and state come on different threads.
 class TrueForceDevice {
 public:
     using Report = std::vector<std::uint8_t>;   // an input report for the host: kTrueForceReportSize, report ID first
     static constexpr std::int64_t kStatusEveryUs = 1000;
+    static constexpr double kSpeedSmoothing = 0.5;   // the new sample's share of the speed
 
     explicit TrueForceDevice(TrueForceLog::Logger log);
 
     // What the host wrote (report ID first): its answers, in order (none for most stream-less packets).
     [[nodiscard]] std::vector<Report> output(std::span<const std::uint8_t> report, std::int64_t nowUs);
-    // The steering from the service's state (0..65535, clamped): a status report when a session runs and the last one
-    // went out at least kStatusEveryUs ago.
-    [[nodiscard]] std::optional<Report> steering(std::int32_t value, std::int64_t nowUs);
+    // The steering from the service's state (0..65535, clamped) over the wheel's rotation (90..2700 degrees; anything
+    // else keeps the last one): a status report when a session runs and the last one went out kStatusEveryUs ago.
+    [[nodiscard]] std::optional<Report> steering(std::int32_t value, int rotationDeg, std::int64_t nowUs);
     void finish(std::int64_t nowUs) { log_.finish(nowUs / 1000); }
     [[nodiscard]] bool running() const;
     // A parameter's value as a real wheel reports it (0 for one not seen in captures).
     [[nodiscard]] static float parameter(std::uint8_t index);
 
 private:
-    // `at17`: bytes 17..20, 00 00 00 80 for a plain status.
-    Report status(std::uint8_t type, std::uint8_t seq, std::int64_t nowUs, std::uint32_t at17 = 0x80000000U);
+    // `at17`: bytes 17..20; none = the wheel's speed (a plain status).
+    [[nodiscard]] std::int64_t positionCounts() const;   // position_ over rotationDeg_, as the status carries it
+    Report status(std::uint8_t type, std::uint8_t seq, std::int64_t nowUs,
+                  std::optional<std::uint32_t> at17 = std::nullopt);
 
     TrueForceLog::Logger say_;
     TrueForceLog log_;
     mutable std::mutex lock_;
     bool running_ = false;
     std::uint16_t position_ = 0x8000;
-    std::uint16_t sent_ = 0x8000;   // the steering in the last status: its [11..12] (the host works out the speed)
-    std::uint16_t countdown_ = 0xC000;
+    int rotationDeg_ = 900;            // the wheel's rotation (target_rotation_deg): its end stop is half of it
+    double speed_ = 0;                 // counts a second, from the steering samples (steering())
+    std::int64_t lastSampleCounts_ = 0;
+    std::int64_t lastSampleUs_ = -1;
+    double fastest_ = 0;               // the largest |speed_| since speedLogUs_ (logged every 10 s in a session)
+    std::int64_t speedLogUs_ = -1;
     std::uint8_t lastSeq_ = 0;
     std::int64_t lastStatusUs_ = -1;
 };

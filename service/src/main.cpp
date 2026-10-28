@@ -878,19 +878,24 @@ struct DeviceSummary {
     bool warning = false;
 };
 
-// The state to its reader and, with the TrueForce probe, to the virtual G923's TrueForce interface too (TrueForce.hpp).
+// The state to its reader and, with the TrueForce probe, to the virtual G923's TrueForce interface too (TrueForce.hpp),
+// with the wheel's rotation: the interface reports the wheel's angle over it, and the driver's HID++ reports it as the
+// wheel's rotation (ACC divides its steering by that).
 class TeePublisher final : public wheelbri::IStatePublisher {
 public:
-    TeePublisher(wheelbri::IStatePublisher& first, wheelbri::IStatePublisher* second)
-        : first_(first), second_(second) {}
+    TeePublisher(wheelbri::IStatePublisher& first, wheelbri::IStatePublisher* second, const float rotationDeg)
+        : first_(first), second_(second), rotationDeg_(static_cast<std::uint16_t>(std::lround(rotationDeg))) {}
     bool publish(const wheelbri::StatePacket& packet) override {
-        if (second_ != nullptr) (void)second_->publish(packet);
-        return first_.publish(packet);
+        wheelbri::StatePacket withRotation = packet;
+        withRotation.rotationDeg = rotationDeg_;
+        if (second_ != nullptr) (void)second_->publish(withRotation);
+        return first_.publish(withRotation);
     }
 
 private:
     wheelbri::IStatePublisher& first_;
     wheelbri::IStatePublisher* second_;
+    std::uint16_t rotationDeg_;
 };
 
 int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
@@ -917,7 +922,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                         wheelbri::kTrueForceStatePort);
         }
     }
-    TeePublisher statePublisher(*publisher, trueForceState.get());
+    TeePublisher statePublisher(*publisher, trueForceState.get(), config.mapper.steering.targetRotationDeg);
 
     // The app's log level to whatever reads the state (the shim, the virtual G920's driver, wheelbri-uhid): its own
     // packet, from the same socket (LogLevelPacket.hpp).

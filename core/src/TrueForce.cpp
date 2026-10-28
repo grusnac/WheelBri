@@ -77,9 +77,14 @@ void TrueForceLog::output(const std::span<const std::uint8_t> report, const std:
     ++period_[type];
     ++total_[type];
     if (type == 0x01 && report.size() > 11) ++streamFlags_[{report[10], report[11]}];
-    if (type == 0x01 && report.size() > 11) noteStream(report);
-    if (int& shown = shown_[static_cast<std::size_t>(type)]; shown < kFirstShown) {
+    if (type == 0x01 && report.size() > 11) noteStream(report, nowMs);
+    // Every packet but the stream (they are rare), and the stream's first ones and one every kStreamShownMs: what a
+    // game sends, raw.
+    int& shown = shown_[static_cast<std::size_t>(type)];
+    const bool sample = type == 0x01 && (lastStreamShownMs_ < 0 || nowMs - lastStreamShownMs_ >= kStreamShownMs);
+    if (type != 0x01 || shown < kFirstShown || sample) {
         ++shown;
+        if (type == 0x01) lastStreamShownMs_ = nowMs;
         log_(LogLevel::Info, "trueforce: " + typeName(type) + " #" + std::to_string(shown) +
                                  " (" + std::to_string(report.size()) + " bytes): " + hex(report));
     }
@@ -108,8 +113,33 @@ double level(const std::span<const std::uint8_t> r, const std::size_t at) {
 
 }  // namespace
 
-void TrueForceLog::noteStream(const std::span<const std::uint8_t> r) {
+void TrueForceLog::noteStream(const std::span<const std::uint8_t> r, const std::int64_t nowMs) {
     constexpr double kFlipAt = 0.02;
+    const int raw = r[6] | (r[7] << 8);
+    // The SDK clamps cur to 1..0xFFFF: a computed NaN or overflow lands on 0x0001 and stays (2026-10-28).
+    const bool atLimit = raw <= 0x0001 || raw >= 0xFFFF;
+    if (!atLimit) {
+        pinnedSinceMs_ = -1;
+    } else if (pinnedSinceMs_ < 0) {
+        pinnedSinceMs_ = nowMs;
+        pinnedShown_ = false;
+        // How it got there: the last kHistory values of cur (hex), oldest first, ms before this packet.
+        std::string line = "trueforce: the stream's force hit its limit; before it (ms ago: cur):";
+        for (std::size_t i = 0; i < kHistory; ++i) {
+            const auto& [ms, value] = history_.at((historyNext_ + i) % kHistory);
+            if (ms < 0) continue;
+            char item[24];
+            std::snprintf(item, sizeof(item), " %lld:%04x", static_cast<long long>(nowMs - ms), value);
+            line += item;
+        }
+        log_(LogLevel::Warn, line);
+    } else if (!pinnedShown_ && nowMs - pinnedSinceMs_ >= kPinnedMs) {
+        pinnedShown_ = true;
+        log_(LogLevel::Warn, "trueforce: the stream's force sits at its limit for " + std::to_string(kPinnedMs) +
+                                 " ms: " + hex(r));
+    }
+    history_.at(historyNext_) = {nowMs, raw};
+    historyNext_ = (historyNext_ + 1) % kHistory;
     const double cur = level(r, 6);
     stream_.curMin = std::min(stream_.curMin, cur);
     stream_.curMax = std::max(stream_.curMax, cur);
@@ -166,7 +196,18 @@ namespace wheelbri {
 
 namespace {
 
-constexpr std::uint8_t kStatusTail[] = {0x00, 0x00, 0x80, 0x07, 0x00, 0x00, 0x1D, 0x95, 0x00, 0x00, 0x1D, 0x95};
+// How Logitech's DLL reads a status (its parser, trueforce_sdk_x64.dll 1.3.12): angle = -(position - range / 2) /
+// (p4 * p5) * 2 pi, speed = -speed / (p4 * p5) * 2 pi, full-scale torque = (t1 + t2) / 65536000 * 0.5 (Nm): the
+// stream's force ("cur", 6..9) = centre - torque / full scale * centre, none at all while the full scale is 0.
+constexpr std::uint32_t kCountRange = 0x078000;   // [22..24]: 491520 counts = 7.5 turns = 2700 degrees
+constexpr double kCountsPerTurn = 65536.0;         // p4 * p5
+constexpr std::int64_t kCentre = kCountRange / 2;
+// [25..28], [29..32]: the full-scale torque, 2.2 Nm (a G923's max peak) = 0x80000000 + 2.2 * 65536000 each.
+constexpr std::uint32_t kFullScaleTorque = 0x88980000U;
+
+void put24(TrueForceDevice::Report& r, const std::size_t at, const std::uint32_t v) {
+    for (std::size_t i = 0; i < 3; ++i) r[at + i] = static_cast<std::uint8_t>(v >> (8 * i));
+}
 
 void putU16(TrueForceDevice::Report& r, const std::size_t at, const std::uint16_t v) {
     r[at] = static_cast<std::uint8_t>(v & 0xFF);
@@ -183,13 +224,6 @@ void seal(TrueForceDevice::Report& r, const std::size_t at) {
     unsigned sum = 0;
     for (std::size_t i = 4; i < at; ++i) sum += r[i];
     r[at] = static_cast<std::uint8_t>(0x100U - (sum & 0xFFU));
-}
-
-// The steering as a status carries it: signed, centre 0, + = left (ACC read 0x8000 as full left lock and the plain
-// signed value turned the car the other way, 2026-10-27).
-std::uint16_t wireSteering(const std::uint16_t steering) {
-    const int value = std::clamp(0x8000 - static_cast<int>(steering), -0x8000, 0x7FFF);
-    return static_cast<std::uint16_t>(static_cast<std::int16_t>(value));
 }
 
 TrueForceDevice::Report blank(const std::uint8_t type, const std::uint8_t seq) {
@@ -216,8 +250,13 @@ float TrueForceDevice::parameter(const std::uint8_t index) {
         case 0x01: return 1.0F;
         case 0x02: return 32768.0F;
         case 0x03: return 65535.0F;
+        case 0x04: return 65536.0F;   // counts a turn (p4 * p5: the status angle's divisor)
+        case 0x05: return 1.0F;
         case 0x07: return 5.4054F;
+        case 0x08: return 1.1F;       // max peak torque = 2 * p8 * p10 * p11 (Nm): a G923's 2.2; 0 = no force at all
         case 0x09: return 0.3F;
+        case 0x0A: return 1.0F;       // torque scale (p10 * p11): never 0, or the DLL says the wheel has no torque
+        case 0x0B: return 1.0F;
         case 0x0C: return 47.1239F;
         case 0x0D: return 1.5708F;
         case 0x0E: return -9.4248F;
@@ -228,6 +267,10 @@ float TrueForceDevice::parameter(const std::uint8_t index) {
         case 0x1D: return 4.0F;
         case 0x30: return 3.0F;
         case 0x33: return 350.0F;
+        // 0x34..0x38 switch the SDK's slots 1..5 on when negative (its set-up compares 0 > the parameter). Slot 3
+        // on = no KF reconstruction filter: that band-pass has its lower corner at 0 Hz, a double pole at z = 1,
+        // and runs away under a steady torque (ACC: a full push at launch, then no force, 2026-10-28).
+        case 0x36: return -1.0F;
         default: return 0.0F;
     }
 }
@@ -238,19 +281,30 @@ bool TrueForceDevice::running() const {
 }
 
 TrueForceDevice::Report TrueForceDevice::status(const std::uint8_t type, const std::uint8_t seq,
-                                                const std::int64_t nowUs, const std::uint32_t at17) {
+                                                const std::int64_t nowUs, const std::optional<std::uint32_t> at17) {
     Report r = blank(type, seq);
-    putU16(r, 6, countdown_--);
-    r[8] = 0x03;
-    putU16(r, 9, wireSteering(position_));
-    putU16(r, 11, wireSteering(sent_));
-    sent_ = position_;
+    // The steering over the wheel's rotation: its end stop = half of it each way, as a real wheel's position is its
+    // angle whatever the game's range. The DLL's angle is + to the left (ACC turned the other way with + to the right,
+    // 2026-10-27), so a right turn counts up.
+    const std::int64_t counts = positionCounts();
+    put24(r, 6, static_cast<std::uint32_t>(std::clamp<std::int64_t>(counts, 0, kCountRange)));
+    putU16(r, 9, 0x8000);
+    putU16(r, 11, 0x8000);
     putU32(r, 13, static_cast<std::uint32_t>(nowUs));
-    putU32(r, 17, at17);
-    std::copy(std::begin(kStatusTail), std::end(kStatusTail), r.begin() + 21);
+    const auto wireSpeed =
+        static_cast<std::uint32_t>(static_cast<std::int64_t>(std::clamp(speed_, -2e9, 2e9)) + 0x80000000LL);
+    putU32(r, 17, at17.value_or(wireSpeed));
+    put24(r, 22, kCountRange);
+    putU32(r, 25, kFullScaleTorque);
+    putU32(r, 29, kFullScaleTorque);
     seal(r, 33);
     lastStatusUs_ = nowUs;
     return r;
+}
+
+std::int64_t TrueForceDevice::positionCounts() const {
+    const double degreesRight = (static_cast<double>(position_) - 32768.0) / 32768.0 * rotationDeg_ / 2.0;
+    return static_cast<std::int64_t>(std::llround(kCentre + degreesRight / 360.0 * kCountsPerTurn));
 }
 
 std::vector<TrueForceDevice::Report> TrueForceDevice::output(const std::span<const std::uint8_t> report,
@@ -323,10 +377,33 @@ std::vector<TrueForceDevice::Report> TrueForceDevice::output(const std::span<con
     return answers;
 }
 
-std::optional<TrueForceDevice::Report> TrueForceDevice::steering(const std::int32_t value, const std::int64_t nowUs) {
+std::optional<TrueForceDevice::Report> TrueForceDevice::steering(const std::int32_t value, const int rotationDeg,
+                                                                const std::int64_t nowUs) {
     const auto clamped = static_cast<std::uint16_t>(std::clamp(value, 0, 65535));
     std::lock_guard guard(lock_);
     position_ = clamped;
+    if (rotationDeg >= 90 && rotationDeg <= 2700) rotationDeg_ = rotationDeg;
+    // The speed between steering samples (the service's state, 2 ms apart), half new, half old: a status sent just
+    // after a sample must not divide its step by the microseconds since the last status (spikes of 20 times the real
+    // speed, 2026-10-27).
+    const std::int64_t counts = positionCounts();
+    if (lastSampleUs_ >= 0 && nowUs > lastSampleUs_) {
+        const double raw = static_cast<double>(counts - lastSampleCounts_) * 1e6 /
+                           static_cast<double>(nowUs - lastSampleUs_);
+        speed_ += kSpeedSmoothing * (raw - speed_);
+    }
+    lastSampleCounts_ = counts;
+    lastSampleUs_ = nowUs;
+    fastest_ = std::max(fastest_, std::abs(speed_));
+    if (speedLogUs_ < 0) speedLogUs_ = nowUs;
+    if (nowUs - speedLogUs_ >= TrueForceLog::kSummaryMs * 1000) {
+        if (running_) {
+            say_(LogLevel::Info, "trueforce: last 10 s: the wheel turned at most " +
+                                     std::to_string(std::lround(fastest_ / kCountsPerTurn * 360.0)) + " deg/s");
+        }
+        fastest_ = 0;
+        speedLogUs_ = nowUs;
+    }
     if (!running_ || (lastStatusUs_ >= 0 && nowUs - lastStatusUs_ < kStatusEveryUs)) return std::nullopt;
     return status(0x02, lastSeq_, nowUs);
 }
