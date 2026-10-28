@@ -46,13 +46,17 @@ TEST(EmulatorConfig, ReadsFromRig) {
     EXPECT_TRUE(containsError(load("[emulator]\nfrom_rig = maybe\n"), "from_rig"));
 }
 
-// trueforce_probe: off unless asked for.
-TEST(EmulatorConfig, ReadsTheTrueForceProbe) {
-    EXPECT_FALSE(load("").config.trueForceProbe);
-    const auto result = load("[emulator]\ntarget_profile = g923\ntrueforce_probe = true\n");
+// trueforce: off unless asked for; trueforce_probe, its old name, still read.
+TEST(EmulatorConfig, ReadsTrueForce) {
+    EXPECT_FALSE(load("").config.trueForce);
+    const auto result = load("[emulator]\ntarget_profile = g923\ntrueforce = true\n");
     EXPECT_TRUE(result.errors.empty());
-    EXPECT_TRUE(result.config.trueForceProbe);
-    EXPECT_TRUE(containsError(load("[emulator]\ntrueforce_probe = 2\n"), "trueforce_probe"));
+    EXPECT_TRUE(result.config.trueForce);
+    const auto old = load("[emulator]\ntarget_profile = g923\ntrueforce_probe = true\n");
+    EXPECT_TRUE(old.errors.empty());
+    EXPECT_TRUE(old.config.trueForce);
+    EXPECT_FALSE(load("[emulator]\ntrueforce_probe = true\ntrueforce = false\n").config.trueForce);
+    EXPECT_TRUE(containsError(load("[emulator]\ntrueforce = 2\n"), "trueforce"));
 }
 
 TEST(EmulatorConfig, ReadsTheG25Target) {

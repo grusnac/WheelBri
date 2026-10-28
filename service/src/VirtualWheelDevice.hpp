@@ -55,7 +55,7 @@ private:
 // keeps only the machine's (HKLM). Written while this exists, removed when it goes. Nothing elsewhere than Windows.
 class DirectInputUserEntries {
 public:
-    // `keepLogitechFfb`: the TrueForce probe; Logitech's force feedback driver stays (VirtualWheelDevice::create).
+    // `keepLogitechFfb`: [emulator] trueforce; Logitech's force feedback driver stays (VirtualWheelDevice::create).
     DirectInputUserEntries(const VirtualWheel& wheel, bool keepLogitechFfb);
     ~DirectInputUserEntries();
     DirectInputUserEntries(const DirectInputUserEntries&) = delete;

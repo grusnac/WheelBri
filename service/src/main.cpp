@@ -878,9 +878,9 @@ struct DeviceSummary {
     bool warning = false;
 };
 
-// The state to its reader and, with the TrueForce probe, to the virtual G923's TrueForce interface too (TrueForce.hpp),
-// with the wheel's rotation: the interface reports the wheel's angle over it, and the driver's HID++ reports it as the
-// wheel's rotation (ACC divides its steering by that).
+// The state to its reader and, with [emulator] trueforce on, to the virtual G923's TrueForce interface too
+// (TrueForce.hpp), with the wheel's rotation: the interface reports the wheel's angle over it, and the driver's HID++
+// reports it as the wheel's rotation (ACC divides its steering by that).
 class TeePublisher final : public wheelbri::IStatePublisher {
 public:
     TeePublisher(wheelbri::IStatePublisher& first, wheelbri::IStatePublisher* second, const float rotationDeg)
@@ -915,7 +915,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
     }
     std::unique_ptr<wheelbri::UdpLoopbackPublisher> trueForceState;
     if (const wheelbri::VirtualWheel* wheel = wheelbri::virtualWheel(config.targetProfile);
-        config.trueForceProbe && wheel != nullptr && wheel->trueForce) {
+        config.trueForce && wheel != nullptr && wheel->trueForce) {
         trueForceState = wheelbri::UdpLoopbackPublisher::create(wheelbri::kTrueForceStatePort);
         if (trueForceState) {
             WE_LOG_INFO(log(), "trueforce: the state goes to the TrueForce interface too (127.0.0.1:{})",
@@ -1785,7 +1785,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         }
         std::string error;
         std::string wheelId;
-        g920 = steps->createVirtualWheel(*virtualWheel, config.trueForceProbe, cancelled, wheelId, error);
+        g920 = steps->createVirtualWheel(*virtualWheel, config.trueForce, cancelled, wheelId, error);
         if (!g920) {
             if (cancelled()) {
                 WE_LOG_INFO(log(), "stopped while the virtual {} was being created", wheelName);

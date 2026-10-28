@@ -339,10 +339,10 @@ std::wstring registeredFfbDriver(HKEY root, const std::wstring& path) {
                                                                                                              : L"";
 }
 
-// With the TrueForce probe Logitech's driver is the one: a TrueForce game's force reaches a G923 only through it
+// With [emulator] trueforce Logitech's driver is the one: a TrueForce game's force reaches a G923 only through it
 // (DirectInput -> hidpp_forcefeedback_x64.dll -> HID++ 0x8123, played by the driver's HidPpFfb), and ACC sets the
-// range through its Escape. Written when it is missing or another driver is there (a probe-off run removed it), as
-// long as Logitech's driver is installed; says when that changes. Without the probe it goes, as before.
+// range through its Escape. Written when it is missing or another driver is there (a run with it off removed it), as
+// long as Logitech's driver is installed; says when that changes. Without it the entry goes, as before.
 void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const VirtualWheel& wheel, const bool keep) {
     if (!keep) {
         removeForeignForceFeedbackDriver(hives, wheel);
@@ -378,8 +378,8 @@ void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const Virt
     const int state = !found.empty() ? 1 : installed ? 0 : 2;
     if (said.exchange(state) == state) return;
     if (state == 1) {
-        WE_LOG_INFO(log(), "DirectInput: Logitech's force feedback driver ({}) drives the virtual {} (TrueForce "
-                           "probe); its effects reach WheelBri over HID++ 0x8123", narrow(found), wheel.instancePrefix);
+        WE_LOG_INFO(log(), "DirectInput: Logitech's force feedback driver ({}) drives the virtual {} (trueforce "
+                           "on); its effects reach WheelBri over HID++ 0x8123", narrow(found), wheel.instancePrefix);
     } else if (state == 2) {
         WE_LOG_WARN(log(), "DirectInput: Logitech's force feedback driver is not installed (G HUB installs it): the "
                            "virtual {} gets Windows' HID PID driver, and TrueForce games no force",
@@ -441,7 +441,7 @@ struct VirtualWheelDevice::Impl {
     HSWDEVICE_ device = nullptr;
     std::string instanceId;
     bool userHive = true;
-    bool keepLogitechFfb = false;   // the TrueForce probe: Logitech's force feedback driver stays
+    bool keepLogitechFfb = false;   // [emulator] trueforce: Logitech's force feedback driver stays
     HSWDEVICE_ trueForceDevice = nullptr;   // its TrueForce interface, when asked for and made
     std::string trueForceId;
     std::thread watcher;

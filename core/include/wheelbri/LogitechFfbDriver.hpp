@@ -10,7 +10,7 @@ namespace wheelbri {
 // Logitech's DirectInput force feedback driver for HID++ wheels (hidpp_forcefeedback_x64.dll, installed with G HUB):
 // the OEMForceFeedback entry Logitech's software writes for a G923 (OEM\VID_046D&PID_C26E), as read from the
 // registry (HKCU and HKLM, the same in both). DirectInput hands a wheel's effects and Escape calls (ACC reads and sets
-// the range with them) to the driver this entry names. With the TrueForce probe the service writes it for the
+// the range with them) to the driver this entry names. With [emulator] trueforce on the service writes it for the
 // virtual G923 when it is missing (VirtualWheelDevice.cpp).
 namespace logitech_ffb {
 

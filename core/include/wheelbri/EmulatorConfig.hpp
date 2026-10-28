@@ -28,9 +28,10 @@ struct EmulatorConfig {
     std::uint16_t statePort = kDefaultStatePort; // UDP loopback port the service publishes state on
     std::uint16_t ffbPort = kDefaultFfbPort;     // UDP loopback port the service receives game force feedback on
     bool gameFfb = true;                         // play the game's force feedback (sent by the shim)
-    // [emulator] trueforce_probe = true: the virtual G923 also gets its TrueForce interface (TrueForce.hpp), and
-    // Logitech's force feedback driver stays registered for it (HidPpFfb.hpp). Off by default: in progress.
-    bool trueForceProbe = false;
+    // [emulator] trueforce = true (trueforce_probe until 2026-10-28): the virtual G923 also gets its TrueForce
+    // interface (TrueForce.hpp), and Logitech's force feedback driver is registered for it (VirtualWheelDevice.cpp),
+    // for games that use TrueForce (ACC). Off by default: other games as a G923 were not tested with it.
+    bool trueForce = false;
     int stateRateHz = 500;                       // at most this many state packets a second, only when it changed
     bool ffbInvert = false;                    // flip force direction if the wheel pulls the wrong way
     // [ffb] centring_spring = 0..100: the target's centring spring in percent, 0 = off (CentringSpring.hpp). Played

@@ -26,7 +26,7 @@ struct VirtualWheel;
 // torque + texture stream). Written from public protocol descriptions; nothing is copied from GPL code.
 //
 // The virtual wheel's input report already is 0x01, so the interface is a second software device: the wheel's
-// hardware id + kTrueForceIdSuffix (wheelbri\G923_TF), in the wheel's container ([emulator] trueforce_probe). It
+// hardware id + kTrueForceIdSuffix (wheelbri\G923_TF), in the wheel's container ([emulator] trueforce). It
 // answers as a real wheel (TrueForceDevice) and logs what it is sent (TrueForceLog); it plays nothing yet.
 inline constexpr std::string_view kTrueForceIdSuffix = "_TF";
 inline constexpr std::uint8_t kTrueForceReportId = 0x01;
@@ -38,7 +38,7 @@ inline constexpr std::size_t kTrueForceReportSize = 64;   // with the report ID
 [[nodiscard]] const VirtualWheel* trueForceWheelForHardwareId(std::string_view hardwareId);
 [[nodiscard]] std::span<const std::uint8_t> trueForceReportDescriptor();
 
-// The service sends its state here too (the same StatePacket as to the wheel) while the probe is on: the TrueForce
+// The service sends its state here too (the same StatePacket as to the wheel) while trueforce is on: the TrueForce
 // device reports the steering from it. Its own port, as the wheel's (41329) takes one reader only.
 inline constexpr std::uint16_t kTrueForceStatePort = 41331;
 
