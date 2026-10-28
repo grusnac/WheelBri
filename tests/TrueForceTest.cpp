@@ -168,9 +168,6 @@ TEST(TrueForceDevice, SlotThreeIsOnSoTheSdkSkipsItsKfFilter) {
     for (const std::uint8_t index : {0x34, 0x35, 0x37, 0x38}) EXPECT_EQ(TrueForceDevice::parameter(index), 0.0F);
 }
 
-// Parameter 0x06 scales every texture sample in the SDK: at 0 the texture window stays silent.
-TEST(TrueForceDevice, TheTextureHasAScale) { EXPECT_EQ(TrueForceDevice::parameter(0x06), 32767.0F); }
-
 TEST(TrueForceDevice, AnswersAParameterWithItsCurrentValue) {
     Device d;
     const auto answers = d.send({0x05, 0x01, 0x00});

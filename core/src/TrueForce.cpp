@@ -252,10 +252,6 @@ float TrueForceDevice::parameter(const std::uint8_t index) {
         case 0x03: return 65535.0F;
         case 0x04: return 65536.0F;   // counts a turn (p4 * p5: the status angle's divisor)
         case 0x05: return 1.0F;
-        // The texture's scale: the SDK sets each texture sample (resampled to p0x12, clamped to +-1) times p0x06, so 0
-        // silences it (ACC's window was all 0x8000, 2026-10-28). A real G923's value is not known; the window
-        // goes to WheelBri only, so its full range.
-        case 0x06: return 32767.0F;
         case 0x07: return 5.4054F;
         case 0x08: return 1.1F;       // max peak torque = 2 * p8 * p10 * p11 (Nm): a G923's 2.2; 0 = no force at all
         case 0x09: return 0.3F;
