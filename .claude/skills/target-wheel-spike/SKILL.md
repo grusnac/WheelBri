@@ -59,7 +59,7 @@ Each mode is its own footprint (G920 Xbox/PC, G923 Xbox/PS, G25/G27 compatibilit
 Sources, in order: Logitech (logitechg.com; G920 = Xbox version, never G29; manuals, FAQs, LGS / G HUB INFs, Steering
 Wheel and TrueForce SDK docs and headers; support archive); real-device dumps (linux-hardware.org, `usb.ids`,
 `lsusb -v`, `usbhid-dump`, USBPcap); open drivers, **facts only, never copy** (Linux `hid-lg4ff`,
-`hid-logitech-hidpp`, `hid-lg`, new-lg4ff, Oversteer GPLv2; GIMX GPLv3; flag before taking any code); games' data;
+`hid-logitech-hidpp`, `hid-lg`, new-lg4ff GPLv2; Oversteer, GIMX GPLv3; flag before taking any code); games' data;
 community last (needs a second source). CAPTCHA: send the user the link. Keep a source list (URL + what it gave).
 
 - **Identity.** USB: VID, PID per mode, `bcdDevice`/firmware, `bcdUSB`, class, power, speed, strings, interfaces,
