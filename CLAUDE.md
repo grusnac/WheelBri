@@ -22,7 +22,8 @@ A new area file gets a row here.
 
 - `scripts/make/*.sh`: build/test shortcuts; each header says what it does. A new one sources `common.sh` and goes in
   the list below. The docs never use them (plain CMake in `docs/building.md`).
-- Driver steps: PowerShell. Everything else: MSYS2 UCRT64, repo root.
+- Commands for the user: MSYS2 UCRT64, repo root, for everything (copy with `cp`, not `Copy-Item`). PowerShell or CMD
+  only when there is no other way, and say why.
 - Docs: install (Windows and Linux sections) and status in `README.md`; usage in `docs/user-guide.md`; per game in
   `docs/games.md`; target layouts in `docs/targets.md`; build in `docs/building.md`. Short, current facts only, no
   dated history. A new screen needs a screenshot in `docs/images/` (ask the user to take it).
