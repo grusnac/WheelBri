@@ -217,6 +217,26 @@ extern "C" void wheelbri_logi_after(Wrapped* wrapped, const std::uint64_t* args,
             std::strcmp(wrapped->name, "logiTrueForceSync") == 0) {
             line += " | rdx bytes: " + bytesAt(args[1], 64);
         }
+        // The texture's samples: its header says 0x1040 bytes in all (as r8), 48,000 Hz and 1,024 samples, so they
+        // likely follow the 64-byte header; +0x28 holds a pointer that may lead to them instead. Both are shown, each
+        // with how many of its 4,096 bytes are not 0 (silence or not).
+        if (std::strcmp(wrapped->name, "logiTrueForceSetStreamTF") == 0) {
+            constexpr std::uint64_t kHeader = 64;
+            constexpr std::uint64_t kSamples = 4096;
+            const auto texture = [](const std::uint64_t at) {
+                if (!readable(at, kSamples)) return std::string("(unreadable)");
+                const auto* p = reinterpret_cast<const unsigned char*>(at);
+                std::size_t set = 0;
+                for (std::uint64_t i = 0; i < kSamples; ++i) set += p[i] != 0 ? 1U : 0U;
+                return std::to_string(set) + " of " + std::to_string(kSamples) + " bytes not 0: " + bytesAt(at, 64);
+            };
+            line += " | after the header: " + texture(args[1] + kHeader);
+            std::uint64_t pointer = 0;
+            if (readable(args[1] + 0x28, sizeof(pointer))) {
+                std::memcpy(&pointer, reinterpret_cast<const void*>(args[1] + 0x28), sizeof(pointer));
+                line += " | at +0x28's pointer: " + texture(pointer);
+            }
+        }
         WE_LOG_INFO(log(), "{}", line);
     } catch (...) {
         // Never into Logitech's caller.
