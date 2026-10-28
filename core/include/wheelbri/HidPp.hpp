@@ -76,6 +76,11 @@ public:
     // 0x8123: a guess from Linux's log of a real G923 ("num_effects=63" after one reserved slot).
     static constexpr std::uint8_t kEffectSlots = 64;
 
+    // The rig's own rotation (target_rotation_deg, from the service's state; 40..2520, anything else ignored): what
+    // "get aperture" reports from then on, as a real wheel reports the rotation it turns. ACC reads it and divides its
+    // steering by it, and sets it back (2026-10-28).
+    void setWheelRotation(int degrees);
+    // The rotation software last set ("set aperture"; WheelBri does not apply it).
     [[nodiscard]] int rotationDeg() const;
     [[nodiscard]] float gain() const;
     [[nodiscard]] std::uint64_t requests() const;
@@ -109,6 +114,7 @@ private:
     std::set<std::pair<std::uint8_t, std::uint8_t>> seen_;
     std::set<std::uint16_t> askedFor_;   // feature ids asked for that are not there (logged once each)
     int rotationDeg_ = 900;
+    int wheelRotationDeg_ = 0;   // 0: not known yet
     std::uint16_t gain_ = 0xFFFF;
     std::uint16_t boost_ = 0;
     std::uint8_t nextSlot_ = 1;

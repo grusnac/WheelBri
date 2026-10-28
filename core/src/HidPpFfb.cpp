@@ -206,10 +206,13 @@ void HidPpFfb::destroy(const std::uint8_t slot, const std::int64_t nowMs) {
 void HidPpFfb::resetAll(const std::int64_t nowMs) {
     std::lock_guard lock(mutex_);
     request(nowMs);
+    // A stop-all only when something of ours plays: Logitech's driver resets at every game start (ACC: each time it
+    // opens the wheel), and a stop-all the rig does not need moved a Moza R3 (2026-10-28).
+    const bool playing = std::any_of(owner_.begin(), owner_.end(), [](const std::uint8_t o) { return o != 0; });
     effects_.fill(Effect{});
     owner_.fill(0);
     sent_.fill(std::nullopt);
-    send(FfbPacket::Kind::StopAll, 0, false, FfbEffect{}, nowMs);
+    if (playing) send(FfbPacket::Kind::StopAll, 0, false, FfbEffect{}, nowMs);
 }
 
 void HidPpFfb::setGain(const float gain, const std::int64_t nowMs) {

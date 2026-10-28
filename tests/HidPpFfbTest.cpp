@@ -133,6 +133,13 @@ TEST(HidPpFfb, ResetStopsEverything) {
     EXPECT_EQ(f.ffb.download(effect(0, 0x00, 0, 0, {}), 2), 1);   // every slot free again
 }
 
+// Logitech's driver resets at every game start: with nothing playing, the rig gets no stop-all.
+TEST(HidPpFfb, ResetWithNothingPlayingSendsNothing) {
+    Ffb f;
+    f.ffb.resetAll(1);
+    EXPECT_TRUE(f.packets.empty());
+}
+
 TEST(HidPpFfb, KeepAlivesOnlyOnceAnEffectCame) {
     Ffb f;
     f.ffb.setGain(1.0F, 0);   // G HUB at start: not a game

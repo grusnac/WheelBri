@@ -54,6 +54,7 @@ public:
     std::uint8_t download(std::span<const std::uint8_t> params, std::int64_t nowMs);
     void setState(std::uint8_t slot, std::uint8_t state, std::int64_t nowMs);
     void destroy(std::uint8_t slot, std::int64_t nowMs);
+    // Frees every slot; a stop-all goes to the service only when one of them played.
     void resetAll(std::int64_t nowMs);
     // The global gain (0..1) for every effect.
     void setGain(float gain, std::int64_t nowMs);

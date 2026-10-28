@@ -41,6 +41,16 @@ HidPp::HidPp(Identity identity, Logger log, Settings settings)
     : identity_(std::move(identity)), log_(std::move(log)), settings_(std::move(settings)),
       features_{{kRoot, 0}, {kFeatureSet, 1}, {kFwVersion, 2}, {kNameType, 1}, {kForceFeedback, 0}} {}
 
+void HidPp::setWheelRotation(const int degrees) {
+    if (degrees < 40 || degrees > 2520) return;
+    std::lock_guard lock(mutex_);
+    if (degrees == wheelRotationDeg_) return;
+    wheelRotationDeg_ = degrees;
+    if (log_) {
+        log_(LogLevel::Info, "hid++: the wheel turns " + std::to_string(degrees) + " deg (reported as the rotation)");
+    }
+}
+
 int HidPp::rotationDeg() const {
     std::lock_guard lock(mutex_);
     return rotationDeg_;
@@ -260,8 +270,8 @@ std::optional<std::uint8_t> HidPp::forceFeedback(const std::uint8_t function, co
             showCall(function, "effect freed", in.first(std::min<std::size_t>(1, in.size())));
             if (ffb_ != nullptr && !in.empty()) ffb_->destroy(in[0], nowMs_);
             return std::nullopt;
-        case 5:   // get aperture: the rotation in degrees
-            putBe16(out, 0, static_cast<std::uint16_t>(rotationDeg_));
+        case 5:   // get aperture: the rotation in degrees, the rig's own once known
+            putBe16(out, 0, static_cast<std::uint16_t>(wheelRotationDeg_ > 0 ? wheelRotationDeg_ : rotationDeg_));
             return std::nullopt;
         case 6: {   // set aperture
             const int degrees = be16(in, 0);
