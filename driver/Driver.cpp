@@ -30,6 +30,7 @@
 #include "wheelbri/LogLevel.hpp"
 #include "wheelbri/StatePacket.hpp"
 #include "wheelbri/TrueForce.hpp"
+#include "wheelbri/TrueForceFfb.hpp"
 
 #include <algorithm>
 #include <array>
@@ -407,8 +408,9 @@ private:
     Throttle sendErrors_{60'000};
 };
 
-// The wheel's TrueForce interface (TrueForce.hpp, wheelbri\G923_TF): its answers to the host, and the steering from
-// the service's state (127.0.0.1:41331) as status reports while a session runs. No force feedback yet.
+// The wheel's TrueForce interface (TrueForce.hpp, wheelbri\G923_TF): its answers to the host, the steering from the
+// service's state (127.0.0.1:41331) as status reports while a session runs, and the stream's force to the service
+// (TrueForceFfb.hpp, 127.0.0.1:41330).
 class TrueForceLink {
 public:
     explicit TrueForceLink(DeviceContext* device);
@@ -431,10 +433,14 @@ private:
     void run(SOCKET sock);
     void pace();
     void closeSocket();
+    void sendFfb(const wheelbri::FfbPacket& packet);
 
     DeviceContext* device_;
     wheelbri::TrueForceDevice tf_;
+    wheelbri::TrueForceFfb ffb_;
     SOCKET socket_ = INVALID_SOCKET;
+    SOCKET ffbSocket_ = INVALID_SOCKET;
+    Throttle ffbErrors_{60'000};
     std::thread thread_;
     std::thread pacer_;
     std::atomic<bool> stop_{false};
@@ -442,6 +448,7 @@ private:
     std::deque<Report> replies_;
     static constexpr int kAnswersShown = 12;
     int shownAnswers_ = 0;
+    int failedWrites_ = 0;    // the pacer's only
 };
 
 }  // namespace
@@ -508,6 +515,15 @@ void completeRead(WDFREQUEST request, const Report& report) {
             status = WdfMemoryCopyFromBuffer(memory, 0, const_cast<std::uint8_t*>(report.data()), report.size());
             if (NT_SUCCESS(status)) WdfRequestSetInformation(request, report.size());
         }
+    }
+    // A read that fails ends a reader's wait with an error: Logitech's TrueForce SDK then tears its session down
+    // (an ACC crash, 2026-10-28). The first ones are logged.
+    static std::atomic<int> failures{0};
+    if (!NT_SUCCESS(status) && failures.fetch_add(1) < 20) {
+        char text[96];
+        std::snprintf(text, sizeof(text), "read completed with 0x%08lx (report %zu bytes)",
+                      static_cast<unsigned long>(status), report.size());
+        logLine(Level::Warn, text);
     }
     WdfRequestComplete(request, status);
 }
@@ -725,6 +741,7 @@ void Link::run(const SOCKET sock) {
                 }
                 lastState = now;
                 neutralSent = false;
+                if (hidpp) hidpp->setWheelRotation(packet->rotationDeg);
                 publish(wheelReport(packet->report, *device_->wheel));
             }
         } else if (now - lastState > kStaleMs && !neutralSent) {
@@ -793,11 +810,23 @@ NTSTATUS getString(WDFREQUEST request, const DeviceContext* ctx) {
 }
 
 TrueForceLink::TrueForceLink(DeviceContext* device)
-    : device_(device), tf_([](const Level level, const std::string& line) { logLine(level, line); }) {}
+    : device_(device),
+      tf_([](const Level level, const std::string& line) { logLine(level, line); }),
+      ffb_([this](const wheelbri::FfbPacket& packet) { sendFfb(packet); }) {}
 
 void TrueForceLink::start() {
     stop();
     stop_ = false;
+    ffbSocket_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    sockaddr_in service{};
+    service.sin_family = AF_INET;
+    service.sin_port = htons(kFfbPort);
+    service.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (ffbSocket_ == INVALID_SOCKET ||
+        connect(ffbSocket_, reinterpret_cast<sockaddr*>(&service), sizeof(service)) != 0) {
+        logLine(Level::Warn, "trueforce: cannot address the service's force feedback port 127.0.0.1:41330 (" +
+                                 std::to_string(WSAGetLastError()) + "): the stream's force is not played");
+    }
     try {
         pacer_ = std::thread([this] { pace(); });
     } catch (const std::exception& e) {
@@ -829,7 +858,20 @@ void TrueForceLink::stop() {
     stop_ = true;
     if (thread_.joinable()) thread_.join();
     if (pacer_.joinable()) pacer_.join();
+    ffb_.stop(nowUs());
     closeSocket();
+    if (ffbSocket_ != INVALID_SOCKET) closesocket(ffbSocket_);
+    ffbSocket_ = INVALID_SOCKET;
+}
+
+void TrueForceLink::sendFfb(const wheelbri::FfbPacket& packet) {
+    if (ffbSocket_ == INVALID_SOCKET) return;
+    const auto bytes = wheelbri::encode(packet);
+    if (send(ffbSocket_, reinterpret_cast<const char*>(bytes.data()), static_cast<int>(bytes.size()), 0) < 0 &&
+        ffbErrors_.allow(nowMs())) {
+        logLine(Level::Info, "trueforce: force feedback not sent (" + std::to_string(WSAGetLastError()) +
+                                 "): is wheelbri-service running?");
+    }
 }
 
 void TrueForceLink::closeSocket() {
@@ -838,7 +880,9 @@ void TrueForceLink::closeSocket() {
 }
 
 void TrueForceLink::output(const std::span<const std::uint8_t> report) {
-    for (Report& answer : tf_.output(report, nowUs())) reply(std::move(answer));
+    const std::int64_t now = nowUs();
+    ffb_.output(report, now);
+    for (Report& answer : tf_.output(report, now)) reply(std::move(answer));
 }
 
 void TrueForceLink::reply(Report report) {
@@ -869,7 +913,13 @@ void TrueForceLink::answerRead(const WDFREQUEST request) {
         std::lock_guard lock(lock_);
         if (replies_.empty()) {
             const NTSTATUS status = WdfRequestForwardToIoQueue(request, device_->readQueue);
-            if (!NT_SUCCESS(status)) WdfRequestComplete(request, status);
+            if (!NT_SUCCESS(status)) {
+                char text[80];
+                std::snprintf(text, sizeof(text), "trueforce: a read could not wait (0x%08lx)",
+                              static_cast<unsigned long>(status));
+                logLine(Level::Warn, text);
+                WdfRequestComplete(request, status);
+            }
             return;
         }
         answer = std::move(replies_.front());
@@ -899,11 +949,19 @@ void TrueForceLink::pace() {
         } else {
             Sleep(1);
         }
+        ffb_.tick(nowUs());
         WDFREQUEST request = nullptr;
         if (!NT_SUCCESS(WdfIoQueueRetrieveNextRequest(device_->writeQueue, &request))) continue;
         std::uint8_t reportId = 0;
         std::span<const std::uint8_t> data;
         NTSTATUS status = readWrittenReport(request, reportId, data);
+        if (!NT_SUCCESS(status) && failedWrites_ < kAnswersShown) {
+            ++failedWrites_;
+            char text[80];
+            std::snprintf(text, sizeof(text), "trueforce: a write failed with 0x%08lx",
+                          static_cast<unsigned long>(status));
+            logLine(Level::Warn, text);
+        }
         if (NT_SUCCESS(status)) {
             Report sent(data.size() + 1);
             sent[0] = reportId;
@@ -930,7 +988,9 @@ void TrueForceLink::run(const SOCKET sock) {
         }
         const auto packet = wheelbri::decodeStatePacket(std::span(buffer.data(), static_cast<std::size_t>(received)));
         if (!packet) continue;
-        if (auto status = tf_.steering(packet->report.steering, nowUs())) reply(std::move(*status));
+        if (auto status = tf_.steering(packet->report.steering, packet->rotationDeg, nowUs())) {
+            reply(std::move(*status));
+        }
     }
 }
 

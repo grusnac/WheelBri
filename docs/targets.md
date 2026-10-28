@@ -87,13 +87,20 @@ clutch), and the registry entries meant to undo that did not.
 
 `[emulator] trueforce_probe = true` (off by default) gives the virtual G923 its TrueForce interface: a second device
 in the wheel's container, usage page `0xFFFD`, report `0x01` (`core/include/wheelbri/TrueForce.hpp`). It answers
-the game's set-up as a real wheel and reports the steering (state on 127.0.0.1:41331). Driver log lines start
-`trueforce:`.
+the game's set-up as a real wheel and reports the steering (state on 127.0.0.1:41331) over `target_rotation_deg`,
+the wheel's own rotation, whatever range the game sets. Driver log lines start `trueforce:`.
 
-A TrueForce game's force does not use that interface on a G923: it goes DirectInput -> Logitech's force feedback
-driver -> HID++ 0x8123. So with the probe on WheelBri leaves G HUB's `OEMForceFeedback` entry for the wheel in place
-(without it, it removes the entry and Windows' HID PID driver takes the effects). The service log says whether the
-entry is there.
+The force of a game in TrueForce mode (ACC: `logiTrueForceSetTorqueKF`) comes on that interface: Logitech's SDK
+streams it as type `0x01` packets (about 640 a second), bytes 6..7 the motor torque target. It needs the full-scale
+torque WheelBri reports in its status (2.2 Nm, a G923's): with 0 there the SDK streams none. The driver plays it as
+a constant force in the service's slot 7 (`core/include/wheelbri/TrueForceFfb.hpp`), through the safety limiter and
+the game profile's gain like any other effect. The damping the game sets (`0x0c`, `logiTrueForceSetDamping`), which a
+G923 applies itself, plays alongside as a damper in slot 6: without it a direct-drive wheel swings from lock to lock.
+The texture (the packets' sample window) is not played yet.
+
+Games that use DirectInput on a G923 go through Logitech's force feedback driver -> HID++ 0x8123. So with the probe
+on WheelBri leaves G HUB's `OEMForceFeedback` entry for the wheel in place (without it, it removes the entry and
+Windows' HID PID driver takes the effects). The service log says whether the entry is there.
 
 To see what a game asks Logitech's SDK (ACC in TrueForce mode reads the wheel through `trueforce_sdk_x64.dll`), put
 the 64-bit shim in its folder with `emulate = false` and `logi_log = true` in `wheelbri-shim.ini`: every SDK call, its

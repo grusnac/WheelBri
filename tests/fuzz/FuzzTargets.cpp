@@ -19,6 +19,7 @@
 #include "wheelbri/HidPp.hpp"
 #include "wheelbri/HidPpFfb.hpp"
 #include "wheelbri/TrueForce.hpp"
+#include "wheelbri/TrueForceFfb.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LogFileNames.hpp"
 #include "wheelbri/LogLevelPacket.hpp"
@@ -181,19 +182,27 @@ void runOne(const std::span<const std::uint8_t> input) {
         }
         case 13: {   // what a game or G HUB writes to the TrueForce interface (the driver's input)
             TrueForceDevice device([](LogLevel, const std::string&) {});
+            TrueForceFfb ffb([](const FfbPacket& p) {
+                CHECK(std::isfinite(p.effect.constantLevel) && std::abs(p.effect.constantLevel) <= 1.0F);
+                CHECK(p.slot == TrueForceFfb::kSlot || p.slot == TrueForceFfb::kDamperSlot);
+                CHECK(p.effect.condition.positiveCoefficient >= 0.0F && p.effect.condition.positiveCoefficient <= 1.0F);
+            });
             std::size_t i = 0;
             std::int64_t now = 0;
             while (i < bytes.size()) {
                 const std::size_t len = std::min<std::size_t>(bytes.size() - i, 1 + bytes[i] % 70);
+                ffb.output(bytes.subspan(i, len), now + bytes[i] % 8);
+                ffb.tick(now + bytes[i] % 8);
                 for (const auto& answer : device.output(bytes.subspan(i, len), now += bytes[i] % 8)) {
                     CHECK(answer.size() == kTrueForceReportSize && answer[0] == kTrueForceReportId);
                 }
-                if (const auto status = device.steering(bytes[i] * 300 - 9000, now)) {
+                if (const auto status = device.steering(bytes[i] * 300 - 9000, bytes[i] * 11, now)) {
                     CHECK(status->size() == kTrueForceReportSize);
                 }
                 i += len;
             }
             device.finish(now);
+            ffb.stop(now);
             break;
         }
         case 14: {   // HID++ 0x8123 effects from Logitech's force feedback driver: every packet sent on is finite
