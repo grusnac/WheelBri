@@ -85,8 +85,8 @@ void TrueForceLog::output(const std::span<const std::uint8_t> report, const std:
     if (type != 0x01 || shown < kFirstShown || sample) {
         ++shown;
         if (type == 0x01) lastStreamShownMs_ = nowMs;
-        log_(LogLevel::Info, "trueforce: " + typeName(type) + " #" + std::to_string(shown) +
-                                 " (" + std::to_string(report.size()) + " bytes): " + hex(report));
+        log_(LogLevel::Debug, "trueforce: " + typeName(type) + " #" + std::to_string(shown) +
+                                  " (" + std::to_string(report.size()) + " bytes): " + hex(report));
     }
     if (nowMs - periodStartMs_ >= kSummaryMs) summarise(nowMs);
 }
@@ -183,7 +183,7 @@ void TrueForceLog::summarise(const std::int64_t nowMs) {
         }
         line += ")";
     }
-    log_(LogLevel::Info, line);
+    log_(LogLevel::Debug, line);
     period_.clear();
     streamFlags_.clear();
     stream_ = Stream{};
@@ -398,8 +398,8 @@ std::optional<TrueForceDevice::Report> TrueForceDevice::steering(const std::int3
     if (speedLogUs_ < 0) speedLogUs_ = nowUs;
     if (nowUs - speedLogUs_ >= TrueForceLog::kSummaryMs * 1000) {
         if (running_) {
-            say_(LogLevel::Info, "trueforce: last 10 s: the wheel turned at most " +
-                                     std::to_string(std::lround(fastest_ / kCountsPerTurn * 360.0)) + " deg/s");
+            say_(LogLevel::Debug, "trueforce: last 10 s: the wheel turned at most " +
+                                      std::to_string(std::lround(fastest_ / kCountsPerTurn * 360.0)) + " deg/s");
         }
         fastest_ = 0;
         speedLogUs_ = nowUs;

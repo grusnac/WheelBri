@@ -896,7 +896,7 @@ void TrueForceLink::reply(Report report) {
             std::snprintf(text, sizeof(text), "trueforce: answer %02x seq %02x, checksum %02x: %s", report[4], report[5],
                           report[4] == 0x05 ? report[13] : report[4] == 0x07 ? report[25] : report[33],
                           waiting ? "to a waiting read" : "queued (no read waiting)");
-            logLine(Level::Info, text);
+            logLine(Level::Debug, text);
         }
         if (!waiting) {
             if (replies_.size() == kMaxReplies) replies_.pop_front();
