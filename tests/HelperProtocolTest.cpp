@@ -341,7 +341,7 @@ TEST(HelperProtocol, InstalledAppEdges) {
 
 TEST(HelperProtocol, WheelBriProgramInAnyFolder) {
     EXPECT_TRUE(isWheelBriProgram(R"(C:\Program Files\WheelBri\wheelbri.exe)"));
-    EXPECT_TRUE(isWheelBriProgram(R"(D:\cpp-projects\WheelBri\build\service\WHEELBRI-SERVICE.EXE)"));
+    EXPECT_TRUE(isWheelBriProgram(R"(D:\projects\WheelBri\build\service\WHEELBRI-SERVICE.EXE)"));
     EXPECT_TRUE(isWheelBriProgram("D:/x/WheelBri.exe"));
     EXPECT_TRUE(isWheelBriProgram(R"(\\?\D:\x\wheelbri.exe)"));
     EXPECT_TRUE(isWheelBriProgram("wheelbri.exe"));   // a bare name

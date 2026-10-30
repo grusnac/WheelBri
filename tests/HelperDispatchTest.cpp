@@ -99,7 +99,7 @@ TEST(HelperDispatch, AHellosLogLevelIsTakenFromWheelBriOnly) {
     EXPECT_EQ(ask(Request{RequestType::Hello, 1, {"debug"}}, accepted(), nullptr).logLevel, LogLevel::Debug);
     // WheelBri from another folder: refused, closed, but its user's log and level are the helper's.
     const Answer dev = ask(Request{RequestType::Hello, 1, {"trace"}},
-                           refused(R"(D:\cpp-projects\WheelBri\build\service\wheelbri.exe)"), nullptr);
+                           refused(R"(D:\projects\WheelBri\build\service\wheelbri.exe)"), nullptr);
     EXPECT_EQ(dev.reply.status, Status::Refused);
     EXPECT_EQ(dev.logLevel, LogLevel::Trace);
     // Any other program: nothing.
@@ -264,7 +264,7 @@ TEST(HelperDispatch, ASetLogLevelTheSessionCarriedOutSetsTheHelpersLevelToo) {
     EXPECT_EQ(session.seen.size(), 2U);
     // From a caller not accepted: refused and closed.
     const Answer other = ask(Request{RequestType::SetLogLevel, 6, {"debug"}},
-                             refused(R"(D:\cpp-projects\WheelBri\build\service\wheelbri.exe)"), &session);
+                             refused(R"(D:\projects\WheelBri\build\service\wheelbri.exe)"), &session);
     EXPECT_EQ(other.reply.status, Status::Refused);
     EXPECT_FALSE(other.keepOpen);
     EXPECT_FALSE(other.logLevel.has_value());
@@ -275,7 +275,7 @@ TEST(HelperDispatch, ASetLogLevelTheSessionCarriedOutSetsTheHelpersLevelToo) {
 TEST(HelperDispatch, TheLogGoesToWheelBriOnly) {
     EXPECT_TRUE(mayTakeTheLog(accepted()));
     // WheelBri from another folder (a development build, an app run as Administrator): its user's folder too.
-    EXPECT_TRUE(mayTakeTheLog(refused(R"(D:\cpp-projects\WheelBri\build\service\wheelbri.exe)")));
+    EXPECT_TRUE(mayTakeTheLog(refused(R"(D:\projects\WheelBri\build\service\wheelbri.exe)")));
     EXPECT_TRUE(mayTakeTheLog(refused(R"(D:\x\wheelbri-service.exe)")));
     EXPECT_FALSE(mayTakeTheLog(refused()));
     EXPECT_FALSE(mayTakeTheLog(refused("")));   // a program Windows would not name
