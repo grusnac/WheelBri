@@ -6,6 +6,7 @@
 
 #include "FuzzTargets.hpp"
 
+#include "wheelbri/AxisAudit.hpp"
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DiEffect.hpp"
@@ -13,6 +14,7 @@
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameRotation.hpp"
+#include "wheelbri/GameSettings.hpp"
 #include "wheelbri/GameTuning.hpp"
 #include "wheelbri/HelperProtocol.hpp"
 #include "wheelbri/HidPid.hpp"
@@ -25,6 +27,7 @@
 #include "wheelbri/LogLevelPacket.hpp"
 #include "wheelbri/LogiSdk.hpp"
 #include "wheelbri/MappingEdit.hpp"
+#include "wheelbri/Nfs2015Settings.hpp"
 #include "wheelbri/Rig.hpp"
 #include "wheelbri/ShimGames.hpp"
 #include "wheelbri/StatePacket.hpp"
@@ -230,6 +233,27 @@ void runOne(const std::span<const std::uint8_t> input) {
                 i += len;
             }
             ffb.stopAll(now);
+            break;
+        }
+        case 15: {   // a game's own settings file (NFS Unbound's Frostbite PROFILEOPTIONS, NFS 2015's profile)
+            const GameSettingText values[] = {{"WheelSpringMagnitude", "0.800000"}, {"WheelMaxRotation", "900.000000"}};
+            const GameSettingsEdit edit = editFrostbiteSettings(text, values);
+            if (edit.problems.empty()) {
+                CHECK(edit.bytes.size() == text.size());   // same-length values only: nothing else in the file moves
+                for (const GameSettingsEdit::Change& change : edit.changes) {
+                    CHECK(frostbiteSetting(edit.bytes, change.name) == change.after);
+                }
+            } else {
+                CHECK(edit.bytes.empty() && edit.changes.empty());
+            }
+            (void)frostbiteSetting(text, "WheelSpringMagnitude");
+            (void)checkNfs2015Settings(text);
+            break;
+        }
+        case 16: {   // an Escape from a game (the shim's DeviceAudit): the first 4 bytes are the command
+            std::uint32_t command = 0;
+            if (bytes.size() >= 4) std::memcpy(&command, bytes.data(), 4);
+            (void)decodeRevLights(command % 2, bytes.size() >= 4 ? bytes.subspan(4) : bytes);
             break;
         }
     }
