@@ -1528,8 +1528,9 @@ TEST_F(EditView, TheForceFeedbackSubTab) {
     EXPECT_TRUE(window_.hasPart("running: blue what the game asks"));
 }
 
-// The Buttons sub-tab: none changed; Add button... (Cancel; a button, then its control for this game only, any
-// control; one the Mapping tab gives it already adds nothing), its row (click to change, Remove).
+// The Buttons sub-tab: none changed; Add button... (Cancel; a button) adds its row, unchanged: the Mapping tab's main
+// and secondaries, nothing saved. Its main field opens the source picker (any control), its secondaries field the
+// secondary picker (for this game only); "Mapping tab's" in either follows the Mapping tab again; Remove: the row goes.
 TEST_F(EditView, TheButtonsSubTab) {
     useRig(testRig());
     open();
@@ -1544,19 +1545,19 @@ TEST_F(EditView, TheButtonsSubTab) {
     ASSERT_TRUE(click("Cancel"));
     ASSERT_TRUE(click("Add button..."));
     ASSERT_TRUE(click("1 A"));
+    games();
+    EXPECT_FALSE(view_->popupOpen());
+    EXPECT_TRUE(window_.has("secondaries"));
+    EXPECT_TRUE(window_.has("(none: click to add)"));
+    EXPECT_EQ(own().find("nfs2015.button_0"), std::string::npos) << own();
+
+    // Its main: the Mapping tab's B0 in both columns; the game's field (the second) opens the picker.
+    ASSERT_TRUE(click("Moza R3: B0", 1));
     frame();
     EXPECT_TRUE(window_.hasPart("What drives button 1 A in NFS 2015?"));
     EXPECT_TRUE(window_.hasPart("For this game only"));
-    ASSERT_TRUE(click("0 B0"));   // what the Mapping tab gives it: nothing added
-    frame();
-    EXPECT_TRUE(window_.hasPart("already comes from that control in the Mapping tab: nothing added"));
-    EXPECT_TRUE(window_.hasPart("No button changed for this game"));
-
-    ASSERT_TRUE(click("Add button..."));
-    ASSERT_TRUE(click("1 A"));
     ASSERT_TRUE(click("1 B1"));
-    frame();
-    EXPECT_TRUE(window_.has("this game"));
+    games();
     EXPECT_TRUE(window_.has("Moza R3: B1"));
     EXPECT_NE(own().find("nfs2015.button_0 = 1"), std::string::npos) << own();
     // The Add popup marks it as yours.
@@ -1564,22 +1565,57 @@ TEST_F(EditView, TheButtonsSubTab) {
     frame();
     EXPECT_TRUE(window_.has("1 A  yours"));
     ASSERT_TRUE(click("Cancel"));
-    // Its field: the picker again; the Mapping tab's own control takes the game's value away.
-    ASSERT_TRUE(click("Moza R3: B1"));
-    ASSERT_TRUE(click("(nothing)"));
-    frame();
-    EXPECT_TRUE(window_.has("nothing"));
-    ASSERT_TRUE(click("nothing"));
-    ASSERT_TRUE(click("0 B0"));
-    frame();
-    EXPECT_TRUE(window_.hasPart("No button changed for this game"));
 
-    ASSERT_TRUE(click("Add button..."));
-    ASSERT_TRUE(click("2 B"));
-    ASSERT_TRUE(click("2 B2"));
+    // Its secondaries: a lever for this game only.
+    ASSERT_TRUE(click("(none: click to add)"));
+    frame();
+    EXPECT_TRUE(window_.hasPart("What else presses G920 A in NFS 2015?"));
+    ASSERT_TRUE(click("axis 3 Hand"));
+    ASSERT_TRUE(click("Done"));
+    games();
+    EXPECT_TRUE(window_.has("or Hand > 50%"));
+    EXPECT_NE(own().find("nfs2015.button_0_or = axis 3 > 50%"), std::string::npos) << own();
+    // A chip opens the picker too; the Mapping tab's again (none): no line for it.
+    ASSERT_TRUE(click("or Hand > 50%"));
+    ASSERT_TRUE(click("Mapping tab's"));
+    ASSERT_TRUE(click("Done"));
+    games();
+    EXPECT_EQ(own().find("button_0_or"), std::string::npos) << own();
+    EXPECT_TRUE(window_.has("(none: click to add)"));
+
+    // The main back to the Mapping tab's: the row stays (it was added here), with nothing of its own.
+    ASSERT_TRUE(click("Moza R3: B1"));
+    ASSERT_TRUE(click("Mapping tab's"));
+    games();
+    EXPECT_EQ(own().find("nfs2015.button_0"), std::string::npos) << own();
+    EXPECT_TRUE(window_.has("secondaries"));
     ASSERT_TRUE(click("Remove", 1));   // the row's (the first is the list's Remove game)
     frame();
     EXPECT_TRUE(window_.hasPart("No button changed for this game"));
+}
+
+// A game's secondaries replace the Mapping tab's for that button: its row starts from them; emptied, the game has
+// none ("-1"), while the Mapping tab keeps its own.
+TEST_F(EditView, AGameTakesSecondariesAway) {
+    useRig(testRig());
+    std::string text = read(dir_ / "config" / "g920.ini");
+    text.replace(text.find("order = driver"), 0, "target_0_or = 21\n");
+    write(userConfigFolder() / "my-g920.ini", text);
+    open();
+    games();
+    ASSERT_TRUE(click("Buttons"));
+    ASSERT_TRUE(click("Add button..."));
+    ASSERT_TRUE(click("1 A"));
+    games();
+    EXPECT_EQ(window_.count("or B21"), 2U);   // the Mapping tab's column and the game's, the same
+    ASSERT_TRUE(click("or B21", 1));
+    ASSERT_TRUE(click("(clear all)"));
+    ASSERT_TRUE(click("Done"));
+    games();
+    EXPECT_NE(own().find("nfs2015.button_0_or = -1"), std::string::npos) << own();
+    EXPECT_NE(own().find("target_0_or = 21"), std::string::npos) << own();
+    EXPECT_EQ(window_.count("or B21"), 1U);
+    EXPECT_TRUE(window_.has("(none: click to add)"));
 }
 
 // Many buttons changed for a game: the ones that do not fit are counted; a button in none of the target's groups is
@@ -2487,6 +2523,17 @@ TEST_F(EditView, AGamesButtonsOneByOne) {
     EXPECT_TRUE(window_.has("nothing"));
     ASSERT_TRUE(click("Add button..."));
     ASSERT_TRUE(click("4 Y"));
+    games();
+    // The new row's main field: the third text on its row (its label, the Mapping tab's, this game's).
+    const Window::Text* const label = window_.find(" 4 Y");
+    ASSERT_NE(label, nullptr);
+    std::vector<const Window::Text*> row;
+    for (const auto& t : window_.texts) {
+        if (std::fabs(t.y - label->y) < 1.0F && t.x >= label->x) row.push_back(&t);
+    }
+    std::sort(row.begin(), row.end(), [](const auto* a, const auto* b) { return a->x < b->x; });
+    ASSERT_GE(row.size(), 3U);
+    view_->onClick(row[2]->x + 1, row[2]->y + 1);
     games();
     EXPECT_TRUE(window_.hasPart("What drives button 4 Y in NFS 2015?"));
     ASSERT_TRUE(click("5 B5"));

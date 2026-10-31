@@ -48,6 +48,7 @@ public:
     void setPage(const Page page) {
         if (page != page_) {
             field_ = Field::None;   // typing and a picker end with the page they were on
+            if (mode_ == Mode::PickAlt) closeAltPicker();
             mode_ = Mode::Idle;
             dragging_ = false;
         }
@@ -260,17 +261,28 @@ private:
 
     void drawSource(float x, float y, float w, Slot kind, std::size_t index);
     void drawPicker();
-    // The Buttons sub-tab's Add button...: the target's buttons in its own groups; one opens the picker for it.
+    // The Buttons sub-tab's Add button...: the target's buttons in its own groups; one adds its row to the sub-tab
+    // (pendingButtons_), where its main and its secondaries are then changed.
     void drawAddButton();
-    // A target button's secondary sources (MappingModel::secondaries): "or ..." chips in its field from `x`, as many as
-    // fit `w` ("+N" for the rest), each opening the picker; the row's "+" button that opens it too; and the picker
+    // A target button's secondary sources (MappingModel::secondaries, or a game's): "or ..." chips from `x`, as many as
+    // fit `w` ("+N" for the rest), each doing `action` (none: not clickable); `twiceFor`: the Mapping tab's button
+    // whose chips a control used twice outlines red. The row's "+" button that opens the picker too; and the picker
     // (the rig's buttons and its named axes, each toggled; an axis' threshold).
-    void drawChips(float x, float y, float w, std::size_t index);
+    void drawChips(float x, float y, float w, const std::vector<ButtonRef>& list, std::optional<std::size_t> twiceFor,
+                   bool dim, const std::function<void()>& action);
     void drawPlus(float x, float y, std::size_t index);
-    [[nodiscard]] float chipsWidth(std::size_t index) const;
+    [[nodiscard]] float chipsWidth(const std::vector<ButtonRef>& list) const;
     [[nodiscard]] static float textWidth(const std::string& text);
     void drawAltPicker();
     void openAltPicker(std::size_t index);
+    // The secondary picker for the picked game's button `index`: it edits the game's own list, a copy of the Mapping
+    // tab's when the game had none (pickKind_ GameButton).
+    void openGameAltPicker(std::size_t index);
+    // Closes the secondary picker; a game's list left the same as the Mapping tab's goes (it follows the Mapping tab).
+    void closeAltPicker();
+    // What the secondary picker edits: the Mapping tab's list of pickIndex_, or the picked game's.
+    std::vector<ButtonRef>& altList();
+    [[nodiscard]] bool altForGame() const { return mode_ == Mode::PickAlt && pickKind_ == Slot::GameButton; }
     // Opens the source picker for `kind` `index` (find box, scroll and notes from the start).
     void openPicker(Slot kind, std::size_t index);
     // The source picker's choice of a control used elsewhere: taken from every other use, then picked.
@@ -401,6 +413,13 @@ private:
     float hoverY_ = 0.0F;
     bool hoverInside_ = false;
     std::size_t altFocus_ = 0;   // the secondary whose threshold the picker edits (when it is an axis)
+    std::string altGameId_;      // the game whose list the secondary picker edits (altForGame)
+    // The Buttons sub-tab's rows added by Add button... and not changed yet (shown so their main and secondaries can
+    // be changed), for pendingKey_ (the game and the target); dropped when another game or target shows.
+    std::vector<std::size_t> pendingButtons_;
+    std::string pendingKey_;
+    std::size_t pendingFlash_ = 0;            // the row just added: outlined blue until pendingFlashUntilMs_
+    std::uint64_t pendingFlashUntilMs_ = 0;
     // The pickers (Pick, PickAlt): the find box (only entries holding it are listed), how far the list is scrolled
     // down (logical pixels) and at most (from the last draw).
     std::string findText_;

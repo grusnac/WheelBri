@@ -167,14 +167,17 @@ NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, you
 
      ![Buttons sub-tab, nothing changed yet](images/games-buttons-base.png)
 
-     **Add button...** asks which Target button to change, then the control for it: any control, even one the
-     Mapping tab uses elsewhere.
+     **Add button...** asks which Target button to change and adds its row, starting from the Mapping tab's values.
+     Click its **this game** field to pick its control, or its **secondaries** field to add controls that activate it
+     too (buttons, or a lever past a point, up to 8). Any control works, even one the Mapping tab uses elsewhere. A
+     game's secondaries replace the Mapping tab's for that button; **Mapping tab's** in either popup follows the
+     Mapping tab again.
 
      ![Picking the Target's button](images/games-buttons-selection.png)
 
      ![Picking the control for it in this game](images/games-buttons-rempping.png)
 
-     The button then shows both sources: the Mapping tab's and, in violet, this game's.
+     The row shows the Mapping tab's values and this game's; what is this game's own is in violet.
 
      ![A button changed for this game](images/games-buttons-rempping-done.png)
 
