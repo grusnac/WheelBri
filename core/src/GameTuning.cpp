@@ -96,12 +96,29 @@ std::string applyTuningKey(GameTuning& tuning, const std::string_view key, const
     if (key == "ffb_invert") return boolean(tuning.ffbInvert, value);
     if (key == "ffb_effects") return boolean(tuning.ffbEffects, value);
     if (key.substr(0, 7) == "button_") {
-        const std::string_view digits = key.substr(7);
+        // "button_4" (its source) or "button_4_or" (its secondary sources).
+        constexpr std::string_view kOr = "_or";
+        const bool secondary = key.size() > kOr.size() && key.substr(key.size() - kOr.size()) == kOr;
+        const std::string_view digits = key.substr(7, key.size() - 7 - (secondary ? kOr.size() : 0));
         int target = -1;
         const auto [end, ec] = std::from_chars(digits.data(), digits.data() + digits.size(), target);
         if (ec != std::errc() || end != digits.data() + digits.size() || target < 0 ||
             static_cast<std::size_t>(target) >= maxButtons) {
             return "no such button on the target (0 to " + std::to_string(maxButtons == 0 ? 0 : maxButtons - 1) + ")";
+        }
+        if (secondary) {
+            const std::optional<std::vector<ButtonRef>> refs = parseButtonRefs(value);
+            const bool buttonTooHigh = refs && std::any_of(refs->begin(), refs->end(), [](const ButtonRef& ref) {
+                return !ref.axis && ref.source.index >= static_cast<int>(MapperConfig::kMaxSourceButtons);
+            });
+            if (!refs || buttonTooHigh) {
+                return "expected buttons and axes, comma-separated: 20, 044f:b696/2, axis 3 > 50%, or -1 (none)";
+            }
+            if (refs->size() > MapperConfig::kMaxSecondaries) {
+                return "at most " + std::to_string(MapperConfig::kMaxSecondaries) + " secondary sources per button";
+            }
+            tuning.secondaries[target] = *refs;
+            return {};
         }
         const std::optional<SourceRef> source = parseSource(value);
         if (!source) return "expected a button: 2, -1 (nothing) or 044f:b696/2";
@@ -132,6 +149,9 @@ std::vector<std::pair<std::string, std::string>> tuningLines(const GameTuning& t
     if (tuning.ffbEffects) lines.emplace_back("ffb_effects", flag(*tuning.ffbEffects));
     for (const auto& [target, source] : tuning.buttons) {
         lines.emplace_back("button_" + std::to_string(target), formatSource(source));
+    }
+    for (const auto& [target, refs] : tuning.secondaries) {
+        lines.emplace_back("button_" + std::to_string(target) + "_or", formatButtonRefs(refs));
     }
     return lines;
 }
@@ -169,26 +189,48 @@ MapperConfig tunedMapper(const MapperConfig& base, const GameTuning& tuning, std
     for (std::size_t p = 0; p < 3; ++p) {
         if (tuning.pedalInvert[p]) pedals[p]->invert = *tuning.pedalInvert[p];
     }
+    // The device number of a source's device in the mapping (0: the wheel), or -1 when the mapping does not read it.
+    const auto deviceOf = [&out](const SourceRef& source) {
+        if (source.device.empty()) return 0;
+        for (std::size_t a = 0; a < out.accessoryCount(); ++a) {
+            if (out.accessories[a] == source.device) return static_cast<int>(a + 1);
+        }
+        return -1;
+    };
+    const auto unread = [problems](const std::string& what) {
+        if (problems != nullptr) {
+            problems->push_back(what + ": that device is not in the mapping, so it is not read; the button stays as "
+                                       "mapped");
+        }
+    };
     for (const auto& [target, source] : tuning.buttons) {
         if (target < 0 || static_cast<std::size_t>(target) >= MapperConfig::kMaxTargetButtons) continue;
-        int device = 0;
-        if (!source.device.empty()) {
-            device = -1;
-            for (std::size_t a = 0; a < out.accessoryCount(); ++a) {
-                if (out.accessories[a] == source.device) device = static_cast<int>(a + 1);
-            }
-        }
+        const int device = deviceOf(source);
         if (device < 0) {
-            if (problems != nullptr) {
-                problems->push_back("button " + std::to_string(target) + " <- " + formatSource(source) +
-                                    ": that device is not in the mapping, so it is not read; the button stays as "
-                                    "mapped");
-            }
+            unread("button " + std::to_string(target) + " <- " + formatSource(source));
             continue;
         }
         const auto t = static_cast<std::size_t>(target);
         out.buttonMap[t] = source.mapped() ? source.index : kUnmapped;
         out.buttonDevice[t] = source.mapped() ? device : 0;
+    }
+    // Secondaries: the game's list instead of the mapping's, all or nothing.
+    for (const auto& [target, refs] : tuning.secondaries) {
+        if (target < 0 || static_cast<std::size_t>(target) >= MapperConfig::kMaxTargetButtons) continue;
+        std::array<ButtonSource, MapperConfig::kMaxSecondaries> list{};
+        std::size_t n = 0;
+        bool read = true;
+        for (const ButtonRef& ref : refs) {
+            if (!ref.mapped() || n >= list.size()) continue;
+            const int device = deviceOf(ref.source);
+            if (device < 0) {
+                unread("button " + std::to_string(target) + " or " + formatButtonRef(ref));
+                read = false;
+                break;
+            }
+            list[n++] = ButtonSource{device, ref.source.index, ref.axis, ref.invert, ref.threshold};
+        }
+        if (read) out.buttonSecondary[static_cast<std::size_t>(target)] = list;
     }
     return out;
 }
@@ -197,7 +239,7 @@ bool changesMapping(const GameTuning& tuning) {
     for (std::size_t p = 0; p < 3; ++p) {
         if (tuning.pedalInvert[p]) return true;
     }
-    return !tuning.buttons.empty();
+    return !tuning.buttons.empty() || !tuning.secondaries.empty();
 }
 
 JoystickLayout tunedLayout(JoystickLayout layout, const GameTuning& tuning) {

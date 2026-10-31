@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wheelbri/ButtonRef.hpp"
 #include "wheelbri/EmulatedJoystick.hpp"
 #include "wheelbri/Ffb.hpp"
 #include "wheelbri/GameProfiles.hpp"
@@ -29,6 +30,8 @@
 //   nfsunbound.ffb_invert = false      ; instead of [ffb] invert / game_effects
 //   nfsunbound.ffb_effects = true
 //   nfsheat.button_4 = 13              ; target button 4 <- this source while the game runs (-1: nothing)
+//   nfsheat.button_4_or = 20, axis 3 > 50%   ; its secondary sources while the game runs, as [buttons] target_N_or
+//                                      ;   (ButtonRef.hpp): instead of the Mapping tab's, not added to them (-1: none)
 // A key left out keeps what the Mapping tab (or the game's profile) has. Every force still goes through
 // FfbSafetyLimiter, the watchdog and the frozen-push fade: a game's values only scale what the game asks within the
 // limits, and can lower the limits, never raise them.
@@ -56,6 +59,9 @@ struct GameTuning {
     std::optional<bool> ffbInvert;
     std::optional<bool> ffbEffects;
     std::map<int, SourceRef> buttons;   // target button -> its source while the game runs
+    // target button -> its secondary sources while the game runs (at most MapperConfig::kMaxSecondaries), instead of
+    // the Mapping tab's; empty: none in this game. A button left out keeps the Mapping tab's.
+    std::map<int, std::vector<ButtonRef>> secondaries;
 
     [[nodiscard]] bool empty() const;
     friend bool operator==(const GameTuning&, const GameTuning&) = default;
@@ -86,12 +92,12 @@ struct GameFfb {
                                      const GameProfile* game, std::optional<float> legacyGain,
                                      const GameTuning* tuning);
 
-// The mapping while the game runs: `base` with its pedals' invert and its buttons as `tuning` says. A button whose
-// source is on an accessory `base` does not read (the session opened only those) is left as it is, and said in
-// `problems` (may be null).
+// The mapping while the game runs: `base` with its pedals' invert, its buttons and their secondaries as `tuning` says.
+// A button (or a button's secondaries) with a source on an accessory `base` does not read (the session opened only
+// those) is left as it is, and said in `problems` (may be null).
 [[nodiscard]] MapperConfig tunedMapper(const MapperConfig& base, const GameTuning& tuning,
                                        std::vector<std::string>* problems);
-// True when `tuning` changes the mapping (pedal invert, buttons): a tuned mapper is needed.
+// True when `tuning` changes the mapping (pedal invert, buttons, secondaries): a tuned mapper is needed.
 [[nodiscard]] bool changesMapping(const GameTuning& tuning);
 // The axes the game reads its pedals from: `layout` with the tuning's axes laid over it.
 [[nodiscard]] JoystickLayout tunedLayout(JoystickLayout layout, const GameTuning& tuning);

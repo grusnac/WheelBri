@@ -89,6 +89,8 @@ TEST(GameTuning, LinesRoundTrip) {
     t.ffbInvert = true;
     t.ffbEffects = true;
     t.buttons[5] = {{}, -1};
+    t.secondaries[2] = {ButtonRef{{{}, 20}, false, false, 0.5F}, ButtonRef{{{0x30b7, 0x1001}, 3}, true, true, 0.4F}};
+    t.secondaries[3] = {};   // none in this game
     GameTuning back;
     for (const auto& [key, value] : tuningLines(t)) EXPECT_EQ(applyTuningKey(back, key, value, 19), "") << key;
     EXPECT_EQ(back, t);
@@ -336,6 +338,62 @@ TEST(GameTuning, TunedMapperSkipsWhatItCannotPlace) {
     const MapperConfig out = tunedMapper(base, tuning, nullptr);
     EXPECT_EQ(out.buttonMap, base.buttonMap);
     EXPECT_EQ(out.buttonDevice, base.buttonDevice);
+}
+
+// button_N_or: the game's secondaries for a button, as [buttons] target_N_or writes them; -1 for none; at most 8;
+// what is not a list of sources is refused and changes nothing.
+TEST(GameTuning, SecondariesKeys) {
+    std::string why;
+    GameTuning t = tuned("button_4_or", "20, 30b7:1001/axis 3 inverted > 40%", &why);
+    EXPECT_EQ(why, "");
+    ASSERT_EQ(t.secondaries.at(4).size(), 2U);
+    EXPECT_EQ(t.secondaries.at(4)[0], (ButtonRef{{{}, 20}, false, false, 0.5F}));
+    EXPECT_EQ(t.secondaries.at(4)[1].source, (SourceRef{{0x30b7, 0x1001}, 3}));
+    EXPECT_TRUE(t.secondaries.at(4)[1].axis);
+    EXPECT_TRUE(t.secondaries.at(4)[1].invert);
+    EXPECT_NEAR(t.secondaries.at(4)[1].threshold, 0.4F, 1e-4F);
+    EXPECT_TRUE(t.buttons.empty());   // the main is left to the Mapping tab
+    t = tuned("button_4_or", "-1", &why);
+    EXPECT_EQ(why, "");
+    EXPECT_TRUE(t.secondaries.at(4).empty());
+    for (const char* bad : {"two", "1,,2", "-1, 4", "axis 3 > 150%", "64"}) {
+        EXPECT_TRUE(tuned("button_4_or", bad, &why).empty()) << bad;
+        EXPECT_FALSE(why.empty()) << bad;
+    }
+    EXPECT_TRUE(tuned("button_4_or", "1, 2, 3, 4, 5, 6, 7, 8, 9", &why).empty());
+    EXPECT_EQ(why, "at most 8 secondary sources per button");
+    EXPECT_TRUE(tuned("button_19_or", "2", &why).empty());
+    EXPECT_EQ(why, "no such button on the target (0 to 18)");
+    EXPECT_TRUE(tuned("button__or", "2", &why).empty());
+    EXPECT_TRUE(tuned("button_or", "2", &why).empty());
+}
+
+// The game's secondaries replace the mapping's for that button (none: emptied); a list with a source on a device the
+// mapping does not read is left out whole, and said; the other buttons keep the mapping's.
+TEST(GameTuning, TunedMapperSecondaries) {
+    MapperConfig base;
+    base.accessories[0] = {0x30b7, 0x1001};
+    base.buttonSecondary[1][0] = ButtonSource{0, 9, false, false, 0.5F};
+    base.buttonSecondary[2][0] = ButtonSource{0, 10, false, false, 0.5F};
+    base.buttonSecondary[3][0] = ButtonSource{0, 11, false, false, 0.5F};
+    GameTuning tuning;
+    tuning.secondaries[1] = {ButtonRef{{{}, 20}, false, false, 0.5F},
+                             ButtonRef{{{0x30b7, 0x1001}, 3}, true, false, 0.3F}};
+    tuning.secondaries[2] = {};
+    tuning.secondaries[3] = {ButtonRef{{{0x044f, 0xb696}, 1}, false, false, 0.5F}};   // not in the mapping
+    std::vector<std::string> problems;
+    const MapperConfig out = tunedMapper(base, tuning, &problems);
+    EXPECT_EQ(out.buttonSecondary[1][0], (ButtonSource{0, 20, false, false, 0.5F}));
+    EXPECT_EQ(out.buttonSecondary[1][1], (ButtonSource{1, 3, true, false, 0.3F}));
+    EXPECT_FALSE(out.buttonSecondary[1][2].mapped());
+    EXPECT_FALSE(out.buttonSecondary[2][0].mapped());
+    EXPECT_EQ(out.buttonSecondary[3], base.buttonSecondary[3]);
+    ASSERT_EQ(problems.size(), 1U);
+    EXPECT_NE(problems[0].find("button 3 or 044f:b696/1"), std::string::npos) << problems[0];
+    EXPECT_EQ(out.buttonMap, base.buttonMap);   // the mains: the mapping's
+    GameTuning only;
+    only.secondaries[0] = {};
+    EXPECT_TRUE(changesMapping(only));
 }
 
 // The old [game_ffb_gain] value counts for a game with a profile or values of its own, after the profile.
