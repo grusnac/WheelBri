@@ -5,6 +5,7 @@
 // copied to the window in one go, so it never flickers. Text uses the X server's own fixed-width fonts
 // ("misc-fixed", always there), the size closest to the scaled 8-pixel grid.
 
+#include "Platform.hpp"
 #include "UiWindow.hpp"
 
 #include "wheelbri/Logging.hpp"
@@ -437,6 +438,7 @@ public:
             return false;
         }
         std::thread([pid] {   // collect it when it ends, so no zombie stays behind
+            platform::nameThisThread("wheelbri child reaper");
             int status = 0;
             waitpid(pid, &status, 0);
         }).detach();

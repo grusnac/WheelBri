@@ -1,5 +1,7 @@
 #include "HelperServer.hpp"
 
+#include "Platform.hpp"
+
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/HelperProtocol.hpp"
 #include "wheelbri/Logging.hpp"
@@ -444,6 +446,7 @@ bool HelperServer::run(void* const stopEvent, std::string& error) {
         try {
             Worker& worker = workers.emplace_back();
             worker.thread = std::thread([pipe, stop, freed, this, &hellos, done = worker.done] {
+                service::platform::nameThisThread("wheelbri helper connection");
                 {
                     Connection connection(pipe, stop, options_, hellos);
                     connection.serve();
