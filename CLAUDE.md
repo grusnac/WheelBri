@@ -24,6 +24,10 @@ A new area file gets a row here.
   the list below. The docs never use them (plain CMake in `docs/building.md`).
 - Commands for the user: MSYS2 UCRT64, repo root, for everything (copy with `cp`, not `Copy-Item`). PowerShell or CMD
   only when there is no other way, and say why.
+- Git commands for the user: one command per code block, so each can be copied and run on its own (no `&&`
+  chains, no several commands in one block).
+- After changing files, end by listing the ones you changed that are not staged yet and say they still have to be
+  committed, with the `git add` for them.
 - Docs: install (Windows and Linux sections) and status in `README.md`; usage in `docs/user-guide.md`; per game in
   `docs/games.md`; target layouts in `docs/targets.md`; build in `docs/building.md`. Short, current facts only, no
   dated history. A new screen needs a screenshot in `docs/images/` (ask the user to take it).
@@ -69,7 +73,8 @@ Drivers (VS + WDK, PowerShell): `driver/CLAUDE.md`.
 `--no-start`, `--as-user` needs `wheelbri-helper --console`, `--config FILE`), `rebuild.sh` (clean rebuild), `ui.sh`
 (window only), `shim.sh [--off] <game folder>` (put/remove shim), `shim-x86.sh`, `logi.sh` (Logitech SDK stand-in
 DLL), `drivers.sh`, `all.sh`, `package.sh` (installer), `clean-pc.sh` (removes all WheelBri put on the PC),
-`measure.sh` (CPU, memory, handles from outside).
+`measure.sh` (CPU, memory, handles from outside), `g923-capture.sh` (guided USB capture and decode of a real
+G923: `tools/g923-capture/README.md`).
 
 - New things left on the PC by app, installer or drivers → add to `clean-pc.ps1`.
 - Performance: measure with `measure.sh`, don't add counters to the app.
