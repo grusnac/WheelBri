@@ -61,8 +61,9 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
    ![Picking what drives a button](images/mapping-buttons.png)
 
 3. Tick **Invert** for a pedal that reads pressed at rest (never automatic).
-4. **+ or** gives a button a second source, e.g. a handbrake lever: it presses the button past the point you set,
-   from 0% (as soon as it moves) to 100% (only at its end).
+4. The blue **+** at the end of a button's row adds more controls that activate it (up to 8), e.g. a handbrake lever:
+   it activates the button past the point you set, from 0% (as soon as it moves) to 100% (only at its end). They show
+   as **or ...** in the row; click one to change them.
 5. Set **Steering rotation** to the game's full lock, and your wheel's software to **the same number**.
 
 **G25 and G27 only:**

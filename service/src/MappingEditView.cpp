@@ -73,6 +73,8 @@ constexpr std::array<const char*, 4> kHatNames = {"Up", "Right", "Down", "Left"}
 constexpr float kLabelGap = 12;
 // A button row's label: its number and at most 10 characters of its name ("24 Dial Enter").
 constexpr std::size_t kButtonLabelChars = 3 + 10;
+constexpr float kPlusW = 24;    // a button row's "+" (adds a secondary)
+constexpr float kChipGap = 4;   // between a button's secondary chips
 constexpr float kPopupX = 24;
 constexpr float kPopupY = 56;
 
@@ -865,10 +867,86 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
     constexpr std::string_view kRigTag = "RIG";
     const float tagW = rigs ? static_cast<float>(kRigTag.size() + 1) * ui::kCharWidth : 0.0F;
     if (rigs) window_.text(x + w - 6 - tagW + ui::kCharWidth, y + 4, std::string(kRigTag), kHeading);
-    const auto chars = static_cast<std::size_t>(std::max(0.0F, w - 12 - tagW) / ui::kCharWidth);
-    window_.text(x + 6, y + 4, fit(describe(source, kind == Slot::Axis), chars),
-                 missing(source, kind == Slot::Axis) ? kCaution : source.mapped() ? kText : kDim);
+    const float room = std::max(0.0F, w - 12 - tagW);
+    const std::string text = describe(source, kind == Slot::Axis);
+    // A button's secondaries share the field: its own text first, the chips what is left (at least a "+N" chip).
+    const float chipsW =
+        kind == Slot::Button
+            ? std::min(chipsWidth(index), std::max(room - textWidth(text) - 8, 5 * ui::kCharWidth))
+            : 0.0F;
+    const auto chars = static_cast<std::size_t>(std::max(0.0F, room - (chipsW > 0 ? chipsW + 8 : 0.0F)) /
+                                                ui::kCharWidth);
+    const std::string shown = fit(text, chars);
+    window_.text(x + 6, y + 4, shown, missing(source, kind == Slot::Axis) ? kCaution : source.mapped() ? kText : kDim);
     hit(x, y, w, 16, [this, kind, index] { openPicker(kind, index); });
+    if (kind == Slot::Button) {
+        const bool changed = edit_.secondaries[index] != saved_.secondaries[index];
+        if (changed && !state.twice) window_.outline(x, y, w, 16, kMine);
+        drawChips(x + 6 + textWidth(shown) + 8, y, chipsW, index);
+    }
+}
+
+float MappingEditView::textWidth(const std::string& text) {
+    return static_cast<float>(text.size()) * ui::kCharWidth;
+}
+
+float MappingEditView::chipsWidth(const std::size_t index) const {
+    float w = 0;
+    for (const ButtonRef& ref : edit_.secondaries[index]) w += textWidth("or " + shortAlt(ref)) + 8 + kChipGap;
+    return w > 0 ? w - kChipGap : 0.0F;
+}
+
+void MappingEditView::drawChips(const float x, const float y, const float w, const std::size_t index) {
+    const std::vector<ButtonRef>& list = edit_.secondaries[index];
+    if (list.empty() || w <= 0) return;
+    const ControlUse self{ControlUse::Kind::Secondary, index};
+    std::string all;
+    for (const ButtonRef& ref : list) all += (all.empty() ? "" : ", ") + describeAlt(ref);
+    const std::string tipText = "Also pressed by: " + all + ". Click to change.";
+    float at = x;
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        const ButtonRef& ref = list[i];
+        std::string text = "or " + shortAlt(ref);
+        // What is left after this one: a "+N" chip for the rest when they do not all fit.
+        const std::string rest = "+" + std::to_string(list.size() - i - 1);
+        const float restW = i + 1 < list.size() ? textWidth(rest) + 8 + kChipGap : 0.0F;
+        float chipW = textWidth(text) + 8;
+        if (at + chipW + restW > x + w) {
+            // Not whole: shortened if a few letters fit, else "+N" for this one and the rest.
+            const float left = x + w - at - restW - 8;
+            if (left >= 6 * ui::kCharWidth) {
+                text = fit(text, static_cast<std::size_t>(left / ui::kCharWidth));
+                chipW = textWidth(text) + 8;
+            } else {
+                const std::string more = "+" + std::to_string(list.size() - i);
+                window_.fill(at, y + 2, textWidth(more) + 8, 12, kPanel);
+                window_.text(at + 4, y + 4, more, kText);
+                tip(at, y, textWidth(more) + 8, 16, tipText);
+                hit(at, y, textWidth(more) + 8, 16, [this, index] { openAltPicker(index); });
+                return;
+            }
+        }
+        const bool twice = entryState({ref.source, ref.axis}, self).twice;
+        window_.fill(at, y + 2, chipW, 12, kPanel);
+        if (twice) window_.outline(at, y + 2, chipW, 12, kWarning);
+        window_.text(at + 4, y + 4, text, missing(ref.source, ref.axis) ? kCaution : kText);
+        tip(at, y, chipW, 16, (twice ? "Used twice (red in the picker). " : "") + tipText);
+        hit(at, y, chipW, 16, [this, index] { openAltPicker(index); });
+        at += chipW + kChipGap;
+    }
+}
+
+void MappingEditView::drawPlus(const float x, const float y, const std::size_t index) {
+    const bool on = hoverInside_ && hoverX_ >= x && hoverX_ < x + kPlusW && hoverY_ >= y && hoverY_ < y + 16;
+    window_.fill(x, y, kPlusW, 16, on ? kHeading : style::kHeadingTint);
+    window_.outline(x, y, kPlusW, 16, kHeading);
+    window_.heading(x + (kPlusW - ui::kCharWidth) / 2, y + 4, "+", on ? kDark : kHeading);   // bold
+    const std::size_t count = edit_.secondaries[index].size();
+    tip(x, y, kPlusW, 16,
+        count == 0 ? std::string("Add a second control that activates it too")
+                   : "Add another control that activates it too (" + std::to_string(count) + " of " +
+                         std::to_string(MapperConfig::kMaxSecondaries) + ")");
+    hit(x, y, kPlusW, 16, [this, index] { openAltPicker(index); });
 }
 
 void MappingEditView::draw() {
@@ -1082,25 +1160,11 @@ void MappingEditView::draw() {
                     " with Native: check the game's control for it. Changing this row takes the mark off.");
         }
         const float fieldX = x + 8 + static_cast<float>(kButtonLabelChars) * ui::kCharWidth + kLabelGap;
-        // The first source (a button), "or" a second one (a button, or a one-sided axis past a threshold). With no
-        // second one the source takes the row and a faint "+ or" at its end opens the same popup (blue while the
-        // pointer is on the row), so 13 empty "(nothing)" fields don't crowd the tab.
-        const float quarter = half / 2;   // each column's fields share its extra width
-        const bool hasAlt = !edit_.secondaries[index].empty() || edit_.secondaries[index] != saved_.secondaries[index];
-        if (hasAlt) {
-            drawSource(fieldX, row, 194 + quarter, Slot::Button, index);
-            window_.text(x + 322 + quarter, row + 4, "or", kDim);
-            drawAltSource(x + 342 + quarter, row, 126 + quarter, index);
-        } else {
-            const float end = x + 468 + half;   // where the "or" field would end
-            const float plusW = 4 * ui::kCharWidth + 8;
-            drawSource(fieldX, row, end - plusW - 4 - fieldX, Slot::Button, index);
-            const bool onRow = hoverInside_ && hoverY_ >= row && hoverY_ < row + 16 && hoverX_ >= x && hoverX_ < end;
-            window_.text(end - plusW + 4, row + 4, "+ or", onRow ? kHeading : style::kFaint);
-            tip(end - plusW, row, plusW, 16,
-                "Add a second control that presses it too: a button, or a lever past a point");
-            hit(end - plusW, row, plusW, 16, [this, index] { openAltPicker(index); });
-        }
+        // The source (a button), its secondaries as "or ..." chips inside the same field, and a "+" button at the row's
+        // end that opens the secondary popup: on every row, tinted blue so a newcomer sees a button can have more.
+        const float end = x + 468 + half;   // the row's right end
+        drawSource(fieldX, row, end - kPlusW - 4 - fieldX, Slot::Button, index);
+        drawPlus(end - kPlusW, row, index);
     }
     const float gridEnd = gridTop + layout.height - 4;
 
@@ -2636,32 +2700,6 @@ std::string MappingEditView::describeAlt(const ButtonRef& alt) const {
     if (!alt.axis) return describe(alt.source, false);
     // "Hand > 50%": the axis' name, and where it presses the button.
     return axisName(alt.source) + " > " + tuning::formatPercent(alt.threshold);
-}
-
-void MappingEditView::drawAltSource(const float x, const float y, const float w, const std::size_t index) {
-    const std::vector<ButtonRef>& list = edit_.secondaries[index];
-    const bool changed = list != saved_.secondaries[index];
-    const ControlUse self{ControlUse::Kind::Secondary, index};
-    const bool twice = std::any_of(list.begin(), list.end(), [this, &self](const ButtonRef& ref) {
-        return entryState({ref.source, ref.axis}, self).twice;
-    });
-    window_.fill(x, y, w, 16, kStripe);
-    window_.outline(x, y, w, 16, twice ? kWarning : changed ? kMine : style::kFieldEdge);
-    // The first, and how many more: "Hand > 50% +2".
-    const std::string more = list.size() > 1 ? " +" + std::to_string(list.size() - 1) : std::string();
-    const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
-    const std::string first =
-        list.empty() ? std::string("(nothing)") : fit(shortAlt(list.front()), chars - std::min(chars - 3, more.size()));
-    const bool absent = std::any_of(list.begin(), list.end(),
-                                    [this](const ButtonRef& ref) { return missing(ref.source, ref.axis); });
-    window_.text(x + 6, y + 4, fit(first + more, chars), absent ? kCaution : list.empty() ? kDim : kText);
-    if (!list.empty()) {
-        std::string all;
-        for (const ButtonRef& ref : list) all += (all.empty() ? "" : ", ") + describeAlt(ref);
-        tip(x, y, w, 16, (twice ? "A control here is used twice (red in the picker). " : "") +
-                             std::string("Also pressed by: ") + all);
-    }
-    hit(x, y, w, 16, [this, index] { openAltPicker(index); });
 }
 
 void MappingEditView::openPicker(const Slot kind, const std::size_t index) {

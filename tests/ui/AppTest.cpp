@@ -1181,9 +1181,9 @@ TEST_F(AppRun, SecondaryPopupTakesTheRigsTouches) {
     const auto wheel = plugWheel();
     waitFor("Ready", false);
     press("m");
-    then("the Mapping tab", [](ScriptedWindow& w) { return w.has("+ or") || w.has("Show"); });
-    once([](ScriptedWindow& w) { return w.has("+ or") ? uitest::nothing() : clickText(w, "Show"); });
-    clickWhenShown("+ or");
+    then("the Mapping tab", [](ScriptedWindow& w) { return w.has("+") || w.has("Show"); });
+    once([](ScriptedWindow& w) { return w.has("+") ? uitest::nothing() : clickText(w, "Show"); });
+    clickWhenShown("+");
     waitFor("What else presses", true);
     once([](ScriptedWindow&) {   // a key arrives as a key and as typed text: the find box takes it, not the Games tab
         ui::WindowInput input = uitest::keys("g");

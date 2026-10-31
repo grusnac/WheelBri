@@ -262,9 +262,13 @@ private:
     void drawPicker();
     // The Buttons sub-tab's Add button...: the target's buttons in its own groups; one opens the picker for it.
     void drawAddButton();
-    // A target button's secondary sources (MappingModel::secondaries): its field (the first, "+N" more), and its
-    // picker (the rig's buttons and its named axes, each toggled; an axis' threshold).
-    void drawAltSource(float x, float y, float w, std::size_t index);
+    // A target button's secondary sources (MappingModel::secondaries): "or ..." chips in its field from `x`, as many as
+    // fit `w` ("+N" for the rest), each opening the picker; the row's "+" button that opens it too; and the picker
+    // (the rig's buttons and its named axes, each toggled; an axis' threshold).
+    void drawChips(float x, float y, float w, std::size_t index);
+    void drawPlus(float x, float y, std::size_t index);
+    [[nodiscard]] float chipsWidth(std::size_t index) const;
+    [[nodiscard]] static float textWidth(const std::string& text);
     void drawAltPicker();
     void openAltPicker(std::size_t index);
     // Opens the source picker for `kind` `index` (find box, scroll and notes from the start).

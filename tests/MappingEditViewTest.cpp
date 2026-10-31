@@ -978,7 +978,7 @@ TEST_F(EditView, AnAxisThresholdFromZeroToAHundred) {
     useRig(testRig());
     open();
     frame();
-    ASSERT_TRUE(click("+ or"));
+    ASSERT_TRUE(click("+"));
     frame();
     // The popup's headings: drawn last (the tab under it has its own AXES and BUTTONS).
     const auto lastOf = [&](const std::string& value) -> const Window::Text* {
@@ -1043,12 +1043,12 @@ TEST_F(EditView, AnAxisThresholdFromZeroToAHundred) {
 }
 
 // A target button's secondaries: buttons and axes toggled in their popup, an axis' threshold and direction, at most 8,
-// cleared all at once; the field shows the first and how many more.
+// cleared all at once; the field shows them as chips.
 TEST_F(EditView, SecondarySources) {
     useRig(testRig());
     open();
     frame();
-    ASSERT_TRUE(click("+ or"));   // the first button row's "or" (none yet)
+    ASSERT_TRUE(click("+"));   // the first button row's "+" (none yet)
     frame();
     ASSERT_TRUE(window_.hasPart("What else presses"));
     EXPECT_TRUE(window_.hasPart("0 of 8."));
@@ -1062,16 +1062,17 @@ TEST_F(EditView, SecondarySources) {
     frame();
     ASSERT_TRUE(click("Done"));
     frame();
-    EXPECT_TRUE(window_.has("Hand > 25% +2"));
-    const Window::Text* const field = window_.find("Hand > 25% +2");
-    ASSERT_NE(field, nullptr);
-    view_->setHover(field->x, field->y, true);
+    EXPECT_TRUE(window_.has("or Hand > 25%"));
+    EXPECT_TRUE(window_.has("+2"));   // K0 and K1: no room for their chips on this canvas
+    const Window::Text* const chip = window_.find("or Hand > 25%");
+    ASSERT_NE(chip, nullptr);
+    view_->setHover(chip->x, chip->y, true);
     frame();
     EXPECT_TRUE(window_.hasPart("Also pressed by: Hand > 25%"));
     EXPECT_NE(own().find("_or"), std::string::npos) << own();
 
-    // Full: 8, the rest greyed.
-    ASSERT_TRUE(click("Hand > 25% +2"));
+    // Full: 8, the rest greyed. A chip opens the popup too.
+    ASSERT_TRUE(click("or Hand > 25%"));
     for (int k = 2; k < 8; ++k) ASSERT_TRUE(click(std::to_string(k) + " K" + std::to_string(k)));
     frame();
     EXPECT_TRUE(window_.hasPart("8 of 8."));
@@ -1124,32 +1125,35 @@ TEST_F(EditView, HeadingsAreTextColoured) {
     }
 }
 
-// A button with no second source shows a faint "+ or" at its row's end instead of an empty field; it turns blue while
-// the pointer is on the row. Once it has one, the row shows "or" and the field again.
-TEST_F(EditView, AnEmptyOrIsAPlus) {
+// Every button row ends in a "+" button (blue, tinted at rest, filled while pointed at; a hover text says what it does)
+// that opens the secondary popup. What is added shows as "or ..." chips in the row's field; the "+" stays.
+TEST_F(EditView, EveryButtonRowHasAPlus) {
     useRig(testRig());
     open();
     frame();
-    const std::size_t plusses = window_.count("+ or");
+    const std::size_t plusses = window_.count("+");
     EXPECT_GT(plusses, 0U);
-    EXPECT_FALSE(window_.has("or"));
-    const Window::Text* plus = window_.find("+ or");
-    ASSERT_NE(plus, nullptr);
-    EXPECT_TRUE(sameColour(plus->colour, style::kFaint));
-    view_->setHover(plus->x - 200, plus->y, true);   // on its row, left of it
-    frame();
-    plus = window_.find("+ or");
+    const Window::Text* plus = window_.find("+");
     ASSERT_NE(plus, nullptr);
     EXPECT_TRUE(sameColour(plus->colour, style::kHeading));
+    view_->setHover(plus->x, plus->y, true);
+    frame();
+    plus = window_.find("+");
+    ASSERT_NE(plus, nullptr);
+    EXPECT_TRUE(sameColour(plus->colour, style::kDark));
+    EXPECT_TRUE(window_.hasPart("Add a second control that activates it too"));
     view_->setHover(0, 0, false);
-    ASSERT_TRUE(click("+ or"));
+    ASSERT_TRUE(click("+"));
     frame();
     ASSERT_TRUE(click("0 K0"));
     ASSERT_TRUE(click("Done"));
     frame();
-    EXPECT_EQ(window_.count("+ or"), plusses - 1);
-    EXPECT_TRUE(window_.has("or"));
-    EXPECT_TRUE(window_.has("K0"));
+    EXPECT_EQ(window_.count("+"), plusses);
+    EXPECT_TRUE(window_.has("or K0"));
+    plus = window_.find("+");
+    view_->setHover(plus->x, plus->y, true);
+    frame();
+    EXPECT_TRUE(window_.hasPart("Add another control that activates it too (1 of 8)"));
 }
 
 // The secondary popup's find box takes what is typed while it is open: only the entries holding it (any case) are
@@ -1158,7 +1162,7 @@ TEST_F(EditView, TheSecondaryPopupFinds) {
     useRig(testRig());
     open();
     frame();
-    ASSERT_TRUE(click("+ or"));
+    ASSERT_TRUE(click("+"));
     frame();
     EXPECT_TRUE(view_->editingText());   // letters are not the window's shortcuts while it is open
     EXPECT_TRUE(window_.has("1 K1"));
@@ -1192,7 +1196,7 @@ TEST_F(EditView, TheSecondaryPopupScrolls) {
     useRig(testRig());
     open();
     frame();
-    ASSERT_TRUE(click("+ or"));
+    ASSERT_TRUE(click("+"));
     frame();
     EXPECT_TRUE(window_.hasPart("Button box with a very long name indeed, longer than forty"));
     ASSERT_TRUE(window_.hasPart(" more below: scroll with the mouse wheel."));
@@ -1218,7 +1222,7 @@ TEST_F(EditView, TheSecondaryPopupTakesTouches) {
     open();
     frame();
     EXPECT_FALSE(view_->wantsRigTouches());
-    ASSERT_TRUE(click("+ or"));
+    ASSERT_TRUE(click("+"));
     frame();
     ASSERT_TRUE(view_->wantsRigTouches());
     view_->onRigTouch(kBoxId, false, 37);
@@ -1242,10 +1246,10 @@ TEST_F(EditView, TheSecondaryPopupTakesTouches) {
     EXPECT_FALSE(window_.hasPart("has no name"));
     ASSERT_TRUE(click("Done"));
     frame();
-    EXPECT_TRUE(window_.has("K37 +1"));
+    EXPECT_TRUE(window_.has("or K37"));
 }
 
-// A secondary the rig has not named shows in amber; one used twice is red; with no rig the popup says so.
+// A secondary chip the rig has not named shows in amber; one used twice is outlined red; with no rig the popup says so.
 TEST_F(EditView, SecondariesThatCannotBeUsed) {
     useOlderDefault();
     std::string text = read(dir_ / "config" / "g920.ini");
@@ -1253,11 +1257,11 @@ TEST_F(EditView, SecondariesThatCannotBeUsed) {
     write(userConfigFolder() / "my-g920.ini", text);
     open();
     frame();
-    const Window::Text* const field = window_.holding("button 13 +2");
-    ASSERT_NE(field, nullptr);
-    EXPECT_TRUE(sameColour(field->colour, style::kText));
-    EXPECT_TRUE(window_.outlinedAt(field->x, field->y, style::kWarning));   // 13 is also button 4's
-    view_->onClick(field->x + 1, field->y + 1);
+    const Window::Text* const chip = window_.find("or button 13");
+    ASSERT_NE(chip, nullptr);
+    EXPECT_TRUE(sameColour(chip->colour, style::kText));
+    EXPECT_TRUE(window_.outlinedAt(chip->x, chip->y, style::kWarning));   // 13 is also button 4's
+    view_->onClick(chip->x + 1, chip->y + 1);
     frame();
     EXPECT_TRUE(window_.hasPart("The rig has no devices yet"));
     ASSERT_TRUE(click("Done"));
@@ -1265,12 +1269,15 @@ TEST_F(EditView, SecondariesThatCannotBeUsed) {
     useRig(testRig());
     nowMs_ += 2000;
     frame();
-    const Window::Text* const named = window_.holding("B13 +2");
+    const Window::Text* const named = window_.find("or B13");
     ASSERT_NE(named, nullptr);
-    EXPECT_TRUE(sameColour(named->colour, style::kCaution));   // button 40 is not in the rig
+    EXPECT_TRUE(sameColour(named->colour, style::kText));
+    const Window::Text* const absent = window_.find("or button 40");
+    ASSERT_NE(absent, nullptr);
+    EXPECT_TRUE(sameColour(absent->colour, style::kCaution));   // button 40 is not in the rig
     view_->setHover(named->x, named->y, true);
     frame();
-    EXPECT_TRUE(window_.hasPart("A control here is used twice"));
+    EXPECT_TRUE(window_.hasPart("Used twice"));
     EXPECT_TRUE(window_.hasPart("50%"));
 }
 
@@ -2592,7 +2599,7 @@ TEST_F(EditView, PickersWithoutTheWheel) {
     picker_->refresh();
     nowMs_ += 2000;
     frame();
-    const Window::Text* const alt = window_.holding("axis 3 >");
+    const Window::Text* const alt = window_.find("+2");   // its chips: no room for them on this canvas but "+2"
     ASSERT_NE(alt, nullptr);
     view_->onClick(alt->x + 1, alt->y + 1);
     frame();
@@ -2615,7 +2622,7 @@ TEST_F(EditView, TheSecondaryPickerFitsTheCanvas) {
     useRig(rig);
     open();
     ASSERT_TRUE(click("Show"));   // a group with nothing mapped is folded: open it for its rows
-    ASSERT_TRUE(click("+ or"));
+    ASSERT_TRUE(click("+"));
     frame();
     EXPECT_TRUE(window_.hasPart("What else presses"));
     EXPECT_FALSE(window_.hasPart("Shifter  1234:0003"));
