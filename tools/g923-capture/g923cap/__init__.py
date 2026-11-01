@@ -10,3 +10,20 @@ OTHER_G923_IDS = {
     0xC266: "G923 for PlayStation and PC (PS mode)",
     0xC267: "G923 for PlayStation and PC (PC mode)",
 }
+
+
+def rehearsal_target() -> tuple[int, int | None] | None:
+    """G923_TARGET=VID[:PID] (hex, e.g. 346E for the MOZA R3): a rehearsal with another wheel. None = the G923."""
+    import os
+    text = os.environ.get("G923_TARGET", "").strip()
+    if not text:
+        return None
+    vid, _, pid = text.partition(":")
+    return int(vid, 16), (int(pid, 16) if pid and pid.lower() != "any" else None)
+
+
+def is_target(vendor: int, product: int) -> bool:
+    r = rehearsal_target()
+    if r is None:
+        return vendor == VENDOR_ID and (product == PRODUCT_ID or product in OTHER_G923_IDS)
+    return vendor == r[0] and (r[1] is None or product == r[1])

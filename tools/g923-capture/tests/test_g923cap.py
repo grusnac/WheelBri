@@ -127,6 +127,31 @@ class AnalyseTest(Temp):
         self.assertIn("logiTrueForceSetTorqueKF x2", summary)
         json.loads((folder / "analysis.json").read_text())
 
+    def test_borrows_report_descriptors_and_kinds_by_majority(self):
+        folder = self.make_s2()
+        s1 = self.dir / "S1-plugin"
+        s1.mkdir()
+        fw.s1_like(str(s1 / "capture.pcap"))
+        analyse.decode(s1)
+        self.assertTrue((self.dir / "descriptors-046D-C26E.json").exists())
+        r = analyse.decode(folder)[0]
+        self.assertEqual(r.get("report_descriptors_from"), "descriptors-046D-C26E.json")
+        kinds = {i["number"]: i["kind"] for i in r["target"]["interfaces"]}
+        self.assertEqual(kinds, {0: "input", 1: "hidpp", 2: "truforce"})
+
+    def test_kind_by_majority_without_descriptors(self):
+        c = fw.Capture()
+        c.descriptors(report_descriptors=False)
+        for k in range(30):   # game reports on interface 0, one of them shaped like HID++ long
+            c.inn(0x81, bytes([0x11]) + bytes(19) if k == 3 else bytes(13))
+        folder = self.dir / "S5-x"
+        folder.mkdir()
+        pcap.write_pcap(str(folder / "capture.pcap"), c.frames)
+        r = analyse.decode(folder)[0]
+        self.assertEqual(r["interface_kinds"], {"0": "input"})
+        self.assertEqual(r["hidpp"]["requests"], 0)
+        self.assertEqual(r["hidpp"]["unsolicited"]["count"], 0)
+
     def test_holds_out_of_order_fail(self):
         folder = self.make_s2()
         notes = (folder / "notes.txt").read_text().replace("right90|90", "right90|-45")
@@ -209,6 +234,88 @@ class KeepTest(Temp):
         self.assertIn("all kept", said[0])
 
 
+class RehearsalTest(Temp):
+    def tearDown(self):
+        os.environ.pop("G923_TARGET", None)
+        super().tearDown()
+
+    def test_another_wheel(self):
+        folder = self.dir / "S1-plugin-ghub"
+        folder.mkdir()
+        c = fw.Capture(bus=2, address=4)
+        moza = bytearray(fw.DEVICE)
+        moza[8:12] = bytes([0x6E, 0x34, 0x04, 0x00])   # 346E:0004
+        c.control_in(bytes([0x80, 6, 0, 1, 0, 0, 18, 0]), bytes(moza))
+        cfg = fw.configuration()
+        c.control_in(bytes([0x80, 6, 0, 2, 0, 0]) + struct.pack("<H", len(cfg)), cfg)
+        for i, rd in enumerate((fw.RD_GAME, fw.RD_HIDPP, fw.RD_TF)):
+            c.control_in(bytes([0x81, 6, 0, 0x22, i, 0]) + struct.pack("<H", len(rd)), rd)
+        c.inn(0x81, bytes([1]) + bytes(10))
+        pcap.write_pcap(str(folder / "raw-USBPcap2.pcap"), c.frames)
+        self.assertIn("all kept", analyse.keep_wheel_only(folder)[0])   # not a G923: nothing deleted
+        pcap.write_pcap(str(folder / "raw-USBPcap2.pcap"), c.frames)
+        os.environ["G923_TARGET"] = "346E"
+        self.assertTrue(analyse.keep_wheel_only(folder)[0].startswith("kept"))
+        r = analyse.decode(folder)[0]
+        cs = analyse.checks(r)
+        self.assertIn("REHEARSAL", cs[0][1])
+        for ok, text in cs:
+            self.assertTrue(ok, text)
+
+
+class ReEnumerationTest(Temp):
+    def test_keep_keeps_every_address_of_the_wheel(self):
+        folder = self.dir / "S3-x"
+        folder.mkdir()
+        first = fw.Capture(bus=1, address=7)
+        first.descriptors(False)
+        first.inn(0x81, bytes(13))
+        second = fw.Capture(t0=first.t + 1, bus=1, address=9)   # the wheel again, after a reset
+        second.descriptors(False)
+        second.inn(0x81, bytes(13))
+        keyboard = fw.Capture(bus=1, address=3)
+        keyboard.inn(0x81, bytes(8))
+        pcap.write_pcap(str(folder / "raw-USBPcap1.pcap"), sorted(first.frames + second.frames + keyboard.frames))
+        said = analyse.keep_wheel_only(folder)
+        self.assertIn("bus 1 address 7, bus 1 address 9", said[0])
+        devices = {t.device for t in pcap.transfers(pcap.read_urbs(str(folder / "capture.pcap")))}
+        self.assertEqual(devices, {7, 9})
+
+    def test_hidpp_sharing_the_game_interface(self):
+        c = fw.Capture()
+        c.descriptors(report_descriptors=False)
+        for k in range(20):
+            c.inn(0x81, bytes(13))
+        q = fw.hidpp_long(0, 0, 1, b"\x81\x23")
+        c.out(0x01, q)
+        c.inn(0x81, fw.hidpp_answer(q))
+        folder = self.dir / "S5-y"
+        folder.mkdir()
+        pcap.write_pcap(str(folder / "capture.pcap"), c.frames)
+        r = analyse.decode(folder)[0]
+        self.assertEqual(r["interface_kinds"], {"0": "input+hidpp"})
+        self.assertEqual(r["hidpp"]["requests"], 1)
+        self.assertEqual(r["hidpp"]["answered"], 1)
+
+
+class MixedInterfaceTest(Temp):
+    def test_game_hidpp_and_truforce_on_one_interface(self):
+        from g923cap import descriptors as d
+        rd = fw.RD_GAME + fw.RD_HIDPP + fw.RD_TF.replace(bytes([0x85, 0x01]), bytes([0x85, 0x05]))
+        cols = d.parse_report_descriptor(rd)
+        self.assertEqual([c.usage_page for c in cols], [0x01, 0xFF43, 0xFF43, 0xFFFD])
+        dev = analyse.Device(1, 7)
+        dev.report_descriptors[0] = rd
+        self.assertEqual(dev.kind_of_interface(0), "mixed")
+        self.assertEqual(dev.kind_of_report(0, 0x01), "input")
+        self.assertEqual(dev.kind_of_report(0, 0x11), "hidpp")
+        self.assertEqual(dev.kind_of_report(0, 0x05), "truforce")
+        r = analyse.Report(0, "in", 0, bytes([0x11, 0xFF, 0, 0]) + bytes(16), 1, "interrupt")
+        self.assertEqual(analyse.classify(dev, r), "hidpp")
+        r = analyse.Report(0, "in", 0, bytes([0x01]) + bytes(12), 2, "interrupt")
+        self.assertEqual(analyse.classify(dev, r), "input")
+
+
 class ProbeTest(unittest.TestCase):
     def test_truforce_parameters(self):
         t = fw.FakeTransport("tf")
@@ -216,8 +323,8 @@ class ProbeTest(unittest.TestCase):
         self.assertEqual(len(res["parameters"]), 0x40)
         self.assertAlmostEqual(res["parameters"]["0x0C"]["value"], 47.1239, places=3)
         self.assertFalse(res["sealed_requests"])
-        self.assertIsNotNone(res["slots"])
-        self.assertEqual(res["other_reports"].get("0x02"), 2 * 0x41)
+        self.assertIsNone(res["slots"])   # 0x07 is not sent
+        self.assertEqual(res["other_reports"].get("0x02"), 2 * 0x40)
         self.assertTrue(all(w[4] in probe.SAFE_TRUFORCE_TYPES for w in t.written))
 
     def test_truforce_needs_seal(self):
@@ -239,8 +346,8 @@ class ProbeTest(unittest.TestCase):
             self.assertEqual(w[3] & 0x0F, probe.SOFTWARE_ID)
 
     def test_only_reads_allowed(self):
-        self.assertEqual(probe.SAFE_TRUFORCE_TYPES, {0x05, 0x07})
-        for t in (0x01, 0x03, 0x04, 0x06, 0x0C, 0x0E):
+        self.assertEqual(probe.SAFE_TRUFORCE_TYPES, {0x05})
+        for t in (0x01, 0x03, 0x04, 0x06, 0x07, 0x0C, 0x0E):
             with self.assertRaises(probe.Unsafe):
                 probe.truforce_request(t, 1, b"", 64, False)
         with self.assertRaises(probe.Unsafe):

@@ -21,7 +21,9 @@ from . import PRODUCT_ID, VENDOR_ID
 from . import hidpp
 from . import truforce as tf
 
-SAFE_TRUFORCE_TYPES = frozenset({0x05, 0x07})
+# Only 0x05 (a parameter's value). 0x07 (slots) is left out: that it only reads is known from a direct-drive wheel,
+# not from a G923, and S2's capture holds the G923's answer to the game's own 0x07 anyway.
+SAFE_TRUFORCE_TYPES = frozenset({0x05})
 # (feature id, function) pairs that only read.
 SAFE_HIDPP = frozenset({
     (0x0000, 0), (0x0000, 1),            # Root: getFeature, getProtocolVersion
@@ -60,11 +62,16 @@ class Transport:
     def close(self) -> None: ...
 
 
-def truforce_request(rtype: int, seq: int, payload: bytes, length: int, seal: bool) -> bytes:
+# The 4 bytes before the type: [report ID, 00, 00, 00] as WheelBri's notes have them. probe.run replaces them with the
+# header the game's own 0x05 requests had in S2's capture, if there is one (the real wheel's report ID may differ).
+HEADER = b"\x01\x00\x00\x00"
+
+
+def truforce_request(rtype: int, seq: int, payload: bytes, length: int, seal: bool, header: bytes = HEADER) -> bytes:
     if rtype not in SAFE_TRUFORCE_TYPES:
         raise Unsafe(f"TrueForce type 0x{rtype:02X} is not a read")
     d = bytearray(length)
-    d[0:4] = b"\x01\x00\x00\x00"
+    d[0:4] = header[:4]
     d[4] = rtype
     d[5] = seq & 0xFF
     d[6:6 + len(payload)] = payload
@@ -89,7 +96,7 @@ def read_answer(t: Transport, match, timeout_s: float, seen: list | None = None)
             seen.append(d)
 
 
-def probe_truforce(t: Transport, timeout_s: float = 0.3, indexes=range(0x40)) -> dict:
+def probe_truforce(t: Transport, timeout_s: float = 0.3, indexes=range(0x40), header: bytes = HEADER) -> dict:
     res = {"parameters": {}, "no_answer": [], "slots": None, "sealed_requests": None, "other_reports": {}}
     seen: list[bytes] = []
     seq = SEQ_BASE
@@ -100,7 +107,7 @@ def probe_truforce(t: Transport, timeout_s: float = 0.3, indexes=range(0x40)) ->
         for seal in tries:
             seq = (seq + 1) & 0xFF
             s = seq
-            t.write(truforce_request(rtype, s, payload, t.output_len, seal))
+            t.write(truforce_request(rtype, s, payload, t.output_len, seal, header))
             a = read_answer(t, lambda d: len(d) > 5 and d[4] == rtype and d[5] == s, timeout_s, seen)
             if a is not None:
                 res["sealed_requests"] = seal
@@ -116,9 +123,6 @@ def probe_truforce(t: Transport, timeout_s: float = 0.3, indexes=range(0x40)) ->
         if parsed:
             i, value, ok = parsed
             res["parameters"][f"0x{i:02X}"] = {"value": value, "well_formed": ok, "raw": a[6:14].hex(" ")}
-    a = ask(0x07, b"")
-    if a is not None:
-        res["slots"] = {"hex": a[:30].hex(" "), "sealed": tf.sealed_at(a, 25)}
     for d in seen:
         if len(d) > 5:
             key = f"0x{d[4]:02X}"
@@ -332,6 +336,8 @@ class WindowsHid(Transport):
         self.k.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
                                        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
         self.k.CreateEventW.restype = wintypes.HANDLE
+        self.k.ReadFile.restype = wintypes.BOOL
+        self.k.WriteFile.restype = wintypes.BOOL
         self.k.ReadFile.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p]
         self.k.WriteFile.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p,
                                      ctypes.c_void_p]
@@ -365,7 +371,10 @@ class WindowsHid(Transport):
         buf = c.create_string_buffer(bytes(data), len(data))
         ov = self._ov()
         try:
-            self.k.WriteFile(self.h, buf, len(data), None, c.byref(ov))
+            if not self.k.WriteFile(self.h, buf, len(data), None, c.byref(ov)):
+                err = c.get_last_error()
+                if err != 997:   # ERROR_IO_PENDING
+                    raise OSError(f"write failed at once (error {err})")
             if self.k.WaitForSingleObject(ov.hEvent, 1000) != 0:
                 self.k.CancelIo(self.h)
                 raise OSError("write timed out")
@@ -380,7 +389,12 @@ class WindowsHid(Transport):
         if self.read_ov is None:   # one read in flight at a time, kept across timeouts
             self.read_ov = self._ov()
             self.read_buf = c.create_string_buffer(self.input_len)
-            self.k.ReadFile(self.h, self.read_buf, self.input_len, None, c.byref(self.read_ov))
+            if not self.k.ReadFile(self.h, self.read_buf, self.input_len, None, c.byref(self.read_ov)):
+                err = c.get_last_error()
+                if err != 997:   # ERROR_IO_PENDING
+                    self.k.CloseHandle(self.read_ov.hEvent)
+                    self.read_ov = None
+                    raise OSError(f"read failed at once (error {err})")
         if self.k.WaitForSingleObject(self.read_ov.hEvent, max(1, int(timeout_s * 1000))) != 0:
             return None
         done = w.DWORD()
@@ -413,27 +427,48 @@ def run(out: Path, repo: Path | None, ghub_running: str = "unknown") -> int:
         result["collections"][c.path] = (f"usage page 0x{c.usage_page:04X} usage 0x{c.usage:04X}, in/out/feature "
                                          f"{c.input_len}/{c.output_len}/{c.feature_len}")
         print(f"found: page 0x{c.usage_page:04X} usage 0x{c.usage:04X} in {c.input_len} out {c.output_len}")
+    header = HEADER
+    for analysis in sorted(out.parent.glob("S2*/analysis.json")):
+        try:
+            ex = json.loads(analysis.read_text(encoding="utf-8"))["truforce"]["examples"].get("0x05")
+            if ex:
+                header = bytes.fromhex(ex[0]["hex"].split(" …")[0].replace(" ", ""))[:4]
+                print(f"TrueForce request header from {analysis.parent.name}: {header.hex(' ')}")
+                break
+        except (OSError, KeyError, ValueError, TypeError, IndexError):
+            continue
+    result["truforce_header"] = header.hex(" ")
     tfc = next((c for c in cols if c.usage_page == 0xFFFD), None)
     if tfc is None:
         result["problems"].append("no TrueForce collection (usage page 0xFFFD)")
     else:
-        t = WindowsHid(tfc)
+        t = None
         try:
-            print("TrueForce: asking parameters 0x00..0x3F and the slots...")
-            result["truforce"] = probe_truforce(t)
+            t = WindowsHid(tfc)
+            print("TrueForce: asking parameters 0x00..0x3F...")
+            result["truforce"] = probe_truforce(t, header=header)
+        except OSError as e:   # one part failing must not lose the other
+            result["problems"].append(f"TrueForce probe: {e}")
+            print(f"TrueForce probe failed: {e}")
         finally:
-            t.close()
+            if t is not None:
+                t.close()
     hp = [c for c in cols if c.usage_page == 0xFF43 and c.output_len in (20, 64)]
     hp.sort(key=lambda c: c.output_len)   # long (20) first
     if not hp:
         result["problems"].append("no HID++ collection (usage page 0xFF43)")
     else:
-        t = WindowsHid(hp[0])
+        t = None
         try:
+            t = WindowsHid(hp[0])
             print("HID++: protocol, features, firmware, name...")
             result["hidpp"] = probe_hidpp(t)
+        except OSError as e:
+            result["problems"].append(f"HID++ probe: {e}")
+            print(f"HID++ probe failed: {e}")
         finally:
-            t.close()
+            if t is not None:
+                t.close()
     wb = tf.wheelbri_parameters(repo) if repo else {}
     stem = "probe-ghub-" + ghub_running
     (out / f"{stem}.json").write_text(json.dumps(result, indent=1), encoding="utf-8")

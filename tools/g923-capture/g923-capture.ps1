@@ -25,6 +25,7 @@ param(
     [string]$Repo = '',              # WheelBri's root
     [string]$Day = '',               # the captures folder for this day (default <Repo>\captures\g923\<date>)
     [switch]$WheelBri,
+    [string]$Target = '',            # rehearsal with another wheel: VID[:PID] in hex, e.g. 346E (the MOZA R3)
     [string]$UserLocalAppData = '',
     [switch]$Elevated                # set when started again as Administrator
 )
@@ -35,6 +36,14 @@ if (-not $Repo) { $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path 
 if (-not $Day) { $Day = Join-Path $Repo ("captures\g923\" + (Get-Date -Format 'yyyy-MM-dd')) }
 if (-not $UserLocalAppData) { $UserLocalAppData = $env:LOCALAPPDATA }
 $Kit = $PSScriptRoot
+# Rehearsal: the decoder (Python) reads the same setting from the environment.
+$TargetRegex = 'VID_046D&PID_C26E'
+if ($Target) {
+    $env:G923_TARGET = $Target
+    $parts = $Target.Split(':')
+    $TargetRegex = 'VID_' + $parts[0].ToUpper()
+    if ($parts.Count -gt 1 -and $parts[1] -and $parts[1] -ne 'any') { $TargetRegex += '&PID_' + $parts[1].ToUpper() }
+}
 
 $AppIds = [ordered]@{ acc = 805550; dirt = 690790; nfsheat = 1222680 }
 $GameExe = @{ acc = 'AC2-Win64-Shipping.exe'; dirt = 'dirtrally2.exe'; nfsheat = 'NeedForSpeedHeat.exe' }
@@ -71,6 +80,7 @@ if ($Step -ne 'games' -and -not (Test-Admin)) {
     $quoted += @('-Repo', "`"$($Repo.TrimEnd('\'))`"", '-Day', "`"$($Day.TrimEnd('\'))`"",
                  '-UserLocalAppData', "`"$($UserLocalAppData.TrimEnd('\'))`"", '-Elevated')
     if ($WheelBri) { $quoted += '-WheelBri' }
+    if ($Target) { $quoted += @('-Target', $Target) }
     Write-Host 'USB capture needs Administrator: answer the Windows prompt. The steps go on in a new window.'
     try {
         $p = Start-Process powershell.exe -Verb RunAs -ArgumentList ($quoted -join ' ') -Wait -PassThru
@@ -100,10 +110,11 @@ function Get-UsbPcapCmd {
 }
 
 function Get-UsbPcapHubs([string]$cmd) {
+    # Piped through Out-String: USBPcapCMD is a GUI-subsystem program, and PowerShell only waits for one (and gets
+    # its output) when its output goes into a pipeline.
+    $text = & $cmd --extcap-interfaces 2>&1 | Out-String
     $hubs = @()
-    foreach ($line in @(& $cmd --extcap-interfaces 2>$null)) {
-        if ($line -match 'interface \{value=([^}]+)\}') { $hubs += $Matches[1] }
-    }
+    foreach ($m in [regex]::Matches($text, 'interface \{value=([^}]+)\}')) { $hubs += $m.Groups[1].Value }
     return @($hubs)
 }
 
@@ -152,11 +163,23 @@ function Get-FileVersionText([string]$path) {
     } catch { return 'unreadable' }
 }
 
-function Get-GHubProcesses { return @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like 'lghub*' }) }
+# G HUB itself (the app, its agent, its tray). Not lghub_updater: that is a service that runs all the time, also when
+# G HUB is closed, so it must not count as "G HUB is running".
+function Get-GHubProcesses {
+    return @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like 'lghub*' -and $_.ProcessName -ne 'lghub_updater' })
+}
+function Get-AllGHubProcesses { return @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like 'lghub*' }) }
 
 function Get-RealWheels {
     return @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
         $_.InstanceId -match 'VID_046D&PID_(C26E|C26D|C266|C267)' -and $_.InstanceId -notlike 'SWD\*'
+    })
+}
+
+# The wheel being captured: the G923 (046D:C26E), or the rehearsal wheel (-Target).
+function Get-TargetWheels {
+    return @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
+        $_.InstanceId -match $TargetRegex -and $_.InstanceId -notlike 'SWD\*'
     })
 }
 
@@ -173,7 +196,7 @@ function Start-AsUser([string]$target) { Start-Process -FilePath explorer.exe -A
 
 function Start-GHub {
     foreach ($svc in @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*LGHUB*' })) {
-        if ($svc.Status -ne 'Running') { try { Start-Service $svc.Name } catch { Warn "could not start $($svc.Name)" } }
+        if ($svc.Status -ne 'Running') { try { Start-Service $svc.Name -ErrorAction Stop } catch { Warn "could not start $($svc.Name)" } }
     }
     foreach ($p in @("$env:ProgramFiles\LGHUB\system_tray\lghub_system_tray.exe", "$env:ProgramFiles\LGHUB\lghub.exe")) {
         if (Test-Path -LiteralPath $p) { Start-AsUser $p; return $true }
@@ -185,13 +208,13 @@ function Start-GHub {
 function Stop-GHub {
     $stopped = @()
     foreach ($svc in @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*LGHUB*' -and $_.Status -eq 'Running' })) {
-        try { Stop-Service $svc.Name -Force; $stopped += $svc.Name } catch { Warn "could not stop $($svc.Name)" }
+        try { Stop-Service $svc.Name -Force -ErrorAction Stop; $stopped += $svc.Name } catch { Warn "could not stop $($svc.Name)" }
     }
-    Get-GHubProcesses | ForEach-Object { try { Stop-Process -Id $_.Id -Force } catch { } }
+    Get-AllGHubProcesses | ForEach-Object { try { Stop-Process -Id $_.Id -Force } catch { } }
     Start-Sleep -Seconds 2
-    Get-GHubProcesses | ForEach-Object { try { Stop-Process -Id $_.Id -Force } catch { } }
+    Get-AllGHubProcesses | ForEach-Object { try { Stop-Process -Id $_.Id -Force } catch { } }
     if ($stopped.Count -gt 0) { Set-State 'ghub_services_stopped' ($stopped -join ',') }
-    return @(Get-GHubProcesses).Count -eq 0
+    return @(Get-AllGHubProcesses).Count -eq 0
 }
 
 # --- State (one file per day) ---------------------------------------------------------------------------------------
@@ -252,10 +275,17 @@ function Find-Wheel([string]$cmd) {
     Stop-Captures $procs
     $json = (Invoke-Python (@('locate') + @($files.Keys))) -join ''
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-    try { $found = @($json | ConvertFrom-Json) } catch { return $null }
-    $hit = $found | Where-Object { $_.address } | Select-Object -First 1
+    # ConvertFrom-Json -InputObject, then a pipeline: Windows PowerShell 5.1 hands a JSON array on as one object, and
+    # .address on an array is the array's own Address() method, not the entries' field.
+    try { $parsed = ConvertFrom-Json -InputObject $json } catch { return $null }
+    $hit = $parsed | ForEach-Object { $_ } | Where-Object { $_.PSObject.Properties['address'] } | Select-Object -First 1
     if (-not $hit) { return $null }
-    return [pscustomobject]@{ Hub = $files[$hit.file]; Address = [int]$hit.address; Bus = [int]$hit.bus; Product = $hit.product }
+    # The hub from the file's name (USBPcap1.pcap -> \\.\USBPcap1): MSYS2's Python may print the path with / instead
+    # of \, so the full path is not a reliable key.
+    $leaf = (($hit.file -split '[\\/]')[-1]) -replace '\.pcap.*$', ''
+    $hub = @($hubs | Where-Object { ($_ -replace '[\\\.]', '') -eq $leaf }) | Select-Object -First 1
+    if (-not $hub) { return $null }
+    return [pscustomobject]@{ Hub = $hub; Address = [int]$hit.address; Bus = [int]$hit.bus; Product = $hit.product }
 }
 
 # --- Session helpers --------------------------------------------------------------------------------------------------
@@ -295,6 +325,52 @@ function Hold([string]$label, [int]$degrees, [string]$text) {
     Write-Host '   done, let go' -ForegroundColor Green
 }
 
+# The level the shim starts with: the last [app] log_level in WheelBri's app.ini (warn when none).
+function Get-ShimLevel {
+    $ini = Join-Path $UserLocalAppData 'wheelbri\app.ini'
+    if (-not (Test-Path -LiteralPath $ini)) { return 'warn' }
+    $level = 'warn'
+    foreach ($line in Get-Content -LiteralPath $ini) {
+        if ($line -match '^\s*log_level\s*=\s*(\w+)') { $level = $Matches[1].ToLower() }
+    }
+    return $level
+}
+
+# One-run safety: stop and ask when something already looks wrong, rather than find out after the drive.
+function Confirm-GoOn([string]$why) {
+    Write-Host ''
+    Write-Host "!! $why" -ForegroundColor Red
+    $a = Read-Host '   Go on anyway? (y = go on, anything else = stop this session here)'
+    Note 'ANSWER' "go on despite: $why -> $a"
+    if ($a -ne 'y') { throw "stopped: $why" }
+}
+
+# Is the capture file growing? (USBPcap writes as it goes.)
+function Test-CaptureGrowing([string]$folder) {
+    $size = { (@(Get-ChildItem -LiteralPath $folder -Filter 'raw-*.pcap' -ErrorAction SilentlyContinue) | Measure-Object Length -Sum).Sum }
+    # A wheel sends reports only when something changes (it moves, or the game sends force): have it move.
+    Write-Host '   checking the capture: turn the wheel a little for 3 seconds now' -ForegroundColor White
+    $a = & $size
+    Start-Sleep -Seconds 3
+    $b = & $size
+    if (-not $b) { Confirm-GoOn 'no capture file is being written' }
+    elseif ($b -le $a) { Confirm-GoOn "the capture did not grow while the wheel moved ($b bytes): is the wheel on that hub?" }
+    else { Good ("capturing: {0:N1} MB so far" -f ($b / 1MB)) }
+}
+
+# Has the game loaded the shim with logi_log on? (A shim log newer than the session's start that says so.)
+function Test-ShimLogging {
+    $logs = Join-Path $UserLocalAppData 'wheelbri\logs'
+    $new = @(Get-ChildItem -LiteralPath $logs -Filter 'wheelbri-shim-*.log' -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -ge $script:SessionStart })
+    if ($new.Count -eq 0) { Confirm-GoOn 'the game wrote no shim log: the shim is not loaded, so its SDK calls are not logged'; return }
+    $text = ($new | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue }) -join "`n"
+    if ($text -match 'logi_log: on') { Good "shim loaded, logi_log on ($($new[0].Name))" }
+    else { Confirm-GoOn "the shim log ($($new[0].Name)) does not say 'logi_log: on'" }
+    if ($text -match 'logi: .*wrapped') { Good 'the game looked up Logitech''s SDK through the shim' }
+    elseif (-not $Target) { Warn 'no Logitech SDK lookup logged yet (it may come when the session starts)' }
+}
+
 function New-SessionFolder([string]$name) {
     $folder = Join-Path $Day $name
     $n = 2
@@ -325,7 +401,11 @@ function Test-Shim([string]$key) {
     $emulate = $text -match '(?m)^\s*emulate\s*=\s*false'
     $logi = $text -match '(?m)^\s*logi_log\s*=\s*true'
     if ($emulate -and $logi) { Good "shim in $key, logging only (emulate = false, logi_log = true)" }
-    else { Warn "shim in $key but not set to emulate = false and logi_log = true" }
+    else { Bad "shim in $key but not set to emulate = false and logi_log = true" }
+    $level = Get-ShimLevel
+    if ($level -in @('debug', 'trace')) { Good "shim log level $level (app.ini)" }
+    elseif ($level -eq 'info') { Warn 'shim log level info: the SDK calls are logged, debug lines are not' }
+    else { Bad "shim log level '$level' (app.ini): the SDK calls would not be logged; run the session through g923-capture.sh" }
     return $g
 }
 
@@ -345,17 +425,30 @@ function Invoke-Check {
     else { Good 'no virtual WheelBri device present' }
 
     Say 'The R3 and Pit House'
-    $rig = Get-RigDevices
-    if ($rig.Count) { Bad "a MOZA device (VID 346E) is plugged in: unplug the R3 base (and its pedals if they are MOZA's USB)" }
+    if ($Target) {
+        Info "REHEARSAL with $Target`: the R3 and Pit House may stay (not checked)"
+        $rig = @()
+        $pitSkip = $true
+    } else {
+        $rig = Get-RigDevices
+        $pitSkip = $false
+    }
+    if ($pitSkip) { }
+    elseif (@($rig).Count) { Bad "a MOZA device (VID 346E) is plugged in: unplug the R3 base (and its pedals if they are MOZA's USB)" }
     else { Good 'no MOZA device plugged in' }
-    $pit = Get-PitHouse
-    if ($pit.Count) { Bad "Pit House is running ($(($pit | ForEach-Object ProcessName) -join ', ')): quit it" }
+    $pit = if ($pitSkip) { @() } else { Get-PitHouse }
+    if ($pitSkip) { }
+    elseif (@($pit).Count) { Bad "Pit House is running ($(($pit | ForEach-Object ProcessName) -join ', ')): quit it" }
     else { Good 'Pit House not running' }
 
-    Say 'The real G923'
-    $wheels = Get-RealWheels
-    $c26e = @($wheels | Where-Object { $_.InstanceId -match 'PID_C26E' })
-    if ($c26e.Count -eq 0) {
+    Say $(if ($Target) { "The rehearsal wheel ($Target)" } else { 'The real G923' })
+    $wheels = if ($Target) { Get-TargetWheels } else { Get-RealWheels }
+    $c26e = @($wheels | Where-Object { $_.InstanceId -match $TargetRegex })
+    if ($Target -and $c26e.Count -eq 0) {
+        Bad "no device matching $TargetRegex is plugged in"
+    } elseif ($Target) {
+        Good "rehearsal wheel present ($($c26e.Count) device nodes)"
+    } elseif ($c26e.Count -eq 0) {
         if ($wheels.Count) { Bad "a G923 is there but not as 046D:C26E (PC mode): $(($wheels | ForEach-Object InstanceId) -join ', ')" }
         else { Bad 'no G923 plugged in (046D:C26E)' }
     } else { Good "G923 present as 046D:C26E ($($c26e.Count) device nodes)" }
@@ -364,8 +457,8 @@ function Invoke-Check {
         try { $compat = ((Get-PnpDeviceProperty -InstanceId $w.InstanceId -KeyName 'DEVPKEY_Device_CompatibleIds' -ErrorAction Stop).Data | Where-Object { $_ -like 'HID_DEVICE_UP*' }) -join ' ' } catch { }
         Info "$($w.InstanceId)  [$($w.Class)] $($w.FriendlyName) $compat"
     }
-    if (@($wheels | Where-Object { $_.InstanceId -match 'UP:FFFD|MI_02' }).Count -eq 0 -and $c26e.Count) {
-        Warn 'no TrueForce interface seen among the device nodes (MI_02 / usage page FFFD): check the list above'
+    if (-not $Target -and @($wheels | Where-Object { $_.InstanceId -match 'UP:FFFD|MI_02' }).Count -eq 0 -and $c26e.Count) {
+        Info 'no separate TrueForce interface (MI_02) among the device nodes: it may be a collection of MI_00 or MI_01; S1 records the report descriptors and the probe finds it by usage page'
     }
 
     Say 'Registry (DirectInput entries for 046D:C26E), exported, not changed'
@@ -428,7 +521,7 @@ function Invoke-Check {
                 Info 'finding the wheel''s hub and address (3 s capture of each hub, deleted straight after)...'
                 $w = Find-Wheel $cmd
                 if ($w) {
-                    Good "the G923 is on $($w.Hub), address $($w.Address)"
+                    Good "the wheel ($($w.Product)) is on $($w.Hub), address $($w.Address)"
                     Set-State 'hub' $w.Hub
                     Set-State 'address' "$($w.Address)"
                     Info 'In S1 plug it back into the same USB port.'
@@ -438,6 +531,15 @@ function Invoke-Check {
     }
     $free = (Get-PSDrive -Name ($Day.Substring(0, 1))).Free / 1GB
     if ($free -lt 2) { Warn ("only {0:N1} GB free on the captures drive" -f $free) } else { Good ("{0:N0} GB free for captures" -f $free) }
+
+    Say 'Shim logging'
+    Info "WheelBri's log level now: $(Get-ShimLevel) (app.ini). Sessions S2-S4 set it to debug through g923-capture.sh; restore puts it back."
+    $acc = Find-Game 'acc'
+    if ($acc -and $acc.ExeFolder) {
+        $dll = Join-Path $acc.ExeFolder 'dinput8.dll'
+        if (Test-Path -LiteralPath $dll) { Info "ACC has a dinput8.dll now ($(Get-FileVersionText $dll)); S2 replaces it with this build's shim" }
+        else { Info 'ACC has no shim now; S2 puts it in (logging only)' }
+    }
 
     Say 'G HUB'
     if ((Get-GHubProcesses).Count) { Info 'G HUB is running (S1 closes it first and asks before doing so)' } else { Info 'G HUB is not running' }
@@ -488,6 +590,8 @@ function Invoke-Session {
     [IO.File]::WriteAllText((Join-Path $Day 'last-session.txt'), $folder)   # no BOM: the bash wrapper reads it
     try { Start-Transcript -Path (Join-Path $folder 'transcript.log') | Out-Null } catch { }
     $start = Get-Date
+    $script:SessionStart = $start
+    $script:Captures = @()
     Say "Session $Session -> $folder"
     Note 'NOTE' "session $Session started"
     $procs = @()
@@ -499,13 +603,17 @@ function Invoke-Session {
             'S4' { $procs = Invoke-Game $cmd $folder 'dirt' $false }
             'S5' { $procs = Invoke-S5 $cmd $folder }
         }
+    } catch {
+        Write-Host "Session stopped: $($_.Exception.Message)" -ForegroundColor Red
+        Note 'NOTE' "session stopped: $($_.Exception.Message)"
     } finally {
-        Stop-Captures $procs
+        # Every capture this session started, also when a step above stopped it early.
+        Stop-Captures (@($procs) + @($script:Captures))
         Note 'NOTE' 'capture stopped'
     }
     $n = Copy-ShimLogs $folder $start
     if ($n) { Info "copied $n shim log(s)" }
-    Say 'Keeping only the G923''s frames (other devices on the hub are dropped) and decoding...'
+    Say 'Keeping only the wheel''s frames (other devices on the hub are dropped) and decoding...'
     foreach ($line in Invoke-Python @('keep', $folder)) { Info $line }
     $decode = Invoke-Python @('decode', $folder, '--repo', $Repo)
     foreach ($line in $decode) {
@@ -526,20 +634,30 @@ function Start-WheelCapture([string]$cmd, [string]$folder, [switch]$AllDevices) 
         Info 'finding the wheel (3 s)...'
         $w = Find-Wheel $cmd
         if ($w) {
-            Good "the G923 is on $($w.Hub), address $($w.Address)"
+            Good "the wheel ($($w.Product)) is on $($w.Hub), address $($w.Address)"
             Set-State 'hub' $w.Hub
             $file = Join-Path $folder ('raw-' + ($w.Hub -replace '[\\\.]', '') + '.pcap')
-            $procs += Start-Capture $cmd $w.Hub $file @('--devices', "$($w.Address)")
+            # Plus new devices: if the wheel enumerates again (a reset, G HUB starting) it gets a new address; keep drops
+            # every other device afterwards.
+            $p = Start-Capture $cmd $w.Hub $file @('--devices', "$($w.Address)", '--capture-from-new-devices')
             Start-Sleep -Seconds 2
-            Note 'NOTE' "capture on $($w.Hub) address $($w.Address)"
-            return $procs
+            $script:Captures += $p
+            if (-not $p.HasExited) {
+                Note 'NOTE' "capture on $($w.Hub) address $($w.Address)"
+                return @($p)
+            }
+            Warn "the capture on $($w.Hub) stopped at once (exit code $($p.ExitCode)): capturing every hub instead"
+            # USBPcapCMD makes its file before it opens the hub, and never writes over one: clear the way.
+            Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+        } else {
+            Warn 'the wheel was not found: capturing every hub (the other devices are dropped afterwards)'
         }
-        Warn 'the G923 was not found: capturing every hub (the other devices are dropped afterwards)'
     }
     foreach ($hub in Get-UsbPcapHubs $cmd) {
-        $file = Join-Path $folder ('raw-' + ($hub -replace '[\\\.]', '') + '.pcap')
+        $file = Join-Path $folder ('raw-all-' + ($hub -replace '[\\\.]', '') + '.pcap')
         $procs += Start-Capture $cmd $hub $file @('-A')
     }
+    $script:Captures += $procs
     Start-Sleep -Seconds 2
     $dead = @($procs | Where-Object { $_.HasExited })
     if ($dead.Count) { Warn "$($dead.Count) capture(s) stopped at once: USBPcap may need a restart of Windows" }
@@ -548,8 +666,8 @@ function Start-WheelCapture([string]$cmd, [string]$folder, [switch]$AllDevices) 
 }
 
 function Invoke-S1([string]$cmd, [string]$folder) {
-    while ((Get-RealWheels | Where-Object { $_.InstanceId -match 'PID_C26E' }).Count) {
-        Read-Host '>> Unplug the G923''s USB cable now, then press Enter' | Out-Null
+    while ((Get-TargetWheels).Count) {
+        Read-Host '>> Unplug the wheel''s USB cable now, then press Enter' | Out-Null
         Start-Sleep -Seconds 1
     }
     if ((Get-GHubProcesses).Count) {
@@ -558,11 +676,28 @@ function Invoke-S1([string]$cmd, [string]$folder) {
     }
     $procs = Start-WheelCapture $cmd $folder -AllDevices
     Good 'capturing'
-    Ask 'Plug the G923 into the same USB port as before, and wait for Windows'' sound' | Out-Null
+    Ask 'Plug the wheel into the same USB port as before, and wait for Windows'' sound' | Out-Null
     Countdown 10 'Letting Windows set the wheel up'
+    if ($Target) {
+        if (-not (Get-TargetWheels).Count) { Confirm-GoOn 'Windows does not show the wheel yet (plugged into the same port?)' }
+    } elseif (-not (Get-TargetWheels).Count) {
+        # Expected: without G HUB a G923 for Xbox starts in Xbox mode (another product ID); G HUB switches it to PC
+        # mode (C26E) when it starts, below. The capture records both.
+        $other = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'VID_046D&PID_C2' -and $_.InstanceId -notmatch 'PID_C26E' -and $_.InstanceId -notlike 'SWD\*' })
+        Info "the wheel is not in PC mode yet (expected without G HUB; G HUB switches it next). Logitech devices now: $(($other | ForEach-Object { $_.InstanceId -replace '\\[^\\]*$', '' } | Select-Object -Unique) -join ', ')"
+        Note 'NOTE' "after plug-in, before G HUB: $(($other | ForEach-Object InstanceId) -join ', ')"
+    }
+    Test-CaptureGrowing $folder
+    if ($Target) {
+        Ask 'REHEARSAL: turn the wheel and press each pedal once' | Out-Null
+        Countdown 5 'A last few seconds'
+        return $procs
+    }
     Note 'NOTE' 'starting G HUB'
     Start-GHub | Out-Null
     Ask 'Wait until G HUB shows the G923 (its page open)' | Out-Null
+    if (-not $Target -and -not (Get-TargetWheels).Count) { Confirm-GoOn 'the wheel is still not in PC mode (046D:C26E) after G HUB started' }
+    elseif (-not $Target) { Good 'the wheel is in PC mode (046D:C26E)'; Note 'NOTE' 'PC mode (C26E) present' }
     Countdown 30 'G HUB settling'
     Ask 'In G HUB, set the Operating Range (rotation) to 540' | Out-Null
     Ask 'Set the Operating Range back to 900' | Out-Null
@@ -577,21 +712,28 @@ function Invoke-S1([string]$cmd, [string]$folder) {
 }
 
 function Invoke-Game([string]$cmd, [string]$folder, [string]$key, [bool]$holds) {
-    if (-not (Get-GHubProcesses).Count) {
+    if (-not $Target -and -not (Get-GHubProcesses).Count) {
         Info 'G HUB is not running: starting it'
         Start-GHub | Out-Null
         Countdown 20 'G HUB starting'
     }
+    $before = $script:Problems.Count
     $g = Test-Shim $key
     if (-not $g) { Warn "$key is not installed"; return @() }
+    if ($script:Problems.Count -gt $before) { Confirm-GoOn 'the shim is not set up for logging (above)' }
     $procs = Start-WheelCapture $cmd $folder
     Note 'NOTE' "starting $key (steam://rungameid/$($AppIds[$key]))"
     Start-AsUser "steam://rungameid/$($AppIds[$key])"
     if ($key -eq 'acc') {
-        Ask 'Wait for ACC''s main menu. In Options > Controls make sure the G923 is chosen and TrueForce is on' | Out-Null
+        if ($Target) { Ask 'REHEARSAL: wait for ACC''s main menu (your usual wheel set-up)' | Out-Null }
+        else { Ask 'Wait for ACC''s main menu. In Options > Controls make sure the G923 is chosen and TrueForce is on' | Out-Null }
+        Test-CaptureGrowing $folder
+        Test-ShimLogging
         Ask 'Start a Hot Lap (any car and track) and wait in the pits, hands off the wheel' | Out-Null
     } else {
         Ask 'Wait for the menu. Turn TrueForce on in the game''s wheel settings if it has such a setting' | Out-Null
+        Test-CaptureGrowing $folder
+        Test-ShimLogging
         Ask 'Start a short stage and wait at the start line, hands off the wheel' | Out-Null
     }
     if ($holds) {
@@ -614,19 +756,23 @@ function Invoke-Game([string]$cmd, [string]$folder, [string]$key, [bool]$holds) 
 }
 
 function Invoke-S3([string]$cmd, [string]$folder) {
+    $before = $script:Problems.Count
     $g = Test-Shim 'acc'
     if (-not $g) { return @() }
-    if ((Get-GHubProcesses).Count) {
+    if ($script:Problems.Count -gt $before) { Confirm-GoOn 'the shim is not set up for logging (above)' }
+    if ((Get-AllGHubProcesses).Count) {
         Info 'closing G HUB fully (its processes and its service)...'
         if (-not (Stop-GHub)) { Warn 'some G HUB process is still there: quit it from the tray, then go on' }
     }
-    $left = @(Get-GHubProcesses)
-    if ($left.Count) { Warn "still running: $(($left | ForEach-Object ProcessName) -join ', ')" } else { Good 'no lghub* process running' }
+    $left = @(Get-AllGHubProcesses)
+    if ($left.Count) { Warn "still running: $(($left | ForEach-Object ProcessName) -join ', ')" } else { Good 'no lghub* process running (updater service included)' }
     Note 'NOTE' "G HUB processes running: $($left.Count)"
     $procs = Start-WheelCapture $cmd $folder
     Note 'NOTE' 'starting acc without G HUB'
     Start-AsUser "steam://rungameid/$($AppIds['acc'])"
     Ask 'Wait for ACC''s main menu (G HUB closed)' | Out-Null
+    Test-CaptureGrowing $folder
+    Test-ShimLogging
     Ask 'Start a Hot Lap, wait 30 s in the pits, then turn the wheel left and right a little' | Out-Null
     Ask 'Does the wheel have force (try to turn it)? Answer in the next line' | Out-Null
     $f = Read-Host '   force felt without G HUB? (y/n)'
@@ -649,6 +795,7 @@ function Invoke-S5([string]$cmd, [string]$folder) {
     $procs = Start-WheelCapture $cmd $folder
     Start-AsUser "steam://rungameid/$($AppIds['nfsheat'])"
     Ask 'Wait for NFS Heat to load, and get into a car (free roam)' | Out-Null
+    Test-CaptureGrowing $folder
     Note 'STEP' 'driving start'
     Ask 'Drive for 2 minutes: a few hard turns, a crash into a wall' | Out-Null
     Ask 'Exit the game' | Out-Null
@@ -678,12 +825,14 @@ function Invoke-Restore {
     }
     $services = Get-State 'ghub_services_stopped'
     if ($services) {
-        foreach ($s in $services -split ',') { try { Start-Service $s; Good "started $s again" } catch { Warn "could not start $s" } }
+        foreach ($s in $services -split ',') { if ($s) { try { Start-Service $s -ErrorAction Stop; Good "started $s again" } catch { Warn "could not start $s" } } }
         Set-State 'ghub_services_stopped' ''
     }
     Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like 'USBPcapCMD*' } | ForEach-Object { Stop-Process -Id $_.Id -Force }
     $uninstall = "$env:ProgramFiles\USBPcap\Uninstall.exe"
-    if (Test-Path -LiteralPath $uninstall) {
+    if ($Target) {
+        Info 'REHEARSAL: USBPcap stays installed (you need it for the G923)'
+    } elseif (Test-Path -LiteralPath $uninstall) {
         $a = Read-Host '>> Remove USBPcap now? It sits on every USB root hub, next to WheelBri''s hide filter (y/N)'
         if ($a -eq 'y') { Start-Process -FilePath $uninstall -Wait; Info 'restart Windows when it asks' }
         else { Info "keep it for now; remove later from Settings > Apps (USBPcap) or $uninstall" }

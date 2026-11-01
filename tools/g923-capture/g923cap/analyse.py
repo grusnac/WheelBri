@@ -8,6 +8,7 @@ report.md over all sessions. Everything it states cites capture frames (Wireshar
 
 from __future__ import annotations
 
+import bisect
 import json
 import re
 import statistics
@@ -15,7 +16,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import OTHER_G923_IDS, PRODUCT_ID, VENDOR_ID
+from . import OTHER_G923_IDS, PRODUCT_ID, VENDOR_ID, is_target, rehearsal_target
 from . import descriptors as desc
 from . import hidpp
 from . import truforce as tf
@@ -58,15 +59,31 @@ class Device:
         return None
 
     def kind_of_interface(self, interface: int | None) -> str | None:
+        """The interface's kind; "mixed" when its collections carry more than one kind (the real G923 has its game
+        controller and vendor collections side by side on interface 0): its reports go by report ID then."""
         if interface is None:
             return None
         pages = {c.usage_page for c in self.collections(interface)}
-        if 0xFFFD in pages:
+        if not pages:
+            return None
+        kinds = {self._kind_of_page(p) for p in pages}
+        return kinds.pop() if len(kinds) == 1 else "mixed"
+
+    @staticmethod
+    def _kind_of_page(page: int) -> str:
+        if page == 0xFFFD:
             return "truforce"
-        if 0xFF43 in pages:
+        if page == 0xFF43:
             return "hidpp"
-        if pages:
-            return "input" if not any(p >= 0xFF00 for p in pages) else "vendor"
+        return "vendor" if page >= 0xFF00 else "input"
+
+    def kind_of_report(self, interface: int | None, report_id: int) -> str | None:
+        """The kind of the collection that declares this report ID on this interface, when its descriptor is known."""
+        if interface is None:
+            return None
+        for c in self.collections(interface):
+            if report_id in c.reports:
+                return self._kind_of_page(c.usage_page)
         return None
 
 
@@ -102,6 +119,12 @@ def pick_target(devices: dict[tuple[int, int], Device], address: int | None = No
         for d in devices.values():
             if d.address == address:
                 return d, f"address {address}, as asked"
+    rehearsal = rehearsal_target()
+    if rehearsal is not None:
+        for d in devices.values():
+            if d.descriptor and is_target(d.descriptor.vendor, d.descriptor.product):
+                return d, f"its device descriptor ({d.descriptor.vendor:04X}:{d.descriptor.product:04X}, rehearsal)"
+        return None, "the rehearsal wheel is not in this capture"
     for d in devices.values():
         if d.descriptor and d.descriptor.vendor == VENDOR_ID and d.descriptor.product == PRODUCT_ID:
             return d, "its device descriptor (046D:C26E)"
@@ -142,8 +165,45 @@ def reports_of(device: Device, all_transfers: list[Transfer]) -> list[Report]:
     return out
 
 
-def classify(device: Device, r: Report) -> str:
+def interface_kinds(device: Device, reps: list[Report]) -> dict[int, str]:
+    """Each interface's kind: from its report descriptor, or (none in this capture) from what most of its reports look
+    like, so one game report that happens to look like HID++ does not land among the HID++ pairs."""
+    kinds: dict[int, str] = {}
+    counts: dict[int, Counter] = defaultdict(Counter)
+    for r in reps:
+        if r.interface is None:
+            continue
+        if r.direction == "out" and hidpp.is_hidpp(r.data):
+            counts[r.interface]["hidpp_out"] += 1
+        if len(r.data) == 64 and tf.is_truforce_report(r.data):
+            counts[r.interface]["truforce"] += 1
+        elif hidpp.is_hidpp(r.data):
+            counts[r.interface]["hidpp"] += 1
+        else:
+            counts[r.interface]["input"] += 1
+    for interface, c in counts.items():
+        known = device.kind_of_interface(interface)
+        if known is not None:
+            kinds[interface] = known
+        else:
+            votes = Counter({k: v for k, v in c.items() if k != "hidpp_out"})
+            kind, n = votes.most_common(1)[0]
+            kinds[interface] = kind if n * 2 > sum(votes.values()) else "input"
+            # HID++ sharing an interface with the game reports: the host writes HID++ there, a game report never
+            # looks like that, so its HID++-shaped reports are HID++ all the same.
+            if kinds[interface] == "input" and c["hidpp_out"]:
+                kinds[interface] = "input+hidpp"
+    return kinds
+
+
+def classify(device: Device, r: Report, kinds: dict[int, str] | None = None) -> str:
     kind = device.kind_of_interface(r.interface)
+    if kind == "mixed" and r.data:
+        kind = device.kind_of_report(r.interface, r.data[0])
+    if kind is None and kinds and r.interface in kinds:
+        kind = kinds[r.interface]
+        if kind == "input+hidpp":
+            return "hidpp" if hidpp.is_hidpp(r.data) else "input"
     if kind == "truforce":
         return "truforce"
     if kind in ("hidpp", "vendor") and hidpp.is_hidpp(r.data):
@@ -388,11 +448,11 @@ def analyse_hidpp(reps: list[Report]) -> dict:
     ins = [r for r in reps if r.direction == "in"]
     pairs = []
     used: set[int] = set()
+    in_times = [a.ts for a in ins]
     for q in outs:
         answer = None
-        for a in ins:
-            if a.ts < q.ts - 0.002:
-                continue
+        for k in range(bisect.bisect_left(in_times, q.ts - 0.002), len(ins)):
+            a = ins[k]
             if a.ts > q.ts + 1.0:
                 break
             if id(a) not in used and hidpp.answers(q.data, a.data):
@@ -544,10 +604,32 @@ def analyse_session(folder: Path, repo: Path | None = None, address: int | None 
     result["capture_span_s"] = round(span[-1] - span[0], 1) if span else 0
     result["capture_start"] = span[0] if span else None
 
+    # Report descriptors come only with a plug-in (S1); the other sessions borrow them from the day's cache.
+    cache = folder.parent / (f"descriptors-{target.descriptor.vendor:04X}-{target.descriptor.product:04X}.json"
+                             if target.descriptor else "descriptors-unknown.json")
+    if target.descriptor is not None:
+        if target.report_descriptors:
+            try:
+                cache.write_text(json.dumps({str(k): v.hex() for k, v in target.report_descriptors.items()}),
+                                 encoding="utf-8")
+            except OSError:
+                pass
+        elif cache.exists():
+            try:
+                borrowed = json.loads(cache.read_text(encoding="utf-8"))
+                target.report_descriptors = {int(k): bytes.fromhex(v) for k, v in borrowed.items()}
+                result["report_descriptors_from"] = cache.name
+            except (OSError, ValueError):
+                pass
+        result["target"] = describe_device(target)
+        result["target"]["picked_by"] = reason
+
     reps = reports_of(target, all_transfers)
+    kinds = interface_kinds(target, reps)
+    result["interface_kinds"] = {str(k): v for k, v in kinds.items()}
     groups: dict[str, list[Report]] = defaultdict(list)
     for r in reps:
-        groups[classify(target, r)].append(r)
+        groups[classify(target, r, kinds)].append(r)
     result["truforce"] = analyse_truforce(groups["truforce"], holds, folder / "stream.tsv")
     result["hidpp"] = analyse_hidpp(groups["hidpp"])
     result["input"] = analyse_input(groups["input"])
@@ -579,6 +661,8 @@ def checks(result: dict) -> list[tuple[bool, str]]:
             return False, f"no {rtype} request"
         return p["answered"] == p["sent"], f"{rtype}: {p['answered']} of {p['sent']} answered"
 
+    if rehearsal_target() is not None:
+        return rehearsal_checks(result, kind)
     out.append((t.get("ident", "").startswith("046D:C26E"), f"the wheel: {t.get('ident')}"))
     if kind == "S1":
         out.append((bool(t.get("device_descriptor")), "device descriptor seen"))
@@ -597,10 +681,12 @@ def checks(result: dict) -> list[tuple[bool, str]]:
         n_params = len(tfr["parameters"])
         ok, text = answered("0x05")
         out.append((ok and n_params > 0, f"parameters: {n_params} distinct; {text}"))
-        for rtype in ("0x07", "0x06", "0x0E", "0x03"):
-            if kind == "S4" and rtype not in pairs:
-                continue
-            out.append(answered(rtype))
+        out.append(answered("0x03"))
+        # Measured with a real G923 (2026-11-01): the SDK sends no 0x06 or 0x07 to it, and the wheel does not answer
+        # 0x0E (operating range). Reported, not judged.
+        for rtype in ("0x06", "0x07", "0x0E", "0x0C"):
+            p = pairs.get(rtype)
+            out.append((True, f"{rtype}: " + (f"sent {p['sent']}, answered {p['answered']}" if p else "not sent")))
         st = tfr["status"]
         out.append((bool(st), "status reports: " + (", ".join(f"{k} x{v['count']}" for k, v in st.items()) or "none")))
         if kind == "S2":
@@ -635,6 +721,29 @@ def checks(result: dict) -> list[tuple[bool, str]]:
     if kind in ("S2", "S3", "S4"):
         out.append((bool(shim["calls"]), "shim log: " + (", ".join(f"{k} x{v}" for k, v in sorted(
             shim["calls"].items())) or "no logi* calls (shim missing, or logi_log off?)")))
+    return out
+
+
+def rehearsal_checks(result: dict, kind: str) -> list[tuple[bool, str]]:
+    """A rehearsal with another wheel (G923_TARGET): only what any wheel shows. TrueForce and HID++ are G923 things."""
+    t = result["target"]
+    inp = result["input"]
+    out = [(True, f"REHEARSAL with {t.get('ident')} (TrueForce and HID++ checks left out)")]
+    out.append((bool(t.get("device_descriptor")), "device descriptor seen"))
+    out.append((bool(t.get("interfaces")), f"configuration seen ({len(t.get('interfaces', []))} interfaces)"))
+    if kind == "S1":
+        hid = [i for i in t.get("interfaces", []) if i["class"].startswith("03")]
+        missing = [str(i["number"]) for i in hid if not i["report_descriptor_seen"]]
+        out.append((bool(hid) and not missing, "HID report descriptors seen for every HID interface"
+                    + (f" (missing: interface {', '.join(missing)})" if missing else "")))
+    out.append((inp["in"] > 0, f"input reports from the wheel: {inp['in']}"))
+    out.append((True, f"reports to the wheel (force feedback): {inp['out']}"))
+    holds = [n for n in result.get("notes", []) if n["kind"] in ("HOLD_START", "HOLD_END")]
+    if kind == "S2":
+        out.append((len(holds) >= 8, f"holds noted: {len(holds) // 2}"))
+    if kind in ("S2", "S3", "S4"):
+        shim = result["shim"]
+        out.append((True, f"shim logs copied: {len(shim['files'])}"))
     return out
 
 
@@ -863,8 +972,7 @@ def locate(paths: list[Path]) -> list[dict]:
             found.append({"file": str(p), "error": str(e)})
             continue
         for d in devs.values():
-            if d.descriptor and d.descriptor.vendor == VENDOR_ID and (
-                    d.descriptor.product == PRODUCT_ID or d.descriptor.product in OTHER_G923_IDS):
+            if d.descriptor and is_target(d.descriptor.vendor, d.descriptor.product):
                 found.append({"file": str(p), "bus": d.bus, "address": d.address,
                               "product": f"{d.descriptor.product:04X}"})
     return found
@@ -880,15 +988,27 @@ def keep_wheel_only(folder: Path) -> list[str]:
     raws = sorted(p for p in folder.glob("raw-*.pcap*"))
     if not raws:
         return ["no raw-*.pcap here"]
-    wheels: dict[Path, tuple[int, int, str]] = {}
+    # Every (bus, address) the wheel had in a file: it can enumerate again in a session (a reset, a mode switch, G HUB),
+    # and each of its addresses is kept.
+    wheels: dict[Path, tuple[set[tuple[int, int]], str]] = {}
     for raw in raws:
         try:
-            dev, why = pick_target(find_devices(transfers(read_urbs(str(raw)))))
+            devs = find_devices(transfers(read_urbs(str(raw))))
+            dev, why = pick_target(devs)
         except Exception as e:   # noqa: BLE001 - a broken file is reported, not fatal
             said.append(f"could not read {raw.name}: {e}")
             continue
         if dev is not None:
-            wheels[raw] = (dev.bus, dev.address, why)
+            keys = {(dev.bus, dev.address)}
+            keys |= {(d.bus, d.address) for d in devs.values()
+                     if d.descriptor and is_target(d.descriptor.vendor, d.descriptor.product)}
+            # The G923 in Xbox mode (before G HUB switches it): a Logitech device speaking Xbox's GIP (an interface of
+            # class FF, subclass 47, protocol D0), whatever its product ID.
+            if rehearsal_target() is None:
+                keys |= {(d.bus, d.address) for d in devs.values()
+                         if d.descriptor and d.descriptor.vendor == VENDOR_ID
+                         and any((i.cls, i.subclass, i.protocol) == (0xFF, 0x47, 0xD0) for i in d.interfaces)}
+            wheels[raw] = (keys, why)
     if not wheels:
         said.append("no G923 found in any raw capture: all kept as they are (look in Wireshark; they may hold other "
                     "devices' input, so delete them when done)")
@@ -899,18 +1019,18 @@ def keep_wheel_only(folder: Path) -> list[str]:
             raw.unlink()
             said.append(f"deleted {raw.name}: no G923 in it")
             continue
-        bus, address, why = wheels[raw]
+        keys, why = wheels[raw]
         frames = []
         for ts, linktype, frame in read_frames(str(raw)):
             if linktype != LINKTYPE_USBPCAP:
                 continue
             u = parse_urb(ts, frame)
-            if u is not None and u.bus == bus and u.device == address:
+            if u is not None and (u.bus, u.device) in keys:
                 frames.append((ts, frame))
         name = "capture.pcap" if n == 0 else f"capture-{n + 1}.pcap"
         n += 1
         write_pcap(str(folder / name), frames)
         raw.unlink()
-        said.append(f"kept {len(frames)} frames of the G923 (bus {bus}, address {address}, found by {why}) "
-                    f"from {raw.name} in {name}")
+        where = ", ".join(f"bus {b} address {a}" for b, a in sorted(keys))
+        said.append(f"kept {len(frames)} frames of the wheel ({where}; found by {why}) from {raw.name} in {name}")
     return said
