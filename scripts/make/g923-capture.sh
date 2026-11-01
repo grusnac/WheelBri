@@ -69,7 +69,8 @@ run_ps() {
 
 # name=exe folder lines from the PowerShell part (Steam's libraries), for acc, dirt and nfsheat.
 game_folder() {
-    run_ps -Step games | tr -d '\r' | sed -n "s/^$1=//p" | head -n 1
+    # Not found, or the PowerShell part failed: nothing (the caller says so).
+    run_ps -Step games | tr -d '\r' | sed -n "s/^$1=//p" | head -n 1 || true
 }
 
 shim_state="$day/shim-state.txt"
@@ -105,8 +106,8 @@ shim_on() {
         echo 'logi_log = true' >>"$ini"
     fi
     local emulate logi
-    emulate=$(grep -i '^[[:space:]]*emulate[[:space:]]*=' "$ini" | tail -n 1 | sed 's/[;#].*//; s/.*=[[:space:]]*//' | tr -d '\r ')
-    logi=$(grep -i '^[[:space:]]*logi_log[[:space:]]*=' "$ini" | tail -n 1 | sed 's/[;#].*//; s/.*=[[:space:]]*//' | tr -d '\r ')
+    emulate=$(grep -i '^[[:space:]]*emulate[[:space:]]*=' "$ini" | tail -n 1 | sed 's/[;#].*//; s/.*=[[:space:]]*//' | tr -d '\r ') || true
+    logi=$(grep -i '^[[:space:]]*logi_log[[:space:]]*=' "$ini" | tail -n 1 | sed 's/[;#].*//; s/.*=[[:space:]]*//' | tr -d '\r ') || true
     [ "$emulate" = false ] && [ "$logi" = true ] || fail "$ini reads emulate=$emulate logi_log=$logi, not false/true"
     ok "shim in $key, logging only (emulate = false, logi_log = true): $ini"
 }
@@ -158,7 +159,7 @@ applog_on() {
     fi
     # Read back as the shim reads it: the last log_level line wins.
     local now
-    now=$(grep -i '^[[:space:]]*log_level[[:space:]]*=' "$ini" | tail -n 1 | sed 's/.*=[[:space:]]*//' | tr -d '\r ')
+    now=$(grep -i '^[[:space:]]*log_level[[:space:]]*=' "$ini" | tail -n 1 | sed 's/.*=[[:space:]]*//' | tr -d '\r ') || true
     [ "$now" = "$shim_level" ] || fail "app.ini's log_level reads '$now', not $shim_level: $ini"
     ok "shim log level $shim_level for the capture (app.ini [app] log_level): $ini"
 }
@@ -185,14 +186,17 @@ print_summary() {
     last=$(tr -d '\r' <"$day/last-session.txt")
     [ -n "$last" ] || return 0
     last=$(cygpath -u "$last")
-    [ -f "$last/summary.md" ] && { say "---- $last/summary.md (top)"; sed -n '1,25p' "$last/summary.md"; }
+    if [ -f "$last/summary.md" ]; then
+        say "---- $last/summary.md (top)"
+        sed -n '1,25p' "$last/summary.md"
+    fi
 }
 
 case "$command" in
     check)
         need_tool
         if [ "${1:-}" = "--wheelbri" ]; then run_ps -Step check -WheelBri; else run_ps -Step check; fi
-        [ -f "$day/S0-check/check.md" ] && say "saved: $day/S0-check/check.md"
+        if [ -f "$day/S0-check/check.md" ]; then say "saved: $day/S0-check/check.md"; fi
         ;;
     session)
         [ $# -eq 1 ] || fail "usage: g923-capture.sh session S1|S2|S3|S4|S5"
@@ -211,20 +215,22 @@ case "$command" in
         need_tool
         on_windows || fail "the probe is Windows only"
         ghub=closed
-        tasklist.exe 2>/dev/null | grep -qiE '^lghub(_agent|_system_tray)?\.exe' && ghub=running
+        # grep without -q reads the whole list: tasklist is never cut off, so pipefail sees its own status.
+        if tasklist.exe 2>/dev/null | grep -iE '^lghub(_agent|_system_tray)?\.exe' >/dev/null; then ghub=running; fi
         say "probing the G923 (G HUB $ghub); read-only requests only"
         "$tool_unix" probe --out "$(cygpath -w "$day/S6-probe")" --ghub "$ghub" \
             || fail "the probe failed (see above)"
-        [ $ghub = running ] && say "now close G HUB fully (tray > Quit) and run probe once more"
+        if [ $ghub = running ]; then say "now close G HUB fully (tray > Quit) and run probe once more"; fi
         ;;
     decode)
         need_tool
         folder=${1:-$day}
         [ -d "$folder" ] || fail "no folder $folder"
-        if on_windows; then "$tool_unix" decode "$(cygpath -w "$folder")"; else "$tool_unix" decode "$folder"; fi
-        status=$?
-        [ -f "$folder/report.md" ] && say "report: $folder/report.md"
-        exit $status
+        status=0
+        if on_windows; then "$tool_unix" decode "$(cygpath -w "$folder")" || status=$?
+        else "$tool_unix" decode "$folder" || status=$?; fi
+        if [ -f "$folder/report.md" ]; then say "report: $folder/report.md"; fi
+        exit "$status"
         ;;
     restore)
         shim_restore

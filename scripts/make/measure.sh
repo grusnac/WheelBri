@@ -19,11 +19,11 @@ for arg in "$@"; do
 done
 say "opening the measurement in its own PowerShell window (answer the Administrator prompt)"
 logs="$(cygpath "$LOCALAPPDATA")/wheelbri/logs"
-before=$(ls -t "$logs"/perf-*.log 2>/dev/null | head -n 1)
+before=$(ls -t "$logs"/perf-*.log 2>/dev/null | head -n 1) || true   # none yet: ls fails
 powershell.exe -NoProfile -Command "Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList $(ps_quote "$arguments")" \
     || fail "the measurement window did not open (Administrator refused?)"
 # The summary, from the log the window wrote (its messages without the date and component).
-latest=$(ls -t "$logs"/perf-*.log 2>/dev/null | head -n 1)
+latest=$(ls -t "$logs"/perf-*.log 2>/dev/null | head -n 1) || true
 [ -n "$latest" ] && [ "$latest" != "$before" ] || fail "the measurement wrote no log in $logs"
-grep -F '[perf.summary' "$latest" | sed 's/^\[[^]]*\] \[[^]]*\] \[[^]]*\] //'
+grep -F '[perf.summary' "$latest" | sed 's/^\[[^]]*\] \[[^]]*\] \[[^]]*\] //' || warn "no summary in the log"
 ok "log: $(cygpath -w "$latest")"
