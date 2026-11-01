@@ -81,9 +81,13 @@ FfbSafetyLimiter::FfbSafetyLimiter(const FfbSafetyConfig& config) : config_(conf
 }
 
 void FfbSafetyLimiter::setConfig(const FfbSafetyConfig& config) {
-    const float last = lastConstant_;
+    const float lastConstant = lastConstant_;
+    const float lastMagnitude = lastMagnitude_;
+    const float lastOffset = lastOffset_;
     *this = FfbSafetyLimiter(config);
-    lastConstant_ = last;
+    lastConstant_ = lastConstant;
+    lastMagnitude_ = lastMagnitude;
+    lastOffset_ = lastOffset;
 }
 
 FfbEffect FfbSafetyLimiter::apply(const FfbEffect& input, const float dtSeconds) {
@@ -104,6 +108,8 @@ FfbEffect FfbSafetyLimiter::apply(const FfbEffect& input, const float dtSeconds)
     p.periodMs = std::clamp(finiteOr(p.periodMs, 100.0F), 1.0F, 65535.0F);
     p.phaseDeg = finiteOr(p.phaseDeg, 0.0F);
     if (!std::isfinite(lastConstant_)) lastConstant_ = 0.0F;
+    if (!std::isfinite(lastMagnitude_)) lastMagnitude_ = 0.0F;
+    if (!std::isfinite(lastOffset_)) lastOffset_ = 0.0F;
     const float dt = std::clamp(finiteOr(dtSeconds, 0.0F), 0.0F, 1.0F);
 
     FfbEffect limited = requested;
@@ -130,7 +136,7 @@ FfbEffect FfbSafetyLimiter::apply(const FfbEffect& input, const float dtSeconds)
             FfbPeriodic scaled = requested.periodic;
             scaled.magnitude *= requested.gain;
             scaled.offset *= requested.gain;
-            limited.periodic = limitPeriodic(scaled);
+            limited.periodic = limitPeriodic(scaled, dt);
             break;
         }
         default: {
@@ -149,8 +155,7 @@ FfbEffect FfbSafetyLimiter::apply(const FfbEffect& input, const float dtSeconds)
 float FfbSafetyLimiter::limitConstant(const float requested, const float dtSeconds) {
     const float scaled = requested * config_.masterGain;
     const float target = std::clamp(scaled, -config_.maxMagnitude, config_.maxMagnitude);
-    const float maxStep = config_.maxSlewPerSecond * std::max(dtSeconds, 0.0F);
-    lastConstant_ = std::clamp(target, lastConstant_ - maxStep, lastConstant_ + maxStep);
+    lastConstant_ = slewed(lastConstant_, target, dtSeconds);
 
     // Clamping is expected now and then; constant clamping means the gain is set too high for this game.
     if (std::abs(scaled) > config_.maxMagnitude) {
@@ -183,15 +188,27 @@ FfbCondition FfbSafetyLimiter::limitCondition(const FfbCondition& requested) con
     return limited;
 }
 
-FfbPeriodic FfbSafetyLimiter::limitPeriodic(const FfbPeriodic& requested) const {
+FfbPeriodic FfbSafetyLimiter::limitPeriodic(const FfbPeriodic& requested, const float dtSeconds) {
     FfbPeriodic limited = requested;
     const float gain = config_.masterGain;
     const float cap = config_.maxMagnitude;
-    limited.magnitude = std::clamp(requested.magnitude * gain, 0.0F, cap);
+    const float magnitude = std::clamp(requested.magnitude * gain, 0.0F, cap);
     // Offset and magnitude together must not exceed the cap.
-    const float offsetCap = std::max(cap - limited.magnitude, 0.0F);
-    limited.offset = std::clamp(requested.offset * gain, -offsetCap, offsetCap);
+    const float offsetCap = std::max(cap - magnitude, 0.0F);
+    const float offset = std::clamp(requested.offset * gain, -offsetCap, offsetCap);
+    // Both slew as a constant force does: a periodic effect with an offset (or a long square wave) is a push too, and
+    // must not reach the wheel at once.
+    limited.magnitude = std::min(slewed(lastMagnitude_, magnitude, dtSeconds), cap);
+    // The two slew apart, so their sum is held to the cap here too (the state keeps its own path).
+    const float slewedOffsetCap = std::max(cap - limited.magnitude, 0.0F);
+    limited.offset = std::clamp(slewed(lastOffset_, offset, dtSeconds), -slewedOffsetCap, slewedOffsetCap);
     return limited;
+}
+
+float FfbSafetyLimiter::slewed(float& last, const float target, const float dtSeconds) const {
+    const float maxStep = config_.maxSlewPerSecond * std::max(dtSeconds, 0.0F);
+    last = std::clamp(target, last - maxStep, last + maxStep);
+    return last;
 }
 
 }  // namespace wheelbri

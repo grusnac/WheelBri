@@ -231,7 +231,7 @@ For one game use the Games tab. For every game, edit `[ffb]` in your mapping fil
 | Setting | Default | |
 |---|---|---|
 | `master_gain` | 1.0 | overall strength; better set in the wheel's app |
-| `max_magnitude` | 1.0 | hard cap (1 = none) |
+| `max_magnitude` | 1.0 | hard cap, on all forces together (1 = none) |
 | `invert` | false | `true` if forces pull the wrong way |
 | `game_effects` | true | `false` turns game force feedback off |
 | `centring_spring` | 0 | G25 and G27: their centring spring, 0 to 100% |

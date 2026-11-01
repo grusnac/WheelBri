@@ -242,7 +242,8 @@ TEST(FfbSafetyLimiter, EveryConditionTypeIsCapped) {
 }
 
 // Every periodic type is capped the same way; a negative magnitude (never meant: magnitudes are 0..1) is no wave, and
-// the offset alone still stays under the cap. Phase and period are kept (the period within its range).
+// the offset alone still stays under the cap. Phase and period are kept (the period within its range). A whole second
+// between the two, so the slew has arrived.
 TEST(FfbSafetyLimiter, EveryPeriodicTypeIsCapped) {
     for (const FfbEffectType type : {FfbEffectType::Sine, FfbEffectType::Square, FfbEffectType::Triangle,
                                      FfbEffectType::SawtoothUp, FfbEffectType::SawtoothDown}) {
@@ -250,14 +251,14 @@ TEST(FfbSafetyLimiter, EveryPeriodicTypeIsCapped) {
         FfbEffect wave;
         wave.type = type;
         wave.periodic = {-0.9F, -2.0F, 0.0F, 450.0F};
-        const FfbEffect limited = limiter.apply(wave, 0.001F);
+        const FfbEffect limited = limiter.apply(wave, 1.0F);
         EXPECT_EQ(limited.type, type);
         EXPECT_FLOAT_EQ(limited.periodic.magnitude, 0.0F);
         EXPECT_NEAR(limited.periodic.offset, -0.5F, kTolerance);
         EXPECT_FLOAT_EQ(limited.periodic.periodMs, 1.0F);
         EXPECT_FLOAT_EQ(limited.periodic.phaseDeg, 450.0F);
         wave.periodic = {3.0F, 1.0F, 1e6F, -90.0F};
-        const FfbEffect strong = limiter.apply(wave, 0.001F);
+        const FfbEffect strong = limiter.apply(wave, 1.0F);
         EXPECT_NEAR(strong.periodic.magnitude, 0.5F, kTolerance);
         EXPECT_NEAR(strong.periodic.offset, 0.0F, kTolerance);   // the magnitude took the whole cap
         EXPECT_FLOAT_EQ(strong.periodic.periodMs, 65535.0F);
@@ -291,6 +292,42 @@ TEST(FfbSafetyLimiter, AnUnknownEffectTypeIsNoForce) {
     EXPECT_EQ(limited.condition.negativeSaturation, 0.0F);
     EXPECT_EQ(limited.periodic.magnitude, 0.0F);
     EXPECT_EQ(limited.periodic.offset, 0.0F);
+}
+
+// A periodic effect's offset and magnitude slew as a constant force does: a square wave with a full offset is a push,
+// and does not reach the wheel at once.
+TEST(FfbSafetyLimiter, PeriodicOffsetAndMagnitudeSlew) {
+    FfbSafetyLimiter limiter({1.0F, 1.0F, 10.0F});
+    FfbEffect square;
+    square.type = FfbEffectType::Square;
+    square.periodic = {0.0F, 1.0F, 65535.0F, 0.0F};
+    EXPECT_NEAR(limiter.apply(square, 0.001F).periodic.offset, 0.01F, kTolerance);
+    EXPECT_NEAR(limiter.apply(square, 0.001F).periodic.offset, 0.02F, kTolerance);
+    square.periodic = {0.5F, 0.0F, 40.0F, 0.0F};
+    const FfbEffect next = limiter.apply(square, 0.001F);
+    EXPECT_NEAR(next.periodic.magnitude, 0.01F, kTolerance);
+    EXPECT_NEAR(next.periodic.offset, 0.01F, kTolerance);
+    limiter.reset();
+    square.periodic = {0.0F, -1.0F, 40.0F, 0.0F};
+    EXPECT_NEAR(limiter.apply(square, 0.001F).periodic.offset, -0.01F, kTolerance);   // from none again
+}
+
+// While magnitude and offset slew toward a new split of the cap, their sum never goes over it.
+TEST(FfbSafetyLimiter, PeriodicSlewKeepsTheSumUnderTheCap) {
+    FfbSafetyLimiter limiter({1.0F, 0.5F, 50.0F});
+    FfbEffect wave;
+    wave.type = FfbEffectType::Sine;
+    wave.periodic = {0.0F, 0.5F, 40.0F, 0.0F};
+    (void)limiter.apply(wave, 1.0F);
+    wave.periodic = {0.5F, -0.5F, 40.0F, 0.0F};   // all to the wave, the offset to the other side
+    for (int i = 0; i < 50; ++i) {
+        const FfbEffect limited = limiter.apply(wave, 0.004F);
+        EXPECT_LE(limited.periodic.magnitude + std::abs(limited.periodic.offset), 0.5F + kTolerance) << i;
+    }
+    // A lower cap from now on (a game's own): the sum is held to it at once, not slewed down.
+    limiter.setConfig({1.0F, 0.2F, 50.0F});
+    const FfbEffect lowered = limiter.apply(wave, 0.004F);
+    EXPECT_LE(lowered.periodic.magnitude + std::abs(lowered.periodic.offset), 0.2F + kTolerance);
 }
 
 }  // namespace
