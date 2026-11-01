@@ -30,7 +30,11 @@
 #     starts with Windows): it creates the virtual G920 and hides the rig for the app, which runs as a standard user
 #   - the certificate the drivers are signed with, added to this PC's trusted Root and TrustedPublisher stores (the
 #     drivers are signed by WheelBri's own test certificate, not by Microsoft); its thumbprint is recorded in
-#     HKLM\SOFTWARE\wheelbri\SigningCertificates, so the uninstaller removes exactly that certificate
+#     HKLM\SOFTWARE\wheelbri\SigningCertificates, so the uninstaller removes exactly that certificate. Only the
+#     certificate the package names (driver\signing-certificate.txt), and only a code-signing one that is no
+#     certificate authority (driver\common.ps1 Add-PackageCertificate). Each release has a certificate of its own, made
+#     for that build, its private key deleted once the drivers are signed: nobody can sign anything else with it. The
+#     earlier releases' certificates go once no installed driver uses them
 #
 # Exit codes: 0 installed (possibly with warnings, listed at the end), 1 failed (the red line says why).
 # Everything is also written to %LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log (with every other log).
@@ -170,7 +174,8 @@ try {
                        'shim\dinput8.dll', 'shim\x86\dinput8.dll')
     if ($withDrivers) {
         $requiredFiles += @('driver\install-driver.ps1', 'driver\uninstall-driver.ps1',
-                            'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1')
+                            'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1',
+                            'driver\signing-certificate.txt')
     }
     foreach ($required in $requiredFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $package $required))) {
@@ -425,6 +430,11 @@ try {
             Warn "    the $($driver.Name) driver did not install (exit code $code); the app works without it (see above)"
         }
         if ($driver.Script -like '*install-hide.ps1') { $hideCode = $code }
+    }
+    # Every release is signed with a certificate of its own: the ones earlier versions trusted go once no installed
+    # driver is signed with them any more (common.ps1).
+    if ($withDrivers -and (Remove-UnusedSigningCertificates) -gt 0) {
+        Warn '    an earlier certificate could not be removed (see above); the uninstaller or clean-pc can remove it later'
     }
 
     # The filter on the saved rig's devices now, after a reinstall that kept the user's settings, so the first Start

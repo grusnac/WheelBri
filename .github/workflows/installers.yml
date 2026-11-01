@@ -10,9 +10,11 @@
 # Runs on every push to main, every pull request and by hand (Actions > Installers > Run workflow). A tag must match
 # project(... VERSION) in CMakeLists.txt.
 #
-# Driver signing: with the secrets DRIVER_SIGNING_PFX (the .pfx, base64) and DRIVER_SIGNING_PFX_PASSWORD every build
-# signs with that one certificate; without them each run makes its own (driver\new-signing-cert.ps1). The installer
-# trusts whichever certificate signed the package, so both install; the drivers are test-signed either way.
+# Driver signing: each run makes a certificate of its own (driver\new-signing-cert.ps1 -ForThisBuildOnly: code
+# signing only, no certificate authority, private key not exportable), signs both drivers with it, writes its
+# thumbprint into the package (driver\signing-certificate.txt, the only certificate the installer trusts) and then
+# deletes it, private key included. The PCs that install a release trust a certificate nobody can sign with any more.
+# No secret holds a signing key: there is none to leak. Free; the drivers are test-signed (not by Microsoft).
 
 name: Installers
 
@@ -199,24 +201,10 @@ jobs:
         with:
           name: windows-programs
 
-      - name: Signing certificate for the drivers
-        env:
-          PFX: ${{ secrets.DRIVER_SIGNING_PFX }}
-          PFX_PASSWORD: ${{ secrets.DRIVER_SIGNING_PFX_PASSWORD }}
+      # A certificate for this build only (see the top); writes driver\signing-certificate.props.
+      - name: Signing certificate for the drivers (this build only)
         run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:PFX) {
-              Write-Output 'using the certificate from DRIVER_SIGNING_PFX'
-              $file = Join-Path $env:RUNNER_TEMP 'signing.pfx'
-              [IO.File]::WriteAllBytes($file, [Convert]::FromBase64String($env:PFX))
-              $password = ConvertTo-SecureString "$env:PFX_PASSWORD" -AsPlainText -Force
-              Import-PfxCertificate -FilePath $file -CertStoreLocation Cert:\CurrentUser\My -Password $password | Out-Null
-              Remove-Item $file
-          } else {
-              Write-Output 'no DRIVER_SIGNING_PFX secret: a certificate for this run only'
-          }
-          # Reuses the imported certificate (same subject), else makes one; writes driver\signing-certificate.props.
-          & .\driver\new-signing-cert.ps1 | Out-Null
+          & .\driver\new-signing-cert.ps1 -ForThisBuildOnly
           exit $LASTEXITCODE
 
       - name: Build and sign the drivers (wheelbri-wheel, wheelbri-hide)
@@ -227,6 +215,13 @@ jobs:
       - name: Assemble the package, zip and Setup.exe
         run: |
           & .\scripts\make\package.ps1 -BuildDir build
+          exit $LASTEXITCODE
+
+      # The drivers are signed: the certificate and its private key go, whatever happened above.
+      - name: Delete the signing certificate
+        if: ${{ always() }}
+        run: |
+          & .\driver\new-signing-cert.ps1 -Delete
           exit $LASTEXITCODE
 
       - name: Summary

@@ -80,6 +80,15 @@ PowerShell, then rebuild both):
 powershell -NoProfile -ExecutionPolicy Bypass -File driver\new-signing-cert.ps1
 ```
 
+The install scripts trust a certificate only when it is a code-signing one and no certificate authority, and only:
+
+- from a build here: a certificate made on this PC (its private key in your store);
+- from a package: the one the package names (`driver\signing-certificate.txt`, written by `package.ps1`).
+
+CI signs each release with a certificate made for that build and deletes it, private key included, once the drivers
+are signed (`new-signing-cert.ps1 -ForThisBuildOnly`, then `-Delete`). The installer removes an earlier release's
+certificate once no installed driver uses it.
+
 Install from an **Administrator PowerShell** (the setup and the app do this themselves; Secure Boot and test mode stay
 as they are):
 
