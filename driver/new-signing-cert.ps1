@@ -1,10 +1,17 @@
 # Creates WheelBri's own certificate for signing the drivers built on this PC, instead of the WDK test certificate
 # (WDKTestCert) that Visual Studio makes and that other driver projects on this PC may share: removing "our"
-# certificate then can never take another project's trust with it. Code signing only, private key not exportable, in
-# your own store (Cert:\CurrentUser\My), valid 5 years. Run once in a normal PowerShell (no Administrator needed), then
-# rebuild both drivers and install them again (install-driver.ps1 / install-hide.ps1 trust the new certificate).
+# certificate then can never take another project's trust with it. Code signing only and no certificate authority
+# (it cannot vouch for other certificates: the installer refuses one that could, driver\common.ps1), private key not
+# exportable, in your own store (Cert:\CurrentUser\My), valid 5 years. Run once in a normal PowerShell (no
+# Administrator needed), then rebuild both drivers and install them again (install-driver.ps1 / install-hide.ps1 trust
+# the new certificate).
 #
 #   new-signing-cert.ps1           creates the certificate (or reuses a valid one) and writes signing-certificate.props
+#   new-signing-cert.ps1 -ForThisBuildOnly
+#                                  always a new one, for one release build (CI): delete it with -Delete once the
+#                                  drivers are signed, so that nobody holds its private key afterwards
+#   new-signing-cert.ps1 -Delete   deletes the certificate signing-certificate.props names, private key included,
+#                                  and the props file
 #   new-signing-cert.ps1 -Remove   deletes signing-certificate.props: builds sign with the WDK test certificate again
 #                                  (the certificate stays in your store; certmgr.msc removes it)
 #
@@ -14,10 +21,27 @@
 #
 # Exit codes: 0 done (the thumbprint is printed), 1 failed (the red line says why).
 
-param([switch]$Remove)
+param([switch]$Remove, [switch]$ForThisBuildOnly, [switch]$Delete)
 $ErrorActionPreference = 'Stop'
 $subject = 'CN=WheelBri driver signing (test)'
 $props = Join-Path $PSScriptRoot 'signing-certificate.props'
+
+if ($Delete) {
+    $named = if (Test-Path $props) { [regex]::Match((Get-Content $props -Raw), '\|\s*([0-9A-Fa-f]{40})').Groups[1].Value } else { '' }
+    if (-not $named) {
+        Write-Host "No certificate named in $props`: nothing to delete." -ForegroundColor Yellow
+        exit 0
+    }
+    $path = "Cert:\CurrentUser\My\$named"
+    if (Test-Path $path) { Remove-Item -Path $path -DeleteKey -Force }
+    if (Test-Path $path) {
+        Write-Host "Could not delete the certificate $named from Cert:\CurrentUser\My." -ForegroundColor Red
+        exit 1
+    }
+    Remove-Item $props -Force -ErrorAction SilentlyContinue
+    Write-Host "Deleted the certificate $named and its private key, and $props." -ForegroundColor Green
+    exit 0
+}
 
 if ($Remove) {
     Remove-Item $props -Force -ErrorAction SilentlyContinue
@@ -28,15 +52,17 @@ if ($Remove) {
 try {
     # One made earlier and still valid for a while: reused, so the drivers already installed keep working.
     $now = Get-Date
-    $certificate = Get-ChildItem Cert:\CurrentUser\My | Where-Object {
+    $certificate = if ($ForThisBuildOnly) { $null } else { Get-ChildItem Cert:\CurrentUser\My | Where-Object {
         $_.Subject -eq $subject -and $_.HasPrivateKey -and $_.NotAfter -gt $now.AddDays(30) -and
         @($_.EnhancedKeyUsageList | Where-Object { $_.ObjectId -eq '1.3.6.1.5.5.7.3.3' }).Count -gt 0   # code signing
-    } | Sort-Object NotAfter -Descending | Select-Object -First 1
+    } | Sort-Object NotAfter -Descending | Select-Object -First 1 }
     if ($certificate) {
         Write-Host "Using the existing certificate $subject (valid until $($certificate.NotAfter.ToString('yyyy-MM-dd')))."
     } else {
+        # Basic constraints "not a certificate authority": in the trusted roots it vouches for its own signatures only.
         $certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -KeyExportPolicy NonExportable `
-            -CertStoreLocation Cert:\CurrentUser\My -NotAfter $now.AddYears(5)
+            -CertStoreLocation Cert:\CurrentUser\My -NotAfter $now.AddYears(5) `
+            -TextExtension @('2.5.29.19={critical}{text}ca=false')
         Write-Host "Created $subject in Cert:\CurrentUser\My (valid until $($certificate.NotAfter.ToString('yyyy-MM-dd')))."
     }
 

@@ -89,31 +89,138 @@ function Find-BuiltPackage([string]$folder, [string]$name, [string]$configuratio
 # similar name (every WDK test certificate is called WDKTestCert).
 $script:SigningCertificatesKey = 'HKLM:\SOFTWARE\wheelbri\SigningCertificates'
 
+# A package names the one certificate its drivers are signed with (driver\signing-certificate.txt, written by
+# scripts/make/package.ps1); a build from this repository has none.
+$script:PinnedCertificateFile = Join-Path $PSScriptRoot 'signing-certificate.txt'
+
+# What a driver signing certificate may be used for: code signing (and Microsoft's lifetime signing, which only limits
+# it further). The certificate goes into the machine's trusted roots, so one that could also vouch for web sites,
+# e-mail or logons, or for other certificates (a certificate authority), is never trusted.
+$script:CodeSigningUse = '1.3.6.1.5.5.7.3.3'
+$script:AllowedSigningUses = @($script:CodeSigningUse, '1.3.6.1.4.1.311.10.3.13')
+
+# Why <certificate> must not be trusted as a driver signer, or '' when it may.
+function Get-SigningUseProblem($certificate) {
+    $usage = @($certificate.Extensions | Where-Object { $_ -is [Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension] })
+    if ($usage.Count -eq 0) { return 'it is not limited to code signing (it could vouch for anything)' }
+    $uses = @($usage | ForEach-Object { $_.EnhancedKeyUsages } | ForEach-Object { $_.Value })
+    if ($uses -notcontains $script:CodeSigningUse) { return 'it is not a code-signing certificate' }
+    $others = @($uses | Where-Object { $script:AllowedSigningUses -notcontains $_ })
+    if ($others.Count -gt 0) { return "it may also be used for other things ($($others -join ', '))" }
+    $constraints = @($certificate.Extensions | Where-Object { $_ -is [Security.Cryptography.X509Certificates.X509BasicConstraintsExtension] })
+    if (@($constraints | Where-Object { $_.CertificateAuthority }).Count -gt 0) {
+        return 'it is a certificate authority (it could vouch for other certificates)'
+    }
+    return ''
+}
+
+# The thumbprint the package names (upper case), '' when there is no such file (a build from this repository).
+function Get-PinnedThumbprint {
+    if (-not (Test-Path -LiteralPath $script:PinnedCertificateFile -PathType Leaf)) { return '' }
+    $text = (Get-Content -LiteralPath $script:PinnedCertificateFile -Raw).Trim().ToUpper()
+    if ($text -notmatch '^[0-9A-F]{40}$') { Stop-WithError "$($script:PinnedCertificateFile) holds no certificate thumbprint: the package is damaged, download it again." }
+    return $text
+}
+
+# Whether the certificate <thumbprint> was made on this PC: its private key is in one of this PC's stores (WheelBri's
+# own from new-signing-cert.ps1 in CurrentUser\My, the WDK's WDKTestCert in CurrentUser\PrivateCertStore).
+function Test-MadeOnThisPc([string]$thumbprint) {
+    foreach ($store in 'Cert:\CurrentUser\My', 'Cert:\CurrentUser\PrivateCertStore', 'Cert:\LocalMachine\My') {
+        $certificate = Get-Item -Path "$store\$thumbprint" -ErrorAction SilentlyContinue
+        if ($certificate -and $certificate.HasPrivateKey) { return $true }
+    }
+    return $false
+}
+
 # Trusts the certificate that signed the package's catalog (Root and TrustedPublisher of this PC) and records its
-# thumbprint. Added straight from memory: no .cer file in %TEMP%, which another process of this user could replace
-# between writing and importing it.
+# thumbprint, only when all of these hold:
+#   - the catalog's signature is intact (only its root may still be unknown to this PC);
+#   - the certificate is the one the package names (driver\signing-certificate.txt), or, for a build from this
+#     repository, one made on this PC;
+#   - it is a code-signing certificate and nothing more (Get-SigningUseProblem);
+#   - once trusted, the catalog checks out as Valid; if not, what was added is taken out again.
+# Added straight from memory: no .cer file in %TEMP%, which another process of this user could replace between
+# writing and importing it.
 function Add-PackageCertificate($inf, [string]$name) {
     $cat = Join-Path $inf.DirectoryName "$name.cat"
-    $signature = Get-AuthenticodeSignature $cat
+    $signature = Get-AuthenticodeSignature -LiteralPath $cat
     if (-not $signature.SignerCertificate) { Stop-WithError "The catalog is not signed: $cat" }
     $certificate = $signature.SignerCertificate
+    $thumbprint = $certificate.Thumbprint.ToUpper()
+    $who = "$($certificate.Subject) ($thumbprint)"
+    if (@('Valid', 'UnknownError', 'NotTrusted') -notcontains "$($signature.Status)") {
+        Stop-WithError ("The catalog's signature does not hold ($($signature.Status)): $cat. The package was changed " +
+                        'after it was built: download or build it again.')
+    }
+    $pinned = Get-PinnedThumbprint
+    if ($pinned) {
+        if ($thumbprint -ne $pinned) {
+            Stop-WithError "$name.cat is signed by $who, not by the certificate this package names ($pinned): not trusting it."
+        }
+    } elseif (-not (Test-MadeOnThisPc $thumbprint)) {
+        Stop-WithError ("$name.cat is signed by $who, which was not made on this PC. A build from the repository is " +
+                        'installed only with a certificate made here (driver\new-signing-cert.ps1); install a package ' +
+                        '(Setup.exe) instead, which names its certificate.')
+    }
+    $problem = Get-SigningUseProblem $certificate
+    if ($problem) { Stop-WithError "Not trusting $who`: $problem." }
+
+    $added = @()
     foreach ($storeName in 'Root', 'TrustedPublisher') {
+        if (Test-Path -Path "Cert:\LocalMachine\$storeName\$thumbprint") { continue }
         try {
             $store = New-Object Security.Cryptography.X509Certificates.X509Store($storeName, 'LocalMachine')
             $store.Open('ReadWrite')
             try { $store.Add($certificate) } finally { $store.Close() }
+            $added += $storeName
         } catch {
             Stop-WithError "Cannot trust the signing certificate in $storeName`: $($_.Exception.Message)"
         }
     }
+    $status = (Get-AuthenticodeSignature -LiteralPath $cat).Status
+    if ("$status" -ne 'Valid') {
+        foreach ($storeName in $added) {
+            Remove-Item -Path "Cert:\LocalMachine\$storeName\$thumbprint" -Force -ErrorAction SilentlyContinue
+        }
+        Stop-WithError "$name.cat does not check out even with its certificate trusted ($status): the certificate was taken out again."
+    }
     try {
         if (-not (Test-Path $script:SigningCertificatesKey)) { New-Item -Path $script:SigningCertificatesKey -Force | Out-Null }
-        Set-ItemProperty -Path $script:SigningCertificatesKey -Name $certificate.Thumbprint -Value $certificate.Subject
+        Set-ItemProperty -Path $script:SigningCertificatesKey -Name $thumbprint -Value $certificate.Subject
     } catch {
         Write-Host ("could not record the certificate's thumbprint ($($_.Exception.Message)); removing it later finds " +
                     'it from the signed packages instead') -ForegroundColor Yellow
     }
-    Write-Host "trusted on this PC: $($certificate.Subject) ($($certificate.Thumbprint))"
+    Write-Host "trusted on this PC: $who"
+}
+
+# The certificates an earlier install trusted (recorded in SigningCertificates) that no installed driver package is
+# signed with any more: removed, so trust does not pile up across upgrades (every release is signed with a
+# certificate of its own). Any third-party package counts, not only ours: a certificate one of them still needs stays.
+# When the installed packages cannot be read, nothing is removed. Returns how many could not be removed.
+function Remove-UnusedSigningCertificates {
+    $recorded = Get-Item -Path $script:SigningCertificatesKey -ErrorAction SilentlyContinue
+    if (-not $recorded) { return 0 }
+    $candidates = @($recorded.GetValueNames() | Where-Object { $_ -match '^[0-9A-Fa-f]{40}$' } | ForEach-Object { $_.ToUpper() })
+    if ($candidates.Count -eq 0) { return 0 }
+    try {
+        $packages = @(Get-WindowsDriver -Online -ErrorAction Stop)   # the third-party packages
+    } catch {
+        Write-Host "could not list the installed drivers ($($_.Exception.Message)): earlier certificates are kept" -ForegroundColor Yellow
+        return 0
+    }
+    $inUse = @{}
+    foreach ($package in $packages) {
+        if (-not $package.OriginalFileName) { continue }
+        foreach ($catalog in @(Get-ChildItem -LiteralPath (Split-Path $package.OriginalFileName) -Filter '*.cat' -ErrorAction SilentlyContinue)) {
+            $signer = (Get-AuthenticodeSignature -LiteralPath $catalog.FullName).SignerCertificate
+            if ($signer) { $inUse[$signer.Thumbprint.ToUpper()] = $true }
+        }
+    }
+    $unused = @($candidates | Where-Object { -not $inUse.ContainsKey($_) })
+    if ($unused.Count -eq 0) { return 0 }
+    Write-Host "no installed driver is signed with $($unused.Count) earlier certificate(s) any more: removing them"
+    return (Remove-SigningCertificates $unused)
 }
 
 # The thumbprints of the certificates that signed our driver packages <names> (e.g. 'wheelbri-wheel'): the ones

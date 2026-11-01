@@ -129,6 +129,13 @@ if ($signers.Count -ne 1) {
           '(scripts/make/drivers.sh -Clean).')
 }
 Write-Host "  signed by: $(@($signers.Values)[0])"
+# The installer trusts only this certificate (driver\signing-certificate.txt), and only a code-signing one that is no
+# certificate authority: checked here too, so a package that would be refused on the user's PC is never made.
+. (Join-Path $root 'driver\common.ps1')
+$signerThumbprint = @($signers.Keys)[0].ToUpper()
+$signerCertificate = (Get-AuthenticodeSignature (Join-Path $drivers[0].Package "$($drivers[0].Name).cat")).SignerCertificate
+$problem = Get-SigningUseProblem $signerCertificate
+if ($problem) { Fail "the drivers' certificate $(@($signers.Values)[0]) would not be trusted by the installer: $problem (driver\new-signing-cert.ps1 makes one that is)." }
 
 # 2. The package folder, laid out like the repo so the driver scripts and the app find everything.
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
@@ -157,6 +164,7 @@ foreach ($script in 'driver\common.ps1', 'driver\install-driver.ps1', 'driver\un
                     'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1') {
     Put-Text (Join-Path $root $script) $script
 }
+Set-Content -Path (Join-Path $stage 'driver\signing-certificate.txt') -Value $signerThumbprint -Encoding ASCII
 foreach ($driver in $drivers) {
     foreach ($file in Get-ChildItem $driver.Package -File) {
         if ($file.Extension -in '.inf', '.cat', '.dll') { Put $file.FullName (Join-Path $driver.Relative $file.Name) }
@@ -187,7 +195,7 @@ $expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe',
               'config\g25.ini', 'config\g27.ini', 'config\g920.ini', 'config\g923.ini', 'config\wheelbri-shim.ini',
               'uninstall.ps1', 'Uninstall.cmd', 'driver\common.ps1', 'shim\dinput8.dll', 'shim\x86\dinput8.dll',
               'driver\install-driver.ps1', 'driver\uninstall-driver.ps1',
-              'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1') +
+              'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1', 'driver\signing-certificate.txt') +
             @($drivers | ForEach-Object {
                 $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } }) +
             @('install.ps1', 'Setup.cmd', 'README.md', 'docs\user-guide.md', 'docs\games.md', 'VERSION.txt',
