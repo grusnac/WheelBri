@@ -33,6 +33,7 @@ TEST(ShimConfigFile, EmptyKeepsTheDefaults) {
     const ShimConfig config = parsed("", problems);
     EXPECT_TRUE(problems.empty());
     EXPECT_TRUE(config.emulate);
+    EXPECT_FALSE(config.logiLog);
     EXPECT_EQ(config.sourceVendorId, 0x346E);
     EXPECT_FALSE(config.sourceProductId);
     EXPECT_EQ(config.targetProfile, "g920");
@@ -51,6 +52,7 @@ TEST(ShimConfigFile, EveryKeyRead) {
     std::vector<std::string> problems;
     const ShimConfig config = parsed("[shim]\n"
                                      "emulate = no\n"
+                                     "logi_log = true\n"
                                      "source_vid = 046d\n"
                                      "source_pid = c262\n"
                                      "target_profile = g25\n"
@@ -67,6 +69,7 @@ TEST(ShimConfigFile, EveryKeyRead) {
                                      problems);
     EXPECT_TRUE(problems.empty()) << (problems.empty() ? "" : problems.front());
     EXPECT_FALSE(config.emulate);
+    EXPECT_TRUE(config.logiLog);
     EXPECT_EQ(config.sourceVendorId, 0x046D);
     EXPECT_EQ(config.sourceProductId, 0xC262);
     EXPECT_EQ(config.targetProfile, "g25");

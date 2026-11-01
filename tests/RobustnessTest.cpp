@@ -90,6 +90,28 @@ TEST(Robustness, ChangedConfigsAndProfilesAreReadWithoutHarm) {
         run(10, mutated(labels, random));
         run(8, mutated("ax2+ 0.5 | 3 | 346e:0005 | 540 | wheelbri-service-2026-10-23-01.log", random));
     }
+    // Games' own settings files: NFS Unbound's (Frostbite) and NFS 2015's profile.
+    std::string unbound("FBCHUNKS");
+    const auto entry = [&unbound](const std::string& name, const std::string& value) {
+        const auto u32 = [&unbound](const std::size_t n) {
+            for (int i = 0; i < 4; ++i) unbound.push_back(static_cast<char>((n >> (8 * i)) & 0xFF));
+        };
+        u32(4);
+        u32(name.size() + 1);
+        unbound += name;
+        unbound.push_back('\0');
+        u32(value.size() + 1);
+        unbound += value;
+        unbound.push_back('\0');
+    };
+    entry("WheelSpringMagnitude", "0.500000");
+    entry("WheelMaxRotation", "270.000000");
+    const std::string nfs2015 = "GstInput.CustomControlsWheel 1\r\nGstInput.ConceptBrake.2.axis 24\r\n"
+                                "GstInput.ConceptBrake.2.button 208\r\nGstInput.ConceptMoveFB.2.button 200\r\n";
+    for (int i = 0; i < 300; ++i) {
+        run(15, mutated(unbound, random));
+        run(15, mutated(nfs2015, random));
+    }
 }
 
 // Random bytes, and packets that were valid before a byte changed, for everything that reads binary data.
@@ -105,7 +127,10 @@ TEST(Robustness, RandomBytesAreRefusedOrReadWithoutHarm) {
     ffb.effect.constantLevel = 0.5F;
     const auto ffbBytes = encode(ffb);
     for (int i = 0; i < 400; ++i) {
-        for (const std::uint8_t target : {1, 2, 3, 4, 5, 9, 11}) run(target, randomBytes(random, 300));
+        for (const std::uint8_t target : {1, 2, 3, 4, 5, 9, 11, 15, 16}) run(target, randomBytes(random, 300));
+#ifdef WHEELBRI_G923CAP
+        run(17, randomBytes(random, 300));
+#endif
         Bytes s(stateBytes.begin(), stateBytes.end());
         s[random() % s.size()] = static_cast<std::uint8_t>(random());
         run(1, s);

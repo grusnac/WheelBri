@@ -253,6 +253,19 @@ TEST(HelperProtocol, CreateVirtualWheelMayNameTheWheel) {
     EXPECT_EQ(requestVirtualWheel(*back), "g25");
 }
 
+// The TrueForce probe only as the second string, after a wheel.
+TEST(HelperProtocol, CreateVirtualWheelMayAskForTheTrueForceProbe) {
+    const Request probe{RequestType::CreateVirtualWheel, 1, {"g923", std::string(kTrueForceProbe)}};
+    EXPECT_EQ(requestProblem(probe), "");
+    EXPECT_EQ(requestVirtualWheel(probe), "g923");
+    EXPECT_TRUE(requestTrueForceProbe(probe));
+    EXPECT_FALSE(requestTrueForceProbe(Request{RequestType::CreateVirtualWheel, 1, {"g923"}}));
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {std::string(kTrueForceProbe)}}), "");
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {std::string(kTrueForceProbe), "g923"}}), "");
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {"g923", "other"}}), "");
+    EXPECT_FALSE(requestTrueForceProbe(Request{RequestType::CreateVirtualWheel, 1, {"g923", "other"}}));
+}
+
 TEST(HelperProtocol, EveryOtherRequestButTheHideFilterOnesTakesNoDevices) {
     for (int type = 2; type <= 8; ++type) {   // Hello and SetLogLevel take a level (below)
         const auto requestType = static_cast<RequestType>(type);
@@ -328,7 +341,7 @@ TEST(HelperProtocol, InstalledAppEdges) {
 
 TEST(HelperProtocol, WheelBriProgramInAnyFolder) {
     EXPECT_TRUE(isWheelBriProgram(R"(C:\Program Files\WheelBri\wheelbri.exe)"));
-    EXPECT_TRUE(isWheelBriProgram(R"(D:\cpp-projects\WheelBri\build\service\WHEELBRI-SERVICE.EXE)"));
+    EXPECT_TRUE(isWheelBriProgram(R"(D:\projects\WheelBri\build\service\WHEELBRI-SERVICE.EXE)"));
     EXPECT_TRUE(isWheelBriProgram("D:/x/WheelBri.exe"));
     EXPECT_TRUE(isWheelBriProgram(R"(\\?\D:\x\wheelbri.exe)"));
     EXPECT_TRUE(isWheelBriProgram("wheelbri.exe"));   // a bare name

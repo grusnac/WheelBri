@@ -22,7 +22,12 @@ A new area file gets a row here.
 
 - `scripts/make/*.sh`: build/test shortcuts; each header says what it does. A new one sources `common.sh` and goes in
   the list below. The docs never use them (plain CMake in `docs/building.md`).
-- Driver steps: PowerShell. Everything else: MSYS2 UCRT64, repo root.
+- Commands for the user: MSYS2 UCRT64, repo root, for everything (copy with `cp`, not `Copy-Item`). PowerShell or CMD
+  only when there is no other way, and say why.
+- Git commands for the user: one command per code block, so each can be copied and run on its own (no `&&`
+  chains, no several commands in one block).
+- After changing files, end by listing the ones you changed that are not staged yet and say they still have to be
+  committed, with the `git add` for them.
 - Docs: install (Windows and Linux sections) and status in `README.md`; usage in `docs/user-guide.md`; per game in
   `docs/games.md`; target layouts in `docs/targets.md`; build in `docs/building.md`. Short, current facts only, no
   dated history. A new screen needs a screenshot in `docs/images/` (ask the user to take it).
@@ -68,17 +73,20 @@ Drivers (VS + WDK, PowerShell): `driver/CLAUDE.md`.
 `--no-start`, `--as-user` needs `wheelbri-helper --console`, `--config FILE`), `rebuild.sh` (clean rebuild), `ui.sh`
 (window only), `shim.sh [--off] <game folder>` (put/remove shim), `shim-x86.sh`, `logi.sh` (Logitech SDK stand-in
 DLL), `drivers.sh`, `all.sh`, `package.sh` (installer), `clean-pc.sh` (removes all WheelBri put on the PC),
-`measure.sh` (CPU, memory, handles from outside).
+`measure.sh` (CPU, memory, handles from outside), `g923-capture.sh` (guided USB capture and decode of a real
+G923: `tools/g923-capture/README.md`).
 
 - New things left on the PC by app, installer or drivers → add to `clean-pc.ps1`.
 - Performance: measure with `measure.sh`, don't add counters to the app.
 
 Options: `WE_BUILD_TESTS`, `WE_BUILD_SERVICE`, `WE_BUILD_SHIM` (Windows), `WE_BUILD_LOGI` (Windows x64),
-`WE_BUILD_UHID` (Linux), `WE_BUILD_FUZZ` (`wheelbri_fuzz`, Clang only; see `tests/CLAUDE.md`).
+`WE_BUILD_UHID` (Linux), `WE_BUILD_FUZZ` (`wheelbri_fuzz`, Clang only; see `tests/CLAUDE.md`), `WE_BUILD_G923CAP`
+(`wheelbri-g923cap`, on by default).
 
 Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage in `printUsage`,
 `service/src/main.cpp`), `wheelbri-helper.exe`, `build/shim/dinput8.dll`, `build/logi/wheelbri-logi.dll`,
-`build/tools/uhid/wheelbri-uhid` (Linux). Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
+`build/tools/uhid/wheelbri-uhid` (Linux), `build/tools/g923-capture/wheelbri-g923cap.exe`.
+Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 
 ## Architecture
 
@@ -110,6 +118,9 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
   `.claude/rules/in-game-dll.md`.
 - **`driver/`** (UMDF 2): virtual wheel minidriver + rig hide filter; details in `driver/CLAUDE.md`.
 - **`tools/uhid/`**: `wheelbri-uhid`, Linux virtual wheel via kernel uhid; Proton reads it with `PROTON_ENABLE_HIDRAW`.
+- **`tools/g923-capture/`**: `wheelbri_g923cap` (portable library: USBPcap captures, TrueForce and HID++ decoding,
+  reports, the read-only probe) and `wheelbri-g923cap` (the tool `g923-capture.sh` runs; the probe's HID is Windows
+  only). Compares against `TrueForceDevice::parameterBits()`. Tests: `G923Cap*`.
 - **`installer/`, `scripts/make/package.ps1`**: Windows package. A new shipped file goes in `package.ps1` and
   `install.ps1`'s required list.
 - **`tests/`**: GoogleTest + `wheelbri_ui_tests`; details in `tests/CLAUDE.md`.

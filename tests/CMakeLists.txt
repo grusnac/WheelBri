@@ -42,10 +42,12 @@ add_executable(wheelbri_tests
     HideIdsTest.cpp
     HidPidTest.cpp
     HidPpTest.cpp
+    HidPpFfbTest.cpp
     InputReadStatsTest.cpp
     IniDocumentTest.cpp
     IniEditorTest.cpp
     LiveLogTest.cpp
+    LogitechFfbDriverTest.cpp
     LogFilesTest.cpp
     LogiSdkTest.cpp
     LogLevelCounterTest.cpp
@@ -67,6 +69,8 @@ add_executable(wheelbri_tests
     StartNeedsTest.cpp
     StatePacketTest.cpp
     TelemetryTest.cpp
+    TrueForceTest.cpp
+    TrueForceFfbTest.cpp
     UdpLoopbackTest.cpp
     VirtualWheelTest.cpp
     WaitForTest.cpp
@@ -121,6 +125,13 @@ if(WE_LINUX)
     target_include_directories(wheelbri_tests PRIVATE ${PROJECT_SOURCE_DIR}/tools/uhid)
 endif()
 
+# The real-G923 capture decoder (tools/g923-capture), on a fake wheel's captures.
+if(TARGET wheelbri_g923cap)
+    target_sources(wheelbri_tests PRIVATE G923CapTest.cpp)
+    target_link_libraries(wheelbri_tests PRIVATE wheelbri_g923cap)
+    target_compile_definitions(wheelbri_tests PRIVATE WHEELBRI_G923CAP)
+endif()
+
 include(GoogleTest)
 gtest_discover_tests(wheelbri_tests)
 
@@ -131,6 +142,10 @@ target_sources(wheelbri_tests PRIVATE EqualityTest.cpp RobustnessTest.cpp fuzz/F
 if(WE_BUILD_FUZZ)
     add_executable(wheelbri_fuzz fuzz/FuzzMain.cpp fuzz/FuzzTargets.cpp)
     target_link_libraries(wheelbri_fuzz PRIVATE wheelbri_core)
+    if(TARGET wheelbri_g923cap)
+        target_link_libraries(wheelbri_fuzz PRIVATE wheelbri_g923cap)
+        target_compile_definitions(wheelbri_fuzz PRIVATE WHEELBRI_G923CAP)
+    endif()
     target_link_options(wheelbri_fuzz PRIVATE -fsanitize=fuzzer)
 endif()
 # wheelbri-uhid run as a program, a plain file standing in for /dev/uhid (UhidMainTest).
@@ -155,7 +170,6 @@ if(TARGET wheelbri_privileged)
         ${PROJECT_SOURCE_DIR}/service/src/Wheel.cpp ${PROJECT_SOURCE_DIR}/service/src/FfbSelfTest.cpp)
     # Away from Windows the privileged steps only say they are for Windows (on Windows they go through the helper).
     if(NOT WIN32)
-        target_sources(wheelbri_tests PRIVATE PrivilegedStepsTest.cpp ${PROJECT_SOURCE_DIR}/service/src/PrivilegedSteps.cpp)
     endif()
     if(WE_LINUX)
         # The Linux folders (XDG_* / HOME) and compressors found on PATH (shell scripts stand in for them).

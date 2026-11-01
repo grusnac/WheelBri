@@ -479,6 +479,14 @@ TEST_F(ShimGamesFiles, TheLargestRealExeDecidesInAnyCase) {
     EXPECT_EQ(gameArchitecture(dir_ / "no such folder"), Architecture::Unknown);
 }
 
+// WheelBri's own shim has the loader's export name in it too (it looks for the loader): its mark says it is ours, so
+// a new build replaces it as dinput8.dll instead of going next to it as dinput8Hooked.dll (ACC, 2026-10-27).
+TEST_F(ShimGamesFiles, OurOwnShimIsNotTakenForTheAsiLoader) {
+    write(game() / kShimDll, "MZ ... IsWheelBriShim ... IsUltimateASILoader ... DirectInput8Create");
+    EXPECT_FALSE(isAsiLoader(game() / kShimDll));
+    EXPECT_EQ(shimDllIn(game()), game() / kShimDll);
+}
+
 // A dinput8.dll over 64 MB is not read whole to look for the ASI Loader's export: it is not the loader.
 TEST_F(ShimGamesFiles, AHugeDllIsNotTakenForTheAsiLoader) {
     write(game() / kShimDll, "IsUltimateASILoader");

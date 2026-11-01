@@ -59,8 +59,12 @@ game_bits() {
     echo "$bits"
 }
 
-# Whether the folder's dinput8.dll is the Ultimate ASI Loader (its export's name is in the file).
-asi_loader_in() { [ -f "$1/dinput8.dll" ] && grep -qa IsUltimateASILoader "$1/dinput8.dll" 2>/dev/null; }
+# Whether the folder's dinput8.dll is the Ultimate ASI Loader (its export's name is in the file). WheelBri's shim has
+# that name too (it looks for the loader): one with the shim's mark (IsWheelBriShim) is ours.
+asi_loader_in() {
+    [ -f "$1/dinput8.dll" ] && grep -qa IsUltimateASILoader "$1/dinput8.dll" 2>/dev/null &&
+        ! grep -qa IsWheelBriShim "$1/dinput8.dll" 2>/dev/null
+}
 
 # The name the shim takes in the folder: dinput8.dll, or dinput8Hooked.dll next to the Ultimate ASI Loader.
 shim_name_in() {

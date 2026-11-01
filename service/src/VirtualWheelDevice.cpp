@@ -5,14 +5,18 @@
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/Logging.hpp"
+#include "wheelbri/LogitechFfbDriver.hpp"
+#include "wheelbri/TrueForce.hpp"
 
 #ifdef _WIN32
 
 #include <windows.h>
 #include <cfgmgr32.h>
+#include <objbase.h>
 #include <cwchar>
 #include <cwctype>
 
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <chrono>
@@ -268,6 +272,167 @@ void removeForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const Virt
     }
 }
 
+// Whether Logitech's force feedback driver is installed: its class registered, and its DLL there.
+bool logitechFfbDriverInstalled() {
+    const std::wstring path = L"CLSID\\" + std::wstring(logitech_ffb::kClsid) + L"\\InProcServer32";
+    wchar_t dll[MAX_PATH] = {};
+    DWORD size = sizeof(dll);
+    if (RegGetValueW(HKEY_CLASSES_ROOT, path.c_str(), nullptr, RRF_RT_REG_SZ, nullptr, dll, &size) != ERROR_SUCCESS) {
+        return false;
+    }
+    const DWORD attributes = GetFileAttributesW(dll);
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+bool setBinary(HKEY key, const wchar_t* name, const std::uint8_t* data, const std::size_t size) {
+    return RegSetValueExW(key, name, 0, REG_BINARY, data, static_cast<DWORD>(size)) == ERROR_SUCCESS;
+}
+
+bool setString(HKEY key, const wchar_t* name, const std::wstring& text) {
+    return RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(text.c_str()),
+                          static_cast<DWORD>((text.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
+}
+
+// The OEMForceFeedback entry Logitech's software writes for the wheel (LogitechFfbDriver.hpp), in place of whatever
+// was there, with a WheelBri value to say who wrote it. The CLSID goes last: until then DirectInput sees no driver.
+bool writeLogitechFfbDriver(HKEY root, const std::wstring& key) {
+    HKEY oem = nullptr;
+    if (RegOpenKeyExW(root, key.c_str(), 0, KEY_ALL_ACCESS, &oem) == ERROR_SUCCESS) {
+        RegDeleteTreeW(oem, L"OEMForceFeedback");
+        RegCloseKey(oem);
+    }
+    HKEY ffb = nullptr;
+    const std::wstring path = key + L"\\OEMForceFeedback";
+    if (RegCreateKeyExW(root, path.c_str(), 0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &ffb, nullptr) != ERROR_SUCCESS) {
+        return false;
+    }
+    bool ok = true;
+    for (const logitech_ffb::Effect& effect : logitech_ffb::kEffects) {
+        HKEY entry = nullptr;
+        const std::wstring name = L"Effects\\" + std::wstring(effect.guid);
+        if (RegCreateKeyExW(ffb, name.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &entry, nullptr) !=
+            ERROR_SUCCESS) {
+            ok = false;
+            continue;
+        }
+        const auto attributes = logitech_ffb::bytes(effect.attributes);
+        ok = setString(entry, nullptr, std::wstring(effect.name)) && ok;
+        ok = setBinary(entry, L"Attributes", attributes.data(), attributes.size()) && ok;
+        RegCloseKey(entry);
+    }
+    const auto createdBy = logitech_ffb::bytes(std::array<std::uint32_t, 1>{logitech_ffb::kCreatedBy});
+    const auto attributes = logitech_ffb::bytes(logitech_ffb::kAttributes);
+    const DWORD marker = 1;
+    ok = setBinary(ffb, L"CreatedBy", createdBy.data(), createdBy.size()) && ok;
+    ok = setBinary(ffb, L"Attributes", attributes.data(), attributes.size()) && ok;
+    ok = RegSetValueExW(ffb, L"WheelBri", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&marker), sizeof(marker)) ==
+             ERROR_SUCCESS && ok;
+    ok = ok && setString(ffb, L"CLSID", std::wstring(logitech_ffb::kClsid));
+    RegCloseKey(ffb);
+    return ok;
+}
+
+std::wstring registeredFfbDriver(HKEY root, const std::wstring& path) {
+    wchar_t clsid[64] = {};
+    DWORD size = sizeof(clsid);
+    return RegGetValueW(root, path.c_str(), L"CLSID", RRF_RT_REG_SZ, nullptr, clsid, &size) == ERROR_SUCCESS ? clsid
+                                                                                                             : L"";
+}
+
+// With [emulator] trueforce Logitech's driver is the one: a TrueForce game's force reaches a G923 only through it
+// (DirectInput -> hidpp_forcefeedback_x64.dll -> HID++ 0x8123, played by the driver's HidPpFfb), and ACC sets the
+// range through its Escape. Written when it is missing or another driver is there (a run with it off removed it), as
+// long as Logitech's driver is installed; says when that changes. Without it the entry goes, as before.
+void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const VirtualWheel& wheel, const bool keep) {
+    if (!keep) {
+        removeForeignForceFeedbackDriver(hives, wheel);
+        return;
+    }
+    const std::wstring key = oemKey(wheel);
+    const std::wstring path = key + L"\\OEMForceFeedback";
+    const bool installed = logitechFfbDriverInstalled();
+    std::wstring found;
+    for (HKEY root : hives) {
+        const char* hive = root == HKEY_CURRENT_USER ? "HKCU" : "HKLM";
+        if (logitech_ffb::action(registeredFfbDriver(root, path), installed) == logitech_ffb::Action::Write) {
+            const bool written = writeLogitechFfbDriver(root, key);
+            static logging::RateLimiter limiter(std::chrono::minutes(1));
+            std::uint64_t suppressed = 0;
+            if (limiter.allow(suppressed)) {
+                if (written) {
+                    WE_LOG_INFO(log(), "DirectInput: wrote Logitech's force feedback driver for the virtual {} in {} "
+                                       "({} more writes since the last note)", wheel.instancePrefix, hive, suppressed);
+                } else {
+                    WE_LOG_WARN(log(), "DirectInput: cannot write Logitech's force feedback driver for the virtual {} "
+                                       "in {} ({} more tries since the last note)", wheel.instancePrefix, hive,
+                                suppressed);
+                }
+            }
+        }
+        if (const std::wstring clsid = registeredFfbDriver(root, path);
+            logitech_ffb::action(clsid, installed) == logitech_ffb::Action::Keep) {
+            found = clsid;
+        }
+    }
+    static std::atomic<int> said{-1};
+    const int state = !found.empty() ? 1 : installed ? 0 : 2;
+    if (said.exchange(state) == state) return;
+    if (state == 1) {
+        WE_LOG_INFO(log(), "DirectInput: Logitech's force feedback driver ({}) drives the virtual {} (trueforce "
+                           "on); its effects reach WheelBri over HID++ 0x8123", narrow(found), wheel.instancePrefix);
+    } else if (state == 2) {
+        WE_LOG_WARN(log(), "DirectInput: Logitech's force feedback driver is not installed (G HUB installs it): the "
+                           "virtual {} gets Windows' HID PID driver, and TrueForce games no force",
+                    wheel.instancePrefix);
+    } else {
+        WE_LOG_WARN(log(), "DirectInput: Logitech's force feedback driver could not be registered for the virtual {}; "
+                           "Windows' HID PID driver takes the effects", wheel.instancePrefix);
+    }
+}
+
+// The wheel's TrueForce interface (TrueForce.hpp): its own software device in the wheel's container, since the
+// TrueForce SDK pairs a wheel's interfaces by container. Spare identities as for the wheel. Null when it could not be
+// made; the wheel does not depend on it.
+HSWDEVICE_ createTrueForce(SwDeviceCreateFn swCreate, SwDeviceCloseFn swClose, const VirtualWheel& wheel,
+                           const GUID& container, std::string& instanceId) {
+    std::wstring hardwareIds = widen(trueForceHardwareId(wheel));
+    hardwareIds.push_back(L'\0');
+    const std::wstring description = widen(wheel.oemName) + L" TrueForce (wheelbri)";
+    const std::wstring name = widen(wheel.instancePrefix) + widen(kTrueForceIdSuffix);
+    for (const std::wstring& instance : {name + L"_0", name + L"_1", name + L"_2", name + L"_3"}) {
+        SwDeviceCreateInfo info{};
+        info.cbSize = sizeof(info);
+        info.pszInstanceId = instance.c_str();
+        info.pszzHardwareIds = hardwareIds.c_str();
+        info.pContainerId = &container;
+        info.CapabilityFlags = kRemovable | kSilentInstall | kDriverRequired;
+        info.pszDeviceDescription = description.c_str();
+        auto* wait = new CreateWait;   // leaked if Windows never answers, as for the wheel
+        HSWDEVICE_ device = nullptr;
+        const HRESULT hr = swCreate(L"wheelbri", L"HTREE\\ROOT\\0", &info, 0, nullptr, onCreated, wait, &device);
+        if (FAILED(hr)) {
+            delete wait;
+            WE_LOG_WARN(log(), "trueforce: SwDeviceCreate {} failed (0x{:08X})", narrow(instance),
+                        static_cast<unsigned long>(hr));
+            continue;
+        }
+        bool finished = false;
+        HRESULT result = E_PENDING;
+        {
+            std::unique_lock guard(wait->lock);
+            finished = wait->done.wait_for(guard, std::chrono::seconds(15), [wait] { return wait->finished; });
+            result = wait->result;
+            instanceId = narrow(wait->instanceId);
+        }
+        if (finished) delete wait;
+        if (finished && SUCCEEDED(result)) return device;
+        WE_LOG_WARN(log(), "trueforce: {} was not set up (0x{:08X}): is the driver new enough?", narrow(instance),
+                    static_cast<unsigned long>(result));
+        swClose(device);
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 struct VirtualWheelDevice::Impl {
@@ -276,6 +441,9 @@ struct VirtualWheelDevice::Impl {
     HSWDEVICE_ device = nullptr;
     std::string instanceId;
     bool userHive = true;
+    bool keepLogitechFfb = false;   // [emulator] trueforce: Logitech's force feedback driver stays
+    HSWDEVICE_ trueForceDevice = nullptr;   // its TrueForce interface, when asked for and made
+    std::string trueForceId;
     std::thread watcher;
     std::mutex lock;
     std::condition_variable wake;
@@ -288,6 +456,10 @@ struct VirtualWheelDevice::Impl {
         }
         wake.notify_all();
         if (watcher.joinable()) watcher.join();
+        if (trueForceDevice != nullptr && close != nullptr) {
+            close(trueForceDevice);
+            WE_LOG_INFO(log(), "virtual {} TrueForce {} removed", wheel->instancePrefix, trueForceId);
+        }
         if (device != nullptr && close != nullptr) {
             close(device);
             WE_LOG_INFO(log(), "virtual {} {} removed", wheel->instancePrefix, instanceId);
@@ -328,7 +500,8 @@ VirtualWheelDevice::DriverState VirtualWheelDevice::driverState() {
 }
 
 std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWheel& wheel, std::string& error,
-                                                 const std::function<bool()>& cancelled, const bool userHive) {
+                                                 const std::function<bool()>& cancelled, const bool userHive,
+                                                 const bool trueForce) {
     const auto stopNow = [&cancelled] { return cancelled && cancelled(); };
     const HMODULE cfg = LoadLibraryW(L"cfgmgr32.dll");
     const auto swCreate =
@@ -351,6 +524,10 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
     const std::wstring description = widen(wheel.oemName) + L" (wheelbri)";
     const std::wstring wheelName = widen(wheel.instancePrefix);   // "G920", "G25"
     const std::string label = "virtual " + std::string(wheel.instancePrefix);
+    // The wheel and its TrueForce interface share a container (one physical device to Windows and the SDK).
+    GUID container{};
+    const bool withTrueForce = trueForce && wheel.trueForce && SUCCEEDED(CoCreateGuid(&container));
+    const bool keepLogitechFfb = trueForce && wheel.trueForce;
     for (const std::wstring& instance : {wheelName + L"_0", wheelName + L"_1", wheelName + L"_2", wheelName + L"_3"}) {
         if (stopNow()) {
             error = "cancelled";
@@ -361,6 +538,7 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
         info.pszInstanceId = instance.c_str();
         info.pszzHardwareIds = hardwareIds.c_str();
         info.CapabilityFlags = kRemovable | kSilentInstall | kDriverRequired;
+        if (withTrueForce) info.pContainerId = &container;
         info.pszDeviceDescription = description.c_str();
         // Heap-allocated: if Windows never answers, its late callback must not touch a dead stack frame.
         auto* wait = new CreateWait;
@@ -421,7 +599,7 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
         }
         const std::string id = narrow(createdId);
         writeDirectInputEntries(true, roots(userHive), wheel);
-        removeForeignForceFeedbackDriver(roots(userHive), wheel);
+        handleForeignForceFeedbackDriver(roots(userHive), wheel, keepLogitechFfb);
 
         const auto start = std::chrono::steady_clock::now();
         bool ready = false;
@@ -472,6 +650,15 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
         impl->device = device;
         impl->instanceId = id;
         impl->userHive = userHive;
+        impl->keepLogitechFfb = keepLogitechFfb;
+        if (withTrueForce) {
+            impl->trueForceDevice = createTrueForce(swCreate, swClose, wheel, container, impl->trueForceId);
+            if (impl->trueForceDevice != nullptr) {
+                WE_LOG_INFO(log(), "{} TrueForce interface {} created", label, impl->trueForceId);
+            } else {
+                WE_LOG_WARN(log(), "{}: no TrueForce interface, the wheel works without it", label);
+            }
+        }
         Impl* raw = impl.get();
         impl->watcher = std::thread([raw] {
             platform::nameThisThread("wheelbri g920 watch");
@@ -480,7 +667,7 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
                 while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {
                     guard.unlock();
                     // Logitech's software writes it back when it sees a "G920" (or a "G25")
-                    removeForeignForceFeedbackDriver(roots(raw->userHive), *raw->wheel);
+                    handleForeignForceFeedbackDriver(roots(raw->userHive), *raw->wheel, raw->keepLogitechFfb);
                     guard.lock();
                 }
             } catch (const std::exception& e) {   // never std::terminate the service from here
@@ -497,17 +684,20 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
 
 struct DirectInputUserEntries::Impl {
     const VirtualWheel* wheel = nullptr;
+    bool keepLogitechFfb = false;
     std::thread watcher;
     std::mutex lock;
     std::condition_variable wake;
     bool stop = false;
 };
 
-DirectInputUserEntries::DirectInputUserEntries(const VirtualWheel& wheel) : impl_(std::make_unique<Impl>()) {
+DirectInputUserEntries::DirectInputUserEntries(const VirtualWheel& wheel, const bool keepLogitechFfb)
+    : impl_(std::make_unique<Impl>()) {
     impl_->wheel = &wheel;
+    impl_->keepLogitechFfb = keepLogitechFfb;
     const std::vector<HKEY> user{HKEY_CURRENT_USER};
     writeDirectInputEntries(true, user, wheel);
-    removeForeignForceFeedbackDriver(user, wheel);
+    handleForeignForceFeedbackDriver(user, wheel, keepLogitechFfb);
     Impl* raw = impl_.get();
     impl_->watcher = std::thread([raw] {
         platform::nameThisThread("wheelbri dinput watch");
@@ -515,7 +705,7 @@ DirectInputUserEntries::DirectInputUserEntries(const VirtualWheel& wheel) : impl
             std::unique_lock guard(raw->lock);
             while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {
                 guard.unlock();
-                removeForeignForceFeedbackDriver({HKEY_CURRENT_USER}, *raw->wheel);
+                handleForeignForceFeedbackDriver({HKEY_CURRENT_USER}, *raw->wheel, raw->keepLogitechFfb);
                 guard.lock();
             }
         } catch (const std::exception& e) {
@@ -550,11 +740,11 @@ VirtualWheelDevice::DriverState VirtualWheelDevice::driverState() {
 }
 
 struct DirectInputUserEntries::Impl {};
-DirectInputUserEntries::DirectInputUserEntries(const VirtualWheel&) {}
+DirectInputUserEntries::DirectInputUserEntries(const VirtualWheel&, bool) {}
 DirectInputUserEntries::~DirectInputUserEntries() = default;
 
 std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWheel&, std::string& error,
-                                                 const std::function<bool()>&, bool) {
+                                                 const std::function<bool()>&, bool, bool) {
     error = "the virtual wheel exists on Windows only";
     return nullptr;
 }

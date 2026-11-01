@@ -12,6 +12,7 @@ Linux. The Windows drivers need Visual Studio.
 | `WE_BUILD_LOGI` | ON on Windows x64 | `wheelbri-logi.dll`, a logging stand-in for Logitech's SDK helper |
 | `WE_BUILD_UHID` | ON on Linux | `wheelbri-uhid`, the Linux virtual wheel |
 | `WE_BUILD_FUZZ` | OFF | `wheelbri_fuzz` (Clang only) |
+| `WE_BUILD_G923CAP` | ON | `wheelbri-g923cap`, the decoder and probe of the G923 capture kit (`tools/g923-capture`) |
 
 Outputs: `build/service/`, `build/shim/dinput8.dll`, `build/logi/`, `build/tools/uhid/`.
 

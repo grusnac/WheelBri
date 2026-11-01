@@ -6,6 +6,7 @@
 
 #include "FuzzTargets.hpp"
 
+#include "wheelbri/AxisAudit.hpp"
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DiEffect.hpp"
@@ -13,23 +14,33 @@
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameRotation.hpp"
+#include "wheelbri/GameSettings.hpp"
 #include "wheelbri/GameTuning.hpp"
 #include "wheelbri/HelperProtocol.hpp"
 #include "wheelbri/HidPid.hpp"
 #include "wheelbri/HidPp.hpp"
+#include "wheelbri/HidPpFfb.hpp"
+#include "wheelbri/TrueForce.hpp"
+#include "wheelbri/TrueForceFfb.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LogFileNames.hpp"
 #include "wheelbri/LogLevelPacket.hpp"
 #include "wheelbri/LogiSdk.hpp"
 #include "wheelbri/MappingEdit.hpp"
+#include "wheelbri/Nfs2015Settings.hpp"
 #include "wheelbri/Rig.hpp"
 #include "wheelbri/ShimGames.hpp"
 #include "wheelbri/StatePacket.hpp"
+#ifdef WHEELBRI_G923CAP
+#include "g923cap/Analysis.hpp"
+#include "g923cap/Pcap.hpp"
+#endif
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace wheelbri::fuzz {
 namespace {
@@ -176,6 +187,91 @@ void runOne(const std::span<const std::uint8_t> input) {
             }
             break;
         }
+        case 13: {   // what a game or G HUB writes to the TrueForce interface (the driver's input)
+            TrueForceDevice device([](LogLevel, const std::string&) {});
+            TrueForceFfb ffb([](const FfbPacket& p) {
+                CHECK(std::isfinite(p.effect.constantLevel) && std::abs(p.effect.constantLevel) <= 1.0F);
+                CHECK(p.slot == TrueForceFfb::kSlot || p.slot == TrueForceFfb::kDamperSlot);
+                CHECK(p.effect.condition.positiveCoefficient >= 0.0F && p.effect.condition.positiveCoefficient <= 1.0F);
+            });
+            std::size_t i = 0;
+            std::int64_t now = 0;
+            while (i < bytes.size()) {
+                const std::size_t len = std::min<std::size_t>(bytes.size() - i, 1 + bytes[i] % 70);
+                ffb.output(bytes.subspan(i, len), now + bytes[i] % 8);
+                ffb.tick(now + bytes[i] % 8);
+                for (const auto& answer : device.output(bytes.subspan(i, len), now += bytes[i] % 8)) {
+                    CHECK(answer.size() == kTrueForceReportSize && answer[0] == kTrueForceReportId);
+                }
+                if (const auto status = device.steering(bytes[i] * 300 - 9000, bytes[i] * 11, now)) {
+                    CHECK(status->size() == kTrueForceReportSize);
+                }
+                i += len;
+            }
+            device.finish(now);
+            ffb.stop(now);
+            break;
+        }
+        case 14: {   // HID++ 0x8123 effects from Logitech's force feedback driver: every packet sent on is finite
+            HidPpFfb ffb(
+                [](const FfbPacket& p) {
+                    CHECK(std::isfinite(p.effect.constantLevel) && std::isfinite(p.effect.gain) &&
+                          std::isfinite(p.effect.periodic.phaseDeg));
+                    CHECK(p.slot < HidPpFfb::kServiceSlots);
+                },
+                [](LogLevel, const std::string&) {});
+            HidPp pp({"G923", 0xC26E, 1, 0x0A}, [](LogLevel, const std::string&) {});
+            pp.setForceFeedback(&ffb);
+            std::size_t i = 0;
+            std::int64_t now = 0;
+            while (i < bytes.size()) {
+                const std::size_t len = std::min<std::size_t>(bytes.size() - i, 1 + bytes[i] % 70);
+                std::vector<std::uint8_t> report(bytes.begin() + static_cast<std::ptrdiff_t>(i),
+                                                 bytes.begin() + static_cast<std::ptrdiff_t>(i + len));
+                if (report.size() >= 3) {
+                    report[0] = HidPp::kLongId;
+                    report[2] = 4;   // always ForceFeedback
+                }
+                (void)pp.handle(report, now += bytes[i] % 20);
+                ffb.tick(now);
+                i += len;
+            }
+            ffb.stopAll(now);
+            break;
+        }
+        case 15: {   // a game's own settings file (NFS Unbound's Frostbite PROFILEOPTIONS, NFS 2015's profile)
+            const GameSettingText values[] = {{"WheelSpringMagnitude", "0.800000"}, {"WheelMaxRotation", "900.000000"}};
+            const GameSettingsEdit edit = editFrostbiteSettings(text, values);
+            if (edit.problems.empty()) {
+                CHECK(edit.bytes.size() == text.size());   // same-length values only: nothing else in the file moves
+                for (const GameSettingsEdit::Change& change : edit.changes) {
+                    CHECK(frostbiteSetting(edit.bytes, change.name) == change.after);
+                }
+            } else {
+                CHECK(edit.bytes.empty() && edit.changes.empty());
+            }
+            (void)frostbiteSetting(text, "WheelSpringMagnitude");
+            (void)checkNfs2015Settings(text);
+            break;
+        }
+        case 16: {   // an Escape from a game (the shim's DeviceAudit): the first 4 bytes are the command
+            std::uint32_t command = 0;
+            if (bytes.size() >= 4) std::memcpy(&command, bytes.data(), 4);
+            (void)decodeRevLights(command % 2, bytes.size() >= 4 ? bytes.subspan(4) : bytes);
+            break;
+        }
+#ifdef WHEELBRI_G923CAP
+        case 17: {   // a USBPcap capture (pcap or pcapng): frames, URBs, transfers, the devices' descriptors
+            const auto file = g923cap::parseCapture(g923cap::Bytes(bytes.begin(), bytes.end()));
+            const auto devices = g923cap::findDevices(g923cap::transfersOf(g923cap::urbsOf(file)));
+            for (const auto& [key, device] : devices) {
+                for (const auto& [interface, raw] : device.reportDescriptors) (void)g923cap::parseReportDescriptor(raw);
+            }
+            (void)g923cap::parseReportDescriptor(bytes);
+            (void)g923cap::parseConfiguration(bytes);
+            break;
+        }
+#endif
     }
 }
 

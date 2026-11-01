@@ -46,6 +46,19 @@ TEST(EmulatorConfig, ReadsFromRig) {
     EXPECT_TRUE(containsError(load("[emulator]\nfrom_rig = maybe\n"), "from_rig"));
 }
 
+// trueforce: off unless asked for; trueforce_probe, its old name, still read.
+TEST(EmulatorConfig, ReadsTrueForce) {
+    EXPECT_FALSE(load("").config.trueForce);
+    const auto result = load("[emulator]\ntarget_profile = g923\ntrueforce = true\n");
+    EXPECT_TRUE(result.errors.empty());
+    EXPECT_TRUE(result.config.trueForce);
+    const auto old = load("[emulator]\ntarget_profile = g923\ntrueforce_probe = true\n");
+    EXPECT_TRUE(old.errors.empty());
+    EXPECT_TRUE(old.config.trueForce);
+    EXPECT_FALSE(load("[emulator]\ntrueforce_probe = true\ntrueforce = false\n").config.trueForce);
+    EXPECT_TRUE(containsError(load("[emulator]\ntrueforce = 2\n"), "trueforce"));
+}
+
 TEST(EmulatorConfig, ReadsTheG25Target) {
     const auto result = load("[emulator]\ntarget_profile = g25\n");
     EXPECT_TRUE(result.errors.empty());
@@ -424,9 +437,11 @@ TEST(EmulatorConfig, ReportsBadGameFfbGains) {
 // and left out.
 TEST(EmulatorConfig, ReadsGameTuning) {
     const auto result = load("[game_tuning]\nnfs2015.throttle_axis = slider\nnfsunbound.ffb_spring = 0.8\n"
-                             "nfsunbound.ffb_cap = 2\nnfs1999.ffb_spring = 1\nffb_spring = 1\nnfspayback.colour = red\n");
+                             "nfsunbound.ffb_cap = 2\nnfs1999.ffb_spring = 1\nffb_spring = 1\nnfspayback.colour = red\n"
+                             "nfs2015.button_3_or = 20, axis 3 > 40%\n");
     ASSERT_EQ(result.config.gameTunings.count("nfs2015"), 1U);
     EXPECT_EQ(result.config.gameTunings.at("nfs2015").pedalAxes[0], ObjectGuid::Slider);
+    EXPECT_EQ(result.config.gameTunings.at("nfs2015").secondaries.at(3).size(), 2U);
     EXPECT_FLOAT_EQ(*result.config.gameTunings.at("nfsunbound").ffbGains[static_cast<std::size_t>(FfbGroup::Spring)],
                     0.8F);
     EXPECT_FALSE(result.config.gameTunings.at("nfsunbound").ffbCap.has_value());

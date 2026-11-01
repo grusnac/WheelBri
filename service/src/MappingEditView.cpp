@@ -73,6 +73,8 @@ constexpr std::array<const char*, 4> kHatNames = {"Up", "Right", "Down", "Left"}
 constexpr float kLabelGap = 12;
 // A button row's label: its number and at most 10 characters of its name ("24 Dial Enter").
 constexpr std::size_t kButtonLabelChars = 3 + 10;
+constexpr float kPlusW = 24;    // a button row's "+" (adds a secondary)
+constexpr float kChipGap = 4;   // between a button's secondary chips
 constexpr float kPopupX = 24;
 constexpr float kPopupY = 56;
 
@@ -581,6 +583,10 @@ void MappingEditView::onKey(const char key) {
         listScroll_ = 0;
         return;
     }
+    if (mode_ == Mode::PickAlt) {
+        closeAltPicker();
+        return;
+    }
     mode_ = Mode::Idle;
 }
 
@@ -650,7 +656,7 @@ void MappingEditView::setRotationFromX(const float x) {
 
 ButtonRef* MappingEditView::axisSecondary(const std::size_t index) {
     if (pickIndex_ >= edit_.secondaries.size()) return nullptr;
-    std::vector<ButtonRef>& list = edit_.secondaries[pickIndex_];
+    std::vector<ButtonRef>& list = altList();
     return index < list.size() && list[index].axis ? &list[index] : nullptr;
 }
 
@@ -865,10 +871,89 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
     constexpr std::string_view kRigTag = "RIG";
     const float tagW = rigs ? static_cast<float>(kRigTag.size() + 1) * ui::kCharWidth : 0.0F;
     if (rigs) window_.text(x + w - 6 - tagW + ui::kCharWidth, y + 4, std::string(kRigTag), kHeading);
-    const auto chars = static_cast<std::size_t>(std::max(0.0F, w - 12 - tagW) / ui::kCharWidth);
-    window_.text(x + 6, y + 4, fit(describe(source, kind == Slot::Axis), chars),
-                 missing(source, kind == Slot::Axis) ? kCaution : source.mapped() ? kText : kDim);
+    const float room = std::max(0.0F, w - 12 - tagW);
+    const std::string text = describe(source, kind == Slot::Axis);
+    // A button's secondaries share the field: its own text first, the chips what is left (at least a "+N" chip).
+    const float chipsW =
+        kind == Slot::Button
+            ? std::min(chipsWidth(edit_.secondaries[index]), std::max(room - textWidth(text) - 8, 5 * ui::kCharWidth))
+            : 0.0F;
+    const auto chars = static_cast<std::size_t>(std::max(0.0F, room - (chipsW > 0 ? chipsW + 8 : 0.0F)) /
+                                                ui::kCharWidth);
+    const std::string shown = fit(text, chars);
+    window_.text(x + 6, y + 4, shown, missing(source, kind == Slot::Axis) ? kCaution : source.mapped() ? kText : kDim);
     hit(x, y, w, 16, [this, kind, index] { openPicker(kind, index); });
+    if (kind == Slot::Button) {
+        const bool changed = edit_.secondaries[index] != saved_.secondaries[index];
+        if (changed && !state.twice) window_.outline(x, y, w, 16, kMine);
+        drawChips(x + 6 + textWidth(shown) + 8, y, chipsW, edit_.secondaries[index], index, false,
+                  [this, index] { openAltPicker(index); });
+    }
+}
+
+float MappingEditView::textWidth(const std::string& text) {
+    return static_cast<float>(text.size()) * ui::kCharWidth;
+}
+
+float MappingEditView::chipsWidth(const std::vector<ButtonRef>& list) const {
+    float w = 0;
+    for (const ButtonRef& ref : list) w += textWidth("or " + shortAlt(ref)) + 8 + kChipGap;
+    return w > 0 ? w - kChipGap : 0.0F;
+}
+
+void MappingEditView::drawChips(const float x, const float y, const float w, const std::vector<ButtonRef>& list,
+                                const std::optional<std::size_t> twiceFor, const bool dim,
+                                const std::function<void()>& action) {
+    if (list.empty() || w <= 0) return;
+    std::string all;
+    for (const ButtonRef& ref : list) all += (all.empty() ? "" : ", ") + describeAlt(ref);
+    const std::string tipText = "Also pressed by: " + all + (action ? ". Click to change." : ".");
+    const auto chip = [&](const float at, const float chipW, const std::string& text, const ui::Colour colour,
+                          const bool twice) {
+        window_.fill(at, y + 2, chipW, 12, kPanel);
+        if (twice) window_.outline(at, y + 2, chipW, 12, kWarning);
+        window_.text(at + 4, y + 4, text, colour);
+        tip(at, y, chipW, 16, (twice ? "Used twice (red in the picker). " : "") + tipText);
+        if (action) hit(at, y, chipW, 16, action);
+    };
+    float at = x;
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        const ButtonRef& ref = list[i];
+        std::string text = "or " + shortAlt(ref);
+        // What is left after this one: a "+N" chip for the rest when they do not all fit.
+        const std::string rest = "+" + std::to_string(list.size() - i - 1);
+        const float restW = i + 1 < list.size() ? textWidth(rest) + 8 + kChipGap : 0.0F;
+        float chipW = textWidth(text) + 8;
+        if (at + chipW + restW > x + w) {
+            // Not whole: shortened if a few letters fit, else "+N" for this one and the rest.
+            const float left = x + w - at - restW - 8;
+            if (left >= 6 * ui::kCharWidth) {
+                text = fit(text, static_cast<std::size_t>(left / ui::kCharWidth));
+                chipW = textWidth(text) + 8;
+            } else {
+                const std::string more = "+" + std::to_string(list.size() - i);
+                chip(at, textWidth(more) + 8, more, dim ? kDim : kText, false);
+                return;
+            }
+        }
+        const bool twice =
+            twiceFor && entryState({ref.source, ref.axis}, ControlUse{ControlUse::Kind::Secondary, *twiceFor}).twice;
+        chip(at, chipW, text, missing(ref.source, ref.axis) ? kCaution : dim ? kDim : kText, twice);
+        at += chipW + kChipGap;
+    }
+}
+
+void MappingEditView::drawPlus(const float x, const float y, const std::size_t index) {
+    const bool on = hoverInside_ && hoverX_ >= x && hoverX_ < x + kPlusW && hoverY_ >= y && hoverY_ < y + 16;
+    window_.fill(x, y, kPlusW, 16, on ? kHeading : style::kHeadingTint);
+    window_.outline(x, y, kPlusW, 16, kHeading);
+    window_.heading(x + (kPlusW - ui::kCharWidth) / 2, y + 4, "+", on ? kDark : kHeading);   // bold
+    const std::size_t count = edit_.secondaries[index].size();
+    tip(x, y, kPlusW, 16,
+        count == 0 ? std::string("Add a second control that activates it too")
+                   : "Add another control that activates it too (" + std::to_string(count) + " of " +
+                         std::to_string(MapperConfig::kMaxSecondaries) + ")");
+    hit(x, y, kPlusW, 16, [this, index] { openAltPicker(index); });
 }
 
 void MappingEditView::draw() {
@@ -957,6 +1042,7 @@ void MappingEditView::draw() {
         drawGames();
         popupTips_ = tips_.size();
         if (mode_ == Mode::Pick) drawPicker();
+        if (mode_ == Mode::PickAlt && altForGame()) drawAltPicker();
         if (mode_ == Mode::AddButton) drawAddButton();
         return;
     }
@@ -1082,25 +1168,11 @@ void MappingEditView::draw() {
                     " with Native: check the game's control for it. Changing this row takes the mark off.");
         }
         const float fieldX = x + 8 + static_cast<float>(kButtonLabelChars) * ui::kCharWidth + kLabelGap;
-        // The first source (a button), "or" a second one (a button, or a one-sided axis past a threshold). With no
-        // second one the source takes the row and a faint "+ or" at its end opens the same popup (blue while the
-        // pointer is on the row), so 13 empty "(nothing)" fields don't crowd the tab.
-        const float quarter = half / 2;   // each column's fields share its extra width
-        const bool hasAlt = !edit_.secondaries[index].empty() || edit_.secondaries[index] != saved_.secondaries[index];
-        if (hasAlt) {
-            drawSource(fieldX, row, 194 + quarter, Slot::Button, index);
-            window_.text(x + 322 + quarter, row + 4, "or", kDim);
-            drawAltSource(x + 342 + quarter, row, 126 + quarter, index);
-        } else {
-            const float end = x + 468 + half;   // where the "or" field would end
-            const float plusW = 4 * ui::kCharWidth + 8;
-            drawSource(fieldX, row, end - plusW - 4 - fieldX, Slot::Button, index);
-            const bool onRow = hoverInside_ && hoverY_ >= row && hoverY_ < row + 16 && hoverX_ >= x && hoverX_ < end;
-            window_.text(end - plusW + 4, row + 4, "+ or", onRow ? kHeading : style::kFaint);
-            tip(end - plusW, row, plusW, 16,
-                "Add a second control that presses it too: a button, or a lever past a point");
-            hit(end - plusW, row, plusW, 16, [this, index] { openAltPicker(index); });
-        }
+        // The source (a button), its secondaries as "or ..." chips inside the same field, and a "+" button at the row's
+        // end that opens the secondary popup: on every row, tinted blue so a newcomer sees a button can have more.
+        const float end = x + 468 + half;   // the row's right end
+        drawSource(fieldX, row, end - kPlusW - 4 - fieldX, Slot::Button, index);
+        drawPlus(end - kPlusW, row, index);
     }
     const float gridEnd = gridTop + layout.height - 4;
 
@@ -2007,14 +2079,7 @@ void MappingEditView::setPicked(const SourceRef& source) {
     if (picked >= games_.size()) return;
     const std::string id = games_[picked].id;
     if (source == edit_.buttons[pickIndex_]) {
-        // The mapping's own: no value of the game's needed.
-        const GameTuning* const own = tuningOf(id);
-        if (own == nullptr || own->buttons.count(static_cast<int>(pickIndex_)) == 0) {
-            status_ = "Button " + std::to_string(gameNumber(pickIndex_)) + " " +
-                      std::string(profile_->buttonName(pickIndex_)) +
-                      " already comes from that control in the Mapping tab: nothing added.";
-            statusError_ = false;
-        }
+        // The mapping's own: no value of the game's needed (the main follows the Mapping tab).
         tuningFor(id).buttons.erase(static_cast<int>(pickIndex_));
         dropEmptyTuning(id);
     } else {
@@ -2301,8 +2366,16 @@ float MappingEditView::drawGameButtons(const std::size_t index, float y) {
     };
     std::vector<Group> groups;
     std::vector<bool> shown(profile_->buttonCount(), false);
-    const auto changed = [own](const std::size_t b) {
-        return own != nullptr && own->buttons.count(static_cast<int>(b)) != 0;
+    // Rows added by Add button... and not changed yet: this game's and this target's only.
+    const std::string pendingKey = id + "/" + target;
+    if (pendingKey_ != pendingKey) {
+        pendingKey_ = pendingKey;
+        pendingButtons_.clear();
+    }
+    const auto changed = [this, own](const std::size_t b) {
+        const auto key = static_cast<int>(b);
+        return (own != nullptr && (own->buttons.count(key) != 0 || own->secondaries.count(key) != 0)) ||
+               std::find(pendingButtons_.begin(), pendingButtons_.end(), b) != pendingButtons_.end();
     };
     for (const ButtonGroup& group : profile_->buttonGroups()) {
         Group mine{group.name, {}};
@@ -2322,9 +2395,11 @@ float MappingEditView::drawGameButtons(const std::size_t index, float y) {
 
     const float labelW = 120;
     const float removeW = 72;
-    const float fieldW = std::floor((canvasW() - gameX() - 4 - labelW - removeW - 16) / 2);
+    // Three fields: the Mapping tab's (main and its secondaries, shown), this game's main and this game's secondaries.
+    const float fieldW = std::floor((canvasW() - gameX() - 4 - labelW - removeW - 24) / 3);
     const float mappingX = gameX() + labelW;
     const float gameColumnX = mappingX + fieldW + 8;
+    const float altColumnX = gameColumnX + fieldW + 8;
     const auto chars = static_cast<std::size_t>((fieldW - 12) / ui::kCharWidth);
     if (groups.empty()) {
         for (const std::string& line : wrap("No button changed for this game: every " + target +
@@ -2338,8 +2413,25 @@ float MappingEditView::drawGameButtons(const std::size_t index, float y) {
         window_.text(gameX(), y, target + " button", kDim);
         window_.text(mappingX, y, "Mapping tab", kDim);
         window_.text(gameColumnX, y, "this game", kDim);
+        window_.text(altColumnX, y, "secondaries", kDim);
         y += 14;
     }
+    // A source's text and then its secondaries as chips, in a field `w` wide at `x`.
+    const auto sourceAndChips = [&](const float x, const float rowY, const float w, const std::string& text,
+                                    const ui::Colour colour, const std::vector<ButtonRef>& alts, const bool dim,
+                                    const std::function<void()>& action) {
+        const float room = w - 12;
+        const float chipsW = alts.empty() ? 0.0F
+                                          : std::min(chipsWidth(alts),
+                                                     std::max(room - textWidth(text) - 8, 5 * ui::kCharWidth));
+        const std::string shownText =
+            fit(text, static_cast<std::size_t>(std::max(0.0F, room - (chipsW > 0 ? chipsW + 8 : 0.0F)) /
+                                               ui::kCharWidth));
+        window_.text(x + 6, rowY + 4, shownText, colour);
+        drawChips(x + 6 + textWidth(shownText) + (shownText.empty() ? 0 : 8), rowY, chipsW, alts, std::nullopt, dim,
+                  action);
+    };
+    const std::uint64_t now = nowMs();
     const float bottom = contentH() - 52 - 64;   // room for Add button... and the notes under it
     std::size_t hidden = 0;
     for (const Group& group : groups) {
@@ -2356,29 +2448,64 @@ float MappingEditView::drawGameButtons(const std::size_t index, float y) {
                 ++hidden;
                 continue;
             }
+            const auto key = static_cast<int>(b);
             char label[32];
             std::snprintf(label, sizeof(label), "%2d %.10s", gameNumber(b),
                           std::string(profile_->buttonName(b)).c_str());
             window_.text(gameX() + 4, y + 4, label, kText);
-            // What the Mapping tab gives it: shown, not changed here.
+            if (b == pendingFlash_ && now < pendingFlashUntilMs_) {
+                window_.outline(gameX(), y - 2, altColumnX + fieldW + 8 + removeW - gameX() + 2, 20, kHeading);
+            }
+            // What the Mapping tab gives it, its secondaries too: shown, not changed here.
             const SourceRef mapped = edit_.buttons[b];
+            const std::vector<ButtonRef>& mappedAlts = edit_.secondaries[b];
             window_.fill(mappingX, y, fieldW, 16, kStripe);
-            window_.text(mappingX + 6, y + 4, fit(describe(mapped, false), chars), kDim);
             if (mapped.mapped()) tip(mappingX, y, fieldW, 16, describeFull(mapped, false));
-            // This game's: violet (yours), click to change it.
-            const SourceRef source = own->buttons.at(static_cast<int>(b));
+            sourceAndChips(mappingX, y, fieldW, describe(mapped, false), kDim, mappedAlts, true, {});
+            // This game's main: its own (violet), else the Mapping tab's; click to change it.
+            const SourceRef* ownMain = nullptr;
+            const std::vector<ButtonRef>* ownAlts = nullptr;
+            if (own != nullptr) {
+                if (const auto it = own->buttons.find(key); it != own->buttons.end()) ownMain = &it->second;
+                if (const auto it = own->secondaries.find(key); it != own->secondaries.end()) ownAlts = &it->second;
+            }
+            const bool hasMain = ownMain != nullptr;
+            const SourceRef source = hasMain ? *ownMain : mapped;
             window_.fill(gameColumnX, y, fieldW, 16, kStripe);
-            window_.outline(gameColumnX, y, fieldW, 16, kMine);
+            window_.outline(gameColumnX, y, fieldW, 16, hasMain ? kMine : style::kFieldEdge);
             window_.text(gameColumnX + 6, y + 4, fit(source.mapped() ? describe(source, false) : "nothing", chars),
                          source.mapped() ? kText : kDim);
-            if (source.mapped()) tip(gameColumnX, y, fieldW, 16, describeFull(source, false));
-            if (editable()) {
-                hit(gameColumnX, y, fieldW, 16, [this, b] { openPicker(Slot::GameButton, b); });
+            tip(gameColumnX, y, fieldW, 16,
+                (source.mapped() ? describeFull(source, false) : std::string("Nothing")) +
+                    (hasMain ? ". This game's own: click to change it." : ". As the Mapping tab: click to change it "
+                                                                          "for this game."));
+            if (editable()) hit(gameColumnX, y, fieldW, 16, [this, b] { openPicker(Slot::GameButton, b); });
+            // This game's secondaries: its own (violet), else the Mapping tab's; click to change them.
+            const bool hasAlts = ownAlts != nullptr;
+            const std::vector<ButtonRef>& alts = hasAlts ? *ownAlts : mappedAlts;
+            window_.fill(altColumnX, y, fieldW, 16, kStripe);
+            window_.outline(altColumnX, y, fieldW, 16, hasAlts ? kMine : style::kFieldEdge);
+            const std::function<void()> openAlts = [this, b] { openGameAltPicker(b); };
+            if (editable()) hit(altColumnX, y, fieldW, 16, openAlts);
+            if (alts.empty()) {
+                window_.text(altColumnX + 6, y + 4, fit("(none: click to add)", chars), kDim);
+                tip(altColumnX, y, fieldW, 16,
+                    std::string(hasAlts ? "None in this game" : "None, as the Mapping tab") +
+                        ": click to add controls that activate it too in this game (a button, or a lever past a "
+                        "point).");
+            } else {
+                sourceAndChips(altColumnX, y, fieldW, "", kText, alts, false,
+                               editable() ? openAlts : std::function<void()>{});
             }
-            button(gameColumnX + fieldW + 8, y, "Remove", [this, id, b] {
-                tuningFor(id).buttons.erase(static_cast<int>(b));
+            button(altColumnX + fieldW + 8, y, "Remove", [this, id, b, key] {
+                GameTuning& tuning = tuningFor(id);
+                tuning.buttons.erase(key);
+                tuning.secondaries.erase(key);
                 dropEmptyTuning(id);
+                pendingButtons_.erase(std::remove(pendingButtons_.begin(), pendingButtons_.end(), b),
+                                      pendingButtons_.end());
             }, false, editable(), removeW);
+            tip(altColumnX + fieldW + 8, y, removeW, 16, "Back to the Mapping tab: its main and its secondaries.");
             y += kButtonRowH;
         }
     }
@@ -2390,11 +2517,12 @@ float MappingEditView::drawGameButtons(const std::size_t index, float y) {
     const std::size_t named = layoutButtons(*profile_).cells.size();
     button(mappingX, y, "Add button...", [this] { mode_ = Mode::AddButton; }, false, editable() && named > 0, 120);
     const std::size_t helpChars = gameChars() - 15;   // from mappingX
-    window_.text(mappingX + 132, y + 4, fit("pick a " + target + " button, then the control for it", helpChars - 16),
-                 kDim);
+    window_.text(mappingX + 132, y + 4,
+                 fit("pick a " + target + " button, then click its main or secondaries", helpChars - 16), kDim);
     y += 28;
     window_.text(mappingX, y,
-                 fit("Click a \"this game\" field to change it. Remove: back to the Mapping tab.", helpChars), kDim);
+                 fit("Click a game field to change it. Remove: back to the Mapping tab.", helpChars),
+                 kDim);
     window_.text(mappingX, y + 12,
                  fit("Grouped as in the Mapping tab. Each target keeps its own list.", helpChars), kDim);
     return y + 24;
@@ -2413,10 +2541,11 @@ void MappingEditView::drawAddButton() {
     const GameProfile& game = games_[picked];
     const GameTuning* const own = tuningOf(game.id);
     const std::string target = profile_->identity().shortName;
-    window_.text(left, kPopupY + 10, "Add button: which " + target + " button should come from another control in " +
-                                         game.label + "?", kHeading);
+    window_.text(left, kPopupY + 10, "Add button: which " + target + " button do you want to change in " + game.label +
+                                         "?", kHeading);
     button(kPopupX + popupW() - 100, kPopupY + 6, "Cancel", [this] { mode_ = Mode::Idle; }, false, true, 88);
-    window_.text(left, kPopupY + 32, "Then pick its control (or nothing). Violet: already yours for this game.", kDim);
+    window_.text(left, kPopupY + 32,
+                 "Then click its main or its secondaries to change them. Violet: already yours for this game.", kDim);
 
     // The target's buttons where the Mapping tab has them: two columns of groups, the shifter's gears below.
     const ButtonLayout layout = layoutButtons(*profile_);
@@ -2431,7 +2560,8 @@ void MappingEditView::drawAddButton() {
             continue;
         }
         const std::size_t b = cell.button;
-        const bool mine = own != nullptr && own->buttons.count(static_cast<int>(b)) != 0;
+        const bool mine = own != nullptr && (own->buttons.count(static_cast<int>(b)) != 0 ||
+                                             own->secondaries.count(static_cast<int>(b)) != 0);
         const float w = columnW - 12;
         window_.fill(x, y, w, 16, kPanel);
         if (mine) window_.outline(x, y, w, 16, kMine);
@@ -2441,7 +2571,15 @@ void MappingEditView::drawAddButton() {
                      mine ? kMine : kText);
         tip(x, y, w, 16, "Mapping tab: " + (edit_.buttons[b].mapped() ? describeFull(edit_.buttons[b], false)
                                                                       : std::string("nothing")));
-        hit(x, y, w, 16, [this, b] { openPicker(Slot::GameButton, b); });
+        hit(x, y, w, 16, [this, b, mine] {
+            // Its row on the sub-tab (shown while unchanged too), outlined for a moment to show where it is.
+            mode_ = Mode::Idle;
+            if (!mine && std::find(pendingButtons_.begin(), pendingButtons_.end(), b) == pendingButtons_.end()) {
+                pendingButtons_.push_back(b);
+            }
+            pendingFlash_ = b;
+            pendingFlashUntilMs_ = nowMs() + 2000;
+        });
     }
 }
 
@@ -2638,32 +2776,6 @@ std::string MappingEditView::describeAlt(const ButtonRef& alt) const {
     return axisName(alt.source) + " > " + tuning::formatPercent(alt.threshold);
 }
 
-void MappingEditView::drawAltSource(const float x, const float y, const float w, const std::size_t index) {
-    const std::vector<ButtonRef>& list = edit_.secondaries[index];
-    const bool changed = list != saved_.secondaries[index];
-    const ControlUse self{ControlUse::Kind::Secondary, index};
-    const bool twice = std::any_of(list.begin(), list.end(), [this, &self](const ButtonRef& ref) {
-        return entryState({ref.source, ref.axis}, self).twice;
-    });
-    window_.fill(x, y, w, 16, kStripe);
-    window_.outline(x, y, w, 16, twice ? kWarning : changed ? kMine : style::kFieldEdge);
-    // The first, and how many more: "Hand > 50% +2".
-    const std::string more = list.size() > 1 ? " +" + std::to_string(list.size() - 1) : std::string();
-    const auto chars = static_cast<std::size_t>((w - 12) / ui::kCharWidth);
-    const std::string first =
-        list.empty() ? std::string("(nothing)") : fit(shortAlt(list.front()), chars - std::min(chars - 3, more.size()));
-    const bool absent = std::any_of(list.begin(), list.end(),
-                                    [this](const ButtonRef& ref) { return missing(ref.source, ref.axis); });
-    window_.text(x + 6, y + 4, fit(first + more, chars), absent ? kCaution : list.empty() ? kDim : kText);
-    if (!list.empty()) {
-        std::string all;
-        for (const ButtonRef& ref : list) all += (all.empty() ? "" : ", ") + describeAlt(ref);
-        tip(x, y, w, 16, (twice ? "A control here is used twice (red in the picker). " : "") +
-                             std::string("Also pressed by: ") + all);
-    }
-    hit(x, y, w, 16, [this, index] { openAltPicker(index); });
-}
-
 void MappingEditView::openPicker(const Slot kind, const std::size_t index) {
     mode_ = Mode::Pick;
     pickKind_ = kind;
@@ -2676,12 +2788,45 @@ void MappingEditView::openPicker(const Slot kind, const std::size_t index) {
 
 void MappingEditView::openAltPicker(const std::size_t index) {
     mode_ = Mode::PickAlt;
+    pickKind_ = Slot::Button;
     pickIndex_ = index;
     altFocus_ = 0;
     findText_.clear();
     listScroll_ = 0;
     touchFlashUntilMs_ = 0;
     touchNoteUntilMs_ = 0;
+}
+
+void MappingEditView::openGameAltPicker(const std::size_t index) {
+    const std::size_t picked = selectedGameIndex();
+    if (picked >= games_.size() || index >= edit_.secondaries.size()) return;
+    openAltPicker(index);
+    pickKind_ = Slot::GameButton;
+    altGameId_ = games_[picked].id;
+    GameTuning& own = tuningFor(altGameId_);
+    // None of its own yet: it starts from the Mapping tab's, as the row shows them.
+    if (own.secondaries.count(static_cast<int>(index)) == 0) own.secondaries[static_cast<int>(index)] =
+        edit_.secondaries[index];
+}
+
+void MappingEditView::closeAltPicker() {
+    if (altForGame()) {
+        const auto found = edit_.gameTunings.find(altGameId_);
+        if (found != edit_.gameTunings.end()) {
+            auto& lists = found->second.secondaries;
+            const auto list = lists.find(static_cast<int>(pickIndex_));
+            if (list != lists.end() && list->second == edit_.secondaries[pickIndex_]) lists.erase(list);
+            dropEmptyTuning(altGameId_);
+        }
+    }
+    mode_ = Mode::Idle;
+}
+
+std::vector<ButtonRef>& MappingEditView::altList() {
+    if (pickKind_ == Slot::GameButton && !altGameId_.empty()) {
+        return tuningFor(altGameId_).secondaries[static_cast<int>(pickIndex_)];
+    }
+    return edit_.secondaries[pickIndex_];
 }
 
 void MappingEditView::drawAltPicker() {
@@ -2691,10 +2836,15 @@ void MappingEditView::drawAltPicker() {
     const float left = kPopupX + 12;
     const float right = kPopupX + popupW() - 12;
     const std::size_t target = pickIndex_;
+    const bool forGame = altForGame();
     const std::string targetName = profile_->identity().shortName + " " + std::string(profile_->buttonName(target));
-    window_.text(left, kPopupY + 10, "What else presses " + targetName + "?", kHeading);
-    button(kPopupX + popupW() - 100, kPopupY + 6, "Done", [this] { mode_ = Mode::Idle; }, false, true, 88);
-    std::vector<ButtonRef>& list = edit_.secondaries[target];
+    const auto game = std::find_if(games_.begin(), games_.end(), [this](const GameProfile& g) {
+        return g.id == altGameId_;
+    });
+    const std::string inGame = forGame && game != games_.end() ? " in " + game->label : std::string();
+    window_.text(left, kPopupY + 10, "What else presses " + targetName + inGame + "?", kHeading);
+    button(kPopupX + popupW() - 100, kPopupY + 6, "Done", [this] { closeAltPicker(); }, false, true, 88);
+    std::vector<ButtonRef>& list = altList();
     const std::size_t max = MapperConfig::kMaxSecondaries;
 
     // How to pick: press it on the rig (the app reads the devices meanwhile), or type to find it; and clear all.
@@ -2708,6 +2858,15 @@ void MappingEditView::drawAltPicker() {
     tip(findX, kPopupY + 28, findW, 16,
         "Type a number or a name: only the controls holding it are listed. Esc clears it.");
     button(findX + findW + 12, kPopupY + 28, "(clear all)", [&list] { list.clear(); }, false, !list.empty(), 100);
+    if (forGame) {
+        // Back to the Mapping tab's: the game's list goes when the popup closes (closeAltPicker).
+        const std::vector<ButtonRef>& mapped = edit_.secondaries[target];
+        const float mappedX = findX + findW + 12 + 108;
+        button(mappedX, kPopupY + 28, "Mapping tab's", [&list, &mapped] { list = mapped; }, list == mapped, true, 120);
+        tip(mappedX, kPopupY + 28, 120, 16,
+            "The Mapping tab's secondaries for it, followed again: " +
+                (mapped.empty() ? std::string("none") : std::to_string(mapped.size())) + ".");
+    }
 
     // The ones it has, as chips after "Has N of 8." (at most 8: one or two rows).
     const std::string has = "Has " + std::to_string(list.size()) + " of " + std::to_string(max) + ".";
@@ -2769,7 +2928,13 @@ void MappingEditView::drawAltPicker() {
     const auto entryAt = [&](const float x, const float entryY, const RigDevice& rigDevice, const bool isWheel,
                              const bool axis, const std::size_t index) {
         const SourceRef source{isWheel ? DeviceId{} : rigDevice.id, static_cast<int>(index)};
-        EntryState state = entryState({source, axis}, self);
+        // A game's: any control (as its main source), taken from nowhere else.
+        EntryState state = forGame ? EntryState{} : entryState({source, axis}, self);
+        if (forGame) {
+            state.mine = std::any_of(list.begin(), list.end(), [&](const ButtonRef& b) {
+                return b.axis == axis && b.source == source;
+            });
+        }
         if (!state.mine && !state.taken && list.size() >= max) {
             state.taken = true;   // full: nothing more is added
             state.tip = "At most " + std::to_string(max) + " secondary assignments per button";
@@ -2953,7 +3118,10 @@ void MappingEditView::drawAltPicker() {
                ": scroll with the mouse wheel. Greyed: used elsewhere (hover to see where).";
         colour = kCaution;
     } else {
-        line = "Greyed: used elsewhere (hover to see where). Axes: a pedal or a lever, pressed past the threshold.";
+        line = forGame ? "Any control, even one the Mapping tab uses. Axes: a pedal or a lever, pressed past the "
+                         "threshold."
+                       : "Greyed: used elsewhere (hover to see where). Axes: a pedal or a lever, pressed past the "
+                         "threshold.";
     }
     window_.text(left, kPopupY + popupH() - 20, fit(line, static_cast<std::size_t>((right - left) / ui::kCharWidth)),
                  colour);
@@ -3009,8 +3177,14 @@ void MappingEditView::onRigTouch(const DeviceId& device, const bool axis, const 
         mode_ = Mode::Idle;
         return;
     }
-    std::vector<ButtonRef>& list = edit_.secondaries[pickIndex_];
-    const EntryState state = entryState({source, axis}, ControlUse{ControlUse::Kind::Secondary, pickIndex_});
+    std::vector<ButtonRef>& list = altList();
+    EntryState state = altForGame() ? EntryState{}
+                                    : entryState({source, axis}, ControlUse{ControlUse::Kind::Secondary, pickIndex_});
+    if (altForGame()) {
+        state.mine = std::any_of(list.begin(), list.end(), [&](const ButtonRef& b) {
+            return b.axis == axis && b.source == source;
+        });
+    }
     if (state.mine) {
         note(name + ": already here (click it to take it off).", true);
     } else if (state.taken) {
@@ -3103,6 +3277,20 @@ void MappingEditView::drawPicker() {
     window_.text(findX + 6, kPopupY + 32, findText_ + "_", kText);
     tip(findX, kPopupY + 28, findW, 16,
         "Type a number or a name: only the controls holding it are listed. Esc clears it.");
+    if (forGame) {
+        // Back to following the Mapping tab's main source (the row and its secondaries stay).
+        const SourceRef mapped = edit_.buttons[pickIndex_];
+        const float mappedX = findX + findW + 12;
+        const GameTuning* const own =
+            selectedGameIndex() < games_.size() ? tuningOf(games_[selectedGameIndex()].id) : nullptr;
+        const bool follows = own == nullptr || own->buttons.count(static_cast<int>(pickIndex_)) == 0;
+        button(mappedX, kPopupY + 28, "Mapping tab's", [this, mapped] {
+            setPicked(mapped);
+            mode_ = Mode::Idle;
+        }, follows, true, 120);
+        tip(mappedX, kPopupY + 28, 120, 16,
+            "The Mapping tab's, followed again: " + (mapped.mapped() ? describeFull(mapped, false) : "nothing") + ".");
+    }
 
     const DeviceLabels* const wheel = wheelLabels();
     // The wheel first, then the accessories.

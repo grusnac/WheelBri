@@ -61,8 +61,9 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
    ![Picking what drives a button](images/mapping-buttons.png)
 
 3. Tick **Invert** for a pedal that reads pressed at rest (never automatic).
-4. **+ or** gives a button a second source, e.g. a handbrake lever: it presses the button past the point you set,
-   from 0% (as soon as it moves) to 100% (only at its end).
+4. The blue **+** at the end of a button's row adds more controls that activate it (up to 8), e.g. a handbrake lever:
+   it activates the button past the point you set, from 0% (as soon as it moves) to 100% (only at its end). They show
+   as **or ...** in the row; click one to change them.
 5. Set **Steering rotation** to the game's full lock, and your wheel's software to **the same number**.
 
 **G25 and G27 only:**
@@ -166,14 +167,17 @@ NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, you
 
      ![Buttons sub-tab, nothing changed yet](images/games-buttons-base.png)
 
-     **Add button...** asks which Target button to change, then the control for it: any control, even one the
-     Mapping tab uses elsewhere.
+     **Add button...** asks which Target button to change and adds its row, starting from the Mapping tab's values.
+     Click its **this game** field to pick its control, or its **secondaries** field to add controls that activate it
+     too (buttons, or a lever past a point, up to 8). Any control works, even one the Mapping tab uses elsewhere. A
+     game's secondaries replace the Mapping tab's for that button; **Mapping tab's** in either popup follows the
+     Mapping tab again.
 
      ![Picking the Target's button](images/games-buttons-selection.png)
 
      ![Picking the control for it in this game](images/games-buttons-rempping.png)
 
-     The button then shows both sources: the Mapping tab's and, in violet, this game's.
+     The row shows the Mapping tab's values and this game's; what is this game's own is in violet.
 
      ![A button changed for this game](images/games-buttons-rempping-done.png)
 
@@ -232,6 +236,9 @@ For one game use the Games tab. For every game, edit `[ffb]` in your mapping fil
 | `game_effects` | true | `false` turns game force feedback off |
 | `centring_spring` | 0 | G25 and G27: their centring spring, 0 to 100% |
 | `ignore_lone_full_push` | true | a full push with no other forces for 2 s plays as none (Race Driver: GRID) |
+
+**TrueForce** (Target G923, Windows): `[emulator] trueforce = true` in the same file lets games that use Logitech's
+TrueForce (ACC) drive your wheel with it. Off by default. What it needs: [Games](games.md#assetto-corsa-competizione).
 
 To test the wheel, press Stop and run (Windows, Command Prompt):
 

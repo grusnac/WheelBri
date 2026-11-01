@@ -62,7 +62,7 @@ std::array<std::uint8_t, StatePacket::kPacketSize> encode(const StatePacket& pac
     ByteWriter writer(bytes);
     writer.u32(StatePacket::kMagic);
     writer.u16(StatePacket::kVersion);
-    writer.u16(0);
+    writer.u16(packet.rotationDeg);
     writer.u32(packet.sequence);
     writer.i32(packet.report.steering);
     writer.i32(packet.report.throttle);
@@ -81,9 +81,10 @@ std::optional<StatePacket> decodeStatePacket(const std::span<const std::uint8_t>
     if (reader.u32() != StatePacket::kMagic || reader.u16() != StatePacket::kVersion) {
         return std::nullopt;
     }
-    reader.u16();  // reserved
+    const std::uint16_t rotationDeg = reader.u16();
 
     StatePacket packet;
+    packet.rotationDeg = rotationDeg;
     packet.sequence = reader.u32();
     // Only values an emulated wheel can report (0..65535, hat -1..7): whatever sent this, the game gets sane input.
     const auto axis = [&reader] { return std::clamp<std::int32_t>(reader.i32(), 0, 65535); };

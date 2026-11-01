@@ -16,6 +16,7 @@ namespace wheelbri::shim {
 //
 //   [shim]
 //   emulate = true             ; false = Phase 0 behaviour: log and pass every device through unchanged
+//   logi_log = false           ; true = log the game's calls into Logitech's SDK DLLs (LogiHook.hpp)
 //   source_vid = 346e          ; USB vendor id of the rig's wheel to replace (hex, the Rig tab's vid:pid)
 //   source_pid = any           ; or a hex product id
 //   target_profile = g920      ; g25, g27, g920 or g923 (the app sets it at Start, from the Mapping tab's Target)
@@ -44,6 +45,8 @@ enum class FfbMode { Service, Passthrough, Off };
 
 struct ShimConfig {
     bool emulate = true;
+    // [shim] logi_log = true: log every call the game makes into Logitech's SDK DLLs (LogiHook.hpp). A debugging aid.
+    bool logiLog = false;
     std::uint16_t sourceVendorId = 0x346E;
     std::optional<std::uint16_t> sourceProductId;
     std::string targetProfile = "g920";
