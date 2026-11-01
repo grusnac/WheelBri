@@ -7,6 +7,7 @@
 #   scripts/make/package.sh --no-build         package what is already built
 #   scripts/make/package.sh -NoSetupExe        arguments starting with - go to package.ps1
 
+# shellcheck source=common.sh
 source "$(dirname "$0")/common.sh"
 
 on_windows || fail "the installer package is Windows only (MSYS2 UCRT64 shell)"

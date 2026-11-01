@@ -1,0 +1,2 @@
+# ShellCheck for the build shortcuts (CI: "Check the scripts"): the scripts source common.sh from their own folder.
+source-path=SCRIPTDIR

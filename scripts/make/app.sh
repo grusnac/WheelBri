@@ -14,6 +14,7 @@
 #   scripts/make/app.sh --config my.ini               start with another config
 #   WE_BUILD_TYPE=Debug scripts/make/app.sh           a debug build
 
+# shellcheck source=common.sh
 source "$(dirname "$0")/common.sh"
 
 start=1

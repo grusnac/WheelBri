@@ -5,6 +5,7 @@
 #   scripts/make/ui.sh                                    config/g920.ini
 #   scripts/make/ui.sh config/g25.ini --print
 
+# shellcheck source=common.sh
 source "$(dirname "$0")/common.sh"
 
 config=config/g920.ini

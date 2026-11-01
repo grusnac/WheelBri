@@ -8,6 +8,7 @@
 #
 #   scripts/make/shim-x86.sh
 
+# shellcheck source=common.sh
 source "$(dirname "$0")/common.sh"
 
 on_windows || fail "the shim is a Windows DLL: run it from the MSYS2 UCRT64 shell on Windows"

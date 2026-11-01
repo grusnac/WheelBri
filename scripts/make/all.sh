@@ -5,6 +5,7 @@
 #   scripts/make/all.sh --clean     full rebuild of everything (deletes the CMake build tree first)
 
 here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=common.sh
 source "$here/common.sh"
 
 clean=0
