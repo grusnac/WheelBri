@@ -19,8 +19,9 @@ namespace wheelbri {
 
 struct VirtualWheel;
 
-// Logitech TrueForce, device side: a real G923 has it on its own USB interface (interface 2), a vendor collection
-// (usage page 0xFFFD, usage 0xFD01) with report 0x01, 63 bytes each way. Logitech's TrueForce SDK
+// Logitech TrueForce, device side: a real G923 has it on its own USB interface (interface 1; interface 0 carries the
+// game controller and HID++), a vendor collection (usage page 0xFFFD, usage 0xFD01) with report 0x01, 63 bytes each
+// way. Logitech's TrueForce SDK
 // (trueforce_sdk_x64.dll, from G HUB) finds it with SetupDi + HidD_GetAttributes + HidP_GetCaps and pairs it with the
 // wheel by container id, then streams packets to it ([01 00 00 00, type, sequence, payload], type 0x01 the ~1 kHz
 // torque + texture stream). Written from public protocol descriptions; nothing is copied from GPL code.
@@ -106,20 +107,21 @@ private:
 
 namespace wheelbri {
 
-// The TrueForce interface's answers, as a real wheel gives them (from captures of G HUB with a direct-drive wheel,
-// which shares the protocol with the G923). Bytes after the [01 00 00 00] header, s = the host's sequence:
-//   05 s idx        -> 05 s idx 09 idx <f32 value>        a parameter's current value (parameter())
+// The TrueForce interface's answers, as a real G923 gives them (captured 2026-11-01 with ACC, firmware U1 39.02;
+// 07 and 06 from a direct-drive wheel: the SDK sends neither to a G923). Bytes after the [01 00 00 00] header, s =
+// the host's sequence:
+//   05 s idx        -> 05 s idx 09 idx <f32 value>        a parameter's current value (parameterBits())
 //   07 s            -> 07 s 06, then six slots <n 01 flag>
 //   06 s ..         -> status of type 10, ff ff ff ff at 17..20
-//   0e s <f32 deg>  -> status of types 11 and 14, the range at 17..20 (operating range, logged)
+//   0e s <f32 deg>  -> nothing (operating range: logged; a G923 does not answer it)
 //   03 s / 04 s     -> status 02 (03 starts the session, 04 stops it)
-//   01 s .. (stream)-> status 02
+//   01 s .. (stream)-> status 02 (the stream comes 1000 times a second)
 //   09, 0b, 0c, ... -> nothing
 // A status report, as Logitech's DLL (1.3.12) parses it: [4] type, [5] s, [6..8] the wheel's position in counts
 // (24-bit; centre = half of [22..24]), [9..12] 00 80 00 80, [13..16] a clock in microseconds, [17..20] the speed in
-// counts a second (int32 + 0x80000000), [22..24] the count range (491520 = 2700 degrees at 65536 a turn: p4 * p5),
-// [25..32] the full-scale torque, two int32 + 0x80000000 (2.2 Nm), [33] the checksum. Every answer ends in one
-// (seal: its bytes from [4] sum to 0). The DLL's angle = -(position - centre) / 65536 turns, + = left: a right turn
+// counts a second (int32 + 0x80000000), [22..24] the count range (673643 = 904.5 degrees at 268101.8 a turn: p4 * p5),
+// [25..32] the full-scale torque, two int32 + 0x80000000 (0.65 Nm), [33] the checksum. Every answer ends in one
+// (seal: its bytes from [4] sum to 0). The DLL's angle = -(position - centre) / (p4 * p5) turns, + = left: a right turn
 // counts up.
 // While a session runs, a new steering value also sends a status 02 (steering()), at most one a millisecond, so the
 // game reads the wheel even when it streams nothing. Thread-safe: writes and state come on different threads.
@@ -135,10 +137,13 @@ public:
     [[nodiscard]] std::vector<Report> output(std::span<const std::uint8_t> report, std::int64_t nowUs);
     // The steering from the service's state (0..65535, clamped) over the wheel's rotation (90..2700 degrees; anything
     // else keeps the last one): a status report when a session runs and the last one went out kStatusEveryUs ago.
+    // The count range spans 904.5 degrees, as a G923's: a rotation above that reaches the ends early.
     [[nodiscard]] std::optional<Report> steering(std::int32_t value, int rotationDeg, std::int64_t nowUs);
     void finish(std::int64_t nowUs) { log_.finish(nowUs / 1000); }
     [[nodiscard]] bool running() const;
-    // A parameter's value as a real wheel reports it (0 for one not seen in captures).
+    // A parameter's value as a real G923 reports it, as float32 bits (0x2F..0x3F: NaN, ff ff ff ff), but 0x36 (see
+    // TrueForce.cpp); 0 beyond 0x3F. parameter(): the same as a float.
+    [[nodiscard]] static std::uint32_t parameterBits(std::uint8_t index);
     [[nodiscard]] static float parameter(std::uint8_t index);
 
 private:

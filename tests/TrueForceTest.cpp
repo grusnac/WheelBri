@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -144,16 +146,21 @@ struct Device {
     }
 };
 
-// The angle and speed as Logitech's DLL works them out of a status: -(position - range / 2) / 65536 turns.
+// Counts a turn as Logitech's DLL works them out: p4 * p5, in float32 as it multiplies them.
+double countsPerTurn() {
+    return static_cast<double>(TrueForceDevice::parameter(0x04) * TrueForceDevice::parameter(0x05));
+}
+
+// The angle and speed as Logitech's DLL works them out of a status: -(position - range / 2) / (p4 * p5) turns.
 double angleDegrees(const TrueForceDevice::Report& r) {
     const auto position = static_cast<double>(r[6] | (r[7] << 8) | (r[8] << 16));
     const auto range = static_cast<double>(r[22] | (r[23] << 8) | (r[24] << 16));
-    return -(position - range / 2.0) / 65536.0 * 360.0;
+    return -(position - std::floor(range / 2.0)) / countsPerTurn() * 360.0;
 }
 
 double speedDegreesPerSecond(const TrueForceDevice::Report& r) {
     const std::uint32_t raw = r[17] | (r[18] << 8) | (r[19] << 16) | (static_cast<std::uint32_t>(r[20]) << 24);
-    return -static_cast<double>(static_cast<std::int64_t>(raw) - 0x80000000LL) / 65536.0 * 360.0;
+    return -static_cast<double>(static_cast<std::int64_t>(raw) - 0x80000000LL) / countsPerTurn() * 360.0;
 }
 
 // The answer's bytes after the header, up to `count`.
@@ -161,11 +168,36 @@ std::vector<std::uint8_t> body(const TrueForceDevice::Report& r, const std::size
     return {r.begin() + 4, r.begin() + 4 + static_cast<std::ptrdiff_t>(count)};
 }
 
-// Parameter 0x36 negative switches the SDK's slot 3 on, which skips its unstable KF reconstruction filter; the other
-// slot switches (0x34, 0x35, 0x37, 0x38) stay off.
+// Parameter 0x36 negative switches the SDK's slot 3 on, which skips its KF reconstruction filter; the other slot
+// switches (0x34, 0x35, 0x37, 0x38) stay off ("0 > NaN" is false), as on a real G923.
 TEST(TrueForceDevice, SlotThreeIsOnSoTheSdkSkipsItsKfFilter) {
     EXPECT_LT(TrueForceDevice::parameter(0x36), 0.0F);
-    for (const std::uint8_t index : {0x34, 0x35, 0x37, 0x38}) EXPECT_EQ(TrueForceDevice::parameter(index), 0.0F);
+    for (const std::uint8_t index : {0x34, 0x35, 0x37, 0x38}) EXPECT_FALSE(0.0F > TrueForceDevice::parameter(index));
+}
+
+// Every parameter as a real G923 answers it (2026-11-01, captures/g923: ACC's set-up and the probe), as the 4 bytes
+// on the wire. 0x36 is WheelBri's one change (above).
+TEST(TrueForceDevice, ParametersAreTheRealG923s) {
+    const std::array<std::uint32_t, 64> measured = {
+        0x40000000U, 0x40000000U, 0x47000000U, 0x477FFF00U, 0x46800000U, 0x4182E8BAU, 0x3F19999AU, 0x3ECCCCCDU,
+        0x3F267B5FU, 0x3F12AD5DU, 0x4182E8BAU, 0x3DF34D6AU, 0x4175BE0BU, 0x3F32B8C2U, 0xC0F5BE0BU, 0x40F5BE0BU,
+        0x41500000U, 0x40000000U, 0x457A0000U, 0x41200000U, 0x44FA0000U, 0x43E10000U, 0x00000000U, 0x41F00000U,
+        0x42200000U, 0x3F800000U, 0x3F000000U, 0x3F800000U, 0x3E99999AU, 0x40800000U, 0x40000000U, 0x477FFD00U,
+        0x477D0100U, 0x3F800000U, 0x477F0000U, 0x40000000U, 0x00000000U, 0x3F800000U, 0x40800000U, 0x00000000U,
+        0x00000000U, 0x3F800000U, 0x40400000U, 0x41800000U, 0x3C75C28FU, 0x3DCCCCCDU, 0x40400000U, 0xFFFFFFFFU,
+        0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU,
+        0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU};
+    for (std::size_t i = 0; i < measured.size(); ++i) {
+        const auto index = static_cast<std::uint8_t>(i);
+        if (index == 0x36) continue;
+        EXPECT_EQ(TrueForceDevice::parameterBits(index), measured[i]) << "parameter 0x" << std::hex << i;
+    }
+    EXPECT_EQ(TrueForceDevice::parameterBits(0x40), 0U);
+    // What the SDK makes of them (its shim log in ACC, 2026-11-01): peak torque 2 * p8 * p10 * p11 = 2.528 Nm, damping
+    // max p9 = 0.573, 268101.8 counts a turn.
+    EXPECT_NEAR(2.0 * TrueForceDevice::parameter(0x08) * TrueForceDevice::parameter(0x0A) *
+                    TrueForceDevice::parameter(0x0B), 2.528444, 1e-4);
+    EXPECT_NEAR(countsPerTurn(), 268101.8125, 1e-3);
 }
 
 TEST(TrueForceDevice, AnswersAParameterWithItsCurrentValue) {
@@ -180,9 +212,9 @@ TEST(TrueForceDevice, AnswersAParameterWithItsCurrentValue) {
               (std::vector<std::uint8_t>{0x05, 0x01, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x40, 0xB1, 0x00}));
     EXPECT_EQ(body(d.send({0x05, 0x05, 0x03})[0], 10),   // 65535.0
               (std::vector<std::uint8_t>{0x05, 0x05, 0x03, 0x09, 0x03, 0x00, 0xFF, 0x7F, 0x47, 0x22}));
-    EXPECT_EQ(body(d.send({0x05, 0x02, 0x30})[0], 10),   // 3.0
-              (std::vector<std::uint8_t>{0x05, 0x02, 0x30, 0x09, 0x30, 0x00, 0x00, 0x40, 0x40, 0x10}));
-    EXPECT_EQ(body(d.send({0x05, 0x06, 0x7E})[0], 10),   // never seen: 0
+    EXPECT_EQ(body(d.send({0x05, 0x02, 0x30})[0], 10),   // NaN, as captured (S2 frame 19): 30 09 30 ff ff ff ff 94
+              (std::vector<std::uint8_t>{0x05, 0x02, 0x30, 0x09, 0x30, 0xFF, 0xFF, 0xFF, 0xFF, 0x94}));
+    EXPECT_EQ(body(d.send({0x05, 0x06, 0x7E})[0], 10),   // never asked: 0
               (std::vector<std::uint8_t>{0x05, 0x06, 0x7E, 0x09, 0x7E, 0x00, 0x00, 0x00, 0x00, 0xF0}));
 }
 
@@ -203,12 +235,13 @@ TEST(TrueForceDevice, StartAndStopAnswerWithStatusAndSetTheSession) {
     const auto& s = answers[0];
     EXPECT_EQ(s[4], 0x02);
     EXPECT_EQ(s[5], 0x44);
-    // Centred: position 245760 = 0x03C000 (half the range), as a real wheel at rest (captured: 0x03BFCA).
+    // Centred: position 336821 = 0x0523B5 (half the range). [17..32] as a real G923 sends them (2026-11-01, S2 frame
+    // 249): speed, 00, the count range 673643, the full scale 0.65 Nm twice.
     EXPECT_EQ((std::vector<std::uint8_t>{s.begin() + 6, s.begin() + 13}),
-              (std::vector<std::uint8_t>{0x00, 0xC0, 0x03, 0x00, 0x80, 0x00, 0x80}));
+              (std::vector<std::uint8_t>{0xB5, 0x23, 0x05, 0x00, 0x80, 0x00, 0x80}));
     EXPECT_EQ((std::vector<std::uint8_t>{s.begin() + 17, s.begin() + 33}),
-              (std::vector<std::uint8_t>{0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x80, 0x07, 0x00, 0x00, 0x98, 0x88, 0x00,
-                                         0x00, 0x98, 0x88}));
+              (std::vector<std::uint8_t>{0x00, 0x00, 0x00, 0x80, 0x00, 0x6B, 0x47, 0x0A, 0x00, 0x00, 0x8A, 0x82, 0x00,
+                                         0x00, 0x8A, 0x82}));
     EXPECT_NEAR(angleDegrees(s), 0.0, 1e-9);
     EXPECT_TRUE(d.device.running());
     EXPECT_EQ(d.send({0x04, 0x45, 0x00})[0][4], 0x02);
@@ -216,20 +249,15 @@ TEST(TrueForceDevice, StartAndStopAnswerWithStatusAndSetTheSession) {
     EXPECT_NE(std::find(d.lines.begin(), d.lines.end(), "trueforce: session started"), d.lines.end());
 }
 
-TEST(TrueForceDevice, SlotConfigAndRangeAnswerWithTheirStatusTypes) {
+TEST(TrueForceDevice, SlotConfigAnswersWithStatusTenAndTheRangeWithNothing) {
     Device d;
     auto slot = d.send({0x06, 0x36, 0x01, 0x01});
     ASSERT_EQ(slot.size(), 1U);
     EXPECT_EQ(slot[0][4], 0x10);
     EXPECT_EQ((std::vector<std::uint8_t>{slot[0].begin() + 17, slot[0].begin() + 21}),
               (std::vector<std::uint8_t>{0xFF, 0xFF, 0xFF, 0xFF}));
-    auto range = d.send({0x0E, 0x46, 0x00, 0x00, 0xB4, 0x42});   // 90.0
-    ASSERT_EQ(range.size(), 2U);
-    EXPECT_EQ(range[0][4], 0x11);
-    EXPECT_EQ(range[1][4], 0x14);
-    EXPECT_EQ(range[1][5], 0x46);
-    EXPECT_EQ((std::vector<std::uint8_t>{range[0].begin() + 17, range[0].begin() + 21}),
-              (std::vector<std::uint8_t>{0x00, 0x00, 0xB4, 0x42}));
+    // A real G923 answers no operating range (ACC sent three, 2026-11-01); it is logged.
+    EXPECT_TRUE(d.send({0x0E, 0x46, 0x00, 0x00, 0xB4, 0x42}).empty());   // 90.0
     EXPECT_NE(std::find(d.lines.begin(), d.lines.end(), "trueforce: operating range 90.0 degrees"), d.lines.end());
 }
 
@@ -298,9 +326,8 @@ TEST(TrueForceDevice, StatusReportsCarryTheirChecksum) {
     Device d;
     std::vector<TrueForceDevice::Report> all = d.send({0x03, 0x44}, 3000);
     for (auto& r : d.send({0x06, 0x36, 0x01, 0x01}, 4000)) all.push_back(r);
-    for (auto& r : d.send({0x0E, 0x46, 0x00, 0x00, 0xB4, 0x42}, 5000)) all.push_back(r);
     all.push_back(*d.device.steering(12345, 0, 9000));
-    ASSERT_EQ(all.size(), 5U);
+    ASSERT_EQ(all.size(), 3U);
     for (const auto& r : all) {
         unsigned sum = 0;
         for (std::size_t i = 4; i <= 33; ++i) sum += r[i];

@@ -3,6 +3,8 @@
 #include "wheelbri/HidWheelDevice.hpp"
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -199,11 +201,15 @@ namespace {
 // How Logitech's DLL reads a status (its parser, trueforce_sdk_x64.dll 1.3.12): angle = -(position - range / 2) /
 // (p4 * p5) * 2 pi, speed = -speed / (p4 * p5) * 2 pi, full-scale torque = (t1 + t2) / 65536000 * 0.5 (Nm): the
 // stream's force ("cur", 6..9) = centre - torque / full scale * centre, none at all while the full scale is 0.
-constexpr std::uint32_t kCountRange = 0x078000;   // [22..24]: 491520 counts = 7.5 turns = 2700 degrees
-constexpr double kCountsPerTurn = 65536.0;         // p4 * p5
+// The values are a real G923's (status type 0x02, 2026-11-01).
+constexpr std::uint32_t kCountRange = 0x0A476B;   // [22..24]: 673643 counts = 904.5 degrees, a 900-degree wheel
+// p4 * p5 = 16384 * 16.3636 as float32 (the DLL's own product): 268101.8 counts a turn, 744.7 a degree.
+constexpr double kCountsPerTurn =
+    static_cast<double>(std::bit_cast<float>(0x46800000U) * std::bit_cast<float>(0x4182E8BAU));
 constexpr std::int64_t kCentre = kCountRange / 2;
-// [25..28], [29..32]: the full-scale torque, 2.2 Nm (a G923's max peak) = 0x80000000 + 2.2 * 65536000 each.
-constexpr std::uint32_t kFullScaleTorque = 0x88980000U;
+// [25..28], [29..32]: the full-scale torque, 0.65 Nm = 0x80000000 + 0.65 * 65536000 each (the SDK's peak torque,
+// 2 * p8 * p10 * p11 = 2.53 Nm, comes from the parameters, not from here).
+constexpr std::uint32_t kFullScaleTorque = 0x828A0000U;
 
 void put24(TrueForceDevice::Report& r, const std::size_t at, const std::uint32_t v) {
     for (std::size_t i = 0; i < 3; ++i) r[at + i] = static_cast<std::uint8_t>(v >> (8 * i));
@@ -244,36 +250,37 @@ std::string degrees(const float value) {
 
 TrueForceDevice::TrueForceDevice(TrueForceLog::Logger log) : say_(log), log_(std::move(log)) {}
 
-float TrueForceDevice::parameter(const std::uint8_t index) {
-    switch (index) {
-        case 0x00: return 2.0F;
-        case 0x01: return 1.0F;
-        case 0x02: return 32768.0F;
-        case 0x03: return 65535.0F;
-        case 0x04: return 65536.0F;   // counts a turn (p4 * p5: the status angle's divisor)
-        case 0x05: return 1.0F;
-        case 0x07: return 5.4054F;
-        case 0x08: return 1.1F;       // max peak torque = 2 * p8 * p10 * p11 (Nm): a G923's 2.2; 0 = no force at all
-        case 0x09: return 0.3F;
-        case 0x0A: return 1.0F;       // torque scale (p10 * p11): never 0, or the DLL says the wheel has no torque
-        case 0x0B: return 1.0F;
-        case 0x0C: return 47.1239F;
-        case 0x0D: return 1.5708F;
-        case 0x0E: return -9.4248F;
-        case 0x0F: return 9.4248F;
-        case 0x10: return 13.0F;
-        case 0x12: return 4000.0F;
-        case 0x14: return 2000.0F;
-        case 0x1D: return 4.0F;
-        case 0x30: return 3.0F;
-        case 0x33: return 350.0F;
-        // 0x34..0x38 switch the SDK's slots 1..5 on when negative (its set-up compares 0 > the parameter). Slot 3
-        // on = no KF reconstruction filter: that band-pass has its lower corner at 0 Hz, a double pole at z = 1,
-        // and runs away under a steady torque (ACC: a full push at launch, then no force, 2026-10-28).
-        case 0x36: return -1.0F;
-        default: return 0.0F;
-    }
+namespace {
+
+// The 64 parameters 0x00..0x3F as a real G923 (046D:C26E, firmware U1 39.02) answers them, bit for bit (float32):
+// measured 2026-11-01 from ACC's set-up (S2) and a read-only probe of all 64 (S6), the same with G HUB open or closed
+// (Claude outputs/plans/g923-capture-results.md). 0x2F..0x3F: ff ff ff ff (NaN), the wheel has none of them.
+constexpr std::array<std::uint32_t, 64> kG923ParameterBits = {
+    0x40000000U, 0x40000000U, 0x47000000U, 0x477FFF00U, 0x46800000U, 0x4182E8BAU, 0x3F19999AU, 0x3ECCCCCDU,   // 0x00..
+    0x3F267B5FU, 0x3F12AD5DU, 0x4182E8BAU, 0x3DF34D6AU, 0x4175BE0BU, 0x3F32B8C2U, 0xC0F5BE0BU, 0x40F5BE0BU,   // 0x08..
+    0x41500000U, 0x40000000U, 0x457A0000U, 0x41200000U, 0x44FA0000U, 0x43E10000U, 0x00000000U, 0x41F00000U,   // 0x10..
+    0x42200000U, 0x3F800000U, 0x3F000000U, 0x3F800000U, 0x3E99999AU, 0x40800000U, 0x40000000U, 0x477FFD00U,   // 0x18..
+    0x477D0100U, 0x3F800000U, 0x477F0000U, 0x40000000U, 0x00000000U, 0x3F800000U, 0x40800000U, 0x00000000U,   // 0x20..
+    0x00000000U, 0x3F800000U, 0x40400000U, 0x41800000U, 0x3C75C28FU, 0x3DCCCCCDU, 0x40400000U, 0xFFFFFFFFU,   // 0x28..
+    0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU,   // 0x30..
+    0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU,   // 0x38..
+};
+
+// The one value WheelBri answers differently: 0x36 (a real G923: NaN). 0x34..0x38 switch the SDK's slots 1..5 on when
+// negative (its set-up compares 0 > the parameter). Slot 3 on = no KF reconstruction filter: with the old
+// (direct-drive) parameters that band-pass ran away under a steady torque (ACC: a full push at launch, then no force,
+// 2026-10-28). Kept until ACC has been tried with the G923's own parameters and NaN here (TrueForce plan, step 4).
+constexpr std::uint8_t kSlotThreeSwitch = 0x36;
+constexpr std::uint32_t kMinusOneBits = 0xBF800000U;   // -1.0F
+
+}  // namespace
+
+std::uint32_t TrueForceDevice::parameterBits(const std::uint8_t index) {
+    if (index == kSlotThreeSwitch) return kMinusOneBits;
+    return index < kG923ParameterBits.size() ? kG923ParameterBits[index] : 0U;   // beyond 0x3F: never asked
 }
+
+float TrueForceDevice::parameter(const std::uint8_t index) { return std::bit_cast<float>(parameterBits(index)); }
 
 bool TrueForceDevice::running() const {
     std::lock_guard guard(lock_);
@@ -324,10 +331,7 @@ std::vector<TrueForceDevice::Report> TrueForceDevice::output(const std::span<con
             r[6] = index;
             r[7] = 0x09;
             r[8] = index;
-            const float value = parameter(index);
-            std::uint32_t bits = 0;
-            std::memcpy(&bits, &value, sizeof(bits));
-            putU32(r, 9, bits);
+            putU32(r, 9, parameterBits(index));   // the bits as they are: NaN stays ff ff ff ff
             seal(r, 13);
             answers.push_back(std::move(r));
             break;
@@ -355,9 +359,7 @@ std::vector<TrueForceDevice::Report> TrueForceDevice::output(const std::span<con
             float range = 0;
             std::memcpy(&range, &bits, sizeof(range));
             say_(LogLevel::Info, "trueforce: operating range " + degrees(range) + " degrees");
-            for (const std::uint8_t answerType : {std::uint8_t{0x11}, std::uint8_t{0x14}}) {
-                answers.push_back(status(answerType, seq, nowUs, bits));
-            }
+            // A real G923 answers nothing (ACC sent three, 2026-11-01).
             break;
         }
         case 0x03:

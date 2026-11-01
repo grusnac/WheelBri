@@ -88,16 +88,19 @@ clutch), and the registry entries meant to undo that did not.
 `[emulator] trueforce = true` (off by default; `trueforce_probe` until 2026-10-28) gives the virtual G923 its
 TrueForce interface: a second device in the wheel's container, usage page `0xFFFD`, report `0x01`
 (`core/include/wheelbri/TrueForce.hpp`). It answers the game's set-up as a real wheel and reports the steering
-(state on 127.0.0.1:41331) over `target_rotation_deg`, the wheel's own rotation, whatever range the game sets. Driver
-log lines start `trueforce:` (each packet and the 10 s summaries at log level debug).
+(state on 127.0.0.1:41331) over `target_rotation_deg`, the wheel's own rotation, whatever range the game sets. Its
+parameters, count range (904.5 degrees, 268101.8 counts a turn) and full scale are a real G923's, measured with USB
+captures (`tools/g923-capture`); it answers no operating range (`0x0e`), as a real G923. The one change: parameter
+`0x36` is -1 (a G923: NaN), which keeps the SDK's KF filter off. Driver log lines start `trueforce:` (each packet and
+the 10 s summaries at log level debug).
 
 The force of a game in TrueForce mode (ACC: `logiTrueForceSetTorqueKF`) comes on that interface: Logitech's SDK
-streams it as type `0x01` packets (about 640 a second), bytes 6..7 the motor torque target. It needs the full-scale
-torque WheelBri reports in its status (2.2 Nm, a G923's): with 0 there the SDK streams none. The driver plays it as
-a constant force in the service's slot 7 (`core/include/wheelbri/TrueForceFfb.hpp`), through the safety limiter and
-the game profile's gain like any other effect. The damping the game sets (`0x0c`, `logiTrueForceSetDamping`), which a
-G923 applies itself, plays alongside as a damper in slot 6: without it a direct-drive wheel swings from lock to lock.
-The texture (the packets' sample window) is not played yet.
+streams it as type `0x01` packets (1000 a second to a real G923), bytes 6..7 the motor torque target. It needs the
+full-scale torque WheelBri reports in its status (0.65 Nm, a G923's): with 0 there the SDK streams none. The driver
+plays it as a constant force in the service's slot 7 (`core/include/wheelbri/TrueForceFfb.hpp`), through the safety
+limiter and the game profile's gain like any other effect. The damping the game sets (`0x0c`,
+`logiTrueForceSetDamping`) plays alongside as a damper in slot 6: without it a direct-drive wheel swings from lock to
+lock. To a real G923 the SDK sends no `0x0c` at all. The texture (the packets' sample window) is not played yet.
 
 Games that use DirectInput on a G923 go through Logitech's force feedback driver -> HID++ 0x8123 (ACC also reads
 and sets the range through its Escape). So with `trueforce` on WheelBri registers that driver for the virtual G923:
