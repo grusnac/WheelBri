@@ -93,7 +93,7 @@ G923: `tools/g923-capture/README.md`).
 
 Options: `WE_BUILD_TESTS`, `WE_BUILD_SERVICE`, `WE_BUILD_SHIM` (Windows), `WE_BUILD_LOGI` (Windows x64),
 `WE_BUILD_UHID` (Linux), `WE_BUILD_FUZZ` (`wheelbri_fuzz`, Clang only; see `tests/CLAUDE.md`), `WE_BUILD_G923CAP`
-(`wheelbri-g923cap`, on by default).
+(`wheelbri-g923cap`, on by default), `WE_STRICT_TESTS` (a test file no test program builds fails the configure).
 
 Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage in `printUsage`,
 `service/src/main.cpp`), `wheelbri-helper.exe`, `build/shim/dinput8.dll`, `build/logi/wheelbri-logi.dll`,

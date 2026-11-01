@@ -46,7 +46,7 @@ public:
         std::filesystem::path userFolder;      // userConfigFolder()
         std::filesystem::path stateFile;       // appStateFile()
         bool virtualAvailable = true;          // virtualDeviceSupported() on this PC
-        std::string windowsName;               // windowsName() of this PC, for the Shim-only hover text
+        std::string windowsName{};             // windowsName() of this PC, for the Shim-only hover text
     };
 
     // The first Windows build the virtual device's driver installs on (its INF: Windows 11).

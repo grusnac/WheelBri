@@ -1,6 +1,7 @@
 # WheelBri's pipeline, in four stages (each a job of its own on the run's page):
 #
-#   1. Build and test      Windows (MSYS2 UCRT64) and Linux, Release, all tests; the results on each job's summary
+#   1. Build and test      Windows (MSYS2 UCRT64) and Linux, Release, all tests; the results on each job's summary;
+#                          Linux again as Debug with the address and undefined-behaviour sanitizers
 #   2. Windows installer   the drivers (VS + WDK), then WheelBri-<version>-setup.exe and its zip (package.ps1),
 #                          from the programs stage 1 built and tested
 #   3. Linux bundle        wheelbri-linux-x86_64.tar.gz (scripts/linux/package.sh), with stage 1's Windows shims
@@ -101,19 +102,27 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Install the X11 headers and Ninja
+      # Xvfb: the X11 window tests (UiWindowX11Test) skip without it.
+      - name: Install the X11 headers, Xvfb and Ninja
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libx11-dev ninja-build > /dev/null
+          sudo apt-get install -y -qq libx11-dev xvfb ninja-build > /dev/null
 
+      # WE_STRICT_TESTS: a tests/*Test.cpp that no test program builds fails the configure.
       - name: Configure (Release, with tests)
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release > /dev/null
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DWE_STRICT_TESTS=ON > /dev/null
 
       - name: Build app, service, wheelbri-uhid and tests
         run: cmake --build build
 
       - name: Run the tests
         run: ctest --test-dir build --output-on-failure --output-junit ctest-results.xml
+
+      - name: The X11 window tests ran
+        run: |
+          if grep -Eq '<testcase name="UiWindowX11[^"]*"[^>]*status="notrun"' build/ctest-results.xml; then
+            echo "::error::UiWindowX11 tests were skipped (no Xvfb?)"; exit 1
+          fi
 
       - name: Test report
         if: ${{ !cancelled() }}
@@ -126,6 +135,39 @@ jobs:
           name: test-results-linux
           path: build/ctest-results.xml
           if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------------------------------------------
+  # Debug with AddressSanitizer + UndefinedBehaviorSanitizer: the UDP, FFB and parser code under memory and UB checks.
+  sanitizers-linux:
+    name: 1 · Sanitizers (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install the X11 headers, Xvfb and Ninja
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libx11-dev xvfb ninja-build > /dev/null
+
+      - name: Configure (Debug, ASan + UBSan)
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+          "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined" > /dev/null
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run the tests
+        env:
+          LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/lsan-suppressions.txt
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure --output-junit ctest-results.xml
+
+      - name: Test report
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/test-summary.py build/ctest-results.xml "Tests under sanitizers"
 
   # ---------------------------------------------------------------------------------------------------------------
   package-windows:
