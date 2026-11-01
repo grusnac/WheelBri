@@ -2,6 +2,7 @@
 
 #include "Platform.hpp"
 
+#include "wheelbri/SenderGate.hpp"
 
 #include <fcntl.h>
 #include <poll.h>
@@ -24,7 +25,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <string>
 #include <thread>
 
@@ -142,6 +145,20 @@ std::filesystem::path systemFolder() { return "/usr/bin"; }
 std::uint32_t windowsBuild() { return 0; }
 
 std::optional<std::uint32_t> udpPortOwner(std::uint16_t /*port*/) { return std::nullopt; }
+
+std::optional<bool> udpPortIsOurUser(const std::uint16_t port) {
+#if defined(__linux__)
+    std::ifstream in("/proc/net/udp", std::ios::binary);
+    if (!in) return std::nullopt;
+    std::string table((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (in.bad() || table.empty()) return std::nullopt;
+    const std::optional<std::uint32_t> uid = wheelbri::udpPortUid(table, port);
+    return uid.has_value() && *uid == static_cast<std::uint32_t>(::getuid());
+#else
+    (void)port;
+    return std::nullopt;
+#endif
+}
 
 std::optional<std::vector<RunningProgram>> runningPrograms() {
 #if defined(__linux__)

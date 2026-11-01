@@ -288,6 +288,18 @@ void logLine(const wheelbri::LogLevel level, const std::string& text) {
     }
 }
 
+// A socket about to listen on 127.0.0.1: SO_EXCLUSIVEADDRUSE, so no other program (another user's, or one at a lower
+// integrity level) can bind the same port beside it with SO_REUSEADDR and take its datagrams. Not fatal: the bind
+// still decides whether the port is ours.
+void exclusivePort(const SOCKET sock) {
+    BOOL exclusive = TRUE;
+    if (setsockopt(sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive),
+                   sizeof(exclusive)) != 0) {
+        logLine(wheelbri::LogLevel::Warn,
+                "cannot bind the UDP port exclusively (" + std::to_string(WSAGetLastError()) + "): binding it shared");
+    }
+}
+
 std::int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
@@ -557,6 +569,8 @@ bool Link::start() {
     local.sin_family = AF_INET;
     local.sin_port = htons(kStatePort);
     local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    // Exclusive: no other program can bind the same port beside it (SO_REUSEADDR) and read or steal the states.
+    exclusivePort(stateSocket_);
     if (bind(stateSocket_, reinterpret_cast<sockaddr*>(&local), sizeof(local)) != 0) {
         logLine(Level::Error, "cannot listen on 127.0.0.1:41329 (" + std::to_string(WSAGetLastError()) +
                 "): is the shim's game still running? Only one of them may run.");
@@ -839,6 +853,7 @@ void TrueForceLink::start() {
     local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     const DWORD timeoutMs = 5;   // wakes for stop requests
     const auto* timeout = reinterpret_cast<const char*>(&timeoutMs);
+    if (socket_ != INVALID_SOCKET) exclusivePort(socket_);
     if (socket_ == INVALID_SOCKET || bind(socket_, reinterpret_cast<sockaddr*>(&local), sizeof(local)) != 0 ||
         setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, timeout, sizeof(timeoutMs)) != 0) {
         logLine(Level::Warn, "trueforce: cannot listen on 127.0.0.1:41331 (" + std::to_string(WSAGetLastError()) +

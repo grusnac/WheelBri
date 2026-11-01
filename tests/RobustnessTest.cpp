@@ -112,6 +112,11 @@ TEST(Robustness, ChangedConfigsAndProfilesAreReadWithoutHarm) {
         run(15, mutated(unbound, random));
         run(15, mutated(nfs2015, random));
     }
+    // Linux's /proc/net/udp, its first two bytes the port asked about ("rr": 0x7272, the second socket's).
+    const std::string udp = "rr   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid\n"
+                            "  1: 0100007F:A162 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000  0 1\n"
+                            "  2: 00000000:7272 00000000:0000 07 00000000:00000000 00:00000000 00000000  1001  0 2\n";
+    for (int i = 0; i < 300; ++i) run(17, mutated(udp, random));
 }
 
 // Random bytes, and packets that were valid before a byte changed, for everything that reads binary data.
@@ -128,8 +133,9 @@ TEST(Robustness, RandomBytesAreRefusedOrReadWithoutHarm) {
     const auto ffbBytes = encode(ffb);
     for (int i = 0; i < 400; ++i) {
         for (const std::uint8_t target : {1, 2, 3, 4, 5, 9, 11, 15, 16}) run(target, randomBytes(random, 300));
-#ifdef WHEELBRI_G923CAP
         run(17, randomBytes(random, 300));
+#ifdef WHEELBRI_G923CAP
+        run(18, randomBytes(random, 300));
 #endif
         Bytes s(stateBytes.begin(), stateBytes.end());
         s[random() % s.size()] = static_cast<std::uint8_t>(random());

@@ -4,6 +4,7 @@
 #include "Platform.hpp"
 
 #include "wheelbri/GameProfiles.hpp"
+#include "wheelbri/UdpLoopback.hpp"
 
 #include <gtest/gtest.h>
 
@@ -12,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -388,6 +390,34 @@ TEST(PlatformPosix, AReleasedChildIsLeftAlone) {
     EXPECT_TRUE(std::filesystem::exists(marker));
     std::filesystem::remove_all(folder);
 }
+
+#if defined(__linux__)
+// The force feedback sender check (lookupFfbSender): a socket this process sends from is this user's; a port nobody
+// holds is nobody's.
+TEST(PlatformPosix, AUdpPortIsOursOnlyWhileOurSocketHoldsIt) {
+    auto listener = UdpLoopbackListener::create(0);
+    ASSERT_NE(listener, nullptr);
+    const auto sender = UdpLoopbackSender::create(listener->localPort());
+    ASSERT_NE(sender, nullptr);
+    const std::array<std::uint8_t, 1> byte{1};
+    ASSERT_TRUE(sender->send(byte));
+    std::array<std::uint8_t, 4> buffer{};
+    std::uint16_t from = 0;
+    std::optional<std::size_t> size;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (!size && std::chrono::steady_clock::now() < deadline) {
+        size = listener->receive(buffer, &from);
+        if (!size) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(size.has_value());
+    EXPECT_EQ(udpPortIsOurUser(from), std::optional<bool>(true));
+    EXPECT_EQ(udpPortIsOurUser(listener->localPort()), std::optional<bool>(true));
+    const std::uint16_t port = listener->localPort();
+    // Closed: nobody's any more (the system may hand the port to someone else, never to the closed socket).
+    listener.reset();
+    EXPECT_EQ(udpPortIsOurUser(port), std::optional<bool>(false));
+}
+#endif
 
 }  // namespace
 }  // namespace wheelbri::service::platform
