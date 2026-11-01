@@ -5,6 +5,7 @@
 #
 #   scripts/make/logi.sh
 
+# shellcheck source=common.sh
 source "$(dirname "$0")/common.sh"
 
 on_windows || fail "wheelbri-logi.dll is a Windows DLL: build it on Windows, or cross-compile (README, Building)"

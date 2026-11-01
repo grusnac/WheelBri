@@ -9,6 +9,7 @@
 #   scripts/make/clean-pc.sh -KeepThirdParty                   keep HidHide and HIDMaestro (removed by default)
 #   scripts/make/clean-pc.sh -Yes                              no question
 
+# shellcheck source=common.sh
 source "$(dirname "$0")/common.sh"
 
 on_windows || fail "clean-pc is Windows only (MSYS2 UCRT64 shell)"

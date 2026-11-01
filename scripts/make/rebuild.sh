@@ -6,6 +6,7 @@
 #
 #   scripts/make/rebuild.sh
 
+# shellcheck source=common.sh
 source "$(dirname "$0")/common.sh"
 
 # Never the repository, a folder holding it (WE_BUILD_DIR=. or ..), the home folder or a drive's root.

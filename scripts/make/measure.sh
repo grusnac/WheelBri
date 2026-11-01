@@ -10,6 +10,7 @@
 #   scripts/make/measure.sh -Game NFS16                     also measure the game
 #   scripts/make/measure.sh -Seconds 300                    stop by itself after 5 minutes
 
+# shellcheck source=common.sh
 source "$(dirname "$0")/common.sh"
 
 on_windows || fail "measure is Windows only (MSYS2 UCRT64 shell)"

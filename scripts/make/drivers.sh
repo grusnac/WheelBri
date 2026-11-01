@@ -8,6 +8,7 @@
 #   scripts/make/drivers.sh -Clean              rebuild from scratch
 #   scripts/make/drivers.sh -Configuration Debug
 
+# shellcheck source=common.sh
 source "$(dirname "$0")/common.sh"
 
 on_windows || fail "the drivers are Windows only"

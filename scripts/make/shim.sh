@@ -17,6 +17,7 @@
 #                                                           ASI Loader); wheelbri-shim.ini stays
 
 here=$PWD   # common.sh goes to the repository: a relative game folder is relative to where this was started
+# shellcheck source=common.sh
 source "$(dirname "$0")/common.sh"
 
 off=0
