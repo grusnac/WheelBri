@@ -5,8 +5,12 @@
 #   WE_BUILD_DIR    build tree (default: build)
 #   WE_BUILD_TYPE   Release (default) or Debug
 #   WE_CMAKE_ARGS   extra arguments for the CMake configure step
+#
+# Strict from here on: a failing command ends the script (set -e), as does a failing step inside a pipeline
+# (pipefail), and so does an unset variable (set -u). A check that may fail on purpose goes in an if, or ends in
+# || true; a pipeline whose reader stops early (grep -q, head) is not tested for its status.
 
-set -u
+set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$root" || exit 1

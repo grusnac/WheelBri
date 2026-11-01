@@ -50,7 +50,7 @@ game_bits() {
         [ -f "$exe" ] || continue
         size=$(stat -c %s "$exe" 2>/dev/null) || continue
         [ "$size" -ge "$largest" ] || continue
-        machine=$(pe_machine "$exe")
+        machine=$(pe_machine "$exe") || machine=
         case "$machine" in
             014c) bits=32; largest=$size ;;
             8664) bits=64; largest=$size ;;
@@ -106,7 +106,7 @@ if [ $off -eq 1 ]; then
     exit 0
 fi
 
-on_windows || fail "the shim is a Windows DLL: build it on Windows, or cross-compile (README, "Building")"
+on_windows || fail "the shim is a Windows DLL: build it on Windows, or cross-compile (README, Building)"
 has_exe "$game" || fail "no .exe in $game: pick the folder that holds the game's .exe"
 bits=$(game_bits "$game")
 if [ "$bits" = 32 ]; then

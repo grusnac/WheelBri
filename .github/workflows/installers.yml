@@ -103,10 +103,14 @@ jobs:
         uses: actions/checkout@v4
 
       # Xvfb: the X11 window tests (UiWindowX11Test) skip without it.
-      - name: Install the X11 headers, Xvfb and Ninja
+      - name: Install the X11 headers, Xvfb, Ninja and ShellCheck
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libx11-dev xvfb ninja-build > /dev/null
+          sudo apt-get install -y -qq libx11-dev xvfb ninja-build shellcheck > /dev/null
+
+      # The build shortcuts run with set -euo pipefail (common.sh): a quoting or exit-status slip shows here.
+      - name: Check the scripts (ShellCheck)
+        run: shellcheck -x -s bash --severity=warning scripts/make/*.sh
 
       # WE_STRICT_TESTS: a tests/*Test.cpp that no test program builds fails the configure.
       - name: Configure (Release, with tests)
