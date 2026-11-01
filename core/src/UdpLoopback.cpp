@@ -65,6 +65,13 @@ void ignoreConnectionReset(const NativeSocket socket) {
     WSAIoctl(socket, kSioUdpConnReset, &report, sizeof(report), nullptr, 0, &returned, nullptr, nullptr);
 }
 
+// Before bind: no other program (another user's, or one at a lower integrity level) may bind the same port beside
+// ours with SO_REUSEADDR and take its datagrams. Not fatal: bind still decides whether the port is ours.
+void bindExclusively(const NativeSocket socket) {
+    BOOL exclusive = TRUE;
+    setsockopt(socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive), sizeof(exclusive));
+}
+
 enum class ReceiveError { WouldBlock, Skip, Other };
 ReceiveError classify(const int error) {
     if (error == WSAEWOULDBLOCK) return ReceiveError::WouldBlock;
@@ -103,6 +110,9 @@ int lastError() { return errno; }
 
 void ignoreConnectionReset(const NativeSocket) {}
 
+// Elsewhere a port is shared only between sockets that all ask for it (SO_REUSEADDR/SO_REUSEPORT); ours never do.
+void bindExclusively(const NativeSocket) {}
+
 enum class ReceiveError { WouldBlock, Skip, Other };
 ReceiveError classify(const int error) {
     if (error == EAGAIN || error == EWOULDBLOCK) return ReceiveError::WouldBlock;
@@ -131,10 +141,23 @@ std::optional<std::size_t> receiveOne(const NativeSocket socket, const std::span
 #else
         socklen_t fromSize = sizeof(from);
 #endif
+#if defined(_WIN32)
+        constexpr int kFlags = 0;   // a datagram larger than the buffer fails with WSAEMSGSIZE (skipped below)
+#else
+        // MSG_TRUNC: the datagram's whole size even when the buffer took only its start, so a larger one is skipped
+        // as on Windows instead of read cut short (its first bytes could look like a valid packet).
+        constexpr int kFlags = MSG_TRUNC;
+#endif
         const auto received = ::recvfrom(socket, reinterpret_cast<char*>(buffer.data()),
-                                         static_cast<int>(buffer.size()), 0, reinterpret_cast<sockaddr*>(&from),
+                                         static_cast<int>(buffer.size()), kFlags, reinterpret_cast<sockaddr*>(&from),
                                          &fromSize);
         if (received >= 0) {
+            if (static_cast<std::size_t>(received) > buffer.size()) {
+                static logging::RateLimiter limiter(std::chrono::seconds(10));
+                WE_LOG_WARN_LIMITED(log(), limiter, "dropped a {}-byte datagram (at most {} expected)", received,
+                                    buffer.size());
+                continue;
+            }
             if (senderPort != nullptr) *senderPort = ntohs(from.sin_port);
             return static_cast<std::size_t>(received);
         }
@@ -300,6 +323,7 @@ std::unique_ptr<UdpLoopbackReceiver> UdpLoopbackReceiver::create(const std::uint
     }
     impl->port = port;
     const sockaddr_in address = loopbackAddress(port);
+    bindExclusively(impl->socket.get());
     if (::bind(impl->socket.get(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
         WE_LOG_ERROR(log(), "receiver: cannot bind 127.0.0.1:{} (is another game instance running?): {}", port,
                      errorText(lastError()));
@@ -363,6 +387,7 @@ std::unique_ptr<UdpLoopbackListener> UdpLoopbackListener::create(const std::uint
         return nullptr;
     }
     const sockaddr_in address = loopbackAddress(port);
+    bindExclusively(impl->socket.get());
     if (::bind(impl->socket.get(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0) {
         WE_LOG_ERROR(log(), "listener: cannot bind 127.0.0.1:{} (already in use?): {}", port, errorText(lastError()));
         return nullptr;

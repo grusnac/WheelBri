@@ -13,6 +13,7 @@ Linux. The Windows drivers need Visual Studio.
 | `WE_BUILD_UHID` | ON on Linux | `wheelbri-uhid`, the Linux virtual wheel |
 | `WE_BUILD_FUZZ` | OFF | `wheelbri_fuzz` (Clang only) |
 | `WE_BUILD_G923CAP` | ON | `wheelbri-g923cap`, the decoder and probe of the G923 capture kit (`tools/g923-capture`) |
+| `WE_STRICT_TESTS` | OFF | nothing: a `tests/*Test.cpp` no test program builds fails the configure (Linux CI) |
 
 Outputs: `build/service/`, `build/shim/dinput8.dll`, `build/logi/`, `build/tools/uhid/`.
 
@@ -191,8 +192,10 @@ rig ──DirectInput / evdev──► wheelbri-service ──UDP 127.0.0.1─�
 - **Pipeline:** raw axes → `Mapper` → `WheelState` → the Target's `IDeviceProfile::encode` → `StatePacket` (33 bytes,
   magic `WEMU`). Nothing on this loop allocates or blocks.
 - **UDP, not shared memory:** under Proton the shim lives in Wine and the service is a Linux process.
-- **Force feedback safety:** every force goes through `FfbSafetyLimiter` (slew limit; strength is set in the wheel's
-  own app) and a watchdog that stops forces after 500 ms of silence. Never add a way around it.
+- **Force feedback safety:** every force goes through `FfbSafetyLimiter` (slew limit on constant forces and on
+  periodic offsets and magnitudes; strength is set in the wheel's own app), a cap on all effects together, and a
+  watchdog that stops forces after 500 ms of silence. On Linux only the service's own user may send it force
+  feedback. Never add a way around it.
 - **Logging:** spdlog via `WE_LOG_*`, one dotted logger per component (`core/include/wheelbri/Logging.hpp`), to
   `%LOCALAPPDATA%\wheelbri\logs` or `~/.local/state/wheelbri`.
 

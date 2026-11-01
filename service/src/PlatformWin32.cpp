@@ -322,6 +322,8 @@ std::optional<std::uint32_t> udpPortOwner(const std::uint16_t port) {
     return std::nullopt;
 }
 
+std::optional<bool> udpPortIsOurUser(std::uint16_t /*port*/) { return std::nullopt; }
+
 namespace {
 
 // Why the last processImage() on this thread came back empty (for the log).

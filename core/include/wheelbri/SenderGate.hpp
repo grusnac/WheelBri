@@ -4,14 +4,18 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
+#include <string_view>
 
 namespace wheelbri {
 
 // Who may send to the UDP ports on 127.0.0.1. Any program of the user can send a datagram there, so on Windows the
 // receiver asks which process owns the sending port (once per new port, cached) and lets through only the programs
 // that should be talking to it: game force feedback (port 41330) from the virtual G920's driver host or a game with
-// WheelBri's shim, the wheel's state (41329) only from WheelBri. The lookup is the platform's (GetExtendedUdpTable on
-// Windows); this file holds the rules and the cache, so they are tested everywhere.
+// WheelBri's shim, the wheel's state (41329) only from WheelBri. On Linux game force feedback is let through only from
+// the service's own user (a Proton game's shim, wheelbri-uhid), not from another user on the same machine. The lookup
+// is the platform's (GetExtendedUdpTable on Windows, /proc/net/udp on Linux); this file holds the rules and the
+// cache, so they are tested everywhere.
 
 // What the lookup found out about a sender port.
 enum class SenderVerdict {
@@ -26,6 +30,9 @@ enum class SenderVerdict {
 [[nodiscard]] bool isWheelBriImage(const std::filesystem::path& image);
 // The same folder, ignoring case and a trailing separator (Windows paths).
 [[nodiscard]] bool sameFolder(const std::filesystem::path& a, const std::filesystem::path& b);
+// Linux's /proc/net/udp: the user id that owns the IPv4 socket bound to `port` on 127.0.0.1 or on any address.
+// nullopt when no such socket is listed, or when sockets of different users are (then nobody can be told apart).
+[[nodiscard]] std::optional<std::uint32_t> udpPortUid(std::string_view procNetUdp, std::uint16_t port);
 
 // Remembers the verdict per sender port for a while, so the lookup runs only when a new sender appears (and again
 // after the time to live: a port can be closed and taken by another program). Lookups are capped per second, so a

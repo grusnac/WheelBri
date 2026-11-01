@@ -290,11 +290,7 @@ TEST(UdpLoopback, ShortLongAndForeignDatagramsAreNeverStates) {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     EXPECT_FALSE(receiver->pollLatest().has_value());
-#ifdef _WIN32
-    EXPECT_EQ(receiver->lastPoll().read, 7U);   // Windows drops the huge one (WSAEMSGSIZE, skipped, not read)
-#else
-    EXPECT_EQ(receiver->lastPoll().read, 8U);   // elsewhere it is read cut short
-#endif
+    EXPECT_EQ(receiver->lastPoll().read, 7U);   // the huge one is dropped, not read (WSAEMSGSIZE; MSG_TRUNC elsewhere)
     EXPECT_FALSE(receiver->lastPoll().capped);
     EXPECT_FALSE(receiver->takeLogLevel().has_value());
 
@@ -320,6 +316,29 @@ TEST(UdpLoopback, AnOversizedDatagramIsRefusedBySend) {
     EXPECT_FALSE(listener->receive(buffer).has_value());
     const std::array<std::uint8_t, 2> small{4, 2};
     ASSERT_TRUE(sender->send(small));
+    std::optional<std::size_t> size;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (!size && std::chrono::steady_clock::now() < deadline) {
+        size = listener->receive(buffer);
+        if (!size) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(size.has_value());
+    EXPECT_EQ(*size, 2U);
+    EXPECT_EQ(buffer[0], 4);
+}
+
+// A datagram larger than the reader's buffer is dropped whole, on every system (Linux would hand over its first bytes,
+// which could read as a valid packet), and the next one is read as usual.
+TEST(UdpLoopback, ADatagramLargerThanTheBufferIsDropped) {
+    const auto listener = UdpLoopbackListener::create(0);
+    ASSERT_NE(listener, nullptr);
+    const auto sender = UdpLoopbackSender::create(listener->localPort());
+    ASSERT_NE(sender, nullptr);
+    const std::vector<std::uint8_t> large(100, 9);
+    ASSERT_TRUE(sender->send(large));
+    const std::array<std::uint8_t, 2> small{4, 2};
+    ASSERT_TRUE(sender->send(small));
+    std::array<std::uint8_t, 64> buffer{};
     std::optional<std::size_t> size;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
     while (!size && std::chrono::steady_clock::now() < deadline) {

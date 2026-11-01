@@ -2,6 +2,7 @@
 
 #include "wheelbri/FileText.hpp"
 
+#include <charconv>
 #include <string>
 #include <utility>
 
@@ -95,6 +96,51 @@ bool SenderGate::allow(const std::uint16_t port, const std::uint64_t nowNs) {
         lastWasNewRefusal_ = true;
     }
     return accept;
+}
+
+std::optional<std::uint32_t> udpPortUid(const std::string_view procNetUdp, const std::uint16_t port) {
+    // A line: "  12: 0100007F:A1B2 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000  0 12345 ..." with
+    // the local address in the kernel's byte order (127.0.0.1 reads 0100007F on x86, 7F000001 on big-endian), its
+    // port in hex, and the owner's user id as the eighth field.
+    const auto fields = [](std::string_view line) {
+        std::array<std::string_view, 8> out{};
+        std::size_t n = 0;
+        while (n < out.size()) {
+            const std::size_t start = line.find_first_not_of(" \t");
+            if (start == std::string_view::npos) break;
+            line.remove_prefix(start);
+            const std::size_t end = line.find_first_of(" \t");
+            out[n++] = line.substr(0, end);
+            if (end == std::string_view::npos) break;
+            line.remove_prefix(end);
+        }
+        return n == out.size() ? std::optional(out) : std::nullopt;
+    };
+    std::optional<std::uint32_t> owner;
+    std::string_view rest = procNetUdp;
+    while (!rest.empty()) {
+        const std::size_t newline = rest.find('\n');
+        const std::string_view line = rest.substr(0, newline);
+        rest.remove_prefix(newline == std::string_view::npos ? rest.size() : newline + 1);
+        const auto f = fields(line);
+        if (!f) continue;
+        const std::string_view local = (*f)[1];
+        if (local.size() != 13 || local[8] != ':') continue;
+        const std::string_view address = local.substr(0, 8);
+        if (address != "0100007F" && address != "7F000001" && address != "00000000") continue;
+        const auto number = [](const std::string_view text, unsigned int& value, const int base) {
+            const char* const end = text.data() + text.size();
+            const auto [ptr, ec] = std::from_chars(text.data(), end, value, base);
+            return ec == std::errc{} && ptr == end;
+        };
+        unsigned int listed = 0;
+        if (!number(local.substr(9), listed, 16) || listed != port) continue;
+        unsigned int uid = 0;
+        if (!number((*f)[7], uid, 10)) continue;
+        if (owner && *owner != uid) return std::nullopt;
+        owner = static_cast<std::uint32_t>(uid);
+    }
+    return owner;
 }
 
 }  // namespace wheelbri

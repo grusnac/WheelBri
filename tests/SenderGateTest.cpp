@@ -171,5 +171,40 @@ TEST(SenderRules, ThreeLeadingSeparatorsStayAShare) {
     EXPECT_FALSE(sameFolder("\\\\\\Games", "\\Games"));
 }
 
+// Linux's /proc/net/udp as the kernel writes it: the owner of the socket on a port, on 127.0.0.1 or any address.
+TEST(UdpPortUid, TheOwnerOfAPortOnLoopbackOrAnyAddress) {
+    const std::string table =
+        "   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+        "  101: 0100007F:A162 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000  0 31337 2 0 0\n"
+        "  202: 00000000:D431 00000000:0000 07 00000000:00000000 00:00000000 00000000  1001  0 31338 2 0 0\n"
+        "  303: 0A00020F:1234 00000000:0000 07 00000000:00000000 00:00000000 00000000     0  0 31339 2 0 0\n";
+    EXPECT_EQ(udpPortUid(table, 0xA162), std::optional<std::uint32_t>(1000));   // 127.0.0.1:41314
+    EXPECT_EQ(udpPortUid(table, 0xD431), std::optional<std::uint32_t>(1001));   // any address
+    EXPECT_EQ(udpPortUid(table, 0x1234), std::nullopt);   // another address: not one a loopback datagram comes from
+    EXPECT_EQ(udpPortUid(table, 41330), std::nullopt);    // nobody's
+    EXPECT_EQ(udpPortUid("", 1), std::nullopt);
+}
+
+// Two users on the same port (one on 127.0.0.1, one on any address): nobody can be told apart, so nobody.
+TEST(UdpPortUid, TwoUsersOnOnePortAreNobody) {
+    const std::string table =
+        "  1: 0100007F:A162 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000  0 1 2 0 0\n"
+        "  2: 00000000:A162 00000000:0000 07 00000000:00000000 00:00000000 00000000  1001  0 2 2 0 0\n";
+    EXPECT_EQ(udpPortUid(table, 0xA162), std::nullopt);
+    const std::string same =
+        "  1: 0100007F:A162 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000  0 1 2 0 0\n"
+        "  2: 00000000:A162 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000  0 2 2 0 0";
+    EXPECT_EQ(udpPortUid(same, 0xA162), std::optional<std::uint32_t>(1000));   // and no newline at the end
+}
+
+// Lines that are cut short or not numbers are passed over, never read as an owner.
+TEST(UdpPortUid, BrokenLinesAreNoOwner) {
+    EXPECT_EQ(udpPortUid("  1: 0100007F:A162 00000000:0000 07\n", 0xA162), std::nullopt);
+    EXPECT_EQ(udpPortUid("  1: 0100007F:A16Z 00000000:0000 07 0:0 0:0 0 1000 0 1\n", 0xA162), std::nullopt);
+    EXPECT_EQ(udpPortUid("  1: 0100007F:A162 00000000:0000 07 0:0 0:0 0 -1 0 1\n", 0xA162), std::nullopt);
+    EXPECT_EQ(udpPortUid("  1: 0100007FA162x 00000000:0000 07 0:0 0:0 0 1000 0 1\n", 0xA162), std::nullopt);
+    EXPECT_EQ(udpPortUid("  1: 0100007F:1A162 00000000:0000 07 0:0 0:0 0 1000 0 1\n", 0xA162), std::nullopt);
+}
+
 }  // namespace
 }  // namespace wheelbri

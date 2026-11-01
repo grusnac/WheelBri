@@ -620,6 +620,29 @@ wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
     }
     return wheelbri::SenderVerdict::Refuse;
 }
+#elif defined(__linux__)
+// Linux: who may send game force feedback (SenderGate.hpp). 127.0.0.1:41330 is open to every user of the machine and
+// the forces reach a direct-drive wheel, so only a socket of the service's own user (a game's shim under Proton,
+// wheelbri-uhid) is let through. The system cannot say: let through (the limiter still caps every force), with a
+// warning, as on Windows.
+wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
+    static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(30));
+    const std::optional<bool> ours = platform::udpPortIsOurUser(port);
+    std::uint64_t suppressed = 0;
+    if (!ours) {
+        if (limiter.allow(suppressed)) {
+            WE_LOG_WARN(log(), "ffb: cannot tell whose program sends from port {}; letting it through", port);
+        }
+        return wheelbri::SenderVerdict::Unknown;
+    }
+    if (*ours) return wheelbri::SenderVerdict::Accept;
+    if (limiter.allow(suppressed)) {
+        WE_LOG_WARN(log(), "ffb: ignoring force feedback from port {}: another user's program (or none any more); only "
+                           "this user's games and wheelbri-uhid may send it ({} similar suppressed)",
+                    port, suppressed);
+    }
+    return wheelbri::SenderVerdict::Refuse;
+}
 #endif
 
 // Phase 3: the game's force feedback, sent by the in-game shim, limited and played on the physical wheel.
@@ -664,7 +687,7 @@ public:
             target != nullptr && target->identity().centringSpring) {
             ffb->controller_->setCentringSpring(config.centringSpringPercent);
         }
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__linux__)
         wheelbri::SenderGate::Settings gate;
         gate.acceptUnknown = true;   // the lookup failing must not take a game's force feedback away
         ffb->gate_ = std::make_unique<wheelbri::SenderGate>(lookupFfbSender, gate);
@@ -785,7 +808,7 @@ private:
 
     std::unique_ptr<wheelbri::AsyncFfbSink> sink_;   // before controller_, which uses it: destroyed after it
     std::unique_ptr<wheelbri::UdpLoopbackListener> listener_;
-    std::unique_ptr<wheelbri::SenderGate> gate_;   // Windows only: who may send (lookupFfbSender)
+    std::unique_ptr<wheelbri::SenderGate> gate_;   // Windows and Linux: who may send (lookupFfbSender)
     std::unique_ptr<wheelbri::FfbController> controller_;
     wheelbri::TelemetryRecorder* telemetry_ = nullptr;
     std::uint64_t lastPackets_ = 0;

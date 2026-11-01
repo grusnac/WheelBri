@@ -29,6 +29,7 @@
 #include "wheelbri/MappingEdit.hpp"
 #include "wheelbri/Nfs2015Settings.hpp"
 #include "wheelbri/Rig.hpp"
+#include "wheelbri/SenderGate.hpp"
 #include "wheelbri/ShimGames.hpp"
 #include "wheelbri/StatePacket.hpp"
 #ifdef WHEELBRI_G923CAP
@@ -260,8 +261,14 @@ void runOne(const std::span<const std::uint8_t> input) {
             (void)decodeRevLights(command % 2, bytes.size() >= 4 ? bytes.subspan(4) : bytes);
             break;
         }
+        case 17: {   // Linux's /proc/net/udp (the service's force feedback sender check): any port, any owner
+            const std::uint16_t port = bytes.size() >= 2 ? static_cast<std::uint16_t>(bytes[0] | (bytes[1] << 8)) : 0;
+            (void)udpPortUid(text, port);
+            (void)udpPortUid(text, 41330);
+            break;
+        }
 #ifdef WHEELBRI_G923CAP
-        case 17: {   // a USBPcap capture (pcap or pcapng): frames, URBs, transfers, the devices' descriptors
+        case 18: {   // a USBPcap capture (pcap or pcapng): frames, URBs, transfers, the devices' descriptors
             const auto file = g923cap::parseCapture(g923cap::Bytes(bytes.begin(), bytes.end()));
             const auto devices = g923cap::findDevices(g923cap::transfersOf(g923cap::urbsOf(file)));
             for (const auto& [key, device] : devices) {

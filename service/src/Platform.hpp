@@ -131,6 +131,10 @@ void nameThisThread(const char* name);
 // Windows: the process that owns IPv4 UDP port `port` (bound to 127.0.0.1 or any address): its id, 0 when no process
 // owns it (any more), nullopt when the system could not say. Elsewhere always nullopt. For SenderGate.
 [[nodiscard]] std::optional<std::uint32_t> udpPortOwner(std::uint16_t port);
+// Linux: whether IPv4 UDP port `port` (bound to 127.0.0.1 or any address) is a socket of this process's user, from
+// /proc/net/udp: false when it is another user's, or nobody's (any more); nullopt when the system could not say.
+// Elsewhere always nullopt. For SenderGate.
+[[nodiscard]] std::optional<bool> udpPortIsOurUser(std::uint16_t port);
 // The programs running now, one entry per process with its id: the program's file name on Windows ("NFS16.exe"); on
 // Linux the first word of each process's command line (a Wine game's is its Windows path, "Z:\games\NFS16.exe"; after
 // a wine/wine64/wine-preloader/wine64-preloader word, the next one), never the 15-character process name (a zombie or
