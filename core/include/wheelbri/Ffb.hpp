@@ -63,7 +63,9 @@ struct FfbEffect {
 struct FfbSafetyConfig {
     float masterGain = 1.0F;            // 0..1; the strength itself is set in the wheel's own app (FfbLimits.hpp)
     float maxMagnitude = 1.0F;          // hard cap, 0..1: 1 = all the game asks; the wheel's app sets the strength
-    float maxSlewPerSecond = 50.0F;     // constant force may move at most this much full-scale per second
+    // A constant force, and a periodic effect's magnitude and offset, may move at most this much full-scale per
+    // second.
+    float maxSlewPerSecond = 50.0F;
     // A constant push the game leaves exactly as it is this long (seconds) fades out, with the periodic effects on
     // top: a game that paused (loading screen) but keeps sending its last force. 0 = never (FfbController).
     float frozenForceSeconds = 2.0F;
@@ -75,15 +77,20 @@ struct FfbSafetyConfig {
 };
 
 // Last stage before the physical wheel: applies the user gain and protects against jolts.
-// Stateful (slew limit on the constant force), so use one limiter per played effect.
+// Stateful (slew limit on the constant force and on a periodic effect's magnitude and offset: a square wave with
+// offset 1 is a push like a constant one), so use one limiter per played effect.
 class FfbSafetyLimiter {
 public:
     explicit FfbSafetyLimiter(const FfbSafetyConfig& config);
 
     [[nodiscard]] FfbEffect apply(const FfbEffect& requested, float dtSeconds);
-    void reset() { lastConstant_ = 0.0F; }
+    void reset() {
+        lastConstant_ = 0.0F;
+        lastMagnitude_ = 0.0F;
+        lastOffset_ = 0.0F;
+    }
     // Other limits from now on (a game's own, FfbController::setGameTuning), checked as the constructor does; the
-    // constant force slews on from where it is.
+    // forces slew on from where they are.
     void setConfig(const FfbSafetyConfig& config);
     [[nodiscard]] const FfbSafetyConfig& config() const { return config_; }
 
@@ -91,10 +98,14 @@ private:
     [[nodiscard]] float limitConstant(float requested, float dtSeconds);
     [[nodiscard]] FfbCondition limitCondition(const FfbCondition& requested) const;
     static constexpr float kWholeTravel = 0.999F;   // a condition's dead band from here on covers all of it
-    [[nodiscard]] FfbPeriodic limitPeriodic(const FfbPeriodic& requested) const;
+    [[nodiscard]] FfbPeriodic limitPeriodic(const FfbPeriodic& requested, float dtSeconds);
+    // `value` moved from `last` toward `target` by at most the slew step for `dtSeconds`; `last` becomes the result.
+    [[nodiscard]] float slewed(float& last, float target, float dtSeconds) const;
 
     FfbSafetyConfig config_;
     float lastConstant_ = 0.0F;
+    float lastMagnitude_ = 0.0F;
+    float lastOffset_ = 0.0F;
 };
 
 }  // namespace wheelbri

@@ -18,15 +18,20 @@ namespace wheelbri {
 //
 // Safety rules:
 //  * nothing reaches the sink without the limiter;
+//  * a cap below full scale (FfbSafetyConfig::maxMagnitude < 1) holds for all slots together: when the constant
+//    forces and the periodic effects' offsets and magnitudes add up to more, every one of them is scaled down by the
+//    same factor;
 //  * if the shim goes quiet for `watchdogNs` (game crashed, paused, or lost the device) every effect is
 //    stopped, and stays stopped until the game sends it again;
 //  * a slot is re-sent to the sink at most every `minUpdateNs` unless it starts or stops, so a slewing
 //    constant force cannot flood the driver;
-//  * a constant push the game leaves exactly as it is for `frozenForceSeconds` (FfbSafetyConfig) fades out over
-//    `kFrozenFadeNs`, with every periodic effect on top: a game on a loading screen that keeps sending its last
-//    force (NFS 2015: 83% and a rumble for 21 s). Springs and dampers stay. Any change brings the forces back;
-//  * a constant force at exactly full scale (either way) while the game has sent no constant force between none and
-//    full for `kRealForceWithinNs` is a "lone full push" and plays as none (FfbSafetyConfig::ignoreLoneFullPush).
+//  * a constant push (or a periodic effect's offset) the game leaves exactly as it is for `frozenForceSeconds`
+//    (FfbSafetyConfig) fades out over `kFrozenFadeNs`, with every periodic effect on top: a game on a loading screen
+//    that keeps sending its last force (NFS 2015: 83% and a rumble for 21 s). Springs and dampers stay. Any change
+//    brings the forces back;
+//  * a constant force (or a periodic effect's offset) at exactly full scale (either way) while the game has sent no
+//    push between none and full for `kRealForceWithinNs` is a "lone full push" and plays as none
+//    (FfbSafetyConfig::ignoreLoneFullPush).
 //    Race Driver: GRID (2008) sometimes passes lMagnitude = -2147483648 instead of its force (VSync off at 144 Hz or
 //    more: 2026-10-19; at 300 Hz with VSync off: 2026-10-21, a stream of nothing but 0 and -100% for minutes). The shim
 //    sees that number and drops it (DiEffect.hpp, isGarbage), but in Mode Virtual Windows' HID PID driver clamps it to
@@ -146,6 +151,8 @@ private:
         std::uint64_t lastSentNs = 0;
         std::uint64_t lastUpdateNs = 0;      // for the limiter's slew step
         std::uint64_t pushSinceNs = 0;       // when the game last changed this slot's push (type, level, gain)
+        std::optional<FfbEffect> lastLimited;  // the limiter's last output, before the cap on all slots together
+        float sentScale = 1.0F;              // the cap's scale in lastSent
     };
 
     // Plays, updates or stops the centring spring (update()).

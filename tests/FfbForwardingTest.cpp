@@ -196,10 +196,13 @@ TEST(FfbController, GameGainScalesPushingForcesUpToTheCap) {
     EXPECT_FLOAT_EQ(controller.slot(2).sent->condition.positiveCoefficient, 0.25F);   // untouched
     EXPECT_FLOAT_EQ(controller.slot(0).requested.constantLevel, -0.1F);              // the game's own, for telemetry
 
-    push.constantLevel = 0.4F;   // 1.2 asked: the cap still holds
+    push.constantLevel = 0.4F;   // 1.2 asked: the cap still holds, for the push and the rumble together
     controller.onPacket(slotPacket(0, true, push), 110 * kMs);
     controller.update(300 * kMs);
-    EXPECT_FLOAT_EQ(controller.slot(0).sent->constantLevel, 0.5F);
+    const float together = controller.slot(0).sent->constantLevel + controller.slot(1).sent->periodic.magnitude;
+    EXPECT_NEAR(together, 0.5F, 1e-4F);
+    EXPECT_NEAR(controller.slot(0).sent->constantLevel / controller.slot(1).sent->periodic.magnitude, 0.5F / 0.15F,
+                1e-3F);   // both scaled by the same factor
 
     controller.setGameGain(100.0F);   // out of range: clamped
     EXPECT_FLOAT_EQ(controller.gameGain(), kFfbGainMax);
@@ -560,7 +563,7 @@ TEST(FfbController, AChangeToAnyOneParameterReachesTheWheel) {
 }
 
 // A playing effect replaced by one of another kind is sent at once, even inside the minimum update interval, and
-// the new one is limited on its own (a sine after a spring gets the cap on its magnitude).
+// the new one is limited on its own: it ramps up from none as a new effect does, to the cap on its magnitude.
 TEST(FfbController, ATypeChangeIsSentAtOnce) {
     RecordingSink sink;
     FfbController controller(sink, safety());   // minimum update 4 ms
@@ -576,7 +579,9 @@ TEST(FfbController, ATypeChangeIsSentAtOnce) {
     controller.update(1 * kMs);
     ASSERT_EQ(sink.plays.size(), 2U);
     EXPECT_EQ(sink.plays[1].effect.type, FfbEffectType::Square);
-    EXPECT_FLOAT_EQ(sink.plays[1].effect.periodic.magnitude, 0.5F);
+    EXPECT_FLOAT_EQ(sink.plays[1].effect.periodic.magnitude, 0.0F);
+    controller.update(21 * kMs);   // 20 ms at 50/s: up to the cap
+    EXPECT_FLOAT_EQ(sink.plays.back().effect.periodic.magnitude, 0.5F);
     EXPECT_TRUE(sink.stops.empty());   // replaced, not stopped first
 }
 
@@ -838,6 +843,7 @@ TEST(FfbFrozenPush, ARestartWithTheSamePushIsNoChange) {
     controller.onPacket(slotPacket(0, true, sine), 2'800 * kMs);   // the slot's push is gone: nothing frozen
     controller.update(2'800 * kMs);
     EXPECT_EQ(controller.frozenFade(), 1.0F);
+    controller.update(2'820 * kMs);   // a new effect ramps up from none
     EXPECT_FLOAT_EQ(sentTo(controller, 0).periodic.magnitude, 0.3F);
 }
 
@@ -956,8 +962,9 @@ TEST(FfbLoneFullPush, RealForcesBringFullPushesBack) {
     EXPECT_FLOAT_EQ(sentTo(controller, 0).constantLevel, 1.0F);
 }
 
-// Only the constant force at full scale: 99.9% is a real force, and other effects at full strength are left alone.
-TEST(FfbLoneFullPush, OnlyAConstantForceAtFullScaleIsScreened) {
+// Only a push at full scale (a constant force, or a periodic effect's offset): 99.9% is a real force, and a wave at
+// full strength with no offset is left alone.
+TEST(FfbLoneFullPush, OnlyAPushAtFullScaleIsScreened) {
     FfbEffect push;
     push.constantLevel = -0.999F;
     EXPECT_FLOAT_EQ(FfbController::screened(push, false).constantLevel, -0.999F);
@@ -967,8 +974,28 @@ TEST(FfbLoneFullPush, OnlyAConstantForceAtFullScaleIsScreened) {
     FfbEffect sine;
     sine.type = FfbEffectType::Sine;
     sine.periodic.magnitude = 1.0F;
-    sine.constantLevel = 1.0F;   // not its force: a periodic effect's is its magnitude
+    sine.constantLevel = 1.0F;   // not its force: a periodic effect's is its magnitude and offset
     EXPECT_EQ(FfbController::screened(sine, false), sine);
+    FfbEffect square;
+    square.type = FfbEffectType::Square;
+    square.periodic.offset = -1.0F;   // a full push with no wave around it
+    EXPECT_EQ(FfbController::screened(square, false).periodic.offset, 0.0F);
+    EXPECT_EQ(FfbController::screened(square, true).periodic.offset, -1.0F);
+}
+
+// A periodic effect whose offset is a full push, with no real force around it, plays without the push: the same
+// screen as a constant force's.
+TEST(FfbLoneFullPush, APeriodicOffsetAtFullScaleIsScreenedToo) {
+    RecordingSink sink;
+    FfbController controller(sink, nfsSafety(), kPatientWatchdog);
+    FfbEffect square;
+    square.type = FfbEffectType::Square;
+    square.periodic = {0.0F, 1.0F, 65535.0F, 0.0F};
+    controller.onPacket(slotPacket(0, true, square), 0);
+    controller.update(0);
+    controller.update(100 * kMs);
+    EXPECT_EQ(sentTo(controller, 0).periodic.offset, 0.0F);
+    EXPECT_TRUE(controller.ignoringLoneFullPush());
 }
 
 // ignore_lone_full_push = false: GRID's stream plays as the game sends it.
@@ -1190,6 +1217,112 @@ TEST(FfbController, ANonsenseCentringSpringIsOff) {
     EXPECT_EQ(controller.centringSpring(), 0.0F);
     controller.setCentringSpring(std::numeric_limits<float>::infinity());
     EXPECT_EQ(controller.centringSpring(), 0.0F);
+}
+
+// --- periodic pushes and the cap on all effects together --------------------------------------------------------
+
+// A periodic effect's offset is a push: held unchanged past frozen_force_s it fades out as a constant push does.
+TEST(FfbFrozenPush, AFrozenPeriodicOffsetFadesOut) {
+    RecordingSink sink;
+    FfbController controller(sink, nfsSafety(), kPatientWatchdog);
+    FfbEffect square;
+    square.type = FfbEffectType::Square;
+    square.periodic = {0.1F, 0.6F, 65535.0F, 0.0F};   // a long square wave: a push that never changes
+    for (std::uint64_t now = 0; now <= 2'600 * kMs; now += 10 * kMs) {
+        controller.onPacket(slotPacket(0, true, square), now);
+        controller.update(now);
+    }
+    EXPECT_EQ(controller.frozenFade(), 0.0F);
+    EXPECT_EQ(sentTo(controller, 0).periodic.offset, 0.0F);
+    EXPECT_EQ(sentTo(controller, 0).periodic.magnitude, 0.0F);
+    square.periodic.offset = 0.5F;   // the game moves it: forces back
+    controller.onPacket(slotPacket(0, true, square), 2'610 * kMs);
+    controller.update(2'610 * kMs);
+    EXPECT_EQ(controller.frozenFade(), 1.0F);
+}
+
+// A wave with no offset (a rumble) is no push, however long it plays.
+TEST(FfbFrozenPush, AWaveWithNoOffsetIsNeverFaded) {
+    RecordingSink sink;
+    FfbController controller(sink, nfsSafety(), kPatientWatchdog);
+    FfbEffect rumble;
+    rumble.type = FfbEffectType::Sine;
+    rumble.periodic = {0.4F, 0.0F, 30.0F, 0.0F};
+    for (std::uint64_t now = 0; now <= 10'000 * kMs; now += 10 * kMs) {
+        controller.onPacket(slotPacket(0, true, rumble), now);
+        controller.update(now);
+    }
+    EXPECT_EQ(controller.frozenFade(), 1.0F);
+    EXPECT_FLOAT_EQ(sentTo(controller, 0).periodic.magnitude, 0.4F);
+}
+
+// Two constant forces at the cap each: together they get the cap, half each, not twice it.
+TEST(FfbController, TheCapHoldsForAllSlotsTogether) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());   // cap 0.5
+    FfbEffect push;
+    push.constantLevel = 0.5F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.onPacket(slotPacket(1, true, push), 0);
+    controller.update(0);
+    controller.update(100 * kMs);
+    EXPECT_NEAR(sentTo(controller, 0).constantLevel, 0.25F, 1e-5F);
+    EXPECT_NEAR(sentTo(controller, 1).constantLevel, 0.25F, 1e-5F);
+
+    // Opposite pushes still count in full (the cap is on the most the effects can put on the wheel).
+    FfbEffect pull;
+    pull.constantLevel = -0.5F;
+    controller.onPacket(slotPacket(1, true, pull), 110 * kMs);
+    controller.update(200 * kMs);
+    EXPECT_NEAR(sentTo(controller, 1).constantLevel, -0.25F, 1e-5F);
+
+    // One stops: the other gets all of the cap again.
+    controller.onPacket(slotPacket(1, false, pull), 210 * kMs);
+    controller.update(300 * kMs);
+    EXPECT_NEAR(sentTo(controller, 0).constantLevel, 0.5F, 1e-5F);
+}
+
+// No cap (1, the default): the wheel is the limit, and a push with a rumble on top plays as the game mixed it.
+TEST(FfbController, WithoutACapTheGamesMixPlaysAsAsked) {
+    RecordingSink sink;
+    FfbSafetyConfig full = safety();
+    full.maxMagnitude = 1.0F;
+    FfbController controller(sink, full);
+    FfbEffect push;
+    push.constantLevel = 0.8F;
+    FfbEffect rumble;
+    rumble.type = FfbEffectType::Sine;
+    rumble.periodic = {0.3F, 0.0F, 30.0F, 0.0F};
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.onPacket(slotPacket(1, true, rumble), 0);
+    controller.update(0);
+    controller.update(100 * kMs);
+    EXPECT_NEAR(sentTo(controller, 0).constantLevel, 0.8F, 1e-5F);
+    EXPECT_NEAR(sentTo(controller, 1).periodic.magnitude, 0.3F, 1e-5F);
+}
+
+// A slot held back by the minimum update interval still comes down at once when another effect starts and the cap
+// is shared: a lower force never waits.
+TEST(FfbController, ASharedCapLowersAHeldBackSlotAtOnce) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());   // cap 0.5, minimum update 4 ms
+    FfbEffect push;
+    push.constantLevel = 0.5F;
+    controller.onPacket(slotPacket(0, true, push), 0);
+    controller.update(0);
+    controller.update(10 * kMs);
+    EXPECT_NEAR(sentTo(controller, 0).constantLevel, 0.5F, 1e-5F);
+    FfbEffect square;
+    square.type = FfbEffectType::Square;
+    square.periodic = {0.5F, 0.0F, 40.0F, 0.0F};
+    controller.onPacket(slotPacket(1, true, square), 11 * kMs);
+    controller.update(11 * kMs);   // starts at none: nothing to share yet
+    controller.update(12 * kMs);   // 1 ms after slot 0's last update: held back, but the square has risen
+    const float together = sentTo(controller, 0).constantLevel + sentTo(controller, 1).periodic.magnitude;
+    EXPECT_LE(together, 0.5F + 1e-5F);
+    controller.update(30 * kMs);
+    EXPECT_NEAR(sentTo(controller, 0).constantLevel, 0.25F, 1e-5F);
+    EXPECT_NEAR(sentTo(controller, 1).periodic.magnitude, 0.25F, 1e-5F);
 }
 
 }  // namespace

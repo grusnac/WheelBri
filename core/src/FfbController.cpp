@@ -45,6 +45,33 @@ std::uint64_t frozenNsFor(const float frozen) {
 // `wanted` lowered to `base` (and to the base when not a number): a game can only make the limits stricter.
 float lowered(const float wanted, const float base) { return std::isfinite(wanted) ? std::min(wanted, base) : base; }
 
+bool isPeriodic(const FfbEffectType type) { return ffbGroupOf(type) == FfbGroup::Periodic; }
+
+// The steady push in an effect, signed: a constant force's level, a periodic effect's offset; none in a condition.
+float pushOf(const FfbEffect& effect) {
+    if (effect.type == FfbEffectType::Constant) return effect.constantLevel;
+    if (isPeriodic(effect.type)) return effect.periodic.offset;
+    return 0.0F;
+}
+
+// The most force an effect can put on the wheel at any moment (of full scale), for the cap on all slots together:
+// a constant force's level, a periodic effect's offset and magnitude; conditions answer the wheel's own movement and
+// are capped by their saturations, so they are not counted.
+float peakOf(const FfbEffect& effect) {
+    if (effect.type == FfbEffectType::Constant) return std::abs(effect.constantLevel);
+    if (isPeriodic(effect.type)) return std::abs(effect.periodic.offset) + std::abs(effect.periodic.magnitude);
+    return 0.0F;
+}
+
+// `effect`'s pushing forces times `scale` (0..1).
+FfbEffect scaledDown(const FfbEffect& effect, const float scale) {
+    FfbEffect out = effect;
+    out.constantLevel *= scale;
+    out.periodic.offset *= scale;
+    out.periodic.magnitude *= scale;
+    return out;
+}
+
 template <std::size_t... I>
 std::array<FfbSafetyLimiter, sizeof...(I)> makeLimiters(const FfbSafetyConfig& safety, std::index_sequence<I...>) {
     return {((void)I, FfbSafetyLimiter(safety))...};
@@ -105,7 +132,8 @@ void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs)
     // A new push, or one the game changed (a restart with the same push is not a change: still frozen).
     const FfbEffect next = screenFullPush(packet.effect, nowNs);
     if (!slot.loaded || next.type != slot.requested.type || !closeTo(next.gain, slot.requested.gain) ||
-        !closeTo(next.constantLevel, slot.requested.constantLevel)) {
+        !closeTo(next.constantLevel, slot.requested.constantLevel) ||
+        !closeTo(next.periodic.offset, slot.requested.periodic.offset)) {
         slot.pushSinceNs = nowNs;
     }
     if (slot.wanted != packet.playing) {
@@ -118,16 +146,17 @@ void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs)
 }
 
 FfbEffect FfbController::screened(const FfbEffect& effect, const bool realForceRecent) {
-    const bool full = std::abs(effect.constantLevel) >= kFullScaleAt;
-    if (realForceRecent || effect.type != FfbEffectType::Constant || !full) return effect;
+    const bool full = std::abs(pushOf(effect)) >= kFullScaleAt;
+    if (realForceRecent || !full) return effect;
     FfbEffect out = effect;
-    out.constantLevel = 0.0F;
+    if (effect.type == FfbEffectType::Constant) out.constantLevel = 0.0F;
+    if (isPeriodic(effect.type)) out.periodic.offset = 0.0F;
     return out;
 }
 
 FfbEffect FfbController::screenFullPush(const FfbEffect& effect, const std::uint64_t nowNs) {
-    if (effect.type != FfbEffectType::Constant) return effect;
-    const float push = std::abs(effect.constantLevel);
+    if (effect.type != FfbEffectType::Constant && !isPeriodic(effect.type)) return effect;
+    const float push = std::abs(pushOf(effect));
     if (push > 0.0F && push < kFullScaleAt) {
         // A real force: every full push from now on (for kRealForceWithinNs) is believed.
         lastRealForceNs_ = nowNs;
@@ -150,7 +179,7 @@ FfbEffect FfbController::screenFullPush(const FfbEffect& effect, const std::uint
                             "force (Race Driver: GRID passes a broken number that Windows turns into a full push), "
                             "played as none until it sends forces between none and full again ([ffb] "
                             "ignore_lone_full_push = false turns this off)",
-                            effect.constantLevel < 0.0F ? "left" : "right",
+                            pushOf(effect) < 0.0F ? "left" : "right",
                             static_cast<double>(kRealForceWithinNs) / 1e9);
     }
     return screened(effect, false);
@@ -285,6 +314,9 @@ void FfbController::update(const std::uint64_t nowNs) {
 
     const float fade = frozenFadeAt(nowNs);
     std::size_t active = 0;
+    // First every slot through its limiter (what each would play alone), then the cap on all of them together, then
+    // what changed to the sink.
+    std::array<bool, IFfbSink::kMaxSlots> fresh{};   // limited this pass (not held back by minUpdateNs)
     for (std::size_t i = 0; i < slots_.size(); ++i) {
         Slot& slot = slots_[i];
         // The game's force feedback turned off for this game: nothing plays; the slots stay as the game left them,
@@ -296,6 +328,7 @@ void FfbController::update(const std::uint64_t nowNs) {
                 slot.lastSent.reset();
                 limiters_[i].reset();
             }
+            slot.lastLimited.reset();
             continue;
         }
         ++active;
@@ -304,7 +337,7 @@ void FfbController::update(const std::uint64_t nowNs) {
         const bool typeChanged = slot.playing && slot.lastSent && slot.lastSent->type != slot.requested.type;
         if (typeChanged) limiters_[i].reset();
         const bool starting = !slot.playing || typeChanged;
-        if (!starting && nowNs - slot.lastSentNs < timing_.minUpdateNs) {
+        if (!starting && nowNs - slot.lastSentNs < timing_.minUpdateNs && slot.lastLimited) {
             continue;
         }
         const float dt = starting ? 0.0F : static_cast<float>(nowNs - slot.lastUpdateNs) / 1e9F;
@@ -312,8 +345,35 @@ void FfbController::update(const std::uint64_t nowNs) {
         std::array<float, kFfbGroupCount> gains = groupGains_;
         gains[static_cast<std::size_t>(FfbGroup::Constant)] *= gameGain_;
         gains[static_cast<std::size_t>(FfbGroup::Periodic)] *= gameGain_;
-        const FfbEffect limited = limiters_[i].apply(tuned(slot.requested, gains, fade, flip_), dt);
-        if (!starting && slot.lastSent && !differs(limited, *slot.lastSent)) {
+        slot.lastLimited = limiters_[i].apply(tuned(slot.requested, gains, fade, flip_), dt);
+        fresh[i] = true;
+    }
+
+    // A cap below full scale holds for the sum, not only for each effect: two constant forces at the cap each would
+    // put twice the cap on the wheel. Over it, every pushing force is scaled down by the same factor. At full scale
+    // (the default, "no cap") the wheel itself is the limit, and the game's mix plays as it asks.
+    float peak = 0.0F;
+    for (const Slot& slot : slots_) {
+        if (slot.lastLimited) peak += peakOf(*slot.lastLimited);
+    }
+    const float cap = safety_.maxMagnitude;
+    const float scale = cap < 1.0F && peak > cap && peak > 0.0F ? std::max(cap, 0.0F) / peak : 1.0F;
+    if (scale < 1.0F) {
+        static logging::RateLimiter limiter(std::chrono::seconds(10));
+        WE_LOG_WARN_LIMITED(log(), limiter,
+                            "ffb: the effects together ask for {:.0f}% (cap {:.0f}%): all scaled by {:.2f}",
+                            peak * 100.0F, cap * 100.0F, scale);
+    }
+
+    for (std::size_t i = 0; i < slots_.size(); ++i) {
+        Slot& slot = slots_[i];
+        if (!slot.lastLimited) continue;
+        // A slot held back by minUpdateNs is sent anyway when the scale has come down since: a lower force never
+        // waits.
+        if (!fresh[i] && !(scale < slot.sentScale)) continue;
+        const FfbEffect limited = scaledDown(*slot.lastLimited, scale);
+        if (slot.playing && slot.lastSent && !differs(limited, *slot.lastSent)) {
+            slot.sentScale = scale;
             continue;
         }
         ++stats_.plays;
@@ -321,9 +381,11 @@ void FfbController::update(const std::uint64_t nowNs) {
             slot.playing = true;
             slot.lastSent = limited;
             slot.lastSentNs = nowNs;
+            slot.sentScale = scale;
         } else {
             ++stats_.playFailures;
             slot.wanted = false;   // do not retry every tick; the game will send it again if it cares
+            slot.lastLimited.reset();
         }
     }
     stats_.activeSlots = active;
@@ -347,9 +409,11 @@ float FfbController::frozenFadeAt(const std::uint64_t nowNs) {
     float level = 0.0F;
     if (frozenNs_ > 0) {
         for (const Slot& slot : slots_) {
-            if (!slot.wanted || slot.requested.type != FfbEffectType::Constant) continue;
-            const float push = std::abs(slot.requested.constantLevel * slot.requested.gain * gameGain_ *
-                                        groupGains_[static_cast<std::size_t>(FfbGroup::Constant)]);
+            const FfbEffectType type = slot.requested.type;
+            if (!slot.wanted || (type != FfbEffectType::Constant && !isPeriodic(type))) continue;
+            // A periodic effect's offset is a push as a constant force is (its waveform alone is not).
+            const float push = std::abs(pushOf(slot.requested) * slot.requested.gain * gameGain_ *
+                                        groupGains_[static_cast<std::size_t>(ffbGroupOf(type))]);
             if (!(push > kFrozenPushAbove) || nowNs < slot.pushSinceNs || nowNs - slot.pushSinceNs < frozenNs_) {
                 continue;
             }
