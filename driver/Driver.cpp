@@ -21,6 +21,8 @@
 #include <wdf.h>
 #include <hidport.h>        // $(DDK_INC_PATH)\wdm
 
+#include "SenderProbe.hpp"
+
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidPid.hpp"
@@ -418,6 +420,7 @@ private:
     std::int64_t countsSinceMs_ = 0;
     Throttle recvErrors_{60'000};
     Throttle sendErrors_{60'000};
+    wheelbri::driver::SenderSeen senders_;   // the receiving thread's only
 };
 
 // The wheel's TrueForce interface (TrueForce.hpp, wheelbri\G923_TF): its answers to the host, the steering from the
@@ -453,6 +456,7 @@ private:
     SOCKET socket_ = INVALID_SOCKET;
     SOCKET ffbSocket_ = INVALID_SOCKET;
     Throttle ffbErrors_{60'000};
+    wheelbri::driver::SenderSeen senders_;   // run()'s only
     std::thread thread_;
     std::thread pacer_;
     std::atomic<bool> stop_{false};
@@ -743,10 +747,16 @@ void Link::run(const SOCKET sock) {
     bool receiving = false;
     bool neutralSent = false;
     while (!stop_) {
-        const int received = recv(sock, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+        sockaddr_in from{};
+        int fromSize = sizeof(from);
+        const int received = recvfrom(sock, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0,
+                                      reinterpret_cast<sockaddr*>(&from), &fromSize);
         if (received < 0 && !receiveFailed(received)) break;
         const std::int64_t now = nowMs();
         if (received > 0) {
+            if (const std::uint16_t port = ntohs(from.sin_port); senders_.shouldLookUp(port, now)) {
+                logLine(Level::Warn, wheelbri::driver::lookUpSender(port, "wheel state"));
+            }
             if (const auto packet = wheelbri::decodeStatePacket(std::span(buffer.data(), static_cast<std::size_t>(received)))) {
                 if (!receiving) {
                     receiving = true;
@@ -993,13 +1003,19 @@ void TrueForceLink::run(const SOCKET sock) {
     logLine(Level::Info, "trueforce: listening for wheelbri-service on 127.0.0.1:41331");
     std::array<std::uint8_t, 256> buffer{};
     while (!stop_) {
-        const int received = recv(sock, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0);
+        sockaddr_in from{};
+        int fromSize = sizeof(from);
+        const int received = recvfrom(sock, reinterpret_cast<char*>(buffer.data()), static_cast<int>(buffer.size()), 0,
+                                      reinterpret_cast<sockaddr*>(&from), &fromSize);
         if (received <= 0) {
             const int error = WSAGetLastError();
             if (error == WSAETIMEDOUT || error == WSA_IO_PENDING) continue;
             if (stop_ || error == WSAENOTSOCK || error == WSAEINVAL) break;
             Sleep(5);
             continue;
+        }
+        if (const std::uint16_t port = ntohs(from.sin_port); senders_.shouldLookUp(port, nowMs())) {
+            logLine(Level::Warn, wheelbri::driver::lookUpSender(port, "trueforce state"));
         }
         const auto packet = wheelbri::decodeStatePacket(std::span(buffer.data(), static_cast<std::size_t>(received)));
         if (!packet) continue;

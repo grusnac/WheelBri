@@ -64,6 +64,7 @@ add_executable(wheelbri_tests
     RetentionTest.cpp
     RigTest.cpp
     SenderGateTest.cpp
+    DriverSenderProbeTest.cpp
     ShapeSpansTest.cpp
     ShimGamesTest.cpp
     ShimWatchTest.cpp
