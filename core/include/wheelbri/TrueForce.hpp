@@ -43,6 +43,16 @@ inline constexpr std::size_t kTrueForceReportSize = 64;   // with the report ID
 // device reports the steering from it. Its own port, as the wheel's (41329) takes one reader only.
 inline constexpr std::uint16_t kTrueForceStatePort = 41331;
 
+// The stream's motor torque target (type 0x01), offset binary around 0x8000: the mean of its two words at 6..7 and
+// 8..9. Each alone leans about 0.3 to one side, the two opposite ways, in ACC with a real G923 and with WheelBri alike
+// (2026-11-01: against the torque ACC gives the SDK, the mean's offset is 0.00, each word's +-0.30). Reading 6..7
+// alone pulled the R3 to the left. `report`: report ID first, at least 10 bytes.
+[[nodiscard]] inline int streamTarget(std::span<const std::uint8_t> report) {
+    const int first = report[6] | (report[7] << 8);
+    const int second = report[8] | (report[9] << 8);
+    return (first + second + 1) / 2;
+}
+
 // What a host sends the TrueForce interface, for the log: every packet in hex but the stream's (its first kFirstShown,
 // then one every kStreamShownMs), and every kSummaryMs a line of counts per type (for the stream, also its bytes 10/11:
 // new samples, window flag).

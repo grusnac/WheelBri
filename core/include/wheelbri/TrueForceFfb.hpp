@@ -11,7 +11,7 @@
 namespace wheelbri {
 
 // The force a TrueForce game streams (Logitech's DLL, TrueForce.hpp), played: the stream's motor torque target
-// ("cur", type 0x01 bytes 6..7, offset binary around 0x8000; 8..9 repeat it) becomes a constant force in service slot
+// ("cur", type 0x01: streamTarget(), the mean of the words at 6..7 and 8..9, offset binary around 0x8000) becomes a constant force in service slot
 // kSlot, as HID++ and HID PID effects become FfbPackets. 0x0000 = +1, in the sign games' DirectInput forces use as
 // WheelBri passes them on: ACC's torque + pushes left (it opposes the angle, + = left), Logitech's DLL streams it
 // below 0x8000, and on a Moza R3 that plays a -1 to the right, as games' forces do (--ffb-test, 2026-10-28).

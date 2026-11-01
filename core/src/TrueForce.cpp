@@ -117,7 +117,7 @@ double level(const std::span<const std::uint8_t> r, const std::size_t at) {
 
 void TrueForceLog::noteStream(const std::span<const std::uint8_t> r, const std::int64_t nowMs) {
     constexpr double kFlipAt = 0.02;
-    const int raw = r[6] | (r[7] << 8);
+    const int raw = streamTarget(r);
     // The SDK clamps cur to 1..0xFFFF: a computed NaN or overflow lands on 0x0001 and stays (2026-10-28).
     const bool atLimit = raw <= 0x0001 || raw >= 0xFFFF;
     if (!atLimit) {
@@ -142,7 +142,7 @@ void TrueForceLog::noteStream(const std::span<const std::uint8_t> r, const std::
     }
     history_.at(historyNext_) = {nowMs, raw};
     historyNext_ = (historyNext_ + 1) % kHistory;
-    const double cur = level(r, 6);
+    const double cur = (raw - 0x8000) / 32768.0;
     stream_.curMin = std::min(stream_.curMin, cur);
     stream_.curMax = std::max(stream_.curMax, cur);
     stream_.curAbsSum += std::abs(cur);

@@ -1,5 +1,7 @@
 #include "wheelbri/TrueForceFfb.hpp"
 
+#include "wheelbri/TrueForce.hpp"
+
 #include <gtest/gtest.h>
 
 #include <cstring>
@@ -45,6 +47,20 @@ TEST(TrueForceFfb, LevelFromTheStreamsMotorTarget) {
     auto other = stream(0x4000);
     other[0] = 0x02;
     EXPECT_FALSE(TrueForceFfb::level(other));
+}
+
+// The target is the mean of the two words, which lean opposite ways (ACC, 2026-11-01: a real G923's stream at about
+// zero torque, 6..7 = 0x9600, 8..9 = 0x6a00): no force, where 6..7 alone said -0.17.
+TEST(TrueForceFfb, LevelIsTheMeanOfTheTwoWords) {
+    auto r = stream(0x8000);
+    r[6] = 0x00;
+    r[7] = 0x96;
+    r[8] = 0x00;
+    r[9] = 0x6A;
+    EXPECT_FLOAT_EQ(*TrueForceFfb::level(r), 0.0F);
+    r[9] = 0x4A;   // 0x9600 and 0x4a00: 0x7000
+    EXPECT_FLOAT_EQ(*TrueForceFfb::level(r), 0.125F);
+    EXPECT_EQ(streamTarget(r), 0x7000);
 }
 
 TEST(TrueForceFfb, PlaysTheStreamInItsSlotAtMostEvery2Ms) {

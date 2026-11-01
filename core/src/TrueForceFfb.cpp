@@ -13,7 +13,7 @@ TrueForceFfb::TrueForceFfb(Sink sink) : sink_(std::move(sink)) {}
 
 std::optional<float> TrueForceFfb::level(const std::span<const std::uint8_t> report) {
     if (report.size() < 10 || report[0] != kTrueForceReportId || report[4] != 0x01) return std::nullopt;
-    const int cur = report[6] | (report[7] << 8);
+    const int cur = streamTarget(report);
     return std::clamp(static_cast<float>(0x8000 - cur) / 32768.0F, -1.0F, 1.0F);
 }
 
