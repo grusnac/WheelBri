@@ -6,6 +6,8 @@ UMDF 2, VS + WDK. Loaded when working in `driver/`; the root CLAUDE.md still app
   `wheelbri\G923_TF` = the G923's TrueForce interface (TrueForce.hpp): TrueForceLink, state on 41331, no FFB yet.
 - `hide/` (`wheelbri-hide`) = upper filter hiding the rig from all but the service's `AllowedPid`, fails open.
 - Both share core's `HidWheelDevice`, `HidPid`, `HidPp`, `StatePacket`.
+- Both links (wheel state on 41329, TrueForce on 41331) take datagrams only from WheelBri's programs
+  (`SenderProbe.hpp`: the sending port's process, looked up per new sender); others are dropped with a warning.
 
 Build in a Developer PowerShell, install from an Administrator PowerShell (`driver\hide\wheelbri-hide.vcxproj` +
 `install-hide.ps1` likewise):

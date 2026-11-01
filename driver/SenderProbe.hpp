@@ -1,17 +1,21 @@
 #pragma once
 
-// Who sends the driver its datagrams on 127.0.0.1 (the wheel's state on 41329, TrueForce's on 41331): the first step
-// towards letting only wheelbri-service through. Any program can send to those ports, so the driver will check the
-// sender as the service already does for force feedback (SenderGate.hpp). Whether it can, running as LocalService in
-// WUDFHost, is what this finds out: for each new sender port it looks up the owning process and its program, and
-// says what it found, or which call Windows refused. It only logs; nothing is dropped.
+// Who may send the driver its datagrams on 127.0.0.1 (the wheel's state on 41329, TrueForce's on 41331): only
+// WheelBri (wheelbri.exe, the app, or wheelbri-service.exe). Any program of any user can send to those ports, and what
+// arrives there steers the virtual wheel games read, so the driver asks Windows which process owns the sending port
+// and which program that is, as the service does for force feedback (SenderGate.hpp). Checked from WUDFHost as
+// LocalService on Windows 11 (2026-11-01): the lookup names wheelbri.exe, an Administrator process included.
 //
-// SenderSeen (the cache) is portable and tested everywhere (tests/DriverSenderProbeTest.cpp); lookUpSender is the
-// Windows part. iphlpapi is looked up at run time, so the driver links nothing new.
+// - Another program, or a port no process owns any more: its datagrams are dropped, with one warning per sender.
+// - Windows cannot say (a call failed): let through, with a warning; the stream must not be lost to a failed lookup.
+//
+// SenderCheck (the verdicts per sender) is portable and tested everywhere (tests/DriverSenderProbeTest.cpp);
+// lookUpSender is the Windows part. iphlpapi is looked up at run time, so the driver links nothing new.
 
 #include <array>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #ifdef _WIN32
 #include <winsock2.h>   // before windows.h
@@ -21,39 +25,87 @@
 
 namespace wheelbri::driver {
 
-// The sender ports already described, so the lookup runs once per new sender (and again after `kRecheckMs`: a port
-// can be closed and taken by another program). At most `kLookupsPerSecond` lookups a second: a flood from ever new
-// ports cannot keep the receiving thread busy. No allocation.
-class SenderSeen {
+enum class SenderVerdict {
+    Accept,    // WheelBri
+    Refuse,    // another program, or nobody owns the port any more
+    Unknown,   // Windows could not say: let through
+};
+
+// What the lookup found, with the log line that says so.
+struct SenderLookup {
+    SenderVerdict verdict = SenderVerdict::Unknown;
+    std::string line;
+};
+
+// The verdict per sender port, so the lookup runs only when a new sender appears, and again after a while (a port can
+// be closed and taken by another program): a let-through sender after kAcceptRecheckMs, a refused one after
+// kRefuseRecheckMs. At most kLookupsPerSecond lookups a second: a flood from ever new ports cannot keep the receiving
+// thread busy; past the cap a new sender is dropped, and a known one keeps its last verdict. No allocation besides
+// the log lines.
+class SenderCheck {
 public:
     static constexpr std::size_t kEntries = 16;
-    static constexpr std::int64_t kRecheckMs = 60'000;
+    static constexpr std::int64_t kAcceptRecheckMs = 60'000;
+    static constexpr std::int64_t kRefuseRecheckMs = 10'000;
     static constexpr std::uint32_t kLookupsPerSecond = 8;
 
-    // Whether a datagram from `port` at `nowMs` should be looked up now (and is remembered as looked up).
-    [[nodiscard]] bool shouldLookUp(const std::uint16_t port, const std::int64_t nowMs) {
-        Entry* oldest = &entries_[0];
-        for (Entry& entry : entries_) {
-            if (entry.used && entry.port == port) {
-                if (nowMs - entry.seenMs < kRecheckMs) return false;
-                if (!takeLookup(nowMs)) return false;
-                entry.seenMs = nowMs;
-                return true;
-            }
-            if (!entry.used || entry.seenMs < oldest->seenMs) oldest = &entry;
-            if (!entry.used) break;
+    // Whether a datagram from `port` at `nowMs` is let through. `lookUp(port)` gives a SenderLookup. `log` gets a line
+    // to write when there is something new to say (a new sender, a changed verdict, a refusal or a failed lookup), and
+    // `warn` whether it is a warning; `log` is left empty otherwise.
+    template <class LookUp>
+    [[nodiscard]] bool allow(const std::uint16_t port, const std::int64_t nowMs, LookUp&& lookUp, std::string& log,
+                             bool& warn) {
+        log.clear();
+        warn = false;
+        Entry* entry = find(port);
+        if (entry != nullptr) entry->lastUseMs = nowMs;
+        if (entry != nullptr && nowMs < entry->expiresMs) return entry->accept;
+        if (!takeLookup(nowMs)) return entry != nullptr && entry->accept;
+        SenderLookup found = std::forward<LookUp>(lookUp)(port);
+        const bool accept = found.verdict != SenderVerdict::Refuse;
+        const bool changed = entry == nullptr || entry->accept != accept;
+        if (changed || found.verdict != SenderVerdict::Accept) {
+            log = std::move(found.line);
+            warn = found.verdict != SenderVerdict::Accept;
         }
-        if (!takeLookup(nowMs)) return false;
-        *oldest = Entry{port, true, nowMs};
-        return true;
+        if (entry == nullptr) entry = &slotFor(port);
+        entry->accept = accept;
+        entry->expiresMs = nowMs + (accept ? kAcceptRecheckMs : kRefuseRecheckMs);
+        entry->lastUseMs = nowMs;
+        return accept;
     }
 
 private:
     struct Entry {
         std::uint16_t port = 0;
         bool used = false;
-        std::int64_t seenMs = 0;
+        bool accept = false;
+        std::int64_t expiresMs = 0;
+        std::int64_t lastUseMs = 0;
     };
+
+    Entry* find(const std::uint16_t port) {
+        for (Entry& entry : entries_) {
+            if (entry.used && entry.port == port) return &entry;
+        }
+        return nullptr;
+    }
+
+    // A free entry, or the one used longest ago, now for `port`.
+    Entry& slotFor(const std::uint16_t port) {
+        Entry* chosen = &entries_[0];
+        for (Entry& entry : entries_) {
+            if (!entry.used) {
+                chosen = &entry;
+                break;
+            }
+            if (entry.lastUseMs < chosen->lastUseMs) chosen = &entry;
+        }
+        *chosen = Entry{};
+        chosen->port = port;
+        chosen->used = true;
+        return *chosen;
+    }
 
     bool takeLookup(const std::int64_t nowMs) {
         if (nowMs - windowStartMs_ >= 1000) {
@@ -136,10 +188,12 @@ inline DWORD udpPortOwner(const std::uint16_t port, DWORD& error) {
 
 }  // namespace detail
 
-// One log line on the sender of a datagram from 127.0.0.1:`port`: its process id, its program, and whether the
-// planned check would let it through; or which step Windows refused, with its error.
-[[nodiscard]] inline std::string lookUpSender(const std::uint16_t port, const char* const what) {
-    std::string line = "sender check (log only, nothing dropped): ";
+// Who sends `what` from 127.0.0.1:`port`: the verdict, and a log line with the process id and program, or with the
+// step Windows refused and its error.
+[[nodiscard]] inline SenderLookup lookUpSender(const std::uint16_t port, const char* const what) {
+    SenderLookup out;
+    std::string& line = out.line;
+    line = "sender check: ";
     line += what;
     line += " from port ";
     line += std::to_string(port);
@@ -148,12 +202,14 @@ inline DWORD udpPortOwner(const std::uint16_t port, DWORD& error) {
     if (error != 0) {
         line += ": the UDP table cannot be read (error ";
         line += std::to_string(error);
-        line += "); the check could not tell who sends";
-        return line;
+        line += "); let through";
+        out.verdict = SenderVerdict::Unknown;
+        return out;
     }
     if (pid == 0) {
-        line += ": no process owns that port any more; the check would refuse it";
-        return line;
+        line += ": no process owns that port any more; dropped";
+        out.verdict = SenderVerdict::Refuse;
+        return out;
     }
     line += ", pid ";
     line += std::to_string(pid);
@@ -161,8 +217,9 @@ inline DWORD udpPortOwner(const std::uint16_t port, DWORD& error) {
     if (process == nullptr) {
         line += ": OpenProcess refused (error ";
         line += std::to_string(GetLastError());
-        line += "); the check could not tell which program it is";
-        return line;
+        line += "); let through";
+        out.verdict = SenderVerdict::Unknown;
+        return out;
     }
     std::wstring image(32768, L'\0');
     DWORD size = static_cast<DWORD>(image.size());
@@ -172,15 +229,21 @@ inline DWORD udpPortOwner(const std::uint16_t port, DWORD& error) {
     if (!named) {
         line += ": its program cannot be read (QueryFullProcessImageName error ";
         line += std::to_string(nameError);
-        line += ")";
-        return line;
+        line += "); let through";
+        out.verdict = SenderVerdict::Unknown;
+        return out;
     }
     image.resize(size);
     line += ", ";
     line += detail::utf8(image);
-    line += isWheelBriProgram(image) ? ": WheelBri, the check would let it through"
-                                     : ": not WheelBri, the check would refuse it";
-    return line;
+    if (isWheelBriProgram(image)) {
+        line += ": WheelBri";
+        out.verdict = SenderVerdict::Accept;
+    } else {
+        line += ": not WheelBri; its datagrams are dropped";
+        out.verdict = SenderVerdict::Refuse;
+    }
+    return out;
 }
 
 #endif

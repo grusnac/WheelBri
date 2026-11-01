@@ -1,9 +1,13 @@
-// The driver's sender probe (driver/SenderProbe.hpp): which senders it looks up, and, on Windows, what it finds out
-// about one (a socket of this test program: not WheelBri).
+// The driver's sender check (driver/SenderProbe.hpp): which senders it lets through, looks up and logs, and, on
+// Windows, what it finds out about one (a socket of this test program: not WheelBri, so dropped).
 
 #include "../driver/SenderProbe.hpp"
 
 #include <gtest/gtest.h>
+
+#include <functional>
+#include <map>
+#include <string>
 
 #ifdef _WIN32
 #include "wheelbri/UdpLoopback.hpp"
@@ -17,39 +21,102 @@
 namespace wheelbri::driver {
 namespace {
 
-// A new sender is looked up once, then not again until kRecheckMs have gone by.
-TEST(DriverSenderProbe, EachSenderIsLookedUpOnceAWhile) {
-    SenderSeen seen;
-    EXPECT_TRUE(seen.shouldLookUp(50000, 0));
-    EXPECT_FALSE(seen.shouldLookUp(50000, 1));
-    EXPECT_FALSE(seen.shouldLookUp(50000, SenderSeen::kRecheckMs - 1));
-    EXPECT_TRUE(seen.shouldLookUp(50001, 2));   // another sender
-    EXPECT_TRUE(seen.shouldLookUp(50000, SenderSeen::kRecheckMs));
-    EXPECT_FALSE(seen.shouldLookUp(50000, SenderSeen::kRecheckMs + 1));
-}
-
-// A flood from ever new ports: at most kLookupsPerSecond a second, the rest wait for the next second.
-TEST(DriverSenderProbe, LookupsAreCappedPerSecond) {
-    SenderSeen seen;
-    std::uint32_t lookups = 0;
-    for (std::uint16_t port = 1000; port < 1100; ++port) {
-        if (seen.shouldLookUp(port, 10)) ++lookups;
+// A fake lookup: the verdict per port, and how often it was asked.
+struct FakeLookUp {
+    std::map<std::uint16_t, SenderVerdict> verdicts;
+    int calls = 0;
+    SenderLookup operator()(const std::uint16_t port) {
+        ++calls;
+        const auto it = verdicts.find(port);
+        const SenderVerdict verdict = it == verdicts.end() ? SenderVerdict::Refuse : it->second;
+        return {verdict, "port " + std::to_string(port)};
     }
-    EXPECT_EQ(lookups, SenderSeen::kLookupsPerSecond);
-    EXPECT_TRUE(seen.shouldLookUp(2000, 1010));
+};
+
+// WheelBri is let through and looked up again only after kAcceptRecheckMs; it is logged once (as info), not at each
+// recheck that finds the same.
+TEST(DriverSenderProbe, WheelBriIsLetThroughAndLoggedOnce) {
+    SenderCheck check;
+    FakeLookUp look{{{50000, SenderVerdict::Accept}}};
+    std::string log;
+    bool warn = true;
+    EXPECT_TRUE(check.allow(50000, 0, std::ref(look), log, warn));
+    EXPECT_EQ(log, "port 50000");
+    EXPECT_FALSE(warn);
+    EXPECT_TRUE(check.allow(50000, SenderCheck::kAcceptRecheckMs - 1, std::ref(look), log, warn));
+    EXPECT_EQ(look.calls, 1);
+    EXPECT_TRUE(log.empty());
+    EXPECT_TRUE(check.allow(50000, SenderCheck::kAcceptRecheckMs, std::ref(look), log, warn));
+    EXPECT_EQ(look.calls, 2);
+    EXPECT_TRUE(log.empty());   // the same answer again: nothing new to say
 }
 
-// More senders than entries: the one seen longest ago makes room, and is looked up again when it comes back.
+// Another program is dropped, with a warning, and asked about again after kRefuseRecheckMs (the port may be
+// WheelBri's by then).
+TEST(DriverSenderProbe, AnotherProgramIsDroppedWithAWarning) {
+    SenderCheck check;
+    FakeLookUp look;
+    std::string log;
+    bool warn = false;
+    EXPECT_FALSE(check.allow(50001, 0, std::ref(look), log, warn));
+    EXPECT_TRUE(warn);
+    EXPECT_FALSE(log.empty());
+    EXPECT_FALSE(check.allow(50001, 1, std::ref(look), log, warn));
+    EXPECT_TRUE(log.empty());
+    EXPECT_EQ(look.calls, 1);
+    look.verdicts[50001] = SenderVerdict::Accept;
+    EXPECT_TRUE(check.allow(50001, SenderCheck::kRefuseRecheckMs, std::ref(look), log, warn));
+    EXPECT_FALSE(warn);
+    EXPECT_FALSE(log.empty());   // a changed verdict is said
+}
+
+// Windows could not say: let through (the stream must not be lost to a failed lookup), with a warning each time.
+TEST(DriverSenderProbe, AFailedLookupLetsThroughWithAWarning) {
+    SenderCheck check;
+    FakeLookUp look{{{50002, SenderVerdict::Unknown}}};
+    std::string log;
+    bool warn = false;
+    EXPECT_TRUE(check.allow(50002, 0, std::ref(look), log, warn));
+    EXPECT_TRUE(warn);
+    EXPECT_TRUE(check.allow(50002, SenderCheck::kAcceptRecheckMs, std::ref(look), log, warn));
+    EXPECT_TRUE(warn);
+    EXPECT_FALSE(log.empty());
+}
+
+// A flood from ever new ports: at most kLookupsPerSecond lookups a second; a new sender past the cap is dropped, a
+// known one keeps its verdict.
+TEST(DriverSenderProbe, LookupsAreCappedPerSecond) {
+    SenderCheck check;
+    FakeLookUp look{{{40000, SenderVerdict::Accept}}};
+    std::string log;
+    bool warn = false;
+    ASSERT_TRUE(check.allow(40000, 0, std::ref(look), log, warn));
+    const std::int64_t later = SenderCheck::kAcceptRecheckMs;   // WheelBri's entry is due again
+    for (std::uint16_t port = 1000; port < 1100; ++port) (void)check.allow(port, later, std::ref(look), log, warn);
+    EXPECT_EQ(look.calls, 1 + static_cast<int>(SenderCheck::kLookupsPerSecond));
+    EXPECT_FALSE(check.allow(2000, later, std::ref(look), log, warn));   // new, over the cap: dropped
+    EXPECT_TRUE(check.allow(40000, later, std::ref(look), log, warn));   // known: still WheelBri
+    EXPECT_EQ(look.calls, 1 + static_cast<int>(SenderCheck::kLookupsPerSecond));
+}
+
+// More senders than entries: the one used longest ago makes room, and is looked up again when it comes back.
 TEST(DriverSenderProbe, TheOldestSenderMakesRoom) {
-    SenderSeen seen;
+    SenderCheck check;
+    FakeLookUp look;
+    std::string log;
+    bool warn = false;
     std::int64_t now = 0;
-    for (std::uint16_t port = 0; port < SenderSeen::kEntries; ++port) {
-        ASSERT_TRUE(seen.shouldLookUp(static_cast<std::uint16_t>(3000 + port), now));
+    for (std::uint16_t port = 0; port < SenderCheck::kEntries; ++port) {
+        look.verdicts[static_cast<std::uint16_t>(3000 + port)] = SenderVerdict::Accept;
+        (void)check.allow(static_cast<std::uint16_t>(3000 + port), now, std::ref(look), log, warn);
         now += 1000;   // its own second each: never capped
     }
-    EXPECT_FALSE(seen.shouldLookUp(3000, now));   // still remembered
-    EXPECT_TRUE(seen.shouldLookUp(4000, now + 1000));   // takes 3000's place
-    EXPECT_TRUE(seen.shouldLookUp(3000, now + 2000));
+    const int calls = look.calls;
+    (void)check.allow(3000, now, std::ref(look), log, warn);   // still remembered
+    EXPECT_EQ(look.calls, calls);
+    (void)check.allow(4000, now + 1000, std::ref(look), log, warn);   // takes 3001's place (3000 was just used)
+    (void)check.allow(3001, now + 2000, std::ref(look), log, warn);
+    EXPECT_EQ(look.calls, calls + 2);
 }
 
 TEST(DriverSenderProbe, OnlyWheelBrisProgramsAreWheelBri) {
@@ -80,11 +147,15 @@ TEST(DriverSenderProbe, ASenderOfThisProgramIsNamed) {
         if (!size) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     ASSERT_TRUE(size.has_value());
-    const std::string line = lookUpSender(from, "test");
+    const SenderLookup found = lookUpSender(from, "test");
+    const std::string& line = found.line;
+    EXPECT_EQ(found.verdict, SenderVerdict::Refuse);
     EXPECT_NE(line.find("pid " + std::to_string(GetCurrentProcessId())), std::string::npos) << line;
     EXPECT_NE(line.find("wheelbri_tests.exe"), std::string::npos) << line;
     EXPECT_NE(line.find("not WheelBri"), std::string::npos) << line;
-    EXPECT_NE(lookUpSender(1, "test").find("no process owns that port"), std::string::npos);
+    const SenderLookup nobody = lookUpSender(1, "test");
+    EXPECT_EQ(nobody.verdict, SenderVerdict::Refuse);
+    EXPECT_NE(nobody.line.find("no process owns that port"), std::string::npos);
 }
 #endif
 

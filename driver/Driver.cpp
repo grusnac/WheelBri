@@ -306,6 +306,18 @@ std::int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+// Whether a datagram of `what` from 127.0.0.1:`port` is WheelBri's (SenderProbe.hpp), logging a new sender, a
+// refusal or a lookup that failed.
+bool fromWheelBri(wheelbri::driver::SenderCheck& check, const std::uint16_t port, const std::int64_t now,
+                  const char* const what) {
+    std::string line;
+    bool warn = false;
+    const bool allowed = check.allow(
+        port, now, [what](const std::uint16_t p) { return wheelbri::driver::lookUpSender(p, what); }, line, warn);
+    if (!line.empty()) logLine(warn ? wheelbri::LogLevel::Warn : wheelbri::LogLevel::Info, line);
+    return allowed;
+}
+
 std::int64_t nowUs() {
     using std::chrono::microseconds;
     return std::chrono::duration_cast<microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -420,7 +432,7 @@ private:
     std::int64_t countsSinceMs_ = 0;
     Throttle recvErrors_{60'000};
     Throttle sendErrors_{60'000};
-    wheelbri::driver::SenderSeen senders_;   // the receiving thread's only
+    wheelbri::driver::SenderCheck senders_;   // the receiving thread's only
 };
 
 // The wheel's TrueForce interface (TrueForce.hpp, wheelbri\G923_TF): its answers to the host, the steering from the
@@ -456,7 +468,7 @@ private:
     SOCKET socket_ = INVALID_SOCKET;
     SOCKET ffbSocket_ = INVALID_SOCKET;
     Throttle ffbErrors_{60'000};
-    wheelbri::driver::SenderSeen senders_;   // run()'s only
+    wheelbri::driver::SenderCheck senders_;   // run()'s only
     std::thread thread_;
     std::thread pacer_;
     std::atomic<bool> stop_{false};
@@ -753,10 +765,8 @@ void Link::run(const SOCKET sock) {
                                       reinterpret_cast<sockaddr*>(&from), &fromSize);
         if (received < 0 && !receiveFailed(received)) break;
         const std::int64_t now = nowMs();
-        if (received > 0) {
-            if (const std::uint16_t port = ntohs(from.sin_port); senders_.shouldLookUp(port, now)) {
-                logLine(Level::Warn, wheelbri::driver::lookUpSender(port, "wheel state"));
-            }
+        // Only WheelBri's datagrams (SenderProbe.hpp); another program's count as none (the stale check below).
+        if (received > 0 && fromWheelBri(senders_, ntohs(from.sin_port), now, "wheel state")) {
             if (const auto packet = wheelbri::decodeStatePacket(std::span(buffer.data(), static_cast<std::size_t>(received)))) {
                 if (!receiving) {
                     receiving = true;
@@ -1014,9 +1024,7 @@ void TrueForceLink::run(const SOCKET sock) {
             Sleep(5);
             continue;
         }
-        if (const std::uint16_t port = ntohs(from.sin_port); senders_.shouldLookUp(port, nowMs())) {
-            logLine(Level::Warn, wheelbri::driver::lookUpSender(port, "trueforce state"));
-        }
+        if (!fromWheelBri(senders_, ntohs(from.sin_port), nowMs(), "trueforce state")) continue;
         const auto packet = wheelbri::decodeStatePacket(std::span(buffer.data(), static_cast<std::size_t>(received)));
         if (!packet) continue;
         if (auto status = tf_.steering(packet->report.steering, packet->rotationDeg, nowUs())) {
