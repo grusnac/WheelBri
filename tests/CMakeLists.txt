@@ -1,6 +1,7 @@
 include(FetchContent)
 FetchContent_Declare(googletest
     URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.tar.gz
+    URL_HASH SHA256=7b42b4d6ed48810c5362c265a17faebe90dc2373c885e5216439d37927f02926
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
@@ -170,6 +171,7 @@ if(TARGET wheelbri_privileged)
         ${PROJECT_SOURCE_DIR}/service/src/Wheel.cpp ${PROJECT_SOURCE_DIR}/service/src/FfbSelfTest.cpp)
     # Away from Windows the privileged steps only say they are for Windows (on Windows they go through the helper).
     if(NOT WIN32)
+        target_sources(wheelbri_tests PRIVATE PrivilegedStepsTest.cpp ${PROJECT_SOURCE_DIR}/service/src/PrivilegedSteps.cpp)
     endif()
     if(WE_LINUX)
         # The Linux folders (XDG_* / HOME) and compressors found on PATH (shell scripts stand in for them).
@@ -298,5 +300,46 @@ if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
             ${PROJECT_SOURCE_DIR}/service/src/DinputReader.cpp ${PROJECT_SOURCE_DIR}/service/src/UiWindowWin32.cpp
             ${PROJECT_SOURCE_DIR}/service/src/WheelDinput.cpp)
         target_link_libraries(wheelbri_tests PRIVATE dinput8 dxguid)
+    endif()
+endif()
+
+# --- every test file is built ---
+# A *Test.cpp that no test program compiles here is coverage lost without a sound (PrivilegedStepsTest once was).
+# Files only Windows builds, and files only the other systems build, are named below; anything else left out is a
+# warning, an error with -DWE_STRICT_TESTS=ON (Linux CI).
+option(WE_STRICT_TESTS "Fail the configure when a tests/*Test.cpp is in no test program" OFF)
+set(WE_WINDOWS_ONLY_TESTS HelperPipeTest.cpp LogiDllTest.cpp PlatformWin32Test.cpp ShimConfigTest.cpp
+    ShimDeviceTest.cpp ShimDllTest.cpp ShimEffectTest.cpp ShimFormatTest.cpp UiWindowWin32Test.cpp WinDinputTest.cpp)
+set(WE_NOT_WINDOWS_TESTS HousekeepingTest.cpp PlatformPosixTest.cpp PrivilegedStepsTest.cpp ServiceLoggingTest.cpp
+    ServiceMainTest.cpp UhidLoopTest.cpp UhidMainTest.cpp UhidProcessTest.cpp UhidWheelTest.cpp WheelEvdevTest.cpp
+    UiWindowX11Test.cpp)
+if(WIN32)
+    set(WE_TESTS_ELSEWHERE ${WE_NOT_WINDOWS_TESTS})
+else()
+    set(WE_TESTS_ELSEWHERE ${WE_WINDOWS_ONLY_TESTS})
+endif()
+get_property(WE_TEST_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+set(WE_BUILT_TESTS)
+foreach(testTarget IN LISTS WE_TEST_TARGETS)
+    get_target_property(testSources ${testTarget} SOURCES)
+    foreach(source IN LISTS testSources)
+        cmake_path(ABSOLUTE_PATH source BASE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} NORMALIZE OUTPUT_VARIABLE source)
+        list(APPEND WE_BUILT_TESTS ${source})
+    endforeach()
+endforeach()
+file(GLOB_RECURSE WE_TEST_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*Test.cpp)
+set(WE_UNBUILT_TESTS)
+foreach(testFile IN LISTS WE_TEST_FILES)
+    cmake_path(GET testFile FILENAME testName)
+    if(NOT testFile IN_LIST WE_BUILT_TESTS AND NOT testName IN_LIST WE_TESTS_ELSEWHERE)
+        file(RELATIVE_PATH testFile ${PROJECT_SOURCE_DIR} ${testFile})
+        list(APPEND WE_UNBUILT_TESTS ${testFile})
+    endif()
+endforeach()
+if(WE_UNBUILT_TESTS AND WE_BUILD_TESTS AND NOT WE_BUILD_FUZZ)
+    if(WE_STRICT_TESTS)
+        message(FATAL_ERROR "Test files no test program builds: ${WE_UNBUILT_TESTS}")
+    else()
+        message(WARNING "Test files no test program builds: ${WE_UNBUILT_TESTS}")
     endif()
 endif()

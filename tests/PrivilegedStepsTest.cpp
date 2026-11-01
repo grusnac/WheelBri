@@ -97,7 +97,7 @@ TEST(PrivilegedStepsElsewhere, TheHideFilterHidesNothing) {
 // The virtual wheel's driver state and DirectInput entries away from Windows: unknown, and nothing written.
 TEST(PrivilegedStepsElsewhere, TheVirtualWheelIsUnknownHere) {
     EXPECT_EQ(VirtualWheelDevice::driverState(), VirtualWheelDevice::DriverState::Unknown);
-    const DirectInputUserEntries entries(*virtualWheel("g923"));
+    const DirectInputUserEntries entries(*virtualWheel("g923"), false);
     std::string error;
     EXPECT_EQ(VirtualWheelDevice::create(*virtualWheel("g25"), error, kNever), nullptr);
     EXPECT_EQ(error, "the virtual wheel exists on Windows only");

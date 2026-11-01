@@ -1,0 +1,5 @@
+# LeakSanitizer suppressions for the sanitizer run (CI: "Sanitizers (Linux)").
+# UiWindowX11.ZzDisplayGoesAway kills the X server on purpose: Xlib's display, GCs, fonts and atoms can no longer be
+# freed once the connection is gone, so what Xlib and xcb allocated is left behind by design.
+leak:libX11.so
+leak:libxcb.so

@@ -12,3 +12,7 @@ build/tests/wheelbri_fuzz -max_total_time=600 <corpus folder>
 ```
 
 - Tests running a `wheelbri-uhid` take `UhidTestLock` (`ctest -j` must not run two at once).
+- Every `*Test.cpp` must be in a test program; one only Windows or only the other systems build goes in
+  `WE_WINDOWS_ONLY_TESTS` / `WE_NOT_WINDOWS_TESTS` (`tests/CMakeLists.txt`), or the configure warns (fails in CI).
+- Sanitizer run (CI "Sanitizers (Linux)"): Debug with `-fsanitize=address,undefined`,
+  `LSAN_OPTIONS=suppressions=tests/lsan-suppressions.txt` (Xlib's leftovers after `ZzDisplayGoesAway`).
