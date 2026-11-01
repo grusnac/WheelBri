@@ -113,7 +113,7 @@ namespace wheelbri {
 //   05 s idx        -> 05 s idx 09 idx <f32 value>        a parameter's current value (parameterBits())
 //   07 s            -> 07 s 06, then six slots <n 01 flag>
 //   06 s ..         -> status of type 10, ff ff ff ff at 17..20
-//   0e s <f32 deg>  -> nothing (operating range: logged; a G923 does not answer it)
+//   0e s <f32 deg>  -> status 02 (operating range: logged)
 //   03 s / 04 s     -> status 02 (03 starts the session, 04 stops it)
 //   01 s .. (stream)-> status 02 (the stream comes 1000 times a second)
 //   09, 0b, 0c, ... -> nothing
@@ -141,8 +141,7 @@ public:
     [[nodiscard]] std::optional<Report> steering(std::int32_t value, int rotationDeg, std::int64_t nowUs);
     void finish(std::int64_t nowUs) { log_.finish(nowUs / 1000); }
     [[nodiscard]] bool running() const;
-    // A parameter's value as a real G923 reports it, as float32 bits (0x2F..0x3F: NaN, ff ff ff ff), but 0x36 (see
-    // TrueForce.cpp); 0 beyond 0x3F. parameter(): the same as a float.
+    // A parameter's value as a real G923 reports it, as float32 bits (0x2F..0x3F: NaN, ff ff ff ff); 0 beyond 0x3F. parameter(): the same as a float.
     [[nodiscard]] static std::uint32_t parameterBits(std::uint8_t index);
     [[nodiscard]] static float parameter(std::uint8_t index);
 

@@ -168,15 +168,15 @@ std::vector<std::uint8_t> body(const TrueForceDevice::Report& r, const std::size
     return {r.begin() + 4, r.begin() + 4 + static_cast<std::ptrdiff_t>(count)};
 }
 
-// Parameter 0x36 negative switches the SDK's slot 3 on, which skips its KF reconstruction filter; the other slot
-// switches (0x34, 0x35, 0x37, 0x38) stay off ("0 > NaN" is false), as on a real G923.
-TEST(TrueForceDevice, SlotThreeIsOnSoTheSdkSkipsItsKfFilter) {
-    EXPECT_LT(TrueForceDevice::parameter(0x36), 0.0F);
-    for (const std::uint8_t index : {0x34, 0x35, 0x37, 0x38}) EXPECT_FALSE(0.0F > TrueForceDevice::parameter(index));
+// The SDK's slot switches (0x34..0x38, on when negative) all stay off ("0 > NaN" is false), as on a real G923.
+TEST(TrueForceDevice, TheSdkSlotSwitchesStayOff) {
+    for (const std::uint8_t index : {0x34, 0x35, 0x36, 0x37, 0x38}) {
+        EXPECT_FALSE(0.0F > TrueForceDevice::parameter(index));
+    }
 }
 
 // Every parameter as a real G923 answers it (2026-11-01, captures/g923: ACC's set-up and the probe), as the 4 bytes
-// on the wire. 0x36 is WheelBri's one change (above).
+// on the wire.
 TEST(TrueForceDevice, ParametersAreTheRealG923s) {
     const std::array<std::uint32_t, 64> measured = {
         0x40000000U, 0x40000000U, 0x47000000U, 0x477FFF00U, 0x46800000U, 0x4182E8BAU, 0x3F19999AU, 0x3ECCCCCDU,
@@ -189,7 +189,6 @@ TEST(TrueForceDevice, ParametersAreTheRealG923s) {
         0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU};
     for (std::size_t i = 0; i < measured.size(); ++i) {
         const auto index = static_cast<std::uint8_t>(i);
-        if (index == 0x36) continue;
         EXPECT_EQ(TrueForceDevice::parameterBits(index), measured[i]) << "parameter 0x" << std::hex << i;
     }
     EXPECT_EQ(TrueForceDevice::parameterBits(0x40), 0U);
@@ -256,8 +255,12 @@ TEST(TrueForceDevice, SlotConfigAnswersWithStatusTenAndTheRangeWithNothing) {
     EXPECT_EQ(slot[0][4], 0x10);
     EXPECT_EQ((std::vector<std::uint8_t>{slot[0].begin() + 17, slot[0].begin() + 21}),
               (std::vector<std::uint8_t>{0xFF, 0xFF, 0xFF, 0xFF}));
-    // A real G923 answers no operating range (ACC sent three, 2026-11-01); it is logged.
-    EXPECT_TRUE(d.send({0x0E, 0x46, 0x00, 0x00, 0xB4, 0x42}).empty());   // 90.0
+    // The operating range: logged, and answered as a real G923 does, with a plain status carrying its sequence
+    // (without it the SDK gives up on the wheel, 2026-11-01).
+    const auto range = d.send({0x0E, 0x46, 0x00, 0x00, 0xB4, 0x42});   // 90.0
+    ASSERT_EQ(range.size(), 1U);
+    EXPECT_EQ(range[0][4], 0x02);
+    EXPECT_EQ(range[0][5], 0x46);
     EXPECT_NE(std::find(d.lines.begin(), d.lines.end(), "trueforce: operating range 90.0 degrees"), d.lines.end());
 }
 

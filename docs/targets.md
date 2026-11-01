@@ -90,8 +90,8 @@ TrueForce interface: a second device in the wheel's container, usage page `0xFFF
 (`core/include/wheelbri/TrueForce.hpp`). It answers the game's set-up as a real wheel and reports the steering
 (state on 127.0.0.1:41331) over `target_rotation_deg`, the wheel's own rotation, whatever range the game sets. Its
 parameters, count range (904.5 degrees, 268101.8 counts a turn) and full scale are a real G923's, measured with USB
-captures (`tools/g923-capture`); it answers no operating range (`0x0e`), as a real G923. The one change: parameter
-`0x36` is -1 (a G923: NaN), which keeps the SDK's KF filter off. Driver log lines start `trueforce:` (each packet and
+captures (`tools/g923-capture`); it answers the operating range (`0x0e`) with a plain status, as a real G923. All 64 parameters are the G923's,
+`0x36` too (NaN; -1 until 2026-11-01, which kept the SDK's KF filter off). Driver log lines start `trueforce:` (each packet and
 the 10 s summaries at log level debug).
 
 The force of a game in TrueForce mode (ACC: `logiTrueForceSetTorqueKF`) comes on that interface: Logitech's SDK

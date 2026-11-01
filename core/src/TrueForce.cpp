@@ -266,17 +266,14 @@ constexpr std::array<std::uint32_t, 64> kG923ParameterBits = {
     0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU, 0xFFFFFFFFU,   // 0x38..
 };
 
-// The one value WheelBri answers differently: 0x36 (a real G923: NaN). 0x34..0x38 switch the SDK's slots 1..5 on when
-// negative (its set-up compares 0 > the parameter). Slot 3 on = no KF reconstruction filter: with the old
-// (direct-drive) parameters that band-pass ran away under a steady torque (ACC: a full push at launch, then no force,
-// 2026-10-28). Kept until ACC has been tried with the G923's own parameters and NaN here (TrueForce plan, step 4).
-constexpr std::uint8_t kSlotThreeSwitch = 0x36;
-constexpr std::uint32_t kMinusOneBits = 0xBF800000U;   // -1.0F
+// 0x34..0x38 switch the SDK's slots 1..5 on when negative (its set-up compares 0 > the parameter); a G923's are NaN, so
+// all stay off. WheelBri answered 0x36 = -1 until 2026-11-01 (slot 3 on: no KF reconstruction filter, which ran away
+// with the old direct-drive parameters, 2026-10-28). With it, ACC's stream leaned one way (a steady pull to the left on
+// the R3, 2026-11-01), so the real value is tried (TrueForce plan, step 4).
 
 }  // namespace
 
 std::uint32_t TrueForceDevice::parameterBits(const std::uint8_t index) {
-    if (index == kSlotThreeSwitch) return kMinusOneBits;
     return index < kG923ParameterBits.size() ? kG923ParameterBits[index] : 0U;   // beyond 0x3F: never asked
 }
 
@@ -359,7 +356,10 @@ std::vector<TrueForceDevice::Report> TrueForceDevice::output(const std::span<con
             float range = 0;
             std::memcpy(&range, &bits, sizeof(range));
             say_(LogLevel::Info, "trueforce: operating range " + degrees(range) + " degrees");
-            // A real G923 answers nothing (ACC sent three, 2026-11-01).
+            // A real G923 answers it with a plain status carrying its sequence, as any other packet (ACC, 2026-11-01:
+            // frame 261 of S2). Without one the SDK resends it for 2 s, then takes no answer at all: no session, no
+            // angle, the car does not steer (2026-11-01, Mode Virtual).
+            answers.push_back(status(0x02, seq, nowUs));
             break;
         }
         case 0x03:
