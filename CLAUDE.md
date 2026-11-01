@@ -80,11 +80,13 @@ G923: `tools/g923-capture/README.md`).
 - Performance: measure with `measure.sh`, don't add counters to the app.
 
 Options: `WE_BUILD_TESTS`, `WE_BUILD_SERVICE`, `WE_BUILD_SHIM` (Windows), `WE_BUILD_LOGI` (Windows x64),
-`WE_BUILD_UHID` (Linux), `WE_BUILD_FUZZ` (`wheelbri_fuzz`, Clang only; see `tests/CLAUDE.md`).
+`WE_BUILD_UHID` (Linux), `WE_BUILD_FUZZ` (`wheelbri_fuzz`, Clang only; see `tests/CLAUDE.md`), `WE_BUILD_G923CAP`
+(`wheelbri-g923cap`, on by default).
 
 Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage in `printUsage`,
 `service/src/main.cpp`), `wheelbri-helper.exe`, `build/shim/dinput8.dll`, `build/logi/wheelbri-logi.dll`,
-`build/tools/uhid/wheelbri-uhid` (Linux). Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
+`build/tools/uhid/wheelbri-uhid` (Linux), `build/tools/g923-capture/wheelbri-g923cap.exe`.
+Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 
 ## Architecture
 
@@ -116,6 +118,9 @@ Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage 
   `.claude/rules/in-game-dll.md`.
 - **`driver/`** (UMDF 2): virtual wheel minidriver + rig hide filter; details in `driver/CLAUDE.md`.
 - **`tools/uhid/`**: `wheelbri-uhid`, Linux virtual wheel via kernel uhid; Proton reads it with `PROTON_ENABLE_HIDRAW`.
+- **`tools/g923-capture/`**: `wheelbri_g923cap` (portable library: USBPcap captures, TrueForce and HID++ decoding,
+  reports, the read-only probe) and `wheelbri-g923cap` (the tool `g923-capture.sh` runs; the probe's HID is Windows
+  only). Compares against `TrueForceDevice::parameterBits()`. Tests: `G923Cap*`.
 - **`installer/`, `scripts/make/package.ps1`**: Windows package. A new shipped file goes in `package.ps1` and
   `install.ps1`'s required list.
 - **`tests/`**: GoogleTest + `wheelbri_ui_tests`; details in `tests/CLAUDE.md`.

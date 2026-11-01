@@ -1,5 +1,5 @@
 # Captures a real Logitech G923 (Xbox One and PC, 046D:C26E) with USBPcap, guided step by step, on the PC where
-# WheelBri lives. Run it through scripts/make/g923-capture.sh (MSYS2), which passes -Python and -Repo and handles the
+# WheelBri lives. Run it through scripts/make/g923-capture.sh (MSYS2), which passes -Tool and -Repo and handles the
 # shim in the game folders. Plan: "Claude outputs/plans/g923-capture-automation-plan.md".
 #
 #   -Step check     S0: is the PC ready (WheelBri off, R3 out, the G923 in, tools), versions, registry export,
@@ -21,7 +21,7 @@ param(
     [string]$Step = 'check',
     [ValidateSet('', 'S1', 'S2', 'S3', 'S4', 'S5')]
     [string]$Session = '',
-    [string]$Python = '',            # python.exe (Windows path); the wrapper passes MSYS2's
+    [string]$Tool = '',              # wheelbri-g923cap.exe (Windows path), the decoder; the wrapper builds and passes it
     [string]$Repo = '',              # WheelBri's root
     [string]$Day = '',               # the captures folder for this day (default <Repo>\captures\g923\<date>)
     [switch]$WheelBri,
@@ -36,7 +36,7 @@ if (-not $Repo) { $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path 
 if (-not $Day) { $Day = Join-Path $Repo ("captures\g923\" + (Get-Date -Format 'yyyy-MM-dd')) }
 if (-not $UserLocalAppData) { $UserLocalAppData = $env:LOCALAPPDATA }
 $Kit = $PSScriptRoot
-# Rehearsal: the decoder (Python) reads the same setting from the environment.
+# Rehearsal: the decoder (wheelbri-g923cap) reads the same setting from the environment.
 $TargetRegex = 'VID_046D&PID_C26E'
 if ($Target) {
     $env:G923_TARGET = $Target
@@ -76,7 +76,7 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
 if ($Step -ne 'games' -and -not (Test-Admin)) {
     $quoted = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Step', $Step)
     if ($Session) { $quoted += @('-Session', $Session) }
-    if ($Python) { $quoted += @('-Python', "`"$Python`"") }
+    if ($Tool) { $quoted += @('-Tool', "`"$Tool`"") }
     $quoted += @('-Repo', "`"$($Repo.TrimEnd('\'))`"", '-Day', "`"$($Day.TrimEnd('\'))`"",
                  '-UserLocalAppData', "`"$($UserLocalAppData.TrimEnd('\'))`"", '-Elevated')
     if ($WheelBri) { $quoted += '-WheelBri' }
@@ -248,12 +248,12 @@ function Stop-Captures($processes) {
     Start-Sleep -Milliseconds 800
 }
 
-function Invoke-Python([string[]]$arguments) {
-    if (-not $Python -or -not (Test-Path -LiteralPath $Python)) {
-        Warn "no Python given (-Python): run the decode yourself: scripts/make/g923-capture.sh decode"
+function Invoke-Tool([string[]]$arguments) {
+    if (-not $Tool -or -not (Test-Path -LiteralPath $Tool)) {
+        Warn "no decoder given (-Tool): run the decode yourself: scripts/make/g923-capture.sh decode"
         return @()
     }
-    $out = & $Python -I (Join-Path $Kit 'run.py') @arguments 2>&1
+    $out = & $Tool @arguments 2>&1
     return @($out | ForEach-Object { "$_" })
 }
 
@@ -273,19 +273,18 @@ function Find-Wheel([string]$cmd) {
     }
     Start-Sleep -Seconds 3
     Stop-Captures $procs
-    $json = (Invoke-Python (@('locate') + @($files.Keys))) -join ''
+    # One line per wheel found: "found<TAB>file<TAB>bus<TAB>address<TAB>product".
+    $lines = @(Invoke-Tool (@('locate') + @($files.Keys)))
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-    # ConvertFrom-Json -InputObject, then a pipeline: Windows PowerShell 5.1 hands a JSON array on as one object, and
-    # .address on an array is the array's own Address() method, not the entries' field.
-    try { $parsed = ConvertFrom-Json -InputObject $json } catch { return $null }
-    $hit = $parsed | ForEach-Object { $_ } | Where-Object { $_.PSObject.Properties['address'] } | Select-Object -First 1
+    $hit = $lines | Where-Object { $_ -like "found`t*" } | Select-Object -First 1
     if (-not $hit) { return $null }
-    # The hub from the file's name (USBPcap1.pcap -> \\.\USBPcap1): MSYS2's Python may print the path with / instead
-    # of \, so the full path is not a reliable key.
-    $leaf = (($hit.file -split '[\\/]')[-1]) -replace '\.pcap.*$', ''
+    $fields = $hit -split "`t"
+    if ($fields.Count -lt 5) { return $null }
+    # The hub from the file's name (USBPcap1.pcap -> \\.\USBPcap1), whichever way the path's slashes go.
+    $leaf = (($fields[1] -split '[\\/]')[-1]) -replace '\.pcap.*$', ''
     $hub = @($hubs | Where-Object { ($_ -replace '[\\\.]', '') -eq $leaf }) | Select-Object -First 1
     if (-not $hub) { return $null }
-    return [pscustomobject]@{ Hub = $hub; Address = [int]$hit.address; Bus = [int]$hit.bus; Product = $hit.product }
+    return [pscustomobject]@{ Hub = $hub; Address = [int]$fields[3]; Bus = [int]$fields[2]; Product = $fields[4] }
 }
 
 # --- Session helpers --------------------------------------------------------------------------------------------------
@@ -506,7 +505,7 @@ function Invoke-Check {
     }
 
     Say 'Tools'
-    if ($Python -and (Test-Path -LiteralPath $Python)) { Good "Python: $Python" } else { Bad 'no Python (the wrapper passes MSYS2''s: pacman -S mingw-w64-ucrt-x86_64-python)' }
+    if ($Tool -and (Test-Path -LiteralPath $Tool)) { Good "decoder: $Tool" } else { Bad 'no decoder (the wrapper builds wheelbri-g923cap and passes it)' }
     $tshark = "$env:ProgramFiles\Wireshark\tshark.exe"
     if (Test-Path -LiteralPath $tshark) { Good "Wireshark: $(Get-FileVersionText $tshark)" } else { Warn 'Wireshark not found (only needed to look at captures by hand)' }
     $cmd = Get-UsbPcapCmd
@@ -517,7 +516,7 @@ function Invoke-Check {
         if ($hubs.Count -eq 0) { Bad "USBPcap is installed ($cmd) but has no root hubs: restart Windows once after installing it" }
         else {
             Good "USBPcap: $cmd, root hubs $($hubs -join ', ')"
-            if ($c26e.Count -and $Python) {
+            if ($c26e.Count -and $Tool) {
                 Info 'finding the wheel''s hub and address (3 s capture of each hub, deleted straight after)...'
                 $w = Find-Wheel $cmd
                 if ($w) {
@@ -614,8 +613,8 @@ function Invoke-Session {
     $n = Copy-ShimLogs $folder $start
     if ($n) { Info "copied $n shim log(s)" }
     Say 'Keeping only the wheel''s frames (other devices on the hub are dropped) and decoding...'
-    foreach ($line in Invoke-Python @('keep', $folder)) { Info $line }
-    $decode = Invoke-Python @('decode', $folder, '--repo', $Repo)
+    foreach ($line in Invoke-Tool @('keep', $folder)) { Info $line }
+    $decode = Invoke-Tool @('decode', $folder)
     foreach ($line in $decode) {
         if ($line -match '^\s+FAIL') { Write-Host $line -ForegroundColor Red }
         elseif ($line -match '^\s+PASS') { Write-Host $line -ForegroundColor Green }

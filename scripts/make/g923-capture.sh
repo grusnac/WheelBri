@@ -14,10 +14,8 @@
 #   scripts/make/g923-capture.sh restore            shim and its ini back as they were, G HUB's service, USBPcap removal
 #   scripts/make/g923-capture.sh check --wheelbri   afterwards: the R3 back, nothing of the capture left
 #   scripts/make/g923-capture.sh test               the kit's own tests (no wheel needed)
-#   scripts/make/g923-capture.sh setup-python       a portable Python (python.org's embeddable zip) in
-#                                                   tools/g923-capture/python: nothing installed, delete the folder to
-#                                                   remove it; its signature is checked (Python Software Foundation)
 #
+# Decoder and probe: wheelbri-g923cap (tools/g923-capture), built incrementally by each command that uses it.
 # Captures go to captures/g923/<date>/ (git-ignored); G923_DAY=<folder name> picks another day's folder.
 #
 # Rehearsal with another wheel (the MOZA R3), to try the whole flow before the G923 is there:
@@ -30,7 +28,7 @@ source "$(dirname "$0")/common.sh"
 kit="$root/tools/g923-capture"
 target=${G923_TARGET:-}
 
-usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 [ $# -ge 1 ] || usage
 command=$1
 shift
@@ -51,37 +49,22 @@ fi
 day="$root/captures/g923/$day_name"
 case "$command" in check|session|probe|decode|restore) say "captures folder: captures/g923/$day_name" ;; esac
 
-# A Windows Python: the kit's portable one first (setup-python), else one on PATH (MSYS2 UCRT64's is one; MSYS's own
-# /usr/bin/python is not: the probe needs Windows' HID).
-portable_version=3.12.10
-portable="$kit/python"
-find_python() {
-    local p
-    if [ -x "$portable/python.exe" ]; then
-        echo "$portable/python.exe"
-        return 0
-    fi
-    for p in python python3; do
-        if command -v "$p" >/dev/null 2>&1 && [ "$("$p" -c 'import sys; print(sys.platform)' 2>/dev/null | tr -d '\r')" = win32 ]; then
-            command -v "$p"
-            return 0
-        fi
-    done
-    return 1
-}
-
-python_unix=""
-python_win=""
-need_python() {
-    python_unix=$(find_python) || fail "no Python for the kit: scripts/make/g923-capture.sh setup-python"
-    python_win=$(cygpath -w "$python_unix")
+# The decoder and probe, wheelbri-g923cap: built (incrementally) before each use, so it always matches the source.
+tool_unix=""
+tool_win=""
+need_tool() {
+    cmake_build wheelbri-g923cap
+    tool_unix="$build_dir/tools/g923-capture/wheelbri-g923cap"
+    on_windows && tool_unix="$tool_unix.exe"
+    [ -x "$tool_unix" ] || fail "no $tool_unix after the build"
+    if on_windows; then tool_win=$(cygpath -w "$tool_unix"); else tool_win=$tool_unix; fi
 }
 
 run_ps() {
     on_windows || fail "the capture is Windows only (MSYS2 UCRT64 shell)"
     mkdir -p "$day"
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$kit/g923-capture.ps1")" \
-        -Repo "$(cygpath -w "$root")" -Day "$(cygpath -w "$day")" ${python_win:+-Python "$python_win"} ${target:+-Target "$target"} "$@"
+        -Repo "$(cygpath -w "$root")" -Day "$(cygpath -w "$day")" ${tool_win:+-Tool "$tool_win"} ${target:+-Target "$target"} "$@"
 }
 
 # name=exe folder lines from the PowerShell part (Steam's libraries), for acc, dirt and nfsheat.
@@ -207,14 +190,14 @@ print_summary() {
 
 case "$command" in
     check)
-        need_python
+        need_tool
         if [ "${1:-}" = "--wheelbri" ]; then run_ps -Step check -WheelBri; else run_ps -Step check; fi
         [ -f "$day/S0-check/check.md" ] && say "saved: $day/S0-check/check.md"
         ;;
     session)
         [ $# -eq 1 ] || fail "usage: g923-capture.sh session S1|S2|S3|S4|S5"
         s=$(echo "$1" | tr '[:lower:]' '[:upper:]')
-        need_python
+        need_tool
         case "$s" in
             S2|S3) shim_on acc; applog_on ;;
             S4) shim_on dirt; applog_on ;;
@@ -225,20 +208,20 @@ case "$command" in
         print_summary
         ;;
     probe)
-        need_python
+        need_tool
         on_windows || fail "the probe is Windows only"
         ghub=closed
         tasklist.exe 2>/dev/null | grep -qiE '^lghub(_agent|_system_tray)?\.exe' && ghub=running
         say "probing the G923 (G HUB $ghub); read-only requests only"
-        "$python_unix" -I "$kit/run.py" probe --out "$(cygpath -w "$day/S6-probe")" --repo "$(cygpath -w "$root")" --ghub "$ghub" \
+        "$tool_unix" probe --out "$(cygpath -w "$day/S6-probe")" --ghub "$ghub" \
             || fail "the probe failed (see above)"
         [ $ghub = running ] && say "now close G HUB fully (tray > Quit) and run probe once more"
         ;;
     decode)
-        need_python
+        need_tool
         folder=${1:-$day}
         [ -d "$folder" ] || fail "no folder $folder"
-        "$python_unix" -I "$kit/run.py" decode "$(cygpath -w "$folder")" --repo "$(cygpath -w "$root")"
+        if on_windows; then "$tool_unix" decode "$(cygpath -w "$folder")"; else "$tool_unix" decode "$folder"; fi
         status=$?
         [ -f "$folder/report.md" ] && say "report: $folder/report.md"
         exit $status
@@ -246,41 +229,13 @@ case "$command" in
     restore)
         shim_restore
         applog_restore
-        need_python
         run_ps -Step restore
         ;;
-    setup-python)
-        on_windows || fail "setup-python is for Windows (MSYS2 UCRT64 shell)"
-        if [ -x "$portable/python.exe" ]; then
-            ok "portable Python already there: $("$portable/python.exe" -c 'import sys; print(sys.version.split()[0], sys.platform)')"
-            exit 0
-        fi
-        url="https://www.python.org/ftp/python/$portable_version/python-$portable_version-embed-amd64.zip"
-        say "downloading $url"
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "
-            \$ErrorActionPreference = 'Stop'
-            \$dest = '$(cygpath -w "$portable")'
-            \$zip = Join-Path \$env:TEMP 'g923-python-embed.zip'
-            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest -UseBasicParsing -Uri '$url' -OutFile \$zip
-            New-Item -ItemType Directory -Force -Path \$dest | Out-Null
-            Expand-Archive -LiteralPath \$zip -DestinationPath \$dest -Force
-            Remove-Item -LiteralPath \$zip
-            \$sig = Get-AuthenticodeSignature (Join-Path \$dest 'python.exe')
-            if (\$sig.Status -ne 'Valid' -or \$sig.SignerCertificate.Subject -notmatch 'Python Software Foundation') {
-                Remove-Item -LiteralPath \$dest -Recurse -Force
-                Write-Host ('python.exe is not signed by the Python Software Foundation (' + \$sig.Status + '): removed') -ForegroundColor Red
-                exit 1
-            }
-            Write-Host ('signature ok: ' + \$sig.SignerCertificate.Subject)
-        " || fail "the portable Python was not set up"
-        [ -x "$portable/python.exe" ] || fail "no python.exe after unpacking"
-        ok "portable Python ready: $("$portable/python.exe" -c 'import sys, ctypes; print(sys.version.split()[0], sys.platform)' | tr -d '\r')"
-        say "next: scripts/make/g923-capture.sh test"
-        ;;
     test)
-        py=$(find_python || command -v python3 || command -v python) || fail "no Python: scripts/make/g923-capture.sh setup-python"
-        "$py" -m unittest discover -s "$kit/tests" -v
+        cmake_build wheelbri_tests
+        tests="$build_dir/tests/wheelbri_tests"
+        on_windows && tests="$tests.exe"
+        "$tests" --gtest_filter='G923Cap*'
         ;;
     *) usage ;;
 esac

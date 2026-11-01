@@ -21,6 +21,7 @@ else()
 endif()
 option(WE_BUILD_FUZZ    "Build wheelbri_fuzz, the parsers under libFuzzer (Clang only)" OFF)
 option(WE_BUILD_UHID    "Build wheelbri-uhid, the virtual G920 for Linux"  ${WE_LINUX})
+option(WE_BUILD_G923CAP "Build wheelbri-g923cap, the decoder of real-G923 USB captures (tools/g923-capture)" ON)
 
 if(MSVC)
     add_compile_options(/W4 /permissive-)
@@ -48,6 +49,10 @@ set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(spdlog)
 
 add_subdirectory(core)
+
+if(WE_BUILD_G923CAP)
+    add_subdirectory(tools/g923-capture)
+endif()
 
 if(WE_BUILD_SERVICE)
     add_subdirectory(service)

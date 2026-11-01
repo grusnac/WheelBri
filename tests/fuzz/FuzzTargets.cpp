@@ -31,6 +31,10 @@
 #include "wheelbri/Rig.hpp"
 #include "wheelbri/ShimGames.hpp"
 #include "wheelbri/StatePacket.hpp"
+#ifdef WHEELBRI_G923CAP
+#include "g923cap/Analysis.hpp"
+#include "g923cap/Pcap.hpp"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -256,6 +260,18 @@ void runOne(const std::span<const std::uint8_t> input) {
             (void)decodeRevLights(command % 2, bytes.size() >= 4 ? bytes.subspan(4) : bytes);
             break;
         }
+#ifdef WHEELBRI_G923CAP
+        case 17: {   // a USBPcap capture (pcap or pcapng): frames, URBs, transfers, the devices' descriptors
+            const auto file = g923cap::parseCapture(g923cap::Bytes(bytes.begin(), bytes.end()));
+            const auto devices = g923cap::findDevices(g923cap::transfersOf(g923cap::urbsOf(file)));
+            for (const auto& [key, device] : devices) {
+                for (const auto& [interface, raw] : device.reportDescriptors) (void)g923cap::parseReportDescriptor(raw);
+            }
+            (void)g923cap::parseReportDescriptor(bytes);
+            (void)g923cap::parseConfiguration(bytes);
+            break;
+        }
+#endif
     }
 }
 

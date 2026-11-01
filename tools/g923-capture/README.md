@@ -17,11 +17,10 @@ Sessions open an Administrator window (USB capture needs it). Do the steps in th
 ## Tonight (once)
 
 1. Install **Wireshark** with **USBPcap** ticked in the installer, then **restart Windows**.
-2. Get the kit's portable Python: `scripts/make/g923-capture.sh setup-python`. This is python.org's embeddable zip,
-   unpacked into `tools/g923-capture/python/` (git-ignored). Nothing is installed in Windows, and its signature is
-   checked. Delete the folder to remove it.
-3. Run the kit's own tests (no wheel needed): `scripts/make/g923-capture.sh test`.
-4. Optional: `scripts/make/g923-capture.sh check` with things as they are now. It lists in red what to change tomorrow.
+2. Run the kit's own tests (no wheel needed): `scripts/make/g923-capture.sh test`. This builds `wheelbri_tests` and
+   runs the `G923Cap*` tests. The decoder, `wheelbri-g923cap`, is built by each command that uses it: nothing else to
+   install.
+3. Optional: `scripts/make/g923-capture.sh check` with things as they are now. It lists in red what to change tomorrow.
 
 ## Tomorrow (about an hour)
 
@@ -57,8 +56,9 @@ switch that isn't there).
   - `notes.txt`: every step with its time; the holds the decoder uses.
   - `transcript.log`
   - `wheelbri-shim-*.log`: the game's SDK calls (S2-S4).
-  - `summary.md`, `analysis.json`, `stream.tsv`
-- `S6-probe/probe-ghub-running.md|json`, `probe-ghub-closed.md|json`
+  - `summary.md`, `stream.tsv`
+- `S6-probe/probe-ghub-running.md`, `probe-ghub-closed.md`
+- `descriptors-VVVV-PPPP.txt`: the wheel's descriptors, read once and reused.
 - `report.md`: all sessions, with the parameters across sessions next to WheelBri's current values (differences in
   bold).
 - `state.txt`, `shim-state.txt`: what to put back.
@@ -70,9 +70,10 @@ Open any `capture.pcap` in Wireshark to look by hand. Frame numbers in the summa
 - **WheelBri's `trueforce` setting:** don't switch it off while the real wheel is plugged in. WheelBri would remove
   Logitech's `OEMForceFeedback` entry for `C26E`, and the real wheel would lose force feedback in DirectInput games.
   The kit only exports that registry key; it never changes it.
-- **The probe only reads.** On TrueForce it sends only types `0x05` and `0x07`. On HID++ it sends only Root,
-  FeatureSet, DeviceFwVersion and DeviceNameType reads. Both lists are fixed in `g923cap/probe.py` and pinned by a
-  test.
+- **The probe only reads.** On TrueForce it sends only type `0x05`. On HID++ it sends only Root, FeatureSet,
+  DeviceFwVersion and DeviceNameType reads. Both lists are fixed (`kSafeTrueForceTypes` in
+  `include/g923cap/Probe.hpp`, `safeHidpp()` in `src/Probe.cpp`), checked before every write, and pinned by tests
+  (`G923Cap.ProbesEveryParameterReadOnly`, `G923Cap.ProbesHidppReadOnly`).
 - **The shim** goes into ACC and DiRT through `shim.sh`, set to `emulate = false` and `logi_log = true`. `restore`
   puts the earlier `wheelbri-shim.ini` back, and takes the shim out where there was none before.
 
@@ -81,11 +82,11 @@ Open any `capture.pcap` in Wireshark to look by hand. Frame numbers in the summa
 | File | What |
 |---|---|
 | `g923-capture.ps1` | Checks, guided sessions, restore (PowerShell 5.1, elevates itself) |
-| `run.py` | `python -I run.py decode|locate|keep|probe ...` |
-| `g923cap/pcap.py` | USBPcap pcap/pcapng reader, transfers |
-| `g923cap/descriptors.py` | USB configuration and HID report descriptors |
-| `g923cap/truforce.py` | TrueForce packets and status fields, as `core/include/wheelbri/TrueForce.hpp` describes them; reads `TrueForceDevice::parameter()` from `core/src/TrueForce.cpp` to compare |
-| `g923cap/hidpp.py` | HID++ pairing and names |
-| `g923cap/analyse.py` | Decoding, pass/fail checks, summaries, the day report |
-| `g923cap/probe.py` | The read-only probe (ctypes on Windows HID; no packages) |
-| `tests/` | A fake G923 that answers as WheelBri's `TrueForceDevice` does, and the tests on it |
+| `src/main.cpp` | `wheelbri-g923cap decode\|locate\|keep\|probe ...` |
+| `src/Pcap.cpp` | USBPcap pcap/pcapng reader, transfers |
+| `src/UsbDescriptors.cpp` | USB configuration and HID report descriptors |
+| `src/Protocol.cpp` | TrueForce packets and status fields (as `wheelbri/TrueForce.hpp` has them), HID++ pairing and names |
+| `src/Analysis.cpp` | Decoding a session |
+| `src/Reports.cpp` | The checks, `summary.md`, `report.md` (WheelBri's values from `TrueForceDevice::parameterBits()`); `locate`, `keep` |
+| `src/Probe.cpp`, `src/ProbeWindows.cpp` | The read-only probe; Windows HID (`hid.dll`, `setupapi.dll` loaded at run time) |
+| `tests/G923CapTest.cpp` (repo root) | A fake G923 that answers with the real wheel's values, and the tests on it |
