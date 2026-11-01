@@ -1,3 +1,4 @@
+#include "wheelbri/HidPid.hpp"
 #include "wheelbri/HidPp.hpp"
 #include "wheelbri/HidPpFfb.hpp"
 
@@ -167,6 +168,17 @@ TEST(HidPpFfb, AStreamThatStopsWhilePushingStopsTheKeepAlives) {
     EXPECT_NE(std::find_if(f.lines.begin(), f.lines.end(),
                            [](const std::string& l) { return l.find("keep-alives stopped") != std::string::npos; }),
               f.lines.end());
+}
+
+// A game that sends nothing for 10 s while even a small force (1.5%) pushes has gone: keep-alives stop, and the
+// service's watchdog stops the force.
+TEST(HidPpFfb, ASilentGameWithASmallPushStopsTheKeepAlives) {
+    Ffb f;
+    (void)f.ffb.download(effect(0, 0x80, 0, 0, {0x01, 0xEC}), 0);   // autostart, level 0x01EC: 1.5%
+    for (std::int64_t t = 10; t < HidPid::kGameQuietMs; t += 10) f.ffb.tick(t);
+    const std::size_t before = f.packets.size();
+    for (std::int64_t t = HidPid::kGameQuietMs; t < HidPid::kGameQuietMs + 2000; t += 10) f.ffb.tick(t);
+    EXPECT_EQ(f.packets.size(), before);
 }
 
 // HidPp hands 0x8123 to its HidPpFfb: download answers with the slot, gains reach every effect.
