@@ -164,6 +164,23 @@ TEST(HidPid, GameSilentWithAPushingForceStopsKeepAlives) {
     EXPECT_FALSE(r.packets.empty());
 }
 
+// A small held force is no safer: a direct-drive rim turns to full lock under 1% with no hands on it. A game that
+// sends nothing for 10 s while 1.5% pushes gets its keep-alives stopped too.
+TEST(HidPid, GameSilentWithASmallPushStopsKeepAlives) {
+    Recorder r;
+    r.pid.setFeature(HidPid::kCreateNewEffect, hex("0100"), 0);
+    r.pid.output(0x15, hex("009600"), 0);    // constant 0.015, infinite
+    r.pid.output(0x11, hex("0101FFFF000000000000FFFF04FF1F0000FFFFFFFF"), 0);
+    r.pid.output(0x1A, hex("010101"), 0);
+    ASSERT_NE(r.lastPlaying(), nullptr);
+    for (std::int64_t t = 10; t < HidPid::kGameQuietMs; t += 10) r.pid.tick(t);
+    EXPECT_FALSE(r.pid.gameQuiet());
+    r.packets.clear();
+    for (std::int64_t t = HidPid::kGameQuietMs; t < HidPid::kGameQuietMs + 2000; t += 10) r.pid.tick(t);
+    EXPECT_TRUE(r.pid.gameQuiet());
+    EXPECT_TRUE(r.packets.empty());
+}
+
 // NFS Unbound streams its effects every 16 ms and, when it closes, simply stops: a held force under 1% (below the
 // 10 s rule's "pushing" threshold) took the R3 to full lock (2026-10-12). A stream that stops is a game gone.
 TEST(HidPid, AStreamThatStopsStopsKeepAlivesSoon) {

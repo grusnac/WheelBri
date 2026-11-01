@@ -99,7 +99,10 @@ public:
     static constexpr std::int64_t kStreamMinMs = 2'000;
     static constexpr std::int64_t kStreamQuietMs = 500;
     static constexpr float kStreamPushingAbove = 0.001F;   // any force at all
-    static constexpr float kQuietPushingAbove = 0.02F;     // the 10 s rule: a force that is felt
+    // The 10 s rule: any force at all, as for a stream. A direct-drive rim turns to full lock under well below 1%
+    // with no hands on it (2026-10-12: 0.74% on the R3), so a small force held by a game that crashed is no safer
+    // than a large one.
+    static constexpr float kQuietPushingAbove = 0.001F;
     // How long parameters without a block wait for the Set Effect that names it (see above).
     static constexpr std::int64_t kPendingMs = 20;
     static constexpr std::int64_t kRunGapMs = 8;
