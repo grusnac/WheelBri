@@ -59,7 +59,8 @@ enum class Status : std::uint8_t {
 
 // The body's strings ("devices"): PutHideFilter's and TakeHideFilterOff's HID interfaces; SetLogLevel's one level; a
 // Hello may carry the app's log level as its one string (the helper takes it for its own log; an older helper ignores
-// it); and CreateVirtualWheel may name the wheel, "g920" or "g25" (none: the G920, as an older app asks).
+// it); and CreateVirtualWheel may name the wheel, "g920" or "g25" (none: the G920, as an older app asks), then
+// kTrueForceProbe for its TrueForce interface (an older helper refuses that).
 struct Request {
     RequestType type = RequestType::Hello;
     std::uint32_t seq = 0;              // echoed in the reply
@@ -91,9 +92,13 @@ inline constexpr std::uint32_t kReplyMagic = 0x52484557;     // "WEHR"
 [[nodiscard]] std::string requestProblem(const Request& request);
 [[nodiscard]] bool isKnown(RequestType type);
 
-// The wheel a CreateVirtualWheel asks for ("g920", "g25"): its one string, or "g920" when it has none. Nullopt for
-// anything else (requestProblem refuses it).
+inline constexpr std::string_view kTrueForceProbe = "trueforce-probe";
+
+// The wheel a CreateVirtualWheel asks for ("g920", "g25"): its first string, or "g920" when it has none; a second
+// string may only be kTrueForceProbe. Nullopt for anything else (requestProblem refuses it).
 [[nodiscard]] std::optional<std::string> requestVirtualWheel(const Request& request);
+// Whether a CreateVirtualWheel also asks for the wheel's TrueForce interface (TrueForce.hpp).
+[[nodiscard]] bool requestTrueForceProbe(const Request& request);
 
 // The app log level a Hello or SetLogLevel carries: exactly one string naming trace, debug, info or warn. Nullopt
 // for anything else (a Hello without one, from an older app).

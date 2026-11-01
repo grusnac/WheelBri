@@ -31,9 +31,12 @@ public:
     // `cancelled`: checked while waiting for Windows (Stop pressed): then null, "cancelled".
     // `userHive`: also the user's DirectInput entries (HKCU); false in the WheelBri Helper, where HKCU is SYSTEM's.
     // `wheel`: which one (virtualWheel("g920"), virtualWheel("g25")); it must outlive this (the table is static).
+    // `trueForce`: for a wheel that has it (VirtualWheel::trueForce), also its TrueForce interface, a second software
+    // device in the wheel's container (TrueForce.hpp); if that fails the wheel is still made, the log says why.
     [[nodiscard]] static std::unique_ptr<VirtualWheelDevice> create(const VirtualWheel& wheel, std::string& error,
                                                              const std::function<bool()>& cancelled = {},
-                                                             bool userHive = true);
+                                                             bool userHive = true,
+                                                             bool trueForce = false);
     ~VirtualWheelDevice();
 
     VirtualWheelDevice(const VirtualWheelDevice&) = delete;
@@ -52,7 +55,8 @@ private:
 // keeps only the machine's (HKLM). Written while this exists, removed when it goes. Nothing elsewhere than Windows.
 class DirectInputUserEntries {
 public:
-    explicit DirectInputUserEntries(const VirtualWheel& wheel);
+    // `keepLogitechFfb`: [emulator] trueforce; Logitech's force feedback driver stays (VirtualWheelDevice::create).
+    DirectInputUserEntries(const VirtualWheel& wheel, bool keepLogitechFfb);
     ~DirectInputUserEntries();
     DirectInputUserEntries(const DirectInputUserEntries&) = delete;
     DirectInputUserEntries& operator=(const DirectInputUserEntries&) = delete;

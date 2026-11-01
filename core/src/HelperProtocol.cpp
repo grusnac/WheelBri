@@ -238,8 +238,13 @@ std::string requestProblem(const Request& request) {
 
 std::optional<std::string> requestVirtualWheel(const Request& request) {
     if (request.devices.empty()) return std::string("g920");
-    if (request.devices.size() == 1 && virtualWheel(request.devices[0]) != nullptr) return request.devices[0];
+    const bool probe = request.devices.size() == 2 && request.devices[1] == kTrueForceProbe;
+    if ((request.devices.size() == 1 || probe) && virtualWheel(request.devices[0]) != nullptr) return request.devices[0];
     return std::nullopt;
+}
+
+bool requestTrueForceProbe(const Request& request) {
+    return requestVirtualWheel(request) && request.devices.size() == 2;
 }
 
 bool isInstalledApp(const std::string_view image, const std::string_view installFolder) {

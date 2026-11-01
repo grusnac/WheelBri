@@ -3,8 +3,10 @@
 
 #include "ProxyDirectInput8.hpp"
 #include "Guard.hpp"
+#include "LogiHook.hpp"
 #include "ModuleWatch.hpp"
 #include "RealDInput.hpp"
+#include "ShimConfig.hpp"
 #include "ShimLogging.hpp"
 
 #include <atomic>
@@ -69,6 +71,8 @@ HRESULT WINAPI Proxy_DirectInput8Create(HINSTANCE instance, DWORD version, REFII
         }
         WE_LOG_INFO(log(), "DirectInput8Create(version 0x{:x}, {}, outer={})", version, describeGuid(riid),
                     static_cast<void*>(outer));
+        // Before the game gets DirectInput: a game that uses Logitech's SDK looks its functions up right after.
+        if (shimConfig().logiLog) installLogiHook();
         const RealDInput* const real = requireReal("DirectInput8Create");
         if (real == nullptr) {
             return DIERR_NOTINITIALIZED;
@@ -163,6 +167,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     switch (reason) {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(instance);
+            armLogiHook();   // the game's GetProcAddress import only (LogiHook.hpp)
             break;
         case DLL_PROCESS_DETACH:
             onDllDetach(reserved != nullptr);

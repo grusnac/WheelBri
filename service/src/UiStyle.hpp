@@ -26,6 +26,7 @@ inline constexpr ui::Colour kText{212, 214, 218};
 inline constexpr ui::Colour kDim{168, 173, 182};        // help, units, labels (bright enough to read)
 inline constexpr ui::Colour kFaint{138, 143, 152};      // tags at a row's right, greyed labels
 inline constexpr ui::Colour kHeading{108, 182, 255};    // blue: selected, an action, page titles
+inline constexpr ui::Colour kHeadingTint{29, 48, 71};   // behind a small blue action at rest (blue when pointed at)
 inline constexpr ui::Colour kActive{61, 187, 92};       // green: fine, running
 inline constexpr ui::Colour kCaution{224, 160, 32};     // amber: check this, yours
 inline constexpr ui::Colour kCautionBack{42, 36, 22};   // behind an amber notice

@@ -249,7 +249,8 @@ game_bits() {
 # The name the shim takes in the folder: dinput8.dll, or dinput8Hooked.dll when the folder's dinput8.dll is the
 # Ultimate ASI Loader (it loads dinput8Hooked.dll in turn; its own file is never touched).
 shim_name_in() {
-    if [ -f "$1/dinput8.dll" ] && grep -qa IsUltimateASILoader "$1/dinput8.dll" 2>/dev/null; then
+    if [ -f "$1/dinput8.dll" ] && grep -qa IsUltimateASILoader "$1/dinput8.dll" 2>/dev/null &&
+        ! grep -qa IsWheelBriShim "$1/dinput8.dll" 2>/dev/null; then   # the shim has the name too
         echo dinput8Hooked.dll
     else
         echo dinput8.dll

@@ -22,6 +22,14 @@ G920 only, by themselves while the game runs.
   Native**: ACC's presets read the wheel's own button numbers.
 - **Mode Shim:** not supported by the game; use Mode Virtual.
 - **Linux:** runs under Proton with Mode Virtual.
+- **TrueForce (Target G923, Windows):** ACC then plays its TrueForce force (with its damping) on your wheel.
+  - In `my-g923.ini`: `[emulator] trueforce = true`, and `[steering] target_rotation_deg` at the rotation you want
+    (360 tested).
+  - Logitech's force feedback driver must be installed (`C:\Program Files\Logitech\Direct Input Force Feedback`,
+    installed with G HUB on the test PC); WheelBri registers it for the wheel.
+  - In ACC: Steer Lock **2700**, so the car turns fully at your rotation; Gain 100% felt right.
+  - Moza: keep Pit House closed while you play. With it open the wheel nudges as a track loads.
+  - The road texture is not played yet ([Targets](targets.md#trueforce-g923)).
 
 ## DiRT Rally 2.0
 

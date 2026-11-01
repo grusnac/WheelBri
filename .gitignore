@@ -50,3 +50,7 @@ installer/win7/*.msu
 installer/win7/*.zip
 installer/win7/*.part
 installer/win7/wmf-unpacked/
+
+# Real-wheel USB captures (tools/g923-capture): large, and they carry the wheel's serial number
+/captures/
+__pycache__/

@@ -8,6 +8,7 @@ namespace {
 StatePacket samplePacket() {
     StatePacket packet;
     packet.sequence = 0xDEADBEEF;
+    packet.rotationDeg = 540;
     packet.report = {12345, 65535, 0, 32768, 0x80000001U, 7};
     return packet;
 }
@@ -18,6 +19,7 @@ TEST(StatePacket, RoundTrips) {
     const auto decoded = decodeStatePacket(bytes);
     ASSERT_TRUE(decoded.has_value());
     EXPECT_EQ(decoded->sequence, original.sequence);
+    EXPECT_EQ(decoded->rotationDeg, 540);
     EXPECT_EQ(decoded->report, original.report);
 }
 
@@ -42,6 +44,8 @@ TEST(StatePacket, LayoutIsLittleEndianWithMagicFirst) {
     EXPECT_EQ(bytes[2], 'M');
     EXPECT_EQ(bytes[3], 'U');
     EXPECT_EQ(bytes[4], StatePacket::kVersion);
+    EXPECT_EQ(bytes[6], 0x1C);                  // rotation 540 = 0x021C
+    EXPECT_EQ(bytes[7], 0x02);
     EXPECT_EQ(bytes[8], 0xEF);                  // sequence, low byte first
     EXPECT_EQ(bytes[32], 7);                    // hat
 }

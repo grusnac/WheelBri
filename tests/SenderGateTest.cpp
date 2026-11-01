@@ -92,7 +92,7 @@ TEST(SenderRules, KnownPrograms) {
     EXPECT_FALSE(isDriverHostImage("C:\\Users\\me\\Downloads\\WUDFHost.exe", "C:\\Windows\\System32"));
     EXPECT_FALSE(isDriverHostImage("C:\\Windows\\System32\\WUDFHost.exe", ""));
     EXPECT_TRUE(isWheelBriImage("C:\\Program Files\\WheelBri\\wheelbri.exe"));
-    EXPECT_TRUE(isWheelBriImage("D:/cpp-projects/WheelBri/build/service/WheelBri-Service.exe"));
+    EXPECT_TRUE(isWheelBriImage("D:/projects/WheelBri/build/service/WheelBri-Service.exe"));
     EXPECT_FALSE(isWheelBriImage("C:\\Games\\wheelbri.exe.bak"));
     EXPECT_FALSE(isWheelBriImage("C:\\Games\\notwheelbri.exe"));
     EXPECT_TRUE(sameFolder("C:\\Games\\NFS\\", "c:/games/nfs"));

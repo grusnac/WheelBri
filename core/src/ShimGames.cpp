@@ -127,9 +127,10 @@ Architecture gameArchitecture(const std::filesystem::path& folder) {
 }
 
 bool isAsiLoader(const std::filesystem::path& dll) {
-    // Its export's name, in the export table. The loader is a few MB; anything over 64 MB is not it.
+    // Its export's name, in the export table. The loader is a few MB; anything over 64 MB is not it. The shim has the
+    // name too (it looks for the loader when it chains): one with the shim's mark is ours, not the loader.
     const std::string bytes = readBytes(dll, 64U * 1024U * 1024U);
-    return bytes.find("IsUltimateASILoader") != std::string::npos;
+    return bytes.find("IsUltimateASILoader") != std::string::npos && bytes.find(kShimMarkExport) == std::string::npos;
 }
 
 bool isWheelBriShim(const std::filesystem::path& dll) {

@@ -43,7 +43,7 @@ TEST(PrivilegedStepsElsewhere, EveryStepSaysItIsForWindows) {
 
     std::string instanceId = "none";
     std::string error;
-    EXPECT_FALSE(steps->createVirtualWheel(*virtualWheel("g920"), kNever, instanceId, error));
+    EXPECT_FALSE(steps->createVirtualWheel(*virtualWheel("g920"), false, kNever, instanceId, error));
     EXPECT_EQ(error, "the virtual wheel exists on Windows only");
     EXPECT_EQ(instanceId, "none");
     steps->removeVirtualWheel();   // nothing there: nothing to remove

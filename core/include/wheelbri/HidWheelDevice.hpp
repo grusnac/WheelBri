@@ -72,6 +72,8 @@ struct VirtualWheel {
     // reversed by itself). Assetto Corsa Competizione's G25 and G27 presets read the clutch on Slider 1 (on Linux too:
     // with the clutch on Slider 0 there, ACC under Proton had no clutch, 2026-10-26).
     bool combinedPedals = false;
+    // Whether a real one has TrueForce, so the virtual one can have its interface (TrueForce.hpp): the G923.
+    bool trueForce = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.

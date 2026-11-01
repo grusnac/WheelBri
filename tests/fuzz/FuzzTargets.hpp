@@ -9,7 +9,12 @@
 
 namespace wheelbri::fuzz {
 
-inline constexpr std::uint8_t kTargets = 13;
+// 17: a USBPcap capture (tools/g923-capture), when that tool is built (WHEELBRI_G923CAP).
+#ifdef WHEELBRI_G923CAP
+inline constexpr std::uint8_t kTargets = 18;
+#else
+inline constexpr std::uint8_t kTargets = 17;
+#endif
 
 // A promise broken by an input (a decoded packet that does not encode back, a force that is not a number).
 struct Broken : std::runtime_error {

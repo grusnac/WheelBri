@@ -36,6 +36,7 @@ add_library(wheelbri_core STATIC
     src/HideIds.cpp
     src/HidPid.cpp
     src/HidPp.cpp
+    src/HidPpFfb.cpp
     src/IniDocument.cpp
     src/IniEditor.cpp
     src/InputReadStats.cpp
@@ -60,6 +61,8 @@ add_library(wheelbri_core STATIC
     src/StartNeeds.cpp
     src/StatePacket.cpp
     src/Telemetry.cpp
+    src/TrueForce.cpp
+    src/TrueForceFfb.cpp
     src/UdpLoopback.cpp
     src/WaitFor.cpp
     src/EventLoopControl.cpp

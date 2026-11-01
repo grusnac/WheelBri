@@ -2,6 +2,7 @@
 
 #include "wheelbri/LogLevel.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -14,6 +15,8 @@
 #include <vector>
 
 namespace wheelbri {
+
+class HidPpFfb;
 
 // HID++ 2.0, device side: what Logitech's software (G HUB) asks a Logitech wheel over its vendor reports, answered for
 // a virtual wheel that has them (VirtualWheel::hidpp, docs/targets.md). Written from the
@@ -29,9 +32,8 @@ namespace wheelbri {
 //   1 0x0001 FeatureSet      getCount, getFeatureId(index)
 //   2 0x0003 DeviceFwVersion getEntityCount (unit id, USB, model id), getFwInfo
 //   3 0x0005 DeviceNameType  getCount, getDeviceName(char index), getDeviceType
-//   4 0x8123 ForceFeedback   info, aperture (rotation) and global gains kept and reported to `settings`; effects
-//                            are acknowledged and logged, not played (the game's own force feedback, HID PID or the
-//                            shim, is what reaches the wheel)
+//   4 0x8123 ForceFeedback   info, aperture (rotation) and global gains kept and reported to `settings`; effects go
+//                            to the HidPpFfb set with setForceFeedback (played), else they are only acknowledged
 // Anything else: an error, and a line in the log saying what was asked (that is how the next features are found).
 class HidPp {
 public:
@@ -47,6 +49,10 @@ public:
     };
 
     HidPp(Identity identity, Logger log, Settings settings = {});
+
+    // Where 0x8123's effects go (it must outlive this): Logitech's force feedback driver sends a TrueForce game's force
+    // this way. Without one they are acknowledged and logged only.
+    void setForceFeedback(HidPpFfb* ffb);
 
     static constexpr std::uint8_t kLongId = 0x11;
     static constexpr std::size_t kLongSize = 20;
@@ -70,6 +76,11 @@ public:
     // 0x8123: a guess from Linux's log of a real G923 ("num_effects=63" after one reserved slot).
     static constexpr std::uint8_t kEffectSlots = 64;
 
+    // The rig's own rotation (target_rotation_deg, from the service's state; 40..2520, anything else ignored): what
+    // "get aperture" reports from then on, as a real wheel reports the rotation it turns. ACC reads it and divides its
+    // steering by it, and sets it back (2026-10-28).
+    void setWheelRotation(int degrees);
+    // The rotation software last set ("set aperture"; WheelBri does not apply it).
     [[nodiscard]] int rotationDeg() const;
     [[nodiscard]] float gain() const;
     [[nodiscard]] std::uint64_t requests() const;
@@ -91,6 +102,8 @@ private:
     std::optional<std::uint8_t> forceFeedback(std::uint8_t function, Params in, Out out);
     // Once per (feature, function): what Logitech's software asked, at info; every request at debug.
     void note(std::uint8_t featureIndex, std::uint8_t function, const std::string& what);
+    // A 0x8123 call with its parameters: the first kShownCalls of each function at info, the rest at debug.
+    void showCall(std::uint8_t function, const std::string& what, Params in);
     [[nodiscard]] static std::string hex(std::span<const std::uint8_t> bytes);
 
     Identity identity_;
@@ -101,9 +114,14 @@ private:
     std::set<std::pair<std::uint8_t, std::uint8_t>> seen_;
     std::set<std::uint16_t> askedFor_;   // feature ids asked for that are not there (logged once each)
     int rotationDeg_ = 900;
+    int wheelRotationDeg_ = 0;   // 0: not known yet
     std::uint16_t gain_ = 0xFFFF;
     std::uint16_t boost_ = 0;
     std::uint8_t nextSlot_ = 1;
+    HidPpFfb* ffb_ = nullptr;
+    std::int64_t nowMs_ = 0;   // the request's time, for the effects
+    std::array<int, 16> shown_{};   // 0x8123 calls logged in full, per function (kShownCalls each)
+    static constexpr int kShownCalls = 20;
     std::uint64_t requests_ = 0;
 };
 

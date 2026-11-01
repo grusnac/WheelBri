@@ -111,6 +111,24 @@ TEST(HidPp, FirmwareSaysUsbItsModelAndAVersionNoUpdateBeats) {
     EXPECT_EQ(w.ask(2, 1, {1})[5], HidPp::kErrOutOfRange);   // one entity only
 }
 
+// Once the service says how far the rig turns, "get aperture" reports that, whatever software set.
+TEST(HidPp, GetApertureReportsTheRigsRotationOnceKnown) {
+    Wheel w;
+    w.hidpp.setWheelRotation(540);
+    auto answer = w.ask(4, 5);
+    EXPECT_EQ((answer[4] << 8U) | answer[5], 540);
+    w.ask(4, 6, {0x03, 0x84});   // 900 set: kept, not reported
+    EXPECT_EQ(w.hidpp.rotationDeg(), 900);
+    answer = w.ask(4, 5);
+    EXPECT_EQ((answer[4] << 8U) | answer[5], 540);
+    w.hidpp.setWheelRotation(0);       // not a rotation: ignored
+    w.hidpp.setWheelRotation(3000);
+    answer = w.ask(4, 5);
+    EXPECT_EQ((answer[4] << 8U) | answer[5], 540);
+    EXPECT_NE(std::find(w.lines.begin(), w.lines.end(), "hid++: the wheel turns 540 deg (reported as the rotation)"),
+              w.lines.end());
+}
+
 TEST(HidPp, RotationAndGainAreKeptReadBackAndReported) {
     Wheel w;
     auto answer = w.ask(4, 5);
