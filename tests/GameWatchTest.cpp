@@ -215,9 +215,9 @@ TEST_F(GameWatchTest, TheGamesRotation) {
     }
 }
 
-// NFS Payback's profile gain (x3) while it runs; the user's own values for a game replace the mapping's, and are said
-// to go when it ends; setValues takes new ones while the session runs.
-TEST_F(GameWatchTest, ForceFeedbackGainAndOwnValues) {
+// The user's own values for a game replace the mapping's, and are said to go when it ends; setValues takes new ones
+// while the session runs.
+TEST_F(GameWatchTest, OwnValues) {
     GameSessionConfig config = session();
     GameTuning tuning;
     tuning.pedalInvert[0] = true;   // changes the mapping: a per-game mapper
@@ -225,22 +225,21 @@ TEST_F(GameWatchTest, ForceFeedbackGainAndOwnValues) {
     GameWatch watch(config, 900.0F, {}, {}, system());
     run(3, "NeedForSpeedPayback.exe");
     static_cast<void>(watch.check());
-    EXPECT_FLOAT_EQ(watch.live().ffbGain, 3.0F);
+    EXPECT_EQ(watch.live().id, "nfspayback");
     run(7, "NFS16.exe");   // switched: another game while the first still ends
     twice(watch);
     const GameWatch::Decision decision = watch.check();
     EXPECT_EQ(decision.mapperGame, "nfs2015");
     ASSERT_NE(decision.tuning, nullptr);
-    EXPECT_FLOAT_EQ(watch.live().ffbGain, 1.0F);
     EXPECT_EQ(watch.live().starts, 2U);
 
     // Values that change nothing of the mapping: no per-game mapper.
     GameTunings plain;
-    plain["nfs2015"].ffbStrength = 0.5F;
-    watch.setValues(plain, {}, {});
+    plain["nfs2015"].pedalAxes[0] = ObjectGuid::Slider;
+    watch.setValues(plain, {});
     const GameWatch::Decision again = watch.check();
     EXPECT_TRUE(again.mapperGame.empty());
-    watch.setValues({}, {}, {});
+    watch.setValues({}, {});
     static_cast<void>(watch.check());
 
     run(0, "bash");

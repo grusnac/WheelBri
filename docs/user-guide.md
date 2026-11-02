@@ -158,8 +158,9 @@ NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, you
 2. Set its sub-tabs; **Default** goes back to the profile's or the Mapping tab's value (yours show in violet):
    - **Axes**: steering rotation; per pedal, the axis the game reads and Normal / Inverted. In Mode Virtual pedals can
      only be swapped among the Target's own pedal axes.
-   - **Force feedback**: overall strength, a gain per effect (0 off, up to 4), a lower cap or slew limit, the
-     frozen-push fade, reversed forces, or none at all.
+   - **Force feedback**: nothing to set. While the game runs it shows, per kind of effect, what the game asks
+     (blue) and what reaches the wheel (green). Both moving while the wheel feels nothing points at the wheel's own
+     app; both empty, the game sends no force feedback.
 
      ![Force feedback sub-tab](images/games-ffb.png)
 
@@ -183,8 +184,7 @@ NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, you
 
    - **Game file** (NFS Unbound): writes the game's hidden wheel settings with **Save to file** (game closed).
 
-Values apply at once, even while the game runs (the Force feedback sub-tab then shows what the game asks in blue and
-what reaches the wheel in green). Pedal axes in Mode Shim and new games apply at the next Start.
+Values apply at once, even while the game runs. Pedal axes in Mode Shim and new games apply at the next Start.
 
 ## Linux and the Steam Deck
 
@@ -220,18 +220,17 @@ stop it. Logs: `~/.local/state/wheelbri/`.
 
 ## Force feedback
 
-**Set the strength in your wheel's own app**, once for every game: Moza Pit House, Fanatec's tuning menu, Simucube
-True Drive, Thrustmaster's control panel, Logitech G HUB. WheelBri passes on all the game asks, through safety limits:
-no sudden jumps, a push left unchanged for 2 s (a loading screen) fades out, forces stop when the game goes quiet, and
-a value that is not a force plays nothing.
+**Set the strength in your wheel's own app**, once for every game (Moza Pit House, Fanatec's tuning menu, Simucube
+True Drive, Thrustmaster's control panel, Logitech G HUB), and per game in the game's own settings. WheelBri passes on
+all the game asks, through safety limits: no sudden jumps, a push left unchanged for 2 s (a loading screen) fades out,
+forces stop when the game goes quiet, and a value that is not a force plays nothing. The Games tab's Force feedback
+sub-tab shows what a running game asks and what reaches the wheel.
 
-For one game use the Games tab. For every game, edit `[ffb]` in your mapping file and press Start again:
+A few settings for every game are in `[ffb]` in your mapping file (press Start again after a change):
 `%LOCALAPPDATA%\wheelbri\configs\my-<target>.ini` (Windows), `~/.config/wheelbri/configs/my-<target>.ini` (Linux).
 
 | Setting | Default | |
 |---|---|---|
-| `master_gain` | 1.0 | overall strength; better set in the wheel's app |
-| `max_magnitude` | 1.0 | hard cap, on all forces together (1 = none) |
 | `invert` | false | `true` if forces pull the wrong way |
 | `game_effects` | true | `false` turns game force feedback off |
 | `centring_spring` | 0 | G25 and G27: their centring spring, 0 to 100% |

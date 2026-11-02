@@ -214,23 +214,6 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                     result.problems.push_back("[steering] " + key + ": unknown key");
                 }
             }
-        } else if (section == "ffb") {
-            for (const auto& [key, value] : keys) {
-                if (key == "gain") {
-                    const auto gain = tuning::parseNumber(value);
-                    if (gain && *gain >= kFfbGainMin && *gain <= kFfbGainMax) {
-                        profile.ffbGain = *gain;
-                    } else {
-                        result.problems.push_back("[ffb] gain = '" + value + "': expected a number from " +
-                                                  tuning::formatNumber(kFfbGainMin) + " to " +
-                                                  tuning::formatNumber(kFfbGainMax));
-                    }
-                } else if (key == "note") {
-                    profile.ffbNote = value;
-                } else {
-                    result.problems.push_back("[ffb] " + key + ": unknown key");
-                }
-            }
         } else if (section == "game_settings") {
             for (const auto& [key, value] : keys) {
                 if (key == "file") {
@@ -251,8 +234,8 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
             }
         } else {
             result.problems.push_back("[" + section +
-                                      "]: unknown section (only [game], [pedals], [steering], [ffb] and "
-                                      "[game_settings])");
+                                      "]: unknown section (only [game], [pedals], [steering] and [game_settings]; a "
+                                      "game's force feedback is the game's and the wheel's own app's to set)");
         }
     }
     if (profile.label.empty()) {
@@ -288,11 +271,6 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
         result.problems.push_back("[steering] rotation_deg and note go together: the advice and why");
     } else if (profile.rotationNote.size() > kMaxNote) {
         result.problems.push_back("[steering] note: at most " + std::to_string(kMaxNote) + " characters");
-    }
-    if (profile.ffbGain.has_value() != !profile.ffbNote.empty()) {
-        result.problems.push_back("[ffb] gain and note go together: the change and why");
-    } else if (profile.ffbNote.size() > kMaxNote) {
-        result.problems.push_back("[ffb] note: at most " + std::to_string(kMaxNote) + " characters");
     }
     const bool anySettings =
         !profile.settingsFile.empty() || !profile.settingsNote.empty() || !profile.settings.empty();

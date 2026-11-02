@@ -67,11 +67,10 @@ TEST(EmulatorConfig, ReadsTheG25Target) {
 
 TEST(EmulatorConfig, RejectsNotANumber) {
     // "nan" passes a range check (every comparison is false) and would switch the force cap off.
-    const auto result = load("[ffb]\nmax_magnitude = nan\nmax_slew_per_second = inf\n[brake]\ngamma = -nan\n");
-    EXPECT_TRUE(containsError(result, "max_magnitude"));
+    const auto result = load("[ffb]\nmax_slew_per_second = inf\n[brake]\ngamma = -nan\n");
     EXPECT_TRUE(containsError(result, "max_slew_per_second"));
     EXPECT_TRUE(containsError(result, "gamma"));
-    EXPECT_FLOAT_EQ(result.config.ffb.maxMagnitude, FfbSafetyConfig{}.maxMagnitude);
+    EXPECT_FLOAT_EQ(result.config.ffb.maxSlewPerSecond, FfbSafetyConfig{}.maxSlewPerSecond);
 }
 
 TEST(EmulatorConfig, ReadsButtonLabels) {
@@ -134,7 +133,8 @@ TEST(EmulatorConfig, ReadsEverySection) {
     EXPECT_EQ(config.mapper.buttonMap[2], 2);
     EXPECT_EQ(config.mapper.hatButtons.up, 4);
     EXPECT_EQ(config.mapper.hatButtons.left, 7);
-    EXPECT_FLOAT_EQ(config.ffb.masterGain, 0.6F);
+    EXPECT_FLOAT_EQ(config.ffb.masterGain, 1.0F);   // master_gain and max_magnitude: read and ignored
+    EXPECT_FLOAT_EQ(config.ffb.maxMagnitude, 1.0F);
     EXPECT_FLOAT_EQ(config.ffb.maxSlewPerSecond, 40.0F);
     EXPECT_FLOAT_EQ(config.ffb.frozenForceSeconds, 3.5F);
     EXPECT_TRUE(config.ffbInvert);
@@ -190,13 +190,13 @@ TEST(EmulatorConfig, RemovedLoggingKeysAreReported) {
 }
 
 TEST(EmulatorConfig, InvalidValuesKeepDefaultsAndAreReported) {
-    const auto result = load("[steering]\naxis = nine\ntarget_rotation_deg = 5\n[ffb]\nmaster_gain = 2\n");
+    const auto result = load("[steering]\naxis = nine\ntarget_rotation_deg = 5\n[ffb]\nmax_slew_per_second = -2\n");
     EXPECT_EQ(result.config.mapper.steering.sourceAxis, 0);
     EXPECT_FLOAT_EQ(result.config.mapper.steering.targetRotationDeg, SteeringConfig{}.targetRotationDeg);
-    EXPECT_FLOAT_EQ(result.config.ffb.masterGain, 1.0F);
+    EXPECT_FLOAT_EQ(result.config.ffb.maxSlewPerSecond, FfbSafetyConfig{}.maxSlewPerSecond);
     EXPECT_TRUE(containsError(result, "[steering] axis = 'nine'"));
     EXPECT_TRUE(containsError(result, "[steering] target_rotation_deg = '5'"));
-    EXPECT_TRUE(containsError(result, "[ffb] master_gain = '2'"));
+    EXPECT_TRUE(containsError(result, "[ffb] max_slew_per_second = '-2'"));
 }
 
 TEST(EmulatorConfig, UnknownKeysAndSectionsAreReported) {
@@ -300,28 +300,28 @@ TEST(EmulatorConfig, ButtonSecondaryLists) {
 // Each is reported and the default kept.
 TEST(EmulatorConfig, RejectsMalformedNumbers) {
     const auto result = load("[emulator]\nstate_port = 41329x\nffb_port = 99999999999999999999\n"
-                             "state_rate_hz = 1e3\n[ffb]\nmaster_gain = 0.5.1\nmax_magnitude = -0.1\n"
+                             "state_rate_hz = 1e3\n[ffb]\nfrozen_force_s = 0.5.1\n"
                              "max_slew_per_second = 1000.5\n[telemetry]\nrate_hz = 0\nmin_change = 0.05 \n");
     for (const char* key : {"state_port = '41329x'", "ffb_port = '99999999999999999999'", "state_rate_hz = '1e3'",
-                            "master_gain = '0.5.1'", "max_magnitude = '-0.1'", "max_slew_per_second = '1000.5'",
+                            "frozen_force_s = '0.5.1'", "max_slew_per_second = '1000.5'",
                             "rate_hz = '0'"}) {
         EXPECT_TRUE(containsError(result, key)) << key;
     }
-    EXPECT_EQ(result.errors.size(), 7U);   // "0.05 " is trimmed by the reader: fine
+    EXPECT_EQ(result.errors.size(), 6U);   // "0.05 " is trimmed by the reader: fine
     EXPECT_EQ(result.config.statePort, kDefaultStatePort);
     EXPECT_EQ(result.config.ffbPort, kDefaultFfbPort);
-    EXPECT_FLOAT_EQ(result.config.ffb.maxMagnitude, FfbSafetyConfig{}.maxMagnitude);   // the cap is never lifted
+    EXPECT_FLOAT_EQ(result.config.ffb.maxSlewPerSecond, FfbSafetyConfig{}.maxSlewPerSecond);
     EXPECT_FLOAT_EQ(result.config.telemetry.minChange, 0.05F);
 }
 
 // The limits themselves are allowed (the ranges are inclusive).
 TEST(EmulatorConfig, AcceptsTheEndsOfEachRange) {
-    const auto result = load("[emulator]\nstate_port = 1024\nffb_port = 65535\n[ffb]\nmax_magnitude = 0\n"
+    const auto result = load("[emulator]\nstate_port = 1024\nffb_port = 65535\n[ffb]\nfrozen_force_s = 0\n"
                              "max_slew_per_second = 1000\n");
     ASSERT_TRUE(result.errors.empty()) << result.errors.front();
     EXPECT_EQ(result.config.statePort, 1024);
     EXPECT_EQ(result.config.ffbPort, 65535);
-    EXPECT_FLOAT_EQ(result.config.ffb.maxMagnitude, 0.0F);
+    EXPECT_FLOAT_EQ(result.config.ffb.maxSlewPerSecond, 1000.0F);
 }
 
 // frozen_force_s: 0 (never) to 60 s; missing, the default 2 s; beyond the range or not a number, reported.
@@ -419,43 +419,39 @@ TEST(EmulatorConfig, ReportsEveryKindOfBadGameSetting) {
     EXPECT_FLOAT_EQ(good.config.gameSettings.at("nfsunbound").at("force_feedback"), 0.0F);
 }
 
-// [game_ffb_gain]: an unknown game, a gain outside 0.25..4 or not a number. The ends are allowed.
-TEST(EmulatorConfig, ReportsBadGameFfbGains) {
-    const auto result = load("[game_ffb_gain]\nnfs1999 = 1\nnfs2015 = 4.5\nnfsunbound = strong\nnfspayback = 0.2\n");
-    EXPECT_TRUE(containsError(result, "[game_ffb_gain] nfs1999: no built-in game profile"));
-    EXPECT_TRUE(containsError(result, "[game_ffb_gain] nfs2015 = '4.5': expected a number from 0.25 to 4"));
-    EXPECT_TRUE(containsError(result, "[game_ffb_gain] nfsunbound = 'strong'"));
-    EXPECT_TRUE(containsError(result, "[game_ffb_gain] nfspayback = '0.2'"));
-    EXPECT_TRUE(result.config.gameFfbGains.empty());
-    const auto ends = load("[game_ffb_gain]\nnfs2015 = 4\nnfsunbound = 0.25\n");
-    ASSERT_TRUE(ends.errors.empty()) << ends.errors.front();
-    EXPECT_FLOAT_EQ(ends.config.gameFfbGains.at("nfs2015"), 4.0F);
-    EXPECT_FLOAT_EQ(ends.config.gameFfbGains.at("nfsunbound"), 0.25F);
+// Retired force feedback settings (until 2026-11-02): an older config with them loads without a problem, and they
+// change nothing.
+TEST(EmulatorConfig, RetiredForceFeedbackSettingsLoadAndChangeNothing) {
+    const auto result = load("[ffb]\nmaster_gain = 0.6\nmax_magnitude = 0.7\n[game_ffb_gain]\nnfsunbound = 3\n"
+                             "nfs1999 = strong\n[game_tuning]\nnfsunbound.ffb_constant = 3\nnfsunbound.ffb_cap = 2\n");
+    ASSERT_TRUE(result.errors.empty()) << result.errors.front();
+    EXPECT_FLOAT_EQ(result.config.ffb.masterGain, 1.0F);
+    EXPECT_FLOAT_EQ(result.config.ffb.maxMagnitude, 1.0F);
+    EXPECT_TRUE(result.config.gameTunings.empty());   // only retired keys: nothing of the game's
 }
 
 // [game_tuning]: a built-in game's values are read; an unknown game, a key without a game and bad values are reported
 // and left out.
 TEST(EmulatorConfig, ReadsGameTuning) {
-    const auto result = load("[game_tuning]\nnfs2015.throttle_axis = slider\nnfsunbound.ffb_spring = 0.8\n"
-                             "nfsunbound.ffb_cap = 2\nnfs1999.ffb_spring = 1\nffb_spring = 1\nnfspayback.colour = red\n"
-                             "nfs2015.button_3_or = 20, axis 3 > 40%\n");
+    const auto result = load("[game_tuning]\nnfs2015.throttle_axis = slider\nnfsunbound.brake_invert = true\n"
+                             "nfsunbound.throttle_axis = w\nnfs1999.brake_invert = true\nbrake_invert = true\n"
+                             "nfspayback.colour = red\nnfs2015.button_3_or = 20, axis 3 > 40%\n");
     ASSERT_EQ(result.config.gameTunings.count("nfs2015"), 1U);
     EXPECT_EQ(result.config.gameTunings.at("nfs2015").pedalAxes[0], ObjectGuid::Slider);
     EXPECT_EQ(result.config.gameTunings.at("nfs2015").secondaries.at(3).size(), 2U);
-    EXPECT_FLOAT_EQ(*result.config.gameTunings.at("nfsunbound").ffbGains[static_cast<std::size_t>(FfbGroup::Spring)],
-                    0.8F);
-    EXPECT_FALSE(result.config.gameTunings.at("nfsunbound").ffbCap.has_value());
+    EXPECT_EQ(result.config.gameTunings.at("nfsunbound").pedalInvert[1], true);
+    EXPECT_FALSE(result.config.gameTunings.at("nfsunbound").pedalAxes[0].has_value());
     EXPECT_EQ(result.config.gameTunings.count("nfspayback"), 0U);   // nothing valid: no entry
-    EXPECT_TRUE(containsError(result, "[game_tuning] nfsunbound.ffb_cap = '2': expected a number from 0 to 1"));
-    EXPECT_TRUE(containsError(result, "[game_tuning] nfs1999.ffb_spring: no game nfs1999"));
-    EXPECT_TRUE(containsError(result, "[game_tuning] ffb_spring: no game"));
+    EXPECT_TRUE(containsError(result, "[game_tuning] nfsunbound.throttle_axis = 'w': expected x, y, z"));
+    EXPECT_TRUE(containsError(result, "[game_tuning] nfs1999.brake_invert: no game nfs1999"));
+    EXPECT_TRUE(containsError(result, "[game_tuning] brake_invert: no game"));
     EXPECT_TRUE(containsError(result, "[game_tuning] nfspayback.colour = 'red': unknown key"));
     EXPECT_EQ(result.errors.size(), 4U);
 }
 
 // A game the user added is known to [game_tuning] only when it is passed in.
 TEST(EmulatorConfig, GameTuningForAUserGame) {
-    const auto parsed = IniDocument::parse("[game_tuning]\nexcalibur.ffb_damper = 0.5\n");
+    const auto parsed = IniDocument::parse("[game_tuning]\nexcalibur.brake_invert = true\n");
     ASSERT_TRUE(parsed.errors.empty());
     EXPECT_FALSE(loadEmulatorConfig(parsed.document).errors.empty());
     GameProfile excalibur;
@@ -465,8 +461,7 @@ TEST(EmulatorConfig, GameTuningForAUserGame) {
     const std::vector<GameProfile> users{excalibur};
     const auto result = loadEmulatorConfig(parsed.document, users);
     EXPECT_TRUE(result.errors.empty());
-    EXPECT_FLOAT_EQ(*result.config.gameTunings.at("excalibur").ffbGains[static_cast<std::size_t>(FfbGroup::Damper)],
-                    0.5F);
+    EXPECT_EQ(result.config.gameTunings.at("excalibur").pedalInvert[1], true);
 }
 
 // [game_rotation]: an unknown game and a rotation that is not one.
@@ -497,11 +492,12 @@ TEST(EmulatorConfig, KnownSectionsAndCommentsOnlyAreNoError) {
 // A config saved by Notepad (BOM, CRLF, comments after values, tabs): the same as the plain one.
 TEST(EmulatorConfig, ReadsAWindowsSavedFileLikeAPlainOne) {
     const auto windows = load("\xEF\xBB\xBF[emulator]\r\ntarget_profile = g29\t; the old one\r\n[ffb]\r\n"
-                              "\tmaster_gain\t=\t0.7 # quieter\r\ninvert = true\r\n");
-    const auto plain = load("[emulator]\ntarget_profile = g29\n[ffb]\nmaster_gain = 0.7\ninvert = true\n");
+                              "\tfrozen_force_s\t=\t3 # longer\r\ninvert = true\r\n");
+    const auto plain = load("[emulator]\ntarget_profile = g29\n[ffb]\nfrozen_force_s = 3\ninvert = true\n");
     ASSERT_TRUE(windows.errors.empty()) << windows.errors.front();
     EXPECT_EQ(windows.config.targetProfile, plain.config.targetProfile);
-    EXPECT_FLOAT_EQ(windows.config.ffb.masterGain, plain.config.ffb.masterGain);
+    EXPECT_FLOAT_EQ(windows.config.ffb.frozenForceSeconds, 3.0F);
+    EXPECT_FLOAT_EQ(windows.config.ffb.frozenForceSeconds, plain.config.ffb.frozenForceSeconds);
     EXPECT_EQ(windows.config.ffbInvert, plain.config.ffbInvert);
 }
 
@@ -523,16 +519,15 @@ TEST(EmulatorConfig, GameTuningForUserGamesAndKeysWithoutADot) {
     mine.label = "Excalibur";
     mine.program = "excalibur.exe";
     const std::vector<GameProfile> games{mine};
-    const auto parsed = IniDocument::parse("[game_tuning]\nexcalibur.ffb_spring = 0.5\nexcalibur = 1\n");
+    const auto parsed = IniDocument::parse("[game_tuning]\nexcalibur.brake_invert = true\nexcalibur = 1\n");
     ASSERT_TRUE(parsed.errors.empty());
     const auto result = loadEmulatorConfig(parsed.document, games);
     ASSERT_EQ(result.errors.size(), 1U);
     EXPECT_NE(result.errors[0].find("[game_tuning] excalibur: no game excalibur"), std::string::npos)
         << result.errors[0];
     ASSERT_EQ(result.config.gameTunings.count("excalibur"), 1U);
-    EXPECT_FLOAT_EQ(*result.config.gameTunings.at("excalibur").ffbGains[static_cast<std::size_t>(FfbGroup::Spring)],
-                    0.5F);
-    EXPECT_TRUE(containsError(load("[game_tuning]\nexcalibur.ffb_spring = 0.5\n"), "no game excalibur"));
+    EXPECT_EQ(result.config.gameTunings.at("excalibur").pedalInvert[1], true);
+    EXPECT_TRUE(containsError(load("[game_tuning]\nexcalibur.brake_invert = true\n"), "no game excalibur"));
 }
 
 // [game_rotation] names a built-in profile or a game the user added (the Games tab sets it for either); any other name

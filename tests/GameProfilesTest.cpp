@@ -39,7 +39,7 @@ TEST(GameProfiles, EveryBuiltInFileParsesCleanly) {
         EXPECT_EQ(gameProfileFor(profile.program), &profile) << profile.id;
         // A profile is the exception: it changes something or gives advice, or it should not exist.
         EXPECT_TRUE(!describeOverlay(profile).empty() || profile.rotationDeg.has_value() ||
-                    profile.ffbGain.has_value() || !profile.settings.empty() || !profile.notFor.empty())
+                    !profile.settings.empty() || !profile.notFor.empty())
             << profile.id;
     }
 }
@@ -246,35 +246,12 @@ TEST(GameProfiles, NfsPaybackAdvises180) {
     EXPECT_FALSE(payback->throttleAxis.has_value());
 }
 
-TEST(GameProfiles, FfbGain) {
-    const auto parse = [](const std::string& ffb) {
-        return parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n" + ffb);
-    };
-    const ParsedGameProfile good = parse("[ffb]\ngain = 2.5\nnote = Too light.\n");
-    ASSERT_TRUE(good.profile.has_value()) << good.problems.front();
-    EXPECT_EQ(good.profile->ffbGain, 2.5F);
-    EXPECT_EQ(good.profile->ffbNote, "Too light.");
-    EXPECT_FALSE(parse("").profile->ffbGain.has_value());
-
-    EXPECT_FALSE(parse("[ffb]\ngain = 2\n").profile.has_value());            // no reason given
-    EXPECT_FALSE(parse("[ffb]\nnote = Why.\n").profile.has_value());         // a reason for nothing
-    EXPECT_FALSE(parse("[ffb]\ngain = 5\nnote = Why.\n").profile.has_value());     // over kFfbGainMax
-    EXPECT_FALSE(parse("[ffb]\ngain = 0.1\nnote = Why.\n").profile.has_value());   // under kFfbGainMin
-    EXPECT_FALSE(parse("[ffb]\ngain = lots\nnote = Why.\n").profile.has_value());
-    EXPECT_FALSE(parse("[ffb]\nstrength = 2\n").profile.has_value());
-}
-
-// Only NFS Payback's profile changes the force feedback strength (x3 on its pushing forces); every other game plays
-// it as it sends it (the wheel's own app sets how strong). The user can change any game's in the Games tab.
-TEST(GameProfiles, OnlyPaybackChangesTheForceFeedbackStrength) {
-    for (const GameProfile& profile : gameProfiles()) {
-        if (profile.id == "nfspayback") {
-            EXPECT_EQ(profile.ffbGain, 3.0F);
-            EXPECT_FALSE(profile.ffbNote.empty());
-        } else {
-            EXPECT_FALSE(profile.ffbGain.has_value()) << profile.id;
-        }
-    }
+// A profile never sets a game's force feedback ([ffb] is no section of a profile): the game and the wheel's own app
+// set how strong.
+TEST(GameProfiles, NoProfileChangesTheForceFeedback) {
+    const ParsedGameProfile withFfb =
+        parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n[ffb]\ngain = 3\nnote = Why.\n");
+    EXPECT_FALSE(withFfb.profile.has_value());
     const GameProfile* const unbound =
         gameProfileFor("D:\\Steam\\steamapps\\common\\Excalibur\\NeedForSpeedUnbound.exe");
     ASSERT_NE(unbound, nullptr);
@@ -295,8 +272,7 @@ TEST(GameProfiles, EveryKindOfProblemIsNamed) {
                                                        : ::testing::AssertionFailure() << all;
     };
     EXPECT_TRUE(names("[game]\nversion = 2\n", "[game] version: unknown key"));
-    EXPECT_TRUE(names("[ffb]\ngain = 2\nnote = " + std::string(200, 'x') + "\n", "[ffb] note: at most"));
-    EXPECT_TRUE(names("[ffb]\nmax = 2\n", "[ffb] max: unknown key"));
+    EXPECT_TRUE(names("[ffb]\ngain = 2\n", "[ffb]: unknown section"));
     std::string many = "[game_settings]\nfile = G/x\nnote = Why.\n";
     for (char c = 'a'; c < 'a' + static_cast<char>(kMaxGameSettings) + 1; ++c) {
         many += std::string(1, c) + " = Wheel" + std::string(1, c) + " 0.5\n";
@@ -523,7 +499,7 @@ TEST(GameProfiles, NfsHeatIsNotForTheG923) {
                                            "the D-pad does nothing. Use the G920 for it (Mapping tab, Target).");
     EXPECT_FALSE(targetAdvice(*heat, "g920").has_value());
     EXPECT_TRUE(describeOverlay(*heat).empty());
-    EXPECT_FALSE(heat->rotationDeg || heat->ffbGain);
+    EXPECT_FALSE(heat->rotationDeg);
     EXPECT_TRUE(heat->settings.empty());
 }
 

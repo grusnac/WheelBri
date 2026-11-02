@@ -38,11 +38,6 @@ namespace wheelbri {
 //            service steers with it, wheel and game both at that number (GameRotation.hpp), unless the user's mapping
 //            says otherwise for that game ([game_rotation], set in the Games tab). WheelBri never reads or
 //            sets the wheel's own software: the log and the window say to set it to the same number.
-//   [ffb]    gain = 3 / note = why   (both or neither, gain kFfbGainMin..kFfbGainMax): a game whose own force feedback
-//            is too light to feel (NFS Unbound asks for 5% of full scale on average). While the game runs the
-//            service multiplies the game's pushing forces by it (constant force, ramp and periodic effects; springs,
-//            dampers and the like are left as they are: they only resist, and a stronger one feels heavy), before
-//            FfbSafetyLimiter: the user's gain, the cap (max_magnitude) and the slew limit still apply.
 //   [game_settings] file = <path under the user's Documents folder> / note = why / <id> = <the game's name> <value>
 //            (file, note and at least one setting go together; at most kMaxGameSettings): the game's own settings that
 //            the user writes into the game's settings file from the Games tab (GameSettings.hpp; NFS Unbound
@@ -77,15 +72,11 @@ struct GameProfile {
     std::optional<ObjectGuid> clutchAxis;
     std::optional<float> rotationDeg;   // [steering] rotation_deg: the rotation while the game runs (wheel = game)
     std::string rotationNote;           // [steering] note: why, in a sentence, for the user (the log says it)
-    std::optional<float> ffbGain;       // [ffb] gain: the game's pushing forces times this while it runs
-    std::string ffbNote;                // [ffb] note: why, in a sentence (the log says it)
     std::string settingsFile;           // [game_settings] file: relative to the user's Documents folder, / separated
     std::string settingsNote;           // [game_settings] note
     std::vector<GameSetting> settings;  // [game_settings] the rest, by id
 };
 
-inline constexpr float kFfbGainMin = 0.25F;
-inline constexpr float kFfbGainMax = 4.0F;
 
 
 // One built-in profile file as compiled in: its id and its text.

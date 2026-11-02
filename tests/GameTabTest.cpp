@@ -39,7 +39,7 @@ TEST(GameTabFollower, ANewSessionCountsAgain) {
 TEST(GameTab, TheBuiltInProfilesChangeSomething) {
     for (const GameProfile& game : gameProfiles()) {
         const bool changes = !describeOverlay(game).empty() || game.rotationDeg.has_value() ||
-                             game.ffbGain.has_value() || !game.settings.empty() || !game.notFor.empty();
+                             !game.settings.empty() || !game.notFor.empty();
         EXPECT_TRUE(changes) << game.id << " changes nothing and advises nothing: why a profile?";
     }
 }

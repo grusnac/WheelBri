@@ -71,7 +71,7 @@ G920 only, by themselves while the game runs.
 - **Set up:** before the first race, game closed: Games tab, NFS Unbound, **Save to file** (**Locate...** first if
   the file is not under Documents).
 - **Profile:** writes force feedback 1.0, spring 0.8 and the steering rotation into the game's hidden settings
-  (original kept as `PROFILEOPTIONS.before-wheelbri`), and multiplies its steering force by 3.
+  (original kept as `PROFILEOPTIONS.before-wheelbri`).
 - **Target:** G920. As a G923 the game falls back to a generic layout (A opens the friend list).
 - **Known:** the game quits without stopping its forces; WheelBri stops them half a second later.
 

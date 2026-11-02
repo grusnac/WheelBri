@@ -919,40 +919,6 @@ TEST_F(EditView, ConfigsThatCannotBeUsed) {
     EXPECT_TRUE(window_.hasPart("G920"));   // an unknown target: the G920's inputs
 }
 
-// The user's own mappings at WheelBri's older force limits are moved to 1 / 1 when the tab loads, said in the status
-// and a toast; with a config that has problems the problems stay in the status.
-TEST_F(EditView, OlderForceLimitsAreMoved) {
-    useRig(testRig());
-    std::string text = read(dir_ / "config" / "g920.ini");
-    text += "\n[ffb]\nmaster_gain = 0.7\nmax_magnitude = 0.8\n";
-    write(userConfigFolder() / "my-g920.ini", text);
-    write(userConfigFolder() / "my-g25.ini", text);
-    write(userConfigFolder() / "notes.ini", text);        // not my-*: left alone
-    write(userConfigFolder() / "my-old.txt", text);        // not .ini: left alone
-    std::filesystem::create_directories(userConfigFolder() / "my-folder.ini");
-    open();
-    frame();
-    EXPECT_TRUE(window_.hasPart("Force feedback: strength and cap are now 1.00"));
-    EXPECT_TRUE(window_.hasPart("2 mappings"));
-    EXPECT_EQ(view_->takeToast(), "Force limits now 1.00 / 1.00");
-    EXPECT_NE(read(userConfigFolder() / "notes.ini").find("0.7"), std::string::npos);
-
-    write(userConfigFolder() / "my-g920.ini", text + "[emulator]\nno_such_key = 1\n");
-    picker_->refresh();
-    picker_->useTarget(ConfigPicker::Target::G27);
-    picker_->useTarget(ConfigPicker::Target::G920);
-    frame();
-    EXPECT_TRUE(window_.hasPart("The config has problems"));
-    EXPECT_EQ(view_->takeToast(), "Force limits now 1.00 / 1.00");
-
-    write(userConfigFolder() / "my-g920.ini", text);
-    picker_->refresh();
-    picker_->useTarget(ConfigPicker::Target::G27);
-    picker_->useTarget(ConfigPicker::Target::G920);
-    frame();
-    EXPECT_TRUE(window_.hasPart("1 mapping."));
-}
-
 // The rig is read again every 2 s (the Rig tab may have saved it), not every frame.
 TEST_F(EditView, TheRigIsReadAgainEveryTwoSeconds) {
     useRig(testRig());
@@ -1350,13 +1316,12 @@ TEST_F(EditView, TheGameThatRuns) {
     now.pid = 42;
     now.forMs = 3'723'000;
     now.rotation = "180 deg";
-    now.ffbGain = 3.0F;
     now.warning = "SOMETHING TO FIX";
     view_->setGameNow(now);
     games();
     EXPECT_TRUE(window_.has("running"));
     EXPECT_TRUE(window_.has("RUNNING, pid 42, for 1:02:03: its profile and your values are in use"));
-    EXPECT_TRUE(window_.has("now: steering 180 deg, force feedback x3"));
+    EXPECT_TRUE(window_.has("now: steering 180 deg"));
     EXPECT_TRUE(window_.has("SOMETHING TO FIX"));
     ASSERT_TRUE(click("NFS 2015"));
     frame();
@@ -1365,7 +1330,6 @@ TEST_F(EditView, TheGameThatRuns) {
     now.id = "nfs2015";
     now.profileApplies = false;
     now.rotation.clear();
-    now.ffbGain = 1.0F;
     now.warning.clear();
     view_->setGameNow(now);
     frame();
@@ -1446,73 +1410,29 @@ TEST_F(EditView, TheAxesSubTab) {
     EXPECT_TRUE(window_.hasPart("Two pedals on one axis"));
 }
 
-// The Force feedback sub-tab: every number typed (checked as the config reader checks it; cap and slew lower only),
-// each Default, the switches; NFS Payback's profile gain said; while the game runs, what it asks and what is sent.
+// The Force feedback sub-tab: nothing to set (no field, no Default, no switch), each kind of effect named; while the
+// game runs, per kind what it asks and what reaches the wheel. An older config's force feedback values for the game
+// change nothing there.
 TEST_F(EditView, TheForceFeedbackSubTab) {
     useRig(testRig());
+    write(userConfigFolder() / "my-g920.ini",
+          read(dir_ / "config" / "g920.ini") + "\n[game_tuning]\nnfspayback.ffb_constant = 3\n");
     open();
     games();
     ASSERT_TRUE(click("NFS Payback"));
     ASSERT_TRUE(click("Force feedback"));
     frame();
-    EXPECT_TRUE(window_.hasPart("Its game profile: Steering force and Vibration x3"));
-    EXPECT_TRUE(window_.hasPart("Default below goes back to it"));
-    EXPECT_TRUE(window_.hasPart("the profile's; constant force"));
-    const auto setField = [this](const std::string& row, const std::string& typed) {
-        ASSERT_TRUE(clickRight(row));
-        type(std::string(8, ui::kBackspace) + typed + std::string(1, ui::kEnter));
-        frame();
-    };
-    setField("Overall strength", "0.5");
-    EXPECT_NE(own().find("nfspayback.ffb_strength = 0.5"), std::string::npos) << own();
-    setField("Overall strength", "5");
-    EXPECT_TRUE(window_.hasPart("Not changed: '5': "));
-    view_->onKey(ui::kEscape);
-    setField("Steering force", "2");
-    EXPECT_NE(own().find("nfspayback.ffb_constant = 2"), std::string::npos) << own();
-    EXPECT_TRUE(window_.hasPart("your own values below replace it"));
-    setField("Vibration", "1.5");
-    EXPECT_NE(own().find("nfspayback.ffb_periodic = 1.5"), std::string::npos) << own();
-    setField("Damper", "0.5");
-    setField("Cap", "0.5");
-    EXPECT_NE(own().find("nfspayback.ffb_cap = 0.5"), std::string::npos) << own();
-    setField("Cap", "1");   // back up to the mapping's: allowed
-    setField("Cap", "2");   // over 1: the reader's own check
-    EXPECT_TRUE(window_.hasPart("Not changed: '2': "));
-    view_->onKey(ui::kEscape);
-    setField("Slew limit", "100");   // over the mapping's
-    EXPECT_TRUE(window_.hasPart("a game's limit can only be lower than the mapping's (50)"));
-    type(std::string(8, ui::kBackspace) + "20" + std::string(1, ui::kEnter));
-    frame();
-    EXPECT_NE(own().find("nfspayback.ffb_slew = 20"), std::string::npos) << own();
-    setField("Fade a frozen push", "1");
-    EXPECT_NE(own().find("nfspayback.ffb_fade_s = 1"), std::string::npos) << own();
-    ASSERT_TRUE(clickRight("Turn the other way"));
-    ASSERT_TRUE(clickRight("Game effects"));
-    frame();
-    EXPECT_NE(own().find("nfspayback.ffb_invert = true"), std::string::npos) << own();
-    EXPECT_NE(own().find("nfspayback.ffb_effects = false"), std::string::npos) << own();
-    // A typed gain replaces the older [game_ffb_gain] line for the game.
-    {
-        write(picker_->ownPath(), own() + "\n[game_ffb_gain]\nnfspayback = 2\n");
-        picker_->refresh();
-        frame();
-        setField("Steering force", "2.5");
-        EXPECT_EQ(own().find("[game_ffb_gain]\nnfspayback"), std::string::npos) << own();
+    EXPECT_TRUE(window_.hasPart("shown while the game runs"));
+    EXPECT_TRUE(window_.hasPart("set it in the game and in your wheel's own app"));
+    for (const char* kind : {"Steering force", "Vibration", "Centring spring", "Damper", "Friction", "Inertia"}) {
+        EXPECT_TRUE(window_.has(kind)) << kind;
     }
-
-    // Every Default: back to where it came from, and no value left for the game.
-    for (int i = 0; i < 12; ++i) {
-        frame();
-        const Window::Text* button = nullptr;
-        for (const Window::Text& text : window_.texts) {
-            if (text.value == "Default" && !sameColour(text.colour, style::kFaint)) button = &text;
-        }
-        if (button == nullptr) break;
-        view_->onClick(button->x + 1, button->y + 1);
+    EXPECT_TRUE(window_.hasPart("constant force: the road, the tyres"));
+    for (const char* gone : {"Overall strength", "Cap", "Slew limit", "Fade a frozen push", "Turn the other way",
+                             "Game effects", "Default"}) {
+        EXPECT_FALSE(window_.has(gone)) << gone;
     }
-    frame();
-    EXPECT_EQ(own().find("nfspayback.ffb"), std::string::npos) << own();
+    EXPECT_FALSE(window_.hasPart("Its game profile"));
 
     // While it runs: per kind what it asks and what reaches the wheel.
     MappingEditView::GameNow now;
@@ -1526,6 +1446,7 @@ TEST_F(EditView, TheForceFeedbackSubTab) {
     EXPECT_TRUE(window_.hasPart("50% -> 25%"));
     EXPECT_TRUE(window_.hasPart("not used now"));
     EXPECT_TRUE(window_.hasPart("running: blue what the game asks"));
+    EXPECT_FALSE(window_.hasPart("constant force: the road, the tyres"));
 }
 
 // The Buttons sub-tab: none changed; Add button... (Cancel; a button) adds its row, unchanged: the Mapping tab's main
@@ -2000,7 +1921,7 @@ TEST_F(EditView, RemovingAGame) {
     // Its values cannot be saved: it stays.
     std::filesystem::remove_all(userGamesFile());
     write(userGamesFile(), "[game.shift]\nlabel = NFS Shift\nprogram = shift.exe\n");
-    std::string text = read(dir_ / "config" / "g920.ini") + "\n[game_tuning]\nshift.ffb_strength = 0.5\n";
+    std::string text = read(dir_ / "config" / "g920.ini") + "\n[game_tuning]\nshift.brake_invert = true\n";
     write(userConfigFolder() / "my-g920.ini", text);
     open(true);
     games();
@@ -2134,30 +2055,30 @@ TEST_F(EditView, WhileASessionRuns) {
     useRig(testRig());
     open();
     games();
-    ASSERT_TRUE(click("Force feedback"));
+    ASSERT_TRUE(click("Axes"));
     // A value set, then typed again after a complaint: nothing to save, the status line says when values apply.
     const auto again = [this](const std::string& value) {
-        ASSERT_TRUE(clickRight("Overall strength"));
+        ASSERT_TRUE(clickRight("Steering", 1));
         type(std::string(8, ui::kBackspace) + "5" + std::string(1, ui::kEnter));
         type(std::string(8, ui::kBackspace) + value + std::string(1, ui::kEnter));
         games();
     };
     view_->setLocked(true);   // the session runs on WheelBri's default
-    ASSERT_TRUE(clickRight("Overall strength"));
-    type(std::string(8, ui::kBackspace) + "0.5" + std::string(1, ui::kEnter));
+    ASSERT_TRUE(clickRight("Steering", 1));
+    type(std::string(8, ui::kBackspace) + "360" + std::string(1, ui::kEnter));
     games();
     EXPECT_EQ(view_->takeToast(), "Saved");
-    again("0.5");
+    again("360");
     EXPECT_TRUE(window_.hasPart("Running with WheelBri's default mapping"));
 
     // A session on the user's own mapping: changes apply at once.
     view_->setLocked(false);
     view_->setLocked(true);
-    ASSERT_TRUE(clickRight("Overall strength"));
-    type(std::string(8, ui::kBackspace) + "0.6" + std::string(1, ui::kEnter));
+    ASSERT_TRUE(clickRight("Steering", 1));
+    type(std::string(8, ui::kBackspace) + "540" + std::string(1, ui::kEnter));
     games();
     EXPECT_EQ(view_->takeToast(), "Saved: in use now");
-    again("0.6");
+    again("540");
     EXPECT_TRUE(window_.hasPart("Running: changes apply at once"));
     const Window::Text* const add = window_.find("Add game...");
     ASSERT_NE(add, nullptr);
@@ -2165,7 +2086,7 @@ TEST_F(EditView, WhileASessionRuns) {
 
     // Stopped: the hint about when values apply.
     view_->setLocked(false);
-    again("0.6");
+    again("540");
     EXPECT_TRUE(window_.hasPart("Saved as you change them"));
 
     // The Mapping tab: a session that starts ends its typing and its picker.
@@ -2189,8 +2110,8 @@ TEST_F(EditView, WhileASessionRuns) {
     EXPECT_TRUE(view_->popupOpen());
     view_->setLocked(false);
     view_->onKey(ui::kEscape);
-    ASSERT_TRUE(click("Force feedback"));
-    ASSERT_TRUE(clickRight("Overall strength"));
+    ASSERT_TRUE(click("Axes"));
+    ASSERT_TRUE(clickRight("Steering", 1));
     view_->setLocked(true);
     EXPECT_TRUE(view_->editingText());
 }
@@ -2364,7 +2285,7 @@ TEST_F(EditView, AShimWithoutItsSettings) {
     // Outdated: its folder stays listed when a game the user added is removed.
 }
 
-// The running game's line: force feedback alone, the pedals with a rotation; the session's force feedback not live
+// The running game's line: the rotation alone, the pedals with a rotation; the session's force feedback not live
 // for it; a kind it sends but does not ask for.
 TEST_F(EditView, WhatIsInUseForTheRunningGame) {
     useRig(testRig());
@@ -2372,21 +2293,20 @@ TEST_F(EditView, WhatIsInUseForTheRunningGame) {
     MappingEditView::GameNow now;
     now.session = true;
     now.id = "nfspayback";
-    now.ffbGain = 3.0F;
+    now.rotation = "180 deg";
     view_->setGameNow(now);
     view_->setGameNow(now);   // the same game again: nothing new
     games();
-    EXPECT_TRUE(window_.has("now: force feedback x3"));
+    EXPECT_TRUE(window_.has("now: steering 180 deg"));
     now.id = "nfs2015";
     now.rotation = "540 deg";
-    now.ffbGain = 1.0F;
     now.ffbLive = false;
     view_->setGameNow(now);
     games();
     EXPECT_TRUE(window_.has("now: steering 540 deg, pedals as below"));
     ASSERT_TRUE(click("Force feedback"));
     games();
-    EXPECT_TRUE(window_.hasPart("times what the game asks"));
+    EXPECT_TRUE(window_.hasPart("shown while the game runs"));
     now.ffbLive = true;
     now.sent[1] = 0.5F;   // sent but not asked: still shown
     view_->setGameNow(now);
@@ -2423,37 +2343,20 @@ TEST_F(EditView, PedalValuesOneByOne) {
     EXPECT_EQ(own().find("[game_tuning]\nnfs2015"), std::string::npos) << own();
 }
 
-// Two of a game's own values: Default drops one and keeps the other; NFS Payback's profile gain overridden by
-// Vibration alone; its gain under a target its profile does not fit, with an older [game_ffb_gain] line.
+// Two of a game's own values: Default drops one and keeps the other.
 TEST_F(EditView, OneValueOfSeveral) {
     useRig(testRig());
     std::string text = read(dir_ / "config" / "g920.ini");
-    text += "\n[game_tuning]\nnfspayback.ffb_periodic = 2\nnfspayback.ffb_damper = 0.5\n";
-    text += "[game_settings]\nnfsunbound.force_feedback = 0.7\nnfsunbound.spring = 0.6\n";
-    text += "[game_ffb_gain]\nnfspayback = 2\n";
+    text += "\n[game_settings]\nnfsunbound.force_feedback = 0.7\nnfsunbound.spring = 0.6\n";
     write(userConfigFolder() / "my-g920.ini", text);
-    write(userConfigFolder() / "my-g25.ini", read(dir_ / "config" / "g25.ini") + "\n[game_ffb_gain]\nnfspayback = 2\n");
     open();
     games();
-    ASSERT_TRUE(click("NFS Payback"));
-    ASSERT_TRUE(click("Force feedback"));
-    games();
-    EXPECT_TRUE(window_.hasPart("your own values below replace it"));
-    ASSERT_TRUE(clickRight("Damper", 1));
-    games();
-    EXPECT_NE(own().find("nfspayback.ffb_periodic = 2"), std::string::npos) << own();
-    EXPECT_EQ(own().find("nfspayback.ffb_damper"), std::string::npos) << own();
     ASSERT_TRUE(click("NFS Unbound"));
     ASSERT_TRUE(click("Game file"));
     ASSERT_TRUE(clickRight("force feedback", 1));
     games();
+    EXPECT_EQ(own().find("nfsunbound.force_feedback"), std::string::npos) << own();
     EXPECT_NE(own().find("nfsunbound.spring = 0.6"), std::string::npos) << own();
-    picker_->useTarget(ConfigPicker::Target::G25);
-    games();
-    ASSERT_TRUE(click("NFS Payback"));
-    ASSERT_TRUE(click("Force feedback"));
-    games();
-    EXPECT_TRUE(window_.hasPart("Its game profile"));
 }
 
 // A game in games.ini with a built-in profile's program or id is that profile: listed once.

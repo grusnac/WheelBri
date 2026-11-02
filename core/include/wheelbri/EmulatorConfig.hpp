@@ -55,9 +55,6 @@ struct EmulatorConfig {
     // [game_settings] <profile id>.<setting id> = 0..1: the user's value for a game's own setting that WheelBri sets
     // in the game's settings file (GameSettings.hpp). A setting left out has its game profile's value.
     GameSettingOverrides gameSettings;
-    // [game_ffb_gain] <profile id> = 0.25..4: the game's pushing forces times this while it runs, instead of its game
-    // profile's [ffb] gain (GameSettings.hpp).
-    GameFfbGains gameFfbGains;
     // [game_tuning] <game id>.<key> = value: the user's own values per game (GameTuning.hpp), for a built-in profile
     // or a game the user added.
     GameTunings gameTunings;

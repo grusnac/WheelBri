@@ -25,7 +25,6 @@ add_executable(wheelbri_tests
     EventLoopControlTest.cpp
     FfbForwardingTest.cpp
     FfbIdleWatchTest.cpp
-    FfbLimitsTest.cpp
     FfbSafetyLimiterTest.cpp
     FfbShapeTest.cpp
     FfbUsageTest.cpp
@@ -93,7 +92,7 @@ if(TARGET wheelbri_privileged)
     target_sources(wheelbri_tests PRIVATE WaitSetTest.cpp FolderWatchTest.cpp DeviceWatchTest.cpp HelperProbeTest.cpp
         AppLogLevelTest.cpp UiCanvasTest.cpp ConfigPickerTest.cpp ShimGamesViewTest.cpp HoverTextTest.cpp
         MappingAutoSaveTest.cpp GamesListWidthTest.cpp GameFileSeenTest.cpp
-        GameRemoveTest.cpp OldLimitsMoveTest.cpp
+        GameRemoveTest.cpp
         ${PROJECT_SOURCE_DIR}/service/src/DeviceChanges.cpp ${PROJECT_SOURCE_DIR}/service/src/DeviceWatch.cpp
         ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp ${PROJECT_SOURCE_DIR}/service/src/AppLogLevel.cpp
         ${PROJECT_SOURCE_DIR}/service/src/ConfigPicker.cpp ${PROJECT_SOURCE_DIR}/service/src/ShimGamesView.cpp

@@ -137,36 +137,23 @@ void GameWatch::sayRotation() {
     applied_ = next;
 }
 
-void GameWatch::sayFfbGain() {
-    // The steering force's gain: what the Games tab showed before per-kind gains.
+void GameWatch::sayTuning() {
     const GameDetector::State& state = detector_.state();
     const GameDecision decision = decideGame(state.game, state.profileApplies, session_);
-    const float next = decision.ffb.gains[static_cast<std::size_t>(FfbGroup::Constant)];
     const std::string tuned = decision.tuning != nullptr ? state.game->id : std::string();
-    if (tuned != tunedGame_) {
-        if (!tuned.empty()) {
-            WE_LOG_INFO(log(), "game: {} plays with your own values for it (the Games tab, [game_tuning])",
-                        state.game->label);
-        } else if (!tunedGame_.empty()) {
-            WE_LOG_INFO(log(), "game: the mapping's own values again");
-        }
-        tunedGame_ = tuned;
+    if (tuned == tunedGame_) return;
+    if (!tuned.empty()) {
+        WE_LOG_INFO(log(), "game: {} plays with your own values for it (the Games tab, [game_tuning])",
+                    state.game->label);
+    } else if (!tunedGame_.empty()) {
+        WE_LOG_INFO(log(), "game: the mapping's own values again");
     }
-    if (next == ffbGain_) return;
-    if (next != 1.0F && state.game != nullptr) {
-        WE_LOG_INFO(log(), "game: {}'s steering force {} times what it asks while it runs; the cap and the slew limit "
-                           "still apply",
-                    state.game->label, tuning::formatNumber(next));
-    } else {
-        WE_LOG_INFO(log(), "game: the games' steering force as they ask again");
-    }
-    ffbGain_ = next;
+    tunedGame_ = tuned;
 }
 
 GameWatch::Live GameWatch::live() const {
     Live live;
     live.starts = starts_;
-    live.ffbGain = ffbGain_;
     const GameDetector::State& state = detector_.state();
     // Any game WheelBri knows (a built-in profile, also one for another target, or one the user added): the Game
     // profiles tab shows it running and its values can be changed while it runs.
@@ -231,9 +218,8 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
     }
 }
 
-void GameWatch::setValues(GameTunings tunings, GameRotations overrides, GameFfbGains legacyGains) {
+void GameWatch::setValues(GameTunings tunings, GameRotations overrides) {
     session_.tunings = std::move(tunings);
-    session_.legacyGains = std::move(legacyGains);
     overrides_ = std::move(overrides);
 }
 
@@ -266,10 +252,9 @@ GameWatch::Decision GameWatch::check() {
         settingsWritten_.reset();
     }
     sayRotation();
-    sayFfbGain();
+    sayTuning();
     Decision out;
     out.route = decision.route;
-    out.ffb = decision.ffb;
     if (decision.tuning != nullptr && changesMapping(*decision.tuning)) {
         out.mapperGame = state.game->id;
         out.tuning = decision.tuning;

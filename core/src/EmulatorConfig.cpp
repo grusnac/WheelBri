@@ -292,8 +292,10 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
     }
     {
         SectionReader reader(ini, "ffb", errors);
-        reader.readFloat("master_gain", config.ffb.masterGain, 0.0F, 1.0F);
-        reader.readFloat("max_magnitude", config.ffb.maxMagnitude, 0.0F, 1.0F);
+        // The force's strength and a cap of WheelBri's own (until 2026-11-02): the wheel's own app sets how strong,
+        // WheelBri passes all the game asks (gain 1, cap 1). Older configs load, the keys are ignored.
+        reader.retired("master_gain");
+        reader.retired("max_magnitude");
         reader.readFloat("max_slew_per_second", config.ffb.maxSlewPerSecond, 0.0F, 1000.0F);
         reader.readFloat("frozen_force_s", config.ffb.frozenForceSeconds, 0.0F, 60.0F);
         reader.readBool("ignore_lone_full_push", config.ffb.ignoreLoneFullPush);
@@ -354,23 +356,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         }
     }
 
-    // [game_ffb_gain] <game profile id> = 0.25..4.
-    for (const auto& [section, keys] : ini.sections()) {
-        if (section != "game_ffb_gain") continue;
-        for (const auto& [key, value] : keys) {
-            bool known = false;
-            for (const GameProfile& game : gameProfiles()) known = known || game.id == key;
-            const std::optional<float> number = tuning::parseNumber(value);
-            if (!known) {
-                errors.push_back("[game_ffb_gain] " + key + ": no built-in game profile of that name");
-            } else if (!number || *number < kFfbGainMin || *number > kFfbGainMax) {
-                errors.push_back("[game_ffb_gain] " + key + " = '" + value + "': expected a number from " +
-                                 tuning::formatNumber(kFfbGainMin) + " to " + tuning::formatNumber(kFfbGainMax));
-            } else {
-                config.gameFfbGains[key] = *number;
-            }
-        }
-    }
+    // [game_ffb_gain] (a game's force feedback gain, until 2026-11-02): the section loads and is ignored.
 
     // [game_tuning] <game id>.<key> = value (GameTuning.hpp).
     for (const auto& [section, keys] : ini.sections()) {
@@ -383,7 +369,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
             for (const GameProfile& game : userGames) known = known || game.id == gameId;
             if (!known || dot == std::string::npos) {
                 errors.push_back("[game_tuning] " + key + ": no game " + gameId +
-                                 " (expected <game>.<key>, e.g. nfsunbound.ffb_spring)");
+                                 " (expected <game>.<key>, e.g. nfsunbound.throttle_invert)");
                 continue;
             }
             GameTuning& tuning = config.gameTunings[gameId];

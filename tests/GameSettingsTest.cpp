@@ -212,28 +212,6 @@ TEST(GameSettings, MappingWritesAndDropsLines) {
     EXPECT_FALSE(writeMapping(written, model).error.empty());
 }
 
-// An older config's own force feedback gain per game ([game_ffb_gain]): read in range, refused outside it.
-TEST(GameSettings, OlderGameFfbGainsAreRead) {
-    const EmulatorConfigResult good = load("[game_ffb_gain]\nnfsunbound = 2.5\n");
-    ASSERT_TRUE(good.errors.empty()) << good.errors.front();
-    EXPECT_EQ(good.config.gameFfbGains.at("nfsunbound"), 2.5F);
-    const EmulatorConfigResult bad = load("[game_ffb_gain]\nnfsunbound = 9\nmygame = 2\n");
-    ASSERT_EQ(bad.errors.size(), 2U);
-    EXPECT_TRUE(bad.config.gameFfbGains.empty());
-
-    const std::string first = "[steering]\naxis = 0\n[game_ffb_gain]\nnfsunbound = 2.5\n";
-    MappingModel model = mappingModel(load(first).config);
-    const std::string base = writeMapping(first, model).text;
-    model.gameFfbGains["nfsunbound"] = 1.5F;
-    const std::string written = writeMapping(base, model).text;
-    EXPECT_NE(written.find("nfsunbound = 1.5"), std::string::npos) << written;
-    EXPECT_EQ(mappingModel(load(written).config), model);
-    model.gameFfbGains.clear();   // Default: the profile's again
-    EXPECT_EQ(writeMapping(written, model).text.find("game_ffb_gain]\nnfsunbound"), std::string::npos);
-    model.gameFfbGains["nfsunbound"] = 5.0F;
-    EXPECT_FALSE(writeMapping(written, model).error.empty());
-}
-
 // Whatever bytes the file holds (cut short, damaged, another game's), the edit never reads past them and either
 // writes nothing or keeps the file's size. Seeded: the same cases on every run.
 TEST(GameSettings, DamagedFilesAreSafe) {

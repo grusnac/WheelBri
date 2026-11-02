@@ -23,10 +23,7 @@ TEST(GameTuning, ReadsEveryKey) {
     GameTuning t;
     const std::vector<std::pair<std::string, std::string>> lines = {
         {"throttle_axis", "slider"}, {"brake_axis", "Y"},        {"clutch_axis", "none"},  {"brake_invert", "true"},
-        {"clutch_invert", "false"},  {"ffb_strength", "0.6"},    {"ffb_constant", "3"},    {"ffb_periodic", "0"},
-        {"ffb_spring", "0.8"},       {"ffb_damper", "1"},        {"ffb_friction", "4"},    {"ffb_inertia", "0.5"},
-        {"ffb_cap", "0.6"},          {"ffb_slew", "30"},         {"ffb_fade_s", "0"},      {"ffb_invert", "false"},
-        {"ffb_effects", "off"},      {"button_4", "13"},         {"button_18", "30b7:1001/2"}};
+        {"clutch_invert", "false"},  {"button_4", "13"},         {"button_18", "30b7:1001/2"}};
     for (const auto& [key, value] : lines) EXPECT_EQ(applyTuningKey(t, key, value, 19), "") << key;
     EXPECT_EQ(t.pedalAxes[0], ObjectGuid::Slider);
     EXPECT_EQ(t.pedalAxes[1], ObjectGuid::YAxis);
@@ -34,15 +31,6 @@ TEST(GameTuning, ReadsEveryKey) {
     EXPECT_EQ(t.pedalInvert[1], true);
     EXPECT_FALSE(t.pedalInvert[0].has_value());
     EXPECT_EQ(t.pedalInvert[2], false);
-    EXPECT_FLOAT_EQ(*t.ffbStrength, 0.6F);
-    EXPECT_FLOAT_EQ(*t.ffbGains[static_cast<std::size_t>(FfbGroup::Constant)], 3.0F);
-    EXPECT_FLOAT_EQ(*t.ffbGains[static_cast<std::size_t>(FfbGroup::Periodic)], 0.0F);
-    EXPECT_FLOAT_EQ(*t.ffbGains[static_cast<std::size_t>(FfbGroup::Friction)], 4.0F);
-    EXPECT_FLOAT_EQ(*t.ffbCap, 0.6F);
-    EXPECT_FLOAT_EQ(*t.ffbSlew, 30.0F);
-    EXPECT_FLOAT_EQ(*t.ffbFadeSeconds, 0.0F);
-    EXPECT_EQ(t.ffbInvert, false);
-    EXPECT_EQ(t.ffbEffects, false);
     EXPECT_EQ(t.buttons.at(4), (SourceRef{{}, 13}));
     EXPECT_EQ(t.buttons.at(18), (SourceRef{{0x30b7, 0x1001}, 2}));
 }
@@ -60,12 +48,6 @@ TEST(GameTuning, RefusesBadValues) {
     EXPECT_EQ(why, "expected true or false");
     EXPECT_TRUE(tuned("brake_curve", "1.5", &why).empty());   // how a pedal feels: the rig's own software
     EXPECT_EQ(why, "unknown key");
-    EXPECT_TRUE(tuned("ffb_constant", "4.5", &why).empty());
-    EXPECT_EQ(why, "expected a number from 0 to 4");
-    EXPECT_TRUE(tuned("ffb_spring", "-1", &why).empty());
-    EXPECT_TRUE(tuned("ffb_strength", "1.2", &why).empty());
-    EXPECT_TRUE(tuned("ffb_cap", "nan", &why).empty());
-    EXPECT_FALSE(why.empty());
     EXPECT_TRUE(tuned("button_19", "2", &why).empty());   // the target has 19: 0..18
     EXPECT_EQ(why, "no such button on the target (0 to 18)");
     EXPECT_TRUE(tuned("button_x", "2", &why).empty());
@@ -81,13 +63,6 @@ TEST(GameTuning, LinesRoundTrip) {
     t.pedalAxes = {ObjectGuid::Slider, ObjectGuid::YAxis, ObjectGuid::RzAxis};
     t.pedalInvert[0] = true;
     t.pedalInvert[2] = false;
-    t.ffbStrength = 0.65F;
-    t.ffbGains[static_cast<std::size_t>(FfbGroup::Damper)] = 0.5F;
-    t.ffbCap = 0.7F;
-    t.ffbSlew = 25.0F;
-    t.ffbFadeSeconds = 3.0F;
-    t.ffbInvert = true;
-    t.ffbEffects = true;
     t.buttons[5] = {{}, -1};
     t.secondaries[2] = {ButtonRef{{{}, 20}, false, false, 0.5F}, ButtonRef{{{0x30b7, 0x1001}, 3}, true, true, 0.4F}};
     t.secondaries[3] = {};   // none in this game
@@ -107,72 +82,16 @@ TEST(GameTuning, EffectTypesFallIntoGroups) {
     EXPECT_EQ(ffbGroupOf(FfbEffectType::Inertia), FfbGroup::Inertia);
 }
 
-// No game: the mapping's [ffb] as it is, every kind at 1.
-TEST(GameTuning, ResolveWithoutAGameIsTheMapping) {
-    FfbSafetyConfig base;
-    base.masterGain = 0.7F;
-    const GameFfb ffb = resolveGameFfb(base, true, false, nullptr, std::nullopt, nullptr);
-    EXPECT_FLOAT_EQ(ffb.safety.masterGain, 0.7F);
-    EXPECT_FLOAT_EQ(ffb.safety.maxMagnitude, 1.0F);
-    for (const float gain : ffb.gains) EXPECT_FLOAT_EQ(gain, 1.0F);
-    EXPECT_TRUE(ffb.invert);
-    EXPECT_FALSE(ffb.effects);
-}
-
-// The profile's [ffb] gain (and the older [game_ffb_gain] over it) is for constant and periodic effects only; the
-// tuning's per-kind gains have the last word.
-TEST(GameTuning, ResolveLaysProfileLegacyAndTuningInOrder) {
-    GameProfile game;
-    game.ffbGain = 3.0F;
-    const FfbSafetyConfig base;
-    GameFfb ffb = resolveGameFfb(base, false, true, &game, std::nullopt, nullptr);
-    EXPECT_FLOAT_EQ(ffb.gains[static_cast<std::size_t>(FfbGroup::Constant)], 3.0F);
-    EXPECT_FLOAT_EQ(ffb.gains[static_cast<std::size_t>(FfbGroup::Periodic)], 3.0F);
-    EXPECT_FLOAT_EQ(ffb.gains[static_cast<std::size_t>(FfbGroup::Spring)], 1.0F);
-    ffb = resolveGameFfb(base, false, true, &game, 2.0F, nullptr);
-    EXPECT_FLOAT_EQ(ffb.gains[static_cast<std::size_t>(FfbGroup::Constant)], 2.0F);
-    GameTuning tuning;
-    tuning.ffbGains[static_cast<std::size_t>(FfbGroup::Constant)] = 1.5F;
-    tuning.ffbGains[static_cast<std::size_t>(FfbGroup::Spring)] = 0.0F;
-    tuning.ffbStrength = 0.4F;
-    tuning.ffbInvert = true;
-    tuning.ffbEffects = false;
-    tuning.ffbFadeSeconds = 0.0F;
-    ffb = resolveGameFfb(base, false, true, &game, 2.0F, &tuning);
-    EXPECT_FLOAT_EQ(ffb.gains[static_cast<std::size_t>(FfbGroup::Constant)], 1.5F);
-    EXPECT_FLOAT_EQ(ffb.gains[static_cast<std::size_t>(FfbGroup::Periodic)], 2.0F);
-    EXPECT_FLOAT_EQ(ffb.gains[static_cast<std::size_t>(FfbGroup::Spring)], 0.0F);
-    EXPECT_FLOAT_EQ(ffb.safety.masterGain, 0.4F);
-    EXPECT_FLOAT_EQ(ffb.safety.frozenForceSeconds, 0.0F);
-    EXPECT_TRUE(ffb.invert);
-    EXPECT_FALSE(ffb.effects);
-}
-
-// The safety limits only go down: a game's cap or slew above the mapping's is the mapping's, and out-of-range values
-// (a hand-edited file, NaN) never get past the clamps.
-TEST(GameTuning, ResolveNeverRaisesTheLimits) {
-    FfbSafetyConfig base;
-    base.maxMagnitude = 0.8F;
-    base.maxSlewPerSecond = 50.0F;
-    GameTuning tuning;
-    tuning.ffbCap = 1.0F;
-    tuning.ffbSlew = 500.0F;
-    tuning.ffbStrength = 3.0F;
-    tuning.ffbGains[0] = 99.0F;
-    GameFfb ffb = resolveGameFfb(base, false, true, nullptr, std::nullopt, &tuning);
-    EXPECT_FLOAT_EQ(ffb.safety.maxMagnitude, 0.8F);
-    EXPECT_FLOAT_EQ(ffb.safety.maxSlewPerSecond, 50.0F);
-    EXPECT_FLOAT_EQ(ffb.safety.masterGain, 1.0F);
-    EXPECT_FLOAT_EQ(ffb.gains[0], kGameEffectGainMax);
-    tuning.ffbCap = 0.5F;
-    tuning.ffbSlew = 20.0F;
-    ffb = resolveGameFfb(base, false, true, nullptr, std::nullopt, &tuning);
-    EXPECT_FLOAT_EQ(ffb.safety.maxMagnitude, 0.5F);
-    EXPECT_FLOAT_EQ(ffb.safety.maxSlewPerSecond, 20.0F);
-    tuning.ffbCap = std::numeric_limits<float>::quiet_NaN();
-    ffb = resolveGameFfb(base, false, true, nullptr, std::nullopt, &tuning);
-    EXPECT_FALSE(ffb.safety.maxMagnitude > 0.8F);
-    EXPECT_FALSE(std::isnan(ffb.safety.maxMagnitude));
+// The older force feedback keys (until 2026-11-02) are read and ignored, whatever their value: older configs load.
+TEST(GameTuning, RetiredForceFeedbackKeysAreIgnored) {
+    for (const char* key : {"ffb_strength", "ffb_constant", "ffb_periodic", "ffb_spring", "ffb_damper", "ffb_friction",
+                            "ffb_inertia", "ffb_cap", "ffb_slew", "ffb_fade_s", "ffb_invert", "ffb_effects"}) {
+        for (const char* value : {"0.5", "true", "nonsense"}) {
+            std::string why = "not called";
+            EXPECT_TRUE(tuned(key, value, &why).empty()) << key;
+            EXPECT_EQ(why, "") << key << " = " << value;
+        }
+    }
 }
 
 TEST(GameTuning, UserGamesRoundTrip) {
@@ -239,10 +158,9 @@ TEST(GameTuning, TunedMapper) {
     ASSERT_EQ(problems.size(), 1U);
     EXPECT_NE(problems[0].find("button 6"), std::string::npos);
     EXPECT_TRUE(changesMapping(tuning));
-    GameTuning ffbOnly;
-    ffbOnly.ffbGains[0] = 2.0F;
-    ffbOnly.pedalAxes[0] = ObjectGuid::Slider;
-    EXPECT_FALSE(changesMapping(ffbOnly));
+    GameTuning axesOnly;
+    axesOnly.pedalAxes[0] = ObjectGuid::Slider;
+    EXPECT_FALSE(changesMapping(axesOnly));
 }
 
 namespace {
@@ -265,21 +183,17 @@ TEST(GameTuning, DecideGame) {
     nfs.throttleAxis = ObjectGuid::Slider;
     nfs.brakeAxis = ObjectGuid::YAxis;
     nfs.clutchAxis = ObjectGuid::RzAxis;
-    nfs.ffbGain = 2.0F;
     GameSessionConfig session;
     session.target = "g920";
     GameDecision d = decideGame(&nfs, true, session);
     EXPECT_EQ(d.route, (PedalRoute{{1, 2, 0}}));
-    EXPECT_FLOAT_EQ(d.ffb.gains[0], 2.0F);
     EXPECT_EQ(d.tuning, nullptr);
 
     // Another target: the profile is not used, but the user's values for the game are.
     session.target = "g923";
-    session.tunings["nfs2015"].ffbGains[2] = 0.5F;
+    session.tunings["nfs2015"].pedalInvert[1] = true;
     d = decideGame(&nfs, false, session);
     EXPECT_TRUE(d.route.identity());
-    EXPECT_FLOAT_EQ(d.ffb.gains[0], 1.0F);
-    EXPECT_FLOAT_EQ(d.ffb.gains[2], 0.5F);
     ASSERT_NE(d.tuning, nullptr);
 
     // A game the user added: its axes from the tuning.
@@ -297,19 +211,18 @@ TEST(GameTuning, DecideGame) {
     session.routePedals = false;
     d = decideGame(&mine, true, session);
     EXPECT_FALSE(d.unroutable);
-    // No game: the mapping's force feedback.
+    // No game: nothing of a game's.
     d = decideGame(nullptr, false, session);
     EXPECT_EQ(d.tuning, nullptr);
-    for (const float gain : d.ffb.gains) EXPECT_FLOAT_EQ(gain, 1.0F);
 }
 
 // Every word for true and false the INI files take, and only those.
 TEST(GameTuning, EveryWordForTrueAndFalse) {
-    for (const char* yes : {"true", "on", "yes", "1"}) EXPECT_EQ(tuned("ffb_invert", yes).ffbInvert, true) << yes;
-    for (const char* no : {"false", "off", "no", "0"}) EXPECT_EQ(tuned("ffb_invert", no).ffbInvert, false) << no;
+    for (const char* yes : {"true", "on", "yes", "1"}) EXPECT_EQ(tuned("brake_invert", yes).pedalInvert[1], true) << yes;
+    for (const char* no : {"false", "off", "no", "0"}) EXPECT_EQ(tuned("brake_invert", no).pedalInvert[1], false) << no;
     for (const char* other : {"True", "2", "", " on"}) {
         std::string why;
-        EXPECT_FALSE(tuned("ffb_invert", other, &why).ffbInvert.has_value()) << other;
+        EXPECT_FALSE(tuned("brake_invert", other, &why).pedalInvert[1].has_value()) << other;
         EXPECT_EQ(why, "expected true or false");
     }
 }
@@ -394,20 +307,6 @@ TEST(GameTuning, TunedMapperSecondaries) {
     GameTuning only;
     only.secondaries[0] = {};
     EXPECT_TRUE(changesMapping(only));
-}
-
-// The old [game_ffb_gain] value counts for a game with a profile or values of its own, after the profile.
-TEST(GameTuning, DecideGameTakesTheOldGain) {
-    GameProfile nfs;
-    nfs.id = "nfs2015";
-    nfs.label = "NFS 2015";
-    nfs.program = "nfs16.exe";
-    nfs.target = "g920";
-    GameSessionConfig session;
-    session.target = "g920";
-    session.legacyGains["nfs2015"] = 1.5F;
-    EXPECT_FLOAT_EQ(decideGame(&nfs, true, session).ffb.gains[0], 1.5F);
-    EXPECT_FLOAT_EQ(decideGame(&nfs, false, session).ffb.gains[0], 1.0F);   // not its target, no values of its own
 }
 
 // A user's game whose id is empty, or not as an id is written (upper case, a character past 'z'), is refused.

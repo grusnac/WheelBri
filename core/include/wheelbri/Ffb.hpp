@@ -61,8 +61,8 @@ struct FfbEffect {
 [[nodiscard]] float ffbStrength(const FfbEffect& effect);
 
 struct FfbSafetyConfig {
-    float masterGain = 1.0F;            // 0..1; the strength itself is set in the wheel's own app (FfbLimits.hpp)
-    float maxMagnitude = 1.0F;          // hard cap, 0..1: 1 = all the game asks; the wheel's app sets the strength
+    float masterGain = 1.0F;            // 0..1; 1 in use: the strength itself is set in the wheel's own app
+    float maxMagnitude = 1.0F;          // hard cap, 0..1: 1 in use, all the game asks ([ffb] max_magnitude retired)
     // A constant force, and a periodic effect's magnitude and offset, may move at most this much full-scale per
     // second.
     float maxSlewPerSecond = 50.0F;

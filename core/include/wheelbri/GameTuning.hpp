@@ -21,29 +21,20 @@
 //   [game_tuning]
 //   nfs2015.throttle_axis = slider     ; the axis the game reads the pedal from: x y z rx ry rz slider (clutch: none)
 //   nfs2015.brake_invert = true        ; pedals: <pedal>_invert = true|false (how they feel: the rig's own software)
-//   nfsunbound.ffb_constant = 3        ; force feedback per kind of effect, 0..4: constant (steering force),
-//                                      ;   periodic (vibration), spring, damper, friction, inertia
-//   nfsunbound.ffb_strength = 0.6      ; the overall strength instead of [ffb] master_gain, 0..1
-//   nfsunbound.ffb_cap = 0.6           ; lower only: never above [ffb] max_magnitude (and max_slew_per_second)
-//   nfsunbound.ffb_slew = 30
-//   nfsunbound.ffb_fade_s = 2          ; instead of [ffb] frozen_force_s, 0..60
-//   nfsunbound.ffb_invert = false      ; instead of [ffb] invert / game_effects
-//   nfsunbound.ffb_effects = true
 //   nfsheat.button_4 = 13              ; target button 4 <- this source while the game runs (-1: nothing)
 //   nfsheat.button_4_or = 20, axis 3 > 50%   ; its secondary sources while the game runs, as [buttons] target_N_or
 //                                      ;   (ButtonRef.hpp): instead of the Mapping tab's, not added to them (-1: none)
-// A key left out keeps what the Mapping tab (or the game's profile) has. Every force still goes through
-// FfbSafetyLimiter, the watchdog and the frozen-push fade: a game's values only scale what the game asks within the
-// limits, and can lower the limits, never raise them.
+// A key left out keeps what the Mapping tab (or the game's profile) has. The older force feedback keys (ffb_strength,
+// ffb_constant .. ffb_inertia, ffb_cap, ffb_slew, ffb_fade_s, ffb_invert, ffb_effects; until 2026-11-02) are read and
+// ignored: how strong a game's force feedback is, is the game's and the wheel's own app's to set. The Games tab's
+// Force feedback sub-tab only shows, per kind of effect (FfbGroup), what the game asks and what reaches the wheel.
 namespace wheelbri {
 
-// The kinds of effect a game's force feedback gain is set for, in the order of the window and the keys.
+// The kinds of effect the Games tab shows a running game's force feedback by, in the window's order.
 enum class FfbGroup : std::uint8_t { Constant, Periodic, Spring, Damper, Friction, Inertia };
 inline constexpr std::size_t kFfbGroupCount = 6;
 // The group an effect type belongs to (sine, square, triangle and the saws are periodic).
 [[nodiscard]] FfbGroup ffbGroupOf(FfbEffectType type);
-
-inline constexpr float kGameEffectGainMax = 4.0F;   // 0 (that kind off) .. 4 (four times what the game asks)
 
 // Pedal 0 throttle, 1 brake, 2 clutch.
 inline constexpr std::array<std::string_view, 3> kTuningPedals{"throttle", "brake", "clutch"};
@@ -51,13 +42,6 @@ inline constexpr std::array<std::string_view, 3> kTuningPedals{"throttle", "brak
 struct GameTuning {
     std::array<std::optional<ObjectGuid>, 3> pedalAxes;   // the axis the game reads each pedal from
     std::array<std::optional<bool>, 3> pedalInvert;
-    std::optional<float> ffbStrength;
-    std::array<std::optional<float>, kFfbGroupCount> ffbGains;
-    std::optional<float> ffbCap;
-    std::optional<float> ffbSlew;
-    std::optional<float> ffbFadeSeconds;
-    std::optional<bool> ffbInvert;
-    std::optional<bool> ffbEffects;
     std::map<int, SourceRef> buttons;   // target button -> its source while the game runs
     // target button -> its secondary sources while the game runs (at most MapperConfig::kMaxSecondaries), instead of
     // the Mapping tab's; empty: none in this game. A button left out keeps the Mapping tab's.
@@ -77,21 +61,6 @@ using GameTunings = std::map<std::string, GameTuning>;
 // Every line of `tuning` as key (without the game) and value, in a fixed order: what writeMapping writes.
 [[nodiscard]] std::vector<std::pair<std::string, std::string>> tuningLines(const GameTuning& tuning);
 
-// The force feedback settings while a game runs: the Mapping tab's ([ffb]), with the game's tuning laid over them.
-struct GameFfb {
-    FfbSafetyConfig safety;                       // strength, cap, slew and fade in force
-    std::array<float, kFfbGroupCount> gains{};    // per kind of effect, 0..kGameEffectGainMax
-    bool invert = false;
-    bool effects = true;
-    friend bool operator==(const GameFfb&, const GameFfb&) = default;
-};
-// `base` and `baseInvert` / `baseEffects`: the mapping's [ffb]. `game` (may be null: no game running, or one whose
-// profile does not apply) gives its profile's [ffb] gain to constant and periodic effects; `legacyGain` (the older
-// [game_ffb_gain]) replaces it; `tuning` (may be null) has the last word. The cap and the slew limit only ever go down.
-[[nodiscard]] GameFfb resolveGameFfb(const FfbSafetyConfig& base, bool baseInvert, bool baseEffects,
-                                     const GameProfile* game, std::optional<float> legacyGain,
-                                     const GameTuning* tuning);
-
 // The mapping while the game runs: `base` with its pedals' invert, its buttons and their secondaries as `tuning` says.
 // A button (or a button's secondaries) with a source on an accessory `base` does not read (the session opened only
 // those) is left as it is, and said in `problems` (may be null).
@@ -107,16 +76,11 @@ struct GameFfb {
 struct GameSessionConfig {
     std::string target;              // the session's target profile ("g920")
     bool routePedals = true;         // the virtual device: the service routes the pedals (the in-game shim does not)
-    FfbSafetyConfig ffb;             // the mapping's [ffb]
-    bool ffbInvert = false;
-    bool gameFfb = true;
-    GameFfbGains legacyGains;        // [game_ffb_gain]
     GameTunings tunings;             // [game_tuning]
 };
 struct GameDecision {
     PedalRoute route;                // straight through unless the game's pedals need routing
     bool unroutable = false;         // the game's pedal axes are not the device's: left as they are
-    GameFfb ffb;
     const GameTuning* tuning = nullptr;   // the user's values for the game (in `config.tunings`), or null
 };
 // `game` null: no game runs. `profileApplies`: its built-in values fit the target (profileFitsTarget).

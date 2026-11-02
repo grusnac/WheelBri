@@ -157,8 +157,7 @@ TEST(CentringSpring, PlaysInItsOwnSlotThroughTheLimiter) {
     EXPECT_FALSE(controller.centringSpringPlaying());
 }
 
-// The game cannot take it away: its "stop all", its silence (the watchdog) and its force feedback turned off leave the
-// spring playing; a game's lower strength makes it weaker, as Logitech's overall strength did.
+// The game cannot take it away: its "stop all" and its silence (the watchdog) leave the spring playing.
 TEST(CentringSpring, TheGameCannotStopIt) {
     RecordingSink sink;
     FfbController controller(sink, limits());
@@ -170,16 +169,6 @@ TEST(CentringSpring, TheGameCannotStopIt) {
     EXPECT_TRUE(controller.watchdogTripped());
     EXPECT_TRUE(sink.stops.empty());
     EXPECT_TRUE(controller.centringSpringPlaying());
-
-    std::array<float, kFfbGroupCount> gains{};
-    gains.fill(1.0F);
-    FfbSafetyConfig weaker = limits();
-    weaker.masterGain = 0.5F;
-    controller.setGameTuning(gains, weaker, false, false);   // the game's force feedback off, half strength
-    controller.update(2100 * kMs);
-    EXPECT_TRUE(sink.stops.empty());
-    ASSERT_EQ(sink.springPlays(), 2U);
-    EXPECT_FLOAT_EQ(sink.plays.back().effect.condition.positiveCoefficient, 0.125F);
 }
 
 // WheelBri stopping everything (the loop ended, the wheel came back) stops it too; the next update plays it again.

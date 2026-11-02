@@ -13,7 +13,6 @@
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceMatch.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
-#include "wheelbri/FfbLimits.hpp"
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameRotation.hpp"
@@ -205,8 +204,6 @@ void MappingEditView::load() {
         statusError_ = true;
         return;
     }
-    // WheelBri's older force limits (0.70 / 0.80) in the user's own files: now 1 / 1, the wheel's app sets how strong.
-    const int movedLimits = moveOldLimits();
     fileText_ = readFile(path_);
     if (fileText_.empty()) {
         status_ = "Cannot read " + path_;
@@ -226,9 +223,6 @@ void MappingEditView::load() {
     rigNotices_ = followRig(saved_, rig_, *profile_);
     edit_ = saved_;
     readRenumbered();
-    baseFfb_ = result.config.ffb;
-    baseFfbInvert_ = result.config.ffbInvert;
-    baseGameFfb_ = result.config.gameFfb;
     loaded_ = true;
     if (!parsed.errors.empty() || !result.errors.empty()) {
         status_ = "The config has problems (Start lists them): " +
@@ -243,12 +237,6 @@ void MappingEditView::load() {
         status_ += " From the Rig: " + rigNotices_.front() +
                    (rigNotices_.size() > 1 ? " (+" + std::to_string(rigNotices_.size() - 1) + " more)" : "") + ".";
     }
-    if (movedLimits > 0 && !statusError_) {
-        status_ = "Force feedback: strength and cap are now 1.00 (were 0.70 / 0.80) in " +
-                  std::to_string(movedLimits) + (movedLimits == 1 ? " mapping" : " mappings") +
-                  ". Set how strong in the wheel's own app (Pit House); lower it there before the next race.";
-    }
-    if (movedLimits > 0) toast_ = "Force limits now 1.00 / 1.00";
     WE_LOG_INFO(log(), "mapping: editing {}", path_);
 }
 
@@ -342,7 +330,7 @@ void MappingEditView::undo() {
 
 bool MappingEditView::gameValuesChanged() const {
     return edit_.gameRotations != saved_.gameRotations || edit_.gameSettings != saved_.gameSettings ||
-           edit_.gameFfbGains != saved_.gameFfbGains || edit_.gameTunings != saved_.gameTunings;
+           edit_.gameTunings != saved_.gameTunings;
 }
 
 // The Games page has no Save: its values are saved as they change, and only they (the Mapping tab's unsaved
@@ -352,14 +340,12 @@ void MappingEditView::saveGameValues() {
     edit_ = saved_;
     edit_.gameRotations = pending.gameRotations;
     edit_.gameSettings = pending.gameSettings;
-    edit_.gameFfbGains = pending.gameFfbGains;
     edit_.gameTunings = pending.gameTunings;
     save();   // saved_ is then this (or read again from the user's own file, made from the default)
     if (statusError_) {
         // Not saved: the value goes back to the saved one (not tried again every frame), and the page says why.
         pending.gameRotations = saved_.gameRotations;
         pending.gameSettings = saved_.gameSettings;
-        pending.gameFfbGains = saved_.gameFfbGains;
         pending.gameTunings = saved_.gameTunings;
     } else {
         status_ = locked_ && path_ == sessionPath_ ? "Saved: in use now." : "Saved. The next Start uses it.";
@@ -692,23 +678,6 @@ std::string MappingEditView::fieldText(const Field field, const std::size_t inde
             const ButtonRef* const focused = const_cast<MappingEditView*>(this)->axisSecondary(index);
             return focused != nullptr ? tuning::formatNumber(focused->threshold * 100.0F) : std::string();
         }
-        case Field::Tuning: {
-            const std::size_t picked = selectedGameIndex();
-            if (picked >= games_.size()) return {};
-            const GameProfile& game = games_[picked];
-            const GameFfb ffb = gameFfbOf(game);
-            const auto t = static_cast<TuningField>(index);
-            switch (t) {
-                case TuningField::Strength: return tuning::formatNumber(ffb.safety.masterGain, 2);
-                case TuningField::Cap: return tuning::formatNumber(ffb.safety.maxMagnitude, 2);
-                case TuningField::Slew: return tuning::formatNumber(ffb.safety.maxSlewPerSecond, 1);
-                case TuningField::Fade: return tuning::formatNumber(ffb.safety.frozenForceSeconds, 1);
-                default: {
-                    const std::size_t g = index - static_cast<std::size_t>(TuningField::Constant);
-                    return g < kFfbGroupCount ? tuning::formatNumber(ffb.gains[g], 2) : std::string();
-                }
-            }
-        }
         case Field::None: break;
     }
     return {};
@@ -747,33 +716,6 @@ bool MappingEditView::commitTyping() {
         } else if (g < games.size() && s < games[g].settings.size()) {
             edit_.gameSettings[games[g].id][games[g].settings[s].id] = *number;
         }
-    } else if (field_ == Field::Tuning) {
-        // One of the picked game's own numbers: checked as the config reader checks it ([game_tuning]).
-        const std::size_t picked = selectedGameIndex();
-        static constexpr std::array<const char*, 10> kKeys = {
-            "ffb_strength", "ffb_constant", "ffb_periodic", "ffb_spring", "ffb_damper",
-            "ffb_friction", "ffb_inertia",  "ffb_cap",      "ffb_slew",   "ffb_fade_s"};
-        if (picked < games_.size() && fieldIndex_ < kKeys.size()) {
-            const std::string id = games_[picked].id;
-            GameTuning trial = tuningOf(id) != nullptr ? *tuningOf(id) : GameTuning{};
-            problem = applyTuningKey(trial, kKeys[fieldIndex_], typed_, MapperConfig::kMaxTargetButtons);
-            const auto t = static_cast<TuningField>(fieldIndex_);
-            if (problem.empty() && (t == TuningField::Cap || t == TuningField::Slew)) {
-                // Lower only: a game never gets past the mapping's limits.
-                const float base = t == TuningField::Cap ? baseFfb_.maxMagnitude : baseFfb_.maxSlewPerSecond;
-                const float wanted = t == TuningField::Cap ? *trial.ffbCap : *trial.ffbSlew;
-                if (wanted > base + 1e-5F) {
-                    problem = "'" + typed_ + "': a game's limit can only be lower than the mapping's (" +
-                              tuning::formatNumber(base) + ")";
-                }
-            }
-            if (problem.empty()) {
-                tuningFor(id) = trial;
-                if (t == TuningField::Constant || t == TuningField::Periodic) edit_.gameFfbGains.erase(id);
-            } else {
-                problem = "'" + typed_ + "': " + problem;
-            }
-        }
     } else if (!number) {
         problem = "'" + typed_ + "' is not a number";
     } else {
@@ -802,7 +744,6 @@ bool MappingEditView::commitTyping() {
             case Field::PerGame:
             case Field::GameSteering:
             case Field::GameSetting:
-            case Field::Tuning:
             case Field::None: break;
         }
     }
@@ -1689,10 +1630,6 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
         y += 12;
         std::string applied;
         if (!now_.rotation.empty()) applied += "steering " + now_.rotation;
-        if (std::fabs(now_.ffbGain - 1.0F) > 1e-4F) {
-            applied += (applied.empty() ? "" : ", ") + std::string("force feedback x") +
-                       tuning::formatNumber(now_.ffbGain, 2);
-        }
         if (!describeOverlay(game).empty()) applied += (applied.empty() ? "" : ", ") + std::string("pedals as below");
         if (!applied.empty()) {
             window_.text(gameX(), y, fit("now: " + applied, gameChars()), kText);
@@ -1886,8 +1823,6 @@ constexpr std::array<const char*, kFfbGroupCount> kGroupAbout = {
     "constant force: the road, the tyres", "sine, square, ...: kerbs, engine, rumble", "spring: pulls to the centre",
     "damper: resists fast turning", "friction: resists any turning", "inertia: a heavier wheel"};
 
-std::string onOff(const bool on) { return on ? "On" : "Off"; }
-
 }  // namespace
 
 const GameTuning* MappingEditView::tuningOf(const std::string& id) const {
@@ -1908,13 +1843,6 @@ bool MappingEditView::tuningChanged(const std::string& id) const {
     const auto b = saved_.gameTunings.find(id);
     const GameTuning none;
     return !((a == edit_.gameTunings.end() ? none : a->second) == (b == saved_.gameTunings.end() ? none : b->second));
-}
-
-GameFfb MappingEditView::gameFfbOf(const GameProfile& game) const {
-    const bool fits = profileFitsTarget(game, targetName_);
-    std::optional<float> legacy;
-    if (const auto found = edit_.gameFfbGains.find(game.id); found != edit_.gameFfbGains.end()) legacy = found->second;
-    return resolveGameFfb(baseFfb_, baseFfbInvert_, baseGameFfb_, fits ? &game : nullptr, legacy, tuningOf(game.id));
 }
 
 bool MappingEditView::userGame(const std::string& id) const {
@@ -2014,7 +1942,6 @@ void MappingEditView::removeGame(const std::string& id) {
     // page showed before, for something else, does not.)
     edit_.gameTunings.erase(id);
     edit_.gameRotations.erase(id);
-    edit_.gameFfbGains.erase(id);
     edit_.gameSettings.erase(id);
     if (gameValuesChanged()) {
         saveGameValues();
@@ -2201,151 +2128,42 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
 }
 
 float MappingEditView::drawGameForces(const std::size_t index, float y) {
-    const GameProfile& game = games_[index];
-    const std::string id = game.id;
-    const GameTuning* const own = tuningOf(id);
-    const GameFfb ffb = gameFfbOf(game);
+    const std::string& id = games_[index].id;
+    const bool live = now_.id == id && now_.ffbLive;
     gameSection(y, "FORCE FEEDBACK",
-                now_.id == id && now_.ffbLive
-                    ? "running: blue what the game asks, green what reaches the wheel; changes apply at once"
-                    : "times what the game asks; the cap and the slew limit always apply");
+                live ? "running: blue what the game asks, green what reaches the wheel"
+                     : "shown while the game runs: what it asks and what reaches the wheel");
     y += 16;
-    // How strong is the wheel's own app's to say, for every game; WheelBri passes all the game asks.
-    constexpr const char* kStrength = "How strong: set it in your wheel's own app (Moza Pit House, Fanatec, Simucube, "
-                                      "Thrustmaster, Logitech G HUB). WheelBri passes all of what the game asks.";
-    for (const std::string& line : wrap(kStrength, gameChars(), 2)) {
+    // How strong, and each kind of effect, are the game's and the wheel's own app's to set: WheelBri passes all the
+    // game asks, through its safety limits. Here only what the game sends and what reaches the wheel.
+    constexpr const char* kStrength = "How strong: set it in the game and in your wheel's own app (Moza Pit House, "
+                                      "Fanatec, Simucube, Thrustmaster, Logitech G HUB). WheelBri passes all of what "
+                                      "the game asks, through its safety limits.";
+    for (const std::string& line : wrap(kStrength, gameChars(), 3)) {
         window_.text(gameX(), y, line, kDim);
         y += 12;
     }
     y += 4;
-    // What the game's own profile changes here (NFS Payback: its pushing forces x3, the Steering force and Vibration
-    // rows), so it is not only a number below.
-    if (game.ffbGain.has_value()) {
-        const std::string times = tuning::formatNumber(*game.ffbGain, 2);   // e.g. "3"
-        const bool overridden = own != nullptr && (own->ffbGains[static_cast<std::size_t>(FfbGroup::Constant)] ||
-                                                   own->ffbGains[static_cast<std::size_t>(FfbGroup::Periodic)]);
-        const std::string line =
-            "Its game profile: Steering force and Vibration x" + times + " (" + game.ffbNote + ")" +
-            (overridden ? "; your own values below replace it" : "; Default below goes back to it");
-        for (const std::string& part : wrap(line, gameChars(), 2)) {
-            window_.text(gameX(), y, part, kCaution);
-            y += 12;
-        }
-        y += 4;
-    }
-    const auto row = [&](const std::string& label, const TuningField field, const std::string& value,
-                         const bool mine, const std::string& about, std::function<void()> reset) {
-        window_.text(gameX(), y + 4, label, kText);
-        const bool changed = tuningChanged(id) && mine;
-        drawField(gameValueX(), y, 72, Field::Tuning, value, changed, static_cast<std::size_t>(field));
-        button(gameValueX() + 80, y, "Default", std::move(reset), false, editable() && mine, 72);
-        window_.text(gameValueX() + 160, y + 4, fit(about, valueChars() - 20), kDim);
-        y += 20;
-    };
-    row("Overall strength", TuningField::Strength, tuning::formatNumber(ffb.safety.masterGain, 2),
-        own != nullptr && own->ffbStrength.has_value(),
-        "0 to 1; the Mapping tab's: " + tuning::formatNumber(baseFfb_.masterGain, 2), [this, id] {
-            tuningFor(id).ffbStrength.reset();
-            dropEmptyTuning(id);
-        });
-    y += 4;
+    constexpr float kBarW = 72;
+    const float barX = gameValueX();
+    const auto percent = [](const float v) { return std::to_string(static_cast<int>(v * 100.0F + 0.5F)) + "%"; };
     for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
-        const bool mine = own != nullptr && own->ffbGains[g].has_value();
-        std::string about = std::string(kGroupAbout[g]);
-        if (!mine && std::fabs(ffb.gains[g] - 1.0F) > 1e-4F) about = "the profile's; " + about;
-        // While the game runs: what it asks (blue) and what reaches the wheel (green), instead of the text.
-        if (now_.id == id && now_.ffbLive) {
-            constexpr float kBarW = 72;
-            const float barX = gameValueX() + 160;
+        window_.text(gameX(), y + 4, kGroupNames[g], kText);
+        std::string about = kGroupAbout[g];
+        if (live) {
             window_.fill(barX, y + 4, kBarW, 8, kStripe);
             window_.fill(barX, y + 4, kBarW * now_.asked[g], 8, kHeading);
             window_.fill(barX + kBarW + 6, y + 4, kBarW, 8, kStripe);
             window_.fill(barX + kBarW + 6, y + 4, kBarW * now_.sent[g], 8, kActive);
-            const auto percent = [](const float v) {
-                return std::to_string(static_cast<int>(v * 100.0F + 0.5F)) + "%";
-            };
-            about = now_.asked[g] > 0.0F || now_.sent[g] > 0.0F
-                        ? "                    " + percent(now_.asked[g]) + " -> " + percent(now_.sent[g])
-                        : "                    not used now";
+            about = now_.asked[g] > 0.0F || now_.sent[g] > 0.0F ? percent(now_.asked[g]) + " -> " + percent(now_.sent[g])
+                                                                : "not used now";
+            window_.text(barX + 2 * kBarW + 16, y + 4, fit(about, valueChars() - 20), kDim);
+        } else {
+            window_.text(barX, y + 4, fit(about, valueChars()), kDim);
         }
-        row(kGroupNames[g], static_cast<TuningField>(static_cast<std::size_t>(TuningField::Constant) + g),
-            tuning::formatNumber(ffb.gains[g], 2), mine, about, [this, id, g] {
-                tuningFor(id).ffbGains[g].reset();
-                if (g <= static_cast<std::size_t>(FfbGroup::Periodic)) edit_.gameFfbGains.erase(id);
-                dropEmptyTuning(id);
-            });
-    }
-    window_.text(gameValueX(), y, fit("0 turns that kind off, 1 as the game sends it, up to 4", valueChars()), kDim);
-    y += 18;
-    row("Cap", TuningField::Cap, tuning::formatNumber(ffb.safety.maxMagnitude, 2),
-        own != nullptr && own->ffbCap.has_value(),
-        "lower only: at most the Mapping tab's " + tuning::formatNumber(baseFfb_.maxMagnitude, 2), [this, id] {
-            tuningFor(id).ffbCap.reset();
-            dropEmptyTuning(id);
-        });
-    row("Slew limit", TuningField::Slew, tuning::formatNumber(ffb.safety.maxSlewPerSecond, 1),
-        own != nullptr && own->ffbSlew.has_value(),
-        "per second, lower only: at most " + tuning::formatNumber(baseFfb_.maxSlewPerSecond, 1), [this, id] {
-            tuningFor(id).ffbSlew.reset();
-            dropEmptyTuning(id);
-        });
-    row("Fade a frozen push", TuningField::Fade, tuning::formatNumber(ffb.safety.frozenForceSeconds, 1),
-        own != nullptr && own->ffbFadeSeconds.has_value(), "seconds a push held unchanged plays; 0 = never",
-        [this, id] {
-            tuningFor(id).ffbFadeSeconds.reset();
-            dropEmptyTuning(id);
-        });
-    y += 4;
-    const auto toggle = [&](const std::string& label, const bool value, const bool mine,
-                            std::function<void()> flip, std::function<void()> reset, const std::string& about) {
-        window_.text(gameX(), y + 4, label, kText);
-        button(gameValueX(), y, onOff(value), std::move(flip), mine, editable(), 72);
-        button(gameValueX() + 80, y, "Default", std::move(reset), false, editable() && mine, 72);
-        window_.text(gameValueX() + 160, y + 4, fit(about, valueChars() - 20), kDim);
         y += 20;
-    };
-    toggle("Turn the other way", ffb.invert != baseFfbInvert_, own != nullptr && own->ffbInvert.has_value(),
-           [this, id, ffb] { tuningFor(id).ffbInvert = !ffb.invert; },
-           [this, id] {
-               tuningFor(id).ffbInvert.reset();
-               dropEmptyTuning(id);
-           },
-           "when this game's forces pull the wrong way");
-    toggle("Game effects", ffb.effects, own != nullptr && own->ffbEffects.has_value(),
-           [this, id, ffb] { tuningFor(id).ffbEffects = !ffb.effects; },
-           [this, id] {
-               tuningFor(id).ffbEffects.reset();
-               dropEmptyTuning(id);
-           },
-           "Off: no force feedback from this game at all");
-    return y;
-}
-
-int MappingEditView::moveOldLimits() {
-    // Every one of the user's own mappings (my-*.ini, the older per-mode ones too), not only the shown target's.
-    const std::filesystem::path folder = picker_.ownPath().parent_path();
-    std::error_code ec;
-    if (folder.empty() || !std::filesystem::is_directory(folder, ec)) return 0;
-    int moved = 0;
-    for (const auto& entry : std::filesystem::directory_iterator(folder, ec)) {
-        const std::filesystem::path file = entry.path();
-        const std::string name = pathToUtf8(file.filename());
-        if (!entry.is_regular_file(ec) || name.rfind("my-", 0) != 0 || file.extension() != ".ini") continue;
-        const std::optional<std::string> text = readFileText(file);
-        if (!text) continue;
-        const std::optional<std::string> next = movedFromOldLimits(*text);
-        if (!next) continue;
-        if (!writeFileReplacing(file, *next)) {
-            WE_LOG_WARN(log(), "mapping: cannot write {}: its force limits stay at the older 0.70 / 0.80",
-                        pathToUtf8(file));
-            continue;
-        }
-        WE_LOG_INFO(log(), "mapping: force limits in {} moved from the older strength 0.70, cap 0.80 to {:.2f}, "
-                           "{:.2f}: the wheel's own app sets how strong",
-                    pathToUtf8(file), kWheelAppMasterGain, kWheelAppMaxMagnitude);
-        ++moved;
     }
-    return moved;
+    return y;
 }
 
 float MappingEditView::drawGameButtons(const std::size_t index, float y) {

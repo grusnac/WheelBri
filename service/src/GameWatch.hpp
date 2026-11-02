@@ -28,8 +28,7 @@ namespace wheelbri::service {
 // undo the profile. A game with a steering rotation (its profile's [steering] rotation_deg, or the user's
 // [game_rotation] line; GameRotation.hpp) is played with it: the axis goes through 1:1 either way, so the log says
 // the wheel's own software must be set to it while the game runs, and the window shows it.
-// A game with a force feedback gain (its profile's [ffb] gain: NFS Unbound) gets it while it runs: check() returns it
-// for the service's FfbController, and the log says so. A game's own settings (its profile's [game_settings]) are never
+// A game's own settings (its profile's [game_settings]) are never
 // written here: the user saves them into the game's file from the Games tab (Save to file).
 // For the app's Games tab it also says which game runs (live: profile id, pid, since when, how many starts).
 // Called from the session's window thread every 2 s (a few milliseconds; never on the service loop); not thread-safe.
@@ -42,7 +41,7 @@ public:
     // `routePedals`: the session publishes to the virtual G920 or wheelbri-uhid (the service applies profiles); false
     // for the in-game shim (the shim does). `mapping`: the session's own rotation in degrees ([steering]);
     // `overrides`: the user's per-game rotations ([game_rotation]). Logs the built-in profiles' problems, if any.
-    // `session`: the target, the way, the mapping's [ffb] and the user's per-game values (GameTuning.hpp);
+    // `session`: the target, the way and the user's per-game values (GameTuning.hpp);
     // `userGames`: the games the user added (games.ini), followed like the built-in profiles.
     // What it asks the system: the running programs, a process's program file and the Documents folder (platform::).
     // Each one left empty is the system's own; the tests give their own.
@@ -56,7 +55,6 @@ public:
 
     struct Decision {
         PedalRoute route;           // Pipeline::setPedalRoute
-        GameFfb ffb;                // FfbController::setGameTuning: the mapping's [ffb] with the game's laid over it
         // The game whose own mapping (pedal invert / curve, buttons) the pipeline should use; empty: the mapping's.
         std::string mapperGame;
         const GameTuning* tuning = nullptr;   // its values (owned by this GameWatch), when mapperGame is set
@@ -64,9 +62,8 @@ public:
     // One look: what the pipeline should use now.
     Decision check();
     // The user changed the per-game values while the session runs (the Games tab saves them as they change):
-    // the next check() uses them. `tunings`: [game_tuning]; `overrides`: [game_rotation]; `legacyGains`:
-    // [game_ffb_gain].
-    void setValues(GameTunings tunings, GameRotations overrides, GameFfbGains legacyGains);
+    // the next check() uses them. `tunings`: [game_tuning]; `overrides`: [game_rotation].
+    void setValues(GameTunings tunings, GameRotations overrides);
 
     // For the window's status, after "Running 1:23, ": the profile's label ("NFS 2015") while it is in use, else empty.
     [[nodiscard]] std::string status() const;
@@ -87,7 +84,6 @@ public:
         std::uint32_t pid = 0;
         std::uint64_t sinceMs = 0;   // platform::nowMs() when it started being followed
         std::uint64_t starts = 0;    // profiled games started (followed) this session: the tab follows each new one
-        float ffbGain = 1.0F;        // the gain in use for it
         bool profileApplies = false; // its built-in profile is in use (it fits the target)
     };
     [[nodiscard]] Live live() const;
@@ -98,8 +94,8 @@ private:
     // The rotation for the game followed now (nullopt: the mapping's own), said in the log when it changes.
     [[nodiscard]] std::optional<float> currentRotation() const;
     void sayRotation();
-    // The force feedback gain for the game followed now (1: none), said in the log when it changes.
-    void sayFfbGain();
+    // Whether the game followed now plays with the user's own values for it, said in the log when it changes.
+    void sayTuning();
     [[nodiscard]] std::string describeFollowed() const;
 
     System system_;
@@ -111,7 +107,6 @@ private:
     float mapping_;
     GameRotations overrides_;
     std::optional<float> applied_;              // what the last check() said
-    float ffbGain_ = 1.0F;                      // the same for the force feedback gain
     std::string tunedGame_;                     // the game whose own values were said in the log last
     std::uint64_t starts_ = 0;                                 // Live::starts
     std::uint64_t followedSinceMs_ = 0;                        // Live::sinceMs

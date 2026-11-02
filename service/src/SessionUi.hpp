@@ -68,7 +68,6 @@ struct UiFrame {
     std::string gameWayTitle;
     std::string gameWayText;
     std::uint64_t gameWayNotices = 0;
-    float gameFfbGain = 1.0F;                     // the force feedback gain in use
 };
 
 // UiHost::step while the hide filter is put on the rig for the first time (once per installation, ~10-40 s): the app
