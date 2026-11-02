@@ -292,7 +292,7 @@ void MappingEditView::save() {
 }
 
 void MappingEditView::autoSave() {
-    if (!loaded_ || locked_ || !dirty()) return;
+    if (!loaded_ || !dirty()) return;   // while a session runs too: it takes the mapping at once (LiveMapping.hpp)
     if (field_ != Field::None || dragging_ || thresholdDragging_ || mode_ != Mode::Idle) return;   // not done yet
     if (notSaved_ && *notSaved_ == edit_) return;                           // said why already: not again
     const MappingModel before = saved_;
@@ -304,7 +304,10 @@ void MappingEditView::autoSave() {
     }
     notSaved_.reset();
     toast_.clear();   // every change saves: no message for each
-    status_ = undoing ? "Undone and saved." : "Saved. Start uses it.";
+    status_ = undoing        ? (inUseNow() ? "Undone and saved: in use now." : "Undone and saved.")
+              : inUseNow()   ? "Saved: in use now."
+              : locked_      ? "Saved. The next Start uses it."
+                             : "Saved. Start uses it.";
     if (!undoing) {
         undo_.push_back(before);
         if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
@@ -312,7 +315,7 @@ void MappingEditView::autoSave() {
 }
 
 void MappingEditView::undo() {
-    if (!loaded_ || locked_) return;
+    if (!loaded_) return;
     field_ = Field::None;
     if (dirty()) {   // a change that could not be saved: dropped
         edit_ = saved_;
@@ -348,8 +351,8 @@ void MappingEditView::saveGameValues() {
         pending.gameSettings = saved_.gameSettings;
         pending.gameTunings = saved_.gameTunings;
     } else {
-        status_ = locked_ && path_ == sessionPath_ ? "Saved: in use now." : "Saved. The next Start uses it.";
-        toast_ = locked_ && path_ == sessionPath_ ? "Saved: in use now" : "Saved";
+        status_ = inUseNow() ? "Saved: in use now." : "Saved. The next Start uses it.";
+        toast_ = inUseNow() ? "Saved: in use now" : "Saved";
     }
     edit_ = std::move(pending);
 }
@@ -525,6 +528,15 @@ bool MappingEditView::followsRig(const Slot kind, const std::size_t index) const
 
 // --- input -------------------------------------------------------------------------------------------------------
 
+bool MappingEditView::inUseNow() const { return locked_ && path_ == sessionPath_; }
+
+bool MappingEditView::changeRotation(const float degrees) {
+    if (!loaded_ || !std::isfinite(degrees)) return false;
+    edit_.steeringRotationDeg = std::clamp(std::round(degrees), tuning::kMinRotationDeg, tuning::kMaxRotationDeg);
+    autoSave();
+    return !dirty() && inUseNow();
+}
+
 void MappingEditView::setLocked(const bool locked) {
     // Called every frame. A session that starts ends what the Mapping tab was editing; the Games page's values
     // stay editable while it runs (live tuning).
@@ -618,7 +630,7 @@ void MappingEditView::onPointer(const float x, const float /*y*/, const bool lef
         return;
     }
     if (thresholdDragging_) {
-        if (!leftDown || locked_ || mode_ != Mode::PickAlt) {
+        if (!leftDown || mode_ != Mode::PickAlt) {
             thresholdDragging_ = false;
             return;
         }
@@ -626,7 +638,7 @@ void MappingEditView::onPointer(const float x, const float /*y*/, const bool lef
         return;
     }
     if (!dragging_) return;
-    if (!leftDown || locked_ || mode_ != Mode::Idle) {
+    if (!leftDown || mode_ != Mode::Idle) {
         dragging_ = false;
         return;
     }
@@ -926,10 +938,13 @@ void MappingEditView::draw() {
         subtitle(52, "every game: your own values for it and, for Mode Shim, its folder and the shim there");
     } else {
         window_.text(4, 4, "MAPPING", kHeading);
-        // EDIT: this page changes the mapping (while a session runs the tab shows the LIVE view instead).
+        // EDIT: this page changes the mapping (while a session runs, from the live view's Edit: each change is in use
+        // at once, LiveMapping.hpp).
         window_.fill(66, 2, 40, 12, kPanel);
         window_.text(70, 4, "EDIT", kText);
-        subtitle(114, "what your controls do on the " + target);
+        subtitle(114, !locked_     ? "what your controls do on the " + target
+                      : inUseNow() ? "running: each change is in use at once"
+                                   : "running: changes are kept for the next Start");
     }
 
     // The target (fixed inputs, picked with < >) and how it runs, "custom", Default, Save and Revert: the Mapping tab's
@@ -991,7 +1006,12 @@ void MappingEditView::draw() {
         tip(x, y, w, h, std::move(text));
     });
     // Saved as you change it: where Save was, whether it is ("saved", or "not saved" in red); Undo instead of Revert.
-    button(defaultX, 2, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
+    // While a session runs, Default (it deletes the file the session reads) gives way to the way back to the live view.
+    if (locked_) {
+        button(defaultX, 2, "Live view", [this] { liveRequested_ = true; }, false, true, 104);
+    } else {
+        button(defaultX, 2, "Default", [this] { dropOwnEdits(); }, false, !builtIn_, 104);
+    }
     const bool unsaved = loaded_ && dirty();
     const std::string saveState = unsaved ? "not saved" : "saved";
     window_.text(saveX + 80 - static_cast<float>(saveState.size()) * ui::kCharWidth, 6, saveState,
@@ -1000,10 +1020,12 @@ void MappingEditView::draw() {
         unsaved ? "This change could not be saved: the line at the bottom says why. Undo drops it."
                 : "Every change is saved at once; Start uses what you see. Accessories it uses must be plugged in to "
                   "start.");
-    const bool canUndo = loaded_ && !locked_ && (unsaved || !undo_.empty());
+    const bool canUndo = loaded_ && (unsaved || !undo_.empty());
     button(revertX, 2, "Undo", [this] { undo(); }, false, canUndo, 80);
     tip(revertX, 2, 80, 16, "Goes back one change, as many times as you like (until the Target changes).");
-    tip(defaultX, 2, 104, 16, "Deletes your own mapping for this Target: WheelBri's default mapping again.");
+    tip(defaultX, 2, 104, 16,
+        locked_ ? "Back to the Shadow or List view of the running session (Default: once stopped)."
+                : "Deletes your own mapping for this Target: WheelBri's default mapping again.");
     if (!loaded_) {
         window_.text(4, 60, fit(status_, 118 + extraChars()), kWarning);
         // A way out: another target above, or straight back to the G920 (the one every build has).
@@ -1186,23 +1208,21 @@ void MappingEditView::drawRotation(const float top) {
     const float shown = std::clamp(edit_.steeringRotationDeg, kSliderMinDeg, kSliderMaxDeg);
     const float filled = (shown - kSliderMinDeg) / (kSliderMaxDeg - kSliderMinDeg) * sliderW();
     window_.fill(kSliderX, y + 6, sliderW(), 4, kStripe);
-    window_.fill(kSliderX, y + 6, filled, 4, locked_ ? kDim : kHeading);
-    window_.fill(kSliderX + filled - 3, y + 1, 6, 14, locked_ ? kDim : kText);
+    window_.fill(kSliderX, y + 6, filled, 4, kHeading);
+    window_.fill(kSliderX + filled - 3, y + 1, 6, 14, kText);
     window_.outline(kSliderX, y + 6, sliderW(), 4,
                     edit_.steeringRotationDeg != saved_.steeringRotationDeg ? kMine : kPanel);
-    if (!locked_) {
-        hit(kSliderX - 4, y, sliderW() + 8, 16, [this] {
-            setRotationFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
-            dragging_ = true;
-        });
-    }
+    hit(kSliderX - 4, y, sliderW() + 8, 16, [this] {
+        setRotationFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
+        dragging_ = true;
+    });
     drawField(kSliderX + sliderW() + 12, y, 64, Field::Rotation, degrees(edit_.steeringRotationDeg),
               edit_.steeringRotationDeg != saved_.steeringRotationDeg);
     window_.text(kSliderX + sliderW() + 80, y + 4, "deg", kDim);
     float x = kSliderX + sliderW() + 112;
     for (const float preset : kPresetsDeg) {
         x += button(x, y, degrees(preset), [this, preset] { edit_.steeringRotationDeg = preset; },
-                    std::fabs(edit_.steeringRotationDeg - preset) < 0.5F, !locked_, 40) + 4;   // 7 fit in 960
+                    std::fabs(edit_.steeringRotationDeg - preset) < 0.5F, true, 40) + 4;   // 7 fit in 960
     }
     window_.text(kSliderX, y + 20, "90", kDim);
     window_.text(kSliderX + sliderW() - 32, y + 20, "1080", kDim);
@@ -2666,7 +2686,8 @@ void MappingEditView::drawAltPicker() {
     const std::size_t max = MapperConfig::kMaxSecondaries;
 
     // How to pick: press it on the rig (the app reads the devices meanwhile), or type to find it; and clear all.
-    const std::string how = "Press a control on your rig, or find it:";
+    // While a session runs the app does not read the devices (the session has them): find it only.
+    const std::string how = locked_ ? "Find the control:" : "Press a control on your rig, or find it:";
     window_.text(left, kPopupY + 32, how, kDim);
     const float findX = left + static_cast<float>(how.size() + 1) * ui::kCharWidth;
     const float findW = 24 * ui::kCharWidth + 12;
@@ -3085,7 +3106,9 @@ void MappingEditView::drawPicker() {
     }, !current.mapped(), true, 120);
 
     // How to pick: press it on the rig (the app reads the devices meanwhile), or type to find it.
-    const std::string how = axis ? "Move an axis on your rig, or find it:" : "Press a button on your rig, or find it:";
+    const std::string how = locked_ ? std::string(axis ? "Find the axis:" : "Find the button:")
+                            : axis  ? "Move an axis on your rig, or find it:"
+                                    : "Press a button on your rig, or find it:";
     const float howX = left + 132;
     window_.text(howX, kPopupY + 32, how, kDim);
     const float findX = howX + static_cast<float>(how.size() + 1) * ui::kCharWidth;

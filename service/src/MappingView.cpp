@@ -4,6 +4,7 @@
 #include "AppLogLevel.hpp"
 #include "HelperProbe.hpp"
 
+#include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/LocalDate.hpp"
 #include "wheelbri/LogFiles.hpp"
 #include "wheelbri/Logging.hpp"
@@ -85,8 +86,22 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
                   target_.c_str(), profile.encode(released).throttle, profile.encode(pressed).throttle,
                   target_.c_str());
     pedalNote_ = note;
+    indexMapping();
+}
 
+void MappingView::setMapping(const MapperConfig& mapper) {
+    mapper_ = mapper;
+    if (pendingRotation_ && std::fabs(*pendingRotation_ - mapper_.steering.targetRotationDeg) < 0.5F) {
+        pendingRotation_.reset();   // the session has it
+    }
+    if (shadow_) shadow_->setMapping(mapper_);
+    indexMapping();
+}
+
+void MappingView::indexMapping() {
     sourceToTarget_.fill(kUnmapped);
+    sourceTargetCount_.fill(0);
+    sourceHatDirection_.fill(nullptr);
     const HatButtons& hat = mapper_.hatButtons;
     const std::array<std::pair<int, const char*>, 4> hatDirections = {
         {{hat.up, "up"}, {hat.right, "right"}, {hat.down, "down"}, {hat.left, "left"}}};
@@ -167,6 +182,10 @@ void MappingView::onKey(const char key) {
         tab_ = Tab::WheelSetup;
     } else if (key == 's' && tab_ == Tab::Mapping && shadow_) {
         showShadow(!gShowShadow);
+    } else if ((key == '[' || key == ']') && tab_ == Tab::Mapping) {
+        stepRotation(key == '[' ? -1 : 1);   // the steering rotation, 10 degrees a press
+    } else if (key == 'e' && tab_ == Tab::Mapping && editButton_) {
+        editRequested_ = true;
     } else if (tab_ == Tab::Logs) {
         const auto page = static_cast<long long>(std::max<std::size_t>(liveRows_ - 1, 1));
         if (key == ui::kPageUp) scrollLiveLog(page);
@@ -339,12 +358,88 @@ void MappingView::drawHeader() {
             const auto used = static_cast<std::size_t>((x - 48) / ui::kCharWidth);
             room = room > used ? room - used : 0;
         }
+        // Edit (the app's editor while running) and the steering rotation, both views.
+        const float end = drawLiveControls();
+        const auto used = static_cast<std::size_t>((end - x) / ui::kCharWidth);
+        room = room > used ? room - used : 0;
+        x = end;
     }
     if (devices_.empty()) {
         text(window_, x, 16, std::string("Move every control and check where it lands.").substr(0, room).c_str(), kDim);
     } else {
         text(window_, x, 16, devices_.substr(0, room).c_str(), devicesWarning_ ? kWarning : kDim);
     }
+}
+
+float MappingView::liveControlsX() const { return shadow_ ? ShadowView::kSwitchEnd + 8 : 48.0F; }
+
+float MappingView::rotationNow() const {
+    // What was just asked, until the session's mapping has it (or it is kept for the next Start: caution).
+    return pendingRotation_.value_or(mapper_.steering.targetRotationDeg);
+}
+
+float MappingView::drawLiveControls() {
+    const float y = ShadowView::kSwitchY;
+    const float h = ShadowView::kSwitchH;
+    float x = liveControlsX();
+    if (editButton_) {
+        style::button(window_, x, y, kEditW, h, "Edit", false, true);
+        x += kEditW + 8;
+    }
+    text(window_, x, 16, "Rotation", kDim);
+    x += 9 * ui::kCharWidth;
+    const bool editable = static_cast<bool>(rotationEditor_);
+    const float rotation = rotationNow();
+    if (editable) {
+        style::button(window_, x, y, kStepW, h, "-", false, rotation > tuning::kMinRotationDeg);
+        x += kStepW + 4;
+    }
+    char value[16];
+    std::snprintf(value, sizeof(value), "%.0f deg", static_cast<double>(rotation));
+    // Amber while it is not what the session steers with (just asked, or kept for the next Start).
+    text(window_, x, 16, value, pendingRotation_ ? style::kCaution : kText);
+    x += kRotationValueW;
+    if (editable) {
+        style::button(window_, x, y, kStepW, h, "+", false, rotation < tuning::kMaxRotationDeg);
+        x += kStepW;
+    }
+    return x + 12;
+}
+
+void MappingView::stepRotation(const int steps) {
+    if (!rotationEditor_) return;
+    const float next = std::clamp(std::round(rotationNow() / kRotationStep) * kRotationStep +
+                                      static_cast<float>(steps) * kRotationStep,
+                                  tuning::kMinRotationDeg, tuning::kMaxRotationDeg);
+    if (std::fabs(next - rotationNow()) < 0.5F) return;
+    const bool inUse = rotationEditor_(next);
+    // In use: the session's mapping has it in a moment (setMapping clears it); else kept, shown amber.
+    pendingRotation_ = next;
+    if (inUse && std::fabs(next - mapper_.steering.targetRotationDeg) < 0.5F) pendingRotation_.reset();
+}
+
+bool MappingView::onLiveControlsClick(const float x, const float y) {
+    if (y < ShadowView::kSwitchY || y >= ShadowView::kSwitchY + ShadowView::kSwitchH) return false;
+    float left = liveControlsX();
+    if (editButton_) {
+        if (x >= left && x < left + kEditW) {
+            editRequested_ = true;
+            return true;
+        }
+        left += kEditW + 8;
+    }
+    if (!rotationEditor_) return false;
+    left += 9 * ui::kCharWidth;
+    if (x >= left && x < left + kStepW) {
+        stepRotation(-1);
+        return true;
+    }
+    left += kStepW + 4 + kRotationValueW;
+    if (x >= left && x < left + kStepW) {
+        stepRotation(1);
+        return true;
+    }
+    return false;
 }
 
 std::string MappingView::sourceText(const int device, const int index, const bool axis, const std::size_t chars) const {
@@ -1240,6 +1335,7 @@ void MappingView::showShadow(const bool on) {
 }
 
 void MappingView::onClick(const float x, const float y) {
+    if (tab_ == Tab::Mapping && onLiveControlsClick(x, y)) return;
     if (tab_ == Tab::Mapping && shadow_ && y >= ShadowView::kSwitchY && y < ShadowView::kSwitchY + ShadowView::kSwitchH) {
         if (x >= ShadowView::kSwitchX && x < ShadowView::kSwitchX + ShadowView::kSwitchShadowW) {
             showShadow(true);

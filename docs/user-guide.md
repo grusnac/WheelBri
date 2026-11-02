@@ -51,7 +51,8 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
 
 ![Mapping tab with Target G27](images/mapping-base.png)
 
-1. Pick the **Target** and **Mode** at the top (locked while running).
+1. Pick the **Target** and **Mode** at the top (fixed while running; the rest can change while you play:
+   [Change the mapping while you play](#change-the-mapping-while-you-play)).
 2. Check each axis, D-pad direction and button comes from the right control. Click a source to change it: move the
    control on your rig, or type to find it. **RIG** next to a source means it comes from the Rig tab. Greyed sources
    are used elsewhere (point at one to see where); clicking one moves it here.
@@ -80,6 +81,22 @@ count), from 0 in Native. To see which one the game gets, use the [Shadow view](
 [targets.md](targets.md).
 
 **Default** goes back to WheelBri's mapping.
+
+## Change the mapping while you play
+
+Every change is saved as you make it, and a running session uses it at once: no Stop and Start.
+
+- **Steering rotation**: **-** / **+** in the Mapping tab's header (or **[** / **]**), in the Shadow and List views,
+  10 degrees a press. Amber means not in use yet. WheelBri still passes the wheel through 1:1: set the same number in
+  your wheel's own software (Pit House for Moza). The virtual wheel reports the new rotation at once (whether a
+  running game reads it again is up to the game); a game file's rotation changes at its next **Save to file**.
+- **Everything else on the Mapping tab** (sources, Invert, buttons and their extra controls, the D-pad): **Edit** in
+  the header (or **E**) opens the editor while running; **Live view** goes back. Target, Mode and Order stay as Start
+  set them, and there is no Default until Stop.
+
+Waits for the next Start (the log says so): a source on an accessory the session did not open, Centring spring, and
+anything edited by hand outside the Mapping tab (target, ports, `[ffb]`). Running with WheelBri's default mapping, your
+first change makes your own mapping, used from the next Start.
 
 ## Play
 
@@ -138,7 +155,8 @@ receives after your mapping, so it is the place to check a mapping in action.
 - **G923 dial**: its left or right teeth light as it turns.
 - **Pressed now**, on the right: every control pressed at this moment, as "your control -> the Target's".
 
-**Shadow** / **List** in the Mapping tab's header (or **S**) switch views. **List** shows every axis of your rig as
+**Shadow** / **List** in the Mapping tab's header (or **S**) switch views; right of them, **Edit** and the steering
+rotation ([Change the mapping while you play](#change-the-mapping-while-you-play)). **List** shows every axis of your rig as
 it reads them, next to what the Target reports, and only the mapped buttons (the Target's and the rig's), with **Last
 pressed** naming the Target's button you pressed last and what drives it ("G920 7 Menu <- Rig 35 Start"). Use it when a
 control does nothing in the Shadow view: Last pressed also names an unmapped button, so List shows whether the rig sees

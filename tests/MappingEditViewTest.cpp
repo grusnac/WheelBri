@@ -2636,26 +2636,59 @@ TEST_F(EditView, AConfigFolderNotInUtf8) {
 }
 #endif
 
-// While a session runs the Mapping tab is shown greyed: nothing to save, no Default or Undo, fields and the slider
-// not editable, the Target row and the slider not clickable; a session start that is already known changes nothing.
-TEST_F(EditView, TheMappingTabWhileLocked) {
+// While a session runs (the live view's Edit shows this page) the mapping stays editable and every change is saved
+// at once, in use by the session (LiveMapping.hpp); the Target row stays fixed, and Live view takes Default's place.
+TEST_F(EditView, TheMappingTabWhileRunning) {
     useRig(testRig());
     open();
-    ASSERT_TRUE(click("Invert"));
+    ASSERT_TRUE(click("Invert"));   // made the user's own mapping: the one a session then runs
     frame();
     view_->setLocked(true);
-    view_->setLocked(true);
+    view_->setLocked(true);   // a session start already known changes nothing
     frame();
+    EXPECT_TRUE(window_.hasPart("running: each change is in use at once")) << status();
     const Window::Text* const field = window_.find("900");
     ASSERT_NE(field, nullptr);
-    EXPECT_TRUE(sameColour(field->colour, style::kDim));
-    view_->onClick(field->x + 1, field->y + 1);
-    EXPECT_FALSE(view_->editingText());
-    view_->onClick(80 + 2, 22 + 2);   // the Target's <
+    EXPECT_TRUE(sameColour(field->colour, style::kText));
+    view_->onClick(80 + 2, 22 + 2);   // the Target's <: fixed while running
     EXPECT_EQ(picker_->target(), ConfigPicker::Target::G920);
+    EXPECT_FALSE(window_.has("Default"));
+    // A change is saved and in use now.
+    ASSERT_TRUE(click("Invert", 1));
+    frame();
+    EXPECT_EQ(status(), "Saved: in use now.");
     const Window::Text* const undo = window_.find("Undo");
     ASSERT_NE(undo, nullptr);
-    EXPECT_TRUE(sameColour(undo->colour, style::kFaint));
+    EXPECT_FALSE(sameColour(undo->colour, style::kFaint));
+    // The rotation from the live view: saved, in use now; clamped to 90..2520 and whole degrees.
+    EXPECT_TRUE(view_->changeRotation(540.4F));
+    EXPECT_FLOAT_EQ(view_->steeringRotation(), 540.0F);
+    EXPECT_NE(own().find("target_rotation_deg = 540"), std::string::npos) << own();
+    EXPECT_TRUE(view_->changeRotation(5000.0F));
+    EXPECT_FLOAT_EQ(view_->steeringRotation(), 2520.0F);
+    // Live view: back to the live view, asked once.
+    EXPECT_FALSE(view_->takeLiveRequest());
+    ASSERT_TRUE(click("Live view"));
+    EXPECT_TRUE(view_->takeLiveRequest());
+    EXPECT_FALSE(view_->takeLiveRequest());
+    view_->setLocked(false);
+    frame();
+    EXPECT_TRUE(window_.has("Default"));
+}
+
+// A session running with WheelBri's default mapping: a change made while it runs goes into the user's own mapping,
+// for the next Start.
+TEST_F(EditView, ChangesWhileRunningTheDefaultWaitForTheNextStart) {
+    useRig(testRig());
+    open();
+    frame();
+    view_->setLocked(true);
+    frame();
+    EXPECT_FALSE(view_->changeRotation(270.0F));
+    EXPECT_NE(own().find("target_rotation_deg = 270"), std::string::npos) << own();
+    EXPECT_FALSE(view_->inUseNow());
+    frame();
+    EXPECT_TRUE(window_.hasPart("running: changes are kept for the next Start")) << status();
 }
 
 // Typing in a game's degrees takes "%", spaces, "/" and the letters of "off" (an older "360/180" reads as 180).

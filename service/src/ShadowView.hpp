@@ -38,6 +38,8 @@ public:
     ShadowView(ui::UiWindow& window, const IDeviceProfile& profile, const MapperConfig& mapper);
 
     void setButtonOrder(const ButtonOrder order) { order_ = order; }
+    // The mapping changed while the session runs (LiveMapping.hpp): labels, faint controls and the steering arc follow.
+    void setMapping(const MapperConfig& mapper) { mapper_ = mapper; }
     // The accessories the mapping reads (device 1, 2, 3), for their labels and names.
     void setAccessories(const std::array<DeviceLabels, MapperConfig::kMaxAccessories>& accessories) {
         accessories_ = accessories;

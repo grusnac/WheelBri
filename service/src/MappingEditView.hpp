@@ -90,8 +90,18 @@ public:
     void draw();
     // The hover text, after everything else in the window (the app draws the shim's game row over the tab).
     void drawTooltip();
-    // While a session runs or starts the way and the config cannot change.
+    // While a session runs or starts: the Target, the Mode and Default are fixed. The mapping itself stays editable
+    // (the app shows this page while running from the live view's Edit): each change is saved, and the session uses it
+    // at once when it runs this file (inUseNow; LiveMapping.hpp), else from the next Start.
     void setLocked(bool locked);
+    // A session runs with the mapping this page edits: what is saved is in use at once.
+    [[nodiscard]] bool inUseNow() const;
+    // The steering rotation changed from the live view (Shadow or List, while running): saved as the slider would
+    // (90 to 2520, whole degrees). Whether it is in use now (false: not saved, or kept for the next Start).
+    bool changeRotation(float degrees);
+    [[nodiscard]] float steeringRotation() const { return edit_.steeringRotationDeg; }
+    // Live view (the button that takes Default's place while running) was pressed: taken once.
+    [[nodiscard]] bool takeLiveRequest() { return std::exchange(liveRequested_, false); }
 
     void onClick(float x, float y);
     void onKey(char key);
@@ -122,9 +132,9 @@ public:
     }
     void onRigTouch(const DeviceId& device, bool axis, int index);
     [[nodiscard]] bool dirty() const { return loaded_ && edit_ != saved_; }
-    // Can be edited now: anything while no session runs; the Games page's values also while one does (the
-    // session reads them again when they are saved: live tuning).
-    [[nodiscard]] bool editable() const { return !locked_ || page_ == Page::Games; }
+    // Can be edited now: always (the Games page's values and the mapping are taken by a running session when saved;
+    // the Target, the Mode and Default check locked_ themselves).
+    [[nodiscard]] bool editable() const { return true; }
     // A popup (pick a source, the wheel) covers the tab: the window's own controls on it wait.
     // A short message after something was done ("Mapping saved"): taken once, the app shows it for a few seconds.
     [[nodiscard]] std::string takeToast() { return std::exchange(toast_, std::string()); }
@@ -444,6 +454,7 @@ private:
     Slot pickKind_ = Slot::Axis;
     std::size_t pickIndex_ = 0;
     bool locked_ = false;
+    bool liveRequested_ = false;   // takeLiveRequest
     std::string sessionPath_;   // the config the running session was started with (path_ at setLocked(true))
     std::string status_;
     std::string toast_;

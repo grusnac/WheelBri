@@ -17,9 +17,12 @@
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace wheelbri::service {
@@ -126,7 +129,7 @@ public:
     void setFiles(FilesDisplay files) { files_ = std::move(files); }
     // The target G920 in-game shim: the Logs tab leaves out the virtual device's parts (G920 driver, hide filter),
     // which do not run then.
-    // "Target G923   Mode Shim   fixed while running": what the session runs as, at the right of the second header
+    // "Target G923  Mode Shim": what the session runs as (fixed from Start to Stop), at the right of the second header
     // line (the Mapping tab).
     void setSessionLine(std::string line) { sessionLine_ = std::move(line); }
     void setShimMode(const bool shim) {
@@ -158,6 +161,22 @@ public:
         if (shadow_) shadow_->setButtonOrder(order);
     }
 
+    // The mapping changed while the session runs (UiFrame::mapping, LiveMapping.hpp): both views show it from now on.
+    void setMapping(const MapperConfig& mapper);
+    [[nodiscard]] const MapperConfig& mapping() const { return mapper_; }
+
+    // The Mapping tab's header, right of the Shadow / List switch, in both views: Edit (setEditButton) and the
+    // steering rotation, "-" / "+" (or [ / ]) 10 degrees a press, 90 to 2520. `change` saves a new rotation and says
+    // whether the session uses it at once (the app: MappingEditView::changeRotation); until the session's mapping has
+    // it the value shows amber. Without `change` (the command line service's --ui window) the rotation is only shown.
+    void setRotationEditor(std::function<bool(float)> change) { rotationEditor_ = std::move(change); }
+    // Edit opens the Mapping tab's editor while running (the app's); E too. Asked once: takeEditRequest.
+    void setEditButton(const bool on) { editButton_ = on; }
+    [[nodiscard]] bool takeEditRequest() { return std::exchange(editRequested_, false); }
+    // The rotation the header shows: the one just asked, else the session's mapping's.
+    [[nodiscard]] float rotationNow() const;
+    static constexpr float kRotationStep = 10.0F;
+
     // The Mapping tab's two views while running: Shadow (the target drawn, ShadowView.hpp) or List (every rig axis and
     // the mapped buttons, the target's and the rig's, next to what the target reports). Shadow only for a target with a picture (ShadowView::hasPicture), and
     // then the first one shown; the choice holds for the app's run (every session's view starts with it). S or the
@@ -179,6 +198,16 @@ private:
     [[nodiscard]] float extraW() const { return std::max(0.0F, window_.width() - static_cast<float>(kWidth)); }
     [[nodiscard]] std::size_t extraChars() const { return static_cast<std::size_t>(extraW() / 8.0F); }
 
+    // sourceToTarget_, sourceTargetCount_ and sourceHatDirection_ from mapper_.
+    void indexMapping();
+    // The header's Edit and rotation (both views): where they start, drawn (returns where they end), a click on them.
+    [[nodiscard]] float liveControlsX() const;
+    float drawLiveControls();
+    bool onLiveControlsClick(float x, float y);
+    void stepRotation(int steps);
+    static constexpr float kEditW = 40.0F;
+    static constexpr float kStepW = 16.0F;
+    static constexpr float kRotationValueW = 8 * ui::kCharWidth + 4;   // "2520 deg"
     void drawHeader();
     void drawAxes(const RawInputs& inputs, const WheelState& state, const TargetReport& report, float top);
     // "Rig 13 R paddle" on the wheel, "Pedals 2 Gas" on an accessory (cut to `chars`).
@@ -214,6 +243,10 @@ private:
     int sourceButtons_;
     const IDeviceProfile& profile_;
     MapperConfig mapper_;
+    std::function<bool(float)> rotationEditor_;
+    std::optional<float> pendingRotation_;   // asked, not in the session's mapping yet
+    bool editButton_ = false;
+    bool editRequested_ = false;
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories_{};
     std::string target_;            // short name of the emulated wheel ("G920")
     ButtonOrder buttonOrder_ = ButtonOrder::Driver;

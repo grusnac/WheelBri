@@ -346,7 +346,13 @@ TEST_F(AppRun, ShimStartRunStop) {
         EXPECT_TRUE(w.has("LIVE LOG")) << w.dump();   // Start shows the logs at once
     });
     press("m");
-    waitFor("Target G920   Mode Shim   fixed while running");
+    waitFor("Target G920  Mode Shim");
+    // Edit: the Mapping tab's editor while running (its Target fixed), and Live view back.
+    clickWhenShown("Edit");
+    waitFor("Live view", false);
+    check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("EDIT")) << w.dump(); });
+    clickWhenShown("Live view");
+    waitFor("Target G920  Mode Shim");
     // One button for Start and Stop leaves the bar room for the game too.
     check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("G920 - Shim - waiting for a game")) << w.dump(); });
     // A profiled game starts: the Games tab opens on it; its name and rotation in the status.

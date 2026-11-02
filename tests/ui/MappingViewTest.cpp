@@ -942,5 +942,84 @@ TEST_F(LiveView, ForceFeedbackTab) {
     draw(*view, {}, {}, {}, ffb);
 }
 
+// The Mapping tab's header while running, both views: Edit and the steering rotation. Without an editor (the command
+// line service's --ui window) the rotation is only shown; with one, - and + (or [ and ]) change it 10 degrees a
+// press, amber until the session's mapping has it; Edit is asked once.
+TEST_F(LiveView, RotationAndEditInTheHeader) {
+    MapperConfig mapper = mapping();
+    mapper.steering.targetRotationDeg = 900.0F;
+    auto view = makeView(6, 20, mapper);
+    draw(*view);
+    ASSERT_NE(window_.find("900 deg", true), nullptr) << window_.dump();
+    EXPECT_TRUE(window_.has("Rotation", true));
+    EXPECT_FALSE(window_.has("Edit", true));
+    view->onKey(']');   // no editor: nothing changes
+    draw(*view);
+    EXPECT_TRUE(window_.has("900 deg", true));
+
+    std::vector<float> asked;
+    bool inUse = true;
+    view->setRotationEditor([&](const float degrees) {
+        asked.push_back(degrees);
+        return inUse;
+    });
+    view->setEditButton(true);
+    draw(*view);
+    const auto* value = window_.find("900 deg", true);
+    ASSERT_NE(value, nullptr);
+    const float plusX = value->x + 8 * ui::kCharWidth + 4 + 2;
+    view->onClick(plusX, value->y + 1);
+    ASSERT_EQ(asked.size(), 1U);
+    EXPECT_FLOAT_EQ(asked[0], 910.0F);
+    draw(*view);
+    const auto* pending = window_.find("910 deg", true);
+    ASSERT_NE(pending, nullptr) << window_.dump();
+    EXPECT_EQ(pending->colour.r, style::kCaution.r);
+    // The session's mapping has it: the usual colour.
+    mapper.steering.targetRotationDeg = 910.0F;
+    view->setMapping(mapper);
+    draw(*view);
+    ASSERT_NE(window_.find("910 deg", true), nullptr);
+    EXPECT_EQ(window_.find("910 deg", true)->colour.r, style::kText.r);
+    // [ and ], and the ends: 90 at the least.
+    view->onKey('[');
+    EXPECT_FLOAT_EQ(asked.back(), 900.0F);
+    mapper.steering.targetRotationDeg = 100.0F;   // the session's: what asked last is not, so it stays asked
+    view->setMapping(mapper);
+    EXPECT_FLOAT_EQ(view->rotationNow(), 900.0F);
+    mapper.steering.targetRotationDeg = 900.0F;
+    view->setMapping(mapper);
+    mapper.steering.targetRotationDeg = 100.0F;
+    view->setMapping(mapper);
+    EXPECT_FLOAT_EQ(view->rotationNow(), 100.0F);
+    inUse = false;   // kept for the next Start: stays amber
+    view->onKey('[');
+    EXPECT_FLOAT_EQ(asked.back(), 90.0F);
+    const std::size_t count = asked.size();
+    view->onKey('[');
+    EXPECT_EQ(asked.size(), count);   // already at the least
+    draw(*view);
+    EXPECT_EQ(window_.find("90 deg", true)->colour.r, style::kCaution.r);
+    // Edit (or E): asked once.
+    EXPECT_FALSE(view->takeEditRequest());
+    ASSERT_TRUE(clickOn(*view, "Edit"));
+    EXPECT_TRUE(view->takeEditRequest());
+    EXPECT_FALSE(view->takeEditRequest());
+    view->onKey('e');
+    EXPECT_TRUE(view->takeEditRequest());
+}
+
+// The mapping changed while running (UiFrame::mapping): the List view's buttons follow it.
+TEST_F(LiveView, NewMappingIsShown) {
+    auto view = makeView();
+    draw(*view);
+    EXPECT_FALSE(window_.has("G920  2 B", true));
+    MapperConfig changed = mapping();
+    changed.buttonMap[1] = 19;   // B from rig button 19 now
+    view->setMapping(changed);
+    draw(*view);
+    EXPECT_TRUE(window_.has("G920  2 B", true)) << window_.dump();
+}
+
 }  // namespace
 }  // namespace wheelbri::service

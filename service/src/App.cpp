@@ -96,6 +96,15 @@ WheelSetupView::SessionWheel sessionWheel(const SessionInfo& info, const UiFrame
     return wheel;
 }
 
+// The mapping the session uses now (changed while it runs: LiveMapping.hpp), into the view when it moved.
+void followMapping(MappingView& view, std::uint64_t& shownVersion, const UiFrame& frame) {
+    if (frame.mapping != nullptr && frame.mappingVersion != shownVersion) {
+        shownVersion = frame.mappingVersion;
+        view.setMapping(*frame.mapping);
+    }
+    view.setButtonOrder(frame.buttonOrder);
+}
+
 void draw(const FfbDisplay& ffb, MappingView& view, const UiFrame& frame) {
     view.setTelemetry(frame.telemetry);
     view.setOldFiles(frame.oldFiles, frame.oldFilesFailed);
@@ -154,6 +163,7 @@ public:
         view_->setDevices(info.devices, info.devicesWarning);
         view_->setAccessories(info.accessories);
         view_->setButtonOrder(info.buttonOrder);
+        mappingShown_ = 0;   // the session's count starts again with it
         return true;
     }
 
@@ -194,6 +204,7 @@ public:
             const auto wheel = sessionWheel(info_, frame);
             setup_->update(&wheel);
         }
+        if (frame.ready) followMapping(*view_, mappingShown_, frame);
         // Nothing to show: drawing a hidden window can block (e.g. while a game switches display mode).
         if (frame.ready && window_->visible()) {
             window_->begin(kBackground);
@@ -216,6 +227,7 @@ private:
     std::unique_ptr<IDeviceProfile> profile_;
     std::unique_ptr<MappingView> view_;
     std::unique_ptr<WheelSetupView> setup_;
+    std::uint64_t mappingShown_ = 0;   // UiFrame::mappingVersion the view shows
 };
 
 // --- the app ------------------------------------------------------------------------------------------
@@ -542,6 +554,9 @@ private:
                 if (input.hwheel != 0) logsView->onHScroll(input.hwheel);
                 logsView->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
             }
+            // The live view's Edit, and the editor's way back (while running).
+            if (view_ != nullptr && view_->takeEditRequest()) editWhileRunning_ = true;
+            if (mapping_->takeLiveRequest()) editWhileRunning_ = false;
             collectSession();
             showFirstHide();
             updateStartNeeds();
@@ -552,7 +567,8 @@ private:
             updateGames();
             hotSwapShims();
             mapping_->setPage(showingGames() ? MappingEditView::Page::Games : MappingEditView::Page::Mapping);
-            if (showingEditor()) mapping_->update();
+            // Every frame, not only while it shows: the live views change the rotation through it while running.
+            mapping_->update();
             if (std::string problem; games_->takeProblem(problem)) notice("Games", problem);
             for (std::string text : {mapping_->takeToast(), games_->takeToast()}) {
                 if (!text.empty()) toast(std::move(text));
@@ -608,9 +624,10 @@ private:
     // The shim's game row: in the Mapping tab's editor its second row at the right edge (where Default, Save and Revert
     // were: they are in the top row now); in the live view the top row, next to the title.
     [[nodiscard]] float gamesRowX() const {
-        return view_ == nullptr ? window_->width() - 4 - kGamesWidth : kGamesX;
+        return showingMappingEditor() ? window_->width() - 4 - kGamesWidth : kGamesX;
     }
-    [[nodiscard]] float gamesRowY() const { return view_ == nullptr ? kGamesEditorY : kControlsY; }
+    // The editor's place also while it shows during a session (the live view's Edit).
+    [[nodiscard]] float gamesRowY() const { return showingMappingEditor() ? kGamesEditorY : kControlsY; }
     [[nodiscard]] float buttonsY() const { return tabBarTop() + 4; }   // Start / Stop, level with the tab buttons
     // Start and Stop are one button (Start while stopped, Stop from Starting to Stopped), at the bar's right end.
     [[nodiscard]] float stopX() const { return window_->width() - 4 - kButtonWidth; }
@@ -628,7 +645,11 @@ private:
         return view_ != nullptr ? view_->tab() == MappingView::Tab::WheelSetup : idleTab_ == IdleTab::Setup;
     }
     // The Mapping tab's editor: on the idle page (no session shows; while running it is the live view).
-    [[nodiscard]] bool showingMappingEditor() const { return view_ == nullptr && idleTab_ == IdleTab::Mapping; }
+    // While running, the live view's Edit shows it instead of the live view (until its Live view button, or Stop).
+    [[nodiscard]] bool showingMappingEditor() const {
+        return view_ == nullptr ? idleTab_ == IdleTab::Mapping
+                                : view_->tab() == MappingView::Tab::Mapping && editWhileRunning_;
+    }
     // The Games tab: the editor's Games page, stopped or running (then locked, with the game that runs).
     [[nodiscard]] bool showingGames() const {
         return view_ != nullptr ? view_->tab() == MappingView::Tab::Games : idleTab_ == IdleTab::Games;
@@ -1036,11 +1057,15 @@ private:
                 view_->setDevices(info->devices, info->devicesWarning);
                 view_->setAccessories(info->accessories);
                 view_->setButtonOrder(info->buttonOrder);
+                mappingShown_ = 0;   // the session's count starts again with it
+                // The mapping can change while running (LiveMapping.hpp): Edit opens the editor, and the rotation
+                // changes right in the live views.
+                view_->setEditButton(true);
+                view_->setRotationEditor([this](const float degrees) { return mapping_->changeRotation(degrees); });
                 view_->setHeaderChars(sessionShim_ ? kHeaderCharsShim : kHeaderChars);
                 view_->setShimMode(sessionShim_);
                 view_->setSessionLine(std::string("Target ") + ConfigPicker::targetName(picker_->target()) +
-                                      "   Mode " + ConfigPicker::wayName(picker_->way()) +
-                                      "   fixed while running");
+                                      "  Mode " + ConfigPicker::wayName(picker_->way()));
                 // Start: the tab showing while it came up (the logs, unless changed); the wheel back after a loss:
                 // the tab that was showing.
                 view_->setTab(hadView                           ? previousTab
@@ -1067,6 +1092,7 @@ private:
                                                                                        : IdleTab::Logs;
             view_.reset();
             info_.reset();
+            editWhileRunning_ = false;
             if (lastResult_ == 0) {
                 WE_LOG_INFO(log(), "the service stopped");
             } else {
@@ -1102,6 +1128,7 @@ private:
             }
         } else if (view_ != nullptr && info_) {
             if (const auto frame = host_.latest(); frame && frame->ready) {
+                followMapping(*view_, mappingShown_, *frame);
                 draw(ffbDisplay(*info_, *frame), *view_, *frame);
             }
         } else if (view_ == nullptr) {
@@ -1616,6 +1643,8 @@ private:
     std::optional<SessionInfo> info_;
     std::unique_ptr<IDeviceProfile> profile_;
     std::unique_ptr<MappingView> view_;
+    std::uint64_t mappingShown_ = 0;   // UiFrame::mappingVersion the live view shows
+    bool editWhileRunning_ = false;    // the Mapping tab shows the editor while running (showingMappingEditor)
     std::unique_ptr<WheelSetupView> setup_;
     std::unique_ptr<ConfigPicker> picker_;
     std::unique_ptr<MappingEditView> mapping_;
