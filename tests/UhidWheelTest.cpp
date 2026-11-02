@@ -468,7 +468,7 @@ uhid_event setReport(const std::uint32_t id, const std::uint8_t rnum, const std:
     e.u.set_report.rnum = rnum;
     e.u.set_report.rtype = rtype;
     e.u.set_report.size = static_cast<std::uint16_t>(data.size());
-    std::memcpy(e.u.set_report.data, data.data(), data.size());
+    if (!data.empty()) std::memcpy(e.u.set_report.data, data.data(), data.size());   // data() may be null when empty
     return e;
 }
 
