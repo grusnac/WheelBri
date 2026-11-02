@@ -113,8 +113,9 @@ std::vector<Bytes> answer(const Bytes& q, const std::uint32_t position, const st
         seal(r, 13);
         return {r};
     }
-    if (type == 0x03 || type == 0x04 || type == 0x01) return {status(0x02, seq, position, clock)};
-    return {};   // 0x0E and the rest: nothing, as a real G923
+    // The operating range too, as a real G923 (2026-11-01, S2 frame 251 -> 261).
+    if (type == 0x03 || type == 0x04 || type == 0x01 || type == 0x0E) return {status(0x02, seq, position, clock)};
+    return {};   // the rest: nothing, as a real G923
 }
 
 Bytes tfRequest(const std::uint8_t type, const std::uint8_t seq, const Bytes& payload = {}) {
@@ -418,7 +419,8 @@ TEST_F(G923Cap, DecodesAnAccSession) {
             EXPECT_NEAR(*h.perTurn, kCountsPerTurn, 2.0) << h.label;
         }
     }
-    EXPECT_EQ(tf.pairs.at(0x0E).answered, 0);   // no operating range answer, as a real G923
+    EXPECT_EQ(tf.pairs.at(0x0E).answered, 1);   // the operating range: a plain status, as a real G923
+    EXPECT_EQ(tf.pairs.at(0x0E).answerTypes.at(0x02), 1);
     EXPECT_EQ(tf.pairs.at(0x09).answered, 0);
     ASSERT_TRUE(tf.stream);
     EXPECT_EQ(tf.stream->count, 500U);

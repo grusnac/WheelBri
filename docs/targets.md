@@ -9,7 +9,7 @@ The Logitech wheels WheelBri can present, how each one looks to a game, and wher
 | G25 | 046D:C299 | 19 | several sources (below); Native order too |
 | G27 | 046D:C29B | 23 | the G25's, plus the wheel's lower buttons from GIMX; Native order too |
 | G920 | 046D:C262 | 19 | the real G920 |
-| G923 | 046D:C26E | 24 | 0-18 as the G920, 19-23 (Plus, Minus, the dial) a guess; unsigned axes, HID++ for G HUB |
+| G923 | 046D:C26E | 24 | 0-18 as the G920, 19-23 (Plus, Minus, the dial) a guess (a real one has 23); unsigned axes, HID++ for G HUB |
 
 All use 900 degrees. Orders below count from 0, as the code and the INI's `target_N` do.
 
@@ -76,12 +76,14 @@ To change an order: `g25Spec()`, `g27Spec()`, `g923Spec()` in `core/src/DevicePr
 
 With Target G923 in Mode Virtual the virtual wheel answers G HUB's HID++ 2.0 (`core/include/wheelbri/HidPp.hpp`,
 written from the public description): Root, FeatureSet, firmware version, name and ForceFeedback (0x8123). G HUB shows
-the wheel as active. Rotation it sets is logged, **not applied**. Effects sent over 0x8123 (by G HUB or Logitech's
-force feedback driver) are played on the rig, scaled by the gain G HUB sets (`HidPpFfb.hpp`).
+the wheel as active. Every answer comes in the very long report `0x12`, as a real G923 answers even its long (`0x11`)
+requests. Rotation it sets is logged, **not applied**. Effects sent over 0x8123 (by G HUB or Logitech's force
+feedback driver) are played on the rig, scaled by the gain G HUB sets (`HidPpFfb.hpp`).
 
-The pedals are in games' layout (throttle Y, brake Rz, clutch Slider), not a real G923's (brake Z, clutch Rz), so G HUB
-shows them in the wrong places. With a real G923's layout DirectInput relabelled them for games (in ACC gas became the
-clutch), and the registry entries meant to undo that did not.
+The pedals are in games' layout (throttle Y, brake Rz, clutch Slider, 16 bits), not a real G923's (throttle Y, brake Z,
+clutch Rz, 8 bits, released at the top), so G HUB shows them in the wrong places. With a real G923's layout
+DirectInput relabelled them for games (in ACC gas became the clutch), and the registry entries meant to undo that did
+not.
 
 ## TrueForce (G923)
 
@@ -90,17 +92,22 @@ TrueForce interface: a second device in the wheel's container, usage page `0xFFF
 (`core/include/wheelbri/TrueForce.hpp`). It answers the game's set-up as a real wheel and reports the steering
 (state on 127.0.0.1:41331) over `target_rotation_deg`, the wheel's own rotation, whatever range the game sets. Its
 parameters, count range (904.5 degrees, 268101.8 counts a turn) and full scale are a real G923's, measured with USB
-captures (`tools/g923-capture`); it answers the operating range (`0x0e`) with a plain status, as a real G923. All 64 parameters are the G923's,
-`0x36` too (NaN; -1 until 2026-11-01, which kept the SDK's KF filter off). Driver log lines start `trueforce:` (each packet and
-the 10 s summaries at log level debug).
+captures (`tools/g923-capture`); it answers the operating range (`0x0e`) with a plain status, as a real G923. All 64
+parameters are the G923's, `0x36` too (NaN). Driver log lines start `trueforce:` (each packet and the 10 s summaries at
+log level debug).
 
 The force of a game in TrueForce mode (ACC: `logiTrueForceSetTorqueKF`) comes on that interface: Logitech's SDK
-streams it as type `0x01` packets (1000 a second to a real G923), bytes 6..7 the motor torque target. It needs the
-full-scale torque WheelBri reports in its status (0.65 Nm, a G923's): with 0 there the SDK streams none. The driver
-plays it as a constant force in the service's slot 7 (`core/include/wheelbri/TrueForceFfb.hpp`), through the safety
-limiter and the game profile's gain like any other effect. The damping the game sets (`0x0c`,
-`logiTrueForceSetDamping`) plays alongside as a damper in slot 6: without it a direct-drive wheel swings from lock to
-lock. To a real G923 the SDK sends no `0x0c` at all. The texture (the packets' sample window) is not played yet.
+streams it as type `0x01` packets (1000 a second to a real G923), the motor torque target the mean of the words at
+bytes 6..7 and 8..9. It needs the full-scale torque WheelBri reports in its status (0.65 Nm, a G923's): with 0 there
+the SDK streams none. The driver plays it as a constant force in the service's slot 7
+(`core/include/wheelbri/TrueForceFfb.hpp`), through the safety limiter and the game profile's gain like any other
+effect. The damping the game sets (`0x0c`, `logiTrueForceSetDamping`) plays alongside as a damper in slot 6: without
+it a direct-drive wheel swings from lock to lock. To a real G923 the SDK sends no `0x0c` at all.
+
+The texture (the packets' sample window: 4 new samples a millisecond, which a real G923 adds to its motor torque)
+plays as a vibration in slot 5: a sine whose size and frequency follow each 40 ms of samples (in ACC about 2% of full
+scale at about 240 Hz). The rig takes a new force at most every 4 ms, too slow for the samples themselves, so its own
+firmware makes the vibration. Not yet felt on a rig.
 
 Games that use DirectInput on a G923 go through Logitech's force feedback driver -> HID++ 0x8123 (ACC also reads
 and sets the range through its Escape). So with `trueforce` on WheelBri registers that driver for the virtual G923:

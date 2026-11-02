@@ -182,7 +182,9 @@ DeviceProfileSpec g920Spec() {
     spec.identity.rotationDeg = 900.0F;
     spec.steeringRange = {0, 65535};
     spec.pedalRange = {0, 65535};
-    spec.pedalsReleasedAtMax = true;   // pressed = the low end (assumed from Logitech's pedal sets)
+    // Pressed = the low end: a real G923's pedals rest at 255, the top (its USB capture, 2026-11-01); the G920's,
+    // the same family, assumed alike.
+    spec.pedalsReleasedAtMax = true;
     // DirectInput button order in PC mode (joy.cpl buttons 1..11), then the Driving Force Shifter on the wheel's
     // shifter port: joy.cpl 13..18 for gears 1..6 and 19 for reverse (Logitech's Driving Force Shifter FAQ). joy.cpl
     // 12 exists on the G920 but nothing presses it.

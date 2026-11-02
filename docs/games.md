@@ -29,7 +29,7 @@ G920 only, by themselves while the game runs.
     installed with G HUB on the test PC); WheelBri registers it for the wheel.
   - In ACC: Steer Lock **2700**, so the car turns fully at your rotation; Gain 100% felt right.
   - Moza: keep Pit House closed while you play. With it open the wheel nudges as a track loads.
-  - The road texture is not played yet ([Targets](targets.md#trueforce-g923)).
+  - The road texture plays as a vibration ([Targets](targets.md#trueforce-g923)); not yet checked on a rig.
 
 ## DiRT Rally 2.0
 

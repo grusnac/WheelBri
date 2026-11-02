@@ -73,7 +73,9 @@ std::span<const std::uint8_t> expectedAnswers(const std::uint8_t requestType) {
     static constexpr std::array<std::uint8_t, 1> k05 = {0x05};
     static constexpr std::array<std::uint8_t, 1> k07 = {0x07};
     static constexpr std::array<std::uint8_t, 1> k10 = {0x10};
-    static constexpr std::array<std::uint8_t, 2> kRange = {0x11, 0x14};
+    // The operating range: a real G923 answers with a plain status of its sequence (2026-11-01, S2 frames 251 ->
+    // 261, 489 -> 493, 499 -> 507); 0x11 and 0x14 are what Logitech's DLL also takes.
+    static constexpr std::array<std::uint8_t, 3> kRange = {0x02, 0x11, 0x14};
     static constexpr std::array<std::uint8_t, 1> k02 = {0x02};
     switch (requestType) {
         case 0x05: return k05;
