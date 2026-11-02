@@ -6,11 +6,14 @@
 
 #include "AppLogLevel.hpp"
 #include "MappingView.hpp"
+#include "PaneWindow.hpp"
 #include "UiStyle.hpp"
 
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/FfbController.hpp"
+#include "wheelbri/FfbGroups.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LocalDate.hpp"
 #include "wheelbri/Logging.hpp"
@@ -47,12 +50,12 @@ protected:
         std::filesystem::create_directories(dir_ / "logs");
         profile_ = makeProfile("g920");
         MappingView::setOptionalTabs(false, false);
-        MappingView::setGamesTab(false);
+        MappingView::setEditorTabs(false);
         MappingView::startOnShadow(false);   // the List view (the G920 has a picture too); Shadow tests ask for it
     }
     void TearDown() override {
         MappingView::setOptionalTabs(false, false);
-        MappingView::setGamesTab(false);
+        MappingView::setEditorTabs(false);
         std::error_code ec;
         std::filesystem::remove_all(dir_, ec);
     }
@@ -121,17 +124,17 @@ protected:
     std::unique_ptr<IDeviceProfile> profile_;
 };
 
-// The tabs that exist: Rig, Mapping, Logs; Games in the app; Telemetry and Force feedback only when asked for. Keys
+// The tabs that exist: Rig, Mapping, Logs; Live and Games in the app; Telemetry and Force feedback only when asked for. Keys
 // and clicks switch them; a key for a tab that is not there does nothing.
 TEST_F(LiveView, TabsAndKeys) {
     EXPECT_EQ(MappingView::visibleTabs().size(), 3U);
     const float three = MappingView::tabsEnd();
-    MappingView::setGamesTab(true);
+    MappingView::setEditorTabs(true);
     MappingView::setOptionalTabs(true, true);
-    EXPECT_EQ(MappingView::visibleTabs().size(), 6U);
+    EXPECT_EQ(MappingView::visibleTabs().size(), 7U);
     EXPECT_GT(MappingView::tabsEnd(), three);
     MappingView::setOptionalTabs(false, false);
-    MappingView::setGamesTab(false);
+    MappingView::setEditorTabs(false);
     auto view = makeView();
     for (const char key : {'g', 't', 'f'}) {
         view->onKey(key);
@@ -145,7 +148,7 @@ TEST_F(LiveView, TabsAndKeys) {
     EXPECT_TRUE(window_.has("Rig (R)"));
     EXPECT_FALSE(window_.has("AXES"));
     view->onKey('m');
-    MappingView::setGamesTab(true);
+    MappingView::setEditorTabs(true);
     MappingView::setOptionalTabs(true, true);
     for (const auto& [key, tab] : {std::pair{'g', MappingView::Tab::Games}, std::pair{'t', MappingView::Tab::Telemetry},
                                    std::pair{'f', MappingView::Tab::ForceFeedback}}) {
@@ -940,6 +943,134 @@ TEST_F(LiveView, ForceFeedbackTab) {
     // A packet stamped after "now" (clocks apart): no age.
     ffb.nowNs = 0;
     draw(*view, {}, {}, {}, ffb);
+}
+
+// The app's tabs (setEditorTabs): Mapping is the editor's (the window draws it), Live right of it is the live page
+// (Shadow / List); S goes to Live, and there switches Shadow / List. Without them Mapping is the live page.
+TEST_F(LiveView, LiveTabNextToMapping) {
+    MappingView::setEditorTabs(true);
+    auto view = makeView();
+    const std::vector<MappingView::Tab> tabs = MappingView::visibleTabs();
+    ASSERT_GE(tabs.size(), 4U);
+    EXPECT_EQ(tabs[1], MappingView::Tab::Mapping);
+    EXPECT_EQ(tabs[2], MappingView::Tab::Live);
+    EXPECT_EQ(tabs[3], MappingView::Tab::Games);
+    view->setTab(MappingView::Tab::Mapping);
+    draw(*view);
+    EXPECT_FALSE(window_.has("LIVE", true));   // the editor's page: the window draws it
+    EXPECT_TRUE(window_.has("Live (S)", true));
+    view->onKey('s');
+    EXPECT_EQ(view->tab(), MappingView::Tab::Live);
+    EXPECT_TRUE(view->livePage());
+    draw(*view);
+    EXPECT_TRUE(window_.has("LIVE", true)) << window_.dump();
+    EXPECT_FALSE(view->showingShadow());   // the tests start on List
+    view->onKey('s');
+    EXPECT_TRUE(view->showingShadow());
+    view->onKey('s');
+    EXPECT_FALSE(view->showingShadow());
+    ASSERT_TRUE(clickOn(*view, "Mapping (M)"));
+    EXPECT_EQ(view->tab(), MappingView::Tab::Mapping);
+    EXPECT_FALSE(view->livePage());
+    MappingView::setEditorTabs(false);
+    EXPECT_TRUE(view->livePage());
+    const std::vector<MappingView::Tab> without = MappingView::visibleTabs();
+    EXPECT_EQ(std::count(without.begin(), without.end(), MappingView::Tab::Live), 0);
+}
+
+// The mapping changed while running (UiFrame::mapping): the List view's buttons follow it.
+TEST_F(LiveView, NewMappingIsShown) {
+    auto view = makeView();
+    draw(*view);
+    EXPECT_FALSE(window_.has("G920  2 B", true));
+    MapperConfig changed = mapping();
+    changed.buttonMap[1] = 19;   // B from rig button 19 now
+    view->setMapping(changed);
+    draw(*view);
+    EXPECT_TRUE(window_.has("G920  2 B", true)) << window_.dump();
+}
+
+// A pane of the window (the app's side by side): the view draws as if it were the whole window, its width the pane's,
+// every draw call moved right by the pane's left edge; the bottom reserve is the window's.
+TEST_F(LiveView, PaneWindowMovesTheDrawing) {
+    window_.setSize(1920, 748);
+    window_.setBottomReserve(26);
+    ui::PaneWindow pane(window_);
+    EXPECT_FLOAT_EQ(pane.width(), 1920.0F);
+    pane.place(960, 960);
+    EXPECT_FLOAT_EQ(pane.left(), 960.0F);
+    EXPECT_FLOAT_EQ(pane.width(), 960.0F);
+    EXPECT_FLOAT_EQ(pane.height(), 748.0F);
+    EXPECT_FLOAT_EQ(pane.bottomReserve(), 26.0F);
+    window_.clearDrawing();
+    pane.setOrigin(0, 10);
+    pane.text(4, 4, "pane", style::kText);
+    pane.fill(0, 0, 10, 10, style::kText);
+    window_.finish();
+    const auto* text = window_.find("pane");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->x, 964.0F);
+    EXPECT_FLOAT_EQ(text->y, 14.0F);
+    pane.setOrigin(0, 0);
+    // A view in it lays out for the pane: its tab bar ends inside it.
+    MappingView::setEditorTabs(true);
+    auto view = std::make_unique<MappingView>(pane, "Moza R3", 6, 20, *profile_, mapping());
+    view->setTab(MappingView::Tab::Live);
+    view->setSideBySide(true);
+    window_.clearDrawing();
+    view->drawLivePage({}, {}, {});
+    window_.finish();
+    ASSERT_NE(window_.find("LIVE"), nullptr);
+    EXPECT_GE(window_.find("LIVE")->x, 960.0F);
+    EXPECT_FALSE(window_.has("Logs (L)", true));   // no tab bar: the app draws it across the window
+    EXPECT_TRUE(window_.has("Side by side (B)", true));
+    // Its button asks once.
+    const auto* button = window_.find("Side by side (B)", true);
+    view->onClick(button->x - 960 + 2, button->y + 2);
+    EXPECT_TRUE(view->takeSideBySideRequest());
+    EXPECT_FALSE(view->takeSideBySideRequest());
+    MappingView::setEditorTabs(false);
+}
+
+// The Live tab's force feedback, in both views: per kind of effect what the game asks and what reaches the wheel;
+// without game force feedback, why.
+TEST_F(LiveView, ForceFeedbackOnTheLivePage) {
+    class NullSink final : public IFfbSink {
+    public:
+        bool play(std::size_t, const FfbEffect&) override { return true; }
+        void stop(std::size_t) override {}
+        void stopAll() override {}
+    } sink;
+    FfbController controller(sink, FfbSafetyConfig{});
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::SlotState;
+    packet.slot = 0;
+    packet.playing = true;
+    packet.effect.type = FfbEffectType::Constant;
+    packet.effect.constantLevel = 0.5F;
+    controller.onPacket(packet, 0);
+    controller.update(1'000'000);
+    controller.update(100'000'000);   // past the slew: the wheel gets all of it
+    FfbDisplay ffb;
+    ffb.controller = &controller;
+    MappingView::setEditorTabs(true);
+    for (const bool shadow : {true, false}) {
+        auto view = makeView();
+        view->setTab(MappingView::Tab::Live);
+        view->showShadow(shadow);
+        draw(*view, {}, {}, {}, ffb);
+        EXPECT_TRUE(window_.has("FORCE FEEDBACK")) << window_.dump();
+        for (const std::string_view kind : kFfbGroupNames) EXPECT_TRUE(window_.has(std::string(kind))) << kind;
+        EXPECT_TRUE(window_.has("50% -> 50%")) << window_.dump();
+        EXPECT_TRUE(window_.has("blue: the game asks, green: the wheel gets", true));
+        const auto* heading = window_.find("FORCE FEEDBACK");
+        EXPECT_LT(heading->y + MappingView::kFfbGroupsHeight, window_.height() - 28);   // above the tab bar
+        FfbDisplay none;
+        none.status = "off ([ffb] game_effects = false)";
+        draw(*view, {}, {}, {}, none);
+        EXPECT_TRUE(window_.has("off ([ffb] game_effects = false)")) << window_.dump();
+    }
+    MappingView::setEditorTabs(false);
 }
 
 }  // namespace

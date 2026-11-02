@@ -231,6 +231,7 @@ public:
             input.close = true;
             return input;
         }
+        refit(std::max(1, width_), std::max(1, height_));   // the design may have changed (setDesignColumns)
         while (!lost_ && XPending(display_) > 0) {
             XEvent event;
             XNextEvent(display_, &event);
@@ -482,7 +483,7 @@ private:
     }
     // The canvas for a window this size (fitCanvas; no display scale here: X11 has none worth trusting).
     void refit(const int width, const int height) {
-        box_ = fitCanvas(width, height, logicalWidth_, logicalHeight_, kMaxZoom);
+        box_ = fitCanvas(width, height, logicalWidth_ * designColumns_, logicalHeight_, kMaxZoom);
         canvasWidth_ = box_.width;
         canvasHeight_ = box_.height;
     }

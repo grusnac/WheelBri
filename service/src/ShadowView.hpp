@@ -38,6 +38,8 @@ public:
     ShadowView(ui::UiWindow& window, const IDeviceProfile& profile, const MapperConfig& mapper);
 
     void setButtonOrder(const ButtonOrder order) { order_ = order; }
+    // The mapping changed while the session runs (LiveMapping.hpp): labels, faint controls and the steering arc follow.
+    void setMapping(const MapperConfig& mapper) { mapper_ = mapper; }
     // The accessories the mapping reads (device 1, 2, 3), for their labels and names.
     void setAccessories(const std::array<DeviceLabels, MapperConfig::kMaxAccessories>& accessories) {
         accessories_ = accessories;
@@ -45,6 +47,12 @@ public:
 
     // The picture and the list, from `top` (where the Mapping tab's content starts) down to the tab bar.
     void draw(const WheelState& state, const TargetReport& report, float top);
+    // Room kept at the bottom of the right column, above the shifter, for the live view's own block (its force
+    // feedback): the list ends that much higher. After draw(): where that room is (left edge, top, width).
+    void setColumnReserve(const float height) { columnReserve_ = height; }
+    [[nodiscard]] float columnX() const;
+    [[nodiscard]] float reserveTop() const;
+    [[nodiscard]] float columnWidth() const { return window_.width() - columnX() - 4; }
 
     // What the picture writes for target button `target` (0-based, as named): on it (the game's number) and beside it
     // (the rig's label for its source, else the target's own name: gears just their number or R).
@@ -71,6 +79,9 @@ private:
     [[nodiscard]] float Y(const float y) const { return y + offY_; }
     void polygon(std::initializer_list<ShapePoint> points, ui::Colour colour);
     void roundedRect(float x, float y, float w, float h, float r, ui::Colour colour);
+    void roundedRectOutline(float x, float y, float w, float h, float r);   // into points_
+    // The part of that rounded rect from fromY down, its outline the rect's own (a pedal's lit part follows its face).
+    void roundedRectBelow(float x, float y, float w, float h, float r, float fromY, ui::Colour colour);
     void annularArc(float cx, float cy, float outer, float inner, float fromDeg, float toDeg, ui::Colour colour);
     void numberOn(float x, float y, std::size_t target, bool pressed);
     // The G920's print on a button in `ink`: its letters, or View's, Menu's and Xbox's symbols drawn small; `under`
@@ -113,6 +124,7 @@ private:
     ui::UiWindow& window_;
     const IDeviceProfile& profile_;
     MapperConfig mapper_;
+    float columnReserve_ = 0.0F;
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories_{};
     ButtonOrder order_ = ButtonOrder::Driver;
     enum class Picture { G25, G27, G920, G923 };
@@ -122,6 +134,7 @@ private:
     std::size_t gear1_ = 8;        // Gear 1's target button (Gear 2..6 and R follow): the G920's 12
     float offY_ = 0.0F;
     std::vector<ShapePoint> points_;   // a shape's corners (kept: drawing allocates nothing once grown)
+    std::vector<ShapePoint> cutPoints_;   // a shape cut short (roundedRectBelow), kept the same way
 };
 
 }  // namespace wheelbri::service

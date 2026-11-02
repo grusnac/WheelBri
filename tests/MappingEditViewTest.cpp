@@ -1289,7 +1289,7 @@ TEST_F(EditView, TheGamesList) {
     EXPECT_EQ(window_.count("built in"), 4U);
     EXPECT_TRUE(window_.has("program nfs16.exe"));
     EXPECT_TRUE(window_.hasPart("While WheelBri runs (Start) it finds the game"));
-    EXPECT_TRUE(window_.has("Axes"));
+    EXPECT_TRUE(window_.has("Axes and buttons"));
     EXPECT_FALSE(window_.has("Game file"));
     EXPECT_TRUE(window_.has("change them on the Mapping tab (M)"));
     ASSERT_TRUE(click("NFS Unbound"));
@@ -1410,53 +1410,38 @@ TEST_F(EditView, TheAxesSubTab) {
     EXPECT_TRUE(window_.hasPart("Two pedals on one axis"));
 }
 
-// The Force feedback sub-tab: nothing to set (no field, no Default, no switch), each kind of effect named; while the
-// game runs, per kind what it asks and what reaches the wheel. An older config's force feedback values for the game
-// change nothing there.
-TEST_F(EditView, TheForceFeedbackSubTab) {
+// The Games tab has no Force feedback sub-tab (nothing to set: the Live tab shows it), and the picked game's axes and
+// buttons are one sub-tab. An older config's force feedback values for the game change nothing.
+TEST_F(EditView, AxesAndButtonsOnOnePage) {
     useRig(testRig());
     write(userConfigFolder() / "my-g920.ini",
           read(dir_ / "config" / "g920.ini") + "\n[game_tuning]\nnfspayback.ffb_constant = 3\n");
     open();
     games();
     ASSERT_TRUE(click("NFS Payback"));
-    ASSERT_TRUE(click("Force feedback"));
     frame();
-    EXPECT_TRUE(window_.hasPart("shown while the game runs"));
-    EXPECT_TRUE(window_.hasPart("set it in the game and in your wheel's own app"));
-    for (const char* kind : {"Steering force", "Vibration", "Centring spring", "Damper", "Friction", "Inertia"}) {
-        EXPECT_TRUE(window_.has(kind)) << kind;
-    }
-    EXPECT_TRUE(window_.hasPart("constant force: the road, the tyres"));
-    for (const char* gone : {"Overall strength", "Cap", "Slew limit", "Fade a frozen push", "Turn the other way",
-                             "Game effects", "Default"}) {
+    EXPECT_FALSE(window_.has("Force feedback"));
+    EXPECT_FALSE(window_.has("Axes"));
+    EXPECT_FALSE(window_.has("Buttons"));
+    ASSERT_TRUE(window_.has("Axes and buttons"));
+    const Window::Text* const axes = window_.find("AXES");
+    const Window::Text* const buttons = window_.find("BUTTONS");
+    ASSERT_NE(axes, nullptr);
+    ASSERT_NE(buttons, nullptr);
+    EXPECT_LT(axes->y, buttons->y);   // the axes, then the buttons
+    EXPECT_TRUE(window_.hasPart("No button changed for this game"));
+    for (const char* gone : {"Steering force", "Overall strength", "Game effects"}) {
         EXPECT_FALSE(window_.has(gone)) << gone;
     }
-    EXPECT_FALSE(window_.hasPart("Its game profile"));
-
-    // While it runs: per kind what it asks and what reaches the wheel.
-    MappingEditView::GameNow now;
-    now.session = true;
-    now.id = "nfspayback";
-    now.ffbLive = true;
-    now.asked[0] = 0.5F;
-    now.sent[0] = 0.25F;
-    view_->setGameNow(now);
-    frame();
-    EXPECT_TRUE(window_.hasPart("50% -> 25%"));
-    EXPECT_TRUE(window_.hasPart("not used now"));
-    EXPECT_TRUE(window_.hasPart("running: blue what the game asks"));
-    EXPECT_FALSE(window_.hasPart("constant force: the road, the tyres"));
 }
 
-// The Buttons sub-tab: none changed; Add button... (Cancel; a button) adds its row, unchanged: the Mapping tab's main
+// The game's buttons (under its axes): none changed; Add button... (Cancel; a button) adds its row, unchanged: the Mapping tab's main
 // and secondaries, nothing saved. Its main field opens the source picker (any control), its secondaries field the
 // secondary picker (for this game only); "Mapping tab's" in either follows the Mapping tab again; Remove: the row goes.
 TEST_F(EditView, TheButtonsSubTab) {
     useRig(testRig());
     open();
     games();
-    ASSERT_TRUE(click("Buttons"));
     frame();
     EXPECT_TRUE(window_.hasPart("No button changed for this game"));
     ASSERT_TRUE(click("Add button..."));
@@ -1524,7 +1509,7 @@ TEST_F(EditView, AGameTakesSecondariesAway) {
     write(userConfigFolder() / "my-g920.ini", text);
     open();
     games();
-    ASSERT_TRUE(click("Buttons"));
+    ASSERT_TRUE(click("Axes and buttons"));
     ASSERT_TRUE(click("Add button..."));
     ASSERT_TRUE(click("1 A"));
     games();
@@ -1549,7 +1534,7 @@ TEST_F(EditView, ManyChangedButtons) {
     open();
     picker_->useTarget(ConfigPicker::Target::G923);
     games();
-    ASSERT_TRUE(click("Buttons"));
+    ASSERT_TRUE(click("Axes and buttons"));
     frame();
     EXPECT_TRUE(window_.hasPart("more not shown: a bigger window shows them"));
     window_.setCanvas(1200, 1400);
@@ -2055,7 +2040,7 @@ TEST_F(EditView, WhileASessionRuns) {
     useRig(testRig());
     open();
     games();
-    ASSERT_TRUE(click("Axes"));
+    ASSERT_TRUE(click("Axes and buttons"));
     // A value set, then typed again after a complaint: nothing to save, the status line says when values apply.
     const auto again = [this](const std::string& value) {
         ASSERT_TRUE(clickRight("Steering", 1));
@@ -2104,13 +2089,13 @@ TEST_F(EditView, WhileASessionRuns) {
     frame();
     // The Games page keeps its typing and its button picker when a session starts.
     games();
-    ASSERT_TRUE(click("Buttons"));
+    ASSERT_TRUE(click("Axes and buttons"));
     ASSERT_TRUE(click("Add button..."));
     view_->setLocked(true);
     EXPECT_TRUE(view_->popupOpen());
     view_->setLocked(false);
     view_->onKey(ui::kEscape);
-    ASSERT_TRUE(click("Axes"));
+    ASSERT_TRUE(click("Axes and buttons"));
     ASSERT_TRUE(clickRight("Steering", 1));
     view_->setLocked(true);
     EXPECT_TRUE(view_->editingText());
@@ -2300,20 +2285,9 @@ TEST_F(EditView, WhatIsInUseForTheRunningGame) {
     EXPECT_TRUE(window_.has("now: steering 180 deg"));
     now.id = "nfs2015";
     now.rotation = "540 deg";
-    now.ffbLive = false;
     view_->setGameNow(now);
     games();
     EXPECT_TRUE(window_.has("now: steering 540 deg, pedals as below"));
-    ASSERT_TRUE(click("Force feedback"));
-    games();
-    EXPECT_TRUE(window_.hasPart("shown while the game runs"));
-    now.ffbLive = true;
-    now.sent[1] = 0.5F;   // sent but not asked: still shown
-    view_->setGameNow(now);
-    games();
-    EXPECT_TRUE(window_.hasPart("0% -> 50%"));
-    ASSERT_TRUE(click("Axes"));
-    games();
     EXPECT_EQ(window_.count("profile"), 3U);   // its pedals come from its profile
 }
 
@@ -2421,7 +2395,7 @@ TEST_F(EditView, AGamesButtonsOneByOne) {
     write(userConfigFolder() / "my-g920.ini", text);
     open();
     games();
-    ASSERT_TRUE(click("Buttons"));
+    ASSERT_TRUE(click("Axes and buttons"));
     games();
     EXPECT_TRUE(window_.has("nothing"));
     ASSERT_TRUE(click("Add button..."));
@@ -2636,26 +2610,56 @@ TEST_F(EditView, AConfigFolderNotInUtf8) {
 }
 #endif
 
-// While a session runs the Mapping tab is shown greyed: nothing to save, no Default or Undo, fields and the slider
-// not editable, the Target row and the slider not clickable; a session start that is already known changes nothing.
-TEST_F(EditView, TheMappingTabWhileLocked) {
+// While a session runs the Mapping tab stays the editor: every change is saved at once and in use by the session
+// (LiveMapping.hpp); the Target row and Default stay fixed (Default greyed).
+TEST_F(EditView, TheMappingTabWhileRunning) {
     useRig(testRig());
     open();
-    ASSERT_TRUE(click("Invert"));
+    ASSERT_TRUE(click("Invert"));   // made the user's own mapping: the one a session then runs
     frame();
     view_->setLocked(true);
-    view_->setLocked(true);
+    view_->setLocked(true);   // a session start already known changes nothing
     frame();
+    EXPECT_TRUE(window_.hasPart("running: each change is in use at once")) << status();
     const Window::Text* const field = window_.find("900");
     ASSERT_NE(field, nullptr);
-    EXPECT_TRUE(sameColour(field->colour, style::kDim));
-    view_->onClick(field->x + 1, field->y + 1);
-    EXPECT_FALSE(view_->editingText());
-    view_->onClick(80 + 2, 22 + 2);   // the Target's <
+    EXPECT_TRUE(sameColour(field->colour, style::kText));
+    view_->onClick(80 + 2, 22 + 2);   // the Target's <: fixed while running
     EXPECT_EQ(picker_->target(), ConfigPicker::Target::G920);
+    const Window::Text* const defaultButton = window_.find("Default");
+    ASSERT_NE(defaultButton, nullptr);
+    EXPECT_TRUE(sameColour(defaultButton->colour, style::kFaint));
+    // A change is saved and in use now.
+    ASSERT_TRUE(click("Invert", 1));
+    frame();
+    EXPECT_EQ(status(), "Saved: in use now.");
     const Window::Text* const undo = window_.find("Undo");
     ASSERT_NE(undo, nullptr);
-    EXPECT_TRUE(sameColour(undo->colour, style::kFaint));
+    EXPECT_FALSE(sameColour(undo->colour, style::kFaint));
+    // The rotation: the slider's presets, saved and in use now.
+    ASSERT_TRUE(click("540"));
+    frame();
+    EXPECT_NE(own().find("target_rotation_deg = 540"), std::string::npos) << own();
+    EXPECT_EQ(status(), "Saved: in use now.");
+    view_->setLocked(false);
+    frame();
+    EXPECT_FALSE(sameColour(window_.find("Default")->colour, style::kFaint));
+}
+
+// A session running with WheelBri's default mapping: a change made while it runs goes into the user's own mapping,
+// for the next Start.
+TEST_F(EditView, ChangesWhileRunningTheDefaultWaitForTheNextStart) {
+    useRig(testRig());
+    open();
+    frame();
+    view_->setLocked(true);
+    frame();
+    ASSERT_TRUE(click("270"));
+    frame();
+    EXPECT_NE(own().find("target_rotation_deg = 270"), std::string::npos) << own();
+    EXPECT_FALSE(view_->inUseNow());
+    frame();
+    EXPECT_TRUE(window_.hasPart("running: changes are kept for the next Start")) << status();
 }
 
 // Typing in a game's degrees takes "%", spaces, "/" and the letters of "off" (an older "360/180" reads as 180).

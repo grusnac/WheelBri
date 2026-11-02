@@ -284,6 +284,11 @@ void ShadowView::polygon(const std::initializer_list<ShapePoint> points, const C
 
 void ShadowView::roundedRect(const float x, const float y, const float w, const float h, const float radius,
                              const Colour colour) {
+    roundedRectOutline(x, y, w, h, radius);
+    window_.fillPolygon(points_, colour);
+}
+
+void ShadowView::roundedRectOutline(const float x, const float y, const float w, const float h, const float radius) {
     const float r = std::min({radius, w / 2, h / 2});
     points_.clear();
     // The four corners' quarter circles, clockwise from the top left.
@@ -296,7 +301,28 @@ void ShadowView::roundedRect(const float x, const float y, const float w, const 
             points_.push_back({centres[c].x + std::cos(a) * r, centres[c].y + std::sin(a) * r});
         }
     }
-    window_.fillPolygon(points_, colour);
+}
+
+void ShadowView::roundedRectBelow(const float x, const float y, const float w, const float h, const float radius,
+                                  const float fromY, const Colour colour) {
+    if (fromY >= y + h) return;
+    roundedRectOutline(x, y, w, h, radius);
+    if (fromY <= y) {
+        window_.fillPolygon(points_, colour);
+        return;
+    }
+    // Cut the outline at fromY (it is convex, so one pass keeps it whole): the lit part keeps the face's own corners.
+    std::vector<ShapePoint>& cut = cutPoints_;
+    cut.clear();
+    for (std::size_t i = 0; i < points_.size(); ++i) {
+        const ShapePoint a = points_[i];
+        const ShapePoint b = points_[(i + 1) % points_.size()];
+        const bool aIn = a.y >= fromY;
+        const bool bIn = b.y >= fromY;
+        if (aIn) cut.push_back(a);
+        if (aIn != bIn) cut.push_back({a.x + (b.x - a.x) * (fromY - a.y) / (b.y - a.y), fromY});
+    }
+    if (cut.size() >= 3) window_.fillPolygon(cut, colour);
 }
 
 void ShadowView::annularArc(const float cx, const float cy, const float outer, const float inner, const float fromDeg,
@@ -382,9 +408,14 @@ void ShadowView::textCentred(const float x, const float y, const std::string& va
 
 // --- the picture ----------------------------------------------------------------------------------------------------
 
+float ShadowView::columnX() const { return std::max(kListX, window_.width() - kListW - 4); }
+
+// The list's room ends above the shifter (it reaches under the list in the design's width).
+float ShadowView::reserveTop() const { return Y(kShifterY) - 50 - columnReserve_; }
+
 void ShadowView::draw(const WheelState& state, const TargetReport& report, const float top) {
     offY_ = top - kDesignTop;
-    const float listX = std::max(kListX, window_.width() - kListW - 4);
+    const float listX = columnX();
     style::headingBand(window_, 0, Y(54), listX - 10);
     style::heading(window_, 6, Y(54), "SHADOW");
     window_.text(62, Y(54),
@@ -591,14 +622,14 @@ void ShadowView::drawPedals(const WheelState& state) {
         if (g920) {
             // Squarer faces with short ribs across them (green where it is lit).
             roundedRect(px, top, pw, faceH, 10, used ? style::kSteel : style::kShadowOff);
-            if (v > 0.0F) roundedRect(px, litFrom, pw, faceH * v, faceH * v > 20 ? 10 : 3, style::kActive);
+            if (v > 0.0F) roundedRectBelow(px, top, pw, faceH, 10, litFrom, style::kActive);
             for (int r = 0; r < 7; ++r) {
                 const float ry = top + 14 + static_cast<float>(r) * (faceH - 24) / 6;
                 window_.fill(px + 12, ry, pw - 24, 3, v > 0.0F && ry > litFrom ? style::kActiveDeep : style::kShadowDeep);
             }
         } else {
             roundedRect(px, top, pw, faceH, 30, used ? style::kSteel : style::kShadowOff);   // the round-topped face
-            if (v > 0.0F) roundedRect(px, litFrom, pw, faceH * v, faceH * v > 60 ? 30 : 6, style::kActive);
+            if (v > 0.0F) roundedRectBelow(px, top, pw, faceH, 30, litFrom, style::kActive);
             // The face's rows of holes (green where it is lit).
             for (int r = 0; r < 5; ++r) {
                 for (int c = 0; c < 3; ++c) {
@@ -1034,8 +1065,8 @@ void ShadowView::drawList(const WheelState& state, const TargetReport& report, c
     const float width = window_.width() - listX - 4;
     const auto chars = static_cast<std::size_t>(std::max(10.0F, (width - 12) / ui::kCharWidth));
     float y = Y(76);
-    // Room down to the shifter's top (it reaches under the list in the design's width).
-    const float bottom = Y(kShifterY) - 50;
+    // Room down to the shifter's top, less the live view's block (setColumnReserve).
+    const float bottom = reserveTop();
     if (rows.empty()) {
         window_.text(listX + 6, y + 5, "nothing (press a button, a pedal, turn)", style::kDim);
         y += 22;

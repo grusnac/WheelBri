@@ -551,7 +551,7 @@ private:
         frameWidth_ = std::max(1, static_cast<int>(client.right - client.left));
         frameHeight_ = std::max(1, static_cast<int>(client.bottom - client.top));
         const float maxScale = static_cast<float>(windowDpi(window_)) / 96.0F * kMaxZoom;
-        box_ = fitCanvas(frameWidth_, frameHeight_, logicalWidth_, logicalHeight_, maxScale);
+        box_ = fitCanvas(frameWidth_, frameHeight_, logicalWidth_ * designColumns_, logicalHeight_, maxScale);
         canvasWidth_ = box_.width;
         canvasHeight_ = box_.height;
     }

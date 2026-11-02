@@ -64,6 +64,12 @@ public:
     // The user changed the per-game values while the session runs (the Games tab saves them as they change):
     // the next check() uses them. `tunings`: [game_tuning]; `overrides`: [game_rotation].
     void setValues(GameTunings tunings, GameRotations overrides);
+    // The mapping's own rotation changed while the session runs (the Mapping tab, LiveMapping.hpp): said in the log
+    // and used from now on, as the rotation of a game without its own.
+    void setMapping(float degrees);
+    // The rotation the session steers with now: the game's own while it runs with one (as the last check() said),
+    // else the mapping's. What the virtual wheel reports as its rotation (StatePacket::rotationDeg).
+    [[nodiscard]] float rotationNow() const { return applied_.value_or(mapping_); }
 
     // For the window's status, after "Running 1:23, ": the profile's label ("NFS 2015") while it is in use, else empty.
     [[nodiscard]] std::string status() const;

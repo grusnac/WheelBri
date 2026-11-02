@@ -70,11 +70,6 @@ public:
         std::uint64_t forMs = 0;
         std::string rotation;           // the rotation it steers with, when not the mapping's
         std::string warning;
-        // The game's force feedback now, per kind of effect (GameTuning.hpp FfbGroup): the strongest it asks and what
-        // reaches the wheel (after the safety limits), 0..1. `ffbLive`: the session has force feedback.
-        bool ffbLive = false;
-        std::array<float, kFfbGroupCount> asked{};
-        std::array<float, kFfbGroupCount> sent{};
     };
     // Also learns each game's settings file: when a known game ends, the one it wrote while it ran (learnGameFile).
     void setGameNow(GameNow now);
@@ -90,8 +85,12 @@ public:
     void draw();
     // The hover text, after everything else in the window (the app draws the shim's game row over the tab).
     void drawTooltip();
-    // While a session runs or starts the way and the config cannot change.
+    // While a session runs or starts: the Target, the Mode and Default are fixed. The mapping itself stays editable:
+    // each change is saved, and the session uses it at once when it runs this file (inUseNow; LiveMapping.hpp), else
+    // from the next Start. The app's Live tab shows it at work.
     void setLocked(bool locked);
+    // A session runs with the mapping this page edits: what is saved is in use at once.
+    [[nodiscard]] bool inUseNow() const;
 
     void onClick(float x, float y);
     void onKey(char key);
@@ -122,9 +121,9 @@ public:
     }
     void onRigTouch(const DeviceId& device, bool axis, int index);
     [[nodiscard]] bool dirty() const { return loaded_ && edit_ != saved_; }
-    // Can be edited now: anything while no session runs; the Games page's values also while one does (the
-    // session reads them again when they are saved: live tuning).
-    [[nodiscard]] bool editable() const { return !locked_ || page_ == Page::Games; }
+    // Can be edited now: always (the Games page's values and the mapping are taken by a running session when saved;
+    // the Target, the Mode and Default check locked_ themselves).
+    [[nodiscard]] bool editable() const { return true; }
     // A popup (pick a source, the wheel) covers the tab: the window's own controls on it wait.
     // A short message after something was done ("Mapping saved"): taken once, the app shows it for a few seconds.
     [[nodiscard]] std::string takeToast() { return std::exchange(toast_, std::string()); }
@@ -154,8 +153,8 @@ private:
     // a game's own setting (`fieldIndex_` = game index * kMaxGameSettings + the setting's index), or the threshold of an axis
     // that presses a button.
     enum class Field { None, Rotation, CentringSpring, PerGame, GameSteering, GameSetting, Threshold };
-    // The Games page's sub-tabs for the picked game.
-    enum class GameTab { Axes, Ffb, Buttons, File };
+    // The Games page's sub-tabs for the picked game: its axes and buttons on one page, its game file (some games).
+    enum class GameTab { Controls, File };
 
     struct Hit {
         float x, y, w, h;
@@ -313,7 +312,6 @@ private:
     // direction; Axes), the force feedback the game sends while it runs (Ffb, shown only), the buttons (Buttons); each value with Default (back to where it
     // came from: the game's profile or the Mapping tab).
     float drawGameAxes(std::size_t index, float y);
-    float drawGameForces(std::size_t index, float y);
     float drawGameButtons(std::size_t index, float y);
     // The picked game's own values (created when one is set; dropped when none is left).
     [[nodiscard]] const GameTuning* tuningOf(const std::string& id) const;
@@ -479,7 +477,7 @@ private:
     std::vector<std::string> shownGroups_;
     std::filesystem::path selectedFolderOnly_;         // the Games page shows that folder (its game is not known)
     std::string selectedGame_;   // the Games page's game (a profile id); empty: the first
-    GameTab gameTab_ = GameTab::Axes;
+    GameTab gameTab_ = GameTab::Controls;
     // The games the page lists: the built-in profiles, then the ones the user added (games.ini, userGames_).
     std::vector<GameProfile> games_;
     std::vector<GameProfile> userGames_;

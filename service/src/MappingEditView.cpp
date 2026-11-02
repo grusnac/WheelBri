@@ -292,7 +292,7 @@ void MappingEditView::save() {
 }
 
 void MappingEditView::autoSave() {
-    if (!loaded_ || locked_ || !dirty()) return;
+    if (!loaded_ || !dirty()) return;   // while a session runs too: it takes the mapping at once (LiveMapping.hpp)
     if (field_ != Field::None || dragging_ || thresholdDragging_ || mode_ != Mode::Idle) return;   // not done yet
     if (notSaved_ && *notSaved_ == edit_) return;                           // said why already: not again
     const MappingModel before = saved_;
@@ -304,7 +304,10 @@ void MappingEditView::autoSave() {
     }
     notSaved_.reset();
     toast_.clear();   // every change saves: no message for each
-    status_ = undoing ? "Undone and saved." : "Saved. Start uses it.";
+    status_ = undoing        ? (inUseNow() ? "Undone and saved: in use now." : "Undone and saved.")
+              : inUseNow()   ? "Saved: in use now."
+              : locked_      ? "Saved. The next Start uses it."
+                             : "Saved. Start uses it.";
     if (!undoing) {
         undo_.push_back(before);
         if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
@@ -312,7 +315,7 @@ void MappingEditView::autoSave() {
 }
 
 void MappingEditView::undo() {
-    if (!loaded_ || locked_) return;
+    if (!loaded_) return;
     field_ = Field::None;
     if (dirty()) {   // a change that could not be saved: dropped
         edit_ = saved_;
@@ -348,8 +351,8 @@ void MappingEditView::saveGameValues() {
         pending.gameSettings = saved_.gameSettings;
         pending.gameTunings = saved_.gameTunings;
     } else {
-        status_ = locked_ && path_ == sessionPath_ ? "Saved: in use now." : "Saved. The next Start uses it.";
-        toast_ = locked_ && path_ == sessionPath_ ? "Saved: in use now" : "Saved";
+        status_ = inUseNow() ? "Saved: in use now." : "Saved. The next Start uses it.";
+        toast_ = inUseNow() ? "Saved: in use now" : "Saved";
     }
     edit_ = std::move(pending);
 }
@@ -525,6 +528,8 @@ bool MappingEditView::followsRig(const Slot kind, const std::size_t index) const
 
 // --- input -------------------------------------------------------------------------------------------------------
 
+bool MappingEditView::inUseNow() const { return locked_ && path_ == sessionPath_; }
+
 void MappingEditView::setLocked(const bool locked) {
     // Called every frame. A session that starts ends what the Mapping tab was editing; the Games page's values
     // stay editable while it runs (live tuning).
@@ -618,7 +623,7 @@ void MappingEditView::onPointer(const float x, const float /*y*/, const bool lef
         return;
     }
     if (thresholdDragging_) {
-        if (!leftDown || locked_ || mode_ != Mode::PickAlt) {
+        if (!leftDown || mode_ != Mode::PickAlt) {
             thresholdDragging_ = false;
             return;
         }
@@ -626,7 +631,7 @@ void MappingEditView::onPointer(const float x, const float /*y*/, const bool lef
         return;
     }
     if (!dragging_) return;
-    if (!leftDown || locked_ || mode_ != Mode::Idle) {
+    if (!leftDown || mode_ != Mode::Idle) {
         dragging_ = false;
         return;
     }
@@ -926,10 +931,13 @@ void MappingEditView::draw() {
         subtitle(52, "every game: your own values for it and, for Mode Shim, its folder and the shim there");
     } else {
         window_.text(4, 4, "MAPPING", kHeading);
-        // EDIT: this page changes the mapping (while a session runs the tab shows the LIVE view instead).
+        // EDIT: this page changes the mapping, also while a session runs (each change in use at once,
+        // LiveMapping.hpp); the Live tab shows it at work.
         window_.fill(66, 2, 40, 12, kPanel);
         window_.text(70, 4, "EDIT", kText);
-        subtitle(114, "what your controls do on the " + target);
+        subtitle(114, !locked_     ? "what your controls do on the " + target
+                      : inUseNow() ? "running: each change is in use at once (see it on Live, S)"
+                                   : "running: changes are kept for the next Start");
     }
 
     // The target (fixed inputs, picked with < >) and how it runs, "custom", Default, Save and Revert: the Mapping tab's
@@ -991,6 +999,7 @@ void MappingEditView::draw() {
         tip(x, y, w, h, std::move(text));
     });
     // Saved as you change it: where Save was, whether it is ("saved", or "not saved" in red); Undo instead of Revert.
+    // Not while a session runs: it deletes the file the session reads.
     button(defaultX, 2, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
     const bool unsaved = loaded_ && dirty();
     const std::string saveState = unsaved ? "not saved" : "saved";
@@ -1000,10 +1009,12 @@ void MappingEditView::draw() {
         unsaved ? "This change could not be saved: the line at the bottom says why. Undo drops it."
                 : "Every change is saved at once; Start uses what you see. Accessories it uses must be plugged in to "
                   "start.");
-    const bool canUndo = loaded_ && !locked_ && (unsaved || !undo_.empty());
+    const bool canUndo = loaded_ && (unsaved || !undo_.empty());
     button(revertX, 2, "Undo", [this] { undo(); }, false, canUndo, 80);
     tip(revertX, 2, 80, 16, "Goes back one change, as many times as you like (until the Target changes).");
-    tip(defaultX, 2, 104, 16, "Deletes your own mapping for this Target: WheelBri's default mapping again.");
+    tip(defaultX, 2, 104, 16,
+        locked_ ? "Deletes your own mapping for this Target: once stopped (the running session reads it)."
+                : "Deletes your own mapping for this Target: WheelBri's default mapping again.");
     if (!loaded_) {
         window_.text(4, 60, fit(status_, 118 + extraChars()), kWarning);
         // A way out: another target above, or straight back to the G920 (the one every build has).
@@ -1186,23 +1197,21 @@ void MappingEditView::drawRotation(const float top) {
     const float shown = std::clamp(edit_.steeringRotationDeg, kSliderMinDeg, kSliderMaxDeg);
     const float filled = (shown - kSliderMinDeg) / (kSliderMaxDeg - kSliderMinDeg) * sliderW();
     window_.fill(kSliderX, y + 6, sliderW(), 4, kStripe);
-    window_.fill(kSliderX, y + 6, filled, 4, locked_ ? kDim : kHeading);
-    window_.fill(kSliderX + filled - 3, y + 1, 6, 14, locked_ ? kDim : kText);
+    window_.fill(kSliderX, y + 6, filled, 4, kHeading);
+    window_.fill(kSliderX + filled - 3, y + 1, 6, 14, kText);
     window_.outline(kSliderX, y + 6, sliderW(), 4,
                     edit_.steeringRotationDeg != saved_.steeringRotationDeg ? kMine : kPanel);
-    if (!locked_) {
-        hit(kSliderX - 4, y, sliderW() + 8, 16, [this] {
-            setRotationFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
-            dragging_ = true;
-        });
-    }
+    hit(kSliderX - 4, y, sliderW() + 8, 16, [this] {
+        setRotationFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
+        dragging_ = true;
+    });
     drawField(kSliderX + sliderW() + 12, y, 64, Field::Rotation, degrees(edit_.steeringRotationDeg),
               edit_.steeringRotationDeg != saved_.steeringRotationDeg);
     window_.text(kSliderX + sliderW() + 80, y + 4, "deg", kDim);
     float x = kSliderX + sliderW() + 112;
     for (const float preset : kPresetsDeg) {
         x += button(x, y, degrees(preset), [this, preset] { edit_.steeringRotationDeg = preset; },
-                    std::fabs(edit_.steeringRotationDeg - preset) < 0.5F, !locked_, 40) + 4;   // 7 fit in 960
+                    std::fabs(edit_.steeringRotationDeg - preset) < 0.5F, true, 40) + 4;   // 7 fit in 960
     }
     window_.text(kSliderX, y + 20, "90", kDim);
     window_.text(kSliderX + sliderW() - 32, y + 20, "1080", kDim);
@@ -1461,20 +1470,17 @@ void MappingEditView::drawGames() {
         top = drawGameFolder(&game, folder != gameFolders_.end() ? std::optional<std::size_t>(folder->second)
                                                                  : std::nullopt,
                              top);
-        if (gameTab_ == GameTab::File && game.settings.empty()) gameTab_ = GameTab::Axes;
+        if (gameTab_ == GameTab::File && game.settings.empty()) gameTab_ = GameTab::Controls;
         float x = gameX();
         const auto tab = [&](const GameTab which, const char* label) {
             x += button(x, top + 4, label, [this, which] { gameTab_ = which; }, gameTab_ == which, true) + 6;
         };
-        tab(GameTab::Axes, "Axes");
-        tab(GameTab::Ffb, "Force feedback");
-        tab(GameTab::Buttons, "Buttons");
+        // The game's axes and its buttons on one page; its force feedback is the Live tab's (nothing to set).
+        tab(GameTab::Controls, "Axes and buttons");
         if (!game.settings.empty()) tab(GameTab::File, "Game file");
         top += 28;
         switch (gameTab_) {
-            case GameTab::Axes: drawGameAxes(picked, top); break;
-            case GameTab::Ffb: drawGameForces(picked, top); break;
-            case GameTab::Buttons: drawGameButtons(picked, top); break;
+            case GameTab::Controls: drawGameButtons(picked, drawGameAxes(picked, top) + 12); break;
             case GameTab::File: drawGameSettings(picked, top); break;
         }
     }
@@ -1817,12 +1823,6 @@ namespace {
 constexpr std::array<ObjectGuid, 6> kPedalAxes = {ObjectGuid::YAxis,  ObjectGuid::ZAxis,  ObjectGuid::RxAxis,
                                                   ObjectGuid::RyAxis, ObjectGuid::RzAxis, ObjectGuid::Slider};
 constexpr std::array<const char*, 3> kPedalNames = {"Throttle", "Brake", "Clutch"};
-constexpr std::array<const char*, kFfbGroupCount> kGroupNames = {"Steering force", "Vibration", "Centring spring",
-                                                                 "Damper", "Friction", "Inertia"};
-constexpr std::array<const char*, kFfbGroupCount> kGroupAbout = {
-    "constant force: the road, the tyres", "sine, square, ...: kerbs, engine, rumble", "spring: pulls to the centre",
-    "damper: resists fast turning", "friction: resists any turning", "inertia: a heavier wheel"};
-
 }  // namespace
 
 const GameTuning* MappingEditView::tuningOf(const std::string& id) const {
@@ -1921,7 +1921,7 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
     reloadGames();
     addFolder();
     selectGame(id);
-    gameTab_ = GameTab::Axes;
+    gameTab_ = GameTab::Controls;
     status_ = game.label + " added: WheelBri finds " + program + " while it runs. Set its own values here.";
     statusError_ = false;
 }
@@ -2123,45 +2123,6 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
             window_.text(axisX, y, line, kCaution);
             y += 12;
         }
-    }
-    return y;
-}
-
-float MappingEditView::drawGameForces(const std::size_t index, float y) {
-    const std::string& id = games_[index].id;
-    const bool live = now_.id == id && now_.ffbLive;
-    gameSection(y, "FORCE FEEDBACK",
-                live ? "running: blue what the game asks, green what reaches the wheel"
-                     : "shown while the game runs: what it asks and what reaches the wheel");
-    y += 16;
-    // How strong, and each kind of effect, are the game's and the wheel's own app's to set: WheelBri passes all the
-    // game asks, through its safety limits. Here only what the game sends and what reaches the wheel.
-    constexpr const char* kStrength = "How strong: set it in the game and in your wheel's own app (Moza Pit House, "
-                                      "Fanatec, Simucube, Thrustmaster, Logitech G HUB). WheelBri passes all of what "
-                                      "the game asks, through its safety limits.";
-    for (const std::string& line : wrap(kStrength, gameChars(), 3)) {
-        window_.text(gameX(), y, line, kDim);
-        y += 12;
-    }
-    y += 4;
-    constexpr float kBarW = 72;
-    const float barX = gameValueX();
-    const auto percent = [](const float v) { return std::to_string(static_cast<int>(v * 100.0F + 0.5F)) + "%"; };
-    for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
-        window_.text(gameX(), y + 4, kGroupNames[g], kText);
-        std::string about = kGroupAbout[g];
-        if (live) {
-            window_.fill(barX, y + 4, kBarW, 8, kStripe);
-            window_.fill(barX, y + 4, kBarW * now_.asked[g], 8, kHeading);
-            window_.fill(barX + kBarW + 6, y + 4, kBarW, 8, kStripe);
-            window_.fill(barX + kBarW + 6, y + 4, kBarW * now_.sent[g], 8, kActive);
-            about = now_.asked[g] > 0.0F || now_.sent[g] > 0.0F ? percent(now_.asked[g]) + " -> " + percent(now_.sent[g])
-                                                                : "not used now";
-            window_.text(barX + 2 * kBarW + 16, y + 4, fit(about, valueChars() - 20), kDim);
-        } else {
-            window_.text(barX, y + 4, fit(about, valueChars()), kDim);
-        }
-        y += 20;
     }
     return y;
 }
@@ -2666,7 +2627,8 @@ void MappingEditView::drawAltPicker() {
     const std::size_t max = MapperConfig::kMaxSecondaries;
 
     // How to pick: press it on the rig (the app reads the devices meanwhile), or type to find it; and clear all.
-    const std::string how = "Press a control on your rig, or find it:";
+    // While a session runs the app does not read the devices (the session has them): find it only.
+    const std::string how = locked_ ? "Find the control:" : "Press a control on your rig, or find it:";
     window_.text(left, kPopupY + 32, how, kDim);
     const float findX = left + static_cast<float>(how.size() + 1) * ui::kCharWidth;
     const float findW = 24 * ui::kCharWidth + 12;
@@ -3085,7 +3047,9 @@ void MappingEditView::drawPicker() {
     }, !current.mapped(), true, 120);
 
     // How to pick: press it on the rig (the app reads the devices meanwhile), or type to find it.
-    const std::string how = axis ? "Move an axis on your rig, or find it:" : "Press a button on your rig, or find it:";
+    const std::string how = locked_ ? std::string(axis ? "Find the axis:" : "Find the button:")
+                            : axis  ? "Move an axis on your rig, or find it:"
+                                    : "Press a button on your rig, or find it:";
     const float howX = left + 132;
     window_.text(howX, kPopupY + 32, how, kDim);
     const float findX = howX + static_cast<float>(how.size() + 1) * ui::kCharWidth;

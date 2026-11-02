@@ -294,6 +294,38 @@ try {
         Remove-Item (Join-Path $desktop "$name.lnk") -Force -ErrorAction SilentlyContinue
     }
     Remove-Item $uninstallKey -Recurse -Force -ErrorAction SilentlyContinue
+    # Firefox's gamepad support, when the installer turned it off (install.ps1 6b): only that preference goes, for the
+    # user it was set for; any other preference or policy there stays. Before HKLM\SOFTWARE\wheelbri, which records it.
+    $gamepadUser = (Get-ItemProperty 'HKLM:\SOFTWARE\wheelbri' -Name BrowserGamepadPolicy -ErrorAction SilentlyContinue).BrowserGamepadPolicy
+    if ($gamepadUser) {
+        $firefoxKey = "Registry::HKEY_USERS\$gamepadUser\Software\Policies\Mozilla\Firefox"
+        $value = (Get-ItemProperty -LiteralPath $firefoxKey -Name Preferences -ErrorAction SilentlyContinue).Preferences
+        if (-not (Test-Path -LiteralPath "Registry::HKEY_USERS\$gamepadUser")) {
+            Warn ("    Firefox's gamepad support stays off: the Windows user it was turned off for is not signed in " +
+                  "now (remove dom.gamepad.enabled from HKEY_USERS\$gamepadUser\Software\Policies\Mozilla\Firefox " +
+                  'Preferences, or reinstall and uninstall while signed in as that user)')
+        } elseif ($null -ne $value) {
+            try { $preferences = (@($value) -join "`n") | ConvertFrom-Json } catch { $preferences = $null }
+            $setting = if ($preferences) { $preferences.'dom.gamepad.enabled' } else { $null }
+            if ($setting -and $setting.Value -eq $false) {
+                $preferences.PSObject.Properties.Remove('dom.gamepad.enabled')
+                if (@($preferences.PSObject.Properties).Count -eq 0) {
+                    Remove-ItemProperty -LiteralPath $firefoxKey -Name Preferences -ErrorAction SilentlyContinue
+                } else {
+                    New-ItemProperty -LiteralPath $firefoxKey -Name Preferences -PropertyType MultiString -Force `
+                        -Value @($preferences | ConvertTo-Json -Depth 8 -Compress) | Out-Null
+                }
+                # Firefox's policy key, then Mozilla's: removed only when nothing else is left in them.
+                foreach ($key in $firefoxKey, (Split-Path -Path $firefoxKey -Parent)) {
+                    $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
+                    if ($item -and $item.ValueCount -eq 0 -and $item.SubKeyCount -eq 0) {
+                        Remove-Item -LiteralPath $key -Force -ErrorAction SilentlyContinue
+                    }
+                }
+                Write-Host '    Firefox: gamepad support on again (from its next start)'
+            }
+        }
+    }
     if ($certificateRemoved) {
         Remove-Item 'HKLM:\SOFTWARE\wheelbri' -Recurse -Force -ErrorAction SilentlyContinue   # the hide setting
     } else {

@@ -223,6 +223,15 @@ void GameWatch::setValues(GameTunings tunings, GameRotations overrides) {
     overrides_ = std::move(overrides);
 }
 
+void GameWatch::setMapping(const float degrees) {
+    if (std::fabs(degrees - mapping_) < 0.5F) return;
+    WE_LOG_INFO(log(), "steering rotation: the mapping's is {} now (was {}): set your wheel's own software (Pit House "
+                       "for Moza) to it",
+                describeRotation(degrees), describeRotation(mapping_));
+    mapping_ = degrees;
+    sayRotation();   // a game's own rotation that now equals the mapping's is nothing to say any more, and the reverse
+}
+
 GameWatch::Decision GameWatch::check() {
     const GameDetector::Update update =
         detector_.poll(system_.runningPrograms ? system_.runningPrograms() : platform::runningPrograms());

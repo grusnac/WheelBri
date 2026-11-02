@@ -10,11 +10,13 @@
 #   install.ps1                         install to C:\Program Files\WheelBri
 #   install.ps1 -InstallDir D:\wheelbri
 #   install.ps1 -NoDesktopShortcut
+#   install.ps1 -StopBrowserGamepads    turn off Firefox's gamepad support for the signed-in user without asking (6b)
 #   install.ps1 -Quiet                  no questions and no pause, even when it fails (for scripted installs); no
 #                                       restart either (restart Windows yourself afterwards)
 #
-# Two questions at most: Windows' Administrator prompt, and at the end of an install that worked, whether to restart
-# Windows now (default yes). The restart makes sure every driver is in use: the hiding filter in particular often
+# Three questions at most: Windows' Administrator prompt; only when Firefox is installed, whether to turn off its
+# gamepad support (6b, default no); and at the end of an install that worked, whether to restart Windows now (default
+# yes). The restart makes sure every driver is in use: the hiding filter in particular often
 # starts on a device only after one (when it was on another driver, e.g. the wheel maker's, Windows finishes the switch at
 # the restart). When the install failed the window waits for Enter (so the reason can be read).
 #
@@ -35,6 +37,8 @@
 #     certificate authority (driver\common.ps1 Add-PackageCertificate). Each release has a certificate of its own, made
 #     for that build, its private key deleted once the drivers are signed: nobody can sign anything else with it. The
 #     earlier releases' certificates go once no installed driver uses them
+#   - only when asked (6b): Firefox's dom.gamepad.enabled set to false (locked) by policy for the signed-in user, and
+#     that user recorded in HKLM\SOFTWARE\wheelbri BrowserGamepadPolicy; the uninstaller takes out only that preference
 #
 # Exit codes: 0 installed (possibly with warnings, listed at the end), 1 failed (the red line says why).
 # Everything is also written to %LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>.log (with every other log).
@@ -44,6 +48,7 @@ param(
     # "Program Files (x86)", and it was passed on to the 64-bit run below.
     [string]$InstallDir = '',
     [switch]$NoDesktopShortcut,
+    [switch]$StopBrowserGamepads,
     [switch]$Quiet
 )
 
@@ -59,6 +64,7 @@ if ($InstallDir.Length -gt 3) { $InstallDir = $InstallDir.TrimEnd('\') }
 if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-InstallDir', $InstallDir)
     if ($NoDesktopShortcut) { $arguments += '-NoDesktopShortcut' }
+    if ($StopBrowserGamepads) { $arguments += '-StopBrowserGamepads' }
     if ($Quiet) { $arguments += '-Quiet' }
     & (Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe') @arguments
     exit $LASTEXITCODE
@@ -70,6 +76,7 @@ if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Pri
     # A drive's root keeps its backslash: doubled, so it does not escape the closing quote.
     $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -InstallDir `"$($InstallDir -replace '\\$', '\\')`""
     if ($NoDesktopShortcut) { $arguments += ' -NoDesktopShortcut' }
+    if ($StopBrowserGamepads) { $arguments += ' -StopBrowserGamepads' }
     if ($Quiet) { $arguments += ' -Quiet' }
     try {
         $p = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -Wait -PassThru
@@ -94,7 +101,7 @@ $transcript = $false
 
 $warnings = New-Object System.Collections.Generic.List[string]
 $step = 0
-$stepCount = 7   # the numbered steps below, 1 to 7 (2b, which not every install has, is part of step 2)
+$stepCount = 7   # the numbered steps below, 1 to 7 (2b and 6b, which not every install has, are part of 2 and 6)
 function Step([string]$text) {
     $script:step++
     Write-Host ''
@@ -109,6 +116,28 @@ function Fail([string]$text) {
 function Warn([string]$text) {
     Write-Host $text -ForegroundColor Yellow
     $warnings.Add($text)
+}
+# The SID of the user signed in to this Windows session (the owner of its Explorer), not the Administrator account
+# this runs as when that is another one; this process's own user when there is no Explorer.
+function Get-DesktopUserSid {
+    $session = (Get-Process -Id $PID).SessionId
+    $explorer = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue |
+                  Where-Object { $_.SessionId -eq $session }) | Select-Object -First 1
+    if ($explorer) {
+        $owner = Invoke-CimMethod -InputObject $explorer -MethodName GetOwnerSid -ErrorAction SilentlyContinue
+        if ($owner -and $owner.Sid) { return $owner.Sid }
+    }
+    return [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+}
+# Firefox's Preferences policy in $key (a policy key under HKEY_USERS) as an object, empty when not set; $null when
+# it is set in a form this does not change (a Preferences subkey, Firefox's older form, or text that is not JSON).
+function Get-FirefoxPreferences([string]$key) {
+    if (Test-Path -LiteralPath "$key\Preferences") { return $null }
+    $value = (Get-ItemProperty -LiteralPath $key -Name Preferences -ErrorAction SilentlyContinue).Preferences
+    if ($null -eq $value) { return New-Object PSObject }
+    try { $parsed = (@($value) -join "`n") | ConvertFrom-Json } catch { return $null }
+    if ($parsed -isnot [System.Management.Automation.PSCustomObject]) { return $null }
+    return $parsed
 }
 # Runs one of the package's PowerShell scripts in its own process (they end with `exit`); returns its exit code.
 function Run-Script([string]$path, [string[]]$arguments = @()) {
@@ -553,6 +582,53 @@ try {
     $size = [int]((Get-ChildItem $InstallDir -Recurse -File | Measure-Object Length -Sum).Sum / 1KB)
     Set-ItemProperty -Path $key -Name EstimatedSize -Value $size -Type DWord
     Write-Host '    done'
+
+    # --- 6b. Firefox and game controllers (only when asked) -------------------------------------------------------
+    # Firefox opens every game controller for its gamepad support, and while a program has the wheel open Windows
+    # will not restart it with the hiding filter, so Start fails (2026-11-02: until Firefox was closed). Asked only
+    # when Firefox is installed and its gamepad support is still on (default no); -StopBrowserGamepads: yes without
+    # asking; -Quiet alone: not asked. Yes sets Firefox's own policy dom.gamepad.enabled = false (locked) for the user
+    # signed in to Windows here (HKEY_USERS\<user>\Software\Policies\Mozilla\Firefox Preferences, merged with the
+    # preferences already set there) and records that user in HKLM\SOFTWARE\wheelbri BrowserGamepadPolicy, so the
+    # uninstaller takes out exactly that preference. Firefox only.
+    $desktopUser = Get-DesktopUserSid
+    $firefoxKey = "Registry::HKEY_USERS\$desktopUser\Software\Policies\Mozilla\Firefox"
+    $appPaths = 'Software\Microsoft\Windows\CurrentVersion\App Paths\firefox.exe'
+    $firefoxInstalled = (Test-Path -LiteralPath "HKLM:\$appPaths") -or
+                        (Test-Path -LiteralPath "Registry::HKEY_USERS\$desktopUser\$appPaths")
+    if ($StopBrowserGamepads -or ($firefoxInstalled -and -not $Quiet)) {
+        $preferences = Get-FirefoxPreferences $firefoxKey
+        $setting = if ($preferences) { $preferences.'dom.gamepad.enabled' } else { $null }
+        if ($null -eq $preferences) {
+            Warn ("    Firefox: its preferences policy is set in a form WheelBri does not change; to stop it holding " +
+                  'the wheel open, set dom.gamepad.enabled to false in about:config')
+        } elseif ($setting -and $setting.Value -eq $false) {
+            Write-Host '    Firefox: its gamepad support is off already'
+        } else {
+            $turnOff = [bool]$StopBrowserGamepads
+            if (-not $turnOff) {
+                Write-Host ''
+                Write-Host ('Firefox opens game controllers for websites, and while it has your wheel open WheelBri ' +
+                            'cannot hide it') -ForegroundColor Yellow
+                Write-Host ('from games (Start then asks you to close Firefox). WheelBri can turn that off in Firefox ' +
+                            'for your') -ForegroundColor Yellow
+                Write-Host 'Windows account (websites then see no game controllers; the uninstaller turns it back on).' -ForegroundColor Yellow
+                $answer = Read-Host 'Turn off game controllers in Firefox? [y/N]'
+                $turnOff = $answer -and $answer.Trim().ToLower() -in @('y', 'yes')
+            }
+            if ($turnOff) {
+                $preferences | Add-Member -NotePropertyName 'dom.gamepad.enabled' -Force `
+                    -NotePropertyValue ([pscustomobject]@{ Value = $false; Status = 'locked' })
+                if (-not (Test-Path -LiteralPath $firefoxKey)) { New-Item -Path $firefoxKey -Force | Out-Null }
+                New-ItemProperty -LiteralPath $firefoxKey -Name Preferences -PropertyType MultiString -Force `
+                    -Value @($preferences | ConvertTo-Json -Depth 8 -Compress) | Out-Null
+                Set-ItemProperty -Path 'HKLM:\SOFTWARE\wheelbri' -Name BrowserGamepadPolicy -Value $desktopUser
+                Write-Host '    Firefox: gamepad support turned off (applies from its next start)'
+            } else {
+                Write-Host '    Firefox: left as it is'
+            }
+        }
+    }
 
     # --- 7. check -------------------------------------------------------------------------------------------------
     Step 'checking the installation'

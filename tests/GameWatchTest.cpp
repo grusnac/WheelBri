@@ -215,6 +215,25 @@ TEST_F(GameWatchTest, TheGamesRotation) {
     }
 }
 
+// The mapping's rotation changed while the session runs (the Mapping tab): rotationNow follows it while no game has
+// its own, and a game's own wins while it runs; one equal to the new mapping's is nothing to say.
+TEST_F(GameWatchTest, MappingRotationChangesWhileRunning) {
+    GameWatch watch(session(), 900.0F, {}, {}, system());
+    EXPECT_FLOAT_EQ(watch.rotationNow(), 900.0F);
+    watch.setMapping(540.0F);
+    EXPECT_FLOAT_EQ(watch.rotationNow(), 540.0F);
+    run(3, "NeedForSpeedPayback.exe");   // 180 in its profile
+    static_cast<void>(watch.check());
+    EXPECT_FLOAT_EQ(watch.rotationNow(), 180.0F);
+    EXPECT_EQ(watch.rotationStatus(), "180 deg");
+    watch.setMapping(180.0F);   // the mapping's now: no longer the game's own
+    EXPECT_FLOAT_EQ(watch.rotationNow(), 180.0F);
+    EXPECT_EQ(watch.rotationStatus(), "");
+    watch.setMapping(720.0F);
+    EXPECT_FLOAT_EQ(watch.rotationNow(), 180.0F);
+    EXPECT_EQ(watch.rotationStatus(), "180 deg");
+}
+
 // The user's own values for a game replace the mapping's, and are said to go when it ends; setValues takes new ones
 // while the session runs.
 TEST_F(GameWatchTest, OwnValues) {

@@ -18,6 +18,7 @@ add_library(wheelbri_core STATIC
     src/FileText.cpp
     src/Ffb.cpp
     src/FfbController.cpp
+    src/FfbGroups.cpp
     src/FfbIdleWatch.cpp
     src/FfbPacket.cpp
     src/FfbUsage.cpp
@@ -32,6 +33,7 @@ add_library(wheelbri_core STATIC
     src/HelperDispatch.cpp
     src/HelperProtocol.cpp
     src/HelperStatus.cpp
+    src/DeviceHolders.cpp
     src/HideIds.cpp
     src/HidPid.cpp
     src/HidPp.cpp
@@ -40,6 +42,7 @@ add_library(wheelbri_core STATIC
     src/IniEditor.cpp
     src/InputReadStats.cpp
     src/LiveLog.cpp
+    src/LiveMapping.cpp
     src/LocalDate.cpp
     src/LogFiles.cpp
     src/LogiSdk.cpp

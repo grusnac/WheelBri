@@ -55,9 +55,13 @@ public:
     // False, with `why` (who refused, as Windows says it), when it did not happen in time. `cancelled`: Stop.
     // `restartAfterMs`: how long Windows gets to restart it by itself first; 0 when the installer already found the
     // device waiting for a restart, which Windows then never does by itself (2026-10-06: 6 s waited for nothing).
+    // `heldOpen` (Start, which can take the wheel back with reconnect): when given, it gives up as soon as a program
+    // that has a device open has refused to let go for a few seconds (Windows asks it at each restart), and lists
+    // those interfaces there; empty when that was not why it failed.
     [[nodiscard]] static bool waitUntilStarted(const std::vector<std::string>& interfaces, int timeoutMs,
                                                const std::function<bool()>& cancelled, std::string& why,
-                                               int restartAfterMs = 6'000);
+                                               int restartAfterMs = 6'000,
+                                               std::vector<std::string>* heldOpen = nullptr);
 
     // Empty when `instanceId` is a HID interface present now that is not a keyboard, mouse, system or consumer control
     // or digitizer (hideids::neverHiddenUsage on its compatible ids); else why it must not get the filter. The helper
@@ -74,9 +78,18 @@ public:
     [[nodiscard]] static std::string setFilterListed(const std::string& instanceId, bool listed, bool& changed);
     // Restarts every interface in `interfaces` now (removed, so programs that registered for it let go, then set up
     // again; tried again every second while one refuses) and waits until each is back and started, up to `timeoutMs`.
-    // False with `why` (who refused, as Windows says it). `cancelled`: Stop.
+    // False with `why` (who refused, as Windows says it). `cancelled`: Stop. `heldOpen`: as for waitUntilStarted.
     [[nodiscard]] static bool restartNow(const std::vector<std::string>& interfaces, int timeoutMs,
-                                         const std::function<bool()>& cancelled, std::string& why);
+                                         const std::function<bool()>& cancelled, std::string& why,
+                                         std::vector<std::string>* heldOpen = nullptr);
+    // Start only, and only after a program that has the wheel open would not let go (restartNow or waitUntilStarted
+    // listed those interfaces in `heldOpen`): reconnects the USB device of each interface in `interfaces`
+    // (power-cycles its hub port, as unplugging it would; no program can refuse that, so every handle to it ends) and
+    // waits until each interface is back and started, with the filter, up to `timeoutMs`. The rig must be hidden before (it is, from the start of
+    // the session), or the program could open it again as it comes back. False with `why` (the hub refused, or the
+    // device never went away: then only unplugging it helps).
+    [[nodiscard]] static bool reconnect(const std::vector<std::string>& interfaces, int timeoutMs,
+                                        const std::function<bool()>& cancelled, std::string& why);
 
     HideFilter() = default;
     ~HideFilter();

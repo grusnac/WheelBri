@@ -4,6 +4,7 @@
 #include "AppLogLevel.hpp"
 #include "HelperProbe.hpp"
 
+#include "wheelbri/FfbGroups.hpp"
 #include "wheelbri/LocalDate.hpp"
 #include "wheelbri/LogFiles.hpp"
 #include "wheelbri/Logging.hpp"
@@ -85,8 +86,19 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
                   target_.c_str(), profile.encode(released).throttle, profile.encode(pressed).throttle,
                   target_.c_str());
     pedalNote_ = note;
+    indexMapping();
+}
 
+void MappingView::setMapping(const MapperConfig& mapper) {
+    mapper_ = mapper;
+    if (shadow_) shadow_->setMapping(mapper_);
+    indexMapping();
+}
+
+void MappingView::indexMapping() {
     sourceToTarget_.fill(kUnmapped);
+    sourceTargetCount_.fill(0);
+    sourceHatDirection_.fill(nullptr);
     const HatButtons& hat = mapper_.hatButtons;
     const std::array<std::pair<int, const char*>, 4> hatDirections = {
         {{hat.up, "up"}, {hat.right, "right"}, {hat.down, "down"}, {hat.left, "left"}}};
@@ -130,7 +142,7 @@ MappingView::MappingView(ui::UiWindow& window, std::string sourceName, const int
 namespace {
 bool gTelemetryTab = false;       // --telemetry-tab
 bool gForceFeedbackTab = false;   // --ffb-tab
-bool gGamesTab = false;           // the app's window
+bool gEditorTabs = false;         // the app's window: Mapping (the editor), Live, Games
 }  // namespace
 
 void MappingView::setOptionalTabs(const bool telemetry, const bool forceFeedback) {
@@ -138,12 +150,17 @@ void MappingView::setOptionalTabs(const bool telemetry, const bool forceFeedback
     gForceFeedbackTab = forceFeedback;
 }
 
-void MappingView::setGamesTab(const bool games) { gGamesTab = games; }
+void MappingView::setEditorTabs(const bool editor) { gEditorTabs = editor; }
+bool MappingView::editorTabs() { return gEditorTabs; }
 
 std::vector<MappingView::Tab> MappingView::visibleTabs() {
     // In the order they are used: the rig first, then its mapping, then the game profiles.
+    // With the editor, Live right of Mapping: edit, then see it at work.
     std::vector<Tab> tabs = {Tab::WheelSetup, Tab::Mapping};
-    if (gGamesTab) tabs.push_back(Tab::Games);
+    if (gEditorTabs) {
+        tabs.push_back(Tab::Live);
+        tabs.push_back(Tab::Games);
+    }
     tabs.push_back(Tab::Logs);
     if (gTelemetryTab) tabs.push_back(Tab::Telemetry);
     if (gForceFeedbackTab) tabs.push_back(Tab::ForceFeedback);
@@ -157,7 +174,7 @@ void MappingView::onKey(const char key) {
         tab_ = Tab::ForceFeedback;
     } else if (key == 'm') {
         tab_ = Tab::Mapping;
-    } else if (key == 'g' && gGamesTab) {
+    } else if (key == 'g' && gEditorTabs) {
         tab_ = Tab::Games;
     } else if (key == 'l') {
         tab_ = Tab::Logs;
@@ -165,7 +182,9 @@ void MappingView::onKey(const char key) {
         tab_ = Tab::Telemetry;
     } else if (key == 'r') {
         tab_ = Tab::WheelSetup;
-    } else if (key == 's' && tab_ == Tab::Mapping && shadow_) {
+    } else if (key == 's' && gEditorTabs && tab_ != Tab::Live && !(sideBySide_ && tab_ == Tab::Mapping)) {
+        tab_ = Tab::Live;   // S again there switches Shadow / List
+    } else if (key == 's' && livePage() && shadow_) {
         showShadow(!gShowShadow);
     } else if (tab_ == Tab::Logs) {
         const auto page = static_cast<long long>(std::max<std::size_t>(liveRows_ - 1, 1));
@@ -274,27 +293,81 @@ void unipolarBar(ui::UiWindow& window, const float x, const float y, const float
 
 // --- sections -------------------------------------------------------------------------------------
 
+void MappingView::drawLivePage(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
+                               const FfbDisplay& ffb) {
+    const RawInputState& raw = inputs.devices[0];
+    trackLastPressed(raw.buttons);
+    trackEvents(raw, state, report, ffb);
+    drawHeader();
+    drawLive(inputs, state, report, ffb);
+}
+
+void MappingView::drawLive(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
+                           const FfbDisplay& ffb) {
+    const RawInputState& raw = inputs.devices[0];
+    if (showingShadow()) {
+        // The target drawn, what the game sees lit; its force feedback at the bottom of the right column.
+        shadow_->setColumnReserve(kFfbGroupsHeight + 4);
+        shadow_->draw(state, report, 38);
+        drawFfbGroups(ffb, shadow_->columnX(), shadow_->reserveTop() + 4, shadow_->columnWidth());
+        return;
+    }
+    // What is mapped to what: the axes and pedals (rig -> G920), every rig axis, the D-pad, the buttons.
+    drawAxes(inputs, state, report, 34);
+    drawRawAxes(raw, 128);
+    drawHat(raw.hat, report.hat, 128);
+    drawTargetButtons(report.buttons, 244);
+    drawSourceButtons(raw.buttons, 401);
+    drawFooter(545);
+    drawFfbGroups(ffb, 0, 584, std::min(canvasW(), 480.0F));
+}
+
+float MappingView::drawFfbGroups(const FfbDisplay& ffb, const float x, float y, const float width) {
+    style::headingBand(window_, x, y, width);
+    style::heading(window_, x + 6, y, "FORCE FEEDBACK");
+    const bool live = ffb.controller != nullptr;
+    text(window_, x + 128, y, live ? "blue: the game asks, green: the wheel gets" : "", kDim);
+    y += 16;
+    if (!live) {
+        // No game force feedback in this session: why (game_effects off, the port taken, the wheel has none).
+        text(window_, x + 6, y, ffb.status.empty() ? "off" : ffb.status.c_str(), kDim);
+        return y + 14;
+    }
+    const FfbGroupLevels levels = ffbGroupLevels(*ffb.controller);
+    constexpr float kNameW = 16 * ui::kCharWidth;
+    constexpr float kTextW = 12 * ui::kCharWidth;   // "100% -> 100%"
+    const float barW = std::clamp((width - 6 - kNameW - kTextW - 18) / 2, 32.0F, 96.0F);
+    const auto percent = [](const float v) { return std::to_string(static_cast<int>(v * 100.0F + 0.5F)) + "%"; };
+    for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
+        const float row = y + static_cast<float>(g) * kFfbRowH;
+        const float asked = levels.asked[g];
+        const float sent = levels.sent[g];
+        const bool used = asked > 0.0F || sent > 0.0F;
+        text(window_, x + 6, row, std::string(kFfbGroupNames[g]).c_str(), used ? kText : kDim);
+        const float barX = x + 6 + kNameW;
+        fill(window_, barX, row, barW, 8, kPanel);
+        fill(window_, barX, row, barW * asked, 8, kHeading);
+        fill(window_, barX + barW + 6, row, barW, 8, kPanel);
+        fill(window_, barX + barW + 6, row, barW * sent, 8, kActive);
+        text(window_, barX + 2 * barW + 18, row, used ? (percent(asked) + " -> " + percent(sent)).c_str() : "-",
+             kDim);
+    }
+    return y + static_cast<float>(kFfbGroupCount) * kFfbRowH;
+}
+
 void MappingView::draw(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
                        const FfbDisplay& ffb) {
     const RawInputState& raw = inputs.devices[0];
     trackLastPressed(raw.buttons);
 
     trackEvents(raw, state, report, ffb);
-    if (tab_ == Tab::WheelSetup || tab_ == Tab::Games) {
-        drawTabs();   // the window draws the tab itself (WheelSetupView, MappingEditView's Games page)
+    if (tab_ == Tab::WheelSetup || tab_ == Tab::Games || (tab_ == Tab::Mapping && gEditorTabs)) {
+        drawTabs();   // the window draws the tab itself (WheelSetupView, MappingEditView's pages)
         return;
     }
     if (tab_ != Tab::Logs) drawHeader();   // the Logs page starts at the top (the Mapping tab has the header)
-    if (tab_ == Tab::Mapping && showingShadow()) {
-        shadow_->draw(state, report, 38);   // the target drawn, what the game sees lit
-    } else if (tab_ == Tab::Mapping) {
-        // What is mapped to what: the axes and pedals (rig -> G920), every rig axis, the D-pad, the buttons.
-        drawAxes(inputs, state, report, 34);
-        drawRawAxes(raw, 128);
-        drawHat(raw.hat, report.hat, 128);
-        drawTargetButtons(report.buttons, 244);
-        drawSourceButtons(raw.buttons, 401);
-        drawFooter(545);
+    if (livePage()) {
+        drawLive(inputs, state, report, ffb);
     } else if (tab_ == Tab::Logs) {
         drawLogs();
     } else if (tab_ == Tab::Telemetry) {
@@ -309,7 +382,7 @@ void MappingView::drawHeader() {
     char line[128];
     std::snprintf(line, sizeof(line), "%.40s  ->  %.40s", sourceName_.c_str(),
                   profile_.identity().productName.c_str());
-    if (tab_ == Tab::Mapping) {
+    if (livePage()) {
         // The app's controls are at the top right of this tab: what is left of them (more in a wider window).
         // (With the shim its games row is right of the title: that stays as it is.)
         line[std::min(headerChars_ + (shimMode_ ? 0 : extraChars()), sizeof(line) - 1)] = '\0';
@@ -317,14 +390,14 @@ void MappingView::drawHeader() {
     text(window_, 4, 4, line, kHeading);
     // The second line: the devices (or the hint), and on the Mapping tab what the session runs as at its right end.
     std::size_t room = 118 + extraChars();
-    if (tab_ == Tab::Mapping && !sessionLine_.empty()) {
+    if (livePage() && !sessionLine_.empty()) {
         const float x = window_.width() - 4 - static_cast<float>(sessionLine_.size()) * ui::kCharWidth;
         text(window_, x, 16, sessionLine_.c_str(), kActive);
         room = std::min(room, static_cast<std::size_t>(std::max(0.0F, x - 16) / ui::kCharWidth));
     }
-    // LIVE: the running session's view (stopped, the tab is the EDIT page), at the second line's start.
+    // LIVE: the running session's view (the Mapping tab's editor is the EDIT page), at the second line's start.
     float x = 4;
-    if (tab_ == Tab::Mapping) {
+    if (livePage()) {
         window_.fill(2, 14, 40, 12, kActive);
         text(window_, 6, 16, "LIVE", kDark);
         x = 48;
@@ -337,6 +410,15 @@ void MappingView::drawHeader() {
                           ShadowView::kSwitchY, ShadowView::kSwitchListW, ShadowView::kSwitchH, "List", !gShowShadow, true);
             x = ShadowView::kSwitchEnd + 8;
             const auto used = static_cast<std::size_t>((x - 48) / ui::kCharWidth);
+            room = room > used ? room - used : 0;
+        }
+        // The app's Side by side (the editor left, this page right), on when it is.
+        if (gEditorTabs) {
+            sideBySideX_ = x;
+            style::button(window_, x, ShadowView::kSwitchY, kSideBySideW, ShadowView::kSwitchH, "Side by side (B)",
+                          sideBySide_, true);
+            x += kSideBySideW + 8;
+            const auto used = static_cast<std::size_t>((kSideBySideW + 8) / ui::kCharWidth);
             room = room > used ? room - used : 0;
         }
     }
@@ -648,7 +730,9 @@ void MappingView::drawFooter(const float top) {
             text(window_, 4, kTop, line, kWarning);
         }
     }
-    text(window_, 4, kTop + 14, "To change: INI [buttons] target_N, [hat] up/right/down/left, [button_labels] button_N.",
+    text(window_, 4, kTop + 14,
+         gEditorTabs ? "To change: the Mapping tab (M); each change is in use at once."
+                     : "To change: INI [buttons] target_N, [hat] up/right/down/left, [button_labels] button_N.",
          kDim);
 }
 
@@ -1203,6 +1287,7 @@ const char* tabLabel(const MappingView::Tab tab) {
     using Tab = MappingView::Tab;
     switch (tab) {
         case Tab::Mapping: return "Mapping (M)";
+        case Tab::Live: return "Live (S)";
         case Tab::Games: return "Games (G)";
         case Tab::WheelSetup: return "Rig (R)";
         case Tab::Logs: return "Logs (L)";
@@ -1226,7 +1311,8 @@ void MappingView::drawTabs() {
     float x = kTabLeft;
     for (const Tab tab : visibleTabs()) {
         const char* label = tabLabel(tab);
-        const bool active = tab == tab_;
+        // Side by side, Mapping and Live show together: both lit.
+        const bool active = tab == tab_ || (sideBySide_ && pairedTab(tab) && pairedTab(tab_));
         const float width = tabWidth(label);
         fill(window_, x, kBarTop + 4, width, kTabHeight, active ? kHeading : kPanel);
         text(window_, x + kTabPadding, kBarTop + 10, label, active ? kDark : kText);
@@ -1240,7 +1326,12 @@ void MappingView::showShadow(const bool on) {
 }
 
 void MappingView::onClick(const float x, const float y) {
-    if (tab_ == Tab::Mapping && shadow_ && y >= ShadowView::kSwitchY && y < ShadowView::kSwitchY + ShadowView::kSwitchH) {
+    if (livePage() && gEditorTabs && y >= ShadowView::kSwitchY && y < ShadowView::kSwitchY + ShadowView::kSwitchH &&
+        x >= sideBySideX_ && x < sideBySideX_ + kSideBySideW) {
+        sideBySideRequested_ = true;
+        return;
+    }
+    if (livePage() && shadow_ && y >= ShadowView::kSwitchY && y < ShadowView::kSwitchY + ShadowView::kSwitchH) {
         if (x >= ShadowView::kSwitchX && x < ShadowView::kSwitchX + ShadowView::kSwitchShadowW) {
             showShadow(true);
             return;

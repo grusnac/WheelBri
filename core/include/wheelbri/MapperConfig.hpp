@@ -34,6 +34,7 @@ struct SteeringConfig {
     bool invert = false;
     // No dead zone here (since 2026-10-13): the axis is used as the device reports it. A dead zone belongs in the
     // device's own software (Pit House for Moza); the config's old "deadzone" key is read and ignored.
+    friend bool operator==(const SteeringConfig&, const SteeringConfig&) = default;
 };
 
 struct PedalConfig {
@@ -43,6 +44,7 @@ struct PedalConfig {
     float gamma = 1.0F;                 // response curve: <1 more sensitive early, >1 less
     // 0..100% of the travel exactly as the device reports it: no dead zone and no early full (since 2026-10-13; the
     // device's own software sets those). The config's old deadzone_low / saturation_high are read and ignored.
+    friend bool operator==(const PedalConfig&, const PedalConfig&) = default;
 };
 
 // Source buttons that act as a D-pad (some rims report their D-pad as four buttons instead of a hat).
@@ -56,6 +58,7 @@ struct HatButtons {
     std::array<int, 4> devices{};
 
     [[nodiscard]] bool any() const { return up >= 0 || right >= 0 || down >= 0 || left >= 0; }
+    friend bool operator==(const HatButtons&, const HatButtons&) = default;
 };
 
 // One of a target button's secondary sources ([buttons] target_N_or, a list): a button, or one of the rig's
@@ -116,6 +119,8 @@ struct MapperConfig {
         while (count < accessories.size() && !accessories[count].empty()) ++count;
         return count;
     }
+
+    friend bool operator==(const MapperConfig&, const MapperConfig&) = default;
 
     static constexpr std::array<int, kMaxTargetButtons> identityButtonMap() {
         std::array<int, kMaxTargetButtons> map{};

@@ -17,6 +17,7 @@ add_executable(wheelbri_tests
     ConfigLibraryTest.cpp
     ControlFoldTest.cpp
     DailyLogFileTest.cpp
+    DeviceHoldersTest.cpp
     DeviceLabelsTest.cpp
     DeviceProfileTest.cpp
     DrawListTest.cpp
@@ -24,6 +25,7 @@ add_executable(wheelbri_tests
     EmulatorConfigTest.cpp
     EventLoopControlTest.cpp
     FfbForwardingTest.cpp
+    FfbGroupsTest.cpp
     FfbIdleWatchTest.cpp
     FfbSafetyLimiterTest.cpp
     FfbShapeTest.cpp
@@ -47,6 +49,7 @@ add_executable(wheelbri_tests
     IniDocumentTest.cpp
     IniEditorTest.cpp
     LiveLogTest.cpp
+    LiveMappingTest.cpp
     LogitechFfbDriverTest.cpp
     LogFilesTest.cpp
     LogiSdkTest.cpp

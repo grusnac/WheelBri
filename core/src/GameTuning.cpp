@@ -39,22 +39,6 @@ std::string lower(std::string_view text) {
 }  // namespace
 
 
-FfbGroup ffbGroupOf(const FfbEffectType type) {
-    switch (type) {
-        case FfbEffectType::Constant: return FfbGroup::Constant;
-        case FfbEffectType::Spring: return FfbGroup::Spring;
-        case FfbEffectType::Damper: return FfbGroup::Damper;
-        case FfbEffectType::Friction: return FfbGroup::Friction;
-        case FfbEffectType::Inertia: return FfbGroup::Inertia;
-        case FfbEffectType::Sine:
-        case FfbEffectType::Square:
-        case FfbEffectType::Triangle:
-        case FfbEffectType::SawtoothUp:
-        case FfbEffectType::SawtoothDown: return FfbGroup::Periodic;
-    }
-    return FfbGroup::Constant;
-}
-
 bool GameTuning::empty() const { return *this == GameTuning{}; }
 
 std::string applyTuningKey(GameTuning& tuning, const std::string_view key, const std::string_view value,

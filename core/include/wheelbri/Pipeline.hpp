@@ -52,6 +52,12 @@ public:
                              std::memory_order_relaxed);
     }
     [[nodiscard]] bool nativeButtons() const { return nativeButtons_.load(std::memory_order_relaxed); }
+    // The mapping when no game with its own values runs: the constructor's until a new one is set (the Mapping tab's
+    // values changed while the session runs, LiveMapping.hpp). Safe from another thread; the next tick uses it. The
+    // mapper must stay alive until the pipeline no longer ticks (the service keeps every one it made for the
+    // session). Never null.
+    void setMapper(const Mapper& mapper) { mapper_.store(&mapper, std::memory_order_release); }
+    [[nodiscard]] const Mapper& mapper() const { return *mapper_.load(std::memory_order_acquire); }
     // The mapping while a game with its own values runs (GameTuning.hpp, tunedMapper): used instead of the one given
     // to the constructor until set back to null. Safe from another thread; the next tick uses it. The mapper must stay
     // alive until the pipeline no longer ticks (the service keeps every one it made for the whole session).
@@ -77,7 +83,7 @@ public:
 
 private:
     IInputSource& source_;
-    const Mapper& mapper_;
+    std::atomic<const Mapper*> mapper_;
     const IDeviceProfile& profile_;
     IStatePublisher& publisher_;
 

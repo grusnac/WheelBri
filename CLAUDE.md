@@ -37,9 +37,10 @@ A new area file gets a row here.
 - Commands for the user: MSYS2 UCRT64, repo root, for everything (copy with `cp`, not `Copy-Item`). PowerShell or CMD
   only when there is no other way, and say why.
 - Git commands for the user: one command per code block, so each can be copied and run on its own (no `&&`
-  chains, no several commands in one block).
+  chains, no several commands in one block). The exception: `git add` and its `git commit` always go together, as
+  one `git add <files> && git commit -m "<message>"` in one code block that runs as pasted.
 - After changing files, end by listing the ones you changed that are not staged yet and say they still have to be
-  committed, with the `git add` for them.
+  committed, with that one `git add ... && git commit ...` block for them.
 - Docs: install (Windows and Linux sections) and status in `README.md`; usage in `docs/user-guide.md`; per game in
   `docs/games.md`; target layouts in `docs/targets.md`; build in `docs/building.md`. Short, current facts only, no
   dated history. A new screen needs a screenshot in `docs/images/` (ask the user to take it).
@@ -113,12 +114,22 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
     carries levels only.
   - Game profiles (`config/games/*.ini`, compiled in) hold **only** what a game changes from the target's defaults,
     laid over them (`GameProfiles`, `overlay`); a profile with any problem is not used. User's per-game values:
-    `GameTuning` (pedals, buttons). No force feedback settings per game or of WheelBri's own strength: the game and
-    the wheel's own app set those; the Games tab's Force feedback sub-tab only shows what the game asks and sends.
+    `GameTuning` (pedals, buttons; one Games sub-tab, Axes and buttons). No force feedback settings per game or of
+    WheelBri's own strength: the game and the wheel's own app set those; the Live tab only shows, per kind of effect,
+    what the game asks and what reaches the wheel (`FfbGroups.hpp`).
 - **`service/`**: app (`App.cpp`, `WHEELBRI_APP`) and CLI share sources.
   - `runSession` (`main.cpp`) runs a session on its own thread.
   - **Loop** sleeps in `platform::WaitSet` until devices, sockets or a timer have news; `EventLoopControl` decides
     waking vs falling back to polling, `WakePlanner` plans wakes. Regular work goes by the clock, never pass counts.
+  - Live changes: the app saves the mapping as it changes; `runLoop` reads the config again when its file changes and
+    swaps in what a running session can take (`LiveMapping.hpp`: the mapping, button order; `GameWatch::setValues`:
+    per-game values), via `Pipeline::setMapper`. Mappers are kept for the session. The rotation the virtual wheel
+    reports (`StatePacket::rotationDeg`) follows the mapping's or the running game's (`GameWatch::rotationNow`).
+    Anything else waits for the next Start and is logged.
+  - App tabs: Mapping is always the editor (`MappingEditView`, running too); Live next to it is `MappingView`'s live
+    page (Shadow / List), greyed while stopped. Side by side (`B`, app.ini `side_by_side`): the window's design two
+    pages wide (`UiWindow::setDesignColumns`), editor and live view each in a `PaneWindow` half. The CLI `--ui`
+    window has no editor: Mapping is its live page (`MappingView::setEditorTabs(false)`).
   - Privileged steps: `privileged::` (`Privileged.hpp`); `PrivilegedSteps` calls them directly when elevated, else via
     the WheelBri Helper.
   - Mode Shim starts nothing only the virtual device needs (no virtual wheel, no hide filter); keep that split.
