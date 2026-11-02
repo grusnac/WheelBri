@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -30,6 +32,39 @@ std::vector<std::uint8_t> damping(const float value) {
     std::vector<std::uint8_t> r = command(0x0C);
     std::memcpy(r.data() + 6, &value, sizeof(value));
     return r;
+}
+
+// A stream packet at no torque whose window ends in `fresh` samples (oldest first), each as both its words:
+// 0x8000 - value * 32768, so a value of +1 is 0x0000 as the torque's.
+std::vector<std::uint8_t> textured(const std::vector<float>& fresh) {
+    std::vector<std::uint8_t> r = stream(0x8000);
+    r[10] = static_cast<std::uint8_t>(fresh.size());
+    r[11] = 0x0D;
+    for (std::size_t slot = 0; slot < 13; ++slot) {   // older slots: no texture
+        r[12 + slot * 4] = r[14 + slot * 4] = 0x00;
+        r[13 + slot * 4] = r[15 + slot * 4] = 0x80;
+    }
+    for (std::size_t i = 0; i < fresh.size(); ++i) {
+        const auto raw = static_cast<std::uint16_t>(std::lround(0x8000 - fresh[i] * 32768.0F));
+        const std::size_t at = 12 + (13 - fresh.size() + i) * 4;
+        r[at] = r[at + 2] = static_cast<std::uint8_t>(raw);
+        r[at + 1] = r[at + 3] = static_cast<std::uint8_t>(raw >> 8);
+    }
+    return r;
+}
+
+// `ms` packets of a sine of `amplitude` at `hz`, 4 samples a packet, one packet a millisecond from `startUs`.
+template <typename Ffb>
+void playSine(Ffb& f, const float amplitude, const float hz, const int ms, const std::int64_t startUs = 0) {
+    constexpr float kPi = 3.14159265F;
+    for (int p = 0; p < ms; ++p) {
+        std::vector<float> fresh;
+        for (int k = 0; k < 4; ++k) {
+            const float t = static_cast<float>(p * 4 + k) / TrueForceFfb::kTextureSampleRateHz;
+            fresh.push_back(amplitude * std::sin(2.0F * kPi * hz * t));
+        }
+        f.ffb.output(textured(fresh), startUs + p * 1000);
+    }
 }
 
 struct Ffb {
@@ -189,6 +224,134 @@ TEST(TrueForceFfb, OtherWritesChangeNothing) {
     f.ffb.output(std::vector<std::uint8_t>{}, 0);
     f.ffb.tick(1'000'000);
     EXPECT_TRUE(f.sent.empty());
+}
+
+// The window's new samples, oldest first, each the mean of its two words in the torque's sign; none while it is not
+// valid (byte 11) or the packet is not the stream.
+TEST(TrueForceFfb, TextureSamplesFromTheWindowsEnd) {
+    std::array<float, 13> out{};
+    auto r = textured({0.5F, -0.25F, 0.0F});
+    ASSERT_EQ(TrueForceFfb::texture(r, out), 3U);
+    EXPECT_FLOAT_EQ(out[0], 0.5F);
+    EXPECT_FLOAT_EQ(out[1], -0.25F);
+    EXPECT_FLOAT_EQ(out[2], 0.0F);
+    r[12 + 12 * 4 + 1] = 0x90;   // the newest's first word 0x9000, its second 0x8000: their mean, -1/16
+    ASSERT_EQ(TrueForceFfb::texture(r, out), 3U);
+    EXPECT_FLOAT_EQ(out[2], -0.0625F);
+    std::array<float, 2> small{};
+    EXPECT_EQ(TrueForceFfb::texture(r, small), 2U);   // no more than fits
+    r[11] = 0x00;
+    EXPECT_EQ(TrueForceFfb::texture(r, out), 0U);
+    r = textured({0.5F});
+    r[10] = 40;   // more than the window has: its 13
+    EXPECT_EQ(TrueForceFfb::texture(r, out), 13U);
+    EXPECT_EQ(TrueForceFfb::texture(command(0x05), out), 0U);
+    EXPECT_EQ(TrueForceFfb::texture(std::vector<std::uint8_t>(20, 0x01), out), 0U);   // too short
+}
+
+// A 250 Hz texture of 0.05 becomes a sine in its own slot, after one window (40 ms), with the force still playing.
+TEST(TrueForceFfb, TexturePlaysAsASineOfItsSizeAndFrequency) {
+    Ffb f;
+    playSine(f, 0.05F, 250.0F, 39);
+    for (const FfbPacket& p : f.sent) EXPECT_NE(p.slot, TrueForceFfb::kTextureSlot);   // not a window yet
+    playSine(f, 0.05F, 250.0F, 1, 39'000);
+    ASSERT_FALSE(f.sent.empty());
+    const FfbPacket& t = f.sent.back();
+    EXPECT_EQ(t.slot, TrueForceFfb::kTextureSlot);
+    EXPECT_EQ(t.kind, FfbPacket::Kind::SlotState);
+    EXPECT_TRUE(t.playing);
+    EXPECT_EQ(t.effect.type, FfbEffectType::Sine);
+    EXPECT_NEAR(t.effect.periodic.magnitude, 0.05F, 0.003F);
+    EXPECT_NEAR(t.effect.periodic.periodMs, 4.0F, 0.4F);
+    EXPECT_FLOAT_EQ(t.effect.periodic.offset, 0.0F);
+    EXPECT_TRUE(f.ffb.playing());
+}
+
+TEST(TrueForceFfb, TextureFrequencyFollowsTheSignal) {
+    Ffb f;
+    playSine(f, 0.05F, 100.0F, 40);
+    ASSERT_EQ(f.sent.back().slot, TrueForceFfb::kTextureSlot);
+    EXPECT_NEAR(f.sent.back().effect.periodic.periodMs, 10.0F, 1.0F);
+}
+
+TEST(TrueForceFfb, TextureIsCappedAndKeptInItsRange) {
+    Ffb f;
+    playSine(f, 0.9F, 1000.0F, 40);   // too strong, and faster than the rig is sent: the fastest period
+    ASSERT_EQ(f.sent.back().slot, TrueForceFfb::kTextureSlot);
+    EXPECT_FLOAT_EQ(f.sent.back().effect.periodic.magnitude, TrueForceFfb::kTextureMax);
+    EXPECT_GE(f.sent.back().effect.periodic.periodMs, TrueForceFfb::kTextureMinPeriodMs);
+    Ffb slow;
+    playSine(slow, 0.05F, 2.0F, 40);   // a 2 Hz swell crosses zero once in 40 ms: the slowest period
+    ASSERT_EQ(slow.sent.back().slot, TrueForceFfb::kTextureSlot);
+    EXPECT_FLOAT_EQ(slow.sent.back().effect.periodic.periodMs, TrueForceFfb::kTextureMaxPeriodMs);
+}
+
+TEST(TrueForceFfb, AFaintTextureIsNoneAndAFadingOneStops) {
+    Ffb f;
+    playSine(f, 0.001F, 250.0F, 80);
+    for (const FfbPacket& p : f.sent) EXPECT_NE(p.slot, TrueForceFfb::kTextureSlot);
+    playSine(f, 0.05F, 250.0F, 40, 80'000);
+    ASSERT_EQ(f.sent.back().slot, TrueForceFfb::kTextureSlot);
+    ASSERT_TRUE(f.sent.back().playing);
+    playSine(f, 0.0F, 250.0F, 40, 120'000);   // a smooth road
+    EXPECT_EQ(f.sent.back().slot, TrueForceFfb::kTextureSlot);
+    EXPECT_FALSE(f.sent.back().playing);
+    EXPECT_TRUE(f.ffb.playing());             // the force plays on
+}
+
+// Small changes are not sent again (a periodic effect sent anew may restart its phase); a big one is, and a playing
+// texture again every kKeepAliveUs with the force's keep-alives.
+TEST(TrueForceFfb, TextureIsSentWhenItChangesEnoughAndKeptAlive) {
+    Ffb f;
+    const auto textures = [&f] {
+        std::size_t n = 0;
+        for (const FfbPacket& p : f.sent) n += p.slot == TrueForceFfb::kTextureSlot ? 1 : 0;
+        return n;
+    };
+    playSine(f, 0.05F, 250.0F, 40);
+    ASSERT_EQ(textures(), 1U);
+    playSine(f, 0.052F, 250.0F, 40, 40'000);   // 4% more: the same to feel
+    EXPECT_EQ(textures(), 1U);
+    playSine(f, 0.08F, 250.0F, 40, 80'000);    // 60% more: sent
+    ASSERT_EQ(textures(), 2U);
+    EXPECT_NEAR(f.sent.back().effect.periodic.magnitude, 0.08F, 0.005F);
+    playSine(f, 0.08F, 125.0F, 40, 120'000);   // half the frequency: sent
+    ASSERT_EQ(textures(), 3U);
+    EXPECT_NEAR(f.sent.back().effect.periodic.periodMs, 8.0F, 0.8F);
+    playSine(f, 0.08F, 125.0F, 120, 160'000);  // the same for more than kKeepAliveUs: sent again
+    EXPECT_GE(textures(), 4U);
+}
+
+TEST(TrueForceFfb, TextureStopsWithAStopAndWhenTheStreamGoesQuiet) {
+    Ffb f;
+    playSine(f, 0.05F, 250.0F, 40);
+    ASSERT_EQ(f.sent.back().slot, TrueForceFfb::kTextureSlot);
+    f.ffb.output(command(0x04), 40'000);
+    ASSERT_EQ(f.sent.back().slot, TrueForceFfb::kTextureSlot);
+    EXPECT_FALSE(f.sent.back().playing);
+    EXPECT_FLOAT_EQ(f.sent.back().effect.periodic.magnitude, 0.0F);
+
+    playSine(f, 0.05F, 250.0F, 40, 50'000);
+    ASSERT_TRUE(f.sent.back().playing);
+    f.ffb.tick(90'000 + TrueForceFfb::kQuietUs);   // no stream: the force and its texture go quiet
+    bool textureStopped = false;
+    for (const FfbPacket& p : f.sent) {
+        if (p.slot == TrueForceFfb::kTextureSlot && !p.playing) textureStopped = true;
+    }
+    EXPECT_TRUE(textureStopped);
+    EXPECT_FALSE(f.sent.back().playing);
+    EXPECT_FALSE(f.ffb.playing());
+
+    std::size_t before = f.sent.size();
+    f.ffb.stop(400'000);   // already quiet: nothing more
+    EXPECT_EQ(f.sent.size(), before);
+    playSine(f, 0.05F, 250.0F, 40, 500'000);
+    f.ffb.stop(540'000);   // the interface closed: the texture stops too
+    bool stoppedAgain = false;
+    for (std::size_t i = before; i < f.sent.size(); ++i) {
+        if (f.sent[i].slot == TrueForceFfb::kTextureSlot && !f.sent[i].playing) stoppedAgain = true;
+    }
+    EXPECT_TRUE(stoppedAgain);
 }
 
 }  // namespace

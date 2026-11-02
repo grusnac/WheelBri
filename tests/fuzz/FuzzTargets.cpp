@@ -192,22 +192,31 @@ void runOne(const std::span<const std::uint8_t> input) {
             TrueForceDevice device([](LogLevel, const std::string&) {});
             TrueForceFfb ffb([](const FfbPacket& p) {
                 CHECK(std::isfinite(p.effect.constantLevel) && std::abs(p.effect.constantLevel) <= 1.0F);
-                CHECK(p.slot == TrueForceFfb::kSlot || p.slot == TrueForceFfb::kDamperSlot);
+                CHECK(p.slot == TrueForceFfb::kSlot || p.slot == TrueForceFfb::kDamperSlot ||
+                      p.slot == TrueForceFfb::kTextureSlot);
                 CHECK(p.effect.condition.positiveCoefficient >= 0.0F && p.effect.condition.positiveCoefficient <= 1.0F);
+                CHECK(std::isfinite(p.effect.periodic.magnitude) && p.effect.periodic.magnitude >= 0.0F &&
+                      p.effect.periodic.magnitude <= TrueForceFfb::kTextureMax);
+                CHECK(p.slot != TrueForceFfb::kTextureSlot ||
+                      p.effect.periodic.periodMs <= TrueForceFfb::kTextureMaxPeriodMs);
             });
             std::size_t i = 0;
             std::int64_t now = 0;
-            while (i < bytes.size()) {
-                const std::size_t len = std::min<std::size_t>(bytes.size() - i, 1 + bytes[i] % 70);
-                ffb.output(bytes.subspan(i, len), now + bytes[i] % 8);
-                ffb.tick(now + bytes[i] % 8);
-                for (const auto& answer : device.output(bytes.subspan(i, len), now += bytes[i] % 8)) {
+            // Each packet: a length byte, then the packet (report ID first), so a 64-byte stream packet with its
+            // texture window can come too.
+            while (i + 1 < bytes.size()) {
+                const std::uint8_t head = bytes[i];
+                const std::size_t len = std::min<std::size_t>(bytes.size() - i - 1, 1 + head % 70);
+                const auto packet = bytes.subspan(i + 1, len);
+                ffb.output(packet, now + head % 8);
+                ffb.tick(now + head % 8);
+                for (const auto& answer : device.output(packet, now += head % 8)) {
                     CHECK(answer.size() == kTrueForceReportSize && answer[0] == kTrueForceReportId);
                 }
-                if (const auto status = device.steering(bytes[i] * 300 - 9000, bytes[i] * 11, now)) {
+                if (const auto status = device.steering(head * 300 - 9000, head * 11, now)) {
                     CHECK(status->size() == kTrueForceReportSize);
                 }
-                i += len;
+                i += 1 + len;
             }
             device.finish(now);
             ffb.stop(now);

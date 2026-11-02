@@ -28,7 +28,8 @@ struct VirtualWheel;
 //
 // The virtual wheel's input report already is 0x01, so the interface is a second software device: the wheel's
 // hardware id + kTrueForceIdSuffix (wheelbri\G923_TF), in the wheel's container ([emulator] trueforce). It
-// answers as a real wheel (TrueForceDevice) and logs what it is sent (TrueForceLog); it plays nothing yet.
+// answers as a real wheel (TrueForceDevice) and logs what it is sent (TrueForceLog); the driver plays the stream's
+// force, damping and texture on the rig (TrueForceFfb.hpp).
 inline constexpr std::string_view kTrueForceIdSuffix = "_TF";
 inline constexpr std::uint8_t kTrueForceReportId = 0x01;
 inline constexpr std::size_t kTrueForceReportSize = 64;   // with the report ID
