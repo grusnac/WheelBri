@@ -33,6 +33,7 @@
 #include "wheelbri/GameUseWatch.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HideIds.hpp"
+#include "wheelbri/LiveMapping.hpp"
 #include "wheelbri/LogLevelPacket.hpp"
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/MappingEdit.hpp"
@@ -56,6 +57,7 @@
 #include <array>
 #include <chrono>
 #include <atomic>
+#include <memory>
 #include <map>
 #include <csignal>
 #include <cstdio>
@@ -895,24 +897,40 @@ struct DeviceSummary {
 // The state to its reader and, with [emulator] trueforce on, to the virtual G923's TrueForce interface too
 // (TrueForce.hpp), with the wheel's rotation: the interface reports the wheel's angle over it, and the driver's HID++
 // reports it as the wheel's rotation (ACC divides its steering by that).
+// The rotation follows the session's (setRotation): the mapping's, or a running game's own, changed live too.
 class TeePublisher final : public wheelbri::IStatePublisher {
 public:
     TeePublisher(wheelbri::IStatePublisher& first, wheelbri::IStatePublisher* second, const float rotationDeg)
-        : first_(first), second_(second), rotationDeg_(static_cast<std::uint16_t>(std::lround(rotationDeg))) {}
+        : first_(first), second_(second), rotationDeg_(toWire(rotationDeg)) {}
     bool publish(const wheelbri::StatePacket& packet) override {
         wheelbri::StatePacket withRotation = packet;
-        withRotation.rotationDeg = rotationDeg_;
+        withRotation.rotationDeg = rotationDeg_.load(std::memory_order_relaxed);
         if (second_ != nullptr) (void)second_->publish(withRotation);
         return first_.publish(withRotation);
     }
+    // From the window's thread; the next packet carries it. Whether it changed.
+    bool setRotation(const float rotationDeg) {
+        return rotationDeg_.exchange(toWire(rotationDeg), std::memory_order_relaxed) != toWire(rotationDeg);
+    }
 
 private:
+    static std::uint16_t toWire(const float rotationDeg) {
+        return static_cast<std::uint16_t>(std::clamp(std::lround(rotationDeg), 0L, 65535L));
+    }
+
     wheelbri::IStatePublisher& first_;
     wheelbri::IStatePublisher* second_;
-    std::uint16_t rotationDeg_;
+    std::atomic<std::uint16_t> rotationDeg_;
 };
 
-int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPath, const std::string& configText,
+// The config file read again while the session runs, prepared as Start prepares it (loadForRun, the wheel's labels):
+// nullopt when it cannot be used (the problems are in `problems`).
+using ReloadConfig = std::function<std::optional<wheelbri::EmulatorConfig>(std::vector<std::string>& problems)>;
+
+// `config` is the session's: changes to the mapping made while it runs are taken into it (LiveMapping.hpp), so a run
+// after the wheel came back starts with them.
+int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const std::string& configPath,
+            const std::string& configText,
             const std::filesystem::path& logFolder, const bool logToFile, wheelbri::service::Wheel& source,
             const Accessories& accessories, const bool print, wheelbri::service::UiHost* const host,
             const DeviceSummary& devices, std::optional<UiFrame>& lastFrame, const bool routePedals) {
@@ -944,6 +962,12 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
 
     const wheelbri::Mapper mapper(config.mapper);
     wheelbri::Pipeline pipeline(source, mapper, *profile, statePublisher);
+    // The mappings the Mapping tab changed to while the session runs (LiveMapping.hpp): made by the window thread and
+    // kept for the session (the loop may still hold the one before). `mappingVersion` counts them; the game mappers
+    // are made over the one in use (their key has the version).
+    std::vector<std::unique_ptr<wheelbri::Mapper>> liveMappers;
+    std::uint64_t mappingVersion = 0;
+    auto shownMapping = std::make_shared<const wheelbri::MapperConfig>(config.mapper);
     pipeline.setAccessories(accessories.sources());
     // The G25's and G27's buttons in their native order if the mapping says so ([buttons] order).
     pipeline.setButtonOrder(config.buttonOrder);
@@ -1300,14 +1324,32 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
         gameSession.tunings = config.gameTunings;
         wheelbri::service::GameWatch gameWatch(std::move(gameSession), config.mapper.steering.targetRotationDeg,
                                                config.gameRotations, wheelbri::service::loadUserGames());
-        // The per-game values as last read, and when the config file was written then (read again when it changes).
-        wheelbri::GameTunings gameTunings = config.gameTunings;
-        wheelbri::GameRotations gameRotations = config.gameRotations;
+        // When the config file was written as last read (read again when it changes): `config` is what that write
+        // said, Start's config with the changes taken while running (also across a wheel that came back).
         std::filesystem::file_time_type configWritten{};
         if (!configPath.empty()) {
             std::error_code ec;
             configWritten = std::filesystem::last_write_time(wheelbri::pathFromUtf8(configPath), ec);
         }
+        // What the log said waits for the next Start (or is wrong in the file): said again only when it changes.
+        std::vector<std::string> saidWaiting;
+        const auto sayWaiting = [&saidWaiting](std::vector<std::string> lines, const bool problems) {
+            if (lines == saidWaiting) return;
+            saidWaiting = lines;
+            for (const std::string& line : lines) {
+                if (problems) {
+                    WE_LOG_WARN(log(), "config changed, not used while running until it is fixed: {}", line);
+                } else {
+                    WE_LOG_INFO(log(), "config changed: {} from the next Start", line);
+                }
+            }
+        };
+        // The rotation the virtual wheel reports: the mapping's or the running game's own (GameWatch::rotationNow).
+        const auto followRotation = [&]() {
+            if (statePublisher.setRotation(gameWatch.rotationNow())) {
+                WE_LOG_INFO(log(), "steering rotation: the virtual wheel reports {} deg now", gameWatch.rotationNow());
+            }
+        };
         std::uint64_t nextFrame = platform::nowNs();
         while (!loopDone) {
             const std::uint64_t now = platform::nowNs();
@@ -1318,27 +1360,46 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                     gStop = true;
                 }
                 housekeeping.pump();
-                // The per-game values changed (the Games tab saves them as they change, also while the
-                // session runs): read them again and use them at once. Only the per-game sections: everything else
-                // in the file waits for the next Start.
+                // The config changed (the Games tab and, while running, the Mapping tab save as they change): read it
+                // again and use at once what a running session can (the per-game values, GameWatch::setValues; the
+                // mapping, LiveMapping.hpp). Everything else waits for the next Start, and the log says so.
                 if (!configPath.empty()) {
                     std::error_code ec;
                     const auto written = std::filesystem::last_write_time(wheelbri::pathFromUtf8(configPath), ec);
                     if (!ec && written != configWritten) {
                         configWritten = written;
-                        if (const auto text = wheelbri::readFileText(wheelbri::pathFromUtf8(configPath))) {
-                            const auto parsed = wheelbri::IniDocument::parse(*text);
-                            auto loaded =
-                                wheelbri::loadEmulatorConfig(parsed.document, wheelbri::service::loadUserGames());
-                            if (loaded.config.gameTunings != gameTunings ||
-                                loaded.config.gameRotations != gameRotations) {
-                                gameTunings = loaded.config.gameTunings;
-                                gameRotations = loaded.config.gameRotations;
-                                gameWatch.setValues(gameTunings, gameRotations);
+                        std::vector<std::string> problems;
+                        if (const auto next = reload(problems)) {
+                            if (next->gameTunings != config.gameTunings ||
+                                next->gameRotations != config.gameRotations) {
+                                config.gameTunings = next->gameTunings;
+                                config.gameRotations = next->gameRotations;
+                                gameWatch.setValues(config.gameTunings, config.gameRotations);
                                 WE_LOG_INFO(log(), "game: your per-game values changed in {}: in use now",
                                             configPath);
                                 gameChecked = false;   // look now, not in up to 2 s
                             }
+                            const wheelbri::LiveMappingChange change = wheelbri::liveMappingChange(config, *next);
+                            if (change.mapper) {
+                                liveMappers.push_back(std::make_unique<wheelbri::Mapper>(*change.mapper));
+                                pipeline.setMapper(*liveMappers.back());
+                                ++mappingVersion;
+                                shownMapping = std::make_shared<const wheelbri::MapperConfig>(*change.mapper);
+                                WE_LOG_INFO(log(), "mapping: changed in {}: in use now", configPath);
+                                gameChecked = false;   // a game's own mapping is made again over this one
+                            }
+                            if (change.buttonOrder) {
+                                pipeline.setButtonOrder(*change.buttonOrder);
+                                WE_LOG_INFO(log(), "buttons: the {} order now", wheelbri::toString(*change.buttonOrder));
+                            }
+                            wheelbri::applyLiveMappingChange(config, change);
+                            if (change.rotationChanged) {
+                                gameWatch.setMapping(config.mapper.steering.targetRotationDeg);
+                                followRotation();
+                            }
+                            sayWaiting(change.waiting, false);
+                        } else {
+                            sayWaiting(std::move(problems), true);
                         }
                     }
                 }
@@ -1353,7 +1414,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                         if (!decision.mapperGame.empty() && decision.tuning != nullptr) {
                             // One per game and set of values: a change made while it runs gets a new one (the loop
                             // may still use the old one, so none is ever thrown away during the session).
-                            std::string key = decision.mapperGame;
+                            std::string key = std::to_string(mappingVersion) + "|" + decision.mapperGame;
                             for (const auto& [name, value] : wheelbri::tuningLines(*decision.tuning)) {
                                 key += "|" + name + "=" + value;
                             }
@@ -1371,6 +1432,7 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
                             gameMapper = made.get();
                         }
                         if (pipeline.gameMapper() != gameMapper) pipeline.setGameMapper(gameMapper);
+                        followRotation();   // a game with its own rotation started or ended
                     } catch (const std::exception& e) {   // never ends the session; the pedals stay as they are
                         WE_LOG_WARN(log(), "game: looking for known games failed: {}", e.what());
                     }
@@ -1401,6 +1463,9 @@ int runLoop(const wheelbri::EmulatorConfig& config, const std::string& configPat
             frame->game = gameWatch.status();
             frame->gameWarning = gameWatch.warning();
             frame->gameRotation = gameWatch.rotationStatus();
+            frame->mapping = shownMapping;
+            frame->mappingVersion = mappingVersion;
+            frame->buttonOrder = config.buttonOrder;
             if (const auto& advice = gameWatch.wayAdvice()) {
                 frame->gameWayTitle = advice->title;
                 frame->gameWayText = advice->text;
@@ -1851,13 +1916,28 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             "virtual " + wheelName + " on (" + uhid->describe() + "); hide the rig in the game's launch options";
     }
 #endif
+    // The config read again while the session runs (runLoop): as Start read it, with the wheel's own labels.
+    const ReloadConfig reload = [&options, &source](std::vector<std::string>& problems)
+        -> std::optional<wheelbri::EmulatorConfig> {
+        LoadedConfig next = loadForRun(options);
+        if (next.fileMissing) {
+            problems.push_back("cannot open config file '" + options.configPath + "'");
+            return std::nullopt;
+        }
+        if (!next.problems.empty()) {
+            problems = std::move(next.problems);
+            return std::nullopt;
+        }
+        if (source != nullptr) applySavedDeviceLabels(source->info(), next.config.mapper);
+        return std::move(next.config);
+    };
     int result = 0;
     std::optional<UiFrame> lastFrame;
     std::uint64_t sessionStartMs = platform::nowMs();
     int quickLosses = 0;   // lost again soon after it came back: wait longer before the next try
     while (!gStop) {
         sessionStartMs = platform::nowMs();
-        result = runLoop(config, options.configPath, loaded.text, logFolder, logFileOk, *source, accessories,
+        result = runLoop(config, reload, options.configPath, loaded.text, logFolder, logFileOk, *source, accessories,
                          options.print, host, devices, lastFrame,
                          /*routePedals=*/options.virtualDevice || options.uhid);
         if (result != kWheelLost || gStop) {

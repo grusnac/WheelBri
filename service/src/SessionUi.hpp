@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -26,7 +27,7 @@ struct SessionInfo {
     int axes = 0;
     int buttons = 0;
     std::string targetProfile;  // "g920"
-    MapperConfig mapper;
+    MapperConfig mapper;        // at Start; the Mapping tab can change it while running (UiFrame::mapping)
     // [buttons] order: which numbers the game sees the target's buttons by (the Mapping tab shows those).
     ButtonOrder buttonOrder = ButtonOrder::Driver;
     // The accessories the mapping reads (device 1, 2, 3; empty ids = none), named from the Wheel setup tab.
@@ -57,6 +58,12 @@ struct UiFrame {
     std::string game;                             // the known game followed (GameWatch::status), empty when none
     std::string gameWarning;                      // what the player should fix for it (GameWatch::warning), or empty
     std::string gameRotation;                     // the rotation it steers with, when not the mapping's (GameWatch)
+    // The mapping in use (SessionInfo::mapper until the Mapping tab changes it while running, LiveMapping.hpp), and
+    // how many times it changed this session: the window takes a new one when the version moves. Shared, so the
+    // frame's 60 copies a second do not copy it.
+    std::shared_ptr<const MapperConfig> mapping;
+    std::uint64_t mappingVersion = 0;
+    ButtonOrder buttonOrder = ButtonOrder::Driver;
     // For the app's Games tab (GameWatch::live).
     std::string gameId;                           // the known game running now, empty when none
     bool gameProfileApplies = false;              // its built-in profile is in use (it fits the target)

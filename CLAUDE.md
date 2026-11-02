@@ -119,6 +119,11 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
   - `runSession` (`main.cpp`) runs a session on its own thread.
   - **Loop** sleeps in `platform::WaitSet` until devices, sockets or a timer have news; `EventLoopControl` decides
     waking vs falling back to polling, `WakePlanner` plans wakes. Regular work goes by the clock, never pass counts.
+  - Live changes: the app saves the mapping as it changes; `runLoop` reads the config again when its file changes and
+    swaps in what a running session can take (`LiveMapping.hpp`: the mapping, button order; `GameWatch::setValues`:
+    per-game values), via `Pipeline::setMapper`. Mappers are kept for the session. The rotation the virtual wheel
+    reports (`StatePacket::rotationDeg`) follows the mapping's or the running game's (`GameWatch::rotationNow`).
+    Anything else waits for the next Start and is logged.
   - Privileged steps: `privileged::` (`Privileged.hpp`); `PrivilegedSteps` calls them directly when elevated, else via
     the WheelBri Helper.
   - Mode Shim starts nothing only the virtual device needs (no virtual wheel, no hide filter); keep that split.
