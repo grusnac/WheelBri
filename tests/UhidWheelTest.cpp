@@ -181,7 +181,7 @@ TEST(UhidWheel, OutputReportsBecomeForceFeedback) {
     EXPECT_EQ(k.device.activeSlots(), 1U);
 }
 
-// The G923 has HID++ for G HUB (report 0x11): a request comes back as an input report. Its HID PID reports are 0x10
+// The G923 has HID++ for G HUB (report 0x11): a request comes back as an input report (0x12). Its HID PID reports are 0x10
 // higher, so the same force feedback as the G920's arrives with 0x25, 0x21, 0x2A; feature reports answer 0x2x.
 TEST(UhidWheel, TheG923AnswersHidppAndPlaysPidFromItsMovedReports) {
     Kernel k(*virtualWheel("g923"));
@@ -192,8 +192,8 @@ TEST(UhidWheel, TheG923AnswersHidppAndPlaysPidFromItsMovedReports) {
     ASSERT_EQ(hex("11FF001100005A" + std::string(26, '0')).size(), HidPp::kLongSize);
     ASSERT_EQ(k.written.size(), 1U);
     ASSERT_EQ(k.written[0].type, UHID_INPUT2);
-    EXPECT_EQ(k.written[0].u.input2.size, HidPp::kLongSize);
-    EXPECT_EQ(k.written[0].u.input2.data[0], 0x11);
+    EXPECT_EQ(k.written[0].u.input2.size, HidPp::kVeryLongSize);   // answered very long, as a real G923
+    EXPECT_EQ(k.written[0].u.input2.data[0], 0x12);
     EXPECT_EQ(k.written[0].u.input2.data[4], 4);   // protocol 4.2
     EXPECT_EQ(k.written[0].u.input2.data[5], 2);
     EXPECT_EQ(k.written[0].u.input2.data[6], 0x5A);
@@ -488,7 +488,7 @@ TEST(UhidWheel, TheG923TakesHidppBySetReportAndIgnoresStrayReports) {
     const std::vector<std::uint8_t> noId(request.begin() + 1, request.end());
     k.device.handle(setReport(2, 0x11, UHID_OUTPUT_REPORT, noId), 0);      // without it: the same answer
     ASSERT_EQ(k.written.size(), 2U);
-    EXPECT_EQ(k.written[0].u.input2.data[0], 0x11);
+    EXPECT_EQ(k.written[0].u.input2.data[0], 0x12);
     EXPECT_EQ(k.written[0].u.input2.data[6], 0x5A);
 
     k.written.clear();

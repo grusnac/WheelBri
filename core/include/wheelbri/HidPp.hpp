@@ -22,9 +22,10 @@ class HidPpFfb;
 // a virtual wheel that has them (VirtualWheel::hidpp, docs/targets.md). Written from the
 // protocol's public description (Logitech's HID++ 2.0 documents, MIT-licensed tools); nothing is copied from GPL code.
 //
-// A request and its answer are one report each, the same size: long (report ID 0x11, 20 bytes) or very long (0x12, 64
-// bytes): [report ID, device index, feature index, function << 4 | software id, parameters...]. The answer repeats the
-// first four bytes; an error answer is [report ID, device index, 0xFF, feature index, function | sw id, error code].
+// A request is one report, long (report ID 0x11, 20 bytes) or very long (0x12, 64 bytes): [report ID, device index,
+// feature index, function << 4 | software id, parameters...]. Its answer is always very long, as a real G923's (it
+// answers long requests in 0x12 too: Measured, 2026-11-01 capture). The answer repeats the device index, feature index
+// and function; an error answer is [0x12, device index, 0xFF, feature index, function | sw id, error code].
 // A HID++ 1.0 request (feature index 0x80..0x83: register access) gets 1.0's error [.., 0x8F, sub id, address, 0x01].
 //
 // Features (index: id):
@@ -62,8 +63,8 @@ public:
         return reportId == kLongId || reportId == kVeryLongId;
     }
 
-    // A request from the host (`report` with its report ID): the answer to send back as an input report, or nothing
-    // when it is not a HID++ request at all.
+    // A request from the host (`report` with its report ID): the answer to send back as an input report (very long,
+    // report ID 0x12, kVeryLongSize bytes), or nothing when it is not a HID++ request at all.
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> handle(std::span<const std::uint8_t> report,
                                                                   std::int64_t nowMs);
 

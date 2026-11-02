@@ -44,8 +44,8 @@ struct Wheel {
 TEST(HidPp, PingAnswersProtocol42AndEchoesTheHeader) {
     Wheel w;
     const auto answer = w.ask(0, 1, {0, 0, 0x5A});
-    ASSERT_EQ(answer.size(), HidPp::kLongSize);
-    EXPECT_EQ(answer[0], 0x11);
+    ASSERT_EQ(answer.size(), HidPp::kVeryLongSize);   // a long request, a very long answer, as a real G923's
+    EXPECT_EQ(answer[0], 0x12);
     EXPECT_EQ(answer[1], 0xFF);   // the device index, as asked
     EXPECT_EQ(answer[2], 0x00);
     EXPECT_EQ(answer[3], 0x11);   // function 1, software id 1
@@ -199,7 +199,7 @@ TEST(HidPp, RequestsWithoutParametersReadZeros) {
         return answer ? *answer : std::vector<std::uint8_t>{};
     };
     auto answer = bare(0, 0);   // getFeature(0x0000): Root, at index 0
-    ASSERT_EQ(answer.size(), HidPp::kLongSize);
+    ASSERT_EQ(answer.size(), HidPp::kVeryLongSize);
     EXPECT_EQ(answer[2], 0);
     EXPECT_EQ(answer[4], 0);
     EXPECT_EQ(bare(0, 1)[6], 0);                          // ping without its byte

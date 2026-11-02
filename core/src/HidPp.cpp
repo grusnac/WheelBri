@@ -100,9 +100,11 @@ void HidPp::setForceFeedback(HidPpFfb* ffb) {
 std::optional<std::vector<std::uint8_t>> HidPp::handle(const std::span<const std::uint8_t> report,
                                                        const std::int64_t nowMs) {
     if (report.size() < 4 || !isHidPpReport(report[0])) return std::nullopt;
-    const std::size_t size = report[0] == kLongId ? kLongSize : kVeryLongSize;
-    std::vector<std::uint8_t> reply(size, 0);
+    // Every answer is very long, whatever the request's size: a real G923 answers its long requests in 0x12 too
+    // (292 of 292 in the 2026-11-01 capture, Claude outputs/plans/g923-capture-results.md).
+    std::vector<std::uint8_t> reply(kVeryLongSize, 0);
     std::copy_n(report.begin(), std::min<std::size_t>(4, report.size()), reply.begin());
+    reply[0] = kVeryLongId;
     const std::uint8_t featureIndex = report[2];
     const std::uint8_t function = static_cast<std::uint8_t>(report[3] >> 4U);
     const Params in = report.subspan(4);
