@@ -79,6 +79,9 @@ private:
     [[nodiscard]] float Y(const float y) const { return y + offY_; }
     void polygon(std::initializer_list<ShapePoint> points, ui::Colour colour);
     void roundedRect(float x, float y, float w, float h, float r, ui::Colour colour);
+    void roundedRectOutline(float x, float y, float w, float h, float r);   // into points_
+    // The part of that rounded rect from fromY down, its outline the rect's own (a pedal's lit part follows its face).
+    void roundedRectBelow(float x, float y, float w, float h, float r, float fromY, ui::Colour colour);
     void annularArc(float cx, float cy, float outer, float inner, float fromDeg, float toDeg, ui::Colour colour);
     void numberOn(float x, float y, std::size_t target, bool pressed);
     // The G920's print on a button in `ink`: its letters, or View's, Menu's and Xbox's symbols drawn small; `under`
@@ -131,6 +134,7 @@ private:
     std::size_t gear1_ = 8;        // Gear 1's target button (Gear 2..6 and R follow): the G920's 12
     float offY_ = 0.0F;
     std::vector<ShapePoint> points_;   // a shape's corners (kept: drawing allocates nothing once grown)
+    std::vector<ShapePoint> cutPoints_;   // a shape cut short (roundedRectBelow), kept the same way
 };
 
 }  // namespace wheelbri::service
