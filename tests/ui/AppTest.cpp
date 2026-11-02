@@ -345,16 +345,15 @@ TEST_F(AppRun, ShimStartRunStop) {
         EXPECT_TRUE(std::filesystem::exists(game / kShimDll));
         EXPECT_TRUE(w.has("LIVE LOG")) << w.dump();   // Start shows the logs at once
     });
+    // Running, Mapping is still the editor (each change in use at once); Live (S) next to it shows the session.
     press("m");
-    waitFor("Target G920  Mode Shim");
-    // Edit: the Mapping tab's editor while running (its Target fixed), and Live view back.
-    clickWhenShown("Edit");
-    waitFor("Live view", false);
+    waitFor("running: each change is in use at once", true);
     check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("EDIT")) << w.dump(); });
-    clickWhenShown("Live view");
+    clickWhenShown("Live (S)");
     waitFor("Target G920  Mode Shim");
-    // One button for Start and Stop leaves the bar room for the game too.
-    check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("G920 - Shim - waiting for a game")) << w.dump(); });
+    // The session bar between the tabs and the status: at the smallest window (five tabs) the target and the mode;
+    // a wider one has room for the game too.
+    check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("G920 - Shim", true)) << w.dump(); });
     // A profiled game starts: the Games tab opens on it; its name and rotation in the status.
     once([this](ScriptedWindow&) {
         session_.setFrame([](UiFrame& f) {
@@ -420,13 +419,13 @@ TEST_F(AppRun, ShimStartRunStop) {
     waitFor("LIVE LOG");
     press("r");
     waitFor("The running session's wheel (stop to see every device).");
-    press("m");
+    press("s");
     waitFor("LIVE", false);
     press("l");
     waitFor("LIVE LOG");
     waitFor("G920 - Shim - nfs2015", true);   // no name: the game's id
     once([](ScriptedWindow& w) { return clickText(w, "G920 - Shim", true); });
-    waitFor("LIVE", false);
+    waitFor("EDIT", false);   // the session bar: to the Mapping tab, where the target and the mode are
     once([this](ScriptedWindow&) { return clickStop(); });
     waitFor("Delete the shims from the games' folders?");
     once([](ScriptedWindow& w) { return clickText(w, "Don't ask again", true); });
@@ -623,7 +622,7 @@ TEST_F(AppRun, VirtualMode) {
     check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("G920 - Virtual - every game", true)) << w.dump(); });
     once([this](ScriptedWindow&) { return clickStart(); });
     waitFor("Running ");
-    press("m");
+    press("s");
     pumps(40);
     check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("LIVE")) << w.dump(); });
     EXPECT_EQ(run(), 0);
@@ -757,7 +756,7 @@ TEST_F(AppRun, InputReachesEachTab) {
     // Running: the live view's own clicks (its page, its tab bar), the Rig tab's.
     once([this](ScriptedWindow&) { return clickStart(); });
     waitFor("Running ");
-    once([](ScriptedWindow& w) { return clickText(w, "Mapping (M)"); });
+    once([](ScriptedWindow& w) { return clickText(w, "Live (S)"); });
     waitFor("LIVE", false);
     once([](ScriptedWindow&) { return uitest::click(100, 100); });
     press("r");
@@ -770,6 +769,64 @@ TEST_F(AppRun, InputReachesEachTab) {
         return input;
     });
     (void)wheel;
+    EXPECT_EQ(run(), 0);
+}
+
+// Side by side (B): the window lays out two pages wide, the editor left and Live right (stopped: what it will be),
+// kept in app.ini; the live view's own button turns it off again.
+TEST_F(AppRun, SideBySide) {
+    window_.setSize(1920, 748);   // the canvas a two-page design gets (the fake window does not fit it itself)
+    setUpRig();
+    listGame();
+    plugWheel();
+    waitFor("Ready", false);
+    press("m");
+    press("b");
+    waitFor("Press Start: your mapping at work shows here", true);
+    check([this](ScriptedWindow& w) {
+        EXPECT_EQ(readAppSetting(settings_.stateFile, "side_by_side"), "true");
+        ASSERT_NE(w.find("EDIT"), nullptr);
+        EXPECT_LT(w.find("EDIT")->x, 960.0F);   // the editor, left
+        EXPECT_GE(w.find("LIVE")->x, 960.0F);   // Live's place, right
+    });
+    once([this](ScriptedWindow&) { return clickStart(); });
+    waitFor("Running ");
+    press("m");   // Start shows the logs first
+    waitFor("Target G920  Mode", true);
+    check([](ScriptedWindow& w) {
+        ASSERT_NE(w.find("EDIT"), nullptr);
+        EXPECT_LT(w.find("EDIT")->x, 960.0F);
+        ASSERT_NE(w.find("LIVE"), nullptr);
+        EXPECT_GE(w.find("LIVE")->x, 960.0F);   // the live view, right
+        EXPECT_TRUE(w.has("running: each change is in use at once", true)) << w.dump();
+    });
+    // The Logs tab takes the whole window; Mapping again: side by side.
+    press("l");
+    waitFor("LIVE LOG");
+    press("m");
+    waitFor("Target G920  Mode", true);
+    clickWhenShown("Side by side (B)");
+    waitFor("Target G920  Mode", true);
+    check([this](ScriptedWindow&) { EXPECT_EQ(readAppSetting(settings_.stateFile, "side_by_side"), "false"); });
+    once([this](ScriptedWindow&) { return clickStop(); });
+    waitFor("Ready", false);
+    EXPECT_EQ(run(), 0);
+}
+
+// Stopped, the Live tab is greyed: a click (or S) only says it needs Start, and the tab stays as it was.
+TEST_F(AppRun, LiveTabNeedsStart) {
+    setUpRig();
+    plugWheel();
+    waitFor("Ready", false);
+    press("m");
+    clickWhenShown("Live (S)");
+    waitFor("Live shows a running session: press Start", true);
+    check([](ScriptedWindow& w) {
+        EXPECT_TRUE(w.has("EDIT")) << w.dump();
+        EXPECT_FALSE(w.has("LIVE")) << w.dump();
+        ASSERT_NE(w.find("Live (S)"), nullptr);
+        EXPECT_EQ(w.find("Live (S)")->colour.r, style::kFaint.r);
+    });
     EXPECT_EQ(run(), 0);
 }
 

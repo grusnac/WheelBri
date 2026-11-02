@@ -302,6 +302,12 @@ TEST(UiWindowX11, EventsBecomeInput) {
     });
     pumpUntil(*window, [&window](const WindowInput&) { return window->width() > 1000; });
     EXPECT_GT(window->width(), 1000.0F);
+    // Two pages side by side (the app's): the canvas fits a design twice as wide, at least 1920 across.
+    window->setDesignColumns(2);
+    pumpUntil(*window, [&window](const WindowInput&) { return window->width() >= 1920.0F; });
+    EXPECT_GE(window->width(), 1920.0F);
+    window->setDesignColumns(1);
+    pumpUntil(*window, [&window](const WindowInput&) { return window->width() < 1920.0F; });
     // An empty one (0 x 0) is drawn as 1 x 1.
     desktop.typed(id, ConfigureNotify, [](XEvent& e) {
         e.xconfigure.width = 0;

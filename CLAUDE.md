@@ -124,6 +124,10 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
     per-game values), via `Pipeline::setMapper`. Mappers are kept for the session. The rotation the virtual wheel
     reports (`StatePacket::rotationDeg`) follows the mapping's or the running game's (`GameWatch::rotationNow`).
     Anything else waits for the next Start and is logged.
+  - App tabs: Mapping is always the editor (`MappingEditView`, running too); Live next to it is `MappingView`'s live
+    page (Shadow / List), greyed while stopped. Side by side (`B`, app.ini `side_by_side`): the window's design two
+    pages wide (`UiWindow::setDesignColumns`), editor and live view each in a `PaneWindow` half. The CLI `--ui`
+    window has no editor: Mapping is its live page (`MappingView::setEditorTabs(false)`).
   - Privileged steps: `privileged::` (`Privileged.hpp`); `PrivilegedSteps` calls them directly when elevated, else via
     the WheelBri Helper.
   - Mode Shim starts nothing only the virtual device needs (no virtual wheel, no hide filter); keep that split.

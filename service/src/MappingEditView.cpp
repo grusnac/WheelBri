@@ -530,13 +530,6 @@ bool MappingEditView::followsRig(const Slot kind, const std::size_t index) const
 
 bool MappingEditView::inUseNow() const { return locked_ && path_ == sessionPath_; }
 
-bool MappingEditView::changeRotation(const float degrees) {
-    if (!loaded_ || !std::isfinite(degrees)) return false;
-    edit_.steeringRotationDeg = std::clamp(std::round(degrees), tuning::kMinRotationDeg, tuning::kMaxRotationDeg);
-    autoSave();
-    return !dirty() && inUseNow();
-}
-
 void MappingEditView::setLocked(const bool locked) {
     // Called every frame. A session that starts ends what the Mapping tab was editing; the Games page's values
     // stay editable while it runs (live tuning).
@@ -938,12 +931,12 @@ void MappingEditView::draw() {
         subtitle(52, "every game: your own values for it and, for Mode Shim, its folder and the shim there");
     } else {
         window_.text(4, 4, "MAPPING", kHeading);
-        // EDIT: this page changes the mapping (while a session runs, from the live view's Edit: each change is in use
-        // at once, LiveMapping.hpp).
+        // EDIT: this page changes the mapping, also while a session runs (each change in use at once,
+        // LiveMapping.hpp); the Live tab shows it at work.
         window_.fill(66, 2, 40, 12, kPanel);
         window_.text(70, 4, "EDIT", kText);
         subtitle(114, !locked_     ? "what your controls do on the " + target
-                      : inUseNow() ? "running: each change is in use at once"
+                      : inUseNow() ? "running: each change is in use at once (see it on Live, S)"
                                    : "running: changes are kept for the next Start");
     }
 
@@ -1006,12 +999,8 @@ void MappingEditView::draw() {
         tip(x, y, w, h, std::move(text));
     });
     // Saved as you change it: where Save was, whether it is ("saved", or "not saved" in red); Undo instead of Revert.
-    // While a session runs, Default (it deletes the file the session reads) gives way to the way back to the live view.
-    if (locked_) {
-        button(defaultX, 2, "Live view", [this] { liveRequested_ = true; }, false, true, 104);
-    } else {
-        button(defaultX, 2, "Default", [this] { dropOwnEdits(); }, false, !builtIn_, 104);
-    }
+    // Not while a session runs: it deletes the file the session reads.
+    button(defaultX, 2, "Default", [this] { dropOwnEdits(); }, false, !builtIn_ && !locked_, 104);
     const bool unsaved = loaded_ && dirty();
     const std::string saveState = unsaved ? "not saved" : "saved";
     window_.text(saveX + 80 - static_cast<float>(saveState.size()) * ui::kCharWidth, 6, saveState,
@@ -1024,7 +1013,7 @@ void MappingEditView::draw() {
     button(revertX, 2, "Undo", [this] { undo(); }, false, canUndo, 80);
     tip(revertX, 2, 80, 16, "Goes back one change, as many times as you like (until the Target changes).");
     tip(defaultX, 2, 104, 16,
-        locked_ ? "Back to the Shadow or List view of the running session (Default: once stopped)."
+        locked_ ? "Deletes your own mapping for this Target: once stopped (the running session reads it)."
                 : "Deletes your own mapping for this Target: WheelBri's default mapping again.");
     if (!loaded_) {
         window_.text(4, 60, fit(status_, 118 + extraChars()), kWarning);

@@ -6,6 +6,7 @@
 
 #include "AppLogLevel.hpp"
 #include "MappingView.hpp"
+#include "PaneWindow.hpp"
 #include "UiStyle.hpp"
 
 #include "wheelbri/DeviceProfile.hpp"
@@ -47,12 +48,12 @@ protected:
         std::filesystem::create_directories(dir_ / "logs");
         profile_ = makeProfile("g920");
         MappingView::setOptionalTabs(false, false);
-        MappingView::setGamesTab(false);
+        MappingView::setEditorTabs(false);
         MappingView::startOnShadow(false);   // the List view (the G920 has a picture too); Shadow tests ask for it
     }
     void TearDown() override {
         MappingView::setOptionalTabs(false, false);
-        MappingView::setGamesTab(false);
+        MappingView::setEditorTabs(false);
         std::error_code ec;
         std::filesystem::remove_all(dir_, ec);
     }
@@ -121,17 +122,17 @@ protected:
     std::unique_ptr<IDeviceProfile> profile_;
 };
 
-// The tabs that exist: Rig, Mapping, Logs; Games in the app; Telemetry and Force feedback only when asked for. Keys
+// The tabs that exist: Rig, Mapping, Logs; Live and Games in the app; Telemetry and Force feedback only when asked for. Keys
 // and clicks switch them; a key for a tab that is not there does nothing.
 TEST_F(LiveView, TabsAndKeys) {
     EXPECT_EQ(MappingView::visibleTabs().size(), 3U);
     const float three = MappingView::tabsEnd();
-    MappingView::setGamesTab(true);
+    MappingView::setEditorTabs(true);
     MappingView::setOptionalTabs(true, true);
-    EXPECT_EQ(MappingView::visibleTabs().size(), 6U);
+    EXPECT_EQ(MappingView::visibleTabs().size(), 7U);
     EXPECT_GT(MappingView::tabsEnd(), three);
     MappingView::setOptionalTabs(false, false);
-    MappingView::setGamesTab(false);
+    MappingView::setEditorTabs(false);
     auto view = makeView();
     for (const char key : {'g', 't', 'f'}) {
         view->onKey(key);
@@ -145,7 +146,7 @@ TEST_F(LiveView, TabsAndKeys) {
     EXPECT_TRUE(window_.has("Rig (R)"));
     EXPECT_FALSE(window_.has("AXES"));
     view->onKey('m');
-    MappingView::setGamesTab(true);
+    MappingView::setEditorTabs(true);
     MappingView::setOptionalTabs(true, true);
     for (const auto& [key, tab] : {std::pair{'g', MappingView::Tab::Games}, std::pair{'t', MappingView::Tab::Telemetry},
                                    std::pair{'f', MappingView::Tab::ForceFeedback}}) {
@@ -942,71 +943,37 @@ TEST_F(LiveView, ForceFeedbackTab) {
     draw(*view, {}, {}, {}, ffb);
 }
 
-// The Mapping tab's header while running, both views: Edit and the steering rotation. Without an editor (the command
-// line service's --ui window) the rotation is only shown; with one, - and + (or [ and ]) change it 10 degrees a
-// press, amber until the session's mapping has it; Edit is asked once.
-TEST_F(LiveView, RotationAndEditInTheHeader) {
-    MapperConfig mapper = mapping();
-    mapper.steering.targetRotationDeg = 900.0F;
-    auto view = makeView(6, 20, mapper);
+// The app's tabs (setEditorTabs): Mapping is the editor's (the window draws it), Live right of it is the live page
+// (Shadow / List); S goes to Live, and there switches Shadow / List. Without them Mapping is the live page.
+TEST_F(LiveView, LiveTabNextToMapping) {
+    MappingView::setEditorTabs(true);
+    auto view = makeView();
+    const std::vector<MappingView::Tab> tabs = MappingView::visibleTabs();
+    ASSERT_GE(tabs.size(), 4U);
+    EXPECT_EQ(tabs[1], MappingView::Tab::Mapping);
+    EXPECT_EQ(tabs[2], MappingView::Tab::Live);
+    EXPECT_EQ(tabs[3], MappingView::Tab::Games);
+    view->setTab(MappingView::Tab::Mapping);
     draw(*view);
-    ASSERT_NE(window_.find("900 deg", true), nullptr) << window_.dump();
-    EXPECT_TRUE(window_.has("Rotation", true));
-    EXPECT_FALSE(window_.has("Edit", true));
-    view->onKey(']');   // no editor: nothing changes
+    EXPECT_FALSE(window_.has("LIVE", true));   // the editor's page: the window draws it
+    EXPECT_TRUE(window_.has("Live (S)", true));
+    view->onKey('s');
+    EXPECT_EQ(view->tab(), MappingView::Tab::Live);
+    EXPECT_TRUE(view->livePage());
     draw(*view);
-    EXPECT_TRUE(window_.has("900 deg", true));
-
-    std::vector<float> asked;
-    bool inUse = true;
-    view->setRotationEditor([&](const float degrees) {
-        asked.push_back(degrees);
-        return inUse;
-    });
-    view->setEditButton(true);
-    draw(*view);
-    const auto* value = window_.find("900 deg", true);
-    ASSERT_NE(value, nullptr);
-    const float plusX = value->x + 8 * ui::kCharWidth + 4 + 2;
-    view->onClick(plusX, value->y + 1);
-    ASSERT_EQ(asked.size(), 1U);
-    EXPECT_FLOAT_EQ(asked[0], 910.0F);
-    draw(*view);
-    const auto* pending = window_.find("910 deg", true);
-    ASSERT_NE(pending, nullptr) << window_.dump();
-    EXPECT_EQ(pending->colour.r, style::kCaution.r);
-    // The session's mapping has it: the usual colour.
-    mapper.steering.targetRotationDeg = 910.0F;
-    view->setMapping(mapper);
-    draw(*view);
-    ASSERT_NE(window_.find("910 deg", true), nullptr);
-    EXPECT_EQ(window_.find("910 deg", true)->colour.r, style::kText.r);
-    // [ and ], and the ends: 90 at the least.
-    view->onKey('[');
-    EXPECT_FLOAT_EQ(asked.back(), 900.0F);
-    mapper.steering.targetRotationDeg = 100.0F;   // the session's: what asked last is not, so it stays asked
-    view->setMapping(mapper);
-    EXPECT_FLOAT_EQ(view->rotationNow(), 900.0F);
-    mapper.steering.targetRotationDeg = 900.0F;
-    view->setMapping(mapper);
-    mapper.steering.targetRotationDeg = 100.0F;
-    view->setMapping(mapper);
-    EXPECT_FLOAT_EQ(view->rotationNow(), 100.0F);
-    inUse = false;   // kept for the next Start: stays amber
-    view->onKey('[');
-    EXPECT_FLOAT_EQ(asked.back(), 90.0F);
-    const std::size_t count = asked.size();
-    view->onKey('[');
-    EXPECT_EQ(asked.size(), count);   // already at the least
-    draw(*view);
-    EXPECT_EQ(window_.find("90 deg", true)->colour.r, style::kCaution.r);
-    // Edit (or E): asked once.
-    EXPECT_FALSE(view->takeEditRequest());
-    ASSERT_TRUE(clickOn(*view, "Edit"));
-    EXPECT_TRUE(view->takeEditRequest());
-    EXPECT_FALSE(view->takeEditRequest());
-    view->onKey('e');
-    EXPECT_TRUE(view->takeEditRequest());
+    EXPECT_TRUE(window_.has("LIVE", true)) << window_.dump();
+    EXPECT_FALSE(view->showingShadow());   // the tests start on List
+    view->onKey('s');
+    EXPECT_TRUE(view->showingShadow());
+    view->onKey('s');
+    EXPECT_FALSE(view->showingShadow());
+    ASSERT_TRUE(clickOn(*view, "Mapping (M)"));
+    EXPECT_EQ(view->tab(), MappingView::Tab::Mapping);
+    EXPECT_FALSE(view->livePage());
+    MappingView::setEditorTabs(false);
+    EXPECT_TRUE(view->livePage());
+    const std::vector<MappingView::Tab> without = MappingView::visibleTabs();
+    EXPECT_EQ(std::count(without.begin(), without.end(), MappingView::Tab::Live), 0);
 }
 
 // The mapping changed while running (UiFrame::mapping): the List view's buttons follow it.
@@ -1019,6 +986,48 @@ TEST_F(LiveView, NewMappingIsShown) {
     view->setMapping(changed);
     draw(*view);
     EXPECT_TRUE(window_.has("G920  2 B", true)) << window_.dump();
+}
+
+// A pane of the window (the app's side by side): the view draws as if it were the whole window, its width the pane's,
+// every draw call moved right by the pane's left edge; the bottom reserve is the window's.
+TEST_F(LiveView, PaneWindowMovesTheDrawing) {
+    window_.setSize(1920, 748);
+    window_.setBottomReserve(26);
+    ui::PaneWindow pane(window_);
+    EXPECT_FLOAT_EQ(pane.width(), 1920.0F);
+    pane.place(960, 960);
+    EXPECT_FLOAT_EQ(pane.left(), 960.0F);
+    EXPECT_FLOAT_EQ(pane.width(), 960.0F);
+    EXPECT_FLOAT_EQ(pane.height(), 748.0F);
+    EXPECT_FLOAT_EQ(pane.bottomReserve(), 26.0F);
+    window_.clearDrawing();
+    pane.setOrigin(0, 10);
+    pane.text(4, 4, "pane", style::kText);
+    pane.fill(0, 0, 10, 10, style::kText);
+    window_.finish();
+    const auto* text = window_.find("pane");
+    ASSERT_NE(text, nullptr);
+    EXPECT_FLOAT_EQ(text->x, 964.0F);
+    EXPECT_FLOAT_EQ(text->y, 14.0F);
+    pane.setOrigin(0, 0);
+    // A view in it lays out for the pane: its tab bar ends inside it.
+    MappingView::setEditorTabs(true);
+    auto view = std::make_unique<MappingView>(pane, "Moza R3", 6, 20, *profile_, mapping());
+    view->setTab(MappingView::Tab::Live);
+    view->setSideBySide(true);
+    window_.clearDrawing();
+    view->drawLivePage({}, {}, {});
+    window_.finish();
+    ASSERT_NE(window_.find("LIVE"), nullptr);
+    EXPECT_GE(window_.find("LIVE")->x, 960.0F);
+    EXPECT_FALSE(window_.has("Logs (L)", true));   // no tab bar: the app draws it across the window
+    EXPECT_TRUE(window_.has("Side by side (B)", true));
+    // Its button asks once.
+    const auto* button = window_.find("Side by side (B)", true);
+    view->onClick(button->x - 960 + 2, button->y + 2);
+    EXPECT_TRUE(view->takeSideBySideRequest());
+    EXPECT_FALSE(view->takeSideBySideRequest());
+    MappingView::setEditorTabs(false);
 }
 
 }  // namespace

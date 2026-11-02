@@ -74,12 +74,14 @@ public:
     MappingView(const MappingView&) = delete;
     MappingView& operator=(const MappingView&) = delete;
 
-    // The panel's tabs, switched with the buttons along the bottom (or M / G / R / L, and T / F when shown), in this
-    // order: Rig, Mapping, Games (the app only: setGamesTab), Logs, then Telemetry and Force feedback only when
-    // the program was started with --telemetry-tab / --ffb-tab (setOptionalTabs); without them those two never show.
-    // The Rig tab (WheelSetup) and the Games tab are drawn by the window (WheelSetupView, MappingEditView's
-    // Games page); this view then draws only the tab bar.
-    enum class Tab { Mapping, Logs, Telemetry, ForceFeedback, WheelSetup, Games };
+    // The panel's tabs, switched with the buttons along the bottom (or M / S / G / R / L, and T / F when shown), in
+    // this order: Rig, Mapping, Live and Games (the app only: setEditorTabs), Logs, then Telemetry and Force feedback
+    // only when the program was started with --telemetry-tab / --ffb-tab (setOptionalTabs); without them those two
+    // never show. The Rig tab (WheelSetup) and the Games tab are drawn by the window (WheelSetupView,
+    // MappingEditView's Games page); this view then draws only the tab bar. In the app the Mapping tab is the
+    // editor too (MappingEditView, the window draws it) and Live is this view's live page (Shadow / List: livePage);
+    // without the editor (the command line service's --ui window) there is no Live tab and Mapping is the live page.
+    enum class Tab { Mapping, Logs, Telemetry, ForceFeedback, WheelSetup, Games, Live };
 
     // The tab buttons along the bottom (this view's, and the app's own while stopped): from kTabLeft, each as wide as
     // its label plus kTabPadding on both sides, kTabGap apart, kTabHeight tall, kTabBarHeight from the bottom. Sized
@@ -97,8 +99,20 @@ public:
 
     // Whether the Telemetry and Force feedback tabs exist (--telemetry-tab, --ffb-tab); set once at start.
     static void setOptionalTabs(bool telemetry, bool forceFeedback);
-    // Whether the Games tab exists: the app's window has it, the command line service's --ui window does not.
-    static void setGamesTab(bool games);
+    // Whether the editor's tabs exist: the app's window has them (Mapping is its editor, Live this view's live page,
+    // and Games), the command line service's --ui window does not.
+    static void setEditorTabs(bool editor);
+    [[nodiscard]] static bool editorTabs();
+    // Whether this view draws its live page (Shadow / List) now: the Live tab, or Mapping without the editor's tabs.
+    [[nodiscard]] bool livePage() const {
+        return tab_ == Tab::Live || (tab_ == Tab::Mapping && (!editorTabs() || sideBySide_));
+    }
+    // The app's side by side: the window shows the Mapping tab's editor and this view's live page together (the app
+    // draws them: drawLivePage), both tab buttons lit, S switches Shadow / List on either. The header's
+    // "Side by side (B)" button asks for it (or back): takeSideBySideRequest.
+    void setSideBySide(const bool on) { sideBySide_ = on; }
+    [[nodiscard]] bool takeSideBySideRequest() { return std::exchange(sideBySideRequested_, false); }
+    [[nodiscard]] static bool pairedTab(const Tab tab) { return tab == Tab::Mapping || tab == Tab::Live; }
     // The tabs shown, left to right.
     [[nodiscard]] static std::vector<Tab> visibleTabs();
 
@@ -165,18 +179,6 @@ public:
     void setMapping(const MapperConfig& mapper);
     [[nodiscard]] const MapperConfig& mapping() const { return mapper_; }
 
-    // The Mapping tab's header, right of the Shadow / List switch, in both views: Edit (setEditButton) and the
-    // steering rotation, "-" / "+" (or [ / ]) 10 degrees a press, 90 to 2520. `change` saves a new rotation and says
-    // whether the session uses it at once (the app: MappingEditView::changeRotation); until the session's mapping has
-    // it the value shows amber. Without `change` (the command line service's --ui window) the rotation is only shown.
-    void setRotationEditor(std::function<bool(float)> change) { rotationEditor_ = std::move(change); }
-    // Edit opens the Mapping tab's editor while running (the app's); E too. Asked once: takeEditRequest.
-    void setEditButton(const bool on) { editButton_ = on; }
-    [[nodiscard]] bool takeEditRequest() { return std::exchange(editRequested_, false); }
-    // The rotation the header shows: the one just asked, else the session's mapping's.
-    [[nodiscard]] float rotationNow() const;
-    static constexpr float kRotationStep = 10.0F;
-
     // The Mapping tab's two views while running: Shadow (the target drawn, ShadowView.hpp) or List (every rig axis and
     // the mapped buttons, the target's and the rig's, next to what the target reports). Shadow only for a target with a picture (ShadowView::hasPicture), and
     // then the first one shown; the choice holds for the app's run (every session's view starts with it). S or the
@@ -189,6 +191,9 @@ public:
     // Draws the panel (between the window's begin() and present()); `inputs.devices[0]` is the wheel.
     void draw(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
               const FfbDisplay& ffb = {});
+    // Only the live page (its header, Shadow or List), without the tab bar: the app's side by side.
+    void drawLivePage(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
+                      const FfbDisplay& ffb = {});
 
 private:
 
@@ -200,15 +205,9 @@ private:
 
     // sourceToTarget_, sourceTargetCount_ and sourceHatDirection_ from mapper_.
     void indexMapping();
-    // The header's Edit and rotation (both views): where they start, drawn (returns where they end), a click on them.
-    [[nodiscard]] float liveControlsX() const;
-    float drawLiveControls();
-    bool onLiveControlsClick(float x, float y);
-    void stepRotation(int steps);
-    static constexpr float kEditW = 40.0F;
-    static constexpr float kStepW = 16.0F;
-    static constexpr float kRotationValueW = 8 * ui::kCharWidth + 4;   // "2520 deg"
     void drawHeader();
+    void drawLive(const RawInputs& inputs, const WheelState& state, const TargetReport& report);
+    static constexpr float kSideBySideW = 16 * ui::kCharWidth + 12;   // "Side by side (B)"
     void drawAxes(const RawInputs& inputs, const WheelState& state, const TargetReport& report, float top);
     // "Rig 13 R paddle" on the wheel, "Pedals 2 Gas" on an accessory (cut to `chars`).
     [[nodiscard]] std::string sourceText(int device, int index, bool axis, std::size_t chars) const;
@@ -243,10 +242,9 @@ private:
     int sourceButtons_;
     const IDeviceProfile& profile_;
     MapperConfig mapper_;
-    std::function<bool(float)> rotationEditor_;
-    std::optional<float> pendingRotation_;   // asked, not in the session's mapping yet
-    bool editButton_ = false;
-    bool editRequested_ = false;
+    bool sideBySide_ = false;
+    bool sideBySideRequested_ = false;
+    float sideBySideX_ = -1000.0F;   // where the header drew Side by side (none yet)
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories_{};
     std::string target_;            // short name of the emulated wheel ("G920")
     ButtonOrder buttonOrder_ = ButtonOrder::Driver;

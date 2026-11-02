@@ -126,6 +126,12 @@ public:
     [[nodiscard]] float bottomReserve() const { return bottomReserve_; }
     void setBottomReserve(const float h) { bottomReserve_ = h; }
 
+    // How many pages of the design side by side the canvas is fitted to: 1 (the size given to openWindow), or 2 (the
+    // app's side by side: the design twice as wide, so the same window shows both at a smaller scale). The window's
+    // smallest size stays the one page's. The canvas follows at the next pump() or begin().
+    void setDesignColumns(const int columns) { designColumns_ = columns < 2 ? 1 : 2; }
+    [[nodiscard]] int designColumns() const { return designColumns_; }
+
     // Where (0, 0) of the draw calls below is on the canvas, so a panel can be drawn anywhere unchanged.
     void setOrigin(const float x, const float y) {
         originX_ = x;
@@ -201,6 +207,7 @@ protected:
     float bottomReserve_ = 0.0F;
     float canvasWidth_ = 960.0F;
     float canvasHeight_ = 748.0F;
+    int designColumns_ = 1;
 };
 
 // The window for this system, `windowWidth` x `windowHeight` (at 100 % display scale; made smaller if the

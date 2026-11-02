@@ -77,22 +77,25 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
   marks.
 
 The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games
-count), from 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) while running. Details:
+count), from 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Details:
 [targets.md](targets.md).
 
 **Default** goes back to WheelBri's mapping.
 
 ## Change the mapping while you play
 
-Every change is saved as you make it, and a running session uses it at once: no Stop and Start.
+The Mapping tab stays the editor while WheelBri runs. Every change is saved as you make it, and the running session
+uses it at once: no Stop and Start. Target, Mode and Order stay as Start set them, and Default waits for Stop.
 
-- **Steering rotation**: **-** / **+** in the Mapping tab's header (or **[** / **]**), in the Shadow and List views,
-  10 degrees a press. Amber means not in use yet. WheelBri still passes the wheel through 1:1: set the same number in
-  your wheel's own software (Pit House for Moza). The virtual wheel reports the new rotation at once (whether a
-  running game reads it again is up to the game); a game file's rotation changes at its next **Save to file**.
-- **Everything else on the Mapping tab** (sources, Invert, buttons and their extra controls, the D-pad): **Edit** in
-  the header (or **E**) opens the editor while running; **Live view** goes back. Target, Mode and Order stay as Start
-  set them, and there is no Default until Stop.
+- **Live** (**S**), next to Mapping, shows the session at work: the [Shadow view](#shadow-view) or List. It is greyed
+  until Start. Change something on Mapping, then look at Live.
+- **Side by side** (**B**, or the button on Live): the editor left and Live right, in one window. The window lays out
+  two pages wide, so text is smaller: best maximised or full screen. Other tabs use the whole window; **B** again goes
+  back. It is remembered.
+- **Steering rotation**: the editor's slider or a preset. WheelBri still passes the wheel through 1:1: set the same
+  number in your wheel's own software (Pit House for Moza). The virtual wheel reports the new rotation at once
+  (whether a running game reads it again is up to the game); a game file's rotation changes at its next **Save to
+  file**.
 
 Waits for the next Start (the log says so): a source on an accessory the session did not open, Centring spring, and
 anything edited by hand outside the Mapping tab (target, ports, `[ffb]`). Running with WheelBri's default mapping, your
@@ -135,7 +138,7 @@ both Modes for one game.
 
 ## Shadow view
 
-While WheelBri runs, the Mapping tab shows the Target as the game sees it: the real wheel drawn from Logitech's own
+While WheelBri runs, the Live tab (**S**) shows the Target as the game sees it: the real wheel drawn from Logitech's own
 pictures, with its pedals and shifter, every control lit while the game gets it pressed. It shows what the game
 receives after your mapping, so it is the place to check a mapping in action.
 
@@ -155,8 +158,8 @@ receives after your mapping, so it is the place to check a mapping in action.
 - **G923 dial**: its left or right teeth light as it turns.
 - **Pressed now**, on the right: every control pressed at this moment, as "your control -> the Target's".
 
-**Shadow** / **List** in the Mapping tab's header (or **S**) switch views; right of them, **Edit** and the steering
-rotation ([Change the mapping while you play](#change-the-mapping-while-you-play)). **List** shows every axis of your rig as
+**Shadow** / **List** in Live's header (or **S** again) switch views; right of them, **Side by side**
+([Change the mapping while you play](#change-the-mapping-while-you-play)). **List** shows every axis of your rig as
 it reads them, next to what the Target reports, and only the mapped buttons (the Target's and the rig's), with **Last
 pressed** naming the Target's button you pressed last and what drives it ("G920 7 Menu <- Rig 35 Start"). Use it when a
 control does nothing in the Shadow view: Last pressed also names an unmapped button, so List shows whether the rig sees

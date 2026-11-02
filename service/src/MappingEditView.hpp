@@ -90,18 +90,12 @@ public:
     void draw();
     // The hover text, after everything else in the window (the app draws the shim's game row over the tab).
     void drawTooltip();
-    // While a session runs or starts: the Target, the Mode and Default are fixed. The mapping itself stays editable
-    // (the app shows this page while running from the live view's Edit): each change is saved, and the session uses it
-    // at once when it runs this file (inUseNow; LiveMapping.hpp), else from the next Start.
+    // While a session runs or starts: the Target, the Mode and Default are fixed. The mapping itself stays editable:
+    // each change is saved, and the session uses it at once when it runs this file (inUseNow; LiveMapping.hpp), else
+    // from the next Start. The app's Live tab shows it at work.
     void setLocked(bool locked);
     // A session runs with the mapping this page edits: what is saved is in use at once.
     [[nodiscard]] bool inUseNow() const;
-    // The steering rotation changed from the live view (Shadow or List, while running): saved as the slider would
-    // (90 to 2520, whole degrees). Whether it is in use now (false: not saved, or kept for the next Start).
-    bool changeRotation(float degrees);
-    [[nodiscard]] float steeringRotation() const { return edit_.steeringRotationDeg; }
-    // Live view (the button that takes Default's place while running) was pressed: taken once.
-    [[nodiscard]] bool takeLiveRequest() { return std::exchange(liveRequested_, false); }
 
     void onClick(float x, float y);
     void onKey(char key);
@@ -454,7 +448,6 @@ private:
     Slot pickKind_ = Slot::Axis;
     std::size_t pickIndex_ = 0;
     bool locked_ = false;
-    bool liveRequested_ = false;   // takeLiveRequest
     std::string sessionPath_;   // the config the running session was started with (path_ at setLocked(true))
     std::string status_;
     std::string toast_;
