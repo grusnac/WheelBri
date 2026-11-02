@@ -103,8 +103,9 @@ bool lowBool(const std::int64_t raw) { return (raw & 0xFF) != 0; }
 std::string hex(const std::int64_t raw) { return std::format("0x{:x}", static_cast<std::uint64_t>(raw)); }
 
 std::string nameOr(const int value, std::span<const std::string_view> names, const int first) {
-    const int i = value - first;
-    if (i >= 0 && i < static_cast<int>(names.size()) && !names[static_cast<std::size_t>(i)].empty()) {
+    // In 64 bits: value - first overflows int for a value near INT_MAX when first is negative (UBSan).
+    const std::int64_t i = std::int64_t{value} - first;
+    if (i >= 0 && i < static_cast<std::int64_t>(names.size()) && !names[static_cast<std::size_t>(i)].empty()) {
         return std::string(names[static_cast<std::size_t>(i)]);
     }
     return std::format("unknown {}", value);
