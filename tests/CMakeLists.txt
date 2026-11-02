@@ -47,6 +47,7 @@ add_executable(wheelbri_tests
     IniDocumentTest.cpp
     IniEditorTest.cpp
     LiveLogTest.cpp
+    LiveMappingTest.cpp
     LogitechFfbDriverTest.cpp
     LogFilesTest.cpp
     LogiSdkTest.cpp

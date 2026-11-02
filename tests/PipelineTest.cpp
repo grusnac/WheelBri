@@ -287,5 +287,31 @@ TEST(Pipeline, GameMapperIsUsedWhileSet) {
     EXPECT_FLOAT_EQ(pipeline.lastState().throttle, 1.0F);
 }
 
+// The Mapping tab changed while the session runs (LiveMapping.hpp): the new mapping is used from the next tick, and a
+// game's own mapping still wins while it is set.
+TEST(Pipeline, NewMapperIsUsedFromTheNextTick) {
+    FakeSource source;
+    RecordingPublisher publisher;
+    MapperConfig config;
+    config.throttle.sourceAxis = 1;
+    const Mapper mapper(config);
+    MapperConfig inverted = config;
+    inverted.throttle.invert = true;
+    const Mapper changed(inverted);
+    const Mapper game(config);
+    const DeviceProfile profile(g920Spec());
+    Pipeline pipeline(source, mapper, profile, publisher);
+    source.next.axes[1] = 1.0F;
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FLOAT_EQ(pipeline.lastState().throttle, 1.0F);
+    pipeline.setMapper(changed);
+    EXPECT_EQ(&pipeline.mapper(), &changed);
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FLOAT_EQ(pipeline.lastState().throttle, 0.0F);
+    pipeline.setGameMapper(&game);
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_FLOAT_EQ(pipeline.lastState().throttle, 1.0F);
+}
+
 }  // namespace
 }  // namespace wheelbri

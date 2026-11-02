@@ -40,6 +40,7 @@ add_library(wheelbri_core STATIC
     src/IniEditor.cpp
     src/InputReadStats.cpp
     src/LiveLog.cpp
+    src/LiveMapping.cpp
     src/LocalDate.cpp
     src/LogFiles.cpp
     src/LogiSdk.cpp

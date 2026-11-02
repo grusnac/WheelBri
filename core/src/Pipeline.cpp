@@ -15,7 +15,7 @@ const logging::Logger& log() {
 
 Pipeline::Pipeline(IInputSource& source, const Mapper& mapper, const IDeviceProfile& profile,
                    IStatePublisher& publisher)
-    : source_(source), mapper_(mapper), profile_(profile), publisher_(publisher) {
+    : source_(source), mapper_(&mapper), profile_(profile), publisher_(publisher) {
     WE_LOG_INFO(log(), "pipeline: '{}' -> '{}' ({:04x}:{:04x})", source_.name(), profile_.identity().productName,
                 profile_.identity().vendorId, profile_.identity().productId);
 }
@@ -39,7 +39,7 @@ bool Pipeline::tick(const std::uint64_t nowNs) {
     }
     inputChanged_ = !(inputs_ == previous);
     const Mapper* const game = gameMapper();
-    state_ = (game != nullptr ? *game : mapper_).map(inputs_);
+    state_ = (game != nullptr ? *game : *mapper_.load(std::memory_order_acquire)).map(inputs_);
     report_ = profile_.encode(state_);
     packet_.report = applyPedalRoute(report_, pedalRoute());
     if (nativeButtons()) packet_.report.buttons = profile_.nativeButtons(packet_.report.buttons);
