@@ -1,6 +1,7 @@
 #include "wheelbri/UdpLoopback.hpp"
 
 #include "wheelbri/LogLevelPacket.hpp"
+#include "wheelbri/Logging.hpp"
 
 #include <gtest/gtest.h>
 
@@ -422,6 +423,9 @@ TEST(UdpLoopbackDeathTest, NoSocketsLeftMeansNoObject) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_EXIT(
         {
+            // One line through spdlog first: UBSan checks its formatter's dynamic type by reading memory through a
+            // pipe, which needs descriptors; once checked, the type is cached and the refusals below log cleanly.
+            WE_LOG_ERROR(logging::get("core.net"), "death test: warming up the log formatter");
             rlimit before{};
             ::getrlimit(RLIMIT_NOFILE, &before);
             rlimit none = before;
