@@ -93,6 +93,7 @@ public:
     }
 
     bool hideRig(std::string& message) override {
+        if (hider_) return true;   // hidden already: a new HideFilter would show the rig for a moment first
         hider_ = std::make_unique<HideFilter>();
         if (!hider_->hide()) {
             hider_.reset();
@@ -213,6 +214,7 @@ public:
     }
 
     bool hideRig(std::string& message) override {
+        if (hidden_) return true;
         if (ask(helper::RequestType::HideRig, {}, kShortMs, {}, message) != helper::Status::Ok) return false;
         hidden_ = true;
         WE_LOG_INFO(log(), "hide: the rig is hidden from games (only this process, {}, may open its devices)",

@@ -19,6 +19,7 @@ endif()
 
 # The steps that need Administrator (src/Privileged.hpp) and what they use, for the app and the WheelBri Helper.
 add_library(wheelbri_privileged STATIC
+    src/DeviceHolders.cpp
     src/HideFilter.cpp
     src/Privileged.cpp
     src/VirtualWheelDevice.cpp)

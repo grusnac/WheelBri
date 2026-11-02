@@ -255,21 +255,38 @@ HideSetup putHideFilter(const std::vector<std::string>& install, const std::vect
     }
     // Windows loads the filter when it restarts the device: a few seconds, with nothing of ours holding it.
     std::string why;
+    // A program that has the wheel open and will not let go when Windows asks (2026-11-02: Firefox, for its gamepad
+    // support) would make Start fail. At Start the rig is hidden already (runSession hides it before putting the filter
+    // on), so such a program is cut off by reconnecting the wheel (HideFilter::reconnect: as if it were unplugged), and
+    // it cannot open the wheel again as it comes back. Only then: never while the rig is not hidden (the installer's
+    // --prepare-hide), where the program would just open it again, and never when Windows refused for another reason.
+    const bool mayReconnect = allowedPid() != 0;
+    std::vector<std::string> heldOpen;
+    const auto takeBack = [&]() {
+        if (!mayReconnect || heldOpen.empty() || (cancelled && cancelled())) return false;
+        std::string failed;
+        if (HideFilter::reconnect(heldOpen, 20'000, cancelled, failed)) return true;
+        why += "; reconnecting the wheel did not help either: " + failed;
+        return false;
+    };
     if (!relisted.empty()) {
         WE_LOG_INFO(hideLog(), "hide: restarting {} with wheelbri-hide", joined(relisted));
-        if (!HideFilter::restartNow(relisted, 15'000, cancelled, why)) {
+        if (!HideFilter::restartNow(relisted, 15'000, cancelled, why, mayReconnect ? &heldOpen : nullptr) &&
+            !takeBack()) {
             if (cancelled && cancelled()) {
                 message = "stopped";
                 return HideSetup::Waiting;
             }
             message = "the filter is on, but Windows has not restarted the device with it yet: " + why +
-                      ". Close what uses the wheel (its maker's software, Steam, the Game Controllers window) or unplug "
-                      "it and plug it in again, then press Start again";
+                      ". Close what uses the wheel (the program named there; else its maker's software, Steam, a web "
+                      "browser, the Game Controllers window) or unplug it and plug it in again, then press Start again";
             WE_LOG_ERROR(hideLog(), "hide: {}", message);
             return HideSetup::Waiting;
         }
     }
-    if (HideFilter::waitUntilStarted(interfaces, 25'000, cancelled, why, restartAfterMs)) {
+    if (HideFilter::waitUntilStarted(interfaces, 25'000, cancelled, why, restartAfterMs,
+                                     mayReconnect ? &heldOpen : nullptr) ||
+        (takeBack() && HideFilter::waitUntilStarted(interfaces, 10'000, cancelled, why, 0))) {
         WE_LOG_INFO(hideLog(), "hide: wheelbri-hide runs on every connected device of the rig");
         return HideSetup::Running;
     }
@@ -278,8 +295,8 @@ HideSetup putHideFilter(const std::vector<std::string>& install, const std::vect
         return HideSetup::Waiting;
     }
     message = "the filter is on, but Windows has not restarted the device with it yet: " + why +
-              ". Close what uses the wheel (its maker's software, Steam, the Game Controllers window) or unplug it and "
-              "plug it in again, then press Start again";
+              ". Close what uses the wheel (the program named there; else its maker's software, Steam, a web browser, "
+              "the Game Controllers window) or unplug it and plug it in again, then press Start again";
     WE_LOG_ERROR(hideLog(), "hide: {}", message);
     return HideSetup::Waiting;
 }

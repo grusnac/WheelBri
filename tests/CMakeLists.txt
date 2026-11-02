@@ -17,6 +17,7 @@ add_executable(wheelbri_tests
     ConfigLibraryTest.cpp
     ControlFoldTest.cpp
     DailyLogFileTest.cpp
+    DeviceHoldersTest.cpp
     DeviceLabelsTest.cpp
     DeviceProfileTest.cpp
     DrawListTest.cpp

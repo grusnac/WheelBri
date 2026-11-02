@@ -3,6 +3,7 @@
 #include "Privileged.hpp"
 
 #ifdef _WIN32
+#include "DeviceHolders.hpp"
 #include "DinputDevice.hpp"
 #endif
 
@@ -14,7 +15,10 @@
 #include <windows.h>
 #include <aclapi.h>
 #include <cfgmgr32.h>
+#include <winioctl.h>   // CTL_CODE: the USB hub request in cycleUsbPort
 
+#include <algorithm>
+#include <array>
 #include <cwchar>
 #include <string>
 #include <string_view>
@@ -143,9 +147,16 @@ std::string vetoText(const PNP_VETO_TYPE type, const std::wstring& name) {
     }
 }
 
+// A restart Windows refused because a program has a device open.
+struct HeldOpen {
+    std::string asked;   // the interface this asked Windows to restart
+    std::string node;    // the device Windows says is open (its veto name; may be empty)
+};
+
 // Restarts the interface now: removed (programs that registered for it are asked to let go), then set up again with
-// its new stack. False with `why` when something refused.
-bool restartNode(const std::string& instanceId, std::string& why) {
+// its new stack. False with `why` when something refused; `heldOpen` (when given) is set when that was a program
+// with the device open (added to it).
+bool restartNode(const std::string& instanceId, std::string& why, std::vector<HeldOpen>* const heldOpen = nullptr) {
     const std::wstring wide(instanceId.begin(), instanceId.end());
     DEVINST node = 0;
     if (CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
@@ -159,6 +170,10 @@ bool restartNode(const std::string& instanceId, std::string& why) {
         why = removed == CR_REMOVE_VETOED ? vetoText(veto, vetoName)
                                           : "Windows could not restart it (CM_Query_And_Remove_SubTree " +
                                                 std::to_string(removed) + ")";
+        if (heldOpen != nullptr && removed == CR_REMOVE_VETOED &&
+            (veto == PNP_VetoOutstandingOpen || veto == PNP_VetoPendingClose)) {
+            heldOpen->push_back({instanceId, narrow(vetoName)});
+        }
         return false;
     }
     // Back, with the filter: the removed node is a phantom until it is set up again.
@@ -168,13 +183,128 @@ bool restartNode(const std::string& instanceId, std::string& why) {
     return true;
 }
 
+// After Windows kept refusing to restart a device because a program has it open: which programs (DeviceHolders.hpp),
+// added to `why` ("...; it is open in firefox.exe (pid 14196)") and logged, so the user knows what to close. Only on
+// giving up: looking through the computer's handles takes up to a few seconds.
+void nameHolders(const std::vector<HeldOpen>& heldOpen, std::string& why) {
+    std::vector<holders::Holder> found;
+    for (const HeldOpen& held : heldOpen) {
+        const std::string& device =
+            !held.node.empty() && nodeState(held.node) != NodeState::Gone ? held.node : held.asked;
+        const std::vector<holders::Holder> holding = deviceHolders(device);
+        if (!holding.empty()) {
+            WE_LOG_WARN(log(), "hide: {} is open in {}: Windows can restart it only once that lets go", device,
+                        holders::describe(holding));
+        }
+        found.insert(found.end(), holding.begin(), holding.end());
+    }
+    if (const std::string who = holders::describe(found); !who.empty()) why += "; it is open in " + who;
+}
+
+// The interfaces of `heldOpen`, for the caller (each once).
+std::vector<std::string> askedOf(const std::vector<HeldOpen>& heldOpen) {
+    std::vector<std::string> ids;
+    for (const HeldOpen& held : heldOpen) {
+        if (std::find(ids.begin(), ids.end(), held.asked) == ids.end()) ids.push_back(held.asked);
+    }
+    return ids;
+}
+
+// How long a program that has the device open gets to let go, once Windows asked it to (each restart asks), before a
+// caller that can take the device back (heldOpen given: Start) is told so instead of waiting out its whole timeout.
+constexpr int kHeldGraceMs = 3'000;
+
+std::string deviceIdOf(const DEVINST node) {
+    std::array<wchar_t, MAX_DEVICE_ID_LEN + 1> id{};
+    if (CM_Get_Device_IDW(node, id.data(), static_cast<ULONG>(id.size()), 0) != CR_SUCCESS) return {};
+    return narrow(id.data());
+}
+
+// The USB device behind interface `instanceId` (HID collection -> USB interface -> USB device): the nearest node above
+// it whose id starts with "USB\" and that is no interface of a composite device ("&MI_"). False if there is none.
+bool usbDeviceOf(const std::string& instanceId, DEVINST& usbDevice, std::string& usbId) {
+    const std::wstring wide(instanceId.begin(), instanceId.end());
+    DEVINST node = 0;
+    if (CM_Locate_DevNodeW(&node, const_cast<wchar_t*>(wide.c_str()), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+        return false;
+    }
+    for (int depth = 0; depth < 6; ++depth) {
+        DEVINST parent = 0;
+        if (CM_Get_Parent(&parent, node, 0) != CR_SUCCESS) return false;
+        node = parent;
+        std::string id = deviceIdOf(node);
+        for (char& c : id) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c);
+        if (id.rfind("USB\\", 0) == 0 && id.find("&MI_") == std::string::npos) {
+            usbDevice = node;
+            usbId = id;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Power-cycles the hub port `usbDevice` is plugged into (IOCTL_USB_HUB_CYCLE_PORT, what USB Device Viewer's "cycle
+// port" sends): to Windows the device is unplugged and plugged in again, which no program can refuse, so every handle
+// to it and its interfaces ends. Empty on success, else why not.
+std::string cycleUsbPort(const DEVINST usbDevice) {
+    ULONG port = 0;
+    ULONG size = sizeof(port);
+    if (CM_Get_DevNode_Registry_PropertyW(usbDevice, CM_DRP_ADDRESS, nullptr, &port, &size, 0) != CR_SUCCESS ||
+        port == 0) {
+        return "Windows does not say which port of its USB hub it is on";
+    }
+    DEVINST hub = 0;
+    if (CM_Get_Parent(&hub, usbDevice, 0) != CR_SUCCESS) return "its USB hub is not found";
+    const std::string hubId = deviceIdOf(hub);
+    const std::wstring hubWide(hubId.begin(), hubId.end());
+    // GUID_DEVINTERFACE_USB_HUB
+    GUID hubInterface{0xf18a0e88, 0xc30c, 0x11d0, {0x88, 0x15, 0x00, 0xa0, 0xc9, 0x06, 0xbe, 0xd8}};
+    ULONG chars = 0;
+    if (CM_Get_Device_Interface_List_SizeW(&chars, &hubInterface, const_cast<wchar_t*>(hubWide.c_str()),
+                                           CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != CR_SUCCESS ||
+        chars <= 1) {
+        return "its USB hub (" + hubId + ") offers no hub interface";
+    }
+    std::wstring paths(chars, L'\0');
+    if (CM_Get_Device_Interface_ListW(&hubInterface, const_cast<wchar_t*>(hubWide.c_str()), paths.data(), chars,
+                                      CM_GET_DEVICE_INTERFACE_LIST_PRESENT) != CR_SUCCESS) {
+        return "its USB hub (" + hubId + ") offers no hub interface";
+    }
+    const HANDLE file = CreateFileW(paths.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                    OPEN_EXISTING, 0, nullptr);   // the first path in the list
+    if (file == INVALID_HANDLE_VALUE) {
+        return "cannot open its USB hub " + hubId + " (error " + std::to_string(GetLastError()) + ")";
+    }
+    struct CyclePortParams {   // USB_CYCLE_PORT_PARAMS, without usbioctl.h
+        ULONG connectionIndex;
+        ULONG statusReturned;
+    } params{port, 0};
+    // IOCTL_USB_HUB_CYCLE_PORT: FILE_DEVICE_USB (= FILE_DEVICE_UNKNOWN), function USB_HUB_CYCLE_PORT (273).
+    constexpr DWORD kCyclePort = CTL_CODE(FILE_DEVICE_UNKNOWN, 273, METHOD_BUFFERED, FILE_ANY_ACCESS);
+    DWORD returned = 0;
+    const BOOL ok = DeviceIoControl(file, kCyclePort, &params, sizeof(params), &params, sizeof(params), &returned,
+                                    nullptr);
+    const DWORD error = GetLastError();
+    CloseHandle(file);
+    if (!ok) {
+        return "its USB hub " + hubId + " refused to reconnect port " + std::to_string(port) + " (error " +
+               std::to_string(error) + ")";
+    }
+    return {};
+}
+
 }  // namespace
 
 bool HideFilter::waitUntilStarted(const std::vector<std::string>& interfaces, const int timeoutMs,
-                                  const std::function<bool()>& cancelled, std::string& why, const int restartAfterMs) {
+                                  const std::function<bool()>& cancelled, std::string& why, const int restartAfterMs,
+                                  std::vector<std::string>* const heldOpenOut) {
     constexpr int kStepMs = 250;
     constexpr int kRetryEveryMs = 5'000;     // and again (closing a program that had it open is then enough)
+    constexpr int kHeldRetryEveryMs = 1'000; // while a program holds it (Windows asks it again each time)
     int nextRestartMs = restartAfterMs;      // Windows usually restarts it by itself within ~7 s; then we do it
+    std::vector<HeldOpen> heldOpen;          // the last round's refusals because a program had the device open
+    int heldSinceMs = -1;                    // when the refusals because of a program holding it began
+    if (heldOpenOut != nullptr) heldOpenOut->clear();
     for (int waited = 0; waited <= timeoutMs; waited += kStepMs) {
         bool allRunning = true;
         std::vector<std::string> waiting;
@@ -194,19 +324,30 @@ bool HideFilter::waitUntilStarted(const std::vector<std::string>& interfaces, co
         }
         if (waited >= nextRestartMs && !waiting.empty()) {
             nextRestartMs = waited + kRetryEveryMs;
+            heldOpen.clear();
             for (const std::string& id : waiting) {
                 std::string refused;
-                if (restartNode(id, refused)) {
+                if (restartNode(id, refused, &heldOpen)) {
                     WE_LOG_INFO(log(), "hide: restarting {} so the filter starts", id);
                 } else {
                     why = refused;
                     WE_LOG_WARN(log(), "hide: cannot restart {} yet: {}", id, refused);
                 }
             }
+            if (heldOpen.empty()) {
+                heldSinceMs = -1;
+            } else {
+                if (heldSinceMs < 0) heldSinceMs = waited;
+                nextRestartMs = waited + kHeldRetryEveryMs;
+                // A caller that can take the device back: told once the program had its time to let go.
+                if (heldOpenOut != nullptr && waited - heldSinceMs >= kHeldGraceMs) break;
+            }
         }
         Sleep(kStepMs);
     }
     if (why.empty()) why = "Windows did not restart it in time";
+    if (heldOpenOut != nullptr) *heldOpenOut = askedOf(heldOpen);
+    nameHolders(heldOpen, why);
     return false;
 }
 
@@ -345,18 +486,23 @@ std::string HideFilter::setFilterListed(const std::string& instanceId, const boo
 }
 
 bool HideFilter::restartNow(const std::vector<std::string>& interfaces, const int timeoutMs,
-                            const std::function<bool()>& cancelled, std::string& why) {
+                            const std::function<bool()>& cancelled, std::string& why,
+                            std::vector<std::string>* const heldOpenOut) {
     constexpr int kStepMs = 100;
     constexpr int kRetryEveryMs = 1'000;   // a program that refused may have let go meanwhile (Windows asked it to)
     std::vector<std::string> toRestart = interfaces;
     int nextTryMs = 0;
+    std::vector<HeldOpen> heldOpen;   // the last round's refusals because a program had the device open
+    int heldSinceMs = -1;             // when the refusals because of a program holding it began
+    if (heldOpenOut != nullptr) heldOpenOut->clear();
     for (int waited = 0; waited <= timeoutMs; waited += kStepMs) {
         if (waited >= nextTryMs && !toRestart.empty()) {
             nextTryMs = waited + kRetryEveryMs;
             std::vector<std::string> refused;
+            heldOpen.clear();
             for (const std::string& id : toRestart) {
                 std::string reason;
-                if (restartNode(id, reason)) {
+                if (restartNode(id, reason, &heldOpen)) {
                     WE_LOG_INFO(log(), "hide: restarting {}", id);
                 } else {
                     refused.push_back(id);
@@ -365,6 +511,13 @@ bool HideFilter::restartNow(const std::vector<std::string>& interfaces, const in
                 }
             }
             toRestart = std::move(refused);
+            if (heldOpen.empty()) {
+                heldSinceMs = -1;
+            } else {
+                if (heldSinceMs < 0) heldSinceMs = waited;
+                // A caller that can take the device back: told once the program had its time to let go.
+                if (heldOpenOut != nullptr && waited - heldSinceMs >= kHeldGraceMs) break;
+            }
         }
         bool allBack = toRestart.empty();
         for (const std::string& id : interfaces) allBack = allBack && nodeState(id) == NodeState::Running;
@@ -379,7 +532,66 @@ bool HideFilter::restartNow(const std::vector<std::string>& interfaces, const in
         Sleep(kStepMs);
     }
     if (why.empty()) why = "Windows did not set it up again in time";
+    if (heldOpenOut != nullptr) *heldOpenOut = askedOf(heldOpen);
+    nameHolders(heldOpen, why);
     WE_LOG_WARN(log(), "hide: not every device restarted: {}", why);
+    return false;
+}
+
+bool HideFilter::reconnect(const std::vector<std::string>& interfaces, const int timeoutMs,
+                           const std::function<bool()>& cancelled, std::string& why) {
+    // Each USB device once (the wheel's interfaces share one).
+    std::vector<std::string> cycled;
+    for (const std::string& id : interfaces) {
+        DEVINST usbDevice = 0;
+        std::string usbId;
+        if (!usbDeviceOf(id, usbDevice, usbId)) {
+            why = id + ": no USB device found above it, so it cannot be reconnected";
+            WE_LOG_ERROR(log(), "hide: {}", why);
+            return false;
+        }
+        if (std::find(cycled.begin(), cycled.end(), usbId) != cycled.end()) continue;
+        WE_LOG_WARN(log(), "hide: reconnecting {} (its USB port is power-cycled, as unplugging it would) so the "
+                           "program holding it loses it",
+                    usbId);
+        if (const std::string problem = cycleUsbPort(usbDevice); !problem.empty()) {
+            why = usbId + ": " + problem;
+            WE_LOG_ERROR(log(), "hide: cannot reconnect {}", why);
+            return false;
+        }
+        cycled.push_back(usbId);
+    }
+    // Gone, then back and started with the filter (in its stack since it was put on; the rig is hidden already, so
+    // from its first moment nothing but WheelBri may open it).
+    constexpr int kStepMs = 100;
+    constexpr int kMustGoWithinMs = 5'000;
+    std::vector<bool> wentAway(interfaces.size(), false);
+    for (int waited = 0; waited <= timeoutMs; waited += kStepMs) {
+        bool allBack = true;
+        for (std::size_t i = 0; i < interfaces.size(); ++i) {
+            const NodeState state = nodeState(interfaces[i]);
+            if (state == NodeState::Gone) wentAway[i] = true;
+            allBack = allBack && wentAway[i] && state == NodeState::Running;
+        }
+        if (allBack) {
+            WE_LOG_INFO(log(), "hide: the wheel is back after {:.1f} s, with the filter",
+                        static_cast<double>(waited) / 1000.0);
+            return true;
+        }
+        if (waited >= kMustGoWithinMs && std::find(wentAway.begin(), wentAway.end(), false) != wentAway.end()) {
+            why = "the USB hub accepted the reconnect, but the wheel never went away (this hub may not support it): "
+                  "unplug the wheel and plug it in again";
+            WE_LOG_ERROR(log(), "hide: {}", why);
+            return false;
+        }
+        if (cancelled && cancelled()) {
+            why = "stopped";
+            return false;
+        }
+        Sleep(kStepMs);
+    }
+    why = "the wheel did not come back within " + std::to_string(timeoutMs / 1000) + " s after the reconnect";
+    WE_LOG_ERROR(log(), "hide: {}", why);
     return false;
 }
 
@@ -440,7 +652,8 @@ HideFilter::~HideFilter() { restore(); }
 namespace wheelbri::service {
 
 bool HideFilter::waitUntilStarted(const std::vector<std::string>&, int, const std::function<bool()>&,
-                                  std::string& why, int) {
+                                  std::string& why, int, std::vector<std::string>* const heldOpen) {
+    if (heldOpen != nullptr) heldOpen->clear();
     why = "not on Windows";
     return false;
 }
@@ -461,7 +674,13 @@ std::string HideFilter::setFilterListed(const std::string& instanceId, bool, boo
     changed = false;
     return instanceId + ": the hide filter is for Windows only";
 }
-bool HideFilter::restartNow(const std::vector<std::string>&, int, const std::function<bool()>&, std::string& why) {
+bool HideFilter::restartNow(const std::vector<std::string>&, int, const std::function<bool()>&, std::string& why,
+                            std::vector<std::string>* const heldOpen) {
+    if (heldOpen != nullptr) heldOpen->clear();
+    why = "not on Windows";
+    return false;
+}
+bool HideFilter::reconnect(const std::vector<std::string>&, int, const std::function<bool()>&, std::string& why) {
     why = "not on Windows";
     return false;
 }

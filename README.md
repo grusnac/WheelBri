@@ -43,6 +43,9 @@ Releases: <https://github.com/grusnac/WheelBri/releases>
 1. Run `WheelBri-<version>-setup.exe` and approve the Administrator prompt.
 2. Restart Windows when the setup asks (Windows 11).
 
+With Firefox installed, the setup also asks whether to turn off Firefox's game controller support (default no):
+Firefox keeps the wheel open, so WheelBri cannot hide it until Firefox is closed. The uninstaller turns it back on.
+
 On Windows 11 it installs the app, the two drivers with their certificate and the **WheelBri Helper**, a service that
 does the Administrator work so the app runs as a normal user. On Windows 7 to 10 it installs Mode Shim only. Windows 7
 first needs the prerequisites in the package's `win7` folder: run `download-prerequisites.cmd`, then

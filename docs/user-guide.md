@@ -113,8 +113,10 @@ the Target. When Start is greyed out, the red notice above the tabs says why; **
 **Mode Virtual**
 
 1. Close the wheel maker's software if it holds the wheel.
-2. Press **Start**. On Windows the wheel reconnects once to hide it from games (don't unplug anything). If it cannot
-   be hidden, Start fails and the Logs tab says what holds it.
+2. Press **Start**. On Windows the wheel reconnects once to hide it from games (don't unplug anything). If a program
+   has the wheel open and will not let go (often a web browser: Firefox opens every game controller), Start
+   reconnects the wheel's USB port, as if it were unplugged, and the program loses it. Only if the USB hub cannot do
+   that does Start fail, naming the program: close it and press Start again.
 3. Start the game and pick the Logitech wheel in its controller settings.
 4. **Stop** reconnects the wheel unhidden.
 

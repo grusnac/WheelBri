@@ -165,7 +165,8 @@ void nameThisThread(const char* name);
 // runtime folder (released by the kernel when the process dies).
 class SingleInstance {
 public:
-    // Null with `error` set ("another wheelbri-service is running (pid N)" or why the lock could not be made).
+    // Null with `error` set ("another wheelbri-service is already running on this computer (wheelbri.exe, pid N,
+    // its path): stop it first", naming each copy Windows lists; or why the lock could not be made).
     [[nodiscard]] static std::unique_ptr<SingleInstance> acquire(const std::string& name, std::string& error);
     ~SingleInstance();
 

@@ -1721,6 +1721,24 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     std::string rigName;
     const auto hideTargets = rigHideTargets(rigName);
     if (steps != nullptr) ensureWheelDriver(*steps);
+    // Hidden before the filter is put on: the device restart that loads it is a moment in which any program may open
+    // the wheel (a browser reacts to a game controller arriving at once), and the filter cannot take back a handle it
+    // let through (2026-11-02: Firefox got in there, then held the wheel so Stop could not take the filter off).
+    // While the filter is not loaded yet this setting does nothing; from its first moment in the stack it refuses
+    // everyone but this process. Undone by showRig at the end, or by `steps` going (any early return).
+    // Windows only: elsewhere wheelbri-uhid hides the rig its own way.
+    bool rigHidden = false;
+#ifdef _WIN32
+    if (steps != nullptr && options.virtualDevice && options.hide && !gStop && !hideTargets.empty()) {
+        std::string message;
+        rigHidden = steps->hideRig(message);
+        if (!rigHidden) {
+            WE_LOG_CRITICAL(log(), "hide: the rig is NOT HIDDEN from games, so the session does not start: {}",
+                            message);
+            return 1;
+        }
+    }
+#endif
     if (options.virtualDevice && options.hide && !gStop) {
         if (hideTargets.empty()) {
             WE_LOG_WARN(log(), "hide: no rig yet{}: nothing is hidden from games (define the devices in the Rig tab)",
@@ -1858,14 +1876,14 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     }
 #endif
     // The rig hidden from games meanwhile, or a game may take a real device instead of the G920 (NFS does): with
-    // wheelbri's own filter (driver/hide) on every device of the rig, which lets only this process open them.
-    bool rigHidden = false;
+    // wheelbri's own filter (driver/hide) on every device of the rig, which lets only this process open them. Usually
+    // hidden already, before the filter was put on (above); then not again (that would show it for a moment).
     std::vector<wheelbri::service::HideFilter::Check> hideChecks;
     if (g920 && options.hide && !hideTargets.empty()) {
         hideChecks = wheelbri::service::HideFilter::check(hideTargets);
         bool any = false;
         for (const auto& c : hideChecks) any = any || c.state == wheelbri::service::HideFilter::State::Ready;
-        if (any) {
+        if (any && !rigHidden) {
             std::string message;
             rigHidden = steps->hideRig(message);
             if (!rigHidden) {

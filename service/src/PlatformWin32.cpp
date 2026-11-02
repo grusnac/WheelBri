@@ -493,21 +493,50 @@ struct SingleInstance::Impl {
     }
 };
 
+namespace {
+
+// The other copies of WheelBri running now, for the message when one holds the lock: "wheelbri.exe, pid 23852,
+// D:\projects\WheelBri\build\service\wheelbri.exe" (2026-11-02: a copy started from the build folder was still
+// running, and "stop it first" did not say which). Empty when none is listed.
+std::string otherCopies() {
+    const auto programs = runningPrograms();
+    if (!programs) return {};
+    const auto self = static_cast<std::uint32_t>(GetCurrentProcessId());
+    std::string text;
+    for (const RunningProgram& program : *programs) {
+        std::string lower = program.name;
+        for (char& c : lower) c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+        if (program.pid == self || (lower != "wheelbri.exe" && lower != "wheelbri-service.exe")) continue;
+        const std::u8string image = processImage(program.pid).u8string();   // u8: a path in any language
+        text += (text.empty() ? "" : "; ") + program.name + ", pid " + std::to_string(program.pid) +
+                (image.empty() ? std::string() : ", " + std::string(image.begin(), image.end()));
+    }
+    return text;
+}
+
+}  // namespace
+
 std::unique_ptr<SingleInstance> SingleInstance::acquire(const std::string& name, std::string& error) {
     // Global\: one per computer, across user sessions (the app runs elevated, a console may not).
     const std::wstring wide = L"Global\\" + widen(name);
     HANDLE mutex = CreateMutexW(nullptr, FALSE, wide.c_str());
     if (mutex == nullptr) {
         // An elevated copy's lock cannot be opened by a non-elevated one: that copy is running.
-        error = GetLastError() == ERROR_ACCESS_DENIED
-                    ? "another wheelbri-service is already running on this computer (as Administrator): stop it first"
-                    : lastError("creating the single-instance lock");
+        if (GetLastError() != ERROR_ACCESS_DENIED) {
+            error = lastError("creating the single-instance lock");
+            return nullptr;
+        }
+        const std::string copies = otherCopies();
+        error = "another wheelbri-service is already running on this computer (as Administrator" +
+                (copies.empty() ? std::string() : ": " + copies) + "): stop it first";
         return nullptr;
     }
     const DWORD waited = WaitForSingleObject(mutex, 0);
     if (waited != WAIT_OBJECT_0 && waited != WAIT_ABANDONED) {   // abandoned: the last owner crashed, fine
         CloseHandle(mutex);
-        error = "another wheelbri-service is already running on this computer (the app, or a console): stop it first";
+        const std::string copies = otherCopies();
+        error = "another wheelbri-service is already running on this computer (" +
+                (copies.empty() ? std::string("the app, or a console") : copies) + "): stop it first";
         return nullptr;
     }
     auto impl = std::make_unique<Impl>();
