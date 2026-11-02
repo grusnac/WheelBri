@@ -6,6 +6,7 @@
 #include "ConfigPicker.hpp"
 #include "DeviceWatch.hpp"
 #include "MappingEditView.hpp"
+#include "PaneWindow.hpp"
 #include "Platform.hpp"
 #include "ServiceLogging.hpp"
 #include "ShimGamesView.hpp"
@@ -150,6 +151,7 @@ public:
             setup_ = std::make_unique<WheelSetupView>(*window_,
                                                       WheelSetupView::Settings{rigsFolder(), deviceLabelsFolder(),
                                                                                appStateFile()});
+            MappingView::setEditorTabs(false);   // no editor here: Mapping is the live page, no Live or Games tab
         }
         view_.reset();   // refers to the old profile
         info_ = info;
@@ -389,19 +391,25 @@ private:
             return 1;
         }
         WE_LOG_INFO(log(), "app window open ({}); press Start", window_->describe());
+        // The Mapping tab's editor and the live view each draw into a pane of the window: the whole of it, or with
+        // Side by side its left and right halves (placePanes).
+        editorPane_ = std::make_unique<ui::PaneWindow>(*window_);
+        livePane_ = std::make_unique<ui::PaneWindow>(*window_);
+        sideBySide_ = readAppSetting(settings_.stateFile, "side_by_side") == "true";
+        window_->setDesignColumns(sideBySide_ ? 2 : 1);
         const std::uint32_t windowsBuild = platform::windowsBuild();
         if (windowsBuild != 0) WE_LOG_INFO(log(), "Windows build {}", windowsBuild);
         picker_ = std::make_unique<ConfigPicker>(
-            *window_, ConfigPicker::Settings{settings_.builtInConfigFolder, settings_.userConfigFolder,
+            *editorPane_, ConfigPicker::Settings{settings_.builtInConfigFolder, settings_.userConfigFolder,
                                              settings_.stateFile,
                                              ConfigPicker::virtualDeviceSupported(windowsBuild),
                                              ConfigPicker::windowsName(windowsBuild)});
         setup_ = std::make_unique<WheelSetupView>(
             *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile});
-        MappingView::setGamesTab(true);   // the live view's tab bar has the Games tab too
+        MappingView::setEditorTabs(true);   // the live view's tab bar has Mapping (the editor), Live and Games
         // The first time (no rig yet) the devices are defined first; then the mapping is where to go.
         idleTab_ = WheelSetupView::anyRig(rigsFolder()) ? IdleTab::Mapping : IdleTab::Setup;
-        mapping_ = std::make_unique<MappingEditView>(*window_, rigsFolder(), settings_.stateFile, *picker_);
+        mapping_ = std::make_unique<MappingEditView>(*editorPane_, rigsFolder(), settings_.stateFile, *picker_);
         games_ = std::make_unique<ShimGamesView>(
             *window_, ShimGamesView::Settings{shimGamesFile(), settings_.shimDlls, settings_.shimSettings,
                                                 settings_.stateFile, [](const std::filesystem::path& folder) {
@@ -435,6 +443,7 @@ private:
 
         while (true) {
             const ui::WindowInput input = window_->pump();
+            placePanes();   // the canvas may have changed with the window
             if (input.close && !quitting_) {
                 quitting_ = true;
                 if (running()) {
@@ -485,7 +494,8 @@ private:
                 }
                 // The shim's game (only with Mode Shim), where gamesRowX / gamesRowY put it.
                 if (showingMapping() && shimTarget() && !(editingMapping && mapping_->popupOpen()) &&
-                    click.y >= gamesRowY() && click.y < gamesRowY() + kControlsHeight && click.x >= gamesRowX()) {
+                    click.y >= gamesRowY() && click.y < gamesRowY() + kControlsHeight && click.x >= gamesRowX() &&
+                    click.x < gamesRowX() + kGamesWidth) {
                     games_->onClick(click.x, click.y);
                     continue;
                 }
@@ -493,14 +503,23 @@ private:
                 const float y = click.y - kViewTop;
                 if (y >= tabBarTop()) {
                     if (view_ != nullptr) {
+                        livePane_->place(0, window_->width());   // the tab bar is the whole window's
                         view_->onClick(click.x, y);
+                        placePanes();
                     } else if (y >= buttonsY() && y < buttonsY() + MappingView::kTabHeight) {
                         for (const IdleTabButton& button : idleTabButtons()) {
-                            if (click.x >= button.x && click.x < button.x + button.w) idleTab_ = button.tab;
+                            if (click.x >= button.x && click.x < button.x + button.w) idleTabClicked(button.tab);
                         }
                     }
                 } else if (setup) {
                     setup_->onClick(click.x, y);
+                } else if (splitShown() && click.x >= livePane_->left() && !mapping_->popupOpen()) {
+                    // Side by side: the right half is the live view's (in its own coordinates), or Start's place.
+                    if (view_ != nullptr) {
+                        view_->onClick(click.x - livePane_->left(), y);
+                    } else {
+                        onPlaceholderClick(click.x, y);
+                    }
                 } else if (editingMapping) {
                     mapping_->onClick(click.x, y);
                 } else if (view_ != nullptr) {
@@ -522,9 +541,13 @@ private:
                     if (key == ui::kEscape) {
                         if (setup) setup_->onKey(key);
                         if (editingMapping) mapping_->onKey(key);
+                    } else if (key == 'b' && !setup) {
+                        toggleSideBySide();
                     } else if (view_ != nullptr) {
                         if (setup) setup_->onKey(key);   // scrolling the devices (letters are the tabs' keys)
                         view_->onKey(key);
+                    } else if (key == 's') {
+                        idleTabClicked(IdleTab::Live);
                     } else if (key == 'r' || key == 'm' || key == 'l' || key == 'g') {
                         idleTab_ = key == 'r'   ? IdleTab::Setup
                                    : key == 'm' ? IdleTab::Mapping
@@ -552,11 +575,10 @@ private:
                                               : idleTab_ == IdleTab::Logs ? logs_.get()
                                                                           : nullptr) {
                 if (input.hwheel != 0) logsView->onHScroll(input.hwheel);
-                logsView->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
+                const float left = logsView == view_.get() ? livePane_->left() : 0.0F;   // its pane's coordinates
+                logsView->onPointer(input.pointer.x - left, input.pointer.y - kViewTop, input.leftDown);
             }
-            // The live view's Edit, and the editor's way back (while running).
-            if (view_ != nullptr && view_->takeEditRequest()) editWhileRunning_ = true;
-            if (mapping_->takeLiveRequest()) editWhileRunning_ = false;
+            if (view_ != nullptr && view_->takeSideBySideRequest()) toggleSideBySide(/*fromLive=*/true);
             collectSession();
             showFirstHide();
             updateStartNeeds();
@@ -608,7 +630,8 @@ private:
 
 private:
     enum class State { Stopped, Starting, Running, Stopping };
-    enum class IdleTab { Mapping, Games, Setup, Logs };
+    // Live never shows while stopped (greyed: idleTabClicked), it only has a button.
+    enum class IdleTab { Mapping, Games, Setup, Logs, Live };
 
     static constexpr std::uint64_t kDrawEveryNs = platform::kNsPerSecond / kWindowFramesPerSecond;
     static constexpr std::uint64_t kHiddenWaitNs = 16 * platform::kNsPerMs;   // the window minimised: input only
@@ -624,7 +647,7 @@ private:
     // The shim's game row: in the Mapping tab's editor its second row at the right edge (where Default, Save and Revert
     // were: they are in the top row now); in the live view the top row, next to the title.
     [[nodiscard]] float gamesRowX() const {
-        return showingMappingEditor() ? window_->width() - 4 - kGamesWidth : kGamesX;
+        return showingMappingEditor() ? editorPane_->width() - 4 - kGamesWidth : kGamesX;
     }
     // The editor's place also while it shows during a session (the live view's Edit).
     [[nodiscard]] float gamesRowY() const { return showingMappingEditor() ? kGamesEditorY : kControlsY; }
@@ -644,12 +667,58 @@ private:
     [[nodiscard]] bool showingSetup() const {
         return view_ != nullptr ? view_->tab() == MappingView::Tab::WheelSetup : idleTab_ == IdleTab::Setup;
     }
-    // The Mapping tab's editor: on the idle page (no session shows; while running it is the live view).
-    // While running, the live view's Edit shows it instead of the live view (until its Live view button, or Stop).
+    // The Mapping tab: always the editor, stopped or running (the Live tab next to it shows the session at work).
     [[nodiscard]] bool showingMappingEditor() const {
-        return view_ == nullptr ? idleTab_ == IdleTab::Mapping
-                                : view_->tab() == MappingView::Tab::Mapping && editWhileRunning_;
+        return view_ != nullptr ? view_->tab() == MappingView::Tab::Mapping || splitShown()
+                                : idleTab_ == IdleTab::Mapping;
     }
+    // Side by side now: on, and the Mapping or Live tab showing (the editor left, the live view or Start's place
+    // right). Other tabs keep the whole window.
+    [[nodiscard]] bool splitShown() const {
+        return sideBySide_ && (view_ != nullptr ? MappingView::pairedTab(view_->tab()) : idleTab_ == IdleTab::Mapping);
+    }
+    // The panes for what shows now: halves side by side, else both the whole window.
+    void placePanes() {
+        const float width = window_->width();
+        if (splitShown()) {
+            const float half = std::floor(width / 2);
+            editorPane_->place(0, half);
+            livePane_->place(half, width - half);
+        } else {
+            editorPane_->place(0, width);
+            livePane_->place(0, width);
+        }
+        if (view_ != nullptr) view_->setSideBySide(sideBySide_);
+    }
+    // Side by side on or off (B, or the live view's button): the window lays out two pages wide, kept in app.ini.
+    // `fromLive`: asked on the live view (its button): turned off, the Live tab stays.
+    void toggleSideBySide(const bool fromLive = false) {
+        sideBySide_ = !sideBySide_;
+        window_->setDesignColumns(sideBySide_ ? 2 : 1);
+        writeAppSetting(settings_.stateFile, "side_by_side", sideBySide_ ? "true" : "false");
+        WE_LOG_INFO(log(), "window: side by side {}", sideBySide_ ? "on" : "off");
+        // On: the Mapping tab (both show). Off from the live view's button: Live; else the tab as it is.
+        if (!sideBySide_ && fromLive && view_ != nullptr) view_->setTab(MappingView::Tab::Live);
+        if (sideBySide_ && view_ == nullptr && idleTab_ != IdleTab::Mapping) idleTab_ = IdleTab::Mapping;
+        if (sideBySide_ && view_ != nullptr && !MappingView::pairedTab(view_->tab())) {
+            view_->setTab(MappingView::Tab::Mapping);
+        }
+        placePanes();
+    }
+    // Side by side while stopped: the right half says what Live is, and has the way back.
+    void drawPlaceholder() {
+        const float x = livePane_->left();
+        window_->fill(x, 0, 1, tabBarTop(), style::kRule);
+        window_->text(x + 16, 16, "LIVE", kDim);
+        window_->text(x + 16, 40, "Press Start: your mapping at work shows here (Shadow or List),", kDim);
+        window_->text(x + 16, 54, "and each change on the left is in use at once.", kDim);
+        style::button(*window_, x + 16, 76, kPlaceholderW, 16, "Side by side (B)", true, true);
+    }
+    void onPlaceholderClick(const float x, const float y) {
+        const float left = livePane_->left() + 16;
+        if (x >= left && x < left + kPlaceholderW && y >= 76 && y < 92) toggleSideBySide();
+    }
+    static constexpr float kPlaceholderW = 16 * ui::kCharWidth + 12;
     // The Games tab: the editor's Games page, stopped or running (then locked, with the game that runs).
     [[nodiscard]] bool showingGames() const {
         return view_ != nullptr ? view_->tab() == MappingView::Tab::Games : idleTab_ == IdleTab::Games;
@@ -741,10 +810,11 @@ private:
         pendingWayNotice_ = Notice{title, text};
     }
 
-    // Either Mapping tab (the editor while stopped, the live view's while running): the only place with the shim's games
-    // row (Start, Stop and the status are on every tab).
+    // The Mapping tab (the editor) or the Live tab (running): the only places with the shim's games row (Start, Stop
+    // and the status are on every tab).
     [[nodiscard]] bool showingMapping() const {
-        return view_ != nullptr ? view_->tab() == MappingView::Tab::Mapping : idleTab_ == IdleTab::Mapping;
+        return view_ != nullptr ? view_->tab() == MappingView::Tab::Mapping || view_->tab() == MappingView::Tab::Live
+                                : idleTab_ == IdleTab::Mapping;
     }
 
     // The tab reads the running session's wheel, or (stopped) the wheel picked in it; nothing while starting or
@@ -776,17 +846,19 @@ private:
         }
     }
 
-    // The app's own tab buttons while no session shows (Mapping, the editor; Games; Rig; Logs), placed and sized as the
-    // live view places its first four (MappingView::tabWidth), so nothing moves when a session starts.
+    // The app's own tab buttons while no session shows (Rig; Mapping, the editor; Live, greyed: nothing runs; Games;
+    // Logs), placed and sized as the live view places its first five (MappingView::tabWidth), so nothing moves when a
+    // session starts.
     struct IdleTabButton {
         IdleTab tab;
         const char* label;
         float x;
         float w;
     };
-    [[nodiscard]] static std::array<IdleTabButton, 4> idleTabButtons() {
-        std::array<IdleTabButton, 4> buttons{{{IdleTab::Setup, "Rig (R)", 0, 0},
+    [[nodiscard]] static std::array<IdleTabButton, 5> idleTabButtons() {
+        std::array<IdleTabButton, 5> buttons{{{IdleTab::Setup, "Rig (R)", 0, 0},
                                               {IdleTab::Mapping, "Mapping (M)", 0, 0},
+                                              {IdleTab::Live, "Live (S)", 0, 0},
                                               {IdleTab::Games, "Games (G)", 0, 0},
                                               {IdleTab::Logs, "Logs (L)", 0, 0}}};
         float x = MappingView::kTabLeft;
@@ -798,13 +870,28 @@ private:
         return buttons;
     }
 
+    // A tab button while no session shows: Live has nothing to show until Start, and says so.
+    void idleTabClicked(const IdleTab tab) {
+        if (tab == IdleTab::Live) {
+            toast("Live shows a running session: press Start");
+            return;
+        }
+        idleTab_ = tab;
+    }
+
     // The tab bar while no session shows, where the live view has its own.
     void drawIdleTabs() {
         window_->fill(0, tabBarTop(), window_->width(), 1, style::kRule);
         for (const IdleTabButton& button : idleTabButtons()) {
-            const bool active = button.tab == idleTab_;
-            window_->fill(button.x, buttonsY(), button.w, MappingView::kTabHeight, active ? kHeading : kPanel);
-            window_->text(button.x + MappingView::kTabPadding, tabBarTop() + 10, button.label, active ? kDark : kText);
+            const bool active = button.tab == idleTab_;   // Live (greyed) never: side by side shows its place
+            const bool greyed = button.tab == IdleTab::Live;   // there is nothing live until Start
+            if (greyed) {
+                window_->outline(button.x, buttonsY(), button.w, MappingView::kTabHeight, style::kRule);
+            } else {
+                window_->fill(button.x, buttonsY(), button.w, MappingView::kTabHeight, active ? kHeading : kPanel);
+            }
+            window_->text(button.x + MappingView::kTabPadding, tabBarTop() + 10, button.label,
+                          greyed ? style::kFaint : active ? kDark : kText);
         }
     }
 
@@ -1051,17 +1138,13 @@ private:
             view_.reset();   // before its profile goes
             profile_ = makeProfile(info->targetProfile);
             if (profile_ != nullptr) {
-                view_ = std::make_unique<MappingView>(*window_, info->sourceName, info->axes, info->buttons, *profile_,
+                view_ = std::make_unique<MappingView>(*livePane_, info->sourceName, info->axes, info->buttons, *profile_,
                                                       info->mapper);
                 view_->setFiles(info->files);
                 view_->setDevices(info->devices, info->devicesWarning);
                 view_->setAccessories(info->accessories);
                 view_->setButtonOrder(info->buttonOrder);
                 mappingShown_ = 0;   // the session's count starts again with it
-                // The mapping can change while running (LiveMapping.hpp): Edit opens the editor, and the rotation
-                // changes right in the live views.
-                view_->setEditButton(true);
-                view_->setRotationEditor([this](const float degrees) { return mapping_->changeRotation(degrees); });
                 view_->setHeaderChars(sessionShim_ ? kHeaderCharsShim : kHeaderChars);
                 view_->setShimMode(sessionShim_);
                 view_->setSessionLine(std::string("Target ") + ConfigPicker::targetName(picker_->target()) +
@@ -1088,11 +1171,10 @@ private:
             state_ = State::Stopped;
             idleTab_ = showingSetup()                                                 ? IdleTab::Setup
                        : showingGames()                                                ? IdleTab::Games
-                       : view_ != nullptr && view_->tab() == MappingView::Tab::Mapping ? IdleTab::Mapping
+                       : showingMapping()                                              ? IdleTab::Mapping   // Live too
                                                                                        : IdleTab::Logs;
             view_.reset();
             info_.reset();
-            editWhileRunning_ = false;
             if (lastResult_ == 0) {
                 WE_LOG_INFO(log(), "the service stopped");
             } else {
@@ -1112,7 +1194,28 @@ private:
         // The notice above the tab bar: the views end their content above it (UiWindow::bottomReserve).
         alert_ = alert();
         window_->setBottomReserve(alert_.text.empty() ? 0.0F : kAlertHeight);
-        if (showingSetup()) {
+        placePanes();   // after the reserve: the panes carry it
+        if (splitShown()) {
+            // Side by side: the editor left, the live view (or, stopped, what it will be) right, one tab bar.
+            mapping_->draw();
+            const float half = livePane_->left();
+            window_->fill(half, 0, window_->width() - half, tabBarTop(), kBackground);   // over the editor's overflow
+            if (view_ != nullptr && info_) {
+                if (const auto frame = host_.latest(); frame && frame->ready) {
+                    followMapping(*view_, mappingShown_, *frame);
+                    view_->setTelemetry(frame->telemetry);
+                    view_->setOldFiles(frame->oldFiles, frame->oldFilesFailed);
+                    view_->drawLivePage(frame->inputs, frame->state, frame->report, ffbDisplay(*info_, *frame));
+                }
+                window_->fill(half, 0, 1, tabBarTop(), style::kRule);
+                livePane_->place(0, window_->width());   // the tab bar is the whole window's
+                view_->drawTabBar();
+                placePanes();
+            } else {
+                drawPlaceholder();
+                drawIdleTabs();
+            }
+        } else if (showingSetup()) {
             setup_->draw();
             if (view_ != nullptr) {
                 view_->drawTabBar();
@@ -1241,7 +1344,9 @@ private:
     // The version and the commit it was built from, in the top-right corner of every tab (Version.hpp).
     void drawVersion() {
         static const std::string version = buildVersion();
-        window_->text(window_->width() - 4 - static_cast<float>(version.size()) * ui::kCharWidth, 6, version, kDim);
+        // Side by side: at the editor's right edge, where it keeps room for it (kVersionReserve).
+        const float right = splitShown() ? editorPane_->width() : window_->width();
+        window_->text(right - 4 - static_cast<float>(version.size()) * ui::kCharWidth, 6, version, kDim);
     }
 
     // The controls at the tab bar's right end, on every tab: the status, Start, Stop; the games row on the Mapping tab.
@@ -1644,7 +1749,10 @@ private:
     std::unique_ptr<IDeviceProfile> profile_;
     std::unique_ptr<MappingView> view_;
     std::uint64_t mappingShown_ = 0;   // UiFrame::mappingVersion the live view shows
-    bool editWhileRunning_ = false;    // the Mapping tab shows the editor while running (showingMappingEditor)
+    // Where the editor (and its Target row) and the live view draw: the whole window, or its halves (placePanes).
+    std::unique_ptr<ui::PaneWindow> editorPane_;
+    std::unique_ptr<ui::PaneWindow> livePane_;
+    bool sideBySide_ = false;   // app.ini side_by_side
     std::unique_ptr<WheelSetupView> setup_;
     std::unique_ptr<ConfigPicker> picker_;
     std::unique_ptr<MappingEditView> mapping_;
