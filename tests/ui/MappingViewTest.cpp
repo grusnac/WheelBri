@@ -12,6 +12,8 @@
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/FfbController.hpp"
+#include "wheelbri/FfbGroups.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/LocalDate.hpp"
 #include "wheelbri/Logging.hpp"
@@ -1027,6 +1029,47 @@ TEST_F(LiveView, PaneWindowMovesTheDrawing) {
     view->onClick(button->x - 960 + 2, button->y + 2);
     EXPECT_TRUE(view->takeSideBySideRequest());
     EXPECT_FALSE(view->takeSideBySideRequest());
+    MappingView::setEditorTabs(false);
+}
+
+// The Live tab's force feedback, in both views: per kind of effect what the game asks and what reaches the wheel;
+// without game force feedback, why.
+TEST_F(LiveView, ForceFeedbackOnTheLivePage) {
+    class NullSink final : public IFfbSink {
+    public:
+        bool play(std::size_t, const FfbEffect&) override { return true; }
+        void stop(std::size_t) override {}
+        void stopAll() override {}
+    } sink;
+    FfbController controller(sink, FfbSafetyConfig{});
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::SlotState;
+    packet.slot = 0;
+    packet.playing = true;
+    packet.effect.type = FfbEffectType::Constant;
+    packet.effect.constantLevel = 0.5F;
+    controller.onPacket(packet, 0);
+    controller.update(1'000'000);
+    controller.update(100'000'000);   // past the slew: the wheel gets all of it
+    FfbDisplay ffb;
+    ffb.controller = &controller;
+    MappingView::setEditorTabs(true);
+    for (const bool shadow : {true, false}) {
+        auto view = makeView();
+        view->setTab(MappingView::Tab::Live);
+        view->showShadow(shadow);
+        draw(*view, {}, {}, {}, ffb);
+        EXPECT_TRUE(window_.has("FORCE FEEDBACK")) << window_.dump();
+        for (const std::string_view kind : kFfbGroupNames) EXPECT_TRUE(window_.has(std::string(kind))) << kind;
+        EXPECT_TRUE(window_.has("50% -> 50%")) << window_.dump();
+        EXPECT_TRUE(window_.has("blue: the game asks, green: the wheel gets", true));
+        const auto* heading = window_.find("FORCE FEEDBACK");
+        EXPECT_LT(heading->y + MappingView::kFfbGroupsHeight, window_.height() - 28);   // above the tab bar
+        FfbDisplay none;
+        none.status = "off ([ffb] game_effects = false)";
+        draw(*view, {}, {}, {}, none);
+        EXPECT_TRUE(window_.has("off ([ffb] game_effects = false)")) << window_.dump();
+    }
     MappingView::setEditorTabs(false);
 }
 

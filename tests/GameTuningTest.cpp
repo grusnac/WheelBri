@@ -74,14 +74,6 @@ TEST(GameTuning, LinesRoundTrip) {
     EXPECT_FALSE(t.empty());
 }
 
-TEST(GameTuning, EffectTypesFallIntoGroups) {
-    EXPECT_EQ(ffbGroupOf(FfbEffectType::Constant), FfbGroup::Constant);
-    EXPECT_EQ(ffbGroupOf(FfbEffectType::Sine), FfbGroup::Periodic);
-    EXPECT_EQ(ffbGroupOf(FfbEffectType::SawtoothDown), FfbGroup::Periodic);
-    EXPECT_EQ(ffbGroupOf(FfbEffectType::Spring), FfbGroup::Spring);
-    EXPECT_EQ(ffbGroupOf(FfbEffectType::Inertia), FfbGroup::Inertia);
-}
-
 // The older force feedback keys (until 2026-11-02) are read and ignored, whatever their value: older configs load.
 TEST(GameTuning, RetiredForceFeedbackKeysAreIgnored) {
     for (const char* key : {"ffb_strength", "ffb_constant", "ffb_periodic", "ffb_spring", "ffb_damper", "ffb_friction",

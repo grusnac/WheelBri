@@ -18,6 +18,7 @@ add_library(wheelbri_core STATIC
     src/FileText.cpp
     src/Ffb.cpp
     src/FfbController.cpp
+    src/FfbGroups.cpp
     src/FfbIdleWatch.cpp
     src/FfbPacket.cpp
     src/FfbUsage.cpp

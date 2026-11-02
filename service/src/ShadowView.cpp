@@ -382,9 +382,14 @@ void ShadowView::textCentred(const float x, const float y, const std::string& va
 
 // --- the picture ----------------------------------------------------------------------------------------------------
 
+float ShadowView::columnX() const { return std::max(kListX, window_.width() - kListW - 4); }
+
+// The list's room ends above the shifter (it reaches under the list in the design's width).
+float ShadowView::reserveTop() const { return Y(kShifterY) - 50 - columnReserve_; }
+
 void ShadowView::draw(const WheelState& state, const TargetReport& report, const float top) {
     offY_ = top - kDesignTop;
-    const float listX = std::max(kListX, window_.width() - kListW - 4);
+    const float listX = columnX();
     style::headingBand(window_, 0, Y(54), listX - 10);
     style::heading(window_, 6, Y(54), "SHADOW");
     window_.text(62, Y(54),
@@ -1034,8 +1039,8 @@ void ShadowView::drawList(const WheelState& state, const TargetReport& report, c
     const float width = window_.width() - listX - 4;
     const auto chars = static_cast<std::size_t>(std::max(10.0F, (width - 12) / ui::kCharWidth));
     float y = Y(76);
-    // Room down to the shifter's top (it reaches under the list in the design's width).
-    const float bottom = Y(kShifterY) - 50;
+    // Room down to the shifter's top, less the live view's block (setColumnReserve).
+    const float bottom = reserveTop();
     if (rows.empty()) {
         window_.text(listX + 6, y + 5, "nothing (press a button, a pedal, turn)", style::kDim);
         y += 22;

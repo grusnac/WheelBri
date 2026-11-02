@@ -99,6 +99,9 @@ public:
 
     // Whether the Telemetry and Force feedback tabs exist (--telemetry-tab, --ffb-tab); set once at start.
     static void setOptionalTabs(bool telemetry, bool forceFeedback);
+    // How tall the Live tab's force feedback block is (drawFfbGroups).
+    static constexpr float kFfbRowH = 12.0F;
+    static constexpr float kFfbGroupsHeight = 16 + 6 * kFfbRowH + 2;
     // Whether the editor's tabs exist: the app's window has them (Mapping is its editor, Live this view's live page,
     // and Games), the command line service's --ui window does not.
     static void setEditorTabs(bool editor);
@@ -206,7 +209,10 @@ private:
     // sourceToTarget_, sourceTargetCount_ and sourceHatDirection_ from mapper_.
     void indexMapping();
     void drawHeader();
-    void drawLive(const RawInputs& inputs, const WheelState& state, const TargetReport& report);
+    void drawLive(const RawInputs& inputs, const WheelState& state, const TargetReport& report, const FfbDisplay& ffb);
+    // The Live tab's force feedback, per kind of effect (FfbGroups.hpp): what the game asks (blue) and what reaches the
+    // wheel (green), from `x`, `y`, at most `width` wide. Returns where it ends.
+    float drawFfbGroups(const FfbDisplay& ffb, float x, float y, float width);
     static constexpr float kSideBySideW = 16 * ui::kCharWidth + 12;   // "Side by side (B)"
     void drawAxes(const RawInputs& inputs, const WheelState& state, const TargetReport& report, float top);
     // "Rig 13 R paddle" on the wheel, "Pedals 2 Gas" on an accessory (cut to `chars`).

@@ -47,6 +47,12 @@ public:
 
     // The picture and the list, from `top` (where the Mapping tab's content starts) down to the tab bar.
     void draw(const WheelState& state, const TargetReport& report, float top);
+    // Room kept at the bottom of the right column, above the shifter, for the live view's own block (its force
+    // feedback): the list ends that much higher. After draw(): where that room is (left edge, top, width).
+    void setColumnReserve(const float height) { columnReserve_ = height; }
+    [[nodiscard]] float columnX() const;
+    [[nodiscard]] float reserveTop() const;
+    [[nodiscard]] float columnWidth() const { return window_.width() - columnX() - 4; }
 
     // What the picture writes for target button `target` (0-based, as named): on it (the game's number) and beside it
     // (the rig's label for its source, else the target's own name: gears just their number or R).
@@ -115,6 +121,7 @@ private:
     ui::UiWindow& window_;
     const IDeviceProfile& profile_;
     MapperConfig mapper_;
+    float columnReserve_ = 0.0F;
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories_{};
     ButtonOrder order_ = ButtonOrder::Driver;
     enum class Picture { G25, G27, G920, G923 };

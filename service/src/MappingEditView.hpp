@@ -70,11 +70,6 @@ public:
         std::uint64_t forMs = 0;
         std::string rotation;           // the rotation it steers with, when not the mapping's
         std::string warning;
-        // The game's force feedback now, per kind of effect (GameTuning.hpp FfbGroup): the strongest it asks and what
-        // reaches the wheel (after the safety limits), 0..1. `ffbLive`: the session has force feedback.
-        bool ffbLive = false;
-        std::array<float, kFfbGroupCount> asked{};
-        std::array<float, kFfbGroupCount> sent{};
     };
     // Also learns each game's settings file: when a known game ends, the one it wrote while it ran (learnGameFile).
     void setGameNow(GameNow now);
@@ -158,8 +153,8 @@ private:
     // a game's own setting (`fieldIndex_` = game index * kMaxGameSettings + the setting's index), or the threshold of an axis
     // that presses a button.
     enum class Field { None, Rotation, CentringSpring, PerGame, GameSteering, GameSetting, Threshold };
-    // The Games page's sub-tabs for the picked game.
-    enum class GameTab { Axes, Ffb, Buttons, File };
+    // The Games page's sub-tabs for the picked game: its axes and buttons on one page, its game file (some games).
+    enum class GameTab { Controls, File };
 
     struct Hit {
         float x, y, w, h;
@@ -317,7 +312,6 @@ private:
     // direction; Axes), the force feedback the game sends while it runs (Ffb, shown only), the buttons (Buttons); each value with Default (back to where it
     // came from: the game's profile or the Mapping tab).
     float drawGameAxes(std::size_t index, float y);
-    float drawGameForces(std::size_t index, float y);
     float drawGameButtons(std::size_t index, float y);
     // The picked game's own values (created when one is set; dropped when none is left).
     [[nodiscard]] const GameTuning* tuningOf(const std::string& id) const;
@@ -483,7 +477,7 @@ private:
     std::vector<std::string> shownGroups_;
     std::filesystem::path selectedFolderOnly_;         // the Games page shows that folder (its game is not known)
     std::string selectedGame_;   // the Games page's game (a profile id); empty: the first
-    GameTab gameTab_ = GameTab::Axes;
+    GameTab gameTab_ = GameTab::Controls;
     // The games the page lists: the built-in profiles, then the ones the user added (games.ini, userGames_).
     std::vector<GameProfile> games_;
     std::vector<GameProfile> userGames_;

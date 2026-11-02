@@ -1,6 +1,7 @@
 #include "wheelbri/FfbController.hpp"
 
 #include "wheelbri/CentringSpring.hpp"
+#include "wheelbri/FfbGroups.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/Logging.hpp"
 

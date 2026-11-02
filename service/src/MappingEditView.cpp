@@ -1470,20 +1470,17 @@ void MappingEditView::drawGames() {
         top = drawGameFolder(&game, folder != gameFolders_.end() ? std::optional<std::size_t>(folder->second)
                                                                  : std::nullopt,
                              top);
-        if (gameTab_ == GameTab::File && game.settings.empty()) gameTab_ = GameTab::Axes;
+        if (gameTab_ == GameTab::File && game.settings.empty()) gameTab_ = GameTab::Controls;
         float x = gameX();
         const auto tab = [&](const GameTab which, const char* label) {
             x += button(x, top + 4, label, [this, which] { gameTab_ = which; }, gameTab_ == which, true) + 6;
         };
-        tab(GameTab::Axes, "Axes");
-        tab(GameTab::Ffb, "Force feedback");
-        tab(GameTab::Buttons, "Buttons");
+        // The game's axes and its buttons on one page; its force feedback is the Live tab's (nothing to set).
+        tab(GameTab::Controls, "Axes and buttons");
         if (!game.settings.empty()) tab(GameTab::File, "Game file");
         top += 28;
         switch (gameTab_) {
-            case GameTab::Axes: drawGameAxes(picked, top); break;
-            case GameTab::Ffb: drawGameForces(picked, top); break;
-            case GameTab::Buttons: drawGameButtons(picked, top); break;
+            case GameTab::Controls: drawGameButtons(picked, drawGameAxes(picked, top) + 12); break;
             case GameTab::File: drawGameSettings(picked, top); break;
         }
     }
@@ -1826,12 +1823,6 @@ namespace {
 constexpr std::array<ObjectGuid, 6> kPedalAxes = {ObjectGuid::YAxis,  ObjectGuid::ZAxis,  ObjectGuid::RxAxis,
                                                   ObjectGuid::RyAxis, ObjectGuid::RzAxis, ObjectGuid::Slider};
 constexpr std::array<const char*, 3> kPedalNames = {"Throttle", "Brake", "Clutch"};
-constexpr std::array<const char*, kFfbGroupCount> kGroupNames = {"Steering force", "Vibration", "Centring spring",
-                                                                 "Damper", "Friction", "Inertia"};
-constexpr std::array<const char*, kFfbGroupCount> kGroupAbout = {
-    "constant force: the road, the tyres", "sine, square, ...: kerbs, engine, rumble", "spring: pulls to the centre",
-    "damper: resists fast turning", "friction: resists any turning", "inertia: a heavier wheel"};
-
 }  // namespace
 
 const GameTuning* MappingEditView::tuningOf(const std::string& id) const {
@@ -1930,7 +1921,7 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
     reloadGames();
     addFolder();
     selectGame(id);
-    gameTab_ = GameTab::Axes;
+    gameTab_ = GameTab::Controls;
     status_ = game.label + " added: WheelBri finds " + program + " while it runs. Set its own values here.";
     statusError_ = false;
 }
@@ -2132,45 +2123,6 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
             window_.text(axisX, y, line, kCaution);
             y += 12;
         }
-    }
-    return y;
-}
-
-float MappingEditView::drawGameForces(const std::size_t index, float y) {
-    const std::string& id = games_[index].id;
-    const bool live = now_.id == id && now_.ffbLive;
-    gameSection(y, "FORCE FEEDBACK",
-                live ? "running: blue what the game asks, green what reaches the wheel"
-                     : "shown while the game runs: what it asks and what reaches the wheel");
-    y += 16;
-    // How strong, and each kind of effect, are the game's and the wheel's own app's to set: WheelBri passes all the
-    // game asks, through its safety limits. Here only what the game sends and what reaches the wheel.
-    constexpr const char* kStrength = "How strong: set it in the game and in your wheel's own app (Moza Pit House, "
-                                      "Fanatec, Simucube, Thrustmaster, Logitech G HUB). WheelBri passes all of what "
-                                      "the game asks, through its safety limits.";
-    for (const std::string& line : wrap(kStrength, gameChars(), 3)) {
-        window_.text(gameX(), y, line, kDim);
-        y += 12;
-    }
-    y += 4;
-    constexpr float kBarW = 72;
-    const float barX = gameValueX();
-    const auto percent = [](const float v) { return std::to_string(static_cast<int>(v * 100.0F + 0.5F)) + "%"; };
-    for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
-        window_.text(gameX(), y + 4, kGroupNames[g], kText);
-        std::string about = kGroupAbout[g];
-        if (live) {
-            window_.fill(barX, y + 4, kBarW, 8, kStripe);
-            window_.fill(barX, y + 4, kBarW * now_.asked[g], 8, kHeading);
-            window_.fill(barX + kBarW + 6, y + 4, kBarW, 8, kStripe);
-            window_.fill(barX + kBarW + 6, y + 4, kBarW * now_.sent[g], 8, kActive);
-            about = now_.asked[g] > 0.0F || now_.sent[g] > 0.0F ? percent(now_.asked[g]) + " -> " + percent(now_.sent[g])
-                                                                : "not used now";
-            window_.text(barX + 2 * kBarW + 16, y + 4, fit(about, valueChars() - 20), kDim);
-        } else {
-            window_.text(barX, y + 4, fit(about, valueChars()), kDim);
-        }
-        y += 20;
     }
     return y;
 }

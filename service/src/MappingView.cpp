@@ -4,6 +4,7 @@
 #include "AppLogLevel.hpp"
 #include "HelperProbe.hpp"
 
+#include "wheelbri/FfbGroups.hpp"
 #include "wheelbri/LocalDate.hpp"
 #include "wheelbri/LogFiles.hpp"
 #include "wheelbri/Logging.hpp"
@@ -298,13 +299,17 @@ void MappingView::drawLivePage(const RawInputs& inputs, const WheelState& state,
     trackLastPressed(raw.buttons);
     trackEvents(raw, state, report, ffb);
     drawHeader();
-    drawLive(inputs, state, report);
+    drawLive(inputs, state, report, ffb);
 }
 
-void MappingView::drawLive(const RawInputs& inputs, const WheelState& state, const TargetReport& report) {
+void MappingView::drawLive(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
+                           const FfbDisplay& ffb) {
     const RawInputState& raw = inputs.devices[0];
     if (showingShadow()) {
-        shadow_->draw(state, report, 38);   // the target drawn, what the game sees lit
+        // The target drawn, what the game sees lit; its force feedback at the bottom of the right column.
+        shadow_->setColumnReserve(kFfbGroupsHeight + 4);
+        shadow_->draw(state, report, 38);
+        drawFfbGroups(ffb, shadow_->columnX(), shadow_->reserveTop() + 4, shadow_->columnWidth());
         return;
     }
     // What is mapped to what: the axes and pedals (rig -> G920), every rig axis, the D-pad, the buttons.
@@ -314,6 +319,40 @@ void MappingView::drawLive(const RawInputs& inputs, const WheelState& state, con
     drawTargetButtons(report.buttons, 244);
     drawSourceButtons(raw.buttons, 401);
     drawFooter(545);
+    drawFfbGroups(ffb, 0, 584, std::min(canvasW(), 480.0F));
+}
+
+float MappingView::drawFfbGroups(const FfbDisplay& ffb, const float x, float y, const float width) {
+    style::headingBand(window_, x, y, width);
+    style::heading(window_, x + 6, y, "FORCE FEEDBACK");
+    const bool live = ffb.controller != nullptr;
+    text(window_, x + 128, y, live ? "blue: the game asks, green: the wheel gets" : "", kDim);
+    y += 16;
+    if (!live) {
+        // No game force feedback in this session: why (game_effects off, the port taken, the wheel has none).
+        text(window_, x + 6, y, ffb.status.empty() ? "off" : ffb.status.c_str(), kDim);
+        return y + 14;
+    }
+    const FfbGroupLevels levels = ffbGroupLevels(*ffb.controller);
+    constexpr float kNameW = 16 * ui::kCharWidth;
+    constexpr float kTextW = 12 * ui::kCharWidth;   // "100% -> 100%"
+    const float barW = std::clamp((width - 6 - kNameW - kTextW - 18) / 2, 32.0F, 96.0F);
+    const auto percent = [](const float v) { return std::to_string(static_cast<int>(v * 100.0F + 0.5F)) + "%"; };
+    for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
+        const float row = y + static_cast<float>(g) * kFfbRowH;
+        const float asked = levels.asked[g];
+        const float sent = levels.sent[g];
+        const bool used = asked > 0.0F || sent > 0.0F;
+        text(window_, x + 6, row, std::string(kFfbGroupNames[g]).c_str(), used ? kText : kDim);
+        const float barX = x + 6 + kNameW;
+        fill(window_, barX, row, barW, 8, kPanel);
+        fill(window_, barX, row, barW * asked, 8, kHeading);
+        fill(window_, barX + barW + 6, row, barW, 8, kPanel);
+        fill(window_, barX + barW + 6, row, barW * sent, 8, kActive);
+        text(window_, barX + 2 * barW + 18, row, used ? (percent(asked) + " -> " + percent(sent)).c_str() : "-",
+             kDim);
+    }
+    return y + static_cast<float>(kFfbGroupCount) * kFfbRowH;
 }
 
 void MappingView::draw(const RawInputs& inputs, const WheelState& state, const TargetReport& report,
@@ -328,7 +367,7 @@ void MappingView::draw(const RawInputs& inputs, const WheelState& state, const T
     }
     if (tab_ != Tab::Logs) drawHeader();   // the Logs page starts at the top (the Mapping tab has the header)
     if (livePage()) {
-        drawLive(inputs, state, report);
+        drawLive(inputs, state, report, ffb);
     } else if (tab_ == Tab::Logs) {
         drawLogs();
     } else if (tab_ == Tab::Telemetry) {
@@ -691,7 +730,9 @@ void MappingView::drawFooter(const float top) {
             text(window_, 4, kTop, line, kWarning);
         }
     }
-    text(window_, 4, kTop + 14, "To change: INI [buttons] target_N, [hat] up/right/down/left, [button_labels] button_N.",
+    text(window_, 4, kTop + 14,
+         gEditorTabs ? "To change: the Mapping tab (M); each change is in use at once."
+                     : "To change: INI [buttons] target_N, [hat] up/right/down/left, [button_labels] button_N.",
          kDim);
 }
 

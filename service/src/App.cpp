@@ -739,17 +739,6 @@ private:
                 now.forMs = frame->gameForMs;
                 now.rotation = frame->gameRotation;
                 now.warning = frame->gameWarning;
-                // What the game asks of each kind of effect and what reaches the wheel: the tab's live bars.
-                if (frame->ffb) {
-                    now.ffbLive = true;
-                    for (std::size_t i = 0; i < frame->ffb->slotCount(); ++i) {
-                        const FfbController::SlotView slot = frame->ffb->slot(i);
-                        if (!slot.playing || !slot.sent) continue;
-                        const auto g = static_cast<std::size_t>(ffbGroupOf(slot.requested.type));
-                        now.asked[g] = std::max(now.asked[g], std::min(1.0F, std::abs(ffbStrength(slot.requested))));
-                        now.sent[g] = std::max(now.sent[g], std::min(1.0F, std::abs(ffbStrength(*slot.sent))));
-                    }
-                }
                 // A game that does not work the way this session runs: told once per start, by Windows (seen over the
                 // game) and in the app (when the user comes back to it).
                 if (wayFollower_.onFrame(frame->gameWayNotices) && !frame->gameWayTitle.empty()) {

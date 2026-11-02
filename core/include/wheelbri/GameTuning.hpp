@@ -26,15 +26,9 @@
 //                                      ;   (ButtonRef.hpp): instead of the Mapping tab's, not added to them (-1: none)
 // A key left out keeps what the Mapping tab (or the game's profile) has. The older force feedback keys (ffb_strength,
 // ffb_constant .. ffb_inertia, ffb_cap, ffb_slew, ffb_fade_s, ffb_invert, ffb_effects; until 2026-11-02) are read and
-// ignored: how strong a game's force feedback is, is the game's and the wheel's own app's to set. The Games tab's
-// Force feedback sub-tab only shows, per kind of effect (FfbGroup), what the game asks and what reaches the wheel.
+// ignored: how strong a game's force feedback is, is the game's and the wheel's own app's to set. The Live tab shows
+// what a running game asks and what reaches the wheel (FfbGroups.hpp).
 namespace wheelbri {
-
-// The kinds of effect the Games tab shows a running game's force feedback by, in the window's order.
-enum class FfbGroup : std::uint8_t { Constant, Periodic, Spring, Damper, Friction, Inertia };
-inline constexpr std::size_t kFfbGroupCount = 6;
-// The group an effect type belongs to (sine, square, triangle and the saws are periodic).
-[[nodiscard]] FfbGroup ffbGroupOf(FfbEffectType type);
 
 // Pedal 0 throttle, 1 brake, 2 clutch.
 inline constexpr std::array<std::string_view, 3> kTuningPedals{"throttle", "brake", "clutch"};

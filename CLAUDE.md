@@ -113,8 +113,9 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
     carries levels only.
   - Game profiles (`config/games/*.ini`, compiled in) hold **only** what a game changes from the target's defaults,
     laid over them (`GameProfiles`, `overlay`); a profile with any problem is not used. User's per-game values:
-    `GameTuning` (pedals, buttons). No force feedback settings per game or of WheelBri's own strength: the game and
-    the wheel's own app set those; the Games tab's Force feedback sub-tab only shows what the game asks and sends.
+    `GameTuning` (pedals, buttons; one Games sub-tab, Axes and buttons). No force feedback settings per game or of
+    WheelBri's own strength: the game and the wheel's own app set those; the Live tab only shows, per kind of effect,
+    what the game asks and what reaches the wheel (`FfbGroups.hpp`).
 - **`service/`**: app (`App.cpp`, `WHEELBRI_APP`) and CLI share sources.
   - `runSession` (`main.cpp`) runs a session on its own thread.
   - **Loop** sleeps in `platform::WaitSet` until devices, sockets or a timer have news; `EventLoopControl` decides

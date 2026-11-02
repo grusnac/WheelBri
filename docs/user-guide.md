@@ -87,8 +87,8 @@ count), from 0 in Native. To see which one the game gets, use the [Shadow view](
 The Mapping tab stays the editor while WheelBri runs. Every change is saved as you make it, and the running session
 uses it at once: no Stop and Start. Target, Mode and Order stay as Start set them, and Default waits for Stop.
 
-- **Live** (**S**), next to Mapping, shows the session at work: the [Shadow view](#shadow-view) or List. It is greyed
-  until Start. Change something on Mapping, then look at Live.
+- **Live** (**S**), next to Mapping, shows the session at work: the [Shadow view](#shadow-view) or List, and the
+  game's [force feedback](#force-feedback). It is greyed until Start. Change something on Mapping, then look at Live.
 - **Side by side** (**B**, or the button on Live): the editor left and Live right, in one window. The window lays out
   two pages wide, so text is smaller: best maximised or full screen. Other tabs use the whole window; **B** again goes
   back. It is remembered.
@@ -167,7 +167,7 @@ it at all.
 
 ## Games tab
 
-![Games tab, Axes sub-tab](images/games-axis.png)
+![Games tab, Axes and buttons sub-tab](images/games-axis.png)
 
 Values for one game at a time, kept per Target. A few games have a built-in profile applied while they run (NFS 2015,
 NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, your own values with every Target.
@@ -177,15 +177,10 @@ NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, you
    when the game does not support the Target, `running` for the one WheelBri sees now. **Add game...** picks a game's
    `.exe`; **Remove** takes one you added off the list (its files stay).
 2. Set its sub-tabs; **Default** goes back to the profile's or the Mapping tab's value (yours show in violet):
-   - **Axes**: steering rotation; per pedal, the axis the game reads and Normal / Inverted. In Mode Virtual pedals can
-     only be swapped among the Target's own pedal axes.
-   - **Force feedback**: nothing to set. While the game runs it shows, per kind of effect, what the game asks
-     (blue) and what reaches the wheel (green). Both moving while the wheel feels nothing points at the wheel's own
-     app; both empty, the game sends no force feedback.
+   - **Axes and buttons**, the axes first: steering rotation; per pedal, the axis the game reads and Normal /
+     Inverted. In Mode Virtual pedals can only be swapped among the Target's own pedal axes.
 
-     ![Force feedback sub-tab](images/games-ffb.png)
-
-   - **Buttons**: only the buttons you change for this game; **Remove** gives one back to the Mapping tab.
+     Then the buttons: only the ones you change for this game; **Remove** gives one back to the Mapping tab.
 
      ![Buttons sub-tab, nothing changed yet](images/games-buttons-base.png)
 
@@ -244,8 +239,12 @@ stop it. Logs: `~/.local/state/wheelbri/`.
 **Set the strength in your wheel's own app**, once for every game (Moza Pit House, Fanatec's tuning menu, Simucube
 True Drive, Thrustmaster's control panel, Logitech G HUB), and per game in the game's own settings. WheelBri passes on
 all the game asks, through safety limits: no sudden jumps, a push left unchanged for 2 s (a loading screen) fades out,
-forces stop when the game goes quiet, and a value that is not a force plays nothing. The Games tab's Force feedback
-sub-tab shows what a running game asks and what reaches the wheel.
+forces stop when the game goes quiet, and a value that is not a force plays nothing.
+
+The Live tab (**S**) shows a running game's force feedback, per kind of effect (steering force, vibration, centring
+spring, damper, friction, inertia): what the game asks in blue, what reaches the wheel in green. In the Shadow view
+it is in the right column, in List at the bottom. Both moving while the wheel feels nothing points at the wheel's own
+app; both empty, the game sends no force feedback.
 
 A few settings for every game are in `[ffb]` in your mapping file (press Start again after a change):
 `%LOCALAPPDATA%\wheelbri\configs\my-<target>.ini` (Windows), `~/.config/wheelbri/configs/my-<target>.ini` (Linux).
