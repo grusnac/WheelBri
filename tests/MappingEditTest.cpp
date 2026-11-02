@@ -375,12 +375,6 @@ TEST(MappingEdit, RefusesOutOfRangeAndNotANumberValues) {
     EXPECT_TRUE(tuningProblem(model).empty());
 
     model = good;
-    model.gameFfbGains["nfs2015"] = nan;
-    EXPECT_EQ(tuningProblem(model), "nfs2015 gain: from 0.25 to 4");
-    model.gameFfbGains["nfs2015"] = 4.01F;
-    EXPECT_FALSE(tuningProblem(model).empty());
-
-    model = good;
     model.gameSettings["nfsunbound"]["spring"] = nan;
     EXPECT_EQ(tuningProblem(model), "nfsunbound.spring: from 0 to 1");
     model.gameSettings["nfsunbound"]["spring"] = -0.5F;
@@ -394,7 +388,8 @@ TEST(MappingEdit, RefusesOutOfRangeAndNotANumberValues) {
 }
 
 // Lines for games the user no longer sets go when saving, even a hand-written key with no dot; lines that already
-// say the value (in another spelling: "1.0" for 1, "0.80" for 0.8) are left as written, comments and all.
+// say the value (in another spelling: "1.0" for 1, "0.80" for 0.8) are left as written, comments and all. The retired
+// [game_ffb_gain] loses its lines.
 TEST(MappingEdit, GameLinesAreDroppedOrKeptAsWritten) {
     const std::string base = kConfig +
                              "[game_settings]\r\nnfsunbound.spring = 0.80   ; mine\r\nnfsunbound = 1\r\n"
@@ -403,14 +398,13 @@ TEST(MappingEdit, GameLinesAreDroppedOrKeptAsWritten) {
     const auto parsed = IniDocument::parse(base);
     ASSERT_TRUE(parsed.errors.empty());
     MappingModel model = mappingModel(loadEmulatorConfig(parsed.document).config);
-    model.gameFfbGains.erase("nfs2015");
     const MappingWriteResult written = writeMapping(base, model);
     ASSERT_TRUE(written.error.empty()) << written.error;
     const std::string& text = written.text;
     EXPECT_NE(text.find("nfsunbound.spring = 0.80   ; mine\r\n"), std::string::npos) << text;
     EXPECT_EQ(text.find("nfsunbound = 1\r\n"), std::string::npos) << text;   // no dot: not a setting
-    EXPECT_NE(text.find("nfsunbound = 2.0  ; strong\r\n"), std::string::npos) << text;
-    EXPECT_EQ(text.find("nfs2015 = 1\r\n"), std::string::npos) << text;      // no longer set
+    EXPECT_EQ(text.find("nfsunbound = 2.0"), std::string::npos) << text;   // [game_ffb_gain]: retired
+    EXPECT_EQ(text.find("nfs2015 = 1\r\n"), std::string::npos) << text;
     EXPECT_NE(text.find("nfs2015 = 180\r\n"), std::string::npos) << text;    // the older pair as the one number
     EXPECT_NE(text.find("nfspayback = 270  ; tight\r\n"), std::string::npos) << text;
     EXPECT_EQ(writeMapping(text, model).text, text);   // and saving again changes nothing
@@ -450,12 +444,10 @@ TEST(MappingEdit, ButtonOrderIsWrittenWhenItChanges) {
 TEST(MappingEdit, UnreadableLinesAreWrittenAgain) {
     const std::string base = kConfig +
                              "[game_rotation]\r\nnfs2015 = sideways\r\n"
-                             "[game_settings]\r\nnfsunbound.spring = lots\r\nnfsunbound.force_feedback = 1\r\n"
-                             "[game_ffb_gain]\r\nnfs2015 = strong\r\n";
+                             "[game_settings]\r\nnfsunbound.spring = lots\r\nnfsunbound.force_feedback = 1\r\n";
     MappingModel model = mappingModel(load(kConfig));
     model.gameRotations["nfs2015"] = {false, 270.0F};
     model.gameSettings["nfsunbound"]["spring"] = 0.7F;
-    model.gameFfbGains["nfs2015"] = 2.0F;
     model.secondaries[1] = {ButtonRef{}, {{{}, 9}, false, false, 0.5F}};
     model.steeringRotationDeg = 540.0F;
     const MappingWriteResult written = writeMapping(base + "[steering]\r\ntarget_rotation_deg = wide\r\n", model);
@@ -468,32 +460,30 @@ TEST(MappingEdit, UnreadableLinesAreWrittenAgain) {
     EXPECT_EQ(back.config.gameRotations.at("nfs2015"), (GameRotationOverride{false, 270.0F}));
     EXPECT_FLOAT_EQ(back.config.gameSettings.at("nfsunbound").at("spring"), 0.7F);
     EXPECT_EQ(back.config.gameSettings.at("nfsunbound").count("force_feedback"), 0U);
-    EXPECT_FLOAT_EQ(back.config.gameFfbGains.at("nfs2015"), 2.0F);
     EXPECT_NE(written.text.find("target_1_or = 9\r\n"), std::string::npos) << written.text;
     // One button ref given straight, with spaces around it (the list reader trims them first).
     EXPECT_EQ(parseButtonRef("  5  "), (ButtonRef{{{}, 5}, false, false, 0.5F}));
 }
 
-// [game_tuning]: the user's values are written one line each, an unchanged line keeps its text ("0.80" for 0.8), a value
-// no longer set loses its line, and writing again changes nothing.
+// [game_tuning]: the user's values are written one line each, an unchanged line keeps its text ("yes" for true), a
+// value no longer set loses its line, a retired key ([game_tuning] ffb_*) goes, and writing again changes nothing.
 TEST(MappingEdit, WritesGameTuning) {
-    const std::string base = kConfig + "[game_tuning]\r\nnfsunbound.ffb_spring = 0.80   ; mine\r\n"
-                                       "nfs2015.brake_invert = true\r\n";
+    const std::string base = kConfig + "[game_tuning]\r\nnfsunbound.throttle_invert = yes   ; mine\r\n"
+                                       "nfsunbound.ffb_spring = 0.8\r\nnfs2015.brake_invert = true\r\n";
     const auto parsed = IniDocument::parse(base);
     ASSERT_TRUE(parsed.errors.empty());
     MappingModel model = mappingModel(loadEmulatorConfig(parsed.document).config);
     ASSERT_EQ(model.gameTunings.size(), 2U);
     model.gameTunings.erase("nfs2015");
     GameTuning& unbound = model.gameTunings["nfsunbound"];
-    unbound.ffbGains[static_cast<std::size_t>(FfbGroup::Constant)] = 3.0F;
-    unbound.ffbCap = 0.6F;
+    unbound.pedalAxes[1] = ObjectGuid::YAxis;
     unbound.buttons[4] = {{}, 13};
     const MappingWriteResult written = writeMapping(base, model);
     ASSERT_TRUE(written.error.empty()) << written.error;
     const std::string& text = written.text;
-    EXPECT_NE(text.find("nfsunbound.ffb_spring = 0.80   ; mine\r\n"), std::string::npos) << text;
-    EXPECT_NE(text.find("nfsunbound.ffb_constant = 3"), std::string::npos) << text;
-    EXPECT_NE(text.find("nfsunbound.ffb_cap = 0.6"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.throttle_invert = yes   ; mine\r\n"), std::string::npos) << text;
+    EXPECT_EQ(text.find("ffb_spring"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.brake_axis = y"), std::string::npos) << text;
     EXPECT_NE(text.find("nfsunbound.button_4 = 13"), std::string::npos) << text;
     EXPECT_EQ(text.find("nfs2015.brake_invert"), std::string::npos) << text;
     EXPECT_EQ(writeMapping(text, model).text, text);
@@ -504,11 +494,10 @@ TEST(MappingEdit, WritesGameTuning) {
 // tuningProblem refuses a value the config reader would refuse (NaN, out of range), so Save never writes one.
 TEST(MappingEdit, RefusesBadGameTuning) {
     MappingModel model = mappingModel(load(kConfig));
-    model.gameTunings["nfs2015"].ffbGains[0] = std::numeric_limits<float>::quiet_NaN();
-    EXPECT_FALSE(tuningProblem(model).empty());
-    model.gameTunings["nfs2015"].ffbGains[0] = 4.5F;
-    EXPECT_NE(tuningProblem(model).find("nfs2015 ffb_constant"), std::string::npos) << tuningProblem(model);
-    model.gameTunings["nfs2015"].ffbGains[0] = 2.0F;
+    model.gameTunings["nfs2015"].buttons[999] = {{}, 2};
+    EXPECT_NE(tuningProblem(model).find("nfs2015 button_999"), std::string::npos) << tuningProblem(model);
+    model.gameTunings["nfs2015"].buttons.clear();
+    model.gameTunings["nfs2015"].buttons[4] = {{}, 2};
     EXPECT_EQ(tuningProblem(model), "");
 }
 
@@ -518,13 +507,13 @@ TEST(MappingEdit, GameLinesAreAddedAndReplaced) {
     const std::string base = kConfig +
                              "[buttons]\r\ntarget_1_or = 9\r\n"
                              "[game_settings]\r\nnfsunbound.spring = 0.5\r\n"
-                             "[game_tuning]\r\nnfsunbound.ffb_spring = 0.5\r\nnfsunbound.ffb_cap = lots\r\n";
+                             "[game_tuning]\r\nnfsunbound.brake_invert = false\r\nnfsunbound.brake_axis = lots\r\n";
     MappingModel model = mappingModel(load(kConfig));
     model.gameRotations["nfspayback"] = {false, 180.0F};               // no line yet
     model.gameSettings["nfsunbound"]["spring"] = 0.7F;                 // another value
     model.gameSettings["nfsunbound"]["force_feedback"] = 0.9F;         // no line yet
-    model.gameTunings["nfsunbound"].ffbGains[static_cast<std::size_t>(FfbGroup::Spring)] = 0.8F;   // another value
-    model.gameTunings["nfsunbound"].ffbCap = 0.6F;                     // over a line that cannot be read
+    model.gameTunings["nfsunbound"].pedalInvert[1] = true;             // another value
+    model.gameTunings["nfsunbound"].pedalAxes[1] = ObjectGuid::YAxis;  // over a line that cannot be read
     model.secondaries[1] = {{{{}, 10}, false, false, 0.5F}};           // 9 before
     const MappingWriteResult written = writeMapping(base, model);
     ASSERT_TRUE(written.error.empty()) << written.error;
@@ -532,8 +521,8 @@ TEST(MappingEdit, GameLinesAreAddedAndReplaced) {
     EXPECT_NE(text.find("nfspayback = 180"), std::string::npos) << text;
     EXPECT_NE(text.find("nfsunbound.spring = 0.7"), std::string::npos) << text;
     EXPECT_NE(text.find("nfsunbound.force_feedback = 0.9"), std::string::npos) << text;
-    EXPECT_NE(text.find("nfsunbound.ffb_spring = 0.8"), std::string::npos) << text;
-    EXPECT_NE(text.find("nfsunbound.ffb_cap = 0.6"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.brake_invert = true"), std::string::npos) << text;
+    EXPECT_NE(text.find("nfsunbound.brake_axis = y"), std::string::npos) << text;
     EXPECT_NE(text.find("target_1_or = 10"), std::string::npos) << text;
     EXPECT_EQ(text.find("lots"), std::string::npos) << text;
     EXPECT_EQ(writeMapping(text, model).text, text);

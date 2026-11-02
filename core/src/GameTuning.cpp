@@ -10,26 +10,15 @@ namespace wheelbri {
 
 namespace {
 
-constexpr std::array<std::string_view, kFfbGroupCount> kGroupKeys{"constant", "periodic", "spring",
-                                                                   "damper",   "friction", "inertia"};
+// A game's own force feedback values, until 2026-11-02.
+constexpr std::array<std::string_view, 12> kRetiredKeys{
+    "ffb_strength", "ffb_constant", "ffb_periodic", "ffb_spring", "ffb_damper",  "ffb_friction",
+    "ffb_inertia",  "ffb_cap",      "ffb_slew",     "ffb_fade_s", "ffb_invert",  "ffb_effects"};
 
 std::optional<bool> parseBool(const std::string_view text) {
     if (text == "true" || text == "on" || text == "yes" || text == "1") return true;
     if (text == "false" || text == "off" || text == "no" || text == "0") return false;
     return std::nullopt;
-}
-
-std::string range(const float low, const float high) {
-    return "expected a number from " + tuning::formatNumber(low) + " to " + tuning::formatNumber(high);
-}
-
-// A number in [low, high] into `out`; why not otherwise.
-std::string number(std::optional<float>& out, const std::string_view value, const float low, const float high) {
-    const std::optional<float> parsed = tuning::parseNumber(value);
-    // Written as "in range" so NaN is refused too.
-    if (!parsed || !(*parsed >= low && *parsed <= high)) return range(low, high);
-    out = *parsed;
-    return {};
 }
 
 std::string boolean(std::optional<bool>& out, const std::string_view value) {
@@ -84,17 +73,8 @@ std::string applyTuningKey(GameTuning& tuning, const std::string_view key, const
         }
         if (key == pedal + "_invert") return boolean(tuning.pedalInvert[p], value);
     }
-    if (key == "ffb_strength") return number(tuning.ffbStrength, value, 0.0F, 1.0F);
-    for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
-        if (key == "ffb_" + std::string(kGroupKeys[g])) {
-            return number(tuning.ffbGains[g], value, 0.0F, kGameEffectGainMax);
-        }
-    }
-    if (key == "ffb_cap") return number(tuning.ffbCap, value, 0.0F, 1.0F);
-    if (key == "ffb_slew") return number(tuning.ffbSlew, value, 0.0F, 1000.0F);
-    if (key == "ffb_fade_s") return number(tuning.ffbFadeSeconds, value, 0.0F, 60.0F);
-    if (key == "ffb_invert") return boolean(tuning.ffbInvert, value);
-    if (key == "ffb_effects") return boolean(tuning.ffbEffects, value);
+    // Retired (until 2026-11-02): older configs load, the values are ignored.
+    if (std::find(kRetiredKeys.begin(), kRetiredKeys.end(), key) != kRetiredKeys.end()) return {};
     if (key.substr(0, 7) == "button_") {
         // "button_4" (its source) or "button_4_or" (its secondary sources).
         constexpr std::string_view kOr = "_or";
@@ -136,17 +116,6 @@ std::vector<std::pair<std::string, std::string>> tuningLines(const GameTuning& t
         if (tuning.pedalAxes[p]) lines.emplace_back(pedal + "_axis", std::string(axisName(*tuning.pedalAxes[p])));
         if (tuning.pedalInvert[p]) lines.emplace_back(pedal + "_invert", flag(*tuning.pedalInvert[p]));
     }
-    if (tuning.ffbStrength) lines.emplace_back("ffb_strength", tuning::formatNumber(*tuning.ffbStrength));
-    for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
-        if (tuning.ffbGains[g]) {
-            lines.emplace_back("ffb_" + std::string(kGroupKeys[g]), tuning::formatNumber(*tuning.ffbGains[g]));
-        }
-    }
-    if (tuning.ffbCap) lines.emplace_back("ffb_cap", tuning::formatNumber(*tuning.ffbCap));
-    if (tuning.ffbSlew) lines.emplace_back("ffb_slew", tuning::formatNumber(*tuning.ffbSlew));
-    if (tuning.ffbFadeSeconds) lines.emplace_back("ffb_fade_s", tuning::formatNumber(*tuning.ffbFadeSeconds));
-    if (tuning.ffbInvert) lines.emplace_back("ffb_invert", flag(*tuning.ffbInvert));
-    if (tuning.ffbEffects) lines.emplace_back("ffb_effects", flag(*tuning.ffbEffects));
     for (const auto& [target, source] : tuning.buttons) {
         lines.emplace_back("button_" + std::to_string(target), formatSource(source));
     }
@@ -154,33 +123,6 @@ std::vector<std::pair<std::string, std::string>> tuningLines(const GameTuning& t
         lines.emplace_back("button_" + std::to_string(target) + "_or", formatButtonRefs(refs));
     }
     return lines;
-}
-
-GameFfb resolveGameFfb(const FfbSafetyConfig& base, const bool baseInvert, const bool baseEffects,
-                       const GameProfile* game, const std::optional<float> legacyGain, const GameTuning* tuning) {
-    GameFfb out;
-    out.safety = base;
-    out.invert = baseInvert;
-    out.effects = baseEffects;
-    out.gains.fill(1.0F);
-    // The profile's (or the older [game_ffb_gain]) gain is for the pushing forces: constant and periodic.
-    const float push = legacyGain.value_or(game != nullptr ? game->ffbGain.value_or(1.0F) : 1.0F);
-    out.gains[static_cast<std::size_t>(FfbGroup::Constant)] = push;
-    out.gains[static_cast<std::size_t>(FfbGroup::Periodic)] = push;
-    if (tuning == nullptr) return out;
-    if (tuning->ffbStrength) out.safety.masterGain = std::clamp(*tuning->ffbStrength, 0.0F, 1.0F);
-    for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
-        if (tuning->ffbGains[g]) out.gains[g] = std::clamp(*tuning->ffbGains[g], 0.0F, kGameEffectGainMax);
-    }
-    // Lower only: a game's values never raise a limit above the mapping's.
-    if (tuning->ffbCap) out.safety.maxMagnitude = std::min(base.maxMagnitude, std::max(0.0F, *tuning->ffbCap));
-    if (tuning->ffbSlew) {
-        out.safety.maxSlewPerSecond = std::min(base.maxSlewPerSecond, std::max(0.0F, *tuning->ffbSlew));
-    }
-    if (tuning->ffbFadeSeconds) out.safety.frozenForceSeconds = std::clamp(*tuning->ffbFadeSeconds, 0.0F, 60.0F);
-    if (tuning->ffbInvert) out.invert = *tuning->ffbInvert;
-    if (tuning->ffbEffects) out.effects = *tuning->ffbEffects;
-    return out;
 }
 
 MapperConfig tunedMapper(const MapperConfig& base, const GameTuning& tuning, std::vector<std::string>* problems) {
@@ -268,15 +210,6 @@ GameDecision decideGame(const GameProfile* const game, const bool profileApplies
             decision.unroutable = true;
         }
     }
-    std::optional<float> legacy;
-    if (game != nullptr) {
-        if (const auto found = config.legacyGains.find(game->id); found != config.legacyGains.end()) {
-            legacy = found->second;
-        }
-    }
-    decision.ffb = resolveGameFfb(config.ffb, config.ffbInvert, config.gameFfb, profile,
-                                  profile != nullptr || decision.tuning != nullptr ? legacy : std::nullopt,
-                                  decision.tuning);
     return decision;
 }
 

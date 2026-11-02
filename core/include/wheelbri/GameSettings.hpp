@@ -27,10 +27,6 @@ namespace wheelbri {
 // By game profile id, then setting id: the user's own values.
 using GameSettingOverrides = std::map<std::string, std::map<std::string, float>>;
 
-// The user's own force feedback gain per game from older configs ([game_ffb_gain] <game profile id> =
-// kFfbGainMin..kFfbGainMax): still read, and taken into the game's own tuning (GameTuning.hpp, legacyGains).
-using GameFfbGains = std::map<std::string, float>;
-
 // The value `setting` gets: the user's, else the profile's; nullopt for a "steering" setting.
 [[nodiscard]] std::optional<float> gameSettingValue(const GameProfile& game, const GameSetting& setting,
                                                     const GameSettingOverrides& overrides);

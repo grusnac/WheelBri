@@ -17,15 +17,12 @@ const std::vector<GameProfile>& table() {
     static const std::vector<GameProfile> profiles = [] {
         std::vector<GameProfile> list;
         list.push_back(*parseGameProfile("payback", "[game]\nlabel = NFS Payback\nprogram = payback.exe\n"
-                                                    "target = g920\nways = virtual\nways_note = DirectX error\n"
-                                                    "[ffb]\ngain = 2\nnote = light\n")
+                                                    "target = g920\nways = virtual\nways_note = DirectX error\n")
                             .profile);
         list.push_back(*parseGameProfile("old", "[game]\nlabel = Old\nprogram = old.exe\ntarget = g25\n"
-                                                "ways = shim\nways_note = no virtual wheel\n[ffb]\ngain = 2\n"
-                                                "note = light\n")
+                                                "ways = shim\nways_note = no virtual wheel\n")
                             .profile);
-        list.push_back(*parseGameProfile("both", "[game]\nlabel = Both\nprogram = both.exe\ntarget = g920\n"
-                                                 "[ffb]\ngain = 2\nnote = light\n")
+        list.push_back(*parseGameProfile("both", "[game]\nlabel = Both\nprogram = both.exe\ntarget = g920\n")
                             .profile);
         return list;
     }();

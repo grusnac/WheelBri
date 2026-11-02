@@ -113,7 +113,8 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
     carries levels only.
   - Game profiles (`config/games/*.ini`, compiled in) hold **only** what a game changes from the target's defaults,
     laid over them (`GameProfiles`, `overlay`); a profile with any problem is not used. User's per-game values:
-    `GameTuning`; may lower limits, never raise.
+    `GameTuning` (pedals, buttons). No force feedback settings per game or of WheelBri's own strength: the game and
+    the wheel's own app set those; the Games tab's Force feedback sub-tab only shows what the game asks and sends.
 - **`service/`**: app (`App.cpp`, `WHEELBRI_APP`) and CLI share sources.
   - `runSession` (`main.cpp`) runs a session on its own thread.
   - **Loop** sleeps in `platform::WaitSet` until devices, sockets or a timer have news; `EventLoopControl` decides
@@ -157,6 +158,8 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 ## Decided: do not add back
 
 - Dead zones, a steering ratio (always 1:1), a virtual Xbox controller.
+- Force feedback strength, per-effect gains, caps or on/off per game, or WheelBri's own master gain: the game's and
+  the wheel's own app's to set. The fixed safety guards stay; nothing to tune them in the app.
 - Auto-map beyond the core inputs (`AutoMap.hpp`: steering, pedals, D-pad, A/B/X/Y, paddles, from the Rig's "It is"):
   every other button is the user's to map; Invert is never taken from the Rig.
 - HidHide, ViGEm, HIDMaestro or any third-party runtime tool or driver.

@@ -211,7 +211,6 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     model.buttonOrder = config.buttonOrder;
     model.gameRotations = config.gameRotations;
     model.gameSettings = config.gameSettings;
-    model.gameFfbGains = config.gameFfbGains;
     model.gameTunings = config.gameTunings;
     return model;
 }
@@ -332,11 +331,6 @@ std::string tuningProblem(const MappingModel& model) {
         if (value.off) continue;
         if (std::string problem = tuning::rotationProblem(value.deg); !problem.empty()) return game + ": " + problem;
     }
-    for (const auto& [game, gain] : model.gameFfbGains) {
-        if (!(gain >= kFfbGainMin && gain <= kFfbGainMax)) {
-            return game + " gain: from " + tuning::formatNumber(kFfbGainMin) + " to " + tuning::formatNumber(kFfbGainMax);
-        }
-    }
     for (const auto& [game, tuning] : model.gameTunings) {
         // Every value as the config reader would take it back: written out and read again, it must come back the same.
         GameTuning back;
@@ -452,16 +446,9 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
             if (!current || !same(*current, value)) ini.set("game_settings", key, tuning::formatNumber(value));
         }
     }
-    // [game_ffb_gain]: one line per game the user set; a line for a game no longer set goes.
+    // [game_ffb_gain] (retired, EmulatorConfig): its lines go when the mapping is saved.
     if (const auto old = sections.find("game_ffb_gain"); old != sections.end()) {
-        for (const auto& [game, value] : old->second) {
-            if (model.gameFfbGains.count(game) == 0) ini.remove("game_ffb_gain", game);
-        }
-    }
-    for (const auto& [game, gain] : model.gameFfbGains) {
-        const std::optional<std::string> line = before.get("game_ffb_gain", game);
-        const std::optional<float> current = line ? tuning::parseNumber(*line) : std::nullopt;
-        if (!current || !same(*current, gain)) ini.set("game_ffb_gain", game, tuning::formatNumber(gain));
+        for (const auto& [game, value] : old->second) ini.remove("game_ffb_gain", game);
     }
     // [game_tuning]: one line per value the user set; a line no longer set goes.
     {

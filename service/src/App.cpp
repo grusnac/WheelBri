@@ -648,7 +648,6 @@ private:
                 now.pid = frame->gamePid;
                 now.forMs = frame->gameForMs;
                 now.rotation = frame->gameRotation;
-                now.ffbGain = frame->gameFfbGain;
                 now.warning = frame->gameWarning;
                 // What the game asks of each kind of effect and what reaches the wheel: the tab's live bars.
                 if (frame->ffb) {

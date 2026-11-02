@@ -57,17 +57,14 @@ TEST(Equality, MappingModel) {
         [](MappingModel& v) { v.secondaries[3].push_back(ButtonRef{}); }, [](MappingModel& v) { v.hat[0].index = 4; },
         [](MappingModel& v) { v.steeringRotationDeg = 540.0F; }, [](MappingModel& v) { v.centringSpringPercent = 10.0F; },
         [](MappingModel& v) { v.gameRotations["x"] = {}; }, [](MappingModel& v) { v.gameSettings["x"]["y"] = 1.0F; },
-        [](MappingModel& v) { v.gameFfbGains["x"] = 1.0F; }, [](MappingModel& v) { v.gameTunings["x"] = {}; });
+        [](MappingModel& v) { v.gameTunings["x"] = {}; });
 }
 
 TEST(Equality, GameValues) {
     eachFieldCounts(
         GameTuning{}, [](GameTuning& v) { v.pedalAxes[0] = ObjectGuid::Slider; },
-        [](GameTuning& v) { v.pedalInvert[1] = true; }, [](GameTuning& v) { v.ffbStrength = 0.5F; },
-        [](GameTuning& v) { v.ffbGains[2] = 0.5F; }, [](GameTuning& v) { v.ffbCap = 0.5F; },
-        [](GameTuning& v) { v.ffbSlew = 5.0F; }, [](GameTuning& v) { v.ffbFadeSeconds = 1.0F; },
-        [](GameTuning& v) { v.ffbInvert = true; }, [](GameTuning& v) { v.ffbEffects = false; },
-        [](GameTuning& v) { v.buttons[1] = {}; });
+        [](GameTuning& v) { v.pedalInvert[1] = true; }, [](GameTuning& v) { v.buttons[1] = {}; },
+        [](GameTuning& v) { v.secondaries[1] = {}; });
     eachFieldCounts(GameRotationOverride{}, [](GameRotationOverride& v) { v.off = true; },
                     [](GameRotationOverride& v) { v.deg = 180.0F; });
     eachFieldCounts(GameSettingText{"a", "1"}, [](GameSettingText& v) { v.name = "b"; },

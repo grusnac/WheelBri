@@ -65,33 +65,14 @@ public:
     // Stops everything now (service shutting down).
     void stopAll();
 
-    // A game profile's force feedback gain ([ffb] gain, GameProfiles.hpp): the game's pushing forces (constant force
-    // level, periodic magnitude and offset) times this before the limiter; conditions are left as they are. 1 = as
-    // the game asks; clamped to kFfbGainMin..kFfbGainMax. Takes effect at the next update().
-    void setGameGain(float gain);
-    [[nodiscard]] float gameGain() const { return gameGain_; }
-
-    // The running game's own values (GameTuning.hpp, resolveGameFfb): a gain per kind of effect (0 = that kind off,
-    // up to kGameEffectGainMax; constant and periodic also times setGameGain's), the limits while it runs, whether the
-    // forces are turned the other way than the mapping's ([ffb] invert is the wheel's own, so this is a flip on top of
-    // it), and whether the game's force feedback plays at all. The limits can only be lowered: a cap or slew above the
-    // ones this controller was made with is the constructor's, a value that is not a number too. Cheap when nothing
-    // changed; allocation-free (the service loop calls it). Takes effect at the next update().
-    void setGameTuning(const std::array<float, kFfbGroupCount>& gains, const FfbSafetyConfig& safety, bool flip,
-                       bool effects);
-    [[nodiscard]] const std::array<float, kFfbGroupCount>& groupGains() const { return groupGains_; }
-    [[nodiscard]] bool flipped() const { return flip_; }
-    [[nodiscard]] bool effectsOn() const { return effects_; }
-    // `effect` as update() hands it to the limiter: times its kind's gain (constant and periodic also times
-    // `pushFade`), turned the other way when `flip`.
-    [[nodiscard]] static FfbEffect tuned(const FfbEffect& effect, const std::array<float, kFfbGroupCount>& gains,
-                                         float pushFade, bool flip);
+    // `effect` as update() hands it to the limiter: its pushing forces (constant level, periodic magnitude and
+    // offset) times `pushFade` (1 = as the game asks, down to 0 while a frozen push fades).
+    [[nodiscard]] static FfbEffect tuned(const FfbEffect& effect, float pushFade);
 
     // The target's centring spring (CentringSpring.hpp), 0 to 100 percent; 0 = none. Played on the wheel in a slot
-    // of its own (IFfbSink::kCentringSpringSlot) through a limiter of its own with the limits in force (a game's lower
-    // strength or cap too), whatever the game sends: its watchdog, "stop all" and force feedback turned off for a
-    // game leave it playing, as Logitech's driver did. Allocation-free; takes effect at the next update(). A wheel that
-    // refuses it is not asked again until this is called again.
+    // of its own (IFfbSink::kCentringSpringSlot) through a limiter of its own with the limits in force, whatever the
+    // game sends: its watchdog and "stop all" leave it playing, as Logitech's driver did. Allocation-free; takes
+    // effect at the next update(). A wheel that refuses it is not asked again until this is called again.
     void setCentringSpring(float percent);
     [[nodiscard]] float centringSpring() const { return springPercent_; }
     [[nodiscard]] bool centringSpringPlaying() const { return springPlaying_; }
@@ -167,17 +148,12 @@ private:
     [[nodiscard]] static bool differs(const FfbEffect& a, const FfbEffect& b);
 
     IFfbSink& sink_;
-    FfbSafetyConfig baseSafety_;   // the mapping's: a game's limits never go above these
-    FfbSafetyConfig safety_;       // in force now
+    FfbSafetyConfig safety_;
     Timing timing_;
     std::array<Slot, IFfbSink::kMaxSlots> slots_{};
     // One per slot; an array, so copying the controller (the window's frame, 60 times a second) allocates nothing.
     std::array<FfbSafetyLimiter, IFfbSink::kMaxSlots> limiters_;
     std::optional<std::uint64_t> lastPacketNs_;
-    float gameGain_ = 1.0F;
-    std::array<float, kFfbGroupCount> groupGains_{1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
-    bool flip_ = false;
-    bool effects_ = true;
     std::uint64_t frozenNs_ = 0;            // from safety_.frozenForceSeconds; 0 = never
     float frozenFade_ = 1.0F;
     std::optional<std::uint64_t> lastRealForceNs_;   // the game's last constant force between none and full
