@@ -1092,7 +1092,7 @@ private:
         gameFollower_.reset();    // the new session counts its games' starts from 0
         wayFollower_.reset();
         pendingWayNotice_.reset();
-        idleTab_ = IdleTab::Logs;  // the logs at once: the session writes them while it comes up
+        idleTab_ = IdleTab::Logs;  // the logs while the session comes up (it writes them); Live once it runs
         session_ = std::thread([this, config, virtualDevice, order] {
             platform::nameThisThread("wheelbri session");
             int result = 1;
@@ -1138,13 +1138,13 @@ private:
                 view_->setShimMode(sessionShim_);
                 view_->setSessionLine(std::string("Target ") + ConfigPicker::targetName(picker_->target()) +
                                       "  Mode " + ConfigPicker::wayName(picker_->way()));
-                // Start: the tab showing while it came up (the logs, unless changed); the wheel back after a loss:
-                // the tab that was showing.
+                // Start: the Live tab once the session runs (the logs showed while it came up), unless the user
+                // went to another tab meanwhile; the wheel back after a loss: the tab that was showing.
                 view_->setTab(hadView                           ? previousTab
                               : idleTab_ == IdleTab::Mapping   ? MappingView::Tab::Mapping
                               : idleTab_ == IdleTab::Games     ? MappingView::Tab::Games
                               : idleTab_ == IdleTab::Setup     ? MappingView::Tab::WheelSetup
-                                                               : MappingView::Tab::Logs);
+                                                               : MappingView::Tab::Live);
             }
             if (state_ == State::Starting) {   // not again when the session carries on after the wheel came back
                 state_ = State::Running;

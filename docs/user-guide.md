@@ -23,7 +23,8 @@ Two choices decide how WheelBri works:
 
 The tabs are along the bottom: Rig, Mapping, Games, Logs (keys R, M, G, L), with the status and **Start** / **Stop**
 at the right. Point at any button to see what it does. Every change is saved at once; **Undo** goes back one change at
-a time.
+a time. The first time, the app opens on the Rig tab; once you have a rig, on Mapping. Start shows the Logs while the
+session comes up, then Live; a game with a profile opens the Games tab on it when it starts.
 
 ## Set up your rig
 

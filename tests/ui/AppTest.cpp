@@ -326,8 +326,8 @@ TEST_F(AppRun, FirstStartWithoutRig) {
     EXPECT_EQ(run(), 0);
 }
 
-// Mode Shim with a rig and a listed game: Ready; the session bar says what Start runs; Start puts the shim in the
-// game's folder and runs the session (the Logs tab at once), which shows itself; the status follows the frames; the
+// Mode Shim with a rig and a listed game: the app opens on the Mapping tab, Ready; the session bar says what Start runs;
+// Start puts the shim in the game's folder and runs the session, which shows itself on the Live tab; the status follows the frames; the
 // Games tab opens when a profiled game starts; Stop ends it and, the shim having been heard, asks about the shims:
 // "Delete them" with "Don't ask again" deletes them and is remembered.
 TEST_F(AppRun, ShimStartRunStop) {
@@ -335,15 +335,19 @@ TEST_F(AppRun, ShimStartRunStop) {
     const auto game = listGame();
     plugWheel();
     waitFor("Ready", false);
-    check([](ScriptedWindow& w) { EXPECT_TRUE(w.has("G920 - Shim - 1 game", true)) << w.dump(); });
+    check([](ScriptedWindow& w) {
+        EXPECT_TRUE(w.has("G920 - Shim - 1 game", true)) << w.dump();
+        EXPECT_TRUE(w.has("EDIT")) << w.dump();   // a rig already: the app opens on the Mapping tab
+    });
     once([this](ScriptedWindow&) { return clickStart(); });
     waitFor("Running ");
+    waitFor("Target G920  Mode Shim");   // Start ends on the Live tab once the session runs
     check([&game](ScriptedWindow& w) {
         EXPECT_FALSE(w.has("Start")) << w.dump();   // the same button is Stop now, in red
         ASSERT_NE(w.find("Stop"), nullptr);
         EXPECT_EQ(w.find("Stop")->colour.r, style::kWarning.r);
         EXPECT_TRUE(std::filesystem::exists(game / kShimDll));
-        EXPECT_TRUE(w.has("LIVE LOG")) << w.dump();   // Start shows the logs at once
+        EXPECT_FALSE(w.has("LIVE LOG")) << w.dump();   // the logs only while it came up
     });
     // Running, Mapping is still the editor (each change in use at once); Live (S) next to it shows the session.
     press("m");
