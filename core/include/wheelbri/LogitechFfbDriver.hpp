@@ -10,8 +10,8 @@ namespace wheelbri {
 // for the G25/G27. Without an entry DirectInput uses Windows' HID PID driver.
 //
 // WheelBri never writes the entry. Until 2026-11-03 it wrote its own copy of G HUB's for the virtual G923 (marked with
-// a WheelBri value); that copy was not what G HUB writes (effect ids, flags, timings: the 2026-11-01 registry exports
-// in captures/g923), so it is always removed.
+// a WheelBri value); that copy was Windows' HID PID entry with G HUB's CLSID (effect ids 0x000F0026..., the 2026-11-01
+// registry exports in captures/g923), which G HUB's driver refuses, so it is always removed.
 namespace logitech_ffb {
 
 inline constexpr std::wstring_view kGHubClsid = L"{62B43F0E-E7DB-4329-8C13-A966D84A289F}";
@@ -26,17 +26,30 @@ inline constexpr std::wstring_view kPidClsid = L"{EEC6993A-B3FD-11D2-A916-00C04F
     return true;
 }
 
+// Which wheels keep another program's driver: those with HID++ (the G920, G923), which G HUB's driver drives when it is
+// installed (Windows' HID PID driver when not). The G25 and G27 have no such driver yet: another program's goes.
+[[nodiscard]] constexpr bool keepsOtherDrivers(const bool hidpp) { return hidpp; }
+
+// Whether an entry names a driver other than Windows' HID PID driver (and is not WheelBri's old copy).
+[[nodiscard]] constexpr bool isOtherDriver(const std::wstring_view registered, const bool wheelBris) {
+    return !wheelBris && !registered.empty() && !sameClsid(registered, kPidClsid);
+}
+
 enum class Action {
-    Leave,    // no entry, Windows' PID driver, or another program's driver kept on purpose
-    Remove,   // goes, so DirectInput uses Windows' PID driver
+    Leave,    // no entry, or one that stays
+    Remove,   // goes: DirectInput then finds the driver that should drive the wheel
 };
 
 // `registered`: the CLSID the entry names (empty: no entry). `wheelBris`: it has WheelBri's value (WheelBri's old
-// copy). `keepOthers`: [emulator] logitech_ffb_driver = true, another program's driver stays.
-[[nodiscard]] constexpr Action action(const std::wstring_view registered, const bool wheelBris, const bool keepOthers) {
-    if (registered.empty() && !wheelBris) return Action::Leave;
+// copy). `keepOthers`: keepsOtherDrivers for the wheel. `otherInstalled`: another program's driver is in either hive.
+[[nodiscard]] constexpr Action action(const std::wstring_view registered, const bool wheelBris, const bool keepOthers,
+                                      const bool otherInstalled) {
     if (wheelBris) return Action::Remove;
-    if (sameClsid(registered, kPidClsid)) return Action::Leave;
+    if (registered.empty()) return Action::Leave;
+    if (sameClsid(registered, kPidClsid)) {
+        // Windows' own entry would hide the other driver (DirectInput reads HKCU first); Windows writes it again.
+        return keepOthers && otherInstalled ? Action::Remove : Action::Leave;
+    }
     return keepOthers ? Action::Leave : Action::Remove;
 }
 

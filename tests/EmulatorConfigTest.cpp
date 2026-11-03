@@ -59,17 +59,10 @@ TEST(EmulatorConfig, ReadsTrueForce) {
     EXPECT_TRUE(containsError(load("[emulator]\ntrueforce = 2\n"), "trueforce"));
 }
 
-// logitech_ffb_driver: off unless asked for, for any target.
-TEST(EmulatorConfig, ReadsLogitechFfbDriver) {
-    EXPECT_FALSE(load("").config.logitechFfbDriver);
-    for (const char* target : {"g920", "g923", "g25", "g27"}) {
-        const std::string text =
-            std::string("[emulator]\ntarget_profile = ") + target + "\nlogitech_ffb_driver = true\n";
-        const auto result = load(text.c_str());
-        EXPECT_TRUE(result.errors.empty()) << target;
-        EXPECT_TRUE(result.config.logitechFfbDriver) << target;
-    }
-    EXPECT_TRUE(containsError(load("[emulator]\nlogitech_ffb_driver = keep\n"), "logitech_ffb_driver"));
+// logitech_ffb_driver (2026-11-03, one day): still read, ignored.
+TEST(EmulatorConfig, LogitechFfbDriverIsRetired) {
+    const auto result = load("[emulator]\ntarget_profile = g923\nlogitech_ffb_driver = true\n");
+    EXPECT_TRUE(result.errors.empty());
 }
 
 TEST(EmulatorConfig, ReadsTheG25Target) {

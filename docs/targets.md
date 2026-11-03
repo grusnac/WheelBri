@@ -112,13 +112,15 @@ firmware makes the vibration. Not yet felt on a rig.
 The SDK the game loads is G HUB's (`C:\Program Files\Logi\trueforce\<version>\trueforce_sdk_x64.dll`): without G
 HUB installed no game can use TrueForce; it need not run. At Start the service log says whether it found the SDK.
 
-DirectInput effects on the virtual G923 go to Windows' HID PID driver, `trueforce` on or off, so a game that drives
-the wheel through DirectInput alone gets its effects one by one, as on a G920. WheelBri removes the `OEMForceFeedback`
-entry Logitech's software writes for a G923 (checked every 2 s; G HUB writes it back for a real G923 plugged in too),
-which named Logitech's driver (`hidpp_forcefeedback_x64.dll` -> HID++ 0x8123).
-With `[emulator] logitech_ffb_driver = true` (any target) WheelBri leaves that entry as Logitech's software wrote it,
-so DirectInput effects go through Logitech's driver instead; still being tested. WheelBri never writes the entry
-itself. Neither game tested needs that driver:
+DirectInput effects on the virtual G920 and G923 go through G HUB's force feedback driver
+(`hidpp_forcefeedback_x64.dll`, `{62B43F0E-...}`) when G HUB has written its `OEMForceFeedback` entry for the wheel,
+else through Windows' HID PID driver. The driver sends them over HID++ 0x8123, and the wheel driver plays them
+(`HidPpFfb`): checked in ACC on both, 2026-11-03. WheelBri never writes that entry; while it is there, WheelBri
+removes Windows' own HID PID entry from HKCU, which DirectInput reads first and which would hide it (checked every
+2 s). G HUB need not run, only be installed and have seen the wheel once. In G HUB the virtual G920 shows as
+Inactive: G HUB wants it through Logitech's own filter driver, which only a real G920 gets; force feedback does not
+need it. With TrueForce on, a game that drives the G923 through DirectInput alone gets its effects mixed into one
+TrueForce force, as a real G923 with G HUB does. Neither game tested needs the driver for TrueForce:
 
 - ACC: its force and texture come through the SDK, and it sets the range on the TrueForce interface (full lock both
   ways, 2026-11-03).

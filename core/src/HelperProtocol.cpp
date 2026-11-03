@@ -238,34 +238,14 @@ std::string requestProblem(const Request& request) {
 
 std::optional<std::string> requestVirtualWheel(const Request& request) {
     if (request.devices.empty()) return std::string("g920");
-    if (virtualWheel(request.devices[0]) == nullptr) return std::nullopt;
-    bool probe = false;
-    bool keep = false;
-    for (std::size_t i = 1; i < request.devices.size(); ++i) {
-        bool& flag = request.devices[i] == kTrueForceProbe ? probe : keep;
-        if (flag || (request.devices[i] != kTrueForceProbe && request.devices[i] != kKeepLogitechFfb)) {
-            return std::nullopt;
-        }
-        flag = true;
-    }
-    return request.devices[0];
+    const bool probe = request.devices.size() == 2 && request.devices[1] == kTrueForceProbe;
+    if ((request.devices.size() == 1 || probe) && virtualWheel(request.devices[0]) != nullptr) return request.devices[0];
+    return std::nullopt;
 }
 
-namespace {
-
-bool asksFor(const Request& request, const std::string_view flag) {
-    if (!requestVirtualWheel(request)) return false;
-    for (std::size_t i = 1; i < request.devices.size(); ++i) {
-        if (request.devices[i] == flag) return true;
-    }
-    return false;
+bool requestTrueForceProbe(const Request& request) {
+    return requestVirtualWheel(request) && request.devices.size() == 2;
 }
-
-}  // namespace
-
-bool requestTrueForceProbe(const Request& request) { return asksFor(request, kTrueForceProbe); }
-
-bool requestKeepLogitechFfb(const Request& request) { return asksFor(request, kKeepLogitechFfb); }
 
 bool isInstalledApp(const std::string_view image, const std::string_view installFolder) {
     const std::string folder = windowsPathKey(installFolder);

@@ -1849,8 +1849,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         }
         std::string error;
         std::string wheelId;
-        g920 = steps->createVirtualWheel(*virtualWheel, config.trueForce, config.logitechFfbDriver, cancelled,
-                                         wheelId, error);
+        g920 = steps->createVirtualWheel(*virtualWheel, config.trueForce, cancelled, wheelId, error);
         if (!g920) {
             if (cancelled()) {
                 WE_LOG_INFO(log(), "stopped while the virtual {} was being created", wheelName);

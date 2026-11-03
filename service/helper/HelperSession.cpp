@@ -132,7 +132,7 @@ Reply HelperSession::createVirtualWheel(const Request& request) {
     if (device_) return Reply{seq, Status::Ok, device_->instanceId()};
     std::string error;
     device_ = service::VirtualWheelDevice::create(*wheel, error, cancelled_, /*userHive=*/false,
-                                                  requestTrueForceProbe(request), requestKeepLogitechFfb(request));
+                                                  requestTrueForceProbe(request));
     if (!device_) return Reply{seq, Status::Failed, error};
     deviceWheel_ = wheel;
     WE_LOG_INFO(log(), "helper: virtual {} {} created for pid {}", wheel->instancePrefix, device_->instanceId(), pid_);

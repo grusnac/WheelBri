@@ -32,10 +32,6 @@ struct EmulatorConfig {
     // interface (TrueForce.hpp), for games that use TrueForce (ACC). Off by default: other games as a G923 were not
     // tested with it.
     bool trueForce = false;
-    // [emulator] logitech_ffb_driver = true: the force feedback driver entry Logitech's software (G HUB, Logitech
-    // Gaming Software) wrote for the target's model stays, so games' DirectInput effects go through Logitech's driver
-    // (LogitechFfbDriver.hpp). Off by default: Windows' HID PID driver, the entry removed while a session runs.
-    bool logitechFfbDriver = false;
     int stateRateHz = 500;                       // at most this many state packets a second, only when it changed
     bool ffbInvert = false;                    // flip force direction if the wheel pulls the wrong way
     // [ffb] centring_spring = 0..100: the target's centring spring in percent, 0 = off (CentringSpring.hpp). Played
