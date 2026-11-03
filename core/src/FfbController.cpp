@@ -36,6 +36,15 @@ const char* typeName(const FfbEffectType type) {
 
 bool closeTo(const float a, const float b) { return std::abs(a - b) < 1e-3F; }
 
+// A push (a constant force's level, a periodic offset) as close as closeTo, but one that comes to none or changes
+// side is always a change: a game that settles on 0 must not leave the last small push playing on the wheel
+// (2026-11-03, ACC stopped in the pits: 0.0009 stayed on a Moza R3, which then turned to full lock by itself).
+bool samePush(const float a, const float b) {
+    if ((a == 0.0F) != (b == 0.0F)) return false;
+    if ((a < 0.0F) != (b < 0.0F) && a != 0.0F) return false;
+    return closeTo(a, b);
+}
+
 std::uint64_t frozenNsFor(const float frozen) {
     // Not a number: the default; negative: never.
     const float seconds =
@@ -88,13 +97,13 @@ FfbController::FfbController(IFfbSink& sink, const FfbSafetyConfig& safety, cons
 }
 
 bool FfbController::differs(const FfbEffect& a, const FfbEffect& b) {
-    return a.type != b.type || !closeTo(a.gain, b.gain) || !closeTo(a.constantLevel, b.constantLevel) ||
+    return a.type != b.type || !closeTo(a.gain, b.gain) || !samePush(a.constantLevel, b.constantLevel) ||
            !closeTo(a.condition.center, b.condition.center) || !closeTo(a.condition.deadband, b.condition.deadband) ||
            !closeTo(a.condition.positiveCoefficient, b.condition.positiveCoefficient) ||
            !closeTo(a.condition.negativeCoefficient, b.condition.negativeCoefficient) ||
            !closeTo(a.condition.positiveSaturation, b.condition.positiveSaturation) ||
            !closeTo(a.condition.negativeSaturation, b.condition.negativeSaturation) ||
-           !closeTo(a.periodic.magnitude, b.periodic.magnitude) || !closeTo(a.periodic.offset, b.periodic.offset) ||
+           !closeTo(a.periodic.magnitude, b.periodic.magnitude) || !samePush(a.periodic.offset, b.periodic.offset) ||
            !closeTo(a.periodic.periodMs, b.periodic.periodMs) || !closeTo(a.periodic.phaseDeg, b.periodic.phaseDeg);
 }
 

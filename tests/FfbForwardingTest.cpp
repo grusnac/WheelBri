@@ -508,6 +508,35 @@ TEST(FfbController, AChangeToAnyOneParameterReachesTheWheel) {
     EXPECT_FLOAT_EQ(sink.plays.back().effect.periodic.phaseDeg, 90.0F);
 }
 
+// A small push that comes to none, or changes side, reaches the wheel: within closeTo's step it would stay playing
+// (ACC at a standstill: 0.0009 left on the wheel, 2026-11-03). The same small push again is still not re-sent.
+TEST(FfbController, ASmallPushThatEndsOrChangesSideReachesTheWheel) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());
+    FfbEffect push;
+    std::uint64_t now = 0;
+    const auto send = [&](const float level) {
+        push.constantLevel = level;
+        now += 10 * kMs;
+        controller.onPacket(slotPacket(0, true, push), now);
+        const std::size_t before = sink.plays.size();
+        controller.update(now);
+        return sink.plays.size() - before;
+    };
+    send(0.0009F);
+    send(0.0009F);   // past the soft start
+    ASSERT_FALSE(sink.plays.empty());
+    EXPECT_NEAR(sink.plays.back().effect.constantLevel, 0.0009F, 1e-6F);
+    EXPECT_EQ(send(0.0009F), 0U);
+    EXPECT_EQ(send(0.0F), 1U);
+    EXPECT_FLOAT_EQ(sink.plays.back().effect.constantLevel, 0.0F);
+    EXPECT_EQ(send(0.0F), 0U);
+    send(0.0004F);
+    EXPECT_EQ(send(-0.0003F), 1U);
+    EXPECT_FLOAT_EQ(sink.plays.back().effect.constantLevel, -0.0003F);
+    EXPECT_EQ(send(-0.0005F), 0U);   // the same side, within the step: as before
+}
+
 // A playing effect replaced by one of another kind is sent at once, even inside the minimum update interval, and
 // the new one is limited on its own: it ramps up from none as a new effect does, to the cap on its magnitude.
 TEST(FfbController, ATypeChangeIsSentAtOnce) {
