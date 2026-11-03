@@ -38,6 +38,9 @@ G920 only, by themselves while the game runs.
 - **Set up:** pick the Target's preset in the game's controls. G25 and G27: **Order: Logitech** (its G25
   handbrake "Button 7" is R Wheel).
 - **Mode Shim:** not supported by the game; use Mode Virtual.
+- **Target G923 with TrueForce on:** the game opens the TrueForce interface itself, so its force comes as one
+  TrueForce force with a texture (Live tab: Steering force and Vibration). With TrueForce off, or as a G920, it sends
+  its effects one by one: steering force and friction.
 
 ## NFS 2015
 

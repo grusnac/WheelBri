@@ -1862,8 +1862,8 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         if (config.trueForce && virtualWheel->trueForce) {
             if (const std::string sdk = wheelbri::service::trueForceSdkPath(); !sdk.empty()) {
                 WE_LOG_INFO(log(), "trueforce: Logitech's TrueForce SDK is installed ({}): a game that uses TrueForce "
-                                   "streams its force to the virtual {}; every other game's effects come one by one, as "
-                                   "on a G920", sdk, wheelName);
+                                   "streams its force to the virtual {}'s TrueForce interface; a game that uses "
+                                   "DirectInput alone gets its effects one by one, as on a G920", sdk, wheelName);
             } else {
                 WE_LOG_WARN(log(), "trueforce: Logitech's TrueForce SDK is not installed (Program Files\\Logi\\"
                                    "trueforce): no game can use the virtual {}'s TrueForce until Logitech G HUB is "

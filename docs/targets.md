@@ -112,12 +112,17 @@ firmware makes the vibration. Not yet felt on a rig.
 The SDK the game loads is G HUB's (`C:\Program Files\Logi\trueforce\<version>\trueforce_sdk_x64.dll`): without G
 HUB installed no game can use TrueForce; it need not run. At Start the service log says whether it found the SDK.
 
-DirectInput effects on the virtual G923 go to Windows' HID PID driver, `trueforce` on or off, so a game without
-TrueForce gets its effects one by one, as on a G920. WheelBri removes the `OEMForceFeedback` entry Logitech's software
-writes for a G923 (checked every 2 s; G HUB writes it back for a real G923 plugged in too). With that entry,
-Logitech's driver (`hidpp_forcefeedback_x64.dll` -> HID++ 0x8123) took every game's effects and mixed them into one
-TrueForce stream (DiRT Rally 2.0's friction and steering force came as one). Not yet checked without it: ACC's range
-through its Escape, which went to that driver.
+DirectInput effects on the virtual G923 go to Windows' HID PID driver, `trueforce` on or off, so a game that drives
+the wheel through DirectInput alone gets its effects one by one, as on a G920. WheelBri removes the `OEMForceFeedback`
+entry Logitech's software writes for a G923 (checked every 2 s; G HUB writes it back for a real G923 plugged in too),
+which named Logitech's driver (`hidpp_forcefeedback_x64.dll` -> HID++ 0x8123). Neither game tested needs that driver:
+
+- ACC: its force and texture come through the SDK, and it sets the range on the TrueForce interface (full lock both
+  ways, 2026-11-03).
+- DiRT Rally 2.0 has no TrueForce of its own, but on a G923 with the TrueForce interface it opens that interface
+  itself and sends nothing through DirectInput (2026-11-03): its effects come mixed into the one TrueForce force,
+  with a texture up to the 25% cap. With `trueforce` off it sends its effects one by one (steering force and
+  friction).
 
 To see what a game asks Logitech's SDK (ACC in TrueForce mode reads the wheel through `trueforce_sdk_x64.dll`), put
 the 64-bit shim in its folder with `emulate = false` and `logi_log = true` in `wheelbri-shim.ini`: every SDK call, its
