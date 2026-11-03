@@ -5,6 +5,7 @@
 ; ID wheelbri\G25, wheelbri\G27, wheelbri\G920 or wheelbri\G923: one driver for all of them, the id decides which
 ; wheel it is. Called wheelbri-g920 until 2026-10-19; install-driver.ps1 removes that package.
 ; wheelbri\G923_TF is the G923's TrueForce interface, a second device the service makes with it on request.
+; wheelbri\G25_LOGI and wheelbri\G27_LOGI are those wheels' classic identities, for Logitech's own force feedback driver.
 ; Install: driver\install-driver.ps1 (Administrator).
 ; Needs Windows 11 (MsHidUmdf.inf, 22000+).
 ;
@@ -33,6 +34,8 @@ wheelbri-wheel.dll=1
 %DeviceDesc%=WheelbriWheel, wheelbri\G920
 %DeviceDescG25%=WheelbriWheel, wheelbri\G25
 %DeviceDescG27%=WheelbriWheel, wheelbri\G27
+%DeviceDescG25Logi%=WheelbriWheel, wheelbri\G25_LOGI
+%DeviceDescG27Logi%=WheelbriWheel, wheelbri\G27_LOGI
 %DeviceDescG923%=WheelbriWheel, wheelbri\G923
 %DeviceDescG923TF%=WheelbriWheel, wheelbri\G923_TF
 
@@ -80,5 +83,7 @@ DiskName="WheelBri wheel driver"
 DeviceDesc="Logitech G920 Driving Force Racing Wheel USB (wheelbri)"
 DeviceDescG25="Logitech G25 Racing Wheel USB (wheelbri)"
 DeviceDescG27="Logitech G27 Racing Wheel USB (wheelbri)"
+DeviceDescG25Logi="Logitech G25 Racing Wheel USB (wheelbri, Logitech driver)"
+DeviceDescG27Logi="Logitech G27 Racing Wheel USB (wheelbri, Logitech driver)"
 DeviceDescG923="Logitech G923 Racing Wheel for Xbox One and PC (wheelbri)"
 DeviceDescG923TF="Logitech G923 Racing Wheel for Xbox One and PC TrueForce (wheelbri)"

@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <iterator>
+#include <string>
+#include <vector>
 
 namespace wheelbri {
 
@@ -235,6 +238,20 @@ constexpr VirtualWheel kVirtualWheels[] = {
      "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, false, true},
 };
 
+// The G25's and G27's classic identities (VirtualWheel::classic): the same but for hardware id and instances.
+constexpr VirtualWheel classicOf(VirtualWheel wheel, const std::string_view hardwareId,
+                                 const std::string_view instancePrefix) {
+    wheel.hardwareId = hardwareId;
+    wheel.instancePrefix = instancePrefix;
+    wheel.classic = true;
+    return wheel;
+}
+constexpr VirtualWheel kClassicWheels[] = {
+    classicOf(kVirtualWheels[0], "wheelbri\\G25_LOGI", "G25L"),
+    classicOf(kVirtualWheels[1], "wheelbri\\G27_LOGI", "G27L"),
+};
+static_assert(kVirtualWheels[0].profile == "g25" && kVirtualWheels[1].profile == "g27", "the table's order");
+
 bool sameIgnoringCase(const std::string_view a, const std::string_view b) {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](const char x, const char y) {
                return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
@@ -256,7 +273,29 @@ const VirtualWheel* virtualWheelForHardwareId(const std::string_view hardwareId)
     for (const VirtualWheel& wheel : kVirtualWheels) {
         if (sameIgnoringCase(wheel.hardwareId, hardwareId)) return &wheel;
     }
+    for (const VirtualWheel& wheel : kClassicWheels) {
+        if (sameIgnoringCase(wheel.hardwareId, hardwareId)) return &wheel;
+    }
     return nullptr;
+}
+
+const VirtualWheel* classicVirtualWheel(const std::string_view profile) {
+    for (const VirtualWheel& wheel : kClassicWheels) {
+        if (wheel.profile == profile) return &wheel;
+    }
+    return nullptr;
+}
+
+std::string requestNameOf(const VirtualWheel& wheel) {
+    return std::string(wheel.profile) + (wheel.classic ? "-logi" : "");
+}
+
+const VirtualWheel* virtualWheelForRequestName(const std::string_view name) {
+    constexpr std::string_view kSuffix = "-logi";
+    if (name.size() > kSuffix.size() && name.substr(name.size() - kSuffix.size()) == kSuffix) {
+        return classicVirtualWheel(name.substr(0, name.size() - kSuffix.size()));
+    }
+    return virtualWheel(name);
 }
 
 bool isVirtualWheelId(const std::uint16_t vendorId, const std::uint16_t productId) {
@@ -309,9 +348,49 @@ constexpr auto kG27CombinedDescriptor = withCombinedPedals(kG27Descriptor);
 static_assert(kG25CombinedDescriptor[kClutchUsageAt] == 0x36 &&
                   kG25CombinedDescriptor[kClutchUsageAt + kAxisItemBytes] == 0x36,
               "the combined pedals Slider 0, the clutch Slider 1");
+
+// A classic wheel's descriptor (VirtualWheel::classic): `base`'s joystick items up to its HID PID block, without
+// its Report ID item, then the 7-byte vendor output report and the joystick's End Collection. Walks the items.
+std::vector<std::uint8_t> classicDescriptor(const std::span<const std::uint8_t> base) {
+    std::vector<std::uint8_t> d;
+    for (std::size_t i = 0; i < base.size();) {
+        const std::uint8_t prefix = base[i];
+        if (prefix == 0xFE) {   // a long item: none in these descriptors, kept as it is
+            const std::size_t size = 3 + std::size_t{base[i + 1]};
+            d.insert(d.end(), base.begin() + static_cast<std::ptrdiff_t>(i),
+                     base.begin() + static_cast<std::ptrdiff_t>(i + size));
+            i += size;
+            continue;
+        }
+        const std::size_t size = (prefix & 3U) == 3U ? std::size_t{4} : std::size_t{prefix & 3U};
+        if (prefix == 0x05 && size == 1 && base[i + 1] == 0x0F) break;   // Usage Page (PID): the force feedback block
+        if (prefix != 0x85) {                                            // every item but Report ID
+            d.insert(d.end(), base.begin() + static_cast<std::ptrdiff_t>(i),
+                     base.begin() + static_cast<std::ptrdiff_t>(i + 1 + size));
+        }
+        i += 1 + size;
+    }
+    const std::uint8_t output[] = {
+        0x35, 0x00, 0x45, 0x00,        // Physical Minimum 0, Maximum 0 (= the logical range)
+        0x06, 0x00, 0xFF, 0x09, 0x01,  // Usage Page 0xFF00 (vendor), Usage 0x01
+        0x15, 0x00, 0x26, 0xFF, 0x00,  // 0..255
+        0x75, 0x08, 0x95, 0x07,        // 7 bytes
+        0x91, 0x02,                    // Output (Data, Variable, Absolute)
+        0xC0,                          // End Collection (the joystick's)
+    };
+    d.insert(d.end(), std::begin(output), std::end(output));
+    return d;
+}
+
 }  // namespace
 
 std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
+    if (wheel.classic) {
+        static const std::vector<std::uint8_t> kG25Classic = classicDescriptor(kG25CombinedDescriptor);
+        static const std::vector<std::uint8_t> kG27Classic = classicDescriptor(kG27CombinedDescriptor);
+        return wheel.buttons == kG27Buttons ? std::span<const std::uint8_t>(kG27Classic)
+                                            : std::span<const std::uint8_t>(kG25Classic);
+    }
     if (wheel.combinedPedals) {
         if (wheel.buttons == kG920Buttons) return kG25CombinedDescriptor;
         if (wheel.buttons == kG27Buttons) return kG27CombinedDescriptor;
@@ -322,6 +401,7 @@ std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
 }
 
 ReportRoute routeReport(const VirtualWheel& wheel, const std::uint8_t reportId) {
+    if (wheel.classic) return {ReportRoute::To::Classic, reportId};
     if (!wheel.hidpp) return {ReportRoute::To::Pid, reportId};
     if (HidPp::isHidPpReport(reportId)) return {ReportRoute::To::HidPp, reportId};
     if (reportId >= kHidPpPidShift + HidPp::kLongId) {   // 0x21..: HID PID's 0x11..
@@ -359,6 +439,20 @@ std::array<std::uint8_t, 8> directInputOemData(const VirtualWheel& wheel) {
     return {flags, 0, 0, 0, static_cast<std::uint8_t>(wheel.buttons), 0, 0, 0};
 }
 
+namespace {
+
+// A classic wheel's descriptor has no report IDs (classicDescriptor): its report is the same without the first byte.
+InputReport withoutIdIfClassic(const VirtualWheel& wheel, InputReport report) {
+    if (!wheel.classic || report.size == 0) return report;
+    std::copy(report.bytes.begin() + 1, report.bytes.begin() + static_cast<std::ptrdiff_t>(report.size),
+              report.bytes.begin());
+    --report.size;
+    report.bytes[report.size] = 0;
+    return report;
+}
+
+}  // namespace
+
 InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) {
     auto packed = packWheelInput(report, wheel.buttons);
     if (wheel.unsignedAxes) {
@@ -374,7 +468,7 @@ InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) 
     if (!combined) {
         std::copy(packed.begin(), packed.end(), out.bytes.begin());
         out.size = packed.size();
-        return out;
+        return withoutIdIfClassic(wheel, out);
     }
     // Report ID and three axes (7 bytes), the combined pedals (Slider 0), the clutch (Slider 1), then the buttons and
     // the hat. Axes are signed here (no wheel with combined pedals has unsignedAxes).
@@ -387,7 +481,7 @@ InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) 
     out.bytes[10] = packed[8];
     std::copy(packed.begin() + 9, packed.end(), out.bytes.begin() + 11);
     out.size = kMaxInputReportSize;
-    return out;
+    return withoutIdIfClassic(wheel, out);
 }
 
 TargetReport neutralReport() {

@@ -239,7 +239,9 @@ std::string requestProblem(const Request& request) {
 std::optional<std::string> requestVirtualWheel(const Request& request) {
     if (request.devices.empty()) return std::string("g920");
     const bool probe = request.devices.size() == 2 && request.devices[1] == kTrueForceProbe;
-    if ((request.devices.size() == 1 || probe) && virtualWheel(request.devices[0]) != nullptr) return request.devices[0];
+    if ((request.devices.size() == 1 || probe) && virtualWheelForRequestName(request.devices[0]) != nullptr) {
+        return request.devices[0];
+    }
     return std::nullopt;
 }
 

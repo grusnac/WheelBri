@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -74,11 +75,23 @@ struct VirtualWheel {
     bool combinedPedals = false;
     // Whether a real one has TrueForce, so the virtual one can have its interface (TrueForce.hpp): the G923.
     bool trueForce = false;
+    // The G25's and G27's classic identity (classicVirtualWheel): as a real one, for Logitech's own force feedback
+    // driver (G HUB's jerry_forcefeedback, LogitechFfbDriver.hpp), which writes Logitech's classic 7-byte commands
+    // straight to the HID device. Its descriptor has no report IDs and no HID PID: the same input items as the
+    // other identity, and one 7-byte vendor output report (page 0xFF00). The driver logs what arrives there.
+    bool classic = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.
 [[nodiscard]] const VirtualWheel* virtualWheel(std::string_view profile);
 [[nodiscard]] const VirtualWheel* virtualWheelForHardwareId(std::string_view hardwareId);
+// The classic identity of the G25 or G27 (VirtualWheel::classic: hardware id wheelbri\G25_LOGI, wheelbri\G27_LOGI,
+// instances G25L_n, G27L_n; the same profile, ids and names); null for any other profile.
+[[nodiscard]] const VirtualWheel* classicVirtualWheel(std::string_view profile);
+// The name a CreateVirtualWheel request gives a wheel (HelperProtocol.hpp): its profile, or the classic identity's
+// "g25-logi", "g27-logi"; and the wheel for such a name (null when it is none).
+[[nodiscard]] std::string requestNameOf(const VirtualWheel& wheel);
+[[nodiscard]] const VirtualWheel* virtualWheelForRequestName(std::string_view name);
 // Whether vid:pid is one of the virtual wheels' ids (never hidden: games are meant to see it).
 [[nodiscard]] bool isVirtualWheelId(std::uint16_t vendorId, std::uint16_t productId);
 
@@ -113,7 +126,7 @@ inline constexpr std::uint8_t kHidPpPidShift = 0x10;
 // Where a report the host sends goes, by its report ID: the wheel's HID PID (`id` as HidPid knows it), its HID++,
 // or neither.
 struct ReportRoute {
-    enum class To { Pid, HidPp, None };
+    enum class To { Pid, HidPp, Classic, None };   // Classic: any report of a classic wheel (`id` as sent)
     To to = To::None;
     std::uint8_t id = 0;
 };
@@ -145,6 +158,7 @@ struct InputReport {
 // The input report for the wheel's own descriptor (reportDescriptorFor(wheel)): packWheelInput, with the axes
 // unsigned when the wheel's are (VirtualWheel::unsignedAxes) and, for a wheel with combined pedals
 // (VirtualWheel::combinedPedals) those as the fourth axis and the clutch as a fifth after it (15 bytes; else 13).
+// A classic wheel's has no report ID: the same bytes without the first.
 [[nodiscard]] InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report);
 
 // Centred wheel, released pedals, no buttons: what games see while no state arrives.

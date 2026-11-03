@@ -119,7 +119,7 @@ Reply HelperSession::handle(const Request& request) {
 Reply HelperSession::createVirtualWheel(const Request& request) {
     const std::uint32_t seq = request.seq;
     const std::optional<std::string> name = requestVirtualWheel(request);   // checked by requestProblem
-    const VirtualWheel* wheel = name ? virtualWheel(*name) : nullptr;
+    const VirtualWheel* wheel = name ? virtualWheelForRequestName(*name) : nullptr;
     if (wheel == nullptr) {
         return Reply{seq, Status::Refused, "CreateVirtualWheel takes one wheel: g25, g27, g920 or g923"};
     }

@@ -275,7 +275,7 @@ FfbEntry readFfbEntry(HKEY root, const std::wstring& path) {
 void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
     const std::wstring key = oemKey(wheel);
     const std::wstring path = key + L"\\OEMForceFeedback";
-    const bool keepOthers = logitech_ffb::keepsOtherDrivers(wheel.hidpp);
+    const bool keepOthers = logitech_ffb::keepsOtherDrivers(wheel.hidpp || wheel.classic);
     bool otherInstalled = false;
     for (HKEY root : {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE}) {
         const FfbEntry entry = readFfbEntry(root, path);

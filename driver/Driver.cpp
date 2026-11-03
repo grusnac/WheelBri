@@ -816,6 +816,28 @@ NTSTATUS copyToRequest(WDFREQUEST request, const void* source, size_t size) {
     return status;
 }
 
+// A report a classic wheel got (VirtualWheel::classic: Logitech's older-wheel force feedback driver writes its
+// classic commands straight to the device). Logged only, for now: the first kClassicShown of each kind at info, every
+// one at debug.
+void logClassicReport(const char* kind, const std::uint8_t reportId, const std::span<const std::uint8_t> data) {
+    static std::atomic<unsigned> shown[2]{};
+    constexpr unsigned kClassicShown = 200;
+    const bool feature = std::strcmp(kind, "feature") == 0;
+    const unsigned n = shown[feature ? 1 : 0].fetch_add(1) + 1;
+    // No report IDs on this device: Windows hands the whole command over, its first byte where an ID would be.
+    std::string line = "classic " + std::string(kind) + " #" + std::to_string(n) + " (" +
+                       std::to_string(data.size() + 1) + " bytes):";
+    char first[4];
+    std::snprintf(first, sizeof(first), " %02x", static_cast<unsigned>(reportId));
+    line += first;
+    for (const std::uint8_t b : data) {
+        char two[4];
+        std::snprintf(two, sizeof(two), " %02x", static_cast<unsigned>(b));
+        line += two;
+    }
+    logLine(n <= kClassicShown ? Level::Info : Level::Debug, line);
+}
+
 // Output / feature reports written by the host: the input buffer holds [report ID, data...].
 NTSTATUS readWrittenReport(WDFREQUEST request, std::uint8_t& reportId, std::span<const std::uint8_t>& data) {
     PVOID buffer = nullptr;
@@ -1114,6 +1136,8 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
                     if (auto answer = ctx->link->hidpp->handle(asked, nowMs())) ctx->link->reply(std::move(*answer));
                 } else if (route.to == wheelbri::ReportRoute::To::Pid) {
                     ctx->link->pid.output(route.id, data, nowMs());
+                } else if (route.to == wheelbri::ReportRoute::To::Classic) {
+                    logClassicReport("output", reportId, data);
                 }
                 WdfRequestSetInformation(request, data.size() + 1);
             }
@@ -1123,6 +1147,7 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
             if (NT_SUCCESS(status)) {
                 const wheelbri::ReportRoute route = wheelbri::routeReport(*ctx->wheel, reportId);
                 if (route.to == wheelbri::ReportRoute::To::Pid) ctx->link->pid.setFeature(route.id, data, nowMs());
+                if (route.to == wheelbri::ReportRoute::To::Classic) logClassicReport("feature", reportId, data);
                 WdfRequestSetInformation(request, data.size() + 1);
             }
             break;

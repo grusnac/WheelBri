@@ -3,8 +3,11 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace wheelbri {
@@ -115,6 +118,102 @@ TEST(VirtualWheel, DescriptorsForOtherCombinations) {
     VirtualWheel small = *virtualWheel("g923");
     small.buttons = kG920Buttons;
     EXPECT_EQ(reportDescriptorFor(small).data(), wheelReportDescriptor(kG920Buttons).data());
+}
+
+// The descriptor's items as (prefix, value) pairs, long items skipped.
+std::vector<std::pair<std::uint8_t, std::uint32_t>> itemsOf(const std::span<const std::uint8_t> d) {
+    std::vector<std::pair<std::uint8_t, std::uint32_t>> out;
+    for (std::size_t i = 0; i < d.size();) {
+        const std::uint8_t prefix = d[i];
+        const std::size_t size = (prefix & 3U) == 3U ? std::size_t{4} : std::size_t{prefix & 3U};
+        std::uint32_t value = 0;
+        for (std::size_t k = 0; k < size; ++k) value |= std::uint32_t{d[i + 1 + k]} << (8 * k);
+        out.emplace_back(prefix, value);
+        i += 1 + size;
+    }
+    return out;
+}
+
+// The G25's and G27's classic identities: their own hardware ids and instances, the same profile, ids and names;
+// found by hardware id and by request name, and only for those two.
+TEST(VirtualWheel, TheG25AndG27HaveAClassicIdentity) {
+    for (const char* name : {"g25", "g27"}) {
+        const VirtualWheel& plain = *virtualWheel(name);
+        const VirtualWheel* classic = classicVirtualWheel(name);
+        ASSERT_NE(classic, nullptr) << name;
+        EXPECT_TRUE(classic->classic);
+        EXPECT_FALSE(plain.classic);
+        EXPECT_EQ(classic->profile, plain.profile);
+        EXPECT_EQ(classic->productId, plain.productId);
+        EXPECT_EQ(classic->oemName, plain.oemName);
+        EXPECT_EQ(classic->buttons, plain.buttons);
+        EXPECT_NE(classic->hardwareId, plain.hardwareId);
+        EXPECT_NE(classic->instancePrefix, plain.instancePrefix);
+        EXPECT_EQ(virtualWheelForHardwareId(classic->hardwareId), classic);
+        EXPECT_EQ(virtualWheel(name), &plain);   // the profile still means the plain one
+        EXPECT_EQ(virtualWheelForRequestName(requestNameOf(*classic)), classic);
+        EXPECT_EQ(virtualWheelForRequestName(requestNameOf(plain)), &plain);
+    }
+    EXPECT_EQ(virtualWheelForHardwareId("wheelbri\\G25_LOGI"), classicVirtualWheel("g25"));
+    EXPECT_EQ(requestNameOf(*classicVirtualWheel("g27")), "g27-logi");
+    EXPECT_EQ(classicVirtualWheel("g920"), nullptr);
+    EXPECT_EQ(classicVirtualWheel("g923"), nullptr);
+    EXPECT_EQ(virtualWheelForRequestName("g920-logi"), nullptr);
+    EXPECT_EQ(virtualWheelForRequestName("-logi"), nullptr);
+}
+
+// A classic descriptor: the plain one's input items without the Report ID, no HID PID, then one 7-byte vendor output
+// report; its input report is the plain one's without the ID byte; every report it gets is Classic.
+TEST(VirtualWheel, AClassicWheelHasNoReportIdsAndOneSevenByteOutput) {
+    for (const char* name : {"g25", "g27"}) {
+        const VirtualWheel& plain = *virtualWheel(name);
+        const VirtualWheel& classic = *classicVirtualWheel(name);
+        const auto items = itemsOf(reportDescriptorFor(classic));
+        int outputs = 0;
+        std::uint32_t page = 0;
+        std::uint32_t size = 0;
+        std::uint32_t count = 0;
+        for (const auto& [prefix, value] : items) {
+            EXPECT_NE(prefix, 0x85) << name;   // no Report ID
+            if (prefix == 0x05 || prefix == 0x06) {
+                page = value;
+                EXPECT_NE(page, 0x0FU) << name;   // no HID PID
+            }
+            if (prefix == 0x75) size = value;
+            if (prefix == 0x95) count = value;
+            if (prefix == 0x91) {
+                ++outputs;
+                EXPECT_EQ(page, 0xFF00U) << name;
+                EXPECT_EQ(size * count, 7U * 8U) << name;
+            }
+            EXPECT_NE(prefix, 0xB1) << name;   // no feature report
+        }
+        EXPECT_EQ(outputs, 1) << name;
+        EXPECT_EQ(items.back().first, 0xC0) << name;
+        // The input items are the plain descriptor's up to its PID block, less the Report ID.
+        const auto plainItems = itemsOf(reportDescriptorFor(plain));
+        std::vector<std::pair<std::uint8_t, std::uint32_t>> plainInput;
+        for (const auto& item : plainItems) {
+            if ((item.first == 0x05) && item.second == 0x0F) break;
+            if (item.first != 0x85) plainInput.push_back(item);
+        }
+        ASSERT_LT(plainInput.size(), items.size()) << name;
+        for (std::size_t i = 0; i < plainInput.size(); ++i) EXPECT_EQ(items[i], plainInput[i]) << name << " " << i;
+
+        TargetReport report = neutralReport();
+        report.steering = 12345;
+        report.buttons = 0x5A5A5;
+        report.hat = 3;
+        const InputReport a = packInputFor(plain, report);
+        const InputReport b = packInputFor(classic, report);
+        ASSERT_EQ(b.size + 1, a.size) << name;
+        EXPECT_EQ(a[0], kWheelInputReportId);
+        for (std::size_t i = 0; i < b.size; ++i) EXPECT_EQ(b[i], a[i + 1]) << name << " " << i;
+
+        EXPECT_EQ(routeReport(classic, 0).to, ReportRoute::To::Classic);
+        EXPECT_EQ(routeReport(classic, 0x11).to, ReportRoute::To::Classic);
+        EXPECT_EQ(routeReport(plain, 0x11).to, ReportRoute::To::Pid);
+    }
 }
 
 }  // namespace

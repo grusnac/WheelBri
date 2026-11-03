@@ -69,6 +69,7 @@
 #include <span>
 #include <sstream>
 #include <cstdlib>
+#include <string_view>
 #include <optional>
 #include <string>
 #include <thread>
@@ -1840,6 +1841,15 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     // Our own driver's wheel (driver/), the config's target (a G920 or a G25): there while the loop runs, removed when
     // it returns or the process ends.
     const wheelbri::VirtualWheel* virtualWheel = wheelbri::virtualWheel(config.targetProfile);
+    // TEMPORARY (plan step 1, removed in step 2): WHEELBRI_CLASSIC=1 gives the G25 or G27 its classic identity
+    // (VirtualWheel::classic), for trying Logitech's older-wheel driver before the service picks it by itself.
+    if (const char* classic = std::getenv("WHEELBRI_CLASSIC"); classic != nullptr && std::string_view(classic) == "1") {
+        if (const wheelbri::VirtualWheel* c = wheelbri::classicVirtualWheel(config.targetProfile); c != nullptr) {
+            virtualWheel = c;
+            WE_LOG_WARN(log(), "WHEELBRI_CLASSIC=1: the virtual {} gets its classic identity ({}), for testing",
+                        config.targetProfile, c->hardwareId);
+        }
+    }
     const std::string wheelName = virtualWheel != nullptr ? std::string(virtualWheel->instancePrefix) : "G920";
     bool g920 = false;
     if (steps != nullptr) {

@@ -188,7 +188,7 @@ public:
                             std::string& instanceId, std::string& error) override {
         // The G920 as an older helper knows it (no wheel named); the G25 by name (an older helper refuses that).
         std::vector<std::string> named;
-        if (wheel.profile != "g920") named.emplace_back(wheel.profile);
+        if (wheel.profile != "g920" || wheel.classic) named.emplace_back(requestNameOf(wheel));
         if (trueForceProbe && wheel.trueForce) named.emplace_back(helper::kTrueForceProbe);
         if (ask(helper::RequestType::CreateVirtualWheel, named, kCreateMs, cancelled, error) != helper::Status::Ok) {
             return false;
