@@ -266,6 +266,29 @@ TEST(HelperProtocol, CreateVirtualWheelMayAskForTheTrueForceProbe) {
     EXPECT_FALSE(requestTrueForceProbe(Request{RequestType::CreateVirtualWheel, 1, {"g923", "other"}}));
 }
 
+// Keeping Logitech's force feedback driver: after a wheel, with or without the TrueForce probe, each at most once.
+TEST(HelperProtocol, CreateVirtualWheelMayAskToKeepLogitechsDriver) {
+    const std::string keep(kKeepLogitechFfb);
+    const std::string probe(kTrueForceProbe);
+    const Request alone{RequestType::CreateVirtualWheel, 1, {"g25", keep}};
+    EXPECT_EQ(requestProblem(alone), "");
+    EXPECT_EQ(requestVirtualWheel(alone), "g25");
+    EXPECT_TRUE(requestKeepLogitechFfb(alone));
+    EXPECT_FALSE(requestTrueForceProbe(alone));
+    for (const Request& both : {Request{RequestType::CreateVirtualWheel, 1, {"g923", probe, keep}},
+                                Request{RequestType::CreateVirtualWheel, 1, {"g923", keep, probe}}}) {
+        EXPECT_EQ(requestProblem(both), "");
+        EXPECT_TRUE(requestKeepLogitechFfb(both));
+        EXPECT_TRUE(requestTrueForceProbe(both));
+    }
+    EXPECT_FALSE(requestKeepLogitechFfb(Request{RequestType::CreateVirtualWheel, 1, {"g923", probe}}));
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {keep}}), "");
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {"g920", keep, keep}}), "");
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {"g920", probe, probe}}), "");
+    EXPECT_NE(requestProblem(Request{RequestType::CreateVirtualWheel, 1, {"g920", keep, "other"}}), "");
+    EXPECT_FALSE(requestKeepLogitechFfb(Request{RequestType::CreateVirtualWheel, 1, {"g920", keep, "other"}}));
+}
+
 TEST(HelperProtocol, EveryOtherRequestButTheHideFilterOnesTakesNoDevices) {
     for (int type = 2; type <= 8; ++type) {   // Hello and SetLogLevel take a level (below)
         const auto requestType = static_cast<RequestType>(type);

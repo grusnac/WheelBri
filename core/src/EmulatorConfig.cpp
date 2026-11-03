@@ -224,6 +224,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         reader.readBool("from_rig", config.fromRig);
         reader.readBool("trueforce_probe", config.trueForce);   // its name until 2026-10-28: still read
         reader.readBool("trueforce", config.trueForce);
+        reader.readBool("logitech_ffb_driver", config.logitechFfbDriver);
         // The fixed-rate loop's settings (until 2026-10-07; the loop now waits for events and polls only when it must,
         // EventLoopControl): users' own configs still have them, so they load and are ignored.
         reader.retired("loop_mode");

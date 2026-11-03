@@ -60,7 +60,8 @@ enum class Status : std::uint8_t {
 // The body's strings ("devices"): PutHideFilter's and TakeHideFilterOff's HID interfaces; SetLogLevel's one level; a
 // Hello may carry the app's log level as its one string (the helper takes it for its own log; an older helper ignores
 // it); and CreateVirtualWheel may name the wheel, "g920" or "g25" (none: the G920, as an older app asks), then
-// kTrueForceProbe for its TrueForce interface (an older helper refuses that).
+// kTrueForceProbe for its TrueForce interface and kKeepLogitechFfb, each at most once, in any order (an older helper
+// refuses either).
 struct Request {
     RequestType type = RequestType::Hello;
     std::uint32_t seq = 0;              // echoed in the reply
@@ -93,12 +94,17 @@ inline constexpr std::uint32_t kReplyMagic = 0x52484557;     // "WEHR"
 [[nodiscard]] bool isKnown(RequestType type);
 
 inline constexpr std::string_view kTrueForceProbe = "trueforce-probe";
+inline constexpr std::string_view kKeepLogitechFfb = "keep-logitech-ffb";
 
-// The wheel a CreateVirtualWheel asks for ("g920", "g25"): its first string, or "g920" when it has none; a second
-// string may only be kTrueForceProbe. Nullopt for anything else (requestProblem refuses it).
+// The wheel a CreateVirtualWheel asks for ("g920", "g25"): its first string, or "g920" when it has none; the strings
+// after it may only be kTrueForceProbe and kKeepLogitechFfb, each once. Nullopt for anything else (requestProblem
+// refuses it).
 [[nodiscard]] std::optional<std::string> requestVirtualWheel(const Request& request);
 // Whether a CreateVirtualWheel also asks for the wheel's TrueForce interface (TrueForce.hpp).
 [[nodiscard]] bool requestTrueForceProbe(const Request& request);
+// Whether a CreateVirtualWheel asks to keep the force feedback driver entry Logitech's software wrote for the wheel's
+// model in HKLM ([emulator] logitech_ffb_driver, LogitechFfbDriver.hpp).
+[[nodiscard]] bool requestKeepLogitechFfb(const Request& request);
 
 // The app log level a Hello or SetLogLevel carries: exactly one string naming trace, debug, info or warn. Nullopt
 // for anything else (a Hello without one, from an older app).

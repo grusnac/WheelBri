@@ -33,10 +33,14 @@ public:
     // `wheel`: which one (virtualWheel("g920"), virtualWheel("g25")); it must outlive this (the table is static).
     // `trueForce`: for a wheel that has it (VirtualWheel::trueForce), also its TrueForce interface, a second software
     // device in the wheel's container (TrueForce.hpp); if that fails the wheel is still made, the log says why.
+    // `keepLogitechFfb` ([emulator] logitech_ffb_driver): the force feedback driver entry Logitech's software wrote
+    // for the wheel's model stays (LogitechFfbDriver.hpp); else it is removed every 2 s and Windows' HID PID driver
+    // takes the wheel's DirectInput effects.
     [[nodiscard]] static std::unique_ptr<VirtualWheelDevice> create(const VirtualWheel& wheel, std::string& error,
                                                              const std::function<bool()>& cancelled = {},
                                                              bool userHive = true,
-                                                             bool trueForce = false);
+                                                             bool trueForce = false,
+                                                             bool keepLogitechFfb = false);
     ~VirtualWheelDevice();
 
     VirtualWheelDevice(const VirtualWheelDevice&) = delete;
@@ -56,12 +60,11 @@ private:
 [[nodiscard]] std::string trueForceSdkPath();
 
 // The user's own DirectInput entries for the virtual wheel (HKCU: its name, the "driving" type, no foreign force
-// feedback driver, checked every 2 s), for an app whose wheel the WheelBri Helper creates: the helper, as SYSTEM,
+// feedback driver unless kept, checked every 2 s), for an app whose wheel the WheelBri Helper creates: the helper, as SYSTEM,
 // keeps only the machine's (HKLM). Written while this exists, removed when it goes. Nothing elsewhere than Windows.
 class DirectInputUserEntries {
 public:
-    // `keepLogitechFfb`: Logitech's force feedback driver stays; false from WheelBri (VirtualWheelDevice::create says
-    // why).
+    // `keepLogitechFfb`: as VirtualWheelDevice::create's, for HKCU.
     DirectInputUserEntries(const VirtualWheel& wheel, bool keepLogitechFfb);
     ~DirectInputUserEntries();
     DirectInputUserEntries(const DirectInputUserEntries&) = delete;

@@ -191,7 +191,6 @@ std::wstring oemKey(const VirtualWheel& wheel) {
     return std::wstring(L"System\\CurrentControlSet\\Control\\MediaProperties\\PrivateProperties\\Joystick\\OEM\\") +
            ids;
 }
-constexpr wchar_t kPidDriverClsid[] = L"{EEC6993A-B3FD-11D2-A916-00C04FB98638}";
 // What RegDeleteTreeW needs on the parent of the subtree it deletes. Never KEY_ALL_ACCESS: that asks for WRITE_DAC and
 // WRITE_OWNER too, which a user may not have on a key Logitech's software made, and the open then fails.
 constexpr REGSAM kDeleteSubtreeAccess = DELETE | KEY_ENUMERATE_SUB_KEYS | KEY_QUERY_VALUE | KEY_SET_VALUE;
@@ -249,163 +248,71 @@ void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives, cons
     }
 }
 
-// Logitech's software registers its own force feedback driver for every G920 (and G25); it only works with a real
-// one (every effect fails with E_NOTIMPL). Without the entry DirectInput uses Windows' PID driver.
-void removeForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
+// The virtual wheel's OEMForceFeedback entry, in each hive (LogitechFfbDriver.hpp): another program's driver goes,
+// unless `keepOthers` ([emulator] logitech_ffb_driver), and WheelBri's own old copy always goes. Logitech's software
+// writes its entry back every few seconds while it runs (hence the watcher below): a note a minute at most per hive;
+// with `keepOthers` one line per hive whenever what is there changes.
+void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const VirtualWheel& wheel,
+                                      const bool keepOthers) {
     const std::wstring key = oemKey(wheel);
     const std::wstring path = key + L"\\OEMForceFeedback";
     for (HKEY root : hives) {
+        const bool user = root == HKEY_CURRENT_USER;
+        const char* hive = user ? "HKCU" : "HKLM";
         wchar_t clsid[64] = {};
         DWORD size = sizeof(clsid);
         if (RegGetValueW(root, path.c_str(), L"CLSID", RRF_RT_REG_SZ, nullptr, clsid, &size) != ERROR_SUCCESS) {
+            clsid[0] = L'\0';
+        }
+        const bool wheelBris =
+            RegGetValueW(root, path.c_str(), L"WheelBri", RRF_RT_REG_DWORD, nullptr, nullptr, nullptr) ==
+            ERROR_SUCCESS;
+        const std::string name = clsid[0] != L'\0' ? narrow(clsid) : std::string("no CLSID");
+        if (logitech_ffb::action(clsid, wheelBris, keepOthers) == logitech_ffb::Action::Leave) {
+            if (!keepOthers) continue;
+            // What DirectInput finds for the virtual wheel in this hive, when it changes.
+            static std::mutex lock;
+            static std::wstring said[2] = {L"?", L"?"};
+            const std::lock_guard guard(lock);
+            if (said[user ? 0 : 1] == clsid) continue;
+            said[user ? 0 : 1] = clsid;
+            if (clsid[0] == L'\0') {
+                WE_LOG_INFO(log(), "DirectInput: no force feedback driver entry for the virtual {} in {} "
+                                   "(logitech_ffb_driver on: none installed there, so Windows' HID PID driver)",
+                            wheel.instancePrefix, hive);
+            } else if (logitech_ffb::sameClsid(clsid, logitech_ffb::kPidClsid)) {
+                WE_LOG_INFO(log(), "DirectInput: the virtual {} has Windows' HID PID driver in {}",
+                            wheel.instancePrefix, hive);
+            } else {
+                WE_LOG_INFO(log(), "DirectInput: kept the force feedback driver {}{} for the virtual {} in {} "
+                                   "(logitech_ffb_driver on)",
+                            name, logitech_ffb::sameClsid(clsid, logitech_ffb::kGHubClsid) ? " (G HUB's)" : "",
+                            wheel.instancePrefix, hive);
+            }
             continue;
         }
-        if (_wcsicmp(clsid, kPidDriverClsid) == 0) continue;
-        const char* hive = root == HKEY_CURRENT_USER ? "HKCU" : "HKLM";
         HKEY oem = nullptr;
         LSTATUS status = RegOpenKeyExW(root, key.c_str(), 0, kDeleteSubtreeAccess, &oem);
         if (status == ERROR_SUCCESS) {
             status = RegDeleteTreeW(oem, L"OEMForceFeedback");
             RegCloseKey(oem);
         }
-        // Logitech's software may write it back every few seconds (the watcher below): a note a minute at most.
+        static logging::RateLimiter limiters[2] = {logging::RateLimiter(std::chrono::minutes(1)),
+                                                   logging::RateLimiter(std::chrono::minutes(1))};
+        std::uint64_t suppressed = 0;
+        if (!limiters[user ? 0 : 1].allow(suppressed)) continue;
         if (status == ERROR_SUCCESS) {
-            static logging::RateLimiter limiter(std::chrono::minutes(1));
-            std::uint64_t suppressed = 0;
-            if (limiter.allow(suppressed)) {
-                WE_LOG_INFO(log(), "DirectInput: removed another force feedback driver ({}) from {}; Windows' HID PID "
-                                   "driver takes over ({} more removals since the last note)",
-                            narrow(clsid), hive, suppressed);
-            }
+            WE_LOG_INFO(log(), "DirectInput: removed {} ({}) from {}; Windows' HID PID driver takes over ({} more "
+                               "removals since the last note)",
+                        wheelBris ? "WheelBri's old copy of a force feedback driver entry"
+                                  : "another force feedback driver",
+                        name, hive, suppressed);
         } else {
-            static logging::RateLimiter limiter(std::chrono::minutes(1));
-            std::uint64_t suppressed = 0;
-            if (limiter.allow(suppressed)) {
-                WE_LOG_WARN(log(), "DirectInput: cannot remove another force feedback driver ({}) from {} (error {}): "
-                                   "it still drives the virtual {}, so games' effects may not reach WheelBri ({} more "
-                                   "tries since the last note)",
-                            narrow(clsid), hive, status, wheel.instancePrefix, suppressed);
-            }
+            WE_LOG_WARN(log(), "DirectInput: cannot remove the force feedback driver entry ({}) from {} (error {}): "
+                               "it still drives the virtual {}, so games' effects may not reach WheelBri ({} more "
+                               "tries since the last note)",
+                        name, hive, status, wheel.instancePrefix, suppressed);
         }
-    }
-}
-
-// Whether Logitech's force feedback driver is installed: its class registered, and its DLL there.
-bool logitechFfbDriverInstalled() {
-    const std::wstring path = L"CLSID\\" + std::wstring(logitech_ffb::kClsid) + L"\\InProcServer32";
-    wchar_t dll[MAX_PATH] = {};
-    DWORD size = sizeof(dll);
-    if (RegGetValueW(HKEY_CLASSES_ROOT, path.c_str(), nullptr, RRF_RT_REG_SZ, nullptr, dll, &size) != ERROR_SUCCESS) {
-        return false;
-    }
-    const DWORD attributes = GetFileAttributesW(dll);
-    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
-}
-
-bool setBinary(HKEY key, const wchar_t* name, const std::uint8_t* data, const std::size_t size) {
-    return RegSetValueExW(key, name, 0, REG_BINARY, data, static_cast<DWORD>(size)) == ERROR_SUCCESS;
-}
-
-bool setString(HKEY key, const wchar_t* name, const std::wstring& text) {
-    return RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(text.c_str()),
-                          static_cast<DWORD>((text.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
-}
-
-// The OEMForceFeedback entry Logitech's software writes for the wheel (LogitechFfbDriver.hpp), in place of whatever
-// was there, with a WheelBri value to say who wrote it. The CLSID goes last: until then DirectInput sees no driver.
-bool writeLogitechFfbDriver(HKEY root, const std::wstring& key) {
-    HKEY oem = nullptr;
-    if (RegOpenKeyExW(root, key.c_str(), 0, kDeleteSubtreeAccess, &oem) == ERROR_SUCCESS) {
-        RegDeleteTreeW(oem, L"OEMForceFeedback");
-        RegCloseKey(oem);
-    }
-    HKEY ffb = nullptr;
-    const std::wstring path = key + L"\\OEMForceFeedback";
-    if (RegCreateKeyExW(root, path.c_str(), 0, nullptr, 0, KEY_SET_VALUE | KEY_CREATE_SUB_KEY, nullptr, &ffb,
-                        nullptr) != ERROR_SUCCESS) {
-        return false;
-    }
-    bool ok = true;
-    for (const logitech_ffb::Effect& effect : logitech_ffb::kEffects) {
-        HKEY entry = nullptr;
-        const std::wstring name = L"Effects\\" + std::wstring(effect.guid);
-        if (RegCreateKeyExW(ffb, name.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &entry, nullptr) !=
-            ERROR_SUCCESS) {
-            ok = false;
-            continue;
-        }
-        const auto attributes = logitech_ffb::bytes(effect.attributes);
-        ok = setString(entry, nullptr, std::wstring(effect.name)) && ok;
-        ok = setBinary(entry, L"Attributes", attributes.data(), attributes.size()) && ok;
-        RegCloseKey(entry);
-    }
-    const auto createdBy = logitech_ffb::bytes(std::array<std::uint32_t, 1>{logitech_ffb::kCreatedBy});
-    const auto attributes = logitech_ffb::bytes(logitech_ffb::kAttributes);
-    const DWORD marker = 1;
-    ok = setBinary(ffb, L"CreatedBy", createdBy.data(), createdBy.size()) && ok;
-    ok = setBinary(ffb, L"Attributes", attributes.data(), attributes.size()) && ok;
-    ok = RegSetValueExW(ffb, L"WheelBri", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&marker), sizeof(marker)) ==
-             ERROR_SUCCESS && ok;
-    ok = ok && setString(ffb, L"CLSID", std::wstring(logitech_ffb::kClsid));
-    RegCloseKey(ffb);
-    return ok;
-}
-
-std::wstring registeredFfbDriver(HKEY root, const std::wstring& path) {
-    wchar_t clsid[64] = {};
-    DWORD size = sizeof(clsid);
-    return RegGetValueW(root, path.c_str(), L"CLSID", RRF_RT_REG_SZ, nullptr, clsid, &size) == ERROR_SUCCESS ? clsid
-                                                                                                             : L"";
-}
-
-// With [emulator] trueforce Logitech's driver is the one: a TrueForce game's force reaches a G923 only through it
-// (DirectInput -> hidpp_forcefeedback_x64.dll -> HID++ 0x8123, played by the driver's HidPpFfb), and ACC sets the
-// range through its Escape. Written when it is missing or another driver is there (a run with it off removed it), as
-// long as Logitech's driver is installed; says when that changes. Without it the entry goes, as before.
-void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const VirtualWheel& wheel, const bool keep) {
-    if (!keep) {
-        removeForeignForceFeedbackDriver(hives, wheel);
-        return;
-    }
-    const std::wstring key = oemKey(wheel);
-    const std::wstring path = key + L"\\OEMForceFeedback";
-    const bool installed = logitechFfbDriverInstalled();
-    std::wstring found;
-    for (HKEY root : hives) {
-        const char* hive = root == HKEY_CURRENT_USER ? "HKCU" : "HKLM";
-        if (logitech_ffb::action(registeredFfbDriver(root, path), installed) == logitech_ffb::Action::Write) {
-            const bool written = writeLogitechFfbDriver(root, key);
-            static logging::RateLimiter limiter(std::chrono::minutes(1));
-            std::uint64_t suppressed = 0;
-            if (limiter.allow(suppressed)) {
-                if (written) {
-                    WE_LOG_INFO(log(), "DirectInput: wrote Logitech's force feedback driver for the virtual {} in {} "
-                                       "({} more writes since the last note)", wheel.instancePrefix, hive, suppressed);
-                } else {
-                    WE_LOG_WARN(log(), "DirectInput: cannot write Logitech's force feedback driver for the virtual {} "
-                                       "in {} ({} more tries since the last note)", wheel.instancePrefix, hive,
-                                suppressed);
-                }
-            }
-        }
-        if (const std::wstring clsid = registeredFfbDriver(root, path);
-            logitech_ffb::action(clsid, installed) == logitech_ffb::Action::Keep) {
-            found = clsid;
-        }
-    }
-    static std::atomic<int> said{-1};
-    const int state = !found.empty() ? 1 : installed ? 0 : 2;
-    if (said.exchange(state) == state) return;
-    if (state == 1) {
-        WE_LOG_INFO(log(), "DirectInput: Logitech's force feedback driver ({}) drives the virtual {} (trueforce "
-                           "on); its effects reach WheelBri over HID++ 0x8123", narrow(found), wheel.instancePrefix);
-    } else if (state == 2) {
-        WE_LOG_WARN(log(), "DirectInput: Logitech's force feedback driver is not installed (G HUB installs it): the "
-                           "virtual {} gets Windows' HID PID driver, and TrueForce games no force",
-                    wheel.instancePrefix);
-    } else {
-        WE_LOG_WARN(log(), "DirectInput: Logitech's force feedback driver could not be registered for the virtual {}; "
-                           "Windows' HID PID driver takes the effects", wheel.instancePrefix);
     }
 }
 
@@ -460,7 +367,7 @@ struct VirtualWheelDevice::Impl {
     HSWDEVICE_ device = nullptr;
     std::string instanceId;
     bool userHive = true;
-    bool keepLogitechFfb = false;   // [emulator] trueforce: Logitech's force feedback driver stays
+    bool keepLogitechFfb = false;   // [emulator] logitech_ffb_driver: another program's driver entry stays
     HSWDEVICE_ trueForceDevice = nullptr;   // its TrueForce interface, when asked for and made
     std::string trueForceId;
     std::thread watcher;
@@ -520,7 +427,7 @@ VirtualWheelDevice::DriverState VirtualWheelDevice::driverState() {
 
 std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWheel& wheel, std::string& error,
                                                  const std::function<bool()>& cancelled, const bool userHive,
-                                                 const bool trueForce) {
+                                                 const bool trueForce, const bool keepLogitechFfb) {
     const auto stopNow = [&cancelled] { return cancelled && cancelled(); };
     const HMODULE cfg = LoadLibraryW(L"cfgmgr32.dll");
     const auto swCreate =
@@ -546,11 +453,6 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
     // The wheel and its TrueForce interface share a container (one physical device to Windows and the SDK).
     GUID container{};
     const bool withTrueForce = trueForce && wheel.trueForce && SUCCEEDED(CoCreateGuid(&container));
-    // Windows' HID PID driver takes the wheel's DirectInput effects even with TrueForce: a game that uses TrueForce
-    // streams its force through Logitech's SDK to the TrueForce interface, past DirectInput, and every other game gets
-    // its effects one by one, as from a G920. Logitech's driver (LogitechFfbDriver.hpp) would mix them all into one
-    // TrueForce stream instead (2026-11-02: DiRT Rally 2.0's friction and steering force came as one).
-    const bool keepLogitechFfb = false;
     for (const std::wstring& instance : {wheelName + L"_0", wheelName + L"_1", wheelName + L"_2", wheelName + L"_3"}) {
         if (stopNow()) {
             error = "cancelled";
@@ -689,7 +591,7 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
                 std::unique_lock guard(raw->lock);
                 while (!raw->wake.wait_for(guard, std::chrono::seconds(2), [raw] { return raw->stop; })) {
                     guard.unlock();
-                    // Logitech's software writes it back when it sees a "G920" (or a "G25")
+                    // Logitech's software writes its entry back when it sees a "G920" (or a "G25")
                     handleForeignForceFeedbackDriver(roots(raw->userHive), *raw->wheel, raw->keepLogitechFfb);
                     guard.lock();
                 }
@@ -786,7 +688,7 @@ DirectInputUserEntries::DirectInputUserEntries(const VirtualWheel&, bool) {}
 DirectInputUserEntries::~DirectInputUserEntries() = default;
 
 std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWheel&, std::string& error,
-                                                 const std::function<bool()>&, bool, bool) {
+                                                 const std::function<bool()>&, bool, bool, bool) {
     error = "the virtual wheel exists on Windows only";
     return nullptr;
 }

@@ -115,7 +115,10 @@ HUB installed no game can use TrueForce; it need not run. At Start the service l
 DirectInput effects on the virtual G923 go to Windows' HID PID driver, `trueforce` on or off, so a game that drives
 the wheel through DirectInput alone gets its effects one by one, as on a G920. WheelBri removes the `OEMForceFeedback`
 entry Logitech's software writes for a G923 (checked every 2 s; G HUB writes it back for a real G923 plugged in too),
-which named Logitech's driver (`hidpp_forcefeedback_x64.dll` -> HID++ 0x8123). Neither game tested needs that driver:
+which named Logitech's driver (`hidpp_forcefeedback_x64.dll` -> HID++ 0x8123).
+With `[emulator] logitech_ffb_driver = true` (any target) WheelBri leaves that entry as Logitech's software wrote it,
+so DirectInput effects go through Logitech's driver instead; still being tested. WheelBri never writes the entry
+itself. Neither game tested needs that driver:
 
 - ACC: its force and texture come through the SDK, and it sets the range on the TrueForce interface (full lock both
   ways, 2026-11-03).
