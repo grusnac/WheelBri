@@ -85,8 +85,8 @@ struct VirtualWheel {
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.
 [[nodiscard]] const VirtualWheel* virtualWheel(std::string_view profile);
 [[nodiscard]] const VirtualWheel* virtualWheelForHardwareId(std::string_view hardwareId);
-// The classic identity of the G25 or G27 (VirtualWheel::classic: hardware id wheelbri\G25_LOGI, wheelbri\G27_LOGI,
-// instances G25L_n, G27L_n; the same profile, ids and names); null for any other profile.
+// The classic identity of the G25 or G27 (VirtualWheel::classic: hardware id wheelbri\G25_LOGI, wheelbri\G27_LOGI;
+// the same profile, instances, ids and names); null for any other profile.
 [[nodiscard]] const VirtualWheel* classicVirtualWheel(std::string_view profile);
 // The name a CreateVirtualWheel request gives a wheel (HelperProtocol.hpp): its profile, or the classic identity's
 // "g25-logi", "g27-logi"; and the wheel for such a name (null when it is none).

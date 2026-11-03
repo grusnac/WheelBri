@@ -1841,13 +1841,21 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     // Our own driver's wheel (driver/), the config's target (a G920 or a G25): there while the loop runs, removed when
     // it returns or the process ends.
     const wheelbri::VirtualWheel* virtualWheel = wheelbri::virtualWheel(config.targetProfile);
-    // TEMPORARY (plan step 1, removed in step 2): WHEELBRI_CLASSIC=1 gives the G25 or G27 its classic identity
-    // (VirtualWheel::classic), for trying Logitech's older-wheel driver before the service picks it by itself.
-    if (const char* classic = std::getenv("WHEELBRI_CLASSIC"); classic != nullptr && std::string_view(classic) == "1") {
-        if (const wheelbri::VirtualWheel* c = wheelbri::classicVirtualWheel(config.targetProfile); c != nullptr) {
-            virtualWheel = c;
-            WE_LOG_WARN(log(), "WHEELBRI_CLASSIC=1: the virtual {} gets its classic identity ({}), for testing",
-                        config.targetProfile, c->hardwareId);
+    // The G25 and G27 in the Logitech order (the button order of Logitech's driver) with Logitech's older-wheel force
+    // feedback driver installed: their classic identity, which that driver drives (VirtualWheel::classic); the same
+    // device to games either way. Otherwise Windows' HID PID driver, as in the Native order.
+    if (const wheelbri::VirtualWheel* classic = wheelbri::classicVirtualWheel(config.targetProfile);
+        classic != nullptr && steps != nullptr) {
+        const bool logitechOrder = config.buttonOrder == wheelbri::ButtonOrder::Driver;
+        const bool installed = wheelbri::service::classicFfbDriverInstalled(*classic);
+        if (logitechOrder && installed) {
+            virtualWheel = classic;
+            WE_LOG_INFO(log(), "the virtual {}: Logitech's force feedback driver (Logitech order, G HUB's older-wheel "
+                               "driver installed)", classic->instancePrefix);
+        } else {
+            WE_LOG_INFO(log(), "the virtual {}: Windows' force feedback driver ({})", classic->instancePrefix,
+                        logitechOrder ? "Logitech order, but G HUB's older-wheel driver is not installed"
+                                      : "Native order");
         }
     }
     const std::string wheelName = virtualWheel != nullptr ? std::string(virtualWheel->instancePrefix) : "G920";

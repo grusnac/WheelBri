@@ -2,6 +2,11 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstdint>
+#include <cstdio>
+#include <string>
+
 namespace wheelbri::logitech_ffb {
 namespace {
 
@@ -47,6 +52,43 @@ TEST(LogitechFfbDriver, OtherDriverIsNeitherWindowsNorWheelBris) {
     EXPECT_FALSE(isOtherDriver(kGHubClsid, true));
     EXPECT_FALSE(isOtherDriver(kPidClsid, false));
     EXPECT_FALSE(isOtherDriver(L"", false));
+}
+
+template <std::size_t N>
+std::string hexOf(const std::array<std::uint8_t, N>& data) {
+    std::string text;
+    for (const std::uint8_t b : data) {
+        char two[3];
+        std::snprintf(two, sizeof(two), "%02x", static_cast<unsigned>(b));
+        text += two;
+    }
+    return text;
+}
+
+// The classic entry's values as G HUB's G923 entry has them (captures/g923/2026-11-01/S0-check/registry-HKLM-before.reg).
+TEST(LogitechFfbDriver, TheClassicEntryIsGHubsG923Entry) {
+    EXPECT_EQ(hexOf(bytes(std::array<std::uint32_t, 1>{kClassicCreatedBy})), "00080000");
+    EXPECT_EQ(hexOf(bytes(kClassicAttributes)), "00000000e8030000e8030000");
+    const char* const expected[] = {
+        "0000000001860000ed030000ed03000030000000", "0100000002860000ef030000ef03000030000000",
+        "0200000003860000ef030000ef03000030000000", "0300000003860000ef030000ef03000030000000",
+        "0400000003860000ef030000ef03000030000000", "0500000003860000ef030000ef03000030000000",
+        "0600000003860000ef030000ef03000030000000", "0700000004d800006d0300006d03000030000000",
+        "0800000004d800006d0300006d03000030000000", "0900000004d800006d0300006d03000030000000",
+        "0a00000004d800006d0300006d03000030000000",
+    };
+    for (std::size_t i = 0; i < kClassicEffects.size(); ++i) {
+        EXPECT_EQ(hexOf(bytes(kClassicEffects[i].attributes)), expected[i]) << i;
+    }
+    EXPECT_EQ(hexOf(kWheelAxisAttributes), "01810000");
+    EXPECT_EQ(hexOf(kWheelAxisFfAttributes), "0a00000000010000");
+}
+
+TEST(LogitechFfbDriver, AClassForTheG25AndG27Only) {
+    EXPECT_EQ(classicClsid(0xC299), kG25Clsid);
+    EXPECT_EQ(classicClsid(0xC29B), kG27Clsid);
+    EXPECT_TRUE(classicClsid(0xC262).empty());
+    EXPECT_TRUE(classicClsid(0xC26E).empty());
 }
 
 }  // namespace

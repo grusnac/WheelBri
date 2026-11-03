@@ -148,7 +148,7 @@ TEST(VirtualWheel, TheG25AndG27HaveAClassicIdentity) {
         EXPECT_EQ(classic->oemName, plain.oemName);
         EXPECT_EQ(classic->buttons, plain.buttons);
         EXPECT_NE(classic->hardwareId, plain.hardwareId);
-        EXPECT_NE(classic->instancePrefix, plain.instancePrefix);
+        EXPECT_EQ(classic->instancePrefix, plain.instancePrefix);   // one device to games (their bindings)
         EXPECT_EQ(virtualWheelForHardwareId(classic->hardwareId), classic);
         EXPECT_EQ(virtualWheel(name), &plain);   // the profile still means the plain one
         EXPECT_EQ(virtualWheelForRequestName(requestNameOf(*classic)), classic);

@@ -238,7 +238,9 @@ constexpr VirtualWheel kVirtualWheels[] = {
      "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, false, true},
 };
 
-// The G25's and G27's classic identities (VirtualWheel::classic): the same but for hardware id and instances.
+// The G25's and G27's classic identities (VirtualWheel::classic): the same but for the hardware id. Their instances are
+// the plain wheel's (G25_0...): one device to Windows and to DirectInput, which keeps a game's bindings by the device's
+// path (2026-11-03: as G25L_0 ACC saw a new wheel with empty bindings).
 constexpr VirtualWheel classicOf(VirtualWheel wheel, const std::string_view hardwareId,
                                  const std::string_view instancePrefix) {
     wheel.hardwareId = hardwareId;
@@ -247,8 +249,8 @@ constexpr VirtualWheel classicOf(VirtualWheel wheel, const std::string_view hard
     return wheel;
 }
 constexpr VirtualWheel kClassicWheels[] = {
-    classicOf(kVirtualWheels[0], "wheelbri\\G25_LOGI", "G25L"),
-    classicOf(kVirtualWheels[1], "wheelbri\\G27_LOGI", "G27L"),
+    classicOf(kVirtualWheels[0], "wheelbri\\G25_LOGI", "G25"),
+    classicOf(kVirtualWheels[1], "wheelbri\\G27_LOGI", "G27"),
 };
 static_assert(kVirtualWheels[0].profile == "g25" && kVirtualWheels[1].profile == "g27", "the table's order");
 

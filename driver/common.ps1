@@ -334,7 +334,7 @@ function Get-DevicesUsing([string]$name) {
     return @($present | Where-Object { $using -contains $_.InstanceId })
 }
 
-# The virtual wheels the app creates (SWD\wheelbri\G25_<n>, G27_<n>, G920_<n>, G923_<n>, the classic G25L_<n>, G27L_<n>; SWD\wheelemu\... from before
+# The virtual wheels the app creates (SWD\wheelbri\G25_<n>, G27_<n>, G920_<n>, G923_<n>; SWD\wheelemu\... from before
 # the rename) and the HID devices under them, present or not: after a crash, or a wheel Windows kept half-removed, they
 # stay listed (Device Manager > Show hidden devices). Children first. Returns how many could not be removed.
 function Remove-VirtualDevices {

@@ -57,6 +57,11 @@ private:
 // TrueForce interface. Empty when it is not there (G HUB not installed), and anywhere but Windows.
 [[nodiscard]] std::string trueForceSdkPath();
 
+// Whether Logitech's older-wheel force feedback driver for the wheel's model is installed (G HUB's
+// jerry_forcefeedback_x64.dll, registered with a class per model: LogitechFfbDriver.hpp's classicClsid) with its DLL
+// there. Only the G25 and G27 have one; false anywhere but Windows.
+[[nodiscard]] bool classicFfbDriverInstalled(const VirtualWheel& wheel);
+
 // The user's own DirectInput entries for the virtual wheel (HKCU: its name, the "driving" type, no foreign force
 // feedback driver but Logitech's for the G920 and G923, checked every 2 s), for an app whose wheel the WheelBri Helper creates: the helper, as SYSTEM,
 // keeps only the machine's (HKLM). Written while this exists, removed when it goes. Nothing elsewhere than Windows.

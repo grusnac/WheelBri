@@ -226,6 +226,8 @@ void removeOwnAxisEntries(HKEY root, const std::wstring& path, const VirtualWhee
     }
 }
 
+void removeClassicEntry(HKEY root, const VirtualWheel& wheel);   // below
+
 void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
     const std::wstring path = oemKey(wheel);
     const std::wstring name = widen(wheel.oemName);
@@ -244,7 +246,8 @@ void writeDirectInputEntries(const bool on, const std::vector<HKEY>& hives, cons
             RegDeleteValueW(key, L"OEMData");
         }
         RegCloseKey(key);
-        removeOwnAxisEntries(root, path, wheel);
+        if (!on && wheel.classic) removeClassicEntry(root, wheel);   // WheelBri's own, written while it ran
+        if (!(on && wheel.classic)) removeOwnAxisEntries(root, path, wheel);   // a classic wheel's are its own
     }
 }
 
@@ -266,6 +269,129 @@ FfbEntry readFfbEntry(HKEY root, const std::wstring& path) {
     return entry;
 }
 
+// --- The G25's and G27's classic identities (LogitechFfbDriver.hpp): WheelBri's own entry, in HKCU ------------------
+
+bool setBinary(HKEY key, const wchar_t* name, const std::uint8_t* data, const std::size_t size) {
+    return RegSetValueExW(key, name, 0, REG_BINARY, data, static_cast<DWORD>(size)) == ERROR_SUCCESS;
+}
+
+bool setString(HKEY key, const wchar_t* name, const std::wstring_view text) {
+    const std::wstring value(text);
+    return RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()),
+                          static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
+}
+
+bool setMark(HKEY key) {
+    const DWORD marker = 1;
+    return RegSetValueExW(key, L"WheelBri", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&marker), sizeof(marker)) ==
+           ERROR_SUCCESS;
+}
+
+bool hasMark(HKEY root, const std::wstring& path) {
+    return RegGetValueW(root, path.c_str(), L"WheelBri", RRF_RT_REG_DWORD, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
+}
+
+// Whether WheelBri's classic entry is there as it writes it: the class, its mark, and the wheel axis' marked entry.
+bool classicEntryInPlace(HKEY root, const VirtualWheel& wheel) {
+    const std::wstring key = oemKey(wheel);
+    const std::wstring path = key + L"\\OEMForceFeedback";
+    const FfbEntry entry = readFfbEntry(root, path);
+    return entry.wheelBris && logitech_ffb::sameClsid(entry.clsid, logitech_ffb::classicClsid(wheel.productId)) &&
+           hasMark(root, key + L"\\Axes");
+}
+
+// Writes WheelBri's classic entry for the wheel in `root` (in place of whatever was there), and the wheel axis' entry.
+// The CLSID goes last: until then DirectInput sees no driver.
+bool writeClassicEntry(HKEY root, const VirtualWheel& wheel) {
+    const std::wstring key = oemKey(wheel);
+    HKEY oem = nullptr;
+    if (RegCreateKeyExW(root, key.c_str(), 0, nullptr, 0, kDeleteSubtreeAccess | KEY_CREATE_SUB_KEY, nullptr, &oem,
+                        nullptr) != ERROR_SUCCESS) {
+        return false;
+    }
+    RegDeleteTreeW(oem, L"OEMForceFeedback");
+    RegDeleteTreeW(oem, L"Axes");
+    bool ok = true;
+    HKEY axis = nullptr;
+    if (RegCreateKeyExW(oem, L"Axes\\0", 0, nullptr, 0, KEY_SET_VALUE, nullptr, &axis, nullptr) == ERROR_SUCCESS) {
+        ok = setString(axis, nullptr, logitech_ffb::kWheelAxisName) && ok;
+        ok = setBinary(axis, L"Attributes", logitech_ffb::kWheelAxisAttributes.data(),
+                       logitech_ffb::kWheelAxisAttributes.size()) && ok;
+        ok = setBinary(axis, L"FFAttributes", logitech_ffb::kWheelAxisFfAttributes.data(),
+                       logitech_ffb::kWheelAxisFfAttributes.size()) && ok;
+        RegCloseKey(axis);
+    } else {
+        ok = false;
+    }
+    HKEY axes = nullptr;
+    if (RegOpenKeyExW(oem, L"Axes", 0, KEY_SET_VALUE, &axes) == ERROR_SUCCESS) {
+        ok = setMark(axes) && ok;   // removeOwnAxisEntries takes it away again
+        RegCloseKey(axes);
+    }
+    HKEY ffb = nullptr;
+    if (RegCreateKeyExW(oem, L"OEMForceFeedback", 0, nullptr, 0, KEY_SET_VALUE | KEY_CREATE_SUB_KEY, nullptr, &ffb,
+                        nullptr) != ERROR_SUCCESS) {
+        RegCloseKey(oem);
+        return false;
+    }
+    for (const logitech_ffb::ClassicEffect& effect : logitech_ffb::kClassicEffects) {
+        HKEY e = nullptr;
+        const std::wstring name = L"Effects\\" + std::wstring(effect.guid);
+        if (RegCreateKeyExW(ffb, name.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &e, nullptr) != ERROR_SUCCESS) {
+            ok = false;
+            continue;
+        }
+        const auto attributes = logitech_ffb::bytes(effect.attributes);
+        ok = setString(e, nullptr, effect.name) && ok;
+        ok = setBinary(e, L"Attributes", attributes.data(), attributes.size()) && ok;
+        RegCloseKey(e);
+    }
+    const auto createdBy = logitech_ffb::bytes(std::array<std::uint32_t, 1>{logitech_ffb::kClassicCreatedBy});
+    const auto attributes = logitech_ffb::bytes(logitech_ffb::kClassicAttributes);
+    ok = setBinary(ffb, L"CreatedBy", createdBy.data(), createdBy.size()) && ok;
+    ok = setBinary(ffb, L"Attributes", attributes.data(), attributes.size()) && ok;
+    ok = setMark(ffb) && ok;
+    ok = ok && setString(ffb, L"CLSID", logitech_ffb::classicClsid(wheel.productId));
+    RegCloseKey(ffb);
+    RegCloseKey(oem);
+    return ok;
+}
+
+// WheelBri's classic entry for the wheel goes (Stop): only when it is WheelBri's (its mark).
+void removeClassicEntry(HKEY root, const VirtualWheel& wheel) {
+    const std::wstring key = oemKey(wheel);
+    if (!readFfbEntry(root, key + L"\\OEMForceFeedback").wheelBris) return;
+    HKEY oem = nullptr;
+    if (RegOpenKeyExW(root, key.c_str(), 0, kDeleteSubtreeAccess, &oem) != ERROR_SUCCESS) return;
+    const LSTATUS status = RegDeleteTreeW(oem, L"OEMForceFeedback");
+    RegCloseKey(oem);
+    if (status == ERROR_SUCCESS) {
+        WE_LOG_INFO(log(), "DirectInput: removed WheelBri's Logitech driver entry for the classic {}", wheel.instancePrefix);
+    }
+}
+
+// While a classic wheel runs: WheelBri's entry in HKCU (DirectInput reads it first), written again whenever it is
+// missing or another one is there. HKLM stays as it is.
+void handleClassicEntry(const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
+    for (HKEY root : hives) {
+        if (root != HKEY_CURRENT_USER || classicEntryInPlace(root, wheel)) continue;
+        const bool written = writeClassicEntry(root, wheel);
+        static logging::RateLimiter limiter(std::chrono::minutes(1));
+        std::uint64_t suppressed = 0;
+        if (!limiter.allow(suppressed)) continue;
+        if (written) {
+            WE_LOG_INFO(log(), "DirectInput: wrote Logitech's older-wheel driver entry ({}) and the wheel axis' for the "
+                               "classic {} in HKCU ({} more writes since the last note)",
+                        narrow(std::wstring(logitech_ffb::classicClsid(wheel.productId)).c_str()), wheel.instancePrefix,
+                        suppressed);
+        } else {
+            WE_LOG_WARN(log(), "DirectInput: cannot write Logitech's older-wheel driver entry for the classic {} in HKCU: "
+                               "games get no force feedback on it ({} more tries since the last note)",
+                        wheel.instancePrefix, suppressed);
+        }
+    }
+}
+
 // The virtual wheel's OEMForceFeedback entry, in each of `hives` (LogitechFfbDriver.hpp). For the G920 and G923
 // Logitech's entry stays when its software wrote one (in either hive: both are read, though the WheelBri Helper
 // handles HKLM and the app HKCU), and Windows' own HID PID entry goes while it is there, since DirectInput takes
@@ -273,6 +399,10 @@ FfbEntry readFfbEntry(HKEY root, const std::wstring& path) {
 // software writes its entry back every few seconds while it runs (hence the watchers below): a note a minute at
 // most per hive for removals, one line per hive whenever what stays changes.
 void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
+    if (wheel.classic) {
+        handleClassicEntry(hives, wheel);
+        return;
+    }
     const std::wstring key = oemKey(wheel);
     const std::wstring path = key + L"\\OEMForceFeedback";
     const bool keepOthers = logitech_ffb::keepsOtherDrivers(wheel.hidpp || wheel.classic);
@@ -664,6 +794,19 @@ DirectInputUserEntries::~DirectInputUserEntries() {
     writeDirectInputEntries(false, {HKEY_CURRENT_USER}, *impl_->wheel);
 }
 
+bool classicFfbDriverInstalled(const VirtualWheel& wheel) {
+    const std::wstring_view clsid = logitech_ffb::classicClsid(wheel.productId);
+    if (clsid.empty()) return false;
+    const std::wstring path = L"CLSID\\" + std::wstring(clsid) + L"\\InProcServer32";
+    wchar_t dll[MAX_PATH] = {};
+    DWORD size = sizeof(dll);
+    if (RegGetValueW(HKEY_CLASSES_ROOT, path.c_str(), nullptr, RRF_RT_REG_SZ, nullptr, dll, &size) != ERROR_SUCCESS) {
+        return false;
+    }
+    const DWORD attributes = GetFileAttributesW(dll);
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
 std::string trueForceSdkPath() {
     PWSTR folder = nullptr;
     std::filesystem::path programFiles;
@@ -708,6 +851,8 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
 }
 
 std::string trueForceSdkPath() { return {}; }
+
+bool classicFfbDriverInstalled(const VirtualWheel&) { return false; }
 
 }  // namespace wheelbri::service
 
