@@ -260,7 +260,9 @@ A few settings for every game are in `[ffb]` in your mapping file (press Start a
 | `ignore_lone_full_push` | true | a full push with no other forces for 2 s plays as none (Race Driver: GRID) |
 
 **TrueForce** (Target G923, Windows): `[emulator] trueforce = true` in the same file lets games that use Logitech's
-TrueForce (ACC) drive your wheel with it. Off by default. What it needs: [Games](games.md#assetto-corsa-competizione).
+TrueForce (ACC) drive your wheel with it. Off by default. It needs Logitech G HUB installed (not running). Games without
+TrueForce are not changed by it: their effects come one by one, as on a G920. What ACC needs:
+[Games](games.md#assetto-corsa-competizione).
 
 To test the wheel, press Stop and run (Windows, Command Prompt):
 

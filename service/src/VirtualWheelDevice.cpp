@@ -13,6 +13,7 @@
 #include <windows.h>
 #include <cfgmgr32.h>
 #include <objbase.h>
+#include <shlobj.h>   // SHGetKnownFolderPath: Program Files
 #include <cwchar>
 #include <cwctype>
 
@@ -20,6 +21,7 @@
 #include <atomic>
 #include <cstdio>
 #include <chrono>
+#include <filesystem>
 #include <condition_variable>
 #include <mutex>
 #include <iterator>
@@ -190,6 +192,9 @@ std::wstring oemKey(const VirtualWheel& wheel) {
            ids;
 }
 constexpr wchar_t kPidDriverClsid[] = L"{EEC6993A-B3FD-11D2-A916-00C04FB98638}";
+// What RegDeleteTreeW needs on the parent of the subtree it deletes. Never KEY_ALL_ACCESS: that asks for WRITE_DAC and
+// WRITE_OWNER too, which a user may not have on a key Logitech's software made, and the open then fails.
+constexpr REGSAM kDeleteSubtreeAccess = DELETE | KEY_ENUMERATE_SUB_KEYS | KEY_QUERY_VALUE | KEY_SET_VALUE;
 
 // The machine's entries, and the user's too when `userHive` (not in the helper: as SYSTEM, HKCU is SYSTEM's own; the
 // app keeps the user's).
@@ -208,7 +213,7 @@ void removeOwnAxisEntries(HKEY root, const std::wstring& path, const VirtualWhee
     RegCloseKey(axes);
     if (!ours) return;
     HKEY oem = nullptr;
-    if (RegOpenKeyExW(root, path.c_str(), 0, KEY_ALL_ACCESS, &oem) != ERROR_SUCCESS) return;
+    if (RegOpenKeyExW(root, path.c_str(), 0, kDeleteSubtreeAccess, &oem) != ERROR_SUCCESS) return;
     const LSTATUS status = RegDeleteTreeW(oem, L"Axes");
     RegCloseKey(oem);
     const char* hive = root == HKEY_CURRENT_USER ? "HKCU" : "HKLM";
@@ -256,17 +261,30 @@ void removeForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const Virt
             continue;
         }
         if (_wcsicmp(clsid, kPidDriverClsid) == 0) continue;
+        const char* hive = root == HKEY_CURRENT_USER ? "HKCU" : "HKLM";
         HKEY oem = nullptr;
-        if (RegOpenKeyExW(root, key.c_str(), 0, KEY_ALL_ACCESS, &oem) == ERROR_SUCCESS) {
-            RegDeleteTreeW(oem, L"OEMForceFeedback");
+        LSTATUS status = RegOpenKeyExW(root, key.c_str(), 0, kDeleteSubtreeAccess, &oem);
+        if (status == ERROR_SUCCESS) {
+            status = RegDeleteTreeW(oem, L"OEMForceFeedback");
             RegCloseKey(oem);
-            // Logitech's software may write it back every few seconds (the watcher below): a note a minute at most.
+        }
+        // Logitech's software may write it back every few seconds (the watcher below): a note a minute at most.
+        if (status == ERROR_SUCCESS) {
             static logging::RateLimiter limiter(std::chrono::minutes(1));
             std::uint64_t suppressed = 0;
             if (limiter.allow(suppressed)) {
                 WE_LOG_INFO(log(), "DirectInput: removed another force feedback driver ({}) from {}; Windows' HID PID "
                                    "driver takes over ({} more removals since the last note)",
-                            narrow(clsid), root == HKEY_CURRENT_USER ? "HKCU" : "HKLM", suppressed);
+                            narrow(clsid), hive, suppressed);
+            }
+        } else {
+            static logging::RateLimiter limiter(std::chrono::minutes(1));
+            std::uint64_t suppressed = 0;
+            if (limiter.allow(suppressed)) {
+                WE_LOG_WARN(log(), "DirectInput: cannot remove another force feedback driver ({}) from {} (error {}): "
+                                   "it still drives the virtual {}, so games' effects may not reach WheelBri ({} more "
+                                   "tries since the last note)",
+                            narrow(clsid), hive, status, wheel.instancePrefix, suppressed);
             }
         }
     }
@@ -297,13 +315,14 @@ bool setString(HKEY key, const wchar_t* name, const std::wstring& text) {
 // was there, with a WheelBri value to say who wrote it. The CLSID goes last: until then DirectInput sees no driver.
 bool writeLogitechFfbDriver(HKEY root, const std::wstring& key) {
     HKEY oem = nullptr;
-    if (RegOpenKeyExW(root, key.c_str(), 0, KEY_ALL_ACCESS, &oem) == ERROR_SUCCESS) {
+    if (RegOpenKeyExW(root, key.c_str(), 0, kDeleteSubtreeAccess, &oem) == ERROR_SUCCESS) {
         RegDeleteTreeW(oem, L"OEMForceFeedback");
         RegCloseKey(oem);
     }
     HKEY ffb = nullptr;
     const std::wstring path = key + L"\\OEMForceFeedback";
-    if (RegCreateKeyExW(root, path.c_str(), 0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &ffb, nullptr) != ERROR_SUCCESS) {
+    if (RegCreateKeyExW(root, path.c_str(), 0, nullptr, 0, KEY_SET_VALUE | KEY_CREATE_SUB_KEY, nullptr, &ffb,
+                        nullptr) != ERROR_SUCCESS) {
         return false;
     }
     bool ok = true;
@@ -527,7 +546,11 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
     // The wheel and its TrueForce interface share a container (one physical device to Windows and the SDK).
     GUID container{};
     const bool withTrueForce = trueForce && wheel.trueForce && SUCCEEDED(CoCreateGuid(&container));
-    const bool keepLogitechFfb = trueForce && wheel.trueForce;
+    // Windows' HID PID driver takes the wheel's DirectInput effects even with TrueForce: a game that uses TrueForce
+    // streams its force through Logitech's SDK to the TrueForce interface, past DirectInput, and every other game gets
+    // its effects one by one, as from a G920. Logitech's driver (LogitechFfbDriver.hpp) would mix them all into one
+    // TrueForce stream instead (2026-11-02: DiRT Rally 2.0's friction and steering force came as one).
+    const bool keepLogitechFfb = false;
     for (const std::wstring& instance : {wheelName + L"_0", wheelName + L"_1", wheelName + L"_2", wheelName + L"_3"}) {
         if (stopNow()) {
             error = "cancelled";
@@ -725,6 +748,25 @@ DirectInputUserEntries::~DirectInputUserEntries() {
     writeDirectInputEntries(false, {HKEY_CURRENT_USER}, *impl_->wheel);
 }
 
+std::string trueForceSdkPath() {
+    PWSTR folder = nullptr;
+    std::filesystem::path programFiles;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_ProgramFiles, 0, nullptr, &folder)) && folder != nullptr) {
+        programFiles = folder;
+    }
+    CoTaskMemFree(folder);
+    if (programFiles.empty()) return {};
+    // G HUB keeps one folder per SDK version (1_3_12): the highest one that has the DLL.
+    std::error_code ec;
+    std::filesystem::path found;
+    for (const auto& entry : std::filesystem::directory_iterator(programFiles / L"Logi" / L"trueforce", ec)) {
+        const std::filesystem::path dll = entry.path() / L"trueforce_sdk_x64.dll";
+        std::error_code fileEc;
+        if (std::filesystem::is_regular_file(dll, fileEc) && (found.empty() || found < dll)) found = dll;
+    }
+    return found.empty() ? std::string() : narrow(found.wstring());
+}
+
 }  // namespace wheelbri::service
 
 #else  // not Windows
@@ -748,6 +790,8 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
     error = "the virtual wheel exists on Windows only";
     return nullptr;
 }
+
+std::string trueForceSdkPath() { return {}; }
 
 }  // namespace wheelbri::service
 

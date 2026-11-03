@@ -1858,6 +1858,18 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
             WE_LOG_CRITICAL(log(), "--virtual-wheel: {}", error);
             return 1;
         }
+        // TrueForce needs Logitech's SDK, which games load from G HUB's folder: without it they cannot use it.
+        if (config.trueForce && virtualWheel->trueForce) {
+            if (const std::string sdk = wheelbri::service::trueForceSdkPath(); !sdk.empty()) {
+                WE_LOG_INFO(log(), "trueforce: Logitech's TrueForce SDK is installed ({}): a game that uses TrueForce "
+                                   "streams its force to the virtual {}; every other game's effects come one by one, as "
+                                   "on a G920", sdk, wheelName);
+            } else {
+                WE_LOG_WARN(log(), "trueforce: Logitech's TrueForce SDK is not installed (Program Files\\Logi\\"
+                                   "trueforce): no game can use the virtual {}'s TrueForce until Logitech G HUB is "
+                                   "installed; force feedback works without it, as on a G920", wheelName);
+            }
+        }
     }
 #ifndef _WIN32
     // Linux: the virtual G920 is wheelbri-uhid, there until this function returns (Stop, or the window closed).

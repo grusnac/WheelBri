@@ -109,12 +109,15 @@ plays as a vibration in slot 5: a sine whose size and frequency follow each 40 m
 scale at about 240 Hz). The rig takes a new force at most every 4 ms, too slow for the samples themselves, so its own
 firmware makes the vibration. Not yet felt on a rig.
 
-Games that use DirectInput on a G923 go through Logitech's force feedback driver -> HID++ 0x8123 (ACC also reads
-and sets the range through its Escape). So with `trueforce` on WheelBri registers that driver for the virtual G923:
-when the `OEMForceFeedback` entry is missing or names another driver, it writes the entry Logitech's software writes
-(`core/include/wheelbri/LogitechFfbDriver.hpp`, with a `WheelBri` value). This needs Logitech's driver installed
-(it comes with G HUB). Without it the entry goes and Windows' HID PID driver takes
-the effects. The service log says which driver the wheel has.
+The SDK the game loads is G HUB's (`C:\Program Files\Logi\trueforce\<version>\trueforce_sdk_x64.dll`): without G
+HUB installed no game can use TrueForce; it need not run. At Start the service log says whether it found the SDK.
+
+DirectInput effects on the virtual G923 go to Windows' HID PID driver, `trueforce` on or off, so a game without
+TrueForce gets its effects one by one, as on a G920. WheelBri removes the `OEMForceFeedback` entry Logitech's software
+writes for a G923 (checked every 2 s; G HUB writes it back for a real G923 plugged in too). With that entry,
+Logitech's driver (`hidpp_forcefeedback_x64.dll` -> HID++ 0x8123) took every game's effects and mixed them into one
+TrueForce stream (DiRT Rally 2.0's friction and steering force came as one). Not yet checked without it: ACC's range
+through its Escape, which went to that driver.
 
 To see what a game asks Logitech's SDK (ACC in TrueForce mode reads the wheel through `trueforce_sdk_x64.dll`), put
 the 64-bit shim in its folder with `emulate = false` and `logi_log = true` in `wheelbri-shim.ini`: every SDK call, its

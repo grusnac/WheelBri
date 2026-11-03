@@ -22,11 +22,13 @@ G920 only, by themselves while the game runs.
   Native**: ACC's presets read the wheel's own button numbers.
 - **Mode Shim:** not supported by the game; use Mode Virtual.
 - **Linux:** runs under Proton with Mode Virtual.
-- **TrueForce (Target G923, Windows):** ACC then plays its TrueForce force (with its damping) on your wheel.
+- **TrueForce (Target G923, Windows):** ACC then plays its TrueForce force on your wheel. It sends no damping, as to
+  a real G923.
   - In `my-g923.ini`: `[emulator] trueforce = true`, and `[steering] target_rotation_deg` at the rotation you want
     (360 tested).
-  - Logitech's force feedback driver must be installed (`C:\Program Files\Logitech\Direct Input Force Feedback`,
-    installed with G HUB on the test PC); WheelBri registers it for the wheel.
+  - Logitech G HUB must be installed (it need not run): ACC loads Logitech's TrueForce SDK from its folder
+    (`C:\Program Files\Logi\trueforce\<version>`). At Start the service log says whether it is there.
+  - The Live tab shows ACC's force as Steering force and its road texture as Vibration.
   - In ACC: Steer Lock **2700**, so the car turns fully at your rotation; Gain 100% felt right.
   - Moza: keep Pit House closed while you play. With it open the wheel nudges as a track loads.
   - The road texture plays as a vibration ([Targets](targets.md#trueforce-g923)); not yet checked on a rig.

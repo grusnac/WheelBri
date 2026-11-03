@@ -50,12 +50,18 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+// Logitech's TrueForce SDK as G HUB installs it (Program Files\Logi\trueforce\<version>\trueforce_sdk_x64.dll, the
+// highest version there): a game that uses TrueForce (ACC) loads it to stream its force to the virtual G923's
+// TrueForce interface. Empty when it is not there (G HUB not installed), and anywhere but Windows.
+[[nodiscard]] std::string trueForceSdkPath();
+
 // The user's own DirectInput entries for the virtual wheel (HKCU: its name, the "driving" type, no foreign force
 // feedback driver, checked every 2 s), for an app whose wheel the WheelBri Helper creates: the helper, as SYSTEM,
 // keeps only the machine's (HKLM). Written while this exists, removed when it goes. Nothing elsewhere than Windows.
 class DirectInputUserEntries {
 public:
-    // `keepLogitechFfb`: [emulator] trueforce; Logitech's force feedback driver stays (VirtualWheelDevice::create).
+    // `keepLogitechFfb`: Logitech's force feedback driver stays; false from WheelBri (VirtualWheelDevice::create says
+    // why).
     DirectInputUserEntries(const VirtualWheel& wheel, bool keepLogitechFfb);
     ~DirectInputUserEntries();
     DirectInputUserEntries(const DirectInputUserEntries&) = delete;
