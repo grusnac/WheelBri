@@ -28,10 +28,18 @@ std::span<const std::uint8_t> withoutId(const std::uint8_t* data, std::size_t si
     return {data, size};
 }
 
+// `wheel` as it is here: the G920 without HID++. It goes on USB with Proton's descriptor
+// (g920ProtonReportDescriptor), where the kernel's hid-logitech-hidpp would take HID++ reports for its own.
+VirtualWheel linuxWheel(const VirtualWheel& wheel) {
+    VirtualWheel copy = wheel;
+    if (copy.profile == "g920") copy.hidpp = false;
+    return copy;
+}
+
 }  // namespace
 
 UhidWheel::UhidWheel(Write write, HidPid::Sender ffb, Log log, const VirtualWheel& wheel)
-    : write_(std::move(write)), log_(log), wheel_(wheel), pid_(std::move(ffb), std::move(log)) {
+    : write_(std::move(write)), log_(log), wheel_(linuxWheel(wheel)), pid_(std::move(ffb), std::move(log)) {
     if (wheel_.hidpp) {
         HidPp::Identity identity;
         identity.name = std::string(wheel_.product);

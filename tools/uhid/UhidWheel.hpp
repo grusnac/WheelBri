@@ -76,7 +76,8 @@ private:
 
     Write write_;
     Log log_;
-    const VirtualWheel& wheel_;
+    // A copy: the G920 here has no HID++ (UhidWheel.cpp says why), so its PID reports keep their own ids.
+    const VirtualWheel wheel_;
     HidPid pid_;
     std::unique_ptr<HidPp> hidpp_;   // for a wheel with HID++ only
     bool started_ = false;

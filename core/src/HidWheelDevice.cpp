@@ -230,7 +230,7 @@ constexpr VirtualWheel kVirtualWheels[] = {
     {"g27", "wheelbri\\G27", "G27", kG27VendorId, kG27ProductId, "G27 Racing Wheel", "Logitech G27 Racing Wheel USB",
      kG27Buttons, false, 0, false, true},
     {"g920", "wheelbri\\G920", "G920", kG920VendorId, kG920ProductId, "G920 Driving Force Racing Wheel USB",
-     "Logitech G920 Driving Force Racing Wheel USB", kG920Buttons},
+     "Logitech G920 Driving Force Racing Wheel USB", kG920Buttons, true, 0x0A},
     {"g923", "wheelbri\\G923", "G923", kG923VendorId, kG923ProductId, "G923 Racing Wheel for Xbox One and PC",
      "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, false, true},
 };
@@ -277,6 +277,10 @@ std::span<const std::uint8_t> g920ProtonReportDescriptor() { return kProtonDescr
 namespace {
 // The G923's: the games' axes (throttle Y, brake Rz, clutch Slider, as the G920's), unsigned, with HID++.
 constexpr auto kG923HidPpDescriptor = withHidPp(withUnsignedAxes(kG923Descriptor));
+// The G920's on Windows: its axes as before (signed, as tested in games), with HID++ for G HUB's force feedback
+// driver, which drives a G920 only over HID++ 0x8123 (2026-11-03: with its entry and no HID++, ACC's effects were
+// accepted and went nowhere).
+constexpr auto kG920HidPpDescriptor = withHidPp(kDescriptorArray);
 // Every axis rewritten: the last byte before the HID++ collections is the joystick's End Collection either way.
 static_assert(withUnsignedAxes(kG923Descriptor)[kG923Descriptor.size() + kAxes - 1] == 0xC0,
               "all four axes became unsigned");
@@ -313,6 +317,7 @@ std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
         if (wheel.buttons == kG27Buttons) return kG27CombinedDescriptor;
     }
     if (wheel.hidpp && wheel.buttons >= kG923Buttons) return kG923HidPpDescriptor;
+    if (wheel.hidpp && !wheel.unsignedAxes && wheel.buttons == kG920Buttons) return kG920HidPpDescriptor;
     return wheelReportDescriptor(wheel.buttons);
 }
 

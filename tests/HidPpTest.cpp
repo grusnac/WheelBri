@@ -470,8 +470,36 @@ TEST(HidPpDescriptor, G25AndG27HaveCombinedPedalsAndTheClutchOnSlider1) {
     }
 }
 
+// The G920 has HID++ too (G HUB's force feedback driver needs it), its axes signed as before: the same joystick
+// items, only the PID report IDs 0x10 higher, then the HID++ collections; it routes by report ID as the G923.
+TEST(HidPpDescriptor, TheG920HasHidPpReportsWithItsOwnAxes) {
+    const VirtualWheel& g920 = *virtualWheel("g920");
+    ASSERT_TRUE(g920.hidpp);
+    EXPECT_FALSE(g920.unsignedAxes);
+    const auto plain = wheelReportDescriptor(g920.buttons);
+    const auto withHidPp = reportDescriptorFor(g920);
+    const auto bits = reportBits(withHidPp);
+    EXPECT_EQ((bits.at({0x11, 0x80})), 19U * 8U);
+    EXPECT_EQ((bits.at({0x12, 0x90})), 63U * 8U);
+    const auto before = items(plain);
+    const auto after = items(withHidPp);
+    ASSERT_GT(after.size(), before.size());
+    for (std::size_t i = 0; i < before.size(); ++i) {
+        const auto [prefix, value] = before[i];
+        if (prefix == 0x85 && value != kWheelInputReportId) {
+            EXPECT_EQ(after[i], std::make_pair(prefix, value + kHidPpPidShift)) << i;
+        } else {
+            EXPECT_EQ(after[i], before[i]) << i;
+        }
+    }
+    EXPECT_EQ(routeReport(g920, 0x11).to, ReportRoute::To::HidPp);
+    EXPECT_EQ(routeReport(g920, 0x21).to, ReportRoute::To::Pid);
+    EXPECT_EQ(routeReport(g920, 0x21).id, 0x11);
+    EXPECT_EQ(wirePidId(g920, 0x12), 0x22);
+}
+
 TEST(HidPpDescriptor, WheelsWithoutHidPpKeepTheirDescriptor) {
-    for (const char* name : {"g920", "g25", "g27"}) {
+    for (const char* name : {"g25", "g27"}) {
         const VirtualWheel* wheel = virtualWheel(name);
         ASSERT_NE(wheel, nullptr);
         EXPECT_FALSE(wheel->hidpp) << name;
