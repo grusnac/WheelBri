@@ -8,6 +8,7 @@
 
 #include "wheelbri/AxisAudit.hpp"
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/ClassicFfb.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DiEffect.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
@@ -276,8 +277,29 @@ void runOne(const std::span<const std::uint8_t> input) {
             (void)udpPortUid(text, 41330);
             break;
         }
+        case 18: {   // Logitech's classic force feedback commands (a classic G25 or G27): every packet sent on is
+                     // finite, in a slot that exists, and its coefficients and saturations in range
+            ClassicFfb ffb(
+                [](const FfbPacket& p) {
+                    CHECK(p.slot < ClassicFfb::kSlots);
+                    CHECK(std::isfinite(p.effect.constantLevel) && std::abs(p.effect.constantLevel) <= 1.0F);
+                    const FfbCondition& c = p.effect.condition;
+                    CHECK(std::abs(c.positiveCoefficient) <= 1.0F && std::abs(c.negativeCoefficient) <= 1.0F);
+                    CHECK(c.positiveSaturation >= 0.0F && c.positiveSaturation <= 1.0F);
+                    CHECK(c.negativeSaturation >= 0.0F && c.negativeSaturation <= 1.0F);
+                    CHECK(c.deadband >= 0.0F && c.deadband <= 1.0F && std::abs(c.center) <= 1.0F);
+                },
+                [](LogLevel, const std::string&) {});
+            std::int64_t now = 0;
+            for (std::size_t i = 0; i < bytes.size(); i += ClassicFfb::kReportSize) {
+                ffb.command(bytes.subspan(i, std::min(ClassicFfb::kReportSize, bytes.size() - i)), now);
+                ffb.tick(now += bytes[i] % 40);
+            }
+            ffb.stopAll(now);
+            break;
+        }
 #ifdef WHEELBRI_G923CAP
-        case 18: {   // a USBPcap capture (pcap or pcapng): frames, URBs, transfers, the devices' descriptors
+        case 19: {   // a USBPcap capture (pcap or pcapng): frames, URBs, transfers, the devices' descriptors
             const auto file = g923cap::parseCapture(g923cap::Bytes(bytes.begin(), bytes.end()));
             const auto devices = g923cap::findDevices(g923cap::transfersOf(g923cap::urbsOf(file)));
             for (const auto& [key, device] : devices) {

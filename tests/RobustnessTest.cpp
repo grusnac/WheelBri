@@ -134,8 +134,9 @@ TEST(Robustness, RandomBytesAreRefusedOrReadWithoutHarm) {
     for (int i = 0; i < 400; ++i) {
         for (const std::uint8_t target : {1, 2, 3, 4, 5, 9, 11, 15, 16}) run(target, randomBytes(random, 300));
         run(17, randomBytes(random, 300));
-#ifdef WHEELBRI_G923CAP
         run(18, randomBytes(random, 300));
+#ifdef WHEELBRI_G923CAP
+        run(19, randomBytes(random, 300));
 #endif
         Bytes s(stateBytes.begin(), stateBytes.end());
         s[random() % s.size()] = static_cast<std::uint8_t>(random());

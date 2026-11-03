@@ -23,6 +23,7 @@
 
 #include "SenderProbe.hpp"
 
+#include "wheelbri/ClassicFfb.hpp"
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidPid.hpp"
@@ -380,6 +381,9 @@ public:
     std::unique_ptr<wheelbri::HidPp> hidpp;
     // Its 0x8123 effects played (HidPpFfb.hpp): Logitech's force feedback driver sends a TrueForce game's force so.
     std::unique_ptr<wheelbri::HidPpFfb> hidppFfb;
+    // A classic wheel's (VirtualWheel::classic) force feedback: Logitech's older-wheel driver's classic commands
+    // (ClassicFfb.hpp); null otherwise.
+    std::unique_ptr<wheelbri::ClassicFfb> classicFfb;
 
     // A HID++ answer: an input report for the next read, before any state (and never dropped).
     void reply(Report report);
@@ -514,6 +518,11 @@ Link::Link(DeviceContext* device)
         const auto toService = [this](const wheelbri::FfbPacket& p) { sendFfb(p); };
         hidppFfb = std::make_unique<wheelbri::HidPpFfb>(toService, toLog);
         hidpp->setForceFeedback(hidppFfb.get());
+    }
+    if (wheel != nullptr && wheel->classic) {
+        classicFfb = std::make_unique<wheelbri::ClassicFfb>(
+            [this](const wheelbri::FfbPacket& p) { sendFfb(p); },
+            [](const Level level, const std::string& line) { logLine(level, line); });
     }
 }
 
@@ -791,11 +800,13 @@ void Link::run(const SOCKET sock) {
             lastTick = now;
             pid.tick(now);
             if (hidppFfb) hidppFfb->tick(now);
+            if (classicFfb) classicFfb->tick(now);
         }
         logCounts(now);
     }
     pid.stopAll(nowMs());
     if (hidppFfb) hidppFfb->stopAll(nowMs());
+    if (classicFfb) classicFfb->stopAll(nowMs());
     logLine(Level::Info, "stopped: " + std::to_string(pid.reportsHandled()) +
                              " force feedback reports from the game, " +
             std::to_string(pid.packetsSent()) + " packets to the service");
@@ -816,9 +827,8 @@ NTSTATUS copyToRequest(WDFREQUEST request, const void* source, size_t size) {
     return status;
 }
 
-// A report a classic wheel got (VirtualWheel::classic: Logitech's older-wheel force feedback driver writes its
-// classic commands straight to the device). Logged only, for now: the first kClassicShown of each kind at info, every
-// one at debug.
+// A feature report a classic wheel got (VirtualWheel::classic; its output reports go to ClassicFfb). Logged only: the
+// first kClassicShown at info, every one at debug.
 void logClassicReport(const char* kind, const std::uint8_t reportId, const std::span<const std::uint8_t> data) {
     static std::atomic<unsigned> shown[2]{};
     constexpr unsigned kClassicShown = 200;
@@ -1136,8 +1146,12 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
                     if (auto answer = ctx->link->hidpp->handle(asked, nowMs())) ctx->link->reply(std::move(*answer));
                 } else if (route.to == wheelbri::ReportRoute::To::Pid) {
                     ctx->link->pid.output(route.id, data, nowMs());
-                } else if (route.to == wheelbri::ReportRoute::To::Classic) {
-                    logClassicReport("output", reportId, data);
+                } else if (route.to == wheelbri::ReportRoute::To::Classic && ctx->link->classicFfb) {
+                    // No report IDs: the whole command, its first byte where an ID would be (ClassicFfb logs it).
+                    Report command(data.size() + 1);
+                    command[0] = reportId;
+                    std::copy(data.begin(), data.end(), command.begin() + 1);
+                    ctx->link->classicFfb->command(command, nowMs());
                 }
                 WdfRequestSetInformation(request, data.size() + 1);
             }

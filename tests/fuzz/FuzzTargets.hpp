@@ -9,11 +9,11 @@
 
 namespace wheelbri::fuzz {
 
-// 18: a USBPcap capture (tools/g923-capture), when that tool is built (WHEELBRI_G923CAP).
+// 19: a USBPcap capture (tools/g923-capture), when that tool is built (WHEELBRI_G923CAP).
 #ifdef WHEELBRI_G923CAP
-inline constexpr std::uint8_t kTargets = 19;
+inline constexpr std::uint8_t kTargets = 20;
 #else
-inline constexpr std::uint8_t kTargets = 18;
+inline constexpr std::uint8_t kTargets = 19;
 #endif
 
 // A promise broken by an input (a decoded packet that does not encode back, a force that is not a number).
