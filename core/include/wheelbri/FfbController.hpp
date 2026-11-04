@@ -23,6 +23,10 @@ namespace wheelbri {
 //    same factor;
 //  * if the shim goes quiet for `watchdogNs` (game crashed, paused, or lost the device) every effect is
 //    stopped, and stays stopped until the game sends it again;
+//  * several senders at once (the virtual wheel's driver has HID PID, HID++ and TrueForce, each its own socket and
+//    port; a shim; a game that restarted): each `source` has slots of its own (its slot n where it can, another free
+//    one when another source holds n) and a watchdog of its own: one that goes quiet for `watchdogNs` has its forces
+//    stopped even while another keeps sending, and its "stop all" stops only its own;
 //  * a slot is re-sent to the sink at most every `minUpdateNs` unless it starts or stops, so a slewing
 //    constant force cannot flood the driver;
 //  * a constant push (or a periodic effect's offset) the game leaves exactly as it is for `frozenForceSeconds`
@@ -57,7 +61,10 @@ public:
     FfbController(IFfbSink& sink, const FfbSafetyConfig& safety, Timing timing);
     FfbController(IFfbSink& sink, const FfbSafetyConfig& safety) : FfbController(sink, safety, Timing{}) {}
 
-    void onPacket(const FfbPacket& packet, std::uint64_t nowNs);
+    // `source`: who sent it (the sender's UDP port; 0 for one that is not told apart). A source not heard of before
+    // takes a place of its own (at most kMaxSources; the one quiet longest gives its place up).
+    void onPacket(const FfbPacket& packet, std::uint64_t nowNs, std::uint32_t source = 0);
+    static constexpr std::size_t kMaxSources = 4;
 
     // Call regularly (the service does it every loop tick): applies limits, updates the sink, watchdog.
     void update(std::uint64_t nowNs);
@@ -136,6 +143,20 @@ private:
         float sentScale = 1.0F;              // the cap's scale in lastSent
     };
 
+    // One sender (onPacket's `source`): when it was last heard, and which of the controller's slots hold its slots.
+    struct Source {
+        bool used = false;
+        std::uint32_t id = 0;
+        std::uint64_t lastNs = 0;
+        std::array<std::int8_t, IFfbSink::kMaxSlots> slots{};   // its slot n -> the controller's slot, -1: none
+    };
+    // Its place (made when new), or null when it cannot be had.
+    [[nodiscard]] Source* sourceFor(std::uint32_t id, std::uint64_t nowNs);
+    // The controller's slot for `source`'s slot `slot`: its own n if free, else any free one; -1 when all are taken.
+    [[nodiscard]] int slotFor(Source& source, std::uint8_t slot);
+    // `source`'s slots stopped and given up (its "stop all", or its watchdog); the source forgotten when `forget`.
+    void release(Source& source, bool forget);
+
     // Plays, updates or stops the centring spring (update()).
     void updateCentringSpring();
 
@@ -164,6 +185,7 @@ private:
     std::optional<FfbEffect> springSent_;
     FfbSafetyLimiter springLimiter_;
     bool watchdogTripped_ = false;
+    std::array<Source, kMaxSources> sources_{};
     Stats stats_;
     FfbUsage usage_;
     std::optional<std::uint64_t> lastUsageNs_;

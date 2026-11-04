@@ -667,7 +667,7 @@ public:
             if (!size) break;
             if (gate_ != nullptr && !gate_->allow(sender, nowNs)) continue;
             if (const auto packet = wheelbri::decodeFfbPacket(std::span<const std::uint8_t>(buffer.data(), *size))) {
-                controller_->onPacket(*packet, nowNs);
+                controller_->onPacket(*packet, nowNs, sender);
                 if (telemetry_ != nullptr) {
                     telemetry_->writeFfbPacket(nowNs, *packet);
                 }

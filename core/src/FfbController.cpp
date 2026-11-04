@@ -107,23 +107,86 @@ bool FfbController::differs(const FfbEffect& a, const FfbEffect& b) {
            !closeTo(a.periodic.periodMs, b.periodic.periodMs) || !closeTo(a.periodic.phaseDeg, b.periodic.phaseDeg);
 }
 
-void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs) {
+FfbController::Source* FfbController::sourceFor(const std::uint32_t id, const std::uint64_t nowNs) {
+    Source* quietest = nullptr;
+    for (Source& source : sources_) {
+        if (source.used && source.id == id) return &source;
+    }
+    for (Source& source : sources_) {
+        if (!source.used) {
+            quietest = &source;
+            break;
+        }
+        if (quietest == nullptr || source.lastNs < quietest->lastNs) quietest = &source;
+    }
+    if (quietest->used) {
+        WE_LOG_INFO(log(), "ffb: a {}th sender: port {}'s forces (the one quiet longest) stopped", kMaxSources + 1,
+                    quietest->id);
+        release(*quietest, true);
+    }
+    quietest->used = true;
+    quietest->id = id;
+    quietest->lastNs = nowNs;
+    quietest->slots.fill(-1);
+    return quietest;
+}
+
+int FfbController::slotFor(Source& source, const std::uint8_t slot) {
+    if (source.slots[slot] >= 0) return source.slots[slot];
+    const auto taken = [this](const std::size_t index) {
+        for (const Source& other : sources_) {
+            if (!other.used) continue;
+            for (const std::int8_t held : other.slots) {
+                if (held == static_cast<std::int8_t>(index)) return true;
+            }
+        }
+        return false;
+    };
+    int chosen = -1;
+    if (!taken(slot)) {
+        chosen = slot;   // its own number: one sender alone keeps the slots it sends
+    } else {
+        for (std::size_t i = 0; i < slots_.size() && chosen < 0; ++i) {
+            if (!taken(i)) chosen = static_cast<int>(i);
+        }
+    }
+    if (chosen < 0) {
+        static logging::RateLimiter limiter(std::chrono::seconds(10));
+        WE_LOG_WARN_LIMITED(log(), limiter, "ffb: every slot is taken: port {}'s slot {} is not played", source.id,
+                            slot);
+        return -1;
+    }
+    source.slots[slot] = static_cast<std::int8_t>(chosen);
+    return chosen;
+}
+
+void FfbController::release(Source& source, const bool forget) {
+    for (std::int8_t& held : source.slots) {
+        if (held < 0) continue;
+        Slot& slot = slots_[static_cast<std::size_t>(held)];
+        slot.wanted = false;
+        slot.loaded = false;   // "stop all", or the sender gone: what comes next is a new set of effects
+        held = -1;
+    }
+    if (forget) source.used = false;
+}
+
+void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs, const std::uint32_t sourceId) {
     ++stats_.packets;
     lastPacketNs_ = nowNs;
     if (watchdogTripped_) {
         watchdogTripped_ = false;
         WE_LOG_INFO(log(), "ffb: game force feedback is back");
     }
+    Source* const source = sourceFor(sourceId, nowNs);
+    source->lastNs = nowNs;
 
     switch (packet.kind) {
         case FfbPacket::Kind::KeepAlive:
             return;
         case FfbPacket::Kind::StopAll:
             WE_LOG_DEBUG(log(), "ffb: game stopped all effects");
-            for (Slot& slot : slots_) {
-                slot.wanted = false;
-                slot.loaded = false;   // "stop all" or "reset": what comes next is a new set of effects
-            }
+            release(*source, false);
             return;
         case FfbPacket::Kind::SlotState:
             break;
@@ -134,7 +197,9 @@ void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs)
                             slots_.size());
         return;
     }
-    Slot& slot = slots_[packet.slot];
+    const int index = slotFor(*source, packet.slot);
+    if (index < 0) return;
+    Slot& slot = slots_[static_cast<std::size_t>(index)];
     // A new push, or one the game changed (a restart with the same push is not a change: still frozen).
     const FfbEffect next = screenFullPush(packet.effect, nowNs);
     if (!slot.loaded || next.type != slot.requested.type || !closeTo(next.gain, slot.requested.gain) ||
@@ -250,6 +315,22 @@ void FfbController::update(const std::uint64_t nowNs) {
             WE_LOG_WARN(log(), "ffb: no word from the game for {} ms, all forces stopped",
                         timing_.watchdogNs / 1'000'000);
         }
+    }
+
+    // Each sender's own watchdog: one that went quiet has its forces stopped while another still sends (all quiet:
+    // the watchdog above stopped everything already).
+    for (Source& source : sources_) {
+        if (!source.used || nowNs - source.lastNs <= timing_.watchdogNs) continue;
+        bool anyWanted = false;
+        for (const std::int8_t held : source.slots) {
+            anyWanted = anyWanted || (held >= 0 && slots_[static_cast<std::size_t>(held)].wanted);
+        }
+        if (anyWanted) {
+            ++stats_.watchdogStops;
+            WE_LOG_WARN(log(), "ffb: no word from port {} for {} ms (others still send): its forces stopped",
+                        source.id, timing_.watchdogNs / 1'000'000);
+        }
+        release(source, true);
     }
 
     const float fade = frozenFadeAt(nowNs);
@@ -420,6 +501,7 @@ void FfbController::stopAll() {
     }
     springPlaying_ = false;   // stopped with the rest; the next update() plays it again
     springSent_.reset();
+    sources_ = {};
 }
 
 }  // namespace wheelbri

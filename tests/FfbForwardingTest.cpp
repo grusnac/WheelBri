@@ -209,6 +209,96 @@ TEST(FfbController, WatchdogStopsEverythingWhenTheGameGoesQuiet) {
     EXPECT_EQ(sink.stops.size(), 1U);
 }
 
+// --- several senders (the driver's HID PID, HID++ and TrueForce; a shim; a restarted game) ---
+
+// Two senders using the same slot number each get a slot of their own; one alone keeps its numbers.
+TEST(FfbController, SendersWithTheSameSlotGetSlotsOfTheirOwn) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());
+    FfbEffect spring;
+    spring.type = FfbEffectType::Spring;
+    spring.condition.positiveCoefficient = 0.2F;
+    FfbEffect damper;
+    damper.type = FfbEffectType::Damper;
+    damper.condition.positiveCoefficient = 0.1F;
+    controller.onPacket(slotPacket(7, true, spring), 0, 50001);
+    controller.onPacket(slotPacket(7, true, damper), 0, 50002);
+    controller.update(0);
+
+    ASSERT_EQ(sink.plays.size(), 2U);
+    EXPECT_EQ(sink.plays[0].slot, 0U);   // the second sender's 7, in the first slot free
+    EXPECT_EQ(sink.plays[1].slot, 7U);   // the first sender's own 7
+    EXPECT_EQ(sink.plays[0].effect.type, FfbEffectType::Damper);
+    EXPECT_EQ(sink.plays[1].effect.type, FfbEffectType::Spring);
+    EXPECT_EQ(controller.stats().activeSlots, 2U);
+}
+
+// One sender's "stop all" stops its own effects, not another sender's.
+TEST(FfbController, ASendersStopAllStopsOnlyItsOwn) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());
+    FfbEffect spring;
+    spring.type = FfbEffectType::Spring;
+    spring.condition.positiveCoefficient = 0.2F;
+    controller.onPacket(slotPacket(0, true, spring), 0, 1);
+    controller.onPacket(slotPacket(1, true, spring), 0, 2);
+    controller.update(0);
+    FfbPacket stopAll;
+    stopAll.kind = FfbPacket::Kind::StopAll;
+    controller.onPacket(stopAll, 5 * kMs, 1);
+    controller.update(5 * kMs);
+
+    ASSERT_EQ(sink.stops.size(), 1U);
+    EXPECT_EQ(sink.stops[0], 0U);
+    EXPECT_TRUE(controller.slot(1).wanted);
+}
+
+// A sender that goes quiet (its game crashed) has its forces stopped even while another keeps sending keep-alives:
+// their keep-alives no longer feed its watchdog.
+TEST(FfbController, ASenderGoneQuietIsStoppedWhileAnotherStillSends) {
+    RecordingSink sink;
+    FfbController controller(sink, safety(), {100 * kMs, 4 * kMs});
+    FfbEffect push;
+    push.constantLevel = 0.3F;
+    controller.onPacket(slotPacket(0, true, push), 0, 1);       // the force, then nothing from it
+    FfbEffect spring;
+    spring.type = FfbEffectType::Spring;
+    spring.condition.positiveCoefficient = 0.2F;
+    controller.onPacket(slotPacket(3, true, spring), 0, 2);
+    controller.update(0);
+    for (std::uint64_t t = 50; t <= 300; t += 50) {
+        controller.onPacket(FfbPacket{}, t * kMs, 2);            // the other keeps sending
+        controller.update(t * kMs);
+    }
+
+    ASSERT_EQ(sink.stops.size(), 1U);
+    EXPECT_EQ(sink.stops[0], 0U);
+    EXPECT_FALSE(controller.slot(0).wanted);
+    EXPECT_TRUE(controller.slot(3).wanted);
+    EXPECT_EQ(controller.stats().watchdogStops, 1U);
+    EXPECT_FALSE(controller.watchdogTripped());   // not all of them: the other still sends
+}
+
+// A sender beyond kMaxSources takes the place of the one quiet longest, whose effects are given up.
+TEST(FfbController, TooManySendersGiveUpTheQuietestOne) {
+    RecordingSink sink;
+    FfbController controller(sink, safety());
+    FfbEffect spring;
+    spring.type = FfbEffectType::Spring;
+    spring.condition.positiveCoefficient = 0.2F;
+    for (std::uint32_t s = 0; s < FfbController::kMaxSources; ++s) {
+        controller.onPacket(slotPacket(0, true, spring), s * kMs, 100 + s);
+    }
+    controller.update(10 * kMs);
+    EXPECT_EQ(controller.stats().activeSlots, FfbController::kMaxSources);
+    controller.onPacket(slotPacket(0, true, spring), 20 * kMs, 999);
+    controller.update(20 * kMs);
+    EXPECT_EQ(controller.stats().activeSlots, FfbController::kMaxSources);
+    // Sender 100 (quiet longest) gave its place and its slot up; 999 plays in it now.
+    EXPECT_TRUE(controller.slot(0).wanted);
+    EXPECT_FLOAT_EQ(controller.slot(0).requested.condition.positiveCoefficient, 0.2F);
+}
+
 // After the watchdog stopped everything, the game's next packets bring the forces back.
 TEST(FfbController, ForcesComeBackWhenTheGameSendsAgain) {
     RecordingSink sink;
