@@ -264,7 +264,9 @@ A few settings for every game are in `[ffb]` in your mapping file (press Start a
 TrueForce (ACC) drive your wheel with it. Off by default. It needs Logitech G HUB installed (not running). A game that
 drives the wheel through DirectInput alone is not changed by it: its effects come one by one, as on a G920. Some games
 without TrueForce of their own still use it on a G923 (DiRT Rally 2.0): [Games](games.md). What ACC needs:
-[Games](games.md#assetto-corsa-competizione).
+[Games](games.md#assetto-corsa-competizione). For ACC on a G923, turn it on: a real G923 gets all of ACC's force
+through TrueForce, with or without G HUB running, so this is the path closest to the real wheel. With it off, ACC's
+force comes as effects through Logitech's force feedback driver, which works too.
 
 To test the wheel, press Stop and run (Windows, Command Prompt):
 
