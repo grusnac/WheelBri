@@ -1,5 +1,7 @@
 #include "wheelbri/HelperProtocol.hpp"
 
+#include "wheelbri/ByteOrder.hpp"
+
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HideIds.hpp"
@@ -21,13 +23,9 @@ void put32(std::vector<std::uint8_t>& b, const std::uint32_t v) {
     put16(b, static_cast<std::uint16_t>(v >> 16U));
 }
 
-std::uint16_t get16(std::span<const std::uint8_t> b, const std::size_t at) {
-    return static_cast<std::uint16_t>(b[at] | (b[at + 1] << 8U));
-}
+std::uint16_t get16(std::span<const std::uint8_t> b, const std::size_t at) { return bytes::le16(b, at); }
 
-std::uint32_t get32(std::span<const std::uint8_t> b, const std::size_t at) {
-    return static_cast<std::uint32_t>(get16(b, at)) | (static_cast<std::uint32_t>(get16(b, at + 2)) << 16U);
-}
+std::uint32_t get32(std::span<const std::uint8_t> b, const std::size_t at) { return bytes::le32(b, at); }
 
 void putHeader(std::vector<std::uint8_t>& b, const std::uint32_t magic, const std::uint8_t kind, const std::uint32_t seq) {
     put32(b, magic);

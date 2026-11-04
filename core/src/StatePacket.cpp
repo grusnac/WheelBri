@@ -1,59 +1,15 @@
 #include "wheelbri/StatePacket.hpp"
 
+#include "wheelbri/ByteOrder.hpp"
+
 #include <algorithm>
 
 namespace wheelbri {
 
 namespace {
 
-class ByteWriter {
-public:
-    explicit ByteWriter(std::span<std::uint8_t> out) : out_(out) {}
-
-    void u16(const std::uint16_t value) {
-        out_[offset_++] = static_cast<std::uint8_t>(value);
-        out_[offset_++] = static_cast<std::uint8_t>(value >> 8);
-    }
-
-    void u32(const std::uint32_t value) {
-        for (int shift = 0; shift < 32; shift += 8) {
-            out_[offset_++] = static_cast<std::uint8_t>(value >> shift);
-        }
-    }
-
-    void i32(const std::int32_t value) { u32(static_cast<std::uint32_t>(value)); }
-    void i8(const std::int8_t value) { out_[offset_++] = static_cast<std::uint8_t>(value); }
-
-private:
-    std::span<std::uint8_t> out_;
-    std::size_t offset_ = 0;
-};
-
-class ByteReader {
-public:
-    explicit ByteReader(std::span<const std::uint8_t> in) : in_(in) {}
-
-    std::uint16_t u16() {
-        const auto value = static_cast<std::uint16_t>(in_[offset_] | (in_[offset_ + 1] << 8));
-        offset_ += 2;
-        return value;
-    }
-
-    std::uint32_t u32() {
-        std::uint32_t value = 0;
-        for (int shift = 0; shift < 32; shift += 8) {
-            value |= static_cast<std::uint32_t>(in_[offset_++]) << shift;
-        }
-        return value;
-    }
-
-    std::int32_t i32() { return static_cast<std::int32_t>(u32()); }
-    std::int8_t i8() { return static_cast<std::int8_t>(in_[offset_++]); }
-
-private:
-    std::span<const std::uint8_t> in_;
-    std::size_t offset_ = 0;
-};
+using ByteWriter = bytes::Writer;
+using ByteReader = bytes::Reader;
 
 }  // namespace
 

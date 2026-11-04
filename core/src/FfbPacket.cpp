@@ -1,5 +1,7 @@
 #include "wheelbri/FfbPacket.hpp"
 
+#include "wheelbri/ByteOrder.hpp"
+
 #include <bit>
 #include <cmath>
 
@@ -7,52 +9,16 @@ namespace wheelbri {
 
 namespace {
 
-class Writer {
+using Writer = bytes::Writer;
+
+// Non-finite values (never sent on purpose) become 0 so they cannot reach the wheel.
+class Reader : public bytes::Reader {
 public:
-    explicit Writer(std::span<std::uint8_t> out) : out_(out) {}
-
-    void u8(const std::uint8_t value) { out_[offset_++] = value; }
-    void u16(const std::uint16_t value) {
-        u8(static_cast<std::uint8_t>(value));
-        u8(static_cast<std::uint8_t>(value >> 8));
-    }
-    void u32(const std::uint32_t value) {
-        for (int shift = 0; shift < 32; shift += 8) {
-            u8(static_cast<std::uint8_t>(value >> shift));
-        }
-    }
-    void f32(const float value) { u32(std::bit_cast<std::uint32_t>(value)); }
-
-private:
-    std::span<std::uint8_t> out_;
-    std::size_t offset_ = 0;
-};
-
-class Reader {
-public:
-    explicit Reader(std::span<const std::uint8_t> in) : in_(in) {}
-
-    std::uint8_t u8() { return in_[offset_++]; }
-    std::uint16_t u16() {
-        const std::uint16_t low = u8();
-        return static_cast<std::uint16_t>(low | (u8() << 8));
-    }
-    std::uint32_t u32() {
-        std::uint32_t value = 0;
-        for (int shift = 0; shift < 32; shift += 8) {
-            value |= static_cast<std::uint32_t>(u8()) << shift;
-        }
-        return value;
-    }
-    // Non-finite values (never sent on purpose) become 0 so they cannot reach the wheel.
+    using bytes::Reader::Reader;
     float f32() {
-        const float value = std::bit_cast<float>(u32());
+        const float value = bytes::Reader::f32();
         return std::isfinite(value) ? value : 0.0F;
     }
-
-private:
-    std::span<const std::uint8_t> in_;
-    std::size_t offset_ = 0;
 };
 
 constexpr std::uint8_t kLastEffectType = static_cast<std::uint8_t>(FfbEffectType::SawtoothDown);

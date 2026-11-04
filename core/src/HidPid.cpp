@@ -1,5 +1,7 @@
 #include "wheelbri/HidPid.hpp"
 
+#include "wheelbri/ByteOrder.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -11,18 +13,11 @@ namespace wheelbri {
 
 namespace {
 
-std::int16_t i16(std::span<const std::uint8_t> d, std::size_t at) {
-    return static_cast<std::int16_t>(d[at] | (d[at + 1] << 8U));
-}
+std::int16_t i16(std::span<const std::uint8_t> d, std::size_t at) { return bytes::le16s(d, at); }
 
-std::uint16_t u16(std::span<const std::uint8_t> d, std::size_t at) {
-    return static_cast<std::uint16_t>(d[at] | (d[at + 1] << 8U));
-}
+std::uint16_t u16(std::span<const std::uint8_t> d, std::size_t at) { return bytes::le16(d, at); }
 
-std::uint32_t u32(std::span<const std::uint8_t> d, std::size_t at) {
-    return static_cast<std::uint32_t>(d[at]) | (static_cast<std::uint32_t>(d[at + 1]) << 8U) |
-           (static_cast<std::uint32_t>(d[at + 2]) << 16U) | (static_cast<std::uint32_t>(d[at + 3]) << 24U);
-}
+std::uint32_t u32(std::span<const std::uint8_t> d, std::size_t at) { return bytes::le32(d, at); }
 
 std::string hex(std::span<const std::uint8_t> d) {
     std::string text;

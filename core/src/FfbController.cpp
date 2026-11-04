@@ -18,22 +18,6 @@ const logging::Logger& log() {
     return logger;
 }
 
-const char* typeName(const FfbEffectType type) {
-    switch (type) {
-        case FfbEffectType::Constant: return "constant";
-        case FfbEffectType::Spring: return "spring";
-        case FfbEffectType::Damper: return "damper";
-        case FfbEffectType::Friction: return "friction";
-        case FfbEffectType::Inertia: return "inertia";
-        case FfbEffectType::Sine: return "sine";
-        case FfbEffectType::Square: return "square";
-        case FfbEffectType::Triangle: return "triangle";
-        case FfbEffectType::SawtoothUp: return "sawtooth-up";
-        case FfbEffectType::SawtoothDown: return "sawtooth-down";
-    }
-    return "?";
-}
-
 bool closeTo(const float a, const float b) { return std::abs(a - b) < 1e-3F; }
 
 // A push (a constant force's level, a periodic offset) as close as closeTo, but one that comes to none or changes
@@ -209,7 +193,7 @@ void FfbController::onPacket(const FfbPacket& packet, const std::uint64_t nowNs,
     }
     if (slot.wanted != packet.playing) {
         WE_LOG_DEBUG(log(), "ffb: slot {} {} {}", packet.slot, packet.playing ? "starts" : "stops",
-                     typeName(packet.effect.type));
+                     ffbTypeName(packet.effect.type));
     }
     slot.wanted = packet.playing;
     slot.loaded = true;
