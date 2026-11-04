@@ -9,6 +9,7 @@
 #include "wheelbri/TrueForce.hpp"
 
 #ifdef _WIN32
+#include "WinText.hpp"
 
 #include <windows.h>
 #include <cfgmgr32.h>
@@ -34,21 +35,12 @@ namespace wheelbri::service {
 
 namespace {
 
+using wintext::widen;
+using wintext::narrow;
+
 const logging::Logger& log() {
     static const logging::Logger logger = logging::get("service.driver");
     return logger;
-}
-
-std::wstring widen(const std::string_view text) {
-    return std::wstring(text.begin(), text.end());   // the identities are ASCII
-}
-
-std::string narrow(std::wstring_view wide) {
-    if (wide.empty()) return {};
-    const int size = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
-    std::string text(static_cast<std::size_t>(size), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), text.data(), size, nullptr, nullptr);
-    return text;
 }
 
 // --- Software devices (swdevice.h, cfgmgr32.dll), loaded at run time: not every MinGW has the header ---
@@ -151,8 +143,8 @@ bool isBelow(const std::wstring& instance, const std::wstring& ancestor) {
 // A HID interface with these ids; with `ancestor` set, only one whose device sits below that device (ours, not a real
 // G920 that happens to be plugged in).
 bool hidDevicePresent(USHORT vid, USHORT pid, const std::wstring& ancestor = {}) {
-    static const HMODULE hid = LoadLibraryW(L"hid.dll");
-    static const HMODULE cfg = LoadLibraryW(L"cfgmgr32.dll");
+    static const HMODULE hid = LoadLibraryExW(L"hid.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    static const HMODULE cfg = LoadLibraryExW(L"cfgmgr32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (hid == nullptr || cfg == nullptr) return false;
     using GetGuidFn = void(WINAPI*)(GUID*);
     using GetAttributesFn = BOOLEAN(WINAPI*)(HANDLE, HiddAttributes*);
@@ -576,7 +568,8 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
                                                  const std::function<bool()>& cancelled, const bool userHive,
                                                  const bool trueForce) {
     const auto stopNow = [&cancelled] { return cancelled && cancelled(); };
-    const HMODULE cfg = LoadLibraryW(L"cfgmgr32.dll");
+    // Loaded once for the process (it was loaded again at every Start, and never freed), from System32 only.
+    static const HMODULE cfg = LoadLibraryExW(L"cfgmgr32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     const auto swCreate =
         cfg != nullptr ? reinterpret_cast<SwDeviceCreateFn>(reinterpret_cast<void*>(GetProcAddress(cfg, "SwDeviceCreate"))) : nullptr;
     const auto swClose =

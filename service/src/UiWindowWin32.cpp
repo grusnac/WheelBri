@@ -13,6 +13,7 @@
 #endif
 
 #include "UiWindow.hpp"
+#include "WinText.hpp"
 
 #include "wheelbri/DrawList.hpp"
 #include "wheelbri/Logging.hpp"
@@ -32,6 +33,9 @@ namespace wheelbri::service::ui {
 
 namespace {
 
+using wintext::widen;
+using wintext::lastError;
+
 constexpr wchar_t kClassName[] = L"wheelbri-ui";
 // The text's font: Cascadia Mono (Windows Terminal's, with Windows 11) for its larger, clearer letters; Consolas
 // where it is not installed.
@@ -48,21 +52,6 @@ std::string hex(const HRESULT value) {
     return text;
 }
 
-std::wstring widen(const std::string_view text) {
-    if (text.empty()) {
-        return {};
-    }
-    const int size = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-    if (size <= 0) {   // not UTF-8: take the bytes as they are (ANSI code page)
-        std::wstring out(text.size(), L'?');
-        for (std::size_t i = 0; i < text.size(); ++i) out[i] = static_cast<unsigned char>(text[i]);
-        return out;
-    }
-    std::wstring out(static_cast<std::size_t>(size), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), size);
-    return out;
-}
-
 // `text` into a fixed WCHAR array of a Windows struct, cut to fit (a cut word keeps "..." at its end) and ended.
 template <std::size_t N>
 void copyCut(WCHAR (&out)[N], const std::wstring_view text) {
@@ -77,10 +66,6 @@ void copyCut(WCHAR (&out)[N], const std::wstring_view text) {
 }
 
 constexpr UINT kTrayId = 1;   // WheelBri's one icon in the notification area (notify)
-
-std::string lastError(const char* what) {
-    return std::string(what) + " failed (error " + std::to_string(GetLastError()) + ")";
-}
 
 // Per-monitor DPI awareness (Windows 10 1703+), else system DPI awareness (Vista+). Looked up at run time
 // so the program still starts on older Windows.
@@ -294,8 +279,16 @@ public:
 
     bool openFolder(const std::filesystem::path& folder, std::string& error) override {
         const std::wstring arguments = L"\"" + folder.wstring() + L"\"";
+        // Explorer from the Windows folder by its full path, never found through the search path.
+        wchar_t windows[MAX_PATH] = {};
+        const UINT length = GetWindowsDirectoryW(windows, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH) {
+            error = lastError("GetWindowsDirectory");
+            return false;
+        }
+        const std::wstring explorer = std::wstring(windows) + L"\\explorer.exe";
         const auto result = reinterpret_cast<INT_PTR>(
-            ShellExecuteW(nullptr, L"open", L"explorer.exe", arguments.c_str(), nullptr, SW_SHOWNORMAL));
+            ShellExecuteW(nullptr, L"open", explorer.c_str(), arguments.c_str(), nullptr, SW_SHOWNORMAL));
         if (result > 32) {
             return true;
         }

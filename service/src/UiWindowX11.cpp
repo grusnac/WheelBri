@@ -30,11 +30,20 @@
 #include <cstring>
 #include <string>
 #include <thread>
+#include <string_view>
 #include <vector>
 
 extern char** environ;
 
 namespace wheelbri::service::ui {
+
+// Where openFolder looks for xdg-open, in order: the system's own folders only. A function, so UiWindowX11Test can
+// point it at a stand-in.
+std::vector<std::string>& xdgOpenPlaces() {
+    static std::vector<std::string> places = {"/usr/bin/xdg-open", "/bin/xdg-open", "/usr/local/bin/xdg-open"};
+    return places;
+}
+
 
 namespace {
 
@@ -428,12 +437,32 @@ public:
 
     bool openFolder(const std::filesystem::path& folder, std::string& error) override {
         const std::string path = folder.string();
-        char program[] = "xdg-open";
+        // xdg-open from the system's own folders, never found through PATH; with this session's environment (it needs
+        // DISPLAY and the XDG variables) but not the libraries a launcher (Steam's runtime) preloads or points to.
+        const char* program = nullptr;
+        for (const std::string& candidate : xdgOpenPlaces()) {
+            if (::access(candidate.c_str(), X_OK) == 0) {
+                program = candidate.c_str();
+                break;
+            }
+        }
+        if (program == nullptr) {
+            error = "xdg-open is not installed (/usr/bin/xdg-open)";
+            return false;
+        }
+        std::vector<char*> environment;
+        for (char** entry = environ; *entry != nullptr; ++entry) {
+            const std::string_view variable(*entry);
+            if (variable.starts_with("LD_PRELOAD=") || variable.starts_with("LD_LIBRARY_PATH=")) continue;
+            environment.push_back(*entry);
+        }
+        environment.push_back(nullptr);
+        std::string programName(program);
         std::vector<char> argument(path.begin(), path.end());
         argument.push_back('\0');
-        char* const argv[] = {program, argument.data(), nullptr};
+        char* const argv[] = {programName.data(), argument.data(), nullptr};
         pid_t pid = 0;
-        const int result = posix_spawnp(&pid, program, nullptr, nullptr, argv, environ);
+        const int result = posix_spawn(&pid, program, nullptr, nullptr, argv, environment.data());
         if (result != 0) {
             error = std::string("xdg-open: ") + std::strerror(result);
             return false;

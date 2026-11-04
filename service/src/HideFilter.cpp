@@ -3,6 +3,7 @@
 #include "Privileged.hpp"
 
 #ifdef _WIN32
+#include "WinText.hpp"
 #include "DeviceHolders.hpp"
 #include "DinputDevice.hpp"
 #endif
@@ -32,17 +33,11 @@ namespace wheelbri::service {
 
 namespace {
 
+using wintext::narrow;
+
 const logging::Logger& log() {
     static const logging::Logger logger = logging::get("service.hide");
     return logger;
-}
-
-std::string narrow(std::wstring_view wide) {
-    if (wide.empty()) return {};
-    const int size = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
-    std::string text(static_cast<std::size_t>(size), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), text.data(), size, nullptr, nullptr);
-    return text;
 }
 
 // Strings of a REG_MULTI_SZ buffer.

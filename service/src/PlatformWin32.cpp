@@ -8,6 +8,7 @@
 #endif
 
 #include "Platform.hpp"
+#include "WinText.hpp"
 
 
 #include <winsock2.h>   // before windows.h; AF_INET for the UDP table
@@ -29,6 +30,9 @@
 namespace wheelbri::service::platform {
 
 namespace {
+
+using wintext::widen;
+using wintext::lastError;
 
 // CREATE_WAITABLE_TIMER_HIGH_RESOLUTION (Windows 10 1803+): a sleep that ends within a fraction of a
 // millisecond instead of on the next 1 ms (or 15.6 ms) tick.
@@ -60,14 +64,6 @@ HANDLE threadTimer() {
     return timer.handle;
 }
 
-std::wstring widen(const std::string& text) {
-    if (text.empty()) return {};
-    const int size = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-    std::wstring out(static_cast<std::size_t>(size), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), out.data(), size);
-    return out;
-}
-
 // One argument for CreateProcess's command line, quoted the way the C runtime splits it again.
 void appendArgument(std::wstring& line, const std::wstring& arg) {
     if (!line.empty()) line += L' ';
@@ -92,10 +88,6 @@ void appendArgument(std::wstring& line, const std::wstring& arg) {
     }
     line.append(backslashes * 2, L'\\');
     line += L'"';
-}
-
-std::string lastError(const char* what) {
-    return std::string(what) + " failed (error " + std::to_string(GetLastError()) + ")";
 }
 
 }  // namespace

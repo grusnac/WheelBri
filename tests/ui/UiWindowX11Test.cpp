@@ -31,6 +31,9 @@
 extern char** environ;
 
 namespace wheelbri::service::ui {
+// UiWindowX11.cpp: where openFolder looks for xdg-open.
+std::vector<std::string>& xdgOpenPlaces();
+
 namespace {
 
 // An Xvfb of the test's own on a free display number; DISPLAY points at it while it runs.
@@ -389,7 +392,7 @@ TEST(UiWindowX11, DrawsAFrame) {
     window->present();
 }
 
-// Folders: xdg-open (here a stand-in on PATH) opens one; without it, the error says so. pickFolder needs kdialog or
+// Folders: xdg-open (here a stand-in where the window looks for it) opens one; without it, the error says so. pickFolder needs kdialog or
 // zenity at their full paths: without them, it says what to do instead.
 TEST(UiWindowX11, FoldersAndTheFolderWindow) {
     Xvfb server;
@@ -399,8 +402,8 @@ TEST(UiWindowX11, FoldersAndTheFolderWindow) {
     ASSERT_NE(window, nullptr) << error;
     const std::filesystem::path bin = std::filesystem::temp_directory_path() / "wheelbri-x11-bin";
     std::filesystem::create_directories(bin);
-    const std::string oldPath = std::getenv("PATH") != nullptr ? std::getenv("PATH") : "";
-    setenv("PATH", bin.c_str(), 1);   // no xdg-open
+    const std::vector<std::string> places = xdgOpenPlaces();
+    xdgOpenPlaces() = {(bin / "xdg-open").string()};   // none there yet
     EXPECT_FALSE(window->openFolder("/tmp", error));
     EXPECT_NE(error.find("xdg-open"), std::string::npos) << error;
     {
@@ -408,8 +411,12 @@ TEST(UiWindowX11, FoldersAndTheFolderWindow) {
         script << "#!/bin/sh\nexit 0\n";
     }
     std::filesystem::permissions(bin / "xdg-open", std::filesystem::perms::owner_all);
+    // Found where the window looks, never through PATH (a PATH that names it changes nothing).
+    const std::string oldPath = std::getenv("PATH") != nullptr ? std::getenv("PATH") : "";
+    setenv("PATH", "/nowhere", 1);
     EXPECT_TRUE(window->openFolder("/tmp", error)) << error;
     setenv("PATH", oldPath.c_str(), 1);
+    xdgOpenPlaces() = places;
     std::this_thread::sleep_for(std::chrono::milliseconds(200));   // it runs, its waiter collects it
     std::filesystem::remove_all(bin);
 

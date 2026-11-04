@@ -72,8 +72,8 @@ F proc(HMODULE m, const char* name) {
 
 std::vector<Collection> g923Collections() {
     std::vector<Collection> found;
-    const HMODULE hid = LoadLibraryW(L"hid.dll");
-    const HMODULE setup = LoadLibraryW(L"setupapi.dll");
+    const HMODULE hid = LoadLibraryExW(L"hid.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    const HMODULE setup = LoadLibraryExW(L"setupapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     const auto getGuid = proc<GetHidGuidFn>(hid, "HidD_GetHidGuid");
     const auto getPreparsed = proc<GetPreparsedFn>(hid, "HidD_GetPreparsedData");
     const auto freePreparsed = proc<FreePreparsedFn>(hid, "HidD_FreePreparsedData");
