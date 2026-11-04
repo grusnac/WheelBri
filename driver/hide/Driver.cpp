@@ -443,7 +443,10 @@ std::string describeProcess(const ULONG pid) {
     return "process " + std::to_string(pid) + (name.empty() ? std::string() : " (" + name + ")");
 }
 
-// One log line per program that opens the wheel or is refused (a game retries often), until the hiding changes.
+// One log line per program that opens the wheel or is refused (a game retries often), until the hiding changes. At
+// most kMaxSeen programs are remembered (a program that opens and closes it in a loop gets new process ids): past that
+// the list starts again, which only means a line said again.
+constexpr std::size_t kMaxSeen = 256;
 std::mutex g_seenLock;
 std::unordered_map<ULONG, bool> g_seen;
 ULONG g_lastAllowed = ~0UL;
@@ -456,6 +459,7 @@ void noteDecision(const ULONG pid, const ULONG allowed, const bool refused) {
         logLine(Level::Info, allowed == 0 ? "not hidden: every program may open the wheel"
                              : "hidden: only " + describeProcess(allowed) + " may open the wheel");
     }
+    if (g_seen.size() >= kMaxSeen) g_seen.clear();
     if (!g_seen.emplace(pid, true).second) return;
     if (refused) {
         logLine(Level::Info, "refused " + describeProcess(pid) + " (the wheel is hidden from it)");

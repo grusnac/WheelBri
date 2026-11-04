@@ -53,9 +53,10 @@ struct Answer {
 [[nodiscard]] Answer answerMessage(std::span<const std::uint8_t> bytes, const CallerInfo& caller,
                                    std::string_view version, RequestHandler* session);
 
-// Whether the helper's log may move into this caller's own log folder (written as the caller): an accepted caller,
-// or WheelBri itself from another folder (a development build, or an app run as Administrator) saying Hello. Any
-// other program may not take the helper's log.
+// Whether the helper's log may move into this caller's own log folder (written as the caller): an accepted caller
+// only. A program merely named wheelbri.exe elsewhere (anyone may name one so) may not: on a PC with several users it
+// would take the log, and every other user's lines in it, into its own folder. A development build's app takes it
+// from a helper of the same build (--console), which accepts it.
 [[nodiscard]] bool mayTakeTheLog(const CallerInfo& caller);
 
 }  // namespace wheelbri::helper

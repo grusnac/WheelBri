@@ -13,7 +13,7 @@ namespace wheelbri::helper {
 
 // The helper's log, in WheelBri's user's log folder with every other log
 // (%LOCALAPPDATA%\wheelbri\logs\wheelbri-helper-<date>-<NN>.log): the user's choice, 2026-10-06; it follows whoever
-// last ran WheelBri (HelperServer.hpp: an accepted app, or WheelBri from another folder saying Hello).
+// last ran WheelBri (HelperServer.hpp: an accepted app).
 //
 // The helper runs as SYSTEM and that folder belongs to the user, who could put a link in it pointing anywhere. So
 // the file is created and opened only while impersonating that user (with the token of the pipe's client): Windows

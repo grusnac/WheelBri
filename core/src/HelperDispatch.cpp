@@ -84,7 +84,7 @@ Answer answerMessage(const std::span<const std::uint8_t> bytes, const CallerInfo
 }
 
 bool mayTakeTheLog(const CallerInfo& caller) {
-    return caller.accepted || isWheelBriProgram(caller.image);
+    return caller.accepted;
 }
 
 }  // namespace wheelbri::helper

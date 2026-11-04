@@ -24,9 +24,9 @@ namespace wheelbri::helper {
 //   unserved, so the pipe's name never goes away while the helper runs (callers find it busy, never missing).
 // - When a connection closes (Stop, a crash, logoff) its session is destroyed, which undoes what it set up: its
 //   virtual G920 removed, the rig shown again.
-// - The helper's log follows WheelBri (mayTakeTheLog): the first message of an accepted caller, or a Hello from
-//   WheelBri in another folder, moves it into that user's own log folder, opened as that user (HelperLog.hpp). The
-//   same Hello's log level (the app's Level button) becomes the helper's.
+// - The helper's log follows WheelBri (mayTakeTheLog): the first message of an accepted caller moves it into that
+//   user's own log folder, opened as that user (HelperLog.hpp). The same Hello's log level (the app's Level button)
+//   becomes the helper's.
 class HelperServer {
 public:
     static constexpr int kMaxConnections = 4;

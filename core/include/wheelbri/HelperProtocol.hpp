@@ -116,8 +116,7 @@ inline constexpr std::string_view kTrueForceProbe = "trueforce-probe";
 [[nodiscard]] bool isInstalledApp(std::string_view image, std::string_view installFolder);
 
 // Whether `image` is WheelBri's own program (wheelbri.exe or wheelbri-service.exe) in any folder, ignoring case and
-// '/' or '\'. Not a check of trust (anyone may name a program so): only whether the helper's log may follow it
-// (HelperDispatch.hpp mayTakeTheLog).
+// '/' or '\'. Not a check of trust (anyone may name a program so): never enough to act on alone.
 [[nodiscard]] bool isWheelBriProgram(std::string_view image);
 
 [[nodiscard]] const char* requestName(RequestType type);

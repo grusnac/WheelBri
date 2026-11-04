@@ -292,9 +292,17 @@ private:
             });
         } catch (const std::exception& e) {
             WE_LOG_ERROR(log(), "helper: no session for pid {}: {}", caller_.info.pid, e.what());
+            closeUnused(process, token);
         } catch (...) {
             WE_LOG_ERROR(log(), "helper: no session for pid {} (an unknown error)", caller_.info.pid);
+            closeUnused(process, token);
         }
+    }
+
+    // The factory threw before a session took the caller's handles (it closes them once it has them): closed here.
+    static void closeUnused(const HANDLE process, const HANDLE token) {
+        if (process != nullptr) CloseHandle(process);
+        if (token != nullptr) CloseHandle(token);
     }
 
     void note(const Answer& answer) {

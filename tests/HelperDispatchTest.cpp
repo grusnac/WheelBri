@@ -97,11 +97,11 @@ TEST(HelperDispatch, HelloWithDevicesIsStillHello) {
 
 TEST(HelperDispatch, AHellosLogLevelIsTakenFromWheelBriOnly) {
     EXPECT_EQ(ask(Request{RequestType::Hello, 1, {"debug"}}, accepted(), nullptr).logLevel, LogLevel::Debug);
-    // WheelBri from another folder: refused, closed, but its user's log and level are the helper's.
+    // A program named wheelbri.exe elsewhere: refused, closed, and its level is not the helper's either.
     const Answer dev = ask(Request{RequestType::Hello, 1, {"trace"}},
                            refused(R"(D:\projects\WheelBri\build\service\wheelbri.exe)"), nullptr);
     EXPECT_EQ(dev.reply.status, Status::Refused);
-    EXPECT_EQ(dev.logLevel, LogLevel::Trace);
+    EXPECT_FALSE(dev.logLevel.has_value());
     // Any other program: nothing.
     EXPECT_FALSE(ask(Request{RequestType::Hello, 1, {"trace"}}, refused(), nullptr).logLevel.has_value());
     // An older app's Hello, or one saying a level the app cannot pick: the level stays.
@@ -274,9 +274,9 @@ TEST(HelperDispatch, ASetLogLevelTheSessionCarriedOutSetsTheHelpersLevelToo) {
 
 TEST(HelperDispatch, TheLogGoesToWheelBriOnly) {
     EXPECT_TRUE(mayTakeTheLog(accepted()));
-    // WheelBri from another folder (a development build, an app run as Administrator): its user's folder too.
-    EXPECT_TRUE(mayTakeTheLog(refused(R"(D:\projects\WheelBri\build\service\wheelbri.exe)")));
-    EXPECT_TRUE(mayTakeTheLog(refused(R"(D:\x\wheelbri-service.exe)")));
+    // Named wheelbri.exe elsewhere: anyone may name a program so; not enough to take the helper's log.
+    EXPECT_FALSE(mayTakeTheLog(refused(R"(D:\projects\WheelBri\build\service\wheelbri.exe)")));
+    EXPECT_FALSE(mayTakeTheLog(refused(R"(D:\x\wheelbri-service.exe)")));
     EXPECT_FALSE(mayTakeTheLog(refused()));
     EXPECT_FALSE(mayTakeTheLog(refused("")));   // a program Windows would not name
     EXPECT_FALSE(mayTakeTheLog(refused(R"(C:\Program Files\WheelBri\wheelbri-helper.exe)")));
