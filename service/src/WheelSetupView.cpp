@@ -135,6 +135,7 @@ void WheelSetupView::releaseWheel() {
     backend_.reset();
     connected_.clear();
     relist_ = RelistTimer(relistSettings());
+    listedGeneration_ = 0;
     listLogged_ = false;
 }
 
@@ -144,8 +145,31 @@ RelistTimer::Settings WheelSetupView::relistSettings() {
 }
 
 bool WheelSetupView::refreshDevices(const bool force) {
-    // Only when a device came or went (a quick look at a counter on every frame), not every 2 s: listing through
-    // DirectInput can hold this window's thread for a good part of a second.
+    // The app lists on DeviceWatch's thread: a new listing from it is taken as it comes (a device that stopped
+    // answering is found gone, or back, by its next one). Listing through DirectInput can hold a thread for a good
+    // part of a second, so this window's thread never does it then.
+    if (settings_.devices != nullptr) {
+        const auto snapshot = settings_.devices->latest();
+        if (!snapshot || snapshot->generation == listedGeneration_) {
+            if (settings_.devices->unavailable() && !statusError_) {
+                status_ = "Cannot read game controllers on this computer (the log says why).";
+                statusError_ = true;
+            }
+            return false;
+        }
+        if (backend_ == nullptr) {   // to open the devices listed (by path); it lists nothing itself
+            backend_ = startWheelBackend();
+            if (backend_ == nullptr) {
+                status_ = "Cannot read game controllers on this computer (the log says why).";
+                statusError_ = true;
+                return false;
+            }
+        }
+        listedGeneration_ = snapshot->generation;
+        adoptListing(snapshot->devices);
+        return true;
+    }
+    // Listed here: only when a device came or went (a quick look at a counter on every frame), not every 2 s.
     const std::uint64_t changes = platform::DeviceChanges::shared().counter().count();
     if (!force && !relist_.due(platform::nowMs(), changes)) return false;
     if (backend_ == nullptr) {
@@ -161,6 +185,11 @@ bool WheelSetupView::refreshDevices(const bool force) {
     std::vector<WheelInfo> found = backend_->list();
     // The time is taken after listing: DirectInput can take a good part of a second to list.
     relist_.listed(platform::nowMs(), changes);
+    adoptListing(std::move(found));
+    return true;
+}
+
+void WheelSetupView::adoptListing(std::vector<WheelInfo> found) {
     if (found.size() != connected_.size() || !listLogged_) {
         listLogged_ = true;
         std::string names;
@@ -171,7 +200,6 @@ bool WheelSetupView::refreshDevices(const bool force) {
                     names);
     }
     connected_ = std::move(found);
-    return true;
 }
 
 void WheelSetupView::openConnected() {

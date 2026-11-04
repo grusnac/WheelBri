@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "DeviceWatch.hpp"
 #include "HoverText.hpp"
 #include "UiWindow.hpp"
 #include "Wheel.hpp"
@@ -49,6 +50,9 @@ public:
         std::filesystem::path rigsFolder;      // <name>.ini per rig
         std::filesystem::path devicesFolder;   // the older per-device names: the first rig starts from them
         std::filesystem::path stateFile;       // [app] rig = the active rig
+        // The app's listing of the connected game controllers, made on a thread of its own: the tab takes each new
+        // one from it. Null (the CLI's window): the tab lists them itself, on this window's thread.
+        const DeviceWatch* devices = nullptr;
     };
 
     // A running session's wheel, as the window gets it.
@@ -135,6 +139,7 @@ private:
 
     // Devices.
     bool refreshDevices(bool force);
+    void adoptListing(std::vector<WheelInfo> found);   // the devices connected now: logged when that changes
     void openConnected();
     void detect(Open& device);
     [[nodiscard]] const Open* openFor(const DeviceId& id) const;
@@ -219,6 +224,7 @@ private:
     // When to list the game controllers again: when the system says one came or went (platform::DeviceChanges).
     [[nodiscard]] static RelistTimer::Settings relistSettings();
     RelistTimer relist_{relistSettings()};
+    std::uint64_t listedGeneration_ = 0;   // the DeviceWatch listing taken last (Settings::devices)
     bool listLogged_ = false;
     bool fromSession_ = false;
     WheelInfo sessionInfo_;

@@ -405,7 +405,7 @@ private:
                                              ConfigPicker::virtualDeviceSupported(windowsBuild),
                                              ConfigPicker::windowsName(windowsBuild), settings_.trueForceSdk});
         setup_ = std::make_unique<WheelSetupView>(
-            *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile});
+            *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile, &devices_});
         MappingView::setEditorTabs(true);   // the live view's tab bar has Mapping (the editor), Live and Games
         // The first time (no rig yet) the devices are defined first; then the mapping is where to go.
         idleTab_ = WheelSetupView::anyRig(rigsFolder()) ? IdleTab::Mapping : IdleTab::Setup;
