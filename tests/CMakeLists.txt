@@ -101,6 +101,7 @@ if(TARGET wheelbri_privileged)
         ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp ${PROJECT_SOURCE_DIR}/service/src/AppLogLevel.cpp
         ${PROJECT_SOURCE_DIR}/service/src/ConfigPicker.cpp ${PROJECT_SOURCE_DIR}/service/src/ShimGamesView.cpp
         ${PROJECT_SOURCE_DIR}/service/src/HoverText.cpp ${PROJECT_SOURCE_DIR}/service/src/MappingEditView.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/MappingEditGames.cpp ${PROJECT_SOURCE_DIR}/service/src/MappingEditPickers.cpp
         ${PROJECT_SOURCE_DIR}/service/src/GameWatch.cpp ${PROJECT_SOURCE_DIR}/service/src/ServiceLogging.cpp)
     # MappingEditView shows the version (Version.hpp): the build's own, generated (service/CMakeLists.txt).
     target_compile_definitions(wheelbri_tests PRIVATE WHEELBRI_VERSION="${PROJECT_VERSION}")
@@ -216,6 +217,8 @@ if(TARGET wheelbri_privileged)
         ${PROJECT_SOURCE_DIR}/service/src/HelperProbe.cpp
         ${PROJECT_SOURCE_DIR}/service/src/HoverText.cpp
         ${PROJECT_SOURCE_DIR}/service/src/MappingEditView.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/MappingEditGames.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/MappingEditPickers.cpp
         ${PROJECT_SOURCE_DIR}/service/src/MappingView.cpp
         ${PROJECT_SOURCE_DIR}/service/src/ShadowView.cpp
         ${PROJECT_SOURCE_DIR}/service/src/PrivilegedSteps.cpp

@@ -489,6 +489,12 @@ private:
     std::optional<GameSettingsFileState> fileState_;
     std::string fileStateKey_;
     std::uint64_t fileStateReadMs_ = 0;
+    // Where that file is (gameFilePlace reads app.ini and asks for Documents), for drawing: read again with the file
+    // state, or when app.ini's time or size changed, never every frame.
+    std::string filePlaceGame_;
+    GameFilePlace filePlace_;
+    std::filesystem::file_time_type filePlaceStateWritten_{};
+    std::uintmax_t filePlaceStateSize_ = 0;
 };
 
 }  // namespace wheelbri::service

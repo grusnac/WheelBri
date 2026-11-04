@@ -52,6 +52,8 @@ add_library(wheelbri_service_objects OBJECT
     src/ConfigPicker.cpp
     src/ShimGamesView.cpp
     src/MappingEditView.cpp
+    src/MappingEditGames.cpp
+    src/MappingEditPickers.cpp
     src/HoverText.cpp
 )
 target_link_libraries(wheelbri_service_objects PUBLIC wheelbri_privileged)
