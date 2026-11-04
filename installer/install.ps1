@@ -49,7 +49,9 @@ param(
     [string]$InstallDir = '',
     [switch]$NoDesktopShortcut,
     [switch]$StopBrowserGamepads,
-    [switch]$Quiet
+    [switch]$Quiet,
+    # Set by the run below that copied the package into a folder only Administrators may change (not for users).
+    [switch]$Staged
 )
 
 if (-not $InstallDir) {
@@ -85,6 +87,41 @@ if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Pri
         Write-Host 'WheelBri needs Administrator to install its drivers, and that was refused.' -ForegroundColor Red
         exit 1
     }
+}
+
+# Elevated now, but running from where the user's programs may write (Setup.cmd unpacks to %TEMP%; a package folder
+# under Downloads): the package is copied first into a new folder under %SystemRoot%\Temp that only Administrators
+# and SYSTEM may change, and the install runs from that copy. Nothing the drivers, the helper or the app's files are
+# installed from can then be swapped while it runs (between a check and its use).
+if (-not $Staged) {
+    $stage = Join-Path $env:SystemRoot ("Temp\wheelbri-setup-" + [guid]::NewGuid().ToString('N'))
+    try {
+        New-Item -ItemType Directory -Path $stage -ErrorAction Stop | Out-Null   # new: fails if anything is there
+        $acl = New-Object System.Security.AccessControl.DirectorySecurity
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($sid in 'S-1-5-32-544', 'S-1-5-18') {   # Administrators, SYSTEM
+            $who = New-Object System.Security.Principal.SecurityIdentifier($sid)
+            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($who, 'FullControl',
+                'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+        }
+        $acl.SetOwner((New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')))
+        Set-Acl -LiteralPath $stage -AclObject $acl
+        Copy-Item -Path (Join-Path $PSScriptRoot '*') -Destination $stage -Recurse -Force -ErrorAction Stop
+    } catch {
+        Write-Host "Could not copy the package to $stage`: $($_.Exception.Message)" -ForegroundColor Red
+        if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
+        if (-not $Quiet) { Read-Host 'Press Enter to close' | Out-Null }
+        exit 1
+    }
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $stage 'install.ps1'), '-InstallDir',
+                   $InstallDir, '-Staged')
+    if ($NoDesktopShortcut) { $arguments += '-NoDesktopShortcut' }
+    if ($StopBrowserGamepads) { $arguments += '-StopBrowserGamepads' }
+    if ($Quiet) { $arguments += '-Quiet' }
+    & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') @arguments
+    $code = $LASTEXITCODE
+    Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    exit $code
 }
 
 $ErrorActionPreference = 'Stop'
