@@ -75,8 +75,27 @@ DWORD grantLocalService(const HANDLE directory) {
 
 }  // namespace
 
-HelperSession::HelperSession(void* const process, void* const token, const int scriptLevels, Cancelled cancelled)
-    : process_(process), token_(token), scriptLevels_(scriptLevels), cancelled_(std::move(cancelled)) {
+HelperSession::Steps HelperSession::systemSteps() {
+    namespace privileged = service::privileged;
+    Steps steps;
+    steps.allowOnly = privileged::allowOnly;
+    steps.allowedPid = privileged::allowedPid;
+    steps.writeAllowedPid = privileged::writeAllowedPid;
+    steps.interfaceProblem = service::HideFilter::interfaceProblem;
+    steps.putHideFilter = privileged::putHideFilter;
+    steps.takeHideFilterOff = privileged::takeHideFilterOff;
+    steps.installWheelDriver = privileged::installWheelDriver;
+    steps.writeLogLevel = privileged::writeLogLevel;
+    return steps;
+}
+
+HelperSession::HelperSession(void* const process, void* const token, const int scriptLevels, Cancelled cancelled,
+                             Steps steps)
+    : process_(process),
+      token_(token),
+      scriptLevels_(scriptLevels),
+      cancelled_(std::move(cancelled)),
+      steps_(std::move(steps)) {
     pid_ = GetProcessId(static_cast<HANDLE>(process_));
 }
 
@@ -89,7 +108,7 @@ HelperSession::~HelperSession() {
     if (!filterOn_.empty()) {
         WE_LOG_INFO(log(), "helper: pid {} is gone: taking the hide filter off the rig", pid_);
         std::string message;
-        (void)service::privileged::takeHideFilterOff(filterOn_, {}, message);
+        (void)steps_.takeHideFilterOff(filterOn_, {}, message);
     }
     if (token_ != nullptr) CloseHandle(static_cast<HANDLE>(token_));
     CloseHandle(static_cast<HANDLE>(process_));
@@ -141,7 +160,7 @@ Reply HelperSession::createVirtualWheel(const Request& request) {
 
 Reply HelperSession::hideRig(const std::uint32_t seq) {
     std::string message;
-    if (!service::privileged::allowOnly(process_, message)) return Reply{seq, Status::Failed, message};
+    if (!steps_.allowOnly(process_, message)) return Reply{seq, Status::Failed, message};
     hid_ = true;
     WE_LOG_INFO(log(), "helper: the rig is hidden from games (only pid {} may open its devices)", pid_);
     return Reply{seq, Status::Ok, {}};
@@ -156,11 +175,11 @@ Reply HelperSession::showRig(const std::uint32_t seq) {
 // Shows the rig again when this session hid it and nobody hid it since (another app session's setting is left alone).
 void HelperSession::showRigIfOurs() {
     if (!hid_) return;
-    if (service::privileged::allowedPid() != pid_) {
+    if (steps_.allowedPid() != pid_) {
         hid_ = false;
         return;
     }
-    if (service::privileged::writeAllowedPid(0, 0)) {
+    if (steps_.writeAllowedPid(0, 0)) {
         hid_ = false;
         WE_LOG_INFO(log(), "helper: the rig is visible to games again (pid {})", pid_);
     }
@@ -168,14 +187,14 @@ void HelperSession::showRigIfOurs() {
 
 Reply HelperSession::putHideFilter(const Request& request) {
     for (const std::string& id : request.devices) {
-        if (const std::string problem = service::HideFilter::interfaceProblem(id); !problem.empty()) {
+        if (const std::string problem = steps_.interfaceProblem(id); !problem.empty()) {
             WE_LOG_WARN(log(), "helper: refused PutHideFilter from pid {}: {}", pid_, problem);
             return Reply{request.seq, Status::Refused, problem};
         }
     }
     std::string message;
     // The script skips the interfaces that have the filter already; then all of them are waited for.
-    const service::privileged::HideSetup result = service::privileged::putHideFilter(
+    const service::privileged::HideSetup result = steps_.putHideFilter(
         request.devices, request.devices, scriptLevels_, scriptLogFolder(), cancelled_, message);
     if (result == service::privileged::HideSetup::Running || result == service::privileged::HideSetup::Waiting) {
         for (const std::string& id : request.devices) {
@@ -196,7 +215,7 @@ Reply HelperSession::putHideFilter(const Request& request) {
 Reply HelperSession::takeHideFilterOff(const Request& request) {
     std::string message;
     const service::privileged::HideSetup result =
-        service::privileged::takeHideFilterOff(request.devices, cancelled_, message);
+        steps_.takeHideFilterOff(request.devices, cancelled_, message);
     if (result != service::privileged::HideSetup::Failed) {
         std::erase_if(filterOn_, [&request](const std::string& id) {
             return std::find(request.devices.begin(), request.devices.end(), id) != request.devices.end();
@@ -214,7 +233,7 @@ Reply HelperSession::takeHideFilterOff(const Request& request) {
 
 Reply HelperSession::installWheelDriver(const std::uint32_t seq) {
     std::string message;
-    return service::privileged::installWheelDriver(scriptLevels_, scriptLogFolder(), cancelled_, message)
+    return steps_.installWheelDriver(scriptLevels_, scriptLogFolder(), cancelled_, message)
                ? Reply{seq, Status::Ok, {}}
                : Reply{seq, Status::Failed, message};
 }
@@ -227,7 +246,7 @@ Reply HelperSession::setLogLevel(const Request& request) {
     const std::optional<LogLevel> level = requestLogLevel(request);   // requestProblem checked it
     if (!level) return Reply{request.seq, Status::Refused, "SetLogLevel takes one level: trace, debug, info or warn"};
     std::string message;
-    if (!service::privileged::writeLogLevel(*level, message)) return Reply{request.seq, Status::Failed, message};
+    if (!steps_.writeLogLevel(*level, message)) return Reply{request.seq, Status::Failed, message};
     return Reply{request.seq, Status::Ok, {}};
 }
 

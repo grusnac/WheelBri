@@ -1,9 +1,12 @@
 #pragma once
 
+#include "Privileged.hpp"
+
 #include "wheelbri/HelperDispatch.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HelperProtocol.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -33,9 +36,31 @@ class HelperSession final : public RequestHandler {
 public:
     using Cancelled = std::function<bool()>;
 
+    // The privileged steps a session takes (service::privileged and HideFilter::interfaceProblem by default):
+    // HelperSessionTest puts fakes here, to check what a session does and that it undoes it.
+    struct Steps {
+        std::function<bool(void* process, std::string& message)> allowOnly;
+        std::function<std::uint32_t()> allowedPid;
+        std::function<bool(std::uint32_t pid, std::uint64_t processStart)> writeAllowedPid;
+        std::function<std::string(const std::string& instanceId)> interfaceProblem;
+        std::function<service::privileged::HideSetup(const std::vector<std::string>& install,
+                                                     const std::vector<std::string>& interfaces, int levelsAbove,
+                                                     const std::filesystem::path& logFolder,
+                                                     const Cancelled& cancelled, std::string& message)>
+            putHideFilter;
+        std::function<service::privileged::HideSetup(const std::vector<std::string>& interfaces,
+                                                     const Cancelled& cancelled, std::string& message)>
+            takeHideFilterOff;
+        std::function<bool(int levelsAbove, const std::filesystem::path& logFolder, const Cancelled& cancelled,
+                           std::string& message)>
+            installWheelDriver;
+        std::function<bool(LogLevel level, std::string& message)> writeLogLevel;
+    };
+    [[nodiscard]] static Steps systemSteps();
+
     // `process`, `token`: HANDLEs this session keeps and closes (the caller's process: PROCESS_QUERY_LIMITED_INFORMATION
     // | SYNCHRONIZE | READ_CONTROL | WRITE_DAC; an impersonation token of the caller, or null when it gave none).
-    HelperSession(void* process, void* token, int scriptLevels, Cancelled cancelled);
+    HelperSession(void* process, void* token, int scriptLevels, Cancelled cancelled, Steps steps = systemSteps());
     ~HelperSession() override;
 
     HelperSession(const HelperSession&) = delete;
@@ -63,6 +88,7 @@ private:
     std::uint32_t pid_ = 0;
     int scriptLevels_;
     Cancelled cancelled_;
+    Steps steps_;
     std::unique_ptr<service::VirtualWheelDevice> device_;
     const VirtualWheel* deviceWheel_ = nullptr;   // which one device_ is
     bool hid_ = false;
