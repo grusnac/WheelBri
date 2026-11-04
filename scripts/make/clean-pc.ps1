@@ -191,21 +191,28 @@ function Get-Shortcuts {
 
 # DirectInput's OEM entries the service writes while a virtual wheel exists (service/src/VirtualWheelDevice.cpp
 # writeDirectInputEntries), under Joystick\OEM\<ids> in HKLM and HKCU: OEMName (the name below, kVirtualWheels'
-# oemName in core/src/HidWheelDevice.cpp), OEMData, and for the G923 an Axes key marked with a "WheelBri" value. A real
-# Logitech wheel has entries under the same ids: those stay. By target: G25, G27, G920, G923. (The same as
-# installer/uninstall.ps1.)
+# oemName in core/src/HidWheelDevice.cpp), OEMData, for the G923 an Axes key marked with a "WheelBri" value, and for
+# the G25/G27 in Logitech order an OEMForceFeedback key (Logitech's older-wheel driver) and Axes key, both marked the
+# same way (removed at Stop; still there after a crash). A real Logitech wheel has entries under the same ids: those
+# stay. By target: G25, G27, G920, G923. (The same as installer/uninstall.ps1.)
 $oemNames = [ordered]@{
     'VID_046D&PID_C299' = 'Logitech G25 Racing Wheel USB'
     'VID_046D&PID_C29B' = 'Logitech G27 Racing Wheel USB'
     'VID_046D&PID_C262' = 'Logitech G920 Driving Force Racing Wheel USB'
     'VID_046D&PID_C26E' = 'Logitech G923 Racing Wheel for Xbox One and PC'
 }
-# What of one OEM key is WheelBri's: OEMName and OEMData when OEMName is the name WheelBri writes, the Axes key when it
-# has the "WheelBri" value. The key itself goes only when nothing else is left in it (Remove-OemEntries).
-function Get-OemRemoval([string]$oemName, [string]$ourName, [bool]$axesMarked) {
+# What of one OEM key is WheelBri's: OEMName and OEMData when OEMName is the name WheelBri writes, the Axes and
+# OEMForceFeedback keys when they have the "WheelBri" value. The key itself goes only when nothing else is left in it
+# (Remove-OemEntries).
+function Get-OemRemoval([string]$oemName, [string]$ourName, [bool]$axesMarked, [bool]$ffbMarked = $false) {
     $values = @()
     if ($oemName -and $oemName -ceq $ourName) { $values = @('OEMName', 'OEMData') }
-    return [pscustomobject]@{ Values = $values; Axes = $axesMarked }
+    return [pscustomobject]@{ Values = $values; Axes = $axesMarked; Ffb = $ffbMarked }
+}
+# Whether the key under <key> named <subKey> carries the "WheelBri" value (WheelBri wrote it).
+function Test-OemMarked([string]$key, [string]$subKey) {
+    $item = Get-Item -LiteralPath "$key\$subKey" -ErrorAction SilentlyContinue
+    return [bool]($item -and (@($item.GetValueNames()) -contains 'WheelBri'))
 }
 # WheelBri's entries found under each OEM key: objects with Key, Name (ours for that id) and What (what would go).
 function Get-OurOemEntries {
@@ -214,11 +221,11 @@ function Get-OurOemEntries {
             $key = "$hive\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$ids"
             $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
             if (-not $item) { continue }
-            $axes = Get-Item -LiteralPath "$key\Axes" -ErrorAction SilentlyContinue
-            $marked = [bool]($axes -and (@($axes.GetValueNames()) -contains 'WheelBri'))
-            $removal = Get-OemRemoval ([string]$item.GetValue('OEMName')) $oemNames[$ids] $marked
+            $removal = Get-OemRemoval ([string]$item.GetValue('OEMName')) $oemNames[$ids] (Test-OemMarked $key 'Axes') `
+                                      (Test-OemMarked $key 'OEMForceFeedback')
             $what = @($removal.Values | Where-Object { @($item.GetValueNames()) -contains $_ })
             if ($removal.Axes) { $what += 'Axes' }
+            if ($removal.Ffb) { $what += 'OEMForceFeedback' }
             if ($what.Count -gt 0) { [pscustomobject]@{ Key = $key; Name = $oemNames[$ids]; What = $what } }
         }
     }
@@ -227,9 +234,8 @@ function Get-OurOemEntries {
 function Remove-OemEntries([string]$key, [string]$ourName) {
     $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
     if (-not $item) { return @() }
-    $axes = Get-Item -LiteralPath "$key\Axes" -ErrorAction SilentlyContinue
-    $marked = [bool]($axes -and (@($axes.GetValueNames()) -contains 'WheelBri'))
-    $removal = Get-OemRemoval ([string]$item.GetValue('OEMName')) $ourName $marked
+    $removal = Get-OemRemoval ([string]$item.GetValue('OEMName')) $ourName (Test-OemMarked $key 'Axes') `
+                              (Test-OemMarked $key 'OEMForceFeedback')
     $removed = @()
     foreach ($value in $removal.Values) {
         if (@($item.GetValueNames()) -contains $value) {
@@ -240,6 +246,10 @@ function Remove-OemEntries([string]$key, [string]$ourName) {
     if ($removal.Axes) {
         Remove-Item -LiteralPath "$key\Axes" -Recurse -Force -ErrorAction SilentlyContinue
         $removed += 'Axes'
+    }
+    if ($removal.Ffb) {
+        Remove-Item -LiteralPath "$key\OEMForceFeedback" -Recurse -Force -ErrorAction SilentlyContinue
+        $removed += 'OEMForceFeedback'
     }
     $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
     if ($removed.Count -gt 0 -and $item -and $item.ValueCount -eq 0 -and $item.SubKeyCount -eq 0) {
@@ -560,7 +570,7 @@ try {
             Remove-Item $key -Recurse -Force -ErrorAction SilentlyContinue
             if (Test-Path $key) { Warn "could not remove $key" } else { Write-Host "    removed $key" }
         }
-        # DirectInput: only WheelBri's values and Axes key (a real Logitech wheel's entries stay).
+        # DirectInput: only WheelBri's values and marked keys (a real Logitech wheel's entries stay).
         foreach ($entry in $oemEntries) {
             $removed = @(Remove-OemEntries $entry.Key $entry.Name)
             if ($removed.Count -gt 0) { Write-Host "    $($entry.Key): removed $($removed -join ', ')" }
