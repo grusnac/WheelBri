@@ -1,7 +1,10 @@
 #include "wheelbri/IniEditor.hpp"
 
 #include <algorithm>
-#include <cstdlib>
+#include <charconv>
+#include <cmath>
+#include <optional>
+#include <string>
 
 namespace wheelbri {
 
@@ -17,14 +20,19 @@ std::string trim(std::string_view text) {
 
 // "0.0" and "0", "1.0" and "1": the same number written differently counts as unchanged (the line, and its comment,
 // stay as the user wrote them).
+// Read as everywhere else (from_chars): never by the locale's decimal mark, and "inf" or "nan" are not numbers here.
 bool sameValue(const std::string& a, const std::string& b) {
     if (a == b) return true;
-    if (a.empty() || b.empty()) return false;
-    char* endA = nullptr;
-    char* endB = nullptr;
-    const double x = std::strtod(a.c_str(), &endA);
-    const double y = std::strtod(b.c_str(), &endB);
-    return *endA == '\0' && *endB == '\0' && x == y;
+    const auto number = [](const std::string& text) -> std::optional<double> {
+        double value = 0.0;
+        const char* const end = text.data() + text.size();
+        const auto [ptr, error] = std::from_chars(text.data(), end, value, std::chars_format::fixed);
+        if (error != std::errc() || ptr != end || !std::isfinite(value)) return std::nullopt;
+        return value;
+    };
+    const std::optional<double> x = number(a);
+    const std::optional<double> y = number(b);
+    return x && y && *x == *y;
 }
 
 }  // namespace

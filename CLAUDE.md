@@ -103,15 +103,15 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 
 ## Architecture
 
-- **`core/`** (`wheelbri_core`): portable, no OS headers except `UdpLoopback.cpp`. Headers `core/include/wheelbri/`,
-  namespace `wheelbri`.
+- **`core/`** (`wheelbri_core`): portable, no OS headers except `UdpLoopback.cpp` (sockets) and `LogFiles.cpp` (the
+  C runtime's exclusive create on Windows). Headers `core/include/wheelbri/`, namespace `wheelbri`.
   - Pipeline: `RawInputState` → `Mapper` → `WheelState` (target-agnostic) → `IDeviceProfile::encode` →
     `TargetReport` → `StatePacket` → `IStatePublisher`. `Pipeline::tick()` = one pass. Test seams: `IInputSource`,
     `IFfbSink`, `IStatePublisher`, `IStateReceiver`.
   - New target = `DeviceProfileSpec` registered in `makeProfile()` + `VirtualWheel` entry (`HidWheelDevice`).
   - FFB: every source → `FfbEffect` (`DiEffect` from DirectInput, `HidPid` from HID PID). `FfbController` holds one
-    stateful `FfbSafetyLimiter` per effect + the watchdog. Senders work out envelopes/ramps (`FfbShape.hpp`); the wire
-    carries levels only.
+    stateful `FfbSafetyLimiter` per effect + the watchdog; each sender (UDP port) has slots and a watchdog of its own.
+    Senders work out envelopes/ramps (`FfbShape.hpp`); the wire carries levels only.
   - Game profiles (`config/games/*.ini`, compiled in) hold **only** what a game changes from the target's defaults,
     laid over them (`GameProfiles`, `overlay`); a profile with any problem is not used. User's per-game values:
     `GameTuning` (pedals, buttons; one Games sub-tab, Axes and buttons). No force feedback settings per game or of

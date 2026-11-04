@@ -35,6 +35,18 @@ TEST(IniDocument, ReportsMalformedLinesWithLineNumbers) {
 TEST(IniDocument, LastValueWins) {
     const auto result = IniDocument::parse("[a]\nk = 1\nk = 2\n");
     EXPECT_EQ(result.document.get("a", "k"), "2");
+    EXPECT_TRUE(result.errors.empty());
+    ASSERT_EQ(result.warnings.size(), 1U);   // said: an edit to the first one would do nothing
+    EXPECT_EQ(result.warnings[0], "line 3: k again in [a]: this one counts");
+}
+
+// A section given twice: its keys go together, and that is said too.
+TEST(IniDocument, ASectionGivenTwiceIsMergedAndSaid) {
+    const auto result = IniDocument::parse("[a]\nx = 1\n[b]\ny = 2\n[a]\nz = 3\n");
+    EXPECT_EQ(result.document.get("a", "x"), "1");
+    EXPECT_EQ(result.document.get("a", "z"), "3");
+    ASSERT_EQ(result.warnings.size(), 1U);
+    EXPECT_EQ(result.warnings[0], "line 5: [a] again: its keys go with the earlier one's");
 }
 
 TEST(IniDocument, IgnoresAUtf8ByteOrderMark) {

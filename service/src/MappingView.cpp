@@ -1419,12 +1419,7 @@ std::string clockNow() {
     const auto now = std::chrono::system_clock::now();
     const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
-    std::tm local{};
-#if defined(_WIN32)
-    localtime_s(&local, &seconds);
-#else
-    localtime_r(&seconds, &local);
-#endif
+    const std::tm local = localTime(seconds);
     char text[16];
     std::snprintf(text, sizeof(text), "%02d:%02d:%02d.%03d", local.tm_hour, local.tm_min, local.tm_sec,
                   static_cast<int>(ms));

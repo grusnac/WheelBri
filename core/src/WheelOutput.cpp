@@ -57,7 +57,9 @@ WheelEffect toWheelEffect(const FfbEffect& effect, const bool invert) {
             out.periodMs = static_cast<std::uint16_t>(std::lround(std::clamp(finite(p.periodMs), 1.0F, 65535.0F)));
             out.magnitude = toSigned(p.magnitude);
             out.offset = toSigned(sign * p.offset);
-            float phase = std::fmod(finite(p.phaseDeg), 360.0F);
+            // Inverted, the whole wave turns: its offset, and its swing half a turn on (as DiEffect and HidPid turn
+            // an effect whose direction points the other way); only the offset turning left the swing as it was.
+            float phase = std::fmod(finite(p.phaseDeg) + (invert ? 180.0F : 0.0F), 360.0F);
             if (phase < 0.0F) {
                 phase += 360.0F;
             }

@@ -5,9 +5,7 @@
 
 namespace wheelbri {
 
-namespace {
-
-std::tm toLocal(const std::time_t time) {
+std::tm localTime(const std::time_t time) {
     std::tm local{};
 #if defined(_WIN32)
     localtime_s(&local, &time);
@@ -16,6 +14,10 @@ std::tm toLocal(const std::time_t time) {
 #endif
     return local;
 }
+
+namespace {
+
+std::tm toLocal(const std::time_t time) { return localTime(time); }
 
 struct Ymd {
     int year = 0;

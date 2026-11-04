@@ -432,12 +432,14 @@ TEST(WheelEffect, EveryPeriodicTypeConverts) {
     }
 }
 
-// The wheel mounted the other way round: a periodic effect's offset turns, its magnitude and phase stay.
-TEST(WheelEffect, InvertingAPeriodicEffectTurnsOnlyItsOffset) {
+// The wheel mounted the other way round: the whole wave turns, its offset and its swing (half a turn on); its
+// magnitude stays.
+TEST(WheelEffect, InvertingAPeriodicEffectTurnsTheWholeWave) {
     const WheelEffect w = toWheelEffect(wave(FfbEffectType::Sine, {0.5F, 0.25F, 100.0F, 90.0F}), true);
     EXPECT_EQ(w.magnitude, 16384);
     EXPECT_EQ(w.offset, -8192);
-    EXPECT_EQ(w.phase, 9000);
+    EXPECT_EQ(w.phase, 27000);
+    EXPECT_EQ(toWheelEffect(wave(FfbEffectType::Square, {0.5F, 0.0F, 100.0F, 270.0F}), true).phase, 9000);
 }
 
 // Phases from a game in any number of turns, either way round, land in 0..35999 hundredths of a degree; one a hair

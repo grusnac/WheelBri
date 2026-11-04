@@ -13,6 +13,8 @@ namespace wheelbri {
 using WallClock = std::chrono::system_clock;
 
 [[nodiscard]] std::string localDate(WallClock::time_point time);
+// `time` broken down in the local time zone (localtime_s on Windows, localtime_r elsewhere: both thread-safe).
+[[nodiscard]] std::tm localTime(std::time_t time);
 [[nodiscard]] std::string localDate(std::time_t time);
 
 // The day `days` after (or before, if negative) `date`. Returns nullopt if `date` is not a valid date.

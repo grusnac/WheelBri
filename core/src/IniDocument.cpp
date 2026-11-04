@@ -1,5 +1,7 @@
 #include "wheelbri/IniDocument.hpp"
 
+#include <set>
+
 namespace wheelbri {
 
 namespace {
@@ -22,6 +24,7 @@ std::string_view stripComment(std::string_view line) {
 }  // namespace
 
 IniDocument::ParseResult IniDocument::parse(const std::string_view text) {
+    std::set<std::string> seenSections;
     ParseResult result;
     std::string section;
     std::size_t lineNumber = 0;
@@ -50,6 +53,10 @@ IniDocument::ParseResult IniDocument::parse(const std::string_view text) {
                 continue;
             }
             section = std::string(trim(line.substr(1, line.size() - 2)));
+            if (!seenSections.insert(section).second) {
+                result.warnings.push_back("line " + std::to_string(lineNumber) + ": [" + section +
+                                          "] again: its keys go with the earlier one's");
+            }
             result.document.sections_[section];
             continue;
         }
@@ -64,7 +71,12 @@ IniDocument::ParseResult IniDocument::parse(const std::string_view text) {
             result.errors.push_back("line " + std::to_string(lineNumber) + ": empty key");
             continue;
         }
-        result.document.sections_[section][key] = std::string(trim(line.substr(equals + 1)));
+        auto& keys = result.document.sections_[section];
+        if (keys.count(key) != 0) {
+            result.warnings.push_back("line " + std::to_string(lineNumber) + ": " + key + " again in [" + section +
+                                      "]: this one counts");
+        }
+        keys[key] = std::string(trim(line.substr(equals + 1)));
     }
     return result;
 }

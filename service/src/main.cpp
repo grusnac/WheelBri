@@ -480,6 +480,7 @@ LoadedConfig loadConfig(const std::string& path) {
     result.config = std::move(loaded.config);
     result.problems = parsed.errors;
     result.problems.insert(result.problems.end(), loaded.errors.begin(), loaded.errors.end());
+    result.warnings = parsed.warnings;
     return result;
 }
 

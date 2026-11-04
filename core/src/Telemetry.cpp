@@ -89,13 +89,7 @@ std::string typeField(const FfbEffectType type) {
 }
 
 std::string clockText(const WallClock::time_point time) {
-    const std::time_t t = WallClock::to_time_t(time);
-    std::tm local{};
-#if defined(_WIN32)
-    localtime_s(&local, &t);
-#else
-    localtime_r(&t, &local);
-#endif
+    const std::tm local = localTime(WallClock::to_time_t(time));
     char text[16];
     std::strftime(text, sizeof(text), "%H:%M:%S", &local);
     return text;

@@ -31,6 +31,9 @@ private:
 struct IniDocument::ParseResult {
     IniDocument document;
     std::vector<std::string> errors;
+    // A key given twice in a section (the last one counts) or a section given twice (its keys go together): read,
+    // but said, since an edit to the first one would do nothing.
+    std::vector<std::string> warnings;
 };
 
 }  // namespace wheelbri
