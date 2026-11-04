@@ -35,6 +35,11 @@ namespace wheelbri {
 //   destroy       [0] slot
 // A download to a slot in use updates it (how a game moves its constant force) and keeps it playing. At most
 // kServiceSlots effects play at once (the service's slots); one more is not played, and the log says so.
+// Each request carries its sender's HID++ software id (`client`): two copies of Logitech's driver can have the wheel
+// open at once (a G923 in ACC, 2026-11-03: software ids 0xB and 0xD). Each copy sees only its own slots: a download
+// to slot 0 takes a slot no copy uses, a state, destroy or update for another copy's slot is ignored (an update:
+// answered 0), and a reset frees only the resetting copy's slots, plus those of a copy that sent nothing for
+// kStaleClientMs (gone without freeing them: a game that crashed).
 // Keep-alives and quiet rules as HidPid's: one every kKeepAliveMs once anything was asked; none when no request came
 // for HidPid::kGameQuietMs (or HidPid::kStreamQuietMs after a stream) while a pushing force plays, so the service's
 // watchdog stops a game that crashed. Thread-safe: requests and ticks come on different threads.
@@ -47,15 +52,19 @@ public:
     static constexpr std::int64_t kKeepAliveMs = 100;
     static constexpr std::int64_t kRefreshMs = 250;
     static constexpr int kShownDownloads = 20;           // decoded at info, the rest at debug
+    static constexpr std::int64_t kStaleClientMs = 10'000;   // a copy silent this long: its slots go at a reset
 
     HidPpFfb(Sender send, Logger log);
 
-    // The slot the effect went to (1..kSlots), or 0: no free slot, a slot out of range, or a type it does not know.
-    std::uint8_t download(std::span<const std::uint8_t> params, std::int64_t nowMs);
-    void setState(std::uint8_t slot, std::uint8_t state, std::int64_t nowMs);
-    void destroy(std::uint8_t slot, std::int64_t nowMs);
-    // Frees every slot; a stop-all goes to the service only when one of them played.
-    void resetAll(std::int64_t nowMs);
+    // `client`: the request's HID++ software id (0..15).
+    // The slot the effect went to (1..kSlots), or 0: no free slot, a slot out of range or another copy's, or a type it
+    // does not know.
+    std::uint8_t download(std::span<const std::uint8_t> params, std::int64_t nowMs, std::uint8_t client = 0);
+    void setState(std::uint8_t slot, std::uint8_t state, std::int64_t nowMs, std::uint8_t client = 0);
+    void destroy(std::uint8_t slot, std::int64_t nowMs, std::uint8_t client = 0);
+    // Frees the client's slots (and a silent copy's); when no other copy has any, a stop-all goes to the service if
+    // one of them played, else each freed slot that played is stopped on its own.
+    void resetAll(std::int64_t nowMs, std::uint8_t client = 0);
     // The global gain (0..1) for every effect.
     void setGain(float gain, std::int64_t nowMs);
     // Every ~10 ms: delays and durations, envelopes and ramps, refreshes, keep-alives.
@@ -74,13 +83,17 @@ private:
         bool playing = false;
         std::int64_t startedAtMs = 0;
         int serviceSlot = -1;
+        std::uint8_t client = 0;   // the HID++ software id of the copy that downloaded it
     };
     struct Sent {
         bool playing = false;
         FfbEffect effect;
     };
 
-    void request(std::int64_t nowMs);
+    // A request came; from `client` (a software id), or -1: from no copy in particular (the gain).
+    void request(std::int64_t nowMs, int client);
+    // Whether `slot` holds an effect of another copy than `client`.
+    [[nodiscard]] bool othersSlot(std::uint8_t slot, std::uint8_t client) const;
     void play(std::uint8_t slot, std::int64_t nowMs);
     void stop(std::uint8_t slot, std::int64_t nowMs);
     // The effect as it plays now; nullopt while it waits for its delay or once its duration ran out.
@@ -104,6 +117,7 @@ private:
     bool quiet_ = false;
     bool overflowNoted_ = false;
     std::int64_t lastRequestMs_ = 0;
+    std::array<std::int64_t, 16> clientSeenMs_{};   // by software id: its last request
     std::int64_t streamStartMs_ = 0;
     std::int64_t lastSendMs_ = 0;
     std::int64_t lastRefreshMs_ = 0;

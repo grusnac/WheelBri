@@ -111,6 +111,7 @@ std::optional<std::vector<std::uint8_t>> HidPp::handle(const std::span<const std
     std::lock_guard lock(mutex_);
     ++requests_;
     nowMs_ = nowMs;
+    softwareId_ = static_cast<std::uint8_t>(report[3] & 0x0FU);
     if (log_) log_(LogLevel::Debug, "hid++ in:  " + hex(report));
     if (featureIndex >= 0x80 && featureIndex <= 0x83) {
         // HID++ 1.0 register access: this wheel speaks 2.0 only. 1.0's error says so.
@@ -253,12 +254,12 @@ std::optional<std::uint8_t> HidPp::forceFeedback(const std::uint8_t function, co
         case 1:   // reset all
             note(index, function, "force feedback: reset all");
             nextSlot_ = 1;
-            if (ffb_ != nullptr) ffb_->resetAll(nowMs_);
+            if (ffb_ != nullptr) ffb_->resetAll(nowMs_, softwareId_);
             return std::nullopt;
         case 2:   // download an effect: answered with its slot
             showCall(function, "effect downloaded", in);
             if (ffb_ != nullptr) {
-                out[0] = ffb_->download(in, nowMs_);
+                out[0] = ffb_->download(in, nowMs_, softwareId_);
                 return out[0] == 0 ? std::optional<std::uint8_t>(kErrOutOfRange) : std::nullopt;
             }
             out[0] = nextSlot_;
@@ -266,11 +267,11 @@ std::optional<std::uint8_t> HidPp::forceFeedback(const std::uint8_t function, co
             return std::nullopt;
         case 3:   // an effect's state (play, stop, pause): [0] slot [1] state
             showCall(function, "effect state", in.first(std::min<std::size_t>(2, in.size())));
-            if (ffb_ != nullptr && in.size() >= 2) ffb_->setState(in[0], in[1], nowMs_);
+            if (ffb_ != nullptr && in.size() >= 2) ffb_->setState(in[0], in[1], nowMs_, softwareId_);
             return std::nullopt;
         case 4:   // destroy an effect: [0] slot
             showCall(function, "effect freed", in.first(std::min<std::size_t>(1, in.size())));
-            if (ffb_ != nullptr && !in.empty()) ffb_->destroy(in[0], nowMs_);
+            if (ffb_ != nullptr && !in.empty()) ffb_->destroy(in[0], nowMs_, softwareId_);
             return std::nullopt;
         case 5:   // get aperture: the rotation in degrees, the rig's own once known
             putBe16(out, 0, static_cast<std::uint16_t>(wheelRotationDeg_ > 0 ? wheelRotationDeg_ : rotationDeg_));

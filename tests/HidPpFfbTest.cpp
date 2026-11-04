@@ -141,6 +141,41 @@ TEST(HidPpFfb, ResetWithNothingPlayingSendsNothing) {
     EXPECT_TRUE(f.packets.empty());
 }
 
+// Two copies of Logitech's driver with the wheel open at once (G923 in ACC, 2026-11-03: software ids 0xB and 0xD):
+// each keeps its own slots, and one's reset leaves the other's effects playing.
+TEST(HidPpFfb, TwoCopiesKeepTheirOwnSlots) {
+    Ffb f;
+    constexpr std::uint8_t kFirst = 0xB;
+    constexpr std::uint8_t kSecond = 0xD;
+    EXPECT_EQ(f.ffb.download(effect(0, 0x80, 0, 0, {0x40, 0x00}), 0, kFirst), 1);
+    f.ffb.resetAll(1, kSecond);
+    for (const FfbPacket& p : f.packets) EXPECT_NE(p.kind, FfbPacket::Kind::StopAll);
+    ASSERT_NE(f.last(0), nullptr);
+    EXPECT_TRUE(f.last(0)->playing);
+    EXPECT_EQ(f.ffb.download(effect(0, 0x80, 0, 0, {0xC0, 0x00}), 2, kSecond), 2);   // not the first copy's slot 1
+    EXPECT_EQ(f.ffb.download(effect(1, 0x00, 0, 0, {0x10, 0x00}), 3, kSecond), 0);   // the first copy's: refused
+    f.ffb.setState(1, 1, 4, kSecond);                                                // nor stopped
+    f.ffb.destroy(1, 5, kSecond);                                                    // nor freed
+    ASSERT_NE(f.last(0), nullptr);
+    EXPECT_TRUE(f.last(0)->playing);
+    EXPECT_NEAR(f.last(0)->effect.constantLevel, 0.5F, 0.001F);
+    // The first copy resets: its effect stops on its own, the second's plays on.
+    f.ffb.resetAll(6, kFirst);
+    EXPECT_FALSE(f.last(0)->playing);
+    ASSERT_NE(f.last(1), nullptr);
+    EXPECT_TRUE(f.last(1)->playing);
+    EXPECT_EQ(f.ffb.download(effect(0, 0x00, 0, 0, {}), 7, kFirst), 1);   // its slot is free again
+}
+
+// A copy gone without freeing its slots (a game that crashed): the next copy's reset frees them too.
+TEST(HidPpFfb, ASilentCopysSlotsGoAtAReset) {
+    Ffb f;
+    EXPECT_EQ(f.ffb.download(effect(0, 0x80, 0, 0, {0x40, 0x00}), 0, 0xB), 1);
+    f.ffb.resetAll(HidPpFfb::kStaleClientMs, 0xD);
+    EXPECT_EQ(f.packets.back().kind, FfbPacket::Kind::StopAll);
+    EXPECT_EQ(f.ffb.download(effect(0, 0x00, 0, 0, {}), HidPpFfb::kStaleClientMs + 1, 0xD), 1);
+}
+
 TEST(HidPpFfb, KeepAlivesOnlyOnceAnEffectCame) {
     Ffb f;
     f.ffb.setGain(1.0F, 0);   // G HUB at start: not a game
@@ -205,6 +240,11 @@ TEST(HidPpFfb, HidPpPassesItsEffectsOn) {
     request[5] = 0xFF;
     (void)hidpp.handle(request, 6);
     EXPECT_NEAR(f.last(0)->effect.gain, 0.5F, 0.001F);
+    // Another software id's reset (another copy of the driver): the effect of software id 1 plays on.
+    std::fill(request.begin() + 3, request.end(), 0);
+    request[3] = 0x12;   // reset all, software id 2
+    (void)hidpp.handle(request, 7);
+    EXPECT_TRUE(f.last(0)->playing);
 }
 
 }  // namespace

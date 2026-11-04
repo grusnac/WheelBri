@@ -121,6 +121,7 @@ private:
     std::uint8_t nextSlot_ = 1;
     HidPpFfb* ffb_ = nullptr;
     std::int64_t nowMs_ = 0;   // the request's time, for the effects
+    std::uint8_t softwareId_ = 0;   // the request's software id: which copy of Logitech's driver sent it
     std::array<int, 16> shown_{};   // 0x8123 calls logged in full, per function (kShownCalls each)
     static constexpr int kShownCalls = 20;
     std::uint64_t requests_ = 0;

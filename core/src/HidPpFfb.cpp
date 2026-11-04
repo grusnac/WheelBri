@@ -94,7 +94,8 @@ std::string describe(const std::uint8_t slot, const std::uint8_t type, const Ffb
 
 HidPpFfb::HidPpFfb(Sender send, Logger log) : send_(std::move(send)), log_(std::move(log)) {}
 
-void HidPpFfb::request(const std::int64_t nowMs) {
+void HidPpFfb::request(const std::int64_t nowMs, const int client) {
+    if (client >= 0) clientSeenMs_[static_cast<std::size_t>(client) & 0x0FU] = nowMs;
     if (requests_ == 0 || nowMs - lastRequestMs_ > HidPid::kStreamGapMs) streamStartMs_ = nowMs;
     ++requests_;
     lastRequestMs_ = nowMs;
@@ -104,9 +105,14 @@ void HidPpFfb::request(const std::int64_t nowMs) {
     }
 }
 
-std::uint8_t HidPpFfb::download(const std::span<const std::uint8_t> p, const std::int64_t nowMs) {
+bool HidPpFfb::othersSlot(const std::uint8_t slot, const std::uint8_t client) const {
+    return effects_[slot].loaded && effects_[slot].client != client;
+}
+
+std::uint8_t HidPpFfb::download(const std::span<const std::uint8_t> p, const std::int64_t nowMs,
+                                const std::uint8_t client) {
     std::lock_guard lock(mutex_);
-    request(nowMs);
+    request(nowMs, client);
     if (p.size() < 6) return 0;
     const std::uint8_t typeByte = p[1];
     const auto type = typeOf(static_cast<std::uint8_t>(typeByte & ~kAutostart));
@@ -115,7 +121,7 @@ std::uint8_t HidPpFfb::download(const std::span<const std::uint8_t> p, const std
         return 0;
     }
     std::uint8_t slot = p[0];
-    if (slot > kSlots) return 0;
+    if (slot > kSlots || (slot != 0 && othersSlot(slot, client))) return 0;
     if (slot == 0) {
         for (std::uint8_t s = 1; s <= kSlots; ++s) {
             if (!effects_[s].loaded) {
@@ -164,6 +170,7 @@ std::uint8_t HidPpFfb::download(const std::span<const std::uint8_t> p, const std
         }
     }
     e.loaded = true;
+    e.client = client;
     e.effect = effect;
     e.shape = shape;
     e.durationMs = be16(p, 2);
@@ -182,10 +189,11 @@ std::uint8_t HidPpFfb::download(const std::span<const std::uint8_t> p, const std
     return slot;
 }
 
-void HidPpFfb::setState(const std::uint8_t slot, const std::uint8_t state, const std::int64_t nowMs) {
+void HidPpFfb::setState(const std::uint8_t slot, const std::uint8_t state, const std::int64_t nowMs,
+                        const std::uint8_t client) {
     std::lock_guard lock(mutex_);
-    request(nowMs);
-    if (slot == 0 || slot > kSlots || !effects_[slot].loaded) return;
+    request(nowMs, client);
+    if (slot == 0 || slot > kSlots || !effects_[slot].loaded || othersSlot(slot, client)) return;
     if (state == kStatePlay) {
         play(slot, nowMs);
     } else if (state != 0) {   // stop or pause; 0 only asks
@@ -194,18 +202,39 @@ void HidPpFfb::setState(const std::uint8_t slot, const std::uint8_t state, const
     sendChanges(nowMs, false);
 }
 
-void HidPpFfb::destroy(const std::uint8_t slot, const std::int64_t nowMs) {
+void HidPpFfb::destroy(const std::uint8_t slot, const std::int64_t nowMs, const std::uint8_t client) {
     std::lock_guard lock(mutex_);
-    request(nowMs);
-    if (slot == 0 || slot > kSlots) return;
+    request(nowMs, client);
+    if (slot == 0 || slot > kSlots || othersSlot(slot, client)) return;
     stop(slot, nowMs);
     sendChanges(nowMs, false);
     effects_[slot] = Effect{};
 }
 
-void HidPpFfb::resetAll(const std::int64_t nowMs) {
+void HidPpFfb::resetAll(const std::int64_t nowMs, const std::uint8_t client) {
     std::lock_guard lock(mutex_);
-    request(nowMs);
+    request(nowMs, client);
+    // What goes: this copy's effects, and those of a copy silent for kStaleClientMs.
+    const auto goes = [&](const Effect& e) {
+        return e.client == client || nowMs - clientSeenMs_[e.client & 0x0FU] >= kStaleClientMs;
+    };
+    const bool othersKept = std::any_of(effects_.begin(), effects_.end(),
+                                        [&](const Effect& e) { return e.loaded && !goes(e); });
+    if (othersKept) {
+        // Another copy still uses the wheel: only the slots that go are stopped (each on its own) and freed.
+        if (log_) {
+            log_(LogLevel::Info, "hid++ ffb: reset by one copy of Logitech's driver (software id " +
+                                     std::to_string(client) + "): another copy's effects keep playing");
+        }
+        for (std::uint8_t s = 1; s <= kSlots; ++s) {
+            if (effects_[s].loaded && goes(effects_[s])) stop(s, nowMs);
+        }
+        sendChanges(nowMs, false);
+        for (std::uint8_t s = 1; s <= kSlots; ++s) {
+            if (effects_[s].loaded && goes(effects_[s])) effects_[s] = Effect{};
+        }
+        return;
+    }
     // A stop-all only when something of ours plays: Logitech's driver resets at every game start (ACC: each time it
     // opens the wheel), and a stop-all the rig does not need moved a Moza R3 (2026-10-28).
     const bool playing = std::any_of(owner_.begin(), owner_.end(), [](const std::uint8_t o) { return o != 0; });
@@ -217,7 +246,7 @@ void HidPpFfb::resetAll(const std::int64_t nowMs) {
 
 void HidPpFfb::setGain(const float gain, const std::int64_t nowMs) {
     std::lock_guard lock(mutex_);
-    request(nowMs);
+    request(nowMs, -1);
     gain_ = std::clamp(gain, 0.0F, 1.0F);
     sendChanges(nowMs, false);
 }
