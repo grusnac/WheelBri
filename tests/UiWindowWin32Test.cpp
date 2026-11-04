@@ -122,6 +122,9 @@ TEST_F(Win32Window, PointerAndClicks) {
     EXPECT_FALSE(input.leftDown);
     post(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(10, 10));
     EXPECT_FALSE(post(WM_CAPTURECHANGED).leftDown);
+    // The posted button-down really took the mouse (SetCapture): let it go, or every move of the real mouse anywhere
+    // on the screen comes to this window during the pumps below and overwrites the posted position.
+    ReleaseCapture();
     EXPECT_FALSE(post(WM_MOUSELEAVE).pointerInside);
     input = post(WM_MOUSEMOVE, 0, MAKELPARAM(-5, -5));   // coordinates left of and above the window
     EXPECT_LT(input.pointer.x, 0.0F);
