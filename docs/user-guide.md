@@ -75,7 +75,8 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
 - **Order**: how the game numbers the buttons. **Logitech** (default) for games of that era; **Native** for
   newer games' presets, such as ACC's. Each order has its own mapping. The first Native mapping starts as a copy of
   the other with its buttons in amber: their numbers changed, so check them against the game; **Got it** clears the
-  marks.
+  marks. On Windows, with G HUB installed, Logitech also means Logitech's own force feedback driver, as a real G25 or
+  G27 had; Native, or Logitech without G HUB, Windows' ([Targets](targets.md#force-feedback-drivers-g25-g27)).
 
 The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games
 count), from 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Details:

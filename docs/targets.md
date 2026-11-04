@@ -63,6 +63,31 @@ Sources: Logitech support ("Programming the G25 Shifter positions": gears 8-14),
 Sources: GIMX's G25 and G27 configurations for Windows and Linux side by side (facts only, nothing copied) and a G27's
 HID descriptor. ACC binds the native diamond as A, X, B, Y, as its G920 preset binds the G920's A, B, X, Y.
 
+## Force feedback drivers (G25, G27)
+
+In Mode Virtual on Windows the **Order** also picks the force feedback driver, at Start:
+
+| Order | G HUB's older-wheel driver installed | Force feedback through |
+|---|---|---|
+| Logitech | yes | Logitech's driver (`jerry_forcefeedback_x64.dll`), as a G25/G27 with Logitech's software |
+| Logitech | no | Windows' HID PID driver |
+| Native | either | Windows' HID PID driver (Linux's on Linux) |
+
+With Logitech's driver the wheel gets its classic identity (`VirtualWheel::classic`, hardware id `wheelbri\G25_LOGI`
+or `wheelbri\G27_LOGI`, the same instance `G25_n`, so one device to games and their bindings): no report IDs and no
+HID PID, the same input report, and a 7-byte vendor output report that takes Logitech's classic commands. The wheel
+driver plays them (`core/include/wheelbri/ClassicFfb.hpp`, from Logitech's Force Feedback Protocol V1.6): constant
+and variable forces, springs, dampers, friction; periodic forces and ramps are logged, not played (no game seen uses
+them), as are Logitech's default spring (the target's centring spring is WheelBri's) and range commands (the rotation
+is the mapping's). A level of 0 pulls left, 255 right.
+
+G HUB does not support the G25 or G27, so it never writes their `OEMForceFeedback` entry: WheelBri writes it in HKCU
+while the wheel runs (`LogitechFfbDriver.hpp`: the driver's class for the model, `{920B260D-...}` G25,
+`{920B260F-...}` G27, with G HUB's own effect table from its G923 entry) and the wheel axis' `Axes\0` entry, which
+tells DirectInput that X takes forces (without it every effect is `DIERR_INVALIDPARAM`). Both carry a `WheelBri`
+value and go at Stop. Logitech's driver updates the force about 110 times a second in 256 steps (HID++: about 300,
+16 bits), so road texture is coarser than on the G920 or G923, as on a real G25. Checked in ACC as G25, 2026-11-03.
+
 ## Button numbers in the app
 
 The app shows the Target's buttons as the game numbers them (`gameButtonNumber`): from 1 with Logitech, as
