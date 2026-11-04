@@ -13,7 +13,7 @@
 #   --shim       the dinput8.dll built with MinGW (cmake/toolchain-mingw64.cmake)
 #   --shim-x86   the 32-bit one (cmake/toolchain-mingw32.cmake), for 32-bit games
 
-set -eu
+set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 shim=
@@ -59,6 +59,11 @@ if [ -n "$shim_x86" ]; then
 fi
 chmod +x "$bundle"/*.sh "$bundle"/bin/*
 
-tar -czf "$dist/wheelbri-linux-x86_64.tar.gz" -C "$dist" wheelbri
+# Reproducible: the same sources give the same bytes (names sorted, owner root, every time the last commit's or
+# SOURCE_DATE_EPOCH's, gzip without its own name and time), so a release can be checked against a build of its tag.
+epoch=${SOURCE_DATE_EPOCH:-$(git -C "$root" log -1 --format=%ct 2>/dev/null || echo 0)}
+tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
+    --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
+    -cf - -C "$dist" wheelbri | gzip -n -9 > "$dist/wheelbri-linux-x86_64.tar.gz"
 echo "built $dist/wheelbri-linux-x86_64.tar.gz"
 ls -l "$bundle" "$bundle/bin"
