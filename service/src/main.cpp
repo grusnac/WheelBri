@@ -928,6 +928,563 @@ private:
 // nullopt when it cannot be used (the problems are in `problems`).
 using ReloadConfig = std::function<std::optional<wheelbri::EmulatorConfig>(std::vector<std::string>& problems)>;
 
+// What runLoop's two threads share, and nothing else: the window's copy of the state (handed over under
+// `frameMutex`, never waited for by the loop) and the flags that end each side. The pipeline is shared too, through
+// its own thread-safe setters (setMapper, setGameMapper, setPedalRoute, setButtonOrder), and the rotation through
+// TeePublisher's atomic.
+struct LoopShared {
+    std::mutex frameMutex;
+    UiFrame frame;
+    std::atomic<bool> stop{false};   // the window side ended (closed, or failed): the loop ends
+    std::atomic<bool> done{false};   // the loop ended: the window side ends
+};
+
+std::string pollingNote(const wheelbri::EventLoopControl& control) {
+    return std::to_string(control.settings().pollNs / platform::kNsPerMs) + " ms";
+}
+
+// The loop's thread: wheel input, state to the game, force feedback, telemetry, the window's copy. Sleeps in
+// `waitSet` until a device, a socket or the timer has news (core EventLoopControl, WakePlanner).
+class LoopSide {
+public:
+    LoopSide(wheelbri::Pipeline& pipeline, const wheelbri::IDeviceProfile& profile, const Accessories& accessories,
+             GameFfb* const gameFfb, wheelbri::TelemetryRecorder* const telemetry,
+             wheelbri::UdpLoopbackPublisher& publisher, wheelbri::EventLoopControl& control, platform::WaitSet& waitSet,
+             const std::vector<wheelbri::WakeReason>& wakeReasons, const wheelbri::WakeSettings& wakeSettings,
+             LoopShared& shared, const bool print, const bool window)
+        : pipeline_(pipeline),
+          profile_(profile),
+          accessories_(accessories),
+          gameFfb_(gameFfb),
+          telemetry_(telemetry),
+          publisher_(publisher),
+          control_(control),
+          waitSet_(waitSet),
+          wakeReasons_(wakeReasons),
+          wakeSettings_(wakeSettings),
+          shared_(shared),
+          print_(print),
+          window_(window) {}
+
+    // Until stopped (gStop, LoopShared::stop) or the wheel or an accessory is lost (kWheelLost).
+    int run();
+
+private:
+    void logStart() const;
+    void watchTheGame();                                         // GameUseWatch, FfbIdleWatch: said in the log
+    void writeTelemetry();
+    void handFrame();                                            // the window's copy, if it is not copying now
+    void logStats(std::uint64_t tickEnd, std::uint64_t& windowStart);
+    void waitForNews(std::uint64_t tickStart);                   // until something new, or what is due
+
+    wheelbri::Pipeline& pipeline_;
+    const wheelbri::IDeviceProfile& profile_;
+    const Accessories& accessories_;
+    GameFfb* gameFfb_;                         // null: no game force feedback
+    wheelbri::TelemetryRecorder* telemetry_;   // null: none
+    wheelbri::UdpLoopbackPublisher& publisher_;
+    wheelbri::EventLoopControl& control_;
+    platform::WaitSet& waitSet_;
+    const std::vector<wheelbri::WakeReason>& wakeReasons_;   // what each of waitSet_'s sources is
+    const wheelbri::WakeSettings& wakeSettings_;
+    LoopShared& shared_;
+    bool print_;    // --print
+    bool window_;   // a window takes copies
+
+    // Pedals pressed but the game never plays force feedback on the wheel: it drives from another controller.
+    wheelbri::GameUseWatch gameUse_;
+    // Force feedback loaded but none of it started while you drive (NFS 2015 at the start of a race): alt-tab.
+    wheelbri::FfbIdleWatch ffbIdle_;
+    // The app's log level to whatever reads the state (the shim, the virtual wheel's driver, wheelbri-uhid): its own
+    // packet, from the same socket (LogLevelPacket.hpp).
+    wheelbri::LogLevelBeacon levelBeacon_;
+
+    // The loop's own figures, for telemetry and the once-a-minute line.
+    wheelbri::WakeStats wakeStats_;
+    std::uint64_t lastPeriodNs_ = 0;
+    std::uint64_t lastWorkNs_ = 0;
+    std::uint64_t lastUsageLogNs_ = 0;
+    std::uint64_t lastWakeLogNs_ = 0;
+};
+
+void LoopSide::logStart() const {
+    if (control_.polling()) {
+        WE_LOG_INFO(log(), "running on events, and polling every {} ({}); press Ctrl+C to stop", pollingNote(control_),
+                    wheelbri::describe(control_.pollReason()));
+    } else {
+        WE_LOG_INFO(log(), "running on events: it wakes when the wheel or the game has something new, else every "
+                           "{} ms at most; press Ctrl+C to stop",
+                    wakeSettings_.idleNs / platform::kNsPerMs);
+    }
+}
+
+void LoopSide::watchTheGame() {
+    if (gameFfb_ == nullptr) return;
+    const wheelbri::WheelState& state = pipeline_.lastState();
+    const bool pedal = state.throttle > 0.1F || state.brake > 0.1F;
+    const std::uint64_t packets = gameFfb_->controller().stats().packets;
+    if (const auto change = gameUse_.update(platform::nowMs(), pedal, packets)) {
+        if (*change) {
+            WE_LOG_WARN(log(), "the game is NOT USING the {}: pedals pressed for {} s and it has never "
+                               "played force feedback on it, so it drives from another controller (a "
+                               "gamepad or the keyboard). Close the game "
+                               "with WheelBri running, start it again and pick the wheel in its controls "
+                               "settings",
+                        profile_.identity().shortName, wheelbri::GameUseWatch::kPedalMs / 1000);
+        } else {
+            WE_LOG_INFO(log(), "the game uses the {} now (its force feedback arrives)", profile_.identity().shortName);
+        }
+    }
+    const wheelbri::FfbController& controller = gameFfb_->controller();
+    if (const auto change =
+            ffbIdle_.update(platform::nowMs(), pedal, controller.lastingLoaded(), controller.lastingWanted())) {
+        if (*change) {
+            WE_LOG_WARN(log(), "the game loaded its force feedback ({} effects) but has started none of "
+                               "them while you drove for {} s, so the wheel stays limp. Alt-tab out of "
+                               "the game and back once: it then starts them (NFS 2015 does this at the "
+                               "start of some races)",
+                        controller.lastingLoaded(), wheelbri::FfbIdleWatch::kPedalMs / 1000);
+        } else {
+            WE_LOG_INFO(log(), "the game's force feedback plays again (or it unloaded it)");
+        }
+    }
+}
+
+void LoopSide::writeTelemetry() {
+    if (telemetry_ == nullptr) return;
+    const std::uint64_t now = platform::nowNs();
+    if (!telemetry_->due(now)) return;
+    wheelbri::TelemetrySample sample;
+    sample.nowNs = now;
+    sample.sequence = pipeline_.sequence();
+    sample.raw = pipeline_.lastRaw();
+    sample.state = pipeline_.lastState();
+    sample.report = pipeline_.lastReport();
+    sample.ffb = gameFfb_ != nullptr ? &gameFfb_->controller() : nullptr;
+    sample.periodUs = static_cast<double>(lastPeriodNs_) / 1000.0;
+    sample.workUs = static_cast<double>(lastWorkNs_) / 1000.0;
+    telemetry_->writeSample(sample);
+}
+
+void LoopSide::handFrame() {
+    // Never wait for the window: if it is copying right now, skip this frame.
+    const std::unique_lock lock(shared_.frameMutex, std::try_to_lock);
+    if (!lock.owns_lock()) return;
+    UiFrame& frame = shared_.frame;
+    frame.raw = pipeline_.lastRaw();
+    frame.inputs = pipeline_.lastInputs();
+    frame.state = pipeline_.lastState();
+    frame.report = pipeline_.lastReport();
+    frame.ffb.reset();
+    if (gameFfb_ != nullptr) {
+        frame.ffb.emplace(gameFfb_->controller());
+    }
+    updateTelemetryFiles(frame.telemetry, telemetry_);
+    frame.gameIgnoresWheel = gameUse_.warning();
+    frame.gameFfbIdle = ffbIdle_.warning();
+    frame.ready = true;
+}
+
+void LoopSide::logStats(const std::uint64_t tickEnd, std::uint64_t& windowStart) {
+    if (tickEnd - windowStart < kStatsWindowNs) return;
+    // Once a minute: how often it woke and why.
+    if (tickEnd - lastWakeLogNs_ >= kWakeLogNs) {
+        WE_LOG_INFO(log(), "loop: {}; {}{}; since start, notifications missed {}, late {}; packet #{}, {} "
+                           "publish failures",
+                    wakeStats_.describe(tickEnd - lastWakeLogNs_), control_.polling() ? "polling: " : "on events",
+                    control_.polling() ? wheelbri::describe(control_.pollReason()) : "", control_.missedNotifications(),
+                    control_.lateNotifications(), pipeline_.sequence(), pipeline_.publishFailures());
+        wakeStats_.reset();
+        lastWakeLogNs_ = tickEnd;
+    }
+    if (gameFfb_ != nullptr) {
+        gameFfb_->logStatsIfChanged();
+        if (tickEnd - lastUsageLogNs_ >= kUsageLogNs) {
+            gameFfb_->logUsage();
+            lastUsageLogNs_ = tickEnd;
+        }
+    }
+    windowStart = tickEnd;
+}
+
+void LoopSide::waitForNews(const std::uint64_t tickStart) {
+    // Until something new arrives, or what must run on time is due (core EventLoopControl, WakePlanner; every
+    // millisecond while the loop polls); then at least minGapNs after this pass started (a source that signals
+    // without pause cannot spin the loop). It polls as well, for the rest of the session, when the timer keeps
+    // finding new input (the devices' notifications miss it), and only sleeps once the wait itself failed.
+    wheelbri::EventLoopControl::Pass pass;
+    pass.startNs = tickStart;
+    pass.inputChanged = pipeline_.inputChanged();
+    pass.windowOpen = window_;
+    pass.forcesPlaying = gameFfb_ != nullptr && gameFfb_->controller().stats().activeSlots > 0;
+    control_.afterPass(pass);
+    const std::uint64_t deadline = control_.deadlineNs();
+    int ready = wheelbri::kWaitTimedOut;
+    if (control_.canWait()) {
+        ready = waitSet_.waitUntil(deadline);
+    } else if (const std::uint64_t now = platform::nowNs(); deadline > now) {
+        platform::sleepNs(deadline - now);
+    }
+    const std::uint64_t woke = platform::nowNs();
+    if (woke > deadline && woke - deadline >= kStallNs) {
+        // Not our work: the system let the loop sleep far longer than asked (busy, or asleep: a Steam Deck
+        // with its screen off sleeps, and a few seconds late is that).
+        static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(5));
+        WE_LOG_WARN_LIMITED(log(), limiter,
+                            "loop: woke {:.0f} ms after its deadline: the system did not run the service for "
+                            "that long ({})",
+                            static_cast<double>(woke - deadline) / 1e6,
+                            woke - deadline >= 2'000'000'000ULL ? "asleep?" : "busy?");
+    }
+    const wheelbri::EventLoopControl::Woke next = control_.afterWait(ready, wakeReasons_, woke);
+    if (next.startedPolling) {
+        if (control_.pollReason() == wheelbri::PollReason::WaitFailed) {
+            WE_LOG_WARN(log(), "loop: cannot wait for the devices ({}); the loop polls every {} for the rest "
+                               "of this session",
+                        waitSet_.failureText(), pollingNote(control_));
+        } else {
+            WE_LOG_WARN(log(), "loop: the timer found new input {} times within {} s that no notification "
+                               "announced: the devices' notifications cannot be trusted; the loop also polls "
+                               "every {} for the rest of this session",
+                        control_.settings().missThreshold, control_.settings().missWindowNs / platform::kNsPerSecond,
+                        pollingNote(control_));
+        }
+    }
+    if (next.sleepNs > 0) platform::sleepNs(next.sleepNs);
+}
+
+int LoopSide::run() {
+    // Above normal, so a game that is loading (all cores busy) does not starve the input loop.
+    if (std::string error; !platform::raiseThreadPriority(error)) {
+        WE_LOG_WARN(log(), "cannot raise the loop's thread priority: {}", error);
+    }
+    logStart();
+    constexpr std::uint64_t kPrintEveryNs = 100'000'000;   // --print: 10 lines a second
+    // The window's copy of the state, kWindowFramesPerSecond (60) times a second, as often as the window draws.
+    wheelbri::Periodic frameDue(wakeSettings_.windowNs);
+    wheelbri::Periodic printDue(kPrintEveryNs);
+    const std::uint64_t loopStart = platform::nowNs();
+    std::uint64_t lastTickStart = loopStart;
+    std::uint64_t windowStart = loopStart;
+    lastUsageLogNs_ = loopStart;
+    lastWakeLogNs_ = loopStart;
+    std::uint64_t ticks = 0;
+    int result = 0;
+
+    while (!gStop && !shared_.stop) {
+        const std::uint64_t tickStart = platform::nowNs();
+        TickStages stages;
+        std::uint64_t mark = tickStart;
+        if (!pipeline_.tick(tickStart)) {
+            const int lost = pipeline_.lostDevice();
+            WE_LOG_ERROR(log(), "{} lost after {} ticks (unplugged, or a USB reset?)",
+                         lost <= 0 ? std::string("physical wheel")
+                                   : "accessory '" + accessories_.labels[static_cast<std::size_t>(lost - 1)].name + "'",
+                         ticks);
+            result = kWheelLost;
+            break;
+        }
+        stages.lap(TickStages::Pipeline, mark);
+        ++ticks;
+        if (gameFfb_ != nullptr) gameFfb_->pump(platform::nowNs());
+        watchTheGame();
+        if (const wheelbri::LogLevel level = wheelbri::service::AppLogLevel::shared().current();
+            levelBeacon_.due(platform::nowMs(), level)) {
+            static_cast<void>(publisher_.publishLogLevel(level));
+        }
+        stages.lap(TickStages::Ffb, mark);
+        writeTelemetry();
+        stages.lap(TickStages::Telemetry, mark);
+        if (print_ && printDue.due(tickStart)) {
+            printLive(pipeline_);
+        }
+        if (window_ && frameDue.due(tickStart)) handFrame();
+        stages.lap(TickStages::Ui, mark);
+
+        const std::uint64_t tickEnd = platform::nowNs();
+        lastPeriodNs_ = tickStart - lastTickStart;
+        lastTickStart = tickStart;
+        lastWorkNs_ = tickEnd - tickStart;
+        wakeStats_.record(control_.wokeBy(), tickEnd - tickStart);
+        if (tickEnd - tickStart >= kStallNs) {
+            static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(5));
+            WE_LOG_WARN_LIMITED(log(), limiter,
+                                "loop: one tick took {:.0f} ms, the game got no fresh input meanwhile: {}",
+                                static_cast<double>(tickEnd - tickStart) / 1e6, stages.describe());
+        }
+        logStats(tickEnd, windowStart);
+        waitForNews(tickStart);
+    }
+    if (print_) {
+        std::puts("");
+    }
+    WE_LOG_INFO(log(), "loop, since the last report: {}; packet #{}",
+                wakeStats_.describe(platform::nowNs() - lastWakeLogNs_), pipeline_.sequence());
+    if (gameFfb_ != nullptr) {
+        gameFfb_->logUsage();
+    }
+    if (gStop) {
+        WE_LOG_INFO(log(), "stopped by signal after {} ticks", ticks);
+    }
+    return result;
+}
+
+// runLoop's other thread: the window (kWindowFramesPerSecond, 60 fps), old files (every 250 ms, and again after every
+// midnight), the config read again when it changes, and the game that runs (every 2 s). With or without a window, so
+// headless sessions follow the config and the game too. It keeps the mappers it makes for the whole session (the
+// loop may still hold one), so it must outlive the loop's thread.
+class WindowSide {
+public:
+    WindowSide(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const std::string& configPath,
+               wheelbri::Pipeline& pipeline, TeePublisher& statePublisher,
+               wheelbri::service::Housekeeping& housekeeping, wheelbri::service::UiHost* const host,
+               const bool routePedals, LoopShared& shared)
+        : config_(config),
+          reload_(reload),
+          configPath_(configPath),
+          pipeline_(pipeline),
+          statePublisher_(statePublisher),
+          housekeeping_(housekeeping),
+          host_(host),
+          shared_(shared),
+          gameWatch_(gameSession(config, routePedals), config.mapper.steering.targetRotationDeg,
+                     config.gameRotations, wheelbri::service::loadUserGames()),
+          shownMapping_(std::make_shared<const wheelbri::MapperConfig>(config.mapper)) {
+        if (!configPath_.empty()) {
+            std::error_code ec;
+            configWritten_ = std::filesystem::last_write_time(wheelbri::pathFromUtf8(configPath_), ec);
+        }
+        nextMidnight_ =
+            wheelbri::startOfDay(wheelbri::addDays(wheelbri::localDate(wheelbri::WallClock::now()), 1).value_or(""));
+    }
+
+    // Until the loop is done (shared.done) or the window is closed.
+    void run();
+
+private:
+    static wheelbri::GameSessionConfig gameSession(const wheelbri::EmulatorConfig& config, const bool routePedals) {
+        // Game profiles: applied here for the virtual wheel / wheelbri-uhid, by the shim itself for the in-game shim.
+        wheelbri::GameSessionConfig session;
+        session.target = config.targetProfile;
+        session.routePedals = routePedals;
+        session.tunings = config.gameTunings;
+        return session;
+    }
+    void everyQuarterSecond(std::uint64_t now);
+    void followConfig();
+    void checkGame();
+    void sayWaiting(std::vector<std::string> lines, bool problems);
+    void followRotation();
+    [[nodiscard]] UiFrame frame() const;
+
+    wheelbri::EmulatorConfig& config_;
+    const ReloadConfig& reload_;
+    const std::string& configPath_;
+    wheelbri::Pipeline& pipeline_;
+    TeePublisher& statePublisher_;
+    wheelbri::service::Housekeeping& housekeeping_;
+    wheelbri::service::UiHost* host_;
+    LoopShared& shared_;
+
+    wheelbri::service::GameWatch gameWatch_;
+    std::optional<wheelbri::WallClock::time_point> nextMidnight_;   // old files checked again then
+    std::uint64_t lastHousekeepingNs_ = 0;
+    // The game that runs, looked for every 2 s (a few milliseconds; never on the loop): its pedal profile.
+    std::uint64_t lastGameCheckNs_ = 0;
+    bool gameChecked_ = false;
+    // When the config file was written as last read (read again when it changes): `config_` is what that write
+    // said, Start's config with the changes taken while running (also across a wheel that came back).
+    std::filesystem::file_time_type configWritten_{};
+    // What the log said waits for the next Start (or is wrong in the file): said again only when it changes.
+    std::vector<std::string> saidWaiting_;
+    // The mappings the Mapping tab changed to while the session runs (LiveMapping.hpp), kept for the session (the
+    // loop may still hold the one before). `mappingVersion_` counts them; the game mappers are made over the one in
+    // use (their key has the version).
+    std::vector<std::unique_ptr<wheelbri::Mapper>> liveMappers_;
+    std::uint64_t mappingVersion_ = 0;
+    std::shared_ptr<const wheelbri::MapperConfig> shownMapping_;
+    // The mapping while a game with its own values runs (pedal invert / curve, buttons): one Mapper per game and set of
+    // values, kept for the whole session (the loop may still hold the last one).
+    std::map<std::string, std::unique_ptr<wheelbri::Mapper>> gameMappers_;
+};
+
+void WindowSide::sayWaiting(std::vector<std::string> lines, const bool problems) {
+    if (lines == saidWaiting_) return;
+    saidWaiting_ = lines;
+    for (const std::string& line : lines) {
+        if (problems) {
+            WE_LOG_WARN(log(), "config changed, not used while running until it is fixed: {}", line);
+        } else {
+            WE_LOG_INFO(log(), "config changed: {} from the next Start", line);
+        }
+    }
+}
+
+// The rotation the virtual wheel reports: the mapping's or the running game's own (GameWatch::rotationNow).
+void WindowSide::followRotation() {
+    if (statePublisher_.setRotation(gameWatch_.rotationNow())) {
+        WE_LOG_INFO(log(), "steering rotation: the virtual wheel reports {} deg now", gameWatch_.rotationNow());
+    }
+}
+
+// The config changed (the Games tab and, while running, the Mapping tab save as they change): read it again and use
+// at once what a running session can (the per-game values, GameWatch::setValues; the mapping, LiveMapping.hpp).
+// Everything else waits for the next Start, and the log says so.
+void WindowSide::followConfig() {
+    if (configPath_.empty()) return;
+    std::error_code ec;
+    const auto written = std::filesystem::last_write_time(wheelbri::pathFromUtf8(configPath_), ec);
+    if (ec || written == configWritten_) return;
+    configWritten_ = written;
+    std::vector<std::string> problems;
+    const auto next = reload_(problems);
+    if (!next) {
+        sayWaiting(std::move(problems), true);
+        return;
+    }
+    if (next->gameTunings != config_.gameTunings || next->gameRotations != config_.gameRotations) {
+        config_.gameTunings = next->gameTunings;
+        config_.gameRotations = next->gameRotations;
+        gameWatch_.setValues(config_.gameTunings, config_.gameRotations);
+        WE_LOG_INFO(log(), "game: your per-game values changed in {}: in use now", configPath_);
+        gameChecked_ = false;   // look now, not in up to 2 s
+    }
+    const wheelbri::LiveMappingChange change = wheelbri::liveMappingChange(config_, *next);
+    if (change.mapper) {
+        liveMappers_.push_back(std::make_unique<wheelbri::Mapper>(*change.mapper));
+        pipeline_.setMapper(*liveMappers_.back());
+        ++mappingVersion_;
+        shownMapping_ = std::make_shared<const wheelbri::MapperConfig>(*change.mapper);
+        WE_LOG_INFO(log(), "mapping: changed in {}: in use now", configPath_);
+        gameChecked_ = false;   // a game's own mapping is made again over this one
+    }
+    if (change.buttonOrder) {
+        pipeline_.setButtonOrder(*change.buttonOrder);
+        WE_LOG_INFO(log(), "buttons: the {} order now", wheelbri::toString(*change.buttonOrder));
+    }
+    wheelbri::applyLiveMappingChange(config_, change);
+    if (change.rotationChanged) {
+        gameWatch_.setMapping(config_.mapper.steering.targetRotationDeg);
+        followRotation();
+    }
+    sayWaiting(change.waiting, false);
+}
+
+void WindowSide::checkGame() {
+    try {
+        const auto decision = gameWatch_.check();
+        pipeline_.setPedalRoute(decision.route);
+        // The game's own mapping (made once per game, kept for the session), else the mapping's.
+        const wheelbri::Mapper* gameMapper = nullptr;
+        if (!decision.mapperGame.empty() && decision.tuning != nullptr) {
+            // One per game and set of values: a change made while it runs gets a new one (the loop may still use
+            // the old one, so none is ever thrown away during the session).
+            std::string key = std::to_string(mappingVersion_) + "|" + decision.mapperGame;
+            for (const auto& [name, value] : wheelbri::tuningLines(*decision.tuning)) {
+                key += "|" + name + "=" + value;
+            }
+            auto& made = gameMappers_[key];
+            if (made == nullptr) {
+                std::vector<std::string> problems;
+                made = std::make_unique<wheelbri::Mapper>(
+                    wheelbri::tunedMapper(config_.mapper, *decision.tuning, &problems));
+                for (const std::string& problem : problems) {
+                    WE_LOG_WARN(log(), "game {}: {}", decision.mapperGame, problem);
+                }
+                WE_LOG_INFO(log(), "game {}: its own pedal and button values are in use", decision.mapperGame);
+            }
+            gameMapper = made.get();
+        }
+        if (pipeline_.gameMapper() != gameMapper) pipeline_.setGameMapper(gameMapper);
+        followRotation();   // a game with its own rotation started or ended
+    } catch (const std::exception& e) {   // never ends the session; the pedals stay as they are
+        WE_LOG_WARN(log(), "game: looking for known games failed: {}", e.what());
+    }
+}
+
+void WindowSide::everyQuarterSecond(const std::uint64_t now) {
+    if (stopRequested()) {
+        WE_LOG_INFO(log(), "stop requested ({} appeared)", gStopFile.string());
+        gStop = true;
+    }
+    housekeeping_.pump();
+    followConfig();
+    constexpr std::uint64_t kGameCheckNs = 2 * platform::kNsPerSecond;
+    if (!gameChecked_ || now - lastGameCheckNs_ >= kGameCheckNs) {
+        lastGameCheckNs_ = now;
+        gameChecked_ = true;
+        checkGame();
+    }
+    if (nextMidnight_ && wheelbri::WallClock::now() >= *nextMidnight_) {
+        const auto wall = wheelbri::WallClock::now();
+        WE_LOG_INFO(log(), "new day {}: new log and telemetry files, checking old ones", wheelbri::localDate(wall));
+        housekeeping_.run(wall);
+        nextMidnight_ = wheelbri::startOfDay(wheelbri::addDays(wheelbri::localDate(wall), 1).value_or(""));
+    }
+}
+
+// The loop's latest copy with what this side knows added.
+UiFrame WindowSide::frame() const {
+    std::optional<UiFrame> frame;   // copy-constructed: its force feedback copy cannot be assigned
+    {
+        const std::lock_guard lock(shared_.frameMutex);
+        if (shared_.frame.ready) {
+            frame.emplace(shared_.frame);
+        }
+    }
+    if (!frame) {
+        frame.emplace();
+    }
+    frame->oldFiles = housekeeping_.status();
+    frame->game = gameWatch_.status();
+    frame->gameWarning = gameWatch_.warning();
+    frame->gameRotation = gameWatch_.rotationStatus();
+    frame->mapping = shownMapping_;
+    frame->mappingVersion = mappingVersion_;
+    frame->buttonOrder = config_.buttonOrder;
+    if (const auto& advice = gameWatch_.wayAdvice()) {
+        frame->gameWayTitle = advice->title;
+        frame->gameWayText = advice->text;
+    }
+    frame->gameWayNotices = gameWatch_.wayNotices();
+    const wheelbri::service::GameWatch::Live live = gameWatch_.live();
+    frame->gameId = live.id;
+    frame->gameProfileApplies = live.profileApplies;
+    frame->gamePid = live.pid;
+    const std::uint64_t nowMs = platform::nowMs();
+    frame->gameForMs = live.id.empty() || nowMs < live.sinceMs ? 0 : nowMs - live.sinceMs;
+    frame->gameStarts = live.starts;
+    frame->oldFilesFailed = housekeeping_.failed();
+    return std::move(*frame);
+}
+
+void WindowSide::run() {
+    constexpr std::uint64_t kFrameNs = platform::kNsPerSecond / wheelbri::kWindowFramesPerSecond;
+    std::uint64_t nextFrame = platform::nowNs();
+    while (!shared_.done) {
+        const std::uint64_t now = platform::nowNs();
+        if (now - lastHousekeepingNs_ >= 250 * platform::kNsPerMs) {
+            lastHousekeepingNs_ = now;
+            everyQuarterSecond(now);
+        }
+        if (host_ == nullptr) {
+            platform::sleepMs(50);
+            continue;
+        }
+        if (!host_->frame(frame())) {
+            WE_LOG_INFO(log(), "window closed: stopping");
+            break;
+        }
+        nextFrame += kFrameNs;
+        const std::uint64_t after = platform::nowNs();
+        if (nextFrame > after) {
+            platform::sleepNs(nextFrame - after);
+        } else {
+            nextFrame = after;   // the window was held up: carry on from now, no catching up
+        }
+    }
+}
+
 // `config` is the session's: changes to the mapping made while it runs are taken into it (LiveMapping.hpp), so a run
 // after the wheel came back starts with them.
 int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const std::string& configPath,
@@ -957,18 +1514,8 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
     }
     TeePublisher statePublisher(*publisher, trueForceState.get(), config.mapper.steering.targetRotationDeg);
 
-    // The app's log level to whatever reads the state (the shim, the virtual G920's driver, wheelbri-uhid): its own
-    // packet, from the same socket (LogLevelPacket.hpp).
-    wheelbri::LogLevelBeacon levelBeacon;
-
     const wheelbri::Mapper mapper(config.mapper);
     wheelbri::Pipeline pipeline(source, mapper, *profile, statePublisher);
-    // The mappings the Mapping tab changed to while the session runs (LiveMapping.hpp): made by the window thread and
-    // kept for the session (the loop may still hold the one before). `mappingVersion` counts them; the game mappers
-    // are made over the one in use (their key has the version).
-    std::vector<std::unique_ptr<wheelbri::Mapper>> liveMappers;
-    std::uint64_t mappingVersion = 0;
-    auto shownMapping = std::make_shared<const wheelbri::MapperConfig>(config.mapper);
     pipeline.setAccessories(accessories.sources());
     // The G25's and G27's buttons in their native order if the mapping says so ([buttons] order).
     pipeline.setButtonOrder(config.buttonOrder);
@@ -977,16 +1524,8 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
     }
     pipeline.limitSending(platform::kNsPerSecond / static_cast<std::uint64_t>(config.stateRateHz));
 
-    // Pedals pressed but the game never plays force feedback on the G920: it drives from another controller.
-    wheelbri::GameUseWatch gameUse;
-    // Force feedback loaded but none of it started while you drive (NFS 2015 at the start of a race): alt-tab.
-    wheelbri::FfbIdleWatch ffbIdle;
-
     std::string ffbStatus;
     const auto gameFfb = GameFfb::open(config, source, ffbStatus);
-    // The mapping while a game with its own values runs (pedal invert / curve, buttons): one Mapper per game, made by
-    // the window thread and kept for the whole session (the loop may still hold the last one).
-    std::map<std::string, std::unique_ptr<wheelbri::Mapper>> gameMappers;
     const auto telemetry = openTelemetry(config, configPath, configText, source);
     if (gameFfb != nullptr) {
         gameFfb->setTelemetry(telemetry.get());
@@ -996,8 +1535,6 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
     wheelbri::service::Housekeeping housekeeping(config.retention, managedFolders(config, logFolder));
     WE_LOG_INFO(log(), "old files: {}", housekeeping.status());
     housekeeping.run(wheelbri::WallClock::now());
-    auto nextMidnight = wheelbri::startOfDay(
-        wheelbri::addDays(wheelbri::localDate(wheelbri::WallClock::now()), 1).value_or(""));
 
     if (host != nullptr) {
         wheelbri::service::SessionInfo info;
@@ -1023,10 +1560,7 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
         }
     }
 
-    constexpr std::uint64_t kPrintEveryNs = 100'000'000;   // --print: 10 lines a second
     const wheelbri::WakeSettings wakeSettings;
-    // The window's copy of the state, kWindowFramesPerSecond (60) times a second, as often as the window draws.
-    const std::uint64_t frameEveryNs = wakeSettings.windowNs;
 
     // The loop sleeps until the wheel, an accessory or the game's force feedback has something new
     // (platform::WaitSet), and wakes by itself only for what must run on time (core EventLoopControl, WakePlanner).
@@ -1037,14 +1571,11 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
     static_assert(platform::WaitSet::kFailed == wheelbri::kWaitFailed &&
                   platform::WaitSet::kTimedOut == wheelbri::kWaitTimedOut);
     wheelbri::EventLoopControl control;
-    const auto pollingNote = [&]() {
-        return std::to_string(control.settings().pollNs / platform::kNsPerMs) + " ms";
-    };
     const auto addDevice = [&](const wheelbri::service::Wheel& device) {
         if (waitSet.addEvent(device.waitSource()) < 0) {
             WE_LOG_WARN(log(), "loop: '{}' gives no notification of new input (DirectInput polls it): the loop polls "
                                "it every {}",
-                        device.info().name, pollingNote());
+                        device.info().name, pollingNote(control));
             control.pollBecause(wheelbri::PollReason::NoNotification);
             return;
         }
@@ -1056,7 +1587,8 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
     }
     const auto addSocket = [&](const std::intptr_t socket, const wheelbri::WakeReason reason, const char* what) {
         if (waitSet.addSocket(socket) < 0) {
-            WE_LOG_WARN(log(), "loop: cannot wait for {} packets: the loop reads them every {}", what, pollingNote());
+            WE_LOG_WARN(log(), "loop: cannot wait for {} packets: the loop reads them every {}", what,
+                        pollingNote(control));
             control.pollBecause(wheelbri::PollReason::SocketNotWaitable);
             return;
         }
@@ -1064,231 +1596,22 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
     };
     if (gameFfb != nullptr) addSocket(gameFfb->socket(), wheelbri::WakeReason::GameFfb, "force feedback");
 
-    // The loop (wheel input, state to the game, force feedback, telemetry) runs on its own thread; the
-    // window and old-file checks stay on this one. A window that Windows holds up (a game going full screen,
-    // dragging it) then only freezes the window, never the wheel or its force feedback.
-    std::mutex frameMutex;
-    UiFrame sharedFrame;
-    std::atomic<bool> stopLoop{false};
-    std::atomic<bool> loopDone{false};
+    // The loop (wheel input, state to the game, force feedback, telemetry) runs on its own thread; the window, the
+    // config, the game and old files stay on this one (WindowSide). A window that Windows holds up (a game going full
+    // screen, dragging it) then only freezes the window, never the wheel or its force feedback. They share only
+    // LoopShared (and the pipeline's and TeePublisher's thread-safe setters).
+    LoopShared shared;
+    WindowSide windowSide(config, reload, configPath, pipeline, statePublisher, housekeeping, host, routePedals,
+                          shared);
+    LoopSide loopSide(pipeline, *profile, accessories, gameFfb.get(), telemetry.get(), *publisher, control, waitSet,
+                      wakeReasons, wakeSettings, shared, print, host != nullptr);
     int loopResult = 0;
-
-    const auto tickLoop = [&]() -> int {
-        // Above normal, so a game that is loading (all cores busy) does not starve the input loop.
-        if (std::string error; !platform::raiseThreadPriority(error)) {
-            WE_LOG_WARN(log(), "cannot raise the loop's thread priority: {}", error);
-        }
-        if (control.polling()) {
-            WE_LOG_INFO(log(), "running on events, and polling every {} ({}); press Ctrl+C to stop", pollingNote(),
-                        wheelbri::describe(control.pollReason()));
-        } else {
-            WE_LOG_INFO(log(), "running on events: it wakes when the wheel or the game has something new, else every "
-                               "{} ms at most; press Ctrl+C to stop",
-                        wakeSettings.idleNs / platform::kNsPerMs);
-        }
-        wheelbri::WakeStats wakeStats;
-        wheelbri::Periodic frameDue(frameEveryNs);
-        wheelbri::Periodic printDue(kPrintEveryNs);
-        const std::uint64_t loopStart = platform::nowNs();
-        std::uint64_t lastTickStart = loopStart;
-        std::uint64_t windowStart = loopStart;
-        std::uint64_t ticks = 0;
-        std::uint64_t lastPeriodNs = 0;
-        std::uint64_t lastWorkNs = 0;
-        std::uint64_t lastUsageLogNs = loopStart;
-        std::uint64_t lastWakeLogNs = loopStart;
-        int result = 0;
-
-        while (!gStop && !stopLoop) {
-            const std::uint64_t tickStart = platform::nowNs();
-            TickStages stages;
-            std::uint64_t mark = tickStart;
-            if (!pipeline.tick(tickStart)) {
-                const int lost = pipeline.lostDevice();
-                WE_LOG_ERROR(log(), "{} lost after {} ticks (unplugged, or a USB reset?)",
-                             lost <= 0 ? std::string("physical wheel")
-                                       : "accessory '" + accessories.labels[static_cast<std::size_t>(lost - 1)].name + "'",
-                             ticks);
-                result = kWheelLost;
-                break;
-            }
-            stages.lap(TickStages::Pipeline, mark);
-            ++ticks;
-            if (gameFfb != nullptr) gameFfb->pump(platform::nowNs());
-            if (gameFfb != nullptr) {
-                const wheelbri::WheelState& state = pipeline.lastState();
-                const bool pedal = state.throttle > 0.1F || state.brake > 0.1F;
-                const std::uint64_t packets = gameFfb->controller().stats().packets;
-                if (const auto change = gameUse.update(platform::nowMs(), pedal, packets)) {
-                    if (*change) {
-                        WE_LOG_WARN(log(), "the game is NOT USING the {}: pedals pressed for {} s and it has never "
-                                           "played force feedback on it, so it drives from another controller (a "
-                                           "gamepad or the keyboard). Close the game "
-                                           "with WheelBri running, start it again and pick the wheel in its controls "
-                                           "settings",
-                                    profile->identity().shortName, wheelbri::GameUseWatch::kPedalMs / 1000);
-                    } else {
-                        WE_LOG_INFO(log(), "the game uses the {} now (its force feedback arrives)",
-                                    profile->identity().shortName);
-                    }
-                }
-                const wheelbri::FfbController& controller = gameFfb->controller();
-                if (const auto change = ffbIdle.update(platform::nowMs(), pedal, controller.lastingLoaded(),
-                                                       controller.lastingWanted())) {
-                    if (*change) {
-                        WE_LOG_WARN(log(), "the game loaded its force feedback ({} effects) but has started none of "
-                                           "them while you drove for {} s, so the wheel stays limp. Alt-tab out of "
-                                           "the game and back once: it then starts them (NFS 2015 does this at the "
-                                           "start of some races)",
-                                    controller.lastingLoaded(), wheelbri::FfbIdleWatch::kPedalMs / 1000);
-                    } else {
-                        WE_LOG_INFO(log(), "the game's force feedback plays again (or it unloaded it)");
-                    }
-                }
-            }
-            if (const wheelbri::LogLevel level = wheelbri::service::AppLogLevel::shared().current();
-                levelBeacon.due(platform::nowMs(), level)) {
-                static_cast<void>(publisher->publishLogLevel(level));
-            }
-            stages.lap(TickStages::Ffb, mark);
-            if (telemetry != nullptr) {
-                const std::uint64_t now = platform::nowNs();
-                if (telemetry->due(now)) {
-                    wheelbri::TelemetrySample sample;
-                    sample.nowNs = now;
-                    sample.sequence = pipeline.sequence();
-                    sample.raw = pipeline.lastRaw();
-                    sample.state = pipeline.lastState();
-                    sample.report = pipeline.lastReport();
-                    sample.ffb = gameFfb != nullptr ? &gameFfb->controller() : nullptr;
-                    sample.periodUs = static_cast<double>(lastPeriodNs) / 1000.0;
-                    sample.workUs = static_cast<double>(lastWorkNs) / 1000.0;
-                    telemetry->writeSample(sample);
-                }
-            }
-            stages.lap(TickStages::Telemetry, mark);
-            if (print && printDue.due(tickStart)) {
-                printLive(pipeline);
-            }
-            if (host != nullptr && frameDue.due(tickStart)) {
-                // Hand the window a copy. Never wait for it: if it is copying right now, skip this frame.
-                const std::unique_lock lock(frameMutex, std::try_to_lock);
-                if (lock.owns_lock()) {
-                    sharedFrame.raw = pipeline.lastRaw();
-                    sharedFrame.inputs = pipeline.lastInputs();
-                    sharedFrame.state = pipeline.lastState();
-                    sharedFrame.report = pipeline.lastReport();
-                    sharedFrame.ffb.reset();
-                    if (gameFfb != nullptr) {
-                        sharedFrame.ffb.emplace(gameFfb->controller());
-                    }
-                    updateTelemetryFiles(sharedFrame.telemetry, telemetry.get());
-                    sharedFrame.gameIgnoresWheel = gameUse.warning();
-                    sharedFrame.gameFfbIdle = ffbIdle.warning();
-                    sharedFrame.ready = true;
-                }
-            }
-            stages.lap(TickStages::Ui, mark);
-
-            const std::uint64_t tickEnd = platform::nowNs();
-            const std::uint64_t period = tickStart - lastTickStart;
-            lastTickStart = tickStart;
-            lastPeriodNs = period;
-            lastWorkNs = tickEnd - tickStart;
-            wakeStats.record(control.wokeBy(), tickEnd - tickStart);
-            if (tickEnd - tickStart >= kStallNs) {
-                static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(5));
-                WE_LOG_WARN_LIMITED(log(), limiter,
-                                    "loop: one tick took {:.0f} ms, the game got no fresh input meanwhile: {}",
-                                    static_cast<double>(tickEnd - tickStart) / 1e6, stages.describe());
-            }
-            if (tickEnd - windowStart >= kStatsWindowNs) {
-                // Once a minute: how often it woke and why.
-                if (tickEnd - lastWakeLogNs >= kWakeLogNs) {
-                    WE_LOG_INFO(log(), "loop: {}; {}{}; since start, notifications missed {}, late {}; packet #{}, {} "
-                                       "publish failures",
-                                wakeStats.describe(tickEnd - lastWakeLogNs),
-                                control.polling() ? "polling: " : "on events",
-                                control.polling() ? wheelbri::describe(control.pollReason()) : "",
-                                control.missedNotifications(), control.lateNotifications(), pipeline.sequence(),
-                                pipeline.publishFailures());
-                    wakeStats.reset();
-                    lastWakeLogNs = tickEnd;
-                }
-                if (gameFfb != nullptr) {
-                    gameFfb->logStatsIfChanged();
-                    if (tickEnd - lastUsageLogNs >= kUsageLogNs) {
-                        gameFfb->logUsage();
-                        lastUsageLogNs = tickEnd;
-                    }
-                }
-                windowStart = tickEnd;
-            }
-
-            // Until something new arrives, or what must run on time is due (core EventLoopControl, WakePlanner; every
-            // millisecond while the loop polls); then at least minGapNs after this pass started (a source that signals
-            // without pause cannot spin the loop). It polls as well, for the rest of the session, when the timer keeps
-            // finding new input (the devices' notifications miss it), and only sleeps once the wait itself failed.
-            wheelbri::EventLoopControl::Pass pass;
-            pass.startNs = tickStart;
-            pass.inputChanged = pipeline.inputChanged();
-            pass.windowOpen = host != nullptr;
-            pass.forcesPlaying = gameFfb != nullptr && gameFfb->controller().stats().activeSlots > 0;
-            control.afterPass(pass);
-            const std::uint64_t deadline = control.deadlineNs();
-            int ready = wheelbri::kWaitTimedOut;
-            if (control.canWait()) {
-                ready = waitSet.waitUntil(deadline);
-            } else if (const std::uint64_t now = platform::nowNs(); deadline > now) {
-                platform::sleepNs(deadline - now);
-            }
-            const std::uint64_t woke = platform::nowNs();
-            if (woke > deadline && woke - deadline >= kStallNs) {
-                // Not our work: the system let the loop sleep far longer than asked (busy, or asleep: a Steam Deck
-                // with its screen off sleeps, and a few seconds late is that).
-                static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(5));
-                WE_LOG_WARN_LIMITED(log(), limiter,
-                                    "loop: woke {:.0f} ms after its deadline: the system did not run the service for "
-                                    "that long ({})",
-                                    static_cast<double>(woke - deadline) / 1e6,
-                                    woke - deadline >= 2'000'000'000ULL ? "asleep?" : "busy?");
-            }
-            const wheelbri::EventLoopControl::Woke next = control.afterWait(ready, wakeReasons, woke);
-            if (next.startedPolling) {
-                if (control.pollReason() == wheelbri::PollReason::WaitFailed) {
-                    WE_LOG_WARN(log(), "loop: cannot wait for the devices ({}); the loop polls every {} for the rest "
-                                       "of this session",
-                                waitSet.failureText(), pollingNote());
-                } else {
-                    WE_LOG_WARN(log(), "loop: the timer found new input {} times within {} s that no notification "
-                                       "announced: the devices' notifications cannot be trusted; the loop also polls "
-                                       "every {} for the rest of this session",
-                                control.settings().missThreshold,
-                                control.settings().missWindowNs / platform::kNsPerSecond, pollingNote());
-                }
-            }
-            if (next.sleepNs > 0) platform::sleepNs(next.sleepNs);
-        }
-        if (print) {
-            std::puts("");
-        }
-        WE_LOG_INFO(log(), "loop, since the last report: {}; packet #{}",
-                    wakeStats.describe(platform::nowNs() - lastWakeLogNs), pipeline.sequence());
-        if (gameFfb != nullptr) {
-            gameFfb->logUsage();
-        }
-        if (gStop) {
-            WE_LOG_INFO(log(), "stopped by signal after {} ticks", ticks);
-        }
-        return result;
-    };
-
     std::thread loopThread([&] {
         platform::nameThisThread("wheelbri loop");
         // An exception must not escape this thread (std::terminate: no clean-up, the wheel left hidden and its
         // forces playing). It ends the session instead; runSession then undoes everything.
         try {
-            loopResult = tickLoop();
+            loopResult = loopSide.run();
         } catch (const std::exception& e) {
             WE_LOG_CRITICAL(log(), "loop: stopped on an error: {}", e.what());
             loopResult = 1;
@@ -1305,205 +1628,21 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
                 WE_LOG_ERROR(log(), "loop: stopping the game's forces failed");
             }
         }
-        loopDone = true;
+        shared.done = true;
     });
 
-    // This thread: the window (kWindowFramesPerSecond, 60 fps) and old files (every 250 ms, and again after every
-    // midnight).
     try {
-        constexpr std::uint64_t kFrameNs = platform::kNsPerSecond / wheelbri::kWindowFramesPerSecond;
-        std::uint64_t lastHousekeepingNs = 0;
-        // The game that runs, looked for every 2 s here (a few milliseconds; never on the loop): its pedal profile.
-        // This thread runs with or without a window, so headless sessions get it too.
-        constexpr std::uint64_t kGameCheckNs = 2 * platform::kNsPerSecond;
-        std::uint64_t lastGameCheckNs = 0;
-        bool gameChecked = false;
-        // Game profiles: applied here for the virtual G920 / wheelbri-uhid, by the shim itself for the in-game shim.
-        wheelbri::GameSessionConfig gameSession;
-        gameSession.target = config.targetProfile;
-        gameSession.routePedals = routePedals;
-        gameSession.tunings = config.gameTunings;
-        wheelbri::service::GameWatch gameWatch(std::move(gameSession), config.mapper.steering.targetRotationDeg,
-                                               config.gameRotations, wheelbri::service::loadUserGames());
-        // When the config file was written as last read (read again when it changes): `config` is what that write
-        // said, Start's config with the changes taken while running (also across a wheel that came back).
-        std::filesystem::file_time_type configWritten{};
-        if (!configPath.empty()) {
-            std::error_code ec;
-            configWritten = std::filesystem::last_write_time(wheelbri::pathFromUtf8(configPath), ec);
-        }
-        // What the log said waits for the next Start (or is wrong in the file): said again only when it changes.
-        std::vector<std::string> saidWaiting;
-        const auto sayWaiting = [&saidWaiting](std::vector<std::string> lines, const bool problems) {
-            if (lines == saidWaiting) return;
-            saidWaiting = lines;
-            for (const std::string& line : lines) {
-                if (problems) {
-                    WE_LOG_WARN(log(), "config changed, not used while running until it is fixed: {}", line);
-                } else {
-                    WE_LOG_INFO(log(), "config changed: {} from the next Start", line);
-                }
-            }
-        };
-        // The rotation the virtual wheel reports: the mapping's or the running game's own (GameWatch::rotationNow).
-        const auto followRotation = [&]() {
-            if (statePublisher.setRotation(gameWatch.rotationNow())) {
-                WE_LOG_INFO(log(), "steering rotation: the virtual wheel reports {} deg now", gameWatch.rotationNow());
-            }
-        };
-        std::uint64_t nextFrame = platform::nowNs();
-        while (!loopDone) {
-            const std::uint64_t now = platform::nowNs();
-            if (now - lastHousekeepingNs >= 250 * platform::kNsPerMs) {
-                lastHousekeepingNs = now;
-                if (stopRequested()) {
-                    WE_LOG_INFO(log(), "stop requested ({} appeared)", gStopFile.string());
-                    gStop = true;
-                }
-                housekeeping.pump();
-                // The config changed (the Games tab and, while running, the Mapping tab save as they change): read it
-                // again and use at once what a running session can (the per-game values, GameWatch::setValues; the
-                // mapping, LiveMapping.hpp). Everything else waits for the next Start, and the log says so.
-                if (!configPath.empty()) {
-                    std::error_code ec;
-                    const auto written = std::filesystem::last_write_time(wheelbri::pathFromUtf8(configPath), ec);
-                    if (!ec && written != configWritten) {
-                        configWritten = written;
-                        std::vector<std::string> problems;
-                        if (const auto next = reload(problems)) {
-                            if (next->gameTunings != config.gameTunings ||
-                                next->gameRotations != config.gameRotations) {
-                                config.gameTunings = next->gameTunings;
-                                config.gameRotations = next->gameRotations;
-                                gameWatch.setValues(config.gameTunings, config.gameRotations);
-                                WE_LOG_INFO(log(), "game: your per-game values changed in {}: in use now",
-                                            configPath);
-                                gameChecked = false;   // look now, not in up to 2 s
-                            }
-                            const wheelbri::LiveMappingChange change = wheelbri::liveMappingChange(config, *next);
-                            if (change.mapper) {
-                                liveMappers.push_back(std::make_unique<wheelbri::Mapper>(*change.mapper));
-                                pipeline.setMapper(*liveMappers.back());
-                                ++mappingVersion;
-                                shownMapping = std::make_shared<const wheelbri::MapperConfig>(*change.mapper);
-                                WE_LOG_INFO(log(), "mapping: changed in {}: in use now", configPath);
-                                gameChecked = false;   // a game's own mapping is made again over this one
-                            }
-                            if (change.buttonOrder) {
-                                pipeline.setButtonOrder(*change.buttonOrder);
-                                WE_LOG_INFO(log(), "buttons: the {} order now", wheelbri::toString(*change.buttonOrder));
-                            }
-                            wheelbri::applyLiveMappingChange(config, change);
-                            if (change.rotationChanged) {
-                                gameWatch.setMapping(config.mapper.steering.targetRotationDeg);
-                                followRotation();
-                            }
-                            sayWaiting(change.waiting, false);
-                        } else {
-                            sayWaiting(std::move(problems), true);
-                        }
-                    }
-                }
-                if (!gameChecked || now - lastGameCheckNs >= kGameCheckNs) {
-                    lastGameCheckNs = now;
-                    gameChecked = true;
-                    try {
-                        const auto decision = gameWatch.check();
-                        pipeline.setPedalRoute(decision.route);
-                        // The game's own mapping (made once per game, kept for the session), else the mapping's.
-                        const wheelbri::Mapper* gameMapper = nullptr;
-                        if (!decision.mapperGame.empty() && decision.tuning != nullptr) {
-                            // One per game and set of values: a change made while it runs gets a new one (the loop
-                            // may still use the old one, so none is ever thrown away during the session).
-                            std::string key = std::to_string(mappingVersion) + "|" + decision.mapperGame;
-                            for (const auto& [name, value] : wheelbri::tuningLines(*decision.tuning)) {
-                                key += "|" + name + "=" + value;
-                            }
-                            auto& made = gameMappers[key];
-                            if (made == nullptr) {
-                                std::vector<std::string> problems;
-                                made = std::make_unique<wheelbri::Mapper>(
-                                    wheelbri::tunedMapper(config.mapper, *decision.tuning, &problems));
-                                for (const std::string& problem : problems) {
-                                    WE_LOG_WARN(log(), "game {}: {}", decision.mapperGame, problem);
-                                }
-                                WE_LOG_INFO(log(), "game {}: its own pedal and button values are in use",
-                                            decision.mapperGame);
-                            }
-                            gameMapper = made.get();
-                        }
-                        if (pipeline.gameMapper() != gameMapper) pipeline.setGameMapper(gameMapper);
-                        followRotation();   // a game with its own rotation started or ended
-                    } catch (const std::exception& e) {   // never ends the session; the pedals stay as they are
-                        WE_LOG_WARN(log(), "game: looking for known games failed: {}", e.what());
-                    }
-                }
-                if (nextMidnight && wheelbri::WallClock::now() >= *nextMidnight) {
-                    const auto wall = wheelbri::WallClock::now();
-                    WE_LOG_INFO(log(), "new day {}: new log and telemetry files, checking old ones",
-                                wheelbri::localDate(wall));
-                    housekeeping.run(wall);
-                    nextMidnight = wheelbri::startOfDay(wheelbri::addDays(wheelbri::localDate(wall), 1).value_or(""));
-                }
-            }
-            if (host == nullptr) {
-                platform::sleepMs(50);
-                continue;
-            }
-            std::optional<UiFrame> frame;   // copy-constructed: its force feedback copy cannot be assigned
-            {
-                const std::lock_guard lock(frameMutex);
-                if (sharedFrame.ready) {
-                    frame.emplace(sharedFrame);
-                }
-            }
-            if (!frame) {
-                frame.emplace();
-            }
-            frame->oldFiles = housekeeping.status();
-            frame->game = gameWatch.status();
-            frame->gameWarning = gameWatch.warning();
-            frame->gameRotation = gameWatch.rotationStatus();
-            frame->mapping = shownMapping;
-            frame->mappingVersion = mappingVersion;
-            frame->buttonOrder = config.buttonOrder;
-            if (const auto& advice = gameWatch.wayAdvice()) {
-                frame->gameWayTitle = advice->title;
-                frame->gameWayText = advice->text;
-            }
-            frame->gameWayNotices = gameWatch.wayNotices();
-            {
-                const wheelbri::service::GameWatch::Live live = gameWatch.live();
-                frame->gameId = live.id;
-                frame->gameProfileApplies = live.profileApplies;
-                frame->gamePid = live.pid;
-                const std::uint64_t nowMs = platform::nowMs();
-                frame->gameForMs = live.id.empty() || nowMs < live.sinceMs ? 0 : nowMs - live.sinceMs;
-                frame->gameStarts = live.starts;
-            }
-            frame->oldFilesFailed = housekeeping.failed();
-            if (!host->frame(*frame)) {
-                WE_LOG_INFO(log(), "window closed: stopping");
-                break;
-            }
-            nextFrame += kFrameNs;
-            const std::uint64_t after = platform::nowNs();
-            if (nextFrame > after) {
-                platform::sleepNs(nextFrame - after);
-            } else {
-                nextFrame = after;   // the window was held up: carry on from now, no catching up
-            }
-        }
+        windowSide.run();
     } catch (...) {
-        stopLoop = true;   // never leave the loop thread running behind an error here
+        shared.stop = true;   // never leave the loop thread running behind an error here
         loopThread.join();
         throw;
     }
-    stopLoop = true;
+    shared.stop = true;
     loopThread.join();
-    if (sharedFrame.ready) {
+    if (shared.frame.ready) {
         lastFrame.reset();
-        lastFrame.emplace(sharedFrame);   // what the window keeps showing if the wheel was lost
+        lastFrame.emplace(shared.frame);   // what the window keeps showing if the wheel was lost
     }
 
     if (telemetry != nullptr) {
@@ -1594,6 +1733,185 @@ std::filesystem::path logFolderOf(const wheelbri::EmulatorConfig& config) {
     return folder.empty() ? std::filesystem::current_path() : folder;
 }
 
+// --prepare-hide: the installer, after a reinstall that kept the user's settings, puts the filter on the saved rig's
+// devices now, so the first Start does not have to. Prints one line (the installer shows it); the exit code is
+// HideSetup's.
+int prepareHide() {
+    if (!platform::isElevated()) {
+        std::puts("--prepare-hide needs Administrator");
+        return 1;
+    }
+    std::string rigName;
+    const auto targets = rigHideTargets(rigName);
+    if (targets.empty()) {
+        std::puts(rigName.empty() ? "no saved rig: the first Start sets up the hiding"
+                                  : "the saved rig lists no device to hide");
+        return static_cast<int>(HideSetup::NothingToDo);
+    }
+    wheelbri::service::PrivilegedSteps::Problem problem{};
+    std::string problemText;
+    const auto steps = wheelbri::service::PrivilegedSteps::open(problem, problemText);
+    if (steps == nullptr) {
+        std::puts(problemText.c_str());
+        return 1;
+    }
+    const HideSetup result = ensureHideFilter(targets, *steps);
+    if (result == HideSetup::Running) {
+        // Set up for the first Start; out of the stack until then (it costs CPU while it is in), so that Start
+        // only puts it back in.
+        std::string message;
+        (void)steps->takeHideFilterOff(hideInterfaces(targets, /*listedOnly=*/false), {}, message);
+    }
+    std::puts(result == HideSetup::Running   ? "the rig's devices are hidden from games whenever WheelBri runs"
+              : result == HideSetup::Waiting ? "the filter is on; it starts after the restart of Windows"
+              : result == HideSetup::NothingToDo
+                  ? "none of the rig's devices is plugged in: the first Start sets up the hiding"
+                  : "could not set up the hiding (see the hide installer's log): the first Start tries again");
+    return static_cast<int>(result);
+}
+
+// Waits (up to WaitSettings' timeout) for the wheel `match` names when it is not connected: false when stopped
+// meanwhile (`cancelled`). Whether it came or not, the caller then opens it (and says what is connected if it cannot).
+bool waitForWheel(wheelbri::service::WheelBackend& backend, const std::string& match,
+                  wheelbri::service::UiHost* const host, const std::function<bool()>& cancelled) {
+    if (wheelbri::service::wheelConnected(backend, match)) return true;
+    const wheelbri::WaitSettings wait;
+    WE_LOG_INFO(log(), "the wheel ('{}') is not connected yet: waiting up to {} s for it (Windows may be restarting "
+                       "it); Stop gives up",
+                match, wait.timeoutMs / 1000);
+    std::uint64_t waitedMs = 0;
+    if (host != nullptr) host->step("waiting for the wheel (up to " + std::to_string(wait.timeoutMs / 1000) + " s)");
+    // Each check of the wheel at once when Windows says a device came (else every 250 ms, for Stop as well).
+    wheelbri::ChangeCounter& changes = platform::DeviceChanges::shared().counter();
+    const wheelbri::WaitOutcome outcome = wheelbri::waitFor(
+        wait, [&] { return wheelbri::service::wheelConnected(backend, match); }, cancelled,
+        [&changes](const std::uint64_t ms) {
+            const std::uint64_t start = platform::nowMs();
+            (void)changes.waitForChange(changes.count(), ms);
+            return platform::nowMs() - start;
+        },
+        &waitedMs);
+    if (host != nullptr) host->step({});
+    if (outcome == wheelbri::WaitOutcome::Cancelled) {
+        WE_LOG_INFO(log(), "stopped while waiting for the wheel");
+        return false;
+    }
+    if (outcome == wheelbri::WaitOutcome::Ready) {
+        WE_LOG_INFO(log(), "the wheel is there after {:.1f} s", static_cast<double>(waitedMs) / 1000.0);
+    } else {
+        WE_LOG_WARN(log(), "the wheel did not appear within {} s", waitedMs / 1000);
+    }
+    return true;
+}
+
+// A mapped axis the device does not have reads centred or released for ever: say so (Start still goes on).
+void warnMissingAxes(const wheelbri::MapperConfig& mapper, const wheelbri::service::Wheel& wheel,
+                     const Accessories& accessories) {
+    std::array<int, wheelbri::kMaxInputDevices> axisCounts{};
+    axisCounts.fill(-1);
+    axisCounts[0] = wheel.axes();
+    for (std::size_t i = 0; i < accessories.devices.size(); ++i) {
+        if (accessories.devices[i] != nullptr) axisCounts[i + 1] = accessories.devices[i]->axes();
+    }
+    for (const std::string& problem : wheelbri::missingMappedAxes(mapper, axisCounts)) {
+        WE_LOG_ERROR(log(), "mapping: {}; it will not move (map another axis in the Mapping tab)", problem);
+    }
+}
+
+// After the wheel was lost: waits until it and its accessories are all back and open (`source`, `accessories`),
+// trying every `retryEveryMs` (the first try at once unless `lostQuickly`), keeping the window answering with the
+// last picture of the wheel marked lost. False when stopped meanwhile (Stop, the stop file, the window closed).
+bool waitForWheelBack(wheelbri::service::WheelBackend& backend, const wheelbri::EmulatorConfig& config,
+                      wheelbri::service::UiHost* const host, std::optional<UiFrame>& lastFrame,
+                      const std::uint64_t retryEveryMs, const bool lostQuickly,
+                      std::unique_ptr<wheelbri::service::Wheel>& source, Accessories& accessories) {
+    // By the clock (a frame of the window can take a while), never by counting sleeps.
+    const std::uint64_t startMs = platform::nowMs();
+    std::uint64_t nextTryMs = lostQuickly ? retryEveryMs : 0;
+    std::uint64_t nextNoteMs = 60'000;
+    std::uint64_t waitedMs = 0;
+    while (!gStop && source == nullptr) {
+        if (stopRequested()) {
+            WE_LOG_INFO(log(), "stop requested ({} appeared)", gStopFile.string());
+            gStop = true;
+            break;
+        }
+        waitedMs = platform::nowMs() - startMs;
+        // Keeps the window answering (the last picture of the wheel stays, marked lost); false: it was closed.
+        if (lastFrame) lastFrame->wheelLostMs = std::max<std::uint64_t>(waitedMs, 1);
+        if (host != nullptr && !host->frame(lastFrame ? *lastFrame : UiFrame{})) {
+            WE_LOG_INFO(log(), "window closed: stopping");
+            gStop = true;
+            break;
+        }
+        if (waitedMs >= nextTryMs) {
+            nextTryMs = waitedMs + retryEveryMs;
+            if (allConnected(backend, config)) {
+                source = wheelbri::service::openWheel(backend, config.sourceDeviceMatch, /*quiet=*/true);
+                if (source != nullptr && !openAccessories(backend, config.mapper, source->info(), accessories, true)) {
+                    source.reset();   // an accessory is not ready yet: all again next time
+                    accessories.close();
+                }
+                if (source == nullptr) {
+                    static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(30));
+                    WE_LOG_WARN_LIMITED(log(), limiter, "the wheel is back but cannot be opened yet; trying again");
+                }
+            }
+        }
+        if (source == nullptr) {
+            platform::sleepMs(50);
+            if (waitedMs >= nextNoteMs) {
+                WE_LOG_WARN(log(), "still waiting for the wheel ({} min)", nextNoteMs / 60'000);
+                nextNoteMs += 60'000;
+            }
+        }
+    }
+    if (source == nullptr) return false;
+    WE_LOG_INFO(log(), "the wheel is back after {:.1f} s: carrying on",
+                static_cast<double>(platform::nowMs() - startMs) / 1000.0);
+    return true;
+}
+
+// The window's line with the virtual wheel on: what games will see besides it (the rig hidden or not, and which of
+// its devices the filter does not run on yet).
+DeviceSummary virtualWheelSummary(const std::string& wheelName, const bool hide,
+                                  const std::vector<wheelbri::service::HideFilter::Target>& hideTargets,
+                                  const std::vector<wheelbri::service::HideFilter::Check>& hideChecks,
+                                  const bool rigHidden) {
+    DeviceSummary devices;
+    devices.text = "virtual " + wheelName + " on";
+    if (!hide) {
+        devices.text += ", rig left visible (--no-hide)";
+    } else if (hideTargets.empty()) {
+        devices.text += ", NOTHING HIDDEN: no rig yet (Rig tab)";
+        devices.warning = true;
+    } else {
+        int hidden = 0;
+        std::string notHidden;
+        for (const auto& c : hideChecks) {
+            if (c.state == wheelbri::service::HideFilter::State::Ready && rigHidden) {
+                ++hidden;
+            } else if (c.state != wheelbri::service::HideFilter::State::NotConnected) {
+                notHidden += (notHidden.empty() ? "" : ", ") + c.target.name + " (" +
+                             (!rigHidden && c.state == wheelbri::service::HideFilter::State::Ready
+                                  ? std::string("setting not written")
+                                  : wheelbri::service::HideFilter::stateName(c.state)) +
+                             ")";
+            }
+        }
+        devices.text += ", rig hidden (" + std::to_string(hidden) + " of " + std::to_string(hideTargets.size()) +
+                        " devices)";
+        if (!notHidden.empty()) {
+            devices.text += ", NOT HIDDEN: " + notHidden + ": close apps using it or replug it, then Start";
+            devices.warning = true;
+            WE_LOG_ERROR(log(), "hide: games can see {}: the filter does not run there yet (the hide lines above "
+                                "say why)",
+                         notHidden);
+        }
+    }
+    return devices;
+}
+
 // One session: the wheel opened, the virtual devices created, the loop run until stopped (gStop, the stop
 // file, or the host's window), and everything undone again. Logging must be up.
 int runSession(const Options& options, const LoadedConfig& loaded, const bool logFileOk,
@@ -1640,41 +1958,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         wheelbri::service::HideFilter::clear();
         return 0;
     }
-    if (options.prepareHide) {
-        // The installer, after a reinstall that kept the user's settings: the filter on the saved rig's devices now,
-        // so the first Start does not have to. Prints one line (the installer shows it); the exit code is HideSetup's.
-        if (!platform::isElevated()) {
-            std::puts("--prepare-hide needs Administrator");
-            return 1;
-        }
-        std::string rigName;
-        const auto targets = rigHideTargets(rigName);
-        if (targets.empty()) {
-            std::puts(rigName.empty() ? "no saved rig: the first Start sets up the hiding"
-                                      : "the saved rig lists no device to hide");
-            return static_cast<int>(HideSetup::NothingToDo);
-        }
-        wheelbri::service::PrivilegedSteps::Problem problem{};
-        std::string problemText;
-        const auto steps = wheelbri::service::PrivilegedSteps::open(problem, problemText);
-        if (steps == nullptr) {
-            std::puts(problemText.c_str());
-            return 1;
-        }
-        const HideSetup result = ensureHideFilter(targets, *steps);
-        if (result == HideSetup::Running) {
-            // Set up for the first Start; out of the stack until then (it costs CPU while it is in), so that Start
-            // only puts it back in.
-            std::string message;
-            (void)steps->takeHideFilterOff(hideInterfaces(targets, /*listedOnly=*/false), {}, message);
-        }
-        std::puts(result == HideSetup::Running   ? "the rig's devices are hidden from games whenever WheelBri runs"
-                  : result == HideSetup::Waiting ? "the filter is on; it starts after the restart of Windows"
-                  : result == HideSetup::NothingToDo
-                      ? "none of the rig's devices is plugged in: the first Start sets up the hiding"
-                      : "could not set up the hiding (see the hide installer's log): the first Start tries again");
-        return static_cast<int>(result);
-    }
+    if (options.prepareHide) return prepareHide();
     // Until the end of this function (its clean-up included), the console close handler waits.
     gSessionActive = true;
     struct SessionActive {
@@ -1771,34 +2055,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     }
     // A wheel Windows is still restarting (after a reinstall, or while a driver or filter is put on it) is gone for
     // a few seconds: wait a little for it instead of failing at once. Stop gives up.
-    if (!wheelbri::service::wheelConnected(*backend, config.sourceDeviceMatch)) {
-        const wheelbri::WaitSettings wait;
-        WE_LOG_INFO(log(), "the wheel ('{}') is not connected yet: waiting up to {} s for it (Windows may be restarting "
-                           "it); Stop gives up",
-                    config.sourceDeviceMatch, wait.timeoutMs / 1000);
-        std::uint64_t waitedMs = 0;
-        if (host != nullptr) host->step("waiting for the wheel (up to " + std::to_string(wait.timeoutMs / 1000) + " s)");
-        // Each check of the wheel at once when Windows says a device came (else every 250 ms, for Stop as well).
-        wheelbri::ChangeCounter& changes = platform::DeviceChanges::shared().counter();
-        const wheelbri::WaitOutcome outcome = wheelbri::waitFor(
-            wait, [&] { return wheelbri::service::wheelConnected(*backend, config.sourceDeviceMatch); }, cancelled,
-            [&changes](const std::uint64_t ms) {
-                const std::uint64_t start = platform::nowMs();
-                (void)changes.waitForChange(changes.count(), ms);
-                return platform::nowMs() - start;
-            },
-            &waitedMs);
-        if (host != nullptr) host->step({});
-        if (outcome == wheelbri::WaitOutcome::Cancelled) {
-            WE_LOG_INFO(log(), "stopped while waiting for the wheel");
-            return 0;
-        }
-        if (outcome == wheelbri::WaitOutcome::Ready) {
-            WE_LOG_INFO(log(), "the wheel is there after {:.1f} s", static_cast<double>(waitedMs) / 1000.0);
-        } else {
-            WE_LOG_WARN(log(), "the wheel did not appear within {} s", waitedMs / 1000);
-        }
-    }
+    if (!waitForWheel(*backend, config.sourceDeviceMatch, host, cancelled)) return 0;
     auto source = wheelbri::service::openWheel(*backend, config.sourceDeviceMatch);
     if (source == nullptr) {
         std::fprintf(stderr, "no joystick matching '%s'. Connected devices:\n", config.sourceDeviceMatch.c_str());
@@ -1810,18 +2067,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     if (!options.ffbTest && !openAccessories(*backend, config.mapper, source->info(), accessories, false)) {
         return 1;
     }
-    if (!options.ffbTest) {
-        // A mapped axis the device does not have reads centred or released for ever: say so (Start still goes on).
-        std::array<int, wheelbri::kMaxInputDevices> axisCounts{};
-        axisCounts.fill(-1);
-        axisCounts[0] = source->axes();
-        for (std::size_t i = 0; i < accessories.devices.size(); ++i) {
-            if (accessories.devices[i] != nullptr) axisCounts[i + 1] = accessories.devices[i]->axes();
-        }
-        for (const std::string& problem : wheelbri::missingMappedAxes(config.mapper, axisCounts)) {
-            WE_LOG_ERROR(log(), "mapping: {}; it will not move (map another axis in the Mapping tab)", problem);
-        }
-    }
+    if (!options.ffbTest) warnMissingAxes(config.mapper, *source, accessories);
 
     if (options.ffbTest) {
         const auto sink = source->openForceFeedback(config.ffbInvert);
@@ -1925,38 +2171,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     }
     // One line for the window: what games will see besides the G920, and what is missing.
     DeviceSummary devices;
-    if (g920) {
-        devices.text = "virtual " + wheelName + " on";
-        if (!options.hide) {
-            devices.text += ", rig left visible (--no-hide)";
-        } else if (hideTargets.empty()) {
-            devices.text += ", NOTHING HIDDEN: no rig yet (Rig tab)";
-            devices.warning = true;
-        } else {
-            int hidden = 0;
-            std::string notHidden;
-            for (const auto& c : hideChecks) {
-                if (c.state == wheelbri::service::HideFilter::State::Ready && rigHidden) {
-                    ++hidden;
-                } else if (c.state != wheelbri::service::HideFilter::State::NotConnected) {
-                    notHidden += (notHidden.empty() ? "" : ", ") + c.target.name + " (" +
-                                 (!rigHidden && c.state == wheelbri::service::HideFilter::State::Ready
-                                      ? std::string("setting not written")
-                                      : wheelbri::service::HideFilter::stateName(c.state)) +
-                                 ")";
-                }
-            }
-            devices.text += ", rig hidden (" + std::to_string(hidden) + " of " + std::to_string(hideTargets.size()) +
-                            " devices)";
-            if (!notHidden.empty()) {
-                devices.text += ", NOT HIDDEN: " + notHidden + ": close apps using it or replug it, then Start";
-                devices.warning = true;
-                WE_LOG_ERROR(log(), "hide: games can see {}: the filter does not run there yet (the hide lines above "
-                                    "say why)",
-                             notHidden);
-            }
-        }
-    }
+    if (g920) devices = virtualWheelSummary(wheelName, options.hide, hideTargets, hideChecks, rigHidden);
 #ifndef _WIN32
     if (uhid != nullptr) {
         // Hiding the rig is the game's launch option on Linux (SDL_GAMECONTROLLER_IGNORE_DEVICES, wheelbri.sh).
@@ -1996,52 +2211,20 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         source.reset();
         accessories.close();
         quickLosses = platform::nowMs() - sessionStartMs < 10'000 ? quickLosses + 1 : 0;
-        const std::uint64_t retryEveryMs = quickLosses == 0 ? 1000 : std::min<std::uint64_t>(30'000, 5000ULL * static_cast<std::uint64_t>(quickLosses));
-        WE_LOG_WARN(log(), "waiting for the wheel and its accessories to come back (plug it in again; Stop to give up); the virtual "
-                           "devices stay, centred and released{}",
+        const std::uint64_t retryEveryMs =
+            quickLosses == 0 ? 1000
+                             : std::min<std::uint64_t>(30'000, 5000ULL * static_cast<std::uint64_t>(quickLosses));
+        WE_LOG_WARN(log(), "waiting for the wheel and its accessories to come back (plug it in again; Stop to give "
+                           "up); the virtual devices stay, centred and released{}",
                     quickLosses > 0 ? "; it was lost again within 10 s of coming back (" + std::to_string(quickLosses) +
                                           " times in a row), so it is tried every " +
                                           std::to_string(retryEveryMs / 1000) + " s"
                                     : std::string());
-        std::uint64_t waitedMs = 0;
-        while (!gStop && source == nullptr) {
-            if (stopRequested()) {
-                WE_LOG_INFO(log(), "stop requested ({} appeared)", gStopFile.string());
-                gStop = true;
-                break;
-            }
-            // Keeps the window answering (the last picture of the wheel stays, marked lost); false: it was closed.
-            if (lastFrame) lastFrame->wheelLostMs = std::max<std::uint64_t>(waitedMs, 1);
-            if (host != nullptr && !host->frame(lastFrame ? *lastFrame : UiFrame{})) {
-                WE_LOG_INFO(log(), "window closed: stopping");
-                gStop = true;
-                break;
-            }
-            if (waitedMs % retryEveryMs == 0 && waitedMs >= (quickLosses > 0 ? retryEveryMs : 0) &&
-                allConnected(*backend, config)) {
-                source = wheelbri::service::openWheel(*backend, config.sourceDeviceMatch, /*quiet=*/true);
-                if (source != nullptr && !openAccessories(*backend, config.mapper, source->info(), accessories, true)) {
-                    source.reset();   // an accessory is not ready yet: all again next time
-                    accessories.close();
-                }
-                if (source == nullptr) {
-                    static wheelbri::logging::RateLimiter limiter(std::chrono::seconds(30));
-                    WE_LOG_WARN_LIMITED(log(), limiter, "the wheel is back but cannot be opened yet; trying again");
-                }
-            }
-            if (source == nullptr) {
-                platform::sleepMs(50);
-                waitedMs += 50;
-                if (waitedMs % 60'000 == 0) {
-                    WE_LOG_WARN(log(), "still waiting for the wheel ({} min)", waitedMs / 60'000);
-                }
-            }
-        }
-        if (source == nullptr) {
+        if (!waitForWheelBack(*backend, config, host, lastFrame, retryEveryMs, quickLosses > 0, source,
+                              accessories)) {
             result = 0;   // stopped while waiting: a normal stop
             break;
         }
-        WE_LOG_INFO(log(), "the wheel is back after {:.1f} s: carrying on", static_cast<double>(waitedMs) / 1000.0);
     }
     if (steps != nullptr) {
         // Out of the rig's stack until the next Start: every report of the wheel goes through the filter's host while
