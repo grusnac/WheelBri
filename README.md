@@ -25,7 +25,7 @@ WheelBri presents your rig (a wheel and its pedals, shifter or button box) to PC
 | Mode Shim, Windows 11 | **works** in NFS 2015, Heat, Unbound (G920) and Race Driver: GRID (G25) |
 | Linux, Mode Virtual | ACC under Proton; **not yet tried on a Steam Deck** |
 | G HUB with the virtual G923 | sees the wheel; its rotation and effects are not applied ([Targets](docs/targets.md#g-hub-and-hid-g923)) |
-| Logitech's force feedback drivers (Windows) | **work** in ACC: G HUB's for the G920 and G923, its older-wheel driver for the G25 in Logitech order; G27 **not yet tried** ([Targets](docs/targets.md#force-feedback-drivers-g25-g27)) |
+| Logitech's force feedback drivers (Windows) | **work** in ACC: G HUB's for the G920 and G923, its older-wheel driver for the G25 and G27 in Logitech order ([Targets](docs/targets.md#force-feedback-drivers-g25-g27)) |
 | TrueForce (G923), Windows 11 | **works** in ACC: force; texture as a vibration, not yet checked on a rig; needs G HUB installed ([Games](docs/games.md#assetto-corsa-competizione)) |
 | Windows 7 to 10 (Mode Shim only) | built, **not yet tried** |
 

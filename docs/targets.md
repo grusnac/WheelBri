@@ -86,7 +86,7 @@ while the wheel runs (`LogitechFfbDriver.hpp`: the driver's class for the model,
 `{920B260F-...}` G27, with G HUB's own effect table from its G923 entry) and the wheel axis' `Axes\0` entry, which
 tells DirectInput that X takes forces (without it every effect is `DIERR_INVALIDPARAM`). Both carry a `WheelBri`
 value and go at Stop. Logitech's driver updates the force about 110 times a second in 256 steps (HID++: about 300,
-16 bits), so road texture is coarser than on the G920 or G923, as on a real G25. Checked in ACC as G25, 2026-11-03.
+16 bits), so road texture is coarser than on the G920 or G923, as on a real G25. Checked in ACC as G25 and G27, 2026-11-04.
 
 ## Button numbers in the app
 
