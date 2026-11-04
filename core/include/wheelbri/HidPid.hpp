@@ -65,6 +65,9 @@ namespace wheelbri {
 class HidPid {
 public:
     static constexpr std::size_t kMaxSlots = 8;          // the service's slots (IFfbSink::kMaxSlots)
+    // The most steps applyUnclaimed's search takes (it runs under the lock the I/O callbacks wait on); past them the
+    // nearest-first answer stands.
+    static constexpr std::size_t kMaxSearchSteps = 20'000;
     static constexpr std::uint16_t kPoolSize = 0xFFFF;
 
     using Sender = std::function<void(const FfbPacket&)>;
@@ -186,9 +189,18 @@ private:
     void sendChanges(std::int64_t nowMs, bool force);
     void send(FfbPacket::Kind kind, std::uint8_t slot, bool playing, const FfbEffect& effect, std::int64_t nowMs);
 
-    Sender send_;
-    Logger log_;
+    // Packets and log lines are queued under mutex_ and handed on after it is released (flush), so the service's
+    // socket and the driver's log never hold up the I/O callbacks that wait on it; flushMutex_ keeps them in order.
+    void queueLog(LogLevel level, std::string text) const;
+    void flush() const;
+    class FlushOnExit;
+
+    Sender sender_;
+    Logger logger_;
     mutable std::mutex mutex_;
+    mutable std::mutex flushMutex_;
+    mutable std::vector<FfbPacket> outbox_;
+    mutable std::vector<std::pair<LogLevel, std::string>> logbox_;
     std::map<std::uint8_t, Block> blocks_;
     std::array<std::optional<std::uint8_t>, kMaxSlots> slotOwner_{};
     std::array<std::optional<Sent>, kMaxSlots> sent_{};

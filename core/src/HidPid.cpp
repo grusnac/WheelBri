@@ -44,7 +44,34 @@ const char* pidTypeName(const int pidType) {
 
 }  // namespace
 
-HidPid::HidPid(Sender send, Logger log) : send_(std::move(send)), log_(std::move(log)) {}
+HidPid::HidPid(Sender send, Logger log) : sender_(std::move(send)), logger_(std::move(log)) {}
+
+// Hands on what was queued once the caller's lock on mutex_ is released (declared before that lock).
+class HidPid::FlushOnExit {
+public:
+    explicit FlushOnExit(const HidPid& pid) : pid_(pid) {}
+    ~FlushOnExit() { pid_.flush(); }
+    FlushOnExit(const FlushOnExit&) = delete;
+    FlushOnExit& operator=(const FlushOnExit&) = delete;
+
+private:
+    const HidPid& pid_;
+};
+
+void HidPid::queueLog(const LogLevel level, std::string text) const { logbox_.emplace_back(level, std::move(text)); }
+
+void HidPid::flush() const {
+    const std::lock_guard order(flushMutex_);
+    std::vector<FfbPacket> packets;
+    std::vector<std::pair<LogLevel, std::string>> lines;
+    {
+        const std::lock_guard lock(mutex_);
+        packets.swap(outbox_);
+        lines.swap(logbox_);
+    }
+    for (const auto& [level, text] : lines) logger_(level, text);
+    for (const FfbPacket& packet : packets) sender_(packet);
+}
 
 // PID effect type (1-based, descriptor order: constant, ramp, square, sine, triangle, saw up, saw down, spring,
 // damper, inertia, friction, custom) -> the service's type. A ramp is a constant force going from its start level to
@@ -80,11 +107,12 @@ void HidPid::noteReport(const std::int64_t nowMs) {
     lastReportMs_ = nowMs;
     if (quiet_) {
         quiet_ = false;
-        log_(LogLevel::Info, "pid: the game sends force feedback again: forces back on");
+        queueLog(LogLevel::Info, "pid: the game sends force feedback again: forces back on");
     }
 }
 
 void HidPid::enableTrace(const int lines) {
+    const FlushOnExit flushOnExit(*this);
     std::lock_guard lock(mutex_);
     traceLines_ = std::clamp(lines, 0, kMaxTraceLines);
     traceLeft_ = traceLines_;
@@ -94,19 +122,19 @@ void HidPid::trace(const std::string& text, const std::int64_t nowMs) {
     if (traceLeft_ <= 0) return;
     if (traceLeft_ == traceLines_) {
         traceStartMs_ = nowMs;
-        log_(LogLevel::Trace, "pid trace: the next " + std::to_string(traceLines_) +
+        queueLog(LogLevel::Trace, "pid trace: the next " + std::to_string(traceLines_) +
                                   " reports and slot changes (+ms from the first)");
     }
     char at[32];
     std::snprintf(at, sizeof(at), "pid trace +%lld ", static_cast<long long>(nowMs - traceStartMs_));
-    log_(LogLevel::Trace, at + text);
-    if (--traceLeft_ == 0) log_(LogLevel::Trace, "pid trace: end");
+    queueLog(LogLevel::Trace, at + text);
+    if (--traceLeft_ == 0) queueLog(LogLevel::Trace, "pid trace: end");
 }
 
 void HidPid::event(const std::string& text, const std::int64_t nowMs, const LogLevel level) {
     if (nowMs - eventWindowMs_ >= kEventWindowMs) {
         if (eventsSkipped_ > 0) {
-            log_(LogLevel::Debug, "pid: " + std::to_string(eventsSkipped_) + " more effect events in " +
+            queueLog(LogLevel::Debug, "pid: " + std::to_string(eventsSkipped_) + " more effect events in " +
                  std::to_string(kEventWindowMs / 1000) + " s were not logged");
         }
         eventWindowMs_ = nowMs;
@@ -118,7 +146,7 @@ void HidPid::event(const std::string& text, const std::int64_t nowMs, const LogL
         return;
     }
     ++eventsInWindow_;
-    log_(level, "pid: " + text);
+    queueLog(level, "pid: " + text);
 }
 
 std::string HidPid::describe(const std::uint8_t ebi, const Block& b) const {
@@ -128,6 +156,7 @@ std::string HidPid::describe(const std::uint8_t ebi, const Block& b) const {
 }
 
 void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std::int64_t nowMs) {
+    const FlushOnExit flushOnExit(*this);
     std::lock_guard lock(mutex_);
     noteReport(nowMs);
     if (traceLeft_ > 0) {
@@ -148,7 +177,7 @@ void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std:
     char kind[24];
     std::snprintf(kind, sizeof(kind), "output 0x%02X", reportId);
     if (seen_.insert(kind).second) {
-        log_(LogLevel::Debug, std::string("pid: first ") + kind + ": " + hex(d));
+        queueLog(LogLevel::Debug, std::string("pid: first ") + kind + ": " + hex(d));
     }
     switch (reportId) {
         case kSetEffect:
@@ -217,6 +246,7 @@ void HidPid::output(std::uint8_t reportId, std::span<const std::uint8_t> d, std:
 }
 
 void HidPid::setFeature(std::uint8_t reportId, std::span<const std::uint8_t> d, std::int64_t nowMs) {
+    const FlushOnExit flushOnExit(*this);
     std::lock_guard lock(mutex_);
     noteReport(nowMs);
     if (traceLeft_ > 0) {
@@ -227,7 +257,7 @@ void HidPid::setFeature(std::uint8_t reportId, std::span<const std::uint8_t> d, 
     char kind[24];
     std::snprintf(kind, sizeof(kind), "feature 0x%02X", reportId);
     if (seen_.insert(kind).second) {
-        log_(LogLevel::Debug, std::string("pid: first ") + kind + ": " + hex(d));
+        queueLog(LogLevel::Debug, std::string("pid: first ") + kind + ": " + hex(d));
     }
     // pid.dll may send Block Free and Device Control through the feature path too.
     if (reportId == kBlockFree && !d.empty()) {
@@ -263,6 +293,7 @@ void HidPid::setFeature(std::uint8_t reportId, std::span<const std::uint8_t> d, 
 }
 
 std::size_t HidPid::getFeature(std::uint8_t reportId, std::span<std::uint8_t> out) const {
+    const FlushOnExit flushOnExit(*this);
     std::lock_guard lock(mutex_);
     switch (reportId) {
         case kBlockLoad: {
@@ -304,7 +335,7 @@ HidPid::Block* HidPid::withBlock(std::uint8_t ebi) {
     // hold one of the 8 slots until a Device Reset. (Hosts may skip Create New Effect, so 1..8 stay accepted.)
     if (ebi > kMaxSlots && !blocks_.contains(ebi)) {
         if (seen_.insert("out of range " + std::to_string(ebi)).second) {   // once per block number
-            log_(LogLevel::Warn, "pid: a report for effect block " + std::to_string(ebi) +
+            queueLog(LogLevel::Warn, "pid: a report for effect block " + std::to_string(ebi) +
                                      ", a number this device never hands out: ignored");
         }
         return nullptr;
@@ -314,7 +345,7 @@ HidPid::Block* HidPid::withBlock(std::uint8_t ebi) {
         const auto free = std::find(slotOwner_.begin(), slotOwner_.end(), std::nullopt);
         if (free == slotOwner_.end()) {
             if (seen_.insert("slots full " + std::to_string(ebi)).second) {   // once per block, not per report
-                log_(LogLevel::Warn, "pid: all " + std::to_string(kMaxSlots) + " slots in use, effect block " +
+                queueLog(LogLevel::Warn, "pid: all " + std::to_string(kMaxSlots) + " slots in use, effect block " +
                                          std::to_string(ebi) + " is not played");
             }
         } else {
@@ -332,7 +363,7 @@ void HidPid::withParams(std::uint8_t ebi, ParamKind kind, const BlockAction& act
     }
     if (!loggedEbiZero_) {
         loggedEbiZero_ = true;
-        log_(LogLevel::Debug, "pid: parameters come with effect block 0: matched to the Set Effect that follows");
+        queueLog(LogLevel::Debug, "pid: parameters come with effect block 0: matched to the Set Effect that follows");
     }
     // Its place in the run of this kind (see HidPid.hpp).
     if (!runBroken_ && runKind_ == kind && lastReportMs_ - runLastMs_ <= kRunGapMs) {
@@ -392,7 +423,7 @@ void HidPid::applyUnclaimed(const ParamKind kind, const std::vector<Pending>& wa
     };
     if (blocks.empty()) return;
     // Each to the block nearest its values, one per block (ties by block number), the cheapest way over all of
-    // them. At most kMaxSlots blocks and as many updates: tried exhaustively, small enough.
+    // them: tried exhaustively (a few blocks and updates: small), but never more than kMaxSearchSteps steps.
     const std::size_t n = std::min(waiting.size(), blocks.size());
     std::vector<std::vector<double>> cost(waiting.size(), std::vector<double>(blocks.size()));
     for (std::size_t i = 0; i < waiting.size(); ++i) {
@@ -408,10 +439,31 @@ void HidPid::applyUnclaimed(const ParamKind kind, const std::vector<Pending>& wa
     std::vector<int> pick(waiting.size(), -1);
     std::vector<bool> used(blocks.size(), false);
     double bestCost = std::numeric_limits<double>::max();
+    // First each in turn to the nearest block still free: the answer when the search below runs out of steps (a
+    // burst of updates from a game must not hold mutex_, and the I/O callbacks waiting on it, for long).
+    {
+        double sum = 0.0;
+        std::size_t given = 0;
+        for (std::size_t i = 0; i < waiting.size() && given < n; ++i) {
+            int nearest = -1;
+            for (std::size_t j = 0; j < blocks.size(); ++j) {
+                if (!used[j] && (nearest < 0 || cost[i][j] < cost[i][static_cast<std::size_t>(nearest)])) {
+                    nearest = static_cast<int>(j);
+                }
+            }
+            used[static_cast<std::size_t>(nearest)] = true;
+            best[i] = nearest;
+            sum += cost[i][static_cast<std::size_t>(nearest)];
+            ++given;
+        }
+        bestCost = sum;
+        std::fill(used.begin(), used.end(), false);
+    }
+    std::size_t steps = 0;
     // Every update gets a block while blocks last; the ones past `n` in the run are the left-overs.
     const std::function<void(std::size_t, std::size_t, double)> search = [&](const std::size_t i, const std::size_t given,
                                                                           const double sum) {
-        if (sum >= bestCost) return;
+        if (sum >= bestCost || ++steps > kMaxSearchSteps) return;
         if (given == n || i == waiting.size()) {
             if (given == n) {
                 bestCost = sum;
@@ -725,7 +777,7 @@ void HidPid::send(FfbPacket::Kind kind, std::uint8_t slot, bool isPlaying, const
                       effect.periodic.magnitude, effect.periodic.periodMs);
         trace(text, nowMs);
     }
-    send_(packet);
+    outbox_.push_back(packet);
     lastSendMs_ = nowMs;
     ++packetsSent_;
 }
@@ -733,6 +785,7 @@ void HidPid::send(FfbPacket::Kind kind, std::uint8_t slot, bool isPlaying, const
 void HidPid::tick(std::int64_t nowMs) {
     constexpr std::int64_t kKeepAliveMs = 100;
     constexpr std::int64_t kRefreshMs = 250;
+    const FlushOnExit flushOnExit(*this);
     std::lock_guard lock(mutex_);
     // Whether a force that pushes the wheel one way (constant, ramp, periodic: not springs and dampers, which only
     // resist) plays at more than `above` of full scale. Not Ffb.cpp's helpers: the driver compiles this file without
@@ -757,7 +810,7 @@ void HidPid::tick(std::int64_t nowMs) {
     if (!quiet_ && reportsHandled_ > 0 && streamed && nowMs - lastReportMs_ >= kStreamQuietMs &&
         pushing(kStreamPushingAbove)) {
         quiet_ = true;
-        log_(LogLevel::Info, "pid: the game streamed force feedback for " +
+        queueLog(LogLevel::Info, "pid: the game streamed force feedback for " +
                                  std::to_string((lastReportMs_ - streamStartMs_) / 1000) + " s and then nothing for " +
                                  std::to_string(kStreamQuietMs) +
                                  " ms (closed, crashed or paused?): keep-alives stopped, so the service stops the "
@@ -766,7 +819,7 @@ void HidPid::tick(std::int64_t nowMs) {
     if (!quiet_ && reportsHandled_ > 0 && nowMs - lastReportMs_ >= kGameQuietMs) {
         if (pushing(kQuietPushingAbove)) {
             quiet_ = true;
-            log_(LogLevel::Warn, "pid: no force feedback report from the game for " +
+            queueLog(LogLevel::Warn, "pid: no force feedback report from the game for " +
                                      std::to_string(kGameQuietMs / 1000) +
                                      " s while a pushing force plays (did the game crash?): keep-alives stopped, so "
                                      "the service stops the forces; they come back with the game's next report");
@@ -783,6 +836,7 @@ void HidPid::tick(std::int64_t nowMs) {
 }
 
 void HidPid::stopAll(std::int64_t nowMs) {
+    const FlushOnExit flushOnExit(*this);
     std::lock_guard lock(mutex_);
     for (auto& [ebi, block] : blocks_) block.started = false;
     sent_.fill(std::nullopt);
