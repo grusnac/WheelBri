@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HitList.hpp"
 #include "UiWindow.hpp"
 
 #include "wheelbri/GameProfiles.hpp"
@@ -112,11 +113,6 @@ public:
     [[nodiscard]] bool takeProblem(std::string& problem);
 
 private:
-    struct Hit {
-        float x, y, w, h;
-        std::function<void()> action;
-    };
-
     void save();
     void refreshStates();   // every folder's
     // WheelBri's dinput8.dll for the game in `folder` (32-bit for a 32-bit game).
@@ -125,7 +121,7 @@ private:
     ui::UiWindow& window_;
     Settings settings_;
     ShimGameList list_;
-    std::vector<Hit> hits_;
+    HitList hits_;
     std::vector<ShimState> states_;          // per folder
     std::vector<std::string> targets_;       // per folder, the wheel its shim presents (target_profile)
     std::vector<bool> asiLoaders_;           // per folder: asiLoaderAt, chainedAt, chainProblemAt

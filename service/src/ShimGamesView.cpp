@@ -353,15 +353,7 @@ bool ShimGamesView::takeProblem(std::string& problem) {
 }
 
 bool ShimGamesView::onClick(const float x, const float y) {
-    for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
-        if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
-            const auto action = it->action;   // a copy: the list belongs to the last draw
-            hits_.clear();                    // stale until the next draw: a second click before it does nothing
-            action();
-            return true;
-        }
-    }
-    return false;
+    return hits_.dispatch(x, y);
 }
 
 void ShimGamesView::draw(const float x0, const float y, const bool canChange) {
@@ -386,9 +378,9 @@ void ShimGamesView::draw(const float x0, const float y, const bool canChange) {
     const std::string label = "Games";
     style::button(window_, x, y, kGamesWidth, kRowHeight, label, false, canChange);
     if (canChange) {
-        hits_.push_back({x, y, kGamesWidth, kRowHeight, [this] {
-                             if (settings_.openGames) settings_.openGames();
-                         }});
+        hits_.add(x, y, kGamesWidth, kRowHeight, [this] {
+            if (settings_.openGames) settings_.openGames();
+        });
     }
 }
 

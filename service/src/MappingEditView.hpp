@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HitList.hpp"
 #include "ConfigPicker.hpp"
 #include "ShimGamesView.hpp"
 #include "UiWindow.hpp"
@@ -156,10 +157,6 @@ private:
     // The Games page's sub-tabs for the picked game: its axes and buttons on one page, its game file (some games).
     enum class GameTab { Controls, File };
 
-    struct Hit {
-        float x, y, w, h;
-        std::function<void()> action;
-    };
     struct Tip {
         float x, y, w, h;
         std::string text;
@@ -393,7 +390,7 @@ private:
     Rig rig_;
     std::vector<std::string> rigNotices_;   // what the Rig could not map (followRig), said in the status line
     ConfigPicker& picker_;
-    std::vector<Hit> hits_;
+    HitList hits_;
     std::vector<Tip> tips_;
     std::size_t popupTips_ = 0;   // tips_ from here on are the open popup's
     float hoverX_ = 0.0F;

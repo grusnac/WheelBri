@@ -381,15 +381,7 @@ bool ConfigPicker::onClick(const float x, const float y) {
         hits_.clear();
         return false;
     }
-    for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
-        if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
-            const auto action = it->action;   // a copy: the list belongs to the last draw
-            hits_.clear();                    // stale until the next draw: a second click before it does nothing
-            action();
-            return true;
-        }
-    }
-    return false;
+    return hits_.dispatch(x, y);
 }
 
 float ConfigPicker::rowsHeight() const {
@@ -414,7 +406,7 @@ float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const
         } else {
             style::button(window_, x, y, w, kRowHeight, label, chosen, on);
         }
-        if (on && !chosen) hits_.push_back({x, y, w, kRowHeight, action});
+        if (on && !chosen) hits_.add(x, y, w, kRowHeight, action);
         if (tip) tip(x, y, w, kRowHeight, canChangeNow && !locked_ ? about : about + " Fixed while WheelBri runs.");
         x += w - 1;
     };

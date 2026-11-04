@@ -1,5 +1,6 @@
 #pragma once
 
+#include "HitList.hpp"
 #include "UiWindow.hpp"
 
 #include "wheelbri/DeviceProfile.hpp"
@@ -151,11 +152,6 @@ public:
     bool onClick(float x, float y);
 
 private:
-    struct Hit {
-        float x, y, w, h;
-        std::function<void()> action;
-    };
-
     // my-<target>.ini from the older per-mode files (olderOwnNames), once per target.
     void adoptOlderOwn();
     // [app] order_<target> once: native when my-<target>.ini says order = native (copied to my-<target>-native.ini
@@ -176,7 +172,7 @@ private:
 
     ui::UiWindow& window_;
     Settings settings_;
-    std::vector<Hit> hits_;
+    HitList hits_;
     bool locked_ = false;
     Way way_ = Way::VirtualDevice;
     Target target_ = Target::G920;

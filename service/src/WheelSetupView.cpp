@@ -668,14 +668,7 @@ void WheelSetupView::onClick(const float x, const float y) {
         dragTo(y);
         return;
     }
-    for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
-        if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
-            const auto action = it->action;   // a copy: the list belongs to the last draw
-            hits_.clear();                    // stale until the next draw: a second click before it does nothing
-            action();
-            return;
-        }
-    }
+    (void)hits_.dispatch(x, y);
 }
 
 void WheelSetupView::onText(const std::string& text) {
@@ -719,7 +712,7 @@ void WheelSetupView::onKey(const char key) {
 // --- drawing helpers -------------------------------------------------------------------------------------------------
 
 void WheelSetupView::hit(const float x, const float y, const float w, const float h, std::function<void()> action) {
-    hits_.push_back({x, y, w, h, std::move(action)});
+    hits_.add(x, y, w, h, std::move(action));
 }
 
 float WheelSetupView::button(const float x, const float y, const std::string& label, std::function<void()> action,

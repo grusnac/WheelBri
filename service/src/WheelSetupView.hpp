@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "HitList.hpp"
 #include "DeviceWatch.hpp"
 #include "HoverText.hpp"
 #include "UiWindow.hpp"
@@ -118,11 +119,6 @@ private:
     [[nodiscard]] float contentHeight() const { return window_.height() - 30 - window_.bottomReserve(); }
     enum class Popup { None, Control };
 
-    struct Hit {
-        float x, y, w, h;
-        std::function<void()> action;
-    };
-
     // A connected device the tab reads itself (while stopped).
     struct Open {
         WheelInfo info;
@@ -215,7 +211,7 @@ private:
 
     ui::UiWindow& window_;
     Settings settings_;
-    std::vector<Hit> hits_;
+    HitList hits_;
 
     // The devices: the session's wheel, or every connected one the tab opened itself.
     std::unique_ptr<WheelBackend> backend_;

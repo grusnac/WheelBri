@@ -460,14 +460,7 @@ void MappingEditView::onClick(const float x, const float y) {
     // The Target and Mode row at the top: the Mapping page's only (the Games page shows them, never changes
     // them), and never while a session runs.
     if (mode_ == Mode::Idle && page_ == Page::Mapping && !locked_ && picker_.onClick(x, y)) return;
-    for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
-        if (x >= it->x && x < it->x + it->w && y >= it->y && y < it->y + it->h) {
-            const auto action = it->action;   // a copy: the list belongs to the last draw
-            hits_.clear();                    // stale until the next draw: a second click before it does nothing
-            action();
-            return;
-        }
-    }
+    (void)hits_.dispatch(x, y);
 }
 
 void MappingEditView::onKey(const char key) {
@@ -672,7 +665,7 @@ bool MappingEditView::commitTyping() {
 // --- drawing ----------------------------------------------------------------------------------------------------
 
 void MappingEditView::hit(const float x, const float y, const float w, const float h, std::function<void()> action) {
-    hits_.push_back({x, y, w, h, std::move(action)});
+    hits_.add(x, y, w, h, std::move(action));
 }
 
 float MappingEditView::button(const float x, const float y, const std::string& label, std::function<void()> action,
