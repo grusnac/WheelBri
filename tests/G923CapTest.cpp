@@ -310,9 +310,12 @@ void setTarget(const char* value) {
 class G923Cap : public ::testing::Test {
 protected:
     void SetUp() override {
+        // The test's own name: test runners running tests side by side (ctest -j, one process per test) never
+        // share a folder (the seed and a counter were the same in every process).
         static std::atomic<int> n{0};
-        dir_ = fs::temp_directory_path() / ("wheelbri-g923cap-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()) +
-                                            "-" + std::to_string(n++));
+        dir_ = fs::temp_directory_path() /
+               ("wheelbri-g923cap-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()) +
+                "-" + std::to_string(n++));
         fs::remove_all(dir_);
         fs::create_directories(dir_);
         setTarget(nullptr);

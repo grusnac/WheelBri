@@ -103,6 +103,16 @@ protected:
         start(args);
         return wait();
     }
+    // Waits (up to `limit`) until this run's log has `text`; true if it did.
+    [[nodiscard]] bool logSays(const std::string& text,
+                               const std::chrono::seconds limit = std::chrono::seconds(10)) const {
+        const auto until = std::chrono::steady_clock::now() + limit;
+        while (log().find(text) == std::string::npos) {
+            if (std::chrono::steady_clock::now() > until) return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return true;
+    }
     [[nodiscard]] std::string out() const { return read(dir_ / "out"); }
     [[nodiscard]] std::string err() const { return read(dir_ / "err"); }
     // This run's log file (one per run, the newest in the logs folder).
@@ -250,10 +260,9 @@ TEST_F(ServiceMainTest, AControlUsedTwiceIsWarnedAbout) {
     const fs::path config =
         absentWheelConfig("[buttons]\ntarget_0 = 3\ntarget_1 = 3\n");
     start({"--config", config.string(), "--stop-file", (dir_ / "stop").string()});
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    EXPECT_TRUE(logSays("a control used twice")) << log();
     write(dir_ / "stop", "");
     EXPECT_EQ(wait(), 0);
-    EXPECT_NE(log().find("a control used twice"), std::string::npos) << log();
 }
 
 // The wheel is not there: it waits (up to 15 s); the stop file ends the wait, exit 0. The rig names the wheel when
@@ -262,7 +271,7 @@ TEST_F(ServiceMainTest, TheStopFileEndsTheWaitForTheWheel) {
     rig("[device_1]\nname = Base\nid = ffff:fffe\nkind = wheel\naxis_0 = Wheel\n");
     write(dir_ / "default.ini", "[emulator]\n");
     start({"--config", (dir_ / "default.ini").string(), "--stop-file", (dir_ / "stop").string(), "--ffb-test"});
-    std::this_thread::sleep_for(std::chrono::milliseconds(700));
+    EXPECT_TRUE(logSays("is not connected yet: waiting up to 15 s")) << log();
     write(dir_ / "stop", "");
     EXPECT_EQ(wait(), 0);
     const std::string text = log();

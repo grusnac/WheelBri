@@ -77,7 +77,9 @@ TEST(Retention, OnlyTouchesItsOwnFiles) {
 class RetentionFolder : public ::testing::Test {
 protected:
     void SetUp() override {
-        dir_ = fs::temp_directory_path() / "wheelbri-retention-test";
+        // One per test: test runners running tests side by side (ctest -j) never share it.
+        dir_ = fs::temp_directory_path() /
+               ("wheelbri-retention-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
         std::error_code ec;
         fs::remove_all(dir_, ec);
         fs::create_directories(dir_);

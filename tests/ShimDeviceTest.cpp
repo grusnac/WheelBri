@@ -28,6 +28,7 @@
 #include <new>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <type_traits>
 #include <vector>
@@ -39,18 +40,39 @@ using test::FakeDevice;
 using test::FakeDirectInput;
 using test::FakeEffect;
 
-// Before any test: wheelbri-shim.ini next to the test program (the shim reads the one next to its module), with the
-// tests' ports and the wheel the fakes describe (346e).
-class ShimTestEnvironment : public ::testing::Environment {
+// Before the first Shim* test: wheelbri-shim.ini next to the test program (the shim reads the one next to its module),
+// with the tests' ports and the wheel the fakes describe (346e). That file and the ports are the whole computer's, so a
+// test runner running tests side by side (ctest -j: one process per test) must never have two of these at once: the
+// program takes a named mutex before it writes the file and keeps it until it ends (one that dies releases it too).
+// Only a program that runs a Shim* test waits for it, so the other tests still run side by side.
+class ShimTestPorts : public ::testing::EmptyTestEventListener {
 public:
-    void SetUp() override {
+    ~ShimTestPorts() override {
+        if (owned_) ::ReleaseMutex(lock_);
+        if (lock_ != nullptr) ::CloseHandle(lock_);
+    }
+    void OnTestStart(const ::testing::TestInfo& info) override {
+        if (taken_ || std::string_view(info.test_suite_name()).rfind("Shim", 0) != 0) return;
+        taken_ = true;
+        lock_ = ::CreateMutexW(nullptr, FALSE, L"Local\\wheelbri-shim-tests");
+        if (lock_ != nullptr) {
+            const DWORD waited = ::WaitForSingleObject(lock_, 120'000);
+            owned_ = waited == WAIT_OBJECT_0 || waited == WAIT_ABANDONED;
+        }
         std::ofstream(std::filesystem::path(gamelog::dllDirectory()) / L"wheelbri-shim.ini", std::ios::binary)
             << "[shim]\nsource_vid = 346e\ntarget_profile = g920\nstate_port = " << test::kStatePort
             << "\nffb_port = " << test::kFfbPort << "\nstale_after_ms = 1000\n";
     }
+
+private:
+    HANDLE lock_ = nullptr;
+    bool owned_ = false;
+    bool taken_ = false;
 };
-[[maybe_unused]] ::testing::Environment* const gEnvironment =
-    ::testing::AddGlobalTestEnvironment(new ShimTestEnvironment);
+[[maybe_unused]] const bool gShimTestPorts = [] {
+    ::testing::UnitTest::GetInstance()->listeners().Append(new ShimTestPorts);
+    return true;
+}();
 
 // --- Guard, ShimLogging ----------------------------------------------------------------------------------------------
 
