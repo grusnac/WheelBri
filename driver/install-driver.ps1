@@ -11,7 +11,8 @@
 # The app runs it by itself at Start when Windows has no wheelbri-wheel driver (see ensureWheelDriver in main.cpp).
 # It removes the same driver under its older names first (wheelbri-g920 until 2026-10-19; Get-LegacyNames).
 
-# -LogFolder <folder>: its log in that folder (the WheelBri Helper, which runs as SYSTEM, gives the user's).
+# -LogFolder <folder>: its log in that folder (the WheelBri Helper, which runs as SYSTEM, gives a scratch folder only
+# SYSTEM may change, and then adds the log to the user's own logs folder, writing as the user).
 param([string]$Configuration = 'Release', [string]$LogFolder = '')
 # A 32-bit PowerShell (one started from a 32-bit prompt, e.g. some Developer PowerShell windows) sees SysWOW64,
 # where pnputil and the 64-bit driver tools are missing: run this again in the 64-bit PowerShell.
@@ -27,7 +28,8 @@ Assert-Admin
 
 # Everything below also goes to %LOCALAPPDATA%\wheelbri\logs\wheelbri-driver-install-<date>.log: the app runs this
 # without a window when Start finds the driver missing, so that file is where to look when it fails. Not through a link
-# (junction) in the user's folders: then the log goes to %SystemRoot%\Temp instead.
+# (junction) in the user's folders: then the log goes to %SystemRoot%\Temp instead. With -LogFolder (the WheelBri
+# Helper, as SYSTEM): only into that folder, and only when it is a plain folder there already; else no log.
 $logFolder = if ($LogFolder) { $LogFolder } else { Join-Path $env:LOCALAPPDATA 'wheelbri\logs' }
 $logName = "wheelbri-driver-install-$(Get-Date -Format yyyy-MM-dd).log"
 $transcript = $false
@@ -36,13 +38,21 @@ try {
         $item = Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue
         $item -and (Test-Link $item)
     }).Count -gt 0
-    if ($logsLinked) {
+    if ($LogFolder) {
+        if (-not $logsLinked -and (Test-Path -LiteralPath $LogFolder -PathType Container)) {
+            Start-Transcript -Append -Path (Join-Path $LogFolder $logName) | Out-Null
+            $transcript = $true
+        } else {
+            Write-Host "no install log: $LogFolder is not a plain folder" -ForegroundColor Yellow
+        }
+    } elseif ($logsLinked) {
         Start-Transcript -Append -Path (Join-Path $env:SystemRoot "Temp\$logName") | Out-Null
+        $transcript = $true
     } else {
         New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
         Start-Transcript -Append -Path (Join-Path $logFolder $logName) | Out-Null
+        $transcript = $true
     }
-    $transcript = $true
 } catch {
     Write-Host "no install log: $($_.Exception.Message)" -ForegroundColor Yellow
 }

@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -34,6 +35,8 @@ struct Fake {
     std::vector<std::filesystem::path> scriptLogFolders;
     std::vector<LogLevel> levels;
     int installs = 0;
+    int stages = 0;   // scriptLogStage calls
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> deliveries;   // stage, the caller's folder
 };
 
 HelperSession::Steps fakeSteps(Fake& fake) {
@@ -77,6 +80,13 @@ HelperSession::Steps fakeSteps(Fake& fake) {
     steps.writeLogLevel = [&fake](const LogLevel level, std::string&) {
         fake.levels.push_back(level);
         return true;
+    };
+    steps.scriptLogStage = [&fake] {
+        ++fake.stages;
+        return std::filesystem::path(L"C:\\Windows\\Temp\\wheelbri-script-" + std::to_wstring(fake.stages));
+    };
+    steps.deliverScriptLogs = [&fake](const std::filesystem::path& stage, const std::filesystem::path& to, void*) {
+        fake.deliveries.emplace_back(stage, to);
     };
     return steps;
 }
@@ -225,8 +235,10 @@ TEST(HelperSession, TakeHideFilterOffForgetsWhatCameOff) {
     EXPECT_EQ(fake.takeCalls[2], (std::vector<std::string>{"HID\\B"}));
 }
 
-// The driver scripts log into ProgramData's folder until the caller shared its own (never SYSTEM's profile).
-TEST(HelperSession, ScriptsLogUnderProgramDataWithoutTheCallersFolder) {
+// The driver scripts (SYSTEM) write their log only into a scratch folder of their own, never into a folder a user
+// controls; each run's log is then delivered to the usual place (here no folder shared: ProgramData's, so an empty
+// caller's folder) and the scratch folder removed.
+TEST(HelperSession, ScriptsLogIntoAScratchFolderThatIsThenDelivered) {
     Fake fake;
     auto s = session(fake);
     EXPECT_EQ(s->handle(request(RequestType::InstallWheelDriver)).status, Status::Ok);
@@ -234,13 +246,13 @@ TEST(HelperSession, ScriptsLogUnderProgramDataWithoutTheCallersFolder) {
     const Reply failed = s->handle(request(RequestType::InstallWheelDriver));
     EXPECT_EQ(failed.status, Status::Failed);
     EXPECT_EQ(failed.text, "pnputil failed");
-    ASSERT_EQ(fake.scriptLogFolders.size(), 2U);
-    const std::filesystem::path folder = fake.scriptLogFolders[0];
-    EXPECT_EQ(folder.filename(), "logs");
-    EXPECT_EQ(folder.parent_path().filename(), "wheelbri");
-    wchar_t programData[MAX_PATH] = {};
-    if (GetEnvironmentVariableW(L"ProgramData", programData, MAX_PATH) > 0) {
-        EXPECT_EQ(folder.parent_path().parent_path(), std::filesystem::path(programData));
+    EXPECT_EQ(s->handle(request(RequestType::PutHideFilter, {"HID\\A"})).status, Status::Ok);
+    ASSERT_EQ(fake.scriptLogFolders.size(), 3U);
+    ASSERT_EQ(fake.deliveries.size(), 3U);
+    for (std::size_t i = 0; i < 3; ++i) {
+        EXPECT_EQ(fake.scriptLogFolders[i].filename(), L"wheelbri-script-" + std::to_wstring(i + 1));
+        EXPECT_EQ(fake.deliveries[i].first, fake.scriptLogFolders[i]);   // the run's own folder, after it
+        EXPECT_TRUE(fake.deliveries[i].second.empty());                   // no folder shared: the usual default
     }
 }
 

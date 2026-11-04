@@ -55,6 +55,16 @@ public:
                            std::string& message)>
             installWheelDriver;
         std::function<bool(LogLevel level, std::string& message)> writeLogLevel;
+        // The driver scripts run as SYSTEM, so they never write where a user could put a link: each run writes its log
+        // into a scratch folder of its own (scriptLogStage: a new folder under %SystemRoot%\Temp only SYSTEM and
+        // Administrators may change; empty: none could be made, the script keeps no log), which deliverScriptLogs then
+        // appends to the log in the usual place and removes: the caller's own logs folder once ShareLogFolder took it,
+        // written as the caller (`token`); else C:\ProgramData\wheelbri\logs, written only after checking that no
+        // link is on the way.
+        std::function<std::filesystem::path()> scriptLogStage;
+        std::function<void(const std::filesystem::path& stage, const std::filesystem::path& callersFolder,
+                           void* token)>
+            deliverScriptLogs;
     };
     [[nodiscard]] static Steps systemSteps();
 
@@ -79,9 +89,6 @@ private:
     Reply shareLogFolder(std::uint32_t seq);
     Reply setLogLevel(const Request& request);
     void showRigIfOurs();
-    // Where the driver install scripts write their logs: the caller's logs folder once ShareLogFolder took it, else
-    // ProgramData's (never SYSTEM's own %LOCALAPPDATA%, where nobody would look).
-    [[nodiscard]] std::filesystem::path scriptLogFolder() const;
 
     void* process_;   // HANDLE
     void* token_;     // HANDLE or null
@@ -93,7 +100,7 @@ private:
     const VirtualWheel* deviceWheel_ = nullptr;   // which one device_ is
     bool hid_ = false;
     std::vector<std::string> filterOn_;   // interfaces PutHideFilter put the filter in, until TakeHideFilterOff
-    std::filesystem::path logFolder_;   // the caller's, checked by shareLogFolder
+    std::filesystem::path logFolder_;   // the caller's, checked by shareLogFolder: never written as SYSTEM
 };
 
 }  // namespace wheelbri::helper

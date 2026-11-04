@@ -12,9 +12,14 @@
 #include <shlobj.h>
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cwctype>
+#include <cwchar>
 #include <filesystem>
 #include <optional>
+#include <utility>
+#include <vector>
 
 namespace wheelbri::helper {
 
@@ -73,6 +78,155 @@ DWORD grantLocalService(const HANDLE directory) {
     return status;
 }
 
+// A new folder `directory` (opened with READ_CONTROL | WRITE_DAC | WRITE_OWNER) that only SYSTEM and Administrators
+// may change or read: owned by Administrators, its permissions its own (none inherited).
+DWORD lockDown(const HANDLE directory) {
+    BYTE system[SECURITY_MAX_SID_SIZE];
+    BYTE admins[SECURITY_MAX_SID_SIZE];
+    DWORD systemSize = sizeof(system);
+    DWORD adminsSize = sizeof(admins);
+    if (!CreateWellKnownSid(WinLocalSystemSid, nullptr, system, &systemSize) ||
+        !CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr, admins, &adminsSize)) {
+        return GetLastError();
+    }
+    std::array<EXPLICIT_ACCESSW, 2> access{};
+    const std::array<BYTE*, 2> who = {system, admins};
+    for (std::size_t i = 0; i < access.size(); ++i) {
+        access[i].grfAccessPermissions = GENERIC_ALL;
+        access[i].grfAccessMode = SET_ACCESS;
+        access[i].grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
+        access[i].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        access[i].Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+        access[i].Trustee.ptstrName = reinterpret_cast<LPWSTR>(who[i]);
+    }
+    PACL dacl = nullptr;
+    DWORD status = SetEntriesInAclW(static_cast<ULONG>(access.size()), access.data(), nullptr, &dacl);
+    if (status != ERROR_SUCCESS) return status;
+    status = SetSecurityInfo(directory, SE_FILE_OBJECT,
+                             OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
+                                 PROTECTED_DACL_SECURITY_INFORMATION,
+                             admins, nullptr, dacl, nullptr);
+    LocalFree(dacl);
+    return status;
+}
+
+// A new scratch folder for one script's log: %SystemRoot%\Temp\wheelbri-script-<random>, made by this call (it
+// fails if anything of that name is there) and locked down. Empty when it cannot be had.
+std::filesystem::path makeScriptLogStage() {
+    wchar_t windows[MAX_PATH] = {};
+    const UINT length = GetSystemWindowsDirectoryW(windows, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) return {};
+    GUID guid{};
+    if (FAILED(CoCreateGuid(&guid))) return {};
+    wchar_t name[64];
+    std::swprintf(name, 64, L"wheelbri-script-%08lx%04x%04x", guid.Data1, guid.Data2, guid.Data3);
+    const std::wstring folder = std::wstring(windows) + L"\\Temp\\" + name;
+    if (!CreateDirectoryW(folder.c_str(), nullptr)) {
+        WE_LOG_WARN(log(), "helper: cannot make {} (error {}): the driver script keeps no log", utf8(folder),
+                    GetLastError());
+        return {};
+    }
+    const HANDLE directory = CreateFileW(folder.c_str(), READ_CONTROL | WRITE_DAC | WRITE_OWNER | FILE_READ_ATTRIBUTES,
+                                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    const DWORD status = directory == INVALID_HANDLE_VALUE ? GetLastError() : lockDown(directory);
+    if (directory != INVALID_HANDLE_VALUE) CloseHandle(directory);
+    if (status != ERROR_SUCCESS) {
+        WE_LOG_WARN(log(), "helper: cannot keep {} to SYSTEM (error {}): the driver script keeps no log", utf8(folder),
+                    status);
+        RemoveDirectoryW(folder.c_str());
+        return {};
+    }
+    return std::filesystem::path(folder);
+}
+
+// Whether `path` (a folder) is a real folder reached without a link and owned by SYSTEM or Administrators, so no user
+// can swap it for a link.
+bool systemsFolder(const std::wstring& path) {
+    const HANDLE directory = CreateFileW(path.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES,
+                                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (directory == INVALID_HANDLE_VALUE) return false;
+    BY_HANDLE_FILE_INFORMATION info{};
+    bool ok = GetFileInformationByHandle(directory, &info) && (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 &&
+              (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0;
+    PSID owner = nullptr;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (ok && GetSecurityInfo(directory, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, &owner, nullptr, nullptr, nullptr,
+                              &descriptor) == ERROR_SUCCESS) {
+        ok = IsWellKnownSid(owner, WinLocalSystemSid) || IsWellKnownSid(owner, WinBuiltinAdministratorsSid);
+        LocalFree(descriptor);
+    } else {
+        ok = false;
+    }
+    CloseHandle(directory);
+    return ok;
+}
+
+// Appends `text` to `file` (opened or made, never through a link, and refused when it has more than one name: a hard
+// link a user made to another file). As the caller when the thread impersonates it, else as SYSTEM.
+bool appendLog(const std::wstring& file, const std::string& text) {
+    const HANDLE handle = CreateFileW(file.c_str(), FILE_APPEND_DATA | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr,
+                                      OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    BY_HANDLE_FILE_INFORMATION info{};
+    bool ok = GetFileInformationByHandle(handle, &info) && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0 &&
+              info.nNumberOfLinks == 1;
+    if (ok) {
+        DWORD done = 0;
+        ok = WriteFile(handle, text.data(), static_cast<DWORD>(text.size()), &done, nullptr) && done == text.size();
+    }
+    CloseHandle(handle);
+    return ok;
+}
+
+// The logs a script wrote into `stage`, appended to the same files in the usual place, then `stage` removed: the
+// caller's own folder (`callersFolder`, written as the caller with `token`) once it shared one; else ProgramData's
+// wheelbri\logs, written as SYSTEM only when it and wheelbri above it are SYSTEM's or Administrators' (as WheelBri's
+// installer made them) and not links.
+void deliverLogs(const std::filesystem::path& stage, const std::filesystem::path& callersFolder, void* const token) {
+    if (stage.empty()) return;
+    std::error_code ec;
+    std::vector<std::pair<std::filesystem::path, std::string>> logs;
+    for (const auto& entry : std::filesystem::directory_iterator(stage, ec)) {
+        std::error_code entryError;
+        if (!entry.is_regular_file(entryError)) continue;
+        if (const std::optional<std::string> text = readFileText(entry.path())) {
+            logs.emplace_back(entry.path().filename(), *text);
+        }
+    }
+    std::filesystem::remove_all(stage, ec);
+    if (logs.empty()) return;
+    const bool asCaller = !callersFolder.empty() && token != nullptr;
+    std::filesystem::path folder = callersFolder;
+    if (!asCaller) {
+        wchar_t programData[MAX_PATH] = {};
+        const DWORD length = GetEnvironmentVariableW(L"ProgramData", programData, MAX_PATH);
+        const std::filesystem::path base = length > 0 && length < MAX_PATH ? std::filesystem::path(programData)
+                                                                           : std::filesystem::path(L"C:\\ProgramData");
+        folder = base / "wheelbri" / "logs";
+        CreateDirectoryW((base / "wheelbri").c_str(), nullptr);
+        CreateDirectoryW(folder.c_str(), nullptr);
+        if (!systemsFolder((base / "wheelbri").wstring()) || !systemsFolder(folder.wstring())) {
+            WE_LOG_WARN(log(), "helper: {} is not a folder only Administrators control: the driver script's log is "
+                               "not written there",
+                        pathToUtf8(folder));
+            return;
+        }
+    }
+    if (asCaller && !SetThreadToken(nullptr, static_cast<HANDLE>(token))) {
+        WE_LOG_WARN(log(), "helper: cannot act as the caller to write the script's log (error {})", GetLastError());
+        return;
+    }
+    for (const auto& [name, text] : logs) {
+        if (!appendLog((folder / name).wstring(), text)) {
+            WE_LOG_WARN(log(), "helper: cannot write {} into {} (error {})", pathToUtf8(name), pathToUtf8(folder),
+                        GetLastError());
+        }
+    }
+    if (asCaller) RevertToSelf();
+}
+
 }  // namespace
 
 HelperSession::Steps HelperSession::systemSteps() {
@@ -86,6 +240,8 @@ HelperSession::Steps HelperSession::systemSteps() {
     steps.takeHideFilterOff = privileged::takeHideFilterOff;
     steps.installWheelDriver = privileged::installWheelDriver;
     steps.writeLogLevel = privileged::writeLogLevel;
+    steps.scriptLogStage = makeScriptLogStage;
+    steps.deliverScriptLogs = deliverLogs;
     return steps;
 }
 
@@ -194,8 +350,10 @@ Reply HelperSession::putHideFilter(const Request& request) {
     }
     std::string message;
     // The script skips the interfaces that have the filter already; then all of them are waited for.
-    const service::privileged::HideSetup result = steps_.putHideFilter(
-        request.devices, request.devices, scriptLevels_, scriptLogFolder(), cancelled_, message);
+    const std::filesystem::path stage = steps_.scriptLogStage();
+    const service::privileged::HideSetup result =
+        steps_.putHideFilter(request.devices, request.devices, scriptLevels_, stage, cancelled_, message);
+    steps_.deliverScriptLogs(stage, logFolder_, token_);
     if (result == service::privileged::HideSetup::Running || result == service::privileged::HideSetup::Waiting) {
         for (const std::string& id : request.devices) {
             if (std::find(filterOn_.begin(), filterOn_.end(), id) == filterOn_.end()) filterOn_.push_back(id);
@@ -233,9 +391,10 @@ Reply HelperSession::takeHideFilterOff(const Request& request) {
 
 Reply HelperSession::installWheelDriver(const std::uint32_t seq) {
     std::string message;
-    return steps_.installWheelDriver(scriptLevels_, scriptLogFolder(), cancelled_, message)
-               ? Reply{seq, Status::Ok, {}}
-               : Reply{seq, Status::Failed, message};
+    const std::filesystem::path stage = steps_.scriptLogStage();
+    const bool installed = steps_.installWheelDriver(scriptLevels_, stage, cancelled_, message);
+    steps_.deliverScriptLogs(stage, logFolder_, token_);
+    return installed ? Reply{seq, Status::Ok, {}} : Reply{seq, Status::Failed, message};
 }
 
 // The drivers (LocalService) may write into the caller's own %LOCALAPPDATA%\wheelbri\logs, and HKLM\SOFTWARE\wheelbri
@@ -321,13 +480,5 @@ Reply HelperSession::shareLogFolder(const std::uint32_t seq) {
     return Reply{seq, Status::Ok, utf8(opened)};
 }
 
-std::filesystem::path HelperSession::scriptLogFolder() const {
-    if (!logFolder_.empty()) return logFolder_;
-    wchar_t programData[MAX_PATH] = {};
-    const DWORD length = GetEnvironmentVariableW(L"ProgramData", programData, MAX_PATH);
-    const std::filesystem::path base =
-        length > 0 && length < MAX_PATH ? std::filesystem::path(programData) : std::filesystem::path(L"C:\\ProgramData");
-    return base / "wheelbri" / "logs";
-}
 
 }  // namespace wheelbri::helper

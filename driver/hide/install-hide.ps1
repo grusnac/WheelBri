@@ -17,8 +17,10 @@
 #                                                        interfaces (all of them: a device may have several)
 #   install-hide.ps1 -Devices "HID\VID_346E&PID_0005&MI_02\8&8052F69&0&0000"   ...on exactly that interface
 #   install-hide.ps1 -Devices 346e:0004 -Configuration Debug
-#   install-hide.ps1 -Devices ... -LogFolder <folder>    its log in that folder (the WheelBri Helper, which runs as
-#                                                        SYSTEM, gives the user's: %LOCALAPPDATA% would be SYSTEM's)
+#   install-hide.ps1 -Devices ... -LogFolder <folder>    its log in that folder, and nothing else done there (the
+#                                                        WheelBri Helper, which runs as SYSTEM, gives a scratch folder
+#                                                        only SYSTEM may change, and then adds the log to the user's
+#                                                        own logs folder, writing as the user)
 #   install-hide.ps1 -Devices ... -NoRestart             the app: does not restart the devices itself (exit 2 when
 #                                                        one waits for it); the app restarts them at once, which
 #                                                        works where pnputil /restart-device refuses
@@ -61,28 +63,39 @@ Assert-Admin
 
 # Everything below also goes to %LOCALAPPDATA%\wheelbri\logs\wheelbri-hide-install-<date>.log (the app runs this
 # without a window, so that file is where to look when Start says a device is not hidden).
-# Every log in one folder, the user's %LOCALAPPDATA%\wheelbri\logs (the app and both drivers write there too): the
-# drivers run as LocalService, so it may write there, and HKLM\SOFTWARE\wheelbri LogFolder tells them where (the
-# app does the same at every start, see ServiceLogging.hpp shareLogFolder).
+# Run by hand (no -LogFolder): every log in one folder, the user's %LOCALAPPDATA%\wheelbri\logs (the app and both
+# drivers write there too): the drivers run as LocalService, so it may write there, and HKLM\SOFTWARE\wheelbri LogFolder
+# tells them where (the app does the same at every start, see ServiceLogging.hpp shareLogFolder). With -LogFolder
+# (the app, through the WheelBri Helper as SYSTEM): only this script's log goes there; the folder's permissions and
+# LogFolder are left alone (the helper shares the user's folder itself, opened as the user).
 # All of it inside the try: a failure there still ends in the finally below (and the red line says why).
 $logFolder = if ($LogFolder) { $LogFolder } else { Join-Path $env:LOCALAPPDATA 'wheelbri\logs' }
 $exitCode = 1
 $transcript = $false
 $script:needsWindowsRestart = $false   # pnputil said a device waits for a restart of Windows
 try {
-    # Not through a link (junction) in the user's folders: as Administrator the grant below would change the
-    # permissions of whatever it points to (the app refuses such folders too).
+    # Not through a link (junction): as Administrator the grant below would change the permissions of whatever it
+    # points to (the app refuses such folders too).
     $logsLinked = @((Split-Path $logFolder), $logFolder | Where-Object {
         $item = Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue
         $item -and (Test-Link $item)
     }).Count -gt 0
-    if ($logsLinked) {
-        Start-Transcript -Append -Path (Join-Path $env:SystemRoot "Temp\wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+    $logName = "wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log"
+    if ($LogFolder) {
+        # The helper's: only a plain folder that is there already, else no log (never a fallback SYSTEM writes in).
+        if (-not $logsLinked -and (Test-Path -LiteralPath $LogFolder -PathType Container)) {
+            Start-Transcript -Append -Path (Join-Path $LogFolder $logName) | Out-Null
+            $transcript = $true
+        } else {
+            Write-Host "no install log: $LogFolder is not a plain folder" -ForegroundColor Yellow
+        }
+    } elseif ($logsLinked) {
+        Start-Transcript -Append -Path (Join-Path $env:SystemRoot "Temp\$logName") | Out-Null
         $transcript = $true
         Write-Host "$logFolder is a link to another folder: the drivers keep their logs in C:\ProgramData\wheelbri\logs" -ForegroundColor Yellow
     } else {
         New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
-        Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-hide-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+        Start-Transcript -Append -Path (Join-Path $logFolder $logName) | Out-Null
         $transcript = $true
         & icacls $logFolder /grant '*S-1-5-19:(OI)(CI)M' | Out-Null
         if (-not (Test-Path 'HKLM:\SOFTWARE\wheelbri')) { New-Item -Path 'HKLM:\SOFTWARE\wheelbri' | Out-Null }
