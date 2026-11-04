@@ -111,9 +111,10 @@ if(TARGET wheelbri_privileged)
         target_sources(wheelbri_tests PRIVATE PlatformPosixTest.cpp)
     endif()
     # The WheelBri Helper's pipe, client and log on a pipe of the tests' own (Windows only): HelperPipeTest. Its
-    # session with fakes for the privileged steps: HelperSessionTest.
+    # session with fakes for the privileged steps: HelperSessionTest. The hide filter and the virtual wheel without a
+    # device or Administrator: WinDevicesTest.
     if(WIN32)
-        target_sources(wheelbri_tests PRIVATE HelperPipeTest.cpp HelperSessionTest.cpp
+        target_sources(wheelbri_tests PRIVATE HelperPipeTest.cpp HelperSessionTest.cpp WinDevicesTest.cpp
             ${PROJECT_SOURCE_DIR}/service/helper/HelperClient.cpp
             ${PROJECT_SOURCE_DIR}/service/helper/HelperLog.cpp
             ${PROJECT_SOURCE_DIR}/service/helper/HelperServer.cpp
@@ -324,7 +325,7 @@ endif()
 option(WE_STRICT_TESTS "Fail the configure when a tests/*Test.cpp is in no test program" OFF)
 set(WE_WINDOWS_ONLY_TESTS HelperPipeTest.cpp HelperSessionTest.cpp LogiDllTest.cpp PlatformWin32Test.cpp
     ShimConfigTest.cpp ShimDeviceTest.cpp ShimDllTest.cpp ShimEffectTest.cpp ShimFormatTest.cpp UiWindowWin32Test.cpp
-    WinDinputTest.cpp)
+    WinDevicesTest.cpp WinDinputTest.cpp)
 set(WE_NOT_WINDOWS_TESTS HousekeepingTest.cpp PlatformPosixTest.cpp PrivilegedStepsTest.cpp ServiceLoggingTest.cpp
     ServiceMainTest.cpp UhidLoopTest.cpp UhidMainTest.cpp UhidProcessTest.cpp UhidWheelTest.cpp WheelEvdevTest.cpp
     UiWindowX11Test.cpp)
