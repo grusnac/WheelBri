@@ -31,8 +31,13 @@ struct AppSettings {
     // Runs one session with the config at `configPath` ("" = the built-in defaults) until it is asked to stop
     // (blocking); returns its exit code. `virtualDevice`: the virtual G920 (rig hidden) rather than the in-game shim.
     // `order`: the Mapping tab's button order (ConfigPicker::buttonOrder), used instead of the file's [buttons] order.
-    // Called on the app's session thread.
-    std::function<int(UiHost& host, const std::string& configPath, bool virtualDevice, ButtonOrder order)> runSession;
+    // `trueForce`: the Mapping tab's TrueForce (ConfigPicker::trueForceAtStart), used instead of the file's
+    // [emulator] trueforce. Called on the app's session thread.
+    std::function<int(UiHost& host, const std::string& configPath, bool virtualDevice, ButtonOrder order,
+                      bool trueForce)>
+        runSession;
+    // Where Logitech's TrueForce SDK is installed ("" = not): the Mapping tab's TrueForce switch is greyed without it.
+    std::function<std::string()> trueForceSdk;
     // Asks the running session to stop (from the window's thread).
     std::function<void()> requestStop;
     // Clears that request before the next Start.

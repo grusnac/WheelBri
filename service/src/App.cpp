@@ -403,7 +403,7 @@ private:
             *editorPane_, ConfigPicker::Settings{settings_.builtInConfigFolder, settings_.userConfigFolder,
                                              settings_.stateFile,
                                              ConfigPicker::virtualDeviceSupported(windowsBuild),
-                                             ConfigPicker::windowsName(windowsBuild)});
+                                             ConfigPicker::windowsName(windowsBuild), settings_.trueForceSdk});
         setup_ = std::make_unique<WheelSetupView>(
             *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile});
         MappingView::setEditorTabs(true);   // the live view's tab bar has Mapping (the editor), Live and Games
@@ -1078,10 +1078,13 @@ private:
         const std::string config = picker_->selected();
         const bool virtualDevice = picker_->virtualDevice();
         const ButtonOrder order = picker_->buttonOrder();
+        const bool trueForce = picker_->trueForceAtStart();
         if (mapping_->dirty()) {
             WE_LOG_WARN(log(), "the Mapping tab has unsaved changes: Start uses the config as saved");
         }
-        WE_LOG_INFO(log(), "Start pressed: {}; config {} ({})", picker_->name(),
+        WE_LOG_INFO(log(), "Start pressed: {}{}; config {} ({})", picker_->name(),
+                    ConfigPicker::hasTrueForce(picker_->target()) ? (trueForce ? ", TrueForce on" : ", TrueForce off")
+                                                                  : "",
                     config.empty() ? std::string("built-in defaults") : config,
                     picker_->builtIn() ? "the default mapping" : "the user's own mapping");
         if (sessionShim_) {
@@ -1093,11 +1096,11 @@ private:
         wayFollower_.reset();
         pendingWayNotice_.reset();
         idleTab_ = IdleTab::Logs;  // the logs while the session comes up (it writes them); Live once it runs
-        session_ = std::thread([this, config, virtualDevice, order] {
+        session_ = std::thread([this, config, virtualDevice, order, trueForce] {
             platform::nameThisThread("wheelbri session");
             int result = 1;
             try {
-                result = settings_.runSession(host_, config, virtualDevice, order);
+                result = settings_.runSession(host_, config, virtualDevice, order, trueForce);
             } catch (const std::exception& e) {
                 WE_LOG_CRITICAL(log(), "the service stopped on an error: {}", e.what());
             } catch (...) {

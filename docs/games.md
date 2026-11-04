@@ -24,8 +24,8 @@ G920 only, by themselves while the game runs.
 - **Linux:** runs under Proton with Mode Virtual.
 - **TrueForce (Target G923, Windows):** ACC then plays its TrueForce force on your wheel. It sends no damping, as to
   a real G923.
-  - In `my-g923.ini`: `[emulator] trueforce = true`, and `[steering] target_rotation_deg` at the rotation you want
-    (360 tested).
+  - The Mapping tab's **TrueForce: On** (under Target), and in `my-g923.ini` `[steering] target_rotation_deg` at the
+    rotation you want (360 tested).
   - Logitech G HUB must be installed (it need not run): ACC loads Logitech's TrueForce SDK from its folder
     (`C:\Program Files\Logi\trueforce\<version>`). At Start the service log says whether it is there.
   - The Live tab shows ACC's force as Steering force and its road texture as Vibration.

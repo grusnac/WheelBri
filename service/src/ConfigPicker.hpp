@@ -5,6 +5,7 @@
 #include "wheelbri/DeviceProfile.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -33,6 +34,12 @@ namespace wheelbri::service {
 //     file and [app] renumbered_<target> = pending says its buttons' game numbers changed (the Mapping tab marks
 //     them until each is changed or "Got it"). Kept in [app] order_<target>; a my-<target>.ini that said
 //     order = native before there were two (2026-10-26) becomes the Native mapping once (adoptOlderOrder).
+//   - TrueForce (the G923 only): whether the virtual G923 has its TrueForce interface, as a real one, so games that
+//     use Logitech's TrueForce (ACC, DiRT Rally 2.0) stream their force through it; Off, they send DirectInput effects
+//     as to a G920. On needs Logitech's TrueForce SDK, which games load from G HUB's folder (Settings::trueForceSdk):
+//     without it On is greyed and Start runs with Off. Mode Virtual only. Kept in [app] trueforce_g923 (on, off);
+//     the first time, it is taken from the G923's config file ([emulator] trueforce, set by hand before the switch).
+//     Start uses it instead of the file's.
 // Where the virtual device cannot exist (a Windows older than its driver, kVirtualDeviceMinBuild), the Mode row has no
 // Virtual button: only Shim, chosen and locked, its hover text saying which Windows this is and why; a saved "virtual"
 // is read as Shim there and left in app.ini for a later Windows that has it.
@@ -47,7 +54,11 @@ public:
         std::filesystem::path stateFile;       // appStateFile()
         bool virtualAvailable = true;          // virtualDeviceSupported() on this PC
         std::string windowsName{};             // windowsName() of this PC, for the Shim-only hover text
+        // Where Logitech's TrueForce SDK is on this PC ("" = not installed): service trueForceSdkPath(). Asked when
+        // the files are looked at again (refresh) and every kSdkCheckSeconds while the G923's row shows. Unset: none.
+        std::function<std::string()> trueForceSdk{};
     };
+    static constexpr int kSdkCheckSeconds = 5;
 
     // The first Windows build the virtual device's driver installs on (its INF: Windows 11).
     static constexpr std::uint32_t kVirtualDeviceMinBuild = 22000;
@@ -87,6 +98,17 @@ public:
     [[nodiscard]] static bool hasButtonOrders(Target target);
     // The order picked for the current target (Driver for one without two orders): Start runs with it.
     [[nodiscard]] ButtonOrder buttonOrder() const { return order_; }
+    // Whether the target has TrueForce (the G923).
+    [[nodiscard]] static bool hasTrueForce(Target target);
+    // TrueForce as picked for the G923 ([app] trueforce_g923), and what Start runs with: on only when picked, Logitech's
+    // TrueForce SDK is installed, the target is the G923 and the mode Virtual.
+    [[nodiscard]] bool trueForce() const { return trueForce_; }
+    [[nodiscard]] bool trueForceAtStart() const;
+    // Whether Logitech's TrueForce SDK was found the last time it was looked for.
+    [[nodiscard]] bool trueForceInstalled() const { return !trueForceSdk_.empty(); }
+    // TrueForce chosen from elsewhere (tests, as its button); nothing while locked, for another target, or On without
+    // the SDK.
+    void useTrueForce(const bool on) { chooseTrueForce(on); }
     // The user's own mapping file's name for a target and order: "my-g25.ini", "my-g25-native.ini".
     [[nodiscard]] static std::string ownName(Target target, ButtonOrder order);
     // [app] renumbered_<target>: "pending" right after the copy, then the Mapping tab's list of marked buttons.
@@ -119,11 +141,11 @@ public:
     // Where a button's hover text goes (x, y, w, h, text): the Mapping tab's own tooltips.
     using TipSink = std::function<void(float, float, float, float, std::string)>;
     // Draws the row at (x, y): "Target" [G25|G27|G920|G923], "Mode" [Virtual|Shim], and for the G25 and G27 a second
-    // row under it: "Order" [Logitech driver|Native]; each button says what it is in its hover text (to `tip`, when
+    // row under it: "Order" [Logitech driver|Native], for the G923 "TrueForce" [Off|On]; each button says what it is in its hover text (to `tip`, when
     // given), a greyed one why. `canChange` is false while a session runs or starts. Returns the x where the first
     // row ends.
     float draw(float x, float y, bool canChange, const TipSink& tip = {});
-    // How tall what draw draws is: one row, or two with Order.
+    // How tall what draw draws is: one row, or two with Order or TrueForce.
     [[nodiscard]] float rowsHeight() const;
     // A click on the tab; true if it was on the row.
     bool onClick(float x, float y);
@@ -145,7 +167,12 @@ private:
     void choose(Way way);
     void choose(Target target);
     void choose(ButtonOrder order);
-    void chosen();   // after either: the config again, and the log
+    void chooseTrueForce(bool on);
+    void chosen();
+    // [app] trueforce_g923, the first time from the G923's config file ([emulator] trueforce).
+    void readTrueForce();
+    // Looks for Logitech's TrueForce SDK again (Settings::trueForceSdk); logs when that changes.
+    void checkTrueForceSdk();   // after either: the config again, and the log
 
     ui::UiWindow& window_;
     Settings settings_;
@@ -154,6 +181,10 @@ private:
     Way way_ = Way::VirtualDevice;
     Target target_ = Target::G920;
     ButtonOrder order_ = ButtonOrder::Driver;
+    bool trueForce_ = false;
+    std::string trueForceSdk_;
+    bool sdkChecked_ = false;
+    std::chrono::steady_clock::time_point sdkCheckedAt_{};
     std::string selected_;
     bool builtIn_ = true;
     std::uint64_t changes_ = 0;

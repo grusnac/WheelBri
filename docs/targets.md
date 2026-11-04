@@ -112,7 +112,9 @@ not.
 
 ## TrueForce (G923)
 
-`[emulator] trueforce = true` (off by default; `trueforce_probe` until 2026-10-28) gives the virtual G923 its
+The Mapping tab's TrueForce switch (`[app] trueforce_g923`; greyed without Logitech's TrueForce SDK), or
+`[emulator] trueforce = true` for the command-line service (off by default; `trueforce_probe` until 2026-10-28),
+gives the virtual G923 its
 TrueForce interface: a second device in the wheel's container, usage page `0xFFFD`, report `0x01`
 (`core/include/wheelbri/TrueForce.hpp`). It answers the game's set-up as a real wheel and reports the steering
 (state on 127.0.0.1:41331) over `target_rotation_deg`, the wheel's own rotation, whatever range the game sets. Its

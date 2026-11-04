@@ -587,4 +587,113 @@ TEST_F(ConfigPickerFiles, TheOrderRowExplainsItself) {
     EXPECT_TRUE(has("Numbered as the wheel reports them, from 0."));
 }
 
+// The G923's TrueForce row: shown for the G923 only; without Logitech's TrueForce SDK On is greyed, says why, and
+// cannot be chosen.
+TEST_F(ConfigPickerFiles, TrueForceNeedsLogitechsSdk) {
+    ConfigPicker picker(window_, settings());   // no SDK
+    picker.draw(4, 18, true);
+    EXPECT_FALSE(window_.shows("TrueForce"));   // the G920
+    picker.useTarget(ConfigPicker::Target::G923);
+    EXPECT_EQ(picker.rowsHeight(), 34);
+    std::vector<std::string> tips;
+    window_.begin({});
+    picker.draw(4, 18, true,
+                [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
+    EXPECT_TRUE(window_.shows("TrueForce"));
+    EXPECT_TRUE(window_.shows("needs Logitech G HUB"));
+    EXPECT_TRUE(std::any_of(tips.begin(), tips.end(),
+                            [](const std::string& t) { return t.rfind("On needs Logitech G HUB installed", 0) == 0; }));
+    EXPECT_FALSE(picker.onClick(kNativeOrderX, kOrderRowY));   // On: greyed
+    picker.useTrueForce(true);
+    EXPECT_FALSE(picker.trueForce());
+    EXPECT_FALSE(picker.trueForceAtStart());
+    EXPECT_EQ(setting("trueforce_g923"), "off");
+}
+
+// With the SDK: On is kept in app.ini and Start runs with it, in Mode Virtual and for the G923 only.
+TEST_F(ConfigPickerFiles, TrueForceOnIsKeptAndUsedAtStart) {
+    ConfigPicker::Settings withSdk = settings();
+    withSdk.trueForceSdk = [] { return std::string("C:/Logi/trueforce/1_3_12/trueforce_sdk_x64.dll"); };
+    ConfigPicker picker(window_, withSdk);
+    picker.useTarget(ConfigPicker::Target::G923);
+    window_.begin({});
+    picker.draw(4, 18, true);
+    EXPECT_FALSE(window_.shows("needs Logitech G HUB"));
+    EXPECT_TRUE(picker.onClick(kNativeOrderX, kOrderRowY));   // On
+    EXPECT_TRUE(picker.trueForce());
+    EXPECT_TRUE(picker.trueForceAtStart());
+    EXPECT_EQ(setting("trueforce_g923"), "on");
+
+    picker.useTarget(ConfigPicker::Target::G920);   // another target: none at Start, the G923's kept
+    EXPECT_FALSE(picker.trueForceAtStart());
+    picker.useTarget(ConfigPicker::Target::G923);
+    EXPECT_TRUE(picker.trueForceAtStart());
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kShimX, kRowY));   // Mode Shim: no virtual G923, no TrueForce
+    EXPECT_FALSE(picker.trueForceAtStart());
+    picker.draw(4, 18, true);
+    EXPECT_FALSE(picker.onClick(kDriverOrderX, kOrderRowY));   // greyed in Mode Shim
+    EXPECT_TRUE(picker.onClick(kVirtualX, kRowY));
+    EXPECT_TRUE(picker.trueForceAtStart());
+
+    picker.setLocked(true);   // from Start to Stop: fixed
+    picker.useTrueForce(false);
+    EXPECT_TRUE(picker.trueForce());
+    picker.setLocked(false);
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kDriverOrderX, kOrderRowY));   // Off
+    EXPECT_FALSE(picker.trueForceAtStart());
+    EXPECT_EQ(setting("trueforce_g923"), "off");
+
+    ConfigPicker again(window_, withSdk);   // remembered
+    EXPECT_FALSE(again.trueForce());
+}
+
+// G HUB removed after On was picked: Start runs with Off, the choice is kept for when it is back.
+TEST_F(ConfigPickerFiles, TrueForceWithoutTheSdkAnyMoreIsOffAtStart) {
+    std::string sdk = "C:/Logi/trueforce/1_3_12/trueforce_sdk_x64.dll";
+    ConfigPicker::Settings changing = settings();
+    changing.trueForceSdk = [&sdk] { return sdk; };
+    ASSERT_TRUE(writeAppSetting(state(), "target", "g923"));
+    ConfigPicker picker(window_, changing);
+    picker.useTrueForce(true);
+    ASSERT_TRUE(picker.trueForceAtStart());
+    sdk.clear();
+    picker.refresh();
+    EXPECT_FALSE(picker.trueForceInstalled());
+    EXPECT_TRUE(picker.trueForce());
+    EXPECT_FALSE(picker.trueForceAtStart());
+    sdk = "C:/Logi/trueforce/1_3_13/trueforce_sdk_x64.dll";
+    picker.refresh();
+    EXPECT_TRUE(picker.trueForceAtStart());
+}
+
+// Before the switch TrueForce was set by hand in the G923's file: the first time, the switch starts from it (the
+// user's own mapping, else WheelBri's default; also its older name). Afterwards app.ini alone counts.
+TEST_F(ConfigPickerFiles, TrueForceStartsFromTheG923sFile) {
+    write(user() / "my-g923.ini", "[emulator]\ntrueforce = true\n");
+    {
+        ConfigPicker picker(window_, settings());
+        EXPECT_TRUE(picker.trueForce());
+        EXPECT_EQ(setting("trueforce_g923"), "on");
+    }
+    write(user() / "my-g923.ini", "[emulator]\ntrueforce = false\n");
+    {
+        ConfigPicker picker(window_, settings());
+        EXPECT_TRUE(picker.trueForce());   // app.ini's
+    }
+    std::filesystem::remove(user() / "my-g923.ini");
+    ASSERT_TRUE(writeAppSetting(state(), "trueforce_g923", ""));
+    write(builtIn() / "g923.ini", "[emulator]\ntrueforce_probe = yes\n");
+    {
+        ConfigPicker picker(window_, settings());
+        EXPECT_TRUE(picker.trueForce());
+    }
+    ASSERT_TRUE(writeAppSetting(state(), "trueforce_g923", ""));
+    write(builtIn() / "g923.ini", "[emulator]\n");
+    ConfigPicker picker(window_, settings());
+    EXPECT_FALSE(picker.trueForce());
+    EXPECT_EQ(setting("trueforce_g923"), "off");
+}
+
 }  // namespace wheelbri::service

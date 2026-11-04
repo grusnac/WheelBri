@@ -28,7 +28,8 @@ constexpr Colour kDim = style::kDim;
 constexpr float kRowHeight = 16;
 constexpr float kTargetWidth = 52;   // a Target button: "G920", "G25", "G27", "G923"
 constexpr float kWayWidth = 72;      // a Mode button: "Virtual", "Shim"
-constexpr float kOrderWidth = 128;   // an Order button: "Logitech", "Native"
+constexpr float kOrderWidth = 128;   // an Order button: "Logitech", "Native"; a TrueForce one: "Off", "On"
+constexpr const char* kTrueForceKey = "trueforce_g923";
 
 // What each Target is for (its button's hover text).
 std::string targetAbout(const ConfigPicker::Target target) {
@@ -41,7 +42,7 @@ std::string targetAbout(const ConfigPicker::Target target) {
         case ConfigPicker::Target::G920:
             return "G920: the Xbox wheel, WheelBri's default and the one tried most in games.";
         case ConfigPicker::Target::G923:
-            return "G923: the G920's successor.";
+            return "G923: the G920's successor, with TrueForce (picked under Target).";
     }
     return {};
 }
@@ -63,6 +64,16 @@ bool copyWithOrder(const std::filesystem::path& from, const std::filesystem::pat
     return writeFileReplacing(to, editor.text());
 }
 
+// The file's [emulator] trueforce (or its older name trueforce_probe), false when it has none or cannot be read.
+bool fileTrueForce(const std::filesystem::path& path) {
+    const auto text = readFileText(path);
+    if (!text) return false;
+    const IniDocument document = IniDocument::parse(*text).document;
+    auto line = document.get("emulator", "trueforce");
+    if (!line) line = document.get("emulator", "trueforce_probe");
+    return line && (*line == "true" || *line == "yes" || *line == "1");
+}
+
 }  // namespace
 
 std::string ConfigPicker::name() const {
@@ -71,6 +82,12 @@ std::string ConfigPicker::name() const {
 }
 
 bool ConfigPicker::hasButtonOrders(const Target target) { return target == Target::G25 || target == Target::G27; }
+
+bool ConfigPicker::hasTrueForce(const Target target) { return target == Target::G923; }
+
+bool ConfigPicker::trueForceAtStart() const {
+    return trueForce_ && trueForceInstalled() && hasTrueForce(target_) && way_ == Way::VirtualDevice;
+}
 
 std::string ConfigPicker::ownName(const Target target, const ButtonOrder order) {
     return "my-" + std::string(profileName(target)) + (order == ButtonOrder::Native ? "-native" : "") + ".ini";
@@ -232,10 +249,42 @@ void ConfigPicker::readOrder() {
     order_ = parseButtonOrder(kept).value_or(ButtonOrder::Driver);
 }
 
+void ConfigPicker::readTrueForce() {
+    std::string kept = readAppSetting(settings_.stateFile, kTrueForceKey);
+    if (kept.empty()) {
+        // Before the switch it was set by hand in the G923's file: the user's own mapping if there is one.
+        std::error_code ec;
+        const std::filesystem::path own = settings_.userFolder / ownName(Target::G923, ButtonOrder::Driver);
+        const std::filesystem::path file =
+            std::filesystem::is_regular_file(own, ec) ? own : settings_.builtInFolder / builtInName(Target::G923);
+        kept = fileTrueForce(file) ? "on" : "off";
+        if (kept == "on") WE_LOG_INFO(log(), "TrueForce: on, as {} says ([emulator] trueforce)", file.string());
+        static_cast<void>(writeAppSetting(settings_.stateFile, kTrueForceKey, kept));
+    }
+    trueForce_ = kept == "on";
+}
+
+void ConfigPicker::checkTrueForceSdk() {
+    const std::string sdk = settings_.trueForceSdk ? settings_.trueForceSdk() : std::string();
+    if (!sdkChecked_ || sdk != trueForceSdk_) {
+        if (sdk.empty()) {
+            WE_LOG_INFO(log(), "TrueForce: Logitech's TrueForce SDK is not installed (it comes with Logitech G HUB): "
+                               "the G923's TrueForce stays off");
+        } else {
+            WE_LOG_INFO(log(), "TrueForce: Logitech's TrueForce SDK found ({})", sdk);
+        }
+    }
+    trueForceSdk_ = sdk;
+    sdkChecked_ = true;
+    sdkCheckedAt_ = std::chrono::steady_clock::now();
+}
+
 void ConfigPicker::refresh() {
     adoptOlderOwn();
     adoptOlderOrder();
     readOrder();
+    readTrueForce();
+    checkTrueForceSdk();
     std::error_code ec;
     const std::filesystem::path own = ownPath();
     const std::filesystem::path builtIn = builtInPath();
@@ -312,6 +361,16 @@ void ConfigPicker::choose(const ButtonOrder order) {
     chosen();
 }
 
+void ConfigPicker::chooseTrueForce(const bool on) {
+    if (locked_ || !hasTrueForce(target_) || on == trueForce_) return;
+    if (on && !trueForceInstalled()) return;   // On is greyed: never asked
+    trueForce_ = on;
+    if (!writeAppSetting(settings_.stateFile, kTrueForceKey, on ? "on" : "off")) {
+        WE_LOG_WARN(log(), "cannot save TrueForce in {}", settings_.stateFile.string());
+    }
+    WE_LOG_INFO(log(), "TrueForce {} for the G923 (at the next Start)", on ? "on" : "off");
+}
+
 void ConfigPicker::chosen() {
     refresh();
     WE_LOG_INFO(log(), "target {}; config {}", name(), selected_.empty() ? "(none)" : selected_);
@@ -333,7 +392,9 @@ bool ConfigPicker::onClick(const float x, const float y) {
     return false;
 }
 
-float ConfigPicker::rowsHeight() const { return hasButtonOrders(target_) ? 2 * kRowHeight + 2 : kRowHeight; }
+float ConfigPicker::rowsHeight() const {
+    return hasButtonOrders(target_) || hasTrueForce(target_) ? 2 * kRowHeight + 2 : kRowHeight;
+}
 
 float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const TipSink& tip) {
     hits_.clear();
@@ -399,6 +460,43 @@ float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const
         segment("Native", kOrderWidth, order_ == ButtonOrder::Native, true,
                 "Numbered as the wheel reports them, from 0. For games that expect it (ACC).",
                 [this] { choose(ButtonOrder::Native); });
+    }
+    if (hasTrueForce(target_)) {
+        // Installing G HUB while the app is open: On becomes available within a few seconds.
+        if (std::chrono::steady_clock::now() - sdkCheckedAt_ >= std::chrono::seconds(kSdkCheckSeconds)) {
+            checkTrueForceSdk();
+        }
+        x = x0;
+        y += kRowHeight + 2;
+        window_.text(x, y + 4, "TrueForce", kDim);
+        if (tip) {
+            tip(x, y, 60, kRowHeight,
+                "Games that use Logitech's TrueForce (ACC, DiRT Rally 2.0) send their force through it, as to a real "
+                "G923. Takes effect at the next Start.");
+        }
+        x += 64;
+        const bool virtualMode = way_ == Way::VirtualDevice;
+        const bool installed = trueForceInstalled();
+        // What Start runs with shows as chosen: Off without the SDK, whatever was picked.
+        const bool on = trueForce_ && installed;
+        const std::string shimOnly = "Mode Virtual only: in Mode Shim the game talks to your own wheel.";
+        segment("Off", kOrderWidth, !on, virtualMode,
+                virtualMode ? "Off: a G923 without TrueForce. Games send their effects one by one, as to a G920."
+                            : shimOnly,
+                [this] { chooseTrueForce(false); });
+        segment("On", kOrderWidth, on, virtualMode && installed,
+                !virtualMode ? shimOnly
+                : installed  ? "On: the virtual G923 has TrueForce, as a real one. Closest to a real G923 in ACC."
+                             : "On needs Logitech G HUB installed (it need not run): its TrueForce files "
+                               "(Program Files\\Logi\\trueforce) are not on this PC.",
+                [this] { chooseTrueForce(true); });
+        if (!installed) {
+            window_.text(x + 8, y + 4, "needs Logitech G HUB", style::kCaution);
+            if (tip) {
+                tip(x + 4, y, 22 * ui::kCharWidth, kRowHeight,
+                    "Install Logitech G HUB for TrueForce: games load Logitech's TrueForce from its folder.");
+            }
+        }
     }
     return rowEnd;
 }

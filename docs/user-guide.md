@@ -78,6 +78,13 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
   marks. On Windows, with G HUB installed, Logitech also means Logitech's own force feedback driver, as a real G25 or
   G27 had; Native, or Logitech without G HUB, Windows' ([Targets](targets.md#force-feedback-drivers-g25-g27)).
 
+**G923 only:**
+
+- **TrueForce** (Windows, Mode Virtual): **On** gives the virtual G923 TrueForce, as a real one: games that use it
+  (ACC, DiRT Rally 2.0) send their force through it. **Off**: a G923 without it, whose games send their effects one by
+  one, as to a G920. On needs Logitech G HUB installed (it need not run); without it On is greyed and says so. Takes
+  effect at the next Start. More below, under force feedback.
+
 The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games
 count), from 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Details:
 [targets.md](targets.md).
@@ -260,8 +267,9 @@ A few settings for every game are in `[ffb]` in your mapping file (press Start a
 | `centring_spring` | 0 | G25 and G27: their centring spring, 0 to 100% |
 | `ignore_lone_full_push` | true | a full push with no other forces for 2 s plays as none (Race Driver: GRID) |
 
-**TrueForce** (Target G923, Windows): `[emulator] trueforce = true` in the same file lets games that use Logitech's
-TrueForce (ACC) drive your wheel with it. Off by default. It needs Logitech G HUB installed (not running). A game that
+**TrueForce** (Target G923, Windows): the Mapping tab's **TrueForce** switch, under Target, lets games that use
+Logitech's TrueForce (ACC) drive your wheel with it. Off by default. (The command-line service reads it from
+`[emulator] trueforce` in the config instead; the app's switch wins, and starts from that line the first time.) It needs Logitech G HUB installed (not running). A game that
 drives the wheel through DirectInput alone is not changed by it: its effects come one by one, as on a G920. Some games
 without TrueForce of their own still use it on a G923 (DiRT Rally 2.0): [Games](games.md). What ACC needs:
 [Games](games.md#assetto-corsa-competizione). For ACC on a G923, turn it on: a real G923 gets all of ACC's force
