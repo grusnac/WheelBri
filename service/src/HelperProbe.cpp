@@ -29,10 +29,40 @@ std::uint64_t steadyMs() {
 
 }  // namespace
 
+namespace {
+
+// The process's own (shared()), or null before its first use. Never destroyed: the window and the app ask it until
+// the process ends; stopShared ends its thread.
+HelperProbe*& sharedProbe() {
+    static HelperProbe* probe = nullptr;
+    return probe;
+}
+std::mutex gSharedMutex;
+
+}  // namespace
+
 HelperProbe& HelperProbe::shared() {
-    // Never destroyed: the window and the app ask it until the process ends.
-    static HelperProbe* const probe = new HelperProbe(systemCheck(), kMinGapMs, AppLogLevel::shared().current());
-    return *probe;
+    const std::lock_guard<std::mutex> lock(gSharedMutex);
+    if (sharedProbe() == nullptr) {
+        sharedProbe() = new HelperProbe(systemCheck(), kMinGapMs, AppLogLevel::shared().current());
+    }
+    return *sharedProbe();
+}
+
+void HelperProbe::stopShared() {
+    HelperProbe* probe = nullptr;
+    {
+        const std::lock_guard<std::mutex> lock(gSharedMutex);
+        probe = sharedProbe();
+    }
+    if (probe == nullptr) return;
+    {
+        const std::lock_guard<std::mutex> lock(probe->mutex_);
+        if (probe->quit_) return;
+        probe->quit_ = true;
+    }
+    probe->wake_.notify_all();
+    if (probe->thread_.joinable()) probe->thread_.join();
 }
 
 HelperProbe::Check HelperProbe::systemCheck() {
@@ -82,7 +112,7 @@ HelperProbe::~HelperProbe() {
         quit_ = true;
     }
     wake_.notify_all();
-    thread_.join();
+    if (thread_.joinable()) thread_.join();
 }
 
 void HelperProbe::request() {

@@ -32,6 +32,10 @@ public:
 
     // The process's own, with the system's check, started (and checking) at its first use.
     static HelperProbe& shared();
+    // Ends the process's own probe's thread (waits for a check that runs: at most its 5 s), before the program ends
+    // and its statics (the log among them) go: a check still running then would use them. Called last thing by main
+    // and by the tests; latest() still answers afterwards, nothing checks any more. Nothing when never started.
+    static void stopShared();
     // Hello through the helper's pipe (HelperClient); NotWindows elsewhere.
     static Check systemCheck();
 

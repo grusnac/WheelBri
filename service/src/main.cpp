@@ -2062,6 +2062,8 @@ int main(int argc, char** argv) {
         WE_LOG_CRITICAL(log(), "unhandled non-standard exception");
     }
     WE_LOG_INFO(log(), "exit code {}", exitCode);
+    // Before the log and the other statics go: a Hello to the helper still running would use them.
+    wheelbri::service::HelperProbe::stopShared();
     wheelbri::logging::shutdown();
     return exitCode;
 }

@@ -1,6 +1,7 @@
 #include "UiFakes.hpp"
 
 #include "DeviceWatch.hpp"
+#include "HelperProbe.hpp"
 #include "Platform.hpp"
 
 #include "wheelbri/LogConfig.hpp"
@@ -274,6 +275,9 @@ public:
         });
     }
     void TearDown() override {
+        // The views asked the helper probe (MappingView): its check may still run, and would use the log and the
+        // other statics as the program ends (Windows CI, 2026-11-04: std::system_error at exit, after the test passed).
+        HelperProbe::stopShared();
         logging::shutdown();
         std::error_code ec;
         std::filesystem::remove_all(folder_, ec);
