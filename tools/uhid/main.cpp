@@ -110,7 +110,8 @@ int main(int argc, char** argv) {
     if (fd < 0) {
         const int error = errno;
         WE_LOG_CRITICAL(log(), "cannot open {}: {}. {}", o.device, std::strerror(error),
-                        error == EACCES ? "Run scripts/linux/install-udev-rules.sh once (it lets you use uhid)."
+                        error == EACCES ? "Run scripts/linux/install-udev-rules.sh once (it puts you in the group "
+                                          "wheelbri, which may use uhid), then log out and in."
                         : error == ENOENT ? "Load the module: sudo modprobe uhid (install-udev-rules.sh makes it load "
                                             "at boot)."
                                           : "");
