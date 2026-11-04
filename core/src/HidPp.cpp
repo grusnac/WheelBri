@@ -2,6 +2,7 @@
 
 #include "wheelbri/HidPpFfb.hpp"
 
+#include <cmath>
 #include <algorithm>
 #include <cstdio>
 #include <utility>
@@ -292,7 +293,7 @@ std::optional<std::uint8_t> HidPp::forceFeedback(const std::uint8_t function, co
             gain_ = be16(in, 0);
             boost_ = be16(in, 2);
             if (log_) {
-                const int percent = static_cast<int>(static_cast<float>(gain_) * 100.0F / 65535.0F + 0.5F);
+                const auto percent = std::lround(static_cast<float>(gain_) * 100.0F / 65535.0F);
                 log_(LogLevel::Info, "hid++: force feedback gain set to " + std::to_string(percent) + "% (boost " +
                                          std::to_string(boost_) + "; not applied)");
             }

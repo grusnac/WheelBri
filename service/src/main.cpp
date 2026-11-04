@@ -1844,10 +1844,9 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     };
     int result = 0;
     std::optional<UiFrame> lastFrame;
-    std::uint64_t sessionStartMs = platform::nowMs();
     int quickLosses = 0;   // lost again soon after it came back: wait longer before the next try
     while (!gStop) {
-        sessionStartMs = platform::nowMs();
+        const std::uint64_t sessionStartMs = platform::nowMs();
         result = runLoop(config, reload, options.configPath, loaded.text, logFolder, logFileOk, *source, accessories,
                          options.print, host, devices, lastFrame,
                          /*routePedals=*/options.virtualDevice || options.uhid);

@@ -478,8 +478,8 @@ public:
     // The desktop's own folder window: KDE's kdialog (the Steam Deck's Desktop Mode), else GNOME's zenity, by full
     // path (never PATH). It blocks until it closes, as the Windows one does.
     bool pickFolder(const std::string& title, std::filesystem::path& folder, std::string& error) override {
-        const std::string start = folder.empty() ? std::string(std::getenv("HOME") != nullptr ? std::getenv("HOME") : "/")
-                                                 : folder.string();
+        const char* const home = std::getenv("HOME");
+        const std::string start = !folder.empty() ? folder.string() : std::string(home != nullptr ? home : "/");
         const std::vector<std::vector<std::string>> dialogs = {
             {"/usr/bin/kdialog", "--title", title, "--getexistingdirectory", start},
             {"/usr/bin/zenity", "--file-selection", "--directory", "--title=" + title, "--filename=" + start + "/"},

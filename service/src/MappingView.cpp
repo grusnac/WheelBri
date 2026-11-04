@@ -337,7 +337,7 @@ float MappingView::drawFfbGroups(const FfbDisplay& ffb, const float x, float y, 
     constexpr float kNameW = 16 * ui::kCharWidth;
     constexpr float kTextW = 12 * ui::kCharWidth;   // "100% -> 100%"
     const float barW = std::clamp((width - 6 - kNameW - kTextW - 18) / 2, 32.0F, 96.0F);
-    const auto percent = [](const float v) { return std::to_string(static_cast<int>(v * 100.0F + 0.5F)) + "%"; };
+    const auto percent = [](const float v) { return std::to_string(std::lround(v * 100.0F)) + "%"; };
     for (std::size_t g = 0; g < kFfbGroupCount; ++g) {
         const float row = y + static_cast<float>(g) * kFfbRowH;
         const float asked = levels.asked[g];

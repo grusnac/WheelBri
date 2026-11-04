@@ -105,6 +105,7 @@ void nameThisThread(const char* const name) {
 #if defined(__linux__)
     if (name == nullptr) return;
     char shortName[16] = {};   // the kernel keeps 15 characters and the end: longer names are cut on purpose
+    // NOLINTNEXTLINE(bugprone-not-null-terminated-result): shortName is all zeros past what is copied
     std::memcpy(shortName, name, std::min(std::strlen(name), sizeof(shortName) - 1));
     pthread_setname_np(pthread_self(), shortName);
 #else

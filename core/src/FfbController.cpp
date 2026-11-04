@@ -92,16 +92,16 @@ bool FfbController::differs(const FfbEffect& a, const FfbEffect& b) {
 }
 
 FfbController::Source* FfbController::sourceFor(const std::uint32_t id, const std::uint64_t nowNs) {
-    Source* quietest = nullptr;
     for (Source& source : sources_) {
         if (source.used && source.id == id) return &source;
     }
+    Source* quietest = &sources_.front();
     for (Source& source : sources_) {
         if (!source.used) {
             quietest = &source;
             break;
         }
-        if (quietest == nullptr || source.lastNs < quietest->lastNs) quietest = &source;
+        if (source.lastNs < quietest->lastNs) quietest = &source;
     }
     if (quietest->used) {
         WE_LOG_INFO(log(), "ffb: a {}th sender: port {}'s forces (the one quiet longest) stopped", kMaxSources + 1,
@@ -147,7 +147,7 @@ int FfbController::slotFor(Source& source, const std::uint8_t slot) {
 void FfbController::release(Source& source, const bool forget) {
     for (std::int8_t& held : source.slots) {
         if (held < 0) continue;
-        Slot& slot = slots_[static_cast<std::size_t>(held)];
+        Slot& slot = slots_[static_cast<std::uint8_t>(held)];
         slot.wanted = false;
         slot.loaded = false;   // "stop all", or the sender gone: what comes next is a new set of effects
         held = -1;
@@ -307,7 +307,7 @@ void FfbController::update(const std::uint64_t nowNs) {
         if (!source.used || nowNs - source.lastNs <= timing_.watchdogNs) continue;
         bool anyWanted = false;
         for (const std::int8_t held : source.slots) {
-            anyWanted = anyWanted || (held >= 0 && slots_[static_cast<std::size_t>(held)].wanted);
+            anyWanted = anyWanted || (held >= 0 && slots_[static_cast<std::uint8_t>(held)].wanted);
         }
         if (anyWanted) {
             ++stats_.watchdogStops;

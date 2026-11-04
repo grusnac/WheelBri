@@ -78,6 +78,7 @@ bool SenderGate::allow(const std::uint16_t port, const std::uint64_t nowNs) {
         windowStartNs_ = nowNs;
         lookupsInWindow_ = 0;
     }
+    if (slot == nullptr) return false;   // no entries at all (never: the table has a fixed size)
     if (lookupsInWindow_ >= settings_.maxLookupsPerSecond) {
         ++stats_.overLookupCap;
         ++stats_.refused;

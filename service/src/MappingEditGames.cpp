@@ -212,7 +212,6 @@ void MappingEditView::drawGames() {
     button(4 + 112, y, "Remove", [this, pickedId] { removeGame(pickedId); }, false,
            !locked_ && userGame(pickedId) && selectedFolderOnly_.empty(), 84);
     tip(4 + 112, y, 84, 16, "Takes a game you added off the list, with its own values. Built-in games stay.");
-    y += 22;
     // The bar between the list and the game: dragged, the list is wider or narrower; double-clicked, it fits.
     {
         const float barX = gameX() - 12;

@@ -300,6 +300,7 @@ Notes readNotes(const std::filesystem::path& folder) {
             try {
                 open[text.substr(0, bar)] = {ts, std::stod(text.substr(bar + 1))};
             } catch (const std::exception&) {
+                // not a number after the bar: that line is skipped
             }
         } else if (kind == "HOLD_END") {
             const auto it = open.find(text);
@@ -385,7 +386,9 @@ TrueForceResult analyseTrueForce(const std::vector<const Report*>& reports, cons
         if (!expected.empty()) {
             for (const std::uint8_t at : expected) {
                 const auto it = byTypeSeq.find({at, seq});
-                if (it != byTypeSeq.end() && (answer = firstAfter(it->second, r->ts)) != nullptr) break;
+                if (it == byTypeSeq.end()) continue;
+                answer = firstAfter(it->second, r->ts);
+                if (answer != nullptr) break;
             }
         } else {
             const auto it = byTypeSeq.find({type, seq});

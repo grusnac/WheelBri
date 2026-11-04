@@ -1,0 +1,34 @@
+# clang-tidy for core/, service/ and tools/ (CI "Static analysis (Linux)"): the checks that find bugs, not style.
+# Left out: the ones that flag this code's own conventions or deliberate choices: swappable parameters of the same
+# type, narrowing in the float maths, integer division for rows and columns, optionals read once checked, a hat's
+# signed index once range-checked, a catch left empty on purpose (it says why), __func__ in the logging macros' lambdas, and the allocation hints (string
+# concatenation, reserve, moves of const locals) on paths that are not hot.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-branch-clone,
+  -bugprone-exception-escape,
+  -bugprone-switch-missing-default-case,
+  -bugprone-unchecked-optional-access,
+  -bugprone-integer-division,
+  -bugprone-optional-value-conversion,
+  -bugprone-signed-char-misuse,
+  -bugprone-lambda-function-name,
+  -bugprone-misplaced-widening-cast,
+  -bugprone-empty-catch,
+  clang-analyzer-*,
+  -clang-analyzer-optin.*,
+  -clang-analyzer-security.insecureAPI.*,
+  performance-*,
+  -performance-avoid-endl,
+  -performance-enum-size,
+  -performance-unnecessary-value-param,
+  -performance-inefficient-string-concatenation,
+  -performance-inefficient-vector-operation,
+  -performance-no-automatic-move,
+  -performance-trivially-destructible
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(core|service|tools)/.*'

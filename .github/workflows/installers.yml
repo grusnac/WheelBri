@@ -1,14 +1,15 @@
 # WheelBri's pipeline, in four stages (each a job of its own on the run's page):
 #
 #   1. Build and test      Windows (MSYS2 UCRT64) and Linux, Release, all tests; the results on each job's summary;
-#                          Linux again as Debug with the address and undefined-behaviour sanitizers
+#                          Linux again as Debug with the address and undefined-behaviour sanitizers, and clang-tidy
 #   2. Windows installer   the drivers (VS + WDK), then WheelBri-<version>-setup.exe and its zip (package.ps1),
 #                          from the programs stage 1 built and tested
 #   3. Linux bundle        wheelbri-linux-x86_64.tar.gz (scripts/linux/package.sh), with stage 1's Windows shims
 #   4. Release             only for a v<version> tag: both installers as a GitHub release
 #
 # Runs on every push to main, every pull request and by hand (Actions > Installers > Run workflow). A tag must match
-# project(... VERSION) in CMakeLists.txt.
+# project(... VERSION) in CMakeLists.txt. Every action is pinned to a commit (its version in the comment): a moved tag
+# cannot change what runs here.
 #
 # Driver signing: each run makes a certificate of its own (driver\new-signing-cert.ps1 -ForThisBuildOnly: code
 # signing only, no certificate authority, private key not exportable), signs both drivers with it, writes its
@@ -39,10 +40,10 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Check out
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
 
       - name: Install MSYS2 UCRT64 (64-bit) and MINGW32 (32-bit shim) compilers
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e   # v2.33.0
         with:
           msystem: UCRT64
           update: false
@@ -65,11 +66,11 @@ jobs:
         shell: msys2 {0}
         run: WE_CMAKE_ARGS=-DWE_BUILD_TESTS=OFF bash scripts/make/shim-x86.sh
 
-      # One test at a time, as on the PC: the tests share fixed ports and temp folders (ShimTestSupport.hpp,
-      # RetentionTest.cpp), so parallel ones (ctest -j) trip over each other.
+      # Side by side (-j): each test has its own temp folder and ports; the shim tests, which share fixed ports and
+      # wheelbri-shim.ini, take a lock (ShimDeviceTest.cpp).
       - name: Run the tests
         shell: msys2 {0}
-        run: ctest --test-dir build --output-on-failure --output-junit ctest-results.xml
+        run: ctest --test-dir build -j 4 --output-on-failure --output-junit ctest-results.xml
 
       # Only when the tests ran: a failure before them (build, script check) is the job's error, not a missing report.
       - name: Test report
@@ -78,7 +79,7 @@ jobs:
 
       - name: Keep the test results
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6.0.0
         with:
           name: test-results-windows
           path: build/ctest-results.xml
@@ -86,7 +87,7 @@ jobs:
 
       # What stage 2 packages and stage 3 puts in the Linux bundle: the programs that were just tested.
       - name: Keep the programs for packaging
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6.0.0
         with:
           name: windows-programs
           if-no-files-found: error
@@ -103,7 +104,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
 
       # Xvfb: the X11 window tests (UiWindowX11Test) skip without it.
       - name: Install the X11 headers, Xvfb, Ninja and ShellCheck
@@ -123,7 +124,7 @@ jobs:
         run: cmake --build build
 
       - name: Run the tests
-        run: ctest --test-dir build --output-on-failure --output-junit ctest-results.xml
+        run: ctest --test-dir build -j 4 --output-on-failure --output-junit ctest-results.xml
 
       - name: The X11 window tests ran
         run: |
@@ -138,7 +139,7 @@ jobs:
 
       - name: Keep the test results
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6.0.0
         with:
           name: test-results-linux
           path: build/ctest-results.xml
@@ -151,7 +152,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
 
       - name: Install the X11 headers, Xvfb and Ninja
         run: |
@@ -171,12 +172,37 @@ jobs:
         env:
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/tests/lsan-suppressions.txt
           UBSAN_OPTIONS: print_stacktrace=1
-        run: ctest --test-dir build --output-on-failure --output-junit ctest-results.xml
+        run: ctest --test-dir build -j 4 --output-on-failure --output-junit ctest-results.xml
 
       # Only when the tests ran: a failure before them (build, script check) is the job's error, not a missing report.
       - name: Test report
         if: ${{ !cancelled() && hashFiles('build/ctest-results.xml') != '' }}
         run: python3 .github/scripts/test-summary.py build/ctest-results.xml "Tests under sanitizers"
+
+  # ---------------------------------------------------------------------------------------------------------------
+  # clang-tidy (.clang-tidy: the bug checks, not style) over core/, service/ and tools/ as the Linux build compiles
+  # them; any finding fails the job.
+  static-analysis-linux:
+    name: 1 · Static analysis (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+
+      - name: Install the X11 headers, Ninja and clang-tidy
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libx11-dev ninja-build clang-tidy > /dev/null
+
+      - name: Configure (compile commands)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > /dev/null
+
+      # The generated headers (build info) and FetchContent's sources must exist before clang-tidy reads the files.
+      - name: Build
+        run: cmake --build build
+
+      - name: clang-tidy
+        run: run-clang-tidy -quiet -p build -j "$(nproc)" "$PWD/(core|service|tools)/.*\.cpp$"
 
   # ---------------------------------------------------------------------------------------------------------------
   package-windows:
@@ -188,7 +214,7 @@ jobs:
         shell: powershell   # Windows PowerShell 5.1, which the scripts target
     steps:
       - name: Check out
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
 
       - name: Check the tag matches the version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -200,7 +226,7 @@ jobs:
           }
 
       - name: Get the tested programs from stage 1
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131   # v7.0.0
         with:
           name: windows-programs
 
@@ -239,7 +265,7 @@ jobs:
           $lines -join "`n" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
       - name: Keep the installer
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6.0.0
         with:
           name: windows-installer
           if-no-files-found: error
@@ -254,7 +280,7 @@ jobs:
     runs-on: ubuntu-24.04   # the bundle needs glibc 2.39 or newer
     steps:
       - name: Check out
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
 
       - name: Install the X11 headers
         run: |
@@ -262,7 +288,7 @@ jobs:
           sudo apt-get install -y -qq libx11-dev > /dev/null
 
       - name: Get the Windows shims from stage 1 (for Proton games)
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131   # v7.0.0
         with:
           name: windows-programs
           path: windows
@@ -293,7 +319,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the bundle
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6.0.0
         with:
           name: linux-installer
           if-no-files-found: error
@@ -309,7 +335,7 @@ jobs:
       contents: write
     steps:
       - name: Get both installers
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131   # v7.0.0
         with:
           pattern: '*-installer'
           merge-multiple: true

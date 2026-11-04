@@ -149,7 +149,6 @@ bool LiveLog::poll() {
                 if (file.partial.size() > kMaxLineBytes) {
                     if (!skipFirst) fresh.push_back(parseLogLine(file.partial.substr(0, kMaxLineBytes), file.source));
                     file.partial.clear();
-                    skipFirst = false;
                 }
                 break;
             }
