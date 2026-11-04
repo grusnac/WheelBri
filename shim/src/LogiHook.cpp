@@ -46,7 +46,7 @@ constexpr std::size_t kMaxWrapped = 256;
 constexpr std::size_t kThunkSize = 32;
 Wrapped gWrapped[kMaxWrapped];   // never freed: the game may call a wrapper until it exits
 std::size_t gCount = 0;
-unsigned char* gCode = nullptr;  // kMaxWrapped thunks: mov r10, wrapped; mov r11, stub; jmp r11
+unsigned char* gCode = nullptr;  // kMaxWrapped thunks: mov r10, wrapped; mov r11, stub; jmp r11 (read + execute)
 std::mutex gMutex;
 
 using GetProcAddressFn = FARPROC(WINAPI*)(HMODULE, LPCSTR);
@@ -60,14 +60,23 @@ extern "C" void wheelbri_logi_after(Wrapped* wrapped, const std::uint64_t* args,
 
 // Saves RCX..R9 and XMM0..3 at 96(%rsp) (args[0..3], then args[4..11] as four 16-byte XMM slots), copies 8 stack
 // arguments on, calls the real function, keeps RAX and XMM0 at 208(%rsp), logs, and returns both unchanged.
-// Frame: 224 bytes + the pushed RBP keeps RSP 16-byte aligned at each call.
+// Frame: 224 bytes + the pushed RBP keeps RSP 16-byte aligned at each call. Its unwind data (.seh_*) lets Windows
+// walk through it (an exception, a debugger's or a crash dump's stack) as through any compiled function.
 asm(R"(
     .text
     .globl wheelbri_logi_stub
+    .def wheelbri_logi_stub; .scl 2; .type 32; .endef
+    .seh_proc wheelbri_logi_stub
 wheelbri_logi_stub:
     pushq %rbp
-    movq %rsp, %rbp
+    .seh_pushreg %rbp
     subq $224, %rsp
+    .seh_stackalloc 224
+    leaq 224(%rsp), %rbp
+    .seh_setframe %rbp, 224
+    movq %rbx, 192(%rsp)
+    .seh_savereg %rbx, 192
+    .seh_endprologue
     movq %rcx, 96(%rsp)
     movq %rdx, 104(%rsp)
     movq %r8, 112(%rsp)
@@ -76,7 +85,6 @@ wheelbri_logi_stub:
     movdqu %xmm1, 144(%rsp)
     movdqu %xmm2, 160(%rsp)
     movdqu %xmm3, 176(%rsp)
-    movq %rbx, 192(%rsp)
     movq %r10, %rbx
     movq 48(%rbp), %rax
     movq %rax, 32(%rsp)
@@ -115,6 +123,7 @@ wheelbri_logi_stub:
     movq %rbp, %rsp
     popq %rbp
     retq
+    .seh_endproc
 )");
 
 namespace {
@@ -270,30 +279,42 @@ FARPROC wrap(const char* name, const FARPROC real) {
         if (gWrapped[i].real == reinterpret_cast<void*>(real)) return reinterpret_cast<FARPROC>(gCode + i * kThunkSize);
     }
     if (gCode == nullptr) {
-        gCode = static_cast<unsigned char*>(
-            VirtualAlloc(nullptr, kMaxWrapped * kThunkSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
-        if (gCode == nullptr) {
+        // Every thunk written at once (each only names its own gWrapped entry and the stub), then the page made
+        // executable and read-only for good: never writable and executable at the same time.
+        auto* const code = static_cast<unsigned char*>(
+            VirtualAlloc(nullptr, kMaxWrapped * kThunkSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+        if (code == nullptr) {
             WE_LOG_ERROR(log(), "logi_log: no memory for the wrappers ({})", GetLastError());
             return real;
         }
+        const auto stubAddress = reinterpret_cast<std::uint64_t>(&wheelbri_logi_stub);
+        for (std::size_t i = 0; i < kMaxWrapped; ++i) {
+            unsigned char* const thunk = code + i * kThunkSize;
+            const auto wrappedAddress = reinterpret_cast<std::uint64_t>(&gWrapped[i]);
+            thunk[0] = 0x49;   // mov r10, imm64
+            thunk[1] = 0xBA;
+            std::memcpy(thunk + 2, &wrappedAddress, 8);
+            thunk[10] = 0x49;  // mov r11, imm64
+            thunk[11] = 0xBB;
+            std::memcpy(thunk + 12, &stubAddress, 8);
+            thunk[20] = 0x41;  // jmp r11
+            thunk[21] = 0xFF;
+            thunk[22] = 0xE3;
+        }
+        DWORD old = 0;
+        if (!VirtualProtect(code, kMaxWrapped * kThunkSize, PAGE_EXECUTE_READ, &old)) {
+            WE_LOG_ERROR(log(), "logi_log: cannot make the wrappers executable ({})", GetLastError());
+            VirtualFree(code, 0, MEM_RELEASE);
+            return real;
+        }
+        FlushInstructionCache(GetCurrentProcess(), code, kMaxWrapped * kThunkSize);
+        gCode = code;
     }
     if (gCount == kMaxWrapped) return real;
     Wrapped& w = gWrapped[gCount];
     w.real = reinterpret_cast<void*>(real);
     std::snprintf(w.name, sizeof(w.name), "%s", name);
-    unsigned char* code = gCode + gCount * kThunkSize;
-    const auto wrappedAddress = reinterpret_cast<std::uint64_t>(&w);
-    const auto stubAddress = reinterpret_cast<std::uint64_t>(&wheelbri_logi_stub);
-    code[0] = 0x49;   // mov r10, imm64
-    code[1] = 0xBA;
-    std::memcpy(code + 2, &wrappedAddress, 8);
-    code[10] = 0x49;  // mov r11, imm64
-    code[11] = 0xBB;
-    std::memcpy(code + 12, &stubAddress, 8);
-    code[20] = 0x41;  // jmp r11
-    code[21] = 0xFF;
-    code[22] = 0xE3;
-    FlushInstructionCache(GetCurrentProcess(), code, kThunkSize);
+    unsigned char* const code = gCode + gCount * kThunkSize;
     ++gCount;
     WE_LOG_INFO(log(), "logi: {} wrapped", name);
     return reinterpret_cast<FARPROC>(code);
@@ -346,6 +367,14 @@ int patchImports(const HMODULE module) {
 void armLogiHook() noexcept {
     // Loader lock: only the import table is touched (VirtualProtect), nothing logged, nothing allocated.
     gArmed = patchImports(GetModuleHandleW(nullptr));
+    // The game's import now points into this DLL: it must never be unloaded, even if something loads and frees
+    // dinput8.dll before the game's first DirectInput call (pinThisModule only runs from there). Pinning only counts
+    // a reference (no load), which the loader lock allows.
+    if (gArmed > 0) {
+        HMODULE self = nullptr;
+        (void)GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                                 reinterpret_cast<LPCWSTR>(&armLogiHook), &self);
+    }
 }
 
 void installLogiHook() {
