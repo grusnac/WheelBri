@@ -47,6 +47,7 @@ add_library(wheelbri_service_objects OBJECT
     src/ShadowView.cpp
     src/PrivilegedSteps.cpp
     src/ServiceLogging.cpp
+    src/ServiceLoop.cpp
     src/Wheel.cpp
     src/WheelSetupView.cpp
     src/ConfigPicker.cpp

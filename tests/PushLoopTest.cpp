@@ -1,8 +1,11 @@
-// The service loop end to end on emulated devices (tests/emulators): its decisions (core
-// EventLoopControl) and the real Pipeline, on a virtual clock, against devices that push their input the way
-// DirectInput and evdev do, and against devices that do it badly.
+// The service's own loop (ServiceLoop, what runLoop runs) end to end on emulated devices (tests/emulators): its
+// decisions (core EventLoopControl), the real Pipeline and the real FfbController, on a virtual clock, against devices
+// that push their input the way DirectInput and evdev do, against devices that do it badly, and against games.
 
 #include "emulators/PushEmulators.hpp"
+
+#include "wheelbri/GameUseWatch.hpp"
+#include "wheelbri/LogLevelPacket.hpp"
 
 #include <gtest/gtest.h>
 
@@ -13,6 +16,7 @@ constexpr std::uint64_t kS = 1'000'000'000;
 const WakeSettings kWake;
 
 using Behaviour = EmulatedPushDevice::Behaviour;
+using service::kWheelLost;
 
 // --- a healthy device ---
 
@@ -119,9 +123,11 @@ TEST(PushLoop, WhatMustRunOnTimeSetsTheTimer) {
     {
         VirtualClock clock;
         EmulatedPushDevice wheel("R3", clock);
-        PushLoopRig::Options options;
-        options.forcesPlaying = true;   // every 4 ms
-        PushLoopRig rig(clock, wheel, options);
+        EmulatedSocket game;
+        game.constantForce(0, 0.3F);   // a force plays: every 4 ms
+        game.arriveEvery(100 * kMs, 1 * kS, 100 * kMs);   // the shim's keep-alives
+        PushLoopRig rig(clock, wheel);
+        rig.addGameFfb(game);
         rig.run(1 * kS);
         EXPECT_EQ(rig.passes(), 250U);
     }
@@ -305,7 +311,7 @@ TEST(PushLoop, AnUnpluggedWheelThatSignalsIsFoundAtOnce) {
     unplugged.disconnectAtNs = 1'234 * kMs;
     EmulatedPushDevice wheel("R3", clock, unplugged);
     PushLoopRig rig(clock, wheel);
-    rig.run(2 * kS);
+    EXPECT_EQ(rig.run(2 * kS), kWheelLost);   // runSession then waits for it to come back
 
     ASSERT_TRUE(rig.lostAtNs().has_value());
     EXPECT_EQ(*rig.lostAtNs(), 1'234 * kMs);
@@ -322,6 +328,195 @@ TEST(PushLoop, AnUnpluggedWheelThatSaysNothingIsFoundByTheIdleTimer) {
 
     ASSERT_TRUE(rig.lostAtNs().has_value());
     EXPECT_EQ(*rig.lostAtNs(), 1'300 * kMs);
+}
+
+// An accessory that goes away ends the loop as the wheel does (runSession waits for the whole rig to come back).
+TEST(PushLoop, AnUnpluggedAccessoryEndsTheLoopToo) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    wheel.sweep(0, 2 * kS, 5 * kMs);
+    Behaviour unplugged;
+    unplugged.disconnectAtNs = 700 * kMs;
+    EmulatedPushDevice pedals("pedals", clock, unplugged);
+    PushLoopRig rig(clock, wheel);
+    rig.addAccessory(pedals);
+
+    EXPECT_EQ(rig.run(2 * kS), kWheelLost);
+    ASSERT_TRUE(rig.lostAtNs().has_value());
+    EXPECT_EQ(*rig.lostAtNs(), 700 * kMs);
+}
+
+// --- how the loop ends ---
+
+TEST(PushLoop, AStopEndsTheLoopAfterItsPassWithResult0) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    PushLoopRig rig(clock, wheel);
+    EXPECT_EQ(rig.run(1 * kS), 0);
+    EXPECT_EQ(rig.endedAtNs(), 1 * kS);
+}
+
+// The window side ends the loop (the window closed, or it failed) whenever it likes; the loop sees it when it next
+// wakes: at rest within the idle timer, never later.
+TEST(PushLoop, ClosingTheWindowEndsTheLoopWithinItsIdleWake) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    PushLoopRig::Options options;
+    options.windowOpen = true;
+    options.closeWindowAtNs = 1'205 * kMs;
+    PushLoopRig rig(clock, wheel, options);
+
+    EXPECT_EQ(rig.run(5 * kS), 0);
+    EXPECT_GE(rig.endedAtNs(), options.closeWindowAtNs);
+    EXPECT_LE(rig.endedAtNs(), options.closeWindowAtNs + kWake.windowNs);   // the window's own 60 a second
+    EXPECT_EQ(rig.passesBetween(options.closeWindowAtNs + 1, 5 * kS), 0U);
+}
+
+// --- the window's copy ---
+
+TEST(PushLoop, TheWindowGetsTheLatestInputAtItsFrameRate) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    wheel.moveAxis(400 * kMs, 0, 0.5F);
+    wheel.setButton(450 * kMs, 2, true);
+    PushLoopRig::Options options;
+    options.windowOpen = true;
+    PushLoopRig rig(clock, wheel, options);
+    rig.run(1 * kS);
+
+    ASSERT_TRUE(rig.frame().ready);
+    EXPECT_FLOAT_EQ(rig.frame().raw.axes[0], 0.5F);
+    EXPECT_EQ(rig.frame().raw.buttons, std::uint64_t{1} << 2);
+    EXPECT_FALSE(rig.frame().ffb.has_value());   // no game force feedback in this session
+}
+
+TEST(PushLoop, WithoutAWindowNoCopyIsMade) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    wheel.sweep(0, 1 * kS, 2 * kMs);
+    PushLoopRig rig(clock, wheel);
+    rig.run(1 * kS);
+    EXPECT_FALSE(rig.frame().ready);
+}
+
+// --- the game's force feedback through the loop (the real FfbController) ---
+
+TEST(PushLoop, TheGamesForceReachesTheWheelInThePassItArrives) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    EmulatedSocket game;
+    game.constantForce(300 * kMs, 0.2F);
+    game.arriveEvery(400 * kMs, 1 * kS, 100 * kMs);
+    PushLoopRig rig(clock, wheel);
+    rig.addGameFfb(game);
+    rig.run(1 * kS);
+
+    ASSERT_FALSE(rig.ffbSink().calls().empty());
+    EXPECT_EQ(rig.ffbSink().calls().front().atNs, 300 * kMs);   // woken by the packet, not the idle timer
+    // The slew limit (50 full-scale a second) takes 0.2 in 4 ms steps: there within a few of them.
+    EXPECT_NEAR(rig.ffbSink().levelAt(340 * kMs), 0.2F, 1e-4F);
+}
+
+// The game crashes or pauses with a force on (no packets, not even keep-alives): the watchdog takes it off on
+// time, because a playing force keeps the loop waking every 4 ms. On a direct-drive wheel this is the guard that
+// matters.
+TEST(PushLoop, AGameThatGoesQuietHasItsForceTakenOffByTheWatchdog) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    EmulatedSocket game;
+    game.constantForce(100 * kMs, 0.4F);
+    game.arriveEvery(200 * kMs, 600 * kMs, 100 * kMs);   // keep-alives until 500 ms, then nothing
+    PushLoopRig rig(clock, wheel);
+    rig.addGameFfb(game);
+    rig.run(3 * kS);
+
+    const FfbController::Timing timing;
+    const std::uint64_t lastPacket = 500 * kMs;
+    const auto stopped = rig.ffbSink().stoppedAfter(lastPacket);
+    ASSERT_TRUE(stopped.has_value());
+    EXPECT_GE(*stopped, lastPacket + timing.watchdogNs);
+    EXPECT_LE(*stopped, lastPacket + timing.watchdogNs + kWake.ffbNs);
+    EXPECT_FLOAT_EQ(rig.ffbSink().levelAt(3 * kS), 0.0F);
+    EXPECT_GT(rig.ffbSink().levelAt(lastPacket + timing.watchdogNs - 10 * kMs), 0.0F);   // not before
+}
+
+// A game that keeps sending keep-alives keeps its force (the watchdog is for silence, not for a steady force).
+TEST(PushLoop, KeepAlivesKeepTheForceOn) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    EmulatedSocket game;
+    game.constantForce(0, 0.3F);
+    game.arriveEvery(100 * kMs, 1'500 * kMs, 100 * kMs);
+    PushLoopRig rig(clock, wheel);
+    rig.addGameFfb(game);
+    rig.run(1'500 * kMs);
+
+    EXPECT_EQ(rig.control().pollReason(), PollReason::None);
+    EXPECT_EQ(rig.ffbSink().stoppedAfter(50 * kMs), std::nullopt);
+    EXPECT_GT(rig.ffbSink().levelAt(1'400 * kMs), 0.0F);
+}
+
+// The force stops: the loop goes back to waking only for news (no 4 ms timer once nothing plays).
+TEST(PushLoop, OnceTheForceStopsTheLoopRestsAgain) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    EmulatedSocket game;
+    game.constantForce(0, 0.3F);
+    game.constantForce(500 * kMs, 0.0F, false);
+    PushLoopRig rig(clock, wheel);
+    rig.addGameFfb(game);
+    rig.run(2 * kS);
+
+    EXPECT_GE(rig.passesBetween(0, 500 * kMs), 120U);   // every 4 ms while it played
+    EXPECT_LE(rig.passesBetween(1 * kS, 2 * kS), 10U);  // the idle timer after
+}
+
+// --- what the loop tells others ---
+
+// The app's log level goes to the state's reader at once and again every LogLevelPacket::kRepeatMs (a game started
+// later), even with the wheel at rest: the idle timer is enough for it.
+TEST(PushLoop, TheLogLevelIsRepeatedEvenAtRest) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    PushLoopRig rig(clock, wheel);
+    rig.run(10 * kS);
+
+    const auto& times = rig.logLevelTimes();
+    ASSERT_GE(times.size(), 4U);
+    EXPECT_EQ(times.front(), 0U);
+    for (std::size_t i = 1; i < times.size(); ++i) {
+        EXPECT_GE(times[i] - times[i - 1], LogLevelPacket::kRepeatMs * kMs);
+        EXPECT_LE(times[i] - times[i - 1], LogLevelPacket::kRepeatMs * kMs + kWake.idleNs);
+    }
+}
+
+// Pedals pressed for GameUseWatch::kPedalMs while the game never sends force feedback: the window says the game
+// drives from another controller; its first packet clears that.
+TEST(PushLoop, AGameThatNeverPlaysForceFeedbackIsSaidToIgnoreTheWheel) {
+    VirtualClock clock;
+    EmulatedPushDevice wheel("R3", clock);
+    wheel.moveAxis(1 * kS, 1, 1.0F);   // the throttle held down
+    EmulatedSocket game;               // the game's socket, but it sends nothing
+    const std::uint64_t warnAt = 1 * kS + GameUseWatch::kPedalMs * kMs;
+    game.arrive(warnAt + 2 * kS);      // then its first packet
+    PushLoopRig::Options options;
+    options.windowOpen = true;
+    options.mapper.throttle.sourceAxis = 1;
+    {
+        PushLoopRig rig(clock, wheel, options);
+        rig.addGameFfb(game);
+        rig.run(warnAt + 1 * kS);
+        EXPECT_TRUE(rig.frame().gameIgnoresWheel);
+    }
+    VirtualClock clock2;
+    EmulatedPushDevice wheel2("R3", clock2);
+    wheel2.moveAxis(1 * kS, 1, 1.0F);
+    EmulatedSocket game2;
+    game2.arrive(warnAt + 2 * kS);
+    PushLoopRig rig(clock2, wheel2, options);
+    rig.addGameFfb(game2);
+    rig.run(warnAt + 3 * kS);
+    EXPECT_FALSE(rig.frame().gameIgnoresWheel);
 }
 
 }  // namespace

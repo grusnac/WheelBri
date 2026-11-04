@@ -2,17 +2,23 @@
 
 // Emulators for testing the service loop (the "push" input) without hardware or an OS: devices that announce new
 // input the way DirectInput / evdev do (or fail to), the game's force feedback datagrams, a wait over them, and a rig
-// that runs the service loop's real decisions (core EventLoopControl) and the real Pipeline on them, all on a virtual
-// clock. What the tests read back: when each change of a device was read (its latency), what woke each pass, and
-// whether and when the loop gave up on events.
+// that runs the service's own loop (service/src/ServiceLoop.cpp: the very code runLoop runs) with the real Pipeline
+// and the real FfbController on them, all on a virtual clock. What the tests read back: when each change of a device
+// was read (its latency), what woke each pass, whether and when the loop gave up on events, what reached the wheel's
+// force feedback and when, the window's copy, and how the loop ended.
+
+#include "ServiceLoop.hpp"
 
 #include "wheelbri/Devices.hpp"
 #include "wheelbri/EventLoopControl.hpp"
+#include "wheelbri/FfbPacket.hpp"
+#include "wheelbri/MapperConfig.hpp"
 #include "wheelbri/Pipeline.hpp"
 
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -83,23 +89,57 @@ private:
     std::uint64_t pendingFromNs_ = 0;
 };
 
-// A UDP socket the game's force feedback arrives on.
+// A UDP socket the game's force feedback arrives on: FfbPackets at scheduled times (a keep-alive unless said).
 class EmulatedSocket {
 public:
     explicit EmulatedSocket(bool waitable = true) : waitable_(waitable) {}
-    void arrive(std::uint64_t atNs) { arrivals_.push_back(atNs); }
+    // In time order.
+    void arrive(std::uint64_t atNs, const FfbPacket& packet = FfbPacket{});
     void arriveEvery(std::uint64_t fromNs, std::uint64_t toNs, std::uint64_t everyNs);
+    // The game plays `level` (a constant force, -1 .. 1) in `slot` from `atNs` (stops it with playing false).
+    void constantForce(std::uint64_t atNs, float level, bool playing = true, std::uint8_t slot = 0);
     [[nodiscard]] bool waitable() const { return waitable_; }
-    [[nodiscard]] std::uint64_t nextArrivalNs() const { return next_ < arrivals_.size() ? arrivals_[next_] : kNever; }
-    // Reads every datagram that has arrived by `nowNs`; the latency of each is recorded.
-    void readAll(std::uint64_t nowNs);
+    [[nodiscard]] std::uint64_t nextArrivalNs() const {
+        return next_ < arrivals_.size() ? arrivals_[next_].atNs : kNever;
+    }
+    // Every datagram that has arrived by `nowNs`; the latency of each is recorded.
+    [[nodiscard]] std::vector<FfbPacket> readAll(std::uint64_t nowNs);
     [[nodiscard]] const std::vector<std::uint64_t>& latencies() const { return latencies_; }
 
 private:
+    struct Arrival {
+        std::uint64_t atNs = 0;
+        FfbPacket packet;
+    };
     bool waitable_;
-    std::vector<std::uint64_t> arrivals_;
+    std::vector<Arrival> arrivals_;
     std::size_t next_ = 0;
+    std::uint32_t sequence_ = 0;
     std::vector<std::uint64_t> latencies_;
+};
+
+// The wheel's force feedback as the loop's FfbController drives it: every call, when (on the virtual clock).
+class RecordingFfbSink final : public IFfbSink {
+public:
+    struct Call {
+        enum class Kind { Play, Stop, StopAll } kind = Kind::Play;
+        std::uint64_t atNs = 0;
+        std::size_t slot = 0;
+        FfbEffect effect;
+    };
+    explicit RecordingFfbSink(const VirtualClock& clock) : clock_(clock) {}
+    bool play(std::size_t slot, const FfbEffect& effect) override;
+    void stop(std::size_t slot) override;
+    void stopAll() override;
+    [[nodiscard]] const std::vector<Call>& calls() const { return calls_; }
+    // The force the wheel pushes with at `atNs` from `slot` (a constant's level as played; 0 once stopped).
+    [[nodiscard]] float levelAt(std::uint64_t atNs, std::size_t slot = 0) const;
+    // When the wheel's force in `slot` last went to nothing (a stop, or a level of 0) after `fromNs`.
+    [[nodiscard]] std::optional<std::uint64_t> stoppedAfter(std::uint64_t fromNs, std::size_t slot = 0) const;
+
+private:
+    const VirtualClock& clock_;
+    std::vector<Call> calls_;
 };
 
 // platform::WaitSet on the virtual clock: waitUntil moves the clock to the first notification or datagram, or to the
@@ -125,16 +165,16 @@ private:
     std::uint64_t waits_ = 0;
 };
 
-// The service's loop (service/src/main.cpp, runLoop) on emulated devices: the same setup decisions, the same
-// EventLoopControl calls around each pass and wait (a sleep instead of the wait once it failed), and the real
-// Pipeline.
+// The service's own loop (service::ServiceLoop, which runLoop runs) on emulated devices and a virtual clock, with the
+// real Pipeline and, when a game's socket is added, the real FfbController on a recording sink.
 class PushLoopRig {
 public:
     struct Options {
         bool windowOpen = false;
-        bool forcesPlaying = false;
         std::uint64_t passWorkNs = 50 * kUs;   // what one pass costs
         EventLoopControl::Settings settings;
+        MapperConfig mapper;                   // the mapping (default: nothing mapped but the wheel's own axes)
+        std::uint64_t closeWindowAtNs = kNever;   // the window side ends the loop then (LoopShared::stop)
     };
 
     PushLoopRig(VirtualClock& clock, EmulatedPushDevice& wheel, const Options& options);
@@ -143,17 +183,20 @@ public:
     PushLoopRig(const PushLoopRig&) = delete;
     PushLoopRig& operator=(const PushLoopRig&) = delete;
 
-    // Before run(): what else the loop waits for.
+    // Before run(): what else the loop waits for. A game's socket brings force feedback (one socket per rig).
     void addAccessory(EmulatedPushDevice& accessory);
     void addGameFfb(EmulatedSocket& socket);
     EmulatedWaitSet& waitSet() { return waitSet_; }
 
-    // Runs passes until the clock reaches `endNs` or a device is lost.
-    void run(std::uint64_t endNs);
+    // Runs the loop until the clock reaches `endNs`, a device is lost or the window closes; its result.
+    int run(std::uint64_t endNs);
 
-    [[nodiscard]] const EventLoopControl& control() const { return control_; }
+    // After run().
+    [[nodiscard]] const EventLoopControl& control() const;
+    [[nodiscard]] int result() const { return result_; }
+    [[nodiscard]] std::uint64_t endedAtNs() const { return endedAtNs_; }
     // When the loop started polling during the run (not at setup: control().pollReason() says that).
-    [[nodiscard]] std::optional<std::uint64_t> pollingFromNs() const { return pollingFromNs_; }
+    [[nodiscard]] std::optional<std::uint64_t> pollingFromNs() const;
     [[nodiscard]] std::optional<std::uint64_t> lostAtNs() const { return lostAtNs_; }
     [[nodiscard]] std::uint64_t passes() const { return passTimes_.size(); }
     [[nodiscard]] std::uint64_t passesBetween(std::uint64_t fromNs, std::uint64_t toNs) const;
@@ -165,23 +208,34 @@ public:
                                            std::uint64_t untilNs = kNever) const;
     // The shortest time between two passes (the flood guard keeps it at minGapNs or more).
     [[nodiscard]] std::uint64_t minPassGap() const;
+    // The window's copy as the loop last handed it over.
+    [[nodiscard]] const service::UiFrame& frame() const { return shared_.frame; }
+    // What the game's force feedback did on the wheel (with a game's socket added).
+    [[nodiscard]] const RecordingFfbSink& ffbSink() const { return sink_; }
+    // When the loop sent the app's log level to the state's reader.
+    [[nodiscard]] const std::vector<std::uint64_t>& logLevelTimes() const { return logLevelTimes_; }
 
 private:
+    class System;
+    class GameFfb;
     class CountingPublisher;
 
     VirtualClock& clock_;
     EmulatedPushDevice& wheel_;
     Options options_;
-    EventLoopControl control_;
     EmulatedWaitSet waitSet_;
-    std::vector<WakeReason> reasons_;
     std::array<IInputSource*, MapperConfig::kMaxAccessories> accessories_{};
     std::size_t accessoryCount_ = 0;
-    std::vector<EmulatedSocket*> sockets_;
+    EmulatedSocket* socket_ = nullptr;
+    RecordingFfbSink sink_;
+    service::LoopShared shared_;
+    std::unique_ptr<service::ServiceLoop> loop_;
     std::vector<std::uint64_t> passTimes_;
     std::array<std::uint64_t, static_cast<std::size_t>(WakeReason::kCount)> wokenBy_{};
-    std::optional<std::uint64_t> pollingFromNs_;
+    std::vector<std::uint64_t> logLevelTimes_;
     std::optional<std::uint64_t> lostAtNs_;
+    int result_ = 0;
+    std::uint64_t endedAtNs_ = 0;
 };
 
 }  // namespace wheelbri::emulators

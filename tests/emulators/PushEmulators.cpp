@@ -1,6 +1,7 @@
 #include "PushEmulators.hpp"
 
 #include "wheelbri/DeviceProfile.hpp"
+#include "wheelbri/FfbController.hpp"
 #include "wheelbri/Mapper.hpp"
 
 #include <algorithm>
@@ -83,15 +84,71 @@ std::uint64_t EmulatedPushDevice::nextSignalNs() const {
 
 // --- EmulatedSocket ---
 
+void EmulatedSocket::arrive(const std::uint64_t atNs, const FfbPacket& packet) {
+    if (!arrivals_.empty() && atNs < arrivals_.back().atNs) {
+        throw std::invalid_argument("datagrams must be scheduled in time order");
+    }
+    Arrival arrival{atNs, packet};
+    arrival.packet.sequence = ++sequence_;
+    arrivals_.push_back(arrival);
+}
+
 void EmulatedSocket::arriveEvery(const std::uint64_t fromNs, const std::uint64_t toNs, const std::uint64_t everyNs) {
     for (std::uint64_t t = fromNs; t < toNs; t += everyNs) arrive(t);
 }
 
-void EmulatedSocket::readAll(const std::uint64_t nowNs) {
-    while (next_ < arrivals_.size() && arrivals_[next_] <= nowNs) {
-        latencies_.push_back(nowNs - arrivals_[next_]);
+void EmulatedSocket::constantForce(const std::uint64_t atNs, const float level, const bool playing,
+                                   const std::uint8_t slot) {
+    FfbPacket packet;
+    packet.kind = FfbPacket::Kind::SlotState;
+    packet.slot = slot;
+    packet.playing = playing;
+    packet.effect.type = FfbEffectType::Constant;
+    packet.effect.constantLevel = level;
+    arrive(atNs, packet);
+}
+
+std::vector<FfbPacket> EmulatedSocket::readAll(const std::uint64_t nowNs) {
+    std::vector<FfbPacket> read;
+    while (next_ < arrivals_.size() && arrivals_[next_].atNs <= nowNs) {
+        latencies_.push_back(nowNs - arrivals_[next_].atNs);
+        read.push_back(arrivals_[next_].packet);
         ++next_;
     }
+    return read;
+}
+
+// --- RecordingFfbSink ---
+
+bool RecordingFfbSink::play(const std::size_t slot, const FfbEffect& effect) {
+    calls_.push_back({Call::Kind::Play, clock_.now(), slot, effect});
+    return true;
+}
+
+void RecordingFfbSink::stop(const std::size_t slot) { calls_.push_back({Call::Kind::Stop, clock_.now(), slot, {}}); }
+
+void RecordingFfbSink::stopAll() { calls_.push_back({Call::Kind::StopAll, clock_.now(), 0, {}}); }
+
+float RecordingFfbSink::levelAt(const std::uint64_t atNs, const std::size_t slot) const {
+    float level = 0.0F;
+    for (const Call& call : calls_) {
+        if (call.atNs > atNs) break;
+        if (call.kind == Call::Kind::StopAll || (call.kind == Call::Kind::Stop && call.slot == slot)) level = 0.0F;
+        if (call.kind == Call::Kind::Play && call.slot == slot) level = call.effect.constantLevel * call.effect.gain;
+    }
+    return level;
+}
+
+std::optional<std::uint64_t> RecordingFfbSink::stoppedAfter(const std::uint64_t fromNs, const std::size_t slot) const {
+    std::optional<std::uint64_t> stopped;
+    for (const Call& call : calls_) {
+        if (call.atNs < fromNs) continue;
+        const bool none = call.kind == Call::Kind::StopAll || (call.kind == Call::Kind::Stop && call.slot == slot) ||
+                          (call.kind == Call::Kind::Play && call.slot == slot && call.effect.constantLevel == 0.0F);
+        if (none && !stopped) stopped = call.atNs;
+        if (!none && call.slot == slot && call.kind == Call::Kind::Play) stopped.reset();
+    }
+    return stopped;
 }
 
 // --- EmulatedWaitSet ---
@@ -150,9 +207,68 @@ public:
     std::uint64_t published = 0;
 };
 
+// What the loop asks of the system, on the virtual clock: EmulatedWaitSet for the wait, each pass costing
+// passWorkNs (charged before the wait or sleep that follows it), the end of the run as a stop, and the window side
+// closing at closeWindowAtNs.
+class PushLoopRig::System final : public service::LoopSystem {
+public:
+    System(PushLoopRig& rig, const std::uint64_t endNs) : rig_(rig), endNs_(endNs) {}
+
+    std::uint64_t nowNs() override { return rig_.clock_.now(); }
+    int waitUntil(const std::uint64_t deadlineNs) override {
+        chargeWork();
+        const int ready = rig_.waitSet_.waitUntil(std::min(deadlineNs, endNs_));
+        closeWindowIfDue();
+        return ready;
+    }
+    void sleepNs(const std::uint64_t ns) override {
+        const std::uint64_t until = rig_.clock_.now() + ns;
+        chargeWork();
+        rig_.clock_.advanceTo(std::min(until, endNs_));
+        closeWindowIfDue();
+    }
+    [[nodiscard]] bool stopRequested() const override { return rig_.clock_.now() >= endNs_; }
+    void publishLogLevel(LogLevel /*level*/) override { rig_.logLevelTimes_.push_back(rig_.clock_.now()); }
+    void passDone(const std::uint64_t startNs, const WakeReason wokeBy) override {
+        rig_.passTimes_.push_back(startNs);
+        ++rig_.wokenBy_[static_cast<std::size_t>(wokeBy)];
+        workDue_ = true;
+    }
+
+private:
+    void chargeWork() {
+        if (!workDue_) return;
+        workDue_ = false;
+        rig_.clock_.advanceBy(rig_.options_.passWorkNs);
+    }
+    // The window's own thread would set it whenever the window closed; the loop sees it after its wait.
+    void closeWindowIfDue() {
+        if (rig_.clock_.now() >= rig_.options_.closeWindowAtNs) rig_.shared_.stop = true;
+    }
+
+    PushLoopRig& rig_;
+    std::uint64_t endNs_;
+    bool workDue_ = false;
+};
+
+// The game's force feedback as runLoop's GameFfb plays it: the socket's packets into the real FfbController, which
+// drives the recording sink (limits, slew, watchdog).
+class PushLoopRig::GameFfb final : public service::LoopFfb {
+public:
+    GameFfb(EmulatedSocket& socket, IFfbSink& sink) : socket_(socket), controller_(sink, FfbSafetyConfig{}) {}
+    void pump(const std::uint64_t nowNs) override {
+        for (const FfbPacket& packet : socket_.readAll(nowNs)) controller_.onPacket(packet, nowNs);
+        controller_.update(nowNs);
+    }
+    [[nodiscard]] const FfbController& controller() const override { return controller_; }
+
+private:
+    EmulatedSocket& socket_;
+    FfbController controller_;
+};
+
 PushLoopRig::PushLoopRig(VirtualClock& clock, EmulatedPushDevice& wheel, const Options& options)
-    : clock_(clock), wheel_(wheel), options_(options), control_(options.settings),
-      waitSet_(clock) {}
+    : clock_(clock), wheel_(wheel), options_(options), waitSet_(clock), sink_(clock) {}
 
 PushLoopRig::~PushLoopRig() = default;
 
@@ -161,64 +277,53 @@ void PushLoopRig::addAccessory(EmulatedPushDevice& accessory) {
     accessories_[accessoryCount_++] = &accessory;
 }
 
-void PushLoopRig::addGameFfb(EmulatedSocket& socket) { sockets_.push_back(&socket); }
+void PushLoopRig::addGameFfb(EmulatedSocket& socket) {
+    if (socket_ != nullptr) throw std::invalid_argument("one game socket per rig");
+    socket_ = &socket;
+}
 
-void PushLoopRig::run(const std::uint64_t endNs) {
-    if (!passTimes_.empty()) throw std::logic_error("run() once per rig");
-    const Mapper mapper(MapperConfig{});
+int PushLoopRig::run(const std::uint64_t endNs) {
+    if (loop_ != nullptr) throw std::logic_error("run() once per rig");
+    const Mapper mapper(options_.mapper);
     const DeviceProfile profile(g920Spec());
     CountingPublisher publisher;
     Pipeline pipeline(wheel_, mapper, profile, publisher);
     pipeline.setAccessories(accessories_);
-
-    // As runLoop: the loop waits for every device that notifies and every socket it can take; anything else makes it
-    // poll as well.
-    const auto addDevice = [&](EmulatedPushDevice& device) {
-        if (waitSet_.addDevice(device) < 0) {
-            control_.pollBecause(PollReason::NoNotification);
-            return;
-        }
-        reasons_.push_back(WakeReason::Wheel);
-    };
-    addDevice(wheel_);
-    for (std::size_t i = 0; i < accessoryCount_; ++i) addDevice(*static_cast<EmulatedPushDevice*>(accessories_[i]));
-    for (EmulatedSocket* socket : sockets_) {
-        if (waitSet_.addSocket(*socket) < 0) {
-            control_.pollBecause(PollReason::SocketNotWaitable);
-            continue;
-        }
-        reasons_.push_back(WakeReason::GameFfb);
+    System system(*this, endNs);
+    std::unique_ptr<GameFfb> ffb = socket_ != nullptr ? std::make_unique<GameFfb>(*socket_, sink_) : nullptr;
+    std::vector<std::string> names;
+    for (std::size_t i = 0; i < accessoryCount_; ++i) names.push_back(accessories_[i]->name());
+    loop_ = std::make_unique<service::ServiceLoop>(service::ServiceLoop::Parts{.pipeline = pipeline,
+                                                                              .system = system,
+                                                                              .shared = shared_,
+                                                                              .targetName = "G920",
+                                                                              .accessoryNames = names,
+                                                                              .ffb = ffb.get(),
+                                                                              .telemetry = nullptr,
+                                                                              .print = false,
+                                                                              .window = options_.windowOpen,
+                                                                              .settings = options_.settings});
+    // As runLoop: the wheel, the accessories, then the game's socket, each in the wait if it can be.
+    loop_->addDevice(waitSet_.addDevice(wheel_) >= 0, wheel_.name());
+    for (std::size_t i = 0; i < accessoryCount_; ++i) {
+        auto& accessory = *static_cast<EmulatedPushDevice*>(accessories_[i]);
+        loop_->addDevice(waitSet_.addDevice(accessory) >= 0, accessory.name());
     }
+    if (socket_ != nullptr) loop_->addGameFfbSocket(waitSet_.addSocket(*socket_) >= 0);
 
-    while (clock_.now() < endNs) {
-        const std::uint64_t start = clock_.now();
-        if (!pipeline.tick()) {
-            lostAtNs_ = start;
-            return;
-        }
-        passTimes_.push_back(start);
-        ++wokenBy_[static_cast<std::size_t>(control_.wokeBy())];
-        for (EmulatedSocket* socket : sockets_) socket->readAll(start);
-        clock_.advanceBy(options_.passWorkNs);
+    result_ = loop_->run();
+    endedAtNs_ = clock_.now();
+    if (result_ == service::kWheelLost) lostAtNs_ = endedAtNs_;
+    return result_;
+}
 
-        EventLoopControl::Pass pass;
-        pass.startNs = start;
-        pass.inputChanged = pipeline.inputChanged();
-        pass.windowOpen = options_.windowOpen;
-        pass.forcesPlaying = options_.forcesPlaying;
-        control_.afterPass(pass);
-        const std::uint64_t deadline = std::min(control_.deadlineNs(), endNs);
-        int ready = kWaitTimedOut;
-        if (control_.canWait()) {
-            ready = waitSet_.waitUntil(deadline);
-        } else if (deadline > clock_.now()) {
-            clock_.advanceTo(deadline);   // the sleep runLoop takes once the wait failed
-        }
-        if (ready == kWaitTimedOut && clock_.now() >= endNs) return;
-        const EventLoopControl::Woke woke = control_.afterWait(ready, reasons_, clock_.now());
-        if (woke.startedPolling && !pollingFromNs_) pollingFromNs_ = clock_.now();
-        clock_.advanceBy(woke.sleepNs);
-    }
+const EventLoopControl& PushLoopRig::control() const {
+    if (loop_ == nullptr) throw std::logic_error("control() after run()");
+    return loop_->control();
+}
+
+std::optional<std::uint64_t> PushLoopRig::pollingFromNs() const {
+    return loop_ != nullptr ? loop_->pollingSinceNs() : std::nullopt;
 }
 
 std::uint64_t PushLoopRig::passesBetween(const std::uint64_t fromNs, const std::uint64_t toNs) const {

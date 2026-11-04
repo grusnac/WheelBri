@@ -62,7 +62,6 @@ add_executable(wheelbri_tests
     MappingEditTest.cpp
     PacingTest.cpp
     PipelineTest.cpp
-    PushLoopTest.cpp
     RelistTimerTest.cpp
     RetentionTest.cpp
     RigTest.cpp
@@ -82,10 +81,8 @@ add_executable(wheelbri_tests
     WayNoticesTest.cpp
     WakePlannerTest.cpp
     WheelOutputTest.cpp
-    emulators/PushEmulators.cpp
 )
 target_link_libraries(wheelbri_tests PRIVATE wheelbri_core GTest::gtest_main)
-# Emulated devices, sockets and waits for the events loop (PushLoopTest).
 target_include_directories(wheelbri_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # The shipped configs (config/), which some tests read as they are.
 target_compile_definitions(wheelbri_tests PRIVATE WHEELBRI_CONFIG_DIR="${PROJECT_SOURCE_DIR}/config")
@@ -161,6 +158,14 @@ if(WE_LINUX AND TARGET wheelbri-uhid)
     target_sources(wheelbri_tests PRIVATE UhidMainTest.cpp)
     add_dependencies(wheelbri_tests wheelbri-uhid)
     target_compile_definitions(wheelbri_tests PRIVATE WHEELBRI_UHID_EXE="$<TARGET_FILE:wheelbri-uhid>")
+endif()
+
+# --- coverage: loop ---
+# The service's own loop (ServiceLoop.cpp, what runLoop runs) on emulated devices, sockets and waits on a virtual
+# clock (tests/emulators), with the real Pipeline and FfbController: PushLoopTest.
+if(TARGET wheelbri_privileged)
+    target_sources(wheelbri_tests PRIVATE PushLoopTest.cpp emulators/PushEmulators.cpp
+        ${PROJECT_SOURCE_DIR}/service/src/ServiceLoop.cpp)
 endif()
 
 # --- coverage: edit ---

@@ -119,8 +119,10 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
     what the game asks and what reaches the wheel (`FfbGroups.hpp`).
 - **`service/`**: app (`App.cpp`, `WHEELBRI_APP`) and CLI share sources.
   - `runSession` (`main.cpp`) runs a session on its own thread.
-  - **Loop** sleeps in `platform::WaitSet` until devices, sockets or a timer have news; `EventLoopControl` decides
-    waking vs falling back to polling, `WakePlanner` plans wakes. Regular work goes by the clock, never pass counts.
+  - **Loop** (`ServiceLoop.cpp`, on its own thread; `runLoop` sets it up and runs the window side next to it) sleeps
+    in `platform::WaitSet` until devices, sockets or a timer have news; `EventLoopControl` decides waking vs falling
+    back to polling, `WakePlanner` plans wakes. Regular work goes by the clock, never pass counts. Everything it asks
+    of the system goes through `LoopSystem`, the game's FFB through `LoopFfb` (so `PushLoopTest` runs it as it is).
   - Live changes: the app saves the mapping as it changes; `runLoop` reads the config again when its file changes and
     swaps in what a running session can take (`LiveMapping.hpp`: the mapping, button order; `GameWatch::setValues`:
     per-game values), via `Pipeline::setMapper`. Mappers are kept for the session. The rotation the virtual wheel
@@ -148,8 +150,8 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 - **`installer/`, `scripts/make/package.ps1`**: Windows package. A new shipped file goes in `package.ps1` and
   `install.ps1`'s required list.
 - **`tests/`**: GoogleTest + `wheelbri_ui_tests`; details in `tests/CLAUDE.md`.
-  - A loop change comes with a scenario in `tests/emulators/PushEmulators.hpp` (`PushLoopTest`); the rig's loop stays
-    in step with `runLoop`.
+  - A loop change comes with a scenario in `PushLoopTest`: it runs the service's own loop (`ServiceLoop`) on
+    `tests/emulators` (emulated devices, the game's socket, a virtual clock; the real Pipeline and FfbController).
   - Every reader of data WheelBri doesn't control (configs, profiles, datagrams, HID reports, DirectInput values) is a
     target in `tests/fuzz/FuzzTargets.cpp`. New reader → new target.
 
