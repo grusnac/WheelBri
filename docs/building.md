@@ -6,7 +6,7 @@ Linux. The Windows drivers need Visual Studio.
 
 | CMake option | Default | Builds |
 |---|---|---|
-| `WE_BUILD_SERVICE` | ON | the app `wheelbri`, `wheelbri-service`, and on Windows `wheelbri-helper` |
+| `WE_BUILD_SERVICE` | ON | the app `wheelbri`, `wheelbri-service`, and on Windows `wheelbri-helper` and `wheelbri-setup` (the setup wizard and Uninstaller) |
 | `WE_BUILD_TESTS` | ON | `wheelbri_tests` (skipped when cross-compiling) |
 | `WE_BUILD_SHIM` | ON on Windows | `dinput8.dll`, the shim |
 | `WE_BUILD_LOGI` | ON on Windows x64 | `wheelbri-logi.dll`, a logging stand-in for Logitech's SDK helper |
@@ -114,7 +114,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File driver\uninstall-driver.ps1 
 
 Needs `build`, `build-x86` and both drivers built. Writes `dist\windows\WheelBri-<version>.zip` and
 `WheelBri-<version>-setup.exe`, after checking every file, each program's processor and that both drivers have the same
-signer:
+signer. `WheelBri-<version>-setup.exe` is an IExpress package that unpacks the zip and starts `wheelbri-setup.exe`, the
+wizard in front of `installer\install.ps1`; installed as `Uninstaller.exe`, the same program runs `uninstall.ps1`
+([install.md](install.md)). The version is `project(... VERSION)` in `CMakeLists.txt`; CI releases a `v<version>` tag
+only when the two match.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make\package.ps1 -BuildDir build
@@ -186,7 +189,8 @@ scripts/linux/package.sh --shim build-win/shim/dinput8.dll --shim-x86 build-win-
 | `driver/` | UMDF drivers `wheelbri-wheel` and `hide/` (`wheelbri-hide`), with install scripts |
 | `tools/uhid/` | `wheelbri-uhid`, the Linux virtual wheel (kernel uhid) |
 | `logi/` | `wheelbri-logi.dll`, logging stand-in for Logitech's wheel SDK helper |
-| `installer/`, `scripts/` | Windows installer, Linux scripts, packaging |
+| `installer/` | `install.ps1`, `uninstall.ps1`; `setup/`: `wheelbri-setup.exe`, the setup wizard and Uninstaller; `win7/`: prerequisites |
+| `scripts/` | Linux scripts, packaging, build shortcuts |
 | `config/` | each Target's default config, `wheelbri-shim.ini`, `games/` (game profiles, compiled in) |
 | `tests/` | GoogleTest unit tests with fakes |
 
@@ -208,4 +212,4 @@ rig ──DirectInput / evdev──► wheelbri-service ──UDP 127.0.0.1─�
 - **Logging:** spdlog via `WE_LOG_*`, one dotted logger per component (`core/include/wheelbri/Logging.hpp`), to
   `%LOCALAPPDATA%\wheelbri\logs` or `~/.local/state/wheelbri`.
 
-Target details: [targets.md](targets.md).
+Target details: [targets.md](targets.md) and a page per Target.

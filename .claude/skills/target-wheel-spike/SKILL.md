@@ -37,7 +37,7 @@ game, committed as such.
 ## 2. WheelBri today
 
 Note what the target (or, for a new one, the closest target as template) does now. Grep, read only needed parts:
-`docs/targets.md`, `docs/games.md`, `config/<target>.ini`, `config/games/*.ini`; `<target>Spec()` in
+`docs/targets.md`, `docs/target-<target>.md`, `docs/games.md`, `config/<target>.ini`, `config/games/*.ini`; `<target>Spec()` in
 `core/src/DeviceProfile.cpp`; `VirtualWheel` in `HidWheelDevice.hpp`; `HidPid`, `HidPp`, `HidPpFfb`,
 `TrueForce*`, `LogiSdk`, `EmulatedJoystick` (shim) headers; `tools/uhid/UhidWheel.hpp`; `driver/Driver.cpp`.
 
@@ -113,5 +113,5 @@ Send path + summary. Gate open: say what's missing and keep investigating. Passe
 ## 8. After the gate
 
 - Check each change in the reference game against the trace matrix; a difference reopens its row.
-- Only confirmed facts go into `docs/targets.md`. Never ship or copy Logitech DLLs or GPL code.
+- Only confirmed facts go into `docs/targets.md` and `docs/target-<target>.md`. Never ship or copy Logitech DLLs or GPL code.
 - Per step: edit, build, tests separately (errors/failures only), git commands for one small commit.

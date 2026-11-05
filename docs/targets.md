@@ -1,161 +1,51 @@
 # Targets
 
-The Logitech wheels WheelBri can present, how each one looks to a game, and where that comes from. Using them:
-[user-guide.md](user-guide.md). All four pass in Mode Virtual in Assetto Corsa Competizione and DiRT Rally 2.0
-([games.md](games.md)); no button order has been checked against a real Logitech wheel.
+The **Target** is the Logitech wheel games see. Pick it on the Mapping tab (fixed while running); each Target keeps a
+mapping of its own (`my-<target>.ini`). One page per Target:
 
-| Target | Ids | Buttons | Button order from |
-|---|---|---|---|
-| G25 | 046D:C299 | 19 | several sources (below); Native order too |
-| G27 | 046D:C29B | 23 | the G25's, plus the wheel's lower buttons from GIMX; Native order too |
-| G920 | 046D:C262 | 19 | the real G920 |
-| G923 | 046D:C26E | 24 | 0-18 as the G920, 19-23 (Plus, Minus, the dial) a guess (a real one has 23); unsigned axes, HID++ for G HUB |
+| Target | Page | Pick it for | Ids | Buttons |
+|---|---|---|---|---|
+| **G920** (default) | [target-g920.md](target-g920.md) | modern games; the safest choice | 046D:C262 | 19 |
+| **G923** | [target-g923.md](target-g923.md) | modern games, TrueForce (ACC, DiRT Rally 2.0) | 046D:C26E | 24 |
+| **G25** | [target-g25.md](target-g25.md) | games of 2006-2010 whose presets know only the G25 (Race Driver: GRID) | 046D:C299 | 19 |
+| **G27** | [target-g27.md](target-g27.md) | games of 2009-2015 that know the G27 but not the G920 | 046D:C29B | 23 |
 
-All use 900 degrees. Orders below count from 0, as the code and the INI's `target_N` do.
+All four work in Mode Virtual in Assetto Corsa Competizione and DiRT Rally 2.0 ([games.md](games.md)). No button order
+has been checked against a real Logitech wheel.
 
-## Axes
+## Which one?
 
-| Target | Wheel | Throttle | Brake | Clutch | Slider 0 |
-|---|---|---|---|---|---|
-| G920, G923 | X | Y | Rz | Slider | — |
-| G25, G27 | X | Y | Rz | Slider 1 | combined pedals |
+1. The game has a preset for the G920 or G923: **G920**. Want TrueForce in ACC or DiRT Rally 2.0: **G923**.
+2. The game is older than the G920 (2015) and lists the G27: **G27**; lists only the G25: **G25**.
+3. Not sure: start with G920, then try the newest Logitech wheel the game's controller list names.
 
-The same in both Modes and on both systems. The G25 and G27 follow what games' presets read (Assetto Corsa
-Competizione's G25 and G27 presets: clutch axis 7, Slider 1), not Logitech's driver (`WmJoyHid.inf` in Logitech
-Gaming Software 5.10: X wheel, Y combined, Z throttle, Rz brake, Slider clutch). The combined pedals rest in the
-middle, go down with the throttle and up with the brake, as Race Driver: GRID's G25 preset needs.
+## What all four share
 
-## Button orders (G25, G27)
+- **900 degrees** full lock. The Mapping tab's **Steering rotation** sets what the game sees; set your wheel's own
+  software to the same number.
+- **The same axes in both Modes and on both systems:**
 
-The Mapping tab's **Order** picks one; each order keeps its own mapping (`my-g25.ini`, `my-g25-native.ini`; the
-choice is in `app.ini` and in the file's `[buttons] order` for the command-line service).
+  | Target | Wheel | Throttle | Brake | Clutch | Slider 0 |
+  |---|---|---|---|---|---|
+  | G920, G923 | X | Y | Rz | Slider | — |
+  | G25, G27 | X | Y | Rz | Slider 1 | combined pedals |
 
-**Logitech** (default): as games of that era saw a G25 on Windows with Logitech's driver.
+- **The Rig maps the core controls by itself** on every Target: Steering, the pedals, the D-pad, A, B, X, Y and the
+  paddles. Every other button you map on the Mapping tab.
+- **Button numbers in the app** are the ones the game uses: from 1 (as `joy.cpl` and games count), from 0 in the
+  G25's and G27's **Native** order. The INI's `target_N` always counts from 0.
+- **Force feedback** through WheelBri's safety limits ([user-guide.md](user-guide.md#force-feedback)). On Windows, a
+  Logitech driver plays it when G HUB has installed one, else Windows' HID PID driver:
 
-| Buttons | What |
-|---|---|
-| 0-3 | shifter's red buttons, left to right |
-| 4, 5 | right paddle, left paddle |
-| 6, 7 | wheel's right and left buttons |
-| 8-14 | gears 1-6, reverse (sequential mode presses 8 and 9) |
-| 15-18 | shifter's black diamond: top, left, bottom, right |
-| 19-22 | G27 only: the wheel's lower buttons |
-| hat | D-pad |
+  | Target | With G HUB installed | Without |
+  |---|---|---|
+  | G920, G923 | G HUB's force feedback driver (HID++) | Windows' HID PID driver |
+  | G25, G27, Order Logitech | G HUB's older-wheel driver (classic Logitech commands) | Windows' HID PID driver |
+  | G25, G27, Order Native | Windows' HID PID driver | Windows' HID PID driver |
 
-The Rig's A, B, X, Y land on the black diamond (bottom, right, left, top): the menu buttons of that era's games.
+  Linux: the kernel's HID PID driver, for every Target.
 
-Sources: Logitech support ("Programming the G25 Shifter positions": gears 8-14), Race Driver: GRID's G25 preset
-(paddles, gears, Select 17, Back 18), GIMX's Windows G25 configuration (red 0-3, wheel 6/7, black 15-18), DiRT Rally
-2.0 and American Truck Simulator users' G27 reports, a G25 read through Unity (gears, sequential).
+## Changing a Target's layout
 
-**Native**: a G25 or G27 without Logitech's driver (Linux, or Windows without it), as newer games' presets read it
-(ACC's bind 0-11 and nothing at the gears).
-
-| Buttons | What |
-|---|---|
-| 0-3 | black diamond: bottom, left, right, top |
-| 4, 5 | paddles |
-| 6, 7 | wheel buttons |
-| 8-11 | red 2, 3, 4, 1 |
-| 12-17 | gears 1-6 |
-| 18 / 22 | reverse: G25 / G27 (whose wheel's lower buttons are 18-21) |
-
-Sources: GIMX's G25 and G27 configurations for Windows and Linux side by side (facts only, nothing copied) and a G27's
-HID descriptor. ACC binds the native diamond as A, X, B, Y, as its G920 preset binds the G920's A, B, X, Y.
-
-## Force feedback drivers (G25, G27)
-
-In Mode Virtual on Windows the **Order** also picks the force feedback driver, at Start:
-
-| Order | G HUB's older-wheel driver installed | Force feedback through |
-|---|---|---|
-| Logitech | yes | Logitech's driver (`jerry_forcefeedback_x64.dll`), as a G25/G27 with Logitech's software |
-| Logitech | no | Windows' HID PID driver |
-| Native | either | Windows' HID PID driver (Linux's on Linux) |
-
-With Logitech's driver the wheel gets its classic identity (`VirtualWheel::classic`, hardware id `wheelbri\G25_LOGI`
-or `wheelbri\G27_LOGI`, the same instance `G25_n`, so one device to games and their bindings): no report IDs and no
-HID PID, the same input report, and a 7-byte vendor output report that takes Logitech's classic commands. The wheel
-driver plays them (`core/include/wheelbri/ClassicFfb.hpp`, from Logitech's Force Feedback Protocol V1.6): constant
-and variable forces, springs, dampers, friction; periodic forces and ramps are logged, not played (no game seen uses
-them), as are Logitech's default spring (the target's centring spring is WheelBri's) and range commands (the rotation
-is the mapping's). A level of 0 pulls left, 255 right.
-
-G HUB does not support the G25 or G27, so it never writes their `OEMForceFeedback` entry: WheelBri writes it in HKCU
-while the wheel runs (`LogitechFfbDriver.hpp`: the driver's class for the model, `{920B260D-...}` G25,
-`{920B260F-...}` G27, with G HUB's own effect table from its G923 entry) and the wheel axis' `Axes\0` entry, which
-tells DirectInput that X takes forces (without it every effect is `DIERR_INVALIDPARAM`). Both carry a `WheelBri`
-value and go at Stop. Logitech's driver updates the force about 110 times a second in 256 steps (HID++: about 300,
-16 bits), so road texture is coarser than on the G920 or G923, as on a real G25. Checked in ACC as G25 and G27, 2026-11-04.
-
-## Button numbers in the app
-
-The app shows the Target's buttons as the game numbers them (`gameButtonNumber`): from 1 with Logitech, as
-Logitech's driver, `joy.cpl` and games count (DiRT Rally 2.0's G25 handbrake "Button 7" is 6 above, R Wheel); from 0
-with Native. The rig's buttons and `target_N` count from 0.
-
-To change an order: `g25Spec()`, `g27Spec()`, `g923Spec()` in `core/src/DeviceProfile.cpp` and the matching
-`config/*.ini`.
-
-## G HUB and HID++ (G923)
-
-With Target G923 in Mode Virtual the virtual wheel answers G HUB's HID++ 2.0 (`core/include/wheelbri/HidPp.hpp`,
-written from the public description): Root, FeatureSet, firmware version, name and ForceFeedback (0x8123). G HUB shows
-the wheel as active. Every answer comes in the very long report `0x12`, as a real G923 answers even its long (`0x11`)
-requests. Rotation it sets is logged, **not applied**. Effects sent over 0x8123 (by G HUB or Logitech's force
-feedback driver) are played on the rig, scaled by the gain G HUB sets (`HidPpFfb.hpp`).
-
-The pedals are in games' layout (throttle Y, brake Rz, clutch Slider, 16 bits), not a real G923's (throttle Y, brake Z,
-clutch Rz, 8 bits, released at the top), so G HUB shows them in the wrong places. With a real G923's layout
-DirectInput relabelled them for games (in ACC gas became the clutch), and the registry entries meant to undo that did
-not.
-
-## TrueForce (G923)
-
-The Mapping tab's TrueForce switch (`[app] trueforce_g923`; greyed without Logitech's TrueForce SDK), or
-`[emulator] trueforce = true` for the command-line service (off by default; `trueforce_probe` until 2026-10-28),
-gives the virtual G923 its
-TrueForce interface: a second device in the wheel's container, usage page `0xFFFD`, report `0x01`
-(`core/include/wheelbri/TrueForce.hpp`). It answers the game's set-up as a real wheel and reports the steering
-(state on 127.0.0.1:41331) over `target_rotation_deg`, the wheel's own rotation, whatever range the game sets. Its
-parameters, count range (904.5 degrees, 268101.8 counts a turn) and full scale are a real G923's, measured with USB
-captures (`tools/g923-capture`); it answers the operating range (`0x0e`) with a plain status, as a real G923. All 64
-parameters are the G923's, `0x36` too (NaN). Driver log lines start `trueforce:` (each packet and the 10 s summaries at
-log level debug).
-
-The force of a game in TrueForce mode (ACC: `logiTrueForceSetTorqueKF`) comes on that interface: Logitech's SDK
-streams it as type `0x01` packets (1000 a second to a real G923), the motor torque target the mean of the words at
-bytes 6..7 and 8..9. It needs the full-scale torque WheelBri reports in its status (0.65 Nm, a G923's): with 0 there
-the SDK streams none. The driver plays it as a constant force in the service's slot 7
-(`core/include/wheelbri/TrueForceFfb.hpp`), through the safety limiter and the game profile's gain like any other
-effect. The damping the game sets (`0x0c`, `logiTrueForceSetDamping`) plays alongside as a damper in slot 6: without
-it a direct-drive wheel swings from lock to lock. To a real G923 the SDK sends no `0x0c` at all.
-
-The texture (the packets' sample window: 4 new samples a millisecond, which a real G923 adds to its motor torque)
-plays as a vibration in slot 5: a sine whose size and frequency follow each 40 ms of samples (in ACC about 2% of full
-scale at about 240 Hz). The rig takes a new force at most every 4 ms, too slow for the samples themselves, so its own
-firmware makes the vibration. Not yet felt on a rig.
-
-The SDK the game loads is G HUB's (`C:\Program Files\Logi\trueforce\<version>\trueforce_sdk_x64.dll`): without G
-HUB installed no game can use TrueForce; it need not run. At Start the service log says whether it found the SDK.
-
-DirectInput effects on the virtual G920 and G923 go through G HUB's force feedback driver
-(`hidpp_forcefeedback_x64.dll`, `{62B43F0E-...}`) when G HUB has written its `OEMForceFeedback` entry for the wheel,
-else through Windows' HID PID driver. The driver sends them over HID++ 0x8123, and the wheel driver plays them
-(`HidPpFfb`): checked in ACC on both, 2026-11-03. WheelBri never writes that entry; while it is there, WheelBri
-removes Windows' own HID PID entry from HKCU, which DirectInput reads first and which would hide it (checked every
-2 s). G HUB need not run, only be installed and have seen the wheel once. In G HUB the virtual G920 shows as
-Inactive: G HUB wants it through Logitech's own filter driver, which only a real G920 gets; force feedback does not
-need it. With TrueForce on, a game that drives the G923 through DirectInput alone gets its effects mixed into one
-TrueForce force, as a real G923 with G HUB does. Neither game tested needs the driver for TrueForce:
-
-- ACC: its force and texture come through the SDK, and it sets the range on the TrueForce interface (full lock both
-  ways, 2026-11-03).
-- DiRT Rally 2.0 has no TrueForce of its own, but on a G923 with the TrueForce interface it opens that interface
-  itself and sends nothing through DirectInput (2026-11-03): its effects come mixed into the one TrueForce force,
-  with a texture up to the 25% cap. With `trueforce` off it sends its effects one by one (steering force and
-  friction).
-
-To see what a game asks Logitech's SDK (ACC in TrueForce mode reads the wheel through `trueforce_sdk_x64.dll`), put
-the 64-bit shim in its folder with `emulate = false` and `logi_log = true` in `wheelbri-shim.ini`: every SDK call, its
-arguments and results go to `wheelbri-shim-*.log` (`shim/src/LogiHook.hpp`).
+Only in code: `g25Spec()`, `g27Spec()`, `g920Spec()`, `g923Spec()` in `core/src/DeviceProfile.cpp` and the matching
+`config/*.ini`. Users cannot add Targets.

@@ -5,7 +5,7 @@
 #   wheelbri/config/    the example configs
 #   wheelbri/shim/      dinput8.dll for --shim and the app's Games tab, and x86/dinput8.dll for 32-bit games,
 #                       when given
-#   wheelbri/           wheelbri.sh, install-udev-rules.sh, README.md
+#   wheelbri/           wheelbri.sh, install-udev-rules.sh, README.md, CHANGELOG.md
 #   wheelbri/docs/      the docs/*.md and images/ (laid out as in the repo, so the links between them work)
 #
 # spdlog is always built in (a system one would be a shared library the Deck does not have).
@@ -45,7 +45,7 @@ cmake --install "$build" --prefix "$bundle"
 mkdir -p "$bundle/config"
 cp "$root"/config/*.ini "$bundle/config/"
 cp "$root/scripts/linux/wheelbri.sh" "$root/scripts/linux/install-udev-rules.sh" "$bundle/"
-cp "$root/README.md" "$bundle/"
+cp "$root/README.md" "$root/CHANGELOG.md" "$bundle/"
 mkdir -p "$bundle/docs"
 cp "$root"/docs/*.md "$bundle/docs/"
 if [ -d "$root/docs/images" ]; then cp -r "$root/docs/images" "$bundle/docs/"; fi

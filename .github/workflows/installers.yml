@@ -95,6 +95,7 @@ jobs:
             build/service/wheelbri.exe
             build/service/wheelbri-service.exe
             build/service/wheelbri-helper.exe
+            build/installer/setup/wheelbri-setup.exe
             build/shim/dinput8.dll
             build-x86/shim/dinput8.dll
 

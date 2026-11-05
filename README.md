@@ -4,18 +4,31 @@ WheelBri presents your rig (a wheel and its pedals, shifter or button box) to PC
 **G920** or **G923**, so games that only know Logitech wheels accept yours, with force feedback. Windows and Linux
 (Proton, Steam Deck). Built and tested with a **Moza R3**; other wheels should work but are untried.
 
-- [User guide](docs/user-guide.md): set up, map, play, troubleshoot
-- [Games](docs/games.md): what was tested and what each game needs
-- [Targets](docs/targets.md): each Logitech wheel's axes and button orders
-- [Building](docs/building.md): build, drivers, packaging, code layout
+## Documentation
 
-## Two Modes
+| Page | Read it for |
+|---|---|
+| [Install](docs/install.md) | setup wizard, uninstaller, scripted install, Windows 7 to 10, Linux |
+| [User guide](docs/user-guide.md) | set up the rig, map it, play, force feedback, troubleshoot |
+| [Capabilities](docs/capabilities.md) | everything WheelBri can do, on one page |
+| [Targets](docs/targets.md) | which Logitech wheel to pick: [G920](docs/target-g920.md), [G923](docs/target-g923.md), [G25](docs/target-g25.md), [G27](docs/target-g27.md) |
+| [Games](docs/games.md) | what was tested and what each game needs |
+| [Building](docs/building.md) | build, drivers, packaging, code layout |
+| [Changelog](CHANGELOG.md) | what changed in each release |
+
+## How it works
+
+1. **Rig tab**: touch each control and say what it is (Steering, Throttle, A, Left paddle...).
+2. **Mapping tab**: pick the **Target** (the Logitech wheel games see) and the **Mode**, check the mapping.
+3. **Start**, then start the game and pick the Logitech wheel.
+
+Two Modes:
 
 - **Virtual** (recommended): a virtual Logitech wheel every game sees; your rig is hidden from games while it runs.
   Windows 11 and Linux.
 - **Shim**: a `dinput8.dll` next to one game's `.exe` answers as the wheel inside that game. For older DirectInput
-  games only: modern ones (Assetto Corsa Competizione, DiRT Rally 2.0) and games that read the wheel through
-  Logitech's SDK DLL don't work with it.
+  games only: modern ones (ACC, DiRT Rally 2.0) and games that read the wheel through Logitech's SDK DLL don't take
+  it. The only Mode on Windows 7 to 10.
 
 ## Status
 
@@ -23,15 +36,37 @@ WheelBri presents your rig (a wheel and its pedals, shifter or button box) to PC
 |---|---|
 | Mode Virtual, Windows 11, all four Targets | **works** in ACC and DiRT Rally 2.0; G920 in four NFS games, G25 in Race Driver: GRID |
 | Mode Shim, Windows 11 | **works** in NFS 2015, Heat, Unbound (G920) and Race Driver: GRID (G25) |
+| Logitech's force feedback drivers (Windows) | **work** in ACC: G HUB's for the G920 and G923, its older-wheel driver for the G25 and G27 in Logitech order |
+| TrueForce (G923, Windows 11) | **works** in ACC and DiRT Rally 2.0; needs G HUB installed; road texture not yet felt on a rig |
+| G HUB with the virtual G923 | sees it and its effects play; the rotation G HUB sets is not applied |
 | Linux, Mode Virtual | ACC under Proton; **not yet tried on a Steam Deck** |
-| G HUB with the virtual G923 | sees the wheel; its rotation and effects are not applied ([Targets](docs/targets.md#g-hub-and-hid-g923)) |
-| Logitech's force feedback drivers (Windows) | **work** in ACC: G HUB's for the G920 and G923, its older-wheel driver for the G25 and G27 in Logitech order ([Targets](docs/targets.md#force-feedback-drivers-g25-g27)) |
-| TrueForce (G923), Windows 11 | **works** in ACC: force; texture as a vibration, not yet checked on a rig; needs G HUB installed ([Games](docs/games.md#assetto-corsa-competizione)) |
 | Windows 7 to 10 (Mode Shim only) | built, **not yet tried** |
+| Button orders | from public sources; **not yet checked on real Logitech wheels** |
 
-## Download
+## What's new in 1.0.0
 
-Releases: <https://github.com/grusnac/WheelBri/releases>
+The first stable release. Since 0.9.9:
+
+- **Windows setup wizard and Uninstaller**: a graphical installer with a checklist and log, a Start menu folder and
+  restart choice; an Uninstaller where every box follows one rule (ticked is kept) for settings, logs, the shim in
+  games and the drivers' certificate.
+- **Logitech's own force feedback drivers**: G HUB's for the G920 and G923, its older-wheel driver for the G25 and G27
+  (Logitech order), as on the real wheels.
+- **TrueForce for the G923**: games' torque, damping and road texture on your wheel; a switch on the Mapping tab.
+- **G25 and G27 for real games**: Logitech and Native button orders with a mapping each, combined pedals, centring
+  spring; the G25 works in Race Driver: GRID.
+- **Live tab**: the Shadow view draws every Target as the real wheel; Side by side editing while a game runs.
+- **Easier mapping**: the Rig's roles map the core controls on every Target; a searchable source picker; up to 8
+  extra controls per button.
+- **Mode Shim chains other mods' `dinput8.dll`** (ReShade, Widescreen Fix) instead of overwriting them, also on Linux.
+- **Safer**: force feedback limits per sender, signed drivers with a throwaway certificate per release, the Helper
+  and installer locked to Administrators, `/dev/uhid` for the group `wheelbri` only on Linux.
+
+Full list: [CHANGELOG.md](CHANGELOG.md).
+
+## Install
+
+Releases: <https://github.com/grusnac/WheelBri/releases>. Full details: [docs/install.md](docs/install.md).
 
 | System | File |
 |---|---|
@@ -39,55 +74,37 @@ Releases: <https://github.com/grusnac/WheelBri/releases>
 | Windows 7 SP1 to 10, 64-bit | the same; Mode Shim only |
 | Linux x86-64, Steam Deck | `wheelbri-linux-x86_64.tar.gz` |
 
-## Install on Windows
+### Windows
 
-1. Run `WheelBri-<version>-setup.exe` and approve the Administrator prompt.
-2. Restart Windows when the setup asks (Windows 11).
+1. Close WheelBri and any game. Run `WheelBri-<version>-setup.exe` and approve the Administrator prompt.
+2. Follow the wizard: install folder (default `C:\Program Files\WheelBri`), options (Start menu folder, desktop
+   shortcut, Firefox's game controllers off, open WheelBri at the end), **Install**.
+3. Restart Windows when the Finish page asks (Windows 11).
 
-With Firefox installed, the setup also asks whether to turn off Firefox's game controller support (default no):
-Firefox keeps the wheel open, so WheelBri cannot hide it until Firefox is closed. The uninstaller turns it back on.
-
-On Windows 11 it installs the app, the two drivers with their certificate and the **WheelBri Helper**, a service that
-does the Administrator work so the app runs as a normal user. On Windows 7 to 10 it installs Mode Shim only. Windows 7
-first needs the prerequisites in the package's `win7` folder: run `download-prerequisites.cmd`, then
-`install-prerequisites.cmd` as Administrator, and restart.
+It installs the app, the virtual wheel and hiding filter drivers with their certificate, and the **WheelBri Helper**
+service, so the app runs as a normal user. Windows 7 to 10 get Mode Shim only; Windows 7 first needs the prerequisites
+in the package's `win7` folder ([install.md](docs/install.md#windows-7-sp1-to-10)).
 
 **Upgrade:** run the new setup; your rig, mappings and settings stay.
 
-**Uninstall:** Start menu > WheelBri > Uninstaller (or Settings > Apps, or `Uninstaller.exe` in the install folder). It asks what to keep: your rig,
-mappings and settings (kept by default) and the logs (removed by default), both in `%LOCALAPPDATA%\wheelbri`. It also
-takes the shim out of the games WheelBri put it into, and removes the drivers' certificate (both can be unticked).
+**Uninstall:** Start menu > WheelBri > **Uninstaller** (or Settings > Apps). Tick what to keep: rig, mappings and
+settings (ticked by default), logs, the shim in game folders, the drivers' certificate. Everything unticked goes.
+
+### Linux and the Steam Deck
+
+```bash
+tar -xzf wheelbri-linux-x86_64.tar.gz -C ~
+```
+
+```bash
+~/wheelbri/install-udev-rules.sh
+```
+
+Log out and in, then set up the rig in `~/wheelbri/bin/wheelbri` and add the game's Steam launch option
+([user-guide.md](docs/user-guide.md#linux-and-the-steam-deck)). Force feedback on the R3 needs Linux 6.15 or later
+(`hid-universal-pidff`). Uninstall: [install.md](docs/install.md#linux-and-the-steam-deck).
 
 Next: [User guide](docs/user-guide.md).
-
-## Install on Linux and the Steam Deck
-
-1. Unpack the bundle into your home folder (→ `~/wheelbri`):
-
-   ```bash
-   tar -xzf wheelbri-linux-x86_64.tar.gz -C ~
-   ```
-
-   On the Deck you can build it instead ([Building](docs/building.md#steam-deck)).
-
-2. Once per machine, the udev rules, then log out and in. They let your user create the virtual wheel, let games open
-   it and let WheelBri read the rig (Steam Deck: set a password with `passwd` first):
-
-   ```bash
-   ~/wheelbri/install-udev-rules.sh
-   ```
-
-3. Force feedback on the R3 needs the kernel's `hid-universal-pidff` (Linux 6.15 and later). Check it is there:
-
-   ```bash
-   modinfo hid-universal-pidff
-   ```
-
-Next: [User guide](docs/user-guide.md), then [Linux and the Steam Deck](docs/user-guide.md#linux-and-the-steam-deck)
-for the game's Steam launch option.
-
-**Uninstall:** `~/wheelbri/install-udev-rules.sh --remove`, then delete `~/wheelbri`, and for a clean start
-`~/.config/wheelbri` and `~/.local/state/wheelbri`.
 
 ## Licence
 

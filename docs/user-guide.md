@@ -1,7 +1,7 @@
 # WheelBri user guide
 
-How to set up your rig, map it to a Logitech wheel and play. Installing: [README](../README.md#install-on-windows)
-(Windows), [README](../README.md#install-on-linux-and-the-steam-deck) (Linux). Per-game notes: [games.md](games.md).
+How to set up your rig, map it to a Logitech wheel and play. Installing: [install.md](install.md). Everything WheelBri
+can do on one page: [capabilities.md](capabilities.md). Per-game notes: [games.md](games.md).
 
 - [Set up your rig](#set-up-your-rig)
 - [Map it to the Target](#map-it-to-the-target)
@@ -16,7 +16,8 @@ How to set up your rig, map it to a Logitech wheel and play. Installing: [README
 Two choices decide how WheelBri works:
 
 - **Target**: the Logitech wheel games see. **G920** (default) and **G923** for modern games; **G25** and **G27** for
-  older ones, or games whose presets know only those.
+  older ones, or games whose presets know only those. Which to pick, and each one's buttons: [targets.md](targets.md)
+  ([G920](target-g920.md), [G923](target-g923.md), [G25](target-g25.md), [G27](target-g27.md)).
 - **Mode**: **Virtual** creates the Target as a virtual wheel every game sees and hides your rig while WheelBri runs;
   use it unless a game needs otherwise. **Shim** puts a `dinput8.dll` next to one game, for older DirectInput games.
   On a Windows too old for Virtual's driver there is no Virtual button: Shim is locked, and its hover text says why.
@@ -76,17 +77,17 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
   newer games' presets, such as ACC's. Each order has its own mapping. The first Native mapping starts as a copy of
   the other with its buttons in amber: their numbers changed, so check them against the game; **Got it** clears the
   marks. On Windows, with G HUB installed, Logitech also means Logitech's own force feedback driver, as a real G25 or
-  G27 had; Native, or Logitech without G HUB, Windows' ([Targets](targets.md#force-feedback-drivers-g25-g27)).
+  G27 had; Native, or Logitech without G HUB, Windows' ([G25](target-g25.md#force-feedback)).
 
 **G923 only:**
 
 - **TrueForce** (Windows, Mode Virtual): **On** gives the virtual G923 TrueForce, as a real one: games that use it
   (ACC, DiRT Rally 2.0) send their force through it. **Off**: a G923 without it, whose games send their effects one by
   one, as to a G920. On needs Logitech G HUB installed (it need not run); without it On is greyed and says so. Takes
-  effect at the next Start. More below, under force feedback.
+  effect at the next Start. More below, under force feedback, and in [target-g923.md](target-g923.md#trueforce).
 
 The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games
-count), from 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Details:
+count), from 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Each Target's buttons:
 [targets.md](targets.md).
 
 **Default** goes back to WheelBri's mapping.

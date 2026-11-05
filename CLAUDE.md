@@ -41,8 +41,10 @@ A new area file gets a row here.
   one `git add <files> && git commit -m "<message>"` in one code block that runs as pasted.
 - After changing files, end by listing the ones you changed that are not staged yet and say they still have to be
   committed, with that one `git add ... && git commit ...` block for them.
-- Docs: install (Windows and Linux sections) and status in `README.md`; usage in `docs/user-guide.md`; per game in
-  `docs/games.md`; target layouts in `docs/targets.md`; build in `docs/building.md`. Short, current facts only, no
+- Docs: short install, status and what's new in `README.md` (history in `CHANGELOG.md`); full install, uninstall and
+  scripted options in `docs/install.md`; features in `docs/capabilities.md`; usage in `docs/user-guide.md`; per game
+  in `docs/games.md`; choosing a Target in `docs/targets.md`, each Target's layout in `docs/target-<target>.md`;
+  build in `docs/building.md`. `docs/` stays flat (the packages copy `docs/*.md` only). Short, current facts only, no
   dated history. A new screen needs a screenshot in `docs/images/` (ask the user to take it).
 - Logs: `%LOCALAPPDATA%\wheelbri\logs` (`wheelbri-service-*`, `telemetry-*`, `ffb-*`, one file per run);
   `scripts/telemetry_summary.sh` sums them up. `raw_a0`..`raw_a7` = which axis a control moves.

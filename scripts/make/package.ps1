@@ -174,8 +174,10 @@ foreach ($driver in $drivers) {
 foreach ($file in 'install.ps1', 'uninstall.ps1', 'Setup.cmd', 'Uninstall.cmd') {
     Put-Text (Join-Path $root "installer\$file") $file
 }
-# README.md (install, uninstall) and docs\ laid out as in the repo, so the links between them work (CRLF, for Notepad).
+# README.md (install, uninstall), CHANGELOG.md and docs\ laid out as in the repo, so the links between them work (CRLF,
+# for Notepad).
 Put-Text (Join-Path $root 'README.md') 'README.md'
+Put-Text (Join-Path $root 'CHANGELOG.md') 'CHANGELOG.md'
 foreach ($file in Get-ChildItem (Join-Path $root 'docs') -File -Filter '*.md') {
     Put-Text $file.FullName "docs\$($file.Name)"
 }
@@ -199,7 +201,7 @@ $expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe',
               'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1', 'driver\signing-certificate.txt') +
             @($drivers | ForEach-Object {
                 $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } }) +
-            @('install.ps1', 'Setup.cmd', 'wheelbri-setup.exe', 'README.md', 'docs\user-guide.md', 'docs\games.md', 'VERSION.txt',
+            @('install.ps1', 'Setup.cmd', 'wheelbri-setup.exe', 'README.md', 'CHANGELOG.md', 'docs\user-guide.md', 'docs\games.md', 'VERSION.txt',
               'win7\download-prerequisites.cmd', 'win7\download-prerequisites.ps1', 'win7\install-prerequisites.cmd')
 foreach ($file in $expected) {
     if (-not (Test-Path (Join-Path $stage $file))) { Fail "the package lacks $file (packaging bug)." }

@@ -1,7 +1,7 @@
 # Games
 
 The games WheelBri was tested with and what each needs. Rig: Moza R3 base and pedals with the clutch add-on, Windows 11.
-Using the app: [user-guide.md](user-guide.md).
+Using the app: [user-guide.md](user-guide.md); the Targets: [targets.md](targets.md).
 
 | Game | Target | Mode Virtual | Mode Shim | Built-in profile |
 |---|---|---|---|---|
@@ -31,7 +31,7 @@ G920 only, by themselves while the game runs.
   - The Live tab shows ACC's force as Steering force and its road texture as Vibration.
   - In ACC: Steer Lock **2700**, so the car turns fully at your rotation; Gain 100% felt right.
   - Moza: keep Pit House closed while you play. With it open the wheel nudges as a track loads.
-  - The road texture plays as a vibration ([Targets](targets.md#trueforce-g923)); not yet checked on a rig.
+  - The road texture plays as a vibration ([G923](target-g923.md#trueforce)); not yet checked on a rig.
 
 ## DiRT Rally 2.0
 
