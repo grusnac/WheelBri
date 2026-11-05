@@ -6,7 +6,7 @@
 // unpacks to a new temporary folder first. Asks for Administrator itself (install.ps1 needs it for the drivers).
 //
 // wheelbri-setup.exe --uninstall, or this exe under a name starting with "Uninstall" (the install folder's
-// Uninstall WheelBri.exe, install.ps1): the uninstaller (What to keep, Removing, Finish) in front of the install folder's
+// Uninstaller.exe, install.ps1): the uninstaller (What to keep, Removing, Finish) in front of the install folder's
 // uninstall.ps1 -Quiet -Progress. Installed in the install folder, which the uninstall deletes: it first runs again
 // from a copy in a new folder under %SystemRoot%\Temp that only Administrators can change.
 // --user-data <folder>: whose %LOCALAPPDATA% (the copy that asked for Administrator passes the signed-in user's on).
@@ -1034,7 +1034,7 @@ void paint(HDC dc) {
                                : L"1. Open WheelBri, set up your rig (Rig tab).\n2. Games tab: pick your game, choose "
                                  L"its folder, Use for Start.\n3. Press Start before the game.",
              x, y + 20, w, 70, kText, g.font);
-        text(dc, L"Uninstall: Start menu > WheelBri > Uninstall WheelBri, or Settings > Apps.", x, 470, w, 20, kFaint,
+        text(dc, L"Uninstall: Start menu > WheelBri > Uninstaller, or Settings > Apps.", x, 470, w, 20, kFaint,
              g.small);
         break;
     }

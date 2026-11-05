@@ -1,7 +1,7 @@
 # Removes WheelBri: the WheelBri Helper service, its drivers and virtual devices, shortcuts, the Settings > Apps
 # entry, its registry entries and the install folder. Three ways to run
 # it, all the same script (it asks for Administrator itself):
-#   - Start menu > WheelBri > Uninstall WheelBri, or Settings > Apps > WheelBri > Uninstall;
+#   - Start menu > WheelBri > Uninstaller (Uninstaller.exe in the install folder: wheelbri-setup.exe --uninstall), or Settings > Apps > WheelBri > Uninstall;
 #   - Uninstall.cmd in the install folder (double-click);
 #   - Uninstall.cmd in the unpacked package: cleans up an installation whose folder is damaged or already deleted
 #     (drivers, certificate, shortcuts, entry), using the package's own driver scripts.

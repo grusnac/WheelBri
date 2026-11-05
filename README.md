@@ -54,7 +54,7 @@ first needs the prerequisites in the package's `win7` folder: run `download-prer
 
 **Upgrade:** run the new setup; your rig, mappings and settings stay.
 
-**Uninstall:** Start menu > WheelBri > Uninstall WheelBri (or Settings > Apps). It asks what to keep: your rig,
+**Uninstall:** Start menu > WheelBri > Uninstaller (or Settings > Apps, or `Uninstaller.exe` in the install folder). It asks what to keep: your rig,
 mappings and settings (kept by default) and the logs (removed by default), both in `%LOCALAPPDATA%\wheelbri`. It also
 takes the shim out of the games WheelBri put it into, and removes the drivers' certificate (both can be unticked).
 

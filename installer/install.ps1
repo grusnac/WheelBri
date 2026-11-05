@@ -14,7 +14,7 @@
 #   install.ps1 -Quiet                  no questions and no pause, even when it fails (for scripted installs); no
 #                                       restart either (restart Windows yourself afterwards)
 #   install.ps1 -StartMenuFolder "Games\WheelBri"   the Start menu folder's name (default WheelBri)
-#                                       (always made: WheelBri, Uninstall WheelBri, WheelBri logs)
+#                                       (always made: WheelBri, Uninstaller, WheelBri logs)
 #   install.ps1 -Restart Now|Later|Ask  at the end of an install that worked (Ask, the default: a question; with
 #                                       -Quiet, Ask counts as Later)
 #   install.ps1 -Progress               also prints lines for wheelbri-setup.exe's checklist, each on a line of its own:
@@ -468,7 +468,7 @@ try {
     $defaultConfigs = @()
     foreach ($file in Get-ChildItem -LiteralPath $sourceRoot -Recurse -File) {
         $relative = $file.FullName.Substring($sourceRoot.Length + 1)
-        # The installer stays in the package; wheelbri-setup.exe goes in below as Uninstall WheelBri.exe.
+        # The installer stays in the package; wheelbri-setup.exe goes in below as Uninstaller.exe.
         if ($relative -in @('Setup.cmd', 'install.ps1', 'wheelbri-setup.exe')) { continue }
         if ($relative -like 'win7\*') { continue }   # Windows 7's prerequisites, for before the install
         $target = Join-Path $InstallDir $relative
@@ -492,13 +492,15 @@ try {
     }
     Write-Host "    $copied files copied"
     # The graphical uninstaller: wheelbri-setup.exe under the name that makes it one (its name starts with
-    # "Uninstall", SetupMain.cpp). The setup itself is not kept here (it needs the package next to it); an install
-    # from before this kept it as wheelbri-setup.exe, which goes.
-    Remove-Item -LiteralPath (Join-Path $InstallDir 'wheelbri-setup.exe') -Force -ErrorAction SilentlyContinue
+    # "Uninstall", SetupMain.cpp). The setup itself is not kept here (it needs the package next to it); installs from
+    # before this kept it as wheelbri-setup.exe or Uninstall WheelBri.exe, which go.
+    foreach ($old in 'wheelbri-setup.exe', 'Uninstall WheelBri.exe') {
+        Remove-Item -LiteralPath (Join-Path $InstallDir $old) -Force -ErrorAction SilentlyContinue
+    }
     $setupProgram = Join-Path $package 'wheelbri-setup.exe'
     if (Test-Path -LiteralPath $setupProgram -PathType Leaf) {
-        Copy-Item -LiteralPath $setupProgram -Destination (Join-Path $InstallDir 'Uninstall WheelBri.exe') -Force
-        [void]$listed.Add('Uninstall WheelBri.exe')
+        Copy-Item -LiteralPath $setupProgram -Destination (Join-Path $InstallDir 'Uninstaller.exe') -Force
+        [void]$listed.Add('Uninstaller.exe')
     }
     $defaultsRecord = Join-Path $InstallDir 'default-configs.txt'
     Set-Content -LiteralPath $defaultsRecord -Value $defaultConfigs -Encoding UTF8
@@ -637,8 +639,8 @@ try {
     $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
     Remove-Item (Join-Path $programs 'wheel-emulator.lnk'), (Join-Path $programs 'wheel-emulator'),
                 (Join-Path $desktop 'wheel-emulator.lnk') -Recurse -Force -ErrorAction SilentlyContinue
-    # The uninstaller: Uninstall WheelBri.exe (the graphical one), else uninstall.ps1 in a console.
-    $guiUninstaller = Join-Path $InstallDir 'Uninstall WheelBri.exe'
+    # The uninstaller: Uninstaller.exe (the graphical one), else uninstall.ps1 in a console.
+    $guiUninstaller = Join-Path $InstallDir 'Uninstaller.exe'
     if (Test-Path -LiteralPath $guiUninstaller -PathType Leaf) {
         $uninstallProgram = $guiUninstaller
         $uninstallArguments = '--uninstall'
@@ -656,7 +658,7 @@ try {
     $menu = Join-Path $programs $StartMenuFolder
     New-Item -ItemType Directory -Force -Path $menu | Out-Null
     New-Shortcut (Join-Path $menu 'WheelBri.lnk') $app '' $InstallDir 'WheelBri: your rig as a Logitech G920'
-    New-Shortcut (Join-Path $menu 'Uninstall WheelBri.lnk') $uninstallProgram $uninstallArguments $InstallDir `
+    New-Shortcut (Join-Path $menu 'Uninstaller.lnk') $uninstallProgram $uninstallArguments $InstallDir `
         'Removes WheelBri, its drivers and shortcuts; asks what to keep'
     New-Shortcut (Join-Path $menu 'WheelBri logs.lnk') (Join-Path $env:SystemRoot 'explorer.exe') `
         '"shell:Local AppData\wheelbri\logs"' $env:SystemRoot 'The folder with every WheelBri log'
@@ -773,12 +775,12 @@ try {
         if ($withDrivers) {
             Write-Host 'Next: restart Windows (asked below), plug in your wheel, open "WheelBri" from the Start'
             Write-Host 'menu, set up your rig (Rig tab) and press Start. joy.cpl then lists the G920, not your rig.'
-            Write-Host 'To remove it: Start menu > WheelBri > Uninstall WheelBri, or Settings > Apps > WheelBri.'
+            Write-Host 'To remove it: Start menu > WheelBri > Uninstaller, or Settings > Apps > WheelBri.'
         } else {
             Write-Host 'Next: plug in your wheel, open "WheelBri" from the Start menu and set up your rig (Rig tab).'
             Write-Host 'On the Games tab pick your game, press Choose folder... (the folder with its .exe) and'
             Write-Host 'Use for Start, then press Start before the game. To remove it: Start menu > WheelBri >'
-            Write-Host 'Uninstall WheelBri.'
+            Write-Host 'Uninstaller.'
         }
     }
     Write-Host "Log: $logFolder"
