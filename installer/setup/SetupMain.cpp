@@ -54,7 +54,7 @@ enum Page { kWelcome, kFolder, kOptions, kReady, kInstalling, kFinish, kChoose, 
 enum Id : int {
     kBack = 100, kNext, kCancel, kFolderEdit, kBrowse, kDefaultFolder, kStartMenu, kStartMenuName, kDesktop,
     kFirefox, kLaunch, kChecklist, kLogEdit, kCopyLog, kOpenLogs, kRestartNow, kRestartLater, kKeepSettings,
-    kKeepLogs, kRemoveShims, kRemoveCertificate, kOpenData,
+    kKeepLogs, kKeepShims, kKeepCertificate, kOpenData,
 };
 
 constexpr UINT kLineMessage = WM_APP + 1;   // lParam: std::wstring* (one output line)
@@ -79,7 +79,7 @@ struct App {
     Page page = kWelcome;
     bool uninstall = false;      // --uninstall
     std::wstring userData;       // the signed-in user's %LOCALAPPDATA% (--user-data), not the Administrator's
-    std::wstring tempCopy;       // the folder of the copy this uninstaller runs from (deleted when it ends)
+    std::wstring tempCopy;       // the folder of the copy this uninstaller runs from (deleted at the next restart)
     std::vector<ShimGame> shimGames;
     bool restartNeeded = false;  // @@RESTART
 
@@ -95,7 +95,7 @@ struct App {
     std::vector<HWND> pageControls[kPageCount];
     HWND back{}, next{}, cancel{}, folderEdit{}, startMenu{}, startMenuName{}, desktop{}, firefoxBox{}, launch{};
     HWND checklist{}, logEdit{}, progress{}, restartNow{}, restartLater{};
-    HWND keepSettings{}, keepLogs{}, removeShims{}, removeCertificate{}, openData{};
+    HWND keepSettings{}, keepLogs{}, keepShims{}, keepCertificate{}, openData{};
 
     std::vector<Row> rows;
     bool running = false, finished = false;
@@ -353,13 +353,12 @@ void createControls() {
     g.keepSettings = add(kChoose, L"BUTTON", L"Rig, mappings and settings", BS_AUTOCHECKBOX | WS_TABSTOP, kKeepSettings,
                          kLeft, 112, 330, 22);
     g.keepLogs = add(kChoose, L"BUTTON", L"Logs", BS_AUTOCHECKBOX | WS_TABSTOP, kKeepLogs, kLeft, 164, 330, 22);
-    g.removeShims = add(kChoose, L"BUTTON", L"The shim from game folders", BS_AUTOCHECKBOX | WS_TABSTOP,
-                        kRemoveShims, kLeft, 248, 330, 22);
-    g.removeCertificate = add(kChoose, L"BUTTON", L"The drivers' certificate", BS_AUTOCHECKBOX | WS_TABSTOP,
-                              kRemoveCertificate, kLeft, 300, 330, 22);
+    // One rule for every box: ticked stays, unticked goes.
+    g.keepShims = add(kChoose, L"BUTTON", L"The shim in game folders", BS_AUTOCHECKBOX | WS_TABSTOP, kKeepShims, kLeft,
+                      216, 330, 22);
+    g.keepCertificate = add(kChoose, L"BUTTON", L"The drivers' certificate", BS_AUTOCHECKBOX | WS_TABSTOP,
+                            kKeepCertificate, kLeft, 280, 330, 22);
     SendMessageW(g.keepSettings, BM_SETCHECK, BST_CHECKED, 0);
-    SendMessageW(g.removeShims, BM_SETCHECK, BST_CHECKED, 0);
-    SendMessageW(g.removeCertificate, BM_SETCHECK, BST_CHECKED, 0);
     g.openData = add(kFinish, L"BUTTON", L"Open folder", BS_OWNERDRAW, kOpenData, kLeft + kWidth - 120, 92, 120, 24);
 
     // The bottom bar
@@ -377,8 +376,8 @@ void showPage(const Page page) {
     }
     if (page == kOptions) ShowWindow(g.firefoxBox, g.firefox ? SW_SHOW : SW_HIDE);
     if (page == kChoose) {
-        ShowWindow(g.removeShims, g.shimGames.empty() ? SW_HIDE : SW_SHOW);
-        ShowWindow(g.removeCertificate, g.withDrivers ? SW_SHOW : SW_HIDE);
+        ShowWindow(g.keepShims, g.shimGames.empty() ? SW_HIDE : SW_SHOW);
+        ShowWindow(g.keepCertificate, g.withDrivers ? SW_SHOW : SW_HIDE);
     }
     if (page == kFinish) {
         ShowWindow(g.openData, g.uninstall && checked(g.keepSettings) ? SW_SHOW : SW_HIDE);
@@ -484,8 +483,8 @@ void startInstall() {
         if (checked(g.keepSettings)) command += L" -KeepConfig";
         else command += L" -RemoveSettings";
         if (!checked(g.keepLogs)) command += L" -RemoveLogs";
-        if (g.shimGames.empty() || !checked(g.removeShims)) command += L" -KeepShims";
-        if (g.withDrivers && checked(g.removeCertificate)) command += L" -RemoveCertificate";
+        if (g.shimGames.empty() || checked(g.keepShims)) command += L" -KeepShims";
+        if (g.withDrivers && !checked(g.keepCertificate)) command += L" -RemoveCertificate";
         appendLog(L"WheelBri " + g.earlierVersion + L" uninstall, " + windowsName() + L" (build " +
                   std::to_wstring(g.build) + L")");
     } else {
@@ -944,26 +943,28 @@ void paint(HDC dc) {
         text(dc, L"REMOVE WHEELBRI " + g.earlierVersion, x, 22, w, 24, kHeading, g.bold);
         text(dc, L"From " + g.earlierFolder + L". The program, drivers, Helper, shortcuts and Settings > Apps entry "
                  L"always go.", x, 46, w, 36, kDim, g.small);
-        band(L"KEEP FOR A LATER INSTALL", 84);
+        band(L"TICK WHAT TO KEEP: EVERYTHING ELSE IS REMOVED", 84);
         const std::wstring data = g.userData + L"\\wheelbri";
         text(dc, sizeText(folderSize(data, {L"logs", L"dumps"})), x + w - 100, 114, 100, 20, kFaint, g.small, DT_RIGHT);
         text(dc, L"rigs, configs, per-game values, device names, app.ini", x + 22, 134, w - 22, 18, kFaint, g.small);
         text(dc, sizeText(folderSize(data + L"\\logs") + folderSize(data + L"\\dumps")), x + w - 100, 166, 100, 20,
              kFaint, g.small, DT_RIGHT);
         text(dc, L"app, service, drivers, telemetry, ffb, install, dumps", x + 22, 186, w - 22, 18, kFaint, g.small);
-        band(L"ALSO REMOVE", 220);
-        int y = 248;
+        int y = 216;
         if (!g.shimGames.empty()) {
             std::wstring names;
             for (const ShimGame& game : g.shimGames) names += (names.empty() ? L"" : L", ") + game.name;
             text(dc, std::to_wstring(g.shimGames.size()) + (g.shimGames.size() == 1 ? L" game" : L" games"),
                  x + w - 100, y + 2, 100, 20, kFaint, g.small, DT_RIGHT);
-            text(dc, names + L". Another mod's dll gets its name back.", x + 22, y + 22, w - 22, 30, kFaint, g.small,
-                 DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS);
+            text(dc, names + L". Removed: another mod's dll gets its name back.", x + 22, y + 22, w - 22, 32, kFaint,
+                 g.small, DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS);
         } else {
-            text(dc, L"No game has the shim.", x, y + 2, w, 20, kFaint, g.font);
+            text(dc, L"The shim in game folders: no game has it.", x + 22, y + 2, w - 22, 20, kFaint, g.font);
         }
-        if (g.withDrivers) text(dc, L"from this PC's trusted certificates", x + 22, 322, w - 22, 18, kFaint, g.small);
+        if (g.withDrivers) {
+            text(dc, L"in this PC's trusted certificates (only WheelBri's drivers used it)", x + 22, 302, w - 22, 18,
+                 kFaint, g.small);
+        }
         text(dc, L"Firefox's game controllers are turned back on if setup turned them off. Other Windows accounts' "
                  L"data stays.", x, 450, w, 40, kFaint, g.small);
         break;
@@ -987,8 +988,14 @@ void paint(HDC dc) {
             std::wstring kept, removed = L"program, drivers, Helper, shortcuts";
             if (checked(g.keepSettings)) kept = L"rig, mappings and settings"; else removed += L", settings";
             if (checked(g.keepLogs)) kept += (kept.empty() ? L"" : L", ") + std::wstring(L"logs"); else removed += L", logs";
-            if (!g.shimGames.empty() && checked(g.removeShims)) removed += L", the shim in games";
-            if (g.withDrivers && checked(g.removeCertificate)) removed += L", certificate";
+            if (!g.shimGames.empty()) {
+                if (checked(g.keepShims)) kept += (kept.empty() ? L"" : L", ") + std::wstring(L"the shim in games");
+                else removed += L", the shim in games";
+            }
+            if (g.withDrivers) {
+                if (checked(g.keepCertificate)) kept += (kept.empty() ? L"" : L", ") + std::wstring(L"certificate");
+                else removed += L", certificate";
+            }
             fill(dc, x, 70, w, 90, kRail);
             text(dc, L"Kept", x + 14, 96, 100, 20, kDim, g.font);
             text(dc, kept.empty() ? L"nothing" : kept, x + 120, 96, w - 260, 20, kText, g.font);
@@ -1283,7 +1290,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         }
         return 0;
     }
-    if (tempCopy) g.tempCopy = exeFolder();
+    if (tempCopy) {
+        // This copy's own exe and folder: Windows deletes them at the next restart (a running exe cannot delete
+        // itself). Asked first thing, so they go even when this copy fails; no helper process is left behind.
+        g.tempCopy = exeFolder();
+        wchar_t self[MAX_PATH * 2]{};
+        GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)));
+        MoveFileExW(self, nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+        MoveFileExW(g.tempCopy.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);   // after the file, so empty by then
+    }
     std::wstring problem;
     if (g.uninstall) {
         g.package = exeFolder();
@@ -1346,17 +1361,5 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     }
     CoUninitialize();
     if (g.unpacked) runHidden(quoted(system32(L"cmd.exe")) + L" /c rmdir /s /q " + quoted(g.package));
-    if (!g.tempCopy.empty()) {
-        // This exe's own folder: deleted by a command that waits a moment for this process to end.
-        std::wstring command = quoted(system32(L"cmd.exe")) + L" /c ping -n 3 127.0.0.1 >nul & rmdir /s /q " +
-                               quoted(g.tempCopy);
-        STARTUPINFOW si{sizeof(si)};
-        PROCESS_INFORMATION pi{};
-        if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | DETACHED_PROCESS,
-                           nullptr, system32(L"").c_str(), &si, &pi)) {
-            CloseHandle(pi.hThread);
-            CloseHandle(pi.hProcess);
-        }
-    }
     return g.exitCode > 0 ? g.exitCode : 0;
 }
