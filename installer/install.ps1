@@ -13,6 +13,16 @@
 #   install.ps1 -StopBrowserGamepads    turn off Firefox's gamepad support for the signed-in user without asking (6b)
 #   install.ps1 -Quiet                  no questions and no pause, even when it fails (for scripted installs); no
 #                                       restart either (restart Windows yourself afterwards)
+#   install.ps1 -StartMenuFolder "Games\WheelBri"   the Start menu folder's name (default WheelBri)
+#   install.ps1 -NoStartMenu            no Start menu folder (uninstall from Settings > Apps)
+#   install.ps1 -Restart Now|Later|Ask  at the end of an install that worked (Ask, the default: a question; with
+#                                       -Quiet, Ask counts as Later)
+#   install.ps1 -Progress               also prints lines for wheelbri-setup.exe's checklist, each on a line of its own:
+#                                       @@STEP <n> <count> <text>    a numbered step starts (the one before is done)
+#                                       @@ITEM <key> <state> <text>  a part of a step: running, done, warn or failed
+#                                       @@WARN <text>                a warning (also listed at the end)
+#                                       @@FAIL <text>                the install failed, and why
+#                                       @@RESULT <exit code>         the last of them
 #
 # Three questions at most: Windows' Administrator prompt; only when Firefox is installed, whether to turn off its
 # gamepad support (6b, default no); and at the end of an install that worked, whether to restart Windows now (default
@@ -50,6 +60,11 @@ param(
     [switch]$NoDesktopShortcut,
     [switch]$StopBrowserGamepads,
     [switch]$Quiet,
+    [string]$StartMenuFolder = 'WheelBri',
+    [switch]$NoStartMenu,
+    [ValidateSet('Ask', 'Now', 'Later')]
+    [string]$Restart = 'Ask',
+    [switch]$Progress,
     # Set by the run below that copied the package into a folder only Administrators may change (not for users).
     [switch]$Staged
 )
@@ -61,13 +76,32 @@ if (-not $InstallDir) {
 # against System32 once elevated, and "D:\WheelBri\" quoted on a command line escapes its own closing quote.
 $InstallDir = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir))
 if ($InstallDir.Length -gt 3) { $InstallDir = $InstallDir.TrimEnd('\') }
+# The Start menu folder: folder names only (a subfolder after \ is fine), never a path out of Start Menu\Programs.
+$StartMenuFolder = $StartMenuFolder.Trim().Trim('\')
+$menuParts = @($StartMenuFolder -split '\\')
+if (-not $NoStartMenu -and (-not $StartMenuFolder -or $StartMenuFolder.Length -gt 120 -or
+        @($menuParts | Where-Object { -not $_.Trim() -or $_ -match '^\.+$' -or
+                                      $_.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0 }).Count -gt 0)) {
+    Write-Host "Not a Start menu folder name: '$StartMenuFolder'." -ForegroundColor Red
+    if ($Progress) { Write-Host "@@FAIL not a Start menu folder name: '$StartMenuFolder'"; Write-Host '@@RESULT 1' }
+    exit 1
+}
+# The options each run below passes on to the next (the same install again: 64-bit, elevated, or staged).
+function Get-PassedOn {
+    $list = @()
+    if ($NoDesktopShortcut) { $list += '-NoDesktopShortcut' }
+    if ($StopBrowserGamepads) { $list += '-StopBrowserGamepads' }
+    if ($Quiet) { $list += '-Quiet' }
+    if ($NoStartMenu) { $list += '-NoStartMenu' }
+    if ($Progress) { $list += '-Progress' }
+    $list += @('-StartMenuFolder', $StartMenuFolder, '-Restart', $Restart)
+    return $list
+}
 
 # A 32-bit PowerShell sees SysWOW64, where pnputil and the 64-bit driver tools are missing: run again in 64-bit.
 if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
-    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-InstallDir', $InstallDir)
-    if ($NoDesktopShortcut) { $arguments += '-NoDesktopShortcut' }
-    if ($StopBrowserGamepads) { $arguments += '-StopBrowserGamepads' }
-    if ($Quiet) { $arguments += '-Quiet' }
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-InstallDir', $InstallDir) +
+                 @(Get-PassedOn)
     & (Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe') @arguments
     exit $LASTEXITCODE
 }
@@ -77,9 +111,8 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     # A drive's root keeps its backslash: doubled, so it does not escape the closing quote.
     $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -InstallDir `"$($InstallDir -replace '\\$', '\\')`""
-    if ($NoDesktopShortcut) { $arguments += ' -NoDesktopShortcut' }
-    if ($StopBrowserGamepads) { $arguments += ' -StopBrowserGamepads' }
-    if ($Quiet) { $arguments += ' -Quiet' }
+    # Values quoted (the Start menu folder may hold spaces; never a quote, checked above).
+    foreach ($option in @(Get-PassedOn)) { $arguments += $(if ($option -like '-*') { " $option" } else { " `"$option`"" }) }
     try {
         $p = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -Wait -PassThru
         exit $p.ExitCode
@@ -114,10 +147,7 @@ if (-not $Staged) {
         exit 1
     }
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $stage 'install.ps1'), '-InstallDir',
-                   $InstallDir, '-Staged')
-    if ($NoDesktopShortcut) { $arguments += '-NoDesktopShortcut' }
-    if ($StopBrowserGamepads) { $arguments += '-StopBrowserGamepads' }
-    if ($Quiet) { $arguments += '-Quiet' }
+                   $InstallDir, '-Staged') + @(Get-PassedOn)
     & (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') @arguments
     $code = $LASTEXITCODE
     Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
@@ -143,16 +173,23 @@ function Step([string]$text) {
     $script:step++
     Write-Host ''
     Write-Host "[$script:step/$script:stepCount] $text" -ForegroundColor Cyan
+    if ($Progress) { Write-Host "@@STEP $script:step $script:stepCount $text" }
+}
+# A part of a step, for wheelbri-setup.exe's checklist (-Progress only).
+function Item([string]$key, [string]$state, [string]$text) {
+    if ($Progress) { Write-Host "@@ITEM $key $state $text" }
 }
 function Fail([string]$text) {
     Write-Host ''
     Write-Host "Installation failed: $text" -ForegroundColor Red
     Write-Host "Details: $logFolder" -ForegroundColor Red
+    if ($Progress) { Write-Host "@@FAIL $text" }
     throw 'stop'
 }
 function Warn([string]$text) {
     Write-Host $text -ForegroundColor Yellow
     $warnings.Add($text)
+    if ($Progress) { Write-Host "@@WARN $($text.Trim())" }
 }
 # The SID of the user signed in to this Windows session (the owner of its Explorer), not the Administrator account
 # this runs as when that is another one; this process's own user when there is no Explorer.
@@ -479,20 +516,25 @@ try {
     $hideCode = $null       # install-hide.ps1's exit code (the package)
     if (-not $withDrivers) { Write-Host '    none on this Windows (the in-game shim way needs none)' }
     $drivers = if (-not $withDrivers) { @() } else { @(
-        @{ Name = 'virtual wheel (wheelbri-wheel)'; Script = 'driver\install-driver.ps1'; Required = $true },
-        @{ Name = 'hiding filter (wheelbri-hide)'; Script = 'driver\hide\install-hide.ps1'; Required = $false }
+        @{ Name = 'virtual wheel (wheelbri-wheel)'; Key = 'wheel-driver'; Script = 'driver\install-driver.ps1'; Required = $true },
+        @{ Name = 'hiding filter (wheelbri-hide)'; Key = 'hide-driver'; Script = 'driver\hide\install-hide.ps1'; Required = $false }
     ) }
     foreach ($driver in $drivers) {
         Write-Host "  $($driver.Name)"
+        Item $driver.Key 'running' $driver.Name
         $code = Run-Script (Join-Path $InstallDir $driver.Script)
         if ($code -eq 0) {
             Write-Host "    installed" -ForegroundColor Green
+            Item $driver.Key 'done' $driver.Name
         } elseif ($driver.Script -like '*install-hide.ps1' -and $code -eq 2) {
             $hidePending = $true
+            Item $driver.Key 'warn' 'starts after a restart'
             Warn '    the hiding filter is installed but Windows starts it only after a restart: restart Windows'
         } elseif ($driver.Required) {
+            Item $driver.Key 'failed' "exit code $code"
             Fail "the $($driver.Name) driver did not install (exit code $code); the lines above say why."
         } else {
+            Item $driver.Key 'warn' "exit code $code"
             Warn "    the $($driver.Name) driver did not install (exit code $code); the app works without it (see above)"
         }
         if ($driver.Script -like '*install-hide.ps1') { $hideCode = $code }
@@ -514,7 +556,9 @@ try {
     $helperProblem = $null
     if ($withDrivers) {
         Write-Host '  WheelBri Helper (service)'
+        Item 'helper' 'running' 'WheelBri Helper'
         $helperProblem = Install-HelperService (Join-Path $InstallDir 'wheelbri-helper.exe')
+        if ($helperProblem) { Item 'helper' 'warn' $helperProblem } else { Item 'helper' 'done' 'running' }
     }
     if (-not $withDrivers) {
         # nothing to say: the line above says there are no drivers
@@ -585,13 +629,22 @@ try {
     $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
     Remove-Item (Join-Path $programs 'wheel-emulator.lnk'), (Join-Path $programs 'wheel-emulator'),
                 (Join-Path $desktop 'wheel-emulator.lnk') -Recurse -Force -ErrorAction SilentlyContinue
-    $menu = Join-Path $programs 'WheelBri'
-    New-Item -ItemType Directory -Force -Path $menu | Out-Null
-    New-Shortcut (Join-Path $menu 'WheelBri.lnk') $app '' $InstallDir 'WheelBri: your rig as a Logitech G920'
-    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    New-Shortcut (Join-Path $menu 'Uninstall WheelBri.lnk') $powershell `
-        "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'uninstall.ps1')`"" $env:SystemRoot `
-        'Removes WheelBri, its drivers and shortcuts'
+    # The folder an earlier install made goes first (its name is in the Settings > Apps entry; it may have changed).
+    $earlierMenu = (Get-ItemProperty -Path $uninstallKey -Name StartMenuFolder -ErrorAction SilentlyContinue).StartMenuFolder
+    if ($earlierMenu -and $earlierMenu -notmatch '\.\.' -and -not [IO.Path]::IsPathRooted($earlierMenu)) {
+        Remove-Item (Join-Path $programs $earlierMenu) -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($NoStartMenu) {
+        Write-Host '    no Start menu folder (asked): uninstall from Settings > Apps'
+    } else {
+        $menu = Join-Path $programs $StartMenuFolder
+        New-Item -ItemType Directory -Force -Path $menu | Out-Null
+        New-Shortcut (Join-Path $menu 'WheelBri.lnk') $app '' $InstallDir 'WheelBri: your rig as a Logitech G920'
+        $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        New-Shortcut (Join-Path $menu 'Uninstall WheelBri.lnk') $powershell `
+            "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'uninstall.ps1')`"" $env:SystemRoot `
+            'Removes WheelBri, its drivers and shortcuts'
+    }
     if (-not $NoDesktopShortcut) {
         New-Shortcut (Join-Path $desktop 'WheelBri.lnk') $app '' `
             $InstallDir 'WheelBri: your rig as a Logitech G920'
@@ -612,6 +665,7 @@ try {
         UninstallString = $uninstall
         QuietUninstallString = "$uninstall -Quiet"
         InstallDate = (Get-Date -Format yyyyMMdd)
+        StartMenuFolder = $(if ($NoStartMenu) { '' } else { $StartMenuFolder })   # the uninstaller removes it
     }
     foreach ($name in $entries.Keys) { Set-ItemProperty -Path $key -Name $name -Value $entries[$name] }
     Set-ItemProperty -Path $key -Name NoModify -Value 1 -Type DWord
@@ -714,7 +768,10 @@ try {
     Write-Host "Log: $logFolder"
     # The restart question: only here, at the end of an install that worked (never in the app or the uninstaller).
     $restart = $false
-    if ($exitCode -eq 0 -and -not $Quiet -and $withDrivers) {   # no drivers: nothing a restart would finish
+    if ($exitCode -eq 0 -and $withDrivers -and $Restart -eq 'Now') {
+        $restart = $true
+        Write-Host 'Windows restarts in 2 seconds (-Restart Now).'
+    } elseif ($exitCode -eq 0 -and -not $Quiet -and $withDrivers -and $Restart -eq 'Ask') {   # no drivers: nothing a restart would finish
         Write-Host ''
         if ($hidePending) {
             Write-Host 'A restart of Windows is needed: the filter that hides the rig from games starts only after it.' -ForegroundColor Yellow
@@ -730,6 +787,7 @@ try {
             Write-Host 'Not restarting now: restart Windows before you use WheelBri.' -ForegroundColor Yellow
         }
     }
+    if ($Progress) { Write-Host "@@RESULT $exitCode" }
     if ($transcript) { Stop-Transcript | Out-Null }
     if ($restart) {
         # The user just said yes: 2 s, enough for this window to close, no countdown (the user's rule, 2026-10-06).

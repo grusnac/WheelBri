@@ -57,6 +57,9 @@ endif()
 
 if(WE_BUILD_SERVICE)
     add_subdirectory(service)
+    if(WIN32)
+        add_subdirectory(installer/setup)   # wheelbri-setup.exe, the graphical installer
+    endif()
 endif()
 
 if(WE_BUILD_SHIM)

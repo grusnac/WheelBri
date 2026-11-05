@@ -1,0 +1,1061 @@
+// wheelbri-setup.exe: WheelBri's graphical installer. A wizard (Welcome, Install folder, Options, Ready, Installing,
+// Finish) in front of install.ps1, which does the work: it runs install.ps1 -Quiet -Progress and turns its @@ lines
+// (install.ps1's header) into the checklist, every other line into the log. Plain Win32, no third-party code.
+//
+// Runs from the unpacked package (install.ps1 next to it), or next to wheelbri.zip (the IExpress layout), which it
+// unpacks to a new temporary folder first. Asks for Administrator itself (install.ps1 needs it for the drivers).
+
+#ifndef UNICODE
+#define UNICODE
+#endif
+#include <windows.h>
+#include <commctrl.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <shobjidl.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
+#include <cwchar>
+#include <string>
+#include <vector>
+
+namespace {
+
+// The app's colours (service/src/UiStyle.hpp).
+constexpr COLORREF kBackground = RGB(22, 24, 28);
+constexpr COLORREF kRail = RGB(29, 32, 38);
+constexpr COLORREF kRule = RGB(44, 48, 56);
+constexpr COLORREF kField = RGB(34, 37, 43);
+constexpr COLORREF kText = RGB(212, 214, 218);
+constexpr COLORREF kDim = RGB(168, 173, 182);
+constexpr COLORREF kFaint = RGB(138, 143, 152);
+constexpr COLORREF kHeading = RGB(108, 182, 255);
+constexpr COLORREF kHeadingTint = RGB(29, 48, 71);
+constexpr COLORREF kActive = RGB(61, 187, 92);
+constexpr COLORREF kCaution = RGB(224, 160, 32);
+constexpr COLORREF kCautionBack = RGB(42, 36, 22);
+constexpr COLORREF kWarning = RGB(232, 86, 76);
+constexpr COLORREF kWarningBack = RGB(46, 27, 28);
+constexpr COLORREF kDark = RGB(16, 18, 20);
+constexpr COLORREF kButton = RGB(42, 46, 54);
+constexpr COLORREF kFrame = RGB(90, 96, 106);
+constexpr COLORREF kLog = RGB(16, 18, 21);
+
+enum Page { kWelcome, kFolder, kOptions, kReady, kInstalling, kFinish, kPageCount };
+const wchar_t* const kPageNames[kPageCount] = {L"Welcome", L"Install folder", L"Options", L"Ready", L"Installing",
+                                               L"Finish"};
+
+enum Id : int {
+    kBack = 100, kNext, kCancel, kFolderEdit, kBrowse, kDefaultFolder, kStartMenu, kStartMenuName, kDesktop,
+    kFirefox, kLaunch, kChecklist, kLogEdit, kCopyLog, kOpenLogs, kRestartNow, kRestartLater,
+};
+
+constexpr UINT kLineMessage = WM_APP + 1;   // lParam: std::wstring* (one output line)
+constexpr UINT kExitMessage = WM_APP + 2;   // wParam: exit code
+
+enum class State { Wait, Run, Done, Warn, Fail, Skip };
+struct Row {
+    const wchar_t* text;
+    int step;             // install.ps1's numbered step that starts it (0: an @@ITEM)
+    const char* item;     // its @@ITEM key, or nullptr
+    State state = State::Wait;
+    std::wstring note{};
+};
+
+struct App {
+    HINSTANCE instance{};
+    HWND window{};
+    double scale = 1.0;
+    HFONT font{}, bold{}, big{}, small{};
+    HBRUSH backBrush{}, fieldBrush{}, logBrush{}, railBrush{};
+    Page page = kWelcome;
+
+    std::wstring package;        // the folder with install.ps1
+    std::wstring version = L"?";
+    DWORD build = 0;
+    bool withDrivers = false;    // install.ps1's $withDrivers (keep in step)
+    std::wstring earlierVersion, earlierFolder;
+    bool firefox = false;
+    std::wstring logFolder;
+
+    std::vector<HWND> pageControls[kPageCount];
+    HWND back{}, next{}, cancel{}, folderEdit{}, startMenu{}, startMenuName{}, desktop{}, firefoxBox{}, launch{};
+    HWND checklist{}, logEdit{}, progress{}, restartNow{}, restartLater{};
+
+    std::vector<Row> rows;
+    bool running = false, finished = false;
+    int exitCode = -1;
+    std::vector<std::wstring> warnings;
+    std::wstring failure;
+    std::wstring logText;
+};
+App g;
+
+int px(const double v) { return static_cast<int>(v * g.scale + 0.5); }
+
+std::wstring windowText(HWND h) {
+    std::wstring s(static_cast<size_t>(GetWindowTextLengthW(h)) + 1, L'\0');
+    GetWindowTextW(h, s.data(), static_cast<int>(s.size()));
+    s.resize(wcslen(s.c_str()));
+    return s;
+}
+
+std::wstring environment(const wchar_t* name) {
+    wchar_t buffer[MAX_PATH * 2]{};
+    const DWORD n = GetEnvironmentVariableW(name, buffer, static_cast<DWORD>(std::size(buffer)));
+    return n > 0 && n < std::size(buffer) ? std::wstring(buffer) : std::wstring();
+}
+
+std::wstring registryText(HKEY root, const wchar_t* key, const wchar_t* value) {
+    wchar_t buffer[1024]{};
+    DWORD size = sizeof(buffer);
+    if (RegGetValueW(root, key, value, RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr, buffer, &size) != ERROR_SUCCESS) {
+        return {};
+    }
+    return buffer;
+}
+
+bool fileExists(const std::wstring& path) {
+    const DWORD a = GetFileAttributesW(path.c_str());
+    return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+std::wstring exeFolder() {
+    wchar_t path[MAX_PATH * 2]{};
+    GetModuleFileNameW(nullptr, path, static_cast<DWORD>(std::size(path)));
+    std::wstring s(path);
+    return s.substr(0, s.find_last_of(L'\\'));
+}
+
+std::wstring system32(const wchar_t* file) {
+    wchar_t dir[MAX_PATH]{};
+    GetSystemDirectoryW(dir, MAX_PATH);
+    return std::wstring(dir) + L"\\" + file;
+}
+std::wstring powershell() { return system32(L"WindowsPowerShell\\v1.0\\powershell.exe"); }
+
+// Runs a command line, hidden, and waits; its exit code (or -1).
+int runHidden(std::wstring commandLine) {
+    STARTUPINFOW si{sizeof(si)};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                        &pi)) {
+        return -1;
+    }
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return static_cast<int>(code);
+}
+
+bool isElevated() {
+    HANDLE token{};
+    TOKEN_ELEVATION elevation{};
+    DWORD size = 0;
+    const bool ok = OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) &&
+                    GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size);
+    if (token) CloseHandle(token);
+    return ok && elevation.TokenIsElevated;
+}
+
+DWORD windowsBuild() {
+    using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
+    OSVERSIONINFOW info{sizeof(info)};
+    if (auto fn = reinterpret_cast<RtlGetVersionFn>(
+            reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion")))) {
+        fn(&info);
+    }
+    return info.dwBuildNumber;
+}
+
+// Finds the package: install.ps1 next to this exe, or wheelbri.zip next to it (unpacked to a new temp folder).
+bool findPackage(std::wstring& problem) {
+    const std::wstring here = exeFolder();
+    if (fileExists(here + L"\\install.ps1")) {
+        g.package = here;
+        return true;
+    }
+    const std::wstring zip = here + L"\\wheelbri.zip";
+    if (!fileExists(zip)) {
+        problem = L"install.ps1 is not next to wheelbri-setup.exe: unpack the whole package again.";
+        return false;
+    }
+    wchar_t temp[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, temp);
+    GUID guid{};
+    CoCreateGuid(&guid);
+    wchar_t name[64]{};
+    swprintf(name, 64, L"wheelbri-package-%08lx%04x", static_cast<unsigned long>(guid.Data1), guid.Data2);
+    const std::wstring target = std::wstring(temp) + name;
+    const std::wstring command = L"\"" + powershell() +
+                                 L"\" -NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '" + zip +
+                                 L"' -DestinationPath '" + target + L"'\"";
+    if (runHidden(command) != 0 || !fileExists(target + L"\\install.ps1")) {
+        problem = L"Could not unpack wheelbri.zip.";
+        return false;
+    }
+    g.package = target;
+    return true;
+}
+
+void detect() {
+    g.build = windowsBuild();
+    g.withDrivers = g.build >= 22000;   // install.ps1 $withDrivers: the drivers' INFs need build 22000
+    const std::wstring key = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\wheelbri";
+    g.earlierFolder = registryText(HKEY_LOCAL_MACHINE, key.c_str(), L"InstallLocation");
+    g.earlierVersion = registryText(HKEY_LOCAL_MACHINE, key.c_str(), L"DisplayVersion");
+    const wchar_t* appPaths = L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\firefox.exe";
+    HKEY k{};
+    for (HKEY root : {HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER}) {
+        if (RegOpenKeyExW(root, appPaths, 0, KEY_READ, &k) == ERROR_SUCCESS) {
+            g.firefox = true;
+            RegCloseKey(k);
+        }
+    }
+    if (FILE* f = _wfopen((g.package + L"\\VERSION.txt").c_str(), L"rb")) {
+        char buffer[32]{};
+        const size_t n = fread(buffer, 1, sizeof(buffer) - 1, f);
+        fclose(f);
+        std::string v(buffer, n);
+        while (!v.empty() && (v.back() == '\r' || v.back() == '\n' || v.back() == ' ')) v.pop_back();
+        g.version.assign(v.begin(), v.end());
+    }
+    g.logFolder = environment(L"LOCALAPPDATA") + L"\\wheelbri\\logs";
+}
+
+std::wstring defaultFolder() {
+    if (!g.earlierFolder.empty()) return g.earlierFolder;
+    std::wstring programs = environment(L"ProgramW6432");
+    if (programs.empty()) programs = environment(L"ProgramFiles");
+    return programs + L"\\WheelBri";
+}
+
+std::wstring windowsName() {
+    if (g.build < 9200) return L"Windows 7";
+    if (g.build < 9600) return L"Windows 8";
+    if (g.build < 10240) return L"Windows 8.1";
+    if (g.build < 22000) return L"Windows 10";
+    return L"Windows 11";
+}
+
+// --- controls -------------------------------------------------------------------------------------------------
+
+HWND add(const Page page, const wchar_t* cls, const wchar_t* text, const DWORD style, const int id, const int x,
+         const int y, const int w, const int h, const DWORD exStyle = 0) {
+    HWND h1 = CreateWindowExW(exStyle, cls, text, WS_CHILD | style, px(x), px(y), px(w), px(h), g.window,
+                              reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), g.instance, nullptr);
+    SendMessageW(h1, WM_SETFONT, reinterpret_cast<WPARAM>(g.font), TRUE);
+    if (page != kPageCount) g.pageControls[page].push_back(h1);
+    return h1;
+}
+
+void initRows() {
+    g.rows = {
+        {L"Check this PC", 1, nullptr},
+        {L"Close running WheelBri", 2, nullptr},
+        {L"Copy program files", 3, nullptr},
+        {L"Install virtual wheel driver", 0, "wheel-driver"},
+        {L"Install hiding filter driver", 0, "hide-driver"},
+        {L"Start WheelBri Helper", 0, "helper"},
+        {L"Shortcuts and Start menu", 5, nullptr},
+        {L"Add to Settings > Apps", 6, nullptr},
+        {L"Check the installation", 7, nullptr},
+    };
+    if (!g.withDrivers) {
+        for (Row& r : g.rows) {
+            if (r.item) r.state = State::Skip, r.note = L"not on " + windowsName();
+        }
+    }
+}
+
+void createControls() {
+    constexpr int kLeft = 210;   // the page's left edge (the rail is 0..178)
+    constexpr int kWidth = 520;
+    const DWORD visible = 0;
+
+    // Install folder
+    g.folderEdit = add(kFolder, L"EDIT", defaultFolder().c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP | visible,
+                       kFolderEdit, kLeft, 132, kWidth - 110, 26);
+    add(kFolder, L"BUTTON", L"Browse...", BS_OWNERDRAW | WS_TABSTOP, kBrowse, kLeft + kWidth - 100, 132, 100, 26);
+    add(kFolder, L"BUTTON", L"Back to default", BS_OWNERDRAW | WS_TABSTOP, kDefaultFolder, kLeft, 330, 150, 26);
+
+    // Options
+    g.startMenu = add(kOptions, L"BUTTON", L"Start menu folder:", BS_AUTOCHECKBOX | WS_TABSTOP, kStartMenu, kLeft,
+                      96, 190, 22);
+    g.startMenuName = add(kOptions, L"EDIT", L"WheelBri", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, kStartMenuName,
+                          kLeft + 200, 94, 200, 26);
+    g.desktop = add(kOptions, L"BUTTON", L"Desktop shortcut", BS_AUTOCHECKBOX | WS_TABSTOP, kDesktop, kLeft, 126, 400,
+                    22);
+    g.firefoxBox = add(kOptions, L"BUTTON", L"Turn off game controllers in Firefox", BS_AUTOCHECKBOX | WS_TABSTOP,
+                       kFirefox, kLeft, 318, 420, 22);
+    g.launch = add(kOptions, L"BUTTON", L"Open WheelBri when setup finishes", BS_AUTOCHECKBOX | WS_TABSTOP, kLaunch,
+                   kLeft, 400, 420, 22);
+    SendMessageW(g.startMenu, BM_SETCHECK, BST_CHECKED, 0);
+    SendMessageW(g.desktop, BM_SETCHECK, BST_CHECKED, 0);
+    SendMessageW(g.launch, BM_SETCHECK, BST_CHECKED, 0);
+
+    // Installing
+    g.progress = add(kInstalling, PROGRESS_CLASSW, L"", 0, 0, kLeft, 62, kWidth, 10);
+    SendMessageW(g.progress, PBM_SETRANGE32, 0, 1000);
+    SendMessageW(g.progress, PBM_SETBARCOLOR, 0, kActive);
+    SendMessageW(g.progress, PBM_SETBKCOLOR, 0, kButton);
+    g.checklist = add(kInstalling, L"LISTBOX", L"", LBS_OWNERDRAWFIXED | LBS_NOSEL | WS_VSCROLL, kChecklist, kLeft, 82,
+                      kWidth, 9 * 21 + 6);
+    add(kInstalling, L"BUTTON", L"Copy log", BS_OWNERDRAW, kCopyLog, kLeft + kWidth - 250, 294, 110, 22);
+    add(kInstalling, L"BUTTON", L"Open log folder", BS_OWNERDRAW, kOpenLogs, kLeft + kWidth - 130, 294, 130, 22);
+    g.logEdit = add(kInstalling, L"EDIT", L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL, kLogEdit,
+                    kLeft, 322, kWidth, 150);
+    SendMessageW(g.logEdit, WM_SETFONT, reinterpret_cast<WPARAM>(g.small), TRUE);
+    SendMessageW(g.logEdit, EM_SETLIMITTEXT, 0, 0);
+    for (size_t i = 0; i < g.rows.size(); ++i) SendMessageW(g.checklist, LB_ADDSTRING, 0, static_cast<LPARAM>(i));
+
+    // Finish
+    g.restartNow = add(kFinish, L"BUTTON", L"Restart Windows now (save your work first)",
+                       BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, kRestartNow, kLeft + 14, 300, 480, 22);
+    g.restartLater = add(kFinish, L"BUTTON", L"I'll restart later", BS_AUTORADIOBUTTON, kRestartLater, kLeft + 14, 328,
+                         480, 22);
+    SendMessageW(g.restartNow, BM_SETCHECK, BST_CHECKED, 0);
+
+    // The bottom bar
+    g.back = add(kPageCount, L"BUTTON", L"< Back", BS_OWNERDRAW | WS_TABSTOP | WS_VISIBLE, kBack, 470, 524, 92, 30);
+    g.next = add(kPageCount, L"BUTTON", L"Next >", BS_OWNERDRAW | WS_TABSTOP | WS_VISIBLE, kNext, 570, 524, 92, 30);
+    g.cancel = add(kPageCount, L"BUTTON", L"Cancel", BS_OWNERDRAW | WS_TABSTOP | WS_VISIBLE, kCancel, 670, 524, 92, 30);
+}
+
+bool checked(HWND h) { return SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED; }
+
+void showPage(const Page page) {
+    g.page = page;
+    for (int p = 0; p < kPageCount; ++p) {
+        for (HWND h : g.pageControls[p]) ShowWindow(h, p == page ? SW_SHOW : SW_HIDE);
+    }
+    if (page == kOptions) ShowWindow(g.firefoxBox, g.firefox ? SW_SHOW : SW_HIDE);
+    if (page == kFinish) {
+        const bool askRestart = g.exitCode == 0 && g.withDrivers;
+        ShowWindow(g.restartNow, askRestart ? SW_SHOW : SW_HIDE);
+        ShowWindow(g.restartLater, askRestart ? SW_SHOW : SW_HIDE);
+    }
+    EnableWindow(g.startMenuName, checked(g.startMenu));
+    SetWindowTextW(g.next, page == kReady ? L"Install" : page == kFinish ? L"Finish" : L"Next >");
+    EnableWindow(g.back, page != kWelcome && page != kInstalling && page != kFinish);
+    EnableWindow(g.next, page != kInstalling || g.finished);
+    EnableWindow(g.cancel, page != kInstalling && page != kFinish);
+    ShowWindow(g.back, page == kFinish ? SW_HIDE : SW_SHOW);
+    ShowWindow(g.cancel, page == kFinish ? SW_HIDE : SW_SHOW);
+    InvalidateRect(g.window, nullptr, TRUE);
+}
+
+// --- the install ------------------------------------------------------------------------------------------------
+
+std::wstring quoted(const std::wstring& s) { return L"\"" + s + L"\""; }
+
+// The folder must be a full path on a local drive; install.ps1 does the rest of the checks (empty or an install).
+std::wstring folderProblem(const std::wstring& folder) {
+    if (folder.size() < 3 || folder[1] != L':' || folder[2] != L'\\') return L"Choose a full folder path (C:\\...).";
+    if (folder.find(L'"') != std::wstring::npos) return L"A folder name cannot hold a quote.";
+    const std::wstring root = folder.substr(0, 3);
+    const UINT type = GetDriveTypeW(root.c_str());
+    if (type != DRIVE_FIXED) return L"Choose a folder on a local drive.";
+    return {};
+}
+
+std::wstring menuNameProblem(const std::wstring& name) {
+    if (name.empty()) return L"Give the Start menu folder a name.";
+    if (name.find_first_of(L"/:*?\"<>|") != std::wstring::npos || name.find(L"..") != std::wstring::npos) {
+        return L"A Start menu folder name cannot hold / : * ? \" < > | or ..";
+    }
+    return {};
+}
+
+void reader(HANDLE pipe) {
+    std::string pending;
+    char buffer[4096];
+    DWORD n = 0;
+    auto send = [](const std::string& line) {
+        // Windows PowerShell 5.1 writes to a pipe in the console's OEM code page.
+        const int size = MultiByteToWideChar(CP_OEMCP, 0, line.data(), static_cast<int>(line.size()), nullptr, 0);
+        auto* text = new std::wstring(static_cast<size_t>(size), L'\0');
+        MultiByteToWideChar(CP_OEMCP, 0, line.data(), static_cast<int>(line.size()), text->data(), size);
+        if (!PostMessageW(g.window, kLineMessage, 0, reinterpret_cast<LPARAM>(text))) delete text;
+    };
+    while (ReadFile(pipe, buffer, sizeof(buffer), &n, nullptr) && n > 0) {
+        pending.append(buffer, n);
+        size_t end;
+        while ((end = pending.find('\n')) != std::string::npos) {
+            std::string line = pending.substr(0, end);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            send(line);
+            pending.erase(0, end + 1);
+        }
+    }
+    if (!pending.empty()) send(pending);
+    CloseHandle(pipe);
+}
+
+struct RunArgs { HANDLE process; HANDLE pipe; };
+
+DWORD WINAPI runThread(void* p) {
+    auto* args = static_cast<RunArgs*>(p);
+    reader(args->pipe);
+    WaitForSingleObject(args->process, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(args->process, &code);
+    CloseHandle(args->process);
+    PostMessageW(g.window, kExitMessage, code, 0);
+    delete args;
+    return 0;
+}
+
+void appendLog(const std::wstring& line) {
+    g.logText += line + L"\r\n";
+    const int length = GetWindowTextLengthW(g.logEdit);
+    SendMessageW(g.logEdit, EM_SETSEL, length, length);
+    SendMessageW(g.logEdit, EM_REPLACESEL, FALSE, reinterpret_cast<LPARAM>((line + L"\r\n").c_str()));
+}
+
+void updateProgress() {
+    int done = 0;
+    for (const Row& r : g.rows) done += r.state != State::Wait && r.state != State::Run;
+    SendMessageW(g.progress, PBM_SETPOS, g.rows.empty() ? 0 : done * 1000 / static_cast<int>(g.rows.size()), 0);
+    InvalidateRect(g.checklist, nullptr, TRUE);
+    RECT top{px(210), px(36), px(760), px(60)};
+    InvalidateRect(g.window, &top, TRUE);
+}
+
+void startInstall() {
+    initRows();
+    for (size_t i = 0; i < g.rows.size(); ++i) SendMessageW(g.checklist, LB_SETITEMDATA, i, static_cast<LPARAM>(i));
+    std::wstring command = quoted(powershell()) + L" -NoProfile -ExecutionPolicy Bypass -File " +
+                           quoted(g.package + L"\\install.ps1") + L" -InstallDir " +
+                           quoted(windowText(g.folderEdit)) + L" -Quiet -Progress -Restart Later";
+    if (checked(g.startMenu)) command += L" -StartMenuFolder " + quoted(windowText(g.startMenuName));
+    else command += L" -NoStartMenu";
+    if (!checked(g.desktop)) command += L" -NoDesktopShortcut";
+    if (g.firefox && checked(g.firefoxBox)) command += L" -StopBrowserGamepads";
+    appendLog(L"WheelBri " + g.version + L" setup, " + windowsName() + L" (build " + std::to_wstring(g.build) + L")");
+
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+    HANDLE readEnd{}, writeEnd{};
+    CreatePipe(&readEnd, &writeEnd, &sa, 0);
+    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+    HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, 0, &sa, OPEN_EXISTING, 0, nullptr);
+    STARTUPINFOW si{sizeof(si)};
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = nul;
+    si.hStdOutput = writeEnd;
+    si.hStdError = writeEnd;
+    PROCESS_INFORMATION pi{};
+    const BOOL ok = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+                                   g.package.c_str(), &si, &pi);
+    CloseHandle(writeEnd);
+    CloseHandle(nul);
+    if (!ok) {
+        CloseHandle(readEnd);
+        g.failure = L"Could not start Windows PowerShell (" + powershell() + L").";
+        appendLog(g.failure);
+        PostMessageW(g.window, kExitMessage, 1, 0);
+        return;
+    }
+    CloseHandle(pi.hThread);
+    g.running = true;
+    HANDLE thread = CreateThread(nullptr, 0, runThread, new RunArgs{pi.hProcess, readEnd}, 0, nullptr);
+    if (thread) CloseHandle(thread);
+}
+
+int rowOfStep(const int step) {
+    for (size_t i = 0; i < g.rows.size(); ++i) if (g.rows[i].step == step) return static_cast<int>(i);
+    return -1;
+}
+
+void finishRunning(const State to) {
+    for (Row& r : g.rows) if (r.state == State::Run) r.state = to;
+}
+
+void onLine(const std::wstring& line) {
+    if (line.rfind(L"@@", 0) != 0) {
+        appendLog(line);
+        return;
+    }
+    const size_t space = line.find(L' ');
+    const std::wstring tag = line.substr(2, space == std::wstring::npos ? std::wstring::npos : space - 2);
+    const std::wstring rest = space == std::wstring::npos ? L"" : line.substr(space + 1);
+    if (tag == L"STEP") {
+        const int step = _wtoi(rest.c_str());
+        finishRunning(State::Done);
+        // The drivers' step ended: its items no install.ps1 line named are not needed here.
+        if (step >= 5) {
+            for (Row& r : g.rows) if (r.item && r.state == State::Wait) r.state = State::Skip;
+        }
+        const int row = rowOfStep(step);
+        if (row >= 0) g.rows[row].state = State::Run;
+    } else if (tag == L"ITEM") {
+        const size_t a = rest.find(L' ');
+        const size_t b = a == std::wstring::npos ? a : rest.find(L' ', a + 1);
+        if (a != std::wstring::npos) {
+            const std::wstring key = rest.substr(0, a);
+            const std::wstring state = rest.substr(a + 1, b == std::wstring::npos ? std::wstring::npos : b - a - 1);
+            for (Row& r : g.rows) {
+                if (!r.item || std::wstring(r.item, r.item + strlen(r.item)) != key) continue;
+                r.state = state == L"running" ? State::Run : state == L"done" ? State::Done
+                        : state == L"warn" ? State::Warn : State::Fail;
+                if (r.state == State::Warn || r.state == State::Fail) {
+                    r.note = b == std::wstring::npos ? L"" : rest.substr(b + 1);
+                }
+            }
+        }
+    } else if (tag == L"WARN") {
+        g.warnings.push_back(rest);
+        appendLog(L"  ! " + rest);
+    } else if (tag == L"FAIL") {
+        g.failure = rest;
+        finishRunning(State::Fail);
+    } else if (tag == L"RESULT") {
+        finishRunning(_wtoi(rest.c_str()) == 0 ? State::Done : State::Fail);
+    }
+    updateProgress();
+}
+
+void onExit(const int code) {
+    g.running = false;
+    g.finished = true;
+    g.exitCode = code;
+    if (code == 0) {
+        finishRunning(State::Done);
+        for (Row& r : g.rows) if (r.state == State::Wait) r.state = State::Done;
+        updateProgress();
+        showPage(kFinish);
+        return;
+    }
+    finishRunning(State::Fail);
+    for (Row& r : g.rows) if (r.state == State::Wait) r.state = State::Skip, r.note = L"not run";
+    if (g.failure.empty()) g.failure = L"install.ps1 ended with exit code " + std::to_wstring(code) + L".";
+    updateProgress();
+    SetWindowTextW(g.next, L"Close");
+    EnableWindow(g.next, TRUE);
+    InvalidateRect(g.window, nullptr, TRUE);
+}
+
+// Opens a program as the signed-in user, not as Administrator: through Explorer, which runs as that user.
+void openAsUser(const std::wstring& target) {
+    ShellExecuteW(nullptr, L"open", system32(L"..\\explorer.exe").c_str(), quoted(target).c_str(), nullptr,
+                  SW_SHOWNORMAL);
+}
+
+void finish() {
+    if (g.exitCode == 0 && g.withDrivers && checked(g.restartNow)) {
+        runHidden(quoted(system32(L"shutdown.exe")) +
+                  L" /r /t 2 /c \"WheelBri: restarting so its drivers are installed properly.\" /d p:4:2");
+    } else if (g.exitCode == 0 && checked(g.launch)) {
+        openAsUser(windowText(g.folderEdit) + L"\\wheelbri.exe");
+    }
+    DestroyWindow(g.window);
+}
+
+void browse() {
+    IFileOpenDialog* dialog = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return;
+    DWORD options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+    dialog->SetTitle(L"Install WheelBri into");
+    if (SUCCEEDED(dialog->Show(g.window))) {
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(dialog->GetResult(&item))) {
+            PWSTR path = nullptr;
+            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                std::wstring chosen(path);
+                // A chosen folder that is not empty gets a WheelBri folder inside it (install.ps1 refuses others).
+                const std::wstring tail = chosen.substr(chosen.find_last_of(L'\\') + 1);
+                if (_wcsicmp(tail.c_str(), L"WheelBri") != 0) chosen += (chosen.back() == L'\\' ? L"" : L"\\") + std::wstring(L"WheelBri");
+                SetWindowTextW(g.folderEdit, chosen.c_str());
+                CoTaskMemFree(path);
+            }
+            item->Release();
+        }
+    }
+    dialog->Release();
+    InvalidateRect(g.window, nullptr, TRUE);
+}
+
+void copyLog() {
+    if (!OpenClipboard(g.window)) return;
+    EmptyClipboard();
+    const size_t bytes = (g.logText.size() + 1) * sizeof(wchar_t);
+    if (HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes)) {
+        memcpy(GlobalLock(memory), g.logText.c_str(), bytes);
+        GlobalUnlock(memory);
+        if (!SetClipboardData(CF_UNICODETEXT, memory)) GlobalFree(memory);
+    }
+    CloseClipboard();
+}
+
+bool confirmCancel() {
+    return MessageBoxW(g.window, L"Leave WheelBri setup? Nothing has been changed yet.", L"WheelBri Setup",
+                       MB_YESNO | MB_ICONQUESTION) == IDYES;
+}
+
+void onNext() {
+    switch (g.page) {
+    case kWelcome: showPage(kFolder); break;
+    case kFolder: {
+        const std::wstring problem = folderProblem(windowText(g.folderEdit));
+        if (!problem.empty()) { MessageBoxW(g.window, problem.c_str(), L"WheelBri Setup", MB_ICONWARNING); return; }
+        showPage(kOptions);
+        break;
+    }
+    case kOptions: {
+        if (checked(g.startMenu)) {
+            const std::wstring problem = menuNameProblem(windowText(g.startMenuName));
+            if (!problem.empty()) { MessageBoxW(g.window, problem.c_str(), L"WheelBri Setup", MB_ICONWARNING); return; }
+        }
+        showPage(kReady);
+        break;
+    }
+    case kReady: showPage(kInstalling); startInstall(); break;
+    case kInstalling: if (g.finished) DestroyWindow(g.window); break;   // after a failure: Close
+    case kFinish: finish(); break;
+    default: break;
+    }
+}
+
+// --- painting ---------------------------------------------------------------------------------------------------
+
+void text(HDC dc, const std::wstring& s, const int x, const int y, const int w, const int h, const COLORREF colour,
+          HFONT font, const UINT format = DT_LEFT | DT_TOP | DT_WORDBREAK) {
+    RECT r{px(x), px(y), px(x + w), px(y + h)};
+    SelectObject(dc, font);
+    SetTextColor(dc, colour);
+    DrawTextW(dc, s.c_str(), -1, &r, format | DT_NOPREFIX);
+}
+
+void fill(HDC dc, const int x, const int y, const int w, const int h, const COLORREF colour) {
+    RECT r{px(x), px(y), px(x + w), px(y + h)};
+    HBRUSH b = CreateSolidBrush(colour);
+    FillRect(dc, &r, b);
+    DeleteObject(b);
+}
+
+void notice(HDC dc, const std::wstring& s, const int x, const int y, const int w, const int h, const COLORREF colour,
+            const COLORREF back) {
+    fill(dc, x, y, w, h, back);
+    text(dc, s, x + 10, y + 8, w - 20, h - 12, colour, g.font);
+}
+
+int pageRail(const Page page) {
+    // Rail entries: the wizard's pages. While installing / finished they are past.
+    return page;
+}
+
+void paint(HDC dc) {
+    RECT client{};
+    GetClientRect(g.window, &client);
+    HBRUSH back = CreateSolidBrush(kBackground);
+    FillRect(dc, &client, back);
+    DeleteObject(back);
+    SetBkMode(dc, TRANSPARENT);
+
+    // The rail
+    fill(dc, 0, 0, 178, 510, kRail);
+    fill(dc, 178, 0, 1, 510, kRule);
+    const bool failed = g.finished && g.exitCode != 0;
+    for (int p = 0; p < kPageCount; ++p) {
+        const int y = 18 + p * 32;
+        const bool current = p == pageRail(g.page);
+        const bool past = p < g.page;
+        COLORREF colour = past ? kDim : kFaint;
+        std::wstring mark = std::to_wstring(p + 1);
+        if (past) mark = L"\u2713";
+        if (current) {
+            const COLORREF accent = (failed && p == kInstalling) ? kWarning : (p == kFinish ? kActive : kHeading);
+            fill(dc, 0, y, 178, 30, failed && p == kInstalling ? kWarningBack : kHeadingTint);
+            fill(dc, 0, y, 3, 30, accent);
+            colour = accent;
+            if (failed && p == kInstalling) mark = L"\u2717";
+            if (p == kFinish) mark = L"\u2713";
+        }
+        text(dc, mark, 14, y + 6, 18, 20, past && !current ? kActive : colour, current ? g.bold : g.font, DT_CENTER);
+        text(dc, kPageNames[p], 40, y + 6, 136, 20, colour, current ? g.bold : g.font, DT_LEFT | DT_SINGLELINE);
+    }
+
+    // The bottom bar
+    fill(dc, 0, 510, 780, 1, kRule);
+    fill(dc, 0, 511, 780, 60, RGB(26, 29, 34));
+    std::wstring footer = L"WheelBri " + g.version + L" \u00b7 64-bit";
+    if (g.page == kInstalling && g.running) footer = L"Can't cancel while it installs.";
+    text(dc, footer, 16, 530, 440, 20, kFaint, g.small, DT_LEFT | DT_SINGLELINE);
+
+    constexpr int x = 210, w = 540;
+    switch (g.page) {
+    case kWelcome: {
+        text(dc, L"WELCOME TO WHEELBRI " + g.version, x, 26, w, 30, kHeading, g.big);
+        text(dc, L"Your rig as a Logitech G25, G27, G920 or G923, so games accept it, with force feedback.", x, 60, w,
+             40, kDim, g.font);
+        fill(dc, x, 112, w, 150, kRail);
+        text(dc, L"WHAT SETUP FOUND", x + 14, 122, w, 18, kDim, g.small);
+        const std::wstring os = windowsName() + L", 64-bit: " +
+                                (g.withDrivers ? L"full install (Mode Virtual and Mode Shim)"
+                                               : L"Mode Shim only (no drivers, no restart)");
+        text(dc, L"\u2713", x + 14, 146, 16, 20, kActive, g.font);
+        text(dc, os, x + 36, 146, w - 50, 40, kText, g.font);
+        if (!g.earlierVersion.empty()) {
+            text(dc, L"\u2191", x + 14, 186, 16, 20, kHeading, g.font);
+            text(dc, L"WheelBri " + g.earlierVersion + L" in " + g.earlierFolder +
+                         L": this upgrades it. Your rig, mappings and settings stay.",
+                 x + 36, 186, w - 50, 40, kText, g.font);
+        } else {
+            text(dc, L"\u2713", x + 14, 186, 16, 20, kActive, g.font);
+            text(dc, L"A new install.", x + 36, 186, w - 50, 20, kText, g.font);
+        }
+        text(dc, L"\u2713", x + 14, 226, 16, 20, kActive, g.font);
+        text(dc, L"Running as Administrator (needed for the drivers)", x + 36, 226, w - 50, 20, kText, g.font);
+        text(dc, L"Close WheelBri and any game before you go on. Setup closes a running WheelBri for you.", x, 440, w,
+             40, kDim, g.font);
+        break;
+    }
+    case kFolder: {
+        text(dc, L"INSTALL FOLDER", x, 26, w, 24, kHeading, g.bold);
+        text(dc, L"Where the program, its drivers and the shim files go. Only Administrators can change files there.",
+             x, 56, w, 40, kDim, g.font);
+        text(dc, L"FOLDER", x, 110, w, 18, kDim, g.small);
+        const std::wstring folder = windowText(g.folderEdit);
+        ULARGE_INTEGER free{};
+        std::wstring space = L"Free on " + folder.substr(0, 2) + L": ";
+        if (folder.size() >= 3 && GetDiskFreeSpaceExW(folder.substr(0, 3).c_str(), &free, nullptr, nullptr)) {
+            wchar_t gb[32];
+            swprintf(gb, 32, L"%.1f GB", static_cast<double>(free.QuadPart) / (1024.0 * 1024.0 * 1024.0));
+            space += gb;
+        } else {
+            space += L"?";
+        }
+        text(dc, space, x, 170, w, 20, kDim, g.font);
+        fill(dc, x, 200, w, 116, kRail);
+        const bool upgrade = !g.earlierFolder.empty() && _wcsicmp(folder.c_str(), g.earlierFolder.c_str()) == 0;
+        text(dc, upgrade ? L"\u2713  An earlier WheelBri is here: it is upgraded in place."
+                         : L"i  A new or empty folder. A folder that holds other files is refused, so the "
+                           L"uninstaller never deletes your files.",
+             x + 14, 210, w - 28, 40, upgrade ? kActive : kHeading, g.font);
+        text(dc, L"i  Outside Program Files, setup locks the folder down the same way (only Administrators may "
+                 L"change it).",
+             x + 14, 256, w - 28, 50, kDim, g.font);
+        break;
+    }
+    case kOptions: {
+        text(dc, L"OPTIONS", x, 26, w, 24, kHeading, g.bold);
+        fill(dc, x, 64, w, 22, RGB(32, 36, 43));
+        fill(dc, x, 64, 3, 22, kHeading);
+        text(dc, L"SHORTCUTS", x + 10, 67, w, 18, kText, g.small);
+        fill(dc, x, 164, w, 22, RGB(32, 36, 43));
+        fill(dc, x, 164, 3, 22, kHeading);
+        text(dc, L"COMPONENTS", x + 10, 167, w, 18, kText, g.small);
+        if (g.withDrivers) {
+            text(dc, L"\u25a0 App and Mode Shim files\n\u25a0 Virtual wheel and hiding filter drivers\n"
+                     L"\u25a0 WheelBri Helper service and the drivers' certificate",
+                 x + 4, 194, w, 66, kFaint, g.font);
+            text(dc, L"required", x + w - 80, 194, 80, 20, kFaint, g.small, DT_RIGHT);
+        } else {
+            text(dc, L"\u25a0 App and Mode Shim files  (no drivers on " + windowsName() + L")", x + 4, 194, w, 22,
+                 kFaint, g.font);
+        }
+        fill(dc, x, 286, w, 22, RGB(32, 36, 43));
+        fill(dc, x, 286, 3, 22, kHeading);
+        text(dc, L"OTHER", x + 10, 289, w, 18, kText, g.small);
+        if (g.firefox) {
+            text(dc, L"Firefox keeps the wheel open, so WheelBri cannot hide it. The uninstaller turns it back on.",
+                 x + 22, 342, w - 22, 40, kFaint, g.small);
+        }
+        break;
+    }
+    case kReady: {
+        text(dc, L"READY TO INSTALL", x, 26, w, 24, kHeading, g.bold);
+        text(dc, L"Check your choices. Back changes them.", x, 56, w, 20, kDim, g.font);
+        fill(dc, x, 88, w, 210, kRail);
+        struct Kv { std::wstring k, v; };
+        const std::wstring folder = windowText(g.folderEdit);
+        const bool upgrade = !g.earlierFolder.empty() && _wcsicmp(folder.c_str(), g.earlierFolder.c_str()) == 0;
+        const std::vector<Kv> kv = {
+            {L"Program", folder + (upgrade ? L"  (upgrade from " + g.earlierVersion + L")" : L"")},
+            {L"Settings, logs", environment(L"LOCALAPPDATA") + L"\\wheelbri"},
+            {L"Start menu", checked(g.startMenu) ? windowText(g.startMenuName) : L"none"},
+            {L"Desktop", checked(g.desktop) ? L"shortcut" : L"none"},
+            {L"Drivers", g.withDrivers ? L"virtual wheel, hiding filter" : L"none (Mode Shim only)"},
+            {L"Service", g.withDrivers ? L"WheelBri Helper (starts with Windows)" : L"none"},
+            {L"Firefox", g.firefox && checked(g.firefoxBox) ? L"game controllers off" : L"left as it is"},
+            {L"When done", checked(g.launch) ? L"open WheelBri" : L"nothing"},
+        };
+        for (size_t i = 0; i < kv.size(); ++i) {
+            const int y = 98 + static_cast<int>(i) * 24;
+            text(dc, kv[i].k, x + 14, y, 140, 20, kDim, g.font, DT_LEFT | DT_SINGLELINE);
+            text(dc, kv[i].v, x + 160, y, w - 174, 20, kText, g.font, DT_LEFT | DT_SINGLELINE | DT_PATH_ELLIPSIS);
+        }
+        if (g.withDrivers) {
+            notice(dc, L"The drivers are signed with WheelBri's own certificate, not Microsoft's. Setup adds it to "
+                       L"the certificates this PC trusts; the uninstaller removes it.",
+                   x, 316, w, 60, kCaution, kCautionBack);
+        }
+        break;
+    }
+    case kInstalling: {
+        const bool bad = g.finished && g.exitCode != 0;
+        text(dc, bad ? L"INSTALLATION FAILED" : L"INSTALLING", x, 26, 300, 24, bad ? kWarning : kHeading, g.bold);
+        int done = 0;
+        for (const Row& r : g.rows) done += r.state != State::Wait && r.state != State::Run;
+        text(dc, std::to_wstring(done) + L" of " + std::to_wstring(g.rows.size()), x + w - 200, 30, 200 - 20, 20,
+             kDim, g.small, DT_RIGHT | DT_SINGLELINE);
+        text(dc, L"LOG", x, 298, 100, 18, kDim, g.small);
+        if (bad) notice(dc, g.failure, x, 478, w, 30, kWarning, kWarningBack);
+        break;
+    }
+    case kFinish: {
+        text(dc, L"\u2713 WHEELBRI " + g.version + L" IS INSTALLED", x, 26, w, 30, kActive, g.big);
+        int y = 70;
+        if (!g.warnings.empty()) {
+            std::wstring list = std::to_wstring(g.warnings.size()) +
+                                (g.warnings.size() == 1 ? L" thing to look at:" : L" things to look at:");
+            for (const std::wstring& line : g.warnings) list += L"\n\u2022 " + line;
+            const int h = 34 + 20 * static_cast<int>(std::min<size_t>(g.warnings.size(), 5));
+            notice(dc, list, x, y, w, h, kCaution, kCautionBack);
+            y += h + 14;
+        }
+        text(dc, L"NEXT", x, y, w, 18, kDim, g.small);
+        text(dc, g.withDrivers ? L"1. Restart Windows, plug in your wheel.\n2. Open WheelBri, set up your rig (Rig "
+                                 L"tab).\n3. Press Start: games now see a Logitech wheel."
+                               : L"1. Open WheelBri, set up your rig (Rig tab).\n2. Games tab: pick your game, choose "
+                                 L"its folder, Use for Start.\n3. Press Start before the game.",
+             x, y + 20, w, 70, kText, g.font);
+        text(dc, L"Uninstall: Start menu > WheelBri > Uninstall WheelBri, or Settings > Apps.", x, 470, w, 20, kFaint,
+             g.small);
+        break;
+    }
+    default: break;
+    }
+}
+
+void drawButton(const DRAWITEMSTRUCT& d) {
+    const bool primary = d.CtlID == kNext;
+    const bool disabled = d.itemState & ODS_DISABLED;
+    const bool pressed = d.itemState & ODS_SELECTED;
+    COLORREF backColour = primary ? kActive : kButton;
+    COLORREF edge = primary ? kActive : kFrame;
+    COLORREF fore = primary ? kDark : kText;
+    if (d.CtlID == kCopyLog || d.CtlID == kOpenLogs) backColour = kHeadingTint, edge = kHeadingTint, fore = kHeading;
+    if (disabled) backColour = RGB(31, 34, 40), edge = kRule, fore = RGB(107, 112, 121);
+    if (pressed && !disabled) backColour = primary ? RGB(48, 160, 76) : kRule;
+    HBRUSH b = CreateSolidBrush(backColour);
+    FillRect(d.hDC, &d.rcItem, b);
+    DeleteObject(b);
+    HBRUSH e = CreateSolidBrush(edge);
+    FrameRect(d.hDC, &d.rcItem, e);
+    DeleteObject(e);
+    wchar_t label[64]{};
+    GetWindowTextW(d.hwndItem, label, 64);
+    SetBkMode(d.hDC, TRANSPARENT);
+    SetTextColor(d.hDC, fore);
+    SelectObject(d.hDC, primary ? g.bold : g.font);
+    RECT r = d.rcItem;
+    DrawTextW(d.hDC, label, -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    if (d.itemState & ODS_FOCUS) {
+        InflateRect(&r, -3, -3);
+        DrawFocusRect(d.hDC, &r);
+    }
+}
+
+void drawRow(const DRAWITEMSTRUCT& d) {
+    if (d.itemID == static_cast<UINT>(-1) || d.itemID >= g.rows.size()) return;
+    const Row& row = g.rows[d.itemID];
+    COLORREF back = kRail, fore = kText, mark = kActive;
+    const wchar_t* glyph = L"\u25cb";
+    switch (row.state) {
+    case State::Wait: fore = kFaint; mark = kFaint; glyph = L"\u25cb"; break;
+    case State::Run: back = kHeadingTint; fore = kHeading; mark = kHeading; glyph = L"\u25d0"; break;
+    case State::Done: glyph = L"\u2713"; break;
+    case State::Warn: fore = kCaution; mark = kCaution; glyph = L"!"; break;
+    case State::Fail: back = kWarningBack; fore = kWarning; mark = kWarning; glyph = L"\u2717"; break;
+    case State::Skip: fore = RGB(107, 112, 121); mark = fore; glyph = L"\u2013"; break;
+    }
+    HBRUSH b = CreateSolidBrush(back);
+    FillRect(d.hDC, &d.rcItem, b);
+    DeleteObject(b);
+    SetBkMode(d.hDC, TRANSPARENT);
+    RECT r = d.rcItem;
+    r.left += px(10);
+    SelectObject(d.hDC, g.bold);
+    SetTextColor(d.hDC, mark);
+    RECT m = r;
+    m.right = m.left + px(16);
+    DrawTextW(d.hDC, glyph, -1, &m, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    r.left += px(26);
+    SelectObject(d.hDC, row.state == State::Run || row.state == State::Fail ? g.bold : g.font);
+    SetTextColor(d.hDC, fore);
+    DrawTextW(d.hDC, row.text, -1, &r, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    std::wstring note = row.note;
+    if (row.state == State::Run) note = L"running...";
+    if (!note.empty()) {
+        r.right -= px(10);
+        SelectObject(d.hDC, g.small);
+        SetTextColor(d.hDC, row.state == State::Run ? kHeading : kFaint);
+        DrawTextW(d.hDC, note.c_str(), -1, &r, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    }
+}
+
+LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(hwnd, &ps);
+        // Double-buffered: no flicker while the checklist updates.
+        RECT client{};
+        GetClientRect(hwnd, &client);
+        HDC memory = CreateCompatibleDC(dc);
+        HBITMAP bitmap = CreateCompatibleBitmap(dc, client.right, client.bottom);
+        HGDIOBJ old = SelectObject(memory, bitmap);
+        paint(memory);
+        BitBlt(dc, 0, 0, client.right, client.bottom, memory, 0, 0, SRCCOPY);
+        SelectObject(memory, old);
+        DeleteObject(bitmap);
+        DeleteDC(memory);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_ERASEBKGND: return 1;
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORBTN: {
+        HDC dc = reinterpret_cast<HDC>(wParam);
+        const bool log = reinterpret_cast<HWND>(lParam) == g.logEdit;
+        SetTextColor(dc, log ? kDim : kText);
+        SetBkColor(dc, log ? kLog : kBackground);
+        return reinterpret_cast<LRESULT>(log ? g.logBrush : g.backBrush);
+    }
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORLISTBOX: {
+        HDC dc = reinterpret_cast<HDC>(wParam);
+        SetTextColor(dc, kText);
+        SetBkColor(dc, message == WM_CTLCOLORLISTBOX ? kRail : kField);
+        return reinterpret_cast<LRESULT>(message == WM_CTLCOLORLISTBOX ? g.railBrush : g.fieldBrush);
+    }
+    case WM_MEASUREITEM: {
+        auto* m = reinterpret_cast<MEASUREITEMSTRUCT*>(lParam);
+        m->itemHeight = static_cast<UINT>(px(21));
+        return TRUE;
+    }
+    case WM_DRAWITEM: {
+        const auto* d = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+        if (d->CtlType == ODT_BUTTON) drawButton(*d);
+        else if (d->CtlType == ODT_LISTBOX) drawRow(*d);
+        return TRUE;
+    }
+    case WM_COMMAND:
+        switch (LOWORD(wParam)) {
+        case kNext: onNext(); break;
+        case kBack: if (g.page > kWelcome) showPage(static_cast<Page>(g.page - 1)); break;
+        case kCancel: if (confirmCancel()) DestroyWindow(hwnd); break;
+        case kBrowse: browse(); break;
+        case kDefaultFolder: SetWindowTextW(g.folderEdit, defaultFolder().c_str()); InvalidateRect(hwnd, nullptr, TRUE); break;
+        case kFolderEdit: if (HIWORD(wParam) == EN_CHANGE) { RECT r{px(200), px(160), px(780), px(320)}; InvalidateRect(hwnd, &r, TRUE); } break;
+        case kStartMenu: EnableWindow(g.startMenuName, checked(g.startMenu)); break;
+        case kCopyLog: copyLog(); break;
+        case kOpenLogs: openAsUser(g.logFolder); break;
+        default: break;
+        }
+        return 0;
+    case kLineMessage: {
+        auto* line = reinterpret_cast<std::wstring*>(lParam);
+        onLine(*line);
+        delete line;
+        return 0;
+    }
+    case kExitMessage: onExit(static_cast<int>(wParam)); return 0;
+    case WM_CLOSE:
+        if (g.running) return 0;   // never in the middle of a driver install
+        if (g.page < kInstalling && !confirmCancel()) return 0;
+        DestroyWindow(hwnd);
+        return 0;
+    case WM_DESTROY: PostQuitMessage(0); return 0;
+    default: return DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+}
+
+HFONT makeFont(const int size, const int weight) {
+    return CreateFontW(-px(size), 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                       CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
+}
+
+}  // namespace
+
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
+    SetProcessDPIAware();
+    // Administrator first (the drivers need it): ask once, then this copy ends.
+    if (!isElevated()) {
+        wchar_t self[MAX_PATH * 2]{};
+        GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)));
+        SHELLEXECUTEINFOW info{sizeof(info)};
+        info.lpVerb = L"runas";
+        info.lpFile = self;
+        info.nShow = SW_SHOWNORMAL;
+        if (!ShellExecuteExW(&info)) {
+            MessageBoxW(nullptr, L"WheelBri needs Administrator to install its drivers, and that was refused.",
+                        L"WheelBri Setup", MB_ICONERROR);
+            return 1;
+        }
+        return 0;
+    }
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_PROGRESS_CLASS | ICC_STANDARD_CLASSES};
+    InitCommonControlsEx(&controls);
+    g.instance = instance;
+
+    std::wstring problem;
+    if (!findPackage(problem)) {
+        MessageBoxW(nullptr, problem.c_str(), L"WheelBri Setup", MB_ICONERROR);
+        return 1;
+    }
+    detect();
+    if (g.build < 7601) {
+        MessageBoxW(nullptr, L"WheelBri needs Windows 7 SP1 or newer.", L"WheelBri Setup", MB_ICONERROR);
+        return 1;
+    }
+
+    HDC screen = GetDC(nullptr);
+    g.scale = GetDeviceCaps(screen, LOGPIXELSY) / 96.0;
+    ReleaseDC(nullptr, screen);
+    g.font = makeFont(14, FW_NORMAL);
+    g.bold = makeFont(14, FW_BOLD);
+    g.big = makeFont(19, FW_BOLD);
+    g.small = makeFont(12, FW_NORMAL);
+    g.backBrush = CreateSolidBrush(kBackground);
+    g.fieldBrush = CreateSolidBrush(kField);
+    g.logBrush = CreateSolidBrush(kLog);
+    g.railBrush = CreateSolidBrush(kRail);
+
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = windowProc;
+    wc.hInstance = instance;
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(1));
+    wc.lpszClassName = L"WheelBriSetup";
+    RegisterClassW(&wc);
+
+    const std::wstring title = L"WheelBri " + g.version + L" Setup";
+    constexpr DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    RECT size{0, 0, px(780), px(570)};
+    AdjustWindowRect(&size, style, FALSE);
+    g.window = CreateWindowExW(0, wc.lpszClassName, title.c_str(), style, CW_USEDEFAULT, CW_USEDEFAULT,
+                               size.right - size.left, size.bottom - size.top, nullptr, nullptr, instance, nullptr);
+    initRows();
+    createControls();
+    showPage(kWelcome);
+    ShowWindow(g.window, show);
+
+    MSG msg;
+    while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (!IsDialogMessageW(g.window, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+    CoUninitialize();
+    return 0;
+}

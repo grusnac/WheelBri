@@ -304,6 +304,11 @@ try {
         Remove-Item (Join-Path $programs "$name.lnk") -Force -ErrorAction SilentlyContinue      # older installs
         Remove-Item (Join-Path $desktop "$name.lnk") -Force -ErrorAction SilentlyContinue
     }
+    # The Start menu folder the installer was told to use (install.ps1 -StartMenuFolder), recorded in the entry.
+    $menuFolder = (Get-ItemProperty -Path $uninstallKey -Name StartMenuFolder -ErrorAction SilentlyContinue).StartMenuFolder
+    if ($menuFolder -and $menuFolder -notmatch '\.\.' -and -not [IO.Path]::IsPathRooted($menuFolder)) {
+        Remove-Item (Join-Path $programs $menuFolder) -Recurse -Force -ErrorAction SilentlyContinue
+    }
     Remove-Item $uninstallKey -Recurse -Force -ErrorAction SilentlyContinue
     # Firefox's gamepad support, when the installer turned it off (install.ps1 6b): only that preference goes, for the
     # user it was set for; any other preference or policy there stays. Before HKLM\SOFTWARE\wheelbri, which records it.
