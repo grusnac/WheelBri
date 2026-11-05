@@ -238,7 +238,12 @@ TEST(AsyncFfbSink, ACommandThatWaitedLongGoesFirst) {
     sink.play(7, constant(0.1F));   // busy for longer than kMaxWait
     log->waitForFirstCall();
     sink.play(0, ofType(FfbEffectType::Spring));   // waits through all of it
-    std::this_thread::sleep_for(AsyncFfbSink::kMaxWait + std::chrono::milliseconds(5));
+    // Measured, not one sleep_for: on Windows a sleep can end short of what was asked, and the spring would then
+    // not have waited kMaxWait when the worker chooses.
+    const auto queued = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - queued < AsyncFfbSink::kMaxWait + std::chrono::milliseconds(5)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     sink.play(1, constant(0.2F));                  // fresh: would go first if the spring had not waited
     log->holdCalls(false);
     sink.flush();

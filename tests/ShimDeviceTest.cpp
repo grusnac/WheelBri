@@ -44,15 +44,16 @@ using test::FakeEffect;
 // with the tests' ports and the wheel the fakes describe (346e). That file and the ports are the whole computer's, so a
 // test runner running tests side by side (ctest -j: one process per test) must never have two of these at once: the
 // program takes a named mutex before it writes the file and keeps it until it ends (one that dies releases it too).
-// Only a program that runs a Shim* test waits for it, so the other tests still run side by side.
+// Only a program that runs a Shim* test waits for it, so the other tests still run side by side. Taken when the suite
+// starts, before its SetUpTestSuite: ShimDll's empties and refills a temporary folder every such program shares.
 class ShimTestPorts : public ::testing::EmptyTestEventListener {
 public:
     ~ShimTestPorts() override {
         if (owned_) ::ReleaseMutex(lock_);
         if (lock_ != nullptr) ::CloseHandle(lock_);
     }
-    void OnTestStart(const ::testing::TestInfo& info) override {
-        if (taken_ || std::string_view(info.test_suite_name()).rfind("Shim", 0) != 0) return;
+    void OnTestSuiteStart(const ::testing::TestSuite& suite) override {
+        if (taken_ || std::string_view(suite.name()).rfind("Shim", 0) != 0) return;
         taken_ = true;
         lock_ = ::CreateMutexW(nullptr, FALSE, L"Local\\wheelbri-shim-tests");
         if (lock_ != nullptr) {
