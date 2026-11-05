@@ -151,7 +151,8 @@ std::wstring powershell() { return system32(L"WindowsPowerShell\\v1.0\\powershel
 
 // Runs a command line, hidden, and waits; its exit code (or -1).
 int runHidden(std::wstring commandLine) {
-    STARTUPINFOW si{sizeof(si)};
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
     if (!CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
                         &pi)) {
@@ -177,7 +178,8 @@ bool isElevated() {
 
 DWORD windowsBuild() {
     using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
-    OSVERSIONINFOW info{sizeof(info)};
+    OSVERSIONINFOW info{};
+    info.dwOSVersionInfoSize = sizeof(info);
     if (auto fn = reinterpret_cast<RtlGetVersionFn>(
             reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion")))) {
         fn(&info);
@@ -503,7 +505,8 @@ void startInstall() {
     CreatePipe(&readEnd, &writeEnd, &sa, 0);
     SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
     HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, 0, &sa, OPEN_EXISTING, 0, nullptr);
-    STARTUPINFOW si{sizeof(si)};
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdInput = nul;
     si.hStdOutput = writeEnd;
@@ -1219,7 +1222,8 @@ bool runFromTempCopy(const std::wstring& arguments) {
         return false;
     }
     std::wstring command = quoted(copy) + L" " + arguments + L" --temp-copy";
-    STARTUPINFOW si{sizeof(si)};
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
     if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, folder.c_str(), &si, &pi)) {
         return false;
@@ -1256,7 +1260,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (!isElevated()) {
         wchar_t self[MAX_PATH * 2]{};
         GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)));
-        SHELLEXECUTEINFOW info{sizeof(info)};
+        SHELLEXECUTEINFOW info{};
+        info.cbSize = sizeof(info);
         info.fMask = SEE_MASK_NOCLOSEPROCESS;
         info.lpVerb = L"runas";
         info.lpFile = self;
