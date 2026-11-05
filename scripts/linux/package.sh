@@ -45,7 +45,7 @@ cmake --install "$build" --prefix "$bundle"
 mkdir -p "$bundle/config"
 cp "$root"/config/*.ini "$bundle/config/"
 cp "$root/scripts/linux/wheelbri.sh" "$root/scripts/linux/install-udev-rules.sh" "$bundle/"
-cp "$root/README.md" "$root/CHANGELOG.md" "$bundle/"
+cp "$root/README.md" "$root/CHANGELOG.md" "$root/LICENSE" "$root/THIRD-PARTY-NOTICES.md" "$bundle/"
 mkdir -p "$bundle/docs"
 cp "$root"/docs/*.md "$bundle/docs/"
 if [ -d "$root/docs/images" ]; then cp -r "$root/docs/images" "$bundle/docs/"; fi

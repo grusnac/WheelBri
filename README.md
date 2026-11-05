@@ -108,6 +108,25 @@ Next: [User guide](docs/user-guide.md).
 
 ## Licence
 
+Copyright (C) 2026 Grigore Rusnac.
+
+WheelBri is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+It is distributed in the hope that it will be useful, but **without any warranty**; without even the implied warranty
+of merchantability or fitness for a particular purpose. See [LICENSE](LICENSE) for the full text.
+
+Parts come from other projects under their own licences: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 Nothing is copied from GIMX (GPLv3). `tools/uhid` is written from the kernel's `linux/uhid.h`, the HID descriptor
-comes from HIDMaestro's builder (MIT, noted in `core/src/HidWheelDevice.cpp`), HID++ from its public description.
-WheelBri never ships Logitech's files.
+comes from HIDMaestro's builder (MIT), HID++ from its public description. WheelBri never ships Logitech's files.
+
+### Trademarks
+
+WheelBri is an independent project, **not affiliated with, endorsed or sponsored by Logitech**. Logitech, G HUB, G25,
+G27, G920, G923 and TrueForce are trademarks of Logitech; Moza is a trademark of its owner. The names are used only to
+say which wheels WheelBri presents your rig as, and which it was tested with.
+
+### Safety
+
+Force feedback moves a motor that can hurt hands, wrists and thumbs. WheelBri limits what games send, but you use it
+at your own risk: keep your wheel's own torque limit set, hold the rim with open thumbs, and stop a session (or switch
+the wheel off) if anything behaves oddly.

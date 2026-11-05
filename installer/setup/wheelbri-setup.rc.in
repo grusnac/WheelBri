@@ -16,6 +16,8 @@ BEGIN
         BEGIN
             VALUE "FileDescription", "WheelBri setup and uninstaller"
             VALUE "ProductName", "WheelBri"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Grigore Rusnac. GPL-3.0-or-later, no warranty."
+            VALUE "LegalTrademarks", "Logitech and its wheel names are trademarks of Logitech. WheelBri is not affiliated with Logitech."
             VALUE "FileVersion", "@PROJECT_VERSION@"
             VALUE "ProductVersion", "@PROJECT_VERSION@"
             VALUE "OriginalFilename", "wheelbri-setup.exe"

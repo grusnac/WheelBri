@@ -851,6 +851,9 @@ void paint(HDC dc) {
         }
         text(dc, L"\u2713", x + 14, 226, 16, 20, kActive, g.font);
         text(dc, L"Running as Administrator (needed for the drivers)", x + 36, 226, w - 50, 20, kText, g.font);
+        text(dc, L"WheelBri is free software under the GNU GPL v3 or later (LICENSE.txt), with no warranty. "
+                 L"It is not affiliated with or endorsed by Logitech; Logitech and its wheel names are its trademarks.",
+             x, 290, w, 60, kDim, g.font);
         text(dc, L"Close WheelBri and any game before you go on. Setup closes a running WheelBri for you.", x, 440, w,
              40, kDim, g.font);
         break;
