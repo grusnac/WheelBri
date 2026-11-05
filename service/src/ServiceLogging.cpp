@@ -225,104 +225,6 @@ std::filesystem::path appStateFile() { return userSettingsFolder() / "app.ini"; 
 
 std::filesystem::path shimGamesFile() { return userSettingsFolder() / "shim-games.txt"; }
 
-namespace {
-
-constexpr const char* kOldName = "wheelemu";   // the project's name before the rename
-constexpr const char* kName = "wheelbri";
-
-// What moveFoldersFromOldName did, logged once logging runs.
-std::vector<std::string>& migrationNotes() {
-    static std::vector<std::string> notes;
-    return notes;
-}
-
-// `folder` with its last "wheelbri" component named the old way (the folder the old version used). Only that one: an
-// earlier "wheelbri" in the path (a user called wheelbri) is someone's folder, not the project's.
-std::filesystem::path oldNameOf(const std::filesystem::path& folder) {
-    std::vector<std::filesystem::path> parts(folder.begin(), folder.end());
-    for (auto part = parts.rbegin(); part != parts.rend(); ++part) {
-        if (*part == kName) {
-            *part = kOldName;
-            break;
-        }
-    }
-    std::filesystem::path result;
-    for (const std::filesystem::path& part : parts) result /= part;
-    return result;
-}
-
-// Moves everything in `from` into `to` (entries already there stay, and the old one with them), then removes `from`
-// if it ended up empty.
-void moveInto(const std::filesystem::path& from, const std::filesystem::path& to) {
-    std::error_code ec;
-    if (!std::filesystem::is_directory(from, ec)) return;
-    if (!std::filesystem::exists(to, ec)) {
-        std::filesystem::create_directories(to.parent_path(), ec);
-        std::filesystem::rename(from, to, ec);
-        if (!ec) {
-            migrationNotes().push_back("moved " + pathToUtf8(from) + " to " + pathToUtf8(to) + " (the project's old name)");
-            return;
-        }
-        std::filesystem::create_directories(to, ec);
-    }
-    int moved = 0;
-    int left = 0;
-    forEachEntry(from, [&](const std::filesystem::directory_entry& entry) {
-        const std::filesystem::path target = to / entry.path().filename();
-        std::error_code entryError;
-        if (std::filesystem::exists(target, entryError)) {
-            if (entry.is_directory(entryError) && std::filesystem::is_directory(target, entryError)) {
-                moveInto(entry.path(), target);   // e.g. logs\ next to a new logs\: their files merge
-            } else {
-                ++left;
-            }
-            return;
-        }
-        std::filesystem::rename(entry.path(), target, entryError);
-        if (entryError) {
-            ++left;
-        } else {
-            ++moved;
-        }
-    });
-    std::filesystem::remove(from, ec);   // only when empty
-    migrationNotes().push_back("moved " + std::to_string(moved) + " entries from " + pathToUtf8(from) + " to " +
-                               pathToUtf8(to) + (left > 0 ? "; " + std::to_string(left) + " stay there (already in the "
-                                                                                      "new folder, or in use)"
-                                                       : ""));
-}
-
-// app.ini names the picked config by its full path, which may be in the old folder.
-void rewriteOldPaths(const std::filesystem::path& file) {
-    const std::optional<std::string> read = readFileText(file);
-    if (!read) return;
-    std::string text = *read;
-    bool changed = false;
-    for (const char separator : {'\\', '/'}) {
-        const std::string from = std::string(1, separator) + kOldName + separator;
-        const std::string to = std::string(1, separator) + kName + separator;
-        for (std::size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size())) {
-            text.replace(at, from.size(), to);
-            changed = true;
-        }
-    }
-    if (changed && writeFileReplacing(file, text)) {
-        migrationNotes().push_back("app.ini: paths to the old folder now point to the new one");
-    }
-}
-
-}  // namespace
-
-void moveFoldersFromOldName() {
-    const std::filesystem::path settings = userSettingsFolder();
-    const std::filesystem::path logs = logsFolder();
-    for (const std::filesystem::path& folder : {settings, logs}) {
-        const std::filesystem::path old = oldNameOf(folder);
-        if (old != folder) moveInto(old, folder);
-    }
-    rewriteOldPaths(appStateFile());
-}
-
 #ifdef _WIN32
 namespace {
 
@@ -439,10 +341,6 @@ void logStartupBanner(const std::string& configPath) {
     const logging::Logger logger = logging::get("service");
     WE_LOG_INFO(logger, "wheelbri-service {} starting on {}", WHEELBRI_VERSION, platform::name());
     WE_LOG_INFO(logger, "config: {}", configPath.empty() ? std::string("(built-in defaults)") : configPath);
-    for (const std::string& note : migrationNotes()) {
-        WE_LOG_INFO(logger, "rename: {}", note);
-    }
-    migrationNotes().clear();
     const std::string envLevels = envOrEmpty("SPDLOG_LEVEL");
     if (!envLevels.empty()) {
         WE_LOG_INFO(logger, "log levels overridden by SPDLOG_LEVEL='{}'", envLevels);

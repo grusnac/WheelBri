@@ -292,12 +292,11 @@ function Get-InstalledPackages([string]$name) {
     return $found
 }
 
-# The driver's older names: wheelemu-<x> (the project before the rename to wheelbri on 2026-10-03), and for the virtual
-# wheel wheelbri-g920 / wheelemu-g920 (it was named after its first wheel until 2026-10-19, wheelbri-wheel since).
+# The driver's older names: for the virtual wheel wheelbri-g920 (it was named after its first wheel until 2026-10-19,
+# wheelbri-wheel since).
 function Get-LegacyNames([string]$name) {
-    $names = @($name -replace '^wheelbri-', 'wheelemu-')
-    if ($name -eq 'wheelbri-wheel') { $names += @('wheelbri-g920', 'wheelemu-g920') }
-    return @($names | Where-Object { $_ -ne $name } | Select-Object -Unique)
+    if ($name -eq 'wheelbri-wheel') { return @('wheelbri-g920') }
+    return @()
 }
 
 # The same driver under an older name (Get-LegacyNames): removed before the new one goes on, so two hiding filters
@@ -334,12 +333,12 @@ function Get-DevicesUsing([string]$name) {
     return @($present | Where-Object { $using -contains $_.InstanceId })
 }
 
-# The virtual wheels the app creates (SWD\wheelbri\G25_<n>, G27_<n>, G920_<n>, G923_<n>; SWD\wheelemu\... from before
-# the rename) and the HID devices under them, present or not: after a crash, or a wheel Windows kept half-removed, they
-# stay listed (Device Manager > Show hidden devices). Children first. Returns how many could not be removed.
+# The virtual wheels the app creates (SWD\wheelbri\G25_<n>, G27_<n>, G920_<n>, G923_<n>) and the HID devices under
+# them, present or not: after a crash, or a wheel Windows kept half-removed, they stay listed (Device Manager > Show
+# hidden devices). Children first. Returns how many could not be removed.
 function Remove-VirtualDevices {
     $all = @(Get-PnpDevice -ErrorAction SilentlyContinue)
-    $ours = @($all | Where-Object { $_.InstanceId -like 'SWD\wheelbri\*' -or $_.InstanceId -like 'SWD\wheelemu\*' })
+    $ours = @($all | Where-Object { $_.InstanceId -like 'SWD\wheelbri\*' })
     if ($ours.Count -eq 0) { return 0 }
     $ids = @($ours | ForEach-Object { $_.InstanceId })
     $hid = @($all | Where-Object { $_.Class -eq 'HIDClass' -and $ids -notcontains $_.InstanceId })

@@ -17,13 +17,6 @@ modules=/etc/modules-load.d/wheelbri.conf
 limits=/etc/security/limits.d/70-wheelbri.conf
 user=${SUDO_USER:-$USER}   # run with or without sudo in front: the user at the desk either way
 group=wheelbri             # may use /dev/uhid
-# The same files under the project's old name (wheelemu, before the rename): removed in both cases.
-old_rules=/etc/udev/rules.d/70-wheelemu.rules
-old_modules=/etc/modules-load.d/wheelemu.conf
-if [ -e "$old_rules" ] || [ -e "$old_modules" ]; then
-    sudo rm -f "$old_rules" "$old_modules"
-    echo "removed $old_rules and $old_modules (the old name)"
-fi
 
 if [ "${1:-}" = "--remove" ]; then
     sudo rm -f "$rules" "$modules" "$limits"

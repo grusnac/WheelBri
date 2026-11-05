@@ -55,9 +55,6 @@ TEST(Retention, OnlyTouchesItsOwnFiles) {
     EXPECT_TRUE(isManagedFile("wheelbri-shim-2026-09-30.log"));
     EXPECT_TRUE(isManagedFile("wheelbri-bridge-2026-09-30.log"));
     EXPECT_TRUE(isManagedFile("wheelbri-logi-2026-10-11-01.log"));   // wheelbri-logi.dll inside a game
-    EXPECT_TRUE(isManagedFile("wheelemu-service-2026-09-30.log"));   // the old name: moved in with the folder
-    EXPECT_TRUE(isManagedFile("wheelemu-shim-2026-09-30.log"));
-    EXPECT_FALSE(isManagedFile("wheelemu.ini"));
     EXPECT_TRUE(isManagedFile("telemetry-2026-09-30.csv"));
     EXPECT_TRUE(isManagedFile("telemetry-2026-09-30.log"));   // since format 3
     EXPECT_TRUE(isManagedFile("ffb-2026-09-30.log"));
@@ -133,12 +130,11 @@ TEST(LocalDate, RejectsWhatIsNotACalendarDate) {
     EXPECT_EQ(findDate("x-2026-0a-30-20260930.log"), "2026-09-30");   // a later good one is found
 }
 
-// Upper case (Windows names), every component's prefix and the old wheelemu names are WheelBri's; names that only
-// look alike are not.
+// Upper case (Windows names) and every component's prefix are WheelBri's; names that only look alike are not.
 TEST(Retention, KnowsEveryComponentAndNothingElse) {
     for (const char* ours : {"WheelBri-Service-2026-09-30-01.LOG", "wheelbri-uhid-2026-09-30-01.log",
                              "wheelbri-sh-2026-09-30-01.log", "wheelbri-sh.log", "wheelbri-logs-2026-09-30.zip",
-                             "wheelemu-driver-2026-09-30.log", "TELEMETRY-2026-09-30-01.log"}) {
+                             "wheelbri-driver-2026-09-30.log", "TELEMETRY-2026-09-30-01.log"}) {
         EXPECT_TRUE(isManagedFile(ours)) << ours;
     }
     for (const char* theirs : {"wheelbri-shortcut-2026-09-30.lnk", "wheelbri.ini", "app.ini", "my-g920.ini",
@@ -183,10 +179,10 @@ TEST_F(RetentionFolder, NeverListsWhatIsNotWheelBrisOwnFile) {
                                                "telemetry-\xC3\xBC-2026-09-01-01.log"}));
 }
 
-// Every component's log is recognised under both names the project has had, and only with the dash that
+// Every component's log is recognised, in either case, and only with the dash that
 // ends the component ("wheelbri-shimmy" is still the shim's; "wheelbri-shx" is no one's).
-TEST(Retention, EveryComponentUnderBothNames) {
-    for (const char* project : {"wheelbri", "wheelemu", "WheelBri"}) {
+TEST(Retention, EveryComponentInEitherCase) {
+    for (const char* project : {"wheelbri", "WheelBri"}) {
         for (const char* component : {"-service-", "-shim-", "-bridge-", "-logs-", "-driver-", "-hide-", "-install-",
                                       "-uhid-", "-helper-", "-logi-", "-sh.", "-sh-"}) {
             const std::string name = std::string(project) + component + "2026-09-30.log";

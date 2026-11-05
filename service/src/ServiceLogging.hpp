@@ -50,12 +50,6 @@ namespace wheelbri::service {
 // Tells the user why WheelBri cannot start: a message box in the window build (`window`), stderr otherwise.
 void reportStartupProblem(const std::string& text, bool window);
 
-// The project was called wheelemu before 2026-10-03: moves the user's folders from that name to wheelbri (rigs,
-// configs, app.ini, logs, telemetry), once, before anything opens them. Entries already in the new folder are kept
-// and the old one is left with what could not move. Paths to the old folder inside app.ini are rewritten. Call it
-// first in main(); logStartupBanner logs what it did.
-void moveFoldersFromOldName();
-
 // One folder for every log, the user's (Windows: %LOCALAPPDATA%\wheelbri\logs): the drivers run as LocalService and
 // would otherwise write to C:\ProgramData\wheelbri\logs. As Administrator (the app) this lets LocalService write in
 // `folder`, tells the drivers where it is (HKLM\SOFTWARE\wheelbri LogFolder, read for every line they write) and

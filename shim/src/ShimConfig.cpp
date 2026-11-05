@@ -28,14 +28,8 @@ std::optional<std::uint32_t> parseHex(const std::string& text) {
 }
 
 ShimConfig load(const logging::Logger& log) {
-    std::wstring path = dllDirectory() + L"wheelbri-shim.ini";
+    const std::wstring path = dllDirectory() + L"wheelbri-shim.ini";
     std::ifstream file(path.c_str());
-    if (!file) {
-        // The name before the project's rename (wheelemu): a game folder set up then keeps its settings.
-        const std::wstring old = dllDirectory() + L"wheelemu-shim.ini";
-        file.open(old.c_str());
-        if (file) path = old;
-    }
     if (!file) {
         WE_LOG_INFO(log, "no '{}', using defaults", toUtf8(path.c_str()));
         std::vector<std::string> none;

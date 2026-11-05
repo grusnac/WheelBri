@@ -297,21 +297,19 @@ try {
     . (Join-Path $package 'driver\common.ps1')   # the install folder's helpers (Remove-Tree, Remove-InstallFolder)
     # The install folder: new, empty, or an earlier install (its program or its installed-files.txt is there).
     # Anything else is refused: the uninstaller removes what the installer put there, and other files do not belong
-    # in it. wheelemu.exe: the program's name before the rename to WheelBri.
+    # in it.
     if (Test-Path -LiteralPath $InstallDir) {
         $isFolder = Test-Path -LiteralPath $InstallDir -PathType Container
         $empty = $isFolder -and @(Get-ChildItem -LiteralPath $InstallDir -Force).Count -eq 0
-        # An earlier install: one with its installed-files.txt, or the folder Settings > Apps records for WheelBri (or
-        # wheelemu) with the program in it. Not any folder that happens to hold a wheelbri.exe (a build folder, a
+        # An earlier install: one with its installed-files.txt, or the folder Settings > Apps records for WheelBri
+        # with the program in it. Not any folder that happens to hold a wheelbri.exe (a build folder, a
         # portable copy): without a list, every file in it would count as WheelBri's and go at uninstall.
         $earlier = Test-Path -LiteralPath (Join-Path $InstallDir 'installed-files.txt') -PathType Leaf
         if (-not $earlier) {
-            foreach ($name in 'wheelbri', 'wheelemu') {
-                $recorded = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$name" `
-                                              -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
-                if ($recorded -and $recorded.TrimEnd('\') -ieq $InstallDir.TrimEnd('\') -and
-                    (Test-Path -LiteralPath (Join-Path $InstallDir "$name.exe") -PathType Leaf)) { $earlier = $true }
-            }
+            $recorded = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\wheelbri' `
+                                          -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
+            if ($recorded -and $recorded.TrimEnd('\') -ieq $InstallDir.TrimEnd('\') -and
+                (Test-Path -LiteralPath (Join-Path $InstallDir 'wheelbri.exe') -PathType Leaf)) { $earlier = $true }
         }
         if (Test-Path -LiteralPath (Join-Path $InstallDir 'install.ps1')) {
             Fail "$InstallDir is a WheelBri package, not an install folder: choose another folder (-InstallDir)."
@@ -329,9 +327,7 @@ try {
 
     # --- 2. a running copy ----------------------------------------------------------------------------------------
     Step 'closing a running WheelBri'
-    # Also the same programs under the project's old name (wheelemu, before the rename to wheelbri).
-    $running = @(Get-Process -Name 'wheelbri', 'wheelbri-service', 'wheelbri-bridge', 'wheelemu', 'wheelemu-service',
-                                   'wheelemu-bridge' -ErrorAction SilentlyContinue)
+    $running = @(Get-Process -Name 'wheelbri', 'wheelbri-service', 'wheelbri-bridge' -ErrorAction SilentlyContinue)
     if ($running.Count -eq 0) {
         Write-Host '    none running'
     } else {
@@ -360,36 +356,6 @@ try {
         Write-Host '    stopped the WheelBri Helper service'
     }
 
-    # --- 2b. a version from before the rename (wheelemu) ------------------------------------------------------------
-    # Everything that version named wheelemu goes: its Settings > Apps entry (its folder is handled with the files
-    # below), its hide setting and its virtual devices. Its drivers (wheelemu-*.inf) are removed by the driver install
-    # scripts in step 4; its data (%LOCALAPPDATA%\wheelemu) moves to %LOCALAPPDATA%\wheelbri when the app first starts.
-    $legacy = 'wheelemu'
-    $legacyKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$legacy"
-    $legacyInstall = (Get-ItemProperty -Path $legacyKey -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
-    # Get-PnpDevice is Windows 8+ (that version needed Windows 11 anyway).
-    $legacyDevices = @()
-    if (Get-Command Get-PnpDevice -ErrorAction SilentlyContinue) {
-        $legacyDevices = @(Get-PnpDevice -ErrorAction SilentlyContinue |
-                           Where-Object { $_.InstanceId -like "SWD\$legacy\*" })
-    }
-    if ($legacyInstall -or $legacyDevices.Count -gt 0 -or (Test-Path "HKLM:\SOFTWARE\$legacy")) {
-        Write-Host "    removing the version from before the rename ($legacy)"   # part of step 2: not numbered
-        foreach ($device in $legacyDevices) {
-            pnputil /remove-device "$($device.InstanceId)" | Out-Null
-            $code = $LASTEXITCODE
-            if ($script:PnputilOk -contains $code) {   # 0, 259, 3010 (common.ps1)
-                Write-Host "    removed the old device $($device.InstanceId)"
-                if ($code -eq 3010) { Warn '    Windows finishes removing it at the next restart' }
-            } else {
-                Warn ("    could not remove the old device $($device.InstanceId) (pnputil exit code $code): Device Manager > " +
-                      'View > Show hidden devices > Uninstall')
-            }
-        }
-        Remove-Item "HKLM:\SOFTWARE\$legacy" -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host "    removed HKLM\SOFTWARE\$legacy"
-    }
-
     # --- 3. files -------------------------------------------------------------------------------------------------
     Step "copying the program to $InstallDir"
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
@@ -405,23 +371,13 @@ try {
         }
         Write-Host "    $InstallDir protected like Program Files (only Administrators may change it)"
     }
-    # An earlier install in another folder (C:\Program Files\wheelemu, or another folder picked then): its settings come
-    # along, and the old folder goes once the new one works. Only a real install folder (the app's exe, no
-    # install.ps1). Its entry in Settings > Apps is this version's (wheelbri) or the one from before the rename.
+    # An earlier install in another folder: its settings come along, and the old folder goes once the new one works.
+    # Only a real install folder (the app's exe, no install.ps1).
     $uninstallKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\wheelbri'
     $previous = (Get-ItemProperty -Path $uninstallKey -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
-    if (-not $previous) { $previous = $legacyInstall }
     $oldFolder = $null
-    $isInstall = { param($folder) ((Test-Path -LiteralPath (Join-Path $folder 'wheelbri.exe')) -or
-                                   (Test-Path -LiteralPath (Join-Path $folder "$legacy.exe"))) -and
+    $isInstall = { param($folder) (Test-Path -LiteralPath (Join-Path $folder 'wheelbri.exe')) -and
                                   -not (Test-Path -LiteralPath (Join-Path $folder 'install.ps1')) }
-    # The version from before the rename in this same folder: its program files go (their names changed, so the copy
-    # below would leave them next to the new ones); its config stays.
-    if ($previous -and ($previous.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) -and (Test-Path -LiteralPath (Join-Path $InstallDir "$legacy.exe"))) {
-        Get-ChildItem -LiteralPath $InstallDir -Force | Where-Object { $_.Name -ne 'config' } |
-            ForEach-Object { Remove-Tree $_.FullName }   # links removed as links, never followed
-        Write-Host "    removed the old program files from $InstallDir (your config stays)"
-    }
     if ($previous -and ($previous.TrimEnd('\') -ine $InstallDir.TrimEnd('\')) -and (& $isInstall $previous)) {
         $oldFolder = $previous
         New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir 'config') | Out-Null
@@ -670,7 +626,6 @@ try {
     # --- 6. uninstall entry ---------------------------------------------------------------------------------------
     Step 'adding WheelBri to Settings > Apps'
     $key = $uninstallKey   # the same key every version, so an upgrade replaces the entry instead of adding one
-    Remove-Item $legacyKey -Recurse -Force -ErrorAction SilentlyContinue   # the entry from before the rename
     New-Item -Path $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'uninstall.ps1')`""
     $uninstallGui = "`"$uninstallProgram`" $uninstallArguments"   # Settings > Apps' Uninstall (the quiet one stays the script)

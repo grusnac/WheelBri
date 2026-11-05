@@ -1,6 +1,5 @@
-# Removes everything WheelBri (internal name wheelbri; wheelemu before the rename) has put on this PC, so the next
+# Removes everything WheelBri (internal name wheelbri) has put on this PC, so the next
 # install starts from a clean PC. It lists what it found, asks once, then removes it. It asks for Administrator itself.
-# Every name below is looked for under both names: $names = wheelbri and the old wheelemu.
 #
 #   clean-pc.ps1                          list, ask, remove
 #   clean-pc.ps1 -Yes                     no question
@@ -14,7 +13,7 @@
 #                                         shim-games.txt) are cleaned without it. In each: dinput8.dll and
 #                                         dinput8Hooked.dll (its name next to the Ultimate ASI Loader), and their
 #                                         .off copies, when they are ours (another mod's, the ASI Loader included,
-#                                         stays), and wheelbri-shim.ini / wheelemu-shim.ini; a mod the app chained
+#                                         stays), and wheelbri-shim.ini; a mod the app chained
 #                                         (dinput8-chain.dll) gets its name back (a dinput8-chain.dll.old stays)
 #   clean-pc.ps1 -KeepThirdParty          keep HidHide and HIDMaestro (drivers and devices), which the project used
 #                                         before it had its own drivers; by default they are removed too, so the PC
@@ -22,16 +21,16 @@
 #                                         still accepted and changes nothing)
 #
 # What it removes: the WheelBri Helper service (WheelBriHelper); running WheelBri processes; the virtual devices
-# (SWD\wheelbri\..., SWD\wheelemu\...) and the HID devices under them, including ones Windows keeps half-removed;
-# the driver packages under both names (hide filter, then wheel driver); every device our drivers are on (found
+# (SWD\wheelbri\...) and the HID devices under them, including ones Windows keeps half-removed;
+# the driver packages (hide filter, then wheel driver); every device our drivers are on (found
 # by their driver description, so also when the package is already gone: the rig's devices with the hide filter,
 # whatever they are) is reinstalled on Windows' own driver; the drivers' UMDF registrations (WUDF\Services); the certificates that signed our driver packages (by
 # thumbprint: recorded at install in HKLM\SOFTWARE\wheelbri\SigningCertificates, or read from the signed catalogs of
 # the installed packages, the install folders and this repository's builds; never another test certificate) from the
-# machine's Root and TrustedPublisher stores; the install folder (%ProgramFiles%\WheelBri, an older
-# %ProgramFiles%\wheelemu, or where Settings > Apps says: the files in its installed-files.txt and WheelBri's
+# machine's Root and TrustedPublisher stores; the install folder (%ProgramFiles%\WheelBri,
+# or where Settings > Apps says: the files in its installed-files.txt and WheelBri's
 # subfolders, or all of it for an install from before that list), its shortcuts and its Settings > Apps entries;
-# HKLM\SOFTWARE\wheelbri and \wheelemu (the hide setting); the installer's and uninstaller's copies in %TEMP% and
+# HKLM\SOFTWARE\wheelbri (the hide setting); the installer's and uninstaller's copies in %TEMP% and
 # %SystemRoot%\Temp (wheelbri-setup-*, wheelbri-uninstall-*, wheelbri-package-*, and install logs written there when the logs folder was a
 # link);
 # DirectInput's OEM entries the service writes for the virtual G25, G27, G920 and G923 (VID_046D&PID_C299, C29B, C262,
@@ -127,7 +126,7 @@ function Step([string]$text) { Write-Host $text -ForegroundColor Cyan }
 
 # --- What is there ----------------------------------------------------------------------------------------------
 
-$names = @('wheelbri', 'wheelemu')   # the name, and the project's old name (before the rename)
+$names = @('wheelbri')
 # Removal order: the hide filter on the rig's devices first.
 # The wheel driver was <name>-g920 until 2026-10-19, <name>-wheel since.
 $ourInfs = @(foreach ($part in 'hide', 'wheel', 'g920') { foreach ($name in $names) { "$name-$part.inf" } })
@@ -289,7 +288,7 @@ function Get-TempCopies {
 }
 
 # The game folders the app put the shim into: "game<TAB>name<TAB>folder" lines of shim-games.txt (UTF-8) in the
-# user's data folder (both names). Read before the data folder goes; folders no longer there are skipped.
+# user's data folder. Read before the data folder goes; folders no longer there are skipped.
 function Get-ListedGameFolders {
     $folders = @()
     foreach ($name in $names) {
@@ -305,7 +304,7 @@ function Get-ListedGameFolders {
     return $folders
 }
 
-# A shim file of ours: the DLL has "wheelbri" (or the old "wheelemu") in it.
+# A shim file of ours: the DLL has "wheelbri" in it.
 function Test-OurShim([string]$path) {
     try {
         $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($path))
@@ -372,8 +371,8 @@ $processes = @(Get-Process -Name (@(foreach ($name in $names) { $name; "$name-se
 $allDevices = @(Get-PnpDevice -ErrorAction SilentlyContinue)   # present and not present (half-removed ones too)
 $ourDevices = @($allDevices | Where-Object { $id = $_.InstanceId; @($names | Where-Object { $id -like "SWD\$_\*" }).Count -gt 0 })
 # Two properties of every device in one query (one query per device takes minutes): its parent, for the HID devices
-# under our virtual ones, and its driver's description, for every device on one of our drivers. Ours say "wheelbri"
-# (or "wheelemu"): "... (wheelbri: hidden from games ...)" on a device with the hide filter, "... (wheelbri)" on the
+# under our virtual ones, and its driver's description, for every device on one of our drivers. Ours say "wheelbri":
+# "... (wheelbri: hidden from games ...)" on a device with the hide filter, "... (wheelbri)" on the
 # virtual G920. Found this way even when the driver package is already gone (an orphaned filter).
 $parents = @{}
 $onOurDriver = @{}
@@ -382,7 +381,7 @@ if ($allDevices.Count -gt 0) {
                                 -KeyName 'DEVPKEY_Device_Parent', 'DEVPKEY_Device_DriverDesc' -ErrorAction SilentlyContinue)) {
         if (-not $property.Data) { continue }
         if ($property.KeyName -eq 'DEVPKEY_Device_Parent') { $parents[$property.InstanceId] = [string]$property.Data }
-        elseif ([string]$property.Data -match 'wheelbri|wheelemu') { $onOurDriver[$property.InstanceId] = [string]$property.Data }
+        elseif ([string]$property.Data -match 'wheelbri') { $onOurDriver[$property.InstanceId] = [string]$property.Data }
     }
 }
 $ourIds = @($ourDevices | ForEach-Object { $_.InstanceId })
@@ -411,7 +410,7 @@ $keys = @($otherKeys | Where-Object { Test-Path $_ })
 $oemEntries = @(Get-OurOemEntries)
 $logiItem = Get-Item -LiteralPath $logiKey -ErrorAction SilentlyContinue
 $logiServer = if ($logiItem) { [string]$logiItem.GetValue('') } else { '' }
-$logiOurs = $logiServer -match '(wheelbri|wheelemu)-logi\.dll'
+$logiOurs = $logiServer -match 'wheelbri-logi\.dll'
 $shimFiles = @(Get-ShimFiles)
 $chainedMods = @(Get-ChainedMods)
 $dataFolders = @()

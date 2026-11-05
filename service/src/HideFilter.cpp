@@ -83,11 +83,10 @@ bool listsIgnoreCase(const std::vector<std::string>& items, std::string_view wan
     return false;
 }
 
-// Ours: our INF's driver description ("... (wheelbri: hidden from games ...)"; "wheelemu" before the rename).
+// Ours: our INF's driver description ("... (wheelbri: hidden from games ...)").
 bool ourDriver(const DEVINST node) {
     const std::vector<std::string> description = devNodeStrings(node, kDriverDesc);
-    return !description.empty() && (hideids::containsIgnoreCase(description.front(), "wheelbri") ||
-                                    hideids::containsIgnoreCase(description.front(), "wheelemu"));
+    return !description.empty() && hideids::containsIgnoreCase(description.front(), "wheelbri");
 }
 
 bool locate(const std::string& instanceId, DEVINST& node) {
@@ -372,7 +371,7 @@ std::vector<HideFilter::Check> HideFilter::check(const std::vector<Target>& targ
         State state = State::Ready;
         std::string detail;
         // Ours: the reflector in its upper filters (any user-mode filter shows as WUDFRd) and our INF's driver
-        // description ("... (wheelbri: hidden from games ...)"; "wheelemu" before the rename).
+        // description ("... (wheelbri: hidden from games ...)").
         const std::vector<std::string> description = devNodeStrings(node, kDriverDesc);
         const std::vector<std::string> filters = devNodeStrings(node, kUpperFilters);
         const bool ours = ourDriver(node);

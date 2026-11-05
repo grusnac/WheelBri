@@ -19,11 +19,10 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Assert-Admin
 
-# Our signing certificates, looked up before the package leaves Windows' driver store. wheelemu-*: the same drivers
-# under the project's old name (before the rename to wheelbri).
+# Our signing certificates, looked up before the package leaves Windows' driver store.
 $thumbprints = @()
 if ($RemoveCertificate) {
-    $names = @('wheelbri-wheel', 'wheelbri-g920', 'wheelbri-hide', 'wheelemu-g920', 'wheelemu-hide')
+    $names = @('wheelbri-wheel', 'wheelbri-g920', 'wheelbri-hide')
     $thumbprints = @(Get-SigningThumbprints $names @($PSScriptRoot))
 }
 

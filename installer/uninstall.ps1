@@ -179,27 +179,25 @@ function Run-Script([string]$path, [string[]]$arguments = @()) {
 }
 
 # The game folders the app put the shim into: "game<TAB>name<TAB>folder" lines of shim-games.txt (UTF-8) in the
-# user's data folder (and the old-named one), as [name, folder]; folders no longer there are left out. The same
+# user's data folder, as [name, folder]; folders no longer there are left out. The same
 # reading as scripts/make/clean-pc.ps1 (keep them in step).
 function Get-ShimGames {
     $games = @()
-    foreach ($name in 'wheelbri', 'wheelemu') {
-        $list = Join-Path (Join-Path $UserLocalAppData $name) 'shim-games.txt'
-        if (-not (Test-Path -LiteralPath $list -PathType Leaf)) { continue }
-        foreach ($line in @([IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8))) {
-            $parts = $line.TrimEnd("`r") -split "`t"
-            if ($parts.Count -eq 3 -and $parts[0] -eq 'game' -and $parts[2] -and (Test-Path -LiteralPath $parts[2] -PathType Container)) {
-                $games += [pscustomobject]@{ Name = $parts[1]; Folder = $parts[2].TrimEnd('\') }
-            }
+    $list = Join-Path (Join-Path $UserLocalAppData 'wheelbri') 'shim-games.txt'
+    if (-not (Test-Path -LiteralPath $list -PathType Leaf)) { return @() }
+    foreach ($line in @([IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8))) {
+        $parts = $line.TrimEnd("`r") -split "`t"
+        if ($parts.Count -eq 3 -and $parts[0] -eq 'game' -and $parts[2] -and (Test-Path -LiteralPath $parts[2] -PathType Container)) {
+            $games += [pscustomobject]@{ Name = $parts[1]; Folder = $parts[2].TrimEnd('\') }
         }
     }
     return @($games | Group-Object { $_.Folder.ToLowerInvariant() } | ForEach-Object { $_.Group[0] })
 }
-# A shim DLL of ours: "wheelbri" (or the old "wheelemu") is in it.
+# A shim DLL of ours: "wheelbri" is in it.
 function Test-OurShim([string]$path) {
     try {
         $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($path))
-        return $text.Contains('wheelbri') -or $text.Contains('wheelemu')
+        return $text.Contains('wheelbri')
     } catch { return $false }
 }
 # Takes the shim out of one game folder, as the app's Remove shim does: our dinput8.dll / dinput8Hooked.dll (and their
@@ -214,9 +212,7 @@ function Remove-ShimFrom([string]$folder) {
             catch { $problems += "$name ($($_.Exception.Message))" }
         }
     }
-    foreach ($name in 'wheelbri-shim.ini', 'wheelemu-shim.ini') {
-        Remove-Item -LiteralPath (Join-Path $folder $name) -Force -ErrorAction SilentlyContinue
-    }
+    Remove-Item -LiteralPath (Join-Path $folder 'wheelbri-shim.ini') -Force -ErrorAction SilentlyContinue
     $chain = Join-Path $folder 'dinput8-chain.dll'
     if (Test-Path -LiteralPath $chain -PathType Leaf) {
         $loader = Join-Path $folder 'dinput8.dll'
@@ -506,10 +502,8 @@ try {
         }
     }
     # The drivers' UMDF registrations (some removals leave them).
-    foreach ($name in 'wheelbri', 'wheelemu') {
-        foreach ($part in 'hide', 'wheel', 'g920') {   # g920: the wheel driver's name until 2026-10-19
-            Remove-Item "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\${name}_$part" -Recurse -Force -ErrorAction SilentlyContinue
-        }
+    foreach ($part in 'hide', 'wheel', 'g920') {   # g920: the wheel driver's name until 2026-10-19
+        Remove-Item "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\WUDF\Services\wheelbri_$part" -Recurse -Force -ErrorAction SilentlyContinue
     }
     # DirectInput's OEM entries WheelBri wrote for its virtual G25, G27, G920 and G923 ($oemNames), and only those: a
     # real Logitech wheel's stay. HKCU: the account this runs as.
@@ -520,9 +514,6 @@ try {
             if ($removed.Count -gt 0) { Write-Host "    $key`: removed $($removed -join ', ')" }
         }
     }
-    # The same two under the project's old name (wheelemu, before the rename), if an upgrade left them.
-    Remove-Item 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\wheelemu' -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item 'HKLM:\SOFTWARE\wheelemu' -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host '    done'
 
     # 4. Config: kept if asked; with -Quiet (no one to ask) the changed ones are moved to a backup, never deleted.
@@ -552,8 +543,7 @@ try {
         Write-Host '    the install folder''s configs: removed with the program'
     }
     if ($RemoveSettings) {
-        # Everything in the data folder but logs\ and dumps\ (the next step's), and the old-named folder from before
-        # the rename (all of it: the app moved what it needed).
+        # Everything in the data folder but logs\ and dumps\ (the next step's).
         $gone = $true
         if (Test-Path -LiteralPath $dataFolder) {
             Get-ChildItem -LiteralPath $dataFolder -Force | Where-Object { $_.Name -notin @('logs', 'dumps') } | ForEach-Object {
@@ -561,7 +551,6 @@ try {
                 else { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue; if (Test-Path -LiteralPath $_.FullName) { $gone = $false } }
             }
         }
-        if (-not (Remove-DataFolder (Join-Path $UserLocalAppData 'wheelemu'))) { $gone = $false }
         if ($gone) { Write-Host "    removed from $dataFolder"; Note 'removed' }
         else { Warn "    some of your settings in $dataFolder could not be removed (in use?): delete them by hand" }
     } else {

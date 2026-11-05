@@ -185,9 +185,8 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 
 ## Conventions
 
-- **Names:** **WheelBri** where the user sees it, `wheelbri` elsewhere. Never `wheelemu`, except where old installs are
-  found and removed; wire tags `WEMU` / `WEFB` / `WELV` and `WE_LOG_*` keep their letters. Short game names ("NFS
-  2015", never "Need for Speed ..."). Labels ≤ 20 characters.
+- **Names:** **WheelBri** where the user sees it, `wheelbri` elsewhere; wire tags `WEMU` / `WEFB` / `WELV` and
+  `WE_LOG_*` keep their letters. Short game names ("NFS 2015", never "Need for Speed ..."). Labels ≤ 20 characters.
 - **C++:** C++20, 4-space indent, `camelCase` functions/variables, `PascalCase` types, `trailing_` members,
   `kConstant` constants, `#pragma once`, `[[nodiscard]]` on queries, `const` parameters in definitions, `1.0F`
   literals, headers as `"wheelbri/X.hpp"`. Comments: `//` for intent and constraints, as in the headers (no Doxygen).

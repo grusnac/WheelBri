@@ -2041,7 +2041,6 @@ int main(int argc, char** argv) {
 #endif
     int exitCode = 1;
     try {
-        wheelbri::service::moveFoldersFromOldName();   // before anything reads the user's folders
         // As Administrator it must not write through a link the user's programs put in its folders (a standard user
         // can only reach what they could reach anyway).
         if (const std::string problem = platform::isElevated() ? wheelbri::service::userFoldersProblem() : std::string();
