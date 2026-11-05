@@ -20,7 +20,7 @@ if [ "${1:-}" = "--no-build" ]; then
 fi
 
 if [ $build -eq 1 ]; then
-    cmake_build wheelbri wheelbri-service wheelbri-helper wheelbri_shim   # wheelbri_shim builds dinput8.dll
+    cmake_build wheelbri wheelbri-service wheelbri-helper wheelbri-setup wheelbri_shim   # wheelbri_shim builds dinput8.dll
     have_mingw32 || fail "the package needs the 32-bit shim: pacman -S mingw-w64-i686-gcc"
     build_shim_x86
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$root/scripts/make/drivers.ps1")" \

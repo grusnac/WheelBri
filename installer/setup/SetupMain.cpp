@@ -4,6 +4,12 @@
 //
 // Runs from the unpacked package (install.ps1 next to it), or next to wheelbri.zip (the IExpress layout), which it
 // unpacks to a new temporary folder first. Asks for Administrator itself (install.ps1 needs it for the drivers).
+//
+// wheelbri-setup.exe --uninstall, or this exe under a name starting with "Uninstall" (the install folder's
+// Uninstall WheelBri.exe, install.ps1): the uninstaller (What to keep, Removing, Finish) in front of the install folder's
+// uninstall.ps1 -Quiet -Progress. Installed in the install folder, which the uninstall deletes: it first runs again
+// from a copy in a new folder under %SystemRoot%\Temp that only Administrators can change.
+// --user-data <folder>: whose %LOCALAPPDATA% (the copy that asked for Administrator passes the signed-in user's on).
 
 #ifndef UNICODE
 #define UNICODE
@@ -43,13 +49,12 @@ constexpr COLORREF kButton = RGB(42, 46, 54);
 constexpr COLORREF kFrame = RGB(90, 96, 106);
 constexpr COLORREF kLog = RGB(16, 18, 21);
 
-enum Page { kWelcome, kFolder, kOptions, kReady, kInstalling, kFinish, kPageCount };
-const wchar_t* const kPageNames[kPageCount] = {L"Welcome", L"Install folder", L"Options", L"Ready", L"Installing",
-                                               L"Finish"};
+enum Page { kWelcome, kFolder, kOptions, kReady, kInstalling, kFinish, kChoose, kPageCount };
 
 enum Id : int {
     kBack = 100, kNext, kCancel, kFolderEdit, kBrowse, kDefaultFolder, kStartMenu, kStartMenuName, kDesktop,
-    kFirefox, kLaunch, kChecklist, kLogEdit, kCopyLog, kOpenLogs, kRestartNow, kRestartLater,
+    kFirefox, kLaunch, kChecklist, kLogEdit, kCopyLog, kOpenLogs, kRestartNow, kRestartLater, kKeepSettings,
+    kKeepLogs, kRemoveShims, kRemoveCertificate, kOpenData,
 };
 
 constexpr UINT kLineMessage = WM_APP + 1;   // lParam: std::wstring* (one output line)
@@ -58,11 +63,12 @@ constexpr UINT kExitMessage = WM_APP + 2;   // wParam: exit code
 enum class State { Wait, Run, Done, Warn, Fail, Skip };
 struct Row {
     const wchar_t* text;
-    int step;             // install.ps1's numbered step that starts it (0: an @@ITEM)
-    const char* item;     // its @@ITEM key, or nullptr
+    int step;             // the script's numbered step it belongs to
+    const char* item;     // its @@ITEM key; nullptr: the row is the step itself (running from its @@STEP on)
     State state = State::Wait;
     std::wstring note{};
 };
+struct ShimGame { std::wstring name, folder; };
 
 struct App {
     HINSTANCE instance{};
@@ -71,8 +77,14 @@ struct App {
     HFONT font{}, bold{}, big{}, small{};
     HBRUSH backBrush{}, fieldBrush{}, logBrush{}, railBrush{};
     Page page = kWelcome;
+    bool uninstall = false;      // --uninstall
+    std::wstring userData;       // the signed-in user's %LOCALAPPDATA% (--user-data), not the Administrator's
+    std::wstring tempCopy;       // the folder of the copy this uninstaller runs from (deleted when it ends)
+    std::vector<ShimGame> shimGames;
+    bool restartNeeded = false;  // @@RESTART
 
     std::wstring package;        // the folder with install.ps1
+    bool unpacked = false;       // package is a temporary folder this setup made (deleted at the end)
     std::wstring version = L"?";
     DWORD build = 0;
     bool withDrivers = false;    // install.ps1's $withDrivers (keep in step)
@@ -83,6 +95,7 @@ struct App {
     std::vector<HWND> pageControls[kPageCount];
     HWND back{}, next{}, cancel{}, folderEdit{}, startMenu{}, startMenuName{}, desktop{}, firefoxBox{}, launch{};
     HWND checklist{}, logEdit{}, progress{}, restartNow{}, restartLater{};
+    HWND keepSettings{}, keepLogs{}, removeShims{}, removeCertificate{}, openData{};
 
     std::vector<Row> rows;
     bool running = false, finished = false;
@@ -199,6 +212,7 @@ bool findPackage(std::wstring& problem) {
         return false;
     }
     g.package = target;
+    g.unpacked = true;
     return true;
 }
 
@@ -224,7 +238,8 @@ void detect() {
         while (!v.empty() && (v.back() == '\r' || v.back() == '\n' || v.back() == ' ')) v.pop_back();
         g.version.assign(v.begin(), v.end());
     }
-    g.logFolder = environment(L"LOCALAPPDATA") + L"\\wheelbri\\logs";
+    if (g.userData.empty()) g.userData = environment(L"LOCALAPPDATA");
+    g.logFolder = g.userData + L"\\wheelbri\\logs";
 }
 
 std::wstring defaultFolder() {
@@ -254,13 +269,28 @@ HWND add(const Page page, const wchar_t* cls, const wchar_t* text, const DWORD s
 }
 
 void initRows() {
+    if (g.uninstall) {
+        g.rows = {
+            {L"Close running WheelBri", 1, nullptr},
+            {L"Remove WheelBri Helper", 1, "helper"},
+            {L"Take the shim out of games", 2, nullptr},
+            {L"Remove hiding filter driver", 3, "hide-driver"},
+            {L"Remove virtual wheel driver", 3, "wheel-driver"},
+            {L"Remove the drivers' certificate", 3, "certificate"},
+            {L"Shortcuts, Settings > Apps, registry", 4, nullptr},
+            {L"Rig, mappings and settings", 5, nullptr},
+            {L"Logs", 6, nullptr},
+            {L"Remove program files", 7, nullptr},
+        };
+        return;
+    }
     g.rows = {
         {L"Check this PC", 1, nullptr},
         {L"Close running WheelBri", 2, nullptr},
         {L"Copy program files", 3, nullptr},
-        {L"Install virtual wheel driver", 0, "wheel-driver"},
-        {L"Install hiding filter driver", 0, "hide-driver"},
-        {L"Start WheelBri Helper", 0, "helper"},
+        {L"Install virtual wheel driver", 4, "wheel-driver"},
+        {L"Install hiding filter driver", 4, "hide-driver"},
+        {L"Start WheelBri Helper", 4, "helper"},
         {L"Shortcuts and Start menu", 5, nullptr},
         {L"Add to Settings > Apps", 6, nullptr},
         {L"Check the installation", 7, nullptr},
@@ -284,8 +314,8 @@ void createControls() {
     add(kFolder, L"BUTTON", L"Back to default", BS_OWNERDRAW | WS_TABSTOP, kDefaultFolder, kLeft, 330, 150, 26);
 
     // Options
-    g.startMenu = add(kOptions, L"BUTTON", L"Start menu folder:", BS_AUTOCHECKBOX | WS_TABSTOP, kStartMenu, kLeft,
-                      96, 190, 22);
+    // The Start menu folder is always made (install.ps1): only its name is a choice.
+    g.startMenu = add(kOptions, L"STATIC", L"Start menu folder:", SS_LEFT, kStartMenu, kLeft, 99, 190, 22);
     g.startMenuName = add(kOptions, L"EDIT", L"WheelBri", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, kStartMenuName,
                           kLeft + 200, 94, 200, 26);
     g.desktop = add(kOptions, L"BUTTON", L"Desktop shortcut", BS_AUTOCHECKBOX | WS_TABSTOP, kDesktop, kLeft, 126, 400,
@@ -294,7 +324,6 @@ void createControls() {
                        kFirefox, kLeft, 318, 420, 22);
     g.launch = add(kOptions, L"BUTTON", L"Open WheelBri when setup finishes", BS_AUTOCHECKBOX | WS_TABSTOP, kLaunch,
                    kLeft, 400, 420, 22);
-    SendMessageW(g.startMenu, BM_SETCHECK, BST_CHECKED, 0);
     SendMessageW(g.desktop, BM_SETCHECK, BST_CHECKED, 0);
     SendMessageW(g.launch, BM_SETCHECK, BST_CHECKED, 0);
 
@@ -320,6 +349,19 @@ void createControls() {
                          480, 22);
     SendMessageW(g.restartNow, BM_SETCHECK, BST_CHECKED, 0);
 
+    // Uninstall: what to keep
+    g.keepSettings = add(kChoose, L"BUTTON", L"Rig, mappings and settings", BS_AUTOCHECKBOX | WS_TABSTOP, kKeepSettings,
+                         kLeft, 112, 330, 22);
+    g.keepLogs = add(kChoose, L"BUTTON", L"Logs", BS_AUTOCHECKBOX | WS_TABSTOP, kKeepLogs, kLeft, 164, 330, 22);
+    g.removeShims = add(kChoose, L"BUTTON", L"The shim from game folders", BS_AUTOCHECKBOX | WS_TABSTOP,
+                        kRemoveShims, kLeft, 248, 330, 22);
+    g.removeCertificate = add(kChoose, L"BUTTON", L"The drivers' certificate", BS_AUTOCHECKBOX | WS_TABSTOP,
+                              kRemoveCertificate, kLeft, 300, 330, 22);
+    SendMessageW(g.keepSettings, BM_SETCHECK, BST_CHECKED, 0);
+    SendMessageW(g.removeShims, BM_SETCHECK, BST_CHECKED, 0);
+    SendMessageW(g.removeCertificate, BM_SETCHECK, BST_CHECKED, 0);
+    g.openData = add(kFinish, L"BUTTON", L"Open folder", BS_OWNERDRAW, kOpenData, kLeft + kWidth - 120, 92, 120, 24);
+
     // The bottom bar
     g.back = add(kPageCount, L"BUTTON", L"< Back", BS_OWNERDRAW | WS_TABSTOP | WS_VISIBLE, kBack, 470, 524, 92, 30);
     g.next = add(kPageCount, L"BUTTON", L"Next >", BS_OWNERDRAW | WS_TABSTOP | WS_VISIBLE, kNext, 570, 524, 92, 30);
@@ -334,17 +376,22 @@ void showPage(const Page page) {
         for (HWND h : g.pageControls[p]) ShowWindow(h, p == page ? SW_SHOW : SW_HIDE);
     }
     if (page == kOptions) ShowWindow(g.firefoxBox, g.firefox ? SW_SHOW : SW_HIDE);
+    if (page == kChoose) {
+        ShowWindow(g.removeShims, g.shimGames.empty() ? SW_HIDE : SW_SHOW);
+        ShowWindow(g.removeCertificate, g.withDrivers ? SW_SHOW : SW_HIDE);
+    }
     if (page == kFinish) {
-        const bool askRestart = g.exitCode == 0 && g.withDrivers;
+        ShowWindow(g.openData, g.uninstall && checked(g.keepSettings) ? SW_SHOW : SW_HIDE);
+        const bool askRestart = g.exitCode == 0 && (g.uninstall ? g.restartNeeded : g.withDrivers);
         ShowWindow(g.restartNow, askRestart ? SW_SHOW : SW_HIDE);
         ShowWindow(g.restartLater, askRestart ? SW_SHOW : SW_HIDE);
     }
-    EnableWindow(g.startMenuName, checked(g.startMenu));
-    SetWindowTextW(g.next, page == kReady ? L"Install" : page == kFinish ? L"Finish" : L"Next >");
-    EnableWindow(g.back, page != kWelcome && page != kInstalling && page != kFinish);
+    SetWindowTextW(g.next, page == kReady ? L"Install" : page == kChoose ? L"Uninstall" : page == kFinish ? L"Finish"
+                                                                                                  : L"Next >");
+    EnableWindow(g.back, page != kWelcome && page != kInstalling && page != kFinish && page != kChoose);
     EnableWindow(g.next, page != kInstalling || g.finished);
     EnableWindow(g.cancel, page != kInstalling && page != kFinish);
-    ShowWindow(g.back, page == kFinish ? SW_HIDE : SW_SHOW);
+    ShowWindow(g.back, page == kFinish || g.uninstall ? SW_HIDE : SW_SHOW);
     ShowWindow(g.cancel, page == kFinish ? SW_HIDE : SW_SHOW);
     InvalidateRect(g.window, nullptr, TRUE);
 }
@@ -429,14 +476,28 @@ void updateProgress() {
 void startInstall() {
     initRows();
     for (size_t i = 0; i < g.rows.size(); ++i) SendMessageW(g.checklist, LB_SETITEMDATA, i, static_cast<LPARAM>(i));
-    std::wstring command = quoted(powershell()) + L" -NoProfile -ExecutionPolicy Bypass -File " +
-                           quoted(g.package + L"\\install.ps1") + L" -InstallDir " +
-                           quoted(windowText(g.folderEdit)) + L" -Quiet -Progress -Restart Later";
-    if (checked(g.startMenu)) command += L" -StartMenuFolder " + quoted(windowText(g.startMenuName));
-    else command += L" -NoStartMenu";
-    if (!checked(g.desktop)) command += L" -NoDesktopShortcut";
-    if (g.firefox && checked(g.firefoxBox)) command += L" -StopBrowserGamepads";
-    appendLog(L"WheelBri " + g.version + L" setup, " + windowsName() + L" (build " + std::to_wstring(g.build) + L")");
+    std::wstring command;
+    if (g.uninstall) {
+        command = quoted(powershell()) + L" -NoProfile -ExecutionPolicy Bypass -File " +
+                  quoted(g.earlierFolder + L"\\uninstall.ps1") + L" -InstallDir " + quoted(g.earlierFolder) +
+                  L" -Quiet -Progress -UserLocalAppData " + quoted(g.userData);
+        if (checked(g.keepSettings)) command += L" -KeepConfig";
+        else command += L" -RemoveSettings";
+        if (!checked(g.keepLogs)) command += L" -RemoveLogs";
+        if (g.shimGames.empty() || !checked(g.removeShims)) command += L" -KeepShims";
+        if (g.withDrivers && checked(g.removeCertificate)) command += L" -RemoveCertificate";
+        appendLog(L"WheelBri " + g.earlierVersion + L" uninstall, " + windowsName() + L" (build " +
+                  std::to_wstring(g.build) + L")");
+    } else {
+        command = quoted(powershell()) + L" -NoProfile -ExecutionPolicy Bypass -File " +
+                  quoted(g.package + L"\\install.ps1") + L" -InstallDir " + quoted(windowText(g.folderEdit)) +
+                  L" -Quiet -Progress -Restart Later";
+        command += L" -StartMenuFolder " + quoted(windowText(g.startMenuName));
+        if (!checked(g.desktop)) command += L" -NoDesktopShortcut";
+        if (g.firefox && checked(g.firefoxBox)) command += L" -StopBrowserGamepads";
+        appendLog(L"WheelBri " + g.version + L" setup, " + windowsName() + L" (build " + std::to_wstring(g.build) +
+                  L")");
+    }
 
     SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
     HANDLE readEnd{}, writeEnd{};
@@ -449,8 +510,10 @@ void startInstall() {
     si.hStdOutput = writeEnd;
     si.hStdError = writeEnd;
     PROCESS_INFORMATION pi{};
+    // Not in the install folder: the uninstall deletes it.
+    const std::wstring workFolder = g.uninstall ? system32(L"") : g.package;
     const BOOL ok = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
-                                   g.package.c_str(), &si, &pi);
+                                   workFolder.c_str(), &si, &pi);
     CloseHandle(writeEnd);
     CloseHandle(nul);
     if (!ok) {
@@ -467,7 +530,7 @@ void startInstall() {
 }
 
 int rowOfStep(const int step) {
-    for (size_t i = 0; i < g.rows.size(); ++i) if (g.rows[i].step == step) return static_cast<int>(i);
+    for (size_t i = 0; i < g.rows.size(); ++i) if (g.rows[i].step == step && !g.rows[i].item) return static_cast<int>(i);
     return -1;
 }
 
@@ -486,9 +549,9 @@ void onLine(const std::wstring& line) {
     if (tag == L"STEP") {
         const int step = _wtoi(rest.c_str());
         finishRunning(State::Done);
-        // The drivers' step ended: its items no install.ps1 line named are not needed here.
-        if (step >= 5) {
-            for (Row& r : g.rows) if (r.item && r.state == State::Wait) r.state = State::Skip;
+        // The rows of the steps before that no line named: not needed here.
+        for (Row& r : g.rows) {
+            if (r.step < step && r.state == State::Wait) r.state = r.item ? State::Skip : State::Done;
         }
         const int row = rowOfStep(step);
         if (row >= 0) g.rows[row].state = State::Run;
@@ -502,11 +565,14 @@ void onLine(const std::wstring& line) {
                 if (!r.item || std::wstring(r.item, r.item + strlen(r.item)) != key) continue;
                 r.state = state == L"running" ? State::Run : state == L"done" ? State::Done
                         : state == L"warn" ? State::Warn : State::Fail;
-                if (r.state == State::Warn || r.state == State::Fail) {
-                    r.note = b == std::wstring::npos ? L"" : rest.substr(b + 1);
-                }
+                if (r.state != State::Run && b != std::wstring::npos) r.note = rest.substr(b + 1);
             }
         }
+    } else if (tag == L"NOTE") {
+        // On the step's own row (the running item rows of a step say their own).
+        for (Row& r : g.rows) if (r.state == State::Run && !r.item) r.note = rest;
+    } else if (tag == L"RESTART") {
+        g.restartNeeded = true;
     } else if (tag == L"WARN") {
         g.warnings.push_back(rest);
         appendLog(L"  ! " + rest);
@@ -525,7 +591,7 @@ void onExit(const int code) {
     g.exitCode = code;
     if (code == 0) {
         finishRunning(State::Done);
-        for (Row& r : g.rows) if (r.state == State::Wait) r.state = State::Done;
+        for (Row& r : g.rows) if (r.state == State::Wait) r.state = r.item ? State::Skip : State::Done;
         updateProgress();
         showPage(kFinish);
         return;
@@ -546,10 +612,11 @@ void openAsUser(const std::wstring& target) {
 }
 
 void finish() {
-    if (g.exitCode == 0 && g.withDrivers && checked(g.restartNow)) {
+    const bool askedRestart = g.exitCode == 0 && (g.uninstall ? g.restartNeeded : g.withDrivers);
+    if (askedRestart && checked(g.restartNow)) {
         runHidden(quoted(system32(L"shutdown.exe")) +
                   L" /r /t 2 /c \"WheelBri: restarting so its drivers are installed properly.\" /d p:4:2");
-    } else if (g.exitCode == 0 && checked(g.launch)) {
+    } else if (!g.uninstall && g.exitCode == 0 && checked(g.launch)) {
         openAsUser(windowText(g.folderEdit) + L"\\wheelbri.exe");
     }
     DestroyWindow(g.window);
@@ -594,6 +661,7 @@ void copyLog() {
 }
 
 bool confirmCancel() {
+    if (g.uninstall) return true;   // its one page asks nothing that a second question would protect
     return MessageBoxW(g.window, L"Leave WheelBri setup? Nothing has been changed yet.", L"WheelBri Setup",
                        MB_YESNO | MB_ICONQUESTION) == IDYES;
 }
@@ -608,7 +676,7 @@ void onNext() {
         break;
     }
     case kOptions: {
-        if (checked(g.startMenu)) {
+        {
             const std::wstring problem = menuNameProblem(windowText(g.startMenuName));
             if (!problem.empty()) { MessageBoxW(g.window, problem.c_str(), L"WheelBri Setup", MB_ICONWARNING); return; }
         }
@@ -616,6 +684,7 @@ void onNext() {
         break;
     }
     case kReady: showPage(kInstalling); startInstall(); break;
+    case kChoose: showPage(kInstalling); startInstall(); break;
     case kInstalling: if (g.finished) DestroyWindow(g.window); break;   // after a failure: Close
     case kFinish: finish(); break;
     default: break;
@@ -645,9 +714,72 @@ void notice(HDC dc, const std::wstring& s, const int x, const int y, const int w
     text(dc, s, x + 10, y + 8, w - 20, h - 12, colour, g.font);
 }
 
-int pageRail(const Page page) {
-    // Rail entries: the wizard's pages. While installing / finished they are past.
-    return page;
+struct RailEntry { Page page; const wchar_t* name; };
+std::vector<RailEntry> railEntries() {
+    if (g.uninstall) return {{kChoose, L"What to keep"}, {kInstalling, L"Removing"}, {kFinish, L"Finish"}};
+    return {{kWelcome, L"Welcome"}, {kFolder, L"Install folder"}, {kOptions, L"Options"}, {kReady, L"Ready"},
+            {kInstalling, L"Installing"}, {kFinish, L"Finish"}};
+}
+
+// The size of a folder's files, all the way down (links are not followed), in bytes.
+std::uint64_t folderSize(const std::wstring& folder, const std::vector<std::wstring>& skip = {}) {
+    std::uint64_t total = 0;
+    WIN32_FIND_DATAW data{};
+    HANDLE find = FindFirstFileW((folder + L"\\*").c_str(), &data);
+    if (find == INVALID_HANDLE_VALUE) return 0;
+    do {
+        const std::wstring name = data.cFileName;
+        if (name == L"." || name == L"..") continue;
+        if (std::any_of(skip.begin(), skip.end(), [&](const std::wstring& s) { return _wcsicmp(s.c_str(), name.c_str()) == 0; })) continue;
+        if (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) continue;
+        if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) total += folderSize(folder + L"\\" + name);
+        else total += (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+    } while (FindNextFileW(find, &data));
+    FindClose(find);
+    return total;
+}
+
+std::wstring sizeText(const std::uint64_t bytes) {
+    wchar_t text[32];
+    if (bytes < 1024 * 1024) swprintf(text, 32, L"%.0f KB", static_cast<double>(bytes) / 1024.0);
+    else if (bytes < 1024ull * 1024 * 1024) swprintf(text, 32, L"%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+    else swprintf(text, 32, L"%.1f GB", static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0));
+    return text;
+}
+
+// The games the app put the shim into: "game<TAB>name<TAB>folder" lines of <user data>\wheelbri\shim-games.txt (UTF-8),
+// folders that are still there (uninstall.ps1 Get-ShimGames reads it the same way).
+void readShimGames() {
+    FILE* f = _wfopen((g.userData + L"\\wheelbri\\shim-games.txt").c_str(), L"rb");
+    if (!f) return;
+    std::string all;
+    char buffer[4096];
+    size_t n;
+    while ((n = fread(buffer, 1, sizeof(buffer), f)) > 0) all.append(buffer, n);
+    fclose(f);
+    size_t start = 0;
+    while (start < all.size()) {
+        size_t end = all.find('\n', start);
+        if (end == std::string::npos) end = all.size();
+        std::string line = all.substr(start, end - start);
+        start = end + 1;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const size_t a = line.find('\t');
+        const size_t b = a == std::string::npos ? a : line.find('\t', a + 1);
+        if (b == std::string::npos || line.substr(0, a) != "game") continue;
+        auto wide = [](const std::string& u) {
+            const int size = MultiByteToWideChar(CP_UTF8, 0, u.data(), static_cast<int>(u.size()), nullptr, 0);
+            std::wstring w(static_cast<size_t>(size), L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, u.data(), static_cast<int>(u.size()), w.data(), size);
+            return w;
+        };
+        ShimGame game{wide(line.substr(a + 1, b - a - 1)), wide(line.substr(b + 1))};
+        const DWORD attributes = GetFileAttributesW(game.folder.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        const bool known = std::any_of(g.shimGames.begin(), g.shimGames.end(),
+                                       [&](const ShimGame& x) { return _wcsicmp(x.folder.c_str(), game.folder.c_str()) == 0; });
+        if (!known) g.shimGames.push_back(game);
+    }
 }
 
 void paint(HDC dc) {
@@ -662,12 +794,16 @@ void paint(HDC dc) {
     fill(dc, 0, 0, 178, 510, kRail);
     fill(dc, 178, 0, 1, 510, kRule);
     const bool failed = g.finished && g.exitCode != 0;
-    for (int p = 0; p < kPageCount; ++p) {
-        const int y = 18 + p * 32;
-        const bool current = p == pageRail(g.page);
-        const bool past = p < g.page;
+    const std::vector<RailEntry> rail = railEntries();
+    int currentIndex = 0;
+    for (size_t i = 0; i < rail.size(); ++i) if (rail[i].page == g.page) currentIndex = static_cast<int>(i);
+    for (int i = 0; i < static_cast<int>(rail.size()); ++i) {
+        const Page p = rail[i].page;
+        const int y = 18 + i * 32;
+        const bool current = i == currentIndex;
+        const bool past = i < currentIndex;
         COLORREF colour = past ? kDim : kFaint;
-        std::wstring mark = std::to_wstring(p + 1);
+        std::wstring mark = std::to_wstring(i + 1);
         if (past) mark = L"\u2713";
         if (current) {
             const COLORREF accent = (failed && p == kInstalling) ? kWarning : (p == kFinish ? kActive : kHeading);
@@ -678,14 +814,15 @@ void paint(HDC dc) {
             if (p == kFinish) mark = L"\u2713";
         }
         text(dc, mark, 14, y + 6, 18, 20, past && !current ? kActive : colour, current ? g.bold : g.font, DT_CENTER);
-        text(dc, kPageNames[p], 40, y + 6, 136, 20, colour, current ? g.bold : g.font, DT_LEFT | DT_SINGLELINE);
+        text(dc, rail[i].name, 40, y + 6, 136, 20, colour, current ? g.bold : g.font, DT_LEFT | DT_SINGLELINE);
     }
 
     // The bottom bar
     fill(dc, 0, 510, 780, 1, kRule);
     fill(dc, 0, 511, 780, 60, RGB(26, 29, 34));
     std::wstring footer = L"WheelBri " + g.version + L" \u00b7 64-bit";
-    if (g.page == kInstalling && g.running) footer = L"Can't cancel while it installs.";
+    if (g.uninstall) footer = g.userData + L"\\wheelbri";
+    if (g.page == kInstalling && g.running) footer = g.uninstall ? L"Can't cancel while it removes." : L"Can't cancel while it installs.";
     text(dc, footer, 16, 530, 440, 20, kFaint, g.small, DT_LEFT | DT_SINGLELINE);
 
     constexpr int x = 210, w = 540;
@@ -778,8 +915,8 @@ void paint(HDC dc) {
         const bool upgrade = !g.earlierFolder.empty() && _wcsicmp(folder.c_str(), g.earlierFolder.c_str()) == 0;
         const std::vector<Kv> kv = {
             {L"Program", folder + (upgrade ? L"  (upgrade from " + g.earlierVersion + L")" : L"")},
-            {L"Settings, logs", environment(L"LOCALAPPDATA") + L"\\wheelbri"},
-            {L"Start menu", checked(g.startMenu) ? windowText(g.startMenuName) : L"none"},
+            {L"Settings, logs", g.userData + L"\\wheelbri"},
+            {L"Start menu", windowText(g.startMenuName) + L" (WheelBri, uninstall, logs)"},
             {L"Desktop", checked(g.desktop) ? L"shortcut" : L"none"},
             {L"Drivers", g.withDrivers ? L"virtual wheel, hiding filter" : L"none (Mode Shim only)"},
             {L"Service", g.withDrivers ? L"WheelBri Helper (starts with Windows)" : L"none"},
@@ -798,9 +935,44 @@ void paint(HDC dc) {
         }
         break;
     }
+    case kChoose: {
+        auto band = [&](const wchar_t* title, const int y) {
+            fill(dc, x, y, w, 22, RGB(32, 36, 43));
+            fill(dc, x, y, 3, 22, kHeading);
+            text(dc, title, x + 10, y + 3, w, 18, kText, g.small);
+        };
+        text(dc, L"REMOVE WHEELBRI " + g.earlierVersion, x, 22, w, 24, kHeading, g.bold);
+        text(dc, L"From " + g.earlierFolder + L". The program, drivers, Helper, shortcuts and Settings > Apps entry "
+                 L"always go.", x, 46, w, 36, kDim, g.small);
+        band(L"KEEP FOR A LATER INSTALL", 84);
+        const std::wstring data = g.userData + L"\\wheelbri";
+        text(dc, sizeText(folderSize(data, {L"logs", L"dumps"})), x + w - 100, 114, 100, 20, kFaint, g.small, DT_RIGHT);
+        text(dc, L"rigs, configs, per-game values, device names, app.ini", x + 22, 134, w - 22, 18, kFaint, g.small);
+        text(dc, sizeText(folderSize(data + L"\\logs") + folderSize(data + L"\\dumps")), x + w - 100, 166, 100, 20,
+             kFaint, g.small, DT_RIGHT);
+        text(dc, L"app, service, drivers, telemetry, ffb, install, dumps", x + 22, 186, w - 22, 18, kFaint, g.small);
+        band(L"ALSO REMOVE", 220);
+        int y = 248;
+        if (!g.shimGames.empty()) {
+            std::wstring names;
+            for (const ShimGame& game : g.shimGames) names += (names.empty() ? L"" : L", ") + game.name;
+            text(dc, std::to_wstring(g.shimGames.size()) + (g.shimGames.size() == 1 ? L" game" : L" games"),
+                 x + w - 100, y + 2, 100, 20, kFaint, g.small, DT_RIGHT);
+            text(dc, names + L". Another mod's dll gets its name back.", x + 22, y + 22, w - 22, 30, kFaint, g.small,
+                 DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS);
+        } else {
+            text(dc, L"No game has the shim.", x, y + 2, w, 20, kFaint, g.font);
+        }
+        if (g.withDrivers) text(dc, L"from this PC's trusted certificates", x + 22, 322, w - 22, 18, kFaint, g.small);
+        text(dc, L"Firefox's game controllers are turned back on if setup turned them off. Other Windows accounts' "
+                 L"data stays.", x, 450, w, 40, kFaint, g.small);
+        break;
+    }
     case kInstalling: {
         const bool bad = g.finished && g.exitCode != 0;
-        text(dc, bad ? L"INSTALLATION FAILED" : L"INSTALLING", x, 26, 300, 24, bad ? kWarning : kHeading, g.bold);
+        text(dc, bad ? (g.uninstall ? L"UNINSTALL FAILED" : L"INSTALLATION FAILED")
+                     : (g.uninstall ? L"REMOVING" : L"INSTALLING"),
+             x, 26, 300, 24, bad ? kWarning : kHeading, g.bold);
         int done = 0;
         for (const Row& r : g.rows) done += r.state != State::Wait && r.state != State::Run;
         text(dc, std::to_wstring(done) + L" of " + std::to_wstring(g.rows.size()), x + w - 200, 30, 200 - 20, 20,
@@ -810,6 +982,35 @@ void paint(HDC dc) {
         break;
     }
     case kFinish: {
+        if (g.uninstall) {
+            text(dc, L"\u2713 WHEELBRI IS REMOVED", x, 26, w, 30, kActive, g.big);
+            std::wstring kept, removed = L"program, drivers, Helper, shortcuts";
+            if (checked(g.keepSettings)) kept = L"rig, mappings and settings"; else removed += L", settings";
+            if (checked(g.keepLogs)) kept += (kept.empty() ? L"" : L", ") + std::wstring(L"logs"); else removed += L", logs";
+            if (!g.shimGames.empty() && checked(g.removeShims)) removed += L", the shim in games";
+            if (g.withDrivers && checked(g.removeCertificate)) removed += L", certificate";
+            fill(dc, x, 70, w, 90, kRail);
+            text(dc, L"Kept", x + 14, 96, 100, 20, kDim, g.font);
+            text(dc, kept.empty() ? L"nothing" : kept, x + 120, 96, w - 260, 20, kText, g.font);
+            text(dc, L"Removed", x + 14, 124, 100, 20, kDim, g.font);
+            text(dc, removed, x + 120, 124, w - 134, 36, kText, g.font);
+            int y = 176;
+            if (!g.warnings.empty()) {
+                std::wstring list = std::to_wstring(g.warnings.size()) +
+                                    (g.warnings.size() == 1 ? L" thing to look at:" : L" things to look at:");
+                for (const std::wstring& line : g.warnings) list += L"\n\u2022 " + line;
+                const int h = 34 + 20 * static_cast<int>(std::min<size_t>(g.warnings.size(), 3));
+                notice(dc, list, x, y, w, h, kCaution, kCautionBack);
+            }
+            if (g.restartNeeded) {
+                text(dc, L"Windows finishes removing the drivers at the next restart.", x, 276, w, 20, kCaution, g.font);
+            }
+            if (checked(g.keepSettings)) {
+                text(dc, L"Install again any time: your rig and mappings are picked up where they were kept.", x, 470,
+                     w, 20, kFaint, g.small);
+            }
+            break;
+        }
         text(dc, L"\u2713 WHEELBRI " + g.version + L" IS INSTALLED", x, 26, w, 30, kActive, g.big);
         int y = 70;
         if (!g.warnings.empty()) {
@@ -836,12 +1037,15 @@ void paint(HDC dc) {
 
 void drawButton(const DRAWITEMSTRUCT& d) {
     const bool primary = d.CtlID == kNext;
+    const bool danger = primary && g.page == kChoose;
     const bool disabled = d.itemState & ODS_DISABLED;
     const bool pressed = d.itemState & ODS_SELECTED;
-    COLORREF backColour = primary ? kActive : kButton;
-    COLORREF edge = primary ? kActive : kFrame;
+    COLORREF backColour = danger ? kWarning : primary ? kActive : kButton;
+    COLORREF edge = danger ? kWarning : primary ? kActive : kFrame;
     COLORREF fore = primary ? kDark : kText;
-    if (d.CtlID == kCopyLog || d.CtlID == kOpenLogs) backColour = kHeadingTint, edge = kHeadingTint, fore = kHeading;
+    if (d.CtlID == kCopyLog || d.CtlID == kOpenLogs || d.CtlID == kOpenData) {
+        backColour = kHeadingTint, edge = kHeadingTint, fore = kHeading;
+    }
     if (disabled) backColour = RGB(31, 34, 40), edge = kRule, fore = RGB(107, 112, 121);
     if (pressed && !disabled) backColour = primary ? RGB(48, 160, 76) : kRule;
     HBRUSH b = CreateSolidBrush(backColour);
@@ -955,9 +1159,9 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         case kBrowse: browse(); break;
         case kDefaultFolder: SetWindowTextW(g.folderEdit, defaultFolder().c_str()); InvalidateRect(hwnd, nullptr, TRUE); break;
         case kFolderEdit: if (HIWORD(wParam) == EN_CHANGE) { RECT r{px(200), px(160), px(780), px(320)}; InvalidateRect(hwnd, &r, TRUE); } break;
-        case kStartMenu: EnableWindow(g.startMenuName, checked(g.startMenu)); break;
         case kCopyLog: copyLog(); break;
-        case kOpenLogs: openAsUser(g.logFolder); break;
+        case kOpenLogs: openAsUser(g.uninstall && !checked(g.keepLogs) ? environment(L"TEMP") : g.logFolder); break;
+        case kOpenData: openAsUser(g.userData + L"\\wheelbri"); break;
         default: break;
         }
         return 0;
@@ -985,34 +1189,118 @@ HFONT makeFont(const int size, const int weight) {
 
 }  // namespace
 
+// Makes a new folder under %SystemRoot%\Temp that only Administrators and SYSTEM can change, copies this exe into it
+// and starts that copy with <arguments>; returns whether it started. The uninstaller runs from there, not from the
+// install folder it deletes.
+bool runFromTempCopy(const std::wstring& arguments) {
+    wchar_t windows[MAX_PATH]{};
+    GetWindowsDirectoryW(windows, MAX_PATH);
+    GUID guid{};
+    CoCreateGuid(&guid);
+    wchar_t name[80]{};
+    swprintf(name, 80, L"\\Temp\\wheelbri-uninstall-%08lx%04x%04x", static_cast<unsigned long>(guid.Data1), guid.Data2,
+             guid.Data3);
+    const std::wstring folder = std::wstring(windows) + name;
+    if (!CreateDirectoryW(folder.c_str(), nullptr)) return false;   // new: fails if anything is there
+    const int locked = runHidden(quoted(system32(L"icacls.exe")) + L" " + quoted(folder) +
+                                 L" /inheritance:r /grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F");
+    wchar_t self[MAX_PATH * 2]{};
+    GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)));
+    const std::wstring copy = folder + L"\\wheelbri-setup.exe";
+    if (locked != 0 || !CopyFileW(self, copy.c_str(), TRUE)) {
+        RemoveDirectoryW(folder.c_str());
+        return false;
+    }
+    std::wstring command = quoted(copy) + L" " + arguments + L" --temp-copy";
+    STARTUPINFOW si{sizeof(si)};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, folder.c_str(), &si, &pi)) {
+        return false;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     SetProcessDPIAware();
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    bool tempCopy = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::wstring a = argv[i];
+        if (a == L"--uninstall") g.uninstall = true;
+        else if (a == L"--temp-copy") tempCopy = true;
+        else if (a == L"--user-data" && i + 1 < argc) g.userData = argv[++i];
+    }
+    LocalFree(argv);
+    {
+        // Named "Uninstall ...": the uninstaller, without --uninstall.
+        const std::wstring self = exeFolder();
+        wchar_t path[MAX_PATH * 2]{};
+        GetModuleFileNameW(nullptr, path, static_cast<DWORD>(std::size(path)));
+        const std::wstring name = std::wstring(path).substr(self.size() + 1);
+        if (_wcsnicmp(name.c_str(), L"uninstall", 9) == 0) g.uninstall = true;
+    }
+    // Whose data: the user who started it, before Administrator (who may be another account).
+    if (g.userData.empty()) g.userData = environment(L"LOCALAPPDATA");
+    const std::wstring passedOn = std::wstring(g.uninstall ? L"--uninstall " : L"") + L"--user-data " + quoted(g.userData);
     // Administrator first (the drivers need it): ask once, then this copy ends.
     if (!isElevated()) {
         wchar_t self[MAX_PATH * 2]{};
         GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)));
         SHELLEXECUTEINFOW info{sizeof(info)};
+        info.fMask = SEE_MASK_NOCLOSEPROCESS;
         info.lpVerb = L"runas";
         info.lpFile = self;
+        info.lpParameters = passedOn.c_str();
         info.nShow = SW_SHOWNORMAL;
         if (!ShellExecuteExW(&info)) {
             MessageBoxW(nullptr, L"WheelBri needs Administrator to install its drivers, and that was refused.",
                         L"WheelBri Setup", MB_ICONERROR);
             return 1;
         }
-        return 0;
+        // Waits for it: inside Setup.exe, IExpress deletes this folder (and wheelbri.zip) once this copy ends.
+        DWORD code = 0;
+        if (info.hProcess) {
+            WaitForSingleObject(info.hProcess, INFINITE);
+            GetExitCodeProcess(info.hProcess, &code);
+            CloseHandle(info.hProcess);
+        }
+        return static_cast<int>(code);
     }
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_PROGRESS_CLASS | ICC_STANDARD_CLASSES};
     InitCommonControlsEx(&controls);
     g.instance = instance;
 
+    if (g.uninstall && !tempCopy) {
+        // Out of the install folder first; this copy ends at once (it would hold its exe open).
+        if (!runFromTempCopy(passedOn)) {
+            MessageBoxW(nullptr, L"Could not prepare the uninstaller's copy under Windows\\Temp.", L"Uninstall WheelBri",
+                        MB_ICONERROR);
+            return 1;
+        }
+        return 0;
+    }
+    if (tempCopy) g.tempCopy = exeFolder();
     std::wstring problem;
-    if (!findPackage(problem)) {
+    if (g.uninstall) {
+        g.package = exeFolder();
+    } else if (!findPackage(problem)) {
         MessageBoxW(nullptr, problem.c_str(), L"WheelBri Setup", MB_ICONERROR);
         return 1;
     }
     detect();
+    if (g.uninstall) {
+        g.version = g.earlierVersion.empty() ? L"?" : g.earlierVersion;
+        if (g.earlierFolder.empty() || !fileExists(g.earlierFolder + L"\\uninstall.ps1")) {
+            MessageBoxW(nullptr, L"WheelBri is not installed here (Settings > Apps has no entry with its uninstaller).",
+                        L"Uninstall WheelBri", MB_ICONERROR);
+            return 1;
+        }
+        readShimGames();
+    }
     if (g.build < 7601) {
         MessageBoxW(nullptr, L"WheelBri needs Windows 7 SP1 or newer.", L"WheelBri Setup", MB_ICONERROR);
         return 1;
@@ -1038,7 +1326,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     wc.lpszClassName = L"WheelBriSetup";
     RegisterClassW(&wc);
 
-    const std::wstring title = L"WheelBri " + g.version + L" Setup";
+    const std::wstring title = g.uninstall ? L"Uninstall WheelBri " + g.version : L"WheelBri " + g.version + L" Setup";
     constexpr DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     RECT size{0, 0, px(780), px(570)};
     AdjustWindowRect(&size, style, FALSE);
@@ -1046,7 +1334,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
                                size.right - size.left, size.bottom - size.top, nullptr, nullptr, instance, nullptr);
     initRows();
     createControls();
-    showPage(kWelcome);
+    showPage(g.uninstall ? kChoose : kWelcome);
     ShowWindow(g.window, show);
 
     MSG msg;
@@ -1057,5 +1345,18 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         }
     }
     CoUninitialize();
-    return 0;
+    if (g.unpacked) runHidden(quoted(system32(L"cmd.exe")) + L" /c rmdir /s /q " + quoted(g.package));
+    if (!g.tempCopy.empty()) {
+        // This exe's own folder: deleted by a command that waits a moment for this process to end.
+        std::wstring command = quoted(system32(L"cmd.exe")) + L" /c ping -n 3 127.0.0.1 >nul & rmdir /s /q " +
+                               quoted(g.tempCopy);
+        STARTUPINFOW si{sizeof(si)};
+        PROCESS_INFORMATION pi{};
+        if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | DETACHED_PROCESS,
+                           nullptr, system32(L"").c_str(), &si, &pi)) {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        }
+    }
+    return g.exitCode > 0 ? g.exitCode : 0;
 }

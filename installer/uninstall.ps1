@@ -5,7 +5,9 @@
 #   - Uninstall.cmd in the install folder (double-click);
 #   - Uninstall.cmd in the unpacked package: cleans up an installation whose folder is damaged or already deleted
 #     (drivers, certificate, shortcuts, entry), using the package's own driver scripts.
-# The user's own data in %LOCALAPPDATA%\wheelbri (mappings, rigs, app settings, logs and telemetry) is never removed.
+# The user's own data in %LOCALAPPDATA%\wheelbri: the rig, mappings and settings are kept unless -RemoveSettings, the
+# logs (and dumps) unless -RemoveLogs. The shim is taken out of the games the app put it into (its shim-games.txt)
+# unless -KeepShims: another mod's DLL the app chained gets its name back, as the app's Remove shim does.
 # Before Windows 11 the installer puts no drivers and no Helper in (the in-game shim way only), so there is nothing of
 # them to remove there.
 #
@@ -17,6 +19,15 @@
 #                                      %LOCALAPPDATA%\wheelbri\config-backup-<yyyy-MM-dd-HHmmss>, never deleted; the
 #                                      certificate stays unless -RemoveCertificate
 #   uninstall.ps1 -InstallDir D:\x     the install folder (default: the one Settings > Apps records)
+#   uninstall.ps1 -RemoveSettings      also remove the rig, mappings and settings (%LOCALAPPDATA%\wheelbri, but logs\)
+#   uninstall.ps1 -RemoveLogs          also remove the logs (%LOCALAPPDATA%\wheelbri\logs, dumps, and the drivers'
+#                                      C:\ProgramData\wheelbri); this uninstall's own log then goes to %TEMP%
+#   uninstall.ps1 -KeepShims           leave the shim in the game folders
+#   uninstall.ps1 -UserLocalAppData X  whose data (default: this user's %LOCALAPPDATA%; passed on when it elevates,
+#                                      so an Administrator who is another account does not get that account's)
+#   uninstall.ps1 -Progress            also prints lines for wheelbri-setup.exe's checklist: @@STEP <n> <count> <text>,
+#                                      @@ITEM <key> <state> <text>, @@NOTE <text> (on the running row), @@WARN <text>,
+#                                      @@RESTART (Windows must restart to finish), @@RESULT <exit code>
 #
 # Exit codes: 0 removed (warnings listed at the end), 1 failed or cancelled.
 
@@ -24,8 +35,16 @@ param(
     [switch]$KeepConfig,
     [switch]$RemoveCertificate,
     [switch]$Quiet,
-    [string]$InstallDir = ''
+    [string]$InstallDir = '',
+    [switch]$RemoveSettings,
+    [switch]$RemoveLogs,
+    [switch]$KeepShims,
+    [string]$UserLocalAppData = '',
+    [switch]$Progress
 )
+# Whose data: this user's, decided before elevation (after it, %LOCALAPPDATA% may be another account's).
+if (-not $UserLocalAppData) { $UserLocalAppData = $env:LOCALAPPDATA }
+$UserLocalAppData = $UserLocalAppData.TrimEnd('\')
 
 # A full path without a trailing backslash, resolved here (before the Set-Location below, and before elevation, after
 # which a relative path would be resolved against System32).
@@ -49,6 +68,11 @@ function Forwarded {
     if ($KeepConfig) { $list += '-KeepConfig' }
     if ($RemoveCertificate) { $list += '-RemoveCertificate' }
     if ($Quiet) { $list += '-Quiet' }
+    if ($RemoveSettings) { $list += '-RemoveSettings' }
+    if ($RemoveLogs) { $list += '-RemoveLogs' }
+    if ($KeepShims) { $list += '-KeepShims' }
+    if ($Progress) { $list += '-Progress' }
+    $list += @('-UserLocalAppData', $UserLocalAppData)
     return $list
 }
 
@@ -107,7 +131,8 @@ if ($folderOk -and ($here -ieq $InstallDir -or $here.StartsWith("$InstallDir\", 
 }
 
 $ErrorActionPreference = 'Stop'
-$logFolder = Join-Path $env:LOCALAPPDATA 'wheelbri\logs'   # with every other log
+$dataFolder = Join-Path $UserLocalAppData 'wheelbri'
+$logFolder = Join-Path $dataFolder 'logs'   # with every other log
 # Not through a link (junction) in the user's folders, as Administrator; and a log that cannot start is no reason
 # to stop: the window still says what happens.
 $logsLinked = @((Split-Path $logFolder), $logFolder | Where-Object {
@@ -115,13 +140,29 @@ $logsLinked = @((Split-Path $logFolder), $logFolder | Where-Object {
     $item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)
 }).Count -gt 0
 try {
-    if ($logsLinked) { $logFolder = Join-Path $env:SystemRoot 'Temp' } else { New-Item -ItemType Directory -Force -Path $logFolder | Out-Null }
-    Start-Transcript -Append -Path (Join-Path $logFolder "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log") | Out-Null
+    # Logs that are going: this log goes to %TEMP% instead, so that it outlives them.
+    $transcriptFolder = if ($logsLinked) { Join-Path $env:SystemRoot 'Temp' } elseif ($RemoveLogs) { $env:TEMP } else { $logFolder }
+    if (-not $logsLinked -and -not $RemoveLogs) { New-Item -ItemType Directory -Force -Path $logFolder | Out-Null }
+    $transcriptName = if ($RemoveLogs) { "wheelbri-uninstall-$(Get-Date -Format yyyy-MM-dd-HHmmss).log" } else { "wheelbri-install-$(Get-Date -Format yyyy-MM-dd).log" }
+    Start-Transcript -Append -Path (Join-Path $transcriptFolder $transcriptName) | Out-Null
 } catch {
     Write-Host "(no log file: $($_.Exception.Message))"
 }
 $warnings = New-Object System.Collections.Generic.List[string]
-function Warn([string]$text) { Write-Host $text -ForegroundColor Yellow; $warnings.Add($text) }
+function Warn([string]$text) {
+    Write-Host $text -ForegroundColor Yellow
+    $warnings.Add($text)
+    if ($Progress) { Write-Host "@@WARN $($text.Trim())" }
+}
+$stepCount = 7
+function Step([int]$n, [string]$text) {
+    Write-Host "[$n/$stepCount] $text" -ForegroundColor Cyan
+    if ($Progress) { Write-Host "@@STEP $n $stepCount $text" }
+}
+# A part of a step, and a note on the running row, for wheelbri-setup.exe's checklist (-Progress only).
+function Item([string]$key, [string]$state, [string]$text) { if ($Progress) { Write-Host "@@ITEM $key $state $text" } }
+function Note([string]$text) { if ($Progress) { Write-Host "@@NOTE $text" } }
+$restartNeeded = $false
 function Ask([string]$question, [bool]$default) {
     $answer = Read-Host ($question + $(if ($default) { ' [Y/n]' } else { ' [y/N]' }))
     if (-not $answer -or -not $answer.Trim()) { return $default }
@@ -130,8 +171,87 @@ function Ask([string]$question, [bool]$default) {
 function Run-Script([string]$path, [string[]]$arguments = @()) {
     if (-not (Test-Path -LiteralPath $path)) { Write-Host "    missing: $path"; return 1 }
     $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    & $powershell -NoProfile -ExecutionPolicy Bypass -File $path @arguments | ForEach-Object { Write-Host "    $_" }
+    & $powershell -NoProfile -ExecutionPolicy Bypass -File $path @arguments | ForEach-Object {
+        Write-Host "    $_"
+        if ("$_" -match 'after a restart|restart Windows|3010') { $script:restartNeeded = $true }
+    }
     return $LASTEXITCODE
+}
+
+# The game folders the app put the shim into: "game<TAB>name<TAB>folder" lines of shim-games.txt (UTF-8) in the
+# user's data folder (and the old-named one), as [name, folder]; folders no longer there are left out. The same
+# reading as scripts/make/clean-pc.ps1 (keep them in step).
+function Get-ShimGames {
+    $games = @()
+    foreach ($name in 'wheelbri', 'wheelemu') {
+        $list = Join-Path (Join-Path $UserLocalAppData $name) 'shim-games.txt'
+        if (-not (Test-Path -LiteralPath $list -PathType Leaf)) { continue }
+        foreach ($line in @([IO.File]::ReadAllLines($list, [Text.Encoding]::UTF8))) {
+            $parts = $line.TrimEnd("`r") -split "`t"
+            if ($parts.Count -eq 3 -and $parts[0] -eq 'game' -and $parts[2] -and (Test-Path -LiteralPath $parts[2] -PathType Container)) {
+                $games += [pscustomobject]@{ Name = $parts[1]; Folder = $parts[2].TrimEnd('\') }
+            }
+        }
+    }
+    return @($games | Group-Object { $_.Folder.ToLowerInvariant() } | ForEach-Object { $_.Group[0] })
+}
+# A shim DLL of ours: "wheelbri" (or the old "wheelemu") is in it.
+function Test-OurShim([string]$path) {
+    try {
+        $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($path))
+        return $text.Contains('wheelbri') -or $text.Contains('wheelemu')
+    } catch { return $false }
+}
+# Takes the shim out of one game folder, as the app's Remove shim does: our dinput8.dll / dinput8Hooked.dll (and their
+# .off copies) and wheelbri-shim.ini go; another mod's dll the app chained (dinput8-chain.dll) gets its name back
+# (dinput8Hooked.dll next to the Ultimate ASI Loader, else dinput8.dll). Returns the problems (empty: done).
+function Remove-ShimFrom([string]$folder) {
+    $problems = @()
+    foreach ($name in 'dinput8.dll', 'dinput8.dll.off', 'dinput8Hooked.dll', 'dinput8Hooked.dll.off') {
+        $path = Join-Path $folder $name
+        if ((Test-Path -LiteralPath $path -PathType Leaf) -and (Test-OurShim $path)) {
+            try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop }
+            catch { $problems += "$name ($($_.Exception.Message))" }
+        }
+    }
+    foreach ($name in 'wheelbri-shim.ini', 'wheelemu-shim.ini') {
+        Remove-Item -LiteralPath (Join-Path $folder $name) -Force -ErrorAction SilentlyContinue
+    }
+    $chain = Join-Path $folder 'dinput8-chain.dll'
+    if (Test-Path -LiteralPath $chain -PathType Leaf) {
+        $loader = Join-Path $folder 'dinput8.dll'
+        $asi = $false
+        if (Test-Path -LiteralPath $loader -PathType Leaf) {
+            try {
+                $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($loader))
+                $asi = $text.Contains('IsUltimateASILoader') -and -not $text.Contains('IsWheelBriShim')
+            } catch { $asi = $false }
+        }
+        $to = Join-Path $folder $(if ($asi) { 'dinput8Hooked.dll' } else { 'dinput8.dll' })
+        if (Test-Path -LiteralPath $to) { $problems += "dinput8-chain.dll not renamed back: $([IO.Path]::GetFileName($to)) is there" }
+        else {
+            try { Move-Item -LiteralPath $chain -Destination $to -ErrorAction Stop }
+            catch { $problems += "dinput8-chain.dll ($($_.Exception.Message))" }
+        }
+    }
+    return $problems
+}
+
+# Removes a folder of the user's data without following links (a junction in it is removed as a link, never what it
+# points to: this runs as Administrator). Returns whether it is gone.
+function Remove-DataFolder([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $true }
+    $item = Get-Item -LiteralPath $path -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        [IO.Directory]::Delete($path, $false)   # the link only
+    } else {
+        Get-ChildItem -LiteralPath $path -Force | ForEach-Object {
+            if ($_.PSIsContainer) { [void](Remove-DataFolder $_.FullName) }
+            else { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+        }
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    }
+    return -not (Test-Path -LiteralPath $path)
 }
 
 # DirectInput's OEM entries WheelBri writes while a virtual wheel exists (service/src/VirtualWheelDevice.cpp
@@ -212,7 +332,7 @@ function Get-EditedConfigs([string]$installDir) {
 }
 # Moves <files> into a new <localAppData>\wheelbri\config-backup-<yyyy-MM-dd-HHmmss> and returns that folder. Stops
 # (throws) when one cannot be moved, before the program folder is removed.
-function Move-ConfigsToBackup($files, [string]$localAppData, [datetime]$now) {
+function Move-ConfigsToBackup($files, [string]$localAppData, [datetime]$now) {   # $localAppData: the user's
     $backup = Join-Path $localAppData ('wheelbri\config-backup-' + $now.ToString('yyyy-MM-dd-HHmmss'))
     New-Item -ItemType Directory -Force -Path $backup -ErrorAction Stop | Out-Null
     foreach ($file in $files) {
@@ -243,14 +363,16 @@ try {
             Write-Host 'Nothing was removed.'
             throw 'cancelled'
         }
-        if ($folderOk -and -not $KeepConfig) { $KeepConfig = Ask 'Keep your settings (config\*.ini) for a later install?' $false }
+        if (-not $RemoveSettings) { $RemoveSettings = -not (Ask 'Keep your rig, mappings and settings for a later install?' $true) }
+        if (-not $RemoveLogs) { $RemoveLogs = Ask 'Remove the logs too?' $true }
+        if ($folderOk -and -not $KeepConfig -and -not $RemoveSettings) { $KeepConfig = Ask 'Keep the changed configs of the install folder (config\*.ini)?' $false }
         if ($withDrivers -and -not $RemoveCertificate) {
             $RemoveCertificate = Ask 'Also remove the certificate the drivers were signed with from the trusted certificates?' $true
         }
     }
 
     # 1. A running copy: closed so it shows the real wheel again and removes its virtual devices itself.
-    Write-Host '[1/5] closing a running WheelBri' -ForegroundColor Cyan
+    Step 1 'closing a running WheelBri'
     $running = @(Get-Process -Name 'wheelbri', 'wheelbri-service', 'wheelbri-bridge' -ErrorAction SilentlyContinue)
     foreach ($process in $running) {
         if ($process.MainWindowHandle -ne 0) { [void]$process.CloseMainWindow() }
@@ -267,8 +389,12 @@ try {
     # The WheelBri Helper service: stopped (it removes the virtual G920 it made and shows the rig again) and removed,
     # before its program and the drivers go.
     if (Get-Service -Name 'WheelBriHelper' -ErrorAction SilentlyContinue) {
-        if (Remove-HelperService) { Write-Host '    removed the WheelBri Helper service' }
-        else { Warn '    the WheelBri Helper service could not be removed: sc.exe delete WheelBriHelper (as Administrator)' }
+        Item 'helper' 'running' 'WheelBri Helper'
+        if (Remove-HelperService) { Write-Host '    removed the WheelBri Helper service'; Item 'helper' 'done' 'removed' }
+        else {
+            Item 'helper' 'warn' 'could not be removed'
+            Warn '    the WheelBri Helper service could not be removed: sc.exe delete WheelBriHelper (as Administrator)'
+        }
     }
     if ($withDrivers) {
         # A driver installer the app started at Start (it keeps running when the app closes): finished first.
@@ -279,24 +405,49 @@ try {
         if ($folderOk -and (Test-Path $service)) { & $service --unhide | Out-Null }   # no "hidden" setting left behind
     }
     Write-Host "    $(if ($running.Count) { "closed $($running.Count)" } else { 'none running' })"
+    Note $(if ($running.Count) { "closed $($running.Count)" } else { 'none running' })
+
+    # 2. The shim in the games the app put it into (shim-games.txt), unless asked to leave it.
+    Step 2 'taking the shim out of games'
+    $shimGames = @(Get-ShimGames)
+    if ($KeepShims) {
+        Write-Host "    left in $($shimGames.Count) game folder(s) (asked)"
+        Note 'left (asked)'
+    } elseif ($shimGames.Count -eq 0) {
+        Write-Host '    no game has it'
+        Note 'no game has it'
+    } else {
+        $cleaned = 0
+        foreach ($game in $shimGames) {
+            $problems = @(Remove-ShimFrom $game.Folder)
+            if ($problems.Count -eq 0) { Write-Host "    $($game.Name): removed ($($game.Folder))"; $cleaned++ }
+            else { Warn "    $($game.Name) ($($game.Folder)): $($problems -join '; ') (is the game running?)" }
+        }
+        Note "$cleaned of $($shimGames.Count) game(s)"
+    }
 
     # 2. Drivers: the filter first (the rig's devices go back to Windows' own driver), then the virtual devices'.
-    Write-Host '[2/5] removing the drivers' -ForegroundColor Cyan
+    Step 3 'removing the drivers'
     if (-not $withDrivers) { Write-Host '    none on this Windows (the in-game shim way only)' }
     $driverScripts = @()
     if ($withDrivers) { $driverScripts = @('hide\uninstall-hide.ps1', 'uninstall-driver.ps1') }
     foreach ($script in $driverScripts) {
+        $key = if ($script -like 'hide\*') { 'hide-driver' } else { 'wheel-driver' }
+        Item $key 'running' $script
         $code = Run-Script (Join-Path $driverRoot $script)
-        if ($code -ne 0) { Warn "    $script ended with exit code $code (see above)" }
+        if ($code -ne 0) { Item $key 'warn' "exit code $code"; Warn "    $script ended with exit code $code (see above)" }
+        else { Item $key 'done' 'removed' }
     }
     $certificateRemoved = $false
     if ($RemoveCertificate -and $withDrivers) {
+        Item 'certificate' 'running' 'certificate'
         $code = Run-Script (Join-Path $driverRoot 'uninstall-driver.ps1') @('-RemoveCertificate')
-        if ($code -ne 0) { Warn "    the certificate was not removed (exit code $code, see above)" } else { $certificateRemoved = $true }
+        if ($code -ne 0) { Item 'certificate' 'warn' "exit code $code"; Warn "    the certificate was not removed (exit code $code, see above)" }
+        else { $certificateRemoved = $true; Item 'certificate' 'done' 'removed' }
     }
 
     # 3. Shortcuts and the Settings > Apps entry.
-    Write-Host '[3/5] removing shortcuts and the Settings > Apps entry' -ForegroundColor Cyan
+    Step 4 'removing shortcuts, the Settings > Apps entry and registry entries'
     $programs = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
     $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
     foreach ($name in 'WheelBri', 'wheel-emulator') {   # wheel-emulator: the name before the rename
@@ -375,11 +526,11 @@ try {
     Write-Host '    done'
 
     # 4. Config: kept if asked; with -Quiet (no one to ask) the changed ones are moved to a backup, never deleted.
-    Write-Host '[4/5] settings' -ForegroundColor Cyan
-    if ($folderOk -and $Quiet -and -not $KeepConfig) {
+    Step 5 'your rig, mappings and settings'
+    if ($folderOk -and $Quiet -and -not $KeepConfig -and -not $RemoveSettings) {
         $edited = @(Get-EditedConfigs $InstallDir)
         if ($edited.Count -gt 0) {
-            $backup = Move-ConfigsToBackup $edited $env:LOCALAPPDATA (Get-Date)
+            $backup = Move-ConfigsToBackup $edited $UserLocalAppData (Get-Date)
             $names = ($edited | ForEach-Object { $_.Name }) -join ', '
             $which = if (Test-Path -LiteralPath (Join-Path $InstallDir 'default-configs.txt')) { 'changed configs' }
                      else { 'configs (this install recorded no defaults to tell changed ones by)' }
@@ -390,7 +541,7 @@ try {
     } elseif ($folderOk -and $KeepConfig) {
         $config = Join-Path $InstallDir 'config'
         if (Test-Path -LiteralPath $config -PathType Container) {
-            $backup = Join-Path $env:LOCALAPPDATA 'wheelbri\config-backup'   # the user's folder, like every setting
+            $backup = Join-Path $dataFolder 'config-backup'   # the user's folder, like every setting
             New-Item -ItemType Directory -Force -Path $backup | Out-Null
             Copy-Item (Join-Path $config '*') $backup -Force
             Write-Host "    kept in $backup (copy them into the config folder after a new install)"
@@ -398,11 +549,45 @@ try {
             Warn "    no config folder in $InstallDir`: no settings to keep"
         }
     } else {
-        Write-Host '    removed with the program'
+        Write-Host '    the install folder''s configs: removed with the program'
+    }
+    if ($RemoveSettings) {
+        # Everything in the data folder but logs\ and dumps\ (the next step's), and the old-named folder from before
+        # the rename (all of it: the app moved what it needed).
+        $gone = $true
+        if (Test-Path -LiteralPath $dataFolder) {
+            Get-ChildItem -LiteralPath $dataFolder -Force | Where-Object { $_.Name -notin @('logs', 'dumps') } | ForEach-Object {
+                if ($_.PSIsContainer) { if (-not (Remove-DataFolder $_.FullName)) { $gone = $false } }
+                else { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue; if (Test-Path -LiteralPath $_.FullName) { $gone = $false } }
+            }
+        }
+        if (-not (Remove-DataFolder (Join-Path $UserLocalAppData 'wheelemu'))) { $gone = $false }
+        if ($gone) { Write-Host "    removed from $dataFolder"; Note 'removed' }
+        else { Warn "    some of your settings in $dataFolder could not be removed (in use?): delete them by hand" }
+    } else {
+        Write-Host "    kept in $dataFolder"
+        Note 'kept'
     }
 
-    # 5. The program.
-    Write-Host '[5/5] removing the program files' -ForegroundColor Cyan
+    # 6. Logs.
+    Step 6 'logs'
+    if ($RemoveLogs) {
+        $gone = (Remove-DataFolder $logFolder) -and (Remove-DataFolder (Join-Path $dataFolder 'dumps'))
+        # The drivers' own folder, used when they could not write to the user's (driver\Driver.cpp kFallbackLogFolder).
+        [void](Remove-DataFolder (Join-Path $env:ProgramData 'wheelbri'))
+        if ($gone) { Write-Host '    removed'; Note 'removed' }
+        else { Warn "    some logs in $logFolder could not be removed (in use?): delete them by hand" }
+        # The data folder itself, once nothing is left in it.
+        if ((Test-Path -LiteralPath $dataFolder) -and @(Get-ChildItem -LiteralPath $dataFolder -Force).Count -eq 0) {
+            Remove-Item -LiteralPath $dataFolder -Force -ErrorAction SilentlyContinue
+        }
+    } else {
+        Write-Host "    kept in $logFolder"
+        Note 'kept'
+    }
+
+    # 7. The program.
+    Step 7 'removing the program files'
     if ($folderOk) {
         # The files in its installed-files.txt and WheelBri's subfolders, then the folders left empty (an install from
         # before that list: the whole folder, which holds wheelbri.exe and no install.ps1, see $folderOk).
@@ -417,7 +602,10 @@ try {
     }
     $exitCode = 0
 } catch {
-    if ($_.Exception.Message -ne 'cancelled') { Write-Host "Uninstall failed: $($_.Exception.Message)" -ForegroundColor Red }
+    if ($_.Exception.Message -ne 'cancelled') {
+        Write-Host "Uninstall failed: $($_.Exception.Message)" -ForegroundColor Red
+        if ($Progress) { Write-Host "@@FAIL $($_.Exception.Message)" }
+    }
 } finally {
     Write-Host ''
     if ($exitCode -eq 0) {
@@ -426,7 +614,13 @@ try {
             Write-Host 'Things to look at:' -ForegroundColor Yellow
             $warnings | ForEach-Object { Write-Host "  $($_.Trim())" -ForegroundColor Yellow }
         }
-        Write-Host "Logs stay in $logFolder."
+        if ($RemoveLogs) { Write-Host "This uninstall's log: $(Join-Path $transcriptFolder $transcriptName)" }
+        else { Write-Host "Logs stay in $logFolder." }
+        if ($restartNeeded) { Write-Host 'Restart Windows to finish removing the drivers.' -ForegroundColor Yellow }
+    }
+    if ($Progress) {
+        if ($restartNeeded -and $exitCode -eq 0) { Write-Host '@@RESTART' }
+        Write-Host "@@RESULT $exitCode"
     }
     try { Stop-Transcript | Out-Null } catch { }
     if (-not $Quiet) { Read-Host 'Press Enter to close' | Out-Null }

@@ -32,7 +32,7 @@
 # %ProgramFiles%\wheelemu, or where Settings > Apps says: the files in its installed-files.txt and WheelBri's
 # subfolders, or all of it for an install from before that list), its shortcuts and its Settings > Apps entries;
 # HKLM\SOFTWARE\wheelbri and \wheelemu (the hide setting); the installer's and uninstaller's copies in %TEMP% and
-# %SystemRoot%\Temp (wheelbri-setup-*, wheelbri-uninstall-*, and install logs written there when the logs folder was a
+# %SystemRoot%\Temp (wheelbri-setup-*, wheelbri-uninstall-*, wheelbri-package-*, and install logs written there when the logs folder was a
 # link);
 # DirectInput's OEM entries the service writes for the virtual G25, G27, G920 and G923 (VID_046D&PID_C299, C29B, C262,
 # C26E): OEMName and OEMData where OEMName is WheelBri's name for that wheel, the Axes key where it carries WheelBri's
@@ -279,6 +279,8 @@ function Get-TempCopies {
         foreach ($name in $names) {
             Get-ChildItem $root -Directory -Filter "$name-setup-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
             Get-ChildItem $root -Directory -Filter "$name-uninstall-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+            # wheelbri-setup.exe's unpacked wheelbri.zip (deleted when it ends; left after a crash).
+            Get-ChildItem $root -Directory -Filter "$name-package-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
             # Install logs written here when the user's logs folder was a link (install.ps1, uninstall.ps1,
             # install-driver.ps1, install-hide.ps1).
             Get-ChildItem $root -File -Filter "$name-*install-*.log" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }

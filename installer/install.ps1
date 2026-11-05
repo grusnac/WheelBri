@@ -14,7 +14,7 @@
 #   install.ps1 -Quiet                  no questions and no pause, even when it fails (for scripted installs); no
 #                                       restart either (restart Windows yourself afterwards)
 #   install.ps1 -StartMenuFolder "Games\WheelBri"   the Start menu folder's name (default WheelBri)
-#   install.ps1 -NoStartMenu            no Start menu folder (uninstall from Settings > Apps)
+#                                       (always made: WheelBri, Uninstall WheelBri, WheelBri logs)
 #   install.ps1 -Restart Now|Later|Ask  at the end of an install that worked (Ask, the default: a question; with
 #                                       -Quiet, Ask counts as Later)
 #   install.ps1 -Progress               also prints lines for wheelbri-setup.exe's checklist, each on a line of its own:
@@ -61,7 +61,6 @@ param(
     [switch]$StopBrowserGamepads,
     [switch]$Quiet,
     [string]$StartMenuFolder = 'WheelBri',
-    [switch]$NoStartMenu,
     [ValidateSet('Ask', 'Now', 'Later')]
     [string]$Restart = 'Ask',
     [switch]$Progress,
@@ -79,7 +78,7 @@ if ($InstallDir.Length -gt 3) { $InstallDir = $InstallDir.TrimEnd('\') }
 # The Start menu folder: folder names only (a subfolder after \ is fine), never a path out of Start Menu\Programs.
 $StartMenuFolder = $StartMenuFolder.Trim().Trim('\')
 $menuParts = @($StartMenuFolder -split '\\')
-if (-not $NoStartMenu -and (-not $StartMenuFolder -or $StartMenuFolder.Length -gt 120 -or
+if ((-not $StartMenuFolder -or $StartMenuFolder.Length -gt 120 -or
         @($menuParts | Where-Object { -not $_.Trim() -or $_ -match '^\.+$' -or
                                       $_.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0 }).Count -gt 0)) {
     Write-Host "Not a Start menu folder name: '$StartMenuFolder'." -ForegroundColor Red
@@ -92,7 +91,6 @@ function Get-PassedOn {
     if ($NoDesktopShortcut) { $list += '-NoDesktopShortcut' }
     if ($StopBrowserGamepads) { $list += '-StopBrowserGamepads' }
     if ($Quiet) { $list += '-Quiet' }
-    if ($NoStartMenu) { $list += '-NoStartMenu' }
     if ($Progress) { $list += '-Progress' }
     $list += @('-StartMenuFolder', $StartMenuFolder, '-Restart', $Restart)
     return $list
@@ -470,7 +468,8 @@ try {
     $defaultConfigs = @()
     foreach ($file in Get-ChildItem -LiteralPath $sourceRoot -Recurse -File) {
         $relative = $file.FullName.Substring($sourceRoot.Length + 1)
-        if ($relative -in @('Setup.cmd', 'install.ps1')) { continue }   # the installer stays in the package
+        # The installer stays in the package; wheelbri-setup.exe goes in below as Uninstall WheelBri.exe.
+        if ($relative -in @('Setup.cmd', 'install.ps1', 'wheelbri-setup.exe')) { continue }
         if ($relative -like 'win7\*') { continue }   # Windows 7's prerequisites, for before the install
         $target = Join-Path $InstallDir $relative
         New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
@@ -492,6 +491,15 @@ try {
         $copied++
     }
     Write-Host "    $copied files copied"
+    # The graphical uninstaller: wheelbri-setup.exe under the name that makes it one (its name starts with
+    # "Uninstall", SetupMain.cpp). The setup itself is not kept here (it needs the package next to it); an install
+    # from before this kept it as wheelbri-setup.exe, which goes.
+    Remove-Item -LiteralPath (Join-Path $InstallDir 'wheelbri-setup.exe') -Force -ErrorAction SilentlyContinue
+    $setupProgram = Join-Path $package 'wheelbri-setup.exe'
+    if (Test-Path -LiteralPath $setupProgram -PathType Leaf) {
+        Copy-Item -LiteralPath $setupProgram -Destination (Join-Path $InstallDir 'Uninstall WheelBri.exe') -Force
+        [void]$listed.Add('Uninstall WheelBri.exe')
+    }
     $defaultsRecord = Join-Path $InstallDir 'default-configs.txt'
     Set-Content -LiteralPath $defaultsRecord -Value $defaultConfigs -Encoding UTF8
     [void]$listed.Add('default-configs.txt')
@@ -629,22 +637,29 @@ try {
     $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
     Remove-Item (Join-Path $programs 'wheel-emulator.lnk'), (Join-Path $programs 'wheel-emulator'),
                 (Join-Path $desktop 'wheel-emulator.lnk') -Recurse -Force -ErrorAction SilentlyContinue
+    # The uninstaller: Uninstall WheelBri.exe (the graphical one), else uninstall.ps1 in a console.
+    $guiUninstaller = Join-Path $InstallDir 'Uninstall WheelBri.exe'
+    if (Test-Path -LiteralPath $guiUninstaller -PathType Leaf) {
+        $uninstallProgram = $guiUninstaller
+        $uninstallArguments = '--uninstall'
+    } else {
+        $uninstallProgram = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $uninstallArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'uninstall.ps1')`""
+    }
     # The folder an earlier install made goes first (its name is in the Settings > Apps entry; it may have changed).
     $earlierMenu = (Get-ItemProperty -Path $uninstallKey -Name StartMenuFolder -ErrorAction SilentlyContinue).StartMenuFolder
     if ($earlierMenu -and $earlierMenu -notmatch '\.\.' -and -not [IO.Path]::IsPathRooted($earlierMenu)) {
         Remove-Item (Join-Path $programs $earlierMenu) -Recurse -Force -ErrorAction SilentlyContinue
     }
-    if ($NoStartMenu) {
-        Write-Host '    no Start menu folder (asked): uninstall from Settings > Apps'
-    } else {
-        $menu = Join-Path $programs $StartMenuFolder
-        New-Item -ItemType Directory -Force -Path $menu | Out-Null
-        New-Shortcut (Join-Path $menu 'WheelBri.lnk') $app '' $InstallDir 'WheelBri: your rig as a Logitech G920'
-        $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        New-Shortcut (Join-Path $menu 'Uninstall WheelBri.lnk') $powershell `
-            "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'uninstall.ps1')`"" $env:SystemRoot `
-            'Removes WheelBri, its drivers and shortcuts'
-    }
+    # The Start menu folder, always: the app, its uninstaller and the logs folder (each user's own: Explorer's
+    # shell:Local AppData is the user who opens it, so one shortcut for all users).
+    $menu = Join-Path $programs $StartMenuFolder
+    New-Item -ItemType Directory -Force -Path $menu | Out-Null
+    New-Shortcut (Join-Path $menu 'WheelBri.lnk') $app '' $InstallDir 'WheelBri: your rig as a Logitech G920'
+    New-Shortcut (Join-Path $menu 'Uninstall WheelBri.lnk') $uninstallProgram $uninstallArguments $InstallDir `
+        'Removes WheelBri, its drivers and shortcuts; asks what to keep'
+    New-Shortcut (Join-Path $menu 'WheelBri logs.lnk') (Join-Path $env:SystemRoot 'explorer.exe') `
+        '"shell:Local AppData\wheelbri\logs"' $env:SystemRoot 'The folder with every WheelBri log'
     if (-not $NoDesktopShortcut) {
         New-Shortcut (Join-Path $desktop 'WheelBri.lnk') $app '' `
             $InstallDir 'WheelBri: your rig as a Logitech G920'
@@ -656,16 +671,17 @@ try {
     Remove-Item $legacyKey -Recurse -Force -ErrorAction SilentlyContinue   # the entry from before the rename
     New-Item -Path $key -Force | Out-Null
     $uninstall = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $InstallDir 'uninstall.ps1')`""
+    $uninstallGui = "`"$uninstallProgram`" $uninstallArguments"   # Settings > Apps' Uninstall (the quiet one stays the script)
     $entries = @{
         DisplayName = 'WheelBri'
         DisplayVersion = $version
         Publisher = 'WheelBri'
         InstallLocation = $InstallDir
         DisplayIcon = Join-Path $InstallDir 'wheelbri.exe'
-        UninstallString = $uninstall
+        UninstallString = $uninstallGui
         QuietUninstallString = "$uninstall -Quiet"
         InstallDate = (Get-Date -Format yyyyMMdd)
-        StartMenuFolder = $(if ($NoStartMenu) { '' } else { $StartMenuFolder })   # the uninstaller removes it
+        StartMenuFolder = $StartMenuFolder   # the uninstaller removes it
     }
     foreach ($name in $entries.Keys) { Set-ItemProperty -Path $key -Name $name -Value $entries[$name] }
     Set-ItemProperty -Path $key -Name NoModify -Value 1 -Type DWord
@@ -767,9 +783,9 @@ try {
     }
     Write-Host "Log: $logFolder"
     # The restart question: only here, at the end of an install that worked (never in the app or the uninstaller).
-    $restart = $false
+    $restartNow = $false   # not $restart: PowerShell names ignore case, and that is -Restart
     if ($exitCode -eq 0 -and $withDrivers -and $Restart -eq 'Now') {
-        $restart = $true
+        $restartNow = $true
         Write-Host 'Windows restarts in 2 seconds (-Restart Now).'
     } elseif ($exitCode -eq 0 -and -not $Quiet -and $withDrivers -and $Restart -eq 'Ask') {   # no drivers: nothing a restart would finish
         Write-Host ''
@@ -780,8 +796,8 @@ try {
             Write-Host 'from games often starts only after a restart).' -ForegroundColor Yellow
         }
         $answer = Read-Host 'Restart Windows now? Save your work in other programs first. [Y/n]'
-        $restart = -not $answer -or -not $answer.Trim() -or $answer.Trim().ToLower() -in @('y', 'yes')
-        if ($restart) {
+        $restartNow = -not $answer -or -not $answer.Trim() -or $answer.Trim().ToLower() -in @('y', 'yes')
+        if ($restartNow) {
             Write-Host 'Windows restarts in 2 seconds.'
         } else {
             Write-Host 'Not restarting now: restart Windows before you use WheelBri.' -ForegroundColor Yellow
@@ -789,7 +805,7 @@ try {
     }
     if ($Progress) { Write-Host "@@RESULT $exitCode" }
     if ($transcript) { Stop-Transcript | Out-Null }
-    if ($restart) {
+    if ($restartNow) {
         # The user just said yes: 2 s, enough for this window to close, no countdown (the user's rule, 2026-10-06).
         & shutdown.exe /r /t 2 /c 'WheelBri: restarting so its drivers are installed properly.' /d p:4:2
     } elseif (-not $Quiet -and $exitCode -ne 0) {

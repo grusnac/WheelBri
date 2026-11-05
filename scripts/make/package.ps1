@@ -38,6 +38,7 @@ $programs = @(
     @{ From = "$build\service\wheelbri.exe";         To = 'wheelbri.exe' },
     @{ From = "$build\service\wheelbri-service.exe"; To = 'wheelbri-service.exe' },
     @{ From = "$build\service\wheelbri-helper.exe";  To = 'wheelbri-helper.exe' },
+    @{ From = "$build\installer\setup\wheelbri-setup.exe"; To = 'wheelbri-setup.exe' },   # the graphical installer
     @{ From = "$build\shim\dinput8.dll";             To = 'shim\dinput8.dll' },
     @{ From = "$build-x86\shim\dinput8.dll";         To = 'shim\x86\dinput8.dll' }   # for 32-bit games
 )
@@ -198,7 +199,7 @@ $expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe',
               'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1', 'driver\signing-certificate.txt') +
             @($drivers | ForEach-Object {
                 $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } }) +
-            @('install.ps1', 'Setup.cmd', 'README.md', 'docs\user-guide.md', 'docs\games.md', 'VERSION.txt',
+            @('install.ps1', 'Setup.cmd', 'wheelbri-setup.exe', 'README.md', 'docs\user-guide.md', 'docs\games.md', 'VERSION.txt',
               'win7\download-prerequisites.cmd', 'win7\download-prerequisites.ps1', 'win7\install-prerequisites.cmd')
 foreach ($file in $expected) {
     if (-not (Test-Path (Join-Path $stage $file))) { Fail "the package lacks $file (packaging bug)." }
@@ -226,6 +227,7 @@ $work = Join-Path $out 'iexpress'
 if (Test-Path $work) { Remove-Item $work -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 Copy-Item (Join-Path $stage 'Setup.cmd') $work
+Copy-Item (Join-Path $stage 'wheelbri-setup.exe') $work   # Setup.exe starts it; it unpacks wheelbri.zip next to it
 Copy-Item $zip (Join-Path $work 'wheelbri.zip')
 $setup = Join-Path $out "$name-setup.exe"
 if (Test-Path $setup) { Remove-Item $setup -Force }
@@ -258,17 +260,19 @@ DisplayLicense=
 FinishMessage=
 TargetName=$setup
 FriendlyName=WheelBri $version setup
-AppLaunched=cmd /c Setup.cmd
+AppLaunched=wheelbri-setup.exe
 PostInstallCmd=<None>
 AdminQuietInstCmd=cmd /c Setup.cmd -Quiet
 UserQuietInstCmd=cmd /c Setup.cmd -Quiet
 FILE0="Setup.cmd"
 FILE1="wheelbri.zip"
+FILE2="wheelbri-setup.exe"
 [SourceFiles]
 SourceFiles0=$work\
 [SourceFiles0]
 %FILE0%=
 %FILE1%=
+%FILE2%=
 "@
 # IExpress reads the SED with the INI functions, which need Windows line ends; this script's own may be LF, and so
 # is the here-string above.
