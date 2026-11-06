@@ -9,8 +9,8 @@ Using the app: [user-guide.md](user-guide.md); the Targets: [targets.md](targets
 | [DiRT Rally 2.0](#dirt-rally-20) | all four | works | not supported | none |
 | [NFS 2015](#nfs-2015) | G920 | works | works | pedal remap |
 | [NFS Payback](#nfs-payback) | G920 | works; needs G HUB | not recommended | 180 degrees |
-| [NFS Heat](#nfs-heat) | G920 | works | works | none |
-| [NFS Unbound](#nfs-unbound) | G920 | works | works | gain 3, its hidden settings |
+| [NFS Heat](#nfs-heat) | G920 | works | works | detection only (warns as a G923) |
+| [NFS Unbound](#nfs-unbound) | G920 | works | works | its hidden settings: force 1.0, spring 0.8, rotation |
 | [Race Driver: GRID](#race-driver-grid) | G25 | works | works (32-bit) | none |
 
 "Works" means wheel, pedals, buttons and force feedback were checked in the game. Built-in profiles apply with Target
@@ -67,6 +67,8 @@ G920 only, by themselves while the game runs.
 ## NFS Heat
 
 - **Set up:** nothing; no Logitech software needed. Played at 360 degrees.
+- **Profile:** no values of its own; it is recognised when it starts, and the Games tab warns when the Target is the
+  G923.
 - **Target:** G920. As a G923 the D-pad does nothing (the game predates the G923; real G923 owners report the same).
 - **Known:** light force feedback (rarely over 30%): raise the game's or the wheel's strength. It can stop until you
   Alt+Tab, as in NFS 2015.

@@ -72,7 +72,7 @@ Releases: <https://github.com/grusnac/WheelBri/releases>. Full details: [docs/in
 |---|---|
 | Windows 11, 64-bit | `WheelBri-<version>-setup.exe` (or the `.zip`: run `Setup.cmd`) |
 | Windows 7 SP1 to 10, 64-bit | the same; Mode Shim only |
-| Linux x86-64, Steam Deck | `wheelbri-linux-x86_64.tar.gz` |
+| Linux x86-64 (glibc 2.39 or newer), Steam Deck | `wheelbri-linux-x86_64.tar.gz` |
 
 ### Windows
 
@@ -116,6 +116,7 @@ It is distributed in the hope that it will be useful, but **without any warranty
 of merchantability or fitness for a particular purpose. See [LICENSE](LICENSE) for the full text.
 
 Parts come from other projects under their own licences: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Security problems: please report them privately ([security policy](https://github.com/grusnac/WheelBri/security/policy)).
 Nothing is copied from GIMX (GPLv3). `tools/uhid` is written from the kernel's `linux/uhid.h`, the HID descriptor
 comes from HIDMaestro's builder (MIT), HID++ from its public description. WheelBri never ships Logitech's files.
 

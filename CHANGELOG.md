@@ -1,6 +1,15 @@
 # Changelog
 
-## 1.0.0
+## Unreleased
+
+- Force feedback: `[ffb] max_slew_per_second` (1 to 50) and `frozen_force_s` (0.5 to 60 s) can only make the safety
+  guards gentler; a value that would loosen them is reported and the default kept.
+- Windows package: the README's and the notices' links to the licence open `LICENSE.txt`.
+- CI: ShellCheck also checks the Linux scripts users run (`scripts/linux/*.sh`).
+- Docs: corrected and brought up to date with 1.0.0; a command-line reference in the user guide; `SECURITY.md`;
+  a licence line (SPDX) in every source file.
+
+## 1.0.0 (2026-11-05)
 
 The first stable release. Changes since 0.9.9.
 
@@ -48,8 +57,8 @@ The first stable release. Changes since 0.9.9.
 - **Rig roles map the core controls** (Steering, pedals, D-pad, A, B, X, Y, paddles) on every Target.
 - Source and secondary pickers with a find box, a scrolling list and rig touches; a control used elsewhere moves in
   one click; up to 8 secondaries per button, levers with a 0-100% threshold.
-- Games tab: per-game button changes and secondaries; Force feedback sub-tab shows what the game asks and what reaches
-  the wheel; NFS Heat profile.
+- Games tab: per-game button changes and secondaries; NFS Heat recognised (a warning when the Target is the G923).
+- Live tab's force feedback monitor: per kind of effect, what the game asks and what reaches the wheel.
 - One Start / Stop button; a notice above the tabs says what blocks Start; Start ends on the Live tab.
 - Mode Shim alone and locked where Mode Virtual cannot run, its hover text naming the Windows.
 - A wheel another program holds open (Firefox) is hidden anyway: Start reconnects its USB port.
@@ -68,7 +77,8 @@ The first stable release. Changes since 0.9.9.
 ### Quality and security
 
 - CI builds and tests on Windows and Linux, builds the Windows installer and the Linux bundle, and publishes a release
-  for a `v<version>` tag; clang-tidy, sanitizers, ShellCheck and fuzz targets; tests run in parallel.
+  for a `v<version>` tag; clang-tidy, sanitizers, ShellCheck on the build scripts, and the fuzz targets' fixed inputs
+  (`RobustnessTest`); tests run in parallel.
 - Helper: driver scripts never write in a folder a user controls; its log only to an accepted caller. System DLLs and
   programs loaded from fixed places only.
 - Many fixes found by an audit of the code (bounds-checked byte order, handle leaks, threads ended before exit).
@@ -79,4 +89,4 @@ The first stable release. Changes since 0.9.9.
 
 ## Earlier
 
-0.8.1 to 0.9.9 (September to October 2026): see the `v0.*` tags.
+0.2 to 0.9.9 (from 2026-09-30): see the `v0.*` tags.

@@ -61,7 +61,7 @@ The order is the G920's in PC mode (`joy.cpl` 1-11), then Logitech's Driving For
 
 ## Shadow view
 
-The real G920 drawn from Logitech's pictures, with the Driving Force Shifter's gate. Buttons carry their printed labels
+The G920 as it looks, with the Driving Force Shifter's gate. Buttons carry their printed labels
 (A B X Y, LSB / RSB, View, Menu, Xbox); the paddles carry none.
 
 ## Known

@@ -5,12 +5,14 @@ can do on one page: [capabilities.md](capabilities.md). Per-game notes: [games.m
 
 - [Set up your rig](#set-up-your-rig)
 - [Map it to the Target](#map-it-to-the-target)
+- [Change the mapping while you play](#change-the-mapping-while-you-play)
 - [Play](#play)
 - [Shadow view](#shadow-view)
 - [Games tab](#games-tab)
 - [Linux and the Steam Deck](#linux-and-the-steam-deck)
 - [Force feedback](#force-feedback)
 - [Logs](#logs)
+- [Command line](#command-line)
 - [Troubleshooting](#troubleshooting)
 
 Two choices decide how WheelBri works:
@@ -22,10 +24,11 @@ Two choices decide how WheelBri works:
   use it unless a game needs otherwise. **Shim** puts a `dinput8.dll` next to one game, for older DirectInput games.
   On a Windows too old for Virtual's driver there is no Virtual button: Shim is locked, and its hover text says why.
 
-The tabs are along the bottom: Rig, Mapping, Games, Logs (keys R, M, G, L), with the status and **Start** / **Stop**
-at the right. Point at any button to see what it does. Every change is saved at once; **Undo** goes back one change at
-a time. The first time, the app opens on the Rig tab; once you have a rig, on Mapping. Start shows the Logs while the
-session comes up, then Live; a game with a profile opens the Games tab on it when it starts.
+The tabs are along the bottom: Rig, Mapping, Live, Games, Logs (keys R, M, S, G, L; **B** puts Mapping and Live side by
+side), with the status and **Start** / **Stop** at the right. Point at any button to see what it does. Every change is
+saved at once; **Undo** goes back one change at a time. The first time, the app opens on the Rig tab; once you have a
+rig, on Mapping. Start shows the Logs while the session comes up, then Live; a game with a profile opens the Games tab
+on it when it starts.
 
 ## Set up your rig
 
@@ -51,7 +54,7 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
 
 ## Map it to the Target
 
-![Mapping tab with Target G27](images/mapping-base.png)
+![Mapping tab with Target G923, TrueForce on](images/mapping-base.png)
 
 1. Pick the **Target** and **Mode** at the top (fixed while running; the rest can change while you play:
    [Change the mapping while you play](#change-the-mapping-while-you-play)).
@@ -86,9 +89,9 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
   one, as to a G920. On needs Logitech G HUB installed (it need not run); without it On is greyed and says so. Takes
   effect at the next Start. More below, under force feedback, and in [target-g923.md](target-g923.md#trueforce).
 
-The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games
-count), from 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Each Target's buttons:
-[targets.md](targets.md).
+The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games count), from
+0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Each
+Target's buttons: [targets.md](targets.md).
 
 **Default** goes back to WheelBri's mapping.
 
@@ -102,6 +105,10 @@ uses it at once: no Stop and Start. Target, Mode and Order stay as Start set the
 - **Side by side** (**B**, or the button on Live): the editor left and Live right, in one window. The window lays out
   two pages wide, so text is smaller: best maximised or full screen. Other tabs use the whole window; **B** again goes
   back. It is remembered.
+
+  ![Side by side, maximised: the Mapping tab and the Shadow view](images/live-side-by-side-shadow.png)
+
+  ![Side by side, maximised: the Mapping tab and the List view](images/live-side-by-side-list.png)
 - **Steering rotation**: the editor's slider or a preset. WheelBri still passes the wheel through 1:1: set the same
   number in your wheel's own software (Pit House for Moza). The virtual wheel reports the new rotation at once
   (whether a running game reads it again is up to the game); a game file's rotation changes at its next **Save to
@@ -150,11 +157,11 @@ both Modes for one game.
 
 ## Shadow view
 
-While WheelBri runs, the Live tab (**S**) shows the Target as the game sees it: the real wheel drawn from Logitech's own
-pictures, with its pedals and shifter, every control lit while the game gets it pressed. It shows what the game
+While WheelBri runs, the Live tab (**S**) shows the Target as the game sees it: a drawing modelled on the real wheel,
+with its pedals and shifter, every control lit while the game gets it pressed. It shows what the game
 receives after your mapping, so it is the place to check a mapping in action.
 
-![The Shadow view with Target G923, running](images/shadow-view.png)
+![The Shadow view with Target G923, running](images/live-shadow-view.png)
 
 - **Buttons** light while pressed. On each is its number as the game counts it (from 1 in Logitech order, from
   0 in Native); on the G920 and G923, what is printed on the real button instead (A B X Y, LSB / RSB, View, Menu,
@@ -177,24 +184,28 @@ pressed** naming the Target's button you pressed last and what drives it ("G920 
 control does nothing in the Shadow view: Last pressed also names an unmapped button, so List shows whether the rig sees
 it at all.
 
+![The List view with Target G923, running](images/live-list-view.png)
+
 ## Games tab
 
-![Games tab, Axes and buttons sub-tab](images/games-axis.png)
+![Games tab, Axes and buttons sub-tab, nothing changed yet](images/games.png)
 
 Values for one game at a time, kept per Target. A few games have a built-in profile applied while they run (NFS 2015,
-NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, your own values with every Target.
+NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, your own values with every Target. NFS
+Heat is recognised too: it has no values, only a warning when the Target is the G923.
 
 1. Pick the game on the left. Tags show what is in its folder (`shim g920`, `+ASI` next to the ASI Loader, `+mod`
    chained to another mod, `no shim`, `other mod`: **Chain mod** chains it now), `! not G923`
    when the game does not support the Target, `running` for the one WheelBri sees now. **Add game...** picks a game's
-   `.exe`; **Remove** takes one you added off the list (its files stay).
+   `.exe`; **Remove** takes one you added off the list (its files stay). Its **FOLDER** row: **Put shim** (or **Chain
+   mod**), **Remove shim**, and **Forget folder** to drop the folder WheelBri knows for it.
 2. Set its sub-tabs; **Default** goes back to the profile's or the Mapping tab's value (yours show in violet):
    - **Axes and buttons**, the axes first: steering rotation; per pedal, the axis the game reads and Normal /
      Inverted. In Mode Virtual pedals can only be swapped among the Target's own pedal axes.
 
-     Then the buttons: only the ones you change for this game; **Remove** gives one back to the Mapping tab.
+     ![Throttle moved to another axis for this game; the amber note: in Mode Virtual only for Mode Shim](images/games-axis-remapping.png)
 
-     ![Buttons sub-tab, nothing changed yet](images/games-buttons-base.png)
+     Then the buttons: only the ones you change for this game; **Remove** gives one back to the Mapping tab.
 
      **Add button...** asks which Target button to change and adds its row, starting from the Mapping tab's values.
      Click its **this game** field to pick its control, or its **secondaries** field to add controls that activate it
@@ -204,11 +215,13 @@ NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, you
 
      ![Picking the Target's button](images/games-buttons-selection.png)
 
-     ![Picking the control for it in this game](images/games-buttons-rempping.png)
+     ![Picking the control for it in this game](images/games-buttons-remapping.png)
+
+     ![Its secondaries: here the brake pedal past 86% presses it too](images/games-buttons-secondary-remapping-done.png)
 
      The row shows the Mapping tab's values and this game's; what is this game's own is in violet.
 
-     ![A button changed for this game](images/games-buttons-rempping-done.png)
+     ![A button changed for this game](images/games-buttons-remapping-done.png)
 
    - **Game file** (NFS Unbound): writes the game's hidden wheel settings with **Save to file** (game closed).
 
@@ -267,15 +280,19 @@ A few settings for every game are in `[ffb]` in your mapping file (press Start a
 | `game_effects` | true | `false` turns game force feedback off |
 | `centring_spring` | 0 | G25 and G27: their centring spring, 0 to 100% |
 | `ignore_lone_full_push` | true | a full push with no other forces for 2 s plays as none (Race Driver: GRID) |
+| `max_slew_per_second` | 50 | how fast a force may change, full scale per second; 1 to 50: lower only softens hits |
+| `frozen_force_s` | 2 | a push left unchanged this long fades out; 0.5 to 60 s: it cannot be turned off |
 
-**TrueForce** (Target G923, Windows): the Mapping tab's **TrueForce** switch, under Target, lets games that use
-Logitech's TrueForce (ACC) drive your wheel with it. Off by default. (The command-line service reads it from
-`[emulator] trueforce` in the config instead; the app's switch wins, and starts from that line the first time.) It needs Logitech G HUB installed (not running). A game that
-drives the wheel through DirectInput alone is not changed by it: its effects come one by one, as on a G920. Some games
-without TrueForce of their own still use it on a G923 (DiRT Rally 2.0): [Games](games.md). What ACC needs:
-[Games](games.md#assetto-corsa-competizione). For ACC on a G923, turn it on: a real G923 gets all of ACC's force
-through TrueForce, with or without G HUB running, so this is the path closest to the real wheel. With it off, ACC's
-force comes as effects through Logitech's force feedback driver, which works too.
+The two safety values can only be made gentler than the defaults; anything else is reported in the log and the
+default kept.
+
+**TrueForce** (Target G923, Windows, Mode Virtual): the Mapping tab's **TrueForce** switch, under Target, off by
+default. On, games that use Logitech's TrueForce (ACC, DiRT Rally 2.0) send their force through it, as to a real G923:
+for ACC the path closest to the real wheel. Off, their force comes as effects through Logitech's force feedback
+driver, which works too. A game that uses DirectInput alone is not changed by it. It needs Logitech G HUB installed
+(not running). The command-line service reads `[emulator] trueforce` from the config instead; the app's switch wins,
+and starts from that line the first time. More: [target-g923.md](target-g923.md#trueforce),
+[ACC](games.md#assetto-corsa-competizione).
 
 To test the wheel, press Stop and run (Windows, Command Prompt):
 
@@ -298,6 +315,27 @@ The **Logs** tab shows what every part of WheelBri does; **O** opens the folder 
 
 To report a problem: set **Level** to debug, repeat it, press Stop, and send that run's files with the Target, Mode,
 game and what you saw. Set Level back to warn afterwards.
+
+## Command line
+
+`wheelbri-service` (`wheelbri-service.exe` in the install folder, `~/wheelbri/bin/wheelbri-service` on Linux) runs a
+session without the app; `--help` prints this list. Stop the app first: one session at a time.
+
+| Option | What it does |
+|---|---|
+| `--config FILE` | the mapping to use (default: WheelBri's built-in one, Target G920) |
+| `--list` | lists the game controllers it sees, then exits |
+| `--print` | shows each control's raw and mapped value live |
+| `--ui` | a window showing the session (no editor) |
+| `--ffb-test` | plays a short, gentle force feedback sequence on the wheel, then exits |
+| `--virtual-wheel` | Mode Virtual: the virtual wheel for every game, your rig hidden; `--no-hide` leaves it visible |
+| `--unhide` | after a crash: makes the rig visible to games again, then exits (Administrator on Windows) |
+| `--stop-file FILE` | stops cleanly when FILE appears |
+| `--old-files delete\|archive\|keep` | logs older than 2 days: deleted (default), compressed or kept |
+| `--app` | the app's window with Start / Stop (what `wheelbri` runs) |
+
+`--prepare-hide` is for the installer, `--telemetry-tab` and `--ffb-tab` for development. Log detail per part:
+`SPDLOG_LEVEL="info,service.ffb=debug"` before the command.
 
 ## Troubleshooting
 

@@ -15,7 +15,8 @@ has been checked against a real Logitech wheel.
 
 ## Which one?
 
-1. The game has a preset for the G920 or G923: **G920**. Want TrueForce in ACC or DiRT Rally 2.0: **G923**.
+1. The game has a G920 preset: **G920**. It has only a G923 preset, or you want TrueForce in ACC or DiRT Rally 2.0:
+   **G923**.
 2. The game is older than the G920 (2015) and lists the G27: **G27**; lists only the G25: **G25**.
 3. Not sure: start with G920, then try the newest Logitech wheel the game's controller list names.
 

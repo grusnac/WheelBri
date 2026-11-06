@@ -1,8 +1,8 @@
 # Building WheelBri
 
-CMake 3.24+, a C++20 compiler (GCC; MinGW-w64 on Windows; others untried) and internet on the first configure (CMake
-fetches spdlog 1.15.3 and GoogleTest 1.15.2). No other library: DirectInput and Win32 on Windows, evdev and X11 on
-Linux. The Windows drivers need Visual Studio.
+CMake 3.24+, a C++20 compiler (GCC, MinGW-w64 on Windows; Clang for fuzzing and clang-tidy; MSVC untried) and internet
+on the first configure (CMake fetches spdlog 1.15.3 and GoogleTest 1.15.2). No other library: DirectInput and Win32 on
+Windows, evdev and X11 on Linux. The Windows drivers need Visual Studio.
 
 | CMake option | Default | Builds |
 |---|---|---|
@@ -15,7 +15,8 @@ Linux. The Windows drivers need Visual Studio.
 | `WE_BUILD_G923CAP` | ON | `wheelbri-g923cap`, the decoder and probe of the G923 capture kit (`tools/g923-capture`) |
 | `WE_STRICT_TESTS` | OFF | nothing: a `tests/*Test.cpp` no test program builds fails the configure (Linux CI) |
 
-Outputs: `build/service/`, `build/shim/dinput8.dll`, `build/logi/`, `build/tools/uhid/`.
+Outputs: `build/service/` (with `wheelbri-setup.exe` on Windows), `build/shim/dinput8.dll`, `build/logi/`,
+`build/tools/uhid/`, `build/tools/g923-capture/`.
 
 ## Windows
 
@@ -173,7 +174,8 @@ scripts/linux/deck-build.sh
 
 ### Linux bundle
 
-Writes `dist/wheelbri-linux-x86_64.tar.gz`. Build on a system whose glibc is not newer than the target's (SteamOS's):
+Writes `dist/wheelbri-linux-x86_64.tar.gz`. It runs on the build system's glibc or newer: the releases are built on
+Ubuntu 24.04, so they need glibc 2.39. For an older target, build on a system whose glibc is not newer than its own:
 
 ```bash
 scripts/linux/package.sh --shim build-win/shim/dinput8.dll --shim-x86 build-win-x86/shim/dinput8.dll
