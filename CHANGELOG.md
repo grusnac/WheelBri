@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.0.1 (2026-11-06)
 
+Changes since 1.0.0.
+
+- Mapping tab: the Target, Order and TrueForce rows' buttons line up after the longest label ("TrueForce" no longer
+  runs into Off).
 - Force feedback: `[ffb] max_slew_per_second` (1 to 50) and `frozen_force_s` (0.5 to 60 s) can only make the safety
   guards gentler; a value that would loosen them is reported and the default kept.
 - Windows package: the README's and the notices' links to the licence open `LICENSE.txt`.

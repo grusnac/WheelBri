@@ -43,6 +43,12 @@ Two Modes:
 | Windows 7 to 10 (Mode Shim only) | built, **not yet tried** |
 | Button orders | from public sources; **not yet checked on real Logitech wheels** |
 
+## What's new in 1.0.1
+
+- **Safer force feedback settings**: a config can only make the safety guards gentler, never looser.
+- **Mapping tab**: the Target, Order and TrueForce rows line up.
+- **Docs**: brought up to date with 1.0.0, with a command-line reference.
+
 ## What's new in 1.0.0
 
 The first stable release. Since 0.9.9:
