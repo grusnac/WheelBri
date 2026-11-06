@@ -256,12 +256,16 @@ TEST_F(ServiceMainTest, NoWheelToReadEndsTheSession) {
     EXPECT_NE(text.find("no wheel to read: there is no rig with a wheel yet"), std::string::npos);
 }
 
-// A mapping that uses a control twice still runs (both inputs press together); the log says which.
+// A mapping that uses a control twice still runs (both inputs press together); the log says which. The stop file is
+// written only once the service waits for the wheel: the config's warnings come before it removes an old stop file,
+// so one written on the warning alone can be taken for a leftover (a slow run, e.g. under sanitizers) and the service
+// then waits the whole 15 s.
 TEST_F(ServiceMainTest, AControlUsedTwiceIsWarnedAbout) {
     const fs::path config =
         absentWheelConfig("[buttons]\ntarget_0 = 3\ntarget_1 = 3\n");
     start({"--config", config.string(), "--stop-file", (dir_ / "stop").string()});
     EXPECT_TRUE(logSays("a control used twice")) << log();
+    EXPECT_TRUE(logSays("is not connected yet: waiting up to 15 s")) << log();
     write(dir_ / "stop", "");
     EXPECT_EQ(wait(), 0);
 }
