@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/EmulatorConfig.hpp"
 
 #include <gtest/gtest.h>
@@ -322,25 +323,41 @@ TEST(EmulatorConfig, RejectsMalformedNumbers) {
 
 // The limits themselves are allowed (the ranges are inclusive).
 TEST(EmulatorConfig, AcceptsTheEndsOfEachRange) {
-    const auto result = load("[emulator]\nstate_port = 1024\nffb_port = 65535\n[ffb]\nfrozen_force_s = 0\n"
-                             "max_slew_per_second = 1000\n");
+    const auto result = load("[emulator]\nstate_port = 1024\nffb_port = 65535\n[ffb]\nfrozen_force_s = 0.5\n"
+                             "max_slew_per_second = 50\n");
     ASSERT_TRUE(result.errors.empty()) << result.errors.front();
     EXPECT_EQ(result.config.statePort, 1024);
     EXPECT_EQ(result.config.ffbPort, 65535);
-    EXPECT_FLOAT_EQ(result.config.ffb.maxSlewPerSecond, 1000.0F);
+    EXPECT_FLOAT_EQ(result.config.ffb.maxSlewPerSecond, 50.0F);
+    EXPECT_FLOAT_EQ(result.config.ffb.frozenForceSeconds, 0.5F);
 }
 
-// frozen_force_s: 0 (never) to 60 s; missing, the default 2 s; beyond the range or not a number, reported.
+// frozen_force_s: 0.5 to 60 s (a frozen push always fades); missing, the default 2 s; beyond the range or not a
+// number, reported.
 TEST(EmulatorConfig, ReadsHowLongAFrozenPushMayLast) {
     EXPECT_FLOAT_EQ(load("").config.ffb.frozenForceSeconds, 2.0F);
-    for (const char* value : {"0", "60"}) {
+    for (const char* value : {"0.5", "60"}) {
         const auto result = load((std::string("[ffb]\nfrozen_force_s = ") + value + "\n").c_str());
         EXPECT_TRUE(result.errors.empty()) << value;
     }
-    for (const char* value : {"-1", "61", "nan", "soon"}) {
+    for (const char* value : {"0", "0.4", "-1", "61", "nan", "soon"}) {
         const auto result = load((std::string("[ffb]\nfrozen_force_s = ") + value + "\n").c_str());
         EXPECT_TRUE(containsError(result, "frozen_force_s")) << value;
         EXPECT_FLOAT_EQ(result.config.ffb.frozenForceSeconds, 2.0F) << value;
+    }
+}
+
+// max_slew_per_second: 1 to the default 50 (a config may only make hits softer); beyond, reported and the default kept.
+TEST(EmulatorConfig, SlewMayOnlyBeGentler) {
+    EXPECT_FLOAT_EQ(load("").config.ffb.maxSlewPerSecond, 50.0F);
+    for (const char* value : {"1", "20", "50"}) {
+        const auto result = load((std::string("[ffb]\nmax_slew_per_second = ") + value + "\n").c_str());
+        EXPECT_TRUE(result.errors.empty()) << value;
+    }
+    for (const char* value : {"0", "50.5", "1000"}) {
+        const auto result = load((std::string("[ffb]\nmax_slew_per_second = ") + value + "\n").c_str());
+        EXPECT_TRUE(containsError(result, "max_slew_per_second")) << value;
+        EXPECT_FLOAT_EQ(result.config.ffb.maxSlewPerSecond, 50.0F) << value;
     }
 }
 

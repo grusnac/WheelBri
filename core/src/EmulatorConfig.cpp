@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 
@@ -298,8 +299,10 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         // WheelBri passes all the game asks (gain 1, cap 1). Older configs load, the keys are ignored.
         reader.retired("master_gain");
         reader.retired("max_magnitude");
-        reader.readFloat("max_slew_per_second", config.ffb.maxSlewPerSecond, 0.0F, 1000.0F);
-        reader.readFloat("frozen_force_s", config.ffb.frozenForceSeconds, 0.0F, 60.0F);
+        // The safety guards (CLAUDE.md "FFB safety"): a config may make them gentler, never looser. The slew at most
+        // the default 50 full scales a second; a frozen push always fades, after at least half a second.
+        reader.readFloat("max_slew_per_second", config.ffb.maxSlewPerSecond, 1.0F, FfbSafetyConfig{}.maxSlewPerSecond);
+        reader.readFloat("frozen_force_s", config.ffb.frozenForceSeconds, 0.5F, 60.0F);
         reader.readBool("ignore_lone_full_push", config.ffb.ignoreLoneFullPush);
         reader.readBool("invert", config.ffbInvert);
         reader.readBool("game_effects", config.gameFfb);
