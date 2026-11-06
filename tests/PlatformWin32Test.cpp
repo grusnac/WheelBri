@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The service's Windows platform code (service/src/PlatformWin32.cpp), as PlatformPosixTest covers the Linux one:
 // clock and sleep, the program's own file and folders, who owns a UDP port, the running programs, process images, the
 // single-instance lock and child processes in a job. Windows only (MinGW: run under Wine).

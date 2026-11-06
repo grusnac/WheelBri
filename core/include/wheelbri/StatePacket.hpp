@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/DeviceProfile.hpp"
@@ -9,7 +10,8 @@
 
 namespace wheelbri {
 
-// Wire format from the service to the in-game shim, sent over UDP loopback.
+// Wire format from the service to the consumer (the in-game shim, the wheelbri-wheel driver or wheelbri-uhid), over
+// UDP loopback.
 // UDP rather than shared memory because under Proton the shim is a Windows DLL inside Wine
 // and the service is a native Linux process: named mappings do not cross that boundary, sockets do.
 //

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // A stand-in for Logitech's real wheel SDK helper DLL, for LogiDllTest: wheelbri-logi.dll is pointed at it
 // (wheelbri-logi.ini real_library, or where G HUB / the old software keep theirs) and passes the game's calls on to it.
 // It answers with fixed values and keeps the arguments of the last call (FakeLogiLast), so a test sees what came

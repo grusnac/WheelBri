@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The WheelBri Helper's pipe end to end, Windows only: HelperServer and HelperClient on a pipe of the tests' own
 // (never the real helper's), with a fake session, plus HelperLog's file written as this user. Real pipes, threads
 // and files; nothing here needs Administrator.

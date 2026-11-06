@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/GameDetector.hpp"
@@ -21,7 +22,7 @@ namespace wheelbri::service {
 
 // Game profiles (GameProfiles.hpp) at work in a session: looks at the running programs (core GameDetector over
 // platform::runningPrograms) for the few games that have a profile, says in the log when one is in use and what it
-// changes, and gives the window a short note. A game without a profile is never named. With the virtual G920 (or
+// changes, and gives the window a short note. A game without a profile is never named. With the virtual wheel (or
 // wheelbri-uhid) it routes the published pedals as the profile says; with the in-game shim the shim applies the
 // profile itself, so the pedals go out as they are and the log says so. With NFS 2015 followed it also reads the
 // game's own wheel bindings (core Nfs2015Settings) whenever its settings file changes, and warns only when they would
@@ -38,7 +39,7 @@ namespace wheelbri::service {
 
 class GameWatch {
 public:
-    // `routePedals`: the session publishes to the virtual G920 or wheelbri-uhid (the service applies profiles); false
+    // `routePedals`: the session publishes to the virtual wheel or wheelbri-uhid (the service applies profiles); false
     // for the in-game shim (the shim does). `mapping`: the session's own rotation in degrees ([steering]);
     // `overrides`: the user's per-game rotations ([game_rotation]). Logs the built-in profiles' problems, if any.
     // `session`: the target, the way and the user's per-game values (GameTuning.hpp);

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // Windows only: finding a DirectInput game controller by its HID path (shared by DinputReader and the

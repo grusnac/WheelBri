@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/Ffb.hpp"
 
 #include "wheelbri/Logging.hpp"

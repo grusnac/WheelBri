@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // wheelbri-logi.dll: a logging stand-in for Logitech's Steering Wheel SDK helper DLL. A game built with the SDK (NFS
 // Payback) finds the helper through the registry (ServerBinary of CLSID {63BD165D-...}) and looks up the 48 Logi*
 // functions in it by name. Pointed at this DLL instead, the game calls these exports; each passes the call on to

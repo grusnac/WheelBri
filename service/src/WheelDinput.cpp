@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The physical wheel on Windows, through DirectInput: listing the game controllers, reading the wheel
 // (DinputReader) and its force feedback.
 //

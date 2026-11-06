@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The driver's sender check (driver/SenderProbe.hpp): which senders it lets through, looks up and logs, and, on
 // Windows, what it finds out about one (a socket of this test program: not WheelBri, so dropped).
 

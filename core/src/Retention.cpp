@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/Retention.hpp"
 
 #include "wheelbri/LocalDate.hpp"

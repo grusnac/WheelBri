@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // MappingEditView: the Games page (games list, folder, profile, the game's own values and settings file).
 
 #include "MappingEditView.hpp"

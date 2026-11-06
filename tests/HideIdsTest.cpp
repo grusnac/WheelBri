@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The rig's HID ids for the hide filter (HideIds.hpp).
 
 #include "wheelbri/HideIds.hpp"

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // UhidProcess.hpp on Linux.
 
 #include "UhidProcess.hpp"

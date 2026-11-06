@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The Linux virtual wheel's uhid protocol (tools/uhid), without /dev/uhid: events in, events out.
 
 #include "UhidWheel.hpp"

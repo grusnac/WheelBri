@@ -1,6 +1,6 @@
 # Proxy dinput8.dll. Drop it next to the game's .exe (Windows), or next to the .exe inside the Proton prefix
-# with WINEDLLOVERRIDES="dinput8=n,b" (Linux). Phase 2: presents the physical wheel as the emulated one,
-# fed by wheelbri-service; every other device is passed through and logged (Phase 0 behaviour).
+# with WINEDLLOVERRIDES="dinput8=n,b" (Linux). It presents the physical wheel as the emulated one,
+# fed by wheelbri-service; every other device is passed through and logged (emulate = false: all of them).
 add_library(wheelbri_shim SHARED
     src/DeviceAudit.cpp
     src/DiConvert.cpp

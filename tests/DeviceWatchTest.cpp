@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // DeviceWatch (service/src/DeviceWatch.cpp): its thread with a fake lister, a ChangeCounter the test announces on, and
 // short times. Real threads and the real clock, so every check waits for what it expects (with a generous limit) and
 // checks for what must not happen over a short while.

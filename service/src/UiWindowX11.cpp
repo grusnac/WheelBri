@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The `--ui` window on Linux: a plain Xlib window. Works on X11 desktops and on Wayland ones through
 // XWayland (KDE on the Steam Deck included); needs only libX11, which every Linux desktop has.
 //

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The dinput8.dll shim's force feedback: FfbForwarder (slots, tickets, timing, what it sends to wheelbri-service) and
 // EmulatedEffect (a game's DirectInput effect: its parameters checked, kept and turned into FfbEffects), seen through
 // the FfbPackets it sends on 127.0.0.1. Windows only (MinGW: run under Wine).

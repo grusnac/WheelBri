@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // What the parts of MappingEditView (MappingEditView.cpp: the mapping; MappingEditGames.cpp: the Games page;

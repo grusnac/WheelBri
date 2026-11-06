@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // LogLevel: the app's Level button (warn -> info -> debug -> trace -> warn) and its wire packet.
 
 #include "wheelbri/LogLevel.hpp"

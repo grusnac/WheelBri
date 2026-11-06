@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The Linux window (service/src/UiWindowX11.cpp) on a real X server: each test starts its own Xvfb (skipped when
 // Xvfb is not installed), opens the window, sends it what a desktop sends (keys, buttons, the wheel, moves, resizes,
 // close, unmap) from a second connection and checks what pump() makes of it; draws a frame; opens a folder through

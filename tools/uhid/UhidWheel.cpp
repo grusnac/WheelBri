@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "UhidWheel.hpp"
 
 #include "wheelbri/HidWheelDevice.hpp"

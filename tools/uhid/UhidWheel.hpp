@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/DeviceProfile.hpp"
@@ -18,7 +19,7 @@
 
 namespace wheelbri::uhid {
 
-// The virtual G920 or G25 on Linux (Phase 4), through the kernel's uhid: the same HID device the Windows driver
+// The virtual wheel on Linux, through the kernel's uhid: the same HID device the Windows driver
 // presents (19 buttons with the shifter's, hat, HID PID force feedback), so a game reading it raw sees what it sees on
 // Windows. The G920's has clutch and throttle named for Proton's G920 hack (g920ProtonReportDescriptor); the G25's is
 // the Windows descriptor as it is (Proton has no hack for it). Proton reads it raw only when asked

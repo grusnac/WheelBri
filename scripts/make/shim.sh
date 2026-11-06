@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the dinput8.dll shim and put it into a game's folder the way the app's Games tab does, or take it out again.
-# The shim and the virtual G920 (--virtual-wheel) must not be used together.
+# The shim and the virtual wheel (--virtual-wheel) must not be used together.
 #
 # - A 32-bit game (the folder's largest .exe is a 32-bit Windows program) gets the 32-bit shim,
 #   <build dir>-x86/shim/dinput8.dll (built here by shim-x86.sh; needs MSYS2's 32-bit compiler,

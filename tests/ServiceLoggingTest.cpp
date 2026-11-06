@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The service's folders and the startup banner (service/src/ServiceLogging.cpp),
 // on Linux: every folder follows XDG_CONFIG_HOME / XDG_STATE_HOME (or HOME), set per test to a temporary folder.
 

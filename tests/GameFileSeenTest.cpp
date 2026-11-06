@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The Games tab learns a game's settings file by seeing the game write it (service/src/MappingEditView.cpp,
 // setGameNow and learnGameFile): a located file the game was not seen writing is shown as not confirmed (it may be
 // another game's: NFS Heat's PROFILEOPTIONS holds NFS Unbound's settings too); once the game, ending, has written it,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // platform::WaitSet (service/src/Platform.hpp), the event loop's wait, with real sockets and events on 127.0.0.1.
 
 #include "Platform.hpp"

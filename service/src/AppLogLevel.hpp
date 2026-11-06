@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/LogLevel.hpp"
@@ -13,7 +14,7 @@ namespace wheelbri::service {
 
 // The log level the app's Logs tab picks (its Level button: warn, info, debug, trace, and back to warn), for every
 // component: this process (app and session) at once; the game's shim and wheelbri-uhid through the session's
-// LogLevelPacket (main.cpp); the WheelBri Helper through its Hello (HelperProbe); both drivers (virtual G920, hide
+// LogLevelPacket (main.cpp); the WheelBri Helper through its Hello (HelperProbe); both drivers (virtual wheel, hide
 // filter) through HKLM\SOFTWARE\wheelbri LogLevel, written at each Start and, while a session runs, on a change.
 // Remembered in the app's state file ([app] log_level); warn when nothing is stored. Warnings and errors are always
 // written: nothing quieter than warn can be picked (LogLevel.hpp clampToApp).

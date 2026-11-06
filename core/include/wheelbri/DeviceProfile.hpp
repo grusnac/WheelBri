@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/WheelState.hpp"
@@ -192,11 +193,11 @@ inline constexpr std::size_t kG920FirstGear = 12;   // 0-based: Gear 1 .. Gear 6
 
 // Logitech G920 Driving Force (Xbox One / PC) in PC mode. 0xc262 is the PID it enumerates with once G HUB
 // or the kernel driver has switched it out of its Xbox-mode PID (0xc261). Product name, pedal encoding and
-// button labels are unverified against a real G920. Its force feedback is HID++ rather than the classic
-// Logitech protocol, which matters for Phase 3/4, not for DirectInput.
+// button labels are unverified against a real G920. Its force feedback is HID++ (feature 0x8123, HidPpFfb.hpp) rather
+// than the classic Logitech protocol.
 [[nodiscard]] DeviceProfileSpec g920Spec();
 
-// The G25's buttons (046D:C299): 19, the shifter's included (docs/targets.md), named in the order Logitech's Windows
+// The G25's buttons (046D:C299): 19, the shifter's included (docs/target-g25.md), named in the order Logitech's Windows
 // driver gives them (ButtonOrder::Driver): the shifter's red buttons 0..3 (left to right), paddles R 4 and L 5, the
 // wheel's buttons R 6 and L 7, gears 1-6 and reverse 8..14, the shifter's black diamond 15..18 (top, left, bottom,
 // right). Its native order (ButtonOrder::Native, the wheel's own HID order): black bottom, left, right, top 0..3,
@@ -214,7 +215,7 @@ inline constexpr std::size_t kG25FirstGear = 8;
 // 900 degrees are its full lock.
 [[nodiscard]] DeviceProfileSpec g25Spec();
 
-// The G27's buttons (046D:C29B): 23 (docs/targets.md), the G25's 19 in the same places and 4 more on the wheel,
+// The G27's buttons (046D:C29B): 23 (docs/target-g27.md), the G25's 19 in the same places and 4 more on the wheel,
 // R 19, L 20, R 21, L 22 (top to bottom; which of each side's lower buttons is which is not confirmed). Native order:
 // the G25's, except reverse 22 and the wheel's lower buttons R 18, 19, L 20, 21. From the same sources as the G25's.
 inline constexpr std::size_t kG27Buttons = 23;
@@ -224,7 +225,7 @@ inline constexpr std::size_t kG27FirstGear = 8;
 // top, 900 degrees), with its 23 buttons. Its rev lights are not emulated (games drive them through Logitech's SDK).
 [[nodiscard]] DeviceProfileSpec g27Spec();
 
-// The G923 for Xbox and PC in PC mode (046D:C26E, docs/targets.md): 24 buttons, the G920's 19 (the same
+// The G923 for Xbox and PC in PC mode (046D:C26E, docs/target-g923.md): 24 buttons, the G920's 19 (the same
 // HID++ wheel family: Linux's hid-logitech-hidpp drives both with the G920's quirks) and the 5 the G920 lacks, after
 // them: Plus 19, Minus 20, Dial Right 21, Dial Left 22, Dial Enter 23. Logitech does not document the order: the
 // G920's part follows the G920, the last 5 the G29's order (+, -, dial right, dial left, enter); unverified until a
@@ -234,7 +235,7 @@ inline constexpr std::size_t kG923FirstGear = kG920FirstGear;
 
 // Logitech G923 Racing Wheel for Xbox One and PC in PC mode (046D:C26E; Xbox mode is C26D, which Logitech's driver or
 // Linux's xpad switches out of): presented like the G920 (the same axes, pedals released at the top, 900 degrees),
-// with its 24 buttons. Its rev lights and TrueForce are not emulated.
+// with its 24 buttons. Its rev lights are not emulated; TrueForce is (TrueForce.hpp).
 [[nodiscard]] DeviceProfileSpec g923Spec();
 
 // Config names of the built-in profiles, for messages: the wheels WheelBri emulates (a virtual device and the shim both

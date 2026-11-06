@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // USB and HID descriptors: enough to tell which interface and report carries what.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // S6: asks the real wheel itself, read-only. TrueForce (usage page 0xFFFD): 0x05 for parameters 0x00..0x3F. HID++

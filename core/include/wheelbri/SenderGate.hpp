@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include <array>
@@ -11,7 +12,7 @@ namespace wheelbri {
 
 // Who may send to the UDP ports on 127.0.0.1. Any program of the user can send a datagram there, so on Windows the
 // receiver asks which process owns the sending port (once per new port, cached) and lets through only the programs
-// that should be talking to it: game force feedback (port 41330) from the virtual G920's driver host or a game with
+// that should be talking to it: game force feedback (port 41330) from the virtual wheel's driver host or a game with
 // WheelBri's shim, the wheel's state (41329) only from WheelBri. On Linux game force feedback is let through only from
 // the service's own user (a Proton game's shim, wheelbri-uhid), not from another user on the same machine. The lookup
 // is the platform's (GetExtendedUdpTable on Windows, /proc/net/udp on Linux); this file holds the rules and the
@@ -24,7 +25,7 @@ enum class SenderVerdict {
     Unknown,   // the system could not say (an API failed; under Wine it often does): the gate's policy decides
 };
 
-// The virtual G920's driver host: <system folder>\WUDFHost.exe (any case).
+// The virtual wheel's driver host: <system folder>\WUDFHost.exe (any case).
 [[nodiscard]] bool isDriverHostImage(const std::filesystem::path& image, const std::filesystem::path& systemFolder);
 // WheelBri itself: wheelbri.exe or wheelbri-service.exe (any case, any folder).
 [[nodiscard]] bool isWheelBriImage(const std::filesystem::path& image);

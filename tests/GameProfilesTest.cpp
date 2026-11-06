@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameSettings.hpp"
 #include "wheelbri/HidWheelDevice.hpp"

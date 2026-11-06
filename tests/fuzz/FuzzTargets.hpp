@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // The fuzz targets (FuzzTargets.cpp): one input, the first byte picking the target (kTargets of them).

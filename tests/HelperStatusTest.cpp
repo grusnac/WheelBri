@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // HelperStatus: what a Hello's outcome means for the Logs tab's Helper row, and its text.
 
 #include "wheelbri/HelperStatus.hpp"

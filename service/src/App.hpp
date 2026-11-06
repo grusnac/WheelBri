@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "SessionUi.hpp"
@@ -29,7 +30,7 @@ struct AppSettings {
     ShimSources shimDlls;                // WheelBri's dinput8.dll (64- and 32-bit), put into games (in-game shim)
     std::filesystem::path shimSettings;  // config/wheelbri-shim.ini, put next to it
     // Runs one session with the config at `configPath` ("" = the built-in defaults) until it is asked to stop
-    // (blocking); returns its exit code. `virtualDevice`: the virtual G920 (rig hidden) rather than the in-game shim.
+    // (blocking); returns its exit code. `virtualDevice`: the virtual wheel (rig hidden) rather than the in-game shim.
     // `order`: the Mapping tab's button order (ConfigPicker::buttonOrder), used instead of the file's [buttons] order.
     // `trueForce`: the Mapping tab's TrueForce (ConfigPicker::trueForceAtStart), used instead of the file's
     // [emulator] trueforce. Called on the app's session thread.

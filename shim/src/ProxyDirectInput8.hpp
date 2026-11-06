@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "EmulatedDevice.hpp"
@@ -179,7 +180,7 @@ public:
                                                      DWORD flags) override {
         return guarded("EnumDevicesBySemantics", [&]() -> HRESULT {
             // Devices handed out here are real, unwrapped objects. Logged loudly: if a game uses this path,
-            // Phase 2 must wrap it too.
+            // the emulation must wrap it too.
             const HRESULT result = real_->EnumDevicesBySemantics(user, format, callback, ref, flags);
             WE_LOG_WARN(detail::directInputLog(),
                         "EnumDevicesBySemantics(user='{}', flags=0x{:x}) -> {}: action mapping, could remap axes; devices "

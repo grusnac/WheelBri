@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The service's DirectInput helpers (service/src/DinputDevice.cpp), the reader of the wheel (DinputReader.cpp) and the
 // wheel backend (WheelDinput.cpp), on the system's DirectInput. Nothing here opens a device that is there (the tests
 // may run on a PC with a wheel plugged in): only listing, and opening what is not there. Windows only (MinGW: run under Wine, which lists no game controller).

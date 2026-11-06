@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // Decodes one capture session: the wheel's device and interfaces, its reports sorted into TrueForce, HID++ and the

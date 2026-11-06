@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #define DIRECTINPUT_VERSION 0x0800
@@ -7,7 +8,7 @@
 
 namespace wheelbri::shim {
 
-// Human-readable renderings of DirectInput values for the Phase 0 log.
+// Human-readable renderings of DirectInput values for the shim's call log.
 
 // At most `maxChars` characters (game strings may not be terminated inside their MAX_PATH buffers).
 [[nodiscard]] std::string toUtf8(const WCHAR* text, std::size_t maxChars = MAX_PATH);

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Platform.hpp on Linux and macOS.
 
 #include "Platform.hpp"

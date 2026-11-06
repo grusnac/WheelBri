@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Every parser and protocol state machine fed what it does not expect (FuzzTargets.cpp): the shipped configs and
 // game profiles with bytes changed, cut short or repeated, and random bytes for the packets, HID reports and
 // DirectInput values. Fixed seeds, so a failure always comes back the same way; wheelbri_fuzz (-DWE_BUILD_FUZZ=ON)

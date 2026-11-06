@@ -382,7 +382,7 @@ try {
         Warn "    $($process.ProcessName) did not close within 15 s: ended"
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     }
-    # The WheelBri Helper service: stopped (it removes the virtual G920 it made and shows the rig again) and removed,
+    # The WheelBri Helper service: stopped (it removes the virtual wheel it made and shows the rig again) and removed,
     # before its program and the drivers go.
     if (Get-Service -Name 'WheelBriHelper' -ErrorAction SilentlyContinue) {
         Item 'helper' 'running' 'WheelBri Helper'

@@ -99,7 +99,7 @@ $names = @('wheelbri', 'wheelbri-service', 'wheelbri-helper') + @($Game | ForEac
 
 # The driver hosts: WUDFHost.exe processes, labelled by which of WheelBri's drivers they load (needs Administrator).
 # Windows may load both drivers into one host, and a driver into a host that is already running (seen 2026-10-06: the
-# virtual G920 joined the hide filter's host when a session started), so the modules are looked at again every
+# virtual wheel joined the hide filter's host when a session started), so the modules are looked at again every
 # $hostRecheckSeconds. Hosts without them are left out.
 $hostRecheckSeconds = 5
 $hostLabels = @{}   # pid -> @{ Label; At }
@@ -323,8 +323,8 @@ try {
         if ($rows.Count -eq 0) { $out.Add('   no samples'); continue }
         $out.Add(('   {0,-28} {1,15} {2,17} {3,16} {4,8} {5,8} {6,9}' -f 'process', 'PC % avg/peak', 'core % avg/peak',
                   'private MB avg/max', 'handles', 'threads', 'GDI/USER'))
-        # One row per process: a driver host's label changes when a driver joins or leaves it (the virtual G920 comes and
-        # goes with each session), so a process is named by the label it had most often in the phase.
+        # One row per process: a driver host's label changes when a driver joins or leaves it (the virtual wheel comes
+        # and goes with each session), so a process is named by the label it had most often in the phase.
         $labelOf = @{}
         foreach ($byPid in ($rows | Group-Object Pid)) {
             $labelOf[[string]$byPid.Name] = @($byPid.Group | Group-Object Process | Sort-Object Count -Descending)[0].Name

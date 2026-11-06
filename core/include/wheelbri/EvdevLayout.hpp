@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // A Linux evdev game controller's axes, buttons and hats, numbered exactly as SDL3 numbers them

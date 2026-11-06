@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // One input to every parser and protocol state machine WheelBri gives data it does not control (configs and profiles
 // edited by hand, datagrams on 127.0.0.1, HID reports from games, DirectInput values): the first byte picks which.
 // Whatever the bytes, nothing may crash, hang or read out of bounds, what decodes encodes back, and no force

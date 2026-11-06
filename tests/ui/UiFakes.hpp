@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // Fakes for the window's tests (wheelbri_ui_tests): a scripted, recording window; game controllers the test plugs in,

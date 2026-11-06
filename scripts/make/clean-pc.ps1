@@ -373,7 +373,7 @@ $ourDevices = @($allDevices | Where-Object { $id = $_.InstanceId; @($names | Whe
 # Two properties of every device in one query (one query per device takes minutes): its parent, for the HID devices
 # under our virtual ones, and its driver's description, for every device on one of our drivers. Ours say "wheelbri":
 # "... (wheelbri: hidden from games ...)" on a device with the hide filter, "... (wheelbri)" on the
-# virtual G920. Found this way even when the driver package is already gone (an orphaned filter).
+# virtual wheel. Found this way even when the driver package is already gone (an orphaned filter).
 $parents = @{}
 $onOurDriver = @{}
 if ($allDevices.Count -gt 0) {
@@ -481,7 +481,7 @@ try {
         Write-Host ''
 
         Step '[1/8] closing WheelBri'
-        # The helper service first: stopping it removes the virtual G920 it made and shows the rig again.
+        # The helper service first: stopping it removes the virtual wheel it made and shows the rig again.
         if ($helperService) {
             if (Remove-HelperService) { Write-Host '    removed the WheelBri Helper service' }
             else { Warn 'the WheelBri Helper service could not be removed: sc.exe delete WheelBriHelper' }

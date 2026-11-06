@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The live view and the Logs tab (service/src/MappingView.cpp): every tab drawn from a session's state, the live log
 // followed from real files, its scrolling, the scroll bars, word wrap and the level button; the Telemetry and Force
 // feedback tabs with a real FfbController.

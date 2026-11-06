@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The settings of the dinput8.dll shim (wheelbri-shim.ini, shim/src/ShimConfig.cpp: parseShimConfig, layout,
 // matchesSource) and of wheelbri-logi.dll (wheelbri-logi.ini, logi/src/Settings.cpp: parseSettings).
 // Windows only (MinGW: run under Wine).

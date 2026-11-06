@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The Mapping tab's top row (service/src/ConfigPicker.cpp): the target and the way, which config Start uses, what is
 // remembered in app.ini, and the clicks on its buttons. Drawn on a window that only records.
 

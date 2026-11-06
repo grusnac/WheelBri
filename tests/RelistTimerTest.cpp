@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // RelistTimer: when to list the game controllers again. Every branch of due(), listed() and nextDueMs() is named in
 // the test that covers it.
 

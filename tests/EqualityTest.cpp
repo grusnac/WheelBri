@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The value types compared with == (change detection: an unchanged mapping writes the same text, an effect sent
 // again only when it changed, a rig saved only when edited): every field on its own makes two values different, and
 // two values with every field alike are equal. A field left out of a comparison would hide a change.

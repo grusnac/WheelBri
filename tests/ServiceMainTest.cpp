@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The command-line service (service/src/main.cpp) as a user runs it: the built wheelbri-service started as a process,
 // with HOME and the XDG folders in a folder of the test's own (its settings, logs and lock there), no display, and no
 // game controller (this machine may have none, and the test must not touch one it has: every run names a device that

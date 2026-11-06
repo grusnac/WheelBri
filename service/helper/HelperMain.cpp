@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // wheelbri-helper.exe: the WheelBri Helper, a Windows service (WheelBriHelper, running as SYSTEM) that does the few
 // steps that need Administrator for the app, so the app can run as a standard user.
 //

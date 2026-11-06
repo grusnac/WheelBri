@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // What the decoder knows of the two protocols, as WheelBri's TrueForce.hpp and HidPp.hpp describe them, and which

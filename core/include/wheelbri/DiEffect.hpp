@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // DirectInput force feedback parameters -> the common FfbEffect model. Kept free of <dinput.h> (plain

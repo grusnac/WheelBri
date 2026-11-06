@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Mode Shim's check that the shim works (core/src/ShimWatch.cpp): a game running two minutes without a word from the
 // shim warns once per start; the shim heard once, never.
 

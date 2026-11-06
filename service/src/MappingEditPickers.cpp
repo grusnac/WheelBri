@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // MappingEditView: the popups that pick a control (the source picker, the secondaries' picker) and the rig's
 // touches that feed them.
 

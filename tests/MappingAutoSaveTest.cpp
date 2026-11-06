@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The Mapping tab saves as you change (service/src/MappingEditView.cpp, autoSave and undo): a change is written at
 // once (WheelBri's default stays as it is: the change goes to the user's own file), Undo goes back one change and
 // saves that, and the list starts again with another Target.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // wheelbri-logi.dll as a game loads it (logi/src): the built DLL is copied into a folder of its own for each test (each
 // copy is a module of its own, with its own settings, log and real library) and its exports are called through
 // GetProcAddress, the way NFS Payback does. The "real" Logitech library behind it is FakeLogiLibrary.cpp.

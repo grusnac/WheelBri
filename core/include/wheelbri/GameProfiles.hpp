@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/DeviceProfile.hpp"
@@ -130,7 +131,7 @@ struct WayAdvice {
 // "throttle_axis = slider, brake_axis = y, clutch_axis = rz": what the profile changes, for the log; empty: nothing.
 [[nodiscard]] std::string describeOverlay(const GameProfile& profile);
 
-// For a device whose pedals are packed at fixed axes (the virtual G920: TargetReport throttle on Y, brake on Rz,
+// For a device whose pedals are packed at fixed axes (the virtual wheel: TargetReport throttle on Y, brake on Rz,
 // clutch on the Slider): which pedal each report field carries. from[0] feeds the throttle field, from[1] the brake
 // field, from[2] the clutch field; 0 = throttle, 1 = brake, 2 = clutch.
 struct PedalRoute {
@@ -141,7 +142,7 @@ struct PedalRoute {
 
 // The route that makes a device laid out as `device` look like `game` to the game: every axis the game reads a pedal
 // from must be one of the device's pedal axes, and every device pedal axis must carry one (a permutation). nullopt
-// otherwise: the device cannot do it (e.g. a profile putting a pedal on Z for the virtual G920, which has no Z).
+// otherwise: the device cannot do it (e.g. a profile putting a pedal on Z for the virtual wheel, which has no Z).
 [[nodiscard]] std::optional<PedalRoute> routePedals(const JoystickLayout& device, const JoystickLayout& game);
 
 // `report` with its pedal fields fed as `route` says. Allocation-free (the service loop).

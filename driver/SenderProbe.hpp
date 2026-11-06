@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // Who may send the driver its datagrams on 127.0.0.1 (the wheel's state on 41329, TrueForce's on 41331): only

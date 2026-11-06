@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // Emulators for testing the service loop (the "push" input) without hardware or an OS: devices that announce new

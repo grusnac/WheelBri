@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/Devices.hpp"
@@ -15,7 +16,7 @@
 
 namespace wheelbri::shim {
 
-// Phase 3, shim side: the game's DirectInput effects (EmulatedEffect) become FfbPackets for
+// Shim side: the game's DirectInput effects (EmulatedEffect) become FfbPackets for
 // wheelbri-service, which limits them and plays them on the physical wheel. One per process.
 //
 // Timing (duration, iterations, start delay) is tracked here, so the service only ever sees "slot N

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The service's Linux platform code (PlatformPosix.cpp) with real files and processes: the single-instance lock,
 // child processes (Housekeeping's compressors) and the clock.
 

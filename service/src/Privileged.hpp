@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/LogLevel.hpp"
@@ -71,7 +72,7 @@ bool writeAllowedPid(std::uint32_t pid, std::uint64_t processStart);
 [[nodiscard]] std::uint32_t allowedPid();
 
 // HKLM\SOFTWARE\wheelbri LogLevel (REG_SZ: trace, debug, info or warn): the app's log level for the drivers (the
-// hide filter reads it at each line; the virtual G920's driver when it starts, then from the session's packets).
+// hide filter reads it at each line; the virtual wheel's driver when it starts, then from the session's packets).
 // False with `message` when it could not be written (not Windows: nothing to write, true).
 bool writeLogLevel(LogLevel level, std::string& message);
 

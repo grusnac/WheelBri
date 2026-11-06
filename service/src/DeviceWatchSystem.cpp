@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The app's DeviceWatch lister: the system's game-controller API (startWheelBackend). Apart from DeviceWatch.cpp so
 // DeviceWatchTest builds without DirectInput.
 

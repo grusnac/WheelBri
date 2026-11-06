@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The app's window on Windows (service/src/UiWindowWin32.cpp), a real one: opened, drawn into, and fed the messages
 // Windows sends it (posted to it here, as Windows would), read back through pump(). Skipped where no window can be
 // opened (no desktop; under Wine: no X display, run it inside xvfb-run).

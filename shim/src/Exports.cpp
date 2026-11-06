@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Exported entry points of the proxy dinput8.dll. Names are mapped in dinput8.def so they do not
 // clash with the declarations in <dinput.h> and <combaseapi.h>.
 
@@ -123,7 +124,7 @@ HRESULT WINAPI Proxy_DllGetClassObject(REFCLSID clsid, REFIID riid, LPVOID* out)
     return guarded("Proxy_DllGetClassObject", [&]() -> HRESULT {
         pinThisModule();
         // COM activation (CoCreateInstance(CLSID_DirectInput8)) normally loads the registered system DLL,
-        // not this one; if a game gets here, its objects are not proxied. Worth knowing in Phase 0.
+        // not this one; if a game gets here, its objects are not proxied, so it is logged.
         WE_LOG_WARN(log(), "DllGetClassObject({}, {}) - objects created this way are NOT proxied", describeGuid(clsid),
                     describeGuid(riid));
         const RealDInput* const real = requireReal("DllGetClassObject");

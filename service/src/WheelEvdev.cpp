@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The physical wheel on Linux, through evdev (/dev/input/event*): listing the game controllers, reading
 // the wheel and its force feedback (the kernel's EV_FF, e.g. hid-universal-pidff for direct drive wheels).
 //
@@ -428,7 +429,7 @@ public:
     [[nodiscard]] std::string describe() const override { return "evdev"; }
 
 private:
-    // wheelbri-uhid's virtual G920 (kVirtualWheelUniq): a rig built from it, or a session reading it as the wheel,
+    // wheelbri-uhid's virtual wheel (kVirtualWheelUniq): a rig built from it, or a session reading it as the wheel,
     // would feed the service its own output.
     static bool isOwnVirtualDevice(const int fd) {
         char uniq[64] = {};

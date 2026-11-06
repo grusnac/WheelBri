@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // ChangeCounter: the count of announced changes and the waiting for the next one, with real threads.
 
 #include "wheelbri/ChangeCounter.hpp"

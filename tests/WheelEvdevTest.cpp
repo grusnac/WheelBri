@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The evdev backend (service/src/WheelEvdev.cpp) where no input device can be made (no /dev/uinput): what it does
 // with nodes that are not input devices. A regular file of input_event records stands in for a device's stream (the
 // ioctls fail on it, so it has no axes or buttons), a folder for a node that fails to read, a FIFO for one with

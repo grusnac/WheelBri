@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // What the service sends to the physical wheel's force feedback, in the numbers each system's API takes.

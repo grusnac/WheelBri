@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // HelperDispatch: how the WheelBri Helper answers each message, with a fake session. Every rule of answerMessage
 // and mayTakeTheLog has its test, in the order the header lists them.
 

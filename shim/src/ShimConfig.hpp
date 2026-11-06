@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/EmulatedJoystick.hpp"
@@ -15,7 +16,7 @@ namespace wheelbri::shim {
 // default port.
 //
 //   [shim]
-//   emulate = true             ; false = Phase 0 behaviour: log and pass every device through unchanged
+//   emulate = true             ; false = log and pass every device through unchanged
 //   logi_log = false           ; true = log the game's calls into Logitech's SDK DLLs (LogiHook.hpp)
 //   source_vid = 346e          ; USB vendor id of the rig's wheel to replace (hex, the Rig tab's vid:pid)
 //   source_pid = any           ; or a hex product id

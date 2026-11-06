@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // Linux: the tests that run a wheelbri-uhid (UhidMainTest, UhidProcessTest) take this lock for each test, so that

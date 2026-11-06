@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "HelperClient.hpp"
 
 #include "Platform.hpp"

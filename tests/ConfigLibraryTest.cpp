@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The app's state file (ConfigLibrary.hpp): [app] settings read raw and written back without losing the rest.
 
 #include "wheelbri/ConfigLibrary.hpp"

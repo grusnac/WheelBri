@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // FfbIdleWatch: the game loaded its force feedback but plays none while you drive (NFS 2015 at the start of a race).
 
 #include "wheelbri/FfbIdleWatch.hpp"

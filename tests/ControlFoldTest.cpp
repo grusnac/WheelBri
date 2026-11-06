@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The Rig tab's folding of unnamed controls (core/src/ControlFold.cpp).
 
 #include "wheelbri/ControlFold.hpp"

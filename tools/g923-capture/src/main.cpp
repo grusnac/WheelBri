@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // wheelbri-g923cap: decodes USBPcap captures of a real Logitech G923 and probes it (README.md in this folder).
 //
 //   wheelbri-g923cap decode <session or day folder> [--address N] [--quiet]

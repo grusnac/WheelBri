@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The privileged steps away from Windows (service/src/PrivilegedSteps.cpp, Privileged.cpp, HideFilter.cpp,
 // VirtualWheelDevice.cpp): there is no driver, filter or virtual wheel, so every step says so and nothing is changed.
 // What each step does on Windows is the helper's and the installers' (HelperPipeTest, the scripts).

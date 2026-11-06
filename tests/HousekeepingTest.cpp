@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Retention of the logs (service/src/Housekeeping.cpp): finding a compressor on PATH, deleting old files, and archiving
 // them in the background with real child processes. The compressors are small shell scripts in a folder of the
 // test's own, which PATH then holds alone: they write what the real tool would (an archive, or one file per input),

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "DiFormat.hpp"
@@ -15,7 +16,7 @@
 
 namespace wheelbri::shim {
 
-// Phase 3: a DirectInput effect of the emulated wheel. It keeps the parameters the game set (so
+// A DirectInput effect of the emulated wheel. It keeps the parameters the game set (so
 // GetParameters answers truthfully), turns them into an FfbEffect and hands that to FfbForwarder,
 // which sends it to wheelbri-service. Nothing is played on the physical device from inside the game.
 class EmulatedEffect final : public IDirectInputEffect {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/DeviceProfile.hpp"
@@ -29,7 +30,7 @@ public:
     void limitSending(const std::uint64_t minIntervalNs) { gate_.emplace(minIntervalNs); }
 
     // Which pedal each published pedal field carries: a game profile's (GameProfiles.hpp, routePedals) while that game
-    // runs with the virtual G920, else straight through. Safe from another thread; the next tick uses it.
+    // runs with the virtual wheel, else straight through. Safe from another thread; the next tick uses it.
     // lastReport() stays as mapped (the user's pedals).
     void setPedalRoute(const PedalRoute route) {
         const std::uint32_t packed = static_cast<std::uint32_t>(route.from[0]) |

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/LogLevel.hpp"
@@ -19,7 +20,7 @@ namespace wheelbri {
 class HidPpFfb;
 
 // HID++ 2.0, device side: what Logitech's software (G HUB) asks a Logitech wheel over its vendor reports, answered for
-// a virtual wheel that has them (VirtualWheel::hidpp, docs/targets.md). Written from the
+// a virtual wheel that has them (VirtualWheel::hidpp, docs/target-g923.md). Written from the
 // protocol's public description (Logitech's HID++ 2.0 documents, MIT-licensed tools); nothing is copied from GPL code.
 //
 // A request is one report, long (report ID 0x11, 20 bytes) or very long (0x12, 64 bytes): [report ID, device index,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Which programs have the wheel open, as the hide filter's messages name them (DeviceHolders.hpp).
 
 #include "wheelbri/DeviceHolders.hpp"

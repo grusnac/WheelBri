@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The app (service/src/App.cpp, runApp) and the command line service's --ui window (makeSessionWindow), run for real
 // on a scripted window (UiFakes): its tabs, Start and Stop with a fake session on the app's own session thread, the
 // status next to Start, the session bar, the popups (Before Start, first hide, a game run the wrong way, the shims at

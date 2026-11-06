@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // wheelbri-service: reads the physical wheel, maps it and publishes the emulated wheel's state
 // to the in-game shim over UDP loopback, plays the game's force feedback on the wheel, and records
 // telemetry of both directions for later tuning.
@@ -116,7 +117,7 @@ struct Options {
     bool unhide = false;                        // --unhide: make the real wheel visible again and exit
     bool prepareHide = false;                   // --prepare-hide: put the hide filter on the saved rig's devices, exit
     bool app = false;                           // --app: the window with Start / Stop (always in wheelbri.exe)
-    bool noVirtualDevice = false;                 // --no-virtual-wheel: the app without its virtual G920
+    bool noVirtualDevice = false;                 // --no-virtual-wheel: the app without its virtual wheel
     bool telemetryTab = false;                  // --telemetry-tab: show the Telemetry tab (hidden otherwise)
     bool ffbTab = false;                        // --ffb-tab: show the Force feedback tab (hidden otherwise)
 };
@@ -141,7 +142,7 @@ std::vector<wheelbri::service::HideFilter::Target> rigHideTargets(std::string& r
     return targets;
 }
 
-// With --virtual-wheel (Start in the app): the virtual G920 needs wheelbri's G920 driver. When Windows does not have it
+// With --virtual-wheel (Start in the app): the virtual wheel needs wheelbri's own driver. When Windows does not have it
 // (a fresh PC, after clean-pc, or the driver was uninstalled), Start installs it now with driver\install-driver.ps1,
 // from the package built in this source tree or installed with the program (driver/x64/Release); the service runs as
 // Administrator for --virtual-wheel anyway. When that is not possible, VirtualWheelDevice::create says what is missing.
@@ -372,7 +373,7 @@ void printUsage() {
     std::puts(
         "usage: wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
         "                        [--stop-file FILE] [--virtual-wheel [--no-hide]] [--unhide] [--prepare-hide]\n"
-        "                        [--telemetry-tab] [--ffb-tab]\n"
+        "                        [--app [--no-virtual-wheel]] [--telemetry-tab] [--ffb-tab]\n"
         "  --config FILE  INI configuration (see config/g920.ini)\n"
         "  --list         list joysticks and exit\n"
         "  --print        show live raw and mapped values\n"
@@ -509,7 +510,7 @@ wheelbri::ShimSources shimDllPaths();
 
 #if defined(_WIN32)
 // Windows: who may send game force feedback (S7; SenderGate.hpp). Any program of the user can send to 127.0.0.1:41330
-// and the forces reach a direct-drive wheel, so only the virtual G920's driver host (WUDFHost.exe in System32) and a
+// and the forces reach a direct-drive wheel, so only the virtual wheel's driver host (WUDFHost.exe in System32) and a
 // game whose folder holds WheelBri's shim are let through. Not found any more: refused; the system cannot say: let
 // through (the limiter still caps every force), with a warning.
 wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
@@ -595,7 +596,7 @@ wheelbri::SenderVerdict lookupFfbSender(const std::uint16_t port) {
 }
 #endif
 
-// Phase 3: the game's force feedback, sent by the in-game shim, limited and played on the physical wheel.
+// The game's force feedback, sent by the shim or the virtual wheel, limited and played on the physical wheel.
 class GameFfb final : public wheelbri::service::LoopFfb {
 public:
     // Returns nullptr (and says why) when game force feedback is off or cannot run; input still works.
@@ -1614,7 +1615,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     } sessionActiveGuard;
     platform::installConsoleStopHandler(requestStop, sessionActive);
 
-    // The virtual G920 and hiding the rig need Administrator: this process's own when it is elevated, else the
+    // The virtual wheel and hiding the rig need Administrator: this process's own when it is elevated, else the
     // WheelBri Helper's (a standard user).
     std::unique_ptr<wheelbri::service::PrivilegedSteps> steps;
     if (options.virtualDevice) {
@@ -1784,7 +1785,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         }
     }
 #ifndef _WIN32
-    // Linux: the virtual G920 is wheelbri-uhid, there until this function returns (Stop, or the window closed).
+    // Linux: the virtual wheel is wheelbri-uhid, there until this function returns (Stop, or the window closed).
     std::unique_ptr<wheelbri::service::UhidProcess> uhid;
     if (options.uhid) {
         if (virtualWheel == nullptr) {
@@ -2015,7 +2016,7 @@ int runAppMode(Options options, const bool consoleLogging) {
 #ifdef _WIN32
         run.virtualDevice = virtualDevice;   // the Mapping tab's target: G920 virtual device or G920 in-game shim
 #else
-        run.uhid = virtualDevice;   // Linux: the session starts wheelbri-uhid for the virtual G920
+        run.uhid = virtualDevice;   // Linux: the session starts wheelbri-uhid for the virtual wheel
 #endif
         LoadedConfig fresh = loadForRun(run);
         // The Mapping tab's Order picks the file (my-g25.ini, my-g25-native.ini) and wins over its [buttons] order:

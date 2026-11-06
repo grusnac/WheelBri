@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The Games tab's list (service/src/MappingEditView.cpp, drawGames): a name is cut only where its tag leaves no room
 // (its hover text has it whole), the bar right of the list drags its width between 196 and what the canvas allows, a
 // double-click on the bar fits the longest name, and the width is kept in app.ini (games_list_width).

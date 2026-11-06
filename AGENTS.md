@@ -20,7 +20,8 @@ Short rules for local agents. Full detail is in `CLAUDE.md`: list its headings f
 
 - `driver/`, `installer/`, anything needing admin rights.
 - FFB safety (`FfbSafetyLimiter`, watchdog): never weaken it.
-- No third-party libraries or tools (no SDL, HidHide, ViGEm, HIDMaestro).
+- No new third-party libraries or tools: spdlog and GoogleTest are the only ones (no SDL, HidHide, ViGEm,
+  HIDMaestro).
 
 ## Code
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // AppLogLevel: the Logs tab's Level button for the whole app (warn -> info -> debug -> trace -> warn), remembered in
 // the app's state file, applied to this process and handed to the listeners (the helper, the drivers).
 

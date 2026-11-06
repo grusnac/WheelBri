@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The probe's Windows side: the G923's HID collections (SetupAPI + hid.dll, loaded at run time as the service does)
 // and overlapped reads and writes on them.
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // The service's loop (runLoop, main.cpp): on its own thread, reads the wheel and its accessories into the Pipeline

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // HelperProbe: the app's Hello to the WheelBri Helper on its own thread, with a fake check (real threads).
 
 #include "HelperProbe.hpp"

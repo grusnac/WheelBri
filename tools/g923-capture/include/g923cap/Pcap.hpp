@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // USBPcap captures (classic pcap or pcapng, link type 249) read into USB transfers, and written back (keep, the

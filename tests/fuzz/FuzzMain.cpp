@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // libFuzzer's entry (-DWE_BUILD_FUZZ=ON, Clang): build/tests/wheelbri_fuzz -max_total_time=600 <corpus folder>.
 
 #include "FuzzTargets.hpp"

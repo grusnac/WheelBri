@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // What a decoded session says: its pass/fail checks, summary.md, the day's report.md; and the two steps the capture

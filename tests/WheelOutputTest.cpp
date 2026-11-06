@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/DeviceMatch.hpp"
 #include "wheelbri/EvdevLayout.hpp"
 #include "wheelbri/WheelOutput.hpp"

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/DeviceProfile.hpp"
@@ -8,7 +9,7 @@ namespace wheelbri {
 
 // Which passes of the loop send the emulated wheel's state: only when it changed, at most once every `minIntervalNs`,
 // and again after `keepAliveNs` without a change so receivers know the service is there (the shim and the driver call
-// state older than 1500 ms stale). Every packet costs the virtual G920's driver one HID read and the shim a socket
+// state older than 1500 ms stale). Every packet costs the virtual wheel's driver one HID read and the shim a socket
 // read, while games read ~90 times a second. A change held back by the interval is sent at the first pass after it,
 // never lost.
 class StateSendGate {

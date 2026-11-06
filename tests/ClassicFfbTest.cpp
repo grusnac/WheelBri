@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/ClassicFfb.hpp"
 
 #include <gtest/gtest.h>

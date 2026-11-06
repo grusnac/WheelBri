@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // LogLevelCounter: the warnings and errors in one log file, read a part at a time as the file grows.
 
 #include "wheelbri/LogLevelCounter.hpp"

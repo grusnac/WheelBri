@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Finding the wheel (service/src/Wheel.cpp): openWheel and wheelConnected over a fake backend, whatever the system.
 
 #include "Wheel.hpp"

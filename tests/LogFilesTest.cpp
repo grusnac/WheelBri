@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // LogFileNames / LogFiles: one numbered log file per run of a program, the newest found again.
 
 #include "wheelbri/LogFiles.hpp"

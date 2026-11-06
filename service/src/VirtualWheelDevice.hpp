@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include <functional>
@@ -10,7 +11,7 @@ struct VirtualWheel;
 
 namespace wheelbri::service {
 
-// The virtual wheel served by our own driver (driver/, Phase 5 plan B): a G920 or a G25 (VirtualWheel,
+// The virtual wheel served by our own driver (driver/): a G25, G27, G920 or G923 (VirtualWheel,
 // HidWheelDevice.hpp), created while the service runs (--virtual-wheel) and removed when it stops, including a crash:
 // it is a Windows "software device" tied to this process.
 //

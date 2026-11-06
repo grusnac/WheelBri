@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/Ffb.hpp"
@@ -8,7 +9,7 @@
 #include <optional>
 
 // How an effect changes while it plays: its envelope (attack and fade) and, for a ramp, its end level. The senders
-// (the shim's FfbForwarder, the virtual G920's HidPid) know when each effect started and how long it lasts, so they
+// (the shim's FfbForwarder, the virtual wheel's HidPid) know when each effect started and how long it lasts, so they
 // work out the effect at every moment with shapeAt() and send that: the service and the wire format only ever see
 // plain levels. Header only: the driver compiles HidPid.cpp without the rest of core.
 

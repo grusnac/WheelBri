@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The real-G923 capture decoder (tools/g923-capture) on the captures of a fake wheel that answers as a real G923
 // did (2026-11-01): pcap reading, descriptors, TrueForce and HID++ decoding, the checks, keep, locate and the probe.
 

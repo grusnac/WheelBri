@@ -1,5 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // wheelbri-wheel (wheelbri-g920 until 2026-10-19): a UMDF 2 HID minidriver presenting a Logitech G25, G27, G920 or
-// G923 to Windows (Phase 5, plan B).
+// G923 to Windows.
 //
 // It does what the former HIDMaestro bridge (step 0) did, inside Windows' driver host:
 //   input  wheelbri-service --UDP 127.0.0.1:41329 (StatePacket)--> driver --> HID input report --> games

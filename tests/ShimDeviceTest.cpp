@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The dinput8.dll shim's COM side, on fakes of DirectInput's objects: EmulatedDevice (the physical wheel presented as
 // the target), ProxyDevice / ProxyEffect (logged and passed through), ProxyDirectInput8 (enumeration and device
 // creation), and what they use: DeviceAudit, StateFeed, Guard, ShimLogging, ModuleWatch, LogFolder, RealDInput.

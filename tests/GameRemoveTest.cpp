@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Remove on the Games tab (service/src/MappingEditView.cpp, removeGame): a game the user added goes off games.ini
 // with its own values, even when the page showed an error before (for something else: here the config's problems),
 // and the folder Add game put on the list goes with it (files left), unless WheelBri's shim is in it.

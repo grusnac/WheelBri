@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // The emulated wheel as DirectInput sees it: its objects (axes, buttons, POV), the game's data format,

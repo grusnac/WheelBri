@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // wheelbri-setup.exe: WheelBri's graphical installer. A wizard (Welcome, Install folder, Options, Ready, Installing,
 // Finish) in front of install.ps1, which does the work: it runs install.ps1 -Quiet -Progress and turns its @@ lines
 // (install.ps1's header) into the checklist, every other line into the log. Plain Win32, no third-party code.

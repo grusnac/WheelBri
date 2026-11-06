@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // wheelbri-uhid's decisions besides the uhid protocol (UhidWheel), without file descriptors or clocks so
-// UhidLoopTest covers them: the command line, and what goes to the virtual G920 when (InputFeed).
+// UhidLoopTest covers them: the command line, and what goes to the virtual wheel when (InputFeed).
 
 #include "UhidWheel.hpp"
 

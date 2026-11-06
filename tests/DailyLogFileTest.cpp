@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // DailyLogFile: the WheelBri Helper's log before and after it has somewhere to write, across days and failures.
 
 #include "wheelbri/DailyLogFile.hpp"

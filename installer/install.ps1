@@ -1,9 +1,9 @@
 # Installs WheelBri on a PC that has nothing of it yet: the app, its two drivers, shortcuts and an entry in
-# Settings > Apps (to uninstall). Run it from the unpacked package (Setup.exe does that), as Administrator; it asks
-# for Administrator itself when needed. Running it again upgrades in place and keeps an edited config.
+# Settings > Apps (to uninstall). Run it from the unpacked package (wheelbri-setup.exe and Setup.cmd do that), as
+# Administrator; it asks for Administrator itself when needed. Running it again upgrades in place and keeps an edited config.
 #
 # Windows 11 (build 22000+) gets everything below. Windows 7 SP1 to Windows 10 get the in-game shim way only: the
-# virtual G920's driver needs Windows 11, so there are no drivers, no WheelBri Helper and no restart; the app and its
+# virtual wheel's driver needs Windows 11, so there are no drivers, no WheelBri Helper and no restart; the app and its
 # shim need the Universal C Runtime there (Windows 10 has it; Windows 7 with update KB2999226), and this script
 # PowerShell 5.1 (Windows 7: Windows Management Framework 5.1; Setup.cmd checks).
 #
@@ -39,7 +39,7 @@
 #     that kept them), wheelbri-service --prepare-hide puts it on that rig's plugged-in devices here, before the
 #     restart, so the first Start is instant; otherwise the app puts it on them at the first Start
 #   - the WheelBri Helper, a Windows service (WheelBriHelper, LocalSystem, wheelbri-helper.exe in the install folder,
-#     starts with Windows): it creates the virtual G920 and hides the rig for the app, which runs as a standard user
+#     starts with Windows): it creates the virtual wheel and hides the rig for the app, which runs as a standard user
 #   - the certificate the drivers are signed with, added to this PC's trusted Root and TrustedPublisher stores (the
 #     drivers are signed by WheelBri's own test certificate, not by Microsoft); its thumbprint is recorded in
 #     HKLM\SOFTWARE\wheelbri\SigningCertificates, so the uninstaller removes exactly that certificate. Only the
@@ -154,7 +154,7 @@ if (-not $Staged) {
 
 $ErrorActionPreference = 'Stop'
 $package = $PSScriptRoot
-# The drivers (the virtual G920, the hiding filter) and the WheelBri Helper need Windows 11; before it, the shim only.
+# The drivers (the virtual wheel, the hiding filter) and the WheelBri Helper need Windows 11; before it, the shim only.
 $withDrivers = [Environment]::OSVersion.Version.Build -ge 22000
 $version = if (Test-Path -LiteralPath (Join-Path $package 'VERSION.txt')) { (Get-Content -LiteralPath (Join-Path $package 'VERSION.txt') -Raw).Trim() } else { '0.0.0' }
 # Every log in one folder, the user's %LOCALAPPDATA%\wheelbri\logs (the app and both drivers write there too): the
@@ -256,7 +256,7 @@ try {
     if ($withDrivers) {
         Write-Host "    Windows build $build, 64-bit: fine"
     } else {
-        Write-Host ("    Windows build $build, 64-bit: the in-game shim way only (the virtual G920 needs " +
+        Write-Host ("    Windows build $build, 64-bit: the in-game shim way only (the virtual wheel needs " +
                     'Windows 11): no drivers, no WheelBri Helper')
         # The app and its shim are built against the Universal C Runtime (ucrtbase.dll): in Windows 10, an update for
         # Windows 7. Without it the app does not start and games cannot load the shim.
@@ -516,9 +516,9 @@ try {
     # service does it exactly as Start does (the rig's game controllers as DirectInput lists them; reading USB ids here
     # missed the Moza R3). No saved rig (a new PC), settings of another account (Administrator given by another
     # user), or the wheel not plugged in: the first Start does it, as before.
-    # The WheelBri Helper: what lets the app run without Administrator (the virtual G920, hiding the rig). A service
+    # The WheelBri Helper: what lets the app run without Administrator (the virtual wheel, hiding the rig). A service
     # running as LocalSystem from the install folder, started with Windows and restarted after a crash.
-    # Not on Windows before 11: it only serves the virtual G920 and the hiding filter, which are not there.
+    # Not on Windows before 11: it only serves the virtual wheel and the hiding filter, which are not there.
     $helperProblem = $null
     if ($withDrivers) {
         Write-Host '  WheelBri Helper (service)'
@@ -530,7 +530,7 @@ try {
         # nothing to say: the line above says there are no drivers
     } elseif ($helperProblem) {
         Warn ("    the WheelBri Helper is not running ($helperProblem): until it does, the app shows HELPER NOT " +
-              'INSTALLED and the virtual G920 works only when WheelBri is started as Administrator')
+              'INSTALLED and the virtual wheel works only when WheelBri is started as Administrator')
     } else {
         $helperWasThere = $false   # running: nothing to start again if a later step fails
         Write-Host '    running (starts with Windows)' -ForegroundColor Green

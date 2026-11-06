@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The Rig tab (service/src/WheelSetupView.cpp) driven as the app drives it: game controllers the test plugs in, moves
 // and unplugs (UiFakes), clicks on what it drew, keys and typed text; the rig file it saves as it goes.
 

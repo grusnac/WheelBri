@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "Privileged.hpp"
@@ -14,7 +15,7 @@ namespace wheelbri::service {
 
 // The steps of a session that need Administrator, as the session sees them: done directly when this process is
 // elevated (as WheelBri always did; development builds), or asked of the WheelBri Helper (service/helper) when it
-// runs as a standard user. One object per session; what it set up (the virtual G920, the rig hidden) is undone when
+// runs as a standard user. One object per session; what it set up (the virtual wheel, the rig hidden) is undone when
 // it goes, and, through the helper, also when this process dies (the helper sees the connection close).
 class PrivilegedSteps {
 public:

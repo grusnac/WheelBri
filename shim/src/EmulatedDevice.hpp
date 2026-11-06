@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "DeviceAudit.hpp"
@@ -73,7 +74,7 @@ void presentAs(Instance& instance, const DeviceIdentity& identity) {
     copyText(instance.tszInstanceName, identity.productName);
 }
 
-// Phase 2: the physical wheel presented as the target wheel (G920). Input comes from wheelbri-service
+// The physical wheel presented as the target wheel. Input comes from wheelbri-service
 // through StateFeed, in the target's layout and the ranges the game asked for. Force feedback and device
 // management (acquire, cooperative level, events) are forwarded to the physical wheel.
 template <typename T>

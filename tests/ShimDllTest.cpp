@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The built dinput8.dll shim as a game loads it (shim/src/Exports.cpp): a copy in a "game" folder of its own, loaded
 // by its full path, its exports called through GetProcAddress in front of the system's real dinput8.dll. The
 // shim pins itself on its first export call and its singletons live for the rest of the process, so one copy serves

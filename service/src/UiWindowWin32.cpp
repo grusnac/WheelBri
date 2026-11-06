@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The `--ui` window on Windows: a plain Win32 window drawn with GDI. Nothing to ship.
 //
 // Each frame is recorded, then drawn into a memory bitmap the size of the window (the logical canvas scaled to it,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The service's Windows device code that needs neither a device nor Administrator (Windows only): the hide filter's
 // checks and answers for devices that are not there, and the virtual wheel's start without its driver. What touches a
 // real device or HKLM is not run here.

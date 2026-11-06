@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The dinput8.dll shim's renderings of DirectInput values for its log (shim/src/DiFormat.cpp) and its conversions
 // between DirectInput's structures and the portable ones (DiConvert.cpp, EmulatedDevice.hpp's presentAs).
 // Windows only (MinGW: run under Wine).

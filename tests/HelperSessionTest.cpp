@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The WheelBri Helper's session (what one connection asked for, and its undoing), Windows only: HelperSession with
 // fakes for the privileged steps (HelperSession::Steps), so nothing is written to HKLM, no script runs and no device
 // changes. The caller's process is this test program's own; nothing here needs Administrator.

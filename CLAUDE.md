@@ -54,8 +54,9 @@ A new area file gets a row here.
 Makes the user's rig (wheel + accessories, Rig tab) look like a Logitech wheel to games, Windows and Linux/Proton.
 Targets: G920 (default), G923, G25, G27; the user cannot add targets.
 
-- Verified (Windows 11, Moza R3): all four targets in Mode Virtual in ACC and DiRT Rally 2.0; G920 in NFS games and
-  G25 in Race Driver: GRID, both Modes; ACC under Proton on Linux.
+- Verified (Windows 11, Moza R3): all four targets in Mode Virtual in ACC and DiRT Rally 2.0; G920 in NFS 2015, Payback,
+  Heat and Unbound (Mode Shim too, except Payback); G25 in Race Driver: GRID, both Modes; ACC under Proton on Linux.
+  `README.md` Status is the source: change it there first, then here.
 - Not verified: Steam Deck, Windows 7 to 10, button orders on real Logitech wheels.
 - Mode Shim is for older DirectInput games only; ACC, DiRT Rally 2.0 and games using Logitech's SDK DLL don't take it.
 
@@ -67,6 +68,7 @@ memory: under Proton the shim is in Wine, the service native Linux.
 |---|---|---|
 | 41329 (`state_port`) | service → consumer | `StatePacket`; `LogLevelPacket` (`WELV`) on the same socket; one consumer at a time |
 | 41330 (`ffb_port`) | consumer → service | `FfbPacket` (game FFB) |
+| 41331 (`kTrueForceStatePort`) | service → driver | the G923's TrueForce interface: steering state (`TrueForce.hpp`) |
 
 ## Build and test
 
@@ -99,7 +101,8 @@ Options: `WE_BUILD_TESTS`, `WE_BUILD_SERVICE`, `WE_BUILD_SHIM` (Windows), `WE_BU
 (`wheelbri-g923cap`, on by default), `WE_STRICT_TESTS` (a test file no test program builds fails the configure).
 
 Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage in `printUsage`,
-`service/src/main.cpp`), `wheelbri-helper.exe`, `build/shim/dinput8.dll`, `build/logi/wheelbri-logi.dll`,
+`service/src/main.cpp`, mirrored in `docs/user-guide.md` "Command line"), `wheelbri-helper.exe`, `wheelbri-setup.exe`
+(setup wizard; installed as `Uninstaller.exe`), `build/shim/dinput8.dll`, `build/logi/wheelbri-logi.dll`,
 `build/tools/uhid/wheelbri-uhid` (Linux), `build/tools/g923-capture/wheelbri-g923cap.exe`.
 Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 
@@ -181,7 +184,8 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 - Any SDK for the wheel's own software: WheelBri never reads or sets it.
 - Hiding Steam's virtual pad on the Deck, or advising to turn Steam Input off.
 - Anything privileged without the user pressing Start.
-- Advice to restart Windows for the hide filter: say close what uses the wheel, or replug it.
+- Advice to restart Windows for the hide filter: say close what uses the wheel, or replug it. (The installer's one
+  restart, which finishes installing the drivers, is not this.)
 
 ## Conventions
 
@@ -196,11 +200,13 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
   use `CallSampler` / `RateLimiter`; default level warn; every file WheelBri writes is a log in that line format (no
   CSV, no JSON); one file per run `<stem>-<date>-<NN>.log`; one folder for all logs (`logsFolder()`), no other.
 - **FFB safety** (rigs often direct drive): every force to hardware goes through `FfbSafetyLimiter` + watchdog. Keep
-  the guards: slew 50/s, frozen-force fade, DiEffect's "not a force" values. Only bypass: opt-in
-  `force_feedback = passthrough` in `wheelbri-shim.ini`; add no others.
+  the guards: slew 50/s, frozen-force fade, DiEffect's "not a force" values. A config may only make them gentler
+  (`max_slew_per_second` 1-50, `frozen_force_s` 0.5-60). Only bypass: opt-in `force_feedback = passthrough` in
+  `wheelbri-shim.ini`; add no others.
 - **Files:** everything the app saves is per user under `%LOCALAPPDATA%\wheelbri` (XDG on Linux); never ProgramData,
   Program Files or HKLM. User files via `FileText.hpp` (temp file + rename).
 - **Security when elevated:** nothing under `%LOCALAPPDATA%\wheelbri` may choose a privileged action; config paths
   must be inside the user's folders (`isInsideUserFolders`); helper programs from fixed system places, never PATH;
   links refused.
-- **Licence:** nothing copied from GIMX (GPLv3); flag it before ever doing that.
+- **Licence:** GPL-3.0-or-later; every C++ file starts with `// SPDX-License-Identifier: GPL-3.0-or-later`. Nothing copied from GIMX (GPLv3); flag it before ever doing that. Code from elsewhere gets an
+  entry in `THIRD-PARTY-NOTICES.md`.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/Nfs2015Settings.hpp"
 
 #include <gtest/gtest.h>

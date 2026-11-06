@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The Mapping tab's editor and the Games page (service/src/MappingEditView.cpp), driven as the app drives them: a
 // draw, then a click on what it drew, keys and typed text, the pointer. A rig of four devices with named controls, the
 // shipped configs, the user's settings in a temporary folder, and the system's dialogs, Documents folder, running

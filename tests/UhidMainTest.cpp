@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // wheelbri-uhid as a program (tools/uhid/main.cpp), run as the app runs it, with a plain file standing in for
 // /dev/uhid: what it writes to the "kernel" (the device made, its input reports, the device removed) lands in the
 // file, and events appended to the file are what it reads back. Every way it stops: the stop file, the program that

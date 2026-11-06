@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // --ffb-test (service/src/FfbSelfTest.cpp) on a fake sink: the four steps, their strength cap, an effect the wheel
 // refuses, and Ctrl+C before, during and at the end of the sequence.
 

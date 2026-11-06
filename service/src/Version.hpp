@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "BuildInfo.hpp"   // generated on every build (cmake/BuildInfo.cmake): WHEELBRI_BUILD

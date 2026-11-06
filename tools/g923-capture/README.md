@@ -8,21 +8,21 @@ needs:
 - HID++ answers and the feature list;
 - the USB and HID descriptors.
 
-The plans are in `Claude outputs/plans/`: `g923-capture-plan.md` (what and why) and
-`g923-capture-automation-plan.md` (this kit).
+The first capture (2026-11-01) is behind the real G923's values in `core/src/TrueForce.cpp`; its raw files stay out of
+the repository (`captures/` is git-ignored: they carry the wheel's serial number).
 
 Everything runs from the MSYS2 UCRT64 shell at the repository root, through `scripts/make/g923-capture.sh`.
 Sessions open an Administrator window (USB capture needs it). Do the steps in that window, then come back.
 
-## Tonight (once)
+## Before the session (once)
 
 1. Install **Wireshark** with **USBPcap** ticked in the installer, then **restart Windows**.
 2. Run the kit's own tests (no wheel needed): `scripts/make/g923-capture.sh test`. This builds `wheelbri_tests` and
    runs the `G923Cap*` tests. The decoder, `wheelbri-g923cap`, is built by each command that uses it: nothing else to
    install.
-3. Optional: `scripts/make/g923-capture.sh check` with things as they are now. It lists in red what to change tomorrow.
+3. Optional: `scripts/make/g923-capture.sh check` with things as they are now. It lists in red what to change before the session.
 
-## Tomorrow (about an hour)
+## The session (about an hour)
 
 | # | Do | Command | You do |
 |---|---|---|---|

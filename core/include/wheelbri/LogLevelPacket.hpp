@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "wheelbri/LogLevel.hpp"
@@ -10,7 +11,7 @@
 namespace wheelbri {
 
 // The log level the app picked (its Level button), sent by the service to whatever reads the wheel's state on
-// state_port (41329): the shim in the game and wheelbri-uhid take it (the virtual G920's driver ignores it: it reads
+// state_port (41329): the shim in the game and wheelbri-uhid take it (the virtual wheel's driver ignores it: it reads
 // the registry, HKLM\SOFTWARE\wheelbri LogLevel). It goes out from the state's own socket when a session starts, at
 // once when the level changes, and every kRepeatMs (a game started later). A reader that does not know it drops it
 // (an older shim logs it as a malformed datagram, at most once every 5 s).

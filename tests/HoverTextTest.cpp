@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Hover text (service/src/HoverText.cpp): which area's text shows, how it wraps, and where its box goes.
 
 #include "HoverText.hpp"

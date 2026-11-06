@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The service's own loop (ServiceLoop, what runLoop runs) end to end on emulated devices (tests/emulators): its
 // decisions (core EventLoopControl), the real Pipeline and the real FfbController, on a virtual clock, against devices
 // that push their input the way DirectInput and evdev do, against devices that do it badly, and against games.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // GameWatch (service/src/GameWatch.cpp): the games with a profile followed in a session, polled as the session's
 // window thread polls it, with the running programs, the processes' program files and the Documents folder given by
 // the test (GameWatch::System). What each poll decides (pedal route, force feedback, the game's own mapping), what the

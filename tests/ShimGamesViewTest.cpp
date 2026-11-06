@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // What the app does with the shim's game at Start (service/src/ShimGamesView.cpp, prepareStart): the shim put in or
 // brought up to date, and the target written into the game's wheelbri-shim.ini; each refusal says why.
 

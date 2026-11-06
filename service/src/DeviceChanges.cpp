@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // platform::DeviceChanges (Platform.hpp): the system's notices of game controllers coming or going, counted in a core
 // ChangeCounter. The notices themselves are started per system: watchDeviceChanges in PlatformWin32.cpp /
 // PlatformPosix.cpp.

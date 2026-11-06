@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // Windows only: text between WheelBri's UTF-8 strings and the system's UTF-16, and the line for a failed call. One

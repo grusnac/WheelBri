@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // wheelbri-hide: hides the rig (the wheel and every accessory the Wheel setup tab defined) from games while
 // wheelbri-service presents a virtual wheel (G25, G27, G920 or G923).
 // Our replacement for HidHide (third-party), built the same way as our G920 driver: UMDF 2, user mode, signed

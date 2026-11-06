@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // For tests: what one component logs while this object lives (every level), as "level: message" lines.

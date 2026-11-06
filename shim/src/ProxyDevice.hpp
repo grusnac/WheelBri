@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include "DeviceAudit.hpp"
@@ -29,8 +30,8 @@ inline const logging::Logger& stateLog() {
 
 }  // namespace detail
 
-// Phase 0: logs every call the game makes on a device (what it queries, how it reads, which
-// force feedback it creates) and forwards it unchanged. Phase 2 replaces the answers for the wheel.
+// Logs every call the game makes on a device (what it queries, how it reads, which
+// force feedback it creates) and forwards it unchanged. EmulatedDevice replaces the answers for the wheel.
 template <typename T>
 class ProxyDevice final : public T::Device {
 public:
@@ -381,7 +382,7 @@ public:
     HRESULT STDMETHODCALLTYPE EnumCreatedEffectObjects(LPDIENUMCREATEDEFFECTOBJECTSCALLBACK callback, LPVOID ref,
                                                        DWORD flags) override {
         return guarded("EnumCreatedEffectObjects", [&]() -> HRESULT {
-            // Callers receive the real effect objects here; logged so Phase 3 knows whether this matters.
+            // Callers receive the real effect objects here; logged so a game that uses it shows up.
             const HRESULT result = real_->EnumCreatedEffectObjects(callback, ref, flags);
             WE_LOG_WARN(detail::deviceLog(), "{}: EnumCreatedEffectObjects -> {} (effects handed out unwrapped)",
                         label_,

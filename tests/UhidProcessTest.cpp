@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The app's wheelbri-uhid on Linux (service/src/UhidProcess.cpp). A fake wheelbri-uhid (a shell script, named so the
 // process list sees it under that name) is put next to the test program, where UhidProcess looks first: one that
 // stops at once, one that runs until its stop file appears, one that ignores it, one that ends by itself; and one

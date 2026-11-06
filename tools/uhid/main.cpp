@@ -1,4 +1,5 @@
-// wheelbri-uhid: Phase 4, the virtual G920 (or G25, --target g25) on Linux (Steam Deck, any distribution).
+// SPDX-License-Identifier: GPL-3.0-or-later
+// wheelbri-uhid: the virtual G25, G27, G920 or G923 (--target) on Linux (Steam Deck, any distribution).
 //
 // The Linux counterpart of the old HIDMaestro bridge (Windows): creates a virtual "Logitech G920" (or "Logitech G25",
 // 046D:C299) through the kernel's uhid, feeds it the wheel state wheelbri-service publishes (UDP 127.0.0.1:41329) and

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // What the shim's tests share (Windows only): the wheelbri-shim.ini they run with, a listener for the force feedback

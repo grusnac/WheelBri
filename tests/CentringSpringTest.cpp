@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The target's centring spring (CentringSpring.hpp): only the G25 and G27 have one (Logitech's software did), [ffb]
 // centring_spring = 0..100 in their mapping, and FfbController plays it in a slot of its own whatever the game does.
 

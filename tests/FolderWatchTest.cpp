@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // platform::FolderWatch (inotify on Linux; what DeviceChanges watches /dev/input with) on a temporary folder, and
 // platform::DeviceChanges' process-wide instance. On Windows FolderWatch is never made (the system's device notices are
 // used instead): there the tests check exactly that.

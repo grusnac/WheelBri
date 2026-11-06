@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // wheelbri-uhid's command line and its state feed (tools/uhid/UhidLoop), without /dev/uhid or a clock.
 
 #include "UhidLoop.hpp"

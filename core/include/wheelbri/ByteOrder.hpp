@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 // Little-endian bytes, as every wire format here has them (StatePacket, FfbPacket, LogLevelPacket, the helper's pipe,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Platform.hpp on Windows.
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -339,7 +340,7 @@ std::filesystem::path dosPathFromNtPath(const std::wstring& ntPath) {
 }
 
 // The program of a process this one cannot open or read. Seen on 2026-10-05 after a fresh install and restart: the
-// program of WUDFHost.exe (the virtual G920's driver host, LocalService) could not be read, so the service refused
+// program of WUDFHost.exe (the virtual wheel's driver host, LocalService) could not be read, so the service refused
 // all of the game's force feedback. NtQuerySystemInformation(SystemProcessIdInformation) names any process without
 // opening it (Task Manager does the same for protected ones).
 std::filesystem::path processImageWithoutOpening(const std::uint32_t pid) {
