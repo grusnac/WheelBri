@@ -113,9 +113,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libx11-dev xvfb ninja-build shellcheck > /dev/null
 
-      # The build shortcuts run with set -euo pipefail (common.sh): a quoting or exit-status slip shows here.
+      # The build shortcuts run with set -euo pipefail (common.sh): a quoting or exit-status slip shows here. The
+      # Linux scripts too: users run them, install-udev-rules.sh with sudo.
       - name: Check the scripts (ShellCheck)
-        run: shellcheck -x -s bash --severity=warning scripts/make/*.sh
+        run: shellcheck -x -s bash --severity=warning scripts/make/*.sh scripts/linux/*.sh
 
       # WE_STRICT_TESTS: a tests/*Test.cpp that no test program builds fails the configure.
       - name: Configure (Release, with tests)

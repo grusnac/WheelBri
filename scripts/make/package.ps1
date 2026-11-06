@@ -181,6 +181,12 @@ Put-Text (Join-Path $root 'CHANGELOG.md') 'CHANGELOG.md'
 # The GPL's text and the notices of the code WheelBri contains, which every copy must carry.
 Put-Text (Join-Path $root 'LICENSE') 'LICENSE.txt'
 Put-Text (Join-Path $root 'THIRD-PARTY-NOTICES.md') 'THIRD-PARTY-NOTICES.md'
+# LICENSE ships as LICENSE.txt (Notepad opens it; wheelbri-setup names it so): the links to it follow.
+foreach ($doc in 'README.md', 'THIRD-PARTY-NOTICES.md') {
+    $target = Join-Path $stage $doc
+    $text = [IO.File]::ReadAllText($target) -replace '\]\(LICENSE\)', '](LICENSE.txt)'
+    [IO.File]::WriteAllText($target, $text, (New-Object Text.UTF8Encoding($false)))
+}
 foreach ($file in Get-ChildItem (Join-Path $root 'docs') -File -Filter '*.md') {
     Put-Text $file.FullName "docs\$($file.Name)"
 }

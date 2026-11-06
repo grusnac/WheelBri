@@ -2,7 +2,7 @@
 # Linux / Steam Deck: starts everything for a game with your rig as a G25, G27, G920 or G923, and stops it again.
 #
 # Two ways for the game to see the wheel:
-#   --virtual (default)  wheelbri-uhid makes a virtual wheel for the whole system (Phase 4); the game reads it raw
+#   --virtual (default)  wheelbri-uhid makes a virtual wheel for the whole system; the game reads it raw
 #                        (PROTON_ENABLE_HIDRAW) and the rig is hidden from it (SDL_GAMECONTROLLER_IGNORE_DEVICES).
 #                        A WheelBri shim left in the game's folder (--keep-shim) is taken out first.
 #   --shim               the dinput8.dll proxy answers as the wheel inside the game: dinput8.dll and wheelbri-shim.ini
@@ -16,15 +16,16 @@
 #   /home/deck/wheelbri/wheelbri.sh %command%
 #   /home/deck/wheelbri/wheelbri.sh --shim %command%
 # From a terminal (Desktop Mode), without a game: starts, waits for Enter or Ctrl+C, stops.
-#   ./wheelbri.sh            (service with its --ui window)
+#   ./wheelbri.sh            (the service with its --ui window)
 #
 # Options: --virtual / --shim, --target g25|g27|g920|g923 (the game's wheel; default: the app's Mapping tab Target,
 #          else the G920), --keep-shim (leave the shim in the game's folder afterwards, for testing),
-#          --game-folder DIR (where --shim puts it; default: the folder of the .exe in %command%),
+#          --game-folder DIR (where --shim puts it; default: the folder of the .exe in %command%, else the Steam
+#          game's install folder),
 #          --ui / --no-ui (default: window only from a terminal), --config FILE (default: the mapping saved in
 #          the app's Mapping tab, else WheelBri's default for the target),
 #          --hide VID/PID[,VID/PID...] (the devices to hide from the game; default: every device of the active rig,
-#          set up in the Rig tab of wheelbri-service --ui).
+#          set up in the app's Rig tab: bin/wheelbri).
 # Once before the first use: install-udev-rules.sh (needs sudo). Logs: ~/.local/state/wheelbri.
 
 set -u
@@ -131,7 +132,7 @@ if [ -z "$hide" ]; then
     if [ -z "$hide" ] && [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
         echo "wheelbri.sh: rig '$rig' names no device id (vvvv:pppp): nothing is hidden from the game" >&2
     elif [ -z "$hide" ]; then
-        echo "wheelbri.sh: no rig yet (set it up in the Rig tab of wheelbri-service --ui): nothing is hidden from the game" >&2
+        echo "wheelbri.sh: no rig yet (set it up in the Rig tab of bin/wheelbri): nothing is hidden from the game" >&2
     fi
 fi
 
@@ -174,7 +175,7 @@ own_service=0
 # The Steam game's install folder from its app id (AppId=N in %command%, else Steam's SteamAppId): the "installdir" of
 # appmanifest_<id>.acf in whichever Steam library holds it (libraryfolders.vdf lists them).
 steam_install_folder() {
-    local id= arg steam lib manifest dir
+    local id='' arg steam lib manifest dir
     for arg in "${game[@]}"; do
         case "$arg" in AppId=[0-9]*) id=${arg#AppId=} ;; esac
     done
@@ -404,7 +405,7 @@ take_shim_out() {
 # finds only the virtual wheel. Ours means is_our_shim. Another mod's dll stays (the ASI Loader too), a chained one
 # gets its place back; a wheelbri-shim.ini with your own settings stays too.
 remove_leftover_shim() {
-    local folder removed= dll ini
+    local folder removed='' dll ini
     folder=$(find_game_folder)
     [ -n "$folder" ] && [ -d "$folder" ] || return 0
     dll="$folder/$(shim_name_in "$folder")"
