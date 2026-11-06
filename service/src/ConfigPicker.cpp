@@ -8,6 +8,8 @@
 #include "wheelbri/IniEditor.hpp"
 #include "wheelbri/Logging.hpp"
 
+#include <algorithm>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
@@ -29,6 +31,15 @@ constexpr Colour kDim = style::kDim;
 constexpr float kRowHeight = 16;
 constexpr float kTargetWidth = 52;   // a Target button: "G920", "G25", "G27", "G923"
 constexpr float kWayWidth = 72;      // a Mode button: "Virtual", "Shim"
+// The rows' labels, and their column: as wide as the longest label plus a gap, so every row's buttons start at the
+// same x and a longer label moves them all.
+constexpr std::string_view kTargetLabel = "Target";
+constexpr std::string_view kOrderLabel = "Order";
+constexpr std::string_view kTrueForceLabel = "TrueForce";
+constexpr float kLabelGap = 16;
+constexpr float kLabelWidth =
+    static_cast<float>(std::max({kTargetLabel.size(), kOrderLabel.size(), kTrueForceLabel.size()})) * ui::kCharWidth +
+    kLabelGap;
 constexpr float kOrderWidth = 128;   // an Order button: "Logitech", "Native"; a TrueForce one: "Off", "On"
 constexpr const char* kTrueForceKey = "trueforce_g923";
 
@@ -411,8 +422,8 @@ float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const
         if (tip) tip(x, y, w, kRowHeight, canChangeNow && !locked_ ? about : about + " Fixed while WheelBri runs.");
         x += w - 1;
     };
-    window_.text(x, y + 4, "Target", kDim);
-    x += 64;
+    window_.text(x, y + 4, kTargetLabel, kDim);
+    x += kLabelWidth;
     for (const Target t : {Target::G25, Target::G27, Target::G920, Target::G923}) {
         segment(targetName(t), kTargetWidth, t == target_, true, targetAbout(t), [this, t] { choose(t); });
     }
@@ -440,13 +451,13 @@ float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const
         const std::string target = targetName(target_);
         x = x0;
         y += kRowHeight + 2;
-        window_.text(x, y + 4, "Order", kDim);
+        window_.text(x, y + 4, kOrderLabel, kDim);
         if (tip) {
-            tip(x, y, 60, kRowHeight,
+            tip(x, y, kLabelWidth - 4, kRowHeight,
                 "Which numbers the game gets the " + target + "'s buttons by. Each order keeps its own mapping. "
                 "Takes effect at the next Start.");
         }
-        x += 64;
+        x += kLabelWidth;
         segment("Logitech", kOrderWidth, order_ == ButtonOrder::Driver, true,
                 "Numbered as with Logitech's driver, from 1. For most games.",
                 [this] { choose(ButtonOrder::Driver); });
@@ -461,13 +472,13 @@ float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const
         }
         x = x0;
         y += kRowHeight + 2;
-        window_.text(x, y + 4, "TrueForce", kDim);
+        window_.text(x, y + 4, kTrueForceLabel, kDim);
         if (tip) {
-            tip(x, y, 60, kRowHeight,
+            tip(x, y, kLabelWidth - 4, kRowHeight,
                 "Games that use Logitech's TrueForce (ACC, DiRT Rally 2.0) send their force through it, as to a real "
                 "G923. Takes effect at the next Start.");
         }
-        x += 64;
+        x += kLabelWidth;
         const bool virtualMode = way_ == Way::VirtualDevice;
         const bool installed = trueForceInstalled();
         // What Start runs with shows as chosen: Off without the SDK, whatever was picked.

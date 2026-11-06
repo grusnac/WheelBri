@@ -38,19 +38,19 @@ public:
     }
 };
 
-// Where the row's buttons are when it is drawn at (4, 18): "Target" (64), G25 G27 G920 G923 (52 each, edges shared),
-// 16, "Mode" (48), Virtual Shim (72 each); a point inside each.
+// Where the row's buttons are when it is drawn at (4, 18): the label column (the longest label, "TrueForce", + 16 =
+// 88), G25 G27 G920 G923 (52 each, edges shared), 16, "Mode" (48), Virtual Shim (72 each); a point inside each.
 constexpr float kRowY = 22;
-constexpr float kG25X = 88;
-constexpr float kG27X = 139;
-constexpr float kG920X = 190;
-constexpr float kG923X = 241;
-constexpr float kVirtualX = 357;
-constexpr float kShimX = 428;
-// For the G25 and G27, a second row 18 lower: "Order" (64), Logitech driver and Native (128 each).
+constexpr float kG25X = 112;
+constexpr float kG27X = 163;
+constexpr float kG920X = 214;
+constexpr float kG923X = 265;
+constexpr float kVirtualX = 381;
+constexpr float kShimX = 452;
+// For the G25 and G27, a second row 18 lower: "Order" (88), Logitech driver and Native (128 each).
 constexpr float kOrderRowY = kRowY + 18;
-constexpr float kDriverOrderX = 130;
-constexpr float kNativeOrderX = 260;
+constexpr float kDriverOrderX = 154;
+constexpr float kNativeOrderX = 284;
 
 class ConfigPickerFiles : public ::testing::Test {
 protected:
@@ -195,7 +195,7 @@ TEST_F(ConfigPickerFiles, TheButtonsSwitchTargetAndWayAndRememberThem) {
     const float end = picker.draw(4, 18, true, [&tips](float, float, float, float, std::string text) {
         tips.push_back(std::move(text));
     });
-    EXPECT_FLOAT_EQ(end, 484);   // after the last button and its gap
+    EXPECT_FLOAT_EQ(end, 508);   // after the last button and its gap
     for (const char* name : {"G25", "G27", "G920", "G923", "Virtual", "Shim"}) EXPECT_TRUE(window_.shows(name)) << name;
     ASSERT_EQ(tips.size(), 6U);
     EXPECT_NE(tips[0].find("G25: for older games"), std::string::npos);
@@ -359,7 +359,7 @@ TEST_F(ConfigPickerFiles, AClickBesideTheButtonsIsNotTheRows) {
     picker.draw(4, 18, true);
     EXPECT_FALSE(picker.onClick(30, kRowY));    // on the "Target" label
     EXPECT_FALSE(picker.onClick(kG923X, 60));
-    EXPECT_FALSE(picker.onClick(500, kRowY));
+    EXPECT_FALSE(picker.onClick(520, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
 }
 
