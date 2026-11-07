@@ -1,6 +1,6 @@
 # Linux test plan (plan, 2026-11-07)
 
-Status: **in progress (step 0 done; step 1 done (item 3 steering values open); step 2: ACC G25, G920, G923, G27 done; Game Mode run done with G923; step 3 postponed; step 5 done (GRID, both Modes); step 4: NFS 2015 Mode Virtual done; step 6: NFS 2015 Mode Shim done; NFS Heat, Unbound, Payback not installed).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
+Status: **in progress (step 0 done; step 1 done; step 2: ACC G25, G920, G923, G27 done; Game Mode run done with G923; step 3 postponed; step 5 done (GRID, both Modes); step 4: NFS 2015 Mode Virtual done; step 6: NFS 2015 Mode Shim done; NFS Heat, Unbound, Payback not installed).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
 Proton) and close the README's "not yet tried on a Steam Deck" gap.
 
 Rig: Moza R3 base and pedals with the clutch add-on (VID/PID 0x346E/0x0005 for the base).
@@ -38,7 +38,7 @@ Resume here (2026-11-07):
 2. Steps 4 and 6 done for NFS 2015 (rows 8, 9); NFS Heat, Unbound, Payback and DiRT Rally 2.0 need installing. Step 7:
    crash done (row 10); left: Game Mode runs of GRID (Virtual) and NFS 2015 (Shim; once quit by Steam's Exit game),
    Deck controls in menus.
-3. Still to answer: G923 steering (rows 3, 5); Stop clean for rows 1, 3, 4; step 1 item 3 steering values.
+3. Nothing else open outside Game Mode and the games not installed.
 
 Step 0 results (2026-11-07, Steam Deck):
 
@@ -74,7 +74,7 @@ Step 1 results:
 |---|---|---|
 | 1 App, Rig tab | opens; Rig `My rig`: R3 base and pedals, steering axis 0, throttle 2, brake 5, clutch 6 (none inverted), A/B/X/Y, D-pad, paddles 12/13 | yes |
 | 2 Mapping tab | the six saved configs (G25, G27 each in both orders; G920; G923) map every button as the Target docs say; pedals and paddles from the Rig; buttons and pedals live in item 3 | yes |
-| 3 `--list` / `--print` | `--list` finds the R3; `--print`: buttons and pedals move as they should (user); steering's full locks and centre not reported | yes (steering open) |
+| 3 `--list` / `--print` | `--list` finds the R3; `--print`: buttons and pedals move as they should; steering -1 at full left, 0 at centre, +1 at full right (user) | yes |
 | 4 `--ffb-test` | spring, push left, push right, damper all felt on the R3; left is left (no `invert`) | yes |
 | 5 Forced kill | service killed during ACC: force stopped at once; the G25 stays in the game and takes no input (as designed) | yes |
 
@@ -137,11 +137,11 @@ first-run step (`OpenAL\oalinst.exe`) had not run in the prefix. Fix: run it the
 
 | # | Machine | Game | Target | Mode | Inputs | Buttons | FFB | Stop clean | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | Deck | ACC | G25 (both Orders) | Virtual | yes (clutch after the fix) | | yes, felt like on Windows (user); the logged menu run asked only 0 | | ACC binds the clutch to axis 7 (Slider 1) and shows the combined pedals there (rests half, throttle up, brake down); the clutch pedal binds to nothing. WheelBri sends it (telemetry: `out_clutch` 0..65535). Proton log: ACC reads the virtual G25 over hidraw and dinput maps Slider 0 and 1 right, but reads each axis by usage (`HidP_GetUsageValue`), so both Sliders read the first. Fixed: for Proton the clutch is Usage Dial (`protonReportDescriptor`); retested with Order Native: clutch works. Launch stalled at times until Stop, then the game started with no G25: Steam's overlay `LD_PRELOAD` in wheelbri.sh's own commands, and Stop killed the service and wheelbri-uhid (Steam counted them as the game's). Fixed in wheelbri.sh (preload for the game only; no game without service and wheel); retested: starts at once, stops at once |
+| 1 | Deck | ACC | G25 (both Orders) | Virtual | yes (clutch after the fix) | | yes, felt like on Windows (user); the logged menu run asked only 0 | yes, after the launch fix (wheelbri.sh log: runs 13:04 to 13:21 removed the G25 and stopped the service as the game ended) | ACC binds the clutch to axis 7 (Slider 1) and shows the combined pedals there (rests half, throttle up, brake down); the clutch pedal binds to nothing. WheelBri sends it (telemetry: `out_clutch` 0..65535). Proton log: ACC reads the virtual G25 over hidraw and dinput maps Slider 0 and 1 right, but reads each axis by usage (`HidP_GetUsageValue`), so both Sliders read the first. Fixed: for Proton the clutch is Usage Dial (`protonReportDescriptor`); retested with Order Native: clutch works. Launch stalled at times until Stop, then the game started with no G25: Steam's overlay `LD_PRELOAD` in wheelbri.sh's own commands, and Stop killed the service and wheelbri-uhid (Steam counted them as the game's). Fixed in wheelbri.sh (preload for the game only; no game without service and wheel); retested: starts at once, stops at once |
 | 2 | Deck | ACC | G920 | Virtual | yes (wheel, throttle, brake, clutch) | yes (menus: A enters, B back; as on Windows) | yes, as on Windows (user) | yes (quits fast) | |
-| 3 | Deck | ACC | G923 | Virtual | yes (pedals; wheel not reported) | yes | yes (user) | | |
-| 4 | Deck | ACC | G27 (Order Native) | Virtual | yes (pedals as expected, clutch included; a lap driven) | yes | yes, centring and vibrations as on Windows (user) | | |
-| 5 | Deck, Game Mode | ACC | G923 | Virtual | works (user) | works (user) | works (user) | yes (`pgrep -a wheelbri` empty after quitting, exit code 1) | Launch option only, started from Game Mode: WheelBri started with the game and the G923 worked (user) |
+| 3 | Deck | ACC | G923 | Virtual | yes (wheel and pedals; driven a lot, user) | yes | yes (user) | yes (wheelbri.sh log: virtual wheel removed and service stopped as the game ended) | |
+| 4 | Deck | ACC | G27 (Order Native) | Virtual | yes (pedals as expected, clutch included; a lap driven) | yes | yes, centring and vibrations as on Windows (user) | yes (wheelbri.sh log: virtual wheel removed and service stopped as the game ended) | |
+| 5 | Deck, Game Mode | ACC | G923 | Virtual | works, steering included (user) | works (user) | works (user) | yes (`pgrep -a wheelbri` empty after quitting, exit code 1) | Launch option only, started from Game Mode: WheelBri started with the game and the G923 worked (user) |
 | 6 | Deck | Race Driver: GRID | G25 (Order Logitech) | Virtual | yes (wheel, pedals; as on Windows, user) | yes (user) | yes once VSync was on in the game's graphics options (user); before it the game sent only none or a full left push, played as none | yes (`pgrep -a wheelbri` empty, service and virtual G25 gone at quit) | Needed OpenAL in the prefix first (above). Centring spring left at 0 |
 | 7 | Deck | Race Driver: GRID | G25 (Order Logitech) | Shim (32-bit) | yes, as in row 6 (user) | yes (user) | yes, feels as in Mode Virtual (user); 22481 forces from the game, 0 failed to the wheel | yes (`dinput8.dll` and `wheelbri-shim.ini` taken out of the game folder, `pgrep -a wheelbri` empty) | No other `dinput8.dll` in the folder, so chaining not tried |
 | 8 | Deck | NFS 2015 | G920 | Virtual | yes: steering, and pedals right after the fix (user) | yes (user) | yes (user) | yes (`pgrep -a wheelbri` empty) | Starts and reaches the menu under Proton. Pedals first swapped (clutch drove throttle, throttle the brake): wheelbri.sh started the service without `--virtual-wheel`, so the built-in profile was left to a shim that Mode Virtual does not have. Fixed: wheelbri.sh passes `--virtual-wheel-outside` |
