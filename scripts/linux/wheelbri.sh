@@ -483,6 +483,9 @@ start() {
     else
         local args=(--config "$config" --stop-file "$service_stop")
         [ "$ui" = 1 ] && args+=(--ui)
+        # This script starts wheelbri-uhid itself: the service then applies game profiles (NFS 2015's pedals) as
+        # with --virtual-wheel. Without it the service leaves them to the shim, which Mode Virtual does not have.
+        [ "$mode" = uhid ] && args+=(--virtual-wheel-outside)
         "${clean_env[@]}" "$service" "${args[@]}" >>"$state/wheelbri-service.console" 2>&1 &
         service_pid=$!
         own_service=1
@@ -516,7 +519,43 @@ start() {
     else
         export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+$WINEDLLOVERRIDES;}dinput8=n,b"
     fi
+    # Both modes: keyboards that look like controllers to Wine (above). In Mode Shim the rig stays visible: the shim
+    # presents it as the target.
+    local keyboards
+    keyboards=$(keyboards_as_controllers)
+    if [ -n "$keyboards" ]; then
+        say "keyboards hidden from the game as controllers: $keyboards"
+        export SDL_GAMECONTROLLER_IGNORE_DEVICES="${SDL_GAMECONTROLLER_IGNORE_DEVICES:+$SDL_GAMECONTROLLER_IGNORE_DEVICES,}$keyboards"
+    fi
     return 0
+}
+
+# Keyboards and mice that also have a part the system takes for a joystick (ID_INPUT_JOYSTICK; e.g. a Keychron's
+# "System Control"), as VID/PID[,VID/PID...]. Wine lists such a part as a game controller, which Windows does not, and
+# a game that takes the first controller that is not an Xbox pad (NFS 2015) then takes the keyboard, not the wheel.
+# The keyboard still types: only its controller side is hidden. Steam's own pad (28de) is never hidden.
+keyboards_as_controllers() {
+    command -v udevadm >/dev/null 2>&1 || return 0
+    local node props id kinds
+    declare -A seen=()
+    for node in /dev/input/event*; do
+        [ -e "$node" ] || continue
+        props=$(udevadm info -q property -n "$node" 2>/dev/null) || continue
+        id=$(awk -F= '$1 == "ID_VENDOR_ID" {v = $2} $1 == "ID_MODEL_ID" {m = $2}
+                      END {if (length(v) == 4 && length(m) == 4) print toupper(v) ":" toupper(m)}' <<<"$props")
+        [ -n "$id" ] || continue
+        kinds=${seen[$id]:-}
+        grep -q '^ID_INPUT_JOYSTICK=1' <<<"$props" && kinds+=J
+        grep -Eq '^ID_INPUT_(KEYBOARD|MOUSE)=1' <<<"$props" && kinds+=K
+        seen[$id]=$kinds
+    done
+    local list=()
+    for id in "${!seen[@]}"; do
+        [[ ${seen[$id]} == *J* && ${seen[$id]} == *K* && $id != 28DE:* ]] || continue
+        list+=("0x${id%%:*}/0x${id##*:}")
+    done
+    local IFS=,
+    printf '%s' "${list[*]}"
 }
 
 # Waits up to $2 seconds for pid $1, then asks it with SIGTERM (the same clean stop).

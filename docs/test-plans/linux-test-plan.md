@@ -1,6 +1,6 @@
 # Linux test plan (plan, 2026-11-07)
 
-Status: **in progress (step 0 done; step 1 done (item 3 steering values open); step 2: ACC G25, G920, G923, G27 done; Game Mode run done with G923; step 3 next).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
+Status: **in progress (step 0 done; step 1 done (item 3 steering values open); step 2: ACC G25, G920, G923, G27 done; Game Mode run done with G923; step 3 postponed; step 5 done (GRID, both Modes); step 4: NFS 2015 Mode Virtual done; step 6: NFS 2015 Mode Shim done; NFS Heat, Unbound, Payback not installed).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
 Proton) and close the README's "not yet tried on a Steam Deck" gap.
 
 Rig: Moza R3 base and pedals with the clutch add-on (VID/PID 0x346E/0x0005 for the base).
@@ -35,7 +35,8 @@ Stop here if any check fails; fix or record before step 1.
 Resume here (2026-11-07):
 
 1. Branch `test-plans` predates the `deck-setup.sh` fix: `git merge main` before setting the container up again.
-2. Step 3: DiRT Rally 2.0.
+2. Steps 4 and 6 done for NFS 2015 (rows 8, 9); NFS Heat, Unbound, Payback and DiRT Rally 2.0 need installing. Next:
+   step 7 (Game Mode behaviour) for the games that passed.
 3. Still to answer: G923 steering (rows 3, 5); Stop clean for rows 1, 3, 4; step 1 item 3 steering values.
 
 Step 0 results (2026-11-07, Steam Deck):
@@ -87,6 +88,8 @@ Re-proves the known-good game on new hardware first.
 
 ## Step 3: DiRT Rally 2.0, all four Targets (Mode Virtual)
 
+Postponed (2026-11-07): the game needs 103 GB, the Deck has 75 GB free.
+
 - G920, G923, G25, G27 (Order Logitech; G25 handbrake "Button 7" is R Wheel).
 - Note: the game must run under Proton first (check before mapping).
 
@@ -98,6 +101,11 @@ Re-proves the known-good game on new hardware first.
 - NFS Payback: one short run only, to confirm the expected failure and its log line.
 
 ## Step 5: Race Driver: GRID (Target G25)
+
+Deck (2026-11-07): GRID did not start, with or without WheelBri: `OpenAL32.dll` missing (Proton log). Steam's
+first-run step (`OpenAL\oalinst.exe`) had not run in the prefix. Fix: run it there by hand:
+`STEAM_COMPAT_DATA_PATH=~/.local/share/Steam/steamapps/compatdata/12750 STEAM_COMPAT_CLIENT_INSTALL_PATH=~/.local/share/Steam
+~/.local/share/Steam/steamapps/common/"Proton 11.0"/proton run ~/.local/share/Steam/steamapps/common/Grid/openal/oalinst.exe /s`.
 
 - Mode Virtual, Order Logitech; Centring spring set; VSync on.
 - Mode Shim: `wheelbri.sh --target g25 --shim %command%` (32-bit shim). With GridMTFix/other `dinput8.dll` present:
@@ -133,6 +141,10 @@ Re-proves the known-good game on new hardware first.
 | 3 | Deck | ACC | G923 | Virtual | yes (pedals; wheel not reported) | yes | yes (user) | | |
 | 4 | Deck | ACC | G27 (Order Native) | Virtual | yes (pedals as expected, clutch included; a lap driven) | yes | yes, centring and vibrations as on Windows (user) | | |
 | 5 | Deck, Game Mode | ACC | G923 | Virtual | works (user) | works (user) | works (user) | yes (`pgrep -a wheelbri` empty after quitting, exit code 1) | Launch option only, started from Game Mode: WheelBri started with the game and the G923 worked (user) |
+| 6 | Deck | Race Driver: GRID | G25 (Order Logitech) | Virtual | yes (wheel, pedals; as on Windows, user) | yes (user) | yes once VSync was on in the game's graphics options (user); before it the game sent only none or a full left push, played as none | yes (`pgrep -a wheelbri` empty, service and virtual G25 gone at quit) | Needed OpenAL in the prefix first (above). Centring spring left at 0 |
+| 7 | Deck | Race Driver: GRID | G25 (Order Logitech) | Shim (32-bit) | yes, as in row 6 (user) | yes (user) | yes, feels as in Mode Virtual (user); 22481 forces from the game, 0 failed to the wheel | yes (`dinput8.dll` and `wheelbri-shim.ini` taken out of the game folder, `pgrep -a wheelbri` empty) | No other `dinput8.dll` in the folder, so chaining not tried |
+| 8 | Deck | NFS 2015 | G920 | Virtual | yes: steering, and pedals right after the fix (user) | yes (user) | yes (user) | yes (`pgrep -a wheelbri` empty) | Starts and reaches the menu under Proton. Pedals first swapped (clutch drove throttle, throttle the brake): wheelbri.sh started the service without `--virtual-wheel`, so the built-in profile was left to a shim that Mode Virtual does not have. Fixed: wheelbri.sh passes `--virtual-wheel-outside` |
+| 9 | Deck | NFS 2015 | G920 | Shim (64-bit) | yes, with wheelbri.sh's keyboard hiding and no env (user) | yes (user) | yes (user) | yes (shim taken out, `pgrep -a wheelbri` empty) | No input at first: the game takes the first controller that is not an Xbox pad, and Wine listed the Keychron K8's "System Control" part (3434:0d80, a joystick to udev) before the R3, so the game polled the keyboard (shim log). With `SDL_GAMECONTROLLER_IGNORE_DEVICES=0x3434/0x0D80` the wheel works. Fixed: wheelbri.sh hides keyboards and mice with a joystick part in both Modes. Also fixed: the shim found no Linux folders under Proton 11 (`WINE_HOST_*`), so its log went into the prefix at warn |
 
 ## Done when
 

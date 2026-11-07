@@ -113,6 +113,7 @@ struct Options {
     std::string stopFile;                       // --stop-file: stop when this file appears
     bool virtualDevice = false;                   // --virtual-wheel: our own driver's G920 (driver/)
     bool uhid = false;                          // Linux --virtual-wheel: wheelbri-uhid's G920 (tools/uhid)
+    bool virtualWheelOutside = false;           // --virtual-wheel-outside: wheelbri.sh runs wheelbri-uhid itself
     bool hide = true;                           // --no-hide: leave the real wheel visible to games
     bool unhide = false;                        // --unhide: make the real wheel visible again and exit
     bool prepareHide = false;                   // --prepare-hide: put the hide filter on the saved rig's devices, exit
@@ -372,7 +373,8 @@ bool stopRequested() {
 void printUsage() {
     std::puts(
         "usage: wheelbri-service [--config FILE] [--list] [--print] [--ui] [--ffb-test] [--old-files ACTION]\n"
-        "                        [--stop-file FILE] [--virtual-wheel [--no-hide]] [--unhide] [--prepare-hide]\n"
+        "                        [--stop-file FILE] [--virtual-wheel [--no-hide]] [--virtual-wheel-outside]\n"
+        "                        [--unhide] [--prepare-hide]\n"
         "                        [--app [--no-virtual-wheel]] [--telemetry-tab] [--ffb-tab]\n"
         "  --config FILE  INI configuration (see config/g920.ini)\n"
         "  --list         list joysticks and exit\n"
@@ -387,6 +389,9 @@ void printUsage() {
         "                 (driver\\hide\\install-hide.ps1 once), unless --no-hide.\n"
         "                 Linux: starts wheelbri-uhid (install-udev-rules.sh once); the game's launch\n"
         "                 options hide the rig (scripts/linux/wheelbri.sh)\n"
+        "  --virtual-wheel-outside\n"
+        "                 another program runs the virtual wheel (wheelbri.sh starts wheelbri-uhid itself): the\n"
+        "                 pedals go out as for --virtual-wheel (game profiles applied), nothing started or hidden\n"
         "  --unhide       after a crash: make the real wheel visible to games again and exit\n"
         "  --prepare-hide put the hide filter on the saved rig's devices and exit (the installer; Administrator)\n"
         "  --app          a window with Start / Stop instead of running at once (what wheelbri.exe\n"
@@ -421,6 +426,8 @@ bool parseOptions(const int argc, char** argv, Options& options) {
 #endif
         } else if (arg == "--app") {
             options.app = true;
+        } else if (arg == "--virtual-wheel-outside") {
+            options.virtualWheelOutside = true;
         } else if (arg == "--no-virtual-wheel" || arg == "--no-virtual-g920") {
             options.noVirtualDevice = true;
         } else if (arg == "--telemetry-tab") {
@@ -1850,7 +1857,7 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
         const std::uint64_t sessionStartMs = platform::nowMs();
         result = runLoop(config, reload, options.configPath, loaded.text, logFolder, logFileOk, *source, accessories,
                          options.print, host, devices, lastFrame,
-                         /*routePedals=*/options.virtualDevice || options.uhid);
+                         /*routePedals=*/options.virtualDevice || options.uhid || options.virtualWheelOutside);
         if (result != kWheelLost || gStop) {
             break;
         }

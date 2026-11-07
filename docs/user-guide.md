@@ -241,6 +241,10 @@ Steam start WheelBri with the game: in the game's **Properties > Launch Options*
 the game ends, in Game Mode too. If the app (Start) or `wheelbri-service` is already running, it uses that session
 and leaves it running.
 
+In both Modes it also hides from the game any keyboard or mouse that has a part Linux takes for a joystick (e.g. a
+Keychron's "System Control"): Wine lists it as a game controller, and NFS 2015 then takes it instead of the wheel.
+The keyboard still types.
+
 Options go between `wheelbri.sh` and `%command%`, e.g.
 `/home/deck/wheelbri/wheelbri.sh --target g25 --shim %command%`:
 
@@ -335,7 +339,7 @@ session without the app; `--help` prints this list. Stop the app first: one sess
 | `--old-files delete\|archive\|keep` | logs older than 2 days: deleted (default), compressed or kept |
 | `--app` | the app's window with Start / Stop (what `wheelbri` runs) |
 
-`--prepare-hide` is for the installer, `--telemetry-tab` and `--ffb-tab` for development. Log detail per part:
+`--prepare-hide` is for the installer, `--virtual-wheel-outside` for `wheelbri.sh`, `--telemetry-tab` and `--ffb-tab` for development. Log detail per part:
 `SPDLOG_LEVEL="info,service.ffb=debug"` before the command.
 
 ## Troubleshooting
