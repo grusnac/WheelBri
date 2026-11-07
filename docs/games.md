@@ -88,6 +88,8 @@ G920 only, by themselves while the game runs.
 - **Set up:** VSync on (or the frame rate capped): above about 144 Hz the game sends a broken force, which WheelBri
   plays as none. The game sends no centring and turns the wheel's off: set the G25's **Centring spring** on the
   Mapping tab.
+- **Steam Deck, Game Mode:** if the wheel does nothing, switch the game's controls from the secondary controller to
+  the primary, where the wheel is listed.
 - **Buttons:** Instant Replay is Red 3. In a replay the wheel and pedals rewind and fast forward; pause, cameras and
   the Flashback are keys only (F1, F7/F8, F12).
 - **Known:** Alt+Tab in fullscreen crashes the game during a race (its own Direct3D 9 bug). Windowed

@@ -1,6 +1,6 @@
 # Linux test plan (plan, 2026-11-07)
 
-Status: **in progress (step 0 done; step 1 done; step 2: ACC G25, G920, G923, G27 done; Game Mode run done with G923; step 3 postponed; step 5 done (GRID, both Modes); step 4: NFS 2015 Mode Virtual done; step 6: NFS 2015 Mode Shim done; NFS Heat, Unbound, Payback not installed).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
+Status: **in progress (step 0 done; step 1 done; step 2: ACC G25, G920, G923, G27 done; Game Mode run done with G923; step 3 postponed; step 5 done (GRID, both Modes); step 4: NFS 2015 Mode Virtual done; step 6: NFS 2015 Mode Shim done; step 7: crash, Game Mode NFS 2015 (Shim) and GRID (Virtual) done; NFS Heat, Unbound, Payback not installed).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
 Proton) and close the README's "not yet tried on a Steam Deck" gap.
 
 Rig: Moza R3 base and pedals with the clutch add-on (VID/PID 0x346E/0x0005 for the base).
@@ -35,9 +35,8 @@ Stop here if any check fails; fix or record before step 1.
 Resume here (2026-11-07):
 
 1. Branch `test-plans` predates the `deck-setup.sh` fix: `git merge main` before setting the container up again.
-2. Steps 4 and 6 done for NFS 2015 (rows 8, 9); NFS Heat, Unbound, Payback and DiRT Rally 2.0 need installing. Step 7:
-   crash done (row 10); left: Game Mode runs of GRID (Virtual) and NFS 2015 (Shim; once quit by Steam's Exit game),
-   Deck controls in menus.
+2. Steps 4 and 6 done for NFS 2015 (rows 8, 9); NFS Heat, Unbound, Payback and DiRT Rally 2.0 need installing. Step 7
+   done for the installed games (rows 10 to 12).
 3. Nothing else open outside Game Mode and the games not installed.
 
 Step 0 results (2026-11-07, Steam Deck):
@@ -148,7 +147,7 @@ first-run step (`OpenAL\oalinst.exe`) had not run in the prefix. Fix: run it the
 | 9 | Deck | NFS 2015 | G920 | Shim (64-bit) | yes, with wheelbri.sh's keyboard hiding and no env (user) | yes (user) | yes (user) | yes (shim taken out, `pgrep -a wheelbri` empty) | No input at first: the game takes the first controller that is not an Xbox pad, and Wine listed the Keychron K8's "System Control" part (3434:0d80, a joystick to udev) before the R3, so the game polled the keyboard (shim log). With `SDL_GAMECONTROLLER_IGNORE_DEVICES=0x3434/0x0D80` the wheel works. Fixed: wheelbri.sh hides keyboards and mice with a joystick part in both Modes. Also fixed: the shim found no Linux folders under Proton 11 (`WINE_HOST_*`), so its log went into the prefix at warn |
 | 10 | Deck | NFS 2015, crash | G920 | Shim (64-bit) | | | forces stopped 0.43 s after the kill (watchdog, "no word from the game for 500 ms"); wheel went slack at once, no force left (user) | yes: game killed (`kill -9`) while driving with force on; 4 s later wheelbri.sh saw it end, stopped the service, took the shim out; the R3 lists again (`--list`) | Step 7 crash item |
 | 11 | Deck, Game Mode | NFS 2015 | G920 | Shim (64-bit) | yes (user) | yes; Deck controls work through the menus (user) | yes (user) | yes: quit, and once Steam's Exit game (wheelbri.sh: game ended 130, service stopped, shim taken out) | Launch option only |
-| 12 | Deck, Game Mode | Race Driver: GRID | G25 | Virtual | **no: no wheel input in the game** (user) | Deck controls work (user) | | yes (virtual G25 removed, service stopped) | Service side fine: telemetry run 48 shows steering read and sent (`out_steer` 20556..47145) and 82 force packets from the game, so the game opened the virtual G25. Open: the game seems to take another controller in Game Mode (Steam's virtual pad?). The R3 dropped and came back once (16:47:45). Retry 18:20 does not count: the R3 had dropped at 18:09:48 and not come back (kernel log), the service found 0 controllers, so wheel buttons did nothing at "press Enter" |
+| 12 | Deck, Game Mode | Race Driver: GRID | G25 | Virtual | yes: wheel and pedals, once the game's controls were switched from the secondary controller to the primary, where the wheel is listed (user) | yes; Deck controls work (user) | yes (user) | yes (virtual G25 removed, service stopped) | First runs: no wheel input though telemetry run 48 showed steering sent (`out_steer` 20556..47145) and 82 force packets from the game: the game's controls were on the other controller (set up or picked earlier, user), not a WheelBri fault. A retry at 18:20 did not count: the R3 had dropped at 18:09:48 and not come back (kernel log) |
 
 ## Done when
 
