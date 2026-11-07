@@ -10,6 +10,8 @@
 - Linux: a game started with `wheelbri.sh` in Steam's launch option no longer stalls until Stop, and Stop no longer
   ends the virtual wheel before the game starts without it: Steam's overlay preload now goes to the game only, and
   `wheelbri.sh` does not start the game when the service or the virtual wheel has ended.
+- Linux: `wheelbri.sh` does not start the game when the rig's wheel is not connected (after waiting 10 s for it)
+  and says so on screen, in Game Mode too.
 
 ## 1.0.1 (2026-11-06)
 

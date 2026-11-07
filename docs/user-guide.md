@@ -239,7 +239,9 @@ Steam start WheelBri with the game: in the game's **Properties > Launch Options*
 
 (with your own home folder if it is not `/home/deck`). `wheelbri.sh` starts WheelBri before the game and stops it when
 the game ends, in Game Mode too. If the app (Start) or `wheelbri-service` is already running, it uses that session
-and leaves it running.
+and leaves it running. If your rig's wheel is not connected, it waits 10 s for it, then does not start the game and says so
+on screen (Game Mode too; also in `~/.local/state/wheelbri/wheelbri-sh.log`): plug the wheel in and start the game
+again.
 
 In both Modes it also hides from the game any keyboard or mouse that has a part Linux takes for a joystick (e.g. a
 Keychron's "System Control"): Wine lists it as a game controller, and NFS 2015 then takes it instead of the wheel.

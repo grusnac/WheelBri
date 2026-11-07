@@ -470,8 +470,67 @@ session_running() {
     [ -e "$lock" ] && ! flock -n "$lock" true 2>/dev/null
 }
 
+# The wheel the service reads, as VVVV:PPPP: the config's [emulator] source_device when it is a vid:pid, else the
+# active rig's device of kind wheel. Empty when it cannot be told (source_device names a wheel by name, or no rig).
+wheel_device_id() {
+    local source
+    source=$(awk -F= '{sub(/\r$/, "")} /^\[/{emu = ($0 ~ /^\[emulator\][ \t]*$/); next}
+                      emu && $1 ~ /^[ \t]*source_device[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $2); s = $2}
+                      END {print s}' "$config" 2>/dev/null)
+    if [ -n "$source" ]; then
+        [[ $source =~ ^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}$ ]] && echo "${source^^}"
+        return 0
+    fi
+    local rig
+    rig=$(app_setting rig)
+    [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ] || return 0
+    awk -F= '{sub(/\r$/, "")} /^\[/{if (wheel && id) {print toupper(id); exit}; wheel = 0; id = ""; next}
+             {k = $1; v = $2; gsub(/[ \t]/, "", k); sub(/[;#].*/, "", v); gsub(/[ \t]/, "", v)}
+             k == "kind" && v == "wheel" {wheel = 1}
+             k == "id" && v ~ /^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}$/ {id = v}
+             END {if (wheel && id) print toupper(id)}' "$settings/rigs/$rig.ini" | head -n 1
+}
+
+# Whether HID device VVVV:PPPP is connected (USB or Bluetooth: /sys/bus/hid/devices/<bus>:VVVV:PPPP.<n>).
+hid_connected() {
+    local dev
+    for dev in /sys/bus/hid/devices/*:"$1".*; do
+        [ -e "$dev" ] && return 0
+    done
+    return 1
+}
+
+# Tells the user on screen why the game did not start: a zenity dialog (SteamOS has it, and Steam uses it for its own
+# errors), which Game Mode shows where the game would be; touch or the Deck's controls close it, else it goes after
+# 60 s. Without a screen or zenity, the log only.
+tell_user() {
+    [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null 2>&1 || return 0
+    "${clean_env[@]}" zenity --error --title=WheelBri --no-wrap --timeout=60 --text="$1" >/dev/null 2>&1
+}
+
+# Never a game without the wheel: the game would start with nothing behind the virtual wheel (or the shim), and in
+# Game Mode nobody sees the service's warning. Waits a little for a wheel just plugged in.
+wheel_there() {
+    local id i
+    id=$(wheel_device_id)
+    [ -n "$id" ] || return 0    # cannot tell: the service says so if it is missing
+    hid_connected "$id" && return 0
+    say "the wheel ($id) is not connected: waiting up to 10 s for it"
+    for ((i = 0; i < 20; ++i)); do
+        sleep 0.5
+        hid_connected "$id" && { say "the wheel ($id) is there"; return 0; }
+    done
+    say "the wheel ($id) is not connected: the game is not started (plug it in, then start the game again)"
+    tell_user "The wheel is not connected.\n\nPlug it in, then start the game again."
+    return 1
+}
+
 start() {
     rm -f "$service_stop" "$uhid_stop"
+    # A session already running has its wheel (or says why not); else no game without the wheel.
+    if [ ${#game[@]} -gt 0 ] && ! session_running && ! wheel_there; then
+        return 1
+    fi
     # The game's folder first: a refused shim (another mod's dinput8.dll that cannot be chained) starts nothing.
     if [ "$mode" = shim ]; then
         put_shim || return 1
