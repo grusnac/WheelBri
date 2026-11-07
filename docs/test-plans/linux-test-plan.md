@@ -35,8 +35,9 @@ Stop here if any check fails; fix or record before step 1.
 Resume here (2026-11-07):
 
 1. Branch `test-plans` predates the `deck-setup.sh` fix: `git merge main` before setting the container up again.
-2. Steps 4 and 6 done for NFS 2015 (rows 8, 9); NFS Heat, Unbound, Payback and DiRT Rally 2.0 need installing. Next:
-   step 7 (Game Mode behaviour) for the games that passed.
+2. Steps 4 and 6 done for NFS 2015 (rows 8, 9); NFS Heat, Unbound, Payback and DiRT Rally 2.0 need installing. Step 7:
+   crash done (row 10); left: Game Mode runs of GRID (Virtual) and NFS 2015 (Shim; once quit by Steam's Exit game),
+   Deck controls in menus.
 3. Still to answer: G923 steering (rows 3, 5); Stop clean for rows 1, 3, 4; step 1 item 3 steering values.
 
 Step 0 results (2026-11-07, Steam Deck):
@@ -145,6 +146,7 @@ first-run step (`OpenAL\oalinst.exe`) had not run in the prefix. Fix: run it the
 | 7 | Deck | Race Driver: GRID | G25 (Order Logitech) | Shim (32-bit) | yes, as in row 6 (user) | yes (user) | yes, feels as in Mode Virtual (user); 22481 forces from the game, 0 failed to the wheel | yes (`dinput8.dll` and `wheelbri-shim.ini` taken out of the game folder, `pgrep -a wheelbri` empty) | No other `dinput8.dll` in the folder, so chaining not tried |
 | 8 | Deck | NFS 2015 | G920 | Virtual | yes: steering, and pedals right after the fix (user) | yes (user) | yes (user) | yes (`pgrep -a wheelbri` empty) | Starts and reaches the menu under Proton. Pedals first swapped (clutch drove throttle, throttle the brake): wheelbri.sh started the service without `--virtual-wheel`, so the built-in profile was left to a shim that Mode Virtual does not have. Fixed: wheelbri.sh passes `--virtual-wheel-outside` |
 | 9 | Deck | NFS 2015 | G920 | Shim (64-bit) | yes, with wheelbri.sh's keyboard hiding and no env (user) | yes (user) | yes (user) | yes (shim taken out, `pgrep -a wheelbri` empty) | No input at first: the game takes the first controller that is not an Xbox pad, and Wine listed the Keychron K8's "System Control" part (3434:0d80, a joystick to udev) before the R3, so the game polled the keyboard (shim log). With `SDL_GAMECONTROLLER_IGNORE_DEVICES=0x3434/0x0D80` the wheel works. Fixed: wheelbri.sh hides keyboards and mice with a joystick part in both Modes. Also fixed: the shim found no Linux folders under Proton 11 (`WINE_HOST_*`), so its log went into the prefix at warn |
+| 10 | Deck | NFS 2015, crash | G920 | Shim (64-bit) | | | forces stopped 0.43 s after the kill (watchdog, "no word from the game for 500 ms"); wheel went slack at once, no force left (user) | yes: game killed (`kill -9`) while driving with force on; 4 s later wheelbri.sh saw it end, stopped the service, took the shim out; the R3 lists again (`--list`) | Step 7 crash item |
 
 ## Done when
 
