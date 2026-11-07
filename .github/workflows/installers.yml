@@ -7,7 +7,7 @@
 #   3. Linux bundle        wheelbri-linux-x86_64.tar.gz (scripts/linux/package.sh), with stage 1's Windows shims
 #   4. Release             only for a v<version> tag: both installers as a GitHub release
 #
-# Runs on every push to main, every pull request and by hand (Actions > Installers > Run workflow). A tag must match
+# Runs on every pull request and every pushed v<version> tag (pushes to main build nothing). A tag must match
 # project(... VERSION) in CMakeLists.txt. Every action is pinned to a commit (its version in the comment): a moved tag
 # cannot change what runs here.
 #
@@ -21,10 +21,8 @@ name: Installers
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
