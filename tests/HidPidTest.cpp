@@ -765,11 +765,11 @@ TEST(HidWheelDevice, TheG923DeclaresAndSends24Buttons) {
     EXPECT_EQ(packWheelInput(report)[11], 0x00);   // the G920's 19: none of them
 }
 
-// The four axis usages in report order (steering, brake, clutch, throttle): each axis starts Usage Page (Generic
-// Desktop), Usage.
-std::vector<std::uint8_t> axisUsages(const std::span<const std::uint8_t> descriptor) {
+// The first `count` axis usages in report order (steering, throttle, brake, clutch; for combined pedals then the
+// clutch): each axis starts Usage Page (Generic Desktop), Usage.
+std::vector<std::uint8_t> axisUsages(const std::span<const std::uint8_t> descriptor, const std::size_t count = 4) {
     std::vector<std::uint8_t> usages;
-    for (std::size_t i = 8; i + 3 < descriptor.size() && usages.size() < 4; ++i) {
+    for (std::size_t i = 8; i + 3 < descriptor.size() && usages.size() < count; ++i) {
         if (descriptor[i] == 0x05 && descriptor[i + 1] == 0x01 && descriptor[i + 2] == 0x09) {
             usages.push_back(descriptor[i + 3]);
         }
@@ -790,6 +790,28 @@ TEST(HidWheelDevice, ProtonDescriptorOnlyRenamesClutchAndThrottle) {
     // which its G920 hack turns into X, Y, Rz, Slider.
     EXPECT_EQ(axisUsages(windows), (std::vector<std::uint8_t>{0x30, 0x31, 0x35, 0x36}));
     EXPECT_EQ(axisUsages(proton), (std::vector<std::uint8_t>{0x30, 0x31, 0x32, 0x35}));
+}
+
+// Wine's dinput reads each axis by its usage, so two Sliders both read the first: for Proton the G25's and G27's
+// clutch is Dial, the only byte that differs (in ACC the clutch was the combined pedals, 2026-11-07).
+TEST(HidWheelDevice, ProtonDescriptorOfCombinedPedalsMakesTheClutchADial) {
+    for (const char* name : {"g25", "g27"}) {
+        SCOPED_TRACE(name);
+        const VirtualWheel& wheel = *virtualWheel(name);
+        const auto windows = reportDescriptorFor(wheel);
+        const auto proton = protonReportDescriptor(wheel);
+        ASSERT_EQ(proton.size(), windows.size());
+        std::size_t differences = 0;
+        for (std::size_t i = 0; i < windows.size(); ++i) {
+            differences += windows[i] != proton[i] ? 1U : 0U;
+        }
+        EXPECT_EQ(differences, 1U);
+        EXPECT_EQ(axisUsages(windows, 5), (std::vector<std::uint8_t>{0x30, 0x31, 0x35, 0x36, 0x36}));
+        EXPECT_EQ(axisUsages(proton, 5), (std::vector<std::uint8_t>{0x30, 0x31, 0x35, 0x36, 0x37}));
+    }
+    EXPECT_TRUE(std::ranges::equal(protonReportDescriptor(*virtualWheel("g920")), g920ProtonReportDescriptor()));
+    const VirtualWheel& g923 = *virtualWheel("g923");
+    EXPECT_TRUE(std::ranges::equal(protonReportDescriptor(g923), reportDescriptorFor(g923)));
 }
 
 // A game that streams parameters without Set Effects (NFS Unbound, 2026-10-11: a constant force every 16 ms, EBI 0):

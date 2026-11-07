@@ -63,7 +63,7 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
 
 - Mode Virtual through `/dev/uhid`, read by Proton games raw.
 - `wheelbri.sh` as a Steam launch option starts WheelBri with the game and stops it after, in Game Mode too; options
-  for Target, Mode, mapping file, devices to hide ([user-guide.md](user-guide.md#linux-and-the-steam-deck)).
+  for Target, Mode, button order, mapping file, devices to hide ([user-guide.md](user-guide.md#linux-and-the-steam-deck)).
 - Mode Shim per game, put in before the game and taken out after.
 
 ## Diagnostics

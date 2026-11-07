@@ -352,6 +352,20 @@ static_assert(kG25CombinedDescriptor[kClutchUsageAt] == 0x36 &&
                   kG25CombinedDescriptor[kClutchUsageAt + kAxisItemBytes] == 0x36,
               "the combined pedals Slider 0, the clutch Slider 1");
 
+// For Proton: `combined` with the clutch's Usage Dial instead of Slider (protonReportDescriptor).
+template <std::size_t N>
+constexpr std::array<std::uint8_t, N> withDialClutch(const std::array<std::uint8_t, N>& combined) {
+    std::array<std::uint8_t, N> d = combined;
+    d[kClutchUsageAt + kAxisItemBytes] = 0x37;   // Usage Dial
+    return d;
+}
+constexpr auto kG25ProtonDescriptor = withDialClutch(kG25CombinedDescriptor);
+constexpr auto kG27ProtonDescriptor = withDialClutch(kG27CombinedDescriptor);
+static_assert(kG27CombinedDescriptor[kClutchUsageAt - 1] == 0x09 &&
+                  kG27CombinedDescriptor[kClutchUsageAt + kAxisItemBytes - 1] == 0x09 &&
+                  kG27CombinedDescriptor[kClutchUsageAt + kAxisItemBytes] == 0x36,
+              "the G27's fifth axis sits where the G25's does");
+
 // A classic wheel's descriptor (VirtualWheel::classic): `base`'s joystick items up to its HID PID block, without
 // its Report ID item, then the 7-byte vendor output report and the joystick's End Collection. Walks the items.
 std::vector<std::uint8_t> classicDescriptor(const std::span<const std::uint8_t> base) {
@@ -401,6 +415,15 @@ std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
     if (wheel.hidpp && wheel.buttons >= kG923Buttons) return kG923HidPpDescriptor;
     if (wheel.hidpp && !wheel.unsignedAxes && wheel.buttons == kG920Buttons) return kG920HidPpDescriptor;
     return wheelReportDescriptor(wheel.buttons);
+}
+
+std::span<const std::uint8_t> protonReportDescriptor(const VirtualWheel& wheel) {
+    if (wheel.profile == "g920") return kProtonDescriptor;
+    if (wheel.combinedPedals && !wheel.classic) {
+        if (wheel.buttons == kG920Buttons) return kG25ProtonDescriptor;
+        if (wheel.buttons == kG27Buttons) return kG27ProtonDescriptor;
+    }
+    return reportDescriptorFor(wheel);
 }
 
 ReportRoute routeReport(const VirtualWheel& wheel, const std::uint8_t reportId) {

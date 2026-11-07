@@ -95,9 +95,18 @@ std::wstring environment(const wchar_t* name) {
     return length > 0 && length < MAX_PATH ? std::wstring(value, length) : std::wstring();
 }
 
+// A Unix variable as Wine hands it over: under its own name, else as WINE_HOST_<name> (Wine 11, Proton 11, passes HOME
+// and XDG_* only that way).
+std::wstring hostEnvironment(const std::wstring& name) {
+    std::wstring value = environment(name.c_str());
+    if (value.empty()) value = environment((L"WINE_HOST_" + name).c_str());
+    return value;
+}
+
 // Under Wine (Proton) the game's %LOCALAPPDATA% is inside its own prefix, where neither the app nor the user looks: the
 // Linux user's WheelBri folder instead, where the service on Linux keeps it ($`variable`/wheelbri, else
-// ~/`fallback`/wheelbri), as the Windows path Wine gives it (Z:\home\...). Wine hands the Unix HOME over as WINEHOME.
+// ~/`fallback`/wheelbri), as the Windows path Wine gives it (Z:\home\...). Wine hands the Unix HOME over as WINEHOME
+// (older Wine) or WINE_HOST_HOME (Wine 11).
 // Empty when not under Wine or Wine cannot name the folder.
 std::wstring wineUserFolder(const wchar_t* const variable, const wchar_t* const fallback) {
     using DosNameFn = WCHAR*(WINAPI*)(const char*);   // Wine's kernel32: a Unix path to a Windows one
@@ -106,10 +115,10 @@ std::wstring wineUserFolder(const wchar_t* const variable, const wchar_t* const 
                                              : reinterpret_cast<DosNameFn>(reinterpret_cast<void*>(
                                                    GetProcAddress(kernel32, "wine_get_dos_file_name")));
     if (dosName == nullptr) return {};
-    std::wstring folder = environment(variable);
+    std::wstring folder = hostEnvironment(variable);
     if (folder.empty() || folder.front() != L'/') {
         std::wstring home = environment(L"WINEHOME");
-        if (home.empty()) home = environment(L"HOME");
+        if (home.empty()) home = hostEnvironment(L"HOME");
         if (home.empty() || home.front() != L'/') return {};
         folder = home + L"/" + fallback;
     }

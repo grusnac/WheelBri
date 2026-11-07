@@ -71,9 +71,10 @@ bool UhidWheel::create() {
     std::memcpy(req.name, wheel_.oemName.data(), nameSize);
     std::strncpy(reinterpret_cast<char*>(req.phys), "wheelbri", sizeof(req.phys) - 1);
     std::strncpy(reinterpret_cast<char*>(req.uniq), kVirtualWheelUniq, sizeof(req.uniq) - 1);
-    // Games read it through Proton's DirectInput: its G920 hack wants the G920's own axis names (see the header).
+    // Games read it through Proton's DirectInput: the G920's axis names for its G920 hack, the G25's and G27's clutch
+    // as Dial (protonReportDescriptor).
     const bool g920 = wheel_.profile == "g920";
-    const auto descriptor = g920 ? g920ProtonReportDescriptor() : reportDescriptorFor(wheel_);
+    const auto descriptor = protonReportDescriptor(wheel_);
     if (descriptor.size() > sizeof(req.rd_data)) {
         log_(LogLevel::Error, "uhid: descriptor too large");
         return false;

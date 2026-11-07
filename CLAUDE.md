@@ -27,6 +27,7 @@ loaded. Read only the section you need (`grep -n '^#'` first).
 | Windows, views, layout, colours, shapes, Shadow view, UI tests | `.claude/rules/ui.md` |
 | Writing or running tests, fuzzing, uhid tests | `tests/CLAUDE.md` |
 | PowerShell scripts, installer, packaging | `.claude/rules/powershell.md` |
+| Linux: uhid, `scripts/linux/` (wheelbri.sh, Deck build), Proton, Steam Deck testing | `.claude/rules/linux.md` |
 
 A new area file gets a row here.
 
@@ -55,9 +56,10 @@ Makes the user's rig (wheel + accessories, Rig tab) look like a Logitech wheel t
 Targets: G920 (default), G923, G25, G27; the user cannot add targets.
 
 - Verified (Windows 11, Moza R3): all four targets in Mode Virtual in ACC and DiRT Rally 2.0; G920 in NFS 2015, Payback,
-  Heat and Unbound (Mode Shim too, except Payback); G25 in Race Driver: GRID, both Modes; ACC under Proton on Linux.
+  Heat and Unbound (Mode Shim too, except Payback); G25 in Race Driver: GRID, both Modes. Steam Deck (SteamOS 3.8, Proton,
+  Game Mode too): ACC all four targets (Virtual); NFS 2015 (G920) and GRID (G25), both Modes.
   `README.md` Status is the source: change it there first, then here.
-- Not verified: Steam Deck, Windows 7 to 10, button orders on real Logitech wheels.
+- Not verified: DiRT Rally 2.0 and NFS Heat, Unbound, Payback on Linux; Windows 7 to 10; button orders on real Logitech wheels.
 - Mode Shim is for older DirectInput games only; ACC, DiRT Rally 2.0 and games using Logitech's SDK DLL don't take it.
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`. Consumer: `dinput8.dll` shim in

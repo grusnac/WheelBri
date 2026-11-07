@@ -156,7 +156,27 @@ TEST(ShimLogFolder, LogFileFollowsTheEnvironment) {
         }
     }
     {
-        // Not a Unix path: ~ (WINEHOME, else HOME) instead; neither: not under Wine's folders at all.
+        // Wine 11 (Proton 11) hands XDG_* and HOME over only as WINE_HOST_<name>.
+        const ScopedEnvironment state(L"XDG_STATE_HOME", nullptr);
+        const ScopedEnvironment hostState(L"WINE_HOST_XDG_STATE_HOME", L"/tmp/wheelbri-shimtest-hoststate");
+        const std::string path = gamelog::logFilePath(L"x.log");
+        if (wine) {
+            EXPECT_NE(path.find("wheelbri-shimtest-hoststate"), std::string::npos) << path;
+        }
+    }
+    {
+        const ScopedEnvironment state(L"XDG_STATE_HOME", nullptr);
+        const ScopedEnvironment hostState(L"WINE_HOST_XDG_STATE_HOME", nullptr);
+        const ScopedEnvironment wineHome(L"WINEHOME", nullptr);
+        const ScopedEnvironment home(L"HOME", nullptr);
+        const ScopedEnvironment hostHome(L"WINE_HOST_HOME", L"/tmp/wheelbri-shimtest-hosthome");
+        const std::string path = gamelog::logFilePath(L"x.log");
+        if (wine) {
+            EXPECT_NE(path.find("wheelbri-shimtest-hosthome"), std::string::npos) << path;
+        }
+    }
+    {
+        // Not a Unix path: ~ (WINEHOME, else HOME, else WINE_HOST_HOME) instead; none: not under Wine's folders at all.
         const ScopedEnvironment state(L"XDG_STATE_HOME", L"relative");
         const ScopedEnvironment wineHome(L"WINEHOME", nullptr);
         const ScopedEnvironment home(L"HOME", L"/tmp/wheelbri-shimtest-home");
@@ -167,8 +187,10 @@ TEST(ShimLogFolder, LogFileFollowsTheEnvironment) {
     }
     {
         const ScopedEnvironment state(L"XDG_STATE_HOME", nullptr);
+        const ScopedEnvironment hostState(L"WINE_HOST_XDG_STATE_HOME", nullptr);
         const ScopedEnvironment wineHome(L"WINEHOME", nullptr);
         const ScopedEnvironment home(L"HOME", L"not-unix");
+        const ScopedEnvironment hostHome(L"WINE_HOST_HOME", nullptr);
         const std::filesystem::path local = std::filesystem::temp_directory_path() / "wheelbri-shimtest-local";
         const ScopedEnvironment localAppData(L"LOCALAPPDATA", local.wstring().c_str());
         EXPECT_EQ(gamelog::logFilePath(L"x.log"), gamelog::utf8(local.wstring() + L"\\wheelbri\\logs\\x.log"));
@@ -178,8 +200,10 @@ TEST(ShimLogFolder, LogFileFollowsTheEnvironment) {
     {
         // A folder with a letter outside ASCII: its 8.3 name when the volume has one, else UTF-8 as before.
         const ScopedEnvironment state(L"XDG_STATE_HOME", nullptr);
+        const ScopedEnvironment hostState(L"WINE_HOST_XDG_STATE_HOME", nullptr);
         const ScopedEnvironment wineHome(L"WINEHOME", nullptr);
         const ScopedEnvironment home(L"HOME", nullptr);
+        const ScopedEnvironment hostHome(L"WINE_HOST_HOME", nullptr);
         const std::filesystem::path local = std::filesystem::temp_directory_path() / L"wheelbri-shimtest-José";
         const ScopedEnvironment localAppData(L"LOCALAPPDATA", local.wstring().c_str());
         const std::string path = gamelog::logFilePath(L"x.log");
@@ -203,11 +227,16 @@ TEST(ShimLogFolder, AppLevelAtStart) {
         // here, so the level is only checked to be one of the app's.
         const ScopedEnvironment xdg(L"XDG_CONFIG_HOME", L"/nonexistent-wheelbri-shimtest");
         EXPECT_EQ(gamelog::appLevelAtStart(), kDefaultAppLogLevel);
+        const ScopedEnvironment noXdg(L"XDG_CONFIG_HOME", nullptr);
+        const ScopedEnvironment hostXdg(L"WINE_HOST_XDG_CONFIG_HOME", L"/nonexistent-wheelbri-shimtest");
+        EXPECT_EQ(gamelog::appLevelAtStart(), kDefaultAppLogLevel);
     }
     {
         const ScopedEnvironment xdg(L"XDG_CONFIG_HOME", nullptr);
+        const ScopedEnvironment hostXdg(L"WINE_HOST_XDG_CONFIG_HOME", nullptr);
         const ScopedEnvironment wineHome(L"WINEHOME", nullptr);
         const ScopedEnvironment home(L"HOME", nullptr);
+        const ScopedEnvironment hostHome(L"WINE_HOST_HOME", nullptr);
         const ScopedEnvironment local(L"LOCALAPPDATA", config.wstring().c_str());
         EXPECT_EQ(gamelog::appLevelAtStart(), LogLevel::Debug);
         const ScopedEnvironment none(L"LOCALAPPDATA", nullptr);

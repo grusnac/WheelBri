@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Linux: `wheelbri.sh --order logitech|native` picks the G25's or G27's button order; by default the app's Mapping tab
+  Order, as the app's Start uses it (before, only the mapping file's).
+- Linux: the G25's and G27's clutch works under Proton. Proton's DirectInput read both Sliders from the first one, so
+  the clutch showed the combined pedals (in ACC: half at rest, up with the throttle, down with the brake). The virtual
+  wheel now gives Proton the clutch as a Dial, which games still see as Slider 1.
+- Linux: a game started with `wheelbri.sh` in Steam's launch option no longer stalls until Stop, and Stop no longer
+  ends the virtual wheel before the game starts without it: Steam's overlay preload now goes to the game only, and
+  `wheelbri.sh` does not start the game when the service or the virtual wheel has ended.
+- Linux: `wheelbri.sh` does not start the game when the rig's wheel is not connected (after waiting 10 s for it)
+  and says so on screen, in Game Mode too.
+
 ## 1.0.1 (2026-11-06)
 
 Changes since 1.0.0.

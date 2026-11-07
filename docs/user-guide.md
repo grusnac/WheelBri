@@ -239,7 +239,13 @@ Steam start WheelBri with the game: in the game's **Properties > Launch Options*
 
 (with your own home folder if it is not `/home/deck`). `wheelbri.sh` starts WheelBri before the game and stops it when
 the game ends, in Game Mode too. If the app (Start) or `wheelbri-service` is already running, it uses that session
-and leaves it running.
+and leaves it running. If your rig's wheel is not connected, it waits 10 s for it, then does not start the game and says so
+on screen (Game Mode too; also in `~/.local/state/wheelbri/wheelbri-sh.log`): plug the wheel in and start the game
+again.
+
+In both Modes it also hides from the game any keyboard or mouse that has a part Linux takes for a joystick (e.g. a
+Keychron's "System Control"): Wine lists it as a game controller, and NFS 2015 then takes it instead of the wheel.
+The keyboard still types.
 
 Options go between `wheelbri.sh` and `%command%`, e.g.
 `/home/deck/wheelbri/wheelbri.sh --target g25 --shim %command%`:
@@ -249,6 +255,7 @@ Options go between `wheelbri.sh` and `%command%`, e.g.
 | `--virtual` | yes | Mode Virtual: `wheelbri-uhid` creates the virtual wheel; the game reads it raw (Proton's `PROTON_ENABLE_HIDRAW`) and your rig is hidden from it. A WheelBri shim left in the game's folder is taken out first. |
 | `--shim` | | Mode Shim: puts `dinput8.dll` (32 or 64-bit, as the game's `.exe`; `dinput8Hooked.dll` next to the Ultimate ASI Loader) and `wheelbri-shim.ini` into the game's folder before it starts and takes them out after. Another mod's `dinput8.dll` is chained (as Start in the app does) and given back after; one built for the other processor is refused. |
 | `--target g25\|g27\|g920\|g923` | the app's Mapping tab Target, else G920 | The Logitech wheel the game sees. |
+| `--order logitech\|native` | the app's Mapping tab Order for the Target, else the mapping's | G25 and G27: the button order the game sees, **Logitech** (as Logitech's driver numbers them) or **Native** (the wheel's own). Ignored for the G920 and G923. |
 | `--config FILE` | your saved mapping for the Target (`~/.config/wheelbri/configs/my-<target>.ini`), else WheelBri's default | The mapping to use. |
 | `--hide VID/PID[,VID/PID...]` | every device of your rig (Rig tab) | Devices hidden from the game in Mode Virtual, e.g. `--hide 0x346E/0x0005` for a Moza R3. Steam's own pad is never hidden. |
 | `--game-folder DIR` | the folder of the game's `.exe` in `%command%`, else its Steam install folder | Where `--shim` puts the shim. Needed when the game starts through a launcher that hides the real folder. |
@@ -334,7 +341,7 @@ session without the app; `--help` prints this list. Stop the app first: one sess
 | `--old-files delete\|archive\|keep` | logs older than 2 days: deleted (default), compressed or kept |
 | `--app` | the app's window with Start / Stop (what `wheelbri` runs) |
 
-`--prepare-hide` is for the installer, `--telemetry-tab` and `--ffb-tab` for development. Log detail per part:
+`--prepare-hide` is for the installer, `--virtual-wheel-outside` for `wheelbri.sh`, `--telemetry-tab` and `--ffb-tab` for development. Log detail per part:
 `SPDLOG_LEVEL="info,service.ffb=debug"` before the command.
 
 ## Troubleshooting
