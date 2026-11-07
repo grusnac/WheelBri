@@ -1,6 +1,6 @@
 # Linux test plan (plan, 2026-11-07)
 
-Status: **in progress (step 0).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
+Status: **in progress (step 0 done; step 1 done (item 3 steering values open); step 2: ACC G25, G920, G923, G27 done; Game Mode run next).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
 Proton) and close the README's "not yet tried on a Steam Deck" gap.
 
 Rig: Moza R3 base and pedals with the clutch add-on (VID/PID 0x346E/0x0005 for the base).
@@ -9,14 +9,14 @@ Rig: Moza R3 base and pedals with the clutch add-on (VID/PID 0x346E/0x0005 for t
 
 | What | State |
 |---|---|
-| ACC, Mode Virtual, Proton | works (machine not recorded in the docs: note it in step 0) |
-| Steam Deck | never tried |
+| ACC, Mode Virtual, Proton | works on this Steam Deck, Target G25 (2026-10-25); other Targets not tried |
+| Steam Deck | ACC with a virtual G25 only |
 | DiRT Rally 2.0 on Linux | never tried |
 | NFS 2015, Heat, Unbound on Linux | never tried |
 | NFS Payback on Linux | not expected to work (Proton has no Logitech DLL) |
 | Race Driver: GRID on Linux | never tried |
 | Mode Shim on Linux (`--shim`) | never tried in a game |
-| G25, G27, G923 on Linux | only ACC, if at all (check the old logs) |
+| G27, G923 on Linux | never tried (G25 in ACC only) |
 
 ## Step 0: preconditions (check, don't assume)
 
@@ -32,6 +32,13 @@ Rig: Moza R3 base and pedals with the clutch add-on (VID/PID 0x346E/0x0005 for t
 
 Stop here if any check fails; fix or record before step 1.
 
+Resume here (2026-11-07):
+
+1. Branch `test-plans` predates the `deck-setup.sh` fix: `git merge main` before setting the container up again.
+2. Step 2: the Game Mode run (G920, launch option only): WheelBri starts with ACC, stops after it (`pgrep -a wheelbri`
+   empty). Then step 3.
+3. Still to answer: G923 steering (row 3); Stop clean for rows 1, 3, 4; step 1 item 3 steering values.
+
 Step 0 results (2026-11-07, Steam Deck):
 
 | Check | Result | Pass |
@@ -41,7 +48,12 @@ Step 0 results (2026-11-07, Steam Deck):
 | glibc | 2.41 (>= 2.39) | yes |
 | lsusb | Moza R3 racing wheel and pedals seen | yes |
 | Groups before install | deck steamos-log-submitter wheel (no `wheelbri` yet) | expected |
-| `deck-setup.sh` | container glibc 2.44, SteamOS 2.41: pin to the archive did not take | **no, blocks the local build** |
+| `deck-setup.sh` | container glibc 2.44, SteamOS 2.41: pin to the archive did not take | fixed on `main` (1828969, 1f8201f): container glibc 2.41 |
+| Install | local build 1.0.1 (28c34f9) via `deck-build.sh`, not the bundle: tests pass, programs load on SteamOS | yes |
+| udev rules | `install-udev-rules.sh` rerun: rules in place, `/dev/uhid` root:wheelbri 0660, `id` lists `wheelbri` | yes |
+| Earlier Deck runs | logs of 2026-10-25: Mode Virtual, virtual G25 over uhid, 4 game runs; the game was ACC (user) | yes |
+| ACC result machine | this Steam Deck (user) | - |
+| `--list` | `346e:0005 Gudsen R3 Racing Wheel and Pedals` | yes |
 
 ## Step 1: smoke test (Desktop Mode)
 
@@ -50,6 +62,20 @@ Step 0 results (2026-11-07, Steam Deck):
 3. `wheelbri-service --list` and `--print`: values move with the wheel and pedals.
 4. `wheelbri-service --ffb-test`: the gentle sequence is felt on the R3.
 5. Start, then `--unhide` after a forced kill (`kill -9` the service): the rig comes back.
+   On Linux `--unhide` does nothing (`HideFilter::clear()` is empty there): the rig is hidden only from the game
+   `wheelbri.sh` starts. So on Linux: during a game started by `wheelbri.sh`, `pkill -9 -f wheelbri-service`; no force
+   is stuck, and the virtual wheel (wheelbri-uhid, a process of its own) stays with a centred wheel and released
+   pedals after 1.5 s (`InputFeed::kStaleMs`) until the game ends.
+
+Step 1 results:
+
+| Item | Result | Pass |
+|---|---|---|
+| 1 App, Rig tab | opens; Rig `My rig`: R3 base and pedals, steering axis 0, throttle 2, brake 5, clutch 6 (none inverted), A/B/X/Y, D-pad, paddles 12/13 | yes |
+| 2 Mapping tab | the six saved configs (G25, G27 each in both orders; G920; G923) map every button as the Target docs say; pedals and paddles from the Rig; buttons and pedals live in item 3 | yes |
+| 3 `--list` / `--print` | `--list` finds the R3; `--print`: buttons and pedals move as they should (user); steering's full locks and centre not reported | yes (steering open) |
+| 4 `--ffb-test` | spring, push left, push right, damper all felt on the R3; left is left (no `invert`) | yes |
+| 5 Forced kill | service killed during ACC: force stopped at once; the G25 stays in the game and takes no input (as designed) | yes |
 
 ## Step 2: ACC on the Deck, all four Targets (Mode Virtual)
 
@@ -102,7 +128,10 @@ Re-proves the known-good game on new hardware first.
 
 | # | Machine | Game | Target | Mode | Inputs | Buttons | FFB | Stop clean | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| | | | | | | | | | |
+| 1 | Deck | ACC | G25 (both Orders) | Virtual | yes (clutch after the fix) | | yes, felt like on Windows (user); the logged menu run asked only 0 | | ACC binds the clutch to axis 7 (Slider 1) and shows the combined pedals there (rests half, throttle up, brake down); the clutch pedal binds to nothing. WheelBri sends it (telemetry: `out_clutch` 0..65535). Proton log: ACC reads the virtual G25 over hidraw and dinput maps Slider 0 and 1 right, but reads each axis by usage (`HidP_GetUsageValue`), so both Sliders read the first. Fixed: for Proton the clutch is Usage Dial (`protonReportDescriptor`); retested with Order Native: clutch works. Launch stalled at times until Stop, then the game started with no G25: Steam's overlay `LD_PRELOAD` in wheelbri.sh's own commands, and Stop killed the service and wheelbri-uhid (Steam counted them as the game's). Fixed in wheelbri.sh (preload for the game only; no game without service and wheel); retested: starts at once, stops at once |
+| 2 | Deck | ACC | G920 | Virtual | yes (wheel, throttle, brake, clutch) | yes (menus: A enters, B back; as on Windows) | yes, as on Windows (user) | yes (quits fast) | |
+| 3 | Deck | ACC | G923 | Virtual | yes (pedals; wheel not reported) | yes | yes (user) | | |
+| 4 | Deck | ACC | G27 (Order Native) | Virtual | yes (pedals as expected, clutch included; a lap driven) | yes | yes, centring and vibrations as on Windows (user) | | |
 
 ## Done when
 

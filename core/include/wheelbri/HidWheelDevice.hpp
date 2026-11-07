@@ -71,8 +71,8 @@ struct VirtualWheel {
     // input report has the combined pedals where the others have the clutch, and the clutch after them). Race Driver:
     // GRID's G25 preset (ActionMap/actionMapPreset1.xml) reads Slider 0 as combined pedals: without it Slider 0 read 0,
     // the throttle held down; with the clutch there, at the top as Logitech's pedals rest, the brake held down (the car
-    // reversed by itself). Assetto Corsa Competizione's G25 and G27 presets read the clutch on Slider 1 (on Linux too:
-    // with the clutch on Slider 0 there, ACC under Proton had no clutch, 2026-10-26).
+    // reversed by itself). Assetto Corsa Competizione's G25 and G27 presets read the clutch on Slider 1 (on Linux too;
+    // there the clutch is Usage Dial, protonReportDescriptor).
     bool combinedPedals = false;
     // Whether a real one has TrueForce, so the virtual one can have its interface (TrueForce.hpp): the G923.
     bool trueForce = false;
@@ -141,6 +141,13 @@ struct ReportRoute {
 // with the Windows descriptor the axes would shift (2026-10-08). Through that hack this one gives the game what
 // Windows gives it: wheel X, throttle Y, brake Rz, clutch Slider 0.
 [[nodiscard]] std::span<const std::uint8_t> g920ProtonReportDescriptor();
+
+// The descriptor wheelbri-uhid gives Proton: the G920's g920ProtonReportDescriptor; the G25's and G27's
+// reportDescriptorFor with the clutch's Usage Dial instead of the second Slider (same report bytes). Wine's dinput
+// reads each axis by its usage (HidP_GetUsageValue), so with two Sliders both read the first: in ACC the clutch was
+// the combined pedals, at half at rest (2026-11-07). Wine makes Slider and Dial Slider 0 and Slider 1 in the
+// descriptor's order, as Windows does the two Sliders. Every other wheel: reportDescriptorFor.
+[[nodiscard]] std::span<const std::uint8_t> protonReportDescriptor(const VirtualWheel& wheel);
 
 // The input report for `report` (G920 ranges: steering 0..65535 centred at 32768, pedals 0..65535 with
 // 65535 = released, buttons bit n, hat -1 or 0..7): wheel X, throttle Y, brake Rz, clutch Slider.

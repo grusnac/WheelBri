@@ -24,11 +24,19 @@
 #          game's install folder),
 #          --ui / --no-ui (default: window only from a terminal), --config FILE (default: the mapping saved in
 #          the app's Mapping tab, else WheelBri's default for the target),
+#          --order logitech|native (G25 and G27: the order of the buttons the game sees, as Logitech's driver
+#          numbers them or as the wheel does without it; default: the app's Mapping tab pick, else the config's),
 #          --hide VID/PID[,VID/PID...] (the devices to hide from the game; default: every device of the active rig,
 #          set up in the app's Rig tab: bin/wheelbri).
 # Once before the first use: install-udev-rules.sh (needs sudo). Logs: ~/.local/state/wheelbri.
 
 set -u
+
+# Steam preloads its overlay (LD_PRELOAD) into everything a launch option starts, and counts each such process as the
+# game's: this script's own commands then stalled until Stop was pressed, and Stop killed the service and the virtual
+# wheel before the game started without them (2026-11-07). Only the game gets it back (below).
+steam_preload=${LD_PRELOAD-}
+unset LD_PRELOAD
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # The packaged bundle (bin/ next to this script) or the source tree (scripts/linux/ in it, built in build/ or
@@ -53,6 +61,7 @@ fi
 mode=uhid
 target=   # empty: the app's Target (below)
 config=   # empty: the target's built-in config (below)
+order=    # empty: the app's pick for the target, else the config's (below)
 ui=
 hide=   # empty: the active rig's devices (below)
 game=()
@@ -69,6 +78,7 @@ while [ $# -gt 0 ]; do
         --no-ui) ui=0 ;;
         --config) shift; config=${1:-} ;;
         --hide) shift; hide=${1:-} ;;
+        --order) shift; order=${1:-} ;;
         -h|--help) sed -n '2,/^# Once before/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         --) shift; game=("$@"); break ;;
         -*) echo "wheelbri.sh: unknown option $1 (see --help)" >&2; exit 2 ;;
@@ -97,6 +107,13 @@ case "$target" in
     g27) wheel=G27; wheel_id=0x046D/0xC29B ;;
     g923) wheel=G923; wheel_id=0x046D/0xC26E ;;
     *) echo "wheelbri.sh: --target $target: expected g25, g27, g920 or g923" >&2; exit 2 ;;
+esac
+# --order as the config writes it ([buttons] order = driver | native).
+order_asked=$order
+case "$order" in
+    ''|native) ;;
+    logitech) order=driver ;;
+    *) echo "wheelbri.sh: --order $order: expected logitech or native" >&2; exit 2 ;;
 esac
 # Default --config: the mapping you saved in the app's Mapping tab for this target (configs/my-<target>.ini, both
 # modes), else WheelBri's default one (<target>.ini). Before there was one for both modes (2026-10-15) each mode had
@@ -138,6 +155,28 @@ fi
 
 state="${XDG_STATE_HOME:-$HOME/.local/state}/wheelbri"
 mkdir -p "$state"
+# The button order (G25 and G27 only: the others have one): --order, else the app's Mapping tab pick (app.ini
+# [app] order_<target>, which the app's Start uses over the config's). When it is not the config's own, the service
+# gets a copy of the config with it in [buttons], in $state (changes saved in the app then wait for the next start).
+if [ "$target" = g25 ] || [ "$target" = g27 ]; then
+    [ -n "$order" ] || order=$(app_setting "order_$target")
+    case "$order" in driver|native) ;; *) order= ;; esac
+    config_order=$(awk -F= '{sub(/\r$/, "")} /^\[/{buttons = ($0 ~ /^\[buttons\][ \t]*$/); next}
+                            buttons && $1 ~ /^[ \t]*order[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $2); o = $2}
+                            END {print o}' "$config" 2>/dev/null)
+    [ -n "$config_order" ] || config_order=driver
+    if [ -n "$order" ] && [ "$order" != "$config_order" ] && [ -f "$config" ]; then
+        ordered="$state/wheelbri-$target-$order.ini"
+        awk -v want="$order" '{sub(/\r$/, "")}
+            /^\[/ {if (buttons && !done) {print "order = " want; done = 1}; buttons = ($0 ~ /^\[buttons\][ \t]*$/); print; next}
+            buttons && /^[ \t]*order[ \t]*=/ {if (!done) print "order = " want; done = 1; next}
+            {print}
+            END {if (!done) {if (!buttons) print "[buttons]"; print "order = " want}}' "$config" >"$ordered.tmp" &&
+            mv "$ordered.tmp" "$ordered" && config=$ordered
+    fi
+elif [ -n "$order" ]; then
+    echo "wheelbri.sh: --order $order_asked: the $target has one button order only (ignored)" >&2
+fi
 # The shim's settings to put into the game's folder: WheelBri's, presenting the target (target_profile).
 shim_ini="$configs/wheelbri-shim.ini"
 if [ "$target" != g920 ] && [ -f "$configs/wheelbri-shim.ini" ]; then
@@ -164,7 +203,7 @@ say() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*" | tee -a "$log" >&2; }
 [ -x "$service" ] || { say "missing $service (build it, or unpack the bundle next to this script)"; exit 1; }
 [ "$mode" = shim ] || [ -x "$uhid" ] || { say "missing $uhid"; exit 1; }
 
-# Our programs are native: none of Steam's preloads (overlay) or runtime libraries.
+# Our programs are native: none of Steam's runtime libraries (its preloads are gone already, above).
 clean_env=(env -u LD_PRELOAD -u LD_LIBRARY_PATH)
 
 service_pid=
@@ -523,8 +562,19 @@ if ! start; then
 fi
 
 if [ ${#game[@]} -gt 0 ]; then
+    # Never a game without what it was started for (something killed the service or the virtual wheel meanwhile).
+    if { [ $own_service = 1 ] && ! kill -0 "$service_pid" 2>/dev/null; } ||
+        { [ -n "$uhid_pid" ] && ! kill -0 "$uhid_pid" 2>/dev/null; }; then
+        say "wheelbri-service or wheelbri-uhid ended before the game started: the game is not started"
+        stop
+        exit 1
+    fi
     say "starting the game ($mode)"
-    "${game[@]}"
+    if [ -n "$steam_preload" ]; then
+        LD_PRELOAD=$steam_preload "${game[@]}"
+    else
+        "${game[@]}"
+    fi
     status=$?
     say "game ended ($status)"
     stop
