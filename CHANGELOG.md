@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.2 (2026-11-07)
 
 - Linux: `wheelbri.sh --order logitech|native` picks the G25's or G27's button order; by default the app's Mapping tab
   Order, as the app's Start uses it (before, only the mapping file's).

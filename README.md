@@ -45,6 +45,13 @@ Two Modes:
 | Windows 7 to 10 (Mode Shim only) | built, **not yet tried** |
 | Button orders | from public sources; **not yet checked on real Logitech wheels** |
 
+## What's new in 1.0.2
+
+- **Steam Deck tested**: ACC (all four Targets), NFS 2015 and Race Driver: GRID, in Game Mode too.
+- **Linux clutch on the G25 and G27** works under Proton.
+- **`wheelbri.sh`**: no more stalls in Steam's launch option; waits for the wheel and says when it is missing;
+  `--order` picks the G25's or G27's button order.
+
 ## What's new in 1.0.1
 
 - **Safer force feedback settings**: a config can only make the safety guards gentler, never looser.
