@@ -39,7 +39,9 @@ Two Modes:
 | Logitech's force feedback drivers (Windows) | **work** in ACC: G HUB's for the G920 and G923, its older-wheel driver for the G25 and G27 in Logitech order |
 | TrueForce (G923, Windows 11) | **works** in ACC and DiRT Rally 2.0; needs G HUB installed; road texture not yet felt on a rig |
 | G HUB with the virtual G923 | sees it and its effects play; the rotation G HUB sets is not applied |
-| Linux, Mode Virtual | ACC under Proton; **not yet tried on a Steam Deck** |
+| Steam Deck (SteamOS 3.8, Proton), Mode Virtual | **works** in ACC (all four Targets), NFS 2015 (G920) and Race Driver: GRID (G25), Game Mode too |
+| Steam Deck (SteamOS 3.8, Proton), Mode Shim | **works** in NFS 2015 (G920) and Race Driver: GRID (G25, 32-bit), Game Mode too |
+| Linux, not tried | DiRT Rally 2.0, NFS Heat, Unbound, Payback |
 | Windows 7 to 10 (Mode Shim only) | built, **not yet tried** |
 | Button orders | from public sources; **not yet checked on real Logitech wheels** |
 

@@ -1,6 +1,7 @@
 # Games
 
-The games WheelBri was tested with and what each needs. Rig: Moza R3 base and pedals with the clutch add-on, Windows 11.
+The games WheelBri was tested with and what each needs. Rig: Moza R3 base and pedals with the clutch add-on, on Windows 11
+and on a Steam Deck (SteamOS 3.8.28, kernel 6.18, Proton 11).
 Using the app: [user-guide.md](user-guide.md); the Targets: [targets.md](targets.md).
 
 | Game | Target | Mode Virtual | Mode Shim | Built-in profile |
@@ -21,7 +22,7 @@ G920 only, by themselves while the game runs.
 - **Set up:** pick the Target's preset in the game's controls. For the G25 and G27 use the Mapping tab's **Order:
   Native**: ACC's presets read the wheel's own button numbers.
 - **Mode Shim:** not supported by the game; use Mode Virtual.
-- **Linux:** runs under Proton with Mode Virtual.
+- **Linux:** runs under Proton with Mode Virtual, all four Targets (Steam Deck, Game Mode too).
 - **TrueForce (Target G923, Windows):** ACC then plays its TrueForce force on your wheel. It sends no damping, as to
   a real G923.
   - The Mapping tab's **TrueForce: On** (under Target), and in `my-g923.ini` `[steering] target_rotation_deg` at the
@@ -48,6 +49,7 @@ G920 only, by themselves while the game runs.
 - **Profile:** the game reads a G920's pedals from other axes than a real G920 reports them; the profile swaps them.
 - **Known:** changed wheel controls show `NFS 2015: RESET ITS WHEEL CONTROLS`. Force feedback is sometimes off at the
   start of a race (`GAME FFB OFF: ALT-TAB`): Alt+Tab out and back. Keyboard button prompts, no rev lights.
+- **Linux:** both Modes under Proton (Steam Deck, Game Mode too).
 
 ## NFS Payback
 
@@ -88,6 +90,8 @@ G920 only, by themselves while the game runs.
 - **Set up:** VSync on (or the frame rate capped): above about 144 Hz the game sends a broken force, which WheelBri
   plays as none. The game sends no centring and turns the wheel's off: set the G25's **Centring spring** on the
   Mapping tab.
+- **Linux:** both Modes under Proton (Steam Deck, Game Mode too). First run OpenAL's installer in the game's prefix:
+  without it the game does not start (`OpenAL32.dll` missing).
 - **Steam Deck, Game Mode:** if the wheel does nothing, switch the game's controls from the secondary controller to
   the primary, where the wheel is listed.
 - **Buttons:** Instant Replay is Red 3. In a replay the wheel and pedals rewind and fast forward; pause, cameras and
@@ -98,7 +102,8 @@ G920 only, by themselves while the game runs.
 
 ## Not yet tried
 
-- **The Steam Deck**, and the NFS games on Linux (NFS Payback is not expected to work: Proton has no Logitech DLL).
+- **On Linux:** DiRT Rally 2.0, NFS Heat, Unbound and Payback (Payback is not expected to work: Proton has no
+  Logitech DLL).
 - **Windows 7 and 10** (Mode Shim only).
 - **Other games** that support a Logitech wheel should work in Mode Virtual. One that reads the pedals differently
   needs a small game profile, as NFS 2015 does.

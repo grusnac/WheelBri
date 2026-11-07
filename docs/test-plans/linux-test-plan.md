@@ -1,6 +1,6 @@
 # Linux test plan (plan, 2026-11-07)
 
-Status: **in progress (step 0 done; step 1 done; step 2: ACC G25, G920, G923, G27 done; Game Mode run done with G923; step 3 postponed; step 5 done (GRID, both Modes); step 4: NFS 2015 Mode Virtual done; step 6: NFS 2015 Mode Shim done; step 7: crash, Game Mode NFS 2015 (Shim) and GRID (Virtual) done; NFS Heat, Unbound, Payback not installed).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
+Status: **done for the installed games (2026-11-07): ACC all four Targets, NFS 2015 and GRID both Modes, Game Mode and crash test. Not done: DiRT Rally 2.0 (no space), NFS Heat, Unbound, Payback (not installed).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
 Proton) and close the README's "not yet tried on a Steam Deck" gap.
 
 Rig: Moza R3 base and pedals with the clutch add-on (VID/PID 0x346E/0x0005 for the base).
