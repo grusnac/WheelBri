@@ -160,7 +160,7 @@ cmake --build build-win-x86 --target wheelbri_shim
 ### Steam Deck
 
 SteamOS has no compiler. Once (Desktop Mode, Konsole, in the checkout): an Arch Linux distrobox pinned to SteamOS's
-glibc. Run it again with `--recreate` when `deck-build.sh` says SteamOS's glibc moved on:
+glibc. Run it again when `deck-build.sh` says SteamOS's glibc moved on (`--recreate` makes a broken container again):
 
 ```bash
 scripts/linux/deck-setup.sh

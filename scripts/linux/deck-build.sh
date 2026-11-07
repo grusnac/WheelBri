@@ -144,9 +144,9 @@ host_glibc=$(glibc_of "$(ldd --version 2>/dev/null | head -1)")
 box_glibc=$(glibc_of "$(distrobox enter "$container" -- ldd --version 2>/dev/null | head -1)")
 if [ -n "$host_glibc" ] && [ -n "$box_glibc" ] && [ "$host_glibc" != "$box_glibc" ]; then
     if [ "$(printf '%s\n%s\n' "$host_glibc" "$box_glibc" | sort -V | tail -1)" = "$box_glibc" ]; then
-        fail "the container has glibc $box_glibc, SteamOS $host_glibc: run bash scripts/linux/deck-setup.sh --recreate"
+        fail "the container has glibc $box_glibc, SteamOS $host_glibc: run bash scripts/linux/deck-setup.sh again"
     fi
-    warn "SteamOS has glibc $host_glibc, the container $box_glibc (fine; deck-setup.sh --recreate matches them again)"
+    warn "SteamOS has glibc $host_glibc, the container $box_glibc (fine; running deck-setup.sh again matches them)"
 fi
 for program in wheelbri wheelbri-service wheelbri-uhid; do
     if pgrep -x "$program" >/dev/null 2>&1; then
