@@ -27,6 +27,7 @@ loaded. Read only the section you need (`grep -n '^#'` first).
 | Windows, views, layout, colours, shapes, Shadow view, UI tests | `.claude/rules/ui.md` |
 | Writing or running tests, fuzzing, uhid tests | `tests/CLAUDE.md` |
 | PowerShell scripts, installer, packaging | `.claude/rules/powershell.md` |
+| Linux: uhid, `scripts/linux/` (wheelbri.sh, Deck build), Proton, Steam Deck testing | `.claude/rules/linux.md` |
 
 A new area file gets a row here.
 
