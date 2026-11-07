@@ -128,7 +128,9 @@ else
         # TrustAll: every package still needs a valid signature from a key in the image's keyring (of the snapshot's
         # week); only the trust level is not asked, because the master keys' signatures on the packagers' keys have
         # expired since (gpg then says "unknown trust" for all of them).
-        hooks=(--pre-init-hooks "printf 'Server = $archive/repos/$snapshot/\\044repo/os/\\044arch\\n' >/etc/pacman.d/mirrorlist && sed -i 's/^SigLevel *=.*/SigLevel = Required DatabaseOptional TrustAll/' /etc/pacman.conf")
+        mirror="printf 'Server = $archive/repos/$snapshot/\\044repo/os/\\044arch\\n' >/etc/pacman.d/mirrorlist"
+        trust="sed -i 's/^SigLevel *=.*/SigLevel = Required DatabaseOptional TrustAll/' /etc/pacman.conf"
+        hooks=(--pre-init-hooks "$mirror && $trust")
     fi
     distrobox create --yes --name "$container" --image "$image" "${hooks[@]}"
 fi
