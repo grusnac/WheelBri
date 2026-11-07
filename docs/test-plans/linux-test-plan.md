@@ -1,6 +1,6 @@
 # Linux test plan (plan, 2026-11-07)
 
-Status: **in progress (step 0 done; step 1 done (item 3 steering values open); step 2: ACC G25, G920, G923, G27 done; Game Mode run next).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
+Status: **in progress (step 0 done; step 1 done (item 3 steering values open); step 2: ACC G25, G920, G923, G27 done; Game Mode run done with G923; step 3 next).** Goal: prove WheelBri 1.0.1 on Linux beyond the one known result (ACC, Mode Virtual, under
 Proton) and close the README's "not yet tried on a Steam Deck" gap.
 
 Rig: Moza R3 base and pedals with the clutch add-on (VID/PID 0x346E/0x0005 for the base).
@@ -35,9 +35,8 @@ Stop here if any check fails; fix or record before step 1.
 Resume here (2026-11-07):
 
 1. Branch `test-plans` predates the `deck-setup.sh` fix: `git merge main` before setting the container up again.
-2. Step 2: the Game Mode run (G920, launch option only): WheelBri starts with ACC, stops after it (`pgrep -a wheelbri`
-   empty). Then step 3.
-3. Still to answer: G923 steering (row 3); Stop clean for rows 1, 3, 4; step 1 item 3 steering values.
+2. Step 3: DiRT Rally 2.0.
+3. Still to answer: G923 steering (rows 3, 5); Stop clean for rows 1, 3, 4; step 1 item 3 steering values.
 
 Step 0 results (2026-11-07, Steam Deck):
 
@@ -83,7 +82,8 @@ Re-proves the known-good game on new hardware first.
 
 - Desktop Mode, terminal: `wheelbri.sh --target <t>` with `%command%` in ACC's launch options.
 - Order: G920, G923, G25 (Order Native), G27 (Order Native).
-- Then once in **Game Mode** with the launch option only (G920): WheelBri starts with the game and stops after.
+- Then once in **Game Mode** with the launch option only (G920; run with G923): WheelBri starts with the game and
+  stops after.
 
 ## Step 3: DiRT Rally 2.0, all four Targets (Mode Virtual)
 
@@ -132,6 +132,7 @@ Re-proves the known-good game on new hardware first.
 | 2 | Deck | ACC | G920 | Virtual | yes (wheel, throttle, brake, clutch) | yes (menus: A enters, B back; as on Windows) | yes, as on Windows (user) | yes (quits fast) | |
 | 3 | Deck | ACC | G923 | Virtual | yes (pedals; wheel not reported) | yes | yes (user) | | |
 | 4 | Deck | ACC | G27 (Order Native) | Virtual | yes (pedals as expected, clutch included; a lap driven) | yes | yes, centring and vibrations as on Windows (user) | | |
+| 5 | Deck, Game Mode | ACC | G923 | Virtual | works (user) | works (user) | works (user) | yes (`pgrep -a wheelbri` empty after quitting, exit code 1) | Launch option only, started from Game Mode: WheelBri started with the game and the G923 worked (user) |
 
 ## Done when
 
