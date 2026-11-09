@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Build everything the Windows installer ships (app, service, the 64- and 32-bit shim, the drivers) in Release, then
-# assemble
-# dist/windows/WheelBri-<version>/, its zip and WheelBri-<version>-setup.exe (package.ps1).
+# Build everything the Windows installer ships (app, service, the 64- and 32-bit shim, the installer, the drivers) in
+# Release, then assemble dist/windows/WheelBri-<version>/, its zip and WheelBri-<version>-setup.exe (package.ps1).
 #
 #   scripts/make/package.sh                    build, then package
 #   scripts/make/package.sh --no-build         package what is already built
@@ -20,7 +19,8 @@ if [ "${1:-}" = "--no-build" ]; then
 fi
 
 if [ $build -eq 1 ]; then
-    cmake_build wheelbri wheelbri-service wheelbri-helper wheelbri-setup wheelbri_shim   # wheelbri_shim builds dinput8.dll
+    cmake_build wheelbri wheelbri-service wheelbri-helper wheelbri_shim   # wheelbri_shim builds dinput8.dll
+    bash "$root/scripts/make/setup-msvcrt.sh" || fail "the installer did not build (setup-msvcrt.sh)"
     have_mingw32 || fail "the package needs the 32-bit shim: pacman -S mingw-w64-i686-gcc"
     build_shim_x86
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$root/scripts/make/drivers.ps1")" \

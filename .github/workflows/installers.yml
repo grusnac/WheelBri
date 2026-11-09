@@ -40,7 +40,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
 
-      - name: Install MSYS2 UCRT64 (64-bit) and MINGW32 (32-bit shim) compilers
+      - name: Install MSYS2 UCRT64 (64-bit), MINGW32 (32-bit shim) and MINGW64 (installer, msvcrt) compilers
         uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e   # v2.33.0
         with:
           msystem: UCRT64
@@ -51,6 +51,7 @@ jobs:
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-i686-gcc
+            mingw-w64-x86_64-gcc
 
       - name: Configure (Release, with tests)
         shell: msys2 {0}
@@ -63,6 +64,11 @@ jobs:
       - name: Build the 32-bit shim
         shell: msys2 {0}
         run: WE_CMAKE_ARGS=-DWE_BUILD_TESTS=OFF bash scripts/make/shim-x86.sh
+
+      # Against msvcrt.dll, so it starts on a Windows 7, 8 or 8.1 without the Universal C Runtime (the script checks).
+      - name: Build the installer (msvcrt)
+        shell: msys2 {0}
+        run: bash scripts/make/setup-msvcrt.sh
 
       # Side by side (-j): each test has its own temp folder and ports; the shim tests, which share fixed ports and
       # wheelbri-shim.ini, take a lock (ShimDeviceTest.cpp).
@@ -93,7 +99,7 @@ jobs:
             build/service/wheelbri.exe
             build/service/wheelbri-service.exe
             build/service/wheelbri-helper.exe
-            build/installer/setup/wheelbri-setup.exe
+            build-setup/installer/setup/wheelbri-setup.exe
             build/shim/dinput8.dll
             build-x86/shim/dinput8.dll
 

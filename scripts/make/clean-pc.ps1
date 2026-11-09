@@ -160,7 +160,8 @@ function Get-InstallFolders {
         $recorded = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$name" `
                          -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
         if ($recorded -and (Test-Path (Join-Path $recorded "$name.exe")) -and
-            -not (Test-Path (Join-Path $recorded 'install.ps1')) -and $recorded.TrimEnd('\').Length -gt 3) {
+            -not (Test-Path (Join-Path $recorded 'install.ps1')) -and
+            -not (Test-Path (Join-Path $recorded 'package-files.txt')) -and $recorded.TrimEnd('\').Length -gt 3) {
             $folders += $recorded.TrimEnd('\')   # an install, not a package folder
         }
     }
@@ -193,7 +194,7 @@ function Get-Shortcuts {
 # oemName in core/src/HidWheelDevice.cpp), OEMData, for the G923 an Axes key marked with a "WheelBri" value, and for
 # the G25/G27 in Logitech order an OEMForceFeedback key (Logitech's older-wheel driver) and Axes key, both marked the
 # same way (removed at Stop; still there after a crash). A real Logitech wheel has entries under the same ids: those
-# stay. By target: G25, G27, G920, G923. (The same as installer/uninstall.ps1.)
+# stay. By target: G25, G27, G920, G923. (The same as installer/setup/SetupSteps.cpp.)
 $oemNames = [ordered]@{
     'VID_046D&PID_C299' = 'Logitech G25 Racing Wheel USB'
     'VID_046D&PID_C29B' = 'Logitech G27 Racing Wheel USB'
@@ -269,9 +270,9 @@ $otherKeys = @(foreach ($name in $names) {
     }
 })
 
-# The installer's unpacked package and the uninstaller's copy (Setup.cmd, uninstall.ps1), left in %TEMP%.
+# The installer's and the uninstaller's copies left in a temporary folder (older versions' too).
 function Get-TempCopies {
-    # %SystemRoot%\Temp: where uninstall.ps1 runs its copy (only Administrators may write there).
+    # %SystemRoot%\Temp: where the uninstaller runs its copy (only Administrators may write there).
     $roots = @($env:TEMP, (Join-Path $UserLocalAppData 'Temp'), (Join-Path $env:SystemRoot 'Temp')) |
              Where-Object { $_ -and (Test-Path $_) } | Sort-Object -Unique
     return @(foreach ($root in $roots) {
@@ -280,7 +281,7 @@ function Get-TempCopies {
             Get-ChildItem $root -Directory -Filter "$name-uninstall-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
             # wheelbri-setup.exe's unpacked wheelbri.zip (deleted when it ends; left after a crash).
             Get-ChildItem $root -Directory -Filter "$name-package-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-            # Install logs written here when the user's logs folder was a link (install.ps1, uninstall.ps1,
+            # Install logs written here when the user's logs folder was a link (the installer, the uninstaller,
             # install-driver.ps1, install-hide.ps1).
             Get-ChildItem $root -File -Filter "$name-*install-*.log" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
         }

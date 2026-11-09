@@ -94,6 +94,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Microsoft's Update for Universal C Runtime in Windows, KB2999226 (Windows installer package only)
+
+`Setup.exe` and the `.zip` carry Microsoft's own, unmodified and signed update packages for 64-bit Windows 7 SP1, 8
+and 8.1 (`ucrt\Windows6.1-KB2999226-x64.msu`, `ucrt\Windows8-RT-KB2999226-x64.msu`,
+`ucrt\Windows8.1-KB2999226-x64.msu`), downloaded from Microsoft's Download Center (ids 49093, 49082, 49081). The
+installer runs the one for that Windows with Windows' own `wusa.exe` when the Universal C Runtime is missing. They
+are Microsoft's software under Microsoft's terms, not WheelBri's, and not under the GPL. Copyright (c) Microsoft
+Corporation.
+
 ## GoogleTest (tests only, not shipped)
 
 <https://github.com/google/googletest>, version 1.15.2, BSD 3-Clause licence. Used to build and run the tests; no part

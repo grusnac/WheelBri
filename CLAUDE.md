@@ -59,7 +59,8 @@ Targets: G920 (default), G923, G25, G27; the user cannot add targets.
   Heat and Unbound (Mode Shim too, except Payback); G25 in Race Driver: GRID, both Modes. Steam Deck (SteamOS 3.8, Proton,
   Game Mode too): ACC all four targets (Virtual); NFS 2015 (G920) and GRID (G25), both Modes.
   `README.md` Status is the source: change it there first, then here.
-- Not verified: DiRT Rally 2.0 and NFS Heat, Unbound, Payback on Linux; Windows 7 to 10; button orders on real Logitech wheels.
+- Not verified: DiRT Rally 2.0 and NFS Heat, Unbound, Payback on Linux; Windows 7, 8, 8.1 and 10; button orders on
+  real Logitech wheels.
 - Mode Shim is for older DirectInput games only; ACC, DiRT Rally 2.0 and games using Logitech's SDK DLL don't take it.
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`. Consumer: `dinput8.dll` shim in
@@ -90,8 +91,9 @@ Drivers (VS + WDK, PowerShell): `driver/CLAUDE.md`.
 
 `scripts/make/`: `app.sh` (incremental build + start app; `--test` runs all tests first and starts nothing on a failure,
 `--no-start`, `--as-user` needs `wheelbri-helper --console`, `--config FILE`), `rebuild.sh` (clean rebuild), `ui.sh`
-(window only), `shim.sh [--off] <game folder>` (put/remove shim), `shim-x86.sh`, `logi.sh` (Logitech SDK stand-in
-DLL), `drivers.sh`, `all.sh`, `package.sh` (installer), `clean-pc.sh` (removes all WheelBri put on the PC),
+(window only), `shim.sh [--off] <game folder>` (put/remove shim), `shim-x86.sh`, `setup-msvcrt.sh` (the installer,
+msvcrt), `logi.sh` (Logitech SDK stand-in DLL), `drivers.sh`, `all.sh`, `package.sh` (installer), `clean-pc.sh`
+(removes all WheelBri put on the PC),
 `measure.sh` (CPU, memory, handles from outside), `g923-capture.sh` (guided USB capture and decode of a real
 G923: `tools/g923-capture/README.md`).
 
@@ -100,12 +102,13 @@ G923: `tools/g923-capture/README.md`).
 
 Options: `WE_BUILD_TESTS`, `WE_BUILD_SERVICE`, `WE_BUILD_SHIM` (Windows), `WE_BUILD_LOGI` (Windows x64),
 `WE_BUILD_UHID` (Linux), `WE_BUILD_FUZZ` (`wheelbri_fuzz`, Clang only; see `tests/CLAUDE.md`), `WE_BUILD_G923CAP`
-(`wheelbri-g923cap`, on by default), `WE_STRICT_TESTS` (a test file no test program builds fails the configure).
+(`wheelbri-g923cap`, on by default), `WE_BUILD_SETUP` (`wheelbri-setup.exe`, Windows), `WE_STRICT_TESTS` (a test
+file no test program builds fails the configure).
 
 Outputs: `build/service/wheelbri.exe` (app), `wheelbri-service.exe` (CLI; usage in `printUsage`,
 `service/src/main.cpp`, mirrored in `docs/user-guide.md` "Command line"), `wheelbri-helper.exe`, `wheelbri-setup.exe`
-(setup wizard; installed as `Uninstaller.exe`), `build/shim/dinput8.dll`, `build/logi/wheelbri-logi.dll`,
-`build/tools/uhid/wheelbri-uhid` (Linux), `build/tools/g923-capture/wheelbri-g923cap.exe`.
+(the installer; shipped from `build-setup/`; installed as `Uninstaller.exe`), `build/shim/dinput8.dll`,
+`build/logi/wheelbri-logi.dll`, `build/tools/uhid/wheelbri-uhid` (Linux), `build/tools/g923-capture/wheelbri-g923cap.exe`.
 Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 
 ## Architecture
@@ -154,8 +157,13 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 - **`tools/g923-capture/`**: `wheelbri_g923cap` (portable library: USBPcap captures, TrueForce and HID++ decoding,
   reports, the read-only probe) and `wheelbri-g923cap` (the tool `g923-capture.sh` runs; the probe's HID is Windows
   only). Compares against `TrueForceDevice::parameterBits()`. Tests: `G923Cap*`.
-- **`installer/`, `scripts/make/package.ps1`**: Windows package. A new shipped file goes in `package.ps1` and
-  `install.ps1`'s required list.
+- **`installer/setup/`**: `wheelbri-setup.exe`, the installer and (as `Uninstaller.exe`) the uninstaller, no
+  PowerShell: the steps in `SetupSteps.cpp` (portable, on `SetupSystem`; tests on `SetupFakes.hpp`), the Win32 side in
+  `SetupSystemWin32.cpp`. Built against `msvcrt.dll` (`setup-msvcrt.sh`, MINGW64) so it starts on a bare Windows 7, 8,
+  8.1, where it installs KB2999226 from the package's `ucrt\` first. Windows 11's driver steps stay `driver\*.ps1`.
+  Windows API used there: nothing newer than Windows 7 SP1.
+- **`scripts/make/package.ps1`**: Windows package; `Setup.exe` is IExpress with the files flat + `package-files.txt`.
+  A new shipped file goes in `package.ps1`'s `$expected` and `checkPc`'s required list (`SetupSteps.cpp`).
 - **`tests/`**: GoogleTest + `wheelbri_ui_tests`; details in `tests/CLAUDE.md`.
   - A loop change comes with a scenario in `PushLoopTest`: it runs the service's own loop (`ServiceLoop`) on
     `tests/emulators` (emulated devices, the game's socket, a virtual clock; the real Pipeline and FfbController).

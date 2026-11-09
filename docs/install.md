@@ -5,7 +5,7 @@ Short version in the [README](../README.md#install). Next, once installed: [user
 | System | Download | What you get |
 |---|---|---|
 | Windows 11, 64-bit | `WheelBri-<version>-setup.exe` (or the `.zip`) | everything: Mode Virtual and Mode Shim |
-| Windows 7 SP1 to 10, 64-bit | the same | Mode Shim only (no drivers, no restart) |
+| Windows 7 SP1, 8, 8.1, 10, 64-bit | the same | Mode Shim only (no drivers, no restart) |
 | Linux x86-64 (glibc 2.39 or newer), Steam Deck | `wheelbri-linux-x86_64.tar.gz` | Mode Virtual and Mode Shim |
 
 Releases: <https://github.com/grusnac/WheelBri/releases>
@@ -62,33 +62,33 @@ What it puts on the PC (all removed by the uninstaller):
   mode stay as they are.
 
 Your rig, mappings and settings live in `%LOCALAPPDATA%\wheelbri`, the logs in `%LOCALAPPDATA%\wheelbri\logs`
-(the install's own log too: `wheelbri-install-<date>.log`).
+(the install's own log too: `wheelbri-install-<date>-<NN>.log`).
 
 ### Upgrade
 
 Run the new setup. The Welcome page names the version it upgrades; your rig, mappings and settings stay.
 
-### Windows 7 SP1 to 10
+### Windows 7 SP1, 8, 8.1 and 10
 
-The same setup installs Mode Shim only: no drivers, no Helper, no restart. Windows 7 first needs PowerShell 5.1 and the
-Universal C Runtime: from the package's `win7` folder run `download-prerequisites.cmd`, then
-`install-prerequisites.cmd` as Administrator, and restart.
+The same setup installs Mode Shim only: no drivers, no Helper, no restart. It needs nothing installed first: on
+Windows 7, 8 and 8.1 without Microsoft's Universal C Runtime (update KB2999226), setup installs it from the package
+(`ucrt\`). Windows 8.1 needs its April 2014 update (KB2919355) for that; Windows Update has it, and setup says so.
 
 ### Without the wizard
 
-From the unpacked `.zip`, `Setup.cmd` runs the same install (`install.ps1`) in a console window. Options, for scripted
-installs:
+`wheelbri-setup.exe` (in the unpacked `.zip`) installs without a window with `--quiet`. Options:
 
 | Option | What it does |
 |---|---|
-| `-InstallDir D:\WheelBri` | another install folder |
-| `-NoDesktopShortcut` | no desktop shortcut |
-| `-StartMenuFolder "Games\WheelBri"` | the Start menu folder's name |
-| `-StopBrowserGamepads` | turn off Firefox's game controllers without asking |
-| `-Restart Now\|Later\|Ask` | at the end (default Ask) |
-| `-Quiet` | no questions, no pause, no restart (restart yourself) |
+| `--quiet` | no window, no questions, no restart unless `--restart now` |
+| `--install-dir D:\WheelBri` | another install folder |
+| `--no-desktop-shortcut` | no desktop shortcut |
+| `--start-menu-folder "Games\WheelBri"` | the Start menu folder's name |
+| `--stop-browser-gamepads` | turn off Firefox's game controllers |
+| `--restart now\|later` | at the end, when the drivers want it (default later) |
 
-Exit code 0: installed (warnings listed at the end); 1: failed (the red line says why).
+`WheelBri-<version>-setup.exe /Q` runs `wheelbri-setup.exe --quiet` too. Exit code 0: installed; 1: failed. Either way
+the log says what happened: `%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>-<NN>.log`.
 
 ## Windows: the uninstaller
 
@@ -117,20 +117,19 @@ Start menu > WheelBri > **Uninstaller** (or Settings > Apps > WheelBri, or `Unin
 
    ![Uninstaller: Finish](images/uninstaller-finish.png)
 
-Scripted: `Uninstall.cmd` in the install folder runs `uninstall.ps1`. Its defaults keep more than the Uninstaller's
-boxes do, so a script never deletes data it was not told to:
+Scripted: `Uninstaller.exe --uninstall --quiet` in the install folder (Settings > Apps' quiet uninstall runs the same).
+Its defaults keep more than the Uninstaller's boxes do, so a script never deletes data it was not told to:
 
 | Option | Without it |
 |---|---|
-| `-RemoveSettings` | rig, mappings and settings kept |
-| `-RemoveLogs` | logs kept |
-| `-KeepShims` | the shim taken out of the game folders |
-| `-RemoveCertificate` | the drivers' certificate kept |
-| `-KeepConfig` | configs edited in the install folder (`config\*.ini`) asked about, or with `-Quiet` moved to `%LOCALAPPDATA%\wheelbri\config-backup-<date>` |
-| `-Quiet` | questions asked |
-| `-InstallDir DIR` | the folder Settings > Apps records |
+| `--remove-settings` | rig, mappings and settings kept |
+| `--remove-logs` | logs kept |
+| `--keep-shims` | the shim taken out of the game folders |
+| `--remove-certificate` | the drivers' certificate kept |
+| `--keep-config` | configs edited in the install folder (`config\*.ini`) moved to `%LOCALAPPDATA%\wheelbri\config-backup-<date>` (with it: copied to `config-backup`) |
 
-`Uninstall.cmd` from an unpacked package also cleans up an install whose folder is damaged or gone.
+The quiet uninstall runs from a copy under `%SystemRoot%\Temp` and returns at once; its log is
+`%LOCALAPPDATA%\wheelbri\logs\wheelbri-install-<date>-<NN>.log` (with `--remove-logs`: `%TEMP%\wheelbri-uninstall-...`).
 
 ## Linux and the Steam Deck
 

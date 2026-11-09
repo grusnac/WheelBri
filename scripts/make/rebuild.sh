@@ -17,7 +17,7 @@ safe_build_dir() {
     [ "$dir" != "/" ] && [ "$dir" != "$(cd ~ && pwd -P)" ] && [[ "$repo/" != "$dir"/* ]] && [[ ! "$dir" =~ ^/[a-zA-Z]/?$ ]]
 }
 [ -n "$build_dir" ] && safe_build_dir || fail "WE_BUILD_DIR ($build_dir) holds the repository or is a system folder: not deleting it"
-for dir in "$build_dir" "${build_dir}-x86"; do   # and the 32-bit shim's tree (shim-x86.sh)
+for dir in "$build_dir" "${build_dir}-x86" "${build_dir}-setup"; do   # and the 32-bit shim's and the installer's trees
     if [ -d "$dir" ]; then
         say "deleting $dir..."
         rm -rf "$dir" || fail "could not delete $dir (is wheelbri.exe or wheelbri-service still running?)"

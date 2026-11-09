@@ -24,9 +24,8 @@ Mode Shim only, so ACC, DiRT Rally 2.0 (no shim support) and NFS Payback (Logite
 2. **Launchers:** Steam ended Windows 7 support on 1 January 2024, and the EA app reportedly does not install on
    Windows 7. For each game, check whether it can start at all: Steam client still runs or not, offline mode,
    game folder copied from Windows 11. Record the result; don't work around DRM.
-3. Prerequisites from the package's `win7` folder: `download-prerequisites.cmd` (on a machine with internet if
-   needed), `install-prerequisites.cmd` as Administrator, restart. Check PowerShell 5.1 (`$PSVersionTable`) and
-   KB2999226 (Universal C Runtime).
+3. No prerequisites: `WheelBri-<version>-setup.exe` installs the Universal C Runtime (KB2999226) itself when it is
+   missing. Check it is there afterwards (`C:\Windows\System32\ucrtbase.dll`) and read the install log.
 4. Moza Pit House (or the R3 without it): the wheel works in `joy.cpl` with force feedback before WheelBri.
 
 Stop here if no game can start; then only steps 1 and 2 are possible.

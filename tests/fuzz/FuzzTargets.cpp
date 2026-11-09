@@ -34,6 +34,7 @@
 #include "wheelbri/SenderGate.hpp"
 #include "wheelbri/ShimGames.hpp"
 #include "wheelbri/StatePacket.hpp"
+#include "SetupLogic.hpp"
 #ifdef WHEELBRI_G923CAP
 #include "g923cap/Analysis.hpp"
 #include "g923cap/Pcap.hpp"
@@ -299,8 +300,29 @@ void runOne(const std::span<const std::uint8_t> input) {
             ffb.stopAll(now);
             break;
         }
+        case 19: {   // the installer's files (installed-files.txt, default-configs.txt, package-files.txt, a game list)
+                     // and Firefox's policy text: whatever is in them, nothing escapes the install folder, and a
+                     // policy WheelBri changes stays one object with its setting off, then back without it
+            for (const std::wstring& line : setup::textLines(text)) (void)setup::isManifestEntry(line);
+            CHECK(setup::textLines(setup::linesFile(setup::textLines(text))) == setup::textLines(text));
+            for (const auto& [name, hash] : setup::readDefaultConfigs(text)) CHECK(!name.empty() && !hash.empty());
+            for (const setup::PackageEntry& e : setup::readPackageFiles(text)) {
+                CHECK(setup::isManifestEntry(e.relative) && e.flatName.find(L'\\') == std::wstring::npos);
+            }
+            for (const setup::ShimGame& g : setup::readShimGames(text)) CHECK(!g.folder.empty());
+            const setup::FirefoxPolicy off = setup::turnOffGamepads(text);
+            if (off.result == setup::FirefoxPolicy::Result::Changed) {
+                CHECK(setup::turnOffGamepads(off.text).result == setup::FirefoxPolicy::Result::AlreadyOff);
+                const setup::FirefoxPolicy back = setup::undoGamepads(off.text);
+                CHECK(back.result == setup::FirefoxPolicy::Result::Changed);
+                CHECK(back.text.empty() || setup::turnOffGamepads(back.text).result != setup::FirefoxPolicy::Result::NotOurs);
+            }
+            (void)setup::undoGamepads(text);
+            (void)setup::sha256Hex(text);
+            break;
+        }
 #ifdef WHEELBRI_G923CAP
-        case 19: {   // a USBPcap capture (pcap or pcapng): frames, URBs, transfers, the devices' descriptors
+        case 20: {   // a USBPcap capture (pcap or pcapng): frames, URBs, transfers, the devices' descriptors
             const auto file = g923cap::parseCapture(g923cap::Bytes(bytes.begin(), bytes.end()));
             const auto devices = g923cap::findDevices(g923cap::transfersOf(g923cap::urbsOf(file)));
             for (const auto& [key, device] : devices) {

@@ -1,20 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// wheelbri-setup.exe: WheelBri's graphical installer. A wizard (Welcome, Install folder, Options, Ready, Installing,
-// Finish) in front of install.ps1, which does the work: it runs install.ps1 -Quiet -Progress and turns its @@ lines
-// (install.ps1's header) into the checklist, every other line into the log. Plain Win32, no third-party code.
+// wheelbri-setup.exe: WheelBri's installer. A wizard (Welcome, Install folder, Options, Ready, Installing, Finish) in
+// front of SetupSteps.cpp, which does the work on a thread of its own and reports each step to the checklist and
+// the log. Plain Win32, no third-party code, built against msvcrt.dll (not the Universal C Runtime): it starts on a
+// bare Windows 7 SP1, 8 or 8.1, and installs the Universal C Runtime the app needs there first (SetupSteps.cpp).
 //
-// Runs from the unpacked package (install.ps1 next to it), or next to wheelbri.zip (the IExpress layout), which it
-// unpacks to a new temporary folder first. Asks for Administrator itself (install.ps1 needs it for the drivers).
+// Runs from the unpacked package (its files in their folders), or from Setup.exe's temporary folder, where IExpress
+// put the package's files flat next to package-files.txt (scripts/make/package.ps1). Asks for Administrator itself.
 //
 // wheelbri-setup.exe --uninstall, or this exe under a name starting with "Uninstall" (the install folder's
-// Uninstaller.exe, install.ps1): the uninstaller (What to keep, Removing, Finish) in front of the install folder's
-// uninstall.ps1 -Quiet -Progress. Installed in the install folder, which the uninstall deletes: it first runs again
-// from a copy in a new folder under %SystemRoot%\Temp that only Administrators can change.
-// --user-data <folder>: whose %LOCALAPPDATA% (the copy that asked for Administrator passes the signed-in user's on).
+// Uninstaller.exe): the uninstaller (What to keep, Removing, Finish). Installed in the install folder, which the
+// uninstall deletes: it first runs again from a copy in a new folder under %SystemRoot%\Temp that only Administrators
+// can change.
+//
+// --quiet: no window, no questions, the defaults or the options given (SetupLogic.hpp parseOptions); exit code 0 done,
+// 1 failed, and everything in the log. --user-data <folder>: whose %LOCALAPPDATA% (the copy that asked for
+// Administrator passes the signed-in user's on).
 
 #ifndef UNICODE
 #define UNICODE
 #endif
+#include "SetupLogic.hpp"
+#include "SetupSteps.hpp"
+#include "SetupSystemWin32.hpp"
+
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
@@ -25,6 +33,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cwchar>
+#include <atomic>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -58,18 +68,29 @@ enum Id : int {
     kKeepLogs, kKeepShims, kKeepCertificate, kOpenData,
 };
 
-constexpr UINT kLineMessage = WM_APP + 1;   // lParam: std::wstring* (one output line)
-constexpr UINT kExitMessage = WM_APP + 2;   // wParam: exit code
+constexpr UINT kEventMessage = WM_APP + 1;   // lParam: Event* (from the steps' thread)
+constexpr UINT kExitMessage = WM_APP + 2;    // wParam: exit code
+
+namespace setup = wheelbri::setup;
 
 enum class State { Wait, Run, Done, Warn, Fail, Skip };
 struct Row {
     const wchar_t* text;
-    int step;             // the script's numbered step it belongs to
-    const char* item;     // its @@ITEM key; nullptr: the row is the step itself (running from its @@STEP on)
+    int step;             // the numbered step it belongs to (SetupSteps.hpp)
+    const char* item;     // its item key; nullptr: the row is the step itself (running from its step on)
     State state = State::Wait;
     std::wstring note{};
 };
-struct ShimGame { std::wstring name, folder; };
+using ShimGame = setup::ShimGame;
+
+// One thing the steps reported (setup::Reporter), handed to the window's thread.
+struct Event {
+    enum Kind { Step, Item, Note, Warn, Log, Fail, Restart } kind = Log;
+    int step = 0;
+    std::string key;
+    setup::ItemState state = setup::ItemState::Running;
+    std::wstring text;
+};
 
 struct App {
     HINSTANCE instance{};
@@ -78,17 +99,17 @@ struct App {
     HFONT font{}, bold{}, big{}, small{};
     HBRUSH backBrush{}, fieldBrush{}, logBrush{}, railBrush{};
     Page page = kWelcome;
+    setup::Options options;      // the command line's; the wizard's choices go in at Install / Uninstall
     bool uninstall = false;      // --uninstall
     std::wstring userData;       // the signed-in user's %LOCALAPPDATA% (--user-data), not the Administrator's
     std::wstring tempCopy;       // the folder of the copy this uninstaller runs from (deleted at the next restart)
     std::vector<ShimGame> shimGames;
-    bool restartNeeded = false;  // @@RESTART
+    bool restartNeeded = false;
 
-    std::wstring package;        // the folder with install.ps1
-    bool unpacked = false;       // package is a temporary folder this setup made (deleted at the end)
+    setup::Package package;
     std::wstring version = L"?";
     DWORD build = 0;
-    bool withDrivers = false;    // install.ps1's $withDrivers (keep in step)
+    bool withDrivers = false;
     std::wstring earlierVersion, earlierFolder;
     bool firefox = false;
     std::wstring logFolder;
@@ -125,15 +146,11 @@ std::wstring environment(const wchar_t* name) {
 std::wstring registryText(HKEY root, const wchar_t* key, const wchar_t* value) {
     wchar_t buffer[1024]{};
     DWORD size = sizeof(buffer);
-    if (RegGetValueW(root, key, value, RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr, buffer, &size) != ERROR_SUCCESS) {
+    // A 64-bit program reads the 64-bit view (RRF_SUBKEY_WOW6464KEY is Windows 10 only).
+    if (RegGetValueW(root, key, value, RRF_RT_REG_SZ, nullptr, buffer, &size) != ERROR_SUCCESS) {
         return {};
     }
     return buffer;
-}
-
-bool fileExists(const std::wstring& path) {
-    const DWORD a = GetFileAttributesW(path.c_str());
-    return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
 std::wstring exeFolder() {
@@ -143,12 +160,17 @@ std::wstring exeFolder() {
     return s.substr(0, s.find_last_of(L'\\'));
 }
 
+std::wstring exePath() {
+    wchar_t path[MAX_PATH * 2]{};
+    GetModuleFileNameW(nullptr, path, static_cast<DWORD>(std::size(path)));
+    return path;
+}
+
 std::wstring system32(const wchar_t* file) {
     wchar_t dir[MAX_PATH]{};
     GetSystemDirectoryW(dir, MAX_PATH);
     return std::wstring(dir) + L"\\" + file;
 }
-std::wstring powershell() { return system32(L"WindowsPowerShell\\v1.0\\powershell.exe"); }
 
 // Runs a command line, hidden, and waits; its exit code (or -1).
 int runHidden(std::wstring commandLine) {
@@ -188,40 +210,21 @@ DWORD windowsBuild() {
     return info.dwBuildNumber;
 }
 
-// Finds the package: install.ps1 next to this exe, or wheelbri.zip next to it (unpacked to a new temp folder).
+// The package next to this exe: the unpacked zip, or Setup.exe's flat files with package-files.txt.
 bool findPackage(std::wstring& problem) {
-    const std::wstring here = exeFolder();
-    if (fileExists(here + L"\\install.ps1")) {
-        g.package = here;
-        return true;
-    }
-    const std::wstring zip = here + L"\\wheelbri.zip";
-    if (!fileExists(zip)) {
-        problem = L"install.ps1 is not next to wheelbri-setup.exe: unpack the whole package again.";
+    setup::SetupSystemWin32 system;
+    g.package = setup::readPackage(system, exeFolder(), exePath());
+    if (!g.package.find(L"wheelbri.exe")) {
+        problem = L"The WheelBri package is not next to wheelbri-setup.exe: unpack the whole package again.";
         return false;
     }
-    wchar_t temp[MAX_PATH]{};
-    GetTempPathW(MAX_PATH, temp);
-    GUID guid{};
-    CoCreateGuid(&guid);
-    wchar_t name[64]{};
-    swprintf(name, 64, L"wheelbri-package-%08lx%04x", static_cast<unsigned long>(guid.Data1), guid.Data2);
-    const std::wstring target = std::wstring(temp) + name;
-    const std::wstring command = L"\"" + powershell() +
-                                 L"\" -NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '" + zip +
-                                 L"' -DestinationPath '" + target + L"'\"";
-    if (runHidden(command) != 0 || !fileExists(target + L"\\install.ps1")) {
-        problem = L"Could not unpack wheelbri.zip.";
-        return false;
-    }
-    g.package = target;
-    g.unpacked = true;
+    g.version = g.package.version;
     return true;
 }
 
 void detect() {
     g.build = windowsBuild();
-    g.withDrivers = g.build >= 22000;   // install.ps1 $withDrivers: the drivers' INFs need build 22000
+    g.withDrivers = setup::withDrivers(g.build);
     const std::wstring key = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\wheelbri";
     g.earlierFolder = registryText(HKEY_LOCAL_MACHINE, key.c_str(), L"InstallLocation");
     g.earlierVersion = registryText(HKEY_LOCAL_MACHINE, key.c_str(), L"DisplayVersion");
@@ -233,16 +236,10 @@ void detect() {
             RegCloseKey(k);
         }
     }
-    if (FILE* f = _wfopen((g.package + L"\\VERSION.txt").c_str(), L"rb")) {
-        char buffer[32]{};
-        const size_t n = fread(buffer, 1, sizeof(buffer) - 1, f);
-        fclose(f);
-        std::string v(buffer, n);
-        while (!v.empty() && (v.back() == '\r' || v.back() == '\n' || v.back() == ' ')) v.pop_back();
-        g.version.assign(v.begin(), v.end());
-    }
     if (g.userData.empty()) g.userData = environment(L"LOCALAPPDATA");
-    g.logFolder = g.userData + L"\\wheelbri\\logs";
+    setup::SetupSystemWin32 system;
+    bool linked = false;
+    g.logFolder = setup::logFolderFor(system, g.userData, linked);
 }
 
 std::wstring defaultFolder() {
@@ -252,13 +249,7 @@ std::wstring defaultFolder() {
     return programs + L"\\WheelBri";
 }
 
-std::wstring windowsName() {
-    if (g.build < 9200) return L"Windows 7";
-    if (g.build < 9600) return L"Windows 8";
-    if (g.build < 10240) return L"Windows 8.1";
-    if (g.build < 22000) return L"Windows 10";
-    return L"Windows 11";
-}
+std::wstring windowsName() { return setup::windowsName(g.build); }
 
 // --- controls -------------------------------------------------------------------------------------------------
 
@@ -317,7 +308,7 @@ void createControls() {
     add(kFolder, L"BUTTON", L"Back to default", BS_OWNERDRAW | WS_TABSTOP, kDefaultFolder, kLeft, 330, 150, 26);
 
     // Options
-    // The Start menu folder is always made (install.ps1): only its name is a choice.
+    // The Start menu folder is always made (SetupSteps.cpp): only its name is a choice.
     g.startMenu = add(kOptions, L"STATIC", L"Start menu folder:", SS_LEFT, kStartMenu, kLeft, 99, 190, 22);
     g.startMenuName = add(kOptions, L"EDIT", L"WheelBri", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, kStartMenuName,
                           kLeft + 200, 94, 200, 26);
@@ -384,7 +375,7 @@ void showPage(const Page page) {
     }
     if (page == kFinish) {
         ShowWindow(g.openData, g.uninstall && checked(g.keepSettings) ? SW_SHOW : SW_HIDE);
-        const bool askRestart = g.exitCode == 0 && (g.uninstall ? g.restartNeeded : g.withDrivers);
+        const bool askRestart = g.exitCode == 0 && (g.restartNeeded || (!g.uninstall && g.withDrivers));
         ShowWindow(g.restartNow, askRestart ? SW_SHOW : SW_HIDE);
         ShowWindow(g.restartLater, askRestart ? SW_SHOW : SW_HIDE);
     }
@@ -402,7 +393,7 @@ void showPage(const Page page) {
 
 std::wstring quoted(const std::wstring& s) { return L"\"" + s + L"\""; }
 
-// The folder must be a full path on a local drive; install.ps1 does the rest of the checks (empty or an install).
+// The folder must be a full path on a local drive; the install does the rest of the checks (empty or an install).
 std::wstring folderProblem(const std::wstring& folder) {
     if (folder.size() < 3 || folder[1] != L':' || folder[2] != L'\\') return L"Choose a full folder path (C:\\...).";
     if (folder.find(L'"') != std::wstring::npos) return L"A folder name cannot hold a quote.";
@@ -420,43 +411,115 @@ std::wstring menuNameProblem(const std::wstring& name) {
     return {};
 }
 
-void reader(HANDLE pipe) {
-    std::string pending;
-    char buffer[4096];
-    DWORD n = 0;
-    auto send = [](const std::string& line) {
-        // Windows PowerShell 5.1 writes to a pipe in the console's OEM code page.
-        const int size = MultiByteToWideChar(CP_OEMCP, 0, line.data(), static_cast<int>(line.size()), nullptr, 0);
-        auto* text = new std::wstring(static_cast<size_t>(size), L'\0');
-        MultiByteToWideChar(CP_OEMCP, 0, line.data(), static_cast<int>(line.size()), text->data(), size);
-        if (!PostMessageW(g.window, kLineMessage, 0, reinterpret_cast<LPARAM>(text))) delete text;
-    };
-    while (ReadFile(pipe, buffer, sizeof(buffer), &n, nullptr) && n > 0) {
-        pending.append(buffer, n);
-        size_t end;
-        while ((end = pending.find('\n')) != std::string::npos) {
-            std::string line = pending.substr(0, end);
-            if (!line.empty() && line.back() == '\r') line.pop_back();
-            send(line);
-            pending.erase(0, end + 1);
+// This run's log: "<stem>-<date>-<NN>.log" (the first free number), lines in WheelBri's log format
+// (HelperLog::formatLine), UTF-8. No file when the folder cannot take one: the window still shows everything.
+class SetupLog {
+public:
+    void open(const std::wstring& folder, const wchar_t* stem) {
+        SYSTEMTIME t{};
+        GetLocalTime(&t);
+        wchar_t date[16];
+        swprintf(date, 16, L"%04u-%02u-%02u", t.wYear, t.wMonth, t.wDay);
+        CreateDirectoryW(setup::parentOf(folder).c_str(), nullptr);   // %LOCALAPPDATA%\wheelbri on a new PC
+        CreateDirectoryW(folder.c_str(), nullptr);
+        for (int n = 1; n < 100 && file_ == INVALID_HANDLE_VALUE; ++n) {
+            wchar_t name[64];
+            swprintf(name, 64, L"\\%ls-%ls-%02d.log", stem, date, n);
+            const std::wstring candidate = folder + name;
+            file_ = CreateFileW(candidate.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, CREATE_NEW,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file_ != INVALID_HANDLE_VALUE) path_ = candidate;
+            else if (GetLastError() != ERROR_FILE_EXISTS) break;
         }
     }
-    if (!pending.empty()) send(pending);
-    CloseHandle(pipe);
+    void write(const bool warning, const std::wstring& text) {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        if (file_ == INVALID_HANDLE_VALUE) return;
+        SYSTEMTIME t{};
+        GetLocalTime(&t);
+        char stamp[64];
+        snprintf(stamp, sizeof(stamp), "[%04u-%02u-%02u %02u:%02u:%02u.%03u] [%s] [setup         ] [tid %-6lu] ",
+                 t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, warning ? "warn " : "info ",
+                 static_cast<unsigned long>(GetCurrentThreadId()));
+        const std::string line = stamp + setup::toUtf8(text) + "\r\n";
+        DWORD written = 0;
+        WriteFile(file_, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
+    }
+    [[nodiscard]] const std::wstring& path() const { return path_; }
+    ~SetupLog() {
+        if (file_ != INVALID_HANDLE_VALUE) CloseHandle(file_);
+    }
+
+private:
+    HANDLE file_ = INVALID_HANDLE_VALUE;
+    std::wstring path_;
+    std::mutex mutex_;
+};
+SetupLog gLog;
+std::atomic<bool> gRestart{false};   // the steps said Windows must restart (read by --quiet)
+
+// The steps' reports: to the log file at once, and to the window (when there is one) as events.
+class Reporting final : public setup::Reporter {
+public:
+    void step(const int number, const std::wstring& text) override { post({Event::Step, number, {}, {}, text}); }
+    void item(const char* key, const setup::ItemState state, const std::wstring& note) override {
+        gLog.write(state == setup::ItemState::Warn || state == setup::ItemState::Failed,
+                   L"    " + setup::fromUtf8(key) + L": " + note);
+        post({Event::Item, 0, key, state, note});
+    }
+    void note(const std::wstring& text) override { post({Event::Note, 0, {}, {}, text}); }
+    void warn(const std::wstring& text) override {
+        gLog.write(true, L"    ! " + text);
+        post({Event::Warn, 0, {}, {}, text});
+    }
+    void log(const std::wstring& text) override {
+        gLog.write(false, text);
+        post({Event::Log, 0, {}, {}, text});
+    }
+    void fail(const std::wstring& text) override {
+        gLog.write(true, L"failed: " + text);
+        post({Event::Fail, 0, {}, {}, text});
+    }
+    void restartNeeded() override {
+        gRestart = true;
+        post({Event::Restart, 0, {}, {}, {}});
+    }
+
+private:
+    static void post(Event e) {
+        if (!g.window) return;
+        auto* copy = new Event(std::move(e));
+        if (!PostMessageW(g.window, kEventMessage, 0, reinterpret_cast<LPARAM>(copy))) delete copy;
+    }
+};
+
+int runSteps(const setup::Options& options) {
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    setup::SetupSystemWin32 system;
+    Reporting reporting;
+    const int code = options.uninstall ? setup::uninstall(system, options, reporting)
+                                       : setup::install(system, g.package, options, reporting);
+    CoUninitialize();
+    return code;
 }
 
-struct RunArgs { HANDLE process; HANDLE pipe; };
-
-DWORD WINAPI runThread(void* p) {
-    auto* args = static_cast<RunArgs*>(p);
-    reader(args->pipe);
-    WaitForSingleObject(args->process, INFINITE);
-    DWORD code = 1;
-    GetExitCodeProcess(args->process, &code);
-    CloseHandle(args->process);
-    PostMessageW(g.window, kExitMessage, code, 0);
-    delete args;
+DWORD WINAPI stepsThread(void* p) {
+    auto* options = static_cast<setup::Options*>(p);
+    const int code = runSteps(*options);
+    delete options;
+    PostMessageW(g.window, kExitMessage, static_cast<WPARAM>(code), 0);
     return 0;
+}
+
+// The log file for this run: with the user's other logs, except an uninstall that removes them (then %TEMP%).
+void openLog(const setup::Options& options) {
+    if (options.uninstall && options.removeLogs) {
+        gLog.open(environment(L"TEMP"), L"wheelbri-uninstall");
+    } else {
+        setup::SetupSystemWin32 system;
+        bool linked = false;
+        gLog.open(setup::logFolderFor(system, options.userData, linked), L"wheelbri-install");
+    }
 }
 
 void appendLog(const std::wstring& line) {
@@ -475,61 +538,49 @@ void updateProgress() {
     InvalidateRect(g.window, &top, TRUE);
 }
 
+// A full path without a trailing backslash ("C:\x\..\y\" -> "C:\y").
+std::wstring fullPath(const std::wstring& path) {
+    wchar_t buffer[MAX_PATH * 2]{};
+    const DWORD n = GetFullPathNameW(path.c_str(), static_cast<DWORD>(std::size(buffer)), buffer, nullptr);
+    return setup::withoutTrailingSlash(n > 0 && n < std::size(buffer) ? std::wstring(buffer) : path);
+}
+
+// The Start menu folder as typed: no spaces or backslashes around it.
+std::wstring menuName(std::wstring name) {
+    while (!name.empty() && (name.back() == L' ' || name.back() == L'\\')) name.pop_back();
+    while (!name.empty() && (name.front() == L' ' || name.front() == L'\\')) name.erase(0, 1);
+    return name;
+}
+
 void startInstall() {
     initRows();
     for (size_t i = 0; i < g.rows.size(); ++i) SendMessageW(g.checklist, LB_SETITEMDATA, i, static_cast<LPARAM>(i));
-    std::wstring command;
+    auto* options = new setup::Options(g.options);
+    options->userData = g.userData;
+    options->quiet = false;
     if (g.uninstall) {
-        command = quoted(powershell()) + L" -NoProfile -ExecutionPolicy Bypass -File " +
-                  quoted(g.earlierFolder + L"\\uninstall.ps1") + L" -InstallDir " + quoted(g.earlierFolder) +
-                  L" -Quiet -Progress -UserLocalAppData " + quoted(g.userData);
-        if (checked(g.keepSettings)) command += L" -KeepConfig";
-        else command += L" -RemoveSettings";
-        if (!checked(g.keepLogs)) command += L" -RemoveLogs";
-        if (g.shimGames.empty() || checked(g.keepShims)) command += L" -KeepShims";
-        if (g.withDrivers && !checked(g.keepCertificate)) command += L" -RemoveCertificate";
-        appendLog(L"WheelBri " + g.earlierVersion + L" uninstall, " + windowsName() + L" (build " +
-                  std::to_wstring(g.build) + L")");
+        options->installDir = g.earlierFolder;
+        options->keepConfig = checked(g.keepSettings);
+        options->removeSettings = !checked(g.keepSettings);
+        options->removeLogs = !checked(g.keepLogs);
+        options->keepShims = g.shimGames.empty() || checked(g.keepShims);
+        options->removeCertificate = g.withDrivers && !checked(g.keepCertificate);
     } else {
-        command = quoted(powershell()) + L" -NoProfile -ExecutionPolicy Bypass -File " +
-                  quoted(g.package + L"\\install.ps1") + L" -InstallDir " + quoted(windowText(g.folderEdit)) +
-                  L" -Quiet -Progress -Restart Later";
-        command += L" -StartMenuFolder " + quoted(windowText(g.startMenuName));
-        if (!checked(g.desktop)) command += L" -NoDesktopShortcut";
-        if (g.firefox && checked(g.firefoxBox)) command += L" -StopBrowserGamepads";
-        appendLog(L"WheelBri " + g.version + L" setup, " + windowsName() + L" (build " + std::to_wstring(g.build) +
-                  L")");
+        options->installDir = fullPath(windowText(g.folderEdit));
+        options->startMenuFolder = menuName(windowText(g.startMenuName));
+        options->desktopShortcut = checked(g.desktop);
+        options->stopBrowserGamepads = g.firefox && checked(g.firefoxBox);
     }
-
-    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
-    HANDLE readEnd{}, writeEnd{};
-    CreatePipe(&readEnd, &writeEnd, &sa, 0);
-    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
-    HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, 0, &sa, OPEN_EXISTING, 0, nullptr);
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = nul;
-    si.hStdOutput = writeEnd;
-    si.hStdError = writeEnd;
-    PROCESS_INFORMATION pi{};
-    // Not in the install folder: the uninstall deletes it.
-    const std::wstring workFolder = g.uninstall ? system32(L"") : g.package;
-    const BOOL ok = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
-                                   workFolder.c_str(), &si, &pi);
-    CloseHandle(writeEnd);
-    CloseHandle(nul);
-    if (!ok) {
-        CloseHandle(readEnd);
-        g.failure = L"Could not start Windows PowerShell (" + powershell() + L").";
-        appendLog(g.failure);
-        PostMessageW(g.window, kExitMessage, 1, 0);
-        return;
-    }
-    CloseHandle(pi.hThread);
+    openLog(*options);
     g.running = true;
-    HANDLE thread = CreateThread(nullptr, 0, runThread, new RunArgs{pi.hProcess, readEnd}, 0, nullptr);
-    if (thread) CloseHandle(thread);
+    HANDLE thread = CreateThread(nullptr, 0, stepsThread, options, 0, nullptr);
+    if (thread) {
+        CloseHandle(thread);
+    } else {
+        delete options;
+        g.failure = L"Could not start the setup's work.";
+        PostMessageW(g.window, kExitMessage, 1, 0);
+    }
 }
 
 int rowOfStep(const int step) {
@@ -541,49 +592,40 @@ void finishRunning(const State to) {
     for (Row& r : g.rows) if (r.state == State::Run) r.state = to;
 }
 
-void onLine(const std::wstring& line) {
-    if (line.rfind(L"@@", 0) != 0) {
-        appendLog(line);
-        return;
-    }
-    const size_t space = line.find(L' ');
-    const std::wstring tag = line.substr(2, space == std::wstring::npos ? std::wstring::npos : space - 2);
-    const std::wstring rest = space == std::wstring::npos ? L"" : line.substr(space + 1);
-    if (tag == L"STEP") {
-        const int step = _wtoi(rest.c_str());
+void onEvent(const Event& e) {
+    switch (e.kind) {
+    case Event::Log: appendLog(e.text); return;
+    case Event::Step:
         finishRunning(State::Done);
-        // The rows of the steps before that no line named: not needed here.
+        // The rows of the steps before that nothing named: not needed here.
         for (Row& r : g.rows) {
-            if (r.step < step && r.state == State::Wait) r.state = r.item ? State::Skip : State::Done;
+            if (r.step < e.step && r.state == State::Wait) r.state = r.item ? State::Skip : State::Done;
         }
-        const int row = rowOfStep(step);
-        if (row >= 0) g.rows[row].state = State::Run;
-    } else if (tag == L"ITEM") {
-        const size_t a = rest.find(L' ');
-        const size_t b = a == std::wstring::npos ? a : rest.find(L' ', a + 1);
-        if (a != std::wstring::npos) {
-            const std::wstring key = rest.substr(0, a);
-            const std::wstring state = rest.substr(a + 1, b == std::wstring::npos ? std::wstring::npos : b - a - 1);
-            for (Row& r : g.rows) {
-                if (!r.item || std::wstring(r.item, r.item + strlen(r.item)) != key) continue;
-                r.state = state == L"running" ? State::Run : state == L"done" ? State::Done
-                        : state == L"warn" ? State::Warn : State::Fail;
-                if (r.state != State::Run && b != std::wstring::npos) r.note = rest.substr(b + 1);
-            }
+        if (const int row = rowOfStep(e.step); row >= 0) g.rows[static_cast<size_t>(row)].state = State::Run;
+        break;
+    case Event::Item:
+        for (Row& r : g.rows) {
+            if (!r.item || e.key != r.item) continue;
+            r.state = e.state == setup::ItemState::Running ? State::Run
+                    : e.state == setup::ItemState::Done ? State::Done
+                    : e.state == setup::ItemState::Warn ? State::Warn : State::Fail;
+            if (r.state != State::Run) r.note = e.text;
         }
-    } else if (tag == L"NOTE") {
+        break;
+    case Event::Note:
         // On the step's own row (the running item rows of a step say their own).
-        for (Row& r : g.rows) if (r.state == State::Run && !r.item) r.note = rest;
-    } else if (tag == L"RESTART") {
-        g.restartNeeded = true;
-    } else if (tag == L"WARN") {
-        g.warnings.push_back(rest);
-        appendLog(L"  ! " + rest);
-    } else if (tag == L"FAIL") {
-        g.failure = rest;
+        for (Row& r : g.rows) if (r.state == State::Run && !r.item) r.note = e.text;
+        break;
+    case Event::Restart: g.restartNeeded = true; break;
+    case Event::Warn:
+        g.warnings.push_back(e.text);
+        appendLog(L"  ! " + e.text);
+        break;
+    case Event::Fail:
+        g.failure = e.text;
+        appendLog(L"  failed: " + e.text);
         finishRunning(State::Fail);
-    } else if (tag == L"RESULT") {
-        finishRunning(_wtoi(rest.c_str()) == 0 ? State::Done : State::Fail);
+        break;
     }
     updateProgress();
 }
@@ -601,7 +643,8 @@ void onExit(const int code) {
     }
     finishRunning(State::Fail);
     for (Row& r : g.rows) if (r.state == State::Wait) r.state = State::Skip, r.note = L"not run";
-    if (g.failure.empty()) g.failure = L"install.ps1 ended with exit code " + std::to_wstring(code) + L".";
+    if (g.failure.empty()) g.failure = L"Setup ended with exit code " + std::to_wstring(code) + L".";
+    if (!gLog.path().empty()) appendLog(L"Log: " + gLog.path());
     updateProgress();
     SetWindowTextW(g.next, L"Close");
     EnableWindow(g.next, TRUE);
@@ -615,7 +658,7 @@ void openAsUser(const std::wstring& target) {
 }
 
 void finish() {
-    const bool askedRestart = g.exitCode == 0 && (g.uninstall ? g.restartNeeded : g.withDrivers);
+    const bool askedRestart = g.exitCode == 0 && (g.restartNeeded || (!g.uninstall && g.withDrivers));
     if (askedRestart && checked(g.restartNow)) {
         runHidden(quoted(system32(L"shutdown.exe")) +
                   L" /r /t 2 /c \"WheelBri: restarting so its drivers are installed properly.\" /d p:4:2");
@@ -638,7 +681,7 @@ void browse() {
             PWSTR path = nullptr;
             if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
                 std::wstring chosen(path);
-                // A chosen folder that is not empty gets a WheelBri folder inside it (install.ps1 refuses others).
+                // A chosen folder that is not empty gets a WheelBri folder inside it (the install refuses others).
                 const std::wstring tail = chosen.substr(chosen.find_last_of(L'\\') + 1);
                 if (_wcsicmp(tail.c_str(), L"WheelBri") != 0) chosen += (chosen.back() == L'\\' ? L"" : L"\\") + std::wstring(L"WheelBri");
                 SetWindowTextW(g.folderEdit, chosen.c_str());
@@ -751,37 +794,13 @@ std::wstring sizeText(const std::uint64_t bytes) {
 }
 
 // The games the app put the shim into: "game<TAB>name<TAB>folder" lines of <user data>\wheelbri\shim-games.txt (UTF-8),
-// folders that are still there (uninstall.ps1 Get-ShimGames reads it the same way).
+// folders that are still there (the uninstall's step 2 reads it the same way).
 void readShimGames() {
-    FILE* f = _wfopen((g.userData + L"\\wheelbri\\shim-games.txt").c_str(), L"rb");
-    if (!f) return;
-    std::string all;
-    char buffer[4096];
-    size_t n;
-    while ((n = fread(buffer, 1, sizeof(buffer), f)) > 0) all.append(buffer, n);
-    fclose(f);
-    size_t start = 0;
-    while (start < all.size()) {
-        size_t end = all.find('\n', start);
-        if (end == std::string::npos) end = all.size();
-        std::string line = all.substr(start, end - start);
-        start = end + 1;
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        const size_t a = line.find('\t');
-        const size_t b = a == std::string::npos ? a : line.find('\t', a + 1);
-        if (b == std::string::npos || line.substr(0, a) != "game") continue;
-        auto wide = [](const std::string& u) {
-            const int size = MultiByteToWideChar(CP_UTF8, 0, u.data(), static_cast<int>(u.size()), nullptr, 0);
-            std::wstring w(static_cast<size_t>(size), L'\0');
-            MultiByteToWideChar(CP_UTF8, 0, u.data(), static_cast<int>(u.size()), w.data(), size);
-            return w;
-        };
-        ShimGame game{wide(line.substr(a + 1, b - a - 1)), wide(line.substr(b + 1))};
-        const DWORD attributes = GetFileAttributesW(game.folder.c_str());
-        if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
-        const bool known = std::any_of(g.shimGames.begin(), g.shimGames.end(),
-                                       [&](const ShimGame& x) { return _wcsicmp(x.folder.c_str(), game.folder.c_str()) == 0; });
-        if (!known) g.shimGames.push_back(game);
+    setup::SetupSystemWin32 system;
+    const auto text = system.readFile(g.userData + L"\\wheelbri\\shim-games.txt");
+    if (!text) return;
+    for (ShimGame& game : setup::readShimGames(*text)) {
+        if (system.isFolder(game.folder) && !system.isLink(game.folder)) g.shimGames.push_back(std::move(game));
     }
 }
 
@@ -1179,10 +1198,10 @@ LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         default: break;
         }
         return 0;
-    case kLineMessage: {
-        auto* line = reinterpret_cast<std::wstring*>(lParam);
-        onLine(*line);
-        delete line;
+    case kEventMessage: {
+        auto* event = reinterpret_cast<Event*>(lParam);
+        onEvent(*event);
+        delete event;
         return 0;
     }
     case kExitMessage: onExit(static_cast<int>(wParam)); return 0;
@@ -1241,42 +1260,37 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     SetProcessDPIAware();
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    bool tempCopy = false;
-    for (int i = 1; i < argc; ++i) {
-        const std::wstring a = argv[i];
-        if (a == L"--uninstall") g.uninstall = true;
-        else if (a == L"--temp-copy") tempCopy = true;
-        else if (a == L"--user-data" && i + 1 < argc) g.userData = argv[++i];
-    }
+    std::vector<std::wstring> arguments;
+    for (int i = 1; i < argc; ++i) arguments.emplace_back(argv[i]);
     LocalFree(argv);
-    {
-        // Named "Uninstall ...": the uninstaller, without --uninstall.
-        const std::wstring self = exeFolder();
-        wchar_t path[MAX_PATH * 2]{};
-        GetModuleFileNameW(nullptr, path, static_cast<DWORD>(std::size(path)));
-        const std::wstring name = std::wstring(path).substr(self.size() + 1);
-        if (_wcsnicmp(name.c_str(), L"uninstall", 9) == 0) g.uninstall = true;
-    }
+    std::wstring problem;
+    g.options = setup::parseOptions(arguments, problem);
+    // Named "Uninstall ...": the uninstaller, without --uninstall.
+    if (_wcsnicmp(setup::nameOf(exePath()).c_str(), L"uninstall", 9) == 0) g.options.uninstall = true;
+    g.uninstall = g.options.uninstall;
+    const bool quiet = g.options.quiet;
+    const wchar_t* title = g.uninstall ? L"Uninstall WheelBri" : L"WheelBri Setup";
+    auto stop = [&](const std::wstring& text) {
+        if (!quiet) MessageBoxW(nullptr, text.c_str(), title, MB_ICONERROR);
+        return 1;
+    };
+    if (!problem.empty()) return stop(problem);
     // Whose data: the user who started it, before Administrator (who may be another account).
-    if (g.userData.empty()) g.userData = environment(L"LOCALAPPDATA");
-    const std::wstring passedOn = std::wstring(g.uninstall ? L"--uninstall " : L"") + L"--user-data " + quoted(g.userData);
+    if (g.options.userData.empty()) g.options.userData = environment(L"LOCALAPPDATA");
+    g.userData = g.options.userData;
     // Administrator first (the drivers need it): ask once, then this copy ends.
     if (!isElevated()) {
-        wchar_t self[MAX_PATH * 2]{};
-        GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)));
+        const std::wstring self = exePath();
+        const std::wstring passedOn = setup::optionsCommandLine(g.options);
         SHELLEXECUTEINFOW info{};
         info.cbSize = sizeof(info);
         info.fMask = SEE_MASK_NOCLOSEPROCESS;
         info.lpVerb = L"runas";
-        info.lpFile = self;
+        info.lpFile = self.c_str();
         info.lpParameters = passedOn.c_str();
         info.nShow = SW_SHOWNORMAL;
-        if (!ShellExecuteExW(&info)) {
-            MessageBoxW(nullptr, L"WheelBri needs Administrator to install its drivers, and that was refused.",
-                        L"WheelBri Setup", MB_ICONERROR);
-            return 1;
-        }
-        // Waits for it: inside Setup.exe, IExpress deletes this folder (and wheelbri.zip) once this copy ends.
+        if (!ShellExecuteExW(&info)) return stop(L"WheelBri's setup needs Administrator, and that was refused.");
+        // Waits for it: inside Setup.exe, IExpress deletes this folder (and the package) once this copy ends.
         DWORD code = 0;
         if (info.hProcess) {
             WaitForSingleObject(info.hProcess, INFINITE);
@@ -1290,44 +1304,46 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     InitCommonControlsEx(&controls);
     g.instance = instance;
 
-    if (g.uninstall && !tempCopy) {
-        // Out of the install folder first; this copy ends at once (it would hold its exe open).
-        if (!runFromTempCopy(passedOn)) {
-            MessageBoxW(nullptr, L"Could not prepare the uninstaller's copy under Windows\\Temp.", L"Uninstall WheelBri",
-                        MB_ICONERROR);
-            return 1;
-        }
-        return 0;
+    if (g.uninstall && !g.options.tempCopy) {
+        // Out of the install folder first; this copy waits for that one (a quiet uninstall's caller wants its result).
+        setup::Options copy = g.options;
+        copy.tempCopy = false;
+        // Its exit code is not this run's result: this copy must end at once, or its exe stays locked in the folder.
+        return runFromTempCopy(setup::optionsCommandLine(copy)) ? 0
+                                                                : stop(L"Could not prepare the uninstaller's copy under Windows\\Temp.");
     }
-    if (tempCopy) {
+    if (g.options.tempCopy) {
         // This copy's own exe and folder: Windows deletes them at the next restart (a running exe cannot delete
         // itself). Asked first thing, so they go even when this copy fails; no helper process is left behind.
         g.tempCopy = exeFolder();
-        wchar_t self[MAX_PATH * 2]{};
-        GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)));
-        MoveFileExW(self, nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+        MoveFileExW(exePath().c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
         MoveFileExW(g.tempCopy.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);   // after the file, so empty by then
     }
-    std::wstring problem;
-    if (g.uninstall) {
-        g.package = exeFolder();
-    } else if (!findPackage(problem)) {
-        MessageBoxW(nullptr, problem.c_str(), L"WheelBri Setup", MB_ICONERROR);
-        return 1;
-    }
+    if (!g.uninstall && !findPackage(problem)) return stop(problem);
     detect();
+    if (g.build < 7601) return stop(L"WheelBri needs Windows 7 SP1 or newer.");
     if (g.uninstall) {
         g.version = g.earlierVersion.empty() ? L"?" : g.earlierVersion;
-        if (g.earlierFolder.empty() || !fileExists(g.earlierFolder + L"\\uninstall.ps1")) {
-            MessageBoxW(nullptr, L"WheelBri is not installed here (Settings > Apps has no entry with its uninstaller).",
-                        L"Uninstall WheelBri", MB_ICONERROR);
-            return 1;
-        }
+        if (g.earlierFolder.empty()) return stop(L"WheelBri is not installed here (Settings > Apps has no entry for it).");
         readShimGames();
     }
-    if (g.build < 7601) {
-        MessageBoxW(nullptr, L"WheelBri needs Windows 7 SP1 or newer.", L"WheelBri Setup", MB_ICONERROR);
-        return 1;
+
+    if (quiet) {
+        setup::Options options = g.options;
+        if (g.uninstall) {
+            options.installDir = setup::withoutTrailingSlash(g.earlierFolder);
+        } else {
+            options.installDir = fullPath(options.installDir.empty() ? defaultFolder() : options.installDir);
+            options.startMenuFolder = menuName(options.startMenuFolder);
+        }
+        openLog(options);
+        const int code = runSteps(options);
+        if (code == 0 && !g.uninstall && options.restartNow && (g.withDrivers || gRestart)) {
+            runHidden(quoted(system32(L"shutdown.exe")) +
+                      L" /r /t 2 /c \"WheelBri: restarting so its drivers are installed properly.\" /d p:4:2");
+        }
+        CoUninitialize();
+        return code;
     }
 
     HDC screen = GetDC(nullptr);
@@ -1350,11 +1366,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     wc.lpszClassName = L"WheelBriSetup";
     RegisterClassW(&wc);
 
-    const std::wstring title = g.uninstall ? L"Uninstall WheelBri " + g.version : L"WheelBri " + g.version + L" Setup";
+    const std::wstring windowTitle = g.uninstall ? L"Uninstall WheelBri " + g.version : L"WheelBri " + g.version + L" Setup";
     constexpr DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     RECT size{0, 0, px(780), px(570)};
     AdjustWindowRect(&size, style, FALSE);
-    g.window = CreateWindowExW(0, wc.lpszClassName, title.c_str(), style, CW_USEDEFAULT, CW_USEDEFAULT,
+    g.window = CreateWindowExW(0, wc.lpszClassName, windowTitle.c_str(), style, CW_USEDEFAULT, CW_USEDEFAULT,
                                size.right - size.left, size.bottom - size.top, nullptr, nullptr, instance, nullptr);
     initRows();
     createControls();
@@ -1369,6 +1385,5 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         }
     }
     CoUninitialize();
-    if (g.unpacked) runHidden(quoted(system32(L"cmd.exe")) + L" /c rmdir /s /q " + quoted(g.package));
     return g.exitCode > 0 ? g.exitCode : 0;
 }

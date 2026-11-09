@@ -104,7 +104,7 @@ G920 only, by themselves while the game runs.
 
 - **On Linux:** DiRT Rally 2.0, NFS Heat, Unbound and Payback (Payback is not expected to work: Proton has no
   Logitech DLL).
-- **Windows 7 and 10** (Mode Shim only).
+- **Windows 7, 8, 8.1 and 10** (Mode Shim only).
 - **Other games** that support a Logitech wheel should work in Mode Virtual. One that reads the pedals differently
   needs a small game profile, as NFS 2015 does.
 
