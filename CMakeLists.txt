@@ -22,6 +22,7 @@ endif()
 option(WE_BUILD_FUZZ    "Build wheelbri_fuzz, the parsers under libFuzzer (Clang only)" OFF)
 option(WE_BUILD_UHID    "Build wheelbri-uhid, the virtual wheel for Linux" ${WE_LINUX})
 option(WE_BUILD_G923CAP "Build wheelbri-g923cap, the decoder of real-G923 USB captures (tools/g923-capture)" ON)
+option(WE_BUILD_SETUP   "Build wheelbri-setup.exe, the installer (Windows)" ${WIN32})
 
 if(MSVC)
     add_compile_options(/W4 /permissive-)
@@ -55,11 +56,11 @@ if(WE_BUILD_G923CAP)
     add_subdirectory(tools/g923-capture)
 endif()
 
+# The installer's steps (portable, for the tests) and, on Windows, wheelbri-setup.exe.
+add_subdirectory(installer/setup)
+
 if(WE_BUILD_SERVICE)
     add_subdirectory(service)
-    if(WIN32)
-        add_subdirectory(installer/setup)   # wheelbri-setup.exe, the graphical installer
-    endif()
 endif()
 
 if(WE_BUILD_SHIM)

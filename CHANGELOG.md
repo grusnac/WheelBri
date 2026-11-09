@@ -1,5 +1,15 @@
 # Changelog
 
+## Not released yet
+
+- Windows: the installer needs no PowerShell any more and starts on a bare Windows 7 SP1, 8, 8.1, 10 or 11. The setup
+  wizard does the install and the uninstall itself (only the Windows 11 drivers' own steps stay PowerShell scripts),
+  and on Windows 7, 8 and 8.1 installs Microsoft's Universal C Runtime (KB2999226), which `Setup.exe` now carries,
+  when it is missing. The package's `win7` prerequisite scripts, `Setup.cmd`, `Uninstall.cmd`, `install.ps1` and
+  `uninstall.ps1` are gone: scripted installs use `wheelbri-setup.exe --quiet` and `Uninstaller.exe --uninstall
+  --quiet` ([install.md](docs/install.md#without-the-wizard)). Windows 8 and 8.1 are supported (Mode Shim only).
+- Windows: the install's log is one file per run (`wheelbri-install-<date>-<NN>.log`) in WheelBri's log format.
+
 ## 1.0.2 (2026-11-07)
 
 - Linux: `wheelbri.sh --order logitech|native` picks the G25's or G27's button order; by default the app's Mapping tab

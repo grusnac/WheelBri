@@ -113,12 +113,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File driver\uninstall-driver.ps1 
 
 ### Windows package
 
-Needs `build`, `build-x86` and both drivers built. Writes `dist\windows\WheelBri-<version>.zip` and
-`WheelBri-<version>-setup.exe`, after checking every file, each program's processor and that both drivers have the same
-signer. `WheelBri-<version>-setup.exe` is an IExpress package that unpacks the zip and starts `wheelbri-setup.exe`, the
-wizard in front of `installer\install.ps1`; installed as `Uninstaller.exe`, the same program runs `uninstall.ps1`
-([install.md](install.md)). The version is `project(... VERSION)` in `CMakeLists.txt`; CI releases a `v<version>` tag
-only when the two match.
+Needs `build`, `build-x86`, `build-setup` (`scripts/make/setup-msvcrt.sh`) and both drivers built. Writes
+`dist\windows\WheelBri-<version>.zip` and `WheelBri-<version>-setup.exe`, after checking every file, each program's
+processor, that the installer needs no Universal C Runtime, and that both drivers have the same signer; the first time
+it downloads Microsoft's KB2999226 for Windows 7, 8 and 8.1 into `installer\ucrt` (`download-ucrt.ps1`, signatures
+checked). `WheelBri-<version>-setup.exe` is an IExpress package: the files flat with `package-files.txt`, and
+`wheelbri-setup.exe`, the installer, started there; installed as `Uninstaller.exe`, the same program uninstalls
+([install.md](install.md)). It is built with MSYS2 MINGW64 against `msvcrt.dll`, so it starts on a bare Windows 7.
+The version is `project(... VERSION)` in `CMakeLists.txt`; CI releases a `v<version>` tag only when the two match.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\make\package.ps1 -BuildDir build
@@ -191,7 +193,7 @@ scripts/linux/package.sh --shim build-win/shim/dinput8.dll --shim-x86 build-win-
 | `driver/` | UMDF drivers `wheelbri-wheel` and `hide/` (`wheelbri-hide`), with install scripts |
 | `tools/uhid/` | `wheelbri-uhid`, the Linux virtual wheel (kernel uhid) |
 | `logi/` | `wheelbri-logi.dll`, logging stand-in for Logitech's wheel SDK helper |
-| `installer/` | `install.ps1`, `uninstall.ps1`; `setup/`: `wheelbri-setup.exe`, the setup wizard and Uninstaller; `win7/`: prerequisites |
+| `installer/` | `setup/`: `wheelbri-setup.exe`, installer and Uninstaller; `ucrt/`: Microsoft's runtime update (downloaded) |
 | `scripts/` | Linux scripts, packaging, build shortcuts |
 | `config/` | each Target's default config, `wheelbri-shim.ini`, `games/` (game profiles, compiled in) |
 | `tests/` | GoogleTest unit tests with fakes |

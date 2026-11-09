@@ -7,8 +7,10 @@
 #   package.ps1 -NoSetupExe                only the folder and the zip
 #
 # Needs: build\service\wheelbri.exe, wheelbri-service.exe, wheelbri-helper.exe, build\shim\dinput8.dll
-# (scripts/make/app.sh --no-start), build-x86\shim\dinput8.dll (the 32-bit shim, scripts/make/shim-x86.sh) and the
-# two driver packages (scripts/make/drivers.sh), all Release.
+# (scripts/make/app.sh --no-start), build-x86\shim\dinput8.dll (the 32-bit shim, scripts/make/shim-x86.sh),
+# build-setup\installer\setup\wheelbri-setup.exe (the installer, built against msvcrt.dll: scripts/make/setup-msvcrt.sh)
+# and the two driver packages (scripts/make/drivers.sh), all Release. The first time it downloads Microsoft's Universal
+# C Runtime update for Windows 7, 8 and 8.1 (installer\ucrt\download-ucrt.ps1), which the package carries in ucrt\.
 #
 # Exit codes: 0 built, 1 something is missing or wrong (the red line says what).
 
@@ -38,7 +40,7 @@ $programs = @(
     @{ From = "$build\service\wheelbri.exe";         To = 'wheelbri.exe' },
     @{ From = "$build\service\wheelbri-service.exe"; To = 'wheelbri-service.exe' },
     @{ From = "$build\service\wheelbri-helper.exe";  To = 'wheelbri-helper.exe' },
-    @{ From = "$build\installer\setup\wheelbri-setup.exe"; To = 'wheelbri-setup.exe' },   # the graphical installer
+    @{ From = "$build-setup\installer\setup\wheelbri-setup.exe"; To = 'wheelbri-setup.exe' },   # the installer (msvcrt)
     @{ From = "$build\shim\dinput8.dll";             To = 'shim\dinput8.dll' },
     @{ From = "$build-x86\shim\dinput8.dll";         To = 'shim\x86\dinput8.dll' }   # for 32-bit games
 )
@@ -105,6 +107,16 @@ foreach ($program in $programs) {
         }
     }
 }
+# The installer must start on a Windows 7, 8 or 8.1 without the Universal C Runtime, which it installs there first.
+if (@(Get-PeImports "$build-setup\installer\setup\wheelbri-setup.exe" | Where-Object { $_ -like 'api-ms-win-crt-*' }).Count -gt 0) {
+    Fail "wheelbri-setup.exe imports the Universal C Runtime: build it with scripts/make/setup-msvcrt.sh (MINGW64)."
+}
+
+# Microsoft's Universal C Runtime update for Windows 7, 8 and 8.1, each checked to be signed by Microsoft.
+& (Join-Path $root 'installer\ucrt\download-ucrt.ps1')
+if ($LASTEXITCODE -ne 0) { Fail 'the Universal C Runtime updates could not be downloaded (installer\ucrt\download-ucrt.ps1).' }
+$ucrt = @(Get-ChildItem (Join-Path $root 'installer\ucrt') -File -Filter '*-KB2999226-x64.msu')
+if ($ucrt.Count -ne 3) { Fail "installer\ucrt has $($ucrt.Count) KB2999226 updates, not 3." }
 
 $drivers = @(
     @{ Name = 'wheelbri-wheel'; Folder = 'driver' },
@@ -120,7 +132,7 @@ foreach ($driver in $drivers) {
     $signature = Get-AuthenticodeSignature (Join-Path $inf.DirectoryName "$($driver.Name).cat")
     if (-not $signature.SignerCertificate) { Fail "$($driver.Name).cat is not signed." }
     $driver.Package = $inf.DirectoryName
-    $driver.Relative = "$($driver.Folder)\x64\Release\$($driver.Name)"   # where install.ps1 and the app look
+    $driver.Relative = "$($driver.Folder)\x64\Release\$($driver.Name)"   # where the installer and the app look
     $signers[$signature.SignerCertificate.Thumbprint] = $signature.SignerCertificate.Subject
     Write-Host "  $($driver.Name): $($driver.Package)"
 }
@@ -162,7 +174,7 @@ foreach ($ini in Get-ChildItem (Join-Path $root 'config') -Filter '*.ini') {
     Put-Text $ini.FullName "config\$($ini.Name)"
 }
 foreach ($script in 'driver\common.ps1', 'driver\install-driver.ps1', 'driver\uninstall-driver.ps1',
-                    'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1') {
+                    'driver\installer-steps.ps1', 'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1') {
     Put-Text (Join-Path $root $script) $script
 }
 Set-Content -Path (Join-Path $stage 'driver\signing-certificate.txt') -Value $signerThumbprint -Encoding ASCII
@@ -171,9 +183,7 @@ foreach ($driver in $drivers) {
         if ($file.Extension -in '.inf', '.cat', '.dll') { Put $file.FullName (Join-Path $driver.Relative $file.Name) }
     }
 }
-foreach ($file in 'install.ps1', 'uninstall.ps1', 'Setup.cmd', 'Uninstall.cmd') {
-    Put-Text (Join-Path $root "installer\$file") $file
-}
+foreach ($file in $ucrt) { Put $file.FullName "ucrt\$($file.Name)" }   # installed before, never copied into the install
 # README.md (install, uninstall), CHANGELOG.md and docs\ laid out as in the repo, so the links between them work (CRLF,
 # for Notepad).
 Put-Text (Join-Path $root 'README.md') 'README.md'
@@ -194,24 +204,21 @@ $images = Join-Path $root 'docs\images'
 if (Test-Path $images) {
     foreach ($file in Get-ChildItem $images -File -Filter '*.png') { Put $file.FullName "docs\images\$($file.Name)" }
 }
-# The Windows 7 prerequisites' scripts, as win7\ next to Setup.cmd (README.md points there; install.ps1 does not copy
-# them into the install folder). The updates they download from Microsoft are not shipped.
-$win7 = @(Get-ChildItem (Join-Path $root 'installer\win7') -File | Where-Object { $_.Extension -in '.cmd', '.ps1' })
-foreach ($file in $win7) { Put-Text $file.FullName "win7\$($file.Name)" }
 Set-Content -Path (Join-Path $stage 'VERSION.txt') -Value $version -Encoding ASCII
 
-# 3. Everything install.ps1 checks for ($requiredFiles, with the Windows 11 ones, and its $driverFiles: the same
+# 3. Everything the installer checks for (installer/setup/SetupSteps.cpp checkPc, with the Windows 11 ones: the same
 #    list, keep them in step) must be there, so a package never fails on the user's PC; then what only the package
-#    has (the installer itself, README.md, LICENSE.txt, docs\, VERSION.txt, win7\).
+#    has (the installer itself, the updates, README.md, LICENSE.txt, docs\, VERSION.txt).
 $expected = @('wheelbri.exe', 'wheelbri-service.exe', 'wheelbri-helper.exe',
               'config\g25.ini', 'config\g27.ini', 'config\g920.ini', 'config\g923.ini', 'config\wheelbri-shim.ini',
-              'uninstall.ps1', 'Uninstall.cmd', 'driver\common.ps1', 'shim\dinput8.dll', 'shim\x86\dinput8.dll',
+              'driver\common.ps1', 'driver\installer-steps.ps1', 'shim\dinput8.dll', 'shim\x86\dinput8.dll',
               'driver\install-driver.ps1', 'driver\uninstall-driver.ps1',
               'driver\hide\install-hide.ps1', 'driver\hide\uninstall-hide.ps1', 'driver\signing-certificate.txt') +
             @($drivers | ForEach-Object {
                 $d = $_; '.inf', '.cat', '.dll' | ForEach-Object { "$($d.Relative)\$($d.Name)$_" } }) +
-            @('install.ps1', 'Setup.cmd', 'wheelbri-setup.exe', 'README.md', 'CHANGELOG.md', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.md', 'docs\user-guide.md', 'docs\games.md', 'VERSION.txt',
-              'win7\download-prerequisites.cmd', 'win7\download-prerequisites.ps1', 'win7\install-prerequisites.cmd')
+            @('wheelbri-setup.exe', 'README.md', 'CHANGELOG.md', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.md',
+              'docs\user-guide.md', 'docs\games.md', 'VERSION.txt', 'ucrt\Windows6.1-KB2999226-x64.msu',
+              'ucrt\Windows8-RT-KB2999226-x64.msu', 'ucrt\Windows8.1-KB2999226-x64.msu')
 foreach ($file in $expected) {
     if (-not (Test-Path (Join-Path $stage $file))) { Fail "the package lacks $file (packaging bug)." }
 }
@@ -229,19 +236,37 @@ if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
 Write-Host "  zip: $zip" -ForegroundColor Green
 
-# 5. Setup.exe: IExpress unpacks Setup.cmd and the zip to a temporary folder and runs Setup.cmd. IExpress keeps no
-#    folders, hence the zip.
+# 5. Setup.exe: IExpress unpacks its files into one temporary folder and starts wheelbri-setup.exe there. IExpress
+#    keeps no folders, so every file of the package goes in flat as f000, f001, ... and package-files.txt says where
+#    each belongs ("<flat name><TAB><relative path>", installer/setup/SetupLogic.hpp readPackageFiles).
 if ($NoSetupExe) { Write-Host "packaged (no Setup.exe): $stage" -ForegroundColor Green; exit 0 }
 $iexpress = Join-Path $env:SystemRoot 'System32\iexpress.exe'
 if (-not (Test-Path $iexpress)) { Fail "IExpress not found ($iexpress); -NoSetupExe builds the zip only." }
 $work = Join-Path $out 'iexpress'
 if (Test-Path $work) { Remove-Item $work -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $work | Out-Null
-Copy-Item (Join-Path $stage 'Setup.cmd') $work
-Copy-Item (Join-Path $stage 'wheelbri-setup.exe') $work   # Setup.exe starts it; it unpacks wheelbri.zip next to it
-Copy-Item $zip (Join-Path $work 'wheelbri.zip')
+Copy-Item (Join-Path $stage 'wheelbri-setup.exe') $work
+$list = @()
+$flatNames = @('wheelbri-setup.exe', 'package-files.txt')
+$index = 0
+foreach ($file in Get-ChildItem $stage -Recurse -File | Sort-Object FullName) {
+    $relative = $file.FullName.Substring($stage.TrimEnd('\').Length + 1)
+    if ($relative -eq 'wheelbri-setup.exe') { continue }
+    $flat = 'f{0:D3}' -f $index
+    $index++
+    Copy-Item $file.FullName (Join-Path $work $flat)
+    $list += "$flat`t$relative"
+    $flatNames += $flat
+}
+[IO.File]::WriteAllText((Join-Path $work 'package-files.txt'), (($list -join "`r`n") + "`r`n"), (New-Object Text.UTF8Encoding($false)))
 $setup = Join-Path $out "$name-setup.exe"
 if (Test-Path $setup) { Remove-Item $setup -Force }
+$fileLines = @()
+$sourceLines = @()
+for ($i = 0; $i -lt $flatNames.Count; $i++) {
+    $fileLines += "FILE$i=`"$($flatNames[$i])`""
+    $sourceLines += "%FILE$i%="
+}
 $sed = @"
 [Version]
 Class=IEXPRESS
@@ -273,17 +298,13 @@ TargetName=$setup
 FriendlyName=WheelBri $version setup
 AppLaunched=wheelbri-setup.exe
 PostInstallCmd=<None>
-AdminQuietInstCmd=cmd /c Setup.cmd -Quiet
-UserQuietInstCmd=cmd /c Setup.cmd -Quiet
-FILE0="Setup.cmd"
-FILE1="wheelbri.zip"
-FILE2="wheelbri-setup.exe"
+AdminQuietInstCmd=wheelbri-setup.exe --quiet
+UserQuietInstCmd=wheelbri-setup.exe --quiet
+$($fileLines -join "`n")
 [SourceFiles]
 SourceFiles0=$work\
 [SourceFiles0]
-%FILE0%=
-%FILE1%=
-%FILE2%=
+$($sourceLines -join "`n")
 "@
 # IExpress reads the SED with the INI functions, which need Windows line ends; this script's own may be LF, and so
 # is the here-string above.
@@ -306,5 +327,5 @@ Remove-Item $work -Recurse -Force
 Write-Host ''
 Write-Host "packaged WheelBri $version" -ForegroundColor Green
 Write-Host "  installer: $setup"
-Write-Host "  folder:    $stage (Setup.cmd installs from it too)"
+Write-Host "  folder:    $stage (its wheelbri-setup.exe installs from it too)"
 Write-Host "  zip:       $zip"

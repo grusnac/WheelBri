@@ -82,3 +82,6 @@ build_shim_x86() {
     fi
     bash "$root/scripts/make/shim-x86.sh" || fail "the 32-bit shim did not build"
 }
+
+# Whether MSYS2's MINGW64 compiler (pacman -S mingw-w64-x86_64-gcc) is there, for the installer (setup-msvcrt.sh).
+have_mingw64() { [ -x /mingw64/bin/g++.exe ]; }

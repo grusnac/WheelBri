@@ -118,6 +118,15 @@ TEST(Robustness, ChangedConfigsAndProfilesAreReadWithoutHarm) {
                             "  1: 0100007F:A162 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000  0 1\n"
                             "  2: 00000000:7272 00000000:0000 07 00000000:00000000 00:00000000 00000000  1001  0 2\n";
     for (int i = 0; i < 300; ++i) run(17, mutated(udp, random));
+    // The installer's files and Firefox's policy (target 19).
+    for (const std::string& text : {std::string("\xEF\xBB\xBFwheelbri.exe\r\nconfig\\g920.ini\r\ndriver\\hide\\a.dll\r\n"),
+                                    std::string("config\\g920.ini\tE3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B\r\n"),
+                                    std::string("f000\twheelbri.exe\r\nf001\tconfig\\g25.ini\r\n"),
+                                    std::string("game\tACC\tD:\\Games\\ACC\r\ngame\tNFS\tD:\\NFS\r\n"),
+                                    std::string(R"({"a":{"Value":[1,"x\"y",{"b":null}]},"dom.gamepad.enabled":{"Value":true}})")}) {
+        run(19, Bytes(text.begin(), text.end()));
+        for (int i = 0; i < 300; ++i) run(19, mutated(text, random));
+    }
 }
 
 // Random bytes, and packets that were valid before a byte changed, for everything that reads binary data.
@@ -136,8 +145,9 @@ TEST(Robustness, RandomBytesAreRefusedOrReadWithoutHarm) {
         for (const std::uint8_t target : {1, 2, 3, 4, 5, 9, 11, 15, 16}) run(target, randomBytes(random, 300));
         run(17, randomBytes(random, 300));
         run(18, randomBytes(random, 300));
-#ifdef WHEELBRI_G923CAP
         run(19, randomBytes(random, 300));
+#ifdef WHEELBRI_G923CAP
+        run(20, randomBytes(random, 300));
 #endif
         Bytes s(stateBytes.begin(), stateBytes.end());
         s[random() % s.size()] = static_cast<std::uint8_t>(random());

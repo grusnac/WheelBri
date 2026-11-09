@@ -12,7 +12,7 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
     WheelBri's own drivers; Linux: `/dev/uhid`). Works with modern games.
   - **Shim**: a `dinput8.dll` next to one game's `.exe`, for older DirectInput games; 32 and 64-bit; chains another
     mod's `dinput8.dll` (ReShade, Widescreen Fix) instead of overwriting it; works next to the Ultimate ASI Loader.
-    The only Mode on Windows 7 to 10.
+    The only Mode on Windows 7, 8, 8.1 and 10.
 
 ## Set up and mapping
 

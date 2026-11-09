@@ -457,7 +457,7 @@ function Remove-InstalledPackages([string]$name) {
     return $packages.Count
 }
 
-# --- The install folder (install.ps1, uninstall.ps1, scripts/make/clean-pc.ps1) -----------------------------------
+# --- The install folder (scripts/make/clean-pc.ps1; installer/setup/SetupSteps.cpp does the same) -------------------
 # installed-files.txt in the install folder lists, one relative path per line, every file the installer put there.
 # Removing an install deletes those files and WheelBri's own subfolders, then the folders left empty: never a whole
 # folder judged only by one file in it. An install from before the list existed is removed whole (the callers have

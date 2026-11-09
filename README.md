@@ -28,7 +28,7 @@ Two Modes:
   Windows 11 and Linux.
 - **Shim**: a `dinput8.dll` next to one game's `.exe` answers as the wheel inside that game. For older DirectInput
   games only: modern ones (ACC, DiRT Rally 2.0) and games that read the wheel through Logitech's SDK DLL don't take
-  it. The only Mode on Windows 7 to 10.
+  it. The only Mode on Windows 7, 8, 8.1 and 10.
 
 ## Status
 
@@ -42,7 +42,7 @@ Two Modes:
 | Steam Deck (SteamOS 3.8, Proton), Mode Virtual | **works** in ACC (all four Targets), NFS 2015 (G920) and Race Driver: GRID (G25), Game Mode too |
 | Steam Deck (SteamOS 3.8, Proton), Mode Shim | **works** in NFS 2015 (G920) and Race Driver: GRID (G25, 32-bit), Game Mode too |
 | Linux, not tried | DiRT Rally 2.0, NFS Heat, Unbound, Payback |
-| Windows 7 to 10 (Mode Shim only) | built, **not yet tried** |
+| Windows 7, 8, 8.1 and 10 (Mode Shim only) | built, **not yet tried** |
 | Button orders | from public sources; **not yet checked on real Logitech wheels** |
 
 ## What's new in 1.0.2
@@ -85,8 +85,8 @@ Releases: <https://github.com/grusnac/WheelBri/releases>. Full details: [docs/in
 
 | System | File |
 |---|---|
-| Windows 11, 64-bit | `WheelBri-<version>-setup.exe` (or the `.zip`: run `Setup.cmd`) |
-| Windows 7 SP1 to 10, 64-bit | the same; Mode Shim only |
+| Windows 11, 64-bit | `WheelBri-<version>-setup.exe` (or the `.zip`: run `wheelbri-setup.exe`) |
+| Windows 7 SP1, 8, 8.1, 10, 64-bit | the same; Mode Shim only |
 | Linux x86-64 (glibc 2.39 or newer), Steam Deck | `wheelbri-linux-x86_64.tar.gz` |
 
 ### Windows
@@ -97,8 +97,8 @@ Releases: <https://github.com/grusnac/WheelBri/releases>. Full details: [docs/in
 3. Restart Windows when the Finish page asks (Windows 11).
 
 It installs the app, the virtual wheel and hiding filter drivers with their certificate, and the **WheelBri Helper**
-service, so the app runs as a normal user. Windows 7 to 10 get Mode Shim only; Windows 7 first needs the prerequisites
-in the package's `win7` folder ([install.md](docs/install.md#windows-7-sp1-to-10)).
+service, so the app runs as a normal user. Windows 7, 8, 8.1 and 10 get Mode Shim only, with nothing to install
+first: setup brings the Universal C Runtime they may lack ([install.md](docs/install.md#windows-7-sp1-8-81-and-10)).
 
 **Upgrade:** run the new setup; your rig, mappings and settings stay.
 

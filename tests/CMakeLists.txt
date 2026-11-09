@@ -66,6 +66,8 @@ add_executable(wheelbri_tests
     RetentionTest.cpp
     RigTest.cpp
     SenderGateTest.cpp
+    SetupLogicTest.cpp
+    SetupStepsTest.cpp
     DriverSenderProbeTest.cpp
     ShapeSpansTest.cpp
     ShimGamesTest.cpp
@@ -82,10 +84,16 @@ add_executable(wheelbri_tests
     WakePlannerTest.cpp
     WheelOutputTest.cpp
 )
-target_link_libraries(wheelbri_tests PRIVATE wheelbri_core GTest::gtest_main)
+target_link_libraries(wheelbri_tests PRIVATE wheelbri_core wheelbri_setup_logic GTest::gtest_main)
 target_include_directories(wheelbri_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # The shipped configs (config/), which some tests read as they are.
 target_compile_definitions(wheelbri_tests PRIVATE WHEELBRI_CONFIG_DIR="${PROJECT_SOURCE_DIR}/config")
+# The installer's real system layer on temporary folders and a registry key of its own (Windows only).
+if(WIN32)
+    target_sources(wheelbri_tests PRIVATE SetupSystemWin32Test.cpp
+        ${PROJECT_SOURCE_DIR}/installer/setup/SetupSystemWin32.cpp)
+    target_link_libraries(wheelbri_tests PRIVATE ole32 shell32 uuid advapi32)
+endif()
 
 # The service's platform code with real sockets, events, folders and threads: platform::WaitSet (the event loop),
 # FolderWatch and DeviceChanges (device notices), and DeviceWatch with a fake lister.
@@ -147,7 +155,7 @@ target_sources(wheelbri_tests PRIVATE EqualityTest.cpp RobustnessTest.cpp fuzz/F
 # The same targets under libFuzzer, to search far longer than RobustnessTest does (Clang only).
 if(WE_BUILD_FUZZ)
     add_executable(wheelbri_fuzz fuzz/FuzzMain.cpp fuzz/FuzzTargets.cpp)
-    target_link_libraries(wheelbri_fuzz PRIVATE wheelbri_core)
+    target_link_libraries(wheelbri_fuzz PRIVATE wheelbri_core wheelbri_setup_logic)
     if(TARGET wheelbri_g923cap)
         target_link_libraries(wheelbri_fuzz PRIVATE wheelbri_g923cap)
         target_compile_definitions(wheelbri_fuzz PRIVATE WHEELBRI_G923CAP)
@@ -325,7 +333,7 @@ endif()
 option(WE_STRICT_TESTS "Fail the configure when a tests/*Test.cpp is in no test program" OFF)
 set(WE_WINDOWS_ONLY_TESTS HelperPipeTest.cpp HelperSessionTest.cpp LogiDllTest.cpp PlatformWin32Test.cpp
     ShimConfigTest.cpp ShimDeviceTest.cpp ShimDllTest.cpp ShimEffectTest.cpp ShimFormatTest.cpp UiWindowWin32Test.cpp
-    WinDevicesTest.cpp WinDinputTest.cpp)
+    SetupSystemWin32Test.cpp WinDevicesTest.cpp WinDinputTest.cpp)
 set(WE_NOT_WINDOWS_TESTS HousekeepingTest.cpp PlatformPosixTest.cpp PrivilegedStepsTest.cpp ServiceLoggingTest.cpp
     ServiceMainTest.cpp UhidLoopTest.cpp UhidMainTest.cpp UhidProcessTest.cpp UhidWheelTest.cpp WheelEvdevTest.cpp
     UiWindowX11Test.cpp)

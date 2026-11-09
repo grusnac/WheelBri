@@ -384,8 +384,8 @@ Administrator Command Prompt:
 "C:\Program Files\WheelBri\wheelbri-service.exe" --unhide
 ```
 
-**The app does not start on Windows 7.** The Universal C Runtime (KB2999226) is missing: run
-`install-prerequisites.cmd` from the package's `win7` folder and restart.
+**The app does not start on Windows 7, 8 or 8.1.** The Universal C Runtime (KB2999226) is missing: run the setup again
+(it installs it), or install KB2999226 with Windows Update, and restart.
 
 ### Linux
 
