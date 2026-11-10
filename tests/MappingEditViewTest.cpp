@@ -1288,7 +1288,7 @@ TEST_F(EditView, TheGamesList) {
     open();
     games();
     EXPECT_TRUE(window_.has("GAMES"));
-    EXPECT_EQ(window_.count("built in"), 6U);
+    EXPECT_EQ(window_.count("built in"), 7U);
     EXPECT_TRUE(window_.has("program nfs16.exe"));
     EXPECT_TRUE(window_.hasPart("While WheelBri runs (Start) it finds the game"));
     EXPECT_TRUE(window_.has("Axes and buttons"));
@@ -1356,7 +1356,7 @@ TEST_F(EditView, AGameTheTargetDoesNotSupport) {
     frame();
     EXPECT_TRUE(window_.hasPart("! NFS Unbound does not support the G923"));
     picker_->useTarget(ConfigPicker::Target::G25);
-    open();   // nothing picked yet: the first game for the G25 (NFS U1/MW fits every target)
+    open();   // nothing picked yet: the first game for the G25 (NFS MW fits every target)
     games();
     EXPECT_TRUE(window_.has("program speed.exe"));
 }
@@ -1791,8 +1791,8 @@ TEST_F(EditView, AnAddedGamesRotation) {
 }
 
 
-// Add game...: cancelled; not a program; a program WheelBri knows already (picked, its folder listed); a new one
-// (games.ini, its own id even when the name is taken, its name cut to 20 bytes at a character's end); games.ini that
+// Add game...: cancelled; not a program; a game with a built-in profile; a new one
+// (games.ini, its own id even when the name is taken, named after its folder as it is); games.ini that
 // cannot be written. Without a file window the button is off.
 TEST_F(EditView, AddingAGame) {
     useRig(testRig());
@@ -1809,17 +1809,18 @@ TEST_F(EditView, AddingAGame) {
     frame();
     EXPECT_TRUE(window_.has("Not added: pick the game's program, a .exe file."));
 
-    // A game it knows: picked, its folder listed.
+    // A game with a built-in profile: added as a copy of it, by its path; its folder listed.
     write(dir_ / "Games" / "NFS" / "NFS16.exe", "MZ");
     fileAnswers_.push_back(dir_ / "Games" / "NFS" / "NFS16.exe");
     ASSERT_TRUE(click("Add game..."));
     frame();
-    EXPECT_TRUE(window_.has("NFS 2015 is in the list already (nfs16.exe)."));
+    EXPECT_TRUE(window_.hasPart("NFS added: WheelBri finds nfs16.exe"));
     ASSERT_EQ(shims_->folders().size(), 1U);
-    // The same folder again: listed once.
+    // The same program file again: in the list already, its folder listed once.
     fileAnswers_.push_back(dir_ / "Games" / "NFS" / "NFS16.exe");
     ASSERT_TRUE(click("Add game..."));
     frame();
+    EXPECT_TRUE(window_.hasPart("NFS is in the list already"));
     EXPECT_EQ(shims_->folders().size(), 1U);
 
     // New games: a folder that is listed, one that cannot be (no .exe in it), a name already taken, a long name.
@@ -1839,7 +1840,7 @@ TEST_F(EditView, AddingAGame) {
     fileAnswers_.push_back(longName);
     ASSERT_TRUE(click("Add game..."));
     frame();
-    EXPECT_NE(read(userGamesFile()).find("label = abcdefghijklmnopqrs\n"), std::string::npos) << read(userGamesFile());
+    EXPECT_NE(read(userGamesFile()).find("label = abcdefghijklmnopqrs\xc3\x89tu\n"), std::string::npos) << read(userGamesFile());
     fileAnswers_.push_back(dir_ / "!!!" / "!!!.exe");   // no letters for an id: "game"
     ASSERT_TRUE(click("Add game..."));
     frame();
@@ -2337,16 +2338,17 @@ TEST_F(EditView, OneValueOfSeveral) {
     EXPECT_NE(own().find("nfsunbound.spring = 0.6"), std::string::npos) << own();
 }
 
-// A game in games.ini with a built-in profile's program or id is that profile: listed once.
-TEST_F(EditView, AnAddedGameThatIsABuiltInProfile) {
+// A game in games.ini with a built-in profile's id is that profile; one with only its program is its own game.
+TEST_F(EditView, AnAddedGameWithABuiltInProfilesIdOrProgram) {
     useRig(testRig());
     write(userGamesFile(), "[game.copy]\nlabel = Copy\nprogram = nfs16.exe\n[game.nfspayback]\nlabel = Payback\n"
                            "program = other.exe\n");
     open();
     games();
-    EXPECT_FALSE(window_.has("Copy"));
+    EXPECT_TRUE(window_.has("Copy"));   // a copy of NFS 2015's profile, yours
     EXPECT_FALSE(window_.has("Payback"));
-    EXPECT_EQ(window_.count("built in"), 6U);   // not "yours": the built-in profile is the one used
+    EXPECT_EQ(window_.count("built in"), 7U);   // Payback: the built-in profile is the one used
+    EXPECT_EQ(window_.count("yours"), 1U);
     ASSERT_TRUE(click("NFS Payback"));
     games();
     const Window::Text* const remove = window_.find("Remove");
@@ -2370,27 +2372,29 @@ TEST_F(EditView, AddingAGameWithoutFolders) {
     fileAnswers_.push_back(dir_ / "Games" / "nfs16.exe");
     ASSERT_TRUE(click("Add game..."));
     games();
-    EXPECT_TRUE(window_.hasPart("is in the list already"));
+    EXPECT_TRUE(window_.hasPart("Games added, but its name is not unique"));   // heat.exe's folder too
+    EXPECT_EQ(window_.count("! not unique"), 2U);
 
     // Two games whose programs share a name (game.exe): apart by path, each named after its folder.
-    fileAnswers_.push_back(dir_ / "NFS MW" / "game.exe");
+    fileAnswers_.push_back(dir_ / "Racer1" / "game.exe");
     ASSERT_TRUE(click("Add game..."));
     games();
-    EXPECT_TRUE(window_.hasPart("NFS MW added"));
+    EXPECT_TRUE(window_.hasPart("Racer1 added"));
     fileAnswers_.push_back(dir_ / "Racer2" / "game.exe");
     ASSERT_TRUE(click("Add game..."));
     games();
     EXPECT_TRUE(window_.hasPart("Racer2 added"));
-    fileAnswers_.push_back(dir_ / "NFS MW" / "game.exe");
+    fileAnswers_.push_back(dir_ / "Racer1" / "game.exe");
     ASSERT_TRUE(click("Add game..."));
     games();
-    EXPECT_TRUE(window_.hasPart("NFS MW is in the list already"));
+    EXPECT_TRUE(window_.hasPart("Racer1 is in the list already"));
     const std::vector<GameProfile> added = service::loadUserGames();
-    ASSERT_EQ(added.size(), 3U);
-    EXPECT_EQ(added[1].id, "nfsmw");
-    EXPECT_EQ(added[2].id, "racer2");
-    EXPECT_EQ(added[2].program, "game.exe");
-    EXPECT_TRUE(samePath(added[2].path, pathToUtf8(dir_ / "Racer2" / "game.exe")));
+    ASSERT_EQ(added.size(), 4U);
+    EXPECT_EQ(added[1].id, "games2");
+    EXPECT_EQ(added[2].id, "racer1");
+    EXPECT_EQ(added[3].id, "racer2");
+    EXPECT_EQ(added[3].program, "game.exe");
+    EXPECT_TRUE(samePath(added[3].path, pathToUtf8(dir_ / "Racer2" / "game.exe")));
 }
 
 // A game the user added whose folder holds an older shim of ours: removed, its folder stays listed.
@@ -2903,23 +2907,23 @@ TEST_F(EditView, TheLowerSectionsLineUp) {
     EXPECT_NEAR(separate->x - logitech->x, 0.0F, 24.0F);   // centred labels of equal-width buttons
 }
 
-// Combined pedals per game: NFS U1/MW's from its profile; the user's own value, saved; Default takes it back.
+// Combined pedals per game: NFS U1's from its profile; the user's own value, saved; Default takes it back.
 TEST_F(EditView, CombinedPedalsPerGame) {
     useRig(testRig());
     open();
     games();
-    ASSERT_TRUE(click("NFS U1/MW"));
+    ASSERT_TRUE(click("NFS U1"));
     frame();
     EXPECT_TRUE(window_.has("Combined"));
     EXPECT_TRUE(window_.has("one axis"));   // the profile's
     ASSERT_TRUE(click("On"));
     frame();
     EXPECT_TRUE(window_.has("separate"));
-    EXPECT_NE(own().find("nfsu.combined_pedals = false"), std::string::npos) << own();
+    EXPECT_NE(own().find("nfsu1.combined_pedals = false"), std::string::npos) << own();
     ASSERT_TRUE(click("Default", 4));   // steering, three pedals, then combined
     frame();
     EXPECT_TRUE(window_.has("one axis"));
-    EXPECT_EQ(own().find("nfsu.combined_pedals"), std::string::npos) << own();
+    EXPECT_EQ(own().find("nfsu1.combined_pedals"), std::string::npos) << own();
 
     ASSERT_TRUE(click("NFS 2015"));   // no profile value: the Mapping tab's (off)
     frame();

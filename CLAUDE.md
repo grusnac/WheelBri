@@ -48,7 +48,9 @@ A new area file gets a row here.
   build in `docs/building.md`. `docs/` stays flat (the packages copy `docs/*.md` only). Short, current facts only, no
   dated history. A new screen needs a screenshot in `docs/images/` (ask the user to take it).
 - Logs: `%LOCALAPPDATA%\wheelbri\logs` (`wheelbri-service-*`, `telemetry-*`, `ffb-*`, one file per run);
-  `scripts/telemetry_summary.sh` sums them up. `raw_a0`..`raw_a7` = which axis a control moves.
+  `scripts/telemetry_summary.sh` sums them up. `raw_a0`..`raw_a7` = which axis a control moves. A folder of logs
+  (a test round): decide what would answer the question, then find only that: `scripts/run_summary.sh <folder>`
+  (index), `--find pedals|game|input|state|ffb|problems`, `--grep <regex>`. Never dump whole logs.
 
 ## Project
 

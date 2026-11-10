@@ -166,6 +166,27 @@ TEST_F(GameWatchTest, AGameStartsRestartsAndEnds) {
     EXPECT_EQ(watch.live().id, "");
 }
 
+// NFS U1 and NFS MW are both speed.exe: dimap.dll next to it (U1's marker) makes it U1, else it is MW.
+TEST_F(GameWatchTest, TheMarkerTellsSpeedExeApart) {
+    GameWatch::System sys = system();
+    sys.processImage = [](const std::uint32_t pid) {
+        return std::filesystem::path(pid == 20 ? "D:/EA GAMES/U1/Speed.exe" : "D:/EA GAMES/MW/speed.exe");
+    };
+    sys.fileExists = [](const std::filesystem::path& file) {
+        return file == std::filesystem::path("D:/EA GAMES/U1") / "dimap.dll";
+    };
+    GameWatch u1(session("g25", false), 900.0F, {}, {}, sys);
+    run(20, "Speed.exe");
+    static_cast<void>(u1.check());
+    EXPECT_EQ(u1.live().id, "nfsu1");
+    EXPECT_EQ(u1.status(), "NFS U1");
+
+    GameWatch mw(session("g25", false), 900.0F, {}, {}, sys);
+    run(21, "speed.exe");
+    static_cast<void>(mw.check());
+    EXPECT_EQ(mw.live().id, "nfsmw");
+    EXPECT_EQ(mw.status(), "NFS MW");
+}
 // In a shim session the shim applies the profile: the pedals go out as they are.
 TEST_F(GameWatchTest, AShimSessionLeavesThePedalsAlone) {
     GameWatch watch(session("g920", false), 900.0F, {}, {}, system());

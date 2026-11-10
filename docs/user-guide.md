@@ -204,7 +204,7 @@ Heat is recognised too: it has no values, only a warning when the Target is the 
    chained to another mod, `no shim`, `other mod`: **Chain mod** chains it now, `old ASI`: Start renames it to
    `d3d9.dll`), `! not G923`
    when the game does not support the Target, `running` for the one WheelBri sees now. **Add game...** picks a game's
-   `.exe` and names it after its folder; games whose `.exe` shares a name (`speed.exe`) stay apart by folder. **Remove** takes one you added off the list (its files stay). Its **FOLDER** row: **Put shim** (or **Chain
+   `.exe` and names it after its folder; the game is its `.exe`'s full path, so games whose `.exe` shares a name (`speed.exe`) stay apart; one with a built-in profile gets its own copy of it. A name shown twice is marked **! not unique**: rename that game's folder. **Remove** takes one you added off the list (its files stay). Its **FOLDER** row: **Put shim** (or **Chain
    mod**), **Remove shim**, and **Forget folder** to drop the folder WheelBri knows for it.
 2. Set its sub-tabs; **Default** goes back to the profile's or the Mapping tab's value (yours show in violet):
    - **Axes and buttons**, the axes first: steering rotation; per pedal, the axis the game reads and Normal /

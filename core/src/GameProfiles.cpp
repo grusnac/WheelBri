@@ -118,11 +118,12 @@ const Loaded& loaded() {
             if (!parsed.profile) continue;
             bool duplicate = false;
             for (const GameProfile& other : result.profiles) {
-                duplicate = duplicate || other.program == parsed.profile->program;
+                duplicate = duplicate ||
+                            (other.program == parsed.profile->program && other.marker == parsed.profile->marker);
             }
             if (duplicate) {
                 result.problems.push_back(std::string(file.id) + ".ini: program " + parsed.profile->program +
-                                          " already has a profile: this one is not used");
+                                          " already has a profile (with the same marker): this one is not used");
                 continue;
             }
             result.profiles.push_back(std::move(*parsed.profile));
@@ -153,6 +154,12 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                     profile.label = value;
                 } else if (key == "program") {
                     profile.program = lower(value);
+                } else if (key == "marker") {
+                    profile.marker = lower(value);
+                    if (profile.marker.empty() || profile.marker == "." || profile.marker == ".." ||
+                        profile.marker.find_first_of("/\\:") != std::string::npos) {
+                        result.problems.push_back("[game] marker = '" + value + "': expected a file name (dimap.dll)");
+                    }
                 } else if (key == "target") {
                     // any: every target (a profile that changes nothing a target decides, e.g. only [pedals] combined).
                     profile.target = lower(value);
@@ -330,11 +337,23 @@ std::string programName(const std::string_view nameOrPath) {
     return lower(slash == std::string_view::npos ? nameOrPath : nameOrPath.substr(slash + 1));
 }
 
-const GameProfile* gameProfileFor(const std::string_view nameOrPath, const std::span<const GameProfile> profiles) {
+namespace {
+
+[[nodiscard]] bool markerFound(const GameProfile& profile, const std::span<const std::string> found) {
+    return std::find(found.begin(), found.end(), profile.marker) != found.end();
+}
+
+}  // namespace
+
+const GameProfile* gameProfileFor(const std::string_view nameOrPath, const std::span<const GameProfile> profiles,
+                                  const std::span<const std::string> found) {
     const std::string name = programName(nameOrPath);
     if (name.empty()) return nullptr;
     for (const GameProfile& profile : profiles) {
-        if (name == profile.program) return &profile;
+        if (name == profile.program && !profile.marker.empty() && markerFound(profile, found)) return &profile;
+    }
+    for (const GameProfile& profile : profiles) {
+        if (name == profile.program && profile.marker.empty()) return &profile;
     }
     return nullptr;
 }
@@ -423,6 +442,7 @@ std::vector<RunningGame> findRunningGames(const std::span<const RunningProgram> 
             const RunningProgram& program = programs[i];
             if (taken[i] || programName(program.name) != profile.program) continue;
             if (!profile.path.empty() && !program.path.empty() && !samePath(program.path, profile.path)) continue;
+            if (!profile.marker.empty() && !markerFound(profile, program.found)) continue;
             taken[i] = true;
             byProfile[p] = RunningGame{&profile, program.pid, program.name};
             return;
@@ -432,7 +452,10 @@ std::vector<RunningGame> findRunningGames(const std::span<const RunningProgram> 
         if (!profiles[p].path.empty()) claim(p);
     }
     for (std::size_t p = 0; p < profiles.size(); ++p) {
-        if (profiles[p].path.empty()) claim(p);
+        if (profiles[p].path.empty() && !profiles[p].marker.empty()) claim(p);
+    }
+    for (std::size_t p = 0; p < profiles.size(); ++p) {
+        if (profiles[p].path.empty() && profiles[p].marker.empty()) claim(p);
     }
     std::vector<RunningGame> found;
     for (const std::optional<RunningGame>& game : byProfile) {

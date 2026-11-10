@@ -47,6 +47,15 @@ namespace {
 
 constexpr std::uint64_t kFileStateEveryMs = 2000;
 
+// The list shows a game by its name (an added game's: its program's folder); a name another game has too is flagged.
+[[nodiscard]] bool nameShared(const std::span<const GameProfile> games, const std::size_t index) {
+    for (std::size_t g = 0; g < games.size(); ++g) {
+        if (g != index && samePath(games[g].label, games[index].label)) return true;
+    }
+    return false;
+}
+constexpr const char* kNotUnique = "! not unique";
+
 std::string clockText(const std::uint64_t ms) {
     const std::uint64_t seconds = ms / 1000;
     char text[32];
@@ -171,7 +180,10 @@ void MappingEditView::drawGames() {
         } else {
             ui::Colour colour = style::kFaint;
             std::string tag = userGame(game.id) ? "yours" : "built in";
-            if (unfit) {
+            if (nameShared(games, g)) {
+                tag = kNotUnique;
+                colour = kCaution;
+            } else if (unfit) {
                 tag = "! not " + upperName(targetName_);
                 colour = kCaution;
             } else if (hasFolder) {
@@ -392,6 +404,16 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
                  fit("program " + game.program, gameChars() - game.label.size() - 2),
                  kDim);
     y += 16;
+    if (nameShared(games_, index)) {
+        const std::string where = game.path.empty() ? game.program : game.path;
+        for (const std::string& line :
+             wrap("Not unique: another game in the list has this name too. Rename this game's folder (" + where +
+                      ") so its name is unique, then add it again.",
+                  gameChars(), 3)) {
+            window_.text(gameX(), y, line, kCaution);
+            y += 12;
+        }
+    }
     // A game that works one way only ([game] ways): a session run the other way tells the user when it starts.
     if (!game.virtualDevice || !game.shim) {
         const std::string only = game.shim ? "Mode Shim only" : "Mode Virtual only";
@@ -658,7 +680,7 @@ void MappingEditView::reloadGames() {
     games_.assign(gameProfiles().begin(), gameProfiles().end());
     for (const GameProfile& game : userGames_) {
         const bool builtIn = std::any_of(gameProfiles().begin(), gameProfiles().end(), [&game](const GameProfile& g) {
-            return g.id == game.id || g.program == game.program;
+            return g.id == game.id;
         });
         if (!builtIn) games_.push_back(game);
     }
@@ -693,10 +715,10 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
         WE_LOG_WARN(log(), "games: {} has ; or # in its path: found by its program's name only", path);
         path.clear();
     }
-    // The same game: a built-in profile's program (found by name), or the same program file.
+    // The same game: the same program file (its absolute path); without a path, a game you added by name only.
     for (const GameProfile& game : games_) {
-        if (game.program == program &&
-            (game.path.empty() ? !userGame(game.id) || path.empty() : samePath(game.path, path))) {
+        if (!userGame(game.id) || game.program != program) continue;
+        if (game.path.empty() ? path.empty() : samePath(game.path, path)) {
             addFolder();
             selectGame(game.id);
             status_ = game.label + " is in the list already (" + (game.path.empty() ? program : game.path) + ").";
@@ -717,8 +739,7 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
     for (int n = 2; taken(id); ++n) id = base + std::to_string(n);
     GameProfile game;
     game.id = id;
-    // At most 20 bytes (a label's length, GameProfiles.hpp), never half a character (a name like "Pokémon").
-    game.label = truncateUtf8(folderName, 20);
+    game.label = folderName;   // the program's parent folder, as it is
     game.program = program;
     game.path = path;
     std::vector<GameProfile> next = userGames_;
@@ -738,6 +759,12 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
     gameTab_ = GameTab::Controls;
     status_ = game.label + " added: WheelBri finds " + program + " while it runs. Set its own values here.";
     statusError_ = false;
+    for (std::size_t g = 0; g < games_.size(); ++g) {
+        if (games_[g].id == id && nameShared(games_, g)) {
+            status_ = game.label + " added, but its name is not unique: rename its folder so the name is unique.";
+            statusError_ = true;
+        }
+    }
 }
 
 void MappingEditView::removeGame(const std::string& id) {

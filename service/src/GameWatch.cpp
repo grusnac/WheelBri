@@ -50,11 +50,11 @@ namespace {
 std::vector<GameProfile> allGames(std::vector<GameProfile> userGames) {
     std::vector<GameProfile> games(gameProfiles().begin(), gameProfiles().end());
     for (GameProfile& game : userGames) {
-        // A game the user added that has a built-in profile too is that profile (Add game refuses it; a hand edit).
-        // Built-in ones only: user games may share a program's name (speed.exe) when their paths differ.
+        // A game the user added is its own game, by its path, even when a built-in profile has its program (it is a
+        // copy of that profile, parseUserGames). Only a built-in profile's id (a hand edit) makes it that profile.
         bool known = false;
         for (const GameProfile& builtIn : gameProfiles()) {
-            known = known || builtIn.program == game.program || builtIn.id == game.id;
+            known = known || builtIn.id == game.id;
         }
         if (known) {
             WE_LOG_WARN(log(), "game: {} ({}) from games.ini has a built-in profile: the built-in one is used",
@@ -239,15 +239,27 @@ GameWatch::Decision GameWatch::check() {
     std::optional<std::vector<RunningProgram>> programs =
         system_.runningPrograms ? system_.runningPrograms() : platform::runningPrograms();
     if (programs) {
-        // Where it runs from, only for a game known by its path (two games may share a program's name); Windows only.
+        // Where it runs from, only for a game known by its path or marker (two games may share a program's name);
+        // Windows only. Then which markers sit next to it.
         for (RunningProgram& program : *programs) {
             const std::string name = programName(program.name);
-            if (std::none_of(games_.begin(), games_.end(),
-                             [&name](const GameProfile& g) { return !g.path.empty() && g.program == name; })) {
+            if (std::none_of(games_.begin(), games_.end(), [&name](const GameProfile& g) {
+                    return (!g.path.empty() || !g.marker.empty()) && g.program == name;
+                })) {
                 continue;
             }
-            program.path =
-                pathToUtf8(system_.processImage ? system_.processImage(program.pid) : platform::processImage(program.pid));
+            const std::filesystem::path image =
+                system_.processImage ? system_.processImage(program.pid) : platform::processImage(program.pid);
+            program.path = pathToUtf8(image);
+            if (image.empty()) continue;
+            for (const GameProfile& game : games_) {
+                if (game.marker.empty() || game.program != name) continue;
+                std::error_code error;
+                const std::filesystem::path marker = image.parent_path() / pathFromUtf8(game.marker);
+                const bool there = system_.fileExists ? system_.fileExists(marker)
+                                                      : std::filesystem::is_regular_file(marker, error);
+                if (there) program.found.push_back(game.marker);
+            }
         }
     }
     const GameDetector::Update update = detector_.poll(programs);

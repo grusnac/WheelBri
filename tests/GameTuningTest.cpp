@@ -92,9 +92,9 @@ TEST(GameTuning, RetiredForceFeedbackKeysAreIgnored) {
 
 TEST(GameTuning, UserGamesRoundTrip) {
     GameProfile heat;
-    heat.id = "needforspeedheat";
-    heat.label = "NFS Heat";
-    heat.program = "needforspeedheat.exe";
+    heat.id = "blur";
+    heat.label = "Blur";
+    heat.program = "blur.exe";   // no built-in profile: fits every target
     GameProfile excalibur;
     excalibur.id = "excalibur";
     excalibur.label = "Excalibur";
@@ -146,6 +146,25 @@ TEST(GameTuning, UserGamesSharingAProgramNameByPath) {
     EXPECT_EQ(twice.games[0].id, "a");
     EXPECT_EQ(twice.games[1].id, "d");
     EXPECT_EQ(twice.problems.size(), 2U);
+}
+
+// NFS U1 and NFS MW are both speed.exe: each one added is its own game by its path, a copy of the built-in profile.
+TEST(GameTuning, AnAddedGameIsACopyOfItsProgramsProfile) {
+    const UserGamesResult back = parseUserGames(
+        "[game.u1]\nlabel = Need for Speed - Underground\nprogram = speed.exe\n"
+        "path = D:\\EA GAMES\\Need for Speed - Underground\\speed.exe\n"
+        "[game.mw]\nlabel = Need for Speed - Most Wanted\nprogram = speed.exe\n"
+        "path = D:\\EA GAMES\\Need for Speed - Most Wanted\\speed.exe\n");
+    EXPECT_TRUE(back.problems.empty());
+    ASSERT_EQ(back.games.size(), 2U);
+    for (const GameProfile& game : back.games) {
+        EXPECT_EQ(game.combinedPedals, true) << game.id;
+        EXPECT_NE(game.path.find(game.label), std::string::npos) << game.id;
+    }
+    EXPECT_EQ(back.games[0].id, "mw");
+    EXPECT_EQ(back.games[1].id, "u1");
+    // Written back, it holds only who it is, not the profile's values.
+    EXPECT_EQ(formatUserGames(back.games).find("combined"), std::string::npos);
 }
 
 TEST(GameTuning, GameIdForAProgram) {
@@ -372,8 +391,8 @@ TEST(GameTuning, UserGameIdsAreChecked) {
 
 // The service log says which pedals the game gets, where that comes from, and what the axes carry then.
 TEST(GameTuning, PedalsLogLine) {
-    EXPECT_EQ(pedalsLogLine(true, "NFS U1/MW's profile"),
-              "pedals: combined (NFS U1/MW's profile): the throttle axis carries throttle and brake (middle at rest), "
+    EXPECT_EQ(pedalsLogLine(true, "NFS U1's profile"),
+              "pedals: combined (NFS U1's profile): the throttle axis carries throttle and brake (middle at rest), "
               "the brake axis rests in the middle, the clutch as it is");
     EXPECT_EQ(pedalsLogLine(false, "the Mapping tab's [pedals] combined"),
               "pedals: separate (the Mapping tab's [pedals] combined): throttle, brake and clutch each on its own axis");

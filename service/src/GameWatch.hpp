@@ -44,12 +44,14 @@ public:
     // `overrides`: the user's per-game rotations ([game_rotation]). Logs the built-in profiles' problems, if any.
     // `session`: the target, the way and the user's per-game values (GameTuning.hpp);
     // `userGames`: the games the user added (games.ini), followed like the built-in profiles.
-    // What it asks the system: the running programs, a process's program file and the Documents folder (platform::).
+    // What it asks the system: the running programs, a process's program file, the Documents folder (platform::) and
+    // whether a file is there.
     // Each one left empty is the system's own; the tests give their own.
     struct System {
         std::function<std::optional<std::vector<RunningProgram>>()> runningPrograms;
         std::function<std::filesystem::path(std::uint32_t pid)> processImage;
         std::function<std::filesystem::path()> documentsFolder;
+        std::function<bool(const std::filesystem::path&)> fileExists;   // a game's marker (GameProfile::marker)
     };
     GameWatch(GameSessionConfig session, float mapping, GameRotations overrides, std::vector<GameProfile> userGames,
               System system = {});

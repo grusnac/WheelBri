@@ -2,6 +2,9 @@
 
 ## Not released yet
 
+- NFS Underground and NFS Most Wanted (2005) are two games on the Games tab (**NFS U1**, **NFS MW**), each with its
+  own values; both are `speed.exe`, told apart by `dimap.dll` in Underground's folder. Values set for **NFS U1/MW**
+  before are not carried over.
 - Every Start begins new log files with the next number (the app's log, telemetry-*, ffb-*), so each session has
   files of its own; before, a run of the app wrote all its sessions into one.
 

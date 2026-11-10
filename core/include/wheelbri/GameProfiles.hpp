@@ -64,6 +64,10 @@ struct GameProfile {
     std::string id;        // the file's name without .ini: "nfs2015"
     std::string label;     // [game] label, shown as it is in the window's status and the log: "NFS 2015"
     std::string program;   // the game's program file, lower case: "nfs16.exe"
+    // [game] marker = dimap.dll: a file next to the program, lower case, that tells this game from another built-in
+    // one with the same program (NFS U1 and NFS MW are both speed.exe). A profile with one takes a process only when
+    // that file is there; the one without takes the rest.
+    std::string marker;
     // A game the user added: its program's full path, as picked ("D:\Games\NFS MW\speed.exe"), so two games whose
     // programs share a name stay apart. Empty: found by its program's name alone (built-in profiles, older games.ini).
     std::string path;
@@ -112,8 +116,10 @@ struct ParsedGameProfile {
 [[nodiscard]] std::string programName(std::string_view nameOrPath);
 
 // The profile for a program, or null. Exact file-name match: "nfs16.exe.bak" or "notnfs16.exe" are not NFS 2015.
+// `found`: the markers (GameProfile::marker) found next to the program; a profile with a marker needs its own there.
 [[nodiscard]] const GameProfile* gameProfileFor(std::string_view nameOrPath,
-                                                std::span<const GameProfile> profiles = gameProfiles());
+                                                std::span<const GameProfile> profiles = gameProfiles(),
+                                                std::span<const std::string> found = {});
 
 // What to tell the user when `game` starts in a session run a way it does not work with (`shim`: the in-game shim; else
 // the virtual device): a short title for the notification ("NFS Payback needs Mode Virtual") and what to do;
@@ -160,7 +166,8 @@ struct PedalRoute {
 struct RunningProgram {
     std::uint32_t pid = 0;
     std::string name;
-    std::string path = {};   // its program's full path when known (asked only for games with a path); else empty
+    std::string path = {};   // its program's full path when known (asked only for games with a path or marker)
+    std::vector<std::string> found = {};   // the markers (GameProfile::marker) next to its program, lower case
 };
 
 // Whether two Windows paths name the same file as written: ASCII case and / or \ aside.
@@ -175,7 +182,8 @@ struct RunningGame {
 
 // The profiled games among `programs`, in profile order, once per game (its first process), each process one game's
 // at most. A game with a path takes only a process running from there (or one whose path is not known); those go
-// first, so a game found by name alone never takes their process.
+// first, so a game found by name alone never takes their process. Next, a game with a marker takes a process with
+// that marker found; last, a game found by name alone takes what is left.
 [[nodiscard]] std::vector<RunningGame> findRunningGames(std::span<const RunningProgram> programs,
                                                         std::span<const GameProfile> profiles = gameProfiles());
 

@@ -104,10 +104,10 @@ G920 only, by themselves while the game runs.
 
 - **Set up:** nothing; set the wheel controls in the game's own menu.
 - **Profile:** combined pedals (every Target): the games read throttle and brake from one axis, and with separate
-  pedals their menus scroll by themselves. Underground and Most Wanted share one profile (**NFS U1/MW**): both
-  programs are `speed.exe`.
-- **Known:** Windows 7, Mode Shim, G25: separate pedals scrolled the menus in Underground and Most Wanted; combined
-  pedals not yet tried in them.
+  pedals their menus scroll by themselves. Underground and Most Wanted are both `speed.exe`: the Games tab lists them
+  apart (**NFS U1**, **NFS MW**). A `speed.exe` with `dimap.dll` in its folder is Underground, any other Most Wanted.
+- **Known:** Windows 7, Mode Shim, G25: separate pedals scrolled the menus in Underground and Most Wanted; combined pedals
+  work in Most Wanted (Underground not yet tried).
 
 ## Widescreen Fixes (ThirteenAG)
 

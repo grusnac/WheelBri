@@ -97,7 +97,9 @@ struct GameDecision {
 //   label = Excalibur
 //   program = excalibur.exe
 //   path = D:\Games\Excalibur\excalibur.exe   ; optional: only the program there is this game
-// Several may share a program's name if their paths differ. They fit every target and change nothing until the user sets values for them ([game_tuning]).
+// Several may share a program's name if their paths differ: the path is the game. One whose program has a built-in
+// profile is a copy of it (its own id, label and path); any other fits every target and changes nothing until the
+// user sets values for it ([game_tuning]).
 struct UserGamesResult {
     std::vector<GameProfile> games;
     std::vector<std::string> problems;

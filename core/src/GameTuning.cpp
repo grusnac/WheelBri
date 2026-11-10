@@ -247,6 +247,16 @@ UserGamesResult parseUserGames(const std::string_view text) {
             result.problems.push_back("[" + section + "]: " +
                                       (game.path.empty() ? game.program : game.path) + " is there twice");
         } else {
+            // A copy of the built-in profile for its program, kept apart by its own id, label and path.
+            if (const GameProfile* const builtIn = gameProfileFor(game.program)) {
+                GameProfile copy = *builtIn;
+                copy.id = std::move(game.id);
+                copy.label = std::move(game.label);
+                copy.program = std::move(game.program);
+                copy.path = std::move(game.path);
+                copy.marker.clear();   // its path tells it apart
+                game = std::move(copy);
+            }
             result.games.push_back(std::move(game));
         }
     }
