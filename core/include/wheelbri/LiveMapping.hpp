@@ -11,10 +11,11 @@
 // The Mapping tab's values while a session runs: the app saves the mapping as it changes, and the session reads the
 // file again and uses what it can at once (service runLoop), as it does the Games tab's per-game values. What a
 // running session can take:
-//   the mapping (MapperConfig): steering axis, invert and rotation; the pedals' axes, invert and curve; every target
+//   the mapping (MapperConfig): steering axis, invert and rotation; the pedals' axes and invert; every target
 //     button and its secondaries; the D-pad's buttons. Only while it reads the same accessories: the session opened
 //     those at Start, so a mapping that reads another device waits, whole, for the next Start.
 //   [buttons] order (Pipeline::setButtonOrder).
+//   [pedals] combined (Pipeline::setCombinedPedals, unless the running game has its own).
 // Everything else waits for the next Start and is said once per change: the target, the wheel, the ports and state
 // rate, TrueForce, and [ffb] (force feedback is set in the wheel's own app; the few [ffb] keys are read at Start).
 // [logging], [telemetry] and [retention] are read at Start only and are not compared. The per-game sections
@@ -26,10 +27,11 @@ namespace wheelbri {
 struct LiveMappingChange {
     std::optional<MapperConfig> mapper;           // the mapping to use from now on, when it changed and can be used
     std::optional<ButtonOrder> buttonOrder;       // the button order to use from now on, when it changed
+    std::optional<bool> combinedPedals;           // [pedals] combined from now on, when it changed
     bool rotationChanged = false;                 // mapper's steering rotation differs from the running one
     std::vector<std::string> waiting;             // what changed but waits for the next Start, one line each
 
-    [[nodiscard]] bool any() const { return mapper || buttonOrder || !waiting.empty(); }
+    [[nodiscard]] bool any() const { return mapper || buttonOrder || combinedPedals || !waiting.empty(); }
 };
 
 // What of `next` (the file as read again, prepared as Start prepares it: the rig's inputs filled in, the wheel's

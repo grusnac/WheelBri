@@ -47,10 +47,19 @@ constexpr float kG920X = 214;
 constexpr float kG923X = 265;
 constexpr float kVirtualX = 381;
 constexpr float kShimX = 452;
-// For the G25 and G27, a second row 18 lower: "Order" (88), Logitech driver and Native (128 each).
+// For the G25 and G27, Order drawn 18 lower (drawAll): "Order" (88), Logitech driver and Native (128 each); for the
+// G923 TrueForce there, Off and On.
 constexpr float kOrderRowY = kRowY + 18;
 constexpr float kDriverOrderX = 154;
 constexpr float kNativeOrderX = 284;
+
+// As the Mapping tab draws them: the picker's row, then Order and TrueForce (here 18 lower; on the tab under the pedals).
+float drawAll(ConfigPicker& picker, const bool canChange, const ConfigPicker::TipSink& tip = {}) {
+    const float end = picker.draw(4, 18, canChange, tip);
+    picker.drawOrder(4, 92, 36, canChange, tip);
+    picker.drawTrueForce(4, 92, 36, canChange, tip);
+    return end;
+}
 
 class ConfigPickerFiles : public ::testing::Test {
 protected:
@@ -472,17 +481,17 @@ TEST(ConfigPickerNames, ButtonOrders) {
 // the order is kept per target in app.ini and shown on the row only for the G25 and G27.
 TEST_F(ConfigPickerFiles, EachButtonOrderHasItsOwnMapping) {
     ConfigPicker picker(window_, settings());
-    picker.draw(4, 18, true);
+    drawAll(picker, true);
     EXPECT_FALSE(window_.shows("Order"));   // the G920: one order
     EXPECT_EQ(picker.rowsHeight(), 16);
     picker.useButtonOrder(ButtonOrder::Native);
     EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Driver);
 
     picker.useTarget(ConfigPicker::Target::G25);
-    picker.draw(4, 18, true);
+    drawAll(picker, true);
     EXPECT_TRUE(window_.shows("Order"));
     EXPECT_TRUE(window_.shows("Logitech"));
-    EXPECT_EQ(picker.rowsHeight(), 34);   // two rows: the first's right end stays free for the shim's game
+    EXPECT_EQ(picker.rowsHeight(), 16);   // one row: Order is drawn under the pedals (drawOrder)
     EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Driver);
     EXPECT_EQ(setting("order_g25"), "driver");
     EXPECT_TRUE(picker.onClick(kNativeOrderX, kOrderRowY));
@@ -503,7 +512,7 @@ TEST_F(ConfigPickerFiles, EachButtonOrderHasItsOwnMapping) {
     EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Driver);
     picker.useTarget(ConfigPicker::Target::G25);
     EXPECT_EQ(picker.buttonOrder(), ButtonOrder::Native);
-    picker.draw(4, 18, true);
+    drawAll(picker, true);
     EXPECT_TRUE(picker.onClick(kDriverOrderX, kOrderRowY));
     EXPECT_EQ(picker.ownPath(), user() / "my-g25.ini");
     EXPECT_TRUE(picker.builtIn());
@@ -578,7 +587,7 @@ TEST_F(ConfigPickerFiles, TheOrderRowExplainsItself) {
     ASSERT_TRUE(writeAppSetting(state(), "target", "g25"));
     ConfigPicker picker(window_, settings());
     std::vector<std::string> tips;
-    picker.draw(4, 18, true,
+    drawAll(picker, true,
                 [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
     const auto has = [&tips](const std::string& start) {
         return std::any_of(tips.begin(), tips.end(), [&start](const std::string& t) { return t.rfind(start, 0) == 0; });
@@ -592,13 +601,13 @@ TEST_F(ConfigPickerFiles, TheOrderRowExplainsItself) {
 // cannot be chosen.
 TEST_F(ConfigPickerFiles, TrueForceNeedsLogitechsSdk) {
     ConfigPicker picker(window_, settings());   // no SDK
-    picker.draw(4, 18, true);
+    drawAll(picker, true);
     EXPECT_FALSE(window_.shows("TrueForce"));   // the G920
     picker.useTarget(ConfigPicker::Target::G923);
-    EXPECT_EQ(picker.rowsHeight(), 34);
+    EXPECT_EQ(picker.rowsHeight(), 16);
     std::vector<std::string> tips;
     window_.begin({});
-    picker.draw(4, 18, true,
+    drawAll(picker, true,
                 [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
     EXPECT_TRUE(window_.shows("TrueForce"));
     EXPECT_TRUE(window_.shows("needs Logitech G HUB"));
@@ -618,7 +627,7 @@ TEST_F(ConfigPickerFiles, TrueForceOnIsKeptAndUsedAtStart) {
     ConfigPicker picker(window_, withSdk);
     picker.useTarget(ConfigPicker::Target::G923);
     window_.begin({});
-    picker.draw(4, 18, true);
+    drawAll(picker, true);
     EXPECT_FALSE(window_.shows("needs Logitech G HUB"));
     EXPECT_TRUE(picker.onClick(kNativeOrderX, kOrderRowY));   // On
     EXPECT_TRUE(picker.trueForce());
@@ -629,10 +638,10 @@ TEST_F(ConfigPickerFiles, TrueForceOnIsKeptAndUsedAtStart) {
     EXPECT_FALSE(picker.trueForceAtStart());
     picker.useTarget(ConfigPicker::Target::G923);
     EXPECT_TRUE(picker.trueForceAtStart());
-    picker.draw(4, 18, true);
+    drawAll(picker, true);
     EXPECT_TRUE(picker.onClick(kShimX, kRowY));   // Mode Shim: no virtual G923, no TrueForce
     EXPECT_FALSE(picker.trueForceAtStart());
-    picker.draw(4, 18, true);
+    drawAll(picker, true);
     EXPECT_FALSE(picker.onClick(kDriverOrderX, kOrderRowY));   // greyed in Mode Shim
     EXPECT_TRUE(picker.onClick(kVirtualX, kRowY));
     EXPECT_TRUE(picker.trueForceAtStart());
@@ -641,7 +650,7 @@ TEST_F(ConfigPickerFiles, TrueForceOnIsKeptAndUsedAtStart) {
     picker.useTrueForce(false);
     EXPECT_TRUE(picker.trueForce());
     picker.setLocked(false);
-    picker.draw(4, 18, true);
+    drawAll(picker, true);
     EXPECT_TRUE(picker.onClick(kDriverOrderX, kOrderRowY));   // Off
     EXPECT_FALSE(picker.trueForceAtStart());
     EXPECT_EQ(setting("trueforce_g923"), "off");

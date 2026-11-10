@@ -299,7 +299,7 @@ std::uint32_t EmulatedJoystick::valueOf(const std::size_t index, const TargetRep
         case Control::Throttle: return scaled(pedal(report.throttle));
         case Control::Brake: return scaled(pedal(report.brake));
         case Control::Clutch: return scaled(pedal(report.clutch));
-        case Control::Combined: return scaled(combinedPedals(report));
+        case Control::Combined: return scaled(report.combined);
         case Control::Button: return ((report.buttons >> object.buttonIndex) & 1U) != 0 ? di::kButtonDown : 0;
         case Control::Pov:
             return report.hat >= 0 && report.hat < 8 ? static_cast<std::uint32_t>(report.hat) * 4500U

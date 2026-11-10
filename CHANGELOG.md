@@ -2,6 +2,11 @@
 
 ## Not released yet
 
+- Combined pedals, as Logitech's "Report Combined Pedals", on every Target: for every game on the Mapping tab, or per
+  game on the Games tab. Built-in profiles turn them on for NFS Underground, Underground 2 and Most Wanted (2005),
+  whose menus scrolled by themselves with separate pedals. The state packet to the shim and the drivers is version 2:
+  update the shim and the drivers together with the app.
+
 - Windows: the installer needs no PowerShell any more and starts on a bare Windows 7 SP1, 8, 8.1, 10 or 11. The setup
   wizard does the install and the uninstall itself (only the Windows 11 drivers' own steps stay PowerShell scripts),
   and on Windows 7, 8 and 8.1 installs Microsoft's Universal C Runtime (KB2999226), which `Setup.exe` now carries,

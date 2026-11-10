@@ -64,7 +64,10 @@ constexpr float kPopupY = 56;
 
 
 // The game full lock slider: 90 to 1080 degrees, in steps of 10 (typed values go up to tuning::kMaxRotationDeg).
+// Also where every lower section's controls start (rotation, pedals, button order, TrueForce, centring spring).
 constexpr float kSliderX = 132;
+// One half of a two-way switch in the lower sections (Separate|Combined, as ConfigPicker's Order and TrueForce).
+constexpr float kSwitchWidth = 128;
 constexpr float kSliderMinDeg = 90.0F;
 constexpr float kSliderMaxDeg = 1080.0F;
 constexpr float kSliderStepDeg = 10.0F;

@@ -229,6 +229,11 @@ const ShimConfig& shimConfig() {
                                  "clutch={}",
                             game->id, game->label, describeOverlay(*game), axisName(used.throttle),
                             axisName(used.brake), axisName(used.clutch));
+                if (game->combinedPedals) {
+                    WE_LOG_INFO(log, "game profile {}: pedals {} by wheelbri-service (unless your Games tab says "
+                                     "otherwise; its log says which): the {} axis carries what it sends as the throttle",
+                                game->id, *game->combinedPedals ? "combined" : "separate", axisName(used.throttle));
+                }
                 if ((game->throttleAxis && config.throttleAxis) || (game->brakeAxis && config.brakeAxis) ||
                     (game->clutchAxis && config.clutchAxis)) {
                     WE_LOG_WARN(log, "wheelbri-shim.ini sets pedal axes the game profile {} also sets: the profile's "

@@ -74,9 +74,9 @@ TEST(EmulatorConfig, ReadsTheG25Target) {
 
 TEST(EmulatorConfig, RejectsNotANumber) {
     // "nan" passes a range check (every comparison is false) and would switch the force cap off.
-    const auto result = load("[ffb]\nmax_slew_per_second = inf\n[brake]\ngamma = -nan\n");
+    const auto result = load("[ffb]\nmax_slew_per_second = inf\nfrozen_force_s = -nan\n");
     EXPECT_TRUE(containsError(result, "max_slew_per_second"));
-    EXPECT_TRUE(containsError(result, "gamma"));
+    EXPECT_TRUE(containsError(result, "frozen_force_s"));
     EXPECT_FLOAT_EQ(result.config.ffb.maxSlewPerSecond, FfbSafetyConfig{}.maxSlewPerSecond);
 }
 
@@ -133,7 +133,7 @@ TEST(EmulatorConfig, ReadsEverySection) {
     EXPECT_TRUE(config.mapper.steering.invert);
     EXPECT_EQ(config.mapper.throttle.sourceAxis, 1);
     EXPECT_TRUE(config.mapper.throttle.invert);
-    EXPECT_FLOAT_EQ(config.mapper.brake.gamma, 1.8F);
+    EXPECT_EQ(config.mapper.brake.sourceAxis, 2);   // gamma, deadzone_low, saturation_high: read and ignored
     EXPECT_EQ(config.mapper.clutch.sourceAxis, kUnmapped);
     EXPECT_EQ(config.mapper.buttonMap[0], 7);
     EXPECT_EQ(config.mapper.buttonMap[1], kUnmapped);
@@ -570,6 +570,17 @@ TEST(EmulatorConfig, GameRotationForAGameTheUserAdded) {
     EXPECT_TRUE(result.config.gameRotations.at("nfspayback").off);
     // Without the user's games, heat is no game.
     EXPECT_EQ(loadEmulatorConfig(parsed.document).errors.size(), 2U);
+}
+
+
+// [pedals] combined: off by default; on, and anything else is reported and off kept.
+TEST(EmulatorConfig, ReadsCombinedPedals) {
+    EXPECT_FALSE(load("").config.combinedPedals);
+    EXPECT_TRUE(load("[pedals]\ncombined = true\n").config.combinedPedals);
+    const auto result = load("[pedals]\ncombined = maybe\n");
+    EXPECT_TRUE(containsError(result, "combined")) << (result.errors.empty() ? "" : result.errors[0]);
+    EXPECT_FALSE(result.config.combinedPedals);
+    EXPECT_TRUE(containsError(load("[pedals]\nsplit = true\n"), "split"));
 }
 
 }  // namespace

@@ -210,6 +210,7 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     model.steeringRotationDeg = mapper.steering.targetRotationDeg;
     model.centringSpringPercent = config.centringSpringPercent;
     model.buttonOrder = config.buttonOrder;
+    model.combinedPedals = config.combinedPedals;
     model.gameRotations = config.gameRotations;
     model.gameSettings = config.gameSettings;
     model.gameTunings = config.gameTunings;
@@ -412,6 +413,13 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
         const std::optional<std::string> line = before.get("buttons", "order");
         const std::optional<ButtonOrder> current = line ? parseButtonOrder(*line) : EmulatorConfig{}.buttonOrder;
         if (current != model.buttonOrder) ini.set("buttons", "order", std::string(toString(model.buttonOrder)));
+    }
+    // [pedals] combined: the same way.
+    {
+        const std::optional<std::string> line = before.get("pedals", "combined");
+        const bool current =
+            line ? (*line == "true" || *line == "yes" || *line == "1") : EmulatorConfig{}.combinedPedals;
+        if (current != model.combinedPedals) ini.set("pedals", "combined", model.combinedPedals ? "true" : "false");
     }
     // [game_rotation]: one line per game the user set; a line for a game no longer set goes.
     const auto& sections = before.sections();

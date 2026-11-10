@@ -945,6 +945,8 @@ private:
     void checkGame();
     void sayWaiting(std::vector<std::string> lines, bool problems);
     void followRotation();
+    // Combined pedals: the running game's, else the mapping's ([pedals] combined); said in the log when it changes.
+    void followCombinedPedals();
     [[nodiscard]] UiFrame frame() const;
 
     wheelbri::EmulatorConfig& config_;
@@ -973,10 +975,23 @@ private:
     std::vector<std::unique_ptr<wheelbri::Mapper>> liveMappers_;
     std::uint64_t mappingVersion_ = 0;
     std::shared_ptr<const wheelbri::MapperConfig> shownMapping_;
-    // The mapping while a game with its own values runs (pedal invert / curve, buttons): one Mapper per game and set of
+    // The mapping while a game with its own values runs (pedal invert, buttons): one Mapper per game and set of
     // values, kept for the whole session (the loop may still hold the last one).
     std::map<std::string, std::unique_ptr<wheelbri::Mapper>> gameMappers_;
+    std::optional<bool> gameCombinedPedals_;   // the running game's, as the last checkGame said
+    std::string gameCombinedPedalsFrom_;       // where it comes from (GameWatch::Decision::combinedPedalsFrom)
+    std::string saidPedals_;                   // the last "pedals:" log line: said again only when it changes
 };
+
+void WindowSide::followCombinedPedals() {
+    const bool on = gameCombinedPedals_.value_or(config_.combinedPedals);
+    if (pipeline_.combinedPedals() != on) pipeline_.setCombinedPedals(on);
+    const std::string line =
+        wheelbri::pedalsLogLine(on, gameCombinedPedals_ ? gameCombinedPedalsFrom_ : "the Mapping tab's [pedals] combined");
+    if (line == saidPedals_) return;
+    saidPedals_ = line;
+    WE_LOG_INFO(log(), "{}", line);
+}
 
 void WindowSide::sayWaiting(std::vector<std::string> lines, const bool problems) {
     if (lines == saidWaiting_) return;
@@ -1033,6 +1048,7 @@ void WindowSide::followConfig() {
         WE_LOG_INFO(log(), "buttons: the {} order now", wheelbri::toString(*change.buttonOrder));
     }
     wheelbri::applyLiveMappingChange(config_, change);
+    if (change.combinedPedals) followCombinedPedals();
     if (change.rotationChanged) {
         gameWatch_.setMapping(config_.mapper.steering.targetRotationDeg);
         followRotation();
@@ -1044,6 +1060,9 @@ void WindowSide::checkGame() {
     try {
         const auto decision = gameWatch_.check();
         pipeline_.setPedalRoute(decision.route);
+        gameCombinedPedals_ = decision.combinedPedals;
+        gameCombinedPedalsFrom_ = decision.combinedPedalsFrom;
+        followCombinedPedals();
         // The game's own mapping (made once per game, kept for the session), else the mapping's.
         const wheelbri::Mapper* gameMapper = nullptr;
         if (!decision.mapperGame.empty() && decision.tuning != nullptr) {
@@ -1192,6 +1211,8 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
     if (pipeline.nativeButtons()) {
         WE_LOG_INFO(log(), "buttons: the {}'s native order ([buttons] order = native)", profile->identity().shortName);
     }
+    pipeline.setCombinedPedals(config.combinedPedals);
+    WE_LOG_INFO(log(), "{} at Start", wheelbri::pedalsLogLine(config.combinedPedals, "the Mapping tab's [pedals] combined"));
     pipeline.limitSending(platform::kNsPerSecond / static_cast<std::uint64_t>(config.stateRateHz));
 
     std::string ffbStatus;

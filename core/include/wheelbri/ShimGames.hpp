@@ -55,6 +55,14 @@ enum class Architecture { Unknown, X86, X64 };
 
 // Whether `dll` is the Ultimate ASI Loader (it exports IsUltimateASILoader).
 [[nodiscard]] bool isAsiLoader(const std::filesystem::path& dll);
+// An Ultimate ASI Loader from before dinput8Hooked.dll (the Widescreen Fixes Pack's of 2023, the last that runs on
+// Windows 7): chained, it loads after the game has started and the game crashes. installShim moves it to d3d9.dll,
+// another name it works under (a Direct3D 9 game loads it at start-up), and puts the shim in its place.
+inline constexpr const char* kOldAsiLoaderDll = "d3d9.dll";
+// Whether `dll` is such a loader: it names itself Ultimate-ASI-Loader but has no IsUltimateASILoader export.
+[[nodiscard]] bool isOldAsiLoader(const std::filesystem::path& dll);
+// Whether an old ASI Loader sits aside in `folder`, as d3d9.dll.
+[[nodiscard]] bool oldAsiLoaderAside(const std::filesystem::path& folder);
 // Whether `dll` is WheelBri's shim: it exports IsWheelBriShim (shims from before that export are told by the
 // wheelbri-shim.ini next to them, see shimState).
 inline constexpr const char* kShimMarkExport = "IsWheelBriShim";
@@ -110,15 +118,17 @@ struct ShimResult {
 // Whether the shim in `folder` hands DirectInput on to another mod's DLL: dinput8-chain.dll is there.
 [[nodiscard]] bool shimChained(const std::filesystem::path& folder);
 // Why another mod's DLL in the shim's place in `folder` cannot be chained ("" when it can): "built for the other
-// processor" (than the game: it could not run there), or "dinput8-chain.dll is not a file".
+// processor" (than the game: it could not run there), "dinput8-chain.dll is not a file", or for an old ASI Loader
+// (isOldAsiLoader) "d3d9.dll is taken".
 [[nodiscard]] std::string chainProblem(const std::filesystem::path& folder);
 
 // Puts the shim into `folder`: copies `sourceDll` (replacing ours) and `sourceSettings` when no wheelbri-shim.ini is
 // there yet (the user's edits stay). Another mod's DLL in the shim's place is chained: renamed to dinput8-chain.dll
 // (one there already, from before the mod was updated, becomes dinput8-chain.dll.old), the shim put in its place and
-// [shim] chain = dinput8-chain.dll written. One built for the other processor than the game is left alone
-// (`leftAlone`): it could not run in the game anyway. With dinput8-chain.dll there, chain is written when the file has
-// none. Fails while the game runs (Windows locks the DLL); a failed chain puts the mod's DLL back.
+// [shim] chain = dinput8-chain.dll written; an old ASI Loader is renamed to d3d9.dll instead, nothing chained. One
+// built for the other processor than the game is left alone (`leftAlone`): it could not run in the game anyway. With
+// dinput8-chain.dll there, chain is written when the file has none. Fails while the game runs (Windows locks the
+// DLL); a failed chain puts the mod's DLL back.
 ShimResult installShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll,
                        const std::filesystem::path& sourceSettings);
 // Makes the shim in `folder` present `profile` ("g920", "g25"): [shim] target_profile in its wheelbri-shim.ini, the
@@ -140,7 +150,8 @@ inline constexpr const char* kShimGameAxesKey = "game_axes";
 inline constexpr const char* kShimGameAxesByWheelBri = "wheelbri";
 
 // Deletes what installShim put there: dinput8.dll (only ours) and wheelbri-shim.ini, and gives a chained mod its
-// place back (dinput8-chain.dll renamed to the shim's name; a .old is left).
+// place back (dinput8-chain.dll renamed to the shim's name; a .old is left), and an old ASI Loader too (d3d9.dll
+// renamed to dinput8.dll).
 ShimResult removeShim(const std::filesystem::path& folder, const std::filesystem::path& sourceDll);
 
 }  // namespace wheelbri

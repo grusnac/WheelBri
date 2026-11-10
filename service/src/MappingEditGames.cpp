@@ -144,7 +144,7 @@ void MappingEditView::drawGames() {
         const ShimState state = shims_->stateAt(folder);
         if (state == ShimState::Foreign) {   // amber only when Start cannot chain it
             colour = shims_->chainProblemAt(folder).empty() ? kDim : kWarning;
-            return std::string("other mod");
+            return std::string(shims_->oldAsiLoaderAt(folder) ? "old ASI" : "other mod");
         }
         if (state == ShimState::Missing) {
             colour = style::kFaint;
@@ -335,15 +335,17 @@ float MappingEditView::drawGameFolder(const GameProfile* const game, const std::
     const bool ours = state == ShimState::Installed || state == ShimState::Outdated;
     const bool chained = ours && shims_->chainedAt(index);
     const std::string chainProblem = state == ShimState::Foreign ? shims_->chainProblemAt(index) : std::string();
+    const bool oldLoader = state == ShimState::Foreign && shims_->oldAsiLoaderAt(index);
     const std::string where = chained ? ", chained to another mod's DLL"
                               : ours && shims_->asiLoaderAt(index) ? " next to the ASI Loader"
                                                                    : "";
+    const std::string theirs = oldLoader ? "an old ASI Loader as dinput8.dll" : "another mod's dinput8.dll";
     const std::string stateText =
         state == ShimState::Installed  ? "shim in place" + where
         : state == ShimState::Outdated ? "older shim" + where + " (Start replaces it)"
-        : state == ShimState::Foreign  ? (chainProblem.empty()
-                                              ? std::string("another mod's dinput8.dll: Start chains it")
-                                              : "another mod's dinput8.dll (" + chainProblem + "): Start leaves it")
+        : state == ShimState::Foreign  ? (!chainProblem.empty() ? theirs + " (" + chainProblem + "): Start leaves it"
+                                          : oldLoader           ? theirs + ": Start moves it to d3d9.dll"
+                                                                : theirs + ": Start chains it")
                                        : "no shim (Start puts it in)";
     const std::string target = shims_->targetAt(index);
     const std::string presents =
@@ -368,9 +370,12 @@ float MappingEditView::drawGameFolder(const GameProfile* const game, const std::
         bx += button(bx, y, "Put shim", [this, index] { shims_->put(index); }, false, !locked_, 96) + 6;
     } else if (state == ShimState::Foreign && chainProblem.empty()) {
         tip(bx, y, 96, 16,
-            "Renames the mod's dinput8.dll to dinput8-chain.dll and puts WheelBri's shim in front of it. Remove shim "
-            "undoes it.");
-        bx += button(bx, y, "Chain mod", [this, index] { shims_->put(index); }, false, !locked_, 96) + 6;
+            oldLoader ? "Renames the ASI Loader to d3d9.dll (the game loads it under that name too) and puts WheelBri's "
+                        "shim in its place. Remove shim undoes it."
+                      : "Renames the mod's dinput8.dll to dinput8-chain.dll and puts WheelBri's shim in front of it. "
+                        "Remove shim undoes it.");
+        bx += button(bx, y, oldLoader ? "Put shim" : "Chain mod", [this, index] { shims_->put(index); }, false,
+                     !locked_, 96) + 6;
     } else if (state == ShimState::Installed) {
         if (chained) tip(bx, y, 112, 16, "Deletes WheelBri's shim and gives the mod its dinput8.dll back.");
         bx += button(bx, y, "Remove shim", [this, index] { shims_->remove(index); }, false, !locked_, 112) + 6;
@@ -652,7 +657,7 @@ void MappingEditView::reloadGames() {
     userGames_ = loadUserGames();
     games_.assign(gameProfiles().begin(), gameProfiles().end());
     for (const GameProfile& game : userGames_) {
-        const bool builtIn = std::any_of(games_.begin(), games_.end(), [&game](const GameProfile& g) {
+        const bool builtIn = std::any_of(gameProfiles().begin(), gameProfiles().end(), [&game](const GameProfile& g) {
             return g.id == game.id || g.program == game.program;
         });
         if (!builtIn) games_.push_back(game);
@@ -682,16 +687,28 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
         statusError_ = true;
         return;
     }
+    // Kept only if games.ini can hold it as it is (iniSafeValue blanks ; and #); else found by its name, as before.
+    std::string path = pathToUtf8(*picked);
+    if (iniSafeValue(path) != path) {
+        WE_LOG_WARN(log(), "games: {} has ; or # in its path: found by its program's name only", path);
+        path.clear();
+    }
+    // The same game: a built-in profile's program (found by name), or the same program file.
     for (const GameProfile& game : games_) {
-        if (game.program == program) {
+        if (game.program == program &&
+            (game.path.empty() ? !userGame(game.id) || path.empty() : samePath(game.path, path))) {
             addFolder();
             selectGame(game.id);
-            status_ = game.label + " is in the list already (" + program + ").";
+            status_ = game.label + " is in the list already (" + (game.path.empty() ? program : game.path) + ").";
             statusError_ = false;
             return;
         }
     }
-    std::string base = gameIdFor(program);
+    // Named after its folder ("NFS Most Wanted"): several games' programs share a name (speed.exe).
+    std::string folderName = pathToUtf8(picked->parent_path().filename());
+    if (folderName.empty()) folderName = pathToUtf8(picked->stem());
+    std::string base = gameIdFor(folderName);
+    if (base.empty()) base = gameIdFor(program);
     if (base.empty()) base = "game";
     std::string id = base;
     const auto taken = [this](const std::string& candidate) {
@@ -701,8 +718,9 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
     GameProfile game;
     game.id = id;
     // At most 20 bytes (a label's length, GameProfiles.hpp), never half a character (a name like "Pokémon").
-    game.label = truncateUtf8(pathToUtf8(picked->stem()), 20);
+    game.label = truncateUtf8(folderName, 20);
     game.program = program;
+    game.path = path;
     std::vector<GameProfile> next = userGames_;
     next.push_back(game);
     const std::filesystem::path file = userGamesFile();
@@ -890,6 +908,34 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
             dropEmptyTuning(id);
         }, false, editable() && (ownAxis || ownInvert), 72);
         from(y, ownAxis || ownInvert, fits && profileAxes[p] != deviceAxes[p] ? "profile" : "Mapping tab");
+        y += 20;
+    }
+
+    // Combined pedals (Logitech's "Report Combined Pedals"): yours, else the profile's, else the Mapping tab's.
+    {
+        window_.text(gameX(), y + 4, "Combined", kText);
+        tip(gameX() - 2, y, 8 * ui::kCharWidth + 4, 16,
+            "Throttle and brake on one axis (the throttle's) while this game runs, as Logitech's \"Report Combined "
+            "Pedals\": for old games whose menus scroll by themselves with separate pedals.");
+        const bool ownCombined = own != nullptr && own->combinedPedals.has_value();
+        const bool profileCombined = fits && game.combinedPedals.has_value();
+        const bool combined = ownCombined       ? *own->combinedPedals
+                              : profileCombined ? *game.combinedPedals
+                                                : edit_.combinedPedals;
+        const bool combinedChanged =
+            ownCombined != (saved != nullptr && saved->combinedPedals.has_value()) ||
+            (ownCombined && saved != nullptr && saved->combinedPedals != own->combinedPedals);
+        window_.fill(axisX, y, 128, 16, kStripe);
+        window_.outline(axisX, y, 128, 16, combinedChanged ? kMine : style::kFieldEdge);
+        window_.text(axisX + 6, y + 4, combined ? "one axis" : "separate", kText);
+        button(directionX, y, combined ? "On" : "Off", [this, id, combined] {
+            tuningFor(id).combinedPedals = !combined;
+        }, combined, editable(), 88);
+        button(defaultX, y, "Default", [this, id] {
+            tuningFor(id).combinedPedals.reset();
+            dropEmptyTuning(id);
+        }, false, editable() && ownCombined, 72);
+        from(y, ownCombined, profileCombined ? "profile" : "Mapping tab");
         y += 20;
     }
     y += 6;

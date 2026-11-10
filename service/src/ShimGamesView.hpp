@@ -52,9 +52,11 @@ public:
     void refresh(bool now = false);
     [[nodiscard]] ShimState stateAt(std::size_t index) const;
     [[nodiscard]] std::string targetAt(std::size_t index) const;   // its target_profile ("g923"), "" without one
-    // Its shim is next to the Ultimate ASI Loader (dinput8Hooked.dll); chained to another mod's DLL (shimChained);
+    // Its shim is next to the Ultimate ASI Loader (dinput8Hooked.dll, or an old one moved to d3d9.dll); the dinput8.dll
+    // there is an old ASI Loader Start moves to d3d9.dll (isOldAsiLoader); chained to another mod's DLL (shimChained);
     // why another mod's DLL there cannot be chained ("" when it can, or there is none: chainProblem).
     [[nodiscard]] bool asiLoaderAt(std::size_t index) const;
+    [[nodiscard]] bool oldAsiLoaderAt(std::size_t index) const;
     [[nodiscard]] bool chainedAt(std::size_t index) const;
     [[nodiscard]] std::string chainProblemAt(std::size_t index) const;
     // What the Games tab does with a folder: put the shim in, delete it, take the folder off the list (files left).
@@ -125,7 +127,8 @@ private:
     HitList hits_;
     std::vector<ShimState> states_;          // per folder
     std::vector<std::string> targets_;       // per folder, the wheel its shim presents (target_profile)
-    std::vector<bool> asiLoaders_;           // per folder: asiLoaderAt, chainedAt, chainProblemAt
+    std::vector<bool> asiLoaders_;           // per folder: asiLoaderAt, oldAsiLoaderAt, chainedAt, chainProblemAt
+    std::vector<bool> oldAsiLoaders_;
     std::vector<bool> chained_;
     std::vector<std::string> chainProblems_;
     std::uint64_t statesReadMs_ = 0;

@@ -500,7 +500,7 @@ InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) 
     // the hat. Axes are signed here (no wheel with combined pedals has unsignedAxes).
     std::copy(packed.begin(), packed.begin() + 7, out.bytes.begin());
     std::array<std::uint8_t, kWheelInputReportSize> combined4{};
-    putAxis(combined4, 1, combinedPedals(report));
+    putAxis(combined4, 1, report.combined);
     out.bytes[7] = combined4[1];
     out.bytes[8] = combined4[2];
     out.bytes[9] = packed[7];    // the clutch, where packWheelInput put it
@@ -518,6 +518,7 @@ TargetReport neutralReport() {
     r.clutch = 65535;
     r.buttons = 0;
     r.hat = kHatCentered;
+    r.combined = combinedPedals(r);
     return r;
 }
 

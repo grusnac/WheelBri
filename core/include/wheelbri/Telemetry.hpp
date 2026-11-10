@@ -27,7 +27,8 @@ struct TelemetrySample {
     std::uint32_t sequence = 0;        // StatePacket sequence sent to the shim
     RawInputState raw;
     WheelState state;
-    TargetReport report;
+    TargetReport report;               // as published: what the game reads (Pipeline::lastPublished)
+    bool combinedPedals = false;       // pedals=combined (Pipeline::combinedPedals)
     const FfbController* ffb = nullptr;
     double periodUs = 0.0;             // last loop period and the work inside it
     double workUs = 0.0;

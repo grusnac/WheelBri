@@ -197,8 +197,9 @@ void readPedal(const IniDocument& ini, const std::string& section, PedalConfig& 
     SectionReader reader(ini, section, errors);
     reader.readSource("axis", pedal.sourceAxis, pedal.sourceDevice, kMaxAxisIndex, true, mapper);
     reader.readBool("invert", pedal.invert);
-    reader.readFloat("gamma", pedal.gamma, 0.1F, 10.0F);
-    // Dead zones (until 2026-10-13; the device's own software sets them now): older configs load, the keys are ignored.
+    // A curve (gamma, until 2026-11-10) and dead zones (until 2026-10-13): the device's own software sets them now;
+    // older configs load, the keys are ignored.
+    reader.retired("gamma");
     reader.retired("deadzone_low");
     reader.retired("saturation_high");
     reader.reportUnknownKeys();
@@ -291,6 +292,11 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         reader.readSource("right", hat.right, hat.devices[1], 63, true, config.mapper);
         reader.readSource("down", hat.down, hat.devices[2], 63, true, config.mapper);
         reader.readSource("left", hat.left, hat.devices[3], 63, true, config.mapper);
+        reader.reportUnknownKeys();
+    }
+    {
+        SectionReader reader(ini, "pedals", errors);
+        reader.readBool("combined", config.combinedPedals);
         reader.reportUnknownKeys();
     }
     {
@@ -442,7 +448,8 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
 
     static const std::set<std::string> kKnownSections = {"",         "emulator",      "steering",    "throttle",
                                                          "brake",    "clutch",        "buttons",     "button_labels",
-                                                         "axis_labels", "hat",        "ffb",         "logging",
+                                                         "axis_labels", "hat",        "pedals",      "ffb",
+                                                         "logging",
                                                          "telemetry", "retention",    "game_rotation",
                                                          "game_settings", "game_ffb_gain", "game_tuning"};
     for (const auto& [section, keys] : ini.sections()) {

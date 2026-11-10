@@ -144,6 +144,7 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
     GameProfile profile;
     profile.id = std::string(id);
     bool waysSet = false;   // [game] ways was there (even when it could not be read)
+    bool anyTarget = false;   // [game] target = any
 
     for (const auto& [section, keys] : ini.document.sections()) {
         if (section == "game") {
@@ -153,7 +154,10 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                 } else if (key == "program") {
                     profile.program = lower(value);
                 } else if (key == "target") {
+                    // any: every target (a profile that changes nothing a target decides, e.g. only [pedals] combined).
                     profile.target = lower(value);
+                    anyTarget = profile.target == "any";
+                    if (anyTarget) profile.target.clear();
                 } else if (key == "ways") {
                     waysSet = true;
                     if (!parseWays(value, profile)) {
@@ -186,6 +190,16 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
             }
         } else if (section == "pedals") {
             for (const auto& [key, value] : keys) {
+                if (key == "combined") {
+                    if (value == "true") {
+                        profile.combinedPedals = true;
+                    } else if (value == "false") {
+                        profile.combinedPedals = false;
+                    } else {
+                        result.problems.push_back("[pedals] combined = '" + value + "': expected true or false");
+                    }
+                    continue;
+                }
                 std::optional<ObjectGuid>* field = key == "throttle_axis" ? &profile.throttleAxis
                                                    : key == "brake_axis"  ? &profile.brakeAxis
                                                    : key == "clutch_axis" ? &profile.clutchAxis
@@ -250,7 +264,10 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
     if (profile.program.empty() || programName(profile.program) != profile.program) {
         result.problems.push_back("[game] program must be the game's program file name, e.g. nfs16.exe");
     }
-    if (profile.target.empty()) result.problems.push_back("[game] target is missing (e.g. g920)");
+    if (profile.target.empty() && !anyTarget) result.problems.push_back("[game] target is missing (e.g. g920 or any)");
+    if (anyTarget && (profile.throttleAxis || profile.brakeAxis || profile.clutchAxis)) {
+        result.problems.push_back("[pedals] *_axis need one target: the axes are that target's");
+    }
     if (profile.notFor.empty() != profile.notForNote.empty()) {
         result.problems.push_back("[game] not_for and not_for_note go together: the targets and what goes wrong");
     } else if (profile.notForNote.size() > kMaxNote) {
@@ -363,6 +380,9 @@ std::string describeOverlay(const GameProfile& profile) {
     add("throttle_axis", profile.throttleAxis);
     add("brake_axis", profile.brakeAxis);
     add("clutch_axis", profile.clutchAxis);
+    if (profile.combinedPedals) {
+        out += (out.empty() ? "" : ", ") + std::string("combined = ") + (*profile.combinedPedals ? "true" : "false");
+    }
     return out;
 }
 
@@ -395,16 +415,42 @@ TargetReport applyPedalRoute(const TargetReport& report, const PedalRoute route)
 
 std::vector<RunningGame> findRunningGames(const std::span<const RunningProgram> programs,
                                           const std::span<const GameProfile> profiles) {
-    std::vector<RunningGame> found;
-    for (const GameProfile& profile : profiles) {
-        for (const RunningProgram& program : programs) {
-            if (gameProfileFor(program.name, profiles) == &profile) {
-                found.push_back(RunningGame{&profile, program.pid, program.name});
-                break;
-            }
+    std::vector<std::optional<RunningGame>> byProfile(profiles.size());
+    std::vector<bool> taken(programs.size(), false);
+    const auto claim = [&](const std::size_t p) {
+        const GameProfile& profile = profiles[p];
+        for (std::size_t i = 0; i < programs.size(); ++i) {
+            const RunningProgram& program = programs[i];
+            if (taken[i] || programName(program.name) != profile.program) continue;
+            if (!profile.path.empty() && !program.path.empty() && !samePath(program.path, profile.path)) continue;
+            taken[i] = true;
+            byProfile[p] = RunningGame{&profile, program.pid, program.name};
+            return;
         }
+    };
+    for (std::size_t p = 0; p < profiles.size(); ++p) {
+        if (!profiles[p].path.empty()) claim(p);
+    }
+    for (std::size_t p = 0; p < profiles.size(); ++p) {
+        if (profiles[p].path.empty()) claim(p);
+    }
+    std::vector<RunningGame> found;
+    for (const std::optional<RunningGame>& game : byProfile) {
+        if (game) found.push_back(*game);
     }
     return found;
+}
+
+bool samePath(const std::string_view a, const std::string_view b) {
+    const auto fold = [](const char c) {
+        if (c == '/') return '\\';
+        return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    };
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (fold(a[i]) != fold(b[i])) return false;
+    }
+    return true;
 }
 
 }  // namespace wheelbri

@@ -89,6 +89,53 @@ TEST(Pipeline, PedalRouteMovesOnlyThePublishedPedals) {
     EXPECT_EQ(publisher.packets.back().report, pipeline.lastReport());
 }
 
+// Combined pedals (Logitech's "Report Combined Pedals"): the published throttle carries the combined pedals, the brake
+// rests in the middle, the clutch stays; the window and telemetry keep the mapped pedals. Before a game's pedal route.
+TEST(Pipeline, CombinedPedalsPutThemOnTheThrottleAndCentreTheBrake) {
+    FakeSource source;
+    RecordingPublisher publisher;
+    MapperConfig config;
+    config.throttle.sourceAxis = 1;
+    config.brake.sourceAxis = 2;
+    config.clutch.sourceAxis = 3;
+    const Mapper mapper(config);
+    const DeviceProfile profile(g25Spec());
+    Pipeline pipeline(source, mapper, profile, publisher);
+    EXPECT_FALSE(pipeline.combinedPedals());
+
+    source.next.axes[1] = -1.0F;   // all released
+    source.next.axes[2] = -1.0F;
+    source.next.axes[3] = -1.0F;
+    pipeline.setCombinedPedals(true);
+    ASSERT_TRUE(pipeline.tick());
+    const TargetReport& released = publisher.packets.back().report;
+    EXPECT_EQ(released.throttle, kPedalMiddle);   // released: the middle, so menus read no direction
+    EXPECT_EQ(released.brake, kPedalMiddle);
+    EXPECT_EQ(released.clutch, 65535);
+    EXPECT_EQ(pipeline.lastReport().throttle, 65535);   // as mapped
+
+    source.next.axes[1] = 1.0F;    // throttle fully pressed: the bottom
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report.throttle, 0);
+    source.next.axes[1] = -1.0F;
+    source.next.axes[2] = 1.0F;    // brake fully pressed: the top
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report.throttle, 65535);
+    EXPECT_EQ(publisher.packets.back().report.brake, kPedalMiddle);
+    EXPECT_EQ(publisher.packets.back().report.combined, 65535);   // Slider 0 as always
+
+    // A game that reads the throttle from the Slider (a route) gets the combined pedals there.
+    pipeline.setPedalRoute(PedalRoute{{1, 2, 0}});
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report.clutch, 65535);   // the combined pedals: brake pressed
+    EXPECT_EQ(publisher.packets.back().report.throttle, kPedalMiddle);
+
+    pipeline.setPedalRoute(PedalRoute{});
+    pipeline.setCombinedPedals(false);
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report, pipeline.lastReport());
+}
+
 // [buttons] order = native: the G25's buttons are published in its own HID order; the window and telemetry keep them as
 // named. A target without a native order (the G920) ignores it.
 TEST(Pipeline, NativeButtonOrderMovesOnlyThePublishedButtons) {

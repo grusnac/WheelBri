@@ -928,7 +928,7 @@ void MappingEditView::draw() {
     }
 
     // No wheel line: there is one rig, and its wheel is device 0 (Rig::wheel, or the config's source_device).
-    float y = 28 + picker_.rowsHeight();   // under the top rows (Target and Mode; Order for the G25 and G27)
+    float y = 28 + picker_.rowsHeight();   // under the top row (Target and Mode)
     if (rig_.devices.empty()) {
         window_.text(4, y,
                      rigName_.empty() ? "No rig yet: define your devices and their controls in the Rig tab first."
@@ -1086,14 +1086,18 @@ void MappingEditView::drawEntry(const float x, const float y, const float w, con
     if ((!greyed || takenClicks) && action) hit(x, y, w, 16, std::move(action));
 }
 
-void MappingEditView::drawRotation(const float top) {
-    float y = top;
+float MappingEditView::section(const float y, const std::string_view title, const std::string& about) {
     style::headingBand(window_, 0, y, canvasW());
-    style::heading(window_, 8, y, "STEERING ROTATION");
-    window_.text(160, y, "full lock to full lock, in degrees", kDim);
+    style::heading(window_, 8, y, title);
+    const float aboutX = 8 + static_cast<float>(title.size()) * ui::kCharWidth + 16;
+    window_.text(aboutX, y, fit(about, static_cast<std::size_t>(std::max(0.0F, canvasW() - aboutX) / ui::kCharWidth)),
+                 kDim);
+    return y + 16;
+}
 
+void MappingEditView::drawRotation(const float top) {
     // The steering rotation: the slider (90 to 1080), the typed number (up to 2520) and the usual values.
-    y += 16;
+    float y = section(top, "STEERING ROTATION", "full lock to full lock, in degrees");
     window_.text(4, y + 4, "Rotation", kText);
     const float shown = std::clamp(edit_.steeringRotationDeg, kSliderMinDeg, kSliderMaxDeg);
     const float filled = (shown - kSliderMinDeg) / (kSliderMaxDeg - kSliderMinDeg) * sliderW();
@@ -1128,22 +1132,61 @@ void MappingEditView::drawRotation(const float top) {
         "full lock. A game can steer with its own rotation (NFS Payback: 180): the Games tab (G) sets it.");
 
     y += 30;
+    y = drawCombinedPedals(y) + 14;
+    y = drawTargetOptions(y);
     if (profile_ != nullptr && profile_->identity().centringSpring) drawCentringSpring(y);
+}
+
+float MappingEditView::drawTargetOptions(const float top) {
+    // The target's own options, under the pedals as Logitech's software had them: the G25's and G27's button order,
+    // the G923's TrueForce (ConfigPicker keeps them: each order has its own mapping file).
+    const auto tipSink = [this](const float x, const float y, const float w, const float h, std::string text) {
+        tip(x, y, w, h, std::move(text));
+    };
+    float y = top;
+    const std::string target = profile_ != nullptr ? std::string(profile_->identity().shortName) : targetName_;
+    if (ConfigPicker::hasButtonOrders(picker_.target())) {
+        y = section(y, "BUTTON ORDER", "the numbers the game gets the " + target + "'s buttons by; each its own mapping");
+        y = picker_.drawOrder(4, kSliderX, y, !locked_, tipSink) + 14;
+    }
+    if (ConfigPicker::hasTrueForce(picker_.target())) {
+        y = section(y, "TRUEFORCE", "Logitech's TrueForce, for games that use it (Mode Virtual)");
+        y = picker_.drawTrueForce(4, kSliderX, y, !locked_, tipSink) + 14;
+    }
+    return y;
+}
+
+float MappingEditView::drawCombinedPedals(const float top) {
+    // Logitech's "Report Combined Pedals" (every target's software had it): for old games that read throttle and brake
+    // from one axis. A game's own value (the Games tab, or its profile) wins while it runs.
+    tip(4, top - 2, 420, 12,
+        "Throttle and brake on one axis (the throttle's), in the middle when both are released; the brake's axis rests "
+        "in the middle. For old games that read them so (NFS Underground, Most Wanted: their menus scroll by themselves "
+        "otherwise). Off for newer games: pressing both cancels out. A game can have its own (the Games tab).");
+    const float y = section(top, "PEDALS", "Logitech's \"Report Combined Pedals\", in every game");
+    window_.text(4, y + 4, "Reported as", kText);
+    // Two halves of one switch, as Button order and TrueForce (their edges shared).
+    const float x = kSliderX;
+    button(x, y, "Separate", [this] { edit_.combinedPedals = false; }, !edit_.combinedPedals, !locked_,
+           kSwitchWidth);
+    button(x + kSwitchWidth - 1, y, "Combined", [this] { edit_.combinedPedals = true; }, edit_.combinedPedals,
+           !locked_, kSwitchWidth);
+    tip(x, y, kSwitchWidth, 16, "Separate: throttle, brake and clutch each on its own axis. For most games.");
+    tip(x + kSwitchWidth - 1, y, kSwitchWidth, 16,
+        "Combined: throttle and brake on one axis, for old games that read them so (NFS Underground, Most Wanted).");
+    return y + 16;
 }
 
 float MappingEditView::drawCentringSpring(const float top) {
     // The target's own (Logitech's software for the G25 and G27): a spring to the centre in every game, on top of the
     // game's forces. 0 is off (the checkbox unticked).
-    float y = top;
     const std::string target(profile_->identity().shortName);
-    style::headingBand(window_, 0, y, canvasW());
-    style::heading(window_, 8, y, "CENTRING SPRING");
-    window_.text(140, y, "the " + target + "'s own, in every game: pulls the wheel to the centre", kDim);
-    tip(4, y - 2, 600, 12,
+    tip(4, top - 2, 600, 12,
         "As Logitech's software for the " + target + " had it (\"Enable Centering Spring in Force Feedback Games\", "
         "0 to 100%): a spring around the centre on top of the game's forces, whatever the game sends (Race Driver: "
         "GRID sends none, so the wheel stays where it was left). 0 = off. Takes effect at the next Start.");
-    y += 16;
+    const float y = section(top, "CENTRING SPRING", "the " + target + "'s own, in every game: pulls the wheel to the "
+                                                    "centre");
     window_.text(4, y + 4, "Strength", kText);
     const bool changed = edit_.centringSpringPercent != saved_.centringSpringPercent;
     drawField(kSliderX, y, 64, Field::CentringSpring, tuning::formatNumber(edit_.centringSpringPercent), changed);

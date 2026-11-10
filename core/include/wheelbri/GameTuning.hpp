@@ -22,6 +22,8 @@
 //   [game_tuning]
 //   nfs2015.throttle_axis = slider     ; the axis the game reads the pedal from: x y z rx ry rz slider (clutch: none)
 //   nfs2015.brake_invert = true        ; pedals: <pedal>_invert = true|false (how they feel: the rig's own software)
+//   nfsmw.combined_pedals = true       ; Logitech's "Report Combined Pedals" while the game runs, instead of the
+//                                      ;   Mapping tab's [pedals] combined and the game profile's
 //   nfsheat.button_4 = 13              ; target button 4 <- this source while the game runs (-1: nothing)
 //   nfsheat.button_4_or = 20, axis 3 > 50%   ; its secondary sources while the game runs, as [buttons] target_N_or
 //                                      ;   (ButtonRef.hpp): instead of the Mapping tab's, not added to them (-1: none)
@@ -37,6 +39,7 @@ inline constexpr std::array<std::string_view, 3> kTuningPedals{"throttle", "brak
 struct GameTuning {
     std::array<std::optional<ObjectGuid>, 3> pedalAxes;   // the axis the game reads each pedal from
     std::array<std::optional<bool>, 3> pedalInvert;
+    std::optional<bool> combinedPedals;   // Logitech's "Report Combined Pedals" while the game runs; unset: as before
     std::map<int, SourceRef> buttons;   // target button -> its source while the game runs
     // target button -> its secondary sources while the game runs (at most MapperConfig::kMaxSecondaries), instead of
     // the Mapping tab's; empty: none in this game. A button left out keeps the Mapping tab's.
@@ -77,15 +80,24 @@ struct GameDecision {
     PedalRoute route;                // straight through unless the game's pedals need routing
     bool unroutable = false;         // the game's pedal axes are not the device's: left as they are
     const GameTuning* tuning = nullptr;   // the user's values for the game (in `config.tunings`), or null
+    // Combined pedals while the game runs: the user's value for it, else its profile's; nullopt: the mapping's
+    // ([pedals] combined). For both ways: the service sends the pedals combined, the shim takes them as they come.
+    std::optional<bool> combinedPedals;
+    bool combinedPedalsFromUser = false;   // combinedPedals is the user's value ([game_tuning]), not the profile's
 };
 // `game` null: no game runs. `profileApplies`: its built-in values fit the target (profileFitsTarget).
 [[nodiscard]] GameDecision decideGame(const GameProfile* game, bool profileApplies, const GameSessionConfig& config);
+
+// The service log's line for the pedals the game gets: combined or separate, where that comes from (`from`: "NFS
+// U1/MW's profile"), and what the game then reads on the pedal axes.
+[[nodiscard]] std::string pedalsLogLine(bool combined, std::string_view from);
 
 // Games the user added (the Games tab's Add game), kept in games.ini next to app.ini:
 //   [game.excalibur]
 //   label = Excalibur
 //   program = excalibur.exe
-// They fit every target and change nothing until the user sets values for them ([game_tuning]).
+//   path = D:\Games\Excalibur\excalibur.exe   ; optional: only the program there is this game
+// Several may share a program's name if their paths differ. They fit every target and change nothing until the user sets values for them ([game_tuning]).
 struct UserGamesResult {
     std::vector<GameProfile> games;
     std::vector<std::string> problems;

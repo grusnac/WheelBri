@@ -18,7 +18,7 @@
 
 namespace wheelbri::service {
 
-// The top row of the app's Mapping tab: the target and how it runs, and so the config Start uses. Two rows of buttons
+// The top row of the app's Mapping tab: the target and how it runs, and so the config Start uses. A row of buttons
 // (segmented: every choice shown, the chosen one filled, one click picks another):
 //   - Target: the wheel WheelBri emulates: the Logitech G25, G27, G920 or G923 (more come only when WheelBri supports
 //     them, never from the user);
@@ -29,14 +29,16 @@ namespace wheelbri::service {
 // mapping of the rig onto them. The user's own mapping, once saved on the Mapping tab, goes to
 // <user configs>/my-<target>.ini (both modes too) and is used instead; "Default" deletes it. Switching Mode never
 // changes the mapping.
-//   - Order (the G25 and G27 only): the order their buttons reach the game in (ButtonOrder): Logitech driver or
+//   - Order (the G25 and G27 only; drawOrder, the Mapping tab's BUTTON ORDER under the pedals): the order their
+//     buttons reach the game in (ButtonOrder): Logitech driver or
 //     Native. Each order has its own whole mapping: my-<target>.ini for Logitech driver, my-<target>-native.ini for
 //     Native (WheelBri's default for both is <target>.ini; with Native, Start overrides its [buttons] order). The
 //     first time Native is picked while the user has their own Logitech driver mapping, that is copied to the Native
 //     file and [app] renumbered_<target> = pending says its buttons' game numbers changed (the Mapping tab marks
 //     them until each is changed or "Got it"). Kept in [app] order_<target>; a my-<target>.ini that said
 //     order = native before there were two (2026-10-26) becomes the Native mapping once (adoptOlderOrder).
-//   - TrueForce (the G923 only): whether the virtual G923 has its TrueForce interface, as a real one, so games that
+//   - TrueForce (the G923 only; drawTrueForce, the Mapping tab's TRUEFORCE under the pedals): whether the virtual
+//     G923 has its TrueForce interface, as a real one, so games that
 //     use Logitech's TrueForce (ACC, DiRT Rally 2.0) stream their force through it; Off, they send DirectInput effects
 //     as to a G920. On needs Logitech's TrueForce SDK, which games load from G HUB's folder (Settings::trueForceSdk):
 //     without it On is greyed and Start runs with Off. Mode Virtual only. Kept in [app] trueforce_g923 (on, off);
@@ -142,17 +144,25 @@ public:
 
     // Where a button's hover text goes (x, y, w, h, text): the Mapping tab's own tooltips.
     using TipSink = std::function<void(float, float, float, float, std::string)>;
-    // Draws the row at (x, y): "Target" [G25|G27|G920|G923], "Mode" [Virtual|Shim], and for the G25 and G27 a second
-    // row under it: "Order" [Logitech driver|Native], for the G923 "TrueForce" [Off|On]; each button says what it is in its hover text (to `tip`, when
-    // given), a greyed one why. `canChange` is false while a session runs or starts. Returns the x where the first
-    // row ends.
+    // Draws the row at (x, y): "Target" [G25|G27|G920|G923], "Mode" [Virtual|Shim]; each button says what it is in its
+    // hover text (to `tip`, when given), a greyed one why. `canChange` is false while a session runs or starts.
+    // Returns the x where the row ends. Starts the frame's buttons: call it before drawOrder and drawTrueForce.
     float draw(float x, float y, bool canChange, const TipSink& tip = {});
-    // How tall what draw draws is: one row, or two with Order or TrueForce.
+    // How tall what draw draws is: one row.
     [[nodiscard]] float rowsHeight() const;
+    // The G25's and G27's row "Order" (at labelX) [Logitech|Native] (from buttonsX), the Mapping tab's BUTTON ORDER;
+    // nothing for another target. Returns where it ends (y itself when nothing was drawn).
+    float drawOrder(float labelX, float buttonsX, float y, bool canChange, const TipSink& tip = {});
+    // The G923's row "TrueForce" (at labelX) [Off|On] (from buttonsX), the Mapping tab's TRUEFORCE; nothing for another
+    // target. Returns where it ends (y itself when nothing was drawn).
+    float drawTrueForce(float labelX, float buttonsX, float y, bool canChange, const TipSink& tip = {});
     // A click on the tab; true if it was on the row.
     bool onClick(float x, float y);
 
 private:
+    // One button of a row at (x, y); returns where the next one starts (their edges overlap).
+    float segment(float x, float y, std::string_view label, float w, bool chosen, bool available,
+                  const std::string& about, std::function<void()> action, bool canChangeNow, const TipSink& tip);
     // my-<target>.ini from the older per-mode files (olderOwnNames), once per target.
     void adoptOlderOwn();
     // [app] order_<target> once: native when my-<target>.ini says order = native (copied to my-<target>-native.ini

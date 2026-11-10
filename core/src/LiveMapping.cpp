@@ -17,6 +17,7 @@ LiveMappingChange liveMappingChange(const EmulatorConfig& running, const Emulato
         }
     }
     if (next.buttonOrder != running.buttonOrder) change.buttonOrder = next.buttonOrder;
+    if (next.combinedPedals != running.combinedPedals) change.combinedPedals = next.combinedPedals;
 
     const auto waits = [&change](const bool differs, const char* what) {
         if (differs) change.waiting.emplace_back(what);
@@ -35,6 +36,7 @@ LiveMappingChange liveMappingChange(const EmulatorConfig& running, const Emulato
 void applyLiveMappingChange(EmulatorConfig& running, const LiveMappingChange& change) {
     if (change.mapper) running.mapper = *change.mapper;
     if (change.buttonOrder) running.buttonOrder = *change.buttonOrder;
+    if (change.combinedPedals) running.combinedPedals = *change.combinedPedals;
 }
 
 }  // namespace wheelbri

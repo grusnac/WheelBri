@@ -357,7 +357,13 @@ private:
     void learnGameFile(const std::string& id, std::filesystem::file_time_type since);
     [[nodiscard]] std::size_t selectedGameIndex() const;
     // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
-    // The target's centring spring (G25, G27), below the rotation; returns where it ends.
+    // A lower section's heading band, its title and what it is about (one gap after the title); returns its row's y.
+    float section(float y, std::string_view title, const std::string& about);
+    // Combined pedals ([pedals] combined), below the rotation; returns where it ends.
+    float drawCombinedPedals(float top);
+    // The target's own options below that: BUTTON ORDER (G25, G27), TRUEFORCE (G923); returns where they end.
+    float drawTargetOptions(float top);
+    // The target's centring spring (G25, G27), below the combined pedals; returns where it ends.
     float drawCentringSpring(float top);
     void drawField(float x, float y, float w, Field field, const std::string& value, bool changed,
                    std::size_t index = 0);

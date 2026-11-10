@@ -10,6 +10,7 @@
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/Nfs2015Settings.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <system_error>
 #include <utility>
@@ -50,8 +51,9 @@ std::vector<GameProfile> allGames(std::vector<GameProfile> userGames) {
     std::vector<GameProfile> games(gameProfiles().begin(), gameProfiles().end());
     for (GameProfile& game : userGames) {
         // A game the user added that has a built-in profile too is that profile (Add game refuses it; a hand edit).
+        // Built-in ones only: user games may share a program's name (speed.exe) when their paths differ.
         bool known = false;
-        for (const GameProfile& builtIn : games) {
+        for (const GameProfile& builtIn : gameProfiles()) {
             known = known || builtIn.program == game.program || builtIn.id == game.id;
         }
         if (known) {
@@ -234,8 +236,21 @@ void GameWatch::setMapping(const float degrees) {
 }
 
 GameWatch::Decision GameWatch::check() {
-    const GameDetector::Update update =
-        detector_.poll(system_.runningPrograms ? system_.runningPrograms() : platform::runningPrograms());
+    std::optional<std::vector<RunningProgram>> programs =
+        system_.runningPrograms ? system_.runningPrograms() : platform::runningPrograms();
+    if (programs) {
+        // Where it runs from, only for a game known by its path (two games may share a program's name); Windows only.
+        for (RunningProgram& program : *programs) {
+            const std::string name = programName(program.name);
+            if (std::none_of(games_.begin(), games_.end(),
+                             [&name](const GameProfile& g) { return !g.path.empty() && g.program == name; })) {
+                continue;
+            }
+            program.path =
+                pathToUtf8(system_.processImage ? system_.processImage(program.pid) : platform::processImage(program.pid));
+        }
+    }
+    const GameDetector::Update update = detector_.poll(programs);
     logEvents(update);
     const std::uint64_t notices = wayNotices_.count();
     wayNotices_.update(update, detector_.state());
@@ -265,6 +280,11 @@ GameWatch::Decision GameWatch::check() {
     sayTuning();
     Decision out;
     out.route = decision.route;
+    out.combinedPedals = decision.combinedPedals;
+    if (decision.combinedPedals && state.game != nullptr) {
+        out.combinedPedalsFrom = decision.combinedPedalsFromUser ? "your value for " + state.game->label
+                                                                 : state.game->label + "'s profile";
+    }
     if (decision.tuning != nullptr && changesMapping(*decision.tuning)) {
         out.mapperGame = state.game->id;
         out.tuning = decision.tuning;

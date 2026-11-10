@@ -72,6 +72,11 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
    as **or ...** in the row; click one to change them.
 5. Set **Steering rotation** to the game's full lock, and your wheel's software to **the same number**.
 
+**Combined pedals** (every Target, off by default): throttle and brake on one axis, the throttle's, resting in the
+middle; the brake's axis rests in the middle. As Logitech's "Report Combined Pedals", for old games that read them so
+(NFS Underground, Most Wanted: their menus scroll by themselves otherwise). Those games have it on by themselves
+(Games tab); turn it on here only for another such game. Pressing both pedals cancels out.
+
 **G25 and G27 only:**
 
 - **Centring spring**: that wheel's own spring to the centre on top of the game's forces, 0 to 100% (off by default).
@@ -144,8 +149,9 @@ the Target. When Start is greyed out, the red notice above the tabs says why; **
 2. Press **Start**. Each listed game gets the right shim (32 or 64-bit, next to the Ultimate ASI Loader if present).
    Another mod's `dinput8.dll` (a Widescreen Fix, ReShade) is chained, never overwritten: it is renamed to
    `dinput8-chain.dll`, the shim goes in its place and hands DirectInput on to it, so the mod keeps working. **Remove
-   shim** gives it its name back. Only a mod built for the other processor than the game is left alone (that game is
-   left out).
+   shim** gives it its name back. An old Ultimate ASI Loader (a Widescreen Fix from 2023, for Windows 7) is renamed
+   to `d3d9.dll` instead. Only a mod built for the other processor than the game is left alone (that game is left
+   out), or an old ASI Loader when `d3d9.dll` is taken.
 3. Start the game and pick the Logitech wheel. If it runs 2 minutes without a word from the shim, WheelBri warns you:
    check its folder on the Games tab and restart the game.
 4. At **Stop**, choose whether to delete the shims from the games' folders.
@@ -195,13 +201,15 @@ NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, you
 Heat is recognised too: it has no values, only a warning when the Target is the G923.
 
 1. Pick the game on the left. Tags show what is in its folder (`shim g920`, `+ASI` next to the ASI Loader, `+mod`
-   chained to another mod, `no shim`, `other mod`: **Chain mod** chains it now), `! not G923`
+   chained to another mod, `no shim`, `other mod`: **Chain mod** chains it now, `old ASI`: Start renames it to
+   `d3d9.dll`), `! not G923`
    when the game does not support the Target, `running` for the one WheelBri sees now. **Add game...** picks a game's
-   `.exe`; **Remove** takes one you added off the list (its files stay). Its **FOLDER** row: **Put shim** (or **Chain
+   `.exe` and names it after its folder; games whose `.exe` shares a name (`speed.exe`) stay apart by folder. **Remove** takes one you added off the list (its files stay). Its **FOLDER** row: **Put shim** (or **Chain
    mod**), **Remove shim**, and **Forget folder** to drop the folder WheelBri knows for it.
 2. Set its sub-tabs; **Default** goes back to the profile's or the Mapping tab's value (yours show in violet):
    - **Axes and buttons**, the axes first: steering rotation; per pedal, the axis the game reads and Normal /
-     Inverted. In Mode Virtual pedals can only be swapped among the Target's own pedal axes.
+     Inverted; **Combined** pedals for this game. In Mode Virtual pedals can only be swapped among the Target's own
+     pedal axes.
 
      ![Throttle moved to another axis for this game; the amber note: in Mode Virtual only for Mode Shim](images/games-axis-remapping.png)
 

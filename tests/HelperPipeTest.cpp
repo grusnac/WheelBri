@@ -129,6 +129,8 @@ public:
         options.version = kVersion;
         options.pipeName = name_;
         options.firstMessageMs = firstMessageMs;
+        // The helper's permissions, plus the owner (this test, run as the user): it makes more instances of the pipe.
+        options.pipeSddl = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;0x0012019B;;;IU)";
         options.isApp = [acceptCaller](const std::string&) { return acceptCaller; };
         if (sessions) {
             options.makeSession = [this](void* process, void* token, std::function<bool()>) {

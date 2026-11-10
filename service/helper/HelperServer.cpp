@@ -373,7 +373,8 @@ HelperServer::HelperServer(Options options) : options_(std::move(options)) {
 bool HelperServer::run(void* const stopEvent, std::string& error) {
     const HANDLE stop = static_cast<HANDLE>(stopEvent);
     PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(kPipeSddl, SDDL_REVISION_1, &descriptor, nullptr)) {
+    const wchar_t* const sddl = options_.pipeSddl.empty() ? kPipeSddl : options_.pipeSddl.c_str();
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, SDDL_REVISION_1, &descriptor, nullptr)) {
         error = "cannot make the pipe's permissions: " + windowsError(GetLastError());
         return false;
     }

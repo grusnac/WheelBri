@@ -5,6 +5,7 @@
 // programs and clock replaced (MappingEditView::System), so every path runs the same on Windows and Linux.
 
 #include "ConfigPicker.hpp"
+#include "GameWatch.hpp"
 #include "MappingEditView.hpp"
 #include "ServiceLogging.hpp"
 #include "ShimGamesView.hpp"
@@ -1287,7 +1288,7 @@ TEST_F(EditView, TheGamesList) {
     open();
     games();
     EXPECT_TRUE(window_.has("GAMES"));
-    EXPECT_EQ(window_.count("built in"), 4U);
+    EXPECT_EQ(window_.count("built in"), 6U);
     EXPECT_TRUE(window_.has("program nfs16.exe"));
     EXPECT_TRUE(window_.hasPart("While WheelBri runs (Start) it finds the game"));
     EXPECT_TRUE(window_.has("Axes and buttons"));
@@ -1355,9 +1356,9 @@ TEST_F(EditView, AGameTheTargetDoesNotSupport) {
     frame();
     EXPECT_TRUE(window_.hasPart("! NFS Unbound does not support the G923"));
     picker_->useTarget(ConfigPicker::Target::G25);
-    open();   // nothing picked yet
+    open();   // nothing picked yet: the first game for the G25 (NFS U1/MW fits every target)
     games();
-    EXPECT_TRUE(window_.has("program nfs16.exe"));
+    EXPECT_TRUE(window_.has("program speed.exe"));
 }
 
 // The Axes sub-tab: the game's own steering rotation (typed, "off", Default), each pedal's axis (< >, the clutch also
@@ -1534,6 +1535,8 @@ TEST_F(EditView, ManyChangedButtons) {
     write(userConfigFolder() / "my-g923.ini", text);
     open();
     picker_->useTarget(ConfigPicker::Target::G923);
+    games();
+    ASSERT_TRUE(click("NFS 2015"));
     games();
     ASSERT_TRUE(click("Axes and buttons"));
     frame();
@@ -1825,19 +1828,19 @@ TEST_F(EditView, AddingAGame) {
     fileAnswers_.push_back(shift);
     ASSERT_TRUE(click("Add game..."));
     frame();
-    EXPECT_TRUE(window_.hasPart("NeedForSpeedShift added: WheelBri finds needforspeedshift.exe while it runs"));
-    EXPECT_NE(read(userGamesFile()).find("[game.needforspeedshift]"), std::string::npos) << read(userGamesFile());
+    EXPECT_TRUE(window_.hasPart("Shift added: WheelBri finds needforspeedshift.exe while it runs"));
+    EXPECT_NE(read(userGamesFile()).find("[game.shift]"), std::string::npos) << read(userGamesFile());
     EXPECT_TRUE(window_.has("yours") || window_.hasPart("no shim"));
-    fileAnswers_.push_back(dir_ / "Nowhere" / "need-for-speed-shift.exe");   // the same id: another; no folder listed
+    fileAnswers_.push_back(dir_ / "Nowhere" / "Shift" / "need-for-speed-shift.exe");   // the same id: another; no folder
     ASSERT_TRUE(click("Add game..."));
     frame();
-    EXPECT_NE(read(userGamesFile()).find("[game.needforspeedshift2]"), std::string::npos) << read(userGamesFile());
-    const std::filesystem::path longName = dir_ / "Games" / "abcdefghijklmnopqrs\xc3\x89tu.exe";
+    EXPECT_NE(read(userGamesFile()).find("[game.shift2]"), std::string::npos) << read(userGamesFile());
+    const std::filesystem::path longName = pathFromUtf8(pathToUtf8(dir_) + "/abcdefghijklmnopqrs\xc3\x89tu/long.exe");
     fileAnswers_.push_back(longName);
     ASSERT_TRUE(click("Add game..."));
     frame();
     EXPECT_NE(read(userGamesFile()).find("label = abcdefghijklmnopqrs\n"), std::string::npos) << read(userGamesFile());
-    fileAnswers_.push_back(dir_ / "Games" / "!!!.exe");   // no letters for an id: "game"
+    fileAnswers_.push_back(dir_ / "!!!" / "!!!.exe");   // no letters for an id: "game"
     ASSERT_TRUE(click("Add game..."));
     frame();
     EXPECT_NE(read(userGamesFile()).find("[game.game]"), std::string::npos) << read(userGamesFile());
@@ -2002,7 +2005,7 @@ TEST_F(EditView, GameFolders) {
     ASSERT_TRUE(click("Add as your game..."));
     nowMs_ += 2000;
     games();
-    EXPECT_TRUE(window_.hasPart("other added"));
+    EXPECT_TRUE(window_.hasPart("Other added"));
     EXPECT_FALSE(window_.hasPart("WheelBri does not know the game in this folder"));
 
     // Forget folder: off the list.
@@ -2343,7 +2346,7 @@ TEST_F(EditView, AnAddedGameThatIsABuiltInProfile) {
     games();
     EXPECT_FALSE(window_.has("Copy"));
     EXPECT_FALSE(window_.has("Payback"));
-    EXPECT_EQ(window_.count("built in"), 4U);   // not "yours": the built-in profile is the one used
+    EXPECT_EQ(window_.count("built in"), 6U);   // not "yours": the built-in profile is the one used
     ASSERT_TRUE(click("NFS Payback"));
     games();
     const Window::Text* const remove = window_.find("Remove");
@@ -2363,11 +2366,31 @@ TEST_F(EditView, AddingAGameWithoutFolders) {
     fileAnswers_.push_back(dir_ / "Games" / "heat.exe");
     ASSERT_TRUE(click("Add game..."));
     games();
-    EXPECT_TRUE(window_.hasPart("heat added"));
+    EXPECT_TRUE(window_.hasPart("Games added"));
     fileAnswers_.push_back(dir_ / "Games" / "nfs16.exe");
     ASSERT_TRUE(click("Add game..."));
     games();
     EXPECT_TRUE(window_.hasPart("is in the list already"));
+
+    // Two games whose programs share a name (game.exe): apart by path, each named after its folder.
+    fileAnswers_.push_back(dir_ / "NFS MW" / "game.exe");
+    ASSERT_TRUE(click("Add game..."));
+    games();
+    EXPECT_TRUE(window_.hasPart("NFS MW added"));
+    fileAnswers_.push_back(dir_ / "Racer2" / "game.exe");
+    ASSERT_TRUE(click("Add game..."));
+    games();
+    EXPECT_TRUE(window_.hasPart("Racer2 added"));
+    fileAnswers_.push_back(dir_ / "NFS MW" / "game.exe");
+    ASSERT_TRUE(click("Add game..."));
+    games();
+    EXPECT_TRUE(window_.hasPart("NFS MW is in the list already"));
+    const std::vector<GameProfile> added = service::loadUserGames();
+    ASSERT_EQ(added.size(), 3U);
+    EXPECT_EQ(added[1].id, "nfsmw");
+    EXPECT_EQ(added[2].id, "racer2");
+    EXPECT_EQ(added[2].program, "game.exe");
+    EXPECT_TRUE(samePath(added[2].path, pathToUtf8(dir_ / "Racer2" / "game.exe")));
 }
 
 // A game the user added whose folder holds an older shim of ours: removed, its folder stays listed.
@@ -2833,6 +2856,74 @@ TEST_F(EditView, TheSeenFileWithoutDocuments) {
     ASSERT_TRUE(click("Game file"));
     games();
     EXPECT_TRUE(window_.hasPart("Seen"));
+}
+
+
+// Combined pedals on the Mapping tab: Separate by default; Combined saves [pedals] combined, Separate takes it back.
+TEST_F(EditView, CombinedPedalsOnTheMappingTab) {
+    useRig(testRig());
+    open();
+    frame();
+    EXPECT_TRUE(window_.has("PEDALS"));
+    EXPECT_TRUE(window_.has("Reported as"));
+    ASSERT_TRUE(click("Combined"));
+    frame();
+    EXPECT_NE(own().find("\ncombined = true"), std::string::npos) << own();
+    ASSERT_TRUE(click("Separate"));
+    frame();
+    EXPECT_NE(own().find("combined = false"), std::string::npos) << own();
+}
+
+// The lower sections look alike: every row label at the left edge, every row's controls from one column.
+TEST_F(EditView, TheLowerSectionsLineUp) {
+    useRig(testRig());
+    open();
+    picker_->useTarget(ConfigPicker::Target::G25);
+    frame();
+    const Window::Text* const rotation = window_.find("Rotation");
+    const Window::Text* const pedals = window_.find("Reported as");
+    const Window::Text* const order = window_.find("Order");
+    const Window::Text* const strength = window_.find("Strength");
+    ASSERT_NE(rotation, nullptr);
+    ASSERT_NE(pedals, nullptr);
+    ASSERT_NE(order, nullptr);
+    ASSERT_NE(strength, nullptr);
+    for (const Window::Text* label : {pedals, order, strength}) {
+        EXPECT_EQ(label->x, rotation->x);
+        EXPECT_TRUE(sameColour(label->colour, rotation->colour));
+    }
+    EXPECT_LT(rotation->y, pedals->y);
+    EXPECT_LT(pedals->y, order->y);
+    EXPECT_LT(order->y, strength->y);
+    // The switches start where the strength field does.
+    const Window::Text* const separate = window_.find("Separate");
+    const Window::Text* const logitech = window_.find("Logitech");
+    ASSERT_NE(separate, nullptr);
+    ASSERT_NE(logitech, nullptr);
+    EXPECT_NEAR(separate->x - logitech->x, 0.0F, 24.0F);   // centred labels of equal-width buttons
+}
+
+// Combined pedals per game: NFS U1/MW's from its profile; the user's own value, saved; Default takes it back.
+TEST_F(EditView, CombinedPedalsPerGame) {
+    useRig(testRig());
+    open();
+    games();
+    ASSERT_TRUE(click("NFS U1/MW"));
+    frame();
+    EXPECT_TRUE(window_.has("Combined"));
+    EXPECT_TRUE(window_.has("one axis"));   // the profile's
+    ASSERT_TRUE(click("On"));
+    frame();
+    EXPECT_TRUE(window_.has("separate"));
+    EXPECT_NE(own().find("nfsu.combined_pedals = false"), std::string::npos) << own();
+    ASSERT_TRUE(click("Default", 4));   // steering, three pedals, then combined
+    frame();
+    EXPECT_TRUE(window_.has("one axis"));
+    EXPECT_EQ(own().find("nfsu.combined_pedals"), std::string::npos) << own();
+
+    ASSERT_TRUE(click("NFS 2015"));   // no profile value: the Mapping tab's (off)
+    frame();
+    EXPECT_TRUE(window_.has("separate"));
 }
 
 }  // namespace

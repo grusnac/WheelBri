@@ -10,7 +10,7 @@ StatePacket samplePacket() {
     StatePacket packet;
     packet.sequence = 0xDEADBEEF;
     packet.rotationDeg = 540;
-    packet.report = {12345, 65535, 0, 32768, 0x80000001U, 7};
+    packet.report = {12345, 65535, 0, 32768, 0x80000001U, 7, 0x0000ABCD};
     return packet;
 }
 
@@ -49,6 +49,17 @@ TEST(StatePacket, LayoutIsLittleEndianWithMagicFirst) {
     EXPECT_EQ(bytes[7], 0x02);
     EXPECT_EQ(bytes[8], 0xEF);                  // sequence, low byte first
     EXPECT_EQ(bytes[32], 7);                    // hat
+    EXPECT_EQ(bytes[33], 0xCD);                 // combined, low byte first
+    EXPECT_EQ(bytes[34], 0xAB);
+    EXPECT_EQ(bytes.size(), 37U);
+}
+
+TEST(StatePacket, CombinedIsClampedLikeTheOtherAxes) {
+    StatePacket packet = samplePacket();
+    packet.report.combined = -7;
+    const auto decoded = decodeStatePacket(encode(packet));
+    ASSERT_TRUE(decoded.has_value());
+    EXPECT_EQ(decoded->report.combined, 0);
 }
 
 TEST(StatePacket, RejectsWrongSizeMagicOrVersion) {

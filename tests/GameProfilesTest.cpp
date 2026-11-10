@@ -214,6 +214,50 @@ TEST(GameProfiles, RunningGamesInProfileOrderOncePerGame) {
     EXPECT_EQ(findRunningGames(std::vector<RunningProgram>{{1, "NFS16.exe"}, {2, "NFS14.exe"}}).size(), 1U);
 }
 
+TEST(GameProfiles, RunningGamesSharingAProgramNameGoByPath) {
+    GameProfile byName;
+    byName.label = "Old";
+    byName.program = "speed.exe";
+    GameProfile mw = byName;
+    mw.label = "MW";
+    mw.path = "D:\\Games\\MW\\speed.exe";
+    GameProfile ug2 = byName;
+    ug2.label = "UG2";
+    ug2.path = "D:\\Games\\UG2\\speed.exe";
+    const std::vector<GameProfile> table{byName, mw, ug2};
+
+    const std::vector<RunningGame> one = findRunningGames(
+        std::vector<RunningProgram>{{5, "speed.exe", "d:/games/ug2/SPEED.EXE"}}, table);
+    ASSERT_EQ(one.size(), 1U);
+    EXPECT_EQ(one[0].game->label, "UG2");   // not the one found by name, listed first
+
+    const std::vector<RunningGame> elsewhere = findRunningGames(
+        std::vector<RunningProgram>{{6, "speed.exe", "E:\\Copy\\speed.exe"}}, table);
+    ASSERT_EQ(elsewhere.size(), 1U);
+    EXPECT_EQ(elsewhere[0].game->label, "Old");   // neither path: the game found by name
+
+    const std::vector<RunningGame> unknown = findRunningGames(std::vector<RunningProgram>{{7, "speed.exe"}}, table);
+    ASSERT_EQ(unknown.size(), 1U);
+    EXPECT_EQ(unknown[0].game->label, "MW");   // path not known (Linux, or not readable): by name, path games first
+
+    const std::vector<RunningGame> both = findRunningGames(
+        std::vector<RunningProgram>{{8, "speed.exe", "D:\\Games\\MW\\speed.exe"},
+                                    {9, "speed.exe", "D:\\Games\\UG2\\speed.exe"}},
+        table);
+    ASSERT_EQ(both.size(), 2U);
+    EXPECT_EQ(both[0].game->label, "MW");
+    EXPECT_EQ(both[0].pid, 8U);
+    EXPECT_EQ(both[1].game->label, "UG2");
+    EXPECT_EQ(both[1].pid, 9U);
+}
+
+TEST(GameProfiles, SamePathIgnoresAsciiCaseAndSlashes) {
+    EXPECT_TRUE(samePath("D:\\Games\\MW\\speed.exe", "d:/games/mw/SPEED.EXE"));
+    EXPECT_FALSE(samePath("D:\\Games\\MW\\speed.exe", "D:\\Games\\MW2\\speed.exe"));
+    EXPECT_FALSE(samePath("", "D:\\speed.exe"));
+    EXPECT_TRUE(samePath("", ""));
+}
+
 
 TEST(GameProfiles, SteeringRotation) {
     const auto parse = [](const std::string& steering) {
@@ -249,6 +293,39 @@ TEST(GameProfiles, NfsPaybackAdvises180) {
 
 // A profile never sets a game's force feedback ([ffb] is no section of a profile): the game and the wheel's own app
 // set how strong.
+// [pedals] combined, and target = any for a profile that sets no axes (combined pedals mean the same on every target).
+TEST(GameProfiles, CombinedPedalsOnEveryTarget) {
+    const ParsedGameProfile parsed =
+        parseGameProfile("old", "[game]\nlabel = NFS Old\nprogram = old.exe\ntarget = any\n[pedals]\ncombined = true\n");
+    ASSERT_TRUE(parsed.profile.has_value()) << (parsed.problems.empty() ? "" : parsed.problems.front());
+    EXPECT_EQ(parsed.profile->combinedPedals, true);
+    EXPECT_EQ(describeOverlay(*parsed.profile), "combined = true");
+    for (const char* target : {"g920", "g923", "g25", "g27"}) EXPECT_TRUE(profileFitsTarget(*parsed.profile, target));
+
+    const ParsedGameProfile badValue =
+        parseGameProfile("old", "[game]\nlabel = NFS Old\nprogram = old.exe\ntarget = any\n[pedals]\ncombined = 1\n");
+    EXPECT_FALSE(badValue.profile.has_value());
+    const ParsedGameProfile anyWithAxes = parseGameProfile(
+        "old", "[game]\nlabel = NFS Old\nprogram = old.exe\ntarget = any\n[pedals]\nthrottle_axis = slider\n");
+    EXPECT_FALSE(anyWithAxes.profile.has_value());   // axes are one target's
+    const ParsedGameProfile noTarget =
+        parseGameProfile("old", "[game]\nlabel = NFS Old\nprogram = old.exe\n[pedals]\ncombined = true\n");
+    EXPECT_FALSE(noTarget.profile.has_value());
+}
+
+// NFS Underground, Underground 2 and Most Wanted (Most Wanted's program is speed.exe, as Underground's) read throttle
+// and brake from one axis: their menus scroll by themselves with separate pedals.
+TEST(GameProfiles, OldNfsGamesHaveCombinedPedals) {
+    for (const char* program : {"D:\\EA GAMES\\Need for Speed - Underground\\Speed.exe",
+                                "D:\\EA GAMES\\Need for Speed - Underground 2\\SPEED2.EXE"}) {
+        const GameProfile* const game = gameProfileFor(program);
+        ASSERT_NE(game, nullptr) << program;
+        EXPECT_EQ(game->combinedPedals, true) << program;
+        EXPECT_TRUE(game->target.empty()) << program;   // every target
+    }
+    EXPECT_EQ(gameProfileFor("NFSC.exe"), nullptr);   // Carbon works with separate pedals
+}
+
 TEST(GameProfiles, NoProfileChangesTheForceFeedback) {
     const ParsedGameProfile withFfb =
         parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n[ffb]\ngain = 3\nnote = Why.\n");

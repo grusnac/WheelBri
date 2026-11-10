@@ -56,9 +56,13 @@ public:
 
     struct Decision {
         PedalRoute route;           // Pipeline::setPedalRoute
-        // The game whose own mapping (pedal invert / curve, buttons) the pipeline should use; empty: the mapping's.
+        // The game whose own mapping (pedal invert, buttons) the pipeline should use; empty: the mapping's.
         std::string mapperGame;
         const GameTuning* tuning = nullptr;   // its values (owned by this GameWatch), when mapperGame is set
+        // The running game's combined pedals (GameDecision::combinedPedals); nullopt: the mapping's.
+        std::optional<bool> combinedPedals;
+        // Where combinedPedals comes from, for the log: "NFS U1/MW's profile", "your value for NFS U1/MW"; else empty.
+        std::string combinedPedalsFrom;
     };
     // One look: what the pipeline should use now.
     Decision check();

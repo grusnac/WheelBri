@@ -54,16 +54,33 @@ struct TargetReport {
     std::int32_t clutch = 0;
     std::uint32_t buttons = 0;
     std::int8_t hat = kHatCentered;
+    // The combined pedals (combinedPedals) of the user's throttle and brake, set by encode: what the G25's and G27's
+    // Slider 0 reports, and the throttle's axis with combined pedals on (withCombinedPedals). Carried as it is, so
+    // moving the pedal fields never changes it.
+    std::int32_t combined = 0;
 
     friend bool operator==(const TargetReport&, const TargetReport&) = default;
 };
 
-// The combined pedals axis of a target whose pedals rest at the top of the range (a G25's, Logitech's "Combined
-// pedals"): the middle at rest, the throttle pulls it down and the brake pushes it up (both pressed: they cancel), as
-// Race Driver: GRID's G25 preset reads Slider 0 (its lower half throttle, its upper half brake). 0..65535.
+// The combined pedals axis of a target whose pedals rest at the top of the range (all four targets; Logitech's
+// "Combined pedals"): the middle at rest, the throttle pulls it down and the brake pushes it up (both pressed: they
+// cancel), as Race Driver: GRID's G25 preset reads Slider 0 (its lower half throttle, its upper half brake). 0..65535.
 [[nodiscard]] constexpr std::int32_t combinedPedals(const TargetReport& report) {
     const std::int64_t value = (std::int64_t{65535} + report.throttle - report.brake) / 2;
     return static_cast<std::int32_t>(value < 0 ? 0 : value > 65535 ? 65535 : value);
+}
+
+// The middle of a pedal's range: where a pedal axis rests that carries no pedal (withCombinedPedals).
+inline constexpr std::int32_t kPedalMiddle = 32767;
+
+// `report` as Logitech's "Report Combined Pedals" sends it (Logitech Profiler, Logitech Gaming Software, G HUB; Linux
+// hid-lg4ff's combine_pedals, whose code this follows): the throttle's axis carries the combined pedals, the brake's
+// rests in the middle, the clutch is left as it is. For games that read throttle and brake from one axis (NFS
+// Underground, Underground 2, Most Wanted), whose menus scroll by themselves with separate pedals.
+[[nodiscard]] constexpr TargetReport withCombinedPedals(TargetReport report) {
+    report.throttle = report.combined;
+    report.brake = kPedalMiddle;
+    return report;
 }
 
 // The order a target's buttons reach the game in ([buttons] order). Driver: as Logitech's Windows driver of their time

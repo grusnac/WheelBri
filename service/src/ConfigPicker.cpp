@@ -47,14 +47,14 @@ constexpr const char* kTrueForceKey = "trueforce_g923";
 std::string targetAbout(const ConfigPicker::Target target) {
     switch (target) {
         case ConfigPicker::Target::G25:
-            return "G25: for older games (Race Driver: GRID). Its button order is picked under Target, its centring "
-                   "spring below.";
+            return "G25: for older games (Race Driver: GRID). Its button order and centring spring are set below, "
+                   "under the pedals.";
         case ConfigPicker::Target::G27:
-            return "G27: for older games. Its button order is picked under Target, its centring spring below.";
+            return "G27: for older games. Its button order and centring spring are set below, under the pedals.";
         case ConfigPicker::Target::G920:
             return "G920: the Xbox wheel, WheelBri's default and the one tried most in games.";
         case ConfigPicker::Target::G923:
-            return "G923: the G920's successor, with TrueForce (picked under Target).";
+            return "G923: the G920's successor, with TrueForce (set below, under the pedals).";
     }
     return {};
 }
@@ -396,113 +396,116 @@ bool ConfigPicker::onClick(const float x, const float y) {
     return hits_.dispatch(x, y);
 }
 
-float ConfigPicker::rowsHeight() const {
-    return hasButtonOrders(target_) || hasTrueForce(target_) ? 2 * kRowHeight + 2 : kRowHeight;
-}
+float ConfigPicker::rowsHeight() const { return kRowHeight; }
 
-float ConfigPicker::draw(const float x0, float y, const bool canChangeNow, const TipSink& tip) {
-    hits_.clear();
-    const bool canChange = canChangeNow && !locked_;
-    float x = x0;
+float ConfigPicker::segment(const float x, const float y, const std::string_view label, const float w,
+                            const bool chosen, const bool available, const std::string& about,
+                            std::function<void()> action, const bool canChangeNow, const TipSink& tip) {
     // One button of a row, side by side with the next (their edges overlap): filled blue when chosen, outlined when
     // it can be chosen, greyed when not (`available` false, or nothing can change now: the chosen one then keeps a
     // grey fill, so what runs still shows).
-    const auto segment = [&](const char* label, const float w, const bool chosen, const bool available,
-                             const std::string& about, const std::function<void()>& action) {
-        const bool on = canChange && available;
-        if (chosen && !on) {
-            window_.fill(x, y, w, kRowHeight, style::kPanel);
-            window_.outline(x, y, w, kRowHeight, style::kFrame);
-            const float textX = x + (w - static_cast<float>(std::string_view(label).size()) * ui::kCharWidth) / 2;
-            window_.text(textX, y + 4, label, kText);
-        } else {
-            style::button(window_, x, y, w, kRowHeight, label, chosen, on);
-        }
-        if (on && !chosen) hits_.add(x, y, w, kRowHeight, action);
-        if (tip) tip(x, y, w, kRowHeight, canChangeNow && !locked_ ? about : about + " Fixed while WheelBri runs.");
-        x += w - 1;
-    };
+    const bool on = canChangeNow && !locked_ && available;
+    const std::string text(label);
+    if (chosen && !on) {
+        window_.fill(x, y, w, kRowHeight, style::kPanel);
+        window_.outline(x, y, w, kRowHeight, style::kFrame);
+        const float textX = x + (w - static_cast<float>(text.size()) * ui::kCharWidth) / 2;
+        window_.text(textX, y + 4, text, kText);
+    } else {
+        style::button(window_, x, y, w, kRowHeight, text, chosen, on);
+    }
+    if (on && !chosen) hits_.add(x, y, w, kRowHeight, std::move(action));
+    if (tip) tip(x, y, w, kRowHeight, canChangeNow && !locked_ ? about : about + " Fixed while WheelBri runs.");
+    return x + w - 1;
+}
+
+float ConfigPicker::draw(const float x0, const float y, const bool canChangeNow, const TipSink& tip) {
+    hits_.clear();
+    float x = x0;
     window_.text(x, y + 4, kTargetLabel, kDim);
     x += kLabelWidth;
     for (const Target t : {Target::G25, Target::G27, Target::G920, Target::G923}) {
-        segment(targetName(t), kTargetWidth, t == target_, true, targetAbout(t), [this, t] { choose(t); });
+        x = segment(x, y, targetName(t), kTargetWidth, t == target_, true, targetAbout(t), [this, t] { choose(t); },
+                    canChangeNow, tip);
     }
     x += 1 + 16;
     window_.text(x, y + 4, "Mode", kDim);
     x += 48;
     if (settings_.virtualAvailable) {
-        segment(wayName(Way::VirtualDevice), kWayWidth, way_ == Way::VirtualDevice, true,
-                "Virtual: a virtual wheel every game sees; your rig is hidden while WheelBri runs.",
-                [this] { choose(Way::VirtualDevice); });
-        segment(wayName(Way::Shim), kWayWidth, way_ == Way::Shim, true,
-                "Shim: a dinput8.dll next to each game on the Games tab shows the Target to that game only.",
-                [this] { choose(Way::Shim); });
+        x = segment(x, y, wayName(Way::VirtualDevice), kWayWidth, way_ == Way::VirtualDevice, true,
+                    "Virtual: a virtual wheel every game sees; your rig is hidden while WheelBri runs.",
+                    [this] { choose(Way::VirtualDevice); }, canChangeNow, tip);
+        x = segment(x, y, wayName(Way::Shim), kWayWidth, way_ == Way::Shim, true,
+                    "Shim: a dinput8.dll next to each game on the Games tab shows the Target to that game only.",
+                    [this] { choose(Way::Shim); }, canChangeNow, tip);
     } else {
         // No Virtual button at all: Shim alone, chosen and locked.
         const std::string windows = settings_.windowsName.empty() ? "this Windows" : settings_.windowsName;
-        segment(wayName(Way::Shim), kWayWidth, true, false,
-                "On " + windows + ", only Mode Shim is available: Mode Virtual's driver needs " +
-                    windowsName(kVirtualDeviceMinBuild) + ".",
-                [] {});
+        x = segment(x, y, wayName(Way::Shim), kWayWidth, true, false,
+                    "On " + windows + ", only Mode Shim is available: Mode Virtual's driver needs " +
+                        windowsName(kVirtualDeviceMinBuild) + ".",
+                    [] {}, canChangeNow, tip);
     }
-    const float rowEnd = x + 1 + 4;
-    if (hasButtonOrders(target_)) {
-        // A second row under Target (the first one's right end is the shim's game, App: gamesRowX).
-        const std::string target = targetName(target_);
-        x = x0;
-        y += kRowHeight + 2;
-        window_.text(x, y + 4, kOrderLabel, kDim);
-        if (tip) {
-            tip(x, y, kLabelWidth - 4, kRowHeight,
-                "Which numbers the game gets the " + target + "'s buttons by. Each order keeps its own mapping. "
-                "Takes effect at the next Start.");
-        }
-        x += kLabelWidth;
-        segment("Logitech", kOrderWidth, order_ == ButtonOrder::Driver, true,
+    return x + 1 + 4;
+}
+
+float ConfigPicker::drawOrder(const float labelX, const float buttonsX, const float y, const bool canChangeNow,
+                              const TipSink& tip) {
+    if (!hasButtonOrders(target_)) return y;
+    const std::string target = targetName(target_);
+    window_.text(labelX, y + 4, kOrderLabel, kText);   // a row label of the Mapping tab's lower sections
+    if (tip) {
+        tip(labelX, y, buttonsX - labelX - 4, kRowHeight,
+            "Which numbers the game gets the " + target + "'s buttons by. Each order keeps its own mapping. "
+            "Takes effect at the next Start.");
+    }
+    float x = buttonsX;
+    x = segment(x, y, "Logitech", kOrderWidth, order_ == ButtonOrder::Driver, true,
                 "Numbered as with Logitech's driver, from 1. For most games.",
-                [this] { choose(ButtonOrder::Driver); });
-        segment("Native", kOrderWidth, order_ == ButtonOrder::Native, true,
-                "Numbered as the wheel reports them, from 0. For games that expect it (ACC).",
-                [this] { choose(ButtonOrder::Native); });
+                [this] { choose(ButtonOrder::Driver); }, canChangeNow, tip);
+    segment(x, y, "Native", kOrderWidth, order_ == ButtonOrder::Native, true,
+            "Numbered as the wheel reports them, from 0. For games that expect it (ACC).",
+            [this] { choose(ButtonOrder::Native); }, canChangeNow, tip);
+    return y + kRowHeight;
+}
+
+float ConfigPicker::drawTrueForce(const float labelX, const float buttonsX, const float y, const bool canChangeNow,
+                                  const TipSink& tip) {
+    if (!hasTrueForce(target_)) return y;
+    // Installing G HUB while the app is open: On becomes available within a few seconds.
+    if (std::chrono::steady_clock::now() - sdkCheckedAt_ >= std::chrono::seconds(kSdkCheckSeconds)) {
+        checkTrueForceSdk();
     }
-    if (hasTrueForce(target_)) {
-        // Installing G HUB while the app is open: On becomes available within a few seconds.
-        if (std::chrono::steady_clock::now() - sdkCheckedAt_ >= std::chrono::seconds(kSdkCheckSeconds)) {
-            checkTrueForceSdk();
-        }
-        x = x0;
-        y += kRowHeight + 2;
-        window_.text(x, y + 4, kTrueForceLabel, kDim);
-        if (tip) {
-            tip(x, y, kLabelWidth - 4, kRowHeight,
-                "Games that use Logitech's TrueForce (ACC, DiRT Rally 2.0) send their force through it, as to a real "
-                "G923. Takes effect at the next Start.");
-        }
-        x += kLabelWidth;
-        const bool virtualMode = way_ == Way::VirtualDevice;
-        const bool installed = trueForceInstalled();
-        // What Start runs with shows as chosen: Off without the SDK, whatever was picked.
-        const bool on = trueForce_ && installed;
-        const std::string shimOnly = "Mode Virtual only: in Mode Shim the game talks to your own wheel.";
-        segment("Off", kOrderWidth, !on, virtualMode,
+    window_.text(labelX, y + 4, kTrueForceLabel, kText);
+    if (tip) {
+        tip(labelX, y, buttonsX - labelX - 4, kRowHeight,
+            "Games that use Logitech's TrueForce (ACC, DiRT Rally 2.0) send their force through it, as to a real "
+            "G923. Takes effect at the next Start.");
+    }
+    float x = buttonsX;
+    const bool virtualMode = way_ == Way::VirtualDevice;
+    const bool installed = trueForceInstalled();
+    // What Start runs with shows as chosen: Off without the SDK, whatever was picked.
+    const bool on = trueForce_ && installed;
+    const std::string shimOnly = "Mode Virtual only: in Mode Shim the game talks to your own wheel.";
+    x = segment(x, y, "Off", kOrderWidth, !on, virtualMode,
                 virtualMode ? "Off: a G923 without TrueForce. Games send their effects one by one, as to a G920."
                             : shimOnly,
-                [this] { chooseTrueForce(false); });
-        segment("On", kOrderWidth, on, virtualMode && installed,
+                [this] { chooseTrueForce(false); }, canChangeNow, tip);
+    x = segment(x, y, "On", kOrderWidth, on, virtualMode && installed,
                 !virtualMode ? shimOnly
                 : installed  ? "On: the virtual G923 has TrueForce, as a real one. Closest to a real G923 in ACC."
                              : "On needs Logitech G HUB installed (it need not run): its TrueForce files "
                                "(Program Files\\Logi\\trueforce) are not on this PC.",
-                [this] { chooseTrueForce(true); });
-        if (!installed) {
-            window_.text(x + 8, y + 4, "needs Logitech G HUB", style::kCaution);
-            if (tip) {
-                tip(x + 4, y, 22 * ui::kCharWidth, kRowHeight,
-                    "Install Logitech G HUB for TrueForce: games load Logitech's TrueForce from its folder.");
-            }
+                [this] { chooseTrueForce(true); }, canChangeNow, tip);
+    if (!installed) {
+        window_.text(x + 8, y + 4, "needs Logitech G HUB", style::kCaution);
+        if (tip) {
+            tip(x + 4, y, 22 * ui::kCharWidth, kRowHeight,
+                "Install Logitech G HUB for TrueForce: games load Logitech's TrueForce from its folder.");
         }
     }
-    return rowEnd;
+    return y + kRowHeight;
 }
 
 }  // namespace wheelbri::service

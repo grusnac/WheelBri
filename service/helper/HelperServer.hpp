@@ -53,6 +53,9 @@ public:
         LevelSetter setLogLevel;       // empty: the log's level stays as it is
         // Only the tests: which caller programs count as WheelBri (empty: isInstalledApp in appFolder).
         std::function<bool(const std::string& image)> isApp;
+        // Only the tests: the pipe's permissions, as SDDL (empty: the helper's). The tests run as the user, not SYSTEM,
+        // and need the owner's right to make more instances of the pipe.
+        std::wstring pipeSddl;
         int firstMessageMs = kFirstMessageMs;
     };
 

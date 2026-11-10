@@ -92,5 +92,18 @@ TEST(LiveMapping, AppliedChangeIsTheNewBaseline) {
     EXPECT_FALSE(liveMappingChange(now, next).any());
 }
 
+
+TEST(LiveMapping, CombinedPedalsAreUsedAtOnce) {
+    EmulatorConfig now = running();
+    EmulatorConfig next = running();
+    next.combinedPedals = true;
+    const LiveMappingChange change = liveMappingChange(now, next);
+    EXPECT_EQ(change.combinedPedals, true);
+    EXPECT_TRUE(change.waiting.empty());
+    applyLiveMappingChange(now, change);
+    EXPECT_TRUE(now.combinedPedals);
+    EXPECT_FALSE(liveMappingChange(now, next).any());
+}
+
 }  // namespace
 }  // namespace wheelbri

@@ -28,12 +28,16 @@ namespace wheelbri {
 //
 // A profile file:
 //   [game]   label = NFS 2015 / program = nfs16.exe / target = g920   (who it is for; all three required)
+//            target = any: every target, for a profile that sets no pedal axes (they are one target's).
 //            label: what the window and the log show, short (at most 20 characters); Need for Speed games are
 //            "NFS <name>" (NFS 2015, NFS Heat), never "Need for Speed ...".
 //            ways = virtual / ways_note = why   (both or neither): the ways the game works with, virtual (the virtual
 //            device) and/or shim (the in-game shim), comma-separated; left out, both. A session run the other way
 //            tells the user when the game starts (wayAdvice).
 //   [pedals] throttle_axis / brake_axis / clutch_axis = x y z rx ry rz slider none   (only those that change)
+//            combined = true: Logitech's "Report Combined Pedals" while the game runs (withCombinedPedals,
+//            DeviceProfile.hpp), for games that read throttle and brake from one axis; the user's [game_tuning]
+//            <game>.combined_pedals overrides it.
 //   [steering] rotation_deg = 180 / note = why   (both or neither): a game whose own handling needs another
 //            steering rotation than usual (NFS Payback's cars understeer and turn in slowly). While the game runs the
 //            service steers with it, wheel and game both at that number (GameRotation.hpp), unless the user's mapping
@@ -60,7 +64,10 @@ struct GameProfile {
     std::string id;        // the file's name without .ini: "nfs2015"
     std::string label;     // [game] label, shown as it is in the window's status and the log: "NFS 2015"
     std::string program;   // the game's program file, lower case: "nfs16.exe"
-    std::string target;    // the target profile it was checked with, lower case: "g920"; empty: every target
+    // A game the user added: its program's full path, as picked ("D:\Games\NFS MW\speed.exe"), so two games whose
+    // programs share a name stay apart. Empty: found by its program's name alone (built-in profiles, older games.ini).
+    std::string path;
+    std::string target;   // the target profile it was checked with, lower case: "g920"; empty: every target
     bool virtualDevice = true;   // [game] ways: it works with the virtual device
     bool shim = true;            //              and with the in-game shim
     std::string waysNote;        // [game] ways_note: why not the other way, in a sentence (set with ways only)
@@ -71,6 +78,7 @@ struct GameProfile {
     std::optional<ObjectGuid> throttleAxis;   // [pedals]: unset = the default
     std::optional<ObjectGuid> brakeAxis;
     std::optional<ObjectGuid> clutchAxis;
+    std::optional<bool> combinedPedals;   // [pedals] combined: Logitech's "Report Combined Pedals" while it runs
     std::optional<float> rotationDeg;   // [steering] rotation_deg: the rotation while the game runs (wheel = game)
     std::string rotationNote;           // [steering] note: why, in a sentence, for the user (the log says it)
     std::string settingsFile;           // [game_settings] file: relative to the user's Documents folder, / separated
@@ -152,7 +160,11 @@ struct PedalRoute {
 struct RunningProgram {
     std::uint32_t pid = 0;
     std::string name;
+    std::string path = {};   // its program's full path when known (asked only for games with a path); else empty
 };
+
+// Whether two Windows paths name the same file as written: ASCII case and / or \ aside.
+[[nodiscard]] bool samePath(std::string_view a, std::string_view b);
 
 // A game with a profile found running: its profile and its process.
 struct RunningGame {
@@ -161,7 +173,9 @@ struct RunningGame {
     std::string program;   // the name or path as listed
 };
 
-// The profiled games among `programs`, in profile order, once per game (its first process).
+// The profiled games among `programs`, in profile order, once per game (its first process), each process one game's
+// at most. A game with a path takes only a process running from there (or one whose path is not known); those go
+// first, so a game found by name alone never takes their process.
 [[nodiscard]] std::vector<RunningGame> findRunningGames(std::span<const RunningProgram> programs,
                                                         std::span<const GameProfile> profiles = gameProfiles());
 

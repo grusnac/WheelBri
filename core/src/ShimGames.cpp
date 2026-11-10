@@ -134,6 +134,18 @@ bool isAsiLoader(const std::filesystem::path& dll) {
     return bytes.find("IsUltimateASILoader") != std::string::npos && bytes.find(kShimMarkExport) == std::string::npos;
 }
 
+bool isOldAsiLoader(const std::filesystem::path& dll) {
+    // Its name, in the path of its debug symbols (Ultimate-ASI-Loader.pdb) and its own module name.
+    const std::string bytes = readBytes(dll, 64U * 1024U * 1024U);
+    return bytes.find("Ultimate-ASI-Loader") != std::string::npos &&
+           bytes.find("IsUltimateASILoader") == std::string::npos && bytes.find(kShimMarkExport) == std::string::npos;
+}
+
+bool oldAsiLoaderAside(const std::filesystem::path& folder) {
+    const std::filesystem::path dll = folder / kOldAsiLoaderDll;
+    return regularFile(dll) && isOldAsiLoader(dll);
+}
+
 bool isWheelBriShim(const std::filesystem::path& dll) {
     // The export's name, in the export table. The shim is well under 64 MB; anything bigger is not it.
     const std::string bytes = readBytes(dll, 64U * 1024U * 1024U);
@@ -284,6 +296,10 @@ std::string chainProblem(const std::filesystem::path& folder) {
     std::error_code ec;
     const std::filesystem::path chain = folder / kShimChainDll;
     if (std::filesystem::exists(chain, ec) && !regularFile(chain)) return std::string(kShimChainDll) + " is not a file";
+    if (const std::filesystem::path dll = folder / kShimDll; regularFile(dll) && isOldAsiLoader(dll) &&
+                                                              std::filesystem::exists(folder / kOldAsiLoaderDll, ec)) {
+        return std::string(kOldAsiLoaderDll) + " is taken";
+    }
     return {};
 }
 
@@ -308,6 +324,7 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
     // Another mod's DLL where the shim goes: it moves aside to dinput8-chain.dll, the shim hands DirectInput to it.
     std::filesystem::path chainedFrom;
     std::filesystem::path keptOld;
+    std::filesystem::path loaderFrom;   // an old ASI Loader moved to d3d9.dll
     if (state == ShimState::Foreign) {
         const std::filesystem::path theirs = shimDllIn(folder);
         if (const std::string problem = chainProblem(folder); !problem.empty()) {
@@ -316,30 +333,45 @@ ShimResult installShim(const std::filesystem::path& folder, const std::filesyste
             result.leftAlone = true;
             return result;
         }
-        if (regularFile(chain)) {   // the mod was updated over our shim: the one chained before is kept as .old
-            const std::filesystem::path old = folder / (std::string(kShimChainDll) + ".old");
-            std::filesystem::rename(chain, old, ec);
+        if (theirs == folder / kShimDll && isOldAsiLoader(theirs)) {
+            const std::filesystem::path aside = folder / kOldAsiLoaderDll;
+            std::filesystem::rename(theirs, aside, ec);
             if (ec) {
-                result.error = writeProblem("rename", chain, ec, ": close the game and try again");
+                result.error = writeProblem("rename", theirs, ec, ": close the game and try again");
                 return result;
             }
-            result.changed.push_back(pathToUtf8(old));
-            keptOld = old;
+            result.changed.push_back(pathToUtf8(aside));
+            loaderFrom = theirs;
+        } else {
+            if (regularFile(chain)) {   // the mod was updated over our shim: the one chained before is kept as .old
+                const std::filesystem::path old = folder / (std::string(kShimChainDll) + ".old");
+                std::filesystem::rename(chain, old, ec);
+                if (ec) {
+                    result.error = writeProblem("rename", chain, ec, ": close the game and try again");
+                    return result;
+                }
+                result.changed.push_back(pathToUtf8(old));
+                keptOld = old;
+            }
+            std::filesystem::rename(theirs, chain, ec);
+            if (ec) {
+                result.error = writeProblem("rename", theirs, ec, ": close the game and try again");
+                std::error_code undoEc;
+                if (!keptOld.empty()) std::filesystem::rename(keptOld, chain, undoEc);
+                return result;
+            }
+            result.changed.push_back(pathToUtf8(chain));
+            chainedFrom = theirs;
         }
-        std::filesystem::rename(theirs, chain, ec);
-        if (ec) {
-            result.error = writeProblem("rename", theirs, ec, ": close the game and try again");
-            std::error_code undoEc;
-            if (!keptOld.empty()) std::filesystem::rename(keptOld, chain, undoEc);
-            return result;
-        }
-        result.changed.push_back(pathToUtf8(chain));
-        chainedFrom = theirs;
     }
     // A failed step after the rename gives the mod its place back.
     const auto undoChain = [&] {
-        if (chainedFrom.empty()) return;
         std::error_code undoEc;
+        if (!loaderFrom.empty()) {
+            if (regularFile(loaderFrom)) std::filesystem::remove(loaderFrom, undoEc);
+            std::filesystem::rename(folder / kOldAsiLoaderDll, loaderFrom, undoEc);
+        }
+        if (chainedFrom.empty()) return;
         if (regularFile(chainedFrom)) std::filesystem::remove(chainedFrom, undoEc);
         std::filesystem::rename(chain, chainedFrom, undoEc);
         if (!keptOld.empty()) std::filesystem::rename(keptOld, chain, undoEc);
@@ -477,7 +509,11 @@ const GameProfile* gameInFolder(const std::filesystem::path& folder, const std::
         if (!it->is_regular_file(ec)) continue;
         const std::string name = programName(pathToUtf8(it->path().filename()));
         for (const GameProfile& game : games) {
-            if (game.program == name) return &game;
+            if (game.program != name) continue;
+            std::error_code same;
+            if (game.path.empty() || std::filesystem::equivalent(it->path(), pathFromUtf8(game.path), same)) {
+                return &game;
+            }
         }
     }
     return nullptr;
@@ -504,6 +540,15 @@ ShimResult removeShim(const std::filesystem::path& folder, const std::filesystem
         if (ec) {
             const std::string yourself = ": rename it to " + pathToUtf8(dll.filename()) + " yourself";
             result.error = writeProblem("rename", folder / kShimChainDll, ec, yourself.c_str());
+            return result;
+        }
+        result.changed.push_back(pathToUtf8(dll));
+    } else if (dll == folder / kShimDll && !regularFile(dll) && oldAsiLoaderAside(folder)) {
+        // the old ASI Loader moved aside gets its place back
+        std::filesystem::rename(folder / kOldAsiLoaderDll, dll, ec);
+        if (ec) {
+            const std::string yourself = ": rename it to " + pathToUtf8(dll.filename()) + " yourself";
+            result.error = writeProblem("rename", folder / kOldAsiLoaderDll, ec, yourself.c_str());
             return result;
         }
         result.changed.push_back(pathToUtf8(dll));
