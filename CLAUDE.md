@@ -209,7 +209,8 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 - **Threads:** name each first thing with `platform::nameThisThread("wheelbri <role>")`.
 - **Logging** (full rules: `Logging.hpp`): only `WE_LOG_*`, one dotted logger per component, never printf; hot paths
   use `CallSampler` / `RateLimiter`; default level warn; every file WheelBri writes is a log in that line format (no
-  CSV, no JSON); one file per run `<stem>-<date>-<NN>.log`; one folder for all logs (`logsFolder()`), no other.
+  CSV, no JSON); one file per run `<stem>-<date>-<NN>.log` (the app: per Start, `logging::startNewRun`); one folder
+  for all logs (`logsFolder()`), no other.
 - **FFB safety** (rigs often direct drive): every force to hardware goes through `FfbSafetyLimiter` + watchdog. Keep
   the guards: slew 50/s, frozen-force fade, DiEffect's "not a force" values. A config may only make them gentler
   (`max_slew_per_second` 1-50, `frozen_force_s` 0.5-60). Only bypass: opt-in `force_feedback = passthrough` in

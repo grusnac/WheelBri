@@ -2036,9 +2036,20 @@ int runAppMode(Options options, const bool consoleLogging) {
     settings.devicesFolder = wheelbri::service::deviceLabelsFolder();
     settings.shimDlls = shimDllPaths();
     if (!settings.builtInConfigFolder.empty()) settings.shimSettings = settings.builtInConfigFolder / "wheelbri-shim.ini";
-    settings.runSession = [options, logFileOk](wheelbri::service::UiHost& host, const std::string& configPath,
-                                               const bool virtualDevice, const wheelbri::ButtonOrder order,
-                                               const bool trueForce) {
+    settings.runSession = [options, logFileOk, started = std::make_shared<bool>(false)](
+                              wheelbri::service::UiHost& host, const std::string& configPath, const bool virtualDevice,
+                              const wheelbri::ButtonOrder order, const bool trueForce) {
+        // Every Start after the first: the app's log, telemetry-* and ffb-* go on in files of the next number, so
+        // each session (one game, one setting) has files of its own.
+        if (*started) {
+            const std::string before = wheelbri::logging::currentLogFile();
+            const std::string now = wheelbri::logging::startNewRun();
+            if (!now.empty() && now != before) {
+                WE_LOG_INFO(log(), "Start: this session's log is {} (the app's earlier log: {})", now, before);
+                wheelbri::service::logStartupBanner(configPath);
+            }
+        }
+        *started = true;
         Options run = options;
         run.configPath = configPath;   // the config the Mapping tab shows
 #ifdef _WIN32

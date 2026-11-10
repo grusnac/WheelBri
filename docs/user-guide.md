@@ -326,7 +326,8 @@ Linux:
 ![Logs tab](images/logs.png)
 
 The **Logs** tab shows what every part of WheelBri does; **O** opens the folder (`%LOCALAPPDATA%\wheelbri\logs` or
-`~/.local/state/wheelbri`). Logs older than 2 days are deleted.
+`~/.local/state/wheelbri`). Every Start begins new files, numbered (`wheelbri-service-<date>-<NN>.log` with its
+`telemetry-*` and `ffb-*`): one number per session. Logs older than 2 days are deleted.
 
 To report a problem: set **Level** to debug, repeat it, press Stop, and send that run's files with the Target, Mode,
 game and what you saw. Set Level back to warn afterwards.

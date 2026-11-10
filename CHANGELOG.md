@@ -2,6 +2,9 @@
 
 ## Not released yet
 
+- Every Start begins new log files with the next number (the app's log, telemetry-*, ffb-*), so each session has
+  files of its own; before, a run of the app wrote all its sessions into one.
+
 - Combined pedals, as Logitech's "Report Combined Pedals", on every Target: for every game on the Mapping tab, or per
   game on the Games tab. Built-in profiles turn them on for NFS Underground, Underground 2 and Most Wanted (2005),
   whose menus scrolled by themselves with separate pedals. The state packet to the shim and the drivers is version 2:
