@@ -108,6 +108,9 @@ G920 only, by themselves while the game runs.
   apart (**NFS U1**, **NFS MW**). A `speed.exe` with `dimap.dll` in its folder is Underground, any other Most Wanted.
 - **Known:** Windows 7, Mode Shim, G25: separate pedals scrolled the menus in Underground and Most Wanted; combined pedals
   work in Most Wanted (Underground not yet tried).
+- **Steering dead zone:** the games ignore the first part of the turn each way (Most Wanted checked: Windows 7, Mode
+  Shim, G25; the Widescreen Fix's `LeftStickDeadzone = 0` and taking the Fix out changed nothing). Set
+  **Anti-dead zone** for the game (Games tab) to just under where the car starts to turn.
 
 ## Widescreen Fixes (ThirteenAG)
 

@@ -105,5 +105,18 @@ TEST(LiveMapping, CombinedPedalsAreUsedAtOnce) {
     EXPECT_FALSE(liveMappingChange(now, next).any());
 }
 
+TEST(LiveMapping, TheAntiDeadZoneIsUsedAtOnce) {
+    EmulatorConfig now = running();
+    EmulatorConfig next = running();
+    next.antiDeadZonePercent = 10.0F;
+    const LiveMappingChange change = liveMappingChange(now, next);
+    EXPECT_EQ(change.antiDeadZonePercent, 10.0F);
+    EXPECT_TRUE(change.waiting.empty());
+    EXPECT_FALSE(change.mapper.has_value());
+    applyLiveMappingChange(now, change);
+    EXPECT_EQ(now.antiDeadZonePercent, 10.0F);
+    EXPECT_FALSE(liveMappingChange(now, next).any());
+}
+
 }  // namespace
 }  // namespace wheelbri

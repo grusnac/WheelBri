@@ -2,6 +2,11 @@
 
 ## Not released yet
 
+- Anti-dead zone, for games with a steering dead zone of their own (old NFS games ignore the first part of the turn):
+  as soon as the wheel leaves the centre the game gets a set amount of steering, 0 to 50% (`[steering]
+  anti_deadzone`); for every game on the Mapping tab, or per game on the Games tab (`<game>.anti_deadzone`). Off by
+  default; a game profile may set it (`[steering] anti_deadzone`).
+
 - NFS Underground and NFS Most Wanted (2005) are two games on the Games tab (**NFS U1**, **NFS MW**), each with its
   own values; both are `speed.exe`, told apart by `dimap.dll` in Underground's folder. Values set for **NFS U1/MW**
   before are not carried over.

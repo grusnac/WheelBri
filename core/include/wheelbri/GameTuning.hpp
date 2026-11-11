@@ -24,6 +24,8 @@
 //   nfs2015.brake_invert = true        ; pedals: <pedal>_invert = true|false (how they feel: the rig's own software)
 //   nfsmw.combined_pedals = true       ; Logitech's "Report Combined Pedals" while the game runs, instead of the
 //                                      ;   Mapping tab's [pedals] combined and the game profile's
+//   nfsmw.anti_deadzone = 10           ; the anti-dead zone in percent while the game runs (AntiDeadZone.hpp), instead
+//                                      ;   of the Mapping tab's [steering] anti_deadzone and the game profile's
 //   nfsheat.button_4 = 13              ; target button 4 <- this source while the game runs (-1: nothing)
 //   nfsheat.button_4_or = 20, axis 3 > 50%   ; its secondary sources while the game runs, as [buttons] target_N_or
 //                                      ;   (ButtonRef.hpp): instead of the Mapping tab's, not added to them (-1: none)
@@ -40,6 +42,7 @@ struct GameTuning {
     std::array<std::optional<ObjectGuid>, 3> pedalAxes;   // the axis the game reads each pedal from
     std::array<std::optional<bool>, 3> pedalInvert;
     std::optional<bool> combinedPedals;   // Logitech's "Report Combined Pedals" while the game runs; unset: as before
+    std::optional<float> antiDeadZonePercent;   // the anti-dead zone while the game runs; unset: as before
     std::map<int, SourceRef> buttons;   // target button -> its source while the game runs
     // target button -> its secondary sources while the game runs (at most MapperConfig::kMaxSecondaries), instead of
     // the Mapping tab's; empty: none in this game. A button left out keeps the Mapping tab's.
@@ -84,6 +87,10 @@ struct GameDecision {
     // ([pedals] combined). For both ways: the service sends the pedals combined, the shim takes them as they come.
     std::optional<bool> combinedPedals;
     bool combinedPedalsFromUser = false;   // combinedPedals is the user's value ([game_tuning]), not the profile's
+    // The anti-dead zone while the game runs (AntiDeadZone.hpp): the user's value for it, else its profile's;
+    // nullopt: the mapping's ([steering] anti_deadzone). Applied by the service for both ways.
+    std::optional<float> antiDeadZonePercent;
+    bool antiDeadZoneFromUser = false;   // antiDeadZonePercent is the user's value ([game_tuning]), not the profile's
 };
 // `game` null: no game runs. `profileApplies`: its built-in values fit the target (profileFitsTarget).
 [[nodiscard]] GameDecision decideGame(const GameProfile* game, bool profileApplies, const GameSessionConfig& config);
@@ -91,6 +98,8 @@ struct GameDecision {
 // The service log's line for the pedals the game gets: combined or separate, where that comes from (`from`: "NFS
 // U1/MW's profile"), and what the game then reads on the pedal axes.
 [[nodiscard]] std::string pedalsLogLine(bool combined, std::string_view from);
+// The service log's line for the anti-dead zone the game gets (`percent`, 0 = off) and where it comes from.
+[[nodiscard]] std::string antiDeadZoneLogLine(float percent, std::string_view from);
 
 // Games the user added (the Games tab's Add game), kept in games.ini next to app.ini:
 //   [game.excalibur]

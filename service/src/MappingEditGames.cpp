@@ -13,6 +13,7 @@
 
 #include "wheelbri/AutoMap.hpp"
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/AntiDeadZone.hpp"
 #include "wheelbri/CentringSpring.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceMatch.hpp"
@@ -855,6 +856,13 @@ void MappingEditView::setPicked(const SourceRef& source) {
     }
 }
 
+float MappingEditView::antiDeadZoneWhileRunning(const GameProfile& game) const {
+    const GameTuning* const own = tuningOf(game.id);
+    if (own != nullptr && own->antiDeadZonePercent) return *own->antiDeadZonePercent;
+    if (game.antiDeadZonePercent && profileFitsTarget(game, targetName_)) return *game.antiDeadZonePercent;
+    return edit_.antiDeadZonePercent;
+}
+
 float MappingEditView::drawGameAxes(const std::size_t index, float y) {
     const GameProfile& game = games_[index];
     const std::string id = game.id;
@@ -896,6 +904,28 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
            72);
     from(y, ownRotation, fits && game.rotationDeg ? "profile" : "Mapping tab");
     y += 20;
+
+    // Anti-dead zone (AntiDeadZone.hpp): yours, else the profile's, else the Mapping tab's.
+    {
+        window_.text(gameX(), y + 4, "Anti-dead zone", kText);
+        tip(gameX() - 2, y, 14 * ui::kCharWidth + 4, 16,
+            "For a game that ignores the first part of the turn each way: as soon as the wheel leaves the centre, the "
+            "game gets this much steering. Set it at or just under the game's dead zone; 0 = off.");
+        const bool ownAntiDeadZone = own != nullptr && own->antiDeadZonePercent.has_value();
+        const bool antiDeadZoneChanged =
+            ownAntiDeadZone != (saved != nullptr && saved->antiDeadZonePercent.has_value()) ||
+            (ownAntiDeadZone && saved != nullptr && saved->antiDeadZonePercent != own->antiDeadZonePercent);
+        window_.fill(axisX, y, 128, 16, kStripe);
+        window_.text(axisX + 6, y + 4, "x, from the centre", kDim);
+        drawField(degreesX, y, 64, Field::GameAntiDeadZone, percent(antiDeadZoneWhileRunning(game)),
+                  antiDeadZoneChanged, index);
+        button(defaultX, y, "Default", [this, id] {
+            tuningFor(id).antiDeadZonePercent.reset();
+            dropEmptyTuning(id);
+        }, false, editable() && ownAntiDeadZone, 72);
+        from(y, ownAntiDeadZone, fits && game.antiDeadZonePercent ? "profile" : "Mapping tab");
+        y += 20;
+    }
 
     // Pedals: the axis the game reads each one from (the profile's layout over the target's, then yours), and its
     // direction (the Mapping tab's invert, then yours).

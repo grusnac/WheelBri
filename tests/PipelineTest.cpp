@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/Pipeline.hpp"
 
+#include "wheelbri/AntiDeadZone.hpp"
+
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <limits>
 #include <vector>
 
 namespace wheelbri {
@@ -91,6 +95,52 @@ TEST(Pipeline, PedalRouteMovesOnlyThePublishedPedals) {
 
 // Combined pedals (Logitech's "Report Combined Pedals"): the published throttle carries the combined pedals, the brake
 // rests in the middle, the clutch stays; the window and telemetry keep the mapped pedals. Before a game's pedal route.
+// The anti-dead zone (AntiDeadZone.hpp): off at 0; the centre stays the centre; any turn starts at the percent and
+// full lock stays full lock; the sign is kept; nonsense is off or clamped.
+TEST(AntiDeadZone, StartsAtThePercentAndKeepsFullLock) {
+    EXPECT_FLOAT_EQ(withAntiDeadZone(0.3F, 0.0F), 0.3F);
+    EXPECT_FLOAT_EQ(withAntiDeadZone(0.0F, 10.0F), 0.0F);
+    EXPECT_NEAR(withAntiDeadZone(0.001F, 10.0F), 0.1009F, 1e-4F);
+    EXPECT_NEAR(withAntiDeadZone(-0.001F, 10.0F), -0.1009F, 1e-4F);
+    EXPECT_NEAR(withAntiDeadZone(0.5F, 10.0F), 0.55F, 1e-6F);
+    EXPECT_FLOAT_EQ(withAntiDeadZone(1.0F, 10.0F), 1.0F);
+    EXPECT_FLOAT_EQ(withAntiDeadZone(-1.0F, 10.0F), -1.0F);
+    EXPECT_FLOAT_EQ(withAntiDeadZone(0.5F, std::numeric_limits<float>::quiet_NaN()), 0.5F);
+    EXPECT_NEAR(withAntiDeadZone(0.001F, 90.0F), 0.5005F, 1e-4F);   // clamped to the most, 50%
+    EXPECT_TRUE(antiDeadZoneUsable(0.0F));
+    EXPECT_TRUE(antiDeadZoneUsable(kAntiDeadZoneMaxPercent));
+    EXPECT_FALSE(antiDeadZoneUsable(-1.0F));
+    EXPECT_FALSE(antiDeadZoneUsable(std::numeric_limits<float>::quiet_NaN()));
+}
+
+// The pipeline publishes the steering with the anti-dead zone; lastState() and lastReport() stay as mapped.
+TEST(Pipeline, AntiDeadZoneChangesOnlyWhatTheGameReads) {
+    FakeSource source;
+    RecordingPublisher publisher;
+    const Mapper mapper{MapperConfig{}};
+    const DeviceProfile profile(g25Spec());
+    Pipeline pipeline(source, mapper, profile, publisher);
+    EXPECT_EQ(pipeline.antiDeadZone(), 0.0F);
+
+    source.next.axes[0] = 0.02F;   // a little to the right
+    ASSERT_TRUE(pipeline.tick());
+    const std::int32_t asMapped = pipeline.lastReport().steering;
+    EXPECT_EQ(publisher.packets.back().report.steering, asMapped);   // off: as mapped
+
+    pipeline.setAntiDeadZone(10.0F);
+    ASSERT_TRUE(pipeline.tick());
+    WheelState expected = pipeline.lastState();
+    expected.steering = withAntiDeadZone(expected.steering, 10.0F);
+    EXPECT_EQ(publisher.packets.back().report.steering, profile.encode(expected).steering);
+    EXPECT_GT(publisher.packets.back().report.steering, asMapped);
+    EXPECT_EQ(pipeline.lastReport().steering, asMapped);
+    EXPECT_EQ(pipeline.lastPublished().steering, publisher.packets.back().report.steering);
+
+    source.next.axes[0] = 0.0F;   // the centre stays the centre
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report.steering, pipeline.lastReport().steering);
+}
+
 TEST(Pipeline, CombinedPedalsPutThemOnTheThrottleAndCentreTheBrake) {
     FakeSource source;
     RecordingPublisher publisher;

@@ -37,11 +37,13 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
 
 ## Per-game values (Games tab)
 
-- Steering rotation, pedal axes and Normal / Inverted, combined pedals, and button changes for one game only, applied
-  while it runs.
+- Steering rotation, anti-dead zone, pedal axes and Normal / Inverted, combined pedals, and button changes for one
+  game only, applied while it runs.
 - Built-in profiles for NFS 2015, Payback and Unbound (Target G920), NFS Underground, Underground 2 and Most Wanted
   (combined pedals, every Target), and NFS Unbound's hidden wheel settings written to its file.
 - Combined pedals (Logitech's "Report Combined Pedals") for every game too, on the Mapping tab.
+- Anti-dead zone for games with a steering dead zone of their own: the game gets a set amount of steering as soon as
+  the wheel leaves the centre; for every game on the Mapping tab, or per game.
 - Shim status per game folder: shim in, ASI Loader, chained mod, **Chain mod**, **Remove shim**; hot swap of the shim
   when the Target changes.
 

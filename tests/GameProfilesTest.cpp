@@ -314,6 +314,23 @@ TEST(GameProfiles, CombinedPedalsOnEveryTarget) {
     EXPECT_FALSE(noTarget.profile.has_value());
 }
 
+TEST(GameProfiles, AntiDeadZoneOnEveryTarget) {
+    const ParsedGameProfile parsed = parseGameProfile(
+        "old", "[game]\nlabel = NFS Old\nprogram = old.exe\ntarget = any\n[steering]\nanti_deadzone = 8\n");
+    ASSERT_TRUE(parsed.profile.has_value()) << (parsed.problems.empty() ? "" : parsed.problems.front());
+    EXPECT_EQ(parsed.profile->antiDeadZonePercent, 8.0F);
+    EXPECT_FALSE(parsed.profile->rotationDeg.has_value());   // no rotation, no note needed
+    EXPECT_EQ(describeOverlay(*parsed.profile), "");          // not a pedal change
+    for (const char* target : {"g920", "g923", "g25", "g27"}) EXPECT_TRUE(profileFitsTarget(*parsed.profile, target));
+
+    for (const char* bad : {"51", "-2", "lots"}) {
+        const ParsedGameProfile badValue = parseGameProfile(
+            "old", std::string("[game]\nlabel = NFS Old\nprogram = old.exe\ntarget = any\n[steering]\nanti_deadzone = ") +
+                       bad + "\n");
+        EXPECT_FALSE(badValue.profile.has_value()) << bad;
+    }
+}
+
 // NFS Underground, Underground 2 and Most Wanted (Most Wanted's program is speed.exe, as Underground's) read throttle
 // and brake from one axis: their menus scroll by themselves with separate pedals.
 TEST(GameProfiles, OldNfsGamesHaveCombinedPedals) {

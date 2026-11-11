@@ -281,6 +281,40 @@ TEST(GameTuning, DecideGameCombinedPedals) {
     EXPECT_EQ(decideGame(nullptr, false, session).combinedPedals, std::nullopt);
 }
 
+TEST(GameTuning, DecideGameAntiDeadZone) {
+    GameProfile mw = testGame("nfsmw", "");
+    GameSessionConfig session;
+    session.target = "g25";
+    EXPECT_EQ(decideGame(&mw, true, session).antiDeadZonePercent, std::nullopt);   // the mapping's
+    mw.antiDeadZonePercent = 8.0F;
+    EXPECT_EQ(decideGame(&mw, true, session).antiDeadZonePercent, 8.0F);
+    EXPECT_FALSE(decideGame(&mw, true, session).antiDeadZoneFromUser);
+    EXPECT_EQ(decideGame(&mw, false, session).antiDeadZonePercent, std::nullopt);   // the profile is not in use
+    session.routePedals = false;
+    EXPECT_EQ(decideGame(&mw, true, session).antiDeadZonePercent, 8.0F);   // the shim too
+
+    session.tunings["nfsmw"].antiDeadZonePercent = 0.0F;   // the user's own value wins, even off
+    EXPECT_EQ(decideGame(&mw, true, session).antiDeadZonePercent, 0.0F);
+    EXPECT_TRUE(decideGame(&mw, true, session).antiDeadZoneFromUser);
+    EXPECT_EQ(decideGame(nullptr, false, session).antiDeadZonePercent, std::nullopt);
+}
+
+TEST(GameTuning, AntiDeadZoneKey) {
+    EXPECT_EQ(tuned("anti_deadzone", "12.5").antiDeadZonePercent, 12.5F);
+    std::string why;
+    EXPECT_FALSE(tuned("anti_deadzone", "51", &why).antiDeadZonePercent.has_value());
+    EXPECT_NE(why.find("0 to 50"), std::string::npos) << why;
+    GameTuning tuning;
+    tuning.antiDeadZonePercent = 10.0F;
+    const auto lines = tuningLines(tuning);
+    ASSERT_EQ(lines.size(), 1U);
+    EXPECT_EQ(lines[0], (std::pair<std::string, std::string>{"anti_deadzone", "10"}));
+    EXPECT_FALSE(changesMapping(tuning));   // the pipeline applies it: no tuned mapper
+    EXPECT_NE(antiDeadZoneLogLine(10.0F, "your value for NFS MW").find("10% (your value for NFS MW)"),
+              std::string::npos);
+    EXPECT_NE(antiDeadZoneLogLine(0.0F, "x").find("off"), std::string::npos);
+}
+
 // Every word for true and false the INI files take, and only those.
 TEST(GameTuning, EveryWordForTrueAndFalse) {
     for (const char* yes : {"true", "on", "yes", "1"}) EXPECT_EQ(tuned("brake_invert", yes).pedalInvert[1], true) << yes;

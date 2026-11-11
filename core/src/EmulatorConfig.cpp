@@ -3,6 +3,7 @@
 #include "wheelbri/EmulatorConfig.hpp"
 
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/AntiDeadZone.hpp"
 #include "wheelbri/CentringSpring.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/MappingEdit.hpp"
@@ -256,6 +257,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         reader.readFloat("target_rotation_deg", steering.targetRotationDeg, tuning::kMinRotationDeg,
                          tuning::kMaxRotationDeg);
         reader.readBool("invert", steering.invert);
+        reader.readFloat("anti_deadzone", config.antiDeadZonePercent, 0.0F, kAntiDeadZoneMaxPercent);
         reader.retired("deadzone");   // the steering's dead zone (until 2026-10-13): ignored
         reader.reportUnknownKeys();
     }

@@ -43,6 +43,9 @@ namespace wheelbri {
 //            service steers with it, wheel and game both at that number (GameRotation.hpp), unless the user's mapping
 //            says otherwise for that game ([game_rotation], set in the Games tab). WheelBri never reads or
 //            sets the wheel's own software: the log and the window say to set it to the same number.
+//            anti_deadzone = 0..50: the anti-dead zone in percent while the game runs (AntiDeadZone.hpp), for a game
+//            with a steering dead zone of its own; independent of rotation_deg. The user's [game_tuning]
+//            <game>.anti_deadzone overrides it.
 //   [game_settings] file = <path under the user's Documents folder> / note = why / <id> = <the game's name> <value>
 //            (file, note and at least one setting go together; at most kMaxGameSettings): the game's own settings that
 //            the user writes into the game's settings file from the Games tab (GameSettings.hpp; NFS Unbound
@@ -85,6 +88,7 @@ struct GameProfile {
     std::optional<bool> combinedPedals;   // [pedals] combined: Logitech's "Report Combined Pedals" while it runs
     std::optional<float> rotationDeg;   // [steering] rotation_deg: the rotation while the game runs (wheel = game)
     std::string rotationNote;           // [steering] note: why, in a sentence, for the user (the log says it)
+    std::optional<float> antiDeadZonePercent;   // [steering] anti_deadzone: the anti-dead zone while it runs
     std::string settingsFile;           // [game_settings] file: relative to the user's Documents folder, / separated
     std::string settingsNote;           // [game_settings] note
     std::vector<GameSetting> settings;  // [game_settings] the rest, by id

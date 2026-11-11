@@ -45,6 +45,9 @@ struct EmulatorConfig {
     // DeviceProfile.hpp); a game's profile or the user's values for it ([game_tuning] <game>.combined_pedals) may say
     // otherwise while it runs.
     bool combinedPedals = false;
+    // [steering] anti_deadzone = 0..50: the anti-dead zone in percent for every game, 0 = off (AntiDeadZone.hpp); a
+    // game's profile or the user's values for it ([game_tuning] <game>.anti_deadzone) may say otherwise while it runs.
+    float antiDeadZonePercent = 0.0F;
 
     // [emulator] from_rig = true: the steering, pedals, D-pad and core buttons (CoreButton) a line here leaves out
     // come from the Rig (what each control "is", AutoMap.hpp: applyRig fills them in), and target buttons with no line

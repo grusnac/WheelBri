@@ -583,5 +583,13 @@ TEST(EmulatorConfig, ReadsCombinedPedals) {
     EXPECT_TRUE(containsError(load("[pedals]\nsplit = true\n"), "split"));
 }
 
+TEST(EmulatorConfig, ReadsTheAntiDeadZone) {
+    EXPECT_EQ(load("").config.antiDeadZonePercent, 0.0F);
+    EXPECT_EQ(load("[steering]\nanti_deadzone = 12.5\n").config.antiDeadZonePercent, 12.5F);
+    EXPECT_TRUE(containsError(load("[steering]\nanti_deadzone = 60\n"), "anti_deadzone"));
+    EXPECT_TRUE(containsError(load("[steering]\nanti_deadzone = -1\n"), "anti_deadzone"));
+    EXPECT_TRUE(containsError(load("[steering]\nanti_deadzone = some\n"), "anti_deadzone"));
+}
+
 }  // namespace
 }  // namespace wheelbri

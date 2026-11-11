@@ -48,6 +48,11 @@ public:
     // route. lastReport() stays as mapped. Safe from another thread; the next tick uses it.
     void setCombinedPedals(const bool on) { combinedPedals_.store(on, std::memory_order_relaxed); }
     [[nodiscard]] bool combinedPedals() const { return combinedPedals_.load(std::memory_order_relaxed); }
+    // The anti-dead zone in percent ([steering] anti_deadzone, or the running game's: AntiDeadZone.hpp), 0 = off:
+    // applied to the published steering only; lastState() and lastReport() stay as mapped. Safe from another thread;
+    // the next tick uses it.
+    void setAntiDeadZone(const float percent) { antiDeadZone_.store(percent, std::memory_order_relaxed); }
+    [[nodiscard]] float antiDeadZone() const { return antiDeadZone_.load(std::memory_order_relaxed); }
 
 
     // The order the target's buttons reach the game in ([buttons] order, ButtonOrder): Native publishes them through
@@ -83,8 +88,8 @@ public:
     [[nodiscard]] const WheelState& lastState() const { return state_; }
     // The mapped target report, before the game's pedal layout moved its pedals (what the window and telemetry show).
     [[nodiscard]] const TargetReport& lastReport() const { return report_; }
-    // What the last tick published: lastReport() with combined pedals, the game's pedal route and the button order
-    // applied (what the game reads; telemetry's out_*).
+    // What the last tick published: lastReport() with the anti-dead zone, combined pedals, the game's pedal route and
+    // the button order applied (what the game reads; telemetry's out_*).
     [[nodiscard]] const TargetReport& lastPublished() const { return packet_.report; }
     [[nodiscard]] std::uint32_t sequence() const { return packet_.sequence; }   // packets published
     [[nodiscard]] const StateSendGate* sendGate() const { return gate_ ? &*gate_ : nullptr; }
@@ -106,6 +111,7 @@ private:
     std::atomic<const Mapper*> gameMapper_{nullptr};
     std::atomic<bool> nativeButtons_{false};
     std::atomic<bool> combinedPedals_{false};
+    std::atomic<float> antiDeadZone_{0.0F};
     std::atomic<std::uint32_t> pedalRoute_{0x00020100U};   // PedalRoute packed: straight through
     std::uint64_t publishFailures_ = 0;
     std::optional<StateSendGate> gate_;

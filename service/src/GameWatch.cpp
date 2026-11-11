@@ -297,6 +297,11 @@ GameWatch::Decision GameWatch::check() {
         out.combinedPedalsFrom = decision.combinedPedalsFromUser ? "your value for " + state.game->label
                                                                  : state.game->label + "'s profile";
     }
+    out.antiDeadZonePercent = decision.antiDeadZonePercent;
+    if (decision.antiDeadZonePercent && state.game != nullptr) {
+        out.antiDeadZoneFrom = decision.antiDeadZoneFromUser ? "your value for " + state.game->label
+                                                             : state.game->label + "'s profile";
+    }
     if (decision.tuning != nullptr && changesMapping(*decision.tuning)) {
         out.mapperGame = state.game->id;
         out.tuning = decision.tuning;

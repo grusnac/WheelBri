@@ -947,6 +947,8 @@ private:
     void followRotation();
     // Combined pedals: the running game's, else the mapping's ([pedals] combined); said in the log when it changes.
     void followCombinedPedals();
+    // The anti-dead zone: the running game's, else the mapping's ([steering] anti_deadzone); said when it changes.
+    void followAntiDeadZone();
     [[nodiscard]] UiFrame frame() const;
 
     wheelbri::EmulatorConfig& config_;
@@ -981,7 +983,20 @@ private:
     std::optional<bool> gameCombinedPedals_;   // the running game's, as the last checkGame said
     std::string gameCombinedPedalsFrom_;       // where it comes from (GameWatch::Decision::combinedPedalsFrom)
     std::string saidPedals_;                   // the last "pedals:" log line: said again only when it changes
+    std::optional<float> gameAntiDeadZone_;    // the running game's anti-dead zone, as the last checkGame said
+    std::string gameAntiDeadZoneFrom_;         // where it comes from (GameWatch::Decision::antiDeadZoneFrom)
+    std::string saidAntiDeadZone_;             // the last "anti-dead zone:" log line
 };
+
+void WindowSide::followAntiDeadZone() {
+    const float percent = gameAntiDeadZone_.value_or(config_.antiDeadZonePercent);
+    if (pipeline_.antiDeadZone() != percent) pipeline_.setAntiDeadZone(percent);
+    const std::string line = wheelbri::antiDeadZoneLogLine(
+        percent, gameAntiDeadZone_ ? gameAntiDeadZoneFrom_ : "the Mapping tab's [steering] anti_deadzone");
+    if (line == saidAntiDeadZone_) return;
+    saidAntiDeadZone_ = line;
+    WE_LOG_INFO(log(), "{}", line);
+}
 
 void WindowSide::followCombinedPedals() {
     const bool on = gameCombinedPedals_.value_or(config_.combinedPedals);
@@ -1049,6 +1064,7 @@ void WindowSide::followConfig() {
     }
     wheelbri::applyLiveMappingChange(config_, change);
     if (change.combinedPedals) followCombinedPedals();
+    if (change.antiDeadZonePercent) followAntiDeadZone();
     if (change.rotationChanged) {
         gameWatch_.setMapping(config_.mapper.steering.targetRotationDeg);
         followRotation();
@@ -1063,6 +1079,9 @@ void WindowSide::checkGame() {
         gameCombinedPedals_ = decision.combinedPedals;
         gameCombinedPedalsFrom_ = decision.combinedPedalsFrom;
         followCombinedPedals();
+        gameAntiDeadZone_ = decision.antiDeadZonePercent;
+        gameAntiDeadZoneFrom_ = decision.antiDeadZoneFrom;
+        followAntiDeadZone();
         // The game's own mapping (made once per game, kept for the session), else the mapping's.
         const wheelbri::Mapper* gameMapper = nullptr;
         if (!decision.mapperGame.empty() && decision.tuning != nullptr) {
@@ -1213,6 +1232,9 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
     }
     pipeline.setCombinedPedals(config.combinedPedals);
     WE_LOG_INFO(log(), "{} at Start", wheelbri::pedalsLogLine(config.combinedPedals, "the Mapping tab's [pedals] combined"));
+    pipeline.setAntiDeadZone(config.antiDeadZonePercent);
+    WE_LOG_INFO(log(), "{} at Start",
+                wheelbri::antiDeadZoneLogLine(config.antiDeadZonePercent, "the Mapping tab's [steering] anti_deadzone"));
     pipeline.limitSending(platform::kNsPerSecond / static_cast<std::uint64_t>(config.stateRateHz));
 
     std::string ffbStatus;

@@ -7,6 +7,7 @@
 #include "ConfigPicker.hpp"
 #include "GameWatch.hpp"
 #include "MappingEditView.hpp"
+#include "MappingEditViewParts.hpp"
 #include "ServiceLogging.hpp"
 #include "ShimGamesView.hpp"
 #include "UiStyle.hpp"
@@ -31,6 +32,10 @@
 
 namespace wheelbri::service {
 namespace {
+
+using editview::kGridGap;
+using editview::kSliderX;
+using editview::kTwoColumnsMinW;
 
 bool sameColour(const ui::Colour a, const ui::Colour b) { return a.r == b.r && a.g == b.g && a.b == b.b; }
 
@@ -741,7 +746,7 @@ TEST_F(EditView, TheCentringSpring) {
     picker_->useTarget(ConfigPicker::Target::G25);
     frame();
     ASSERT_TRUE(window_.has("CENTRING SPRING"));
-    ASSERT_TRUE(click("0", 0));   // the field, before the presets ("Off")
+    ASSERT_TRUE(click("0", 0));   // the field, before the slider's ends and the presets ("Off")
     type("150");
     type(std::string(1, ui::kEnter));
     frame();
@@ -750,7 +755,7 @@ TEST_F(EditView, TheCentringSpring) {
     type(std::string(1, ui::kEnter));
     frame();
     EXPECT_NE(own().find("centring_spring = 34"), std::string::npos) << own();
-    ASSERT_TRUE(click("Off"));
+    ASSERT_TRUE(click("Off"));   // the spring's, right under the rotation, before the anti-dead zone's
     frame();
     EXPECT_NE(own().find("centring_spring = 0"), std::string::npos) << own();
 }
@@ -1393,7 +1398,7 @@ TEST_F(EditView, TheAxesSubTab) {
     EXPECT_NE(own().find("nfspayback.throttle_invert = true"), std::string::npos) << own();
     ASSERT_TRUE(window_.has("yours"));
     EXPECT_TRUE(sameColour(window_.find("yours")->colour, style::kMine));   // violet: yours, for this game
-    ASSERT_TRUE(click("Default", 1));
+    ASSERT_TRUE(click("Default", 2));   // steering, anti-dead zone, then the throttle
     frame();
     EXPECT_EQ(own().find("nfspayback.throttle_invert"), std::string::npos) << own();
     // The clutch goes on to none after the slider.
@@ -2878,33 +2883,55 @@ TEST_F(EditView, CombinedPedalsOnTheMappingTab) {
     EXPECT_NE(own().find("combined = false"), std::string::npos) << own();
 }
 
-// The lower sections look alike: every row label at the left edge, every row's controls from one column.
+// The lower sections: the rotation and, right under it, the centring spring across the page; then a grid of two
+// boxes a row (anti-dead zone | pedals, then button order), each box's label at its left edge and its controls from
+// the same distance in.
 TEST_F(EditView, TheLowerSectionsLineUp) {
     useRig(testRig());
     open();
     picker_->useTarget(ConfigPicker::Target::G25);
     frame();
+    ASSERT_GE(window_.width(), kTwoColumnsMinW);
     const Window::Text* const rotation = window_.find("Rotation");
+    const Window::Text* const strength = window_.find("Strength");
+    const Window::Text* const startsAt = window_.find("Starts at");
     const Window::Text* const pedals = window_.find("Reported as");
     const Window::Text* const order = window_.find("Order");
-    const Window::Text* const strength = window_.find("Strength");
-    ASSERT_NE(rotation, nullptr);
-    ASSERT_NE(pedals, nullptr);
-    ASSERT_NE(order, nullptr);
-    ASSERT_NE(strength, nullptr);
-    for (const Window::Text* label : {pedals, order, strength}) {
-        EXPECT_EQ(label->x, rotation->x);
+    for (const Window::Text* label : {rotation, strength, startsAt, pedals, order}) {
+        ASSERT_NE(label, nullptr);
         EXPECT_TRUE(sameColour(label->colour, rotation->colour));
     }
-    EXPECT_LT(rotation->y, pedals->y);
+    for (const Window::Text* label : {strength, startsAt, order}) EXPECT_EQ(label->x, rotation->x);   // left column
+    EXPECT_NEAR(pedals->x, rotation->x + (window_.width() + kGridGap) / 2, 0.5F);                    // right column
+    EXPECT_LT(rotation->y, strength->y);
+    EXPECT_LT(strength->y, startsAt->y);
+    EXPECT_EQ(startsAt->y, pedals->y);   // one row of the grid
     EXPECT_LT(pedals->y, order->y);
-    EXPECT_LT(order->y, strength->y);
-    // The switches start where the strength field does.
+    // The switches start the same distance into their boxes.
     const Window::Text* const separate = window_.find("Separate");
     const Window::Text* const logitech = window_.find("Logitech");
     ASSERT_NE(separate, nullptr);
     ASSERT_NE(logitech, nullptr);
-    EXPECT_NEAR(separate->x - logitech->x, 0.0F, 24.0F);   // centred labels of equal-width buttons
+    EXPECT_NEAR((separate->x - pedals->x) - (logitech->x - order->x), 0.0F, 24.0F);   // centred labels, equal widths
+}
+
+// A narrow window: the grid's boxes one under the other, all at the left edge.
+TEST_F(EditView, TheLowerGridIsOneColumnWhenNarrow) {
+    useRig(testRig());
+    open();
+    picker_->useTarget(ConfigPicker::Target::G25);
+    window_.setCanvas(kTwoColumnsMinW - 40, window_.height());
+    frame();
+    const Window::Text* const startsAt = window_.find("Starts at");
+    const Window::Text* const pedals = window_.find("Reported as");
+    const Window::Text* const order = window_.find("Order");
+    ASSERT_NE(startsAt, nullptr);
+    ASSERT_NE(pedals, nullptr);
+    ASSERT_NE(order, nullptr);
+    EXPECT_EQ(pedals->x, startsAt->x);
+    EXPECT_EQ(order->x, startsAt->x);
+    EXPECT_LT(startsAt->y, pedals->y);
+    EXPECT_LT(pedals->y, order->y);
 }
 
 // Combined pedals per game: NFS U1's from its profile; the user's own value, saved; Default takes it back.
@@ -2920,7 +2947,7 @@ TEST_F(EditView, CombinedPedalsPerGame) {
     frame();
     EXPECT_TRUE(window_.has("separate"));
     EXPECT_NE(own().find("nfsu1.combined_pedals = false"), std::string::npos) << own();
-    ASSERT_TRUE(click("Default", 4));   // steering, three pedals, then combined
+    ASSERT_TRUE(click("Default", 5));   // steering, anti-dead zone, three pedals, then combined
     frame();
     EXPECT_TRUE(window_.has("one axis"));
     EXPECT_EQ(own().find("nfsu1.combined_pedals"), std::string::npos) << own();
@@ -2928,6 +2955,87 @@ TEST_F(EditView, CombinedPedalsPerGame) {
     ASSERT_TRUE(click("NFS 2015"));   // no profile value: the Mapping tab's (off)
     frame();
     EXPECT_TRUE(window_.has("separate"));
+}
+
+// The anti-dead zone on the Mapping tab: a preset is saved; typed, it is saved too; out of range is refused.
+TEST_F(EditView, AntiDeadZoneOnTheMappingTab) {
+    useRig(testRig());
+    open();
+    frame();
+    EXPECT_TRUE(window_.has("ANTI-DEAD ZONE"));
+    EXPECT_TRUE(window_.has("Starts at"));
+    ASSERT_TRUE(click("10"));   // a preset (the field next to the slider shows the %)
+    frame();
+    EXPECT_NE(own().find("\nanti_deadzone = 10"), std::string::npos) << own();
+    ASSERT_TRUE(click("Off"));
+    frame();
+    EXPECT_NE(own().find("\nanti_deadzone = 0"), std::string::npos) << own();
+}
+
+// The slider sets it in half-percent steps: a press on its middle is 25%.
+TEST_F(EditView, TheAntiDeadZoneSlider) {
+    useRig(testRig());
+    open();
+    frame();
+    const Window::Text* const label = window_.find("Starts at");   // the row's label, 4 in from the box
+    const Window::Text* const fifty = window_.find("50");          // the right end's label, 16 in from it
+    ASSERT_NE(label, nullptr);
+    ASSERT_NE(fifty, nullptr);
+    const float row = label->y - 4;
+    const float middle = (label->x - 4 + kSliderX + fifty->x + 16) / 2;
+    view_->onClick(middle, row + 8);
+    view_->onPointer(middle, row + 8, false);
+    frame();
+    EXPECT_NE(own().find("\nanti_deadzone = 25"), std::string::npos) << own();
+}
+
+// Each target shows only its own options: the centring spring and Button order for the G25 and G27, TrueForce for
+// the G923, neither for the G920.
+TEST_F(EditView, EachTargetShowsOnlyItsOwnOptions) {
+    useRig(testRig());
+    open();
+    struct Expect {
+        ConfigPicker::Target target;
+        bool spring;
+        bool order;
+        bool trueForce;
+    };
+    for (const Expect& e : {Expect{ConfigPicker::Target::G920, false, false, false},
+                            Expect{ConfigPicker::Target::G923, false, false, true},
+                            Expect{ConfigPicker::Target::G25, true, true, false},
+                            Expect{ConfigPicker::Target::G27, true, true, false}}) {
+        picker_->useTarget(e.target);
+        frame();
+        EXPECT_EQ(window_.has("CENTRING SPRING"), e.spring) << static_cast<int>(e.target);
+        EXPECT_EQ(window_.has("BUTTON ORDER"), e.order) << static_cast<int>(e.target);
+        EXPECT_EQ(window_.has("TRUEFORCE"), e.trueForce) << static_cast<int>(e.target);
+        EXPECT_TRUE(window_.has("ANTI-DEAD ZONE"));
+        EXPECT_TRUE(window_.has("PEDALS"));
+    }
+}
+
+// The anti-dead zone per game: the Mapping tab's until the user sets one; saved; Default takes it back.
+TEST_F(EditView, AntiDeadZonePerGame) {
+    useRig(testRig());
+    open();
+    games();
+    ASSERT_TRUE(click("NFS MW"));
+    frame();
+    EXPECT_TRUE(window_.has("Anti-dead zone"));
+    ASSERT_TRUE(click("0%"));   // the field: the Mapping tab's (off)
+    view_->onText(std::string("\b\b\b12.5") + ui::kEnter);
+    frame();
+    EXPECT_TRUE(window_.has("12.5%"));
+    EXPECT_NE(own().find("nfsmw.anti_deadzone = 12.5"), std::string::npos) << own();
+    ASSERT_TRUE(click("Default", 1));   // steering, then anti-dead zone
+    frame();
+    EXPECT_TRUE(window_.has("0%"));
+    EXPECT_EQ(own().find("nfsmw.anti_deadzone"), std::string::npos) << own();
+
+    ASSERT_TRUE(click("0%"));
+    view_->onText(std::string("\b\b\b60") + ui::kEnter);   // out of range: refused, nothing saved
+    frame();
+    EXPECT_EQ(own().find("nfsmw.anti_deadzone"), std::string::npos) << own();
 }
 
 }  // namespace

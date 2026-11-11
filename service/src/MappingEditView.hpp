@@ -154,7 +154,11 @@ private:
     // in its Mapping section, GameSteering in its Game config: two places, one value), or
     // a game's own setting (`fieldIndex_` = game index * kMaxGameSettings + the setting's index), or the threshold of an axis
     // that presses a button.
-    enum class Field { None, Rotation, CentringSpring, PerGame, GameSteering, GameSetting, Threshold };
+    enum class Field {
+        None, Rotation, CentringSpring, AntiDeadZone, PerGame, GameSteering, GameAntiDeadZone, GameSetting, Threshold
+    };
+    // The Mapping tab's sliders (their ranges and steps: sliderRange, MappingEditViewParts.hpp).
+    enum class Slider { None, Rotation, CentringSpring, AntiDeadZone };
     // The Games page's sub-tabs for the picked game: its axes and buttons on one page, its game file (some games).
     enum class GameTab { Controls, File };
 
@@ -359,19 +363,30 @@ private:
     // A number field showing `value` (or what is typed in it); amber when it differs from the saved mapping.
     // A lower section's heading band, its title and what it is about (one gap after the title); returns its row's y.
     float section(float y, std::string_view title, const std::string& about);
-    // Combined pedals ([pedals] combined), below the rotation; returns where it ends.
-    float drawCombinedPedals(float top);
-    // The target's own options below that: BUTTON ORDER (G25, G27), TRUEFORCE (G923); returns where they end.
-    float drawTargetOptions(float top);
-    // The target's centring spring (G25, G27), below the combined pedals; returns where it ends.
+    // A box of the grid under the rotation: its heading band and title over `w` from `x`; returns its row's y.
+    float cellSection(float x, float y, float w, std::string_view title);
+    // The grid under the rotation (and the centring spring): ANTI-DEAD ZONE, PEDALS, then the target's own BUTTON
+    // ORDER (G25, G27) or TRUEFORCE (G923); two boxes a row, one when the window is narrow. Returns where it ends.
+    float drawLowerGrid(float top);
+    // The grid's boxes, each at `x` and `w` wide; each returns where it ends.
+    float drawAntiDeadZone(float x, float top, float w);
+    float drawCombinedPedals(float x, float top, float w);
+    // The anti-dead zone while `game` runs: the user's value for it, else its profile's (when it fits the target),
+    // else the Mapping tab's.
+    [[nodiscard]] float antiDeadZoneWhileRunning(const GameProfile& game) const;
+    // The target's centring spring (G25, G27), right under the rotation and laid out as it is; returns where it ends.
     float drawCentringSpring(float top);
+    // A slider's bar from `x`, `w` wide, showing `value` in its range (sliderRange); a press sets it, holding the
+    // button drags it (onPointer). Greyed and without a click when not `enabled`.
+    void drawSlider(Slider which, float x, float y, float w, float value, bool changed, bool enabled);
     void drawField(float x, float y, float w, Field field, const std::string& value, bool changed,
                    std::size_t index = 0);
     [[nodiscard]] std::string fieldText(Field field, std::size_t index) const;
     void startTyping(Field field, std::size_t index = 0);
     // Applies what was typed: false (and the reason in the status) when it is not a usable value.
     bool commitTyping();
-    void setRotationFromX(float x);
+    // The slider being dragged (dragSlider_): its value from where the pointer is, in its steps.
+    void setSliderFromX(float x);
     // The secondary popup's axis being dragged (altFocus_): its threshold from where the pointer is on its row's
     // slider (whole percent).
     void setThresholdFromX(float x);
@@ -455,7 +470,10 @@ private:
     Field field_ = Field::None;
     std::size_t fieldIndex_ = 0;
     std::string typed_;
-    bool dragging_ = false;   // the slider, from a press on it until the left button is let go
+    bool dragging_ = false;   // a slider, from a press on it until the left button is let go
+    Slider dragSlider_ = Slider::None;   // which one, and where its bar is (it moves with the layout)
+    float dragSliderX_ = 0;
+    float dragSliderW_ = 1;
     bool thresholdDragging_ = false;   // the secondary popup's threshold slider, the same way
     float thresholdSliderX_ = 0;       // where the axis rows' sliders were drawn last (their pointer maths)
     float thresholdSliderW_ = 1;

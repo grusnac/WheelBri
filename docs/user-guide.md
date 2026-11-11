@@ -50,7 +50,8 @@ button you map yourself.
 Once a device has named controls, the unnamed ones fold into one line; **Show all** / **Named only** switch.
 
 The device with Steering is the wheel and plays the force feedback. WheelBri has no dead zones: set those, and the
-wheel's rotation, in the wheel's own software (Pit House for Moza).
+wheel's rotation, in the wheel's own software (Pit House for Moza). For a game with a dead zone of its own, see
+**Anti-dead zone** below.
 
 ## Map it to the Target
 
@@ -76,6 +77,11 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
 middle; the brake's axis rests in the middle. As Logitech's "Report Combined Pedals", for old games that read them so
 (NFS Underground, Most Wanted: their menus scroll by themselves otherwise). Those games have it on by themselves
 (Games tab); turn it on here only for another such game. Pressing both pedals cancels out.
+
+**Anti-dead zone** (every Target, 0 = off by default): for games that ignore the first part of the turn each way
+(old NFS games). As soon as the wheel leaves the centre, the game gets this much steering (0 to 50%), and the rest of
+the turn is scaled to fit, so full lock stays full lock. Set it at or just under the game's dead zone: above it, the
+car twitches as the wheel crosses the centre. Best set per game (Games tab).
 
 **G25 and G27 only:**
 
@@ -207,7 +213,8 @@ Heat is recognised too: it has no values, only a warning when the Target is the 
    `.exe` and names it after its folder; the game is its `.exe`'s full path, so games whose `.exe` shares a name (`speed.exe`) stay apart; one with a built-in profile gets its own copy of it. A name shown twice is marked **! not unique**: rename that game's folder. **Remove** takes one you added off the list (its files stay). Its **FOLDER** row: **Put shim** (or **Chain
    mod**), **Remove shim**, and **Forget folder** to drop the folder WheelBri knows for it.
 2. Set its sub-tabs; **Default** goes back to the profile's or the Mapping tab's value (yours show in violet):
-   - **Axes and buttons**, the axes first: steering rotation; per pedal, the axis the game reads and Normal /
+   - **Axes and buttons**, the axes first: steering rotation; **Anti-dead zone** (click the % to type it); per
+     pedal, the axis the game reads and Normal /
      Inverted; **Combined** pedals for this game. In Mode Virtual pedals can only be swapped among the Target's own
      pedal axes.
 

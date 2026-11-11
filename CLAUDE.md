@@ -188,7 +188,7 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 ## Decided: do not add back
 
 - Dead zones and pedal curves (gamma): the wheel's own app sets them. A steering ratio (always 1:1), a virtual Xbox
-  controller.
+  controller. The anti-dead zone (`AntiDeadZone.hpp`) is not one: it makes up for a game's own dead zone.
 - Force feedback strength, per-effect gains, caps or on/off per game, or WheelBri's own master gain: the game's and
   the wheel's own app's to set. The fixed safety guards stay; nothing to tune them in the app.
 - Auto-map beyond the core inputs (`AutoMap.hpp`: steering, pedals, D-pad, A/B/X/Y, paddles, from the Rig's "It is"):

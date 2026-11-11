@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/GameProfiles.hpp"
 
+#include "wheelbri/AntiDeadZone.hpp"
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/IniDocument.hpp"
 
@@ -232,6 +233,15 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                     }
                 } else if (key == "note") {
                     profile.rotationNote = value;
+                } else if (key == "anti_deadzone") {
+                    const auto percent = tuning::parseNumber(value);
+                    if (percent && antiDeadZoneUsable(*percent)) {
+                        profile.antiDeadZonePercent = *percent;
+                    } else {
+                        result.problems.push_back("[steering] anti_deadzone = '" + value +
+                                                  "': expected a number from 0 to " +
+                                                  tuning::formatNumber(kAntiDeadZoneMaxPercent));
+                    }
                 } else {
                     result.problems.push_back("[steering] " + key + ": unknown key");
                 }

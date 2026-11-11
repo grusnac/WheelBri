@@ -16,6 +16,7 @@
 //     those at Start, so a mapping that reads another device waits, whole, for the next Start.
 //   [buttons] order (Pipeline::setButtonOrder).
 //   [pedals] combined (Pipeline::setCombinedPedals, unless the running game has its own).
+//   [steering] anti_deadzone (Pipeline::setAntiDeadZone, unless the running game has its own).
 // Everything else waits for the next Start and is said once per change: the target, the wheel, the ports and state
 // rate, TrueForce, and [ffb] (force feedback is set in the wheel's own app; the few [ffb] keys are read at Start).
 // [logging], [telemetry] and [retention] are read at Start only and are not compared. The per-game sections
@@ -28,10 +29,13 @@ struct LiveMappingChange {
     std::optional<MapperConfig> mapper;           // the mapping to use from now on, when it changed and can be used
     std::optional<ButtonOrder> buttonOrder;       // the button order to use from now on, when it changed
     std::optional<bool> combinedPedals;           // [pedals] combined from now on, when it changed
+    std::optional<float> antiDeadZonePercent;     // [steering] anti_deadzone from now on, when it changed
     bool rotationChanged = false;                 // mapper's steering rotation differs from the running one
     std::vector<std::string> waiting;             // what changed but waits for the next Start, one line each
 
-    [[nodiscard]] bool any() const { return mapper || buttonOrder || combinedPedals || !waiting.empty(); }
+    [[nodiscard]] bool any() const {
+        return mapper || buttonOrder || combinedPedals || antiDeadZonePercent || !waiting.empty();
+    }
 };
 
 // What of `next` (the file as read again, prepared as Start prepares it: the rig's inputs filled in, the wheel's

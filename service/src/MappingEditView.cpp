@@ -11,6 +11,7 @@
 
 #include "wheelbri/AutoMap.hpp"
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/AntiDeadZone.hpp"
 #include "wheelbri/CentringSpring.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceMatch.hpp"
@@ -536,14 +537,42 @@ void MappingEditView::onPointer(const float x, const float /*y*/, const bool lef
         dragging_ = false;
         return;
     }
-    setRotationFromX(x);
+    setSliderFromX(x);
 }
 
-void MappingEditView::setRotationFromX(const float x) {
-    const float t = std::clamp((x - kSliderX) / sliderW(), 0.0F, 1.0F);
-    const float value = kSliderMinDeg + t * (kSliderMaxDeg - kSliderMinDeg);
-    edit_.steeringRotationDeg =
-        std::clamp(std::round(value / kSliderStepDeg) * kSliderStepDeg, kSliderMinDeg, kSliderMaxDeg);
+void MappingEditView::setSliderFromX(const float x) {
+    float* const value = dragSlider_ == Slider::Rotation         ? &edit_.steeringRotationDeg
+                         : dragSlider_ == Slider::CentringSpring ? &edit_.centringSpringPercent
+                         : dragSlider_ == Slider::AntiDeadZone   ? &edit_.antiDeadZonePercent
+                                                                 : nullptr;
+    if (value == nullptr) return;
+    const SliderRange range = dragSlider_ == Slider::Rotation         ? kRotationSlider
+                              : dragSlider_ == Slider::CentringSpring ? kCentringSpringSlider
+                                                                      : kAntiDeadZoneSlider;
+    const float t = std::clamp((x - dragSliderX_) / dragSliderW_, 0.0F, 1.0F);
+    const float raw = range.min + t * (range.max - range.min);
+    *value = std::clamp(std::round(raw / range.step) * range.step, range.min, range.max);
+}
+
+void MappingEditView::drawSlider(const Slider which, const float x, const float y, const float w, const float value,
+                                 const bool changed, const bool enabled) {
+    const SliderRange range = which == Slider::Rotation         ? kRotationSlider
+                              : which == Slider::CentringSpring ? kCentringSpringSlider
+                                                                : kAntiDeadZoneSlider;
+    const float shown = std::clamp(value, range.min, range.max);
+    const float filled = (shown - range.min) / (range.max - range.min) * w;
+    window_.fill(x, y + 6, w, 4, kStripe);
+    window_.fill(x, y + 6, filled, 4, kHeading);
+    window_.fill(x + filled - 3, y + 1, 6, 14, enabled ? kText : kDim);
+    window_.outline(x, y + 6, w, 4, changed ? kMine : kPanel);
+    if (!enabled) return;
+    hit(x - 4, y, w + 8, 16, [this, which, x, w] {
+        dragSlider_ = which;
+        dragSliderX_ = x;
+        dragSliderW_ = std::max(1.0F, w);
+        setSliderFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
+        dragging_ = true;
+    });
 }
 
 ButtonRef* MappingEditView::axisSecondary(const std::size_t index) {
@@ -580,6 +609,12 @@ std::string MappingEditView::fieldText(const Field field, const std::size_t inde
         }
         case Field::Rotation: return degrees(edit_.steeringRotationDeg);
         case Field::CentringSpring: return tuning::formatNumber(edit_.centringSpringPercent);
+        case Field::AntiDeadZone: return tuning::formatNumber(edit_.antiDeadZonePercent);
+        case Field::GameAntiDeadZone: {
+            const std::span<const GameProfile> games = games_;
+            if (index >= games.size()) return {};
+            return tuning::formatNumber(antiDeadZoneWhileRunning(games[index]));
+        }
         case Field::Threshold: {
             const ButtonRef* const focused = const_cast<MappingEditView*>(this)->axisSecondary(index);
             return focused != nullptr ? tuning::formatNumber(focused->threshold * 100.0F) : std::string();
@@ -639,6 +674,19 @@ bool MappingEditView::commitTyping() {
                     edit_.centringSpringPercent = std::round(value);   // whole percent, as Logitech's slider
                 }
                 break;
+            case Field::AntiDeadZone:
+            case Field::GameAntiDeadZone: {
+                const std::span<const GameProfile> games = games_;
+                if (!antiDeadZoneUsable(value)) {
+                    problem = "the anti-dead zone goes from 0 (off) to " +
+                              tuning::formatNumber(kAntiDeadZoneMaxPercent) + "%";
+                } else if (field_ == Field::AntiDeadZone) {
+                    edit_.antiDeadZonePercent = std::round(value * 10.0F) / 10.0F;
+                } else if (fieldIndex_ < games.size()) {
+                    tuningFor(games[fieldIndex_].id).antiDeadZonePercent = std::round(value * 10.0F) / 10.0F;
+                }
+                break;
+            }
             case Field::Threshold:
                 // The whole travel, in whole percent (as the slider sets it).
                 if (!(value >= kMinButtonThreshold * 100.0F && value <= kMaxButtonThreshold * 100.0F)) {
@@ -1099,17 +1147,8 @@ void MappingEditView::drawRotation(const float top) {
     // The steering rotation: the slider (90 to 1080), the typed number (up to 2520) and the usual values.
     float y = section(top, "STEERING ROTATION", "full lock to full lock, in degrees");
     window_.text(4, y + 4, "Rotation", kText);
-    const float shown = std::clamp(edit_.steeringRotationDeg, kSliderMinDeg, kSliderMaxDeg);
-    const float filled = (shown - kSliderMinDeg) / (kSliderMaxDeg - kSliderMinDeg) * sliderW();
-    window_.fill(kSliderX, y + 6, sliderW(), 4, kStripe);
-    window_.fill(kSliderX, y + 6, filled, 4, kHeading);
-    window_.fill(kSliderX + filled - 3, y + 1, 6, 14, kText);
-    window_.outline(kSliderX, y + 6, sliderW(), 4,
-                    edit_.steeringRotationDeg != saved_.steeringRotationDeg ? kMine : kPanel);
-    hit(kSliderX - 4, y, sliderW() + 8, 16, [this] {
-        setRotationFromX(clickX_);   // the press sets it; holding the button drags it (onPointer)
-        dragging_ = true;
-    });
+    drawSlider(Slider::Rotation, kSliderX, y, sliderW(), edit_.steeringRotationDeg,
+               edit_.steeringRotationDeg != saved_.steeringRotationDeg, true);
     drawField(kSliderX + sliderW() + 12, y, 64, Field::Rotation, degrees(edit_.steeringRotationDeg),
               edit_.steeringRotationDeg != saved_.steeringRotationDeg);
     window_.text(kSliderX + sliderW() + 80, y + 4, "deg", kDim);
@@ -1132,41 +1171,54 @@ void MappingEditView::drawRotation(const float top) {
         "full lock. A game can steer with its own rotation (NFS Payback: 180): the Games tab (G) sets it.");
 
     y += 30;
-    y = drawCombinedPedals(y) + 14;
-    y = drawTargetOptions(y);
-    if (profile_ != nullptr && profile_->identity().centringSpring) drawCentringSpring(y);
+    // The centring spring is a target's own (Logitech's software had one for the G25 and G27 only).
+    if (profile_ != nullptr && profile_->identity().centringSpring) y = drawCentringSpring(y) + 14;
+    drawLowerGrid(y);
 }
 
-float MappingEditView::drawTargetOptions(const float top) {
-    // The target's own options, under the pedals as Logitech's software had them: the G25's and G27's button order,
-    // the G923's TrueForce (ConfigPicker keeps them: each order has its own mapping file).
+float MappingEditView::cellSection(const float x, const float y, const float w, const std::string_view title) {
+    style::headingBand(window_, x, y, w);
+    style::heading(window_, x + 8, y, title);
+    return y + 16;
+}
+
+float MappingEditView::drawLowerGrid(const float top) {
+    // Boxes in order, two a row: anti-dead zone, pedals, then the target's own options only where its software had
+    // them: Button order for the G25 and G27, TrueForce for the G923 (never both; ConfigPicker keeps them).
+    const bool order = ConfigPicker::hasButtonOrders(picker_.target());
+    const bool trueForce = ConfigPicker::hasTrueForce(picker_.target());
+    const std::size_t count = order || trueForce ? 3 : 2;
+    const bool twoColumns = canvasW() >= kTwoColumnsMinW;
+    const float w = twoColumns ? (canvasW() - kGridGap) / 2 : canvasW();
     const auto tipSink = [this](const float x, const float y, const float w, const float h, std::string text) {
         tip(x, y, w, h, std::move(text));
     };
+    const auto drawCell = [&](const std::size_t i, const float x, const float y) -> float {
+        if (i == 0) return drawAntiDeadZone(x, y, w);
+        if (i == 1) return drawCombinedPedals(x, y, w);
+        if (order) return picker_.drawOrder(x + 4, x + kSliderX, cellSection(x, y, w, "BUTTON ORDER"), !locked_, tipSink);
+        return picker_.drawTrueForce(x + 4, x + kSliderX, cellSection(x, y, w, "TRUEFORCE"), !locked_, tipSink);
+    };
     float y = top;
-    const std::string target = profile_ != nullptr ? std::string(profile_->identity().shortName) : targetName_;
-    if (ConfigPicker::hasButtonOrders(picker_.target())) {
-        y = section(y, "BUTTON ORDER", "the numbers the game gets the " + target + "'s buttons by; each its own mapping");
-        y = picker_.drawOrder(4, kSliderX, y, !locked_, tipSink) + 14;
-    }
-    if (ConfigPicker::hasTrueForce(picker_.target())) {
-        y = section(y, "TRUEFORCE", "Logitech's TrueForce, for games that use it (Mode Virtual)");
-        y = picker_.drawTrueForce(4, kSliderX, y, !locked_, tipSink) + 14;
+    for (std::size_t i = 0; i < count; i += twoColumns ? 2 : 1) {
+        float bottom = drawCell(i, 0, y);
+        if (twoColumns && i + 1 < count) bottom = std::max(bottom, drawCell(i + 1, w + kGridGap, y));
+        y = bottom + 14;
     }
     return y;
 }
 
-float MappingEditView::drawCombinedPedals(const float top) {
+float MappingEditView::drawCombinedPedals(const float left, const float top, const float w) {
     // Logitech's "Report Combined Pedals" (every target's software had it): for old games that read throttle and brake
     // from one axis. A game's own value (the Games tab, or its profile) wins while it runs.
-    tip(4, top - 2, 420, 12,
+    tip(left + 4, top - 2, w - 8, 12,
         "Throttle and brake on one axis (the throttle's), in the middle when both are released; the brake's axis rests "
         "in the middle. For old games that read them so (NFS Underground, Most Wanted: their menus scroll by themselves "
         "otherwise). Off for newer games: pressing both cancels out. A game can have its own (the Games tab).");
-    const float y = section(top, "PEDALS", "Logitech's \"Report Combined Pedals\", in every game");
-    window_.text(4, y + 4, "Reported as", kText);
+    const float y = cellSection(left, top, w, "PEDALS");
+    window_.text(left + 4, y + 4, "Reported as", kText);
     // Two halves of one switch, as Button order and TrueForce (their edges shared).
-    const float x = kSliderX;
+    const float x = left + kSliderX;
     button(x, y, "Separate", [this] { edit_.combinedPedals = false; }, !edit_.combinedPedals, !locked_,
            kSwitchWidth);
     button(x + kSwitchWidth - 1, y, "Combined", [this] { edit_.combinedPedals = true; }, edit_.combinedPedals,
@@ -1177,9 +1229,38 @@ float MappingEditView::drawCombinedPedals(const float top) {
     return y + 16;
 }
 
+float MappingEditView::drawAntiDeadZone(const float left, const float top, const float w) {
+    // For games with a steering dead zone of their own (AntiDeadZone.hpp). A game's own value (the Games tab, or its
+    // profile) wins while it runs. Changes reach a running session at once, so it stays editable while running.
+    tip(left + 4, top - 2, w - 8, 12,
+        "For games that ignore the first part of the turn each way (NFS Underground, Most Wanted): as soon as the "
+        "wheel leaves the centre, the game gets this much steering (0 to 50%), and the rest of the turn is scaled to "
+        "fit. Set it at or just under the game's dead zone. 0 = off, for most games. A game can have its own (the "
+        "Games tab).");
+    const float y = cellSection(left, top, w, "ANTI-DEAD ZONE");
+    window_.text(left + 4, y + 4, "Starts at", kText);
+    const bool changed = edit_.antiDeadZonePercent != saved_.antiDeadZonePercent;
+    // Slider, then the typed value and %, at the box's right edge; the ends under the slider, the presets under them.
+    const float sliderX = left + kSliderX;
+    const float sliderW = std::max(64.0F, w - kSliderX - 12 - 64 - 24);
+    drawSlider(Slider::AntiDeadZone, sliderX, y, sliderW, edit_.antiDeadZonePercent, changed, true);
+    drawField(sliderX + sliderW + 12, y, 64, Field::AntiDeadZone, tuning::formatNumber(edit_.antiDeadZonePercent),
+              changed);
+    window_.text(sliderX + sliderW + 80, y + 4, "%", kDim);
+    window_.text(sliderX, y + 20, "0", kDim);
+    window_.text(sliderX + sliderW - 16, y + 20, "50", kDim);
+    float x = sliderX;
+    for (const float preset : kAntiDeadZonePresets) {
+        const std::string label = preset == 0.0F ? "Off" : tuning::formatNumber(preset);
+        x += button(x, y + 34, label, [this, preset] { edit_.antiDeadZonePercent = preset; },
+                    std::fabs(edit_.antiDeadZonePercent - preset) < 0.05F, true, 40) + 4;
+    }
+    return y + 50;
+}
+
 float MappingEditView::drawCentringSpring(const float top) {
     // The target's own (Logitech's software for the G25 and G27): a spring to the centre in every game, on top of the
-    // game's forces. 0 is off (the checkbox unticked).
+    // game's forces. 0 is off (the checkbox unticked). Laid out as the rotation: slider, typed value, presets.
     const std::string target(profile_->identity().shortName);
     tip(4, top - 2, 600, 12,
         "As Logitech's software for the " + target + " had it (\"Enable Centering Spring in Force Feedback Games\", "
@@ -1189,15 +1270,19 @@ float MappingEditView::drawCentringSpring(const float top) {
                                                     "centre");
     window_.text(4, y + 4, "Strength", kText);
     const bool changed = edit_.centringSpringPercent != saved_.centringSpringPercent;
-    drawField(kSliderX, y, 64, Field::CentringSpring, tuning::formatNumber(edit_.centringSpringPercent), changed);
-    window_.text(kSliderX + 68, y + 4, "%", kDim);
-    float x = kSliderX + 92;
+    drawSlider(Slider::CentringSpring, kSliderX, y, sliderW(), edit_.centringSpringPercent, changed, !locked_);
+    drawField(kSliderX + sliderW() + 12, y, 64, Field::CentringSpring,
+              tuning::formatNumber(edit_.centringSpringPercent), changed);
+    window_.text(kSliderX + sliderW() + 80, y + 4, "%", kDim);
+    float x = kSliderX + sliderW() + 112;
     for (const float preset : kSpringPresets) {
         const std::string label = preset == 0.0F ? "Off" : percent(preset);
         x += button(x, y, label, [this, preset] { edit_.centringSpringPercent = preset; },
-                    std::fabs(edit_.centringSpringPercent - preset) < 0.5F, !locked_, 48) + 4;
+                    std::fabs(edit_.centringSpringPercent - preset) < 0.5F, !locked_, 40) + 4;
     }
-    return y + 20;
+    window_.text(kSliderX, y + 20, "0", kDim);
+    window_.text(kSliderX + sliderW() - 24, y + 20, "100", kDim);
+    return y + 34;
 }
 
 }  // namespace wheelbri::service

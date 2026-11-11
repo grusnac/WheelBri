@@ -65,6 +65,9 @@ public:
         std::optional<bool> combinedPedals;
         // Where combinedPedals comes from, for the log: "NFS U1/MW's profile", "your value for NFS U1/MW"; else empty.
         std::string combinedPedalsFrom;
+        // The running game's anti-dead zone in percent (GameDecision::antiDeadZonePercent); nullopt: the mapping's.
+        std::optional<float> antiDeadZonePercent;
+        std::string antiDeadZoneFrom;   // where it comes from, for the log, as combinedPedalsFrom
     };
     // One look: what the pipeline should use now.
     Decision check();

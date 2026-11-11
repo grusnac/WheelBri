@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/GameTuning.hpp"
 
+#include "wheelbri/AntiDeadZone.hpp"
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/IniDocument.hpp"
 
@@ -59,6 +60,14 @@ std::string applyTuningKey(GameTuning& tuning, const std::string_view key, const
         if (key == pedal + "_invert") return boolean(tuning.pedalInvert[p], value);
     }
     if (key == "combined_pedals") return boolean(tuning.combinedPedals, value);
+    if (key == "anti_deadzone") {
+        const std::optional<float> percent = tuning::parseNumber(value);
+        if (!percent || !antiDeadZoneUsable(*percent)) {
+            return "expected a number from 0 to " + tuning::formatNumber(kAntiDeadZoneMaxPercent);
+        }
+        tuning.antiDeadZonePercent = *percent;
+        return {};
+    }
     // Retired (until 2026-11-02): older configs load, the values are ignored.
     if (std::find(kRetiredKeys.begin(), kRetiredKeys.end(), key) != kRetiredKeys.end()) return {};
     if (key.substr(0, 7) == "button_") {
@@ -103,6 +112,9 @@ std::vector<std::pair<std::string, std::string>> tuningLines(const GameTuning& t
         if (tuning.pedalInvert[p]) lines.emplace_back(pedal + "_invert", flag(*tuning.pedalInvert[p]));
     }
     if (tuning.combinedPedals) lines.emplace_back("combined_pedals", flag(*tuning.combinedPedals));
+    if (tuning.antiDeadZonePercent) {
+        lines.emplace_back("anti_deadzone", tuning::formatNumber(*tuning.antiDeadZonePercent));
+    }
     for (const auto& [target, source] : tuning.buttons) {
         lines.emplace_back("button_" + std::to_string(target), formatSource(source));
     }
@@ -195,6 +207,11 @@ GameDecision decideGame(const GameProfile* const game, const bool profileApplies
         decision.combinedPedals = decision.tuning->combinedPedals;
         decision.combinedPedalsFromUser = true;
     }
+    if (profile != nullptr) decision.antiDeadZonePercent = profile->antiDeadZonePercent;
+    if (decision.tuning != nullptr && decision.tuning->antiDeadZonePercent) {
+        decision.antiDeadZonePercent = decision.tuning->antiDeadZonePercent;
+        decision.antiDeadZoneFromUser = true;
+    }
     if (config.routePedals) {
         if (const std::optional<PedalRoute> routed = routePedals(device, wanted)) {
             decision.route = *routed;
@@ -210,6 +227,13 @@ std::string pedalsLogLine(const bool combined, const std::string_view from) {
            (combined ? "the throttle axis carries throttle and brake (middle at rest), the brake axis rests in the "
                        "middle, the clutch as it is"
                      : "throttle, brake and clutch each on its own axis");
+}
+
+std::string antiDeadZoneLogLine(const float percent, const std::string_view from) {
+    return "anti-dead zone: " +
+           (percent > 0.0F ? tuning::formatNumber(percent) + "% (" + std::string(from) +
+                                 "): the steering the game reads starts there as soon as the wheel leaves the centre"
+                           : "off (" + std::string(from) + ")");
 }
 
 UserGamesResult parseUserGames(const std::string_view text) {
