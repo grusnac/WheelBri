@@ -174,24 +174,27 @@ std::string GameWatch::rotationStatus() const {
 
 void GameWatch::logEvents(const GameDetector::Update& update) {
     const GameDetector::State& state = detector_.state();
+    // The detector sets the game (and the previous one) for each event that names it; "none" never shows unless it
+    // did not, and keeps the log from reading through a null pointer if it ever does not.
+    const auto name = [](const GameProfile* const game) { return game != nullptr ? game->label : std::string("none"); };
     for (const GameDetector::Event event : update.events) {
         switch (event) {
             case GameDetector::Event::Started:
                 followedSinceMs_ = platform::nowMs();
                 ++starts_;
-                WE_LOG_INFO(log(), "game: {} started: {}", state.game->label, describeFollowed());
+                WE_LOG_INFO(log(), "game: {} started: {}", name(state.game), describeFollowed());
                 break;
             case GameDetector::Event::Ended:
-                WE_LOG_INFO(log(), "game: {} ended: the defaults again", update.previous->label);
+                WE_LOG_INFO(log(), "game: {} ended: the defaults again", name(update.previous));
                 break;
             case GameDetector::Event::Switched:
                 followedSinceMs_ = platform::nowMs();
                 ++starts_;
-                WE_LOG_INFO(log(), "game: {} ended, {} runs: {}", update.previous->label, state.game->label,
+                WE_LOG_INFO(log(), "game: {} ended, {} runs: {}", name(update.previous), name(state.game),
                             describeFollowed());
                 break;
             case GameDetector::Event::Restarted:
-                WE_LOG_INFO(log(), "game: {} runs again as pid {}: its profile kept", state.game->label, state.pid);
+                WE_LOG_INFO(log(), "game: {} runs again as pid {}: its profile kept", name(state.game), state.pid);
                 break;
             case GameDetector::Event::Others:
                 if (state.others.empty()) {
@@ -204,7 +207,7 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
                     }
                     WE_LOG_WARN(log(), "game: also running: {}; the pedals follow {} (the one found first): close the "
                                        "game you are not playing",
-                                others, state.game != nullptr ? state.game->label : std::string("none"));
+                                others, name(state.game));
                 }
                 break;
             case GameDetector::Event::ListFailed:
