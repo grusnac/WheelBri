@@ -45,6 +45,15 @@ Two Modes:
 | Windows 7, 8, 8.1 and 10 (Mode Shim only) | built, **not yet tried** |
 | Button orders | from public sources; **not yet checked on real Logitech wheels** |
 
+## What's new in 1.0.3
+
+- **Old NFS games** (Underground, Underground 2, Most Wanted): combined pedals on every Target, built in for them;
+  **anti-dead zone** for their steering dead zone, on the Mapping tab or per game.
+- **Underground and Most Wanted** are two games on the Games tab, though both are `speed.exe`.
+- **Mapping tab**: sliders for the centring spring and anti-dead zone; the lower options in a two-column grid.
+- **Windows installer without PowerShell**: starts on a bare Windows 7 SP1, 8, 8.1, 10 or 11.
+- **Logs**: new files at every Start.
+
 ## What's new in 1.0.2
 
 - **Steam Deck tested**: ACC (all four Targets), NFS 2015 and Race Driver: GRID, in Game Mode too.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Not released yet
+## 1.0.3 (2026-11-11)
 
 - Anti-dead zone, for games with a steering dead zone of their own (old NFS games ignore the first part of the turn):
   as soon as the wheel leaves the centre the game gets a set amount of steering, 0 to 50% (`[steering]
