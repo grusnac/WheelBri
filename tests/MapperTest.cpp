@@ -74,15 +74,13 @@ TEST(MapperPedals, InvertedAxis) {
     EXPECT_NEAR(mapper.map(withAxis(2, -1.0F)).brake, 1.0F, kTolerance);
 }
 
-TEST(MapperPedals, TheWholeTravelAndGamma) {
-    MapperConfig config = pedalConfig();
-    const Mapper linear(config);
+// The whole travel in a straight line: no dead zone, no early full, no curve (the wheel's own software sets those).
+TEST(MapperPedals, TheWholeTravelInAStraightLine) {
+    const Mapper linear(pedalConfig());
     EXPECT_NEAR(linear.map(withAxis(2, -0.96F)).brake, 0.02F, kTolerance);   // no dead zone at the released end
     EXPECT_NEAR(linear.map(withAxis(2, 0.96F)).brake, 0.98F, kTolerance);    // nor early full at the other
-    config.brake.gamma = 2.0F;
-    const Mapper curved(config);
-    EXPECT_NEAR(curved.map(withAxis(2, 0.0F)).brake, 0.25F, kTolerance);     // travel 0.5 -> 0.5^2
-    EXPECT_NEAR(curved.map(withAxis(2, 1.0F)).brake, 1.0F, kTolerance);
+    EXPECT_NEAR(linear.map(withAxis(2, 0.0F)).brake, 0.5F, kTolerance);      // half the travel: half
+    EXPECT_NEAR(linear.map(withAxis(2, 1.0F)).brake, 1.0F, kTolerance);
 }
 
 TEST(MapperPedals, UnmappedPedalStaysReleased) {
@@ -304,7 +302,6 @@ TEST(MapperAxes, NotANumberReadsAsRest) {
     config.brake.sourceAxis = 2;
     config.brake.invert = true;
     config.clutch.sourceAxis = 3;
-    config.clutch.gamma = 2.0F;
     const Mapper mapper(config);
     RawInputState raw;
     raw.axes.fill(std::numeric_limits<float>::quiet_NaN());
@@ -332,18 +329,14 @@ TEST(MapperAxes, InfinityAndOvershootAreClampedToTheEnds) {
     EXPECT_EQ(state.clutch, 0.0F);
 }
 
-// Inverted, gamma-curved pedals at both ends: exactly 0 released and exactly 1 pressed, whatever the curve.
-TEST(MapperPedals, InvertedCurvedPedalHitsBothEndsExactly) {
-    for (const float gamma : {0.3F, 1.0F, 2.5F}) {
-        MapperConfig config = pedalConfig();
-        config.throttle.invert = true;
-        config.throttle.gamma = gamma;
-        const Mapper mapper(config);
-        EXPECT_EQ(mapper.map(withAxis(1, 1.0F)).throttle, 0.0F) << gamma;
-        EXPECT_EQ(mapper.map(withAxis(1, -1.0F)).throttle, 1.0F) << gamma;
-        const float half = mapper.map(withAxis(1, 0.0F)).throttle;
-        EXPECT_NEAR(half, std::pow(0.5F, gamma), kTolerance) << gamma;
-    }
+// An inverted pedal at both ends: exactly 0 released and exactly 1 pressed.
+TEST(MapperPedals, InvertedPedalHitsBothEndsExactly) {
+    MapperConfig config = pedalConfig();
+    config.throttle.invert = true;
+    const Mapper mapper(config);
+    EXPECT_EQ(mapper.map(withAxis(1, 1.0F)).throttle, 0.0F);
+    EXPECT_EQ(mapper.map(withAxis(1, -1.0F)).throttle, 1.0F);
+    EXPECT_NEAR(mapper.map(withAxis(1, 0.0F)).throttle, 0.5F, kTolerance);
 }
 
 // A config whose axis or device number is outside what the service reads (hand-edited, or from a newer version):

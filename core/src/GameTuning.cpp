@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/GameTuning.hpp"
 
+#include "wheelbri/AntiDeadZone.hpp"
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/IniDocument.hpp"
 
@@ -58,6 +59,15 @@ std::string applyTuningKey(GameTuning& tuning, const std::string_view key, const
         }
         if (key == pedal + "_invert") return boolean(tuning.pedalInvert[p], value);
     }
+    if (key == "combined_pedals") return boolean(tuning.combinedPedals, value);
+    if (key == "anti_deadzone") {
+        const std::optional<float> percent = tuning::parseNumber(value);
+        if (!percent || !antiDeadZoneUsable(*percent)) {
+            return "expected a number from 0 to " + tuning::formatNumber(kAntiDeadZoneMaxPercent);
+        }
+        tuning.antiDeadZonePercent = *percent;
+        return {};
+    }
     // Retired (until 2026-11-02): older configs load, the values are ignored.
     if (std::find(kRetiredKeys.begin(), kRetiredKeys.end(), key) != kRetiredKeys.end()) return {};
     if (key.substr(0, 7) == "button_") {
@@ -100,6 +110,10 @@ std::vector<std::pair<std::string, std::string>> tuningLines(const GameTuning& t
         const std::string pedal(kTuningPedals[p]);
         if (tuning.pedalAxes[p]) lines.emplace_back(pedal + "_axis", std::string(axisName(*tuning.pedalAxes[p])));
         if (tuning.pedalInvert[p]) lines.emplace_back(pedal + "_invert", flag(*tuning.pedalInvert[p]));
+    }
+    if (tuning.combinedPedals) lines.emplace_back("combined_pedals", flag(*tuning.combinedPedals));
+    if (tuning.antiDeadZonePercent) {
+        lines.emplace_back("anti_deadzone", tuning::formatNumber(*tuning.antiDeadZonePercent));
     }
     for (const auto& [target, source] : tuning.buttons) {
         lines.emplace_back("button_" + std::to_string(target), formatSource(source));
@@ -188,6 +202,16 @@ GameDecision decideGame(const GameProfile* const game, const bool profileApplies
     const JoystickLayout device = layoutFor(config.target, 0);
     JoystickLayout wanted = profile != nullptr ? overlay(device, *profile) : device;
     if (decision.tuning != nullptr) wanted = tunedLayout(wanted, *decision.tuning);
+    if (profile != nullptr) decision.combinedPedals = profile->combinedPedals;
+    if (decision.tuning != nullptr && decision.tuning->combinedPedals) {
+        decision.combinedPedals = decision.tuning->combinedPedals;
+        decision.combinedPedalsFromUser = true;
+    }
+    if (profile != nullptr) decision.antiDeadZonePercent = profile->antiDeadZonePercent;
+    if (decision.tuning != nullptr && decision.tuning->antiDeadZonePercent) {
+        decision.antiDeadZonePercent = decision.tuning->antiDeadZonePercent;
+        decision.antiDeadZoneFromUser = true;
+    }
     if (config.routePedals) {
         if (const std::optional<PedalRoute> routed = routePedals(device, wanted)) {
             decision.route = *routed;
@@ -196,6 +220,20 @@ GameDecision decideGame(const GameProfile* const game, const bool profileApplies
         }
     }
     return decision;
+}
+
+std::string pedalsLogLine(const bool combined, const std::string_view from) {
+    return std::string("pedals: ") + (combined ? "combined" : "separate") + " (" + std::string(from) + "): " +
+           (combined ? "the throttle axis carries throttle and brake (middle at rest), the brake axis rests in the "
+                       "middle, the clutch as it is"
+                     : "throttle, brake and clutch each on its own axis");
+}
+
+std::string antiDeadZoneLogLine(const float percent, const std::string_view from) {
+    return "anti-dead zone: " +
+           (percent > 0.0F ? tuning::formatNumber(percent) + "% (" + std::string(from) +
+                                 "): the steering the game reads starts there as soon as the wheel leaves the centre"
+                           : "off (" + std::string(from) + ")");
 }
 
 UserGamesResult parseUserGames(const std::string_view text) {
@@ -215,6 +253,8 @@ UserGamesResult parseUserGames(const std::string_view text) {
                 game.label = value;
             } else if (key == "program") {
                 game.program = programName(value);
+            } else if (key == "path") {
+                game.path = value;
             } else {
                 result.problems.push_back("[" + section + "] " + key + ": unknown key");
             }
@@ -223,10 +263,24 @@ UserGamesResult parseUserGames(const std::string_view text) {
             result.problems.push_back("[" + section + "]: the id must be lower case letters, digits and _");
         } else if (game.label.empty() || game.program.empty()) {
             result.problems.push_back("[" + section + "]: needs a label and a program");
-        } else if (std::any_of(result.games.begin(), result.games.end(),
-                               [&game](const GameProfile& g) { return g.program == game.program; })) {
-            result.problems.push_back("[" + section + "]: " + game.program + " is there twice");
+        } else if (!game.path.empty() && programName(game.path) != game.program) {
+            result.problems.push_back("[" + section + "]: path " + game.path + " is not " + game.program);
+        } else if (std::any_of(result.games.begin(), result.games.end(), [&game](const GameProfile& g) {
+                       return g.program == game.program && samePath(g.path, game.path);
+                   })) {
+            result.problems.push_back("[" + section + "]: " +
+                                      (game.path.empty() ? game.program : game.path) + " is there twice");
         } else {
+            // A copy of the built-in profile for its program, kept apart by its own id, label and path.
+            if (const GameProfile* const builtIn = gameProfileFor(game.program)) {
+                GameProfile copy = *builtIn;
+                copy.id = std::move(game.id);
+                copy.label = std::move(game.label);
+                copy.program = std::move(game.program);
+                copy.path = std::move(game.path);
+                copy.marker.clear();   // its path tells it apart
+                game = std::move(copy);
+            }
             result.games.push_back(std::move(game));
         }
     }
@@ -238,6 +292,7 @@ std::string formatUserGames(const std::span<const GameProfile> games) {
     for (const GameProfile& game : games) {
         text += "\n[game." + game.id + "]\nlabel = " + iniSafeValue(game.label) + "\nprogram = " +
                 iniSafeValue(game.program) + "\n";
+        if (!game.path.empty()) text += "path = " + iniSafeValue(game.path) + "\n";
     }
     return text;
 }

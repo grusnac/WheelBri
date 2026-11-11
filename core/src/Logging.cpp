@@ -4,6 +4,7 @@
 #include "wheelbri/LogFiles.hpp"
 
 #include <spdlog/cfg/env.h>
+#include <spdlog/pattern_formatter.h>
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -38,9 +39,48 @@ struct DashedDateFileName {
 };
 using DailySink = spdlog::sinks::daily_file_sink<std::mutex, DashedDateFileName>;
 
+// The log file every logger writes to, one sink they all keep: startNewRun moves it to the next numbered file while
+// other threads log (a logger's own sink list is not safe to change then).
+class RunFileSink final : public spdlog::sinks::base_sink<std::mutex> {
+public:
+    explicit RunFileSink(spdlog::filename_t base) : base_(std::move(base)), file_(open()) {}
+
+    [[nodiscard]] spdlog::filename_t filename() {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        return file_->filename();
+    }
+    // Throws as the sink's constructor does when the file cannot be made; the old file stays then.
+    void reopen() {
+        std::shared_ptr<DailySink> next = open();
+        const std::lock_guard<std::mutex> lock(mutex_);
+        next->set_formatter(formatter_->clone());
+        file_->flush();
+        file_ = std::move(next);
+    }
+
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override { file_->log(msg); }
+    void flush_() override { file_->flush(); }
+    void set_pattern_(const std::string& pattern) override {
+        set_formatter_(std::make_unique<spdlog::pattern_formatter>(pattern));
+    }
+    void set_formatter_(std::unique_ptr<spdlog::formatter> formatter) override {
+        formatter_ = std::move(formatter);
+        file_->set_formatter(formatter_->clone());
+    }
+
+private:
+    // Rotates at local midnight on the first message of the new day; old days are handled by the service's
+    // [retention] settings, so the sink itself deletes nothing.
+    [[nodiscard]] std::shared_ptr<DailySink> open() const { return std::make_shared<DailySink>(base_, 0, 0); }
+
+    spdlog::filename_t base_;
+    std::shared_ptr<DailySink> file_;
+};
+
 std::mutex gMutex;
-std::vector<spdlog::sink_ptr> gSinks;   // guarded by gMutex
-std::shared_ptr<DailySink> gFileSink;   // guarded by gMutex
+std::vector<spdlog::sink_ptr> gSinks;     // guarded by gMutex
+std::shared_ptr<RunFileSink> gFileSink;   // guarded by gMutex
 bool gInitialised = false;
 
 // addListener(): the message handed to a function instead of written somewhere.
@@ -90,16 +130,14 @@ bool init(const LogConfig& config, const std::string& defaultFilePath) {
     const std::string filePath = config.filePath.empty() ? defaultFilePath : config.filePath;
     bool fileOk = true;
     std::string fileError;
-    std::shared_ptr<DailySink> fileSink;
+    std::shared_ptr<RunFileSink> fileSink;
     if (!filePath.empty()) {
         try {
             const std::filesystem::path parent = std::filesystem::path(filePath).parent_path();
             if (!parent.empty()) {
                 std::filesystem::create_directories(parent);
             }
-            // Rotates at local midnight on the first message of the new day; old days are handled by the
-            // service's [retention] settings, so the sink itself deletes nothing.
-            fileSink = std::make_shared<DailySink>(filePath, 0, 0);
+            fileSink = std::make_shared<RunFileSink>(filePath);
             sinks.push_back(fileSink);
         } catch (const std::exception& e) {
             fileOk = false;
@@ -166,12 +204,30 @@ void shutdown() {
 }
 
 std::string currentLogFile() {
-    std::shared_ptr<DailySink> sink;
+    std::shared_ptr<RunFileSink> sink;
     {
         const std::lock_guard<std::mutex> lock(gMutex);
         sink = gFileSink;
     }
     return sink != nullptr ? sink->filename() : std::string();
+}
+
+std::string startNewRun() {
+    std::shared_ptr<RunFileSink> sink;
+    {
+        const std::lock_guard<std::mutex> lock(gMutex);
+        sink = gFileSink;
+    }
+    logfiles::forgetRun();
+    if (sink == nullptr) return {};
+    const std::string before = sink->filename();
+    try {
+        sink->reopen();
+    } catch (const std::exception& e) {
+        WE_LOG_ERROR(get("logging"), "cannot start a new log file: {} - still writing to '{}'", e.what(), before);
+        return before;
+    }
+    return sink->filename();
 }
 
 std::string datedFileName(const std::string& filePath, const std::string& date) {

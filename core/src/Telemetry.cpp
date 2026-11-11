@@ -19,7 +19,9 @@ namespace {
 
 constexpr std::uint64_t kNsPerSecond = 1'000'000'000;
 constexpr std::uint64_t kFlushEveryNs = kNsPerSecond;  // a crash loses at most about a second
-constexpr const char* kFormatVersion = "3";   // 3: log lines with key=value (2: CSV)
+// 4: out_* as published (combined pedals, the game's pedal route, the button order), out_combined, pedals; 3: log
+// lines with key=value (2: CSV)
+constexpr const char* kFormatVersion = "4";
 // The component field of the lines, padded as spdlog pads the other logs' (%-14n).
 constexpr const char* kSamplesComponent = "telemetry     ";
 constexpr const char* kFfbComponent = "ffb           ";
@@ -105,6 +107,7 @@ std::vector<std::string> telemetryColumns() {
     }
     for (const char* name : {"raw_buttons", "raw_hat", "steer", "throttle", "brake", "clutch", "buttons", "hat",
                              "out_steer", "out_throttle", "out_brake", "out_clutch", "out_buttons", "out_hat",
+                             "out_combined", "pedals",
                              "ffb_packets", "ffb_age_ms", "ffb_watchdog", "ffb_plays", "ffb_failures"}) {
         columns.emplace_back(name);
     }
@@ -194,7 +197,8 @@ bool TelemetryRecorder::openDay(const std::string& day, const bool continued, st
          {format,
           "keys: t_ms = since the session started; raw_* = the physical wheel as the OS reports it (axes -1..1, "
           "buttons bit n = button n, hex); steer..hat = after mapping; out_* = what the emulated wheel reports to the "
-          "game",
+          "game (out_combined = the G25's and G27's Slider 0; pedals = combined: out_throttle carries throttle and "
+          "brake, out_brake rests in the middle; separate: each on its own)",
           "keys: sN_* = force feedback slot N while it is used: sN_state w = the game wants it playing, p = playing "
           "on the wheel; sN_req = what the game asked for, sN_out = what reached the wheel (signed force for "
           "constant, strength for the others); period_us / work_us = the loop"}},
@@ -347,7 +351,8 @@ bool TelemetryRecorder::changed(const TelemetrySample& sample, const std::string
     };
     const TargetReport& r = sample.report;
     return movedCounts(r.steering, lastReport_.steering) || movedCounts(r.throttle, lastReport_.throttle) ||
-           movedCounts(r.brake, lastReport_.brake) || movedCounts(r.clutch, lastReport_.clutch);
+           movedCounts(r.brake, lastReport_.brake) || movedCounts(r.clutch, lastReport_.clutch) ||
+           movedCounts(r.combined, lastReport_.combined);
 }
 
 void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
@@ -373,6 +378,8 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
             static_cast<long>(sample.report.steering), static_cast<long>(sample.report.throttle),
             static_cast<long>(sample.report.brake), static_cast<long>(sample.report.clutch),
             static_cast<unsigned>(sample.report.buttons), sample.report.hat);
+    appendf(k, " out_combined=%ld pedals=%s", static_cast<long>(sample.report.combined),
+            sample.combinedPedals ? "combined" : "separate");
 
     const FfbController* const ffb = sample.ffb;
     std::string& slots = sampleSlots_;
@@ -395,9 +402,9 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
     // are here to see, so every change of them counts).
     std::string& exact = sampleExact_;
     exact.clear();
-    appendf(exact, "%llx,%d,%x,%d,%x,%d", static_cast<unsigned long long>(sample.raw.buttons), sample.raw.hat,
+    appendf(exact, "%llx,%d,%x,%d,%x,%d,%d", static_cast<unsigned long long>(sample.raw.buttons), sample.raw.hat,
             static_cast<unsigned>(sample.state.buttons), sample.state.hat, static_cast<unsigned>(sample.report.buttons),
-            sample.report.hat);
+            sample.report.hat, sample.combinedPedals ? 1 : 0);
     if (ffb != nullptr) {
         appendf(exact, "|%d,%llu", ffb->watchdogTripped() ? 1 : 0,
                 static_cast<unsigned long long>(ffb->stats().playFailures));

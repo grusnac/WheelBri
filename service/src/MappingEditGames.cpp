@@ -13,6 +13,7 @@
 
 #include "wheelbri/AutoMap.hpp"
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/AntiDeadZone.hpp"
 #include "wheelbri/CentringSpring.hpp"
 #include "wheelbri/ConfigLibrary.hpp"
 #include "wheelbri/DeviceMatch.hpp"
@@ -46,6 +47,15 @@ using namespace editview;
 namespace {
 
 constexpr std::uint64_t kFileStateEveryMs = 2000;
+
+// The list shows a game by its name (an added game's: its program's folder); a name another game has too is flagged.
+[[nodiscard]] bool nameShared(const std::span<const GameProfile> games, const std::size_t index) {
+    for (std::size_t g = 0; g < games.size(); ++g) {
+        if (g != index && samePath(games[g].label, games[index].label)) return true;
+    }
+    return false;
+}
+constexpr const char* kNotUnique = "! not unique";
 
 std::string clockText(const std::uint64_t ms) {
     const std::uint64_t seconds = ms / 1000;
@@ -144,7 +154,7 @@ void MappingEditView::drawGames() {
         const ShimState state = shims_->stateAt(folder);
         if (state == ShimState::Foreign) {   // amber only when Start cannot chain it
             colour = shims_->chainProblemAt(folder).empty() ? kDim : kWarning;
-            return std::string("other mod");
+            return std::string(shims_->oldAsiLoaderAt(folder) ? "old ASI" : "other mod");
         }
         if (state == ShimState::Missing) {
             colour = style::kFaint;
@@ -171,7 +181,10 @@ void MappingEditView::drawGames() {
         } else {
             ui::Colour colour = style::kFaint;
             std::string tag = userGame(game.id) ? "yours" : "built in";
-            if (unfit) {
+            if (nameShared(games, g)) {
+                tag = kNotUnique;
+                colour = kCaution;
+            } else if (unfit) {
                 tag = "! not " + upperName(targetName_);
                 colour = kCaution;
             } else if (hasFolder) {
@@ -335,15 +348,17 @@ float MappingEditView::drawGameFolder(const GameProfile* const game, const std::
     const bool ours = state == ShimState::Installed || state == ShimState::Outdated;
     const bool chained = ours && shims_->chainedAt(index);
     const std::string chainProblem = state == ShimState::Foreign ? shims_->chainProblemAt(index) : std::string();
+    const bool oldLoader = state == ShimState::Foreign && shims_->oldAsiLoaderAt(index);
     const std::string where = chained ? ", chained to another mod's DLL"
                               : ours && shims_->asiLoaderAt(index) ? " next to the ASI Loader"
                                                                    : "";
+    const std::string theirs = oldLoader ? "an old ASI Loader as dinput8.dll" : "another mod's dinput8.dll";
     const std::string stateText =
         state == ShimState::Installed  ? "shim in place" + where
         : state == ShimState::Outdated ? "older shim" + where + " (Start replaces it)"
-        : state == ShimState::Foreign  ? (chainProblem.empty()
-                                              ? std::string("another mod's dinput8.dll: Start chains it")
-                                              : "another mod's dinput8.dll (" + chainProblem + "): Start leaves it")
+        : state == ShimState::Foreign  ? (!chainProblem.empty() ? theirs + " (" + chainProblem + "): Start leaves it"
+                                          : oldLoader           ? theirs + ": Start moves it to d3d9.dll"
+                                                                : theirs + ": Start chains it")
                                        : "no shim (Start puts it in)";
     const std::string target = shims_->targetAt(index);
     const std::string presents =
@@ -368,9 +383,12 @@ float MappingEditView::drawGameFolder(const GameProfile* const game, const std::
         bx += button(bx, y, "Put shim", [this, index] { shims_->put(index); }, false, !locked_, 96) + 6;
     } else if (state == ShimState::Foreign && chainProblem.empty()) {
         tip(bx, y, 96, 16,
-            "Renames the mod's dinput8.dll to dinput8-chain.dll and puts WheelBri's shim in front of it. Remove shim "
-            "undoes it.");
-        bx += button(bx, y, "Chain mod", [this, index] { shims_->put(index); }, false, !locked_, 96) + 6;
+            oldLoader ? "Renames the ASI Loader to d3d9.dll (the game loads it under that name too) and puts WheelBri's "
+                        "shim in its place. Remove shim undoes it."
+                      : "Renames the mod's dinput8.dll to dinput8-chain.dll and puts WheelBri's shim in front of it. "
+                        "Remove shim undoes it.");
+        bx += button(bx, y, oldLoader ? "Put shim" : "Chain mod", [this, index] { shims_->put(index); }, false,
+                     !locked_, 96) + 6;
     } else if (state == ShimState::Installed) {
         if (chained) tip(bx, y, 112, 16, "Deletes WheelBri's shim and gives the mod its dinput8.dll back.");
         bx += button(bx, y, "Remove shim", [this, index] { shims_->remove(index); }, false, !locked_, 112) + 6;
@@ -387,6 +405,16 @@ float MappingEditView::drawGameProfile(const std::size_t index, float y) {
                  fit("program " + game.program, gameChars() - game.label.size() - 2),
                  kDim);
     y += 16;
+    if (nameShared(games_, index)) {
+        const std::string where = game.path.empty() ? game.program : game.path;
+        for (const std::string& line :
+             wrap("Not unique: another game in the list has this name too. Rename this game's folder (" + where +
+                      ") so its name is unique, then add it again.",
+                  gameChars(), 3)) {
+            window_.text(gameX(), y, line, kCaution);
+            y += 12;
+        }
+    }
     // A game that works one way only ([game] ways): a session run the other way tells the user when it starts.
     if (!game.virtualDevice || !game.shim) {
         const std::string only = game.shim ? "Mode Shim only" : "Mode Virtual only";
@@ -652,8 +680,8 @@ void MappingEditView::reloadGames() {
     userGames_ = loadUserGames();
     games_.assign(gameProfiles().begin(), gameProfiles().end());
     for (const GameProfile& game : userGames_) {
-        const bool builtIn = std::any_of(games_.begin(), games_.end(), [&game](const GameProfile& g) {
-            return g.id == game.id || g.program == game.program;
+        const bool builtIn = std::any_of(gameProfiles().begin(), gameProfiles().end(), [&game](const GameProfile& g) {
+            return g.id == game.id;
         });
         if (!builtIn) games_.push_back(game);
     }
@@ -682,16 +710,28 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
         statusError_ = true;
         return;
     }
+    // Kept only if games.ini can hold it as it is (iniSafeValue blanks ; and #); else found by its name, as before.
+    std::string path = pathToUtf8(*picked);
+    if (iniSafeValue(path) != path) {
+        WE_LOG_WARN(log(), "games: {} has ; or # in its path: found by its program's name only", path);
+        path.clear();
+    }
+    // The same game: the same program file (its absolute path); without a path, a game you added by name only.
     for (const GameProfile& game : games_) {
-        if (game.program == program) {
+        if (!userGame(game.id) || game.program != program) continue;
+        if (game.path.empty() ? path.empty() : samePath(game.path, path)) {
             addFolder();
             selectGame(game.id);
-            status_ = game.label + " is in the list already (" + program + ").";
+            status_ = game.label + " is in the list already (" + (game.path.empty() ? program : game.path) + ").";
             statusError_ = false;
             return;
         }
     }
-    std::string base = gameIdFor(program);
+    // Named after its folder ("NFS Most Wanted"): several games' programs share a name (speed.exe).
+    std::string folderName = pathToUtf8(picked->parent_path().filename());
+    if (folderName.empty()) folderName = pathToUtf8(picked->stem());
+    std::string base = gameIdFor(folderName);
+    if (base.empty()) base = gameIdFor(program);
     if (base.empty()) base = "game";
     std::string id = base;
     const auto taken = [this](const std::string& candidate) {
@@ -700,9 +740,9 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
     for (int n = 2; taken(id); ++n) id = base + std::to_string(n);
     GameProfile game;
     game.id = id;
-    // At most 20 bytes (a label's length, GameProfiles.hpp), never half a character (a name like "Pokémon").
-    game.label = truncateUtf8(pathToUtf8(picked->stem()), 20);
+    game.label = folderName;   // the program's parent folder, as it is
     game.program = program;
+    game.path = path;
     std::vector<GameProfile> next = userGames_;
     next.push_back(game);
     const std::filesystem::path file = userGamesFile();
@@ -720,6 +760,12 @@ void MappingEditView::addGame(const std::filesystem::path& start) {
     gameTab_ = GameTab::Controls;
     status_ = game.label + " added: WheelBri finds " + program + " while it runs. Set its own values here.";
     statusError_ = false;
+    for (std::size_t g = 0; g < games_.size(); ++g) {
+        if (games_[g].id == id && nameShared(games_, g)) {
+            status_ = game.label + " added, but its name is not unique: rename its folder so the name is unique.";
+            statusError_ = true;
+        }
+    }
 }
 
 void MappingEditView::removeGame(const std::string& id) {
@@ -810,6 +856,13 @@ void MappingEditView::setPicked(const SourceRef& source) {
     }
 }
 
+float MappingEditView::antiDeadZoneWhileRunning(const GameProfile& game) const {
+    const GameTuning* const own = tuningOf(game.id);
+    if (own != nullptr && own->antiDeadZonePercent) return *own->antiDeadZonePercent;
+    if (game.antiDeadZonePercent && profileFitsTarget(game, targetName_)) return *game.antiDeadZonePercent;
+    return edit_.antiDeadZonePercent;
+}
+
 float MappingEditView::drawGameAxes(const std::size_t index, float y) {
     const GameProfile& game = games_[index];
     const std::string id = game.id;
@@ -852,6 +905,28 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
     from(y, ownRotation, fits && game.rotationDeg ? "profile" : "Mapping tab");
     y += 20;
 
+    // Anti-dead zone (AntiDeadZone.hpp): yours, else the profile's, else the Mapping tab's.
+    {
+        window_.text(gameX(), y + 4, "Anti-dead zone", kText);
+        tip(gameX() - 2, y, 14 * ui::kCharWidth + 4, 16,
+            "For a game that ignores the first part of the turn each way: as soon as the wheel leaves the centre, the "
+            "game gets this much steering. Set it at or just under the game's dead zone; 0 = off.");
+        const bool ownAntiDeadZone = own != nullptr && own->antiDeadZonePercent.has_value();
+        const bool antiDeadZoneChanged =
+            ownAntiDeadZone != (saved != nullptr && saved->antiDeadZonePercent.has_value()) ||
+            (ownAntiDeadZone && saved != nullptr && saved->antiDeadZonePercent != own->antiDeadZonePercent);
+        window_.fill(axisX, y, 128, 16, kStripe);
+        window_.text(axisX + 6, y + 4, "x, from the centre", kDim);
+        drawField(degreesX, y, 64, Field::GameAntiDeadZone, percent(antiDeadZoneWhileRunning(game)),
+                  antiDeadZoneChanged, index);
+        button(defaultX, y, "Default", [this, id] {
+            tuningFor(id).antiDeadZonePercent.reset();
+            dropEmptyTuning(id);
+        }, false, editable() && ownAntiDeadZone, 72);
+        from(y, ownAntiDeadZone, fits && game.antiDeadZonePercent ? "profile" : "Mapping tab");
+        y += 20;
+    }
+
     // Pedals: the axis the game reads each one from (the profile's layout over the target's, then yours), and its
     // direction (the Mapping tab's invert, then yours).
     const JoystickLayout device = layoutFor(targetName_, 0);
@@ -890,6 +965,34 @@ float MappingEditView::drawGameAxes(const std::size_t index, float y) {
             dropEmptyTuning(id);
         }, false, editable() && (ownAxis || ownInvert), 72);
         from(y, ownAxis || ownInvert, fits && profileAxes[p] != deviceAxes[p] ? "profile" : "Mapping tab");
+        y += 20;
+    }
+
+    // Combined pedals (Logitech's "Report Combined Pedals"): yours, else the profile's, else the Mapping tab's.
+    {
+        window_.text(gameX(), y + 4, "Combined", kText);
+        tip(gameX() - 2, y, 8 * ui::kCharWidth + 4, 16,
+            "Throttle and brake on one axis (the throttle's) while this game runs, as Logitech's \"Report Combined "
+            "Pedals\": for old games whose menus scroll by themselves with separate pedals.");
+        const bool ownCombined = own != nullptr && own->combinedPedals.has_value();
+        const bool profileCombined = fits && game.combinedPedals.has_value();
+        const bool combined = ownCombined       ? *own->combinedPedals
+                              : profileCombined ? *game.combinedPedals
+                                                : edit_.combinedPedals;
+        const bool combinedChanged =
+            ownCombined != (saved != nullptr && saved->combinedPedals.has_value()) ||
+            (ownCombined && saved != nullptr && saved->combinedPedals != own->combinedPedals);
+        window_.fill(axisX, y, 128, 16, kStripe);
+        window_.outline(axisX, y, 128, 16, combinedChanged ? kMine : style::kFieldEdge);
+        window_.text(axisX + 6, y + 4, combined ? "one axis" : "separate", kText);
+        button(directionX, y, combined ? "On" : "Off", [this, id, combined] {
+            tuningFor(id).combinedPedals = !combined;
+        }, combined, editable(), 88);
+        button(defaultX, y, "Default", [this, id] {
+            tuningFor(id).combinedPedals.reset();
+            dropEmptyTuning(id);
+        }, false, editable() && ownCombined, 72);
+        from(y, ownCombined, profileCombined ? "profile" : "Mapping tab");
         y += 20;
     }
     y += 6;

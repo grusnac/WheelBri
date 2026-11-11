@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/GameProfiles.hpp"
 
+#include "wheelbri/AntiDeadZone.hpp"
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/IniDocument.hpp"
 
@@ -118,11 +119,12 @@ const Loaded& loaded() {
             if (!parsed.profile) continue;
             bool duplicate = false;
             for (const GameProfile& other : result.profiles) {
-                duplicate = duplicate || other.program == parsed.profile->program;
+                duplicate = duplicate ||
+                            (other.program == parsed.profile->program && other.marker == parsed.profile->marker);
             }
             if (duplicate) {
                 result.problems.push_back(std::string(file.id) + ".ini: program " + parsed.profile->program +
-                                          " already has a profile: this one is not used");
+                                          " already has a profile (with the same marker): this one is not used");
                 continue;
             }
             result.profiles.push_back(std::move(*parsed.profile));
@@ -144,6 +146,7 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
     GameProfile profile;
     profile.id = std::string(id);
     bool waysSet = false;   // [game] ways was there (even when it could not be read)
+    bool anyTarget = false;   // [game] target = any
 
     for (const auto& [section, keys] : ini.document.sections()) {
         if (section == "game") {
@@ -152,8 +155,17 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                     profile.label = value;
                 } else if (key == "program") {
                     profile.program = lower(value);
+                } else if (key == "marker") {
+                    profile.marker = lower(value);
+                    if (profile.marker.empty() || profile.marker == "." || profile.marker == ".." ||
+                        profile.marker.find_first_of("/\\:") != std::string::npos) {
+                        result.problems.push_back("[game] marker = '" + value + "': expected a file name (dimap.dll)");
+                    }
                 } else if (key == "target") {
+                    // any: every target (a profile that changes nothing a target decides, e.g. only [pedals] combined).
                     profile.target = lower(value);
+                    anyTarget = profile.target == "any";
+                    if (anyTarget) profile.target.clear();
                 } else if (key == "ways") {
                     waysSet = true;
                     if (!parseWays(value, profile)) {
@@ -186,6 +198,16 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
             }
         } else if (section == "pedals") {
             for (const auto& [key, value] : keys) {
+                if (key == "combined") {
+                    if (value == "true") {
+                        profile.combinedPedals = true;
+                    } else if (value == "false") {
+                        profile.combinedPedals = false;
+                    } else {
+                        result.problems.push_back("[pedals] combined = '" + value + "': expected true or false");
+                    }
+                    continue;
+                }
                 std::optional<ObjectGuid>* field = key == "throttle_axis" ? &profile.throttleAxis
                                                    : key == "brake_axis"  ? &profile.brakeAxis
                                                    : key == "clutch_axis" ? &profile.clutchAxis
@@ -211,6 +233,15 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                     }
                 } else if (key == "note") {
                     profile.rotationNote = value;
+                } else if (key == "anti_deadzone") {
+                    const auto percent = tuning::parseNumber(value);
+                    if (percent && antiDeadZoneUsable(*percent)) {
+                        profile.antiDeadZonePercent = *percent;
+                    } else {
+                        result.problems.push_back("[steering] anti_deadzone = '" + value +
+                                                  "': expected a number from 0 to " +
+                                                  tuning::formatNumber(kAntiDeadZoneMaxPercent));
+                    }
                 } else {
                     result.problems.push_back("[steering] " + key + ": unknown key");
                 }
@@ -250,7 +281,10 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
     if (profile.program.empty() || programName(profile.program) != profile.program) {
         result.problems.push_back("[game] program must be the game's program file name, e.g. nfs16.exe");
     }
-    if (profile.target.empty()) result.problems.push_back("[game] target is missing (e.g. g920)");
+    if (profile.target.empty() && !anyTarget) result.problems.push_back("[game] target is missing (e.g. g920 or any)");
+    if (anyTarget && (profile.throttleAxis || profile.brakeAxis || profile.clutchAxis)) {
+        result.problems.push_back("[pedals] *_axis need one target: the axes are that target's");
+    }
     if (profile.notFor.empty() != profile.notForNote.empty()) {
         result.problems.push_back("[game] not_for and not_for_note go together: the targets and what goes wrong");
     } else if (profile.notForNote.size() > kMaxNote) {
@@ -313,11 +347,23 @@ std::string programName(const std::string_view nameOrPath) {
     return lower(slash == std::string_view::npos ? nameOrPath : nameOrPath.substr(slash + 1));
 }
 
-const GameProfile* gameProfileFor(const std::string_view nameOrPath, const std::span<const GameProfile> profiles) {
+namespace {
+
+[[nodiscard]] bool markerFound(const GameProfile& profile, const std::span<const std::string> found) {
+    return std::find(found.begin(), found.end(), profile.marker) != found.end();
+}
+
+}  // namespace
+
+const GameProfile* gameProfileFor(const std::string_view nameOrPath, const std::span<const GameProfile> profiles,
+                                  const std::span<const std::string> found) {
     const std::string name = programName(nameOrPath);
     if (name.empty()) return nullptr;
     for (const GameProfile& profile : profiles) {
-        if (name == profile.program) return &profile;
+        if (name == profile.program && !profile.marker.empty() && markerFound(profile, found)) return &profile;
+    }
+    for (const GameProfile& profile : profiles) {
+        if (name == profile.program && profile.marker.empty()) return &profile;
     }
     return nullptr;
 }
@@ -363,6 +409,9 @@ std::string describeOverlay(const GameProfile& profile) {
     add("throttle_axis", profile.throttleAxis);
     add("brake_axis", profile.brakeAxis);
     add("clutch_axis", profile.clutchAxis);
+    if (profile.combinedPedals) {
+        out += (out.empty() ? "" : ", ") + std::string("combined = ") + (*profile.combinedPedals ? "true" : "false");
+    }
     return out;
 }
 
@@ -395,16 +444,46 @@ TargetReport applyPedalRoute(const TargetReport& report, const PedalRoute route)
 
 std::vector<RunningGame> findRunningGames(const std::span<const RunningProgram> programs,
                                           const std::span<const GameProfile> profiles) {
-    std::vector<RunningGame> found;
-    for (const GameProfile& profile : profiles) {
-        for (const RunningProgram& program : programs) {
-            if (gameProfileFor(program.name, profiles) == &profile) {
-                found.push_back(RunningGame{&profile, program.pid, program.name});
-                break;
-            }
+    std::vector<std::optional<RunningGame>> byProfile(profiles.size());
+    std::vector<bool> taken(programs.size(), false);
+    const auto claim = [&](const std::size_t p) {
+        const GameProfile& profile = profiles[p];
+        for (std::size_t i = 0; i < programs.size(); ++i) {
+            const RunningProgram& program = programs[i];
+            if (taken[i] || programName(program.name) != profile.program) continue;
+            if (!profile.path.empty() && !program.path.empty() && !samePath(program.path, profile.path)) continue;
+            if (!profile.marker.empty() && !markerFound(profile, program.found)) continue;
+            taken[i] = true;
+            byProfile[p] = RunningGame{&profile, program.pid, program.name};
+            return;
         }
+    };
+    for (std::size_t p = 0; p < profiles.size(); ++p) {
+        if (!profiles[p].path.empty()) claim(p);
+    }
+    for (std::size_t p = 0; p < profiles.size(); ++p) {
+        if (profiles[p].path.empty() && !profiles[p].marker.empty()) claim(p);
+    }
+    for (std::size_t p = 0; p < profiles.size(); ++p) {
+        if (profiles[p].path.empty() && profiles[p].marker.empty()) claim(p);
+    }
+    std::vector<RunningGame> found;
+    for (const std::optional<RunningGame>& game : byProfile) {
+        if (game) found.push_back(*game);
     }
     return found;
+}
+
+bool samePath(const std::string_view a, const std::string_view b) {
+    const auto fold = [](const char c) {
+        if (c == '/') return '\\';
+        return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    };
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (fold(a[i]) != fold(b[i])) return false;
+    }
+    return true;
 }
 
 }  // namespace wheelbri

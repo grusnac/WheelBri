@@ -50,7 +50,8 @@ button you map yourself.
 Once a device has named controls, the unnamed ones fold into one line; **Show all** / **Named only** switch.
 
 The device with Steering is the wheel and plays the force feedback. WheelBri has no dead zones: set those, and the
-wheel's rotation, in the wheel's own software (Pit House for Moza).
+wheel's rotation, in the wheel's own software (Pit House for Moza). For a game with a dead zone of its own, see
+**Anti-dead zone** below.
 
 ## Map it to the Target
 
@@ -71,6 +72,16 @@ wheel's rotation, in the wheel's own software (Pit House for Moza).
    it activates the button past the point you set, from 0% (as soon as it moves) to 100% (only at its end). They show
    as **or ...** in the row; click one to change them.
 5. Set **Steering rotation** to the game's full lock, and your wheel's software to **the same number**.
+
+**Combined pedals** (every Target, off by default): throttle and brake on one axis, the throttle's, resting in the
+middle; the brake's axis rests in the middle. As Logitech's "Report Combined Pedals", for old games that read them so
+(NFS Underground, Most Wanted: their menus scroll by themselves otherwise). Those games have it on by themselves
+(Games tab); turn it on here only for another such game. Pressing both pedals cancels out.
+
+**Anti-dead zone** (every Target, 0 = off by default): for games that ignore the first part of the turn each way
+(old NFS games). As soon as the wheel leaves the centre, the game gets this much steering (0 to 50%), and the rest of
+the turn is scaled to fit, so full lock stays full lock. Set it at or just under the game's dead zone: above it, the
+car twitches as the wheel crosses the centre. Best set per game (Games tab).
 
 **G25 and G27 only:**
 
@@ -144,8 +155,9 @@ the Target. When Start is greyed out, the red notice above the tabs says why; **
 2. Press **Start**. Each listed game gets the right shim (32 or 64-bit, next to the Ultimate ASI Loader if present).
    Another mod's `dinput8.dll` (a Widescreen Fix, ReShade) is chained, never overwritten: it is renamed to
    `dinput8-chain.dll`, the shim goes in its place and hands DirectInput on to it, so the mod keeps working. **Remove
-   shim** gives it its name back. Only a mod built for the other processor than the game is left alone (that game is
-   left out).
+   shim** gives it its name back. An old Ultimate ASI Loader (a Widescreen Fix from 2023, for Windows 7) is renamed
+   to `d3d9.dll` instead. Only a mod built for the other processor than the game is left alone (that game is left
+   out), or an old ASI Loader when `d3d9.dll` is taken.
 3. Start the game and pick the Logitech wheel. If it runs 2 minutes without a word from the shim, WheelBri warns you:
    check its folder on the Games tab and restart the game.
 4. At **Stop**, choose whether to delete the shims from the games' folders.
@@ -195,13 +207,16 @@ NFS Payback, NFS Unbound); built-in profiles work with **Target G920 only**, you
 Heat is recognised too: it has no values, only a warning when the Target is the G923.
 
 1. Pick the game on the left. Tags show what is in its folder (`shim g920`, `+ASI` next to the ASI Loader, `+mod`
-   chained to another mod, `no shim`, `other mod`: **Chain mod** chains it now), `! not G923`
+   chained to another mod, `no shim`, `other mod`: **Chain mod** chains it now, `old ASI`: Start renames it to
+   `d3d9.dll`), `! not G923`
    when the game does not support the Target, `running` for the one WheelBri sees now. **Add game...** picks a game's
-   `.exe`; **Remove** takes one you added off the list (its files stay). Its **FOLDER** row: **Put shim** (or **Chain
+   `.exe` and names it after its folder; the game is its `.exe`'s full path, so games whose `.exe` shares a name (`speed.exe`) stay apart; one with a built-in profile gets its own copy of it. A name shown twice is marked **! not unique**: rename that game's folder. **Remove** takes one you added off the list (its files stay). Its **FOLDER** row: **Put shim** (or **Chain
    mod**), **Remove shim**, and **Forget folder** to drop the folder WheelBri knows for it.
 2. Set its sub-tabs; **Default** goes back to the profile's or the Mapping tab's value (yours show in violet):
-   - **Axes and buttons**, the axes first: steering rotation; per pedal, the axis the game reads and Normal /
-     Inverted. In Mode Virtual pedals can only be swapped among the Target's own pedal axes.
+   - **Axes and buttons**, the axes first: steering rotation; **Anti-dead zone** (click the % to type it); per
+     pedal, the axis the game reads and Normal /
+     Inverted; **Combined** pedals for this game. In Mode Virtual pedals can only be swapped among the Target's own
+     pedal axes.
 
      ![Throttle moved to another axis for this game; the amber note: in Mode Virtual only for Mode Shim](images/games-axis-remapping.png)
 
@@ -318,7 +333,8 @@ Linux:
 ![Logs tab](images/logs.png)
 
 The **Logs** tab shows what every part of WheelBri does; **O** opens the folder (`%LOCALAPPDATA%\wheelbri\logs` or
-`~/.local/state/wheelbri`). Logs older than 2 days are deleted.
+`~/.local/state/wheelbri`). Every Start begins new files, numbered (`wheelbri-service-<date>-<NN>.log` with its
+`telemetry-*` and `ffb-*`): one number per session. Logs older than 2 days are deleted.
 
 To report a problem: set **Level** to debug, repeat it, press Stop, and send that run's files with the Target, Mode,
 game and what you saw. Set Level back to warn afterwards.

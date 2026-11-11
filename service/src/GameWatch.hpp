@@ -44,21 +44,30 @@ public:
     // `overrides`: the user's per-game rotations ([game_rotation]). Logs the built-in profiles' problems, if any.
     // `session`: the target, the way and the user's per-game values (GameTuning.hpp);
     // `userGames`: the games the user added (games.ini), followed like the built-in profiles.
-    // What it asks the system: the running programs, a process's program file and the Documents folder (platform::).
+    // What it asks the system: the running programs, a process's program file, the Documents folder (platform::) and
+    // whether a file is there.
     // Each one left empty is the system's own; the tests give their own.
     struct System {
         std::function<std::optional<std::vector<RunningProgram>>()> runningPrograms;
         std::function<std::filesystem::path(std::uint32_t pid)> processImage;
         std::function<std::filesystem::path()> documentsFolder;
+        std::function<bool(const std::filesystem::path&)> fileExists;   // a game's marker (GameProfile::marker)
     };
     GameWatch(GameSessionConfig session, float mapping, GameRotations overrides, std::vector<GameProfile> userGames,
               System system = {});
 
     struct Decision {
         PedalRoute route;           // Pipeline::setPedalRoute
-        // The game whose own mapping (pedal invert / curve, buttons) the pipeline should use; empty: the mapping's.
+        // The game whose own mapping (pedal invert, buttons) the pipeline should use; empty: the mapping's.
         std::string mapperGame;
         const GameTuning* tuning = nullptr;   // its values (owned by this GameWatch), when mapperGame is set
+        // The running game's combined pedals (GameDecision::combinedPedals); nullopt: the mapping's.
+        std::optional<bool> combinedPedals;
+        // Where combinedPedals comes from, for the log: "NFS U1/MW's profile", "your value for NFS U1/MW"; else empty.
+        std::string combinedPedalsFrom;
+        // The running game's anti-dead zone in percent (GameDecision::antiDeadZonePercent); nullopt: the mapping's.
+        std::optional<float> antiDeadZonePercent;
+        std::string antiDeadZoneFrom;   // where it comes from, for the log, as combinedPedalsFrom
     };
     // One look: what the pipeline should use now.
     Decision check();

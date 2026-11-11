@@ -10,6 +10,7 @@
 #include "wheelbri/Logging.hpp"
 #include "wheelbri/Nfs2015Settings.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <system_error>
 #include <utility>
@@ -49,10 +50,11 @@ namespace {
 std::vector<GameProfile> allGames(std::vector<GameProfile> userGames) {
     std::vector<GameProfile> games(gameProfiles().begin(), gameProfiles().end());
     for (GameProfile& game : userGames) {
-        // A game the user added that has a built-in profile too is that profile (Add game refuses it; a hand edit).
+        // A game the user added is its own game, by its path, even when a built-in profile has its program (it is a
+        // copy of that profile, parseUserGames). Only a built-in profile's id (a hand edit) makes it that profile.
         bool known = false;
-        for (const GameProfile& builtIn : games) {
-            known = known || builtIn.program == game.program || builtIn.id == game.id;
+        for (const GameProfile& builtIn : gameProfiles()) {
+            known = known || builtIn.id == game.id;
         }
         if (known) {
             WE_LOG_WARN(log(), "game: {} ({}) from games.ini has a built-in profile: the built-in one is used",
@@ -172,24 +174,27 @@ std::string GameWatch::rotationStatus() const {
 
 void GameWatch::logEvents(const GameDetector::Update& update) {
     const GameDetector::State& state = detector_.state();
+    // The detector sets the game (and the previous one) for each event that names it; "none" never shows unless it
+    // did not, and keeps the log from reading through a null pointer if it ever does not.
+    const auto name = [](const GameProfile* const game) { return game != nullptr ? game->label : std::string("none"); };
     for (const GameDetector::Event event : update.events) {
         switch (event) {
             case GameDetector::Event::Started:
                 followedSinceMs_ = platform::nowMs();
                 ++starts_;
-                WE_LOG_INFO(log(), "game: {} started: {}", state.game->label, describeFollowed());
+                WE_LOG_INFO(log(), "game: {} started: {}", name(state.game), describeFollowed());
                 break;
             case GameDetector::Event::Ended:
-                WE_LOG_INFO(log(), "game: {} ended: the defaults again", update.previous->label);
+                WE_LOG_INFO(log(), "game: {} ended: the defaults again", name(update.previous));
                 break;
             case GameDetector::Event::Switched:
                 followedSinceMs_ = platform::nowMs();
                 ++starts_;
-                WE_LOG_INFO(log(), "game: {} ended, {} runs: {}", update.previous->label, state.game->label,
+                WE_LOG_INFO(log(), "game: {} ended, {} runs: {}", name(update.previous), name(state.game),
                             describeFollowed());
                 break;
             case GameDetector::Event::Restarted:
-                WE_LOG_INFO(log(), "game: {} runs again as pid {}: its profile kept", state.game->label, state.pid);
+                WE_LOG_INFO(log(), "game: {} runs again as pid {}: its profile kept", name(state.game), state.pid);
                 break;
             case GameDetector::Event::Others:
                 if (state.others.empty()) {
@@ -202,7 +207,7 @@ void GameWatch::logEvents(const GameDetector::Update& update) {
                     }
                     WE_LOG_WARN(log(), "game: also running: {}; the pedals follow {} (the one found first): close the "
                                        "game you are not playing",
-                                others, state.game != nullptr ? state.game->label : std::string("none"));
+                                others, name(state.game));
                 }
                 break;
             case GameDetector::Event::ListFailed:
@@ -234,8 +239,33 @@ void GameWatch::setMapping(const float degrees) {
 }
 
 GameWatch::Decision GameWatch::check() {
-    const GameDetector::Update update =
-        detector_.poll(system_.runningPrograms ? system_.runningPrograms() : platform::runningPrograms());
+    std::optional<std::vector<RunningProgram>> programs =
+        system_.runningPrograms ? system_.runningPrograms() : platform::runningPrograms();
+    if (programs) {
+        // Where it runs from, only for a game known by its path or marker (two games may share a program's name);
+        // Windows only. Then which markers sit next to it.
+        for (RunningProgram& program : *programs) {
+            const std::string name = programName(program.name);
+            if (std::none_of(games_.begin(), games_.end(), [&name](const GameProfile& g) {
+                    return (!g.path.empty() || !g.marker.empty()) && g.program == name;
+                })) {
+                continue;
+            }
+            const std::filesystem::path image =
+                system_.processImage ? system_.processImage(program.pid) : platform::processImage(program.pid);
+            program.path = pathToUtf8(image);
+            if (image.empty()) continue;
+            for (const GameProfile& game : games_) {
+                if (game.marker.empty() || game.program != name) continue;
+                std::error_code error;
+                const std::filesystem::path marker = image.parent_path() / pathFromUtf8(game.marker);
+                const bool there = system_.fileExists ? system_.fileExists(marker)
+                                                      : std::filesystem::is_regular_file(marker, error);
+                if (there) program.found.push_back(game.marker);
+            }
+        }
+    }
+    const GameDetector::Update update = detector_.poll(programs);
     logEvents(update);
     const std::uint64_t notices = wayNotices_.count();
     wayNotices_.update(update, detector_.state());
@@ -265,6 +295,16 @@ GameWatch::Decision GameWatch::check() {
     sayTuning();
     Decision out;
     out.route = decision.route;
+    out.combinedPedals = decision.combinedPedals;
+    if (decision.combinedPedals && state.game != nullptr) {
+        out.combinedPedalsFrom = decision.combinedPedalsFromUser ? "your value for " + state.game->label
+                                                                 : state.game->label + "'s profile";
+    }
+    out.antiDeadZonePercent = decision.antiDeadZonePercent;
+    if (decision.antiDeadZonePercent && state.game != nullptr) {
+        out.antiDeadZoneFrom = decision.antiDeadZoneFromUser ? "your value for " + state.game->label
+                                                             : state.game->label + "'s profile";
+    }
     if (decision.tuning != nullptr && changesMapping(*decision.tuning)) {
         out.mapperGame = state.game->id;
         out.tuning = decision.tuning;

@@ -196,6 +196,7 @@ take() {
     st = v("steer") + 0
     if (rows == 1 || st < steerMin) steerMin = st
     if (rows == 1 || st > steerMax) steerMax = st
+    if (v("pedals") == "combined") combinedRows++
     split("out_steer out_throttle out_brake out_clutch", outs, " ")
     for (k = 1; k <= 4; k++) {
         o = v(outs[k]) + 0
@@ -245,6 +246,7 @@ END {
 
     print "\nsent to the game (emulated wheel units): min / max"
     for (k = 1; k <= 4; k++) printf "  %-12s %7.0f / %7.0f\n", outs[k], omin[k], omax[k]
+    if (combinedRows > 0) printf "  pedals combined in %d of %d rows (out_throttle: throttle and brake)\n", combinedRows, rows
 
     if (ffbPackets == "") {
         print "\nforce feedback: off"

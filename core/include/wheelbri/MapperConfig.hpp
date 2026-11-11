@@ -42,9 +42,9 @@ struct PedalConfig {
     int sourceAxis = kUnmapped;
     int sourceDevice = 0;
     bool invert = false;                // true when the OS reports "pressed" as the low end
-    float gamma = 1.0F;                 // response curve: <1 more sensitive early, >1 less
-    // 0..100% of the travel exactly as the device reports it: no dead zone and no early full (since 2026-10-13; the
-    // device's own software sets those). The config's old deadzone_low / saturation_high are read and ignored.
+    // 0..100% of the travel exactly as the device reports it, in a straight line: no dead zone, no early full and no
+    // curve (the device's own software sets those). The config's old deadzone_low, saturation_high and gamma are read
+    // and ignored.
     friend bool operator==(const PedalConfig&, const PedalConfig&) = default;
 };
 

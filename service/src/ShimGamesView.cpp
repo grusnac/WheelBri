@@ -144,12 +144,14 @@ void ShimGamesView::refreshStates() {
     states_.clear();
     targets_.clear();
     asiLoaders_.clear();
+    oldAsiLoaders_.clear();
     chained_.clear();
     chainProblems_.clear();
     statesReadMs_ = platform::nowMs();
     for (const ShimGame& game : list_.games) {
         states_.push_back(shimState(game.folder, source(game.folder)));
-        asiLoaders_.push_back(shimDllIn(game.folder) != game.folder / kShimDll);
+        asiLoaders_.push_back(shimDllIn(game.folder) != game.folder / kShimDll || oldAsiLoaderAside(game.folder));
+        oldAsiLoaders_.push_back(states_.back() == ShimState::Foreign && isOldAsiLoader(game.folder / kShimDll));
         chained_.push_back(shimChained(game.folder));
         chainProblems_.push_back(states_.back() == ShimState::Foreign ? chainProblem(game.folder) : std::string());
         const auto text = readFileText(game.folder / kShimSettings);
@@ -265,6 +267,10 @@ bool ShimGamesView::asiLoaderAt(const std::size_t index) const {
     return index < asiLoaders_.size() && asiLoaders_[index];
 }
 
+bool ShimGamesView::oldAsiLoaderAt(const std::size_t index) const {
+    return index < oldAsiLoaders_.size() && oldAsiLoaders_[index];
+}
+
 bool ShimGamesView::chainedAt(const std::size_t index) const { return index < chained_.size() && chained_[index]; }
 
 std::string ShimGamesView::chainProblemAt(const std::size_t index) const {
@@ -301,6 +307,9 @@ bool ShimGamesView::prepareStart(const std::string& profile, const AxesFor& axes
         for (const std::string& file : result.changed) WE_LOG_INFO(log(), "shim: wrote {}", file);
         if (shimChained(game.folder)) {
             WE_LOG_INFO(log(), "shim: {} is chained: DirectInput goes on to {}", game.name, kShimChainDll);
+        } else if (oldAsiLoaderAside(game.folder)) {
+            WE_LOG_INFO(log(), "shim: {} has an old ASI Loader, as {} (the game loads it, not the shim)", game.name,
+                        kOldAsiLoaderDll);
         }
         // The wheel it presents: the target picked on the Mapping tab; and the game's own pedal axes.
         const ShimResult target = setShimTarget(game.folder, profile);

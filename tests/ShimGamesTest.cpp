@@ -136,6 +136,21 @@ TEST_F(ShimGamesFiles, TheGameInAFolderIsFoundByItsProgram) {
     EXPECT_EQ(gameInFolder(dir_ / "not there", games), nullptr);
 }
 
+TEST_F(ShimGamesFiles, AGameWithAPathIsOnlyInItsOwnFolder) {
+    GameProfile elsewhere;
+    elsewhere.id = "elsewhere";
+    elsewhere.program = "game.exe";
+    elsewhere.path = pathToUtf8(dir_ / "other folder" / "Game.exe");
+    GameProfile here = elsewhere;
+    here.id = "here";
+    here.path = pathToUtf8(game() / "Game.exe");
+    const std::vector<GameProfile> games{elsewhere, here};
+    const GameProfile* const found = gameInFolder(game(), games);
+    ASSERT_NE(found, nullptr);
+    EXPECT_EQ(found->id, "here");
+    EXPECT_EQ(gameInFolder(game(), std::span<const GameProfile>(games.data(), 1)), nullptr);
+}
+
 TEST_F(ShimGamesFiles, TheTargetMakesTheSettingsWhenMissing) {
     ASSERT_TRUE(setShimTarget(game(), "g920").ok);
     EXPECT_EQ(read(game() / kShimSettings), "[shim]\ntarget_profile = g920\n");
@@ -391,6 +406,48 @@ TEST_F(ShimGamesFiles, AnotherDinput8HookedIsChained) {
     EXPECT_EQ(read(game() / kShimDllHooked), "someone else's");
     EXPECT_EQ(read(game() / kShimDll), "IsUltimateASILoader");
     EXPECT_FALSE(std::filesystem::exists(game() / kShimChainDll));
+}
+
+// An ASI Loader from before dinput8Hooked.dll goes to d3d9.dll, never chained (chained, the game crashes).
+TEST_F(ShimGamesFiles, AnOldAsiLoaderMovesToD3d9) {
+    const std::string loader = "MZ ... Ultimate-ASI-Loader.pdb ... DirectInput8Create";
+    write(game() / kShimDll, loader);
+    EXPECT_TRUE(isOldAsiLoader(game() / kShimDll));
+    EXPECT_FALSE(isAsiLoader(game() / kShimDll));
+    EXPECT_FALSE(isOldAsiLoader(sourceDll()));
+    write(dir_ / "new.dll", "Ultimate-ASI-Loader ... IsUltimateASILoader");
+    EXPECT_FALSE(isOldAsiLoader(dir_ / "new.dll"));
+    write(dir_ / "ours.dll", "IsWheelBriShim ... Ultimate-ASI-Loader");
+    EXPECT_FALSE(isOldAsiLoader(dir_ / "ours.dll"));
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Foreign);
+    EXPECT_EQ(chainProblem(game()), "");
+
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    ASSERT_TRUE(put.ok) << put.error;
+    EXPECT_EQ(read(game() / kShimDll), "our shim v1");
+    EXPECT_EQ(read(game() / kOldAsiLoaderDll), loader);
+    EXPECT_TRUE(oldAsiLoaderAside(game()));
+    EXPECT_FALSE(shimChained(game()));
+    EXPECT_EQ(read(game() / kShimSettings).find("\nchain ="), std::string::npos);
+    EXPECT_EQ(shimState(game(), sourceDll()), ShimState::Installed);
+
+    const ShimResult removed = removeShim(game(), sourceDll());
+    ASSERT_TRUE(removed.ok) << removed.error;
+    EXPECT_EQ(read(game() / kShimDll), loader);
+    EXPECT_FALSE(std::filesystem::exists(game() / kOldAsiLoaderDll));
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
+}
+
+TEST_F(ShimGamesFiles, AnOldAsiLoaderStaysWhenD3d9IsTaken) {
+    write(game() / kShimDll, "Ultimate-ASI-Loader");
+    write(game() / kOldAsiLoaderDll, "a d3d9 mod");
+    EXPECT_EQ(chainProblem(game()), "d3d9.dll is taken");
+    const ShimResult put = installShim(game(), sourceDll(), sourceSettings());
+    EXPECT_FALSE(put.ok);
+    EXPECT_TRUE(put.leftAlone);
+    EXPECT_EQ(read(game() / kShimDll), "Ultimate-ASI-Loader");
+    EXPECT_EQ(read(game() / kOldAsiLoaderDll), "a d3d9 mod");
+    EXPECT_FALSE(std::filesystem::exists(game() / kShimSettings));
 }
 
 TEST_F(ShimGamesFiles, OurMarkSaysTheDllIsOurs) {

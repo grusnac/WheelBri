@@ -223,6 +223,66 @@ TEST(Logging, TheConfigsFileWinsAndNoFreeNumberFallsBackToTheDailyName) {
     std::filesystem::remove_all(dir, ignored);
 }
 
+// The app's Start after the first: the log goes on in the next number's file, in the same line format, and a file
+// opened after it (telemetry-*) takes that number too.
+TEST(Logging, StartNewRunGoesOnInTheNextNumbersFile) {
+    const LoggersKept kept;   // put back the loggers other tests use
+    const auto dir = std::filesystem::temp_directory_path() / "wheelbri-logging-newrun";
+    std::error_code ignored;
+    std::filesystem::remove_all(dir, ignored);
+    logfiles::forgetRun();
+    logging::LogConfig config;
+    config.console = false;
+    config.level = "info";
+    config.flushLevel = "trace";
+    config.periodicFlush = false;
+    ASSERT_TRUE(logging::init(config, (dir / "app.log").string()));
+    std::string first;
+    std::string second;
+    std::string telemetry;
+    {
+        const auto logger = logging::get("test.newrun");
+        WE_LOG_INFO(logger, "the first session");
+        first = logging::currentLogFile();
+        second = logging::startNewRun();
+        WE_LOG_INFO(logger, "the second session");
+        std::string error;
+        telemetry = logfiles::runFile(dir, "telemetry", localDate(WallClock::now()), ".log", error).string();
+    }
+    EXPECT_EQ(logging::currentLogFile(), second);
+    logging::shutdown();
+    logfiles::forgetRun();
+
+    const auto firstParts = logfiles::partsOf(std::filesystem::path(first).filename().string(), "app");
+    const auto secondParts = logfiles::partsOf(std::filesystem::path(second).filename().string(), "app");
+    const auto telemetryParts = logfiles::partsOf(std::filesystem::path(telemetry).filename().string(), "telemetry");
+    ASSERT_TRUE(firstParts.has_value()) << first;
+    ASSERT_TRUE(secondParts.has_value()) << second;
+    ASSERT_TRUE(telemetryParts.has_value()) << telemetry;
+    EXPECT_EQ(secondParts->index, firstParts->index + 1);
+    EXPECT_EQ(telemetryParts->index, secondParts->index);
+    const std::string firstText = readFile(first);
+    const std::string secondText = readFile(second);
+    EXPECT_NE(firstText.find("the first session"), std::string::npos);
+    EXPECT_EQ(firstText.find("the second session"), std::string::npos);
+    EXPECT_NE(secondText.find("[test.newrun"), std::string::npos);   // the same line format
+    EXPECT_NE(secondText.find("the second session"), std::string::npos);
+    EXPECT_EQ(secondText.find("the first session"), std::string::npos);
+    std::filesystem::remove_all(dir, ignored);
+}
+
+// Logging to the console only: no file to move on from.
+TEST(Logging, StartNewRunWithoutAFileDoesNothing) {
+    const LoggersKept kept;
+    logging::LogConfig config;
+    config.console = true;
+    config.periodicFlush = false;
+    ASSERT_TRUE(logging::init(config, std::string()));
+    EXPECT_TRUE(logging::startNewRun().empty());
+    logging::shutdown();
+    logfiles::forgetRun();
+}
+
 // A sampler with no "every N" logs only its first calls.
 TEST(CallSampler, WithoutEveryNOnlyTheFirstCalls) {
     logging::CallSampler sampler(2, 0);

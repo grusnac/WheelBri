@@ -99,6 +99,7 @@ TargetReport DeviceProfile::encode(const WheelState& state) const {
     report.clutch = encodePedal(state.clutch);
     report.buttons = state.buttons & buttonMask_;   // a mapped button the wheel does not have never reaches the game
     report.hat = state.hat;
+    report.combined = combinedPedals(report);
     return report;
 }
 

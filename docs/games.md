@@ -100,6 +100,25 @@ G920 only, by themselves while the game runs.
   (`fullscreen="false"` in `Documents\Codemasters\GRID\hardwaresettings\hardware_settings_config.xml`) may avoid it.
   For 1440p, delete `system\hardware_settings_restrictions.xml` (editing it crashed the game at start).
 
+## NFS Underground, Underground 2, Most Wanted (2005)
+
+- **Set up:** nothing; set the wheel controls in the game's own menu.
+- **Profile:** combined pedals (every Target): the games read throttle and brake from one axis, and with separate
+  pedals their menus scroll by themselves. Underground and Most Wanted are both `speed.exe`: the Games tab lists them
+  apart (**NFS U1**, **NFS MW**). A `speed.exe` with `dimap.dll` in its folder is Underground, any other Most Wanted.
+- **Known:** Windows 7, Mode Shim, G25: separate pedals scrolled the menus in Underground and Most Wanted; combined pedals
+  work in Most Wanted (Underground not yet tried).
+- **Steering dead zone:** the games ignore the first part of the turn each way (Most Wanted checked: Windows 7, Mode
+  Shim, G25; the Widescreen Fix's `LeftStickDeadzone = 0` and taking the Fix out changed nothing). Set
+  **Anti-dead zone** for the game (Games tab) to just under where the car starts to turn.
+
+## Widescreen Fixes (ThirteenAG)
+
+- Mode Shim works next to them: Start puts the shim in as `dinput8Hooked.dll` beside their Ultimate ASI Loader.
+- **Windows 7:** the current Fixes need Windows 8 or newer (error "GetSystemTimePreciseAsFileTime could not be
+  located"). Use the July 2023 builds, the last for Windows 7: their loader is older, and Start renames it to
+  `d3d9.dll` (**Remove shim** gives it its name back). Checked in NFS Carbon and NFS Most Wanted (32-bit, G25).
+
 ## Not yet tried
 
 - **On Linux:** DiRT Rally 2.0, NFS Heat, Unbound and Payback (Payback is not expected to work: Proton has no

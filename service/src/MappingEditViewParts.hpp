@@ -64,13 +64,30 @@ constexpr float kPopupY = 56;
 
 
 // The game full lock slider: 90 to 1080 degrees, in steps of 10 (typed values go up to tuning::kMaxRotationDeg).
+// Also where every lower section's controls start (rotation, pedals, button order, TrueForce, centring spring).
 constexpr float kSliderX = 132;
+// One half of a two-way switch in the lower sections (Separate|Combined, as ConfigPicker's Order and TrueForce).
+constexpr float kSwitchWidth = 128;
 constexpr float kSliderMinDeg = 90.0F;
 constexpr float kSliderMaxDeg = 1080.0F;
 constexpr float kSliderStepDeg = 10.0F;
 constexpr std::array<float, 7> kPresetsDeg = {180.0F, 270.0F, 360.0F, 540.0F, 720.0F, 900.0F, 1080.0F};
 // The centring spring's usual values (percent; 0 = off); any whole number from 0 to 100 can be typed.
 constexpr std::array<float, 6> kSpringPresets = {0.0F, 10.0F, 25.0F, 50.0F, 75.0F, 100.0F};
+// The anti-dead zone's usual values (percent; 0 = off); any number from 0 to 50 can be typed.
+constexpr std::array<float, 5> kAntiDeadZonePresets = {0.0F, 5.0F, 10.0F, 15.0F, 20.0F};
+// A slider's range and the steps it moves in (a typed value may be finer, and the rotation's larger).
+struct SliderRange {
+    float min;
+    float max;
+    float step;
+};
+constexpr SliderRange kRotationSlider{kSliderMinDeg, kSliderMaxDeg, kSliderStepDeg};
+constexpr SliderRange kCentringSpringSlider{0.0F, 100.0F, 1.0F};
+constexpr SliderRange kAntiDeadZoneSlider{0.0F, 50.0F, 0.5F};
+// The lower grid: two boxes a row from this window width, the gap between them.
+constexpr float kTwoColumnsMinW = 760;
+constexpr float kGridGap = 12;
 
 inline std::string percent(const float value) { return tuning::formatNumber(value) + "%"; }
 constexpr std::size_t kMaxTyped = 12;

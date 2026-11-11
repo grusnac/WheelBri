@@ -48,7 +48,9 @@ A new area file gets a row here.
   build in `docs/building.md`. `docs/` stays flat (the packages copy `docs/*.md` only). Short, current facts only, no
   dated history. A new screen needs a screenshot in `docs/images/` (ask the user to take it).
 - Logs: `%LOCALAPPDATA%\wheelbri\logs` (`wheelbri-service-*`, `telemetry-*`, `ffb-*`, one file per run);
-  `scripts/telemetry_summary.sh` sums them up. `raw_a0`..`raw_a7` = which axis a control moves.
+  `scripts/telemetry_summary.sh` sums them up. `raw_a0`..`raw_a7` = which axis a control moves. A folder of logs
+  (a test round): decide what would answer the question, then find only that: `scripts/run_summary.sh <folder>`
+  (index), `--find pedals|game|input|state|ffb|problems`, `--grep <regex>`. Never dump whole logs.
 
 ## Project
 
@@ -185,7 +187,8 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 
 ## Decided: do not add back
 
-- Dead zones, a steering ratio (always 1:1), a virtual Xbox controller.
+- Dead zones and pedal curves (gamma): the wheel's own app sets them. A steering ratio (always 1:1), a virtual Xbox
+  controller. The anti-dead zone (`AntiDeadZone.hpp`) is not one: it makes up for a game's own dead zone.
 - Force feedback strength, per-effect gains, caps or on/off per game, or WheelBri's own master gain: the game's and
   the wheel's own app's to set. The fixed safety guards stay; nothing to tune them in the app.
 - Auto-map beyond the core inputs (`AutoMap.hpp`: steering, pedals, D-pad, A/B/X/Y, paddles, from the Rig's "It is"):
@@ -208,7 +211,8 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 - **Threads:** name each first thing with `platform::nameThisThread("wheelbri <role>")`.
 - **Logging** (full rules: `Logging.hpp`): only `WE_LOG_*`, one dotted logger per component, never printf; hot paths
   use `CallSampler` / `RateLimiter`; default level warn; every file WheelBri writes is a log in that line format (no
-  CSV, no JSON); one file per run `<stem>-<date>-<NN>.log`; one folder for all logs (`logsFolder()`), no other.
+  CSV, no JSON); one file per run `<stem>-<date>-<NN>.log` (the app: per Start, `logging::startNewRun`); one folder
+  for all logs (`logsFolder()`), no other.
 - **FFB safety** (rigs often direct drive): every force to hardware goes through `FfbSafetyLimiter` + watchdog. Keep
   the guards: slew 50/s, frozen-force fade, DiEffect's "not a force" values. A config may only make them gentler
   (`max_slew_per_second` 1-50, `frozen_force_s` 0.5-60). Only bypass: opt-in `force_feedback = passthrough` in

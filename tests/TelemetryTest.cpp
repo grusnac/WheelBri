@@ -106,7 +106,7 @@ TEST_F(TelemetryTest, OneFilePerDayNamedByDate) {
     recorder.reset();
 
     const auto all = lines(dir_ / "telemetry-2026-09-30-01.log", true);
-    EXPECT_EQ(count(all, "wheelbri telemetry format 3"), 1U);
+    EXPECT_EQ(count(all, "wheelbri telemetry format 4"), 1U);
     EXPECT_EQ(count(all, "session started 2026-09-30 14:25:01"), 1U);
     EXPECT_EQ(count(all, "source: test wheel"), 1U);
     // Every line in the other logs' format.
@@ -434,7 +434,7 @@ TEST_F(TelemetryTest, NoFreeNumberForTheDayIsAnError) {
 // The keys telemetry_summary.sh reads by name: in their order, and every key a row carries is one of them.
 TEST_F(TelemetryTest, TheColumnsListEveryKeyInOrder) {
     const std::vector<std::string> columns = telemetryColumns();
-    ASSERT_EQ(columns.size(), 3U + RawInputState::kMaxAxes + 19U + IFfbSink::kMaxSlots * 4U + 2U);
+    ASSERT_EQ(columns.size(), 3U + RawInputState::kMaxAxes + 21U + IFfbSink::kMaxSlots * 4U + 2U);
     EXPECT_EQ(columns[0], "time");
     EXPECT_EQ(columns[1], "t_ms");
     EXPECT_EQ(columns[2], "seq");
@@ -828,6 +828,32 @@ TEST_F(TelemetryTest, AFullDiskStopsTheFileNotTheService) {
     EXPECT_EXIT(recordUntilTheDiskIsFull(dir_, 100), ::testing::ExitedWithCode(0), "");       // in the header
 }
 #endif
+
+
+// pedals= and out_combined=: what the game gets; switching the pedals makes a row of its own (with only_changes).
+TEST_F(TelemetryTest, RowsSayWhichPedalsTheGameGets) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    sample.nowNs = 1000 * kMs;
+    sample.report.throttle = 65535;
+    sample.report.brake = 65535;
+    sample.report.combined = 32767;
+    recorder->writeSample(sample);
+    sample.nowNs = 1020 * kMs;
+    recorder->writeSample(sample);   // nothing changed: no row
+    sample.nowNs = 1040 * kMs;
+    sample.combinedPedals = true;
+    recorder->writeSample(sample);
+    recorder.reset();
+
+    const auto data = lines(dir_ / "telemetry-2026-09-30-01.log");
+    ASSERT_EQ(data.size(), 2U);
+    EXPECT_EQ(value(data[0], "pedals"), "separate");
+    EXPECT_EQ(value(data[0], "out_combined"), "32767");
+    EXPECT_EQ(value(data[1], "pedals"), "combined");
+    EXPECT_EQ(value(data[1], "out_combined"), "32767");
+}
 
 }  // namespace
 }  // namespace wheelbri

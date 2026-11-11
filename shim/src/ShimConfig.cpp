@@ -205,7 +205,22 @@ const ShimConfig& shimConfig() {
         // The game this DLL is loaded into: its profile, if it has one, laid over the layout above.
         wchar_t exe[MAX_PATH] = {};
         const DWORD length = GetModuleFileNameW(nullptr, exe, MAX_PATH);
-        const GameProfile* const game = length > 0 && length < MAX_PATH ? gameProfileFor(toUtf8(exe)) : nullptr;
+        // Markers next to the program tell apart games that share its name (NFS U1 and MW: speed.exe).
+        std::vector<std::string> found;
+        if (length > 0 && length < MAX_PATH) {
+            const std::wstring folder(exe, std::wstring_view(exe, length).find_last_of(L"\\/") + 1);
+            const std::string name = programName(toUtf8(exe));
+            for (const GameProfile& profile : gameProfiles()) {
+                if (profile.marker.empty() || profile.program != name) continue;
+                const std::wstring marker = folder + std::wstring(profile.marker.begin(), profile.marker.end());
+                const DWORD attributes = GetFileAttributesW(marker.c_str());
+                if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                    found.push_back(profile.marker);
+                }
+            }
+        }
+        const GameProfile* const game =
+            length > 0 && length < MAX_PATH ? gameProfileFor(toUtf8(exe), gameProfiles(), found) : nullptr;
         switch (gameProfileUse(config, game)) {
             case GameProfileUse::NoProfile: break;
             case GameProfileUse::AxesFromApp:
@@ -229,6 +244,11 @@ const ShimConfig& shimConfig() {
                                  "clutch={}",
                             game->id, game->label, describeOverlay(*game), axisName(used.throttle),
                             axisName(used.brake), axisName(used.clutch));
+                if (game->combinedPedals) {
+                    WE_LOG_INFO(log, "game profile {}: pedals {} by wheelbri-service (unless your Games tab says "
+                                     "otherwise; its log says which): the {} axis carries what it sends as the throttle",
+                                game->id, *game->combinedPedals ? "combined" : "separate", axisName(used.throttle));
+                }
                 if ((game->throttleAxis && config.throttleAxis) || (game->brakeAxis && config.brakeAxis) ||
                     (game->clutchAxis && config.clutchAxis)) {
                     WE_LOG_WARN(log, "wheelbri-shim.ini sets pedal axes the game profile {} also sets: the profile's "

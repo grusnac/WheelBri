@@ -42,6 +42,11 @@ bool init(const LogConfig& config, const std::string& defaultFilePath);
 // Full path of the log file being written today, or empty when logging to the console only.
 [[nodiscard]] std::string currentLogFile();
 
+// Goes on in the next numbered file, as if the program had started again (logfiles::forgetRun): files opened after
+// it (telemetry-*, ffb-*) take that run's number too. The app calls it on every Start after the first. Returns the
+// file now written (the old one if no new one could be made), empty when logging to the console only.
+std::string startNewRun();
+
 // The dated file name used for `filePath` on `date` ("YYYY-MM-DD"): "dir/x.log" -> "dir/x-2026-09-30.log".
 [[nodiscard]] std::string datedFileName(const std::string& filePath, const std::string& date);
 

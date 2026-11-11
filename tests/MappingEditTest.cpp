@@ -549,3 +549,27 @@ TEST(MappingEdit, ANegativeCentringSpringIsRefused) {
     model.centringSpringPercent = -1.0F;
     EXPECT_EQ(tuningProblem(model).rfind("centring spring: from 0 (off) to ", 0), 0U) << tuningProblem(model);
 }
+
+// [pedals] combined: written when it is not what the file says (no line: off), and read back.
+TEST(MappingEdit, CombinedPedalsAreWrittenWhenTheyChange) {
+    MappingModel model = mappingModel(load(kConfig));
+    EXPECT_FALSE(model.combinedPedals);
+    EXPECT_EQ(writeMapping(kConfig, model).text.find("combined ="), std::string::npos);   // the default: no line
+    model.combinedPedals = true;
+    const std::string text = writeMapping(kConfig, model).text;
+    EXPECT_NE(text.find("[pedals]"), std::string::npos) << text;
+    EXPECT_TRUE(load(text).combinedPedals);
+    model.combinedPedals = false;
+    EXPECT_FALSE(load(writeMapping(text, model).text).combinedPedals);
+}
+
+TEST(MappingEdit, TheAntiDeadZoneIsWrittenWhenItChanges) {
+    MappingModel model = mappingModel(load(kConfig));
+    EXPECT_EQ(model.antiDeadZonePercent, 0.0F);
+    EXPECT_EQ(writeMapping(kConfig, model).text.find("anti_deadzone"), std::string::npos);   // the default: no line
+    model.antiDeadZonePercent = 12.5F;
+    const std::string text = writeMapping(kConfig, model).text;
+    EXPECT_EQ(load(text).antiDeadZonePercent, 12.5F) << text;
+    model.antiDeadZonePercent = 60.0F;   // out of range: refused
+    EXPECT_EQ(tuningProblem(model).rfind("anti-dead zone: from 0 (off) to 50%", 0), 0U) << tuningProblem(model);
+}

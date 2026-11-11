@@ -24,7 +24,8 @@ TEST(GameTuning, ReadsEveryKey) {
     GameTuning t;
     const std::vector<std::pair<std::string, std::string>> lines = {
         {"throttle_axis", "slider"}, {"brake_axis", "Y"},        {"clutch_axis", "none"},  {"brake_invert", "true"},
-        {"clutch_invert", "false"},  {"button_4", "13"},         {"button_18", "30b7:1001/2"}};
+        {"clutch_invert", "false"},  {"button_4", "13"},         {"button_18", "30b7:1001/2"},
+        {"combined_pedals", "on"}};
     for (const auto& [key, value] : lines) EXPECT_EQ(applyTuningKey(t, key, value, 19), "") << key;
     EXPECT_EQ(t.pedalAxes[0], ObjectGuid::Slider);
     EXPECT_EQ(t.pedalAxes[1], ObjectGuid::YAxis);
@@ -34,6 +35,7 @@ TEST(GameTuning, ReadsEveryKey) {
     EXPECT_EQ(t.pedalInvert[2], false);
     EXPECT_EQ(t.buttons.at(4), (SourceRef{{}, 13}));
     EXPECT_EQ(t.buttons.at(18), (SourceRef{{0x30b7, 0x1001}, 2}));
+    EXPECT_EQ(t.combinedPedals, true);
 }
 
 // What is refused, and why; the tuning stays as it was.
@@ -64,6 +66,7 @@ TEST(GameTuning, LinesRoundTrip) {
     t.pedalAxes = {ObjectGuid::Slider, ObjectGuid::YAxis, ObjectGuid::RzAxis};
     t.pedalInvert[0] = true;
     t.pedalInvert[2] = false;
+    t.combinedPedals = false;
     t.buttons[5] = {{}, -1};
     t.secondaries[2] = {ButtonRef{{{}, 20}, false, false, 0.5F}, ButtonRef{{{0x30b7, 0x1001}, 3}, true, true, 0.4F}};
     t.secondaries[3] = {};   // none in this game
@@ -89,9 +92,9 @@ TEST(GameTuning, RetiredForceFeedbackKeysAreIgnored) {
 
 TEST(GameTuning, UserGamesRoundTrip) {
     GameProfile heat;
-    heat.id = "needforspeedheat";
-    heat.label = "NFS Heat";
-    heat.program = "needforspeedheat.exe";
+    heat.id = "blur";
+    heat.label = "Blur";
+    heat.program = "blur.exe";   // no built-in profile: fits every target
     GameProfile excalibur;
     excalibur.id = "excalibur";
     excalibur.label = "Excalibur";
@@ -117,6 +120,53 @@ TEST(GameTuning, UserGamesProblems) {
     EXPECT_EQ(result.problems.size(), 5U);
 }
 
+TEST(GameTuning, UserGamesSharingAProgramNameByPath) {
+    GameProfile mw;
+    mw.id = "nfsmostwanted";
+    mw.label = "NFS Most Wanted";
+    mw.program = "speed.exe";
+    mw.path = "D:\\Games\\NFS Most Wanted\\speed.exe";
+    GameProfile ug2 = mw;
+    ug2.id = "nfsu2";
+    ug2.label = "NFSU2";
+    ug2.path = "D:\\Games\\NFSU2\\SPEED.EXE";
+    const std::vector<GameProfile> games{mw, ug2};
+    const UserGamesResult back = parseUserGames(formatUserGames(games));
+    EXPECT_TRUE(back.problems.empty());
+    ASSERT_EQ(back.games.size(), 2U);
+    EXPECT_EQ(back.games[0].path, mw.path);
+    EXPECT_EQ(back.games[1].path, ug2.path);
+
+    const UserGamesResult twice = parseUserGames(
+        "[game.a]\nlabel = A\nprogram = speed.exe\npath = D:\\A\\speed.exe\n"
+        "[game.b]\nlabel = B\nprogram = speed.exe\npath = d:/a/SPEED.exe\n"            // the same file
+        "[game.c]\nlabel = C\nprogram = speed.exe\npath = D:\\C\\other.exe\n"          // not its program
+        "[game.d]\nlabel = D\nprogram = speed.exe\n");                                 // by name: kept
+    ASSERT_EQ(twice.games.size(), 2U);
+    EXPECT_EQ(twice.games[0].id, "a");
+    EXPECT_EQ(twice.games[1].id, "d");
+    EXPECT_EQ(twice.problems.size(), 2U);
+}
+
+// NFS U1 and NFS MW are both speed.exe: each one added is its own game by its path, a copy of the built-in profile.
+TEST(GameTuning, AnAddedGameIsACopyOfItsProgramsProfile) {
+    const UserGamesResult back = parseUserGames(
+        "[game.u1]\nlabel = Need for Speed - Underground\nprogram = speed.exe\n"
+        "path = D:\\EA GAMES\\Need for Speed - Underground\\speed.exe\n"
+        "[game.mw]\nlabel = Need for Speed - Most Wanted\nprogram = speed.exe\n"
+        "path = D:\\EA GAMES\\Need for Speed - Most Wanted\\speed.exe\n");
+    EXPECT_TRUE(back.problems.empty());
+    ASSERT_EQ(back.games.size(), 2U);
+    for (const GameProfile& game : back.games) {
+        EXPECT_EQ(game.combinedPedals, true) << game.id;
+        EXPECT_NE(game.path.find(game.label), std::string::npos) << game.id;
+    }
+    EXPECT_EQ(back.games[0].id, "mw");
+    EXPECT_EQ(back.games[1].id, "u1");
+    // Written back, it holds only who it is, not the profile's values.
+    EXPECT_EQ(formatUserGames(back.games).find("combined"), std::string::npos);
+}
+
 TEST(GameTuning, GameIdForAProgram) {
     EXPECT_EQ(gameIdFor("NeedForSpeedHeat.exe"), "needforspeedheat");
     EXPECT_EQ(gameIdFor("D:\\Games\\My Game-2.exe"), "mygame2");
@@ -139,7 +189,6 @@ TEST(GameTuning, TunedMapper) {
     std::vector<std::string> problems;
     const MapperConfig out = tunedMapper(base, tuning, &problems);
     EXPECT_TRUE(out.brake.invert);
-    EXPECT_FLOAT_EQ(out.brake.gamma, 1.0F);   // as mapped: the game's values never change how a pedal feels
     EXPECT_EQ(out.brake.sourceAxis, 5);
     EXPECT_FALSE(out.throttle.invert);
     EXPECT_EQ(out.buttonMap[4], 13);
@@ -207,6 +256,63 @@ TEST(GameTuning, DecideGame) {
     // No game: nothing of a game's.
     d = decideGame(nullptr, false, session);
     EXPECT_EQ(d.tuning, nullptr);
+}
+
+// Combined pedals while a game runs: the user's value for it, else its profile's (only on a target it fits), else
+// none (the mapping's). The same for both ways: the service sends them combined.
+TEST(GameTuning, DecideGameCombinedPedals) {
+    GameProfile mw = testGame("nfsmw", "");
+    mw.combinedPedals = true;
+    GameSessionConfig session;
+    session.target = "g25";
+    EXPECT_EQ(decideGame(&mw, true, session).combinedPedals, true);
+    EXPECT_EQ(decideGame(&mw, false, session).combinedPedals, std::nullopt);   // the profile is not in use
+    session.routePedals = false;
+    EXPECT_EQ(decideGame(&mw, true, session).combinedPedals, true);   // the shim too
+
+    session.tunings["nfsmw"].combinedPedals = false;   // the user's own value wins
+    EXPECT_EQ(decideGame(&mw, true, session).combinedPedals, false);
+    session.tunings["nfsmw"].combinedPedals.reset();
+    session.tunings["nfsmw"].pedalInvert[0] = true;     // other values leave the profile's
+    EXPECT_EQ(decideGame(&mw, true, session).combinedPedals, true);
+
+    const GameProfile other = testGame("other", "");
+    EXPECT_EQ(decideGame(&other, true, session).combinedPedals, std::nullopt);
+    EXPECT_EQ(decideGame(nullptr, false, session).combinedPedals, std::nullopt);
+}
+
+TEST(GameTuning, DecideGameAntiDeadZone) {
+    GameProfile mw = testGame("nfsmw", "");
+    GameSessionConfig session;
+    session.target = "g25";
+    EXPECT_EQ(decideGame(&mw, true, session).antiDeadZonePercent, std::nullopt);   // the mapping's
+    mw.antiDeadZonePercent = 8.0F;
+    EXPECT_EQ(decideGame(&mw, true, session).antiDeadZonePercent, 8.0F);
+    EXPECT_FALSE(decideGame(&mw, true, session).antiDeadZoneFromUser);
+    EXPECT_EQ(decideGame(&mw, false, session).antiDeadZonePercent, std::nullopt);   // the profile is not in use
+    session.routePedals = false;
+    EXPECT_EQ(decideGame(&mw, true, session).antiDeadZonePercent, 8.0F);   // the shim too
+
+    session.tunings["nfsmw"].antiDeadZonePercent = 0.0F;   // the user's own value wins, even off
+    EXPECT_EQ(decideGame(&mw, true, session).antiDeadZonePercent, 0.0F);
+    EXPECT_TRUE(decideGame(&mw, true, session).antiDeadZoneFromUser);
+    EXPECT_EQ(decideGame(nullptr, false, session).antiDeadZonePercent, std::nullopt);
+}
+
+TEST(GameTuning, AntiDeadZoneKey) {
+    EXPECT_EQ(tuned("anti_deadzone", "12.5").antiDeadZonePercent, 12.5F);
+    std::string why;
+    EXPECT_FALSE(tuned("anti_deadzone", "51", &why).antiDeadZonePercent.has_value());
+    EXPECT_NE(why.find("0 to 50"), std::string::npos) << why;
+    GameTuning tuning;
+    tuning.antiDeadZonePercent = 10.0F;
+    const auto lines = tuningLines(tuning);
+    ASSERT_EQ(lines.size(), 1U);
+    EXPECT_EQ(lines[0], (std::pair<std::string, std::string>{"anti_deadzone", "10"}));
+    EXPECT_FALSE(changesMapping(tuning));   // the pipeline applies it: no tuned mapper
+    EXPECT_NE(antiDeadZoneLogLine(10.0F, "your value for NFS MW").find("10% (your value for NFS MW)"),
+              std::string::npos);
+    EXPECT_NE(antiDeadZoneLogLine(0.0F, "x").find("off"), std::string::npos);
 }
 
 // Every word for true and false the INI files take, and only those.
@@ -315,4 +421,24 @@ TEST(GameTuning, UserGameIdsAreChecked) {
     const UserGamesResult noLabel = parseUserGames("[game.x]\nprogram = x.exe\n");
     EXPECT_NE(noLabel.problems.at(0).find("needs a label and a program"), std::string::npos);
     EXPECT_EQ(gameIdFor("Game~{|}.exe"), "game");
+}
+
+// The service log says which pedals the game gets, where that comes from, and what the axes carry then.
+TEST(GameTuning, PedalsLogLine) {
+    EXPECT_EQ(pedalsLogLine(true, "NFS U1's profile"),
+              "pedals: combined (NFS U1's profile): the throttle axis carries throttle and brake (middle at rest), "
+              "the brake axis rests in the middle, the clutch as it is");
+    EXPECT_EQ(pedalsLogLine(false, "the Mapping tab's [pedals] combined"),
+              "pedals: separate (the Mapping tab's [pedals] combined): throttle, brake and clutch each on its own axis");
+}
+
+// The decision says whose value the combined pedals are: the user's or the profile's.
+TEST(GameTuning, CombinedPedalsSayWhoseValue) {
+    GameProfile mw = testGame("nfsmw", "");
+    mw.combinedPedals = true;
+    GameSessionConfig session;
+    session.target = "g25";
+    EXPECT_FALSE(decideGame(&mw, true, session).combinedPedalsFromUser);
+    session.tunings["nfsmw"].combinedPedals = true;
+    EXPECT_TRUE(decideGame(&mw, true, session).combinedPedalsFromUser);
 }

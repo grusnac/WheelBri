@@ -214,20 +214,26 @@ TEST_F(MappingAutoSave, TheG25ShowsItsCentringSpring) {
     EXPECT_NE(written.find("centring_spring = 25"), std::string::npos) << written;
 }
 
-// The G25 and G27 pick their button order on the top row (no section of its own below); each order has its own
-// mapping: a change with Native goes to my-g25-native.ini, with order = native, WheelBri's default untouched.
-TEST_F(MappingAutoSave, TheG25AndG27PickTheirButtonOrderOnTheTopRow) {
+// The G25 and G27 pick their button order in its own section under the pedals (as TrueForce for the G923); each
+// order has its own mapping: a change with Native goes to my-g25-native.ini, with order = native, WheelBri's default
+// untouched.
+TEST_F(MappingAutoSave, TheG25AndG27PickTheirButtonOrderUnderThePedals) {
     std::ofstream(dir_ / "config" / "g25.ini", std::ios::binary) << "[emulator]\ntarget_profile = g25\n";
     std::ofstream(dir_ / "config" / "g27.ini", std::ios::binary) << "[emulator]\ntarget_profile = g27\n";
     ConfigPicker picker(window_, settings());
     MappingEditView view(window_, dir_ / "rigs", dir_ / "app.ini", picker);
     frame(view);
     EXPECT_EQ(window_.find("Logitech"), nullptr);   // the G920: one order
+    EXPECT_EQ(window_.find("BUTTON ORDER"), nullptr);
 
     for (const ConfigPicker::Target target : {ConfigPicker::Target::G27, ConfigPicker::Target::G25}) {
         picker.useTarget(target);
         frame(view);
-        EXPECT_EQ(window_.find("BUTTON ORDER"), nullptr);
+        const auto* const section = window_.find("BUTTON ORDER");
+        const auto* const pedals = window_.find("PEDALS");
+        ASSERT_NE(section, nullptr);
+        ASSERT_NE(pedals, nullptr);
+        EXPECT_GT(section->y, pedals->y);   // under the pedals
         EXPECT_TRUE(same(window_.buttonColour("Logitech"), kOn));
     }
 

@@ -278,7 +278,7 @@ TEST(UdpLoopback, ShortLongAndForeignDatagramsAreNeverStates) {
     std::vector<std::uint8_t> wrongMagic = whole;
     wrongMagic[0] = 'X';
     std::vector<std::uint8_t> huge = whole;
-    huge.resize(1000, 0xAB);                  // the first 33 bytes are a good state: still not one
+    huge.resize(1000, 0xAB);                  // the first 37 bytes are a good state: still not one
     const auto level = encode(LogLevelPacket{LogLevel::Debug});
     std::vector<std::uint8_t> levelShort(level.begin(), level.end() - 1);
     std::vector<std::uint8_t> levelLong(level.begin(), level.end());

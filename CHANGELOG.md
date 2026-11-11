@@ -2,6 +2,22 @@
 
 ## Not released yet
 
+- Anti-dead zone, for games with a steering dead zone of their own (old NFS games ignore the first part of the turn):
+  as soon as the wheel leaves the centre the game gets a set amount of steering, 0 to 50% (`[steering]
+  anti_deadzone`); for every game on the Mapping tab, or per game on the Games tab (`<game>.anti_deadzone`). Off by
+  default; a game profile may set it (`[steering] anti_deadzone`).
+
+- NFS Underground and NFS Most Wanted (2005) are two games on the Games tab (**NFS U1**, **NFS MW**), each with its
+  own values; both are `speed.exe`, told apart by `dimap.dll` in Underground's folder. Values set for **NFS U1/MW**
+  before are not carried over.
+- Every Start begins new log files with the next number (the app's log, telemetry-*, ffb-*), so each session has
+  files of its own; before, a run of the app wrote all its sessions into one.
+
+- Combined pedals, as Logitech's "Report Combined Pedals", on every Target: for every game on the Mapping tab, or per
+  game on the Games tab. Built-in profiles turn them on for NFS Underground, Underground 2 and Most Wanted (2005),
+  whose menus scrolled by themselves with separate pedals. The state packet to the shim and the drivers is version 2:
+  update the shim and the drivers together with the app.
+
 - Windows: the installer needs no PowerShell any more and starts on a bare Windows 7 SP1, 8, 8.1, 10 or 11. The setup
   wizard does the install and the uninstall itself (only the Windows 11 drivers' own steps stay PowerShell scripts),
   and on Windows 7, 8 and 8.1 installs Microsoft's Universal C Runtime (KB2999226), which `Setup.exe` now carries,

@@ -48,6 +48,7 @@ TargetReport sampleReport() {
     report.clutch = 32768;
     report.buttons = 0b101;    // buttons 0 and 2
     report.hat = 2;            // right
+    report.combined = combinedPedals(report);   // as encode sets it
     return report;
 }
 
@@ -101,9 +102,11 @@ TEST(EmulatedJoystick, G25LayoutHasCombinedPedalsAndItsClutchOnSlider1) {
     TargetReport released = sampleReport();
     released.throttle = 65535;
     released.brake = 65535;
+    released.combined = combinedPedals(released);
     ASSERT_TRUE(g25.writeState(released, state));
     EXPECT_EQ(readI32(state, 24), 32767);   // both released: the middle
     released.brake = 0;
+    released.combined = combinedPedals(released);
     ASSERT_TRUE(g25.writeState(released, state));
     EXPECT_EQ(readI32(state, 24), 65535);   // full brake: the top
 

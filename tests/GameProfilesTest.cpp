@@ -37,7 +37,8 @@ TEST(GameProfiles, EveryBuiltInFileParsesCleanly) {
     for (const GameProfile& profile : gameProfiles()) {
         EXPECT_FALSE(profile.label.empty()) << profile.id;
         EXPECT_EQ(programName(profile.program), profile.program) << profile.id;
-        EXPECT_EQ(gameProfileFor(profile.program), &profile) << profile.id;
+        const std::vector<std::string> found = {profile.marker};
+        EXPECT_EQ(gameProfileFor(profile.program, gameProfiles(), found), &profile) << profile.id;
         // A profile is the exception: it changes something or gives advice, or it should not exist.
         EXPECT_TRUE(!describeOverlay(profile).empty() || profile.rotationDeg.has_value() ||
                     !profile.settings.empty() || !profile.notFor.empty())
@@ -214,6 +215,50 @@ TEST(GameProfiles, RunningGamesInProfileOrderOncePerGame) {
     EXPECT_EQ(findRunningGames(std::vector<RunningProgram>{{1, "NFS16.exe"}, {2, "NFS14.exe"}}).size(), 1U);
 }
 
+TEST(GameProfiles, RunningGamesSharingAProgramNameGoByPath) {
+    GameProfile byName;
+    byName.label = "Old";
+    byName.program = "speed.exe";
+    GameProfile mw = byName;
+    mw.label = "MW";
+    mw.path = "D:\\Games\\MW\\speed.exe";
+    GameProfile ug2 = byName;
+    ug2.label = "UG2";
+    ug2.path = "D:\\Games\\UG2\\speed.exe";
+    const std::vector<GameProfile> table{byName, mw, ug2};
+
+    const std::vector<RunningGame> one = findRunningGames(
+        std::vector<RunningProgram>{{5, "speed.exe", "d:/games/ug2/SPEED.EXE"}}, table);
+    ASSERT_EQ(one.size(), 1U);
+    EXPECT_EQ(one[0].game->label, "UG2");   // not the one found by name, listed first
+
+    const std::vector<RunningGame> elsewhere = findRunningGames(
+        std::vector<RunningProgram>{{6, "speed.exe", "E:\\Copy\\speed.exe"}}, table);
+    ASSERT_EQ(elsewhere.size(), 1U);
+    EXPECT_EQ(elsewhere[0].game->label, "Old");   // neither path: the game found by name
+
+    const std::vector<RunningGame> unknown = findRunningGames(std::vector<RunningProgram>{{7, "speed.exe"}}, table);
+    ASSERT_EQ(unknown.size(), 1U);
+    EXPECT_EQ(unknown[0].game->label, "MW");   // path not known (Linux, or not readable): by name, path games first
+
+    const std::vector<RunningGame> both = findRunningGames(
+        std::vector<RunningProgram>{{8, "speed.exe", "D:\\Games\\MW\\speed.exe"},
+                                    {9, "speed.exe", "D:\\Games\\UG2\\speed.exe"}},
+        table);
+    ASSERT_EQ(both.size(), 2U);
+    EXPECT_EQ(both[0].game->label, "MW");
+    EXPECT_EQ(both[0].pid, 8U);
+    EXPECT_EQ(both[1].game->label, "UG2");
+    EXPECT_EQ(both[1].pid, 9U);
+}
+
+TEST(GameProfiles, SamePathIgnoresAsciiCaseAndSlashes) {
+    EXPECT_TRUE(samePath("D:\\Games\\MW\\speed.exe", "d:/games/mw/SPEED.EXE"));
+    EXPECT_FALSE(samePath("D:\\Games\\MW\\speed.exe", "D:\\Games\\MW2\\speed.exe"));
+    EXPECT_FALSE(samePath("", "D:\\speed.exe"));
+    EXPECT_TRUE(samePath("", ""));
+}
+
 
 TEST(GameProfiles, SteeringRotation) {
     const auto parse = [](const std::string& steering) {
@@ -249,6 +294,97 @@ TEST(GameProfiles, NfsPaybackAdvises180) {
 
 // A profile never sets a game's force feedback ([ffb] is no section of a profile): the game and the wheel's own app
 // set how strong.
+// [pedals] combined, and target = any for a profile that sets no axes (combined pedals mean the same on every target).
+TEST(GameProfiles, CombinedPedalsOnEveryTarget) {
+    const ParsedGameProfile parsed =
+        parseGameProfile("old", "[game]\nlabel = NFS Old\nprogram = old.exe\ntarget = any\n[pedals]\ncombined = true\n");
+    ASSERT_TRUE(parsed.profile.has_value()) << (parsed.problems.empty() ? "" : parsed.problems.front());
+    EXPECT_EQ(parsed.profile->combinedPedals, true);
+    EXPECT_EQ(describeOverlay(*parsed.profile), "combined = true");
+    for (const char* target : {"g920", "g923", "g25", "g27"}) EXPECT_TRUE(profileFitsTarget(*parsed.profile, target));
+
+    const ParsedGameProfile badValue =
+        parseGameProfile("old", "[game]\nlabel = NFS Old\nprogram = old.exe\ntarget = any\n[pedals]\ncombined = 1\n");
+    EXPECT_FALSE(badValue.profile.has_value());
+    const ParsedGameProfile anyWithAxes = parseGameProfile(
+        "old", "[game]\nlabel = NFS Old\nprogram = old.exe\ntarget = any\n[pedals]\nthrottle_axis = slider\n");
+    EXPECT_FALSE(anyWithAxes.profile.has_value());   // axes are one target's
+    const ParsedGameProfile noTarget =
+        parseGameProfile("old", "[game]\nlabel = NFS Old\nprogram = old.exe\n[pedals]\ncombined = true\n");
+    EXPECT_FALSE(noTarget.profile.has_value());
+}
+
+TEST(GameProfiles, AntiDeadZoneOnEveryTarget) {
+    const ParsedGameProfile parsed = parseGameProfile(
+        "old", "[game]\nlabel = NFS Old\nprogram = old.exe\ntarget = any\n[steering]\nanti_deadzone = 8\n");
+    ASSERT_TRUE(parsed.profile.has_value()) << (parsed.problems.empty() ? "" : parsed.problems.front());
+    EXPECT_EQ(parsed.profile->antiDeadZonePercent, 8.0F);
+    EXPECT_FALSE(parsed.profile->rotationDeg.has_value());   // no rotation, no note needed
+    EXPECT_EQ(describeOverlay(*parsed.profile), "");          // not a pedal change
+    for (const char* target : {"g920", "g923", "g25", "g27"}) EXPECT_TRUE(profileFitsTarget(*parsed.profile, target));
+
+    for (const char* bad : {"51", "-2", "lots"}) {
+        const ParsedGameProfile badValue = parseGameProfile(
+            "old", std::string("[game]\nlabel = NFS Old\nprogram = old.exe\ntarget = any\n[steering]\nanti_deadzone = ") +
+                       bad + "\n");
+        EXPECT_FALSE(badValue.profile.has_value()) << bad;
+    }
+}
+
+// NFS Underground, Underground 2 and Most Wanted (Most Wanted's program is speed.exe, as Underground's) read throttle
+// and brake from one axis: their menus scroll by themselves with separate pedals.
+TEST(GameProfiles, OldNfsGamesHaveCombinedPedals) {
+    for (const char* program : {"D:\\EA GAMES\\Need for Speed - Underground\\Speed.exe",
+                                "D:\\EA GAMES\\Need for Speed - Underground 2\\SPEED2.EXE"}) {
+        const GameProfile* const game = gameProfileFor(program);
+        ASSERT_NE(game, nullptr) << program;
+        EXPECT_EQ(game->combinedPedals, true) << program;
+        EXPECT_TRUE(game->target.empty()) << program;   // every target
+    }
+    EXPECT_EQ(gameProfileFor("NFSC.exe"), nullptr);   // Carbon works with separate pedals
+}
+
+// NFS U1 and NFS MW are two profiles for speed.exe: U1's marker (dimap.dll next to it) picks U1, else MW.
+TEST(GameProfiles, SpeedExeIsU1WithItsMarkerElseMw) {
+    const std::vector<std::string> dimap = {"dimap.dll"};
+    const GameProfile* const u1 = gameProfileFor("D:\\EA GAMES\\Need for Speed - Underground\\Speed.exe",
+                                                 gameProfiles(), dimap);
+    ASSERT_NE(u1, nullptr);
+    EXPECT_EQ(u1->id, "nfsu1");
+    EXPECT_EQ(u1->label, "NFS U1");
+    EXPECT_EQ(u1->combinedPedals, true);
+    const GameProfile* const mw = gameProfileFor("D:\\EA GAMES\\Need for Speed - Most Wanted\\speed.exe");
+    ASSERT_NE(mw, nullptr);
+    EXPECT_EQ(mw->id, "nfsmw");
+    EXPECT_EQ(mw->label, "NFS MW");
+    EXPECT_EQ(mw->combinedPedals, true);
+
+    // Running: each process its own game, whatever the order.
+    const std::vector<RunningProgram> both = {{3, "speed.exe", "D:\\MW\\speed.exe"},
+                                              {4, "Speed.exe", "D:\\U1\\Speed.exe", dimap}};
+    const std::vector<RunningGame> games = findRunningGames(both);
+    ASSERT_EQ(games.size(), 2U);
+    for (const RunningGame& game : games) {
+        EXPECT_EQ(game.pid, game.game->id == "nfsu1" ? 4U : 3U) << game.game->id;
+    }
+    const std::vector<RunningGame> mwOnly = findRunningGames(std::vector<RunningProgram>{{5, "speed.exe"}});
+    ASSERT_EQ(mwOnly.size(), 1U);
+    EXPECT_EQ(mwOnly[0].game->id, "nfsmw");   // no path known (Linux): not U1
+}
+
+TEST(GameProfiles, MarkerIsAFileName) {
+    for (const char* bad : {"..", "sub\\dimap.dll", "C:dimap.dll", "a/b"}) {
+        const ParsedGameProfile parsed = parseGameProfile(
+            "x", std::string("[game]\nlabel = X\nprogram = x.exe\ntarget = any\nmarker = ") + bad +
+                     "\n[pedals]\ncombined = true\n");
+        EXPECT_FALSE(parsed.profile.has_value()) << bad;
+    }
+    const ParsedGameProfile good = parseGameProfile(
+        "x", "[game]\nlabel = X\nprogram = x.exe\ntarget = any\nmarker = DiMap.DLL\n[pedals]\ncombined = true\n");
+    ASSERT_TRUE(good.profile.has_value());
+    EXPECT_EQ(good.profile->marker, "dimap.dll");
+}
+
 TEST(GameProfiles, NoProfileChangesTheForceFeedback) {
     const ParsedGameProfile withFfb =
         parseGameProfile("x", "[game]\nlabel = NFS X\nprogram = x.exe\ntarget = g920\n[ffb]\ngain = 3\nnote = Why.\n");

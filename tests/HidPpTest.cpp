@@ -462,10 +462,12 @@ TEST(HidPpDescriptor, G25AndG27HaveCombinedPedalsAndTheClutchOnSlider1) {
         };
         EXPECT_EQ(slider0(), -1);            // released pedals: the middle (32767)
         report.throttle = 0;                 // full throttle
+        report.combined = combinedPedals(report);
         packed = packInputFor(wheel, report);
         EXPECT_EQ(slider0(), -32768);        // the bottom
         report.throttle = 65535;
         report.brake = 0;                    // full brake
+        report.combined = combinedPedals(report);
         packed = packInputFor(wheel, report);
         EXPECT_EQ(slider0(), 32767);         // the top
     }

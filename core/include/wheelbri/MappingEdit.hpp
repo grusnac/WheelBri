@@ -62,6 +62,10 @@ struct MappingModel {
     // [buttons] order: the order the target's buttons reach the game in (ButtonOrder); the Mapping tab sets it from
     // its top row's Order (ConfigPicker: each order has its own file) for a target with a native order (G25, G27).
     ButtonOrder buttonOrder = ButtonOrder::Driver;
+    // [pedals] combined: Logitech's "Report Combined Pedals" for every game (EmulatorConfig::combinedPedals).
+    bool combinedPedals = false;
+    // [steering] anti_deadzone: the anti-dead zone for every game, 0 to 50 percent, 0 = off (AntiDeadZone.hpp).
+    float antiDeadZonePercent = 0.0F;
     // [game_rotation]: the user's own rotation per game profile (GameRotation.hpp); a game left out uses its profile's.
     GameRotations gameRotations;
     // [game_settings]: the user's own values for games' own settings (GameSettings.hpp); a setting left out uses its

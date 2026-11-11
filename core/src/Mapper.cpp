@@ -18,8 +18,7 @@ const logging::Logger& log() {
 }
 
 void logPedal(const char* name, const PedalConfig& pedal) {
-    WE_LOG_DEBUG(log(), "mapper: {:<8} axis={} invert={} gamma={:.2f}", name, pedal.sourceAxis, pedal.invert,
-                 pedal.gamma);
+    WE_LOG_DEBUG(log(), "mapper: {:<8} axis={} invert={}", name, pedal.sourceAxis, pedal.invert);
 }
 
 bool isValidAxis(const int axis) {
@@ -134,8 +133,7 @@ float Mapper::mapPedal(const PedalConfig& pedal, const RawInputs& inputs) {
         travel = 1.0F - travel;
     }
 
-    const float normalised = std::clamp(travel, 0.0F, 1.0F);
-    return pedal.gamma == 1.0F ? normalised : std::pow(normalised, pedal.gamma);
+    return std::clamp(travel, 0.0F, 1.0F);
 }
 
 std::uint32_t Mapper::mapButtons(const RawInputs& inputs) const {

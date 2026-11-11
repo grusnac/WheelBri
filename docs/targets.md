@@ -31,6 +31,9 @@ has been checked against a real Logitech wheel.
   | G920, G923 | X | Y | Rz | Slider | — |
   | G25, G27 | X | Y | Rz | Slider 1 | combined pedals |
 
+  With **Combined pedals** on (Mapping tab, or a game's own), as Logitech's "Report Combined Pedals": the Throttle axis
+  carries throttle and brake (middle at rest), the Brake axis rests in the middle, the clutch is unchanged.
+
 - **The Rig maps the core controls by itself** on every Target: Steering, the pedals, the D-pad, A, B, X, Y and the
   paddles. Every other button you map on the Mapping tab.
 - **Button numbers in the app** are the ones the game uses: from 1 (as `joy.cpl` and games count), from 0 in the

@@ -2,6 +2,7 @@
 #include "wheelbri/MappingEdit.hpp"
 
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/AntiDeadZone.hpp"
 #include "wheelbri/CentringSpring.hpp"
 #include "wheelbri/IniDocument.hpp"
 #include "wheelbri/IniEditor.hpp"
@@ -210,6 +211,8 @@ MappingModel mappingModel(const EmulatorConfig& config) {
     model.steeringRotationDeg = mapper.steering.targetRotationDeg;
     model.centringSpringPercent = config.centringSpringPercent;
     model.buttonOrder = config.buttonOrder;
+    model.combinedPedals = config.combinedPedals;
+    model.antiDeadZonePercent = config.antiDeadZonePercent;
     model.gameRotations = config.gameRotations;
     model.gameSettings = config.gameSettings;
     model.gameTunings = config.gameTunings;
@@ -313,6 +316,9 @@ std::string tuningProblem(const MappingModel& model) {
     if (!(model.centringSpringPercent >= 0.0F && model.centringSpringPercent <= kCentringSpringMaxPercent)) {
         return "centring spring: from 0 (off) to " + tuning::formatNumber(kCentringSpringMaxPercent) + "%";
     }
+    if (!antiDeadZoneUsable(model.antiDeadZonePercent)) {
+        return "anti-dead zone: from 0 (off) to " + tuning::formatNumber(kAntiDeadZoneMaxPercent) + "%";
+    }
     for (std::size_t t = 0; t < model.secondaries.size(); ++t) {
         if (model.secondaries[t].size() > MapperConfig::kMaxSecondaries) {
             return "button " + std::to_string(t) + ": at most " + std::to_string(MapperConfig::kMaxSecondaries) +
@@ -406,12 +412,20 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
     };
     // The defaults as the config reader has them (MapperConfig.hpp).
     number("steering", "target_rotation_deg", model.steeringRotationDeg, SteeringConfig{}.targetRotationDeg);
+    number("steering", "anti_deadzone", model.antiDeadZonePercent, EmulatorConfig{}.antiDeadZonePercent);
     number("ffb", "centring_spring", model.centringSpringPercent, EmulatorConfig{}.centringSpringPercent);
     // [buttons] order: left alone when the file already says it (or, with no line, when it is the default).
     {
         const std::optional<std::string> line = before.get("buttons", "order");
         const std::optional<ButtonOrder> current = line ? parseButtonOrder(*line) : EmulatorConfig{}.buttonOrder;
         if (current != model.buttonOrder) ini.set("buttons", "order", std::string(toString(model.buttonOrder)));
+    }
+    // [pedals] combined: the same way.
+    {
+        const std::optional<std::string> line = before.get("pedals", "combined");
+        const bool current =
+            line ? (*line == "true" || *line == "yes" || *line == "1") : EmulatorConfig{}.combinedPedals;
+        if (current != model.combinedPedals) ini.set("pedals", "combined", model.combinedPedals ? "true" : "false");
     }
     // [game_rotation]: one line per game the user set; a line for a game no longer set goes.
     const auto& sections = before.sections();
