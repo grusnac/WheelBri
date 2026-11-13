@@ -200,7 +200,7 @@ TEST(Pipeline, NativeButtonOrderMovesOnlyThePublishedButtons) {
     Pipeline pipeline(source, mapper, g25, publisher);
     EXPECT_FALSE(pipeline.nativeButtons());
 
-    source.next.buttons = 0b11;
+    source.next.buttons = SourceButtons::fromBits(0b11);
     ASSERT_TRUE(pipeline.tick());
     EXPECT_EQ(publisher.packets.back().report.buttons, (1U << 17) | 1U);   // the driver's order, as named
 
@@ -296,7 +296,7 @@ TEST(Pipeline, InputChangedSaysWhetherAnyDeviceReportedSomethingNew) {
     ASSERT_TRUE(pipeline.tick());
     EXPECT_FALSE(pipeline.inputChanged());   // the same again
 
-    wheel.next.buttons = 0x4U;
+    wheel.next.buttons = SourceButtons::fromBits(0x4U);
     ASSERT_TRUE(pipeline.tick());
     EXPECT_TRUE(pipeline.inputChanged());    // a button
 
@@ -354,10 +354,10 @@ TEST(Pipeline, AccessorySlotsWithGapsAreSkipped) {
     const DeviceProfile profile(g920Spec());
     Pipeline pipeline(wheel, mapper, profile, publisher);
     pipeline.setAccessories({nullptr, &box, nullptr});
-    box.next.buttons = 1U << 1;
+    box.next.buttons = SourceButtons::fromBits(1U << 1);
     ASSERT_TRUE(pipeline.tick());
     EXPECT_EQ(pipeline.lastReport().buttons & 1U, 1U);
-    EXPECT_EQ(pipeline.lastInputs().devices[2].buttons, 1U << 1);
+    EXPECT_EQ(pipeline.lastInputs().devices[2].buttons, SourceButtons::fromBits(1U << 1));
     EXPECT_EQ(pipeline.lastInputs().devices[1], RawInputState{});
 }
 

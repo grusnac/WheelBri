@@ -19,6 +19,16 @@ TEST(ControlFold, NamedOnesStayTheRestFold) {
     EXPECT_TRUE(foldUnnamed({}, true).shown.empty());
 }
 
+// From `foldFrom` on, unnamed controls fold even without folding (a Moza base's buttons past 63).
+TEST(ControlFold, UnnamedOnesFromFoldFromFoldAnyway) {
+    const std::vector<bool> named{false, false, true, false, false, true};
+    const ControlFold folded = foldUnnamed(named, false, 3);
+    EXPECT_EQ(folded.shown, (std::vector<int>{0, 1, 2, 5}));
+    EXPECT_EQ(folded.hidden, (std::vector<int>{3, 4}));
+    EXPECT_EQ(foldUnnamed(named, true, 3).shown, (std::vector<int>{2, 5}));
+    EXPECT_EQ(foldUnnamed(named, false, named.size()).shown, (std::vector<int>{0, 1, 2, 3, 4, 5}));
+}
+
 TEST(ControlFold, RangesOfThreeOrMoreAreShort) {
     EXPECT_EQ(indexRanges({}), "");
     EXPECT_EQ(indexRanges({7}), "7");

@@ -150,7 +150,7 @@ TEST(EvdevLayout, NumbersLikeSdl) {
     layout.apply(evdev::kEvAbs, 0x11, -1);    // up
     RawInputState state;
     layout.fill(state);
-    EXPECT_EQ(state.buttons, (1ULL << 3) | (1ULL << 2));
+    EXPECT_EQ(state.buttons, SourceButtons::fromBits((1ULL << 3) | (1ULL << 2)));
     EXPECT_FLOAT_EQ(state.axes[0], 1.0F);
     EXPECT_FLOAT_EQ(state.axes[1], -1.0F);
     EXPECT_EQ(layout.axisValue(2), 32);       // floor(512 * 65535/1023 - 32768 + 0.5): SDL's rounding
@@ -159,7 +159,7 @@ TEST(EvdevLayout, NumbersLikeSdl) {
     layout.apply(evdev::kEvKey, 0x110, 0);
     layout.apply(evdev::kEvAbs, 0x11, 0);
     layout.fill(state);
-    EXPECT_EQ(state.buttons, 1ULL << 2);
+    EXPECT_EQ(state.buttons, SourceButtons::fromBits(1ULL << 2));
     EXPECT_EQ(state.hat, 2);                  // right
     EXPECT_TRUE(layout.apply(evdev::kEvSyn, evdev::kSynDropped, 0));
 }
@@ -250,27 +250,35 @@ TEST(EvdevLayout, AHatWithOnlyOneAxisWorks) {
     EXPECT_EQ(state.hat, 6);   // left
 }
 
-// Button boxes and wheels with more buttons than RawInputState holds: the first 64 count, the rest are ignored.
-TEST(EvdevLayout, ButtonsBeyond64AreIgnoredSafely) {
+// Button boxes and wheels with more buttons than RawInputState holds: the first 128 count, the rest are ignored.
+// (hid-input itself stops at 80 for a joystick; a device driver of its own may report more key codes.)
+TEST(EvdevLayout, ButtonsBeyond128AreIgnoredSafely) {
     evdev::Capabilities caps;
-    for (int code = 0x2c0; code < 0x2c0 + 40; ++code) caps.keys.set(static_cast<std::size_t>(code));   // 0..39
-    for (int code = 0x120; code < 0x120 + 30; ++code) caps.keys.set(static_cast<std::size_t>(code));   // also 0..29 first
+    for (int code = 0x120; code < 0x120 + 30; ++code) caps.keys.set(static_cast<std::size_t>(code));   // 0..29
+    for (int code = 0x2c0; code < 0x2ff; ++code) caps.keys.set(static_cast<std::size_t>(code));        // 30..92 (SDL: < KEY_MAX)
+    for (int code = 1; code <= 50; ++code) caps.keys.set(static_cast<std::size_t>(code));              // 93..142 (SDL: after)
     caps.axes.set(0x00);
     caps.absInfo[0x00] = {0, 0, 255, 0, 0, 0};
     evdev::Layout layout(caps);
-    ASSERT_EQ(layout.buttons(), 70);
-    layout.apply(evdev::kEvKey, 0x2c0 + 39, 1);   // button 69: past 64
-    layout.apply(evdev::kEvKey, 0x2c0 + 33, 1);   // button 63: the last one held
+    ASSERT_EQ(layout.buttons(), 142 + 1);
+    layout.apply(evdev::kEvKey, 36, 1);           // button 128: past 127
+    layout.apply(evdev::kEvKey, 0x2c0 + 33, 1);   // button 63
+    layout.apply(evdev::kEvKey, 0x2c0 + 34, 1);   // button 64: the first past the old limit
+    layout.apply(evdev::kEvKey, 35, 1);           // button 127: the last one held
     RawInputState state;
     layout.fill(state);
-    EXPECT_EQ(state.buttons, 1ULL << 63);
+    EXPECT_EQ(state.buttons, SourceButtons::fromBits(1ULL << 63, 1ULL | (1ULL << 63)));
+    layout.apply(evdev::kEvKey, 35, 0);
+    layout.fill(state);
+    EXPECT_FALSE(state.buttons.test(127));
 
     std::bitset<evdev::kKeyCount> down;
-    down.set(0x2c0 + 39);
+    down.set(36);
+    down.set(35);
     down.set(0x120);
     layout.reset(caps.absInfo, down);
     layout.fill(state);
-    EXPECT_EQ(state.buttons, 1ULL);   // button 0 only
+    EXPECT_EQ(state.buttons, SourceButtons::fromBits(1ULL, 1ULL << 63));   // buttons 0 and 127
 }
 
 TEST(EvdevLayout, OnlyTheFirstEightAxesAreFilled) {
@@ -305,7 +313,7 @@ TEST(EvdevLayout, ResetTakesTheDevicesValuesAfterDroppedEvents) {
     RawInputState state;
     layout.fill(state);
     EXPECT_FLOAT_EQ(state.axes[0], -1.0F);   // -32768 / 32767, clamped
-    EXPECT_EQ(state.buttons, 1ULL << 1);
+    EXPECT_EQ(state.buttons, SourceButtons::fromBits(1ULL << 1));
     EXPECT_EQ(state.hat, 4);
 }
 

@@ -89,8 +89,8 @@ TEST(EmulatorConfig, ReadsButtonLabels) {
 }
 
 TEST(EmulatorConfig, RejectsBadButtonLabels) {
-    const auto result = load("[button_labels]\nbutton_64 = Nope\nbutton_1 = Much too long a name\n");
-    EXPECT_TRUE(containsError(result, "[button_labels] unknown key 'button_64'"));
+    const auto result = load("[button_labels]\nbutton_128 = Nope\nbutton_1 = Much too long a name\n");
+    EXPECT_TRUE(containsError(result, "[button_labels] unknown key 'button_128'"));
     EXPECT_TRUE(containsError(result, "button_1 = 'Much too long a name': at most 12 characters"));
     EXPECT_EQ(result.config.mapper.sourceButtonLabels[1], "Much too lon");
 }
@@ -290,7 +290,7 @@ TEST(EmulatorConfig, ButtonSecondSources) {
 TEST(EmulatorConfig, ButtonSecondaryLists) {
     const auto parsed = IniDocument::parse(
         "[buttons]\ntarget_2_or = 20, 30b7:1001/4, 30b7:1001/axis 3 > 60%\n"
-        "target_0_or = 1, 2, 3, 4, 5, 6, 7, 8, 9\ntarget_1_or = 4, , 5\ntarget_3_or = 64\n");
+        "target_0_or = 1, 2, 3, 4, 5, 6, 7, 8, 9\ntarget_1_or = 4, , 5\ntarget_3_or = 128\n");
     const EmulatorConfigResult result = loadEmulatorConfig(parsed.document);
     ASSERT_EQ(result.errors.size(), 3U);
     EXPECT_NE(result.errors[0].find("target_0_or"), std::string::npos) << result.errors[0];
@@ -395,12 +395,27 @@ TEST(EmulatorConfig, ReadsEverySpellingOfABool) {
     EXPECT_EQ(bad.config.gameFfb, EmulatorConfig{}.gameFfb);
 }
 
+// Source buttons 64..127 load (a Moza base's shifter on 112..119), as main and secondary sources, D-pad buttons
+// and labels.
+TEST(EmulatorConfig, SourceButtonsUpTo127Load) {
+    const auto result = load("[buttons]\ntarget_12 = 112\ntarget_19 = 119\ntarget_2_or = 127, 64\n"
+                             "[hat]\nup = 100\n[button_labels]\nbutton_119 = Reverse\n");
+    ASSERT_TRUE(result.errors.empty()) << result.errors.front();
+    const MapperConfig& mapper = result.config.mapper;
+    EXPECT_EQ(mapper.buttonMap[12], 112);
+    EXPECT_EQ(mapper.buttonMap[19], 119);
+    EXPECT_EQ(mapper.buttonSecondary[2][0], (ButtonSource{0, 127, false, false, 0.5F}));
+    EXPECT_EQ(mapper.buttonSecondary[2][1], (ButtonSource{0, 64, false, false, 0.5F}));
+    EXPECT_EQ(mapper.hatButtons.up, 100);
+    EXPECT_EQ(mapper.sourceButtonLabels[119], "Reverse");
+}
+
 // A source past the device's axes or buttons: reported, not read as some other control.
 TEST(EmulatorConfig, RejectsSourcesPastTheLastControl) {
-    const auto result = load("[throttle]\naxis = 8\n[buttons]\ntarget_1 = 64\n[hat]\nleft = 99\n");
+    const auto result = load("[throttle]\naxis = 8\n[buttons]\ntarget_1 = 128\n[hat]\nleft = 999\n");
     EXPECT_TRUE(containsError(result, "[throttle] axis = '8': expected -1, 0..7"));
-    EXPECT_TRUE(containsError(result, "[buttons] target_1 = '64'"));
-    EXPECT_TRUE(containsError(result, "[hat] left = '99'"));
+    EXPECT_TRUE(containsError(result, "[buttons] target_1 = '128': expected -1, 0..127"));
+    EXPECT_TRUE(containsError(result, "[hat] left = '999'"));
     EXPECT_EQ(result.config.mapper.throttle.sourceAxis, MapperConfig{}.throttle.sourceAxis);
 }
 

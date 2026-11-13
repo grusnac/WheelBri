@@ -33,6 +33,10 @@
 namespace wheelbri::service {
 namespace {
 
+// A button box with 64 named buttons (a device can have up to MapperConfig::kMaxSourceButtons): the picker tests
+// below were laid out for that many.
+constexpr std::size_t k64Buttons = 64;
+
 using editview::kGridGap;
 using editview::kSliderX;
 using editview::kTwoColumnsMinW;
@@ -211,7 +215,7 @@ Rig testRig() {
     box.name = "Button box with a very long name indeed, longer than forty";
     box.id = kBoxId;
     box.kind = DeviceKind::ButtonBox;
-    for (std::size_t b = 0; b < MapperConfig::kMaxSourceButtons; ++b) box.buttons[b] = {"K" + std::to_string(b), ""};
+    for (std::size_t b = 0; b < k64Buttons; ++b) box.buttons[b] = {"K" + std::to_string(b), ""};
     rig.devices.push_back(box);
     RigDevice shifter;
     shifter.name = "Shifter";
@@ -474,7 +478,7 @@ TEST_F(EditView, AControlUsedElsewhereIsGreyedAndMoves) {
 // named and free is picked (the popup closes); the wrong kind, an unnamed one or one used elsewhere says why.
 TEST_F(EditView, TheSourcePickerFindsScrollsAndTakesTouches) {
     Rig rig = testRig();
-    for (std::size_t b = 0; b < MapperConfig::kMaxSourceButtons; ++b) {   // more than the popup holds
+    for (std::size_t b = 0; b < k64Buttons; ++b) {   // more than the popup holds
         rig.devices[1].buttons[b] = {"P" + std::to_string(b), ""};
         rig.devices[3].buttons[b] = {"S" + std::to_string(b), ""};
     }
@@ -638,7 +642,7 @@ TEST_F(EditView, TheRigMapsTheCoreInputs) {
 TEST_F(EditView, ThePickerFitsTheCanvas) {
     useOlderDefault();
     Rig rig = testRig();
-    for (std::size_t b = 0; b < MapperConfig::kMaxSourceButtons; ++b) {
+    for (std::size_t b = 0; b < k64Buttons; ++b) {
         rig.devices[0].buttons[b] = {"B" + std::to_string(b), ""};
         rig.devices[1].buttons[b] = {"P", ""};
         rig.devices[3].buttons[b] = {"S", ""};

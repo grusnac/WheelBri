@@ -61,9 +61,9 @@ bool Pipeline::tick(const std::uint64_t nowNs) {
     static logging::CallSampler sampler(5, 5000);
     if (const std::uint64_t call = sampler.next(); call != 0) {
         WE_LOG_TRACE(log(),
-                     "tick #{}: raw[{:+.3f} {:+.3f} {:+.3f} {:+.3f}] btn={:016x} hat={} -> steer={:+.4f} thr={:.3f} "
+                     "tick #{}: raw[{:+.3f} {:+.3f} {:+.3f} {:+.3f}] btn={:016x}{:016x} hat={} -> steer={:+.4f} thr={:.3f} "
                      "brk={:.3f} clt={:.3f} btn={:08x} -> target steer={} thr={} brk={} clt={} (publish failures {})",
-                     call, lastRaw().axes[0], lastRaw().axes[1], lastRaw().axes[2], lastRaw().axes[3], lastRaw().buttons,
+                     call, lastRaw().axes[0], lastRaw().axes[1], lastRaw().axes[2], lastRaw().axes[3], lastRaw().buttons.words[1], lastRaw().buttons.words[0],
                      lastRaw().hat,
                      state_.steering, state_.throttle, state_.brake, state_.clutch, state_.buttons,
                      report_.steering, report_.throttle, report_.brake, report_.clutch,

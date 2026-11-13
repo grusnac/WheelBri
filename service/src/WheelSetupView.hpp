@@ -128,7 +128,7 @@ private:
         RawInputState rest;                 // where it was when Detect was armed (or it was opened)
         std::array<bool, RawInputState::kMaxAxes> armed{};   // an axis triggers Detect once, then waits to go back
         std::array<bool, RawInputState::kMaxAxes> touchArmed{};   // the same for a touch while listening
-        std::uint64_t previousButtons = 0;
+        SourceButtons previousButtons;
         bool haveRaw = false;
         bool restTaken = false;
         int settleFrames = 0;               // frames read before the rest is taken (a device's first reads can be 0)
@@ -153,7 +153,7 @@ private:
     struct Listed {
         ControlFold axes;
         ControlFold buttons;
-        bool folds = false;   // the device has a named control (Show all / Named only applies)
+        bool folds = false;   // a named control, or buttons past 63 (Show all / Named only applies)
     };
     [[nodiscard]] Listed listed(const DeviceId& id) const;
     // That line at `y` (kFoldRow tall): `text`, and Show all (`showAll`) or Named only.
@@ -228,7 +228,7 @@ private:
     int sessionAxes_ = 0;
     int sessionButtons_ = 0;
     RawInputState sessionRaw_;
-    std::uint64_t sessionPreviousButtons_ = 0;
+    SourceButtons sessionPreviousButtons_;
     DeviceId focus_;           // the device whose control the popup shows (the one last touched or clicked)
     bool detect_ = true;
     bool listening_ = false;

@@ -5,10 +5,11 @@
 
 namespace wheelbri {
 
-ControlFold foldUnnamed(const std::vector<bool>& named, const bool fold) {
+ControlFold foldUnnamed(const std::vector<bool>& named, const bool fold, const std::size_t foldFrom) {
     ControlFold result;
     for (std::size_t i = 0; i < named.size(); ++i) {
-        (named[i] || !fold ? result.shown : result.hidden).push_back(static_cast<int>(i));
+        const bool folds = fold || i >= foldFrom;
+        (named[i] || !folds ? result.shown : result.hidden).push_back(static_cast<int>(i));
     }
     return result;
 }

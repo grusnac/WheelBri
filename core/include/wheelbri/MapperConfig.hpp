@@ -89,7 +89,7 @@ struct AutoInputs {
 
 struct MapperConfig {
     static constexpr std::size_t kMaxTargetButtons = 32;
-    static constexpr std::size_t kMaxSourceButtons = 64;   // source buttons the mapping can use (0..63)
+    static constexpr std::size_t kMaxSourceButtons = SourceButtons::kCount;   // source buttons the mapping can use (0..127)
     static constexpr std::size_t kMaxAccessories = kMaxInputDevices - 1;
     static constexpr std::size_t kMaxSecondaries = 8;   // per target button (fixed: the service loop never allocates)
 

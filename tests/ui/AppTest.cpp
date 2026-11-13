@@ -1271,7 +1271,7 @@ TEST_F(AppRun, SecondaryPopupTakesTheRigsTouches) {
         [&wheel, &frames](ScriptedWindow&) {
             const bool down = (++frames / 4) % 2 == 1;
             FakeDevices::shared().change(wheel, [down](FakeDevice& d) {
-                d.raw.buttons = down ? d.raw.buttons | (1ULL << 1) : d.raw.buttons & ~(1ULL << 1);
+                d.raw.buttons.set(1, down);
             });
             return uitest::nothing();
         },
@@ -1440,7 +1440,7 @@ TEST_F(SessionWindowRun, RigTab) {
     EXPECT_TRUE(frame(*host, uitest::keys("r")));
     for (int i = 0; i < 22; ++i) EXPECT_TRUE(frame(*host, uitest::nothing()));
     EXPECT_TRUE(window_.has("The running session's wheel (stop to see every device).")) << window_.dump();
-    frame_.raw.buttons = 1U << 2;   // pressed: its popup opens, ready to type
+    frame_.raw.buttons = SourceButtons::fromBits(1U << 2);   // pressed: its popup opens, ready to type
     EXPECT_TRUE(frame(*host, uitest::nothing()));
     EXPECT_TRUE(window_.has("Button 2 on Moza R3")) << window_.dump();
     ui::WindowInput typing = uitest::typed("Hornm");

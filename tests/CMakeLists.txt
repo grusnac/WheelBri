@@ -72,6 +72,7 @@ add_executable(wheelbri_tests
     ShapeSpansTest.cpp
     ShimGamesTest.cpp
     ShimWatchTest.cpp
+    SourceButtonsTest.cpp
     StartNeedsTest.cpp
     StatePacketTest.cpp
     TelemetryTest.cpp

@@ -4,6 +4,8 @@
 #include <array>
 #include <cstdint>
 
+#include "wheelbri/SourceButtons.hpp"
+
 namespace wheelbri {
 
 // Hat position in 45-degree steps, clockwise from "up"; kHatCentered when released.
@@ -15,7 +17,7 @@ struct RawInputState {
     static constexpr std::size_t kMaxAxes = 8;
 
     std::array<float, kMaxAxes> axes{};
-    std::uint64_t buttons = 0;          // bit n = source button n pressed
+    SourceButtons buttons;              // bit n = source button n pressed (0..127)
     std::int8_t hat = kHatCentered;
 
     friend bool operator==(const RawInputState&, const RawInputState&) = default;
