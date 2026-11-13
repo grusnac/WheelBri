@@ -13,6 +13,7 @@
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DiEffect.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
+#include "wheelbri/EvdevLayout.hpp"
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/GameProfiles.hpp"
 #include "wheelbri/GameRotation.hpp"
@@ -333,6 +334,47 @@ void runOne(const std::span<const std::uint8_t> input) {
             break;
         }
 #endif
+        case 21: {   // a Linux input device: key and axis bits (EVIOCGBIT), then events (type, code, value); every
+                     // button the layout fills is one it has, 0..127
+            constexpr std::size_t kKeyBytes = evdev::kKeyCount / 8;
+            constexpr std::size_t kAbsBytes = evdev::kAbsCount / 8;
+            if (bytes.size() < kKeyBytes + kAbsBytes) break;
+            evdev::Capabilities caps;
+            for (std::size_t bit = 0; bit < static_cast<std::size_t>(evdev::kKeyCount); ++bit) {
+                if ((bytes[bit / 8] >> (bit % 8)) & 1U) caps.keys.set(bit);
+            }
+            for (std::size_t bit = 0; bit < static_cast<std::size_t>(evdev::kAbsCount); ++bit) {
+                if ((bytes[kKeyBytes + bit / 8] >> (bit % 8)) & 1U) caps.axes.set(bit);
+            }
+            for (std::size_t a = 0; a < caps.absInfo.size(); ++a) {
+                const auto at = (a * 3) % (kKeyBytes + kAbsBytes);
+                caps.absInfo[a] = {0, -static_cast<std::int32_t>(bytes[at]) * 1000, bytes[at + 1] * 1000, 0, 0, 0};
+            }
+            (void)evdev::isGameController(caps);
+            evdev::Layout layout(caps);
+            const auto check = [&layout] {
+                RawInputState state;
+                layout.fill(state);
+                if (layout.buttons() < SourceButtons::kCount) CHECK(state.buttons.next(layout.buttons()) < 0);
+                for (const float a : state.axes) CHECK(std::isfinite(a) && a >= -1.0F && a <= 1.0F);
+            };
+            for (std::size_t i = kKeyBytes + kAbsBytes; i + 7 <= bytes.size(); i += 7) {
+                const int type = bytes[i] % 5;
+                const int code = (bytes[i + 1] | (bytes[i + 2] << 8)) - 0x80;   // some below 0 and past KEY_MAX
+                std::int32_t value = 0;
+                std::memcpy(&value, &bytes[i + 3], sizeof(value));
+                if (layout.apply(type, code, value)) {
+                    std::bitset<evdev::kKeyCount> down;
+                    for (std::size_t bit = 0; bit < down.size(); ++bit) {
+                        if ((bytes[(bit + i) % kKeyBytes] >> (bit % 8)) & 1U) down.set(bit);
+                    }
+                    layout.reset(caps.absInfo, down);
+                }
+                check();
+            }
+            check();
+            break;
+        }
     }
 }
 
