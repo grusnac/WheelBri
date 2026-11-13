@@ -47,7 +47,9 @@ and the paddles (on the G25 and G27, A B X Y go on the shifter's black buttons).
 underlined in amber is another control's already (point at it to see whose), and picking it moves it here. Every other
 button you map yourself.
 
-Once a device has named controls, the unnamed ones fold into one line; **Show all** / **Named only** switch.
+Once a device has named controls, the unnamed ones fold into one line; **Show all** / **Named only** switch. Buttons
+past 63 (a Moza base reports 128: its shifter's gears are 112-119) fold until named; with Detect on, shift into a gear
+to name it.
 
 The device with Steering is the wheel and plays the force feedback. WheelBri has no dead zones: set those, and the
 wheel's rotation, in the wheel's own software (Pit House for Moza). For a game with a dead zone of its own, see
