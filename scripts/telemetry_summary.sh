@@ -176,10 +176,10 @@ take() {
         if (rows == 1 || a < amin[i]) amin[i] = a
         if (rows == 1 || a > amax[i]) amax[i] = a
     }
-    # Button presses: compared hex digit by hex digit (awk numbers cannot hold 64 bits).
+    # Button presses: compared hex digit by hex digit (awk numbers cannot hold 128 bits; 32 digits = buttons 0..127).
     hex = tolower(v("raw_buttons")); gsub(/^0x/, "", hex)
     nd = length(hex)
-    for (d = 0; d < 16; d++) {
+    for (d = 0; d < 32; d++) {
         digit = (d < nd) ? index("0123456789abcdef", substr(hex, nd - d, 1)) - 1 : 0
         if (digit < 0) digit = 0
         for (b = 0; b < 4; b++) {
@@ -234,7 +234,7 @@ END {
     for (i = 0; i < 8; i++) printf "  a%d  %+.3f / %+.3f  %s\n", i, amin[i], amax[i], (amax[i] - amin[i] > 0.05) ? "moved" : ""
 
     line = ""
-    for (b = 0; b < 64; b++) if (presses[b] > 0) line = line (line == "" ? "" : ", ") b "x" presses[b]
+    for (b = 0; b < 128; b++) if (presses[b] > 0) line = line (line == "" ? "" : ", ") b "x" presses[b]
     print "\nphysical button presses (sampled): " (line == "" ? "none" : line)
 
     print "\nmapped pedals: share of time pressed (>5%) / max"
