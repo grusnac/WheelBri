@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.4 (2026-11-14)
 
 - The rig reads up to 128 buttons per device (before: 64), so a Moza HGP shifter on the R3 base (gears on buttons
   112-119) can be named and mapped. On the Rig tab, buttons past 63 fold until named; the button tiles are smaller.

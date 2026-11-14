@@ -45,6 +45,12 @@ Two Modes:
 | Windows 7, 8, 8.1 and 10 (Mode Shim only) | built, **not yet tried** |
 | Button orders | from public sources; **not yet checked on real Logitech wheels** |
 
+## What's new in 1.0.4
+
+- **Rig**: up to 128 buttons per device, so a Moza HGP shifter on the R3 base can be mapped (Linux: at most 80).
+- **Cleaner screens**: no red notice above the tabs, no green line under the mapping; the greyed Start's list shows
+  what is left in red.
+
 ## What's new in 1.0.3
 
 - **Old NFS games** (Underground, Underground 2, Most Wanted): combined pedals on every Target, built in for them;
