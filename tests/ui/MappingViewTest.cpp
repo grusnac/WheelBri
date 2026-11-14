@@ -494,6 +494,29 @@ TEST_F(LiveView, ShadowViewHasTheG923sRockerAndDial) {
     EXPECT_TRUE(hasIn(window_, "Dial Right", style::kFaint));
 }
 
+// The gate's slots sit 32-36 px apart: the rig's gear names show short beside them (Gear 1 as G1, Reverse as R),
+// never cut to the same "Gear" on every slot; on the G25's gate and the G920's Driving Force Shifter alike.
+TEST_F(LiveView, ShadowViewShortensGearNamesOnTheGate) {
+    const std::array<const char*, 7> names = {"Gear 1", "Gear 2", "Gear 3", "Gear 4", "Gear 5", "Gear 6", "Reverse"};
+    const std::array<const char*, 7> shown = {"G1", "G2", "G3", "G4", "G5", "G6", "R"};
+    for (const auto& [target, gear1] : {std::pair{"g25", std::size_t{8}}, std::pair{"g920", std::size_t{12}}}) {
+        profile_ = makeProfile(target);
+        MapperConfig mapper = std::string(target) == "g25" ? g25Mapping() : g920Mapping("g920");
+        for (std::size_t g = 0; g < names.size(); ++g) {
+            mapper.buttonMap[gear1 + g] = static_cast<int>(100 + g);
+            mapper.buttonDevice[gear1 + g] = 0;
+            mapper.sourceButtonLabels[100 + g] = names[g];
+        }
+        auto view = makeView(8, 40, mapper);
+        view->showShadow(true);
+        draw(*view);
+        for (const char* label : shown) {
+            EXPECT_TRUE(hasIn(window_, label, style::kText)) << target << " " << label << "\n" << window_.dump();
+        }
+        EXPECT_FALSE(window_.has("Gear")) << target << "\n" << window_.dump();   // the old cut to 4 characters
+    }
+}
+
 // The amber mark on the rim follows the steering arc: at full lock left it sits at the arc's left end (150 degrees
 // left of the top), not wherever 450 degrees would put it; centred, at the top.
 TEST_F(LiveView, ShadowViewRimMarkFollowsTheArc) {

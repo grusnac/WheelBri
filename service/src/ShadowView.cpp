@@ -4,6 +4,7 @@
 #include "UiStyle.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <functional>
@@ -67,9 +68,9 @@ constexpr float kDfsH = 250.0F;
 constexpr float kPedalsX = 30.0F;
 constexpr float kPedalsY = 412.0F;
 // Shifter (its button panel left, the gate right).
-constexpr float kShifterX = 470.0F;
+constexpr float kShifterX = 450.0F;
 constexpr float kShifterY = 404.0F;
-constexpr float kShifterW = 480.0F;
+constexpr float kShifterW = 500.0F;
 constexpr float kShifterH = 262.0F;
 // The right-hand list starts here in the design (further right in a wider window).
 constexpr float kListX = 600.0F;
@@ -82,6 +83,16 @@ bool bit(const std::uint32_t bits, const std::size_t n) { return n < 32 && ((bit
 std::string cut(std::string value, const std::size_t chars) {
     if (value.size() > chars) value.resize(chars);
     return value;
+}
+
+// A label beside a gear's slot: the slots are only 32-36 px apart, so "Gear 1" shows as G1 and "Gear R" or "Reverse" as
+// R; any other name its first 4 characters.
+std::string gateLabel(const std::string& name) {
+    std::string lower = name;
+    for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower == "reverse" || lower == "gear r") return "R";
+    if (lower.size() > 5 && lower.rfind("gear ", 0) == 0) return "G" + cut(name.substr(5), 3);
+    return cut(name, 4);
 }
 
 // --- the G920's face, in the wheel's units (R = 1, x right, y down from its centre) --------------------------------
@@ -705,9 +716,9 @@ void ShadowView::drawShifter(const std::uint32_t pressed, const std::int8_t hat)
     }
 
     // The gate: in the round boot (six bolts) on the right, the knob in the gear the game sees engaged.
-    const float bcx = x + 382;
+    const float bcx = x + 402;   // clear of the button panel (its right edge at x + 290)
     const float bcy = y + 131;
-    constexpr float kBoot = 84;
+    constexpr float kBoot = 92;   // room for the gear names above and below the slots
     window_.fillEllipse(bcx, bcy, kBoot + 1, kBoot + 1, style::kShadowEdge);
     window_.fillEllipse(bcx, bcy, kBoot, kBoot, style::kShadowPanel);
     for (int i = 0; i < 6; ++i) {
@@ -733,7 +744,7 @@ void ShadowView::drawShifter(const std::uint32_t pressed, const std::int8_t hat)
         if (bit(pressed, target) && !engaged) engaged = g;
         window_.fillEllipse(slot.x, slot.y, 10, 10, controlColour(target, pressed, style::kShadowControl));
         numberOn(slot.x, slot.y, target, bit(pressed, target));
-        const std::string name = cut(label(target), 4);
+        const std::string name = gateLabel(label(target));
         textCentred(slot.x, slot.y < bcy ? slot.y - 24 : slot.y + 14, name, labelColour(target, pressed));
     }
     const ShapePoint knob = engaged ? slots[*engaged] : ShapePoint{(cols[1] + cols[2]) / 2, bcy};
@@ -747,9 +758,9 @@ void ShadowView::drawShifter(const std::uint32_t pressed, const std::int8_t hat)
     }
     // The G25's H / sequential knob: not an input the game sees (dim). The G27 has none.
     if (picture_ == Picture::G25) {
-        window_.fillEllipse(x + 306, y + 30, 11, 11, style::kShadowEdge);
-        window_.fillEllipse(x + 306, y + 30, 10, 10, style::kShadowDeep);
-        window_.text(x + 302, y + 46, "H", style::kFaint);
+        window_.fillEllipse(x + 326, y + 30, 11, 11, style::kShadowEdge);
+        window_.fillEllipse(x + 326, y + 30, 10, 10, style::kShadowDeep);
+        window_.text(x + 322, y + 46, "H", style::kFaint);
     }
 }
 
@@ -1007,7 +1018,7 @@ void ShadowView::drawDrivingForceShifter(const std::uint32_t pressed) {
         printedOn(slot.x, slot.y, target, inkOn(target, pressed), colour);
         const std::string rig = sourceLabel(mapper_.buttonDevice[target], mapper_.buttonMap[target], false);
         if (!rig.empty()) {
-            textCentred(slot.x, slot.y < bcy ? slot.y - 24 : slot.y + 14, cut(rig, 4), labelColour(target, pressed));
+            textCentred(slot.x, slot.y < bcy ? slot.y - 24 : slot.y + 14, gateLabel(rig), labelColour(target, pressed));
         }
     }
     const ShapePoint knob = engaged ? slots[*engaged] : ShapePoint{(cols[1] + cols[2]) / 2, bcy};
