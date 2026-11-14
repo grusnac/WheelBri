@@ -26,7 +26,7 @@ Mode Shim only, so ACC, DiRT Rally 2.0 (no shim support) and NFS Payback (Logite
    game folder copied from Windows 11. Record the result; don't work around DRM.
 3. No prerequisites: `WheelBri-<version>-setup.exe` installs the Universal C Runtime (KB2999226) itself when it is
    missing. Check it is there afterwards (`C:\Windows\System32\ucrtbase.dll`) and read the install log.
-4. Moza Pit House (or the R3 without it): the wheel works in `joy.cpl` with force feedback before WheelBri.
+4. The wheel's own software (or the wheel without it): the wheel works in `joy.cpl` with force feedback before WheelBri.
 
 Stop here if no game can start; then only steps 1 and 2 are possible.
 

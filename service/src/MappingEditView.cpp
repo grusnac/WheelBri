@@ -1164,7 +1164,7 @@ void MappingEditView::drawRotation(const float top) {
     // that a game can have its own rotation (the Games tab), in its hover text.
     y += 34;
     const std::string reminder = "Set " + degrees(edit_.steeringRotationDeg) +
-                                 " deg in your wheel's own software too (Pit House for Moza).";
+                                 " deg in your wheel's own software too.";
     window_.text(4, y, fit(reminder, 118 + extraChars()), kCaution);
     tip(0, y - 2, static_cast<float>(reminder.size()) * ui::kCharWidth + 8, 12,
         "WheelBri passes the wheel through 1:1 and never changes that setting, so the wheel's end stop is the game's "

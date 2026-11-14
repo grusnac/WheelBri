@@ -2727,7 +2727,7 @@ TEST_F(EditView, TheRotationReminderIsOneLine) {
     useRig(testRig());
     open();
     frame();
-    const Window::Text* const reminder = window_.holding("deg in your wheel's own software too (Pit House for Moza).");
+    const Window::Text* const reminder = window_.holding("deg in your wheel's own software too.");
     ASSERT_NE(reminder, nullptr);
     EXPECT_TRUE(sameColour(reminder->colour, style::kCaution));
     EXPECT_FALSE(window_.hasPart("A game can steer with its own rotation"));

@@ -26,7 +26,7 @@ Sessions open an Administrator window (USB capture needs it). Do the steps in th
 
 | # | Do | Command | You do |
 |---|---|---|---|
-| 0 | WheelBri: **Stop**, quit the app. Unplug the **R3**. Quit **Pit House**. Plug in the **G923**. | `scripts/make/g923-capture.sh check` | Fix anything red, run it again until it ends green. It notes the wheel's USB port: keep using that port. |
+| 0 | WheelBri: **Stop**, quit the app. Unplug the **R3**. Quit the **R3's own software**. Plug in the **G923**. | `scripts/make/g923-capture.sh check` | Fix anything red, run it again until it ends green. It notes the wheel's USB port: keep using that port. |
 | 1 | Plug-in + G HUB | `… session S1` | Unplug the wheel when asked. Plug it back into the same port. Then the G HUB clicks it lists. |
 | 2 | ACC with TrueForce | `… session S2` | ACC starts by itself. Then: menu → Hot Lap → hold the wheel at the 4 angles asked (5 s each, the window counts down) → sweep → 1-2 min of driving → quit. |
 | 3 | Probe, G HUB open | `… probe` | Nothing. Read-only requests, about 30 s. |

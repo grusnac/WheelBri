@@ -34,7 +34,7 @@ struct SteeringConfig {
     float targetRotationDeg = 900.0F;
     bool invert = false;
     // No dead zone here (since 2026-10-13): the axis is used as the device reports it. A dead zone belongs in the
-    // device's own software (Pit House for Moza); the config's old "deadzone" key is read and ignored.
+    // device's own software; the config's old "deadzone" key is read and ignored.
     friend bool operator==(const SteeringConfig&, const SteeringConfig&) = default;
 };
 

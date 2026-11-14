@@ -11,7 +11,7 @@
 //             goes through 1:1 (Mapper.cpp), so the wheel's end stop is the game's full lock. The older
 //             source_rotation_deg (a separate wheel rotation) is read and ignored since 2026-10-13.
 // There are no dead zones in WheelBri (since 2026-10-13): every axis is used as the device reports it; a dead zone is
-// set in the device's own software (Pit House for Moza).
+// set in the device's own software.
 namespace wheelbri::tuning {
 
 inline constexpr float kMinRotationDeg = 90.0F;

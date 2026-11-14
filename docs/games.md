@@ -31,7 +31,7 @@ G920 only, by themselves while the game runs.
     (`C:\Program Files\Logi\trueforce\<version>`). At Start the service log says whether it is there.
   - The Live tab shows ACC's force as Steering force and its road texture as Vibration.
   - In ACC: Steer Lock **2700**, so the car turns fully at your rotation; Gain 100% felt right.
-  - Moza: keep Pit House closed while you play. With it open the wheel nudges as a track loads.
+  - Keep the wheel's own software closed while you play. With it open the wheel nudges as a track loads.
   - The road texture plays as a vibration ([G923](target-g923.md#trueforce)); not yet checked on a rig.
 
 ## DiRT Rally 2.0

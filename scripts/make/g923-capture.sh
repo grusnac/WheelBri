@@ -20,7 +20,7 @@
 #
 # Rehearsal with another wheel (the MOZA R3), to try the whole flow before the G923 is there:
 #   G923_TARGET=346E scripts/make/g923-capture.sh check | session S1 | session S2 | decode | restore
-# VID[:PID] in hex. WheelBri must still be stopped; the R3 and Pit House may stay. TrueForce and HID++ checks are
+# VID[:PID] in hex. WheelBri must still be stopped; the R3 and its own software may stay. TrueForce and HID++ checks are
 # left out; captures go to captures/g923/rehearsal-<date>/.
 
 # shellcheck source=common.sh

@@ -11,7 +11,7 @@
 // The steering rotation used while a game with a profile runs. A game profile can name one ([steering] rotation_deg:
 // NFS Payback 180): while that game runs, that is the rotation to play it with instead of the mapping's own
 // ([steering] target_rotation_deg). The axis always goes through 1:1, so the wheel's end stop is the game's full lock:
-// the wheel's own software (Pit House for Moza) must be set to the same number, by the user (WheelBri never reads or
+// the wheel's own software must be set to the same number, by the user (WheelBri never reads or
 // sets it); the app and the log say so. A game whose own settings follow the steering rotation gets it written there
 // (GameSettings.hpp). The user's mapping can change it per game, or turn it off ([game_rotation] in the config, set in
 // the Games tab):

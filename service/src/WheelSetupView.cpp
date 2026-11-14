@@ -813,7 +813,7 @@ void WheelSetupView::drawHeader() {
                static_cast<float>(state.size()) * ui::kCharWidth, 16,
                unsaved ? "This change could not be saved: the line at the bottom right says why. Undo drops it."
                        : "Every change is saved at once; the Mapping tab maps the rig's controls onto the Target. No "
-                         "dead zones here: set them in the device's own software (Pit House for Moza).");
+                         "dead zones here: set them in the device's own software.");
     button(kRevertX, 2, "Undo", [this] { undo(); }, false, unsaved || !undo_.empty(), kRevertWidth);
     hover_.add(kRevertX, 2, kRevertWidth, 16, "Goes back one change, as many times as you like.");
 
