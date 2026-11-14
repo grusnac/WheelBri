@@ -122,11 +122,6 @@ public:
     [[nodiscard]] float width() const { return canvasWidth_; }
     [[nodiscard]] float height() const { return canvasHeight_; }
 
-    // Room the app keeps for a notice just above its tab bar (0: none). The views end their content that much higher,
-    // so the notice covers nothing; the app sets it each frame before they draw.
-    [[nodiscard]] float bottomReserve() const { return bottomReserve_; }
-    void setBottomReserve(const float h) { bottomReserve_ = h; }
-
     // How many pages of the design side by side the canvas is fitted to: 1 (the size given to openWindow), or 2 (the
     // app's side by side: the design twice as wide, so the same window shows both at a smaller scale). The window's
     // smallest size stays the one page's. The canvas follows at the next pump() or begin().
@@ -205,7 +200,6 @@ protected:
     std::function<void()> queryEndSession_;
     float originX_ = 0.0F;
     float originY_ = 0.0F;
-    float bottomReserve_ = 0.0F;
     float canvasWidth_ = 960.0F;
     float canvasHeight_ = 748.0F;
     int designColumns_ = 1;

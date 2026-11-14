@@ -138,7 +138,8 @@ then everything is ready. On Linux the game's Steam launch option does this for 
 ([Linux and the Steam Deck](#linux-and-the-steam-deck)).
 
 The bar next to Start shows the Target, the Mode and, in Mode Shim, the game, in amber when the game does not support
-the Target. When Start is greyed out, the red notice above the tabs says why; **What's missing** lists what is left.
+the Target. When Start is greyed out, the status next to it says why; click the greyed Start to list what is left (in
+red).
 
 **Mode Virtual**
 

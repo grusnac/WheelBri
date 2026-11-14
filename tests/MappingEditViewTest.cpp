@@ -1070,26 +1070,6 @@ TEST_F(EditView, SecondarySources) {
     EXPECT_FALSE(view_->popupOpen());
 }
 
-// The app's notice above the tab bar (UiWindow::bottomReserve): the tab's status line moves up out of its way.
-TEST_F(EditView, RoomForTheAppsNotice) {
-    useRig(testRig());
-    open();
-    // The lowest text at the left edge: the status line.
-    const auto lowest = [this] {
-        float y = 0;
-        for (const auto& t : window_.texts) {
-            if (t.x == 4) y = std::max(y, t.y);
-        }
-        return y;
-    };
-    frame();
-    const float y = lowest();
-    ASSERT_GT(y, 600.0F);
-    window_.setBottomReserve(26);
-    frame();
-    EXPECT_FLOAT_EQ(lowest(), y - 26);
-}
-
 // Section headings are in the text colour (drawn bold by the real windows): blue means selected or an action.
 TEST_F(EditView, HeadingsAreTextColoured) {
     useRig(testRig());
@@ -2767,8 +2747,8 @@ TEST_F(EditView, TheSliderDragEnds) {
     EXPECT_FALSE(window_.hasPart("Set 1080 deg in your wheel's own software too"));
 }
 
-// A typing complaint answered by the same value while the change still cannot be saved: the status line is the
-// unsaved state, in amber.
+// A typing complaint answered by the same value while the change still cannot be saved: the complaint goes (no
+// status line), the top row still says "not saved", in red.
 TEST_F(EditView, AnUnsavedChangeAfterATypingComplaint) {
     useRig(testRig());
     std::filesystem::remove_all(userConfigFolder());
@@ -2780,9 +2760,11 @@ TEST_F(EditView, AnUnsavedChangeAfterATypingComplaint) {
     type(std::string(3, ui::kBackspace) + "1" + std::string(1, ui::kEnter));   // too small
     type(std::string(1, ui::kBackspace) + "900" + std::string(1, ui::kEnter));
     frame();
-    const Window::Text* const status = window_.find("not saved", 1);
-    ASSERT_NE(status, nullptr);
-    EXPECT_TRUE(sameColour(status->colour, style::kCaution));
+    const Window::Text* const state = window_.find("not saved");
+    ASSERT_NE(state, nullptr);
+    EXPECT_TRUE(sameColour(state->colour, style::kWarning));
+    EXPECT_EQ(window_.find("not saved", 1), nullptr);   // only the top row's
+    EXPECT_FALSE(window_.hasPart("Not changed"));
     // Another change: tried again (and refused again).
     ASSERT_TRUE(click("Invert", 1));
     frame();

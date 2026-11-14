@@ -992,17 +992,15 @@ TEST_F(LiveView, NewMappingIsShown) {
 }
 
 // A pane of the window (the app's side by side): the view draws as if it were the whole window, its width the pane's,
-// every draw call moved right by the pane's left edge; the bottom reserve is the window's.
+// every draw call moved right by the pane's left edge.
 TEST_F(LiveView, PaneWindowMovesTheDrawing) {
     window_.setSize(1920, 748);
-    window_.setBottomReserve(26);
     ui::PaneWindow pane(window_);
     EXPECT_FLOAT_EQ(pane.width(), 1920.0F);
     pane.place(960, 960);
     EXPECT_FLOAT_EQ(pane.left(), 960.0F);
     EXPECT_FLOAT_EQ(pane.width(), 960.0F);
     EXPECT_FLOAT_EQ(pane.height(), 748.0F);
-    EXPECT_FLOAT_EQ(pane.bottomReserve(), 26.0F);
     window_.clearDrawing();
     pane.setOrigin(0, 10);
     pane.text(4, 4, "pane", style::kText);

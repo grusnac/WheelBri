@@ -138,12 +138,11 @@ void MappingEditView::load() {
                   (parsed.errors.empty() ? result.errors.front() : parsed.errors.front());
         statusError_ = true;
     } else {
-        status_ = !builtIn_ ? "Your own mapping (saved). Default goes back to WheelBri's."
-                            : "WheelBri's default mapping. Change a source: it is saved as your own.";
+        status_.clear();   // which mapping it is: the hover text of the top row (custom, Default)
         statusError_ = false;
     }
     if (!statusError_ && !rigNotices_.empty()) {
-        status_ += " From the Rig: " + rigNotices_.front() +
+        status_ = "From the Rig: " + rigNotices_.front() +
                    (rigNotices_.size() > 1 ? " (+" + std::to_string(rigNotices_.size() - 1) + " more)" : "") + ".";
     }
     WE_LOG_INFO(log(), "mapping: editing {}", path_);
@@ -1079,10 +1078,11 @@ void MappingEditView::draw() {
 
     drawRotation(gridEnd + 14);
 
-    // One status line; the explanations are hover text (the headings, saved, Undo, Default, Invert).
-    const std::string state = dirty() ? "not saved" : "saved";
-    window_.text(4, contentH() - 24, fit(status_.empty() ? state : status_, 118 + extraChars()),
-                 statusError_ ? kWarning : status_.empty() ? (dirty() ? kCaution : kDim) : kActive);
+    // One status line, only while there is something to say; whether it is saved is in the top row, the explanations
+    // are hover text (the headings, saved, Undo, Default, Invert).
+    if (!status_.empty()) {
+        window_.text(4, contentH() - 24, fit(status_, 118 + extraChars()), statusError_ ? kWarning : kActive);
+    }
 
     popupTips_ = tips_.size();   // a popup's own tips come after the tab's (which it covers)
     if (mode_ == Mode::Pick) drawPicker();

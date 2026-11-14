@@ -12,9 +12,8 @@ namespace wheelbri::service::ui {
 // A part of another window that a view draws into as if it were the whole window: the app's side by side (the
 // Mapping tab's editor left, the Live tab right). place() sets where it is on its window's canvas (from `left`,
 // `width` wide, the window's whole height); width() and height() are then that part's, every draw call lands moved by
-// `left`, and the window's bottom reserve carries over. Placed over the whole canvas it is the window itself. The
-// frame (begin, present) and the input (pump) stay the window's: the app runs them and hands each view its clicks in
-// the view's own coordinates (less `left`).
+// `left`. Placed over the whole canvas it is the window itself. The frame (begin, present) and the input (pump) stay
+// the window's: the app runs them and hands each view its clicks in the view's own coordinates (less `left`).
 class PaneWindow final : public UiWindow {
 public:
     explicit PaneWindow(UiWindow& window) : window_(window) { place(0.0F, window.width()); }
@@ -23,7 +22,6 @@ public:
         left_ = left;
         canvasWidth_ = width;
         canvasHeight_ = window_.height();
-        setBottomReserve(window_.bottomReserve());
     }
     [[nodiscard]] float left() const { return left_; }
 
