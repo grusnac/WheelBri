@@ -5,8 +5,8 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
 ## Your rig as a Logitech wheel
 
 - **Four Targets**: G920 (default), G923, G25, G27, each on its own page ([targets.md](targets.md)).
-- **Any rig**: a wheel base plus up to 3 accessories (pedals, shifter, handbrake, button box). Built and tested with a
-  Moza R3; other wheels should work but are untried.
+- **Any rig**: a wheel base plus up to 3 accessories (pedals, shifter, handbrake, button box), up to 128 buttons each
+  (Linux: 80, the kernel's limit). Built and tested with a Moza R3; other wheels should work but are untried.
 - **Two Modes**:
   - **Virtual**: a virtual Logitech wheel every game sees, with your rig hidden from games while it runs (Windows 11:
     WheelBri's own drivers; Linux: `/dev/uhid`). Works with modern games.

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- The rig reads up to 128 buttons per device (before: 64), so a Moza HGP shifter on the R3 base (gears on buttons
+  112-119) can be named and mapped. On the Rig tab, buttons past 63 fold until named; the button tiles are smaller.
+  On Linux the kernel gives a joystick at most 80 buttons, so the HGP's gears do not reach WheelBri there.
+- No more red notice above the tabs, nor the green "your own / default mapping" line at the bottom of the Mapping tab:
+  they covered its lowest row. What blocks Start is in the status next to it and, clicking the greyed Start, in Before
+  Start, where what is left to do is now red.
+
 ## 1.0.3 (2026-11-11)
 
 - Anti-dead zone, for games with a steering dead zone of their own (old NFS games ignore the first part of the turn):

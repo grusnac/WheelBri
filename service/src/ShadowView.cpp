@@ -1107,7 +1107,7 @@ void ShadowView::drawList(const WheelState& state, const TargetReport& report, c
             while (start < text.size() && text[start] == ' ') ++start;
         }
     }
-    const float legendY = window_.height() - 28 - 32 - window_.bottomReserve();   // above the tab bar (and notice)
+    const float legendY = window_.height() - 28 - 32;   // above the tab bar
     const std::string onIt =
         xbox() ? "what the " + target + " has printed there."
         : order_ == ButtonOrder::Native && profile_.hasNativeButtonOrder() ? std::string("its number in the native order, from 0.")

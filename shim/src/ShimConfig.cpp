@@ -260,7 +260,7 @@ const ShimConfig& shimConfig() {
         }
         if (config.emulate && config.forceFeedback == FfbMode::Passthrough) {
             WE_LOG_INFO(log, "force feedback goes straight to the physical wheel: its strength is capped by the "
-                             "wheel's own settings (Pit House), not by wheelbri-service");
+                             "wheel's own software, not by wheelbri-service");
         }
     });
     return config;

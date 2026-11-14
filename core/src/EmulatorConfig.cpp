@@ -19,6 +19,8 @@ namespace wheelbri {
 
 namespace {
 
+constexpr int kMaxSourceButton = static_cast<int>(MapperConfig::kMaxSourceButtons) - 1;   // 0..127
+
 // Reads typed values from one INI section and records every problem instead of failing fast,
 // so a single typo does not hide the other mistakes in the file.
 class SectionReader {
@@ -110,7 +112,7 @@ public:
         if (!value) return;
         const auto refs = parseButtonRefs(*value);
         const bool buttonTooHigh = refs && std::any_of(refs->begin(), refs->end(), [](const ButtonRef& ref) {
-            return !ref.axis && ref.source.index > 63;
+            return !ref.axis && ref.source.index > kMaxSourceButton;
         });
         if (!refs || buttonTooHigh) {
             invalid(key, *value,
@@ -269,7 +271,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         SectionReader reader(ini, "buttons", errors);
         for (std::size_t target = 0; target < config.mapper.buttonMap.size(); ++target) {
             reader.readSource("target_" + std::to_string(target), config.mapper.buttonMap[target],
-                              config.mapper.buttonDevice[target], 63, true, config.mapper);
+                              config.mapper.buttonDevice[target], kMaxSourceButton, true, config.mapper);
             // target_N_or: its secondary sources, buttons and axes (MapperConfig::buttonSecondary).
             reader.readButtonSources("target_" + std::to_string(target) + "_or", config.mapper.buttonSecondary[target],
                                      config.mapper);
@@ -290,10 +292,10 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         // [hat] up/right/down/left = source button that acts as that D-pad direction.
         SectionReader reader(ini, "hat", errors);
         HatButtons& hat = config.mapper.hatButtons;
-        reader.readSource("up", hat.up, hat.devices[0], 63, true, config.mapper);
-        reader.readSource("right", hat.right, hat.devices[1], 63, true, config.mapper);
-        reader.readSource("down", hat.down, hat.devices[2], 63, true, config.mapper);
-        reader.readSource("left", hat.left, hat.devices[3], 63, true, config.mapper);
+        reader.readSource("up", hat.up, hat.devices[0], kMaxSourceButton, true, config.mapper);
+        reader.readSource("right", hat.right, hat.devices[1], kMaxSourceButton, true, config.mapper);
+        reader.readSource("down", hat.down, hat.devices[2], kMaxSourceButton, true, config.mapper);
+        reader.readSource("left", hat.left, hat.devices[3], kMaxSourceButton, true, config.mapper);
         reader.reportUnknownKeys();
     }
     {

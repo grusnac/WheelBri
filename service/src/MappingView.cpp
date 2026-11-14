@@ -33,7 +33,7 @@ const logging::Logger& log() {
 // Everything is laid out on the window's logical canvas: at least MappingView::kWidth x kHeight, bigger when the
 // window has room (UiWindow.hpp). Text is 8x8 logical pixels per character.
 
-constexpr std::size_t kMaxSourceButtons = 64;
+constexpr std::size_t kMaxSourceButtons = MapperConfig::kMaxSourceButtons;
 
 using Colour = ui::Colour;
 
@@ -442,7 +442,7 @@ std::string MappingView::sourceText(const int device, const int index, const boo
         const DeviceLabels& labels = accessories_[static_cast<std::size_t>(device - 1)];
         const std::string name = labels.name.empty() ? deviceId(labels.vendorId, labels.productId) : labels.name;
         const std::string& label = axis ? labels.axes[static_cast<std::size_t>(std::min(index, 7))]
-                                        : labels.buttons[static_cast<std::size_t>(std::min(index, 63))];
+                                        : labels.buttons[static_cast<std::size_t>(std::min(index, static_cast<int>(kMaxSourceButtons) - 1))];
         result = name.substr(0, 10) + (axis ? " ax" : " ") + std::to_string(index) + " " + label;
     }
     while (!result.empty() && result.back() == ' ') result.pop_back();
@@ -660,7 +660,7 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
     }
 }
 
-void MappingView::drawSourceButtons(const std::uint64_t sourceButtons, const float top) {
+void MappingView::drawSourceButtons(const SourceButtons& sourceButtons, const float top) {
     const float kTop = top;
     text(window_, 4, kTop, "RIG BUTTONS", kHeading);
     const std::string legend = "only the ones that reach a " + target_ + " button or the D-pad; pressed = green";
@@ -685,7 +685,7 @@ void MappingView::drawSourceButtons(const std::uint64_t sourceButtons, const flo
         const float x = 4 + static_cast<float>(cell % kColumns) * (kWidth + 3);
         const float y = kTop + 12 + static_cast<float>(cell / kColumns) * (kHeight + 2);
         ++cell;
-        const bool pressed = ((sourceButtons >> source) & 1ULL) != 0;
+        const bool pressed = sourceButtons.test(source);
 
         fill(window_, x, y, kWidth, kHeight, pressed ? kActive : kPanel);
         const Colour foreground = pressed ? kDark : kText;
@@ -884,11 +884,11 @@ void MappingView::drawFfbUsage(const FfbController& controller, const float top)
     }
 }
 
-void MappingView::trackLastPressed(const std::uint64_t sourceButtons) {
-    const std::uint64_t newlyPressed = sourceButtons & ~previousSourceButtons_;
+void MappingView::trackLastPressed(const SourceButtons& sourceButtons) {
+    const SourceButtons newlyPressed = sourceButtons & ~previousSourceButtons_;
     previousSourceButtons_ = sourceButtons;
     for (int source = 0; source < static_cast<int>(kMaxSourceButtons); ++source) {
-        if (((newlyPressed >> source) & 1ULL) != 0) {
+        if (newlyPressed.test(source)) {
             lastPressedSource_ = source;
             // target: the INI's target_N (0-based, as named); the game shows it as the second number.
             const int target = sourceToTarget_[static_cast<std::size_t>(source)];
@@ -1155,8 +1155,8 @@ void MappingView::drawLiveLog(const float top) {
     liveHScroll_ = std::min(liveHScroll_, liveLongest_ > liveMessageChars_ ? liveLongest_ - liveMessageChars_ : 0);
 
     const float listTop = top + 14;
-    // More rows in a taller window; the app's notice (bottomReserve) sits above the tab bar.
-    const float listBottom = canvasH() - 34 - window_.bottomReserve() - (sideways ? kBarThickness + 2 : 0);
+    // More rows in a taller window.
+    const float listBottom = canvasH() - 34 - (sideways ? kBarThickness + 2 : 0);
     liveRows_ = static_cast<std::size_t>(std::max(1.0F, (listBottom - listTop) / kLineHeight));
     liveScroll_ = std::min(liveScroll_, liveMostScroll());
 
@@ -1451,10 +1451,9 @@ void MappingView::trackEvents(const RawInputState& raw, const WheelState& state,
         for (std::size_t i = 0; i < pedals.size(); ++i) pedalDown_[i] = pedals[i] > 0.02F;
         return;
     }
-    const std::uint64_t changed = raw.buttons ^ eventButtons_;
-    for (int source = 0; changed != 0 && source < static_cast<int>(kMaxSourceButtons); ++source) {
-        if (((changed >> source) & 1ULL) == 0) continue;
-        const bool down = ((raw.buttons >> source) & 1ULL) != 0;
+    const SourceButtons changed = raw.buttons ^ eventButtons_;
+    for (int source = changed.next(0); source >= 0; source = changed.next(source + 1)) {
+        const bool down = raw.buttons.test(source);
         const std::string& name = sourceLabel(source);
         std::string text = "Rig " + std::to_string(source) + (name.empty() ? "" : " " + name);
         if (!down) {
@@ -1561,7 +1560,7 @@ void MappingView::drawTelemetry() {
     text(window_, 4, y, "Held now", kText);
     std::string held;
     for (int source = 0; source < static_cast<int>(kMaxSourceButtons); ++source) {
-        if (((eventButtons_ >> source) & 1ULL) != 0) {
+        if (eventButtons_.test(source)) {
             const std::string& name = sourceLabel(source);
             held += (held.empty() ? "" : ",  ") + ("Rig " + std::to_string(source)) + (name.empty() ? "" : " " + name);
         }
@@ -1577,7 +1576,7 @@ void MappingView::drawTelemetry() {
          kDim);
     constexpr float kLineHeight = 11;
     const float listTop = y + 14;
-    const float listBottom = canvasH() - 34 - window_.bottomReserve();   // more rows in a taller window
+    const float listBottom = canvasH() - 34;   // more rows in a taller window
     const auto fit = static_cast<std::size_t>(std::max(1.0F, (listBottom - listTop) / kLineHeight));
     if (events_.empty()) {
         text(window_, 4, listTop, "nothing yet: press a button or a pedal", kDim);
@@ -1613,7 +1612,7 @@ void MappingView::drawForceFeedback(const FfbDisplay& ffb) {
     constexpr float kLineHeight = 11;
     const float listTop = y + 14;
     const auto fit =
-        static_cast<std::size_t>(std::max(1.0F, (canvasH() - 34 - window_.bottomReserve() - listTop) / kLineHeight));
+        static_cast<std::size_t>(std::max(1.0F, (canvasH() - 34 - listTop) / kLineHeight));
     std::vector<const TelemetryEvent*> shown;
     for (auto it = events_.rbegin(); it != events_.rend() && shown.size() < fit; ++it) {
         if (it->kind == kEventFfb) shown.push_back(&*it);

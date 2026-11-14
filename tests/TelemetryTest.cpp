@@ -142,7 +142,7 @@ TEST_F(TelemetryTest, RowsHaveTheirKeysWithAndWithoutFfb) {
     TelemetrySample sample;
     sample.nowNs = 1000 * kMs;
     sample.raw.axes[2] = -0.5F;
-    sample.raw.buttons = (1ULL << 35) | 1;
+    sample.raw.buttons = SourceButtons::fromBits((1ULL << 35) | 1);
     sample.state.throttle = 0.25F;
     sample.report.throttle = 49151;
     recorder->writeSample(sample);
@@ -158,6 +158,7 @@ TEST_F(TelemetryTest, RowsHaveTheirKeysWithAndWithoutFfb) {
     controller.update(1010 * kMs);
     sample.ffb = &controller;
     sample.nowNs = 1020 * kMs;
+    sample.raw.buttons.set(119);   // past 63: the column grows to 128 bits, still bit n = button n
     recorder->writeSample(sample);
     recorder.reset();
 
@@ -173,6 +174,7 @@ TEST_F(TelemetryTest, RowsHaveTheirKeysWithAndWithoutFfb) {
     EXPECT_EQ(value(data[0], "period_us"), "0");
     EXPECT_EQ(data[1].rfind("[2026-09-30 10:00:00.020] ", 0), 0U);
     EXPECT_EQ(value(data[1], "t_ms"), "20.0");
+    EXPECT_EQ(value(data[1], "raw_buttons"), "80000000000000" "0000000800000001");
     EXPECT_EQ(value(data[1], "s1_type"), "constant");
     EXPECT_EQ(value(data[1], "s1_state"), "wp");
     EXPECT_EQ(value(data[1], "s1_req"), "0.5000");

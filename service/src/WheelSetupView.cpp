@@ -56,8 +56,9 @@ constexpr float kSectionHead = 22;
 constexpr float kAxisRow = 17;
 constexpr float kButtonsHead = 16;
 constexpr float kTileW = 114;                  // at least: more columns in a wider window (tileColumns)
-constexpr float kTileH = 30;
-constexpr float kTileStepY = 33;
+constexpr float kTileH = 22;
+constexpr float kTileStepY = 25;
+constexpr std::size_t kFoldButtonsFrom = 64;   // unnamed buttons from here on fold even with nothing named
 constexpr float kSectionGap = 14;
 constexpr float kFoldRow = 24;                 // a line for the unnamed controls (Show all / Named only)
 constexpr float kListRow = 18;                 // a line of the bottom-left list
@@ -309,12 +310,11 @@ void WheelSetupView::detect(Open& device) {
         const auto i = static_cast<std::size_t>(index);
         return axis ? known->axes[i].defined() : known->buttons[i].defined();
     };
-    const std::uint64_t pressed = raw.buttons & ~device.previousButtons;
+    const SourceButtons pressed = raw.buttons & ~device.previousButtons;
     device.previousButtons = raw.buttons;
     int first = -1;      // the lowest button pressed now
     int newButton = -1;  // the lowest one of those not defined yet
-    for (int source = 0; pressed != 0 && source < kButtons; ++source) {
-        if (((pressed >> source) & 1U) == 0) continue;
+    for (int source = pressed.next(0); source >= 0 && source < kButtons; source = pressed.next(source + 1)) {
         if (first < 0) first = source;
         if (newButton < 0 && !defined(false, source)) newButton = source;
     }
@@ -333,8 +333,8 @@ void WheelSetupView::detect(Open& device) {
     if (listening_) {
         // For the Mapping tab: every button newly pressed, every axis moved as far as Detect needs (once, until it is
         // back where it rested). Detect itself waits: this tab does not show.
-        for (int source = 0; pressed != 0 && source < kButtons; ++source) {
-            if (((pressed >> source) & 1U) != 0) touches_.push_back({id, false, source});
+        for (int source = pressed.next(0); source >= 0 && source < kButtons; source = pressed.next(source + 1)) {
+            touches_.push_back({id, false, source});
         }
         for (int axis = 0; axis < kAxes; ++axis) {
             const auto a = static_cast<std::size_t>(axis);
@@ -654,7 +654,7 @@ float WheelSetupView::axisValue(const DeviceId& id, const int axis) const {
 
 bool WheelSetupView::buttonDown(const DeviceId& id, const int source) const {
     const RawInputState* const raw = liveRaw(id);
-    return raw != nullptr && source >= 0 && source < kButtons && ((raw->buttons >> source) & 1U) != 0;
+    return raw != nullptr && source < kButtons && raw->buttons.test(source);
 }
 
 void WheelSetupView::onClick(const float x, const float y) {
@@ -813,7 +813,7 @@ void WheelSetupView::drawHeader() {
                static_cast<float>(state.size()) * ui::kCharWidth, 16,
                unsaved ? "This change could not be saved: the line at the bottom right says why. Undo drops it."
                        : "Every change is saved at once; the Mapping tab maps the rig's controls onto the Target. No "
-                         "dead zones here: set them in the device's own software (Pit House for Moza).");
+                         "dead zones here: set them in the device's own software.");
     button(kRevertX, 2, "Undo", [this] { undo(); }, false, unsaved || !undo_.empty(), kRevertWidth);
     hover_.add(kRevertX, 2, kRevertWidth, 16, "Goes back one change, as many times as you like.");
 
@@ -860,9 +860,11 @@ WheelSetupView::Listed WheelSetupView::listed(const DeviceId& id) const {
         for (std::size_t b = 0; b < buttons.size(); ++b) any = (buttons[b] = device->buttons[b].defined()) || any;
     }
     Listed list;
-    list.folds = any;
+    // Buttons past kFoldButtonsFrom fold while unnamed even on a device with nothing named yet (Show all lists them).
+    const bool extra = buttons.size() > kFoldButtonsFrom;
+    list.folds = any || extra;
     list.axes = foldUnnamed(axes, any && !showAll_);
-    list.buttons = foldUnnamed(buttons, any && !showAll_);
+    list.buttons = foldUnnamed(buttons, any && !showAll_, showAll_ ? buttons.size() : kFoldButtonsFrom);
     return list;
 }
 
@@ -1012,6 +1014,9 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
     const int columns = tileColumns();
     const float stepX = (window_.width() - 8 - kBarW - 4) / static_cast<float>(columns);
     const float tileW = stepX - 4;
+    // The name after the number: one character further on a device whose shown numbers reach 100 (a Moza base's 128).
+    const bool wideNumbers = tiles > 0 && list.buttons.shown.back() >= 100;
+    const float nameX = wideNumbers ? 34.0F : 26.0F;
     for (int tile = 0; tile < tiles; ++tile) {
         const int source = list.buttons.shown[static_cast<std::size_t>(tile)];
         const float x = 4 + static_cast<float>(tile % columns) * stepX;
@@ -1022,10 +1027,11 @@ void WheelSetupView::drawSection(const DeviceId& id, const float y0, const float
         window_.fill(x, ty, tileW, kTileH, down ? kActive : control.defined() ? kPanel : kStripe);
         if (source == lastPressed_ && id == lastPressedDevice_) window_.outline(x, ty, tileW, kTileH, kHeading);
         char number[16];
-        std::snprintf(number, sizeof(number), "%2d", source);
-        window_.text(x + 4, ty + 5, number, down ? kDark : kDim);
-        const auto chars = static_cast<std::size_t>((tileW - 26) / ui::kCharWidth);
-        window_.text(x + 26, ty + 5, fit(control.displayName(), chars),
+        std::snprintf(number, sizeof(number), wideNumbers ? "%3d" : "%2d", source);
+        const float textY = ty + (kTileH - ui::kCharHeight) / 2;
+        window_.text(x + 4, textY, number, down ? kDark : kDim);
+        const auto chars = static_cast<std::size_t>((tileW - nameX) / ui::kCharWidth);
+        window_.text(x + nameX, textY, fit(control.displayName(), chars),
                      down ? kDark : kText);
         hit(x, ty, tileW, kTileH, [this, id, source] { openControl(id, false, source, std::nullopt); });
     }

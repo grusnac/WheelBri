@@ -58,7 +58,7 @@ TEST(Rig, WritesAndReadsBack) {
 
 TEST(Rig, ReportsBadLinesAndKeepsTheRest) {
     const RigResult result = load(
-        "[device_1]\nid = 346e:0005\naxis_0 = Wheel | brakes\nbutton_99 = x\nbutton_1 = A | fast\ncolour = red\n"
+        "[device_1]\nid = 346e:0005\naxis_0 = Wheel | brakes\nbutton_128 = x\nbutton_1 = A | fast\ncolour = red\n"
         "[device_2]\nname = no id\n[other]\n");
     EXPECT_EQ(result.errors.size(), 6U);
     ASSERT_EQ(result.rig.devices.size(), 1U);
@@ -186,7 +186,7 @@ TEST(Rig, TheChoiceIsKeptWithOrWithoutAName) {
 // Hand-edited values the Rig tab would never write: each reported, the rest of the device still read.
 TEST(Rig, ReportsBadIdsKindsAndControlNumbers) {
     const RigResult result = load("[device_1]\nid = 346e:0005\nkind = joystick\naxis_x = a\naxis_ = b\naxis_0007 = c\n"
-                                  "axis_8 = d\nbutton_64 = e\naxis_007 = Gas\n"
+                                  "axis_8 = d\nbutton_128 = e\naxis_007 = Gas\n"
                                   "[device_2]\nid = nope\nname = Pedals\n");
     ASSERT_EQ(result.errors.size(), 8U);
     EXPECT_EQ(result.errors[0], "[device_1] axis_ = 'b': no such axis (0..7)");

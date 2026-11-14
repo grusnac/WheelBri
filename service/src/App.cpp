@@ -65,16 +65,14 @@ constexpr ui::Colour kDark = style::kDark;
 // Window layout, in logical pixels: the panel (the tabs) fills the window's canvas, which is at least the design size
 // (kWidth x kHeight) and grows with the window (UiWindow.hpp). Every tab has the controls at the right end of the tab
 // bar, which is at the bottom: the status (ready, what is missing, running...), then Start (Stop while a session runs),
-// as tall as the tab buttons, kept at the right edge (App::startX, stopX, tabBarTop). Above the bar, across the window,
-// a notice says in plain words what blocks Start or what is wrong while running (App::alert). The shim's games row
-// is on the Mapping tab only, in its top row.
+// as tall as the tab buttons, kept at the right edge (App::startX, stopX, tabBarTop); the greyed Start's list says what
+// is missing (App::showChecklist). The shim's games row is on the Mapping tab only, in its top row.
 constexpr float kWidth = MappingView::kWidth;
 constexpr float kViewTop = 0;
 constexpr float kHeight = MappingView::kHeight;
 constexpr float kControlsY = 0;            // the top row: the shim's games
 constexpr float kControlsHeight = 16;
 constexpr float kButtonWidth = 68;         // Start (Stop while a session runs): one button, at the right end
-constexpr float kAlertHeight = 26;         // the notice above the tab bar (what blocks Start, what is wrong): 22 + 4
 constexpr float kGamesX = 220;              // the live view: the shim's games ("Game < name > Games (N)"), 370 wide
 constexpr float kGamesWidth = 370;
 constexpr float kGamesEditorY = 18;         // the Mapping tab's editor: its second row, at the right edge
@@ -473,13 +471,6 @@ private:
                     } else if (stopButton().hit(click)) {
                         stop();
                     }
-                    continue;
-                }
-                // The notice's "What's missing": the same list as the greyed Start.
-                if (alertButtonW_ > 0 && !(editingMapping && mapping_->popupOpen()) &&
-                    click.y >= alertButtonY_ + kViewTop && click.y < alertButtonY_ + kViewTop + 16 &&
-                    click.x >= alertButtonX_ && click.x < alertButtonX_ + alertButtonW_) {
-                    showChecklist();
                     continue;
                 }
                 // The session bar: to the tab where the target, the mode and the game are set.
@@ -1184,10 +1175,7 @@ private:
     void drawWindow() {
         window_->begin(kBackground);
         window_->setOrigin(0, kViewTop);
-        // The notice above the tab bar: the views end their content above it (UiWindow::bottomReserve).
-        alert_ = alert();
-        window_->setBottomReserve(alert_.text.empty() ? 0.0F : kAlertHeight);
-        placePanes();   // after the reserve: the panes carry it
+        placePanes();
         if (splitShown()) {
             // Side by side: the editor left, the live view (or, stopped, what it will be) right, one tab bar.
             mapping_->draw();
@@ -1301,9 +1289,16 @@ private:
 
     // The greyed Start, clicked: what it still needs, each with where to do it.
     void showChecklist() {
-        std::string text;
-        const auto line = [&text](const bool done, const std::string& what) {
-            text += std::string(done ? "ok    " : "TO DO ") + what + "\n";
+        std::vector<std::string> lines;
+        std::vector<bool> red;   // what is still to do, in red (its wrapped lines too)
+        const auto add = [&lines, &red](const std::string& text, const bool toDo) {
+            for (std::string& part : wrap(text)) {
+                lines.push_back(std::move(part));
+                red.push_back(toDo);
+            }
+        };
+        const auto line = [&add](const bool done, const std::string& what) {
+            add(std::string(done ? "ok    " : "TO DO ") + what, !done);
         };
         const bool noRig = needsProblem_ == kNoRig || rigDevices_ == 0;
         line(!noRig, noRig ? "Rig: name your controls in the Rig tab (R)"
@@ -1330,8 +1325,12 @@ private:
             line(!helperMissing_, helperMissing_ ? "WheelBri Helper: not running (run the setup again)"
                                                  : "WheelBri Helper: running");
         }
-        if (lastResult_ && *lastResult_ != 0) text += "\nThe last Start failed: the Logs tab (L) says why.\n";
-        popup_ = Popup{"Before Start", wrap(text), "OK", "", [] { return true; }, nullptr, false, {}, false};
+        if (lastResult_ && *lastResult_ != 0) {
+            add("", false);
+            add("The last Start failed: the Logs tab (L) says why.", true);
+        }
+        popup_ = Popup{"Before Start", std::move(lines), "OK", "", [] { return true; }, nullptr, false, {}, false,
+                       std::move(red)};
     }
 
     // The version and the commit it was built from, in the top-right corner of every tab (Version.hpp).
@@ -1459,7 +1458,6 @@ private:
                 stop.draw(*window_, false);   // Stopping: greyed
             }
         }
-        drawAlert();
         drawToast();
     }
 
@@ -1470,86 +1468,12 @@ private:
         toast_ = std::move(text);
         toastUntilMs_ = platform::nowMs() + 3000;
     }
-    // The notice above the tab bar, on every tab: what blocks Start (stopped) or what is wrong (running), said as what
-    // to do; the status in the bar keeps its short form. Empty text: no notice. `checklist`: it has a "What's missing"
-    // button (the greyed Start's list); `red`: broken, else amber (check this).
-    struct Alert {
-        std::string text;
-        bool red = true;
-        bool checklist = false;
-    };
-    [[nodiscard]] Alert alert() {
-        Alert a;
-        if (state_ == State::Stopped) {
-            a.checklist = true;
-            if (needsProblem_ == kNoRig) {
-                a.text = "No rig yet: name your controls in the Rig tab (R).";
-            } else if (needsProblem_ == kNoMapping) {
-                a.text = "Nothing is mapped yet: map the rig in the Mapping tab (M).";
-            } else if (!needsProblem_.empty()) {
-                a.text = needsProblem_;
-            } else if (helperMissing_) {
-                a.text = "The WheelBri Helper is not running (Mode Virtual needs it): run the setup again.";
-            } else if (needsKnown_ && !missing_.empty()) {
-                std::string names;
-                for (std::size_t i = 0; i < missing_.size(); ++i) names += (i == 0 ? "" : ", ") + missing_[i];
-                a.text = names + (missing_.size() == 1 ? " is" : " are") +
-                         " not connected: switch it on or plug it in.";
-            } else if (needsKnown_ && shimTarget() && !games_->hasGame()) {
-                a.text = "Mode Shim needs a game: add one on the Games tab (G).";
-            } else if (needsKnown_ && lastResult_ && *lastResult_ != 0) {
-                a.text = "The last Start failed: the Logs tab (L) says why.";
-            }
-            if (a.text.empty()) a.checklist = false;
-            return a;
-        }
-        if (state_ != State::Running) return a;
-        const auto frame = host_.latest();
-        if (!frame) return a;
-        if (frame->wheelLostMs > 0) {
-            a.text = "A device of the rig was unplugged or switched off: plug it back in.";
-        } else if (frame->gameIgnoresWheel) {
-            a.text = "The game drives from a gamepad or the keyboard: close it, unplug the pad, start it again and "
-                     "pick the Logitech wheel.";
-        } else if (frame->gameFfbIdle) {
-            a.text = "The game loaded its force feedback but never started it: Alt+Tab out of the game and back.";
-            a.red = false;
-        } else if (!frame->gameWarning.empty()) {
-            a.text = frame->gameWarning;
-        }
-        return a;
-    }
-
-    // The notice: a strip across the window just above the tab bar (the room the views left, bottomReserve), red or
-    // amber at its left edge, the text, and "What's missing" at its right when Start is blocked.
-    void drawAlert() {
-        alertButtonW_ = 0;
-        if (alert_.text.empty()) return;
-        const float x = 4;
-        const float y = tabBarTop() - kAlertHeight + 2;
-        const float w = window_->width() - 8;
-        const ui::Colour edge = alert_.red ? kWarning : kCaution;
-        window_->fill(x, y, w, 20, alert_.red ? style::kWarningBack : style::kCautionBack);
-        window_->fill(x, y, 3, 20, edge);
-        float textRoom = w - 20;
-        if (alert_.checklist) {
-            const std::string label = "What's missing";
-            alertButtonW_ = static_cast<float>(label.size()) * ui::kCharWidth + 16;
-            alertButtonX_ = x + w - 4 - alertButtonW_;
-            alertButtonY_ = y + 2;
-            style::button(*window_, alertButtonX_, alertButtonY_, alertButtonW_, 16, label, false, !popup_);
-            textRoom -= alertButtonW_ + 8;
-        }
-        const auto chars = static_cast<std::size_t>(std::max(4.0F, textRoom / ui::kCharWidth));
-        window_->text(x + 12, y + 6, fit(alert_.text, chars), kText);
-    }
-
     void drawToast() {
         if (toast_.empty() || platform::nowMs() >= toastUntilMs_) return;
         const std::string text = fit(toast_, 60);
         const float w = static_cast<float>(text.size()) * ui::kCharWidth + 20;
         const float x = window_->width() - 4 - w;
-        const float y = tabBarTop() - 26 - window_->bottomReserve();   // above the notice when there is one
+        const float y = tabBarTop() - 26;
         window_->fill(x, y, w, 20, kPopup);
         window_->outline(x, y, w, 20, kActive);
         window_->text(x + 10, y + 6, text, kActive);
@@ -1566,6 +1490,7 @@ private:
         bool warning = false;             // the title in red
         std::string check;                // a checkbox above the buttons ("Don't ask again"), empty for none
         bool checked = false;
+        std::vector<bool> red;            // per line: true draws it in red (what is still to do); missing: text colour
     };
 
     // Wraps at spaces (and at '\n') to the popup's width.
@@ -1613,7 +1538,7 @@ private:
 
     // A popup with OK: `warning` (the title in red) for what went wrong or needs doing, else (blue) for information.
     void notice(const std::string& title, const std::string& text, const bool warning = true) {
-        popup_ = Popup{title, wrap(text), "OK", "", [] { return true; }, nullptr, warning, {}, false};
+        popup_ = Popup{title, wrap(text), "OK", "", [] { return true; }, nullptr, warning, {}, false, {}};
     }
 
     // The end of a shim session that worked: what to do with the shims in the games' folders. Asked, with "Don't ask
@@ -1665,7 +1590,8 @@ private:
                        },
                        false,
                        "Don't ask again (the Games tab's Ask again brings this back)",
-                       false};
+                       false,
+                       {}};
     }
 
     [[nodiscard]] float popupHeight() const {
@@ -1711,8 +1637,9 @@ private:
         window_->outline(popupX(), popupY(), kPopupW, h, kHeading);
         window_->text(popupX() + 16, popupY() + 12, popup_->title, popup_->warning ? kWarning : kHeading);
         float y = popupY() + 34;
-        for (const std::string& line : popup_->lines) {
-            window_->text(popupX() + 16, y, line, kText);
+        for (std::size_t i = 0; i < popup_->lines.size(); ++i) {
+            const bool red = i < popup_->red.size() && popup_->red[i];
+            window_->text(popupX() + 16, y, popup_->lines[i], red ? kWarning : kText);
             y += 14;
         }
         if (!popup_->check.empty()) {
@@ -1773,10 +1700,6 @@ private:
     std::string barAdvice_;
     float chipX_ = 0;
     float chipW_ = 0;
-    Alert alert_;               // the notice above the tab bar this frame (App::alert)
-    float alertButtonX_ = 0;    // its "What's missing" button, when drawn (width 0: none)
-    float alertButtonY_ = 0;
-    float alertButtonW_ = 0;
     std::string rigName_;
     std::size_t rigDevices_ = 0;   // the target and the games list (changes) the shims were last swapped for
     std::optional<Popup> popup_;

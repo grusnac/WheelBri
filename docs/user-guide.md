@@ -47,10 +47,12 @@ and the paddles (on the G25 and G27, A B X Y go on the shifter's black buttons).
 underlined in amber is another control's already (point at it to see whose), and picking it moves it here. Every other
 button you map yourself.
 
-Once a device has named controls, the unnamed ones fold into one line; **Show all** / **Named only** switch.
+Once a device has named controls, the unnamed ones fold into one line; **Show all** / **Named only** switch. Buttons
+past 63 (a Moza base reports 128: its shifter's gears are 112-119) fold until named; with Detect on, shift into a gear
+to name it.
 
 The device with Steering is the wheel and plays the force feedback. WheelBri has no dead zones: set those, and the
-wheel's rotation, in the wheel's own software (Pit House for Moza). For a game with a dead zone of its own, see
+wheel's rotation, in the wheel's own software. For a game with a dead zone of its own, see
 **Anti-dead zone** below.
 
 ## Map it to the Target
@@ -121,7 +123,7 @@ uses it at once: no Stop and Start. Target, Mode and Order stay as Start set the
 
   ![Side by side, maximised: the Mapping tab and the List view](images/live-side-by-side-list.png)
 - **Steering rotation**: the editor's slider or a preset. WheelBri still passes the wheel through 1:1: set the same
-  number in your wheel's own software (Pit House for Moza). The virtual wheel reports the new rotation at once
+  number in your wheel's own software. The virtual wheel reports the new rotation at once
   (whether a running game reads it again is up to the game); a game file's rotation changes at its next **Save to
   file**.
 
@@ -136,7 +138,8 @@ then everything is ready. On Linux the game's Steam launch option does this for 
 ([Linux and the Steam Deck](#linux-and-the-steam-deck)).
 
 The bar next to Start shows the Target, the Mode and, in Mode Shim, the game, in amber when the game does not support
-the Target. When Start is greyed out, the red notice above the tabs says why; **What's missing** lists what is left.
+the Target. When Start is greyed out, the status next to it says why; click the greyed Start to list what is left (in
+red).
 
 **Mode Virtual**
 
@@ -283,7 +286,7 @@ stop it. Logs: `~/.local/state/wheelbri/`.
 
 ## Force feedback
 
-**Set the strength in your wheel's own app**, once for every game (Moza Pit House, Fanatec's tuning menu, Simucube
+**Set the strength in your wheel's own app**, once for every game (Fanatec's tuning menu, Simucube
 True Drive, Thrustmaster's control panel, Logitech G HUB), and per game in the game's own settings. WheelBri passes on
 all the game asks, through safety limits: no sudden jumps, a push left unchanged for 2 s (a loading screen) fades out,
 forces stop when the game goes quiet, and a value that is not a force plays nothing.

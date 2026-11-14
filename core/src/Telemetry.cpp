@@ -75,6 +75,16 @@ void appendf(std::string& out, const char* format, ...) {
     va_end(again);
 }
 
+// Source buttons as one hex number, bit n = button n, no leading zeros: buttons 0..63 print as they always did.
+void appendButtons(std::string& out, const SourceButtons& buttons) {
+    if (buttons.words[1] == 0) {
+        appendf(out, "%llx", static_cast<unsigned long long>(buttons.words[0]));
+    } else {
+        appendf(out, "%llx%016llx", static_cast<unsigned long long>(buttons.words[1]),
+                static_cast<unsigned long long>(buttons.words[0]));
+    }
+}
+
 const char* packetKindName(const FfbPacket::Kind kind) {
     switch (kind) {
         case FfbPacket::Kind::SlotState: return "slot";
@@ -369,7 +379,9 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
     for (std::size_t i = 0; i < sample.raw.axes.size(); ++i) {
         appendf(k, " raw_a%u=%.4f", static_cast<unsigned>(i), static_cast<double>(sample.raw.axes[i]));
     }
-    appendf(k, " raw_buttons=%llx raw_hat=%d", static_cast<unsigned long long>(sample.raw.buttons), sample.raw.hat);
+    appendf(k, " raw_buttons=");
+    appendButtons(k, sample.raw.buttons);
+    appendf(k, " raw_hat=%d", sample.raw.hat);
     appendf(k, " steer=%.4f throttle=%.4f brake=%.4f clutch=%.4f buttons=%x hat=%d",
             static_cast<double>(sample.state.steering), static_cast<double>(sample.state.throttle),
             static_cast<double>(sample.state.brake), static_cast<double>(sample.state.clutch),
@@ -402,7 +414,8 @@ void TelemetryRecorder::writeSample(const TelemetrySample& sample) {
     // are here to see, so every change of them counts).
     std::string& exact = sampleExact_;
     exact.clear();
-    appendf(exact, "%llx,%d,%x,%d,%x,%d,%d", static_cast<unsigned long long>(sample.raw.buttons), sample.raw.hat,
+    appendButtons(exact, sample.raw.buttons);
+    appendf(exact, ",%d,%x,%d,%x,%d,%d", sample.raw.hat,
             static_cast<unsigned>(sample.state.buttons), sample.state.hat, static_cast<unsigned>(sample.report.buttons),
             sample.report.hat, sample.combinedPedals ? 1 : 0);
     if (ffb != nullptr) {

@@ -110,7 +110,7 @@ TEST(Equality, ForceFeedback) {
 
 TEST(Equality, DevicesAndReports) {
     eachFieldCounts(RawInputState{}, [](RawInputState& v) { v.axes[3] = 0.5F; },
-                    [](RawInputState& v) { v.buttons = 1; }, [](RawInputState& v) { v.hat = 2; });
+                    [](RawInputState& v) { v.buttons = SourceButtons::fromBits(1); }, [](RawInputState& v) { v.hat = 2; });
     eachFieldCounts(TargetReport{}, [](TargetReport& v) { v.steering = 1; }, [](TargetReport& v) { v.throttle = 1; },
                     [](TargetReport& v) { v.brake = 1; }, [](TargetReport& v) { v.clutch = 1; },
                     [](TargetReport& v) { v.buttons = 1; }, [](TargetReport& v) { v.hat = 2; });

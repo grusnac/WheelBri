@@ -128,7 +128,7 @@ void GameWatch::sayRotation() {
     if (next) {
         const bool own = overrides_.count(state.game->id) != 0;
         WE_LOG_WARN(log(), "game: {} is played with a steering rotation of {} ({}), not the mapping's {}: set your "
-                           "wheel's own software (Pit House for Moza) to {} too while you play it",
+                           "wheel's own software to {} too while you play it",
                     state.game->label, describeRotation(*next),
                     own ? std::string("your mapping's [game_rotation]")
                         : "its game profile: " + state.game->rotationNote,
@@ -231,8 +231,7 @@ void GameWatch::setValues(GameTunings tunings, GameRotations overrides) {
 
 void GameWatch::setMapping(const float degrees) {
     if (std::fabs(degrees - mapping_) < 0.5F) return;
-    WE_LOG_INFO(log(), "steering rotation: the mapping's is {} now (was {}): set your wheel's own software (Pit House "
-                       "for Moza) to it",
+    WE_LOG_INFO(log(), "steering rotation: the mapping's is {} now (was {}): set your wheel's own software to it",
                 describeRotation(degrees), describeRotation(mapping_));
     mapping_ = degrees;
     sayRotation();   // a game's own rotation that now equals the mapping's is nothing to say any more, and the reverse

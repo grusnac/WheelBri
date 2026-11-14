@@ -127,10 +127,11 @@ void Layout::reset(const std::array<AbsInfo, kAbsCount>& absInfo, const std::bit
         setHat(hatState_[i], 0, absInfo[static_cast<std::size_t>(code)].value);
         setHat(hatState_[i], 1, absInfo[static_cast<std::size_t>(code + 1)].value);
     }
-    buttonsDown_ = 0;
-    for (std::size_t i = 0; i < buttonCodes_.size() && i < 64; ++i) {
+    buttonsDown_.clear();
+    const std::size_t count = std::min<std::size_t>(buttonCodes_.size(), SourceButtons::kCount);
+    for (std::size_t i = 0; i < count; ++i) {
         if (keysDown.test(static_cast<std::size_t>(buttonCodes_[i]))) {
-            buttonsDown_ |= 1ULL << i;
+            buttonsDown_.set(static_cast<int>(i));
         }
     }
 }
@@ -139,13 +140,7 @@ bool Layout::apply(const int type, const int code, const std::int32_t value) {
     if (type == kEvKey) {
         if (code >= 0 && code < kKeyCount) {
             const int index = buttonIndex_[static_cast<std::size_t>(code)];
-            if (index >= 0 && index < 64) {
-                if (value != 0) {
-                    buttonsDown_ |= 1ULL << index;
-                } else {
-                    buttonsDown_ &= ~(1ULL << index);
-                }
-            }
+            buttonsDown_.set(index, value != 0);   // ignores -1 and buttons past 127
         }
     } else if (type == kEvAbs) {
         if (code >= 0 && code < kAbsCount) {

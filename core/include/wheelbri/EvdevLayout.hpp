@@ -73,7 +73,8 @@ public:
     // current values again and calls reset().
     bool apply(int type, int code, std::int32_t value);
 
-    // The state as the service's RawInputState: the first kMaxAxes axes, the first 64 buttons, hat 0.
+    // The state as the service's RawInputState: the first kMaxAxes axes, the first 128 buttons, hat 0.
+    // (hid-input gives a joystick at most 80 buttons: BTN_JOYSTICK + 16, then BTN_TRIGGER_HAPPY..KEY_MAX.)
     void fill(RawInputState& state) const;
 
     // Axis i's value as SDL would report it, -32768..32767.
@@ -103,7 +104,7 @@ private:
     std::array<int, kKeyCount> buttonIndex_{}; // code -> button index, -1
     std::vector<std::int32_t> axisRaw_;
     std::vector<Hat> hatState_;
-    std::uint64_t buttonsDown_ = 0;
+    SourceButtons buttonsDown_;
 };
 
 }  // namespace wheelbri::evdev

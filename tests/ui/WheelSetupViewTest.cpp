@@ -73,11 +73,7 @@ protected:
     }
     static void press(const std::shared_ptr<FakeDevice>& device, const int button, const bool down = true) {
         FakeDevices::shared().change(device, [button, down](FakeDevice& d) {
-            if (down) {
-                d.raw.buttons |= 1ULL << button;
-            } else {
-                d.raw.buttons &= ~(1ULL << button);
-            }
+            d.raw.buttons.set(button, down);
         });
     }
     static void move(const std::shared_ptr<FakeDevice>& device, const int axis, const float value) {
@@ -340,6 +336,29 @@ TEST_F(RigTab, ButtonPopupChoicesClearAndCancel) {
     EXPECT_FALSE(savedRig().devices.at(0).buttons[5].defined());
 }
 
+// A Moza base reports 128 buttons (its shifter's gears on 112..119): those past 63 fold while unnamed, even with
+// nothing named; pressing one with Detect on still names it, and a named one shows with its three-digit number.
+TEST_F(RigTab, ButtonsPast63FoldUntilNamed) {
+    const auto wheel = FakeDevices::shared().add("Moza R3 Racing Wheel", 0x346e, 0x0005, 8, 128);
+    WheelSetupView view(window_, settings());
+    settle(view);
+    EXPECT_TRUE(window_.has("64 buttons not named (64-127): press one to name it", true)) << window_.dump();
+    EXPECT_TRUE(window_.has("63"));
+    EXPECT_FALSE(window_.has("64"));
+    press(wheel, 114);   // third gear
+    frame(view);
+    ASSERT_TRUE(view.editingText());
+    EXPECT_TRUE(window_.has("Button 114 on Moza R3 Racing Wheel")) << window_.dump();
+    view.onText("Gear 3");
+    view.onText(std::string(1, ui::kEnter));
+    frame(view);
+    EXPECT_EQ(savedRig().devices.at(0).buttons[114].label, "Gear 3");
+    // Now the device has a name: every unnamed button folds; the gear shows, its number in three digits.
+    EXPECT_TRUE(window_.has("127 buttons not named (0-113, 115-127): press one to name it", true)) << window_.dump();
+    EXPECT_TRUE(window_.has("114"));
+    EXPECT_TRUE(window_.has("Gear 3"));
+}
+
 // Undo: goes back one change and saves it; with nothing to undo it is greyed; a change that cannot be saved (the
 // rigs folder is a file) says why, is not tried again, and Undo drops it.
 TEST_F(RigTab, UndoAndChangesThatCannotBeSaved) {
@@ -568,7 +587,7 @@ TEST_F(RigTab, SessionWheel) {
     EXPECT_TRUE(window_.has("-"));
     EXPECT_FALSE(window_.has("Forget"));
     // A press of an unnamed button opens its popup (not saved while the session runs).
-    session.raw.buttons = 1;
+    session.raw.buttons = SourceButtons::fromBits(1);
     frame(view, &session);
     EXPECT_TRUE(view.editingText());
     view.onText("Shift" + std::string(1, ui::kEnter));

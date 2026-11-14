@@ -33,6 +33,10 @@
 namespace wheelbri::service {
 namespace {
 
+// A button box with 64 named buttons (a device can have up to MapperConfig::kMaxSourceButtons): the picker tests
+// below were laid out for that many.
+constexpr std::size_t k64Buttons = 64;
+
 using editview::kGridGap;
 using editview::kSliderX;
 using editview::kTwoColumnsMinW;
@@ -211,7 +215,7 @@ Rig testRig() {
     box.name = "Button box with a very long name indeed, longer than forty";
     box.id = kBoxId;
     box.kind = DeviceKind::ButtonBox;
-    for (std::size_t b = 0; b < MapperConfig::kMaxSourceButtons; ++b) box.buttons[b] = {"K" + std::to_string(b), ""};
+    for (std::size_t b = 0; b < k64Buttons; ++b) box.buttons[b] = {"K" + std::to_string(b), ""};
     rig.devices.push_back(box);
     RigDevice shifter;
     shifter.name = "Shifter";
@@ -474,7 +478,7 @@ TEST_F(EditView, AControlUsedElsewhereIsGreyedAndMoves) {
 // named and free is picked (the popup closes); the wrong kind, an unnamed one or one used elsewhere says why.
 TEST_F(EditView, TheSourcePickerFindsScrollsAndTakesTouches) {
     Rig rig = testRig();
-    for (std::size_t b = 0; b < MapperConfig::kMaxSourceButtons; ++b) {   // more than the popup holds
+    for (std::size_t b = 0; b < k64Buttons; ++b) {   // more than the popup holds
         rig.devices[1].buttons[b] = {"P" + std::to_string(b), ""};
         rig.devices[3].buttons[b] = {"S" + std::to_string(b), ""};
     }
@@ -638,7 +642,7 @@ TEST_F(EditView, TheRigMapsTheCoreInputs) {
 TEST_F(EditView, ThePickerFitsTheCanvas) {
     useOlderDefault();
     Rig rig = testRig();
-    for (std::size_t b = 0; b < MapperConfig::kMaxSourceButtons; ++b) {
+    for (std::size_t b = 0; b < k64Buttons; ++b) {
         rig.devices[0].buttons[b] = {"B" + std::to_string(b), ""};
         rig.devices[1].buttons[b] = {"P", ""};
         rig.devices[3].buttons[b] = {"S", ""};
@@ -1064,26 +1068,6 @@ TEST_F(EditView, SecondarySources) {
     view_->onKey(ui::kEscape);
     frame();
     EXPECT_FALSE(view_->popupOpen());
-}
-
-// The app's notice above the tab bar (UiWindow::bottomReserve): the tab's status line moves up out of its way.
-TEST_F(EditView, RoomForTheAppsNotice) {
-    useRig(testRig());
-    open();
-    // The lowest text at the left edge: the status line.
-    const auto lowest = [this] {
-        float y = 0;
-        for (const auto& t : window_.texts) {
-            if (t.x == 4) y = std::max(y, t.y);
-        }
-        return y;
-    };
-    frame();
-    const float y = lowest();
-    ASSERT_GT(y, 600.0F);
-    window_.setBottomReserve(26);
-    frame();
-    EXPECT_FLOAT_EQ(lowest(), y - 26);
 }
 
 // Section headings are in the text colour (drawn bold by the real windows): blue means selected or an action.
@@ -2723,7 +2707,7 @@ TEST_F(EditView, TheRotationReminderIsOneLine) {
     useRig(testRig());
     open();
     frame();
-    const Window::Text* const reminder = window_.holding("deg in your wheel's own software too (Pit House for Moza).");
+    const Window::Text* const reminder = window_.holding("deg in your wheel's own software too.");
     ASSERT_NE(reminder, nullptr);
     EXPECT_TRUE(sameColour(reminder->colour, style::kCaution));
     EXPECT_FALSE(window_.hasPart("A game can steer with its own rotation"));
@@ -2763,8 +2747,8 @@ TEST_F(EditView, TheSliderDragEnds) {
     EXPECT_FALSE(window_.hasPart("Set 1080 deg in your wheel's own software too"));
 }
 
-// A typing complaint answered by the same value while the change still cannot be saved: the status line is the
-// unsaved state, in amber.
+// A typing complaint answered by the same value while the change still cannot be saved: the complaint goes (no
+// status line), the top row still says "not saved", in red.
 TEST_F(EditView, AnUnsavedChangeAfterATypingComplaint) {
     useRig(testRig());
     std::filesystem::remove_all(userConfigFolder());
@@ -2776,9 +2760,11 @@ TEST_F(EditView, AnUnsavedChangeAfterATypingComplaint) {
     type(std::string(3, ui::kBackspace) + "1" + std::string(1, ui::kEnter));   // too small
     type(std::string(1, ui::kBackspace) + "900" + std::string(1, ui::kEnter));
     frame();
-    const Window::Text* const status = window_.find("not saved", 1);
-    ASSERT_NE(status, nullptr);
-    EXPECT_TRUE(sameColour(status->colour, style::kCaution));
+    const Window::Text* const state = window_.find("not saved");
+    ASSERT_NE(state, nullptr);
+    EXPECT_TRUE(sameColour(state->colour, style::kWarning));
+    EXPECT_EQ(window_.find("not saved", 1), nullptr);   // only the top row's
+    EXPECT_FALSE(window_.hasPart("Not changed"));
     // Another change: tried again (and refused again).
     ASSERT_TRUE(click("Invert", 1));
     frame();

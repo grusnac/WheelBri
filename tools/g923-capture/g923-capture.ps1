@@ -185,7 +185,7 @@ function Get-TargetWheels {
 
 function Get-RigDevices { return @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId -match 'VID_346E' }) }
 
-function Get-PitHouse {
+function Get-WheelSoftware {
     return @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessName -match 'pit.?house|moza' -or ($_.Path -and $_.Path -match '\\MOZA')
     })
@@ -423,9 +423,9 @@ function Invoke-Check {
     if ($virtual.Count) { Bad "WheelBri's virtual devices are present: $(($virtual | ForEach-Object InstanceId) -join ', ')" }
     else { Good 'no virtual WheelBri device present' }
 
-    Say 'The R3 and Pit House'
+    Say 'The R3 and its own software'
     if ($Target) {
-        Info "REHEARSAL with $Target`: the R3 and Pit House may stay (not checked)"
+        Info "REHEARSAL with $Target`: the R3 and its own software may stay (not checked)"
         $rig = @()
         $pitSkip = $true
     } else {
@@ -435,10 +435,10 @@ function Invoke-Check {
     if ($pitSkip) { }
     elseif (@($rig).Count) { Bad "a MOZA device (VID 346E) is plugged in: unplug the R3 base (and its pedals if they are MOZA's USB)" }
     else { Good 'no MOZA device plugged in' }
-    $pit = if ($pitSkip) { @() } else { Get-PitHouse }
+    $pit = if ($pitSkip) { @() } else { Get-WheelSoftware }
     if ($pitSkip) { }
-    elseif (@($pit).Count) { Bad "Pit House is running ($(($pit | ForEach-Object ProcessName) -join ', ')): quit it" }
-    else { Good 'Pit House not running' }
+    elseif (@($pit).Count) { Bad "the R3's own software is running ($(($pit | ForEach-Object ProcessName) -join ', ')): quit it" }
+    else { Good 'the R3''s own software not running' }
 
     Say $(if ($Target) { "The rehearsal wheel ($Target)" } else { 'The real G923' })
     $wheels = if ($Target) { Get-TargetWheels } else { Get-RealWheels }

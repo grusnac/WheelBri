@@ -45,7 +45,7 @@ TEST(DeviceLabels, ReadsAWholeFile) {
 }
 
 TEST(DeviceLabels, ReportsBadValues) {
-    const auto loaded = load("[device]\nid = nope\nkind = joystick\n[button_labels]\nbutton_64 = x\nbutton_1 = Much too long a name\n");
+    const auto loaded = load("[device]\nid = nope\nkind = joystick\n[button_labels]\nbutton_128 = x\nbutton_1 = Much too long a name\n");
     EXPECT_EQ(loaded.errors.size(), 4U);
     EXPECT_EQ(loaded.labels.buttons[1], "Much too lon");
     EXPECT_EQ(loaded.labels.kind, DeviceKind::Other);

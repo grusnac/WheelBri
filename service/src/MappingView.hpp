@@ -221,7 +221,7 @@ private:
     void drawRawAxes(const RawInputState& raw, float top);
     void drawHat(std::int8_t sourceHat, std::int8_t targetHat, float top);
     void drawTargetButtons(std::uint32_t targetButtons, float top);
-    void drawSourceButtons(std::uint64_t sourceButtons, float top);
+    void drawSourceButtons(const SourceButtons& sourceButtons, float top);
     void drawFooter(float top);
     void drawFfb(const FfbDisplay& ffb, float top);
     void drawFfbUsage(const FfbController& controller, float top);
@@ -236,7 +236,7 @@ private:
     void addEvent(int kind, std::string text);
     void scrollLiveLog(long long lines);
     void openFolder(const std::filesystem::path& folder) const;
-    void trackLastPressed(std::uint64_t sourceButtons);
+    void trackLastPressed(const SourceButtons& sourceButtons);
     // The name of source button `source` from [button_labels], or an empty string.
     [[nodiscard]] const std::string& sourceLabel(int source) const;
 
@@ -258,10 +258,10 @@ private:
     std::string pedalNote_;         // how the target encodes released / pressed pedals
 
     // sourceToTarget_[s] = first target button fed by source button s, or kUnmapped; count for duplicates.
-    std::array<int, 64> sourceToTarget_{};
-    std::array<int, 64> sourceTargetCount_{};
+    std::array<int, MapperConfig::kMaxSourceButtons> sourceToTarget_{};
+    std::array<int, MapperConfig::kMaxSourceButtons> sourceTargetCount_{};
     // sourceHatDirection_[s] = D-pad direction ("up", "right", ...) source button s drives, or nullptr.
-    std::array<const char*, 64> sourceHatDirection_{};
+    std::array<const char*, MapperConfig::kMaxSourceButtons> sourceHatDirection_{};
 
     FilesDisplay files_;
     std::string devices_;
@@ -320,14 +320,14 @@ private:
     };
     std::deque<TelemetryEvent> events_;
     bool eventsStarted_ = false;        // the first frame only sets the starting state
-    std::uint64_t eventButtons_ = 0;
+    SourceButtons eventButtons_;
     std::int8_t eventHat_ = -1;
     std::array<bool, 3> pedalDown_{};
     std::array<float, 3> pedalPeak_{};
     std::array<bool, 8> ffbPlaying_{};
 
 
-    std::uint64_t previousSourceButtons_ = 0;
+    SourceButtons previousSourceButtons_;
     int lastPressedSource_ = kUnmapped;
 };
 

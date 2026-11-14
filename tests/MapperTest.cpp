@@ -95,7 +95,7 @@ TEST(MapperButtons, IdentityAndRemap) {
     const Mapper mapper(config);
 
     RawInputState raw;
-    raw.buttons = (1ULL << 5) | (1ULL << 1) | (1ULL << 2);
+    raw.buttons = SourceButtons::fromBits((1ULL << 5) | (1ULL << 1) | (1ULL << 2));
     const WheelState state = mapper.map(raw);
     EXPECT_EQ(state.buttons & 1U, 1U);          // target 0 <- source 5
     EXPECT_EQ(state.buttons & 2U, 0U);          // target 1 unmapped
@@ -120,7 +120,7 @@ MapperConfig dpadAsButtons() {
 
 RawInputState withButtons(const std::uint64_t buttons) {
     RawInputState raw;
-    raw.buttons = buttons;
+    raw.buttons = SourceButtons::fromBits(buttons);
     return raw;
 }
 
@@ -165,12 +165,12 @@ TEST(MapperDevices, AccessoriesDrivePedalsButtonsAndTheDpad) {
 
     RawInputs inputs;
     inputs.devices[0].axes[1] = 1.0F;           // the wheel's axis 1: not the throttle any more
-    inputs.devices[0].buttons = 1U << 3;        // the wheel's button 3: drives target 3 only
+    inputs.devices[0].buttons = SourceButtons::fromBits(1U << 3);        // the wheel's button 3: drives target 3 only
     EXPECT_FLOAT_EQ(mapper.map(inputs).throttle, 0.5F);   // device 1's axis 1 at rest (0) = half travel
     EXPECT_EQ(mapper.map(inputs).buttons, 1U << 3);
 
     inputs.devices[1].axes[1] = 1.0F;
-    inputs.devices[2].buttons = (1U << 3) | 1U;
+    inputs.devices[2].buttons = SourceButtons::fromBits((1U << 3) | 1U);
     const WheelState state = mapper.map(inputs);
     EXPECT_FLOAT_EQ(state.throttle, 1.0F);
     EXPECT_EQ(state.buttons, (1U << 3) | (1U << 4));        // device 2's button 0 drives only the D-pad
@@ -208,11 +208,11 @@ TEST(Mapper, ATargetButtonPressedByEitherSourceAndAnAxisPastItsThreshold) {
     RawInputs inputs;
     inputs.devices[1].axes[3] = -1.0F;   // released
     EXPECT_EQ(mapper.map(inputs).buttons & (1U << 2), 0U);
-    inputs.devices[0].buttons = 1ULL << 2;   // the wheel's X
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL << 2);   // the wheel's X
     EXPECT_NE(mapper.map(inputs).buttons & (1U << 2), 0U);
-    inputs.devices[0].buttons = 1ULL << 20;   // button 20: G920 A
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL << 20);   // button 20: G920 A
     EXPECT_NE(mapper.map(inputs).buttons & 1U, 0U);
-    inputs.devices[0].buttons = 0;
+    inputs.devices[0].buttons = SourceButtons::fromBits(0);
     inputs.devices[1].axes[3] = 0.1F;   // 55% of the travel: past 50%
     EXPECT_NE(mapper.map(inputs).buttons & (1U << 2), 0U);
     inputs.devices[1].axes[3] = -0.05F;   // 47.5%: still pressed (released only below 45%)
@@ -234,9 +234,9 @@ TEST(Mapper, ManySecondariesEachAxisWithItsOwnRelease) {
     inputs.devices[0].axes[6] = -1.0F;
     const auto x = [&] { return (mapper.map(inputs).buttons & (1U << 2)) != 0; };
     EXPECT_FALSE(x());
-    inputs.devices[1].buttons = 1ULL << 4;   // the button box's button
+    inputs.devices[1].buttons = SourceButtons::fromBits(1ULL << 4);   // the button box's button
     EXPECT_TRUE(x());
-    inputs.devices[1].buttons = 0;
+    inputs.devices[1].buttons = SourceButtons::fromBits(0);
     inputs.devices[0].axes[6] = 0.6F;   // 80%: past 75%
     inputs.devices[1].axes[3] = 0.2F;   // 60%: past 50%
     EXPECT_TRUE(x());
@@ -245,7 +245,7 @@ TEST(Mapper, ManySecondariesEachAxisWithItsOwnRelease) {
     EXPECT_TRUE(x());
     inputs.devices[0].axes[6] = 0.3F;    // 65%: released too
     EXPECT_FALSE(x());
-    inputs.devices[0].buttons = 1ULL << 20;
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL << 20);
     EXPECT_TRUE(x());
 }
 
@@ -363,29 +363,41 @@ TEST(MapperAxes, OutOfRangeAxisOrDeviceStaysAtRest) {
     EXPECT_EQ(Mapper(unmapped).map(withAxis(0, 1.0F)).steering, 0.0F);
 }
 
-// Source buttons 32..63 (a button box) can drive target buttons; numbers past 63, negative ones, or on a device the
-// session does not read press nothing.
+// A Moza base reports its H-pattern shifter's gears on source buttons 112..119 (1..7, R): each drives its target.
+TEST(MapperButtons, ShifterGearsPast63DriveTargets) {
+    MapperConfig config;
+    for (int gear = 0; gear < 8; ++gear) config.buttonMap[static_cast<std::size_t>(12 + gear)] = 112 + gear;
+    const Mapper mapper(config);
+    for (int gear = 0; gear < 8; ++gear) {
+        RawInputState raw;
+        raw.buttons.set(112 + gear);
+        EXPECT_EQ(mapper.map(raw).buttons, 1U << (12 + gear)) << "gear " << gear;
+    }
+}
+
+// Source buttons 32..127 (a button box, a Moza base's shifter on 112..119) can drive target buttons; numbers past 127,
+// negative ones, or on a device the session does not read press nothing.
 TEST(MapperButtons, HighSourceButtonsAndOutOfRangeNumbers) {
     MapperConfig config;
-    config.buttonMap[0] = 63;
-    config.buttonMap[1] = 64;
+    config.buttonMap[0] = 127;
+    config.buttonMap[1] = 128;
     config.buttonMap[2] = 40;
     config.buttonDevice[2] = static_cast<int>(kMaxInputDevices);
     config.buttonMap[3] = 3;
     config.buttonDevice[3] = -1;
-    config.buttonSecondary[4][0] = ButtonSource{0, 70, false, false, 0.5F};
+    config.buttonSecondary[4][0] = ButtonSource{0, 130, false, false, 0.5F};
     config.buttonSecondary[5][0] = ButtonSource{9, 1, false, false, 0.5F};
     config.buttonMap[4] = kUnmapped;
     config.buttonMap[5] = kUnmapped;
     const Mapper mapper(config);
     RawInputState raw;
-    raw.buttons = ~std::uint64_t{0};
+    raw.buttons = SourceButtons::fromBits(~std::uint64_t{0}, ~std::uint64_t{0});
     const std::uint32_t buttons = mapper.map(raw).buttons;
-    EXPECT_NE(buttons & (1U << 0), 0U);   // source 63
-    EXPECT_EQ(buttons & (1U << 1), 0U);   // 64: past the source buttons
+    EXPECT_NE(buttons & (1U << 0), 0U);   // source 127
+    EXPECT_EQ(buttons & (1U << 1), 0U);   // 128: past the source buttons
     EXPECT_EQ(buttons & (1U << 2), 0U);   // device 4: not read
     EXPECT_EQ(buttons & (1U << 3), 0U);   // device -1
-    EXPECT_EQ(buttons & (1U << 4), 0U);   // secondary button 70
+    EXPECT_EQ(buttons & (1U << 4), 0U);   // secondary button 130
     EXPECT_EQ(buttons & (1U << 5), 0U);   // secondary on device 9
     EXPECT_NE(buttons & (1U << 31), 0U);  // the last target button, identity
 }
@@ -478,7 +490,7 @@ TEST(MapperConfig, RawInputStateComparesEveryField) {
     RawInputState a;
     RawInputState b;
     EXPECT_EQ(a, b);
-    b.buttons = 1;
+    b.buttons = SourceButtons::fromBits(1);
     EXPECT_FALSE(a == b);
     b = a;
     b.hat = 0;

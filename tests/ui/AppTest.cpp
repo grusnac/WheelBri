@@ -280,19 +280,22 @@ TEST_F(AppRun, NoWindow) {
     EXPECT_EQ(runApp(settings_), 1);
 }
 
-// The first start (no rig): the Rig tab, "NO RIG" in red, Start greyed; a click on it shows Before Start with what is
-// missing; OK, and Escape, close it. The keys and the tab buttons switch the tabs; closing the window ends the app.
+// The first start (no rig): the Rig tab, "NO RIG" in red, Start greyed, no notice above the tab bar; a click on Start
+// shows Before Start with what is missing, in red; OK, and Escape, close it. The keys and the tab buttons switch the
+// tabs; closing the window ends the app.
 TEST_F(AppRun, FirstStartWithoutRig) {
     waitFor(kNoRig);
     check([](ScriptedWindow& w) {
         EXPECT_EQ(w.find(kNoRig)->colour.r, style::kWarning.r);
-        EXPECT_TRUE(w.has("No rig yet: name your controls in the Rig tab (R).")) << w.dump();
+        EXPECT_FALSE(w.has("No rig yet: name your controls in the Rig tab (R).")) << w.dump();   // the old notice
         EXPECT_TRUE(w.has("RIG"));   // the Rig tab's heading
     });
     once([this](ScriptedWindow&) { return clickStart(); });
     waitFor("Before Start");
     check([](ScriptedWindow& w) {
-        EXPECT_TRUE(w.has("TO DO Rig: name your controls in the Rig tab (R)", true)) << w.dump();
+        const auto* const toDo = w.find("TO DO Rig: name your controls in the Rig tab (R)", true);
+        ASSERT_NE(toDo, nullptr) << w.dump();
+        EXPECT_EQ(toDo->colour.r, style::kWarning.r);
     });
     once([this](ScriptedWindow&) { return clickStart(); });   // the popup takes the click: nothing
     clickWhenShown("OK");
@@ -570,19 +573,23 @@ TEST_F(AppRun, WayNotice) {
     EXPECT_EQ(window_.notified.size(), 1U);
 }
 
-// The rig's wheel not plugged in: "NOT CONNECTED: Moza R3" and Start greyed; Before Start says to plug it in.
-// Plugged in: Ready.
+// The rig's wheel not plugged in: "NOT CONNECTED: Moza R3" and Start greyed; Before Start says to plug it in, in red
+// (no notice above the tab bar: the status and the list say it). Plugged in: Ready.
 TEST_F(AppRun, RigNotConnected) {
     setUpRig();
     listGame();
     waitFor("NOT CONNECTED: Moza R3", false);
     once([this](ScriptedWindow&) { return clickStart(); });
     waitFor("Devices: switch on or plug in Moza R3", true);
-    clickWhenShown("OK");
-    // The notice above the tab bar says it as what to do; its What's missing opens the same list.
-    waitFor("Moza R3 is not connected: switch it on or plug it in.", false);
-    clickWhenShown("What's missing");
-    waitFor("Devices: switch on or plug in Moza R3", true);
+    check([](ScriptedWindow& w) {
+        const auto* const toDo = w.find("TO DO Devices: switch on or plug in Moza R3");
+        ASSERT_NE(toDo, nullptr) << w.dump();
+        EXPECT_EQ(toDo->colour.r, style::kWarning.r);
+        const auto* const done = w.find("ok    Rig: ", true);
+        ASSERT_NE(done, nullptr) << w.dump();
+        EXPECT_EQ(done->colour.r, style::kText.r);
+        EXPECT_FALSE(w.has("not connected: switch it on", true)) << w.dump();
+    });
     clickWhenShown("OK");
     once([this](ScriptedWindow&) {
         plugWheel();
@@ -590,7 +597,6 @@ TEST_F(AppRun, RigNotConnected) {
     });
     waitFor("Ready", false, 600);
     check([](ScriptedWindow& w) {
-        EXPECT_FALSE(w.has("What's missing")) << w.dump();   // nothing blocks Start: no notice
         const auto* const start = w.find("Start");
         ASSERT_NE(start, nullptr);
         EXPECT_EQ(start->colour.r, style::kDark.r);   // on the green of a Start that can run
@@ -1271,7 +1277,7 @@ TEST_F(AppRun, SecondaryPopupTakesTheRigsTouches) {
         [&wheel, &frames](ScriptedWindow&) {
             const bool down = (++frames / 4) % 2 == 1;
             FakeDevices::shared().change(wheel, [down](FakeDevice& d) {
-                d.raw.buttons = down ? d.raw.buttons | (1ULL << 1) : d.raw.buttons & ~(1ULL << 1);
+                d.raw.buttons.set(1, down);
             });
             return uitest::nothing();
         },
@@ -1440,7 +1446,7 @@ TEST_F(SessionWindowRun, RigTab) {
     EXPECT_TRUE(frame(*host, uitest::keys("r")));
     for (int i = 0; i < 22; ++i) EXPECT_TRUE(frame(*host, uitest::nothing()));
     EXPECT_TRUE(window_.has("The running session's wheel (stop to see every device).")) << window_.dump();
-    frame_.raw.buttons = 1U << 2;   // pressed: its popup opens, ready to type
+    frame_.raw.buttons = SourceButtons::fromBits(1U << 2);   // pressed: its popup opens, ready to type
     EXPECT_TRUE(frame(*host, uitest::nothing()));
     EXPECT_TRUE(window_.has("Button 2 on Moza R3")) << window_.dump();
     ui::WindowInput typing = uitest::typed("Hornm");

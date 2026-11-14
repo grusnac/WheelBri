@@ -39,8 +39,7 @@ std::optional<float> axisValue(const RawInputs& inputs, const int device, const 
 }
 
 bool buttonDown(const RawInputs& inputs, const int device, const int button) {
-    return isValidDevice(device) && button >= 0 && button < 64 &&
-           ((inputs.devices[static_cast<std::size_t>(device)].buttons >> button) & 1U) != 0;
+    return isValidDevice(device) && inputs.devices[static_cast<std::size_t>(device)].buttons.test(button);
 }
 
 }  // namespace

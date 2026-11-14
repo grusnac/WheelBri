@@ -387,7 +387,7 @@ TEST(PushLoop, TheWindowGetsTheLatestInputAtItsFrameRate) {
 
     ASSERT_TRUE(rig.frame().ready);
     EXPECT_FLOAT_EQ(rig.frame().raw.axes[0], 0.5F);
-    EXPECT_EQ(rig.frame().raw.buttons, std::uint64_t{1} << 2);
+    EXPECT_EQ(rig.frame().raw.buttons, SourceButtons::fromBits(std::uint64_t{1} << 2));
     EXPECT_FALSE(rig.frame().ffb.has_value());   // no game force feedback in this session
 }
 

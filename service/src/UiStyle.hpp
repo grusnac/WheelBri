@@ -33,7 +33,6 @@ inline constexpr ui::Colour kCaution{224, 160, 32};     // amber: check this, yo
 inline constexpr ui::Colour kCautionBack{42, 36, 22};   // behind an amber notice
 inline constexpr ui::Colour kMine{180, 140, 255};       // violet: yours (a value you changed, or set for one game)
 inline constexpr ui::Colour kWarning{232, 86, 76};      // red: broken
-inline constexpr ui::Colour kWarningBack{46, 27, 28};   // behind a red notice
 inline constexpr ui::Colour kDark{16, 18, 20};          // text on a blue or green fill
 
 // The Mapping tab's Shadow view (ShadowView.hpp): the target drawn as flat shapes, a shade or two off the background;

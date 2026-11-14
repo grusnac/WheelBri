@@ -237,11 +237,13 @@ bool DinputReader::read(RawInputState& state) {
         const float value = static_cast<float>(axisValue(s, impl_->axes[i].offset)) / 32767.0F;
         state.axes[i] = std::clamp(value, -1.0F, 1.0F);
     }
-    std::uint64_t pressed = 0;
-    const std::size_t buttonCount = std::min<std::size_t>(impl_->buttons.size(), 64);
+    SourceButtons pressed;
+    // All of DIJOYSTATE2's 128 (a Moza base reports its shifter's gears on 112..119).
+    const std::size_t buttonCount = std::min<std::size_t>(impl_->buttons.size(), SourceButtons::kCount);
     for (std::size_t i = 0; i < buttonCount; ++i) {
-        if (s.rgbButtons[impl_->buttons[i].offset - DIJOFS_BUTTON0] != 0) {
-            pressed |= 1ULL << i;
+        const std::size_t at = impl_->buttons[i].offset - DIJOFS_BUTTON0;
+        if (at < std::size(s.rgbButtons) && s.rgbButtons[at] != 0) {
+            pressed.set(static_cast<int>(i));
         }
     }
     state.buttons = pressed;

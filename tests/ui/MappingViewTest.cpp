@@ -181,7 +181,7 @@ TEST_F(LiveView, TargetButtonsShowTheGamesNumbers) {
     view->showShadow(false);   // the List view (the G25 starts with its Shadow view)
     RawInputs inputs;
     draw(*view, inputs);
-    inputs.devices[0].buttons = 1ULL << 34;
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL << 34);
     draw(*view, inputs);
     EXPECT_TRUE(window_.has("Last pressed: G25 7 R Wheel <- Rig 34 R")) << window_.dump();
     EXPECT_TRUE(window_.has("G25  7 R Wheel  <- Rig 34 R", true)) << window_.dump();
@@ -190,9 +190,9 @@ TEST_F(LiveView, TargetButtonsShowTheGamesNumbers) {
     auto native = makeView(8, 40, mapper);
     native->setTab(MappingView::Tab::Mapping);
     native->setButtonOrder(ButtonOrder::Native);
-    inputs.devices[0].buttons = 0;
+    inputs.devices[0].buttons = SourceButtons::fromBits(0);
     draw(*native, inputs);
-    inputs.devices[0].buttons = 1ULL << 34;
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL << 34);
     draw(*native, inputs);
     EXPECT_TRUE(window_.has("Last pressed: G25 6 R Wheel <- Rig 34 R")) << window_.dump();
     EXPECT_TRUE(window_.has("G25  6 R Wheel  <- Rig 34 R", true)) << window_.dump();
@@ -566,16 +566,16 @@ TEST_F(LiveView, MappingTabShowsEverySource) {
     EXPECT_FALSE(window_.has("Rig 19", true)) << window_.dump();
     EXPECT_TRUE(window_.has("Rig 12", true)) << window_.dump();
     // Buttons pressed: 0 (two targets), 4 (D-pad right and a target), 12 (D-pad up), 15 (nothing... 15 is target 15).
-    inputs.devices[0].buttons = 1ULL;
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL);
     draw(*view, inputs, state, report);
     EXPECT_TRUE(window_.has("Last pressed: G920 1 A <- Rig 0 Cross  (and others)")) << window_.dump();
-    inputs.devices[0].buttons = 1ULL | (1ULL << 4);
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL | (1ULL << 4));
     draw(*view, inputs, state, report);
     EXPECT_TRUE(window_.has("Last pressed: G920 D-pad right <- Rig 4  (and a button: check [buttons])")) << window_.dump();
-    inputs.devices[0].buttons = 1ULL << 12;
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL << 12);
     draw(*view, inputs, state, report);
     EXPECT_TRUE(window_.has("Last pressed: G920 D-pad up <- Rig 12")) << window_.dump();
-    inputs.devices[0].buttons = 1ULL << 19;   // target 19 has no name on the G920: not mapped
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL << 19);   // target 19 has no name on the G920: not mapped
     draw(*view, inputs, state, report);
     EXPECT_TRUE(window_.has("Last pressed: Rig 19  (not mapped to any G920 button)")) << window_.dump();
     // A warning about the devices, red; no devices: the hint.
@@ -613,7 +613,7 @@ TEST_F(LiveView, SecondaryOnlyRigButtonIsMapped) {
     draw(*view, inputs);
     EXPECT_TRUE(window_.has("Rig 5", true)) << window_.dump();
     EXPECT_TRUE(window_.has("G920  3 X", true)) << window_.dump();
-    inputs.devices[0].buttons = 1ULL << 5;
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL << 5);
     draw(*view, inputs);
     EXPECT_TRUE(window_.has("Last pressed: G920 3 X <- Rig 5")) << window_.dump();
 }
@@ -805,7 +805,7 @@ TEST_F(LiveView, TelemetryTabEvents) {
     files.telemetryStatus = "off in the config";
     view->setFiles(files);
     RawInputs inputs;
-    inputs.devices[0].buttons = 1ULL << 5;   // held when the window opens: not an event
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL << 5);   // held when the window opens: not an event
     WheelState state;
     TargetReport report;
     draw(*view, inputs, state, report);
@@ -823,12 +823,12 @@ TEST_F(LiveView, TelemetryTabEvents) {
     controller.onPacket(packet, 1'000'000);
     controller.update(2'000'000);
     FfbDisplay ffb{&controller, "", false, 3'000'000};
-    inputs.devices[0].buttons = (1ULL << 0) | (1ULL << 12) | (1ULL << 19);
+    inputs.devices[0].buttons = SourceButtons::fromBits((1ULL << 0) | (1ULL << 12) | (1ULL << 19));
     report.hat = 0;
     state.throttle = 0.6F;
     draw(*view, inputs, state, report, ffb);
     state.throttle = 0.9F;
-    inputs.devices[0].buttons = 1ULL << 0;
+    inputs.devices[0].buttons = SourceButtons::fromBits(1ULL << 0);
     report.hat = -1;
     draw(*view, inputs, state, report, ffb);
     state.throttle = 0.0F;
@@ -864,7 +864,7 @@ TEST_F(LiveView, TelemetryTabEvents) {
     EXPECT_TRUE(window_.has("-"));
     // More events than fit: the newest shown.
     for (int i = 0; i < 260; ++i) {
-        inputs.devices[0].buttons ^= 1ULL << 2;
+        inputs.devices[0].buttons.set(2, !inputs.devices[0].buttons.test(2));
         draw(*view, inputs, state, report, ffb);
     }
 }
@@ -992,17 +992,15 @@ TEST_F(LiveView, NewMappingIsShown) {
 }
 
 // A pane of the window (the app's side by side): the view draws as if it were the whole window, its width the pane's,
-// every draw call moved right by the pane's left edge; the bottom reserve is the window's.
+// every draw call moved right by the pane's left edge.
 TEST_F(LiveView, PaneWindowMovesTheDrawing) {
     window_.setSize(1920, 748);
-    window_.setBottomReserve(26);
     ui::PaneWindow pane(window_);
     EXPECT_FLOAT_EQ(pane.width(), 1920.0F);
     pane.place(960, 960);
     EXPECT_FLOAT_EQ(pane.left(), 960.0F);
     EXPECT_FLOAT_EQ(pane.width(), 960.0F);
     EXPECT_FLOAT_EQ(pane.height(), 748.0F);
-    EXPECT_FLOAT_EQ(pane.bottomReserve(), 26.0F);
     window_.clearDrawing();
     pane.setOrigin(0, 10);
     pane.text(4, 4, "pane", style::kText);

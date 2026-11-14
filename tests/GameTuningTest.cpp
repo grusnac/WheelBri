@@ -368,7 +368,7 @@ TEST(GameTuning, SecondariesKeys) {
     t = tuned("button_4_or", "-1", &why);
     EXPECT_EQ(why, "");
     EXPECT_TRUE(t.secondaries.at(4).empty());
-    for (const char* bad : {"two", "1,,2", "-1, 4", "axis 3 > 150%", "64"}) {
+    for (const char* bad : {"two", "1,,2", "-1, 4", "axis 3 > 150%", "128"}) {
         EXPECT_TRUE(tuned("button_4_or", bad, &why).empty()) << bad;
         EXPECT_FALSE(why.empty()) << bad;
     }

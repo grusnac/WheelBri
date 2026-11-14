@@ -23,8 +23,7 @@ void EmulatedPushDevice::moveAxis(const std::uint64_t atNs, const int axis, cons
 void EmulatedPushDevice::setButton(const std::uint64_t atNs, const int button, const bool pressed) {
     if (!times_.empty() && atNs < times_.back()) throw std::invalid_argument("changes must be scheduled in time order");
     RawInputState next = states_.empty() ? RawInputState{} : states_.back();
-    const std::uint64_t bit = std::uint64_t{1} << button;
-    next.buttons = pressed ? (next.buttons | bit) : (next.buttons & ~bit);
+    next.buttons.set(button, pressed);
     times_.push_back(atNs);
     states_.push_back(next);
 }

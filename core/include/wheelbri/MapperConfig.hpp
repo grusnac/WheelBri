@@ -34,7 +34,7 @@ struct SteeringConfig {
     float targetRotationDeg = 900.0F;
     bool invert = false;
     // No dead zone here (since 2026-10-13): the axis is used as the device reports it. A dead zone belongs in the
-    // device's own software (Pit House for Moza); the config's old "deadzone" key is read and ignored.
+    // device's own software; the config's old "deadzone" key is read and ignored.
     friend bool operator==(const SteeringConfig&, const SteeringConfig&) = default;
 };
 
@@ -89,7 +89,7 @@ struct AutoInputs {
 
 struct MapperConfig {
     static constexpr std::size_t kMaxTargetButtons = 32;
-    static constexpr std::size_t kMaxSourceButtons = 64;   // source buttons the mapping can use (0..63)
+    static constexpr std::size_t kMaxSourceButtons = SourceButtons::kCount;   // source buttons the mapping can use (0..127)
     static constexpr std::size_t kMaxAccessories = kMaxInputDevices - 1;
     static constexpr std::size_t kMaxSecondaries = 8;   // per target button (fixed: the service loop never allocates)
 
