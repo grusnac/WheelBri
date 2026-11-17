@@ -59,10 +59,11 @@ Targets: G920 (default), G923, G25, G27; the user cannot add targets.
 
 - Verified (Windows 11, Moza R3): all four targets in Mode Virtual in ACC and DiRT Rally 2.0; G920 in NFS 2015, Payback,
   Heat and Unbound (Mode Shim too, except Payback); G25 in Race Driver: GRID, both Modes. Steam Deck (SteamOS 3.8, Proton,
-  Game Mode too): ACC all four targets (Virtual); NFS 2015 (G920) and GRID (G25), both Modes.
+  Game Mode too): ACC all four targets (Virtual); NFS 2015 (G920) and GRID (G25), both Modes. Windows 7 SP1 (Mode
+  Shim): G25 in NFS Underground, Underground 2, Most Wanted (2005) and Carbon.
   `README.md` Status is the source: change it there first, then here.
-- Not verified: DiRT Rally 2.0 and NFS Heat, Unbound, Payback on Linux; Windows 7, 8, 8.1 and 10; button orders on
-  real Logitech wheels.
+- Not verified: DiRT Rally 2.0 and NFS Heat, Unbound, Payback on Linux; other games on Windows 7; Windows 8, 8.1
+  and 10; button orders on real Logitech wheels.
 - Mode Shim is for older DirectInput games only; ACC, DiRT Rally 2.0 and games using Logitech's SDK DLL don't take it.
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`. Consumer: `dinput8.dll` shim in

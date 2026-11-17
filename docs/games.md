@@ -100,17 +100,18 @@ G920 only, by themselves while the game runs.
   (`fullscreen="false"` in `Documents\Codemasters\GRID\hardwaresettings\hardware_settings_config.xml`) may avoid it.
   For 1440p, delete `system\hardware_settings_restrictions.xml` (editing it crashed the game at start).
 
-## NFS Underground, Underground 2, Most Wanted (2005)
+## NFS Underground, Underground 2, Most Wanted (2005), Carbon
 
 - **Set up:** nothing; set the wheel controls in the game's own menu.
 - **Profile:** combined pedals (every Target): the games read throttle and brake from one axis, and with separate
   pedals their menus scroll by themselves. Underground and Most Wanted are both `speed.exe`: the Games tab lists them
   apart (**NFS U1**, **NFS MW**). A `speed.exe` with `dimap.dll` in its folder is Underground, any other Most Wanted.
-- **Known:** Windows 7, Mode Shim, G25: separate pedals scrolled the menus in Underground and Most Wanted; combined pedals
-  work in Most Wanted (Underground not yet tried).
-- **Steering dead zone:** the games ignore the first part of the turn each way (Most Wanted checked: Windows 7, Mode
-  Shim, G25; the Widescreen Fix's `LeftStickDeadzone = 0` and taking the Fix out changed nothing). Set
-  **Anti-dead zone** for the game (Games tab) to just under where the car starts to turn.
+- **Carbon:** no built-in profile.
+- **Known:** Windows 7, Mode Shim, G25: all four work. Separate pedals scrolled the menus in Underground and Most
+  Wanted; combined pedals fix it.
+- **Steering dead zone:** the games ignore the first part of the turn each way (the Widescreen Fix's
+  `LeftStickDeadzone = 0` and taking the Fix out changed nothing). Set **Anti-dead zone** for the game (Games tab) to
+  just under where the car starts to turn: checked in all four, Windows 7, Mode Shim, G25.
 
 ## Widescreen Fixes (ThirteenAG)
 
@@ -123,7 +124,8 @@ G920 only, by themselves while the game runs.
 
 - **On Linux:** DiRT Rally 2.0, NFS Heat, Unbound and Payback (Payback is not expected to work: Proton has no
   Logitech DLL).
-- **Windows 7, 8, 8.1 and 10** (Mode Shim only).
+- **Windows 7:** games other than the old NFS ones above.
+- **Windows 8, 8.1 and 10** (Mode Shim only).
 - **Other games** that support a Logitech wheel should work in Mode Virtual. One that reads the pedals differently
   needs a small game profile, as NFS 2015 does.
 

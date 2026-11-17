@@ -42,7 +42,8 @@ Two Modes:
 | Steam Deck (SteamOS 3.8, Proton), Mode Virtual | **works** in ACC (all four Targets), NFS 2015 (G920) and Race Driver: GRID (G25), Game Mode too |
 | Steam Deck (SteamOS 3.8, Proton), Mode Shim | **works** in NFS 2015 (G920) and Race Driver: GRID (G25, 32-bit), Game Mode too |
 | Linux, not tried | DiRT Rally 2.0, NFS Heat, Unbound, Payback |
-| Windows 7, 8, 8.1 and 10 (Mode Shim only) | built, **not yet tried** |
+| Windows 7 SP1, Mode Shim | **works** in NFS Underground, Underground 2, Most Wanted (2005) and Carbon (G25) |
+| Windows 8, 8.1 and 10 (Mode Shim only) | built, **not yet tried** |
 | Button orders | from public sources; **not yet checked on real Logitech wheels** |
 
 ## What's new in 1.0.4
