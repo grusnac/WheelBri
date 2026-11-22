@@ -54,8 +54,10 @@ A new area file gets a row here.
 
 ## Project
 
-Makes the user's rig (wheel + accessories, Rig tab) look like a Logitech wheel to games, Windows and Linux/Proton.
-Targets: G920 (default), G923, G25, G27; the user cannot add targets.
+Makes the user's rig (wheel + accessories, Rig tab) look like a wheel games know (the Target) to games, Windows and
+Linux/Proton. Not tied to one wheel maker: Targets today G920 (default), G923, G25, G27 (Logitech); Thrustmaster ones
+planned. The user cannot add targets. User-facing text and trademark notes stay maker-neutral ("any wheel maker",
+"trademarks of their owners").
 
 - Verified (Windows 11, Moza R3): all four targets in Mode Virtual in ACC and DiRT Rally 2.0; G920 in NFS 2015, Payback,
   Heat and Unbound (Mode Shim too, except Payback); G25 in Race Driver: GRID, both Modes. Steam Deck (SteamOS 3.8, Proton,
@@ -192,8 +194,8 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
   controller. The anti-dead zone (`AntiDeadZone.hpp`) is not one: it makes up for a game's own dead zone.
 - Force feedback strength, per-effect gains, caps or on/off per game, or WheelBri's own master gain: the game's and
   the wheel's own app's to set. The fixed safety guards stay; nothing to tune them in the app.
-- Auto-map beyond the core inputs (`AutoMap.hpp`: steering, pedals, D-pad, A/B/X/Y, paddles, from the Rig's "It is"):
-  every other button is the user's to map; Invert is never taken from the Rig.
+- Auto-map beyond the core inputs (`AutoMap.hpp`: steering, pedals, D-pad, A/B/X/Y, paddles, H-shifter gears, from
+  the Rig's "It is"): every other button is the user's to map; Invert is never taken from the Rig.
 - HidHide, ViGEm, HIDMaestro or any third-party runtime tool or driver.
 - Any SDK for the wheel's own software: WheelBri never reads or sets it.
 - Hiding Steam's virtual pad on the Deck, or advising to turn Steam Input off.

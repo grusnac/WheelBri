@@ -1,6 +1,6 @@
 # Targets
 
-The **Target** is the Logitech wheel games see. Pick it on the Mapping tab (fixed while running); each Target keeps a
+The **Target** is the wheel games see (today a Logitech one). Pick it on the Mapping tab (fixed while running); each Target keeps a
 mapping of its own (`my-<target>.ini`). One page per Target:
 
 | Target | Page | Pick it for | Ids | Buttons |
@@ -34,8 +34,9 @@ has been checked against a real Logitech wheel.
   With **Combined pedals** on (Mapping tab, or a game's own), as Logitech's "Report Combined Pedals": the Throttle axis
   carries throttle and brake (middle at rest), the Brake axis rests in the middle, the clutch is unchanged.
 
-- **The Rig maps the core controls by itself** on every Target: Steering, the pedals, the D-pad, A, B, X, Y and the
-  paddles. Every other button you map on the Mapping tab.
+- **The Rig maps the core controls by itself** on every Target: Steering, the pedals, the D-pad, A, B, X, Y, the
+  paddles and an H-pattern shifter's gears (on a Target with a shifter; Gear 7 has none on the Logitech ones). Every
+  other button you map on the Mapping tab.
 - **Button numbers in the app** are the ones the game uses: from 1 (as `joy.cpl` and games count), from 0 in the
   G25's and G27's **Native** order. The INI's `target_N` always counts from 0.
 - **Force feedback** through WheelBri's safety limits ([user-guide.md](user-guide.md#force-feedback)). On Windows, a

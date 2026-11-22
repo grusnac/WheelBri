@@ -1,6 +1,6 @@
 # WheelBri user guide
 
-How to set up your rig, map it to a Logitech wheel and play. Installing: [install.md](install.md). Everything WheelBri
+How to set up your rig, map it to a Target (the wheel games see) and play. Installing: [install.md](install.md). Everything WheelBri
 can do on one page: [capabilities.md](capabilities.md). Per-game notes: [games.md](games.md).
 
 - [Set up your rig](#set-up-your-rig)
@@ -17,7 +17,7 @@ can do on one page: [capabilities.md](capabilities.md). Per-game notes: [games.m
 
 Two choices decide how WheelBri works:
 
-- **Target**: the Logitech wheel games see. **G920** (default) and **G923** for modern games; **G25** and **G27** for
+- **Target**: the wheel games see. **G920** (default) and **G923** for modern games; **G25** and **G27** for
   older ones, or games whose presets know only those. Which to pick, and each one's buttons: [targets.md](targets.md)
   ([G920](target-g920.md), [G923](target-g923.md), [G25](target-g25.md), [G27](target-g27.md)).
 - **Mode**: **Virtual** creates the Target as a virtual wheel every game sees and hides your rig while WheelBri runs;
@@ -42,8 +42,9 @@ on it when it starts.
 
 ![The popup for a button](images/rig-button-mapping.png)
 
-What a control **is** maps it by itself on every Target: Steering, the pedals, the D-pad, **A**, **B**, **X**, **Y**
-and the paddles (on the G25 and G27, A B X Y go on the shifter's black buttons). Each belongs to one control: a choice
+What a control **is** maps it by itself on every Target: Steering, the pedals, the D-pad, **A**, **B**, **X**, **Y**,
+the paddles (on the G25 and G27, A B X Y go on the shifter's black buttons) and the gears, **Gear 1** to **Gear 7**
+and **Reverse**, on the Target's shifter (the Logitech Targets have 6 gears and R: Gear 7 maps nowhere). Each belongs to one control: a choice
 underlined in amber is another control's already (point at it to see whose), and picking it moves it here. Every other
 button you map yourself.
 
@@ -148,7 +149,7 @@ red).
    has the wheel open and will not let go (often a web browser: Firefox opens every game controller), Start
    reconnects the wheel's USB port, as if it were unplugged, and the program loses it. Only if the USB hub cannot do
    that does Start fail, naming the program: close it and press Start again.
-3. Start the game and pick the Logitech wheel in its controller settings.
+3. Start the game and pick the Target's wheel in its controller settings.
 4. **Stop** reconnects the wheel unhidden.
 
 **Mode Shim**
@@ -161,7 +162,7 @@ red).
    shim** gives it its name back. An old Ultimate ASI Loader (a Widescreen Fix from 2023, for Windows 7) is renamed
    to `d3d9.dll` instead. Only a mod built for the other processor than the game is left alone (that game is left
    out), or an old ASI Loader when `d3d9.dll` is taken.
-3. Start the game and pick the Logitech wheel. If it runs 2 minutes without a word from the shim, WheelBri warns you:
+3. Start the game and pick the Target's wheel. If it runs 2 minutes without a word from the shim, WheelBri warns you:
    check its folder on the Games tab and restart the game.
 4. At **Stop**, choose whether to delete the shims from the games' folders.
 
@@ -272,7 +273,7 @@ Options go between `wheelbri.sh` and `%command%`, e.g.
 |---|---|---|
 | `--virtual` | yes | Mode Virtual: `wheelbri-uhid` creates the virtual wheel; the game reads it raw (Proton's `PROTON_ENABLE_HIDRAW`) and your rig is hidden from it. A WheelBri shim left in the game's folder is taken out first. |
 | `--shim` | | Mode Shim: puts `dinput8.dll` (32 or 64-bit, as the game's `.exe`; `dinput8Hooked.dll` next to the Ultimate ASI Loader) and `wheelbri-shim.ini` into the game's folder before it starts and takes them out after. Another mod's `dinput8.dll` is chained (as Start in the app does) and given back after; one built for the other processor is refused. |
-| `--target g25\|g27\|g920\|g923` | the app's Mapping tab Target, else G920 | The Logitech wheel the game sees. |
+| `--target g25\|g27\|g920\|g923` | the app's Mapping tab Target, else G920 | The wheel the game sees. |
 | `--order logitech\|native` | the app's Mapping tab Order for the Target, else the mapping's | G25 and G27: the button order the game sees, **Logitech** (as Logitech's driver numbers them) or **Native** (the wheel's own). Ignored for the G920 and G923. |
 | `--config FILE` | your saved mapping for the Target (`~/.config/wheelbri/configs/my-<target>.ini`), else WheelBri's default | The mapping to use. |
 | `--hide VID/PID[,VID/PID...]` | every device of your rig (Rig tab) | Devices hidden from the game in Mode Virtual, e.g. `--hide 0x346E/0x0005` for a Moza R3. Steam's own pad is never hidden. |
@@ -383,10 +384,10 @@ Games tab must say "shim in place"; with a non-Moza wheel check `source_vid`. Al
 [games.md](games.md).
 
 **The game sees two wheels.** Mode Virtual: close the wheel maker's software and the game, replug the device, Start
-again. Mode Shim hides nothing: pick the Logitech wheel.
+again. Mode Shim hides nothing: pick the Target's wheel.
 
 **The game drives from a gamepad or keyboard.** Close the game, unplug the gamepad, start the game again and pick the
-Logitech wheel.
+Target's wheel.
 
 **No force feedback, but the wheel works.** Alt+Tab if the status says so; check force feedback is on in the game and
 the wheel's software and `game_effects = true`; try `--ffb-test`.

@@ -126,7 +126,7 @@ G920 only, by themselves while the game runs.
   Logitech DLL).
 - **Windows 7:** games other than the old NFS ones above.
 - **Windows 8, 8.1 and 10** (Mode Shim only).
-- **Other games** that support a Logitech wheel should work in Mode Virtual. One that reads the pedals differently
+- **Other games** that support one of the Targets' wheels should work in Mode Virtual. One that reads the pedals differently
   needs a small game profile, as NFS 2015 does.
 
 ## Reporting a game

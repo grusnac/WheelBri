@@ -1,6 +1,6 @@
 ---
 name: target-wheel-spike
-description: WheelBri only. Use before adding a new target wheel or improving one (G25, G27, G920, G923): pick a reference game that uses the wheel fully, prove the wheel's whole footprint and the game's whole use of it, and block any change until both are known with high certainty.
+description: WheelBri only. Use before adding a new target wheel or improving one, of any wheel maker (Logitech G25, G27, G920, G923; Thrustmaster): pick a reference game that uses the wheel fully, prove the wheel's whole footprint and the game's whole use of it, and block any change until both are known with high certainty.
 ---
 
 # Target wheel spike
@@ -14,8 +14,19 @@ signal), and everything a **reference game** does with it.
 
 - Root `CLAUDE.md` and the area files touched apply.
 - Ask: which wheel; new or improving; what triggered it; anything to skip.
-- User has no real Logitech wheel (rig: Moza R3): wheel facts from sources, game and WheelBri facts measured.
+- User has no real target wheel (rig: Moza R3): wheel facts from sources, game and WheelBri facts measured.
   Never a guess as a fact.
+
+## 0a. Claims (every answer, plan and report)
+
+- A conclusion (what works, in which Mode, what is needed) carries its proof level and basis, like a fact. Resting
+  on an untested premise, it is written as an open question ("Mode Virtual: open, depends on X"), never as an answer
+  ("Shim only").
+- What WheelBri can do is checked in its code (§2) before any claim about Modes, drivers or force feedback paths.
+- Before stating a conclusion, grep the plans and spikes for earlier statements on the same point. A new fact that
+  changes one: fix every place in the same step, and tell the user as a correction ("Earlier: X. Now: Y, because Z").
+- Before sending a plan or report: one consistency pass over it (each Mode, driver and FFB claim said once, the same
+  everywhere).
 
 ## 1. Gate
 
@@ -29,7 +40,7 @@ All true, then the user says it passed:
 - Trace matrix (§6) has no empty cell.
 - Nothing the reference game uses rests on One source or Guess.
 
-Proof levels: **Measured** (log/capture + line), **Logitech** (official doc, SDK header, INF), **Two sources**
+Proof levels: **Measured** (log/capture + line), **Maker** (the wheel maker's official doc, SDK header, INF), **Two sources**
 pass; **One source**, **Guess** don't.
 Allowed before the gate, with the user's OK only: logging-only diagnostic tooling, off by default, invisible to the
 game, committed as such.
@@ -40,6 +51,8 @@ Note what the target (or, for a new one, the closest target as template) does no
 `docs/targets.md`, `docs/target-<target>.md`, `docs/games.md`, `config/<target>.ini`, `config/games/*.ini`; `<target>Spec()` in
 `core/src/DeviceProfile.cpp`; `VirtualWheel` in `HidWheelDevice.hpp`; `HidPid`, `HidPp`, `HidPpFfb`,
 `TrueForce*`, `LogiSdk`, `EmulatedJoystick` (shim) headers; `tools/uhid/UhidWheel.hpp`; `driver/Driver.cpp`.
+Per Mode (Shim, Virtual Windows, Virtual Linux): which mechanism would carry the target (identity, input, force
+feedback driver, e.g. `LogitechFfbDriver.hpp`'s HID PID fallback) and what it needs from the maker, with proof.
 
 ## 3. Reference game
 
@@ -56,10 +69,11 @@ FFB effect, LEDs, Logitech SDK, HID++ / G HUB, TrueForce, mode switches.
 
 Each mode is its own footprint (G920 Xbox/PC, G923 Xbox/PS, G25/G27 compatibility/native).
 
-Sources, in order: Logitech (logitechg.com; G920 = Xbox version, never G29; manuals, FAQs, LGS / G HUB INFs, Steering
-Wheel and TrueForce SDK docs and headers; support archive); real-device dumps (linux-hardware.org, `usb.ids`,
+Sources, in order: the maker. Logitech (logitechg.com; G920 = Xbox version, never G29; manuals, FAQs, LGS / G HUB INFs, Steering
+Wheel and TrueForce SDK docs and headers; support archive); Thrustmaster (support.thrustmaster.com manuals, FAQs,
+Unified Drivers package INFs and registry, Control Panel); real-device dumps (linux-hardware.org, `usb.ids`,
 `lsusb -v`, `usbhid-dump`, USBPcap); open drivers, **facts only, never copy** (Linux `hid-lg4ff`,
-`hid-logitech-hidpp`, `hid-lg`, new-lg4ff GPLv2; Oversteer, GIMX GPLv3; flag before taking any code); games' data;
+`hid-logitech-hidpp`, `hid-lg`, new-lg4ff, `hid-tmff`, `hid-thrustmaster`, `hid-tmff2` GPLv2; Oversteer, GIMX GPLv3; flag before taking any code); games' data;
 community last (needs a second source). CAPTCHA: send the user the link. Keep a source list (URL + what it gave).
 
 - **Identity.** USB: VID, PID per mode, `bcdDevice`/firmware, `bcdUSB`, class, power, speed, strings, interfaces,
@@ -103,7 +117,8 @@ exercised" row per unused capability. Differences = gap list.
 
 ## 7. Report
 
-`Claude outputs/spikes/<target>-spike.md`: summary with gate status per item; capability × game table; footprints
+`Claude outputs/spikes/<target>-spike.md`: summary with gate status per item; Mode table (`Mode | Works | Basis |
+Proof`); capability × game table; footprints
 (one fact per line, source, proof level); trace matrix; gaps (`Item | Real | WheelBri | Effect on game | Change |
 Size`); open questions with how to close each; after the gate only, steps as small commits with the CLAUDE.md
 checklists they hit (new target: `DeviceProfileSpec` in `makeProfile()` + `VirtualWheel`, `config/<target>.ini`,
@@ -113,5 +128,5 @@ Send path + summary. Gate open: say what's missing and keep investigating. Passe
 ## 8. After the gate
 
 - Check each change in the reference game against the trace matrix; a difference reopens its row.
-- Only confirmed facts go into `docs/targets.md` and `docs/target-<target>.md`. Never ship or copy Logitech DLLs or GPL code.
+- Only confirmed facts go into `docs/targets.md` and `docs/target-<target>.md`. Never ship or copy a maker's DLLs or GPL code.
 - Per step: edit, build, tests separately (errors/failures only), git commands for one small commit.

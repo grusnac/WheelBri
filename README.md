@@ -1,7 +1,8 @@
 # WheelBri
 
-WheelBri presents your rig (a wheel and its pedals, shifter or button box) to PC games as a Logitech **G25**, **G27**,
-**G920** or **G923**, so games that only know Logitech wheels accept yours, with force feedback. Windows and Linux
+WheelBri presents your rig (a wheel and its pedals, shifter or button box) to PC games as a racing wheel they know,
+today a Logitech **G25**, **G27**, **G920** or **G923**, so games that don't know your wheel accept it, with force
+feedback. It is not tied to one wheel maker. Windows and Linux
 (Proton, Steam Deck). Built and tested with a **Moza R3**; other wheels should work but are untried.
 
 ## Documentation
@@ -11,7 +12,7 @@ WheelBri presents your rig (a wheel and its pedals, shifter or button box) to PC
 | [Install](docs/install.md) | setup wizard, uninstaller, scripted install, Windows 7 to 10, Linux |
 | [User guide](docs/user-guide.md) | set up the rig, map it, play, force feedback, troubleshoot |
 | [Capabilities](docs/capabilities.md) | everything WheelBri can do, on one page |
-| [Targets](docs/targets.md) | which Logitech wheel to pick: [G920](docs/target-g920.md), [G923](docs/target-g923.md), [G25](docs/target-g25.md), [G27](docs/target-g27.md) |
+| [Targets](docs/targets.md) | which wheel to pick: [G920](docs/target-g920.md), [G923](docs/target-g923.md), [G25](docs/target-g25.md), [G27](docs/target-g27.md) |
 | [Games](docs/games.md) | what was tested and what each game needs |
 | [Building](docs/building.md) | build, drivers, packaging, code layout |
 | [Changelog](CHANGELOG.md) | what changed in each release |
@@ -19,12 +20,12 @@ WheelBri presents your rig (a wheel and its pedals, shifter or button box) to PC
 ## How it works
 
 1. **Rig tab**: touch each control and say what it is (Steering, Throttle, A, Left paddle...).
-2. **Mapping tab**: pick the **Target** (the Logitech wheel games see) and the **Mode**, check the mapping.
-3. **Start**, then start the game and pick the Logitech wheel.
+2. **Mapping tab**: pick the **Target** (the wheel games see) and the **Mode**, check the mapping.
+3. **Start**, then start the game and pick the Target's wheel.
 
 Two Modes:
 
-- **Virtual** (recommended): a virtual Logitech wheel every game sees; your rig is hidden from games while it runs.
+- **Virtual** (recommended): a virtual wheel (the Target) every game sees; your rig is hidden from games while it runs.
   Windows 11 and Linux.
 - **Shim**: a `dinput8.dll` next to one game's `.exe` answers as the wheel inside that game. For older DirectInput
   games only: modern ones (ACC, DiRT Rally 2.0) and games that read the wheel through Logitech's SDK DLL don't take
@@ -153,9 +154,10 @@ comes from HIDMaestro's builder (MIT), HID++ from its public description. WheelB
 
 ### Trademarks
 
-WheelBri is an independent project, **not affiliated with, endorsed or sponsored by Logitech**. Logitech, G HUB, G25,
-G27, G920, G923 and TrueForce are trademarks of Logitech; Moza is a trademark of its owner. The names are used only to
-say which wheels WheelBri presents your rig as, and which it was tested with.
+WheelBri is an independent project, **not affiliated with, endorsed or sponsored by any wheel maker**, Logitech
+included. Logitech, G HUB, G25, G27, G920, G923 and TrueForce are trademarks of Logitech; Moza is a trademark of its
+owner; other wheel and brand names are trademarks of their owners. The names are used only to say which wheels
+WheelBri presents your rig as, and which it was tested with.
 
 ### Safety
 
