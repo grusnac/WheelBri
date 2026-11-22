@@ -17,6 +17,11 @@ void forEachAutoInput(AutoMapping& out, const IDeviceProfile& profile, const Tak
         if (target < 0 || static_cast<std::size_t>(target) >= out.buttons.size()) continue;
         take(kCoreButtonKinds[c], false, out.buttons[static_cast<std::size_t>(target)]);
     }
+    for (std::size_t g = 0; g < kGearCount; ++g) {
+        const int target = profile.gearButton(g);
+        if (target < 0 || static_cast<std::size_t>(target) >= out.buttons.size()) continue;
+        take(kGearKinds[g], false, out.buttons[static_cast<std::size_t>(target)]);
+    }
 }
 
 }  // namespace
@@ -28,7 +33,7 @@ bool isAutoKind(const std::string_view kind) {
         }
         return false;
     };
-    return !kind.empty() && (in(kAutoAxisKinds) || in(kAutoHatKinds) || in(kCoreButtonKinds));
+    return !kind.empty() && (in(kAutoAxisKinds) || in(kAutoHatKinds) || in(kCoreButtonKinds) || in(kGearKinds));
 }
 
 AutoMapping autoMapping(const Rig& rig, const IDeviceProfile& profile, const DeviceId& wheel) {
