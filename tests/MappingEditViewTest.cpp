@@ -1353,9 +1353,9 @@ TEST_F(EditView, AGameTheTargetDoesNotSupport) {
     frame();
     EXPECT_TRUE(window_.hasPart("! NFS Unbound does not support the G923"));
     picker_->useTarget(ConfigPicker::Target::G25);
-    open();   // nothing picked yet: the first game for the G25 (NFS MW fits every target)
+    open();   // nothing picked yet: the first game for the G25 (GRID's profile is for it)
     games();
-    EXPECT_TRUE(window_.has("program speed.exe"));
+    EXPECT_TRUE(window_.has("program grid.exe"));
 }
 
 // The Axes sub-tab: the game's own steering rotation (typed, "off", Default), each pedal's axis (< >, the clutch also
@@ -2427,7 +2427,7 @@ TEST_F(EditView, AnAddedGameWithABuiltInProfilesIdOrProgram) {
     games();
     EXPECT_TRUE(window_.has("Copy"));   // a copy of NFS 2015's profile, yours
     EXPECT_FALSE(window_.has("Payback"));
-    EXPECT_EQ(window_.count("built in"), 7U);   // Payback: the built-in profile is the one used
+    EXPECT_EQ(window_.count("built in"), 8U);   // Payback: the built-in profile is the one used
     EXPECT_EQ(window_.count("yours"), 1U);
     ASSERT_TRUE(click("NFS Payback"));
     games();
