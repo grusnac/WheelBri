@@ -258,6 +258,8 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         reader.retired("source_rotation_deg");   // the wheel's own rotation (until 2026-10-13): ignored, 1:1 now
         reader.readFloat("target_rotation_deg", steering.targetRotationDeg, tuning::kMinRotationDeg,
                          tuning::kMaxRotationDeg);
+        // Never more than the Target's wheel turns (an older file may hold more, e.g. 1080 for a G920): its most.
+        steering.targetRotationDeg = std::min(steering.targetRotationDeg, maxRotationDeg(config.targetProfile));
         reader.readBool("invert", steering.invert);
         reader.readFloat("anti_deadzone", config.antiDeadZonePercent, 0.0F, kAntiDeadZoneMaxPercent);
         reader.retired("deadzone");   // the steering's dead zone (until 2026-10-13): ignored
@@ -336,6 +338,9 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
                                  "': expected degrees (180) or off");
             } else {
                 config.gameRotations[key] = *parsed;
+                // As the steering rotation: never more than the Target's wheel turns.
+                float& deg = config.gameRotations[key].deg;
+                deg = std::min(deg, maxRotationDeg(config.targetProfile));
             }
         }
     }

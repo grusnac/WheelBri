@@ -40,6 +40,10 @@ using GameRotations = std::map<std::string, GameRotationOverride>;
 // "180 deg".
 [[nodiscard]] std::string describeRotation(float deg);
 
+// The most the Target's wheel turns, full lock to full lock: its DeviceIdentity::rotationDeg (900 for the G25, G27,
+// G920 and G923). No rotation above it is offered or used. tuning::kMaxRotationDeg for a name makeProfile doesn't know.
+[[nodiscard]] float maxRotationDeg(std::string_view targetProfile);
+
 // The rotation while `game` runs: the user's line for it, else the profile's (only when `profileApplies`: the profile
 // fits the target); nullopt: the mapping's own (no rotation in the profile, or the user's line says off).
 [[nodiscard]] std::optional<float> rotationWhileRunning(const GameProfile& game, const GameRotations& overrides,

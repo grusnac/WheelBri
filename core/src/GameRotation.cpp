@@ -2,8 +2,10 @@
 #include "wheelbri/GameRotation.hpp"
 
 #include "wheelbri/AxisTuning.hpp"
+#include "wheelbri/DeviceProfile.hpp"
 
 #include <cctype>
+#include <memory>
 
 namespace wheelbri {
 
@@ -50,6 +52,11 @@ std::optional<float> rotationWhileRunning(const GameProfile& game, const GameRot
         return it->second.deg;
     }
     return profileApplies ? game.rotationDeg : std::nullopt;
+}
+
+float maxRotationDeg(const std::string_view targetProfile) {
+    const std::unique_ptr<IDeviceProfile> profile = makeProfile(targetProfile);
+    return profile ? profile->identity().rotationDeg : tuning::kMaxRotationDeg;
 }
 
 }  // namespace wheelbri

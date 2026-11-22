@@ -59,9 +59,9 @@ std::string formatNumber(const float value, const int decimals) {
 
 std::string formatPercent(const float fraction) { return formatNumber(fraction * 100.0F, 2) + "%"; }
 
-std::string rotationProblem(const float degrees) {
-    if (!std::isfinite(degrees) || degrees < kMinRotationDeg || degrees > kMaxRotationDeg) {
-        return "a rotation is " + formatNumber(kMinRotationDeg) + " to " + formatNumber(kMaxRotationDeg) + " degrees";
+std::string rotationProblem(const float degrees, const float maxDeg) {
+    if (!std::isfinite(degrees) || degrees < kMinRotationDeg || degrees > maxDeg) {
+        return "a rotation is " + formatNumber(kMinRotationDeg) + " to " + formatNumber(maxDeg) + " degrees";
     }
     return {};
 }

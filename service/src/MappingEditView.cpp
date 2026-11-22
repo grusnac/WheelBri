@@ -40,6 +40,27 @@ namespace wheelbri::service {
 
 using namespace editview;
 
+namespace {
+
+// The most the Target's wheel turns (maxRotationDeg), kept for the last Target asked: drawn every frame, so not
+// worked out again each time. The window's thread only.
+float targetMaxDeg(const std::string& target) {
+    static std::string lastTarget;
+    static float lastMax = 0.0F;
+    if (lastMax == 0.0F || target != lastTarget) {
+        lastTarget = target;
+        lastMax = maxRotationDeg(target);
+    }
+    return lastMax;
+}
+
+// The steering rotation slider: 90 to the most the Target's wheel turns.
+SliderRange rotationSlider(const std::string& target) {
+    return {kSliderMinDeg, std::max(kSliderMinDeg, targetMaxDeg(target)), kSliderStepDeg};
+}
+
+}  // namespace
+
 MappingEditView::MappingEditView(ui::UiWindow& window, std::filesystem::path rigsFolder, std::filesystem::path stateFile,
                                  ConfigPicker& picker)
     : window_(window), rigsFolder_(std::move(rigsFolder)), stateFile_(std::move(stateFile)), picker_(picker) {}
@@ -545,7 +566,7 @@ void MappingEditView::setSliderFromX(const float x) {
                          : dragSlider_ == Slider::AntiDeadZone   ? &edit_.antiDeadZonePercent
                                                                  : nullptr;
     if (value == nullptr) return;
-    const SliderRange range = dragSlider_ == Slider::Rotation         ? kRotationSlider
+    const SliderRange range = dragSlider_ == Slider::Rotation         ? rotationSlider(targetName_)
                               : dragSlider_ == Slider::CentringSpring ? kCentringSpringSlider
                                                                       : kAntiDeadZoneSlider;
     const float t = std::clamp((x - dragSliderX_) / dragSliderW_, 0.0F, 1.0F);
@@ -555,7 +576,7 @@ void MappingEditView::setSliderFromX(const float x) {
 
 void MappingEditView::drawSlider(const Slider which, const float x, const float y, const float w, const float value,
                                  const bool changed, const bool enabled) {
-    const SliderRange range = which == Slider::Rotation         ? kRotationSlider
+    const SliderRange range = which == Slider::Rotation         ? rotationSlider(targetName_)
                               : which == Slider::CentringSpring ? kCentringSpringSlider
                                                                 : kAntiDeadZoneSlider;
     const float shown = std::clamp(value, range.min, range.max);
@@ -638,10 +659,10 @@ bool MappingEditView::commitTyping() {
         // "180" or "off" for one game: Mapping's and Game config's steering rotation are the same value.
         const std::span<const GameProfile> games = games_;
         const std::optional<GameRotationOverride> parsed = parseGameRotation(typed_);
-        if (!parsed) {
+        const float maxDeg = targetMaxDeg(targetName_);
+        if (!parsed || (!parsed->off && parsed->deg > maxDeg)) {
             problem = "'" + typed_ + "': expected degrees (180) or off; from " +
-                      tuning::formatNumber(tuning::kMinRotationDeg) + " to " +
-                      tuning::formatNumber(tuning::kMaxRotationDeg);
+                      tuning::formatNumber(tuning::kMinRotationDeg) + " to " + tuning::formatNumber(maxDeg);
         } else if (fieldIndex_ < games.size()) {
             edit_.gameRotations[games[fieldIndex_].id] = *parsed;
         }
@@ -662,7 +683,7 @@ bool MappingEditView::commitTyping() {
         const float value = *number;
         switch (field_) {
             case Field::Rotation:
-                problem = tuning::rotationProblem(value);
+                problem = tuning::rotationProblem(value, targetMaxDeg(targetName_));
                 if (problem.empty()) edit_.steeringRotationDeg = value;
                 break;
             case Field::CentringSpring:
@@ -1144,7 +1165,8 @@ float MappingEditView::section(const float y, const std::string_view title, cons
 }
 
 void MappingEditView::drawRotation(const float top) {
-    // The steering rotation: the slider (90 to 1080), the typed number (up to 2520) and the usual values.
+    // The steering rotation: the slider and the typed number (90 to the most the Target's wheel turns) and the usual
+    // values up to that most.
     float y = section(top, "STEERING ROTATION", "full lock to full lock, in degrees");
     window_.text(4, y + 4, "Rotation", kText);
     drawSlider(Slider::Rotation, kSliderX, y, sliderW(), edit_.steeringRotationDeg,
@@ -1153,12 +1175,15 @@ void MappingEditView::drawRotation(const float top) {
               edit_.steeringRotationDeg != saved_.steeringRotationDeg);
     window_.text(kSliderX + sliderW() + 80, y + 4, "deg", kDim);
     float x = kSliderX + sliderW() + 112;
+    const float maxDeg = targetMaxDeg(targetName_);
     for (const float preset : kPresetsDeg) {
+        if (preset > maxDeg) continue;
         x += button(x, y, degrees(preset), [this, preset] { edit_.steeringRotationDeg = preset; },
                     std::fabs(edit_.steeringRotationDeg - preset) < 0.5F, true, 40) + 4;   // 7 fit in 960
     }
     window_.text(kSliderX, y + 20, "90", kDim);
-    window_.text(kSliderX + sliderW() - 32, y + 20, "1080", kDim);
+    const std::string maxLabel = degrees(rotationSlider(targetName_).max);
+    window_.text(kSliderX + sliderW() - static_cast<float>(maxLabel.size()) * ui::kCharWidth, y + 20, maxLabel, kDim);
 
     // WheelBri passes the wheel through 1:1: the wheel's own software sets where its end stop is. One line; why, and
     // that a game can have its own rotation (the Games tab), in its hover text.

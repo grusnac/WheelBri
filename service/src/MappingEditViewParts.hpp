@@ -63,13 +63,13 @@ constexpr float kPopupX = 24;
 constexpr float kPopupY = 56;
 
 
-// The game full lock slider: 90 to 1080 degrees, in steps of 10 (typed values go up to tuning::kMaxRotationDeg).
+// The game full lock slider: 90 to the most the Target's wheel turns (maxRotationDeg), in steps of 10; typed values
+// and the presets go no higher either.
 // Also where every lower section's controls start (rotation, pedals, button order, TrueForce, centring spring).
 constexpr float kSliderX = 132;
 // One half of a two-way switch in the lower sections (Separate|Combined, as ConfigPicker's Order and TrueForce).
 constexpr float kSwitchWidth = 128;
 constexpr float kSliderMinDeg = 90.0F;
-constexpr float kSliderMaxDeg = 1080.0F;
 constexpr float kSliderStepDeg = 10.0F;
 constexpr std::array<float, 7> kPresetsDeg = {180.0F, 270.0F, 360.0F, 540.0F, 720.0F, 900.0F, 1080.0F};
 // The centring spring's usual values (percent; 0 = off); any whole number from 0 to 100 can be typed.
@@ -82,7 +82,6 @@ struct SliderRange {
     float max;
     float step;
 };
-constexpr SliderRange kRotationSlider{kSliderMinDeg, kSliderMaxDeg, kSliderStepDeg};
 constexpr SliderRange kCentringSpringSlider{0.0F, 100.0F, 1.0F};
 constexpr SliderRange kAntiDeadZoneSlider{0.0F, 50.0F, 0.5F};
 // The lower grid: two boxes a row from this window width, the gap between them.

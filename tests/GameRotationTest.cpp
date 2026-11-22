@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "wheelbri/GameRotation.hpp"
 
+#include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
 #include "wheelbri/Mapper.hpp"
 #include "wheelbri/MappingEdit.hpp"
@@ -71,6 +72,23 @@ TEST(GameRotation, ConfigReadsAndRefuses) {
     EXPECT_NE(all.find("nfspayback = 'fast': expected degrees"), std::string::npos) << all;
     EXPECT_NE(all.find("mygame: no built-in game profile"), std::string::npos) << all;
     EXPECT_TRUE(bad.config.gameRotations.empty());
+}
+
+// Each Target's most is its real wheel's: 900 for the Logitech ones; a name not known keeps the general most.
+TEST(GameRotation, TheMostATargetTurns) {
+    for (const char* target : {"g25", "g27", "g920", "g923"}) EXPECT_FLOAT_EQ(maxRotationDeg(target), 900.0F) << target;
+    EXPECT_FLOAT_EQ(maxRotationDeg("nothing"), tuning::kMaxRotationDeg);
+}
+
+// A file holding more than the Target's wheel turns (an older one) loads, at the Target's most.
+TEST(GameRotation, ConfigTakesNoMoreThanTheTargetTurns) {
+    const EmulatorConfigResult result =
+        load("[emulator]\ntarget_profile = g920\n[steering]\ntarget_rotation_deg = 1080\n"
+             "[game_rotation]\nnfspayback = 2520\n");
+    ASSERT_TRUE(result.errors.empty()) << result.errors.front();
+    EXPECT_FLOAT_EQ(result.config.mapper.steering.targetRotationDeg, 900.0F);
+    EXPECT_FLOAT_EQ(result.config.gameRotations.at("nfspayback").deg, 900.0F);
+    EXPECT_FLOAT_EQ(load("[steering]\ntarget_rotation_deg = 540\n").config.mapper.steering.targetRotationDeg, 540.0F);
 }
 
 TEST(GameRotation, MappingWritesAndDropsLines) {
