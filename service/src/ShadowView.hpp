@@ -27,12 +27,12 @@ namespace wheelbri::service {
 // nothing drives is faint. On the right, what is pressed now ("yours -> target"). It shows what the game
 // gets (the mapped report), not the rig's raw input: the List view (MappingView's live page) has that.
 //
-// Every target has a picture (hasPicture), drawn from Logitech's front views of the real wheel; MappingView keeps its
+// Every target has a picture (hasPicture), drawn from the maker's front views of the real wheel; MappingView keeps its
 // List view for a profile without one.
 class ShadowView {
 public:
     // Whether `profile` has a picture here: the G25 (its 19 buttons), the G27 (its 23), the G920 (its 19) or the G923
-    // (its 24; docs/target-<target>.md).
+    // (its 24) or the RGT (its 10; docs/target-<target>.md).
     [[nodiscard]] static bool hasPicture(const IDeviceProfile& profile);
 
     // Draws into `window` (not owned; it must outlive the view).
@@ -99,6 +99,9 @@ private:
 
     void drawWheel(const WheelState& state, std::uint32_t pressed, std::int8_t hat);
     void drawFace(float cx, float cy, float r);       // the spokes and hub, under the rim
+    void drawRim(const WheelState& state, float cx, float cy, float R);   // the rim, the steering arc and its line
+    void drawRgtWheel(const WheelState& state, std::uint32_t pressed, std::int8_t hat);
+    void drawRgtShifter(std::uint32_t pressed);   // the RGT's sequential stick on its base
     void drawG920Face(float cx, float cy, float r);
     void drawG920Buttons(float cx, float cy, float r, std::uint32_t pressed, std::int8_t hat);
     // The G923's own: the Plus / Minus rocker and the dial round its Enter button (`at` places on the face).
@@ -128,7 +131,7 @@ private:
     float columnReserve_ = 0.0F;
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories_{};
     ButtonOrder order_ = ButtonOrder::Driver;
-    enum class Picture { G25, G27, G920, G923 };
+    enum class Picture { G25, G27, G920, G923, RGT };
     // The Xbox wheels: the G920 and the G923 share a body, their buttons' own print, the Driving Force Shifter.
     [[nodiscard]] bool xbox() const { return picture_ == Picture::G920 || picture_ == Picture::G923; }
     Picture picture_ = Picture::G25;

@@ -278,7 +278,7 @@ TEST_F(LiveView, ShadowViewIsTheG25sFirstView) {
     ASSERT_TRUE(clickOn(*view, "Shadow"));
     EXPECT_TRUE(view->showingShadow());
 
-    for (const char* target : {"g25", "g27", "g920", "g923"}) {
+    for (const char* target : {"g25", "g27", "g920", "g923", "rgt"}) {
         EXPECT_TRUE(ShadowView::hasPicture(*makeProfile(target))) << target;
     }
 }
@@ -312,6 +312,33 @@ TEST_F(LiveView, ShadowViewHasEveryG25ButtonByTheGamesNumber) {
     }
     EXPECT_TRUE(window_.has("Gear 1, Gear 2", true)) << window_.dump();   // named in "Nothing drives"
     EXPECT_TRUE(window_.has("Gas pedal") && window_.has("Brake pedal") && window_.has("Clutch pedal"));
+}
+
+// The RGT's picture: Down and Up printed on the paddles' tabs, + and - by the stick, the game's number on Button 3-8;
+// the rig's labels beside them; the levers (not inputs yet) and the buttons not known faint, "?" on the three unknown.
+TEST_F(LiveView, ShadowViewHasEveryRgtButton) {
+    profile_ = makeProfile("rgt");
+    auto view = makeView(8, 40, mozaRimMapping("rgt", {{0, 12}, {1, 13}, {2, 3}, {3, 2}, {4, 1}, {5, 0}, {6, 21},
+                                                       {7, 22}, {8, 34}, {9, 35}}));
+    view->showShadow(true);
+    draw(*view);
+    EXPECT_TRUE(view->showingShadow());
+    const auto onPicture = [&](const std::string& value) {
+        int n = 0;
+        for (const auto& t : window_.last.texts) n += t.value == value && t.y > 60 ? 1 : 0;
+        return n;
+    };
+    for (const char* print : {"DOWN", "UP", "+", "-"}) EXPECT_EQ(onPicture(print), 1) << print << "\n" << window_.dump();
+    for (std::size_t b = 2; b < 8; ++b) {
+        const std::string number = std::to_string(gameButtonNumber(*profile_, ButtonOrder::Driver, b));
+        EXPECT_GE(onPicture(number), 1) << "button " << b << " (" << number << ")\n" << window_.dump();
+    }
+    for (const char* label : {"L paddle", "R paddle", "Y", "X", "B", "A", "Cam", "Radio", "R", "Start"}) {
+        EXPECT_TRUE(hasIn(window_, label, style::kText)) << label << "\n" << window_.dump();
+    }
+    EXPECT_TRUE(hasIn(window_, "Left lever", style::kFaint));
+    EXPECT_TRUE(hasIn(window_, "Right lever", style::kFaint));
+    EXPECT_EQ(onPicture("?"), 3);   // the bottom spoke's lower button and the base's two
 }
 
 // What the game sees pressed lights up: the button (its number dark on green), the D-pad's arm, the pedals' fill by
