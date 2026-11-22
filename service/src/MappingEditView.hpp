@@ -9,6 +9,7 @@
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/GameProfiles.hpp"
+#include "wheelbri/GameFiles.hpp"
 #include "wheelbri/GameSettings.hpp"
 #include "wheelbri/GameTuning.hpp"
 #include "wheelbri/MappingEdit.hpp"
@@ -357,6 +358,14 @@ private:
     // Save to file: the values into the game's file (never while it runs), the original kept once. A file not
     // confirmed is written on the second press only.
     void saveGameFile(std::size_t index);
+    // The Game file tab's GAME FILE section (a profile's [game_files], GameFiles.hpp): the file, whether its lines are
+    // in it, one button that puts them all in or takes them all out, and each line with what it does (read only).
+    float drawGameFiles(std::size_t index, float y);
+    // That button: every line put in (`add`) or taken out, never while the game runs, the original kept once.
+    void changeGameFiles(std::size_t index, bool add);
+    // The game's own folder: the listed folder it is in (FOLDER), else its program's for a game the user added; empty
+    // when not known.
+    [[nodiscard]] std::filesystem::path gameFolderOf(const GameProfile& game) const;
     // The game `id` ended (it ran since `since`): the settings file it wrote then is its own (game_file_seen.<id>).
     void learnGameFile(const std::string& id, std::filesystem::file_time_type since);
     [[nodiscard]] std::size_t selectedGameIndex() const;
@@ -509,6 +518,10 @@ private:
     std::filesystem::file_time_type watchedSince_{};    // since when it runs (file times), a little before
     std::string saveAnyway_;                            // the file not confirmed that Save to file was pressed for
     std::optional<GameSettingsFileState> fileState_;
+    // The picked game's [game_files] file as last read (at most every 2 s, and when the game or its folder changes).
+    std::optional<GameFilesState> gameFilesState_;
+    std::string gameFilesKey_;
+    std::uint64_t gameFilesReadMs_ = 0;
     std::string fileStateKey_;
     std::uint64_t fileStateReadMs_ = 0;
     // Where that file is (gameFilePlace reads app.ini and asks for Documents), for drawing: read again with the file

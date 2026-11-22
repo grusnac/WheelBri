@@ -679,7 +679,7 @@ TEST_F(EditView, InvertShowAndTheRotation) {
     frame();
     EXPECT_NE(own().find("target_rotation_deg = 540"), std::string::npos) << own();
 
-    // The slider: pressed at its left end (90), dragged to its right end (1080), let go.
+    // The slider: pressed at its left end (90), dragged to its right end (900: the most a G920 turns), let go.
     frame();
     const Window::Text* const left = window_.find("90");
     ASSERT_NE(left, nullptr);
@@ -690,13 +690,21 @@ TEST_F(EditView, InvertShowAndTheRotation) {
     view_->onPointer(left->x + 2000, 0, false);
     view_->onPointer(left->x, 0, false);   // let go: no longer dragged
     frame();
-    EXPECT_NE(own().find("target_rotation_deg = 1080"), std::string::npos) << own();
+    EXPECT_NE(own().find("target_rotation_deg = 900"), std::string::npos) << own();
+    EXPECT_FALSE(window_.has("1080"));   // no preset past the Target's most
 
     // Typed: digits, backspace (also on nothing), a character not taken, Enter.
-    ASSERT_TRUE(click("1080"));   // the field (drawn before the presets and the slider's end label)
+    ASSERT_TRUE(click("900"));   // the field (drawn before the presets and the slider's end label)
     type(std::string(1, ui::kBackspace) + std::string(8, ui::kBackspace) + "x7f2o0");
     type(std::string(1, ui::kEnter));
     frame();
+    EXPECT_NE(own().find("target_rotation_deg = 720"), std::string::npos) << own();
+
+    // Past the Target's most (a G920 turns 900): not taken, the status says the range.
+    ASSERT_TRUE(click("720"));
+    type(std::string(4, ui::kBackspace) + "1000" + std::string(1, ui::kEnter));
+    frame();
+    EXPECT_TRUE(window_.hasPart("90 to 900 degrees"));
     EXPECT_NE(own().find("target_rotation_deg = 720"), std::string::npos) << own();
 }
 
@@ -1277,7 +1285,7 @@ TEST_F(EditView, TheGamesList) {
     open();
     games();
     EXPECT_TRUE(window_.has("GAMES"));
-    EXPECT_EQ(window_.count("built in"), 7U);
+    EXPECT_EQ(window_.count("built in"), 8U);
     EXPECT_TRUE(window_.has("program nfs16.exe"));
     EXPECT_TRUE(window_.hasPart("While WheelBri runs (Start) it finds the game"));
     EXPECT_TRUE(window_.has("Axes and buttons"));
@@ -1621,6 +1629,89 @@ TEST_F(EditView, TheGameFileSubTab) {
     nowMs_ += 2000;
     frame();
     EXPECT_TRUE(window_.hasPart("not found here: Locate it"));
+}
+
+// The Game file sub-tab's GAME FILE section (GRID's [game_files]): no folder known, no file, none of the lines in
+// (Add to file), all in (Remove from file), some in (Add the rest), a file not as expected; never while it runs.
+TEST_F(EditView, TheGameFileValueMap) {
+    useRig(testRig());
+    open(true);
+    games();
+    view_->selectGame("grid");
+    frame();
+    ASSERT_TRUE(click("Game file"));
+    frame();
+    EXPECT_TRUE(window_.has("GAME FILE"));
+    EXPECT_FALSE(window_.has("GAME CONFIG"));   // no settings of its own
+    EXPECT_TRUE(window_.hasPart("ActionMap/actionMapPreset1.xml: Replay controls"));
+    EXPECT_TRUE(window_.hasPart("the game's folder is not known"));
+    EXPECT_TRUE(window_.has("Replay Pause"));
+    EXPECT_TRUE(window_.hasPart("A (black, bottom) pauses and resumes a replay"));
+
+    const std::filesystem::path folder = dir_ / "Games" / "GRID";
+    write(folder / "grid.exe", "MZ");
+    std::string problem;
+    ASSERT_TRUE(shims_->addFolder(folder, problem)) << problem;
+    nowMs_ += 2000;
+    games();
+    EXPECT_TRUE(window_.hasPart("no ActionMap/actionMapPreset1.xml in the game's folder"));
+
+    std::string original = "<ActionMap deviceType=\"Logitech G25 Racing Wheel USB\" >\r\n";
+    for (const char* const action : {"Replay Rewind", "Replay Fast Forward", "Replay Pause", "Replay Next Camera",
+                                     "Replay Prev Camera", "Replay Jump In", "Replay Exit"}) {
+        original += std::string("\t<Action actionName = \"") + action + "\" >\r\n\t\t<Axis axisName = \"win_key_f1\" "
+                    "deviceName = \"Keyboard\" baseCalibration = \"uniDirectionalPositive\" />\r\n\t</Action>\r\n";
+    }
+    original += "</ActionMap>\r\n";
+    const std::filesystem::path file = folder / "ActionMap" / "actionMapPreset1.xml";
+    write(file, original);
+    nowMs_ += 2000;
+    games();
+    EXPECT_TRUE(window_.hasPart("none of the 12 lines"));
+    EXPECT_FALSE(window_.has("Remove from file"));
+    running_ = std::vector<RunningProgram>{{5, "GRID.exe"}};
+    ASSERT_TRUE(click("Add to file"));
+    frame();
+    EXPECT_TRUE(window_.hasPart("is running: close it first"));
+    EXPECT_EQ(readFileText(file).value_or(""), original);
+    running_ = std::vector<RunningProgram>{};
+    ASSERT_TRUE(click("Add to file"));
+    frame();
+    EXPECT_TRUE(window_.has("Added 12 lines to ActionMap/actionMapPreset1.xml."));
+    EXPECT_TRUE(window_.hasPart("all 12 lines"));
+    EXPECT_FALSE(window_.has("Add to file"));
+    EXPECT_EQ(readFileText(file.string() + ".before-wheelbri").value_or(""), original);
+    const std::string added = readFileText(file).value_or("");
+    EXPECT_NE(added.find("\t\t<Axis axisName = \"win_con_di_button17\""), std::string::npos);
+
+    ASSERT_TRUE(click("Remove from file"));
+    frame();
+    EXPECT_TRUE(window_.has("Removed 12 lines from ActionMap/actionMapPreset1.xml."));
+    EXPECT_EQ(readFileText(file).value_or(""), original);
+
+    // Some in (a line added by hand): Add the rest, and Remove from file.
+    std::string some = original;
+    some.insert(some.find("\t</Action>\r\n\t<Action actionName = \"Replay Next Camera\""),
+                "\t\t<Axis axisName = \"win_con_di_button17\" deviceName = \"Logitech G25 Racing Wheel USB\" "
+                "baseCalibration = \"uniDirectionalPositive\" />\r\n");
+    write(file, some);
+    nowMs_ += 2000;
+    games();
+    EXPECT_TRUE(window_.hasPart("some: 1 of 12 lines"));
+    EXPECT_TRUE(window_.has("Add the rest"));
+    EXPECT_TRUE(window_.has("Remove from file"));
+    ASSERT_TRUE(click("Add the rest"));
+    frame();
+    EXPECT_TRUE(window_.has("Added 11 lines to ActionMap/actionMapPreset1.xml."));
+
+    // Not as expected (an action it needs is not there): said, nothing written.
+    std::string other = original;
+    other.replace(other.find("Replay Exit"), 11, "Replay Quit");
+    write(file, other);
+    nowMs_ += 2000;
+    games();
+    EXPECT_TRUE(window_.hasPart("cannot be changed: insert.5"));
+    EXPECT_EQ(readFileText(file).value_or(""), other);
 }
 
 // Locate: cancelled; a file that is not the game's; one that is, where its profile says (its own) or elsewhere (kept,
