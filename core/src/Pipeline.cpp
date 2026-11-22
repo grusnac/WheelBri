@@ -49,7 +49,11 @@ bool Pipeline::tick(const std::uint64_t nowNs) {
         steered.steering = withAntiDeadZone(state_.steering, antiDeadZonePercent);
         published = profile_.encode(steered);
     }
-    packet_.report = applyPedalRoute(combinedPedals() ? withCombinedPedals(published) : published, pedalRoute());
+    if (const std::optional<RgtMode> rgt = rgtMode()) {
+        packet_.report = withRgtMode(published, *rgt);
+    } else {
+        packet_.report = applyPedalRoute(combinedPedals() ? withCombinedPedals(published) : published, pedalRoute());
+    }
     if (nativeButtons()) packet_.report.buttons = profile_.nativeButtons(packet_.report.buttons);
     if (!gate_ || gate_->shouldSend(packet_.report, nowNs)) {
         ++packet_.sequence;

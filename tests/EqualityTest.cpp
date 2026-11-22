@@ -113,7 +113,8 @@ TEST(Equality, DevicesAndReports) {
                     [](RawInputState& v) { v.buttons = SourceButtons::fromBits(1); }, [](RawInputState& v) { v.hat = 2; });
     eachFieldCounts(TargetReport{}, [](TargetReport& v) { v.steering = 1; }, [](TargetReport& v) { v.throttle = 1; },
                     [](TargetReport& v) { v.brake = 1; }, [](TargetReport& v) { v.clutch = 1; },
-                    [](TargetReport& v) { v.buttons = 1; }, [](TargetReport& v) { v.hat = 2; });
+                    [](TargetReport& v) { v.buttons = 1; }, [](TargetReport& v) { v.hat = 2; },
+                    [](TargetReport& v) { v.leftLever = 1; }, [](TargetReport& v) { v.rightLever = 1; });
     eachFieldCounts(Guid{}, [](Guid& v) { v.data1 = 1; }, [](Guid& v) { v.data2 = 1; }, [](Guid& v) { v.data3 = 1; },
                     [](Guid& v) { v.data4[7] = 1; });
     eachFieldCounts(ButtonCell{}, [](ButtonCell& v) { v.column = 1; }, [](ButtonCell& v) { v.y = 1.0F; },

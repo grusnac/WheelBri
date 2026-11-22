@@ -58,6 +58,10 @@ struct TargetReport {
     // Slider 0 reports, and the throttle's axis with combined pedals on (withCombinedPedals). Carried as it is, so
     // moving the pedal fields never changes it.
     std::int32_t combined = 0;
+    // The RGT's progressive levers, encoded as the pedals. After withRgtMode the RGT's four pedal axes are in
+    // brake (Y), throttle (Rz), clutch (Slider 0) and rightLever (Slider 1); leftLever is then at rest.
+    std::int32_t leftLever = 0;
+    std::int32_t rightLever = 0;
 
     friend bool operator==(const TargetReport&, const TargetReport&) = default;
 };
@@ -276,6 +280,29 @@ inline constexpr std::size_t kRgtButtons = 10;
 // reads), 270 degrees, pedals released at the top (255 at rest on a real one), 10 buttons, a D-pad. Which rim button
 // is which number is not known yet: the names say Button 3..8.
 [[nodiscard]] DeviceProfileSpec rgtSpec();
+
+// The RGT's axis mode and pedal set ([rgt] axes, pedal_set; Thrustmaster's manual, "Axis selection"): what its pedal
+// axes carry. Combining follows from these, as on the real wheel; WheelBri's combined pedals do not apply to it.
+enum class RgtAxes : std::uint8_t { Two = 2, Three = 3, Five = 5 };
+enum class RgtPedalSet : std::uint8_t { Levers, Clutch };   // the pedal base's switch: 2 L, 3 P
+struct RgtMode {
+    RgtAxes axes = RgtAxes::Five;
+    RgtPedalSet pedalSet = RgtPedalSet::Clutch;
+    // As the real wheel: the clutch (3 P) always means 5 axes.
+    [[nodiscard]] constexpr RgtAxes effectiveAxes() const {
+        return pedalSet == RgtPedalSet::Clutch ? RgtAxes::Five : axes;
+    }
+    friend bool operator==(const RgtMode&, const RgtMode&) = default;
+};
+
+// `report` (the RGT's encode) with its pedal axes as the mode reports them (the manual's table):
+//   2 axes: Y = gas (with the right lever) and brake (with the left lever) on one axis, as combinedPedals;
+//   3 axes, levers: Y = brake with the left lever, Rz = gas with the right lever (the one pressed further);
+//   5 axes, levers: Y brake, Rz gas, Slider 0 the left lever, Slider 1 the right lever;
+//   5 axes, clutch: Y brake, Rz gas, Slider 0 the clutch, Slider 1 at rest.
+// An axis the mode does not use rests at the top (65535), as the RGT's released pedals. Which way gas and brake move
+// the 2 axes Y, and how 3 axes joins a pedal and a lever, are not measured on a real RGT yet.
+[[nodiscard]] TargetReport withRgtMode(TargetReport report, RgtMode mode);
 
 // Config names of the built-in profiles, for messages: the wheels WheelBri emulates (a virtual device and the shim both
 // present them). A new target is a new profile here plus its support (driver, shim) first.

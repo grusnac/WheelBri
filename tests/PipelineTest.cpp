@@ -141,6 +141,43 @@ TEST(Pipeline, AntiDeadZoneChangesOnlyWhatTheGameReads) {
     EXPECT_EQ(publisher.packets.back().report.steering, pipeline.lastReport().steering);
 }
 
+// The RGT's mode (setRgtMode): the published pedals are the mode's, combined pedals do not apply; lastReport() as
+// mapped. Off again with nullopt.
+TEST(Pipeline, TheRgtModeDecidesItsPedals) {
+    FakeSource source;
+    RecordingPublisher publisher;
+    MapperConfig config;
+    config.throttle.sourceAxis = 1;
+    config.brake.sourceAxis = 2;
+    config.leftLever.sourceAxis = 3;
+    config.rightLever.sourceAxis = 4;
+    const Mapper mapper(config);
+    const DeviceProfile profile(rgtSpec());
+    Pipeline pipeline(source, mapper, profile, publisher);
+    EXPECT_FALSE(pipeline.rgtMode().has_value());
+    for (std::size_t a = 1; a <= 4; ++a) source.next.axes[a] = -1.0F;   // all released
+    source.next.axes[3] = 1.0F;                                         // the left lever fully pressed
+    pipeline.setCombinedPedals(true);
+    pipeline.setRgtMode(RgtMode{RgtAxes::Five, RgtPedalSet::Levers});
+    EXPECT_EQ(pipeline.rgtMode(), (RgtMode{RgtAxes::Five, RgtPedalSet::Levers}));
+    ASSERT_TRUE(pipeline.tick());
+    const TargetReport& five = publisher.packets.back().report;
+    EXPECT_EQ(five.throttle, 65535);   // not combined
+    EXPECT_EQ(five.brake, 65535);
+    EXPECT_EQ(five.clutch, 0);         // Slider 0: the left lever
+    EXPECT_EQ(five.rightLever, 65535);
+    EXPECT_EQ(pipeline.lastReport().leftLever, 0);   // as mapped
+
+    pipeline.setRgtMode(RgtMode{RgtAxes::Three, RgtPedalSet::Levers});
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report.brake, 0);   // the brake with the left lever
+    EXPECT_EQ(pipeline.rgtMode()->axes, RgtAxes::Three);
+
+    pipeline.setRgtMode(std::nullopt);
+    ASSERT_TRUE(pipeline.tick());
+    EXPECT_EQ(publisher.packets.back().report.throttle, kPedalMiddle);   // combined pedals again
+}
+
 TEST(Pipeline, CombinedPedalsPutThemOnTheThrottleAndCentreTheBrake) {
     FakeSource source;
     RecordingPublisher publisher;

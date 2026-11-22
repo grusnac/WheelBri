@@ -54,6 +54,16 @@ std::string targetProblem(const EmulatorConfig& config, const std::string_view t
     return {};
 }
 
+std::string leversProblem(const EmulatorConfig& config) {
+    if (config.targetProfile != "rgt" || config.rgt.pedalSet != RgtPedalSet::Levers) return {};
+    const bool left = config.mapper.leftLever.sourceAxis >= 0;
+    const bool right = config.mapper.rightLever.sourceAxis >= 0;
+    if (left && right) return {};
+    const std::string what = !left && !right ? "LEFT AND RIGHT LEVER" : (!left ? "LEFT LEVER" : "RIGHT LEVER");
+    return what + " NOT MAPPED: map " + (!left && !right ? "both" : "it") +
+           " in the Mapping tab, or the pedal set Clutch";
+}
+
 StartNeeds startNeeds(const EmulatorConfig& config, const Rig* const rig) {
     StartNeeds needs;
     NeededDevice wheel;

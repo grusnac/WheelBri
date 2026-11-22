@@ -66,6 +66,18 @@ TEST(MapperPedals, BipolarAxisBecomesTravel) {
     EXPECT_NEAR(mapper.map(withAxis(1, 1.0F)).throttle, 1.0F, kTolerance);
 }
 
+// The RGT's levers map as the pedals; unmapped they stay released.
+TEST(MapperPedals, TheLeversAreMappedAsThePedals) {
+    MapperConfig config;
+    config.leftLever.sourceAxis = 4;
+    config.rightLever.sourceAxis = 5;
+    config.rightLever.invert = true;
+    const Mapper mapper(config);
+    EXPECT_NEAR(mapper.map(withAxis(4, 1.0F)).leftLever, 1.0F, kTolerance);
+    EXPECT_NEAR(mapper.map(withAxis(5, -1.0F)).rightLever, 1.0F, kTolerance);   // inverted
+    EXPECT_NEAR(Mapper(MapperConfig{}).map(withAxis(4, 1.0F)).leftLever, 0.0F, kTolerance);
+}
+
 TEST(MapperPedals, InvertedAxis) {
     MapperConfig config = pedalConfig();
     config.brake.invert = true;

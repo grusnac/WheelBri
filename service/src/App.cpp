@@ -929,6 +929,7 @@ private:
         if (needsProblem_.empty() && configRead) {
             needsProblem_ = targetProblem(config, picker_->profileName());
         }
+        if (needsProblem_.empty() && configRead) needsProblem_ = leversProblem(config);
         // The virtual device needs Administrator or the WheelBri Helper; the shim needs neither.
         helperMissing_ = !shimTarget() && !PrivilegedSteps::available();
         if (devices_.unavailable()) {

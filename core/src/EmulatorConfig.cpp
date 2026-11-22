@@ -268,6 +268,8 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
     readPedal(ini, "throttle", config.mapper.throttle, config.mapper, errors);
     readPedal(ini, "brake", config.mapper.brake, config.mapper, errors);
     readPedal(ini, "clutch", config.mapper.clutch, config.mapper, errors);
+    readPedal(ini, "left_lever", config.mapper.leftLever, config.mapper, errors);
+    readPedal(ini, "right_lever", config.mapper.rightLever, config.mapper, errors);
     {
         // [buttons] target_N = source button (or -1 to unmap).
         SectionReader reader(ini, "buttons", errors);
@@ -303,6 +305,26 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
     {
         SectionReader reader(ini, "pedals", errors);
         reader.readBool("combined", config.combinedPedals);
+        reader.reportUnknownKeys();
+    }
+    {
+        SectionReader reader(ini, "rgt", errors);
+        int axes = static_cast<int>(config.rgt.axes);
+        reader.readInt("axes", axes, 2, 5);
+        if (axes == 2 || axes == 3 || axes == 5) {
+            config.rgt.axes = static_cast<RgtAxes>(axes);
+        } else {
+            errors.push_back("[rgt] axes = '" + std::to_string(axes) + "': expected 2, 3 or 5");
+        }
+        std::string pedalSet = config.rgt.pedalSet == RgtPedalSet::Clutch ? "clutch" : "levers";
+        reader.readString("pedal_set", pedalSet);
+        if (pedalSet == "clutch") {
+            config.rgt.pedalSet = RgtPedalSet::Clutch;
+        } else if (pedalSet == "levers") {
+            config.rgt.pedalSet = RgtPedalSet::Levers;
+        } else {
+            errors.push_back("[rgt] pedal_set = '" + pedalSet + "': expected levers or clutch");
+        }
         reader.reportUnknownKeys();
     }
     {
@@ -458,6 +480,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
     static const std::set<std::string> kKnownSections = {"",         "emulator",      "steering",    "throttle",
                                                          "brake",    "clutch",        "buttons",     "button_labels",
                                                          "axis_labels", "hat",        "pedals",      "ffb",
+                                                         "rgt",      "left_lever",    "right_lever",
                                                          "logging",
                                                          "telemetry", "retention",    "game_rotation",
                                                          "game_settings", "game_ffb_gain", "game_tuning"};

@@ -60,6 +60,8 @@ Mapper::Mapper(const MapperConfig& config) : config_(config) {
     logPedal("throttle", config_.throttle);
     logPedal("brake", config_.brake);
     logPedal("clutch", config_.clutch);
+    logPedal("left lever", config_.leftLever);
+    logPedal("right lever", config_.rightLever);
     for (std::size_t target = 0; target < config_.buttonMap.size(); ++target) {
         if (config_.buttonMap[target] != static_cast<int>(target)) {
             WE_LOG_DEBUG(log(), "mapper: button target {} <- source {}", target, config_.buttonMap[target]);
@@ -103,6 +105,8 @@ WheelState Mapper::map(const RawInputs& inputs) const {
     state.throttle = mapPedal(config_.throttle, inputs);
     state.brake = mapPedal(config_.brake, inputs);
     state.clutch = mapPedal(config_.clutch, inputs);
+    state.leftLever = mapPedal(config_.leftLever, inputs);
+    state.rightLever = mapPedal(config_.rightLever, inputs);
     state.buttons = mapButtons(inputs);
     state.hat = mapHat(inputs);
     return state;
@@ -204,6 +208,8 @@ std::vector<std::string> missingMappedAxes(const MapperConfig& config,
     check("throttle", config.throttle.sourceAxis, config.throttle.sourceDevice);
     check("brake", config.brake.sourceAxis, config.brake.sourceDevice);
     check("clutch", config.clutch.sourceAxis, config.clutch.sourceDevice);
+    check("left lever", config.leftLever.sourceAxis, config.leftLever.sourceDevice);
+    check("right lever", config.rightLever.sourceAxis, config.rightLever.sourceDevice);
     return problems;
 }
 

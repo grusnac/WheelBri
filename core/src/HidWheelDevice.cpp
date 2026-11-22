@@ -488,8 +488,8 @@ InputReport withoutIdIfClassic(const VirtualWheel& wheel, InputReport report) {
 
 InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) {
     if (wheel.rgtAxes) {
-        // Report ID, wheel X, brake Y, throttle Rz, clutch Slider 0, the right lever Slider 1 at rest (65535: the
-        // RGT's pedals and levers rest at the top), then the buttons and the hat.
+        // Report ID, wheel X, brake Y, throttle Rz, clutch Slider 0, rightLever Slider 1 (the axes withRgtMode put
+        // there for its mode), then the buttons and the hat.
         TargetReport swapped = report;
         swapped.throttle = report.brake;
         swapped.brake = report.throttle;
@@ -497,7 +497,7 @@ InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) 
         InputReport out;
         std::copy(packed.begin(), packed.begin() + 9, out.bytes.begin());   // ID, X, Y, Rz, Slider 0
         std::array<std::uint8_t, kWheelInputReportSize> lever{};
-        putAxis(lever, 1, 65535);
+        putAxis(lever, 1, report.rightLever);
         out.bytes[9] = lever[1];
         out.bytes[10] = lever[2];
         std::copy(packed.begin() + 9, packed.end(), out.bytes.begin() + 11);

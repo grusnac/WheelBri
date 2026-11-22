@@ -242,5 +242,24 @@ TEST(StartNeeds, AnotherProductOfTheSameMakerIsMissing) {
     EXPECT_TRUE(missingDevices(needs, {PresentDevice{"Pedals", 0x30b7, 0x1001}}).empty());
 }
 
+// The RGT with its levers: both mapped or no Start, saying which is not; the clutch, and every other target, need none.
+TEST(StartNeeds, TheRgtsLeversMustBeMapped) {
+    EmulatorConfig config = withTarget("rgt");
+    EXPECT_EQ(leversProblem(config), "");   // the clutch by default
+    config.rgt.pedalSet = RgtPedalSet::Levers;
+    EXPECT_EQ(leversProblem(config),
+              "LEFT AND RIGHT LEVER NOT MAPPED: map both in the Mapping tab, or the pedal set Clutch");
+    config.mapper.leftLever.sourceAxis = 4;
+    EXPECT_EQ(leversProblem(config), "RIGHT LEVER NOT MAPPED: map it in the Mapping tab, or the pedal set Clutch");
+    config.mapper.leftLever.sourceAxis = kUnmapped;
+    config.mapper.rightLever.sourceAxis = 5;
+    EXPECT_EQ(leversProblem(config).rfind("LEFT LEVER NOT MAPPED", 0), 0U);
+    config.mapper.leftLever.sourceAxis = 4;
+    EXPECT_EQ(leversProblem(config), "");
+    EmulatorConfig g25 = withTarget("g25");
+    g25.rgt.pedalSet = RgtPedalSet::Levers;   // read but not its own: ignored
+    EXPECT_EQ(leversProblem(g25), "");
+}
+
 }  // namespace
 }  // namespace wheelbri

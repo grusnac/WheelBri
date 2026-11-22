@@ -45,6 +45,9 @@ struct EmulatorConfig {
     // DeviceProfile.hpp); a game's profile or the user's values for it ([game_tuning] <game>.combined_pedals) may say
     // otherwise while it runs.
     bool combinedPedals = false;
+    // [rgt] axes = 2 | 3 | 5, pedal_set = levers | clutch: the RGT's axis mode and pedal set (RgtMode, DeviceProfile.hpp);
+    // other targets ignore it. The clutch always means 5 axes, as the real wheel.
+    RgtMode rgt;
     // [steering] anti_deadzone = 0..50: the anti-dead zone in percent for every game, 0 = off (AntiDeadZone.hpp); a
     // game's profile or the user's values for it ([game_tuning] <game>.anti_deadzone) may say otherwise while it runs.
     float antiDeadZonePercent = 0.0F;

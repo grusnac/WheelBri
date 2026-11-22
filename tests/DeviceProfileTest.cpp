@@ -460,5 +460,61 @@ TEST(DeviceProfile, RgtIsThrustmastersName) {
     EXPECT_EQ(rgt->coreButton(CoreButton::RPaddle), 1);
 }
 
+// The RGT's encode carries the levers as the pedals: released at the top, fully pressed at the bottom.
+TEST(DeviceProfile, RgtEncodeCarriesTheLevers) {
+    const auto rgt = makeProfile("rgt");
+    ASSERT_NE(rgt, nullptr);
+    WheelState state;
+    state.leftLever = 1.0F;
+    const TargetReport report = rgt->encode(state);
+    EXPECT_EQ(report.leftLever, 0);
+    EXPECT_EQ(report.rightLever, 65535);
+}
+
+// The RGT's axis modes (withRgtMode), as Thrustmaster's manual's table: brake Y, throttle Rz, clutch Slider 0,
+// rightLever Slider 1; 65535 released, 0 fully pressed; an axis the mode does not use at rest.
+TEST(DeviceProfile, RgtModesPutThePedalsAndLeversWhereTheManualSays) {
+    TargetReport in;
+    in.throttle = 0;          // gas fully pressed
+    in.brake = 65535;         // released
+    in.clutch = 40000;
+    in.leftLever = 20000;
+    in.rightLever = 65535;
+
+    const TargetReport fiveClutch = withRgtMode(in, {RgtAxes::Five, RgtPedalSet::Clutch});
+    EXPECT_EQ(fiveClutch.brake, 65535);
+    EXPECT_EQ(fiveClutch.throttle, 0);
+    EXPECT_EQ(fiveClutch.clutch, 40000);
+    EXPECT_EQ(fiveClutch.rightLever, 65535);   // Slider 1: off with the clutch
+    EXPECT_EQ(fiveClutch.leftLever, 65535);
+
+    in.rightLever = 30000;
+    const TargetReport fiveLevers = withRgtMode(in, {RgtAxes::Five, RgtPedalSet::Levers});
+    EXPECT_EQ(fiveLevers.brake, 65535);
+    EXPECT_EQ(fiveLevers.throttle, 0);
+    EXPECT_EQ(fiveLevers.clutch, 20000);       // Slider 0: the left lever
+    EXPECT_EQ(fiveLevers.rightLever, 30000);   // Slider 1: the right lever
+
+    const TargetReport threeLevers = withRgtMode(in, {RgtAxes::Three, RgtPedalSet::Levers});
+    EXPECT_EQ(threeLevers.brake, 20000);       // the brake with the left lever: the one pressed further
+    EXPECT_EQ(threeLevers.throttle, 0);        // the gas with the right lever
+    EXPECT_EQ(threeLevers.clutch, 65535);
+    EXPECT_EQ(threeLevers.rightLever, 65535);
+
+    const TargetReport twoLevers = withRgtMode(in, {RgtAxes::Two, RgtPedalSet::Levers});
+    TargetReport pair;
+    pair.throttle = 0;
+    pair.brake = 20000;
+    EXPECT_EQ(twoLevers.brake, combinedPedals(pair));   // Y: gas one way, brake the other
+    EXPECT_EQ(twoLevers.throttle, 65535);
+    EXPECT_EQ(twoLevers.clutch, 65535);
+    EXPECT_EQ(twoLevers.rightLever, 65535);
+
+    // The clutch always means 5 axes, as the real wheel in 3 P.
+    EXPECT_EQ((RgtMode{RgtAxes::Two, RgtPedalSet::Clutch}.effectiveAxes()), RgtAxes::Five);
+    in.rightLever = 65535;
+    EXPECT_EQ(withRgtMode(in, {RgtAxes::Two, RgtPedalSet::Clutch}), fiveClutch);
+}
+
 }  // namespace
 }  // namespace wheelbri

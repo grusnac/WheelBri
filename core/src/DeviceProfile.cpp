@@ -103,9 +103,46 @@ TargetReport DeviceProfile::encode(const WheelState& state) const {
     report.throttle = encodePedal(state.throttle);
     report.brake = encodePedal(state.brake);
     report.clutch = encodePedal(state.clutch);
+    report.leftLever = encodePedal(state.leftLever);
+    report.rightLever = encodePedal(state.rightLever);
     report.buttons = state.buttons & buttonMask_;   // a mapped button the wheel does not have never reaches the game
     report.hat = state.hat;
     report.combined = combinedPedals(report);
+    return report;
+}
+
+TargetReport withRgtMode(TargetReport report, const RgtMode mode) {
+    constexpr std::int32_t kRest = 65535;   // the RGT's pedals and levers rest at the top
+    const bool levers = mode.pedalSet == RgtPedalSet::Levers;
+    // Pressed further = lower (released at the top): a pedal and its lever together read as the one pressed further.
+    const std::int32_t gas = levers ? std::min(report.throttle, report.rightLever) : report.throttle;
+    const std::int32_t brake = levers ? std::min(report.brake, report.leftLever) : report.brake;
+    switch (mode.effectiveAxes()) {
+        case RgtAxes::Two: {
+            TargetReport pair;
+            pair.throttle = gas;
+            pair.brake = brake;
+            report.brake = combinedPedals(pair);
+            report.throttle = kRest;
+            report.clutch = kRest;
+            report.rightLever = kRest;
+            break;
+        }
+        case RgtAxes::Three:
+            report.brake = brake;
+            report.throttle = gas;
+            report.clutch = kRest;
+            report.rightLever = kRest;
+            break;
+        case RgtAxes::Five:
+            if (levers) {
+                report.clutch = report.leftLever;   // Slider 0
+            } else {
+                report.rightLever = kRest;          // Slider 1: off with the clutch
+            }
+            break;
+    }
+    report.leftLever = kRest;
     return report;
 }
 

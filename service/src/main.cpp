@@ -43,6 +43,7 @@
 #include "wheelbri/Rig.hpp"
 #include "wheelbri/SenderGate.hpp"
 #include "wheelbri/ShimGames.hpp"
+#include "wheelbri/StartNeeds.hpp"
 #include "wheelbri/Telemetry.hpp"
 #include "wheelbri/TrueForce.hpp"
 #include "wheelbri/UdpLoopback.hpp"
@@ -999,6 +1000,7 @@ void WindowSide::followAntiDeadZone() {
 }
 
 void WindowSide::followCombinedPedals() {
+    if (pipeline_.rgtMode()) return;   // the RGT's pedals follow its [rgt] mode, never combined pedals
     const bool on = gameCombinedPedals_.value_or(config_.combinedPedals);
     if (pipeline_.combinedPedals() != on) pipeline_.setCombinedPedals(on);
     const std::string line =
@@ -1231,7 +1233,18 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
         WE_LOG_INFO(log(), "buttons: the {}'s native order ([buttons] order = native)", profile->identity().shortName);
     }
     pipeline.setCombinedPedals(config.combinedPedals);
-    WE_LOG_INFO(log(), "{} at Start", wheelbri::pedalsLogLine(config.combinedPedals, "the Mapping tab's [pedals] combined"));
+    if (profile->identity().shortName == "RGT") {
+        // The RGT's pedals follow its axis mode and pedal set ([rgt]), as the real wheel: no combined pedals.
+        pipeline.setRgtMode(config.rgt);
+        const wheelbri::RgtMode rgt = config.rgt;
+        const bool clutch = rgt.pedalSet == wheelbri::RgtPedalSet::Clutch;
+        WE_LOG_INFO(log(), "pedals: the RGT's {} axes with the {} at Start ([rgt]{}); combined pedals do not apply",
+                    static_cast<int>(rgt.effectiveAxes()), clutch ? "clutch" : "levers",
+                    rgt.effectiveAxes() != rgt.axes ? ": the clutch always means 5 axes" : "");
+    } else {
+        WE_LOG_INFO(log(), "{} at Start",
+                    wheelbri::pedalsLogLine(config.combinedPedals, "the Mapping tab's [pedals] combined"));
+    }
     pipeline.setAntiDeadZone(config.antiDeadZonePercent);
     WE_LOG_INFO(log(), "{} at Start",
                 wheelbri::antiDeadZoneLogLine(config.antiDeadZonePercent, "the Mapping tab's [steering] anti_deadzone"));
@@ -1635,6 +1648,10 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
     // A copy: the wheel's names from the Wheel setup tab replace the config's once the wheel is open.
     wheelbri::EmulatorConfig config = loaded.config;
     logEffectiveConfig(config);
+    if (const std::string levers = wheelbri::leversProblem(config); !levers.empty()) {
+        WE_LOG_CRITICAL(log(), "mapping: {}", levers);   // the app greys Start out for this; the CLI stops here
+        return 2;
+    }
 
     const auto backend = wheelbri::service::startWheelBackend();
     if (backend == nullptr) {
