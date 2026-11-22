@@ -12,7 +12,7 @@ namespace wheelbri::fuzz {
 
 // 20: a USBPcap capture (tools/g923-capture), when that tool is built (WHEELBRI_G923CAP; without it, nothing).
 // 21: a Linux input device (evdev): its capabilities, then its events.
-inline constexpr std::uint8_t kTargets = 22;
+inline constexpr std::uint8_t kTargets = 23;
 
 // A promise broken by an input (a decoded packet that does not encode back, a force that is not a number).
 struct Broken : std::runtime_error {

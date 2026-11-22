@@ -16,6 +16,7 @@ add_library(wheelbri_core STATIC
     src/EmulatorConfig.cpp
     src/EvdevLayout.cpp
     src/FileText.cpp
+    src/FileValueMap.cpp
     src/Ffb.cpp
     src/FfbController.cpp
     src/FfbGroups.cpp
@@ -23,6 +24,7 @@ add_library(wheelbri_core STATIC
     src/FfbPacket.cpp
     src/FfbUsage.cpp
     src/GameDetector.cpp
+    src/GameFiles.cpp
     src/GameProfiles.cpp
     src/GameRotation.cpp
     src/GameSettings.cpp

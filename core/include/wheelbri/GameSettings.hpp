@@ -136,6 +136,22 @@ struct GameSettingsFileState {
 // aside, as Windows sees it).
 [[nodiscard]] bool sameSettingsFile(const std::filesystem::path& a, const std::filesystem::path& b);
 
+// The checks every write into a game's own file makes (here and GameFiles.hpp), as writeGameSettingsFile describes:
+//  - the file at `root` / `relative` (/ separated, relative, without . or ..), every folder from `root` down and the
+//    file itself no link; nullopt and `why` otherwise;
+//  - its bytes when it is a plain file of at most kMaxGameSettingsFileBytes; nullopt and `why` otherwise, `missing`
+//    when it is not there at all, `retry` when reading it failed and may work later;
+//  - `after` written into it (temporary file and rename), `before` kept once as `backup` (never through a link, never
+//    over one there); nullopt when written, else why, `retry` when trying again later may work.
+[[nodiscard]] std::optional<std::filesystem::path> gameFileUnder(const std::filesystem::path& root,
+                                                                 std::string_view relative, std::string& why);
+[[nodiscard]] std::optional<std::string> readGameFileBytes(const std::filesystem::path& file, std::string& why,
+                                                           bool& missing, bool& retry);
+[[nodiscard]] std::optional<std::string> writeGameFileKeepingOriginal(const std::filesystem::path& file,
+                                                                      const std::filesystem::path& backup,
+                                                                      std::string_view before, std::string_view after,
+                                                                      bool& retry);
+
 [[nodiscard]] GameSettingsFileState readGameSettingsState(const std::filesystem::path& root, std::string_view relative,
                                                           std::span<const GameSettingText> values);
 

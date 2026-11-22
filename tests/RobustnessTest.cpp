@@ -127,6 +127,19 @@ TEST(Robustness, ChangedConfigsAndProfilesAreReadWithoutHarm) {
         run(19, Bytes(text.begin(), text.end()));
         for (int i = 0; i < 300; ++i) run(19, mutated(text, random));
     }
+    // A game's own XML file (GRID's ActionMap preset) and a [game_files] value map (target 22).
+    const std::string actionMap = "<ActionMap deviceType=\"G25\" >\r\n\t<!-- Replay -->\r\n"
+                                  "\t<Action actionName = \"Replay Pause\" >\r\n"
+                                  "\t\t<Axis axisName = \"win_key_f1\" deviceName = \"Keyboard\" />\r\n"
+                                  "\t\t<Axis axisName = \"b17\" />\r\n\t</Action>\r\n</ActionMap>\r\n";
+    const std::string valueMap = "[game_files]\nfile = ActionMap/a.xml\nnote = n\n"
+                                 "insert.1 = Action[actionName=Replay Pause] | end | <Axis axisName = \"b3\" />\n"
+                                 "insert.1.note = n\ninsert.2 = ActionMap | after:Action[actionName=Replay Pause] | "
+                                 "<A b=\"1\"/>\ninsert.2.note = n\n";
+    for (const std::string& text : {actionMap, valueMap}) {
+        run(22, Bytes(text.begin(), text.end()));
+        for (int i = 0; i < 300; ++i) run(22, mutated(text, random));
+    }
 }
 
 // Random bytes, and packets that were valid before a byte changed, for everything that reads binary data.
@@ -147,6 +160,7 @@ TEST(Robustness, RandomBytesAreRefusedOrReadWithoutHarm) {
         run(18, randomBytes(random, 300));
         run(19, randomBytes(random, 300));
         run(21, randomBytes(random, 300));
+        run(22, randomBytes(random, 300));
 #ifdef WHEELBRI_G923CAP
         run(20, randomBytes(random, 300));
 #endif
