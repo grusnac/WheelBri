@@ -41,7 +41,7 @@ TEST(GameProfiles, EveryBuiltInFileParsesCleanly) {
         EXPECT_EQ(gameProfileFor(profile.program, gameProfiles(), found), &profile) << profile.id;
         // A profile is the exception: it changes something or gives advice, or it should not exist.
         EXPECT_TRUE(!describeOverlay(profile).empty() || profile.rotationDeg.has_value() ||
-                    !profile.settings.empty() || !profile.notFor.empty())
+                    !profile.settings.empty() || !profile.notFor.empty() || !profile.gameFiles.empty())
             << profile.id;
     }
 }
@@ -55,6 +55,48 @@ TEST(GameProfiles, Nfs2015HoldsOnlyItsPedalAxes) {
     EXPECT_EQ(profile.brakeAxis, ObjectGuid::YAxis);
     EXPECT_EQ(profile.clutchAxis, ObjectGuid::RzAxis);
     EXPECT_EQ(describeOverlay(profile), "throttle_axis = slider, brake_axis = y, clutch_axis = rz");
+}
+
+TEST(GameProfiles, GridPutsItsReplayControlsOnTheG25AndTakesThemOut) {
+    const GameProfile* const grid = gameProfileFor("GRID.exe");
+    ASSERT_NE(grid, nullptr);
+    EXPECT_EQ(grid->label, "Race Driver: GRID");
+    EXPECT_EQ(grid->target, "g25");
+    EXPECT_EQ(grid->gameFiles.file, "ActionMap/actionMapPreset1.xml");
+    ASSERT_EQ(grid->gameFiles.lines.size(), 12U);
+    for (const FileValueLine& line : grid->gameFiles.lines) {
+        EXPECT_NE(line.value.find("deviceName = \"Logitech G25 Racing Wheel USB\""), std::string::npos) << line.value;
+        EXPECT_FALSE(line.note.empty());
+    }
+    // The G25 preset as GRID ships it, its replay and menu actions (CRLF, tabs, `attr = "v"`).
+    std::string file = "<ActionMap deviceType=\"Logitech G25 Racing Wheel USB\" priority=\"1\" >\r\n\t\r\n"
+                       "\t<!-- Replay Actions -->\r\n";
+    for (const char* const action : {"Replay Rewind", "Replay Fast Forward", "Replay Pause", "Replay Next Camera",
+                                     "Replay Prev Camera", "Replay Jump In", "Replay Exit", "Menu Select"}) {
+        file += std::string("\t<Action actionName = \"") + action + "\" >\r\n\t\t<Axis axisName = \"win_key_f1\" "
+                "deviceName = \"Keyboard\" baseCalibration = \"uniDirectionalPositive\" />\r\n\t</Action>\r\n";
+    }
+    file += "</ActionMap>\r\n";
+    EXPECT_TRUE(fileValueState(file, grid->gameFiles).none());
+    const FileValueEdit added = addFileValues(file, grid->gameFiles);
+    ASSERT_TRUE(added.problems.empty()) << added.problems.front();
+    EXPECT_EQ(added.changed, 12U);
+    EXPECT_NE(added.text.find("\t<Action actionName = \"Menu Start Button\" ><Axis axisName = \"win_con_di_button3\" "),
+              std::string::npos);
+    EXPECT_NE(added.text.find("\t\t<Axis axisName = \"win_con_di_button16\" deviceName = \"Logitech G25 Racing Wheel "
+                              "USB\" baseCalibration = \"uniDirectionalPositive\" />\r\n\t</Action>\r\n\t<Action "
+                              "actionName = \"Replay Exit\""),
+              std::string::npos);
+    EXPECT_EQ(removeFileValues(added.text, grid->gameFiles).text, file);
+}
+
+TEST(GameProfiles, AProfileWithABadValueMapIsNotUsed) {
+    const ParsedGameProfile parsed = parseGameProfile(
+        "x", "[game]\nlabel = X\nprogram = x.exe\ntarget = g25\n[game_files]\nfile = a.xml\nnote = n\n"
+             "insert.1 = A | end | <X/>\n");
+    EXPECT_FALSE(parsed.profile);
+    ASSERT_FALSE(parsed.problems.empty());
+    EXPECT_NE(parsed.problems.front().find("[game_files] insert.1"), std::string::npos) << parsed.problems.front();
 }
 
 TEST(GameProfiles, TheSieveReplacesOnlyWhatTheProfileSets) {

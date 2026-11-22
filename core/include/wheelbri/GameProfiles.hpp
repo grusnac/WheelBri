@@ -3,6 +3,7 @@
 
 #include "wheelbri/DeviceProfile.hpp"
 #include "wheelbri/EmulatedJoystick.hpp"
+#include "wheelbri/FileValueMap.hpp"
 
 #include <array>
 #include <cstdint>
@@ -53,6 +54,10 @@ namespace wheelbri {
 //            (spring), the user's name for it in the Games tab and in [game_settings] <game>.<id> = value;
 //            <value> is a number from kGameSettingMin to kGameSettingMax, or "steering" for the steering rotation the
 //            game is played with (not changed by the user here: it follows the mapping's rotation for that game).
+//   [game_files] file = <path under the game's folder> / note = what the set does / insert.<n> = <parent> | <position>
+//            | <value> / insert.<n>.note = what that line does in the game: lines the user adds to the game's own XML
+//            file, and removes, all at once from the Games tab (FileValueMap.hpp says how they are read and placed;
+//            GRID gets its replay controls on the wheel that way).
 struct GameSetting {
     std::string id;                  // spring
     std::string name;                // the game's own name for it: WheelSpringMagnitude
@@ -92,6 +97,7 @@ struct GameProfile {
     std::string settingsFile;           // [game_settings] file: relative to the user's Documents folder, / separated
     std::string settingsNote;           // [game_settings] note
     std::vector<GameSetting> settings;  // [game_settings] the rest, by id
+    FileValueMap gameFiles;             // [game_files]; empty() when the profile has none
 };
 
 

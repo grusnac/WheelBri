@@ -264,10 +264,15 @@ ParsedGameProfile parseGameProfile(const std::string_view id, const std::string_
                                               tuning::formatNumber(kGameSettingMax) + " or steering");
                 }
             }
+        } else if (section == "game_files") {
+            ParsedFileValueMap files = parseFileValueMap(keys);
+            for (std::string& problem : files.problems) result.problems.push_back(std::move(problem));
+            profile.gameFiles = std::move(files.map);
         } else {
             result.problems.push_back("[" + section +
-                                      "]: unknown section (only [game], [pedals], [steering] and [game_settings]; a "
-                                      "game's force feedback is the game's and the wheel's own app's to set)");
+                                      "]: unknown section (only [game], [pedals], [steering], [game_settings] and "
+                                      "[game_files]; a game's force feedback is the game's and the wheel's own app's "
+                                      "to set)");
         }
     }
     if (profile.label.empty()) {
