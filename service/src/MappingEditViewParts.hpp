@@ -11,6 +11,7 @@
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/FileText.hpp"
 #include "wheelbri/Logging.hpp"
+#include "wheelbri/MappingEdit.hpp"
 #include "wheelbri/Rig.hpp"
 
 #include <algorithm>
@@ -48,7 +49,8 @@ constexpr Colour kMine = style::kMine;
 constexpr Colour kDark = style::kDark;
 
 constexpr std::uint64_t kDevicesEveryMs = 2000;
-constexpr std::array<const char*, 4> kAxisNames = {"Steering", "Throttle", "Brake", "Clutch"};
+constexpr std::array<const char*, MappingModel::kAxisCount> kAxisNames = {"Steering", "Throttle",   "Brake",
+                                                                         "Clutch",   "Left lever", "Right lever"};
 constexpr std::array<const char*, 4> kHatNames = {"Up", "Right", "Down", "Left"};
 
 // The popups: 24 in from the sides and 56 from the top; as wide and tall as the canvas allows (popupW, popupH), their

@@ -761,7 +761,7 @@ void MappingEditView::drawField(const float x, const float y, const float w, con
 }
 
 void MappingEditView::drawSource(const float x, const float y, const float w, const Slot kind,
-                                 const std::size_t index) {
+                                 const std::size_t index, const bool enabled) {
     const SourceRef& source = slot(kind, index);
     const bool changed = kind == Slot::Axis     ? source != saved_.axes[index]
                          : kind == Slot::Hat    ? source != saved_.hat[index]
@@ -796,8 +796,12 @@ void MappingEditView::drawSource(const float x, const float y, const float w, co
     const auto chars = static_cast<std::size_t>(std::max(0.0F, room - (chipsW > 0 ? chipsW + 8 : 0.0F)) /
                                                 ui::kCharWidth);
     const std::string shown = fit(text, chars);
-    window_.text(x + 6, y + 4, shown, missing(source, kind == Slot::Axis) ? kCaution : source.mapped() ? kText : kDim);
-    hit(x, y, w, 16, [this, kind, index] { openPicker(kind, index); });
+    window_.text(x + 6, y + 4, shown,
+                 !enabled                                 ? kDim
+                 : missing(source, kind == Slot::Axis)    ? kCaution
+                 : source.mapped()                        ? kText
+                                                          : kDim);
+    if (enabled) hit(x, y, w, 16, [this, kind, index] { openPicker(kind, index); });
     if (kind == Slot::Button) {
         const bool changed = edit_.secondaries[index] != saved_.secondaries[index];
         if (changed && !state.twice) window_.outline(x, y, w, 16, kMine);
@@ -1013,18 +1017,34 @@ void MappingEditView::draw() {
     // The axes' and the D-pad's source fields share what a wider window adds.
     const float half = extraW() / 2;
     window_.text(620 + half, y, "D-PAD", kHeading);
-    for (std::size_t i = 0; i < kAxisNames.size(); ++i) {
+    // The RGT has its levers too, under the clutch: the rows its pedal set does not report greyed (the clutch's with
+    // the levers, the levers' with the clutch). Their names are longer: the sources start further right.
+    const bool rgt = picker_.target() == ConfigPicker::Target::RGT;
+    const std::size_t axisRows = rgt ? MappingModel::kAxisCount : kHatNames.size();
+    const float labelW = static_cast<float>(rgt ? 11 : 8) * ui::kCharWidth;   // "Right lever", "Steering"
+    const bool levers = edit_.rgt.pedalSet == RgtPedalSet::Levers;
+    for (std::size_t i = 0; i < axisRows; ++i) {
         const float row = y + 16 + static_cast<float>(i) * 20;
-        window_.text(4, row + 4, kAxisNames[i], kText);
-        drawSource(4 + 8 * ui::kCharWidth + kLabelGap, row, 420 + half, Slot::Axis, i);   // "Steering"
-        button(508 + half, row, "Invert", [this, i] { edit_.invert[i] = !edit_.invert[i]; }, edit_.invert[i], true, 70);
+        const bool lever = i >= MappingModel::kLeftLever;
+        const bool off = rgt && (i == MappingModel::kClutch ? levers : lever && !levers);
+        const bool wanted = rgt && lever && levers && !edit_.axes[i].mapped();   // Start waits for it
+        window_.text(4, row + 4, kAxisNames[i], off ? kDim : wanted ? kCaution : kText);
+        if (off) {
+            tip(4, row, labelW, 16,
+                std::string("Not reported with the pedal set ") + (levers ? "Levers" : "Clutch") + " (below).");
+        } else if (wanted) {
+            tip(4, row, labelW, 16, "The pedal set is Levers: map both levers, or Start waits.");
+        }
+        drawSource(4 + labelW + kLabelGap, row, 420 + half - (labelW - 8 * ui::kCharWidth), Slot::Axis, i, !off);
+        button(508 + half, row, "Invert", [this, i] { edit_.invert[i] = !edit_.invert[i]; }, edit_.invert[i], !off, 70);
         tip(508 + half, row, 70, 16, "The axis the other way round: for a pedal that reads pressed at rest.");
+        if (i >= kHatNames.size()) continue;
         window_.text(620 + half, row + 4, kHatNames[i], kText);
         drawSource(620 + half + 5 * ui::kCharWidth + kLabelGap, row, 284 + half, Slot::Hat, i);   // "Right"
     }
 
     // The target's buttons (the ones its profile names; the others are not seen by games).
-    y += 16 + 4 * 20 + 12;
+    y += 16 + static_cast<float>(axisRows) * 20 + 12;
     style::headingBand(window_, 0, y, canvasW());
     style::heading(window_, 8, y, "BUTTONS");
     window_.text(76, y, target + " button <- your control", kDim);
@@ -1212,7 +1232,9 @@ float MappingEditView::drawLowerGrid(const float top) {
     // them: Button order for the G25 and G27, TrueForce for the G923 (never both; ConfigPicker keeps them).
     const bool order = ConfigPicker::hasButtonOrders(picker_.target());
     const bool trueForce = ConfigPicker::hasTrueForce(picker_.target());
-    const std::size_t count = order || trueForce ? 3 : 2;
+    // The RGT: AXES and PEDAL SET instead of PEDALS (its combining follows its mode, as on the real wheel).
+    const bool rgt = picker_.target() == ConfigPicker::Target::RGT;
+    const std::size_t count = order || trueForce || rgt ? 3 : 2;
     const bool twoColumns = canvasW() >= kTwoColumnsMinW;
     const float w = twoColumns ? (canvasW() - kGridGap) / 2 : canvasW();
     const auto tipSink = [this](const float x, const float y, const float w, const float h, std::string text) {
@@ -1220,7 +1242,8 @@ float MappingEditView::drawLowerGrid(const float top) {
     };
     const auto drawCell = [&](const std::size_t i, const float x, const float y) -> float {
         if (i == 0) return drawAntiDeadZone(x, y, w);
-        if (i == 1) return drawCombinedPedals(x, y, w);
+        if (i == 1) return rgt ? drawRgtAxes(x, y, w) : drawCombinedPedals(x, y, w);
+        if (rgt) return drawRgtPedalSet(x, y, w);
         if (order) return picker_.drawOrder(x + 4, x + kSliderX, cellSection(x, y, w, "BUTTON ORDER"), !locked_, tipSink);
         return picker_.drawTrueForce(x + 4, x + kSliderX, cellSection(x, y, w, "TRUEFORCE"), !locked_, tipSink);
     };
@@ -1252,6 +1275,76 @@ float MappingEditView::drawCombinedPedals(const float left, const float top, con
     tip(x + kSwitchWidth - 1, y, kSwitchWidth, 16,
         "Combined: throttle and brake on one axis, for old games that read them so (NFS Underground, Most Wanted).");
     return y + 16;
+}
+
+bool MappingEditView::leverMissing() const {
+    return edit_.rgt.pedalSet == RgtPedalSet::Levers &&
+           (!edit_.axes[MappingModel::kLeftLever].mapped() || !edit_.axes[MappingModel::kRightLever].mapped());
+}
+
+float MappingEditView::drawRgtAxes(const float left, const float top, const float w) {
+    // Thrustmaster's Control Panel's "Axis selection": 2, 3 or 5 axes. The clutch always means 5 (as the real wheel in
+    // its pedal base's 3 P): 2 and 3 greyed. Takes effect at the next Start.
+    tip(left + 4, top - 2, w - 8, 12,
+        "What the RGT's pedal axes report, as Thrustmaster's Control Panel set it: 5 for most games; 3 or 2 for "
+        "games that take fewer axes. With the pedal set Clutch it is always 5, as on the real wheel. Takes effect at "
+        "the next Start.");
+    const float y = cellSection(left, top, w, "AXES");
+    window_.text(left + 4, y + 4, "Reported as", kText);
+    const bool levers = edit_.rgt.pedalSet == RgtPedalSet::Levers;
+    const RgtAxes shown = edit_.rgt.effectiveAxes();
+    constexpr float kThirdW = 86;
+    float x = left + kSliderX;
+    struct Choice {
+        RgtAxes axes;
+        const char* label;
+        const char* tip;
+    };
+    static constexpr std::array<Choice, 3> kChoices = {{
+        {RgtAxes::Two, "2 axes", "2 axes (levers only): gas, brake and both levers on one axis, Y."},
+        {RgtAxes::Three, "3 axes", "3 axes (levers only): brake and left lever on Y, gas and right lever on Rz."},
+        {RgtAxes::Five, "5 axes", "5 axes: brake Y, gas Rz, clutch or left lever Slider 0, right lever Slider 1."},
+    }};
+    for (const Choice& choice : kChoices) {
+        const bool can = !locked_ && (levers || choice.axes == RgtAxes::Five);
+        const RgtAxes axes = choice.axes;
+        button(x, y, choice.label, [this, axes] { edit_.rgt.axes = axes; }, shown == axes, can, kThirdW);
+        tip(x, y, kThirdW, 16, choice.tip);
+        x += kThirdW - 1;   // the edges shared, as the other switches
+    }
+    // At most 41 characters: what a box at the narrowest two-column width has room for after kSliderX.
+    const char* what = "Y brake, Rz gas, Slider 0 clutch";
+    if (levers && shown == RgtAxes::Five) what = "Y brake, Rz gas, Sliders: L and R lever";
+    if (shown == RgtAxes::Three) what = "Y: brake + left lever; Rz: gas + right";
+    if (shown == RgtAxes::Two) what = "Y: gas, brake and both levers";
+    window_.text(left + kSliderX, y + 20,
+                 fit(what, static_cast<std::size_t>(std::max(0.0F, w - kSliderX - 8) / ui::kCharWidth)), kDim);
+    return y + 32;
+}
+
+float MappingEditView::drawRgtPedalSet(const float left, const float top, const float w) {
+    // The RGT pedal base's switch: 2 L (the two progressive levers) or 3 P (the clutch pedal). With the levers both
+    // must be mapped (the rows above), or Start waits (leversProblem).
+    tip(left + 4, top - 2, w - 8, 12,
+        "As the RGT's pedal base switch: Clutch (3 P) reports the clutch pedal, Levers (2 L) the two progressive "
+        "levers behind the rim instead. Levers: map Left lever and Right lever above, or Start waits. Takes effect at "
+        "the next Start.");
+    const float y = cellSection(left, top, w, "PEDAL SET");
+    window_.text(left + 4, y + 4, "Uses", kText);
+    const float x = left + kSliderX;
+    const bool levers = edit_.rgt.pedalSet == RgtPedalSet::Levers;
+    button(x, y, "Levers", [this] { edit_.rgt.pedalSet = RgtPedalSet::Levers; }, levers, !locked_, kSwitchWidth);
+    button(x + kSwitchWidth - 1, y, "Clutch", [this] { edit_.rgt.pedalSet = RgtPedalSet::Clutch; }, !levers, !locked_,
+           kSwitchWidth);
+    tip(x, y, kSwitchWidth, 16, "Levers (2 L): the two progressive levers, the clutch not reported.");
+    tip(x + kSwitchWidth - 1, y, kSwitchWidth, 16, "Clutch (3 P): the clutch pedal, the levers not reported; 5 axes.");
+    if (leverMissing()) {
+        window_.text(x, y + 20,
+                     fit("map both levers above: Start waits",
+                         static_cast<std::size_t>(std::max(0.0F, w - kSliderX - 8) / ui::kCharWidth)),
+                     kCaution);
+    }
+    return y + 32;
 }
 
 float MappingEditView::drawAntiDeadZone(const float left, const float top, const float w) {

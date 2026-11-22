@@ -112,7 +112,7 @@ std::vector<std::string> followRig(MappingModel& model, const Rig& rig, const ID
     if (!model.fromRig) return {};
     AutoMapping found = autoMapping(rig, profile, mappingWheel(model.sourceDevice, rig));
     const AutoInputs& autos = model.autoInputs;
-    for (std::size_t i = 0; i < model.axes.size(); ++i) {
+    for (std::size_t i = 0; i < autos.axes.size(); ++i) {   // the levers never follow the Rig
         if (autos.axes[i]) model.axes[i] = found.axes[i];
     }
     for (std::size_t i = 0; i < model.hat.size(); ++i) {

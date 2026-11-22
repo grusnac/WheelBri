@@ -231,7 +231,7 @@ protected:
         dir_ = std::filesystem::temp_directory_path() /
                ("wheelbri-editview-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
         std::filesystem::remove_all(dir_);
-        for (const char* name : {"g920.ini", "g25.ini", "g27.ini", "g923.ini"}) {
+        for (const char* name : {"g920.ini", "g25.ini", "g27.ini", "g923.ini", "rgt.ini"}) {
             std::filesystem::create_directories(dir_ / "config");
             std::filesystem::copy_file(std::filesystem::path(WHEELBRI_CONFIG_DIR) / name, dir_ / "config" / name);
         }
@@ -3088,7 +3088,48 @@ TEST_F(EditView, EachTargetShowsOnlyItsOwnOptions) {
         EXPECT_EQ(window_.has("TRUEFORCE"), e.trueForce) << static_cast<int>(e.target);
         EXPECT_TRUE(window_.has("ANTI-DEAD ZONE"));
         EXPECT_TRUE(window_.has("PEDALS"));
+        EXPECT_FALSE(window_.has("PEDAL SET"));
     }
+    picker_->useTarget(ConfigPicker::Target::RGT);   // AXES and PEDAL SET instead of PEDALS; no spring, no order
+    frame();
+    EXPECT_TRUE(window_.has("PEDAL SET"));
+    EXPECT_FALSE(window_.has("PEDALS"));
+    EXPECT_FALSE(window_.has("BUTTON ORDER"));
+    EXPECT_TRUE(window_.has("ANTI-DEAD ZONE"));
+}
+
+// The RGT: its levers' rows under the clutch, greyed with the clutch (the default), as are 2 and 3 axes; Levers
+// saves [rgt] pedal_set and asks for both levers (the rows and the box in amber); then 3 axes can be picked; Clutch
+// again shows 5 axes whatever was picked.
+TEST_F(EditView, TheRgtsAxesAndPedalSet) {
+    useRig(testRig());
+    open();
+    picker_->useTarget(ConfigPicker::Target::RGT);
+    frame();
+    const Window::Text* const left = window_.find("Left lever");
+    ASSERT_NE(left, nullptr);
+    EXPECT_TRUE(sameColour(left->colour, style::kDim));   // not reported with the clutch
+    ASSERT_NE(window_.find("Right lever"), nullptr);
+    EXPECT_TRUE(window_.has("5 axes"));
+    ASSERT_TRUE(click("3 axes"));   // greyed with the clutch: nothing happens
+    frame();
+    EXPECT_EQ(own().find("axes = 3"), std::string::npos) << own();
+
+    ASSERT_TRUE(click("Levers"));
+    frame();
+    EXPECT_NE(own().find("pedal_set = levers"), std::string::npos) << own();
+    EXPECT_TRUE(window_.hasPart("map both levers above"));
+    EXPECT_TRUE(sameColour(window_.find("Left lever")->colour, style::kCaution));   // wanted: Start waits
+    EXPECT_TRUE(sameColour(window_.find("Clutch", 0)->colour, style::kDim));        // the clutch's row greyed
+    ASSERT_TRUE(click("3 axes"));
+    frame();
+    EXPECT_NE(own().find("axes = 3"), std::string::npos) << own();
+    EXPECT_TRUE(window_.has("Y: brake + left lever; Rz: gas + right"));   // whole, not cut
+
+    ASSERT_TRUE(click("Clutch", 1));   // the switch's (the row's label is the first)
+    frame();
+    EXPECT_NE(own().find("pedal_set = clutch"), std::string::npos) << own();
+    EXPECT_TRUE(window_.has("Y brake, Rz gas, Slider 0 clutch"));   // 5 axes, as the real wheel
 }
 
 // The anti-dead zone per game: the Mapping tab's until the user sets one; saved; Default takes it back.

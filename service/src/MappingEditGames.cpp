@@ -844,7 +844,7 @@ void MappingEditView::setPicked(const SourceRef& source) {
         slot(pickKind_, pickIndex_) = source;
         // Picked: the user's own from now on, written in the file, no longer the Rig's.
         AutoInputs& autos = edit_.autoInputs;
-        if (pickKind_ == Slot::Axis) autos.axes[pickIndex_] = false;
+        if (pickKind_ == Slot::Axis && pickIndex_ < autos.axes.size()) autos.axes[pickIndex_] = false;
         if (pickKind_ == Slot::Hat) autos.hat[pickIndex_] = false;
         if (pickKind_ == Slot::Button && pickIndex_ < autos.buttons.size()) autos.buttons[pickIndex_] = false;
         return;

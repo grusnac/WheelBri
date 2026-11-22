@@ -255,7 +255,8 @@ private:
     // line.
     [[nodiscard]] bool followsRig(Slot kind, std::size_t index) const;
 
-    void drawSource(float x, float y, float w, Slot kind, std::size_t index);
+    // `enabled` false: greyed and not clickable (the RGT's axis its pedal set does not report).
+    void drawSource(float x, float y, float w, Slot kind, std::size_t index, bool enabled = true);
     void drawPicker();
     // The Buttons sub-tab's Add button...: the target's buttons in its own groups; one adds its row to the sub-tab
     // (pendingButtons_), where its main and its secondaries are then changed.
@@ -380,6 +381,12 @@ private:
     // The grid's boxes, each at `x` and `w` wide; each returns where it ends.
     float drawAntiDeadZone(float x, float top, float w);
     float drawCombinedPedals(float x, float top, float w);
+    // The RGT's instead of PEDALS (RgtMode): AXES (2 / 3 / 5, what the pedal axes report) and PEDAL SET (levers or
+    // the clutch, the pedal base's switch).
+    float drawRgtAxes(float x, float top, float w);
+    float drawRgtPedalSet(float x, float top, float w);
+    // The RGT with its levers and one of them not mapped (Start waits: leversProblem).
+    [[nodiscard]] bool leverMissing() const;
     // The anti-dead zone while `game` runs: the user's value for it, else its profile's (when it fits the target),
     // else the Mapping tab's.
     [[nodiscard]] float antiDeadZoneWhileRunning(const GameProfile& game) const;

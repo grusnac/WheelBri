@@ -40,6 +40,8 @@ namespace wheelbri {
 // deadzone, deadzone_low and saturation_high lines are dropped by writeMapping).
 struct MappingModel {
     static constexpr std::size_t kSteering = 0, kThrottle = 1, kBrake = 2, kClutch = 3;
+    static constexpr std::size_t kLeftLever = 4, kRightLever = 5;   // the RGT's levers (no other target has them)
+    static constexpr std::size_t kAxisCount = 6;
 
     std::string sourceDevice;                 // [emulator] source_device: the wheel (it plays force feedback)
     // [emulator] from_rig (EmulatorConfig::fromRig) and the inputs that follow the Rig (AutoMap.hpp): their sources
@@ -47,8 +49,10 @@ struct MappingModel {
     // it the user's (its flag goes).
     bool fromRig = false;
     AutoInputs autoInputs;
-    std::array<SourceRef, 4> axes;            // steering, throttle, brake, clutch
-    std::array<bool, 4> invert{};             // the same order
+    // Steering, throttle, brake, clutch, left lever, right lever. The levers never follow the Rig (AutoInputs has the
+    // first four only).
+    std::array<SourceRef, kAxisCount> axes;
+    std::array<bool, kAxisCount> invert{};    // the same order
     std::array<SourceRef, MapperConfig::kMaxTargetButtons> buttons;
     // Each button's secondary sources (at most MapperConfig::kMaxSecondaries), in the order they were added.
     std::array<std::vector<ButtonRef>, MapperConfig::kMaxTargetButtons> secondaries;
@@ -64,6 +68,9 @@ struct MappingModel {
     ButtonOrder buttonOrder = ButtonOrder::Driver;
     // [pedals] combined: Logitech's "Report Combined Pedals" for every game (EmulatorConfig::combinedPedals).
     bool combinedPedals = false;
+    // [rgt] axes, pedal_set: the RGT's axis mode and pedal set (EmulatorConfig::rgt); the Mapping tab shows it only
+    // for the RGT.
+    RgtMode rgt;
     // [steering] anti_deadzone: the anti-dead zone for every game, 0 to 50 percent, 0 = off (AntiDeadZone.hpp).
     float antiDeadZonePercent = 0.0F;
     // [game_rotation]: the user's own rotation per game profile (GameRotation.hpp); a game left out uses its profile's.
