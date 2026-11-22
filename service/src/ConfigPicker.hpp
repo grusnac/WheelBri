@@ -50,7 +50,7 @@ namespace wheelbri::service {
 class ConfigPicker {
 public:
     enum class Way { VirtualDevice, Shim };
-    enum class Target { G25, G27, G920, G923 };   // the Target buttons, left to right
+    enum class Target { G25, G27, G920, G923, RGT };   // the Target buttons, left to right
 
     struct Settings {
         std::filesystem::path builtInFolder;   // config/ next to the program

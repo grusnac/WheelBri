@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <limits>
@@ -471,6 +472,25 @@ TEST(EmulatedJoystick, CombinedPedalsNeedAFreeAxis) {
         other.combined = taken;
         EXPECT_EQ(EmulatedJoystick(other).axisCount(), 4U) << static_cast<int>(taken);
     }
+}
+
+// The RGT: 5 axes, the pedal switch on 3 P (Thrustmaster's manual): brake Y, gas Rz, clutch Slider 0, lever Slider 1.
+TEST(EmulatedJoystick, RgtLayoutIsBrakeYGasRzClutchSlider0) {
+    const JoystickLayout layout = layoutFor("rgt", 10);
+    EXPECT_TRUE(isValid(layout));
+    EXPECT_EQ(layout.throttle, ObjectGuid::RzAxis);
+    EXPECT_EQ(layout.brake, ObjectGuid::YAxis);
+    EXPECT_EQ(layout.clutch, ObjectGuid::Slider);
+    EXPECT_EQ(layout.combined, ObjectGuid::Any);
+    EXPECT_EQ(layout.idle, ObjectGuid::Slider1);
+    // Five axes, as a real RGT; the idle lever rests at the released end (GRID reads it as a second throttle).
+    const EmulatedJoystick joystick(layout);
+    EXPECT_EQ(joystick.axisCount(), 5U);
+    const auto lever = std::find_if(joystick.objects().begin(), joystick.objects().end(),
+                                    [](const EmulatedObject& o) { return o.control == Control::Idle; });
+    ASSERT_NE(lever, joystick.objects().end());
+    const auto index = static_cast<std::size_t>(lever - joystick.objects().begin());
+    EXPECT_EQ(joystick.valueOf(index, TargetReport{}), 65535U);
 }
 
 }  // namespace

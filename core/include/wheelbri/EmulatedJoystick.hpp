@@ -54,7 +54,9 @@ enum class ObjectGuid : std::uint8_t {
 
 // What an object reports from the TargetReport.
 // Combined: the throttle and the brake on one axis (combinedPedals in DeviceProfile.hpp), the G25's.
-enum class Control : std::uint8_t { Steering, Throttle, Brake, Clutch, Combined, Button, Pov };
+// Idle: an axis the wheel has that carries nothing here, at the released end of the target's pedals (the RGT's
+// disabled lever, JoystickLayout::idle).
+enum class Control : std::uint8_t { Steering, Throttle, Brake, Clutch, Combined, Idle, Button, Pov };
 
 struct EmulatedObject {
     ObjectGuid guid = ObjectGuid::Other;
@@ -88,6 +90,10 @@ struct JoystickLayout {
     ObjectGuid clutch = ObjectGuid::Slider;     // ObjectGuid::Any = the device has no clutch axis
     // The combined pedals' axis (Any: none). Left out when a pedal is on that axis (wheelbri-shim.ini, a game profile).
     ObjectGuid combined = ObjectGuid::Any;
+    // An axis that carries nothing, at rest (Any: none). Left out when another control is on that axis. The RGT's
+    // second lever (Slider 1), which Race Driver: GRID's RGT preset reads as a second throttle: missing, it read 0, the
+    // throttle held down (2026-11-22).
+    ObjectGuid idle = ObjectGuid::Any;
     bool invertPedals = false;                  // flip pressed/released on top of the profile's encoding
     std::size_t buttonCount = 11;
 };

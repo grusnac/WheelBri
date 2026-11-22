@@ -15,7 +15,7 @@ namespace wheelbri {
 namespace {
 
 TEST(VirtualWheel, OneIdentityPerTarget) {
-    ASSERT_EQ(virtualWheels().size(), 4U);   // G25, G27, G920, G923
+    ASSERT_EQ(virtualWheels().size(), 5U);   // G25, G27, G920, G923, RGT
     for (const VirtualWheel& wheel : virtualWheels()) {
         const auto profile = makeProfile(wheel.profile);
         ASSERT_NE(profile, nullptr) << wheel.profile;

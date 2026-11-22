@@ -45,8 +45,9 @@ constexpr float kG25X = 112;
 constexpr float kG27X = 163;
 constexpr float kG920X = 214;
 constexpr float kG923X = 265;
-constexpr float kVirtualX = 381;
-constexpr float kShimX = 452;
+constexpr float kRgtX = 316;
+constexpr float kVirtualX = 432;
+constexpr float kShimX = 503;
 // For the G25 and G27, Order drawn 18 lower (drawAll): "Order" (88), Logitech driver and Native (128 each); for the
 // G923 TrueForce there, Off and On.
 constexpr float kOrderRowY = kRowY + 18;
@@ -69,7 +70,7 @@ protected:
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(builtIn());
         std::filesystem::create_directories(user());
-        for (const char* name : {"g920.ini", "g25.ini", "g27.ini", "g923.ini"}) {
+        for (const char* name : {"g920.ini", "g25.ini", "g27.ini", "g923.ini", "rgt.ini"}) {
             write(builtIn() / name, "[emulator]\n");
         }
     }
@@ -204,11 +205,14 @@ TEST_F(ConfigPickerFiles, TheButtonsSwitchTargetAndWayAndRememberThem) {
     const float end = picker.draw(4, 18, true, [&tips](float, float, float, float, std::string text) {
         tips.push_back(std::move(text));
     });
-    EXPECT_FLOAT_EQ(end, 508);   // after the last button and its gap
-    for (const char* name : {"G25", "G27", "G920", "G923", "Virtual", "Shim"}) EXPECT_TRUE(window_.shows(name)) << name;
-    ASSERT_EQ(tips.size(), 6U);
+    EXPECT_FLOAT_EQ(end, 559);   // after the last button and its gap
+    for (const char* name : {"G25", "G27", "G920", "G923", "RGT", "Virtual", "Shim"}) {
+        EXPECT_TRUE(window_.shows(name)) << name;
+    }
+    ASSERT_EQ(tips.size(), 7U);
     EXPECT_NE(tips[0].find("G25: for older games"), std::string::npos);
-    EXPECT_NE(tips[4].find("every game sees"), std::string::npos);
+    EXPECT_NE(tips[4].find("RGT: Thrustmaster"), std::string::npos);
+    EXPECT_NE(tips[5].find("every game sees"), std::string::npos);
     const std::uint64_t before = picker.changes();
     EXPECT_FALSE(picker.onClick(kG920X, kRowY));   // the chosen one: nothing to do
 
@@ -239,6 +243,10 @@ TEST_F(ConfigPickerFiles, TheButtonsSwitchTargetAndWayAndRememberThem) {
     EXPECT_TRUE(picker.onClick(kG920X, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
     EXPECT_EQ(picker.selected(), (builtIn() / "g920.ini").string());
+    picker.draw(4, 18, true);
+    EXPECT_TRUE(picker.onClick(kRgtX, kRowY));
+    EXPECT_EQ(picker.target(), ConfigPicker::Target::RGT);
+    EXPECT_EQ(picker.selected(), (builtIn() / "rgt.ini").string());
     picker.draw(4, 18, true);
     EXPECT_TRUE(picker.onClick(kVirtualX, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);
@@ -327,8 +335,8 @@ TEST_F(ConfigPickerFiles, WithoutTheVirtualDeviceItIsShimOnly) {
                 [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
     EXPECT_TRUE(window_.shows("Shim"));
     EXPECT_FALSE(window_.shows("Virtual"));
-    ASSERT_EQ(tips.size(), 5U);
-    EXPECT_EQ(tips[4], "On this Windows, only Mode Shim is available: Mode Virtual's driver needs Windows 11.");
+    ASSERT_EQ(tips.size(), 6U);
+    EXPECT_EQ(tips[5], "On this Windows, only Mode Shim is available: Mode Virtual's driver needs Windows 11.");
     EXPECT_FALSE(picker.onClick(kVirtualX, kRowY));
     EXPECT_FALSE(picker.onClick(kShimX, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::Shim);
@@ -346,8 +354,8 @@ TEST_F(ConfigPickerFiles, TheShimOnlyHoverTextNamesThisWindows) {
     std::vector<std::string> tips;
     picker.draw(4, 18, false,
                 [&tips](float, float, float, float, std::string text) { tips.push_back(std::move(text)); });
-    ASSERT_EQ(tips.size(), 5U);
-    EXPECT_EQ(tips[4], "On Windows 7, only Mode Shim is available: Mode Virtual's driver needs Windows 11. "
+    ASSERT_EQ(tips.size(), 6U);
+    EXPECT_EQ(tips[5], "On Windows 7, only Mode Shim is available: Mode Virtual's driver needs Windows 11. "
                        "Fixed while WheelBri runs.");
 }
 
@@ -368,7 +376,7 @@ TEST_F(ConfigPickerFiles, AClickBesideTheButtonsIsNotTheRows) {
     picker.draw(4, 18, true);
     EXPECT_FALSE(picker.onClick(30, kRowY));    // on the "Target" label
     EXPECT_FALSE(picker.onClick(kG923X, 60));
-    EXPECT_FALSE(picker.onClick(520, kRowY));
+    EXPECT_FALSE(picker.onClick(571, kRowY));   // past the last button
     EXPECT_EQ(picker.target(), ConfigPicker::Target::G920);
 }
 

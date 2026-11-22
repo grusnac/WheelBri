@@ -443,5 +443,22 @@ TEST(DeviceProfile, ReportsAndCellsCompareEveryField) {
     EXPECT_EQ(toString(b), "{C262046D-0000-0000-0000-504944564900}");
 }
 
+// The RGT: Thrustmaster's DirectInput name and ids, 270 degrees, 10 buttons, one order; core buttons where Race
+// Driver: GRID's RGT preset has Select, Back, Boost, Look back and the paddles.
+TEST(DeviceProfile, RgtIsThrustmastersName) {
+    const auto rgt = makeProfile("rgt");
+    ASSERT_NE(rgt, nullptr);
+    EXPECT_EQ(rgt->identity().vendorId, 0x044F);
+    EXPECT_EQ(rgt->identity().productId, 0xB653);
+    EXPECT_EQ(rgt->identity().productName, "RGT Force Feedback Pro");
+    EXPECT_FLOAT_EQ(rgt->identity().rotationDeg, 270.0F);
+    EXPECT_EQ(rgt->buttonCount(), kRgtButtons);
+    EXPECT_FALSE(rgt->hasNativeButtonOrder());
+    EXPECT_EQ(rgt->coreButton(CoreButton::A), 5);
+    EXPECT_EQ(rgt->coreButton(CoreButton::B), 4);
+    EXPECT_EQ(rgt->coreButton(CoreButton::LPaddle), 0);
+    EXPECT_EQ(rgt->coreButton(CoreButton::RPaddle), 1);
+}
+
 }  // namespace
 }  // namespace wheelbri

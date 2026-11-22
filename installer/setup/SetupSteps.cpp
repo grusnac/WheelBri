@@ -188,7 +188,8 @@ void Installing::checkPc() {
     }
     std::vector<std::wstring> required = {L"wheelbri.exe", L"wheelbri-service.exe", L"wheelbri-helper.exe",
                                           L"config\\g25.ini", L"config\\g27.ini", L"config\\g920.ini",
-                                          L"config\\g923.ini", L"config\\wheelbri-shim.ini", L"driver\\common.ps1",
+                                          L"config\\g923.ini", L"config\\rgt.ini", L"config\\wheelbri-shim.ini",
+                                          L"driver\\common.ps1",
                                           L"driver\\installer-steps.ps1", L"shim\\dinput8.dll", L"shim\\x86\\dinput8.dll"};
     if (drivers) {
         for (const wchar_t* f : {L"driver\\install-driver.ps1", L"driver\\uninstall-driver.ps1",
@@ -527,7 +528,7 @@ void Installing::shortcuts() {
         if (!s.shortcut(path, target, arguments, folder, description, app)) failWith(r, L"could not create " + path + L".");
         r.log(L"    " + path);
     };
-    const std::wstring description = L"WheelBri: your rig as a Logitech wheel";
+    const std::wstring description = L"WheelBri: your rig as a wheel games know";
     link(joinPath(menu, L"WheelBri.lnk"), app, L"", o.installDir, description);
     link(joinPath(menu, L"Uninstaller.lnk"), dir(L"Uninstaller.exe"), L"--uninstall", o.installDir,
          L"Removes WheelBri, its drivers and shortcuts; asks what to keep");

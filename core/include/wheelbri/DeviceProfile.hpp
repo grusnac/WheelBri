@@ -112,6 +112,13 @@ inline constexpr std::size_t kCoreButtonCount = 6;
 inline constexpr std::array<std::string_view, kCoreButtonCount> kCoreButtonKinds = {"A", "B", "X", "Y", "L Paddle",
                                                                                    "R Paddle"};
 
+// The H-pattern shifter's gears, which the Rig maps by itself too (AutoMap.hpp): what the Rig tab calls them ("It is"),
+// Gear 1 .. Gear 7 then Reverse. A target with fewer gears has none for the rest (the Logitech shifters: 6 and R).
+inline constexpr std::size_t kGearCount = 8;
+inline constexpr std::size_t kReverseGear = kGearCount - 1;
+inline constexpr std::array<std::string_view, kGearCount> kGearKinds = {"Gear 1", "Gear 2", "Gear 3", "Gear 4",
+                                                                       "Gear 5", "Gear 6", "Gear 7", "Reverse"};
+
 // A wheel the emulator can impersonate. New targets (T300, G920, ...) are new implementations.
 class IDeviceProfile {
 public:
@@ -135,6 +142,8 @@ public:
     [[nodiscard]] virtual std::uint32_t nativeButtons(const std::uint32_t buttons) const { return buttons; }
     // The target button (0-based, as named) of a core button, or -1 when it has none.
     [[nodiscard]] virtual int coreButton(CoreButton /*button*/) const { return -1; }
+    // The target button (0-based, as named) of gear `gear` (kGearKinds' index), or -1 when it has none.
+    [[nodiscard]] virtual int gearButton(std::size_t /*gear*/) const { return -1; }
 };
 
 // The number a game shows for target button `index` (0-based, as named), the way the real wheel numbers it there.
@@ -179,6 +188,8 @@ struct DeviceProfileSpec {
     std::vector<std::uint8_t> nativeButtonOrder;
     // The target button of each CoreButton (IDeviceProfile::coreButton), in CoreButton's order; -1: none.
     std::array<int, kCoreButtonCount> coreButtons = {-1, -1, -1, -1, -1, -1};
+    // The target button of each gear (IDeviceProfile::gearButton), in kGearKinds' order; -1: none.
+    std::array<int, kGearCount> gearButtons = {-1, -1, -1, -1, -1, -1, -1, -1};
 };
 
 // Data-driven profile: identity plus linear axis encodings.
@@ -194,6 +205,7 @@ public:
     [[nodiscard]] bool hasNativeButtonOrder() const override { return !spec_.nativeButtonOrder.empty(); }
     [[nodiscard]] std::uint32_t nativeButtons(std::uint32_t buttons) const override;
     [[nodiscard]] int coreButton(CoreButton button) const override;
+    [[nodiscard]] int gearButton(std::size_t gear) const override;
 
 private:
     [[nodiscard]] std::int32_t encodePedal(float travel) const;
@@ -255,11 +267,23 @@ inline constexpr std::size_t kG923FirstGear = kG920FirstGear;
 // with its 24 buttons. Its rev lights are not emulated; TrueForce is (TrueForce.hpp).
 [[nodiscard]] DeviceProfileSpec g923Spec();
 
+// The RGT's buttons (Thrustmaster RGT Force Feedback Pro Clutch Edition, 044F:B653, docs/target-rgt.md): 10, as
+// Thrustmaster's driver registers them (Buttons 0-9) and Race Driver: GRID's RGT preset reads them: 0 and 1 the
+// paddles (gear down, gear up), 2-7 the rim's buttons, 8 and 9 the sequential stick (up a gear, down a gear).
+inline constexpr std::size_t kRgtButtons = 10;
+// Thrustmaster RGT Force Feedback Pro Clutch Edition (044F:B653), as games see it with Thrustmaster's driver: named
+// "RGT Force Feedback Pro" (the name Thrustmaster's installer registers for B653 and Race Driver: GRID's preset 5
+// reads), 270 degrees, pedals released at the top (255 at rest on a real one), 10 buttons, a D-pad. Which rim button
+// is which number is not known yet: the names say Button 3..8.
+[[nodiscard]] DeviceProfileSpec rgtSpec();
+
 // Config names of the built-in profiles, for messages: the wheels WheelBri emulates (a virtual device and the shim both
 // present them). A new target is a new profile here plus its support (driver, shim) first.
-inline constexpr std::string_view kKnownProfiles = "g25, g27, g920, g923";
+inline constexpr std::string_view kKnownProfiles = "g25, g27, g920, g923, rgt";
 
-// Looks up a built-in profile by its config name ("g920", "g25", "g27", "g923"). Returns nullptr for unknown names.
+// Looks up a built-in profile by its config name ("g920", "g25", "g27", "g923", "rgt"). Returns nullptr for unknown
+// names.
 [[nodiscard]] std::unique_ptr<IDeviceProfile> makeProfile(std::string_view name);
+
 
 }  // namespace wheelbri

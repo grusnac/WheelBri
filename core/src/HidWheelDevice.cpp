@@ -237,6 +237,8 @@ constexpr VirtualWheel kVirtualWheels[] = {
      "Logitech G920 Driving Force Racing Wheel USB", kG920Buttons, true, 0x0A},
     {"g923", "wheelbri\\G923", "G923", kG923VendorId, kG923ProductId, "G923 Racing Wheel for Xbox One and PC",
      "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, false, true},
+    {"rgt", "wheelbri\\RGT", "RGT", kRgtVendorId, kRgtProductId, "Thrustmaster force feedback wheel",
+     "RGT Force Feedback Pro", kRgtButtons, false, 0, false, false, false, false, true},
 };
 
 // The G25's and G27's classic identities (VirtualWheel::classic): the same but for the hardware id. Their instances are
@@ -348,6 +350,8 @@ constexpr std::array<std::uint8_t, N + kAxisItemBytes> withCombinedPedals(const 
 }
 constexpr auto kG25CombinedDescriptor = withCombinedPedals(kDescriptorArray);
 constexpr auto kG27CombinedDescriptor = withCombinedPedals(kG27Descriptor);
+// The RGT's (VirtualWheel::rgtAxes): the same five axes, 10 buttons and 14 padding bits.
+constexpr auto kRgtDescriptor = withCombinedPedals(descriptorWith(kRgtButtons));
 static_assert(kG25CombinedDescriptor[kClutchUsageAt] == 0x36 &&
                   kG25CombinedDescriptor[kClutchUsageAt + kAxisItemBytes] == 0x36,
               "the combined pedals Slider 0, the clutch Slider 1");
@@ -408,6 +412,7 @@ std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
         return wheel.buttons == kG27Buttons ? std::span<const std::uint8_t>(kG27Classic)
                                             : std::span<const std::uint8_t>(kG25Classic);
     }
+    if (wheel.rgtAxes) return kRgtDescriptor;
     if (wheel.combinedPedals) {
         if (wheel.buttons == kG920Buttons) return kG25CombinedDescriptor;
         if (wheel.buttons == kG27Buttons) return kG27CombinedDescriptor;
@@ -461,7 +466,9 @@ std::array<std::uint8_t, kWheelInputReportSize> packWheelInput(const TargetRepor
 }
 
 std::array<std::uint8_t, 8> directInputOemData(const VirtualWheel& wheel) {
-    const std::uint8_t flags = wheel.combinedPedals ? kJoyHwsHasPov : kJoyHwsHasPov | kJoyHwsIsCarCtrl;
+    // A wheel with five axes (the G25, G27, RGT) has no JOY_HWS_ISCARCTRL: each axis keeps its own.
+    const bool fiveAxes = wheel.combinedPedals || wheel.rgtAxes;
+    const std::uint8_t flags = fiveAxes ? kJoyHwsHasPov : kJoyHwsHasPov | kJoyHwsIsCarCtrl;
     return {flags, 0, 0, 0, static_cast<std::uint8_t>(wheel.buttons), 0, 0, 0};
 }
 
@@ -480,6 +487,23 @@ InputReport withoutIdIfClassic(const VirtualWheel& wheel, InputReport report) {
 }  // namespace
 
 InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) {
+    if (wheel.rgtAxes) {
+        // Report ID, wheel X, brake Y, throttle Rz, clutch Slider 0, the right lever Slider 1 at rest (65535: the
+        // RGT's pedals and levers rest at the top), then the buttons and the hat.
+        TargetReport swapped = report;
+        swapped.throttle = report.brake;
+        swapped.brake = report.throttle;
+        const auto packed = packWheelInput(swapped, wheel.buttons);
+        InputReport out;
+        std::copy(packed.begin(), packed.begin() + 9, out.bytes.begin());   // ID, X, Y, Rz, Slider 0
+        std::array<std::uint8_t, kWheelInputReportSize> lever{};
+        putAxis(lever, 1, 65535);
+        out.bytes[9] = lever[1];
+        out.bytes[10] = lever[2];
+        std::copy(packed.begin() + 9, packed.end(), out.bytes.begin() + 11);
+        out.size = kMaxInputReportSize;
+        return out;
+    }
     auto packed = packWheelInput(report, wheel.buttons);
     if (wheel.unsignedAxes) {
         // packWheelInput wrote value - 32768 as a signed 16-bit number: its bits are the value's with the top one

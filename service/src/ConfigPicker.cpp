@@ -29,7 +29,7 @@ constexpr Colour kText = style::kText;
 constexpr Colour kDim = style::kDim;
 
 constexpr float kRowHeight = 16;
-constexpr float kTargetWidth = 52;   // a Target button: "G920", "G25", "G27", "G923"
+constexpr float kTargetWidth = 52;   // a Target button: "G920", "G25", "G27", "G923", "RGT"
 constexpr float kWayWidth = 72;      // a Mode button: "Virtual", "Shim"
 // The rows' labels, and their column: as wide as the longest label plus a gap, so every row's buttons start at the
 // same x and a longer label moves them all.
@@ -55,6 +55,9 @@ std::string targetAbout(const ConfigPicker::Target target) {
             return "G920: the Xbox wheel, WheelBri's default and the one tried most in games.";
         case ConfigPicker::Target::G923:
             return "G923: the G920's successor, with TrueForce (set below, under the pedals).";
+        case ConfigPicker::Target::RGT:
+            return "RGT: Thrustmaster RGT Force Feedback Pro Clutch Edition, for games with an RGT preset (Race "
+                   "Driver: GRID). Its axes and pedal set are set below.";
     }
     return {};
 }
@@ -114,6 +117,7 @@ const char* ConfigPicker::targetName(const Target target) {
         case Target::G25: return "G25";
         case Target::G27: return "G27";
         case Target::G923: return "G923";
+        case Target::RGT: return "RGT";
         case Target::G920: break;
     }
     return "G920";
@@ -124,6 +128,7 @@ const char* ConfigPicker::profileName(const Target target) {
         case Target::G25: return "g25";
         case Target::G27: return "g27";
         case Target::G923: return "g923";
+        case Target::RGT: return "rgt";
         case Target::G920: break;
     }
     return "g920";
@@ -136,6 +141,7 @@ std::optional<ConfigPicker::Target> ConfigPicker::parseTarget(const std::string_
     if (profile == profileName(Target::G25)) return Target::G25;
     if (profile == profileName(Target::G27)) return Target::G27;
     if (profile == profileName(Target::G923)) return Target::G923;
+    if (profile == profileName(Target::RGT)) return Target::RGT;
     return std::nullopt;
 }
 
@@ -424,7 +430,7 @@ float ConfigPicker::draw(const float x0, const float y, const bool canChangeNow,
     float x = x0;
     window_.text(x, y + 4, kTargetLabel, kDim);
     x += kLabelWidth;
-    for (const Target t : {Target::G25, Target::G27, Target::G920, Target::G923}) {
+    for (const Target t : {Target::G25, Target::G27, Target::G920, Target::G923, Target::RGT}) {
         x = segment(x, y, targetName(t), kTargetWidth, t == target_, true, targetAbout(t), [this, t] { choose(t); },
                     canChangeNow, tip);
     }

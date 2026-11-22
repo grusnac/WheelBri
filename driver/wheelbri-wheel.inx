@@ -37,6 +37,7 @@ wheelbri-wheel.dll=1
 %DeviceDescG25Logi%=WheelbriWheel, wheelbri\G25_LOGI
 %DeviceDescG27Logi%=WheelbriWheel, wheelbri\G27_LOGI
 %DeviceDescG923%=WheelbriWheel, wheelbri\G923
+%DeviceDescRgt%=WheelbriWheel, wheelbri\RGT
 %DeviceDescG923TF%=WheelbriWheel, wheelbri\G923_TF
 
 [WheelbriWheel.NT]
@@ -86,4 +87,5 @@ DeviceDescG27="Logitech G27 Racing Wheel USB (wheelbri)"
 DeviceDescG25Logi="Logitech G25 Racing Wheel USB (wheelbri, Logitech driver)"
 DeviceDescG27Logi="Logitech G27 Racing Wheel USB (wheelbri, Logitech driver)"
 DeviceDescG923="Logitech G923 Racing Wheel for Xbox One and PC (wheelbri)"
+DeviceDescRgt="Thrustmaster RGT Force Feedback Pro (wheelbri)"
 DeviceDescG923TF="Logitech G923 Racing Wheel for Xbox One and PC TrueForce (wheelbri)"

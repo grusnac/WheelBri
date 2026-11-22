@@ -35,6 +35,12 @@ const std::vector<std::uint8_t> kG27NativeOrder = {
     18, 20, 19, 21,                  // R Wheel 2, L Wheel 2, R Wheel 3, L Wheel 3
 };
 
+// A Logitech shifter's gears: 1-6 from `first`, reverse after them; no Gear 7.
+std::array<int, kGearCount> logitechGears(const std::size_t first) {
+    const int f = static_cast<int>(first);
+    return {f, f + 1, f + 2, f + 3, f + 4, f + 5, -1, f + 6};
+}
+
 }  // namespace
 
 std::string toString(const Guid& guid) {
@@ -166,6 +172,10 @@ int DeviceProfile::coreButton(const CoreButton button) const {
     return index < spec_.coreButtons.size() ? spec_.coreButtons[index] : -1;
 }
 
+int DeviceProfile::gearButton(const std::size_t gear) const {
+    return gear < spec_.gearButtons.size() ? spec_.gearButtons[gear] : -1;
+}
+
 std::string_view DeviceProfile::buttonName(const std::size_t index) const {
     return index < spec_.buttonNames.size() ? std::string_view(spec_.buttonNames[index]) : std::string_view();
 }
@@ -203,6 +213,7 @@ DeviceProfileSpec g920Spec() {
         {"SHIFTER", {12, 13, 14, 15, 16, 17, 18}, Place::Below},
     };
     spec.coreButtons = {0, 1, 2, 3, 5, 4};   // A, B, X, Y, L Paddle, R Paddle
+    spec.gearButtons = logitechGears(kG920FirstGear);
     return spec;
 }
 
@@ -238,6 +249,7 @@ DeviceProfileSpec g25Spec() {
     spec.nativeButtonOrder = kG25NativeOrder;
     // An Xbox-style rim's A, B, X, Y on the black diamond by place (bottom 17, right 18, left 16, top 15); paddles.
     spec.coreButtons = {17, 18, 16, 15, 5, 4};
+    spec.gearButtons = logitechGears(kG25FirstGear);
     return spec;
 }
 
@@ -269,6 +281,7 @@ DeviceProfileSpec g27Spec() {
     };
     spec.nativeButtonOrder = kG27NativeOrder;
     spec.coreButtons = {17, 18, 16, 15, 5, 4};   // as the G25's: Black 1-4 are its diamond's top, left, bottom, right
+    spec.gearButtons = logitechGears(kG27FirstGear);
     return spec;
 }
 
@@ -292,6 +305,33 @@ DeviceProfileSpec g923Spec() {
     return spec;
 }
 
+DeviceProfileSpec rgtSpec() {
+    DeviceProfileSpec spec;
+    spec.identity.shortName = "RGT";
+    spec.identity.vendorId = 0x044F;
+    spec.identity.productId = 0xB653;
+    spec.identity.productName = "RGT Force Feedback Pro";
+    spec.identity.rotationDeg = 270.0F;
+    spec.identity.centringSpring = true;   // Thrustmaster's Control Panel had one ("By the wheel", 0-100%)
+    spec.steeringRange = {0, 65535};
+    spec.pedalRange = {0, 65535};
+    spec.pedalsReleasedAtMax = true;   // a real RGT's pedals rest at 255 (linux-input 2008, evtest)
+    // As printed on the real wheel (Thrustmaster's front view): the paddles say DOWN and UP, the stick's base + and -;
+    // the rim's buttons carry nothing, so their number.
+    spec.buttonNames = {"Down",     "Up",       "Button 3", "Button 4", "Button 5",
+                        "Button 6", "Button 7", "Button 8", "Stick +",  "Stick -"};
+    using Place = ButtonGroup::Place;
+    spec.buttonGroups = {
+        {"PADDLES", {0, 1}, Place::Left},             // DOWN, UP
+        {"RIM", {2, 3, 4, 5, 6, 7}, Place::Right},    // which is which on the rim: not known yet
+        {"STICK", {8, 9}, Place::Below},              // the sequential stick: up a gear, down a gear
+    };
+    // An Xbox-style rim's A, B, X, Y where Race Driver: GRID's RGT preset has Select (6), Back (5), Boost (4) and
+    // Look back (3); the paddles on the paddles.
+    spec.coreButtons = {5, 4, 3, 2, 0, 1};
+    return spec;
+}
+
 std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     if (name == "g920") {
         return std::make_unique<DeviceProfile>(g920Spec());
@@ -304,6 +344,9 @@ std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     }
     if (name == "g923") {
         return std::make_unique<DeviceProfile>(g923Spec());
+    }
+    if (name == "rgt") {
+        return std::make_unique<DeviceProfile>(rgtSpec());
     }
     return nullptr;
 }

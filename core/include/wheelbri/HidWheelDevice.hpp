@@ -36,6 +36,12 @@ inline constexpr std::uint16_t kG27ProductId = 0xC29B;
 // no padding, the PC-mode ids (046D:C26E; Xbox mode, C26D, is an Xbox controller, not this).
 inline constexpr std::uint16_t kG923VendorId = 0x046D;
 inline constexpr std::uint16_t kG923ProductId = 0xC26E;
+// The virtual RGT (Thrustmaster RGT Force Feedback Pro Clutch Edition, docs/target-rgt.md): a real one's ids
+// (044F:B653) and product string, the same HID PID block, its 10 buttons, and five axes as games read the real one in
+// its 5-axis mode (VirtualWheel::rgtAxes). Not the real wheel's own descriptor (a cut-down HID PID set that Windows'
+// driver cannot drive, captures/rgt): WheelBri's, so force feedback needs no Thrustmaster software.
+inline constexpr std::uint16_t kRgtVendorId = 0x044F;
+inline constexpr std::uint16_t kRgtProductId = 0xB653;
 inline constexpr std::uint8_t kWheelInputReportId = 0x01;
 inline constexpr std::size_t kWheelInputReportSize = 13;   // report ID + 4 axes x 2 + 3 button bytes + hat
 // A wheel with combined pedals (VirtualWheel::combinedPedals) has a fifth axis (its clutch) after the fourth: 15 bytes.
@@ -81,6 +87,10 @@ struct VirtualWheel {
     // straight to the HID device. Its descriptor has no report IDs and no HID PID: the same input items as the
     // other identity, and one 7-byte vendor output report (page 0xFF00). The driver logs what arrives there.
     bool classic = false;
+    // The RGT's axes (Thrustmaster's 5-axis mode, the pedal switch on 3 P): wheel X, brake Y, throttle Rz, clutch
+    // Slider 0, the right lever Slider 1 (at rest), as Race Driver: GRID's RGT preset reads them. The same five axes
+    // as combinedPedals, carrying other things.
+    bool rgtAxes = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.
