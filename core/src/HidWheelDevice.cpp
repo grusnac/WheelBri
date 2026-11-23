@@ -259,6 +259,55 @@ constexpr VirtualWheel kClassicWheels[] = {
 };
 static_assert(kVirtualWheels[0].profile == "g25" && kVirtualWheels[1].profile == "g27", "the table's order");
 
+// The maker's identity (VirtualWheel::makerIdentity): the same wheel to games, its own hardware id.
+constexpr VirtualWheel makerOf(VirtualWheel wheel, const std::string_view hardwareId) {
+    wheel.hardwareId = hardwareId;
+    wheel.makerIdentity = true;
+    return wheel;
+}
+constexpr VirtualWheel kMakerWheels[] = {
+    makerOf(kVirtualWheels[4], "wheelbri\\TM_RGT_TM"),
+};
+static_assert(kVirtualWheels[4].profile == "tm_rgt", "the table's order");
+constexpr std::string_view kMakerSuffix = "-tm";
+
+// The real RGT's report descriptor, as captured (captures/rgt/b653-report-descriptor.hex, 455 bytes): input report
+// 0x01 (10 buttons, a 4-bit hat, X 10 bits -512..511, Y, Rz, Slider, Dial 8 bits 0..255), Thrustmaster's vendor
+// output 0x40, its HID PID subset (outputs 0x41-0x4B, features 0x85-0x88), vendor features 0x81 and 0x82.
+constexpr std::array<std::uint8_t, 455> kRgtRealDescriptor = {
+    0x05, 0x01, 0x09, 0x04, 0xA1, 0x01, 0x09, 0x01, 0xA1, 0x00, 0x85, 0x81, 0x06, 0x00, 0xFF, 0x15,
+    0x00, 0x27, 0xFF, 0xFF, 0x00, 0x00, 0x09, 0x01, 0x09, 0x02, 0x75, 0x10, 0x95, 0x02, 0xB1, 0xA2,
+    0x09, 0x03, 0x09, 0x04, 0x85, 0x82, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0xB1, 0x02, 0x85, 0x01,
+    0x05, 0x09, 0x19, 0x01, 0x29, 0x0A, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0A, 0x81, 0x02, 0x05, 0x01,
+    0x09, 0x39, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3B, 0x01, 0x65, 0x14, 0x95, 0x01, 0x75, 0x04, 0x81,
+    0x42, 0x09, 0x30, 0x46, 0xFF, 0x03, 0x16, 0x00, 0xFE, 0x26, 0xFF, 0x01, 0x65, 0x00, 0x75, 0x0A,
+    0x95, 0x01, 0x81, 0x02, 0x09, 0x31, 0x46, 0xFF, 0x00, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x75, 0x08,
+    0x81, 0x02, 0x09, 0x35, 0x81, 0x02, 0x09, 0x36, 0x81, 0x02, 0x09, 0x37, 0x81, 0x02, 0xC0, 0x85,
+    0x40, 0x09, 0xBB, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x35, 0x00, 0x46, 0xFF, 0x00, 0x75, 0x08, 0x95,
+    0x04, 0x91, 0x02, 0x05, 0x0F, 0x09, 0x21, 0xA1, 0x02, 0x85, 0x41, 0x09, 0x22, 0x15, 0x01, 0x25,
+    0x04, 0x75, 0x08, 0x95, 0x01, 0x91, 0x02, 0x09, 0x50, 0x15, 0x00, 0x25, 0x7F, 0x35, 0x00, 0x46,
+    0xC0, 0x1F, 0x75, 0x08, 0x66, 0x03, 0x10, 0x55, 0x0D, 0x95, 0x01, 0x91, 0x02, 0xC0, 0x09, 0x5F,
+    0xA1, 0x02, 0x85, 0x43, 0x09, 0x22, 0x15, 0x01, 0x25, 0x04, 0x75, 0x08, 0x95, 0x01, 0x91, 0x02,
+    0x09, 0x60, 0x09, 0x61, 0x09, 0x62, 0x15, 0x80, 0x25, 0x7F, 0x95, 0x03, 0x91, 0x02, 0x09, 0x63,
+    0x09, 0x64, 0x09, 0x65, 0x15, 0x00, 0x91, 0x02, 0xC0, 0x09, 0x73, 0xA1, 0x02, 0x85, 0x45, 0x09,
+    0x22, 0x15, 0x01, 0x25, 0x04, 0x75, 0x08, 0x95, 0x01, 0x91, 0x02, 0x09, 0x70, 0x15, 0x80, 0x25,
+    0x7F, 0x75, 0x08, 0x91, 0x02, 0xC0, 0x09, 0x77, 0xA1, 0x02, 0x85, 0x4A, 0x09, 0x22, 0x15, 0x01,
+    0x25, 0x04, 0x75, 0x08, 0x95, 0x01, 0x91, 0x02, 0x09, 0x78, 0xA1, 0x02, 0x09, 0x79, 0x09, 0x7A,
+    0x09, 0x7B, 0x25, 0x03, 0x75, 0x08, 0x91, 0x00, 0xC0, 0xC0, 0x09, 0x92, 0xA1, 0x02, 0x85, 0x88,
+    0x09, 0x22, 0x15, 0x01, 0x25, 0x04, 0x75, 0x08, 0xB1, 0x02, 0x09, 0x94, 0x09, 0xA0, 0x09, 0x9F,
+    0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x03, 0xB1, 0x02, 0x95, 0x05, 0xB1, 0x03, 0xC0, 0x09,
+    0x95, 0xA1, 0x02, 0x85, 0x4B, 0x09, 0x96, 0xA1, 0x02, 0x09, 0x97, 0x09, 0x98, 0x09, 0x99, 0x09,
+    0x9A, 0x09, 0x9B, 0x09, 0x9C, 0x15, 0x01, 0x25, 0x06, 0x75, 0x08, 0x95, 0x01, 0x91, 0x00, 0xC0,
+    0xC0, 0x09, 0xAB, 0xA1, 0x02, 0x85, 0x85, 0x09, 0x25, 0xA1, 0x02, 0x09, 0x26, 0x09, 0x40, 0x15,
+    0x01, 0x25, 0x02, 0x75, 0x08, 0x95, 0x01, 0xB1, 0x00, 0xC0, 0xC0, 0x09, 0x89, 0xA1, 0x02, 0x85,
+    0x86, 0x09, 0x22, 0x15, 0x01, 0x25, 0x04, 0x75, 0x08, 0x95, 0x01, 0xB1, 0x02, 0x09, 0x8B, 0xA1,
+    0x02, 0x09, 0x8C, 0x09, 0x8D, 0x09, 0x8E, 0x15, 0x01, 0x25, 0x03, 0x75, 0x08, 0x95, 0x01, 0xB1,
+    0x00, 0xC0, 0xC0, 0x09, 0x90, 0xA1, 0x02, 0x85, 0x87, 0x09, 0x22, 0x15, 0x01, 0x25, 0x04, 0x75,
+    0x08, 0x95, 0x01, 0xB1, 0x02, 0xC0, 0xC0,
+};
+static_assert(kRgtRealDescriptor[0] == 0x05 && kRgtRealDescriptor[kRgtRealDescriptor.size() - 1] == 0xC0,
+              "the captured descriptor, whole");
+
 bool sameIgnoringCase(const std::string_view a, const std::string_view b) {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](const char x, const char y) {
                return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
@@ -283,6 +332,9 @@ const VirtualWheel* virtualWheelForHardwareId(const std::string_view hardwareId)
     for (const VirtualWheel& wheel : kClassicWheels) {
         if (sameIgnoringCase(wheel.hardwareId, hardwareId)) return &wheel;
     }
+    for (const VirtualWheel& wheel : kMakerWheels) {
+        if (sameIgnoringCase(wheel.hardwareId, hardwareId)) return &wheel;
+    }
     return nullptr;
 }
 
@@ -293,14 +345,50 @@ const VirtualWheel* classicVirtualWheel(const std::string_view profile) {
     return nullptr;
 }
 
+const VirtualWheel* makerVirtualWheel(const std::string_view profile) {
+    for (const VirtualWheel& wheel : kMakerWheels) {
+        if (wheel.profile == profile) return &wheel;
+    }
+    return nullptr;
+}
+
+std::size_t makerFeature(const VirtualWheel& wheel, const std::uint8_t reportId, const std::span<std::uint8_t> out) {
+    if (!wheel.makerIdentity) return 0;
+    struct Answer {
+        std::uint8_t id;
+        std::array<std::uint8_t, 4> data;
+        std::size_t size;
+    };
+    static constexpr Answer kAnswers[] = {
+        {0x81, {0x01, 0x21, 0xFF, 0xFF}, 4},
+        {0x82, {0x50, 0x5A, 0, 0}, 2},
+        {0x86, {0x00, 0x01, 0, 0}, 2},
+        {0x88, {0x00, 0x02, 0, 0}, 2},
+    };
+    for (const Answer& answer : kAnswers) {
+        if (answer.id != reportId) continue;
+        if (out.size() < answer.size + 1) return 0;
+        out[0] = answer.id;
+        std::copy_n(answer.data.begin(), answer.size, out.begin() + 1);
+        return answer.size + 1;
+    }
+    return 0;
+}
+
 std::string requestNameOf(const VirtualWheel& wheel) {
-    return std::string(wheel.profile) + (wheel.classic ? "-logi" : "");
+    const std::string_view suffix = wheel.classic ? std::string_view("-logi")
+                                    : wheel.makerIdentity ? kMakerSuffix
+                                                          : std::string_view();
+    return std::string(wheel.profile) + std::string(suffix);
 }
 
 const VirtualWheel* virtualWheelForRequestName(const std::string_view name) {
     constexpr std::string_view kSuffix = "-logi";
     if (name.size() > kSuffix.size() && name.substr(name.size() - kSuffix.size()) == kSuffix) {
         return classicVirtualWheel(name.substr(0, name.size() - kSuffix.size()));
+    }
+    if (name.size() > kMakerSuffix.size() && name.substr(name.size() - kMakerSuffix.size()) == kMakerSuffix) {
+        return makerVirtualWheel(name.substr(0, name.size() - kMakerSuffix.size()));
     }
     return virtualWheel(name);
 }
@@ -422,6 +510,7 @@ std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
         return wheel.buttons == kG27Buttons ? std::span<const std::uint8_t>(kG27Classic)
                                             : std::span<const std::uint8_t>(kG25Classic);
     }
+    if (wheel.makerIdentity) return kRgtRealDescriptor;
     if (wheel.rgtAxes) return kRgtDescriptor;
     if (wheel.brakeOnY) return kTmxDescriptor;
     if (wheel.combinedPedals) {
@@ -445,6 +534,7 @@ std::span<const std::uint8_t> protonReportDescriptor(const VirtualWheel& wheel) 
 
 ReportRoute routeReport(const VirtualWheel& wheel, const std::uint8_t reportId) {
     if (wheel.classic) return {ReportRoute::To::Classic, reportId};
+    if (wheel.makerIdentity) return {ReportRoute::To::Maker, reportId};
     if (!wheel.hidpp) return {ReportRoute::To::Pid, reportId};
     if (HidPp::isHidPpReport(reportId)) return {ReportRoute::To::HidPp, reportId};
     if (reportId >= kHidPpPidShift + HidPp::kLongId) {   // 0x21..: HID PID's 0x11..
@@ -499,6 +589,27 @@ InputReport withoutIdIfClassic(const VirtualWheel& wheel, InputReport report) {
 }  // namespace
 
 InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) {
+    if (wheel.makerIdentity) {
+        // The real RGT's report 0x01, bit by bit from the least significant: buttons 0-9, hat 10-13 (0..7 clockwise
+        // from up; 15, out of its range, when released), X 14-23 (-512..511), then Y, Rz, Slider, Dial a byte each:
+        // brake, throttle, clutch (or left lever), right lever, as withRgtMode put them (0..255, released at 255).
+        const auto byteOf = [](const std::int32_t value) {
+            return static_cast<std::uint64_t>(std::clamp<std::int32_t>(value, 0, 65535) >> 8);
+        };
+        const std::int32_t x = (std::clamp<std::int32_t>(report.steering, 0, 65535) >> 6) - 512;   // -512..511
+        std::uint64_t bits = report.buttons & 0x3FFU;
+        bits |= static_cast<std::uint64_t>(report.hat >= 0 && report.hat < 8 ? report.hat : 15) << 10;
+        bits |= (static_cast<std::uint64_t>(x) & 0x3FFU) << 14;
+        bits |= byteOf(report.brake) << 24;
+        bits |= byteOf(report.throttle) << 32;
+        bits |= byteOf(report.clutch) << 40;
+        bits |= byteOf(report.rightLever) << 48;
+        InputReport out;
+        out.bytes[0] = 0x01;
+        for (std::size_t i = 0; i < 7; ++i) out.bytes[1 + i] = static_cast<std::uint8_t>(bits >> (8 * i));
+        out.size = 8;
+        return out;
+    }
     if (wheel.rgtAxes) {
         // Report ID, wheel X, brake Y, throttle Rz, clutch Slider 0, rightLever Slider 1 (the axes withRgtMode put
         // there for its mode), then the buttons and the hat.

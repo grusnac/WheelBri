@@ -110,6 +110,11 @@ struct VirtualWheel {
     // marks the values it writes in that OEM key ("WheelBri") and never writes over or removes the maker's
     // (writeDirectInputEntries, the uninstaller's oemEntries, clean-pc.ps1).
     bool makerDriver = false;
+    // The maker's identity (makerVirtualWheel: the RGT's "rgt-tm"): as the real wheel, for the maker's own force
+    // feedback driver, which talks the real wheel's protocol: its report descriptor as captured (captures/rgt), its
+    // input report, and every output and feature report logged by the driver as it comes (not decoded yet); the
+    // feature reports a real one answered at plug-in are answered the same (makerFeature).
+    bool makerIdentity = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.
@@ -118,8 +123,16 @@ struct VirtualWheel {
 // The classic identity of the G25 or G27 (VirtualWheel::classic: hardware id wheelbri\G25_LOGI, wheelbri\G27_LOGI;
 // the same profile, instances, ids and names); null for any other profile.
 [[nodiscard]] const VirtualWheel* classicVirtualWheel(std::string_view profile);
+// The maker's identity of the RGT (VirtualWheel::makerIdentity: hardware id wheelbri\TM_RGT_TM, request name
+// "tm_rgt-tm"; the same profile, instances, ids and names), used when Thrustmaster's driver is installed
+// (makerFfbDriverInstalled); null for any other profile.
+[[nodiscard]] const VirtualWheel* makerVirtualWheel(std::string_view profile);
+// A feature report the maker's identity answers as the real wheel did at plug-in (captures/rgt: 0x81 01 21 ff ff,
+// 0x82 50 5a, 0x86 00 01, 0x88 00 02): [report ID, data...] into `out`; its size, 0 for any other report (or wheel)
+// or when `out` is too small.
+[[nodiscard]] std::size_t makerFeature(const VirtualWheel& wheel, std::uint8_t reportId, std::span<std::uint8_t> out);
 // The name a CreateVirtualWheel request gives a wheel (HelperProtocol.hpp): its profile, or the classic identity's
-// "g25-logi", "g27-logi"; and the wheel for such a name (null when it is none).
+// "g25-logi", "g27-logi", or the maker's identity's "tm_rgt-tm"; and the wheel for such a name (null when it is none).
 [[nodiscard]] std::string requestNameOf(const VirtualWheel& wheel);
 [[nodiscard]] const VirtualWheel* virtualWheelForRequestName(std::string_view name);
 // Whether vid:pid is one of the virtual wheels' ids (never hidden: games are meant to see it).
@@ -156,7 +169,8 @@ inline constexpr std::uint8_t kHidPpPidShift = 0x10;
 // Where a report the host sends goes, by its report ID: the wheel's HID PID (`id` as HidPid knows it), its HID++,
 // or neither.
 struct ReportRoute {
-    enum class To { Pid, HidPp, Classic, None };   // Classic: any report of a classic wheel (`id` as sent)
+    // Classic: any report of a classic wheel; Maker: any output or feature report of a maker's identity (`id` as sent).
+    enum class To { Pid, HidPp, Classic, Maker, None };
     To to = To::None;
     std::uint8_t id = 0;
 };

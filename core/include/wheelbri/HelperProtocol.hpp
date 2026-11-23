@@ -60,8 +60,8 @@ enum class Status : std::uint8_t {
 
 // The body's strings ("devices"): PutHideFilter's and TakeHideFilterOff's HID interfaces; SetLogLevel's one level; a
 // Hello may carry the app's log level as its one string (the helper takes it for its own log; an older helper ignores
-// it); and CreateVirtualWheel may name the wheel, "g920" or "g25", or a classic identity "g25-logi"
-// (requestNameOf in HidWheelDevice.hpp; none: the G920, as an older app asks), then
+// it); and CreateVirtualWheel may name the wheel, "g920" or "g25", or a classic identity "g25-logi", or the RGT's
+// maker's identity "tm_rgt-tm" (requestNameOf in HidWheelDevice.hpp; none: the G920, as an older app asks), then
 // kTrueForceProbe for its TrueForce interface (an older helper refuses that).
 struct Request {
     RequestType type = RequestType::Hello;

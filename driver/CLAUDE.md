@@ -5,6 +5,9 @@ UMDF 2, VS + WDK. Loaded when working in `driver/`; the root CLAUDE.md still app
 - `wheelbri-wheel` = HID minidriver for every virtual wheel, picked by hardware id.
   `wheelbri\G923_TF` = the G923's TrueForce interface (TrueForce.hpp): `TrueForceLink` takes the steering state on
   41331 and sends the stream's force to the service on 41330 (`TrueForceFfb.hpp`).
+  `wheelbri\TM_RGT_TM` = the RGT as the real wheel (`makerVirtualWheel`, the captured descriptor) for Thrustmaster's
+  own force feedback driver: its output and feature reports are logged raw (`logRawReport`, "rgt-tm"), not decoded
+  yet; the features a real RGT answered at plug-in are answered the same (`makerFeature`).
 - `hide/` (`wheelbri-hide`) = upper filter hiding the rig from all but the service's `AllowedPid`, fails open.
 - Both share core's `HidWheelDevice`, `HidPid`, `HidPp`, `StatePacket`.
 - Both links (wheel state on 41329, TrueForce on 41331) take datagrams only from WheelBri's programs

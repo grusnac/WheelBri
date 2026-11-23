@@ -5,7 +5,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <fstream>
+#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
@@ -202,6 +205,107 @@ TEST(VirtualWheel, TheG25AndG27HaveAClassicIdentity) {
     EXPECT_EQ(classicVirtualWheel("g923"), nullptr);
     EXPECT_EQ(virtualWheelForRequestName("g920-logi"), nullptr);
     EXPECT_EQ(virtualWheelForRequestName("-logi"), nullptr);
+}
+
+// The RGT's maker's identity (rgt-tm, for Thrustmaster's own driver): its own hardware id and request name, the same
+// profile, instances, ids and names; found by hardware id and by request name, and only for the RGT.
+TEST(VirtualWheel, TheRgtHasAMakersIdentity) {
+    const VirtualWheel& plain = *virtualWheel("tm_rgt");
+    const VirtualWheel* maker = makerVirtualWheel("tm_rgt");
+    ASSERT_NE(maker, nullptr);
+    EXPECT_TRUE(maker->makerIdentity);
+    EXPECT_FALSE(plain.makerIdentity);
+    EXPECT_TRUE(maker->makerDriver);   // Thrustmaster's entries stay untouched for it too
+    EXPECT_EQ(maker->profile, plain.profile);
+    EXPECT_EQ(maker->vendorId, plain.vendorId);
+    EXPECT_EQ(maker->productId, plain.productId);
+    EXPECT_EQ(maker->oemName, plain.oemName);
+    EXPECT_EQ(maker->buttons, plain.buttons);
+    EXPECT_EQ(maker->instancePrefix, plain.instancePrefix);   // one device to games
+    EXPECT_EQ(maker->hardwareId, "wheelbri\\TM_RGT_TM");
+    EXPECT_EQ(virtualWheelForHardwareId("WHEELBRI\\tm_rgt_tm"), maker);
+    EXPECT_EQ(virtualWheel("tm_rgt"), &plain);   // the profile still means the plain one
+    EXPECT_EQ(requestNameOf(*maker), "tm_rgt-tm");
+    EXPECT_EQ(virtualWheelForRequestName("tm_rgt-tm"), maker);
+    EXPECT_EQ(virtualWheelForRequestName("tm_rgt"), &plain);
+    EXPECT_EQ(makerVirtualWheel("g25"), nullptr);
+    EXPECT_EQ(makerVirtualWheel("tmx"), nullptr);
+    EXPECT_EQ(virtualWheelForRequestName("g920-tm"), nullptr);
+    EXPECT_EQ(virtualWheelForRequestName("-tm"), nullptr);
+}
+
+// The maker's identity is the real RGT to the host: the captured descriptor byte for byte, the real input report 0x01
+// (buttons, hat, X 10 bits, Y Rz Slider Dial a byte each), every output and feature report Maker (logged by the
+// driver); the features a real one answered at plug-in answered the same, nothing else.
+TEST(VirtualWheel, TheMakersIdentityIsTheRealRgt) {
+    const VirtualWheel& maker = *makerVirtualWheel("tm_rgt");
+    std::ifstream in(std::string(WHEELBRI_CONFIG_DIR) + "/../captures/rgt/b653-report-descriptor.hex");
+    std::vector<std::uint8_t> captured;
+    for (unsigned value = 0; in >> std::hex >> value;) captured.push_back(static_cast<std::uint8_t>(value));
+    ASSERT_EQ(captured.size(), 455U);
+    const auto descriptor = reportDescriptorFor(maker);
+    EXPECT_TRUE(std::equal(descriptor.begin(), descriptor.end(), captured.begin(), captured.end()));
+
+    for (const std::uint8_t id : {0x40, 0x41, 0x4A, 0x81, 0x85}) {
+        EXPECT_EQ(routeReport(maker, id).to, ReportRoute::To::Maker) << int{id};
+        EXPECT_EQ(routeReport(maker, id).id, id);
+    }
+
+    const auto fields = [&](const TargetReport& report) {
+        const InputReport packed = packInputFor(maker, report);
+        EXPECT_EQ(packed.size, 8U);
+        EXPECT_EQ(packed[0], 0x01);
+        std::uint64_t bits = 0;
+        for (std::size_t i = 0; i < 7; ++i) bits |= static_cast<std::uint64_t>(packed[1 + i]) << (8 * i);
+        struct Fields {
+            unsigned buttons, hat;
+            int x;
+            unsigned y, rz, slider, dial;
+        };
+        const unsigned rawX = static_cast<unsigned>((bits >> 14) & 0x3FF);
+        return Fields{static_cast<unsigned>(bits & 0x3FF), static_cast<unsigned>((bits >> 10) & 0xF),
+                      rawX >= 512 ? static_cast<int>(rawX) - 1024 : static_cast<int>(rawX),
+                      static_cast<unsigned>((bits >> 24) & 0xFF), static_cast<unsigned>((bits >> 32) & 0xFF),
+                      static_cast<unsigned>((bits >> 40) & 0xFF), static_cast<unsigned>((bits >> 48) & 0xFF)};
+    };
+    TargetReport report;
+    report.steering = 32768;   // centred
+    report.brake = 65535;      // released: the top
+    report.throttle = 0;       // pressed all the way
+    report.clutch = 32768;
+    report.rightLever = 65535;
+    report.buttons = (1U << 0) | (1U << 9) | (1U << 10);   // a button past the tenth is not the RGT's
+    report.hat = kHatCentered;
+    auto f = fields(report);
+    EXPECT_EQ(f.buttons, 0x201U);
+    EXPECT_EQ(f.hat, 15U);   // released: out of 0..7
+    EXPECT_EQ(f.x, 0);
+    EXPECT_EQ(f.y, 255U);
+    EXPECT_EQ(f.rz, 0U);
+    EXPECT_EQ(f.slider, 128U);
+    EXPECT_EQ(f.dial, 255U);
+    report.steering = 0;
+    report.hat = 2;   // right
+    f = fields(report);
+    EXPECT_EQ(f.x, -512);
+    EXPECT_EQ(f.hat, 2U);
+    report.steering = 65535;
+    EXPECT_EQ(fields(report).x, 511);
+
+    std::array<std::uint8_t, 8> out{};
+    ASSERT_EQ(makerFeature(maker, 0x81, out), 5U);
+    EXPECT_EQ(out[0], 0x81);
+    EXPECT_EQ(out[1], 0x01);
+    EXPECT_EQ(out[2], 0x21);
+    EXPECT_EQ(out[4], 0xFF);
+    EXPECT_EQ(makerFeature(maker, 0x82, out), 3U);
+    EXPECT_EQ(out[1], 0x50);
+    EXPECT_EQ(makerFeature(maker, 0x86, out), 3U);
+    EXPECT_EQ(makerFeature(maker, 0x88, out), 3U);
+    EXPECT_EQ(out[2], 0x02);
+    EXPECT_EQ(makerFeature(maker, 0x85, out), 0U);   // not read at plug-in: unanswered
+    EXPECT_EQ(makerFeature(maker, 0x81, std::span(out).first(4)), 0U);   // too small
+    EXPECT_EQ(makerFeature(*virtualWheel("tm_rgt"), 0x81, out), 0U);   // the plain RGT has no such reports
 }
 
 // A classic descriptor: the plain one's input items without the Report ID, no HID PID, then one 7-byte vendor output
