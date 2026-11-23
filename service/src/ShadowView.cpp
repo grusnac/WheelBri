@@ -1245,7 +1245,6 @@ void ShadowView::drawDrivingForceShifter(const std::uint32_t pressed) {
 // --- the list -------------------------------------------------------------------------------------------------------
 
 void ShadowView::drawList(const WheelState& state, const TargetReport& report, const float listX) {
-    const std::string& target = profile_.identity().shortName;
     struct Row {
         std::string yours;
         std::string theirs;
@@ -1340,16 +1339,6 @@ void ShadowView::drawList(const WheelState& state, const TargetReport& report, c
             while (start < text.size() && text[start] == ' ') ++start;
         }
     }
-    const float legendY = window_.height() - 28 - 32;   // above the tab bar
-    const std::string onIt =
-        xbox() ? "what the " + target + " has printed there."
-        : order_ == ButtonOrder::Native && profile_.hasNativeButtonOrder() ? std::string("its number in the native order, from 0.")
-                                                                           : std::string("its number in Logitech's driver, from 1.");
-    window_.text(4, legendY,
-                 "Beside a control: your rig's label (Rig tab), else the " + target + "'s own name. On it: " + onIt,
-                 style::kDim);
-    window_.text(4, legendY + 12, "Faint: nothing drives it. S or the List button: every rig axis and button.",
-                 style::kDim);
 }
 
 }  // namespace wheelbri::service

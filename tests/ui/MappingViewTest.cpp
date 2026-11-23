@@ -503,7 +503,8 @@ TEST_F(LiveView, ShadowViewShowsTheG920sOwnPrint) {
         EXPECT_TRUE(hasIn(window_, label, style::kText)) << label << "\n" << window_.dump();
     }
     EXPECT_TRUE(hasIn(window_, "Xbox", style::kText)) << window_.dump();   // rig 37 drives it, unlabelled
-    EXPECT_TRUE(window_.has("On it: what the G920 has printed there.", true)) << window_.dump();
+    EXPECT_FALSE(window_.has("Beside a control", true)) << window_.dump();   // no legend under the picture
+    EXPECT_FALSE(window_.has("Faint: nothing drives", true));
 
     // Presses light: A and LSB dark on green, the D-pad's "D-pad", gear 3 on the knob; the list keeps the numbers.
     TargetReport report;
