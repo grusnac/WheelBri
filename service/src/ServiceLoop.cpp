@@ -181,6 +181,7 @@ void ServiceLoop::writeTelemetry() {
     sample.state = pipeline_.lastState();
     sample.report = pipeline_.lastPublished();
     sample.combinedPedals = pipeline_.combinedPedals();
+    sample.rgtMode = pipeline_.rgtMode();
     sample.ffb = ffb_ != nullptr ? &ffb_->controller() : nullptr;
     sample.periodUs = static_cast<double>(lastPeriodNs_) / 1000.0;
     sample.workUs = static_cast<double>(lastWorkNs_) / 1000.0;

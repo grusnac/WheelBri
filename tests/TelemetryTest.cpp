@@ -436,7 +436,7 @@ TEST_F(TelemetryTest, NoFreeNumberForTheDayIsAnError) {
 // The keys telemetry_summary.sh reads by name: in their order, and every key a row carries is one of them.
 TEST_F(TelemetryTest, TheColumnsListEveryKeyInOrder) {
     const std::vector<std::string> columns = telemetryColumns();
-    ASSERT_EQ(columns.size(), 3U + RawInputState::kMaxAxes + 21U + IFfbSink::kMaxSlots * 4U + 2U);
+    ASSERT_EQ(columns.size(), 3U + RawInputState::kMaxAxes + 25U + IFfbSink::kMaxSlots * 4U + 2U);
     EXPECT_EQ(columns[0], "time");
     EXPECT_EQ(columns[1], "t_ms");
     EXPECT_EQ(columns[2], "seq");
@@ -459,14 +459,74 @@ TEST_F(TelemetryTest, TheColumnsListEveryKeyInOrder) {
     TelemetrySample sample;
     sample.ffb = &controller;
     recorder->writeSample(sample);
+    sample.nowNs = 20 * kMs;
+    sample.rgtMode = RgtMode{RgtAxes::Five, RgtPedalSet::Levers};   // the RGT's keys too
+    recorder->writeSample(sample);
     recorder.reset();
     const auto data = lines(dir_ / "telemetry-2026-09-30-01.log");
-    ASSERT_EQ(data.size(), 1U);
-    std::istringstream words(message(data[0]));
-    for (std::string word; words >> word;) {
-        const std::string key = word.substr(0, word.find('='));
-        EXPECT_NE(std::find(columns.begin(), columns.end(), key), columns.end()) << key;
+    ASSERT_EQ(data.size(), 2U);
+    for (const std::string& row : data) {
+        std::istringstream words(message(row));
+        for (std::string word; words >> word;) {
+            const std::string key = word.substr(0, word.find('='));
+            EXPECT_NE(std::find(columns.begin(), columns.end(), key), columns.end()) << key;
+        }
     }
+}
+
+// The RGT: its mode as reported (the clutch always means 5 axes), the levers after mapping and Slider 1; no pedals key
+// (combined pedals do not apply to it). Every other target: pedals, and no lever keys.
+TEST_F(TelemetryTest, RgtRowsHaveItsModeAndLevers) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    recorder->writeSample(sample);
+    sample.nowNs = 20 * kMs;
+    sample.rgtMode = RgtMode{RgtAxes::Five, RgtPedalSet::Levers};
+    sample.state.leftLever = 0.25F;
+    sample.state.rightLever = 0.75F;
+    sample.report.rightLever = 16384;
+    recorder->writeSample(sample);
+    sample.nowNs = 40 * kMs;
+    sample.rgtMode = RgtMode{RgtAxes::Three, RgtPedalSet::Clutch};
+    recorder->writeSample(sample);
+    recorder.reset();
+
+    const auto data = lines(dir_ / "telemetry-2026-09-30-01.log");
+    ASSERT_EQ(data.size(), 3U);
+    EXPECT_EQ(value(data[0], "pedals"), "separate");
+    EXPECT_EQ(value(data[0], "rgt_mode"), "");
+    EXPECT_EQ(value(data[0], "left_lever"), "");
+    EXPECT_EQ(value(data[1], "rgt_mode"), "5axes_levers");
+    EXPECT_EQ(value(data[1], "left_lever"), "0.2500");
+    EXPECT_EQ(value(data[1], "right_lever"), "0.7500");
+    EXPECT_EQ(value(data[1], "out_right_lever"), "16384");
+    EXPECT_EQ(value(data[1], "pedals"), "");
+    EXPECT_EQ(value(data[2], "rgt_mode"), "5axes_clutch");   // the mode alone made the row
+}
+
+// A lever moving makes a row, as a pedal does.
+TEST_F(TelemetryTest, RgtLeversMakeRows) {
+    auto recorder = open(at(10, 0, 0));
+    ASSERT_NE(recorder, nullptr);
+    TelemetrySample sample;
+    sample.rgtMode = RgtMode{};
+    std::uint64_t t = 0;
+    const auto next = [&] {
+        t += 20 * kMs;
+        sample.nowNs = t;
+        recorder->writeSample(sample);
+    };
+    next();
+    sample.state.leftLever = 0.5F;
+    next();
+    sample.state.rightLever = 0.5F;
+    next();
+    sample.report.rightLever = 1000;
+    next();
+    next();   // nothing moved
+    EXPECT_EQ(recorder->rowsWritten(), 4U);
+    EXPECT_EQ(recorder->rowsSkipped(), 1U);
 }
 
 // Each mapped pedal and each value the game sees makes a row on its own, even when nothing else moved.
