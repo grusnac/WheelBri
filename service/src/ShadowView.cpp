@@ -1276,6 +1276,18 @@ void ShadowView::drawList(const WheelState& state, const TargetReport& report, c
         std::snprintf(percent, sizeof(percent), "%s %.0f%%", name, static_cast<double>(value * 100.0F));
         rows.push_back({axisLabel(*config, fallback), percent});
     }
+    // The RGT's levers, as the pedals; not with the pedal set at Clutch (the game does not get them then).
+    if (picture_ == Picture::RGT && !(rgtMode_ && rgtMode_->pedalSet == RgtPedalSet::Clutch)) {
+        const std::array<std::tuple<const PedalConfig*, float, const char*>, 2> levers = {{
+            {&mapper_.leftLever, state.leftLever, "Left lever"},
+            {&mapper_.rightLever, state.rightLever, "Right lever"}}};
+        for (const auto& [config, value, name] : levers) {
+            if (value < 0.01F || config->sourceAxis < 0) continue;
+            char percent[24];
+            std::snprintf(percent, sizeof(percent), "%s %.0f%%", name, static_cast<double>(value * 100.0F));
+            rows.push_back({axisLabel(*config, name), percent});
+        }
+    }
     const float degrees = steeringDegrees(state);
     if (std::fabs(degrees) >= 0.5F) {
         char turned[32];

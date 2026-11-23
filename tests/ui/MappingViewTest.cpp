@@ -364,6 +364,7 @@ TEST_F(LiveView, ShadowViewLightsRgtLeversByThePedalSet) {
     EXPECT_TRUE(hasIn(window_, "Clutch pedal", style::kActive)) << window_.dump();
     EXPECT_TRUE(hasIn(window_, "Right lever", style::kFaint));
     EXPECT_TRUE(anyGreen());   // nothing else pressed: the left lever's fill
+    EXPECT_TRUE(window_.has("Clutch pedal -> Left lever 50%")) << window_.dump();   // in Pressed now
 
     view->setRgtMode(RgtMode{RgtAxes::Five, RgtPedalSet::Clutch});
     draw(*view, {}, state);
@@ -372,6 +373,7 @@ TEST_F(LiveView, ShadowViewLightsRgtLeversByThePedalSet) {
     EXPECT_EQ(off, 2) << window_.dump();
     EXPECT_FALSE(hasIn(window_, "Clutch pedal", style::kActive));
     EXPECT_FALSE(anyGreen());
+    EXPECT_FALSE(window_.has("Left lever 50%"));   // not in Pressed now either
 }
 
 // What the game sees pressed lights up: the button (its number dark on green), the D-pad's arm, the pedals' fill by
