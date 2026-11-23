@@ -12,7 +12,7 @@ All Targets: [targets.md](targets.md).
 | Modes | Virtual (Windows 11, Linux) and Shim; Linux not yet tested |
 | Extras | AXES (2 / 3 / 5) and PEDAL SET (Levers / Clutch), as the wheel's own switches; two levers; centring spring |
 | Force feedback | Windows' HID PID driver, no Thrustmaster software needed |
-| Tested | not yet in a game with this Target (below) |
+| Tested | Race Driver: GRID, Mode Virtual, Windows 11 ([games.md](games.md#race-driver-grid)) |
 
 ## When to pick it
 
@@ -75,10 +75,12 @@ Which physical button on the rim is Button 3 to 8 is not known yet: Thrustmaster
 
 - **Windows**: Windows' HID PID driver plays the game's effects on the virtual RGT; WheelBri plays them on your rig
   through its safety limits. No Thrustmaster software is needed.
-- **With Thrustmaster's driver installed**: its force feedback driver drives the virtual RGT, but WheelBri does not
-  read what it sends yet, so the game's force feedback may not reach your wheel. The Mapping tab says so (Target RGT,
-  Mode Virtual), and Start does in the log. WheelBri never changes or removes Thrustmaster's registry entries: its own
-  carry a mark, and only those go at Stop, in the uninstaller and in `clean-pc.ps1`.
+- **With Thrustmaster's driver installed**: Start presents the RGT as the real wheel (its real descriptor, so
+  Thrustmaster's driver recognises it), and its force feedback driver drives it. WheelBri logs what that driver sends
+  (`wheelbri-driver-*.log`, "rgt-tm" lines) but does not read it yet, so the game's force feedback may not reach your
+  wheel. The Mapping tab says so (Target RGT, Mode Virtual), and Start does in the log. Needs the drivers from this
+  version (`drivers.sh -Install`, or the installer). WheelBri never changes or removes Thrustmaster's registry entries:
+  its own carry a mark, and only those go at Stop, in the uninstaller and in `clean-pc.ps1`.
 - Race Driver: GRID gives the RGT a negative friction (baseFriction -25, for a real RGT's belt and gears), which swings
   a low-friction wheel lock to lock: the Games tab's Game file for GRID puts the G25's 0 there ([games.md](games.md)).
 
@@ -95,8 +97,8 @@ PEDAL SET Clutch they are faint and say "off: Clutch": the game does not get the
 
 ## Known
 
-- Not yet tested in a game with this Target. A test build in Race Driver: GRID (Mode Shim): GRID took it as the RGT,
-  the pedals and menu buttons worked; its force feedback swung the wheel until GRID's friction was set as the G25's.
+- Race Driver: GRID, Mode Virtual (Windows 11, Moza R3): a lap driven; with GRID's friction set as the G25's (Games
+  tab) its force feedback felt as with the G25. Not yet tried: Mode Shim, the levers, other games.
 - GRID's RGT preset (from the game's files, not checked in the game) reads the throttle on Rz or Slider 1 and the
   brake on Y or Slider 0, the 5 axes Levers layout, and has no clutch action. So with **Levers** the levers are a
   second throttle and brake; with **Clutch** the clutch pedal, on Slider 0, would brake.

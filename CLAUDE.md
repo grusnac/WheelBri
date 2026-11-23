@@ -60,14 +60,14 @@ Linux/Proton. Not tied to one wheel maker: Targets today G920 (default), G923, G
 maker-neutral ("any wheel maker", "trademarks of their owners").
 
 - Verified (Windows 11, Moza R3): all four targets in Mode Virtual in ACC and DiRT Rally 2.0; G920 in NFS 2015, Payback,
-  Heat and Unbound (Mode Shim too, except Payback); G25 in Race Driver: GRID, both Modes. Steam Deck (SteamOS 3.8, Proton,
+  Heat and Unbound (Mode Shim too, except Payback); G25 in Race Driver: GRID, both Modes; RGT in GRID (Mode Virtual,
+  GRID's RGT friction set from the Games tab). Steam Deck (SteamOS 3.8, Proton,
   Game Mode too): ACC all four targets (Virtual); NFS 2015 (G920) and GRID (G25), both Modes. Windows 7 SP1 (Mode
   Shim): G25 in NFS Underground, Underground 2, Most Wanted (2005) and Carbon.
   `README.md` Status is the source: change it there first, then here.
 - Not verified: DiRT Rally 2.0 and NFS Heat, Unbound, Payback on Linux; other games on Windows 7; Windows 8, 8.1
-  and 10; button orders on real Logitech wheels; the RGT in any game (only a GRID test build in Mode Shim: pedals and
-  menu buttons; GRID's RGT preset has a negative friction that swings a direct drive, fixed by a game file set); the
-  RGT on Linux.
+  and 10; button orders on real Logitech wheels; the RGT in Mode Shim, with its levers, in other games than GRID, on
+  Linux, and with Thrustmaster's driver installed (rgt-tm).
 - Mode Shim is for older DirectInput games only; ACC, DiRT Rally 2.0 and games using Logitech's SDK DLL don't take it.
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`. Consumer: `dinput8.dll` shim in

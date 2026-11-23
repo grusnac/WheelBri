@@ -12,7 +12,7 @@ Using the app: [user-guide.md](user-guide.md); the Targets: [targets.md](targets
 | [NFS Payback](#nfs-payback) | G920 | works; needs G HUB | not recommended | 180 degrees |
 | [NFS Heat](#nfs-heat) | G920 | works | works | detection only (warns as a G923) |
 | [NFS Unbound](#nfs-unbound) | G920 | works | works | its hidden settings: force 1.0, spring 0.8, rotation |
-| [Race Driver: GRID](#race-driver-grid) | G25 | works | works (32-bit) | none |
+| [Race Driver: GRID](#race-driver-grid) | G25; RGT | works (RGT: a lap and force feedback, with its friction set; buttons not checked) | works (32-bit; RGT not yet tried) | game files: replay controls; the RGT's friction |
 
 "Works" means wheel, pedals, buttons and force feedback were checked in the game. Built-in profiles apply with Target
 G920 only, by themselves while the game runs.
@@ -87,7 +87,8 @@ G920 only, by themselves while the game runs.
 ## Race Driver: GRID
 
 - **Target:** **G25**, Order Logitech (the game has its own G25 preset). Mode Shim uses the 32-bit shim.
-- **Target RGT** (not yet tested; GRID's RGT preset, from the game's files): it reads the throttle on Rz or Slider 1
+- **Target RGT** (Mode Virtual: a lap driven, force feedback as with the G25 once its friction set is in; GRID's RGT
+  preset, from the game's files, not yet checked for the rest): it reads the throttle on Rz or Slider 1
   and the brake on Y or Slider 0, and has no clutch: the layout of **5 axes** with **Levers**, where the levers are a
   second throttle and brake. With Clutch, the clutch pedal (Slider 0) would brake. A test build was taken as the RGT, its
   pedals and menu buttons worked ([target-rgt.md](target-rgt.md)).
