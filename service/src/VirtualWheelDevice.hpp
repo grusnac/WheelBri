@@ -63,6 +63,12 @@ private:
 // there. Only the G25 and G27 have one; false anywhere but Windows.
 [[nodiscard]] bool classicFfbDriverInstalled(const VirtualWheel& wheel);
 
+// Whether the wheel's maker's own force feedback driver is registered for its ids (VirtualWheel::makerDriver: the
+// RGT, Thrustmaster's tmffbdrv.dll): an OEMForceFeedback entry in HKCU or HKLM naming a driver other than Windows' HID
+// PID one, and not WheelBri's own. It then drives the virtual wheel, and WheelBri does not read what it sends yet.
+// False for every other wheel, and anywhere but Windows.
+[[nodiscard]] bool makerFfbDriverInstalled(const VirtualWheel& wheel);
+
 // The user's own DirectInput entries for the virtual wheel (HKCU: its name, the "driving" type, no foreign force
 // feedback driver but Logitech's for the G920 and G923, checked every 2 s), for an app whose wheel the WheelBri Helper creates: the helper, as SYSTEM,
 // keeps only the machine's (HKLM). Written while this exists, removed when it goes. Nothing elsewhere than Windows.

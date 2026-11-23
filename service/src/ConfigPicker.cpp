@@ -297,6 +297,26 @@ void ConfigPicker::checkTrueForceSdk() {
     sdkCheckedAt_ = std::chrono::steady_clock::now();
 }
 
+bool ConfigPicker::makerFfbDriverFound() {
+    if (!settings_.makerFfbDriver) return false;
+    const auto now = std::chrono::steady_clock::now();
+    if (makerDriverTarget_ != target_ || makerDriverCheckedAt_ == std::chrono::steady_clock::time_point{} ||
+        now - makerDriverCheckedAt_ >= std::chrono::seconds(kSdkCheckSeconds)) {
+        const bool found = settings_.makerFfbDriver(profileName(target_));
+        if (found != makerDriver_ || makerDriverTarget_ != target_ ||
+            makerDriverCheckedAt_ == std::chrono::steady_clock::time_point{}) {
+            if (found) {
+                WE_LOG_INFO(log(), "the {}: its maker's force feedback driver is installed: it drives the virtual "
+                                   "wheel, and WheelBri does not read what it sends yet", targetName(target_));
+            }
+        }
+        makerDriver_ = found;
+        makerDriverTarget_ = target_;
+        makerDriverCheckedAt_ = now;
+    }
+    return makerDriver_;
+}
+
 void ConfigPicker::refresh() {
     adoptOlderOwn();
     adoptOlderOrder();

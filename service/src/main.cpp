@@ -1821,6 +1821,18 @@ int runSession(const Options& options, const LoadedConfig& loaded, const bool lo
                                       : "Native order");
         }
     }
+    // The RGT: its maker's force feedback driver drives it when installed (WheelBri leaves that entry alone); else
+    // Windows' HID PID driver, which WheelBri reads. One line, at Start.
+    if (virtualWheel != nullptr && virtualWheel->makerDriver && steps != nullptr) {
+        if (wheelbri::service::makerFfbDriverInstalled(*virtualWheel)) {
+            WE_LOG_WARN(log(), "the virtual {}: its maker's force feedback driver (Thrustmaster's) is installed and "
+                               "drives it; WheelBri does not read what it sends yet, so the game's force feedback may "
+                               "not reach your wheel", virtualWheel->instancePrefix);
+        } else {
+            WE_LOG_INFO(log(), "the virtual {}: Windows' force feedback driver (Thrustmaster's is not installed)",
+                        virtualWheel->instancePrefix);
+        }
+    }
     const std::string wheelName = virtualWheel != nullptr ? std::string(virtualWheel->instancePrefix) : "G920";
     bool g920 = false;
     if (steps != nullptr) {
@@ -2106,6 +2118,10 @@ int runAppMode(Options options, const bool consoleLogging) {
         return runSession(run, fresh, logFileOk, &host);
     };
     settings.trueForceSdk = [] { return wheelbri::service::trueForceSdkPath(); };
+    settings.makerFfbDriver = [](const std::string_view profile) {
+        const wheelbri::VirtualWheel* const wheel = wheelbri::virtualWheel(profile);
+        return wheel != nullptr && wheelbri::service::makerFfbDriverInstalled(*wheel);
+    };
     settings.requestStop = [] { gStop = true; };
     settings.clearStop = [] { gStop = false; };
     return wheelbri::service::runApp(settings);

@@ -266,7 +266,11 @@ protected:
         ASSERT_TRUE(writeAppSetting(appStateFile(), "rig", "My rig"));
     }
     [[nodiscard]] ConfigPicker::Settings pickerSettings() const {
-        return {dir_ / "config", userConfigFolder(), appStateFile()};
+        ConfigPicker::Settings settings{dir_ / "config", userConfigFolder(), appStateFile()};
+        settings.makerFfbDriver = [this](const std::string_view profile) {
+            return makerDriverFor_ == profile;
+        };
+        return settings;
     }
     // A view on the settings (made again: as at the app's next start), with the test's system.
     MappingEditView& open(const bool withShims = false) {
@@ -355,6 +359,7 @@ protected:
     std::deque<std::optional<std::filesystem::path>> fileAnswers_;
     std::vector<std::string> pickTitles_;
     bool canPick_ = true;
+    std::string makerDriverFor_;   // the target profile whose maker's force feedback driver is "installed"; empty: none
     std::optional<std::vector<RunningProgram>> running_ = std::vector<RunningProgram>{};
     std::uint64_t nowMs_ = 1'000'000;
 };
@@ -2858,6 +2863,31 @@ TEST_F(EditView, TheGameFileSetForOneTarget) {
     EXPECT_TRUE(window_.hasPart("ActionMap/actionMapPreset1.xml: Replay controls"));
     EXPECT_FALSE(window_.hasPart("forcefeedback/devicesetup.xml: The RGT's friction"));   // the set's own header
     EXPECT_FALSE(window_.hasPart("baseFriction -25.0 -> 0.0"));
+}
+
+// Thrustmaster's driver installed for the RGT: the Mapping tab says it drives the virtual RGT's force feedback, in Mode
+// Virtual only (in Mode Shim the game talks to your own wheel); not without the driver, nor for another target.
+TEST_F(EditView, TheRgtSaysWhenThrustmastersDriverIsInstalled) {
+    const std::string line = "Thrustmaster's driver found: it drives the virtual RGT's force feedback";
+    useRig(testRig());
+    makerDriverFor_ = "tm_rgt";
+    open();
+    frame();
+    EXPECT_FALSE(window_.hasPart(line));   // the G920
+    ASSERT_TRUE(click("RGT"));
+    frame();
+    ASSERT_EQ(picker_->way(), ConfigPicker::Way::VirtualDevice);
+    EXPECT_TRUE(window_.hasPart(line));
+    ASSERT_TRUE(click("Shim"));
+    frame();
+    EXPECT_FALSE(window_.hasPart(line));
+
+    makerDriverFor_.clear();   // not installed (a new view asks again)
+    open();
+    ASSERT_TRUE(click("RGT"));
+    ASSERT_TRUE(click("Virtual"));
+    frame();
+    EXPECT_FALSE(window_.hasPart(line));
 }
 
 // The Target and Mode buttons say what they are in the tab's hover text.

@@ -827,6 +827,16 @@ DirectInputUserEntries::~DirectInputUserEntries() {
     writeDirectInputEntries(false, {HKEY_CURRENT_USER}, *impl_->wheel);
 }
 
+bool makerFfbDriverInstalled(const VirtualWheel& wheel) {
+    if (!wheel.makerDriver) return false;
+    const std::wstring path = oemKey(wheel) + L"\\OEMForceFeedback";
+    for (HKEY root : {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE}) {
+        const FfbEntry entry = readFfbEntry(root, path);
+        if (logitech_ffb::isOtherDriver(entry.clsid, entry.wheelBris)) return true;
+    }
+    return false;
+}
+
 bool classicFfbDriverInstalled(const VirtualWheel& wheel) {
     const std::wstring_view clsid = logitech_ffb::classicClsid(wheel.productId);
     if (clsid.empty()) return false;
@@ -886,6 +896,8 @@ std::unique_ptr<VirtualWheelDevice> VirtualWheelDevice::create(const VirtualWhee
 std::string trueForceSdkPath() { return {}; }
 
 bool classicFfbDriverInstalled(const VirtualWheel&) { return false; }
+
+bool makerFfbDriverInstalled(const VirtualWheel&) { return false; }
 
 }  // namespace wheelbri::service
 

@@ -1253,6 +1253,19 @@ float MappingEditView::drawLowerGrid(const float top) {
         if (twoColumns && i + 1 < count) bottom = std::max(bottom, drawCell(i + 1, w + kGridGap, y));
         y = bottom + 14;
     }
+    // The RGT in Mode Virtual with Thrustmaster's driver installed: its force feedback driver drives the virtual RGT
+    // (WheelBri never removes it) and WheelBri does not read what it sends yet.
+    if (rgt && picker_.way() == ConfigPicker::Way::VirtualDevice && picker_.makerFfbDriverFound()) {
+        const std::string line = "Thrustmaster's driver found: it drives the virtual RGT's force feedback, which "
+                                 "WheelBri cannot read yet";
+        window_.text(4, y, fit(line, static_cast<std::size_t>(std::max(10.0F, (canvasW() - 8) / ui::kCharWidth))),
+                     kCaution);
+        tip(4, y - 2, canvasW() - 8, 14,
+            "Thrustmaster's force feedback driver (installed with its software) is registered for the RGT, so games' "
+            "effects go to it, not to Windows' HID PID driver. WheelBri leaves it in place; the game's force feedback "
+            "may not reach your wheel until WheelBri reads it. Without it, Windows' driver plays every effect.");
+        y += 18;
+    }
     return y;
 }
 

@@ -115,6 +115,8 @@ car twitches as the wheel crosses the centre. Best set per game (Games tab).
   waits until both are mapped, and their rows show in amber until then. The rows the pedal set does not report are
   greyed: the clutch's with Levers, the levers' with Clutch.
 - **Centring spring**: as the G25's above.
+- With Thrustmaster's own driver installed, a line under these boxes says it drives the virtual RGT's force feedback,
+  which WheelBri cannot read yet ([target-rgt.md](target-rgt.md#force-feedback)).
 
 The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games count), from
 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Each

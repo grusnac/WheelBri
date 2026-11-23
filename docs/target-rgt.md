@@ -76,9 +76,9 @@ Which physical button on the rim is Button 3 to 8 is not known yet: Thrustmaster
 - **Windows**: Windows' HID PID driver plays the game's effects on the virtual RGT; WheelBri plays them on your rig
   through its safety limits. No Thrustmaster software is needed.
 - **With Thrustmaster's driver installed**: its force feedback driver drives the virtual RGT, but WheelBri does not
-  read what it sends yet, so the game's force feedback may not reach your wheel; Start says so in the log. WheelBri
-  never changes or removes Thrustmaster's registry entries: its own carry a mark, and only those go at Stop, in the
-  uninstaller and in `clean-pc.ps1`.
+  read what it sends yet, so the game's force feedback may not reach your wheel. The Mapping tab says so (Target RGT,
+  Mode Virtual), and Start does in the log. WheelBri never changes or removes Thrustmaster's registry entries: its own
+  carry a mark, and only those go at Stop, in the uninstaller and in `clean-pc.ps1`.
 - Race Driver: GRID gives the RGT a negative friction (baseFriction -25, for a real RGT's belt and gears), which swings
   a low-friction wheel lock to lock: the Games tab's Game file for GRID puts the G25's 0 there ([games.md](games.md)).
 

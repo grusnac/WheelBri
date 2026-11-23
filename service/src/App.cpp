@@ -403,7 +403,8 @@ private:
             *editorPane_, ConfigPicker::Settings{settings_.builtInConfigFolder, settings_.userConfigFolder,
                                              settings_.stateFile,
                                              ConfigPicker::virtualDeviceSupported(windowsBuild),
-                                             ConfigPicker::windowsName(windowsBuild), settings_.trueForceSdk});
+                                             ConfigPicker::windowsName(windowsBuild), settings_.trueForceSdk,
+                                             settings_.makerFfbDriver});
         setup_ = std::make_unique<WheelSetupView>(
             *window_, WheelSetupView::Settings{rigsFolder(), settings_.devicesFolder, settings_.stateFile, &devices_});
         MappingView::setEditorTabs(true);   // the live view's tab bar has Mapping (the editor), Live and Games
