@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -15,7 +16,7 @@ namespace wheelbri {
 namespace {
 
 TEST(VirtualWheel, OneIdentityPerTarget) {
-    ASSERT_EQ(virtualWheels().size(), 5U);   // G25, G27, G920, G923, RGT
+    ASSERT_EQ(virtualWheels().size(), 6U);   // G25, G27, G920, G923, RGT, TMX
     for (const VirtualWheel& wheel : virtualWheels()) {
         const auto profile = makeProfile(wheel.profile);
         ASSERT_NE(profile, nullptr) << wheel.profile;
@@ -57,6 +58,9 @@ TEST(VirtualWheel, ItsIdsAreKnown) {
     EXPECT_FALSE(isVirtualWheelId(0x046D, 0xC26D));   // a G923 in Xbox mode: a real one
     EXPECT_FALSE(isVirtualWheelId(0x046D, 0xC294));   // a G25 in Driving Force mode: a real one
     EXPECT_FALSE(isVirtualWheelId(0x346E, 0x0005));
+    EXPECT_TRUE(isVirtualWheelId(0x044F, 0xB67F));    // the TMX in PC mode
+    EXPECT_FALSE(isVirtualWheelId(0x044F, 0xB67E));   // a TMX in Xbox mode: a real one
+    EXPECT_FALSE(isVirtualWheelId(0x044F, 0xB65D));   // a TMX between the two: a real one
 }
 
 TEST(VirtualWheel, EveryKnownProfileIsAWheelAndBack) {
@@ -133,6 +137,43 @@ std::vector<std::pair<std::uint8_t, std::uint32_t>> itemsOf(const std::span<cons
         i += 1 + size;
     }
     return out;
+}
+
+// The TMX: four axes (X, brake Y, throttle Rz, clutch Slider; no Z) and 13 buttons, as DiRT Rally 2.0's TMX preset
+// reads them; Thrustmaster's force feedback driver keeps its entry (makerPidDriver); a car controller for DirectInput.
+TEST(VirtualWheel, TheTmxHasBrakeOnYThrottleOnRzAnd13Buttons) {
+    const VirtualWheel* tmx = virtualWheel("tmx");
+    ASSERT_NE(tmx, nullptr);
+    EXPECT_EQ(tmx->hardwareId, "wheelbri\\TMX");
+    EXPECT_EQ(tmx->buttons, kTmxButtons);
+    EXPECT_TRUE(tmx->brakeOnY);
+    EXPECT_TRUE(tmx->makerPidDriver);
+    EXPECT_FALSE(tmx->hidpp);
+    EXPECT_FALSE(tmx->combinedPedals);
+    std::vector<std::uint32_t> usages;
+    std::uint32_t usageMaximum = 0;
+    for (const auto& [prefix, value] : itemsOf(reportDescriptorFor(*tmx))) {
+        if (prefix == 0x09 && usages.size() < 8) usages.push_back(value);
+        if (prefix == 0x29 && usageMaximum == 0) usageMaximum = value;   // the buttons' Usage Maximum
+    }
+    const std::vector<std::uint32_t> axes = {0x04, 0x30, 0x31, 0x35, 0x36};   // Joystick, X, Y, Rz, Slider
+    ASSERT_GE(usages.size(), axes.size());
+    EXPECT_TRUE(std::equal(axes.begin(), axes.end(), usages.begin()));
+    EXPECT_EQ(usageMaximum, kTmxButtons);
+
+    TargetReport report = neutralReport();
+    report.throttle = 1000;
+    report.brake = 60000;
+    report.clutch = 30000;
+    TargetReport swapped = report;
+    swapped.throttle = report.brake;
+    swapped.brake = report.throttle;
+    const auto expected = packWheelInput(swapped, tmx->buttons);
+    const InputReport packed = packInputFor(*tmx, report);
+    ASSERT_EQ(packed.size, expected.size());
+    EXPECT_TRUE(std::equal(expected.begin(), expected.end(), packed.bytes.begin()));
+    EXPECT_EQ(directInputOemData(*tmx)[0], kJoyHwsHasPov | kJoyHwsIsCarCtrl);
+    EXPECT_EQ(directInputOemData(*tmx)[4], kTmxButtons);
 }
 
 // The G25's and G27's classic identities: their own hardware ids and instances, the same profile, ids and names;

@@ -67,6 +67,12 @@ JoystickLayout layoutFor(const std::string_view profile, const std::size_t butto
         layout.clutch = ObjectGuid::Slider;
         layout.idle = ObjectGuid::Slider1;   // the right lever, off with the switch on 3 P
     }
+    // The TMX: brake Y, gas Rz, clutch Slider 0, as DiRT Rally 2.0's TMX preset reads them (VirtualWheel::brakeOnY).
+    if (profile == "tmx") {
+        layout.throttle = ObjectGuid::RzAxis;
+        layout.brake = ObjectGuid::YAxis;
+        layout.clutch = ObjectGuid::Slider;
+    }
     return layout;
 }
 

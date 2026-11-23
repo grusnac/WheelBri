@@ -51,7 +51,7 @@ protected:
             {L"ucrt\\Windows8.1-KB2999226-x64.msu", "msu81"},
         };
         for (const auto& [name, bytes] : files) s.addFile(joinPath(kPackage, name), bytes);
-        for (const wchar_t* t : {L"g25", L"g27", L"g920", L"g923", L"rgt"}) {
+        for (const wchar_t* t : {L"g25", L"g27", L"g920", L"g923", L"rgt", L"tmx"}) {
             s.addFile(kPackage + L"\\config\\" + t + L".ini", defaultConfig(t));
         }
         for (const wchar_t* d : {L"driver\\x64\\Release\\wheelbri-wheel\\wheelbri-wheel",
@@ -132,7 +132,7 @@ TEST_F(SetupStepsTest, InstallOnWindows11PutsEverythingInPlace) {
     EXPECT_EQ(lines.size(), s.filesUnder(kDir).size() - 1);
     // The defaults' hashes, for the uninstaller.
     const ConfigHashes defaults = readDefaultConfigs(s.bytes(kDir + L"\\default-configs.txt"));
-    EXPECT_EQ(defaults.size(), 6U);
+    EXPECT_EQ(defaults.size(), 7U);
     EXPECT_EQ(defaults.at(L"config\\g920.ini"), sha256Hex(defaultConfig(L"g920")));
     // The drivers, the old certificates, the helper and the filter on the saved rig, in that order.
     const size_t wheel = s.ranAt(L"install-driver.ps1"), hide = s.ranAt(L"install-hide.ps1");

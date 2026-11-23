@@ -388,7 +388,8 @@ void handleClassicEntry(const std::vector<HKEY>& hives, const VirtualWheel& whee
 // The virtual wheel's OEMForceFeedback entry, in each of `hives` (LogitechFfbDriver.hpp). For the G920 and G923
 // Logitech's entry stays when its software wrote one (in either hive: both are read, though the WheelBri Helper
 // handles HKLM and the app HKCU), and Windows' own HID PID entry goes while it is there, since DirectInput takes
-// HKCU's first. For the G25 and G27 another program's entry goes. WheelBri's own old copy always goes. Logitech's
+// HKCU's first. Thrustmaster's entry for the TMX stays the same way (VirtualWheel::makerPidDriver). For the G25 and
+// G27 another program's entry goes. WheelBri's own old copy always goes. Logitech's
 // software writes its entry back every few seconds while it runs (hence the watchers below): a note a minute at
 // most per hive for removals, one line per hive whenever what stays changes.
 void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const VirtualWheel& wheel) {
@@ -398,7 +399,7 @@ void handleForeignForceFeedbackDriver(const std::vector<HKEY>& hives, const Virt
     }
     const std::wstring key = oemKey(wheel);
     const std::wstring path = key + L"\\OEMForceFeedback";
-    const bool keepOthers = logitech_ffb::keepsOtherDrivers(wheel.hidpp || wheel.classic);
+    const bool keepOthers = logitech_ffb::keepsOtherDrivers(wheel.hidpp || wheel.classic || wheel.makerPidDriver);
     bool otherInstalled = false;
     for (HKEY root : {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE}) {
         const FfbEntry entry = readFfbEntry(root, path);

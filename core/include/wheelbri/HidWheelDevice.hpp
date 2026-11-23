@@ -42,6 +42,12 @@ inline constexpr std::uint16_t kG923ProductId = 0xC26E;
 // driver cannot drive, captures/rgt): WheelBri's, so force feedback needs no Thrustmaster software.
 inline constexpr std::uint16_t kRgtVendorId = 0x044F;
 inline constexpr std::uint16_t kRgtProductId = 0xB653;
+// The virtual TMX (Thrustmaster TMX PRO Force Feedback, docs/target-tmx.md): a real one's ids (044F:B67F, the PC mode
+// its Xbox mode, B67E, is switched out of) and product string, WheelBri's HID PID block, its 13 buttons and four axes
+// as games read it (VirtualWheel::brakeOnY). On a real PC Thrustmaster's driver (tmhidusb.sys) also shows Windows a
+// HID PID wheel (captures/tmx), so force feedback needs no Thrustmaster software.
+inline constexpr std::uint16_t kTmxVendorId = 0x044F;
+inline constexpr std::uint16_t kTmxProductId = 0xB67F;
 inline constexpr std::uint8_t kWheelInputReportId = 0x01;
 inline constexpr std::size_t kWheelInputReportSize = 13;   // report ID + 4 axes x 2 + 3 button bytes + hat
 // A wheel with combined pedals (VirtualWheel::combinedPedals) has a fifth axis (its clutch) after the fourth: 15 bytes.
@@ -91,6 +97,13 @@ struct VirtualWheel {
     // Slider 0, the right lever Slider 1 (at rest), as Race Driver: GRID's RGT preset reads them. The same five axes
     // as combinedPedals, carrying other things.
     bool rgtAxes = false;
+    // Throttle Rz and brake Y (the G920's the other way round), the clutch on Slider: the TMX, as DiRT Rally 2.0's TMX
+    // preset reads it (captures/tmx).
+    bool brakeOnY = false;
+    // Whether the maker's own DirectInput force feedback driver speaks HID PID, so its OEMForceFeedback entry stays
+    // and drives the virtual wheel when installed (LogitechFfbDriver.hpp's keepsOtherDrivers): the TMX, Thrustmaster's
+    // tmpid.dll (captures/tmx). Whether it does so without Thrustmaster's kernel driver: not tested yet.
+    bool makerPidDriver = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.

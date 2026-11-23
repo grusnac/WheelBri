@@ -188,8 +188,8 @@ void Installing::checkPc() {
     }
     std::vector<std::wstring> required = {L"wheelbri.exe", L"wheelbri-service.exe", L"wheelbri-helper.exe",
                                           L"config\\g25.ini", L"config\\g27.ini", L"config\\g920.ini",
-                                          L"config\\g923.ini", L"config\\rgt.ini", L"config\\wheelbri-shim.ini",
-                                          L"driver\\common.ps1",
+                                          L"config\\g923.ini", L"config\\rgt.ini", L"config\\tmx.ini",
+                                          L"config\\wheelbri-shim.ini", L"driver\\common.ps1",
                                           L"driver\\installer-steps.ps1", L"shim\\dinput8.dll", L"shim\\x86\\dinput8.dll"};
     if (drivers) {
         for (const wchar_t* f : {L"driver\\install-driver.ps1", L"driver\\uninstall-driver.ps1",

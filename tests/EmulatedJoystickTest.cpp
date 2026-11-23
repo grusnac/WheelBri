@@ -493,5 +493,17 @@ TEST(EmulatedJoystick, RgtLayoutIsBrakeYGasRzClutchSlider0) {
     EXPECT_EQ(joystick.valueOf(index, TargetReport{}), 65535U);
 }
 
+// The TMX: brake Y, gas Rz, clutch Slider 0, as DiRT Rally 2.0's TMX preset reads them; four axes.
+TEST(EmulatedJoystick, TmxLayoutIsBrakeYGasRzClutchSlider0) {
+    const JoystickLayout layout = layoutFor("tmx", 13);
+    EXPECT_TRUE(isValid(layout));
+    EXPECT_EQ(layout.throttle, ObjectGuid::RzAxis);
+    EXPECT_EQ(layout.brake, ObjectGuid::YAxis);
+    EXPECT_EQ(layout.clutch, ObjectGuid::Slider);
+    EXPECT_EQ(layout.combined, ObjectGuid::Any);
+    EXPECT_EQ(layout.idle, ObjectGuid::Any);
+    EXPECT_EQ(EmulatedJoystick(layout).axisCount(), 4U);
+}
+
 }  // namespace
 }  // namespace wheelbri
