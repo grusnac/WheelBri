@@ -258,6 +258,9 @@ Heat is recognised too: it has no values, only a warning when the Target is the 
      ![A button changed for this game](images/games-buttons-remapping-done.png)
 
    - **Game file** (NFS Unbound): writes the game's hidden wheel settings with **Save to file** (game closed).
+     Race Driver: GRID: sets of lines put into the game's own files and taken out again with **Add to file** /
+     **Remove from file** (game closed; the original kept as `.before-wheelbri`): its replay controls on the wheel,
+     and, with Target RGT, its friction for the RGT ([games.md](games.md#race-driver-grid)).
 
 Values apply at once, even while the game runs. Pedal axes in Mode Shim and new games apply at the next Start.
 

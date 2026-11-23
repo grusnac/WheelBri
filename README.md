@@ -45,7 +45,7 @@ Two Modes:
 | Linux, not tried | DiRT Rally 2.0, NFS Heat, Unbound, Payback |
 | Windows 7 SP1, Mode Shim | **works** in NFS Underground, Underground 2, Most Wanted (2005) and Carbon (G25) |
 | Windows 8, 8.1 and 10 (Mode Shim only) | built, **not yet tried** |
-| Target RGT (Thrustmaster), Windows 11 | built, **not yet tested** in a game; a test build in Race Driver: GRID (Mode Shim): pedals and menu buttons work, force feedback pushes outward |
+| Target RGT (Thrustmaster), Windows 11 | built, **not yet tested** in a game; a test build in Race Driver: GRID (Mode Shim): pedals and menu buttons work; GRID's own RGT preset swings a low-friction wheel lock to lock (its negative friction): the Games tab puts the G25's in |
 | Button orders | from public sources; **not yet checked on real wheels** (the RGT's rim buttons: not known) |
 
 ## What's new in 1.0.4

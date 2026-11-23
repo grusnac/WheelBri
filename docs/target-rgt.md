@@ -79,7 +79,8 @@ Which physical button on the rim is Button 3 to 8 is not known yet: Thrustmaster
   read what it sends yet, so the game's force feedback may not reach your wheel; Start says so in the log. WheelBri
   never changes or removes Thrustmaster's registry entries: its own carry a mark, and only those go at Stop, in the
   uninstaller and in `clean-pc.ps1`.
-- Not yet checked: which way GRID pushes on the RGT. In a test build it pushed away from the centre.
+- Race Driver: GRID gives the RGT a negative friction (baseFriction -25, for a real RGT's belt and gears), which swings
+  a low-friction wheel lock to lock: the Games tab's Game file for GRID puts the G25's 0 there ([games.md](games.md)).
 
 ## Shadow view
 
@@ -95,7 +96,7 @@ PEDAL SET Clutch they are faint and say "off: Clutch": the game does not get the
 ## Known
 
 - Not yet tested in a game with this Target. A test build in Race Driver: GRID (Mode Shim): GRID took it as the RGT,
-  the pedals and menu buttons worked; its force feedback pushed outward.
+  the pedals and menu buttons worked; its force feedback swung the wheel until GRID's friction was set as the G25's.
 - GRID's RGT preset (from the game's files, not checked in the game) reads the throttle on Rz or Slider 1 and the
   brake on Y or Slider 0, the 5 axes Levers layout, and has no clutch action. So with **Levers** the levers are a
   second throttle and brake; with **Clutch** the clutch pedal, on Slider 0, would brake.

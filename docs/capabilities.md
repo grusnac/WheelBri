@@ -44,6 +44,8 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
   game only, applied while it runs.
 - Built-in profiles for NFS 2015, Payback and Unbound (Target G920), NFS Underground, Underground 2 and Most Wanted
   (combined pedals, every Target), and NFS Unbound's hidden wheel settings written to its file.
+- Race Driver: GRID's own files: its replay controls on the wheel, and its friction for the RGT (its negative one
+  swings a low-friction wheel), each put in and taken out from the Games tab.
 - Combined pedals (Logitech's "Report Combined Pedals") for every game too, on the Mapping tab.
 - Anti-dead zone for games with a steering dead zone of their own: the game gets a set amount of steering as soon as
   the wheel leaves the centre; for every game on the Mapping tab, or per game.

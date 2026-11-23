@@ -66,7 +66,8 @@ maker-neutral ("any wheel maker", "trademarks of their owners").
   `README.md` Status is the source: change it there first, then here.
 - Not verified: DiRT Rally 2.0 and NFS Heat, Unbound, Payback on Linux; other games on Windows 7; Windows 8, 8.1
   and 10; button orders on real Logitech wheels; the RGT in any game (only a GRID test build in Mode Shim: pedals and
-  menu buttons, force feedback outward); the RGT on Linux.
+  menu buttons; GRID's RGT preset has a negative friction that swings a direct drive, fixed by a game file set); the
+  RGT on Linux.
 - Mode Shim is for older DirectInput games only; ACC, DiRT Rally 2.0 and games using Logitech's SDK DLL don't take it.
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`. Consumer: `dinput8.dll` shim in
@@ -194,7 +195,9 @@ Warnings: `-Wall -Wextra -Wpedantic` (MSVC `/W4 /permissive-`).
 - Dead zones and pedal curves (gamma): the wheel's own app sets them. A steering ratio (always 1:1), a virtual Xbox
   controller. The anti-dead zone (`AntiDeadZone.hpp`) is not one: it makes up for a game's own dead zone.
 - Force feedback strength, per-effect gains, caps or on/off per game, or WheelBri's own master gain: the game's and
-  the wheel's own app's to set. The fixed safety guards stay; nothing to tune them in the app.
+  the wheel's own app's to set. The fixed safety guards stay; nothing to tune them in the app. The one exception: a
+  game profile's `[game_files]` set may correct a game's own value that breaks the wheel WheelBri presents (GRID's
+  negative friction for the RGT, `grid.ini`), put in by the user in the Games tab, with nothing to tune.
 - Auto-map beyond the core inputs (`AutoMap.hpp`: steering, pedals, D-pad, A/B/X/Y, paddles, H-shifter gears, from
   the Rig's "It is"): every other button is the user's to map; Invert is never taken from the Rig.
 - HidHide, ViGEm, HIDMaestro or any third-party runtime tool or driver.
