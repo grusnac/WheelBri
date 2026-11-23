@@ -878,6 +878,27 @@ TEST_F(UninstallTest, RemovesOnlyItsOwnDirectInputEntries) {
     EXPECT_EQ(*s.regText(Hive::CurrentUser, mixed, L"Other"), L"theirs");
 }
 
+// The RGT's: Thrustmaster's installer writes the same OEMName as WheelBri, so only WheelBri's marked values go; a real
+// RGT's entry (its OEMForceFeedback, its Thrustmaster key) stays whole, even with WheelBri's name in it.
+TEST_F(UninstallTest, RemovesTheRgtEntryOnlyWithWheelBrisMark) {
+    const std::wstring oem = L"CurrentControlSet\\Control\\MediaProperties\\PrivateProperties\\Joystick\\OEM\\";
+    const std::wstring ours = L"System\\" + oem + L"VID_044F&PID_B653";
+    s.regSetText(Hive::CurrentUser, ours, L"OEMName", L"RGT Force Feedback Pro");
+    s.regSetText(Hive::CurrentUser, ours, L"OEMData", L"x");
+    s.regSetDword(Hive::CurrentUser, ours, L"WheelBri", 1);
+    const std::wstring theirs = L"SYSTEM\\" + oem + L"VID_044F&PID_B653";
+    s.regSetText(Hive::Machine, theirs, L"OEMName", L"RGT Force Feedback Pro");
+    s.regSetText(Hive::Machine, theirs, L"OEMData", L"x");
+    s.regSetText(Hive::Machine, theirs + L"\\OEMForceFeedback", L"CLSID", L"{C3CF74D5-5C84-4c28-8FD3-0274CBEBF79E}");
+    s.regSetText(Hive::Machine, theirs + L"\\Thrustmaster\\InternalParams", L"IsFiveAxisMode", L"1");
+    ASSERT_EQ(run(), 0);
+    EXPECT_FALSE(s.regKeyExists(Hive::CurrentUser, ours));   // nothing else was in it
+    EXPECT_EQ(*s.regText(Hive::Machine, theirs, L"OEMName"), L"RGT Force Feedback Pro");
+    EXPECT_EQ(*s.regText(Hive::Machine, theirs, L"OEMData"), L"x");
+    EXPECT_TRUE(s.regKeyExists(Hive::Machine, theirs + L"\\OEMForceFeedback"));
+    EXPECT_TRUE(s.regKeyExists(Hive::Machine, theirs + L"\\Thrustmaster\\InternalParams"));
+}
+
 TEST_F(UninstallTest, FirefoxKeysGoWhenNothingElseIsInThem) {
     s.regDeleteTree(Hive::Users, L"S-1-5-21-1-2-3-1001\\Software\\Policies\\Mozilla");
     s.setMulti(Hive::Users, kFirefoxKey, L"Preferences", L"{\"dom.gamepad.enabled\":{\"Value\":false}}");

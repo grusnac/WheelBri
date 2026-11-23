@@ -35,7 +35,8 @@
 # link);
 # DirectInput's OEM entries the service writes for the virtual G25, G27, G920 and G923 (VID_046D&PID_C299, C29B, C262,
 # C26E): OEMName and OEMData where OEMName is WheelBri's name for that wheel, the Axes key where it carries WheelBri's
-# mark, and the OEM key only when that leaves it empty, so a real Logitech wheel's entries stay; the shim in the games
+# mark, and the OEM key only when that leaves it empty, so a real Logitech wheel's entries stay; for the RGT
+# (VID_044F&PID_B653) only the values of a key WheelBri marked, so a real Thrustmaster install's (same name) stays; the shim in the games
 # the app lists (and -GameFolder); the app's data folders unless -KeepData.
 # It never touches this repository (build\, dist\) or the WDK certificate in your own store that signs builds. It
 # does not change Logitech's wheel SDK entry: if it still names wheelbri-logi.dll (scripts/make/logi.sh), it says so
@@ -194,20 +195,34 @@ function Get-Shortcuts {
 # oemName in core/src/HidWheelDevice.cpp), OEMData, for the G923 an Axes key marked with a "WheelBri" value, and for
 # the G25/G27 in Logitech order an OEMForceFeedback key (Logitech's older-wheel driver) and Axes key, both marked the
 # same way (removed at Stop; still there after a crash). A real Logitech wheel has entries under the same ids: those
-# stay. By target: G25, G27, G920, G923. (The same as installer/setup/SetupSteps.cpp.)
+# stay. By target: G25, G27, G920, G923, RGT. (The same as installer/setup/SetupSteps.cpp.)
 $oemNames = [ordered]@{
     'VID_046D&PID_C299' = 'Logitech G25 Racing Wheel USB'
     'VID_046D&PID_C29B' = 'Logitech G27 Racing Wheel USB'
     'VID_046D&PID_C262' = 'Logitech G920 Driving Force Racing Wheel USB'
     'VID_046D&PID_C26E' = 'Logitech G923 Racing Wheel for Xbox One and PC'
+    'VID_044F&PID_B653' = 'RGT Force Feedback Pro'
 }
-# What of one OEM key is WheelBri's: OEMName and OEMData when OEMName is the name WheelBri writes, the Axes and
-# OEMForceFeedback keys when they have the "WheelBri" value. The key itself goes only when nothing else is left in it
-# (Remove-OemEntries).
-function Get-OemRemoval([string]$oemName, [string]$ourName, [bool]$axesMarked, [bool]$ffbMarked = $false) {
+# The ids whose OEM key WheelBri marks with a "WheelBri" value when it writes OEMName and OEMData there
+# (VirtualWheel::makerDriver): the maker's own installer writes the same OEMName, so only a marked key's are WheelBri's.
+$oemMarkedIds = @('VID_044F&PID_B653')
+# What of one OEM key is WheelBri's: OEMName and OEMData when OEMName is the name WheelBri writes (for a marked id: when
+# the key carries the "WheelBri" value, with that value), the Axes and OEMForceFeedback keys when they have the
+# "WheelBri" value. The key itself goes only when nothing else is left in it (Remove-OemEntries).
+function Get-OemRemoval([string]$oemName, [string]$ourName, [bool]$axesMarked, [bool]$ffbMarked = $false,
+                        [bool]$markedId = $false, [bool]$keyMarked = $false) {
     $values = @()
-    if ($oemName -and $oemName -ceq $ourName) { $values = @('OEMName', 'OEMData') }
+    if ($markedId) {
+        if ($keyMarked) { $values = @('OEMName', 'OEMData', 'WheelBri') }
+    } elseif ($oemName -and $oemName -ceq $ourName) {
+        $values = @('OEMName', 'OEMData')
+    }
     return [pscustomobject]@{ Values = $values; Axes = $axesMarked; Ffb = $ffbMarked }
+}
+# Whether the key <key> itself carries the "WheelBri" value.
+function Test-OemKeyMarked([string]$key) {
+    $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
+    return [bool]($item -and (@($item.GetValueNames()) -contains 'WheelBri'))
 }
 # Whether the key under <key> named <subKey> carries the "WheelBri" value (WheelBri wrote it).
 function Test-OemMarked([string]$key, [string]$subKey) {
@@ -222,7 +237,8 @@ function Get-OurOemEntries {
             $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
             if (-not $item) { continue }
             $removal = Get-OemRemoval ([string]$item.GetValue('OEMName')) $oemNames[$ids] (Test-OemMarked $key 'Axes') `
-                                      (Test-OemMarked $key 'OEMForceFeedback')
+                                      (Test-OemMarked $key 'OEMForceFeedback') ($oemMarkedIds -contains $ids) `
+                                      (Test-OemKeyMarked $key)
             $what = @($removal.Values | Where-Object { @($item.GetValueNames()) -contains $_ })
             if ($removal.Axes) { $what += 'Axes' }
             if ($removal.Ffb) { $what += 'OEMForceFeedback' }
@@ -234,8 +250,10 @@ function Get-OurOemEntries {
 function Remove-OemEntries([string]$key, [string]$ourName) {
     $item = Get-Item -LiteralPath $key -ErrorAction SilentlyContinue
     if (-not $item) { return @() }
+    $ids = Split-Path -Leaf $key
     $removal = Get-OemRemoval ([string]$item.GetValue('OEMName')) $ourName (Test-OemMarked $key 'Axes') `
-                              (Test-OemMarked $key 'OEMForceFeedback')
+                              (Test-OemMarked $key 'OEMForceFeedback') ($oemMarkedIds -contains $ids) `
+                              (Test-OemKeyMarked $key)
     $removed = @()
     foreach ($value in $removal.Values) {
         if (@($item.GetValueNames()) -contains $value) {

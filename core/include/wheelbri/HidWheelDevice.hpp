@@ -104,6 +104,12 @@ struct VirtualWheel {
     // and drives the virtual wheel when installed (LogitechFfbDriver.hpp's keepsOtherDrivers): the TMX, Thrustmaster's
     // tmpid.dll (captures/tmx). Whether it does so without Thrustmaster's kernel driver: not tested yet.
     bool makerPidDriver = false;
+    // Whether the maker's own force feedback driver, which does not speak HID PID, keeps its OEMForceFeedback entry and
+    // drives the virtual wheel when installed: the RGT, Thrustmaster's tmffbdrv.dll (rgt-clutch-plan.md); WheelBri
+    // does not read what it sends yet. The maker's installer also writes the same OEMName WheelBri does, so WheelBri
+    // marks the values it writes in that OEM key ("WheelBri") and never writes over or removes the maker's
+    // (writeDirectInputEntries, the uninstaller's oemEntries, clean-pc.ps1).
+    bool makerDriver = false;
 };
 [[nodiscard]] std::span<const VirtualWheel> virtualWheels();
 // By target_profile ("g920", "g25", "g27", "g923"), or by a hardware id (any case); null when it is none of them.

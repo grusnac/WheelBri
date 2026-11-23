@@ -650,14 +650,17 @@ std::vector<std::wstring> removeShimFrom(SetupSystem& s, const std::wstring& fol
     return problems;
 }
 
-// DirectInput's OEM entries WheelBri wrote under one key: OEMName and OEMData when OEMName is WheelBri's name, the
-// Axes and OEMForceFeedback keys when they carry a "WheelBri" value; the key when nothing else is left in it. A real
-// Logitech wheel's entries (Windows', Logitech's software's) stay.
-void removeOemEntries(SetupSystem& s, Reporter& r, const Hive hive, const std::wstring& key, const std::wstring& ourName) {
+// DirectInput's OEM entries WheelBri wrote under one key: OEMName and OEMData when OEMName is WheelBri's name (for a
+// `marked` entry, when the key carries WheelBri's "WheelBri" value, with that value), the Axes and OEMForceFeedback keys
+// when they carry a "WheelBri" value; the key when nothing else is left in it. A real wheel's entries (Windows', its
+// maker's software's) stay.
+void removeOemEntries(SetupSystem& s, Reporter& r, const Hive hive, const std::wstring& key, const OemEntry& entry) {
     if (!s.regKeyExists(hive, key)) return;
     std::vector<std::wstring> removed;
-    if (s.regText(hive, key, L"OEMName").value_or(L"") == ourName) {
-        for (const wchar_t* value : {L"OEMName", L"OEMData"}) {
+    const bool ours = entry.marked ? s.regValueExists(hive, key, L"WheelBri")
+                                   : s.regText(hive, key, L"OEMName").value_or(L"") == entry.name;
+    if (ours) {
+        for (const wchar_t* value : {L"OEMName", L"OEMData", L"WheelBri"}) {
             if (s.regValueExists(hive, key, value)) {
                 s.regDeleteValue(hive, key, value);
                 removed.emplace_back(value);
@@ -838,8 +841,8 @@ void Uninstalling::entries() {
     }
     for (const OemEntry& e : oemEntries()) {
         const std::wstring path = std::wstring(L"CurrentControlSet\\Control\\MediaProperties\\PrivateProperties\\Joystick\\OEM\\") + e.ids;
-        removeOemEntries(s, r, Hive::Machine, L"SYSTEM\\" + path, e.name);
-        removeOemEntries(s, r, Hive::CurrentUser, L"System\\" + path, e.name);
+        removeOemEntries(s, r, Hive::Machine, L"SYSTEM\\" + path, e);
+        removeOemEntries(s, r, Hive::CurrentUser, L"System\\" + path, e);
     }
     r.log(L"    done");
 }

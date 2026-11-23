@@ -238,7 +238,7 @@ constexpr VirtualWheel kVirtualWheels[] = {
     {"g923", "wheelbri\\G923", "G923", kG923VendorId, kG923ProductId, "G923 Racing Wheel for Xbox One and PC",
      "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, false, true},
     {"tm_rgt", "wheelbri\\TM_RGT", "RGT", kRgtVendorId, kRgtProductId, "Thrustmaster force feedback wheel",
-     "RGT Force Feedback Pro", kRgtButtons, false, 0, false, false, false, false, true},
+     "RGT Force Feedback Pro", kRgtButtons, false, 0, false, false, false, false, true, false, false, true},
     {"tmx", "wheelbri\\TMX", "TMX", kTmxVendorId, kTmxProductId, "Thrustmaster TMX Racing Wheel",
      "Thrustmaster TMX Racing Wheel", kTmxButtons, false, 0, false, false, false, false, false, true, true},
 };
