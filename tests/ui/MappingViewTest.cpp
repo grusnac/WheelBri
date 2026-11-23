@@ -315,7 +315,8 @@ TEST_F(LiveView, ShadowViewHasEveryG25ButtonByTheGamesNumber) {
 }
 
 // The RGT's picture: Down and Up printed on the paddles' tabs, + and - by the stick, the game's number on Button 3-8;
-// the rig's labels beside them; the levers (not inputs yet) and the buttons not known faint, "?" on the three unknown.
+// the rig's labels beside them; the levers (nothing drives them) and the buttons not known faint, "?" on the three
+// unknown.
 TEST_F(LiveView, ShadowViewHasEveryRgtButton) {
     profile_ = makeProfile("tm_rgt");
     auto view = makeView(8, 40, mozaRimMapping("tm_rgt", {{0, 12}, {1, 13}, {2, 3}, {3, 2}, {4, 1}, {5, 0}, {6, 21},
@@ -339,6 +340,38 @@ TEST_F(LiveView, ShadowViewHasEveryRgtButton) {
     EXPECT_TRUE(hasIn(window_, "Left lever", style::kFaint));
     EXPECT_TRUE(hasIn(window_, "Right lever", style::kFaint));
     EXPECT_EQ(onPicture("?"), 3);   // the bottom spoke's lower button and the base's two
+}
+
+// The RGT's levers: with the pedal set at Levers each tab lights from the bottom by its travel and is labelled by what
+// drives it (an unmapped one by its own name, faint); with Clutch the RGT does not report them: both faint, "off: Clutch".
+TEST_F(LiveView, ShadowViewLightsRgtLeversByThePedalSet) {
+    profile_ = makeProfile("tm_rgt");
+    MapperConfig mapper = mozaRimMapping("tm_rgt", {});
+    mapper.clutch.sourceAxis = kUnmapped;   // its label ("Clutch pedal") is the left lever's alone
+    mapper.leftLever.sourceAxis = 6;
+    auto view = makeView(8, 40, mapper);
+    view->showShadow(true);
+    WheelState state;
+    state.leftLever = 0.5F;
+    const auto anyGreen = [&] {
+        bool green = false;
+        for (const auto& r : window_.last.rects) green = green || (r.filled && r.y > 40 && sameColour(r.colour, style::kActive));
+        return green;
+    };
+
+    view->setRgtMode(RgtMode{RgtAxes::Five, RgtPedalSet::Levers});
+    draw(*view, {}, state);
+    EXPECT_TRUE(hasIn(window_, "Clutch pedal", style::kActive)) << window_.dump();
+    EXPECT_TRUE(hasIn(window_, "Right lever", style::kFaint));
+    EXPECT_TRUE(anyGreen());   // nothing else pressed: the left lever's fill
+
+    view->setRgtMode(RgtMode{RgtAxes::Five, RgtPedalSet::Clutch});
+    draw(*view, {}, state);
+    int off = 0;
+    for (const auto& t : window_.last.texts) off += t.value == "off: Clutch" && sameColour(t.colour, style::kFaint) ? 1 : 0;
+    EXPECT_EQ(off, 2) << window_.dump();
+    EXPECT_FALSE(hasIn(window_, "Clutch pedal", style::kActive));
+    EXPECT_FALSE(anyGreen());
 }
 
 // What the game sees pressed lights up: the button (its number dark on green), the D-pad's arm, the pedals' fill by

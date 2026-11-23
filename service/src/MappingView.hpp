@@ -178,6 +178,10 @@ public:
         buttonOrder_ = order;
         if (shadow_) shadow_->setButtonOrder(order);
     }
+    // The RGT's axis mode and pedal set at Start (SessionInfo::rgtMode), for the Shadow view's levers.
+    void setRgtMode(const std::optional<RgtMode> mode) {
+        if (shadow_) shadow_->setRgtMode(mode);
+    }
 
     // The mapping changed while the session runs (UiFrame::mapping, LiveMapping.hpp): both views show it from now on.
     void setMapping(const MapperConfig& mapper);

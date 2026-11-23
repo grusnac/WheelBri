@@ -1272,6 +1272,7 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
         info.targetProfile = config.targetProfile;
         info.mapper = config.mapper;
         info.buttonOrder = config.buttonOrder;
+        info.rgtMode = pipeline.rgtMode();
         info.accessories = accessories.labels;
         info.files.logFolder = logFolder;
         info.files.logToFile = logToFile;

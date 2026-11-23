@@ -666,14 +666,29 @@ void ShadowView::drawRgtWheel(const WheelState& state, const std::uint32_t press
         roundedRect(c.x - kTabW * R / 2, c.y - kTabH * R / 2, kTabW * R, kTabH * R, 6,
                     controlColour(tab.target, pressed, style::kShadowKey));
     }
-    // The levers: not inputs yet (the Rig cannot drive them): faint, named by their real names.
+    // The levers: lit from the bottom by their travel, as the pedals; steel when mapped, faint when not. With the
+    // pedal set at Clutch ([tm_rgt]) the RGT does not report them: faint, whatever drives them.
     constexpr float kLeverX = 0.62F;
     constexpr float kLeverY = 0.32F;
     constexpr float kLeverW = 0.30F;
     constexpr float kLeverH = 0.18F;
-    for (const float side : {-1.0F, 1.0F}) {
-        const ShapePoint c = at(side * kLeverX, kLeverY);
-        roundedRect(c.x - kLeverW * R / 2, c.y - kLeverH * R / 2, kLeverW * R, kLeverH * R, 7, style::kShadowOff);
+    struct Lever {
+        const PedalConfig* config;
+        float value;
+        const char* name;
+        float side;
+    };
+    const std::array<Lever, 2> levers = {{{&mapper_.leftLever, state.leftLever, "Left lever", -1.0F},
+                                          {&mapper_.rightLever, state.rightLever, "Right lever", 1.0F}}};
+    const bool leversOff = rgtMode_ && rgtMode_->pedalSet == RgtPedalSet::Clutch;
+    for (const Lever& lever : levers) {
+        const ShapePoint c = at(lever.side * kLeverX, kLeverY);
+        const float lx = c.x - kLeverW * R / 2;
+        const float ly = c.y - kLeverH * R / 2;
+        const bool used = !leversOff && lever.config->sourceAxis >= 0;
+        const float v = used ? std::clamp(lever.value, 0.0F, 1.0F) : 0.0F;
+        roundedRect(lx, ly, kLeverW * R, kLeverH * R, 7, used ? style::kSteel : style::kShadowOff);
+        if (v > 0.0F) roundedRectBelow(lx, ly, kLeverW * R, kLeverH * R, 7, ly + kLeverH * R * (1.0F - v), style::kActive);
     }
 
     wheelShape(rgtSpokes(), cx, cy, R, style::kSteel);
@@ -699,8 +714,17 @@ void ShadowView::drawRgtWheel(const WheelState& state, const std::uint32_t press
             window_.text(rightX, c.y - 4, name, labelColour(tab.target, pressed));
         }
     }
-    textLeftOf(leftX, at(0, kLeverY).y - 4, "Left lever", style::kFaint);
-    window_.text(rightX, at(0, kLeverY).y - 4, "Right lever", style::kFaint);
+    // The levers' labels: what drives each (the rig's name, as the pedals'), "off: Clutch" when not reported.
+    for (const Lever& lever : levers) {
+        const bool used = !leversOff && lever.config->sourceAxis >= 0;
+        const std::string name = leversOff ? std::string("off: Clutch") : cut(axisLabel(*lever.config, lever.name), 12);
+        const Colour colour = used && lever.value > 0.0F ? style::kActive : (used ? style::kText : style::kFaint);
+        if (lever.side < 0) {
+            textLeftOf(leftX, at(0, kLeverY).y - 4, name, colour);
+        } else {
+            window_.text(rightX, at(0, kLeverY).y - 4, name, colour);
+        }
+    }
 
     // The D-pad: a cross in a round black pad; "D-pad" beside it (its directions are the hat's, named in the list).
     const ShapePoint d = at(-0.53F, -0.04F);

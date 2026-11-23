@@ -164,6 +164,7 @@ public:
         view_->setDevices(info.devices, info.devicesWarning);
         view_->setAccessories(info.accessories);
         view_->setButtonOrder(info.buttonOrder);
+        view_->setRgtMode(info.rgtMode);
         mappingShown_ = 0;   // the session's count starts again with it
         return true;
     }
@@ -1129,6 +1130,7 @@ private:
                 view_->setDevices(info->devices, info->devicesWarning);
                 view_->setAccessories(info->accessories);
                 view_->setButtonOrder(info->buttonOrder);
+                view_->setRgtMode(info->rgtMode);
                 mappingShown_ = 0;   // the session's count starts again with it
                 view_->setHeaderChars(sessionShim_ ? kHeaderCharsShim : kHeaderChars);
                 view_->setShimMode(sessionShim_);
