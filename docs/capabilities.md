@@ -4,7 +4,8 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
 
 ## Your rig as a wheel games know
 
-- **Four Targets**: G920 (default), G923, G25, G27, each on its own page ([targets.md](targets.md)).
+- **Five Targets**: Logitech G920 (default), G923, G25, G27 and Thrustmaster RGT, each on its own page
+  ([targets.md](targets.md)). The RGT is not yet tested in a game.
 - **Any rig**: a wheel base plus up to 3 accessories (pedals, shifter, handbrake, button box), up to 128 buttons each
   (Linux: 80, the kernel's limit). Built and tested with a Moza R3; other wheels should work but are untried.
 - **Two Modes**:
@@ -23,6 +24,8 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
   (a handbrake lever past a set point, a second button).
 - **G25 and G27**: Logitech or Native button order, each with its own mapping; centring spring 0-100%.
 - **G923**: TrueForce on or off.
+- **RGT**: AXES (2, 3 or 5) and PEDAL SET (Levers or Clutch), as the real wheel's switches, with no Thrustmaster
+  software; its two levers behind the rim; centring spring 0-100%.
 - **Live editing**: every change is saved and used at once, even while a game runs. **Undo** one change at a time;
   **Default** back to WheelBri's mapping.
 - **Side by side**: the editor and the Live tab in one window.
@@ -52,7 +55,7 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
 - Everything the game sends, passed on through safety limits: no sudden jumps, a push held 2 s unchanged fades, forces
   stop when the game goes quiet, a cap on all effects together, a watchdog per sender.
 - Logitech's own force feedback drivers on Windows when G HUB has installed them (G920, G923; G25 and G27 in Logitech
-  order), else Windows' HID PID driver.
+  order), else Windows' HID PID driver. The RGT: Windows' HID PID driver, no Thrustmaster software needed.
 - **TrueForce** for the G923 (Windows, Mode Virtual): the torque stream, damping and road texture.
 - Strength is set in your wheel's own software, once for all games.
 

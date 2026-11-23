@@ -76,7 +76,7 @@ wheel's rotation, in the wheel's own software. For a game with a dead zone of it
    as **or ...** in the row; click one to change them.
 5. Set **Steering rotation** to the game's full lock, and your wheel's software to **the same number**.
 
-**Combined pedals** (every Target, off by default): throttle and brake on one axis, the throttle's, resting in the
+**Combined pedals** (every Target but the RGT, off by default): throttle and brake on one axis, the throttle's, resting in the
 middle; the brake's axis rests in the middle. As Logitech's "Report Combined Pedals", for old games that read them so
 (NFS Underground, Most Wanted: their menus scroll by themselves otherwise). Those games have it on by themselves
 (Games tab); turn it on here only for another such game. Pressing both pedals cancels out.
@@ -102,6 +102,18 @@ car twitches as the wheel crosses the centre. Best set per game (Games tab).
   (ACC, DiRT Rally 2.0) send their force through it. **Off**: a G923 without it, whose games send their effects one by
   one, as to a G920. On needs Logitech G HUB installed (it need not run); without it On is greyed and says so. Takes
   effect at the next Start. More below, under force feedback, and in [target-g923.md](target-g923.md#trueforce).
+
+**RGT only** (instead of Combined pedals; all take effect at the next Start):
+
+- **AXES**: what the RGT's pedal axes report, as the real wheel's mode switch. **5** (default): each pedal and lever
+  on its own axis. **3**: brake and throttle on their own axes, each with its lever. **2**: throttle and brake on one
+  axis. The table: [target-rgt.md](target-rgt.md#axes).
+- **PEDAL SET**: as the real pedal base's switch. **Clutch** (default): the clutch pedal on Slider 0, the levers not
+  reported; always 5 axes, so 2 and 3 are greyed. **Levers**: the two levers instead of the clutch.
+- **Left lever**, **Right lever**: two more axis rows. Map them yourself (the Rig never does). With Levers, Start
+  waits until both are mapped, and their rows show in amber until then. The rows the pedal set does not report are
+  greyed: the clutch's with Levers, the levers' with Clutch.
+- **Centring spring**: as the G25's above.
 
 The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games count), from
 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Each
@@ -188,6 +200,8 @@ receives after your mapping, so it is the place to check a mapping in action.
 - **Steering**: an arc round the rim grows as you turn, reaching its end at full lock; a mark shows where the rim's top
   is.
 - **Pedals** fill as you press them; the **D-pad** lights its arms.
+- **RGT levers**: their tabs behind the rim fill as you move them, with what drives each beside it; with PEDAL SET
+  Clutch they are faint and say "off: Clutch".
 - **Shifter**: the knob sits in the gear the game sees engaged (G25 and G27 with their button panel; G920 and G923
   with the Driving Force Shifter's gate).
 - **G923 dial**: its left or right teeth light as it turns.

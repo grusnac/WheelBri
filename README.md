@@ -1,8 +1,8 @@
 # WheelBri
 
 WheelBri presents your rig (a wheel and its pedals, shifter or button box) to PC games as a racing wheel they know,
-today a Logitech **G25**, **G27**, **G920** or **G923**, so games that don't know your wheel accept it, with force
-feedback. It is not tied to one wheel maker. Windows and Linux
+today a Logitech **G25**, **G27**, **G920** or **G923** or a Thrustmaster **RGT**, so games that don't know your wheel
+accept it, with force feedback. It is not tied to one wheel maker. Windows and Linux
 (Proton, Steam Deck). Built and tested with a **Moza R3**; other wheels should work but are untried.
 
 ## Documentation
@@ -12,7 +12,7 @@ feedback. It is not tied to one wheel maker. Windows and Linux
 | [Install](docs/install.md) | setup wizard, uninstaller, scripted install, Windows 7 to 10, Linux |
 | [User guide](docs/user-guide.md) | set up the rig, map it, play, force feedback, troubleshoot |
 | [Capabilities](docs/capabilities.md) | everything WheelBri can do, on one page |
-| [Targets](docs/targets.md) | which wheel to pick: [G920](docs/target-g920.md), [G923](docs/target-g923.md), [G25](docs/target-g25.md), [G27](docs/target-g27.md) |
+| [Targets](docs/targets.md) | which wheel to pick: [G920](docs/target-g920.md), [G923](docs/target-g923.md), [G25](docs/target-g25.md), [G27](docs/target-g27.md), [RGT](docs/target-rgt.md) |
 | [Games](docs/games.md) | what was tested and what each game needs |
 | [Building](docs/building.md) | build, drivers, packaging, code layout |
 | [Changelog](CHANGELOG.md) | what changed in each release |
@@ -45,7 +45,8 @@ Two Modes:
 | Linux, not tried | DiRT Rally 2.0, NFS Heat, Unbound, Payback |
 | Windows 7 SP1, Mode Shim | **works** in NFS Underground, Underground 2, Most Wanted (2005) and Carbon (G25) |
 | Windows 8, 8.1 and 10 (Mode Shim only) | built, **not yet tried** |
-| Button orders | from public sources; **not yet checked on real Logitech wheels** |
+| Target RGT (Thrustmaster), Windows 11 | built, **not yet tested** in a game; a test build in Race Driver: GRID (Mode Shim): pedals and menu buttons work, force feedback pushes outward |
+| Button orders | from public sources; **not yet checked on real wheels** (the RGT's rim buttons: not known) |
 
 ## What's new in 1.0.4
 

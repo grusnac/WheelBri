@@ -55,9 +55,9 @@ A new area file gets a row here.
 ## Project
 
 Makes the user's rig (wheel + accessories, Rig tab) look like a wheel games know (the Target) to games, Windows and
-Linux/Proton. Not tied to one wheel maker: Targets today G920 (default), G923, G25, G27 (Logitech); Thrustmaster ones
-planned. The user cannot add targets. User-facing text and trademark notes stay maker-neutral ("any wheel maker",
-"trademarks of their owners").
+Linux/Proton. Not tied to one wheel maker: Targets today G920 (default), G923, G25, G27 (Logitech), RGT
+(Thrustmaster); more Thrustmaster ones planned. The user cannot add targets. User-facing text and trademark notes stay
+maker-neutral ("any wheel maker", "trademarks of their owners").
 
 - Verified (Windows 11, Moza R3): all four targets in Mode Virtual in ACC and DiRT Rally 2.0; G920 in NFS 2015, Payback,
   Heat and Unbound (Mode Shim too, except Payback); G25 in Race Driver: GRID, both Modes. Steam Deck (SteamOS 3.8, Proton,
@@ -65,7 +65,8 @@ planned. The user cannot add targets. User-facing text and trademark notes stay 
   Shim): G25 in NFS Underground, Underground 2, Most Wanted (2005) and Carbon.
   `README.md` Status is the source: change it there first, then here.
 - Not verified: DiRT Rally 2.0 and NFS Heat, Unbound, Payback on Linux; other games on Windows 7; Windows 8, 8.1
-  and 10; button orders on real Logitech wheels.
+  and 10; button orders on real Logitech wheels; the RGT in any game (only a GRID test build in Mode Shim: pedals and
+  menu buttons, force feedback outward); the RGT on Linux.
 - Mode Shim is for older DirectInput games only; ACC, DiRT Rally 2.0 and games using Logitech's SDK DLL don't take it.
 
 Data flow: `rig --DirectInput/evdev--> wheelbri-service --UDP 127.0.0.1--> consumer`. Consumer: `dinput8.dll` shim in

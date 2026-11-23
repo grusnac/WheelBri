@@ -87,6 +87,10 @@ G920 only, by themselves while the game runs.
 ## Race Driver: GRID
 
 - **Target:** **G25**, Order Logitech (the game has its own G25 preset). Mode Shim uses the 32-bit shim.
+- **Target RGT** (not yet tested; GRID's RGT preset, from the game's files): it reads the throttle on Rz or Slider 1
+  and the brake on Y or Slider 0, and has no clutch: the layout of **5 axes** with **Levers**, where the levers are a
+  second throttle and brake. With Clutch, the clutch pedal (Slider 0) would brake. A test build was taken as the RGT, its
+  pedals and menu buttons worked; its force feedback pushed away from the centre ([target-rgt.md](target-rgt.md)).
 - **Set up:** VSync on (or the frame rate capped): above about 144 Hz the game sends a broken force, which WheelBri
   plays as none. The game sends no centring and turns the wheel's off: set the G25's **Centring spring** on the
   Mapping tab.
