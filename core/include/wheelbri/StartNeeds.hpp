@@ -52,7 +52,7 @@ struct PresentDevice {
 // so a mismatch would give a game one wheel's name with another's buttons.
 [[nodiscard]] std::string targetProblem(const EmulatorConfig& config, std::string_view target);
 
-// Why the RGT cannot run with its levers, or "" when it can: with [rgt] pedal_set = levers both levers must be mapped
+// Why the RGT cannot run with its levers, or "" when it can: with [tm_rgt] pedal_set = levers both levers must be mapped
 // ([left_lever], [right_lever]: mapped in the Mapping tab, never taken from the Rig). "" for every other target and for
 // the clutch.
 [[nodiscard]] std::string leversProblem(const EmulatorConfig& config);

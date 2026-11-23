@@ -308,13 +308,13 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         reader.reportUnknownKeys();
     }
     {
-        SectionReader reader(ini, "rgt", errors);
+        SectionReader reader(ini, "tm_rgt", errors);
         int axes = static_cast<int>(config.rgt.axes);
         reader.readInt("axes", axes, 2, 5);
         if (axes == 2 || axes == 3 || axes == 5) {
             config.rgt.axes = static_cast<RgtAxes>(axes);
         } else {
-            errors.push_back("[rgt] axes = '" + std::to_string(axes) + "': expected 2, 3 or 5");
+            errors.push_back("[tm_rgt] axes = '" + std::to_string(axes) + "': expected 2, 3 or 5");
         }
         std::string pedalSet = config.rgt.pedalSet == RgtPedalSet::Clutch ? "clutch" : "levers";
         reader.readString("pedal_set", pedalSet);
@@ -323,7 +323,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
         } else if (pedalSet == "levers") {
             config.rgt.pedalSet = RgtPedalSet::Levers;
         } else {
-            errors.push_back("[rgt] pedal_set = '" + pedalSet + "': expected levers or clutch");
+            errors.push_back("[tm_rgt] pedal_set = '" + pedalSet + "': expected levers or clutch");
         }
         reader.reportUnknownKeys();
     }
@@ -480,7 +480,7 @@ EmulatorConfigResult loadEmulatorConfig(const IniDocument& ini, const std::span<
     static const std::set<std::string> kKnownSections = {"",         "emulator",      "steering",    "throttle",
                                                          "brake",    "clutch",        "buttons",     "button_labels",
                                                          "axis_labels", "hat",        "pedals",      "ffb",
-                                                         "rgt",      "left_lever",    "right_lever",
+                                                         "tm_rgt",   "left_lever",    "right_lever",
                                                          "logging",
                                                          "telemetry", "retention",    "game_rotation",
                                                          "game_settings", "game_ffb_gain", "game_tuning"};

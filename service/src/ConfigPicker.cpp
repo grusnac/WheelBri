@@ -128,7 +128,7 @@ const char* ConfigPicker::profileName(const Target target) {
         case Target::G25: return "g25";
         case Target::G27: return "g27";
         case Target::G923: return "g923";
-        case Target::RGT: return "rgt";
+        case Target::RGT: return "tm_rgt";
         case Target::G920: break;
     }
     return "g920";

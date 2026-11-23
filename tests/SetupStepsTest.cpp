@@ -51,7 +51,7 @@ protected:
             {L"ucrt\\Windows8.1-KB2999226-x64.msu", "msu81"},
         };
         for (const auto& [name, bytes] : files) s.addFile(joinPath(kPackage, name), bytes);
-        for (const wchar_t* t : {L"g25", L"g27", L"g920", L"g923", L"rgt", L"tmx"}) {
+        for (const wchar_t* t : {L"g25", L"g27", L"g920", L"g923", L"tm_rgt", L"tmx"}) {
             s.addFile(kPackage + L"\\config\\" + t + L".ini", defaultConfig(t));
         }
         for (const wchar_t* d : {L"driver\\x64\\Release\\wheelbri-wheel\\wheelbri-wheel",

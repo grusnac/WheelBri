@@ -446,7 +446,7 @@ TEST(DeviceProfile, ReportsAndCellsCompareEveryField) {
 // The RGT: Thrustmaster's DirectInput name and ids, 270 degrees, 10 buttons, one order; core buttons where Race
 // Driver: GRID's RGT preset has Select, Back, Boost, Look back and the paddles.
 TEST(DeviceProfile, RgtIsThrustmastersName) {
-    const auto rgt = makeProfile("rgt");
+    const auto rgt = makeProfile("tm_rgt");
     ASSERT_NE(rgt, nullptr);
     EXPECT_EQ(rgt->identity().vendorId, 0x044F);
     EXPECT_EQ(rgt->identity().productId, 0xB653);
@@ -484,7 +484,7 @@ TEST(DeviceProfile, TmxIsThrustmastersName) {
 
 // The RGT's encode carries the levers as the pedals: released at the top, fully pressed at the bottom.
 TEST(DeviceProfile, RgtEncodeCarriesTheLevers) {
-    const auto rgt = makeProfile("rgt");
+    const auto rgt = makeProfile("tm_rgt");
     ASSERT_NE(rgt, nullptr);
     WheelState state;
     state.leftLever = 1.0F;

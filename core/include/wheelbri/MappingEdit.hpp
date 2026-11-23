@@ -68,7 +68,7 @@ struct MappingModel {
     ButtonOrder buttonOrder = ButtonOrder::Driver;
     // [pedals] combined: Logitech's "Report Combined Pedals" for every game (EmulatorConfig::combinedPedals).
     bool combinedPedals = false;
-    // [rgt] axes, pedal_set: the RGT's axis mode and pedal set (EmulatorConfig::rgt); the Mapping tab shows it only
+    // [tm_rgt] axes, pedal_set: the RGT's axis mode and pedal set (EmulatorConfig::rgt); the Mapping tab shows it only
     // for the RGT.
     RgtMode rgt;
     // [steering] anti_deadzone: the anti-dead zone for every game, 0 to 50 percent, 0 = off (AntiDeadZone.hpp).

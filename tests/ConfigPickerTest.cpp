@@ -70,7 +70,7 @@ protected:
         std::filesystem::remove_all(dir_);
         std::filesystem::create_directories(builtIn());
         std::filesystem::create_directories(user());
-        for (const char* name : {"g920.ini", "g25.ini", "g27.ini", "g923.ini", "rgt.ini"}) {
+        for (const char* name : {"g920.ini", "g25.ini", "g27.ini", "g923.ini", "tm_rgt.ini"}) {
             write(builtIn() / name, "[emulator]\n");
         }
     }
@@ -246,7 +246,7 @@ TEST_F(ConfigPickerFiles, TheButtonsSwitchTargetAndWayAndRememberThem) {
     picker.draw(4, 18, true);
     EXPECT_TRUE(picker.onClick(kRgtX, kRowY));
     EXPECT_EQ(picker.target(), ConfigPicker::Target::RGT);
-    EXPECT_EQ(picker.selected(), (builtIn() / "rgt.ini").string());
+    EXPECT_EQ(picker.selected(), (builtIn() / "tm_rgt.ini").string());
     picker.draw(4, 18, true);
     EXPECT_TRUE(picker.onClick(kVirtualX, kRowY));
     EXPECT_EQ(picker.way(), ConfigPicker::Way::VirtualDevice);

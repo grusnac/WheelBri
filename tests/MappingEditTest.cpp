@@ -563,12 +563,12 @@ TEST(MappingEdit, CombinedPedalsAreWrittenWhenTheyChange) {
     EXPECT_FALSE(load(writeMapping(text, model).text).combinedPedals);
 }
 
-// [rgt] and the levers: no lines while the mode is the default and nothing drives a lever (every target but the RGT
+// [tm_rgt] and the levers: no lines while the mode is the default and nothing drives a lever (every target but the RGT
 // keeps its file as it was); written when they change, and read back the same.
 TEST(MappingEdit, TheRgtModeAndLeversAreWrittenWhenTheyChange) {
     MappingModel model = mappingModel(load(kConfig));
     std::string text = writeMapping(kConfig, model).text;
-    EXPECT_EQ(text.find("[rgt]"), std::string::npos) << text;
+    EXPECT_EQ(text.find("[tm_rgt]"), std::string::npos) << text;
     EXPECT_EQ(text.find("lever]"), std::string::npos) << text;
     model.rgt = {RgtAxes::Three, RgtPedalSet::Levers};
     model.axes[MappingModel::kLeftLever] = SourceRef{{}, 4};

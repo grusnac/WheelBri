@@ -237,7 +237,7 @@ constexpr VirtualWheel kVirtualWheels[] = {
      "Logitech G920 Driving Force Racing Wheel USB", kG920Buttons, true, 0x0A},
     {"g923", "wheelbri\\G923", "G923", kG923VendorId, kG923ProductId, "G923 Racing Wheel for Xbox One and PC",
      "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, false, true},
-    {"rgt", "wheelbri\\RGT", "RGT", kRgtVendorId, kRgtProductId, "Thrustmaster force feedback wheel",
+    {"tm_rgt", "wheelbri\\TM_RGT", "RGT", kRgtVendorId, kRgtProductId, "Thrustmaster force feedback wheel",
      "RGT Force Feedback Pro", kRgtButtons, false, 0, false, false, false, false, true},
     {"tmx", "wheelbri\\TMX", "TMX", kTmxVendorId, kTmxProductId, "Thrustmaster TMX Racing Wheel",
      "Thrustmaster TMX Racing Wheel", kTmxButtons, false, 0, false, false, false, false, false, true, true},

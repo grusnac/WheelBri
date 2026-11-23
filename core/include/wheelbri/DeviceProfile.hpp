@@ -291,7 +291,7 @@ inline constexpr std::size_t kTmxButtons = 13;
 // D-pad.
 [[nodiscard]] DeviceProfileSpec tmxSpec();
 
-// The RGT's axis mode and pedal set ([rgt] axes, pedal_set; Thrustmaster's manual, "Axis selection"): what its pedal
+// The RGT's axis mode and pedal set ([tm_rgt] axes, pedal_set; Thrustmaster's manual, "Axis selection"): what its pedal
 // axes carry. Combining follows from these, as on the real wheel; WheelBri's combined pedals do not apply to it.
 enum class RgtAxes : std::uint8_t { Two = 2, Three = 3, Five = 5 };
 enum class RgtPedalSet : std::uint8_t { Levers, Clutch };   // the pedal base's switch: 2 L, 3 P
@@ -316,9 +316,9 @@ struct RgtMode {
 
 // Config names of the built-in profiles, for messages: the wheels WheelBri emulates (a virtual device and the shim both
 // present them). A new target is a new profile here plus its support (driver, shim) first.
-inline constexpr std::string_view kKnownProfiles = "g25, g27, g920, g923, rgt, tmx";
+inline constexpr std::string_view kKnownProfiles = "g25, g27, g920, g923, tm_rgt, tmx";
 
-// Looks up a built-in profile by its config name ("g920", "g25", "g27", "g923", "rgt", "tmx"). Returns nullptr for
+// Looks up a built-in profile by its config name ("g920", "g25", "g27", "g923", "tm_rgt", "tmx"). Returns nullptr for
 // unknown names.
 [[nodiscard]] std::unique_ptr<IDeviceProfile> makeProfile(std::string_view name);
 

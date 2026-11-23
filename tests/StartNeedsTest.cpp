@@ -244,7 +244,7 @@ TEST(StartNeeds, AnotherProductOfTheSameMakerIsMissing) {
 
 // The RGT with its levers: both mapped or no Start, saying which is not; the clutch, and every other target, need none.
 TEST(StartNeeds, TheRgtsLeversMustBeMapped) {
-    EmulatorConfig config = withTarget("rgt");
+    EmulatorConfig config = withTarget("tm_rgt");
     EXPECT_EQ(leversProblem(config), "");   // the clutch by default
     config.rgt.pedalSet = RgtPedalSet::Levers;
     EXPECT_EQ(leversProblem(config),

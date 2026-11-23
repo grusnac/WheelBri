@@ -278,7 +278,7 @@ TEST_F(LiveView, ShadowViewIsTheG25sFirstView) {
     ASSERT_TRUE(clickOn(*view, "Shadow"));
     EXPECT_TRUE(view->showingShadow());
 
-    for (const char* target : {"g25", "g27", "g920", "g923", "rgt"}) {
+    for (const char* target : {"g25", "g27", "g920", "g923", "tm_rgt"}) {
         EXPECT_TRUE(ShadowView::hasPicture(*makeProfile(target))) << target;
     }
 }
@@ -317,8 +317,8 @@ TEST_F(LiveView, ShadowViewHasEveryG25ButtonByTheGamesNumber) {
 // The RGT's picture: Down and Up printed on the paddles' tabs, + and - by the stick, the game's number on Button 3-8;
 // the rig's labels beside them; the levers (not inputs yet) and the buttons not known faint, "?" on the three unknown.
 TEST_F(LiveView, ShadowViewHasEveryRgtButton) {
-    profile_ = makeProfile("rgt");
-    auto view = makeView(8, 40, mozaRimMapping("rgt", {{0, 12}, {1, 13}, {2, 3}, {3, 2}, {4, 1}, {5, 0}, {6, 21},
+    profile_ = makeProfile("tm_rgt");
+    auto view = makeView(8, 40, mozaRimMapping("tm_rgt", {{0, 12}, {1, 13}, {2, 3}, {3, 2}, {4, 1}, {5, 0}, {6, 21},
                                                        {7, 22}, {8, 34}, {9, 35}}));
     view->showShadow(true);
     draw(*view);

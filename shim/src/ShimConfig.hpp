@@ -20,7 +20,7 @@ namespace wheelbri::shim {
 //   logi_log = false           ; true = log the game's calls into Logitech's SDK DLLs (LogiHook.hpp)
 //   source_vid = 346e          ; USB vendor id of the rig's wheel to replace (hex, the Rig tab's vid:pid)
 //   source_pid = any           ; or a hex product id
-//   target_profile = g920      ; g25, g27, g920 or g923 (the app sets it at Start, from the Mapping tab's Target)
+//   target_profile = g920      ; g25, g27, g920, g923 or tm_rgt (the app sets it at Start, from the Mapping tab's Target)
 //   state_port = 41329         ; must match the service's state_port
 //   stale_after_ms = 1500      ; no packet for this long = wheel centred, pedals released (the last
 //                              ; input is held until then, so a short service hiccup is not felt)

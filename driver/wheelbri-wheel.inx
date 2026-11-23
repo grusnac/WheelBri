@@ -37,7 +37,7 @@ wheelbri-wheel.dll=1
 %DeviceDescG25Logi%=WheelbriWheel, wheelbri\G25_LOGI
 %DeviceDescG27Logi%=WheelbriWheel, wheelbri\G27_LOGI
 %DeviceDescG923%=WheelbriWheel, wheelbri\G923
-%DeviceDescRgt%=WheelbriWheel, wheelbri\RGT
+%DeviceDescRgt%=WheelbriWheel, wheelbri\TM_RGT
 %DeviceDescTmx%=WheelbriWheel, wheelbri\TMX
 %DeviceDescG923TF%=WheelbriWheel, wheelbri\G923_TF
 

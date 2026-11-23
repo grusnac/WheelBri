@@ -55,7 +55,7 @@ std::string targetProblem(const EmulatorConfig& config, const std::string_view t
 }
 
 std::string leversProblem(const EmulatorConfig& config) {
-    if (config.targetProfile != "rgt" || config.rgt.pedalSet != RgtPedalSet::Levers) return {};
+    if (config.targetProfile != "tm_rgt" || config.rgt.pedalSet != RgtPedalSet::Levers) return {};
     const bool left = config.mapper.leftLever.sourceAxis >= 0;
     const bool right = config.mapper.rightLever.sourceAxis >= 0;
     if (left && right) return {};

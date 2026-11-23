@@ -48,7 +48,7 @@ public:
     // route. lastReport() stays as mapped. Safe from another thread; the next tick uses it.
     void setCombinedPedals(const bool on) { combinedPedals_.store(on, std::memory_order_relaxed); }
     [[nodiscard]] bool combinedPedals() const { return combinedPedals_.load(std::memory_order_relaxed); }
-    // The RGT's axis mode and pedal set ([rgt]; withRgtMode), for an RGT target only; nullopt for every other. With a
+    // The RGT's axis mode and pedal set ([tm_rgt]; withRgtMode), for an RGT target only; nullopt for every other. With a
     // mode the published pedals are the mode's and the combined pedals and the pedal route do not apply. lastReport()
     // stays as mapped. Safe from another thread; the next tick uses it.
     void setRgtMode(const std::optional<RgtMode> mode) {

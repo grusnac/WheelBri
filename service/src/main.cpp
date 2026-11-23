@@ -1000,7 +1000,7 @@ void WindowSide::followAntiDeadZone() {
 }
 
 void WindowSide::followCombinedPedals() {
-    if (pipeline_.rgtMode()) return;   // the RGT's pedals follow its [rgt] mode, never combined pedals
+    if (pipeline_.rgtMode()) return;   // the RGT's pedals follow its [tm_rgt] mode, never combined pedals
     const bool on = gameCombinedPedals_.value_or(config_.combinedPedals);
     if (pipeline_.combinedPedals() != on) pipeline_.setCombinedPedals(on);
     const std::string line =
@@ -1234,11 +1234,11 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
     }
     pipeline.setCombinedPedals(config.combinedPedals);
     if (profile->identity().shortName == "RGT") {
-        // The RGT's pedals follow its axis mode and pedal set ([rgt]), as the real wheel: no combined pedals.
+        // The RGT's pedals follow its axis mode and pedal set ([tm_rgt]), as the real wheel: no combined pedals.
         pipeline.setRgtMode(config.rgt);
         const wheelbri::RgtMode rgt = config.rgt;
         const bool clutch = rgt.pedalSet == wheelbri::RgtPedalSet::Clutch;
-        WE_LOG_INFO(log(), "pedals: the RGT's {} axes with the {} at Start ([rgt]{}); combined pedals do not apply",
+        WE_LOG_INFO(log(), "pedals: the RGT's {} axes with the {} at Start ([tm_rgt]{}); combined pedals do not apply",
                     static_cast<int>(rgt.effectiveAxes()), clutch ? "clutch" : "levers",
                     rgt.effectiveAxes() != rgt.axes ? ": the clutch always means 5 axes" : "");
     } else {

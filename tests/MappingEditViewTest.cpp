@@ -231,7 +231,7 @@ protected:
         dir_ = std::filesystem::temp_directory_path() /
                ("wheelbri-editview-" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
         std::filesystem::remove_all(dir_);
-        for (const char* name : {"g920.ini", "g25.ini", "g27.ini", "g923.ini", "rgt.ini"}) {
+        for (const char* name : {"g920.ini", "g25.ini", "g27.ini", "g923.ini", "tm_rgt.ini"}) {
             std::filesystem::create_directories(dir_ / "config");
             std::filesystem::copy_file(std::filesystem::path(WHEELBRI_CONFIG_DIR) / name, dir_ / "config" / name);
         }
@@ -3099,7 +3099,7 @@ TEST_F(EditView, EachTargetShowsOnlyItsOwnOptions) {
 }
 
 // The RGT: its levers' rows under the clutch, greyed with the clutch (the default), as are 2 and 3 axes; Levers
-// saves [rgt] pedal_set and asks for both levers (the rows and the box in amber); then 3 axes can be picked; Clutch
+// saves [tm_rgt] pedal_set and asks for both levers (the rows and the box in amber); then 3 axes can be picked; Clutch
 // again shows 5 axes whatever was picked.
 TEST_F(EditView, TheRgtsAxesAndPedalSet) {
     useRig(testRig());

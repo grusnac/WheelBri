@@ -406,7 +406,7 @@ std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     if (name == "g923") {
         return std::make_unique<DeviceProfile>(g923Spec());
     }
-    if (name == "rgt") {
+    if (name == "tm_rgt") {
         return std::make_unique<DeviceProfile>(rgtSpec());
     }
     if (name == "tmx") {

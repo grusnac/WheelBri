@@ -426,15 +426,15 @@ MappingWriteResult writeMapping(const std::string_view base, const MappingModel&
         const std::optional<ButtonOrder> current = line ? parseButtonOrder(*line) : EmulatorConfig{}.buttonOrder;
         if (current != model.buttonOrder) ini.set("buttons", "order", std::string(toString(model.buttonOrder)));
     }
-    // [rgt] axes and pedal_set: the same way (a target other than the RGT keeps the defaults: no lines).
+    // [tm_rgt] axes and pedal_set: the same way (a target other than the RGT keeps the defaults: no lines).
     {
-        const std::optional<std::string> axesLine = before.get("rgt", "axes");
-        const std::optional<std::string> setLine = before.get("rgt", "pedal_set");
+        const std::optional<std::string> axesLine = before.get("tm_rgt", "axes");
+        const std::optional<std::string> setLine = before.get("tm_rgt", "pedal_set");
         const RgtMode defaults;
         const std::string axes = std::to_string(static_cast<int>(model.rgt.axes));
         const std::string set = model.rgt.pedalSet == RgtPedalSet::Clutch ? "clutch" : "levers";
-        if (axesLine ? *axesLine != axes : model.rgt.axes != defaults.axes) ini.set("rgt", "axes", axes);
-        if (setLine ? *setLine != set : model.rgt.pedalSet != defaults.pedalSet) ini.set("rgt", "pedal_set", set);
+        if (axesLine ? *axesLine != axes : model.rgt.axes != defaults.axes) ini.set("tm_rgt", "axes", axes);
+        if (setLine ? *setLine != set : model.rgt.pedalSet != defaults.pedalSet) ini.set("tm_rgt", "pedal_set", set);
     }
     // [pedals] combined: the same way.
     {
