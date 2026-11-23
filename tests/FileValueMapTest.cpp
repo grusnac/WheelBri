@@ -238,6 +238,108 @@ TEST(FileValueMap, KeepsTheFilesLineEndingsAndIndentation) {
     EXPECT_EQ(addFileValues("<A>\n</A>", last).text, "<A>\n\t<X/>\n</A>");   // no child: one step in
 }
 
+// As GRID's forcefeedback/devicesetup.xml: a comment, aligned attributes, the RGT's negative base friction.
+const std::string kDevices =
+    "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\r\n"
+    "<FFBDevices>\r\n"
+    "\t<!-- baseFriction= base friction value, can be negative for even lighter feel -->\r\n"
+    "  <FFBDevice name=\"Logitech G25 Racing Wheel USB\"   scaleForce=\"1.0\" baseFriction=\"0.0\" "
+    "maxFriction=\"45.0\"/>\r\n"
+    "    <FFBDevice name=\"RGT Force Feedback Pro\"          scaleForce=\"1.2\" baseFriction=\"-25.0\" "
+    "maxFriction=\"45.0\"/>\r\n"
+    "</FFBDevices>\r\n";
+const std::string kFriction =
+    "file = forcefeedback/devicesetup.xml\n"
+    "note = The RGT's friction\n"
+    "target = tm_rgt\n"
+    "set.1 = FFBDevice[name=RGT Force Feedback Pro] | baseFriction | -25.0 | 0.0\n"
+    "set.1.note = No negative friction on a low-friction wheel\n";
+
+// A set line changes one attribute's value and nothing else; taking it out gives the file back byte for byte.
+TEST(FileValueMap, SetLineChangesOnlyItsAttributeAndBack) {
+    const FileValueMap map = mapFrom(kFriction);
+    ASSERT_EQ(map.lines.size(), 1U);
+    EXPECT_EQ(map.target, "tm_rgt");
+    EXPECT_EQ(map.lines[0].kind, FileValueLine::Kind::Set);
+    EXPECT_EQ(fileValueLineName(map, 0), "set.1");
+    EXPECT_EQ(shownFileValueLine(map.lines[0]), "FFBDevice[name=RGT Force Feedback Pro] baseFriction -25.0 -> 0.0");
+    EXPECT_TRUE(fileValueState(kDevices, map).none());
+
+    const FileValueEdit added = addFileValues(kDevices, map);
+    ASSERT_TRUE(added.problems.empty()) << added.problems.front();
+    EXPECT_EQ(added.changed, 1U);
+    std::string expected = kDevices;
+    const std::size_t at = expected.find("baseFriction=\"-25.0\"");
+    ASSERT_NE(at, std::string::npos);
+    expected.replace(at, std::string("baseFriction=\"-25.0\"").size(), "baseFriction=\"0.0\"");
+    EXPECT_EQ(added.text, expected);   // the G25's line, the comment, spacing and CRLF as they were
+    EXPECT_TRUE(fileValueState(added.text, map).all());
+    EXPECT_EQ(addFileValues(added.text, map).changed, 0U);
+
+    const FileValueEdit removed = removeFileValues(added.text, map);
+    ASSERT_TRUE(removed.problems.empty());
+    EXPECT_EQ(removed.changed, 1U);
+    EXPECT_EQ(removed.text, kDevices);
+    EXPECT_EQ(removeFileValues(kDevices, map).changed, 0U);
+}
+
+// The attribute holding neither value (the user or another tool changed it), or missing: nothing is changed.
+TEST(FileValueMap, SetLineRefusesAValueThatIsNeitherItsFromNorItsTo) {
+    const FileValueMap map = mapFrom(kFriction);
+    std::string other = kDevices;
+    other.replace(other.find("-25.0"), 5, "-10.0");
+    const std::string noAttribute = "<FFBDevices>\n<FFBDevice name=\"RGT Force Feedback Pro\"/>\n</FFBDevices>\n";
+    for (const std::string& file : {other, noAttribute}) {
+        const FileValueState state = fileValueState(file, map);
+        EXPECT_FALSE(state.problems.empty());
+        EXPECT_EQ(state.presentCount, 0U);
+        const FileValueEdit add = addFileValues(file, map);
+        EXPECT_FALSE(add.problems.empty());
+        EXPECT_TRUE(add.text.empty());
+        EXPECT_FALSE(removeFileValues(file, map).problems.empty());
+    }
+    EXPECT_NE(fileValueState(other, map).problems.front().find("neither '-25.0'"), std::string::npos);
+}
+
+// Inserts and set lines in one map: all put in together, all taken out together.
+TEST(FileValueMap, InsertsAndSetLinesTogether) {
+    const FileValueMap map = mapFrom(kFriction + "insert.1 = FFBDevices | end | <FFBDevice name=\"Wheel\"/>\n"
+                                                 "insert.1.note = a device\n");
+    ASSERT_EQ(map.lines.size(), 2U);
+    EXPECT_EQ(fileValueLineName(map, 0), "insert.1");
+    EXPECT_EQ(fileValueLineName(map, 1), "set.1");
+    const FileValueEdit added = addFileValues(kDevices, map);
+    ASSERT_TRUE(added.problems.empty()) << added.problems.front();
+    EXPECT_EQ(added.changed, 2U);
+    EXPECT_NE(added.text.find("\"RGT Force Feedback Pro\"          scaleForce=\"1.2\" baseFriction=\"0.0\""),
+              std::string::npos) << added.text;
+    // Indented as the parent's first child (the G25's line), with the file's CRLF.
+    EXPECT_NE(added.text.find("\r\n  <FFBDevice name=\"Wheel\"/>\r\n</FFBDevices>"), std::string::npos) << added.text;
+    EXPECT_TRUE(fileValueState(added.text, map).all());
+    EXPECT_EQ(removeFileValues(added.text, map).text, kDevices);
+}
+
+TEST(FileValueMap, SaysWhatIsWrongWithASetLine) {
+    const std::string head = "file = a.xml\nnote = n\n";
+    const auto has = [&](const std::string& section, const std::string& part) {
+        const std::vector<std::string> problems = problemsOf(head + section);
+        for (const std::string& p : problems) {
+            if (p.find(part) != std::string::npos) return true;
+        }
+        ADD_FAILURE() << "no problem with '" << part << "' for " << section;
+        return false;
+    };
+    has("set.1 = A | b | 1\nset.1.note = x\n", "expected <element key> | <attribute> | <from> | <to>");
+    has("set.1 = A | b | 1 | 1\nset.1.note = x\n", "from and to are the same");
+    has("set.1 = A | b | \"1\" | 2\nset.1.note = x\n", "without quotes");
+    has("set.1 = A | b | 1 | 2\n", "go together");
+    has("set.1 = A[ | b | 1 | 2\nset.1.note = x\n", "is not Element");
+    has("set.1 = A | b c | 1 | 2\nset.1.note = x\n", "is not a name");
+    has("set.2 = A | b | 1 | 2\nset.2.note = x\n", "without gaps");
+    has("set.1 = A | b | 1 | 2\nset.1.note = x\nset.2 = A | b | 3 | 4\nset.2.note = y\n", "the same attribute twice");
+    EXPECT_TRUE(problemsOf(head + "set.1 = A | b | 1 | 2\nset.1.note = x\n").empty());
+}
+
 TEST(FileValueMap, CollapsesRunsOfSpacesAndTabs) {
     EXPECT_EQ(collapseSpaces("  <A  b = \"1\"\t\t/>  "), "<A b = \"1\" />");
     EXPECT_EQ(collapseSpaces(""), "");

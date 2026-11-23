@@ -40,6 +40,8 @@ struct Line {
 struct Attribute {
     std::string name;
     std::string value;
+    std::size_t valueBegin = 0;   // the value's first character in the text (inside the quotes)
+    std::size_t valueEnd = 0;     // just past its last
 };
 
 // An element as the file has it: where its start tag and its end tag are (the same for <x/>), its parent's index.
@@ -193,6 +195,8 @@ Scan scan(const std::string_view text) {
                 return s;
             }
             attribute.value = std::string(text.substr(j + 1, close - j - 1));
+            attribute.valueBegin = j + 1;
+            attribute.valueEnd = close;
             element.attributes.push_back(std::move(attribute));
             j = close + 1;
         }
@@ -264,6 +268,21 @@ std::string_view lineText(const std::string_view text, const Scan& s, const std:
 bool onlySpaces(const std::string_view text) { return trim(text).empty(); }
 
 std::string insertName(const std::size_t index) { return "insert." + std::to_string(index + 1); }
+std::string setName(const std::size_t index) { return "set." + std::to_string(index + 1); }
+
+// A set line's from / to: a plain attribute value, short, that needs no escaping in the file.
+bool validAttributeValue(const std::string_view value) {
+    return !value.empty() && value.size() <= kMaxFileValueAttribute &&
+           value.find_first_of("\"'<>&\r\n") == std::string_view::npos;
+}
+
+// The attribute `name` of `element`, or null.
+const Attribute* attributeOf(const Element& element, const std::string_view name) {
+    for (const Attribute& attribute : element.attributes) {
+        if (attribute.name == name) return &attribute;
+    }
+    return nullptr;
+}
 
 // The one element `key` names among those with parent `parent` (-2: anywhere), or -1 and a problem.
 int findOne(const Scan& s, const std::string_view keyText, const int parent, const std::string& who,
@@ -347,11 +366,12 @@ std::size_t insertNumber(const std::string_view digits) {
     return n <= kMaxFileValueLines ? n : 0;
 }
 
-// The map's lines and their parents, resolved in `s`: -1 for a line whose parent is not found once.
+// The map's lines and their parents (a set line: the element it changes), resolved in `s`: -1 for a line whose
+// parent is not found once.
 std::vector<int> resolveParents(const Scan& s, const FileValueMap& map, std::vector<std::string>& problems) {
     std::vector<int> parents;
     for (std::size_t i = 0; i < map.lines.size(); ++i) {
-        parents.push_back(findOne(s, map.lines[i].parent, -2, insertName(i), problems));
+        parents.push_back(findOne(s, map.lines[i].parent, -2, fileValueLineName(map, i), problems));
     }
     return parents;
 }
@@ -359,8 +379,29 @@ std::vector<int> resolveParents(const Scan& s, const FileValueMap& map, std::vec
 struct Prepared {
     Scan scan;
     std::vector<int> parents;
+    std::vector<const Attribute*> attributes;   // a set line's attribute in the file; null for an insert
     FileValueState state;
 };
+
+// One change of a line's text: [begin, end) in the original text becomes `text`.
+struct Replacement {
+    std::size_t begin;
+    std::size_t end;
+    std::string text;
+};
+
+// Line `l` of `text` (with its line ending) and the replacements that fall in it (sorted by begin).
+void appendLine(std::string& out, const std::string_view text, const Scan& s, const std::size_t l,
+                const std::vector<Replacement>& replacements) {
+    std::size_t at = s.lines[l].begin;
+    for (const Replacement& r : replacements) {
+        if (r.begin < s.lines[l].begin || r.end > s.lines[l].end) continue;
+        out += text.substr(at, r.begin - at);
+        out += r.text;
+        at = r.end;
+    }
+    out += text.substr(at, s.lines[l].next - at);
+}
 
 Prepared prepare(const std::string_view text, const FileValueMap& map) {
     Prepared p;
@@ -376,8 +417,29 @@ Prepared prepare(const std::string_view text, const FileValueMap& map) {
     }
     p.parents = resolveParents(p.scan, map, p.state.problems);
     if (!p.state.problems.empty()) return p;
+    p.attributes.assign(map.lines.size(), nullptr);
     for (std::size_t i = 0; i < map.lines.size(); ++i) {
-        if (!childLinesEqual(text, p.scan, p.parents[i], collapseSpaces(map.lines[i].value)).empty()) {
+        const FileValueLine& line = map.lines[i];
+        bool present = false;
+        if (line.kind == FileValueLine::Kind::Set) {
+            const Attribute* const attribute =
+                attributeOf(p.scan.elements[static_cast<std::size_t>(p.parents[i])], line.attribute);
+            const std::string who = fileValueLineName(map, i) + ": " + line.parent;
+            if (attribute == nullptr) {
+                p.state.problems.push_back(who + " has no " + line.attribute);
+                continue;
+            }
+            if (attribute->value != line.from && attribute->value != line.to) {
+                p.state.problems.push_back(who + " " + line.attribute + " is '" + attribute->value + "', neither '" +
+                                           line.from + "' (the game's) nor '" + line.to + "' (WheelBri's)");
+                continue;
+            }
+            p.attributes[i] = attribute;
+            present = attribute->value == line.to;
+        } else {
+            present = !childLinesEqual(text, p.scan, p.parents[i], collapseSpaces(line.value)).empty();
+        }
+        if (present) {
             p.state.present[i] = true;
             ++p.state.presentCount;
         }
@@ -417,28 +479,38 @@ ParsedFileValueMap parseFileValueMap(const std::map<std::string, std::string>& k
         std::optional<std::string> note;
     };
     std::map<std::size_t, Raw> raw;
+    std::map<std::size_t, Raw> rawSets;   // set.<n>: `insert` holds the set line
     for (const auto& [key, value] : keys) {
         if (key == "file") {
             map.file = value;
         } else if (key == "note") {
             map.note = value;
-        } else if (key.starts_with("insert.")) {
-            std::string_view rest = std::string_view(key).substr(7);
+        } else if (key == "target") {
+            map.target = value;
+        } else if (key.starts_with("insert.") || key.starts_with("set.")) {
+            const bool isSet = key.starts_with("set.");
+            std::string_view rest = std::string_view(key).substr(isSet ? 4 : 7);
             const bool isNote = rest.ends_with(".note");
             if (isNote) rest.remove_suffix(5);
             const std::size_t n = insertNumber(rest);
+            const char* const kind = isSet ? "set" : "insert";
             if (n == 0) {
-                problems.push_back(std::string(kSection) + key + ": insert.<1.." + std::to_string(kMaxFileValueLines) +
-                                   "> or insert.<n>.note");
+                problems.push_back(std::string(kSection) + key + ": " + kind + ".<1.." +
+                                   std::to_string(kMaxFileValueLines) + "> or " + kind + ".<n>.note");
                 continue;
             }
-            (isNote ? raw[n].note : raw[n].insert) = value;
+            Raw& line = (isSet ? rawSets : raw)[n];
+            (isNote ? line.note : line.insert) = value;
         } else {
             problems.push_back(std::string(kSection) + key + ": unknown key");
         }
     }
-    if (map.file.empty() || map.note.empty() || raw.empty()) {
-        problems.push_back(std::string(kSection) + "file, note and at least one insert.<n> go together");
+    if (map.file.empty() || map.note.empty() || (raw.empty() && rawSets.empty())) {
+        problems.push_back(std::string(kSection) + "file, note and at least one insert.<n> or set.<n> go together");
+    }
+    if (raw.size() + rawSets.size() > kMaxFileValueLines) {
+        problems.push_back(std::string(kSection) + "at most " + std::to_string(kMaxFileValueLines) +
+                           " insert.<n> and set.<n> together");
     }
     if (!map.file.empty() && !validRelativeFile(map.file)) {
         problems.push_back(std::string(kSection) + "file = '" + map.file +
@@ -501,7 +573,69 @@ ParsedFileValueMap parseFileValueMap(const std::map<std::string, std::string>& k
         }
         map.lines.push_back(std::move(out));
     }
+    expected = 1;
+    for (const auto& [n, line] : rawSets) {
+        const std::string who = std::string(kSection) + setName(n - 1);
+        if (n != expected) problems.push_back(who + ": the set lines are numbered 1, 2, 3 ... without gaps");
+        expected = n + 1;
+        if (!line.insert || !line.note || line.note->empty()) {
+            problems.push_back(who + " and " + setName(n - 1) + ".note go together: the change and what it does");
+            continue;
+        }
+        if (line.note->size() > kMaxFileValueNote) {
+            problems.push_back(who + ".note: at most " + std::to_string(kMaxFileValueNote) + " characters");
+        }
+        // <element key> | <attribute> | <from> | <to>
+        std::vector<std::string_view> parts;
+        std::string_view rest = *line.insert;
+        for (std::size_t bar; (bar = rest.find('|')) != std::string_view::npos;) {
+            parts.push_back(trim(rest.substr(0, bar)));
+            rest.remove_prefix(bar + 1);
+        }
+        parts.push_back(trim(rest));
+        if (parts.size() != 4) {
+            problems.push_back(who + ": expected <element key> | <attribute> | <from> | <to>");
+            continue;
+        }
+        FileValueLine out;
+        out.kind = FileValueLine::Kind::Set;
+        out.parent = std::string(parts[0]);
+        out.attribute = std::string(parts[1]);
+        out.from = std::string(parts[2]);
+        out.to = std::string(parts[3]);
+        out.note = *line.note;
+        if (!parseKey(out.parent)) {
+            problems.push_back(who + ": element '" + out.parent + "' is not Element or Element[attr=value]");
+        }
+        if (!validName(out.attribute)) problems.push_back(who + ": attribute '" + out.attribute + "' is not a name");
+        if (!validAttributeValue(out.from) || !validAttributeValue(out.to)) {
+            problems.push_back(who + ": from and to: a plain value of 1 to " + std::to_string(kMaxFileValueAttribute) +
+                               " characters, without quotes, <, >, &");
+        } else if (out.from == out.to) {
+            problems.push_back(who + ": from and to are the same");
+        }
+        for (const FileValueLine& before : map.lines) {
+            if (before.kind == FileValueLine::Kind::Set && before.parent == out.parent &&
+                before.attribute == out.attribute) {
+                problems.push_back(who + ": the same attribute twice");
+            }
+        }
+        map.lines.push_back(std::move(out));
+    }
     return result;
+}
+
+std::string fileValueLineName(const FileValueMap& map, const std::size_t line) {
+    std::size_t same = 0;
+    for (std::size_t i = 0; i < line && i < map.lines.size(); ++i) {
+        same += map.lines[i].kind == map.lines[line].kind ? 1 : 0;
+    }
+    return map.lines[line].kind == FileValueLine::Kind::Set ? setName(same) : insertName(same);
+}
+
+std::string shownFileValueLine(const FileValueLine& line) {
+    if (line.kind == FileValueLine::Kind::Insert) return line.value;
+    return line.parent + " " + line.attribute + " " + line.from + " -> " + line.to;
 }
 
 FileValueState fileValueState(const std::string_view text, const FileValueMap& map) {
@@ -527,13 +661,18 @@ FileValueEdit addFileValues(const std::string_view text, const FileValueMap& map
         std::string line;
     };
     std::vector<Insert> inserts;
+    std::vector<Replacement> replacements;
     std::vector<std::string> problems;
     for (std::size_t i = 0; i < map.lines.size(); ++i) {
         if (p.state.present[i]) continue;
         const FileValueLine& line = map.lines[i];
+        if (line.kind == FileValueLine::Kind::Set) {
+            replacements.push_back({p.attributes[i]->valueBegin, p.attributes[i]->valueEnd, line.to});
+            continue;
+        }
         const int parent = p.parents[i];
         const Element& pe = s.elements[static_cast<std::size_t>(parent)];
-        const std::string who = insertName(i);
+        const std::string who = fileValueLineName(map, i);
         if (pe.selfClosing || pe.startTagEndLine == pe.endTagStartLine) {
             problems.push_back(who + ": " + line.parent + " has no line between its start and its end");
             continue;
@@ -572,20 +711,22 @@ FileValueEdit addFileValues(const std::string_view text, const FileValueMap& map
     if (!problems.empty()) return refused(std::move(problems));
     std::stable_sort(inserts.begin(), inserts.end(),
                      [](const Insert& a, const Insert& b) { return a.beforeLine < b.beforeLine; });
+    std::sort(replacements.begin(), replacements.end(),
+              [](const Replacement& a, const Replacement& b) { return a.begin < b.begin; });
     std::string out;
     out.reserve(text.size() + inserts.size() * 128);
     std::size_t k = 0;
     for (std::size_t l = 0; l <= s.lines.size(); ++l) {
         while (k < inserts.size() && inserts[k].beforeLine == l) out += inserts[k++].line;
         if (l == s.lines.size()) break;
-        out += text.substr(s.lines[l].begin, s.lines[l].next - s.lines[l].begin);
+        appendLine(out, text, s, l, replacements);
         // The last line without a line ending, and lines to go after it: it gets one.
         if (l + 1 == s.lines.size() && s.lines[l].next == s.lines[l].end && k < inserts.size()) out += s.eol;
     }
     const FileValueState after = fileValueState(out, map);
     if (!after.all()) return refused({"the file would not hold every line afterwards: nothing changed"});
     edit.text = std::move(out);
-    edit.changed = inserts.size();
+    edit.changed = inserts.size() + replacements.size();
     return edit;
 }
 
@@ -595,20 +736,30 @@ FileValueEdit removeFileValues(const std::string_view text, const FileValueMap& 
     FileValueEdit edit;
     const Scan& s = p.scan;
     std::vector<bool> drop(s.lines.size(), false);
+    std::vector<Replacement> replacements;
     for (std::size_t i = 0; i < map.lines.size(); ++i) {
-        for (const std::size_t line : childLinesEqual(text, s, p.parents[i], collapseSpaces(map.lines[i].value))) {
-            if (!drop[line]) ++edit.changed;
-            drop[line] = true;
+        const FileValueLine& line = map.lines[i];
+        if (line.kind == FileValueLine::Kind::Set) {
+            if (!p.state.present[i]) continue;
+            replacements.push_back({p.attributes[i]->valueBegin, p.attributes[i]->valueEnd, line.from});
+            ++edit.changed;
+            continue;
+        }
+        for (const std::size_t l : childLinesEqual(text, s, p.parents[i], collapseSpaces(line.value))) {
+            if (!drop[l]) ++edit.changed;
+            drop[l] = true;
         }
     }
     if (edit.changed == 0) {
         edit.text = std::string(text);
         return edit;
     }
+    std::sort(replacements.begin(), replacements.end(),
+              [](const Replacement& a, const Replacement& b) { return a.begin < b.begin; });
     std::string out;
     out.reserve(text.size());
     for (std::size_t l = 0; l < s.lines.size(); ++l) {
-        if (!drop[l]) out += text.substr(s.lines[l].begin, s.lines[l].next - s.lines[l].begin);
+        if (!drop[l]) appendLine(out, text, s, l, replacements);
     }
     const FileValueState after = fileValueState(out, map);
     if (!after.none()) return refused({"the file would still hold some of the lines afterwards: nothing changed"});

@@ -57,7 +57,10 @@ namespace wheelbri {
 //   [game_files] file = <path under the game's folder> / note = what the set does / insert.<n> = <parent> | <position>
 //            | <value> / insert.<n>.note = what that line does in the game: lines the user adds to the game's own XML
 //            file, and removes, all at once from the Games tab (FileValueMap.hpp says how they are read and placed;
-//            GRID gets its replay controls on the wheel that way).
+//            GRID gets its replay controls on the wheel that way). set.<n> = <element> | <attribute> | <from> | <to>
+//            changes an attribute the file has. target = <target profile>: the set is shown with that target only,
+//            whatever the profile's own target (the profile's own is for its other values).
+//   [game_files.<name>] another such set (<name>: lower case letters, digits, _), e.g. for another file or target.
 struct GameSetting {
     std::string id;                  // spring
     std::string name;                // the game's own name for it: WheelSpringMagnitude
@@ -97,7 +100,7 @@ struct GameProfile {
     std::string settingsFile;           // [game_settings] file: relative to the user's Documents folder, / separated
     std::string settingsNote;           // [game_settings] note
     std::vector<GameSetting> settings;  // [game_settings] the rest, by id
-    FileValueMap gameFiles;             // [game_files]; empty() when the profile has none
+    std::vector<FileValueMap> gameFiles;   // [game_files], then [game_files.<name>] by name; none: empty
 };
 
 
@@ -149,6 +152,11 @@ struct WayAdvice {
 // True when the profile is for this target profile (any case), or for every target (a game the user added, whose
 // target is empty: GameTuning.hpp).
 [[nodiscard]] bool profileFitsTarget(const GameProfile& profile, std::string_view targetProfile);
+
+// The profile's game file sets for this target profile: first those for it (they are about the wheel games see, and
+// the Games tab shows sets one under another, so a long one would push them out of the window), then those with no
+// target of their own (shown with every target, as the Games tab always has); each group in the profile's order.
+[[nodiscard]] std::vector<const FileValueMap*> gameFilesFor(const GameProfile& profile, std::string_view targetProfile);
 
 // The sieve: `base` with every pedal axis the profile sets put in its place; everything else as in `base`.
 [[nodiscard]] JoystickLayout overlay(JoystickLayout base, const GameProfile& profile);

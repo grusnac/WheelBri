@@ -364,6 +364,16 @@ void runOne(const std::span<const std::uint8_t> input) {
                 if (remove.problems.empty()) CHECK(fileValueState(remove.text, map).none());
             };
             check(text, kMap);
+            // A set line (GRID's forcefeedback/devicesetup.xml): an attribute changed and put back, nothing else.
+            static const FileValueMap kSetMap = parseFileValueMap({
+                {"file", "forcefeedback/devicesetup.xml"},
+                {"note", "n"},
+                {"set.1", "FFBDevice[name=RGT Force Feedback Pro] | baseFriction | -25.0 | 0.0"},
+                {"set.1.note", "n"},
+                {"insert.1", "FFBDevices | end | <FFBDevice name=\"W\"/>"},
+                {"insert.1.note", "n"},
+            }).map;
+            check(text, kSetMap);
             const auto ini = IniDocument::parse(text);
             const auto section = ini.document.sections().find("game_files");
             if (section != ini.document.sections().end()) {

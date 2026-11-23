@@ -359,11 +359,13 @@ private:
     // Save to file: the values into the game's file (never while it runs), the original kept once. A file not
     // confirmed is written on the second press only.
     void saveGameFile(std::size_t index);
-    // The Game file tab's GAME FILE section (a profile's [game_files], GameFiles.hpp): the file, whether its lines are
-    // in it, one button that puts them all in or takes them all out, and each line with what it does (read only).
+    // The Game file tab's GAME FILE section: each of the profile's sets for the Mapping tab's Target ([game_files],
+    // [game_files.<name>], GameFiles.hpp): the file, whether its lines are in it, one button that puts them all in or
+    // takes them all out, and each line with what it does (read only).
     float drawGameFiles(std::size_t index, float y);
-    // That button: every line put in (`add`) or taken out, never while the game runs, the original kept once.
-    void changeGameFiles(std::size_t index, bool add);
+    // That button: every line of the set (`set`: its index in GameProfile::gameFiles) put in (`add`) or taken out,
+    // never while the game runs, the original kept once.
+    void changeGameFiles(std::size_t index, std::size_t set, bool add);
     // The game's own folder: the listed folder it is in (FOLDER), else its program's for a game the user added; empty
     // when not known.
     [[nodiscard]] std::filesystem::path gameFolderOf(const GameProfile& game) const;
@@ -525,10 +527,13 @@ private:
     std::filesystem::file_time_type watchedSince_{};    // since when it runs (file times), a little before
     std::string saveAnyway_;                            // the file not confirmed that Save to file was pressed for
     std::optional<GameSettingsFileState> fileState_;
-    // The picked game's [game_files] file as last read (at most every 2 s, and when the game or its folder changes).
-    std::optional<GameFilesState> gameFilesState_;
-    std::string gameFilesKey_;
-    std::uint64_t gameFilesReadMs_ = 0;
+    // Each of the picked game's sets' files as last read (at most every 2 s, and when the game or its folder
+    // changes), by game, folder and file.
+    struct GameFilesRead {
+        GameFilesState state;
+        std::uint64_t ms = 0;
+    };
+    std::map<std::string, GameFilesRead> gameFilesStates_;
     std::string fileStateKey_;
     std::uint64_t fileStateReadMs_ = 0;
     // Where that file is (gameFilePlace reads app.ini and asks for Documents), for drawing: read again with the file

@@ -19,6 +19,13 @@
 // the file. position: start, end, or after:<child key> (a child of the parent already in the file, not one the map
 // adds). value: one element on one line, written as the file writes it. Line based: an inserted line takes the
 // file's line ending (that of its first line) and the indentation of the parent's first child.
+//   set.1 = <element key> | <attribute> | <from> | <to>
+//   set.1.note = what this change does in the game (required)
+// A set line changes one attribute of one element the file already has (the element key matches exactly one): `from`
+// is what the game ships, `to` what WheelBri puts there; taking it out puts `from` back. The attribute holding neither
+// is a problem (nothing is changed). Race Driver: GRID's forcefeedback/devicesetup.xml: the RGT's baseFriction.
+// A profile may have several sets ([game_files], [game_files.<name>], GameProfiles.hpp), each with `target = <target
+// profile>` when it is for one target only.
 //
 // Pure: no file I/O (GameFiles.hpp reads and writes the game's file). Nothing here trusts the file: anything not as
 // expected is a problem, and then nothing is changed at all.
@@ -29,12 +36,19 @@ inline constexpr std::size_t kMaxFileValueNote = 300;        // a line's note: a
 inline constexpr std::size_t kMaxFileValueSetNote = 160;     // the whole set's note: one line of the window
 inline constexpr std::size_t kMaxFileValueBytes = 4 * 1024 * 1024;   // GRID's preset files are about 10 KB
 
+inline constexpr std::size_t kMaxFileValueAttribute = 64;   // a set line's from / to
+
 struct FileValueLine {
+    enum class Kind { Insert, Set };
     enum class Position { Start, End, After };
-    std::string parent;             // Action[actionName=Replay Pause]
+    Kind kind = Kind::Insert;
+    std::string parent;             // Action[actionName=Replay Pause]; for a set line, the element it changes
     Position position = Position::End;
     std::string after;              // the child key, for Position::After
     std::string value;              // <Axis axisName = "..." ... />
+    std::string attribute;          // a set line's: baseFriction
+    std::string from;               // a set line's value as the game ships it: -25.0
+    std::string to;                 // and as WheelBri puts it: 0.0
     std::string note;               // what it does in the game
     friend bool operator==(const FileValueLine&, const FileValueLine&) = default;
 };
@@ -42,10 +56,16 @@ struct FileValueLine {
 struct FileValueMap {
     std::string file;   // relative to the game's folder, / separated
     std::string note;
-    std::vector<FileValueLine> lines;   // insert.N in the order of N
+    std::string target;   // the target profile the set is for ("tm_rgt"); empty: every target
+    std::vector<FileValueLine> lines;   // insert.N in the order of N, then set.N in the order of N
     [[nodiscard]] bool empty() const { return file.empty() && note.empty() && lines.empty(); }
     friend bool operator==(const FileValueMap&, const FileValueMap&) = default;
 };
+
+// "insert.3" or "set.1": the line's key in its section.
+[[nodiscard]] std::string fileValueLineName(const FileValueMap& map, std::size_t line);
+// How the Games tab shows a line: an insert's value; a set line's "<element key> <attribute> <from> -> <to>".
+[[nodiscard]] std::string shownFileValueLine(const FileValueLine& line);
 
 // The section's keys (IniDocument's [game_files]) read into a map: `problems` (each starting "[game_files]") says what
 // is wrong; with any, the map is not to be used.
@@ -68,7 +88,8 @@ struct FileValueState {
 [[nodiscard]] FileValueState fileValueState(std::string_view text, const FileValueMap& map);
 
 // `text` with every line of `map` not yet there put in (add), or with every line equal to one of the map's taken out
-// of its parent (remove; nothing else). Nothing to do: `text` as it was, `changed` 0. Any problem: `text` empty,
+// of its parent (remove; nothing else). A set line: its attribute changed to `to` (add) or back to `from`
+// (remove). Nothing to do: `text` as it was, `changed` 0. Any problem: `text` empty,
 // `changed` 0, `problems` says why.
 struct FileValueEdit {
     std::string text;

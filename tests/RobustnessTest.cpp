@@ -136,7 +136,14 @@ TEST(Robustness, ChangedConfigsAndProfilesAreReadWithoutHarm) {
                                  "insert.1 = Action[actionName=Replay Pause] | end | <Axis axisName = \"b3\" />\n"
                                  "insert.1.note = n\ninsert.2 = ActionMap | after:Action[actionName=Replay Pause] | "
                                  "<A b=\"1\"/>\ninsert.2.note = n\n";
-    for (const std::string& text : {actionMap, valueMap}) {
+    // GRID's forcefeedback/devicesetup.xml (the target's set line changes the RGT's baseFriction) and a set line.
+    const std::string devices = "<?xml version=\"1.0\" ?>\r\n<FFBDevices>\r\n"
+                                "\t<FFBDevice name=\"RGT Force Feedback Pro\" scaleForce=\"1.2\" "
+                                "baseFriction=\"-25.0\"/>\r\n"
+                                "</FFBDevices>\r\n";
+    const std::string setMap = "[game_files]\nfile = a.xml\nnote = n\ntarget = tm_rgt\n"
+                               "set.1 = FFBDevice[name=R] | baseFriction | -25.0 | 0.0\nset.1.note = n\n";
+    for (const std::string& text : {actionMap, valueMap, devices, setMap}) {
         run(22, Bytes(text.begin(), text.end()));
         for (int i = 0; i < 300; ++i) run(22, mutated(text, random));
     }

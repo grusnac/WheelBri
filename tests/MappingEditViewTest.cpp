@@ -2807,6 +2807,59 @@ TEST_F(EditView, TheRotationReminderIsOneLine) {
     EXPECT_TRUE(window_.hasPart("passes the wheel through 1:1"));
 }
 
+// GRID's RGT friction set ([game_files.rgt_friction]): shown with Target RGT only, above the replay set (a set for the
+// target first: the long replay set would push it out of the window); Add to file changes the RGT's baseFriction
+// alone, Remove from file puts GRID's -25 back.
+TEST_F(EditView, TheGameFileSetForOneTarget) {
+    useRig(testRig());
+    open(true);
+    ASSERT_TRUE(click("RGT"));
+    frame();
+    ASSERT_EQ(picker_->target(), ConfigPicker::Target::RGT);
+    games();
+    view_->selectGame("grid");
+    frame();
+    ASSERT_TRUE(click("Game file"));
+    frame();
+    EXPECT_TRUE(window_.hasPart("ActionMap/actionMapPreset1.xml: Replay controls"));   // for every target
+    EXPECT_TRUE(window_.hasPart("forcefeedback/devicesetup.xml: The RGT's friction"));
+    EXPECT_TRUE(window_.hasPart("baseFriction -25.0 -> 0.0"));
+
+    const std::filesystem::path folder = dir_ / "Games" / "GRID";
+    write(folder / "grid.exe", "MZ");
+    std::string problem;
+    ASSERT_TRUE(shims_->addFolder(folder, problem)) << problem;
+    const std::string original =
+        "<FFBDevices>\r\n  <FFBDevice name=\"Logitech G25 Racing Wheel USB\" baseFriction=\"0.0\"/>\r\n"
+        "  <FFBDevice name=\"RGT Force Feedback Pro\" baseFriction=\"-25.0\"/>\r\n</FFBDevices>\r\n";
+    const std::filesystem::path file = folder / "forcefeedback" / "devicesetup.xml";
+    write(file, original);
+    nowMs_ += 2000;
+    games();
+    EXPECT_TRUE(window_.hasPart("not in the file"));
+    ASSERT_TRUE(click("Add to file"));   // the friction set's: it comes first
+    frame();
+    EXPECT_TRUE(window_.has("Added 1 line to forcefeedback/devicesetup.xml."));
+    std::string changed = original;
+    changed.replace(changed.find("-25.0"), 5, "0.0");
+    EXPECT_EQ(readFileText(file).value_or(""), changed);
+    nowMs_ += 2000;
+    games();
+    EXPECT_FALSE(window_.hasPart("not in the file"));
+    ASSERT_TRUE(click("Remove from file"));
+    frame();
+    EXPECT_EQ(readFileText(file).value_or(""), original);
+
+    // Another target: the RGT's set is not there, the replay set still is.
+    view_->setPage(MappingEditView::Page::Mapping);
+    ASSERT_TRUE(click("G25"));
+    games();
+    frame();
+    EXPECT_TRUE(window_.hasPart("ActionMap/actionMapPreset1.xml: Replay controls"));
+    EXPECT_FALSE(window_.hasPart("forcefeedback/devicesetup.xml: The RGT's friction"));   // the set's own header
+    EXPECT_FALSE(window_.hasPart("baseFriction -25.0 -> 0.0"));
+}
+
 // The Target and Mode buttons say what they are in the tab's hover text.
 TEST_F(EditView, TheTargetButtonsExplainThemselves) {
     useRig(testRig());
