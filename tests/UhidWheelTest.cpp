@@ -112,6 +112,38 @@ TEST(UhidWheel, CreatesALogitechG27WithTheProtonDescriptor) {
     EXPECT_EQ(std::memcmp(create.rd_data, descriptor.data(), descriptor.size()), 0);
 }
 
+// The RGT on the virtual bus (the kernel's hid-tmff matches 044F:B653 on USB only), with Proton's descriptor: Slider 0
+// and Dial, so its right lever (Slider 1) is not read as Slider 0; the right lever in the report's Slider 1 bytes.
+TEST(UhidWheel, CreatesAThrustmasterRgtOnTheVirtualBusWithTheProtonDescriptor) {
+    const VirtualWheel& wheel = *virtualWheel("tm_rgt");
+    Kernel k(wheel);
+    ASSERT_TRUE(k.device.create());
+    ASSERT_EQ(k.written.size(), 2U);
+    const auto& create = k.written[0].u.create2;
+    EXPECT_EQ(create.vendor, 0x044FU);
+    EXPECT_EQ(create.product, 0xB653U);
+    EXPECT_EQ(create.bus, 0x06);   // BUS_VIRTUAL
+    EXPECT_STREQ(reinterpret_cast<const char*>(create.name), "RGT Force Feedback Pro");
+    const auto descriptor = protonReportDescriptor(wheel);
+    ASSERT_EQ(create.rd_size, descriptor.size());
+    EXPECT_EQ(std::memcmp(create.rd_data, descriptor.data(), descriptor.size()), 0);
+    EXPECT_EQ(k.device.label(), "RGT");
+
+    k.written.clear();
+    TargetReport report = neutralReport();
+    report.rightLever = 1000;
+    ASSERT_TRUE(k.device.submit(report, false));
+    ASSERT_EQ(k.written.size(), 1U);
+    const auto& input = k.written[0].u.input2;
+    const InputReport packed = packInputFor(wheel, report);
+    ASSERT_EQ(input.size, packed.size);
+    EXPECT_EQ(std::memcmp(input.data, packed.bytes.data(), packed.size), 0);
+    TargetReport rest = report;
+    rest.rightLever = 65535;
+    const InputReport atRest = packInputFor(wheel, rest);
+    EXPECT_NE(packed.bytes[9] | (packed.bytes[10] << 8), atRest.bytes[9] | (atRest.bytes[10] << 8));   // Slider 1
+}
+
 TEST(UhidWheel, CreatesALogitechG920WithTheProtonDescriptor) {
     Kernel k;
     ASSERT_TRUE(k.device.create());

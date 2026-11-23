@@ -58,7 +58,7 @@ No button order has been checked against a real wheel.
   The RGT: Windows' HID PID driver; with Thrustmaster's driver installed, not supported yet
   ([target-rgt.md](target-rgt.md#force-feedback)).
 
-  Linux: the kernel's HID PID driver, for every Logitech Target (the RGT is not on Linux yet).
+  Linux: the kernel's HID PID driver, for every Target (the RGT not yet tested there).
 
 ## Changing a Target's layout
 

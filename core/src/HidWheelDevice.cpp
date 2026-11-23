@@ -369,6 +369,12 @@ constexpr std::array<std::uint8_t, N> withDialClutch(const std::array<std::uint8
 }
 constexpr auto kG25ProtonDescriptor = withDialClutch(kG25CombinedDescriptor);
 constexpr auto kG27ProtonDescriptor = withDialClutch(kG27CombinedDescriptor);
+// The RGT's for Proton: Slider 0 and Dial (Slider 1) as the real RGT's own descriptor has them (Slider, Dial).
+constexpr auto kRgtProtonDescriptor = withDialClutch(kRgtDescriptor);
+static_assert(kRgtProtonDescriptor[kClutchUsageAt - 1] == 0x09 && kRgtProtonDescriptor[kClutchUsageAt] == 0x36 &&
+                  kRgtProtonDescriptor[kClutchUsageAt + kAxisItemBytes - 1] == 0x09 &&
+                  kRgtProtonDescriptor[kClutchUsageAt + kAxisItemBytes] == 0x37,
+              "the RGT's Slider 0 stays Slider, its Slider 1 is Dial");
 static_assert(kG27CombinedDescriptor[kClutchUsageAt - 1] == 0x09 &&
                   kG27CombinedDescriptor[kClutchUsageAt + kAxisItemBytes - 1] == 0x09 &&
                   kG27CombinedDescriptor[kClutchUsageAt + kAxisItemBytes] == 0x36,
@@ -429,6 +435,7 @@ std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
 
 std::span<const std::uint8_t> protonReportDescriptor(const VirtualWheel& wheel) {
     if (wheel.profile == "g920") return kProtonDescriptor;
+    if (wheel.rgtAxes) return kRgtProtonDescriptor;
     if (wheel.combinedPedals && !wheel.classic) {
         if (wheel.buttons == kG920Buttons) return kG25ProtonDescriptor;
         if (wheel.buttons == kG27Buttons) return kG27ProtonDescriptor;

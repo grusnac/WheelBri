@@ -793,9 +793,10 @@ TEST(HidWheelDevice, ProtonDescriptorOnlyRenamesClutchAndThrottle) {
 }
 
 // Wine's dinput reads each axis by its usage, so two Sliders both read the first: for Proton the G25's and G27's
-// clutch is Dial, the only byte that differs (in ACC the clutch was the combined pedals, 2026-11-07).
+// clutch is Dial, the only byte that differs (in ACC the clutch was the combined pedals, 2026-11-07); the RGT's
+// Slider 1 (its right lever) likewise, as the real RGT's descriptor (Slider, Dial).
 TEST(HidWheelDevice, ProtonDescriptorOfCombinedPedalsMakesTheClutchADial) {
-    for (const char* name : {"g25", "g27"}) {
+    for (const char* name : {"g25", "g27", "tm_rgt"}) {
         SCOPED_TRACE(name);
         const VirtualWheel& wheel = *virtualWheel(name);
         const auto windows = reportDescriptorFor(wheel);

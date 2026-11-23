@@ -169,7 +169,8 @@ struct ReportRoute {
 // reportDescriptorFor with the clutch's Usage Dial instead of the second Slider (same report bytes). Wine's dinput
 // reads each axis by its usage (HidP_GetUsageValue), so with two Sliders both read the first: in ACC the clutch was
 // the combined pedals, at half at rest (2026-11-07). Wine makes Slider and Dial Slider 0 and Slider 1 in the
-// descriptor's order, as Windows does the two Sliders. Every other wheel: reportDescriptorFor.
+// descriptor's order, as Windows does the two Sliders. The RGT's likewise (its right lever, Slider 1, as Dial: the real
+// RGT's own descriptor has Slider and Dial). Every other wheel: reportDescriptorFor.
 [[nodiscard]] std::span<const std::uint8_t> protonReportDescriptor(const VirtualWheel& wheel);
 
 // The input report for `report` (G920 ranges: steering 0..65535 centred at 32768, pedals 0..65535 with

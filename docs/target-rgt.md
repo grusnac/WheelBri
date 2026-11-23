@@ -9,7 +9,7 @@ All Targets: [targets.md](targets.md).
 | Ids | 044F:B653, "RGT Force Feedback Pro" (the name Thrustmaster's driver gives it, and the one games look for) |
 | Buttons | 10, D-pad as a hat |
 | Rotation | 270 degrees, fixed, as the real wheel |
-| Modes | Virtual (Windows 11) and Shim; Linux not yet |
+| Modes | Virtual (Windows 11, Linux) and Shim; Linux not yet tested |
 | Extras | AXES (2 / 3 / 5) and PEDAL SET (Levers / Clutch), as the wheel's own switches; two levers; centring spring |
 | Force feedback | Windows' HID PID driver, no Thrustmaster software needed |
 | Tested | not yet in a game with this Target (below) |
@@ -97,4 +97,6 @@ PEDAL SET Clutch they are faint and say "off: Clutch": the game does not get the
 - GRID's RGT preset (from the game's files, not checked in the game) reads the throttle on Rz or Slider 1 and the
   brake on Y or Slider 0, the 5 axes Levers layout, and has no clutch action. So with **Levers** the levers are a
   second throttle and brake; with **Clutch** the clutch pedal, on Slider 0, would brake.
-- Linux (`wheelbri-uhid`, Proton): not yet.
+- Linux: built, not yet tested. `wheelbri.sh --target tm_rgt`; Proton reads it raw with
+  `PROTON_ENABLE_HIDRAW=0x044F/0xB653` (`wheelbri.sh` sets it). Its right lever is a Dial there, as on the real RGT,
+  so Proton does not read it as Slider 0. Force feedback through the kernel's HID PID driver, as the other Targets.

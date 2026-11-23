@@ -18,7 +18,7 @@
 # From a terminal (Desktop Mode), without a game: starts, waits for Enter or Ctrl+C, stops.
 #   ./wheelbri.sh            (the service with its --ui window)
 #
-# Options: --virtual / --shim, --target g25|g27|g920|g923 (the game's wheel; default: the app's Mapping tab Target,
+# Options: --virtual / --shim, --target g25|g27|g920|g923|tm_rgt (the game's wheel; default: the app's Mapping tab Target,
 #          else the G920), --keep-shim (leave the shim in the game's folder afterwards, for testing),
 #          --game-folder DIR (where --shim puts it; default: the folder of the .exe in %command%, else the Steam
 #          game's install folder),
@@ -106,7 +106,8 @@ case "$target" in
     g25) wheel=G25; wheel_id=0x046D/0xC299 ;;
     g27) wheel=G27; wheel_id=0x046D/0xC29B ;;
     g923) wheel=G923; wheel_id=0x046D/0xC26E ;;
-    *) echo "wheelbri.sh: --target $target: expected g25, g27, g920 or g923" >&2; exit 2 ;;
+    tm_rgt) wheel=RGT; wheel_id=0x044F/0xB653 ;;
+    *) echo "wheelbri.sh: --target $target: expected g25, g27, g920, g923 or tm_rgt" >&2; exit 2 ;;
 esac
 # --order as the config writes it ([buttons] order = driver | native).
 order_asked=$order
@@ -142,7 +143,8 @@ if [ -z "$hide" ]; then
     if [ -n "$rig" ] && [ -f "$settings/rigs/$rig.ini" ]; then
         hide=$(awk -F= '{sub(/\r$/, "")} $1 ~ /^[ \t]*id[ \t]*$/ {sub(/[;#].*/, "", $2); gsub(/[ \t]/, "", $2); split($2, p, ":");
                         virtual = toupper($2) == "046D:C262" || toupper($2) == "046D:C299" ||
-                                  toupper($2) == "046D:C29B" || toupper($2) == "046D:C26E"   # the virtual wheels
+                                  toupper($2) == "046D:C29B" || toupper($2) == "046D:C26E" ||
+                                  toupper($2) == "044F:B653"   # the virtual wheels
                         if (length(p[1]) == 4 && length(p[2]) == 4 && !virtual)
                             printf "%s0x%s/0x%s", (n++ ? "," : ""), toupper(p[1]), toupper(p[2])}' "$settings/rigs/$rig.ini")
     fi

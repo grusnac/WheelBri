@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// wheelbri-uhid: the virtual G25, G27, G920 or G923 (--target) on Linux (Steam Deck, any distribution).
+// wheelbri-uhid: the virtual G25, G27, G920, G923 or RGT (--target) on Linux (Steam Deck, any distribution).
 //
 // The Linux counterpart of the old HIDMaestro bridge (Windows): creates a virtual "Logitech G920" (or "Logitech G25",
 // 046D:C299) through the kernel's uhid, feeds it the wheel state wheelbri-service publishes (UDP 127.0.0.1:41329) and
@@ -8,7 +8,8 @@
 //
 // For a Proton game to use it, start the game with
 //   PROTON_ENABLE_HIDRAW=0x046D/0xC262 SDL_GAMECONTROLLER_IGNORE_DEVICES=0x346E/0x0005 %command%
-// (raw HID for the G920, so its force feedback works; 0x046D/0xC299 for the G25; the rig hidden from the game).
+// (raw HID for the G920, so its force feedback works; 0x046D/0xC299 for the G25, 0x044F/0xB653 for the RGT; the rig
+// hidden from the game).
 // scripts/linux/wheelbri.sh does all of this. Needs access to /dev/uhid (scripts/linux/install-udev-rules.sh, once).
 
 #include "UhidWheel.hpp"
