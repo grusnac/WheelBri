@@ -460,6 +460,28 @@ TEST(DeviceProfile, RgtIsThrustmastersName) {
     EXPECT_EQ(rgt->coreButton(CoreButton::RPaddle), 1);
 }
 
+TEST(DeviceProfile, TmxIsThrustmastersName) {
+    const auto tmx = makeProfile("tmx");
+    ASSERT_NE(tmx, nullptr);
+    EXPECT_EQ(tmx->identity().vendorId, 0x044F);
+    EXPECT_EQ(tmx->identity().productId, 0xB67F);
+    EXPECT_EQ(tmx->identity().productName, "Thrustmaster TMX Racing Wheel");
+    EXPECT_FLOAT_EQ(tmx->identity().rotationDeg, 900.0F);
+    EXPECT_EQ(tmx->buttonCount(), kTmxButtons);
+    EXPECT_FALSE(tmx->hasNativeButtonOrder());
+    EXPECT_EQ(tmx->coreButton(CoreButton::A), 4);   // DiRT Rally 2.0's menu select
+    EXPECT_EQ(tmx->coreButton(CoreButton::B), 8);   // and menu back
+    EXPECT_EQ(tmx->coreButton(CoreButton::X), -1);
+    EXPECT_EQ(tmx->coreButton(CoreButton::Y), -1);
+    EXPECT_EQ(tmx->coreButton(CoreButton::LPaddle), 0);
+    EXPECT_EQ(tmx->coreButton(CoreButton::RPaddle), 1);
+    // Pedals released at the top, as a real TMX's (1023 of 0..1023 at rest).
+    const TargetReport released = tmx->encode(WheelState{});
+    EXPECT_EQ(released.throttle, 65535);
+    EXPECT_EQ(released.brake, 65535);
+    EXPECT_EQ(released.clutch, 65535);
+}
+
 // The RGT's encode carries the levers as the pedals: released at the top, fully pressed at the bottom.
 TEST(DeviceProfile, RgtEncodeCarriesTheLevers) {
     const auto rgt = makeProfile("rgt");

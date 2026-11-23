@@ -239,6 +239,8 @@ constexpr VirtualWheel kVirtualWheels[] = {
      "Logitech G923 Racing Wheel for Xbox One and PC", kG923Buttons, true, 0x0A, true, false, true},
     {"rgt", "wheelbri\\RGT", "RGT", kRgtVendorId, kRgtProductId, "Thrustmaster force feedback wheel",
      "RGT Force Feedback Pro", kRgtButtons, false, 0, false, false, false, false, true},
+    {"tmx", "wheelbri\\TMX", "TMX", kTmxVendorId, kTmxProductId, "Thrustmaster TMX Racing Wheel",
+     "Thrustmaster TMX Racing Wheel", kTmxButtons, false, 0, false, false, false, false, false, true, true},
 };
 
 // The G25's and G27's classic identities (VirtualWheel::classic): the same but for the hardware id. Their instances are
@@ -352,6 +354,8 @@ constexpr auto kG25CombinedDescriptor = withCombinedPedals(kDescriptorArray);
 constexpr auto kG27CombinedDescriptor = withCombinedPedals(kG27Descriptor);
 // The RGT's (VirtualWheel::rgtAxes): the same five axes, 10 buttons and 14 padding bits.
 constexpr auto kRgtDescriptor = withCombinedPedals(descriptorWith(kRgtButtons));
+// The TMX's (VirtualWheel::brakeOnY): the four axes, 13 buttons and 11 padding bits.
+constexpr auto kTmxDescriptor = descriptorWith(kTmxButtons);
 static_assert(kG25CombinedDescriptor[kClutchUsageAt] == 0x36 &&
                   kG25CombinedDescriptor[kClutchUsageAt + kAxisItemBytes] == 0x36,
               "the combined pedals Slider 0, the clutch Slider 1");
@@ -413,6 +417,7 @@ std::span<const std::uint8_t> reportDescriptorFor(const VirtualWheel& wheel) {
                                             : std::span<const std::uint8_t>(kG25Classic);
     }
     if (wheel.rgtAxes) return kRgtDescriptor;
+    if (wheel.brakeOnY) return kTmxDescriptor;
     if (wheel.combinedPedals) {
         if (wheel.buttons == kG920Buttons) return kG25CombinedDescriptor;
         if (wheel.buttons == kG27Buttons) return kG27CombinedDescriptor;
@@ -504,7 +509,12 @@ InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) 
         out.size = kMaxInputReportSize;
         return out;
     }
-    auto packed = packWheelInput(report, wheel.buttons);
+    TargetReport axes = report;
+    if (wheel.brakeOnY) {   // brake Y, throttle Rz
+        axes.throttle = report.brake;
+        axes.brake = report.throttle;
+    }
+    auto packed = packWheelInput(axes, wheel.buttons);
     if (wheel.unsignedAxes) {
         // packWheelInput wrote value - 32768 as a signed 16-bit number: its bits are the value's with the top one
         // flipped, so flipping it back gives the unsigned value (both clamped to 0..65535 alike).

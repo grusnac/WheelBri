@@ -281,6 +281,16 @@ inline constexpr std::size_t kRgtButtons = 10;
 // is which number is not known yet: the names say Button 3..8.
 [[nodiscard]] DeviceProfileSpec rgtSpec();
 
+// The TMX's buttons (Thrustmaster TMX PRO Force Feedback, 044F:B67F, docs/target-tmx.md): 13, as the real wheel's
+// HID report has them (captures/tmx). DiRT Rally 2.0's TMX preset reads 0 and 1 as the paddles (gear down, gear up);
+// which printed rim button each other number is: not known yet.
+inline constexpr std::size_t kTmxButtons = 13;
+// Thrustmaster TMX PRO Force Feedback (the TMX with its three T3PA pedals; 044F:B67F), as games see it with
+// Thrustmaster's driver: named "Thrustmaster TMX Racing Wheel" (the product string and the name Thrustmaster's
+// installer registers for B67F), 900 degrees, pedals released at the top (1023 at rest on a real one), 13 buttons, a
+// D-pad.
+[[nodiscard]] DeviceProfileSpec tmxSpec();
+
 // The RGT's axis mode and pedal set ([rgt] axes, pedal_set; Thrustmaster's manual, "Axis selection"): what its pedal
 // axes carry. Combining follows from these, as on the real wheel; WheelBri's combined pedals do not apply to it.
 enum class RgtAxes : std::uint8_t { Two = 2, Three = 3, Five = 5 };
@@ -306,10 +316,10 @@ struct RgtMode {
 
 // Config names of the built-in profiles, for messages: the wheels WheelBri emulates (a virtual device and the shim both
 // present them). A new target is a new profile here plus its support (driver, shim) first.
-inline constexpr std::string_view kKnownProfiles = "g25, g27, g920, g923, rgt";
+inline constexpr std::string_view kKnownProfiles = "g25, g27, g920, g923, rgt, tmx";
 
-// Looks up a built-in profile by its config name ("g920", "g25", "g27", "g923", "rgt"). Returns nullptr for unknown
-// names.
+// Looks up a built-in profile by its config name ("g920", "g25", "g27", "g923", "rgt", "tmx"). Returns nullptr for
+// unknown names.
 [[nodiscard]] std::unique_ptr<IDeviceProfile> makeProfile(std::string_view name);
 
 

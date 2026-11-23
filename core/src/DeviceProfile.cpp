@@ -369,6 +369,30 @@ DeviceProfileSpec rgtSpec() {
     return spec;
 }
 
+DeviceProfileSpec tmxSpec() {
+    DeviceProfileSpec spec;
+    spec.identity.shortName = "TMX";
+    spec.identity.vendorId = 0x044F;
+    spec.identity.productId = 0xB67F;
+    spec.identity.productName = "Thrustmaster TMX Racing Wheel";
+    spec.identity.rotationDeg = 900.0F;   // 270-900 (Thrustmaster's product page)
+    spec.steeringRange = {0, 65535};
+    spec.pedalRange = {0, 65535};
+    spec.pedalsReleasedAtMax = true;   // a real TMX's pedals rest at 1023 of 0..1023 (captures/tmx)
+    // The paddles as DiRT Rally 2.0's preset uses them; the rim's buttons by number until their printed names are
+    // known.
+    spec.buttonNames = {"Down",      "Up",        "Button 3",  "Button 4",  "Button 5",  "Button 6", "Button 7",
+                        "Button 8",  "Button 9",  "Button 10", "Button 11", "Button 12", "Button 13"};
+    using Place = ButtonGroup::Place;
+    spec.buttonGroups = {
+        {"PADDLES", {0, 1}, Place::Left},
+        {"RIM", {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, Place::Right},   // which is which: not known yet
+    };
+    // A and B where DiRT Rally 2.0's TMX preset has menu select (4) and menu back (8); X and Y: not known yet.
+    spec.coreButtons = {4, 8, -1, -1, 0, 1};
+    return spec;
+}
+
 std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     if (name == "g920") {
         return std::make_unique<DeviceProfile>(g920Spec());
@@ -384,6 +408,9 @@ std::unique_ptr<IDeviceProfile> makeProfile(const std::string_view name) {
     }
     if (name == "rgt") {
         return std::make_unique<DeviceProfile>(rgtSpec());
+    }
+    if (name == "tmx") {
+        return std::make_unique<DeviceProfile>(tmxSpec());
     }
     return nullptr;
 }
