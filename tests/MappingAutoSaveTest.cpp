@@ -42,12 +42,13 @@ public:
     ui::WindowInput pump() override { return {}; }
     [[nodiscard]] bool visible() const override { return true; }
     void begin(ui::Colour) override {}
+    // Where things land on the canvas (the origin applied: the Mapping page's scrolled part).
     void fill(const float x, const float y, const float w, const float h, const ui::Colour colour) override {
-        fills.push_back({x, y, w, h, colour});
+        fills.push_back({x + originX_, y + originY_, w, h, colour});
     }
     void outline(float, float, float, float, ui::Colour) override {}
     void text(const float x, const float y, const std::string_view value, const ui::Colour colour) override {
-        texts.push_back({x, y, std::string(value), colour});
+        texts.push_back({x + originX_, y + originY_, std::string(value), colour});
     }
     void present() override {}
     bool openFolder(const std::filesystem::path&, std::string&) override { return false; }
@@ -228,6 +229,8 @@ TEST_F(MappingAutoSave, TheG25AndG27PickTheirButtonOrderUnderThePedals) {
 
     for (const ConfigPicker::Target target : {ConfigPicker::Target::G27, ConfigPicker::Target::G25}) {
         picker.useTarget(target);
+        frame(view);
+        view.onKey(ui::kEnd);   // under the tab bar at the design's size: scrolled into view
         frame(view);
         const auto* const section = window_.find("BUTTON ORDER");
         const auto* const pedals = window_.find("PEDALS");

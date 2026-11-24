@@ -3,6 +3,9 @@
 
 #include "UiWindow.hpp"
 
+#include <array>
+#include <cmath>
+
 #include <string_view>
 
 namespace wheelbri::service::style {
@@ -91,6 +94,26 @@ inline void checkbox(ui::UiWindow& window, const float x, const float y, const f
     window.outline(x + 5, y + 3, 10, 10, enabled ? kHeading : kFrame);
     if (on) window.fill(x + 7, y + 5, 6, 6, enabled ? kHeading : kFrame);
     window.text(x + 22, y + 4, label, enabled ? kText : kDim);
+}
+
+// A gear (a settings sign) of radius `r` around (cx, cy): a ring with a hole, eight teeth round it.
+inline void gear(ui::UiWindow& window, const float cx, const float cy, const float r, const ui::Colour colour) {
+    constexpr int kTeeth = 8;
+    constexpr float kPi = 3.14159265F;
+    window.fillRing(cx, cy, r * 0.74F, r * 0.32F, colour);
+    for (int i = 0; i < kTeeth; ++i) {
+        const float a = static_cast<float>(i) * 2.0F * kPi / kTeeth;
+        const float c = std::cos(a);
+        const float s = std::sin(a);
+        const float half = r * 0.2F;   // half a tooth's width
+        const float in = r * 0.55F;
+        // The tooth's corners, from inside the ring out to r, square to its direction.
+        const std::array<ShapePoint, 4> tooth{{{cx + c * in - s * half, cy + s * in + c * half},
+                                               {cx + c * r - s * half, cy + s * r + c * half},
+                                               {cx + c * r + s * half, cy + s * r - c * half},
+                                               {cx + c * in + s * half, cy + s * in - c * half}}};
+        window.fillPolygon(tooth, colour);
+    }
 }
 
 }  // namespace wheelbri::service::style

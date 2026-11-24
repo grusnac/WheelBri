@@ -532,6 +532,11 @@ private:
                 if (input.keys.find(ui::kEscape) != std::string::npos) mapping_->onKey(ui::kEscape);
             } else {
                 for (const char key : input.keys) {
+                    if (editingMapping && !splitShown() && MappingEditView::scrollKey(key) &&
+                        mapping_->page() == MappingEditView::Page::Mapping) {
+                        mapping_->onKey(key);   // scrolling the Mapping page (side by side: the live view's)
+                        continue;
+                    }
                     if (key == ui::kEscape) {
                         if (setup) setup_->onKey(key);
                         if (editingMapping) mapping_->onKey(key);
@@ -561,7 +566,11 @@ private:
             if (setup) setup_->onPointer(input.pointer.x, input.pointer.y - kViewTop, input.leftDown);
             setup_->setHover(input.pointer.x, input.pointer.y - kViewTop, setup && input.pointerInside);
             if (setup && input.wheel != 0 && !popup_) setup_->onScroll(input.wheel);   // the Rig tab's devices
-            if (editingMapping && input.wheel != 0 && !popup_) mapping_->onScroll(input.wheel);   // a popup's list
+            // A picker's list, or the Mapping page; side by side only with the mouse over the editor's half.
+            if (editingMapping && input.wheel != 0 && !popup_ &&
+                (!splitShown() || input.pointer.x < editorPane_->width())) {
+                mapping_->onScroll(input.wheel);
+            }
             if (view_ != nullptr && input.wheel != 0) view_->onScroll(input.wheel);
             if (view_ == nullptr && idleTab_ == IdleTab::Logs && input.wheel != 0) logs_->onScroll(input.wheel);
             // The live log's scroll bars: dragged with the mouse, and the sideways wheel.

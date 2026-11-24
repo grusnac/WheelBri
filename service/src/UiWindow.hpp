@@ -133,6 +133,8 @@ public:
         originX_ = x;
         originY_ = y;
     }
+    [[nodiscard]] float originX() const { return originX_; }
+    [[nodiscard]] float originY() const { return originY_; }
 
     // One frame: begin() clears the canvas, the draw calls follow, present() shows it.
     virtual void begin(Colour background) = 0;

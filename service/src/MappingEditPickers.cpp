@@ -415,7 +415,10 @@ void MappingEditView::drawAltPicker() {
 }
 
 void MappingEditView::onScroll(const int notches) {
-    if (mode_ != Mode::PickAlt && mode_ != Mode::Pick) return;
+    if (mode_ != Mode::PickAlt && mode_ != Mode::Pick) {
+        if (mode_ == Mode::Idle && page_ == Page::Mapping) scrollBy(-static_cast<float>(notches) * kScrollStep);
+        return;
+    }
     listScroll_ = std::clamp(listScroll_ - static_cast<float>(notches) * 54.0F, 0.0F, listScrollMax_);
 }
 
