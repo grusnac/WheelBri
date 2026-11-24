@@ -57,6 +57,11 @@ constexpr std::array<const char*, 4> kHatNames = {"Up", "Right", "Down", "Left"}
 // entries in more columns when wider (popupColumns).
 // Between a row's label and its field, everywhere on the tab: one and a half characters.
 constexpr float kLabelGap = 12;
+// The Mapping page's scrolling: pixels per mouse wheel notch (and per Up / Down), its scroll bar's width, and the room
+// left under the last section.
+constexpr float kScrollStep = 40;
+constexpr float kScrollBarW = 6;
+constexpr float kScrollMargin = 6;
 // A button row's label: its number and at most 10 characters of its name ("24 Dial Enter").
 constexpr std::size_t kButtonLabelChars = 3 + 10;
 constexpr float kPlusW = 24;    // a button row's "+" (adds a secondary)

@@ -205,14 +205,15 @@ TEST_F(ConfigPickerFiles, TheButtonsSwitchTargetAndWayAndRememberThem) {
     const float end = picker.draw(4, 18, true, [&tips](float, float, float, float, std::string text) {
         tips.push_back(std::move(text));
     });
-    EXPECT_FLOAT_EQ(end, 559);   // after the last button and its gap
+    EXPECT_FLOAT_EQ(end, 582);   // after the last button, the driver gear (Mode Virtual) and its gap
     for (const char* name : {"G25", "G27", "G920", "G923", "RGT", "Virtual", "Shim"}) {
         EXPECT_TRUE(window_.shows(name)) << name;
     }
-    ASSERT_EQ(tips.size(), 7U);
+    ASSERT_EQ(tips.size(), 8U);   // the 7 buttons, the gear
     EXPECT_NE(tips[0].find("G25: for older games"), std::string::npos);
     EXPECT_NE(tips[4].find("RGT: Thrustmaster"), std::string::npos);
     EXPECT_NE(tips[5].find("every game sees"), std::string::npos);
+    EXPECT_NE(tips[7].find("Windows' force feedback driver drives the virtual G920's"), std::string::npos);
     const std::uint64_t before = picker.changes();
     EXPECT_FALSE(picker.onClick(kG920X, kRowY));   // the chosen one: nothing to do
 
@@ -712,6 +713,37 @@ TEST_F(ConfigPickerFiles, TrueForceStartsFromTheG923sFile) {
     ConfigPicker picker(window_, settings());
     EXPECT_FALSE(picker.trueForce());
     EXPECT_EQ(setting("trueforce_g923"), "off");
+}
+
+// Whose driver plays the virtual Target's force feedback (the Mode row's gear): the maker's when found, but the G25's
+// and G27's older-wheel driver only in the Logitech order; the G923's hover text adds its TrueForce files.
+TEST(ConfigPickerDriver, TheMakersDriverDrivesWhenFound) {
+    using Target = ConfigPicker::Target;
+    EXPECT_TRUE(ConfigPicker::makerDriverDrives(Target::RGT, ButtonOrder::Driver, true));
+    EXPECT_FALSE(ConfigPicker::makerDriverDrives(Target::RGT, ButtonOrder::Driver, false));
+    EXPECT_TRUE(ConfigPicker::makerDriverDrives(Target::G920, ButtonOrder::Driver, true));
+    EXPECT_TRUE(ConfigPicker::makerDriverDrives(Target::G25, ButtonOrder::Driver, true));
+    EXPECT_FALSE(ConfigPicker::makerDriverDrives(Target::G27, ButtonOrder::Native, true));
+
+    const std::string native = ConfigPicker::driverAbout(Target::G27, ButtonOrder::Native, true, false);
+    EXPECT_NE(native.find("in the Native order"), std::string::npos);
+    EXPECT_NE(native.find("drives it in the Logitech order"), std::string::npos);
+    const std::string rgt = ConfigPicker::driverAbout(Target::RGT, ButtonOrder::Driver, true, false);
+    EXPECT_NE(rgt.find("64-bit games only"), std::string::npos);
+    EXPECT_EQ(rgt.find("TrueForce"), std::string::npos);
+    const std::string g923 = ConfigPicker::driverAbout(Target::G923, ButtonOrder::Driver, false, true);
+    EXPECT_NE(g923.find("Logitech G HUB's driver is not installed"), std::string::npos);
+    EXPECT_NE(g923.find("TrueForce files found"), std::string::npos);
+    EXPECT_NE(ConfigPicker::driverAbout(Target::G923, ButtonOrder::Driver, true, false).find("TrueForce stays off"),
+              std::string::npos);
+    // Each fits the hover box (6 lines of at most 64 characters).
+    for (const Target t : {Target::G25, Target::G27, Target::G920, Target::G923, Target::RGT}) {
+        for (const bool found : {false, true}) {
+            for (const ButtonOrder order : {ButtonOrder::Driver, ButtonOrder::Native}) {
+                EXPECT_LE(ConfigPicker::driverAbout(t, order, found, false).size(), 300U);
+            }
+        }
+    }
 }
 
 }  // namespace wheelbri::service

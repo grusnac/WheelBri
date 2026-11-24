@@ -74,14 +74,15 @@ public:
     ui::WindowInput pump() override { return {}; }
     [[nodiscard]] bool visible() const override { return true; }
     void begin(ui::Colour) override {}
+    // Where things land on the canvas (the origin applied: the Mapping page's scrolled part).
     void fill(const float x, const float y, const float w, const float h, const ui::Colour colour) override {
-        fills.push_back({x, y, w, h, colour});
+        fills.push_back({x + originX_, y + originY_, w, h, colour});
     }
     void outline(const float x, const float y, const float w, const float h, const ui::Colour colour) override {
-        outlines.push_back({x, y, w, h, colour});
+        outlines.push_back({x + originX_, y + originY_, w, h, colour});
     }
     void text(const float x, const float y, const std::string_view value, const ui::Colour colour) override {
-        texts.push_back({x, y, std::string(value), colour});
+        texts.push_back({x + originX_, y + originY_, std::string(value), colour});
     }
     void present() override {}
     bool openFolder(const std::filesystem::path&, std::string&) override { return false; }
@@ -341,10 +342,9 @@ protected:
     void type(const std::string& text) { view_->onText(text); }
     [[nodiscard]] std::string own() const { return read(picker_->ownPath()); }
     [[nodiscard]] std::string status() const {
-        // The status line: the last text drawn at the bottom of the tab.
-        const float y = window_.height() - 30 - 24;
+        // The top row's subtitle: what the page is, or why a change was not taken (there is no status line).
         for (auto it = window_.texts.rbegin(); it != window_.texts.rend(); ++it) {
-            if (it->y == y && it->x == 4) return it->value;
+            if (it->y == 4 && it->x == 114) return it->value;
         }
         return {};
     }
@@ -581,7 +581,7 @@ TEST_F(EditView, AControlUsedTwiceIsNotSaved) {
     EXPECT_EQ(own(), before);
     ASSERT_TRUE(click("Undo"));
     frame();
-    EXPECT_TRUE(window_.has("Change dropped."));
+    EXPECT_FALSE(window_.hasPart("Not saved:"));   // dropped: nothing more to say
     EXPECT_TRUE(window_.has("saved"));
 }
 
@@ -759,6 +759,7 @@ TEST_F(EditView, TypingTheRotation) {
 // The G25's centring spring: typed (whole percent, 0 to 100) and its presets.
 TEST_F(EditView, TheCentringSpring) {
     useRig(testRig());
+    window_.setCanvas(1600, 748);   // room for the whole reason in the top row
     open();
     picker_->useTarget(ConfigPicker::Target::G25);
     frame();
@@ -861,6 +862,7 @@ TEST_F(EditView, AWheelTheRigDoesNotHave) {
     std::string text = read(dir_ / "config" / "g920.ini");
     text.replace(text.find("source_device ="), 15, "source_device = 9999:9999");
     write(userConfigFolder() / "my-g920.ini", text);
+    window_.setCanvas(1600, 748);   // room for the whole reason in the top row
     open();
     frame();
     EXPECT_TRUE(window_.hasPart("the wheel: axis 0"));
@@ -2745,7 +2747,8 @@ TEST_F(EditView, TheMappingTabWhileRunning) {
     // A change is saved and in use now.
     ASSERT_TRUE(click("Invert", 1));
     frame();
-    EXPECT_EQ(status(), "Saved: in use now.");
+    EXPECT_TRUE(window_.has("saved"));
+    EXPECT_TRUE(window_.hasPart("running: each change is in use at once")) << status();
     const Window::Text* const undo = window_.find("Undo");
     ASSERT_NE(undo, nullptr);
     EXPECT_FALSE(sameColour(undo->colour, style::kFaint));
@@ -2753,7 +2756,8 @@ TEST_F(EditView, TheMappingTabWhileRunning) {
     ASSERT_TRUE(click("540"));
     frame();
     EXPECT_NE(own().find("target_rotation_deg = 540"), std::string::npos) << own();
-    EXPECT_EQ(status(), "Saved: in use now.");
+    EXPECT_TRUE(window_.has("saved"));
+    EXPECT_TRUE(window_.hasPart("running: each change is in use at once")) << status();
     view_->setLocked(false);
     frame();
     EXPECT_FALSE(sameColour(window_.find("Default")->colour, style::kFaint));
@@ -2865,29 +2869,64 @@ TEST_F(EditView, TheGameFileSetForOneTarget) {
     EXPECT_FALSE(window_.hasPart("baseFriction -25.0 -> 0.0"));
 }
 
-// Thrustmaster's driver installed for the RGT: the Mapping tab says it drives the virtual RGT's force feedback, in Mode
-// Virtual only (in Mode Shim the game talks to your own wheel); not without the driver, nor for another target.
-TEST_F(EditView, TheRgtSaysWhenThrustmastersDriverIsInstalled) {
-    const std::string line = "Thrustmaster's driver found: it drives the virtual RGT's force feedback";
+// The Mode row's gear (after the Shim button, on the row at y 18): one of its fills, or nullopt when none is drawn.
+std::optional<Window::Box> modeGear(const Window& window) {
+    const Window::Text* shim = nullptr;
+    for (const Window::Text& text : window.texts) {
+        if (text.value == "Shim" && text.y >= 18 && text.y < 34) shim = &text;
+    }
+    if (shim == nullptr) return std::nullopt;
+    for (const Window::Box& box : window.fills) {
+        if (box.y >= 18 && box.y < 34 && box.x > shim->x + 40 && box.x < shim->x + 100) return box;
+    }
+    return std::nullopt;
+}
+
+// The gear after the Mode buttons: amber while the Target's maker's driver plays the virtual wheel's force feedback,
+// grey while Windows' does; its hover text says which. Mode Virtual only (in Mode Shim the game talks to your own
+// wheel). The G25's and G27's older-wheel driver drives only in the Logitech order.
+TEST_F(EditView, TheGearSaysWhoseDriverDrivesTheVirtualWheel) {
     useRig(testRig());
     makerDriverFor_ = "tm_rgt";
     open();
-    frame();
-    EXPECT_FALSE(window_.hasPart(line));   // the G920
+    const auto hoverGear = [this] {
+        frame();
+        const std::optional<Window::Box> gear = modeGear(window_);
+        if (gear) view_->setHover(gear->x + 0.5F, gear->y + 0.5F, true);
+        frame();
+        return gear;
+    };
+    std::optional<Window::Box> gear = hoverGear();   // the G920, G HUB's driver not installed
+    ASSERT_TRUE(gear.has_value());
+    EXPECT_TRUE(sameColour(gear->colour, style::kFaint));
+    EXPECT_TRUE(window_.hasPart("Windows' force feedback driver drives"));
+
     ASSERT_TRUE(click("RGT"));
-    frame();
     ASSERT_EQ(picker_->way(), ConfigPicker::Way::VirtualDevice);
-    EXPECT_TRUE(window_.hasPart(line));
+    gear = hoverGear();
+    ASSERT_TRUE(gear.has_value());
+    EXPECT_TRUE(sameColour(gear->colour, style::kCaution));
+    EXPECT_TRUE(window_.hasPart("Thrustmaster's force feedback driver"));
+    EXPECT_FALSE(window_.hasPart("Thrustmaster's driver found"));   // no line under the boxes any more
+
     ASSERT_TRUE(click("Shim"));
     frame();
-    EXPECT_FALSE(window_.hasPart(line));
+    EXPECT_FALSE(modeGear(window_).has_value());
 
-    makerDriverFor_.clear();   // not installed (a new view asks again)
+    makerDriverFor_ = "g25";   // G HUB's older-wheel driver (a new view asks again)
     open();
-    ASSERT_TRUE(click("RGT"));
+    ASSERT_TRUE(click("G25"));
     ASSERT_TRUE(click("Virtual"));
-    frame();
-    EXPECT_FALSE(window_.hasPart(line));
+    picker_->useButtonOrder(ButtonOrder::Driver);
+    gear = hoverGear();
+    ASSERT_TRUE(gear.has_value());
+    EXPECT_TRUE(sameColour(gear->colour, style::kCaution));
+    EXPECT_TRUE(window_.hasPart("Logitech G HUB's older-wheel"));
+    picker_->useButtonOrder(ButtonOrder::Native);
+    gear = hoverGear();
+    ASSERT_TRUE(gear.has_value());
+    EXPECT_TRUE(sameColour(gear->colour, style::kFaint));
+    EXPECT_TRUE(window_.hasPart("Windows' force feedback driver drives"));
 }
 
 // The Target and Mode buttons say what they are in the tab's hover text.
@@ -3213,6 +3252,104 @@ TEST_F(EditView, TheRgtsAxesAndPedalSet) {
     frame();
     EXPECT_NE(own().find("pedal_set = clutch"), std::string::npos) << own();
     EXPECT_TRUE(window_.has("Y brake, Rz gas, Slider 0 clutch"));   // 5 axes, as the real wheel
+}
+
+// The Mapping page scrolls when it is taller than the room above the tab bar (here a short canvas: the G25's
+// BUTTON ORDER, under the pedals, below it); never sideways. The mouse wheel, End and Home; the top rows stay where they are; what
+// is scrolled into view is clicked where it is seen. No status line: "saved" in the top row says it.
+TEST_F(EditView, TheMappingPageScrollsWhenItDoesNotFit) {
+    useRig(testRig());
+    window_.setCanvas(960, 500);   // shorter than the page
+    open();
+    picker_->useTarget(ConfigPicker::Target::G25);
+    frame();
+    ASSERT_GT(view_->scrollMost(), 0.0F);
+    EXPECT_EQ(view_->scrolled(), 0.0F);
+    const float bottom = window_.height() - 30;   // the tab bar's top
+    view_->onScroll(-1);   // a notch down
+    frame();
+    EXPECT_FLOAT_EQ(view_->scrolled(), std::min(40.0F, view_->scrollMost()));
+    view_->onKey(ui::kEnd);
+    frame();
+    EXPECT_FLOAT_EQ(view_->scrolled(), view_->scrollMost());
+    const Window::Text* const order = window_.find("BUTTON ORDER");
+    ASSERT_NE(order, nullptr);
+    EXPECT_LE(order->y + 16 + 16, bottom);   // its row in view, above the tab bar
+    const Window::Text* const title = window_.find("MAPPING");
+    ASSERT_NE(title, nullptr);
+    EXPECT_EQ(title->y, 4);   // the top rows do not scroll
+    ASSERT_TRUE(click("Native"));
+    frame();
+    EXPECT_EQ(picker_->buttonOrder(), ButtonOrder::Native);
+    EXPECT_FALSE(window_.hasPart("Saved"));   // no status line
+    EXPECT_TRUE(window_.has("saved"));
+    view_->onKey(ui::kHome);
+    frame();
+    EXPECT_EQ(view_->scrolled(), 0.0F);
+}
+
+// A window tall enough for all of it: nothing scrolls, no scroll bar.
+TEST_F(EditView, TheMappingPageFitsATallWindow) {
+    useRig(testRig());
+    window_.setCanvas(960, 1400);
+    open();
+    picker_->useTarget(ConfigPicker::Target::G25);
+    frame();
+    EXPECT_EQ(view_->scrollMost(), 0.0F);
+    view_->onScroll(-3);
+    view_->onKey(ui::kPageDown);
+    frame();
+    EXPECT_EQ(view_->scrolled(), 0.0F);
+    for (const Window::Box& box : window_.fills) {
+        EXPECT_FALSE(box.x == 960 - 6 && box.w == 6) << "a scroll bar at " << box.y;
+    }
+}
+
+// The scroll bar: a press on its track jumps there, dragging it moves the page, letting go ends the drag.
+TEST_F(EditView, TheMappingPagesScrollBar) {
+    useRig(testRig());
+    window_.setCanvas(960, 500);   // shorter than the page
+    open();
+    picker_->useTarget(ConfigPicker::Target::G25);
+    frame();
+    ASSERT_GT(view_->scrollMost(), 0.0F);
+    const float bottom = window_.height() - 30;
+    view_->onClick(960 - 3, bottom - 1);   // the track's end: the thumb there (scrollBarW 6)
+    frame();
+    EXPECT_FLOAT_EQ(view_->scrolled(), view_->scrollMost());
+    view_->onPointer(960 - 3, 0, true);   // dragged up past the top
+    frame();
+    EXPECT_EQ(view_->scrolled(), 0.0F);
+    view_->onPointer(960 - 3, 0, false);   // let go
+    view_->onPointer(960 - 3, bottom, true);   // held again, not on the bar: no drag
+    frame();
+    EXPECT_EQ(view_->scrolled(), 0.0F);
+}
+
+// What is scrolled up under the top rows is not clicked there (the top row's own buttons are).
+TEST_F(EditView, WhatIsScrolledUnderTheTopRowsIsNotClicked) {
+    useRig(testRig());
+    window_.setCanvas(960, 500);   // shorter than the page
+    open();
+    picker_->useTarget(ConfigPicker::Target::G25);
+    frame();
+    view_->setLocked(true);   // the Target and Mode row takes no clicks: only what is under it could
+    const std::string before = own();
+    bool tried = false;
+    for (int notch = 0; notch < 4 && !tried; ++notch) {
+        view_->onScroll(-1);
+        frame();
+        for (const Window::Text& text : window_.texts) {
+            if (text.value == "Invert" && text.y >= 18 && text.y < 34) {   // drawn under the Target row
+                view_->onClick(text.x + 4, text.y + 4);
+                tried = true;
+                break;
+            }
+        }
+    }
+    ASSERT_TRUE(tried);
+    frame();
+    EXPECT_EQ(own(), before);
 }
 
 // The anti-dead zone per game: the Mapping tab's until the user sets one; saved; Default takes it back.

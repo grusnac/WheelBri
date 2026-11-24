@@ -24,6 +24,10 @@ Two choices decide how WheelBri works:
 - **Mode**: **Virtual** creates the Target as a virtual wheel every game sees and hides your rig while WheelBri runs;
   use it unless a game needs otherwise. **Shim** puts a `dinput8.dll` next to one game, for older DirectInput games.
   On a Windows too old for Virtual's driver there is no Virtual button: Shim is locked, and its hover text says why.
+- **The gear** after the Mode buttons (Mode Virtual): which force feedback driver plays the virtual wheel's effects.
+  Amber: the Target maker's own driver (G HUB's for the G920 and G923; G HUB's older-wheel one for the G25 and G27, in
+  the Logitech order; Thrustmaster's for the RGT, in 64-bit games only). Grey: Windows' driver. Its hover text says
+  which, and for the G923 whether G HUB's TrueForce files are there.
 
 The tabs are along the bottom: Rig, Mapping, Live, Games, Logs (keys R, M, S, G, L; **B** puts Mapping and Live side by
 side), with the status and **Start** / **Stop** at the right. Point at any button to see what it does. Every change is
@@ -62,7 +66,9 @@ wheel's rotation, in the wheel's own software. For a game with a dead zone of it
 ![Mapping tab with Target G923, TrueForce on](images/mapping-base.png)
 
 1. Pick the **Target** and **Mode** at the top (fixed while running; the rest can change while you play:
-   [Change the mapping while you play](#change-the-mapping-while-you-play)).
+   [Change the mapping while you play](#change-the-mapping-while-you-play)). When the page is taller than the
+   window, everything under the top rows scrolls: mouse wheel, Page Up / Page Down, Home / End, or the bar at the
+   right. If a change is not taken, the reason shows in red next to **MAPPING** (point at it for all of it).
 2. Check each axis, D-pad direction and button comes from the right control. Click a source to change it: move the
    control on your rig, or type to find it. **RIG** next to a source means it comes from the Rig tab. Greyed sources
    are used elsewhere (point at one to see where); clicking one moves it here.
@@ -116,8 +122,8 @@ car twitches as the wheel crosses the centre. Best set per game (Games tab).
   greyed: the clutch's with Levers, the levers' with Clutch.
 - **Centring spring**: as the G25's above. The RGT's **Force** button (Buttons, FORCE) switches it off and on while
   running, on again at each Start.
-- With Thrustmaster's own driver installed, a line under these boxes says it drives the virtual RGT's force feedback,
-  in 64-bit games only ([target-rgt.md](target-rgt.md#force-feedback)).
+- With Thrustmaster's own driver installed, the gear after the Mode buttons is amber: it drives the virtual RGT's force
+  feedback, in 64-bit games only ([target-rgt.md](target-rgt.md#force-feedback)).
 
 The Target's buttons show **the numbers the game uses**: from 1 in Logitech order (as `joy.cpl` and games count), from
 0 in Native. To see which one the game gets, use the [Shadow view](#shadow-view) on the Live tab while running. Each

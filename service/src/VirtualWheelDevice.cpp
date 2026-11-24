@@ -828,7 +828,7 @@ DirectInputUserEntries::~DirectInputUserEntries() {
 }
 
 bool makerFfbDriverInstalled(const VirtualWheel& wheel) {
-    if (!wheel.makerDriver) return false;
+    if (!wheel.makerDriver && !wheel.hidpp) return false;
     const std::wstring path = oemKey(wheel) + L"\\OEMForceFeedback";
     for (HKEY root : {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE}) {
         const FfbEntry entry = readFfbEntry(root, path);

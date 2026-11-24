@@ -2130,6 +2130,10 @@ int runAppMode(Options options, const bool consoleLogging) {
     };
     settings.trueForceSdk = [] { return wheelbri::service::trueForceSdkPath(); };
     settings.makerFfbDriver = [](const std::string_view profile) {
+        // The G25 and G27: G HUB's older-wheel driver (it drives their classic identity, in the Logitech order).
+        if (const wheelbri::VirtualWheel* const classic = wheelbri::classicVirtualWheel(profile)) {
+            return wheelbri::service::classicFfbDriverInstalled(*classic);
+        }
         const wheelbri::VirtualWheel* const wheel = wheelbri::virtualWheel(profile);
         return wheel != nullptr && wheelbri::service::makerFfbDriverInstalled(*wheel);
     };

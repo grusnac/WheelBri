@@ -45,7 +45,10 @@ namespace wheelbri::service {
 class MappingEditView {
 public:
     // The canvas this tab is drawn on: at least 960 x 748, bigger in a bigger window (UiWindow.hpp); the tab bar
-    // takes its bottom 30. Fields, bars and pickers grow with it, buttons at the right stay at the right.
+    // takes its bottom 30. Fields, bars and pickers grow with it, buttons at the right stay at the right. On the
+    // Mapping page what is below the top rows (title, Target and Mode) scrolls when it is taller than the room above
+    // the tab bar (the RGT's levers and pedal set): the mouse wheel, PageUp / PageDown, Up / Down, Home / End, and
+    // the scroll bar at the right (dragged, or clicked to jump). Never sideways: the width is the window's.
 
     enum class Page { Mapping, Games };
     void setPage(const Page page) {
@@ -54,6 +57,7 @@ public:
             if (mode_ == Mode::PickAlt) closeAltPicker();
             mode_ = Mode::Idle;
             dragging_ = false;
+            barDragging_ = false;
         }
         page_ = page;
     }
@@ -113,8 +117,16 @@ public:
     [[nodiscard]] bool editingText() const {
         return field_ != Field::None || mode_ == Mode::PickAlt || mode_ == Mode::Pick;
     }
-    // The mouse wheel (notches, > 0 = up): scrolls a picker's list.
+    // The mouse wheel (notches, > 0 = up): scrolls a picker's list, else the Mapping page.
     void onScroll(int notches);
+    // Whether a key scrolls the Mapping page (onKey takes it then): PageUp / PageDown, Up / Down, Home / End.
+    [[nodiscard]] static bool scrollKey(const char key) {
+        return key == ui::kPageUp || key == ui::kPageDown || key == ui::kUp || key == ui::kDown || key == ui::kHome ||
+               key == ui::kEnd;
+    }
+    // How far the Mapping page is scrolled down, and at most (from the last draw; 0 when it all fits).
+    [[nodiscard]] float scrolled() const { return scroll_; }
+    [[nodiscard]] float scrollMost() const { return scrollMost_; }
     // A picker wants the rig's controls as they are touched (the app reads the devices meanwhile, as the Rig tab does)
     // and onRigTouch gets each one. The secondary popup adds a named control to the button's secondaries (never takes
     // one off: only a click does that) and flashes its entry; the source picker picks it and closes, unless it is used
@@ -297,9 +309,21 @@ private:
     // unless `takenClicks` (the source picker: a click moves it here).
     void drawEntry(float x, float y, float w, const std::string& text, const EntryState& state,
                    std::function<void()> action, bool takenClicks = false);
+    // A hover text over (x, y, w, h) as drawn (in the scrolled part: moved and cut to what is seen).
     void tip(float x, float y, float w, float h, std::string text);
-    // The STEERING ROTATION section from `y`: the rotation, and that the wheel's own software must match it.
-    void drawRotation(float y);
+    // The STEERING ROTATION section from `y`: the rotation, and that the wheel's own software must match it, and the
+    // sections under it. Returns where they end.
+    float drawRotation(float y);
+    // The Mapping page below the top rows (from `top`), scrolled by scroll_ and seen down to contentH(): drawn first,
+    // so the top rows are drawn over what is scrolled up under them. Then the scroll bar, when it does not all fit.
+    void drawScrolled(float top, const std::string& target);
+    // The same, unscrolled: the rig line, AXES, D-PAD, BUTTONS, STEERING ROTATION and the sections under it. Returns
+    // where it ends.
+    float drawMappingBody(float top, const std::string& target);
+    void scrollBy(float pixels);
+    void dragBarTo(float y);
+    // Whether the mouse is over (x, y, w, h) as drawn now (in the scrolled part: as seen).
+    [[nodiscard]] bool hovered(float x, float y, float w, float h) const;
     // The Games page: the list of profiles, and the picked one's.
     void drawGames();
     // The Games list's bar was pressed (clickX_): starts dragging it, or on a second press fits the list.
@@ -428,11 +452,27 @@ private:
     std::filesystem::path stateFile_;
     std::string rigName_;
     Rig rig_;
-    std::vector<std::string> rigNotices_;   // what the Rig could not map (followRig), said in the status line
+    std::vector<std::string> rigNotices_;   // what the Rig could not map (followRig), said in the top row
     ConfigPicker& picker_;
     HitList hits_;
     std::vector<Tip> tips_;
     std::size_t popupTips_ = 0;   // tips_ from here on are the open popup's
+    // The Mapping page's scrolled part: how far down, and at most (from the last draw); where it is seen on the
+    // canvas; while it is drawn, what its hits and tips get (HitView: moved by -scroll_, cut to what is seen).
+    float scroll_ = 0;
+    float scrollMost_ = 0;
+    float viewTop_ = 0;
+    float viewBottom_ = 0;
+    HitView view_;
+    // Its scroll bar as last drawn (shown when it does not all fit): dragged from a press until let go.
+    struct Bar {
+        float x = 0, y = 0, w = 0, h = 0;      // the track
+        float thumbStart = 0, thumbSize = 0;   // along it
+        bool shown = false;
+    };
+    Bar bar_;
+    bool barDragging_ = false;
+    float barGrab_ = 0;   // where on the thumb it was taken
     float hoverX_ = 0.0F;
     float hoverY_ = 0.0F;
     bool hoverInside_ = false;

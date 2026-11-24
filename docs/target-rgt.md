@@ -86,7 +86,7 @@ to switch while it is 0%). Its Mapping row has no number.
 - **With Thrustmaster's driver installed**: Start presents the RGT as the real wheel (its real descriptor, so
   Thrustmaster's driver recognises it), and its force feedback driver drives it. That driver works the effects out
   itself and sends one force; WheelBri plays it on your rig through its safety limits (`wheelbri-driver-*.log`, "maker
-  ffb" lines). The Mapping tab says the driver is there (Target RGT, Mode Virtual), and Start does in the log. Needs the
+  ffb" lines). The Mapping tab's gear after the Mode buttons turns amber when the driver is there (Target RGT, Mode Virtual), and Start does in the log. Needs the
   drivers from this version (`drivers.sh -Install`, or the installer). Thrustmaster's 2018.FFD.2 registers that driver for 64-bit programs
   only (Windows 11, 2026-11-23): a 32-bit game such as Race Driver: GRID cannot load it, so it gets no force feedback at
   all on the RGT while the package is installed; uninstall it for such games, and Windows' driver plays every effect.

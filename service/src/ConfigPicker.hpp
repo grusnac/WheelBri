@@ -61,8 +61,9 @@ public:
         // Where Logitech's TrueForce SDK is on this PC ("" = not installed): service trueForceSdkPath(). Asked when
         // the files are looked at again (refresh) and every kSdkCheckSeconds while the G923's row shows. Unset: none.
         std::function<std::string()> trueForceSdk{};
-        // Whether the target's maker's force feedback driver is installed (service makerFfbDriverInstalled: the RGT,
-        // Thrustmaster's), by target profile ("tm_rgt"). Asked as trueForceSdk is. Unset: never.
+        // Whether the target's maker's force feedback driver is installed, by target profile ("g920", "tm_rgt"):
+        // G HUB's for the G920 and G923 and Thrustmaster's for the RGT (service makerFfbDriverInstalled), G HUB's
+        // older-wheel one for the G25 and G27 (classicFfbDriverInstalled). Asked as trueForceSdk is. Unset: never.
         std::function<bool(std::string_view)> makerFfbDriver{};
     };
     static constexpr int kSdkCheckSeconds = 5;
@@ -80,8 +81,13 @@ public:
 
     [[nodiscard]] Way way() const { return way_; }
     // Whether the Target's maker's force feedback driver is installed (Settings::makerFfbDriver), checked again every
-    // kSdkCheckSeconds: the Mapping tab says so for the RGT in Mode Virtual.
+    // kSdkCheckSeconds: the Mode row's gear (Mode Virtual).
     [[nodiscard]] bool makerFfbDriverFound();
+    // Whether that driver, `found`, plays the virtual wheel's force feedback: the G25's and G27's only in the Logitech
+    // order (their classic identity); else Windows' HID PID driver does. The gear is amber then, grey otherwise.
+    [[nodiscard]] static bool makerDriverDrives(Target target, ButtonOrder order, bool found);
+    // The gear's hover text: whose driver plays the virtual Target's force feedback, and the G923's TrueForce files.
+    [[nodiscard]] static std::string driverAbout(Target target, ButtonOrder order, bool found, bool trueForceFiles);
     [[nodiscard]] Target target() const { return target_; }
     [[nodiscard]] bool virtualDevice() const { return way_ == Way::VirtualDevice; }
     // "G920 Mode Virtual", "G25 Mode Shim", "G25 Native Mode Shim": for the log and the status.
@@ -162,10 +168,16 @@ public:
     // The G923's row "TrueForce" (at labelX) [Off|On] (from buttonsX), the Mapping tab's TRUEFORCE; nothing for another
     // target. Returns where it ends (y itself when nothing was drawn).
     float drawTrueForce(float labelX, float buttonsX, float y, bool canChange, const TipSink& tip = {});
-    // A click on the tab; true if it was on the row.
+    // A click on the tab; true if it was on the row (or on drawOrder's or drawTrueForce's).
     bool onClick(float x, float y);
+    // The Mapping tab's lower sections scroll: what drawOrder and drawTrueForce make clickable is moved and cut to
+    // what is seen (HitView). draw() leaves it (the scrolled part is drawn first): clearLower starts each frame's.
+    void setLowerView(const HitView& view) { lowerHits_.setView(view); }
+    void clearLower() { lowerHits_.clear(); }
 
 private:
+    // The gear after the Mode buttons (x: its left, y: the row's top), Mode Virtual only; returns where it ends.
+    float drawDriverGear(float x, float y, const TipSink& tip);
     // One button of a row at (x, y); returns where the next one starts (their edges overlap).
     float segment(float x, float y, std::string_view label, float w, bool chosen, bool available,
                   const std::string& about, std::function<void()> action, bool canChangeNow, const TipSink& tip);
@@ -189,7 +201,17 @@ private:
 
     ui::UiWindow& window_;
     Settings settings_;
-    HitList hits_;
+    HitList hits_;        // draw's row
+    HitList lowerHits_;   // drawOrder's and drawTrueForce's (the Mapping tab's lower sections, scrolled)
+    bool lower_ = false;  // segment() is drawing one of those: its place goes in lowerHits_
+    // lower_ set while one of those draws.
+    struct LowerRow {
+        explicit LowerRow(bool& flag) : flag_(flag) { flag_ = true; }
+        ~LowerRow() { flag_ = false; }
+        LowerRow(const LowerRow&) = delete;
+        LowerRow& operator=(const LowerRow&) = delete;
+        bool& flag_;
+    };
     bool locked_ = false;
     Way way_ = Way::VirtualDevice;
     Target target_ = Target::G920;

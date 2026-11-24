@@ -479,6 +479,16 @@ void MappingEditView::onClick(const float x, const float y) {
         field_ = Field::None;
     }
     clickX_ = x;
+    // A press on the scroll bar: on the thumb it is taken where pressed; elsewhere on the track the thumb jumps there
+    // (centred on the mouse). Either way the drag goes on while the button is held (onPointer).
+    if (mode_ == Mode::Idle && page_ == Page::Mapping && bar_.shown && x >= bar_.x - 3 && x < bar_.x + bar_.w + 3 &&
+        y >= bar_.y && y < bar_.y + bar_.h) {
+        const float offset = y - (bar_.y + bar_.thumbStart);
+        barGrab_ = offset >= 0 && offset < bar_.thumbSize ? offset : bar_.thumbSize / 2;
+        barDragging_ = true;
+        dragBarTo(y);
+        return;
+    }
     // The Target and Mode row at the top: the Mapping page's only (the Games page shows them, never changes
     // them), and never while a session runs.
     if (mode_ == Mode::Idle && page_ == Page::Mapping && !locked_ && picker_.onClick(x, y)) return;
@@ -486,6 +496,17 @@ void MappingEditView::onClick(const float x, const float y) {
 }
 
 void MappingEditView::onKey(const char key) {
+    if (scrollKey(key)) {   // the Mapping page, while nothing is typed or picked
+        if (mode_ != Mode::Idle || page_ != Page::Mapping || field_ != Field::None) return;
+        const float page = (viewBottom_ - viewTop_) * 0.9F;
+        if (key == ui::kPageDown) scrollBy(page);
+        if (key == ui::kPageUp) scrollBy(-page);
+        if (key == ui::kDown) scrollBy(kScrollStep);
+        if (key == ui::kUp) scrollBy(-kScrollStep);
+        if (key == ui::kHome) scrollBy(-scrollMost_ - 1);
+        if (key == ui::kEnd) scrollBy(scrollMost_ + 1);
+        return;
+    }
     if (key != ui::kEscape) return;
     if (field_ != Field::None) {
         field_ = Field::None;   // Escape while typing: drop what was typed
@@ -532,7 +553,15 @@ void MappingEditView::onText(const std::string& text) {
     }
 }
 
-void MappingEditView::onPointer(const float x, const float /*y*/, const bool leftDown) {
+void MappingEditView::onPointer(const float x, const float y, const bool leftDown) {
+    if (barDragging_) {   // the Mapping page's scroll bar: the page follows it until it is let go
+        if (!leftDown || mode_ != Mode::Idle || page_ != Page::Mapping) {
+            barDragging_ = false;
+            return;
+        }
+        dragBarTo(y);
+        return;
+    }
     if (listDragging_) {   // the Games list's bar: the list follows it, and keeps its width once it is let go
         if (leftDown && page_ == Page::Games) {
             const float width = std::clamp(x - listGrab_, kGameListMinW, maxGameListW());
@@ -558,6 +587,15 @@ void MappingEditView::onPointer(const float x, const float /*y*/, const bool lef
         return;
     }
     setSliderFromX(x);
+}
+
+void MappingEditView::scrollBy(const float pixels) { scroll_ = std::clamp(scroll_ + pixels, 0.0F, scrollMost_); }
+
+void MappingEditView::dragBarTo(const float y) {
+    // The thumb's start follows the mouse (less where it was taken); its place along the free track is the scroll.
+    if (!bar_.shown) return;
+    const float free = std::max(1.0F, bar_.h - bar_.thumbSize);
+    scroll_ = std::clamp((y - barGrab_ - bar_.y) / free, 0.0F, 1.0F) * scrollMost_;
 }
 
 void MappingEditView::setSliderFromX(const float x) {
@@ -862,8 +900,13 @@ void MappingEditView::drawChips(const float x, const float y, const float w, con
     }
 }
 
+bool MappingEditView::hovered(const float x, float y, const float w, float h) const {
+    if (!hoverInside_ || !view_.apply(y, h)) return false;
+    return hoverX_ >= x && hoverX_ < x + w && hoverY_ >= y && hoverY_ < y + h;
+}
+
 void MappingEditView::drawPlus(const float x, const float y, const std::size_t index) {
-    const bool on = hoverInside_ && hoverX_ >= x && hoverX_ < x + kPlusW && hoverY_ >= y && hoverY_ < y + 16;
+    const bool on = hovered(x, y, kPlusW, 16);
     window_.fill(x, y, kPlusW, 16, on ? kHeading : style::kHeadingTint);
     window_.outline(x, y, kPlusW, 16, kHeading);
     window_.heading(x + (kPlusW - ui::kCharWidth) / 2, y + 4, "+", on ? kDark : kHeading);   // bold
@@ -878,9 +921,13 @@ void MappingEditView::drawPlus(const float x, const float y, const std::size_t i
 void MappingEditView::draw() {
     hits_.clear();
     tips_.clear();
+    picker_.clearLower();
+    bar_.shown = false;
     if (page_ == Page::Mapping) autoSave();
     const std::string target = profile_ != nullptr ? profile_->identity().shortName
                                                    : std::string(ConfigPicker::targetName(picker_.target()));
+    // The scrolled part first: the top rows below are drawn over what is scrolled up under them.
+    if (page_ == Page::Mapping && loaded_) drawScrolled(28 + picker_.rowsHeight(), target);
     // The top row: the title left; Default, Save and Revert right, left of the version (Version.hpp). The second row:
     // Target and Mode left; with Mode Shim, the app draws the shim's game at its right (App: gamesRowX).
     const float revertX = canvasW() - kVersionReserve - 80;
@@ -895,9 +942,9 @@ void MappingEditView::draw() {
     }
     // The Games page has no Default, Save or Revert: its subtitle reaches the version.
     const float titleEnd = page_ == Page::Games ? revertX + 80 : builtIn_ ? defaultX : customX;
-    const auto subtitle = [&](const float x, const std::string& text) {
+    const auto subtitle = [&](const float x, const std::string& text, const ui::Colour colour = kDim) {
         window_.text(x, 4, fit(text, static_cast<std::size_t>(std::max(0.0F, (titleEnd - 12 - x) / ui::kCharWidth))),
-                     kDim);
+                     colour);
     };
     if (page_ == Page::Games) {
         window_.text(4, 4, "GAMES", kHeading);
@@ -908,9 +955,23 @@ void MappingEditView::draw() {
         // LiveMapping.hpp); the Live tab shows it at work.
         window_.fill(66, 2, 40, 12, kPanel);
         window_.text(70, 4, "EDIT", kText);
-        subtitle(114, !locked_     ? "what your controls do on the " + target
-                      : inUseNow() ? "running: each change is in use at once (see it on Live, S)"
-                                   : "running: changes are kept for the next Start");
+        // No status line: whether it is saved is "saved" / "not saved" in the top row. Why a change was not taken
+        // (red), or what the Rig could not map (amber), takes the subtitle's place; all of it in its hover text.
+        std::string said;
+        if (loaded_ && statusError_ && !status_.empty()) {
+            said = status_;
+        } else if (loaded_ && !rigNotices_.empty()) {
+            said = "From the Rig: " + rigNotices_.front() +
+                   (rigNotices_.size() > 1 ? " (+" + std::to_string(rigNotices_.size() - 1) + " more)" : "") + ".";
+        }
+        if (!said.empty()) {
+            subtitle(114, said, statusError_ ? kWarning : kCaution);
+            tip(110, 2, std::max(0.0F, titleEnd - 12 - 110), 12, said);
+        } else {
+            subtitle(114, !locked_     ? "what your controls do on the " + target
+                          : inUseNow() ? "running: each change is in use at once (see it on Live, S)"
+                                       : "running: changes are kept for the next Start");
+        }
     }
 
     // The target (fixed inputs, picked with < >) and how it runs, "custom", Default, Save and Revert: the Mapping tab's
@@ -979,7 +1040,7 @@ void MappingEditView::draw() {
     window_.text(saveX + 80 - static_cast<float>(saveState.size()) * ui::kCharWidth, 6, saveState,
                  unsaved ? kWarning : kDim);
     tip(saveX, 2, 80, 16,
-        unsaved ? "This change could not be saved: the line at the bottom says why. Undo drops it."
+        unsaved ? "This change could not be saved: the red line right of MAPPING says why. Undo drops it."
                 : "Every change is saved at once; Start uses what you see. Accessories it uses must be plugged in to "
                   "start.");
     const bool canUndo = loaded_ && (unsaved || !undo_.empty());
@@ -999,8 +1060,48 @@ void MappingEditView::draw() {
         return;
     }
 
+    popupTips_ = tips_.size();   // a popup's own tips come after the tab's (which it covers)
+    if (mode_ == Mode::Pick) drawPicker();
+    if (mode_ == Mode::PickAlt) drawAltPicker();
+}
+
+void MappingEditView::drawScrolled(const float top, const std::string& target) {
+    // Seen from just under the top rows down to the tab bar; drawn moved up by scroll_ (the window's origin), its
+    // hits and tips moved and cut the same way (HitView), the picker's lower rows too.
+    viewTop_ = top - 4;
+    viewBottom_ = std::max(viewTop_ + 1, contentH());
+    scroll_ = std::clamp(scroll_, 0.0F, scrollMost_);
+    const float originX = window_.originX();
+    const float originY = window_.originY();
+    view_ = HitView{-scroll_, viewTop_, viewBottom_, true};
+    hits_.setView(view_);
+    picker_.setLowerView(view_);
+    window_.setOrigin(originX, originY - scroll_);
+    const float end = drawMappingBody(top, target);
+    window_.setOrigin(originX, originY);
+    view_ = HitView{};
+    hits_.setView(view_);
+    picker_.setLowerView(view_);
+    // What the scrolling can reach: the end (and a margin) just above the tab bar.
+    scrollMost_ = std::max(0.0F, std::ceil(end + kScrollMargin - viewBottom_));
+    scroll_ = std::clamp(scroll_, 0.0F, scrollMost_);
+    // What is scrolled out of view, under the top rows and the tab bar (drawn after this, over it).
+    window_.fill(0, 0, canvasW(), viewTop_, style::kBackground);
+    window_.fill(0, viewBottom_, canvasW(), std::max(0.0F, canvasH() - viewBottom_), style::kBackground);
+    if (scrollMost_ <= 0) return;
+    // Where the view is in the page: dragged or clicked (onClick, onPointer), the mouse wheel, PageUp / PageDown,
+    // Up / Down, Home / End. At the right edge, over the fields' last pixels.
+    const float room = viewBottom_ - viewTop_;
+    bar_ = {canvasW() - kScrollBarW, viewTop_, kScrollBarW, room, 0, 0, true};
+    bar_.thumbSize = std::max(16.0F, room * room / (room + scrollMost_));
+    bar_.thumbStart = (room - bar_.thumbSize) * (scroll_ / scrollMost_);
+    window_.fill(bar_.x, bar_.y, bar_.w, bar_.h, kStripe);
+    window_.fill(bar_.x, bar_.y + bar_.thumbStart, bar_.w, bar_.thumbSize, barDragging_ ? kText : kHeading);
+}
+
+float MappingEditView::drawMappingBody(const float top, const std::string& target) {
     // No wheel line: there is one rig, and its wheel is device 0 (Rig::wheel, or the config's source_device).
-    float y = 28 + picker_.rowsHeight();   // under the top row (Target and Mode)
+    float y = top;   // under the top row (Target and Mode)
     if (rig_.devices.empty()) {
         window_.text(4, y,
                      rigName_.empty() ? "No rig yet: define your devices and their controls in the Rig tab first."
@@ -1122,20 +1223,11 @@ void MappingEditView::draw() {
     }
     const float gridEnd = gridTop + layout.height - 4;
 
-    drawRotation(gridEnd + 14);
-
-    // One status line, only while there is something to say; whether it is saved is in the top row, the explanations
-    // are hover text (the headings, saved, Undo, Default, Invert).
-    if (!status_.empty()) {
-        window_.text(4, contentH() - 24, fit(status_, 118 + extraChars()), statusError_ ? kWarning : kActive);
-    }
-
-    popupTips_ = tips_.size();   // a popup's own tips come after the tab's (which it covers)
-    if (mode_ == Mode::Pick) drawPicker();
-    if (mode_ == Mode::PickAlt) drawAltPicker();
+    return drawRotation(gridEnd + 14);
 }
 
-void MappingEditView::tip(const float x, const float y, const float w, const float h, std::string text) {
+void MappingEditView::tip(const float x, float y, const float w, float h, std::string text) {
+    if (!view_.apply(y, h)) return;   // in the scrolled part: where it is seen, nothing when it is not
     tips_.push_back({x, y, w, h, std::move(text)});
 }
 
@@ -1189,7 +1281,7 @@ float MappingEditView::section(const float y, const std::string_view title, cons
     return y + 16;
 }
 
-void MappingEditView::drawRotation(const float top) {
+float MappingEditView::drawRotation(const float top) {
     // The steering rotation: the slider and the typed number (90 to the most the Target's wheel turns) and the usual
     // values up to that most.
     float y = section(top, "STEERING ROTATION", "full lock to full lock, in degrees");
@@ -1223,7 +1315,7 @@ void MappingEditView::drawRotation(const float top) {
     y += 30;
     // The centring spring is a target's own (Logitech's software had one for the G25 and G27 only).
     if (profile_ != nullptr && profile_->identity().centringSpring) y = drawCentringSpring(y) + 14;
-    drawLowerGrid(y);
+    return drawLowerGrid(y);
 }
 
 float MappingEditView::cellSection(const float x, const float y, const float w, const std::string_view title) {
@@ -1257,20 +1349,6 @@ float MappingEditView::drawLowerGrid(const float top) {
         float bottom = drawCell(i, 0, y);
         if (twoColumns && i + 1 < count) bottom = std::max(bottom, drawCell(i + 1, w + kGridGap, y));
         y = bottom + 14;
-    }
-    // The RGT in Mode Virtual with Thrustmaster's driver installed: its force feedback driver drives the virtual RGT
-    // (WheelBri never removes it); WheelBri plays what it sends (MakerFfb), but its package serves 64-bit games only.
-    if (rgt && picker_.way() == ConfigPicker::Way::VirtualDevice && picker_.makerFfbDriverFound()) {
-        const std::string line = "Thrustmaster's driver found: it drives the virtual RGT's force feedback, in "
-                                 "64-bit games only";
-        window_.text(4, y, fit(line, static_cast<std::size_t>(std::max(10.0F, (canvasW() - 8) / ui::kCharWidth))),
-                     kCaution);
-        tip(4, y - 2, canvasW() - 8, 14,
-            "Thrustmaster's force feedback driver (installed with its software) is registered for the RGT, so games' "
-            "effects go to it, not to Windows' HID PID driver. WheelBri leaves it in place and plays the force it "
-            "sends. Its package registers it for 64-bit games only: a 32-bit game such as GRID gets no force "
-            "feedback. Without it, Windows' driver plays every effect.");
-        y += 18;
     }
     return y;
 }

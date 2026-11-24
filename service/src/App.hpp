@@ -39,8 +39,8 @@ struct AppSettings {
         runSession;
     // Where Logitech's TrueForce SDK is installed ("" = not): the Mapping tab's TrueForce switch is greyed without it.
     std::function<std::string()> trueForceSdk;
-    // Whether the target's maker's force feedback driver is installed (makerFfbDriverInstalled), by target profile: the
-    // Mapping tab says so for the RGT.
+    // Whether the target's maker's force feedback driver is installed, by target profile (ConfigPicker::Settings):
+    // the Mapping tab's gear after the Mode buttons.
     std::function<bool(std::string_view)> makerFfbDriver;
     // Asks the running session to stop (from the window's thread).
     std::function<void()> requestStop;

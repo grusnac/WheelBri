@@ -305,10 +305,8 @@ bool ConfigPicker::makerFfbDriverFound() {
         const bool found = settings_.makerFfbDriver(profileName(target_));
         if (found != makerDriver_ || makerDriverTarget_ != target_ ||
             makerDriverCheckedAt_ == std::chrono::steady_clock::time_point{}) {
-            if (found) {
-                WE_LOG_INFO(log(), "the {}: its maker's force feedback driver is installed: it drives the virtual "
-                                   "wheel, and WheelBri does not read what it sends yet", targetName(target_));
-            }
+            WE_LOG_INFO(log(), "the {}: its maker's force feedback driver is {}", targetName(target_),
+                        found ? "installed" : "not installed (Windows' drives the virtual wheel)");
         }
         makerDriver_ = found;
         makerDriverTarget_ = target_;
@@ -417,9 +415,19 @@ void ConfigPicker::chosen() {
 bool ConfigPicker::onClick(const float x, const float y) {
     if (locked_) {   // a session runs: also the buttons of a draw from before it started do nothing
         hits_.clear();
+        lowerHits_.clear();
         return false;
     }
-    return hits_.dispatch(x, y);
+    // One click, one action: the other list is stale too until the next draw.
+    if (hits_.dispatch(x, y)) {
+        lowerHits_.clear();
+        return true;
+    }
+    if (lowerHits_.dispatch(x, y)) {
+        hits_.clear();
+        return true;
+    }
+    return false;
 }
 
 float ConfigPicker::rowsHeight() const { return kRowHeight; }
@@ -440,7 +448,7 @@ float ConfigPicker::segment(const float x, const float y, const std::string_view
     } else {
         style::button(window_, x, y, w, kRowHeight, text, chosen, on);
     }
-    if (on && !chosen) hits_.add(x, y, w, kRowHeight, std::move(action));
+    if (on && !chosen) (lower_ ? lowerHits_ : hits_).add(x, y, w, kRowHeight, std::move(action));
     if (tip) tip(x, y, w, kRowHeight, canChangeNow && !locked_ ? about : about + " Fixed while WheelBri runs.");
     return x + w - 1;
 }
@@ -472,12 +480,58 @@ float ConfigPicker::draw(const float x0, const float y, const bool canChangeNow,
                         windowsName(kVirtualDeviceMinBuild) + ".",
                     [] {}, canChangeNow, tip);
     }
+    if (way_ == Way::VirtualDevice && settings_.virtualAvailable) x = drawDriverGear(x + 1 + 6, y, tip);
     return x + 1 + 4;
+}
+
+bool ConfigPicker::makerDriverDrives(const Target target, const ButtonOrder order, const bool found) {
+    return found && (!hasButtonOrders(target) || order == ButtonOrder::Driver);
+}
+
+std::string ConfigPicker::driverAbout(const Target target, const ButtonOrder order, const bool found,
+                                      const bool trueForceFiles) {
+    const std::string wheel = std::string("the virtual ") + targetName(target) + "'s force feedback";
+    const std::string windows = "Windows' force feedback driver drives " + wheel;
+    std::string about;
+    if (target == Target::RGT) {
+        about = found ? "Thrustmaster's force feedback driver (installed with its software) drives " + wheel +
+                            ". WheelBri leaves it in place and plays the force it sends. Its package serves 64-bit "
+                            "games only: a 32-bit game such as GRID gets none."
+                      : windows + ", in every game. Thrustmaster's driver is not installed.";
+    } else if (hasButtonOrders(target)) {
+        about = !found ? windows + ". Logitech G HUB's older-wheel driver is not installed."
+                : order == ButtonOrder::Driver
+                    ? "Logitech G HUB's older-wheel force feedback driver drives " + wheel + " (Logitech order)."
+                    : windows + " in the Native order. Logitech G HUB's older-wheel driver is installed: it drives "
+                                "it in the Logitech order.";
+    } else {
+        about = found ? "Logitech G HUB's force feedback driver drives " + wheel + ". WheelBri leaves it in place."
+                      : windows + ". Logitech G HUB's driver is not installed.";
+    }
+    if (hasTrueForce(target)) {
+        about += trueForceFiles ? " TrueForce: G HUB's TrueForce files found (TRUEFORCE below)."
+                                : " TrueForce: G HUB's TrueForce files not found, so TrueForce stays off.";
+    }
+    return about;
+}
+
+float ConfigPicker::drawDriverGear(const float x, const float y, const TipSink& tip) {
+    constexpr float kSize = 16;   // the row's height: a square
+    if (hasTrueForce(target_) &&
+        std::chrono::steady_clock::now() - sdkCheckedAt_ >= std::chrono::seconds(kSdkCheckSeconds)) {
+        checkTrueForceSdk();
+    }
+    const bool found = makerFfbDriverFound();
+    const bool drives = makerDriverDrives(target_, order_, found);
+    style::gear(window_, x + kSize / 2, y + kSize / 2, 6.5F, drives ? style::kCaution : style::kFaint);
+    if (tip) tip(x, y, kSize, kSize, driverAbout(target_, order_, found, trueForceInstalled()));
+    return x + kSize;
 }
 
 float ConfigPicker::drawOrder(const float labelX, const float buttonsX, const float y, const bool canChangeNow,
                               const TipSink& tip) {
     if (!hasButtonOrders(target_)) return y;
+    const LowerRow row(lower_);
     const std::string target = targetName(target_);
     window_.text(labelX, y + 4, kOrderLabel, kText);   // a row label of the Mapping tab's lower sections
     if (tip) {
@@ -498,6 +552,7 @@ float ConfigPicker::drawOrder(const float labelX, const float buttonsX, const fl
 float ConfigPicker::drawTrueForce(const float labelX, const float buttonsX, const float y, const bool canChangeNow,
                                   const TipSink& tip) {
     if (!hasTrueForce(target_)) return y;
+    const LowerRow row(lower_);
     // Installing G HUB while the app is open: On becomes available within a few seconds.
     if (std::chrono::steady_clock::now() - sdkCheckedAt_ >= std::chrono::seconds(kSdkCheckSeconds)) {
         checkTrueForceSdk();
