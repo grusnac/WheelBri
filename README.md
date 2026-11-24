@@ -48,6 +48,12 @@ Two Modes:
 | Target RGT (Thrustmaster), Windows 11 | **works** in Race Driver: GRID, Mode Virtual: a lap driven, force feedback as with the G25 once the Games tab put the G25's friction in GRID's file (GRID's own RGT preset swings a low-friction wheel lock to lock); Mode Shim, its levers and other games **not yet tried** |
 | Button orders | from public sources; **not yet checked on real wheels** (the RGT's rim buttons: not known) |
 
+## What's new in 1.0.5
+
+- **Thrustmaster RGT** Target, with its levers and pedal set; works in Race Driver: GRID (Mode Virtual).
+- **Mapping tab**: scrolls when it does not fit; a gear after Mode says which force feedback driver drives the virtual
+  wheel.
+
 ## What's new in 1.0.4
 
 - **Rig**: up to 128 buttons per device, so a Moza HGP shifter on the R3 base can be mapped (Linux: at most 80).

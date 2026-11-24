@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.5 (2026-11-24)
+
+- A new Target, the Thrustmaster **RGT**: its two levers and axis modes (3 or 5 axes), the pedal set (Clutch or
+  Levers; with Levers, Start waits until both levers are mapped), its picture in the Shadow view. Works in Race
+  Driver: GRID, Mode Virtual. With Thrustmaster's own force feedback driver installed, WheelBri leaves it in place and
+  plays the force it sends (64-bit games only).
+- Game files: a game profile can put lines into the game's own settings file and take them out again, from the Games
+  tab (Game file). GRID: replay controls on the G25, and the G25's friction for the RGT (GRID's own RGT preset swings
+  the wheel lock to lock).
+- The steering rotation stops at the Target's real maximum. Auto-map also maps an H-shifter's gears from the Rig.
+- Mapping tab: a gear after the Mode buttons (Mode Virtual) says which force feedback driver plays the virtual wheel's
+  effects. The page scrolls when it is taller than the window (mouse wheel, Page Up / Page Down, Home / End, the bar
+  at the right). No status line at the bottom: why a change was not taken shows in red next to MAPPING.
+- Shadow view: short gear names on the gate.
+
 ## 1.0.4 (2026-11-14)
 
 - The rig reads up to 128 buttons per device (before: 64), so a Moza HGP shifter on the R3 base (gears on buttons
