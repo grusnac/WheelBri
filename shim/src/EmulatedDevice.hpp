@@ -680,7 +680,8 @@ private:
 
     static std::size_t countButtons(const IDeviceProfile& profile) {
         // All the target's buttons, unnamed gaps included (the G920's 12th): the shifter must sit at its real numbers.
-        return profile.buttonCount();
+        // Not the Force button (the RGT's): the wheel never reports it.
+        return profile.reportedButtonCount();
     }
 
     [[nodiscard]] static bool serviceFfb() { return shimConfig().forceFeedback == FfbMode::Service; }

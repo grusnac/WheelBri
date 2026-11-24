@@ -49,6 +49,7 @@ add_executable(wheelbri_tests
     HidPpFfbTest.cpp
     ClassicFfbTest.cpp
     MakerFfbTest.cpp
+    ForceButtonTest.cpp
     InputReadStatsTest.cpp
     IniDocumentTest.cpp
     IniEditorTest.cpp

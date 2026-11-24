@@ -314,9 +314,9 @@ TEST_F(LiveView, ShadowViewHasEveryG25ButtonByTheGamesNumber) {
     EXPECT_TRUE(window_.has("Gas pedal") && window_.has("Brake pedal") && window_.has("Clutch pedal"));
 }
 
-// The RGT's picture: Down and Up printed on the paddles' tabs, + and - by the stick, the game's number on Button 3-8;
-// the rig's labels beside them; the levers (nothing drives them) and the buttons not known faint, "?" on the three
-// unknown.
+// The RGT's picture: Down and Up printed on the paddles' tabs, + and - by the stick, the game's number on Button 3-8,
+// 11 and 12 (the stick's base), "F" on the Force button; the rig's labels beside them; the levers (nothing drives
+// them) faint; no "?" left.
 TEST_F(LiveView, ShadowViewHasEveryRgtButton) {
     profile_ = makeProfile("tm_rgt");
     auto view = makeView(8, 40, mozaRimMapping("tm_rgt", {{0, 12}, {1, 13}, {2, 3}, {3, 2}, {4, 1}, {5, 0}, {6, 21},
@@ -330,16 +330,19 @@ TEST_F(LiveView, ShadowViewHasEveryRgtButton) {
         return n;
     };
     for (const char* print : {"DOWN", "UP", "+", "-"}) EXPECT_EQ(onPicture(print), 1) << print << "\n" << window_.dump();
-    for (std::size_t b = 2; b < 8; ++b) {
+    for (const std::size_t b : {2, 3, 4, 5, 6, 7, 10, 11}) {
         const std::string number = std::to_string(gameButtonNumber(*profile_, ButtonOrder::Driver, b));
         EXPECT_GE(onPicture(number), 1) << "button " << b << " (" << number << ")\n" << window_.dump();
     }
+    EXPECT_EQ(onPicture("F"), 1) << window_.dump();
+    EXPECT_EQ(onPicture("Force"), 1) << window_.dump();   // its own name (nothing drives it); no "Force: on" stopped
+    EXPECT_EQ(onPicture("Force: on") + onPicture("Force: off"), 0);
     for (const char* label : {"L paddle", "R paddle", "Y", "X", "B", "A", "Cam", "Radio", "R", "Start"}) {
         EXPECT_TRUE(hasIn(window_, label, style::kText)) << label << "\n" << window_.dump();
     }
     EXPECT_TRUE(hasIn(window_, "Left lever", style::kFaint));
     EXPECT_TRUE(hasIn(window_, "Right lever", style::kFaint));
-    EXPECT_EQ(onPicture("?"), 3);   // the bottom spoke's lower button and the base's two
+    EXPECT_EQ(onPicture("?"), 0);
 }
 
 // The RGT's levers: with the pedal set at Levers each tab lights from the bottom by its travel and is labelled by what

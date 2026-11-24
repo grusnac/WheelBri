@@ -443,8 +443,9 @@ TEST(DeviceProfile, ReportsAndCellsCompareEveryField) {
     EXPECT_EQ(toString(b), "{C262046D-0000-0000-0000-504944564900}");
 }
 
-// The RGT: Thrustmaster's DirectInput name and ids, 270 degrees, 10 buttons, one order; core buttons where Race
-// Driver: GRID's RGT preset has Select, Back, Boost, Look back and the paddles.
+// The RGT: Thrustmaster's DirectInput name and ids, 270 degrees, 12 buttons reported and the Force button after them
+// (never reported), one order; core buttons where Race Driver: GRID's RGT preset has Select, Back, Boost, Look back
+// and the paddles.
 TEST(DeviceProfile, RgtIsThrustmastersName) {
     const auto rgt = makeProfile("tm_rgt");
     ASSERT_NE(rgt, nullptr);
@@ -452,7 +453,14 @@ TEST(DeviceProfile, RgtIsThrustmastersName) {
     EXPECT_EQ(rgt->identity().productId, 0xB653);
     EXPECT_EQ(rgt->identity().productName, "RGT Force Feedback Pro");
     EXPECT_FLOAT_EQ(rgt->identity().rotationDeg, 270.0F);
-    EXPECT_EQ(rgt->buttonCount(), kRgtButtons);
+    EXPECT_EQ(rgt->buttonCount(), kRgtButtons + 1);
+    EXPECT_EQ(rgt->reportedButtonCount(), kRgtButtons);
+    EXPECT_EQ(rgt->forceButton(), kRgtForceButton);
+    EXPECT_EQ(rgt->buttonName(10), "Button 11");
+    EXPECT_EQ(rgt->buttonName(11), "Button 12");
+    EXPECT_EQ(rgt->buttonName(kRgtForceButton), "Force");
+    EXPECT_EQ(makeProfile("g25")->forceButton(), std::nullopt);
+    EXPECT_EQ(makeProfile("g25")->reportedButtonCount(), makeProfile("g25")->buttonCount());
     EXPECT_FALSE(rgt->hasNativeButtonOrder());
     EXPECT_EQ(rgt->coreButton(CoreButton::A), 5);
     EXPECT_EQ(rgt->coreButton(CoreButton::B), 4);

@@ -134,9 +134,15 @@ public:
     // Label printed on the emulated wheel for a target button (0-based), or empty if it has none.
     // For display and logs only; nothing is decided by it.
     [[nodiscard]] virtual std::string_view buttonName(std::size_t /*index*/) const { return {}; }
-    // How many buttons the emulated wheel reports (DirectInput's dwButtons, the HID report's button count), unnamed
-    // gaps included: the G920's button 12 (1-based) exists but nothing presses it.
+    // How many buttons the mapping has (target buttons 0..buttonCount() - 1, the Mapping tab's rows), unnamed gaps
+    // included: the G920's button 12 (1-based) exists but nothing presses it.
     [[nodiscard]] virtual std::size_t buttonCount() const { return 0; }
+    // How many of them the emulated wheel reports (DirectInput's dwButtons, the HID report's button count): all but
+    // the Force button.
+    [[nodiscard]] virtual std::size_t reportedButtonCount() const { return buttonCount(); }
+    // The Force button (the RGT's, docs/target-rgt.md): the last target button, never reported to the game; each press
+    // switches the target's centring spring off or on (ForceButton.hpp). nullopt: the target has none.
+    [[nodiscard]] virtual std::optional<std::size_t> forceButton() const { return std::nullopt; }
     // How the Mapping tab groups its named buttons (related ones together); empty: in number order.
     [[nodiscard]] virtual std::vector<ButtonGroup> buttonGroups() const { return {}; }
     // Whether its buttons have a native order besides the one they are named in (ButtonOrder::Native).
@@ -194,6 +200,8 @@ struct DeviceProfileSpec {
     std::array<int, kCoreButtonCount> coreButtons = {-1, -1, -1, -1, -1, -1};
     // The target button of each gear (IDeviceProfile::gearButton), in kGearKinds' order; -1: none.
     std::array<int, kGearCount> gearButtons = {-1, -1, -1, -1, -1, -1, -1, -1};
+    // The last of buttonNames is the Force button (IDeviceProfile::forceButton): not reported.
+    bool forceButton = false;
 };
 
 // Data-driven profile: identity plus linear axis encodings.
@@ -205,6 +213,13 @@ public:
     [[nodiscard]] TargetReport encode(const WheelState& state) const override;
     [[nodiscard]] std::string_view buttonName(std::size_t index) const override;
     [[nodiscard]] std::size_t buttonCount() const override { return spec_.buttonNames.size(); }
+    [[nodiscard]] std::size_t reportedButtonCount() const override {
+        return spec_.buttonNames.size() - (spec_.forceButton && !spec_.buttonNames.empty() ? 1 : 0);
+    }
+    [[nodiscard]] std::optional<std::size_t> forceButton() const override {
+        if (!spec_.forceButton || spec_.buttonNames.empty()) return std::nullopt;
+        return spec_.buttonNames.size() - 1;
+    }
     [[nodiscard]] std::vector<ButtonGroup> buttonGroups() const override { return spec_.buttonGroups; }
     [[nodiscard]] bool hasNativeButtonOrder() const override { return !spec_.nativeButtonOrder.empty(); }
     [[nodiscard]] std::uint32_t nativeButtons(std::uint32_t buttons) const override;
@@ -271,14 +286,20 @@ inline constexpr std::size_t kG923FirstGear = kG920FirstGear;
 // with its 24 buttons. Its rev lights are not emulated; TrueForce is (TrueForce.hpp).
 [[nodiscard]] DeviceProfileSpec g923Spec();
 
-// The RGT's buttons (Thrustmaster RGT Force Feedback Pro Clutch Edition, 044F:B653, docs/target-rgt.md): 10, as
-// Thrustmaster's driver registers them (Buttons 0-9) and Race Driver: GRID's RGT preset reads them: 0 and 1 the
-// paddles (gear down, gear up), 2-7 the rim's buttons, 8 and 9 the sequential stick (up a gear, down a gear).
-inline constexpr std::size_t kRgtButtons = 10;
+// The RGT's buttons (Thrustmaster RGT Force Feedback Pro Clutch Edition, 044F:B653, docs/target-rgt.md): the real
+// wheel reports 10 (its report descriptor, linux-input 2008), as Thrustmaster's driver registers them and Race Driver:
+// GRID's RGT preset reads them: 0 and 1 the paddles (gear down, gear up), 2-7 the rim's buttons, 8 and 9 the
+// sequential stick (up a gear, down a gear). WheelBri's RGT reports 12: 10 and 11 the two on the stick's base, which
+// a real one does not report (its maker's identity, VirtualWheel::makerIdentity, keeps the real 10).
+inline constexpr std::size_t kRgtRealButtons = 10;
+inline constexpr std::size_t kRgtButtons = 12;
+// The RGT's Force button (12, after them): switches its centring spring off and on (on a real one, its recentring);
+// handled inside a real wheel, never reported.
+inline constexpr std::size_t kRgtForceButton = kRgtButtons;
 // Thrustmaster RGT Force Feedback Pro Clutch Edition (044F:B653), as games see it with Thrustmaster's driver: named
 // "RGT Force Feedback Pro" (the name Thrustmaster's installer registers for B653 and Race Driver: GRID's preset 5
-// reads), 270 degrees, pedals released at the top (255 at rest on a real one), 10 buttons, a D-pad. Which rim button
-// is which number is not known yet: the names say Button 3..8.
+// reads), 270 degrees, pedals released at the top (255 at rest on a real one), 12 buttons and the Force button, a
+// D-pad. Which rim button is which number is not known yet: the names say Button 3..8.
 [[nodiscard]] DeviceProfileSpec rgtSpec();
 
 // The TMX's buttons (Thrustmaster TMX PRO Force Feedback, 044F:B67F, docs/target-tmx.md): 13, as the real wheel's

@@ -33,7 +33,7 @@ namespace wheelbri::service {
 class ShadowView {
 public:
     // Whether `profile` has a picture here: the G25 (its 19 buttons), the G27 (its 23), the G920 (its 19) or the G923
-    // (its 24) or the RGT (its 10; docs/target-<target>.md).
+    // (its 24) or the RGT (its 12 and the Force button; docs/target-<target>.md).
     [[nodiscard]] static bool hasPicture(const IDeviceProfile& profile);
 
     // Draws into `window` (not owned; it must outlive the view).
@@ -43,6 +43,9 @@ public:
     // The RGT's axis mode and pedal set at Start ([tm_rgt]; SessionInfo::rgtMode): with the clutch its levers are not
     // reported, so their tabs go faint. nullopt: every other target.
     void setRgtMode(const std::optional<RgtMode> mode) { rgtMode_ = mode; }
+    // Whether the target's centring spring plays (the RGT's Force button switches it): its Force cap says so.
+    // nullopt: not known (no session, or no force feedback).
+    void setCentringSpring(const std::optional<bool> on) { springOn_ = on; }
     // The mapping changed while the session runs (LiveMapping.hpp): labels, faint controls and the steering arc follow.
     void setMapping(const MapperConfig& mapper) { mapper_ = mapper; }
     // The accessories the mapping reads (device 1, 2, 3), for their labels and names.
@@ -136,6 +139,7 @@ private:
     std::array<DeviceLabels, MapperConfig::kMaxAccessories> accessories_{};
     ButtonOrder order_ = ButtonOrder::Driver;
     std::optional<RgtMode> rgtMode_;
+    std::optional<bool> springOn_;
     enum class Picture { G25, G27, G920, G923, RGT };
     // The Xbox wheels: the G920 and the G923 share a body, their buttons' own print, the Driving Force Shifter.
     [[nodiscard]] bool xbox() const { return picture_ == Picture::G920 || picture_ == Picture::G923; }

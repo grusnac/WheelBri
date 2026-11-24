@@ -26,7 +26,7 @@ TEST(VirtualWheel, OneIdentityPerTarget) {
         // The same ids and button count as the target the shim presents.
         EXPECT_EQ(wheel.vendorId, profile->identity().vendorId);
         EXPECT_EQ(wheel.productId, profile->identity().productId);
-        EXPECT_EQ(wheel.buttons, profile->buttonCount());
+        EXPECT_EQ(wheel.buttons, profile->reportedButtonCount());
         EXPECT_EQ(wheel.oemName, profile->identity().productName);
     }
 }
@@ -220,7 +220,8 @@ TEST(VirtualWheel, TheRgtHasAMakersIdentity) {
     EXPECT_EQ(maker->vendorId, plain.vendorId);
     EXPECT_EQ(maker->productId, plain.productId);
     EXPECT_EQ(maker->oemName, plain.oemName);
-    EXPECT_EQ(maker->buttons, plain.buttons);
+    EXPECT_EQ(maker->buttons, kRgtRealButtons);   // the real descriptor's 10, not WheelBri's 12
+    EXPECT_EQ(plain.buttons, kRgtButtons);
     EXPECT_EQ(maker->instancePrefix, plain.instancePrefix);   // one device to games
     EXPECT_EQ(maker->hardwareId, "wheelbri\\TM_RGT_TM");
     EXPECT_EQ(virtualWheelForHardwareId("WHEELBRI\\tm_rgt_tm"), maker);
@@ -274,7 +275,7 @@ TEST(VirtualWheel, TheMakersIdentityIsTheRealRgt) {
     report.throttle = 0;       // pressed all the way
     report.clutch = 32768;
     report.rightLever = 65535;
-    report.buttons = (1U << 0) | (1U << 9) | (1U << 10);   // a button past the tenth is not the RGT's
+    report.buttons = (1U << 0) | (1U << 9) | (1U << 10);   // Button 11 (10): not on a real RGT
     report.hat = kHatCentered;
     auto f = fields(report);
     EXPECT_EQ(f.buttons, 0x201U);

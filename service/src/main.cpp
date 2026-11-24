@@ -700,6 +700,7 @@ public:
     }
 
     [[nodiscard]] const wheelbri::FfbController& controller() const override { return *controller_; }
+    void setCentringSpring(const float percent) override { controller_->setCentringSpring(percent); }
     // The socket the game's packets arrive on (the loop waits for it).
     [[nodiscard]] std::intptr_t socket() const { return listener_->nativeSocket(); }
 
@@ -1307,6 +1308,10 @@ int runLoop(wheelbri::EmulatorConfig& config, const ReloadConfig& reload, const 
                                          .targetName = profile->identity().shortName,
                                          .accessoryNames = std::move(accessoryNames),
                                          .ffb = gameFfb.get(),
+                                         .forceButton = profile->forceButton(),
+                                         .centringSpringPercent = profile->identity().centringSpring
+                                                                      ? config.centringSpringPercent
+                                                                      : 0.0F,
                                          .telemetry = telemetry.get(),
                                          .print = print,
                                          .window = host != nullptr,

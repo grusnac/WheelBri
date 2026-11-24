@@ -260,13 +260,15 @@ constexpr VirtualWheel kClassicWheels[] = {
 static_assert(kVirtualWheels[0].profile == "g25" && kVirtualWheels[1].profile == "g27", "the table's order");
 
 // The maker's identity (VirtualWheel::makerIdentity): the same wheel to games, its own hardware id.
-constexpr VirtualWheel makerOf(VirtualWheel wheel, const std::string_view hardwareId) {
+// The maker's identity of a wheel: its real descriptor, so its real button count (the RGT's 10, not WheelBri's 12).
+constexpr VirtualWheel makerOf(VirtualWheel wheel, const std::string_view hardwareId, const std::size_t buttons) {
     wheel.hardwareId = hardwareId;
     wheel.makerIdentity = true;
+    wheel.buttons = buttons;
     return wheel;
 }
 constexpr VirtualWheel kMakerWheels[] = {
-    makerOf(kVirtualWheels[4], "wheelbri\\TM_RGT_TM"),
+    makerOf(kVirtualWheels[4], "wheelbri\\TM_RGT_TM", kRgtRealButtons),
 };
 static_assert(kVirtualWheels[4].profile == "tm_rgt", "the table's order");
 constexpr std::string_view kMakerSuffix = "-tm";
@@ -464,7 +466,8 @@ constexpr std::array<std::uint8_t, N + kAxisItemBytes> withCombinedPedals(const 
 }
 constexpr auto kG25CombinedDescriptor = withCombinedPedals(kDescriptorArray);
 constexpr auto kG27CombinedDescriptor = withCombinedPedals(kG27Descriptor);
-// The RGT's (VirtualWheel::rgtAxes): the same five axes, 10 buttons and 14 padding bits.
+// The RGT's (VirtualWheel::rgtAxes): the same five axes, 12 buttons (a real one has 10: kRgtRealButtons) and 12
+// padding bits.
 constexpr auto kRgtDescriptor = withCombinedPedals(descriptorWith(kRgtButtons));
 // The TMX's (VirtualWheel::brakeOnY): the four axes, 13 buttons and 11 padding bits.
 constexpr auto kTmxDescriptor = descriptorWith(kTmxButtons);
@@ -621,7 +624,7 @@ InputReport packInputFor(const VirtualWheel& wheel, const TargetReport& report) 
             return static_cast<std::uint64_t>(std::clamp<std::int32_t>(value, 0, 65535) >> 8);
         };
         const std::int32_t x = (std::clamp<std::int32_t>(report.steering, 0, 65535) >> 6) - 512;   // -512..511
-        std::uint64_t bits = report.buttons & 0x3FFU;
+        std::uint64_t bits = report.buttons & ((1U << kRgtRealButtons) - 1U);   // Buttons 11, 12: not on a real one
         bits |= static_cast<std::uint64_t>(report.hat >= 0 && report.hat < 8 ? report.hat : 15) << 10;
         bits |= (static_cast<std::uint64_t>(x) & 0x3FFU) << 14;
         bits |= byteOf(report.brake) << 24;

@@ -10,6 +10,7 @@
 #include <functional>
 #include <optional>
 #include <tuple>
+#include <utility>
 
 namespace wheelbri::service {
 
@@ -51,11 +52,13 @@ constexpr std::size_t kDialRight = 21;
 constexpr std::size_t kDialLeft = 22;
 constexpr std::size_t kDialEnter = 23;
 constexpr std::size_t kG923Buttons = 24;
-// The RGT's (rgtSpec): the paddles Down and Up, Button 3-8 on the rim, the stick's + and -.
+// The RGT's (rgtSpec): the paddles Down and Up, Button 3-8 on the rim, the stick's + and -, the base's 11 and 12.
 constexpr std::size_t kRgtDown = 0;
 constexpr std::size_t kRgtUp = 1;
 constexpr std::size_t kRgtStickPlus = 8;
 constexpr std::size_t kRgtStickMinus = 9;
+constexpr std::size_t kRgtBaseLeft = 10;
+constexpr std::size_t kRgtBaseRight = 11;
 // The RGT's wheel: about 15% bigger than the Logitech wheels', a little lower so its steering line clears the heading.
 constexpr float kRgtWheelY = 238.0F;
 constexpr float kRgtWheelR = 140.0F;
@@ -210,7 +213,7 @@ bool ShadowView::hasPicture(const IDeviceProfile& profile) {
            (name == "G27" && profile.buttonCount() == kG27Buttons) ||
            (name == "G920" && profile.buttonCount() == kG920Buttons) ||
            (name == "G923" && profile.buttonCount() == kG923Buttons) ||
-           (name == "RGT" && profile.buttonCount() == kRgtButtons);
+           (name == "RGT" && profile.buttonCount() == kRgtForceButton + 1);
 }
 
 ShadowView::ShadowView(ui::UiWindow& window, const IDeviceProfile& profile, const MapperConfig& mapper)
@@ -757,14 +760,25 @@ void ShadowView::drawRgtWheel(const WheelState& state, const std::uint32_t press
         window_.text(x, f.y - 4, name, labelColour(t, pressed));
         x += static_cast<float>(name.size() + 1) * ui::kCharWidth;
     }
-    // The bottom spoke's three: Button 7 and 8 the upper pair, labels outside the rim; the lower one "?".
+    // The bottom spoke's three: Button 7 and 8 the upper pair, labels outside the rim; the lower one the Force button:
+    // "F" on it, lit while pressed; left, while running, whether the centring spring plays (it switches it), right,
+    // what drives it.
     const ShapePoint b7 = at(-0.10F, 0.47F);
     const ShapePoint b8 = at(0.10F, 0.47F);
     button(b7, 6, true);
     button(b8, 7, true);
-    button(at(0, 0.58F), 0, false);
     textLeftOf(leftX, b7.y - 4, cut(label(6), 12), labelColour(6, pressed));
     window_.text(rightX, b8.y - 4, cut(label(7), 12), labelColour(7, pressed));
+    const ShapePoint force = at(0, 0.58F);
+    const Colour forceColour = controlColour(kRgtForceButton, pressed, style::kShadowControl);
+    window_.fillEllipse(force.x, force.y, 0.055F * R + 1, 0.055F * R + 1, style::kShadowEdge);
+    window_.fillEllipse(force.x, force.y, 0.055F * R, 0.055F * R, forceColour);
+    textCentred(force.x, force.y - 4, "F", inkOn(kRgtForceButton, pressed, style::kText));
+    if (springOn_) {
+        textLeftOf(leftX, force.y - 4, *springOn_ ? "Force: on" : "Force: off",
+                   *springOn_ ? style::kActive : style::kDim);
+    }
+    window_.text(rightX, force.y - 4, cut(label(kRgtForceButton), 12), labelColour(kRgtForceButton, pressed));
 }
 
 // The RGT's sequential stick on its base, the base's bottom level with the pedals': the knob leans to the side the
@@ -778,12 +792,15 @@ void ShadowView::drawRgtShifter(const std::uint32_t pressed) {
     const float sx = kBaseX + kBaseW / 2;
     polygon({{kBaseX, bottom}, {kBaseX + kBaseW, bottom}, {kBaseX + kBaseW - 12, top}, {kBaseX + 12, top}},
             style::kShadow);
-    // The base's two buttons, on its front.
-    for (const float dx : {-34.0F, 34.0F}) {
+    // The base's two buttons on its front, Button 11 and 12 (a real RGT does not report them), each with its number,
+    // lit while pressed; their labels beside the base.
+    for (const auto& [dx, target] : {std::pair{-34.0F, kRgtBaseLeft}, std::pair{34.0F, kRgtBaseRight}}) {
         window_.fillEllipse(sx + dx, bottom - 22, 10, 10, style::kShadowEdge);
-        window_.fillEllipse(sx + dx, bottom - 22, 9, 9, style::kShadowOff);
-        textCentred(sx + dx, bottom - 26, "?", style::kFaint);
+        window_.fillEllipse(sx + dx, bottom - 22, 9, 9, controlColour(target, pressed, style::kShadowControl));
+        numberOn(sx + dx, bottom - 22, target, bit(pressed, target));
     }
+    textLeftOf(kBaseX - 6, bottom - 26, cut(label(kRgtBaseLeft), 10), labelColour(kRgtBaseLeft, pressed));
+    window_.text(kBaseX + kBaseW + 6, bottom - 26, cut(label(kRgtBaseRight), 10), labelColour(kRgtBaseRight, pressed));
     // The stick and its knob.
     const bool plus = bit(pressed, kRgtStickPlus);
     const bool minus = bit(pressed, kRgtStickMinus);

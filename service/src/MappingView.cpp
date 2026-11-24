@@ -309,6 +309,10 @@ void MappingView::drawLive(const RawInputs& inputs, const WheelState& state, con
     if (showingShadow()) {
         // The target drawn, what the game sees lit; its force feedback at the bottom of the right column.
         shadow_->setColumnReserve(kFfbGroupsHeight + 4);
+        // The centring spring as it plays now (the RGT's Force button switches it).
+        shadow_->setCentringSpring(ffb.controller != nullptr
+                                       ? std::optional<bool>(ffb.controller->centringSpring() > 0.0F)
+                                       : std::nullopt);
         shadow_->draw(state, report, 38);
         drawFfbGroups(ffb, shadow_->columnX(), shadow_->reserveTop() + 4, shadow_->columnWidth());
         return;
@@ -629,14 +633,18 @@ void MappingView::drawTargetButtons(const std::uint32_t targetButtons, const flo
         const int source = mapper_.buttonMap[target];
 
         const std::string label(name.substr(0, 8));
-        const int number = gameButtonNumber(profile_, buttonOrder_, target);   // as the game numbers it
+        // As the game numbers it; the Force button (the RGT's) none, the game never seeing it.
+        const int n = gameButtonNumber(profile_, buttonOrder_, target);
+        char number[4];
+        std::snprintf(number, sizeof(number), "%2s",
+                      profile_.forceButton() == target || n < 0 ? "" : std::to_string(n).c_str());
         if (source < 0) {
-            std::snprintf(cellText, sizeof(cellText), "%s %2d %-8s <- --", target_.c_str(), number, label.c_str());
+            std::snprintf(cellText, sizeof(cellText), "%s %s %-8s <- --", target_.c_str(), number, label.c_str());
         } else if (mapper_.buttonDevice[target] == 0) {
-            std::snprintf(cellText, sizeof(cellText), "%s %2d %-8s <- Rig %2d %s", target_.c_str(), number,
+            std::snprintf(cellText, sizeof(cellText), "%s %s %-8s <- Rig %2d %s", target_.c_str(), number,
                           label.c_str(), source, sourceLabel(source).c_str());
         } else {
-            std::snprintf(cellText, sizeof(cellText), "%s %2d %-8s <- %s", target_.c_str(), number, label.c_str(),
+            std::snprintf(cellText, sizeof(cellText), "%s %s %-8s <- %s", target_.c_str(), number, label.c_str(),
                           sourceText(mapper_.buttonDevice[target], source, false, 20 + (chars - 39)).c_str());
         }
 

@@ -106,6 +106,8 @@ TargetReport DeviceProfile::encode(const WheelState& state) const {
     report.leftLever = encodePedal(state.leftLever);
     report.rightLever = encodePedal(state.rightLever);
     report.buttons = state.buttons & buttonMask_;   // a mapped button the wheel does not have never reaches the game
+    // (The Force button stays in: the Live tab shows it pressed; the game never gets it, as the wheel reports
+    // reportedButtonCount() buttons.)
     report.hat = state.hat;
     report.combined = combinedPedals(report);
     return report;
@@ -355,13 +357,15 @@ DeviceProfileSpec rgtSpec() {
     spec.pedalsReleasedAtMax = true;   // a real RGT's pedals rest at 255 (linux-input 2008, evtest)
     // As printed on the real wheel (Thrustmaster's front view): the paddles say DOWN and UP, the stick's base + and -;
     // the rim's buttons carry nothing, so their number.
-    spec.buttonNames = {"Down",     "Up",       "Button 3", "Button 4", "Button 5",
-                        "Button 6", "Button 7", "Button 8", "Stick +",  "Stick -"};
+    spec.buttonNames = {"Down",     "Up",       "Button 3", "Button 4", "Button 5",  "Button 6", "Button 7",
+                        "Button 8", "Stick +",  "Stick -",  "Button 11", "Button 12", "Force"};
+    spec.forceButton = true;   // the last: WheelBri's own, never reported (kRgtForceButton)
     using Place = ButtonGroup::Place;
     spec.buttonGroups = {
-        {"PADDLES", {0, 1}, Place::Left},             // DOWN, UP
-        {"RIM", {2, 3, 4, 5, 6, 7}, Place::Right},    // which is which on the rim: not known yet
-        {"STICK", {8, 9}, Place::Below},              // the sequential stick: up a gear, down a gear
+        {"PADDLES", {0, 1}, Place::Left},               // DOWN, UP
+        {"RIM", {2, 3, 4, 5, 6, 7}, Place::Right},      // which is which on the rim: not known yet
+        {"STICK", {8, 9, 10, 11}, Place::Below},        // the sequential stick (up, down a gear) and its base's two
+        {"FORCE", {kRgtForceButton}, Place::Below},     // centring spring off / on
     };
     // An Xbox-style rim's A, B, X, Y where Race Driver: GRID's RGT preset has Select (6), Back (5), Boost (4) and
     // Look back (3); the paddles on the paddles.

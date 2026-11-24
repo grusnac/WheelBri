@@ -1098,8 +1098,13 @@ void MappingEditView::draw() {
         }
         const std::size_t index = cell.button;
         char label[32];
-        std::snprintf(label, sizeof(label), "%2d %.10s", gameNumber(index),
-                      std::string(profile_->buttonName(index)).c_str());
+        // The Force button (the RGT's) has no number: the game never sees it.
+        if (profile_->forceButton() == index) {
+            std::snprintf(label, sizeof(label), "   %.10s", std::string(profile_->buttonName(index)).c_str());
+        } else {
+            std::snprintf(label, sizeof(label), "%2d %.10s", gameNumber(index),
+                          std::string(profile_->buttonName(index)).c_str());
+        }
         const bool marked = renumbered(index);
         window_.text(x + 8, row + 4, label, marked ? kCaution : kText);
         if (marked) {
@@ -1394,12 +1399,18 @@ float MappingEditView::drawCentringSpring(const float top) {
     // The target's own (Logitech's software for the G25 and G27): a spring to the centre in every game, on top of the
     // game's forces. 0 is off (the checkbox unticked). Laid out as the rotation: slider, typed value, presets.
     const std::string target(profile_->identity().shortName);
+    const bool force = profile_->forceButton().has_value();   // the RGT's Force button switches it
     tip(4, top - 2, 600, 12,
-        "As Logitech's software for the " + target + " had it (\"Enable Centering Spring in Force Feedback Games\", "
-        "0 to 100%): a spring around the centre on top of the game's forces, whatever the game sends (Race Driver: "
-        "GRID sends none, so the wheel stays where it was left). 0 = off. Takes effect at the next Start.");
-    const float y = section(top, "CENTRING SPRING", "the " + target + "'s own, in every game: pulls the wheel to the "
-                                                    "centre");
+        (force ? "As Thrustmaster's Control Panel for the " + target + " had it (auto-centre \"By the wheel\", "
+               : "As Logitech's software for the " + target + " had it (\"Enable Centering Spring in Force Feedback "
+                 "Games\", ") +
+            "0 to 100%): a spring around the centre on top of the game's forces, whatever the game sends (Race Driver: "
+            "GRID sends none, so the wheel stays where it was left). 0 = off. Takes effect at the next Start." +
+            (force ? " While running, the Force button (Buttons, FORCE) switches it off and on; on again at each Start."
+                   : ""));
+    const float y = section(top, "CENTRING SPRING",
+                            "the " + target + "'s own, in every game: pulls the wheel to the centre" +
+                                (force ? "; the Force button switches it" : ""));
     window_.text(4, y + 4, "Strength", kText);
     const bool changed = edit_.centringSpringPercent != saved_.centringSpringPercent;
     drawSlider(Slider::CentringSpring, kSliderX, y, sliderW(), edit_.centringSpringPercent, changed, !locked_);

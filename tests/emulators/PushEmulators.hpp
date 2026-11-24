@@ -176,6 +176,10 @@ public:
         EventLoopControl::Settings settings;
         MapperConfig mapper;                   // the mapping (default: nothing mapped but the wheel's own axes)
         std::uint64_t closeWindowAtNs = kNever;   // the window side ends the loop then (LoopShared::stop)
+        // The RGT as the target (default: the G920), with its centring spring at this strength (main.cpp's
+        // runLoop: FfbController::setCentringSpring at Start, the Force button switching it).
+        bool rgt = false;
+        float centringSpringPercent = 0.0F;
     };
 
     PushLoopRig(VirtualClock& clock, EmulatedPushDevice& wheel, const Options& options);
