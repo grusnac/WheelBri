@@ -114,7 +114,8 @@ car twitches as the wheel crosses the centre. Best set per game (Games tab).
 - **Left lever**, **Right lever**: two more axis rows. Map them yourself (the Rig never does). With Levers, Start
   waits until both are mapped, and their rows show in amber until then. The rows the pedal set does not report are
   greyed: the clutch's with Levers, the levers' with Clutch.
-- **Centring spring**: as the G25's above.
+- **Centring spring**: as the G25's above. The RGT's **Force** button (Buttons, FORCE) switches it off and on while
+  running, on again at each Start.
 - With Thrustmaster's own driver installed, a line under these boxes says it drives the virtual RGT's force feedback,
   in 64-bit games only ([target-rgt.md](target-rgt.md#force-feedback)).
 

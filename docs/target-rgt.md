@@ -7,7 +7,7 @@ All Targets: [targets.md](targets.md).
 | | |
 |---|---|
 | Ids | 044F:B653, "RGT Force Feedback Pro" (the name Thrustmaster's driver gives it, and the one games look for) |
-| Buttons | 10, D-pad as a hat |
+| Buttons | 12 (a real one reports 10), D-pad as a hat; the Force button |
 | Rotation | 270 degrees, fixed, as the real wheel |
 | Modes | Virtual (Windows 11, Linux) and Shim; Linux not yet tested |
 | Extras | AXES (2 / 3 / 5) and PEDAL SET (Levers / Clutch), as the wheel's own switches; two levers; centring spring |
@@ -27,9 +27,10 @@ All Targets: [targets.md](targets.md).
 3. With **Levers**: map **Left lever** and **Right lever** to controls on your rig (a handbrake, a second pedal).
    The Rig never maps them. Start refuses until both are mapped.
 4. The Rig maps A, B, X, Y to Button 6, 5, 4, 3 (GRID's menu Select, Back, Boost, Look back) and the paddles to Down
-   and Up. Map the other buttons and the stick yourself.
+   and Up. Map the other buttons, the stick and the Force button yourself.
 5. **Centring spring** (0-100%, off by default): a spring to the centre on top of the game's forces, as
-   Thrustmaster's Control Panel had. Applies at the next Start.
+   Thrustmaster's Control Panel had. Applies at the next Start. While running, the **Force** button switches it off
+   and on, as the real wheel's Force button switched its recentring; it is on again at each Start.
 
 ## Axes
 
@@ -67,9 +68,16 @@ the one Thrustmaster's driver gives.
 | 7, 8 | Button 7, Button 8 | |
 | 9 | Stick + (up a gear) | |
 | 10 | Stick - (down a gear) | |
+| 11, 12 | Button 11, Button 12 (the stick's base) | |
+| | Force | |
 | hat | D-pad | D-pad |
 
 Which physical button on the rim is Button 3 to 8 is not known yet: Thrustmaster's documents do not say.
+
+A real RGT reports 10 buttons (its report descriptor). Button 11 and 12 are the two on the stick's base, which it
+does not report: WheelBri's RGT adds them, but not with Thrustmaster's driver installed (that one is the real wheel's
+10). The **Force** button is never reported to the game: each press switches the centring spring off or on (nothing
+to switch while it is 0%). Its Mapping row has no number.
 
 ## Force feedback
 
@@ -91,7 +99,8 @@ Which physical button on the rim is Button 3 to 8 is not known yet: Thrustmaster
 
 The RGT from the front: DOWN and UP on the paddles, the D-pad, the rim's buttons by number, the sequential stick
 with + and -, the three pedals. The rim's buttons are placed as a guess: four on the right (Button 3 to 6), two on
-the bottom spoke (7, 8); the three whose number is not known show "?".
+the bottom spoke (7, 8). Under them the Force button, "F", with "Force: on" or "Force: off" beside it (the centring
+spring); Button 11 and 12 on the stick's base.
 
 The levers' tabs behind the side spokes fill from the bottom as you move them, with what drives each beside it. With
 PEDAL SET Clutch they are faint and say "off: Clutch": the game does not get them.

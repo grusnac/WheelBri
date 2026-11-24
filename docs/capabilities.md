@@ -25,7 +25,8 @@ A one-page list. How to use each: [user-guide.md](user-guide.md).
 - **G25 and G27**: Logitech or Native button order, each with its own mapping; centring spring 0-100%.
 - **G923**: TrueForce on or off.
 - **RGT**: AXES (2, 3 or 5) and PEDAL SET (Levers or Clutch), as the real wheel's switches, with no Thrustmaster
-  software; its two levers behind the rim; centring spring 0-100%.
+  software; its two levers behind the rim; centring spring 0-100%, which its Force button switches off and on; Button
+  11 and 12 on the stick's base.
 - **Live editing**: every change is saved and used at once, even while a game runs. **Undo** one change at a time;
   **Default** back to WheelBri's mapping.
 - **Side by side**: the editor and the Live tab in one window.
