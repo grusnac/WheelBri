@@ -41,6 +41,7 @@ add_library(wheelbri_core STATIC
     src/HidPp.cpp
     src/HidPpFfb.cpp
     src/ClassicFfb.cpp
+    src/MakerFfb.cpp
     src/IniDocument.cpp
     src/IniEditor.cpp
     src/InputReadStats.cpp

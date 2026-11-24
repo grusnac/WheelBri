@@ -308,6 +308,36 @@ TEST(VirtualWheel, TheMakersIdentityIsTheRealRgt) {
     EXPECT_EQ(makerFeature(*virtualWheel("tm_rgt"), 0x81, out), 0U);   // the plain RGT has no such reports
 }
 
+// The maker's identity keeps its feature reports as a real device: a read gives what was last written (Thrustmaster's
+// driver writes 0x81 00 00 80 94 and reads it back), the plug-in value until then; a report never written nor answered
+// at plug-in stays unanswered; only for the maker's identity.
+TEST(VirtualWheel, TheMakersIdentityGivesBackItsFeaturesAsWritten) {
+    const VirtualWheel& maker = *makerVirtualWheel("tm_rgt");
+    MakerFeatures features;
+    std::array<std::uint8_t, 16> out{};
+    ASSERT_EQ(features.read(maker, 0x81, out), 5U);   // the plug-in value
+    EXPECT_EQ(out[1], 0x01);
+    EXPECT_EQ(out[2], 0x21);
+    const std::array<std::uint8_t, 4> settings = {0x00, 0x00, 0x80, 0x94};
+    features.written(0x81, settings);
+    ASSERT_EQ(features.read(maker, 0x81, out), 5U);
+    EXPECT_EQ(out[0], 0x81);
+    EXPECT_EQ(out[1], 0x00);
+    EXPECT_EQ(out[3], 0x80);
+    EXPECT_EQ(out[4], 0x94);
+    EXPECT_EQ(features.read(maker, 0x82, out), 3U);   // not written: still the plug-in value
+    EXPECT_EQ(out[1], 0x50);
+    EXPECT_EQ(features.read(maker, 0x85, out), 0U);   // neither
+    const std::array<std::uint8_t, 2> created = {0x26, 0x01};
+    features.written(0x85, created);
+    EXPECT_EQ(features.read(maker, 0x85, out), 3U);
+    const std::array<std::uint8_t, 12> longer{};
+    features.written(0x87, longer);
+    EXPECT_EQ(features.read(maker, 0x87, out), MakerFeatures::kMaxBytes + 1);   // kept up to kMaxBytes
+    EXPECT_EQ(features.read(maker, 0x81, std::span(out).first(4)), 0U);           // too small
+    EXPECT_EQ(features.read(*virtualWheel("tm_rgt"), 0x81, out), 0U);             // not the maker's identity
+}
+
 // A classic descriptor: the plain one's input items without the Report ID, no HID PID, then one 7-byte vendor output
 // report; its input report is the plain one's without the ID byte; every report it gets is Classic.
 TEST(VirtualWheel, AClassicWheelHasNoReportIdsAndOneSevenByteOutput) {

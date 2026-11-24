@@ -168,6 +168,7 @@ TEST(Robustness, RandomBytesAreRefusedOrReadWithoutHarm) {
         run(19, randomBytes(random, 300));
         run(21, randomBytes(random, 300));
         run(22, randomBytes(random, 300));
+        run(23, randomBytes(random, 300));
 #ifdef WHEELBRI_G923CAP
         run(20, randomBytes(random, 300));
 #endif

@@ -10,6 +10,7 @@
 #include "wheelbri/AxisAudit.hpp"
 #include "wheelbri/AxisTuning.hpp"
 #include "wheelbri/ClassicFfb.hpp"
+#include "wheelbri/MakerFfb.hpp"
 #include "wheelbri/DeviceLabels.hpp"
 #include "wheelbri/DiEffect.hpp"
 #include "wheelbri/EmulatorConfig.hpp"
@@ -424,6 +425,22 @@ void runOne(const std::span<const std::uint8_t> input) {
                 check();
             }
             check();
+            break;
+        }
+        case 23: {   // Thrustmaster's force reports (the RGT's maker identity): every packet sent on is a finite
+                     // constant force in slot 0, -1..1
+            MakerFfb ffb(
+                [](const FfbPacket& p) {
+                    CHECK(p.slot == 0 && p.effect.type == FfbEffectType::Constant);
+                    CHECK(std::isfinite(p.effect.constantLevel) && std::abs(p.effect.constantLevel) <= 1.0F);
+                },
+                [](LogLevel, const std::string&) {});
+            std::int64_t now = 0;
+            for (std::size_t i = 0; i < bytes.size(); i += 5) {
+                ffb.output(bytes.subspan(i, std::min<std::size_t>(5, bytes.size() - i)), now);
+                ffb.tick(now += bytes[i] % 600);
+            }
+            ffb.stopAll(now);
             break;
         }
     }

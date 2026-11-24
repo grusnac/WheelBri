@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <span>
 #include <string>
 #include <string_view>
@@ -131,6 +132,28 @@ struct VirtualWheel {
 // 0x82 50 5a, 0x86 00 01, 0x88 00 02): [report ID, data...] into `out`; its size, 0 for any other report (or wheel)
 // or when `out` is too small.
 [[nodiscard]] std::size_t makerFeature(const VirtualWheel& wheel, std::uint8_t reportId, std::span<std::uint8_t> out);
+
+// The maker's identity's feature reports as a real device keeps them: a read gives what was last written to that report
+// (Thrustmaster's driver writes 0x81 and then reads it back, again and again: 2026-11-23, wheelbri-driver-*-27), the
+// plug-in value (makerFeature) until then. Up to kMaxBytes of a report kept. Thread-safe (the driver's queue is
+// parallel).
+class MakerFeatures {
+public:
+    static constexpr std::size_t kMaxBytes = 8;
+    void written(std::uint8_t reportId, std::span<const std::uint8_t> data);
+    // [report ID, data...] into `out`: its size; 0 for a wheel that is not a maker's identity, a report neither written
+    // nor answered at plug-in, or an `out` too small.
+    [[nodiscard]] std::size_t read(const VirtualWheel& wheel, std::uint8_t reportId, std::span<std::uint8_t> out) const;
+
+private:
+    struct Kept {
+        std::array<std::uint8_t, kMaxBytes> data{};
+        std::size_t size = 0;
+        bool written = false;
+    };
+    mutable std::mutex lock_;
+    std::array<Kept, 256> kept_{};
+};
 // The name a CreateVirtualWheel request gives a wheel (HelperProtocol.hpp): its profile, or the classic identity's
 // "g25-logi", "g27-logi", or the maker's identity's "tm_rgt-tm"; and the wheel for such a name (null when it is none).
 [[nodiscard]] std::string requestNameOf(const VirtualWheel& wheel);

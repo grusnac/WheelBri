@@ -375,6 +375,30 @@ std::size_t makerFeature(const VirtualWheel& wheel, const std::uint8_t reportId,
     return 0;
 }
 
+void MakerFeatures::written(const std::uint8_t reportId, const std::span<const std::uint8_t> data) {
+    const std::lock_guard guard(lock_);
+    Kept& kept = kept_[reportId];
+    kept.size = std::min(data.size(), kMaxBytes);
+    std::copy_n(data.begin(), kept.size, kept.data.begin());
+    kept.written = true;
+}
+
+std::size_t MakerFeatures::read(const VirtualWheel& wheel, const std::uint8_t reportId,
+                                const std::span<std::uint8_t> out) const {
+    if (!wheel.makerIdentity) return 0;
+    {
+        const std::lock_guard guard(lock_);
+        const Kept& kept = kept_[reportId];
+        if (kept.written) {
+            if (out.size() < kept.size + 1) return 0;
+            out[0] = reportId;
+            std::copy_n(kept.data.begin(), kept.size, out.begin() + 1);
+            return kept.size + 1;
+        }
+    }
+    return makerFeature(wheel, reportId, out);
+}
+
 std::string requestNameOf(const VirtualWheel& wheel) {
     const std::string_view suffix = wheel.classic ? std::string_view("-logi")
                                     : wheel.makerIdentity ? kMakerSuffix

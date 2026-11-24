@@ -25,6 +25,7 @@
 #include "SenderProbe.hpp"
 
 #include "wheelbri/ClassicFfb.hpp"
+#include "wheelbri/MakerFfb.hpp"
 #include "wheelbri/FfbPacket.hpp"
 #include "wheelbri/HidWheelDevice.hpp"
 #include "wheelbri/HidPid.hpp"
@@ -385,6 +386,10 @@ public:
     // A classic wheel's (VirtualWheel::classic) force feedback: Logitech's older-wheel driver's classic commands
     // (ClassicFfb.hpp); null otherwise.
     std::unique_ptr<wheelbri::ClassicFfb> classicFfb;
+    // A maker's identity's force feedback: Thrustmaster's driver's force reports (MakerFfb.hpp); null otherwise.
+    std::unique_ptr<wheelbri::MakerFfb> makerFfb;
+    // A maker's identity's (VirtualWheel::makerIdentity) feature reports, as written to it (MakerFeatures).
+    wheelbri::MakerFeatures makerFeatures;
 
     // A HID++ answer: an input report for the next read, before any state (and never dropped).
     void reply(Report report);
@@ -522,6 +527,11 @@ Link::Link(DeviceContext* device)
     }
     if (wheel != nullptr && wheel->classic) {
         classicFfb = std::make_unique<wheelbri::ClassicFfb>(
+            [this](const wheelbri::FfbPacket& p) { sendFfb(p); },
+            [](const Level level, const std::string& line) { logLine(level, line); });
+    }
+    if (wheel != nullptr && wheel->makerIdentity) {
+        makerFfb = std::make_unique<wheelbri::MakerFfb>(
             [this](const wheelbri::FfbPacket& p) { sendFfb(p); },
             [](const Level level, const std::string& line) { logLine(level, line); });
     }
@@ -802,12 +812,14 @@ void Link::run(const SOCKET sock) {
             pid.tick(now);
             if (hidppFfb) hidppFfb->tick(now);
             if (classicFfb) classicFfb->tick(now);
+            if (makerFfb) makerFfb->tick(now);
         }
         logCounts(now);
     }
     pid.stopAll(nowMs());
     if (hidppFfb) hidppFfb->stopAll(nowMs());
     if (classicFfb) classicFfb->stopAll(nowMs());
+    if (makerFfb) makerFfb->stopAll(nowMs());
     logLine(Level::Info, "stopped: " + std::to_string(pid.reportsHandled()) +
                              " force feedback reports from the game, " +
             std::to_string(pid.packetsSent()) + " packets to the service");
@@ -1159,6 +1171,12 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
                     ctx->link->classicFfb->command(command, nowMs());
                 } else if (route.to == wheelbri::ReportRoute::To::Maker) {
                     logRawReport("rgt-tm", "output", reportId, data);
+                    if (ctx->link->makerFfb) {
+                        Report report(data.size() + 1);
+                        report[0] = reportId;
+                        std::copy(data.begin(), data.end(), report.begin() + 1);
+                        ctx->link->makerFfb->output(report, nowMs());
+                    }
                 }
                 WdfRequestSetInformation(request, data.size() + 1);
             }
@@ -1169,7 +1187,10 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
                 const wheelbri::ReportRoute route = wheelbri::routeReport(*ctx->wheel, reportId);
                 if (route.to == wheelbri::ReportRoute::To::Pid) ctx->link->pid.setFeature(route.id, data, nowMs());
                 if (route.to == wheelbri::ReportRoute::To::Classic) logRawReport("classic", "feature", reportId, data);
-                if (route.to == wheelbri::ReportRoute::To::Maker) logRawReport("rgt-tm", "feature", reportId, data);
+                if (route.to == wheelbri::ReportRoute::To::Maker) {
+                    ctx->link->makerFeatures.written(reportId, data);   // a read gives it back, as a real device
+                    logRawReport("rgt-tm", "feature", reportId, data);
+                }
                 WdfRequestSetInformation(request, data.size() + 1);
             }
             break;
@@ -1192,9 +1213,9 @@ VOID EvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t, size_t, ULON
                 written = ctx->link->pid.getFeature(route.id, answer);
                 if (written > 0) answer[0] = wheelbri::wirePidId(*ctx->wheel, route.id);
             } else if (route.to == wheelbri::ReportRoute::To::Maker) {
-                // As the real wheel answered at plug-in; anything else unanswered. Logged either way (the answer, or
-                // just the ID asked for).
-                written = wheelbri::makerFeature(*ctx->wheel, reportId, answer);
+                // What was last written to it, else as the real wheel answered at plug-in; anything else unanswered.
+                // Logged either way (the answer, or just the ID asked for).
+                written = ctx->link->makerFeatures.read(*ctx->wheel, reportId, answer);
                 logRawReport("rgt-tm", "feature get", reportId,
                              written > 1 ? std::span<const std::uint8_t>(answer.data() + 1, written - 1)
                                          : std::span<const std::uint8_t>());
